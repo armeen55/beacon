@@ -1,0 +1,99 @@
+"use client";
+
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { cn } from "@/lib/utils";
+import { navigationGroups } from "@/lib/navigation";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Sheet,
+  SheetContent,
+  SheetTitle,
+  SheetHeader,
+} from "@/components/ui/sheet";
+import { useShell } from "./shell-provider";
+
+function SidebarContent() {
+  const pathname = usePathname();
+
+  return (
+    <div className="flex h-full flex-col">
+      <div className="flex h-12 items-center border-b border-border px-4">
+        <Link href="/" className="flex items-center gap-2">
+          <div className="flex h-6 w-6 items-center justify-center rounded-md bg-foreground text-background text-xs font-bold">
+            B
+          </div>
+          <span className="text-[13px] font-semibold tracking-tight">
+            Beacon
+          </span>
+        </Link>
+      </div>
+
+      <ScrollArea className="flex-1 py-3">
+        <nav className="flex flex-col gap-5 px-3">
+          {navigationGroups.map((group) => (
+            <div key={group.label}>
+              <p className="px-2 mb-1.5 text-[11px] font-medium text-muted-foreground/70 uppercase tracking-widest">
+                {group.label}
+              </p>
+              <div className="flex flex-col gap-0.5">
+                {group.items.map((item) => {
+                  const isActive =
+                    item.href === "/"
+                      ? pathname === "/"
+                      : pathname.startsWith(item.href);
+
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      className={cn(
+                        "flex items-center gap-2.5 rounded-md px-2 py-1.5 text-[13px] font-medium transition-colors duration-100",
+                        isActive
+                          ? "bg-accent-primary-muted text-foreground"
+                          : "text-muted-foreground hover:bg-surface-raised hover:text-foreground"
+                      )}
+                    >
+                      <item.icon
+                        className={cn(
+                          "h-4 w-4 shrink-0",
+                          isActive
+                            ? "text-accent-primary"
+                            : "text-muted-foreground"
+                        )}
+                      />
+                      {item.label}
+                    </Link>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </nav>
+      </ScrollArea>
+    </div>
+  );
+}
+
+export function AppSidebar() {
+  return (
+    <aside className="hidden w-[216px] shrink-0 border-r border-border bg-sidebar md:block">
+      <SidebarContent />
+    </aside>
+  );
+}
+
+export function MobileSidebar() {
+  const { sidebarOpen, setSidebarOpen } = useShell();
+
+  return (
+    <Sheet open={sidebarOpen} onOpenChange={setSidebarOpen}>
+      <SheetContent side="left" className="w-[216px] p-0">
+        <SheetHeader className="sr-only">
+          <SheetTitle>Navigation</SheetTitle>
+        </SheetHeader>
+        <SidebarContent />
+      </SheetContent>
+    </Sheet>
+  );
+}
