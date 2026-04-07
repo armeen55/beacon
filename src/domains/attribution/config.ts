@@ -7,7 +7,7 @@ export const ATTRIBUTION_CONFIG = {
   discovery: {
     maxDays: 28,
     minScore: 35,
-    topK: 10,
+    topK: 5,
   },
 
   weights: {

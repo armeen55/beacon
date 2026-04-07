@@ -19,11 +19,17 @@ export type TriageSummary = {
   autoResolved: boolean;
 };
 
-const PRIMARY_MIN_SCORE = 75;
+const PRIMARY_MIN_SCORE = 65;
 const PRIMARY_MIN_GAP = 15;
 const SUPPRESS_MAX_SCORE = 45;
 const SUPPRESS_GAP_FROM_TOP = 20;
 const CONTRIBUTING_MIN_SCORE = 55;
+
+function allShareOpportunity(candidates: CandidateResult[]): boolean {
+  const oppId = candidates[0].change.opportunity_id;
+  if (!oppId) return false;
+  return candidates.every((c) => c.change.opportunity_id === oppId);
+}
 
 export function triageCandidates(
   candidates: CandidateResult[]
@@ -54,15 +60,25 @@ export function triageCandidates(
   const needsReview: TriagedCandidate[] = [];
   const suppressed: TriagedCandidate[] = [];
 
+  const sameTopicCluster =
+    sorted.length > 1 &&
+    topScore >= PRIMARY_MIN_SCORE &&
+    allShareOpportunity(sorted);
+
   for (let i = 0; i < sorted.length; i++) {
     const c = sorted[i];
     const m = c.attribution.matches;
 
-    if (i === 0 && canAutoConfirm(c, gap, sorted.length)) {
+    if (
+      i === 0 &&
+      (canAutoConfirm(c, gap, sorted.length) || sameTopicCluster)
+    ) {
       primary = {
         ...c,
         triage: "primary",
-        triageReason: buildPrimaryReason(c, gap),
+        triageReason: sameTopicCluster && gap < PRIMARY_MIN_GAP
+          ? `Closest edit for shared topic · Score ${Math.round(c.score)} · ${c.attribution.explanation}`
+          : buildPrimaryReason(c, gap),
       };
       continue;
     }
@@ -87,7 +103,9 @@ export function triageCandidates(
       contributing.push({
         ...c,
         triage: "contributing",
-        triageReason: "Strong secondary candidate",
+        triageReason: sameTopicCluster
+          ? "Same topic — earlier edit"
+          : "Strong secondary candidate",
       });
       continue;
     }

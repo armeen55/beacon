@@ -1,9 +1,10 @@
 import type { ChangelogEntry } from "@/domains/changelog/types";
 import type { Result } from "@/domains/results/types";
 import type { Opportunity } from "@/domains/opportunities/types";
-import type { Attribution } from "./types";
+import type { Attribution, MatchStrength } from "./types";
 import { computeAttribution, computeConfidenceScore } from "./compute";
 import { candidateLinks } from "./store";
+import { ATTRIBUTION_CONFIG } from "./config";
 
 export type CandidateResult = {
   change: ChangelogEntry;
@@ -11,9 +12,15 @@ export type CandidateResult = {
   score: number;
 };
 
-const DEFAULT_MAX_DAYS = 28;
-const DEFAULT_MIN_SCORE = 35;
-const DEFAULT_TOP_K = 10;
+/** True when at least one of topic / URL / geo is strong or partial (not none+unknown only). */
+function hasMeaningfulTopicUrlOrGeo(matches: Attribution["matches"]): boolean {
+  const meaningful = (m: MatchStrength) => m === "strong" || m === "partial";
+  return (
+    meaningful(matches.topic) ||
+    meaningful(matches.url) ||
+    matches.geo === "strong"
+  );
+}
 
 export function discoverCandidates(
   result: Result,
@@ -21,9 +28,10 @@ export function discoverCandidates(
   allOpportunities: Opportunity[],
   options?: { maxDays?: number; minScore?: number; topK?: number }
 ): CandidateResult[] {
-  const maxDays = options?.maxDays ?? DEFAULT_MAX_DAYS;
-  const minScore = options?.minScore ?? DEFAULT_MIN_SCORE;
-  const topK = options?.topK ?? DEFAULT_TOP_K;
+  const { maxDays, minScore, topK } = ATTRIBUTION_CONFIG.discovery;
+  const maxDaysResolved = options?.maxDays ?? maxDays;
+  const minScoreResolved = options?.minScore ?? minScore;
+  const topKResolved = options?.topK ?? topK;
 
   const resultDate = new Date(result.snapshot_date).getTime();
 
@@ -41,14 +49,17 @@ export function discoverCandidates(
       if (excludeIds.has(change.id)) return false;
       const changeDate = new Date(change.timestamp).getTime();
       const diffDays = (resultDate - changeDate) / (1000 * 60 * 60 * 24);
-      return diffDays >= 0 && diffDays <= maxDays;
+      return diffDays >= 0 && diffDays <= maxDaysResolved;
     })
     .map((change) => {
       const attribution = computeAttribution(change, result, allOpportunities);
       const score = computeConfidenceScore(attribution.matches);
       return { change, attribution, score };
     })
-    .filter(({ score }) => score >= minScore)
+    .filter(
+      ({ score, attribution }) =>
+        score >= minScoreResolved && hasMeaningfulTopicUrlOrGeo(attribution.matches)
+    )
     .sort((a, b) => b.score - a.score || a.attribution.temporal_distance_days - b.attribution.temporal_distance_days)
-    .slice(0, topK);
+    .slice(0, topKResolved);
 }

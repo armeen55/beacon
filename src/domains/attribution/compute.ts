@@ -15,6 +15,39 @@ import type {
   BriefVerdictData,
   SignalEffectiveness,
 } from "./types";
+import { ATTRIBUTION_CONFIG } from "./config";
+
+/** Topic alignment between two free-text topic strings (Jaccard on words). */
+function compareTopicStrings(
+  left: string,
+  right: string | null | undefined
+): MatchStrength {
+  const minLen = ATTRIBUTION_CONFIG.matching.topicMinWordLength;
+  const jaccardPartial = ATTRIBUTION_CONFIG.matching.topicJaccardPartial;
+
+  if (!right?.trim() || !left.trim()) return "unknown";
+
+  const leftLower = left.toLowerCase().trim();
+  const rightLower = right.toLowerCase().trim();
+
+  if (leftLower === rightLower) return "strong";
+
+  const leftWords = new Set(
+    leftLower.split(/\s+/).filter((w) => w.length > minLen)
+  );
+  const rightWords = new Set(
+    rightLower.split(/\s+/).filter((w) => w.length > minLen)
+  );
+
+  if (leftWords.size === 0 || rightWords.size === 0) return "unknown";
+
+  const intersection = [...leftWords].filter((w) => rightWords.has(w)).length;
+  const union = new Set([...leftWords, ...rightWords]).size;
+  const jaccard = intersection / union;
+
+  if (jaccard >= jaccardPartial) return "partial";
+  return "none";
+}
 
 function matchPlatform(
   change: ChangelogEntry,
@@ -29,31 +62,44 @@ function matchPlatform(
 
   if (!opp) return "unknown";
 
-  if (opp.platforms.includes(result.platform)) return "strong";
+  if (opp.platforms.includes(result.platform)) {
+    const topicAlign = compareTopicStrings(opp.topic, result.topic);
+    if (topicAlign === "strong" || topicAlign === "partial") return "strong";
+    return "partial";
+  }
   if (opp.platforms.includes("all")) return "partial";
 
   return "none";
 }
 
-function matchTopic(change: ChangelogEntry, result: Result): MatchStrength {
-  if (!result.topic || !change.topic_targeted.trim()) return "unknown";
+const STRENGTH_RANK: Record<MatchStrength, number> = {
+  strong: 3,
+  partial: 2,
+  unknown: 1,
+  none: 0,
+};
 
-  const changeLower = change.topic_targeted.toLowerCase().trim();
-  const resultLower = result.topic.toLowerCase().trim();
+function strongerMatch(a: MatchStrength, b: MatchStrength): MatchStrength {
+  return STRENGTH_RANK[a] >= STRENGTH_RANK[b] ? a : b;
+}
 
-  if (changeLower === resultLower) return "strong";
+function matchTopic(
+  change: ChangelogEntry,
+  result: Result,
+  opportunities: Opportunity[]
+): MatchStrength {
+  const changeLevel = compareTopicStrings(change.topic_targeted, result.topic);
 
-  const changeWords = new Set(changeLower.split(/\s+/).filter((w) => w.length > 2));
-  const resultWords = new Set(resultLower.split(/\s+/).filter((w) => w.length > 2));
+  if (changeLevel === "strong") return "strong";
 
-  if (changeWords.size === 0 || resultWords.size === 0) return "unknown";
+  const opp = change.opportunity_id
+    ? opportunities.find((o) => o.id === change.opportunity_id)
+    : null;
 
-  const intersection = [...changeWords].filter((w) => resultWords.has(w)).length;
-  const union = new Set([...changeWords, ...resultWords]).size;
-  const jaccard = intersection / union;
+  if (!opp) return changeLevel;
 
-  if (jaccard >= 0.4) return "partial";
-  return "none";
+  const oppLevel = compareTopicStrings(opp.topic, result.topic);
+  return strongerMatch(changeLevel, oppLevel);
 }
 
 function matchUrl(change: ChangelogEntry, result: Result): MatchStrength {
@@ -163,7 +209,7 @@ export function computeAttribution(
   allOpportunities: Opportunity[]
 ): Attribution {
   const platformMatch = matchPlatform(change, result, allOpportunities);
-  const topicMatch = matchTopic(change, result);
+  const topicMatch = matchTopic(change, result, allOpportunities);
   const urlMatch = matchUrl(change, result);
   const geoMatch = matchGeo(change, result);
   const temporal = matchTemporal(change, result);
