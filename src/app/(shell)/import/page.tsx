@@ -19,6 +19,7 @@ import {
   clearImportedData,
   getImportRuns,
   importWorkbook,
+  resetExperiment,
 } from "@/lib/import/actions";
 import { IMPORT_COLUMN_DOCS } from "@/lib/import/types";
 import type { ImportEntityType, ImportFormat, ImportPreview, ImportResult, ImportRun, WorkbookImportResult } from "@/lib/import/types";
@@ -46,7 +47,24 @@ export default function ImportPage() {
   const [isPending, startTransition] = useTransition();
 
   const [wbResult, setWbResult] = useState<WorkbookImportResult | null>(null);
+  const [resetDone, setResetDone] = useState<{ cleared: Record<string, number> } | null>(null);
+  const [preserveLabels, setPreserveLabels] = useState(true);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  const handleReset = () => {
+    if (!confirm(
+      preserveLabels
+        ? "Reset all imported data and review states? Truth labels will be preserved."
+        : "Reset ALL experiment data including truth labels? This cannot be undone."
+    )) return;
+    setResetDone(null);
+    setWbResult(null);
+    startTransition(async () => {
+      const result = await resetExperiment({ preserveTruthLabels: preserveLabels });
+      setResetDone(result);
+      setRuns([]);
+    });
+  };
 
   const handleWorkbookImport = () => {
     const file = fileRef.current?.files?.[0];
@@ -105,6 +123,50 @@ export default function ImportPage() {
         description="Load real campaign data for attribution truth-testing."
       />
 
+      {/* Experiment Reset */}
+      <div className="rounded-md border border-border bg-surface-raised p-5 mb-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-[14px] font-semibold">Experiment Reset</h3>
+            <p className="text-[12px] text-muted-foreground mt-0.5">
+              Clear all imported data to start a fresh experiment run.
+            </p>
+          </div>
+          <div className="flex items-center gap-3">
+            <label className="flex items-center gap-1.5 text-[12px]">
+              <input
+                type="checkbox"
+                checked={preserveLabels}
+                onChange={(e) => setPreserveLabels(e.target.checked)}
+                className="rounded"
+              />
+              Preserve truth labels
+            </label>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleReset}
+              disabled={isPending}
+              className="text-status-danger border-status-danger/30 hover:bg-status-danger/10"
+            >
+              <Trash2 className="h-3.5 w-3.5" data-icon="inline-start" />
+              {isPending ? "Resetting…" : "Reset Experiment"}
+            </Button>
+          </div>
+        </div>
+
+        {resetDone && (
+          <div className="mt-3 rounded border border-status-success/20 bg-status-success/5 px-3 py-2">
+            <p className="text-[12px] text-status-success font-medium">
+              Experiment reset complete.
+              {" "}Cleared: {resetDone.cleared.results} results, {resetDone.cleared.changes} changes, {resetDone.cleared.opportunities} opportunities, {resetDone.cleared.candidateLinks} review states
+              {resetDone.cleared.truthLabels > 0 && `, ${resetDone.cleared.truthLabels} truth labels`}
+              {resetDone.cleared.truthLabels === 0 && preserveLabels && " (truth labels preserved)"}
+            </p>
+          </div>
+        )}
+      </div>
+
       {/* Workbook Import */}
       <div className="rounded-md border-2 border-accent-primary/20 bg-accent-primary-light p-5 mb-8">
         <div className="flex items-center gap-2 mb-3">
@@ -149,12 +211,11 @@ export default function ImportPage() {
               </span>
             </div>
 
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
               {[
                 { label: "Changes", value: wbResult.changes_imported },
                 { label: "Results", value: wbResult.results_imported },
                 { label: "Opportunities", value: wbResult.opportunities_derived },
-                { label: "Competitors", value: wbResult.competitors_imported },
                 { label: "Linked", value: wbResult.changes_linked },
               ].map((s) => (
                 <div
@@ -169,6 +230,25 @@ export default function ImportPage() {
                   </p>
                 </div>
               ))}
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <div className="rounded border border-accent-primary/20 bg-accent-primary/5 px-3 py-2 text-center">
+                <p className="text-lg font-semibold tabular-nums">
+                  {wbResult.results_attribution}
+                </p>
+                <p className="text-[10px] text-accent-primary uppercase tracking-wider font-medium">
+                  Attribution Mode
+                </p>
+              </div>
+              <div className="rounded border border-border bg-surface-inset px-3 py-2 text-center">
+                <p className="text-lg font-semibold tabular-nums text-muted-foreground">
+                  {wbResult.results_visibility}
+                </p>
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wider">
+                  Visibility Only
+                </p>
+              </div>
             </div>
 
             {wbResult.sheets.length > 0 && (

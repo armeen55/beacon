@@ -10,6 +10,7 @@ import { results, changelogEntries, opportunities } from "@/lib/seed-data.server
 import { getFullChainForResult } from "@/lib/lookups";
 import { discoverCandidates } from "@/domains/attribution/candidates";
 import { triageCandidates } from "@/domains/attribution/triage";
+import { classifyResultMode } from "@/domains/attribution/result-mode";
 import { truthLabels } from "@/domains/attribution/store";
 import {
   PLATFORM_LABELS,
@@ -287,7 +288,7 @@ export default async function ResultDetailPage({
 
       {(() => {
         const nextEntry = results
-          .filter((r) => r.id !== result.id)
+          .filter((r) => r.id !== result.id && classifyResultMode(r) === "attribution")
           .map((r) => {
             const c = discoverCandidates(r, changelogEntries, opportunities);
             const t = triageCandidates(c);

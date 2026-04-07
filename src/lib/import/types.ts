@@ -51,6 +51,8 @@ export type WorkbookImportResult = {
   run_id: string;
   changes_imported: number;
   results_imported: number;
+  results_attribution: number;
+  results_visibility: number;
   opportunities_derived: number;
   competitors_imported: number;
   changes_linked: number;

@@ -18,6 +18,7 @@ import {
   competitors,
 } from "@/lib/seed-data.server";
 import { parseWorkbook } from "./workbook";
+import { classifyResultMode } from "@/domains/attribution/result-mode";
 import type { ImportEntityType, ImportFormat, ImportRun, ImportResult, ImportPreview, WorkbookImportResult } from "./types";
 
 const importRuns: ImportRun[] = readStore<ImportRun>("import-runs");
@@ -212,6 +213,56 @@ export async function clearImportedData(
   return { success: true, cleared };
 }
 
+export async function resetExperiment(
+  options: { preserveTruthLabels?: boolean } = {}
+): Promise<{
+  cleared: {
+    results: number;
+    changes: number;
+    opportunities: number;
+    competitors: number;
+    candidateLinks: number;
+    truthLabels: number;
+    importRuns: number;
+  };
+}> {
+  const { candidateLinks, truthLabels, persistCandidateLinks, persistTruthLabels } = await import("@/domains/attribution/store");
+
+  const cleared = {
+    results: results.length,
+    changes: changelogEntries.length,
+    opportunities: opportunities.length,
+    competitors: competitors.length,
+    candidateLinks: candidateLinks.length,
+    truthLabels: options.preserveTruthLabels ? 0 : truthLabels.length,
+    importRuns: importRuns.length,
+  };
+
+  results.length = 0;
+  changelogEntries.length = 0;
+  opportunities.length = 0;
+  competitors.length = 0;
+  candidateLinks.length = 0;
+  importRuns.length = 0;
+
+  if (!options.preserveTruthLabels) {
+    truthLabels.length = 0;
+  }
+
+  await writeStore("imported-results", []);
+  await writeStore("imported-changes", []);
+  await writeStore("imported-opportunities", []);
+  await writeStore("imported-competitors", []);
+  await writeStore("import-runs", []);
+  await persistCandidateLinks();
+  if (!options.preserveTruthLabels) {
+    await persistTruthLabels();
+  }
+
+  revalidatePath("/", "layout");
+  return { cleared };
+}
+
 export async function importWorkbook(
   formData: FormData
 ): Promise<WorkbookImportResult> {
@@ -222,6 +273,8 @@ export async function importWorkbook(
       run_id: "",
       changes_imported: 0,
       results_imported: 0,
+      results_attribution: 0,
+      results_visibility: 0,
       opportunities_derived: 0,
       competitors_imported: 0,
       changes_linked: 0,
@@ -244,6 +297,8 @@ export async function importWorkbook(
       run_id: batchId,
       changes_imported: 0,
       results_imported: 0,
+      results_attribution: 0,
+      results_visibility: 0,
       opportunities_derived: 0,
       competitors_imported: 0,
       changes_linked: 0,
@@ -341,11 +396,17 @@ export async function importWorkbook(
 
   revalidatePath("/", "layout");
 
+  const attrCount = data.results.filter(
+    (r) => classifyResultMode(r) === "attribution"
+  ).length;
+
   return {
     success: true,
     run_id: batchId,
     changes_imported: data.changes.length,
     results_imported: data.results.length,
+    results_attribution: attrCount,
+    results_visibility: data.results.length - attrCount,
     opportunities_derived: data.opportunities.length,
     competitors_imported: data.competitors.length,
     changes_linked: changesLinked,

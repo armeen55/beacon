@@ -12,6 +12,7 @@ import {
 import { results, changelogEntries, opportunities } from "@/lib/seed-data.server";
 import { discoverCandidates } from "@/domains/attribution/candidates";
 import { triageCandidates } from "@/domains/attribution/triage";
+import { classifyResultMode } from "@/domains/attribution/result-mode";
 import { candidateLinks, truthLabels } from "@/domains/attribution/store";
 import { PLATFORM_LABELS, METRIC_TYPE_LABELS } from "@/lib/constants";
 import { DeltaIndicator } from "@/components/display/delta-indicator";
@@ -34,8 +35,15 @@ export default function ReviewPage() {
   let autoResolved = 0;
   let needsReviewCount = 0;
   let totalAllCandidates = 0;
+  let visibilityCount = 0;
 
   for (const result of results) {
+    const mode = classifyResultMode(result);
+    if (mode === "visibility") {
+      visibilityCount++;
+      continue;
+    }
+
     const candidates = discoverCandidates(result, changelogEntries, opportunities);
     if (candidates.length === 0) continue;
 
@@ -82,12 +90,13 @@ export default function ReviewPage() {
     <div>
       <PageHeader
         title="Attribution Review"
-        description="Only ambiguous results requiring human judgment appear here."
+        description="Attribution-mode results with ambiguous candidates. Visibility-only results are excluded."
       />
 
-      <div className="grid gap-3 grid-cols-2 lg:grid-cols-5 mb-6">
+      <div className="grid gap-3 grid-cols-2 lg:grid-cols-6 mb-6">
         <StatCard label="Needs Review" value={needsReviewCount} />
         <StatCard label="Auto-Resolved" value={autoResolved} />
+        <StatCard label="Visibility Only" value={visibilityCount} />
         <StatCard label="Confirmed" value={confirmedCount} />
         <StatCard label="Rejected" value={rejectedCount} />
         <StatCard label="Truth Labels" value={labeled} />
