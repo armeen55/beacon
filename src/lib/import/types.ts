@@ -38,6 +38,27 @@ export type ImportResult = {
   warnings: string[];
 };
 
+export type WorkbookSheetSummary = {
+  sheet: string;
+  rows: number;
+  imported: number;
+  skipped: number;
+  warnings: string[];
+};
+
+export type WorkbookImportResult = {
+  success: boolean;
+  run_id: string;
+  changes_imported: number;
+  results_imported: number;
+  opportunities_derived: number;
+  competitors_imported: number;
+  changes_linked: number;
+  sheets: WorkbookSheetSummary[];
+  warnings: string[];
+  errors: string[];
+};
+
 export const IMPORT_COLUMN_DOCS: Record<ImportEntityType, { required: string[]; optional: string[] }> = {
   results: {
     required: ["snapshot_date", "platform", "metric_type", "metric_value"],

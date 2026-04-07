@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useTransition } from "react";
-import { Upload, Trash2, AlertTriangle, CheckCircle2 } from "lucide-react";
+import { useState, useTransition, useRef } from "react";
+import Link from "next/link";
+import { Upload, Trash2, AlertTriangle, CheckCircle2, FileSpreadsheet } from "lucide-react";
 import { PageHeader } from "@/components/data/page-header";
 import { Button } from "@/components/ui/button";
 import {
@@ -17,9 +18,10 @@ import {
   executeImport,
   clearImportedData,
   getImportRuns,
+  importWorkbook,
 } from "@/lib/import/actions";
 import { IMPORT_COLUMN_DOCS } from "@/lib/import/types";
-import type { ImportEntityType, ImportFormat, ImportPreview, ImportResult, ImportRun } from "@/lib/import/types";
+import type { ImportEntityType, ImportFormat, ImportPreview, ImportResult, ImportRun, WorkbookImportResult } from "@/lib/import/types";
 
 const ENTITY_OPTIONS: { value: ImportEntityType; label: string }[] = [
   { value: "results", label: "Results" },
@@ -42,6 +44,23 @@ export default function ImportPage() {
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
   const [runs, setRuns] = useState<ImportRun[]>([]);
   const [isPending, startTransition] = useTransition();
+
+  const [wbResult, setWbResult] = useState<WorkbookImportResult | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const handleWorkbookImport = () => {
+    const file = fileRef.current?.files?.[0];
+    if (!file) return;
+    setWbResult(null);
+    startTransition(async () => {
+      const fd = new FormData();
+      fd.append("file", file);
+      const result = await importWorkbook(fd);
+      setWbResult(result);
+      const history = await getImportRuns();
+      setRuns(history);
+    });
+  };
 
   const docs = IMPORT_COLUMN_DOCS[entityType];
 
@@ -85,6 +104,145 @@ export default function ImportPage() {
         title="Import Historical Data"
         description="Load real campaign data for attribution truth-testing."
       />
+
+      {/* Workbook Import */}
+      <div className="rounded-md border-2 border-accent-primary/20 bg-accent-primary-light p-5 mb-8">
+        <div className="flex items-center gap-2 mb-3">
+          <FileSpreadsheet className="h-5 w-5 text-accent-primary" />
+          <h3 className="text-[14px] font-semibold">Ritz Workbook Import</h3>
+        </div>
+        <p className="text-[12px] text-muted-foreground mb-4">
+          Upload the Ritz master workbook (.xlsx) to automatically import
+          changes, results, opportunities, and competitors from all relevant
+          sheets.
+        </p>
+        <div className="flex items-center gap-3">
+          <input
+            ref={fileRef}
+            type="file"
+            accept=".xlsx,.xls"
+            className="text-[12px] file:mr-3 file:rounded file:border-0 file:bg-accent-primary file:px-3 file:py-1.5 file:text-[12px] file:font-medium file:text-white hover:file:bg-accent-primary/90 file:cursor-pointer"
+          />
+          <Button
+            size="sm"
+            onClick={handleWorkbookImport}
+            disabled={isPending}
+          >
+            <Upload className="h-3.5 w-3.5" data-icon="inline-start" />
+            {isPending ? "Processing…" : "Import Workbook"}
+          </Button>
+        </div>
+
+        {wbResult && (
+          <div className="mt-4 space-y-3">
+            <div className="flex items-center gap-2">
+              {wbResult.success ? (
+                <CheckCircle2 className="h-4 w-4 text-status-success" />
+              ) : (
+                <AlertTriangle className="h-4 w-4 text-status-danger" />
+              )}
+              <span className="text-[13px] font-semibold">
+                {wbResult.success ? "Import complete" : "Import failed"}
+              </span>
+              <span className="text-[11px] text-muted-foreground font-mono">
+                {wbResult.run_id}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+              {[
+                { label: "Changes", value: wbResult.changes_imported },
+                { label: "Results", value: wbResult.results_imported },
+                { label: "Opportunities", value: wbResult.opportunities_derived },
+                { label: "Competitors", value: wbResult.competitors_imported },
+                { label: "Linked", value: wbResult.changes_linked },
+              ].map((s) => (
+                <div
+                  key={s.label}
+                  className="rounded border border-border bg-background px-3 py-2 text-center"
+                >
+                  <p className="text-lg font-semibold tabular-nums">
+                    {s.value}
+                  </p>
+                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider">
+                    {s.label}
+                  </p>
+                </div>
+              ))}
+            </div>
+
+            {wbResult.sheets.length > 0 && (
+              <div className="space-y-1">
+                <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
+                  Sheets Processed
+                </p>
+                {wbResult.sheets.map((s) => (
+                  <div
+                    key={s.sheet}
+                    className="flex items-center gap-2 text-[12px]"
+                  >
+                    <span className="font-mono font-medium">{s.sheet}</span>
+                    <span className="text-muted-foreground">
+                      {s.imported} imported, {s.skipped} skipped of {s.rows}{" "}
+                      rows
+                    </span>
+                    {s.warnings.length > 0 && (
+                      <span className="text-status-warning">
+                        ({s.warnings.length} warnings)
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {wbResult.warnings.length > 0 && (
+              <details className="text-[12px]">
+                <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
+                  {wbResult.warnings.length} warnings
+                </summary>
+                <div className="mt-1 space-y-0.5 max-h-40 overflow-y-auto">
+                  {wbResult.warnings.map((w, i) => (
+                    <p key={i} className="text-status-warning">{w}</p>
+                  ))}
+                </div>
+              </details>
+            )}
+
+            {wbResult.errors.length > 0 && (
+              <div className="space-y-1">
+                {wbResult.errors.map((e, i) => (
+                  <p key={i} className="text-[12px] text-status-danger">{e}</p>
+                ))}
+              </div>
+            )}
+
+            {wbResult.success && (
+              <div className="flex items-center gap-3 pt-2">
+                <Link
+                  href="/review"
+                  className="inline-flex items-center gap-1.5 rounded-md bg-accent-primary px-4 py-2 text-[12px] font-medium text-white hover:bg-accent-primary/90 transition-colors"
+                >
+                  Open Review Queue
+                </Link>
+                <Link
+                  href="/diagnostics"
+                  className="text-[12px] text-accent-primary hover:underline font-medium"
+                >
+                  View Diagnostics
+                </Link>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="border-t border-border pt-6 mb-6">
+        <h3 className="text-[13px] font-semibold mb-1">Manual Import</h3>
+        <p className="text-[12px] text-muted-foreground mb-4">
+          Paste CSV or JSON data for individual entity types.
+        </p>
+      </div>
 
       {/* Configuration */}
       <div className="grid grid-cols-3 gap-3 mb-4">

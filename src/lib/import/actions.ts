@@ -17,7 +17,8 @@ import {
   results,
   competitors,
 } from "@/lib/seed-data.server";
-import type { ImportEntityType, ImportFormat, ImportRun, ImportResult, ImportPreview } from "./types";
+import { parseWorkbook } from "./workbook";
+import type { ImportEntityType, ImportFormat, ImportRun, ImportResult, ImportPreview, WorkbookImportResult } from "./types";
 
 const importRuns: ImportRun[] = readStore<ImportRun>("import-runs");
 
@@ -209,6 +210,149 @@ export async function clearImportedData(
 
   revalidatePath("/", "layout");
   return { success: true, cleared };
+}
+
+export async function importWorkbook(
+  formData: FormData
+): Promise<WorkbookImportResult> {
+  const file = formData.get("file");
+  if (!file || !(file instanceof File)) {
+    return {
+      success: false,
+      run_id: "",
+      changes_imported: 0,
+      results_imported: 0,
+      opportunities_derived: 0,
+      competitors_imported: 0,
+      changes_linked: 0,
+      sheets: [],
+      warnings: [],
+      errors: ["No file provided"],
+    };
+  }
+
+  const batchId = generateId("wb");
+  const startedAt = now();
+
+  let data;
+  try {
+    const buffer = await file.arrayBuffer();
+    data = parseWorkbook(buffer, batchId);
+  } catch (e) {
+    return {
+      success: false,
+      run_id: batchId,
+      changes_imported: 0,
+      results_imported: 0,
+      opportunities_derived: 0,
+      competitors_imported: 0,
+      changes_linked: 0,
+      sheets: [],
+      warnings: [],
+      errors: [
+        `Workbook parse error: ${e instanceof Error ? e.message : String(e)}`,
+      ],
+    };
+  }
+
+  const existingIds = new Set([
+    ...results.map((r) => r.id),
+    ...changelogEntries.map((c) => c.id),
+    ...opportunities.map((o) => o.id),
+    ...competitors.map((c) => c.id),
+  ]);
+
+  let changesLinked = 0;
+
+  for (const entry of data.changes) {
+    if (existingIds.has(entry.id)) {
+      const idx = changelogEntries.findIndex((c) => c.id === entry.id);
+      if (idx >= 0) changelogEntries[idx] = entry;
+    } else {
+      changelogEntries.push(entry);
+    }
+    if (entry.opportunity_id) changesLinked++;
+  }
+
+  for (const result of data.results) {
+    if (existingIds.has(result.id)) {
+      const idx = results.findIndex((r) => r.id === result.id);
+      if (idx >= 0) results[idx] = result;
+    } else {
+      results.push(result);
+    }
+  }
+
+  for (const opp of data.opportunities) {
+    if (existingIds.has(opp.id)) {
+      const idx = opportunities.findIndex((o) => o.id === opp.id);
+      if (idx >= 0) opportunities[idx] = opp;
+    } else {
+      opportunities.push(opp);
+    }
+  }
+
+  for (const comp of data.competitors) {
+    if (existingIds.has(comp.id)) {
+      const idx = competitors.findIndex((c) => c.id === comp.id);
+      if (idx >= 0) competitors[idx] = comp;
+    } else {
+      competitors.push(comp);
+    }
+  }
+
+  await writeStore(
+    "imported-changes",
+    changelogEntries.filter(isImported)
+  );
+  await writeStore("imported-results", results.filter(isImported));
+  await writeStore(
+    "imported-opportunities",
+    opportunities.filter(isImported)
+  );
+  await writeStore(
+    "imported-competitors",
+    competitors.filter(isImported)
+  );
+
+  const run: ImportRun = {
+    id: batchId,
+    source_system: "ritz-workbook",
+    entity_type: "results",
+    format: "csv",
+    started_at: startedAt,
+    completed_at: now(),
+    total_rows:
+      data.changes.length +
+      data.results.length +
+      data.opportunities.length +
+      data.competitors.length,
+    imported_count:
+      data.changes.length +
+      data.results.length +
+      data.opportunities.length +
+      data.competitors.length,
+    skipped_count: data.sheets.reduce((sum, s) => sum + s.skipped, 0),
+    errors: data.warnings.filter((w) => w.toLowerCase().includes("error")),
+    warnings: data.warnings,
+  };
+  importRuns.push(run);
+  await writeStore("import-runs", importRuns);
+
+  revalidatePath("/", "layout");
+
+  return {
+    success: true,
+    run_id: batchId,
+    changes_imported: data.changes.length,
+    results_imported: data.results.length,
+    opportunities_derived: data.opportunities.length,
+    competitors_imported: data.competitors.length,
+    changes_linked: changesLinked,
+    sheets: data.sheets,
+    warnings: data.warnings,
+    errors: [],
+  };
 }
 
 function getMapper(entityType: ImportEntityType) {

@@ -178,6 +178,9 @@ signalMap.set("core web vitals", "technical");
 signalMap.set("cwv", "technical");
 signalMap.set("speed", "technical");
 signalMap.set("site speed", "technical");
+signalMap.set("leadform", "lead_form");
+signalMap.set("lead form", "lead_form");
+signalMap.set("form", "lead_form");
 
 assetMap.set("blog", "service_page");
 assetMap.set("blog post", "service_page");
@@ -199,6 +202,8 @@ assetMap.set("pillar", "service_page");
 assetMap.set("hub", "service_page");
 assetMap.set("resource", "service_page");
 assetMap.set("guide", "service_page");
+assetMap.set("profound", "infrastructure");
+assetMap.set("sitewide", "service_page");
 
 function stripParenthetical(raw: string): string {
   return raw
