@@ -21,12 +21,23 @@ import {
   changelogEntries,
   results,
   weeklySummaries,
+  hasActiveExperiment,
+  importRuns,
 } from "@/lib/seed-data.server";
 import { partitionResultsByMode } from "@/domains/attribution/result-mode";
 import { detectOutcomeEvents } from "@/domains/attribution/events";
 import { discoverCandidates } from "@/domains/attribution/candidates";
 import { triageCandidates } from "@/domains/attribution/triage";
-import { resolveEvents, computeEventIntelligence } from "@/domains/attribution/event-resolution";
+import {
+  resolveEvents,
+  computeEventIntelligence,
+  computeChangeLearning,
+} from "@/domains/attribution/event-resolution";
+import {
+  computeRecommendations,
+  CATEGORY_LABELS,
+} from "@/domains/dashboard/recommendations";
+import type { RecommendationCategory } from "@/domains/dashboard/recommendations";
 import { candidateLinks } from "@/domains/attribution/store";
 
 function SectionHeader({
@@ -63,25 +74,38 @@ function SectionHeader({
   );
 }
 
+const CATEGORY_COLORS: Record<RecommendationCategory, string> = {
+  review: "border-status-warning/30 bg-status-warning/5",
+  double_down: "border-status-success/30 bg-status-success/5",
+  fix_metadata: "border-accent-primary/30 bg-accent-primary/5",
+  deprioritize: "border-border bg-surface-raised",
+  investigate: "border-status-danger/30 bg-status-danger/5",
+};
+
+const CATEGORY_TEXT_COLORS: Record<RecommendationCategory, string> = {
+  review: "text-status-warning",
+  double_down: "text-status-success",
+  fix_metadata: "text-accent-primary",
+  deprioritize: "text-muted-foreground",
+  investigate: "text-status-danger",
+};
+
 export default function DashboardPage() {
+  const experimentActive = hasActiveExperiment();
   const now = new Date();
-  const banner = computeNarrativeBanner(now);
-  const attention = computeNeedsAttention(now);
-  const wins = computeWins();
-  const inMotion = computeInMotion(now);
-  const waiting = computeWaitingForEvidence(now);
-  const risks = computeRisks(now);
-  const loopHealth = computeLoopHealth(now);
 
-  const latestWeek = weeklySummaries[0];
-  const activeOpportunities = opportunities.filter(
-    (o) =>
-      o.current_status !== "captured" &&
-      o.current_status !== "closed" &&
-      o.current_status !== "deferred"
-  );
+  if (experimentActive) {
+    return <ExperimentDashboard now={now} />;
+  }
 
-  const { attribution: attrResults } = partitionResultsByMode(results);
+  return <DemoDashboard now={now} />;
+}
+
+function ExperimentDashboard({ now }: { now: Date }) {
+  const latestRun = importRuns[importRuns.length - 1];
+
+  const { attribution: attrResults, visibility } =
+    partitionResultsByMode(results);
   const events = detectOutcomeEvents(attrResults);
   const triageMap = new Map<string, ReturnType<typeof triageCandidates>>();
   const candCountMap = new Map<string, number>();
@@ -92,9 +116,21 @@ export default function DashboardPage() {
     candCountMap.set(event.anchor_result_id, cands.length);
     triageMap.set(event.anchor_result_id, triageCandidates(cands));
   }
-  const resolved = resolveEvents(events, candidateLinks, triageMap, candCountMap);
+  const resolved = resolveEvents(
+    events,
+    candidateLinks,
+    triageMap,
+    candCountMap
+  );
   const eventIntel = computeEventIntelligence(resolved);
-  const hasEvents = events.length > 0;
+  const changeLearning = computeChangeLearning(resolved);
+  const recs = computeRecommendations(
+    resolved,
+    changeLearning,
+    changelogEntries,
+    results,
+    opportunities
+  );
 
   const attributedEvents = resolved.filter(
     (r) => r.status === "attributed" || r.status === "auto_resolved"
@@ -103,30 +139,87 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-8">
-      {/* 1. Narrative Banner */}
-      <NarrativeBanner variant={banner.variant}>
-        <span className="font-medium text-foreground">Today:</span>{" "}
-        {hasEvents
-          ? pendingEvents.length > 0
-            ? `${pendingEvents.length} event${pendingEvents.length !== 1 ? "s" : ""} pending review. ${attributedEvents.length} attributed.`
+      {/* Experiment Banner */}
+      <NarrativeBanner
+        variant={
+          pendingEvents.length > 0
+            ? "warning"
             : attributedEvents.length > 0
-              ? `${attributedEvents.length} event${attributedEvents.length !== 1 ? "s" : ""} attributed. Review is up to date.`
-              : `${events.length} outcome events detected. Start reviewing to learn what worked.`
-          : banner.text}
+              ? "success"
+              : "default"
+        }
+      >
+        <span className="font-medium text-foreground">Active Experiment</span>
+        {" — "}
+        {pendingEvents.length > 0
+          ? `${pendingEvents.length} event${pendingEvents.length !== 1 ? "s" : ""} pending review. ${attributedEvents.length} attributed.`
+          : attributedEvents.length > 0
+            ? `${attributedEvents.length} event${attributedEvents.length !== 1 ? "s" : ""} attributed. Review is up to date.`
+            : events.length > 0
+              ? `${events.length} outcome events detected. Start reviewing to learn what worked.`
+              : `${results.length} results imported. Detecting outcome events...`}
       </NarrativeBanner>
 
-      {/* 2. Needs Attention */}
-      {attention.length > 0 && (
+      {/* Run Context */}
+      <div className="rounded-md border border-border bg-surface-raised px-4 py-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
+              Current Run
+            </p>
+            <p className="text-[13px] font-medium mt-0.5">
+              {latestRun?.source_system ?? "Workbook Import"} · {latestRun?.id?.slice(0, 8) ?? "—"}
+            </p>
+          </div>
+          <Link
+            href="/import"
+            className="text-[12px] text-muted-foreground hover:text-foreground"
+          >
+            Import History
+          </Link>
+        </div>
+      </div>
+
+      {/* Next Best Actions */}
+      {recs.length > 0 && (
         <div>
-          <SectionHeader
-            title="Needs Attention"
-            count={attention.length}
-          />
-          <TriageList items={attention} />
+          <SectionHeader title="Next Best Actions" count={recs.length} />
+          <div className="space-y-2">
+            {recs.slice(0, 4).map((rec) => (
+              <div
+                key={rec.id}
+                className={`rounded-md border px-4 py-3 ${CATEGORY_COLORS[rec.category]}`}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <span
+                        className={`text-[10px] font-semibold uppercase tracking-wider ${CATEGORY_TEXT_COLORS[rec.category]}`}
+                      >
+                        {CATEGORY_LABELS[rec.category]}
+                      </span>
+                    </div>
+                    <p className="text-[13px] font-medium">{rec.title}</p>
+                    <p className="text-[12px] text-muted-foreground mt-0.5">
+                      {rec.detail}
+                    </p>
+                  </div>
+                  {rec.href && (
+                    <Link
+                      href={rec.href}
+                      className="flex-shrink-0 mt-1 text-[12px] text-accent-primary hover:underline font-medium"
+                    >
+                      Go
+                    </Link>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
-      {/* 2b. Pending Events */}
+      {/* Events Pending Review */}
       {pendingEvents.length > 0 && (
         <div>
           <SectionHeader
@@ -147,7 +240,8 @@ export default function DashboardPage() {
                     {r.event.description}
                   </p>
                   <p className="text-[11px] text-muted-foreground">
-                    {r.event.trigger_date} · {r.candidate_count} candidate{r.candidate_count !== 1 ? "s" : ""}
+                    {r.event.trigger_date} · {r.candidate_count} candidate
+                    {r.candidate_count !== 1 ? "s" : ""}
                   </p>
                 </div>
                 <ArrowRight className="h-3 w-3 text-muted-foreground flex-shrink-0 ml-2" />
@@ -157,10 +251,14 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* 3. What Worked (event-aware wins) */}
+      {/* What Worked */}
       {attributedEvents.length > 0 && (
         <div>
-          <SectionHeader title="What Worked" href="/diagnostics" linkLabel="Full diagnostics" />
+          <SectionHeader
+            title="What Worked"
+            href="/diagnostics"
+            linkLabel="Full diagnostics"
+          />
           <div className="space-y-2">
             {attributedEvents.slice(0, 4).map((r) => {
               const change = r.primary_change_id
@@ -194,23 +292,70 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* 3b. Legacy wins (for seed data / non-event scenarios) */}
-      {!hasEvents && wins.length > 0 && (
+      {/* Stats */}
+      <div className="border-t border-border pt-6">
+        <div className="grid gap-3 grid-cols-2 lg:grid-cols-6">
+          <StatCard label="Outcome Events" value={eventIntel.total_events} />
+          <StatCard
+            label="Resolution Rate"
+            value={`${eventIntel.resolution_rate}%`}
+          />
+          <StatCard label="Opportunities" value={opportunities.length} />
+          <StatCard label="Results" value={results.length} />
+          <StatCard label="Changes" value={changelogEntries.length} />
+          <StatCard
+            label="Changes with Evidence"
+            value={eventIntel.changes_with_evidence}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DemoDashboard({ now }: { now: Date }) {
+  const banner = computeNarrativeBanner(now);
+  const attention = computeNeedsAttention(now);
+  const wins = computeWins();
+  const inMotion = computeInMotion(now);
+  const waiting = computeWaitingForEvidence(now);
+  const risks = computeRisks(now);
+  const loopHealth = computeLoopHealth(now);
+
+  const latestWeek = weeklySummaries[0];
+  const activeOpportunities = opportunities.filter(
+    (o) =>
+      o.current_status !== "captured" &&
+      o.current_status !== "closed" &&
+      o.current_status !== "deferred"
+  );
+
+  return (
+    <div className="space-y-8">
+      <NarrativeBanner variant={banner.variant}>
+        <span className="font-medium text-foreground">Today:</span>{" "}
+        {banner.text}
+      </NarrativeBanner>
+
+      {attention.length > 0 && (
+        <div>
+          <SectionHeader title="Needs Attention" count={attention.length} />
+          <TriageList items={attention} />
+        </div>
+      )}
+
+      {wins.length > 0 && (
         <div>
           <SectionHeader title="Wins" href="/results" />
           <WinsList items={wins} />
         </div>
       )}
 
-      {/* 4. In Motion + Waiting (two-column) */}
       {(inMotion.length > 0 || waiting.length > 0) && (
         <div className="grid gap-8 lg:grid-cols-2">
           {inMotion.length > 0 && (
             <div>
-              <SectionHeader
-                title="In Motion"
-                count={inMotion.length}
-              />
+              <SectionHeader title="In Motion" count={inMotion.length} />
               <InMotionList items={inMotion} />
             </div>
           )}
@@ -226,7 +371,6 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* 5. Risks */}
       {risks.length > 0 && (
         <div>
           <SectionHeader title="Risks" count={risks.length} />
@@ -234,36 +378,35 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* 6. Stats row */}
       <div className="border-t border-border pt-6">
-        <div className={`grid gap-3 grid-cols-2 ${hasEvents ? "lg:grid-cols-6" : "lg:grid-cols-4"}`}>
-          {hasEvents && (
-            <>
-              <StatCard label="Outcome Events" value={eventIntel.total_events} />
-              <StatCard label="Resolution Rate" value={`${eventIntel.resolution_rate}%`} />
-            </>
-          )}
+        <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
           <StatCard
             label="Active Opportunities"
             value={activeOpportunities.length}
           />
+          <StatCard label="Total Results" value={results.length} />
+          <StatCard label="Total Changes" value={changelogEntries.length} />
           <StatCard
-            label="Total Results"
-            value={results.length}
-          />
-          <StatCard
-            label="Total Changes"
-            value={changelogEntries.length}
-          />
-          <StatCard
-            label={hasEvents ? "Changes with Evidence" : "Changes This Week"}
-            value={hasEvents ? eventIntel.changes_with_evidence : (latestWeek?.changes_count ?? 0)}
+            label="Changes This Week"
+            value={latestWeek?.changes_count ?? 0}
           />
         </div>
       </div>
 
-      {/* 7. Loop Health */}
       <LoopHealthBar health={loopHealth} />
+
+      {/* Call to action */}
+      <div className="rounded-md border border-border bg-surface-raised p-6 text-center">
+        <p className="text-[13px] font-medium mb-1">
+          This is demo data. Import a Ritz workbook to start a real experiment.
+        </p>
+        <Link
+          href="/import"
+          className="text-[12px] text-accent-primary hover:underline font-medium"
+        >
+          Go to Import
+        </Link>
+      </div>
     </div>
   );
 }

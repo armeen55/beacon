@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition, useRef } from "react";
+import { useState, useTransition, useRef, useEffect } from "react";
 import Link from "next/link";
 import { Upload, Trash2, AlertTriangle, CheckCircle2, FileSpreadsheet } from "lucide-react";
 import { PageHeader } from "@/components/data/page-header";
@@ -50,6 +50,12 @@ export default function ImportPage() {
   const [resetDone, setResetDone] = useState<{ cleared: Record<string, number> } | null>(null);
   const [preserveLabels, setPreserveLabels] = useState(true);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    getImportRuns().then(setRuns);
+  }, []);
+
+  const latestRun = runs.length > 0 ? runs[0] : null;
 
   const handleReset = () => {
     if (!confirm(
@@ -122,6 +128,45 @@ export default function ImportPage() {
         title="Import Historical Data"
         description="Load real campaign data for attribution truth-testing."
       />
+
+      {/* Active Experiment Banner */}
+      {latestRun && !resetDone && (
+        <div className="rounded-md border-2 border-status-success/20 bg-status-success/5 px-4 py-3 mb-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-status-success mb-0.5">
+                Active Experiment
+              </p>
+              <p className="text-[13px] font-medium">
+                {latestRun.source_system ?? "Import"} · Run {latestRun.id.slice(0, 8)}
+              </p>
+              <p className="text-[11px] text-muted-foreground mt-0.5">
+                Imported {new Date(latestRun.started_at).toLocaleDateString("en-US", {
+                  month: "short",
+                  day: "numeric",
+                  hour: "numeric",
+                  minute: "2-digit",
+                })} · {latestRun.imported_count} entities
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <Link
+                href="/review"
+                className="text-[12px] text-accent-primary hover:underline font-medium"
+              >
+                Review Events
+              </Link>
+              <span className="text-muted-foreground">·</span>
+              <Link
+                href="/diagnostics"
+                className="text-[12px] text-accent-primary hover:underline font-medium"
+              >
+                Diagnostics
+              </Link>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Experiment Reset */}
       <div className="rounded-md border border-border bg-surface-raised p-5 mb-6">

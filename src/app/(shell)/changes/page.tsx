@@ -10,11 +10,27 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { changelogEntries, briefs, opportunities, results } from "@/lib/seed-data.server";
+import {
+  changelogEntries,
+  briefs,
+  opportunities,
+  results,
+  hasActiveExperiment,
+} from "@/lib/seed-data.server";
 import {
   computeSignalEffectiveness,
   computeChangeVerdict,
 } from "@/domains/attribution/compute";
+import { partitionResultsByMode } from "@/domains/attribution/result-mode";
+import { detectOutcomeEvents } from "@/domains/attribution/events";
+import { discoverCandidates } from "@/domains/attribution/candidates";
+import { triageCandidates } from "@/domains/attribution/triage";
+import {
+  resolveEvents,
+  computeChangeLearning,
+  computeEventAwareChangeVerdict,
+} from "@/domains/attribution/event-resolution";
+import { candidateLinks } from "@/domains/attribution/store";
 import { SIGNAL_TYPE_LABELS } from "@/lib/constants";
 
 function formatDateGroup(date: string) {
@@ -33,6 +49,25 @@ function getAttribution(entry: (typeof changelogEntries)[0]) {
 }
 
 export default function ChangelogPage() {
+  const experimentActive = hasActiveExperiment();
+
+  let changeLearning: ReturnType<typeof computeChangeLearning> = [];
+  if (experimentActive) {
+    const { attribution } = partitionResultsByMode(results);
+    const events = detectOutcomeEvents(attribution);
+    const triageMap = new Map<string, ReturnType<typeof triageCandidates>>();
+    const candCountMap = new Map<string, number>();
+    for (const ev of events) {
+      const anchor = results.find((r) => r.id === ev.anchor_result_id);
+      if (!anchor) continue;
+      const cands = discoverCandidates(anchor, changelogEntries, opportunities);
+      candCountMap.set(ev.anchor_result_id, cands.length);
+      triageMap.set(ev.anchor_result_id, triageCandidates(cands));
+    }
+    const resolved = resolveEvents(events, candidateLinks, triageMap, candCountMap);
+    changeLearning = computeChangeLearning(resolved);
+  }
+
   const effectiveness = computeSignalEffectiveness(
     changelogEntries,
     results,
@@ -86,11 +121,10 @@ export default function ChangelogPage() {
                 <TableBody>
                   {group.entries.map((entry) => {
                     const { brief, opp } = getAttribution(entry);
-                    const verdict = computeChangeVerdict(
-                      entry,
-                      results,
-                      opportunities
-                    );
+                    const verdict =
+                      experimentActive && changeLearning.length > 0
+                        ? computeEventAwareChangeVerdict(entry, changeLearning)
+                        : computeChangeVerdict(entry, results, opportunities);
                     return (
                       <TableRow key={entry.id}>
                         <TableCell className="text-[13px] font-medium">

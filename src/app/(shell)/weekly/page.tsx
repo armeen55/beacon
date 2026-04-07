@@ -9,9 +9,37 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { weeklySummaries } from "@/lib/seed-data.server";
+import { weeklySummaries, hasActiveExperiment } from "@/lib/seed-data.server";
 
 export default function WeeklyPage() {
+  if (hasActiveExperiment() && weeklySummaries.length === 0) {
+    return (
+      <div className="max-w-2xl mx-auto py-16 text-center">
+        <h2 className="text-[16px] font-semibold mb-2">
+          Weekly summaries are not generated for the active experiment
+        </h2>
+        <p className="text-[13px] text-muted-foreground mb-4">
+          The Ritz workbook import does not produce weekly rollups.
+          Use the Dashboard and Diagnostics surfaces for experiment analysis.
+        </p>
+        <div className="flex justify-center gap-4">
+          <Link
+            href="/"
+            className="text-[12px] text-accent-primary hover:underline font-medium"
+          >
+            Dashboard
+          </Link>
+          <Link
+            href="/diagnostics"
+            className="text-[12px] text-accent-primary hover:underline font-medium"
+          >
+            Diagnostics
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div>
       <PageHeader
