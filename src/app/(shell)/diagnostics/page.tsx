@@ -19,6 +19,12 @@ import {
   computeCandidateDiagnostics,
   computeModelReport,
 } from "@/domains/attribution/diagnostics";
+import { partitionResultsByMode } from "@/domains/attribution/result-mode";
+import { detectOutcomeEvents } from "@/domains/attribution/events";
+import { discoverCandidates } from "@/domains/attribution/candidates";
+import { triageCandidates } from "@/domains/attribution/triage";
+import { resolveEvents, computeEventIntelligence } from "@/domains/attribution/event-resolution";
+import { candidateLinks } from "@/domains/attribution/store";
 
 function StatBlock({
   label,
@@ -71,6 +77,20 @@ export default function DiagnosticsPage() {
   const cdiag = computeCandidateDiagnostics(results, changelogEntries, opportunities);
   const modelReport = computeModelReport(results, changelogEntries, opportunities, cdiag);
 
+  const { attribution: attrResults } = partitionResultsByMode(results);
+  const events = detectOutcomeEvents(attrResults);
+  const triageMap = new Map<string, ReturnType<typeof triageCandidates>>();
+  const candCountMap = new Map<string, number>();
+  for (const event of events) {
+    const anchor = results.find((r) => r.id === event.anchor_result_id);
+    if (!anchor) continue;
+    const cands = discoverCandidates(anchor, changelogEntries, opportunities);
+    candCountMap.set(event.anchor_result_id, cands.length);
+    triageMap.set(event.anchor_result_id, triageCandidates(cands));
+  }
+  const resolved = resolveEvents(events, candidateLinks, triageMap, candCountMap);
+  const eventIntel = computeEventIntelligence(resolved);
+
   const maxDensity = Math.max(...Object.values(diag.coverage.attribution_density));
   const maxConfidence = Math.max(...Object.values(diag.confidence));
   const maxVerdict = Math.max(...Object.values(diag.verdicts));
@@ -110,6 +130,129 @@ export default function DiagnosticsPage() {
             </TableBody>
           </Table>
         </div>
+      </div>
+
+      {/* Event Intelligence */}
+      <div>
+        <SectionTitle>Event Intelligence</SectionTitle>
+        <p className="text-[12px] text-muted-foreground mb-3">
+          Outcome events detected from attribution-mode time series. Events are the learning unit — not daily snapshots.
+        </p>
+        <div className="grid grid-cols-2 lg:grid-cols-6 gap-3 mb-4">
+          <StatBlock label="Total Events" value={eventIntel.total_events} />
+          <StatBlock
+            label="Attributed"
+            value={eventIntel.attributed}
+            variant="success"
+            sub="Human-confirmed cause"
+          />
+          <StatBlock
+            label="Auto-Resolved"
+            value={eventIntel.auto_resolved}
+            sub="Triage-confirmed"
+          />
+          <StatBlock
+            label="No Cause"
+            value={eventIntel.no_cause}
+            sub="All candidates rejected"
+          />
+          <StatBlock
+            label="Pending"
+            value={eventIntel.pending}
+            variant={eventIntel.pending > 0 ? "warning" : "default"}
+            sub="Needs review"
+          />
+          <StatBlock
+            label="Resolution Rate"
+            value={`${eventIntel.resolution_rate}%`}
+            variant={
+              eventIntel.resolution_rate >= 75
+                ? "success"
+                : eventIntel.resolution_rate >= 40
+                  ? "warning"
+                  : "default"
+            }
+          />
+        </div>
+
+        {Object.keys(eventIntel.by_type).length > 0 && (
+          <div className="mb-4">
+            <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-2">
+              By Event Type
+            </p>
+            <div className="rounded-md border border-border overflow-hidden">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="text-[11px]">Event Type</TableHead>
+                    <TableHead className="text-[11px] text-right">Total</TableHead>
+                    <TableHead className="text-[11px] text-right">Resolved</TableHead>
+                    <TableHead className="text-[11px] text-right">Rate</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {Object.entries(eventIntel.by_type).map(([type, data]) => (
+                    <TableRow key={type}>
+                      <TableCell className="text-[13px] font-medium capitalize">
+                        {type.replace(/_/g, " ")}
+                      </TableCell>
+                      <TableCell className="text-[13px] tabular-nums text-right">
+                        {data.total}
+                      </TableCell>
+                      <TableCell className="text-[13px] tabular-nums text-right text-status-success">
+                        {data.resolved}
+                      </TableCell>
+                      <TableCell className="text-[13px] tabular-nums text-right">
+                        {data.total > 0 ? Math.round((data.resolved / data.total) * 100) : 0}%
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </div>
+        )}
+
+        {eventIntel.top_changes.length > 0 && (
+          <div>
+            <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-2">
+              What Worked — Changes with Event Evidence
+            </p>
+            <div className="rounded-md border border-border overflow-hidden">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="text-[11px]">Change</TableHead>
+                    <TableHead className="text-[11px] text-right">Events</TableHead>
+                    <TableHead className="text-[11px]">Topics</TableHead>
+                    <TableHead className="text-[11px]">Event Types</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {eventIntel.top_changes.map((cl) => {
+                    const change = changelogEntries.find((c) => c.id === cl.change_id);
+                    return (
+                      <TableRow key={cl.change_id}>
+                        <TableCell className="text-[13px] font-medium max-w-[200px] truncate">
+                          {change?.asset_name ?? cl.change_id}
+                        </TableCell>
+                        <TableCell className="text-[13px] tabular-nums text-right text-status-success font-medium">
+                          {cl.events_attributed}
+                        </TableCell>
+                        <TableCell className="text-[12px] text-muted-foreground max-w-[160px] truncate">
+                          {cl.topics.join(", ")}
+                        </TableCell>
+                        <TableCell className="text-[12px] text-muted-foreground">
+                          {cl.event_types.map((t) => t.replace(/_/g, " ")).join(", ")}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Attribution Coverage */}

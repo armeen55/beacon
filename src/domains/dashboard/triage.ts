@@ -22,6 +22,12 @@ import {
 import { getBriefProgress } from "@/domains/briefs/utils";
 import { getBriefsForOpportunity } from "@/lib/lookups";
 import { METRIC_DIRECTION } from "@/lib/constants";
+import { partitionResultsByMode } from "@/domains/attribution/result-mode";
+import { detectOutcomeEvents } from "@/domains/attribution/events";
+import { discoverCandidates } from "@/domains/attribution/candidates";
+import { triageCandidates } from "@/domains/attribution/triage";
+import { resolveEvents, computeChangeLearning } from "@/domains/attribution/event-resolution";
+import { candidateLinks } from "@/domains/attribution/store";
 
 // ── Types ──
 
@@ -526,7 +532,23 @@ export function computeLoopHealth(now: Date = new Date()): LoopHealth {
     (r) => new Date(r.snapshot_date) >= twoWeeksAgo
   ).length;
 
+  const { attribution: attrResults } = partitionResultsByMode(results);
+  const evts = detectOutcomeEvents(attrResults);
+  const trMap = new Map<string, ReturnType<typeof triageCandidates>>();
+  const ccMap = new Map<string, number>();
+  for (const ev of evts) {
+    const anchor = results.find((r) => r.id === ev.anchor_result_id);
+    if (!anchor) continue;
+    const cands = discoverCandidates(anchor, changelogEntries, opportunities);
+    ccMap.set(ev.anchor_result_id, cands.length);
+    trMap.set(ev.anchor_result_id, triageCandidates(cands));
+  }
+  const resolvedEvts = resolveEvents(evts, candidateLinks, trMap, ccMap);
+  const changeLearning = computeChangeLearning(resolvedEvts);
+  const eventLearnIds = new Set(changeLearning.map((cl) => cl.change_id));
+
   const learnCount = changelogEntries.filter((c) => {
+    if (eventLearnIds.has(c.id)) return true;
     const v = computeChangeVerdict(c, results, opportunities);
     return v.verdict === "validated" || v.verdict === "partial";
   }).length;
