@@ -10,7 +10,8 @@ import { results, changelogEntries, opportunities } from "@/lib/seed-data.server
 import { getFullChainForResult } from "@/lib/lookups";
 import { discoverCandidates } from "@/domains/attribution/candidates";
 import { triageCandidates } from "@/domains/attribution/triage";
-import { classifyResultMode } from "@/domains/attribution/result-mode";
+import { classifyResultMode, partitionResultsByMode } from "@/domains/attribution/result-mode";
+import { detectOutcomeEvents } from "@/domains/attribution/events";
 import { truthLabels } from "@/domains/attribution/store";
 import {
   PLATFORM_LABELS,
@@ -61,6 +62,10 @@ export default async function ResultDetailPage({
   const primaryAttribution = chains.find(
     (c) => c.attribution?.role === "primary"
   );
+
+  const { attribution: attrResults } = partitionResultsByMode(results);
+  const allEvents = detectOutcomeEvents(attrResults);
+  const anchorEvent = allEvents.find((e) => e.anchor_result_id === result.id);
 
   const candidates = discoverCandidates(result, changelogEntries, opportunities);
   const triage = triageCandidates(candidates);
@@ -118,6 +123,22 @@ export default async function ResultDetailPage({
           </span>
         </div>
       </div>
+
+      {anchorEvent && (
+        <div className="rounded-md border-2 border-status-success/20 bg-status-success/5 px-4 py-3">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-status-success mb-1">
+            Outcome Event
+          </p>
+          <p className="text-[13px] font-medium">
+            {anchorEvent.description}
+          </p>
+          {anchorEvent.context.gap_days > 0 && (
+            <p className="text-[12px] text-muted-foreground mt-0.5">
+              After {anchorEvent.context.gap_days}-day gap without mentions
+            </p>
+          )}
+        </div>
+      )}
 
       {/* Attribution summary above fold */}
       {primaryAttribution?.attribution && (
@@ -287,17 +308,20 @@ export default async function ResultDetailPage({
       />
 
       {(() => {
-        const nextEntry = results
-          .filter((r) => r.id !== result.id && classifyResultMode(r) === "attribution")
-          .map((r) => {
-            const c = discoverCandidates(r, changelogEntries, opportunities);
+        const resultMap = new Map(results.map((r) => [r.id, r]));
+        const nextEvent = allEvents
+          .filter((ev) => ev.anchor_result_id !== result.id)
+          .map((ev) => {
+            const anchor = resultMap.get(ev.anchor_result_id);
+            if (!anchor) return null;
+            const c = discoverCandidates(anchor, changelogEntries, opportunities);
             const t = triageCandidates(c);
-            return { result: r, reviewCount: t.needsReview.length };
+            return { result: anchor, reviewCount: t.needsReview.length };
           })
-          .filter((e) => e.reviewCount > 0)
+          .filter((e): e is NonNullable<typeof e> => e !== null && e.reviewCount > 0)
           .sort((a, b) => b.reviewCount - a.reviewCount)[0];
 
-        const nextResult = nextEntry?.result ?? null;
+        const nextResult = nextEvent?.result ?? null;
         if (!nextResult) return null;
         return (
           <div className="flex items-center justify-between border-t border-border pt-4">
