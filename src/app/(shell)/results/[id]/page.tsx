@@ -9,6 +9,7 @@ import { CandidateReview } from "@/components/data/candidate-review";
 import { results, changelogEntries, opportunities } from "@/lib/seed-data.server";
 import { getFullChainForResult } from "@/lib/lookups";
 import { discoverCandidates } from "@/domains/attribution/candidates";
+import { triageCandidates } from "@/domains/attribution/triage";
 import { truthLabels } from "@/domains/attribution/store";
 import {
   PLATFORM_LABELS,
@@ -61,7 +62,14 @@ export default async function ResultDetailPage({
   );
 
   const candidates = discoverCandidates(result, changelogEntries, opportunities);
-  const serializedCandidates = candidates.map((c) => ({
+  const triage = triageCandidates(candidates);
+  const allTriaged = [
+    ...(triage.primary ? [triage.primary] : []),
+    ...triage.contributing,
+    ...triage.needsReview,
+    ...triage.suppressed,
+  ];
+  const serializedCandidates = allTriaged.map((c) => ({
     change: {
       id: c.change.id,
       asset_name: c.change.asset_name,
@@ -72,6 +80,8 @@ export default async function ResultDetailPage({
     },
     attribution: c.attribution,
     score: c.score,
+    triage: c.triage,
+    triageReason: c.triageReason,
   }));
 
   const sourceOpportunities = [
@@ -278,12 +288,13 @@ export default async function ResultDetailPage({
       {(() => {
         const nextEntry = results
           .filter((r) => r.id !== result.id)
-          .map((r) => ({
-            result: r,
-            count: discoverCandidates(r, changelogEntries, opportunities).length,
-          }))
-          .filter((e) => e.count > 0)
-          .sort((a, b) => b.count - a.count)[0];
+          .map((r) => {
+            const c = discoverCandidates(r, changelogEntries, opportunities);
+            const t = triageCandidates(c);
+            return { result: r, reviewCount: t.needsReview.length };
+          })
+          .filter((e) => e.reviewCount > 0)
+          .sort((a, b) => b.reviewCount - a.reviewCount)[0];
 
         const nextResult = nextEntry?.result ?? null;
         if (!nextResult) return null;
