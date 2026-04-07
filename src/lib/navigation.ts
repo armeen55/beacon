@@ -4,12 +4,10 @@ import {
   FileText,
   ListChecks,
   BarChart3,
-  Users,
-  Shield,
-  Calendar,
   Upload,
   Activity,
   ClipboardCheck,
+  Zap,
   type LucideIcon,
 } from "lucide-react";
 
@@ -26,39 +24,27 @@ export type NavGroup = {
 
 export const navigationGroups: NavGroup[] = [
   {
-    label: "Overview",
+    label: "Core",
     items: [
-      { label: "Dashboard", href: "/", icon: LayoutDashboard },
-      { label: "Weekly", href: "/weekly", icon: Calendar },
-    ],
-  },
-  {
-    label: "Strategy",
-    items: [
-      { label: "Opportunities", href: "/opportunities", icon: Target },
-      { label: "Competitors", href: "/competitors", icon: Users },
-    ],
-  },
-  {
-    label: "Execution",
-    items: [
-      { label: "Briefs", href: "/briefs", icon: FileText },
+      { label: "Today", href: "/", icon: LayoutDashboard },
+      { label: "Review", href: "/review", icon: ClipboardCheck },
       { label: "Changelog", href: "/changes", icon: ListChecks },
+      { label: "Actions", href: "/actions", icon: Zap },
     ],
   },
   {
-    label: "Measurement",
+    label: "Analysis",
     items: [
       { label: "Results", href: "/results", icon: BarChart3 },
-      { label: "Coverage", href: "/coverage", icon: Shield },
+      { label: "Opportunities", href: "/opportunities", icon: Target },
+      { label: "Diagnostics", href: "/diagnostics", icon: Activity },
     ],
   },
   {
     label: "System",
     items: [
-      { label: "Review", href: "/review", icon: ClipboardCheck },
       { label: "Import", href: "/import", icon: Upload },
-      { label: "Diagnostics", href: "/diagnostics", icon: Activity },
+      { label: "Briefs", href: "/briefs", icon: FileText },
     ],
   },
 ];

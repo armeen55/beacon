@@ -227,6 +227,8 @@ export async function resetExperiment(
   };
 }> {
   const { candidateLinks, truthLabels, persistCandidateLinks, persistTruthLabels } = await import("@/domains/attribution/store");
+  const { actionStates, persistActionStates } = await import("@/domains/actions/store");
+  const { briefStates, persistBriefStates } = await import("@/domains/brief-generation/store");
 
   const cleared = {
     results: results.length,
@@ -244,6 +246,8 @@ export async function resetExperiment(
   competitors.length = 0;
   candidateLinks.length = 0;
   importRuns.length = 0;
+  actionStates.length = 0;
+  briefStates.length = 0;
 
   if (!options.preserveTruthLabels) {
     truthLabels.length = 0;
@@ -254,6 +258,8 @@ export async function resetExperiment(
   await writeStore("imported-opportunities", []);
   await writeStore("imported-competitors", []);
   await writeStore("import-runs", []);
+  await writeStore("action-states", []);
+  await writeStore("brief-states", []);
   await persistCandidateLinks();
   if (!options.preserveTruthLabels) {
     await persistTruthLabels();

@@ -25,6 +25,28 @@ import { discoverCandidates } from "@/domains/attribution/candidates";
 import { triageCandidates } from "@/domains/attribution/triage";
 import { resolveEvents, computeEventIntelligence } from "@/domains/attribution/event-resolution";
 import { candidateLinks } from "@/domains/attribution/store";
+import { computeActionClusters } from "@/domains/action-clusters/compute";
+import { summarizeClusters } from "@/domains/action-clusters/selectors";
+import {
+  CLUSTER_STATUS_LABELS,
+  CLUSTER_STATUS_COLORS,
+} from "@/domains/action-clusters/types";
+import type { ClusterStatus } from "@/domains/action-clusters/types";
+import { computePatterns } from "@/domains/patterns/compute";
+import { summarizePatterns } from "@/domains/patterns/selectors";
+import {
+  PATTERN_CONFIDENCE_COLORS,
+  PATTERN_TREND_LABELS,
+  PATTERN_TREND_COLORS,
+} from "@/domains/patterns/types";
+import { hasActiveExperiment } from "@/lib/seed-data.server";
+import { computeOpportunityCandidates } from "@/domains/opportunity-candidates/compute";
+import { summarizeCandidates } from "@/domains/opportunity-candidates/selectors";
+import {
+  CANDIDATE_TYPE_LABELS,
+  CANDIDATE_TYPE_COLORS,
+  CANDIDATE_CONFIDENCE_COLORS,
+} from "@/domains/opportunity-candidates/types";
 
 function StatBlock({
   label,
@@ -102,6 +124,33 @@ export default function DiagnosticsPage() {
         title="Attribution Diagnostics"
         description="Stress-test the attribution engine. Identify over-attribution, under-linkage, confidence inflation, and verdict quality."
       />
+
+      {/* Knows vs Suspects */}
+      <div className="grid grid-cols-2 gap-3">
+        <div className="rounded-md border border-border bg-surface-raised px-3 py-2.5">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
+            Confirmed facts
+          </p>
+          <div className="space-y-0.5 text-[12px]">
+            <p><span className="font-medium tabular-nums">{changelogEntries.length}</span> changes imported</p>
+            <p><span className="font-medium tabular-nums">{results.length}</span> results tracked</p>
+            <p><span className="font-medium tabular-nums">{eventIntel.total_events}</span> outcome events detected</p>
+            <p><span className="font-medium tabular-nums">{eventIntel.attributed}</span> events confirmed by human</p>
+            <p><span className="font-medium tabular-nums">{eventIntel.auto_resolved}</span> events auto-resolved by triage</p>
+            <p><span className="font-medium tabular-nums">{candidateLinks.filter((c) => c.status === "confirmed").length}</span> confirmed candidate links</p>
+          </div>
+        </div>
+        <div className="rounded-md border border-border bg-surface-raised px-3 py-2.5">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-status-warning mb-1.5">
+            Hypotheses
+          </p>
+          <div className="space-y-0.5 text-[12px] text-muted-foreground">
+            <p><span className="tabular-nums">{eventIntel.pending}</span> events with plausible but unconfirmed causes</p>
+            <p><span className="tabular-nums">{eventIntel.no_candidates}</span> events with zero candidate causes</p>
+            <p><span className="tabular-nums">{eventIntel.resolution_rate}%</span> resolution rate (includes auto + no_cause — not just confirmed)</p>
+          </div>
+        </div>
+      </div>
 
       {/* Entity Inventory */}
       <div>
@@ -254,6 +303,232 @@ export default function DiagnosticsPage() {
           </div>
         )}
       </div>
+
+      {/* Cluster Intelligence */}
+      {hasActiveExperiment() && (() => {
+        const { clusters } = computeActionClusters(results, changelogEntries, opportunities, candidateLinks);
+        const cs = summarizeClusters(clusters);
+        const statusOrder: ClusterStatus[] = ["working", "review_now", "fix_data", "investigate_external", "monitor_only", "low_signal"];
+        return (
+          <div>
+            <SectionTitle>Cluster Intelligence</SectionTitle>
+            <p className="text-[12px] text-muted-foreground mb-3">
+              Action clusters group related outcome events for operator decision-making.
+            </p>
+            <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-4">
+              <StatBlock label="Total Clusters" value={cs.total} />
+              <StatBlock label="Working" value={cs.working} variant="success" />
+              <StatBlock label="Review Now" value={cs.review_now} variant="warning" />
+              <StatBlock label="Fix Data" value={cs.fix_data + cs.investigate_external} variant="danger" />
+              <StatBlock label="Avg Score" value={cs.avgScore} />
+            </div>
+            <div className="rounded-md border border-border overflow-hidden">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="text-[11px]">Cluster</TableHead>
+                    <TableHead className="text-[11px] text-center">Status</TableHead>
+                    <TableHead className="text-[11px] text-right">Events</TableHead>
+                    <TableHead className="text-[11px] text-right">Attributed</TableHead>
+                    <TableHead className="text-[11px] text-right">Pending</TableHead>
+                    <TableHead className="text-[11px] text-right">Score</TableHead>
+                    <TableHead className="text-[11px] text-right">Urgency</TableHead>
+                    <TableHead className="text-[11px]">Confidence</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {clusters.map((c) => (
+                    <TableRow key={c.id}>
+                      <TableCell className="text-[12px] font-medium max-w-[180px] truncate">
+                        {c.label}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        <span className={`text-[10px] font-semibold uppercase ${CLUSTER_STATUS_COLORS[c.status]}`}>
+                          {CLUSTER_STATUS_LABELS[c.status]}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-[12px] tabular-nums text-right">{c.eventCount}</TableCell>
+                      <TableCell className="text-[12px] tabular-nums text-right text-status-success">
+                        {c.attributedEventCount}
+                      </TableCell>
+                      <TableCell className="text-[12px] tabular-nums text-right text-status-warning">
+                        {c.pendingEventCount}
+                      </TableCell>
+                      <TableCell className="text-[12px] tabular-nums text-right font-medium">{c.score}</TableCell>
+                      <TableCell className="text-[12px] tabular-nums text-right">{c.urgency}</TableCell>
+                      <TableCell className="text-[11px] text-muted-foreground capitalize">{c.confidenceBand}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+            <div className="mt-4">
+              <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-2">
+                By Status
+              </p>
+              <div className="space-y-1.5">
+                {statusOrder.map((status) => {
+                  const count = clusters.filter((c) => c.status === status).length;
+                  return (
+                    <div key={status} className="flex items-center gap-2">
+                      <span className={`text-[12px] w-24 ${CLUSTER_STATUS_COLORS[status]}`}>
+                        {CLUSTER_STATUS_LABELS[status]}
+                      </span>
+                      <Bar
+                        value={count}
+                        max={Math.max(cs.total, 1)}
+                        color={
+                          status === "working"
+                            ? "bg-status-success"
+                            : status === "review_now"
+                              ? "bg-status-warning"
+                              : status === "fix_data" || status === "investigate_external"
+                                ? "bg-status-danger"
+                                : "bg-border"
+                        }
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Pattern Intelligence */}
+      {hasActiveExperiment() && (() => {
+        const { patterns } = computePatterns(results, changelogEntries, opportunities, candidateLinks);
+        const ps = summarizePatterns(patterns);
+        if (patterns.length === 0) return null;
+        return (
+          <div>
+            <SectionTitle>Pattern Intelligence</SectionTitle>
+            <p className="text-[12px] text-muted-foreground mb-3">
+              Repeatable change strategies derived from signal_type × asset_type. Patterns compound when replicated.
+            </p>
+            <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-4">
+              <StatBlock label="Patterns" value={ps.total} />
+              <StatBlock label="High Confidence" value={ps.highConfidence} variant="success" />
+              <StatBlock label="Avg Success Rate" value={`${ps.avgSuccessRate}%`} variant={ps.avgSuccessRate >= 50 ? "success" : ps.avgSuccessRate >= 25 ? "warning" : "default"} />
+              <StatBlock label="Improving" value={ps.improving} variant="success" />
+              <StatBlock label="Declining" value={ps.declining} variant={ps.declining > 0 ? "danger" : "default"} />
+            </div>
+            <div className="rounded-md border border-border overflow-hidden">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="text-[11px]">Pattern</TableHead>
+                    <TableHead className="text-[11px] text-center">Confidence</TableHead>
+                    <TableHead className="text-[11px] text-center">Trend</TableHead>
+                    <TableHead className="text-[11px] text-right">Executions</TableHead>
+                    <TableHead className="text-[11px] text-right">Clusters</TableHead>
+                    <TableHead className="text-[11px] text-right">Attributed</TableHead>
+                    <TableHead className="text-[11px] text-right">Success</TableHead>
+                    <TableHead className="text-[11px] text-right">Avg Days</TableHead>
+                    <TableHead className="text-[11px] text-right">Score</TableHead>
+                    <TableHead className="text-[11px]">Untapped</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {patterns.map((p) => (
+                    <TableRow key={p.id}>
+                      <TableCell className="text-[12px] font-medium max-w-[150px] truncate">
+                        {p.label}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        <span className={`text-[10px] font-semibold uppercase ${PATTERN_CONFIDENCE_COLORS[p.confidenceBand]}`}>
+                          {p.confidenceBand}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-center">
+                        <span className={`text-[10px] ${PATTERN_TREND_COLORS[p.trend]}`}>
+                          {PATTERN_TREND_LABELS[p.trend]}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-[12px] tabular-nums text-right">{p.executionCount}</TableCell>
+                      <TableCell className="text-[12px] tabular-nums text-right">{p.clustersImpacted}</TableCell>
+                      <TableCell className="text-[12px] tabular-nums text-right text-status-success">{p.attributedEventCount}</TableCell>
+                      <TableCell className="text-[12px] tabular-nums text-right font-medium">{p.successRate}%</TableCell>
+                      <TableCell className="text-[12px] tabular-nums text-right text-muted-foreground">{p.avgTimeToImpact || "—"}</TableCell>
+                      <TableCell className="text-[12px] tabular-nums text-right font-medium">{p.score}</TableCell>
+                      <TableCell className="text-[11px] text-muted-foreground max-w-[120px] truncate">
+                        {p.untappedContexts.length > 0 ? p.untappedContexts.slice(0, 2).join(", ") : "—"}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Expansion Intelligence */}
+      {hasActiveExperiment() && (() => {
+        const expCandidates = computeOpportunityCandidates(results, changelogEntries, opportunities, candidateLinks);
+        const es = summarizeCandidates(expCandidates);
+        if (expCandidates.length === 0) return null;
+        return (
+          <div>
+            <SectionTitle>Expansion Intelligence</SectionTitle>
+            <p className="text-[12px] text-muted-foreground mb-3">
+              System-derived opportunity candidates from pattern intelligence. Fact-checked strategies with caveats.
+            </p>
+            <div className="grid grid-cols-2 lg:grid-cols-6 gap-3 mb-4">
+              <StatBlock label="Total Candidates" value={es.total} />
+              <StatBlock label="New" value={es.new} variant="success" />
+              <StatBlock label="High Confidence" value={es.high} variant="success" />
+              <StatBlock label="Medium" value={es.medium} variant="warning" />
+              <StatBlock label="Adjacent" value={es.adjacent} />
+              <StatBlock label="Expansion" value={es.expansion} />
+            </div>
+            <div className="rounded-md border border-border overflow-hidden">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Candidate</TableHead>
+                    <TableHead>Type</TableHead>
+                    <TableHead>Confidence</TableHead>
+                    <TableHead>Pattern</TableHead>
+                    <TableHead>Target</TableHead>
+                    <TableHead className="text-right">Score</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {expCandidates.slice(0, 20).map((c) => (
+                    <TableRow key={c.id}>
+                      <TableCell className="text-[13px] font-medium max-w-[200px] truncate">
+                        {c.label}
+                        {c.alreadyExists && (
+                          <span className="ml-1 text-[9px] text-muted-foreground italic">exists</span>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <span className={`text-[11px] font-medium ${CANDIDATE_TYPE_COLORS[c.opportunityType]}`}>
+                          {CANDIDATE_TYPE_LABELS[c.opportunityType]}
+                        </span>
+                      </TableCell>
+                      <TableCell>
+                        <span className={`text-[11px] font-medium uppercase ${CANDIDATE_CONFIDENCE_COLORS[c.confidence]}`}>
+                          {c.confidence}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-[11px] text-muted-foreground max-w-[150px] truncate">
+                        {c.sourcePatternLabel}
+                      </TableCell>
+                      <TableCell className="text-[11px] text-muted-foreground">
+                        {c.targetCity ?? c.targetTopic}
+                      </TableCell>
+                      <TableCell className="text-right text-[11px] tabular-nums">{c.expectedImpact}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Attribution Coverage */}
       <div>
