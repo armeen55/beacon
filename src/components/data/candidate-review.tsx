@@ -31,9 +31,11 @@ type CandidateItem = {
 export function CandidateReview({
   resultId,
   candidates,
+  truthLabelMap = {},
 }: {
   resultId: string;
   candidates: CandidateItem[];
+  truthLabelMap?: Record<string, TruthRelation>;
 }) {
   const [isPending, startTransition] = useTransition();
 
@@ -116,12 +118,19 @@ export function CandidateReview({
                 </button>
               </div>
             </div>
-            <div className="flex items-center gap-3">
-              <ConfidenceBadge
-                confidence={attribution.confidence}
-                explanation={attribution.explanation}
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <ConfidenceBadge
+                  confidence={attribution.confidence}
+                  explanation={attribution.explanation}
+                />
+                <MatchFactors matches={attribution.matches} />
+              </div>
+              <TruthLabeler
+                resultId={resultId}
+                changeId={change.id}
+                currentLabel={truthLabelMap[change.id]}
               />
-              <MatchFactors matches={attribution.matches} />
             </div>
           </div>
         ))}

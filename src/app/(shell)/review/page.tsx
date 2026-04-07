@@ -30,13 +30,12 @@ type ReviewRow = {
 export default function ReviewPage() {
   const rows: ReviewRow[] = [];
   let totalCandidates = 0;
-  let reviewed = 0;
   let unreviewed = 0;
   let labeled = 0;
 
   for (const result of results) {
     const candidates = discoverCandidates(result, changelogEntries, opportunities);
-    if (candidates.length > 0 || result.attributed_changelog_ids.length === 0) {
+    if (candidates.length > 0) {
       rows.push({
         resultId: result.id,
         metricType: METRIC_TYPE_LABELS[result.metric_type],
@@ -51,8 +50,7 @@ export default function ReviewPage() {
         attributedCount: result.attributed_changelog_ids.length,
       });
       totalCandidates += candidates.length;
-      if (candidates.length > 0) unreviewed++;
-      else reviewed++;
+      unreviewed++;
     }
   }
 

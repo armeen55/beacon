@@ -70,7 +70,7 @@ export async function rejectCandidate(
   }
 
   await persistCandidateLinks();
-  revalidatePath(`/results/${resultId}`);
+  revalidatePath("/", "layout");
   return { success: true };
 }
 

@@ -8,6 +8,8 @@ import {
   normalizeUrl,
   normalizeTopic,
   normalizeCity,
+  cleanNumeric,
+  normalizeImportDate,
 } from "./parsers";
 import type { Result } from "@/domains/results/types";
 import type { ChangelogEntry } from "@/domains/changelog/types";
@@ -30,27 +32,33 @@ export function mapResultRow(
   const errors: string[] = [];
   const warnings: string[] = [];
 
-  const platform = normalizePlatform(row.platform ?? "");
-  if (!platform) errors.push(`Row ${idx + 1}: Unknown platform "${row.platform}"`);
+  const platformRaw = row.platform ?? row.platform_name ?? row.engine ?? row.channel ?? row.source ?? "";
+  const platform = normalizePlatform(platformRaw);
+  if (!platform) errors.push(`Row ${idx + 1}: Unknown platform "${platformRaw}"`);
 
-  const metricType = normalizeMetricType(row.metric_type ?? row.metric ?? "");
-  if (!metricType) errors.push(`Row ${idx + 1}: Unknown metric_type "${row.metric_type ?? row.metric}"`);
+  const metricRaw = row.metric_type ?? row.metric ?? row.metric_name ?? row.kpi ?? row.measure ?? "";
+  const metricType = normalizeMetricType(metricRaw);
+  if (!metricType) errors.push(`Row ${idx + 1}: Unknown metric_type "${metricRaw}"`);
 
-  const metricValueRaw = row.metric_value ?? row.value ?? row.current_value ?? row.new_value ?? "";
-  const metricValue = parseFloat(metricValueRaw);
-  if (!metricValueRaw || isNaN(metricValue)) errors.push(`Row ${idx + 1}: Invalid metric_value "${metricValueRaw}"`);
+  const metricValueRaw = row.metric_value ?? row.value ?? row.current_value ?? row.new_value ?? row.current ?? "";
+  const metricValue = cleanNumeric(metricValueRaw);
+  if (metricValue === null) errors.push(`Row ${idx + 1}: Invalid metric_value "${metricValueRaw}"`);
 
-  const snapshotDate = row.snapshot_date ?? row.date ?? row.occurred_at ?? row.measured_at ?? "";
-  if (!snapshotDate) errors.push(`Row ${idx + 1}: Missing snapshot_date`);
+  const dateRaw = row.snapshot_date ?? row.date ?? row.occurred_at ?? row.measured_at ?? row.report_date ?? row.as_of ?? row.week_ending ?? row.week_of ?? "";
+  const snapshotDate = normalizeImportDate(dateRaw);
+  if (!snapshotDate && dateRaw) {
+    warnings.push(`Row ${idx + 1}: Could not parse date "${dateRaw}", using as-is`);
+  }
+  if (!dateRaw) errors.push(`Row ${idx + 1}: Missing snapshot_date`);
 
   if (errors.length > 0) return { entity: null, errors, warnings };
 
-  const prevRaw = row.previous_value ?? row.prev_value ?? row.old_value ?? "";
-  const previousValue = prevRaw ? parseFloat(prevRaw) : null;
+  const prevRaw = row.previous_value ?? row.prev_value ?? row.old_value ?? row.prior ?? row.baseline ?? "";
+  const previousValue = cleanNumeric(prevRaw);
 
   let delta: number | null = null;
   let deltaPercentage: number | null = null;
-  if (previousValue !== null && !isNaN(previousValue)) {
+  if (previousValue !== null && metricValue !== null) {
     const rawDelta = metricValue - previousValue;
     const dir = METRIC_DIRECTION[metricType!];
     delta = dir === "lower_is_better" ? -rawDelta : rawDelta;
@@ -66,10 +74,10 @@ export function mapResultRow(
 
   const result: Result = {
     id: row.id?.trim() || generateId("res"),
-    snapshot_date: snapshotDate,
+    snapshot_date: snapshotDate || dateRaw,
     platform: platform!,
     metric_type: metricType!,
-    metric_value: metricValue,
+    metric_value: metricValue!,
     previous_value: previousValue,
     delta,
     delta_percentage: deltaPercentage,
@@ -95,20 +103,24 @@ export function mapChangeRow(
   const errors: string[] = [];
   const warnings: string[] = [];
 
-  const signalType = normalizeSignalType(row.signal_type ?? row.type ?? "");
-  if (!signalType) {
-    if (row.signal_type || row.type) {
-      warnings.push(`Row ${idx + 1}: Unknown signal_type "${row.signal_type ?? row.type}", using "content"`);
-    }
+  const signalRaw = row.signal_type ?? row.type ?? row.category ?? row.change_type ?? row.workstream ?? "";
+  const signalType = normalizeSignalType(signalRaw);
+  if (!signalType && signalRaw) {
+    warnings.push(`Row ${idx + 1}: Unknown signal_type "${signalRaw}", using "content"`);
   }
 
-  const assetType = normalizeAssetType(row.asset_type ?? "");
-  if (!assetType && row.asset_type) {
-    warnings.push(`Row ${idx + 1}: Unknown asset_type "${row.asset_type}", using "service_page"`);
+  const assetRaw = row.asset_type ?? row.page_type ?? row.content_type ?? "";
+  const assetType = normalizeAssetType(assetRaw);
+  if (!assetType && assetRaw) {
+    warnings.push(`Row ${idx + 1}: Unknown asset_type "${assetRaw}", using "service_page"`);
   }
 
-  const timestamp = row.timestamp ?? row.date ?? row.occurred_at ?? row.changed_at ?? row.deploy_date ?? row.when ?? "";
-  if (!timestamp) errors.push(`Row ${idx + 1}: Missing timestamp/date`);
+  const tsRaw = row.timestamp ?? row.date ?? row.occurred_at ?? row.changed_at ?? row.deploy_date ?? row.when ?? row.event_date ?? row.log_date ?? row.created_date ?? "";
+  const timestamp = normalizeImportDate(tsRaw);
+  if (!timestamp && tsRaw) {
+    warnings.push(`Row ${idx + 1}: Could not parse date "${tsRaw}", using as-is`);
+  }
+  if (!tsRaw) errors.push(`Row ${idx + 1}: Missing timestamp/date`);
 
   const assetName = row.asset_name ?? row.name ?? row.title ?? row.page ?? row.asset ?? "";
   if (!assetName) errors.push(`Row ${idx + 1}: Missing asset_name`);
@@ -133,10 +145,10 @@ export function mapChangeRow(
 
   const entry: ChangelogEntry = {
     id: row.id?.trim() || generateId("cl"),
-    timestamp,
+    timestamp: timestamp || tsRaw,
     signal_type: signalType ?? "content",
     asset_type: assetType ?? "service_page",
-    url: normalizeUrl(row.url ?? ""),
+    url: normalizeUrl(row.url ?? row.page_url ?? row.link ?? row.target_url ?? ""),
     asset_name: assetName,
     change_description: description,
     topic_targeted: topic,

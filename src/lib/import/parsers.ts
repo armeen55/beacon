@@ -11,7 +11,8 @@ import {
 } from "@/lib/constants";
 
 export function parseCSV(raw: string): Record<string, string>[] {
-  const lines = raw.split(/\r?\n/).filter((l) => l.trim());
+  const cleaned = raw.replace(/^\ufeff/, "");
+  const lines = cleaned.split(/\r?\n/).filter((l) => l.trim());
   if (lines.length < 2) return [];
 
   const headers = parseCSVLine(lines[0]).map((h) => h.trim().toLowerCase().replace(/\s+/g, "_"));
@@ -105,6 +106,11 @@ platformMap.set("ms copilot", "claude");
 platformMap.set("meta", "claude");
 platformMap.set("meta ai", "claude");
 platformMap.set("bard", "gemini");
+platformMap.set("google aio", "google_aio");
+platformMap.set("ai overview", "google_aio");
+platformMap.set("ai overviews", "google_aio");
+platformMap.set("serp", "google_aio");
+platformMap.set("anthropic", "claude");
 
 metricMap.set("rank", "visibility_rank");
 metricMap.set("ranking", "visibility_rank");
@@ -128,6 +134,14 @@ metricMap.set("citations", "citation_share");
 metricMap.set("citation", "citation_share");
 metricMap.set("impressions", "organic_clicks");
 metricMap.set("ctr", "organic_clicks");
+metricMap.set("avg pos", "average_position");
+metricMap.set("avg. pos", "average_position");
+metricMap.set("avg. position", "average_position");
+metricMap.set("sessions", "organic_clicks");
+metricMap.set("pageviews", "organic_clicks");
+metricMap.set("page views", "organic_clicks");
+metricMap.set("calls", "form_submissions");
+metricMap.set("phone calls", "form_submissions");
 
 signalMap.set("seo", "content");
 signalMap.set("blog", "content");
@@ -155,6 +169,15 @@ signalMap.set("gbp", "citation");
 signalMap.set("google business", "citation");
 signalMap.set("directory", "citation");
 signalMap.set("listing", "citation");
+signalMap.set("local", "citation");
+signalMap.set("maps", "citation");
+signalMap.set("gmb", "citation");
+signalMap.set("google business", "citation");
+signalMap.set("performance", "technical");
+signalMap.set("core web vitals", "technical");
+signalMap.set("cwv", "technical");
+signalMap.set("speed", "technical");
+signalMap.set("site speed", "technical");
 
 assetMap.set("blog", "service_page");
 assetMap.set("blog post", "service_page");
@@ -169,33 +192,55 @@ assetMap.set("project", "project_page");
 assetMap.set("portfolio", "project_page");
 assetMap.set("profile", "directory_profile");
 assetMap.set("directory listing", "directory_profile");
+assetMap.set("gmb", "directory_profile");
+assetMap.set("google business profile", "directory_profile");
+assetMap.set("maps listing", "directory_profile");
+assetMap.set("pillar", "service_page");
+assetMap.set("hub", "service_page");
+assetMap.set("resource", "service_page");
+assetMap.set("guide", "service_page");
+
+function stripParenthetical(raw: string): string {
+  return raw
+    .replace(/\s*\(.*?\)\s*/g, " ")
+    .replace(/\s*[—–]\s+.*$/, "")
+    .trim();
+}
+
+function lookupWithFallback(
+  raw: string,
+  map: Map<string, string>,
+  validSet: readonly string[]
+): string | null {
+  const key = raw.toLowerCase().trim();
+  const exact = map.get(key);
+  if (exact && (validSet as readonly string[]).includes(exact)) return exact;
+  const stripped = stripParenthetical(key);
+  if (stripped !== key) {
+    const fallback = map.get(stripped);
+    if (fallback && (validSet as readonly string[]).includes(fallback)) return fallback;
+  }
+  return null;
+}
 
 export function normalizePlatform(raw: string): Platform | null {
   if (!raw) return null;
-  const match = platformMap.get(raw.toLowerCase().trim());
-  if (match && (PLATFORMS as readonly string[]).includes(match)) return match as Platform;
-  return null;
+  return lookupWithFallback(raw, platformMap, PLATFORMS) as Platform | null;
 }
 
 export function normalizeMetricType(raw: string): MetricType | null {
   if (!raw) return null;
-  const match = metricMap.get(raw.toLowerCase().trim());
-  if (match && (METRIC_TYPES as readonly string[]).includes(match)) return match as MetricType;
-  return null;
+  return lookupWithFallback(raw, metricMap, METRIC_TYPES) as MetricType | null;
 }
 
 export function normalizeSignalType(raw: string): SignalType | null {
   if (!raw) return null;
-  const match = signalMap.get(raw.toLowerCase().trim());
-  if (match && (SIGNAL_TYPES as readonly string[]).includes(match)) return match as SignalType;
-  return null;
+  return lookupWithFallback(raw, signalMap, SIGNAL_TYPES) as SignalType | null;
 }
 
 export function normalizeAssetType(raw: string): AssetType | null {
   if (!raw) return null;
-  const match = assetMap.get(raw.toLowerCase().trim());
-  if (match && (ASSET_TYPES as readonly string[]).includes(match)) return match as AssetType;
-  return null;
+  return lookupWithFallback(raw, assetMap, ASSET_TYPES) as AssetType | null;
 }
 
 export function normalizeUrl(raw: string): string | null {
@@ -212,4 +257,37 @@ export function normalizeTopic(raw: string): string {
 export function normalizeCity(raw: string): string | null {
   if (!raw) return null;
   return raw.trim().replace(/\s+/g, " ") || null;
+}
+
+export function cleanNumeric(raw: string): number | null {
+  if (!raw) return null;
+  const cleaned = raw.trim().replace(/[$%,]/g, "").trim();
+  const num = parseFloat(cleaned);
+  return isNaN(num) ? null : num;
+}
+
+export function normalizeImportDate(raw: string): string | null {
+  if (!raw) return null;
+  const trimmed = raw.trim();
+
+  if (/^\d{4}-\d{2}-\d{2}/.test(trimmed)) return trimmed;
+
+  const usSlash = trimmed.match(/^(\d{1,2})[/](\d{1,2})[/](\d{4})$/);
+  if (usSlash) {
+    const [, m, d, y] = usSlash;
+    return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
+  }
+
+  const usDash = trimmed.match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/);
+  if (usDash) {
+    const [, m, d, y] = usDash;
+    return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
+  }
+
+  const parsed = Date.parse(trimmed);
+  if (!isNaN(parsed)) {
+    return new Date(parsed).toISOString().slice(0, 10);
+  }
+
+  return null;
 }

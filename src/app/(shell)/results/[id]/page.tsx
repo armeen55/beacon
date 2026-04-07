@@ -9,6 +9,7 @@ import { CandidateReview } from "@/components/data/candidate-review";
 import { results, changelogEntries, opportunities } from "@/lib/seed-data.server";
 import { getFullChainForResult } from "@/lib/lookups";
 import { discoverCandidates } from "@/domains/attribution/candidates";
+import { truthLabels } from "@/domains/attribution/store";
 import {
   PLATFORM_LABELS,
   METRIC_TYPE_LABELS,
@@ -267,14 +268,24 @@ export default async function ResultDetailPage({
       <CandidateReview
         resultId={result.id}
         candidates={serializedCandidates}
+        truthLabelMap={Object.fromEntries(
+          truthLabels
+            .filter((tl) => tl.result_id === result.id)
+            .map((tl) => [tl.change_id, tl.relation])
+        )}
       />
 
       {(() => {
-        const nextResult = results.find((r) => {
-          if (r.id === result.id) return false;
-          const c = discoverCandidates(r, changelogEntries, opportunities);
-          return c.length > 0;
-        });
+        const nextEntry = results
+          .filter((r) => r.id !== result.id)
+          .map((r) => ({
+            result: r,
+            count: discoverCandidates(r, changelogEntries, opportunities).length,
+          }))
+          .filter((e) => e.count > 0)
+          .sort((a, b) => b.count - a.count)[0];
+
+        const nextResult = nextEntry?.result ?? null;
         if (!nextResult) return null;
         return (
           <div className="flex items-center justify-between border-t border-border pt-4">

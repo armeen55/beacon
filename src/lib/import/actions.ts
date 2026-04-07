@@ -134,7 +134,7 @@ export async function executeImport(
   revalidatePath("/", "layout");
 
   return {
-    success: true,
+    success: imported > 0,
     run_id: batchId,
     imported_count: imported,
     skipped_count: skipped,
