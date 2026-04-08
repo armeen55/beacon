@@ -29,10 +29,13 @@ Working branch: `work/attribution-precision-20260407`
 | Review queue UI | Working | Full decision flow with lock/reject |
 | Event resolution tracking | Working | CandidateLinks + EventDecisions persisted |
 | Judgment summaries | Working | Natural-language what-happened + confidence |
-| Evidence tier classification | EXISTS, NOT WIRED | classifyEvidenceTier in pages/evidence-tier.ts |
-| Evidence tier scoring caps | EXISTS, NOT WIRED | EVIDENCE_TIER_BONUS/CAP in compute.ts — no callers pass evidenceMeta |
-| Page discovery | EXISTS, NOT WIRED | discover.ts, classify.ts — no live consumers |
-| Citation evidence index | EXISTS, NOT WIRED | citation-index.ts — no live consumers |
+| Evidence tier classification | WIRED | classifyEvidenceTier flows through discoverCandidates with page registry |
+| Evidence tier scoring caps | WIRED | EVIDENCE_TIER_BONUS/CAP applied via adjustScore; exact +8, weak cap 55 |
+| Page registry | WIRED | pages.json loaded into Map<url, PageEntity> for snapshot_verified lookups |
+| Citation evidence index | WIRED | page_to_topics from citation-evidence-index.json used for topic support |
+| Citation topic bonus | WIRED | +12 bonus for content-matching candidates on cited pages |
+| Page discovery | EXISTS, NOT LIVE | discover.ts, classify.ts — batch-built, not live consumers |
+| Evidence tier in UI | WIRED | Displayed in MatchFactors across review queue, attribution card, results |
 
 ## Score Distribution (baseline — pre-pruning)
 
@@ -83,3 +86,22 @@ Working branch: `work/attribution-precision-20260407`
 | Contributing | 15 |
 | Max score | 85 (evidence-capped) |
 | Mean score | 53.3 |
+
+## Post-Phase-4 Attribution Metrics
+
+| Metric | Value |
+|--------|-------|
+| Auto-resolved | 13/45 (29%) |
+| Needs-review events | 32 |
+| Needs-review candidates | 77 |
+| Suppressed | 95 |
+| Contributing | 15 |
+| Max score | 100 (capped) |
+| Mean score | 58.7 |
+| Evidence tier exact | 14/85 changes (16%), 77/200 candidates (39%) |
+| Evidence tier probable | 39/85 changes (46%), 74/200 candidates (37%) |
+| Evidence tier weak | 32/85 changes (38%), 49/200 candidates (25%) |
+| Citation-supported candidates | 71/200 (36%) |
+| Citation-supported + no-topic | 15 (pages cited for topic but vague description) |
+| Pages in registry | 5,297 (42 owned) |
+| Citation page-topics | 5,253 pages with topic data |

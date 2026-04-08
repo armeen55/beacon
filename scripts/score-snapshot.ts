@@ -11,19 +11,35 @@ import { discoverCandidates } from "../src/domains/attribution/candidates";
 import { triageCandidates } from "../src/domains/attribution/triage";
 import { partitionResultsByMode } from "../src/domains/attribution/result-mode";
 import { classifyEvidenceTier } from "../src/domains/pages/evidence-tier";
-import type { EvidenceTier } from "../src/domains/pages/types";
+import { normalizePageUrl } from "../src/domains/pages/classify";
+import type { EvidenceTier, PageEntity } from "../src/domains/pages/types";
 
 async function main() {
   const results = readStore<Result>("imported-results");
   const changes = readStore<ChangelogEntry>("imported-changes");
   const opps = readStore<Opportunity>("imported-opportunities");
 
-  console.log(`Results: ${results.length}, Changes: ${changes.length}, Opps: ${opps.length}`);
+  const pages = readStore<PageEntity>("pages");
+  const pageRegistry = new Map(pages.map((p) => [p.url, p]));
+
+  // Load citation evidence page_to_topics index
+  const fs = require("node:fs");
+  const path = require("node:path");
+  const ceiPath = path.join(process.cwd(), ".data", "citation-evidence-index.json");
+  let citationTopicIndex = new Map<string, Set<string>>();
+  if (fs.existsSync(ceiPath)) {
+    const raw = JSON.parse(fs.readFileSync(ceiPath, "utf-8"));
+    const ptMap: Record<string, string[]> = raw.page_to_topics ?? {};
+    citationTopicIndex = new Map(
+      Object.entries(ptMap).map(([url, topics]: [string, string[]]) => [url, new Set(topics)])
+    );
+  }
+  console.log(`Results: ${results.length}, Changes: ${changes.length}, Opps: ${opps.length}, Pages: ${pages.length}, Citation page-topics: ${citationTopicIndex.size}`);
 
   // Evidence tier distribution across all changes
   const tierCounts: Record<string, number> = { exact: 0, probable: 0, weak: 0, inferred: 0 };
   for (const c of changes) {
-    const meta = classifyEvidenceTier(c);
+    const meta = classifyEvidenceTier(c, pageRegistry);
     tierCounts[meta.tier]++;
   }
   console.log(`\nEvidence tier distribution (${changes.length} changes):`);
@@ -52,6 +68,8 @@ async function main() {
   let totalNeedsReviewCandidates = 0;
   let topicMatchingCandidates = 0;
   let noTopicCandidates = 0;
+  let citationSupportedCandidates = 0;
+  let citationSupportedNoTopic = 0;
 
   for (const event of events) {
     const result = results.find(r => r.id === event.anchor_result_id);
@@ -66,10 +84,23 @@ async function main() {
       const tier = c.attribution.evidence_tier;
       evidenceTierInCandidates[tier ?? "null"]++;
 
-      if (c.attribution.matches.topic === "strong" || c.attribution.matches.topic === "partial") {
+      const hasTopic = c.attribution.matches.topic === "strong" || c.attribution.matches.topic === "partial";
+      if (hasTopic) {
         topicMatchingCandidates++;
       } else {
         noTopicCandidates++;
+      }
+
+      // Check citation support
+      if (c.change.url && result.topic) {
+        const parsed = normalizePageUrl(c.change.url, "ritzbuilders.com");
+        if (parsed) {
+          const topics = citationTopicIndex.get(parsed.url);
+          if (topics?.has(result.topic)) {
+            citationSupportedCandidates++;
+            if (!hasTopic) citationSupportedNoTopic++;
+          }
+        }
       }
 
       for (const [factor, strength] of Object.entries(c.attribution.matches)) {
@@ -101,6 +132,8 @@ async function main() {
   console.log(`\nTotal candidates across all events: ${totalCandidates}`);
   console.log(`  Topic-matching: ${topicMatchingCandidates} (${pct(topicMatchingCandidates, totalCandidates)}%)`);
   console.log(`  No-topic: ${noTopicCandidates} (${pct(noTopicCandidates, totalCandidates)}%)`);
+  console.log(`  Citation-supported: ${citationSupportedCandidates} (${pct(citationSupportedCandidates, totalCandidates)}%)`);
+  console.log(`  Citation-supported + no-topic: ${citationSupportedNoTopic} (changes that target cited pages but have vague descriptions)`);
   console.log(`Auto-resolved events: ${autoResolved}`);
   console.log(`Needs-review events: ${needsReview}`);
   console.log(`Avg candidates/event: ${events.length > 0 ? (totalCandidates / events.length).toFixed(2) : 0}`);

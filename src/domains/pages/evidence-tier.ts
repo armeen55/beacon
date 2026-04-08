@@ -50,6 +50,12 @@ const MEASUREMENT_SIGNALS = new Set(["measurement"]);
  * Classify a changelog entry into an evidence tier.
  * Uses deterministic rules — no AI.
  */
+let defaultOwnedDomain = "ritzbuilders.com";
+
+export function configureOwnedDomain(domain: string) {
+  defaultOwnedDomain = domain.toLowerCase().replace(/^www\./, "");
+}
+
 export function classifyEvidenceTier(
   change: ChangelogEntry,
   pageRegistry?: Map<string, PageEntity>
@@ -66,7 +72,7 @@ export function classifyEvidenceTier(
   }
 
   const hasUrl = !!change.url && !isOpaqueUrl(change.url);
-  const parsed = hasUrl ? normalizePageUrl(change.url!, "rfritz.com") : null;
+  const parsed = hasUrl ? normalizePageUrl(change.url!, defaultOwnedDomain) : null;
   const hasStructuralUrl = !!parsed;
 
   if (!hasUrl) flags.push("no_url");

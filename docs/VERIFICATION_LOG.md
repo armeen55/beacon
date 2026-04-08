@@ -55,7 +55,53 @@
 - 0 opportunities in imported data → opportunity clustering inactive
 - Evidence tier "exact" unreachable without page registry
 
-### Build Verification
+### Build Verification (Phase 2)
 - `npx next build` passes clean
 - TypeScript: no errors
 - All pages compile and generate successfully
+
+---
+
+## 2026-04-07 — Phase 4: Page Evidence Foundations
+
+### What was implemented
+1. **Domain fix**: `evidence-tier.ts` defaulted to `rfritz.com` — changed to `ritzbuilders.com` and made configurable
+2. **Page registry wiring**: `candidates.ts` loads `pages.json` into `Map<url, PageEntity>` for `classifyEvidenceTier` snapshot_verified lookups
+3. **Citation evidence integration**: `candidates.ts` loads `page_to_topics` from `citation-evidence-index.json` and applies +12 score bonus to content-matching candidates whose pages are cited for the event's topic
+4. **Evidence tier UI**: `MatchFactors` component now renders evidence tier label with color across all 6 callsites
+5. **Score-snapshot enhanced**: now uses page registry for tier distribution; reports citation support metrics
+
+### Before/After Results
+
+| Metric | Post-Phase-2 | Post-Phase-4 | Change |
+|--------|-------------|-------------|--------|
+| Auto-resolved events | 13/45 | 13/45 | maintained |
+| Needs-review events | 32 | 32 | maintained |
+| Needs-review candidates | 98 | 77 | -21% |
+| Suppressed candidates | 74 | 95 | +28% |
+| Max score | 85 | 100 | evidence tier exact unlocked |
+| Mean score | 53.3 | 58.7 | +10% |
+| Evidence tier "exact" reachable | no | yes (14 changes, 77 candidates) | FIXED |
+| Citation evidence in scoring | no | yes (71 candidates supported) | NEW |
+| Evidence tier in UI | no | yes (all callsites) | NEW |
+
+### New Diagnostics
+- **Citation-supported candidates**: 71/200 (36%) — their pages are cited for the event's topic
+- **Citation-supported + no-topic**: 15 candidates — pages cited but changelog descriptions too vague for topic match
+- **Evidence tier distribution (changes)**: exact 16%, probable 46%, weak 38%
+- **Evidence tier distribution (candidates)**: exact 39%, probable 37%, weak 25%
+- **Pages in registry**: 5,297 (42 owned)
+- **Citation page-topics entries**: 5,253
+
+### What this means
+- Evidence tiers are now fully operational in the live attribution flow
+- The "exact" tier is achievable and correctly requires both structural URL and page registry match
+- Citation evidence provides a new topic-adjacent signal without disrupting triage stability
+- The 15 citation-supported but no-topic candidates identify the biggest near-term changelog quality opportunity
+- Suppressed candidates increased from 74 to 95 due to better scoring separation
+
+### Build Verification (Phase 4)
+- `npx next build` passes clean
+- TypeScript: no errors
+- All pages compile and generate successfully
+- `score-snapshot.ts` runs successfully with page registry and citation evidence

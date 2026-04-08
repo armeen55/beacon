@@ -122,7 +122,7 @@ export function CandidateReview({
               </div>
               <div className="flex items-center gap-3">
                 <ConfidenceBadge confidence={c.attribution.confidence} explanation={c.attribution.explanation} />
-                <MatchFactors matches={c.attribution.matches} />
+                <MatchFactors matches={c.attribution.matches} evidenceTier={c.attribution.evidence_tier} />
               </div>
             </div>
           </div>
@@ -150,7 +150,7 @@ export function CandidateReview({
                   </div>
                   <div className="flex items-center gap-3">
                     <ConfidenceBadge confidence={c.attribution.confidence} explanation={c.attribution.explanation} />
-                    <MatchFactors matches={c.attribution.matches} />
+                    <MatchFactors matches={c.attribution.matches} evidenceTier={c.attribution.evidence_tier} />
                   </div>
                 </div>
               ))}
@@ -258,7 +258,7 @@ function CandidateCard({
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <ConfidenceBadge confidence={attribution.confidence} explanation={attribution.explanation} />
-          <MatchFactors matches={attribution.matches} />
+          <MatchFactors matches={attribution.matches} evidenceTier={attribution.evidence_tier} />
         </div>
         <TruthLabeler resultId={resultId} changeId={change.id} currentLabel={truthLabel} />
       </div>

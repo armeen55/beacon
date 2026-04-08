@@ -406,7 +406,7 @@ function DecisionCard({
                     <span>{new Date(c.change.timestamp).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
                   </div>
                   <div className="mt-1.5">
-                    <MatchFactors matches={c.attribution.matches} />
+                    <MatchFactors matches={c.attribution.matches} evidenceTier={c.attribution.evidence_tier} />
                   </div>
                 </div>
               ))}

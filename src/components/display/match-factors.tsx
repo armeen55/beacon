@@ -1,8 +1,10 @@
 import { cn } from "@/lib/utils";
 import type { MatchStrength, Attribution } from "@/domains/attribution/types";
+import type { EvidenceTier } from "@/domains/pages/types";
 
 type MatchFactorsProps = {
   matches: Attribution["matches"];
+  evidenceTier?: EvidenceTier | null;
   className?: string;
 };
 
@@ -29,9 +31,23 @@ const STRENGTH_LABELS: Record<MatchStrength, string> = {
   unknown: "can't tell",
 };
 
-export function MatchFactors({ matches, className }: MatchFactorsProps) {
+const TIER_LABELS: Record<EvidenceTier, string> = {
+  exact: "Verified page",
+  probable: "Probable",
+  weak: "Weak evidence",
+  inferred: "Inferred",
+};
+
+const TIER_COLORS: Record<EvidenceTier, string> = {
+  exact: "text-status-success",
+  probable: "text-muted-foreground",
+  weak: "text-status-warning",
+  inferred: "text-status-warning",
+};
+
+export function MatchFactors({ matches, evidenceTier, className }: MatchFactorsProps) {
   return (
-    <div className={cn("inline-flex items-center gap-2", className)}>
+    <div className={cn("inline-flex items-center gap-2 flex-wrap", className)}>
       {(Object.entries(matches) as [keyof Attribution["matches"], MatchStrength][]).map(
         ([key, strength]) => (
           <span
@@ -50,6 +66,14 @@ export function MatchFactors({ matches, className }: MatchFactorsProps) {
             </span>
           </span>
         )
+      )}
+      {evidenceTier && (
+        <span
+          className={cn("text-[10px] font-medium", TIER_COLORS[evidenceTier])}
+          title={TIER_LABELS[evidenceTier]}
+        >
+          · {TIER_LABELS[evidenceTier]}
+        </span>
       )}
     </div>
   );

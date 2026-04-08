@@ -280,7 +280,7 @@ export default async function ResultDetailPage({
                         confidence={chain.attribution.confidence}
                         explanation={chain.attribution.explanation}
                       />
-                      <MatchFactors matches={chain.attribution.matches} />
+                      <MatchFactors matches={chain.attribution.matches} evidenceTier={chain.attribution.evidence_tier} />
                     </div>
                   )}
                 </div>

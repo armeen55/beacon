@@ -1,3 +1,5 @@
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import type { ChangelogEntry } from "@/domains/changelog/types";
 import type { Result } from "@/domains/results/types";
 import type { Opportunity } from "@/domains/opportunities/types";
@@ -11,7 +13,49 @@ import {
 import { candidateLinks } from "./store";
 import { ATTRIBUTION_CONFIG } from "./config";
 import { classifyEvidenceTier } from "@/domains/pages/evidence-tier";
-import type { EvidenceTier } from "@/domains/pages/types";
+import { normalizePageUrl } from "@/domains/pages/classify";
+import type { EvidenceTier, PageEntity } from "@/domains/pages/types";
+import { readStore } from "@/lib/persistence/json-store";
+
+// ── Page registry (loaded once for evidence tier verification) ──────
+
+let _pageRegistry: Map<string, PageEntity> | null = null;
+
+function getPageRegistry(): Map<string, PageEntity> {
+  if (!_pageRegistry) {
+    try {
+      const pages = readStore<PageEntity>("pages");
+      _pageRegistry = new Map(pages.map((p) => [p.url, p]));
+    } catch {
+      _pageRegistry = new Map();
+    }
+  }
+  return _pageRegistry;
+}
+
+// ── Citation topic index (which pages are cited for which topics) ────
+
+let _citationTopicIndex: Map<string, Set<string>> | null = null;
+
+function getCitationTopicIndex(): Map<string, Set<string>> {
+  if (!_citationTopicIndex) {
+    try {
+      const filePath = join(process.cwd(), ".data", "citation-evidence-index.json");
+      if (existsSync(filePath)) {
+        const raw = JSON.parse(readFileSync(filePath, "utf-8"));
+        const ptMap: Record<string, string[]> = raw.page_to_topics ?? {};
+        _citationTopicIndex = new Map(
+          Object.entries(ptMap).map(([url, topics]) => [url, new Set(topics)])
+        );
+      } else {
+        _citationTopicIndex = new Map();
+      }
+    } catch {
+      _citationTopicIndex = new Map();
+    }
+  }
+  return _citationTopicIndex;
+}
 
 export type CandidateResult = {
   change: ChangelogEntry;
@@ -63,20 +107,42 @@ function isHardNegative(matches: Attribution["matches"]): boolean {
   return false;
 }
 
-// ── Score adjustments ───────────────────────────────────────────────
+// ── Citation evidence lookup ─────────────────────────────────────────
+
+const CITATION_EVIDENCE_BONUS = 12;
 
 /**
- * When a candidate has no content relevance (topic + URL both miss),
- * cap its score so it can't auto-resolve or crowd out content-relevant
- * candidates. These matches rely only on structural/temporal signals
- * and need operator review if they survive at all.
+ * Check if a change's page URL is cited by AI platforms for the event's topic.
+ * Returns true if the page_to_topics index contains the change URL
+ * with a topic matching the result's topic.
  */
+function hasCitationTopicSupport(
+  change: ChangelogEntry,
+  resultTopic: string | null
+): boolean {
+  if (!resultTopic || !change.url) return false;
+
+  const index = getCitationTopicIndex();
+  if (index.size === 0) return false;
+
+  const parsed = normalizePageUrl(change.url, "ritzbuilders.com");
+  if (!parsed) return false;
+
+  const topics = index.get(parsed.url);
+  if (!topics) return false;
+
+  return topics.has(resultTopic);
+}
+
+// ── Score adjustments ───────────────────────────────────────────────
+
 const NO_CONTENT_SCORE_CAP = 45;
 
 function adjustScore(
   rawScore: number,
   tier: EvidenceTier | null,
-  matches: Attribution["matches"]
+  matches: Attribution["matches"],
+  citationSupport: boolean
 ): number {
   let score = rawScore;
 
@@ -90,11 +156,14 @@ function adjustScore(
   const noContent =
     (matches.topic === "none" || matches.topic === "unknown") &&
     (matches.url === "none" || matches.url === "unknown");
+
   if (noContent) {
     score = Math.min(score, NO_CONTENT_SCORE_CAP);
+  } else if (citationSupport) {
+    score += CITATION_EVIDENCE_BONUS;
   }
 
-  return score;
+  return Math.min(score, 100);
 }
 
 // ── Main discovery ──────────────────────────────────────────────────
@@ -130,7 +199,7 @@ export function discoverCandidates(
       return diffDays >= 0 && diffDays <= maxDaysResolved;
     })
     .map((change) => {
-      const evidenceMeta = classifyEvidenceTier(change);
+      const evidenceMeta = classifyEvidenceTier(change, getPageRegistry());
       const attribution = computeAttribution(
         change,
         result,
@@ -138,7 +207,8 @@ export function discoverCandidates(
         evidenceMeta
       );
       const rawScore = computeConfidenceScore(attribution.matches);
-      const score = adjustScore(rawScore, evidenceMeta.tier, attribution.matches);
+      const citationSupport = hasCitationTopicSupport(change, result.topic);
+      const score = adjustScore(rawScore, evidenceMeta.tier, attribution.matches, citationSupport);
       return { change, attribution, score };
     })
     .filter(

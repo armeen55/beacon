@@ -61,7 +61,7 @@ export function AttributionCard({
         explanation={attribution.explanation}
       />
 
-      <MatchFactors matches={attribution.matches} />
+      <MatchFactors matches={attribution.matches} evidenceTier={attribution.evidence_tier} />
 
       {attribution.role !== "primary" && (
         <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
