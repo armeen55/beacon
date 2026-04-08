@@ -72,6 +72,11 @@ export function mapResultRow(
     .map((s) => s.trim())
     .filter(Boolean);
 
+  const mentionCountRaw = row.mention_count ?? row.mentions ?? row.mentioned ?? "";
+  const citationCountRaw = row.citation_count ?? row.citations ?? row.cited ?? "";
+  const totalPossibleRaw = row.total_possible ?? row.total_prompts ?? row.total ?? "";
+  const positionRaw = row.position ?? row.avg_position ?? row.rank ?? "";
+
   const result: Result = {
     id: row.id?.trim() || generateId("res"),
     snapshot_date: snapshotDate || dateRaw,
@@ -86,6 +91,10 @@ export function mapResultRow(
     url_measured: normalizeUrl(row.url_measured ?? row.url ?? ""),
     attributed_changelog_ids: changeIds,
     notes: row.notes?.trim() || null,
+    mention_count: cleanNumeric(mentionCountRaw) ?? 0,
+    citation_count: cleanNumeric(citationCountRaw) ?? 0,
+    total_possible: cleanNumeric(totalPossibleRaw) ?? null,
+    position: cleanNumeric(positionRaw) ?? null,
     created_at: row.created_at || now(),
     source_system: source,
     import_batch_id: batchId,

@@ -94,10 +94,10 @@ export const CONFIDENCE_LEVELS = [
 export type ConfidenceLevel = (typeof CONFIDENCE_LEVELS)[number];
 
 export const CONFIDENCE_LEVEL_LABELS: Record<ConfidenceLevel, string> = {
-  high: "High",
-  medium: "Medium",
-  low: "Low",
-  speculative: "Speculative",
+  high: "Strong evidence",
+  medium: "Mixed signals",
+  low: "Thin evidence",
+  speculative: "Hunch",
 };
 
 export const CLOSE_REASONS = [
@@ -178,13 +178,13 @@ export const BRIEF_TYPES = [
 export type BriefType = (typeof BRIEF_TYPES)[number];
 
 export const BRIEF_TYPE_LABELS: Record<BriefType, string> = {
-  page_rebuild: "Page Rebuild",
-  new_page: "New Page",
-  schema_fix: "Schema Fix",
-  content_update: "Content Update",
-  citation_campaign: "Citation Campaign",
-  technical_fix: "Technical Fix",
-  off_page: "Off-Page",
+  page_rebuild: "Rebuild page",
+  new_page: "New page",
+  schema_fix: "Schema / structured data",
+  content_update: "Content refresh",
+  citation_campaign: "Citation push",
+  technical_fix: "Technical fix",
+  off_page: "Off-site work",
 };
 
 export const EFFORT_LEVELS = [
@@ -237,16 +237,16 @@ export const SIGNAL_TYPES = [
 export type SignalType = (typeof SIGNAL_TYPES)[number];
 
 export const SIGNAL_TYPE_LABELS: Record<SignalType, string> = {
-  faq: "FAQ",
-  content: "Content",
-  technical: "Technical",
-  page: "Page",
-  citation: "Citation",
-  review: "Review",
-  lead_form: "Lead Form",
-  off_page_seo: "Off-Page SEO",
-  measurement: "Measurement",
-  service_page: "Service Page",
+  faq: "FAQ content",
+  content: "On-page copy",
+  technical: "Technical / site",
+  page: "Page launch",
+  citation: "Citations / listings",
+  review: "Reviews program",
+  lead_form: "Lead capture",
+  off_page_seo: "Off-site / authority",
+  measurement: "Tracking & measurement",
+  service_page: "Service page",
 };
 
 export const ASSET_TYPES = [
@@ -285,14 +285,14 @@ export const METRIC_TYPES = [
 export type MetricType = (typeof METRIC_TYPES)[number];
 
 export const METRIC_TYPE_LABELS: Record<MetricType, string> = {
-  visibility_rank: "Visibility Rank",
-  citation_share: "Citation Share",
-  mention_count: "Mention Count",
-  share_of_voice: "Share of Voice",
-  average_position: "Avg. Position",
-  organic_clicks: "Organic Clicks",
-  ai_referrals: "AI Referrals",
-  form_submissions: "Form Submissions",
+  visibility_rank: "Visibility rank",
+  citation_share: "Citation share",
+  mention_count: "Mentions",
+  share_of_voice: "Share of voice",
+  average_position: "Avg. position",
+  organic_clicks: "Organic clicks",
+  ai_referrals: "AI referrals",
+  form_submissions: "Form submissions",
 };
 
 export const METRIC_DIRECTION: Record<
@@ -320,36 +320,3 @@ export const METRIC_UNITS: Record<MetricType, string> = {
   form_submissions: "",
 };
 
-export const COVERAGE_CATEGORIES = [
-  "schema",
-  "listing",
-  "content",
-  "technical",
-  "entity",
-  "review",
-] as const;
-export type CoverageCategory = (typeof COVERAGE_CATEGORIES)[number];
-
-export const COVERAGE_CATEGORY_LABELS: Record<CoverageCategory, string> = {
-  schema: "Schema",
-  listing: "Listing",
-  content: "Content",
-  technical: "Technical",
-  entity: "Entity",
-  review: "Review",
-};
-
-export const COVERAGE_STATUSES = [
-  "missing",
-  "partial",
-  "complete",
-  "needs_update",
-] as const;
-export type CoverageStatus = (typeof COVERAGE_STATUSES)[number];
-
-export const COVERAGE_STATUS_LABELS: Record<CoverageStatus, string> = {
-  missing: "Missing",
-  partial: "Partial",
-  complete: "Complete",
-  needs_update: "Needs Update",
-};

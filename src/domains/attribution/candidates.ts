@@ -12,13 +12,14 @@ export type CandidateResult = {
   score: number;
 };
 
-/** True when at least one of topic / URL / geo is strong or partial (not none+unknown only). */
-function hasMeaningfulTopicUrlOrGeo(matches: Attribution["matches"]): boolean {
+/** True when at least one content-relevant factor is strong or partial. */
+function hasMeaningfulSignal(matches: Attribution["matches"]): boolean {
   const meaningful = (m: MatchStrength) => m === "strong" || m === "partial";
   return (
     meaningful(matches.topic) ||
     meaningful(matches.url) ||
-    matches.geo === "strong"
+    meaningful(matches.geo) ||
+    meaningful(matches.sourceCategory)
   );
 }
 
@@ -58,7 +59,7 @@ export function discoverCandidates(
     })
     .filter(
       ({ score, attribution }) =>
-        score >= minScoreResolved && hasMeaningfulTopicUrlOrGeo(attribution.matches)
+        score >= minScoreResolved && hasMeaningfulSignal(attribution.matches)
     )
     .sort((a, b) => b.score - a.score || a.attribution.temporal_distance_days - b.attribution.temporal_distance_days)
     .slice(0, topKResolved);

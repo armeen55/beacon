@@ -20,14 +20,9 @@ import {
   BUCKET_COLORS,
   BUCKET_TEXT_COLORS,
   ACTION_TYPE_LABELS,
-  OPERATOR_STATE_LABELS,
   FOLLOW_THROUGH_LABELS,
   FOLLOW_THROUGH_COLORS,
 } from "@/domains/actions/types";
-import {
-  CLUSTER_STATUS_LABELS,
-  CLUSTER_STATUS_COLORS,
-} from "@/domains/action-clusters/types";
 import { ActionStateControls } from "@/components/data/action-controls";
 
 function BucketSection({
@@ -92,20 +87,20 @@ function ActionCard({
             >
               {ACTION_TYPE_LABELS[action.actionType]}
             </span>
-            <span className="text-[10px] text-muted-foreground tabular-nums">
-              P{action.priorityScore}
-            </span>
-            {action.confidenceBand !== "insufficient" && (
-              <span className="text-[10px] text-muted-foreground capitalize">
-                {action.confidenceBand}
-              </span>
+            {action.confidenceBand === "high" && (
+              <span className="text-[10px] text-status-success">strong evidence</span>
             )}
-            {action.stalenessBand !== "fresh" && (
-              <span
-                className={`text-[10px] ${action.stalenessBand === "stale" ? "text-status-danger" : "text-status-warning"}`}
-              >
-                {action.stalenessBand}
-              </span>
+            {action.confidenceBand === "medium" && (
+              <span className="text-[10px] text-muted-foreground">mixed signals</span>
+            )}
+            {action.confidenceBand === "low" && (
+              <span className="text-[10px] text-muted-foreground/60">thin evidence</span>
+            )}
+            {action.stalenessBand === "stale" && (
+              <span className="text-[10px] text-status-danger">stale — refresh inputs</span>
+            )}
+            {action.stalenessBand === "aging" && (
+              <span className="text-[10px] text-status-warning">getting old</span>
             )}
             {isDone && (
               <span className="text-[10px] font-medium text-status-success">
@@ -133,12 +128,7 @@ function ActionCard({
                 <span className="font-medium">{action.patternLabel}</span>
                 {action.patternSuccessRate !== null && (
                   <span className="text-muted-foreground">
-                    {action.patternSuccessRate}% success
-                  </span>
-                )}
-                {action.patternScore !== null && (
-                  <span className="text-muted-foreground tabular-nums">
-                    Score {action.patternScore}
+                    worked {action.patternSuccessRate}% of the time
                   </span>
                 )}
               </div>
@@ -262,8 +252,8 @@ export default function ActionsPage() {
   return (
     <div>
       <PageHeader
-        title="Action Queue"
-        description="Suggested next steps derived from outcome event clusters. These are hypotheses — not confirmed priorities — until attribution review provides evidence."
+        title="What to do next"
+        description="Suggested moves based on what's working. Treat these as ideas until review confirms what actually drove the results."
       />
 
       <div className="grid gap-3 grid-cols-2 lg:grid-cols-6 mb-6">

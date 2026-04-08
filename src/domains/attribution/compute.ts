@@ -2,8 +2,18 @@ import type { ChangelogEntry } from "@/domains/changelog/types";
 import type { Result } from "@/domains/results/types";
 import type { Brief } from "@/domains/briefs/types";
 import type { Opportunity } from "@/domains/opportunities/types";
+import type { EvidenceTier, EvidenceTierMeta } from "@/domains/pages/types";
 import { METRIC_DIRECTION } from "@/lib/constants";
-import type { SignalType } from "@/lib/constants";
+import type { Platform, SignalType } from "@/lib/constants";
+import {
+  ATTRIBUTION_CONFIG,
+  SIGNAL_PLATFORM_MAP,
+  ASSET_PLATFORM_BOOST,
+  SOURCE_CATEGORY_PLATFORM_WEIGHTS,
+  GEO_CONTAINMENT,
+  KNOWN_TOPICS,
+  PLATFORM_MAX_DAYS,
+} from "./config";
 import type {
   Attribution,
   AttributionConfidence,
@@ -15,28 +25,80 @@ import type {
   BriefVerdictData,
   SignalEffectiveness,
 } from "./types";
-import { ATTRIBUTION_CONFIG } from "./config";
 
-/** Topic alignment between two free-text topic strings (Jaccard on words). */
-function compareTopicStrings(
-  left: string,
-  right: string | null | undefined
+// ── Topic matching ──────────────────────────────────────────────────
+
+/**
+ * Extract the city name embedded in a prompt-topic string.
+ * "Menlo Park Construction" → "menlo park"
+ * "Shield: Custom Home Builder Bay Area" → "bay area"
+ */
+function extractTopicCity(topic: string): string | null {
+  const lower = topic.toLowerCase();
+  const allCities = Object.values(GEO_CONTAINMENT).flat();
+  for (const metro of Object.keys(GEO_CONTAINMENT)) {
+    if (lower.includes(metro)) return metro;
+  }
+  for (const city of allCities) {
+    if (lower.includes(city)) return city;
+  }
+  return null;
+}
+
+/**
+ * Check if a change's topic_targeted aligns with a result's topic
+ * from the known prompt-topic list.
+ */
+function matchTopicSemantic(
+  changeTopic: string,
+  resultTopic: string
 ): MatchStrength {
+  const cLower = changeTopic.toLowerCase().trim();
+  const rLower = resultTopic.toLowerCase().trim();
+
+  if (cLower === rLower) return "strong";
+
+  const resultCity = extractTopicCity(resultTopic);
+  const changeCity = extractTopicCity(changeTopic);
+
+  if (resultCity && changeCity && resultCity === changeCity) return "strong";
+
+  if (resultCity && cLower.includes(resultCity)) return "strong";
+  if (changeCity && rLower.includes(changeCity)) return "partial";
+
+  const isKnownTopic = KNOWN_TOPICS.some(
+    (t) => t.toLowerCase() === rLower
+  );
+  if (isKnownTopic) {
+    const topicWords = new Set(
+      rLower
+        .replace(/[():/\-]/g, " ")
+        .split(/\s+/)
+        .filter((w) => w.length > 2)
+    );
+    const changeWords = new Set(
+      cLower
+        .replace(/[():/\-]/g, " ")
+        .split(/\s+/)
+        .filter((w) => w.length > 2)
+    );
+
+    const intersection = [...topicWords].filter((w) => changeWords.has(w)).length;
+    if (topicWords.size > 0 && intersection / topicWords.size >= 0.5) return "partial";
+  }
+
+  return jaccardMatch(changeTopic, resultTopic);
+}
+
+function jaccardMatch(left: string, right: string): MatchStrength {
   const minLen = ATTRIBUTION_CONFIG.matching.topicMinWordLength;
   const jaccardPartial = ATTRIBUTION_CONFIG.matching.topicJaccardPartial;
 
-  if (!right?.trim() || !left.trim()) return "unknown";
-
-  const leftLower = left.toLowerCase().trim();
-  const rightLower = right.toLowerCase().trim();
-
-  if (leftLower === rightLower) return "strong";
-
   const leftWords = new Set(
-    leftLower.split(/\s+/).filter((w) => w.length > minLen)
+    left.toLowerCase().split(/\s+/).filter((w) => w.length > minLen)
   );
   const rightWords = new Set(
-    rightLower.split(/\s+/).filter((w) => w.length > minLen)
+    right.toLowerCase().split(/\s+/).filter((w) => w.length > minLen)
   );
 
   if (leftWords.size === 0 || rightWords.size === 0) return "unknown";
@@ -49,7 +111,32 @@ function compareTopicStrings(
   return "none";
 }
 
-function matchPlatform(
+function matchTopic(
+  change: ChangelogEntry,
+  result: Result,
+  opportunities: Opportunity[]
+): MatchStrength {
+  if (!result.topic?.trim() || !change.topic_targeted?.trim()) return "unknown";
+
+  const directMatch = matchTopicSemantic(change.topic_targeted, result.topic);
+  if (directMatch === "strong") return "strong";
+
+  const opp = change.opportunity_id
+    ? opportunities.find((o) => o.id === change.opportunity_id)
+    : null;
+
+  if (opp?.topic) {
+    const oppMatch = matchTopicSemantic(opp.topic, result.topic);
+    if (oppMatch === "strong") return "strong";
+    if (oppMatch === "partial" && directMatch !== "partial") return "partial";
+  }
+
+  return directMatch;
+}
+
+// ── Platform matching (signal-type inference) ───────────────────────
+
+function matchSignalPlatform(
   change: ChangelogEntry,
   result: Result,
   opportunities: Opportunity[]
@@ -60,47 +147,44 @@ function matchPlatform(
     ? opportunities.find((o) => o.id === change.opportunity_id)
     : null;
 
-  if (!opp) return "unknown";
-
-  if (opp.platforms.includes(result.platform)) {
-    const topicAlign = compareTopicStrings(opp.topic, result.topic);
-    if (topicAlign === "strong" || topicAlign === "partial") return "strong";
-    return "partial";
+  if (opp) {
+    if (opp.platforms.includes(result.platform)) return "strong";
+    if (opp.platforms.includes("all")) return "partial";
+    return "none";
   }
-  if (opp.platforms.includes("all")) return "partial";
+
+  const expectedPlatforms = SIGNAL_PLATFORM_MAP[change.signal_type] ?? [];
+  if (expectedPlatforms.length === 0) return "none";
+
+  const platform = result.platform as Platform;
+  if (expectedPlatforms.includes(platform)) {
+    const boost = ASSET_PLATFORM_BOOST[change.asset_type]?.[platform] ?? 0;
+    return boost > 0.05 ? "strong" : "partial";
+  }
 
   return "none";
 }
 
-const STRENGTH_RANK: Record<MatchStrength, number> = {
-  strong: 3,
-  partial: 2,
-  unknown: 1,
-  none: 0,
-};
+// ── Source-category matching ────────────────────────────────────────
 
-function strongerMatch(a: MatchStrength, b: MatchStrength): MatchStrength {
-  return STRENGTH_RANK[a] >= STRENGTH_RANK[b] ? a : b;
-}
-
-function matchTopic(
+function matchSourceCategory(
   change: ChangelogEntry,
-  result: Result,
-  opportunities: Opportunity[]
+  result: Result
 ): MatchStrength {
-  const changeLevel = compareTopicStrings(change.topic_targeted, result.topic);
+  const platform = result.platform;
+  if (platform === "all") return "unknown";
 
-  if (changeLevel === "strong") return "strong";
+  const weights = SOURCE_CATEGORY_PLATFORM_WEIGHTS[change.asset_type];
+  if (!weights) return "unknown";
 
-  const opp = change.opportunity_id
-    ? opportunities.find((o) => o.id === change.opportunity_id)
-    : null;
-
-  if (!opp) return changeLevel;
-
-  const oppLevel = compareTopicStrings(opp.topic, result.topic);
-  return strongerMatch(changeLevel, oppLevel);
+  const relevance = weights[platform] ?? 0;
+  if (relevance >= 0.8) return "strong";
+  if (relevance >= 0.4) return "partial";
+  if (relevance > 0) return "unknown";
+  return "none";
 }
+
+// ── URL matching ────────────────────────────────────────────────────
 
 function matchUrl(change: ChangelogEntry, result: Result): MatchStrength {
   if (!change.url && !result.url_measured) return "unknown";
@@ -114,17 +198,37 @@ function matchUrl(change: ChangelogEntry, result: Result): MatchStrength {
   return "none";
 }
 
+// ── Geo matching (with containment) ─────────────────────────────────
+
 function matchGeo(change: ChangelogEntry, result: Result): MatchStrength {
   if (!change.city_targeted && !result.city) return "unknown";
   if (!change.city_targeted || !result.city) return "unknown";
-  if (change.city_targeted.toLowerCase() === result.city.toLowerCase())
-    return "strong";
+
+  const changeLower = change.city_targeted.toLowerCase().trim();
+  const resultLower = result.city.toLowerCase().trim();
+
+  if (changeLower === resultLower) return "strong";
+
+  for (const [metro, cities] of Object.entries(GEO_CONTAINMENT)) {
+    const changeIsMetro = changeLower === metro;
+    const resultIsMetro = resultLower === metro;
+    const changeIsChild = cities.includes(changeLower);
+    const resultIsChild = cities.includes(resultLower);
+
+    if (changeIsMetro && resultIsChild) return "partial";
+    if (resultIsMetro && changeIsChild) return "strong";
+
+    if (changeIsChild && resultIsChild) return "partial";
+  }
+
   return "none";
 }
 
+// ── Temporal matching ───────────────────────────────────────────────
+
 function parseImpactWindowDays(window: string | null): number {
   if (!window) return 14;
-  const match = window.match(/(\d+)[\s-]*(\d+)?\s*(day|week|month)/i);
+  const match = window.match(/(\d+)[\s\u2013-]*(\d+)?\s*(day|week|month)/i);
   if (!match) return 14;
   const upper = match[2] ? parseInt(match[2]) : parseInt(match[1]);
   const unit = match[3].toLowerCase();
@@ -146,37 +250,49 @@ function matchTemporal(
   if (days < 0) return { strength: "none", days: Math.abs(days), withinWindow: false };
 
   const windowDays = parseImpactWindowDays(change.expected_impact_window);
-  const withinWindow = days <= windowDays;
-  const withinDoubleWindow = days <= windowDays * 2;
+  const platformMax = PLATFORM_MAX_DAYS[result.platform as Platform] ?? ATTRIBUTION_CONFIG.discovery.maxDays;
+  const effectiveWindow = Math.min(windowDays, platformMax);
+
+  const withinWindow = days <= effectiveWindow;
+  const withinDoubleWindow = days <= effectiveWindow * 2;
 
   if (withinWindow) return { strength: "strong", days, withinWindow: true };
   if (withinDoubleWindow) return { strength: "partial", days, withinWindow: false };
   return { strength: "none", days, withinWindow: false };
 }
 
+// ── Scoring ─────────────────────────────────────────────────────────
+
 export function computeConfidenceScore(matches: Attribution["matches"]): number {
-  const weights = { platform: 25, topic: 25, url: 20, temporal: 20, geo: 10 };
-  const strengthValue: Record<MatchStrength, number> = {
-    strong: 1.0,
-    partial: 0.5,
-    unknown: 0.0,
-    none: 0.0,
-  };
+  const weights = ATTRIBUTION_CONFIG.weights as Record<string, number>;
+  const sv = ATTRIBUTION_CONFIG.strengthValue as Record<string, number>;
 
   return Object.entries(matches).reduce(
     (sum, [key, strength]) =>
-      sum +
-      strengthValue[strength] * weights[key as keyof typeof weights],
+      sum + (sv[strength] ?? 0) * (weights[key] ?? 0),
     0
   );
 }
 
+export function computeFactorScores(matches: Attribution["matches"]): Record<string, number> {
+  const weights = ATTRIBUTION_CONFIG.weights as Record<string, number>;
+  const sv = ATTRIBUTION_CONFIG.strengthValue as Record<string, number>;
+  const scores: Record<string, number> = {};
+  for (const [key, strength] of Object.entries(matches)) {
+    scores[key] = (sv[strength] ?? 0) * (weights[key] ?? 0);
+  }
+  return scores;
+}
+
 function scoreToConfidence(score: number): AttributionConfidence {
-  if (score >= 75) return "high";
-  if (score >= 50) return "medium";
-  if (score >= 25) return "low";
+  const { confidence } = ATTRIBUTION_CONFIG;
+  if (score >= confidence.high) return "high";
+  if (score >= confidence.medium) return "medium";
+  if (score >= confidence.low) return "low";
   return "uncertain";
 }
+
+// ── Explanation ─────────────────────────────────────────────────────
 
 function buildExplanation(
   matches: Attribution["matches"],
@@ -188,31 +304,56 @@ function buildExplanation(
   if (matches.topic === "strong") parts.push("same topic");
   else if (matches.topic === "partial") parts.push("related topic");
 
+  if (matches.sourceCategory === "strong") parts.push("high-relevance change type");
+  else if (matches.sourceCategory === "partial") parts.push("relevant change type");
+
   if (matches.url === "strong") parts.push("same URL");
   else if (matches.url === "partial") parts.push("similar URL");
-  if (matches.platform === "strong") parts.push("same platform");
+
+  if (matches.platform === "strong") parts.push("expected platform");
+  else if (matches.platform === "partial") parts.push("likely platform");
+
   if (matches.geo === "strong") parts.push("same city");
+  else if (matches.geo === "partial") parts.push("same metro");
 
   if (withinWindow) parts.push(`within ${days}d`);
   else if (days > 0) parts.push(`${days}d after change`);
 
   const unknownCount = Object.values(matches).filter((m) => m === "unknown").length;
-  if (unknownCount >= 3) parts.push("limited data");
+  if (unknownCount >= 4) parts.push("limited data");
 
   if (parts.length === 0) return "Weak signal match";
   return parts.map((p) => p.charAt(0).toUpperCase() + p.slice(1)).join(", ");
 }
 
+// ── Main computation ────────────────────────────────────────────────
+
+const EVIDENCE_TIER_BONUS: Record<EvidenceTier, number> = {
+  exact: 8,
+  probable: 0,
+  weak: 0,
+  inferred: 0,
+};
+
+const EVIDENCE_TIER_CAP: Record<EvidenceTier, number> = {
+  exact: 100,
+  probable: 85,
+  weak: 55,
+  inferred: 50,
+};
+
 export function computeAttribution(
   change: ChangelogEntry,
   result: Result,
-  allOpportunities: Opportunity[]
+  allOpportunities: Opportunity[],
+  evidenceMeta?: EvidenceTierMeta | null
 ): Attribution {
-  const platformMatch = matchPlatform(change, result, allOpportunities);
+  const platformMatch = matchSignalPlatform(change, result, allOpportunities);
   const topicMatch = matchTopic(change, result, allOpportunities);
   const urlMatch = matchUrl(change, result);
   const geoMatch = matchGeo(change, result);
   const temporal = matchTemporal(change, result);
+  const sourceCatMatch = matchSourceCategory(change, result);
 
   const matches: Attribution["matches"] = {
     platform: platformMatch,
@@ -220,9 +361,17 @@ export function computeAttribution(
     url: urlMatch,
     geo: geoMatch,
     temporal: temporal.strength,
+    sourceCategory: sourceCatMatch,
   };
 
-  const score = computeConfidenceScore(matches);
+  let score = computeConfidenceScore(matches);
+  const factor_scores = computeFactorScores(matches);
+
+  const tier = evidenceMeta?.tier ?? null;
+  if (tier) {
+    score = Math.min(score + EVIDENCE_TIER_BONUS[tier], EVIDENCE_TIER_CAP[tier]);
+  }
+
   const confidence = scoreToConfidence(score);
 
   return {
@@ -231,11 +380,15 @@ export function computeAttribution(
     role: "primary",
     confidence,
     matches,
+    factor_scores,
+    evidence_tier: tier,
     temporal_distance_days: temporal.days,
     within_impact_window: temporal.withinWindow,
     explanation: buildExplanation(matches, temporal.days, temporal.withinWindow),
   };
 }
+
+// ── Roles ───────────────────────────────────────────────────────────
 
 function assignRoles(attributions: Attribution[]): Attribution[] {
   if (attributions.length === 0) return [];
@@ -279,6 +432,8 @@ export function computeAttributionsForResult(
 
   return assignRoles(attributions);
 }
+
+// ── Change verdict ──────────────────────────────────────────────────
 
 function isPositiveDelta(result: Result): boolean {
   if (result.delta == null) return false;
@@ -339,6 +494,8 @@ export function computeChangeVerdict(
   return { verdict, attributions, summary };
 }
 
+// ── Brief verdict ───────────────────────────────────────────────────
+
 export function computeBriefVerdict(brief: Brief): BriefVerdictData {
   const outcomes = brief.expected_outcomes;
   if (outcomes.length === 0) {
@@ -381,6 +538,8 @@ export function computeBriefVerdict(brief: Brief): BriefVerdictData {
 
   return { verdict, hit_rate, summary };
 }
+
+// ── Signal effectiveness (kept for diagnostics) ─────────────────────
 
 export function computeSignalEffectiveness(
   allChanges: ChangelogEntry[],

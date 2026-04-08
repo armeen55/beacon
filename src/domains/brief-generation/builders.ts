@@ -2,7 +2,6 @@ import type { ActionItem } from "@/domains/actions/types";
 import type { ActionCluster } from "@/domains/action-clusters/types";
 import type { Pattern } from "@/domains/patterns/types";
 import type { Opportunity } from "@/domains/opportunities/types";
-import type { OpportunityCandidate } from "@/domains/opportunity-candidates/types";
 import type {
   ProposedBrief,
   ProposedBriefType,
@@ -21,7 +20,6 @@ export function buildProposedBriefs(
   clusters: ActionCluster[],
   patterns: Pattern[],
   opportunities: Opportunity[],
-  candidates: OpportunityCandidate[],
   persistedStates: PersistedBriefState[]
 ): ProposedBrief[] {
   const stateIndex = new Map(persistedStates.map((s) => [s.briefId, s]));
@@ -132,7 +130,7 @@ function buildBriefFromAction(
     patternScore: pattern?.score ?? null,
     patternSuccessRate: pattern?.successRate ?? null,
     clusterConfidence: cluster?.confidenceBand ?? null,
-    expectedImpact: action.priorityScore,
+    expectedImpact: Math.round(action.priorityScore * 0.6),
     caveatCount: caveats.length,
     caveatSeverity,
     executionClarity: template.recommendedSteps.length >= 4 ? 80 : 50,

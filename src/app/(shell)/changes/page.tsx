@@ -3,7 +3,6 @@ import { PageHeader } from "@/components/data/page-header";
 import { ChangeVerdictBadge } from "@/components/display/change-verdict-badge";
 import {
   changelogEntries,
-  briefs,
   opportunities,
   results,
   hasActiveExperiment,
@@ -34,9 +33,9 @@ function getEvidenceState(
 }
 
 const EVIDENCE_LABELS: Record<EvidenceState, string> = {
-  evidence: "Evidence found",
-  awaiting: "Awaiting attribution",
-  no_signal: "No signal yet",
+  evidence: "Showing up in results",
+  awaiting: "Waiting for a match",
+  no_signal: "Not tied to a move yet",
 };
 
 const EVIDENCE_COLORS: Record<EvidenceState, string> = {
@@ -107,7 +106,7 @@ export default async function ChangelogPage({
     <div>
       <PageHeader
         title="Changelog"
-        description={`${changelogEntries.length} changes tracked. ${evidenceCount} with evidence, ${awaitingCount} awaiting attribution, ${noSignalCount} with no signal yet.`}
+        description={`${changelogEntries.length} things you shipped. ${evidenceCount} showing up in results, ${awaitingCount} waiting for a match, ${noSignalCount} not tied to a move yet.`}
       />
 
       {/* Filters */}

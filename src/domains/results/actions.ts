@@ -65,6 +65,10 @@ export async function createResult(
     url_measured: urlMeasured,
     attributed_changelog_ids: attributedChangelogIds,
     notes,
+    mention_count: 0,
+    citation_count: 0,
+    total_possible: null,
+    position: null,
     created_at: now(),
   };
 

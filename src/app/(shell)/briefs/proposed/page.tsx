@@ -19,8 +19,6 @@ import {
   BRIEF_TYPE_LABELS,
   BRIEF_TYPE_COLORS,
   BRIEF_PRIORITY_COLORS,
-  BRIEF_STATUS_LABELS,
-  BRIEF_STATUS_COLORS,
 } from "@/domains/brief-generation/types";
 import type { ProposedBrief } from "@/domains/brief-generation/types";
 import { BriefAcceptReject } from "@/components/data/brief-controls";

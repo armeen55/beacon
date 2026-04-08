@@ -1,4 +1,5 @@
 import type { SignalType } from "@/lib/constants";
+import type { EvidenceTier } from "@/domains/pages/types";
 
 export type MatchStrength = "strong" | "partial" | "none" | "unknown";
 
@@ -25,6 +26,21 @@ export type TruthLabel = {
   notes: string | null;
 };
 
+export type CauseType = "change" | "competitor" | "algorithm" | "unknown";
+export type OperatorConfidence = "high" | "medium" | "low";
+
+export type EventDecision = {
+  id: string;
+  event_id: string;
+  result_id: string;
+  cause_type: CauseType;
+  primary_change_id: string | null;
+  operator_confidence: OperatorConfidence;
+  operator_note: string | null;
+  rejected_change_ids: string[];
+  decided_at: string;
+};
+
 export type AttributionRole = "primary" | "contributing" | "supporting";
 
 export type AttributionConfidence = "high" | "medium" | "low" | "uncertain";
@@ -40,7 +56,10 @@ export type Attribution = {
     url: MatchStrength;
     geo: MatchStrength;
     temporal: MatchStrength;
+    sourceCategory: MatchStrength;
   };
+  factor_scores: Record<string, number>;
+  evidence_tier: EvidenceTier | null;
   temporal_distance_days: number;
   within_impact_window: boolean;
   explanation: string;

@@ -1,5 +1,6 @@
 import type { Result } from "@/domains/results/types";
 import type { Platform } from "@/lib/constants";
+import { ATTRIBUTION_CONFIG } from "./config";
 
 export type OutcomeEventType =
   | "first_appearance"
@@ -20,6 +21,8 @@ export type OutcomeEvent = {
     mentions_after: number;
     cited: boolean;
     gap_days: number;
+    mention_rate?: number;
+    prev_rate?: number;
   };
 };
 
@@ -31,19 +34,21 @@ type DaySnapshot = {
   total: number;
 };
 
-const SURGE_MIN_MENTIONS = 3;
-const SURGE_PREV_MAX = 1;
-const REGAINED_GAP_MIN_DAYS = 2;
-
 /**
  * Detect meaningful outcome events from attribution-mode results.
  *
  * Groups results by (topic × platform) into time series, then scans for:
- * - first_appearance: first time Ritz was mentioned/cited in this series
+ * - first_appearance: first row with mentions > 0
  * - visibility_regained: mentions resume after 2+ days of zero mentions
  * - mention_surge: sharp increase from ≤1 to ≥3 mentions in one day
+ *
+ * Uses structured fields (mention_count, citation_count, total_possible)
+ * directly — no notes parsing.
  */
 export function detectOutcomeEvents(results: Result[]): OutcomeEvent[] {
+  const { surgeMinRate, surgePrevMaxRate, minTotalPossible, regainedGapMinDays } =
+    ATTRIBUTION_CONFIG.events;
+
   const seriesMap = buildSeriesMap(results);
   const events: OutcomeEvent[] = [];
 
@@ -58,6 +63,13 @@ export function detectOutcomeEvents(results: Result[]): OutcomeEvent[] {
       const day = sorted[i];
       const prevDay = i > 0 ? sorted[i - 1] : null;
       const prevMentions = prevDay ? prevDay.mentions : 0;
+
+      if (day.total < minTotalPossible) continue;
+
+      const dayRate = day.total > 0 ? day.mentions / day.total : 0;
+      const prevRate = prevDay && prevDay.total > 0
+        ? prevDay.mentions / prevDay.total
+        : 0;
 
       if (day.mentions > 0 && !sawFirstMention) {
         sawFirstMention = true;
@@ -75,12 +87,14 @@ export function detectOutcomeEvents(results: Result[]): OutcomeEvent[] {
           trigger_date: day.date,
           anchor_result_id: day.result_id,
           result_ids: [day.result_id],
-          description: `${desc} — ${day.mentions}/${day.total} prompts`,
+          description: `${desc} — ${day.mentions}/${day.total} prompts (${pctStr(dayRate)})`,
           context: {
             mentions_before: 0,
             mentions_after: day.mentions,
             cited: day.cited > 0,
             gap_days: 0,
+            mention_rate: dayRate,
+            prev_rate: 0,
           },
         });
         continue;
@@ -91,7 +105,7 @@ export function detectOutcomeEvents(results: Result[]): OutcomeEvent[] {
           ? daysBetween(sorted[lastMentionDayIdx].date, day.date) - 1
           : 0;
 
-        if (prevMentions === 0 && gapDays >= REGAINED_GAP_MIN_DAYS) {
+        if (prevMentions === 0 && gapDays >= regainedGapMinDays) {
           events.push({
             id: `ev-regain-${slugify(topic)}-${platform}-${day.date}`,
             type: "visibility_regained",
@@ -100,22 +114,21 @@ export function detectOutcomeEvents(results: Result[]): OutcomeEvent[] {
             trigger_date: day.date,
             anchor_result_id: day.result_id,
             result_ids: [day.result_id],
-            description: `Visibility regained on ${platformLabel(platform)} for ${topic} after ${gapDays}-day gap — ${day.mentions}/${day.total} prompts`,
+            description: `Visibility regained on ${platformLabel(platform)} for ${topic} after ${gapDays}-day gap — ${day.mentions}/${day.total} (${pctStr(dayRate)})`,
             context: {
               mentions_before: 0,
               mentions_after: day.mentions,
               cited: day.cited > 0,
               gap_days: gapDays,
+              mention_rate: dayRate,
+              prev_rate: 0,
             },
           });
           lastMentionDayIdx = i;
           continue;
         }
 
-        if (
-          day.mentions >= SURGE_MIN_MENTIONS &&
-          prevMentions <= SURGE_PREV_MAX
-        ) {
+        if (dayRate >= surgeMinRate && prevRate <= surgePrevMaxRate) {
           events.push({
             id: `ev-surge-${slugify(topic)}-${platform}-${day.date}`,
             type: "mention_surge",
@@ -124,12 +137,14 @@ export function detectOutcomeEvents(results: Result[]): OutcomeEvent[] {
             trigger_date: day.date,
             anchor_result_id: day.result_id,
             result_ids: [day.result_id],
-            description: `Mention surge on ${platformLabel(platform)} for ${topic} — ${prevMentions}→${day.mentions} mentions`,
+            description: `Mention surge on ${platformLabel(platform)} for ${topic} — ${pctStr(prevRate)}→${pctStr(dayRate)} rate (${prevMentions}→${day.mentions}/${day.total})`,
             context: {
               mentions_before: prevMentions,
               mentions_after: day.mentions,
               cited: day.cited > 0,
               gap_days: 0,
+              mention_rate: dayRate,
+              prev_rate: prevRate,
             },
           });
         }
@@ -142,9 +157,7 @@ export function detectOutcomeEvents(results: Result[]): OutcomeEvent[] {
   return events.sort((a, b) => a.trigger_date.localeCompare(b.trigger_date));
 }
 
-function buildSeriesMap(
-  results: Result[]
-): Map<string, DaySnapshot[]> {
+function buildSeriesMap(results: Result[]): Map<string, DaySnapshot[]> {
   const map = new Map<string, DaySnapshot[]>();
 
   for (const r of results) {
@@ -152,18 +165,12 @@ function buildSeriesMap(
     const key = `${r.topic}|${r.platform}`;
     if (!map.has(key)) map.set(key, []);
 
-    const mentionMatch = r.notes?.match(/^(\d+)\/(\d+) mentioned/);
-    const citedMatch = r.notes?.match(/(\d+)\/\d+ cited/);
-    const mentions = mentionMatch ? parseInt(mentionMatch[1]) : r.metric_value;
-    const total = mentionMatch ? parseInt(mentionMatch[2]) : r.metric_value;
-    const cited = citedMatch ? parseInt(citedMatch[1]) : 0;
-
     map.get(key)!.push({
       date: r.snapshot_date,
       result_id: r.id,
-      mentions,
-      cited,
-      total,
+      mentions: r.mention_count,
+      cited: r.citation_count,
+      total: r.total_possible ?? r.mention_count,
     });
   }
 
@@ -191,4 +198,8 @@ function platformLabel(p: string): string {
     perplexity: "Perplexity",
   };
   return labels[p] ?? p;
+}
+
+function pctStr(rate: number): string {
+  return `${Math.round(rate * 100)}%`;
 }

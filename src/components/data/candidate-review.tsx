@@ -69,9 +69,9 @@ export function CandidateReview({
     return (
       <div className="border-t border-border pt-5 space-y-4">
         <div>
-          <h3 className="text-[13px] font-semibold">Candidate Causes</h3>
+          <h3 className="text-[13px] font-semibold">What might have caused this</h3>
           <p className="text-[11px] text-muted-foreground mt-0.5">
-            Confirm or reject to build attribution truth.
+            Pick the change that actually drove this move.
           </p>
         </div>
         <div className={cn("space-y-2 transition-opacity", isPending && "opacity-60 pointer-events-none")}>
@@ -86,12 +86,12 @@ export function CandidateReview({
   return (
     <div className="border-t border-border pt-5 space-y-5">
       <div>
-        <h3 className="text-[13px] font-semibold">Candidate Causes</h3>
+        <h3 className="text-[13px] font-semibold">What might have caused this</h3>
         <div className="flex items-center gap-3 mt-1 text-[11px] text-muted-foreground">
-          {primary.length > 0 && <span className="text-status-success font-medium">1 primary</span>}
-          {contributing.length > 0 && <span>{contributing.length} contributing</span>}
-          {needsReview.length > 0 && <span className="text-status-warning font-medium">{needsReview.length} needs review</span>}
-          {suppressed.length > 0 && <span>{suppressed.length} suppressed</span>}
+          {primary.length > 0 && <span className="text-status-success font-medium">1 main driver</span>}
+          {contributing.length > 0 && <span>{contributing.length} also helped</span>}
+          {needsReview.length > 0 && <span className="text-status-warning font-medium">{needsReview.length} need your call</span>}
+          {suppressed.length > 0 && <span>{suppressed.length} set aside</span>}
         </div>
       </div>
 
@@ -99,7 +99,7 @@ export function CandidateReview({
         {primary.map((c) => (
           <div key={c.change.id}>
             <p className="text-[10px] font-semibold text-status-success uppercase tracking-wider mb-1.5 flex items-center gap-1">
-              <Zap className="h-3 w-3" /> Primary Cause
+              <Zap className="h-3 w-3" /> Main Driver
             </p>
             <div className="rounded-md border-2 border-status-success/20 bg-status-success/5 p-3 space-y-2">
               <div className="flex items-start justify-between gap-3">
@@ -107,19 +107,17 @@ export function CandidateReview({
                   <Link href={`/changes/${c.change.id}`} className="text-[13px] font-semibold hover:text-accent-primary transition-colors">
                     {c.change.asset_name}
                   </Link>
-                  <div className="flex items-center gap-2 mt-0.5 text-[11px] text-muted-foreground">
-                    <span>{SIGNAL_TYPE_LABELS[c.change.signal_type]}</span>
-                    <span className="text-border">·</span>
-                    <span>{new Date(c.change.timestamp).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
-                    <span className="text-border">·</span>
-                    <span className="font-mono text-[10px]">score {Math.round(c.score)}</span>
-                  </div>
+                    <div className="flex items-center gap-2 mt-0.5 text-[11px] text-muted-foreground">
+                        <span>{SIGNAL_TYPE_LABELS[c.change.signal_type]}</span>
+                        <span className="text-border">·</span>
+                        <span>{new Date(c.change.timestamp).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
+                      </div>
                   {c.triageReason && (
                     <p className="text-[11px] text-status-success/80 mt-1">{c.triageReason}</p>
                   )}
                 </div>
                 <span className="shrink-0 rounded-full bg-status-success/10 px-2.5 py-0.5 text-[10px] font-semibold text-status-success uppercase tracking-wider">
-                  Auto-selected
+                  Top pick
                 </span>
               </div>
               <div className="flex items-center gap-3">
@@ -133,7 +131,7 @@ export function CandidateReview({
         {contributing.length > 0 && (
           <div>
             <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">
-              Contributing
+              Also Helped
             </p>
             <div className="space-y-1.5">
               {contributing.map((c) => (
@@ -147,8 +145,6 @@ export function CandidateReview({
                         <span>{SIGNAL_TYPE_LABELS[c.change.signal_type]}</span>
                         <span className="text-border">·</span>
                         <span>{new Date(c.change.timestamp).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
-                        <span className="text-border">·</span>
-                        <span className="font-mono text-[10px]">score {Math.round(c.score)}</span>
                       </div>
                     </div>
                   </div>
@@ -165,7 +161,7 @@ export function CandidateReview({
         {needsReview.length > 0 && (
           <div>
             <p className="text-[10px] font-semibold text-status-warning uppercase tracking-wider mb-1.5 flex items-center gap-1">
-              <Shield className="h-3 w-3" /> Needs Review
+              <Shield className="h-3 w-3" /> Your Call
             </p>
             <div className="space-y-2">
               {needsReview.map((c) => (
@@ -182,7 +178,7 @@ export function CandidateReview({
               className="flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
             >
               <ChevronDown className={cn("h-3 w-3 transition-transform", showSuppressed && "rotate-180")} />
-              {showSuppressed ? "Hide" : "Show"} {suppressed.length} suppressed candidate{suppressed.length !== 1 ? "s" : ""}
+              {showSuppressed ? "Hide" : "Show"} {suppressed.length} set aside
             </button>
             {showSuppressed && (
               <div className="mt-2 space-y-1 pl-4 border-l-2 border-border">
@@ -192,8 +188,8 @@ export function CandidateReview({
                       <Link href={`/changes/${c.change.id}`} className="text-[11px] text-muted-foreground hover:text-foreground truncate">
                         {c.change.asset_name}
                       </Link>
-                      <span className="text-[10px] font-mono text-muted-foreground shrink-0">
-                        {Math.round(c.score)}
+                      <span className="text-[10px] text-muted-foreground shrink-0">
+                        low fit
                       </span>
                     </div>
                     <span className="text-[10px] text-muted-foreground shrink-0">
@@ -237,8 +233,6 @@ function CandidateCard({
             <span>{SIGNAL_TYPE_LABELS[change.signal_type]}</span>
             <span className="text-border">·</span>
             <span>{new Date(change.timestamp).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
-            <span className="text-border">·</span>
-            <span className="font-mono text-[10px]">score {Math.round(score)}</span>
           </div>
           {showReason && item.triageReason && (
             <p className="text-[10px] text-status-warning mt-0.5">{item.triageReason}</p>
@@ -303,7 +297,7 @@ export function TruthLabeler({
         isPending && "opacity-60 pointer-events-none"
       )}
     >
-      <span className="text-[10px] text-muted-foreground mr-1">Truth:</span>
+      <span className="text-[10px] text-muted-foreground mr-1">Reality:</span>
       {labels.map(({ value, label }) => (
         <button
           key={value}

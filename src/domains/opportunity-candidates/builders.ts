@@ -79,10 +79,10 @@ export function generateCandidates(
 
   for (const pattern of provenPatterns) {
     candidates.push(
-      ...generateAdjacentCityCandidates(pattern, existingCities, existingTopics, clusters)
+      ...generateAdjacentCityCandidates(pattern, existingCities, existingTopics, clusters, changes)
     );
     candidates.push(
-      ...generateTopicExpansionCandidates(pattern, existingTopics, clusters)
+      ...generateTopicExpansionCandidates(pattern, existingTopics, clusters, changes)
     );
     candidates.push(
       ...generateCoverageGapCandidates(pattern, opportunities, clusters, changes)
@@ -98,7 +98,8 @@ function generateAdjacentCityCandidates(
   pattern: Pattern,
   existingCities: Set<string>,
   existingTopics: Set<string>,
-  clusters: ActionCluster[]
+  clusters: ActionCluster[],
+  changes: ChangelogEntry[]
 ): OpportunityCandidate[] {
   const candidates: OpportunityCandidate[] = [];
   const patternCities = new Set(pattern.dominantGeo);
@@ -108,7 +109,7 @@ function generateAdjacentCityCandidates(
   for (const targetCity of KNOWN_CITIES) {
     if (patternCities.has(targetCity)) continue;
 
-    const topicBase = extractTopicBase(pattern);
+    const topicBase = extractTopicBase(pattern, changes);
     if (!topicBase) continue;
 
     const label = `${topicBase} (${targetCity})`;
@@ -160,17 +161,18 @@ function generateAdjacentCityCandidates(
 function generateTopicExpansionCandidates(
   pattern: Pattern,
   existingTopics: Set<string>,
-  clusters: ActionCluster[]
+  clusters: ActionCluster[],
+  changes: ChangelogEntry[]
 ): OpportunityCandidate[] {
   const candidates: OpportunityCandidate[] = [];
-  const topicBase = extractTopicBase(pattern);
+  const topicBase = extractTopicBase(pattern, changes);
   if (!topicBase) return candidates;
 
   const adjacentTopics = findAdjacentTopics(topicBase);
   if (adjacentTopics.length === 0) return candidates;
 
   for (const adjTopic of adjacentTopics) {
-    const label = `${adjTopic} (Bay Area)`;
+    const label = adjTopic;
     const alreadyExists = existingTopics.has(label.toLowerCase());
 
     const evidence = [
@@ -284,8 +286,16 @@ function generateCoverageGapCandidates(
   return candidates;
 }
 
-function extractTopicBase(pattern: Pattern): string | null {
-  return pattern.label || null;
+function extractTopicBase(pattern: Pattern, changes: ChangelogEntry[]): string | null {
+  const patternChangeIds = new Set(pattern.changeIds);
+  const topicCounts = new Map<string, number>();
+  for (const c of changes) {
+    if (!patternChangeIds.has(c.id)) continue;
+    const t = c.topic_targeted?.trim();
+    if (t) topicCounts.set(t, (topicCounts.get(t) ?? 0) + 1);
+  }
+  if (topicCounts.size === 0) return null;
+  return [...topicCounts.entries()].sort((a, b) => b[1] - a[1])[0][0];
 }
 
 function findAdjacentTopics(topicBase: string): string[] {

@@ -69,14 +69,14 @@ export function ResultsClient({ results, changelogEntries, opportunities }: Resu
     <div>
       <PageHeader
         title="Results"
-        description="Measurement snapshots with attribution to changes."
+        description="Point-in-time readouts of how you're showing up, and what we think drove each move."
       />
 
       <div className="grid gap-3 grid-cols-2 lg:grid-cols-4 mb-6">
-        <StatCard label="Total Snapshots" value={results.length} />
-        <StatCard label="Attributed" value={attributed} />
-        <StatCard label="Positive Impact" value={positive} />
-        <StatCard label="Negative Impact" value={negative} />
+        <StatCard label="Snapshots" value={results.length} />
+        <StatCard label="Linked to a ship" value={attributed} />
+        <StatCard label="Moved the right way" value={positive} />
+        <StatCard label="Moved the wrong way" value={negative} />
       </div>
 
       <TabFilter
@@ -95,7 +95,7 @@ export function ResultsClient({ results, changelogEntries, opportunities }: Resu
               <TableHead className="text-[11px] font-medium text-right">Value</TableHead>
               <TableHead className="text-[11px] font-medium text-right">Change</TableHead>
               <TableHead className="text-[11px] font-medium">Topic</TableHead>
-              <TableHead className="text-[11px] font-medium">Attribution</TableHead>
+              <TableHead className="text-[11px] font-medium">Likely driver</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>

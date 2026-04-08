@@ -20,9 +20,7 @@ import type { ChangelogEntry } from "@/domains/changelog/types";
 import type { Opportunity } from "@/domains/opportunities/types";
 import type { Competitor } from "@/domains/competitors/types";
 import type { Brief } from "@/domains/briefs/types";
-import type { WeeklySummary } from "@/domains/weekly/types";
 import type { CompetitorSnapshot } from "@/domains/competitors/types";
-import type { CoverageItem } from "@/domains/coverage/types";
 
 const _importRuns = readStore<{ id: string; started_at?: string; source_system?: string }>(
   "import-runs"
@@ -48,14 +46,11 @@ export const changelogEntries: ChangelogEntry[] = [];
 export const opportunities: Opportunity[] = [];
 export const competitors: Competitor[] = [];
 export const briefs: Brief[] = [];
-export const weeklySummaries: WeeklySummary[] = [];
 export const competitorSnapshots: CompetitorSnapshot[] = [];
-export const coverageItems: CoverageItem[] = [];
 
 // ── Populate based on experiment state ──
 
 if (_importRuns.length > 0) {
-  // Active experiment: imported data only, no seed
   const imported = {
     results: readStore<Result>("imported-results"),
     changes: readStore<ChangelogEntry>("imported-changes"),
@@ -66,16 +61,11 @@ if (_importRuns.length > 0) {
   changelogEntries.push(...imported.changes);
   opportunities.push(...imported.opportunities);
   competitors.push(...imported.competitors);
-  // briefs, weeklySummaries, competitorSnapshots, coverageItems
-  // remain empty — no imported equivalents yet
 } else {
-  // No experiment: seed data for product walkthrough
   results.push(...seed.results);
   changelogEntries.push(...seed.changelogEntries);
   opportunities.push(...seed.opportunities);
   competitors.push(...seed.competitors);
   briefs.push(...seed.briefs);
-  weeklySummaries.push(...seed.weeklySummaries);
   competitorSnapshots.push(...seed.competitorSnapshots);
-  coverageItems.push(...seed.coverageItems);
 }

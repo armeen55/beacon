@@ -313,12 +313,6 @@ function parsePromptIntelligenceSheet(
 
     const stableId = `wb-pi-${bucket.dateISO}-${slugify(bucket.platform)}-${slugify(bucket.topicCluster)}`;
 
-    const noteParts: string[] = [
-      `${bucket.mentioned}/${bucket.totalPrompts} mentioned`,
-      `${bucket.cited}/${bucket.totalPrompts} cited`,
-    ];
-    if (avgPos !== null) noteParts.push(`avg position ${avgPos}`);
-
     results.push({
       id: stableId,
       snapshot_date: bucket.dateISO,
@@ -332,7 +326,11 @@ function parsePromptIntelligenceSheet(
       city: null,
       url_measured: topUrl,
       attributed_changelog_ids: [],
-      notes: noteParts.join(", "),
+      notes: null,
+      mention_count: bucket.mentioned,
+      citation_count: bucket.cited,
+      total_possible: bucket.totalPrompts,
+      position: avgPos,
       created_at: now(),
       source_system: "ritz-workbook",
       import_batch_id: batchId,

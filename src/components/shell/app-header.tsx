@@ -8,7 +8,8 @@ import { useShell } from "./shell-provider";
 import { allNavItems } from "@/lib/navigation";
 
 function useBreadcrumb(pathname: string) {
-  if (pathname === "/") return { title: "Dashboard", parent: null };
+  if (pathname === "/") return { title: "Review", parent: null };
+  if (pathname === "/review") return { title: "Review", parent: null };
   const segments = pathname.split("/").filter(Boolean);
   const base = "/" + segments[0];
   const item = allNavItems.find((n) => n.href === base);

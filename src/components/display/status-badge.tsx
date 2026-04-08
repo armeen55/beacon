@@ -1,9 +1,8 @@
 import { cn } from "@/lib/utils";
-import type { OpportunityStatus, BriefStatus, CoverageStatus } from "@/lib/constants";
+import type { OpportunityStatus, BriefStatus } from "@/lib/constants";
 import {
   OPPORTUNITY_STATUS_LABELS,
   BRIEF_STATUS_LABELS,
-  COVERAGE_STATUS_LABELS,
 } from "@/lib/constants";
 
 type DotVariant = "success" | "warning" | "danger" | "neutral" | "info";
@@ -37,13 +36,6 @@ const briefStatusVariants: Record<BriefStatus, DotVariant> = {
   blocked: "danger",
 };
 
-const coverageStatusVariants: Record<CoverageStatus, DotVariant> = {
-  missing: "danger",
-  partial: "warning",
-  complete: "success",
-  needs_update: "info",
-};
-
 function DotBadge({ variant, label }: { variant: DotVariant; label: string }) {
   return (
     <span className="inline-flex items-center gap-1.5">
@@ -67,15 +59,6 @@ export function BriefStatusBadge({ status }: { status: BriefStatus }) {
     <DotBadge
       variant={briefStatusVariants[status]}
       label={BRIEF_STATUS_LABELS[status]}
-    />
-  );
-}
-
-export function CoverageStatusBadge({ status }: { status: CoverageStatus }) {
-  return (
-    <DotBadge
-      variant={coverageStatusVariants[status]}
-      label={COVERAGE_STATUS_LABELS[status]}
     />
   );
 }

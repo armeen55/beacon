@@ -4,7 +4,8 @@ import type { Opportunity } from "@/domains/opportunities/types";
 import type { Brief } from "@/domains/briefs/types";
 import type { Competitor } from "@/domains/competitors/types";
 import type { AttributionConfidence, MatchStrength } from "./types";
-import { computeAttribution, computeChangeVerdict } from "./compute";
+import { computeAttribution, computeChangeVerdict, computeConfidenceScore } from "./compute";
+import { ATTRIBUTION_CONFIG } from "./config";
 
 export type EntityCount = {
   type: string;
@@ -148,9 +149,10 @@ export function computeDiagnostics(
     url: { strong: 0, partial: 0, none: 0, unknown: 0, total_contribution: 0, count: 0 },
     geo: { strong: 0, partial: 0, none: 0, unknown: 0, total_contribution: 0, count: 0 },
     temporal: { strong: 0, partial: 0, none: 0, unknown: 0, total_contribution: 0, count: 0 },
+    sourceCategory: { strong: 0, partial: 0, none: 0, unknown: 0, total_contribution: 0, count: 0 },
   };
-  const weights: Record<string, number> = { platform: 25, topic: 25, url: 20, geo: 10, temporal: 20 };
-  const strengthVal: Record<MatchStrength, number> = { strong: 1, partial: 0.5, none: 0, unknown: 0 };
+  const weights = ATTRIBUTION_CONFIG.weights as Record<string, number>;
+  const strengthVal = ATTRIBUTION_CONFIG.strengthValue as Record<string, number>;
   const daysList: number[] = [];
 
   let nullUrlPairs = 0;
@@ -276,7 +278,6 @@ export type CandidateDiagnostics = {
 
 import { discoverCandidates } from "./candidates";
 import { candidateLinks, truthLabels } from "./store";
-import { computeConfidenceScore } from "./compute";
 
 export function computeCandidateDiagnostics(
   allResults: Result[],
@@ -417,13 +418,13 @@ export function computeModelReport(
   allOpportunities: Opportunity[],
   cdiag: CandidateDiagnostics
 ): ModelReport {
-  const weights: Record<string, number> = { platform: 25, topic: 25, url: 20, geo: 10, temporal: 20 };
-  const strengthVal: Record<MatchStrength, number> = { strong: 1, partial: 0.5, none: 0, unknown: 0 };
+  const weights = ATTRIBUTION_CONFIG.weights as Record<string, number>;
+  const strengthVal = ATTRIBUTION_CONFIG.strengthValue as Record<string, number>;
 
   type FactorAcc = { strong: number; unknown: number; total_points: number; count: number };
   const confirmedAcc: Record<string, FactorAcc> = {};
   const rejectedAcc: Record<string, FactorAcc> = {};
-  for (const f of ["platform", "topic", "url", "geo", "temporal"]) {
+  for (const f of ["platform", "topic", "url", "geo", "temporal", "sourceCategory"]) {
     confirmedAcc[f] = { strong: 0, unknown: 0, total_points: 0, count: 0 };
     rejectedAcc[f] = { strong: 0, unknown: 0, total_points: 0, count: 0 };
   }

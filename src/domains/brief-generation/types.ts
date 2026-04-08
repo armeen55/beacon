@@ -60,15 +60,15 @@ export type PersistedBriefState = {
 };
 
 export const BRIEF_TYPE_LABELS: Record<ProposedBriefType, string> = {
-  page_rebuild: "Page Rebuild",
-  new_page: "New Page",
-  page_refresh: "Page Refresh",
-  faq_upgrade: "FAQ Upgrade",
-  schema_alignment: "Schema Alignment",
-  internal_linking: "Internal Linking",
-  crawlability_fix: "Crawlability Fix",
-  measurement_fix: "Measurement Fix",
-  coverage_expansion: "Coverage Expansion",
+  page_rebuild: "Rebuild this page",
+  new_page: "New page",
+  page_refresh: "Refresh existing page",
+  faq_upgrade: "Strengthen FAQs",
+  schema_alignment: "Structured data pass",
+  internal_linking: "Internal linking plan",
+  crawlability_fix: "Crawl & index fix",
+  measurement_fix: "Fix how we measure this",
+  coverage_expansion: "Expand coverage",
 };
 
 export const BRIEF_TYPE_COLORS: Record<ProposedBriefType, string> = {

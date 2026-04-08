@@ -14,6 +14,12 @@ export type Result = {
   url_measured: string | null;
   attributed_changelog_ids: string[];
   notes: string | null;
+
+  mention_count: number;
+  citation_count: number;
+  total_possible: number | null;
+  position: number | null;
+
   created_at: string;
   source_system?: string;
   import_batch_id?: string;

@@ -6,8 +6,7 @@ type EntityType =
   | "brief"
   | "change"
   | "result"
-  | "competitor"
-  | "weekly";
+  | "competitor";
 
 const ENTITY_LABELS: Record<EntityType, string> = {
   opportunity: "Opportunity",
@@ -15,7 +14,6 @@ const ENTITY_LABELS: Record<EntityType, string> = {
   change: "Change",
   result: "Result",
   competitor: "Competitor",
-  weekly: "Weekly",
 };
 
 const ENTITY_COLORS: Record<EntityType, string> = {
@@ -24,7 +22,6 @@ const ENTITY_COLORS: Record<EntityType, string> = {
   change: "text-foreground-secondary",
   result: "text-status-success",
   competitor: "text-status-danger",
-  weekly: "text-muted-foreground",
 };
 
 type EntityLinkCardProps = {

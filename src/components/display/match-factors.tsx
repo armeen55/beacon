@@ -12,6 +12,7 @@ const factorLabels: Record<keyof Attribution["matches"], string> = {
   url: "URL",
   geo: "Geo",
   temporal: "Timing",
+  sourceCategory: "Type",
 };
 
 const strengthColors: Record<MatchStrength, string> = {
@@ -19,6 +20,13 @@ const strengthColors: Record<MatchStrength, string> = {
   partial: "bg-status-warning",
   none: "bg-border",
   unknown: "bg-muted-foreground/30",
+};
+
+const STRENGTH_LABELS: Record<MatchStrength, string> = {
+  strong: "lines up",
+  partial: "close but not exact",
+  none: "no overlap",
+  unknown: "can't tell",
 };
 
 export function MatchFactors({ matches, className }: MatchFactorsProps) {
@@ -29,7 +37,7 @@ export function MatchFactors({ matches, className }: MatchFactorsProps) {
           <span
             key={key}
             className="inline-flex items-center gap-1"
-            title={`${factorLabels[key]}: ${strength}`}
+            title={`${factorLabels[key]}: ${STRENGTH_LABELS[strength]}`}
           >
             <span
               className={cn(

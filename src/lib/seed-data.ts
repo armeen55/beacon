@@ -3,8 +3,6 @@ import type { Brief } from "@/domains/briefs/types";
 import type { ChangelogEntry } from "@/domains/changelog/types";
 import type { Result } from "@/domains/results/types";
 import type { Competitor, CompetitorSnapshot } from "@/domains/competitors/types";
-import type { CoverageItem } from "@/domains/coverage/types";
-import type { WeeklySummary } from "@/domains/weekly/types";
 
 export const opportunities: Opportunity[] = [
   {
@@ -1057,6 +1055,10 @@ export const results: Result[] = [
     url_measured: null,
     attributed_changelog_ids: ["cl-2"],
     notes: "First citation appearance after page rebuild",
+    mention_count: 0,
+    citation_count: 1,
+    total_possible: null,
+    position: null,
     created_at: "2025-03-25T08:00:00Z",
   },
   {
@@ -1073,6 +1075,10 @@ export const results: Result[] = [
     url_measured: "/services/kitchen-remodel",
     attributed_changelog_ids: ["cl-1"],
     notes: "FAQ schema triggered AIO featured result",
+    mention_count: 0,
+    citation_count: 0,
+    total_possible: null,
+    position: 3,
     created_at: "2025-03-25T08:00:00Z",
   },
   {
@@ -1089,6 +1095,10 @@ export const results: Result[] = [
     url_measured: null,
     attributed_changelog_ids: ["cl-5", "cl-7"],
     notes: "Directory submissions starting to index",
+    mention_count: 4,
+    citation_count: 0,
+    total_possible: 10,
+    position: null,
     created_at: "2025-03-25T08:00:00Z",
   },
   {
@@ -1105,6 +1115,10 @@ export const results: Result[] = [
     url_measured: "/services/whole-house-remodel",
     attributed_changelog_ids: ["cl-3"],
     notes: null,
+    mention_count: 0,
+    citation_count: 0,
+    total_possible: null,
+    position: 4.2,
     created_at: "2025-03-25T08:00:00Z",
   },
   {
@@ -1121,6 +1135,10 @@ export const results: Result[] = [
     url_measured: null,
     attributed_changelog_ids: [],
     notes: "Baseline measurement before page rebuild",
+    mention_count: 0,
+    citation_count: 0,
+    total_possible: null,
+    position: null,
     created_at: "2025-03-18T08:00:00Z",
   },
   {
@@ -1137,6 +1155,10 @@ export const results: Result[] = [
     url_measured: null,
     attributed_changelog_ids: [],
     notes: "Total AI referral traffic across all platforms",
+    mention_count: 0,
+    citation_count: 0,
+    total_possible: null,
+    position: null,
     created_at: "2025-03-25T08:00:00Z",
   },
 ];
@@ -1294,209 +1316,4 @@ export const competitorSnapshots: CompetitorSnapshot[] = [
   },
 ];
 
-export const coverageItems: CoverageItem[] = [
-  {
-    id: "cov-1",
-    category: "schema",
-    item_name: "FAQPage JSON-LD on service pages",
-    description:
-      "All /services/* pages should have FAQPage schema with relevant questions sourced from AI search queries.",
-    url: "/services/*",
-    status: "partial",
-    priority: "critical",
-    last_checked: "2025-03-22T10:00:00Z",
-    notes: "3 of 8 service pages done",
-    linked_brief_id: "brief-2",
-    created_at: "2025-03-10T08:00:00Z",
-    updated_at: "2025-03-22T10:00:00Z",
-  },
-  {
-    id: "cov-2",
-    category: "schema",
-    item_name: "LocalBusiness schema on homepage",
-    description:
-      "Homepage should have complete LocalBusiness schema with address, service area, and sameAs links.",
-    url: "/",
-    status: "complete",
-    priority: "high",
-    last_checked: "2025-03-25T08:00:00Z",
-    notes: null,
-    linked_brief_id: null,
-    created_at: "2025-03-10T08:00:00Z",
-    updated_at: "2025-03-25T08:00:00Z",
-  },
-  {
-    id: "cov-3",
-    category: "content",
-    item_name: "City page for Los Altos",
-    description:
-      "Dedicated city page with local content, project gallery, and testimonials for Los Altos service area.",
-    url: "/locations/los-altos",
-    status: "missing",
-    priority: "critical",
-    last_checked: null,
-    notes: "No page exists — zero coverage for Los Altos queries",
-    linked_brief_id: null,
-    created_at: "2025-03-10T08:00:00Z",
-    updated_at: "2025-03-10T08:00:00Z",
-  },
-  {
-    id: "cov-4",
-    category: "listing",
-    item_name: "GBP listing optimization",
-    description:
-      "Google Business Profile should have complete service list, Q&A, posts, and photo coverage.",
-    url: null,
-    status: "complete",
-    priority: "high",
-    last_checked: "2025-03-14T17:00:00Z",
-    notes: "Completed as part of GBP brief",
-    linked_brief_id: "brief-5",
-    created_at: "2025-03-01T08:00:00Z",
-    updated_at: "2025-03-14T17:00:00Z",
-  },
-  {
-    id: "cov-5",
-    category: "technical",
-    item_name: "Sitemap includes all city and service pages",
-    description:
-      "XML sitemap should list all city pages, service pages, and project pages with correct lastmod dates.",
-    url: "/sitemap.xml",
-    status: "needs_update",
-    priority: "medium",
-    last_checked: "2025-03-20T08:00:00Z",
-    notes: "Missing 3 recently created pages",
-    linked_brief_id: null,
-    created_at: "2025-03-10T08:00:00Z",
-    updated_at: "2025-03-20T08:00:00Z",
-  },
-  {
-    id: "cov-6",
-    category: "entity",
-    item_name: "Organization schema with sameAs",
-    description:
-      "Organization schema should include sameAs links to all directory profiles, social accounts, and Wikipedia (if available).",
-    url: "/",
-    status: "complete",
-    priority: "medium",
-    last_checked: "2025-03-25T08:00:00Z",
-    notes: null,
-    linked_brief_id: null,
-    created_at: "2025-03-10T08:00:00Z",
-    updated_at: "2025-03-25T08:00:00Z",
-  },
-  {
-    id: "cov-7",
-    category: "content",
-    item_name: "ADU construction page",
-    description:
-      "Dedicated page for ADU construction services with cost info, permit guidance, and design options.",
-    url: "/services/adu-construction",
-    status: "missing",
-    priority: "medium",
-    last_checked: null,
-    notes: "Brief drafted — awaiting approval",
-    linked_brief_id: "brief-3",
-    created_at: "2025-03-20T08:00:00Z",
-    updated_at: "2025-03-20T08:00:00Z",
-  },
-  {
-    id: "cov-8",
-    category: "listing",
-    item_name: "Houzz profile optimization",
-    description:
-      "Houzz profile should have complete portfolio, reviews, and service descriptions matching website copy.",
-    url: null,
-    status: "partial",
-    priority: "medium",
-    last_checked: "2025-03-12T08:00:00Z",
-    notes: "Profile submitted, pending photo uploads",
-    linked_brief_id: "brief-4",
-    created_at: "2025-03-12T08:00:00Z",
-    updated_at: "2025-03-12T08:00:00Z",
-  },
-  {
-    id: "cov-9",
-    category: "review",
-    item_name: "Review schema on testimonial pages",
-    description:
-      "All pages with customer testimonials should have AggregateRating and individual Review schema.",
-    url: null,
-    status: "partial",
-    priority: "high",
-    last_checked: "2025-03-22T08:00:00Z",
-    notes: "Implemented on Palo Alto page, pending on others",
-    linked_brief_id: null,
-    created_at: "2025-03-10T08:00:00Z",
-    updated_at: "2025-03-22T08:00:00Z",
-  },
-];
-
-export const weeklySummaries: WeeklySummary[] = [
-  {
-    id: "week-1",
-    week_start: "2025-03-24",
-    week_end: "2025-03-30",
-    title: "Week of March 24, 2025",
-    status: "draft",
-    highlights:
-      "ChatGPT citation share for Palo Alto queries up 54%. Google AIO visibility rank for kitchen remodel jumped from #8 to #3 after FAQ schema deployment. Perplexity mentions tripled for home addition queries.",
-    lowlights:
-      "Still no coverage for Los Altos — city page blocked on content creation. ADU page brief still in draft. Competitor De Mattei launched new landing page for San Jose ADU queries.",
-    changes_count: 3,
-    key_metric_deltas: {
-      citation_share: 6.5,
-      visibility_rank: -5,
-      mention_count: 3,
-      ai_referrals: 13,
-    },
-    top_opportunities: ["opp-1", "opp-2", "opp-6"],
-    recommendations:
-      "Prioritize Los Altos city page creation this week. Approve ADU brief and begin content production. Monitor ChatGPT citation stability for Palo Alto.",
-    created_at: "2025-03-28T10:00:00Z",
-    updated_at: "2025-03-28T10:00:00Z",
-  },
-  {
-    id: "week-2",
-    week_start: "2025-03-17",
-    week_end: "2025-03-23",
-    title: "Week of March 17, 2025",
-    status: "published",
-    highlights:
-      "Palo Alto city page rebuilt with full schema coverage. FAQ schema added to kitchen remodel and whole house remodel pages. Homepage Organization schema implemented.",
-    lowlights:
-      "Perplexity still favors Harrell Remodeling for kitchen queries despite content improvements. Directory submissions not yet indexed.",
-    changes_count: 4,
-    key_metric_deltas: {
-      citation_share: 4.0,
-      average_position: -3.6,
-    },
-    top_opportunities: ["opp-1", "opp-5"],
-    recommendations:
-      "Continue FAQ schema rollout to remaining service pages. Begin citation campaign outreach. Monitor directory submission indexing.",
-    created_at: "2025-03-23T10:00:00Z",
-    updated_at: "2025-03-23T16:00:00Z",
-  },
-  {
-    id: "week-3",
-    week_start: "2025-03-10",
-    week_end: "2025-03-16",
-    title: "Week of March 10, 2025",
-    status: "published",
-    highlights:
-      "GBP optimization completed — all service areas, Q&A, and photos updated. Directory submissions sent to Houzz, Yelp, and Angi. Baseline measurements established across all platforms.",
-    lowlights:
-      "ChatGPT citation share still low at 8% for core queries. Need content depth improvements before expecting AI search traction.",
-    changes_count: 2,
-    key_metric_deltas: {
-      citation_share: 0,
-      form_submissions: 3,
-    },
-    top_opportunities: ["opp-3"],
-    recommendations:
-      "Begin Palo Alto page rebuild. Draft FAQ content for all service pages. Establish weekly monitoring cadence.",
-    created_at: "2025-03-16T10:00:00Z",
-    updated_at: "2025-03-16T14:00:00Z",
-  },
-];
 

@@ -65,22 +65,22 @@ export type PersistedActionState = {
 };
 
 export const ACTION_TYPE_LABELS: Record<ActionType, string> = {
-  review_cluster: "Review Cluster",
-  replicate_pattern: "Replicate Pattern",
-  expand_adjacent_opportunity: "Expand Opportunity",
-  fix_changelog_coverage: "Fix Changelog",
-  fix_matching_quality: "Fix Matching",
-  investigate_external: "Investigate",
-  monitor_cluster: "Monitor",
-  deprioritize_pattern: "Deprioritize",
+  review_cluster: "Triage this theme",
+  replicate_pattern: "Repeat a winning play",
+  expand_adjacent_opportunity: "Expand to a new pocket",
+  fix_changelog_coverage: "Log what shipped",
+  fix_matching_quality: "Tighten matching",
+  investigate_external: "Look outside the site",
+  monitor_cluster: "Keep watching",
+  deprioritize_pattern: "Stop doubling down",
 };
 
 export const BUCKET_LABELS: Record<ActionBucket, string> = {
-  do_now: "Do Now",
-  do_this_week: "Do This Week",
-  monitor: "Monitor",
-  system_fix: "System Fix",
-  deprioritized: "Deprioritized",
+  do_now: "Today",
+  do_this_week: "Next Up",
+  monitor: "Watch & Learn",
+  system_fix: "Fix the Inputs",
+  deprioritized: "Parked",
 };
 
 export const BUCKET_COLORS: Record<ActionBucket, string> = {
@@ -107,11 +107,11 @@ export const OPERATOR_STATE_LABELS: Record<OperatorState, string> = {
 };
 
 export const FOLLOW_THROUGH_LABELS: Record<FollowThroughStatus, string> = {
-  evidence_positive: "Evidence Found",
-  evidence_weak: "Weak Evidence",
-  no_evidence_yet: "No Evidence Yet",
-  too_early: "Too Early",
-  unknown: "Unknown",
+  evidence_positive: "Showed up in the numbers",
+  evidence_weak: "Signal is fuzzy",
+  no_evidence_yet: "Nothing yet",
+  too_early: "Too soon to tell",
+  unknown: "Not tracked yet",
 };
 
 export const FOLLOW_THROUGH_COLORS: Record<FollowThroughStatus, string> = {

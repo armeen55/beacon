@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { EntityLinkCard } from "@/components/data/entity-link-card";
 import { AttributionCard } from "@/components/data/attribution-card";
@@ -11,6 +12,7 @@ import {
 } from "@/lib/lookups";
 import { computeAttribution } from "@/domains/attribution/compute";
 import { opportunities } from "@/lib/seed-data.server";
+import { eventDecisions } from "@/domains/attribution/store";
 import {
   SIGNAL_TYPE_LABELS,
   ASSET_TYPE_LABELS,
@@ -112,6 +114,41 @@ export default async function ChangeDetailPage({
           )}
         </div>
       )}
+
+      {/* Operator Decisions */}
+      {(() => {
+        const decisions = eventDecisions.filter(
+          (d) => d.cause_type === "change" && d.primary_change_id === entry.id
+        );
+        if (decisions.length === 0) return null;
+        const CONF_LABELS = { high: "sure", medium: "best guess", low: "unsure" } as const;
+        return (
+          <div className="border-t border-border pt-5 space-y-3">
+            <h3 className="text-[13px] font-semibold">
+              Confirmed as cause ({decisions.length})
+            </h3>
+            <div className="space-y-1.5">
+              {decisions.map((d) => (
+                <Link
+                  key={d.id}
+                  href={`/results/${d.result_id}`}
+                  className="block rounded-md border border-status-success/20 bg-status-success/5 px-3 py-2 hover:bg-status-success/10 transition-colors"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-[12px] font-medium truncate">{d.event_id}</span>
+                    <span className="text-[10px] text-muted-foreground shrink-0">
+                      {CONF_LABELS[d.operator_confidence]}
+                    </span>
+                  </div>
+                  {d.operator_note && (
+                    <p className="text-[11px] text-muted-foreground mt-0.5 truncate">{d.operator_note}</p>
+                  )}
+                </Link>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Results + Record */}
       <div className="border-t border-border pt-5 space-y-3">

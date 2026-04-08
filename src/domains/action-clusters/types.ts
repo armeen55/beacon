@@ -49,12 +49,12 @@ export type ClusterExplanation = {
 };
 
 export const CLUSTER_STATUS_LABELS: Record<ClusterStatus, string> = {
-  working: "Working",
-  review_now: "Review Now",
-  fix_data: "Fix Data",
-  investigate_external: "Investigate",
-  monitor_only: "Monitor",
-  low_signal: "Low Signal",
+  working: "On track",
+  review_now: "Needs a decision",
+  fix_data: "Fix the data",
+  investigate_external: "Look beyond the site",
+  monitor_only: "Watch only",
+  low_signal: "Too thin to act on",
 };
 
 export const CLUSTER_STATUS_COLORS: Record<ClusterStatus, string> = {

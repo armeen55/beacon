@@ -21,6 +21,8 @@ import {
   importWorkbook,
   resetExperiment,
 } from "@/lib/import/actions";
+import { importProfoundData } from "@/adapters/profound/actions";
+import type { ProfoundImportResult } from "@/adapters/profound/import-orchestrator";
 import { IMPORT_COLUMN_DOCS } from "@/lib/import/types";
 import type { ImportEntityType, ImportFormat, ImportPreview, ImportResult, ImportRun, WorkbookImportResult } from "@/lib/import/types";
 
@@ -47,6 +49,7 @@ export default function ImportPage() {
   const [isPending, startTransition] = useTransition();
 
   const [wbResult, setWbResult] = useState<WorkbookImportResult | null>(null);
+  const [profoundResult, setProfoundResult] = useState<ProfoundImportResult | null>(null);
   const [resetDone, setResetDone] = useState<{ cleared: Record<string, number> } | null>(null);
   const [preserveLabels, setPreserveLabels] = useState(true);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -353,6 +356,125 @@ export default function ImportPage() {
                 <Link
                   href="/diagnostics"
                   className="text-[12px] text-accent-primary hover:underline font-medium"
+                >
+                  View Diagnostics
+                </Link>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Profound CSV Import */}
+      <div className="rounded-md border-2 border-blue-500/20 bg-blue-50/50 dark:bg-blue-950/20 p-5 mb-8">
+        <div className="flex items-center gap-2 mb-3">
+          <Upload className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+          <h3 className="text-[14px] font-semibold">Profound Data Import</h3>
+        </div>
+        <p className="text-[12px] text-muted-foreground mb-4">
+          Import canonical Beacon data from Profound CSV exports in <code className="text-[11px] bg-muted px-1 rounded">.data/</code> directory.
+          Parses raw executions (9,596 rows), citations (85K rows), prompts (100), and benchmark snapshots. Derives Beacon-native visibility metrics.
+        </p>
+        <Button
+          size="sm"
+          onClick={() => {
+            setProfoundResult(null);
+            startTransition(async () => {
+              const result = await importProfoundData();
+              setProfoundResult(result);
+              const history = await getImportRuns();
+              setRuns(history);
+            });
+          }}
+          disabled={isPending}
+          className="bg-blue-600 hover:bg-blue-700 text-white"
+        >
+          <Upload className="h-3.5 w-3.5" data-icon="inline-start" />
+          {isPending ? "Importing Profound Data…" : "Import Profound CSVs"}
+        </Button>
+
+        {profoundResult && (
+          <div className="mt-4 space-y-3">
+            <div className="flex items-center gap-2">
+              {profoundResult.success ? (
+                <CheckCircle2 className="h-4 w-4 text-status-success" />
+              ) : (
+                <AlertTriangle className="h-4 w-4 text-status-danger" />
+              )}
+              <span className="text-[13px] font-semibold">
+                {profoundResult.success ? "Import complete" : "Import failed"}
+              </span>
+              <span className="text-[11px] text-muted-foreground font-mono">
+                {profoundResult.elapsed_ms}ms
+              </span>
+            </div>
+
+            {profoundResult.success && (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                {[
+                  { label: "Prompts", value: profoundResult.counts.prompts },
+                  { label: "Entities", value: profoundResult.counts.entities },
+                  { label: "Obs. Runs", value: profoundResult.counts.observationRuns },
+                  { label: "Observations", value: profoundResult.counts.observations },
+                  { label: "Citations", value: profoundResult.counts.citations },
+                  { label: "Derived", value: profoundResult.counts.derivedSnapshots },
+                  { label: "Benchmark", value: profoundResult.counts.benchmarkSnapshots },
+                  { label: "Candidates", value: profoundResult.counts.entityCandidates },
+                  { label: "→ Results", value: profoundResult.counts.bridgedResults },
+                  { label: "→ Changes", value: profoundResult.counts.bridgedChanges },
+                  { label: "Pages", value: profoundResult.counts.pagesDiscovered },
+                  { label: "Cite Rollups", value: profoundResult.counts.citationRollups },
+                ].map((s) => (
+                  <div
+                    key={s.label}
+                    className="rounded border border-border bg-background px-3 py-2 text-center"
+                  >
+                    <p className="text-lg font-semibold tabular-nums">
+                      {s.value.toLocaleString()}
+                    </p>
+                    <p className="text-[10px] text-muted-foreground uppercase tracking-wider">
+                      {s.label}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {profoundResult.errors.length > 0 && (
+              <div className="space-y-1">
+                {profoundResult.errors.map((e, i) => (
+                  <p key={i} className="text-[12px] text-status-danger">{e}</p>
+                ))}
+              </div>
+            )}
+
+            {profoundResult.warnings.length > 0 && (
+              <details className="text-[12px]">
+                <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
+                  {profoundResult.warnings.length} warnings
+                </summary>
+                <div className="mt-1 space-y-0.5 max-h-40 overflow-y-auto">
+                  {profoundResult.warnings.slice(0, 50).map((w, i) => (
+                    <p key={i} className="text-status-warning">{w}</p>
+                  ))}
+                  {profoundResult.warnings.length > 50 && (
+                    <p className="text-muted-foreground">…and {profoundResult.warnings.length - 50} more</p>
+                  )}
+                </div>
+              </details>
+            )}
+
+            {profoundResult.success && (
+              <div className="flex items-center gap-3 pt-2">
+                <Link
+                  href="/review"
+                  className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-4 py-2 text-[12px] font-medium text-white hover:bg-blue-700 transition-colors"
+                >
+                  Open Review Queue
+                </Link>
+                <Link
+                  href="/diagnostics"
+                  className="text-[12px] text-blue-600 dark:text-blue-400 hover:underline font-medium"
                 >
                   View Diagnostics
                 </Link>

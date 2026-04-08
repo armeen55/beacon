@@ -4,7 +4,6 @@ import {
   changelogEntries,
   results,
   competitors,
-  weeklySummaries,
 } from "./seed-data.server";
 import type { Opportunity } from "@/domains/opportunities/types";
 import type { Brief } from "@/domains/briefs/types";
@@ -148,34 +147,6 @@ export function getRelatedOpportunities(
   return opportunities.filter((o) =>
     opp.related_opportunity_ids.includes(o.id)
   );
-}
-
-// ── Weekly → Changes (by date range) ──
-
-export function getChangesForWeek(weekId: string): ChangelogEntry[] {
-  const week = weeklySummaries.find((w) => w.id === weekId);
-  if (!week) return [];
-  const start = new Date(week.week_start);
-  const end = new Date(week.week_end);
-  end.setHours(23, 59, 59, 999);
-  return changelogEntries.filter((c) => {
-    const date = new Date(c.timestamp);
-    return date >= start && date <= end;
-  });
-}
-
-// ── Weekly → Results (by date range) ──
-
-export function getResultsForWeek(weekId: string): Result[] {
-  const week = weeklySummaries.find((w) => w.id === weekId);
-  if (!week) return [];
-  const start = new Date(week.week_start);
-  const end = new Date(week.week_end);
-  end.setHours(23, 59, 59, 999);
-  return results.filter((r) => {
-    const date = new Date(r.snapshot_date);
-    return date >= start && date <= end;
-  });
 }
 
 // ── Single-entity lookups ──

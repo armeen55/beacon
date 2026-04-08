@@ -6,10 +6,12 @@ import { generateId, now } from "@/lib/actions";
 import {
   candidateLinks,
   truthLabels,
+  eventDecisions,
   persistCandidateLinks,
   persistTruthLabels,
+  persistEventDecisions,
 } from "./store";
-import type { TruthRelation } from "./types";
+import type { TruthRelation, CauseType, OperatorConfidence } from "./types";
 
 export async function confirmCandidate(
   resultId: string,
@@ -74,6 +76,35 @@ export async function rejectCandidate(
   return { success: true };
 }
 
+export async function rejectAllCandidates(
+  resultId: string,
+  changeIds: string[]
+): Promise<{ success: boolean }> {
+  for (const changeId of changeIds) {
+    const existing = candidateLinks.find(
+      (cl) => cl.result_id === resultId && cl.change_id === changeId
+    );
+    if (existing) {
+      existing.status = "rejected";
+      existing.reviewed_at = now();
+    } else {
+      candidateLinks.push({
+        id: generateId("cl"),
+        result_id: resultId,
+        change_id: changeId,
+        status: "rejected",
+        attribution: null!,
+        created_at: now(),
+        reviewed_at: now(),
+      });
+    }
+  }
+
+  await persistCandidateLinks();
+  revalidatePath("/", "layout");
+  return { success: true };
+}
+
 export async function addTruthLabel(
   resultId: string,
   changeId: string,
@@ -100,6 +131,91 @@ export async function addTruthLabel(
   }
 
   await persistTruthLabels();
+  revalidatePath("/", "layout");
+  return { success: true };
+}
+
+export async function lockDecision(
+  eventId: string,
+  resultId: string,
+  causeType: CauseType,
+  primaryChangeId: string | null,
+  operatorConfidence: OperatorConfidence,
+  operatorNote: string | null,
+  allCandidateChangeIds: string[]
+): Promise<{ success: boolean }> {
+  const existing = eventDecisions.find((d) => d.event_id === eventId);
+
+  const rejectedIds = allCandidateChangeIds.filter((id) => id !== primaryChangeId);
+
+  if (existing) {
+    existing.cause_type = causeType;
+    existing.primary_change_id = primaryChangeId;
+    existing.operator_confidence = operatorConfidence;
+    existing.operator_note = operatorNote?.trim() || null;
+    existing.rejected_change_ids = rejectedIds;
+    existing.decided_at = now();
+  } else {
+    eventDecisions.push({
+      id: generateId("ed"),
+      event_id: eventId,
+      result_id: resultId,
+      cause_type: causeType,
+      primary_change_id: primaryChangeId,
+      operator_confidence: operatorConfidence,
+      operator_note: operatorNote?.trim() || null,
+      rejected_change_ids: rejectedIds,
+      decided_at: now(),
+    });
+  }
+
+  if (causeType === "change" && primaryChangeId) {
+    const result = results.find((r) => r.id === resultId);
+    if (result && !result.attributed_changelog_ids.includes(primaryChangeId)) {
+      result.attributed_changelog_ids.push(primaryChangeId);
+    }
+
+    const existingLink = candidateLinks.find(
+      (cl) => cl.result_id === resultId && cl.change_id === primaryChangeId
+    );
+    if (existingLink) {
+      existingLink.status = "confirmed";
+      existingLink.reviewed_at = now();
+    } else {
+      candidateLinks.push({
+        id: generateId("cl"),
+        result_id: resultId,
+        change_id: primaryChangeId,
+        status: "confirmed",
+        attribution: null!,
+        created_at: now(),
+        reviewed_at: now(),
+      });
+    }
+  }
+
+  for (const changeId of rejectedIds) {
+    const existingLink = candidateLinks.find(
+      (cl) => cl.result_id === resultId && cl.change_id === changeId
+    );
+    if (existingLink) {
+      existingLink.status = "rejected";
+      existingLink.reviewed_at = now();
+    } else {
+      candidateLinks.push({
+        id: generateId("cl"),
+        result_id: resultId,
+        change_id: changeId,
+        status: "rejected",
+        attribution: null!,
+        created_at: now(),
+        reviewed_at: now(),
+      });
+    }
+  }
+
+  await persistEventDecisions();
+  await persistCandidateLinks();
   revalidatePath("/", "layout");
   return { success: true };
 }

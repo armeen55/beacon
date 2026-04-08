@@ -64,7 +64,7 @@ export type WorkbookImportResult = {
 export const IMPORT_COLUMN_DOCS: Record<ImportEntityType, { required: string[]; optional: string[] }> = {
   results: {
     required: ["snapshot_date", "platform", "metric_type", "metric_value"],
-    optional: ["previous_value", "topic", "city", "url_measured", "attributed_change_ids", "notes"],
+    optional: ["previous_value", "topic", "city", "url_measured", "attributed_change_ids", "mention_count", "citation_count", "total_possible", "position", "notes"],
   },
   changes: {
     required: ["timestamp", "signal_type", "asset_name", "change_description", "topic_targeted"],

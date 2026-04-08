@@ -10,7 +10,7 @@ import { results, changelogEntries, opportunities } from "@/lib/seed-data.server
 import { getFullChainForResult } from "@/lib/lookups";
 import { discoverCandidates } from "@/domains/attribution/candidates";
 import { triageCandidates } from "@/domains/attribution/triage";
-import { classifyResultMode, partitionResultsByMode } from "@/domains/attribution/result-mode";
+import { partitionResultsByMode } from "@/domains/attribution/result-mode";
 import { detectOutcomeEvents } from "@/domains/attribution/events";
 import { truthLabels } from "@/domains/attribution/store";
 import {
@@ -200,6 +200,18 @@ export default async function ResultDetailPage({
           </Field>
         </div>
       </div>
+
+      {(result.mention_count > 0 || result.citation_count > 0 || result.position !== null) && (
+        <div>
+          <h3 className="text-[13px] font-semibold mb-2">Structured Metrics</h3>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-[12px]">
+            <Field label="Mentions">{result.mention_count}</Field>
+            <Field label="Citations">{result.citation_count}</Field>
+            <Field label="Total Possible">{result.total_possible ?? "—"}</Field>
+            <Field label="Position">{result.position ?? "—"}</Field>
+          </div>
+        </div>
+      )}
 
       {result.notes && (
         <div>

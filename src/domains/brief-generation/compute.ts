@@ -37,7 +37,6 @@ export function computeProposedBriefs(
     clusters,
     patterns,
     opportunities,
-    candidates,
     persistedStates
   );
 

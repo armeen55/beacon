@@ -90,7 +90,7 @@ export function extractPatterns(
         hasPatternChange(e, changeIds)
     );
 
-    const totalForRate = attributed.length + noCause.length;
+    const totalForRate = relevantEvents.length;
     const successRate = totalForRate > 0
       ? Math.round((attributed.length / totalForRate) * 100)
       : 0;
