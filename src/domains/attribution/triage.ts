@@ -117,6 +117,52 @@ export function triageCandidates(
     });
   }
 
+  // ── Topic-cluster auto-resolve ──
+  // When gap was too small for standard auto-confirm but ALL remaining
+  // needs_review candidates share a topic match, the ambiguity is
+  // "which change for this topic" — not "is this even the right topic."
+  // Promote the leader as primary, rest as contributing/suppressed.
+  if (
+    !primary &&
+    needsReview.length >= 1 &&
+    needsReview[0].score >= PRIMARY_MIN_SCORE &&
+    needsReview[0].attribution.matches.topic === "strong" &&
+    needsReview[0].attribution.matches.temporal === "strong" &&
+    (needsReview[0].attribution.matches.platform === "strong" ||
+      needsReview[0].attribution.matches.platform === "partial") &&
+    needsReview.every(
+      (c) =>
+        c.attribution.matches.topic === "strong" ||
+        c.attribution.matches.topic === "partial"
+    )
+  ) {
+    const leader = needsReview[0];
+    primary = {
+      ...leader,
+      triage: "primary",
+      triageReason: `Topic-cluster leader · Score ${Math.round(leader.score)} · ${leader.attribution.explanation}`,
+    };
+
+    const rest = needsReview.slice(1);
+    needsReview.length = 0;
+
+    for (const c of rest) {
+      if (c.score >= CONTRIBUTING_MIN_SCORE) {
+        contributing.push({
+          ...c,
+          triage: "contributing",
+          triageReason: "Same topic cluster",
+        });
+      } else {
+        suppressed.push({
+          ...c,
+          triage: "suppressed",
+          triageReason: "Below threshold in topic cluster",
+        });
+      }
+    }
+  }
+
   const autoResolved =
     primary !== null && needsReview.length === 0;
 

@@ -328,14 +328,14 @@ function buildExplanation(
 
 // ── Main computation ────────────────────────────────────────────────
 
-const EVIDENCE_TIER_BONUS: Record<EvidenceTier, number> = {
+export const EVIDENCE_TIER_BONUS: Record<EvidenceTier, number> = {
   exact: 8,
   probable: 0,
   weak: 0,
   inferred: 0,
 };
 
-const EVIDENCE_TIER_CAP: Record<EvidenceTier, number> = {
+export const EVIDENCE_TIER_CAP: Record<EvidenceTier, number> = {
   exact: 100,
   probable: 85,
   weak: 55,

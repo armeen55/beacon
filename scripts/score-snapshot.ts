@@ -10,6 +10,8 @@ import { detectOutcomeEvents } from "../src/domains/attribution/events";
 import { discoverCandidates } from "../src/domains/attribution/candidates";
 import { triageCandidates } from "../src/domains/attribution/triage";
 import { partitionResultsByMode } from "../src/domains/attribution/result-mode";
+import { classifyEvidenceTier } from "../src/domains/pages/evidence-tier";
+import type { EvidenceTier } from "../src/domains/pages/types";
 
 async function main() {
   const results = readStore<Result>("imported-results");
@@ -17,6 +19,17 @@ async function main() {
   const opps = readStore<Opportunity>("imported-opportunities");
 
   console.log(`Results: ${results.length}, Changes: ${changes.length}, Opps: ${opps.length}`);
+
+  // Evidence tier distribution across all changes
+  const tierCounts: Record<string, number> = { exact: 0, probable: 0, weak: 0, inferred: 0 };
+  for (const c of changes) {
+    const meta = classifyEvidenceTier(c);
+    tierCounts[meta.tier]++;
+  }
+  console.log(`\nEvidence tier distribution (${changes.length} changes):`);
+  for (const [tier, count] of Object.entries(tierCounts)) {
+    console.log(`  ${tier}: ${count} (${pct(count, changes.length)}%)`);
+  }
 
   const { attribution } = partitionResultsByMode(results);
   const events = detectOutcomeEvents(attribution);
@@ -30,8 +43,15 @@ async function main() {
   let needsReview = 0;
   const allScores: number[] = [];
   const factorCounts: Record<string, Record<string, number>> = {};
-  const strongest: { score: number; topic: string; change: string; matches: Record<string, string>; factorScores: Record<string, number> }[] = [];
-  const weakest: { score: number; topic: string; change: string; matches: Record<string, string>; factorScores: Record<string, number> }[] = [];
+  const evidenceTierInCandidates: Record<string, number> = { exact: 0, probable: 0, weak: 0, inferred: 0, null: 0 };
+  const candidatesPerEvent: number[] = [];
+  const strongest: { score: number; topic: string; change: string; matches: Record<string, string>; tier: string | null }[] = [];
+  let totalSuppressed = 0;
+  let totalPrimary = 0;
+  let totalContributing = 0;
+  let totalNeedsReviewCandidates = 0;
+  let topicMatchingCandidates = 0;
+  let noTopicCandidates = 0;
 
   for (const event of events) {
     const result = results.find(r => r.id === event.anchor_result_id);
@@ -39,9 +59,19 @@ async function main() {
 
     const candidates = discoverCandidates(result, changes, opps);
     totalCandidates += candidates.length;
+    candidatesPerEvent.push(candidates.length);
 
     for (const c of candidates) {
       allScores.push(c.score);
+      const tier = c.attribution.evidence_tier;
+      evidenceTierInCandidates[tier ?? "null"]++;
+
+      if (c.attribution.matches.topic === "strong" || c.attribution.matches.topic === "partial") {
+        topicMatchingCandidates++;
+      } else {
+        noTopicCandidates++;
+      }
+
       for (const [factor, strength] of Object.entries(c.attribution.matches)) {
         if (!factorCounts[factor]) factorCounts[factor] = { strong: 0, partial: 0, none: 0, unknown: 0 };
         factorCounts[factor][strength as string]++;
@@ -51,13 +81,17 @@ async function main() {
         topic: result.topic ?? "?",
         change: c.change.change_description?.slice(0, 50) ?? c.change.asset_name?.slice(0, 50) ?? "?",
         matches: c.attribution.matches as unknown as Record<string, string>,
-        factorScores: c.attribution.factor_scores,
+        tier: tier ?? null,
       });
     }
 
     const triage = triageCandidates(candidates);
     if (triage.autoResolved) autoResolved++;
     else needsReview++;
+    if (triage.primary) totalPrimary++;
+    totalContributing += triage.contributing.length;
+    totalNeedsReviewCandidates += triage.needsReview.length;
+    totalSuppressed += triage.suppressed.length;
   }
 
   strongest.sort((a, b) => b.score - a.score);
@@ -65,8 +99,32 @@ async function main() {
   const bottom5 = strongest.slice(-5).reverse();
 
   console.log(`\nTotal candidates across all events: ${totalCandidates}`);
+  console.log(`  Topic-matching: ${topicMatchingCandidates} (${pct(topicMatchingCandidates, totalCandidates)}%)`);
+  console.log(`  No-topic: ${noTopicCandidates} (${pct(noTopicCandidates, totalCandidates)}%)`);
   console.log(`Auto-resolved events: ${autoResolved}`);
   console.log(`Needs-review events: ${needsReview}`);
+  console.log(`Avg candidates/event: ${events.length > 0 ? (totalCandidates / events.length).toFixed(2) : 0}`);
+
+  console.log(`\nTriage breakdown (across ${events.length} events):`);
+  console.log(`  Primary assigned: ${totalPrimary}`);
+  console.log(`  Contributing: ${totalContributing}`);
+  console.log(`  Needs review (candidates): ${totalNeedsReviewCandidates}`);
+  console.log(`  Suppressed: ${totalSuppressed}`);
+
+  // Candidate distribution
+  const dist = { "0": 0, "1": 0, "2": 0, "3": 0, "4": 0, "5+": 0 };
+  for (const count of candidatesPerEvent) {
+    if (count === 0) dist["0"]++;
+    else if (count === 1) dist["1"]++;
+    else if (count === 2) dist["2"]++;
+    else if (count === 3) dist["3"]++;
+    else if (count === 4) dist["4"]++;
+    else dist["5+"]++;
+  }
+  console.log(`\nCandidates-per-event distribution:`);
+  for (const [bucket, count] of Object.entries(dist)) {
+    console.log(`  ${bucket}: ${count} events`);
+  }
 
   if (allScores.length > 0) {
     allScores.sort((a, b) => a - b);
@@ -79,6 +137,11 @@ async function main() {
     console.log(`  Mean: ${(allScores.reduce((a, b) => a + b, 0) / allScores.length).toFixed(1)}`);
   }
 
+  console.log(`\nEvidence tier in surviving candidates:`);
+  for (const [tier, count] of Object.entries(evidenceTierInCandidates)) {
+    if (count > 0) console.log(`  ${tier}: ${count} (${pct(count, totalCandidates)}%)`);
+  }
+
   console.log(`\nFactor hit rates (across ${allScores.length} candidates):`);
   for (const [factor, counts] of Object.entries(factorCounts)) {
     const total = counts.strong + counts.partial + counts.none + counts.unknown;
@@ -89,14 +152,14 @@ async function main() {
   for (const c of top5) {
     console.log(`  Score ${c.score} | ${c.topic} | ${c.change}`);
     console.log(`    matches: ${JSON.stringify(c.matches)}`);
-    console.log(`    points:  ${JSON.stringify(c.factorScores)}`);
+    console.log(`    evidence_tier: ${c.tier}`);
   }
 
   console.log(`\n5 WEAKEST candidates:`);
   for (const c of bottom5) {
     console.log(`  Score ${c.score} | ${c.topic} | ${c.change}`);
     console.log(`    matches: ${JSON.stringify(c.matches)}`);
-    console.log(`    points:  ${JSON.stringify(c.factorScores)}`);
+    console.log(`    evidence_tier: ${c.tier}`);
   }
 }
 
