@@ -281,7 +281,7 @@ A trust-first AI visibility operating system for builder/home-services businesse
 | **Gap ledger** | `/topics` | Typed opportunity gaps. Frontier list + detail drilldown | Frontier planner, compiler, citation index, competitor evidence |
 | **Gap detail** | `/topics/opportunity/[id]` | Single frontier detail with attack package + provenance | Frontier compiler, citation evidence, pages, competitor universe |
 | **Changes** | `/changes` | Change log + contracts + **impact table** (verdict, confidence, next action) | Change contracts, `computeScorecard`, `enrichWithImpact` |
-| **Change detail** | `/changes/[id]` | Single change: verdict + **impact assessment** (why, direction, what to do next) + event attributions | Scorecard row, `change-impact.ts`, event attributions |
+| **Change detail** | `/changes/[id]` | Single change: verdict + **impact assessment** + **"Apply this pattern"** (replicate recs for this change) + **"Strengthen this entry"** (evidence nudges) + event attributions | Scorecard row, `change-impact.ts`, `computeRecommendations`, event attributions |
 | **Review** | `/review` | Attribution decisions queue. Lock/reject/confirm per event | Events, candidates, triage, decisions |
 | **Sample history** | `/results` | Imported result rows with visibility run context | Results, visibility observation runs |
 | **Result detail** | `/results/[id]` | Single result with event linkage + match factors | Results, candidates, attributions |
@@ -1309,5 +1309,26 @@ No code changes needed. No database changes needed. No data loss.
 - "DO THIS NOW" block replaces "Next best move" when a primary action exists (bold border, score badge, bucket label, headline, why, expected outcome, CTA)
 - Secondary recommendations collapse into "Other opportunities (N)" toggle
 - Graceful fallback to existing next-move logic when no primary action qualifies
+
+**Validation:** `npm run check` (17/17), `npm run test` (26/26), `npm run data:parity` (15/15).
+
+### Phase 10 — Changes Detail Action Generation (COMPLETE)
+
+**Scope:** Surface recommendation engine output on `/changes/[id]` so validated changes generate specific next actions in-place. No new modules, no persistence.
+
+**What was added to `/changes/[id]/page.tsx`:**
+- Full recommendation pipeline: `enrichWithImpact` on all scorecard rows → build citation map → `minePatterns` → `generateBriefs` → `computeRecommendations`
+- Filter: `replicateRecs` where `sourceChangeId === id` (pages this change's pattern applies to)
+- Filter: `strengthenRec` where `sourceChangeId === id` (evidence quality nudge for this change)
+- Page URL → page ID lookup for `/pages?p=` deep links
+
+**UI sections added (between "Impact assessment" and "Hypothesis"):**
+- "Apply this pattern (N pages)" — green-bordered section, one row per target page with headline + citation count + link to Website
+- "Strengthen this entry" — yellow-bordered section with gap rationale (missing URL/topic/hypothesis)
+
+**What was NOT touched:**
+- Today page, Changes list page, recommendation engine, priority engine, attribution scoring
+- No new modules, no new types, no new stores
+- Existing impact assessment block unchanged
 
 **Validation:** `npm run check` (17/17), `npm run test` (26/26), `npm run data:parity` (15/15).

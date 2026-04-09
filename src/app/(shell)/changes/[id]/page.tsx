@@ -5,10 +5,20 @@ import { MatchFactors } from "@/components/display/match-factors";
 import { changelogEntries, results, opportunities } from "@/lib/seed-data.server";
 import { eventDecisions } from "@/domains/attribution/store";
 import { computeScorecard } from "@/domains/attribution/scorecard";
-import { computeChangeImpact } from "@/domains/attribution/change-impact";
+import { enrichWithImpact, computeChangeImpact } from "@/domains/attribution/change-impact";
+import { pageSnapshots } from "@/domains/pages/snapshot-store";
+import { citationEvidenceIndex } from "@/domains/pages/citation-evidence-store";
+import { allPages } from "@/domains/pages/page-store";
+import {
+  rolloutExecutions,
+  patternEvidence as persistedPatternEvidence,
+} from "@/domains/pages/issues";
+import { minePatterns, generateBriefs } from "@/domains/pages/playbook";
+import { computeRecommendations } from "@/domains/product/recommendation-engine";
 import type { EventAttribution, TrustSource } from "@/domains/attribution/scorecard";
 import type { AttributionConfidence, ImpactConfidence, ImpactDirection } from "@/domains/attribution/types";
 import type { EvidenceTier } from "@/domains/pages/types";
+import type { BeaconRecommendation } from "@/domains/product/recommendation-engine";
 import {
   SIGNAL_TYPE_LABELS,
   ASSET_TYPE_LABELS,
@@ -97,6 +107,54 @@ export default async function ChangeDetailPage({
   const sortedAttributions = [...row.eventAttributions].sort(
     (a, b) => b.score - a.score
   );
+
+  // Compute recommendations originating from this change
+  const impactRows = enrichWithImpact(allRows);
+
+  const citationIndex2 = citationEvidenceIndex as {
+    by_page_and_topic: {
+      page_url: string;
+      is_owned: boolean;
+      total_citations: number;
+    }[];
+    by_topic: { topic: string }[];
+  } | null;
+  const citMap = new Map<string, number>();
+  if (citationIndex2) {
+    for (const r of citationIndex2.by_page_and_topic) {
+      if (!r.is_owned) continue;
+      const key = r.page_url.replace(/\/+$/, "").toLowerCase();
+      citMap.set(key, (citMap.get(key) ?? 0) + r.total_citations);
+    }
+  }
+
+  const patterns = minePatterns(
+    pageSnapshots,
+    citMap,
+    allRows,
+    rolloutExecutions,
+    persistedPatternEvidence,
+  );
+  const briefs = generateBriefs(pageSnapshots, citMap, patterns);
+  const allRecs = computeRecommendations({ impactRows, patterns, briefs });
+
+  const replicateRecs = allRecs.filter(
+    (r) => r.type === "replicate" && r.sourceChangeId === id,
+  );
+
+  const strengthenRec = allRecs.find(
+    (r) => r.type === "strengthen" && r.sourceChangeId === id,
+  );
+
+  const urlToPageId = new Map<string, string>();
+  for (const p of allPages) {
+    urlToPageId.set(p.url.replace(/\/+$/, "").toLowerCase(), p.id);
+  }
+  function pagesHref(pageUrl: string): string {
+    const pageId = urlToPageId.get(pageUrl.replace(/\/+$/, "").toLowerCase());
+    if (!pageId) return "/pages";
+    return `/pages?p=${pageId}`;
+  }
 
   return (
     <div className="max-w-3xl space-y-6">
@@ -235,6 +293,44 @@ export default async function ChangeDetailPage({
         </div>
       </div>
 
+      {/* Replicate: actionable pages from this validated change */}
+      {replicateRecs.length > 0 && (
+        <div className="border-2 border-status-success/40 rounded-lg overflow-hidden">
+          <div className="px-4 py-3 bg-status-success/8 border-b border-status-success/20">
+            <p className="text-[11px] font-bold text-status-success uppercase tracking-wider">
+              Apply this pattern ({replicateRecs.length} page{replicateRecs.length !== 1 ? "s" : ""})
+            </p>
+            <p className="text-[11px] text-muted-foreground mt-0.5">
+              This change drove positive visibility. These pages have the same structural gap.
+            </p>
+          </div>
+          <div className="divide-y divide-border">
+            {replicateRecs.slice(0, 6).map((rec) => (
+              <ReplicateRow key={rec.id} rec={rec} pagesHref={pagesHref} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Strengthen: evidence quality nudge for weak-tier changes */}
+      {strengthenRec && (
+        <div className="border border-status-warning/40 rounded-lg overflow-hidden">
+          <div className="px-4 py-3 bg-status-warning/8 border-b border-status-warning/20">
+            <p className="text-[11px] font-bold text-status-warning uppercase tracking-wider">
+              Strengthen this entry
+            </p>
+          </div>
+          <div className="px-4 py-3 space-y-2">
+            <p className="text-[12px] text-foreground-secondary leading-relaxed">
+              {strengthenRec.rationale}
+            </p>
+            <p className="text-[11px] text-muted-foreground">
+              {strengthenRec.sourceEvidence}
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Hypothesis */}
       {entry.hypothesis && (
         <div>
@@ -363,5 +459,35 @@ function DirectionBadge({ direction }: { direction: ImpactDirection }) {
     <span className={`text-[11px] font-medium ${cfg.className}`}>
       {cfg.label}
     </span>
+  );
+}
+
+function ReplicateRow({
+  rec,
+  pagesHref,
+}: {
+  rec: BeaconRecommendation;
+  pagesHref: (url: string) => string;
+}) {
+  const href = rec.targetPageUrl ? pagesHref(rec.targetPageUrl) : "/pages";
+  return (
+    <Link
+      href={href}
+      className="flex items-start justify-between gap-3 px-4 py-3 hover:bg-surface-inset/50 transition-colors"
+    >
+      <div className="min-w-0 flex-1">
+        <p className="text-[12px] font-medium truncate">
+          {rec.headline}
+        </p>
+        {rec.citationOpportunity > 0 && (
+          <p className="text-[10px] text-muted-foreground mt-0.5">
+            {rec.citationOpportunity} existing citations on target page
+          </p>
+        )}
+      </div>
+      <span className="text-[10px] font-semibold text-accent-primary shrink-0 mt-0.5">
+        Open →
+      </span>
+    </Link>
   );
 }

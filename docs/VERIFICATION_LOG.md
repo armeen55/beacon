@@ -206,3 +206,21 @@
 
 ### Build verification (Phase 9)
 - `npm run check`, `npm run test`, `npm run data:parity` — pass; 17/17 routes, 26/26 tests, 15/15 parity
+
+---
+
+## 2026-04-09 — Phase 10: Changes Detail Action Generation
+
+### What shipped
+- **`/changes/[id]`** now runs the full recommendation engine and surfaces change-specific actions inline
+- Validated/partial + positive changes: **"Apply this pattern"** section listing specific target pages (up to 6) with the same structural gap, citation counts, and deep links to Website
+- Weak-evidence changes with linked events: **"Strengthen this entry"** section showing specific missing fields (URL, topic, hypothesis) and suggested topic from event data
+- Full pipeline: `enrichWithImpact` → citation map → `minePatterns` → `generateBriefs` → `computeRecommendations` → filter by `sourceChangeId`
+
+### Constraints honored
+- No new modules, no new types, no new stores, no scoring formula changes
+- Today page unchanged, Changes list unchanged, recommendation engine unchanged
+- Pure surfacing of existing intelligence on an existing page
+
+### Build verification (Phase 10)
+- `npm run check`, `npm run test`, `npm run data:parity` — pass; 17/17 routes, 26/26 tests, 15/15 parity

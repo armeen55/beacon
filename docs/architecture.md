@@ -68,7 +68,7 @@ Default loop:
 - **Gap ledger** (`/topics`) — typed gaps
 
 Work:
-- **Changes** — log + verification + **change impact** (`computeScorecard` → `enrichWithImpact`: confidence, direction, why, next action). **Phase 6:** URL matching normalized; decline events (`visibility_lost`, `mention_decline`) → `negative` verdicts are now real.
+- **Changes** — log + verification + **change impact** (`computeScorecard` → `enrichWithImpact`: confidence, direction, why, next action). **Phase 6:** URL matching normalized; decline events → `negative` verdicts real. **Phase 10:** `/changes/[id]` runs recommendation engine inline — validated changes show "Apply this pattern" with specific target pages; weak-evidence changes show "Strengthen this entry" nudges.
 
 Advanced:
 - **Review** — hypothesis locks (attribution bookkeeping)

@@ -89,30 +89,42 @@ Shipped:
 
 ---
 
+## Phase 10 — Changes Detail Action Generation — COMPLETE (2026-04-09)
+
+Shipped:
+- **`/changes/[id]`** now runs the full recommendation engine and surfaces change-specific actions inline:
+  - **"Apply this pattern"**: validated/partial + positive changes show specific target pages with the same structural gap (replicate recs filtered by `sourceChangeId`)
+  - **"Strengthen this entry"**: weak-evidence changes with linked events get specific gap nudges (missing URL/topic/hypothesis)
+- Imports added: `enrichWithImpact`, `pageSnapshots`, `citationEvidenceIndex`, `allPages`, `rolloutExecutions`, `persistedPatternEvidence`, `minePatterns`, `generateBriefs`, `computeRecommendations`
+- Render: "Apply this pattern" green-bordered section with per-page rows (headline, citation count, link to Website); "Strengthen this entry" yellow-bordered section with gap rationale
+- No new modules, no persistence, no scoring changes. Pure surfacing of existing intelligence on an existing page.
+
+---
+
 ## Proposed next (pick one track)
 
 ### A — Execution feedback loop
-- Track when operator acts on the primary action (new changelog entry matches recommendation target)
+- Track when operator acts on a recommendation (new changelog entry matches recommendation target page+pattern)
 - Measure whether recommended changes produce outcome events
 - Feed back into priority scoring weights
 
-### B — Changes detail integration
-- Show recommendations on `/changes/[id]` ("Based on this change, do X to these pages")
-- Show quality nudges on weak-evidence changes inline
-
-### C — Topic-similarity recommendations
+### B — Topic-similarity recommendations
 - Cross-topic pattern matching (e.g., "denver roofing" worked → suggest "boulder roofing")
 - Requires lightweight topic embedding or keyword clustering
 
-### D — Persistence / infra
-- Items in `master_execution_plan.md` post-Phase 3E backlog
-
-### E — Native visibility sampling
+### C — Native visibility sampling
 - Replace Profound import with direct Perplexity API sampling
 - Fresh data = better attribution = better recommendations
+
+### D — Changes list enhancement
+- Sort/filter `/changes` by impact confidence, show replication count per change
+- Surface "X pages waiting for this pattern" in the scorecard table
+
+### E — Persistence / infra
+- Items in `master_execution_plan.md` post-Phase 3E backlog
 
 ---
 
 ### Historical: remaining precision opportunities
-- 15 citation-supported but no-topic candidates — partially addressed by "strengthen" recs
+- 15 citation-supported but no-topic candidates — addressed by "strengthen" recs on detail page (Phase 10)
 - 1 opportunity in imported data → opportunity clustering mostly inactive

@@ -45,6 +45,7 @@ Working branch: `work/attribution-precision-20260407`
 | **Today impact surface** | **WIRED (Phase 7)** | Top 5 impact signals from `enrichWithImpact` on `/` landing page |
 | **Recommendation engine** | **WIRED (Phase 8)** | `computeRecommendations`: proven changes x structural gaps -> ranked replicate/strengthen/investigate moves |
 | **Priority engine** | **WIRED (Phase 9)** | `rankAndSelect`: 6-dimension scoring (0-100), bucket classification, single primary action selection; Today "DO THIS NOW" replaces passive suggestions with enforced execution focus |
+| **Change detail actions** | **WIRED (Phase 10)** | `/changes/[id]` runs recommendation engine; "Apply this pattern" (replicate recs) + "Strengthen this entry" (evidence nudges) surfaced inline on the detail page |
 
 ## Score Distribution (baseline — pre-pruning)
 
