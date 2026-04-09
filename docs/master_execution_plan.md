@@ -2,10 +2,11 @@
 
 > Living document. Single source of truth for implementation sequence.
 > Updated: 2026-04-09
-> Current phase: **Phase 0.5 — Audit live persistence dependencies**
+> Current phase: **Phase 1A — PostgreSQL bootstrap & first schema slice**
 >
 > Phase 0 — COMPLETE (commit `74605b1`)
-> Phase 0.5 — ACTIVE — audit which stores are read by live routes before Phase 1 schema work
+> Phase 0.5 — COMPLETE — audit locked minimum Phase 1 scope (15 stores → 12 tables)
+> Phase 1A — ACTIVE — Supabase client + 5-table core schema (import_runs, results, changelog_entries, opportunities, competitors)
 
 ---
 
@@ -695,3 +696,52 @@ After Supabase project is created and `.env.local` is populated:
 4. Run migration
 5. Create repository interfaces
 6. Wire `seed-data.server.ts` behind `DATA_SOURCE` flag
+
+---
+
+## Phase 1A Status — PostgreSQL Bootstrap
+
+**Status:** COMPLETE
+**Date:** 2026-04-09
+
+### What was done
+
+| Deliverable | File | Notes |
+|-------------|------|-------|
+| Supabase client singleton | `src/lib/persistence/supabase.ts` | Server-only, lazy init, env validation, service role key |
+| Core schema migration | `supabase/migrations/001_core_schema.sql` | 5 tables + 3 indexes |
+| Supabase JS dependency | `package.json` | `@supabase/supabase-js` added |
+| Feature flag env var | `.env.local` | `DATA_SOURCE=file` (Phase 1B will read this) |
+
+### Tables created in 001_core_schema.sql
+
+| Table | Columns | Maps to store | Primary index |
+|-------|---------|---------------|---------------|
+| `import_runs` | 11 | `import-runs` | `id` (PK) |
+| `results` | 21 | `imported-results` | `id` (PK) + `(platform, snapshot_date)` |
+| `changelog_entries` | 18 | `imported-changes` | `id` (PK) + `(timestamp desc)` |
+| `opportunities` | 34 | `imported-opportunities` | `id` (PK) + `(current_status)` |
+| `competitors` | 11 | `imported-competitors` | `id` (PK) |
+
+### Migration not yet applied
+
+The SQL file exists but has **not** been run against the Supabase project.
+Apply it via the Supabase dashboard **SQL Editor** (paste contents of `supabase/migrations/001_core_schema.sql` and click Run).
+
+### What Phase 1B should do next
+
+1. Apply the migration SQL to the live Supabase project
+2. Create repository interfaces (`src/lib/persistence/repositories/`) for the 5 entity types
+3. Implement Supabase-backed repository classes
+4. Wire `seed-data.server.ts` with `DATA_SOURCE` flag: `file` = current behavior, `supabase` = read from DB
+5. Create a backfill script to seed existing `.data/` file contents into the DB
+6. Validate all route surfaces render identically from both sources
+
+### What must NOT be touched in Phase 1B
+
+- No route/UI changes beyond the `DATA_SOURCE` branch in `seed-data.server.ts`
+- No deletion of `json-store.ts` or existing `.data/` files
+- No schema beyond the 5 seed-data entity tables
+- No auth, RLS, workspaces, or multi-tenant design
+- No crawl pipeline changes
+- No scoring logic changes
