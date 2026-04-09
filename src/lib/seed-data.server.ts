@@ -7,8 +7,8 @@
  * When no experiment is active, seed/demo data is used as a product walkthrough.
  *
  * Data source is selected by the DATA_SOURCE env var:
- *   "file"     — read from .data/*.json via json-store (default)
- *   "supabase" — read from Supabase PostgreSQL tables
+ *   "supabase" — canonical runtime reads from Postgres via SeedDataRepository (committed default)
+ *   "file"     — rollback: same repository interface, file-backed backend + json-store
  *
  * Only Server Components and Server Actions should import this module.
  * Client Components receive data as props from server parents.
@@ -42,8 +42,8 @@ export function hasActiveExperiment(): boolean {
 export { _importRuns as importRuns };
 
 // ── Mutable entity arrays ──
-// These are the single source of truth for the entire server process.
-// Import actions push to them; reset actions clear them.
+// Hydrated at module load from `getRepository()` when an import experiment is active;
+// otherwise seeded from static `seed-data`. Import actions mutate these arrays in-process.
 
 export const results: Result[] = [];
 export const changelogEntries: ChangelogEntry[] = [];

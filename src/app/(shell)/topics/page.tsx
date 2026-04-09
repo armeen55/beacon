@@ -482,6 +482,7 @@ export default function TopicsPage() {
       }
       onLaunchPackage={async (frontierKey: string) => {
         "use server";
+        // INTENTIONAL EXCEPTION: fresh disk read — avoids stale module-cached snapshots/citation index.
         const { readDotDataJson: rd } = await import("@/lib/persistence/dotdata-json");
         const ci2 = rd<CitationEvidenceIndex>("citation-evidence-index");
         const snaps2 = rd<PageSnapshot[]>("page-snapshots") ?? [];

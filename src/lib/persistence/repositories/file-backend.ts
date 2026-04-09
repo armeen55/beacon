@@ -42,10 +42,9 @@ import type { ObservationRun } from "@/domains/observations/types";
 import type { ConfiguredCompetitorEntry } from "@/domains/competitors/universe-types";
 
 /**
- * File-backed repository — wraps readStore() / readDotDataJson() calls.
- * Returns the same cached array references for readStore-backed stores,
- * preserving existing mutation semantics (import actions push
- * to the same in-memory arrays).
+ * `DATA_SOURCE=file` implementation of `SeedDataRepository`.
+ * Wraps `readStore` / `readDotDataJson` here only — not for ad-hoc use elsewhere.
+ * Returns the same cached `readStore` array references so import mutations stay visible.
  */
 export const fileBackend: SeedDataRepository = {
   // Phase 1B

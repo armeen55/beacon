@@ -1,7 +1,11 @@
 /**
- * Local evaluation persistence layer.
- * Reads/writes JSON files in `.data/` directory.
- * NOT the long-term production architecture — meant for local eval runs.
+ * On-disk JSON store + in-process cache for `.data/*.json`.
+ *
+ * **Role today:** Source of truth on disk when `DATA_SOURCE=file`, and the
+ * write-through / dual-write target when `DATA_SOURCE=supabase`. Route reads
+ * go through `SeedDataRepository` — app code should not call `readStore` for
+ * route-critical entities except inside repository backends, writers, CLI, or
+ * `storage/canonical-store.ts` (Profound pipeline only).
  *
  * - Synchronous read on first access (cached in-process thereafter)
  * - Atomic writes via temp-file + rename

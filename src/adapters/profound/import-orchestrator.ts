@@ -165,6 +165,8 @@ export async function runProfoundImport(
   }
 
   // Phase 8: Build page registry + citation evidence index
+  // INTENTIONAL: CLI/batch uses json-store cache for `imported-changes` — do not swap to
+  // SeedDataRepository without an explicit file-vs-DB policy for this pipeline.
   const importedChanges = readStore<import("@/domains/changelog/types").ChangelogEntry>(
     "imported-changes"
   );

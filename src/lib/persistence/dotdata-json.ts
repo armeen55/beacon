@@ -1,3 +1,11 @@
+/**
+ * Raw disk read for `.data/{name}.json` (no json-store cache).
+ *
+ * **Allowed call sites:** `file-backend` / `supabase-backend` (supplementary blobs),
+ * plus the two documented exceptions: `universe-read.ts` when `DATA_SOURCE=file`
+ * (pin metadata), and `topics/page.tsx` server action (fresh read at mutation time).
+ * Elsewhere prefer `getRepository()` or domain store modules.
+ */
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 

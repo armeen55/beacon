@@ -1,3 +1,10 @@
+/**
+ * Competitor universe resolution.
+ *
+ * **Intentional `readDotDataJson` use:** When `DATA_SOURCE=file`, the v2 file holds
+ * pin/version metadata that is not fully represented in `competitor_config` rows alone.
+ * In `DATA_SOURCE=supabase` mode, entries come only from `repo.getCompetitorConfigEntries()`.
+ */
 import "server-only";
 
 import { readDotDataJson } from "@/lib/persistence/dotdata-json";

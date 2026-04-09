@@ -1,3 +1,9 @@
+/**
+ * `DATA_SOURCE=supabase` implementation of `SeedDataRepository`.
+ * Route-critical tables read from Postgres; supplementary + json-store-only domains
+ * still hit disk (`readDotDataJson` / `readStore`) until migrated — same behavior as
+ * pre-cutover direct-file access, centralized here.
+ */
 import { readDotDataJson } from "../dotdata-json";
 import { readStore } from "../json-store";
 import { getSupabaseAdmin } from "../supabase";

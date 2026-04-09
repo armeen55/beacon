@@ -96,6 +96,25 @@ Removed:
 
 Underlying file cache and mutations still use `src/lib/persistence/json-store.ts` where applicable. Server-only — enforced by `import "server-only"`.
 
+## Persistence boundaries (locked — Phase 3E)
+
+| Layer | Role |
+|--------|------|
+| **Postgres (Supabase)** | Canonical **read** source for route-critical tables when `DATA_SOURCE=supabase`. |
+| **`.data/*.json` + `json-store`** | On-disk truth and in-process mutation cache; always written first on mutating paths; enables instant rollback via `DATA_SOURCE=file`. |
+| **`SeedDataRepository` (`getRepository`)** | **Default read path** for app/domain code — switches backend from env. |
+| **Thin domain stores** | Wrap repository data for a single domain (citation index, snapshots, etc.); no second source of truth. |
+| **`storage/canonical-store.ts`** | **Profound import pipeline only** — hot/cold Profound stores; not for website `ObservationRun` (those go through `domains/observations/read.ts`). |
+
+**Documented bypasses (do not copy without updating this doc):**
+
+- `topics/page.tsx` server action — `readDotDataJson` for citation index + snapshots at action time (freshness vs module cache).
+- `universe-read.ts` — `readDotDataJson("competitor-universe")` only when `DATA_SOURCE=file` (file pin metadata).
+- **`import-orchestrator.ts`** — `readStore("imported-changes")` for CLI/batch (policy decision; not swapped to repo blindly).
+- **Scripts** (`scripts/*`) — may use `readStore` / disk directly.
+
+Naming cheat sheet: **website** observation runs = `ObservationRun` + `observation_runs` table / merged file sources; **Profound** “observation” rows = `ProfoundImportRun` in `observation-runs.json` via canonical-store; **visibility** runs = separate types + `visibility-observation-runs.json` (+ synthetic wrappers).
+
 ## Server/Client Boundary
 
 - `seed-data.server.ts`: Server-only data layer, imports `json-store.ts`

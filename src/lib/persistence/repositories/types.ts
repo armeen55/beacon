@@ -42,8 +42,14 @@ import type { ObservationRun } from "@/domains/observations/types";
 import type { ConfiguredCompetitorEntry } from "@/domains/competitors/universe-types";
 
 /**
- * Async read interface for route-critical entity stores.
- * Implementations: file-backed (json-store) and Supabase-backed.
+ * Async read interface for route-critical and repository-routed stores.
+ *
+ * **Canonical runtime:** With `DATA_SOURCE=supabase`, Postgres is the read source
+ * for tables that exist; file/json-store remains the durability + rollback path
+ * via dual-write and `DATA_SOURCE=file`.
+ *
+ * App code: use `getRepository()` — not `readStore` / raw `readDotDataJson` —
+ * except documented exceptions (see `docs/architecture.md`).
  */
 export interface SeedDataRepository {
   // Phase 1B — seed-data entities

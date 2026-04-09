@@ -788,8 +788,8 @@ Apply it via the Supabase dashboard **SQL Editor** (paste contents of `supabase/
 ### How dual-read works
 
 `seed-data.server.ts` calls `getRepository()` which checks `DATA_SOURCE`:
-- `file` (default) → `fileBackend` → `readStore()` from `.data/*.json`
-- `supabase` → `supabaseBackend` → queries Supabase tables
+- `supabase` → `supabaseBackend` → Postgres for route-critical tables (**committed default** since Phase 2)
+- `file` → `fileBackend` → `readStore` / `readDotDataJson` from `.data/*.json` (**rollback**)
 
 No route files were changed. The module export API is identical.
 Top-level `await` is used for async Supabase queries; file backend resolves synchronously.
@@ -815,7 +815,7 @@ Top-level `await` is used for async Supabase queries; file backend resolves sync
 ### What must NOT be touched yet
 
 - No deletion of file-backed stores
-- No full cutover to `DATA_SOURCE=supabase` as default
+- ~~No full cutover to `DATA_SOURCE=supabase` as default~~ **Done (Phase 2).**
 - No auth, RLS, workspaces
 - No crawl pipeline changes
 - No Inngest or job orchestration
@@ -901,6 +901,8 @@ The physical `.data/observation-runs.json` file is **shared**: it holds **Profou
 
 ### Phase 1E — COMPLETE — remaining 6 stores wired via centralized modules
 
+**Historical snapshot:** Access patterns below reflect Phase 1E ship. **Current** observation merge, parity, and store routing are documented in Phases **3A–3C** and **3E** (`docs/architecture.md`).
+
 **Scope:** Wired the 6 remaining route-critical stores through the repository layer using thin centralized access modules, then rewired route page imports.
 
 **Stores wired (6 total):**
@@ -910,7 +912,7 @@ The physical `.data/observation-runs.json` file is **shared**: it holds **Profou
 | page-snapshots | PageSnapshot | page_snapshots | Module-cached (readDotDataJson) |
 | page-guardrails | GuardrailAlert | guardrail_alerts | Module-cached (readDotDataJson) |
 | citation-evidence-index | CitationEvidenceIndex | citation_evidence_index | Module-cached (document) |
-| observation-runs | ObservationRun | observation_runs | Module-cached + shape validation + legacy fallback |
+| observation-runs | ObservationRun | observation_runs | Module-cached; **Phase 3C:** merge in `file-backend`, no reader fallback |
 | competitor-universe | ConfiguredCompetitorEntry | competitor_config | Conditional: supabase=repo, file=readDotDataJson (pin metadata) |
 
 **New centralized modules created (4):**
@@ -920,7 +922,7 @@ The physical `.data/observation-runs.json` file is **shared**: it holds **Profou
 - `src/domains/pages/citation-evidence-store.ts` — exports `citationEvidenceIndex`
 
 **Existing modules modified (2):**
-- `src/domains/observations/read.ts` — uses repo data with shape validation filter (drops ProfoundImportRun rows), keeps scan-runs.json legacy fallback
+- `src/domains/observations/read.ts` — uses repo only; **Phase 3C:** merge lives in `file-backend`
 - `src/domains/competitors/universe-read.ts` — supabase mode queries competitor_config + reconstructs pin; file mode uses existing readDotDataJson→parseUniverseFile path unchanged
 
 **Route pages rewired (4):**
@@ -940,24 +942,22 @@ The physical `.data/observation-runs.json` file is **shared**: it holds **Profou
 **Validation:**
 - typecheck ✓, lint ✓ (0 errors), build ✓ (17/17 pages), tests ✓ (26/26)
 - DB row counts: pages=5288 ✓, page_snapshots=35 ✓, guardrail_alerts=6 ✓, citation_evidence_index=1 ✓, competitor_config=5 ✓
-- observation_runs=0 in DB (expected: file has ProfoundImportRun data, DB was not backfilled for this file)
+- **At Phase 1E:** `observation_runs` empty in DB (pre–Phase 3C). **Current:** aligned — Phase 3C.
 
-**What was NOT touched:**
-- `import/actions.ts` — keeps readDotDataJson for citation-evidence-index (runtime write-path needs fresh data)
-- `visibility-read.ts` — keeps readDotDataJson for citation-evidence-index and visibility-observation-runs
-- Scripts (scan-owned-pages.ts, score-snapshot.ts) — keep using readStore directly (CLI context)
-- Persist/write functions (all remain file-backed)
-- truthLabels, rolloutExecutions, patternEvidence (non-route-critical, deferred)
-- page-snapshot-diffs, render-checks (not in Phase 0.5 scope)
-- Server action in topics/page.tsx (runtime fresh-read via dynamic import, left as-is)
+**Superseded by Phases 3A+:** `import/actions.ts` and `visibility-read.ts` no longer use `readDotDataJson` for the stores listed above; they use repository-backed / thin store modules.
+
+**Still intentionally direct (see Phase 3E / architecture):**
+- `topics/page.tsx` server action — dynamic `readDotDataJson` (freshness)
+- Scripts (scan-owned-pages.ts, score-snapshot.ts) — CLI `readStore` / disk
+- Persist/write functions — file-first + dual-write where enabled
 
 ### Milestone: All 15 route-critical stores now read through the repository layer
 
-The `SeedDataRepository` interface has 15 getters covering all stores identified in the Phase 0.5 audit. Both file and Supabase backends implement all 15. `DATA_SOURCE=file` remains the default. `DATA_SOURCE=supabase` is viable for reads across the full route-critical slice.
+The `SeedDataRepository` interface has 15 getters covering all stores identified in the Phase 0.5 audit. Both file and Supabase backends implement all 15. **`DATA_SOURCE=supabase` is the committed default** (Phase 2); **`DATA_SOURCE=file`** is instant rollback with the same API.
 
 ### Phase 1F — Dual-Write Engine (COMPLETE)
 
-**Flag:** `DUAL_WRITE=true` env var (default: disabled, independent of `DATA_SOURCE`).
+**Flag:** `DUAL_WRITE=true` env var (independent of `DATA_SOURCE`; **on** in committed pilot config).
 
 **Mechanism:** File writes always execute first (rollback safety). When `DUAL_WRITE=true`, the same rows are upserted to Supabase best-effort — errors are logged to console but never propagate. Partial-write risk is documented: DB may lag file, never the reverse.
 
@@ -988,9 +988,9 @@ The `SeedDataRepository` interface has 15 getters covering all stores identified
 **What was NOT touched:**
 - truthLabels (route-supporting, not route-critical — file-only persist)
 - Page issues, change contracts, pages, snapshots, guardrails, citation-evidence, observation-runs, competitor-config (no active import write paths)
-- visibility-read.ts, scan scripts
+- visibility-read.ts, scan scripts (later partially rewired in 3A+)
 - UI, scoring, crawl, auth, RLS
-- DATA_SOURCE default (still `file`)
+- ~~DATA_SOURCE default (still `file`)~~ **Superseded:** default `supabase`; `file` = rollback
 
 ### Phase 1G — Parity Comparison Tooling (COMPLETE)
 
@@ -1165,21 +1165,43 @@ No code changes needed. No database changes needed. No data loss.
 - Clarified shared `.data/observation-runs.json` in `canonical-store.ts` (Profound slice) and `domains/observations/types.ts` (website rows + repository merge).
 - Corrected `scripts/backfill-to-supabase.ts` comment for `observation_runs` (mixed file; script path still visibility-led).
 
-**Explicitly still deferred (3E+ or product decision):**
-1. Topics server action freshness vs repository-cached stores
-2. `import-orchestrator` read path — explicit file-vs-repo policy for CLI before rewiring
-3. Supplementary + long-tail json-store domains → Postgres (schema + backfill — **not** this chunk)
-4. `canonical-store` / Profound file-store containment or split-file policy (**no redesign** until decided)
-5. Crawl pipeline / real-time / Inngest — out of band
+**Deferred:** Carried forward — documented and bounded in **Phase 3E** (below).
 
 **Validation:** Same suite as Phase 3C (`typecheck`, `lint`, `build`, `check`, `test`, `data:parity`).
 
 ---
 
-### What Phase 3 should address next (3E+)
+### Phase 3E — Final stabilization + ambiguity elimination (COMPLETE)
 
-1. **Optional:** Topics server action freshness vs repository-cached stores
-2. **`import-orchestrator` read path** — only with explicit file-vs-DB policy for CLI
-3. **Migrate supplementary + json-store domains to Postgres** — schema + backfill (**larger decision**)
-4. **`canonical-store` / Profound file stores** — containment or deprecation policy
-5. **Real-time / crawl pipeline** — separate decisions
+**Scope:** Lock the persistence mental model in docs and code comments only — **no** new tables, **no** behavior change, **no** rewiring of topics or import-orchestrator.
+
+**Done:**
+- **`docs/architecture.md`:** “Persistence boundaries” table — canonical vs file, repository as default read path, Profound-only `canonical-store`, documented `readStore` / `readDotDataJson` exceptions, naming cheat sheet (website vs Profound vs visibility).
+- **`docs/master_execution_plan.md`:** Corrected stale Phase 1 text (`DATA_SOURCE` default, dual-read diagram, Phase 1E validation / “NOT touched” vs current 3A+ reality).
+- **Code guardrails (comments):** `json-store.ts`, `dotdata-json.ts`, `repositories/index.ts`, `types.ts`, `file-backend.ts`, `supabase-backend.ts`, `seed-data.server.ts`, `universe-read.ts`, `topics/page.tsx` (server action), `import-orchestrator.ts`, `canonical-store.ts`.
+
+**Guarantees (locked):**
+- Postgres = canonical **read** layer when `DATA_SOURCE=supabase`; files = durability, dual-write target, and **`DATA_SOURCE=file`** rollback.
+- App logic reads through **`getRepository()`** unless listed in architecture “Documented bypasses.”
+- **Profound** data stays behind `canonical-store` / adapters; **website** runs use `observations/read.ts` → repository.
+
+**Explicitly NOT done (requires product/schema work — Opus-scale if pursued):**
+- Rewiring topics server action to repo-only reads
+- Rewiring `import-orchestrator` to `SeedDataRepository`
+- Postgres migration for supplementary / json-store-only domains
+- Splitting shared `observation-runs.json` file
+- Crawl / real-time / Inngest / auth / RLS
+
+**Validation:** `npm run check`, `npm run test`, `npm run data:parity` — **15/15** parity unchanged.
+
+**Status:** **Persistence layer work for this track is complete.** Further changes = new features or schema design, not stabilization.
+
+---
+
+### Post–Phase 3E backlog (product / schema — do not start as “cleanup”)
+
+1. Topics server action freshness vs repository-cached stores
+2. `import-orchestrator` read path — explicit file-vs-DB policy for CLI
+3. Migrate supplementary + json-store domains to Postgres — schema + backfill
+4. `canonical-store` / Profound file stores — split or containment policy
+5. Real-time / crawl pipeline — separate program

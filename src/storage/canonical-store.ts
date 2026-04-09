@@ -2,9 +2,9 @@
  * Profound import pipeline data stores.
  *
  * This module is consumed ONLY by `adapters/profound/import-orchestrator.ts`.
- * App route pages should NOT import from here — they use
- * `domains/attribution/store.ts` for event-decisions and
- * `domains/observations/read.ts` for website observation runs.
+ * **Profound / import pipeline only.** App routes must not use this for website
+ * crawl/verify runs — those are `domains/observations/read.ts` → repository.
+ * Event decisions for routes use `domains/attribution/store.ts`.
  *
  * Hot stores: loaded eagerly via json-store (small collections).
  * Cold stores: loaded on-demand via cold-store (large observation data).
