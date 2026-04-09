@@ -2,12 +2,13 @@
 
 > Living document. Single source of truth for implementation sequence.
 > Updated: 2026-04-09
-> Current phase: **Phase 1B — COMPLETE — repository wiring, backfill, dual-read**
+> Current phase: **Phase 1C — COMPLETE — full schema + backfill for all route-critical stores**
 >
 > Phase 0 — COMPLETE (commit `74605b1`)
 > Phase 0.5 — COMPLETE — audit locked minimum Phase 1 scope (15 stores → 12 tables)
 > Phase 1A — COMPLETE — Supabase client + 5-table core schema
 > Phase 1B — COMPLETE — repositories, seed-data wiring, backfill, validation
+> Phase 1C — COMPLETE — 10 remaining tables created + applied via MCP + full backfill verified
 
 ---
 
@@ -811,3 +812,51 @@ Top-level `await` is used for async Supabase queries; file backend resolves sync
 - No crawl pipeline changes
 - No Inngest or job orchestration
 - No visibility sampling or scoring changes
+
+---
+
+## Phase 1C Status — Full Schema + Backfill
+
+**Status:** COMPLETE
+**Date:** 2026-04-09
+
+### What was done
+
+Created and applied migration `002_remaining_core.sql` via Supabase MCP for the remaining 10 route-critical stores. Ran full backfill of all 15 tables.
+
+### Tables created in 002_remaining_core.sql
+
+| # | Table | Rows | Maps to store | Notes |
+|---|-------|------|---------------|-------|
+| 6 | `attribution_decisions` | 27 | `event-decisions` | snake_case, direct match |
+| 7 | `candidate_links` | 133 | `candidate-links` | `attribution` column nullable (all nulls in current data) |
+| 8 | `page_issues` | 6 | `page-issues` | camelCase TS → snake_case DB (key mapping needed in repo) |
+| 9 | `change_contracts` | 85 | `change-contracts` | camelCase TS → snake_case DB (key mapping needed in repo) |
+| 10 | `pages` | 5,288 | `pages` | page registry from import pipeline |
+| 11 | `page_snapshots` | 35 | `page-snapshots` | dotdata format, direct |
+| 12 | `guardrail_alerts` | 6 | `page-guardrails` | serial PK (no natural ID), delete+insert on backfill |
+| 13 | `citation_evidence_index` | 1 | `citation-evidence-index` | single document, JSONB columns |
+| 14 | `observation_runs` | 0 | `observation-runs` / `visibility-observation-runs` | unified wide table; no matching data on disk yet (file has ProfoundImportRun schema) |
+| 15 | `competitor_config` | 5 | `competitor-universe` | v2 file wrapper parsed |
+
+**Total: 15 tables, 6,852 rows backfilled.**
+
+### Naming convention decision
+
+All DB columns use **snake_case** (PostgreSQL convention). Two TS types use camelCase:
+- `PersistedIssue` (page_issues) — `issueId` → `issue_id`, `pageUrl` → `page_url`, etc.
+- `ChangeContract` (change_contracts) — `contractId` → `contract_id`, `accountId` → `account_id`, etc.
+
+Repository layer must map between naming conventions when these consumers are wired.
+
+### Discovery: observation-runs file schema mismatch
+
+`.data/observation-runs.json` contains **ProfoundImportRun** rows (renamed in Phase 0), not website crawl `ObservationRun` rows. The `observation_runs` table is designed for website crawl and visibility data. ProfoundImportRun data stays in its current file-backed scope per the Phase 0.5 audit (stores #35-42 are "do not migrate").
+
+### What Phase 1D should do next
+
+1. **Extend `SeedDataRepository`** with getters for attribution_decisions, candidate_links, pages, page_issues, change_contracts, page_snapshots, guardrail_alerts, citation_evidence, competitor_config
+2. **Add key-mapping helpers** for camelCase ↔ snake_case (page_issues, change_contracts)
+3. **Wire remaining store consumers** behind `DATA_SOURCE` flag (attribution/store.ts, pages/issues.ts, changelog/change-contract.ts, etc.)
+4. **Dual-write for import actions** — when `DATA_SOURCE=supabase`, write to both file and DB
+5. **End-to-end validation** — compare all route surfaces between `file` and `supabase` modes
