@@ -15,6 +15,7 @@ import {
 } from "@/domains/pages/issues";
 import { minePatterns, generateBriefs } from "@/domains/pages/playbook";
 import { computeRecommendations } from "@/domains/product/recommendation-engine";
+import { computeTrackRecord, wasChangeRecommended } from "@/domains/product/recommendation-tracker";
 import type { EventAttribution, TrustSource } from "@/domains/attribution/scorecard";
 import type { AttributionConfidence, ImpactConfidence, ImpactDirection } from "@/domains/attribution/types";
 import type { EvidenceTier } from "@/domains/pages/types";
@@ -138,6 +139,9 @@ export default async function ChangeDetailPage({
   const briefs = generateBriefs(pageSnapshots, citMap, patterns);
   const allRecs = computeRecommendations({ impactRows, patterns, briefs });
 
+  const trackRecord = computeTrackRecord({ impactRows, patterns });
+  const recommendedMatch = wasChangeRecommended(id, trackRecord);
+
   const replicateRecs = allRecs.filter(
     (r) => r.type === "replicate" && r.sourceChangeId === id,
   );
@@ -183,6 +187,17 @@ export default async function ChangeDetailPage({
           </div>
           <ChangeVerdictBadge verdict={row.verdict} />
         </div>
+        {recommendedMatch && (
+          <div className="flex items-center gap-2 mt-2 text-[10px]">
+            <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md border border-accent-primary/30 bg-accent-primary/8 text-accent-primary font-semibold">
+              <span className="h-1.5 w-1.5 rounded-full bg-accent-primary" />
+              Beacon recommended
+            </span>
+            <span className="text-muted-foreground">
+              {recommendedMatch.matchConfidence === "likely" ? "Likely" : "Possibly"} fulfilling a recommendation from the {recommendedMatch.patternId.replace("pattern-", "").replace(/-/g, " ")} pattern
+            </span>
+          </div>
+        )}
       </div>
 
       {/* What changed */}

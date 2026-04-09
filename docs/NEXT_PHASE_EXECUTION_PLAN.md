@@ -101,24 +101,39 @@ Shipped:
 
 ---
 
+---
+
+## Phase 11 — Recommendation Feedback Loop — COMPLETE (2026-04-09)
+
+Shipped:
+- **`src/domains/product/recommendation-tracker.ts`** — retroactive matching of changes to recommendation patterns:
+  - For each change, finds if a prior proven change for the same structural pattern existed on a different page — meaning Beacon would have generated a "replicate" recommendation
+  - Match confidence: `likely` (same URL path structure) / `possible` (pattern match only)
+  - Per-pattern track record: actedOn, validated, partial, inconclusive, noImpact, negative, tooEarly, successRate
+  - Aggregate: overall recommendation performance across all patterns
+- **Priority engine enhanced**: 7th scoring dimension — pattern track record (-5 to +10 bonus). Patterns with >=70% success rate get +10; poor patterns with negatives get -5. Only activates when pattern has >=2 acted-on changes (avoids noise).
+- **Today page**: "Beacon track record" summary line showing N recommendations acted on, M validated, success rate %
+- **Changes detail**: "Beacon recommended" badge on changes that match a recommendation pattern, showing match confidence and pattern name
+- No new persistence, no new stores. Pure computation from existing scorecard + pattern data.
+
+---
+
 ## Proposed next (pick one track)
 
-### A — Execution feedback loop
-- Track when operator acts on a recommendation (new changelog entry matches recommendation target page+pattern)
-- Measure whether recommended changes produce outcome events
-- Feed back into priority scoring weights
-
-### B — Topic-similarity recommendations
+### A — Topic-similarity recommendations
 - Cross-topic pattern matching (e.g., "denver roofing" worked → suggest "boulder roofing")
 - Requires lightweight topic embedding or keyword clustering
 
-### C — Native visibility sampling
+### B — Native visibility sampling
 - Replace Profound import with direct Perplexity API sampling
-- Fresh data = better attribution = better recommendations
+- Fresh data = better attribution = better recommendations = better track records
 
-### D — Changes list enhancement
-- Sort/filter `/changes` by impact confidence, show replication count per change
-- Surface "X pages waiting for this pattern" in the scorecard table
+### C — Changes list enhancement
+- Sort/filter `/changes` by impact confidence, show replication count
+- Surface "Beacon recommended" badge in the scorecard table
+
+### D — Recommendation acceptance UI
+- Accept/dismiss/defer per recommendation on Today → feeds into track record confidence
 
 ### E — Persistence / infra
 - Items in `master_execution_plan.md` post-Phase 3E backlog
@@ -126,5 +141,5 @@ Shipped:
 ---
 
 ### Historical: remaining precision opportunities
-- 15 citation-supported but no-topic candidates — addressed by "strengthen" recs on detail page (Phase 10)
+- 15 citation-supported but no-topic candidates — addressed by "strengthen" recs (Phase 10)
 - 1 opportunity in imported data → opportunity clustering mostly inactive

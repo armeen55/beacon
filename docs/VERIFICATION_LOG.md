@@ -224,3 +224,31 @@
 
 ### Build verification (Phase 10)
 - `npm run check`, `npm run test`, `npm run data:parity` — pass; 17/17 routes, 26/26 tests, 15/15 parity
+
+---
+
+## 2026-04-09 — Phase 11: Recommendation Feedback Loop
+
+### What shipped
+- **`src/domains/product/recommendation-tracker.ts`** — retroactive matching of changes to recommendation patterns
+- Core logic: if proven change A for pattern P existed before change B (same pattern, different page), then B was likely fulfilling a Beacon recommendation
+- Per-pattern track record with success rate: (validated + partial) / (total - tooEarly - pending)
+- `wasChangeRecommended()` helper for per-change lookups
+
+### Priority engine reinforcement
+- 7th scoring dimension: pattern track record (-5 to +10 bonus)
+- Patterns with >=70% historical success rate get +10 boost; poor patterns with negatives get -5 penalty
+- Minimum 2 acted-on changes required to activate (prevents noise)
+
+### Surface integration
+- Today page: "Beacon track record" line showing N acted on, M validated, success rate %
+- `/changes/[id]`: "Beacon recommended" badge with match confidence and pattern name
+
+### Constraints honored
+- No new persistence, no new stores, no new tables
+- Recommendation engine logic unchanged
+- Attribution scoring unchanged
+- Pure computation from existing scorecard + pattern data
+
+### Build verification (Phase 11)
+- `npm run check`, `npm run test`, `npm run data:parity` — pass; 17/17 routes, 26/26 tests, 15/15 parity

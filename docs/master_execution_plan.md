@@ -1332,3 +1332,43 @@ No code changes needed. No database changes needed. No data loss.
 - Existing impact assessment block unchanged
 
 **Validation:** `npm run check` (17/17), `npm run test` (26/26), `npm run data:parity` (15/15).
+
+### Phase 11 — Recommendation Feedback Loop (COMPLETE)
+
+**Scope:** Beacon learns from its own recommendations. Retroactive matching of changes to recommendation patterns, per-pattern track record, priority engine reinforcement, surface-level feedback display. No new persistence.
+
+**New module:**
+- `src/domains/product/recommendation-tracker.ts` — `computeTrackRecord()` + `wasChangeRecommended()`
+
+**Algorithm:**
+1. For each change in the scorecard, find which structural pattern it matches (via `matchChangeToPattern`)
+2. For each match, check if OTHER changes for the same pattern were proven-positive AND had earlier timestamps
+3. If yes → this change "likely fulfilled" a recommendation (a prior proven change would have generated a replicate rec)
+4. Match confidence: `likely` (same URL path prefix) / `possible` (pattern match only)
+5. Aggregate by pattern: actedOn, validated/partial/inconclusive/noImpact/negative/tooEarly, successRate
+
+**Types:**
+- `TrackedOutcome`: changeId, patternId, matchConfidence, priorProvenChangeId, verdict, direction
+- `PatternTrackRecord`: patternId, patternName, actedOn, validated, ..., successRate
+- `TrackRecordSummary`: outcomes, patternRecords, totalActedOn, totalValidated, overallSuccessRate
+
+**Priority engine enhancement:**
+- 7th scoring dimension: pattern track record (-5 to +10)
+- successRate >=70% → +10, >=50% → +6, >=30% → +2, poor + negative → -5
+- Only activates when pattern has >=2 acted-on changes (avoids noise from single data points)
+
+**Today page:**
+- "Beacon track record" summary line between primary action and impact signals
+- Shows: N acted on, M validated, success rate %
+
+**Changes detail:**
+- "Beacon recommended" badge on changes matching a recommendation pattern
+- Shows match confidence and pattern name
+
+**What was NOT touched:**
+- Recommendation engine logic unchanged
+- Attribution scoring unchanged
+- No new stores, no new persistence, no new tables
+- Today page layout structure unchanged beyond the new line
+
+**Validation:** `npm run check` (17/17), `npm run test` (26/26), `npm run data:parity` (15/15).

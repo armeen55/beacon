@@ -41,6 +41,7 @@ Proposed Briefs (execution plans)
 | `action-clusters/` | Grouped events + changes | Computed |
 | `actions/` | Prioritized operator tasks | Computed + Persisted state |
 | `patterns/` | Repeatable change strategies | Computed (diagnostic) |
+| `product/` | Recommendation, priority, and feedback engines | Computed |
 | `opportunity-candidates/` | System-derived expansion ideas | Computed (deferred) |
 | `brief-generation/` | Execution plans from actions | Computed |
 | `briefs/` | Accepted execution plans | Persisted |
@@ -63,7 +64,7 @@ This prevents artificial inflation. A pattern with 3 attributed events out of 10
 ## Navigation (pilot spine)
 
 Default loop:
-- **Today** — observation strip + **DO THIS NOW** (Priority Engine: single highest-leverage action with 0-100 score, bucket, expected outcome) + **change impact signals** + **other opportunities** (collapsed) + work queue
+- **Today** — observation strip + **DO THIS NOW** (Priority Engine: single highest-leverage action with 0-100 score, bucket, expected outcome, pattern track record weighting) + **Beacon track record** line + **change impact signals** + **other opportunities** (collapsed) + work queue
 - **Your Website** — execution workbench
 - **Gap ledger** (`/topics`) — typed gaps
 

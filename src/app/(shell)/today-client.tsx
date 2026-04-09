@@ -43,6 +43,12 @@ export type TodayPrimaryAction = {
   href: string;
 };
 
+export type TodayTrackRecord = {
+  totalActedOn: number;
+  totalValidated: number;
+  overallSuccessRate: number;
+};
+
 export type TodayQueueItem = {
   id: string;
   group: "fix" | "ship" | "frontier" | "verify" | "review" | "waiting" | "wins";
@@ -95,6 +101,7 @@ export function TodayClient({
   impactSignals = [],
   recommendedMoves = [],
   primaryAction = null,
+  trackRecord = null,
   onUpdateIssue,
   onVerifyIssue,
 }: {
@@ -103,6 +110,7 @@ export function TodayClient({
   impactSignals?: TodayImpactItem[];
   recommendedMoves?: TodayRecommendation[];
   primaryAction?: TodayPrimaryAction | null;
+  trackRecord?: TodayTrackRecord | null;
   onUpdateIssue?: (
     issueId: string,
     status: string,
@@ -432,6 +440,24 @@ export function TodayClient({
             Go
             <span className="opacity-60">→</span>
           </Link>
+        </div>
+      )}
+
+      {/* Recommendation track record */}
+      {trackRecord && trackRecord.totalActedOn > 0 && (
+        <div className="flex items-center gap-3 text-[10px] text-muted-foreground border border-border/60 rounded-md px-3 py-2">
+          <span className="font-semibold text-foreground">Beacon track record:</span>
+          <span>
+            {trackRecord.totalActedOn} recommendation{trackRecord.totalActedOn !== 1 ? "s" : ""} acted on
+          </span>
+          <span className="text-border">·</span>
+          <span className={trackRecord.totalValidated > 0 ? "text-status-success font-medium" : ""}>
+            {trackRecord.totalValidated} validated
+          </span>
+          <span className="text-border">·</span>
+          <span>
+            {Math.round(trackRecord.overallSuccessRate * 100)}% success rate
+          </span>
         </div>
       )}
 

@@ -15,6 +15,7 @@ import type { BeaconRecommendation } from "./recommendation-engine";
 import type { ScorecardRowWithImpact } from "@/domains/attribution/change-impact";
 import type { MinedPattern } from "@/domains/pages/playbook";
 import type { EvidenceTier } from "@/domains/pages/types";
+import type { PatternTrackRecord } from "./recommendation-tracker";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -56,6 +57,7 @@ function scoreDimension(
   sourceRow: ScorecardRowWithImpact | undefined,
   pattern: MinedPattern | undefined,
   replicableCount: number,
+  trackRecord: PatternTrackRecord | undefined,
 ): number {
   let s = 0;
 
@@ -102,7 +104,17 @@ function scoreDimension(
     s += 5; // neutral when no source row
   }
 
-  return Math.min(s, 100);
+  // Pattern track record (-5 to +10) — reward patterns that historically
+  // produce good outcomes, penalize those with poor results
+  if (trackRecord && trackRecord.actedOn >= 2) {
+    const r = trackRecord.successRate;
+    if (r >= 0.7) s += 10;
+    else if (r >= 0.5) s += 6;
+    else if (r >= 0.3) s += 2;
+    else if (r > 0 && trackRecord.negative > 0) s -= 5;
+  }
+
+  return Math.max(0, Math.min(s, 100));
 }
 
 // ---------------------------------------------------------------------------
@@ -159,6 +171,7 @@ export function rankAndSelect(opts: {
   impactRows: ScorecardRowWithImpact[];
   patterns: MinedPattern[];
   briefPatternCounts: Map<string, number>;
+  patternTrackRecords?: PatternTrackRecord[];
 }): {
   primaryAction: PrioritizedAction | null;
   secondary: PrioritizedAction[];
@@ -171,6 +184,12 @@ export function rankAndSelect(opts: {
   for (const p of opts.patterns) {
     patternIndex.set(p.id, p);
   }
+  const trackIndex = new Map<string, PatternTrackRecord>();
+  if (opts.patternTrackRecords) {
+    for (const tr of opts.patternTrackRecords) {
+      trackIndex.set(tr.patternId, tr);
+    }
+  }
 
   const prioritized: PrioritizedAction[] = opts.recommendations.map((rec) => {
     const sourceRow = rec.sourceChangeId
@@ -182,8 +201,17 @@ export function rankAndSelect(opts: {
     const replicable = rec.patternId
       ? (opts.briefPatternCounts.get(rec.patternId) ?? 0)
       : 0;
+    const trackRecord = rec.patternId
+      ? trackIndex.get(rec.patternId)
+      : undefined;
 
-    const priorityScore = scoreDimension(rec, sourceRow, pattern, replicable);
+    const priorityScore = scoreDimension(
+      rec,
+      sourceRow,
+      pattern,
+      replicable,
+      trackRecord,
+    );
     const bucket = classifyBucket(priorityScore);
     const expectedOutcome = generateExpectedOutcome(rec, sourceRow, replicable);
 

@@ -33,6 +33,7 @@ import { stripSiteOrigin } from "@/lib/site-config";
 import { buildTodaySummary, type TodayNextMove } from "@/lib/today-summary";
 import { computeRecommendations } from "@/domains/product/recommendation-engine";
 import { rankAndSelect } from "@/domains/product/priority-engine";
+import { computeTrackRecord } from "@/domains/product/recommendation-tracker";
 import { latestWebsiteCrawlRun } from "@/domains/observations/read";
 import { primaryVisibilityRunForResults } from "@/domains/observations/visibility-context";
 import { loadCompetitorUniverseRuntime } from "@/domains/competitors/universe-read";
@@ -315,11 +316,14 @@ export default function TodayPage() {
     );
   }
 
+  const trackRecord = computeTrackRecord({ impactRows, patterns });
+
   const { primaryAction, secondary } = rankAndSelect({
     recommendations,
     impactRows,
     patterns,
     briefPatternCounts,
+    patternTrackRecords: trackRecord.patternRecords,
   });
 
   function recHref(r: { type: string; targetPageUrl: string | null; sourceChangeId: string | null }): string {
@@ -327,6 +331,15 @@ export default function TodayPage() {
     if (r.sourceChangeId) return `/changes/${r.sourceChangeId}`;
     return "/pages";
   }
+
+  const trackRecordSummary =
+    trackRecord.totalActedOn > 0
+      ? {
+          totalActedOn: trackRecord.totalActedOn,
+          totalValidated: trackRecord.totalValidated,
+          overallSuccessRate: trackRecord.overallSuccessRate,
+        }
+      : null;
 
   const serializedPrimary = primaryAction
     ? {
@@ -517,6 +530,7 @@ export default function TodayPage() {
         impactSignals={actionableImpact}
         recommendedMoves={topRecs}
         primaryAction={serializedPrimary}
+        trackRecord={trackRecordSummary}
         onUpdateIssue={
           updateIssueStatus as (
             issueId: string,
