@@ -12,7 +12,7 @@ import { discoverCandidates } from "@/domains/attribution/candidates";
 import { triageCandidates } from "@/domains/attribution/triage";
 import { partitionResultsByMode } from "@/domains/attribution/result-mode";
 import { detectOutcomeEvents } from "@/domains/attribution/events";
-import { truthLabels } from "@/domains/attribution/store";
+import { truthLabels, eventDecisions } from "@/domains/attribution/store";
 import {
   PLATFORM_LABELS,
   METRIC_TYPE_LABELS,
@@ -66,6 +66,12 @@ export default async function ResultDetailPage({
   const { attribution: attrResults } = partitionResultsByMode(results);
   const allEvents = detectOutcomeEvents(attrResults);
   const anchorEvent = allEvents.find((e) => e.anchor_result_id === result.id);
+
+  // Find operator decision for this result
+  const operatorDecision = eventDecisions.find((d) => d.result_id === result.id);
+  const confirmedChange = operatorDecision?.primary_change_id
+    ? changelogEntries.find((c) => c.id === operatorDecision.primary_change_id)
+    : null;
 
   const candidates = discoverCandidates(result, changelogEntries, opportunities);
   const triage = triageCandidates(candidates);
@@ -127,7 +133,7 @@ export default async function ResultDetailPage({
       {anchorEvent && (
         <div className="rounded-md border-2 border-status-success/20 bg-status-success/5 px-4 py-3">
           <p className="text-[10px] font-semibold uppercase tracking-wider text-status-success mb-1">
-            Outcome Event
+            Visibility shift
           </p>
           <p className="text-[13px] font-medium">
             {anchorEvent.description}
@@ -140,8 +146,49 @@ export default async function ResultDetailPage({
         </div>
       )}
 
+      {/* Review decision — highest trust in this view */}
+      {operatorDecision && (
+        <div className="rounded-md border-2 border-status-success/30 bg-status-success/5 px-4 py-3">
+          <div className="flex items-center gap-2 mb-1">
+            <span className="h-2 w-2 rounded-full bg-status-success" />
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-status-success">
+              Your Review decision
+            </p>
+            <span className="text-[10px] text-muted-foreground">
+              · {operatorDecision.operator_confidence === "high" ? "Pretty sure" : operatorDecision.operator_confidence === "medium" ? "Best guess" : "Not sure"}
+            </span>
+          </div>
+          {confirmedChange ? (
+            <div>
+              <Link
+                href={`/changes/${confirmedChange.id}`}
+                className="text-[13px] font-medium text-accent-primary hover:underline"
+              >
+                {confirmedChange.asset_name}
+              </Link>
+              <p className="text-[12px] text-muted-foreground mt-0.5">
+                {confirmedChange.change_description}
+              </p>
+            </div>
+          ) : (
+            <p className="text-[13px] font-medium">
+              {operatorDecision.cause_type === "competitor"
+                ? "Attributed to competitor action"
+                : operatorDecision.cause_type === "algorithm"
+                ? "Attributed to algorithm / system shift"
+                : "Cause unknown"}
+            </p>
+          )}
+          {operatorDecision.operator_note && (
+            <p className="text-[11px] text-muted-foreground mt-1 italic">
+              <q className="not-italic">{operatorDecision.operator_note}</q>
+            </p>
+          )}
+        </div>
+      )}
+
       {/* Attribution summary above fold */}
-      {primaryAttribution?.attribution && (
+      {!operatorDecision && primaryAttribution?.attribution && (
         <div className="rounded-md border border-accent-primary/20 bg-accent-primary-light px-4 py-3">
           <ConfidenceBadge
             confidence={primaryAttribution.attribution.confidence}
@@ -246,7 +293,7 @@ export default async function ResultDetailPage({
                   <>
                     <EntityLinkCard
                       type="opportunity"
-                      href={`/opportunities/${chain.opportunity.id}`}
+                      href={`/topics/opportunity/${chain.opportunity.id}`}
                       title={chain.opportunity.title}
                       meta={chain.opportunity.topic}
                     />
@@ -312,11 +359,17 @@ export default async function ResultDetailPage({
       <CandidateReview
         resultId={result.id}
         candidates={serializedCandidates}
-        truthLabelMap={Object.fromEntries(
-          truthLabels
+        truthLabelMap={Object.fromEntries([
+          ...truthLabels
             .filter((tl) => tl.result_id === result.id)
-            .map((tl) => [tl.change_id, tl.relation])
-        )}
+            .map((tl) => [tl.change_id, tl.relation] as const),
+          ...(operatorDecision?.rejected_change_ids ?? []).map(
+            (cid) => [cid, "unrelated" as const] as const
+          ),
+          ...(operatorDecision?.primary_change_id
+            ? [[operatorDecision.primary_change_id, "causal" as const] as const]
+            : []),
+        ])}
       />
 
       {(() => {
@@ -368,7 +421,7 @@ export default async function ResultDetailPage({
                   <EntityLinkCard
                     key={opp.id}
                     type="opportunity"
-                    href={`/opportunities/${opp.id}`}
+                    href={`/topics/opportunity/${opp.id}`}
                     title={opp.title}
                     subtitle={opp.description ?? undefined}
                     meta={opp.topic}

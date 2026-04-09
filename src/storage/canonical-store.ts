@@ -1,5 +1,10 @@
 /**
- * Canonical data stores for Beacon-native entities.
+ * Profound import pipeline data stores.
+ *
+ * This module is consumed ONLY by `adapters/profound/import-orchestrator.ts`.
+ * App route pages should NOT import from here — they use
+ * `domains/attribution/store.ts` for event-decisions and
+ * `domains/observations/read.ts` for website observation runs.
  *
  * Hot stores: loaded eagerly via json-store (small collections).
  * Cold stores: loaded on-demand via cold-store (large observation data).
@@ -10,7 +15,7 @@ import "server-only";
 import { readStore, writeStore } from "@/lib/persistence/json-store";
 import type { TrackedPrompt } from "@/domains/tracked-prompts/types";
 import type { TrackedEntity } from "@/domains/tracked-entities/types";
-import type { ObservationRun } from "@/domains/observation-runs/types";
+import type { ProfoundImportRun } from "@/domains/observation-runs/types";
 import type { PromptAnswerObservation } from "@/domains/prompt-answer-observations/types";
 import type { DailyMetricSnapshot } from "@/domains/daily-metric-snapshots/types";
 import type { OutcomeEvent } from "@/domains/outcome-events/types";
@@ -23,7 +28,7 @@ import type { EventDecision } from "@/domains/event-decisions/types";
 
 export const trackedPrompts: TrackedPrompt[] = readStore<TrackedPrompt>("tracked-prompts");
 export const trackedEntities: TrackedEntity[] = readStore<TrackedEntity>("tracked-entities");
-export const observationRuns: ObservationRun[] = readStore<ObservationRun>("observation-runs");
+export const observationRuns: ProfoundImportRun[] = readStore<ProfoundImportRun>("observation-runs");
 export const promptAnswerObservations: PromptAnswerObservation[] =
   readStore<PromptAnswerObservation>("prompt-answer-observations");
 export const dailyMetricSnapshots: DailyMetricSnapshot[] =
@@ -87,7 +92,7 @@ export async function replaceTrackedEntities(data: TrackedEntity[]): Promise<voi
   await persistTrackedEntities();
 }
 
-export async function replaceObservationRuns(data: ObservationRun[]): Promise<void> {
+export async function replaceObservationRuns(data: ProfoundImportRun[]): Promise<void> {
   replaceAll(observationRuns, data);
   await persistObservationRuns();
 }

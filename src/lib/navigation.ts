@@ -1,9 +1,13 @@
 import {
   ListChecks,
-  BarChart3,
   Upload,
   Activity,
   ClipboardCheck,
+  Sun,
+  Globe,
+  Lightbulb,
+  BarChart3,
+  Sparkles,
   type LucideIcon,
 } from "lucide-react";
 
@@ -20,23 +24,30 @@ export type NavGroup = {
 
 export const navigationGroups: NavGroup[] = [
   {
-    label: "Core",
+    label: "",
+    items: [
+      { label: "Today", href: "/", icon: Sun },
+      { label: "Your Website", href: "/pages", icon: Globe },
+      { label: "Gap ledger", href: "/topics", icon: Lightbulb },
+    ],
+  },
+  {
+    label: "Work",
+    items: [{ label: "Changes", href: "/changes", icon: ListChecks }],
+  },
+  {
+    label: "Advanced",
     items: [
       { label: "Review", href: "/review", icon: ClipboardCheck },
-      { label: "Changelog", href: "/changes", icon: ListChecks },
-    ],
-  },
-  {
-    label: "Data",
-    items: [
-      { label: "Results", href: "/results", icon: BarChart3 },
-    ],
-  },
-  {
-    label: "System",
-    items: [
+      { label: "Sample history", href: "/results", icon: BarChart3 },
       { label: "Import", href: "/import", icon: Upload },
-      { label: "Diagnostics", href: "/diagnostics", icon: Activity },
+      { label: "Diagnostics (analyst)", href: "/diagnostics", icon: Activity },
+    ],
+  },
+  {
+    label: "Experimental",
+    items: [
+      { label: "Draft ideas", href: "/expansion", icon: Sparkles },
     ],
   },
 ];

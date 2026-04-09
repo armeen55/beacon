@@ -341,7 +341,7 @@ function BriefCard({ brief }: { brief: ProposedBrief }) {
         )}
         {brief.sourceOpportunityId && (
           <Link
-            href={`/opportunities/${brief.sourceOpportunityId}`}
+            href={`/topics/opportunity/${brief.sourceOpportunityId}`}
             className="text-accent-primary hover:underline"
           >
             View Opportunity

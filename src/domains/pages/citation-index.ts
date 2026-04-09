@@ -11,7 +11,7 @@ import type {
   CitationEvidenceIndex,
   PlatformCitationStats,
 } from "./types";
-import { normalizePageUrl } from "./classify";
+import { normalizePageUrl, canonicalizeOwnedUrl } from "./classify";
 
 type RollupKey = string; // `${pageUrl}|${topic}`
 
@@ -55,15 +55,17 @@ export function buildCitationEvidenceIndex(opts: {
     const parsed = normalizePageUrl(raw);
     if (!parsed) continue;
 
+    const canonical = c.is_owned ? canonicalizeOwnedUrl(parsed) : parsed;
+
     const topic = pa.topic;
     const platform = pa.platform;
-    const key: RollupKey = `${parsed.url}|${topic}`;
+    const key: RollupKey = `${canonical.url}|${topic}`;
 
     let acc = rollups.get(key);
     if (!acc) {
       acc = {
-        pageUrl: parsed.url,
-        domain: parsed.domain,
+        pageUrl: canonical.url,
+        domain: canonical.domain,
         topic,
         isOwned: c.is_owned,
         citations: 0,

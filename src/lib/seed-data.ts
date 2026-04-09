@@ -2,6 +2,7 @@ import type { Opportunity } from "@/domains/opportunities/types";
 import type { Brief } from "@/domains/briefs/types";
 import type { ChangelogEntry } from "@/domains/changelog/types";
 import type { Result } from "@/domains/results/types";
+import { VISIBILITY_SEED_WALKTHROUGH_RUN_ID } from "@/domains/observations/visibility-types";
 import type { Competitor, CompetitorSnapshot } from "@/domains/competitors/types";
 
 export const opportunities: Opportunity[] = [
@@ -9,7 +10,7 @@ export const opportunities: Opportunity[] = [
     id: "opp-1",
     title: 'No citation in ChatGPT for "best custom home builder Palo Alto"',
     description:
-      "ChatGPT consistently recommends De Mattei and Flegel's when asked about custom home builders in Palo Alto. Ritz Builders is absent across 5 test queries despite strong local presence.",
+      "ChatGPT consistently recommends De Mattei and Flegel's when asked about custom home builders in Palo Alto. Example Homes is absent across 5 test queries despite strong local presence.",
     query_text: "best custom home builder in Palo Alto",
     platforms: ["chatgpt"],
     intent_type: "commercial",
@@ -209,7 +210,7 @@ export const opportunities: Opportunity[] = [
     id: "opp-6",
     title: 'Captured: now cited in ChatGPT for "home addition Palo Alto"',
     description:
-      "After content rebuild and citation campaign, Ritz Builders is now the #2 cited result in ChatGPT for home addition queries in Palo Alto.",
+      "After content rebuild and citation campaign, Example Homes is now the #2 cited result in ChatGPT for home addition queries in Palo Alto.",
     query_text: "home addition contractor Palo Alto",
     platforms: ["chatgpt"],
     intent_type: "commercial",
@@ -379,7 +380,7 @@ export const briefs: Brief[] = [
       {
         id: "b1-eo-1",
         description:
-          "ChatGPT begins citing Ritz Builders for Palo Alto custom home queries",
+          "ChatGPT begins citing Example Homes for Palo Alto custom home queries",
         metric_type: "citation_share",
         platform: "chatgpt",
         target_value: 15,
@@ -647,7 +648,7 @@ export const briefs: Brief[] = [
       {
         id: "b3-eo-2",
         description:
-          "ChatGPT mentions Ritz Builders for ADU queries in South Bay",
+          "ChatGPT mentions Example Homes for ADU queries in South Bay",
         metric_type: "mention_count",
         platform: "chatgpt",
         target_value: 1,
@@ -756,7 +757,7 @@ export const briefs: Brief[] = [
       {
         id: "b4-eo-1",
         description:
-          "Perplexity mentions Ritz Builders for kitchen remodel queries",
+          "Perplexity mentions Example Homes for kitchen remodel queries",
         metric_type: "mention_count",
         platform: "perplexity",
         target_value: 2,
@@ -1060,6 +1061,7 @@ export const results: Result[] = [
     total_possible: null,
     position: null,
     created_at: "2025-03-25T08:00:00Z",
+    visibility_observation_run_id: VISIBILITY_SEED_WALKTHROUGH_RUN_ID,
   },
   {
     id: "res-2",
@@ -1080,6 +1082,7 @@ export const results: Result[] = [
     total_possible: null,
     position: 3,
     created_at: "2025-03-25T08:00:00Z",
+    visibility_observation_run_id: VISIBILITY_SEED_WALKTHROUGH_RUN_ID,
   },
   {
     id: "res-3",
@@ -1100,6 +1103,7 @@ export const results: Result[] = [
     total_possible: 10,
     position: null,
     created_at: "2025-03-25T08:00:00Z",
+    visibility_observation_run_id: VISIBILITY_SEED_WALKTHROUGH_RUN_ID,
   },
   {
     id: "res-4",
@@ -1120,6 +1124,7 @@ export const results: Result[] = [
     total_possible: null,
     position: 4.2,
     created_at: "2025-03-25T08:00:00Z",
+    visibility_observation_run_id: VISIBILITY_SEED_WALKTHROUGH_RUN_ID,
   },
   {
     id: "res-5",
@@ -1140,6 +1145,7 @@ export const results: Result[] = [
     total_possible: null,
     position: null,
     created_at: "2025-03-18T08:00:00Z",
+    visibility_observation_run_id: VISIBILITY_SEED_WALKTHROUGH_RUN_ID,
   },
   {
     id: "res-6",
@@ -1160,6 +1166,7 @@ export const results: Result[] = [
     total_possible: null,
     position: null,
     created_at: "2025-03-25T08:00:00Z",
+    visibility_observation_run_id: VISIBILITY_SEED_WALKTHROUGH_RUN_ID,
   },
 ];
 
@@ -1174,6 +1181,7 @@ export const competitors: Competitor[] = [
     notes: "Primary competitor — dominant in AI search for South Bay",
     created_at: "2025-03-01T08:00:00Z",
     updated_at: "2025-03-25T08:00:00Z",
+    source_of_truth: "demo_seed",
   },
   {
     id: "comp-2",
@@ -1185,6 +1193,7 @@ export const competitors: Competitor[] = [
     notes: null,
     created_at: "2025-03-01T08:00:00Z",
     updated_at: "2025-03-20T08:00:00Z",
+    source_of_truth: "demo_seed",
   },
   {
     id: "comp-3",
@@ -1196,6 +1205,7 @@ export const competitors: Competitor[] = [
     notes: "Content strategy is worth studying",
     created_at: "2025-03-01T08:00:00Z",
     updated_at: "2025-03-18T08:00:00Z",
+    source_of_truth: "demo_seed",
   },
   {
     id: "comp-4",
@@ -1207,6 +1217,7 @@ export const competitors: Competitor[] = [
     notes: null,
     created_at: "2025-03-01T08:00:00Z",
     updated_at: "2025-03-15T08:00:00Z",
+    source_of_truth: "demo_seed",
   },
   {
     id: "comp-5",
@@ -1218,6 +1229,7 @@ export const competitors: Competitor[] = [
     notes: "Best FAQ implementation among competitors",
     created_at: "2025-03-05T08:00:00Z",
     updated_at: "2025-03-22T08:00:00Z",
+    source_of_truth: "demo_seed",
   },
 ];
 

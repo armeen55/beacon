@@ -69,13 +69,17 @@ export type FaqItem = {
 export type PageSnapshot = {
   id: string;
   page_id: string;
+  /** Set by website crawl — links HTML snapshot to `observation-runs.json`. */
+  observation_run_id?: string;
   url: string;
+  canonical_url: string | null;
   fetched_at: string;
   http_status: number;
   title: string | null;
   meta_description: string | null;
   h1: string | null;
   h2_list: string[];
+  h3_count: number;
   faqs: FaqItem[];
   schema_types: string[];
   location_terms: string[];
@@ -83,10 +87,28 @@ export type PageSnapshot = {
   internal_link_count: number;
   external_link_count: number;
   word_count: number;
+  robots_meta: string | null;
+  has_canonical_mismatch: boolean;
   content_hash: string;
   headings_hash: string;
   faq_hash: string;
   schema_hash: string;
+};
+
+export type PageSnapshotDiff = {
+  page_id: string;
+  url: string;
+  previous_fetched_at: string;
+  current_fetched_at: string;
+  changed: boolean;
+  title_changed: boolean;
+  h1_changed: boolean;
+  meta_description_changed: boolean;
+  faq_count_changed: boolean;
+  schema_changed: boolean;
+  content_changed: boolean;
+  headings_changed: boolean;
+  summary: string;
 };
 
 // ── Citation rollup (per page × topic) ──────────────────────────────

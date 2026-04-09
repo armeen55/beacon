@@ -8,8 +8,7 @@
 import "server-only";
 
 import type { TrackedEntity } from "@/domains/tracked-entities/types";
-
-const OWNED_DOMAINS = ["ritzbuilders.com"];
+import { getSiteConfig } from "@/lib/site-config";
 
 const COMPETITOR_DOMAINS: Record<string, string> = {
   "constructelements.com": "Element Homes",
@@ -71,14 +70,16 @@ export function buildEntitySeed(accountId: string): {
   const now = new Date().toISOString();
   const entities: TrackedEntity[] = [];
   const domainToEntityId = new Map<string, string>();
+  const { siteDomain, entityDisplayName } = getSiteConfig();
+  const ownedDomains = [siteDomain];
 
-  for (const domain of OWNED_DOMAINS) {
+  for (const domain of ownedDomains) {
     const id = makeId("own", domain);
     entities.push({
       id,
       account_id: accountId,
       entity_type: "brand",
-      name: "Ritz Builders",
+      name: entityDisplayName,
       domain,
       url: `https://${domain}`,
       location_scope: "Bay Area",
@@ -154,7 +155,7 @@ export function buildEntitySeed(accountId: string): {
 
   return {
     entities,
-    ownedDomains: [...OWNED_DOMAINS],
+    ownedDomains: [...ownedDomains],
     domainToEntityId,
   };
 }

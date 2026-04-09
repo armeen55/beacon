@@ -1,6 +1,6 @@
 import "server-only";
 
-import type { ObservationRun } from "@/domains/observation-runs/types";
+import type { ProfoundImportRun } from "@/domains/observation-runs/types";
 import type { PromptAnswerObservation } from "@/domains/prompt-answer-observations/types";
 import {
   normalizeHostname,
@@ -115,7 +115,7 @@ export function parseProfoundExecutions(
   ownedDomains: string[]
 ): {
   observations: PromptAnswerObservation[];
-  runs: ObservationRun[];
+  runs: ProfoundImportRun[];
   answerTexts: Record<string, string>;
   warnings: string[];
 } {
@@ -133,7 +133,7 @@ export function parseProfoundExecutions(
     groupCounts.set(key, (groupCounts.get(key) ?? 0) + 1);
   }
 
-  const runByKey = new Map<string, ObservationRun>();
+  const runByKey = new Map<string, ProfoundImportRun>();
   for (const [key, prompt_count] of groupCounts) {
     const sep = key.indexOf("\u0001");
     const date = sep >= 0 ? key.slice(0, sep) : key;

@@ -203,7 +203,7 @@ export default async function CompetitorDetailPage({
               <EntityLinkCard
                 key={opp.id}
                 type="opportunity"
-                href={`/opportunities/${opp.id}`}
+                href={`/topics/opportunity/${opp.id}`}
                 title={opp.title}
                 subtitle={opp.description ?? undefined}
                 meta={OPPORTUNITY_STATUS_LABELS[opp.current_status]}

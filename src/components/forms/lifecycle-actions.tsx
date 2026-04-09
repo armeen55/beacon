@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition, useEffect } from "react";
+import { useState, useTransition } from "react";
 import { CheckCircle2, Clock, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -144,10 +144,6 @@ export function CloseOpportunityAction({
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (open) setError(null);
-  }, [open]);
-
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError(null);
@@ -174,7 +170,13 @@ export function CloseOpportunityAction({
         <X className="h-3.5 w-3.5 text-muted-foreground" data-icon="inline-start" />
         Close
       </Button>
-      <Sheet open={open} onOpenChange={setOpen}>
+      <Sheet
+        open={open}
+        onOpenChange={(next) => {
+          setOpen(next);
+          if (next) setError(null);
+        }}
+      >
         <SheetContent side="right" className="sm:max-w-sm">
           <SheetHeader>
             <SheetTitle>Close Opportunity</SheetTitle>

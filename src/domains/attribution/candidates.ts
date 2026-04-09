@@ -16,6 +16,7 @@ import { classifyEvidenceTier } from "@/domains/pages/evidence-tier";
 import { normalizePageUrl } from "@/domains/pages/classify";
 import type { EvidenceTier, PageEntity } from "@/domains/pages/types";
 import { readStore } from "@/lib/persistence/json-store";
+import { getSiteConfig } from "@/lib/site-config";
 
 // ── Page registry (loaded once for evidence tier verification) ──────
 
@@ -125,7 +126,7 @@ function hasCitationTopicSupport(
   const index = getCitationTopicIndex();
   if (index.size === 0) return false;
 
-  const parsed = normalizePageUrl(change.url, "ritzbuilders.com");
+  const parsed = normalizePageUrl(change.url, getSiteConfig().siteDomain);
   if (!parsed) return false;
 
   const topics = index.get(parsed.url);

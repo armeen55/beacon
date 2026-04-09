@@ -1,0 +1,448 @@
+"use client";
+
+import { useState, useMemo } from "react";
+import Link from "next/link";
+import type { ScorecardRow, TrustSource } from "@/domains/attribution/scorecard";
+import type { ChangeVerdict, AttributionConfidence } from "@/domains/attribution/types";
+import type { EvidenceTier } from "@/domains/pages/types";
+import { ChangeVerdictBadge, changeVerdictLabel } from "@/components/display/change-verdict-badge";
+
+type SortField =
+  | "date"
+  | "verdict"
+  | "score"
+  | "events"
+  | "tier";
+
+type SortDir = "asc" | "desc";
+
+const VERDICT_ORDER: Record<ChangeVerdict, number> = {
+  validated: 0,
+  partial: 1,
+  inconclusive: 2,
+  pending: 3,
+  too_early: 4,
+  no_impact: 5,
+};
+
+const TIER_ORDER: Record<EvidenceTier, number> = {
+  exact: 0,
+  probable: 1,
+  weak: 2,
+  inferred: 3,
+};
+
+const TIER_LABELS: Record<EvidenceTier, string> = {
+  exact: "Exact",
+  probable: "Probable",
+  weak: "Weak",
+  inferred: "Inferred",
+};
+
+const TIER_COLORS: Record<EvidenceTier, string> = {
+  exact: "text-status-success",
+  probable: "text-foreground-secondary",
+  weak: "text-muted-foreground",
+  inferred: "text-muted-foreground",
+};
+
+const CONF_LABELS: Record<AttributionConfidence, string> = {
+  high: "High",
+  medium: "Med",
+  low: "Low",
+  uncertain: "—",
+};
+
+const PLATFORM_SHORT: Record<string, string> = {
+  chatgpt: "GPT",
+  google_aio: "AIO",
+  perplexity: "Pplx",
+};
+
+const ROLE_COLORS: Record<string, string> = {
+  primary: "bg-status-success/15 text-status-success border-status-success/20",
+  contributing: "bg-status-warning/15 text-status-warning border-status-warning/20",
+  candidate: "bg-muted-foreground/10 text-muted-foreground border-border",
+};
+
+const TRUST_DOT: Record<TrustSource, string> = {
+  operator_confirmed: "bg-status-success",
+  auto_cleared: "bg-accent-primary",
+  system_primary: "bg-accent-primary",
+  contributing: "bg-status-warning",
+  candidate: "bg-muted-foreground/50",
+  operator_rejected: "bg-status-danger",
+};
+
+const TRUST_SHORT: Record<TrustSource, string> = {
+  operator_confirmed: "Confirmed",
+  auto_cleared: "Auto",
+  system_primary: "System",
+  contributing: "Contributing",
+  candidate: "Candidate",
+  operator_rejected: "Rejected",
+};
+
+type SerializedScorecardRow = Omit<ScorecardRow, "change"> & {
+  change: ScorecardRow["change"];
+};
+
+export function ScorecardTable({
+  rows,
+  allTopics,
+  allPlatforms,
+}: {
+  rows: SerializedScorecardRow[];
+  allTopics: string[];
+  allPlatforms: string[];
+}) {
+  const [sortField, setSortField] = useState<SortField>("score");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
+  const [verdictFilter, setVerdictFilter] = useState<ChangeVerdict | "all" | "actionable">(() => {
+    const actionableCount = rows.filter(r => r.verdict !== "too_early").length;
+    return actionableCount < rows.length ? "actionable" : "all";
+  });
+  const [tierFilter, setTierFilter] = useState<EvidenceTier | "all">("all");
+  const [topicFilter, setTopicFilter] = useState<string>("all");
+  const [platformFilter, setPlatformFilter] = useState<string>("all");
+
+  const filtered = useMemo(() => {
+    return rows.filter((r) => {
+      if (verdictFilter === "actionable" && r.verdict === "too_early") return false;
+      else if (verdictFilter !== "all" && verdictFilter !== "actionable" && r.verdict !== verdictFilter) return false;
+      if (tierFilter !== "all" && r.evidenceTier !== tierFilter) return false;
+      if (topicFilter !== "all" && !r.topics.includes(topicFilter)) return false;
+      if (platformFilter !== "all" && !r.platforms.includes(platformFilter))
+        return false;
+      return true;
+    });
+  }, [rows, verdictFilter, tierFilter, topicFilter, platformFilter]);
+
+  const sorted = useMemo(() => {
+    const dir = sortDir === "asc" ? 1 : -1;
+    return [...filtered].sort((a, b) => {
+      switch (sortField) {
+        case "date":
+          return (
+            dir *
+            (new Date(a.change.timestamp).getTime() -
+              new Date(b.change.timestamp).getTime())
+          );
+        case "verdict":
+          return dir * (VERDICT_ORDER[a.verdict] - VERDICT_ORDER[b.verdict]);
+        case "score":
+          return dir * ((a.topScore ?? -1) - (b.topScore ?? -1));
+        case "events":
+          return dir * (a.totalEventsLinked - b.totalEventsLinked);
+        case "tier":
+          return (
+            dir *
+            (TIER_ORDER[a.evidenceTier] - TIER_ORDER[b.evidenceTier])
+          );
+        default:
+          return 0;
+      }
+    });
+  }, [filtered, sortField, sortDir]);
+
+  function handleSort(field: SortField) {
+    if (sortField === field) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortField(field);
+      setSortDir(field === "date" ? "desc" : "desc");
+    }
+  }
+
+  const verdictCounts = useMemo(() => {
+    const c: Record<string, number> = {};
+    for (const r of rows) c[r.verdict] = (c[r.verdict] ?? 0) + 1;
+    return c;
+  }, [rows]);
+
+  const operatorConfirmedCount = useMemo(
+    () => rows.filter((r) => r.operatorConfirmedCount > 0).length,
+    [rows]
+  );
+
+  return (
+    <div>
+      {/* Summary stats */}
+      <div className="flex items-center gap-3 mb-4 text-[11px] flex-wrap">
+        {operatorConfirmedCount > 0 && (
+          <StatPill label="You confirmed" count={operatorConfirmedCount} color="text-status-success" />
+        )}
+        <StatPill label={changeVerdictLabel("validated")} count={verdictCounts.validated ?? 0} color="text-status-success" />
+        <StatPill label={changeVerdictLabel("partial")} count={verdictCounts.partial ?? 0} color="text-status-warning" />
+        <StatPill label={changeVerdictLabel("inconclusive")} count={verdictCounts.inconclusive ?? 0} color="text-muted-foreground" />
+        <StatPill label={changeVerdictLabel("no_impact")} count={verdictCounts.no_impact ?? 0} color="text-status-danger" />
+        <StatPill label={changeVerdictLabel("too_early")} count={verdictCounts.too_early ?? 0} color="text-muted-foreground" />
+      </div>
+
+      {/* Filters */}
+      <div className="flex items-center gap-2 mb-3 text-[10px] flex-wrap">
+        <span className="text-muted-foreground font-medium">Filter:</span>
+        <FilterSelect
+          value={verdictFilter}
+          onChange={(v) => setVerdictFilter(v as ChangeVerdict | "all" | "actionable")}
+          options={[
+            { value: "actionable", label: "Actionable" },
+            { value: "all", label: "All outcomes" },
+            { value: "validated", label: changeVerdictLabel("validated") },
+            { value: "partial", label: changeVerdictLabel("partial") },
+            { value: "inconclusive", label: changeVerdictLabel("inconclusive") },
+            { value: "no_impact", label: changeVerdictLabel("no_impact") },
+            { value: "too_early", label: changeVerdictLabel("too_early") },
+          ]}
+        />
+        <FilterSelect
+          value={tierFilter}
+          onChange={(v) => setTierFilter(v as EvidenceTier | "all")}
+          options={[
+            { value: "all", label: "All evidence levels" },
+            { value: "exact", label: "Exact" },
+            { value: "probable", label: "Probable" },
+            { value: "weak", label: "Weak" },
+          ]}
+        />
+        <FilterSelect
+          value={topicFilter}
+          onChange={(v) => setTopicFilter(v)}
+          options={[
+            { value: "all", label: "All topics" },
+            ...allTopics.map((t) => ({
+              value: t,
+              label: t.length > 30 ? t.slice(0, 28) + "…" : t,
+            })),
+          ]}
+        />
+        <FilterSelect
+          value={platformFilter}
+          onChange={(v) => setPlatformFilter(v)}
+          options={[
+            { value: "all", label: "All platforms" },
+            ...allPlatforms.map((p) => ({
+              value: p,
+              label: PLATFORM_SHORT[p] ?? p,
+            })),
+          ]}
+        />
+        <span className="text-muted-foreground ml-auto tabular-nums">
+          {sorted.length}/{rows.length} changes
+        </span>
+      </div>
+
+      {/* Table */}
+      <div className="border border-border rounded-lg overflow-hidden">
+        <table className="w-full text-[12px]">
+          <thead>
+            <tr className="border-b border-border bg-surface-inset text-[10px] uppercase tracking-wider text-muted-foreground">
+              <SortHeader field="date" current={sortField} dir={sortDir} onClick={handleSort}>
+                Date
+              </SortHeader>
+              <th className="text-left px-3 py-2 font-medium">Change</th>
+              <SortHeader field="verdict" current={sortField} dir={sortDir} onClick={handleSort}>
+                Outcome
+              </SortHeader>
+              <SortHeader field="score" current={sortField} dir={sortDir} onClick={handleSort}>
+                Score
+              </SortHeader>
+              <SortHeader field="events" current={sortField} dir={sortDir} onClick={handleSort}>
+                Events
+              </SortHeader>
+              <th className="text-left px-3 py-2 font-medium">Outcome Signals</th>
+              <SortHeader field="tier" current={sortField} dir={sortDir} onClick={handleSort}>
+                Evidence
+              </SortHeader>
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.map((row) => (
+              <ScorecardRowUI key={row.change.id} row={row} />
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {sorted.length === 0 && (
+        <div className="text-center py-8 text-[13px] text-muted-foreground">
+          No changes match the current filters.
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ScorecardRowUI({ row }: { row: SerializedScorecardRow }) {
+  const ch = row.change;
+  const dateStr = new Date(ch.timestamp).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+  });
+
+  return (
+    <tr className={`border-b border-border last:border-b-0 hover:bg-surface-inset/50 transition-colors ${row.operatorConfirmedCount > 0 ? "bg-status-success/[0.03]" : ""}`}>
+      <td className="px-3 py-2.5 text-muted-foreground tabular-nums whitespace-nowrap align-top">
+        {dateStr}
+      </td>
+      <td className="px-3 py-2.5 align-top max-w-[320px]">
+        <Link
+          href={`/changes/${ch.id}`}
+          className="hover:text-accent-primary transition-colors"
+        >
+          <p className="font-medium truncate">{ch.asset_name}</p>
+          <p className="text-[11px] text-muted-foreground mt-0.5 line-clamp-1">
+            {ch.change_description}
+          </p>
+          {ch.url && (
+            <p className="text-[10px] font-mono text-muted-foreground/70 mt-0.5 truncate max-w-[280px]">
+              {ch.url}
+            </p>
+          )}
+        </Link>
+      </td>
+      <td className="px-3 py-2.5 align-top whitespace-nowrap">
+        <div className="flex flex-col gap-1">
+          <ChangeVerdictBadge verdict={row.verdict} />
+          {row.topTrust && (
+            <span className="inline-flex items-center gap-1">
+              <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${TRUST_DOT[row.topTrust]}`} />
+              <span className="text-[9px] font-medium text-muted-foreground">
+                {TRUST_SHORT[row.topTrust]}
+              </span>
+            </span>
+          )}
+        </div>
+      </td>
+      <td className="px-3 py-2.5 align-top tabular-nums whitespace-nowrap">
+        {row.topScore != null ? (
+          <span className="font-medium">{Math.round(row.topScore)}</span>
+        ) : (
+          <span className="text-muted-foreground">—</span>
+        )}
+        {row.topConfidence && row.topConfidence !== "uncertain" && (
+          <span className="text-muted-foreground text-[10px] ml-1">
+            {CONF_LABELS[row.topConfidence]}
+          </span>
+        )}
+      </td>
+      <td className="px-3 py-2.5 align-top tabular-nums whitespace-nowrap">
+        {row.totalEventsLinked > 0 ? (
+          <span>{row.totalEventsLinked}</span>
+        ) : (
+          <span className="text-muted-foreground">0</span>
+        )}
+      </td>
+      <td className="px-3 py-2.5 align-top">
+        {row.eventAttributions.length > 0 ? (
+          <div className="flex flex-col gap-1">
+            {row.eventAttributions.slice(0, 3).map((ea, i) => (
+              <div key={i} className="flex items-center gap-1.5">
+                <span
+                  className={`text-[9px] font-semibold uppercase px-1 py-0.5 rounded border ${ROLE_COLORS[ea.role]}`}
+                >
+                  {ea.role === "primary"
+                    ? "1°"
+                    : ea.role === "contributing"
+                    ? "2°"
+                    : "?"}
+                </span>
+                {ea.trustSource === "operator_confirmed" && (
+                  <span className="h-1.5 w-1.5 rounded-full bg-status-success shrink-0" title="You confirmed in Review" />
+                )}
+                <span className="text-[10px] text-muted-foreground">
+                  {PLATFORM_SHORT[ea.event.platform] ?? ea.event.platform}
+                </span>
+                <span className="text-[10px] truncate max-w-[140px]">
+                  {ea.event.topic}
+                </span>
+              </div>
+            ))}
+            {row.eventAttributions.length > 3 && (
+              <span className="text-[10px] text-muted-foreground">
+                +{row.eventAttributions.length - 3} more
+              </span>
+            )}
+          </div>
+        ) : (
+          <span className="text-[11px] text-muted-foreground italic">
+            {row.verdict === "too_early" ? "Waiting…" : "No signals"}
+          </span>
+        )}
+      </td>
+      <td className="px-3 py-2.5 align-top whitespace-nowrap">
+        <span className={`text-[11px] font-medium ${TIER_COLORS[row.evidenceTier]}`}>
+          {TIER_LABELS[row.evidenceTier]}
+        </span>
+      </td>
+    </tr>
+  );
+}
+
+function SortHeader({
+  field,
+  current,
+  dir,
+  onClick,
+  children,
+}: {
+  field: SortField;
+  current: SortField;
+  dir: SortDir;
+  onClick: (f: SortField) => void;
+  children: React.ReactNode;
+}) {
+  const active = current === field;
+  return (
+    <th
+      className="text-left px-3 py-2 font-medium cursor-pointer hover:text-foreground transition-colors whitespace-nowrap select-none"
+      onClick={() => onClick(field)}
+    >
+      {children}
+      {active && (
+        <span className="ml-0.5 text-[8px]">{dir === "asc" ? "▲" : "▼"}</span>
+      )}
+    </th>
+  );
+}
+
+function StatPill({
+  label,
+  count,
+  color,
+}: {
+  label: string;
+  count: number;
+  color: string;
+}) {
+  return (
+    <span className="inline-flex items-center gap-1">
+      <span className={`font-semibold tabular-nums ${color}`}>{count}</span>
+      <span className="text-muted-foreground">{label}</span>
+    </span>
+  );
+}
+
+function FilterSelect({
+  value,
+  onChange,
+  options,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  options: { value: string; label: string }[];
+}) {
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className="rounded border border-border bg-background px-1.5 py-0.5 text-[10px] text-foreground focus:outline-none focus:ring-1 focus:ring-accent-primary"
+    >
+      {options.map((o) => (
+        <option key={o.value} value={o.value}>
+          {o.label}
+        </option>
+      ))}
+    </select>
+  );
+}

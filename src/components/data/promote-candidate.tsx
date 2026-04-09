@@ -24,7 +24,7 @@ export function PromoteCandidateButton({
   if (promoted) {
     return (
       <span className="text-[10px] text-status-success font-medium">
-        Promoted
+        Saved as draft
       </span>
     );
   }
@@ -46,7 +46,7 @@ export function PromoteCandidateButton({
         }}
         className="text-[11px] font-medium text-accent-primary hover:text-accent-primary/80 transition-colors disabled:opacity-50"
       >
-        {isPending ? "Promoting…" : "Promote to Opportunity"}
+        {isPending ? "Saving…" : "Add draft opportunity"}
       </button>
       {error && (
         <span className="text-[10px] text-status-danger">{error}</span>

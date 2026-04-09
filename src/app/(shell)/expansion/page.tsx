@@ -19,6 +19,12 @@ import {
 } from "@/domains/opportunity-candidates/types";
 import { PromoteCandidateButton } from "@/components/data/promote-candidate";
 
+const MODEL_CONFIDENCE_LABEL: Record<string, string> = {
+  high: "Model: stronger fit",
+  medium: "Model: moderate",
+  low: "Model: weaker fit",
+};
+
 export default function ExpansionPage() {
   const experimentActive = hasActiveExperiment();
 
@@ -29,8 +35,8 @@ export default function ExpansionPage() {
           No active experiment
         </p>
         <p className="text-[12px] text-muted-foreground mb-3">
-          Import a workbook to generate expansion opportunities from pattern
-          intelligence.
+          Experimental backlog only. After import + Review activity, model-suggested
+          topics may appear here — not part of Today or Gap ledger.
         </p>
         <Link
           href="/import"
@@ -61,34 +67,37 @@ export default function ExpansionPage() {
   return (
     <div className="space-y-6">
       <div>
+        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">
+          Experimental
+        </p>
         <h2 className="text-[15px] font-semibold mb-1">
-          Expansion Candidates
+          Draft ideas (not in default workflow)
         </h2>
         <p className="text-[12px] text-muted-foreground">
-          Hypothetical expansion opportunities derived from pattern analysis. These are suggestions, not confirmed strategies — review caveats before acting.
+          Model-inferred topics or locations from imported data. Hidden from the
+          main nav story — backlog only, not nightly operating truth.
         </p>
         <p className="text-[10px] text-status-warning mt-1">
-          Secondary analysis · Candidates are unvalidated hypotheses
+          Hypotheses only · Not checked against your real pipeline or leads
+        </p>
+        <p className="text-[10px] text-muted-foreground mt-2 border border-border rounded px-2 py-1.5 bg-surface-inset/50">
+          “Add draft opportunity” creates an editable row for your backlog — it does not validate market demand, zoning, or SEO outcome. Review every idea before publishing pages.
         </p>
       </div>
 
       {/* Summary stats */}
       <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
         <StatBlock label="Total Candidates" value={summary.total} />
-        <StatBlock
-          label="New Opportunities"
-          value={summary.new}
-          variant="success"
-        />
-        <StatBlock label="High Confidence" value={summary.high} variant="success" />
-        <StatBlock label="Medium" value={summary.medium} variant="warning" />
+        <StatBlock label="New (not yet in list)" value={summary.new} />
+        <StatBlock label="Model: stronger fit" value={summary.high} />
+        <StatBlock label="Model: moderate fit" value={summary.medium} />
         <StatBlock label="Adjacent Cities" value={summary.adjacent} />
         <StatBlock label="Topic Expansion" value={summary.expansion} />
       </div>
 
       {/* High confidence */}
       {highConf.length > 0 && (
-        <Section title="High Confidence" count={highConf.length}>
+        <Section title="Draft backlog — model scored higher" count={highConf.length}>
           <div className="space-y-2">
             {highConf.map((c) => (
               <CandidateCard key={c.id} candidate={c} />
@@ -99,7 +108,7 @@ export default function ExpansionPage() {
 
       {/* Medium confidence */}
       {medConf.length > 0 && (
-        <Section title="Medium Confidence" count={medConf.length}>
+        <Section title="Draft backlog — model scored moderate" count={medConf.length}>
           <div className="space-y-2">
             {medConf.map((c) => (
               <CandidateCard key={c.id} candidate={c} />
@@ -112,7 +121,8 @@ export default function ExpansionPage() {
       {gapCandidates.length > 0 && (
         <Section title="Coverage Gaps" count={gapCandidates.length}>
           <p className="text-[11px] text-muted-foreground mb-2">
-            Proven patterns not yet applied to existing opportunities.
+            Recurring patterns in your data that are not reflected on current
+            opportunity rows yet.
           </p>
           <div className="space-y-2">
             {gapCandidates.map((c) => (
@@ -124,7 +134,7 @@ export default function ExpansionPage() {
 
       {/* Low confidence */}
       {lowConf.length > 0 && (
-        <Section title="Lower Confidence" count={lowConf.length} collapsed>
+        <Section title="Draft backlog — model scored lower" count={lowConf.length} collapsed>
           <div className="space-y-2">
             {lowConf.map((c) => (
               <CandidateCard key={c.id} candidate={c} />
@@ -139,9 +149,8 @@ export default function ExpansionPage() {
             No expansion candidates yet
           </p>
           <p className="text-[12px] text-muted-foreground">
-            Expansion opportunities are generated from proven patterns with
-            attributed events. Resolve more events in the review queue to
-            generate patterns.
+            Ideas appear after you have enough imported results and Review
+            decisions for Beacon to infer patterns. Try Import and Review first.
           </p>
         </div>
       )}
@@ -153,28 +162,26 @@ export default function ExpansionPage() {
         </p>
         <ul className="text-[11px] text-muted-foreground space-y-0.5">
           <li>
-            <strong>Adjacent Cities:</strong> Proven patterns expanded to
-            nearby serviceable cities with unique local context
+            <strong>Adjacent cities:</strong> Suggestions near locations you
+            already show up for — needs local research before you ship pages.
           </li>
           <li>
-            <strong>Topic Expansion:</strong> Semantically adjacent topics
-            based on proven keyword/content patterns
+            <strong>Topic expansion:</strong> Related themes from your existing
+            prompts and results — not keyword research tools.
           </li>
           <li>
-            <strong>Coverage Gaps:</strong> Proven patterns not yet applied
-            to existing opportunities
+            <strong>Coverage gaps:</strong> Patterns that show up in data but
+            are missing from your current opportunity list.
           </li>
           <li>
-            <strong>Scoring:</strong> Pattern score (40%) + context
-            similarity (20%) + cluster strength (20%) + gap size (10%) +
-            recency (10%)
+            <strong>Scoring:</strong> Internal weighted blend (pattern, context,
+            clusters, gaps, recency) — directional ranking only.
           </li>
         </ul>
         <p className="text-[10px] text-muted-foreground/80 mt-2">
-          All strategies fact-checked: geographic adjacency, topic expansion,
-          coverage gaps, and pattern replication are all PARTIALLY VALID
-          strategies that require unique content per target and should be
-          treated as hypotheses, not guarantees.
+          Every suggestion still needs your judgment, unique copy, and compliance
+          with how you actually sell and build. Beacon does not validate market
+          demand or ROI.
         </p>
       </div>
     </div>
@@ -265,7 +272,7 @@ function CandidateCard({
             <span
               className={`text-[10px] font-medium uppercase tracking-wider ${CANDIDATE_CONFIDENCE_COLORS[candidate.confidence]}`}
             >
-              {candidate.confidence}
+              {MODEL_CONFIDENCE_LABEL[candidate.confidence] ?? candidate.confidence}
             </span>
             {candidate.targetCity && (
               <span className="text-[10px] text-muted-foreground">
@@ -309,10 +316,10 @@ function CandidateCard({
           )}
 
           {/* Pattern source */}
-          <div className="mt-2 rounded border border-accent-primary/20 bg-accent-primary/5 px-3 py-1.5">
+          <div className="mt-2 rounded border border-border bg-surface-inset/60 px-3 py-1.5">
             <div className="flex items-center gap-3 text-[11px]">
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-accent-primary">
-                Source Pattern
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Pattern-derived (not page-specific proof)
               </span>
               <span className="font-medium">
                 {candidate.sourcePatternLabel}
@@ -323,7 +330,7 @@ function CandidateCard({
           {/* Detail strip */}
           <div className="flex items-center gap-3 mt-2 text-[11px] text-muted-foreground flex-wrap">
             <span className="tabular-nums">
-              Score {candidate.expectedImpact}
+              Internal rank {candidate.expectedImpact}
             </span>
             <span>·</span>
             <span>Query: {candidate.queryTemplate}</span>

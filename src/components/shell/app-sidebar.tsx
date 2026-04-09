@@ -13,8 +13,24 @@ import {
 } from "@/components/ui/sheet";
 import { useShell } from "./shell-provider";
 
+const NAV_SHORTCUTS: Record<string, string> = {
+  "/": "G T",
+  "/pages": "G W",
+  "/topics": "G O",
+  "/changes": "G H",
+  "/review": "G R",
+  "/expansion": "G E",
+};
+
+const BADGE_STYLES: Record<string, string> = {
+  "/": "bg-status-danger/15 text-status-danger",
+  "/review": "bg-status-warning/15 text-status-warning",
+  "/pages": "bg-accent-primary/15 text-accent-primary",
+};
+
 function SidebarContent() {
   const pathname = usePathname();
+  const { badges } = useShell();
 
   return (
     <div className="flex h-full flex-col">
@@ -42,13 +58,16 @@ function SidebarContent() {
                     item.href === "/"
                       ? pathname === "/"
                       : pathname.startsWith(item.href);
+                  const shortcut = NAV_SHORTCUTS[item.href];
+                  const badge = badges[item.href];
+                  const badgeStyle = BADGE_STYLES[item.href];
 
                   return (
                     <Link
                       key={item.href}
                       href={item.href}
                       className={cn(
-                        "flex items-center gap-2.5 rounded-md px-2 py-1.5 text-[13px] font-medium transition-colors duration-100",
+                        "group flex items-center gap-2.5 rounded-md px-2 py-1.5 text-[13px] font-medium transition-colors duration-100",
                         isActive
                           ? "bg-accent-primary-muted text-foreground"
                           : "text-muted-foreground hover:bg-surface-raised hover:text-foreground"
@@ -62,7 +81,22 @@ function SidebarContent() {
                             : "text-muted-foreground"
                         )}
                       />
-                      {item.label}
+                      <span className="flex-1">{item.label}</span>
+                      {badge != null && badge > 0 && badgeStyle && (
+                        <span
+                          className={cn(
+                            "inline-flex items-center justify-center min-w-[18px] h-[16px] rounded-full text-[9px] font-semibold tabular-nums px-1",
+                            badgeStyle
+                          )}
+                        >
+                          {badge}
+                        </span>
+                      )}
+                      {shortcut && !(badge != null && badge > 0 && badgeStyle) && (
+                        <span className="text-[9px] text-muted-foreground/25 font-mono tracking-wide">
+                          {shortcut}
+                        </span>
+                      )}
                     </Link>
                   );
                 })}

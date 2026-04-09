@@ -1,0 +1,235 @@
+/**
+ * Cheerio-based HTML extractor for owned page snapshots.
+ * Pure function: HTML string in → structured PageSnapshot out.
+ */
+
+import { load as cheerioLoad } from "cheerio";
+import { createHash } from "node:crypto";
+import type { PageSnapshot, FaqItem } from "./types";
+
+function hash(input: string): string {
+  return createHash("sha256").update(input).digest("hex").slice(0, 16);
+}
+
+export function extractPageSnapshot(
+  html: string,
+  url: string,
+  pageId: string,
+  httpStatus: number = 200
+): PageSnapshot {
+  const $ = cheerioLoad(html);
+
+  const title = $("title").first().text().trim() || null;
+  const metaDescription =
+    $('meta[name="description"]').attr("content")?.trim() || null;
+  const canonicalUrl = $('link[rel="canonical"]').attr("href")?.trim() || null;
+  const robotsMeta =
+    $('meta[name="robots"]').attr("content")?.trim() || null;
+
+  const h1 = $("h1").first().text().trim() || null;
+  const h2List: string[] = [];
+  $("h2").each((_, el) => {
+    const text = $(el).text().trim();
+    if (text) h2List.push(text);
+  });
+  const h3Count = $("h3").length;
+
+  // ── FAQ extraction ──
+  const faqs: FaqItem[] = [];
+
+  // JSON-LD FAQPage schema
+  $('script[type="application/ld+json"]').each((_, el) => {
+    try {
+      const data = JSON.parse($(el).html() || "");
+      const items = extractFaqFromJsonLd(data);
+      for (const item of items) faqs.push(item);
+    } catch {
+      // malformed JSON-LD
+    }
+  });
+
+  // HTML <details>/<summary> pattern
+  $("details").each((_, el) => {
+    const q = $(el).find("summary").first().text().trim();
+    const a = $(el).text().replace(q, "").trim();
+    if (q && q.length > 5) {
+      faqs.push({ question: q, answer_excerpt: a.slice(0, 200), source: "html_details" });
+    }
+  });
+
+  // Heading-based FAQ sections
+  $("h2, h3").each((_, el) => {
+    const text = $(el).text().trim().toLowerCase();
+    if (
+      text.includes("frequently asked") ||
+      text.includes("faq") ||
+      text.includes("common questions")
+    ) {
+      let sibling = $(el).next();
+      while (sibling.length && !sibling.is("h2, h3")) {
+        const possibleQ = sibling.find("strong, b, dt").first().text().trim();
+        if (possibleQ && possibleQ.endsWith("?")) {
+          faqs.push({
+            question: possibleQ,
+            answer_excerpt: sibling.text().replace(possibleQ, "").trim().slice(0, 200),
+            source: "html_section",
+          });
+        }
+        sibling = sibling.next();
+      }
+    }
+  });
+
+  // ── Schema types ──
+  const schemaTypes: string[] = [];
+  $('script[type="application/ld+json"]').each((_, el) => {
+    try {
+      const data = JSON.parse($(el).html() || "");
+      collectSchemaTypes(data, schemaTypes);
+    } catch {
+      // malformed
+    }
+  });
+
+  // ── Links ──
+  let internalLinks = 0;
+  let externalLinks = 0;
+  const pageDomain = extractDomain(url);
+
+  $("a[href]").each((_, el) => {
+    const href = $(el).attr("href");
+    if (!href) return;
+    if (href.startsWith("#") || href.startsWith("mailto:") || href.startsWith("tel:")) return;
+    if (href.startsWith("/") || href.startsWith(url) || (pageDomain && href.includes(pageDomain))) {
+      internalLinks++;
+    } else if (href.startsWith("http")) {
+      externalLinks++;
+    }
+  });
+
+  // ── Word count (body text only) ──
+  $("script, style, noscript, svg, iframe").remove();
+  const bodyText = $("body").text().replace(/\s+/g, " ").trim();
+  const wordCount = bodyText ? bodyText.split(/\s+/).length : 0;
+
+  // ── Location + service terms ──
+  const locationTerms = extractTermsByPattern(
+    bodyText,
+    /\b(palo alto|menlo park|atherton|los altos|cupertino|saratoga|woodside|portola valley|mountain view|sunnyvale|san jose|bay area|silicon valley|emerald hills)\b/gi
+  );
+  const serviceTerms = extractTermsByPattern(
+    bodyText,
+    /\b(custom home|remodel|renovation|new construction|tear[ -]?down|rebuild|home builder|general contractor|addition|ADU|design[- ]build)\b/gi
+  );
+
+  // ── Canonical mismatch ──
+  const hasCanonicalMismatch =
+    canonicalUrl !== null && !urlsEquivalent(canonicalUrl, url);
+
+  // ── Hashes ──
+  const contentHash = hash(bodyText);
+  const headingsHash = hash([h1 ?? "", ...h2List].join("|"));
+  const faqHash = hash(faqs.map((f) => f.question).join("|"));
+  const schemaHash = hash(schemaTypes.sort().join("|"));
+
+  return {
+    id: `snap-${pageId}-${Date.now()}`,
+    page_id: pageId,
+    url,
+    canonical_url: canonicalUrl,
+    fetched_at: new Date().toISOString(),
+    http_status: httpStatus,
+    title,
+    meta_description: metaDescription,
+    h1,
+    h2_list: h2List,
+    h3_count: h3Count,
+    faqs,
+    schema_types: [...new Set(schemaTypes)],
+    location_terms: [...new Set(locationTerms)],
+    service_terms: [...new Set(serviceTerms)],
+    internal_link_count: internalLinks,
+    external_link_count: externalLinks,
+    word_count: wordCount,
+    robots_meta: robotsMeta,
+    has_canonical_mismatch: hasCanonicalMismatch,
+    content_hash: contentHash,
+    headings_hash: headingsHash,
+    faq_hash: faqHash,
+    schema_hash: schemaHash,
+  };
+}
+
+// ── Helpers ──
+
+function extractFaqFromJsonLd(data: unknown): FaqItem[] {
+  const items: FaqItem[] = [];
+  if (!data || typeof data !== "object") return items;
+  const obj = data as Record<string, unknown>;
+
+  if (obj["@type"] === "FAQPage" && Array.isArray(obj.mainEntity)) {
+    for (const entity of obj.mainEntity) {
+      if (typeof entity === "object" && entity !== null) {
+        const e = entity as Record<string, unknown>;
+        const q = String(e.name ?? "").trim();
+        const accepted = e.acceptedAnswer as Record<string, unknown> | undefined;
+        const a = String(accepted?.text ?? "").trim();
+        if (q) items.push({ question: q, answer_excerpt: a.slice(0, 200), source: "jsonld" });
+      }
+    }
+  }
+
+  if (Array.isArray(obj["@graph"])) {
+    for (const node of obj["@graph"]) {
+      items.push(...extractFaqFromJsonLd(node));
+    }
+  }
+
+  return items;
+}
+
+function collectSchemaTypes(data: unknown, types: string[]): void {
+  if (!data || typeof data !== "object") return;
+  const obj = data as Record<string, unknown>;
+
+  if (typeof obj["@type"] === "string") {
+    types.push(obj["@type"]);
+  } else if (Array.isArray(obj["@type"])) {
+    for (const t of obj["@type"]) {
+      if (typeof t === "string") types.push(t);
+    }
+  }
+
+  if (Array.isArray(obj["@graph"])) {
+    for (const node of obj["@graph"]) collectSchemaTypes(node, types);
+  }
+}
+
+function extractDomain(url: string): string | null {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return null;
+  }
+}
+
+function extractTermsByPattern(text: string, pattern: RegExp): string[] {
+  const matches = text.match(pattern);
+  if (!matches) return [];
+  return [...new Set(matches.map((m) => m.toLowerCase().trim()))];
+}
+
+function urlsEquivalent(a: string, b: string): boolean {
+  const normalize = (u: string) => {
+    try {
+      const parsed = new URL(u);
+      return (
+        parsed.hostname.replace(/^www\./, "").toLowerCase() +
+        (parsed.pathname.replace(/\/+$/, "") || "/")
+      );
+    } catch {
+      return u.toLowerCase().replace(/\/+$/, "");
+    }
+  };
+  return normalize(a) === normalize(b);
+}

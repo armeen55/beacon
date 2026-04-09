@@ -12,6 +12,7 @@ import {
   InlineReviewQueue,
   type ReviewQueueItem,
   type ResolvedItem,
+  type Decisionability,
 } from "./review-queue-client";
 
 const EVENT_TYPE_LABELS: Record<OutcomeEventType, string> = {
@@ -24,6 +25,64 @@ const EVENT_TYPE_COLORS: Record<OutcomeEventType, string> = {
   first_appearance: "text-status-success",
   visibility_regained: "text-accent-primary",
   mention_surge: "text-status-warning",
+};
+
+function computeDecisionability(
+  item: Omit<ReviewQueueItem, "decisionability" | "decisionabilityReason" | "scoreGap">
+): { d: Decisionability; reason: string; gap: number } {
+  const actionable = item.candidates.filter(
+    (c) => c.triage === "primary" || c.triage === "needs_review" || c.triage === "contributing"
+  );
+
+  if (actionable.length === 0) {
+    return { d: "ambiguous", reason: "No actionable candidates", gap: 0 };
+  }
+
+  const sorted = [...actionable].sort((a, b) => b.score - a.score);
+  const top = sorted[0];
+  const second = sorted.length > 1 ? sorted[1] : null;
+  const gap = second ? Math.round(top.score - second.score) : top.score;
+
+  // Evidence tier quality
+  const topTier = top.attribution.evidence_tier;
+  const hasStrongEvidence = topTier === "exact" || topTier === "probable";
+
+  // Topic match quality
+  const topicStrong = top.attribution.matches.topic === "strong";
+
+  // Has primary = system already has a clear pick
+  if (item.hasPrimary) {
+    if (gap >= 15 && hasStrongEvidence) {
+      return { d: "easy_call", reason: "System primary + wider heuristic gap", gap };
+    }
+    if (gap >= 10) {
+      return { d: "easy_call", reason: "System primary with a wider score gap", gap };
+    }
+    return { d: "good_candidate", reason: "System primary but close alternatives", gap };
+  }
+
+  if (gap >= 20 && hasStrongEvidence && topicStrong) {
+    return { d: "easy_call", reason: "Wider gap with aligned heuristic signals", gap };
+  }
+  if (gap >= 15) {
+    return { d: "easy_call", reason: `Leading candidate ahead by ~${gap} score points`, gap };
+  }
+  if (gap >= 8 && (hasStrongEvidence || topicStrong)) {
+    return { d: "good_candidate", reason: "Moderate gap with some supporting signals", gap };
+  }
+  if (gap >= 5) {
+    return { d: "good_candidate", reason: "Some separation between candidates", gap };
+  }
+  if (actionable.length === 1) {
+    return { d: "good_candidate", reason: "Only one viable candidate", gap };
+  }
+  return { d: "ambiguous", reason: "Close scores, hard to differentiate", gap };
+}
+
+const DECISIONABILITY_ORDER: Record<Decisionability, number> = {
+  easy_call: 0,
+  good_candidate: 1,
+  ambiguous: 2,
 };
 
 export default function ReviewPage() {
@@ -97,7 +156,7 @@ export default function ReviewPage() {
       candidates.length
     );
 
-    items.push({
+    const base = {
       eventId: event.id,
       anchorResultId: event.anchor_result_id,
       eventType: event.type,
@@ -116,10 +175,26 @@ export default function ReviewPage() {
       metricValue: anchorResult.metric_value,
       delta: anchorResult.delta_percentage,
       judgment,
+    };
+
+    const { d, reason, gap } = computeDecisionability(base);
+
+    items.push({
+      ...base,
+      decisionability: d,
+      decisionabilityReason: reason,
+      scoreGap: gap,
     });
   }
 
-  items.sort((a, b) => b.reviewCount - a.reviewCount);
+  // Sort by decisionability (easy first), then by score gap descending
+  items.sort((a, b) => {
+    const dCmp =
+      DECISIONABILITY_ORDER[a.decisionability] -
+      DECISIONABILITY_ORDER[b.decisionability];
+    if (dCmp !== 0) return dCmp;
+    return b.scoreGap - a.scoreGap;
+  });
 
   const resolved = resolveEvents(events, candidateLinks, triageMap, candCountMap);
   const intel = computeEventIntelligence(resolved);
@@ -168,6 +243,8 @@ export default function ReviewPage() {
     (r) => r.status === "pending" && !triageMap.has(r.event.anchor_result_id)
   ).length;
 
+  const easyCallCount = items.filter((i) => i.decisionability === "easy_call").length;
+
   return (
     <div className="max-w-4xl">
       <div className="mb-4">
@@ -186,6 +263,7 @@ export default function ReviewPage() {
           confirmed: intel.attributed,
           autoResolved: intel.auto_resolved,
           decided: eventDecisions.length,
+          easyCalls: easyCallCount,
         }}
       />
     </div>

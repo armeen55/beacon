@@ -38,6 +38,12 @@ const FORMAT_OPTIONS: { value: ImportFormat; label: string }[] = [
   { value: "json", label: "JSON" },
 ];
 
+function friendlyImportSource(raw: string | undefined): string {
+  if (!raw) return "Import";
+  if (raw === "beacon-workbook" || raw === "ritz-workbook") return "Workbook (.xlsx)";
+  return raw;
+}
+
 export default function ImportPage() {
   const [entityType, setEntityType] = useState<ImportEntityType>("results");
   const [format, setFormat] = useState<ImportFormat>("csv");
@@ -63,8 +69,8 @@ export default function ImportPage() {
   const handleReset = () => {
     if (!confirm(
       preserveLabels
-        ? "Reset all imported data and review states? Truth labels will be preserved."
-        : "Reset ALL experiment data including truth labels? This cannot be undone."
+        ? "Reset all imported data and review states? Saved Review decisions will be preserved."
+        : "Reset ALL experiment data including Review decisions? This cannot be undone."
     )) return;
     setResetDone(null);
     setWbResult(null);
@@ -129,7 +135,7 @@ export default function ImportPage() {
     <div className="max-w-4xl">
       <PageHeader
         title="Import Historical Data"
-        description="Load real campaign data for attribution truth-testing."
+        description="Advanced: load exports or a master workbook so Beacon can line up changes with visibility readouts."
       />
 
       {/* Active Experiment Banner */}
@@ -141,7 +147,7 @@ export default function ImportPage() {
                 Active Experiment
               </p>
               <p className="text-[13px] font-medium">
-                {latestRun.source_system ?? "Import"} · Run {latestRun.id.slice(0, 8)}
+                {friendlyImportSource(latestRun.source_system)} · Run {latestRun.id.slice(0, 8)}
               </p>
               <p className="text-[11px] text-muted-foreground mt-0.5">
                 Imported {new Date(latestRun.started_at).toLocaleDateString("en-US", {
@@ -219,10 +225,10 @@ export default function ImportPage() {
       <div className="rounded-md border-2 border-accent-primary/20 bg-accent-primary-light p-5 mb-8">
         <div className="flex items-center gap-2 mb-3">
           <FileSpreadsheet className="h-5 w-5 text-accent-primary" />
-          <h3 className="text-[14px] font-semibold">Ritz Workbook Import</h3>
+          <h3 className="text-[14px] font-semibold">Master workbook import</h3>
         </div>
         <p className="text-[12px] text-muted-foreground mb-4">
-          Upload the Ritz master workbook (.xlsx) to automatically import
+          Upload your master tracking workbook (.xlsx) to automatically import
           changes, results, opportunities, and competitors from all relevant
           sheets.
         </p>
@@ -659,7 +665,7 @@ export default function ImportPage() {
             </span>
           </div>
           <p className="text-[12px] text-muted-foreground font-mono">
-            Batch: {importResult.run_id}
+            Import run: {importResult.run_id}
           </p>
           {importResult.errors.length > 0 && (
             <div className="space-y-1 mt-2">
@@ -684,7 +690,7 @@ export default function ImportPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="text-[11px]">Batch</TableHead>
+                  <TableHead className="text-[11px]">Run ID</TableHead>
                   <TableHead className="text-[11px]">Source</TableHead>
                   <TableHead className="text-[11px]">Entity</TableHead>
                   <TableHead className="text-[11px]">Imported</TableHead>
@@ -696,7 +702,7 @@ export default function ImportPage() {
                 {runs.map((run) => (
                   <TableRow key={run.id}>
                     <TableCell className="text-[12px] font-mono">{run.id.slice(0, 16)}</TableCell>
-                    <TableCell className="text-[12px]">{run.source_system}</TableCell>
+                    <TableCell className="text-[12px]">{friendlyImportSource(run.source_system)}</TableCell>
                     <TableCell className="text-[12px] capitalize">{run.entity_type}</TableCell>
                     <TableCell className="text-[12px] tabular-nums">{run.imported_count}</TableCell>
                     <TableCell className="text-[12px] tabular-nums">{run.skipped_count}</TableCell>

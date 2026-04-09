@@ -15,7 +15,7 @@ export type ActionBucket =
   | "system_fix"
   | "deprioritized";
 
-export type OperatorState = "new" | "in_progress" | "done" | "dismissed";
+export type OperatorState = "new" | "open" | "in_progress" | "done" | "dismissed";
 
 export type FollowThroughStatus =
   | "evidence_positive"
@@ -101,6 +101,7 @@ export const BUCKET_TEXT_COLORS: Record<ActionBucket, string> = {
 
 export const OPERATOR_STATE_LABELS: Record<OperatorState, string> = {
   new: "New",
+  open: "Open",
   in_progress: "In Progress",
   done: "Done",
   dismissed: "Dismissed",

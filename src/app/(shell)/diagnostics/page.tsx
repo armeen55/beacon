@@ -24,7 +24,11 @@ import { detectOutcomeEvents } from "@/domains/attribution/events";
 import { discoverCandidates } from "@/domains/attribution/candidates";
 import { triageCandidates } from "@/domains/attribution/triage";
 import { resolveEvents, computeEventIntelligence } from "@/domains/attribution/event-resolution";
-import { candidateLinks } from "@/domains/attribution/store";
+import { candidateLinks, eventDecisions } from "@/domains/attribution/store";
+import {
+  buildAttributionDriverMap,
+  summarizeDriverCoverage,
+} from "@/domains/attribution/result-drivers";
 import { computeActionClusters } from "@/domains/action-clusters/compute";
 import { summarizeClusters } from "@/domains/action-clusters/selectors";
 import {
@@ -99,6 +103,14 @@ export default function DiagnosticsPage() {
   const cdiag = computeCandidateDiagnostics(results, changelogEntries, opportunities);
   const modelReport = computeModelReport(results, changelogEntries, opportunities, cdiag);
 
+  const driverMap = buildAttributionDriverMap(
+    results,
+    changelogEntries,
+    opportunities,
+    eventDecisions
+  );
+  const driverCov = summarizeDriverCoverage(results, driverMap);
+
   const { attribution: attrResults } = partitionResultsByMode(results);
   const events = detectOutcomeEvents(attrResults);
   const triageMap = new Map<string, ReturnType<typeof triageCandidates>>();
@@ -121,33 +133,40 @@ export default function DiagnosticsPage() {
   return (
     <div className="max-w-4xl space-y-8">
       <PageHeader
-        title="Attribution Diagnostics"
-        description="Stress-test the attribution engine. Identify over-attribution, under-linkage, confidence inflation, and verdict quality."
+        title="Diagnostics (analyst)"
+        description="Outside the daily Today → Website → Gap ledger loop. Raw pipeline metrics for debugging weights, coverage, and pattern stats — not default marketing decisions."
       />
+
+      <div className="rounded-md border border-border bg-surface-inset/70 px-3 py-2.5 text-[11px] text-muted-foreground">
+        <span className="font-semibold text-foreground">Analyst surface.</span>{" "}
+        Stored change IDs on results vs event+Review drivers are different
+        layers (see sections below). Do not treat resolution rates or pattern
+        blocks as product truth for pilots.
+      </div>
 
       {/* Knows vs Suspects */}
       <div className="grid grid-cols-2 gap-3">
         <div className="rounded-md border border-border bg-surface-raised px-3 py-2.5">
           <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
-            Confirmed facts
+            Recorded in data
           </p>
           <div className="space-y-0.5 text-[12px]">
-            <p><span className="font-medium tabular-nums">{changelogEntries.length}</span> changes imported</p>
-            <p><span className="font-medium tabular-nums">{results.length}</span> results tracked</p>
-            <p><span className="font-medium tabular-nums">{eventIntel.total_events}</span> outcome events detected</p>
-            <p><span className="font-medium tabular-nums">{eventIntel.attributed}</span> events confirmed by human</p>
-            <p><span className="font-medium tabular-nums">{eventIntel.auto_resolved}</span> events auto-resolved by triage</p>
-            <p><span className="font-medium tabular-nums">{candidateLinks.filter((c) => c.status === "confirmed").length}</span> confirmed candidate links</p>
+            <p><span className="font-medium tabular-nums">{changelogEntries.length}</span> change records</p>
+            <p><span className="font-medium tabular-nums">{results.length}</span> visibility snapshots (results)</p>
+            <p><span className="font-medium tabular-nums">{eventIntel.total_events}</span> outcome events (attribution-mode time series)</p>
+            <p><span className="font-medium tabular-nums">{eventIntel.attributed}</span> events with Review-locked cause</p>
+            <p><span className="font-medium tabular-nums">{eventIntel.auto_resolved}</span> events auto-cleared by triage rules</p>
+            <p><span className="font-medium tabular-nums">{candidateLinks.filter((c) => c.status === "confirmed").length}</span> candidate pairs marked confirmed (link workflow)</p>
           </div>
         </div>
         <div className="rounded-md border border-border bg-surface-raised px-3 py-2.5">
           <p className="text-[10px] font-semibold uppercase tracking-wider text-status-warning mb-1.5">
-            Hypotheses
+            Open / inferred
           </p>
           <div className="space-y-0.5 text-[12px] text-muted-foreground">
-            <p><span className="tabular-nums">{eventIntel.pending}</span> events with plausible but unconfirmed causes</p>
-            <p><span className="tabular-nums">{eventIntel.no_candidates}</span> events with zero candidate causes</p>
-            <p><span className="tabular-nums">{eventIntel.resolution_rate}%</span> resolution rate (includes auto + no_cause — not just confirmed)</p>
+            <p><span className="tabular-nums">{eventIntel.pending}</span> events still needing Review</p>
+            <p><span className="tabular-nums">{eventIntel.no_candidates}</span> events with no scored candidates</p>
+            <p><span className="tabular-nums">{eventIntel.resolution_rate}%</span> events closed (Review + auto + “no cause”) — not “proven ROI”</p>
           </div>
         </div>
       </div>
@@ -190,15 +209,15 @@ export default function DiagnosticsPage() {
         <div className="grid grid-cols-2 lg:grid-cols-6 gap-3 mb-4">
           <StatBlock label="Total Events" value={eventIntel.total_events} />
           <StatBlock
-            label="Attributed"
+            label="Review locked"
             value={eventIntel.attributed}
             variant="success"
-            sub="Human-confirmed cause"
+            sub="Cause saved from Review"
           />
           <StatBlock
-            label="Auto-Resolved"
+            label="Auto-cleared"
             value={eventIntel.auto_resolved}
-            sub="Triage-confirmed"
+            sub="Triage-only (no Review)"
           />
           <StatBlock
             label="No Cause"
@@ -212,15 +231,10 @@ export default function DiagnosticsPage() {
             sub="Needs review"
           />
           <StatBlock
-            label="Resolution Rate"
+            label="Queue closed %"
             value={`${eventIntel.resolution_rate}%`}
-            variant={
-              eventIntel.resolution_rate >= 75
-                ? "success"
-                : eventIntel.resolution_rate >= 40
-                  ? "warning"
-                  : "default"
-            }
+            sub="Of detected events"
+            variant="default"
           />
         </div>
 
@@ -313,7 +327,7 @@ export default function DiagnosticsPage() {
           <div>
             <SectionTitle>Cluster Intelligence</SectionTitle>
             <p className="text-[12px] text-muted-foreground mb-3">
-              Action clusters group related outcome events for operator decision-making.
+              Action clusters group related visibility shifts to speed up Review.
             </p>
             <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-4">
               <StatBlock label="Total Clusters" value={cs.total} />
@@ -405,14 +419,14 @@ export default function DiagnosticsPage() {
           <div>
             <SectionTitle>Pattern Intelligence</SectionTitle>
             <p className="text-[12px] text-muted-foreground mb-3">
-              Repeatable change strategies derived from signal_type × asset_type. Patterns compound when replicated.
+              Heuristics from change metadata + cluster history. “Success %” is an internal pattern score tied to attributed events in clusters — not revenue or closed deals.
             </p>
             <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-4">
               <StatBlock label="Patterns" value={ps.total} />
-              <StatBlock label="High Confidence" value={ps.highConfidence} variant="success" />
-              <StatBlock label="Avg Success Rate" value={`${ps.avgSuccessRate}%`} variant={ps.avgSuccessRate >= 50 ? "success" : ps.avgSuccessRate >= 25 ? "warning" : "default"} />
-              <StatBlock label="Improving" value={ps.improving} variant="success" />
-              <StatBlock label="Declining" value={ps.declining} variant={ps.declining > 0 ? "danger" : "default"} />
+              <StatBlock label="High model confidence" value={ps.highConfidence} variant="default" />
+              <StatBlock label="Avg historical success %" value={`${ps.avgSuccessRate}%`} variant="default" sub="Cluster-tagged only" />
+              <StatBlock label="Trend: improving" value={ps.improving} variant="default" />
+              <StatBlock label="Trend: declining" value={ps.declining} variant={ps.declining > 0 ? "warning" : "default"} />
             </div>
             <div className="rounded-md border border-border overflow-hidden">
               <Table>
@@ -424,7 +438,7 @@ export default function DiagnosticsPage() {
                     <TableHead className="text-[11px] text-right">Executions</TableHead>
                     <TableHead className="text-[11px] text-right">Clusters</TableHead>
                     <TableHead className="text-[11px] text-right">Attributed</TableHead>
-                    <TableHead className="text-[11px] text-right">Success</TableHead>
+                    <TableHead className="text-[11px] text-right">Hist. %</TableHead>
                     <TableHead className="text-[11px] text-right">Avg Days</TableHead>
                     <TableHead className="text-[11px] text-right">Score</TableHead>
                     <TableHead className="text-[11px]">Untapped</TableHead>
@@ -530,31 +544,35 @@ export default function DiagnosticsPage() {
         );
       })()}
 
-      {/* Attribution Coverage */}
+      {/* Stored change IDs on result rows (import / workbook) */}
       <div>
-        <SectionTitle>Attribution Coverage</SectionTitle>
+        <SectionTitle>Stored change IDs on results</SectionTitle>
+        <p className="text-[12px] text-muted-foreground mb-3">
+          Counts rows where <code className="text-[10px] bg-surface-inset px-1 rounded">attributed_changelog_ids</code> is non-empty.
+          This is <span className="font-medium text-foreground">not</span> the same as the event + Review driver shown on the Results page.
+        </p>
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
-          <StatBlock label="Total Results" value={diag.coverage.total_results} />
+          <StatBlock label="All results" value={diag.coverage.total_results} />
           <StatBlock
-            label="With Attribution"
+            label="Rows with stored IDs"
             value={diag.coverage.with_attributions}
-            variant="success"
-            sub={`${diag.coverage.total_results > 0 ? Math.round((diag.coverage.with_attributions / diag.coverage.total_results) * 100) : 0}%`}
+            variant={diag.coverage.with_attributions > 0 ? "success" : "default"}
+            sub={`${diag.coverage.total_results > 0 ? Math.round((diag.coverage.with_attributions / diag.coverage.total_results) * 100) : 0}% of rows`}
           />
           <StatBlock
-            label="Unattributed"
+            label="Rows without stored IDs"
             value={diag.coverage.without_attributions}
             variant={diag.coverage.without_attributions > 0 ? "warning" : "default"}
           />
           <StatBlock
-            label="Over-attributed (4+)"
+            label="4+ IDs on one row"
             value={diag.coverage.over_attributed}
             variant={diag.coverage.over_attributed > 0 ? "danger" : "default"}
           />
         </div>
         <div>
           <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-2">
-            Changes per Result
+            How many stored IDs per result row
           </p>
           <div className="space-y-1.5">
             {Object.entries(diag.coverage.attribution_density).map(([bucket, count]) => (
@@ -567,11 +585,45 @@ export default function DiagnosticsPage() {
         </div>
       </div>
 
+      {/* Event + Review drivers (same engine as Results table) */}
+      <div>
+        <SectionTitle>Event + Review drivers (attribution-mode results)</SectionTitle>
+        <p className="text-[12px] text-muted-foreground mb-3">
+          Same pipeline as <span className="font-medium text-foreground">Results → Suggested cause</span>. Only attribution-mode snapshots are counted.
+        </p>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+          <StatBlock label="Attribution-mode results" value={driverCov.attributionModeResultCount} />
+          <StatBlock
+            label="With stored IDs (subset)"
+            value={driverCov.withStoredChangeIds}
+            sub="Also listed above"
+          />
+          <StatBlock
+            label="With event/Review driver"
+            value={driverCov.withEventDriver}
+            variant={driverCov.withEventDriver > 0 ? "success" : "default"}
+          />
+          <StatBlock
+            label="Review locked (results)"
+            value={driverCov.byTrust.confirmed}
+            sub="Rows with Review decision"
+          />
+        </div>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <StatBlock label="System / auto-cleared" value={driverCov.byTrust.system_primary + driverCov.byTrust.auto_cleared} />
+          <StatBlock label="Contributing pick" value={driverCov.byTrust.contributing} />
+          <StatBlock label="Needs review (top candidate)" value={driverCov.byTrust.unresolved} variant={driverCov.byTrust.unresolved > 0 ? "warning" : "default"} />
+        </div>
+      </div>
+
       {/* Confidence Distribution */}
       <div>
         <SectionTitle>Confidence Distribution</SectionTitle>
         <p className="text-[12px] text-muted-foreground mb-3">
-          {diag.inflation.total_pairs} change→result pairs scored
+          {diag.inflation.total_pairs} change→result pairs scored from <span className="font-medium text-foreground">stored IDs only</span>.
+          {diag.inflation.total_pairs === 0 && (
+            <span className="block mt-1 text-status-warning"> When this is zero, the charts below are empty — use the “Event + Review drivers” section above instead.</span>
+          )}
         </p>
         <div className="grid grid-cols-4 gap-3 mb-4">
           <StatBlock label="High" value={diag.confidence.high} variant="success" />
@@ -675,7 +727,7 @@ export default function DiagnosticsPage() {
 
       {/* Verdicts */}
       <div>
-        <SectionTitle>Change Verdicts</SectionTitle>
+        <SectionTitle>Model outcome labels</SectionTitle>
         <div className="space-y-1.5">
           {Object.entries(diag.verdicts).map(([verdict, count]) => (
             <div key={verdict} className="flex items-center gap-2">
@@ -902,14 +954,14 @@ export default function DiagnosticsPage() {
       <div>
         <SectionTitle>Model Report</SectionTitle>
         <p className="text-[12px] text-muted-foreground mb-3">
-          Automated diagnosis of attribution model quality. What to fix next.
+          Heuristic gaps for the scoring model. “Unresolved” here means <span className="font-medium text-foreground">no stored change IDs on the result row</span> — not “no driver in Results.”
         </p>
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
           <StatBlock
-            label="Unresolved Rate"
+            label="Rows without stored IDs"
             value={`${modelReport.unresolved_rate}%`}
-            variant={modelReport.unresolved_rate > 50 ? "danger" : modelReport.unresolved_rate > 25 ? "warning" : "success"}
-            sub="Results with no attribution"
+            variant="default"
+            sub="Of all results — see Event+Review section above"
           />
           <StatBlock
             label="Topic Unknown"

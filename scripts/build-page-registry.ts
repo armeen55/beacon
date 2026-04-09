@@ -16,6 +16,7 @@ import type { PageEntity, CitationEvidenceIndex } from "../src/domains/pages/typ
 import { discoverPages } from "../src/domains/pages/discover";
 import { buildCitationEvidenceIndex } from "../src/domains/pages/citation-index";
 import { classifyAllEntries } from "../src/domains/pages/evidence-tier";
+import { getSiteConfig } from "../src/lib/site-config";
 
 async function main() {
   console.log("=== Building Page Registry ===\n");
@@ -38,7 +39,7 @@ async function main() {
 
   // Phase 1: Discover pages
   console.log("\n--- Phase 1: Page Discovery ---");
-  const ownedDomain = "rfritz.com";
+  const ownedDomain = getSiteConfig().siteDomain;
   const pages = discoverPages({
     citations: allCitations,
     changes,

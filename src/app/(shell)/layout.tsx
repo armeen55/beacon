@@ -1,14 +1,82 @@
-import { ShellProvider } from "@/components/shell/shell-provider";
+import { ShellProvider, type NavBadges } from "@/components/shell/shell-provider";
 import { AppSidebar, MobileSidebar } from "@/components/shell/app-sidebar";
 import { AppHeader } from "@/components/shell/app-header";
+import { CommandPalette, type PaletteItem } from "@/components/shell/command-palette";
+import { changelogEntries, results } from "@/lib/seed-data.server";
+import { allNavItems } from "@/lib/navigation";
+import { eventDecisions } from "@/domains/attribution/store";
+import { detectOutcomeEvents } from "@/domains/attribution/events";
+import { partitionResultsByMode } from "@/domains/attribution/result-mode";
+import { pageIssues } from "@/domains/pages/issues";
+
+const NAV_SHORTCUTS: Record<string, string> = {
+  "/": "G T",
+  "/pages": "G W",
+  "/topics": "G O",
+  "/changes": "G H",
+  "/review": "G R",
+  "/expansion": "G E",
+};
+
+const CHANGELOG_PALETTE_CAP = 50;
 
 export default function ShellLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  // ── Badge computation ──
+  const { attribution: attrResults } = partitionResultsByMode(results);
+  const events = detectOutcomeEvents(attrResults);
+  const reviewPending = events.length - eventDecisions.length;
+  const openIssues = pageIssues.filter(
+    (i) => i.status === "new" || i.status === "shipped"
+  ).length;
+
+  const badges: NavBadges = {};
+  const totalInbox = (reviewPending > 0 ? 1 : 0) + openIssues;
+  if (totalInbox > 0) badges["/"] = totalInbox;
+  if (reviewPending > 0) badges["/review"] = reviewPending;
+  if (openIssues > 0) badges["/pages"] = openIssues;
+
+  // ── Palette items ──
+  const uniqueTopics = [
+    ...new Set(
+      changelogEntries
+        .map((c) => c.topic_targeted)
+        .filter((t): t is string => Boolean(t))
+    ),
+  ];
+
+  const paletteItems: PaletteItem[] = [
+    ...allNavItems.map((n) => ({
+      id: `nav-${n.href}`,
+      label: n.label,
+      group: "Navigate",
+      href: n.href,
+      shortcut: NAV_SHORTCUTS[n.href],
+    })),
+    ...(changelogEntries.length > CHANGELOG_PALETTE_CAP
+      ? changelogEntries.slice(-CHANGELOG_PALETTE_CAP)
+      : changelogEntries
+    ).map((c) => ({
+      id: c.id,
+      label: c.asset_name,
+      group: "Changes",
+      href: `/changes/${c.id}`,
+      meta: c.topic_targeted || undefined,
+    })),
+    ...uniqueTopics.map((t) => ({
+      id: `topic-${t}`,
+      label: t,
+      group: "Gap ledger",
+      href: "/topics",
+      meta: "Topic",
+    })),
+  ];
+
   return (
-    <ShellProvider>
+    <ShellProvider badges={badges}>
       <div className="flex h-screen overflow-hidden">
         <AppSidebar />
         <MobileSidebar />
@@ -19,6 +87,7 @@ export default function ShellLayout({
           </main>
         </div>
       </div>
+      <CommandPalette items={paletteItems} />
     </ShellProvider>
   );
 }

@@ -296,7 +296,7 @@ export default async function BriefDetailPage({
                   <EntityLinkCard
                     key={opp.id}
                     type="opportunity"
-                    href={`/opportunities/${opp.id}`}
+                    href={`/topics/opportunity/${opp.id}`}
                     title={opp.title}
                     subtitle={opp.description ?? undefined}
                     meta={opp.topic}

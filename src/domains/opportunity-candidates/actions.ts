@@ -85,6 +85,8 @@ export async function promoteToOpportunity(
 
   const isImported = (o: Opportunity) =>
     o.source_system === "workbook" ||
+    o.source_system === "beacon-workbook" ||
+    o.source_system === "ritz-workbook" ||
     o.source_system === "beacon-expansion" ||
     Boolean(o.import_batch_id);
   await writeStore(

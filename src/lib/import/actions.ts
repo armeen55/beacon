@@ -17,9 +17,14 @@ import {
   results,
   competitors,
 } from "@/lib/seed-data.server";
-import { parseWorkbook } from "./workbook";
+import { parseWorkbook, WORKBOOK_IMPORT_SOURCE } from "./workbook";
 import { classifyResultMode } from "@/domains/attribution/result-mode";
 import type { ImportEntityType, ImportFormat, ImportRun, ImportResult, ImportPreview, WorkbookImportResult } from "./types";
+import { readDotDataJson } from "@/lib/persistence/dotdata-json";
+import type { CitationEvidenceIndex } from "@/domains/pages/types";
+import type { VisibilityObservationRun } from "@/domains/observations/visibility-types";
+import { appendVisibilityObservationRunSync } from "@/domains/observations/visibility-persist";
+import { universeFieldsForObservationPersistence } from "@/domains/competitors/universe-run-pin";
 
 const importRuns: ImportRun[] = readStore<ImportRun>("import-runs");
 
@@ -103,8 +108,20 @@ export async function executeImport(
   let imported = 0;
   let skipped = 0;
 
+  const visibilityRunIdForResults =
+    entityType === "results" ? `vis-imp-${batchId}` : null;
+
   for (let i = 0; i < rows.length; i++) {
-    const result = mapper(rows[i], i, batchId, source);
+    const result =
+      entityType === "results"
+        ? mapResultRow(
+            rows[i],
+            i,
+            batchId,
+            source,
+            visibilityRunIdForResults ?? undefined
+          )
+        : mapper(rows[i], i, batchId, source);
     allErrors.push(...result.errors);
     allWarnings.push(...result.warnings);
 
@@ -114,6 +131,41 @@ export async function executeImport(
     } else {
       skipped++;
     }
+  }
+
+  if (entityType === "results" && imported > 0 && visibilityRunIdForResults) {
+    const completedAt = now();
+    const ci = readDotDataJson<CitationEvidenceIndex>("citation-evidence-index");
+    const linkedCit =
+      ci?.built_at != null
+        ? `vis-citation-${encodeURIComponent(ci.built_at)}`
+        : null;
+    const visRun: VisibilityObservationRun = {
+      run_id: visibilityRunIdForResults,
+      run_type: "prompt_results_import",
+      source: `CSV/JSON import · ${source}`,
+      status: "completed",
+      started_at: startedAt,
+      completed_at: completedAt,
+      scope_label: `Imported ${imported} Sample history row(s); batch ${batchId}.`,
+      prompt_set_version: null,
+      engine_platform_note: null,
+      parser_version: "import-csv-v1",
+      baseline_visibility_run_id: null,
+      counts: {
+        topic_buckets: 0,
+        page_topic_rollup_rows: 0,
+        total_citations_accounted: 0,
+        distinct_external_domains_sampled: 0,
+        owned_rollup_rows: 0,
+      },
+      is_synthetic_wrapper: false,
+      citation_index_built_at: null,
+      sample_result_row_count: imported,
+      linked_citation_index_run_id: linkedCit,
+      ...universeFieldsForObservationPersistence(),
+    };
+    appendVisibilityObservationRunSync(visRun);
   }
 
   const run: ImportRun = {
@@ -294,9 +346,10 @@ export async function importWorkbook(
   const startedAt = now();
 
   let data;
+  const visibilityRunId = `vis-wb-${batchId}`;
   try {
     const buffer = await file.arrayBuffer();
-    data = parseWorkbook(buffer, batchId);
+    data = parseWorkbook(buffer, batchId, visibilityRunId);
   } catch (e) {
     return {
       success: false,
@@ -378,7 +431,7 @@ export async function importWorkbook(
 
   const run: ImportRun = {
     id: batchId,
-    source_system: "ritz-workbook",
+    source_system: WORKBOOK_IMPORT_SOURCE,
     entity_type: "results",
     format: "csv",
     started_at: startedAt,
@@ -399,6 +452,42 @@ export async function importWorkbook(
   };
   importRuns.push(run);
   await writeStore("import-runs", importRuns);
+
+  if (data.results.length > 0) {
+    const completedAt = now();
+    const ci = readDotDataJson<CitationEvidenceIndex>("citation-evidence-index");
+    const linkedCit =
+      ci?.built_at != null
+        ? `vis-citation-${encodeURIComponent(ci.built_at)}`
+        : null;
+    const visRun: VisibilityObservationRun = {
+      run_id: visibilityRunId,
+      run_type: "prompt_results_import",
+      source: `Workbook · ${WORKBOOK_IMPORT_SOURCE}`,
+      status: "completed",
+      started_at: startedAt,
+      completed_at: completedAt,
+      scope_label: `Workbook import ${batchId} — ${data.results.length} aggregated Sample history row(s) from prompt_intelligence_daily.`,
+      prompt_set_version: "prompt_intelligence_daily",
+      engine_platform_note:
+        "Rows are aggregated buckets (date × engine × topic cluster), not raw prompts.",
+      parser_version: "workbook-v1",
+      baseline_visibility_run_id: null,
+      counts: {
+        topic_buckets: 0,
+        page_topic_rollup_rows: 0,
+        total_citations_accounted: 0,
+        distinct_external_domains_sampled: 0,
+        owned_rollup_rows: 0,
+      },
+      is_synthetic_wrapper: false,
+      citation_index_built_at: null,
+      sample_result_row_count: data.results.length,
+      linked_citation_index_run_id: linkedCit,
+      ...universeFieldsForObservationPersistence(),
+    };
+    appendVisibilityObservationRunSync(visRun);
+  }
 
   revalidatePath("/", "layout");
 

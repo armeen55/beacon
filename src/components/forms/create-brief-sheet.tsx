@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition, useEffect } from "react";
+import { useState, useTransition } from "react";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -49,10 +49,6 @@ export function CreateBriefButton({
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (open) setError(null);
-  }, [open]);
-
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError(null);
@@ -74,7 +70,13 @@ export function CreateBriefButton({
         Create Brief
       </Button>
 
-      <Sheet open={open} onOpenChange={setOpen}>
+      <Sheet
+        open={open}
+        onOpenChange={(next) => {
+          setOpen(next);
+          if (next) setError(null);
+        }}
+      >
         <SheetContent side="right" className="sm:max-w-md">
           <SheetHeader>
             <SheetTitle>Create Brief</SheetTitle>

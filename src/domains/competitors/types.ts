@@ -1,5 +1,10 @@
 import type { Platform } from "@/lib/constants";
 
+/** How this row entered Beacon — separate from workspace `competitor-universe.json`. */
+export type CompetitorEntitySource =
+  | "imported_entity"
+  | "demo_seed";
+
 export type Competitor = {
   id: string;
   name: string;
@@ -11,6 +16,8 @@ export type Competitor = {
   updated_at: string;
   source_system?: string;
   import_batch_id?: string;
+  /** Imported CSV/workbook row vs bundled demo seed — not the configured universe file. */
+  source_of_truth?: CompetitorEntitySource;
 };
 
 export type CompetitorSnapshot = {

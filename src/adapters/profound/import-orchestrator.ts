@@ -14,7 +14,7 @@
 import "server-only";
 
 import { join } from "node:path";
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import {
   replaceTrackedPrompts,
   replaceTrackedEntities,
@@ -33,7 +33,9 @@ import { buildDerivedSnapshots } from "@/derivations/snapshot-builder";
 import { writeLegacyBridge } from "./bridge";
 import { discoverPages } from "@/domains/pages/discover";
 import { buildCitationEvidenceIndex } from "@/domains/pages/citation-index";
-import { writeStore } from "@/lib/persistence/json-store";
+import { writeStore, readStore } from "@/lib/persistence/json-store";
+import { getAllCitationDates, getCitationsForDate } from "@/lib/persistence/cold-store";
+import { getSiteConfig } from "@/lib/site-config";
 import { writeFileSync, renameSync } from "node:fs";
 
 const DATA_DIR = join(process.cwd(), ".data");
@@ -163,25 +165,22 @@ export async function runProfoundImport(
   }
 
   // Phase 8: Build page registry + citation evidence index
-  const { readStore: readStoreSync } = require("@/lib/persistence/json-store") as {
-    readStore: <T>(name: string) => T[];
-  };
-  const importedChanges = readStoreSync<import("@/domains/changelog/types").ChangelogEntry>("imported-changes");
+  const importedChanges = readStore<import("@/domains/changelog/types").ChangelogEntry>(
+    "imported-changes"
+  );
 
-  const allCitationsForIndex: import("@/domains/citation-observations/types").CitationObservation[] = [];
-  const { getAllCitationDates, getCitationsForDate } = require("@/lib/persistence/cold-store") as {
-    getAllCitationDates: () => string[];
-    getCitationsForDate: (d: string) => import("@/domains/citation-observations/types").CitationObservation[];
-  };
+  const allCitationsForIndex: import("@/domains/citation-observations/types").CitationObservation[] =
+    [];
   for (const d of getAllCitationDates()) {
     allCitationsForIndex.push(...getCitationsForDate(d));
   }
 
+  const { siteDomain } = getSiteConfig();
   const pages = discoverPages({
     citations: allCitationsForIndex,
     changes: importedChanges,
     entities,
-    ownedDomain: "rfritz.com",
+    ownedDomain: siteDomain,
   });
   await writeStore("pages", pages);
 
@@ -219,7 +218,6 @@ export async function runProfoundImport(
 
 function findFile(prefix: string): string | null {
   if (!existsSync(DATA_DIR)) return null;
-  const { readdirSync } = require("node:fs") as typeof import("node:fs");
   const files = readdirSync(DATA_DIR) as string[];
   const lowerPrefix = prefix.toLowerCase();
   const match = files.find(

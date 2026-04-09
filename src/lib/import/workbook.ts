@@ -80,8 +80,30 @@ function stripUtm(url: string): string {
   }
 }
 
+/** Workbook column prefix for owned-brand tracking columns (default matches legacy sheets). */
+/** Persisted on imported rows — neutral product id (replaces legacy `ritz-workbook`). */
+export const WORKBOOK_IMPORT_SOURCE = "beacon-workbook" as const;
+
+function workbookTrackingPrefix(): string {
+  const p = (process.env.BEACON_WORKBOOK_TRACKING_PREFIX ?? "").trim();
+  return p || "Ritz";
+}
+
+function readOwnedCell(
+  row: Record<string, unknown>,
+  suffix: "Mentioned" | "Cited" | "Position" | "Citation URL"
+): unknown {
+  const prefix = workbookTrackingPrefix();
+  const keys = [`${prefix} ${suffix}`, `Ritz ${suffix}`, `Owned ${suffix}`];
+  for (const k of keys) {
+    const v = row[k];
+    if (v !== undefined && v !== null && String(v).trim() !== "") return v;
+  }
+  return "";
+}
+
 // ─── change_log sheet ───────────────────────────────────────────────────────
-// Columns are shifted 2 positions right in the Ritz workbook:
+// Columns are shifted 2 positions right in some master workbooks:
 // Timestamp(A)=date serial, Date(B)=time serial,
 // then actual data starts at column C with header "Time" containing signal_type.
 function parseChangeLogSheet(
@@ -158,7 +180,7 @@ function parseChangeLogSheet(
       notes: rawNotes.trim() || null,
       created_at: now(),
       updated_at: now(),
-      source_system: "ritz-workbook",
+      source_system: WORKBOOK_IMPORT_SOURCE,
       import_batch_id: batchId,
     });
   }
@@ -180,7 +202,8 @@ function parsePromptIntelligenceSheet(
   wb: XLSX.WorkBook,
   batchId: string,
   sheets: WorkbookSheetSummary[],
-  globalWarnings: string[]
+  globalWarnings: string[],
+  visibilityRunId: string
 ): { results: Result[]; opportunities: Opportunity[] } {
   const ws = wb.Sheets["prompt_intelligence_daily"];
   if (!ws) {
@@ -257,17 +280,17 @@ function parsePromptIntelligenceSheet(
 
     bucket.totalPrompts++;
 
-    const isMentioned = String(row["Ritz Mentioned"] ?? "").trim() === "Yes";
-    const isCited = String(row["Ritz Cited"] ?? "").trim() === "Yes";
+    const isMentioned = String(readOwnedCell(row, "Mentioned")).trim() === "Yes";
+    const isCited = String(readOwnedCell(row, "Cited")).trim() === "Yes";
 
     if (isMentioned) {
       bucket.mentioned++;
-      const pos = Number(row["Ritz Position"]);
+      const pos = Number(readOwnedCell(row, "Position"));
       if (!isNaN(pos) && pos > 0) bucket.positions.push(pos);
     }
     if (isCited) {
       bucket.cited++;
-      const citUrl = String(row["Ritz Citation URL"] ?? "").trim();
+      const citUrl = String(readOwnedCell(row, "Citation URL")).trim();
       if (citUrl) bucket.citationUrls.push(stripUtm(citUrl));
     }
 
@@ -332,8 +355,9 @@ function parsePromptIntelligenceSheet(
       total_possible: bucket.totalPrompts,
       position: avgPos,
       created_at: now(),
-      source_system: "ritz-workbook",
+      source_system: WORKBOOK_IMPORT_SOURCE,
       import_batch_id: batchId,
+      visibility_observation_run_id: visibilityRunId,
     });
   }
 
@@ -400,7 +424,7 @@ function deriveOpportunities(
       notes: `Derived from workbook. Sample prompts: ${meta.prompts.slice(0, 2).join(" | ")}`,
       created_at: now(),
       updated_at: now(),
-      source_system: "ritz-workbook",
+      source_system: WORKBOOK_IMPORT_SOURCE,
       import_batch_id: batchId,
     });
   }
@@ -488,8 +512,9 @@ function parseCompetitorSheet(
       notes: null,
       created_at: now(),
       updated_at: now(),
-      source_system: "ritz-workbook",
+      source_system: WORKBOOK_IMPORT_SOURCE,
       import_batch_id: batchId,
+      source_of_truth: "imported_entity",
     });
   }
 
@@ -507,7 +532,8 @@ function parseCompetitorSheet(
 // ─── Main parse entry point ─────────────────────────────────────────────────
 export function parseWorkbook(
   buffer: ArrayBuffer,
-  batchId: string
+  batchId: string,
+  visibilityRunId: string
 ): WorkbookImportData {
   const wb = XLSX.read(buffer);
   const warnings: string[] = [];
@@ -521,7 +547,8 @@ export function parseWorkbook(
     wb,
     batchId,
     sheets,
-    warnings
+    warnings,
+    visibilityRunId
   );
   const competitors = parseCompetitorSheet(wb, batchId, sheets, warnings);
 

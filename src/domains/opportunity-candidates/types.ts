@@ -42,14 +42,14 @@ export const CANDIDATE_TYPE_LABELS: Record<OpportunityCandidateType, string> = {
 };
 
 export const CANDIDATE_TYPE_COLORS: Record<OpportunityCandidateType, string> = {
-  adjacent: "text-accent-primary",
+  adjacent: "text-muted-foreground",
   missing: "text-status-warning",
-  expansion: "text-status-success",
+  expansion: "text-muted-foreground",
   gap: "text-muted-foreground",
 };
 
 export const CANDIDATE_CONFIDENCE_COLORS: Record<CandidateConfidence, string> = {
-  high: "text-status-success",
-  medium: "text-status-warning",
+  high: "text-muted-foreground",
+  medium: "text-muted-foreground",
   low: "text-muted-foreground",
 };

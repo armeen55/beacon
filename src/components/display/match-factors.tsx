@@ -32,14 +32,14 @@ const STRENGTH_LABELS: Record<MatchStrength, string> = {
 };
 
 const TIER_LABELS: Record<EvidenceTier, string> = {
-  exact: "Verified page",
-  probable: "Probable",
-  weak: "Weak evidence",
-  inferred: "Inferred",
+  exact: "Tight URL/topic match",
+  probable: "Looser heuristic match",
+  weak: "Weak signals",
+  inferred: "Inferred only",
 };
 
 const TIER_COLORS: Record<EvidenceTier, string> = {
-  exact: "text-status-success",
+  exact: "text-muted-foreground",
   probable: "text-muted-foreground",
   weak: "text-status-warning",
   inferred: "text-status-warning",

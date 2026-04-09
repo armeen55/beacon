@@ -27,7 +27,8 @@ export function mapResultRow(
   row: Record<string, string>,
   idx: number,
   batchId: string,
-  source: string
+  source: string,
+  visibilityObservationRunId?: string | null
 ): RowResult<Result> {
   const errors: string[] = [];
   const warnings: string[] = [];
@@ -98,6 +99,10 @@ export function mapResultRow(
     created_at: row.created_at || now(),
     source_system: source,
     import_batch_id: batchId,
+    visibility_observation_run_id:
+      visibilityObservationRunId ??
+      row.visibility_observation_run_id?.trim() ??
+      null,
   };
 
   return { entity: result, errors, warnings };
@@ -281,6 +286,7 @@ export function mapCompetitorRow(
     updated_at: row.updated_at || now(),
     source_system: source,
     import_batch_id: batchId,
+    source_of_truth: "imported_entity",
   };
 
   return { entity: comp, errors, warnings };

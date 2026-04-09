@@ -1,40 +1,80 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { EntityLinkCard } from "@/components/data/entity-link-card";
-import { AttributionCard } from "@/components/data/attribution-card";
 import { ChangeVerdictBadge } from "@/components/display/change-verdict-badge";
-import { RecordResultButton } from "@/components/forms/record-result-sheet";
-import { changelogEntries, results } from "@/lib/seed-data.server";
-import {
-  getBriefForChange,
-  getOpportunityForChange,
-  getChangeVerdictData,
-} from "@/lib/lookups";
-import { computeAttribution } from "@/domains/attribution/compute";
-import { opportunities } from "@/lib/seed-data.server";
+import { MatchFactors } from "@/components/display/match-factors";
+import { changelogEntries, results, opportunities } from "@/lib/seed-data.server";
 import { eventDecisions } from "@/domains/attribution/store";
+import { computeScorecard } from "@/domains/attribution/scorecard";
+import type { EventAttribution, TrustSource } from "@/domains/attribution/scorecard";
+import type { AttributionConfidence } from "@/domains/attribution/types";
+import type { EvidenceTier } from "@/domains/pages/types";
 import {
   SIGNAL_TYPE_LABELS,
   ASSET_TYPE_LABELS,
-  BRIEF_TYPE_LABELS,
 } from "@/lib/constants";
 
-function Field({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div>
-      <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-1">
-        {label}
-      </p>
-      <div className="text-[13px]">{children}</div>
-    </div>
-  );
-}
+const PLATFORM_LABELS: Record<string, string> = {
+  chatgpt: "ChatGPT",
+  google_aio: "Google AI Overviews",
+  perplexity: "Perplexity",
+};
+
+const CONF_LABELS: Record<AttributionConfidence, string> = {
+  high: "High confidence",
+  medium: "Medium confidence",
+  low: "Low confidence",
+  uncertain: "Uncertain",
+};
+
+const TIER_LABELS: Record<EvidenceTier, string> = {
+  exact: "Exact — verified page in registry",
+  probable: "Probable — structural URL or strong description",
+  weak: "Weak — vague description or no URL",
+  inferred: "Inferred — reconstructed from patterns",
+};
+
+const TIER_COLORS: Record<EvidenceTier, string> = {
+  exact: "text-status-success bg-status-success/10 border-status-success/20",
+  probable: "text-foreground-secondary bg-surface-inset border-border",
+  weak: "text-status-warning bg-status-warning/10 border-status-warning/20",
+  inferred: "text-muted-foreground bg-surface-inset border-border",
+};
+
+const ROLE_LABELS: Record<string, string> = {
+  primary: "Primary Cause",
+  contributing: "Contributing Factor",
+  candidate: "Unresolved Candidate",
+};
+
+const ROLE_BORDER: Record<string, string> = {
+  primary: "border-l-status-success",
+  contributing: "border-l-status-warning",
+  candidate: "border-l-muted-foreground",
+};
+
+const TRUST_LABELS: Record<TrustSource, string> = {
+  operator_confirmed: "Confirmed in Review",
+  auto_cleared: "Auto-cleared",
+  system_primary: "System pick",
+  contributing: "Contributing",
+  candidate: "Needs review",
+  operator_rejected: "Rejected in Review",
+};
+
+const TRUST_DOT: Record<TrustSource, string> = {
+  operator_confirmed: "bg-status-success",
+  auto_cleared: "bg-accent-primary",
+  system_primary: "bg-accent-primary",
+  contributing: "bg-status-warning",
+  candidate: "bg-muted-foreground/50",
+  operator_rejected: "bg-status-danger",
+};
+
+const EVENT_TYPE_LABELS: Record<string, string> = {
+  first_appearance: "First Appearance",
+  visibility_regained: "Visibility Regained",
+  mention_surge: "Mention Surge",
+};
 
 export default async function ChangeDetailPage({
   params,
@@ -45,183 +85,214 @@ export default async function ChangeDetailPage({
   const entry = changelogEntries.find((c) => c.id === id);
   if (!entry) notFound();
 
-  const linkedBrief = getBriefForChange(entry.id);
-  const linkedOpportunity = getOpportunityForChange(entry.id);
-  const verdictData = getChangeVerdictData(entry.id);
+  const allRows = computeScorecard(changelogEntries, results, opportunities, eventDecisions);
+  const row = allRows.find((r) => r.change.id === id);
+  if (!row) notFound();
 
-  const attributedResults = results.filter((r) =>
-    r.attributed_changelog_ids.includes(entry.id)
+  const sortedAttributions = [...row.eventAttributions].sort(
+    (a, b) => b.score - a.score
   );
-
-  const hasConnections =
-    linkedBrief !== null || linkedOpportunity !== null;
 
   return (
     <div className="max-w-3xl space-y-6">
+      {/* Header */}
       <div>
-        <h2 className="text-base font-semibold tracking-tight">
-          {entry.asset_name}
-        </h2>
-        <div className="flex items-center gap-3 mt-2 text-[12px] text-muted-foreground">
-          <span>{SIGNAL_TYPE_LABELS[entry.signal_type]}</span>
-          <span className="text-border">·</span>
-          <span>{ASSET_TYPE_LABELS[entry.asset_type]}</span>
-          <span className="text-border">·</span>
-          <span>
-            {new Date(entry.timestamp).toLocaleDateString("en-US", {
-              month: "long",
-              day: "numeric",
-              year: "numeric",
-            })}
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <h2 className="text-base font-semibold tracking-tight">
+              {entry.asset_name}
+            </h2>
+            <div className="flex items-center gap-2 mt-1.5 text-[12px] text-muted-foreground flex-wrap">
+              <span>{SIGNAL_TYPE_LABELS[entry.signal_type]}</span>
+              <span className="text-border">·</span>
+              <span>{ASSET_TYPE_LABELS[entry.asset_type]}</span>
+              <span className="text-border">·</span>
+              <span>
+                {new Date(entry.timestamp).toLocaleDateString("en-US", {
+                  month: "long",
+                  day: "numeric",
+                  year: "numeric",
+                })}
+              </span>
+              <span className="text-border">·</span>
+              <span>{row.daysSinceChange}d ago</span>
+            </div>
+          </div>
+          <ChangeVerdictBadge verdict={row.verdict} />
+        </div>
+      </div>
+
+      {/* What changed */}
+      <div className="bg-surface-inset rounded-lg px-4 py-3 space-y-2">
+        <p className="text-[13px] leading-relaxed">
+          {entry.change_description}
+        </p>
+        <div className="flex items-center gap-4 text-[11px] text-muted-foreground flex-wrap">
+          {entry.url && (
+            <span className="font-mono">{entry.url}</span>
+          )}
+          {entry.topic_targeted && (
+            <span>Topic: {entry.topic_targeted}</span>
+          )}
+          {entry.city_targeted && (
+            <span>City: {entry.city_targeted}</span>
+          )}
+        </div>
+      </div>
+
+      {/* Verdict summary */}
+      <div className={`border rounded-lg px-4 py-3 ${row.operatorConfirmedCount > 0 ? "border-status-success/30 bg-status-success/5" : "border-border"}`}>
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
+                Outcome summary
+              </p>
+              {row.topTrust && (
+                <span className="inline-flex items-center gap-1">
+                  <span className={`h-1.5 w-1.5 rounded-full ${TRUST_DOT[row.topTrust]}`} />
+                  <span className="text-[10px] font-medium text-muted-foreground">
+                    {TRUST_LABELS[row.topTrust]}
+                  </span>
+                </span>
+              )}
+            </div>
+            <p className="text-[13px] font-medium">{row.verdictSummary}</p>
+          </div>
+          <div className="flex items-center gap-3 shrink-0">
+            {row.topScore != null && (
+              <div className="text-right">
+                <p className="text-[10px] text-muted-foreground">Best match score</p>
+                <p className="text-[16px] font-semibold tabular-nums">
+                  {Math.round(row.topScore)}
+                </p>
+              </div>
+            )}
+            {row.topConfidence && (
+              <div className="text-right">
+                <p className="text-[10px] text-muted-foreground">Confidence</p>
+                <p className="text-[13px] font-medium">
+                  {CONF_LABELS[row.topConfidence]}
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Evidence tier + platforms */}
+        <div className="flex items-center gap-3 mt-3 flex-wrap">
+          <span
+            className={`text-[10px] font-medium px-2 py-0.5 rounded border ${TIER_COLORS[row.evidenceTier]}`}
+          >
+            {TIER_LABELS[row.evidenceTier]}
+          </span>
+          {row.platforms.map((p) => (
+            <span
+              key={p}
+              className="text-[10px] px-1.5 py-0.5 rounded border border-border text-muted-foreground"
+            >
+              {PLATFORM_LABELS[p] ?? p}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      {/* Hypothesis */}
+      {entry.hypothesis && (
+        <div>
+          <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-1.5">
+            Hypothesis
+          </p>
+          <p className="text-[13px] text-foreground-secondary leading-relaxed bg-surface-inset rounded-md px-3 py-2">
+            {entry.hypothesis}
+          </p>
+        </div>
+      )}
+
+      {/* Attribution chain */}
+      <div>
+        <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-2">
+          Outcome Events ({sortedAttributions.length})
+        </p>
+
+        {sortedAttributions.length > 0 ? (
+          <div className="space-y-2">
+            {sortedAttributions.map((ea, i) => (
+              <EventAttributionCard key={i} ea={ea} />
+            ))}
+          </div>
+        ) : (
+          <div className="border border-border rounded-lg px-4 py-6 text-center">
+            <p className="text-[13px] text-muted-foreground">
+              {row.verdict === "too_early"
+                ? `No outcome events detected yet. This change is ${row.daysSinceChange} days old — results may still emerge.`
+                : "No outcome events linked to this change."}
+            </p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function EventAttributionCard({ ea }: { ea: EventAttribution }) {
+  return (
+    <Link
+      href={`/results/${ea.event.anchor_result_id}`}
+      className={`block border rounded-lg px-4 py-3 hover:bg-surface-inset/50 transition-colors border-l-[3px] ${ROLE_BORDER[ea.role]} ${ea.trustSource === "operator_confirmed" ? "border-status-success/30 bg-status-success/5" : "border-border"}`}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-[9px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-surface-inset text-muted-foreground">
+              {ROLE_LABELS[ea.role]}
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <span className={`h-1.5 w-1.5 rounded-full ${TRUST_DOT[ea.trustSource]}`} />
+              <span className="text-[9px] font-medium text-muted-foreground">
+                {TRUST_LABELS[ea.trustSource]}
+              </span>
+            </span>
+            <span className="text-[10px] text-muted-foreground">
+              {EVENT_TYPE_LABELS[ea.event.type] ?? ea.event.type}
+            </span>
+          </div>
+          <p className="text-[13px] font-medium">{ea.event.topic}</p>
+          <p className="text-[11px] text-muted-foreground mt-0.5">
+            {ea.event.description}
+          </p>
+          <div className="flex items-center gap-3 mt-2 text-[10px] text-muted-foreground">
+            <span>{PLATFORM_LABELS[ea.event.platform] ?? ea.event.platform}</span>
+            <span>·</span>
+            <span>
+              {new Date(ea.event.trigger_date).toLocaleDateString("en-US", {
+                month: "short",
+                day: "numeric",
+              })}
+            </span>
+            <span>·</span>
+            <span>{ea.event.context.cited ? "Cited" : "Mentioned"}</span>
+            <span>·</span>
+            <span>
+              {ea.event.context.mentions_after}/{ea.event.context.mentions_after + (ea.event.context.mentions_before ?? 0)} prompts
+            </span>
+          </div>
+        </div>
+        <div className="flex flex-col items-end gap-1.5 shrink-0">
+          <span className="text-[16px] font-semibold tabular-nums">
+            {Math.round(ea.score)}
+          </span>
+          <span className="text-[10px] text-muted-foreground">
+            {CONF_LABELS[ea.confidence]}
           </span>
         </div>
       </div>
-
-      <div>
-        <h3 className="text-[13px] font-semibold mb-2">Change Description</h3>
-        <p className="text-[13px] text-foreground-secondary leading-relaxed">
-          {entry.change_description}
-        </p>
+      <div className="mt-2">
+        <MatchFactors matches={ea.matches} />
       </div>
-
-      <div className="border-t border-border pt-5">
-        <div className="grid grid-cols-2 gap-x-8 gap-y-4">
-          <Field label="URL">
-            <span className="font-mono text-[12px]">{entry.url ?? "—"}</span>
-          </Field>
-          <Field label="Topic">{entry.topic_targeted}</Field>
-          <Field label="City">{entry.city_targeted ?? "—"}</Field>
-          <Field label="Expected Impact">
-            {entry.expected_impact_window ?? "—"}
-          </Field>
-        </div>
-      </div>
-
-      {/* Hypothesis + Verdict */}
-      {entry.hypothesis && (
-        <div className="border-t border-border pt-5 space-y-3">
-          <div className="flex items-center justify-between">
-            <h3 className="text-[13px] font-semibold">Hypothesis</h3>
-            <ChangeVerdictBadge verdict={verdictData.verdict} />
-          </div>
-          <p className="text-[13px] text-foreground-secondary leading-relaxed bg-surface-inset rounded-md p-3">
-            {entry.hypothesis}
-          </p>
-          {verdictData.verdict !== "pending" && (
-            <p className="text-[12px] text-muted-foreground">
-              {verdictData.summary}
-            </p>
-          )}
-        </div>
-      )}
-
-      {/* Operator Decisions */}
-      {(() => {
-        const decisions = eventDecisions.filter(
-          (d) => d.cause_type === "change" && d.primary_change_id === entry.id
-        );
-        if (decisions.length === 0) return null;
-        const CONF_LABELS = { high: "sure", medium: "best guess", low: "unsure" } as const;
-        return (
-          <div className="border-t border-border pt-5 space-y-3">
-            <h3 className="text-[13px] font-semibold">
-              Confirmed as cause ({decisions.length})
-            </h3>
-            <div className="space-y-1.5">
-              {decisions.map((d) => (
-                <Link
-                  key={d.id}
-                  href={`/results/${d.result_id}`}
-                  className="block rounded-md border border-status-success/20 bg-status-success/5 px-3 py-2 hover:bg-status-success/10 transition-colors"
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="text-[12px] font-medium truncate">{d.event_id}</span>
-                    <span className="text-[10px] text-muted-foreground shrink-0">
-                      {CONF_LABELS[d.operator_confidence]}
-                    </span>
-                  </div>
-                  {d.operator_note && (
-                    <p className="text-[11px] text-muted-foreground mt-0.5 truncate">{d.operator_note}</p>
-                  )}
-                </Link>
-              ))}
-            </div>
-          </div>
-        );
-      })()}
-
-      {/* Results + Record */}
-      <div className="border-t border-border pt-5 space-y-3">
-        <div className="flex items-center justify-between">
-          <h3 className="text-[13px] font-semibold">Results</h3>
-          <RecordResultButton
-            attributedChangelogIds={[entry.id]}
-            defaultTopic={entry.topic_targeted}
-            defaultCity={entry.city_targeted}
-            defaultUrl={entry.url}
-          />
-        </div>
-        {attributedResults.length > 0 ? (
-          <div className="space-y-2">
-            {attributedResults.map((result) => {
-              const attr = computeAttribution(
-                entry,
-                result,
-                opportunities
-              );
-              return (
-                <AttributionCard
-                  key={result.id}
-                  attribution={attr}
-                  change={entry}
-                  result={result}
-                />
-              );
-            })}
-          </div>
-        ) : (
-          <p className="text-[13px] text-muted-foreground">
-            No results linked to this change yet.
-          </p>
-        )}
-      </div>
-
-      {/* Connected */}
-      {hasConnections && (
-        <div className="border-t border-border pt-5 space-y-5">
-          <h3 className="text-[13px] font-semibold">Connected</h3>
-
-          {linkedOpportunity && (
-            <div>
-              <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-2">
-                Source Opportunity
-              </p>
-              <EntityLinkCard
-                type="opportunity"
-                href={`/opportunities/${linkedOpportunity.id}`}
-                title={linkedOpportunity.title}
-                subtitle={linkedOpportunity.description ?? undefined}
-                meta={linkedOpportunity.topic}
-              />
-            </div>
-          )}
-
-          {linkedBrief && (
-            <div>
-              <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-2">
-                Source Brief
-              </p>
-              <EntityLinkCard
-                type="brief"
-                href={`/briefs/${linkedBrief.id}`}
-                title={linkedBrief.title}
-                subtitle={linkedBrief.objective}
-                meta={BRIEF_TYPE_LABELS[linkedBrief.brief_type]}
-              />
-            </div>
-          )}
-        </div>
-      )}
-    </div>
+      <p className="text-[11px] text-muted-foreground mt-1.5 italic">
+        {ea.explanation}
+      </p>
+    </Link>
   );
 }

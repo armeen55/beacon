@@ -128,7 +128,7 @@ export function parseProfoundCitations(
       continue;
     }
 
-    let order = orderByRun.get(runId) ?? 0;
+    const order = orderByRun.get(runId) ?? 0;
     orderByRun.set(runId, order + 1);
 
     const source_category = mapSourceCategory(

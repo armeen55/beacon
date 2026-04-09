@@ -8,9 +8,19 @@ import { useShell } from "./shell-provider";
 import { allNavItems } from "@/lib/navigation";
 
 function useBreadcrumb(pathname: string) {
-  if (pathname === "/") return { title: "Review", parent: null };
+  if (pathname === "/") return { title: "Today", parent: null };
   if (pathname === "/review") return { title: "Review", parent: null };
   const segments = pathname.split("/").filter(Boolean);
+  if (
+    segments[0] === "topics" &&
+    segments[1] === "opportunity" &&
+    segments.length >= 3
+  ) {
+    return {
+      title: "Gap detail",
+      parent: { label: "Gap ledger", href: "/topics" },
+    };
+  }
   const base = "/" + segments[0];
   const item = allNavItems.find((n) => n.href === base);
   const parentLabel = item?.label ?? segments[0];
@@ -44,11 +54,22 @@ export function AppHeader() {
             {parent.label}
           </Link>
           <span className="text-muted-foreground/40">/</span>
-          <span className="font-semibold text-foreground">Detail</span>
+          <span className="font-semibold text-foreground">{title ?? "Detail"}</span>
         </div>
       ) : (
         <h1 className="text-[13px] font-semibold">{title}</h1>
       )}
+      <div className="ml-auto hidden md:flex items-center gap-1.5 text-[10px] text-muted-foreground/40">
+        <kbd className="border border-border rounded px-1.5 py-0.5 font-mono">
+          ⌘K
+        </kbd>
+        <span>search</span>
+        <span className="mx-1">·</span>
+        <kbd className="border border-border rounded px-1.5 py-0.5 font-mono">
+          ?
+        </kbd>
+        <span>shortcuts</span>
+      </div>
     </header>
   );
 }

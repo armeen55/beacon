@@ -23,4 +23,6 @@ export type Result = {
   created_at: string;
   source_system?: string;
   import_batch_id?: string;
+  /** Visibility ObservationRun that produced or owns this sample row (import / seed / workbook). */
+  visibility_observation_run_id?: string | null;
 };

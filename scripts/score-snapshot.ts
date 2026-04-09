@@ -13,8 +13,10 @@ import { partitionResultsByMode } from "../src/domains/attribution/result-mode";
 import { classifyEvidenceTier } from "../src/domains/pages/evidence-tier";
 import { normalizePageUrl } from "../src/domains/pages/classify";
 import type { EvidenceTier, PageEntity } from "../src/domains/pages/types";
+import { getSiteConfig } from "../src/lib/site-config";
 
 async function main() {
+  const siteDomain = getSiteConfig().siteDomain;
   const results = readStore<Result>("imported-results");
   const changes = readStore<ChangelogEntry>("imported-changes");
   const opps = readStore<Opportunity>("imported-opportunities");
@@ -93,7 +95,7 @@ async function main() {
 
       // Check citation support
       if (c.change.url && result.topic) {
-        const parsed = normalizePageUrl(c.change.url, "ritzbuilders.com");
+        const parsed = normalizePageUrl(c.change.url, siteDomain);
         if (parsed) {
           const topics = citationTopicIndex.get(parsed.url);
           if (topics?.has(result.topic)) {

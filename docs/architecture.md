@@ -49,9 +49,9 @@ Proposed Briefs (execution plans)
 
 All weights live in `src/domains/attribution/config.ts`:
 
-- **Weights**: platform=25, topic=25, url=20, temporal=20, geo=10
+- **Weights**: platform=20, topic=25, url=5, geo=15, temporal=20, sourceCategory=15
 - **Strength values**: strong=1.0, partial=0.5, unknown=0, none=0
-- **Confidence bands**: high≥75, medium≥50, low≥25
+- **Confidence bands**: high≥70, medium≥45, low≥20
 
 These are referenced by `compute.ts` and `diagnostics.ts` — no duplication.
 
@@ -60,23 +60,27 @@ These are referenced by `compute.ts` and `diagnostics.ts` — no duplication.
 Denominator = **all relevant events** (not just resolved ones).
 This prevents artificial inflation. A pattern with 3 attributed events out of 10 total shows 30%, not 100%.
 
-## Navigation
+## Navigation (pilot spine)
 
-Primary nav surfaces:
-- Today (dashboard)
-- Review (attribution triage)
-- Changelog
-- Actions
-- Results
-- Opportunities
-- Diagnostics
-- Import
-- Briefs
+Default loop:
+- **Today** — observation strip + queue + next move
+- **Your Website** — execution workbench
+- **Gap ledger** (`/topics`) — typed gaps
 
-Secondary (accessible but not in nav):
-- Competitors
-- Expansion (opportunity candidates)
-- Briefs/Proposed
+Work:
+- **Changes** — log + verification
+
+Advanced:
+- **Review** — hypothesis locks (attribution bookkeeping)
+- **Sample history** (`/results`) — imported snapshots
+- **Import**
+- **Diagnostics (analyst)** — pipeline debug, outside daily loop
+
+Experimental:
+- **Draft ideas** (`/expansion`) — model backlog only
+
+Secondary (accessible but not in main spine):
+- Competitors, Briefs/Proposed, `/opportunities` legacy routes if present
 
 Removed:
 - Weekly (dead surface)

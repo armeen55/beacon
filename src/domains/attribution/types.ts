@@ -70,6 +70,7 @@ export type ChangeVerdict =
   | "partial"
   | "inconclusive"
   | "no_impact"
+  | "too_early"
   | "pending";
 
 export type ChangeVerdictData = {

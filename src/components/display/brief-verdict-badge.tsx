@@ -5,11 +5,11 @@ const verdictConfig: Record<
   BriefVerdict,
   { status: "success" | "warning" | "danger" | "neutral"; label: string }
 > = {
-  validated: { status: "success", label: "Validated" },
-  partially_validated: { status: "warning", label: "Partially Validated" },
-  not_validated: { status: "danger", label: "Not Validated" },
+  validated: { status: "success", label: "Strong signal" },
+  partially_validated: { status: "warning", label: "Mixed signal" },
+  not_validated: { status: "danger", label: "No signal yet" },
   mixed: { status: "warning", label: "Mixed" },
-  pending: { status: "neutral", label: "Pending" },
+  pending: { status: "neutral", label: "Not rated" },
 };
 
 export function BriefVerdictBadge({ verdict }: { verdict: BriefVerdict }) {
