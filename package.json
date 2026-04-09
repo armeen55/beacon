@@ -12,6 +12,7 @@
     "data:scan": "npx tsx --require ./scripts/mock-server-only.cjs scripts/scan-owned-pages.ts",
     "data:registry": "npx tsx --require ./scripts/mock-server-only.cjs scripts/build-page-registry.ts",
     "data:score-snapshot": "npx tsx --require ./scripts/mock-server-only.cjs scripts/score-snapshot.ts",
+    "data:backfill-db": "npx tsx scripts/backfill-to-supabase.ts",
     "test": "vitest run"
   },
   "dependencies": {

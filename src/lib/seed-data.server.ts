@@ -6,6 +6,10 @@
  *
  * When no experiment is active, seed/demo data is used as a product walkthrough.
  *
+ * Data source is selected by the DATA_SOURCE env var:
+ *   "file"     — read from .data/*.json via json-store (default)
+ *   "supabase" — read from Supabase PostgreSQL tables
+ *
  * Only Server Components and Server Actions should import this module.
  * Client Components receive data as props from server parents.
  */
@@ -13,7 +17,7 @@
 import "server-only";
 
 import * as seed from "./seed-data";
-import { readStore } from "./persistence/json-store";
+import { getRepository } from "./persistence/repositories";
 
 import type { Result } from "@/domains/results/types";
 import type { ChangelogEntry } from "@/domains/changelog/types";
@@ -22,14 +26,14 @@ import type { Competitor } from "@/domains/competitors/types";
 import type { Brief } from "@/domains/briefs/types";
 import type { CompetitorSnapshot } from "@/domains/competitors/types";
 
-const _importRuns = readStore<{ id: string; started_at?: string; source_system?: string }>(
-  "import-runs"
-);
+const repo = getRepository();
+
+const _importRuns = await repo.getImportRuns();
 
 /**
  * True when at least one import run has been recorded.
- * Uses the cached readStore reference, so it reflects
- * runtime mutations (import pushes, reset clears).
+ * For file backend: reflects the cached readStore reference,
+ * so runtime mutations (import pushes) are visible.
  */
 export function hasActiveExperiment(): boolean {
   return _importRuns.length > 0;
@@ -51,16 +55,16 @@ export const competitorSnapshots: CompetitorSnapshot[] = [];
 // ── Populate based on experiment state ──
 
 if (_importRuns.length > 0) {
-  const imported = {
-    results: readStore<Result>("imported-results"),
-    changes: readStore<ChangelogEntry>("imported-changes"),
-    opportunities: readStore<Opportunity>("imported-opportunities"),
-    competitors: readStore<Competitor>("imported-competitors"),
-  };
-  results.push(...imported.results);
-  changelogEntries.push(...imported.changes);
-  opportunities.push(...imported.opportunities);
-  competitors.push(...imported.competitors);
+  const [res, changes, opps, comps] = await Promise.all([
+    repo.getResults(),
+    repo.getChangelogEntries(),
+    repo.getOpportunities(),
+    repo.getCompetitors(),
+  ]);
+  results.push(...res);
+  changelogEntries.push(...changes);
+  opportunities.push(...opps);
+  competitors.push(...comps);
 } else {
   results.push(...seed.results);
   changelogEntries.push(...seed.changelogEntries);

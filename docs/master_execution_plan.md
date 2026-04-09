@@ -2,11 +2,12 @@
 
 > Living document. Single source of truth for implementation sequence.
 > Updated: 2026-04-09
-> Current phase: **Phase 1A — PostgreSQL bootstrap & first schema slice**
+> Current phase: **Phase 1B — COMPLETE — repository wiring, backfill, dual-read**
 >
 > Phase 0 — COMPLETE (commit `74605b1`)
 > Phase 0.5 — COMPLETE — audit locked minimum Phase 1 scope (15 stores → 12 tables)
-> Phase 1A — ACTIVE — Supabase client + 5-table core schema (import_runs, results, changelog_entries, opportunities, competitors)
+> Phase 1A — COMPLETE — Supabase client + 5-table core schema
+> Phase 1B — COMPLETE — repositories, seed-data wiring, backfill, validation
 
 ---
 
@@ -745,3 +746,68 @@ Apply it via the Supabase dashboard **SQL Editor** (paste contents of `supabase/
 - No auth, RLS, workspaces, or multi-tenant design
 - No crawl pipeline changes
 - No scoring logic changes
+
+---
+
+## Phase 1B Status — Repository Wiring, Backfill & Dual-Read
+
+**Status:** COMPLETE
+**Date:** 2026-04-09
+
+### What was done
+
+| Deliverable | File(s) | Notes |
+|-------------|---------|-------|
+| Repository interface | `src/lib/persistence/repositories/types.ts` | `SeedDataRepository` with 5 async getters |
+| File backend | `src/lib/persistence/repositories/file-backend.ts` | Wraps `readStore()`, preserves cache reference semantics |
+| Supabase backend | `src/lib/persistence/repositories/supabase-backend.ts` | Queries tables via `getSupabaseAdmin()` |
+| Factory | `src/lib/persistence/repositories/index.ts` | Returns backend based on `DATA_SOURCE` env var |
+| Seed-data wiring | `src/lib/seed-data.server.ts` | Uses repository + top-level `await`; zero route changes |
+| Backfill script | `scripts/backfill-to-supabase.ts` | Idempotent upsert, self-loads `.env.local` |
+| Backfill npm script | `package.json` | `data:backfill-db` command |
+
+### Backfill results
+
+| Table | Rows | Status |
+|-------|------|--------|
+| `import_runs` | 1 | ✓ verified |
+| `results` | 1,179 | ✓ verified |
+| `changelog_entries` | 85 | ✓ verified |
+| `opportunities` | 1 | ✓ verified |
+| `competitors` | 0 | empty on disk |
+
+### How dual-read works
+
+`seed-data.server.ts` calls `getRepository()` which checks `DATA_SOURCE`:
+- `file` (default) → `fileBackend` → `readStore()` from `.data/*.json`
+- `supabase` → `supabaseBackend` → queries Supabase tables
+
+No route files were changed. The module export API is identical.
+Top-level `await` is used for async Supabase queries; file backend resolves synchronously.
+
+### Validation
+
+| Check | Result |
+|-------|--------|
+| `typecheck` | ✓ pass |
+| `lint` | ✓ 0 errors |
+| `build` | ✓ 17/17 pages |
+| `test` | ✓ 26/26 tests |
+| DB row counts | ✓ match file stores |
+
+### What Phase 1C should do next
+
+1. **Schema migration 002** — add remaining route-critical tables: `attribution_decisions`, `candidate_links`, `page_issues`, `change_contracts`, `pages`, `page_snapshots`, `guardrail_alerts`, `citation_evidence`, `runs`, `competitor_config`
+2. **Extend repository interface** — add getters for the new entity types
+3. **Wire remaining store consumers** — `attribution/store.ts`, `pages/issues.ts`, etc. behind `DATA_SOURCE` flag
+4. **Dual-write for import actions** — when `DATA_SOURCE=supabase`, import actions write to both file and DB
+5. **Validation** — compare route rendering between `file` and `supabase` modes
+
+### What must NOT be touched yet
+
+- No deletion of file-backed stores
+- No full cutover to `DATA_SOURCE=supabase` as default
+- No auth, RLS, workspaces
+- No crawl pipeline changes
+- No Inngest or job orchestration
+- No visibility sampling or scoring changes
