@@ -276,7 +276,7 @@ A trust-first AI visibility operating system for builder/home-services businesse
 
 | Surface | Route | Role | Key data sources |
 |---------|-------|------|-----------------|
-| **Today** | `/` | Default home. Observation strip + queue + next move + verified fixes | `today-summary.ts`, page issues, events, decisions, guardrails, snapshots, citation index, competitor universe |
+| **Today** | `/` | Default home. Observation strip + **impact signals** (top 5 from Impact Engine) + queue + next move + verified fixes | `today-summary.ts`, `enrichWithImpact`, page issues, events, decisions, guardrails, snapshots, citation index, competitor universe |
 | **Your Website** | `/pages` | Execution workbench. Page list + issue tracking + verify actions | Page snapshots, issues, guardrails, render checks, frontier context |
 | **Gap ledger** | `/topics` | Typed opportunity gaps. Frontier list + detail drilldown | Frontier planner, compiler, citation index, competitor evidence |
 | **Gap detail** | `/topics/opportunity/[id]` | Single frontier detail with attack package + provenance | Frontier compiler, citation evidence, pages, competitor universe |
@@ -1238,5 +1238,15 @@ No code changes needed. No database changes needed. No data loss.
 **Impact Engine (`change-impact.ts`):** `eventDirection` uses event type system; explanation calls out negative events.
 
 **UI:** `/review` — "Dropped off", "Mentions fell"; `/changes/[id]` — "Visibility Lost", "Mention Decline"
+
+**Validation:** `npm run check`, tests 26/26, parity 15/15, build 17/17.
+
+### Phase 7 — Today Decision Surface (COMPLETE)
+
+**Scope:** Surface Impact Engine output on the operator landing page — no new computation, no persistence.
+
+**Server (`page.tsx`):** Calls `enrichWithImpact` on existing `scorecardRows`. Sorts by verdict priority (validated > negative > partial > inconclusive > no_impact > too_early > pending), then confidence, then score. Filters out `too_early`, `pending`, and zero-event rows. Passes top 5 as `impactSignals` prop.
+
+**Client (`today-client.tsx`):** `TodayImpactItem` type; "Change impact signals" section between "Next best move" and "Work queue". Each card: verdict dot (green/red/yellow/gray), asset name, confidence badge, next-action text, match score, event count, link to `/changes/[id]`. Validated/negative cards get colored borders.
 
 **Validation:** `npm run check`, tests 26/26, parity 15/15, build 17/17.

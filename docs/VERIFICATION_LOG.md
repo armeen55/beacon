@@ -139,3 +139,19 @@
 
 ### Build verification (Phase 6)
 - `npm run check`, `npm run test`, `npm run data:parity` — pass; 17/17 routes build
+
+---
+
+## 2026-04-09 — Phase 7: Today Decision Surface
+
+### What shipped
+- **Today page (`/`)** now renders top 5 change impact signals from `enrichWithImpact`
+- Server component (`page.tsx`): sorts by verdict priority + confidence + score, filters out `too_early`/`pending`/zero-event rows
+- Client component (`today-client.tsx`): `TodayImpactItem` type; "Change impact signals" section with verdict dots, confidence badges, next-action text, score/event counts
+- Validated/negative changes get colored borders for instant triage
+
+### Constraints honored
+- No persistence changes. No new data computation — reuses existing `enrichWithImpact`. No changes to scorecard or attribution logic.
+
+### Build verification (Phase 7)
+- `npm run check`, `npm run test`, `npm run data:parity` — pass; 17/17 routes build

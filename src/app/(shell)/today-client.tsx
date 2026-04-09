@@ -5,6 +5,20 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import type { TodaySummary } from "@/lib/today-summary";
+import type { ChangeVerdict, ImpactConfidence, ImpactDirection } from "@/domains/attribution/types";
+
+export type TodayImpactItem = {
+  changeId: string;
+  assetName: string;
+  verdict: ChangeVerdict;
+  confidence: ImpactConfidence;
+  direction: ImpactDirection;
+  nextAction: string;
+  topScore: number | null;
+  totalEvents: number;
+  platforms: string[];
+  href: string;
+};
 
 export type TodayQueueItem = {
   id: string;
@@ -43,11 +57,13 @@ function formatScanTime(iso: string | null): string {
 export function TodayClient({
   summary,
   items,
+  impactSignals = [],
   onUpdateIssue,
   onVerifyIssue,
 }: {
   summary: TodaySummary;
   items: TodayQueueItem[];
+  impactSignals?: TodayImpactItem[];
   onUpdateIssue?: (
     issueId: string,
     status: string,
@@ -333,6 +349,77 @@ export function TodayClient({
           <span className="opacity-60">→</span>
         </Link>
       </div>
+
+      {/* Impact signals from Change Impact Engine */}
+      {impactSignals.length > 0 && (
+        <div>
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+            Change impact signals ({impactSignals.length})
+          </p>
+          <div className="space-y-2">
+            {impactSignals.map((s) => (
+              <Link
+                key={s.changeId}
+                href={s.href}
+                className={cn(
+                  "block rounded-lg border px-4 py-3 hover:bg-surface-inset/50 transition-colors",
+                  s.verdict === "validated"
+                    ? "border-status-success/30 bg-status-success/5"
+                    : s.verdict === "negative"
+                      ? "border-status-danger/30 bg-status-danger/5"
+                      : "border-border",
+                )}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <span className={cn(
+                        "h-1.5 w-1.5 rounded-full shrink-0",
+                        s.verdict === "validated" ? "bg-status-success"
+                          : s.verdict === "negative" ? "bg-status-danger"
+                          : s.verdict === "partial" ? "bg-status-warning"
+                          : "bg-muted-foreground",
+                      )} />
+                      <span className="text-[12px] font-medium truncate">
+                        {s.assetName}
+                      </span>
+                      <span className={cn(
+                        "text-[9px] font-semibold uppercase tracking-wider shrink-0",
+                        s.confidence === "high" ? "text-status-success"
+                          : s.confidence === "medium" ? "text-status-warning"
+                          : "text-muted-foreground",
+                      )}>
+                        {s.confidence}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground line-clamp-2 leading-relaxed">
+                      {s.nextAction}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {s.topScore != null && (
+                      <span className="text-[14px] font-semibold tabular-nums">
+                        {Math.round(s.topScore)}
+                      </span>
+                    )}
+                    <span className="text-[10px] text-muted-foreground">
+                      {s.totalEvents} event{s.totalEvents !== 1 ? "s" : ""}
+                    </span>
+                  </div>
+                </div>
+              </Link>
+            ))}
+          </div>
+          <div className="mt-2 text-right">
+            <Link
+              href="/changes"
+              className="text-[10px] text-accent-primary hover:underline font-medium"
+            >
+              All changes →
+            </Link>
+          </div>
+        </div>
+      )}
 
       {/* Work queue */}
       <div>

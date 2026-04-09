@@ -6,6 +6,7 @@ import {
 } from "@/lib/seed-data.server";
 import { eventDecisions } from "@/domains/attribution/store";
 import { computeScorecard } from "@/domains/attribution/scorecard";
+import { enrichWithImpact } from "@/domains/attribution/change-impact";
 import { detectOutcomeEvents } from "@/domains/attribution/events";
 import { discoverCandidates } from "@/domains/attribution/candidates";
 import { triageCandidates } from "@/domains/attribution/triage";
@@ -46,6 +47,50 @@ export default function TodayPage() {
     opportunities,
     eventDecisions
   );
+
+  const impactRows = enrichWithImpact(scorecardRows);
+  const IMPACT_VERDICT_PRIORITY: Record<string, number> = {
+    validated: 0,
+    negative: 1,
+    partial: 2,
+    inconclusive: 3,
+    no_impact: 4,
+    too_early: 5,
+    pending: 6,
+  };
+  const IMPACT_CONF_PRIORITY: Record<string, number> = {
+    high: 0,
+    medium: 1,
+    low: 2,
+  };
+  const actionableImpact = impactRows
+    .filter(
+      (r) =>
+        r.verdict !== "too_early" &&
+        r.verdict !== "pending" &&
+        r.totalEventsLinked > 0,
+    )
+    .sort(
+      (a, b) =>
+        (IMPACT_VERDICT_PRIORITY[a.verdict] ?? 9) -
+          (IMPACT_VERDICT_PRIORITY[b.verdict] ?? 9) ||
+        (IMPACT_CONF_PRIORITY[a.impact.confidence] ?? 9) -
+          (IMPACT_CONF_PRIORITY[b.impact.confidence] ?? 9) ||
+        (b.topScore ?? 0) - (a.topScore ?? 0),
+    )
+    .slice(0, 5)
+    .map((r) => ({
+      changeId: r.change.id,
+      assetName: r.change.asset_name,
+      verdict: r.verdict,
+      confidence: r.impact.confidence,
+      direction: r.impact.direction,
+      nextAction: r.impact.nextAction,
+      topScore: r.topScore,
+      totalEvents: r.totalEventsLinked,
+      platforms: r.platforms,
+      href: `/changes/${r.change.id}`,
+    }));
 
   let easyCalls = 0;
   let undecidedCount = 0;
@@ -414,6 +459,7 @@ export default function TodayPage() {
       <TodayClient
         summary={summary}
         items={enrichedItems}
+        impactSignals={actionableImpact}
         onUpdateIssue={
           updateIssueStatus as (
             issueId: string,

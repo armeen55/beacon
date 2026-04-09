@@ -34,8 +34,8 @@ See VERIFICATION_LOG.md for full before/after table.
 
 Shipped:
 - `src/domains/attribution/change-impact.ts` — impact confidence (high/medium/low), direction (positive/negative/mixed/none), **why** explanation, **next action** per change
-- Types: `ChangeImpact`, `ImpactConfidence`, `ImpactDirection`; `ChangeVerdict` includes `negative` (for future decline wiring)
-- `/changes` + `/changes/[id]` — operator-facing impact UI (summary strip, badges, “What to do” column, detail assessment block)
+- Types: `ChangeImpact`, `ImpactConfidence`, `ImpactDirection`; `ChangeVerdict` includes `negative`
+- `/changes` + `/changes/[id]` — operator-facing impact UI (summary strip, badges, "What to do" column, detail assessment block)
 - Builds on existing `computeScorecard` — no persistence or attribution scoring changes
 
 ---
@@ -51,6 +51,16 @@ Shipped:
 
 ---
 
+## Phase 7 — Today Decision Surface — COMPLETE (2026-04-09)
+
+Shipped:
+- Today page (`/`) now surfaces **top 5 change impact signals** from the Impact Engine directly on the operator landing page.
+- `page.tsx` calls `enrichWithImpact`, sorts by verdict priority + confidence + score, filters out `too_early` / `pending` / zero-event rows.
+- `TodayClient` renders "Change impact signals" section: verdict dot, asset name, confidence badge, next-action text, score, event count, link to detail.
+- Validated/negative changes get colored card borders (green/red) for instant visual scan.
+
+---
+
 ## Proposed next (pick one track)
 
 ### A — Changelog quality + pattern mining
@@ -58,18 +68,16 @@ Shipped:
 - Per-change "what would make this evidence stronger" nudge
 
 ### B — Opportunity → Change recommendations
-- When `opportunities` data exists, surface “do this change next” from gap ledger / frontier output tied to attribution patterns
+- When `opportunities` data exists, surface "do this change next" from gap ledger / frontier output tied to attribution patterns
 
 ### C — Persistence / infra (only when intentional)
-- Items in `master_execution_plan.md` → **Post–Phase 3E backlog** (topics freshness, import-orchestrator policy, supplementary Postgres, etc.)
+- Items in `master_execution_plan.md` post-Phase 3E backlog (topics freshness, import-orchestrator policy, supplementary Postgres, etc.)
 
 ### D — Product depth on Changes
-- Sort/filter by impact confidence; export or “top 5 actions this week” strip for operators
+- Sort/filter by impact confidence; export or "top 5 actions this week" strip for operators
 
----
-
-### E — Today page decision surface
-- Surface top 3-5 highest-impact actions from the Impact Engine on the `/` landing page
+### E — Today page enrichment
+- Add winning-pattern highlights, changelog quality nudges, or week-over-week impact trend to the landing page
 
 ---
 
