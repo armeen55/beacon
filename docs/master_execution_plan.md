@@ -2,7 +2,10 @@
 
 > Living document. Single source of truth for implementation sequence.
 > Updated: 2026-04-09
-> Current phase: **Phase 0 — Consolidate & Stabilize**
+> Current phase: **Phase 0.5 — Audit live persistence dependencies**
+>
+> Phase 0 — COMPLETE (commit `74605b1`)
+> Phase 0.5 — ACTIVE — audit which stores are read by live routes before Phase 1 schema work
 
 ---
 
@@ -502,30 +505,193 @@ A trust-first AI visibility operating system for builder/home-services businesse
 
 ## Status Footer
 
-**CURRENT PHASE:** Phase 0 — Consolidate & Stabilize
+**CURRENT PHASE:** Phase 0.5 — Audit live persistence dependencies
+
+**PHASE 0 STATUS:** COMPLETE — commit `74605b1`
 
 **FILES TO TOUCH NOW:**
-- `src/domains/observation-runs/types.ts` (rename types)
-- `src/storage/canonical-store.ts` (update import + add doc comment)
-- `src/adapters/types.ts` (update import)
-- `src/adapters/profound/execution-adapter.ts` (update import)
-- `docs/architecture.md` (update weights + confidence bands)
-- `package.json` (add vitest, add test script)
-- `vitest.config.ts` (new)
-- `tests/domains/attribution/invariants.test.ts` (new)
-- `tests/domains/attribution/golden.test.ts` (new)
+- `docs/master_execution_plan.md` only (append audit findings)
 
 **DO NOT TOUCH YET:**
 - Any persistence layer changes (Phase 1)
-- Any route pages or UI components (not needed for Phase 0)
+- Any route pages or UI components
 - Supabase setup or schema (Phase 1)
 - Inngest integration (Phase 2)
 - Crawl pipeline refactoring (Phase 2)
 - Visibility/sampling code (Phase 3)
-- Any scoring formula changes (not needed — system is calibrated)
+- Any scoring formula changes
 - Any new domain modules
 
 **NEXT DECISION AFTER THIS:**
-After Phase 0 passes (`npm run check` + `npm test`), decide:
-1. Whether to start Phase 1 with Supabase, or
-2. Whether to do a Phase 0.5 that audits which json-store basenames are actively read by live surfaces (to scope the Phase 1 migration precisely)
+After Phase 0.5 audit is complete, lock the minimum Phase 1 schema scope and begin Supabase setup.
+
+---
+
+## Phase 0.5 Audit — Live Persistence Dependency Map
+
+### Store audit table
+
+Legend:
+- **RC** = route-critical (directly needed for a live route to render)
+- **RS** = route-supporting (needed by calculations that power live routes)
+- **SO** = script-only (only written/read by CLI scripts, not live routes)
+- **PI** = Profound import only (only used by Profound adapter pipeline)
+- **LO** = legacy-only (dead path, redirect, or compatibility shim)
+
+| # | Store / file basename | Mechanism | Writer(s) | Reader(s) — live routes | Classification | Phase 1 migrate? | Target |
+|---|----------------------|-----------|-----------|------------------------|----------------|-------------------|--------|
+| 1 | `imported-results` | json-store | `lib/import/actions.ts` | `seed-data.server.ts` → layout, Today, Changes, Review, Results, Diagnostics, Expansion, Topics | **RC** | Yes | `results` table |
+| 2 | `imported-changes` | json-store | `lib/import/actions.ts` | `seed-data.server.ts` → layout, Today, Changes, Review, Results, Diagnostics, Topics | **RC** | Yes | `changelog_entries` table |
+| 3 | `imported-opportunities` | json-store | `lib/import/actions.ts` | `seed-data.server.ts` → Today, Changes, Review, Topics, Diagnostics | **RC** | Yes | `opportunities` table |
+| 4 | `imported-competitors` | json-store | `lib/import/actions.ts` | `seed-data.server.ts` → Competitors, Topics | **RC** | Yes | `competitors` table |
+| 5 | `import-runs` | json-store | `lib/import/actions.ts` | `seed-data.server.ts` (`hasActiveExperiment`) → gates ALL entity loading | **RC** | Yes | `import_runs` table |
+| 6 | `event-decisions` | json-store | `attribution/store.ts`, `canonical-store.ts` | layout (badge), Today, Changes, Review, Results, Topics, Diagnostics | **RC** | Yes | `attribution_decisions` table |
+| 7 | `candidate-links` | json-store | `attribution/store.ts` | Review, Diagnostics, Expansion, Briefs/proposed | **RC** | Yes | `candidate_links` table |
+| 8 | `page-issues` | json-store | `pages/issues.ts` | layout (badge), Today, `/pages`, Topics | **RC** | Yes | `page_issues` table |
+| 9 | `change-contracts` | json-store | `changelog/change-contract.ts` | `/changes` list, contract actions | **RC** | Yes | `change_contracts` table |
+| 10 | `pages` | json-store | `profound/import-orchestrator.ts` | Today (`readStore`), `/pages` (`readStore`), `candidates.ts` (page registry for evidence tiers) | **RC** | Yes | `pages` table |
+| 11 | `page-snapshots` | direct fs (dotdata) | `scripts/scan-owned-pages.ts` | Today (`readDotDataJson`), `/pages` (`readDotDataJson`), Topics | **RC** | Yes | `page_snapshots` table |
+| 12 | `page-guardrails` | direct fs (dotdata) | `scripts/scan-owned-pages.ts` | Today (`readDotDataJson`), `/pages` (`readDotDataJson`) | **RC** | Yes | `guardrail_alerts` table |
+| 13 | `citation-evidence-index` | direct fs (dotdata) | `scripts/build-page-registry.ts` | Today, `/pages`, Results, Topics, `visibility-read.ts` (synthetic wrapper) | **RC** | Yes | `citation_evidence` table or computed view |
+| 14 | `observation-runs` | direct fs (dotdata) + json-store (canonical-store) | `scripts/scan-owned-pages.ts`, `canonical-store.ts` | `observations/read.ts` → Today, `/pages`, Topics, Results, Observations | **RC** | Yes | `runs` table |
+| 15 | `competitor-universe` | dotdata (file v1/v2) | `competitors/universe-write.ts` | `universe-read.ts` → Today, Topics, Results, Competitors, Observations | **RC** | Yes | `competitor_universe` table |
+| 16 | `truth-labels` | json-store | `attribution/store.ts` | Results detail | **RS** | Later | — |
+| 17 | `action-states` | json-store | `actions/store.ts` | `/actions` (redirects to `/`) action-state.ts | **RS** | Later | — |
+| 18 | `rollout-executions` | json-store | `pages/issues.ts` | `/pages`, Topics | **RS** | Later | — |
+| 19 | `pattern-evidence` | json-store | `pages/issues.ts` | `/pages`, Topics | **RS** | Later | — |
+| 20 | `rollout-waves` | json-store | `pages/wave-planner.ts` | Today, `/pages`, Topics | **RS** | Later | — |
+| 21 | `frontier-opportunities` | json-store | `pages/frontier-planner.ts` | Topics (computed on-demand, store is cache) | **RS** | Later | — |
+| 22 | `frontier-attack-packages` | json-store | `pages/frontier-compiler.ts` | Topics | **RS** | Later | — |
+| 23 | `tracked-missing-pages` | json-store | `pages/frontier-compiler.ts` | Topics | **RS** | Later | — |
+| 24 | `competitor-page-evidence` | json-store | `pages/competitor-evidence.ts` | Topics | **RS** | Later | — |
+| 25 | `source-pattern-evidence` | json-store | `pages/competitor-evidence.ts` | Topics | **RS** | Later | — |
+| 26 | `asset-responses` | json-store | `pages/asset-response.ts` | Topics | **RS** | Later | — |
+| 27 | `brief-states` | json-store | `brief-generation/store.ts` | Not directly by routes | **RS** | Later | — |
+| 28 | `outcome-observations` | json-store | `pages/outcome-watch.ts` | Not directly by routes | **RS** | Later | — |
+| 29 | `page-snapshot-diffs` | direct fs (dotdata) | `scripts/scan-owned-pages.ts` | `/pages` | **RS** | Later | — |
+| 30 | `render-checks` | direct fs (dotdata) | `scripts/scan-owned-pages.ts` | `/pages` | **RS** | Later | — |
+| 31 | `sitemap-reconciliation` | direct fs (dotdata) | `scripts/scan-owned-pages.ts` | `/pages` | **RS** | Later | — |
+| 32 | `scan-runs` | direct fs (dotdata) | `scripts/scan-owned-pages.ts` | `observations/read.ts` (legacy fallback only) | **LO** | No | Legacy compat — remove when observation-runs fully migrated |
+| 33 | `visibility-observation-runs` | dotdata | `visibility-persist.ts` | `visibility-read.ts` → Today, Topics, Results | **RC** | Yes | part of `runs` table |
+| 34 | `page-snapshots-prev` | direct fs | `scripts/scan-owned-pages.ts` | scan script only (prior-run diffing) | **SO** | No | stays file-backed |
+| 35 | `tracked-prompts` | json-store | `canonical-store.ts` | `canonical-store.ts` (Profound pipeline only) | **PI** | No | Profound adapter scope |
+| 36 | `tracked-entities` | json-store | `canonical-store.ts` | `canonical-store.ts` (Profound pipeline only) | **PI** | No | Profound adapter scope |
+| 37 | `prompt-answer-observations` | json-store | `canonical-store.ts` | `canonical-store.ts` (Profound pipeline only) | **PI** | No | Profound adapter scope |
+| 38 | `daily-metric-snapshots` | json-store | `canonical-store.ts` | `canonical-store.ts` (Profound pipeline only) | **PI** | No | Profound adapter scope |
+| 39 | `outcome-events` | json-store | `canonical-store.ts` | `canonical-store.ts` (Profound pipeline only) | **PI** | No | Profound adapter scope |
+| 40 | `candidate-causes` | json-store | `canonical-store.ts` | `canonical-store.ts` (Profound pipeline only) | **PI** | No | Profound adapter scope |
+| 41 | `answer-texts.json` | cold-store | `cold-store.ts` | `import-orchestrator.ts` only | **PI** | No | stays file-backed |
+| 42 | `citations-by-date/*.json` | cold-store shards | `cold-store.ts` | `import-orchestrator.ts` only | **PI** | No | stays file-backed |
+
+### Minimum Phase 1 migration set (route-critical stores only)
+
+These 15 stores are directly required for live route rendering. They must be the Phase 1 scope:
+
+| Store | Target table |
+|-------|-------------|
+| `imported-results` | `results` |
+| `imported-changes` | `changelog_entries` |
+| `imported-opportunities` | `opportunities` |
+| `imported-competitors` | `competitors` |
+| `import-runs` | `import_runs` |
+| `event-decisions` | `attribution_decisions` |
+| `candidate-links` | `candidate_links` |
+| `page-issues` | `page_issues` |
+| `change-contracts` | `change_contracts` |
+| `pages` | `pages` |
+| `page-snapshots` | `page_snapshots` |
+| `page-guardrails` | `guardrail_alerts` |
+| `citation-evidence-index` | `citation_evidence` (or computed view) |
+| `observation-runs` + `visibility-observation-runs` | `runs` (unified) |
+| `competitor-universe` | `competitor_config` |
+
+**Count: 15 stores → ~12 DB tables** (some merge into `runs`).
+
+### Defer / later set (route-supporting, not blocking)
+
+These stores power derived computations but are either computed on-demand or are secondary to rendering. They can stay file-backed through Phase 1:
+
+`truth-labels`, `action-states`, `rollout-executions`, `pattern-evidence`, `rollout-waves`, `frontier-opportunities`, `frontier-attack-packages`, `tracked-missing-pages`, `competitor-page-evidence`, `source-pattern-evidence`, `asset-responses`, `brief-states`, `outcome-observations`, `page-snapshot-diffs`, `render-checks`, `sitemap-reconciliation`
+
+### Dead or Profound-only set (do not migrate in Phase 1)
+
+| Store | Why |
+|-------|-----|
+| `scan-runs` | Legacy fallback for `observation-runs`. Will be eliminated when runs table exists. |
+| `page-snapshots-prev` | Script working file only. Not read by any route. |
+| `tracked-prompts` | Profound import pipeline only. Not read by any route. |
+| `tracked-entities` | Profound import pipeline only. |
+| `prompt-answer-observations` | Profound import pipeline only. |
+| `daily-metric-snapshots` | Profound import pipeline only. |
+| `outcome-events` | Profound import pipeline only (stored by canonical-store; live events are computed by `detectOutcomeEvents` from results). |
+| `candidate-causes` | Profound import pipeline only. |
+| `answer-texts.json` | Cold store, Profound pipeline only. |
+| `citations-by-date/*.json` | Cold store shards, Profound pipeline only. |
+
+### Recommended Phase 1 schema scope
+
+**12 tables, single-tenant, no workspaces/RLS:**
+
+1. `runs` — unified: website crawl, website verify, visibility import, Profound import
+2. `pages` — page registry
+3. `page_snapshots` — per-crawl extraction
+4. `guardrail_alerts` — per-crawl guardrails
+5. `results` — imported visibility result rows
+6. `changelog_entries` — imported changes
+7. `opportunities` — imported opportunities
+8. `competitors` — imported + configured competitors
+9. `import_runs` — import tracking
+10. `attribution_decisions` — review decisions (event-decisions)
+11. `candidate_links` — attribution candidates
+12. `page_issues` — persisted issue tracking
+13. `change_contracts` — change verification contracts
+14. `citation_evidence` — citation rollup index
+
+Plus: `competitor_config` may merge into `competitors` table with a `source` column distinguishing imported entities from configured universe entries.
+
+**Total: 13-14 tables.**
+
+### Phase 1 migration order (smallest steps)
+
+1. **Supabase project setup** — create project, get connection string, add `@supabase/supabase-js` dependency, create `src/lib/persistence/supabase.ts` client singleton
+2. **Schema migration 001** — create tables for `import_runs`, `results`, `changelog_entries`, `opportunities`, `competitors` (the seed-data.server entities)
+3. **Repository interfaces** — `IResultRepository`, `IChangelogRepository`, etc. in `src/lib/persistence/repositories/`
+4. **Wire seed-data.server.ts** — feature-flagged dual-read from file or DB via `DATA_SOURCE` env var
+5. **Backfill script** — read existing `.data/` files, insert into DB
+6. **Schema migration 002** — `runs`, `pages`, `page_snapshots`, `guardrail_alerts`, `citation_evidence`
+7. **Schema migration 003** — `attribution_decisions`, `candidate_links`, `page_issues`, `change_contracts`
+8. **Wire remaining stores** — route pages read from DB via repository, file writes kept as fallback
+9. **Validate** — all surfaces render identically from DB source
+10. **Cut over** — set `DATA_SOURCE=supabase` as default
+
+### What you (Armeen) need to do for Supabase setup
+
+This is the non-technical part. Here is exactly what to do, in order:
+
+1. **Go to [supabase.com](https://supabase.com)** and sign up (use your email, not GitHub OAuth — simpler to manage)
+2. **Create a new project** — name it `beacon`, pick a region close to you (e.g., `us-west-1`), set a strong database password (save it somewhere safe like 1Password — never paste it into code files)
+3. **After the project is created**, go to **Settings → API** in the Supabase dashboard
+4. **Copy these two values** (they are NOT secrets that can hack you — they are project identifiers):
+   - `Project URL` — looks like `https://abcdefgh.supabase.co`
+   - `anon public` key — a long string starting with `eyJ...`
+5. **Also copy the database connection string** from **Settings → Database → Connection string → URI** (this one IS sensitive — treat it like a password)
+6. **Create a `.env.local` file** in the Beacon repo root (it's already `.gitignore`-d so it won't get committed):
+   ```
+   NEXT_PUBLIC_SUPABASE_URL=https://abcdefgh.supabase.co
+   NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJ...your-key...
+   SUPABASE_SERVICE_ROLE_KEY=eyJ...your-service-key...
+   DATA_SOURCE=file
+   ```
+7. **Tell Cursor** you're ready — it will create the schema migrations and repository code
+
+**Security note:** The `.env.local` file is in `.gitignore` by default in Next.js projects. Your database password and service role key never leave your machine. The `anon` key is safe to expose (it's designed for client-side use with Row Level Security). Since Beacon is single-user with no auth, the `service_role` key is used server-side only (enforced by `import "server-only"`).
+
+### Exact next implementation step
+
+After Supabase project is created and `.env.local` is populated:
+1. Install `@supabase/supabase-js`
+2. Create `src/lib/persistence/supabase.ts` client
+3. Create `supabase/migrations/001_core_schema.sql` with the 5 seed-data entity tables
+4. Run migration
+5. Create repository interfaces
+6. Wire `seed-data.server.ts` behind `DATA_SOURCE` flag
