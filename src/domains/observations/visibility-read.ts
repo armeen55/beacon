@@ -1,5 +1,6 @@
-import { readDotDataJson } from "@/lib/persistence/dotdata-json";
 import type { CitationEvidenceIndex } from "@/domains/pages/types";
+import { citationEvidenceIndex } from "@/domains/pages/citation-evidence-store";
+import { visibilityObservationRunsExplicit } from "./visibility-observation-explicit-store";
 import {
   type VisibilityObservationRun,
   VISIBILITY_SEED_WALKTHROUGH_RUN_ID,
@@ -109,11 +110,9 @@ export function buildSeedWalkthroughVisibilityRun(): VisibilityObservationRun {
  * citation-index synthetic; then seed walkthrough stub.
  */
 export function listVisibilityObservationRuns(): VisibilityObservationRun[] {
-  const explicit = readDotDataJson<VisibilityObservationRun[]>(
-    "visibility-observation-runs"
+  const fromFile = visibilityObservationRunsExplicit.filter(
+    (r) => r?.run_id && r?.completed_at,
   );
-  const fromFile =
-    explicit?.filter((r) => r?.run_id && r?.completed_at) ?? [];
   const sortedExplicit = [...fromFile].sort(
     (a, b) =>
       new Date(b.completed_at).getTime() - new Date(a.completed_at).getTime()
@@ -124,7 +123,7 @@ export function listVisibilityObservationRuns(): VisibilityObservationRun[] {
     byId.set(r.run_id, r);
   }
 
-  const ci = readDotDataJson<CitationEvidenceIndex>("citation-evidence-index");
+  const ci: CitationEvidenceIndex | null = citationEvidenceIndex;
   if (ci?.built_at) {
     const synthetic = syntheticFromCitationIndex(ci);
     if (!byId.has(synthetic.run_id)) {

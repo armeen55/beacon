@@ -9,8 +9,12 @@ import type { ChangeContract } from "@/domains/changelog/change-contract";
 import type {
   PageEntity,
   PageSnapshot,
+  PageSnapshotDiff,
   CitationEvidenceIndex,
+  SitemapReconciliation,
 } from "@/domains/pages/types";
+import type { RenderCheckResult } from "@/domains/pages/render-check";
+import type { VisibilityObservationRun } from "@/domains/observations/visibility-types";
 import type { GuardrailAlert } from "@/domains/pages/guardrails";
 import type { ObservationRun } from "@/domains/observations/types";
 import type { ConfiguredCompetitorEntry } from "@/domains/competitors/universe-types";
@@ -40,4 +44,13 @@ export interface SeedDataRepository {
   getCitationEvidenceIndex(): Promise<CitationEvidenceIndex | null>;
   getObservationRuns(): Promise<ObservationRun[]>;
   getCompetitorConfigEntries(): Promise<ConfiguredCompetitorEntry[]>;
+
+  /**
+   * Supplementary `.data/*.json` reads — no DB tables yet. Both backends read
+   * from disk so Supabase-default mode still sees the same files as before.
+   */
+  getPageSnapshotDiffs(): Promise<PageSnapshotDiff[]>;
+  getRenderChecks(): Promise<RenderCheckResult[]>;
+  getSitemapReconciliation(): Promise<SitemapReconciliation | null>;
+  getVisibilityObservationRunsExplicit(): Promise<VisibilityObservationRun[]>;
 }

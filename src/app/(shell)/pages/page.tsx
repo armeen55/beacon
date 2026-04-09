@@ -18,11 +18,15 @@ import type {
   PageSnapshotDiff,
   CitationPageRollup,
   EvidenceTier,
+  SitemapReconciliation,
 } from "@/domains/pages/types";
 import { allPages } from "@/domains/pages/page-store";
 import { pageSnapshots } from "@/domains/pages/snapshot-store";
 import { guardrailAlerts } from "@/domains/pages/guardrail-store";
 import { citationEvidenceIndex } from "@/domains/pages/citation-evidence-store";
+import { pageSnapshotDiffs } from "@/domains/pages/page-snapshot-diff-store";
+import { renderCheckResults } from "@/domains/pages/render-check-store";
+import { sitemapReconciliation } from "@/domains/pages/sitemap-reconciliation-store";
 import {
   PagesClient,
   type PageRow,
@@ -43,7 +47,6 @@ import { triggerPageScan } from "./scan-action";
 import { verifyPageFix } from "./verify-action";
 import { updateIssueStatus, verifyAndUpdateIssue, generateHandoffText, convertBriefToIssue, refreshOutcomeObservation } from "./issue-actions";
 import { getSiteConfig } from "@/lib/site-config";
-import { readDotDataJson } from "@/lib/persistence/dotdata-json";
 import { latestWebsiteCrawlRun } from "@/domains/observations/read";
 import type { GuardrailAlert } from "@/domains/pages/guardrails";
 
@@ -88,7 +91,7 @@ export default function PagesPage() {
   const citationIndex = citationEvidenceIndex;
 
   // ── Load page snapshots + diffs ──
-  const pageDiffs = readDotDataJson<PageSnapshotDiff[]>("page-snapshot-diffs") ?? [];
+  const pageDiffs = pageSnapshotDiffs;
 
   const snapshotByPageId = new Map<string, PageSnapshot>();
   const snapshotByUrl = new Map<string, PageSnapshot>();
@@ -114,7 +117,7 @@ export default function PagesPage() {
   }
 
   // ── Load render checks ──
-  const renderChecks = readDotDataJson<RenderCheckResult[]>("render-checks") ?? [];
+  const renderChecks = renderCheckResults;
 
   const renderByUrl = new Map<string, RenderCheckResult>();
   for (const r of renderChecks) {
@@ -138,26 +141,7 @@ export default function PagesPage() {
   }
 
   // ── Load sitemap reconciliation ──
-  type CanonicalPage = {
-    url: string;
-    path: string;
-    registry_page_id: string | null;
-    scan_page_id: string;
-  };
-  type StalePage = {
-    url: string;
-    path: string;
-    domain: string;
-    registry_page_id: string;
-    reason: string;
-  };
-  type SitemapRecon = {
-    canonical_pages: CanonicalPage[];
-    stale_pages: StalePage[];
-    sitemap_url_count: number;
-  };
-
-  const sitemapRecon = readDotDataJson<SitemapRecon>("sitemap-reconciliation");
+  const sitemapRecon: SitemapReconciliation | null = sitemapReconciliation;
 
   const canonicalUrls = sitemapRecon
     ? new Set(sitemapRecon.canonical_pages.map((c) => c.url.replace(/\/+$/, "").toLowerCase()))

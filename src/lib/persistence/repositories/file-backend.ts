@@ -12,8 +12,12 @@ import type { ChangeContract } from "@/domains/changelog/change-contract";
 import type {
   PageEntity,
   PageSnapshot,
+  PageSnapshotDiff,
   CitationEvidenceIndex,
+  SitemapReconciliation,
 } from "@/domains/pages/types";
+import type { RenderCheckResult } from "@/domains/pages/render-check";
+import type { VisibilityObservationRun } from "@/domains/observations/visibility-types";
 import type { GuardrailAlert } from "@/domains/pages/guardrails";
 import type { ObservationRun } from "@/domains/observations/types";
 import type { ConfiguredCompetitorEntry } from "@/domains/competitors/universe-types";
@@ -65,4 +69,18 @@ export const fileBackend: SeedDataRepository = {
     );
     return raw?.competitors?.filter(Boolean) ?? [];
   },
+
+  getPageSnapshotDiffs: async () =>
+    readDotDataJson<PageSnapshotDiff[]>("page-snapshot-diffs") ?? [],
+
+  getRenderChecks: async () =>
+    readDotDataJson<RenderCheckResult[]>("render-checks") ?? [],
+
+  getSitemapReconciliation: async () =>
+    readDotDataJson<SitemapReconciliation>("sitemap-reconciliation"),
+
+  getVisibilityObservationRunsExplicit: async () =>
+    readDotDataJson<VisibilityObservationRun[]>(
+      "visibility-observation-runs",
+    ) ?? [],
 };

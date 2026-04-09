@@ -2,7 +2,7 @@
 
 > Living document. Single source of truth for implementation sequence.
 > Updated: 2026-04-09
-> Current phase: **Phase 2 — COMPLETE — Supabase is now the default data source**
+> Current phase: **Phase 3A — COMPLETE — mechanical read-path consolidation**
 >
 > Phase 0 — COMPLETE (commit `74605b1`)
 > Phase 0.5 — COMPLETE — audit locked minimum Phase 1 scope (15 stores → 12 tables)
@@ -14,6 +14,7 @@
 > Phase 1F — COMPLETE — dual-write engine for 7 import-path entity tables
 > Phase 1G — COMPLETE — file-vs-Supabase parity comparison script
 > Phase 2 — COMPLETE — progressive cutover to Supabase default
+> Phase 3A — COMPLETE — supplementary + visibility + import reads behind repository
 
 ---
 
@@ -1024,7 +1025,7 @@ Phase 1 is **COMPLETE**. All subphases (1A–1G) are done:
 1. 14/15 route-critical stores have exact row parity between file and Supabase
 2. The single mismatch (`observation_runs`: 99 file, 0 DB) is a documented safe exception — the file contains `ProfoundImportRun` data with a different schema; the consumer (`observations/read.ts`) falls back to `scan-runs.json` when the repository returns empty, so runtime behavior is identical in both modes
 3. All 17 route pages build and render correctly under `DATA_SOURCE=supabase`
-4. Supplementary file-only reads (`page-snapshot-diffs`, `render-checks`, `sitemap-reconciliation`, `visibility-observation-runs`) are independent of `DATA_SOURCE` and continue reading from `.data/*.json` files
+4. Supplementary data (`page-snapshot-diffs`, `render-checks`, `sitemap-reconciliation`, `visibility-observation-runs`) still lives on disk only — Phase 3A routes reads through `SeedDataRepository`, but **both** backends call `readDotDataJson` so Supabase-default behavior matches the prior direct-file behavior
 5. Rollback is trivial and verified
 
 ### Current Configuration
@@ -1037,7 +1038,7 @@ DUAL_WRITE=true
 
 - **Reads:** Route-critical data loaded from Supabase via repository layer
 - **Writes:** Import/attribution write paths write to file first, then upsert to Supabase (best-effort)
-- **Supplementary data:** Still read from `.data/*.json` files (independent of `DATA_SOURCE`)
+- **Supplementary data:** Still sourced from `.data/*.json` on disk (no DB tables); accessed via repository getters + thin store modules so consumers do not call `readDotDataJson` directly
 
 ### Rollback Instructions
 
@@ -1054,9 +1055,9 @@ No code changes needed. No database changes needed. No data loss.
 | Exception | Impact | Status |
 |-----------|--------|--------|
 | `observation_runs` (0 rows in DB) | None — fallback to `scan-runs.json` is automatic | Accepted — will resolve when ProfoundImportRun schema alignment is done |
-| `import/actions.ts.importRuns` reads from file, not repo | None — parity is maintained via `DUAL_WRITE=true` | Minor inconsistency, cleanup candidate |
-| `visibility-read.ts` reads directly from files | None — independent of `DATA_SOURCE` | Intentionally deferred |
-| Supplementary stores (`page-snapshot-diffs`, etc.) still file-only | None — not in Phase 0.5 scope | Will migrate if/when needed |
+| `import/actions.ts` `importRuns` | Uses shared `importRuns` from `seed-data.server` (repo-backed at init) | **Resolved** in Phase 3A |
+| `visibility-read.ts` | Uses `citationEvidenceIndex` store + `visibilityObservationRunsExplicit` store | **Resolved** in Phase 3A (explicit runs still disk-only in both backends) |
+| Supplementary stores (`page-snapshot-diffs`, etc.) | No Supabase tables yet; both repo backends read disk | **Routed** in Phase 3A — DB migration deferred |
 
 ### Validation Results (2026-04-09)
 
@@ -1070,11 +1071,46 @@ No code changes needed. No database changes needed. No data loss.
 - build ✓ (17/17 pages)
 - Instant, no code changes needed
 
-### What Phase 3 should address
+### Phase 3A — Mechanical read consolidation (COMPLETE)
 
-1. **Deprecate file reads** — remove `readStore` / `readDotDataJson` from route consumers once Supabase-default is proven stable
-2. **Wire remaining file-only modules** — `visibility-read.ts`, `import/actions.ts.importRuns` through repository
-3. **Migrate supplementary stores** — page-snapshot-diffs, render-checks, etc. (as needed)
-4. **Backfill observation_runs** — when ProfoundImportRun / ObservationRun schema alignment is resolved
-5. **Real-time subscriptions** — Supabase Realtime for live UI updates (optional)
-6. **Crawl pipeline DB integration** — visibility sampling, Inngest job orchestration (separate architectural decision)
+**Scope:** Largest safe mechanical chunk — no new DB tables, no observation_runs schema work.
+
+**Repository additions (4 getters, disk-backed in both backends until tables exist):**
+- `getPageSnapshotDiffs()` → `page-snapshot-diffs.json`
+- `getRenderChecks()` → `render-checks.json`
+- `getSitemapReconciliation()` → `sitemap-reconciliation.json`
+- `getVisibilityObservationRunsExplicit()` → `visibility-observation-runs.json`
+
+**New thin store modules:**
+- `src/domains/pages/page-snapshot-diff-store.ts` — `pageSnapshotDiffs`
+- `src/domains/pages/render-check-store.ts` — `renderCheckResults`
+- `src/domains/pages/sitemap-reconciliation-store.ts` — `sitemapReconciliation`
+- `src/domains/observations/visibility-observation-explicit-store.ts` — `visibilityObservationRunsExplicit`
+
+**Types:** `SitemapReconciliation` (+ canonical/stale row types) in `domains/pages/types.ts`
+
+**Rewired consumers:**
+- `src/app/(shell)/pages/page.tsx` — imports supplementary stores; removes direct `readDotDataJson`
+- `src/domains/observations/visibility-read.ts` — `citationEvidenceIndex` + explicit visibility store
+- `src/lib/import/actions.ts` — shared `importRuns` from `seed-data.server`; `citationEvidenceIndex` from `citation-evidence-store`; drops `readStore` for import runs
+
+**Explicitly deferred (not in 3A):**
+- `topics/page.tsx` server action — keeps dynamic `readDotDataJson` for **fresh** citation + snapshot reads at action time (avoid module-cache staleness)
+- `observations/read.ts` legacy `scan-runs.json` fallback — unchanged
+- `universe-read.ts` file branch for pin metadata — unchanged
+- Domain modules with write paths (issues, frontier, wave-planner, etc.) — not route-layer consolidation
+- Profound adapters (`bridge.ts` `readStore("import-runs")`) — left as-is
+- Supabase tables for supplementary JSON — deferred to a later Phase 3 chunk
+
+**Validation:** `npm run check`, `npm run test`, `npm run data:parity` — all pass; 14/15 parity unchanged
+
+---
+
+### What Phase 3 should address next (3B+)
+
+1. **Optional:** Dynamic topics server action — choose between documented staleness vs fresh reads using repository + explicit reload pattern
+2. **Migrate supplementary stores to Postgres** — when schema + backfill are justified
+3. **Domain store modules** — truthLabels, action-states, brief-states, rollout/pattern evidence through repo (when tables exist or disk-unified policy is chosen)
+4. **Backfill / align `observation_runs`** — **SWITCH TO OPUS 4.6 MAX** when this becomes the active chunk (schema + Profound vs crawl types)
+5. **Real-time subscriptions** — optional
+6. **Crawl pipeline DB integration** — separate decision

@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { generateId, now } from "@/lib/actions";
-import { readStore, writeStore } from "@/lib/persistence/json-store";
+import { writeStore } from "@/lib/persistence/json-store";
 import { parseCSV, parseJSON } from "./parsers";
 import {
   mapResultRow,
@@ -16,12 +16,12 @@ import {
   changelogEntries,
   results,
   competitors,
+  importRuns,
 } from "@/lib/seed-data.server";
+import { citationEvidenceIndex } from "@/domains/pages/citation-evidence-store";
 import { parseWorkbook, WORKBOOK_IMPORT_SOURCE } from "./workbook";
 import { classifyResultMode } from "@/domains/attribution/result-mode";
 import type { ImportEntityType, ImportFormat, ImportRun, ImportResult, ImportPreview, WorkbookImportResult } from "./types";
-import { readDotDataJson } from "@/lib/persistence/dotdata-json";
-import type { CitationEvidenceIndex } from "@/domains/pages/types";
 import type { VisibilityObservationRun } from "@/domains/observations/visibility-types";
 import { appendVisibilityObservationRunSync } from "@/domains/observations/visibility-persist";
 import { universeFieldsForObservationPersistence } from "@/domains/competitors/universe-run-pin";
@@ -33,8 +33,6 @@ import {
   syncCompetitors,
   clearAllImportTables,
 } from "@/lib/persistence/dual-write";
-
-const importRuns: ImportRun[] = readStore<ImportRun>("import-runs");
 
 export async function getImportRuns(): Promise<ImportRun[]> {
   return [...importRuns].reverse();
@@ -143,10 +141,9 @@ export async function executeImport(
 
   if (entityType === "results" && imported > 0 && visibilityRunIdForResults) {
     const completedAt = now();
-    const ci = readDotDataJson<CitationEvidenceIndex>("citation-evidence-index");
     const linkedCit =
-      ci?.built_at != null
-        ? `vis-citation-${encodeURIComponent(ci.built_at)}`
+      citationEvidenceIndex?.built_at != null
+        ? `vis-citation-${encodeURIComponent(citationEvidenceIndex.built_at)}`
         : null;
     const visRun: VisibilityObservationRun = {
       run_id: visibilityRunIdForResults,
@@ -471,10 +468,9 @@ export async function importWorkbook(
 
   if (data.results.length > 0) {
     const completedAt = now();
-    const ci = readDotDataJson<CitationEvidenceIndex>("citation-evidence-index");
     const linkedCit =
-      ci?.built_at != null
-        ? `vis-citation-${encodeURIComponent(ci.built_at)}`
+      citationEvidenceIndex?.built_at != null
+        ? `vis-citation-${encodeURIComponent(citationEvidenceIndex.built_at)}`
         : null;
     const visRun: VisibilityObservationRun = {
       run_id: visibilityRunId,

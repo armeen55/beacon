@@ -1,3 +1,4 @@
+import { readDotDataJson } from "../dotdata-json";
 import { getSupabaseAdmin } from "../supabase";
 import type { SeedDataRepository } from "./types";
 import type { Result } from "@/domains/results/types";
@@ -11,8 +12,12 @@ import type { ChangeContract } from "@/domains/changelog/change-contract";
 import type {
   PageEntity,
   PageSnapshot,
+  PageSnapshotDiff,
   CitationEvidenceIndex,
+  SitemapReconciliation,
 } from "@/domains/pages/types";
+import type { RenderCheckResult } from "@/domains/pages/render-check";
+import type { VisibilityObservationRun } from "@/domains/observations/visibility-types";
 import type { GuardrailAlert } from "@/domains/pages/guardrails";
 import type { ObservationRun } from "@/domains/observations/types";
 import type { ConfiguredCompetitorEntry } from "@/domains/competitors/universe-types";
@@ -80,4 +85,19 @@ export const supabaseBackend: SeedDataRepository = {
   getObservationRuns: () => query<ObservationRun>("observation_runs"),
   getCompetitorConfigEntries: () =>
     query<ConfiguredCompetitorEntry>("competitor_config"),
+
+  // Supplementary dotdata — no tables yet; read same files as file mode
+  getPageSnapshotDiffs: async () =>
+    readDotDataJson<PageSnapshotDiff[]>("page-snapshot-diffs") ?? [],
+
+  getRenderChecks: async () =>
+    readDotDataJson<RenderCheckResult[]>("render-checks") ?? [],
+
+  getSitemapReconciliation: async () =>
+    readDotDataJson<SitemapReconciliation>("sitemap-reconciliation"),
+
+  getVisibilityObservationRunsExplicit: async () =>
+    readDotDataJson<VisibilityObservationRun[]>(
+      "visibility-observation-runs",
+    ) ?? [],
 };

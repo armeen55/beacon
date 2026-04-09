@@ -174,3 +174,25 @@ export type PagePromptFit = {
   confidence: "high" | "medium" | "low";
   is_best_for_prompt: boolean;
 };
+
+/** `.data/sitemap-reconciliation.json` — not yet mirrored in Supabase. */
+export type SitemapReconciliationCanonicalPage = {
+  url: string;
+  path: string;
+  registry_page_id: string | null;
+  scan_page_id: string;
+};
+
+export type SitemapReconciliationStalePage = {
+  url: string;
+  path: string;
+  domain: string;
+  registry_page_id: string;
+  reason: string;
+};
+
+export type SitemapReconciliation = {
+  canonical_pages: SitemapReconciliationCanonicalPage[];
+  stale_pages: SitemapReconciliationStalePage[];
+  sitemap_url_count: number;
+};
