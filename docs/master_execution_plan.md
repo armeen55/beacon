@@ -2,7 +2,7 @@
 
 > Living document. Single source of truth for implementation sequence.
 > Updated: 2026-04-09
-> Current phase: **Phase 3B — COMPLETE — json-store domain arrays behind repository**
+> Current phase: **Phase 3C — COMPLETE — observation-runs alignment + 15/15 parity**
 >
 > Phase 0 — COMPLETE (commit `74605b1`)
 > Phase 0.5 — COMPLETE — audit locked minimum Phase 1 scope (15 stores → 12 tables)
@@ -16,6 +16,7 @@
 > Phase 2 — COMPLETE — progressive cutover to Supabase default
 > Phase 3A — COMPLETE — supplementary + visibility + import reads behind repository
 > Phase 3B — COMPLETE — operator/pages json-store arrays + Profound bridge importRuns unified
+> Phase 3C — COMPLETE — observation-runs file/DB alignment, 15/15 parity achieved
 
 ---
 
@@ -1055,7 +1056,7 @@ No code changes needed. No database changes needed. No data loss.
 
 | Exception | Impact | Status |
 |-----------|--------|--------|
-| `observation_runs` (0 rows in DB) | None — fallback to `scan-runs.json` is automatic | Accepted — will resolve when ProfoundImportRun schema alignment is done |
+| `observation_runs` | 3 rows in DB (backfilled from scan-runs.json), dual-write on new crawls/verifies | **Resolved** in Phase 3C — 15/15 parity |
 | `import/actions.ts` `importRuns` | Uses shared `importRuns` from `seed-data.server` (repo-backed at init) | **Resolved** in Phase 3A |
 | `visibility-read.ts` | Uses `citationEvidenceIndex` store + `visibilityObservationRunsExplicit` store | **Resolved** in Phase 3A (explicit runs still disk-only in both backends) |
 | Supplementary stores (`page-snapshot-diffs`, etc.) | No Supabase tables yet; both repo backends read disk | **Routed** in Phase 3A — DB migration deferred |
@@ -1125,11 +1126,38 @@ No code changes needed. No database changes needed. No data loss.
 
 ---
 
-### What Phase 3 should address next (3C+)
+### Phase 3C — Observation Runs Alignment (COMPLETE)
+
+**Blocker resolved:** The 99-vs-0 `observation_runs` parity mismatch was caused by `.data/observation-runs.json` containing **`ProfoundImportRun`** data (wrong type), NOT `ObservationRun` data. The actual website crawl data lived in `.data/scan-runs.json` (3 legacy rows) and was only accessible via a fragile fallback in the reader.
+
+**Root cause:** The file `observation-runs.json` is shared between two unrelated concerns:
+1. **`canonical-store.ts`** reads it as `ProfoundImportRun[]` (Profound pipeline — correct)
+2. **`file-backend.ts`** read it as `ObservationRun[]` (website crawl reader — wrong type, all rows filtered out)
+
+**Fix:**
+1. **`file-backend.ts` `getObservationRuns()`** — now reads BOTH `observation-runs.json` (filtering for valid `ObservationRun` rows with `run_type`) AND `scan-runs.json` (converting legacy rows), merging into a unified array. ProfoundImportRun rows are silently skipped.
+2. **`observations/read.ts`** — simplified; the `scan-runs.json` fallback is removed because the repository layer now handles merging at the backend level.
+3. **DB backfill** — 3 legacy scan-runs rows inserted into `observation_runs` table via MCP `execute_sql`.
+4. **Dual-write** — `appendObservationRunSync` now upserts to `observation_runs` when `DUAL_WRITE=true` (best-effort, errors logged).
+5. **Parity script** — `observation-runs` comparison now counts valid `ObservationRun` rows (filtered by `run_type`) + `scan-runs.json` legacy rows, matching the file-backend logic.
+
+**Result:** `npm run data:parity` → **15/15 parity**.
+
+**What was NOT touched:**
+- `canonical-store.ts` — still reads `observation-runs.json` as `ProfoundImportRun[]` (correct, isolated)
+- `ProfoundImportRun` type / schema — untouched
+- `VisibilityObservationRun` — separate concern, already working
+- `scan-owned-pages.ts` CLI script — still writes to both `scan-runs.json` and `observation-runs.json`
+- `visibility-persist.ts` — untouched
+
+**Validation (2026-04-09):** typecheck ✓, lint ✓, build ✓ (17/17), tests ✓ (26/26), parity ✓ (15/15)
+
+---
+
+### What Phase 3 should address next (3D+)
 
 1. **Optional:** Topics server action freshness vs repository-cached stores
 2. **`import-orchestrator` read path** — only with explicit file-vs-DB policy for CLI
 3. **Migrate supplementary + json-store domains to Postgres** — schema + backfill (**larger decision**)
-4. **`canonical-store` / Profound file stores** — alignment with observation_runs story
-5. **Backfill / align `observation_runs`** — **SWITCH TO OPUS 4.6 MAX**
-6. **Real-time / crawl pipeline** — separate decisions
+4. **`canonical-store` / Profound file stores** — containment or deprecation policy
+5. **Real-time / crawl pipeline** — separate decisions

@@ -188,7 +188,21 @@ const stores: StoreSpec[] = [
     label: "observation-runs",
     fileKey: "observation-runs",
     dbTable: "observation_runs",
-    fileReader: () => readJson<unknown[]>("observation-runs") ?? [],
+    fileReader: () => {
+      const obsRaw =
+        (readJson<Record<string, unknown>[]>("observation-runs") ?? []).filter(
+          (r) => r && typeof r === "object" && "run_type" in r,
+        );
+
+      type LegacyRow = { run_id: string; [k: string]: unknown };
+      const legacyRaw =
+        (readJson<LegacyRow[]>("scan-runs") ?? []) as LegacyRow[];
+      const existingIds = new Set(obsRaw.map((r) => String(r.run_id)));
+      const legacy = legacyRaw.filter(
+        (r) => r?.run_id && !existingIds.has(r.run_id),
+      );
+      return [...obsRaw, ...legacy];
+    },
     hasId: false,
   },
   {
