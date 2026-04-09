@@ -2,7 +2,7 @@
 
 > Living document. Single source of truth for implementation sequence.
 > Updated: 2026-04-09
-> Current phase: **Phase 1G — COMPLETE — parity comparison tooling**
+> Current phase: **Phase 2 — COMPLETE — Supabase is now the default data source**
 >
 > Phase 0 — COMPLETE (commit `74605b1`)
 > Phase 0.5 — COMPLETE — audit locked minimum Phase 1 scope (15 stores → 12 tables)
@@ -13,6 +13,7 @@
 > Phase 1E — COMPLETE — remaining 6 stores wired via centralized modules + route rewires
 > Phase 1F — COMPLETE — dual-write engine for 7 import-path entity tables
 > Phase 1G — COMPLETE — file-vs-Supabase parity comparison script
+> Phase 2 — COMPLETE — progressive cutover to Supabase default
 
 ---
 
@@ -1007,15 +1008,73 @@ Phase 1 is **COMPLETE**. All subphases (1A–1G) are done:
 - 15 route-critical stores read through `SeedDataRepository` (file or Supabase)
 - 7 import-path entities dual-write to Supabase when `DUAL_WRITE=true`
 - Parity validation tooling exists and runs clean
-- `DATA_SOURCE=file` remains the safe default
-- `DATA_SOURCE=supabase` is viable for all 15 stores
 - File-backed persistence is fully intact for rollback
 
-### What Phase 2 should address
+---
 
-1. **Progressive cutover** — flip `DATA_SOURCE=supabase` as default after a validation period
-2. **Dual-write for remaining write paths** — truthLabels, page-issues, change-contracts (if/when those get active write paths)
-3. **Backfill observation_runs** — when ProfoundImportRun / ObservationRun schema alignment is resolved
-4. **Deprecate file reads** — remove `readStore` / `readDotDataJson` from route consumers once DB-backed reads are proven in production
-5. **Real-time subscriptions** — use Supabase Realtime for live UI updates (optional)
-6. **Consider crawl pipeline DB integration** — visibility sampling, Inngest job orchestration (requires separate architectural decision)
+## Phase 2 — Progressive Cutover (COMPLETE)
+
+### Cutover Decision
+
+**Decision: CUTOVER ACCEPTED — Beacon now defaults to Supabase.**
+
+**Date:** 2026-04-09
+
+**Rationale:**
+1. 14/15 route-critical stores have exact row parity between file and Supabase
+2. The single mismatch (`observation_runs`: 99 file, 0 DB) is a documented safe exception — the file contains `ProfoundImportRun` data with a different schema; the consumer (`observations/read.ts`) falls back to `scan-runs.json` when the repository returns empty, so runtime behavior is identical in both modes
+3. All 17 route pages build and render correctly under `DATA_SOURCE=supabase`
+4. Supplementary file-only reads (`page-snapshot-diffs`, `render-checks`, `sitemap-reconciliation`, `visibility-observation-runs`) are independent of `DATA_SOURCE` and continue reading from `.data/*.json` files
+5. Rollback is trivial and verified
+
+### Current Configuration
+
+```
+# .env.local
+DATA_SOURCE=supabase
+DUAL_WRITE=true
+```
+
+- **Reads:** Route-critical data loaded from Supabase via repository layer
+- **Writes:** Import/attribution write paths write to file first, then upsert to Supabase (best-effort)
+- **Supplementary data:** Still read from `.data/*.json` files (independent of `DATA_SOURCE`)
+
+### Rollback Instructions
+
+To instantly revert to file-backed reads:
+1. Change `.env.local`: `DATA_SOURCE=file`
+2. Restart the dev server or rebuild
+3. All route pages will read from `.data/*.json` files again
+4. `DUAL_WRITE=true` can remain (harmlessly writes to both backends)
+
+No code changes needed. No database changes needed. No data loss.
+
+### Known Exceptions
+
+| Exception | Impact | Status |
+|-----------|--------|--------|
+| `observation_runs` (0 rows in DB) | None — fallback to `scan-runs.json` is automatic | Accepted — will resolve when ProfoundImportRun schema alignment is done |
+| `import/actions.ts.importRuns` reads from file, not repo | None — parity is maintained via `DUAL_WRITE=true` | Minor inconsistency, cleanup candidate |
+| `visibility-read.ts` reads directly from files | None — independent of `DATA_SOURCE` | Intentionally deferred |
+| Supplementary stores (`page-snapshot-diffs`, etc.) still file-only | None — not in Phase 0.5 scope | Will migrate if/when needed |
+
+### Validation Results (2026-04-09)
+
+**Under `DATA_SOURCE=supabase`:**
+- typecheck ✓ (0 errors)
+- lint ✓ (0 errors, 72 pre-existing warnings)
+- build ✓ (17/17 pages)
+- tests ✓ (26/26)
+
+**Rollback (`DATA_SOURCE=file`):**
+- build ✓ (17/17 pages)
+- Instant, no code changes needed
+
+### What Phase 3 should address
+
+1. **Deprecate file reads** — remove `readStore` / `readDotDataJson` from route consumers once Supabase-default is proven stable
+2. **Wire remaining file-only modules** — `visibility-read.ts`, `import/actions.ts.importRuns` through repository
+3. **Migrate supplementary stores** — page-snapshot-diffs, render-checks, etc. (as needed)
+4. **Backfill observation_runs** — when ProfoundImportRun / ObservationRun schema alignment is resolved
+5. **Real-time subscriptions** — Supabase Realtime for live UI updates (optional)
+6. **Crawl pipeline DB integration** — visibility sampling, Inngest job orchestration (separate architectural decision)
