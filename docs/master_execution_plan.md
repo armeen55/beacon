@@ -1204,7 +1204,7 @@ No code changes needed. No database changes needed. No data loss.
 
 **Code:**
 - `src/domains/attribution/change-impact.ts` — `computeChangeImpact`, `enrichWithImpact`; uses existing `ScorecardRow` from `scorecard.ts`
-- `src/domains/attribution/types.ts` — `ImpactConfidence`, `ImpactDirection`, `ChangeImpact`; `ChangeVerdict` extended with `negative` (reserved for future decline-aware paths; scorecard today does not assign it)
+- `src/domains/attribution/types.ts` — `ImpactConfidence`, `ImpactDirection`, `ChangeImpact`; `ChangeVerdict` extended with `negative` (**now assigned** by scorecard when all linked events are negative — Phase 6)
 
 **UI:**
 - `/changes` — impact summary strip, confidence badge beside verdict, **What to do** column, table open by default
@@ -1213,7 +1213,7 @@ No code changes needed. No database changes needed. No data loss.
 
 **Validation:** `npm run check`, `npm run test`, `npm run data:parity` — unchanged expectations (15/15).
 
-**Follow-ups (proposed):** wire decline/regression into events so `negative` + direction align with real drops; optional URL normalization for topic/url match lift; opportunity → change recommendations.
+**Follow-ups:** ~~decline/regression events~~ DONE Phase 6; ~~URL normalization~~ DONE Phase 6; opportunity-to-change recommendations (Track B).
 
 ---
 
@@ -1224,3 +1224,19 @@ No code changes needed. No database changes needed. No data loss.
 3. Migrate supplementary + json-store domains to Postgres — schema + backfill
 4. `canonical-store` / Profound file stores — split or containment policy
 5. Real-time / crawl pipeline — separate program
+
+### Phase 6 — Measurement Honesty: URL + Decline (COMPLETE)
+
+**Scope:** Fix two attribution blind spots — URL matching (100% unknown) and negative event detection (didn't exist). No persistence, no schema, no new UI surfaces.
+
+**URL normalization (`compute.ts`):** `matchUrl` now pipes through `normalizePageUrl` + `canonicalizeOwnedUrl` (from `classify.ts`). Handles path-only, full URLs, legacy domains, UTM stripping, www/m prefix removal. Directory-level partial match when same domain + parent path.
+
+**Decline/loss event detection (`events.ts`):** `visibility_lost` (mentions to 0 after 2+ days, mirroring `visibility_regained`) and `mention_decline` (sharp rate drop, inverse of `mention_surge`). `isNegativeEvent()` helper exported.
+
+**Scorecard (`scorecard.ts`):** All-negative-events + primary = `negative` verdict. Positive flow unchanged.
+
+**Impact Engine (`change-impact.ts`):** `eventDirection` uses event type system; explanation calls out negative events.
+
+**UI:** `/review` — "Dropped off", "Mentions fell"; `/changes/[id]` — "Visibility Lost", "Mention Decline"
+
+**Validation:** `npm run check`, tests 26/26, parity 15/15, build 17/17.

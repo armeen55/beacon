@@ -40,12 +40,22 @@ Shipped:
 
 ---
 
+## Phase 6 — Measurement Honesty (URL + Decline) — COMPLETE (2026-04-09)
+
+Shipped:
+- **URL normalization** in `matchUrl` (`compute.ts`): uses `normalizePageUrl` + `canonicalizeOwnedUrl`. URL factor now produces `strong`/`partial`/`none` instead of always `unknown`.
+- **Decline event detection** in `events.ts`: `visibility_lost` + `mention_decline`. `isNegativeEvent` helper exported.
+- **Scorecard negative verdict**: all-negative-events + primary → `negative` verdict.
+- **Impact Engine**: direction uses event type system; why explanation distinguishes negative events.
+- **UI labels**: `/review` + `/changes/[id]` display new event types.
+
+---
+
 ## Proposed next (pick one track)
 
-### A — Verdict quality + measurement honesty
-- Detect **decline / regression** outcome events (or use result deltas) so `negative` verdict and direction are data-backed, not only type-level
-- **URL normalization** + page registry lookup → lift `url` match from unknown
-- Changelog quality playbook (the 15 citation-supported + no-topic cases)
+### A — Changelog quality + pattern mining
+- The 15 citation-supported + no-topic cases — how to improve changelog precision
+- Per-change "what would make this evidence stronger" nudge
 
 ### B — Opportunity → Change recommendations
 - When `opportunities` data exists, surface “do this change next” from gap ledger / frontier output tied to attribution patterns
@@ -58,8 +68,12 @@ Shipped:
 
 ---
 
-### Historical: remaining precision opportunities (still true)
-- URL matching: still largely unknown without normalization + registry
+### E — Today page decision surface
+- Surface top 3-5 highest-impact actions from the Impact Engine on the `/` landing page
+
+---
+
+### Historical: remaining precision opportunities
 - 15 citation-supported but no-topic candidates — changelog quality
 - Page discovery (discover.ts) batch context could feed richer signals
 - 0 opportunities in imported data → opportunity clustering inactive

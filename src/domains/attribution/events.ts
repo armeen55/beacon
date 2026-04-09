@@ -5,7 +5,18 @@ import { ATTRIBUTION_CONFIG } from "./config";
 export type OutcomeEventType =
   | "first_appearance"
   | "visibility_regained"
-  | "mention_surge";
+  | "mention_surge"
+  | "visibility_lost"
+  | "mention_decline";
+
+const NEGATIVE_EVENT_TYPES: ReadonlySet<OutcomeEventType> = new Set([
+  "visibility_lost",
+  "mention_decline",
+]);
+
+export function isNegativeEvent(event: { type: OutcomeEventType }): boolean {
+  return NEGATIVE_EVENT_TYPES.has(event.type);
+}
 
 export type OutcomeEvent = {
   id: string;
@@ -149,7 +160,56 @@ export function detectOutcomeEvents(results: Result[]): OutcomeEvent[] {
           });
         }
 
+        // Decline: rate drops sharply (inverse of surge)
+        if (prevRate >= surgeMinRate && dayRate <= surgePrevMaxRate && prevMentions > 0) {
+          events.push({
+            id: `ev-decline-${slugify(topic)}-${platform}-${day.date}`,
+            type: "mention_decline",
+            topic,
+            platform: platform as Platform,
+            trigger_date: day.date,
+            anchor_result_id: day.result_id,
+            result_ids: [day.result_id],
+            description: `Mention decline on ${platformLabel(platform)} for ${topic} — ${pctStr(prevRate)}→${pctStr(dayRate)} rate (${prevMentions}→${day.mentions}/${day.total})`,
+            context: {
+              mentions_before: prevMentions,
+              mentions_after: day.mentions,
+              cited: day.cited > 0,
+              gap_days: 0,
+              mention_rate: dayRate,
+              prev_rate: prevRate,
+            },
+          });
+        }
+
         lastMentionDayIdx = i;
+      }
+
+      // Visibility lost: had mentions, now dropped to 0
+      if (day.mentions === 0 && sawFirstMention && prevMentions > 0) {
+        const gapDays = lastMentionDayIdx >= 0
+          ? daysBetween(sorted[lastMentionDayIdx].date, day.date)
+          : 0;
+        if (gapDays >= regainedGapMinDays) {
+          events.push({
+            id: `ev-lost-${slugify(topic)}-${platform}-${day.date}`,
+            type: "visibility_lost",
+            topic,
+            platform: platform as Platform,
+            trigger_date: day.date,
+            anchor_result_id: day.result_id,
+            result_ids: [day.result_id],
+            description: `Visibility lost on ${platformLabel(platform)} for ${topic} — dropped from ${prevMentions}/${prevDay!.total} to 0/${day.total}`,
+            context: {
+              mentions_before: prevMentions,
+              mentions_after: 0,
+              cited: false,
+              gap_days: gapDays,
+              mention_rate: 0,
+              prev_rate: prevRate,
+            },
+          });
+        }
       }
     }
   }

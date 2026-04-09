@@ -120,3 +120,22 @@
 
 ### Build verification (Phase 5)
 - `npm run check`, `npm run test`, `npm run data:parity` — pass; 17/17 routes build
+
+---
+
+## 2026-04-09 — Phase 6: Measurement Honesty (URL + Decline)
+
+### What shipped
+- **URL normalization** in `matchUrl` (`compute.ts`): `normalizePageUrl` + `canonicalizeOwnedUrl` replace raw string comparison. Handles path-only, full URLs, legacy domains, UTM strip, www/m prefix.
+- **Decline event detection** in `events.ts`: `visibility_lost` (mentions → 0 after gap) and `mention_decline` (sharp rate drop). Symmetric to existing positive events.
+- **Scorecard negative verdict** (`scorecard.ts`): when all linked events are negative + change is primary → `negative`
+- **Impact Engine** (`change-impact.ts`): direction uses event type system; explanation distinguishes negative from positive
+- **UI labels**: review + changes detail pages display new event types with danger styling
+
+### Constraints honored
+- No persistence changes, no new tables, no scoring weight changes
+- Existing positive event detection unchanged
+- Build, tests, parity all pass
+
+### Build verification (Phase 6)
+- `npm run check`, `npm run test`, `npm run data:parity` — pass; 17/17 routes build

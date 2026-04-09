@@ -4,6 +4,7 @@ import type {
   ImpactDirection,
 } from "./types";
 import type { ScorecardRow, EventAttribution } from "./scorecard";
+import { isNegativeEvent } from "./events";
 import { ATTRIBUTION_CONFIG } from "./config";
 
 export type ScorecardRowWithImpact = ScorecardRow & { impact: ChangeImpact };
@@ -57,6 +58,7 @@ function computeImpactConfidence(row: ScorecardRow): ImpactConfidence {
 // ---------------------------------------------------------------------------
 
 function eventDirection(ea: EventAttribution): "positive" | "negative" | "flat" {
+  if (isNegativeEvent(ea.event)) return "negative";
   const { mentions_before, mentions_after } = ea.event.context;
   if (mentions_after > mentions_before) return "positive";
   if (mentions_after < mentions_before) return "negative";
@@ -98,24 +100,37 @@ function generateWhyExplanation(
     );
   }
 
-  const primaries = row.eventAttributions.filter((a) => a.role === "primary");
-  const contribs = row.eventAttributions.filter(
+  const positiveAttrs = row.eventAttributions.filter(
+    (a) => !isNegativeEvent(a.event),
+  );
+  const negativeAttrs = row.eventAttributions.filter(
+    (a) => isNegativeEvent(a.event),
+  );
+  const primaries = positiveAttrs.filter((a) => a.role === "primary");
+  const contribs = positiveAttrs.filter(
     (a) => a.role === "contributing",
   );
   const candidates = row.eventAttributions.filter(
     (a) => a.role === "candidate",
   );
 
+  if (negativeAttrs.length > 0) {
+    const negTopics = [...new Set(negativeAttrs.map((a) => a.event.topic))];
+    parts.push(
+      `Visibility declined for ${negTopics.slice(0, 2).join(", ")} — ${negativeAttrs.length} negative event${negativeAttrs.length > 1 ? "s" : ""} detected after this change`,
+    );
+  }
+
   if (primaries.length > 0 && row.operatorConfirmedCount === 0) {
     const topicStr =
       row.topics.length > 0 ? ` for ${row.topics.slice(0, 2).join(", ")}` : "";
     parts.push(
-      `Primary cause in ${primaries.length} outcome event${primaries.length > 1 ? "s" : ""}${topicStr}`,
+      `Primary cause in ${primaries.length} positive outcome event${primaries.length > 1 ? "s" : ""}${topicStr}`,
     );
   }
   if (contribs.length > 0) {
     parts.push(
-      `Contributing factor in ${contribs.length} additional event${contribs.length > 1 ? "s" : ""}`,
+      `Contributing factor in ${contribs.length} additional positive event${contribs.length > 1 ? "s" : ""}`,
     );
   }
 

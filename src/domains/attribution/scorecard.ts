@@ -9,7 +9,7 @@ import type {
 } from "./types";
 import type { EvidenceTier, EvidenceTierMeta } from "@/domains/pages/types";
 import type { OutcomeEvent } from "./events";
-import { detectOutcomeEvents } from "./events";
+import { detectOutcomeEvents, isNegativeEvent } from "./events";
 import { discoverCandidates } from "./candidates";
 import { triageCandidates } from "./triage";
 import { partitionResultsByMode } from "./result-mode";
@@ -230,11 +230,17 @@ export function computeScorecard(
     const meaningful = eventAttributions.filter(
       (a) => a.role !== "suppressed"
     );
+    const positiveEvents = meaningful.filter(
+      (a) => !isNegativeEvent(a.event),
+    );
+    const negativeEvents = meaningful.filter(
+      (a) => isNegativeEvent(a.event),
+    );
     const operatorConfirmed = meaningful.filter(
       (a) => a.trustSource === "operator_confirmed"
     );
-    const primaries = meaningful.filter((a) => a.role === "primary");
-    const contribs = meaningful.filter((a) => a.role === "contributing");
+    const primaries = positiveEvents.filter((a) => a.role === "primary");
+    const contribs = positiveEvents.filter((a) => a.role === "contributing");
 
     const platforms = [
       ...new Set(meaningful.map((a) => a.event.platform)),
@@ -259,7 +265,18 @@ export function computeScorecard(
     let verdict: ChangeVerdict;
     let verdictSummary: string;
 
-    if (operatorConfirmed.length >= 1) {
+    // Negative-only: all linked events are declines/losses
+    if (meaningful.length > 0 && positiveEvents.length === 0 && negativeEvents.length > 0) {
+      const negPrimaries = negativeEvents.filter((a) => a.role === "primary");
+      if (negPrimaries.length >= 1) {
+        verdict = "negative";
+        const topicStr = topics.slice(0, 2).join(", ");
+        verdictSummary = `Visibility declined for ${topicStr} after this change — ${negativeEvents.length} negative event${negativeEvents.length > 1 ? "s" : ""}`;
+      } else {
+        verdict = "inconclusive";
+        verdictSummary = `Linked to ${negativeEvents.length} decline event${negativeEvents.length > 1 ? "s" : ""} as candidate — not confirmed`;
+      }
+    } else if (operatorConfirmed.length >= 1) {
       if (primaries.length >= 2 || (primaries.length >= 1 && contribs.length >= 1)) {
         verdict = "validated";
       } else {

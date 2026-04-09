@@ -68,7 +68,7 @@ Default loop:
 - **Gap ledger** (`/topics`) — typed gaps
 
 Work:
-- **Changes** — log + verification + **change impact** (`computeScorecard` → `enrichWithImpact` in `change-impact.ts`: confidence, direction, why, next action on `/changes` and `/changes/[id]`)
+- **Changes** — log + verification + **change impact** (`computeScorecard` → `enrichWithImpact`: confidence, direction, why, next action). **Phase 6:** URL matching normalized; decline events (`visibility_lost`, `mention_decline`) → `negative` verdicts are now real.
 
 Advanced:
 - **Review** — hypothesis locks (attribution bookkeeping)

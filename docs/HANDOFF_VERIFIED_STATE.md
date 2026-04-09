@@ -40,6 +40,8 @@ Working branch: `work/attribution-precision-20260407`
 | Evidence tier in UI | WIRED | Displayed in MatchFactors across review queue, attribution card, results |
 | **Change impact engine** | **WIRED (Phase 5)** | `change-impact.ts`: per-change impact confidence, direction, why, next action; UI on `/changes` and `/changes/[id]` |
 | Scorecard → impact | WIRED | `computeScorecard` unchanged; `enrichWithImpact` layers on top |
+| **URL matching** | **FIXED (Phase 6)** | `matchUrl` uses `normalizePageUrl` + `canonicalizeOwnedUrl`; url factor no longer 100% unknown |
+| **Decline event detection** | **WIRED (Phase 6)** | `visibility_lost` + `mention_decline` in events.ts; `isNegativeEvent` helper; scorecard assigns `negative` verdict |
 
 ## Score Distribution (baseline — pre-pruning)
 
@@ -61,7 +63,7 @@ Working branch: `work/attribution-precision-20260407`
 |--------|--------|---------|------|---------|
 | platform | 52% | 45% | 2% | 0% |
 | topic | 40% | 0% | 60% | 0% |
-| url | 0% | 0% | 0% | 100% |
+| url | 0% | 0% | 0% | 100% | ← **Fixed in Phase 6** (normalizePageUrl wired into matchUrl) |
 | geo | 40% | 60% | 0% | 0% |
 | temporal | 55% | 18% | 27% | 0% |
 | sourceCategory | 50% | 44% | 0% | 7% |
@@ -71,7 +73,7 @@ Working branch: `work/attribution-precision-20260407`
 | Problem | Status |
 |---------|--------|
 | 60% of candidates have topic=none | MITIGATED — no-content score cap at 45 |
-| 100% url=unknown | ACKNOWLEDGED — data gap, not logic gap |
+| ~~100% url=unknown~~ | **FIXED Phase 6** — `matchUrl` now normalizes via `normalizePageUrl` + `canonicalizeOwnedUrl` |
 | hasMeaningfulSignal too loose | FIXED — requires both geo+sourceCategory |
 | Measurement entries as candidates | FIXED — pre-score exclusion |
 | Opaque URLs not penalized | FIXED — evidence tier classifies as weak |

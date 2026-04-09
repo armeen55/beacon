@@ -75,6 +75,8 @@ const EVENT_TYPE_LABELS: Record<string, string> = {
   first_appearance: "First Appearance",
   visibility_regained: "Visibility Regained",
   mention_surge: "Mention Surge",
+  visibility_lost: "Visibility Lost",
+  mention_decline: "Mention Decline",
 };
 
 export default async function ChangeDetailPage({

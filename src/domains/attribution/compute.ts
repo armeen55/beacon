@@ -3,6 +3,8 @@ import type { Result } from "@/domains/results/types";
 import type { Brief } from "@/domains/briefs/types";
 import type { Opportunity } from "@/domains/opportunities/types";
 import type { EvidenceTier, EvidenceTierMeta } from "@/domains/pages/types";
+import { normalizePageUrl, canonicalizeOwnedUrl } from "@/domains/pages/classify";
+import { getSiteConfig } from "@/lib/site-config";
 import { METRIC_DIRECTION } from "@/lib/constants";
 import type { Platform, SignalType } from "@/lib/constants";
 import {
@@ -189,13 +191,35 @@ function matchSourceCategory(
 function matchUrl(change: ChangelogEntry, result: Result): MatchStrength {
   if (!change.url && !result.url_measured) return "unknown";
   if (!change.url || !result.url_measured) return "unknown";
-  if (change.url === result.url_measured) return "strong";
 
-  const changePath = change.url.split("/").slice(0, -1).join("/");
-  const resultPath = result.url_measured.split("/").slice(0, -1).join("/");
-  if (changePath && resultPath && changePath === resultPath) return "partial";
+  const { siteDomain } = getSiteConfig();
+  const cp = normalizeAndCanonicalize(change.url, siteDomain);
+  const rp = normalizeAndCanonicalize(result.url_measured, siteDomain);
+
+  if (!cp || !rp) {
+    if (change.url === result.url_measured) return "strong";
+    return "unknown";
+  }
+
+  if (cp.url === rp.url) return "strong";
+  if (cp.domain === rp.domain && cp.path === rp.path) return "strong";
+
+  if (cp.domain === rp.domain) {
+    const cDir = cp.path.replace(/\/[^/]*$/, "");
+    const rDir = rp.path.replace(/\/[^/]*$/, "");
+    if (cDir && rDir && cDir === rDir) return "partial";
+  }
 
   return "none";
+}
+
+function normalizeAndCanonicalize(
+  raw: string,
+  siteDomain: string,
+): { url: string; domain: string; path: string } | null {
+  const parsed = normalizePageUrl(raw, siteDomain);
+  if (!parsed) return null;
+  return canonicalizeOwnedUrl(parsed);
 }
 
 // ── Geo matching (with containment) ─────────────────────────────────

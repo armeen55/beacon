@@ -19,12 +19,16 @@ const EVENT_TYPE_LABELS: Record<OutcomeEventType, string> = {
   first_appearance: "Showed up",
   visibility_regained: "Came back",
   mention_surge: "Mentions spiked",
+  visibility_lost: "Dropped off",
+  mention_decline: "Mentions fell",
 };
 
 const EVENT_TYPE_COLORS: Record<OutcomeEventType, string> = {
   first_appearance: "text-status-success",
   visibility_regained: "text-accent-primary",
   mention_surge: "text-status-warning",
+  visibility_lost: "text-status-danger",
+  mention_decline: "text-status-danger",
 };
 
 function computeDecisionability(
