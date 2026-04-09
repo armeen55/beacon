@@ -20,6 +20,8 @@ export type TodayImpactItem = {
   href: string;
 };
 
+export type RecResponseStatus = "accepted" | "dismissed" | "deferred" | null;
+
 export type TodayRecommendation = {
   id: string;
   type: "replicate" | "strengthen" | "investigate";
@@ -29,9 +31,11 @@ export type TodayRecommendation = {
   confidence: "high" | "medium" | "low";
   sourceChangeId: string | null;
   href: string;
+  responseStatus?: RecResponseStatus;
 };
 
 export type TodayPrimaryAction = {
+  id: string;
   headline: string;
   rationale: string;
   expectedOutcome: string;
@@ -41,6 +45,7 @@ export type TodayPrimaryAction = {
   type: "replicate" | "strengthen" | "investigate";
   confidence: "high" | "medium" | "low";
   href: string;
+  responseStatus?: RecResponseStatus;
 };
 
 export type TodayTrackRecord = {
@@ -104,6 +109,7 @@ export function TodayClient({
   trackRecord = null,
   onUpdateIssue,
   onVerifyIssue,
+  onRespondToRec,
 }: {
   summary: TodaySummary;
   items: TodayQueueItem[];
@@ -126,6 +132,10 @@ export function TodayClient({
     summary: string;
     error?: string;
   }>;
+  onRespondToRec?: (
+    recId: string,
+    status: "accepted" | "dismissed" | "deferred"
+  ) => Promise<{ success: boolean }>;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -394,14 +404,62 @@ export function TodayClient({
                 <p className="text-[11px] text-muted-foreground leading-relaxed">{primaryAction.expectedOutcome}</p>
               </div>
             </div>
-            <div className="flex items-center gap-3 pt-1">
+            <div className="flex items-center gap-3 pt-1 flex-wrap">
               <Link
                 href={primaryAction.href}
                 className="inline-flex items-center gap-2 rounded-md bg-foreground px-5 py-2.5 text-[12px] font-bold text-background hover:opacity-90 transition-opacity"
               >
-                Do it now
+                {primaryAction.responseStatus === "accepted" ? "Continue" : "Do it now"}
                 <span className="opacity-60">→</span>
               </Link>
+              {onRespondToRec && primaryAction.responseStatus !== "accepted" && (
+                <button
+                  onClick={() =>
+                    startTransition(async () => {
+                      await onRespondToRec(primaryAction.id, "accepted");
+                      setActionMsg("Accepted — Beacon will track this.");
+                    })
+                  }
+                  disabled={pending}
+                  className="px-3 py-2 rounded-md border border-status-success/30 text-[10px] font-semibold text-status-success hover:bg-status-success/10 transition-colors"
+                >
+                  Accept
+                </button>
+              )}
+              {onRespondToRec && (
+                <>
+                  <button
+                    onClick={() =>
+                      startTransition(async () => {
+                        await onRespondToRec(primaryAction.id, "deferred");
+                        setActionMsg("Deferred for 7 days.");
+                      })
+                    }
+                    disabled={pending}
+                    className="px-3 py-2 rounded-md border border-border text-[10px] font-medium text-muted-foreground hover:bg-surface-inset transition-colors"
+                  >
+                    Not now
+                  </button>
+                  <button
+                    onClick={() =>
+                      startTransition(async () => {
+                        await onRespondToRec(primaryAction.id, "dismissed");
+                        setActionMsg("Dismissed — won't show again.");
+                      })
+                    }
+                    disabled={pending}
+                    className="px-3 py-2 rounded-md border border-border text-[10px] font-medium text-muted-foreground/60 hover:bg-surface-inset transition-colors"
+                  >
+                    Dismiss
+                  </button>
+                </>
+              )}
+              {primaryAction.responseStatus === "accepted" && (
+                <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-status-success">
+                  <span className="h-1.5 w-1.5 rounded-full bg-status-success" />
+                  Accepted
+                </span>
+              )}
               <span className="text-[10px] text-muted-foreground">
                 {primaryAction.sourceEvidence}
               </span>
@@ -534,7 +592,7 @@ export function TodayClient({
 
       {/* Other opportunities — collapsible secondary recommendations */}
       {recommendedMoves.length > 0 && (
-        <SecondaryOpportunities moves={recommendedMoves} />
+        <SecondaryOpportunities moves={recommendedMoves} onRespond={onRespondToRec} />
       )}
 
       {/* Work queue */}
@@ -766,8 +824,18 @@ export function TodayClient({
   );
 }
 
-function SecondaryOpportunities({ moves }: { moves: TodayRecommendation[] }) {
+function SecondaryOpportunities({
+  moves,
+  onRespond,
+}: {
+  moves: TodayRecommendation[];
+  onRespond?: (
+    recId: string,
+    status: "accepted" | "dismissed" | "deferred",
+  ) => Promise<{ success: boolean }>;
+}) {
   const [open, setOpen] = useState(false);
+  const [, startT] = useTransition();
 
   return (
     <div>
@@ -785,42 +853,71 @@ function SecondaryOpportunities({ moves }: { moves: TodayRecommendation[] }) {
           {moves.map((rec) => {
             const accent = REC_ACCENT[rec.type] ?? REC_ACCENT.replicate;
             return (
-              <Link
+              <div
                 key={rec.id}
-                href={rec.href}
                 className={cn(
-                  "block rounded-lg border px-4 py-3 hover:bg-surface-inset/50 transition-colors",
+                  "rounded-lg border px-4 py-3 transition-colors",
                   accent.border,
                   accent.bg,
                 )}
               >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2 mb-0.5">
-                      <span className={cn("h-1.5 w-1.5 rounded-full shrink-0", accent.dot)} />
-                      <span className="text-[12px] font-medium truncate">
-                        {rec.headline}
+                <Link href={rec.href} className="block hover:opacity-80 transition-opacity">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 mb-0.5">
+                        <span className={cn("h-1.5 w-1.5 rounded-full shrink-0", accent.dot)} />
+                        <span className="text-[12px] font-medium truncate">
+                          {rec.headline}
+                        </span>
+                        {rec.responseStatus === "accepted" && (
+                          <span className="inline-flex items-center gap-1 text-[9px] font-semibold text-status-success">
+                            <span className="h-1 w-1 rounded-full bg-status-success" />
+                            Accepted
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-muted-foreground line-clamp-2 leading-relaxed">
+                        {rec.rationale}
+                      </p>
+                    </div>
+                    <div className="flex flex-col items-end gap-1 shrink-0">
+                      <span className={cn(
+                        "text-[9px] font-semibold uppercase tracking-wider",
+                        rec.confidence === "high" ? "text-status-success"
+                          : rec.confidence === "medium" ? "text-status-warning"
+                          : "text-muted-foreground",
+                      )}>
+                        {rec.confidence}
+                      </span>
+                      <span className="text-[9px] text-muted-foreground">
+                        {accent.label}
                       </span>
                     </div>
-                    <p className="text-[11px] text-muted-foreground line-clamp-2 leading-relaxed">
-                      {rec.rationale}
-                    </p>
                   </div>
-                  <div className="flex flex-col items-end gap-1 shrink-0">
-                    <span className={cn(
-                      "text-[9px] font-semibold uppercase tracking-wider",
-                      rec.confidence === "high" ? "text-status-success"
-                        : rec.confidence === "medium" ? "text-status-warning"
-                        : "text-muted-foreground",
-                    )}>
-                      {rec.confidence}
-                    </span>
-                    <span className="text-[9px] text-muted-foreground">
-                      {accent.label}
-                    </span>
+                </Link>
+                {onRespond && rec.responseStatus !== "accepted" && (
+                  <div className="flex items-center gap-2 mt-2 pt-2 border-t border-border/40">
+                    <button
+                      onClick={() => startT(async () => { await onRespond(rec.id, "accepted"); })}
+                      className="px-2 py-1 rounded border border-status-success/30 text-[9px] font-semibold text-status-success hover:bg-status-success/10 transition-colors"
+                    >
+                      Accept
+                    </button>
+                    <button
+                      onClick={() => startT(async () => { await onRespond(rec.id, "deferred"); })}
+                      className="px-2 py-1 rounded border border-border text-[9px] font-medium text-muted-foreground hover:bg-surface-inset transition-colors"
+                    >
+                      Not now
+                    </button>
+                    <button
+                      onClick={() => startT(async () => { await onRespond(rec.id, "dismissed"); })}
+                      className="px-2 py-1 rounded border border-border text-[9px] font-medium text-muted-foreground/60 hover:bg-surface-inset transition-colors"
+                    >
+                      Dismiss
+                    </button>
                   </div>
-                </div>
-              </Link>
+                )}
+              </div>
             );
           })}
         </div>

@@ -128,6 +128,16 @@ Shipped:
 
 ---
 
+## Phase 13 — Recommendation Response — COMPLETE (2026-04-09)
+
+Shipped:
+- **`src/domains/product/recommendation-response-store.ts`** — new persistence store for explicit operator responses (accept/dismiss/defer) to recommendations
+- **`src/app/(shell)/recommendation-actions.ts`** — server action `respondToRecommendation(recId, status)`
+- **Today page**: dismissed recs filtered before ranking; deferred recs suppressed for 7 days; Accept/Not now/Dismiss buttons on primary action + secondary opportunities; accepted status badge displayed
+- No changes to recommendation engine, priority engine, recommendation tracker, or attribution scoring.
+
+---
+
 ## Proposed next (pick one track)
 
 ### A — Topic-similarity recommendations
@@ -138,8 +148,9 @@ Shipped:
 - Replace Profound import with direct Perplexity API sampling
 - Fresh data = better attribution = better recommendations = better track records
 
-### C — Recommendation acceptance UI
-- Accept/dismiss/defer per recommendation on Today → feeds into track record confidence
+### C — Track record deterministic enhancement
+- Feed explicit acceptance signals from recommendation-response-store into recommendation-tracker to produce higher-confidence track record entries
+- Explicitly accepted + later validated = stronger pattern reinforcement than retroactive matching alone
 
 ### D — Persistence / infra
 - Items in `master_execution_plan.md` post-Phase 3E backlog

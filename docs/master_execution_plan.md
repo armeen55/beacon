@@ -79,6 +79,7 @@
 | `pattern-evidence` | Pattern evidence | `domains/pages/issues.ts` |
 | `rollout-waves` | Wave planner | `domains/pages/wave-planner.ts` |
 | `outcome-observations` | Outcome watch | `domains/pages/outcome-watch.ts` |
+| `recommendation-responses` | Rec accept/dismiss/defer | `domains/product/recommendation-response-store.ts` |
 | `competitor-universe` | Competitor config | read via `readDotDataJson` in `universe-read.ts` |
 
 ### Cold stores (`.data/` non-json-store paths)
@@ -1399,5 +1400,39 @@ No code changes needed. No database changes needed. No data loss.
 - Today page unchanged
 - Change detail page unchanged
 - No new modules, no new types beyond `ChangeIntelEntry`, no new stores
+
+**Validation:** `npm run check` — pass.
+
+### Phase 13 — Recommendation Response (COMPLETE)
+
+**Scope:** Explicit operator response to recommendations — accept, dismiss, defer. Persisted via json-store. Dismissed recs filtered from future display. Deferred recs suppressed for 7 days. Accepted recs shown with status badge.
+
+**New module:**
+- `src/domains/product/recommendation-response-store.ts` — `RecommendationResponse` type, `readStore`/`writeStore`, `recordResponse()`, `isRecSuppressed()`, `getResponse()`
+- Store name: `recommendation-responses` (`.data/recommendation-responses.json`)
+
+**New server action:**
+- `src/app/(shell)/recommendation-actions.ts` — `respondToRecommendation(recId, status)` — records response, persists, revalidates
+
+**Types:**
+- `RecommendationResponseStatus`: `"accepted" | "dismissed" | "deferred"`
+- `RecommendationResponse`: `{ recId, status, respondedAt, deferUntil }`
+
+**Today page changes:**
+- `page.tsx` (server): imports response store, filters recommendations via `isRecSuppressed()` before `rankAndSelect()`, adds `id` and `responseStatus` to serialized primary action and secondary recs, passes `onRespondToRec` to client
+- `today-client.tsx`: new `RecResponseStatus` type, `onRespondToRec` prop, Accept/Not now/Dismiss buttons on primary action and secondary opportunities, "Accepted" badge shown on accepted recs
+
+**Response behavior:**
+- **Accept**: recommendation stays visible with "Accepted" badge, buttons removed
+- **Dismiss**: recommendation removed from display on next load (filtered before ranking)
+- **Not now (defer)**: recommendation suppressed for 7 days, then re-emerges
+
+**What was NOT touched:**
+- Recommendation engine logic unchanged
+- Priority engine scoring unchanged
+- Recommendation tracker retroactive matching unchanged
+- Attribution scoring unchanged
+- Changes list / Changes detail pages unchanged
+- No Supabase schema changes
 
 **Validation:** `npm run check` — pass.

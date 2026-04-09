@@ -34,6 +34,11 @@ import { buildTodaySummary, type TodayNextMove } from "@/lib/today-summary";
 import { computeRecommendations } from "@/domains/product/recommendation-engine";
 import { rankAndSelect } from "@/domains/product/priority-engine";
 import { computeTrackRecord } from "@/domains/product/recommendation-tracker";
+import {
+  isRecSuppressed,
+  getResponse,
+} from "@/domains/product/recommendation-response-store";
+import { respondToRecommendation } from "./recommendation-actions";
 import { latestWebsiteCrawlRun } from "@/domains/observations/read";
 import { primaryVisibilityRunForResults } from "@/domains/observations/visibility-context";
 import { loadCompetitorUniverseRuntime } from "@/domains/competitors/universe-read";
@@ -302,11 +307,16 @@ export default function TodayPage() {
     });
   }
 
-  const recommendations = computeRecommendations({
+  const allRecommendations = computeRecommendations({
     impactRows,
     patterns,
     briefs: playbookBriefs,
   });
+
+  // Filter out dismissed / deferred-but-not-due recommendations
+  const recommendations = allRecommendations.filter(
+    (r) => !isRecSuppressed(r.id),
+  );
 
   const briefPatternCounts = new Map<string, number>();
   for (const b of playbookBriefs) {
@@ -343,6 +353,7 @@ export default function TodayPage() {
 
   const serializedPrimary = primaryAction
     ? {
+        id: primaryAction.id,
         headline: primaryAction.headline,
         rationale: primaryAction.rationale,
         expectedOutcome: primaryAction.expectedOutcome,
@@ -352,6 +363,7 @@ export default function TodayPage() {
         type: primaryAction.type,
         confidence: primaryAction.confidence,
         href: recHref(primaryAction),
+        responseStatus: getResponse(primaryAction.id)?.status ?? null,
       }
     : null;
 
@@ -364,6 +376,7 @@ export default function TodayPage() {
     confidence: r.confidence,
     sourceChangeId: r.sourceChangeId,
     href: recHref(r),
+    responseStatus: getResponse(r.id)?.status ?? null,
   }));
 
   const proposedWaves = planWaves(
@@ -539,6 +552,7 @@ export default function TodayPage() {
           ) => Promise<{ success: boolean }>
         }
         onVerifyIssue={verifyAndUpdateIssue}
+        onRespondToRec={respondToRecommendation}
       />
 
       {enrichedItems.length === 0 && (

@@ -277,3 +277,35 @@
 ### Build verification (Phase 12)
 - `npm run check` — pass (tsc --noEmit clean)
 - Lints: clean on both modified files
+
+---
+
+## 2026-04-09 — Phase 13: Recommendation Response
+
+### What shipped
+- **`src/domains/product/recommendation-response-store.ts`** — new json-store persistence for operator responses to recommendations
+  - Types: `RecommendationResponse`, `RecommendationResponseStatus` (accepted/dismissed/deferred)
+  - `recordResponse()`: upserts response, sets 7-day deferUntil for deferred
+  - `isRecSuppressed()`: returns true for dismissed or not-yet-due deferred
+  - `getResponse()`: lookup by recId
+- **`src/app/(shell)/recommendation-actions.ts`** — server action `respondToRecommendation(recId, status)`
+- **Today page** (`page.tsx`): filters suppressed recs before `rankAndSelect`; adds `id` + `responseStatus` to serialized primary action and secondary recs; passes `onRespondToRec` callback to client
+- **Today client** (`today-client.tsx`): Accept/Not now/Dismiss buttons on primary action; Accept/Not now/Dismiss buttons on secondary opportunities; "Accepted" badge; action message feedback
+
+### What was NOT touched
+- Recommendation engine: unchanged
+- Priority engine scoring: unchanged
+- Recommendation tracker retroactive matching: unchanged
+- Attribution scoring: unchanged
+- Changes list page: unchanged
+- Change detail page: unchanged
+- No Supabase schema changes
+
+### Constraints honored
+- One new json-store (`recommendation-responses`) — minimal persistence, follows existing pattern
+- All response logic is additive; no existing behavior modified
+- Dismissed/deferred filtering happens before ranking, not inside the engine
+
+### Build verification (Phase 13)
+- `npm run check` — pass (tsc --noEmit clean)
+- Lints: clean on all 4 modified/new files

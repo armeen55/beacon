@@ -64,7 +64,7 @@ This prevents artificial inflation. A pattern with 3 attributed events out of 10
 ## Navigation (pilot spine)
 
 Default loop:
-- **Today** — observation strip + **DO THIS NOW** (Priority Engine: single highest-leverage action with 0-100 score, bucket, expected outcome, pattern track record weighting) + **Beacon track record** line + **change impact signals** + **other opportunities** (collapsed) + work queue
+- **Today** — observation strip + **DO THIS NOW** (Priority Engine: single highest-leverage action with 0-100 score, bucket, expected outcome, pattern track record weighting) + Accept/Not now/Dismiss response buttons (Phase 13) + **Beacon track record** line + **change impact signals** + **other opportunities** (collapsed, with per-rec response buttons) + work queue
 - **Your Website** — execution workbench
 - **Gap ledger** (`/topics`) — typed gaps
 

@@ -48,6 +48,7 @@ Working branch: `work/attribution-precision-20260407`
 | **Change detail actions** | **WIRED (Phase 10)** | `/changes/[id]` runs recommendation engine; "Apply this pattern" (replicate recs) + "Strengthen this entry" (evidence nudges) surfaced inline on the detail page |
 | **Recommendation tracker** | **WIRED (Phase 11)** | `computeTrackRecord`: retroactive matching of changes to recommendation patterns; per-pattern success rate feeds into priority engine scoring (+10/-5); "Beacon recommended" badge on `/changes/[id]`; track record summary on Today |
 | **Changes list intelligence** | **WIRED (Phase 12)** | `/changes` scorecard: "Beacon" badge + "N replicable" badge per row; "Beacon recommended" toggle filter; "Impact" sortable column; impact snapshot strip shows Beacon-recommended count + total replication targets |
+| **Recommendation response** | **WIRED (Phase 13)** | `recommendation-response-store.ts`: explicit accept/dismiss/defer per recommendation; dismissed filtered before ranking; deferred suppressed 7 days; Today page shows Accept/Not now/Dismiss buttons on primary action + secondary opportunities; "Accepted" badge |
 
 ## Score Distribution (baseline — pre-pruning)
 
