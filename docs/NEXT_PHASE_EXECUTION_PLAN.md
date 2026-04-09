@@ -30,23 +30,36 @@ See VERIFICATION_LOG.md for full before/after table.
 - `src/app/(shell)/results/[id]/page.tsx` — pass evidence tier to MatchFactors
 - `scripts/score-snapshot.ts` — page registry, citation evidence metrics
 
-## Immediate Next: Phase 5 — Change Scorecard Foundation
+## Phase 5 — Change Impact Engine — COMPLETE (2026-04-09)
 
-### Prerequisites (met)
-- Attribution precision at 29% auto-resolve (up from 13%)
-- Evidence tiers flowing through scoring
-- Citation evidence integrated
-- Review queue operational
+Shipped:
+- `src/domains/attribution/change-impact.ts` — impact confidence (high/medium/low), direction (positive/negative/mixed/none), **why** explanation, **next action** per change
+- Types: `ChangeImpact`, `ImpactConfidence`, `ImpactDirection`; `ChangeVerdict` includes `negative` (for future decline wiring)
+- `/changes` + `/changes/[id]` — operator-facing impact UI (summary strip, badges, “What to do” column, detail assessment block)
+- Builds on existing `computeScorecard` — no persistence or attribution scoring changes
 
-### What to build
-- Per-change impact summary: which events followed, which platform/topic moved
-- Confidence level per change
-- Verdict: validated / partial / inconclusive / no_impact / too_early
-- Start from `ChangeVerdictData` type (already exists in attribution/types.ts)
-- Do not over-design — start with data model and operator need
+---
 
-### Remaining precision opportunities (before scorecard)
-- URL matching: still 100% unknown — would need URL normalization + page registry lookup
-- 15 citation-supported but no-topic candidates — changelog quality improvement
-- Page discovery (discover.ts) runs as batch — could feed richer page context
-- 0 opportunities in data → opportunity clustering inactive
+## Proposed next (pick one track)
+
+### A — Verdict quality + measurement honesty
+- Detect **decline / regression** outcome events (or use result deltas) so `negative` verdict and direction are data-backed, not only type-level
+- **URL normalization** + page registry lookup → lift `url` match from unknown
+- Changelog quality playbook (the 15 citation-supported + no-topic cases)
+
+### B — Opportunity → Change recommendations
+- When `opportunities` data exists, surface “do this change next” from gap ledger / frontier output tied to attribution patterns
+
+### C — Persistence / infra (only when intentional)
+- Items in `master_execution_plan.md` → **Post–Phase 3E backlog** (topics freshness, import-orchestrator policy, supplementary Postgres, etc.)
+
+### D — Product depth on Changes
+- Sort/filter by impact confidence; export or “top 5 actions this week” strip for operators
+
+---
+
+### Historical: remaining precision opportunities (still true)
+- URL matching: still largely unknown without normalization + registry
+- 15 citation-supported but no-topic candidates — changelog quality
+- Page discovery (discover.ts) batch context could feed richer signals
+- 0 opportunities in imported data → opportunity clustering inactive

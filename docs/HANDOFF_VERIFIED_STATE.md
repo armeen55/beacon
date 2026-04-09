@@ -1,7 +1,9 @@
-# Beacon Verified State — 2026-04-07
+# Beacon Verified State — 2026-04-07 (attribution); product update 2026-04-09 (Phase 5)
 
 Checkpoint: `beacon-handoff-20260407-1900` on branch `checkpoint/beacon-new-chat-reset-20260407-1900`
 Working branch: `work/attribution-precision-20260407`
+
+**Phase 5 (2026-04-09):** Change Impact Engine shipped — see `src/domains/attribution/change-impact.ts`, `/changes`, `/changes/[id]`. Counts below are from the 2026-04-07 handoff snapshot unless you re-run diagnostics.
 
 ## Entity Counts (imported data)
 
@@ -36,6 +38,8 @@ Working branch: `work/attribution-precision-20260407`
 | Citation topic bonus | WIRED | +12 bonus for content-matching candidates on cited pages |
 | Page discovery | EXISTS, NOT LIVE | discover.ts, classify.ts — batch-built, not live consumers |
 | Evidence tier in UI | WIRED | Displayed in MatchFactors across review queue, attribution card, results |
+| **Change impact engine** | **WIRED (Phase 5)** | `change-impact.ts`: per-change impact confidence, direction, why, next action; UI on `/changes` and `/changes/[id]` |
+| Scorecard → impact | WIRED | `computeScorecard` unchanged; `enrichWithImpact` layers on top |
 
 ## Score Distribution (baseline — pre-pruning)
 

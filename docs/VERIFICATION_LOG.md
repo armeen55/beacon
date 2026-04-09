@@ -105,3 +105,18 @@
 - TypeScript: no errors
 - All pages compile and generate successfully
 - `score-snapshot.ts` runs successfully with page registry and citation evidence
+
+---
+
+## 2026-04-09 — Phase 5: Change Impact Engine
+
+### What shipped
+- **`src/domains/attribution/change-impact.ts`** — derives per-change **impact confidence** (high/medium/low), **direction** (positive/negative/mixed/none from outcome event mention context), **why** (multi-sentence explanation), **next action** (operator recommendation) from existing `ScorecardRow` data
+- **Types** — `ChangeImpact`, `ImpactConfidence`, `ImpactDirection`; `ChangeVerdict` extended with `negative` (badge + filters; scorecard does not yet emit it until decline events exist)
+- **UI** — `/changes`: impact snapshot strip, confidence badge, “What to do” column; `/changes/[id]`: Impact assessment section
+
+### Constraints honored
+- No persistence or schema changes; no changes to attribution scoring weights or `computeScorecard` verdict logic
+
+### Build verification (Phase 5)
+- `npm run check`, `npm run test`, `npm run data:parity` — pass; 17/17 routes build

@@ -68,7 +68,7 @@ Default loop:
 - **Gap ledger** (`/topics`) — typed gaps
 
 Work:
-- **Changes** — log + verification
+- **Changes** — log + verification + **change impact** (`computeScorecard` → `enrichWithImpact` in `change-impact.ts`: confidence, direction, why, next action on `/changes` and `/changes/[id]`)
 
 Advanced:
 - **Review** — hypothesis locks (attribution bookkeeping)

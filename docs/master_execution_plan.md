@@ -280,8 +280,8 @@ A trust-first AI visibility operating system for builder/home-services businesse
 | **Your Website** | `/pages` | Execution workbench. Page list + issue tracking + verify actions | Page snapshots, issues, guardrails, render checks, frontier context |
 | **Gap ledger** | `/topics` | Typed opportunity gaps. Frontier list + detail drilldown | Frontier planner, compiler, citation index, competitor evidence |
 | **Gap detail** | `/topics/opportunity/[id]` | Single frontier detail with attack package + provenance | Frontier compiler, citation evidence, pages, competitor universe |
-| **Changes** | `/changes` | Change log + contract list | Change contracts, changelog entries, scorecard |
-| **Change detail** | `/changes/[id]` | Single change with contract, scorecard verdict, evidence | Change contract, scorecard, event attributions |
+| **Changes** | `/changes` | Change log + contracts + **impact table** (verdict, confidence, next action) | Change contracts, `computeScorecard`, `enrichWithImpact` |
+| **Change detail** | `/changes/[id]` | Single change: verdict + **impact assessment** (why, direction, what to do next) + event attributions | Scorecard row, `change-impact.ts`, event attributions |
 | **Review** | `/review` | Attribution decisions queue. Lock/reject/confirm per event | Events, candidates, triage, decisions |
 | **Sample history** | `/results` | Imported result rows with visibility run context | Results, visibility observation runs |
 | **Result detail** | `/results/[id]` | Single result with event linkage + match factors | Results, candidates, attributions |
@@ -1195,6 +1195,25 @@ No code changes needed. No database changes needed. No data loss.
 **Validation:** `npm run check`, `npm run test`, `npm run data:parity` — **15/15** parity unchanged.
 
 **Status:** **Persistence layer work for this track is complete.** Further changes = new features or schema design, not stabilization.
+
+---
+
+### Phase 5 — Change Impact Engine (COMPLETE)
+
+**Scope:** First product layer on top of attribution — turn per-change scorecard rows into **confidence**, **direction**, **human “why”**, and **next action** (no persistence changes, no scoring redesign).
+
+**Code:**
+- `src/domains/attribution/change-impact.ts` — `computeChangeImpact`, `enrichWithImpact`; uses existing `ScorecardRow` from `scorecard.ts`
+- `src/domains/attribution/types.ts` — `ImpactConfidence`, `ImpactDirection`, `ChangeImpact`; `ChangeVerdict` extended with `negative` (reserved for future decline-aware paths; scorecard today does not assign it)
+
+**UI:**
+- `/changes` — impact summary strip, confidence badge beside verdict, **What to do** column, table open by default
+- `/changes/[id]` — **Impact assessment** block (confidence, direction, why, next action)
+- `change-verdict-badge.tsx` — label for `negative` verdict
+
+**Validation:** `npm run check`, `npm run test`, `npm run data:parity` — unchanged expectations (15/15).
+
+**Follow-ups (proposed):** wire decline/regression into events so `negative` + direction align with real drops; optional URL normalization for topic/url match lift; opportunity → change recommendations.
 
 ---
 
