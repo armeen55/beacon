@@ -1,4 +1,5 @@
 import { readDotDataJson } from "@/lib/persistence/dotdata-json";
+import { getRepository } from "@/lib/persistence/repositories";
 import type { ObservationRun } from "./types";
 
 /**
@@ -27,27 +28,35 @@ function fromScanRunLegacy(row: {
   };
 }
 
+const repo = getRepository();
+const _repoRuns = await repo.getObservationRuns();
+
+// Filter to valid ObservationRun rows (file backend may return ProfoundImportRun data
+// from observation-runs.json which lacks `run_type`).
+const _validRuns = _repoRuns.filter(
+  (r) => typeof r === "object" && "run_type" in r,
+);
+
+function sortByCompleted(runs: ObservationRun[]): ObservationRun[] {
+  return [...runs].sort(
+    (a, b) =>
+      new Date(b.completed_at).getTime() - new Date(a.completed_at).getTime(),
+  );
+}
+
 /**
- * All observation runs, newest first. Prefers `observation-runs.json`, falls back to `scan-runs.json`.
+ * All observation runs, newest first.
+ * Uses repository data when valid rows exist; falls back to scan-runs.json (legacy).
  */
 export function listObservationRuns(): ObservationRun[] {
-  const primary = readDotDataJson<ObservationRun[]>("observation-runs");
-  if (primary?.length) {
-    return [...primary].sort(
-      (a, b) =>
-        new Date(b.completed_at).getTime() - new Date(a.completed_at).getTime()
-    );
+  if (_validRuns.length > 0) {
+    return sortByCompleted(_validRuns);
   }
   const legacy = readDotDataJson<Parameters<typeof fromScanRunLegacy>[0][]>(
     "scan-runs"
   );
   if (!legacy?.length) return [];
-  return [...legacy]
-    .sort(
-      (a, b) =>
-        new Date(b.completed_at).getTime() - new Date(a.completed_at).getTime()
-    )
-    .map(fromScanRunLegacy);
+  return sortByCompleted(legacy.map(fromScanRunLegacy));
 }
 
 /** Website crawls only — excludes `website_verify` and non-crawl run types. */

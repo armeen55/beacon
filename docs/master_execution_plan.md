@@ -2,7 +2,7 @@
 
 > Living document. Single source of truth for implementation sequence.
 > Updated: 2026-04-09
-> Current phase: **Phase 1D — COMPLETE — repository layer extended, remaining consumers wired**
+> Current phase: **Phase 1E — COMPLETE — all 15 route-critical stores wired through repository**
 >
 > Phase 0 — COMPLETE (commit `74605b1`)
 > Phase 0.5 — COMPLETE — audit locked minimum Phase 1 scope (15 stores → 12 tables)
@@ -10,6 +10,7 @@
 > Phase 1B — COMPLETE — repositories, seed-data wiring, backfill, validation
 > Phase 1C — COMPLETE — 10 remaining tables created + applied via MCP + full backfill verified
 > Phase 1D — COMPLETE — repository wiring for attribution, issues, contracts + key mapper
+> Phase 1E — COMPLETE — remaining 6 stores wired via centralized modules + route rewires
 
 ---
 
@@ -892,22 +893,64 @@ Repository layer must map between naming conventions when these consumers are wi
 - truthLabels, rolloutExecutions, patternEvidence (route-supporting, deferred)
 - Scoring logic, crawl pipeline, Inngest, visibility sampling
 
-### What Phase 1E should do next
+### Phase 1E — COMPLETE — remaining 6 stores wired via centralized modules
 
-**Remaining route-critical stores not yet wired through repository (6 stores):**
-These are read via `readDotDataJson()` or `readStore()` calls scattered in route pages — not centralized in a single store module. Wiring them requires either creating centralized data modules or modifying route pages directly.
+**Scope:** Wired the 6 remaining route-critical stores through the repository layer using thin centralized access modules, then rewired route page imports.
 
-1. `readStore("pages")` — used in Today page, /pages, candidates.ts
-2. `readDotDataJson("page-snapshots")` — used in Today, /pages, Topics
-3. `readDotDataJson("page-guardrails")` — used in Today, /pages
-4. `readDotDataJson("citation-evidence-index")` — used in Today, /pages, Results, Topics, visibility-read.ts
-5. observation-runs — observations/read.ts → Today, /pages, Topics, Results
-6. competitor-universe — universe-read.ts → Today, Topics, Results, Competitors
+**Stores wired (6 total):**
+| Store file | TS type | DB table | Access pattern |
+|---|---|---|---|
+| pages | PageEntity | pages | Module-cached (readStore) |
+| page-snapshots | PageSnapshot | page_snapshots | Module-cached (readDotDataJson) |
+| page-guardrails | GuardrailAlert | guardrail_alerts | Module-cached (readDotDataJson) |
+| citation-evidence-index | CitationEvidenceIndex | citation_evidence_index | Module-cached (document) |
+| observation-runs | ObservationRun | observation_runs | Module-cached + shape validation + legacy fallback |
+| competitor-universe | ConfiguredCompetitorEntry | competitor_config | Conditional: supabase=repo, file=readDotDataJson (pin metadata) |
 
-**Recommended approach:** Create thin centralized data-access modules for each, then update route-page imports. This touches more files but keeps the same repository pattern.
+**New centralized modules created (4):**
+- `src/domains/pages/page-store.ts` — exports `allPages`
+- `src/domains/pages/snapshot-store.ts` — exports `pageSnapshots`
+- `src/domains/pages/guardrail-store.ts` — exports `guardrailAlerts`
+- `src/domains/pages/citation-evidence-store.ts` — exports `citationEvidenceIndex`
 
-**After Phase 1E:**
-- All 15 route-critical stores reading through repository
-- Dual-write for import actions (Phase 1F)
-- End-to-end validation comparing file vs supabase mode (Phase 1G)
-- Progressive cutover (Phase 2)
+**Existing modules modified (2):**
+- `src/domains/observations/read.ts` — uses repo data with shape validation filter (drops ProfoundImportRun rows), keeps scan-runs.json legacy fallback
+- `src/domains/competitors/universe-read.ts` — supabase mode queries competitor_config + reconstructs pin; file mode uses existing readDotDataJson→parseUniverseFile path unchanged
+
+**Route pages rewired (4):**
+- `src/app/(shell)/page.tsx` (Today) — pages, snapshots, guardrails, citation-evidence
+- `src/app/(shell)/pages/page.tsx` — pages, snapshots, guardrails, citation-evidence
+- `src/app/(shell)/topics/page.tsx` — snapshots, citation-evidence
+- `src/app/(shell)/results/page.tsx` — citation-evidence
+
+**Domain consumers rewired (1):**
+- `src/domains/attribution/candidates.ts` — pages (allPages import replaces readStore)
+
+**Repository additions (6 getters):**
+- `getPages()`, `getPageSnapshots()`, `getGuardrailAlerts()`, `getCitationEvidenceIndex()`, `getObservationRuns()`, `getCompetitorConfigEntries()`
+
+**Total repository getters: 15** — covers all route-critical stores.
+
+**Validation:**
+- typecheck ✓, lint ✓ (0 errors), build ✓ (17/17 pages), tests ✓ (26/26)
+- DB row counts: pages=5288 ✓, page_snapshots=35 ✓, guardrail_alerts=6 ✓, citation_evidence_index=1 ✓, competitor_config=5 ✓
+- observation_runs=0 in DB (expected: file has ProfoundImportRun data, DB was not backfilled for this file)
+
+**What was NOT touched:**
+- `import/actions.ts` — keeps readDotDataJson for citation-evidence-index (runtime write-path needs fresh data)
+- `visibility-read.ts` — keeps readDotDataJson for citation-evidence-index and visibility-observation-runs
+- Scripts (scan-owned-pages.ts, score-snapshot.ts) — keep using readStore directly (CLI context)
+- Persist/write functions (all remain file-backed)
+- truthLabels, rolloutExecutions, patternEvidence (non-route-critical, deferred)
+- page-snapshot-diffs, render-checks (not in Phase 0.5 scope)
+- Server action in topics/page.tsx (runtime fresh-read via dynamic import, left as-is)
+
+### Milestone: All 15 route-critical stores now read through the repository layer
+
+The `SeedDataRepository` interface has 15 getters covering all stores identified in the Phase 0.5 audit. Both file and Supabase backends implement all 15. `DATA_SOURCE=file` remains the default. `DATA_SOURCE=supabase` is viable for reads across the full route-critical slice.
+
+### What Phase 1F should do next
+
+1. **Dual-write for import actions** — when importing results/changes/etc, write to both file and DB
+2. **End-to-end mode comparison** — script to compare file vs supabase reads for all 15 stores
+3. **After Phase 1F:** progressive cutover, default to supabase, deprecate file reads (Phase 2)

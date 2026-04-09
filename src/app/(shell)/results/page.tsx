@@ -19,8 +19,7 @@ import { primaryVisibilityRunForResults } from "@/domains/observations/visibilit
 import { loadCompetitorUniverseRuntime } from "@/domains/competitors/universe-read";
 import { buildResultsCompetitorUniverseSummary } from "@/domains/competitors/universe-banners";
 import { computeMarketBenchmark } from "@/domains/pages/builder-benchmark";
-import type { CitationEvidenceIndex } from "@/domains/pages/types";
-import { readDotDataJson } from "@/lib/persistence/dotdata-json";
+import { citationEvidenceIndex } from "@/domains/pages/citation-evidence-store";
 import type { PersistedIssue } from "@/domains/pages/issues";
 
 export default function ResultsPage() {
@@ -43,7 +42,7 @@ export default function ResultsPage() {
     visibilitySampleStaleVsCrawl(rollupForStale, crawl?.completed_at ?? null);
 
   const universeRuntime = loadCompetitorUniverseRuntime();
-  const citIdx = readDotDataJson<CitationEvidenceIndex>("citation-evidence-index");
+  const citIdx = citationEvidenceIndex;
   const competitorUniverseSummary =
     citIdx && citIdx.by_topic?.length
       ? buildResultsCompetitorUniverseSummary(

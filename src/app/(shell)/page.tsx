@@ -10,9 +10,10 @@ import { detectOutcomeEvents } from "@/domains/attribution/events";
 import { discoverCandidates } from "@/domains/attribution/candidates";
 import { triageCandidates } from "@/domains/attribution/triage";
 import { partitionResultsByMode } from "@/domains/attribution/result-mode";
-import type { GuardrailAlert } from "@/domains/pages/guardrails";
-import type { PageEntity, PageSnapshot } from "@/domains/pages/types";
-import { readStore } from "@/lib/persistence/json-store";
+import { allPages } from "@/domains/pages/page-store";
+import { pageSnapshots } from "@/domains/pages/snapshot-store";
+import { guardrailAlerts } from "@/domains/pages/guardrail-store";
+import { citationEvidenceIndex } from "@/domains/pages/citation-evidence-store";
 import {
   pageIssues,
   rolloutExecutions,
@@ -25,11 +26,9 @@ import {
   computeWaveProgress,
   deriveWaveStatus,
 } from "@/domains/pages/wave-planner";
-import type { CitationEvidenceIndex } from "@/domains/pages/types";
 import { TodayClient, type TodayQueueItem } from "./today-client";
 import { updateIssueStatus, verifyAndUpdateIssue } from "./pages/issue-actions";
 import { stripSiteOrigin } from "@/lib/site-config";
-import { readDotDataJson } from "@/lib/persistence/dotdata-json";
 import { buildTodaySummary, type TodayNextMove } from "@/lib/today-summary";
 import { latestWebsiteCrawlRun } from "@/domains/observations/read";
 import { primaryVisibilityRunForResults } from "@/domains/observations/visibility-context";
@@ -71,8 +70,6 @@ export default function TodayPage() {
       easyCalls++;
   }
 
-  const guardrailAlerts =
-    readDotDataJson<GuardrailAlert[]>("page-guardrails") ?? [];
   const warningAlerts = guardrailAlerts.filter(
     (a) =>
       a.severity === "warning" ||
@@ -83,15 +80,14 @@ export default function TodayPage() {
   const activeCrawl = latestWebsiteCrawlRun();
   const activeCrawlId = activeCrawl?.run_id ?? null;
 
-  const pageSnapshots = readDotDataJson<PageSnapshot[]>("page-snapshots") ?? [];
-  const citationIndex2 = readDotDataJson<{
+  const citationIndex2 = citationEvidenceIndex as {
     by_page_and_topic: {
       page_url: string;
       is_owned: boolean;
       total_citations: number;
     }[];
     by_topic: { topic: string }[];
-  }>("citation-evidence-index");
+  } | null;
 
   const citMap = new Map<string, number>();
   if (citationIndex2) {
@@ -121,7 +117,6 @@ export default function TodayPage() {
   );
   const verifiedIssues = pageIssues.filter((i) => i.status === "verified");
 
-  const allPages = readStore<PageEntity>("pages");
   const urlToPageId = new Map<string, string>();
   for (const p of allPages) {
     urlToPageId.set(p.url.replace(/\/+$/, "").toLowerCase(), p.id);
@@ -352,8 +347,7 @@ export default function TodayPage() {
       verificationBindingLegacy: !i.verificationObservationRunId,
     }));
 
-  const citIdx =
-    readDotDataJson<CitationEvidenceIndex>("citation-evidence-index");
+  const citIdx = citationEvidenceIndex;
   const primaryVis = primaryVisibilityRunForResults(results);
   const competitorUniverse = loadCompetitorUniverseRuntime();
   const competitorLine = buildTodayCompetitorLine({

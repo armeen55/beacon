@@ -3,7 +3,6 @@ import {
   changelogEntries,
   opportunities,
 } from "@/lib/seed-data.server";
-import { readStore } from "@/lib/persistence/json-store";
 import { eventDecisions } from "@/domains/attribution/store";
 import {
   computeScorecard,
@@ -17,10 +16,13 @@ import type {
   PageEntity,
   PageSnapshot,
   PageSnapshotDiff,
-  CitationEvidenceIndex,
   CitationPageRollup,
   EvidenceTier,
 } from "@/domains/pages/types";
+import { allPages } from "@/domains/pages/page-store";
+import { pageSnapshots } from "@/domains/pages/snapshot-store";
+import { guardrailAlerts } from "@/domains/pages/guardrail-store";
+import { citationEvidenceIndex } from "@/domains/pages/citation-evidence-store";
 import {
   PagesClient,
   type PageRow,
@@ -30,7 +32,6 @@ import {
   type PageDiffSummary,
 } from "./pages-client";
 import { computePageOpportunityScore } from "@/domains/pages/opportunity-score";
-import type { GuardrailAlert } from "@/domains/pages/guardrails";
 import type { RenderCheckResult } from "@/domains/pages/render-check";
 import { generateFixBrief, type FixBrief } from "@/domains/pages/fix-briefs";
 import { minePatterns, generateBriefs, type PlaybookBrief } from "@/domains/pages/playbook";
@@ -44,6 +45,7 @@ import { updateIssueStatus, verifyAndUpdateIssue, generateHandoffText, convertBr
 import { getSiteConfig } from "@/lib/site-config";
 import { readDotDataJson } from "@/lib/persistence/dotdata-json";
 import { latestWebsiteCrawlRun } from "@/domains/observations/read";
+import type { GuardrailAlert } from "@/domains/pages/guardrails";
 
 function guardrailIssueBasis(
   alert: GuardrailAlert,
@@ -81,13 +83,11 @@ type PageNextMove =
 export default function PagesPage() {
   const siteDomain = getSiteConfig().siteDomain;
   // ── Load data ──
-  const allPages = readStore<PageEntity>("pages");
   const ownedPages = allPages.filter((p) => p.is_owned);
 
-  const citationIndex = readDotDataJson<CitationEvidenceIndex>("citation-evidence-index");
+  const citationIndex = citationEvidenceIndex;
 
   // ── Load page snapshots + diffs ──
-  const pageSnapshots = readDotDataJson<PageSnapshot[]>("page-snapshots") ?? [];
   const pageDiffs = readDotDataJson<PageSnapshotDiff[]>("page-snapshot-diffs") ?? [];
 
   const snapshotByPageId = new Map<string, PageSnapshot>();
@@ -104,7 +104,6 @@ export default function PagesPage() {
   }
 
   // ── Load guardrails + scan runs ──
-  const guardrailAlerts = readDotDataJson<GuardrailAlert[]>("page-guardrails") ?? [];
   const latestObs = latestWebsiteCrawlRun();
 
   const alertsByUrl = new Map<string, GuardrailAlert[]>();

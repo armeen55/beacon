@@ -15,7 +15,7 @@ import { ATTRIBUTION_CONFIG } from "./config";
 import { classifyEvidenceTier } from "@/domains/pages/evidence-tier";
 import { normalizePageUrl } from "@/domains/pages/classify";
 import type { EvidenceTier, PageEntity } from "@/domains/pages/types";
-import { readStore } from "@/lib/persistence/json-store";
+import { allPages } from "@/domains/pages/page-store";
 import { getSiteConfig } from "@/lib/site-config";
 
 // ── Page registry (loaded once for evidence tier verification) ──────
@@ -24,12 +24,7 @@ let _pageRegistry: Map<string, PageEntity> | null = null;
 
 function getPageRegistry(): Map<string, PageEntity> {
   if (!_pageRegistry) {
-    try {
-      const pages = readStore<PageEntity>("pages");
-      _pageRegistry = new Map(pages.map((p) => [p.url, p]));
-    } catch {
-      _pageRegistry = new Map();
-    }
+    _pageRegistry = new Map(allPages.map((p) => [p.url, p]));
   }
   return _pageRegistry;
 }

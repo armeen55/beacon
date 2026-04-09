@@ -15,7 +15,9 @@ import { discoverCandidates } from "@/domains/attribution/candidates";
 import { triageCandidates } from "@/domains/attribution/triage";
 import { partitionResultsByMode } from "@/domains/attribution/result-mode";
 import { TopicsClient, type TopicRow, type TopicEvent, type TopicChange } from "./topics-client";
-import type { PageSnapshot, CitationEvidenceIndex } from "@/domains/pages/types";
+import type { CitationEvidenceIndex, PageSnapshot } from "@/domains/pages/types";
+import { pageSnapshots } from "@/domains/pages/snapshot-store";
+import { citationEvidenceIndex } from "@/domains/pages/citation-evidence-store";
 import { minePatterns, generateBriefs } from "@/domains/pages/playbook";
 import { rolloutExecutions, patternEvidence } from "@/domains/pages/issues";
 import { rolloutWaves } from "@/domains/pages/wave-planner";
@@ -31,7 +33,6 @@ import { refreshCompetitorEvidence } from "./package-actions";
 import { pageIssues } from "@/domains/pages/issues";
 import { launchAttackPackage, updatePackageStatus, updateMissingPageStatus } from "./package-actions";
 import { getSiteConfig } from "@/lib/site-config";
-import { readDotDataJson } from "@/lib/persistence/dotdata-json";
 import { latestWebsiteCrawlRun } from "@/domains/observations/read";
 import { citationRollupVisibilityRun } from "@/domains/observations/visibility-read";
 import { visibilitySampleStaleVsCrawl } from "@/domains/observations/staleness";
@@ -315,9 +316,7 @@ export default function TopicsPage() {
 
   const latestCrawlRun = latestWebsiteCrawlRun();
   const primaryVisForGap = primaryVisibilityRunForResults(results);
-  const citationLedgerForGap = readDotDataJson<CitationEvidenceIndex>(
-    "citation-evidence-index"
-  );
+  const citationLedgerForGap = citationEvidenceIndex;
   const { stale: visibilityStaleVsCrawl } = visibilitySampleStaleVsCrawl(
     citationRollupVisibilityRun(),
     latestCrawlRun?.completed_at ?? null
@@ -377,8 +376,8 @@ export default function TopicsPage() {
         rows={topicRows}
         gapLedgerContext={gapLedgerContext}
         frontiers={(() => {
-        const ci = readDotDataJson<CitationEvidenceIndex>("citation-evidence-index");
-        const snaps = readDotDataJson<PageSnapshot[]>("page-snapshots") ?? [];
+        const ci = citationEvidenceIndex;
+        const snaps = pageSnapshots;
         if (!ci) return [];
         const citMap = new Map<string, number>();
         for (const r of ci.by_page_and_topic) {
