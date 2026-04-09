@@ -20,6 +20,17 @@ export type TodayImpactItem = {
   href: string;
 };
 
+export type TodayRecommendation = {
+  id: string;
+  type: "replicate" | "strengthen" | "investigate";
+  headline: string;
+  rationale: string;
+  sourceEvidence: string;
+  confidence: "high" | "medium" | "low";
+  sourceChangeId: string | null;
+  href: string;
+};
+
 export type TodayQueueItem = {
   id: string;
   group: "fix" | "ship" | "frontier" | "verify" | "review" | "waiting" | "wins";
@@ -54,16 +65,24 @@ function formatScanTime(iso: string | null): string {
   });
 }
 
+const REC_ACCENT: Record<string, { border: string; bg: string; dot: string; label: string }> = {
+  replicate: { border: "border-status-success/30", bg: "bg-status-success/5", dot: "bg-status-success", label: "Proven pattern" },
+  strengthen: { border: "border-status-warning/30", bg: "bg-status-warning/5", dot: "bg-status-warning", label: "Strengthen evidence" },
+  investigate: { border: "border-status-danger/30", bg: "bg-status-danger/5", dot: "bg-status-danger", label: "Investigate" },
+};
+
 export function TodayClient({
   summary,
   items,
   impactSignals = [],
+  recommendedMoves = [],
   onUpdateIssue,
   onVerifyIssue,
 }: {
   summary: TodaySummary;
   items: TodayQueueItem[];
   impactSignals?: TodayImpactItem[];
+  recommendedMoves?: TodayRecommendation[];
   onUpdateIssue?: (
     issueId: string,
     status: string,
@@ -417,6 +436,63 @@ export function TodayClient({
             >
               All changes →
             </Link>
+          </div>
+        </div>
+      )}
+
+      {/* Recommended moves from Recommendation Engine */}
+      {recommendedMoves.length > 0 && (
+        <div>
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+            Recommended moves ({recommendedMoves.length})
+          </p>
+          <div className="space-y-2">
+            {recommendedMoves.map((rec) => {
+              const accent = REC_ACCENT[rec.type] ?? REC_ACCENT.replicate;
+              return (
+                <Link
+                  key={rec.id}
+                  href={rec.href}
+                  className={cn(
+                    "block rounded-lg border px-4 py-3 hover:bg-surface-inset/50 transition-colors",
+                    accent.border,
+                    accent.bg,
+                  )}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 mb-0.5">
+                        <span className={cn("h-1.5 w-1.5 rounded-full shrink-0", accent.dot)} />
+                        <span className="text-[12px] font-medium truncate">
+                          {rec.headline}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground line-clamp-2 leading-relaxed">
+                        {rec.rationale}
+                      </p>
+                    </div>
+                    <div className="flex flex-col items-end gap-1 shrink-0">
+                      <span className={cn(
+                        "text-[9px] font-semibold uppercase tracking-wider",
+                        rec.confidence === "high" ? "text-status-success"
+                          : rec.confidence === "medium" ? "text-status-warning"
+                          : "text-muted-foreground",
+                      )}>
+                        {rec.confidence}
+                      </span>
+                      <span className="text-[9px] text-muted-foreground">
+                        {accent.label}
+                      </span>
+                    </div>
+                  </div>
+                  {rec.sourceEvidence && (
+                    <p className="text-[10px] text-muted-foreground/70 mt-1.5 ml-[14px]">
+                      {rec.sourceEvidence}
+                    </p>
+                  )}
+                </Link>
+              );
+            })}
           </div>
         </div>
       )}

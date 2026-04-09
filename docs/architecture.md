@@ -63,7 +63,7 @@ This prevents artificial inflation. A pattern with 3 attributed events out of 10
 ## Navigation (pilot spine)
 
 Default loop:
-- **Today** — observation strip + **change impact signals** (top 5 from Impact Engine) + queue + next move
+- **Today** — observation strip + **change impact signals** (top 5 from Impact Engine) + **recommended moves** (from Recommendation Engine: proven patterns x structural gaps) + queue + evidence-based next move
 - **Your Website** — execution workbench
 - **Gap ledger** (`/topics`) — typed gaps
 

@@ -276,7 +276,7 @@ A trust-first AI visibility operating system for builder/home-services businesse
 
 | Surface | Route | Role | Key data sources |
 |---------|-------|------|-----------------|
-| **Today** | `/` | Default home. Observation strip + **impact signals** (top 5 from Impact Engine) + queue + next move + verified fixes | `today-summary.ts`, `enrichWithImpact`, page issues, events, decisions, guardrails, snapshots, citation index, competitor universe |
+| **Today** | `/` | Default home. Observation strip + **impact signals** (top 5 from Impact Engine) + **recommended moves** (Recommendation Engine: proven patterns x structural gaps) + queue + evidence-based next move + verified fixes | `today-summary.ts`, `enrichWithImpact`, `computeRecommendations`, page issues, events, decisions, guardrails, snapshots, citation index, competitor universe |
 | **Your Website** | `/pages` | Execution workbench. Page list + issue tracking + verify actions | Page snapshots, issues, guardrails, render checks, frontier context |
 | **Gap ledger** | `/topics` | Typed opportunity gaps. Frontier list + detail drilldown | Frontier planner, compiler, citation index, competitor evidence |
 | **Gap detail** | `/topics/opportunity/[id]` | Single frontier detail with attack package + provenance | Frontier compiler, citation evidence, pages, competitor universe |
@@ -1250,3 +1250,32 @@ No code changes needed. No database changes needed. No data loss.
 **Client (`today-client.tsx`):** `TodayImpactItem` type; "Change impact signals" section between "Next best move" and "Work queue". Each card: verdict dot (green/red/yellow/gray), asset name, confidence badge, next-action text, match score, event count, link to `/changes/[id]`. Validated/negative cards get colored borders.
 
 **Validation:** `npm run check`, tests 26/26, parity 15/15, build 17/17.
+
+### Phase 8 — Recommendation Engine (COMPLETE)
+
+**Scope:** Synthesis layer connecting attribution-backed impact to structural page gaps. No persistence, no scoring changes.
+
+**New module:**
+- `src/domains/product/recommendation-engine.ts` — `computeRecommendations()` takes impact rows, mined patterns, and playbook briefs; outputs ranked `BeaconRecommendation[]`
+
+**Algorithm:**
+1. Find proven positive changes (validated/partial + positive direction + events > 0)
+2. Match each to a structural pattern via URL-in-source-pages or URL-path heuristic (/locations/ -> city pattern, /services/ -> service pattern, description mentions FAQ/schema -> faq pattern)
+3. For each matched pattern, find playbook briefs targeting that pattern on OTHER pages (excluding pages already changed)
+4. Generate "replicate" recommendations with proven change as evidence
+5. Generate "strengthen" recommendations for weak-evidence changes with linked events (suggests specific topic/URL from event data)
+6. Generate "investigate" recommendations for negative-direction changes
+7. Fallback: top playbook briefs when no proven patterns exist
+
+**Three recommendation types:**
+- **replicate** — "Apply this proven pattern to this specific page" (evidence: validated change + structural gap)
+- **strengthen** — "Improve this changelog entry" (evidence: linked events + weak tier + specific field gaps)
+- **investigate** — "Check this regression" (evidence: negative events after change)
+
+**Today page integration:**
+- `page.tsx` calls `computeRecommendations`, serializes top 5 for client
+- High-confidence replicate recommendation inserted as first "next best move" candidate (system becomes proactive, not just reactive)
+- `today-client.tsx` renders "Recommended moves" section between impact signals and work queue
+- Cards colored by type (green=replicate, yellow=strengthen, red=investigate), confidence badge, evidence summary
+
+**Validation:** `npm run check` (17/17), `npm run test` (26/26), `npm run data:parity` (15/15).

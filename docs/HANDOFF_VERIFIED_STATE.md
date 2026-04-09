@@ -43,6 +43,7 @@ Working branch: `work/attribution-precision-20260407`
 | **URL matching** | **FIXED (Phase 6)** | `matchUrl` uses `normalizePageUrl` + `canonicalizeOwnedUrl`; url factor no longer 100% unknown |
 | **Decline event detection** | **WIRED (Phase 6)** | `visibility_lost` + `mention_decline` in events.ts; `isNegativeEvent` helper; scorecard assigns `negative` verdict |
 | **Today impact surface** | **WIRED (Phase 7)** | Top 5 impact signals from `enrichWithImpact` on `/` landing page |
+| **Recommendation engine** | **WIRED (Phase 8)** | `computeRecommendations`: proven changes x structural gaps -> ranked replicate/strengthen/investigate moves; upgrades "Next best move" to proactive |
 
 ## Score Distribution (baseline — pre-pruning)
 

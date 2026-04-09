@@ -61,27 +61,43 @@ Shipped:
 
 ---
 
+## Phase 8 — Recommendation Engine — COMPLETE (2026-04-09)
+
+Shipped:
+- **`src/domains/product/recommendation-engine.ts`** — synthesizes proven impact + structural patterns + playbook briefs into ranked, actionable recommendations. Three recommendation types:
+  - **replicate**: Apply a proven change pattern to a page with the same structural gap (e.g., "Add FAQ+Schema to /roofing-boulder — proven by validated FAQ addition to /roofing-denver")
+  - **strengthen**: Improve a weak changelog entry that has linked events but weak evidence (suggests specific topic/URL to add)
+  - **investigate**: Flag changes with negative impact for regression review
+- **Today page wiring**: `computeRecommendations` called in `page.tsx`, top 5 passed to `TodayClient`
+- **"Next best move" upgrade**: When the top recommendation is high-confidence + replicate, it becomes the proactive "Next best move" — system shifts from reactive (fix/triage) to evidence-based
+- **UI**: "Recommended moves" section on Today between impact signals and work queue; type-colored cards (green/yellow/red), confidence badge, evidence summary
+- No persistence, no scoring changes, no new stores. Pure synthesis of existing data.
+
+---
+
 ## Proposed next (pick one track)
 
-### A — Changelog quality + pattern mining
-- The 15 citation-supported + no-topic cases — how to improve changelog precision
-- Per-change "what would make this evidence stronger" nudge
+### A — Changelog quality depth
+- The 15 citation-supported + no-topic cases — inline edit UI, batch quality audit
+- "Strengthen" recommendations now exist (Phase 8) but could be surfaced on `/changes/[id]` detail
 
-### B — Opportunity → Change recommendations
-- When `opportunities` data exists, surface "do this change next" from gap ledger / frontier output tied to attribution patterns
+### B — Recommendation depth
+- Show recommendations on `/changes/[id]` detail page ("Based on this validated change, do X to these pages")
+- Topic-similarity matching for cross-topic recommendations (e.g., "denver roofing" worked → suggest "boulder roofing")
 
 ### C — Persistence / infra (only when intentional)
-- Items in `master_execution_plan.md` post-Phase 3E backlog (topics freshness, import-orchestrator policy, supplementary Postgres, etc.)
+- Items in `master_execution_plan.md` post-Phase 3E backlog
 
-### D — Product depth on Changes
-- Sort/filter by impact confidence; export or "top 5 actions this week" strip for operators
+### D — Pattern confidence loop
+- Track when recommendations are acted on (operator applies a recommended change → new changelog entry → attribution → pattern strengthens)
+- Persisted recommendation outcomes
 
-### E — Today page enrichment
-- Add winning-pattern highlights, changelog quality nudges, or week-over-week impact trend to the landing page
+### E — Operator feedback on recommendations
+- Accept/dismiss/defer per recommendation → feeds priority ranking
 
 ---
 
 ### Historical: remaining precision opportunities
-- 15 citation-supported but no-topic candidates — changelog quality
+- 15 citation-supported but no-topic candidates — changelog quality (partially addressed by Phase 8 "strengthen" recs)
 - Page discovery (discover.ts) batch context could feed richer signals
-- 0 opportunities in imported data → opportunity clustering inactive
+- 1 opportunity in imported data → opportunity clustering mostly inactive

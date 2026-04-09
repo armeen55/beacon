@@ -31,6 +31,7 @@ import { TodayClient, type TodayQueueItem } from "./today-client";
 import { updateIssueStatus, verifyAndUpdateIssue } from "./pages/issue-actions";
 import { stripSiteOrigin } from "@/lib/site-config";
 import { buildTodaySummary, type TodayNextMove } from "@/lib/today-summary";
+import { computeRecommendations } from "@/domains/product/recommendation-engine";
 import { latestWebsiteCrawlRun } from "@/domains/observations/read";
 import { primaryVisibilityRunForResults } from "@/domains/observations/visibility-context";
 import { loadCompetitorUniverseRuntime } from "@/domains/competitors/universe-read";
@@ -299,6 +300,27 @@ export default function TodayPage() {
     });
   }
 
+  const recommendations = computeRecommendations({
+    impactRows,
+    patterns,
+    briefs: playbookBriefs,
+  });
+  const topRecs = recommendations.slice(0, 5).map((r) => ({
+    id: r.id,
+    type: r.type,
+    headline: r.headline,
+    rationale: r.rationale,
+    sourceEvidence: r.sourceEvidence,
+    confidence: r.confidence,
+    sourceChangeId: r.sourceChangeId,
+    href:
+      r.type === "replicate" && r.targetPageUrl
+        ? pagesHref(r.targetPageUrl)
+        : r.sourceChangeId
+          ? `/changes/${r.sourceChangeId}`
+          : "/pages",
+  }));
+
   const proposedWaves = planWaves(
     playbookBriefs,
     pageIssues,
@@ -403,6 +425,21 @@ export default function TodayPage() {
   });
 
   const nextCandidates: (TodayNextMove | null)[] = [];
+
+  const topRec = recommendations[0];
+  if (topRec && topRec.confidence === "high" && topRec.type === "replicate") {
+    nextCandidates.push({
+      title: topRec.headline,
+      href:
+        topRec.targetPageUrl
+          ? pagesHref(topRec.targetPageUrl)
+          : "/pages",
+      evidence: topRec.rationale,
+      observationRunId: activeCrawlId,
+      evidenceScope: "mixed",
+    });
+  }
+
   if (warningAlerts.length > 0) {
     const first = warningAlerts[0];
     nextCandidates.push({
@@ -460,6 +497,7 @@ export default function TodayPage() {
         summary={summary}
         items={enrichedItems}
         impactSignals={actionableImpact}
+        recommendedMoves={topRecs}
         onUpdateIssue={
           updateIssueStatus as (
             issueId: string,

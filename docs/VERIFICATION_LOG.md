@@ -155,3 +155,27 @@
 
 ### Build verification (Phase 7)
 - `npm run check`, `npm run test`, `npm run data:parity` — pass; 17/17 routes build
+
+---
+
+## 2026-04-09 — Phase 8: Recommendation Engine
+
+### What shipped
+- **`src/domains/product/recommendation-engine.ts`** — synthesis engine connecting proven impact to structural page gaps
+- Three recommendation types: **replicate** (apply proven pattern to similar page), **strengthen** (improve weak changelog entry), **investigate** (flag negative impact regression)
+- Pattern matching: proven change URL -> mined pattern source pages -> playbook briefs for other pages with same gap
+- "Strengthen" nudges identify specific gaps (no URL, no topic, no hypothesis) and suggest the topic from linked events
+- Fallback: top playbook briefs when no proven patterns exist
+
+### Today page integration
+- `page.tsx` calls `computeRecommendations`, passes top 5 to client
+- High-confidence replicate recommendation becomes first "Next best move" candidate (proactive, not reactive)
+- `today-client.tsx` renders "Recommended moves" section with type-colored cards, confidence badges, evidence summaries
+
+### Constraints honored
+- No persistence changes, no new stores, no scoring formula changes
+- Pure synthesis of existing data: scorecard, impact rows, mined patterns, playbook briefs
+- No changes to attribution logic, evidence tiers, or triage
+
+### Build verification (Phase 8)
+- `npm run check`, `npm run test`, `npm run data:parity` — pass; 17/17 routes, 26/26 tests, 15/15 parity
