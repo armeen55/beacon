@@ -1,4 +1,4 @@
-import { readStore, writeStore } from "@/lib/persistence/json-store";
+import { writeStore } from "@/lib/persistence/json-store";
 import { getRepository } from "@/lib/persistence/repositories";
 import {
   syncCandidateLinks,
@@ -9,7 +9,7 @@ import type { CandidateLink, TruthLabel, EventDecision } from "./types";
 const repo = getRepository();
 
 export const candidateLinks: CandidateLink[] = await repo.getCandidateLinks();
-export const truthLabels: TruthLabel[] = readStore<TruthLabel>("truth-labels");
+export const truthLabels: TruthLabel[] = await repo.getTruthLabels();
 export const eventDecisions: EventDecision[] = await repo.getEventDecisions();
 
 export async function persistCandidateLinks(): Promise<void> {

@@ -5,7 +5,8 @@
  * identifies structural/citation gaps, and recommends move types.
  */
 
-import { readStore, writeStore } from "@/lib/persistence/json-store";
+import { writeStore } from "@/lib/persistence/json-store";
+import { getRepository } from "@/lib/persistence/repositories";
 import type { CitationEvidenceIndex, TopicCitationSummary } from "./types";
 import type { PageSnapshot } from "./types";
 import type { PlaybookBrief, MinedPattern } from "./playbook";
@@ -60,8 +61,10 @@ export type FrontierOpportunity = {
   notes: string | null;
 };
 
+const repo = getRepository();
+
 export const frontierOpportunities: FrontierOpportunity[] =
-  readStore<FrontierOpportunity>("frontier-opportunities");
+  await repo.getFrontierOpportunities();
 
 export async function persistFrontierOpportunities(): Promise<void> {
   await writeStore("frontier-opportunities", frontierOpportunities);

@@ -6,7 +6,8 @@
  * and result movement using page path + topic overlap + timing windows.
  */
 
-import { readStore, writeStore } from "@/lib/persistence/json-store";
+import { writeStore } from "@/lib/persistence/json-store";
+import { getRepository } from "@/lib/persistence/repositories";
 import type { PatternEvidenceRecord, RolloutExecution } from "./issues";
 import type { ScorecardRow } from "@/domains/attribution/scorecard";
 import type { OutcomeEvent } from "@/domains/attribution/events";
@@ -45,8 +46,10 @@ export type OutcomeObservation = {
   notes: string | null;
 };
 
+const repo = getRepository();
+
 export const outcomeObservations: OutcomeObservation[] =
-  readStore<OutcomeObservation>("outcome-observations");
+  await repo.getOutcomeObservations();
 
 export async function persistOutcomeObservations(): Promise<void> {
   await writeStore("outcome-observations", outcomeObservations);

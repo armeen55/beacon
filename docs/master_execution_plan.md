@@ -2,7 +2,7 @@
 
 > Living document. Single source of truth for implementation sequence.
 > Updated: 2026-04-09
-> Current phase: **Phase 3A — COMPLETE — mechanical read-path consolidation**
+> Current phase: **Phase 3B — COMPLETE — json-store domain arrays behind repository**
 >
 > Phase 0 — COMPLETE (commit `74605b1`)
 > Phase 0.5 — COMPLETE — audit locked minimum Phase 1 scope (15 stores → 12 tables)
@@ -15,6 +15,7 @@
 > Phase 1G — COMPLETE — file-vs-Supabase parity comparison script
 > Phase 2 — COMPLETE — progressive cutover to Supabase default
 > Phase 3A — COMPLETE — supplementary + visibility + import reads behind repository
+> Phase 3B — COMPLETE — operator/pages json-store arrays + Profound bridge importRuns unified
 
 ---
 
@@ -1098,19 +1099,37 @@ No code changes needed. No database changes needed. No data loss.
 - `topics/page.tsx` server action — keeps dynamic `readDotDataJson` for **fresh** citation + snapshot reads at action time (avoid module-cache staleness)
 - `observations/read.ts` legacy `scan-runs.json` fallback — unchanged
 - `universe-read.ts` file branch for pin metadata — unchanged
-- Domain modules with write paths (issues, frontier, wave-planner, etc.) — not route-layer consolidation
-- Profound adapters (`bridge.ts` `readStore("import-runs")`) — left as-is
+- Profound `import-orchestrator.ts` `readStore("imported-changes")` — unchanged (CLI path; repo vs file timing risk if switched blindly)
 - Supabase tables for supplementary JSON — deferred to a later Phase 3 chunk
 
 **Validation:** `npm run check`, `npm run test`, `npm run data:parity` — all pass; 14/15 parity unchanged
 
 ---
 
-### What Phase 3 should address next (3B+)
+### Phase 3B — json-store domain arrays behind repository (COMPLETE)
 
-1. **Optional:** Dynamic topics server action — choose between documented staleness vs fresh reads using repository + explicit reload pattern
-2. **Migrate supplementary stores to Postgres** — when schema + backfill are justified
-3. **Domain store modules** — truthLabels, action-states, brief-states, rollout/pattern evidence through repo (when tables exist or disk-unified policy is chosen)
-4. **Backfill / align `observation_runs`** — **SWITCH TO OPUS 4.6 MAX** when this becomes the active chunk (schema + Profound vs crawl types)
-5. **Real-time subscriptions** — optional
-6. **Crawl pipeline DB integration** — separate decision
+**Scope:** Thirteen `SeedDataRepository` getters for json-store-only operator/pages state. **Both** `file-backend` and `supabase-backend` delegate to `readStore(...)` (same in-process cache + mutation semantics as before). No new Postgres tables.
+
+**New repository methods:**
+`getRolloutExecutions`, `getPatternEvidence`, `getRolloutWaves`, `getFrontierOpportunities`, `getFrontierAttackPackages`, `getTrackedMissingPages`, `getAssetResponses`, `getOutcomeObservations`, `getCompetitorPageEvidence`, `getSourcePatternEvidence`, `getActionStates`, `getBriefStates`, `getTruthLabels`
+
+**Domain modules rewired:** `issues.ts`, `wave-planner.ts`, `frontier-planner.ts`, `frontier-compiler.ts`, `asset-response.ts`, `outcome-watch.ts`, `competitor-evidence.ts`, `actions/store.ts`, `brief-generation/store.ts`, `attribution/store.ts`
+
+**Adapter:** `adapters/profound/bridge.ts` — `writeLegacyBridge` appends to shared `importRuns` from `seed-data.server` (same array as `import/actions.ts`); removes duplicate `readStore("import-runs")`.
+
+**Cleanup:** removed dead `readStore`/`writeStore` import from `builder-benchmark.ts`.
+
+**Explicitly deferred (not in 3B):** topics dynamic action, `scan-runs` fallback, `universe-read` pin file path, `import-orchestrator` changelog read, `canonical-store.ts` / Profound stores, `observation_runs` alignment, new DB tables.
+
+**Validation (2026-04-09):** `npm run check`, `npm run test`, `npm run data:parity` — pass; 14/15 parity unchanged.
+
+---
+
+### What Phase 3 should address next (3C+)
+
+1. **Optional:** Topics server action freshness vs repository-cached stores
+2. **`import-orchestrator` read path** — only with explicit file-vs-DB policy for CLI
+3. **Migrate supplementary + json-store domains to Postgres** — schema + backfill (**larger decision**)
+4. **`canonical-store` / Profound file stores** — alignment with observation_runs story
+5. **Backfill / align `observation_runs`** — **SWITCH TO OPUS 4.6 MAX**
+6. **Real-time / crawl pipeline** — separate decisions

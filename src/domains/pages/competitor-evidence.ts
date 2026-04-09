@@ -4,7 +4,8 @@
  * dominating each topic in AI answer engines.
  */
 
-import { readStore, writeStore } from "@/lib/persistence/json-store";
+import { writeStore } from "@/lib/persistence/json-store";
+import { getRepository } from "@/lib/persistence/repositories";
 import type { CitationEvidenceIndex, CitationPageRollup, TopicCitationSummary } from "./types";
 import { getSiteConfig } from "@/lib/site-config";
 
@@ -85,11 +86,13 @@ export type SourcePatternEvidence = {
 
 // ── Persistence ──
 
+const repo = getRepository();
+
 export const competitorPages: CompetitorPageEvidence[] =
-  readStore<CompetitorPageEvidence>("competitor-page-evidence");
+  await repo.getCompetitorPageEvidence();
 
 export const sourcePatterns: SourcePatternEvidence[] =
-  readStore<SourcePatternEvidence>("source-pattern-evidence");
+  await repo.getSourcePatternEvidence();
 
 export async function persistCompetitorEvidence(): Promise<void> {
   await writeStore("competitor-page-evidence", competitorPages);

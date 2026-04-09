@@ -6,7 +6,8 @@
  * with explicit asset-type mapping grounded in competitive evidence.
  */
 
-import { readStore, writeStore } from "@/lib/persistence/json-store";
+import { writeStore } from "@/lib/persistence/json-store";
+import { getRepository } from "@/lib/persistence/repositories";
 import type { FrontierCompetitiveSummary, SourceType, ResponseType } from "./competitor-evidence";
 import type { FrontierOpportunity } from "./frontier-planner";
 import { getSiteConfig } from "@/lib/site-config";
@@ -45,8 +46,9 @@ export type AssetResponse = {
   notes: string | null;
 };
 
-export const assetResponses: AssetResponse[] =
-  readStore<AssetResponse>("asset-responses");
+const repo = getRepository();
+
+export const assetResponses: AssetResponse[] = await repo.getAssetResponses();
 
 export async function persistAssetResponses(): Promise<void> {
   await writeStore("asset-responses", assetResponses);

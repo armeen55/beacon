@@ -5,7 +5,6 @@
  * for builder marketers. No jargon. No technical SEO.
  */
 
-import { readStore, writeStore } from "@/lib/persistence/json-store";
 import { absoluteUrlForPath } from "@/lib/site-config";
 import type { CitationEvidenceIndex } from "./types";
 import type { PersistedIssue } from "./issues";

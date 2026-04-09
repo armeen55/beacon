@@ -6,7 +6,8 @@
  * so the operator can ship coherent batches.
  */
 
-import { readStore, writeStore } from "@/lib/persistence/json-store";
+import { writeStore } from "@/lib/persistence/json-store";
+import { getRepository } from "@/lib/persistence/repositories";
 import type { PlaybookBrief, PatternEvidence, PatternType } from "./playbook";
 import type { PersistedIssue, RolloutExecution } from "./issues";
 
@@ -44,8 +45,9 @@ export type RolloutWave = {
   notes: string | null;
 };
 
-export const rolloutWaves: RolloutWave[] =
-  readStore<RolloutWave>("rollout-waves");
+const repo = getRepository();
+
+export const rolloutWaves: RolloutWave[] = await repo.getRolloutWaves();
 
 export async function persistRolloutWaves(): Promise<void> {
   await writeStore("rollout-waves", rolloutWaves);

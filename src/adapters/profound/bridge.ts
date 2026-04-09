@@ -23,6 +23,7 @@ import type { ImportRun } from "@/lib/import/types";
 
 import { normalizePlatform } from "@/lib/platform";
 import { writeStore } from "@/lib/persistence/json-store";
+import { importRuns } from "@/lib/seed-data.server";
 
 // ── Snapshot → Result bridge ────────────────────────────────────────
 
@@ -283,10 +284,8 @@ export async function writeLegacyBridge(opts: {
     warnings: [],
   };
 
-  const { readStore: readStoreSync } = await import("@/lib/persistence/json-store");
-  const existingRuns = readStoreSync<ImportRun>("import-runs");
-  existingRuns.push(importRun);
-  await writeStore("import-runs", existingRuns);
+  importRuns.push(importRun);
+  await writeStore("import-runs", importRuns);
 
   return { resultCount: results.length, changeCount: changes.length };
 }

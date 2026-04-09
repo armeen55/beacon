@@ -1,4 +1,5 @@
 import { readDotDataJson } from "../dotdata-json";
+import { readStore } from "../json-store";
 import { getSupabaseAdmin } from "../supabase";
 import type { SeedDataRepository } from "./types";
 import type { Result } from "@/domains/results/types";
@@ -7,7 +8,26 @@ import type { Opportunity } from "@/domains/opportunities/types";
 import type { Competitor } from "@/domains/competitors/types";
 import type { ImportRun } from "@/lib/import/types";
 import type { EventDecision, CandidateLink } from "@/domains/attribution/types";
-import type { PersistedIssue } from "@/domains/pages/issues";
+import type {
+  PersistedIssue,
+  RolloutExecution,
+  PatternEvidenceRecord,
+} from "@/domains/pages/issues";
+import type { RolloutWave } from "@/domains/pages/wave-planner";
+import type { FrontierOpportunity } from "@/domains/pages/frontier-planner";
+import type {
+  FrontierAttackPackage,
+  TrackedMissingPage,
+} from "@/domains/pages/frontier-compiler";
+import type { AssetResponse } from "@/domains/pages/asset-response";
+import type { OutcomeObservation } from "@/domains/pages/outcome-watch";
+import type {
+  CompetitorPageEvidence,
+  SourcePatternEvidence,
+} from "@/domains/pages/competitor-evidence";
+import type { PersistedActionState } from "@/domains/actions/types";
+import type { PersistedBriefState } from "@/domains/brief-generation/types";
+import type { TruthLabel } from "@/domains/attribution/types";
 import type { ChangeContract } from "@/domains/changelog/change-contract";
 import type {
   PageEntity,
@@ -100,4 +120,29 @@ export const supabaseBackend: SeedDataRepository = {
     readDotDataJson<VisibilityObservationRun[]>(
       "visibility-observation-runs",
     ) ?? [],
+
+  getRolloutExecutions: async () =>
+    readStore<RolloutExecution>("rollout-executions"),
+  getPatternEvidence: async () =>
+    readStore<PatternEvidenceRecord>("pattern-evidence"),
+  getRolloutWaves: async () => readStore<RolloutWave>("rollout-waves"),
+  getFrontierOpportunities: async () =>
+    readStore<FrontierOpportunity>("frontier-opportunities"),
+  getFrontierAttackPackages: async () =>
+    readStore<FrontierAttackPackage>("frontier-attack-packages"),
+  getTrackedMissingPages: async () =>
+    readStore<TrackedMissingPage>("tracked-missing-pages"),
+  getAssetResponses: async () =>
+    readStore<AssetResponse>("asset-responses"),
+  getOutcomeObservations: async () =>
+    readStore<OutcomeObservation>("outcome-observations"),
+  getCompetitorPageEvidence: async () =>
+    readStore<CompetitorPageEvidence>("competitor-page-evidence"),
+  getSourcePatternEvidence: async () =>
+    readStore<SourcePatternEvidence>("source-pattern-evidence"),
+  getActionStates: async () =>
+    readStore<PersistedActionState>("action-states"),
+  getBriefStates: async () =>
+    readStore<PersistedBriefState>("brief-states", []),
+  getTruthLabels: async () => readStore<TruthLabel>("truth-labels"),
 };

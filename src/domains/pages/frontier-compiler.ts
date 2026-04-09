@@ -5,7 +5,8 @@
  * waves, missing-page plans, and verification expectations.
  */
 
-import { readStore, writeStore } from "@/lib/persistence/json-store";
+import { writeStore } from "@/lib/persistence/json-store";
+import { getRepository } from "@/lib/persistence/repositories";
 import type { FrontierOpportunity, RecommendedMoveType } from "./frontier-planner";
 import type { PlaybookBrief, MinedPattern } from "./playbook";
 import type { RolloutWave } from "./wave-planner";
@@ -51,8 +52,10 @@ export type FrontierAttackPackage = {
   notes: string | null;
 };
 
+const repo = getRepository();
+
 export const attackPackages: FrontierAttackPackage[] =
-  readStore<FrontierAttackPackage>("frontier-attack-packages");
+  await repo.getFrontierAttackPackages();
 
 export async function persistAttackPackages(): Promise<void> {
   await writeStore("frontier-attack-packages", attackPackages);
@@ -360,7 +363,7 @@ export type TrackedMissingPage = {
 };
 
 export const trackedMissingPages: TrackedMissingPage[] =
-  readStore<TrackedMissingPage>("tracked-missing-pages");
+  await repo.getTrackedMissingPages();
 
 export async function persistTrackedMissingPages(): Promise<void> {
   await writeStore("tracked-missing-pages", trackedMissingPages);

@@ -5,7 +5,7 @@
  * across scans. State persists in .data/page-issues.json.
  */
 
-import { readStore, writeStore } from "@/lib/persistence/json-store";
+import { writeStore } from "@/lib/persistence/json-store";
 import { getRepository } from "@/lib/persistence/repositories";
 
 export type IssueStatus =
@@ -69,23 +69,6 @@ export type RolloutExecution = {
   notes: string | null;
 };
 
-export const rolloutExecutions: RolloutExecution[] =
-  readStore<RolloutExecution>("rollout-executions");
-
-export async function persistRolloutExecutions(): Promise<void> {
-  await writeStore("rollout-executions", rolloutExecutions);
-}
-
-export function issueIdFromBrief(briefId: string, url: string): string {
-  const path = url.replace(/^https?:\/\/[^/]+/, "").replace(/\/+$/, "") || "/";
-  return `rollout-${briefId}-${path.replace(/\//g, "-").replace(/^-/, "")}`;
-}
-
-export function issueIdFromAlert(category: string, url: string): string {
-  const path = url.replace(/^https?:\/\/[^/]+/, "").replace(/\/+$/, "") || "/";
-  return `issue-${category}-${path.replace(/\//g, "-").replace(/^-/, "")}`;
-}
-
 export type OutcomeStatus =
   | "shipped_not_verified"
   | "verification_failed"
@@ -110,16 +93,31 @@ export type PatternEvidenceRecord = {
   notes: string | null;
 };
 
+const repo = getRepository();
+
+export const rolloutExecutions: RolloutExecution[] =
+  await repo.getRolloutExecutions();
 export const patternEvidence: PatternEvidenceRecord[] =
-  readStore<PatternEvidenceRecord>("pattern-evidence");
+  await repo.getPatternEvidence();
+export const pageIssues: PersistedIssue[] = await repo.getPageIssues();
+
+export async function persistRolloutExecutions(): Promise<void> {
+  await writeStore("rollout-executions", rolloutExecutions);
+}
+
+export function issueIdFromBrief(briefId: string, url: string): string {
+  const path = url.replace(/^https?:\/\/[^/]+/, "").replace(/\/+$/, "") || "/";
+  return `rollout-${briefId}-${path.replace(/\//g, "-").replace(/^-/, "")}`;
+}
+
+export function issueIdFromAlert(category: string, url: string): string {
+  const path = url.replace(/^https?:\/\/[^/]+/, "").replace(/\/+$/, "") || "/";
+  return `issue-${category}-${path.replace(/\//g, "-").replace(/^-/, "")}`;
+}
 
 export async function persistPatternEvidence(): Promise<void> {
   await writeStore("pattern-evidence", patternEvidence);
 }
-
-const repo = getRepository();
-
-export const pageIssues: PersistedIssue[] = await repo.getPageIssues();
 
 export async function persistPageIssues(): Promise<void> {
   await writeStore("page-issues", pageIssues);

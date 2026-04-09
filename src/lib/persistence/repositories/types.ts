@@ -3,8 +3,30 @@ import type { ChangelogEntry } from "@/domains/changelog/types";
 import type { Opportunity } from "@/domains/opportunities/types";
 import type { Competitor } from "@/domains/competitors/types";
 import type { ImportRun } from "@/lib/import/types";
-import type { EventDecision, CandidateLink } from "@/domains/attribution/types";
-import type { PersistedIssue } from "@/domains/pages/issues";
+import type {
+  EventDecision,
+  CandidateLink,
+  TruthLabel,
+} from "@/domains/attribution/types";
+import type { PersistedActionState } from "@/domains/actions/types";
+import type { PersistedBriefState } from "@/domains/brief-generation/types";
+import type {
+  PersistedIssue,
+  RolloutExecution,
+  PatternEvidenceRecord,
+} from "@/domains/pages/issues";
+import type { RolloutWave } from "@/domains/pages/wave-planner";
+import type { FrontierOpportunity } from "@/domains/pages/frontier-planner";
+import type {
+  FrontierAttackPackage,
+  TrackedMissingPage,
+} from "@/domains/pages/frontier-compiler";
+import type { AssetResponse } from "@/domains/pages/asset-response";
+import type { OutcomeObservation } from "@/domains/pages/outcome-watch";
+import type {
+  CompetitorPageEvidence,
+  SourcePatternEvidence,
+} from "@/domains/pages/competitor-evidence";
 import type { ChangeContract } from "@/domains/changelog/change-contract";
 import type {
   PageEntity,
@@ -53,4 +75,23 @@ export interface SeedDataRepository {
   getRenderChecks(): Promise<RenderCheckResult[]>;
   getSitemapReconciliation(): Promise<SitemapReconciliation | null>;
   getVisibilityObservationRunsExplicit(): Promise<VisibilityObservationRun[]>;
+
+  /**
+   * json-store-backed operator / pages domain state — no Postgres tables yet.
+   * Both backends delegate to `readStore` so DATA_SOURCE=supabase keeps the same
+   * in-process cached array references as file mode (mutation + writeStore paths).
+   */
+  getRolloutExecutions(): Promise<RolloutExecution[]>;
+  getPatternEvidence(): Promise<PatternEvidenceRecord[]>;
+  getRolloutWaves(): Promise<RolloutWave[]>;
+  getFrontierOpportunities(): Promise<FrontierOpportunity[]>;
+  getFrontierAttackPackages(): Promise<FrontierAttackPackage[]>;
+  getTrackedMissingPages(): Promise<TrackedMissingPage[]>;
+  getAssetResponses(): Promise<AssetResponse[]>;
+  getOutcomeObservations(): Promise<OutcomeObservation[]>;
+  getCompetitorPageEvidence(): Promise<CompetitorPageEvidence[]>;
+  getSourcePatternEvidence(): Promise<SourcePatternEvidence[]>;
+  getActionStates(): Promise<PersistedActionState[]>;
+  getBriefStates(): Promise<PersistedBriefState[]>;
+  getTruthLabels(): Promise<TruthLabel[]>;
 }

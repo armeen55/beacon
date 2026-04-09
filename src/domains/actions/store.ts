@@ -1,8 +1,11 @@
-import { readStore, writeStore } from "@/lib/persistence/json-store";
+import { writeStore } from "@/lib/persistence/json-store";
+import { getRepository } from "@/lib/persistence/repositories";
 import type { PersistedActionState } from "./types";
 
+const repo = getRepository();
+
 export const actionStates: PersistedActionState[] =
-  readStore<PersistedActionState>("action-states");
+  await repo.getActionStates();
 
 export async function persistActionStates(): Promise<void> {
   await writeStore("action-states", actionStates);
