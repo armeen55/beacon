@@ -31,6 +31,18 @@ export type TodayRecommendation = {
   href: string;
 };
 
+export type TodayPrimaryAction = {
+  headline: string;
+  rationale: string;
+  expectedOutcome: string;
+  sourceEvidence: string;
+  priorityScore: number;
+  bucket: "critical" | "high_leverage" | "opportunistic";
+  type: "replicate" | "strengthen" | "investigate";
+  confidence: "high" | "medium" | "low";
+  href: string;
+};
+
 export type TodayQueueItem = {
   id: string;
   group: "fix" | "ship" | "frontier" | "verify" | "review" | "waiting" | "wins";
@@ -65,6 +77,12 @@ function formatScanTime(iso: string | null): string {
   });
 }
 
+const BUCKET_STYLE: Record<string, { border: string; bg: string; label: string; accent: string }> = {
+  critical: { border: "border-status-danger", bg: "bg-status-danger/8", label: "Critical", accent: "text-status-danger" },
+  high_leverage: { border: "border-status-success", bg: "bg-status-success/8", label: "High leverage", accent: "text-status-success" },
+  opportunistic: { border: "border-accent-primary", bg: "bg-accent-primary/5", label: "Opportunistic", accent: "text-accent-primary" },
+};
+
 const REC_ACCENT: Record<string, { border: string; bg: string; dot: string; label: string }> = {
   replicate: { border: "border-status-success/30", bg: "bg-status-success/5", dot: "bg-status-success", label: "Proven pattern" },
   strengthen: { border: "border-status-warning/30", bg: "bg-status-warning/5", dot: "bg-status-warning", label: "Strengthen evidence" },
@@ -76,6 +94,7 @@ export function TodayClient({
   items,
   impactSignals = [],
   recommendedMoves = [],
+  primaryAction = null,
   onUpdateIssue,
   onVerifyIssue,
 }: {
@@ -83,6 +102,7 @@ export function TodayClient({
   items: TodayQueueItem[];
   impactSignals?: TodayImpactItem[];
   recommendedMoves?: TodayRecommendation[];
+  primaryAction?: TodayPrimaryAction | null;
   onUpdateIssue?: (
     issueId: string,
     status: string,
@@ -335,39 +355,85 @@ export function TodayClient({
         </div>
       )}
 
-      {/* Next best move */}
-      <div className="rounded-lg border border-accent-primary/25 bg-accent-primary/5 p-4">
-        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">
-          Next best move
-        </p>
-        <p className="text-[14px] font-semibold">{summary.nextMove.title}</p>
-        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mt-2">
-          Evidence scope: {summary.nextMove.evidenceScope.replace(/_/g, " ")}
-        </p>
-        <p className="text-[11px] text-muted-foreground mt-1 leading-relaxed">
-          {summary.nextMove.evidence}
-        </p>
-        {summary.nextMove.observationRunId &&
-          (summary.nextMove.evidenceScope === "crawl" ||
-            summary.nextMove.evidenceScope === "mixed") && (
-          <p className="text-[10px] text-muted-foreground mt-2">
-            Related crawl context:{" "}
-            <Link
-              href={`/observations/${encodeURIComponent(summary.nextMove.observationRunId)}`}
-              className="text-accent-primary hover:underline font-medium"
-            >
-              ObservationRun
-            </Link>
+      {/* Primary action — DO THIS NOW (from Priority Engine) */}
+      {primaryAction ? (() => {
+        const bs = BUCKET_STYLE[primaryAction.bucket] ?? BUCKET_STYLE.opportunistic;
+        return (
+          <div className={cn("rounded-lg border-2 p-5 space-y-3", bs.border, bs.bg)}>
+            <div className="flex items-center justify-between">
+              <p className={cn("text-[10px] font-bold uppercase tracking-widest", bs.accent)}>
+                Do this now
+              </p>
+              <div className="flex items-center gap-2">
+                <span className={cn("text-[9px] font-bold uppercase tracking-wider", bs.accent)}>
+                  {bs.label}
+                </span>
+                <span className="text-[18px] font-bold tabular-nums text-foreground">
+                  {primaryAction.priorityScore}
+                </span>
+              </div>
+            </div>
+            <p className="text-[16px] font-bold tracking-tight leading-snug">
+              {primaryAction.headline}
+            </p>
+            <div className="space-y-2">
+              <div>
+                <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Why</p>
+                <p className="text-[11px] text-muted-foreground leading-relaxed">{primaryAction.rationale}</p>
+              </div>
+              <div>
+                <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Expected outcome</p>
+                <p className="text-[11px] text-muted-foreground leading-relaxed">{primaryAction.expectedOutcome}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 pt-1">
+              <Link
+                href={primaryAction.href}
+                className="inline-flex items-center gap-2 rounded-md bg-foreground px-5 py-2.5 text-[12px] font-bold text-background hover:opacity-90 transition-opacity"
+              >
+                Do it now
+                <span className="opacity-60">→</span>
+              </Link>
+              <span className="text-[10px] text-muted-foreground">
+                {primaryAction.sourceEvidence}
+              </span>
+            </div>
+          </div>
+        );
+      })() : (
+        <div className="rounded-lg border border-accent-primary/25 bg-accent-primary/5 p-4">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">
+            Next best move
           </p>
-        )}
-        <Link
-          href={summary.nextMove.href}
-          className="inline-flex mt-3 items-center gap-2 rounded-md bg-foreground px-4 py-2 text-[11px] font-semibold text-background hover:opacity-90"
-        >
-          Go
-          <span className="opacity-60">→</span>
-        </Link>
-      </div>
+          <p className="text-[14px] font-semibold">{summary.nextMove.title}</p>
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mt-2">
+            Evidence scope: {summary.nextMove.evidenceScope.replace(/_/g, " ")}
+          </p>
+          <p className="text-[11px] text-muted-foreground mt-1 leading-relaxed">
+            {summary.nextMove.evidence}
+          </p>
+          {summary.nextMove.observationRunId &&
+            (summary.nextMove.evidenceScope === "crawl" ||
+              summary.nextMove.evidenceScope === "mixed") && (
+            <p className="text-[10px] text-muted-foreground mt-2">
+              Related crawl context:{" "}
+              <Link
+                href={`/observations/${encodeURIComponent(summary.nextMove.observationRunId)}`}
+                className="text-accent-primary hover:underline font-medium"
+              >
+                ObservationRun
+              </Link>
+            </p>
+          )}
+          <Link
+            href={summary.nextMove.href}
+            className="inline-flex mt-3 items-center gap-2 rounded-md bg-foreground px-4 py-2 text-[11px] font-semibold text-background hover:opacity-90"
+          >
+            Go
+            <span className="opacity-60">→</span>
+          </Link>
+        </div>
+      )}
 
       {/* Impact signals from Change Impact Engine */}
       {impactSignals.length > 0 && (
@@ -440,61 +506,9 @@ export function TodayClient({
         </div>
       )}
 
-      {/* Recommended moves from Recommendation Engine */}
+      {/* Other opportunities — collapsible secondary recommendations */}
       {recommendedMoves.length > 0 && (
-        <div>
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">
-            Recommended moves ({recommendedMoves.length})
-          </p>
-          <div className="space-y-2">
-            {recommendedMoves.map((rec) => {
-              const accent = REC_ACCENT[rec.type] ?? REC_ACCENT.replicate;
-              return (
-                <Link
-                  key={rec.id}
-                  href={rec.href}
-                  className={cn(
-                    "block rounded-lg border px-4 py-3 hover:bg-surface-inset/50 transition-colors",
-                    accent.border,
-                    accent.bg,
-                  )}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2 mb-0.5">
-                        <span className={cn("h-1.5 w-1.5 rounded-full shrink-0", accent.dot)} />
-                        <span className="text-[12px] font-medium truncate">
-                          {rec.headline}
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-muted-foreground line-clamp-2 leading-relaxed">
-                        {rec.rationale}
-                      </p>
-                    </div>
-                    <div className="flex flex-col items-end gap-1 shrink-0">
-                      <span className={cn(
-                        "text-[9px] font-semibold uppercase tracking-wider",
-                        rec.confidence === "high" ? "text-status-success"
-                          : rec.confidence === "medium" ? "text-status-warning"
-                          : "text-muted-foreground",
-                      )}>
-                        {rec.confidence}
-                      </span>
-                      <span className="text-[9px] text-muted-foreground">
-                        {accent.label}
-                      </span>
-                    </div>
-                  </div>
-                  {rec.sourceEvidence && (
-                    <p className="text-[10px] text-muted-foreground/70 mt-1.5 ml-[14px]">
-                      {rec.sourceEvidence}
-                    </p>
-                  )}
-                </Link>
-              );
-            })}
-          </div>
-        </div>
+        <SecondaryOpportunities moves={recommendedMoves} />
       )}
 
       {/* Work queue */}
@@ -722,6 +736,69 @@ export function TodayClient({
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function SecondaryOpportunities({ moves }: { moves: TodayRecommendation[] }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors w-full"
+      >
+        <span className={cn("transition-transform text-[8px]", open ? "rotate-90" : "")}>
+          ▶
+        </span>
+        Other opportunities ({moves.length})
+      </button>
+      {open && (
+        <div className="space-y-2 mt-2">
+          {moves.map((rec) => {
+            const accent = REC_ACCENT[rec.type] ?? REC_ACCENT.replicate;
+            return (
+              <Link
+                key={rec.id}
+                href={rec.href}
+                className={cn(
+                  "block rounded-lg border px-4 py-3 hover:bg-surface-inset/50 transition-colors",
+                  accent.border,
+                  accent.bg,
+                )}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <span className={cn("h-1.5 w-1.5 rounded-full shrink-0", accent.dot)} />
+                      <span className="text-[12px] font-medium truncate">
+                        {rec.headline}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground line-clamp-2 leading-relaxed">
+                      {rec.rationale}
+                    </p>
+                  </div>
+                  <div className="flex flex-col items-end gap-1 shrink-0">
+                    <span className={cn(
+                      "text-[9px] font-semibold uppercase tracking-wider",
+                      rec.confidence === "high" ? "text-status-success"
+                        : rec.confidence === "medium" ? "text-status-warning"
+                        : "text-muted-foreground",
+                    )}>
+                      {rec.confidence}
+                    </span>
+                    <span className="text-[9px] text-muted-foreground">
+                      {accent.label}
+                    </span>
+                  </div>
+                </div>
+              </Link>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

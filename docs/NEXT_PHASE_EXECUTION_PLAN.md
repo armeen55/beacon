@@ -75,29 +75,44 @@ Shipped:
 
 ---
 
+## Phase 9 — Priority Engine — COMPLETE (2026-04-09)
+
+Shipped:
+- **`src/domains/product/priority-engine.ts`** — 6-dimension scoring model (impact confidence, evidence strength, pattern strength, replication potential, type urgency, recency) produces a 0-100 `priorityScore` per recommendation
+- **Priority buckets**: CRITICAL (>=72), HIGH_LEVERAGE (>=50), OPPORTUNISTIC (>=25), NOISE (<25 — filtered out)
+- **Single primary action selection**: `rankAndSelect()` picks THE one thing to do; all others become secondary
+- **Expected outcome generation**: per-type explanation of what happens if the operator acts (visibility improvement for replicate, evidence upgrade for strengthen, loss prevention for investigate)
+- **Today page "DO THIS NOW"**: replaces "Next best move" with a dominant, visually enforced primary action card — priority score, bucket label, "Why", "Expected outcome", bold CTA
+- **Secondary collapsible**: remaining recommendations collapse into "Other opportunities (N)" toggle
+- **Fallback**: when no primary action exists (all noise), gracefully falls back to existing next-best-move logic
+- No persistence, no scoring formula changes, no new stores.
+
+---
+
 ## Proposed next (pick one track)
 
-### A — Changelog quality depth
-- The 15 citation-supported + no-topic cases — inline edit UI, batch quality audit
-- "Strengthen" recommendations now exist (Phase 8) but could be surfaced on `/changes/[id]` detail
+### A — Execution feedback loop
+- Track when operator acts on the primary action (new changelog entry matches recommendation target)
+- Measure whether recommended changes produce outcome events
+- Feed back into priority scoring weights
 
-### B — Recommendation depth
-- Show recommendations on `/changes/[id]` detail page ("Based on this validated change, do X to these pages")
-- Topic-similarity matching for cross-topic recommendations (e.g., "denver roofing" worked → suggest "boulder roofing")
+### B — Changes detail integration
+- Show recommendations on `/changes/[id]` ("Based on this change, do X to these pages")
+- Show quality nudges on weak-evidence changes inline
 
-### C — Persistence / infra (only when intentional)
+### C — Topic-similarity recommendations
+- Cross-topic pattern matching (e.g., "denver roofing" worked → suggest "boulder roofing")
+- Requires lightweight topic embedding or keyword clustering
+
+### D — Persistence / infra
 - Items in `master_execution_plan.md` post-Phase 3E backlog
 
-### D — Pattern confidence loop
-- Track when recommendations are acted on (operator applies a recommended change → new changelog entry → attribution → pattern strengthens)
-- Persisted recommendation outcomes
-
-### E — Operator feedback on recommendations
-- Accept/dismiss/defer per recommendation → feeds priority ranking
+### E — Native visibility sampling
+- Replace Profound import with direct Perplexity API sampling
+- Fresh data = better attribution = better recommendations
 
 ---
 
 ### Historical: remaining precision opportunities
-- 15 citation-supported but no-topic candidates — changelog quality (partially addressed by Phase 8 "strengthen" recs)
-- Page discovery (discover.ts) batch context could feed richer signals
+- 15 citation-supported but no-topic candidates — partially addressed by "strengthen" recs
 - 1 opportunity in imported data → opportunity clustering mostly inactive

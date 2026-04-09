@@ -32,6 +32,7 @@ import { updateIssueStatus, verifyAndUpdateIssue } from "./pages/issue-actions";
 import { stripSiteOrigin } from "@/lib/site-config";
 import { buildTodaySummary, type TodayNextMove } from "@/lib/today-summary";
 import { computeRecommendations } from "@/domains/product/recommendation-engine";
+import { rankAndSelect } from "@/domains/product/priority-engine";
 import { latestWebsiteCrawlRun } from "@/domains/observations/read";
 import { primaryVisibilityRunForResults } from "@/domains/observations/visibility-context";
 import { loadCompetitorUniverseRuntime } from "@/domains/competitors/universe-read";
@@ -305,7 +306,43 @@ export default function TodayPage() {
     patterns,
     briefs: playbookBriefs,
   });
-  const topRecs = recommendations.slice(0, 5).map((r) => ({
+
+  const briefPatternCounts = new Map<string, number>();
+  for (const b of playbookBriefs) {
+    briefPatternCounts.set(
+      b.patternId,
+      (briefPatternCounts.get(b.patternId) ?? 0) + 1,
+    );
+  }
+
+  const { primaryAction, secondary } = rankAndSelect({
+    recommendations,
+    impactRows,
+    patterns,
+    briefPatternCounts,
+  });
+
+  function recHref(r: { type: string; targetPageUrl: string | null; sourceChangeId: string | null }): string {
+    if (r.type === "replicate" && r.targetPageUrl) return pagesHref(r.targetPageUrl);
+    if (r.sourceChangeId) return `/changes/${r.sourceChangeId}`;
+    return "/pages";
+  }
+
+  const serializedPrimary = primaryAction
+    ? {
+        headline: primaryAction.headline,
+        rationale: primaryAction.rationale,
+        expectedOutcome: primaryAction.expectedOutcome,
+        sourceEvidence: primaryAction.sourceEvidence,
+        priorityScore: primaryAction.priorityScore,
+        bucket: primaryAction.bucket as "critical" | "high_leverage" | "opportunistic",
+        type: primaryAction.type,
+        confidence: primaryAction.confidence,
+        href: recHref(primaryAction),
+      }
+    : null;
+
+  const topRecs = secondary.slice(0, 4).map((r) => ({
     id: r.id,
     type: r.type,
     headline: r.headline,
@@ -313,12 +350,7 @@ export default function TodayPage() {
     sourceEvidence: r.sourceEvidence,
     confidence: r.confidence,
     sourceChangeId: r.sourceChangeId,
-    href:
-      r.type === "replicate" && r.targetPageUrl
-        ? pagesHref(r.targetPageUrl)
-        : r.sourceChangeId
-          ? `/changes/${r.sourceChangeId}`
-          : "/pages",
+    href: recHref(r),
   }));
 
   const proposedWaves = planWaves(
@@ -426,20 +458,6 @@ export default function TodayPage() {
 
   const nextCandidates: (TodayNextMove | null)[] = [];
 
-  const topRec = recommendations[0];
-  if (topRec && topRec.confidence === "high" && topRec.type === "replicate") {
-    nextCandidates.push({
-      title: topRec.headline,
-      href:
-        topRec.targetPageUrl
-          ? pagesHref(topRec.targetPageUrl)
-          : "/pages",
-      evidence: topRec.rationale,
-      observationRunId: activeCrawlId,
-      evidenceScope: "mixed",
-    });
-  }
-
   if (warningAlerts.length > 0) {
     const first = warningAlerts[0];
     nextCandidates.push({
@@ -498,6 +516,7 @@ export default function TodayPage() {
         items={enrichedItems}
         impactSignals={actionableImpact}
         recommendedMoves={topRecs}
+        primaryAction={serializedPrimary}
         onUpdateIssue={
           updateIssueStatus as (
             issueId: string,

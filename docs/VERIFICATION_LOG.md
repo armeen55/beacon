@@ -179,3 +179,30 @@
 
 ### Build verification (Phase 8)
 - `npm run check`, `npm run test`, `npm run data:parity` — pass; 17/17 routes, 26/26 tests, 15/15 parity
+
+---
+
+## 2026-04-09 — Phase 9: Priority Engine
+
+### What shipped
+- **`src/domains/product/priority-engine.ts`** — 6-dimension scoring (impact confidence, evidence strength, pattern strength, replication potential, type urgency, recency) producing 0-100 priority score per recommendation
+- Four buckets: CRITICAL (>=72), HIGH_LEVERAGE (>=50), OPPORTUNISTIC (>=25), NOISE (<25, filtered)
+- `rankAndSelect()` picks single primary action + ranked secondary list
+- Per-action expected outcome text (visibility improvement / evidence upgrade / loss prevention)
+
+### Today page enforcement
+- "DO THIS NOW" block replaces "Next best move" when primary action exists
+- Visually dominant: bold border colored by bucket, priority score badge, "Why" + "Expected outcome" sections, bold CTA
+- Secondary recommendations collapse into "Other opportunities (N)" toggle — reduces decision paralysis
+- Graceful fallback: when no primary action qualifies, existing next-best-move logic renders unchanged
+
+### Also modified
+- `src/domains/product/recommendation-engine.ts` — added `patternId` and `citationOpportunity` to `BeaconRecommendation` for priority context
+
+### Constraints honored
+- No persistence changes, no new stores, no scoring formula changes
+- No changes to attribution logic, evidence tiers, or triage
+- Existing recommendation engine logic unchanged; priority engine is a pure post-processing layer
+
+### Build verification (Phase 9)
+- `npm run check`, `npm run test`, `npm run data:parity` — pass; 17/17 routes, 26/26 tests, 15/15 parity

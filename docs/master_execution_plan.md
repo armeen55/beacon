@@ -276,7 +276,7 @@ A trust-first AI visibility operating system for builder/home-services businesse
 
 | Surface | Route | Role | Key data sources |
 |---------|-------|------|-----------------|
-| **Today** | `/` | Default home. Observation strip + **impact signals** (top 5 from Impact Engine) + **recommended moves** (Recommendation Engine: proven patterns x structural gaps) + queue + evidence-based next move + verified fixes | `today-summary.ts`, `enrichWithImpact`, `computeRecommendations`, page issues, events, decisions, guardrails, snapshots, citation index, competitor universe |
+| **Today** | `/` | Default home. Observation strip + **DO THIS NOW** (Priority Engine: single enforced action, 0-100 score, bucket, expected outcome) + **impact signals** + **other opportunities** (collapsed) + work queue + verified fixes | `today-summary.ts`, `enrichWithImpact`, `computeRecommendations`, `rankAndSelect`, page issues, events, decisions, guardrails, snapshots, citation index, competitor universe |
 | **Your Website** | `/pages` | Execution workbench. Page list + issue tracking + verify actions | Page snapshots, issues, guardrails, render checks, frontier context |
 | **Gap ledger** | `/topics` | Typed opportunity gaps. Frontier list + detail drilldown | Frontier planner, compiler, citation index, competitor evidence |
 | **Gap detail** | `/topics/opportunity/[id]` | Single frontier detail with attack package + provenance | Frontier compiler, citation evidence, pages, competitor universe |
@@ -1277,5 +1277,37 @@ No code changes needed. No database changes needed. No data loss.
 - High-confidence replicate recommendation inserted as first "next best move" candidate (system becomes proactive, not just reactive)
 - `today-client.tsx` renders "Recommended moves" section between impact signals and work queue
 - Cards colored by type (green=replicate, yellow=strengthen, red=investigate), confidence badge, evidence summary
+
+**Validation:** `npm run check` (17/17), `npm run test` (26/26), `npm run data:parity` (15/15).
+
+### Phase 9 — Priority Engine (COMPLETE)
+
+**Scope:** Rank all possible actions, select the single highest-leverage move, enforce execution focus. No persistence, no scoring formula changes.
+
+**New module:**
+- `src/domains/product/priority-engine.ts` — `rankAndSelect()` takes recommendations + impact context, produces prioritized actions
+
+**Scoring model (0-100, 6 dimensions):**
+- Impact confidence (0-25): high=25, medium=15, low=5
+- Evidence strength (0-20): exact=20, probable=14, weak=6, inferred=2
+- Pattern strength (0-15): validated=15, probable=9, speculative=4
+- Replication potential (0-15): scaled by number of pages the pattern applies to (capped at 10)
+- Type urgency (0-15): investigate=15, replicate=8, strengthen=3
+- Recency (0-10): exponential decay over 90 days from source change
+
+**Buckets:**
+- CRITICAL (>=72): must act now
+- HIGH_LEVERAGE (>=50): strong ROI
+- OPPORTUNISTIC (>=25): useful but not urgent
+- NOISE (<25): filtered out
+
+**Primary action selection:** Highest-scored non-noise recommendation becomes THE one action. All others are secondary.
+
+**Expected outcome generation:** Per-type text explaining what happens if the operator acts (visibility lift for replicate, evidence upgrade for strengthen, loss prevention for investigate).
+
+**Today page UI:**
+- "DO THIS NOW" block replaces "Next best move" when a primary action exists (bold border, score badge, bucket label, headline, why, expected outcome, CTA)
+- Secondary recommendations collapse into "Other opportunities (N)" toggle
+- Graceful fallback to existing next-move logic when no primary action qualifies
 
 **Validation:** `npm run check` (17/17), `npm run test` (26/26), `npm run data:parity` (15/15).

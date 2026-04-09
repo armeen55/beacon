@@ -22,6 +22,8 @@ export type BeaconRecommendation = {
   sourceChangeId: string | null;
   confidence: "high" | "medium" | "low";
   priority: number;
+  patternId: string | null;
+  citationOpportunity: number;
 };
 
 // ---------------------------------------------------------------------------
@@ -141,6 +143,8 @@ export function computeRecommendations(opts: {
       confidence,
       priority:
         brief.priority + (confidence === "high" ? 500 : confidence === "medium" ? 200 : 0),
+      patternId: brief.patternId,
+      citationOpportunity: brief.citationOpportunity,
     });
   }
 
@@ -185,6 +189,8 @@ export function computeRecommendations(opts: {
       confidence: row.totalEventsLinked >= 2 ? "medium" : "low",
       priority:
         300 + row.totalEventsLinked * 50 + (suggestedTopic ? 100 : 0),
+      patternId: null,
+      citationOpportunity: 0,
     });
   }
 
@@ -207,6 +213,8 @@ export function computeRecommendations(opts: {
       sourceChangeId: row.change.id,
       confidence: row.impact.confidence,
       priority: 800 + row.totalEventsLinked * 100,
+      patternId: null,
+      citationOpportunity: 0,
     });
   }
 
@@ -228,6 +236,8 @@ export function computeRecommendations(opts: {
             ? "high"
             : "medium",
         priority: brief.priority,
+        patternId: brief.patternId,
+        citationOpportunity: brief.citationOpportunity,
       });
     }
   }
