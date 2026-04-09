@@ -5,8 +5,9 @@ import { MatchFactors } from "@/components/display/match-factors";
 import { changelogEntries, results, opportunities } from "@/lib/seed-data.server";
 import { eventDecisions } from "@/domains/attribution/store";
 import { computeScorecard } from "@/domains/attribution/scorecard";
+import { computeChangeImpact } from "@/domains/attribution/change-impact";
 import type { EventAttribution, TrustSource } from "@/domains/attribution/scorecard";
-import type { AttributionConfidence } from "@/domains/attribution/types";
+import type { AttributionConfidence, ImpactConfidence, ImpactDirection } from "@/domains/attribution/types";
 import type { EvidenceTier } from "@/domains/pages/types";
 import {
   SIGNAL_TYPE_LABELS,
@@ -88,6 +89,8 @@ export default async function ChangeDetailPage({
   const allRows = computeScorecard(changelogEntries, results, opportunities, eventDecisions);
   const row = allRows.find((r) => r.change.id === id);
   if (!row) notFound();
+
+  const impact = computeChangeImpact(row);
 
   const sortedAttributions = [...row.eventAttributions].sort(
     (a, b) => b.score - a.score
@@ -197,6 +200,39 @@ export default async function ChangeDetailPage({
         </div>
       </div>
 
+      {/* Impact assessment */}
+      <div className="border border-border rounded-lg overflow-hidden">
+        <div className="px-4 py-3 bg-surface-inset/50 border-b border-border">
+          <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
+            Impact assessment
+          </p>
+        </div>
+        <div className="px-4 py-3 space-y-3">
+          <div className="flex items-center gap-4 flex-wrap">
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] text-muted-foreground">Confidence:</span>
+              <ImpactConfidenceBadge confidence={impact.confidence} />
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] text-muted-foreground">Direction:</span>
+              <DirectionBadge direction={impact.direction} />
+            </div>
+          </div>
+          <div>
+            <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-1">Why</p>
+            <p className="text-[12px] text-foreground-secondary leading-relaxed">
+              {impact.whyExplanation}
+            </p>
+          </div>
+          <div className="border-t border-border pt-3">
+            <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-1">What to do next</p>
+            <p className="text-[13px] font-medium leading-relaxed">
+              {impact.nextAction}
+            </p>
+          </div>
+        </div>
+      </div>
+
       {/* Hypothesis */}
       {entry.hypothesis && (
         <div>
@@ -294,5 +330,36 @@ function EventAttributionCard({ ea }: { ea: EventAttribution }) {
         {ea.explanation}
       </p>
     </Link>
+  );
+}
+
+const IMPACT_CONF_STYLE: Record<ImpactConfidence, { label: string; className: string }> = {
+  high: { label: "High", className: "text-status-success bg-status-success/10 border-status-success/20" },
+  medium: { label: "Medium", className: "text-foreground-secondary bg-surface-inset border-border" },
+  low: { label: "Low", className: "text-muted-foreground bg-surface-inset border-border" },
+};
+
+function ImpactConfidenceBadge({ confidence }: { confidence: ImpactConfidence }) {
+  const cfg = IMPACT_CONF_STYLE[confidence];
+  return (
+    <span className={`text-[10px] font-medium px-2 py-0.5 rounded border ${cfg.className}`}>
+      {cfg.label}
+    </span>
+  );
+}
+
+const DIRECTION_STYLE: Record<ImpactDirection, { label: string; className: string }> = {
+  positive: { label: "Positive", className: "text-status-success" },
+  negative: { label: "Decline", className: "text-status-danger" },
+  mixed: { label: "Mixed", className: "text-status-warning" },
+  none: { label: "No signal", className: "text-muted-foreground" },
+};
+
+function DirectionBadge({ direction }: { direction: ImpactDirection }) {
+  const cfg = DIRECTION_STYLE[direction];
+  return (
+    <span className={`text-[11px] font-medium ${cfg.className}`}>
+      {cfg.label}
+    </span>
   );
 }

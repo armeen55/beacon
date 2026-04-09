@@ -2,8 +2,9 @@
 
 import { useState, useMemo } from "react";
 import Link from "next/link";
-import type { ScorecardRow, TrustSource } from "@/domains/attribution/scorecard";
-import type { ChangeVerdict, AttributionConfidence } from "@/domains/attribution/types";
+import type { TrustSource } from "@/domains/attribution/scorecard";
+import type { ScorecardRowWithImpact } from "@/domains/attribution/change-impact";
+import type { ChangeVerdict, AttributionConfidence, ImpactConfidence } from "@/domains/attribution/types";
 import type { EvidenceTier } from "@/domains/pages/types";
 import { ChangeVerdictBadge, changeVerdictLabel } from "@/components/display/change-verdict-badge";
 
@@ -23,6 +24,19 @@ const VERDICT_ORDER: Record<ChangeVerdict, number> = {
   pending: 3,
   too_early: 4,
   no_impact: 5,
+  negative: 6,
+};
+
+const CONFIDENCE_LABEL: Record<ImpactConfidence, string> = {
+  high: "High",
+  medium: "Med",
+  low: "Low",
+};
+
+const CONFIDENCE_COLOR: Record<ImpactConfidence, string> = {
+  high: "text-status-success",
+  medium: "text-status-warning",
+  low: "text-muted-foreground",
 };
 
 const TIER_ORDER: Record<EvidenceTier, number> = {
@@ -83,16 +97,12 @@ const TRUST_SHORT: Record<TrustSource, string> = {
   operator_rejected: "Rejected",
 };
 
-type SerializedScorecardRow = Omit<ScorecardRow, "change"> & {
-  change: ScorecardRow["change"];
-};
-
 export function ScorecardTable({
   rows,
   allTopics,
   allPlatforms,
 }: {
-  rows: SerializedScorecardRow[];
+  rows: ScorecardRowWithImpact[];
   allTopics: string[];
   allPlatforms: string[];
 }) {
@@ -176,6 +186,9 @@ export function ScorecardTable({
         <StatPill label={changeVerdictLabel("partial")} count={verdictCounts.partial ?? 0} color="text-status-warning" />
         <StatPill label={changeVerdictLabel("inconclusive")} count={verdictCounts.inconclusive ?? 0} color="text-muted-foreground" />
         <StatPill label={changeVerdictLabel("no_impact")} count={verdictCounts.no_impact ?? 0} color="text-status-danger" />
+        {(verdictCounts.negative ?? 0) > 0 && (
+          <StatPill label={changeVerdictLabel("negative")} count={verdictCounts.negative ?? 0} color="text-status-danger" />
+        )}
         <StatPill label={changeVerdictLabel("too_early")} count={verdictCounts.too_early ?? 0} color="text-muted-foreground" />
       </div>
 
@@ -192,6 +205,7 @@ export function ScorecardTable({
             { value: "partial", label: changeVerdictLabel("partial") },
             { value: "inconclusive", label: changeVerdictLabel("inconclusive") },
             { value: "no_impact", label: changeVerdictLabel("no_impact") },
+            { value: "negative", label: changeVerdictLabel("negative") },
             { value: "too_early", label: changeVerdictLabel("too_early") },
           ]}
         />
@@ -254,6 +268,7 @@ export function ScorecardTable({
               <SortHeader field="tier" current={sortField} dir={sortDir} onClick={handleSort}>
                 Evidence
               </SortHeader>
+              <th className="text-left px-3 py-2 font-medium">What to do</th>
             </tr>
           </thead>
           <tbody>
@@ -273,7 +288,7 @@ export function ScorecardTable({
   );
 }
 
-function ScorecardRowUI({ row }: { row: SerializedScorecardRow }) {
+function ScorecardRowUI({ row }: { row: ScorecardRowWithImpact }) {
   const ch = row.change;
   const dateStr = new Date(ch.timestamp).toLocaleDateString("en-US", {
     month: "short",
@@ -303,7 +318,10 @@ function ScorecardRowUI({ row }: { row: SerializedScorecardRow }) {
       </td>
       <td className="px-3 py-2.5 align-top whitespace-nowrap">
         <div className="flex flex-col gap-1">
-          <ChangeVerdictBadge verdict={row.verdict} />
+          <div className="flex items-center gap-1.5">
+            <ChangeVerdictBadge verdict={row.verdict} />
+            <ConfidenceBadge confidence={row.impact.confidence} />
+          </div>
           {row.topTrust && (
             <span className="inline-flex items-center gap-1">
               <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${TRUST_DOT[row.topTrust]}`} />
@@ -375,6 +393,11 @@ function ScorecardRowUI({ row }: { row: SerializedScorecardRow }) {
           {TIER_LABELS[row.evidenceTier]}
         </span>
       </td>
+      <td className="px-3 py-2.5 align-top max-w-[220px]">
+        <p className="text-[10px] text-muted-foreground line-clamp-2 leading-relaxed">
+          {row.impact.nextAction}
+        </p>
+      </td>
     </tr>
   );
 }
@@ -438,11 +461,19 @@ function FilterSelect({
       onChange={(e) => onChange(e.target.value)}
       className="rounded border border-border bg-background px-1.5 py-0.5 text-[10px] text-foreground focus:outline-none focus:ring-1 focus:ring-accent-primary"
     >
-      {options.map((o) => (
-        <option key={o.value} value={o.value}>
-          {o.label}
-        </option>
-      ))}
-    </select>
+          {options.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      );
+    }
+
+function ConfidenceBadge({ confidence }: { confidence: ImpactConfidence }) {
+  return (
+    <span className={`text-[9px] font-semibold uppercase tracking-wider ${CONFIDENCE_COLOR[confidence]}`}>
+      {CONFIDENCE_LABEL[confidence]}
+    </span>
   );
 }

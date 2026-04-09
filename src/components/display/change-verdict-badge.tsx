@@ -10,6 +10,7 @@ export const CHANGE_VERDICT_DISPLAY: Record<
   partial: { status: "warning", label: "Mixed signal" },
   inconclusive: { status: "neutral", label: "Unclear" },
   no_impact: { status: "danger", label: "No lift in data" },
+  negative: { status: "danger", label: "Decline detected" },
   too_early: { status: "neutral", label: "Too soon to tell" },
   pending: { status: "neutral", label: "Not rated" },
 };

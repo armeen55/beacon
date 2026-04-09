@@ -70,8 +70,20 @@ export type ChangeVerdict =
   | "partial"
   | "inconclusive"
   | "no_impact"
+  | "negative"
   | "too_early"
   | "pending";
+
+export type ImpactConfidence = "high" | "medium" | "low";
+
+export type ImpactDirection = "positive" | "negative" | "mixed" | "none";
+
+export type ChangeImpact = {
+  confidence: ImpactConfidence;
+  direction: ImpactDirection;
+  whyExplanation: string;
+  nextAction: string;
+};
 
 export type ChangeVerdictData = {
   verdict: ChangeVerdict;
