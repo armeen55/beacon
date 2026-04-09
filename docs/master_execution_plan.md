@@ -2,13 +2,14 @@
 
 > Living document. Single source of truth for implementation sequence.
 > Updated: 2026-04-09
-> Current phase: **Phase 1C — COMPLETE — full schema + backfill for all route-critical stores**
+> Current phase: **Phase 1D — COMPLETE — repository layer extended, remaining consumers wired**
 >
 > Phase 0 — COMPLETE (commit `74605b1`)
 > Phase 0.5 — COMPLETE — audit locked minimum Phase 1 scope (15 stores → 12 tables)
 > Phase 1A — COMPLETE — Supabase client + 5-table core schema
 > Phase 1B — COMPLETE — repositories, seed-data wiring, backfill, validation
 > Phase 1C — COMPLETE — 10 remaining tables created + applied via MCP + full backfill verified
+> Phase 1D — COMPLETE — repository wiring for attribution, issues, contracts + key mapper
 
 ---
 
@@ -853,10 +854,60 @@ Repository layer must map between naming conventions when these consumers are wi
 
 `.data/observation-runs.json` contains **ProfoundImportRun** rows (renamed in Phase 0), not website crawl `ObservationRun` rows. The `observation_runs` table is designed for website crawl and visibility data. ProfoundImportRun data stays in its current file-backed scope per the Phase 0.5 audit (stores #35-42 are "do not migrate").
 
-### What Phase 1D should do next
+### Phase 1D — COMPLETE — repository wiring for centralized store consumers
 
-1. **Extend `SeedDataRepository`** with getters for attribution_decisions, candidate_links, pages, page_issues, change_contracts, page_snapshots, guardrail_alerts, citation_evidence, competitor_config
-2. **Add key-mapping helpers** for camelCase ↔ snake_case (page_issues, change_contracts)
-3. **Wire remaining store consumers** behind `DATA_SOURCE` flag (attribution/store.ts, pages/issues.ts, changelog/change-contract.ts, etc.)
-4. **Dual-write for import actions** — when `DATA_SOURCE=supabase`, write to both file and DB
-5. **End-to-end validation** — compare all route surfaces between `file` and `supabase` modes
+**Scope:** Extended the repository interface and wired the 3 centralized store modules that export mutable arrays through module-level `readStore()` calls.
+
+**Stores wired through repository (4 total, via 3 modules):**
+| Store file | TS type | DB table | Key mapping |
+|---|---|---|---|
+| event-decisions | EventDecision | attribution_decisions | none (already snake_case) |
+| candidate-links | CandidateLink | candidate_links | none (already snake_case) |
+| page-issues | PersistedIssue | page_issues | snake→camel via mapRowToEntity |
+| change-contracts | ChangeContract | change_contracts | snake→camel via mapRowToEntity |
+
+**Files created:**
+- `src/lib/persistence/repositories/key-mapper.ts` — `snakeToCamel()` + `mapRowToEntity<T>()` for DB→TS mapping
+
+**Files modified:**
+- `src/lib/persistence/repositories/types.ts` — added 4 new getters to `SeedDataRepository`
+- `src/lib/persistence/repositories/file-backend.ts` — file-backed implementations (returns cache references)
+- `src/lib/persistence/repositories/supabase-backend.ts` — added `queryMapped<T>()` for camelCase types
+- `src/domains/attribution/store.ts` — `candidateLinks` + `eventDecisions` via repo (truthLabels stays file-backed)
+- `src/domains/pages/issues.ts` — `pageIssues` via repo (rolloutExecutions + patternEvidence stay file-backed)
+- `src/domains/changelog/change-contract.ts` — `changeContracts` via repo
+
+**Pattern:** Top-level `await` on repository getters, matching the seed-data.server.ts pattern from Phase 1B. Persist functions remain file-backed. Non-migrated stores (truthLabels, rolloutExecutions, patternEvidence) still use direct `readStore()`.
+
+**Validation:**
+- typecheck ✓, lint ✓ (0 errors), build ✓ (17/17 pages), tests ✓ (26/26)
+- DB row counts match file stores: attribution_decisions=27, candidate_links=133, page_issues=6, change_contracts=85
+- DB column names confirmed compatible with snakeToCamel mapping
+
+**What was NOT touched:**
+- Route pages (no UI changes)
+- dotdata consumers (page-snapshots, page-guardrails, citation-evidence-index, observation-runs, competitor-universe)
+- `readStore("pages")` calls (scattered in route pages, not a centralized store)
+- Persist/write functions (stay file-backed)
+- truthLabels, rolloutExecutions, patternEvidence (route-supporting, deferred)
+- Scoring logic, crawl pipeline, Inngest, visibility sampling
+
+### What Phase 1E should do next
+
+**Remaining route-critical stores not yet wired through repository (6 stores):**
+These are read via `readDotDataJson()` or `readStore()` calls scattered in route pages — not centralized in a single store module. Wiring them requires either creating centralized data modules or modifying route pages directly.
+
+1. `readStore("pages")` — used in Today page, /pages, candidates.ts
+2. `readDotDataJson("page-snapshots")` — used in Today, /pages, Topics
+3. `readDotDataJson("page-guardrails")` — used in Today, /pages
+4. `readDotDataJson("citation-evidence-index")` — used in Today, /pages, Results, Topics, visibility-read.ts
+5. observation-runs — observations/read.ts → Today, /pages, Topics, Results
+6. competitor-universe — universe-read.ts → Today, Topics, Results, Competitors
+
+**Recommended approach:** Create thin centralized data-access modules for each, then update route-page imports. This touches more files but keeps the same repository pattern.
+
+**After Phase 1E:**
+- All 15 route-critical stores reading through repository
+- Dual-write for import actions (Phase 1F)
+- End-to-end validation comparing file vs supabase mode (Phase 1G)
+- Progressive cutover (Phase 2)

@@ -6,7 +6,8 @@
  * whether changes actually shipped and helped.
  */
 
-import { readStore, writeStore } from "@/lib/persistence/json-store";
+import { writeStore } from "@/lib/persistence/json-store";
+import { getRepository } from "@/lib/persistence/repositories";
 
 // ── Change Type Taxonomy ──
 
@@ -292,8 +293,9 @@ export function validateContract(contract: Partial<ChangeContract>): ValidationR
 
 // ── Persistence ──
 
-export const changeContracts: ChangeContract[] =
-  readStore<ChangeContract>("change-contracts");
+const repo = getRepository();
+
+export const changeContracts: ChangeContract[] = await repo.getChangeContracts();
 
 export async function persistChangeContracts(): Promise<void> {
   await writeStore("change-contracts", changeContracts);

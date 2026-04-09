@@ -6,6 +6,7 @@
  */
 
 import { readStore, writeStore } from "@/lib/persistence/json-store";
+import { getRepository } from "@/lib/persistence/repositories";
 
 export type IssueStatus =
   | "new"
@@ -116,8 +117,9 @@ export async function persistPatternEvidence(): Promise<void> {
   await writeStore("pattern-evidence", patternEvidence);
 }
 
-export const pageIssues: PersistedIssue[] =
-  readStore<PersistedIssue>("page-issues");
+const repo = getRepository();
+
+export const pageIssues: PersistedIssue[] = await repo.getPageIssues();
 
 export async function persistPageIssues(): Promise<void> {
   await writeStore("page-issues", pageIssues);
