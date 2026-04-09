@@ -8,6 +8,11 @@
  *
  * Hot stores: loaded eagerly via json-store (small collections).
  * Cold stores: loaded on-demand via cold-store (large observation data).
+ *
+ * Shared filename: `.data/observation-runs.json` also receives website `ObservationRun`
+ * rows from scan/verify. This module only ever treats the file as `ProfoundImportRun[]`
+ * (json-store parse). Website runs are read via `SeedDataRepository.getObservationRuns()`
+ * (`file-backend` merges typed rows + `scan-runs.json`, skipping Profound-shaped objects).
  */
 
 import "server-only";

@@ -24,7 +24,8 @@ export type ObservationRunType =
 export type ObservationRunStatus = "completed" | "failed" | "partial";
 
 /**
- * Single persisted row in `.data/observation-runs.json`.
+ * Website observation row: persisted under `.data/observation-runs.json` (and legacy
+ * `.data/scan-runs.json` merged in by `file-backend.getObservationRuns()`).
  * `run_id` matches `observation_run_id` on snapshots/guardrails from that pass.
  */
 export type ObservationRun = ObservationArtifactCounts & {

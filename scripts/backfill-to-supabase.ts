@@ -246,9 +246,10 @@ async function backfill() {
     console.log("  citation_evidence_index: missing or invalid — skip");
   }
 
-  // observation_runs: the .data/observation-runs.json file contains
-  // ProfoundImportRun data (different schema), not website crawl ObservationRun
-  // data. The visibility-observation-runs file, if present, is the relevant one.
+  // observation_runs: .data/observation-runs.json is mixed (ProfoundImportRun +
+  // website ObservationRun). This script does not bulk-upsert that file; it only
+  // pushes visibility-observation-runs.json when present. Website crawl rows are
+  // aligned via Phase 3C merge + dual-write / manual ops — see master_execution_plan.
   const visRuns = readJsonFile<Record<string, unknown>[]>(
     "visibility-observation-runs",
   );

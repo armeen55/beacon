@@ -202,7 +202,7 @@ A trust-first AI visibility operating system for builder/home-services businesse
 
 **CURRENT FACT:** Two observation spines exist.
 
-1. **Website observations** — `domains/observations/types.ts` → `ObservationRun` with `run_id`, `run_type` (website_crawl, website_verify), artifact counts. Read via `observations/read.ts` from `.data/observation-runs.json` with fallback to legacy `scan-runs.json`.
+1. **Website observations** — `domains/observations/types.ts` → `ObservationRun` with `run_id`, `run_type` (website_crawl, website_verify), artifact counts. Read via `observations/read.ts` → `SeedDataRepository.getObservationRuns()`. On file backend, that merges typed rows from `.data/observation-runs.json` with legacy `.data/scan-runs.json` (Profound-shaped objects in the same file are skipped — see Phase 3C).
 
 2. **Visibility observations** — `domains/observations/visibility-types.ts` → `VisibilityObservationRun` with `run_type` (citation_sample_import, prompt_results_import, composite). Read via `visibility-read.ts` from `.data/visibility-observation-runs.json`, plus synthetic wrappers from citation index and seed walkthrough.
 
@@ -857,9 +857,9 @@ All DB columns use **snake_case** (PostgreSQL convention). Two TS types use came
 
 Repository layer must map between naming conventions when these consumers are wired.
 
-### Discovery: observation-runs file schema mismatch
+### Discovery: observation-runs file (mixed use; resolved for reads)
 
-`.data/observation-runs.json` contains **ProfoundImportRun** rows (renamed in Phase 0), not website crawl `ObservationRun` rows. The `observation_runs` table is designed for website crawl and visibility data. ProfoundImportRun data stays in its current file-backed scope per the Phase 0.5 audit (stores #35-42 are "do not migrate").
+The physical `.data/observation-runs.json` file is **shared**: it holds **ProfoundImportRun** rows (Profound pipeline via `canonical-store.ts` / json-store) and may also hold website **`ObservationRun`** rows appended by scan/verify. **`SeedDataRepository` / `file-backend.ts`** merges website-typed rows from that file with legacy `.data/scan-runs.json`, skipping Profound-shaped objects (Phase 3C). The `observation_runs` Postgres table holds website + visibility-aligned runs; ProfoundImportRun rows remain file-backed per Phase 0.5 (stores #35–42 are "do not migrate").
 
 ### Phase 1D — COMPLETE — repository wiring for centralized store consumers
 
@@ -1001,7 +1001,7 @@ Reads all 15 route-critical stores from file (`.data/*.json`) and Supabase in pa
 - Match/mismatch status
 - ID-level drift details (which IDs exist only in file or only in DB)
 
-**Latest run (2026-04-09):** 14/15 stores in exact parity. The single expected mismatch is `observation_runs` (99 in file, 0 in DB) because the file contains `ProfoundImportRun` data with a different schema, intentionally excluded from the backfill.
+**Latest run (2026-04-09):** **15/15** stores in exact parity after Phase 3C (`observation_runs` alignment — merged file + scan sources, DB backfill, dual-write on new runs).
 
 **Validation:** typecheck ✓, lint ✓ (0 new), build ✓ (17/17), tests ✓ (26/26)
 
@@ -1024,8 +1024,8 @@ Phase 1 is **COMPLETE**. All subphases (1A–1G) are done:
 **Date:** 2026-04-09
 
 **Rationale:**
-1. 14/15 route-critical stores have exact row parity between file and Supabase
-2. The single mismatch (`observation_runs`: 99 file, 0 DB) is a documented safe exception — the file contains `ProfoundImportRun` data with a different schema; the consumer (`observations/read.ts`) falls back to `scan-runs.json` when the repository returns empty, so runtime behavior is identical in both modes
+1. 15/15 route-critical stores have exact row parity between file and Supabase (post–Phase 3C)
+2. `observation_runs` parity is no longer an exception: file-backend merge + DB backfill + dual-write keep file and Supabase aligned; `observations/read.ts` has no `scan-runs.json` fallback (repository owns merge)
 3. All 17 route pages build and render correctly under `DATA_SOURCE=supabase`
 4. Supplementary data (`page-snapshot-diffs`, `render-checks`, `sitemap-reconciliation`, `visibility-observation-runs`) still lives on disk only — Phase 3A routes reads through `SeedDataRepository`, but **both** backends call `readDotDataJson` so Supabase-default behavior matches the prior direct-file behavior
 5. Rollback is trivial and verified
@@ -1098,12 +1098,13 @@ No code changes needed. No database changes needed. No data loss.
 
 **Explicitly deferred (not in 3A):**
 - `topics/page.tsx` server action — keeps dynamic `readDotDataJson` for **fresh** citation + snapshot reads at action time (avoid module-cache staleness)
-- `observations/read.ts` legacy `scan-runs.json` fallback — unchanged
 - `universe-read.ts` file branch for pin metadata — unchanged
 - Profound `import-orchestrator.ts` `readStore("imported-changes")` — unchanged (CLI path; repo vs file timing risk if switched blindly)
 - Supabase tables for supplementary JSON — deferred to a later Phase 3 chunk
 
-**Validation:** `npm run check`, `npm run test`, `npm run data:parity` — all pass; 14/15 parity unchanged
+**Note (post–3C):** `observations/read.ts` **no longer** falls back to `scan-runs.json`; merge lives in `file-backend.getObservationRuns()`.
+
+**Validation:** `npm run check`, `npm run test`, `npm run data:parity` — all pass; **15/15** parity after Phase 3C
 
 ---
 
@@ -1120,9 +1121,9 @@ No code changes needed. No database changes needed. No data loss.
 
 **Cleanup:** removed dead `readStore`/`writeStore` import from `builder-benchmark.ts`.
 
-**Explicitly deferred (not in 3B):** topics dynamic action, `scan-runs` fallback, `universe-read` pin file path, `import-orchestrator` changelog read, `canonical-store.ts` / Profound stores, `observation_runs` alignment, new DB tables.
+**Explicitly deferred (not in 3B):** topics dynamic action, `universe-read` pin file path, `import-orchestrator` changelog read, `canonical-store.ts` / Profound containment policy, new DB tables. (`observation_runs` alignment → Phase 3C.)
 
-**Validation (2026-04-09):** `npm run check`, `npm run test`, `npm run data:parity` — pass; 14/15 parity unchanged.
+**Validation (2026-04-09):** `npm run check`, `npm run test`, `npm run data:parity` — pass; **15/15** parity after Phase 3C.
 
 ---
 
@@ -1154,7 +1155,28 @@ No code changes needed. No database changes needed. No data loss.
 
 ---
 
-### What Phase 3 should address next (3D+)
+### Phase 3D — Post-parity stabilization (COMPLETE)
+
+**Scope:** Documentation and containment only — no new tables, no behavior change.
+
+**Done:**
+- Aligned `master_execution_plan.md` with **15/15** parity and post–3C observation-run facts (removed stale 14/15 / reader-fallback language).
+- Updated `docs/architecture.md` persistence section: Supabase-default reads, `DATA_SOURCE` rollback, dual-write summary.
+- Clarified shared `.data/observation-runs.json` in `canonical-store.ts` (Profound slice) and `domains/observations/types.ts` (website rows + repository merge).
+- Corrected `scripts/backfill-to-supabase.ts` comment for `observation_runs` (mixed file; script path still visibility-led).
+
+**Explicitly still deferred (3E+ or product decision):**
+1. Topics server action freshness vs repository-cached stores
+2. `import-orchestrator` read path — explicit file-vs-repo policy for CLI before rewiring
+3. Supplementary + long-tail json-store domains → Postgres (schema + backfill — **not** this chunk)
+4. `canonical-store` / Profound file-store containment or split-file policy (**no redesign** until decided)
+5. Crawl pipeline / real-time / Inngest — out of band
+
+**Validation:** Same suite as Phase 3C (`typecheck`, `lint`, `build`, `check`, `test`, `data:parity`).
+
+---
+
+### What Phase 3 should address next (3E+)
 
 1. **Optional:** Topics server action freshness vs repository-cached stores
 2. **`import-orchestrator` read path** — only with explicit file-vs-DB policy for CLI

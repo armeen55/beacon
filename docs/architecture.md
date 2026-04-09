@@ -88,8 +88,13 @@ Removed:
 
 ## Persistence
 
-Local `.data/` JSON files via `src/lib/persistence/json-store.ts`.
-Server-only — enforced by `import "server-only"`.
+**Default:** Route-critical data is read through `SeedDataRepository` with **`DATA_SOURCE=supabase`** (see `src/lib/persistence/repositories/`). **`DUAL_WRITE=true`** keeps file-first writes and best-effort Supabase upserts so rollback stays trivial.
+
+**Rollback:** Set **`DATA_SOURCE=file`** in `.env.local` and restart — reads return to `.data/*.json` via the same repository interface; no code change.
+
+**Disk:** Supplementary operator state and large JSON blobs still live under `.data/` (read through repository getters or thin domain stores). The file **`.data/observation-runs.json` is shared**: Profound import rows (`ProfoundImportRun`, `canonical-store.ts`) coexist with website crawl/verify rows (`ObservationRun`); `file-backend` merges website-typed rows with legacy `scan-runs.json` and skips Profound-shaped objects (see `docs/master_execution_plan.md`, Phase 3C).
+
+Underlying file cache and mutations still use `src/lib/persistence/json-store.ts` where applicable. Server-only — enforced by `import "server-only"`.
 
 ## Server/Client Boundary
 
