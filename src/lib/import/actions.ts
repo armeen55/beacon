@@ -25,6 +25,14 @@ import type { CitationEvidenceIndex } from "@/domains/pages/types";
 import type { VisibilityObservationRun } from "@/domains/observations/visibility-types";
 import { appendVisibilityObservationRunSync } from "@/domains/observations/visibility-persist";
 import { universeFieldsForObservationPersistence } from "@/domains/competitors/universe-run-pin";
+import {
+  syncImportRuns,
+  syncResults,
+  syncChangelogEntries,
+  syncOpportunities,
+  syncCompetitors,
+  clearAllImportTables,
+} from "@/lib/persistence/dual-write";
 
 const importRuns: ImportRun[] = readStore<ImportRun>("import-runs");
 
@@ -183,7 +191,9 @@ export async function executeImport(
   };
   importRuns.push(run);
   await writeStore("import-runs", importRuns);
+  await syncImportRuns(importRuns);
   await persistImportedEntities(entityType);
+  await dualWriteImportedEntities(entityType);
 
   revalidatePath("/", "layout");
 
@@ -316,6 +326,7 @@ export async function resetExperiment(
   if (!options.preserveTruthLabels) {
     await persistTruthLabels();
   }
+  await clearAllImportTables();
 
   revalidatePath("/", "layout");
   return { cleared };
@@ -428,6 +439,10 @@ export async function importWorkbook(
     "imported-competitors",
     competitors.filter(isImported)
   );
+  await syncChangelogEntries(changelogEntries.filter(isImported));
+  await syncResults(results.filter(isImported));
+  await syncOpportunities(opportunities.filter(isImported));
+  await syncCompetitors(competitors.filter(isImported));
 
   const run: ImportRun = {
     id: batchId,
@@ -452,6 +467,7 @@ export async function importWorkbook(
   };
   importRuns.push(run);
   await writeStore("import-runs", importRuns);
+  await syncImportRuns(importRuns);
 
   if (data.results.length > 0) {
     const completedAt = now();
@@ -556,6 +572,23 @@ async function persistImportedEntities(entityType: ImportEntityType) {
       break;
     case "competitors":
       await writeStore("imported-competitors", competitors.filter(isImported));
+      break;
+  }
+}
+
+async function dualWriteImportedEntities(entityType: ImportEntityType) {
+  switch (entityType) {
+    case "results":
+      await syncResults(results.filter(isImported));
+      break;
+    case "changes":
+      await syncChangelogEntries(changelogEntries.filter(isImported));
+      break;
+    case "opportunities":
+      await syncOpportunities(opportunities.filter(isImported));
+      break;
+    case "competitors":
+      await syncCompetitors(competitors.filter(isImported));
       break;
   }
 }

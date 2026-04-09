@@ -2,7 +2,7 @@
 
 > Living document. Single source of truth for implementation sequence.
 > Updated: 2026-04-09
-> Current phase: **Phase 1E — COMPLETE — all 15 route-critical stores wired through repository**
+> Current phase: **Phase 1F — COMPLETE — dual-write engine for import write paths**
 >
 > Phase 0 — COMPLETE (commit `74605b1`)
 > Phase 0.5 — COMPLETE — audit locked minimum Phase 1 scope (15 stores → 12 tables)
@@ -11,6 +11,7 @@
 > Phase 1C — COMPLETE — 10 remaining tables created + applied via MCP + full backfill verified
 > Phase 1D — COMPLETE — repository wiring for attribution, issues, contracts + key mapper
 > Phase 1E — COMPLETE — remaining 6 stores wired via centralized modules + route rewires
+> Phase 1F — COMPLETE — dual-write engine for 7 import-path entity tables
 
 ---
 
@@ -949,8 +950,45 @@ Repository layer must map between naming conventions when these consumers are wi
 
 The `SeedDataRepository` interface has 15 getters covering all stores identified in the Phase 0.5 audit. Both file and Supabase backends implement all 15. `DATA_SOURCE=file` remains the default. `DATA_SOURCE=supabase` is viable for reads across the full route-critical slice.
 
-### What Phase 1F should do next
+### Phase 1F — Dual-Write Engine (COMPLETE)
 
-1. **Dual-write for import actions** — when importing results/changes/etc, write to both file and DB
-2. **End-to-end mode comparison** — script to compare file vs supabase reads for all 15 stores
-3. **After Phase 1F:** progressive cutover, default to supabase, deprecate file reads (Phase 2)
+**Flag:** `DUAL_WRITE=true` env var (default: disabled, independent of `DATA_SOURCE`).
+
+**Mechanism:** File writes always execute first (rollback safety). When `DUAL_WRITE=true`, the same rows are upserted to Supabase best-effort — errors are logged to console but never propagate. Partial-write risk is documented: DB may lag file, never the reverse.
+
+**New module:**
+- `src/lib/persistence/dual-write.ts` — centralized engine with `dualWriteUpsert()`, `dualWriteTruncate()`, and 7 typed sync helpers
+
+**Modified modules (2):**
+- `src/domains/attribution/store.ts` — `persistCandidateLinks()` and `persistEventDecisions()` now dual-write
+- `src/lib/import/actions.ts` — `executeImport()`, `importWorkbook()`, and `resetExperiment()` now dual-write
+
+**Tables covered (7):**
+
+| File store key | DB table | Trigger |
+|---|---|---|
+| import-runs | import_runs | executeImport, importWorkbook |
+| imported-results | results | executeImport, importWorkbook |
+| imported-changes | changelog_entries | executeImport, importWorkbook |
+| imported-opportunities | opportunities | executeImport, importWorkbook |
+| imported-competitors | competitors | executeImport, importWorkbook |
+| candidate-links | candidate_links | persistCandidateLinks (store.ts) |
+| event-decisions | attribution_decisions | persistEventDecisions (store.ts) |
+
+**Reset behavior:** `resetExperiment()` clears all 7 DB tables when `DUAL_WRITE=true` (truncate). Re-run backfill to repopulate seed data after a reset.
+
+**Validation:**
+- typecheck ✓, lint ✓ (0 new errors), build ✓ (17/17 pages), tests ✓ (26/26)
+
+**What was NOT touched:**
+- truthLabels (route-supporting, not route-critical — file-only persist)
+- Page issues, change contracts, pages, snapshots, guardrails, citation-evidence, observation-runs, competitor-config (no active import write paths)
+- visibility-read.ts, scan scripts
+- UI, scoring, crawl, auth, RLS
+- DATA_SOURCE default (still `file`)
+
+### What Phase 1G should do next
+
+1. **File-vs-Supabase parity comparison script** — compare row counts and content across all 15 stores
+2. **Repeatable validation command** for ongoing drift detection
+3. **After Phase 1G:** progressive cutover planning (Phase 2)
