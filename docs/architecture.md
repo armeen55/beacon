@@ -69,7 +69,7 @@ Default loop:
 - **Gap ledger** (`/topics`) — typed gaps
 
 Work:
-- **Changes** — log + verification + **change impact** (`computeScorecard` → `enrichWithImpact`: confidence, direction, why, next action). **Phase 6:** URL matching normalized; decline events → `negative` verdicts real. **Phase 10:** `/changes/[id]` runs recommendation engine inline — validated changes show "Apply this pattern" with specific target pages; weak-evidence changes show "Strengthen this entry" nudges.
+- **Changes** — log + verification + **change impact** (`computeScorecard` → `enrichWithImpact`: confidence, direction, why, next action). **Phase 6:** URL matching normalized; decline events → `negative` verdicts real. **Phase 10:** `/changes/[id]` runs recommendation engine inline — validated changes show "Apply this pattern" with specific target pages; weak-evidence changes show "Strengthen this entry" nudges. **Phase 12:** `/changes` list runs pattern mining + track record; scorecard table shows "Beacon" badge + "N replicable" per row; "Beacon recommended" toggle filter; "Impact" sortable column; impact snapshot shows Beacon-recommended count + total replication targets.
 
 Advanced:
 - **Review** — hypothesis locks (attribution bookkeeping)

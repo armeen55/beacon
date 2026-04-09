@@ -252,3 +252,28 @@
 
 ### Build verification (Phase 11)
 - `npm run check`, `npm run test`, `npm run data:parity` — pass; 17/17 routes, 26/26 tests, 15/15 parity
+
+---
+
+## 2026-04-09 — Phase 12: Changes List Intelligence Surface
+
+### What shipped
+- **`/changes/page.tsx`** — server-side enrichment: pattern mining + brief generation + track record computation + per-change intelligence map
+- **`scorecard-client.tsx`** — "Beacon" badge (with confidence qualifier), "N replicable" badge, "Beacon recommended" toggle filter, "Impact" sortable column
+- Impact snapshot strip: Beacon-recommended count + total replication targets
+
+### What was NOT touched
+- Recommendation engine, priority engine, recommendation tracker: all unchanged
+- Attribution scoring unchanged
+- Today page unchanged
+- Change detail page unchanged
+- No new modules, no new domain types, no new stores or persistence
+
+### Constraints honored
+- No new persistence, no new stores, no new tables
+- Pure surfacing of existing intelligence computations on the changes list page
+- Existing table structure preserved; new badges are additive, not replacing existing columns
+
+### Build verification (Phase 12)
+- `npm run check` — pass (tsc --noEmit clean)
+- Lints: clean on both modified files

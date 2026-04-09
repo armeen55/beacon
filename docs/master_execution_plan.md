@@ -1372,3 +1372,32 @@ No code changes needed. No database changes needed. No data loss.
 - Today page layout structure unchanged beyond the new line
 
 **Validation:** `npm run check` (17/17), `npm run test` (26/26), `npm run data:parity` (15/15).
+
+### Phase 12 — Changes List Intelligence Surface (COMPLETE)
+
+**Scope:** Wire recommendation tracker and replication intelligence into the `/changes` scorecard table. Transform the primary work surface from a passive log into an intelligence surface. No new modules, no persistence.
+
+**What was added to `/changes/page.tsx` (server):**
+- Full pattern mining + brief generation pipeline: `minePatterns` → `generateBriefs` → `computeTrackRecord`
+- Per-change intelligence map: for each row, compute `wasChangeRecommended` and replication count (briefs matching the change's proven pattern)
+- Aggregate stats: `beaconRecommendedCount`, `totalReplicationTargets` for the impact snapshot strip
+- Pass `changeIntel` record to `ScorecardTable`
+
+**What was added to `scorecard-client.tsx` (client):**
+- New `ChangeIntelEntry` type: `{ beaconRecommended, matchConfidence?, patternName?, replicationCount }`
+- "Beacon" badge on rows matching a recommendation pattern (inline below change name, with confidence qualifier)
+- "N replicable" badge on validated/partial changes with proven patterns that have additional target pages
+- "Beacon recommended" toggle filter: operator can filter the table to only Beacon-recommended changes
+- "Impact" sortable column: sort by impact confidence (high/medium/low)
+- Impact snapshot strip updated: shows Beacon-recommended count and total replication targets alongside existing stats
+
+**What was NOT touched:**
+- Recommendation engine logic unchanged
+- Priority engine unchanged
+- Recommendation tracker unchanged
+- Attribution scoring unchanged
+- Today page unchanged
+- Change detail page unchanged
+- No new modules, no new types beyond `ChangeIntelEntry`, no new stores
+
+**Validation:** `npm run check` — pass.

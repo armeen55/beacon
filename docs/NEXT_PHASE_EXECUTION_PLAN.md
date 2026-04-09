@@ -118,6 +118,16 @@ Shipped:
 
 ---
 
+## Phase 12 — Changes List Intelligence Surface — COMPLETE (2026-04-09)
+
+Shipped:
+- **`/changes/page.tsx`** — full pattern mining + track record pipeline, per-change intelligence map (`beaconRecommended`, `replicationCount`)
+- **`scorecard-client.tsx`** — "Beacon" badge, "N replicable" badge, "Beacon recommended" toggle filter, "Impact" sortable column
+- Impact snapshot strip: Beacon-recommended count + total replication targets
+- No new modules, no persistence, no scoring changes. Pure surfacing of existing intelligence on the changes list.
+
+---
+
 ## Proposed next (pick one track)
 
 ### A — Topic-similarity recommendations
@@ -128,14 +138,10 @@ Shipped:
 - Replace Profound import with direct Perplexity API sampling
 - Fresh data = better attribution = better recommendations = better track records
 
-### C — Changes list enhancement
-- Sort/filter `/changes` by impact confidence, show replication count
-- Surface "Beacon recommended" badge in the scorecard table
-
-### D — Recommendation acceptance UI
+### C — Recommendation acceptance UI
 - Accept/dismiss/defer per recommendation on Today → feeds into track record confidence
 
-### E — Persistence / infra
+### D — Persistence / infra
 - Items in `master_execution_plan.md` post-Phase 3E backlog
 
 ---

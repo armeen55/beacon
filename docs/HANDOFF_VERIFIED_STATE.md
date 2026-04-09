@@ -47,6 +47,7 @@ Working branch: `work/attribution-precision-20260407`
 | **Priority engine** | **WIRED (Phase 9)** | `rankAndSelect`: 6-dimension scoring (0-100), bucket classification, single primary action selection; Today "DO THIS NOW" replaces passive suggestions with enforced execution focus |
 | **Change detail actions** | **WIRED (Phase 10)** | `/changes/[id]` runs recommendation engine; "Apply this pattern" (replicate recs) + "Strengthen this entry" (evidence nudges) surfaced inline on the detail page |
 | **Recommendation tracker** | **WIRED (Phase 11)** | `computeTrackRecord`: retroactive matching of changes to recommendation patterns; per-pattern success rate feeds into priority engine scoring (+10/-5); "Beacon recommended" badge on `/changes/[id]`; track record summary on Today |
+| **Changes list intelligence** | **WIRED (Phase 12)** | `/changes` scorecard: "Beacon" badge + "N replicable" badge per row; "Beacon recommended" toggle filter; "Impact" sortable column; impact snapshot strip shows Beacon-recommended count + total replication targets |
 
 ## Score Distribution (baseline — pre-pruning)
 

@@ -8,12 +8,20 @@ import type { ChangeVerdict, AttributionConfidence, ImpactConfidence } from "@/d
 import type { EvidenceTier } from "@/domains/pages/types";
 import { ChangeVerdictBadge, changeVerdictLabel } from "@/components/display/change-verdict-badge";
 
+export type ChangeIntelEntry = {
+  beaconRecommended: boolean;
+  matchConfidence?: "likely" | "possible";
+  patternName?: string;
+  replicationCount: number;
+};
+
 type SortField =
   | "date"
   | "verdict"
   | "score"
   | "events"
-  | "tier";
+  | "tier"
+  | "impact";
 
 type SortDir = "asc" | "desc";
 
@@ -101,10 +109,12 @@ export function ScorecardTable({
   rows,
   allTopics,
   allPlatforms,
+  changeIntel = {},
 }: {
   rows: ScorecardRowWithImpact[];
   allTopics: string[];
   allPlatforms: string[];
+  changeIntel?: Record<string, ChangeIntelEntry>;
 }) {
   const [sortField, setSortField] = useState<SortField>("score");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
@@ -115,6 +125,11 @@ export function ScorecardTable({
   const [tierFilter, setTierFilter] = useState<EvidenceTier | "all">("all");
   const [topicFilter, setTopicFilter] = useState<string>("all");
   const [platformFilter, setPlatformFilter] = useState<string>("all");
+  const [beaconFilter, setBeaconFilter] = useState(false);
+
+  const hasAnyIntel = Object.values(changeIntel).some(
+    (e) => e.beaconRecommended || e.replicationCount > 0,
+  );
 
   const filtered = useMemo(() => {
     return rows.filter((r) => {
@@ -124,9 +139,16 @@ export function ScorecardTable({
       if (topicFilter !== "all" && !r.topics.includes(topicFilter)) return false;
       if (platformFilter !== "all" && !r.platforms.includes(platformFilter))
         return false;
+      if (beaconFilter && !changeIntel[r.change.id]?.beaconRecommended) return false;
       return true;
     });
-  }, [rows, verdictFilter, tierFilter, topicFilter, platformFilter]);
+  }, [rows, verdictFilter, tierFilter, topicFilter, platformFilter, beaconFilter, changeIntel]);
+
+  const IMPACT_CONF_ORDER: Record<ImpactConfidence, number> = {
+    high: 0,
+    medium: 1,
+    low: 2,
+  };
 
   const sorted = useMemo(() => {
     const dir = sortDir === "asc" ? 1 : -1;
@@ -148,6 +170,12 @@ export function ScorecardTable({
           return (
             dir *
             (TIER_ORDER[a.evidenceTier] - TIER_ORDER[b.evidenceTier])
+          );
+        case "impact":
+          return (
+            dir *
+            (IMPACT_CONF_ORDER[a.impact.confidence] -
+              IMPACT_CONF_ORDER[b.impact.confidence])
           );
         default:
           return 0;
@@ -241,6 +269,18 @@ export function ScorecardTable({
             })),
           ]}
         />
+        {hasAnyIntel && (
+          <button
+            onClick={() => setBeaconFilter((v) => !v)}
+            className={`px-2 py-0.5 rounded border text-[10px] font-medium transition-colors ${
+              beaconFilter
+                ? "border-accent-primary bg-accent-primary/10 text-accent-primary"
+                : "border-border text-muted-foreground hover:border-accent-primary/40"
+            }`}
+          >
+            Beacon recommended
+          </button>
+        )}
         <span className="text-muted-foreground ml-auto tabular-nums">
           {sorted.length}/{rows.length} changes
         </span>
@@ -268,12 +308,15 @@ export function ScorecardTable({
               <SortHeader field="tier" current={sortField} dir={sortDir} onClick={handleSort}>
                 Evidence
               </SortHeader>
+              <SortHeader field="impact" current={sortField} dir={sortDir} onClick={handleSort}>
+                Impact
+              </SortHeader>
               <th className="text-left px-3 py-2 font-medium">What to do</th>
             </tr>
           </thead>
           <tbody>
             {sorted.map((row) => (
-              <ScorecardRowUI key={row.change.id} row={row} />
+              <ScorecardRowUI key={row.change.id} row={row} intel={changeIntel[row.change.id]} />
             ))}
           </tbody>
         </table>
@@ -288,7 +331,7 @@ export function ScorecardTable({
   );
 }
 
-function ScorecardRowUI({ row }: { row: ScorecardRowWithImpact }) {
+function ScorecardRowUI({ row, intel }: { row: ScorecardRowWithImpact; intel?: ChangeIntelEntry }) {
   const ch = row.change;
   const dateStr = new Date(ch.timestamp).toLocaleDateString("en-US", {
     month: "short",
@@ -315,12 +358,23 @@ function ScorecardRowUI({ row }: { row: ScorecardRowWithImpact }) {
             </p>
           )}
         </Link>
+        {intel?.beaconRecommended && (
+          <span className="inline-flex items-center gap-1 mt-1 px-1.5 py-0.5 rounded border border-accent-primary/30 bg-accent-primary/8 text-[9px] font-semibold text-accent-primary">
+            <span className="h-1 w-1 rounded-full bg-accent-primary" />
+            Beacon
+            {intel.matchConfidence === "likely" ? "" : " (possible)"}
+          </span>
+        )}
+        {intel && intel.replicationCount > 0 && (
+          <span className="inline-flex items-center gap-1 mt-1 ml-1 px-1.5 py-0.5 rounded border border-status-success/30 bg-status-success/8 text-[9px] font-semibold text-status-success">
+            {intel.replicationCount} replicable
+          </span>
+        )}
       </td>
       <td className="px-3 py-2.5 align-top whitespace-nowrap">
         <div className="flex flex-col gap-1">
           <div className="flex items-center gap-1.5">
             <ChangeVerdictBadge verdict={row.verdict} />
-            <ConfidenceBadge confidence={row.impact.confidence} />
           </div>
           {row.topTrust && (
             <span className="inline-flex items-center gap-1">
@@ -392,6 +446,9 @@ function ScorecardRowUI({ row }: { row: ScorecardRowWithImpact }) {
         <span className={`text-[11px] font-medium ${TIER_COLORS[row.evidenceTier]}`}>
           {TIER_LABELS[row.evidenceTier]}
         </span>
+      </td>
+      <td className="px-3 py-2.5 align-top whitespace-nowrap">
+        <ConfidenceBadge confidence={row.impact.confidence} />
       </td>
       <td className="px-3 py-2.5 align-top max-w-[220px]">
         <p className="text-[10px] text-muted-foreground line-clamp-2 leading-relaxed">
