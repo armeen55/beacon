@@ -23,7 +23,7 @@ export default async function ObservationRunPage({
     return (
       <div className="max-w-2xl space-y-5">
         <div>
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">
+          <p className="text-[10px] font-semibold text-muted-foreground mb-1">
             Visibility observation run
           </p>
           <h2 className="text-[13px] font-semibold tracking-tight font-mono break-all">
@@ -89,7 +89,7 @@ export default async function ObservationRunPage({
               <li className="text-foreground font-medium">
                 Declared Result rows at import: {v.sample_result_row_count} (verify with{" "}
                 <Link href="/results" className="text-accent-primary hover:underline">
-                  Sample history
+                  History
                 </Link>{" "}
                 <code className="text-[10px] bg-surface-inset px-1 rounded">
                   visibility_observation_run_id
@@ -118,7 +118,7 @@ export default async function ObservationRunPage({
         </p>
 
         <Link href="/results" className="inline-block text-[11px] text-accent-primary hover:underline">
-          Sample history →
+          History →
         </Link>
         <Link href="/" className="inline-block text-[11px] text-accent-primary hover:underline ml-4">
           ← Today
@@ -135,7 +135,7 @@ export default async function ObservationRunPage({
   return (
     <div className="max-w-2xl space-y-5">
       <div>
-        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">
+        <p className="text-[10px] font-semibold text-muted-foreground mb-1">
           {isVerify ? "Website verify pass" : "Website observation run"}
         </p>
         <h2 className="text-[13px] font-semibold tracking-tight font-mono break-all">
@@ -224,7 +224,7 @@ export default async function ObservationRunPage({
         <p>
           Open{" "}
           <Link href="/pages" className="text-accent-primary hover:underline">
-            Your Website
+            Pages
           </Link>{" "}
           for per-URL drill-down.
         </p>

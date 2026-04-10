@@ -37,12 +37,24 @@ import { computeTrackRecord } from "@/domains/product/recommendation-tracker";
 import {
   isRecSuppressed,
   getResponse,
+  recommendationResponses,
 } from "@/domains/product/recommendation-response-store";
 import { respondToRecommendation } from "./recommendation-actions";
+import {
+  getActiveExperiments,
+  updateExperimentCitations,
+  persistExperiments,
+  getExperimentByRecId,
+} from "@/domains/product/experiment-store";
+import {
+  startExperimentAction,
+  updateExperimentAction,
+} from "./experiment-actions";
 import { latestWebsiteCrawlRun } from "@/domains/observations/read";
 import { primaryVisibilityRunForResults } from "@/domains/observations/visibility-context";
 import { loadCompetitorUniverseRuntime } from "@/domains/competitors/universe-read";
 import { buildTodayCompetitorLine } from "@/domains/competitors/today-competitor-line";
+import { PLATFORM_LABELS, type Platform } from "@/lib/constants";
 import Link from "next/link";
 
 export default function TodayPage() {
@@ -71,6 +83,58 @@ export default function TodayPage() {
     medium: 1,
     low: 2,
   };
+  // ── Visibility summary from results ──
+  const dates = results.map((r) => r.snapshot_date).sort();
+  const latestDate = dates[dates.length - 1] ?? null;
+  const earliestDate = dates[0] ?? null;
+
+  const totalCitations = results.reduce((s, r) => s + r.citation_count, 0);
+  const totalMentions = results.reduce((s, r) => s + r.mention_count, 0);
+
+  const platformCounts = new Map<string, { citations: number; mentions: number }>();
+  for (const r of results) {
+    if (r.platform === "all") continue;
+    const p = platformCounts.get(r.platform) ?? { citations: 0, mentions: 0 };
+    p.citations += r.citation_count;
+    p.mentions += r.mention_count;
+    platformCounts.set(r.platform, p);
+  }
+  const platformBreakdown = [...platformCounts.entries()]
+    .map(([platform, counts]) => ({
+      platform,
+      label: PLATFORM_LABELS[platform as Platform] ?? platform,
+      citations: counts.citations,
+      mentions: counts.mentions,
+    }))
+    .sort((a, b) => b.citations - a.citations || b.mentions - a.mentions);
+
+  const midDate = earliestDate && latestDate
+    ? new Date(
+        (new Date(earliestDate).getTime() + new Date(latestDate).getTime()) / 2
+      ).toISOString().slice(0, 10)
+    : null;
+
+  let trendPct: number | null = null;
+  if (midDate && results.length > 20) {
+    const firstHalf = results.filter((r) => r.snapshot_date <= midDate);
+    const secondHalf = results.filter((r) => r.snapshot_date > midDate);
+    const firstCit = firstHalf.reduce((s, r) => s + r.citation_count, 0);
+    const secondCit = secondHalf.reduce((s, r) => s + r.citation_count, 0);
+    if (firstCit > 0) {
+      trendPct = Math.round(((secondCit - firstCit) / firstCit) * 100);
+    }
+  }
+
+  const visibilitySummary = {
+    totalCitations,
+    totalMentions,
+    platformBreakdown,
+    dateRange: earliestDate && latestDate ? { from: earliestDate, to: latestDate } : null,
+    latestImportDate: latestDate,
+    trendPct,
+    resultCount: results.length,
+  };
+
   const actionableImpact = impactRows
     .filter(
       (r) =>
@@ -86,7 +150,7 @@ export default function TodayPage() {
           (IMPACT_CONF_PRIORITY[b.impact.confidence] ?? 9) ||
         (b.topScore ?? 0) - (a.topScore ?? 0),
     )
-    .slice(0, 5)
+    .slice(0, 3)
     .map((r) => ({
       changeId: r.change.id,
       assetName: r.change.asset_name,
@@ -311,6 +375,10 @@ export default function TodayPage() {
     impactRows,
     patterns,
     briefs: playbookBriefs,
+    pageSnapshots,
+    citationCountMap: citMap,
+    citationIndex: citationEvidenceIndex,
+    allPages,
   });
 
   // Filter out dismissed / deferred-but-not-due recommendations
@@ -326,7 +394,12 @@ export default function TodayPage() {
     );
   }
 
-  const trackRecord = computeTrackRecord({ impactRows, patterns });
+  const trackRecord = computeTrackRecord({
+    impactRows,
+    patterns,
+    responses: recommendationResponses,
+    recommendations: allRecommendations,
+  });
 
   const { primaryAction, secondary } = rankAndSelect({
     recommendations,
@@ -337,19 +410,100 @@ export default function TodayPage() {
   });
 
   function recHref(r: { type: string; targetPageUrl: string | null; sourceChangeId: string | null }): string {
-    if (r.type === "replicate" && r.targetPageUrl) return pagesHref(r.targetPageUrl);
+    if (r.targetPageUrl) return pagesHref(r.targetPageUrl);
     if (r.sourceChangeId) return `/changes/${r.sourceChangeId}`;
+    if (r.type === "competitive_displacement" || r.type === "topic_cluster_gap") return "/competitors";
     return "/pages";
   }
 
   const trackRecordSummary =
-    trackRecord.totalActedOn > 0
+    trackRecord.totalActedOn > 0 || trackRecord.totalExplicitAccepted > 0
       ? {
           totalActedOn: trackRecord.totalActedOn,
           totalValidated: trackRecord.totalValidated,
           overallSuccessRate: trackRecord.overallSuccessRate,
+          totalExplicitAccepted: trackRecord.totalExplicitAccepted,
+          totalExplicitDismissed: trackRecord.totalExplicitDismissed,
         }
       : null;
+
+  function buildConfidenceReason(rec: typeof primaryAction): string {
+    if (!rec) return "";
+    const parts: string[] = [];
+    if (rec.confidence === "high") {
+      if (rec.sourceChangeId) parts.push("validated source change");
+      if (rec.citationOpportunity >= 50) parts.push(`${rec.citationOpportunity} existing citations`);
+      if (!parts.length) parts.push("strong evidence match");
+    } else if (rec.confidence === "medium") {
+      if (rec.sourceChangeId) parts.push("partial source evidence");
+      if (rec.citationOpportunity >= 10) parts.push(`${rec.citationOpportunity} citations`);
+      if (!parts.length) parts.push("moderate evidence");
+    } else {
+      parts.push("early signal");
+    }
+    const patternTr = rec.patternId ? trackRecord.patternRecords.find((p) => p.patternId === rec.patternId) : null;
+    if (patternTr && patternTr.actedOn >= 2) {
+      parts.push(`${Math.round(patternTr.successRate * 100)}% pattern success rate`);
+    }
+    return parts.join(" · ");
+  }
+
+  function buildWatchAfter(rec: typeof primaryAction): string {
+    if (!rec) return "";
+    if (rec.type === "investigate") return "Watch for further visibility changes on the affected topics. If decline stabilizes, the cause may be external.";
+    if (rec.type === "strengthen") return "After updating the changelog entry, check if attribution events auto-resolve.";
+    if (rec.type === "strengthen_structure") return "After adding structure, monitor citation counts for this page over 1-2 import cycles.";
+    if (rec.type === "improve_internal_links") return "After adding links, watch for citation count changes and crawl coverage in the next import.";
+    if (rec.type === "refresh_content") return "After deepening content, monitor whether citation count or mention count increases in future imports.";
+    if (rec.type === "competitive_displacement") return "After strengthening your content for this topic, watch for citation share shift vs competitors in future imports.";
+    if (rec.type === "cross_page_pattern") return "After applying this pattern, monitor the target page for citation count changes. The source pattern took effect within 1-2 import cycles.";
+    if (rec.type === "topic_cluster_gap") return "After creating the new content, watch for the topic to appear in your citation evidence for the new page type.";
+    return "After acting, import fresh data and check whether Beacon detects a positive visibility change for the target page.";
+  }
+
+  const dataFreshness = visibilitySummary.dateRange
+    ? `Based on data through ${visibilitySummary.dateRange.to}`
+    : null;
+
+  // ── Experiments: auto-update citation outcomes ──
+  const activeExperiments = getActiveExperiments();
+  let experimentsChanged = false;
+  for (const exp of activeExperiments) {
+    if (!exp.targetPageUrl) continue;
+    const normUrl = exp.targetPageUrl.replace(/\/+$/, "").toLowerCase();
+    const currentCit = citMap.get(normUrl) ?? 0;
+    if (currentCit !== exp.latestCitations) {
+      updateExperimentCitations(exp.id, currentCit);
+      experimentsChanged = true;
+    }
+  }
+  if (experimentsChanged) {
+    persistExperiments().catch(() => {});
+  }
+
+  const serializedExperiments = activeExperiments.map((exp) => {
+    const daysSinceStart = Math.floor(
+      (new Date().getTime() - new Date(exp.startedAt).getTime()) / 86_400_000,
+    );
+    const citDelta = exp.baselineCitations !== null && exp.latestCitations !== null
+      ? exp.latestCitations - exp.baselineCitations
+      : null;
+    return {
+      id: exp.id,
+      recId: exp.recId,
+      headline: exp.headline,
+      recType: exp.recType,
+      targetPagePath: exp.targetPagePath,
+      watchAfter: exp.watchAfter,
+      operatorNote: exp.operatorNote,
+      startedAt: exp.startedAt,
+      status: exp.status,
+      daysSinceStart,
+      baselineCitations: exp.baselineCitations,
+      latestCitations: exp.latestCitations,
+      citDelta,
+    };
+  });
 
   const serializedPrimary = primaryAction
     ? {
@@ -364,6 +518,15 @@ export default function TodayPage() {
         confidence: primaryAction.confidence,
         href: recHref(primaryAction),
         responseStatus: getResponse(primaryAction.id)?.status ?? null,
+        confidenceReason: buildConfidenceReason(primaryAction),
+        watchAfter: buildWatchAfter(primaryAction),
+        dataFreshness,
+        hasExperiment: !!getExperimentByRecId(primaryAction.id),
+        targetPageUrl: primaryAction.targetPageUrl,
+        targetPagePath: primaryAction.targetPagePath,
+        baselineCitations: primaryAction.targetPageUrl
+          ? (citMap.get(primaryAction.targetPageUrl.replace(/\/+$/, "").toLowerCase()) ?? 0)
+          : null,
       }
     : null;
 
@@ -377,6 +540,7 @@ export default function TodayPage() {
     sourceChangeId: r.sourceChangeId,
     href: recHref(r),
     responseStatus: getResponse(r.id)?.status ?? null,
+    confidenceReason: buildConfidenceReason(r),
   }));
 
   const proposedWaves = planWaves(
@@ -440,7 +604,7 @@ export default function TodayPage() {
       href: pagesHref(issue.pageUrl),
       dot: "bg-muted-foreground/40",
       detail:
-        "When the fix ships, mark shipped and run verification from Website.",
+        "When the fix ships, mark shipped and run verification from Pages.",
       issueId: issue.issueId,
       issueStatus: issue.status,
       pageUrl: issue.pageUrl,
@@ -508,10 +672,10 @@ export default function TodayPage() {
   }
   if (newIssues.length > 0) {
     nextCandidates.push({
-      title: `Triage ${newIssues.length} open Website issue${newIssues.length !== 1 ? "s" : ""}`,
+      title: `Triage ${newIssues.length} open page issue${newIssues.length !== 1 ? "s" : ""}`,
       href: "/pages",
       evidence:
-        "Issues mix crawl-backed guardrails with playbook inference — each Website row labels observed vs inferred.",
+        "Issues mix crawl-backed guardrails with playbook inference — each row labels observed vs inferred.",
       observationRunId: activeCrawlId,
       evidenceScope: "mixed",
     });
@@ -539,6 +703,7 @@ export default function TodayPage() {
     <div className="max-w-3xl">
       <TodayClient
         summary={summary}
+        visibilitySummary={visibilitySummary}
         items={enrichedItems}
         impactSignals={actionableImpact}
         recommendedMoves={topRecs}
@@ -553,13 +718,16 @@ export default function TodayPage() {
         }
         onVerifyIssue={verifyAndUpdateIssue}
         onRespondToRec={respondToRecommendation}
+        experiments={serializedExperiments}
+        onStartExperiment={startExperimentAction}
+        onUpdateExperiment={updateExperimentAction}
       />
 
       {enrichedItems.length === 0 && (
         <p className="text-[11px] text-muted-foreground mt-4">
-          Advanced sample history lives under{" "}
+          Full sample history lives under{" "}
           <Link href="/results" className="text-accent-primary hover:underline">
-            Sample history
+            History
           </Link>
           ; analyst tools under{" "}
           <Link

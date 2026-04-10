@@ -13,12 +13,17 @@ import type { ScorecardRowWithImpact } from "@/domains/attribution/change-impact
 import type { MinedPattern } from "@/domains/pages/playbook";
 import type { ChangeVerdict, ImpactDirection } from "@/domains/attribution/types";
 import type { ChangelogEntry } from "@/domains/changelog/types";
+import type { BeaconRecommendation } from "./recommendation-engine";
+import type { RecommendationResponse } from "./recommendation-response-store";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
 export type RecommendationMatchConfidence = "likely" | "possible";
+
+/** Whether the tracked outcome was derived from explicit operator response or retroactive inference */
+export type SignalTier = "explicit" | "inferred";
 
 export type TrackedOutcome = {
   changeId: string;
@@ -29,6 +34,7 @@ export type TrackedOutcome = {
   verdict: ChangeVerdict;
   direction: ImpactDirection;
   daysSinceChange: number;
+  signalTier: SignalTier;
 };
 
 export type PatternTrackRecord = {
@@ -44,6 +50,8 @@ export type PatternTrackRecord = {
   pending: number;
   /** (validated + partial) / (total - tooEarly - pending), or 0 if denominator is 0 */
   successRate: number;
+  explicitAccepted: number;
+  explicitDismissed: number;
 };
 
 export type TrackRecordSummary = {
@@ -52,6 +60,8 @@ export type TrackRecordSummary = {
   totalActedOn: number;
   totalValidated: number;
   overallSuccessRate: number;
+  totalExplicitAccepted: number;
+  totalExplicitDismissed: number;
 };
 
 // ---------------------------------------------------------------------------
@@ -102,8 +112,35 @@ export function matchChangeToPattern(
 export function computeTrackRecord(opts: {
   impactRows: ScorecardRowWithImpact[];
   patterns: MinedPattern[];
+  responses?: RecommendationResponse[];
+  recommendations?: BeaconRecommendation[];
 }): TrackRecordSummary {
-  const { impactRows, patterns } = opts;
+  const { impactRows, patterns, responses = [], recommendations = [] } = opts;
+
+  // Build pattern-level explicit signal indexes from responses + recs
+  const acceptedPatterns = new Map<string, number>();
+  const dismissedPatterns = new Map<string, number>();
+  const acceptedRecIds = new Set<string>();
+  for (const resp of responses) {
+    const rec = recommendations.find((r) => r.id === resp.recId);
+    if (!rec?.patternId) continue;
+    if (resp.status === "accepted") {
+      acceptedPatterns.set(rec.patternId, (acceptedPatterns.get(rec.patternId) ?? 0) + 1);
+      acceptedRecIds.add(resp.recId);
+    } else if (resp.status === "dismissed") {
+      dismissedPatterns.set(rec.patternId, (dismissedPatterns.get(rec.patternId) ?? 0) + 1);
+    }
+  }
+  // Map patternId → set of accepted rec target page URLs for explicit matching
+  const acceptedTargetsByPattern = new Map<string, Set<string>>();
+  for (const resp of responses) {
+    if (resp.status !== "accepted") continue;
+    const rec = recommendations.find((r) => r.id === resp.recId);
+    if (!rec?.patternId || !rec.targetPageUrl) continue;
+    const targets = acceptedTargetsByPattern.get(rec.patternId) ?? new Set();
+    targets.add(rec.targetPageUrl.replace(/\/+$/, "").toLowerCase());
+    acceptedTargetsByPattern.set(rec.patternId, targets);
+  }
 
   const provenPositive = impactRows.filter(
     (r) =>
@@ -172,6 +209,10 @@ export function computeTrackRecord(opts: {
       ? "likely"
       : "possible";
 
+    // Determine signal tier: explicit if this change's page was an accepted target
+    const acceptedTargets = acceptedTargetsByPattern.get(matched.id);
+    const isExplicit = acceptedTargets ? acceptedTargets.has(thisUrl) : false;
+
     outcomes.push({
       changeId: row.change.id,
       changeAssetName: row.change.asset_name,
@@ -181,6 +222,7 @@ export function computeTrackRecord(opts: {
       verdict: row.verdict,
       direction: row.impact.direction,
       daysSinceChange: row.daysSinceChange,
+      signalTier: isExplicit ? "explicit" : "inferred",
     });
   }
 
@@ -236,6 +278,8 @@ export function computeTrackRecord(opts: {
       tooEarly,
       pending,
       successRate,
+      explicitAccepted: acceptedPatterns.get(patternId) ?? 0,
+      explicitDismissed: dismissedPatterns.get(patternId) ?? 0,
     });
   }
 
@@ -249,12 +293,19 @@ export function computeTrackRecord(opts: {
   const overallSuccessRate =
     totalMeasurable > 0 ? totalValidated / totalMeasurable : 0;
 
+  let totalExplicitAccepted = 0;
+  let totalExplicitDismissed = 0;
+  for (const [, count] of acceptedPatterns) totalExplicitAccepted += count;
+  for (const [, count] of dismissedPatterns) totalExplicitDismissed += count;
+
   return {
     outcomes,
     patternRecords,
     totalActedOn,
     totalValidated,
     overallSuccessRate,
+    totalExplicitAccepted,
+    totalExplicitDismissed,
   };
 }
 

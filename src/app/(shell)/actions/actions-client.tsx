@@ -370,7 +370,7 @@ export function ActionsClient({ actions }: { actions: ActionItem[] }) {
       {/* Filters */}
       <div className="flex items-center gap-4 mb-3">
         <div className="flex items-center gap-1">
-          <span className="text-[9px] text-muted-foreground uppercase tracking-wider font-semibold mr-1">
+          <span className="text-[9px] text-muted-foreground font-semibold mr-1">
             Type
           </span>
           {(
@@ -411,7 +411,7 @@ export function ActionsClient({ actions }: { actions: ActionItem[] }) {
         </button>
 
         <div className="flex items-center gap-1">
-          <span className="text-[9px] text-muted-foreground uppercase tracking-wider font-semibold mr-1">
+          <span className="text-[9px] text-muted-foreground font-semibold mr-1">
             Priority
           </span>
           {(["all", "high", "medium", "low"] as const).map((f) =>
@@ -596,7 +596,7 @@ function ActionCard({
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-0.5 flex-wrap">
             <span
-              className={`text-[9px] font-semibold uppercase tracking-wider ${cat.color}`}
+              className={`text-[9px] font-semibold ${cat.color}`}
             >
               {cat.label}
             </span>
@@ -659,7 +659,7 @@ function ActionCard({
               <div className="grid grid-cols-2 lg:grid-cols-3 gap-x-4 gap-y-1.5">
                 {action.brief.details.map((d, i) => (
                   <div key={i}>
-                    <span className="text-[9px] text-muted-foreground uppercase tracking-wider font-semibold">
+                    <span className="text-[9px] text-muted-foreground font-semibold">
                       {d.label}
                     </span>
                     <p
@@ -675,7 +675,7 @@ function ActionCard({
             {/* Events list */}
             {action.brief.events && action.brief.events.length > 0 && (
               <div>
-                <p className="text-[9px] text-muted-foreground uppercase tracking-wider font-semibold mb-1">
+                <p className="text-[9px] text-muted-foreground font-semibold mb-1">
                   Included events
                 </p>
                 <div className="space-y-0.5">
@@ -706,7 +706,7 @@ function ActionCard({
             {/* Changes list */}
             {action.brief.changes && action.brief.changes.length > 0 && (
               <div>
-                <p className="text-[9px] text-muted-foreground uppercase tracking-wider font-semibold mb-1">
+                <p className="text-[9px] text-muted-foreground font-semibold mb-1">
                   Linked changes
                 </p>
                 <div className="space-y-0.5">
@@ -748,7 +748,7 @@ function ActionCard({
             {/* Known / Unknown */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               <div>
-                <p className="text-[9px] text-status-success uppercase tracking-wider font-semibold mb-1">
+                <p className="text-[9px] text-status-success font-semibold mb-1">
                   What Beacon knows
                 </p>
                 <ul className="space-y-0.5">
@@ -764,7 +764,7 @@ function ActionCard({
                 </ul>
               </div>
               <div>
-                <p className="text-[9px] text-status-warning uppercase tracking-wider font-semibold mb-1">
+                <p className="text-[9px] text-status-warning font-semibold mb-1">
                   What Beacon does not know
                 </p>
                 <ul className="space-y-0.5">
@@ -783,7 +783,7 @@ function ActionCard({
 
             {/* Best next move */}
             <div className="rounded-md border border-border bg-background px-3 py-2">
-              <p className="text-[9px] text-muted-foreground uppercase tracking-wider font-semibold mb-0.5">
+              <p className="text-[9px] text-muted-foreground font-semibold mb-0.5">
                 Best next move
               </p>
               <p className="text-[12px] font-medium">

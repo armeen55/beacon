@@ -309,3 +309,506 @@
 ### Build verification (Phase 13)
 - `npm run check` — pass (tsc --noEmit clean)
 - Lints: clean on all 4 modified/new files
+
+---
+
+## Phase 14 — Daily Surface Compression + Visibility Story (2026-04-09)
+
+### What shipped
+- **Visibility summary strip**: total citations with trend %, per-platform breakdown, data freshness indicator with stale-data warning
+- **Navigation compression**: 2 groups (5 primary, 5 advanced). Competitors promoted. Work + Experimental groups removed.
+- **Impact signals reduced** from 5 to 3, renamed "What changed"
+- **Work queue collapsed** by default
+- **System details collapsed** by default (crawl, visibility sample, attribution, verified fixes)
+- **Today layout reordered**: Visibility strip → DO THIS NOW → Track record → What changed → Other opportunities → Work queue (collapsed) → System details (collapsed)
+
+### What was NOT touched
+- Attribution engine, recommendation engine, priority engine unchanged
+- Supabase schema unchanged
+- Import pipeline unchanged
+- All domain modules unchanged
+- Changes / Pages / Competitors surfaces unchanged
+- No new persistence, no new modules, no new stores
+
+### Constraints honored
+- Zero new infrastructure
+- Zero new data systems
+- Pure surface-level restructuring using existing computed data
+- All existing intelligence preserved, just better hierarchied
+
+### Build verification (Phase 14)
+- `npm run check` — pass (0 errors, 71 warnings — all pre-existing)
+- Build: 17/17 static pages generated
+
+---
+
+## Phase 15 — Import Simplification + Freshness Loop (2026-04-09)
+
+### What shipped
+- **Coverage strip** on Import page: result count, change count, date range, freshness
+- **Drag-and-drop upload zone** with clear delta messaging
+- **Delta-aware result**: new vs updated counts for results + changes, post-import date range
+- **Return-to-Today CTA** (was "Open Review Queue")
+- **Advanced sections collapsed**: Profound CSV, Manual paste, Reset, History behind toggle
+- **Page title**: "Import" (was "Import Historical Data")
+- **New server action**: `getDataCoverage()` for coverage data
+- **Enhanced type**: `WorkbookImportResult.delta` for new-vs-updated tracking
+
+### What was NOT touched
+- Import engine, workbook parser, Profound pipeline unchanged
+- Attribution, recommendation, priority engines unchanged
+- Supabase schema unchanged
+- All domain modules unchanged
+- Today, Changes, Pages surfaces unchanged
+
+### Constraints honored
+- Zero new infrastructure
+- Zero new data systems or persistence
+- Existing import behavior preserved; UX-only restructuring + delta tracking addition
+
+### Build verification (Phase 15)
+- `npm run check` — pass (0 errors, 71 pre-existing warnings)
+- Build: 17/17 static pages generated
+
+---
+
+## Phase 16 — Page Intelligence Surface (2026-04-09)
+
+### What shipped
+- **Summary strip**: total pages, winning (green), needs action (red), building (blue), cited count + total citations, structure warnings (pages missing FAQ/schema)
+- **Health card** at top of detail panel: status badge, citation count + platforms, FAQ/Schema health, next action block
+- **Structure health in list items**: "no FAQ" / "no schema" visible in page list
+- **Evidence internals** moved into "Show details" progressive disclosure
+- **Page title**: "Pages" / "Page-level AI visibility health and actions"
+- **7 lint warnings resolved**: previously unused summary stat variables now consumed
+
+### What was NOT touched
+- Page computation logic (770-line server) unchanged
+- Attribution, recommendation, priority engines unchanged
+- Import pipeline unchanged
+- Supabase schema unchanged
+- All domain modules unchanged
+- Fix brief, playbook brief, wave, verification functionality preserved
+
+### Constraints honored
+- Zero new infrastructure or persistence
+- Pure rendering restructure of existing computed data
+- All existing functionality preserved in progressive disclosure
+
+### Build verification (Phase 16)
+- `npm run check` — pass (0 errors, 64 warnings — down from 71, 7 resolved)
+- Build: 17/17 static pages generated
+
+---
+
+## Phase 17 — Competitive Clarity Surface (2026-04-09)
+
+### What shipped
+- **Competitive summary strip**: AI share %, citation count, tracked competitor count
+- **Ranked competitor list**: sorted by citations, "Ahead of you" badges, links to detail
+- **Competitive gap visualization**: "Where you are strongest" (green bars) vs "Biggest competitive gaps" (red bars)
+- **Weakest areas card**: topics with lowest share
+- **Next moves**: action links derived from benchmark
+- **Settings collapsed**: universe CRUD + imported entities behind toggle
+- Wired `computeMarketBenchmark` from `builder-benchmark.ts` (previously unused on this surface)
+
+### What was NOT touched
+- Competitor detail page (`/competitors/[id]`) unchanged
+- Competitor domain modules (16 files) unchanged
+- Attribution, recommendation, priority engines unchanged
+- Import pipeline unchanged
+- Supabase schema unchanged
+- All other surfaces unchanged
+
+### Constraints honored
+- Zero new infrastructure or persistence
+- Reused existing `computeMarketBenchmark` computation (zero new scoring logic)
+- Configuration/management functionality preserved in collapsed settings
+
+### Build verification (Phase 17)
+- `npm run check` — pass (0 errors, 64 warnings)
+- Build: 17/17 static pages generated
+
+---
+
+## Phase 18 — Track Record Enhancement (2026-04-09)
+
+### What shipped
+- **`SignalTier`** type on `TrackedOutcome`: `"explicit"` (operator accepted the rec for this page) vs `"inferred"` (retroactive pattern matching)
+- **`computeTrackRecord` enhanced**: accepts optional `responses` + `recommendations`; bridges rec IDs to pattern IDs; maps accepted target pages to explicit outcomes
+- **`PatternTrackRecord` enhanced**: `explicitAccepted`, `explicitDismissed` per pattern
+- **`TrackRecordSummary` enhanced**: `totalExplicitAccepted`, `totalExplicitDismissed`
+- **Priority engine enhanced**: explicit acceptance bonus (+2/+4), explicit dismissal penalty (-3/-7), dismissal penalty applies without actedOn threshold
+- **Today surface**: track record line shows accepted/dismissed counts
+
+### Signal flow
+1. Accept/dismiss on Today → recommendation-response-store (already existed)
+2. `computeTrackRecord` receives responses + recommendations (new)
+3. Accepted recs bridged to patterns via recId → patternId (new)
+4. Outcomes on accepted target pages tagged `signalTier: "explicit"` (new)
+5. Per-pattern explicit counts flow into priority scoring (new)
+6. Dismissed patterns penalized in priority scoring (new)
+
+### What was NOT touched
+- Recommendation engine unchanged
+- Recommendation response store unchanged
+- Import pipeline unchanged
+- Supabase schema unchanged
+- All surfaces except Today track record line unchanged
+- `/changes` and `/changes/[id]` continue working with optional params
+
+### Constraints honored
+- Zero new infrastructure or persistence
+- New tracker params are optional — backward compatible
+- Explicit signals strengthen existing loop, no new scoring system
+
+### Build verification (Phase 18)
+- `npm run check` — pass (0 errors, 64 warnings)
+- Build: 17/17 static pages generated
+
+---
+
+## Phase 19 — Multi-Dimensional Recommendation Expansion (2026-04-09)
+
+### What shipped
+- **4 new recommendation types**: `strengthen_structure` (cited pages missing FAQ/schema), `improve_internal_links` (cited pages with <5 links), `refresh_content` (cited but thin content), `competitive_displacement` (topics where competitors have ≥2x our share)
+- **Evidence-gated generation**: each type requires citation minimums + structural gaps; capped at 2-3 per type
+- **Priority engine**: new urgency weights (competitive: 12, structure: 10, refresh: 8, links: 6)
+- **Expected outcome generation** for all 4 new types
+- **Today accent colors**: structure/links = blue, refresh = yellow, competitive = red
+- **Client types widened**: `type` field accepts any rec type string (forward-compatible)
+- **Today server**: wires `pageSnapshots`, `citMap`, `citationEvidenceIndex` into rec engine
+
+### Anti-spam design
+- Recommendations require real evidence (citations + gaps), not templated cloning
+- Each type capped to max 2-3 recs
+- City/service expansion remains one class among seven
+- Refinement types prioritized over net-new page creation
+
+### What was NOT touched
+- Existing replicate/strengthen/investigate logic unchanged
+- Recommendation tracker unchanged
+- Response store unchanged
+- Import, Supabase, persistence unchanged
+- All surfaces except Today (rec display + accent colors)
+
+### Constraints honored
+- Zero new infrastructure or persistence
+- New rec inputs are optional — backward compatible for `/changes/[id]` callsite
+- All new logic is evidence-grounded and capped
+
+### Build verification (Phase 19)
+- `npm run check` — pass (0 errors, 64 warnings)
+- Build: 17/17 static pages generated
+
+---
+
+## Phase 20 — In-App Trust Layer + Evidence Explainability (2026-04-09)
+
+### What shipped
+- **DO THIS NOW evidence block**: evidence basis, confidence level + reason, data freshness, "after acting" watch guidance
+- **Confidence reasons**: computed from evidence tier, citation count, pattern track record success rate
+- **Watch-after guidance**: per-type instructions for post-action monitoring
+- **Data freshness**: "Based on data through [date]" displayed on primary action
+- **Secondary rec evidence**: inline evidence + confidence reason
+- **Pages status reason**: `statusReason` explains why a page is Winning/Building/Unresolved/Dormant
+
+### What was NOT touched
+- Recommendation engine, priority engine unchanged
+- Tracker, response store unchanged
+- Import, Supabase, persistence unchanged
+- Competitor surface, changes surfaces unchanged
+
+### Constraints honored
+- Zero new infrastructure or persistence
+- Trust primitives derived entirely from existing computed data
+- Progressive disclosure maintained — summary first, evidence on demand
+
+### Build verification (Phase 20)
+- `npm run check` — pass (0 errors, 64 warnings)
+- Build: 17/17 static pages generated
+
+---
+
+## Phase 21 — Topic-Similarity / Adjacent Opportunity Expansion (2026-04-09)
+
+### What shipped
+- **`cross_page_pattern`**: proven structural pattern on page type A → apply to different page type B with shared topic/term overlap. REQUIRES different page types (anti-spam).
+- **`topic_cluster_gap`**: topic with ≥15 owned citations but only transactional pages → recommends guide/comparison content.
+- **Priority engine**: cross-page urgency 7, cluster gap urgency 5
+- **Expected outcome + watch-after** for both types
+- **Today accent colors**: cross-page = green, cluster gap = blue
+- **`allPages`** wired into recommendation engine
+
+### Anti-spam design
+- `cross_page_pattern` requires DIFFERENT page types — cannot produce city→city clones
+- `topic_cluster_gap` recommends MISSING content types, not more of what exists
+- Capped at 3 + 2 recs. Citation evidence thresholds enforced.
+- Recommendation system now spans 9 types across structure, links, content, competitive, adjacency, and cluster dimensions
+
+### What was NOT touched
+- Existing 7 rec types unchanged
+- Tracker, response store unchanged
+- Import, Supabase, persistence unchanged
+- All surfaces except Today unchanged
+
+### Constraints honored
+- Zero new infrastructure or persistence
+- New rec input (`allPages`) is optional — backward compatible
+- Adjacency derived from existing page registry + snapshot terms + citation index
+
+### Build verification (Phase 21)
+- `npm run check` — pass (0 errors, 64 warnings)
+- Build: 17/17 static pages generated
+
+---
+
+## Phase 22 — In-App Experiment Loop / Watchlist (2026-04-09)
+
+### What shipped
+- **`experiment-store.ts`**: `Experiment` type with `testing`/`watching`/`promising`/`inconclusive`/`negative`/`dropped` statuses; `startExperiment`, `updateExperimentCitations` (auto-status), `updateExperimentStatus`, `updateExperimentNote`
+- **`experiment-actions.ts`**: server actions for start, update status, update note
+- **"Start testing" button**: appears on accepted DO THIS NOW → prompt for operator note → experiment created with citation baseline
+- **Watchlist section on Today**: active experiments showing headline, note, status badge, days elapsed, citation delta, watch-after, "Drop" action
+- **Auto-outcome detection**: on page load, experiments refresh citation counts; status auto-updates based on delta + time
+- **Store**: `.data/experiments.json` via json-store
+
+### Experiment lifecycle
+1. Accept rec on Today → "Start testing" button appears
+2. Click → enter note → experiment created with citation baseline
+3. Watchlist shows on Today between track record and "What changed"
+4. On next page load after import: citations auto-refresh, status auto-updates
+5. Operator can manually drop experiments
+
+### What was NOT touched
+- Recommendation engine, priority engine unchanged
+- Tracker, response store unchanged
+- Import, Supabase unchanged
+- All surfaces except Today unchanged
+
+### Constraints honored
+- One new json-store (`experiments`) — follows existing pattern
+- Lightweight experiment model — not project management
+- Auto-outcome uses existing citation data — no new computation
+- "Too early" / "inconclusive" are honest statuses
+
+### Build verification (Phase 22)
+- `npm run check` — pass (0 errors, 64 warnings)
+- Build: 17/17 static pages generated
+
+---
+
+## Phase 23 — Nightly Usage Hardening (2026-04-09)
+
+### What shipped
+- **Combined "Accept & test"**: one-click accepts rec + prompts for note + creates experiment with target data
+- **Button hierarchy fixed**: not-accepted state shows Accept & test / Accept only / Not now / Dismiss. Accepted state shows Go → / Start testing / status badge. No dismiss after accept.
+- **Target data flows through**: `targetPageUrl`, `targetPagePath`, `baselineCitations` serialized from recommendation data into experiment creation
+- **Post-import messaging**: "Your visibility story and watchlist experiments will refresh with the new data"
+
+### Friction points resolved
+1. Two-step Accept → Start testing → one combined "Accept & test"
+2. "Do it now →" as first CTA → "Accept & test" is now primary
+3. "Not now" / "Dismiss" visible after accepting → hidden
+4. Experiments started with null target → now captures real page + citations
+5. Post-import silent about watchlist → now mentions refresh
+
+### What was NOT touched
+- Recommendation engine, priority engine unchanged
+- Experiment store model unchanged
+- Tracker, response store unchanged
+- Import pipeline, Supabase, persistence unchanged
+- All surfaces except Today + Import post-import unchanged
+
+### Constraints honored
+- Zero new infrastructure or persistence
+- Pure friction reduction — no new systems
+- All changes are button/flow/messaging improvements
+
+### Build verification (Phase 23)
+- `npm run check` — pass (0 errors, 64 warnings)
+- Build: 17/17 static pages generated
+
+---
+
+## QA Hardening Pass (2026-04-09)
+
+### Bug fixed
+- **`recHref` routing bug**: function only checked `r.type === "replicate"` before using `targetPageUrl`. All Phase 19/21 rec types (`strengthen_structure`, `improve_internal_links`, `refresh_content`, `cross_page_pattern`) have `targetPageUrl` but are not type `"replicate"`, so "Go →" / "Continue →" linked to wrong destination (generic `/pages` or source change instead of target page). Fixed: check `targetPageUrl` first regardless of type; added `/competitors` fallback for competitive/cluster recs.
+
+### Build verification (QA pass)
+- `npm run check` — pass (0 errors, 64 warnings)
+- Build: 17/17 static pages generated
+
+---
+
+## Product Premiumization Pass (2026-04-09)
+
+### What shipped
+- **Navigation**: Topics→Opportunities, Sample history→History, Draft ideas removed from nav (page still accessible via URL)
+- **Today primary action**: raw priority score removed; "Do this now"→"Recommended action"; evidence block compressed from 4 labeled rows to 1 inline confidence line; raw sample count removed from visibility strip
+- **Rec type labels**: "Proven pattern"→"Apply pattern", "Strengthen evidence"→"Strengthen", "Competitive gap"→"Close gap", "Cross-page pattern"→"Apply pattern", "Topic cluster"→"Expand"
+- **Pages**: verbose description removed; next-move labels: "Doing well"→"Strong", "Needs review"→"Review", "Needs stronger content"→"Strengthen"
+- **Changes**: title "What You've Changed"→"Changes"; ops description removed
+- **Competitors**: description removed
+- **Topics**: "Gap ledger"→"Opportunities"
+- **Import**: description removed
+
+### What was NOT touched
+- All intelligence logic, domain modules unchanged
+- Recommendation engine, priority engine, tracker unchanged
+- Experiment store, response store unchanged
+- Persistence, Supabase unchanged
+
+### Build verification (Premiumization pass)
+- `npm run typecheck` — pass (0 errors)
+- Build: 17/17 static pages generated
+
+---
+
+## Master UI/UX research audit + product presentation roadmap (2026-04-09)
+
+### What shipped
+- **Documentation only:** Appended **Master UI/UX product shell overhaul — PLANNED** to `docs/master_execution_plan.md` (Shell Phases A–H: design system, nav/IA, Today, Pages, Changes, Competitors/Topics/Review, Import/History/Diagnostics/Expansion, watchlist polish; external reference links; explicit non-goals).
+- **Execution pointer:** Updated `docs/NEXT_PHASE_EXECUTION_PLAN.md` with **Master UI/UX product shell overhaul — RESEARCH COMPLETE, IMPLEMENTATION QUEUED** and set **Track 0 (Shell A–H)** as recommended next work before new intelligence tracks.
+- **Verified state:** `docs/HANDOFF_VERIFIED_STATE.md` — new row block clarifying research-only status and queued shell phases.
+- **Architecture:** `docs/architecture.md` — **Product Direction** nav bullets corrected to match shipped labels (Opportunities, History); added **Presentation layer (planned)** subsection pointing to Shell Phases A–H.
+
+### What was NOT touched
+- **Zero application code** (no components, styles, or routes modified).
+- No new markdown files.
+- Attribution, recommendation, priority, tracker, experiments, import backends, persistence — **unchanged**.
+
+### Constraints honored
+- Research + planning pass only; stop point explicit for handoff to implementation agent.
+- External claims tied to cited sources (Linear, Stripe, Amplitude, Superhuman, Ramp/Fast Company, etc.).
+
+### Build verification (this pass)
+- N/A — docs-only; no `npm run check` required for scope.
+
+---
+
+## Shell Phase A — Design System + Chrome Baseline (2026-04-10)
+
+### What shipped
+- **Sidebar chrome recede:** `--sidebar` token darkened slightly (0.985→0.978 light, 0.205→0.175 dark); `--sidebar-foreground` muted (0.145→0.371 light, 0.985→0.708 dark); `--sidebar-border` softened to match `--border-subtle`; group labels changed from `uppercase tracking-widest` to sentence-case `tracking-normal`; inactive items use `text-sidebar-foreground` instead of `text-muted-foreground`; outer border uses `border-sidebar-border`
+- **Global border softening:** `--border` lightened from `oklch(0.922)` to `oklch(0.935)` — every `border-border` in the app is now calmer
+- **Uppercase purge:** Removed `uppercase tracking-wider` and `uppercase tracking-widest` from **all** route files and shared components (~153 instances across 27 files). Section labels now use sentence-case with normal tracking
+- **Typography floor:** `text-[9px] font-semibold` → `text-[11px] font-medium` and `text-[9px] font-bold` → `text-[11px] font-semibold` on Today page (9 instances). Shared components (StatCard, FormField, command palette) labels bumped to `text-xs`/`text-[11px]` from `text-[9px]`–`text-[11px]` with admin modifiers removed
+- **PageHeader hierarchy:** title from `text-base` (16px) to `text-lg` (18px); description from `text-[13px]` to `text-sm`; bottom margin from `mb-6` to `mb-8`. Inline `<h2>` titles on Pages and Topics routes matched to `text-lg`
+- **StatCard de-admin:** label changed from `text-[11px] font-medium uppercase tracking-wider` to `text-xs text-muted-foreground`; border softened from `border-border` to `border-border/60`; radius from `rounded-md` to `rounded-lg`
+- **Header chrome:** bottom border softened with `border-border/50`; stale breadcrumb "Gap ledger"→"Opportunities", "Gap detail"→"Opportunity detail"
+- **Vocabulary cleanup:** Layout palette group "Gap ledger"→"Opportunities"; command palette GROUP_ORDER updated to match
+
+### Files changed
+- `src/app/globals.css` — sidebar tokens, border tokens
+- `src/components/shell/app-sidebar.tsx` — sidebar chrome, labels, borders, semantic colors
+- `src/components/shell/app-header.tsx` — border, breadcrumb labels
+- `src/components/shell/command-palette.tsx` — group label styling, GROUP_ORDER
+- `src/components/data/page-header.tsx` — title size, spacing
+- `src/components/data/stat-card.tsx` — label, border
+- `src/components/forms/form-controls.tsx` — label
+- `src/components/data/entity-link-card.tsx` — label
+- `src/components/data/attribution-card.tsx` — label
+- `src/components/data/candidate-review.tsx` — labels
+- `src/components/data/competitive-landscape.tsx` — label
+- `src/app/(shell)/layout.tsx` — palette group name
+- `src/app/(shell)/today-client.tsx` — uppercase purge + type floor
+- `src/app/(shell)/pages/page.tsx` — title size
+- `src/app/(shell)/pages/pages-client.tsx` — uppercase purge
+- `src/app/(shell)/changes/page.tsx` — uppercase purge
+- `src/app/(shell)/changes/[id]/page.tsx` — uppercase purge
+- `src/app/(shell)/changes/scorecard-client.tsx` — uppercase purge
+- `src/app/(shell)/changes/change-contract-client.tsx` — uppercase purge
+- `src/app/(shell)/competitors/page.tsx` — uppercase purge
+- `src/app/(shell)/competitors/[id]/page.tsx` — uppercase purge
+- `src/app/(shell)/topics/page.tsx` — title size
+- `src/app/(shell)/topics/topics-client.tsx` — uppercase purge + Gap ledger rename
+- `src/app/(shell)/topics/opportunity/[id]/page.tsx` — uppercase purge
+- `src/app/(shell)/import/page.tsx` — uppercase purge
+- `src/app/(shell)/diagnostics/page.tsx` — uppercase purge
+- `src/app/(shell)/results/[id]/page.tsx` — uppercase purge
+- `src/app/(shell)/review/review-queue-client.tsx` — uppercase purge
+- `src/app/(shell)/briefs/proposed/page.tsx` — uppercase purge
+- `src/app/(shell)/briefs/[id]/page.tsx` — uppercase purge
+- `src/app/(shell)/expansion/page.tsx` — uppercase purge
+- `src/app/(shell)/observations/[id]/page.tsx` — uppercase purge
+- `src/app/(shell)/actions/actions-client.tsx` — uppercase purge
+
+### What was NOT touched
+- Attribution, recommendation, priority, tracker, experiment stores — **unchanged**
+- Import pipeline, Supabase, persistence — **unchanged**
+- Page-specific content, copy, or information architecture — deferred to Shell Phases B–H
+- Navigation grouping / item naming / route URLs — deferred to Shell Phase B
+- Today hero structure, CTA consolidation — deferred to Shell Phase C
+
+### Build verification (Shell Phase A)
+- `npm run typecheck` — pass (0 errors)
+- `npm run build` — pass, 17/17 static pages generated
+
+---
+
+## Shell Phase B — Navigation + IA Alignment (2026-04-10)
+
+### Shipped
+1. **Nav group restructure**: “Advanced” → “Data” (Import, Review, History) + “System” (Diagnostics)
+2. **Shortcut realignment**: `G P` Pages, `G C` Changes, `G X` Competitors, `G I` Import; removed duplicates (`G S`, `G H`) and ghost (`G E`)
+3. **Help panel**: Labels updated to short product names; duplicate/stale entries removed
+4. **Page title alignment**: “Sample history” → “History”; “Diagnostics (analyst)” → “Diagnostics”
+5. **Vocabulary cleanup**: “Sample history” purged from ~10 user-facing strings; “Gap ledger” → “Opportunities” in remaining surfaces; “Your Website” → “Pages”; “daily workflow” replaces stale references
+
+### Files changed
+- `src/lib/navigation.ts` — group structure + labels
+- `src/components/shell/app-sidebar.tsx` — NAV_SHORTCUTS
+- `src/components/shell/command-palette.tsx` — keyboard routes + help panel
+- `src/app/(shell)/layout.tsx` — NAV_SHORTCUTS for palette items
+- `src/app/(shell)/results/results-client.tsx` — page title + description
+- `src/app/(shell)/diagnostics/page.tsx` — page title + description
+- `src/app/(shell)/expansion/page.tsx` — empty-state copy
+- `src/app/(shell)/page.tsx` — link label
+- `src/app/(shell)/observations/[id]/page.tsx` — link labels (2 instances)
+- `src/lib/today-summary.ts` — fallback evidence text
+- `src/lib/import/actions.ts` — scope_label strings (2 instances)
+- `src/domains/competitors/universe-drift-copy.ts` — user-facing copy
+- `src/domains/observations/visibility-read.ts` — scope_label strings (2 instances)
+
+### What was NOT touched
+- Attribution, recommendation, priority, tracker, experiment stores — **unchanged**
+- Import pipeline, persistence — **unchanged**
+- Page-specific content restructuring — deferred to Shell Phases C–H
+- Today hero structure — deferred to Shell Phase C
+
+### Build verification (Shell Phase B)
+- `npx tsc --noEmit` — pass (0 errors)
+- `npm run build` — pass, all static pages generated
+- Linter — 0 errors on modified files
+
+---
+
+## Shell Phase C — Today Content Overhaul (2026-04-10)
+
+### Shipped
+1. **Primary action card sculpted**: Removed "Why"/"Expected outcome" labeled blocks; rationale flows as natural prose with inline expected outcome; confidence/freshness/watch-after consolidated into two compact support lines instead of three separate micro-blocks
+2. **CTA hierarchy simplified**: "Accept & test" is the dominant button; "Accept only", "Not now", and "Dismiss" are now text links instead of bordered buttons — reduces visual competition
+3. **Track record reframed as momentum**: Dropped raw "% success" and dismissed count; shows "N accepted · N acted on · N confirmed positive" — reinforcing, not evaluative
+4. **Watchlist tightened**: Proper `text-xs font-semibold` section heading; cards use lighter borders (`border-border/60`); operator note moved below metrics; watch-after text removed from cards (already shown in action card)
+5. **"What changed" cleaned**: Asset names raised to `text-[13px]`; default border lightened to `border-border/60`; redundant "All changes →" link removed (nav provides this)
+6. **Collapsed sections unified**: All three disclosure toggles (Other opportunities, Work queue, System details) now use consistent `text-[11px] font-medium` with `text-[9px]` triangle
+7. **Visibility strip streamlined**: Date range removed (freshness link covers recency); "trend" label dropped from trend indicator; border softened to `border-border/60`
+8. **Fallback action card cleaned**: Removed "evidence scope" label and "ObservationRun" link jargon; simplified to headline + evidence text + Go button
+9. **Stale vocabulary**: "Website" → "Pages" in queue detail strings (3 instances)
+
+### Files changed
+- `src/app/(shell)/today-client.tsx` — all Today hierarchy/structure/CTA/section changes
+- `src/app/(shell)/page.tsx` — stale "Website" vocabulary in queue item strings
+
+### What was NOT touched
+- `rankAndSelect`, `computeRecommendations`, priority engine — **unchanged**
+- Experiment store, track record computation — **unchanged**
+- Attribution, import, persistence — **unchanged**
+- Other page surfaces (Pages, Changes, Competitors) — deferred to Shell Phases D–H
+
+### Build verification (Shell Phase C)
+- `npx tsc --noEmit` — pass (0 errors)
+- `npm run build` — pass, all static pages generated
+- Linter — 0 errors on modified files

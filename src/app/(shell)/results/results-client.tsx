@@ -233,8 +233,8 @@ export function ResultsClient({
   return (
     <div>
       <PageHeader
-        title="Sample history"
-        description="Imported visibility metric rows — weaker operational truth than website crawl. Each row is an observed sample value; suggested cause is Review/event bookkeeping, not proof."
+        title="History"
+        description="Imported visibility samples over time. Each row is an observed value; suggested cause is from the Review queue, not proof."
       />
 
       <div className="rounded-md border border-border bg-surface-raised/40 px-3 py-2 mb-3 text-[11px] text-muted-foreground space-y-2">

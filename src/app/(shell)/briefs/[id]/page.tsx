@@ -37,7 +37,7 @@ function Field({
 }) {
   return (
     <div>
-      <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-1">
+      <p className="text-[11px] font-medium text-muted-foreground mb-1">
         {label}
       </p>
       <div className="text-[13px]">{children}</div>
@@ -95,7 +95,7 @@ export default async function BriefDetailPage({
     <div className="max-w-3xl space-y-6">
       {/* Header */}
       <div>
-        <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-1">
+        <p className="text-[11px] font-medium text-muted-foreground mb-1">
           {BRIEF_TYPE_LABELS[brief.brief_type]}
         </p>
         <h2 className="text-base font-semibold tracking-tight">
@@ -169,7 +169,7 @@ export default async function BriefDetailPage({
 
       {brief.blocked_reason && (
         <div className="rounded-md border border-status-danger/20 bg-status-danger/5 px-4 py-3">
-          <p className="text-[11px] font-medium text-status-danger uppercase tracking-wider mb-1">
+          <p className="text-[11px] font-medium text-status-danger mb-1">
             Blocked
           </p>
           <p className="text-[13px] text-foreground-secondary">
@@ -288,7 +288,7 @@ export default async function BriefDetailPage({
 
           {sourceOpportunities.length > 0 && (
             <div>
-              <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-2">
+              <p className="text-[11px] font-medium text-muted-foreground mb-2">
                 Source Opportunities
               </p>
               <div className="space-y-2">
@@ -308,7 +308,7 @@ export default async function BriefDetailPage({
 
           {relatedResults.length > 0 && (
             <div>
-              <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-2">
+              <p className="text-[11px] font-medium text-muted-foreground mb-2">
                 Results
               </p>
               <div className="space-y-2">
@@ -328,7 +328,7 @@ export default async function BriefDetailPage({
 
           {relatedBriefs.length > 0 && (
             <div>
-              <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-2">
+              <p className="text-[11px] font-medium text-muted-foreground mb-2">
                 Related Briefs
               </p>
               <div className="space-y-2">

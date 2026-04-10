@@ -49,6 +49,17 @@ Working branch: `work/attribution-precision-20260407`
 | **Recommendation tracker** | **WIRED (Phase 11)** | `computeTrackRecord`: retroactive matching of changes to recommendation patterns; per-pattern success rate feeds into priority engine scoring (+10/-5); "Beacon recommended" badge on `/changes/[id]`; track record summary on Today |
 | **Changes list intelligence** | **WIRED (Phase 12)** | `/changes` scorecard: "Beacon" badge + "N replicable" badge per row; "Beacon recommended" toggle filter; "Impact" sortable column; impact snapshot strip shows Beacon-recommended count + total replication targets |
 | **Recommendation response** | **WIRED (Phase 13)** | `recommendation-response-store.ts`: explicit accept/dismiss/defer per recommendation; dismissed filtered before ranking; deferred suppressed 7 days; Today page shows Accept/Not now/Dismiss buttons on primary action + secondary opportunities; "Accepted" badge |
+| **Daily surface compression** | **WIRED (Phase 14)** | Visibility summary strip (total citations, per-platform breakdown, trend %, freshness indicator); navigation compressed to 2 groups (5 primary + 5 advanced); impact signals reduced to 3 as "What changed"; work queue + system details collapsed by default |
+| **Import simplification** | **WIRED (Phase 15)** | Coverage strip (counts, dates, freshness), drag-and-drop upload, delta-aware result (new vs updated), return-to-Today CTA, advanced sections collapsed |
+| **Page intelligence surface** | **WIRED (Phase 16)** | Summary strip (winning/needs-action/cited counts + structure warnings); health card (status badge, citations, platforms, FAQ/schema, next action); structure health in list items; evidence internals in progressive disclosure |
+| **Competitive clarity surface** | **WIRED (Phase 17)** | Summary strip (AI share %, citations, competitor count); ranked competitor list with "Ahead of you" badges; competitive gap visualization (strongest vs biggest losses by topic); weakest areas; next moves; settings collapsed |
+| **Track record enhancement** | **WIRED (Phase 18)** | `SignalTier` (explicit/inferred) on outcomes; `computeTrackRecord` accepts responses+recs; per-pattern `explicitAccepted`/`explicitDismissed`; priority engine: acceptance bonus (+2/+4), dismissal penalty (-3/-7); Today shows explicit counts |
+| **Multi-dim recommendation expansion** | **WIRED (Phase 19)** | 7 rec types (was 3): +strengthen_structure, +improve_internal_links, +refresh_content, +competitive_displacement; evidence-gated with per-type caps; priority engine + outcome gen for all; Today accent colors for all types |
+| **Trust layer + evidence explainability** | **WIRED (Phase 20)** | DO THIS NOW evidence block (evidence basis, confidence reason, freshness, watch-after); secondary rec evidence lines; page status reason on health card |
+| **Adjacent opportunity expansion** | **WIRED (Phase 21)** | 9 rec types (was 7): +cross_page_pattern (requires different page type, shared terms), +topic_cluster_gap (missing content type for cited topic); anti-spam by design; capped; priority + outcomes + accents for both |
+| **Experiment loop / watchlist** | **WIRED (Phase 22)** | `experiment-store.ts` + server actions; "Start testing" on accepted recs; watchlist on Today with status/citations/delta/watch-after; auto-outcome detection from citation data; `.data/experiments.json` persistence |
+| **Nightly usage hardening** | **WIRED (Phase 23)** | Combined "Accept & test" one-click flow; button hierarchy fixed (no dismiss after accept); experiments capture target page + citation baseline; post-import mentions watchlist refresh |
+| **Product premiumization** | **SHIPPED (Pass)** | Nav: Topics→Opportunities, Draft ideas removed; Today: raw score removed, evidence compressed, rec labels cleaned; Pages: description removed, action labels simplified; Changes/Competitors/Topics/Import: titles+descriptions cleaned; "Gap ledger"→"Opportunities" |
 
 ## Score Distribution (baseline — pre-pruning)
 
@@ -118,3 +129,56 @@ Working branch: `work/attribution-precision-20260407`
 | Citation-supported + no-topic | 15 (pages cited for topic but vague description) |
 | Pages in registry | 5,297 (42 owned) |
 | Citation page-topics | 5,253 pages with topic data |
+
+## Product presentation — planned UI/UX shell overhaul (2026-04-09)
+
+| Item | Status | Notes |
+|------|--------|--------|
+| Master UI/UX research audit | **Documented only** | Full phased plan appended to `master_execution_plan.md` + `NEXT_PHASE_EXECUTION_PLAN.md`; **no code shipped** in this pass |
+| Shell Phases A–H | **Queued** | Design system → nav/IA → Today → Pages → Changes → Competitors/Topics/Review → Import/History/Diagnostics/Expansion → watchlist polish |
+| Intelligence / persistence | **Unchanged** | Explicit non-goal: do not modify attribution, rec/priority engines, stores, or import backends during shell phases unless fixing a display-only defect |
+
+**Operator note:** Product Premiumization Pass (copy/navigation tweaks) remains **shipped**; this entry records the **next** layer: structural UI/UX and IA work.
+
+### Shell Phase A — COMPLETE (2026-04-10)
+
+| Item | Status |
+|------|--------|
+| Sidebar chrome recede (tokens, labels, border) | **Shipped** |
+| Global border softening (`--border` token) | **Shipped** |
+| Uppercase tracking-wider/widest purge (~153 instances) | **Shipped** |
+| Typography floor bump (9px section labels → 11px) | **Shipped** |
+| PageHeader title hierarchy (text-base → text-lg) | **Shipped** |
+| StatCard de-admin (drop uppercase, softer border) | **Shipped** |
+| Header border softening + breadcrumb bug fix | **Shipped** |
+| Command palette / layout stale "Gap ledger" → "Opportunities" | **Shipped** |
+| Intelligence / persistence | **Unchanged** |
+
+### Shell Phase B — COMPLETE (2026-04-10)
+
+| Item | Status |
+|------|--------|
+| “Advanced” group split → “Data” + “System” | **Shipped** |
+| Shortcuts realigned: `G P` Pages, `G C` Changes, `G X` Competitors, `G I` Import | **Shipped** |
+| Duplicate shortcuts removed (`G S`, `G H`) | **Shipped** |
+| Ghost shortcut removed (`G E` for hidden `/expansion`) | **Shipped** |
+| Help panel labels updated to short product names | **Shipped** |
+| “Sample history” → “History” across page titles & strings (~10 instances) | **Shipped** |
+| “Diagnostics (analyst)” → “Diagnostics” | **Shipped** |
+| Stale “Gap ledger” / “Website” labels cleaned from remaining surfaces | **Shipped** |
+| Intelligence / persistence | **Unchanged** |
+
+### Shell Phase C — COMPLETE (2026-04-10)
+
+| Item | Status |
+|------|--------|
+| Primary action card: prose flow, consolidated metadata | **Shipped** |
+| CTA hierarchy: dominant button + text-link secondaries | **Shipped** |
+| Track record reframed as momentum (no raw %, no dismissed) | **Shipped** |
+| Watchlist: proper heading, tighter cards, reordered fields | **Shipped** |
+| "What changed" cleaned (raised type, removed redundant link) | **Shipped** |
+| Collapsed sections: consistent text-[11px] treatment | **Shipped** |
+| Visibility strip: removed date range, cleaner freshness | **Shipped** |
+| Fallback action card: jargon removed | **Shipped** |
+| Stale "Website" vocabulary cleaned from queue strings | **Shipped** |
+| Intelligence / persistence | **Unchanged** |

@@ -40,7 +40,7 @@ export function CompetitiveLandscape({ threats, className }: CompetitiveLandscap
                   {threat.competitor.name}
                 </Link>
                 {threat.isPrimary && (
-                  <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider shrink-0">
+                  <span className="text-[10px] font-medium text-muted-foreground shrink-0">
                     Primary
                   </span>
                 )}

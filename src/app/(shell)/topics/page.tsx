@@ -342,9 +342,9 @@ export default function TopicsPage() {
   return (
     <div className="max-w-5xl">
       <div className="mb-4">
-        <h2 className="text-base font-semibold tracking-tight">Gap ledger</h2>
+        <h2 className="text-lg font-semibold tracking-tight">Opportunities</h2>
         <p className="text-[12px] text-muted-foreground mt-0.5">
-          Typed gaps from citation inventory + scanner signals — not generic
+          Topic-level gaps from citation analysis + scanner signals — not generic
           recommendations. Each row shows an evidence class; open detail for the
           basis. {topicRows.length} topic{topicRows.length !== 1 ? "s" : ""} ·{" "}
           {events.length} imported visibility shift{events.length !== 1 ? "s" : ""}.

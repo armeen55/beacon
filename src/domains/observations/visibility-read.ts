@@ -50,7 +50,7 @@ function syntheticFromCitationIndex(
       "Imported citation / mention rollup — not a live nightly prompt engine run unless you recorded one separately.",
     prompt_set_version: null,
     engine_platform_note:
-      "Platforms in Sample history rows are separate from this index; tie both to this wrapper only at import time.",
+      "Platforms in history rows are separate from this index; tie both to this wrapper only at import time.",
     parser_version: "citation-index-v1",
     baseline_visibility_run_id: null,
     counts: {
@@ -81,7 +81,7 @@ export function buildSeedWalkthroughVisibilityRun(): VisibilityObservationRun {
     started_at: "2025-03-25T08:00:00Z",
     completed_at: "2025-03-25T08:00:00Z",
     scope_label:
-      "Demo Sample history rows shipped with Beacon — not imported from your systems.",
+      "Demo history rows shipped with Beacon — not imported from your systems.",
     prompt_set_version: null,
     engine_platform_note: "chatgpt · google_aio · perplexity · all (demo mix)",
     parser_version: "seed-v1",

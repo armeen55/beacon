@@ -36,7 +36,7 @@ export default function ExpansionPage() {
         </p>
         <p className="text-[12px] text-muted-foreground mb-3">
           Experimental backlog only. After import + Review activity, model-suggested
-          topics may appear here — not part of Today or Gap ledger.
+          topics may appear here — not part of the daily workflow.
         </p>
         <Link
           href="/import"
@@ -67,7 +67,7 @@ export default function ExpansionPage() {
   return (
     <div className="space-y-6">
       <div>
-        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">
+        <p className="text-[10px] font-semibold text-muted-foreground mb-1">
           Experimental
         </p>
         <h2 className="text-[15px] font-semibold mb-1">
@@ -157,7 +157,7 @@ export default function ExpansionPage() {
 
       {/* Methodology */}
       <div className="rounded-md border border-border bg-surface-raised px-4 py-3">
-        <p className="text-[11px] font-semibold mb-1 uppercase tracking-wider text-muted-foreground">
+        <p className="text-[11px] font-semibold mb-1 text-muted-foreground">
           How candidates are generated
         </p>
         <ul className="text-[11px] text-muted-foreground space-y-0.5">
@@ -265,12 +265,12 @@ function CandidateCard({
           {/* Type + confidence tags */}
           <div className="flex items-center gap-2 mb-0.5">
             <span
-              className={`text-[10px] font-semibold uppercase tracking-wider ${CANDIDATE_TYPE_COLORS[candidate.opportunityType]}`}
+              className={`text-[10px] font-semibold ${CANDIDATE_TYPE_COLORS[candidate.opportunityType]}`}
             >
               {CANDIDATE_TYPE_LABELS[candidate.opportunityType]}
             </span>
             <span
-              className={`text-[10px] font-medium uppercase tracking-wider ${CANDIDATE_CONFIDENCE_COLORS[candidate.confidence]}`}
+              className={`text-[10px] font-medium ${CANDIDATE_CONFIDENCE_COLORS[candidate.confidence]}`}
             >
               {MODEL_CONFIDENCE_LABEL[candidate.confidence] ?? candidate.confidence}
             </span>
@@ -291,7 +291,7 @@ function CandidateCard({
 
           {/* Evidence */}
           <div className="mt-1.5">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-0.5">
+            <p className="text-[10px] font-semibold text-muted-foreground mb-0.5">
               Evidence
             </p>
             <ul className="text-[10px] text-muted-foreground space-y-0.5">
@@ -304,7 +304,7 @@ function CandidateCard({
           {/* Caveats */}
           {candidate.caveats.length > 0 && (
             <div className="mt-1.5">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-status-warning mb-0.5">
+              <p className="text-[10px] font-semibold text-status-warning mb-0.5">
                 Caveats
               </p>
               <ul className="text-[10px] text-muted-foreground space-y-0.5">
@@ -318,7 +318,7 @@ function CandidateCard({
           {/* Pattern source */}
           <div className="mt-2 rounded border border-border bg-surface-inset/60 px-3 py-1.5">
             <div className="flex items-center gap-3 text-[11px]">
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              <span className="text-[10px] font-semibold text-muted-foreground">
                 Pattern-derived (not page-specific proof)
               </span>
               <span className="font-medium">

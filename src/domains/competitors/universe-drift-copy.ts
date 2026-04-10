@@ -9,7 +9,7 @@ export function competitorUniverseDriftNote(
   if (!visibilityRun) return null;
   const st = visibilityRun.competitor_universe_pin_status;
   if (st === "synthetic_unpinned" || st === "legacy_unpinned" || st == null) {
-    return "Visibility run is not pinned to a competitor universe — Sample history / Today domain labels use the current workspace universe and may not match historical sample era.";
+    return "Visibility run is not pinned to a competitor universe — History / Today domain labels use the current workspace universe and may not match historical sample era.";
   }
   if (st !== "pinned") return null;
 

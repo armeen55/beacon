@@ -64,8 +64,9 @@ This prevents artificial inflation. A pattern with 3 attributed events out of 10
 ## Navigation (pilot spine)
 
 Default loop:
-- **Today** — observation strip + **DO THIS NOW** (Priority Engine: single highest-leverage action with 0-100 score, bucket, expected outcome, pattern track record weighting) + Accept/Not now/Dismiss response buttons (Phase 13) + **Beacon track record** line + **change impact signals** + **other opportunities** (collapsed, with per-rec response buttons) + work queue
-- **Your Website** — execution workbench
+- **Today** — **visibility summary strip** (total citations, per-platform breakdown, trend %, data freshness) + **DO THIS NOW** (Priority Engine: single highest-leverage action with 0-100 score, bucket, expected outcome, evidence block with confidence/freshness/watch-after) + Accept/Start testing/Not now/Dismiss buttons + **track record** line + **watchlist** (active experiments with status, citation delta, watch guidance) + **what changed** (top 3 impact signals) + **other opportunities** (collapsed) + **work queue** (collapsed) + **system details** (collapsed)
+- **Pages** — **page health summary strip** (winning/needs-action/cited/structure warnings) + split panel (page list with status dots + structure health + next move labels → **page health card** with status badge, citations, platforms, FAQ/schema, next action + fix/playbook/changes in progressive disclosure). **Phase 16:** evidence internals moved to "Show details" toggle.
+- **Competitors** — **competitive summary strip** (AI share %, citation count, competitor count) + **ranked competitor list** ("Ahead of you" badges) + **competitive gaps** (strongest vs biggest losses by topic, bar visualization) + **weakest areas** + **next moves** (action links). Universe CRUD and imported entities in collapsed "Competitor settings". **Phase 17:** wired `computeMarketBenchmark` for citation-based competitive intelligence.
 - **Gap ledger** (`/topics`) — typed gaps
 
 Work:
@@ -121,3 +122,26 @@ Naming cheat sheet: **website** observation runs = `ObservationRun` + `observati
 - `seed-data.server.ts`: Server-only data layer, imports `json-store.ts`
 - `seed-data.ts`: Pure data arrays, no Node.js dependencies
 - Pages are server components that pass serialized props to client components
+
+## Product Direction (2026-04-09)
+
+### Positioning
+Beacon is the AI visibility attribution and action system for high-value businesses. Premium pricing ($249–999+/month). NOT a budget monitoring dashboard.
+
+### Target surfaces (navigation — shipped through Shell Phase B)
+Primary: **Today**, **Pages**, **Changes**, **Competitors**, **Opportunities** (route: `/topics`)
+Data: **Import**, **Review**, **History** (route: `/results`)
+System: **Diagnostics**
+
+**Related routes not in primary nav:** `/briefs/*`, `/results/[id]`, `/changes/[id]`, `/competitors/[id]`, `/topics/opportunity/[id]`, `/observations/[id]`, `/expansion` (draft ideas — intentionally demoted from nav).
+
+### Presentation layer (in progress — Shell Phases A–H)
+Shell **Phases A–B shipped** (2026-04-10): design-system tokens, typography floor, uppercase purge, nav restructure (“Advanced” → “Data” + “System”), shortcut alignment, vocabulary cleanup. Remaining phases target Today content, Pages, Changes, Competitors/Topics/Review, Import/History/Diagnostics, and watchlist polish — **without** changing core intelligence or persistence.
+
+### Build sequence
+Phases 14–16: Internal daily tool (surface compression, visibility story, import simplification)
+Phases 17–18: Premium product surfaces (page intelligence, competitive clarity)
+Phase 19: Daily habit loop (email briefing)
+Phases 20–22: External product (auth, billing, polish, agency/multi-tenant)
+
+See `master_execution_plan.md` for full roadmap details, including **Master UI/UX product shell overhaul — PLANNED**.

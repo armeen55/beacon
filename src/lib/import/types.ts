@@ -59,6 +59,13 @@ export type WorkbookImportResult = {
   sheets: WorkbookSheetSummary[];
   warnings: string[];
   errors: string[];
+  delta?: {
+    results_new: number;
+    results_updated: number;
+    changes_new: number;
+    changes_updated: number;
+    date_range_after: { from: string; to: string } | null;
+  };
 };
 
 export const IMPORT_COLUMN_DOCS: Record<ImportEntityType, { required: string[]; optional: string[] }> = {

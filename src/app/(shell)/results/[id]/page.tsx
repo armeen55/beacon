@@ -29,7 +29,7 @@ function Field({
 }) {
   return (
     <div>
-      <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-1">
+      <p className="text-[11px] font-medium text-muted-foreground mb-1">
         {label}
       </p>
       <div className="text-[13px]">{children}</div>
@@ -132,7 +132,7 @@ export default async function ResultDetailPage({
 
       {anchorEvent && (
         <div className="rounded-md border-2 border-status-success/20 bg-status-success/5 px-4 py-3">
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-status-success mb-1">
+          <p className="text-[10px] font-semibold text-status-success mb-1">
             Visibility shift
           </p>
           <p className="text-[13px] font-medium">
@@ -151,7 +151,7 @@ export default async function ResultDetailPage({
         <div className="rounded-md border-2 border-status-success/30 bg-status-success/5 px-4 py-3">
           <div className="flex items-center gap-2 mb-1">
             <span className="h-2 w-2 rounded-full bg-status-success" />
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-status-success">
+            <p className="text-[10px] font-semibold text-status-success">
               Your Review decision
             </p>
             <span className="text-[10px] text-muted-foreground">
@@ -208,7 +208,7 @@ export default async function ResultDetailPage({
       <div className="border-t border-border pt-5">
         <div className="grid grid-cols-3 gap-6">
           <div>
-            <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-1">
+            <p className="text-[11px] font-medium text-muted-foreground mb-1">
               Current
             </p>
             <p className="text-2xl font-semibold tabular-nums">
@@ -216,7 +216,7 @@ export default async function ResultDetailPage({
             </p>
           </div>
           <div>
-            <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-1">
+            <p className="text-[11px] font-medium text-muted-foreground mb-1">
               Previous
             </p>
             <p className="text-2xl font-semibold tabular-nums text-muted-foreground">
@@ -224,7 +224,7 @@ export default async function ResultDetailPage({
             </p>
           </div>
           <div>
-            <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-1">
+            <p className="text-[11px] font-medium text-muted-foreground mb-1">
               Change
             </p>
             <DeltaIndicator
@@ -278,11 +278,11 @@ export default async function ResultDetailPage({
               <div key={chain.change.id} className="space-y-1.5">
                 {chains.length > 1 && (
                   <div className="flex items-center gap-2 mb-2">
-                    <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
+                    <p className="text-[11px] font-medium text-muted-foreground">
                       Path {i + 1}
                     </p>
                     {chain.attribution && (
-                      <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+                      <span className="text-[10px] font-medium text-muted-foreground">
                         · {chain.attribution.role}
                       </span>
                     )}
@@ -335,7 +335,7 @@ export default async function ResultDetailPage({
                 <ChainArrow />
 
                 <div className="rounded-md border-2 border-accent-primary/20 bg-accent-primary-light p-3">
-                  <span className="text-[11px] font-medium uppercase tracking-wider text-accent-primary">
+                  <span className="text-[11px] font-medium text-accent-primary">
                     This Result
                   </span>
                   <p className="text-[13px] font-medium mt-0.5">
@@ -413,7 +413,7 @@ export default async function ResultDetailPage({
 
           {sourceOpportunities.length > 0 && (
             <div>
-              <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-2">
+              <p className="text-[11px] font-medium text-muted-foreground mb-2">
                 Source Opportunities
               </p>
               <div className="space-y-2">
@@ -433,7 +433,7 @@ export default async function ResultDetailPage({
 
           {sourceBriefs.length > 0 && (
             <div>
-              <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-2">
+              <p className="text-[11px] font-medium text-muted-foreground mb-2">
                 Source Briefs
               </p>
               <div className="space-y-2">

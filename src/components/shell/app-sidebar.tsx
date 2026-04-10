@@ -15,11 +15,12 @@ import { useShell } from "./shell-provider";
 
 const NAV_SHORTCUTS: Record<string, string> = {
   "/": "G T",
-  "/pages": "G W",
+  "/pages": "G P",
+  "/changes": "G C",
+  "/competitors": "G X",
   "/topics": "G O",
-  "/changes": "G H",
+  "/import": "G I",
   "/review": "G R",
-  "/expansion": "G E",
 };
 
 const BADGE_STYLES: Record<string, string> = {
@@ -34,12 +35,12 @@ function SidebarContent() {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex h-12 items-center border-b border-border px-4">
+      <div className="flex h-12 items-center border-b border-sidebar-border px-4">
         <Link href="/" className="flex items-center gap-2">
           <div className="flex h-6 w-6 items-center justify-center rounded-md bg-foreground text-background text-xs font-bold">
             B
           </div>
-          <span className="text-[13px] font-semibold tracking-tight">
+          <span className="text-[13px] font-semibold tracking-tight text-foreground">
             Beacon
           </span>
         </Link>
@@ -49,9 +50,11 @@ function SidebarContent() {
         <nav className="flex flex-col gap-5 px-3">
           {navigationGroups.map((group) => (
             <div key={group.label}>
-              <p className="px-2 mb-1.5 text-[11px] font-medium text-muted-foreground/70 uppercase tracking-widest">
-                {group.label}
-              </p>
+              {group.label && (
+                <p className="px-2 mb-1 text-[11px] font-medium text-sidebar-foreground/50 tracking-normal">
+                  {group.label}
+                </p>
+              )}
               <div className="flex flex-col gap-0.5">
                 {group.items.map((item) => {
                   const isActive =
@@ -70,7 +73,7 @@ function SidebarContent() {
                         "group flex items-center gap-2.5 rounded-md px-2 py-1.5 text-[13px] font-medium transition-colors duration-100",
                         isActive
                           ? "bg-accent-primary-muted text-foreground"
-                          : "text-muted-foreground hover:bg-surface-raised hover:text-foreground"
+                          : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-foreground"
                       )}
                     >
                       <item.icon
@@ -78,7 +81,7 @@ function SidebarContent() {
                           "h-4 w-4 shrink-0",
                           isActive
                             ? "text-accent-primary"
-                            : "text-muted-foreground"
+                            : "text-sidebar-foreground/70"
                         )}
                       />
                       <span className="flex-1">{item.label}</span>
@@ -111,7 +114,7 @@ function SidebarContent() {
 
 export function AppSidebar() {
   return (
-    <aside className="hidden w-[216px] shrink-0 border-r border-border bg-sidebar md:block">
+    <aside className="hidden w-[216px] shrink-0 border-r border-sidebar-border bg-sidebar md:block">
       <SidebarContent />
     </aside>
   );

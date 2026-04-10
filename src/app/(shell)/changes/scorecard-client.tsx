@@ -290,7 +290,7 @@ export function ScorecardTable({
       <div className="border border-border rounded-lg overflow-hidden">
         <table className="w-full text-[12px]">
           <thead>
-            <tr className="border-b border-border bg-surface-inset text-[10px] uppercase tracking-wider text-muted-foreground">
+            <tr className="border-b border-border bg-surface-inset text-[10px] text-muted-foreground">
               <SortHeader field="date" current={sortField} dir={sortDir} onClick={handleSort}>
                 Date
               </SortHeader>
@@ -529,7 +529,7 @@ function FilterSelect({
 
 function ConfidenceBadge({ confidence }: { confidence: ImpactConfidence }) {
   return (
-    <span className={`text-[9px] font-semibold uppercase tracking-wider ${CONFIDENCE_COLOR[confidence]}`}>
+    <span className={`text-[9px] font-semibold ${CONFIDENCE_COLOR[confidence]}`}>
       {CONFIDENCE_LABEL[confidence]}
     </span>
   );

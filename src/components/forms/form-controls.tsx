@@ -13,7 +13,7 @@ export function FormField({
 }) {
   return (
     <div className="space-y-1.5">
-      <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
+      <label className="text-xs font-medium text-muted-foreground">
         {label}
         {required && <span className="text-status-danger ml-0.5">*</span>}
       </label>

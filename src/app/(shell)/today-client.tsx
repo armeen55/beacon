@@ -24,7 +24,7 @@ export type RecResponseStatus = "accepted" | "dismissed" | "deferred" | null;
 
 export type TodayRecommendation = {
   id: string;
-  type: "replicate" | "strengthen" | "investigate";
+  type: string;
   headline: string;
   rationale: string;
   sourceEvidence: string;
@@ -32,6 +32,7 @@ export type TodayRecommendation = {
   sourceChangeId: string | null;
   href: string;
   responseStatus?: RecResponseStatus;
+  confidenceReason?: string;
 };
 
 export type TodayPrimaryAction = {
@@ -42,16 +43,51 @@ export type TodayPrimaryAction = {
   sourceEvidence: string;
   priorityScore: number;
   bucket: "critical" | "high_leverage" | "opportunistic";
-  type: "replicate" | "strengthen" | "investigate";
+  type: string;
   confidence: "high" | "medium" | "low";
   href: string;
   responseStatus?: RecResponseStatus;
+  confidenceReason?: string;
+  watchAfter?: string;
+  dataFreshness?: string | null;
+  hasExperiment?: boolean;
+  targetPageUrl?: string | null;
+  targetPagePath?: string | null;
+  baselineCitations?: number | null;
+};
+
+export type TodayExperiment = {
+  id: string;
+  recId: string;
+  headline: string;
+  recType: string;
+  targetPagePath: string | null;
+  watchAfter: string;
+  operatorNote: string;
+  startedAt: string;
+  status: string;
+  daysSinceStart: number;
+  baselineCitations: number | null;
+  latestCitations: number | null;
+  citDelta: number | null;
 };
 
 export type TodayTrackRecord = {
   totalActedOn: number;
   totalValidated: number;
   overallSuccessRate: number;
+  totalExplicitAccepted?: number;
+  totalExplicitDismissed?: number;
+};
+
+export type VisibilitySummary = {
+  totalCitations: number;
+  totalMentions: number;
+  platformBreakdown: { platform: string; label: string; citations: number; mentions: number }[];
+  dateRange: { from: string; to: string } | null;
+  latestImportDate: string | null;
+  trendPct: number | null;
+  resultCount: number;
 };
 
 export type TodayQueueItem = {
@@ -95,13 +131,20 @@ const BUCKET_STYLE: Record<string, { border: string; bg: string; label: string; 
 };
 
 const REC_ACCENT: Record<string, { border: string; bg: string; dot: string; label: string }> = {
-  replicate: { border: "border-status-success/30", bg: "bg-status-success/5", dot: "bg-status-success", label: "Proven pattern" },
-  strengthen: { border: "border-status-warning/30", bg: "bg-status-warning/5", dot: "bg-status-warning", label: "Strengthen evidence" },
+  replicate: { border: "border-status-success/30", bg: "bg-status-success/5", dot: "bg-status-success", label: "Apply pattern" },
+  strengthen: { border: "border-status-warning/30", bg: "bg-status-warning/5", dot: "bg-status-warning", label: "Strengthen" },
   investigate: { border: "border-status-danger/30", bg: "bg-status-danger/5", dot: "bg-status-danger", label: "Investigate" },
+  strengthen_structure: { border: "border-accent-primary/30", bg: "bg-accent-primary/5", dot: "bg-accent-primary", label: "Add structure" },
+  improve_internal_links: { border: "border-accent-primary/30", bg: "bg-accent-primary/5", dot: "bg-accent-primary", label: "Add links" },
+  refresh_content: { border: "border-status-warning/30", bg: "bg-status-warning/5", dot: "bg-status-warning", label: "Refresh" },
+  competitive_displacement: { border: "border-status-danger/30", bg: "bg-status-danger/5", dot: "bg-status-danger", label: "Close gap" },
+  cross_page_pattern: { border: "border-status-success/30", bg: "bg-status-success/5", dot: "bg-status-success", label: "Apply pattern" },
+  topic_cluster_gap: { border: "border-accent-primary/30", bg: "bg-accent-primary/5", dot: "bg-accent-primary", label: "Expand" },
 };
 
 export function TodayClient({
   summary,
+  visibilitySummary,
   items,
   impactSignals = [],
   recommendedMoves = [],
@@ -110,8 +153,12 @@ export function TodayClient({
   onUpdateIssue,
   onVerifyIssue,
   onRespondToRec,
+  experiments = [],
+  onStartExperiment,
+  onUpdateExperiment,
 }: {
   summary: TodaySummary;
+  visibilitySummary?: VisibilitySummary;
   items: TodayQueueItem[];
   impactSignals?: TodayImpactItem[];
   recommendedMoves?: TodayRecommendation[];
@@ -135,6 +182,21 @@ export function TodayClient({
   onRespondToRec?: (
     recId: string,
     status: "accepted" | "dismissed" | "deferred"
+  ) => Promise<{ success: boolean }>;
+  experiments?: TodayExperiment[];
+  onStartExperiment?: (opts: {
+    recId: string;
+    headline: string;
+    recType: string;
+    targetPageUrl: string | null;
+    targetPagePath: string | null;
+    watchAfter: string;
+    operatorNote: string;
+    baselineCitations: number | null;
+  }) => Promise<{ success: boolean; experimentId: string }>;
+  onUpdateExperiment?: (
+    id: string,
+    status: "testing" | "watching" | "promising" | "inconclusive" | "negative" | "dropped"
   ) => Promise<{ success: boolean }>;
 }) {
   const router = useRouter();
@@ -206,617 +268,572 @@ export function TodayClient({
   const crawl = summary.crawl;
   const vis = summary.visibility;
   const run = crawl.activeObservationRun;
+  const [systemOpen, setSystemOpen] = useState(false);
+  const [queueOpen, setQueueOpen] = useState(false);
+
+  const importFreshness = (() => {
+    if (!visibilitySummary?.latestImportDate) return null;
+    const daysOld = Math.floor((new Date().getTime() - new Date(visibilitySummary.latestImportDate).getTime()) / 86_400_000);
+    return { daysOld, stale: daysOld > 7 };
+  })();
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-[15px] font-semibold tracking-tight">Today</h2>
-        <p className="text-[11px] text-muted-foreground mt-0.5">
-          Two observation systems: website crawl (HTML truth) and visibility sample (imported citation / mention rollup). Review queue is separate.
-        </p>
-      </div>
-
-      {/* Crawl observation */}
-      <div className="rounded-lg border border-border bg-surface-raised/40 p-4 space-y-3">
-        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-          Website crawl (operational)
-        </p>
-        {crawl.hasObservationFile && run ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-[11px]">
-            <div>
-              <p className="text-muted-foreground">Last completed</p>
-              <p className="font-medium tabular-nums">
-                {formatScanTime(run.completed_at)}
-              </p>
-              {crawl.activeObservationHref && (
-                <Link
-                  href={crawl.activeObservationHref}
-                  className="text-[10px] text-accent-primary hover:underline font-medium mt-1 inline-block"
-                >
-                  Open crawl run →
-                </Link>
+      {/* ── 1. Visibility summary strip ── */}
+      {visibilitySummary && visibilitySummary.resultCount > 0 && (
+        <div className="rounded-lg border border-border/60 bg-surface-raised/40 px-5 py-4">
+          <div className="flex items-baseline justify-between gap-4 flex-wrap">
+            <div className="flex items-baseline gap-3">
+              <span className="text-2xl font-bold tabular-nums tracking-tight">
+                {visibilitySummary.totalCitations.toLocaleString()}
+              </span>
+              <span className="text-xs text-muted-foreground">
+                citations
+              </span>
+              {visibilitySummary.trendPct !== null && (
+                <span className={cn(
+                  "text-xs font-semibold tabular-nums",
+                  visibilitySummary.trendPct > 0 ? "text-status-success" : visibilitySummary.trendPct < 0 ? "text-status-danger" : "text-muted-foreground",
+                )}>
+                  {visibilitySummary.trendPct > 0 ? "↑" : visibilitySummary.trendPct < 0 ? "↓" : "→"}{" "}
+                  {Math.abs(visibilitySummary.trendPct)}%
+                </span>
               )}
             </div>
-            <div>
-              <p className="text-muted-foreground">Pages scanned</p>
-              <p className="font-medium tabular-nums">{run.pages_scanned}</p>
-            </div>
-            <div>
-              <p className="text-muted-foreground">Changed vs prior crawl</p>
-              <p className="font-medium tabular-nums">
-                {crawl.deltaVsPrior
-                  ? `${run.pages_changed} (Δ ${crawl.deltaVsPrior.pagesChanged >= 0 ? "+" : ""}${crawl.deltaVsPrior.pagesChanged})`
-                  : String(run.pages_changed)}
-              </p>
-              {crawl.priorCompletedAt && (
-                <p className="text-[9px] text-muted-foreground/80 mt-0.5">
-                  Prior crawl: {formatScanTime(crawl.priorCompletedAt)}
-                </p>
-              )}
-            </div>
-            <div>
-              <p className="text-muted-foreground">Errors / guardrails</p>
-              <p className="font-medium tabular-nums">
-                {run.pages_with_errors} err · {run.guardrail_alerts} alerts
-                {crawl.deltaVsPrior
-                  ? ` (alerts Δ ${crawl.deltaVsPrior.guardrailAlerts >= 0 ? "+" : ""}${crawl.deltaVsPrior.guardrailAlerts})`
-                  : ""}
-              </p>
-            </div>
-          </div>
-        ) : (
-          <p className="text-[11px] text-muted-foreground">
-            Not observed yet — no website crawl ObservationRun on file. Run a scan from Your Website.
-          </p>
-        )}
-      </div>
-
-      {/* Visibility observation */}
-      <div className="rounded-lg border border-border bg-surface-raised/40 p-4 space-y-3">
-        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-          Visibility sample (import / rollup)
-        </p>
-        {vis.hasObservationFile && vis.activeObservationRun ? (
-          <div className="space-y-2 text-[11px]">
-            <p className="text-muted-foreground leading-relaxed">
-              {vis.activeObservationRun.scope_label}
-            </p>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[10px] text-muted-foreground">
-              <span>Topics: {vis.activeObservationRun.counts.topic_buckets}</span>
-              <span>Rollup rows: {vis.activeObservationRun.counts.page_topic_rollup_rows}</span>
-              <span>Citations counted: {vis.activeObservationRun.counts.total_citations_accounted}</span>
-              <span>Ext. domains (sample): {vis.activeObservationRun.counts.distinct_external_domains_sampled}</span>
-            </div>
-            {vis.activeObservationRun.is_synthetic_wrapper && (
-              <p className="text-[10px] text-muted-foreground/90">
-                Wrapper synthesized from citation-evidence-index — not a separate nightly prompt job unless you add `visibility-observation-runs.json`.
-              </p>
-            )}
-            {vis.staleVsCrawl && vis.staleNote && (
-              <p className="text-[10px] text-status-warning font-medium">{vis.staleNote}</p>
-            )}
-            {vis.activeObservationHref && (
-              <Link
-                href={vis.activeObservationHref}
-                className="text-[10px] text-accent-primary hover:underline font-medium inline-block"
-              >
-                Open visibility ObservationRun →
+            {importFreshness && (
+              <Link href="/import" className={cn("text-[11px] font-medium hover:underline", importFreshness.stale ? "text-status-warning" : "text-muted-foreground/70")}>
+                {importFreshness.stale ? `Data is ${importFreshness.daysOld}d old — refresh →` : `${importFreshness.daysOld}d ago`}
               </Link>
             )}
           </div>
-        ) : (
-          <p className="text-[11px] text-muted-foreground">
-            No visibility ObservationRun — citation-evidence-index not loaded. Gap ledger competitor lines are weaker.
-          </p>
-        )}
-        {summary.competitorLine && (
-          <p className="text-[10px] text-muted-foreground border-t border-border/60 pt-2">
-            {summary.competitorLine}
-          </p>
-        )}
-      </div>
-
-      <p className="text-[10px] text-muted-foreground border border-dashed border-border rounded-md px-3 py-2">
-        <span className="font-semibold text-foreground">Review / attribution: </span>
-        {summary.reviewHeuristicLine}
-      </p>
-
-      {/* Verified */}
-      {summary.verifiedFixes.length > 0 && (
-        <div>
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">
-            Recently verified (ship checks)
-          </p>
-          <ul className="space-y-1">
-            {summary.verifiedFixes.map((v) => (
-              <li key={v.issueId}>
-                <Link
-                  href={v.href}
-                  className="text-[11px] text-accent-primary hover:underline"
-                >
-                  {v.pagePath}
-                </Link>
-                <span className="text-[10px] text-muted-foreground ml-2">
-                  {v.summary.slice(0, 120)}
-                  {v.summary.length > 120 ? "…" : ""}
+          {visibilitySummary.platformBreakdown.length > 0 && (
+            <div className="flex items-center gap-4 mt-2.5 flex-wrap">
+              {visibilitySummary.platformBreakdown.slice(0, 5).map((p) => (
+                <span key={p.platform} className="text-[11px] text-muted-foreground">
+                  <span className="font-medium text-foreground">{p.label}</span>{" "}
+                  {p.citations > 0 ? p.citations.toLocaleString() : `${p.mentions} ment.`}
                 </span>
-                {v.verificationBindingLegacy && (
-                  <span className="text-[10px] text-muted-foreground/80 ml-2">
-                    · legacy verify (exact fetch run not recorded)
-                  </span>
-                )}
-                {v.verificationObservationRunId && (
-                  <span className="text-[10px] text-muted-foreground/80 ml-2 block sm:inline sm:ml-2 mt-0.5 sm:mt-0">
-                    · verify fetch{" "}
-                    <Link
-                      href={`/observations/${encodeURIComponent(v.verificationObservationRunId)}`}
-                      className="text-accent-primary hover:underline"
-                    >
-                      ObservationRun
-                    </Link>
-                  </span>
-                )}
-                {v.verificationBaselineObservationRunId && (
-                  <span className="text-[10px] text-muted-foreground/80 ml-2 block sm:inline sm:ml-2">
-                    · prior crawl{" "}
-                    <Link
-                      href={`/observations/${encodeURIComponent(v.verificationBaselineObservationRunId)}`}
-                      className="text-accent-primary hover:underline"
-                    >
-                      baseline
-                    </Link>
-                  </span>
-                )}
-              </li>
-            ))}
-          </ul>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
-      {/* Primary action — DO THIS NOW (from Priority Engine) */}
+      {/* ── 2. Primary action ── */}
       {primaryAction ? (() => {
         const bs = BUCKET_STYLE[primaryAction.bucket] ?? BUCKET_STYLE.opportunistic;
         return (
-          <div className={cn("rounded-lg border-2 p-5 space-y-3", bs.border, bs.bg)}>
-            <div className="flex items-center justify-between">
-              <p className={cn("text-[10px] font-bold uppercase tracking-widest", bs.accent)}>
-                Do this now
-              </p>
-              <div className="flex items-center gap-2">
-                <span className={cn("text-[9px] font-bold uppercase tracking-wider", bs.accent)}>
-                  {bs.label}
-                </span>
-                <span className="text-[18px] font-bold tabular-nums text-foreground">
-                  {primaryAction.priorityScore}
-                </span>
-              </div>
+          <div className={cn("rounded-lg border-2 px-5 pt-4 pb-5", bs.border, bs.bg)}>
+            <div className="flex items-center gap-2 mb-3">
+              <span className={cn("h-1.5 w-1.5 rounded-full", bs.accent.replace("text-", "bg-"))} />
+              <span className={cn("text-[11px] font-semibold", bs.accent)}>{bs.label}</span>
             </div>
-            <p className="text-[16px] font-bold tracking-tight leading-snug">
+            <p className="text-base font-bold tracking-tight leading-snug mb-2">
               {primaryAction.headline}
             </p>
-            <div className="space-y-2">
-              <div>
-                <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Why</p>
-                <p className="text-[11px] text-muted-foreground leading-relaxed">{primaryAction.rationale}</p>
-              </div>
-              <div>
-                <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">Expected outcome</p>
-                <p className="text-[11px] text-muted-foreground leading-relaxed">{primaryAction.expectedOutcome}</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-3 pt-1 flex-wrap">
-              <Link
-                href={primaryAction.href}
-                className="inline-flex items-center gap-2 rounded-md bg-foreground px-5 py-2.5 text-[12px] font-bold text-background hover:opacity-90 transition-opacity"
-              >
-                {primaryAction.responseStatus === "accepted" ? "Continue" : "Do it now"}
-                <span className="opacity-60">→</span>
-              </Link>
-              {onRespondToRec && primaryAction.responseStatus !== "accepted" && (
-                <button
-                  onClick={() =>
-                    startTransition(async () => {
-                      await onRespondToRec(primaryAction.id, "accepted");
-                      setActionMsg("Accepted — Beacon will track this.");
-                    })
-                  }
-                  disabled={pending}
-                  className="px-3 py-2 rounded-md border border-status-success/30 text-[10px] font-semibold text-status-success hover:bg-status-success/10 transition-colors"
-                >
-                  Accept
-                </button>
+            <p className="text-[13px] text-muted-foreground leading-relaxed">
+              {primaryAction.rationale}
+              {primaryAction.expectedOutcome && (
+                <span className="text-foreground/80"> → {primaryAction.expectedOutcome}</span>
               )}
-              {onRespondToRec && (
+            </p>
+            <p className="text-[11px] text-muted-foreground/70 mt-3">
+              <span className={cn(
+                "font-medium",
+                primaryAction.confidence === "high" ? "text-status-success" : primaryAction.confidence === "medium" ? "text-foreground" : "text-muted-foreground",
+              )}>{primaryAction.confidence} confidence</span>
+              {primaryAction.confidenceReason && <span> · {primaryAction.confidenceReason}</span>}
+              {primaryAction.dataFreshness && <span> · {primaryAction.dataFreshness.toLowerCase()}</span>}
+            </p>
+            {primaryAction.watchAfter && (
+              <p className="text-[11px] text-muted-foreground/50 mt-1">
+                Watch after: {primaryAction.watchAfter.charAt(0).toLowerCase() + primaryAction.watchAfter.slice(1)}
+              </p>
+            )}
+            <div className="flex items-center gap-3 mt-4 flex-wrap">
+              {primaryAction.responseStatus !== "accepted" && (
                 <>
-                  <button
-                    onClick={() =>
-                      startTransition(async () => {
-                        await onRespondToRec(primaryAction.id, "deferred");
-                        setActionMsg("Deferred for 7 days.");
-                      })
-                    }
-                    disabled={pending}
-                    className="px-3 py-2 rounded-md border border-border text-[10px] font-medium text-muted-foreground hover:bg-surface-inset transition-colors"
-                  >
-                    Not now
-                  </button>
-                  <button
-                    onClick={() =>
-                      startTransition(async () => {
-                        await onRespondToRec(primaryAction.id, "dismissed");
-                        setActionMsg("Dismissed — won't show again.");
-                      })
-                    }
-                    disabled={pending}
-                    className="px-3 py-2 rounded-md border border-border text-[10px] font-medium text-muted-foreground/60 hover:bg-surface-inset transition-colors"
-                  >
-                    Dismiss
-                  </button>
+                  {onStartExperiment && onRespondToRec && (
+                    <button
+                      onClick={() => {
+                        const note = prompt("What did you change or plan to change? (short note)");
+                        if (note === null) return;
+                        startTransition(async () => {
+                          await onRespondToRec(primaryAction.id, "accepted");
+                          await onStartExperiment({
+                            recId: primaryAction.id,
+                            headline: primaryAction.headline,
+                            recType: primaryAction.type,
+                            targetPageUrl: primaryAction.targetPageUrl ?? null,
+                            targetPagePath: primaryAction.targetPagePath ?? null,
+                            watchAfter: primaryAction.watchAfter ?? "",
+                            operatorNote: note,
+                            baselineCitations: primaryAction.baselineCitations ?? null,
+                          });
+                          setActionMsg("Accepted & tracking — added to watchlist.");
+                        });
+                      }}
+                      disabled={pending}
+                      className="inline-flex items-center gap-2 rounded-md bg-foreground px-5 py-2.5 text-[13px] font-semibold text-background hover:opacity-90 transition-opacity"
+                    >
+                      Accept & test →
+                    </button>
+                  )}
+                  {onRespondToRec && (
+                    <button
+                      onClick={() => startTransition(async () => { await onRespondToRec(primaryAction.id, "accepted"); setActionMsg("Accepted."); })}
+                      disabled={pending}
+                      className="text-[11px] font-medium text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      Accept only
+                    </button>
+                  )}
+                  {onRespondToRec && (
+                    <>
+                      <span className="text-border">·</span>
+                      <button
+                        onClick={() => startTransition(async () => { await onRespondToRec(primaryAction.id, "deferred"); setActionMsg("Deferred."); })}
+                        disabled={pending}
+                        className="text-[11px] font-medium text-muted-foreground/60 hover:text-muted-foreground transition-colors"
+                      >
+                        Not now
+                      </button>
+                      <button
+                        onClick={() => startTransition(async () => { await onRespondToRec(primaryAction.id, "dismissed"); setActionMsg("Dismissed."); })}
+                        disabled={pending}
+                        className="text-[11px] font-medium text-muted-foreground/40 hover:text-muted-foreground transition-colors"
+                      >
+                        Dismiss
+                      </button>
+                    </>
+                  )}
                 </>
               )}
               {primaryAction.responseStatus === "accepted" && (
-                <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-status-success">
-                  <span className="h-1.5 w-1.5 rounded-full bg-status-success" />
-                  Accepted
-                </span>
+                <>
+                  <Link
+                    href={primaryAction.href}
+                    className="inline-flex items-center gap-2 rounded-md bg-foreground px-5 py-2.5 text-[13px] font-semibold text-background hover:opacity-90 transition-opacity"
+                  >
+                    {primaryAction.hasExperiment ? "Continue" : "Go"} →
+                  </Link>
+                  {!primaryAction.hasExperiment && onStartExperiment && (
+                    <button
+                      onClick={() => {
+                        const note = prompt("What did you change? (short note)");
+                        if (note === null) return;
+                        startTransition(async () => {
+                          await onStartExperiment({
+                            recId: primaryAction.id,
+                            headline: primaryAction.headline,
+                            recType: primaryAction.type,
+                            targetPageUrl: primaryAction.targetPageUrl ?? null,
+                            targetPagePath: primaryAction.targetPagePath ?? null,
+                            watchAfter: primaryAction.watchAfter ?? "",
+                            operatorNote: note,
+                            baselineCitations: primaryAction.baselineCitations ?? null,
+                          });
+                          setActionMsg("Experiment started — added to watchlist.");
+                        });
+                      }}
+                      disabled={pending}
+                      className="text-[11px] font-medium text-accent-primary hover:text-accent-primary/80 transition-colors"
+                    >
+                      Start testing
+                    </button>
+                  )}
+                  <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-status-success">
+                    <span className="h-1.5 w-1.5 rounded-full bg-status-success" />
+                    {primaryAction.hasExperiment ? "Testing" : "Accepted"}
+                  </span>
+                </>
               )}
-              <span className="text-[10px] text-muted-foreground">
-                {primaryAction.sourceEvidence}
-              </span>
             </div>
           </div>
         );
       })() : (
-        <div className="rounded-lg border border-accent-primary/25 bg-accent-primary/5 p-4">
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">
-            Next best move
-          </p>
-          <p className="text-[14px] font-semibold">{summary.nextMove.title}</p>
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mt-2">
-            Evidence scope: {summary.nextMove.evidenceScope.replace(/_/g, " ")}
-          </p>
-          <p className="text-[11px] text-muted-foreground mt-1 leading-relaxed">
+        <div className="rounded-lg border border-border/60 bg-surface-raised/40 px-5 py-4">
+          <p className="text-base font-semibold mb-1">{summary.nextMove.title}</p>
+          <p className="text-[13px] text-muted-foreground leading-relaxed">
             {summary.nextMove.evidence}
           </p>
-          {summary.nextMove.observationRunId &&
-            (summary.nextMove.evidenceScope === "crawl" ||
-              summary.nextMove.evidenceScope === "mixed") && (
-            <p className="text-[10px] text-muted-foreground mt-2">
-              Related crawl context:{" "}
-              <Link
-                href={`/observations/${encodeURIComponent(summary.nextMove.observationRunId)}`}
-                className="text-accent-primary hover:underline font-medium"
-              >
-                ObservationRun
-              </Link>
-            </p>
-          )}
           <Link
             href={summary.nextMove.href}
-            className="inline-flex mt-3 items-center gap-2 rounded-md bg-foreground px-4 py-2 text-[11px] font-semibold text-background hover:opacity-90"
+            className="inline-flex mt-3 items-center gap-2 rounded-md bg-foreground px-5 py-2.5 text-[13px] font-semibold text-background hover:opacity-90"
           >
-            Go
-            <span className="opacity-60">→</span>
+            Go →
           </Link>
         </div>
       )}
 
-      {/* Recommendation track record */}
-      {trackRecord && trackRecord.totalActedOn > 0 && (
-        <div className="flex items-center gap-3 text-[10px] text-muted-foreground border border-border/60 rounded-md px-3 py-2">
-          <span className="font-semibold text-foreground">Beacon track record:</span>
-          <span>
-            {trackRecord.totalActedOn} recommendation{trackRecord.totalActedOn !== 1 ? "s" : ""} acted on
-          </span>
-          <span className="text-border">·</span>
-          <span className={trackRecord.totalValidated > 0 ? "text-status-success font-medium" : ""}>
-            {trackRecord.totalValidated} validated
-          </span>
-          <span className="text-border">·</span>
-          <span>
-            {Math.round(trackRecord.overallSuccessRate * 100)}% success rate
-          </span>
+      {/* ── 3. Track record (momentum) ── */}
+      {trackRecord && (trackRecord.totalActedOn > 0 || (trackRecord.totalExplicitAccepted ?? 0) > 0) && (
+        <p className="text-[11px] text-muted-foreground/70">
+          {(trackRecord.totalExplicitAccepted ?? 0) > 0 && (
+            <span className="text-foreground font-medium">{trackRecord.totalExplicitAccepted} accepted</span>
+          )}
+          {trackRecord.totalActedOn > 0 && (
+            <span>
+              {(trackRecord.totalExplicitAccepted ?? 0) > 0 ? " · " : ""}
+              {trackRecord.totalActedOn} acted on
+              {trackRecord.totalValidated > 0 && (
+                <span className="text-status-success font-medium"> · {trackRecord.totalValidated} confirmed positive</span>
+              )}
+            </span>
+          )}
+        </p>
+      )}
+
+      {/* ── 3b. Watchlist ── */}
+      {experiments && experiments.length > 0 && (
+        <div className="pt-2">
+          <p className="text-xs font-semibold text-foreground mb-3">
+            Watchlist
+          </p>
+          <div className="space-y-2">
+            {experiments.map((exp) => {
+              const statusStyle: Record<string, { color: string; label: string }> = {
+                testing: { color: "text-accent-primary", label: "Testing" },
+                watching: { color: "text-muted-foreground", label: "Watching" },
+                promising: { color: "text-status-success", label: "Promising" },
+                inconclusive: { color: "text-status-warning", label: "Inconclusive" },
+                negative: { color: "text-status-danger", label: "Negative" },
+                dropped: { color: "text-muted-foreground/50", label: "Dropped" },
+              };
+              const st = statusStyle[exp.status] ?? statusStyle.watching;
+              return (
+                <div key={exp.id} className="rounded-lg border border-border/60 px-4 py-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-[13px] font-medium truncate flex-1">{exp.headline}</p>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className={cn("text-[11px] font-medium", st.color)}>{st.label}</span>
+                      <span className="text-[11px] text-muted-foreground/50 tabular-nums">{exp.daysSinceStart}d</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3 mt-1.5 text-[11px] text-muted-foreground flex-wrap">
+                    {exp.targetPagePath && (
+                      <span className="font-mono text-[10px]">{exp.targetPagePath}</span>
+                    )}
+                    {exp.citDelta !== null && (
+                      <span className={cn(
+                        "font-semibold tabular-nums",
+                        exp.citDelta > 0 ? "text-status-success" : exp.citDelta < 0 ? "text-status-danger" : "text-muted-foreground",
+                      )}>
+                        {exp.citDelta > 0 ? "+" : ""}{exp.citDelta} citations
+                      </span>
+                    )}
+                    {exp.citDelta === null && exp.baselineCitations !== null && (
+                      <span>Baseline: {exp.baselineCitations}</span>
+                    )}
+                    {exp.citDelta === null && exp.baselineCitations === null && (
+                      <span className="text-muted-foreground/50">No baseline</span>
+                    )}
+                    {exp.status !== "dropped" && onUpdateExperiment && (
+                      <button
+                        onClick={() => startTransition(async () => { await onUpdateExperiment(exp.id, "dropped"); setActionMsg("Dropped."); })}
+                        className="text-[10px] text-muted-foreground/40 hover:text-muted-foreground transition-colors ml-auto"
+                      >
+                        Drop
+                      </button>
+                    )}
+                  </div>
+                  {exp.operatorNote && (
+                    <p className="text-[11px] text-muted-foreground/60 mt-1">{exp.operatorNote}</p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
 
-      {/* Impact signals from Change Impact Engine */}
+      {/* ── 4. What changed ── */}
       {impactSignals.length > 0 && (
-        <div>
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">
-            Change impact signals ({impactSignals.length})
+        <div className="pt-2">
+          <p className="text-xs font-semibold text-foreground mb-3">
+            What changed
           </p>
-          <div className="space-y-2">
+          <div className="space-y-1.5">
             {impactSignals.map((s) => (
               <Link
                 key={s.changeId}
                 href={s.href}
                 className={cn(
-                  "block rounded-lg border px-4 py-3 hover:bg-surface-inset/50 transition-colors",
+                  "block rounded-lg border px-4 py-2.5 hover:bg-surface-inset/50 transition-colors",
                   s.verdict === "validated"
                     ? "border-status-success/30 bg-status-success/5"
                     : s.verdict === "negative"
                       ? "border-status-danger/30 bg-status-danger/5"
-                      : "border-border",
+                      : "border-border/60",
                 )}
               >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2 mb-0.5">
-                      <span className={cn(
-                        "h-1.5 w-1.5 rounded-full shrink-0",
-                        s.verdict === "validated" ? "bg-status-success"
-                          : s.verdict === "negative" ? "bg-status-danger"
-                          : s.verdict === "partial" ? "bg-status-warning"
-                          : "bg-muted-foreground",
-                      )} />
-                      <span className="text-[12px] font-medium truncate">
-                        {s.assetName}
-                      </span>
-                      <span className={cn(
-                        "text-[9px] font-semibold uppercase tracking-wider shrink-0",
-                        s.confidence === "high" ? "text-status-success"
-                          : s.confidence === "medium" ? "text-status-warning"
-                          : "text-muted-foreground",
-                      )}>
-                        {s.confidence}
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-muted-foreground line-clamp-2 leading-relaxed">
-                      {s.nextAction}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    {s.topScore != null && (
-                      <span className="text-[14px] font-semibold tabular-nums">
-                        {Math.round(s.topScore)}
-                      </span>
-                    )}
-                    <span className="text-[10px] text-muted-foreground">
-                      {s.totalEvents} event{s.totalEvents !== 1 ? "s" : ""}
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2 min-w-0 flex-1">
+                    <span className={cn(
+                      "h-1.5 w-1.5 rounded-full shrink-0",
+                      s.verdict === "validated" ? "bg-status-success"
+                        : s.verdict === "negative" ? "bg-status-danger"
+                        : s.verdict === "partial" ? "bg-status-warning"
+                        : "bg-muted-foreground",
+                    )} />
+                    <span className="text-[13px] font-medium truncate">
+                      {s.assetName}
+                    </span>
+                    <span className={cn(
+                      "text-[11px] font-medium shrink-0",
+                      s.confidence === "high" ? "text-status-success"
+                        : s.confidence === "medium" ? "text-status-warning"
+                        : "text-muted-foreground",
+                    )}>
+                      {s.confidence}
                     </span>
                   </div>
+                  <span className="text-[11px] text-muted-foreground/60 shrink-0">
+                    {s.totalEvents} event{s.totalEvents !== 1 ? "s" : ""}
+                  </span>
                 </div>
+                <p className="text-[11px] text-muted-foreground line-clamp-1 leading-relaxed mt-0.5 ml-[14px]">
+                  {s.nextAction}
+                </p>
               </Link>
             ))}
-          </div>
-          <div className="mt-2 text-right">
-            <Link
-              href="/changes"
-              className="text-[10px] text-accent-primary hover:underline font-medium"
-            >
-              All changes →
-            </Link>
           </div>
         </div>
       )}
 
-      {/* Other opportunities — collapsible secondary recommendations */}
+      {/* ── 5. Other opportunities ── */}
       {recommendedMoves.length > 0 && (
         <SecondaryOpportunities moves={recommendedMoves} onRespond={onRespondToRec} />
       )}
 
-      {/* Work queue */}
-      <div>
-        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">
-          Work queue {queueWork > 0 ? `(${queueWork})` : ""}
-        </p>
-        {flatItems.length > 0 ? (
-          <div className="grid grid-cols-1 lg:grid-cols-[240px_1fr] gap-5">
-            <div className="rounded-lg border border-border overflow-hidden bg-background">
-              <div className="max-h-[calc(100vh-320px)] overflow-y-auto">
-                {groups.map((group) => (
-                  <div key={group.key}>
-                    <div className="px-3 py-1.5 border-b border-border/60">
-                      <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground/60">
-                        {group.label}
-                      </p>
-                    </div>
-                    {group.items.map((item) => {
-                      const idx = flatItems.indexOf(item);
-                      return (
-                        <button
-                          key={item.id}
-                          data-today-idx={idx}
-                          onClick={() => {
-                            setSelectedIdx(idx);
-                            setActionMsg(null);
-                          }}
-                          className={cn(
-                            "w-full text-left px-3 py-2.5 transition-colors border-b border-border/30 last:border-b-0",
-                            idx === selectedIdx
-                              ? "bg-accent-primary/8 border-l-[3px] border-l-accent-primary"
-                              : "hover:bg-surface-inset/60 border-l-[3px] border-l-transparent"
-                          )}
-                        >
-                          <div className="flex items-center gap-1.5">
-                            <span
-                              className={cn(
-                                "h-[6px] w-[6px] rounded-full shrink-0",
-                                item.dot
-                              )}
-                            />
-                            <p className="text-[11px] font-semibold truncate">
-                              {item.label}
-                            </p>
-                          </div>
-                          <p className="text-[9px] text-muted-foreground/70 truncate mt-0.5 ml-[18px]">
-                            {item.meta}
-                          </p>
-                        </button>
-                      );
-                    })}
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="rounded-lg border border-border overflow-hidden bg-background">
-              {selected ? (
-                <div className="overflow-y-auto max-h-[calc(100vh-320px)]">
-                  <div className="px-6 pt-5 pb-4 border-b border-border/40">
-                    <div className="flex items-center gap-2.5 mb-1.5">
-                      <span
-                        className={cn(
-                          "h-2.5 w-2.5 rounded-full shrink-0",
-                          selected.dot
-                        )}
-                      />
-                      <h3 className="text-[15px] font-semibold tracking-tight">
-                        {selected.label}
-                      </h3>
-                    </div>
-                    <p className="text-[11px] text-muted-foreground/70">
-                      {selected.meta}
-                    </p>
-                  </div>
-                  <div className="px-6 py-5 space-y-5">
-                    <p className="text-[12px] text-muted-foreground leading-relaxed">
-                      {selected.detail}
-                    </p>
-                    {selected.observationRunHref && (
-                      <p className="text-[10px] text-muted-foreground">
-                        Evidence run:{" "}
-                        <Link
-                          href={selected.observationRunHref}
-                          className="text-accent-primary hover:underline font-medium"
-                        >
-                          Open ObservationRun
-                        </Link>
-                      </p>
-                    )}
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <Link
-                        href={selected.href}
-                        className="inline-flex items-center gap-2 rounded-md bg-accent-primary px-4 py-2 text-[11px] font-semibold text-white hover:bg-accent-primary/90 transition-colors"
-                      >
-                        {(selected.plainGroup ?? "fix_this") === "fix_this"
-                          ? "Open"
-                          : selected.plainGroup === "in_progress"
-                            ? "Check status"
-                            : "View"}
-                        <span className="text-white/60">→</span>
-                      </Link>
-                      {selected.issueId &&
-                        selected.issueStatus === "new" &&
-                        onUpdateIssue && (
+      {/* ── 6. Work queue (collapsed by default) ── */}
+      {flatItems.length > 0 && (
+        <div className="pt-1">
+          <button
+            onClick={() => setQueueOpen((v) => !v)}
+            className="flex items-center gap-2 text-[11px] font-medium text-muted-foreground hover:text-foreground transition-colors w-full"
+          >
+            <span className={cn("transition-transform text-[9px]", queueOpen ? "rotate-90" : "")}>
+              ▶
+            </span>
+            Work queue ({queueWork})
+          </button>
+          {queueOpen && (
+            <div className="mt-3 grid grid-cols-1 lg:grid-cols-[240px_1fr] gap-5">
+              <div className="rounded-lg border border-border overflow-hidden bg-background">
+                <div className="max-h-[calc(100vh-320px)] overflow-y-auto">
+                  {groups.map((group) => (
+                    <div key={group.key}>
+                      <div className="px-3 py-1.5 border-b border-border/60">
+                        <p className="text-[11px] font-semibold text-muted-foreground/60">
+                          {group.label}
+                        </p>
+                      </div>
+                      {group.items.map((item) => {
+                        const idx = flatItems.indexOf(item);
+                        return (
                           <button
-                            onClick={() =>
-                              startTransition(async () => {
-                                await onUpdateIssue(
-                                  selected.issueId!,
-                                  "dismissed",
-                                  {
-                                    pageUrl: selected.pageUrl,
-                                    pagePath: selected.pagePath,
-                                  }
-                                );
-                                setActionMsg("Dismissed");
-                              })
-                            }
+                            key={item.id}
+                            data-today-idx={idx}
+                            onClick={() => {
+                              setSelectedIdx(idx);
+                              setActionMsg(null);
+                            }}
+                            className={cn(
+                              "w-full text-left px-3 py-2.5 transition-colors border-b border-border/30 last:border-b-0",
+                              idx === selectedIdx
+                                ? "bg-accent-primary/8 border-l-[3px] border-l-accent-primary"
+                                : "hover:bg-surface-inset/60 border-l-[3px] border-l-transparent"
+                            )}
+                          >
+                            <div className="flex items-center gap-1.5">
+                              <span className={cn("h-[6px] w-[6px] rounded-full shrink-0", item.dot)} />
+                              <p className="text-[11px] font-semibold truncate">{item.label}</p>
+                            </div>
+                            <p className="text-[9px] text-muted-foreground/70 truncate mt-0.5 ml-[18px]">
+                              {item.meta}
+                            </p>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-border overflow-hidden bg-background">
+                {selected ? (
+                  <div className="overflow-y-auto max-h-[calc(100vh-320px)]">
+                    <div className="px-6 pt-5 pb-4 border-b border-border/40">
+                      <div className="flex items-center gap-2.5 mb-1.5">
+                        <span className={cn("h-2.5 w-2.5 rounded-full shrink-0", selected.dot)} />
+                        <h3 className="text-[15px] font-semibold tracking-tight">{selected.label}</h3>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground/70">{selected.meta}</p>
+                    </div>
+                    <div className="px-6 py-5 space-y-5">
+                      <p className="text-[12px] text-muted-foreground leading-relaxed">{selected.detail}</p>
+                      {selected.observationRunHref && (
+                        <p className="text-[10px] text-muted-foreground">
+                          Evidence:{" "}
+                          <Link href={selected.observationRunHref} className="text-accent-primary hover:underline font-medium">
+                            Open run
+                          </Link>
+                        </p>
+                      )}
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <Link
+                          href={selected.href}
+                          className="inline-flex items-center gap-2 rounded-md bg-accent-primary px-4 py-2 text-[11px] font-semibold text-white hover:bg-accent-primary/90 transition-colors"
+                        >
+                          {(selected.plainGroup ?? "fix_this") === "fix_this" ? "Open" : selected.plainGroup === "in_progress" ? "Check status" : "View"}
+                          <span className="text-white/60">→</span>
+                        </Link>
+                        {selected.issueId && selected.issueStatus === "new" && onUpdateIssue && (
+                          <button
+                            onClick={() => startTransition(async () => { await onUpdateIssue(selected.issueId!, "dismissed", { pageUrl: selected.pageUrl, pagePath: selected.pagePath }); setActionMsg("Dismissed"); })}
                             disabled={pending}
                             className="px-3 py-2 rounded-md border border-border text-[10px] font-medium text-muted-foreground hover:bg-surface-inset transition-colors"
                           >
                             Dismiss
                           </button>
                         )}
-                      {selected.issueId &&
-                        (selected.issueStatus === "handed_off" ||
-                          selected.issueStatus === "in_progress") &&
-                        onUpdateIssue && (
+                        {selected.issueId && (selected.issueStatus === "handed_off" || selected.issueStatus === "in_progress") && onUpdateIssue && (
                           <button
-                            onClick={() =>
-                              startTransition(async () => {
-                                await onUpdateIssue(
-                                  selected.issueId!,
-                                  "shipped",
-                                  {
-                                    pageUrl: selected.pageUrl,
-                                    pagePath: selected.pagePath,
-                                  }
-                                );
-                                setActionMsg("Updated");
-                              })
-                            }
+                            onClick={() => startTransition(async () => { await onUpdateIssue(selected.issueId!, "shipped", { pageUrl: selected.pageUrl, pagePath: selected.pagePath }); setActionMsg("Updated"); })}
                             disabled={pending}
                             className="px-3 py-2 rounded-md border border-accent-primary/30 text-[10px] font-semibold text-accent-primary hover:bg-accent-primary/10 transition-colors"
                           >
                             Mark shipped
                           </button>
                         )}
-                      {selected.issueId &&
-                        (selected.issueStatus === "shipped" ||
-                          selected.issueStatus === "not_fixed") &&
-                        selected.pageUrl &&
-                        onVerifyIssue && (
+                        {selected.issueId && (selected.issueStatus === "shipped" || selected.issueStatus === "not_fixed") && selected.pageUrl && onVerifyIssue && (
                           <button
-                            onClick={() =>
-                              startTransition(async () => {
-                                const r = await onVerifyIssue(
-                                  selected.issueId!,
-                                  selected.pageUrl!
-                                );
-                                setActionMsg(
-                                  r.success
-                                    ? r.cleared
-                                      ? "Working ✓"
-                                      : r.summary
-                                    : `Issue: ${r.error?.slice(0, 60)}`
-                                );
-                              })
-                            }
+                            onClick={() => startTransition(async () => { const r = await onVerifyIssue(selected.issueId!, selected.pageUrl!); setActionMsg(r.success ? (r.cleared ? "Working" : r.summary) : `Issue: ${r.error?.slice(0, 60)}`); })}
                             disabled={pending}
                             className="px-3 py-2 rounded-md border border-status-success/30 text-[10px] font-semibold text-status-success hover:bg-status-success/10 transition-colors"
                           >
-                            {pending ? "Checking…" : "Run ship verification"}
+                            {pending ? "Checking…" : "Verify fix"}
                           </button>
                         )}
-                      {selected.issueId &&
-                        (selected.issueStatus === "verified" ||
-                          selected.issueStatus === "dismissed") &&
-                        onUpdateIssue && (
+                        {selected.issueId && (selected.issueStatus === "verified" || selected.issueStatus === "dismissed") && onUpdateIssue && (
                           <button
-                            onClick={() =>
-                              startTransition(async () => {
-                                await onUpdateIssue(selected.issueId!, "new", {
-                                  pageUrl: selected.pageUrl,
-                                  pagePath: selected.pagePath,
-                                });
-                                setActionMsg("Re-opened");
-                              })
-                            }
+                            onClick={() => startTransition(async () => { await onUpdateIssue(selected.issueId!, "new", { pageUrl: selected.pageUrl, pagePath: selected.pagePath }); setActionMsg("Re-opened"); })}
                             disabled={pending}
                             className="px-3 py-2 rounded-md border border-border text-[10px] font-medium text-muted-foreground hover:bg-surface-inset transition-colors"
                           >
                             Re-open
                           </button>
                         )}
+                      </div>
+                      {actionMsg && <p className="text-[10px] text-muted-foreground">{actionMsg}</p>}
                     </div>
-                    {actionMsg && (
-                      <p className="text-[10px] text-muted-foreground">
-                        {actionMsg}
-                      </p>
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-center h-48 text-[12px] text-muted-foreground/50">
+                    Select an item · <span className="font-mono text-[10px] ml-1">j/k</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── 7. System details (collapsed) ── */}
+      <div className="pt-1">
+        <button
+          onClick={() => setSystemOpen((v) => !v)}
+          className="flex items-center gap-2 text-[11px] font-medium text-muted-foreground hover:text-foreground transition-colors w-full"
+        >
+          <span className={cn("transition-transform text-[9px]", systemOpen ? "rotate-90" : "")}>
+            ▶
+          </span>
+          System details
+        </button>
+        {systemOpen && (
+          <div className="space-y-4 mt-3">
+            {/* Crawl observation */}
+            <div className="rounded-lg border border-border bg-surface-raised/40 p-4 space-y-3">
+              <p className="text-[10px] font-semibold text-muted-foreground">Website crawl</p>
+              {crawl.hasObservationFile && run ? (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-[11px]">
+                  <div>
+                    <p className="text-muted-foreground">Last completed</p>
+                    <p className="font-medium tabular-nums">{formatScanTime(run.completed_at)}</p>
+                    {crawl.activeObservationHref && (
+                      <Link href={crawl.activeObservationHref} className="text-[10px] text-accent-primary hover:underline font-medium mt-1 inline-block">Open run →</Link>
                     )}
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Pages scanned</p>
+                    <p className="font-medium tabular-nums">{run.pages_scanned}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Changed</p>
+                    <p className="font-medium tabular-nums">
+                      {crawl.deltaVsPrior ? `${run.pages_changed} (${crawl.deltaVsPrior.pagesChanged >= 0 ? "+" : ""}${crawl.deltaVsPrior.pagesChanged})` : String(run.pages_changed)}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Errors / alerts</p>
+                    <p className="font-medium tabular-nums">{run.pages_with_errors} err · {run.guardrail_alerts} alerts</p>
                   </div>
                 </div>
               ) : (
-                <div className="flex items-center justify-center h-48 text-[12px] text-muted-foreground/50">
-                  Select an item ·{" "}
-                  <span className="font-mono text-[10px] ml-1">j/k</span>
-                </div>
+                <p className="text-[11px] text-muted-foreground">No crawl data yet. Run a scan from Pages.</p>
               )}
             </div>
-          </div>
-        ) : (
-          <div className="rounded-lg border border-border p-8 text-center text-[12px] text-muted-foreground">
-            Queue is empty. Use{" "}
-            <Link href="/pages" className="text-accent-primary hover:underline">
-              Website
-            </Link>{" "}
-            or{" "}
-            <Link href="/topics" className="text-accent-primary hover:underline">
-              Gap ledger
-            </Link>
-            .
+
+            {/* Visibility observation */}
+            <div className="rounded-lg border border-border bg-surface-raised/40 p-4 space-y-3">
+              <p className="text-[10px] font-semibold text-muted-foreground">Visibility sample</p>
+              {vis.hasObservationFile && vis.activeObservationRun ? (
+                <div className="space-y-2 text-[11px]">
+                  <p className="text-muted-foreground leading-relaxed">{vis.activeObservationRun.scope_label}</p>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[10px] text-muted-foreground">
+                    <span>Topics: {vis.activeObservationRun.counts.topic_buckets}</span>
+                    <span>Rollup rows: {vis.activeObservationRun.counts.page_topic_rollup_rows}</span>
+                    <span>Citations: {vis.activeObservationRun.counts.total_citations_accounted}</span>
+                    <span>External domains: {vis.activeObservationRun.counts.distinct_external_domains_sampled}</span>
+                  </div>
+                  {vis.staleVsCrawl && vis.staleNote && (
+                    <p className="text-[10px] text-status-warning font-medium">{vis.staleNote}</p>
+                  )}
+                  {vis.activeObservationHref && (
+                    <Link href={vis.activeObservationHref} className="text-[10px] text-accent-primary hover:underline font-medium inline-block">Open visibility run →</Link>
+                  )}
+                </div>
+              ) : (
+                <p className="text-[11px] text-muted-foreground">No visibility sample loaded.</p>
+              )}
+              {summary.competitorLine && (
+                <p className="text-[10px] text-muted-foreground border-t border-border/60 pt-2">{summary.competitorLine}</p>
+              )}
+            </div>
+
+            {/* Review line */}
+            <p className="text-[10px] text-muted-foreground border border-dashed border-border rounded-md px-3 py-2">
+              <span className="font-semibold text-foreground">Attribution: </span>
+              {summary.reviewHeuristicLine}
+            </p>
+
+            {/* Verified fixes */}
+            {summary.verifiedFixes.length > 0 && (
+              <div>
+                <p className="text-[10px] font-semibold text-muted-foreground mb-2">Recently verified</p>
+                <ul className="space-y-1">
+                  {summary.verifiedFixes.map((v) => (
+                    <li key={v.issueId}>
+                      <Link href={v.href} className="text-[11px] text-accent-primary hover:underline">{v.pagePath}</Link>
+                      <span className="text-[10px] text-muted-foreground ml-2">
+                        {v.summary.slice(0, 100)}{v.summary.length > 100 ? "…" : ""}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -838,18 +855,18 @@ function SecondaryOpportunities({
   const [, startT] = useTransition();
 
   return (
-    <div>
+    <div className="pt-1">
       <button
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors w-full"
+        className="flex items-center gap-2 text-[11px] font-medium text-muted-foreground hover:text-foreground transition-colors w-full"
       >
-        <span className={cn("transition-transform text-[8px]", open ? "rotate-90" : "")}>
+        <span className={cn("transition-transform text-[9px]", open ? "rotate-90" : "")}>
           ▶
         </span>
         Other opportunities ({moves.length})
       </button>
       {open && (
-        <div className="space-y-2 mt-2">
+        <div className="space-y-2 mt-3">
           {moves.map((rec) => {
             const accent = REC_ACCENT[rec.type] ?? REC_ACCENT.replicate;
             return (
@@ -862,56 +879,49 @@ function SecondaryOpportunities({
                 )}
               >
                 <Link href={rec.href} className="block hover:opacity-80 transition-opacity">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2 mb-0.5">
-                        <span className={cn("h-1.5 w-1.5 rounded-full shrink-0", accent.dot)} />
-                        <span className="text-[12px] font-medium truncate">
-                          {rec.headline}
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2 min-w-0 flex-1">
+                      <span className={cn("h-1.5 w-1.5 rounded-full shrink-0", accent.dot)} />
+                      <span className="text-[13px] font-medium truncate">
+                        {rec.headline}
+                      </span>
+                      {rec.responseStatus === "accepted" && (
+                        <span className="inline-flex items-center gap-1 text-[11px] font-medium text-status-success shrink-0">
+                          <span className="h-1 w-1 rounded-full bg-status-success" />
+                          Accepted
                         </span>
-                        {rec.responseStatus === "accepted" && (
-                          <span className="inline-flex items-center gap-1 text-[9px] font-semibold text-status-success">
-                            <span className="h-1 w-1 rounded-full bg-status-success" />
-                            Accepted
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-[11px] text-muted-foreground line-clamp-2 leading-relaxed">
-                        {rec.rationale}
-                      </p>
+                      )}
                     </div>
-                    <div className="flex flex-col items-end gap-1 shrink-0">
-                      <span className={cn(
-                        "text-[9px] font-semibold uppercase tracking-wider",
-                        rec.confidence === "high" ? "text-status-success"
-                          : rec.confidence === "medium" ? "text-status-warning"
-                          : "text-muted-foreground",
-                      )}>
-                        {rec.confidence}
-                      </span>
-                      <span className="text-[9px] text-muted-foreground">
-                        {accent.label}
-                      </span>
-                    </div>
+                    <span className={cn(
+                      "text-[11px] font-medium shrink-0",
+                      rec.confidence === "high" ? "text-status-success"
+                        : rec.confidence === "medium" ? "text-status-warning"
+                        : "text-muted-foreground",
+                    )}>
+                      {rec.confidence}
+                    </span>
                   </div>
+                  <p className="text-[11px] text-muted-foreground line-clamp-1 leading-relaxed mt-0.5 ml-[14px]">
+                    {rec.rationale}
+                  </p>
                 </Link>
                 {onRespond && rec.responseStatus !== "accepted" && (
-                  <div className="flex items-center gap-2 mt-2 pt-2 border-t border-border/40">
+                  <div className="flex items-center gap-3 mt-2 pt-2 border-t border-border/30 ml-[14px]">
                     <button
                       onClick={() => startT(async () => { await onRespond(rec.id, "accepted"); })}
-                      className="px-2 py-1 rounded border border-status-success/30 text-[9px] font-semibold text-status-success hover:bg-status-success/10 transition-colors"
+                      className="text-[11px] font-medium text-status-success hover:text-status-success/80 transition-colors"
                     >
                       Accept
                     </button>
                     <button
                       onClick={() => startT(async () => { await onRespond(rec.id, "deferred"); })}
-                      className="px-2 py-1 rounded border border-border text-[9px] font-medium text-muted-foreground hover:bg-surface-inset transition-colors"
+                      className="text-[11px] font-medium text-muted-foreground/60 hover:text-muted-foreground transition-colors"
                     >
                       Not now
                     </button>
                     <button
                       onClick={() => startT(async () => { await onRespond(rec.id, "dismissed"); })}
-                      className="px-2 py-1 rounded border border-border text-[9px] font-medium text-muted-foreground/60 hover:bg-surface-inset transition-colors"
+                      className="text-[11px] font-medium text-muted-foreground/40 hover:text-muted-foreground transition-colors"
                     >
                       Dismiss
                     </button>

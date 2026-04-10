@@ -124,8 +124,8 @@ export default async function ChangeScorecardPage() {
   return (
     <div>
       <PageHeader
-        title="What You've Changed"
-        description={`Log what changed so Beacon can compare it to the latest crawl and show tracked mentions over time — not proof of sales or rankings.`}
+        title="Changes"
+        description=""
       />
 
       <ChangeContractUI
@@ -137,7 +137,7 @@ export default async function ChangeScorecardPage() {
       {/* Impact summary strip */}
       {withEvents > 0 && (
         <div className="mt-6 border border-border rounded-lg px-4 py-3 bg-surface-inset/30">
-          <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+          <p className="text-[11px] font-semibold text-muted-foreground mb-2">
             Impact snapshot
           </p>
           <div className="flex items-center gap-4 text-[12px] flex-wrap">
@@ -159,7 +159,7 @@ export default async function ChangeScorecardPage() {
       )}
 
       <details className="group mt-6" open>
-        <summary className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider cursor-pointer hover:text-foreground mb-2">
+        <summary className="text-[11px] font-semibold text-muted-foreground cursor-pointer hover:text-foreground mb-2">
           Full change table ({rows.length})
         </summary>
         <p className="text-[10px] text-muted-foreground mb-3">

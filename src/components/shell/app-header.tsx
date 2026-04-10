@@ -17,8 +17,8 @@ function useBreadcrumb(pathname: string) {
     segments.length >= 3
   ) {
     return {
-      title: "Gap detail",
-      parent: { label: "Gap ledger", href: "/topics" },
+      title: "Opportunity detail",
+      parent: { label: "Opportunities", href: "/topics" },
     };
   }
   const base = "/" + segments[0];
@@ -36,7 +36,7 @@ export function AppHeader() {
   const { title, parent } = useBreadcrumb(pathname);
 
   return (
-    <header className="flex h-12 items-center gap-3 border-b border-border bg-background px-6">
+    <header className="flex h-12 items-center gap-3 border-b border-border/50 bg-background px-6">
       <Button
         variant="ghost"
         size="icon"

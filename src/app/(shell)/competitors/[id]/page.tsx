@@ -25,7 +25,7 @@ function Field({
 }) {
   return (
     <div>
-      <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-1">
+      <p className="text-[11px] font-medium text-muted-foreground mb-1">
         {label}
       </p>
       <div className="text-[13px]">{children}</div>
@@ -96,7 +96,7 @@ export default async function CompetitorDetailPage({
       {/* Summary stats */}
       <div className="grid grid-cols-3 gap-4">
         <div className="rounded-md border border-border p-3">
-          <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-0.5">
+          <p className="text-[11px] font-medium text-muted-foreground mb-0.5">
             Best Rank
           </p>
           <p className="text-lg font-semibold tabular-nums">
@@ -104,7 +104,7 @@ export default async function CompetitorDetailPage({
           </p>
         </div>
         <div className="rounded-md border border-border p-3">
-          <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-0.5">
+          <p className="text-[11px] font-medium text-muted-foreground mb-0.5">
             Contested Opportunities
           </p>
           <p className="text-lg font-semibold tabular-nums">
@@ -112,7 +112,7 @@ export default async function CompetitorDetailPage({
           </p>
         </div>
         <div className="rounded-md border border-border p-3">
-          <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-0.5">
+          <p className="text-[11px] font-medium text-muted-foreground mb-0.5">
             Topics Present
           </p>
           <p className="text-lg font-semibold tabular-nums">

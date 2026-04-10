@@ -91,9 +91,15 @@ function scoreDimension(
   const capped = Math.min(replicableCount, 10);
   s += Math.round((capped / 10) * 15);
 
-  // Type urgency (0-15) — investigate is urgent, replicate is proactive
+  // Type urgency (0-15)
   if (rec.type === "investigate") s += 15;
+  else if (rec.type === "competitive_displacement") s += 12;
+  else if (rec.type === "strengthen_structure") s += 10;
   else if (rec.type === "replicate") s += 8;
+  else if (rec.type === "refresh_content") s += 8;
+  else if (rec.type === "cross_page_pattern") s += 7;
+  else if (rec.type === "improve_internal_links") s += 6;
+  else if (rec.type === "topic_cluster_gap") s += 5;
   else s += 3;
 
   // Recency (0-10) — fresher source signals are more relevant
@@ -104,15 +110,25 @@ function scoreDimension(
     s += 5; // neutral when no source row
   }
 
-  // Pattern track record (-5 to +10) — reward patterns that historically
-  // produce good outcomes, penalize those with poor results
+  // Pattern track record (-7 to +14) — reward patterns that historically
+  // produce good outcomes, penalize those with poor results or dismissals.
+  // Explicit acceptance/dismissal signals carry more weight than inferred.
   if (trackRecord && trackRecord.actedOn >= 2) {
     const r = trackRecord.successRate;
     if (r >= 0.7) s += 10;
     else if (r >= 0.5) s += 6;
     else if (r >= 0.3) s += 2;
     else if (r > 0 && trackRecord.negative > 0) s -= 5;
+
+    // Explicit acceptance bonus: operator endorsed this pattern type
+    if (trackRecord.explicitAccepted >= 2) s += 4;
+    else if (trackRecord.explicitAccepted >= 1) s += 2;
   }
+
+  // Explicit dismissal penalty: operator rejected recs for this pattern
+  // Applied even without actedOn threshold — dismissals are a clear signal
+  if (trackRecord && trackRecord.explicitDismissed >= 2) s -= 7;
+  else if (trackRecord && trackRecord.explicitDismissed >= 1) s -= 3;
 
   return Math.max(0, Math.min(s, 100));
 }
@@ -140,6 +156,30 @@ function generateExpectedOutcome(
   if (rec.type === "strengthen") {
     const events = sourceRow?.totalEventsLinked ?? 0;
     return `Filling evidence gaps could auto-resolve ${events} attribution event${events !== 1 ? "s" : ""} and upgrade this change from ${sourceRow?.evidenceTier ?? "weak"} to probable or exact evidence.`;
+  }
+
+  if (rec.type === "strengthen_structure") {
+    return `Adding missing structure to a page with ${rec.citationOpportunity} existing citations. Protects current visibility and improves how AI platforms extract and cite this content.`;
+  }
+
+  if (rec.type === "improve_internal_links") {
+    return `Connecting this cited page to related content through internal links. Reinforces authority signals and helps AI crawlers discover your topic cluster.`;
+  }
+
+  if (rec.type === "refresh_content") {
+    return `Deepening content on a page that already earns ${rec.citationOpportunity} citations. Adding sections, answer blocks, or comparison content improves extractability without creating new pages.`;
+  }
+
+  if (rec.type === "competitive_displacement") {
+    return `Closing a gap where competitors dominate. You already appear in results for this topic — targeted improvements to content, structure, or authority could shift citation share.`;
+  }
+
+  if (rec.type === "cross_page_pattern") {
+    return `Applying a proven pattern from a different page type. The structural gap and topic overlap suggest this page would benefit from the same optimization that worked elsewhere.`;
+  }
+
+  if (rec.type === "topic_cluster_gap") {
+    return `Expanding topic coverage with a new content type. Your existing pages earn citations for this topic, but adding informational or comparison content could capture adjacent intent and strengthen the cluster.`;
   }
 
   // replicate

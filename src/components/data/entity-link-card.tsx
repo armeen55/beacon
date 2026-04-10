@@ -52,7 +52,7 @@ export function EntityLinkCard({
       <div className="flex items-center gap-2 mb-0.5">
         <span
           className={cn(
-            "text-[11px] font-medium uppercase tracking-wider",
+            "text-[11px] font-medium",
             ENTITY_COLORS[type]
           )}
         >

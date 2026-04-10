@@ -7,7 +7,7 @@ import {
   Globe,
   Lightbulb,
   BarChart3,
-  Sparkles,
+  Users,
   type LucideIcon,
 } from "lucide-react";
 
@@ -27,27 +27,24 @@ export const navigationGroups: NavGroup[] = [
     label: "",
     items: [
       { label: "Today", href: "/", icon: Sun },
-      { label: "Your Website", href: "/pages", icon: Globe },
-      { label: "Gap ledger", href: "/topics", icon: Lightbulb },
+      { label: "Pages", href: "/pages", icon: Globe },
+      { label: "Changes", href: "/changes", icon: ListChecks },
+      { label: "Competitors", href: "/competitors", icon: Users },
+      { label: "Opportunities", href: "/topics", icon: Lightbulb },
     ],
   },
   {
-    label: "Work",
-    items: [{ label: "Changes", href: "/changes", icon: ListChecks }],
-  },
-  {
-    label: "Advanced",
+    label: "Data",
     items: [
-      { label: "Review", href: "/review", icon: ClipboardCheck },
-      { label: "Sample history", href: "/results", icon: BarChart3 },
       { label: "Import", href: "/import", icon: Upload },
-      { label: "Diagnostics (analyst)", href: "/diagnostics", icon: Activity },
+      { label: "Review", href: "/review", icon: ClipboardCheck },
+      { label: "History", href: "/results", icon: BarChart3 },
     ],
   },
   {
-    label: "Experimental",
+    label: "System",
     items: [
-      { label: "Draft ideas", href: "/expansion", icon: Sparkles },
+      { label: "Diagnostics", href: "/diagnostics", icon: Activity },
     ],
   },
 ];

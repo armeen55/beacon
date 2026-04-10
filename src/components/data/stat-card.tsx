@@ -16,8 +16,8 @@ export function StatCard({
   invertDelta,
 }: StatCardProps) {
   return (
-    <div className="rounded-md border border-border bg-card p-4">
-      <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
+    <div className="rounded-lg border border-border/60 bg-card p-4">
+      <p className="text-xs text-muted-foreground">
         {label}
       </p>
       <div className="mt-1.5 flex items-end gap-2">

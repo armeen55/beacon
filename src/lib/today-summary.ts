@@ -84,7 +84,7 @@ export function buildTodaySummary(opts: {
       title: "No urgent queue item",
       href: "/pages",
       evidence:
-        "Nothing in the fix/verify/review queues matched opening criteria — continue in Website or Gap ledger.",
+        "Nothing in the fix/verify/review queues matched opening criteria — continue in Pages or Opportunities.",
       observationRunId: lastCrawl?.run_id ?? null,
       evidenceScope: "crawl",
     };

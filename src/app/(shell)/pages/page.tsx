@@ -414,6 +414,27 @@ export default function PagesPage() {
       status = "dormant";
     }
 
+    // ── Compute status reason ──
+    let statusReason: string;
+    if (status === "winning") {
+      const parts: string[] = [];
+      if (validatedCount > 0) parts.push(`${validatedCount} validated change${validatedCount !== 1 ? "s" : ""}`);
+      if (totalCitations > 0) parts.push(`${totalCitations} citations`);
+      if (snap && snap.faqs.length > 0) parts.push("FAQ");
+      if (snap && snap.schema_types.length > 0) parts.push("Schema");
+      statusReason = parts.join(" · ");
+    } else if (status === "building") {
+      const parts: string[] = [];
+      if (validatedCount > 0) parts.push(`${validatedCount} validated`);
+      if (partialCount > 0) parts.push(`${partialCount} partial`);
+      if (totalCitations > 0) parts.push(`${totalCitations} citations`);
+      statusReason = parts.join(" · ") || "Early positive signals";
+    } else if (status === "unresolved") {
+      statusReason = `${linkedEvents.length} event${linkedEvents.length !== 1 ? "s" : ""}, ${linkedRows.length} change${linkedRows.length !== 1 ? "s" : ""} — needs review`;
+    } else {
+      statusReason = "No linked visibility signals yet";
+    }
+
     // ── Compute opportunity score ──
     const { score: opportunityScore } = computePageOpportunityScore({
       totalCitations,
@@ -564,6 +585,7 @@ export default function PagesPage() {
       pageType: page.page_type,
       city: page.city,
       status,
+      statusReason,
       opportunityScore,
       topics,
       platforms,
@@ -720,30 +742,32 @@ export default function PagesPage() {
 
   const sitemapTotal = sitemapRecon?.sitemap_url_count ?? 0;
 
+  const citedCount = pageRows.filter((p) => p.totalCitations > 0).length;
+  const fixCount = pageRows.filter((p) => p.fixBriefs.length > 0 || p.guardrails.length > 0).length;
+  const totalCitationsAll = pageRows.reduce((s, p) => s + p.totalCitations, 0);
+
+  const pageSummary = {
+    total: pageRows.length,
+    winning: winningCount,
+    needsAction: fixCount,
+    building: buildingCount,
+    unresolved: unresolvedCount,
+    dormant: dormantCount,
+    cited: citedCount,
+    totalCitations: totalCitationsAll,
+    noFaq: noFaqCount,
+    noSchema: noSchemaCount,
+    scanned: scannedCount,
+  };
+
   return (
     <div className="max-w-5xl">
       <div className="mb-4">
-        <h2 className="text-base font-semibold tracking-tight">Your Website</h2>
-        <p className="text-[12px] text-muted-foreground mt-0.5">
-          Primary workbench — scanner observation, playbook inference, changelog mismatch, and ship verification per URL.{" "}
-          {(() => {
-            const needsAttention = pageRows.filter((p) => p.fixBriefs.length > 0 || p.guardrails.length > 0).length;
-            const parts: string[] = [];
-            if (needsAttention > 0) parts.push(`${needsAttention} need attention`);
-            parts.push(`${pageRows.length} URLs`);
-            if (latestObs) {
-              parts.push(
-                `last crawl ${new Date(latestObs.completed_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`
-              );
-            }
-            return parts.join(" · ");
-          })()}
-        </p>
+        <h2 className="text-lg font-semibold tracking-tight">Pages</h2>
       </div>
 
-      {/* Status band hidden — simplified header shows key counts */}
-
       <PagesClient
+        pageSummary={pageSummary}
         rows={pageRows}
         staleRows={staleRows}
         lastScanAt={latestObs?.completed_at ?? null}

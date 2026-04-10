@@ -1436,3 +1436,448 @@ No code changes needed. No database changes needed. No data loss.
 - No Supabase schema changes
 
 **Validation:** `npm run check` — pass.
+
+---
+
+## Product Strategy — Corrected (2026-04-09)
+
+### Positioning
+
+Beacon is NOT a budget monitoring dashboard. Beacon is NOT "Profound for the rest of us."
+
+Beacon is **the AI visibility attribution and action system for high-value businesses.** It connects content changes to AI visibility outcomes deterministically and tells operators exactly what to do next.
+
+**Core value proposition:** One qualified lead from AI search pays for a year of Beacon. For businesses where a single client is worth $10K–500K, knowing whether AI is sending or losing them customers — and what to do about it — is worth hundreds per month.
+
+### Target Buyer
+
+Local high-value service businesses: luxury home builders, specialty law firms, medical specialists, wealth advisors, boutique agencies. These buyers:
+- Have client LTV of $10K–500K (subscription pays for itself with 1 lead per year)
+- Already spend $2K–20K/month on marketing
+- Are underserved by enterprise AEO tools (too expensive) and generic SEO tools (too complex, no attribution)
+- Need simple answers: "Is AI helping or hurting my business? What should I do?"
+
+### Pricing Tiers
+
+| Tier | Price | What's included | Target |
+|------|-------|-----------------|--------|
+| Free Preview | $0 | 5 queries, 1 platform, weekly snapshot, no attribution/recs | Top of funnel |
+| Professional | $249/mo | 100+ queries, all platforms, daily tracking, full attribution, recs, 3 competitors, email briefing | Operator/marketer |
+| Premium | $499/mo | Unlimited queries/competitors, page audits, pattern analysis, custom reports, API, priority support | Serious operator, boutique agency |
+| Enterprise | $999+/mo | Multi-user, white-label, multi-workspace, dedicated support | Agency with clients |
+
+### Strategic Moat
+
+No competitor below $399/month offers deterministic attribution (connecting specific content changes to specific visibility outcomes). This capability is Beacon's core differentiator and the foundation of premium pricing.
+
+### Strategic Sequence
+
+1. Internal daily tool (Phases 14–16)
+2. Premium product surfaces (Phases 17–18)
+3. Habit loop / trigger (Phase 19)
+4. External product (Phases 20–22)
+
+Each step must be complete before the next. Do not optimize for broad market before internal daily loop is irrefutable.
+
+---
+
+## Master Roadmap — Phases 14–22
+
+### Phase 14 — Daily Surface Compression + Visibility Story (COMPLETE)
+
+**Objective:** Make the Today page a complete 30-second daily experience with a clear AI visibility summary.
+
+**What was shipped:**
+- **Visibility summary strip** on Today: total citations with trend %, per-platform breakdown (ChatGPT, Perplexity, Google AIO, Gemini, Claude), data freshness indicator (>7d stale warning with import link)
+- **Navigation compressed**: Primary group: Today, Pages, Changes, Competitors, Topics. Advanced group: Review, Import, Sample history, Diagnostics, Draft ideas. Removed Work and Experimental groups.
+- **Impact signals reduced** from 5 to 3, renamed "What changed"
+- **Work queue collapsed** by default (toggle to expand)
+- **System details collapsed** by default (crawl observation, visibility sample, attribution line, verified fixes behind "System details" toggle)
+- **Today layout reordered**: Visibility strip → DO THIS NOW → Track record → What changed → Other opportunities → Work queue (collapsed) → System details (collapsed)
+
+**Files changed:**
+- `src/lib/navigation.ts` — regrouped nav items, added Competitors, removed Experimental group
+- `src/app/(shell)/page.tsx` — visibility summary computation (citations, platforms, trend, freshness), impact signals reduced to 3
+- `src/app/(shell)/today-client.tsx` — new `VisibilitySummary` type, restructured layout with collapsed sections
+
+**What was NOT touched:** Attribution engine, recommendation engine, priority engine, Supabase schema, import pipeline, persistence, changes pages, all domain modules.
+
+**Validation:** `npm run check` — pass (0 errors, 71 warnings — all pre-existing).
+
+### Phase 15 — Import Simplification + Freshness Loop (COMPLETE)
+
+**Objective:** Make refreshing data a simple daily action, not a project.
+
+**What was shipped:**
+- **Coverage strip** on `/import`: result count, change count, date range, platform count, data freshness, last import time
+- **Drag-and-drop upload zone** for .xlsx with clear "Beacon will import only new data" messaging
+- **Delta-aware import result**: new vs. updated counts (results + changes), post-import date range
+- **Return-to-Today CTA** replaces "Open Review Queue" as primary post-import action
+- **Advanced sections collapsed**: Profound CSV, Manual paste, Reset, Import history behind "Advanced import options" toggle
+- **Page title simplified**: "Import" (was "Import Historical Data")
+- **`getDataCoverage()` server action**: returns current counts, dates, platforms, last import time
+- **`WorkbookImportResult.delta`**: new field tracking `results_new`, `results_updated`, `changes_new`, `changes_updated`, `date_range_after`
+
+**Files changed:**
+- `src/app/(shell)/import/page.tsx` — full restructure
+- `src/lib/import/actions.ts` — `getDataCoverage()` action, delta tracking in `importWorkbook`
+- `src/lib/import/types.ts` — `delta` field on `WorkbookImportResult`
+
+**What was NOT touched:** Import engine logic, workbook parser, Profound import pipeline, attribution, recommendations, priority, Supabase schema, all domain modules.
+
+**Validation:** `npm run check` — pass (0 errors).
+
+### Phase 16 — Page Intelligence Surface (COMPLETE)
+
+**Objective:** Transform `/pages` from an execution workbench into a page intelligence surface.
+
+**What was shipped:**
+- **Page health summary strip**: total pages, winning (green), needs action (red), building (blue), cited count + total citations, structure warnings (pages missing FAQ/schema)
+- **Page health card** at top of detail panel: prominent status badge (Winning/Building/Unresolved/Dormant), citation count + platform list, structure health (FAQ/Schema indicators), next action in highlighted block
+- **Structure health in list items**: "no FAQ" / "no schema" warnings visible in page list without expanding
+- **Evidence internals moved to progressive disclosure**: observation runs, evidence mix, scanner details behind "Show details" toggle
+- **Page title simplified**: "Pages" / "Page-level AI visibility health and actions" (was "Your Website" / "Primary workbench")
+- **7 lint warnings resolved**: previously unused summary stat variables now wired to client
+
+**Files changed:**
+- `src/app/(shell)/pages/page.tsx` — `pageSummary` computation + prop passing, title change
+- `src/app/(shell)/pages/pages-client.tsx` — `PageSummary` type, summary strip, health card, structure indicators in list items
+
+**What was NOT touched:** Page computation logic (770-line server unchanged), attribution, recommendations, priority engine, import, Supabase, persistence, all domain modules. All fix/playbook/wave/verify functionality preserved in progressive disclosure.
+
+**Validation:** `npm run check` — pass (0 errors, 64 warnings — down from 71, 7 resolved).
+
+### Phase 17 — Competitive Clarity Surface (COMPLETE)
+
+**Objective:** Transform `/competitors` from a configuration surface into a competitive intelligence surface.
+
+**What was shipped:**
+- **Competitive summary strip**: your AI share %, your citation count, tracked competitor count, observation basis
+- **Top competitors ranked**: each with citation count, share %, "Ahead of you" badge, link to detail page
+- **Competitive gap visualization**: "Where you are strongest" (green bars) vs "Biggest competitive gaps" (red bars with competitor % vs your %)
+- **Weakest areas**: topics where your share is lowest
+- **Next moves**: action links derived from `computeMarketBenchmark` (fix pages, strengthen weak topics)
+- **No-data fallback**: clear guidance when citation evidence is missing
+- **Settings collapsed**: universe CRUD editor and imported entity list behind "Competitor settings" toggle
+
+**Files changed:**
+- `src/app/(shell)/competitors/page.tsx` — full rewrite: wired `computeMarketBenchmark`, rendered competitive intelligence, collapsed settings
+
+**What was NOT touched:** Competitor detail page, competitor domain modules (16 files), attribution, recommendations, priority engine, import, Supabase, persistence.
+
+**Validation:** `npm run check` — pass (0 errors, 64 warnings).
+
+### Phase 18 — Track Record Enhancement (COMPLETE)
+
+**Objective:** Feed explicit operator responses (accept/dismiss) into the recommendation tracker for stronger learning signals.
+
+**What was shipped:**
+- **`SignalTier`** type (`"explicit" | "inferred"`) on `TrackedOutcome` — outcomes now distinguish operator-confirmed vs retroactively-inferred signals
+- **`computeTrackRecord` enhanced** — accepts optional `responses` + `recommendations` params; bridges rec IDs → pattern IDs; maps accepted rec target pages to explicit outcomes
+- **`PatternTrackRecord` enhanced** — `explicitAccepted` and `explicitDismissed` counts per pattern
+- **`TrackRecordSummary` enhanced** — `totalExplicitAccepted` and `totalExplicitDismissed`
+- **Priority engine enhanced** — explicit acceptance bonus (+2/+4), explicit dismissal penalty (-3/-7); dismissal penalty applies without actedOn threshold
+- **Today surface** — track record line shows "N accepted" / "N dismissed" alongside inferred stats
+
+**Signal flow:**
+1. Operator accepts/dismisses rec on Today → persisted in recommendation-response-store
+2. On next page load, `computeTrackRecord` receives responses + recommendations
+3. Accepted recs bridged to patterns via rec ID → patternId lookup
+4. Outcomes for pages that were explicitly accepted targets get `signalTier: "explicit"` (stronger than inferred)
+5. Per-pattern explicit counts flow into priority engine scoring
+6. Dismissed patterns get penalized in priority scoring
+
+**Files changed:**
+- `src/domains/product/recommendation-tracker.ts` — types, signal tier, explicit counts, response params
+- `src/domains/product/priority-engine.ts` — explicit acceptance bonus, dismissal penalty
+- `src/app/(shell)/page.tsx` — wire responses + allRecommendations into computeTrackRecord, enhanced trackRecordSummary
+- `src/app/(shell)/today-client.tsx` — display explicit counts in track record line
+
+**What was NOT touched:** Recommendation engine, recommendation response store, import, Supabase, persistence, all surfaces except Today track record display.
+
+**Validation:** `npm run check` — pass (0 errors, 64 warnings).
+
+### Phase 19 — Multi-Dimensional Recommendation Expansion (COMPLETE)
+
+**Objective:** Expand recommendations from 3 narrow types to 7 diverse, evidence-grounded action classes.
+
+**What was shipped:**
+- **4 new recommendation types** added to the engine:
+  - `strengthen_structure` — cited pages missing FAQ or schema (refine before expand)
+  - `improve_internal_links` — cited pages with < 5 internal links
+  - `refresh_content` — cited but thin pages (< 800 words or < 2 H2s)
+  - `competitive_displacement` — topics where competitors have ≥2x our citation share
+- **Evidence thresholds** prevent spam: citation minimums, structural gap requirements, per-type caps (2-3 max each)
+- **Priority engine** scores new types with distinct urgency weights
+- **Expected outcome generation** for all new types
+- **Today client** shows new types with distinct accent colors and labels
+
+**Anti-spam design:**
+- Recommendations require real evidence (citations + gaps), not templated cloning
+- Each type capped to prevent flooding (max 2-3 per class)
+- City/service expansion remains just one class among seven
+- Refinement types (`strengthen_structure`, `refresh_content`) prioritized over duplication
+
+**Files changed:**
+- `src/domains/product/recommendation-engine.ts` — 4 new rec generation blocks, expanded type + inputs
+- `src/domains/product/priority-engine.ts` — urgency scoring + outcome generation for 4 new types
+- `src/app/(shell)/today-client.tsx` — accent colors for new types, widened type fields
+- `src/app/(shell)/page.tsx` — wire pageSnapshots/citMap/citationIndex into rec engine
+
+**Validation:** `npm run check` — pass (0 errors, 64 warnings).
+
+### Phase 20 — In-App Trust Layer + Evidence Explainability (COMPLETE)
+
+**Objective:** Make Beacon's intelligence more inspectable and trustworthy so the operator can act on it daily with confidence.
+
+**What was shipped:**
+- **Evidence block on DO THIS NOW**: structured section with evidence basis, confidence level + reason, data freshness, and "after acting" watch guidance
+- **Confidence reasons**: server-computed from evidence tier, citation count, pattern track record %
+- **Watch-after guidance**: per-recommendation-type instructions for what to look for post-action
+- **Data freshness**: "Based on data through [date]" on primary action card
+- **Secondary rec evidence**: inline evidence + confidence reason visible without expanding
+- **Pages status reason**: `statusReason` field computed server-side — explains WHY a page is Winning/Building/Unresolved/Dormant
+
+**Files changed:**
+- `src/app/(shell)/page.tsx` — `buildConfidenceReason`, `buildWatchAfter`, `dataFreshness` computation; added to primary + secondary serialization
+- `src/app/(shell)/today-client.tsx` — evidence block rendering, type updates, evidence line in secondary recs
+- `src/app/(shell)/pages/page.tsx` — `statusReason` computation
+- `src/app/(shell)/pages/pages-client.tsx` — `statusReason` in `PageRow` type + health card rendering
+
+**What was NOT touched:** Recommendation engine, priority engine, tracker, response store, import, Supabase, persistence, competitor surface, changes surfaces.
+
+**Validation:** `npm run check` — pass (0 errors, 64 warnings).
+
+### Phase 21 — Topic-Similarity / Adjacent Opportunity Expansion (COMPLETE)
+
+**Objective:** Expand recommendations with cross-page and topic-cluster adjacency logic that avoids city-page spam.
+
+**What was shipped:**
+- **`cross_page_pattern`** — proven pattern on page type A → apply to different page type B with shared topic/term overlap. Requires different page types (anti-spam by design).
+- **`topic_cluster_gap`** — topic with ≥15 owned citations but only transactional pages. Recommends guide/comparison content.
+- Priority engine scoring + expected outcomes + watch-after for both types
+- Today accent colors for both new types
+- `allPages` wired into recommendation engine for page-type resolution
+
+**Anti-spam constraints:**
+- `cross_page_pattern` REQUIRES different page types — cannot clone city pages
+- `topic_cluster_gap` recommends MISSING content types, not more of what exists
+- Capped at 3 + 2 recs respectively
+
+**Files changed:**
+- `src/domains/product/recommendation-engine.ts` — 2 new rec generation blocks, expanded type + `allPages` input
+- `src/domains/product/priority-engine.ts` — urgency scoring + outcome gen for 2 new types
+- `src/app/(shell)/today-client.tsx` — accent colors for new types
+- `src/app/(shell)/page.tsx` — wire `allPages` + watch-after for new types
+
+**Validation:** `npm run check` — pass (0 errors, 64 warnings).
+
+### Phase 22 — In-App Experiment Loop / Watchlist (COMPLETE)
+
+**Objective:** Close the gap between "Beacon recommended it" and "I can track whether it worked."
+
+**What was shipped:**
+- **Experiment store** (`experiment-store.ts`): lightweight persistence for recommendation→action→outcome tracking
+- **Server actions** (`experiment-actions.ts`): start experiment, update status, update note
+- **Start experiment flow**: "Start testing" button on accepted DO THIS NOW → operator note prompt → experiment created
+- **Watchlist on Today**: active experiments with headline, note, status, days elapsed, citation delta, watch-after guidance
+- **Auto-outcome detection**: citation counts refreshed on page load; status auto-updates based on citation delta and time elapsed
+- **Store**: `.data/experiments.json` via json-store
+
+**Experiment lifecycle:**
+1. Accept rec → "Start testing" button appears
+2. Click → enter what you changed → experiment created with citation baseline
+3. Experiment appears in Today watchlist
+4. After next import: citations auto-refresh, status updates (promising/inconclusive/negative/watching)
+5. Operator can drop experiments manually
+
+**Files changed:**
+- `src/domains/product/experiment-store.ts` — NEW: types, store, helpers
+- `src/app/(shell)/experiment-actions.ts` — NEW: server actions
+- `src/app/(shell)/page.tsx` — wire experiments, auto-update citations, serialize for client
+- `src/app/(shell)/today-client.tsx` — watchlist section, "Start testing" button, experiment types
+
+**Validation:** `npm run check` — pass (0 errors, 64 warnings).
+
+### Phase 23 — Nightly Usage Hardening (COMPLETE)
+
+**Objective:** Remove friction from the real nightly operating loop.
+
+**What was shipped:**
+- **Combined "Accept & test"**: one-click flow accepts rec + creates experiment with note prompt + citation baseline
+- **Button hierarchy fixed**: clean state separation (not accepted vs accepted vs testing). "Not now" / "Dismiss" hidden after acceptance.
+- **Target data flows through**: experiments capture `targetPageUrl`, `targetPagePath`, `baselineCitations` from the recommendation
+- **Post-import messaging**: tells user watchlist experiments will refresh with new data
+
+**Friction fixes:**
+1. Accept + Start testing was 2 steps → now 1 ("Accept & test")
+2. "Do it now →" appeared first and sent user away → now "Accept & test" is primary
+3. "Not now" / "Dismiss" showed after accepting → now hidden
+4. Experiments started with null target/citations → now captures real data
+5. Post-import didn't mention watchlist → now does
+
+**Files changed:**
+- `src/app/(shell)/today-client.tsx` — button hierarchy restructure, target data fields
+- `src/app/(shell)/page.tsx` — pass `targetPageUrl`, `targetPagePath`, `baselineCitations` to serialized primary
+- `src/app/(shell)/import/page.tsx` — watchlist refresh messaging
+
+**Validation:** `npm run check` — pass (0 errors, 64 warnings).
+
+### Phase 24 — Daily Habit Loop (Email Briefing)
+
+**Objective:** Pull the user into Beacon daily without requiring them to remember.
+
+**What gets built:**
+- Email infrastructure (Resend or equivalent)
+- Morning briefing: visibility changes, one competitor insight, one action, link into Beacon
+- Weekly digest option
+- Frequency controls
+
+**Value:** Beacon comes to you.
+
+### Phase 20 — Auth & Onboarding
+
+**Objective:** Let external users create accounts and use Beacon.
+
+**What gets built:**
+- Supabase Auth (email + password, Google OAuth)
+- RLS policies on existing tables
+- User-scoped data isolation
+- Simple onboarding flow: connect data → first insight → competitor → briefing
+
+**Value:** Other people can use Beacon.
+
+### Phase 21 — Premium Billing
+
+**Objective:** Revenue via Stripe.
+
+**What gets built:**
+- Stripe subscription integration
+- Tier enforcement (Free/Professional/Premium/Enterprise)
+- Usage metering, upgrade/downgrade flows
+- Billing management
+
+**Value:** Beacon is a real business.
+
+### Phase 22 — External Product Polish
+
+**Objective:** Premium look and feel for external users.
+
+**What gets built:**
+- Landing page / marketing site
+- Help/explanation layer (tooltips, progressive disclosure)
+- Empty state handling, error handling
+- Performance optimization (sub-2s loads)
+- Mobile responsiveness
+
+**Value:** External users trust and understand Beacon.
+
+### Phase 23 — Agency & Multi-Tenant
+
+**Objective:** Support agencies managing multiple clients.
+
+**What gets built:**
+- Multi-workspace support
+- White-label reporting
+- Client-facing dashboards
+- Per-client data isolation
+
+**Value:** Revenue expansion into agency segment.
+
+---
+
+## Master UI/UX product shell overhaul — PLANNED (research + roadmap only, 2026-04-09)
+
+**Status:** Research audit and documentation complete. **No implementation in this pass.** Next agent implements in the phased sequence below.
+
+**Why this exists:** Intelligence through Phase 23 + Product Premiumization Pass improved copy and some hierarchy, but parallel codebase audits still show **admin/console density**, **competing heroes** (e.g. visibility strip vs primary action), **overlapping status/badge languages**, **URL/label/shortcut drift** (e.g. Opportunities vs `/topics`, History vs `/results`), **list/detail patterns that read as QA tooling**, and **interaction choices that break premium trust** (e.g. `prompt()` for notes). Premium B2B products (see external references below) converge on: **chrome that recedes**, **one primary story per view**, **progressive disclosure**, **consistent navigation IA**, **command palette as discoverability + shortcut teaching**, and **calm structure over border proliferation**.
+
+**External pattern references (sources, not copy-paste):**
+- [Linear — How we redesigned the Linear UI (part II)](https://linear.app/now/how-we-redesigned-the-linear-ui): alignment, hierarchy, density without clutter, sidebar/chrome refresh.
+- [Linear — A calmer interface for a product in motion](https://linear.app/now/behind-the-latest-design-refresh): “Don’t compete for attention you haven’t earned”; softer borders; sidebar recedes so main content leads.
+- [Stripe Dashboard basics](https://stripe.com/docs/dashboard/basics) + [Stripe Apps design / view types](https://docs.stripe.com/stripe-apps/design): Home vs list vs detail surfaces; ContextView / FocusView / SettingsView pattern language for “meet the user in workflow.”
+- [Amplitude — Evolution of Amplitude Charts](https://amplitude.com/blog/evolution-of-amplitude-charts): guided top-down structure, side-by-side feedback, progressive disclosure, modularity.
+- [Superhuman — How to build a remarkable command palette](https://blog.superhuman.com/how-to-build-a-remarkable-command-palette/): palette everywhere, shortcuts visible for learning.
+- [Ramp / Fast Company — interface simplification narrative](https://www.fastcompany.com/91381134/ramp-fintech-startup-interface-of-the-future): encode complexity under the hood; default path minimal (product philosophy, not a UI clone).
+
+**Non-negotiables for implementation agents:**
+- **Do not** change attribution, recommendation, priority, tracker, experiment stores, or import/persistence semantics unless a UI bug forces a display-only fix.
+- **Do** treat this as **shell + IA + design system + interaction**: layout, spacing, typography scale, disclosure, nav grouping, status vocabulary, empty states, motion restraint, list/detail rhythm.
+
+### Shell Phase A — Design system + chrome baseline — COMPLETE (2026-04-10)
+
+**Shipped:** Sidebar tokens receded (background, foreground, border); global `--border` softened; ~153 `uppercase tracking-wider/widest` instances purged across 27 files; `text-[9px]` section labels bumped to `text-[11px]`; StatCard, FormField, command palette labels de-admin-ified; PageHeader title size raised to `text-lg` with better spacing; header border softened; stale “Gap ledger” vocabulary fixed in breadcrumbs + palette.
+
+**Not touched:** Domain logic, persistence, attribution, recommendation, priority, experiments.
+
+### Shell Phase B — Navigation + information architecture — COMPLETE (2026-04-10)
+
+**Shipped:** “Advanced” group split into “Data” (Import, Review, History) + “System” (Diagnostics); keyboard shortcuts realigned — `G P` Pages, `G C` Changes, `G X` Competitors, `G I` Import added; `G S`/`G H` duplicates removed; `G E` ghost shortcut for hidden `/expansion` removed; help-panel labels updated to short product names; “Sample history” vocabulary purged from page titles and user-facing strings (~10 instances across 8 files); “Diagnostics (analyst)” title simplified; stale “Gap ledger” / “Website” labels cleaned from remaining surfaces.
+
+**Not touched:** Domain logic, persistence, attribution, recommendation, priority, experiments, page content.
+
+### Shell Phase C — Today (operator home) — COMPLETE (2026-04-10)
+
+**Shipped:** Primary action card sculpted — "Why"/"Expected outcome" labels removed, rationale flows as prose with inline outcome; confidence/freshness/watch-after consolidated into two compact support lines; CTA hierarchy simplified (dominant "Accept & test" button, secondary actions as text links instead of bordered buttons); track record reframed as momentum line (dropped raw "% success" and dismissed count); watchlist section tightened (proper heading, compact cards, operator note moved below metrics); "What changed" cards raised to `text-[13px]`, redundant "All changes →" link removed; all collapsed sections given consistent `text-[11px]` treatment; visibility strip date range removed (freshness link covers it); fallback action card cleaned of internal jargon ("evidence scope", "ObservationRun"); stale "Website" vocabulary cleaned from queue detail strings.
+
+**Not touched:** `rankAndSelect`, `computeRecommendations`, priority engine, experiment store, attribution.
+
+
+### Shell Phase D — Pages (list/detail)
+
+**Objective:** Product-grade page intelligence, not scanner QA.
+
+**Surfaces / work:** `pages/page.tsx`, `pages-client.tsx`.
+
+**Work items:** Raise minimum readable type; reduce nested `<details>` depth; unify “next move” vs status vocabulary; integrate dormant/stale into main filters; optional one-line scan trust row (freshness, run link); avoid duplicate narrative blocks; consider hydration pattern for `window` in initializer if flagged.
+
+**Not touched:** Page registry / snapshot computation.
+
+### Shell Phase E — Changes (scorecard + contracts)
+
+**Objective:** Reduce contract/admin fatigue; scorecard first when that is the operator job.
+
+**Surfaces / work:** `changes/page.tsx`, `scorecard-client.tsx`, `change-contract-client.tsx`, change detail as needed.
+
+**Work items:** Re-order sections so analytical summary can lead; close `<details>` by default on dense tables; dedupe impact strip vs table pills; tame nine-column horizontal scan (sticky columns, row preview, or secondary drawer); card hierarchy (primary vs nested panels).
+
+**Not touched:** Scorecard computation.
+
+### Shell Phase F — Competitors + Opportunities + Review
+
+**Objective:** One story per domain; less repeated benchmark narrative; specialist Review without intimidation.
+
+**Surfaces / work:** `competitors/page.tsx`, `topics/*`, `review/*`.
+
+**Work items:** Widen layout where benchmark needs breath; footnote/KPI redundancy; surface or drop unused benchmark `label` strings; clarify “tracked competitors” semantics vs top-N slice; Topics: rename left column “Gap ledger” if still present in client; plain-language replacement for internal decisionability strings; soften “Guess” / “easy” / raw score gaps; file-path copy only in advanced disclosure.
+
+**Not touched:** `computeMarketBenchmark`, attribution core.
+
+### Shell Phase G — Import + History + Diagnostics + Expansion
+
+**Objective:** Freshness loop feels productized; advanced paths feel intentionally advanced.
+
+**Surfaces / work:** `import/page.tsx`, `results/*`, `diagnostics/page.tsx`, `expansion/page.tsx`.
+
+**Work items:** Import: confirm step or clear auto-import affordance; disambiguate duplicate “Updated” labels; one-line “when to use workbook vs CSV”; optional post-success link to Review when pending; Diagnostics framed as “System” with calmer defaults; Expansion/draft ideas: gate language and presentation so it cannot read as spam factory (product strategy already flagged).
+
+**Not touched:** Import actions implementation except UX flow.
+
+### Shell Phase H — Experiments / watchlist polish
+
+**Objective:** Complete lifecycle in UI matches server capabilities; motivating, not lab report.
+
+**Surfaces / work:** Watchlist section in `today-client.tsx`, optional thin experiment row component.
+
+**Work items:** Expose status transitions beyond Drop where honest; collapse long `watchAfter` by default; show import-relative freshness on rows; replace raw mono paths with human labels + copy link.
+
+**Not touched:** `experiment-store.ts` semantics.
+
+### Success metrics (holistic)
+
+- **Premium:** Chrome recedes; one clear primary per screen; borders and uppercase micro-labels reduced.
+- **Simple first:** Defaults show story + one action; evidence and internals are one click away, not zero clicks.
+- **Cohesive:** Same header, filter, and list/detail patterns across Today, Pages, Changes, Competitors.
+- **Trust:** Evidence visible without sounding like a changelog of the algorithm; uncertainty explicit but calm.
+
+**Verification (when implemented):** `npm run check`; visual regression pass on 17 static routes; keyboard/palette smoke test.

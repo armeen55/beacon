@@ -155,7 +155,7 @@ export function InlineReviewQueue({
         {/* Left: Queue */}
         <div className="rounded-md border border-border overflow-hidden">
           <div className="bg-surface-raised px-3 py-2 border-b border-border flex items-center justify-between">
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            <p className="text-[11px] font-semibold text-muted-foreground">
               Queue ({items.length})
             </p>
             <button
@@ -182,13 +182,13 @@ export function InlineReviewQueue({
                 >
                   <div className="flex items-center gap-1.5 mb-0.5">
                     <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${dc.bg}`} />
-                    <span className={`text-[9px] font-semibold uppercase tracking-wider ${dc.color}`}>
+                    <span className={`text-[9px] font-semibold ${dc.color}`}>
                       {dc.label}
                     </span>
                   </div>
                   <p className="text-[11px] font-medium truncate">{item.topic}</p>
                   <div className="flex items-center gap-2 mt-0.5">
-                    <span className={`text-[9px] font-semibold uppercase tracking-wider ${item.eventTypeColor}`}>
+                    <span className={`text-[9px] font-semibold ${item.eventTypeColor}`}>
                       {item.eventTypeLabel}
                     </span>
                     <span className="text-[9px] text-muted-foreground">{item.platform}</span>
@@ -417,7 +417,7 @@ function SprintDecisionCard({
             )}
           </div>
           <div className="shrink-0 flex flex-col items-end gap-1">
-            <span className={`inline-flex items-center gap-1 text-[9px] font-semibold uppercase tracking-wider ${dc.color}`}>
+            <span className={`inline-flex items-center gap-1 text-[9px] font-semibold ${dc.color}`}>
               <span className={`h-1.5 w-1.5 rounded-full ${dc.bg}`} />
               {dc.label}
             </span>
@@ -480,7 +480,7 @@ function SprintDecisionCard({
                     <div className="flex items-center gap-2">
                       <p className="text-[12px] font-medium truncate">{c.change.asset_name}</p>
                       {isTop && actionableCandidates.length > 1 && (
-                        <span className="shrink-0 text-[8px] font-semibold uppercase tracking-wider text-muted-foreground bg-surface-inset border border-border px-1 py-0.5 rounded">
+                        <span className="shrink-0 text-[8px] font-semibold text-muted-foreground bg-surface-inset border border-border px-1 py-0.5 rounded">
                           Rank 1 (score)
                         </span>
                       )}
@@ -653,7 +653,7 @@ function ResolvedSection({ items }: { items: ResolvedItem[] }) {
     <div className="space-y-3">
       {operatorDecided.length > 0 && (
         <div>
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-status-success mb-2 flex items-center gap-1.5">
+          <p className="text-[11px] font-semibold text-status-success mb-2 flex items-center gap-1.5">
             <span className="h-1.5 w-1.5 rounded-full bg-status-success" />
             You confirmed in Review ({operatorDecided.length})
           </p>
@@ -662,7 +662,7 @@ function ResolvedSection({ items }: { items: ResolvedItem[] }) {
               <div key={r.eventId} className="px-4 py-2.5 flex items-center justify-between gap-3">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
-                    <span className={`text-[10px] font-semibold uppercase tracking-wider ${r.eventTypeColor}`}>
+                    <span className={`text-[10px] font-semibold ${r.eventTypeColor}`}>
                       {r.eventTypeLabel}
                     </span>
                     <span className="text-[11px] font-medium truncate">{r.topic}</span>
@@ -686,7 +686,7 @@ function ResolvedSection({ items }: { items: ResolvedItem[] }) {
 
       {autoResolved.length > 0 && (
         <details className="group">
-          <summary className="text-[11px] font-semibold uppercase tracking-wider text-accent-primary cursor-pointer hover:text-foreground flex items-center gap-1.5 mb-2">
+          <summary className="text-[11px] font-semibold text-accent-primary cursor-pointer hover:text-foreground flex items-center gap-1.5 mb-2">
             <span className="h-1.5 w-1.5 rounded-full bg-accent-primary" />
             Auto-cleared ({autoResolved.length}) ▸
           </summary>
@@ -695,7 +695,7 @@ function ResolvedSection({ items }: { items: ResolvedItem[] }) {
               <div key={r.eventId} className="px-4 py-2 flex items-center justify-between gap-3">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
-                    <span className={`text-[10px] font-semibold uppercase tracking-wider ${r.eventTypeColor}`}>
+                    <span className={`text-[10px] font-semibold ${r.eventTypeColor}`}>
                       {r.eventTypeLabel}
                     </span>
                     <span className="text-[11px] text-muted-foreground truncate">{r.topic}</span>

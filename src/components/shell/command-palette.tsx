@@ -16,7 +16,7 @@ export type PaletteItem = {
 
 type Mode = "palette" | "help" | null;
 
-const GROUP_ORDER = ["Navigate", "Changes", "Gap ledger"];
+const GROUP_ORDER = ["Navigate", "Changes", "Opportunities"];
 
 export function CommandPalette({ items }: { items: PaletteItem[] }) {
   const [mode, setMode] = useState<Mode>(null);
@@ -72,12 +72,12 @@ export function CommandPalette({ items }: { items: PaletteItem[] }) {
         clearTimeout(gTimeout);
         const routes: Record<string, string> = {
           t: "/",
-          w: "/pages",
+          p: "/pages",
+          c: "/changes",
+          x: "/competitors",
           o: "/topics",
-          h: "/changes",
+          i: "/import",
           r: "/review",
-          s: "/changes",
-          e: "/expansion",
         };
         if (routes[e.key]) {
           e.preventDefault();
@@ -181,7 +181,7 @@ export function CommandPalette({ items }: { items: PaletteItem[] }) {
             <div className="max-h-[320px] overflow-y-auto py-1.5">
               {groups.map((group) => (
                 <div key={group.label} className="mb-1">
-                  <p className="px-4 py-1 text-[9px] font-semibold text-muted-foreground uppercase tracking-wider">
+                  <p className="px-4 py-1 text-[11px] font-medium text-muted-foreground/60">
                     {group.label}
                   </p>
                   {group.items.map((item) => {
@@ -258,13 +258,13 @@ export function CommandPalette({ items }: { items: PaletteItem[] }) {
               </HelpGroup>
 
               <HelpGroup title="Navigation">
-                <HelpRow keys="G T" label="Go to To Do" />
-                <HelpRow keys="G O" label="Go to Opportunities" />
-                <HelpRow keys="G W" label="Go to Your Website" />
-                <HelpRow keys="G H" label="Go to Changes" />
-                <HelpRow keys="G S" label="Go to Changes" />
-                <HelpRow keys="G R" label="Go to Review" />
-                <HelpRow keys="G E" label="Go to Expansion ideas" />
+                <HelpRow keys="G T" label="Today" />
+                <HelpRow keys="G P" label="Pages" />
+                <HelpRow keys="G C" label="Changes" />
+                <HelpRow keys="G X" label="Competitors" />
+                <HelpRow keys="G O" label="Opportunities" />
+                <HelpRow keys="G I" label="Import" />
+                <HelpRow keys="G R" label="Review" />
               </HelpGroup>
 
               {pathname === "/review" && (
@@ -295,7 +295,7 @@ function HelpGroup({
 }) {
   return (
     <div>
-      <p className="text-[9px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">
+      <p className="text-[11px] font-medium text-muted-foreground/60 mb-1.5">
         {title}
       </p>
       <div className="space-y-1">{children}</div>

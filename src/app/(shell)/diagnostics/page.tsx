@@ -73,7 +73,7 @@ function StatBlock({
           : "text-foreground";
   return (
     <div className="rounded-md border border-border-subtle bg-surface-raised p-3">
-      <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-0.5">
+      <p className="text-[11px] font-medium text-muted-foreground mb-0.5">
         {label}
       </p>
       <p className={`text-lg font-semibold tabular-nums ${color}`}>{value}</p>
@@ -133,8 +133,8 @@ export default function DiagnosticsPage() {
   return (
     <div className="max-w-4xl space-y-8">
       <PageHeader
-        title="Diagnostics (analyst)"
-        description="Outside the daily Today → Website → Gap ledger loop. Raw pipeline metrics for debugging weights, coverage, and pattern stats — not default marketing decisions."
+        title="Diagnostics"
+        description="System-level pipeline metrics for debugging weights, coverage, and pattern stats. Not part of the daily workflow."
       />
 
       <div className="rounded-md border border-border bg-surface-inset/70 px-3 py-2.5 text-[11px] text-muted-foreground">
@@ -147,7 +147,7 @@ export default function DiagnosticsPage() {
       {/* Knows vs Suspects */}
       <div className="grid grid-cols-2 gap-3">
         <div className="rounded-md border border-border bg-surface-raised px-3 py-2.5">
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
+          <p className="text-[10px] font-semibold text-muted-foreground mb-1.5">
             Recorded in data
           </p>
           <div className="space-y-0.5 text-[12px]">
@@ -160,7 +160,7 @@ export default function DiagnosticsPage() {
           </div>
         </div>
         <div className="rounded-md border border-border bg-surface-raised px-3 py-2.5">
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-status-warning mb-1.5">
+          <p className="text-[10px] font-semibold text-status-warning mb-1.5">
             Open / inferred
           </p>
           <div className="space-y-0.5 text-[12px] text-muted-foreground">
@@ -240,7 +240,7 @@ export default function DiagnosticsPage() {
 
         {Object.keys(eventIntel.by_type).length > 0 && (
           <div className="mb-4">
-            <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-2">
+            <p className="text-[11px] font-medium text-muted-foreground mb-2">
               By Event Type
             </p>
             <div className="rounded-md border border-border overflow-hidden">
@@ -278,7 +278,7 @@ export default function DiagnosticsPage() {
 
         {eventIntel.top_changes.length > 0 && (
           <div>
-            <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-2">
+            <p className="text-[11px] font-medium text-muted-foreground mb-2">
               What Worked — Changes with Event Evidence
             </p>
             <div className="rounded-md border border-border overflow-hidden">
@@ -377,7 +377,7 @@ export default function DiagnosticsPage() {
               </Table>
             </div>
             <div className="mt-4">
-              <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-2">
+              <p className="text-[11px] font-medium text-muted-foreground mb-2">
                 By Status
               </p>
               <div className="space-y-1.5">
@@ -571,7 +571,7 @@ export default function DiagnosticsPage() {
           />
         </div>
         <div>
-          <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-2">
+          <p className="text-[11px] font-medium text-muted-foreground mb-2">
             How many stored IDs per result row
           </p>
           <div className="space-y-1.5">
@@ -823,7 +823,7 @@ export default function DiagnosticsPage() {
           />
         </div>
         <div>
-          <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-2">
+          <p className="text-[11px] font-medium text-muted-foreground mb-2">
             Candidates per Result
           </p>
           <div className="space-y-1.5">
@@ -858,7 +858,7 @@ export default function DiagnosticsPage() {
         </div>
         {cdiag.score_calibration.avg_confirmed_score !== null && (
           <div className="mt-4">
-            <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-2">
+            <p className="text-[11px] font-medium text-muted-foreground mb-2">
               Score Calibration
             </p>
             <div className="grid grid-cols-2 gap-3">
@@ -895,7 +895,7 @@ export default function DiagnosticsPage() {
           </div>
           {cdiag.truth_agreement && (
             <div>
-              <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-2">
+              <p className="text-[11px] font-medium text-muted-foreground mb-2">
                 Model vs Human Agreement
               </p>
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
@@ -985,7 +985,7 @@ export default function DiagnosticsPage() {
 
         {modelReport.factor_comparison.some((f) => f.confirmed_avg_points > 0 || f.rejected_avg_points > 0) && (
           <div className="mb-4">
-            <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-2">
+            <p className="text-[11px] font-medium text-muted-foreground mb-2">
               Factor Lift: Confirmed vs Rejected
             </p>
             <div className="rounded-md border border-border overflow-hidden">
@@ -1028,7 +1028,7 @@ export default function DiagnosticsPage() {
         )}
 
         <div>
-          <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-2">
+          <p className="text-[11px] font-medium text-muted-foreground mb-2">
             Recommendations
           </p>
           <div className="space-y-2">

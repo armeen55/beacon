@@ -49,7 +49,7 @@ export type ClientFixBrief = {
 };
 export type PageRow = {
   id: string; url: string; path: string; label: string; pageType: PageType;
-  city: string | null; status: PageStatus; opportunityScore: number;
+  city: string | null; status: PageStatus; statusReason?: string; opportunityScore: number;
   topics: string[]; platforms: string[]; totalCitations: number;
   totalChanges: number; validatedChanges: number; partialChanges: number;
   operatorConfirmed: number; totalEvents: number; unresolvedEvents: number;
@@ -131,11 +131,11 @@ const STATUS_CONFIG: Record<PageStatus, { label: string; color: string; dot: str
 };
 
 const NEXT_MOVE: Record<PageNextMove, { label: string; color: string }> = {
-  double_down: { label: "Doing well", color: "text-status-success" },
-  review_signals: { label: "Needs review", color: "text-status-warning" },
-  strengthen_evidence: { label: "Needs stronger content", color: "text-accent-primary" },
-  wait: { label: "Watch", color: "text-muted-foreground" },
-  no_action: { label: "OK", color: "text-muted-foreground" },
+  double_down: { label: "Strong", color: "text-status-success" },
+  review_signals: { label: "Review", color: "text-status-warning" },
+  strengthen_evidence: { label: "Strengthen", color: "text-accent-primary" },
+  wait: { label: "Watching", color: "text-muted-foreground" },
+  no_action: { label: "No action", color: "text-muted-foreground" },
 };
 
 const PAGE_TYPE_LABELS: Record<PageType, string> = {
@@ -155,9 +155,24 @@ const STATUS_BADGE: Record<string, { label: string; dot: string }> = {
 
 type FilterView = "fix" | "winning" | "watch" | "all";
 
+export type PageSummary = {
+  total: number;
+  winning: number;
+  needsAction: number;
+  building: number;
+  unresolved: number;
+  dormant: number;
+  cited: number;
+  totalCitations: number;
+  noFaq: number;
+  noSchema: number;
+  scanned: number;
+};
+
 // ── Main Component ──
 
 export function PagesClient({
+  pageSummary,
   rows,
   staleRows = [],
   lastScanAt,
@@ -172,10 +187,10 @@ export function PagesClient({
   onHandOffWave,
   onDismissWave,
 }: {
+  pageSummary?: PageSummary;
   rows: PageRow[];
   staleRows?: PageRow[];
   lastScanAt?: string | null;
-  /** Newest website crawl ObservationRun id (global), for drill-down from the workbench chrome. */
   latestObservationRunId?: string | null;
   onScan?: () => Promise<{ success: boolean; pagesScanned?: number; pagesChanged?: number; alertCount?: number; error?: string }>;
   onVerify?: (url: string) => Promise<{ success: boolean; cleared: string[]; remaining: string[]; diff: { changed: boolean; summary: string } | null; error?: string }>;
@@ -258,6 +273,59 @@ export function PagesClient({
 
   return (
     <div>
+      {/* ── Summary strip ── */}
+      {pageSummary && (
+        <div className="rounded-lg border border-border bg-surface-raised/40 p-4 mb-4">
+          <div className="flex items-center gap-6 flex-wrap">
+            <div className="flex items-baseline gap-2">
+              <span className="text-[20px] font-bold tabular-nums">{pageSummary.total}</span>
+              <span className="text-[11px] text-muted-foreground">pages</span>
+            </div>
+            {pageSummary.winning > 0 && (
+              <div className="flex items-center gap-1.5">
+                <span className="h-2 w-2 rounded-full bg-status-success" />
+                <span className="text-[12px] font-semibold text-status-success tabular-nums">{pageSummary.winning}</span>
+                <span className="text-[11px] text-muted-foreground">winning</span>
+              </div>
+            )}
+            {pageSummary.needsAction > 0 && (
+              <div className="flex items-center gap-1.5">
+                <span className="h-2 w-2 rounded-full bg-status-danger" />
+                <span className="text-[12px] font-semibold text-status-danger tabular-nums">{pageSummary.needsAction}</span>
+                <span className="text-[11px] text-muted-foreground">need action</span>
+              </div>
+            )}
+            {pageSummary.building > 0 && (
+              <div className="flex items-center gap-1.5">
+                <span className="h-2 w-2 rounded-full bg-accent-primary" />
+                <span className="text-[12px] font-semibold tabular-nums">{pageSummary.building}</span>
+                <span className="text-[11px] text-muted-foreground">building</span>
+              </div>
+            )}
+            <div className="flex items-baseline gap-1.5">
+              <span className="text-[12px] font-semibold tabular-nums">{pageSummary.cited}</span>
+              <span className="text-[11px] text-muted-foreground">cited</span>
+              <span className="text-[11px] text-muted-foreground/50">({pageSummary.totalCitations.toLocaleString()} total)</span>
+            </div>
+          </div>
+          {(pageSummary.noFaq > 0 || pageSummary.noSchema > 0) && pageSummary.scanned > 0 && (
+            <div className="flex items-center gap-4 mt-2 text-[11px]">
+              {pageSummary.noFaq > 0 && (
+                <span className="text-status-warning">
+                  {pageSummary.noFaq} page{pageSummary.noFaq !== 1 ? "s" : ""} missing FAQ
+                </span>
+              )}
+              {pageSummary.noSchema > 0 && (
+                <span className="text-status-warning">
+                  {pageSummary.noSchema} page{pageSummary.noSchema !== 1 ? "s" : ""} missing schema
+                </span>
+              )}
+              <span className="text-muted-foreground/50">{pageSummary.scanned} scanned</span>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Top bar: scan + view tabs */}
       <div className="flex items-center gap-2 mb-3 flex-wrap">
         {onScan && (
@@ -307,7 +375,7 @@ export function PagesClient({
         {/* Left: Queue */}
         <div className="rounded-lg border border-border overflow-hidden">
           <div className="bg-surface-raised px-3 py-2 border-b border-border">
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            <p className="text-[11px] font-semibold text-muted-foreground">
               Pages ({filtered.length})
             </p>
           </div>
@@ -333,14 +401,15 @@ export function PagesClient({
                       <span className="text-[8px] font-bold text-status-danger uppercase">{row.fixBriefs.length} issue{row.fixBriefs.length !== 1 ? "s" : ""}</span>
                     )}
                     {row.fixBriefs.length === 0 && (
-                      <span className={cn("text-[8px] font-semibold uppercase tracking-wider", sc.color)}>{sc.label}</span>
+                      <span className={cn("text-[8px] font-semibold", sc.color)}>{sc.label}</span>
                     )}
                   </div>
                   <p className="text-[11px] font-medium truncate">{row.label}</p>
-                  <div className="flex items-center gap-2 mt-0.5 text-[9px] text-muted-foreground">
-                    {row.totalCitations > 0 && <span className="tabular-nums">{row.totalCitations} tracked mentions</span>}
+                  <div className="flex items-center gap-2 mt-0.5 text-[9px] text-muted-foreground flex-wrap">
+                    {row.totalCitations > 0 && <span className="tabular-nums font-medium">{row.totalCitations} cited</span>}
+                    {row.snapshot && row.snapshot.faqCount === 0 && <span className="text-status-warning">no FAQ</span>}
+                    {row.snapshot && row.snapshot.schemaTypes.length === 0 && <span className="text-status-warning">no schema</span>}
                     <span className={cn("font-medium", NEXT_MOVE[row.nextMove].color)}>{NEXT_MOVE[row.nextMove].label}</span>
-                    {row.waveId && <span className="text-muted-foreground/80">● rollout plan</span>}
                   </div>
                 </button>
               );
@@ -355,133 +424,93 @@ export function PagesClient({
         <div className="rounded-lg border border-border overflow-hidden bg-background">
           {selected ? (
             <div className="overflow-y-auto max-h-[calc(100vh-200px)]">
-              {/* Header */}
+              {/* ── Page health card ── */}
               <div className="px-6 pt-5 pb-4 border-b border-border/40">
-                <h3 className="text-[15px] font-semibold tracking-tight mb-1">{selected.label}</h3>
-                <p className="text-[10px] text-muted-foreground font-mono">{selected.url}</p>
+                <div className="flex items-start justify-between gap-4">
+                  <div className="min-w-0">
+                    <h3 className="text-[15px] font-semibold tracking-tight mb-0.5">{selected.label}</h3>
+                    <p className="text-[10px] text-muted-foreground font-mono truncate">{selected.path}</p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className={cn("h-2.5 w-2.5 rounded-full", STATUS_CONFIG[selected.status].dot)} />
+                    <span className={cn("text-[12px] font-bold", STATUS_CONFIG[selected.status].color)}>
+                      {STATUS_CONFIG[selected.status].label}
+                    </span>
+                  </div>
+                </div>
+                {selected.statusReason && (
+                  <p className="text-[10px] text-muted-foreground mt-1">{selected.statusReason}</p>
+                )}
+
+                {/* Health metrics row */}
+                <div className="flex items-center gap-4 mt-3 flex-wrap text-[11px]">
+                  <div className="flex items-baseline gap-1">
+                    <span className="text-[16px] font-bold tabular-nums">{selected.totalCitations}</span>
+                    <span className="text-muted-foreground">{selected.totalCitations === 1 ? "citation" : "citations"}</span>
+                  </div>
+                  {selected.platforms.length > 0 && (
+                    <span className="text-muted-foreground">
+                      {selected.platforms.slice(0, 3).join(", ")}
+                    </span>
+                  )}
+                  {selected.snapshot && (
+                    <div className="flex items-center gap-2">
+                      <span className={selected.snapshot.faqCount > 0 ? "text-status-success" : "text-status-warning"}>
+                        {selected.snapshot.faqCount > 0 ? `FAQ (${selected.snapshot.faqCount})` : "No FAQ"}
+                      </span>
+                      <span className={selected.snapshot.schemaTypes.length > 0 ? "text-status-success" : "text-status-warning"}>
+                        {selected.snapshot.schemaTypes.length > 0 ? `Schema ✓` : "No schema"}
+                      </span>
+                    </div>
+                  )}
+                  {selected.validatedChanges > 0 && (
+                    <span className="text-status-success font-medium">{selected.validatedChanges} validated</span>
+                  )}
+                </div>
+
+                {/* Next action */}
+                <div className="mt-3 rounded-md bg-surface-inset/60 px-3 py-2">
+                  <p className={cn("text-[11px] font-semibold", NEXT_MOVE[selected.nextMove].color)}>
+                    {NEXT_MOVE[selected.nextMove].label}
+                  </p>
+                  <p className="text-[11px] text-muted-foreground mt-0.5 leading-relaxed">
+                    {selected.nextMoveDetail}
+                  </p>
+                </div>
               </div>
 
               <div className="px-6 py-5 space-y-4">
-                {/* Issue lineage — evidence classes */}
-                {(selected.fixBriefs.length > 0 || selected.playbookBriefs.length > 0) && (
-                  <div className="rounded-md border border-border bg-surface-inset/40 px-3 py-2.5 space-y-1.5">
-                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                      Evidence mix on this page
-                    </p>
-                    <dl className="grid grid-cols-1 gap-1 text-[10px] text-muted-foreground">
-                      <div>
-                        <dt className="inline font-medium text-foreground">Observed (scanner)</dt>
-                        <dd className="inline">
-                          {" "}
-                          {selected.guardrails.length > 0
-                            ? selected.guardrails
-                                .map((g) =>
-                                  g.observationRunId
-                                    ? g.category
-                                    : `${g.category} (run not stamped)`
-                                )
-                                .join(", ")
-                            : selected.fixBriefs.length > 0
-                              ? "Issue tied to scan pipeline (see alert-derived brief)."
-                              : "None flagged."}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt className="inline font-medium text-foreground">Inferred (playbook)</dt>
-                        <dd className="inline">
-                          {" "}
-                          {selected.playbookBriefs.length > 0
-                            ? "Yes — citation/pattern gap suggestions below."
-                            : "No playbook row for this page."}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt className="inline font-medium text-foreground">Changelog expectation</dt>
-                        <dd className="inline">
-                          {" "}
-                          {selected.fixBriefs[0]?.intentConflict
-                            ? `Mismatch — ${selected.fixBriefs[0].intentDetail ?? "logged change does not match live signals."}`
-                            : "No conflict surfaced between changelog and scan."}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt className="inline font-medium text-foreground">Ship / verify</dt>
-                        <dd className="inline">
-                          {" "}
-                          {selected.fixBriefs[0]
-                            ? `${selected.fixBriefs[0].issueStatus.replace(/_/g, " ")}${selected.fixBriefs[0].issueStatus === "verified" ? " (checklist passed — not AI outcome proof)" : ""}`
-                            : "—"}
-                        </dd>
-                      </div>
-                    </dl>
-                    <p className="text-[10px] text-muted-foreground mt-2 leading-relaxed border-t border-border/40 pt-2">
-                      {selected.snapshot?.observationRunId ? (
-                        <>
-                          Snapshot from{" "}
-                          <Link
-                            href={`/observations/${encodeURIComponent(selected.snapshot.observationRunId)}`}
-                            className="text-accent-primary hover:underline font-medium"
-                          >
-                            this ObservationRun
-                          </Link>
-                          .
-                        </>
-                      ) : selected.snapshot ? (
-                        <>
-                          Snapshot on file —{" "}
-                          <span className="text-muted-foreground/90">
-                            no ObservationRun id on this URL (legacy import or pre-spine crawl).
-                          </span>
-                        </>
-                      ) : (
-                        <>No snapshot for this URL — not observed in on-disk crawl data.</>
-                      )}
-                    </p>
-                  </div>
-                )}
-                {selected.fixBriefs.length === 0 &&
-                  selected.playbookBriefs.length === 0 &&
-                  !selected.snapshot && (
-                    <p className="text-[10px] text-muted-foreground border border-dashed border-border rounded-md px-2 py-1.5">
-                      Not checked yet — no snapshot or issue row. Run scan from Your Website when ready.
-                    </p>
-                  )}
-                {/* Simple summary */}
+                {/* Action summary for fix pages */}
                 {selected.fixBriefs.length > 0 && (
-                  <div>
-                    <p className="text-[12px] font-semibold text-foreground mb-1">What needs fixing</p>
-                    <p className="text-[11px] text-muted-foreground leading-relaxed">
-                      {selected.fixBriefs[0].issueSummary.replace(/citation/gi, "tracked mention").replace(/FAQ/g, "Q&A").replace(/schema/g, "structured data")}
-                    </p>
-                  </div>
-                )}
-                {selected.fixBriefs.length > 0 && (
-                  <div>
-                    <p className="text-[12px] font-semibold text-foreground mb-1">Why it matters</p>
-                    <p className="text-[11px] text-muted-foreground leading-relaxed">
-                      {selected.totalCitations > 0
-                        ? `We see ${selected.totalCitations} tracked mention${selected.totalCitations !== 1 ? "s" : ""} of this page in the sample, but it's missing content that would strengthen how it shows up.`
-                        : "Competitors with stronger page content are showing up more in the tracked sample."}
-                    </p>
-                  </div>
-                )}
-                {selected.fixBriefs.length > 0 && (
-                  <div>
-                    <p className="text-[12px] font-semibold text-foreground mb-1">What to do</p>
-                    <p className="text-[11px] text-muted-foreground leading-relaxed">
-                      {selected.fixBriefs[0].bestNextMove.replace(/FAQ/g, "Q&A").replace(/schema/g, "structured data").replace(/JSON-LD/g, "page details")}
-                    </p>
+                  <div className="space-y-3">
+                    <div>
+                      <p className="text-[12px] font-semibold text-foreground mb-1">What needs fixing</p>
+                      <p className="text-[11px] text-muted-foreground leading-relaxed">
+                        {selected.fixBriefs[0].issueSummary.replace(/citation/gi, "tracked mention").replace(/FAQ/g, "Q&A").replace(/schema/g, "structured data")}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[12px] font-semibold text-foreground mb-1">What to do</p>
+                      <p className="text-[11px] text-muted-foreground leading-relaxed">
+                        {selected.fixBriefs[0].bestNextMove.replace(/FAQ/g, "Q&A").replace(/schema/g, "structured data").replace(/JSON-LD/g, "page details")}
+                      </p>
+                    </div>
                   </div>
                 )}
                 {selected.playbookBriefs.length > 0 && selected.fixBriefs.length === 0 && (
                   <div>
-                    <p className="text-[12px] font-semibold text-foreground mb-1">How to make this page stronger</p>
+                    <p className="text-[12px] font-semibold text-foreground mb-1">How to strengthen this page</p>
                     <p className="text-[11px] text-muted-foreground leading-relaxed">
                       {selected.playbookBriefs[0].rationale.replace(/citation/gi, "tracked mention").replace(/FAQ/g, "Q&A").replace(/schema/g, "structured data")}
                     </p>
                   </div>
                 )}
-                {selected.fixBriefs.length === 0 && selected.playbookBriefs.length === 0 && (
+                {selected.fixBriefs.length === 0 && selected.playbookBriefs.length === 0 && !selected.snapshot && (
+                  <p className="text-[10px] text-muted-foreground border border-dashed border-border rounded-md px-2 py-1.5">
+                    Not scanned yet. Run a scan to check this page.
+                  </p>
+                )}
+                {selected.fixBriefs.length === 0 && selected.playbookBriefs.length === 0 && selected.snapshot && (
                   <p className="text-[11px] text-muted-foreground">This page looks good. No issues found.</p>
                 )}
 
@@ -538,7 +567,7 @@ export function PagesClient({
                 {selected.wave && (
                   <div className="rounded-lg border border-accent-primary/20 bg-accent-primary/[0.02] px-4 py-3 text-[10px]">
                     <div className="flex items-center gap-2 mb-2">
-                      <span className="text-[8px] font-bold uppercase tracking-wider text-muted-foreground bg-surface-inset px-1.5 py-0.5 rounded border border-border">Rollout plan</span>
+                      <span className="text-[8px] font-bold text-muted-foreground bg-surface-inset px-1.5 py-0.5 rounded border border-border">Rollout plan</span>
                       <p className="text-[12px] font-semibold text-foreground flex-1 truncate">{selected.wave.title}</p>
                       <span className="text-[9px] text-muted-foreground font-medium">{selected.wave.status.replace(/_/g, " ")}</span>
                     </div>
@@ -616,31 +645,31 @@ export function PagesClient({
                               {fb.intentConflict && <span className="text-[8px] font-bold uppercase text-status-danger bg-status-danger/10 px-1.5 py-0.5 rounded">Intent conflict</span>}
                               <span className="inline-flex items-center gap-1">
                                 <span className={cn("h-1.5 w-1.5 rounded-full", sb.dot)} />
-                                <span className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">{sb.label}</span>
+                                <span className="text-[9px] font-semibold text-muted-foreground">{sb.label}</span>
                               </span>
                             </div>
                           </div>
 
                           <div className="grid grid-cols-2 gap-4 mb-3">
                             <div>
-                              <p className="text-[8px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">Expected</p>
+                              <p className="text-[8px] font-semibold text-muted-foreground mb-1">Expected</p>
                               {fb.expectedState.map((s, i) => <p key={i} className="text-muted-foreground leading-relaxed">{s}</p>)}
                             </div>
                             <div>
-                              <p className="text-[8px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">Observed</p>
+                              <p className="text-[8px] font-semibold text-muted-foreground mb-1">Observed</p>
                               {fb.observedState.map((s, i) => <p key={i} className="text-muted-foreground leading-relaxed">{s}</p>)}
                             </div>
                           </div>
 
                           <div className="mb-3">
-                            <p className="text-[8px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">Likely causes</p>
+                            <p className="text-[8px] font-semibold text-muted-foreground mb-1">Likely causes</p>
                             {fb.likelyCauses.slice(0, 3).map((c, i) => (
                               <p key={i} className="text-muted-foreground flex gap-1.5"><span className="text-muted-foreground/40 shrink-0">→</span>{c}</p>
                             ))}
                           </div>
 
                           <div className="rounded bg-surface-inset/70 px-3 py-2 mb-3">
-                            <p className="text-[8px] font-semibold uppercase tracking-wider text-accent-primary mb-1">Best next move</p>
+                            <p className="text-[8px] font-semibold text-accent-primary mb-1">Best next move</p>
                             <p className="text-foreground font-medium leading-relaxed">{fb.bestNextMove}</p>
                           </div>
 
@@ -727,7 +756,7 @@ export function PagesClient({
                 {/* Playbook briefs */}
                 {selected.playbookBriefs.length > 0 && (
                   <div className="space-y-3">
-                    <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+                    <p className="text-[10px] font-semibold text-muted-foreground">
                       {selected.playbookBriefs.some((b) => b.type === "growth") ? "Ship next" : "Recommended fix"}
                     </p>
                     {selected.playbookBriefs.map((pb) => {
@@ -738,12 +767,12 @@ export function PagesClient({
                       return (
                         <div key={pb.id} data-brief-id={pb.id} className={cn("rounded-lg border px-4 py-3 text-[10px]", pb.type === "growth" ? "border-status-success/20 bg-status-success/[0.02]" : "border-accent-primary/20 bg-accent-primary/[0.02]")}>
                           <div className="flex items-center gap-2 mb-2">
-                            <span className={cn("text-[8px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded", pb.type === "growth" ? "bg-status-success/10 text-status-success" : "bg-accent-primary/10 text-accent-primary")}>
+                            <span className={cn("text-[8px] font-bold px-1.5 py-0.5 rounded", pb.type === "growth" ? "bg-status-success/10 text-status-success" : "bg-accent-primary/10 text-accent-primary")}>
                               {pb.type === "growth" ? "Growth" : "Fix"}
                             </span>
                             <p className="text-[12px] font-semibold text-foreground flex-1">{pb.title}</p>
                             {statusLabel && (
-                              <span className={cn("text-[8px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded", pb.rolloutStatus === "verified" ? "bg-status-success/10 text-status-success" : pb.rolloutStatus === "shipped" ? "bg-accent-primary/10 text-accent-primary" : "bg-surface-inset text-muted-foreground")}>
+                              <span className={cn("text-[8px] font-bold px-1.5 py-0.5 rounded", pb.rolloutStatus === "verified" ? "bg-status-success/10 text-status-success" : pb.rolloutStatus === "shipped" ? "bg-accent-primary/10 text-accent-primary" : "bg-surface-inset text-muted-foreground")}>
                                 {statusLabel}
                               </span>
                             )}
@@ -796,7 +825,7 @@ export function PagesClient({
                           )}
 
                           <div className="mb-2">
-                            <p className="text-[8px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">Steps</p>
+                            <p className="text-[8px] font-semibold text-muted-foreground mb-1">Steps</p>
                             {pb.recommendations.map((r, i) => <p key={i} className="text-foreground leading-relaxed">{i + 1}. {r}</p>)}
                           </div>
 
@@ -828,7 +857,7 @@ export function PagesClient({
                                   : "bg-surface-inset/50"
                             )}>
                               <div className="flex items-center gap-2 mb-1">
-                                <span className="text-[8px] font-bold uppercase tracking-wider text-muted-foreground">Outcome watch</span>
+                                <span className="text-[8px] font-bold text-muted-foreground">Outcome watch</span>
                                 <span className="text-muted-foreground/50">{pb.outcomeWatch.daysSinceVerified}d since verified</span>
                                 {pb.outcomeWatch.citationDelta != null && (
                                   <span className={pb.outcomeWatch.citationDelta > 0 ? "text-status-success font-medium" : "text-muted-foreground"}>
@@ -889,7 +918,7 @@ export function PagesClient({
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                     {selected.changes.length > 0 && (
                       <div>
-                        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Linked changes</p>
+                        <p className="text-[10px] font-semibold text-muted-foreground mb-1.5">Linked changes</p>
                         <div className="space-y-0.5">
                           {selected.changes.map((c) => (
                             <Link key={c.id} href={`/changes/${c.id}`} className="flex items-center gap-2 rounded px-2 py-1.5 hover:bg-surface-inset/50 transition-colors">
@@ -905,7 +934,7 @@ export function PagesClient({
                     )}
                     {selected.events.length > 0 && (
                       <div>
-                        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Outcome events</p>
+                        <p className="text-[10px] font-semibold text-muted-foreground mb-1.5">Outcome events</p>
                         <div className="space-y-0.5">
                           {selected.events.map((e) => (
                             <Link key={e.id} href={`/results/${e.anchorResultId}`} className="flex items-center gap-2 rounded px-2 py-1.5 hover:bg-surface-inset/50 transition-colors text-[10px]">
@@ -945,7 +974,7 @@ export function PagesClient({
       {/* Stale pages */}
       {staleRows.length > 0 && (
         <details className="mt-6">
-          <summary className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/50 cursor-pointer hover:text-muted-foreground">
+          <summary className="text-[11px] font-semibold text-muted-foreground/50 cursor-pointer hover:text-muted-foreground">
             Older / non-sitemap pages ({staleRows.length})
           </summary>
           <div className="mt-2 space-y-1">

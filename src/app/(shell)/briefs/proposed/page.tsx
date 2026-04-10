@@ -144,7 +144,7 @@ export default function ProposedBriefsPage() {
 
       {/* Methodology */}
       <div className="rounded-md border border-border bg-surface-raised px-4 py-3">
-        <p className="text-[11px] font-semibold mb-1 uppercase tracking-wider text-muted-foreground">
+        <p className="text-[11px] font-semibold mb-1 text-muted-foreground">
           How briefs are generated
         </p>
         <ul className="text-[11px] text-muted-foreground space-y-0.5">
@@ -227,12 +227,12 @@ function BriefCard({ brief }: { brief: ProposedBrief }) {
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 mb-0.5 flex-wrap">
             <span
-              className={`text-[10px] font-semibold uppercase tracking-wider ${BRIEF_TYPE_COLORS[brief.briefType]}`}
+              className={`text-[10px] font-semibold ${BRIEF_TYPE_COLORS[brief.briefType]}`}
             >
               {BRIEF_TYPE_LABELS[brief.briefType]}
             </span>
             <span
-              className={`text-[10px] font-medium uppercase tracking-wider ${BRIEF_PRIORITY_COLORS[brief.priority]}`}
+              className={`text-[10px] font-medium ${BRIEF_PRIORITY_COLORS[brief.priority]}`}
             >
               {brief.priority}
             </span>
@@ -254,7 +254,7 @@ function BriefCard({ brief }: { brief: ProposedBrief }) {
 
       {/* Why now */}
       <div className="mb-2">
-        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-0.5">
+        <p className="text-[10px] font-semibold text-muted-foreground mb-0.5">
           Why this now
         </p>
         <p className="text-[11px] text-muted-foreground">{brief.whyThisNow}</p>
@@ -262,7 +262,7 @@ function BriefCard({ brief }: { brief: ProposedBrief }) {
 
       {/* Evidence */}
       <div className="mb-2">
-        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-0.5">
+        <p className="text-[10px] font-semibold text-muted-foreground mb-0.5">
           Evidence
         </p>
         <ul className="text-[10px] text-muted-foreground space-y-0.5">
@@ -275,7 +275,7 @@ function BriefCard({ brief }: { brief: ProposedBrief }) {
       {/* Caveats */}
       {brief.caveats.length > 0 && (
         <div className="mb-2 rounded border border-status-warning/20 bg-status-warning/5 px-3 py-2">
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-status-warning mb-0.5">
+          <p className="text-[10px] font-semibold text-status-warning mb-0.5">
             Caveats ({brief.caveats.length})
           </p>
           <ul className="text-[10px] text-muted-foreground space-y-0.5">
@@ -288,7 +288,7 @@ function BriefCard({ brief }: { brief: ProposedBrief }) {
 
       {/* Recommended Steps */}
       <details className="group mb-2">
-        <summary className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground cursor-pointer mb-0.5">
+        <summary className="text-[10px] font-semibold text-muted-foreground cursor-pointer mb-0.5">
           Recommended Steps ({brief.recommendedSteps.length})
         </summary>
         <ol className="text-[10px] text-muted-foreground space-y-0.5 list-decimal list-inside mt-1">
@@ -300,7 +300,7 @@ function BriefCard({ brief }: { brief: ProposedBrief }) {
 
       {/* Success Criteria */}
       <details className="group mb-2">
-        <summary className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground cursor-pointer mb-0.5">
+        <summary className="text-[10px] font-semibold text-muted-foreground cursor-pointer mb-0.5">
           Success Criteria ({brief.successCriteria.length})
         </summary>
         <ul className="text-[10px] text-muted-foreground space-y-0.5 mt-1">
@@ -313,7 +313,7 @@ function BriefCard({ brief }: { brief: ProposedBrief }) {
       {/* Validation Checks */}
       {brief.validationChecks.length > 0 && (
         <details className="group mb-2">
-          <summary className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground cursor-pointer mb-0.5">
+          <summary className="text-[10px] font-semibold text-muted-foreground cursor-pointer mb-0.5">
             Validation Checks ({brief.validationChecks.length})
           </summary>
           <ul className="text-[10px] text-muted-foreground space-y-0.5 mt-1">

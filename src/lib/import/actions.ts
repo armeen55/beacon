@@ -38,6 +38,32 @@ export async function getImportRuns(): Promise<ImportRun[]> {
   return [...importRuns].reverse();
 }
 
+export async function getDataCoverage(): Promise<{
+  resultCount: number;
+  changeCount: number;
+  earliestDate: string | null;
+  latestDate: string | null;
+  platforms: string[];
+  lastImportAt: string | null;
+}> {
+  const dates = results.map((r) => r.snapshot_date).filter(Boolean).sort();
+  const platformSet = new Set<string>();
+  for (const r of results) {
+    if (r.platform && r.platform !== "all") platformSet.add(r.platform);
+  }
+  const sortedRuns = [...importRuns].sort(
+    (a, b) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime()
+  );
+  return {
+    resultCount: results.length,
+    changeCount: changelogEntries.length,
+    earliestDate: dates[0] ?? null,
+    latestDate: dates[dates.length - 1] ?? null,
+    platforms: [...platformSet],
+    lastImportAt: sortedRuns[0]?.started_at ?? null,
+  };
+}
+
 export async function previewImport(
   rawData: string,
   entityType: ImportEntityType,
@@ -152,7 +178,7 @@ export async function executeImport(
       status: "completed",
       started_at: startedAt,
       completed_at: completedAt,
-      scope_label: `Imported ${imported} Sample history row(s); batch ${batchId}.`,
+      scope_label: `Imported ${imported} history row(s); batch ${batchId}.`,
       prompt_set_version: null,
       engine_platform_note: null,
       parser_version: "import-csv-v1",
@@ -385,13 +411,19 @@ export async function importWorkbook(
   ]);
 
   let changesLinked = 0;
+  let changesNew = 0;
+  let changesUpdated = 0;
+  let resultsNew = 0;
+  let resultsUpdated = 0;
 
   for (const entry of data.changes) {
     if (existingIds.has(entry.id)) {
       const idx = changelogEntries.findIndex((c) => c.id === entry.id);
       if (idx >= 0) changelogEntries[idx] = entry;
+      changesUpdated++;
     } else {
       changelogEntries.push(entry);
+      changesNew++;
     }
     if (entry.opportunity_id) changesLinked++;
   }
@@ -400,8 +432,10 @@ export async function importWorkbook(
     if (existingIds.has(result.id)) {
       const idx = results.findIndex((r) => r.id === result.id);
       if (idx >= 0) results[idx] = result;
+      resultsUpdated++;
     } else {
       results.push(result);
+      resultsNew++;
     }
   }
 
@@ -479,7 +513,7 @@ export async function importWorkbook(
       status: "completed",
       started_at: startedAt,
       completed_at: completedAt,
-      scope_label: `Workbook import ${batchId} — ${data.results.length} aggregated Sample history row(s) from prompt_intelligence_daily.`,
+      scope_label: `Workbook import ${batchId} — ${data.results.length} aggregated history row(s) from prompt_intelligence_daily.`,
       prompt_set_version: "prompt_intelligence_daily",
       engine_platform_note:
         "Rows are aggregated buckets (date × engine × topic cluster), not raw prompts.",
@@ -507,6 +541,8 @@ export async function importWorkbook(
     (r) => classifyResultMode(r) === "attribution"
   ).length;
 
+  const allDates = results.map((r) => r.snapshot_date).filter(Boolean).sort();
+
   return {
     success: true,
     run_id: batchId,
@@ -520,6 +556,15 @@ export async function importWorkbook(
     sheets: data.sheets,
     warnings: data.warnings,
     errors: [],
+    delta: {
+      results_new: resultsNew,
+      results_updated: resultsUpdated,
+      changes_new: changesNew,
+      changes_updated: changesUpdated,
+      date_range_after: allDates.length > 0
+        ? { from: allDates[0], to: allDates[allDates.length - 1] }
+        : null,
+    },
   };
 }
 

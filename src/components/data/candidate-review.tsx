@@ -98,7 +98,7 @@ export function CandidateReview({
       <div className={cn("space-y-4 transition-opacity", isPending && "opacity-60 pointer-events-none")}>
         {primary.map((c) => (
           <div key={c.change.id}>
-            <p className="text-[10px] font-semibold text-status-success uppercase tracking-wider mb-1.5 flex items-center gap-1">
+            <p className="text-[10px] font-semibold text-status-success mb-1.5 flex items-center gap-1">
               <Zap className="h-3 w-3" /> Main Driver
             </p>
             <div className="rounded-md border-2 border-status-success/20 bg-status-success/5 p-3 space-y-2">
@@ -116,7 +116,7 @@ export function CandidateReview({
                     <p className="text-[11px] text-status-success/80 mt-1">{c.triageReason}</p>
                   )}
                 </div>
-                <span className="shrink-0 rounded-full bg-status-success/10 px-2.5 py-0.5 text-[10px] font-semibold text-status-success uppercase tracking-wider">
+                <span className="shrink-0 rounded-full bg-status-success/10 px-2.5 py-0.5 text-[10px] font-semibold text-status-success">
                   Top pick
                 </span>
               </div>
@@ -130,7 +130,7 @@ export function CandidateReview({
 
         {contributing.length > 0 && (
           <div>
-            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">
+            <p className="text-[10px] font-semibold text-muted-foreground mb-1.5">
               Also Helped
             </p>
             <div className="space-y-1.5">
@@ -160,7 +160,7 @@ export function CandidateReview({
 
         {needsReview.length > 0 && (
           <div>
-            <p className="text-[10px] font-semibold text-status-warning uppercase tracking-wider mb-1.5 flex items-center gap-1">
+            <p className="text-[10px] font-semibold text-status-warning mb-1.5 flex items-center gap-1">
               <Shield className="h-3 w-3" /> Your Call
             </p>
             <div className="space-y-2">

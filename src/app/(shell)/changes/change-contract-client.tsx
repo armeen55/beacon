@@ -272,7 +272,7 @@ export function ChangeContractUI({ contracts, onCreateContract, onVerifyContract
       {/* Saved contracts */}
       {contracts.length > 0 && (
         <div className="space-y-2">
-          <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Tracked changes</p>
+          <p className="text-[11px] font-semibold text-muted-foreground">Tracked changes</p>
           {contracts.map((c) => {
             const ar = READINESS_LABELS[c.attributionReadiness] ?? READINESS_LABELS.weak;
             const vs = VERIFY_STATUS[c.verificationStatus] ?? VERIFY_STATUS.pending;

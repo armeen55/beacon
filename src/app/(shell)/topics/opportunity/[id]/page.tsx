@@ -48,7 +48,7 @@ function Field({
 }) {
   return (
     <div>
-      <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-1">
+      <p className="text-[11px] font-medium text-muted-foreground mb-1">
         {label}
       </p>
       <div className="text-[13px]">{children}</div>

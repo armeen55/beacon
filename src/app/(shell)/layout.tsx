@@ -11,11 +11,12 @@ import { pageIssues } from "@/domains/pages/issues";
 
 const NAV_SHORTCUTS: Record<string, string> = {
   "/": "G T",
-  "/pages": "G W",
+  "/pages": "G P",
+  "/changes": "G C",
+  "/competitors": "G X",
   "/topics": "G O",
-  "/changes": "G H",
+  "/import": "G I",
   "/review": "G R",
-  "/expansion": "G E",
 };
 
 const CHANGELOG_PALETTE_CAP = 50;
@@ -69,7 +70,7 @@ export default function ShellLayout({
     ...uniqueTopics.map((t) => ({
       id: `topic-${t}`,
       label: t,
-      group: "Gap ledger",
+      group: "Opportunities",
       href: "/topics",
       meta: "Topic",
     })),
