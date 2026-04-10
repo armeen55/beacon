@@ -1,7 +1,9 @@
-# Beacon Verified State — 2026-04-07 (attribution); product update 2026-04-09 (Phase 5)
+# Beacon Verified State — 2026-04-07 (attribution); product through 2026-04-10 (visual terminal + docs checkpoint)
 
-Checkpoint: `beacon-handoff-20260407-1900` on branch `checkpoint/beacon-new-chat-reset-20260407-1900`
-Working branch: `work/attribution-precision-20260407`
+**Legacy handoff tag:** `beacon-handoff-20260407-1900` on branch `checkpoint/beacon-new-chat-reset-20260407-1900`  
+**Doc checkpoint (2026-04-10):** Intelligence Phases 24–31C, abstraction layers, and route visual saturation reflected in this file + `master_execution_plan.md`, `NEXT_PHASE_EXECUTION_PLAN.md`, `architecture.md`, `VERIFICATION_LOG.md`. **Git docs checkpoint:** one commit on this branch with subject `docs: checkpoint Phase 31C visual saturation and abstraction layers` — locate with `git log -1 --oneline -- docs/`.
+
+Working branch: `work/attribution-precision-20260407` (or current feature branch)
 
 **Phase 5 (2026-04-09):** Change Impact Engine shipped — see `src/domains/attribution/change-impact.ts`, `/changes`, `/changes/[id]`. Counts below are from the 2026-04-07 handoff snapshot unless you re-run diagnostics.
 
@@ -52,7 +54,7 @@ Working branch: `work/attribution-precision-20260407`
 | **Daily surface compression** | **WIRED (Phase 14)** | Visibility summary strip (total citations, per-platform breakdown, trend %, freshness indicator); navigation compressed to 2 groups (5 primary + 5 advanced); impact signals reduced to 3 as "What changed"; work queue + system details collapsed by default |
 | **Import simplification** | **WIRED (Phase 15)** | Coverage strip (counts, dates, freshness), drag-and-drop upload, delta-aware result (new vs updated), return-to-Today CTA, advanced sections collapsed |
 | **Page intelligence surface** | **WIRED (Phase 16)** | Summary strip (winning/needs-action/cited counts + structure warnings); health card (status badge, citations, platforms, FAQ/schema, next action); structure health in list items; evidence internals in progressive disclosure |
-| **Competitive clarity surface** | **WIRED (Phase 17)** | Summary strip (AI share %, citations, competitor count); ranked competitor list with "Ahead of you" badges; competitive gap visualization (strongest vs biggest losses by topic); weakest areas; next moves; settings collapsed |
+| **Competitive clarity surface** | **WIRED (Phase 17)** + **visual saturation (31C)** | KPI strip (`KpiCard`); ranked list + share bars; topic signals with bars on thinnest share; co-mention / source trust / local pressure sections with charts + toggles; next moves; settings collapsed |
 | **Track record enhancement** | **WIRED (Phase 18)** | `SignalTier` (explicit/inferred) on outcomes; `computeTrackRecord` accepts responses+recs; per-pattern `explicitAccepted`/`explicitDismissed`; priority engine: acceptance bonus (+2/+4), dismissal penalty (-3/-7); Today shows explicit counts |
 | **Multi-dim recommendation expansion** | **WIRED (Phase 19)** | 7 rec types (was 3): +strengthen_structure, +improve_internal_links, +refresh_content, +competitive_displacement; evidence-gated with per-type caps; priority engine + outcome gen for all; Today accent colors for all types |
 | **Trust layer + evidence explainability** | **WIRED (Phase 20)** | DO THIS NOW evidence block (evidence basis, confidence reason, freshness, watch-after); secondary rec evidence lines; page status reason on health card |
@@ -270,3 +272,158 @@ Working branch: `work/attribution-precision-20260407`
 |------|--------|
 | Today `today-client.tsx`: **Follow-through** framing; **WatchlistExperimentCard** (status pills, citation readout, type + path, note); **watchAfter** + optional outcome controls in disclosures; remove link demoted inside disclosure | **Shipped** |
 | Intelligence / persistence | **Unchanged** |
+
+---
+
+## Intelligence Expansion — Phase 24 Implementation Plan (2026-04-10)
+
+### Phase 24 Component Status
+
+| Component | Status | Key Files |
+|-----------|--------|-----------|
+| Perplexity API client | **Shipped** | `src/lib/querying/types.ts`, `src/lib/querying/perplexity-client.ts` |
+| Answer snapshot domain | **Shipped** | `src/domains/answer-snapshots/types.ts`, `src/domains/answer-snapshots/store.ts` |
+| Prompt library | **Shipped** | `src/domains/prompts/types.ts`, `src/domains/prompts/prompt-library.ts`, `src/domains/prompts/journey-stages.ts` |
+| Co-mention computation | **Shipped** | `src/domains/competitors/co-mention-types.ts`, `src/domains/competitors/co-mention.ts` |
+| Outcome store | **Shipped** | `src/domains/product/outcome-types.ts`, `src/domains/product/outcome-store.ts` |
+
+### Phase 24 Wiring Status
+
+| Component | Status | Key Files |
+|-----------|--------|-----------|
+| Sampling script | **Shipped** | `scripts/sample-visibility.ts` — `npm run data:sample` |
+| Competitors co-mention section | **Shipped** | `src/app/(shell)/competitors/co-mention-section.tsx`, `src/app/(shell)/competitors/page.tsx` |
+| Outcome backfill + Today wiring | **Shipped** | `src/app/(shell)/page.tsx`, `src/app/(shell)/today-client.tsx` |
+
+### Phase 25 — Attribution Intelligence
+
+| Component | Status | Key Files |
+|-----------|--------|-----------|
+| Citation genealogy | **Shipped** | `src/domains/attribution/genealogy-types.ts`, `src/domains/attribution/citation-genealogy.ts` |
+| Citation decay | **Shipped** | `src/domains/attribution/decay-types.ts`, `src/domains/attribution/citation-decay.ts` |
+| Source trust index | **Shipped** | `src/domains/competitors/source-trust-types.ts`, `src/domains/competitors/source-trust.ts` |
+| Source trust UI | **Shipped** | `src/app/(shell)/competitors/source-trust-section.tsx` |
+| Decay → Today wiring | **Shipped** | `src/app/(shell)/page.tsx` (nextCandidates decay alert) |
+| Decay → rec engine | **Shipped** | `src/domains/product/recommendation-engine.ts` (`refresh_stale_citation` type) |
+
+### Phase 26 — Entity + Representation Intelligence
+
+| Component | Status | Key Files |
+|-----------|--------|-----------|
+| Entity types | **Shipped** | `src/domains/entity/types.ts` |
+| Entity extraction | **Shipped** | `src/domains/entity/entity-extract.ts` |
+| Discrepancy types | **Shipped** | `src/domains/entity/discrepancy-types.ts` |
+| Discrepancy detection | **Shipped** | `src/domains/entity/discrepancy-detect.ts` |
+| Diagnostics integration | **Shipped** | `src/app/(shell)/diagnostics/page.tsx` (entity + discrepancy section) |
+| Today integration | **Shipped** | `src/app/(shell)/page.tsx` (notable discrepancy → nextCandidates) |
+
+### Phase 27 — Geographic Intelligence
+
+| Component | Status | Key Files |
+|-----------|--------|-----------|
+| Geo normalization | **Shipped** | `src/domains/geo/types.ts`, `src/domains/geo/normalize.ts` |
+| Local coverage + gaps | **Shipped** | `src/domains/geo/coverage.ts` |
+| Today geo signal | **Shipped** | `src/app/(shell)/page.tsx` (gap → nextCandidates) |
+| Competitors local pressure | **Shipped** | `src/app/(shell)/competitors/local-pressure-section.tsx`, `page.tsx` |
+| Diagnostics geo section | **Shipped** | `src/app/(shell)/diagnostics/page.tsx` (coverage table + gaps + concentration) |
+| Heat map data shape | **Shipped** | `GeoHeatMap` type + `computeGeoHeatMap()` in coverage.ts |
+
+### Phase 28 — Journey + Score + Extractability
+
+| Component | Status | Key Files |
+|-----------|--------|-----------|
+| Journey coverage | **Shipped** | `src/domains/prompts/journey-coverage.ts` |
+| Beacon Score types | **Shipped** | `src/domains/product/beacon-score-types.ts` |
+| Beacon Score computation | **Shipped** | `src/domains/product/beacon-score.ts` |
+| Extractability analysis | **Shipped** | `src/domains/pages/extractability.ts` |
+| Diagnostics integration | **Shipped** | `src/app/(shell)/diagnostics/page.tsx` (journey + score + extractability sections) |
+| Today integration | **Shipped** | `src/app/(shell)/page.tsx` (journey gap → nextCandidates) |
+
+### Phase 29 — Competitive Intelligence
+
+| Component | Status | Key Files |
+|-----------|--------|-----------|
+| Battlecard types | **Shipped** | `src/domains/competitors/battlecard-types.ts` |
+| Battlecard computation | **Shipped** | `src/domains/competitors/battlecards.ts` |
+| Battlecard UI | **Shipped** | `src/app/(shell)/competitors/battlecard-section.tsx` |
+| Snippet types | **Shipped** | `src/domains/competitors/snippet-types.ts` |
+| Snippet intelligence | **Shipped** | `src/domains/competitors/snippet-intel.ts` |
+| Competitors integration | **Shipped** | `src/app/(shell)/competitors/page.tsx` (battlecards) |
+| Diagnostics integration | **Shipped** | `src/app/(shell)/diagnostics/page.tsx` (content intelligence) |
+| Today integration | **Shipped** | `src/app/(shell)/page.tsx` (extractability gap → nextCandidates) |
+
+### Phase 30 — Advanced Intelligence Scaffolds
+
+| Component | Status | Key Files |
+|-----------|--------|-----------|
+| Adversarial types + templates | **Shipped (scaffold)** | `src/domains/prompts/adversarial-types.ts`, `adversarial.ts` |
+| What-if simulator types + engine | **Shipped (scaffold)** | `src/domains/product/whatif-types.ts`, `whatif-engine.ts` |
+| Founder authority | **Shipped (scaffold)** | `src/domains/entity/founder-types.ts`, `founder-authority.ts` |
+| Conversion path types + readiness | **Shipped (scaffold)** | `src/domains/product/conversion-path-types.ts`, `conversion-path.ts` |
+| Training data pipeline | **Shipped (scaffold)** | `src/domains/product/training-data-types.ts`, `training-data.ts` |
+| Diagnostics readiness section | **Shipped** | `src/app/(shell)/diagnostics/page.tsx` (advanced readiness) |
+
+### Phase 31 — Visual Intelligence Layer + Pulse + Reports
+
+| Component | Status | Key Files |
+|-----------|--------|-----------|
+| ScoreRail | **Shipped** | `src/components/viz/score-rail.tsx` |
+| StackedBar | **Shipped** | `src/components/viz/stacked-bar.tsx` |
+| RankLadder | **Shipped** | `src/components/viz/rank-ladder.tsx` |
+| DeltaStrip | **Shipped** | `src/components/viz/delta-strip.tsx` |
+| PlatformSplit | **Shipped** | `src/components/viz/platform-split.tsx` |
+| CoverageTrellis | **Shipped** | `src/components/viz/coverage-trellis.tsx` |
+| ThreatMeter | **Shipped** | `src/components/viz/threat-meter.tsx` |
+| ConfidenceBadge | **Shipped** | `src/components/viz/confidence-badge.tsx` |
+| Report generator | **Shipped** | `src/domains/product/report-types.ts`, `report-generator.ts` |
+| Pulse system | **Shipped** | `src/domains/product/pulse-types.ts`, `pulse.ts` |
+| Today visual upgrade | **Shipped** | `src/app/(shell)/today-client.tsx` (PlatformSplit + momentum bars + KPI strip + impact ConfidenceBadge) |
+| Diagnostics visuals | **Shipped** | `src/app/(shell)/diagnostics/page.tsx` (ScoreRail + CoverageTrellis + DonutRing + PulseBanner + StackedBar where noted) |
+| Battlecard visuals | **Shipped** | `src/app/(shell)/competitors/battlecard-section.tsx` (ThreatMeter + dimension bars) |
+
+### Phase 31B — Maximum Visual Expansion
+
+| Component | Status | Key Files |
+|-----------|--------|-----------|
+| AreaChart | **Shipped** | `src/components/viz/area-chart.tsx` |
+| KpiCard | **Shipped** | `src/components/viz/kpi-card.tsx` |
+| ComparisonBar | **Shipped** | `src/components/viz/comparison-bar.tsx` |
+| RadialScore | **Shipped** | `src/components/viz/radial-score.tsx` |
+| ViewToggle | **Shipped** | `src/components/viz/view-toggle.tsx` |
+| FilterChips | **Shipped** | `src/components/viz/filter-chips.tsx` |
+| VizSection / ChartTableSection | **Shipped** | `src/components/viz/viz-section.tsx` |
+| BeaconScoreVisual (bars↔radial) | **Shipped** | `src/app/(shell)/diagnostics/beacon-score-visual.tsx` |
+| Today KPI grid upgrade | **Shipped** | `src/app/(shell)/today-client.tsx` |
+| Today confidence badges | **Shipped** | `src/app/(shell)/today-client.tsx` |
+
+### Phase 31C — Route visual saturation (major routes)
+
+| Surface | Status | Key files / behavior |
+|---------|--------|----------------------|
+| Competitors overview | **Shipped** | `competitors/page.tsx` — `KpiCard` strip; leaderboard inline share bars; topic “thinnest share” bars |
+| Co-mention | **Shipped** | `co-mention-section.tsx` — `FilterChips`, `ViewToggle` (table/chart), `MiniBarChart`, row strength bars |
+| Source trust | **Shipped** | `source-trust-section.tsx` — per-source citation proportion bars |
+| Local pressure | **Shipped** | `local-pressure-section.tsx` — `ComparisonBar`, `ViewToggle` (chart/table) |
+| Pages | **Shipped** | `pages-client.tsx` — summary `KpiCard` grid + `DonutRing` status mix |
+| History (`/results`) | **Shipped** | `results-client.tsx` — `KpiCard` strip; `PlatformSplit` + `DonutRing` when multi-platform / trust counts exist |
+| Today system details | **Shipped** | `today-client.tsx` — crawl + visibility metrics as `KpiCard` grids; secondary opportunities `ConfidenceBadge` |
+| Diagnostics polish | **Shipped** | `diagnostics/page.tsx` — `StatBlock` visual parity with KPI tiles; `StackedBar` for cluster status mix + verdict distribution |
+
+**Visual layer inventory:** **19** `.tsx` components in `src/components/viz/` **plus** `chart-types.ts` (interfaces only).
+
+### Abstraction Refactor — Visual + Data Swappability
+
+| Layer | Status | Key Files |
+|-------|--------|-----------|
+| Chart prop interfaces | **Shipped** | `src/components/viz/chart-types.ts` |
+| View models (5 domains) | **Shipped** | `src/lib/view-models/*.ts` |
+| Data adapter interfaces | **Shipped** | `src/lib/data-adapters/types.ts` |
+| Profound adapter (current) | **Shipped** | `src/lib/data-adapters/profound-adapter.ts` |
+| Adapter entry point | **Shipped** | `src/lib/data-adapters/index.ts` |
+
+**Swap points:**
+- Visual engine: replace `src/components/viz/*.tsx` implementations — consumers use `chart-types.ts` interfaces
+- Data source: create `native-adapter.ts` implementing `BeaconDataAdapters` — change import in `data-adapters/index.ts`
+- View models: `src/lib/view-models/*.ts` stay constant regardless of data or visual engine
+
+Full implementation map: see `master_execution_plan.md` Phase 24+ section and `architecture.md` Intelligence Expansion section.

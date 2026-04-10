@@ -1,5 +1,7 @@
 # Beacon Execution Plan — 2026-04-07
 
+**Current status (2026-04-10):** Phases 2–23 (attribution through nightly hardening), Shell A–H, Intelligence **24–30** (domains + scaffolds), and **Phase 31 / 31B / 31C** (viz primitives, Pulse, reports-as-data, abstraction layers, route visual saturation) are **reflected as shipped** in repo docs. **Phase 31** still has **partial** items (PDF export, notification badge queue, geo heat map Stage-2 UI). **Recommended next execution phase:** **Phase 32** (Ask Beacon + industry blueprints + training pipeline scaffold) *or* close remaining Phase 31 gaps first — see Phase 31 section below.
+
 ## Phase 2: Candidate Pruning + Evidence Tier Wiring — COMPLETE
 
 Auto-resolved: 6 → 13 (+117%). Review candidates: ~196 → 98 (-50%).
@@ -389,3 +391,340 @@ Attribution scoring, candidate discovery, recommendation generation, priority se
 ### Historical: remaining precision opportunities
 - 15 citation-supported but no-topic candidates — addressed by "strengthen" recs (Phase 10)
 - 1 opportunity in imported data → opportunity clustering mostly inactive
+
+---
+
+## Intelligence Expansion Roadmap — Phase 24 onward (2026-04-10)
+
+**Context:** Shell overhaul (Phases A–H) COMPLETE. Persistence (Phases 0–3E) COMPLETE. Attribution + product intelligence (Phases 5–23) COMPLETE. All surfaces premium and nightly-usable.
+
+**What follows:** Intelligence expansion — giving Beacon its own senses, deeper memory, and sharper reasoning. Features built in staged form: Stage 1 (Profound-backed), Stage 2 (Hybrid), Stage 3 (Native-powered).
+
+---
+
+### Phase 24 — Query Foundation + Co-mention + Outcome Unification
+
+**Objective:** Build the three foundational systems that everything else depends on: native querying infrastructure, competitive co-mention intelligence, and unified outcome memory.
+
+**Systems being built:**
+1. **Perplexity API client** — `src/lib/querying/perplexity-client.ts`
+2. **Answer snapshot storage** — `src/domains/answer-snapshots/types.ts`, store, server actions
+3. **Prompt library** — `src/domains/prompts/prompt-library.ts` (formalize 100 tracked prompts)
+4. **Co-mention computation** — `src/domains/competitors/co-mention.ts` (from existing citation cold store)
+5. **Outcome store** — `src/domains/product/outcome-store.ts` (unify rec responses + experiments + verdicts)
+
+**Features included (Stage 1):**
+- Native LLM querying (1.1) — Perplexity MVP, script runner
+- Prompt library (1.2) — formalized from Profound tracked prompts
+- Co-mention graph (3.1) — computed from existing 85K citation rows
+- Outcome database (6.1) — unified from existing scattered stores
+
+**Data layer:** Stage 1 (Profound-backed) for co-mention and outcomes. Stage 2 entry point (hybrid) for querying.
+
+**Dependencies:** Perplexity API key in `.env.local`. Existing cold store for citations. Existing recommendation/experiment stores.
+
+**What is NOT included:** Multi-model querying, genealogy, entity resolution, geographic intelligence, any new UI routes, any visualization work.
+
+**Success criteria:**
+- `npm run data:sample-visibility` calls Perplexity, stores answers in `answer_snapshots`
+- Co-mention matrix computed, top AI competitors identified
+- Outcome store queryable with ≥85 historical entries from existing data
+- Competitors page shows "AI-era competitors" section
+- Today shows outcome-enriched track record
+- `npm run check` passes
+
+---
+
+### Phase 25 — Citation Intelligence + Decay + Trust
+
+**Objective:** Build citation-level intelligence: genealogy matching, decay detection, source trust scoring. All computable from existing data.
+
+**Systems being built:**
+1. **Citation genealogy engine** — `src/domains/attribution/citation-genealogy.ts`
+2. **Citation decay model** — `src/domains/attribution/citation-decay.ts`
+3. **Source trust index** — `src/domains/competitors/source-trust.ts`
+4. **Recommendation engine extensions** — new rec types: `refresh_stale_citation`, `improve_source_trust`
+
+**Features included (Stage 1):**
+- Citation genealogy (2.1) — fuzzy matching against owned page content from snapshots
+- Citation decay (2.2) — exponential decay from time-series citation data
+- AI source trust index (3.2) — citation frequency by source domain per platform
+- Steal the snippet (2.3) — Stage 1 competitor citation analysis
+
+**Data layer:** Stage 1 (Profound-backed). Uses `citations-by-date/` cold store, `answer-texts.json` cold store, page snapshots.
+
+**Dependencies:** Phase 24 complete (answer snapshots exist for hybrid mode). Existing cold stores.
+
+**What is NOT included:** Multi-model comparison, entity extraction, geographic intelligence, visualization upgrades.
+
+**Success criteria:**
+- Genealogy matches found for ≥20% of owned citations
+- Decay alerts generated for pages with declining citation trends
+- Source trust ranking computed per platform
+- At least one new recommendation type generated from these signals
+- Pages detail shows genealogy evidence in disclosure
+- Today shows decay alerts in "What changed"
+- `npm run check` passes
+
+---
+
+### Phase 26 — Entity Foundation + Discrepancy Detection
+
+**Objective:** Build the entity layer (EntityForge) and wire discrepancy detection between AI claims and business truth.
+
+**Systems being built:**
+1. **Business truth config** — `src/domains/entity/business-truth.ts`
+2. **Entity store** — `src/domains/entity/entity-store.ts`
+3. **AI says vs reality engine** — `src/domains/entity/discrepancy-engine.ts`
+4. **Founder authority tracking** — `src/domains/entity/founder-tracking.ts`
+
+**Features included (Stage 1):**
+- Entity resolution / EntityForge (4.1) — internal consistency from page snapshots
+- AI says vs reality (4.2) — page content vs business truth comparison
+- Founder authority tracking (4.3) — name mention search in answer texts
+
+**Data layer:** Stage 1 (Profound-backed for answer text search). Stage 2 entry (native answers for discrepancy detection).
+
+**Dependencies:** Phase 25 (genealogy infrastructure for text matching). Business truth configuration (operator input).
+
+**What is NOT included:** Cross-platform entity resolution, automated repair, external data sources.
+
+**Success criteria:**
+- Business truth configuration stored and retrievable
+- Internal entity consistency flagged across owned pages
+- Founder name mentions counted from existing answer texts
+- Discrepancy warnings surface on Pages when detected
+- `npm run check` passes
+
+---
+
+### Phase 27 — Geographic + Local Intelligence
+
+**Objective:** Build the local wedge: city-normalized visibility, geographic coverage analysis, neighborhood pulse scaffold.
+
+**Systems being built:**
+1. **City normalization** — `src/domains/geography/city-normalize.ts`
+2. **Geographic coverage** — `src/domains/geography/geographic-coverage.ts`
+3. **Neighborhood pulse scaffold** — `src/domains/geography/neighborhood-pulse.ts`
+
+**Features included (Stage 1):**
+- Geographic heat map (5.1) — city-normalized coverage table (not map visualization yet)
+- Neighborhood pulse (5.2) — scaffold with geographic prompt patterns
+
+**Data layer:** Stage 1 (Profound-backed). Uses existing `city` field on Results + geo factor hierarchy.
+
+**Dependencies:** Phase 24 (prompt library for geographic prompt tagging).
+
+**What is NOT included:** Map visualization (Phase 31), external community data sources, multi-region support.
+
+**Success criteria:**
+- City normalization produces consistent taxonomy from existing Results
+- Geographic coverage table shows citation density by normalized city
+- Geographic gaps flagged (service pages without citations)
+- Opportunities shows geographic coverage section
+- `npm run check` passes
+
+---
+
+### Phase 28 — Journey + Structured Data + Beacon Score
+
+**Objective:** Build the journey mapping framework, structured data intelligence, and Beacon Score composite metric.
+
+**Systems being built:**
+1. **Journey taxonomy** — `src/domains/prompts/journey-stages.ts`
+2. **llms.txt generator** — `src/domains/pages/llms-txt.ts`
+3. **Beacon Score engine** — `src/domains/product/beacon-score.ts`
+4. **Conversion path scaffold** — types and empty store only
+
+**Features included (Stage 1):**
+- Custom journey (7.1) — journey stage tagging + coverage analysis
+- llms.txt / structured data (8.1) — recommendations + draft generation
+- Beacon Score (10.1) — composite metric with transparent dimensions
+- Conversion path (7.2) — scaffold (types + empty state)
+
+**Data layer:** Stage 1 (Profound-backed).
+
+**Dependencies:** Phase 24 (outcome store for Beacon Score dimension), Phase 25 (decay data for score dimension).
+
+**What is NOT included:** Journey simulation, conversion tracking (no data), auto-deployment.
+
+**Success criteria:**
+- 100 prompts tagged with journey stages
+- Journey coverage gaps identified
+- llms.txt draft generated for top-cited pages
+- Beacon Score computed with dimension breakdown
+- Today shows Beacon Score with transparency
+- `npm run check` passes
+
+---
+
+### Phase 29 — Competitive Expansion + Battlecards
+
+**Objective:** Deepen competitive intelligence with battlecards, overlap analysis, per-model intelligence, and prompt mining.
+
+**Systems being built:**
+1. **AEO battlecards** — `src/domains/competitors/battlecard-engine.ts`
+2. **Traditional vs AI overlap** — `src/domains/attribution/visibility-overlap.ts`
+3. **Per-model intelligence** — `src/domains/attribution/per-model-intelligence.ts`
+4. **Prompt mining engine** — `src/domains/prompts/prompt-miner.ts`
+
+**Features included (Stage 1):**
+- AEO battlecards (3.3) — auto-generated from existing competitive data
+- Traditional vs AI overlap (3.4) — from imported metric types
+- Per-model optimization (10.2) — per-platform citation profiles
+- Real prompt mining (1.3) — combinatorial expansion from existing data
+
+**Data layer:** Stage 1 (Profound-backed).
+
+**Dependencies:** Phase 24 (co-mention for battlecards), Phase 25 (trust index for per-model).
+
+**What is NOT included:** GSC API integration, model-specific recommendations (needs multi-model native data).
+
+**Success criteria:**
+- Battlecards generated for top 3 competitors
+- Overlap analysis computed for pages with both metric types
+- Per-platform citation profile computed
+- Prompt corpus expanded to 300+ candidates
+- `npm run check` passes
+
+---
+
+### Phase 30 — Advanced Intelligence + Scaffolds
+
+**Objective:** Build adversarial testing scaffold, what-if simulator, and remaining scaffold systems.
+
+**Systems being built:**
+1. **Adversarial prompt scaffold** — `src/domains/prompts/adversarial-prompts.ts`
+2. **What-if simulator** — `src/domains/product/what-if-simulator.ts`
+3. **Visual readiness scaffold** — `src/domains/pages/visual-readiness.ts`
+4. **Video citation layer scaffold** — `src/domains/pages/video-citations.ts`
+5. **Review-to-AI mapping scaffold** — `src/domains/entity/review-signals.ts`
+6. **Content syndication scaffold** — `src/domains/pages/content-syndication.ts`
+
+**Features included (Stage 1):**
+- Adversarial prompt stress (10.4) — template prompts + cold-store analysis
+- What-if simulator (6.2) — historical outcome summary (≥20 threshold)
+- Visual readiness (8.2) — image metadata extraction scaffold
+- Video citation layer (8.3) — YouTube URL flagging
+- Review-to-AI mapping (10.7) — review platform citation flagging
+- Content syndication (10.8) — syndication source identification
+
+**Data layer:** Stage 1 (Profound-backed + scaffold).
+
+**Dependencies:** Phase 24 (outcome store for what-if), Phase 25 (citation data for video/review).
+
+**What is NOT included:** Automated adversarial testing, prediction models, external API integrations.
+
+**Success criteria:**
+- Adversarial prompt templates defined in prompt library
+- What-if shows historical summary when data sufficient
+- Visual readiness indicators on page health
+- Video citation counts available
+- `npm run check` passes
+
+---
+
+### Phase 31 — Visualization + Reporting + Notifications
+
+**Objective:** Build the premium visualization layer, report generator, and notification system.
+
+**Status (2026-04-10 checkpoint):** **Largely shipped** for visualization + abstraction; **partial** for reporting/notifications/geo Stage-2 items below.
+
+**Shipped**
+- **Visual primitives** — `src/components/viz/*` (19 components + `chart-types.ts` contracts). Inline SVG/CSS, interactive hovers, `ViewToggle` / `FilterChips` patterns.
+- **Pulse** — `src/domains/product/pulse.ts` + Diagnostics banner (severity-sorted signals).
+- **Report generator (data layer)** — `src/domains/product/report-generator.ts` + types (structured JSON payloads; not operator PDF export).
+- **Beacon Score visual** — `beacon-score-visual.tsx` (bars ↔ radial).
+- **Route saturation** — Today, Pages, Competitors (main + co-mention / source trust / local pressure), History (`/results`), Diagnostics (StatBlock alignment + `StackedBar` for cluster + verdict readouts). See `architecture.md` navigation bullets and `VERIFICATION_LOG.md` (Phase 31B + 31C entries).
+- **Swappability** — `src/lib/view-models/*`, `src/lib/data-adapters/*` (`getAdapters()` / `createProfoundAdapters()`).
+
+**Partial / not yet as originally spec’d**
+- **PDF export** — not shipped from Today (no Puppeteer PDF path in product UI).
+- **In-app notification queue + Today badge** — `notifications` domain scaffold exists in roadmap; not wired as a first-class unread badge in nav per original success criteria.
+- **Geographic heat map (Stage 2)** — `HeatGrid` + `computeGeoHeatMap()` data shape exist; Competitors/Diagnostics still table-forward where geo is shown (no full-screen choropleth).
+- **Sparklines on every surface** — `KpiCard` can host `Sparkline` when time series exist; not all routes pass series data.
+
+**Systems originally listed (reality vs plan):**
+- Sparklines live under **`src/components/viz/sparkline.tsx`** (not `src/components/data/`).
+- Report generator lives under **`src/domains/product/report-generator.ts`** (not `src/lib/report-generator.ts`).
+
+**Dependencies:** Phase 27 (geo data for future heat map), Phases 24–30 (intelligence inputs).
+
+**Recommended next focus:** Close Phase 31 gaps *or* treat remaining items as Phase 31 follow-ups and start **Phase 32** (Ask Beacon + blueprints) once priorities are chosen — see `master_execution_plan.md` § “Intelligence expansion + visual terminal”.
+
+---
+
+### Phase 32 — Ask Beacon + Industry Blueprints + Training Pipeline
+
+**Objective:** Build the conversational intelligence layer, industry documentation, and training data scaffold.
+
+**Systems being built:**
+1. **Ask Beacon** — `src/domains/product/ask-beacon.ts` + command palette integration
+2. **Industry blueprints** — `src/domains/product/industry-blueprint.ts`
+3. **Training data pipeline scaffold** — `src/domains/pages/training-data.ts`
+
+**Features included:**
+- Ask Beacon (10.6) — query pattern matching + structured data lookup
+- Industry blueprints (10.5) — home-services blueprint from Beacon data
+- Training data pipeline (10.3) — crawl access tracking scaffold
+
+**Data layer:** All existing computed data.
+
+**Dependencies:** Phase 24-30 (all intelligence layers for Ask Beacon to query).
+
+**What is NOT included:** LLM-powered natural language parsing (Stage 2+), multi-vertical blueprints, Common Crawl analysis.
+
+**Success criteria:**
+- Command palette accepts Beacon queries with canned patterns
+- Home-services blueprint generated from outcome data
+- Crawl access status tracked per page
+- `npm run check` passes
+
+---
+
+### Phase 33 — Native Querying Expansion (Multi-Model)
+
+**Objective:** Expand native querying to ChatGPT and Gemini. All Stage 1 features begin upgrading to Stage 2 (hybrid).
+
+**Systems being built:**
+1. **ChatGPT API client** — `src/lib/querying/chatgpt-client.ts`
+2. **Gemini API client** — `src/lib/querying/gemini-client.ts`
+3. **Answer diff engine** — `src/domains/answer-snapshots/answer-diff.ts`
+4. **Multi-model comparison** — `src/domains/attribution/model-comparison.ts`
+
+**Features upgrading to Stage 2:**
+- All genealogy, trust, co-mention, per-model features gain multi-model data
+- Adversarial testing gains native sampling capability
+- AI says vs reality gains fresh answer text comparison
+
+**Dependencies:** API keys for ChatGPT and Gemini. Phase 24 (answer snapshot infrastructure).
+
+**Success criteria:**
+- Three models sampled nightly
+- Answer diffs computed across sampling runs
+- Per-model citation comparison available
+- Stage 2 features using hybrid data
+- `npm run check` passes
+
+---
+
+### Phase 34 — Full Native Intelligence (Stage 3 Upgrades)
+
+**Objective:** All features reach Stage 3 (native-powered) where applicable.
+
+**Features reaching Stage 3:**
+- Citation genealogy with real-time matching
+- AI says vs reality with automated discrepancy alerts
+- Per-model optimization with empirical recommendations
+- Co-mention with temporal drift detection
+- What-if simulator with predictive capability (if outcome volume sufficient)
+- Ask Beacon with LLM-powered natural language parsing
+- Adversarial testing as automated suite
+
+**Dependencies:** Phases 24-33 complete. 60+ days of native sampling data. 200+ outcomes in outcome store.
+
+**Success criteria:**
+- Profound dependency effectively eliminated for daily use
+- All intelligence layers running on owned data
+- Beacon Score includes all planned dimensions
+- `npm run check` passes

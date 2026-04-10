@@ -994,3 +994,624 @@
 ### Build verification (Shell Phase H)
 - `npx tsc --noEmit` — pass
 - `npm run build` — pass
+
+---
+
+## Intelligence Expansion — Master Plan Created (2026-04-10)
+
+### What was done
+- **Full product plan** written into `docs/master_execution_plan.md`: 10 feature clusters, 30+ features, each with Stage 1/2/3 definitions, upgrade path map
+- **Phased execution roadmap** written into `docs/NEXT_PHASE_EXECUTION_PLAN.md`: Phases 24–34 with objectives, dependencies, success criteria
+- **Architecture extensions** written into `docs/architecture.md`: 12 new data models, connection graph, persistence pattern, native querying architecture
+- **Implementation plan** written into `docs/HANDOFF_VERIFIED_STATE.md`: Phase 24 file-level implementation map
+
+### Feature clusters planned
+1. Query Intelligence (native querying, prompt library, prompt mining)
+2. Attribution / Genealogy (citation genealogy, citation decay, steal the snippet)
+3. Competitive Intelligence (co-mention graph, AI source trust, AEO battlecards, traditional vs AI overlap)
+4. Entity / Trust Layer (EntityForge, AI says vs reality, founder authority)
+5. Local / Geographic (geographic heat map, neighborhood pulse)
+6. Outcome / Learning (outcome database, what-if simulator)
+7. Journey / Conversion (custom journey, conversion path scaffold)
+8. Structured Data / Delivery (llms.txt, visual readiness, video citation)
+9. Visualization / Reporting (election-night viz, share generator, AI pulse notifications)
+10. Authority / Founder (Beacon Score, per-model intelligence, training pipeline, adversarial testing, blueprints, Ask Beacon, review mapping, content syndication)
+
+### Execution starting
+- **Phase 24** begins immediately: Perplexity client, answer snapshots, prompt library, co-mention graph, outcome store
+
+---
+
+## Phase 24 — Query Foundation + Co-mention + Outcome (2026-04-10)
+
+### Phase 24 — Module 1: Query Foundation — SHIPPED
+
+**Files created:**
+- `src/lib/querying/types.ts` — `AnswerSnapshot`, `QueryClient` interface, `SamplingRunConfig`, `CitationRef` types
+- `src/lib/querying/perplexity-client.ts` — Perplexity API client: auth, rate limit, response parsing, citation extraction, entity mention extraction
+- `src/domains/answer-snapshots/types.ts` — `AnswerSnapshot` domain type re-export
+- `src/domains/answer-snapshots/store.ts` — json-store persistence: `appendSnapshot`, `getSnapshotsByPrompt`, `getLatestSnapshots`, `getSnapshotSummary`
+- `src/domains/prompts/types.ts` — `LibraryPrompt`, `JourneyStage`, `PromptSource` types
+- `src/domains/prompts/journey-stages.ts` — Journey stage auto-classification from prompt text (awareness/consideration/comparison/decision/support/adversarial)
+- `src/domains/prompts/prompt-library.ts` — Managed prompt corpus store: `getActivePrompts`, `addPrompt`, `initFromTrackedPrompts`, `getLibrarySummary`
+
+### Phase 24 — Module 3: Co-mention Graph — SHIPPED
+
+**Files created:**
+- `src/domains/competitors/co-mention-types.ts` — `CoMentionEntry`, `CoMentionMatrix` types
+- `src/domains/competitors/co-mention.ts` — `computeCoMentionMatrix()` from citation cold store, `getAICompetitors()`, `getTopCoMentions()`, cached matrix persistence
+
+### Phase 24 — Module 4: Outcome Store — SHIPPED
+
+**Files created:**
+- `src/domains/product/outcome-types.ts` — `OutcomeRecord`, `OutcomeActionType`, `OutcomeSummary` types
+- `src/domains/product/outcome-store.ts` — Unified outcome persistence: `recordOutcome`, `resolveOutcome`, `getOutcomesByActionType/Pattern/Page`, `computeOutcomeSummary`, `backfillFromExistingData` (idempotent backfill from rec responses + experiments + scorecard verdicts)
+
+### Build verification (Phase 24 — foundation modules)
+- `npx tsc --noEmit` — pass (0 errors)
+- `npm run build` — pass (all routes)
+- `npm test` — pass (26/26 tests)
+- No existing files modified
+- No routes touched
+- No intelligence logic changed
+
+---
+
+## Phase 24 — Wiring (operational integration)
+
+**Date:** 2026-04-10
+
+### Task 1: Sampling Script — SHIPPED
+
+**Files created:**
+- `scripts/sample-visibility.ts` — Operational script that loads prompt library (auto-seeds from Profound if empty), calls Perplexity for each active prompt, stores answer snapshots. Supports `--dry-run`, `--limit N`, graceful per-prompt failure, summary totals.
+
+**Files modified:**
+- `package.json` — Added `data:sample` npm script
+
+**Verification:**
+- Dry-run tested: `npm run data:sample -- --dry-run --limit 3` — 100 prompts auto-seeded from Profound, 3 previewed
+- Script compiles and runs cleanly via `npx tsx`
+
+### Task 2: Competitors Co-mention Section — SHIPPED
+
+**Files created:**
+- `src/app/(shell)/competitors/co-mention-section.tsx` — Client component: progressive disclosure "AI-era competitors" section showing co-mention domains, strength, discovered/known status
+
+**Files modified:**
+- `src/app/(shell)/competitors/page.tsx` — Added co-mention computation (lazy, cached), imported and rendered `CoMentionSection` behind existing benchmark block
+
+### Task 3: Outcome Backfill + Today Wiring — SHIPPED
+
+**Files modified:**
+- `src/app/(shell)/page.tsx` — Added idempotent outcome backfill from recommendation responses, experiments, and scorecard verdicts; computes `outcomeSummary`; passes enriched track record to `TodayClient`
+- `src/app/(shell)/today-client.tsx` — Extended `TodayTrackRecord` type with `outcomeTotal`, `outcomePositiveRate`, `outcomeAvgDelta`; renders outcome intelligence quietly below existing track record line
+
+### Build verification (Phase 24 — wiring)
+- `npx tsc --noEmit` — pass (0 errors)
+- `npm run build` — pass (all 22 routes, static + dynamic)
+- `npm test` — pass (26/26 tests)
+- `npm run data:sample -- --dry-run --limit 3` — pass
+
+---
+
+## Phase 25 — Attribution Intelligence (genealogy, decay, trust, rec wiring)
+
+**Date:** 2026-04-10
+
+### Task 1: Citation Genealogy Foundation — SHIPPED
+
+**Files created:**
+- `src/domains/attribution/genealogy-types.ts` — `GenealogyMatch`, `GenealogyConfidence`, `PageGenealogyResult` types
+- `src/domains/attribution/citation-genealogy.ts` — `computePageGenealogy()`, `computeFullGenealogy()`, `summarizeGenealogy()`. Matches owned citations to page snapshots via URL exact, URL path, title overlap, heading overlap, FAQ overlap. Confidence tiers: high/medium/low/unknown. Never overclaims.
+
+**Confidence limitations:**
+- Stage 1 relies on URL matching and structural content overlap (titles, headings, FAQs) from page snapshots
+- Does NOT have full page body text for deep content matching
+- Does NOT attempt competitor-content genealogy
+- Content-based matching limited to URL path tokens vs snapshot metadata
+- When no confident match exists, reports "unknown" — does not fabricate
+
+### Task 2: Citation Decay Intelligence — SHIPPED
+
+**Files created:**
+- `src/domains/attribution/decay-types.ts` — `CitationDecayResult`, `DecayConfig`, `DecayStatus` types
+- `src/domains/attribution/citation-decay.ts` — `computeCitationDecay()` from citation cold store date shards, `getDecayAlerts()`, `summarizeDecay()`. Splits date range into halves, compares owned citation counts per page. Status: stable / soft_decline / meaningful_decline / insufficient_history.
+
+**Files modified:**
+- `src/app/(shell)/page.tsx` — Computes decay, passes `decayAlerts` into Today's `nextCandidates` for calm display
+
+**Confidence limitations:**
+- Trend detection only, not prediction
+- Binary period comparison (earlier half vs recent half) — not a rolling window
+- Pages with < 5 citations flagged as insufficient_history
+- Does not account for seasonal variation or import timing differences
+
+### Task 3: Source Trust Index — SHIPPED
+
+**Files created:**
+- `src/domains/competitors/source-trust-types.ts` — `SourceTrustEntry`, `PlatformTrustProfile`, `SourceTrustIndex` types
+- `src/domains/competitors/source-trust.ts` — `computeSourceTrustIndex()` from citation cold store, `summarizeTrustIndex()`. Per-platform domain frequency with owned rank and share.
+- `src/app/(shell)/competitors/source-trust-section.tsx` — Client component: progressive disclosure "Source reliance by platform" section with expandable per-platform cards
+
+**Files modified:**
+- `src/app/(shell)/competitors/page.tsx` — Computes trust index and renders `SourceTrustSection`
+
+**Confidence limitations:**
+- Reflects observed citation frequency, not confirmed algorithmic preference
+- Label: "frequently cited by" — not "trusted by"
+- Dependent on imported Profound citation data coverage
+- Platform attribution relies on prompt-answer-observation joins
+
+### Task 4: Recommendation Wiring — SHIPPED
+
+**Files modified:**
+- `src/domains/product/recommendation-engine.ts` — Added `refresh_stale_citation` recommendation type. Only fires for pages with meaningful_decline AND ≥3 recent citations. Added `decayResults` optional parameter.
+- `src/app/(shell)/page.tsx` — Passes decay results to recommendation engine
+- `src/app/(shell)/today-client.tsx` — Added `refresh_stale_citation` to rec type styling map
+
+**Anti-spam posture:**
+- Maximum 2 decay-based recs per computation
+- Only fires on meaningful_decline (≥30% drop), not soft
+- Requires minimum 3 current-period citations (avoids noise on thin data)
+- Skips pages that already have a rec from another source
+- Confidence capped at "medium" even for severe drops
+
+### Build verification (Phase 25)
+- `npx tsc --noEmit` — pass (0 errors)
+- `npm run build` — pass (all 22 routes, static + dynamic)
+- `npm test` — pass (26/26 tests)
+- 0 lint errors on all created/modified files
+
+---
+
+## Phase 26 — Entity + Representation Intelligence
+
+**Date:** 2026-04-10
+
+### Task 1: Entity Foundation — SHIPPED
+
+**Files created:**
+- `src/domains/entity/types.ts` — `BeaconEntity`, `BeaconEntityType` (brand/person/location/service), `EntitySource`, `EntityIndex`
+- `src/domains/entity/entity-extract.ts` — `extractEntities()` from page snapshots (location_terms, service_terms) + site config (brand) + PAO mentions (competitor brands from AI answers). `getOwnedEntities()`, `getExternalBrands()`, `summarizeEntities()`
+
+**Data sources used:**
+- Site config → brand name (owned)
+- Page snapshots → 14 locations, 13 services (owned)
+- Prompt-answer-observations → 1,821 unique mentions (brand entities from 9,596 AI answers)
+
+**Scope limitations:**
+- No full knowledge graph
+- No cross-platform identity stitching
+- No person/founder extraction yet (requires configuration — placeholder type exists)
+- No complex entity resolution — simple canonical name deduplication only
+
+### Task 2: AI Says vs Reality — SHIPPED
+
+**Files created:**
+- `src/domains/entity/discrepancy-types.ts` — `Discrepancy`, `DiscrepancyType`, `DiscrepancySeverity`, `DiscrepancyReport`
+- `src/domains/entity/discrepancy-detect.ts` — `detectDiscrepancies()` from entity index + PAO data + cold store answer texts
+
+**Detection types (conservative):**
+- `location_not_in_owned` — AI mentions a location not in owned page data
+- `service_not_in_owned` — AI mentions a service not in owned page data
+- `brand_omitted` — owned brand absent from ≥15% of relevant AI answers
+- `competitor_overrepresented` — competitor appears ≥3× more than owned brand
+
+**Safety measures:**
+- Minimum 20 answers required before any analysis runs
+- Minimum 3 occurrences per location/service before flagging
+- Language: "possible discrepancy", "may be missing" — never "wrong" or "hallucinated"
+- Two severity levels: notable (high evidence) and minor (lower evidence)
+- Two confidence levels: moderate (≥8 evidence points or ≥100 answers) and limited
+
+### Task 3: Integration — SHIPPED
+
+**Diagnostics (deep view):**
+- `src/app/(shell)/diagnostics/page.tsx` — New "Entity & representation intelligence" section at bottom of page with:
+  - Entity summary stats (total, owned, locations, services)
+  - External brands disclosure (competitor brands found in AI answers)
+  - Discrepancy report disclosure with severity-coded cards
+  - Calm, structured — no alarm language
+
+**Today (quiet signal):**
+- `src/app/(shell)/page.tsx` — Adds notable discrepancies to `nextCandidates` only if notable-severity discrepancies exist. Links to /diagnostics for investigation. Does not appear if data is thin or no notable signals.
+
+**What is NOT surfaced:**
+- Minor discrepancies do not appear on Today (only in Diagnostics)
+- No new routes created
+- No new nav items
+- No warning banners or alert systems
+- Signals only appear when meaningful
+
+### Build verification (Phase 26)
+- `npx tsc --noEmit` — pass (0 errors)
+- `npm run build` — pass (all 22 routes, static + dynamic)
+- `npm test` — pass (26/26 tests)
+- 0 lint errors on all created/modified files
+
+---
+
+## Phase 27 — Geographic Intelligence
+
+**Date:** 2026-04-10
+
+### Task 1: Geographic Normalization Foundation — SHIPPED
+
+**Files created:**
+- `src/domains/geo/types.ts` — `NormalizedCity`, `CityCoverage`, `GeoCoverageIndex`, `GeoConcentration`, `GeoGap`, `GeoHeatEntry`, `GeoHeatMap` types
+- `src/domains/geo/normalize.ts` — Deterministic city normalization with alias mapping, metro/sub-region assignment, confidence labeling. ~50 Bay Area cities + region terms. `normalizeCity()`, `normalizeCities()`, `isRegionTerm()`, `getMetro()`
+
+### Task 2: Local Coverage + Gap Intelligence — SHIPPED
+
+**Files created:**
+- `src/domains/geo/coverage.ts` — `computeGeoCoverage()` from pages + citation rollups + prompts. Computes per-city owned/competitor pages and citations, share %, coverage status (strong/moderate/weak/absent). `computeConcentration()` with HHI-based assessment. `computeGaps()` for markets with competitor presence and limited owned visibility. `computeGeoHeatMap()` for future heat map data. `summarizeGeoCoverage()` for compact display.
+
+**Data used:**
+- Page registry: 5,288 pages across ~50 unique cities (33 owned pages city-tagged, rest competitor)
+- Citation evidence index: per-page-and-topic rollups joined to city via page registry
+- Prompt library: 5 cities (active prompts)
+
+### Task 3: Geographic Surfacing — SHIPPED
+
+**Today:**
+- `src/app/(shell)/page.tsx` — Computes geo coverage, adds gap alert to nextCandidates if markets have competitor presence with limited owned visibility. Links to /diagnostics.
+
+**Competitors:**
+- `src/app/(shell)/competitors/page.tsx` — Computes competitor pressure cities, renders `LocalPressureSection`
+- `src/app/(shell)/competitors/local-pressure-section.tsx` — Progressive disclosure "Local competitive pressure" showing gap cities with competitor page counts, owned page counts, and status
+
+**Diagnostics:**
+- `src/app/(shell)/diagnostics/page.tsx` — Full "Geographic coverage" section with stat cards (markets tracked, strong coverage, gaps, concentration), concentration explanation, expandable city table with owned/competitor pages/citations/share/status, and gap disclosure with per-city explanations
+
+### Task 4: Heat Map Groundwork — SHIPPED
+
+- `GeoHeatEntry` and `GeoHeatMap` types defined in `src/domains/geo/types.ts`
+- `computeGeoHeatMap()` function in `src/domains/geo/coverage.ts` produces sorted city-level heat data with strength classification
+- No visual heat map built — data shape ready for future integration
+
+### Confidence limitations
+- City normalization is hardcoded for Bay Area — extensible but not auto-discovering
+- Region terms (bay area, silicon valley) are excluded from city-level analysis to avoid double-counting
+- Coverage status thresholds are heuristic (strong ≥50 citations, moderate ≥10, weak <10, absent = 0)
+- Concentration HHI is computed only from cities with owned citations — thin coverage may skew
+- Gap detection requires ≥5 competitor pages — avoids noise from scattered data
+- No geocoding or distance-based proximity — purely name-based matching
+
+### Build verification (Phase 27)
+- `npx tsc --noEmit` — pass (0 errors)
+- `npm run build` — pass (all 22 routes, static + dynamic)
+- `npm test` — pass (26/26 tests)
+- 0 lint errors on all created/modified files
+
+---
+
+## Phase 28 — Journey + Score + Extractability
+
+**Date:** 2026-04-10
+
+### Task 1: Journey Intelligence Foundation — SHIPPED
+
+**Files created:**
+- `src/domains/prompts/journey-coverage.ts` — `computeJourneyCoverage()` from prompt library. Computes per-stage prompt counts, pct, status (strong/moderate/weak/absent). Identifies strongest stage, weakest covered stage, absent core stages. Concentration warning if >80% in one stage. Summary assessment string.
+
+**Current data reality:** 92 consideration, 8 comparison, 0 in awareness/decision/support/adversarial. This is a real gap that the system correctly surfaces.
+
+### Task 2: Beacon Score Foundation — SHIPPED
+
+**Files created:**
+- `src/domains/product/beacon-score-types.ts` — `ScoreDimension`, `DimensionStatus`, `BeaconScoreResult` types
+- `src/domains/product/beacon-score.ts` — `computeBeaconScore()` with 6 independent dimensions: visibility strength (log-scaled citations), coverage breadth (topics + cities + stages), consistency (decay stability rate), competitive position (owned share), representation quality (discrepancy count), local strength (geo presence rate - gap penalty)
+
+**Score integrity:**
+- Each dimension independently computed with explicit sufficiency checks
+- `insufficient` status produces `null` value — no fake numbers
+- Composite only produced when ≥4/6 dimensions are sufficient
+- `partial` composite when 3+ dimensions have values but <4 sufficient
+- `unavailable` when <3 dimensions have any data
+- Summary string always explains the state honestly
+
+### Task 3: Structured Data / Extractability Layer — SHIPPED
+
+**Files created:**
+- `src/domains/pages/extractability.ts` — `analyzeExtractability()` per page: 6 factors (FAQ, schema, H2 structure, meta description, word count, direct answers) with weighted scoring. Grade: good/fair/needs_work/poor. Per-page suggestions tied to actual content gaps. `analyzeAllExtractability()` prioritizes high-citation low-score pages. `generateLlmsTxtDraft()` produces draft llms.txt from snapshot data. `summarizeExtractability()` for aggregate stats.
+
+### Task 4: Integration — SHIPPED
+
+**Diagnostics (deep view):**
+- Journey stage section: 4 core stage stat cards, assessment summary, missing stage warning
+- Beacon Score section: composite display (only if available), dimension breakdown with progress bars, sufficiency labels
+- Extractability section: aggregate stats, expandable page-by-page analysis with graded suggestions
+
+**Today (quiet signals):**
+- Journey gap: shows absent stages as next-move candidate only when ≥10 active prompts and absent core stages exist
+- No score shown on Today (not stable enough yet — composite depends on data sufficiency)
+
+**Pages:**
+- No per-page extractability indicator added yet — extractability analysis available in Diagnostics; per-page integration deferred to avoid clutter
+
+### Build verification (Phase 28)
+- `npx tsc --noEmit` — pass (0 errors)
+- `npm run build` — pass (all 22 routes, static + dynamic)
+- `npm test` — pass (26/26 tests)
+- 0 lint errors on all created/modified files
+
+---
+
+## Phase 29 — Competitive Intelligence (battlecards, snippets, signals)
+
+**Date:** 2026-04-10
+
+### Task 1: Competitive Battlecards — SHIPPED
+
+**Files created:**
+- `src/domains/competitors/battlecard-types.ts` — `CompetitorBattlecard`, `DimensionComparison`, `BattlecardDimension`, `BattlecardIndex`
+- `src/domains/competitors/battlecards.ts` — `computeBattlecards()` from citation index + co-mention + trust index + geo coverage. 5 comparison dimensions: citation share, topic pressure, co-mention frequency, geographic presence, platform reliance. Threat assessment: high/moderate/low. Max 8 cards, min 10 citations to qualify.
+
+**Files created (UI):**
+- `src/app/(shell)/competitors/battlecard-section.tsx` — Progressive disclosure "Competitive comparison" section with expandable per-competitor cards showing dimension-by-dimension advantage bars and pressure topics.
+
+### Task 2: Snippet Intelligence — SHIPPED
+
+**Files created:**
+- `src/domains/competitors/snippet-types.ts` — `SnippetSignal`, `SnippetSignalType`, `SnippetIntelligence`
+- `src/domains/competitors/snippet-intel.ts` — `computeSnippetIntelligence()` from owned extractability + citation index. 4 signal types: owned extractable patterns, extractability gaps, competitor citation context, strengthening opportunities. All signals labeled "grounded" or "inferred."
+
+### Task 3: Stronger Competitive Signals — SHIPPED
+
+Integrated into battlecards and snippet intelligence:
+- Strongest competitor by citation count + multi-dimensional comparison
+- Competitor pressure by topic (topics where competitor leads)
+- Competitor pressure by city (markets with weak owned presence)
+- Competitor citation context (topics where competitors dominate 3:1+)
+- Extractability comparison (owned page structure vs competitor citation patterns)
+
+### Task 4: Integration — SHIPPED
+
+**Competitors:**
+- `src/app/(shell)/competitors/page.tsx` — Computes battlecards from citation index + co-mention + trust + geo. Renders `BattlecardSection` behind progressive disclosure after local pressure.
+
+**Diagnostics:**
+- `src/app/(shell)/diagnostics/page.tsx` — New "Content intelligence" section with grounded + inferred snippet signals in separate disclosures.
+
+**Today:**
+- `src/app/(shell)/page.tsx` — High-priority extractability gaps added to nextCandidates. Only fires when snippet intelligence finds high-priority signals.
+
+### Confidence limitations
+- Battlecard dimensions are computed from imported Profound data — not native answer capture
+- Snippet intelligence does NOT scrape competitor pages or extract exact copied text
+- "Inferred" signals are labeled as such — reasoned from citation patterns, not directly provable
+- Geographic pressure in battlecards uses shared geo gap data — not per-competitor city breakdowns
+- Platform reliance shows only the most relevant platform per competitor to avoid noise
+- Topic pressure thresholds require ≥5 competitor citations and competitor lead to qualify
+
+### Build verification (Phase 29)
+- `npx tsc --noEmit` — pass (0 errors)
+- `npm run build` — pass (all 22 routes, static + dynamic)
+- `npm test` — pass (26/26 tests)
+- 0 lint errors on all created/modified files
+
+---
+
+## Phase 30 — Advanced Intelligence Scaffolds
+
+**Date:** 2026-04-10
+
+### Task 1: Adversarial Prompt Stress Foundation — SHIPPED
+
+**Files created:**
+- `src/domains/prompts/adversarial-types.ts` — `AdversarialCategory` (6 types), `AdversarialPromptTemplate`, `AdversarialReadiness`
+- `src/domains/prompts/adversarial.ts` — `seedAdversarialTemplates()` generates 10 templates across 6 categories (negative framing, skeptical comparison, omission pressure, trust challenge, cost scrutiny, alternative suggestion). `assessAdversarialReadiness()` checks library state. No adversarial testing has been performed — scaffold only.
+
+### Task 2: What-If Simulator Foundation — SHIPPED
+
+**Files created:**
+- `src/domains/product/whatif-types.ts` — `SimulationActionType` (9 types), `SimulationInput`, `HistoricalEvidence`, `SimulationResult`, `WhatIfReadiness`
+- `src/domains/product/whatif-engine.ts` — `computeEvidence()` maps outcome records to action types. `simulateAction()` only reports direction when ≥5 historical outcomes exist. `assessWhatIfReadiness()` checks overall data sufficiency. No fake forecasts — reports "insufficient data" honestly.
+
+### Task 3: Founder Authority Starter — SHIPPED
+
+**Files created:**
+- `src/domains/entity/founder-types.ts` — `FounderPresenceStatus` (4 states), `FounderProfile`, `FounderAuthorityResult`
+- `src/domains/entity/founder-authority.ts` — `assessFounderAuthority()` checks configured founders (`BEACON_FOUNDER_NAMES` env var) against PAO mention data. Distinguishes: not configured, configured but not observed, observed lightly (<5), observed repeatedly (≥5). No authority scores invented.
+
+### Task 4: Conversion-Path Placeholder — SHIPPED
+
+**Files created:**
+- `src/domains/product/conversion-path-types.ts` — `ConversionPathStage` (5 stages: prompt → answer → citation → visit → conversion), `ConversionPathEntry`, `ConversionPathSummary`
+- `src/domains/product/conversion-path.ts` — `assessConversionPathReadiness()` honestly reports which stages Beacon can observe (1-3) vs which require external integration (4-5). No fake funnel data.
+
+### Task 5: Training-Data Pipeline Scaffold — SHIPPED
+
+**Files created:**
+- `src/domains/product/training-data-types.ts` — `ContentVisibilityChannel` (6 channels), `ChannelReadiness`, `TrainingDataReadiness`
+- `src/domains/product/training-data.ts` — `assessTrainingDataReadiness()` checks website pages, structured data, llms.txt, sitemap, social profiles, directory listings. Reports active/partial/missing/unknown per channel. Does not claim to know what models have ingested.
+
+### Integration — SHIPPED
+
+**Diagnostics:**
+- `src/app/(shell)/diagnostics/page.tsx` — New "Advanced intelligence readiness" section showing scaffold status for all 5 systems. Each item shows label, readiness status (color-coded), and honest assessment. Founder detail disclosure when configured.
+
+**Today:** No new signals from scaffolds (correct — these are foundations, not active intelligence yet).
+
+### Build verification (Phase 30)
+- `npx tsc --noEmit` — pass (0 errors)
+- `npm run build` — pass (all 22 routes, static + dynamic)
+- `npm test` — pass (26/26 tests)
+- 0 lint errors on all created/modified files
+
+---
+
+## Phase 31 — Visual Intelligence Layer + Pulse + Report Foundation
+
+**Date:** 2026-04-10
+
+### Visual Primitive Components — SHIPPED (10 components)
+
+**Files created:**
+- `src/components/viz/score-rail.tsx` — Multi-segment score visualization with composite header. Handles insufficient/partial states with hatched patterns. Hover-interactive per-segment detail. Color-coded thresholds.
+- `src/components/viz/stacked-bar.tsx` — Proportional stacked segments per row. Hover reveals segment detail with percentage. Supports custom colors and totals.
+- `src/components/viz/rank-ladder.tsx` — Ranked entity list with proportional bars, badges, owned highlighting, hover metadata. Expandable beyond initial visible count.
+- `src/components/viz/delta-strip.tsx` — Previous→current change visualization with delta and percentage annotations. Color-coded positive/negative.
+- `src/components/viz/platform-split.tsx` — Proportional color strip for platform distribution with interactive legend. Platform-aware colors (emerald=ChatGPT, blue=AI Overviews, violet=Perplexity). Supports owned-position display.
+- `src/components/viz/coverage-trellis.tsx` — Small-multiples grid for geographic or categorical coverage. Status-colored chips (strong/moderate/weak/absent) with hover metadata. Built-in legend.
+- `src/components/viz/threat-meter.tsx` — 5-segment threat level indicator for competitive cards. Compact mode for inline use.
+- `src/components/viz/confidence-badge.tsx` — Reusable confidence/status badge for grounded/inferred/insufficient/partial states.
+- (Previously built) `src/components/viz/sparkline.tsx`, `mini-bar-chart.tsx`, `donut-ring.tsx`, `heat-grid.tsx`
+
+### Route Visual Upgrades — SHIPPED
+
+**Today (`today-client.tsx`):**
+- Visibility summary upgraded with `PlatformSplit` proportional strip — replaces text-only platform listing
+- Track record section replaced with visual `MiniBarChart` showing accepted/acted-on/validated/outcomes bars with hover metadata
+- Momentum header with avg citation delta highlight
+
+**Diagnostics (`diagnostics/page.tsx`):**
+- Pulse banner at top — aggregated signal summary from all intelligence layers with severity badges and linked events
+- Journey stage section now uses `DonutRing` + `MiniBarChart` side-by-side for stage distribution
+- Beacon Score section now uses `ScoreRail` — full dimension visualization with insufficient-data hatched patterns
+- Geographic section enhanced with `MiniBarChart` for city citations and `CoverageTrellis` for market-at-a-glance grid
+
+**Competitors (`competitors/battlecard-section.tsx`):**
+- Battlecard threat badges replaced with `ThreatMeter` visual indicator
+- Dimension comparison bars now show proportional owned-vs-competitor fill bars with percentage breakdown
+
+### Report Generator Foundation — SHIPPED
+
+**Files created:**
+- `src/domains/product/report-types.ts` — `BeaconReport`, `ReportSection` types
+- `src/domains/product/report-generator.ts` — `generateVisibilityReport()`, `generateCompetitiveReport()`, `serializeReport()` for JSON export
+
+### Pulse / Notification Foundation — SHIPPED
+
+**Files created:**
+- `src/domains/product/pulse-types.ts` — `PulseEvent`, `PulseEventType` (7 types), `PulseSeverity`, `PulseSummary`
+- `src/domains/product/pulse.ts` — `computePulse()` aggregates decay alerts, discrepancies, geo gaps, journey gaps, extractability gaps, and sampling freshness into deduplicated severity-sorted pulse events
+
+### Build verification (Phase 31)
+- `npx tsc --noEmit` — pass (0 errors)
+- `npm run build` — pass (all 22 routes, static + dynamic)
+- `npm test` — pass (26/26 tests)
+- 0 lint errors on all created/modified files
+
+---
+
+## Phase 31B — Maximum Visual Expansion
+
+**Date:** 2026-04-10
+
+### New Visual Primitives — SHIPPED (7 new, 17 total)
+
+| Component | Type | Interaction |
+|-----------|------|-------------|
+| `AreaChart` | Multi-series area/stacked area with grid | Crosshair hover, series readout, gradient fills |
+| `KpiCard` | KPI metric with optional sparkline + delta | Hover border, trend-aware color |
+| `ComparisonBar` | Owned-vs-competitor proportional bars | Hover expand, metadata reveal |
+| `RadialScore` | Radar/radial polygon for multi-dimensional scores | Hover per-dimension with slide-in detail |
+| `ViewToggle` | Segmented control for view mode switching | Pill transition, size variants |
+| `FilterChips` | Toggle chip system for multi-select filters | Active/inactive state, label prefix |
+| `VizSection` / `ChartTableSection` | Section wrappers with toggle controls | Collapsible, chart↔table toggle built in |
+
+### Route Visual Upgrades — SHIPPED
+
+**Today:**
+- KPI grid: 4 `KpiCard` cells (Citations with delta, Mentions, Platforms, Snapshots) replacing single text hero
+- Platform distribution: dedicated bordered section with `PlatformSplit`
+- Track record: visual `MiniBarChart` momentum bars
+- Impact signals: `ConfidenceBadge` replacing text confidence labels
+
+**Diagnostics:**
+- Beacon Score: toggleable `Bars` ↔ `Radial` view via `BeaconScoreVisual` client component with `ViewToggle`
+- RadialScore shows polygon visualization of all 6 score dimensions
+- ScoreRail shows bar visualization with insufficient-data hatching
+- Journey stages: `DonutRing` + `MiniBarChart` side-by-side
+- Geographic: `CoverageTrellis` grid + `MiniBarChart` city citations
+- Pulse banner with severity-coded event links
+
+**Competitors:**
+- Battlecard `ThreatMeter` visual indicators
+- Dimension comparison proportional fill bars
+
+### Build verification (Phase 31B)
+- `npx tsc --noEmit` — pass (0 errors)
+- `npm run build` — pass (all 22 routes, static + dynamic)
+- `npm test` — pass (26/26 tests)
+- 0 lint errors
+
+---
+
+## Abstraction Refactor — Visual + Data Swappability
+
+**Date:** 2026-04-10
+
+### 1. Standardized Chart Prop Interfaces — SHIPPED
+
+**File created:** `src/components/viz/chart-types.ts`
+
+Defines canonical prop interfaces for every chart type: `BarChartProps`, `AreaChartProps`, `DonutChartProps`, `ScoreViewProps`, `ComparisonProps`, `KpiProps`, `CoverageCell`, `RankEntryProps`, `HeatCellProps`, `ThreatLevel`, `ConfidenceLevel`, plus shared primitives (`ChartPoint`, `ChartSeries`).
+
+Any future chart library (Visx, Recharts, D3) implements these same interfaces — consumers don't change.
+
+### 2. Domain View-Model Adapters — SHIPPED
+
+**Files created:** `src/lib/view-models/` (6 files)
+- `visibility-vm.ts` — `visibilityKpis()`, `platformDonut()`, `platformBars()`
+- `score-vm.ts` — `scoreView()`, `scoreDimensions()`
+- `geo-vm.ts` — `geoKpis()`, `cityCoverageCells()`, `cityCitationBars()`, `cityComparisonBars()`
+- `journey-vm.ts` — `journeyDonut()`, `journeyBars()`
+- `competitors-vm.ts` — `coMentionBars()`, `trustRankEntries()`, `battlecardComparisons()`
+- `index.ts` — barrel export
+
+Each function takes domain computation output → returns chart-ready props conforming to `chart-types.ts` interfaces. Routes pass these to any chart implementation.
+
+### 3. Data Source Adapter Interfaces — SHIPPED
+
+**Files created:** `src/lib/data-adapters/` (3 files)
+- `types.ts` — 10 adapter interfaces: `VisibilityAdapter`, `GeoAdapter`, `JourneyAdapter`, `ScoreAdapter`, `CompetitiveAdapter`, `EntityAdapter`, `AttributionAdapter`, `OutcomeAdapter`, `SnippetAdapter`, `PulseAdapter` + `BeaconDataAdapters` bundle
+- `profound-adapter.ts` — Current implementation: `createProfoundAdapters()` delegates to existing stores with lazy computation caching
+- `index.ts` — `getAdapters()` entry point (the swap point)
+
+To swap data sources: create `native-adapter.ts` implementing same interfaces, change the import in `index.ts`.
+
+### Architecture properties established
+- **Visual swappability:** Chart components receive standardized props → replace SVG implementations with any library without touching routes or domain logic
+- **Data swappability:** Routes call `getAdapters()` → adapters abstract whether source is Profound, native querying, or hybrid → domain computations stay the same
+- **View-model separation:** No business logic in chart components, no data shaping in routes → view-model functions handle all transformation
+- **Lazy computation:** Adapters cache expensive computations (geo, decay, entity, co-mention) so multiple consumers don't recompute
+
+### Zero regression
+- All existing visuals unchanged
+- All existing routes unchanged
+- All existing data flows unchanged
+- `tsc --noEmit` — pass
+- `npm run build` — pass (all 22 routes)
+- `npm test` — pass (26/26 tests)
+- 0 lint errors
+
+---
+
+## 2026-04-10 — Phase 31C: Route visual saturation + documentation checkpoint
+
+### What shipped (UI only; same domain inputs)
+
+| Route / area | Change |
+|--------------|--------|
+| **Competitors** | `page.tsx`: `KpiCard` strip replaces text-only “At a glance”; leaderboard rows: inline share bar; topic “Thinnest share” uses bar + percent like other columns. |
+| **Co-mention** | `co-mention-section.tsx`: `FilterChips` (All / Known / Discovered); `ViewToggle` Table vs Chart; chart mode `MiniBarChart`; table rows: co-mention strength bar scaled to column max. |
+| **Local pressure** | `local-pressure-section.tsx`: default chart view `ComparisonBar` (your pages vs competitor pages); `ViewToggle` Chart vs Table. |
+| **Source trust** | `source-trust-section.tsx`: expanded source rows include proportional citation bar (owned / comp / neutral coloring). |
+| **Pages** | `pages-client.tsx`: top summary → four `KpiCard` + optional `DonutRing` for portfolio status mix (strong / building / follow up / low signal). |
+| **History** | `results-client.tsx`: “At a glance” → four `KpiCard`; below: `PlatformSplit` when multiple platforms; `DonutRing` for review-locked vs auto-cleared vs pending when counts exist. |
+| **Today** | `today-client.tsx`: system details — crawl block and visibility sample block use `KpiCard` grids; secondary opportunities use `ConfidenceBadge` for confidence. |
+| **Diagnostics** | `page.tsx`: `StatBlock` styling aligned with KPI visual language; cluster disclosure “By status” uses `StackedBar`; “Model outcome labels” uses `StackedBar` instead of per-row `Bar` only. |
+
+### Documentation (this checkpoint)
+
+Updated only: `docs/master_execution_plan.md` (new § under surface spec: Phases 24–31C + abstraction), `docs/NEXT_PHASE_EXECUTION_PLAN.md` (Phase 31 shipped vs partial), `docs/HANDOFF_VERIFIED_STATE.md` (31C table + primitive count), `docs/architecture.md` (nav bullets, Phase 31 component table, presentation + swap layers), `docs/VERIFICATION_LOG.md` (this entry).
+
+### Build verification (Phase 31C + docs)
+
+- `npx tsc --noEmit` — pass
+- `npm run build` — pass (22 routes)
+- `npm test` — pass (26/26)
+- No new markdown files created

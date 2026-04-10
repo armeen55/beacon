@@ -277,20 +277,39 @@ A trust-first AI visibility operating system for builder/home-services businesse
 
 | Surface | Route | Role | Key data sources |
 |---------|-------|------|-----------------|
-| **Today** | `/` | Default home. Observation strip + **DO THIS NOW** (Priority Engine: single enforced action, 0-100 score, bucket, expected outcome) + **impact signals** + **other opportunities** (collapsed) + work queue + verified fixes | `today-summary.ts`, `enrichWithImpact`, `computeRecommendations`, `rankAndSelect`, page issues, events, decisions, guardrails, snapshots, citation index, competitor universe |
-| **Your Website** | `/pages` | Execution workbench. Page list + issue tracking + verify actions | Page snapshots, issues, guardrails, render checks, frontier context |
+| **Today** | `/` | **KPI + platform strip** + **DO THIS NOW** + impact signals + watchlist + opportunities + work queue + **system details** (crawl/visibility as KPI grids) | `today-summary.ts`, `enrichWithImpact`, `computeRecommendations`, `rankAndSelect`, page issues, events, decisions, guardrails, snapshots, citation index, competitor universe |
+| **Your Website** | `/pages` | Execution workbench. **KPI + status donut** + page list/detail + verify actions | Page snapshots, issues, guardrails, render checks, frontier context |
 | **Gap ledger** | `/topics` | Typed opportunity gaps. Frontier list + detail drilldown | Frontier planner, compiler, citation index, competitor evidence |
 | **Gap detail** | `/topics/opportunity/[id]` | Single frontier detail with attack package + provenance | Frontier compiler, citation evidence, pages, competitor universe |
 | **Changes** | `/changes` | Change log + contracts + **impact table** (verdict, confidence, next action) | Change contracts, `computeScorecard`, `enrichWithImpact` |
 | **Change detail** | `/changes/[id]` | Single change: verdict + **impact assessment** + **"Apply this pattern"** (replicate recs for this change) + **"Strengthen this entry"** (evidence nudges) + event attributions | Scorecard row, `change-impact.ts`, `computeRecommendations`, event attributions |
 | **Review** | `/review` | Attribution decisions queue. Lock/reject/confirm per event | Events, candidates, triage, decisions |
-| **Sample history** | `/results` | Imported result rows with visibility run context | Results, visibility observation runs |
+| **Sample history** | `/results` | Imported rows + **KPI strip** + **platform / trust composition** visuals + filters | Results, drivers, visibility observation runs |
 | **Result detail** | `/results/[id]` | Single result with event linkage + match factors | Results, candidates, attributions |
 | **Import** | `/import` | Workbook/CSV import with progress | Import engine, workbook parser |
 | **Diagnostics** | `/diagnostics` | Pipeline debug. Full attribution/pattern/cluster analysis | All attribution + pattern + cluster + candidate domains |
 | **Draft ideas** | `/expansion` | Experimental. System-derived opportunity candidates | Opportunity candidates compute |
-| **Competitors** | `/competitors` | Competitor entity list | Competitors, competitor snapshots |
+| **Competitors** | `/competitors` | Citation benchmark + KPI strip + ranked threats + topic signals + co-mention / source trust / local pressure / battlecards (viz primitives) | Citation index, `computeMarketBenchmark`, co-mention, trust index, geo coverage, battlecards |
 | **Observations** | `/observations/[id]` | Run detail (website or visibility) | `resolveObservationById` → website or visibility run |
+
+### Intelligence expansion + visual terminal (Phases 24–31) — status as of 2026-04-10
+
+**Domains 24–30:** Shipped per `HANDOFF_VERIFIED_STATE.md` (sampling, co-mention, outcome store, genealogy, decay, source trust, entity/discrepancy, geo coverage, journey, Beacon Score, extractability, battlecards, snippet intel, advanced scaffolds).
+
+**Phase 31 — Visual intelligence + Pulse + reports:** Shipped — `src/components/viz/*` primitives (inline SVG/CSS, `"use client"`), Pulse (`pulse.ts`), report generator (`report-generator.ts`), Diagnostics/Today/Competitors battlecard wiring.
+
+**Phase 31B — Additional primitives + Today/Diagnostics polish:** Shipped — `AreaChart`, `KpiCard`, `ComparisonBar`, `RadialScore`, `ViewToggle`, `FilterChips`, `VizSection` / `ChartTableSection`, `BeaconScoreVisual` (bars↔radial).
+
+**Phase 31C — Route visual saturation (same checkpoint):** Shipped — consistent KPI + chart/table toggles + distribution visuals across major routes without changing domain logic or data:
+- **Competitors** (`page.tsx`, sections): KPI strip; leaderboard share bars; “Thinnest share” bars; co-mention `FilterChips` + `ViewToggle` + `MiniBarChart`; local pressure `ComparisonBar` + `ViewToggle`; source-trust per-row citation bars.
+- **Pages** (`pages-client.tsx`): top summary → `KpiCard` grid + `DonutRing` status mix.
+- **History** (`results-client.tsx`): “At a glance” → `KpiCard` strip; `PlatformSplit` + `DonutRing` for platform and trust mix (replaces prior StatCard-only row where data supports it).
+- **Today** (`today-client.tsx`): system details crawl + visibility counts → `KpiCard` grids; secondary opportunities use `ConfidenceBadge`.
+- **Diagnostics** (`page.tsx`): `StatBlock` restyled to align with KPI visual language; cluster status + verdict distributions use `StackedBar`.
+
+**Abstraction for future swaps (shipped):** `chart-types.ts` (prop contracts), `src/lib/view-models/*` (domain → chart props), `src/lib/data-adapters/*` (`getAdapters()` swap point; `createProfoundAdapters()` today). Routes may incrementally adopt view-models; charts remain swappable behind interfaces.
+
+**Opportunities route:** `/opportunities` redirects to `/topics` — no standalone visual surface.
 
 ---
 
@@ -1885,3 +1904,608 @@ Each step must be complete before the next. Do not optimize for broad market bef
 - **Trust:** Evidence visible without sounding like a changelog of the algorithm; uncertainty explicit but calm.
 
 **Verification (when implemented):** `npm run check`; visual regression pass on 17 static routes; keyboard/palette smoke test.
+
+---
+
+## BEACON FULL PRODUCT PLAN — INTELLIGENCE EXPANSION (2026-04-10)
+
+### Vision
+
+Beacon is an AI visibility operating system that **sees, remembers, and reasons**. The shell overhaul (Phases A–H) made every surface premium and calm. The persistence layer (Phases 0–3E) made data durable and switchable. The intelligence core (Phases 5–23) built attribution, recommendations, priority, track record, and experiments.
+
+The next expansion gives Beacon its own senses (query ownership), deeper memory (outcome flywheel), and sharper reasoning (genealogy, entity resolution, per-model intelligence). Every feature is designed in three stages: **Stage 1** works on current Profound-imported data; **Stage 2** mixes inferred and native signals; **Stage 3** runs on fully owned query data.
+
+No new top-level navigation items. No shell redesign. Intelligence layers first, surfaced through existing routes via progressive disclosure.
+
+---
+
+### CLUSTER 1 — QUERY INTELLIGENCE
+
+#### 1.1 Native LLM Querying
+
+**Purpose:** Own the data pipeline. Capture full answer text, citations, entities, framing, model-specific history directly from AI platforms.
+
+**Why it matters:** Every downstream feature (genealogy, discrepancy detection, entity extraction, per-model intelligence) improves when Beacon captures its own answers instead of relying on static Profound imports.
+
+**Stage 1 (Current — Profound):** All visibility data from Profound CSV/workbook imports. `answer-texts.json` (9,596 entries, cold store), `citations-by-date/` (85K rows, sharded cold store). Static snapshots, no freshness control.
+
+**Stage 2 (Hybrid):** Perplexity API sampling supplements Profound imports. Beacon-sampled answers stored in `answer_snapshots`. New results carry `source_system: "beacon_native"`. Today shows mixed freshness ("Beacon-sampled X hours ago" alongside "Imported"). Profound data remains the historical baseline.
+
+**Stage 3 (Native):** Multi-model sampling (Perplexity + ChatGPT + Gemini). Nightly automated runs via script or Inngest. Profound imports become optional historical archive. Full answer diffs between sampling runs. Model-specific citation tracking.
+
+**Dependencies:** Perplexity API key. `answer_snapshots` table/store. Prompt library (1.2).
+
+**Where it lives:** Infrastructure layer. No new route. `source_system` field on Results. Freshness indicator on Today visibility strip.
+
+**Feeds:** Every downstream feature. Co-mention, genealogy, discrepancy, entity extraction, decay, trust index, per-model intelligence.
+
+#### 1.2 Prompt Library
+
+**Purpose:** Formalize the prompt corpus as a managed, expandable, journey-tagged collection instead of a static CSV import.
+
+**Stage 1:** Extract and normalize the 100 tracked prompts from Profound import into a typed `prompt_library` store. Tag with topic, city, service type, journey stage (awareness/consideration/decision/support). Combinatorial expansion generates candidate prompts from topic × city × service matrices.
+
+**Stage 2:** Validate expanded prompts against native sampling — keep prompts that produce meaningful answers, archive those that don't.
+
+**Stage 3:** Prompt library becomes the sampling scheduler's input. Auto-expansion from discovered prompt patterns in answer text.
+
+**Dependencies:** Existing `tracked-prompts` from canonical store (100 rows).
+
+**Where it lives:** Import/System layer. Accessible from Diagnostics. Prompt counts in Today "At a glance."
+
+**Feeds:** Native querying target list, journey mapping, prompt mining, adversarial testing.
+
+#### 1.3 Real Prompt Mining
+
+**Purpose:** Discover actual prompts users ask — not guessed ones — by mining language patterns, topic/city/service combinations, and answer text patterns.
+
+**Stage 1:** Combinatorial mining from existing data: 12 topics × N cities × M service types × 4 journey stages. Pattern templates from the 100 Profound prompts (question structures, modifiers, qualifiers). Output: candidate prompt corpus ranked by expected coverage.
+
+**Stage 2:** Validate mined prompts against native sampling. Prompts that produce answers with owned citations are confirmed. Prompts that produce zero relevant results are archived. Confidence scoring per prompt.
+
+**Stage 3:** Continuous mining from answer text — extract question patterns that models answer, reverse-engineer likely user prompts. Feedback loop with outcome database.
+
+**Dependencies:** Prompt library (1.2). Topic/city/service data from existing Results.
+
+**Where it lives:** Intelligence layer → surfaces as expanded prompt coverage in Diagnostics. Mined prompts feed into Opportunities as coverage gaps.
+
+**Feeds:** Native querying expansion, coverage analysis, journey mapping.
+
+---
+
+### CLUSTER 2 — ATTRIBUTION / GENEALOGY
+
+#### 2.1 Citation Genealogy
+
+**Purpose:** Trace likely source ancestry of AI citations by comparing cited phrasing against owned + earned content corpus. Attribution for AI citations themselves.
+
+**Stage 1:** Fuzzy text matching between cold-store answer texts (9,596 entries) and owned page content (from 42 page snapshots). Confidence scoring: `exact_match` (verbatim phrase), `paraphrase` (high semantic overlap), `topical` (same topic, different wording), `unknown`. Output stored in `genealogy_evidence` keyed by citation URL + answer snapshot.
+
+**Stage 2:** Native answer text replaces cold-store texts. Owned content corpus expands with each crawl. Matching engine improves with more data points.
+
+**Stage 3:** Real-time genealogy on fresh native samples. Track genealogy drift over time (did the model change where it sources from?). Cross-model genealogy comparison.
+
+**Dependencies:** Answer text corpus (cold store now, native later). Page snapshot content (exists in `extractor.ts`). Text similarity computation.
+
+**Where it lives:** Intelligence layer → Pages detail disclosure ("Citation source evidence"). Diagnostics for system-wide genealogy stats.
+
+**Feeds:** Recommendation engine (strengthen source content), attribution confidence, steal-the-snippet analysis.
+
+#### 2.2 Citation Decay Model
+
+**Purpose:** Detect and predict citation freshness decline. Alert when owned pages are losing citations before it becomes visible in aggregate metrics.
+
+**Stage 1:** Exponential decay computation from `citations-by-date/` time series. Per-page citation trajectory using `freshness = exp(-ln(2) × age_days / half_life)`. Half-life defaults: citations 14d, content 30d. Decay alerts when freshness drops below 0.5 for pages with >5 historical citations.
+
+**Stage 2:** Decay predictions enriched with native sampling frequency. Faster detection from owned query cadence.
+
+**Stage 3:** Predictive decay model using historical decay patterns + content age + competitive pressure. "This page will likely lose its citation in ~N days" with confidence interval.
+
+**Dependencies:** `citations-by-date/` cold store (exists, 85K rows). Time series computation.
+
+**Where it lives:** Intelligence layer → Today "What changed" (decay alerts). Pages list (freshness indicator). Recommendation engine (`refresh_stale_citation` type).
+
+**Feeds:** Priority engine (decay urgency factor), recommendation engine, page health scoring.
+
+#### 2.3 Steal the Snippet Engine
+
+**Purpose:** Competitive extractability analysis. Show what models seem to pull from competitors, compare to owned copy, suggest stronger extractable alternatives.
+
+**Stage 1:** From existing citation data, identify competitor URLs cited for topics where the business competes. Compare competitor citation frequency to owned citation frequency per topic. Flag topics where competitors are cited 2x+ more. Cross-reference with page snapshot content to identify structural gaps (FAQ, schema, content depth).
+
+**Stage 2:** With native answer text, analyze what phrasing models extract from competitor citations. Compare sentence-level extractability between competitor and owned content.
+
+**Stage 3:** Full extractability scoring per paragraph. "This competitor paragraph scores 0.8 extractability; your equivalent scores 0.3. Suggested rewrite: [specific improvement]."
+
+**Dependencies:** Citation data (exists). Competitor URLs (exists in citations). Page snapshots for owned content (exists). Competitor content crawl (Stage 2+).
+
+**Where it lives:** Competitors page disclosure → "Citation intelligence" section. Pages detail → "Competitive extractability" for specific pages.
+
+**Feeds:** Recommendation engine (`improve_extractability` type), competitive gap analysis.
+
+---
+
+### CLUSTER 3 — COMPETITIVE INTELLIGENCE
+
+#### 3.1 Co-mention Graph
+
+**Purpose:** Reveal true AI-era competitors and adjacency relationships based on citation co-occurrence in AI answers.
+
+**Stage 1:** Co-occurrence matrix from `citations-by-date/` (85K rows). For each answer, collect all cited domains. Build domain-pair co-occurrence counts. Rank domains by co-mention frequency with the owned domain. Identify "AI competitors" not in configured universe. Compute co-mention strength (co-occurrences / total appearances).
+
+**Stage 2:** Native sampling provides fresh co-mention data. Trend tracking: is co-mention increasing or decreasing with a specific competitor?
+
+**Stage 3:** Full temporal co-mention graph with adjacency drift detection. Cross-model co-mention comparison. Topic-specific co-mention networks.
+
+**Dependencies:** `citations-by-date/` cold store (exists). `cold-store.ts` sharded reader (exists).
+
+**Where it lives:** Competitors page → "AI-era competitors" section. Co-mention data enriches `computeMarketBenchmark`.
+
+**Feeds:** Competitor discovery, AEO battlecards, competitive gap analysis.
+
+#### 3.2 AI Source Trust Index
+
+**Purpose:** Determine which sources each AI engine trusts by vertical, geography, and query type, based on citation frequency.
+
+**Stage 1:** From existing citation data, compute citation frequency by source domain per platform. Rank sources by "trust level" (citation_count / total_citation_slots) per platform. Identify platform preferences — which platform cites which sources most.
+
+**Stage 2:** Native sampling provides per-model granularity (ChatGPT vs GPT-4o vs Perplexity vs Gemini). Trust scores become model-specific.
+
+**Stage 3:** Trust index with temporal trends. Trust drift alerts. Vertical-specific trust benchmarks.
+
+**Dependencies:** Citation data with platform field (exists). Source domain extraction (exists in citation URLs).
+
+**Where it lives:** Intelligence layer → Competitors "Source trust" section. Diagnostics for system-wide trust analysis.
+
+**Feeds:** Recommendation engine (target high-trust patterns), competitive analysis.
+
+#### 3.3 AEO Battlecards
+
+**Purpose:** Competitive response playbooks showing how to displace specific competitors in AI answers.
+
+**Stage 1:** Auto-generated from existing data: competitor citation topics, owned gaps, structural differences (FAQ/schema), recommendation history. Template: "Competitor X is cited for [topic] — you are not. Gap: [structural issue]. Recommended: [action from rec engine]."
+
+**Stage 2:** Enriched with co-mention data, source trust intelligence, and extractability analysis.
+
+**Stage 3:** Dynamic battlecards updated with native sampling. "Since last week, Competitor X gained 3 new citations for [topic]. Your response: [prioritized action]."
+
+**Dependencies:** Competitive benchmark (exists). Recommendation engine (exists). Co-mention graph (3.1).
+
+**Where it lives:** Competitors page disclosure → per-competitor battlecard.
+
+**Feeds:** Operator decision-making, recommendation prioritization.
+
+#### 3.4 Traditional vs AI Overlap
+
+**Purpose:** Map where classic search visibility does and does not overlap with AI visibility.
+
+**Stage 1:** If traditional ranking data exists in imported Results (some `metric_type` values may include traditional search metrics), compute overlap matrix. For pages with both traditional rank and AI citations, flag: "Visible in search but invisible to AI" and vice versa. If no traditional data exists, scaffold the import column and show empty state.
+
+**Stage 2:** Add GSC CSV import support to workbook parser. Compute overlap from imported GSC + AI citation data.
+
+**Stage 3:** Native GSC API integration. Real-time overlap monitoring.
+
+**Dependencies:** Traditional ranking data (may exist partially in Results). Import pipeline column mapping.
+
+**Where it lives:** Pages → overlap indicator. Opportunities → "Not visible in AI" filter. Today → overlap summary stat.
+
+**Feeds:** Recommendation engine (AI-invisible pages with traditional rank are high-leverage targets).
+
+---
+
+### CLUSTER 4 — ENTITY / TRUST LAYER
+
+#### 4.1 Entity Resolution (EntityForge)
+
+**Purpose:** Cross-platform entity consistency. Identity confidence scoring. sameAs coherence. Disambiguation.
+
+**Stage 1:** Entity extraction from existing data: business name, domain, addresses, phone numbers, service types from page snapshots + configured site metadata. Build `entity_store` with canonical entity records. Detect inconsistencies across owned pages (different addresses, different phone numbers, different business names).
+
+**Stage 2:** Entity extraction from native answer text — how do models refer to the business? Build entity mention tracking across answers. Detect name variants and disambiguation issues.
+
+**Stage 3:** Cross-platform entity resolution. NAP consistency scoring. Schema.org entity coherence. sameAs link validation.
+
+**Dependencies:** Page snapshots (exists). Site config (exists). Business truth configuration (new).
+
+**Where it lives:** Intelligence layer → Pages "Entity health" indicator. Diagnostics for entity consistency report.
+
+**Feeds:** AI-says-vs-reality, founder tracking, structured data recommendations.
+
+#### 4.2 AI Says vs Reality
+
+**Purpose:** Nightly discrepancy engine between model claims and business truth. Hallucination and misrepresentation detection with repair suggestions.
+
+**Stage 1:** Define `business_truth` configuration store — key facts: business name, address(es), phone(s), hours, services offered, credentials, founding year, owner name. Compare against page snapshot content for internal consistency. Flag pages where own content contradicts business truth.
+
+**Stage 2:** Compare native answer text against business truth. Flag discrepancies: "ChatGPT says you're open until 9pm but your site says 6pm." Generate `correct_misrepresentation` recommendations.
+
+**Stage 3:** Automated discrepancy monitoring across all sampled models. Severity scoring. Repair action generation with specific content/schema changes.
+
+**Dependencies:** Business truth config (new, simple key-value). Answer text (cold store now, native later). Entity resolution (4.1).
+
+**Where it lives:** Intelligence layer → Today alerts (critical discrepancies only). Pages → discrepancy warnings. Recommendation engine new type.
+
+**Feeds:** Recommendation engine, page health, operator trust.
+
+#### 4.3 Founder Authority Tracking
+
+**Purpose:** Track person/entity authority as part of brand visibility in AI answers.
+
+**Stage 1:** Configure founder/key-person names in `business_truth` config. Search existing answer texts (cold store) for name mentions. Count and track mentions per platform.
+
+**Stage 2:** Native answer text provides fresher mention tracking. Trend analysis: is founder mention increasing or decreasing?
+
+**Stage 3:** Cross-model founder visibility comparison. Authority score composite. Person-entity schema recommendations.
+
+**Dependencies:** Business truth config (name entries). Answer text corpus. Entity resolution (4.1).
+
+**Where it lives:** Intelligence layer → Today (mention count if configured). Diagnostics for authority analysis.
+
+**Feeds:** Structured data recommendations (Person schema), content strategy.
+
+---
+
+### CLUSTER 5 — LOCAL / GEOGRAPHIC INTELLIGENCE
+
+#### 5.1 Geographic Heat Map
+
+**Purpose:** Visibility by city/area/service geography. Strategic geographic intelligence for local businesses.
+
+**Stage 1:** Normalize existing `city` field on Results into a city taxonomy using the existing geo factor's metro→city hierarchy. Compute citation metrics per normalized city. Output: geographic coverage table showing citation density by city. Flag geographic gaps (cities with service pages but no citations).
+
+**Stage 2:** Native sampling per-city provides fresher geographic data. Heat map visualization with relative intensity.
+
+**Stage 3:** Interactive geographic visualization. Temporal geographic trends. Geographic competitive intelligence overlay.
+
+**Dependencies:** City normalization (existing geo hierarchy in attribution). Results with city field (exists).
+
+**Where it lives:** Intelligence layer → Opportunities geographic section (disclosure). Today → geographic summary stat.
+
+**Feeds:** Recommendation engine (geographic gap recs), prompt mining (city-specific expansion).
+
+#### 5.2 Neighborhood Pulse
+
+**Purpose:** Local community question and signal mining relevant to the business's service geography.
+
+**Stage 1:** Scaffold only. Define `neighborhood_signals` store schema. Identify community question patterns from existing prompt corpus (questions containing city/neighborhood names). Flag geographic prompts that the business should be visible for but isn't.
+
+**Stage 2:** Integration with prompt mining — community-style questions (e.g., "best [service] near [neighborhood]") added to prompt library and validated via native sampling.
+
+**Stage 3:** External signal sources (Reddit, local forums, Q&A sites) for community question discovery. Signal freshness and relevance scoring.
+
+**Dependencies:** City normalization (5.1). Prompt library (1.2).
+
+**Where it lives:** Intelligence layer → Opportunities (geographic coverage gaps). Not a standalone route.
+
+**Feeds:** Prompt mining, geographic coverage analysis.
+
+---
+
+### CLUSTER 6 — OUTCOME / LEARNING SYSTEM
+
+#### 6.1 Outcome Database / Collective Learning Flywheel
+
+**Purpose:** Compounding action→result memory. Every recommendation response, experiment outcome, and scorecard verdict feeds a growing intelligence store.
+
+**Stage 1:** Unify existing scattered outcome data into a structured `outcome_store`: recommendation responses (accept/dismiss/defer from `recommendation-response-store`), experiment outcomes (status changes from `experiment-store`), scorecard verdicts (validated/partial/negative from `scorecard.ts`), track record matches (from `recommendation-tracker`). Schema: `outcome_id, action_type, action_detail, target_page, target_topic, started_at, resolved_at, verdict, citation_delta, confidence, source_signal_tier`. Queryable by action type, time period, pattern, page.
+
+**Stage 2:** Outcome store enriched with native sampling measurements. Pre/post citation comparisons become more precise with owned data.
+
+**Stage 3:** Statistical significance testing on outcomes. Pattern-level ROI estimation. Action-type success rate benchmarks.
+
+**Dependencies:** Existing stores: recommendation-response-store, experiment-store, scorecard, track record. No new external data.
+
+**Where it lives:** Intelligence layer → feeds priority engine, recommendation engine. Diagnostics → outcome summary section. Today → track record enhanced with outcome depth.
+
+**Feeds:** Priority engine (richer historical signal), recommendation engine (pattern confidence), what-if simulator (historical basis), Beacon Score (outcome dimension).
+
+#### 6.2 What-If Simulator
+
+**Purpose:** Simulate expected outcomes before acting, based on historical action→outcome patterns.
+
+**Stage 1:** Scaffold only. When outcome database has ≥20 outcomes for a pattern type, show "Based on N similar past actions: X% showed improvement within Y days, average citation delta: +Z." No prediction — pure historical summary. Display only when data is sufficient. "Insufficient data" label otherwise.
+
+**Stage 2:** Enriched with outcome store data. More patterns reach the 20-outcome threshold. Confidence intervals on historical summaries.
+
+**Stage 3:** Predictive simulation using outcome store + decay model + competitive pressure. "If you [action], expected outcome: [range] based on [N] similar actions."
+
+**Dependencies:** Outcome database (6.1) with sufficient volume (≥20 per pattern minimum).
+
+**Where it lives:** Today → primary action card disclosure "Historical outcomes for this action type." Not a standalone route.
+
+**Feeds:** Operator decision confidence. Priority engine validation.
+
+---
+
+### CLUSTER 7 — JOURNEY / CONVERSION LAYER
+
+#### 7.1 Custom Journey / Synthetic Customer Journey
+
+**Purpose:** Map the AI answer landscape across awareness, consideration, comparison, and decision prompt stages.
+
+**Stage 1:** Journey stage taxonomy: `awareness` (what is X), `consideration` (best X options), `comparison` (X vs Y), `decision` (reviews of X / hire X), `support` (how to X). Tag existing 100 tracked prompts with journey stage based on keyword patterns. Compute citation coverage per stage. Flag journey gaps: "You have citations in consideration but none in decision."
+
+**Stage 2:** Mined prompts expand each journey stage. Native sampling validates coverage per stage. Stage-transition analysis: are users likely to see you across the journey?
+
+**Stage 3:** Full journey simulation: run representative prompts at each stage, track citation presence, identify journey dropout points.
+
+**Dependencies:** Prompt library with journey tags (1.2). Citation data per prompt.
+
+**Where it lives:** Intelligence layer → Opportunities "Journey coverage" section. Today → journey gap alerts when critical.
+
+**Feeds:** Prompt mining (stage-specific expansion), recommendation engine (journey gap recs).
+
+#### 7.2 Conversion Path (Scaffold)
+
+**Purpose:** Map AI prompt → answer → citation → site visit → conversion chain. Honest about current measurement limitations.
+
+**Stage 1:** Scaffold only. Define the data model: `conversion_events` (page_url, referrer, timestamp, conversion_type). Show empty state with explanation: "Beacon tracks AI visibility and citations. Conversion tracking requires analytics integration." Provide UTM parameter recommendations for AI-referred traffic.
+
+**Stage 2:** If GA4 or analytics CSV import becomes available, ingest conversion data. Map citation pages to conversion pages. Compute citation→conversion correlation.
+
+**Stage 3:** Direct attribution chain from native AI answer → citation click → page visit → conversion.
+
+**Dependencies:** Analytics data (does not exist; scaffold only). UTM strategy documentation.
+
+**Where it lives:** Scaffold in architecture docs. No visible UI until data exists.
+
+**Feeds:** Future conversion-aware recommendation prioritization.
+
+---
+
+### CLUSTER 8 — STRUCTURED DATA / DELIVERY LAYER
+
+#### 8.1 llms.txt / Structured Data Layer
+
+**Purpose:** Make owned content maximally extractable by AI models through proper structured data and llms.txt.
+
+**Stage 1:** Extend existing FAQ/schema detection from page snapshots. New recommendation type `add_llms_txt` for pages with high citation counts but no llms.txt. Generate draft llms.txt content from page snapshot data (title, description, key topics, FAQ entries). Schema recommendation specificity: suggest exact Schema.org types based on page type (LocalBusiness, Service, FAQPage, HowTo).
+
+**Stage 2:** Monitor llms.txt adoption impact through citation changes post-implementation. Track schema deployment through crawl snapshots.
+
+**Stage 3:** Auto-generated llms.txt from page content analysis. Schema validation against AI model expectations. A/B testing of structured data variations.
+
+**Dependencies:** Page snapshots (exists). `extractor.ts` content extraction (exists). Recommendation engine (exists).
+
+**Where it lives:** Pages detail → "Structured data recommendations" disclosure. Recommendation engine new types.
+
+**Feeds:** Recommendation engine, page health scoring.
+
+#### 8.2 Visual Readiness (LensReady-style)
+
+**Purpose:** Assess image and visual content readiness for AI visual search and multimodal models.
+
+**Stage 1:** Scaffold. Extend page snapshot extraction to capture image metadata (alt text presence, image count, structured image data). Score: images without alt text, images without structured data, pages without any images.
+
+**Stage 2:** Visual readiness score per page. Recommendations for image optimization. Monitor visual search citation impact.
+
+**Stage 3:** Multimodal AI model testing — do models reference visual content? Visual extractability scoring.
+
+**Dependencies:** Page snapshot extraction (exists, needs image metadata extension).
+
+**Where it lives:** Pages → "Visual readiness" indicator in structure health. Recommendation engine new type `improve_visual_readiness`.
+
+**Feeds:** Page health, structured data recommendations.
+
+#### 8.3 Video Citation Layer (Scaffold)
+
+**Purpose:** Track and optimize YouTube and video content citations in AI answers.
+
+**Stage 1:** Scaffold. In citation data, flag URLs with youtube.com/youtu.be domains. Count video citations vs page citations. Store video citation metadata.
+
+**Stage 2:** Track video citation trends. Identify topics where video citations dominate.
+
+**Stage 3:** YouTube API integration. Video content optimization recommendations.
+
+**Dependencies:** Citation URL parsing (exists in citation data).
+
+**Where it lives:** Intelligence layer → Pages/Competitors video citation counts.
+
+**Feeds:** Content strategy recommendations.
+
+---
+
+### CLUSTER 9 — VISUALIZATION / REPORTING LAYER
+
+#### 9.1 Election-Night Visualizations
+
+**Purpose:** Premium data visualization that materially improves comprehension of visibility dynamics.
+
+**Stage 1:** Sparkline components for citation trends (tiny, inline, on Today/Pages/Competitors). Competitive share bars with motion (already partially exist on Competitors). Decay curve visualization per page. All using existing computed data — no new intelligence needed.
+
+**Stage 2:** Temporal comparison views. "Before/after" citation visualizations tied to changes. Co-mention network visualization (simple force graph).
+
+**Stage 3:** Real-time visualization during sampling runs. Live citation delta tracking. Competitive position animation over time.
+
+**Dependencies:** Charting component (lightweight — SVG sparklines, no heavy library). Existing computed data.
+
+**Where it lives:** Inline on existing routes. Today sparklines, Pages trend indicators, Competitors share visualization.
+
+**Feeds:** Operator comprehension. No computational value.
+
+#### 9.2 Share / Report Generator
+
+**Purpose:** Generate shareable report snapshots for stakeholders.
+
+**Stage 1:** Scaffold. Define report template: visibility summary, top citations, competitive position, recent changes, recommendations. Server-rendered HTML snapshot exportable as PDF via Puppeteer (already a dependency).
+
+**Stage 2:** Branded report templates. Scheduled report generation.
+
+**Stage 3:** Interactive shareable reports with filtered views.
+
+**Dependencies:** Puppeteer (exists in dependencies). Today summary data (exists).
+
+**Where it lives:** Utility — "Export report" action on Today page.
+
+**Feeds:** Stakeholder communication.
+
+#### 9.3 AI Pulse Notifications
+
+**Purpose:** Push notifications for significant visibility changes or alerts.
+
+**Stage 1:** Scaffold. Define notification types: citation spike, citation drop, new competitor detected, experiment result, decay alert. In-app notification queue stored in `notifications` json-store. Badge on Today showing unread notification count.
+
+**Stage 2:** Notifications generated from computation passes. Read/dismiss tracking.
+
+**Stage 3:** External notifications (email, Slack webhook). Configurable thresholds.
+
+**Dependencies:** Notification store (new json-store). Computation triggers from existing engines.
+
+**Where it lives:** Today → notification badge + disclosure section.
+
+**Feeds:** Operator attention management.
+
+---
+
+### CLUSTER 10 — AUTHORITY / FOUNDER / COMMUNITY
+
+#### 10.1 Beacon Score
+
+**Purpose:** Single composite metric for AI visibility health. Must be honest, multi-dimensional, and transparent about its basis.
+
+**Stage 1:** Define dimensions and weights. Candidate dimensions: citation_coverage (% of tracked prompts with at least one citation), platform_breadth (% of platforms where cited), content_readiness (% of owned pages with FAQ + schema), competitive_position (share vs top competitor), evidence_quality (% of changes with exact evidence tier), outcome_track_record (% positive outcomes). Each dimension 0-100, composite weighted average. Display with dimension breakdown. "Based on N data points" transparency. "Insufficient data" for any dimension below minimum threshold (5 data points).
+
+**Stage 2:** Trend tracking. Beacon Score delta over time. Dimension-specific improvement recommendations.
+
+**Stage 3:** Industry benchmarking (when multi-vertical data exists). Predictive score trajectory.
+
+**Dependencies:** Existing citation data, page snapshots, competitive benchmark, evidence tiers, outcome store (6.1).
+
+**Where it lives:** Today → hero metric (replacing or alongside citation count). Disclosure shows dimension breakdown.
+
+**Feeds:** Operator confidence, stakeholder communication, priority engine (score decline → urgency).
+
+#### 10.2 Per-Model Optimization Intelligence
+
+**Purpose:** Model-specific recommendations based on empirical evidence of what works differently across AI engines.
+
+**Stage 1:** From existing platform-tagged citation data, compute per-platform citation rates, source preferences, topic coverage. Flag platform-specific gaps: "You're cited on Perplexity for [topic] but not on ChatGPT." Output: per-platform visibility profile.
+
+**Stage 2:** Native multi-model sampling provides richer per-model data. Model-specific recommendation tags on existing recommendation types.
+
+**Stage 3:** Empirical per-model optimization strategies. "ChatGPT prefers [content pattern]. Perplexity prefers [different pattern]. Your page uses neither."
+
+**Dependencies:** Platform-tagged citation data (exists). Multi-model native sampling (Stage 2+).
+
+**Where it lives:** Intelligence layer → Today/Pages per-platform badges. Diagnostics per-model analysis section.
+
+**Feeds:** Recommendation engine (platform-specific tags), competitive analysis.
+
+#### 10.3 Training Data Pipeline (Scaffold)
+
+**Purpose:** Understand what enters model memory / crawl layers / source ecosystems.
+
+**Stage 1:** Scaffold only. Document what is known about model training data cuts. Track `robots.txt` and crawl access status for owned pages via existing crawl infrastructure. Store `crawl_access_status` per page from page snapshot.
+
+**Stage 2:** Monitor Common Crawl inclusion for owned domain. Track crawl frequency indicators.
+
+**Stage 3:** Training data inclusion estimation based on crawl signals + citation patterns.
+
+**Dependencies:** Page crawl data (exists in snapshots). robots.txt parsing (extends existing extractor).
+
+**Where it lives:** Pages → "Crawl access" indicator. Diagnostics for crawl access summary.
+
+**Feeds:** Page health, content accessibility scoring.
+
+#### 10.4 Adversarial Prompt Stress Testing
+
+**Purpose:** Test brand defense under negative, skeptical, or competitive prompts.
+
+**Stage 1:** Scaffold. Define adversarial prompt templates: "[business] complaints", "[business] vs [competitor]", "worst [service] in [city]", "problems with [business]". Store in prompt library with `adversarial` journey stage tag. If answer texts exist in cold store for any adversarial-pattern prompts, analyze them.
+
+**Stage 2:** Run adversarial prompts through native sampling. Score brand defense: positive mention, neutral, negative, absent. Track defense over time.
+
+**Stage 3:** Automated adversarial testing suite. Defense score as Beacon Score dimension. Repair recommendations for negative responses.
+
+**Dependencies:** Prompt library (1.2). Native querying (Stage 2+).
+
+**Where it lives:** Diagnostics → "Brand defense" section. Not a primary surface.
+
+**Feeds:** Beacon Score (defense dimension), content strategy.
+
+#### 10.5 Industry Blueprints
+
+**Purpose:** Vertical-specific AEO playbooks based on proven patterns.
+
+**Stage 1:** Scaffold. Document home-services vertical blueprint from existing Beacon data: proven change patterns, effective content types, platform preferences, competitive dynamics. Single blueprint, manually authored from Beacon intelligence.
+
+**Stage 2:** Blueprint generation from outcome database patterns. If sufficient data, auto-generate blueprint sections.
+
+**Stage 3:** Multi-vertical blueprints when Beacon serves multiple verticals.
+
+**Dependencies:** Outcome database (6.1). Sufficient pattern data.
+
+**Where it lives:** Documentation / Diagnostics. Not a product route.
+
+**Feeds:** Operator education, recommendation context.
+
+#### 10.6 Ask Beacon (Conversational Intelligence)
+
+**Purpose:** Natural language interface to Beacon's intelligence: "Why did my citations drop last week?" or "What should I fix on my roofing page?"
+
+**Stage 1:** Scaffold. Define query types: status queries ("how am I doing"), diagnostic queries ("why did X happen"), action queries ("what should I do about X"). Map each to existing computed data sources. Prototype: command palette integration with canned query patterns.
+
+**Stage 2:** LLM-powered query parsing. Natural language → structured Beacon data lookup → formatted response. Uses existing computed data, not raw LLM generation.
+
+**Stage 3:** Full conversational interface with context memory. Follow-up questions. Exportable conversation summaries.
+
+**Dependencies:** LLM API for query parsing. Existing computed data access layer.
+
+**Where it lives:** Command palette extension. Not a standalone route.
+
+**Feeds:** Operator productivity. No computational value.
+
+#### 10.7 Review-to-AI Signal Mapping (Scaffold)
+
+**Purpose:** Map how business reviews influence AI answer content.
+
+**Stage 1:** Scaffold. Define `review_signals` store schema. If review platforms (Google, Yelp) are mentioned in citation URLs, flag them. Count review-platform citations per topic.
+
+**Stage 2:** Review content import. Correlation between review themes and AI answer themes.
+
+**Stage 3:** Review optimization recommendations based on AI citation patterns.
+
+**Dependencies:** Citation URL analysis (exists). Review data import (scaffold).
+
+**Where it lives:** Intelligence layer. Not a visible route until data exists.
+
+**Feeds:** Content strategy.
+
+#### 10.8 Content Syndication (Scaffold)
+
+**Purpose:** Track content distribution across platforms that feed AI training.
+
+**Stage 1:** Scaffold. Identify content syndication targets from citation source analysis. Which external platforms cite the business? Track "earned" citations by source type.
+
+**Stage 2:** Syndication impact analysis. Does content on platform X lead to more AI citations?
+
+**Stage 3:** Syndication recommendations and tracking.
+
+**Dependencies:** Citation source analysis (exists).
+
+**Where it lives:** Intelligence layer → Competitors/Pages disclosure.
+
+**Feeds:** Content distribution strategy.
+
+---
+
+### UPGRADE PATH MAP — PROFOUND → NATIVE
+
+The transition from Profound-imported data to native-owned data is designed as a **swap, not a rewrite.**
+
+**Key principle:** Every computation module accepts a data source parameter (or reads from the repository layer). When native data arrives, it enters through the same schema — the `source_system` field distinguishes origin.
+
+**Swap sequence:**
+
+| Step | What changes | What stays the same |
+|------|-------------|-------------------|
+| 1. Perplexity client ships | New `answer_snapshots` store populated | All existing Profound data remains |
+| 2. Native Results created | `source_system: "beacon_native"` on new Result rows | Import pipeline unchanged; Profound results kept |
+| 3. Citation data refreshes | New citation rows from native sampling supplement `citations-by-date/` | Cold store format unchanged; sharding by date works for both sources |
+| 4. Answer text freshens | `answer_snapshots` replaces cold-store `answer-texts.json` as primary source for genealogy/discrepancy | Cold store remains as historical archive |
+| 5. Multi-model expands | `answer_snapshots` rows carry `model` field | Same schema; query filtering by model |
+| 6. Profound retires | Historical archive only; `source_system: "profound_import"` stops growing | No deletion; gradual irrelevance |
+
+**No store schema changes required.** The `source_system` field on Results, the `model` field on answer snapshots, and the `sampled_by` field on citations provide clean filtering at every computation boundary.
+
+**Repository layer handles the swap:** `SeedDataRepository` getters already abstract the storage backend. Native data enters the same tables (Supabase) and files (`.data/`) through the same dual-write paths. Consumers never know the difference.
