@@ -6,8 +6,15 @@ import type { OpportunityCandidate } from "@/domains/opportunity-candidates/type
 
 export function PromoteCandidateButton({
   candidate,
+  actionLabel = "Add draft opportunity",
+  pendingLabel = "Saving…",
+  successLabel = "Saved as draft",
 }: {
   candidate: OpportunityCandidate;
+  /** Expansion / quarantine surfaces use calmer, non-imperative copy. */
+  actionLabel?: string;
+  pendingLabel?: string;
+  successLabel?: string;
 }) {
   const [isPending, startTransition] = useTransition();
   const [promoted, setPromoted] = useState(false);
@@ -46,7 +53,7 @@ export function PromoteCandidateButton({
         }}
         className="text-[11px] font-medium text-accent-primary hover:text-accent-primary/80 transition-colors disabled:opacity-50"
       >
-        {isPending ? "Saving…" : "Add draft opportunity"}
+        {isPending ? pendingLabel : actionLabel}
       </button>
       {error && (
         <span className="text-[10px] text-status-danger">{error}</span>

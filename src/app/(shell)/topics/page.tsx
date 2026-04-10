@@ -33,6 +33,7 @@ import { refreshCompetitorEvidence } from "./package-actions";
 import { pageIssues } from "@/domains/pages/issues";
 import { launchAttackPackage, updatePackageStatus, updateMissingPageStatus } from "./package-actions";
 import { getSiteConfig } from "@/lib/site-config";
+import { PageHeader } from "@/components/data/page-header";
 import { latestWebsiteCrawlRun } from "@/domains/observations/read";
 import { citationRollupVisibilityRun } from "@/domains/observations/visibility-read";
 import { visibilitySampleStaleVsCrawl } from "@/domains/observations/staleness";
@@ -341,34 +342,47 @@ export default function TopicsPage() {
 
   return (
     <div className="max-w-5xl">
-      <div className="mb-4">
-        <h2 className="text-lg font-semibold tracking-tight">Opportunities</h2>
-        <p className="text-[12px] text-muted-foreground mt-0.5">
-          Topic-level gaps from citation analysis + scanner signals — not generic
-          recommendations. Each row shows an evidence class; open detail for the
-          basis. {topicRows.length} topic{topicRows.length !== 1 ? "s" : ""} ·{" "}
-          {events.length} imported visibility shift{events.length !== 1 ? "s" : ""}.
-          {" "}
-          {gapLedgerContext.competitorUniverse.origin === "empty_import_mode" &&
-          gapLedgerContext.competitorUniverse.activeConfiguredCount === 0
-            ? "No workspace competitor universe configured — competitor pressure lines are sample-only until you add `.data/competitor-universe.json`."
-            : gapLedgerContext.competitorUniverse.origin === "demo_defaults_explicit"
-              ? `Competitor universe: ${gapLedgerContext.competitorUniverse.activeConfiguredCount} active (explicit demo defaults).`
-              : `Competitor universe: ${gapLedgerContext.competitorUniverse.activeConfiguredCount} active (workspace file).`}
-        </p>
-      </div>
+      <PageHeader
+        title="Opportunities"
+        description="Pick a topic to see where you can win next — from citations, page scans, and visibility shifts. Detail panels stay optional."
+      />
 
-      <div className="flex items-center gap-3 mb-4 text-[10px] text-muted-foreground flex-wrap">
-        <span>
-          {unresolvedTopicCount} topic
-          {unresolvedTopicCount !== 1 ? "s" : ""} with unresolved Review items
-        </span>
-        {totalEasyCalls > 0 && (
-          <span className="text-foreground font-medium">
-            {totalEasyCalls} Review queue item{totalEasyCalls !== 1 ? "s" : ""}{" "}
-            with wider heuristic gap
+      <div className="mb-6 rounded-lg border border-border/60 bg-surface-raised/40 px-5 py-4">
+        <p className="text-xs font-medium text-muted-foreground mb-2">At a glance</p>
+        <div className="flex flex-wrap items-baseline gap-x-8 gap-y-2 text-sm">
+          <span>
+            <span className="font-bold tabular-nums">{topicRows.length}</span>
+            <span className="text-muted-foreground ml-1.5">topics</span>
           </span>
-        )}
+          <span>
+            <span className="font-semibold tabular-nums">{events.length}</span>
+            <span className="text-muted-foreground ml-1.5">visibility shifts in data</span>
+          </span>
+          {unresolvedTopicCount > 0 && (
+            <span className="text-status-warning font-medium tabular-nums">
+              {unresolvedTopicCount} with open Review work
+            </span>
+          )}
+          {totalEasyCalls > 0 && (
+            <span className="text-accent-primary font-medium tabular-nums">
+              {totalEasyCalls} likely quick win{totalEasyCalls !== 1 ? "s" : ""} in Review
+            </span>
+          )}
+        </div>
+        <details className="group/corpus mt-4 border-t border-border/40 pt-3">
+          <summary className="flex cursor-pointer list-none items-center gap-2 text-[11px] font-medium text-muted-foreground hover:text-foreground [&::-webkit-details-marker]:hidden">
+            <span className="text-[9px] text-muted-foreground/50 transition-transform group-open/corpus:rotate-90">▶</span>
+            Workspace &amp; competitor list context
+          </summary>
+          <p className="mt-2 text-[11px] text-muted-foreground leading-relaxed">
+            {gapLedgerContext.competitorUniverse?.origin === "empty_import_mode" &&
+            (gapLedgerContext.competitorUniverse?.activeConfiguredCount ?? 0) === 0
+              ? "No competitor list in `.data/competitor-universe.json` yet — competitive-pressure lines use the imported sample only until you configure one."
+              : gapLedgerContext.competitorUniverse?.origin === "demo_defaults_explicit"
+                ? `Using ${gapLedgerContext.competitorUniverse?.activeConfiguredCount ?? 0} demo competitor entries from the workspace file.`
+                : `Using ${gapLedgerContext.competitorUniverse?.activeConfiguredCount ?? 0} competitor(s) from your workspace file for labeled pressure.`}
+          </p>
+        </details>
       </div>
 
       <TopicsClient

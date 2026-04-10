@@ -125,53 +125,61 @@ export default async function ChangeScorecardPage() {
     <div>
       <PageHeader
         title="Changes"
-        description=""
+        description="Outcome intelligence first — log new work and match scans below when you need the record."
       />
 
-      <ChangeContractUI
-        contracts={sortedContracts}
-        onCreateContract={createChangeContract}
-        onVerifyContract={verifyChangeContract}
-      />
-
-      {/* Impact summary strip */}
-      {withEvents > 0 && (
-        <div className="mt-6 border border-border rounded-lg px-4 py-3 bg-surface-inset/30">
-          <p className="text-[11px] font-semibold text-muted-foreground mb-2">
-            Impact snapshot
-          </p>
-          <div className="flex items-center gap-4 text-[12px] flex-wrap">
-            <span><span className="font-semibold tabular-nums">{withEvents}</span> <span className="text-muted-foreground">changes with signal</span></span>
-            {highConfidence > 0 && (
-              <span><span className="font-semibold text-status-success tabular-nums">{highConfidence}</span> <span className="text-muted-foreground">high confidence</span></span>
-            )}
-            {operatorConfirmed > 0 && (
-              <span><span className="font-semibold text-status-success tabular-nums">{operatorConfirmed}</span> <span className="text-muted-foreground">operator confirmed</span></span>
-            )}
-            {beaconRecommendedCount > 0 && (
-              <span><span className="font-semibold text-accent-primary tabular-nums">{beaconRecommendedCount}</span> <span className="text-muted-foreground">Beacon recommended</span></span>
-            )}
-            {totalReplicationTargets > 0 && (
-              <span><span className="font-semibold tabular-nums">{totalReplicationTargets}</span> <span className="text-muted-foreground">replication targets</span></span>
-            )}
-          </div>
+      {/* Impact snapshot — leads the page */}
+      <div className="mb-6 rounded-lg border border-border/60 bg-surface-raised/40 px-5 py-4">
+        <p className="text-xs font-medium text-muted-foreground mb-2">At a glance</p>
+        <div className="flex flex-wrap items-baseline gap-x-6 gap-y-2 text-sm">
+          <span>
+            <span className="font-bold tabular-nums">{rows.length}</span>
+            <span className="text-muted-foreground ml-1.5">changes</span>
+          </span>
+          {withEvents > 0 && (
+            <span>
+              <span className="font-semibold tabular-nums">{withEvents}</span>
+              <span className="text-muted-foreground ml-1.5">with visibility signal</span>
+            </span>
+          )}
+          {highConfidence > 0 && (
+            <span className="text-status-success font-semibold tabular-nums">
+              {highConfidence} high-confidence impact
+            </span>
+          )}
+          {operatorConfirmed > 0 && (
+            <span className="text-muted-foreground">
+              <span className="font-semibold text-foreground tabular-nums">{operatorConfirmed}</span> confirmed in Review
+            </span>
+          )}
+          {beaconRecommendedCount > 0 && (
+            <span className="text-accent-primary font-medium tabular-nums">
+              {beaconRecommendedCount} Beacon-highlighted
+            </span>
+          )}
+          {totalReplicationTargets > 0 && (
+            <span className="text-muted-foreground tabular-nums">
+              {totalReplicationTargets} replication targets
+            </span>
+          )}
         </div>
-      )}
+      </div>
 
-      <details className="group mt-6" open>
-        <summary className="text-[11px] font-semibold text-muted-foreground cursor-pointer hover:text-foreground mb-2">
-          Full change table ({rows.length})
-        </summary>
-        <p className="text-[10px] text-muted-foreground mb-3">
-          Detailed view for digging into links between edits and visibility signals.{withEvents > 0 ? ` ${withEvents} changes tied to at least one signal.` : ""}{operatorConfirmed > 0 ? ` ${operatorConfirmed} with your confirmation in Review.` : ""}
-        </p>
-        <ScorecardTable
-          rows={rows}
-          allTopics={allTopics}
-          allPlatforms={allPlatforms}
-          changeIntel={changeIntel}
+      <ScorecardTable
+        rows={rows}
+        allTopics={allTopics}
+        allPlatforms={allPlatforms}
+        changeIntel={changeIntel}
+      />
+
+      <div className="mt-10 border-t border-border/50 pt-8">
+        <p className="text-xs font-medium text-muted-foreground mb-4">Records &amp; verification</p>
+        <ChangeContractUI
+          contracts={sortedContracts}
+          onCreateContract={createChangeContract}
+          onVerifyContract={verifyChangeContract}
         />
-      </details>
+      </div>
     </div>
   );
 }

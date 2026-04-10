@@ -128,15 +128,21 @@ export default function ImportPage() {
     <div className="max-w-3xl">
       <PageHeader
         title="Import"
-        description=""
+        description="Bring new visibility exports into Beacon — merges safely with what you already have. The measurement timeline lives in History."
       />
+
+      <p className="text-sm text-muted-foreground mb-6">
+        After a successful import, check{" "}
+        <Link href="/results" className="text-accent-primary font-medium hover:underline">
+          History
+        </Link>{" "}
+        for how samples line up over time, then return to Today for what changed.
+      </p>
 
       {/* ── 1. Coverage strip ── */}
       {coverage && (
-        <div className="rounded-lg border border-border bg-surface-raised/40 p-4 mb-6">
-          <p className="text-[10px] font-semibold text-muted-foreground mb-2">
-            Current data
-          </p>
+        <div className="rounded-lg border border-border/60 bg-surface-raised/40 px-5 py-4 mb-6">
+          <p className="text-xs font-medium text-muted-foreground mb-2">At a glance</p>
           <div className="flex items-baseline gap-4 flex-wrap">
             <div className="flex items-baseline gap-2">
               <span className="text-[18px] font-bold tabular-nums">{coverage.resultCount.toLocaleString()}</span>
@@ -152,10 +158,10 @@ export default function ImportPage() {
               </span>
             )}
           </div>
-          <div className="flex items-center gap-3 mt-2 text-[11px]">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-3 text-[11px] text-muted-foreground">
             {coverage.platforms.length > 0 && (
-              <span className="text-muted-foreground">
-                {coverage.platforms.length} platform{coverage.platforms.length !== 1 ? "s" : ""}
+              <span>
+                {coverage.platforms.length} platform{coverage.platforms.length !== 1 ? "s" : ""} in sample
               </span>
             )}
             {freshnessDays !== null && (
@@ -163,14 +169,17 @@ export default function ImportPage() {
                 "font-medium",
                 freshnessDays > 7 ? "text-status-warning" : freshnessDays > 3 ? "text-muted-foreground" : "text-status-success",
               )}>
-                {freshnessDays === 0 ? "Updated today" : freshnessDays === 1 ? "Updated yesterday" : `${freshnessDays} days since last data`}
+                {freshnessDays === 0 ? "Newest sample: today" : freshnessDays === 1 ? "Newest sample: yesterday" : `Newest sample: ${freshnessDays}d ago`}
               </span>
             )}
             {coverage.lastImportAt && (
-              <span className="text-muted-foreground/60 text-[10px]">
-                Last import: {new Date(coverage.lastImportAt).toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+              <span className="text-muted-foreground/80 text-[10px] tabular-nums">
+                Last import {new Date(coverage.lastImportAt).toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
               </span>
             )}
+            <Link href="/results" className="text-accent-primary font-medium hover:underline ml-auto">
+              Open History →
+            </Link>
           </div>
         </div>
       )}
@@ -178,8 +187,8 @@ export default function ImportPage() {
       {/* ── 2. Primary upload ── */}
       <div
         className={cn(
-          "rounded-lg border-2 border-dashed p-8 mb-6 text-center transition-colors",
-          dragOver ? "border-accent-primary bg-accent-primary/5" : "border-border hover:border-accent-primary/40",
+          "rounded-lg border border-dashed p-8 mb-6 text-center transition-colors",
+          dragOver ? "border-accent-primary bg-accent-primary/5" : "border-border/80 hover:border-accent-primary/35",
         )}
         onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
         onDragLeave={() => setDragOver(false)}
@@ -189,8 +198,8 @@ export default function ImportPage() {
         <p className="text-[14px] font-semibold mb-1">
           {dragOver ? "Drop your export here" : "Drop your Profound export (.xlsx)"}
         </p>
-        <p className="text-[11px] text-muted-foreground mb-4">
-          Beacon will import only new data. Existing rows are updated, not duplicated.
+        <p className="text-[12px] text-muted-foreground mb-4 leading-relaxed max-w-md mx-auto">
+          Beacon merges with your existing sample: new rows append, overlapping keys update. Nothing is silently duplicated.
         </p>
         <div className="flex items-center justify-center gap-3">
           <input
@@ -211,8 +220,8 @@ export default function ImportPage() {
       {/* ── 3. Import result ── */}
       {wbResult && (
         <div className={cn(
-          "rounded-lg border-2 p-5 mb-6 space-y-4",
-          wbResult.success ? "border-status-success/30 bg-status-success/5" : "border-status-danger/30 bg-status-danger/5",
+          "rounded-lg border p-5 mb-6 space-y-4",
+          wbResult.success ? "border-status-success/35 bg-status-success/[0.06]" : "border-status-danger/35 bg-status-danger/[0.06]",
         )}>
           <div className="flex items-center gap-2">
             {wbResult.success ? (
@@ -277,22 +286,29 @@ export default function ImportPage() {
 
           {wbResult.success && (
             <div className="space-y-2 pt-1">
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-3">
                 <Link
                   href="/"
-                  className="inline-flex items-center gap-2 rounded-md bg-foreground px-5 py-2.5 text-[12px] font-bold text-background hover:opacity-90 transition-opacity"
+                  className="inline-flex items-center gap-2 rounded-md bg-foreground px-5 py-2.5 text-[12px] font-semibold text-background hover:opacity-90 transition-opacity"
                 >
                   Back to Today <span className="opacity-60">→</span>
                 </Link>
+                <Link
+                  href="/results"
+                  className="inline-flex items-center gap-2 rounded-md border border-border px-4 py-2.5 text-[12px] font-medium text-foreground hover:bg-surface-inset transition-colors"
+                >
+                  View History <span className="text-muted-foreground">→</span>
+                </Link>
                 <button
+                  type="button"
                   onClick={() => setWbResult(null)}
                   className="text-[11px] text-muted-foreground hover:text-foreground transition-colors"
                 >
                   Dismiss
                 </button>
               </div>
-              <p className="text-[10px] text-muted-foreground">
-                Your visibility story and watchlist experiments will refresh with the new data.
+              <p className="text-[11px] text-muted-foreground leading-relaxed">
+                Today and Opportunities refresh from this evidence; History shows the dated timeline.
               </p>
             </div>
           )}
@@ -300,15 +316,16 @@ export default function ImportPage() {
       )}
 
       {/* ── 4. Advanced (collapsed) ── */}
-      <div className="border-t border-border pt-4">
+      <div className="border-t border-border/60 pt-6 mt-8">
         <button
+          type="button"
           onClick={() => setAdvancedOpen((v) => !v)}
-          className="flex items-center gap-2 text-[10px] font-semibold text-muted-foreground hover:text-foreground transition-colors w-full"
+          className="flex items-center gap-2 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors w-full text-left"
         >
-          <span className={cn("transition-transform text-[8px]", advancedOpen ? "rotate-90" : "")}>
+          <span className={cn("transition-transform text-[9px] text-muted-foreground/50", advancedOpen ? "rotate-90" : "")}>
             ▶
           </span>
-          Advanced import options
+          Advanced paths (CSV, manual paste, reset, import log)
         </button>
 
         {advancedOpen && (
@@ -382,9 +399,14 @@ export default function ImportPage() {
                   )}
 
                   {profoundResult.success && (
-                    <Link href="/" className="inline-flex items-center gap-2 rounded-md bg-foreground px-4 py-2 text-[11px] font-semibold text-background hover:opacity-90 transition-opacity">
-                      Back to Today <span className="opacity-60">→</span>
-                    </Link>
+                    <div className="flex flex-wrap gap-2">
+                      <Link href="/" className="inline-flex items-center gap-2 rounded-md bg-foreground px-4 py-2 text-[11px] font-semibold text-background hover:opacity-90 transition-opacity">
+                        Today <span className="opacity-60">→</span>
+                      </Link>
+                      <Link href="/results" className="inline-flex items-center gap-2 rounded-md border border-border px-4 py-2 text-[11px] font-medium hover:bg-surface-inset transition-colors">
+                        History <span className="text-muted-foreground">→</span>
+                      </Link>
+                    </div>
                   )}
                 </div>
               )}
@@ -461,7 +483,10 @@ export default function ImportPage() {
                     <CheckCircle2 className="h-4 w-4 text-status-success" />
                     <span className="text-[13px] font-medium">Imported {importResult.imported_count} rows{importResult.skipped_count > 0 && <span className="text-muted-foreground"> ({importResult.skipped_count} skipped)</span>}</span>
                   </div>
-                  <Link href="/" className="inline-flex items-center gap-2 text-[11px] text-accent-primary hover:underline font-medium">Back to Today →</Link>
+                  <div className="flex flex-wrap gap-3">
+                    <Link href="/" className="inline-flex items-center gap-2 text-[11px] text-accent-primary hover:underline font-medium">Today →</Link>
+                    <Link href="/results" className="inline-flex items-center gap-2 text-[11px] text-accent-primary hover:underline font-medium">History →</Link>
+                  </div>
                 </div>
               )}
             </div>
@@ -493,10 +518,17 @@ export default function ImportPage() {
 
             {/* Import history */}
             <div>
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-[13px] font-semibold">Import history</h3>
+              <div className="flex items-center justify-between mb-1">
+                <h3 className="text-[13px] font-semibold">Import log</h3>
                 <Button variant="ghost" size="sm" onClick={() => startTransition(async () => setRuns(await getImportRuns()))} disabled={isPending}>Refresh</Button>
               </div>
+              <p className="text-[11px] text-muted-foreground mb-3 leading-relaxed">
+                File runs on this workspace. For dated visibility rows across platforms, use{" "}
+                <Link href="/results" className="text-accent-primary font-medium hover:underline">
+                  History
+                </Link>
+                .
+              </p>
               {runs.length > 0 ? (
                 <div className="rounded-md border border-border overflow-hidden">
                   <Table>

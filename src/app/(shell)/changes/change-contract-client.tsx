@@ -89,6 +89,15 @@ const VERIFY_STATUS: Record<string, { label: string; color: string }> = {
   not_applicable: { label: "N/A", color: "text-muted-foreground" },
 };
 
+function verificationResultTone(vr: VerificationView): "success" | "warning" | "danger" {
+  const checkRows = vr.checkRows ?? [];
+  const hasMismatch = checkRows.some((r) => r.status === "did_not_match");
+  const hasMixed = hasMismatch && checkRows.some((r) => r.status === "matched");
+  if (hasMismatch && hasMixed) return "warning";
+  if (hasMismatch) return "danger";
+  return "success";
+}
+
 export function ChangeContractUI({ contracts, onCreateContract, onVerifyContract }: Props) {
   // Read prefill from URL params
   const urlPrefill = typeof window !== "undefined" ? (() => {
@@ -168,15 +177,8 @@ export function ChangeContractUI({ contracts, onCreateContract, onVerifyContract
   }
 
   return (
-    <div className="space-y-4 mt-4">
-      <p className="text-[10px] text-muted-foreground leading-relaxed border border-border/60 rounded-md px-3 py-2 bg-surface-inset/30">
-        <span className="font-medium text-foreground">What “check” means:</span> Beacon compares each contract to the{" "}
-        <span className="font-medium">latest saved page crawl</span> (Q&A count, structured data types, heading, HTTP status where applicable).{" "}
-        It does <span className="font-medium">not</span> re-fetch the live site in this step and is{" "}
-        <span className="font-medium">not</span> a full page QA pass.
-      </p>
-      {/* Action bar */}
-      <div className="flex items-center gap-2">
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-2">
         <button onClick={() => { setShowForm(true); setShowPaste(false); }} className="px-4 py-2 rounded-md bg-accent-primary text-white text-[11px] font-semibold hover:bg-accent-primary/90 transition-colors">
           Log a change
         </button>
@@ -184,9 +186,20 @@ export function ChangeContractUI({ contracts, onCreateContract, onVerifyContract
           Paste instructions
         </button>
         {contracts.length > 0 && (
-          <span className="text-[10px] text-muted-foreground ml-auto">{contracts.length} tracked change{contracts.length !== 1 ? "s" : ""}</span>
+          <span className="text-[10px] text-muted-foreground ml-auto tabular-nums">{contracts.length} saved record{contracts.length !== 1 ? "s" : ""}</span>
         )}
       </div>
+
+      <details className="group/check rounded-md border border-border/50 bg-surface-inset/15">
+        <summary className="cursor-pointer list-none px-3 py-2 text-[11px] font-medium text-muted-foreground hover:text-foreground [&::-webkit-details-marker]:hidden flex items-center gap-2">
+          <span className="text-[9px] text-muted-foreground/50 transition-transform group-open/check:rotate-90">▶</span>
+          How scan check works
+        </summary>
+        <p className="px-3 pb-3 text-[10px] text-muted-foreground leading-relaxed border-t border-border/40 pt-2">
+          Beacon compares each saved record to your <span className="font-medium text-foreground/90">latest stored crawl</span> (Q&amp;A count, structured data types, heading, HTTP status where relevant).
+          It does <span className="font-medium text-foreground/90">not</span> re-fetch the live site here and is <span className="font-medium text-foreground/90">not</span> a full QA pass — it is a fast consistency check against what Beacon already captured.
+        </p>
+      </details>
 
       {/* Paste flow */}
       {showPaste && (
@@ -272,115 +285,198 @@ export function ChangeContractUI({ contracts, onCreateContract, onVerifyContract
       {/* Saved contracts */}
       {contracts.length > 0 && (
         <div className="space-y-2">
-          <p className="text-[11px] font-semibold text-muted-foreground">Tracked changes</p>
           {contracts.map((c) => {
             const ar = READINESS_LABELS[c.attributionReadiness] ?? READINESS_LABELS.weak;
             const vs = VERIFY_STATUS[c.verificationStatus] ?? VERIFY_STATUS.pending;
-            return (
-              <div key={c.contractId} className="rounded-lg border border-border px-4 py-3 text-[10px]">
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="text-[11px] font-semibold text-foreground">{c.changeSummary}</span>
-                  <span className={cn("text-[9px] font-semibold shrink-0", ar.color)}>{ar.label}</span>
-                </div>
-                <div className="flex items-center gap-3 text-muted-foreground mb-2 flex-wrap">
-                  <span className="font-mono">{c.pageUrl}</span>
-                  <span>{CHANGE_TYPE_LABELS[c.changeType]}</span>
-                  {c.city && <span>{c.city}</span>}
-                  {c.dateLive && <span>Live: {new Date(c.dateLive).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>}
-                  <span className={cn("font-medium", vs.color)}>{vs.label}</span>
-                </div>
-                {c.businessGoal && <p className="text-muted-foreground mb-1"><span className="font-medium text-foreground">Why:</span> {c.businessGoal}</p>}
-                {c.intendedHypothesis && <p className="text-muted-foreground mb-1"><span className="font-medium text-foreground">Expected:</span> {c.intendedHypothesis}</p>}
-                {/* Verification result */}
-                {(() => {
-                  const vrRaw = verifyResults[c.contractId] ?? (c.verificationResult ? (() => { try { return JSON.parse(c.verificationResult) as VerificationView; } catch { return null; } })() : null);
-                  const vr = vrRaw;
-                  if (vr) {
-                    const rows = vr.checkRows ?? [];
-                    const hasMismatch = rows.some((r) => r.status === "did_not_match");
-                    const hasMixed = hasMismatch && rows.some((r) => r.status === "matched");
-                    return (
-                      <div className={cn(
-                        "rounded-md px-3 py-2 mt-2 border",
-                        hasMismatch ? (hasMixed ? "bg-status-warning/5 border-status-warning/20" : "bg-status-danger/5 border-status-danger/20") : "bg-status-success/5 border-status-success/20"
-                      )}>
-                        <p className={cn("text-[10px] font-semibold mb-2", hasMismatch ? (hasMixed ? "text-status-warning" : "text-status-danger") : "text-status-success")}>
-                          {vr.summary}
-                        </p>
-                        {rows.length > 0 ? (
-                          <div className="space-y-1.5">
-                            <p className="text-[9px] font-semibold text-muted-foreground uppercase tracking-wide">Each check</p>
-                            <ul className="space-y-1">
-                              {rows.map((row) => (
-                                <li key={row.id} className="text-[9px] flex gap-2 items-start">
-                                  <span className={cn(
-                                    "shrink-0 font-semibold w-[88px]",
-                                    row.status === "matched" && "text-status-success",
-                                    row.status === "did_not_match" && "text-status-danger",
-                                    row.status === "not_checked" && "text-muted-foreground"
-                                  )}>
-                                    {row.status === "matched" ? "Matched" : row.status === "did_not_match" ? "Did not match" : "Not checked"}
-                                  </span>
-                                  <span className="flex-1 min-w-0">
-                                    <span className="text-foreground font-medium">{row.label}</span>
-                                    {row.note && <span className="text-muted-foreground"> — {row.note}</span>}
-                                  </span>
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
-                        ) : (
-                          <>
-                            {vr.matched?.length > 0 && (
-                              <div className="space-y-0.5">
-                                <p className="text-[9px] text-muted-foreground font-medium">Re-run check for a line-by-line list (older result).</p>
-                                {vr.matched.map((m: string, i: number) => <p key={i} className="text-[9px] text-status-success">✓ {m}</p>)}
-                              </div>
-                            )}
-                            {vr.missing?.length > 0 && (
-                              <div className="space-y-0.5 mt-1">
-                                {vr.missing.map((m: string, i: number) => <p key={i} className="text-[9px] text-status-danger">✗ {m}</p>)}
-                              </div>
-                            )}
-                            {vr.skipped?.length > 0 && (
-                              <div className="space-y-0.5 mt-1">
-                                {vr.skipped.map((s: string, i: number) => <p key={i} className="text-[9px] text-muted-foreground">— {s}</p>)}
-                              </div>
-                            )}
-                          </>
-                        )}
-                      </div>
-                    );
-                  }
-                  return null;
-                })()}
+            const vrRaw =
+              verifyResults[c.contractId] ??
+              (c.verificationResult
+                ? (() => {
+                    try {
+                      return JSON.parse(c.verificationResult) as VerificationView;
+                    } catch {
+                      return null;
+                    }
+                  })()
+                : null);
 
-                {/* Check now button */}
-                <div className="flex items-center gap-2 mt-2">
-                  <button
-                    onClick={() => startTransition(async () => {
-                      const r = await onVerifyContract(c.contractId);
-                      if (r.success) setVerifyResults((prev) => ({ ...prev, [c.contractId]: r }));
-                    })}
-                    disabled={pending}
-                    className="px-3 py-1.5 rounded-md border border-accent-primary/30 text-accent-primary text-[10px] font-semibold hover:bg-accent-primary/10 transition-colors"
+            const verificationDetail =
+              vrRaw &&
+              (() => {
+                const vr = vrRaw;
+                const checkRows = vr.checkRows ?? [];
+                const hasMismatch = checkRows.some((r) => r.status === "did_not_match");
+                const hasMixed = hasMismatch && checkRows.some((r) => r.status === "matched");
+                const hasLegacyLists =
+                  (vr.matched?.length ?? 0) > 0 ||
+                  (vr.missing?.length ?? 0) > 0 ||
+                  (vr.skipped?.length ?? 0) > 0;
+                if (checkRows.length === 0 && !hasLegacyLists) return null;
+
+                return (
+                  <div
+                    className={cn(
+                      "rounded-md px-3 py-2 border",
+                      hasMismatch
+                        ? hasMixed
+                          ? "bg-status-warning/5 border-status-warning/20"
+                          : "bg-status-danger/5 border-status-danger/20"
+                        : "bg-status-success/5 border-status-success/20",
+                    )}
                   >
-                    {pending ? "Checking…" : c.verificationStatus === "pending" ? "Check now" : "Re-check"}
-                  </button>
-                  <span className="text-[9px] text-muted-foreground/40">
-                    Outcome window: {c.expectedOutcomeWindowDays} days
-                    {c.verifiedAt && ` · Last checked ${new Date(c.verifiedAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`}
-                  </span>
+                    {checkRows.length > 0 ? (
+                      <div className="space-y-1.5">
+                        <p className="text-[9px] font-medium text-muted-foreground">Checks</p>
+                        <ul className="space-y-1">
+                          {checkRows.map((row) => (
+                            <li key={row.id} className="text-[9px] flex gap-2 items-start">
+                              <span
+                                className={cn(
+                                  "shrink-0 font-semibold w-[80px]",
+                                  row.status === "matched" && "text-status-success",
+                                  row.status === "did_not_match" && "text-status-danger",
+                                  row.status === "not_checked" && "text-muted-foreground",
+                                )}
+                              >
+                                {row.status === "matched"
+                                  ? "OK"
+                                  : row.status === "did_not_match"
+                                    ? "Mismatch"
+                                    : "Skipped"}
+                              </span>
+                              <span className="flex-1 min-w-0">
+                                <span className="text-foreground font-medium">{row.label}</span>
+                                {row.note && <span className="text-muted-foreground"> — {row.note}</span>}
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : (
+                      <>
+                        {vr.matched?.length > 0 && (
+                          <div className="space-y-0.5">
+                            <p className="text-[9px] text-muted-foreground font-medium">Re-run check for line-by-line results (older save).</p>
+                            {vr.matched.map((m: string, i: number) => (
+                              <p key={i} className="text-[9px] text-status-success">
+                                ✓ {m}
+                              </p>
+                            ))}
+                          </div>
+                        )}
+                        {vr.missing?.length > 0 && (
+                          <div className="space-y-0.5 mt-1">
+                            {vr.missing.map((m: string, i: number) => (
+                              <p key={i} className="text-[9px] text-status-danger">
+                                ✗ {m}
+                              </p>
+                            ))}
+                          </div>
+                        )}
+                        {vr.skipped?.length > 0 && (
+                          <div className="space-y-0.5 mt-1">
+                            {vr.skipped.map((s: string, i: number) => (
+                              <p key={i} className="text-[9px] text-muted-foreground">
+                                — {s}
+                              </p>
+                            ))}
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                );
+              })();
+
+            const tone = vrRaw ? verificationResultTone(vrRaw) : null;
+
+            return (
+              <div key={c.contractId} className="rounded-lg border border-border/70 overflow-hidden text-[10px]">
+                <div className="flex flex-wrap items-start gap-3 px-3 py-2.5 bg-surface-inset/25">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[11px] font-semibold text-foreground leading-snug line-clamp-2">{c.changeSummary}</p>
+                    <p className="text-[9px] font-mono text-muted-foreground truncate mt-0.5">{c.pageUrl}</p>
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-1 text-[9px] text-muted-foreground">
+                      <span>{CHANGE_TYPE_LABELS[c.changeType]}</span>
+                      {c.city && <span>{c.city}</span>}
+                      {c.dateLive && (
+                        <span>
+                          Live {new Date(c.dateLive).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex flex-col items-end gap-1.5 shrink-0">
+                    <div className="flex flex-wrap justify-end gap-1.5 text-[9px]">
+                      <span className={cn("font-medium", ar.color)}>{ar.label}</span>
+                      <span className={cn("font-medium", vs.color)}>{vs.label}</span>
+                    </div>
+                    <button
+                      onClick={() =>
+                        startTransition(async () => {
+                          const r = await onVerifyContract(c.contractId);
+                          if (r.success) setVerifyResults((prev) => ({ ...prev, [c.contractId]: r }));
+                        })
+                      }
+                      disabled={pending}
+                      className="px-2.5 py-1 rounded-md border border-accent-primary/30 text-accent-primary text-[10px] font-semibold hover:bg-accent-primary/10 transition-colors"
+                    >
+                      {pending ? "Checking…" : c.verificationStatus === "pending" ? "Run check" : "Re-check"}
+                    </button>
+                    <span className="text-[9px] text-muted-foreground/70 text-right max-w-[200px]">
+                      {c.expectedOutcomeWindowDays}d window
+                      {c.verifiedAt &&
+                        ` · ${new Date(c.verifiedAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`}
+                    </span>
+                  </div>
                 </div>
 
-                {c.expectedVerification.length > 0 && !verifyResults[c.contractId] && c.verificationStatus === "pending" && (
-                  <details className="group mt-1">
-                    <summary className="text-[9px] text-muted-foreground/60 cursor-pointer hover:text-muted-foreground">What Beacon will check · {c.expectedVerification.length} items</summary>
-                    <div className="mt-1 space-y-0.5">
-                      {c.expectedVerification.map((v, i) => <p key={i} className="text-muted-foreground">☐ {v}</p>)}
-                    </div>
-                  </details>
+                {vrRaw?.summary && (
+                  <div
+                    className={cn(
+                      "px-3 py-1.5 border-t border-border/40 text-[10px] leading-snug",
+                      tone === "danger" && "bg-status-danger/[0.06] text-status-danger",
+                      tone === "warning" && "bg-status-warning/[0.06] text-status-warning",
+                      tone === "success" && "bg-status-success/[0.06] text-status-success",
+                    )}
+                  >
+                    {vrRaw.summary}
+                  </div>
                 )}
+
+                <details className="group/rec border-t border-border/50">
+                  <summary className="cursor-pointer list-none px-3 py-2 text-[10px] font-medium text-muted-foreground hover:bg-surface-inset/40 flex items-center gap-2 [&::-webkit-details-marker]:hidden">
+                    <span className="text-[8px] text-muted-foreground/50 transition-transform group-open/rec:rotate-90">▶</span>
+                    Context &amp; check detail
+                  </summary>
+                  <div className="px-3 pb-3 pt-0 space-y-2 border-t border-border/30 bg-background/40">
+                    {c.businessGoal && (
+                      <p className="text-muted-foreground leading-relaxed">
+                        <span className="font-medium text-foreground">Why it mattered:</span> {c.businessGoal}
+                      </p>
+                    )}
+                    {c.intendedHypothesis && (
+                      <p className="text-muted-foreground leading-relaxed">
+                        <span className="font-medium text-foreground">Expected lift:</span> {c.intendedHypothesis}
+                      </p>
+                    )}
+                    {verificationDetail}
+                    {c.expectedVerification.length > 0 && !verifyResults[c.contractId] && c.verificationStatus === "pending" && (
+                      <details className="group mt-1 rounded border border-border/40 px-2 py-1.5">
+                        <summary className="text-[9px] text-muted-foreground cursor-pointer hover:text-foreground list-none [&::-webkit-details-marker]:hidden">
+                          Planned checks ({c.expectedVerification.length})
+                        </summary>
+                        <div className="mt-1.5 space-y-0.5">
+                          {c.expectedVerification.map((v, i) => (
+                            <p key={i} className="text-[9px] text-muted-foreground">
+                              {v}
+                            </p>
+                          ))}
+                        </div>
+                      </details>
+                    )}
+                  </div>
+                </details>
               </div>
             );
           })}

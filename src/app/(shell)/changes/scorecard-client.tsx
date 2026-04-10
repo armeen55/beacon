@@ -81,10 +81,10 @@ const PLATFORM_SHORT: Record<string, string> = {
   perplexity: "Pplx",
 };
 
-const ROLE_COLORS: Record<string, string> = {
-  primary: "bg-status-success/15 text-status-success border-status-success/20",
-  contributing: "bg-status-warning/15 text-status-warning border-status-warning/20",
-  candidate: "bg-muted-foreground/10 text-muted-foreground border-border",
+const ROLE_DOT: Record<string, string> = {
+  primary: "bg-status-success",
+  contributing: "bg-status-warning",
+  candidate: "bg-muted-foreground/50",
 };
 
 const TRUST_DOT: Record<TrustSource, string> = {
@@ -205,24 +205,29 @@ export function ScorecardTable({
 
   return (
     <div>
-      {/* Summary stats */}
-      <div className="flex items-center gap-3 mb-4 text-[11px] flex-wrap">
-        {operatorConfirmedCount > 0 && (
-          <StatPill label="You confirmed" count={operatorConfirmedCount} color="text-status-success" />
-        )}
-        <StatPill label={changeVerdictLabel("validated")} count={verdictCounts.validated ?? 0} color="text-status-success" />
-        <StatPill label={changeVerdictLabel("partial")} count={verdictCounts.partial ?? 0} color="text-status-warning" />
-        <StatPill label={changeVerdictLabel("inconclusive")} count={verdictCounts.inconclusive ?? 0} color="text-muted-foreground" />
-        <StatPill label={changeVerdictLabel("no_impact")} count={verdictCounts.no_impact ?? 0} color="text-status-danger" />
-        {(verdictCounts.negative ?? 0) > 0 && (
-          <StatPill label={changeVerdictLabel("negative")} count={verdictCounts.negative ?? 0} color="text-status-danger" />
-        )}
-        <StatPill label={changeVerdictLabel("too_early")} count={verdictCounts.too_early ?? 0} color="text-muted-foreground" />
-      </div>
+      <details className="group/mix mb-4 rounded-md border border-border/50 bg-surface-inset/20 px-3 py-2">
+        <summary className="flex cursor-pointer list-none items-center gap-2 text-[11px] font-medium text-muted-foreground hover:text-foreground [&::-webkit-details-marker]:hidden">
+          <span className="inline-block text-[9px] text-muted-foreground/50 transition-transform group-open/mix:rotate-90">▶</span>
+          Outcome mix
+          <span className="text-[10px] font-normal text-muted-foreground/80 tabular-nums">
+            ({rows.length} total{operatorConfirmedCount > 0 ? ` · ${operatorConfirmedCount} confirmed in Review` : ""})
+          </span>
+        </summary>
+        <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1.5 text-[11px] pt-1 border-t border-border/40">
+          <StatPill label={changeVerdictLabel("validated")} count={verdictCounts.validated ?? 0} color="text-status-success" />
+          <StatPill label={changeVerdictLabel("partial")} count={verdictCounts.partial ?? 0} color="text-status-warning" />
+          <StatPill label={changeVerdictLabel("inconclusive")} count={verdictCounts.inconclusive ?? 0} color="text-muted-foreground" />
+          <StatPill label={changeVerdictLabel("no_impact")} count={verdictCounts.no_impact ?? 0} color="text-status-danger" />
+          {(verdictCounts.negative ?? 0) > 0 && (
+            <StatPill label={changeVerdictLabel("negative")} count={verdictCounts.negative ?? 0} color="text-status-danger" />
+          )}
+          <StatPill label={changeVerdictLabel("too_early")} count={verdictCounts.too_early ?? 0} color="text-muted-foreground" />
+        </div>
+      </details>
 
       {/* Filters */}
-      <div className="flex items-center gap-2 mb-3 text-[10px] flex-wrap">
-        <span className="text-muted-foreground font-medium">Filter:</span>
+      <div className="flex items-center gap-2 mb-3 text-[11px] flex-wrap">
+        <span className="text-muted-foreground font-medium">Refine</span>
         <FilterSelect
           value={verdictFilter}
           onChange={(v) => setVerdictFilter(v as ChangeVerdict | "all" | "actionable")}
@@ -241,7 +246,7 @@ export function ScorecardTable({
           value={tierFilter}
           onChange={(v) => setTierFilter(v as EvidenceTier | "all")}
           options={[
-            { value: "all", label: "All evidence levels" },
+            { value: "all", label: "All evidence" },
             { value: "exact", label: "Exact" },
             { value: "probable", label: "Probable" },
             { value: "weak", label: "Weak" },
@@ -278,7 +283,7 @@ export function ScorecardTable({
                 : "border-border text-muted-foreground hover:border-accent-primary/40"
             }`}
           >
-            Beacon recommended
+            Beacon picks only
           </button>
         )}
         <span className="text-muted-foreground ml-auto tabular-nums">
@@ -287,14 +292,14 @@ export function ScorecardTable({
       </div>
 
       {/* Table */}
-      <div className="border border-border rounded-lg overflow-hidden">
+      <div className="border border-border/70 rounded-lg overflow-hidden">
         <table className="w-full text-[12px]">
           <thead>
             <tr className="border-b border-border bg-surface-inset text-[10px] text-muted-foreground">
               <SortHeader field="date" current={sortField} dir={sortDir} onClick={handleSort}>
-                Date
+                When
               </SortHeader>
-              <th className="text-left px-3 py-2 font-medium">Change</th>
+              <th className="text-left px-2.5 py-1.5 font-medium">Work</th>
               <SortHeader field="verdict" current={sortField} dir={sortDir} onClick={handleSort}>
                 Outcome
               </SortHeader>
@@ -304,14 +309,14 @@ export function ScorecardTable({
               <SortHeader field="events" current={sortField} dir={sortDir} onClick={handleSort}>
                 Events
               </SortHeader>
-              <th className="text-left px-3 py-2 font-medium">Outcome Signals</th>
+              <th className="text-left px-2.5 py-1.5 font-medium">Linked</th>
               <SortHeader field="tier" current={sortField} dir={sortDir} onClick={handleSort}>
-                Evidence
+                Match
               </SortHeader>
               <SortHeader field="impact" current={sortField} dir={sortDir} onClick={handleSort}>
-                Impact
+                Lift
               </SortHeader>
-              <th className="text-left px-3 py-2 font-medium">What to do</th>
+              <th className="text-left px-2.5 py-1.5 font-medium">Next step</th>
             </tr>
           </thead>
           <tbody>
@@ -340,20 +345,18 @@ function ScorecardRowUI({ row, intel }: { row: ScorecardRowWithImpact; intel?: C
 
   return (
     <tr className={`border-b border-border last:border-b-0 hover:bg-surface-inset/50 transition-colors ${row.operatorConfirmedCount > 0 ? "bg-status-success/[0.03]" : ""}`}>
-      <td className="px-3 py-2.5 text-muted-foreground tabular-nums whitespace-nowrap align-top">
+      <td className="px-2.5 py-2 text-muted-foreground tabular-nums whitespace-nowrap align-top text-[11px]">
         {dateStr}
       </td>
-      <td className="px-3 py-2.5 align-top max-w-[320px]">
+      <td className="px-2.5 py-2 align-top max-w-[300px]">
         <Link
           href={`/changes/${ch.id}`}
           className="hover:text-accent-primary transition-colors"
         >
-          <p className="font-medium truncate">{ch.asset_name}</p>
-          <p className="text-[11px] text-muted-foreground mt-0.5 line-clamp-1">
-            {ch.change_description}
-          </p>
+          <p className="font-medium text-[12px] leading-snug line-clamp-2">{ch.asset_name}</p>
+          <ChangeDescriptionPreview text={ch.change_description} />
           {ch.url && (
-            <p className="text-[10px] font-mono text-muted-foreground/70 mt-0.5 truncate max-w-[280px]">
+            <p className="text-[10px] font-mono text-muted-foreground/70 mt-0.5 truncate max-w-[260px]">
               {ch.url}
             </p>
           )}
@@ -371,22 +374,22 @@ function ScorecardRowUI({ row, intel }: { row: ScorecardRowWithImpact; intel?: C
           </span>
         )}
       </td>
-      <td className="px-3 py-2.5 align-top whitespace-nowrap">
-        <div className="flex flex-col gap-1">
+      <td className="px-2.5 py-2 align-top whitespace-nowrap">
+        <div className="flex flex-col gap-0.5">
           <div className="flex items-center gap-1.5">
             <ChangeVerdictBadge verdict={row.verdict} />
           </div>
           {row.topTrust && (
             <span className="inline-flex items-center gap-1">
               <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${TRUST_DOT[row.topTrust]}`} />
-              <span className="text-[9px] font-medium text-muted-foreground">
+              <span className="text-[9px] text-muted-foreground">
                 {TRUST_SHORT[row.topTrust]}
               </span>
             </span>
           )}
         </div>
       </td>
-      <td className="px-3 py-2.5 align-top tabular-nums whitespace-nowrap">
+      <td className="px-2.5 py-2 align-top tabular-nums whitespace-nowrap">
         {row.topScore != null ? (
           <span className="font-medium">{Math.round(row.topScore)}</span>
         ) : (
@@ -398,26 +401,25 @@ function ScorecardRowUI({ row, intel }: { row: ScorecardRowWithImpact; intel?: C
           </span>
         )}
       </td>
-      <td className="px-3 py-2.5 align-top tabular-nums whitespace-nowrap">
+      <td className="px-2.5 py-2 align-top tabular-nums whitespace-nowrap">
         {row.totalEventsLinked > 0 ? (
           <span>{row.totalEventsLinked}</span>
         ) : (
           <span className="text-muted-foreground">0</span>
         )}
       </td>
-      <td className="px-3 py-2.5 align-top">
+      <td className="px-2.5 py-2 align-top">
         {row.eventAttributions.length > 0 ? (
-          <div className="flex flex-col gap-1">
+          <div className="flex flex-col gap-0.5">
             {row.eventAttributions.slice(0, 3).map((ea, i) => (
               <div key={i} className="flex items-center gap-1.5">
-                <span
-                  className={`text-[9px] font-semibold uppercase px-1 py-0.5 rounded border ${ROLE_COLORS[ea.role]}`}
-                >
+                <span className="inline-flex items-center gap-1 rounded border border-border/50 bg-background/80 px-1 py-0.5 text-[9px] font-medium text-muted-foreground">
+                  <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${ROLE_DOT[ea.role] ?? ROLE_DOT.candidate}`} />
                   {ea.role === "primary"
-                    ? "1°"
+                    ? "Primary"
                     : ea.role === "contributing"
-                    ? "2°"
-                    : "?"}
+                    ? "Also"
+                    : "Maybe"}
                 </span>
                 {ea.trustSource === "operator_confirmed" && (
                   <span className="h-1.5 w-1.5 rounded-full bg-status-success shrink-0" title="You confirmed in Review" />
@@ -437,21 +439,21 @@ function ScorecardRowUI({ row, intel }: { row: ScorecardRowWithImpact; intel?: C
             )}
           </div>
         ) : (
-          <span className="text-[11px] text-muted-foreground italic">
-            {row.verdict === "too_early" ? "Waiting…" : "No signals"}
+          <span className="text-[10px] text-muted-foreground">
+            {row.verdict === "too_early" ? "Waiting" : "—"}
           </span>
         )}
       </td>
-      <td className="px-3 py-2.5 align-top whitespace-nowrap">
-        <span className={`text-[11px] font-medium ${TIER_COLORS[row.evidenceTier]}`}>
+      <td className="px-2.5 py-2 align-top whitespace-nowrap">
+        <span className={`text-[10px] font-medium ${TIER_COLORS[row.evidenceTier]}`}>
           {TIER_LABELS[row.evidenceTier]}
         </span>
       </td>
-      <td className="px-3 py-2.5 align-top whitespace-nowrap">
+      <td className="px-2.5 py-2 align-top whitespace-nowrap">
         <ConfidenceBadge confidence={row.impact.confidence} />
       </td>
-      <td className="px-3 py-2.5 align-top max-w-[220px]">
-        <p className="text-[10px] text-muted-foreground line-clamp-2 leading-relaxed">
+      <td className="px-2.5 py-2 align-top max-w-[200px]">
+        <p className="text-[10px] text-muted-foreground line-clamp-2 leading-snug">
           {row.impact.nextAction}
         </p>
       </td>
@@ -475,7 +477,7 @@ function SortHeader({
   const active = current === field;
   return (
     <th
-      className="text-left px-3 py-2 font-medium cursor-pointer hover:text-foreground transition-colors whitespace-nowrap select-none"
+      className="text-left px-2.5 py-1.5 font-medium cursor-pointer hover:text-foreground transition-colors whitespace-nowrap select-none"
       onClick={() => onClick(field)}
     >
       {children}
@@ -518,14 +520,35 @@ function FilterSelect({
       onChange={(e) => onChange(e.target.value)}
       className="rounded border border-border bg-background px-1.5 py-0.5 text-[10px] text-foreground focus:outline-none focus:ring-1 focus:ring-accent-primary"
     >
-          {options.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
-          ))}
-        </select>
-      );
-    }
+      {options.map((o) => (
+        <option key={o.value} value={o.value}>
+          {o.label}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+function ChangeDescriptionPreview({ text }: { text: string }) {
+  const t = text?.trim() ?? "";
+  if (!t) return null;
+  const long = t.length > 96 || t.split(/\s+/).length > 14;
+  if (!long) {
+    return (
+      <p className="text-[10px] text-muted-foreground mt-0.5 line-clamp-2 leading-snug">{t}</p>
+    );
+  }
+  return (
+    <details className="group/desc mt-0.5 max-w-full">
+      <summary className="cursor-pointer list-none text-left [&::-webkit-details-marker]:hidden">
+        <span className="text-[10px] text-muted-foreground line-clamp-2 leading-snug group-open/desc:hidden">{t}</span>
+        <span className="hidden text-[10px] text-muted-foreground leading-snug group-open/desc:block whitespace-pre-wrap break-words">{t}</span>
+        <span className="mt-0.5 block text-[9px] text-accent-primary/90 group-open/desc:hidden">Full description</span>
+        <span className="mt-0.5 hidden text-[9px] text-muted-foreground group-open/desc:block">Tap to collapse</span>
+      </summary>
+    </details>
+  );
+}
 
 function ConfidenceBadge({ confidence }: { confidence: ImpactConfidence }) {
   return (

@@ -325,9 +325,13 @@ Shipped:
 | **C** | Today: single hero story, trust without overload, replace `prompt()`, CTA consolidation |
 | **D** | Pages: list/detail productization, fewer nested disclosures, vocabulary alignment |
 | **E** | Changes: section order, table scanability, contract card hierarchy |
-| **F** | Competitors, Opportunities/Topics, Review: narrative deduplication, plain language |
-| **G** | Import, History, Diagnostics, Expansion: advanced vs primary paths, confirm flows |
-| **H** | Watchlist/experiments: full status UI, collapsed watch copy, row freshness |
+| **F1** | Competitors list: threat-first hierarchy, table scan, topic frame, next moves |
+| **F2** | Opportunities (`/topics`): plain-language framing, strip, disclosures, scan hierarchy |
+| **F3** | Review: judgment-first layout, calmer queue, disclosures, decisive CTAs |
+| **G1** | Import + History: measurement-layer framing, cross-links, calmer hierarchy, disclosures |
+| **G2** | Diagnostics: specialist system brief, at-a-glance, disclosures, shell-aligned chrome |
+| **G3** | Expansion: quarantined backlog framing, adjacent collapsed, non-imperative CTAs |
+| **H** | Today watchlist: brief-style cards, status pills, disclosures, optional outcome controls |
 
 ### What must NOT be touched in shell work
 Attribution scoring, candidate discovery, recommendation generation, priority selection, track record math, experiment outcome rules, Supabase/dual-write, import file formats — unless a **display bug** requires a typed field from the server.
@@ -340,7 +344,17 @@ Attribution scoring, candidate discovery, recommendation generation, priority se
 
 **Shell Phase A** — COMPLETE (2026-04-10). Next agent: start **Shell Phase B** (navigation + IA + shortcuts + palette consistency).
 
-**Shell Phase C** — COMPLETE (2026-04-10). Today page hierarchy overhauled: primary action card sculpted (flowing prose, consolidated metadata, cleaner CTA hierarchy); track record reframed as momentum; watchlist tightened; section rhythm improved. Next: **Shell Phase D** (Pages list/detail).
+**Shell Phase C** — COMPLETE (2026-04-10). Today page hierarchy overhauled: primary action card sculpted (flowing prose, consolidated metadata, cleaner CTA hierarchy); track record reframed as momentum; watchlist tightened; section rhythm improved.
+**Shell Phase D** — COMPLETE (2026-04-10). Pages list/detail productized: summary strip, row scanability, status vocabulary (Strong / Follow up / Low signal), detail brief layout, structure chips, CTAs, evidence collapsed under "Evidence & technical detail".
+**Shell Phase E** — COMPLETE (2026-04-10). Changes list/ledger productized: at-a-glance strip + scorecard-first order; outcome mix disclosure; scanable scorecard table + softer linked-work chips + long-description disclosure; records section with action-first contract UI, scan-check explainer collapsed, compact cards + verification summary + detail disclosure.
+**Shell Phase F1** — COMPLETE (2026-04-10). Competitors list premiumized: at-a-glance strip + ahead count; ranked threats as scannable table; duplicate KPI footnote removed; **Next moves** elevated; strongest/gaps/weakest merged into one **Topic signals** frame; universe disclosure pattern.
+**Shell Phase F2** — COMPLETE (2026-04-10). Opportunities (`/topics`): PageHeader + strip; workspace disclosure; Topics list + plain gap headlines; suggested-next-step-first; dual disclosures for evidence vs full plan.
+**Shell Phase F3** — COMPLETE (2026-04-10). Review specialist pass: PageHeader + strip; calmer **Open items** queue; judgment-first card + **Why Beacon ordered it here** disclosure; **Save decision** + confidence **Confident/Balanced/Tentative**; match factors per-row disclosure; resolved/auto-cleared presentation aligned with shell.
+**Shell Phase G1** — COMPLETE (2026-04-10). Import + History coherence: measurement-layer headers and **At a glance** strips; Import ↔ History ↔ Today cross-links; calmer drop zone and success panels; **Import log** vs History timeline clarified; History brief framing, technical notes + competitor context in disclosures; calmer evidence-scope callout.
+**Shell Phase G2** — COMPLETE (2026-04-10). Diagnostics specialist shell: **PageHeader** system brief; **At a glance**; cross-links to primary surfaces; **How to read** scope callout; **DisclosureBlock** for dense tables and stored-ID scoring depth; operational sections (**Event + Review drivers**, **Linkage gaps**, candidate summary, model recommendations) stay visible; calmer **StatBlock**/table chrome.
+**Shell Phase G3** — COMPLETE (2026-04-10). Expansion quarantine: **Expansion backlog** PageHeader; quarantine callout; **At a glance** without celebrating adjacent counts; geography hypotheses **collapsed by default**; non-adjacent lists first; row-level disclosure for evidence/caveats; **Stage draft in Opportunities** CTA copy via `PromoteCandidateButton` props.
+**Shell Phase H** — COMPLETE (2026-04-10). Today **Follow-through** / watchlist: section story + **`WatchlistExperimentCard`** (status pills, citation readout, disclosures for `watchAfter`, optional manual outcome + remove); connects experiment loop to nightly import truth without PM-tool chrome. **Master shell phases A–H** for this overhaul are complete; further work is normal product iteration outside this numbered shell pass.
+
 
 **Shell Phase B** — COMPLETE (2026-04-10). Nav groups restructured ("Advanced" → "Data" + "System"); shortcuts realigned; "Sample history" vocabulary purged; stale labels fixed across all surfaces. Next: **Shell Phase C** (Today content overhaul).
 
@@ -348,11 +362,19 @@ Attribution scoring, candidate discovery, recommendation generation, priority se
 
 ## Proposed next (pick one track)
 
-### **0 — Master UI/UX shell overhaul (Shell Phases A–H)** — in progress
+### **0 — Master UI/UX shell overhaul (Shell Phases A–H)** — COMPLETE (2026-04-10)
 - **Shell Phase A — COMPLETE (2026-04-10):** design system + chrome baseline shipped
 - **Shell Phase B — COMPLETE (2026-04-10):** nav/IA alignment shipped
 - **Shell Phase C — COMPLETE (2026-04-10):** Today content overhaul shipped
-- Shell Phases D–H remain queued — next is **Shell Phase D** (Pages list/detail)
+- **Shell Phase D — COMPLETE (2026-04-10):** Pages list/detail productization shipped
+- **Shell Phase E — COMPLETE (2026-04-10):** Changes scorecard + contract/record UI productization shipped
+- **Shell Phase F1 — COMPLETE (2026-04-10):** Competitors page premiumization shipped
+- **Shell Phase F2 — COMPLETE (2026-04-10):** Opportunities (`/topics`) shell productization shipped
+- **Shell Phase F3 — COMPLETE (2026-04-10):** Review queue + judgment panel productization shipped
+- **Shell Phase G1 — COMPLETE (2026-04-10):** Import + History measurement-layer productization shipped
+- **Shell Phase G2 — COMPLETE (2026-04-10):** Diagnostics specialist / system surface productization shipped
+- **Shell Phase G3 — COMPLETE (2026-04-10):** Expansion backlog quarantine / reframing shipped
+- **Shell Phase H — COMPLETE (2026-04-10):** Today watchlist / experiments follow-through polish shipped
 
 ### A — Topic-similarity recommendations (keyword clustering)
 - Cross-topic pattern matching via lightweight keyword similarity

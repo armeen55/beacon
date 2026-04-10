@@ -128,15 +128,15 @@ Naming cheat sheet: **website** observation runs = `ObservationRun` + `observati
 ### Positioning
 Beacon is the AI visibility attribution and action system for high-value businesses. Premium pricing ($249–999+/month). NOT a budget monitoring dashboard.
 
-### Target surfaces (navigation — shipped through Shell Phase B)
+### Target surfaces (navigation — shipped through Shell Phase F3 shell pass)
 Primary: **Today**, **Pages**, **Changes**, **Competitors**, **Opportunities** (route: `/topics`)
 Data: **Import**, **Review**, **History** (route: `/results`)
 System: **Diagnostics**
 
-**Related routes not in primary nav:** `/briefs/*`, `/results/[id]`, `/changes/[id]`, `/competitors/[id]`, `/topics/opportunity/[id]`, `/observations/[id]`, `/expansion` (draft ideas — intentionally demoted from nav).
+**Related routes not in primary nav:** `/briefs/*`, `/results/[id]`, `/changes/[id]`, `/competitors/[id]`, `/topics/opportunity/[id]`, `/observations/[id]`, `/expansion` (**Expansion backlog** — quarantined speculative hypotheses, not primary nav).
 
 ### Presentation layer (in progress — Shell Phases A–H)
-Shell **Phases A–B shipped** (2026-04-10): design-system tokens, typography floor, uppercase purge, nav restructure (“Advanced” → “Data” + “System”), shortcut alignment, vocabulary cleanup. Remaining phases target Today content, Pages, Changes, Competitors/Topics/Review, Import/History/Diagnostics, and watchlist polish — **without** changing core intelligence or persistence.
+Shell **Phases A–H shipped** (2026-04-10) for this master UI pass: design-system + nav/IA + Today (including **Follow-through** / **Experiments on your watchlist** — brief-style experiment cards, calm status pills, citation readout, disclosures for `watchAfter` and optional manual outcomes) + **Pages** list/detail + **Changes** list + **Competitors** list + **Opportunities** (`/topics`) + **Review** + **Import** / **History** measurement layer + **Diagnostics** specialist surface + **`/expansion`** quarantined backlog — **without** changing core intelligence or persistence. Further iteration is normal roadmap work outside this numbered shell sequence.
 
 ### Build sequence
 Phases 14–16: Internal daily tool (surface compression, visibility story, import simplification)

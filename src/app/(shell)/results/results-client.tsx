@@ -234,90 +234,125 @@ export function ResultsClient({
     <div>
       <PageHeader
         title="History"
-        description="Imported visibility samples over time. Each row is an observed value; suggested cause is from the Review queue, not proof."
+        description="Measurement brief: every row is a dated visibility sample. Suggested causes come from Review and heuristics — they are not merged into the raw metric."
       />
 
-      <div className="rounded-md border border-border bg-surface-raised/40 px-3 py-2 mb-3 text-[11px] text-muted-foreground space-y-2">
-        <p>
-          <span className="font-semibold text-foreground">Dominant visibility run (row-majority): </span>
-          {sampleObservation.visibilityRunHref ? (
-            <Link
-              href={sampleObservation.visibilityRunHref}
-              className="text-accent-primary hover:underline font-medium"
-            >
-              {sampleObservation.visibilityRunId}
-            </Link>
-          ) : (
-            <span>none resolved from row ids — check citation index or imports</span>
-          )}
-          {sampleObservation.visibilitySynthetic && (
-            <span className="block text-[10px] mt-1 text-status-warning font-medium">
-              Synthetic wrapper from citation-evidence-index — not a live prompt-engine run.
+      <p className="text-sm text-muted-foreground mb-6">
+        New or refreshed exports:{" "}
+        <Link href="/import" className="text-accent-primary font-medium hover:underline">
+          Import
+        </Link>
+        . For what to do next:{" "}
+        <Link href="/" className="text-accent-primary font-medium hover:underline">
+          Today
+        </Link>
+        .
+      </p>
+
+      <div className="rounded-lg border border-border/60 bg-surface-raised/40 px-5 py-4 mb-6">
+        <p className="text-xs font-medium text-muted-foreground mb-2">At a glance</p>
+        <div className="flex flex-wrap items-baseline gap-x-8 gap-y-2 text-sm">
+          <span>
+            <span className="font-bold tabular-nums">{sampleObservation.importedRowCount}</span>
+            <span className="text-muted-foreground ml-1.5">sample rows</span>
+          </span>
+          <span>
+            <span className="font-semibold tabular-nums">{stampedRowCount}</span>
+            <span className="text-muted-foreground ml-1.5">linked to a visibility run</span>
+          </span>
+          {sampleObservation.visibilityRunHref && sampleObservation.visibilityRunId && (
+            <span className="text-[13px]">
+              <span className="text-muted-foreground">Primary run </span>
+              <Link
+                href={sampleObservation.visibilityRunHref}
+                className="text-accent-primary font-medium hover:underline font-mono text-[12px]"
+              >
+                {sampleObservation.visibilityRunId.length > 24
+                  ? `${sampleObservation.visibilityRunId.slice(0, 24)}…`
+                  : sampleObservation.visibilityRunId}
+              </Link>
             </span>
           )}
-        </p>
-        {sampleObservation.rollupStalenessNote && (
-          <p className="text-[10px] text-muted-foreground">{sampleObservation.rollupStalenessNote}</p>
-        )}
-        {runGroups.length > 1 && (
-          <p className="text-[10px] text-muted-foreground">
-            Row mix:{" "}
-            {runGroups.map(([id, n]) => (
-              <span key={id} className="mr-2">
-                <Link
-                  href={`/observations/${encodeURIComponent(id)}`}
-                  className="text-accent-primary hover:underline font-mono"
-                >
-                  {id.slice(0, 28)}
-                  {id.length > 28 ? "…" : ""}
-                </Link>
-                <span className="tabular-nums"> ({n})</span>
-              </span>
-            ))}
-          </p>
-        )}
-        <p className="text-[10px]">
-          Imported rows in this grid:{" "}
-          <span className="font-mono tabular-nums">{sampleObservation.importedRowCount}</span>
-          {" · "}
-          <span className="tabular-nums">{stampedRowCount}</span> stamped ·{" "}
-          <span className="tabular-nums">{legacyUnstampedCount}</span> legacy unstamped
           {sampleObservation.latestCrawlCompletedAt && (
-            <>
-              {" "}
-              · Latest website crawl completed:{" "}
+            <span className="text-muted-foreground text-[13px]">
+              Crawl through{" "}
               {new Date(sampleObservation.latestCrawlCompletedAt).toLocaleDateString("en-US", {
                 month: "short",
                 day: "numeric",
               })}
-            </>
+            </span>
           )}
-        </p>
+        </div>
         {sampleObservation.visibilityStaleVsCrawl && sampleObservation.staleNote && (
-          <p className="text-[10px] text-status-warning font-medium">{sampleObservation.staleNote}</p>
+          <p className="text-[12px] text-status-warning font-medium mt-3 border-t border-border/40 pt-3">
+            {sampleObservation.staleNote}
+          </p>
         )}
+        <details className="group/prov mt-3 border-t border-border/40 pt-2">
+          <summary className="cursor-pointer list-none text-[11px] font-medium text-muted-foreground hover:text-foreground flex items-center gap-2 [&::-webkit-details-marker]:hidden">
+            <span className="text-[9px] text-muted-foreground/50 transition-transform group-open/prov:rotate-90">▶</span>
+            Runs, stamps &amp; technical notes
+          </summary>
+          <div className="mt-2 space-y-2 text-[11px] text-muted-foreground leading-relaxed">
+            {!sampleObservation.visibilityRunHref && (
+              <p>No dominant visibility run resolved from row ids — check Import or citation index.</p>
+            )}
+            {sampleObservation.visibilitySynthetic && (
+              <p className="text-status-warning font-medium">
+                Synthetic wrapper from citation index — not a live prompt-engine run.
+              </p>
+            )}
+            {sampleObservation.rollupStalenessNote && <p>{sampleObservation.rollupStalenessNote}</p>}
+            {runGroups.length > 1 && (
+              <p>
+                Row mix:{" "}
+                {runGroups.map(([id, n]) => (
+                  <span key={id} className="mr-2 inline-block">
+                    <Link
+                      href={`/observations/${encodeURIComponent(id)}`}
+                      className="text-accent-primary hover:underline font-mono text-[10px]"
+                    >
+                      {id.slice(0, 28)}
+                      {id.length > 28 ? "…" : ""}
+                    </Link>
+                    <span className="tabular-nums"> ({n})</span>
+                  </span>
+                ))}
+              </p>
+            )}
+            <p>
+              <span className="tabular-nums">{legacyUnstampedCount}</span> legacy rows without a run stamp.
+            </p>
+          </div>
+        </details>
         {sampleObservation.competitorUniverseSummary && (
-          <CompetitorUniverseSampleStrip summary={sampleObservation.competitorUniverseSummary} />
+          <details className="group/cu mt-2 border-t border-border/40 pt-2">
+            <summary className="cursor-pointer list-none text-[11px] font-medium text-muted-foreground hover:text-foreground flex items-center gap-2 [&::-webkit-details-marker]:hidden">
+              <span className="text-[9px] text-muted-foreground/50 transition-transform group-open/cu:rotate-90">▶</span>
+              Competitor sample context
+            </summary>
+            <div className="mt-2">
+              <CompetitorUniverseSampleStrip summary={sampleObservation.competitorUniverseSummary} />
+            </div>
+          </details>
         )}
       </div>
 
-      <div className="rounded-md border border-status-warning/25 bg-status-warning/5 px-3 py-2 mb-4 text-[11px] text-muted-foreground">
-        <span className="font-semibold text-foreground">Evidence scopes on each row: </span>
-        <span className="font-medium text-foreground">Observed sample</span> (imported metric) ·{" "}
-        <span className="font-medium text-foreground">Suggested cause</span> (event + candidate match) ·{" "}
-        <span className="font-medium text-foreground">Review trust</span> (your lock). These are not merged into one truth layer.
+      <div className="rounded-lg border border-border/60 bg-surface-inset/25 px-4 py-3 mb-6 text-[12px] text-muted-foreground leading-relaxed">
+        <span className="font-medium text-foreground">Reading each row: </span>
+        observed sample (imported metric) · suggested cause (events / matching) · Review trust (your lock). These stay separate on purpose.
       </div>
 
       <div className="grid gap-3 grid-cols-2 lg:grid-cols-6 mb-6">
-        <StatCard label="Imported sample rows" value={results.length} />
-        <StatCard label="Run-stamped rows" value={stampedRowCount} />
+        <StatCard label="Sample rows" value={results.length} />
+        <StatCard label="Run-linked" value={stampedRowCount} />
         <StatCard
-          label="With suggested cause (events / Review)"
+          label="With cause signal"
           value={withDriver}
         />
         <StatCard label="Review locked" value={confirmedCount} />
         <StatCard label="Auto-cleared" value={autoClearedCount} />
-        <StatCard label="Needs review" value={unresolvedCount} />
+        <StatCard label="Review pending" value={unresolvedCount} />
       </div>
 
       <div className="flex items-center gap-4 mb-4 flex-wrap">
@@ -412,7 +447,7 @@ export function ResultsClient({
                       {PLATFORM_LABELS[r.platform]}
                     </span>
                     <span className="block text-[9px] text-muted-foreground/70 mt-0.5">
-                      Import row
+                      Sample row
                     </span>
                   </TableCell>
                   <TableCell className="text-[13px] font-medium">

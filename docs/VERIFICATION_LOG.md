@@ -812,3 +812,185 @@
 - `npx tsc --noEmit` — pass (0 errors)
 - `npm run build` — pass, all static pages generated
 - Linter — 0 errors on modified files
+
+---
+
+## Shell Phase D — Pages list/detail productization (2026-04-10)
+
+### Shipped
+1. **Summary strip**: Larger type, softer border, “strong / need work / mentions”, structure line as neutral copy (without Q&A / without structured data, crawled count)
+2. **Toolbar**: “Refresh crawl”, “View run”, filter pills (Needs work · Strong · Active · All) with inverted primary
+3. **List**: Wider column, 13px titles, open-item count without uppercase, muted chips for missing Q&A/schema
+4. **Detail**: Brief-style header; mention count chip; Q&A + structured data pills; consolidated “Next step”; “Why it matters” / “Recommended move” / “Opportunity”
+5. **Actions**: Foreground “Hand off to dev”, “Mark live”, “Verify fix”; “Log in Changes →”
+6. **Disclosure**: Renamed “Evidence & technical detail”; duplicate next-move footer removed from expanded area
+7. **Fix brief blocks** (inside disclosure): Target / Live page, softer “Intent mismatch”, “Next move” callout
+8. **Server**: `statusReason` without “needs review”; dormant copy; Pages subtitle
+
+### Files changed
+- `src/app/(shell)/pages/page.tsx`
+- `src/app/(shell)/pages/pages-client.tsx`
+
+### Not touched
+- Page store, snapshots, guardrails computation, issue/playbook server actions
+
+### Build
+- `npx tsc --noEmit` — pass
+- `npm run build` — pass
+
+---
+
+## Shell Phase E — Changes scorecard + contract productization (2026-04-10)
+
+### Shipped
+1. **Route** (`changes/page.tsx`): Outcome-first header copy; **At a glance** strip; scorecard above **Records & verification** block.
+2. **Scorecard** (`scorecard-client.tsx`): Default-closed **Outcome mix** (verdict counts; avoids duplicating “confirmed in Review” vs page strip); **Refine** controls; shorter column labels; denser rows; softened **Linked** role presentation; long descriptions expandable; **Beacon picks only** filter label.
+3. **Records** (`change-contract-client.tsx`): Primary actions first; **How scan check works** collapsed; per-contract compact header with inline **Run check** / re-check; colored one-line verification summary when results exist; goals + line-by-line checks under **Context & check detail**; calmer planned-checks list.
+
+### Files changed
+- `src/app/(shell)/changes/page.tsx`
+- `src/app/(shell)/changes/scorecard-client.tsx`
+- `src/app/(shell)/changes/change-contract-client.tsx`
+
+### Not touched
+- Scorecard / impact computation, attribution, recommendations, priority engine, experiments, persistence, change `[id]` detail page (deferred)
+
+### Build verification (Shell Phase E)
+- `npx tsc --noEmit` — pass
+- `npm run build` — pass (17 routes)
+
+---
+
+## Shell Phase F1 — Competitors page premiumization (2026-04-10)
+
+### Shipped
+1. **Header + strip:** Page subtitle; **At a glance** with share, citations, ranking size, count **ahead on raw citations**; observation footnote without repeating list KPIs.
+2. **Threats:** **Who leads in citations** as unified table (header row + rows); softer ahead signal; mobile-friendly inline metrics; removed post-list “Your position …” duplicate.
+3. **Next moves:** Section moved **above** topic readout; single `divide-y` list with **Open** affordance.
+4. **Topic signals:** One **Topic signals** section replacing three separate tinted cards — columns **Where you lead** / **Highest pressure** / **Thinnest share** with shared frame copy.
+5. **Settings:** **Universe & data setup** disclosure (chevron); imported entities as divided rows.
+
+### Files changed
+- `src/app/(shell)/competitors/page.tsx`
+
+### Not touched
+- `computeMarketBenchmark`, citation stores, competitor detail `[id]`, Topics, Review, `competitors-manage-client` behavior (layout copy only via parent)
+
+### Build verification (Shell Phase F1)
+- `npx tsc --noEmit` — pass
+- `npm run build` — pass
+
+---
+
+## Shell Phase F2 — Opportunities (`/topics`) productization (2026-04-10)
+
+### Shipped
+1. **`topics/page.tsx`:** `PageHeader` with product subtitle; **At a glance** strip (topic count, visibility shifts, open Review load, quick wins); competitor-universe / sample framing in collapsible **Workspace & competitor list context**.
+2. **`topics-client.tsx`:** Left column **Topics**; per-row gap class shown with **PRODUCT_GAP_HEADLINE** plain labels; detail header uses same map; **Suggested next step** section leads with `evidenceLine` + primary CTA + **Copy plan text**; **How Beacon knows** disclosure (dimensions, provenance, crawl/import links with human labels); **Beacon suggests** one-line rationale; **Full plan, competitors & activity** disclosure contains prior “show details” panels; section chrome renamed (e.g. Strength, Citation winners, Content shape, Execution plan); footer activity line clarified.
+
+### Files changed
+- `src/app/(shell)/topics/page.tsx`
+- `src/app/(shell)/topics/topics-client.tsx`
+
+### Not touched
+- Frontier / gap-ledger computation, package actions, `/topics/opportunity/[id]`, Review
+
+### Build verification (Shell Phase F2)
+- `npx tsc --noEmit` — pass
+- `npm run build` — pass
+
+---
+
+## Shell Phase F3 — Review specialist productization (2026-04-10)
+
+### Shipped
+1. **`review/page.tsx`:** `PageHeader` with specialist framing; **At a glance** (awaiting, quick clears, locked total).
+2. **`review-queue-client.tsx`:** Queue title **Open items**, softer borders/labels (**Likely clear / Needs your read / Tight race**); judgment card with **Why Beacon ordered it here** `<details>` (internal reason + score separation); attribution question reframed; lighter primary panel border; candidate cards split so **Match factors** are optional per row; **Leading match**; confidence **Confident / Balanced / Tentative**; **Save decision** primary button; **Platform** quick cause + keyboard help; **Open full result** link; resolved **Locked in Review**; auto-cleared disclosure chevron.
+
+### Files changed
+- `src/app/(shell)/review/page.tsx`
+- `src/app/(shell)/review/review-queue-client.tsx`
+
+### Not touched
+- `computeDecisionability` logic (same strings, new placement), `lockDecision`, triage/scoring domain modules
+
+### Build verification (Shell Phase F3)
+- `npx tsc --noEmit` — pass
+- `npm run build` — pass
+
+---
+
+## Shell Phase G1 — Import + History measurement coherence (2026-04-10)
+
+### Shipped
+1. **`import/page.tsx`:** `PageHeader` with measurement-layer description; short paragraph linking **Import → History → Today**; **At a glance** coverage strip + **Open History** affordance; calmer dashed upload border; post-import success with **Today** + **View History**; advanced section labeled **Advanced paths**; bottom **Import log** with explicit pointer to History for the timeline; Profound CSV and manual success blocks link History as well as Today.
+2. **`results/results-client.tsx`:** `PageHeader` reframed as measurement brief; **At a glance** strip (counts, primary run, crawl); **Import** / **Today** cross-links; stale warning visible when applicable; **Runs, stamps & technical notes** and **Competitor sample context** in `<details>`; calmer evidence-scope inset (not warning styling); shorter **StatCard** labels; table first column **Sample row**.
+
+### Files changed
+- `src/app/(shell)/import/page.tsx`
+- `src/app/(shell)/results/results-client.tsx`
+- `docs/master_execution_plan.md`, `docs/NEXT_PHASE_EXECUTION_PLAN.md`, `docs/HANDOFF_VERIFIED_STATE.md`, `docs/architecture.md`, `docs/VERIFICATION_LOG.md` (append-only phase notes)
+
+### Not touched
+- Import server actions, workbook/Profound parsers, `getDataCoverage`, results/history computation, persistence, Diagnostics, Expansion routes
+
+### Build verification (Shell Phase G1)
+- `npx tsc --noEmit` — pass
+- `npm run build` — pass
+
+---
+
+## Shell Phase G2 — Diagnostics specialist shell (2026-04-10)
+
+### Shipped
+1. **`diagnostics/page.tsx`:** **PageHeader** reframed as system specialist brief (purposeful, not dismissive); paragraph linking **Today**, **Review**, **History**, **Import**; **At a glance** strip (`StatCard`: changes, snapshots, outcome events, Review pending); **How to read system metrics** callout; **Recorded / Open** cards with shell-aligned borders; **`DisclosureBlock`** helper for collapsible depth — entity inventory; event type + “changes with evidence” tables; cluster list + status mix; pattern table; expansion candidate sample table; imported change IDs on rows; bundled **stored-ID pair scoring** (confidence, factors, inflation, verdicts, temporal); candidate per-result distribution + score calibration; truth-set evaluation; model factor-lift table; **Event + Review drivers**, **Linkage gaps**, candidate linking headline stats, and **Model gaps & recommendations** (including recommendation list) remain prominent for operational scan.
+2. **Chrome:** `StatBlock` uses `border-border/60` / `bg-card`; tables use softer borders; reduced `uppercase` on status/confidence chips where inline; section titles sentence case.
+
+### Files changed
+- `src/app/(shell)/diagnostics/page.tsx`
+- `docs/master_execution_plan.md`, `docs/NEXT_PHASE_EXECUTION_PLAN.md`, `docs/HANDOFF_VERIFIED_STATE.md`, `docs/architecture.md`, `docs/VERIFICATION_LOG.md` (append-only phase notes)
+
+### Not touched
+- `computeDiagnostics`, `computeCandidateDiagnostics`, `computeModelReport`, stores, Expansion route logic
+
+### Build verification (Shell Phase G2)
+- `npx tsc --noEmit` — pass
+- `npm run build` — pass
+
+---
+
+## Shell Phase G3 — Expansion quarantine / reframing (2026-04-10)
+
+### Shipped
+1. **`expansion/page.tsx`:** **PageHeader** title **Expansion backlog** + explicit non-recommendation framing; operator links to **Today**, **Opportunities** (`/topics`), **Review**, **Import**; **Quarantined surface** callout; **At a glance** `StatCard` row (no adjacent count in hero strip); **Counts by hypothesis shape** `<details>`; backlog sections for **non-adjacent** candidates by model fit + **Pattern gaps**; **low** fit in collapsed section; **all adjacent** in default-closed `<details>` with misuse-risk copy; per-card `<details>` for reasoning, evidence, caveats, pattern, query; expansion-only type strings (**· hypothesis**); methodology in `<details>`; inactive experiment state uses same PageHeader pattern.
+2. **`promote-candidate.tsx`:** Optional `actionLabel`, `pendingLabel`, `successLabel` (defaults unchanged for other callers).
+
+### Files changed
+- `src/app/(shell)/expansion/page.tsx`
+- `src/components/data/promote-candidate.tsx`
+- `docs/master_execution_plan.md`, `docs/NEXT_PHASE_EXECUTION_PLAN.md`, `docs/HANDOFF_VERIFIED_STATE.md`, `docs/architecture.md`, `docs/VERIFICATION_LOG.md` (append-only phase notes)
+
+### Not touched
+- `computeOpportunityCandidates`, selectors, `promoteToOpportunity` server behavior
+
+### Build verification (Shell Phase G3)
+- `npx tsc --noEmit` — pass
+- `npm run build` — pass
+
+---
+
+## Shell Phase H — Today watchlist / experiments polish (2026-04-10)
+
+### Shipped
+1. **`today-client.tsx`:** **Follow-through** section label + **Experiments on your watchlist** heading and short loop copy; **`WatchlistExperimentCard`** — status as **rounded pill** with human-readable labels; **Day N of watch** + started date; headline + **rec type** label (`REC_ACCENT`) + path (readable, not mono); **Citation readout** block (latest vs baseline, delta, or waiting-for-import); operator note as **Your note**; **`watchAfter`** inside collapsible **What Beacon is watching for**; **Adjust outcome (optional)** `<details>` with buttons for **testing / watching / promising / inconclusive / negative** (calls existing `onUpdateExperiment`) + note that imports may still auto-update status from citations; **Remove from watchlist** replaces inline **Drop**.
+
+### Files changed
+- `src/app/(shell)/today-client.tsx`
+- `docs/master_execution_plan.md`, `docs/NEXT_PHASE_EXECUTION_PLAN.md`, `docs/HANDOFF_VERIFIED_STATE.md`, `docs/architecture.md`, `docs/VERIFICATION_LOG.md` (append-only phase notes)
+
+### Not touched
+- `experiment-store.ts`, `updateExperimentCitations` rules, `experiment-actions.ts`, serialization on `page.tsx`
+
+### Build verification (Shell Phase H)
+- `npx tsc --noEmit` — pass
+- `npm run build` — pass

@@ -430,9 +430,9 @@ export default function PagesPage() {
       if (totalCitations > 0) parts.push(`${totalCitations} citations`);
       statusReason = parts.join(" · ") || "Early positive signals";
     } else if (status === "unresolved") {
-      statusReason = `${linkedEvents.length} event${linkedEvents.length !== 1 ? "s" : ""}, ${linkedRows.length} change${linkedRows.length !== 1 ? "s" : ""} — needs review`;
+      statusReason = `${linkedEvents.length} visibility event${linkedEvents.length !== 1 ? "s" : ""} · ${linkedRows.length} linked change${linkedRows.length !== 1 ? "s" : ""}`;
     } else {
-      statusReason = "No linked visibility signals yet";
+      statusReason = "No visibility signals linked yet";
     }
 
     // ── Compute opportunity score ──
@@ -762,8 +762,11 @@ export default function PagesPage() {
 
   return (
     <div className="max-w-5xl">
-      <div className="mb-4">
+      <div className="mb-6">
         <h2 className="text-lg font-semibold tracking-tight">Pages</h2>
+        <p className="mt-1 text-sm text-muted-foreground leading-relaxed">
+          Health, citations, and the next step for each URL.
+        </p>
       </div>
 
       <PagesClient

@@ -135,7 +135,7 @@ Working branch: `work/attribution-precision-20260407`
 | Item | Status | Notes |
 |------|--------|--------|
 | Master UI/UX research audit | **Documented only** | Full phased plan appended to `master_execution_plan.md` + `NEXT_PHASE_EXECUTION_PLAN.md`; **no code shipped** in this pass |
-| Shell Phases A–H | **Queued** | Design system → nav/IA → Today → Pages → Changes → Competitors/Topics/Review → Import/History/Diagnostics/Expansion → watchlist polish |
+| Shell Phases A–H | **Complete (this overhaul)** | **A–H** shipped (2026-04-10): includes watchlist / experiments **Follow-through** polish on Today |
 | Intelligence / persistence | **Unchanged** | Explicit non-goal: do not modify attribution, rec/priority engines, stores, or import backends during shell phases unless fixing a display-only defect |
 
 **Operator note:** Product Premiumization Pass (copy/navigation tweaks) remains **shipped**; this entry records the **next** layer: structural UI/UX and IA work.
@@ -181,4 +181,92 @@ Working branch: `work/attribution-precision-20260407`
 | Visibility strip: removed date range, cleaner freshness | **Shipped** |
 | Fallback action card: jargon removed | **Shipped** |
 | Stale "Website" vocabulary cleaned from queue strings | **Shipped** |
+| Intelligence / persistence | **Unchanged** |
+
+### Shell Phase D — COMPLETE (2026-04-10)
+
+| Item | Status |
+|------|--------|
+| Pages summary strip + filter tabs productized | **Shipped** |
+| List rows: readability, structure chips, status labels | **Shipped** |
+| Detail panel: brief layout, Next step, headings, CTAs | **Shipped** |
+| Evidence / scanner detail under disclosure | **Shipped** |
+| Status vocabulary + server statusReason cleanup | **Shipped** |
+| Intelligence / persistence | **Unchanged** |
+
+### Shell Phase E — COMPLETE (2026-04-10)
+
+| Item | Status |
+|------|--------|
+| Changes: strip + scorecard-before-records hierarchy | **Shipped** |
+| Scorecard: outcome mix disclosure, refine row, calmer table + columns | **Shipped** |
+| Scorecard: compact rows, softer linked chips, long description disclosure | **Shipped** |
+| Records UI: action-first bar, scan-check explainer collapsed | **Shipped** |
+| Contract cards: compact header, verification summary line, detail disclosure | **Shipped** |
+| Intelligence / persistence | **Unchanged** |
+
+### Shell Phase F1 — COMPLETE (2026-04-10)
+
+| Item | Status |
+|------|--------|
+| Competitors: at-a-glance strip + ahead count, calmer footnote | **Shipped** |
+| Ranked threats: list-first table, less per-row card chrome | **Shipped** |
+| Removed duplicate “your position” KPI under list | **Shipped** |
+| Next moves elevated + divided list (not boxed rows) | **Shipped** |
+| Topic signals: one frame, three columns (lead / pressure / thin share) | **Shipped** |
+| Universe & data setup disclosure + entity list rhythm | **Shipped** |
+| Intelligence / persistence | **Unchanged** |
+
+### Shell Phase F2 — COMPLETE (2026-04-10)
+
+| Item | Status |
+|------|--------|
+| Opportunities route: PageHeader + at-a-glance + workspace disclosure | **Shipped** |
+| Topics list: plain gap headlines, calmer column title | **Shipped** |
+| Detail: suggested next step first; evidence in disclosure | **Shipped** |
+| Detail: full plan / competitors / activity in second disclosure | **Shipped** |
+| Copy: fewer internal labels (ObservationRun, Rank, Asset response, etc.) | **Shipped** |
+| Intelligence / persistence | **Unchanged** |
+
+### Shell Phase F3 — COMPLETE (2026-04-10)
+
+| Item | Status |
+|------|--------|
+| Review route: PageHeader + at-a-glance strip | **Shipped** |
+| Queue: Open items, calmer rows, softer decisionability labels | **Shipped** |
+| Panel: judgment-first + ordering disclosure; Save decision CTA | **Shipped** |
+| Candidates: match factors in disclosure; leading match label | **Shipped** |
+| Confidence: Confident / Balanced / Tentative; Platform cause label | **Shipped** |
+| Resolved / auto-cleared sections toned | **Shipped** |
+| Intelligence / persistence | **Unchanged** |
+
+### Shell Phase G1 — COMPLETE (2026-04-10)
+
+| Item | Status |
+|------|--------|
+| Import: PageHeader + measurement copy; **At a glance**; History/Today links; calmer upload + success; advanced paths label; **Import log** vs History | **Shipped** |
+| History (`results-client`): PageHeader + brief; **At a glance**; Import/Today links; runs/stamps + competitor context in disclosures; calmer scope callout; stat labels + table row wording | **Shipped** |
+| Intelligence / persistence | **Unchanged** |
+
+### Shell Phase G2 — COMPLETE (2026-04-10)
+
+| Item | Status |
+|------|--------|
+| Diagnostics: PageHeader + system-brief description; **At a glance** StatCards; Today/Review/History/Import links; scope callout; disclosures for inventory, breakdown tables, cluster/pattern/expansion tables, imported row IDs, stored-ID scoring bundle, distribution/calibration, truth-set, factor lift | **Shipped** |
+| Operational blocks kept visible: recorded/open, event stats, event+Review drivers, linkage gaps, candidate linking summary, model gap stats + recommendations | **Shipped** |
+| Intelligence / persistence | **Unchanged** |
+
+### Shell Phase G3 — COMPLETE (2026-04-10)
+
+| Item | Status |
+|------|--------|
+| Expansion: PageHeader **Expansion backlog**; quarantine callout; operator links; **At a glance** StatCards + hypothesis-shape counts in disclosure; non-adjacent lists by model fit; adjacent-only **collapsed** section; row `<details>` for evidence/caveats; promote CTA copy props (**Stage draft…**) | **Shipped** |
+| `promote-candidate.tsx`: optional `actionLabel` / `pendingLabel` / `successLabel` (defaults preserve prior copy) | **Shipped** |
+| Intelligence / persistence | **Unchanged** |
+
+### Shell Phase H — COMPLETE (2026-04-10)
+
+| Item | Status |
+|------|--------|
+| Today `today-client.tsx`: **Follow-through** framing; **WatchlistExperimentCard** (status pills, citation readout, type + path, note); **watchAfter** + optional outcome controls in disclosures; remove link demoted inside disclosure | **Shipped** |
 | Intelligence / persistence | **Unchanged** |

@@ -1823,55 +1823,59 @@ Each step must be complete before the next. Do not optimize for broad market bef
 **Not touched:** `rankAndSelect`, `computeRecommendations`, priority engine, experiment store, attribution.
 
 
-### Shell Phase D — Pages (list/detail)
+### Shell Phase D — Pages (list/detail) — COMPLETE (2026-04-10)
 
-**Objective:** Product-grade page intelligence, not scanner QA.
+**Shipped:** Summary strip recast (strong / need work / mentions, calm structure-health line); filter tabs as `text-xs` with primary selection; wider list column; rows use `text-[13px]` titles, muted structure chips (No Q&A / No schema) vs warning spam; status labels productized (Strong, Follow up, Low signal); server `statusReason` copy cleaned (“needs review” removed); detail panel reframed as page brief — path as `text-xs`, status+reason top-right, mention count + platform string + Q&A/structured data chips; “Next step” card; “Why it matters” / “Recommended move” / “Opportunity” headings; primary CTA “Hand off to dev”; details disclosure renamed “Evidence & technical detail”; fix-brief grids Target/Live page; issue lifecycle badges (Open, With dev, Live, Checked); removed duplicate next-move footer inside details; empty states and stale section copy softened; one-line Pages subtitle on route.
 
-**Surfaces / work:** `pages/page.tsx`, `pages-client.tsx`.
+**Not touched:** Page registry, snapshot computation, scoring logic, issue actions.
 
-**Work items:** Raise minimum readable type; reduce nested `<details>` depth; unify “next move” vs status vocabulary; integrate dormant/stale into main filters; optional one-line scan trust row (freshness, run link); avoid duplicate narrative blocks; consider hydration pattern for `window` in initializer if flagged.
+### Shell Phase E — Changes (scorecard + contracts) — COMPLETE (2026-04-10)
 
-**Not touched:** Page registry / snapshot computation.
+**Shipped:** `changes/page.tsx` — PageHeader subtitle reframed (outcome-first, records second); **At a glance** strip leads; scorecard before records; **Records & verification** section labels the lower ledger. `scorecard-client.tsx` — outcome verdict pills moved into a default-closed **Outcome mix** disclosure (deduped vs strip: no duplicate “You confirmed” row); filters relabeled **Refine**; calmer table chrome; column headers shortened (**When / Work / Linked / Match / Lift / Next step**); denser row padding; linked-attribution chips softened (dot + Primary/Also/Maybe vs loud degree badges); long change descriptions use disclosure; **Beacon picks only** toggle label. `change-contract-client.tsx` — action bar leads; **How scan check works** in disclosure; contract cards split into compact header (summary, URL, type, statuses, **Run check**) + one-line **verification summary** when a result exists; goals + line-by-line checks under **Context & check detail**; toned labels (**Why it mattered** / **Expected lift**); planned checks without checkbox glyphs.
 
-### Shell Phase E — Changes (scorecard + contracts)
+**Not touched:** Scorecard computation, attribution math, recommendation/priority/experiment logic, persistence, `[id]` change detail layout (list + ledger only in this pass).
 
-**Objective:** Reduce contract/admin fatigue; scorecard first when that is the operator job.
+### Shell Phase F1 — Competitors page — COMPLETE (2026-04-10)
 
-**Surfaces / work:** `changes/page.tsx`, `scorecard-client.tsx`, `change-contract-client.tsx`, change detail as needed.
+**Shipped:** `competitors/page.tsx` — premium header line; **At a glance** strip (share, citations, ranking size, **ahead** count); removed duplicate “your position” footnote under the list; **Who leads in citations** as list-first ranked table (shared chrome, row tint for ahead-of-you, mobile inline metrics); **Next moves** elevated immediately after threats with single divided list (less per-row card chrome); **Topic signals** — one bordered frame with three columns (**Where you lead** / **Highest pressure** / **Thinnest share**) replacing three equal-weight cards; settings disclosure retitled **Universe & data setup** with chevron pattern; imported-entity list uses divided rows; empty state copy calmed.
 
-**Work items:** Re-order sections so analytical summary can lead; close `<details>` by default on dense tables; dedupe impact strip vs table pills; tame nine-column horizontal scan (sticky columns, row preview, or secondary drawer); card hierarchy (primary vs nested panels).
+**Not touched:** `computeMarketBenchmark`, citation index math, `[id]` competitor detail, Topics (Review shipped in F3).
 
-**Not touched:** Scorecard computation.
+### Shell Phase F2 — Opportunities (`/topics`) — COMPLETE (2026-04-10)
 
-### Shell Phase F — Competitors + Opportunities + Review
+**Shipped:** `topics/page.tsx` — **PageHeader** + **At a glance** strip (topics, shifts, Review pressure, quick wins); long competitor-universe / sample framing moved into **Workspace & competitor list context** disclosure. `topics-client.tsx` — list column titled **Topics**; plain-language **PRODUCT_GAP_HEADLINE** map for gap evidence class (replaces internal class names in the shell); detail opens with **Suggested next step** (same `evidenceLine` + primary CTA + calmer handoff button **Copy plan text**); **How Beacon knows** disclosure for dimensions + provenance + links (renamed away from “ObservationRun”); one-line **Beacon suggests** rationale before deep panels; **Full plan, competitors & activity** disclosure wraps frontier, citation winners, content-shape, execution plan, and activity grids; internal labels softened (**Strength** vs rank, **Citation winners**, **Content shape**, **Execution plan**, **Why this sequence**, **Linked edits** / **Recent visibility shifts**).
 
-**Objective:** One story per domain; less repeated benchmark narrative; specialist Review without intimidation.
+**Not touched:** `computeFrontiers`, `deriveGapLedgerFields` / gap-ledger computation, package server actions, `/topics/opportunity/[id]` entity page (not this pass).
 
-**Surfaces / work:** `competitors/page.tsx`, `topics/*`, `review/*`.
+### Shell Phase F3 — Review — COMPLETE (2026-04-10)
 
-**Work items:** Widen layout where benchmark needs breath; footnote/KPI redundancy; surface or drop unused benchmark `label` strings; clarify “tracked competitors” semantics vs top-N slice; Topics: rename left column “Gap ledger” if still present in client; plain-language replacement for internal decisionability strings; soften “Guess” / “easy” / raw score gaps; file-path copy only in advanced disclosure.
+**Shipped:** `review/page.tsx` — **PageHeader** + specialist subtitle; **At a glance** strip (awaiting count, quick clears, locked total). `review-queue-client.tsx` — calmer queue (**Open items**, softer row chrome, decisionability labels **Likely clear / Needs your read / Tight race**); judgment card leads with **what happened** + calm queue badge; **Why Beacon ordered it here** disclosure (moves internal `decisionabilityReason` + score separation out of the hero); main panel copy **What do you attribute this to?** with clearer subtext; softer accent border (not heavy `border-2`); candidate rows split so **Match factors** sit in per-row disclosure (valid structure, no `button` nesting); **Leading match** vs “Rank 1 (score)”; confidence chips **Confident / Balanced / Tentative**; primary CTA **Save decision**; **Platform** + keyboard help aligned; footer link **Open full result**; resolved **Locked in Review** + calmer cards; auto-cleared disclosure chevron pattern.
 
-**Not touched:** `computeMarketBenchmark`, attribution core.
+**Not touched:** `computeDecisionability` inputs/outputs (same `reason` strings stored in UI disclosure only), `lockDecision`, scoring/triage domain code.
 
-### Shell Phase G — Import + History + Diagnostics + Expansion
+### Shell Phase G1 — Import + History — COMPLETE (2026-04-10)
 
-**Objective:** Freshness loop feels productized; advanced paths feel intentionally advanced.
+**Shipped:** `import/page.tsx` — **PageHeader** + measurement-layer description; cross-links to **History** / **Today**; **At a glance** strip (aligned with other shell pages); calmer drop zone border; merge copy clarified; success panel softer border + **View History** alongside Today; advanced toggle reframed **Advanced paths**; **Import log** (renamed from “Import history”) with note vs History timeline; Profound CSV + manual success links include History. `results-client.tsx` — **PageHeader** + brief description; **Import** / **Today** cross-links; **At a glance** strip (sample rows, run-linked, primary run, crawl); stale warning stays visible; **Runs, stamps & technical notes** disclosure (synthetic, rollup, run mix, legacy unstamped); **Competitor sample context** wraps prior universe strip; evidence-scope callout calmed (no warning fill); **StatCard** labels shortened (**Sample rows**, **Run-linked**, **With cause signal**, **Review pending**); table row label **Sample row**.
 
-**Surfaces / work:** `import/page.tsx`, `results/*`, `diagnostics/page.tsx`, `expansion/page.tsx`.
+**Not touched:** Import actions, `getDataCoverage`, results computation, persistence.
 
-**Work items:** Import: confirm step or clear auto-import affordance; disambiguate duplicate “Updated” labels; one-line “when to use workbook vs CSV”; optional post-success link to Review when pending; Diagnostics framed as “System” with calmer defaults; Expansion/draft ideas: gate language and presentation so it cannot read as spam factory (product strategy already flagged).
+### Shell Phase G2 — Diagnostics — COMPLETE (2026-04-10)
 
-**Not touched:** Import actions implementation except UX flow.
+**Shipped:** `diagnostics/page.tsx` — **PageHeader** + specialist **system brief** description (not “not daily workflow” dismissal); **At a glance** strip (**StatCard**: changes, snapshots, outcome events, Review pending); operator paragraph with **Today / Review / History / Import** links; **How to read system metrics** callout (layers + honesty); **Recorded / Open** cards with calmer **border-border/60**; **DisclosureBlock** pattern for entity inventory, event breakdown tables, cluster/pattern tables + expansion candidate sample, imported change IDs on rows, **stored-ID pair scoring** bundle (confidence, factors, inflation, verdicts, temporal), candidate distribution + calibration, truth-set, factor-lift table; prominent **Event + Review drivers** + **Linkage gaps** + candidate linking summary stats + **Model gaps** stat row + recommendations; **StatBlock** chrome aligned (`border-border/60`); reduced **uppercase** micro-labels on cluster/pattern/confidence chips; section titles sentence case; Expansion subsection on Diagnostics reframed as **system inspection** copy only (route untouched).
 
-### Shell Phase H — Experiments / watchlist polish
+**Not touched:** `computeDiagnostics`, `computeCandidateDiagnostics`, `computeModelReport`, or any attribution/diagnostics computation.
 
-**Objective:** Complete lifecycle in UI matches server capabilities; motivating, not lab report.
+### Shell Phase G3 — Expansion quarantine / reframing — COMPLETE (2026-04-10)
 
-**Surfaces / work:** Watchlist section in `today-client.tsx`, optional thin experiment row component.
+**Shipped:** `expansion/page.tsx` — **PageHeader** **Expansion backlog** + explicit **not recommendations** framing; operator links (**Today**, **Opportunities** `/topics`, **Review**, **Import**); **Quarantined surface** callout (anti–page-factory); **At a glance** **StatCard** strip (total / new / stronger / moderate fit) with **Counts by hypothesis shape** disclosure (nearby geography demoted out of hero grid); **non-adjacent** hypotheses listed first by model fit + **Pattern gaps**; **low** fit collapsed; **all adjacent** rows in default-**closed** `<details>` with misuse-risk copy; per-row **Why Beacon surfaced this** disclosure (reasoning, evidence, caveats, pattern, query — not dumped by default); expansion-only type labels (**hypothesis** language); `promote-candidate.tsx` optional labels — Expansion uses **Stage draft in Opportunities** / **Staging…** / **Staged — validate before use**; inactive experiment state aligned with same shell framing.
 
-**Work items:** Expose status transitions beyond Drop where honest; collapse long `watchAfter` by default; show import-relative freshness on rows; replace raw mono paths with human labels + copy link.
+**Not touched:** `computeOpportunityCandidates`, selectors, scoring, `promoteToOpportunity` behavior (copy-only props on button).
 
-**Not touched:** `experiment-store.ts` semantics.
+### Shell Phase H — Experiments / watchlist polish — COMPLETE (2026-04-10)
+
+**Shipped:** `today-client.tsx` — **Follow-through** section framing + **Experiments on your watchlist** subtitle (nightly loop, import-driven status honesty); **`WatchlistExperimentCard`** mini-brief layout: calm **status pill** (human labels: actively testing, collecting signal, promising signal, unclear so far, trending down); **Day N of watch** + short started date; **headline** lead; **rec type** via existing `REC_ACCENT` map + **readable path** (no mono); **Citation readout** strip (baseline / latest / delta / waiting-for-import copy); **Your note** inline when present; **`watchAfter`** under **What Beacon is watching for** `<details>`; **Adjust outcome (optional)** disclosure with manual status chips (**testing / watching / promising / inconclusive / negative**) + honesty note that imports may still auto-move status + **Remove from watchlist** (replaces bare **Drop**).
+
+**Not touched:** `experiment-store.ts` (including `updateExperimentCitations` auto-status rules), `updateExperimentAction` contract, persistence semantics.
 
 ### Success metrics (holistic)
 

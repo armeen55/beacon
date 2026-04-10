@@ -155,12 +155,25 @@ const PLAN_STATUS_LABELS: Record<string, string> = {
 };
 
 const FRONTIER_TYPE_LABELS: Record<string, string> = {
-  topic_frontier: "Topic gap",
-  city_frontier: "Local gap",
-  service_frontier: "Service gap",
+  topic_frontier: "Topic opportunity",
+  city_frontier: "Local opportunity",
+  service_frontier: "Service opportunity",
   page_gap_frontier: "Missing page",
-  competitor_pressure_frontier: "Competitor pressure",
+  competitor_pressure_frontier: "Competitive pressure",
 };
+
+/** Plain-language opportunity headline (replaces internal gap-class labels in the shell). */
+const PRODUCT_GAP_HEADLINE: Record<string, string> = {
+  observed_page_gap: "Scanner vs live page mismatch",
+  competitor_asset_gap: "Others winning citations here",
+  coverage_gap: "Thin owned coverage for this theme",
+  technical_gap: "Possible technical blockers",
+  inferred_draft_idea: "Early signal — confirm with data",
+};
+
+function gapHeadline(evidenceClass: string, fallback: string) {
+  return PRODUCT_GAP_HEADLINE[evidenceClass] ?? fallback;
+}
 
 const FRONTIER_STATUS_LABELS: Record<string, string> = {
   opportunity: "Open",
@@ -216,7 +229,7 @@ export function TopicsClient({
       {/* Left: Queue */}
       <div className="rounded-lg border border-border overflow-hidden bg-background">
         <div className="px-3 py-2 border-b border-border/60 flex items-center justify-between">
-          <p className="text-[11px] font-semibold text-muted-foreground/60">Opportunities ({rows.length})</p>
+          <p className="text-[11px] font-semibold text-muted-foreground">Topics ({rows.length})</p>
           {onRefreshEvidence && (
             <button onClick={() => startTransition(async () => { await onRefreshEvidence(); })} disabled={pending} className="text-[8px] text-accent-primary hover:underline font-medium">
               {pending ? "…" : "Refresh"}
@@ -238,8 +251,8 @@ export function TopicsClient({
                   <p className="text-[11px] font-semibold truncate">{row.topic}</p>
                 </div>
                 <div className="flex flex-col gap-0.5 mt-1 ml-[18px] text-[9px] text-left">
-                  <span className="inline-flex w-fit items-center rounded border border-border bg-surface-inset px-1.5 py-0.5 font-semibold text-muted-foreground">
-                    {GAP_EVIDENCE_LABELS[g.evidenceClass].short}
+                  <span className="inline-flex w-fit items-center rounded-md border border-border/70 bg-surface-inset/50 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                    {gapHeadline(g.evidenceClass, GAP_EVIDENCE_LABELS[g.evidenceClass].short)}
                   </span>
                   <Link
                     href={g.action.href}
@@ -261,53 +274,26 @@ export function TopicsClient({
           <div className="overflow-y-auto max-h-[calc(100vh-220px)]">
             <div className="px-6 pt-5 pb-4 border-b border-border/40">
               <h3 className="text-[15px] font-semibold tracking-tight mb-1">{selected.topic}</h3>
-              <span className="inline-flex items-center rounded border border-border bg-surface-inset px-2 py-0.5 text-[9px] font-semibold text-muted-foreground">
-                {GAP_EVIDENCE_LABELS[ledger.evidenceClass].short}
+              <span className="inline-flex items-center rounded-md border border-border/70 bg-surface-inset/50 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                {gapHeadline(ledger.evidenceClass, GAP_EVIDENCE_LABELS[ledger.evidenceClass].short)}
               </span>
             </div>
 
-            <div className="px-6 py-5 space-y-4">
-              <div>
-                <p className="text-[12px] font-semibold text-foreground mb-1">Evidence basis</p>
-                <p className="text-[11px] text-muted-foreground leading-relaxed mb-3">
-                  {ledger.evidenceLine}
-                </p>
-                <p className="text-[10px] font-medium text-foreground mb-2">
-                  {ledger.evidenceDimensionsLine}
-                </p>
-                <ul className="text-[10px] text-muted-foreground/85 space-y-1 mb-3 list-disc pl-4">
-                  {ledger.provenanceLines.map((line, i) => (
-                    <li key={i}>{line}</li>
-                  ))}
-                </ul>
-                <div className="flex flex-wrap gap-3 mb-3">
-                  {ledger.observationRunHref && (
-                    <Link
-                      href={ledger.observationRunHref}
-                      className="text-[10px] text-accent-primary hover:underline font-medium"
-                    >
-                      Website crawl run →
-                    </Link>
-                  )}
-                  {ledger.visibilityObservationRunHref && (
-                    <Link
-                      href={ledger.visibilityObservationRunHref}
-                      className="text-[10px] text-accent-primary hover:underline font-medium"
-                    >
-                      Visibility ObservationRun →
-                    </Link>
-                  )}
-                </div>
-                <div className="flex flex-wrap items-center gap-2 mb-3">
+            <div className="px-6 py-5 space-y-5">
+              <section>
+                <p className="text-xs font-semibold text-foreground mb-2">Suggested next step</p>
+                <p className="text-[13px] text-muted-foreground leading-relaxed mb-4">{ledger.evidenceLine}</p>
+                <div className="flex flex-wrap items-center gap-2">
                   <Link
                     href={ledger.action.href}
-                    className="inline-flex items-center gap-2 rounded-md bg-foreground px-4 py-2 text-[11px] font-semibold text-background hover:opacity-90"
+                    className="inline-flex items-center gap-2 rounded-md bg-foreground px-4 py-2 text-[12px] font-semibold text-background hover:opacity-90"
                   >
                     {ledger.action.label}
                     <span className="opacity-60">→</span>
                   </Link>
                   {frontier && !frontier.attackPackage.isPersisted && onLaunchPackage && (
                     <button
+                      type="button"
                       onClick={() => {
                         setLaunchMsg(null);
                         startTransition(async () => {
@@ -315,15 +301,17 @@ export function TopicsClient({
                           if (r.success && r.handoffText) {
                             try {
                               await navigator.clipboard.writeText(r.handoffText);
-                            } catch {}
-                            setLaunchMsg("Handoff copied ✓");
+                            } catch {
+                              /* ignore */
+                            }
+                            setLaunchMsg("Copied for your team ✓");
                           }
                         });
                       }}
                       disabled={pending}
-                      className="px-3 py-2 rounded-md border border-border text-[10px] font-medium text-muted-foreground hover:bg-surface-inset"
+                      className="px-3 py-2 rounded-md border border-border text-[11px] font-medium text-muted-foreground hover:bg-surface-inset"
                     >
-                      {pending ? "…" : "Generate action-plan handoff"}
+                      {pending ? "…" : "Copy plan text"}
                     </button>
                   )}
                   {frontier?.attackPackage.isPersisted &&
@@ -336,29 +324,82 @@ export function TopicsClient({
                     <span className="text-[11px] text-muted-foreground">Plan completed</span>
                   )}
                   {launchMsg && (
-                    <span className="text-[10px] text-muted-foreground">{launchMsg}</span>
+                    <span className="text-[11px] text-muted-foreground">{launchMsg}</span>
                   )}
                 </div>
                 {frontier?.recommendedMove === "create_missing_page" &&
                   (frontier.assetResponse?.ownedEquivalentExists || frontier.ownedPages > 0) && (
-                    <p className="text-[10px] text-muted-foreground border border-border rounded-md px-2 py-1.5 bg-surface-inset/60">
-                      Planner text may say “new page,” but owned URLs already exist — use Website to fix or retarget before
-                      opening a net-new URL.
+                    <p className="text-[11px] text-muted-foreground border border-border/60 rounded-md px-3 py-2 bg-surface-inset/40 mt-3">
+                      The plan may mention a new URL, but you already have pages here — fix or retarget in{" "}
+                      <Link href="/pages" className="text-accent-primary font-medium hover:underline">
+                        Pages
+                      </Link>{" "}
+                      before opening a net-new address.
                     </p>
                   )}
-              </div>
+              </section>
 
-              {/* Show details — all expert panels collapsed */}
-              <details className="group">
-                <summary className="text-[10px] text-muted-foreground/60 cursor-pointer hover:text-muted-foreground font-medium">Show details</summary>
-                <div className="mt-4 space-y-5">
+              {frontier && (
+                <p className="text-[13px] leading-snug">
+                  <span className="font-medium text-foreground">Beacon suggests </span>
+                  {MOVE_LABELS[frontier.recommendedMove] ?? frontier.recommendedMove.replace(/_/g, " ")}
+                  <span className="text-muted-foreground">
+                    {" "}
+                    —{" "}
+                    {frontier.rationale.length > 220
+                      ? `${frontier.rationale.slice(0, 217)}…`
+                      : frontier.rationale}
+                  </span>
+                </p>
+              )}
+
+              <details className="group/know rounded-lg border border-border/60 bg-surface-inset/15">
+                <summary className="cursor-pointer list-none px-3 py-2.5 text-xs font-medium text-muted-foreground hover:text-foreground flex items-center gap-2 [&::-webkit-details-marker]:hidden">
+                  <span className="text-[9px] text-muted-foreground/50 transition-transform group-open/know:rotate-90">▶</span>
+                  How Beacon knows (sources &amp; dimensions)
+                </summary>
+                <div className="px-3 pb-3 pt-0 space-y-3 border-t border-border/40 text-[11px] text-muted-foreground leading-relaxed">
+                  <p className="text-[10px] font-medium text-foreground pt-2">Signals combined</p>
+                  <p>{ledger.evidenceDimensionsLine}</p>
+                  <ul className="text-[10px] space-y-1 list-disc pl-4">
+                    {ledger.provenanceLines.map((line, i) => (
+                      <li key={i}>{line}</li>
+                    ))}
+                  </ul>
+                  <div className="flex flex-wrap gap-3 pt-1">
+                    {ledger.observationRunHref && (
+                      <Link
+                        href={ledger.observationRunHref}
+                        className="text-[11px] text-accent-primary hover:underline font-medium"
+                      >
+                        Website crawl record →
+                      </Link>
+                    )}
+                    {ledger.visibilityObservationRunHref && (
+                      <Link
+                        href={ledger.visibilityObservationRunHref}
+                        className="text-[11px] text-accent-primary hover:underline font-medium"
+                      >
+                        Visibility import run →
+                      </Link>
+                    )}
+                  </div>
+                </div>
+              </details>
+
+              <details className="group/full rounded-lg border border-border/60 bg-surface-inset/15">
+                <summary className="cursor-pointer list-none px-3 py-2.5 text-xs font-medium text-muted-foreground hover:text-foreground flex items-center gap-2 [&::-webkit-details-marker]:hidden">
+                  <span className="text-[9px] text-muted-foreground/50 transition-transform group-open/full:rotate-90">▶</span>
+                  Full plan, competitors &amp; activity
+                </summary>
+                <div className="mt-2 px-3 pb-4 pt-1 space-y-5 border-t border-border/40">
 
               {/* Frontier panel */}
               {frontier && (
                 <div className="rounded-lg border border-accent-primary/20 bg-accent-primary/[0.02] px-4 py-3 text-[10px]">
                   <div className="flex items-center gap-2 mb-2">
                     <span className="text-[8px] font-bold text-accent-primary bg-accent-primary/10 px-1.5 py-0.5 rounded">{FRONTIER_TYPE_LABELS[frontier.type] ?? frontier.type.replace(/_/g, " ")}</span>
-                    <span className="text-[12px] font-semibold text-foreground flex-1">Rank {frontier.priorityScore}</span>
+                    <span className="text-[12px] font-semibold text-foreground flex-1">Strength {frontier.priorityScore}</span>
                     <span className="text-[9px] text-muted-foreground">{FRONTIER_STATUS_LABELS[frontier.status] ?? frontier.status}</span>
                   </div>
 
@@ -384,7 +425,7 @@ export function TopicsClient({
                   </div>
 
                   <div className="rounded bg-surface-inset/70 px-3 py-2 mb-2">
-                    <p className="text-[8px] font-semibold text-accent-primary mb-1">Recommended move</p>
+                    <p className="text-[8px] font-semibold text-accent-primary mb-1">Rationale (detail)</p>
                     <p className="text-foreground font-medium">{MOVE_LABELS[frontier.recommendedMove]}: {frontier.rationale}</p>
                   </div>
 
@@ -399,13 +440,13 @@ export function TopicsClient({
               {frontier?.competitive && (
                 <div className="rounded-lg border border-border px-4 py-3 text-[10px] space-y-3">
                   <div className="flex items-center gap-2">
-                    <span className="text-[8px] font-bold text-status-danger bg-status-danger/10 px-1.5 py-0.5 rounded">Competitive landscape</span>
+                    <span className="text-[8px] font-bold text-status-danger bg-status-danger/10 px-1.5 py-0.5 rounded">Citation winners</span>
                     <span className="text-[9px] text-muted-foreground">Dominated by: {SRC_LABELS[frontier.competitive.dominantSourceType] ?? frontier.competitive.dominantSourceType}</span>
                   </div>
 
                   <p className="text-muted-foreground leading-relaxed">{frontier.competitive.insight}</p>
                   <div className="rounded bg-surface-inset/70 px-3 py-1.5">
-                    <span className="text-[8px] font-bold text-muted-foreground/60">Response: </span>
+                    <span className="text-[8px] font-bold text-muted-foreground/60">Suggested response: </span>
                     <span className="text-[10px] font-medium text-foreground">{frontier.competitive.responseType.replace(/_/g, " ")}</span>
                     <span className="text-[9px] text-muted-foreground ml-2">{frontier.competitive.responseRationale}</span>
                   </div>
@@ -448,7 +489,7 @@ export function TopicsClient({
               {frontier?.assetResponse && (
                 <div className="rounded-lg border border-accent-primary/20 bg-accent-primary/[0.02] px-4 py-3 text-[10px]">
                   <div className="flex items-center gap-2 mb-2">
-                    <span className="text-[8px] font-bold text-accent-primary bg-accent-primary/10 px-1.5 py-0.5 rounded">Asset response</span>
+                    <span className="text-[8px] font-bold text-accent-primary bg-accent-primary/10 px-1.5 py-0.5 rounded">Content shape</span>
                     <span className="text-[12px] font-semibold text-foreground">{ASSET_LABELS[frontier.assetResponse.recommendedAssetType] ?? frontier.assetResponse.recommendedAssetType}</span>
                     <span className={cn("text-[9px] font-semibold", CONF_COLORS[frontier.assetResponse.confidenceLabel] ?? "text-muted-foreground")}>
                       {frontier.assetResponse.confidenceLabel.replace(/_/g, " ")}
@@ -479,7 +520,7 @@ export function TopicsClient({
               {frontier?.attackPackage && (
                 <div className="rounded-lg border border-border px-4 py-3 text-[10px] space-y-3">
                   <div className="flex items-center gap-2">
-                    <span className="text-[8px] font-bold text-foreground bg-surface-inset px-1.5 py-0.5 rounded">Action plan</span>
+                    <span className="text-[8px] font-bold text-foreground bg-surface-inset px-1.5 py-0.5 rounded">Execution plan</span>
                     <p className="text-[12px] font-semibold text-foreground flex-1">{frontier.attackPackage.title}</p>
                   </div>
 
@@ -490,7 +531,7 @@ export function TopicsClient({
                   {frontier.competitive && (
                     <div className="rounded bg-status-danger/5 border border-status-danger/15 px-3 py-2 text-[9px] space-y-1">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-bold text-[8px] text-status-danger/70">Why this package</span>
+                        <span className="font-bold text-[8px] text-status-danger/70">Why this sequence</span>
                         <span className="font-medium text-foreground">{frontier.competitive.responseType.replace(/_/g, " ")}</span>
                         <span className="text-muted-foreground">·</span>
                         <span className="text-muted-foreground">Dominant: {SRC_LABELS[frontier.competitive.dominantSourceType] ?? frontier.competitive.dominantSourceType}</span>
@@ -627,7 +668,7 @@ export function TopicsClient({
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 {selected.changes.length > 0 && (
                   <div>
-                    <p className="text-[10px] font-semibold text-muted-foreground mb-1.5">Linked changes</p>
+                    <p className="text-[10px] font-semibold text-muted-foreground mb-1.5">Linked edits (Changes)</p>
                     <div className="space-y-0.5">
                       {selected.changes.slice(0, 5).map((c) => (
                         <Link key={c.id} href={`/changes/${c.id}`} className="flex items-center gap-2 rounded px-2 py-1.5 hover:bg-surface-inset/50 transition-colors">
@@ -640,7 +681,7 @@ export function TopicsClient({
                 )}
                 {selected.events.length > 0 && (
                   <div>
-                    <p className="text-[10px] font-semibold text-muted-foreground mb-1.5">Recent events</p>
+                    <p className="text-[10px] font-semibold text-muted-foreground mb-1.5">Recent visibility shifts</p>
                     <div className="space-y-0.5">
                       {selected.events.slice(0, 5).map((e) => (
                         <Link key={e.id} href={`/results/${e.anchorResultId}`} className="flex items-center gap-2 rounded px-2 py-1.5 hover:bg-surface-inset/50 transition-colors text-[10px]">
@@ -653,11 +694,12 @@ export function TopicsClient({
                 )}
               </div>
 
-              <div className="text-[9px] text-muted-foreground/40 pt-2">
-                {selected.totalEvents} events · {selected.decidedEvents} decided · {selected.totalChanges} changes · {selected.nextMoveDetail}
+              <div className="text-[10px] text-muted-foreground/80 pt-3 border-t border-border/30">
+                Activity on this topic: {selected.totalEvents} shifts · {selected.decidedEvents} decided ·{" "}
+                {selected.totalChanges} linked edits · {selected.nextMoveDetail}
               </div>
 
-                </div>{/* end details content */}
+                </div>
               </details>
             </div>
           </div>

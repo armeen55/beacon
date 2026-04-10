@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useTransition } from "react";
+import { useState, useEffect, useRef, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
@@ -112,6 +112,238 @@ const GROUP_CONFIG: Record<string, { label: string; order: number }> = {
   in_progress: { label: "In progress", order: 1 },
   wins: { label: "FYI", order: 2 },
 };
+
+/** Calm, legible experiment status — watchlist only (not raw enum strings). */
+const WATCHLIST_STATUS_PRESENTATION: Record<
+  string,
+  { label: string; pill: string }
+> = {
+  testing: {
+    label: "Actively testing",
+    pill: "border-accent-primary/35 bg-accent-primary/10 text-accent-primary",
+  },
+  watching: {
+    label: "Collecting signal",
+    pill: "border-border/80 bg-muted/30 text-muted-foreground",
+  },
+  promising: {
+    label: "Promising signal",
+    pill: "border-status-success/35 bg-status-success/10 text-status-success",
+  },
+  inconclusive: {
+    label: "Unclear so far",
+    pill: "border-status-warning/35 bg-status-warning/10 text-status-warning",
+  },
+  negative: {
+    label: "Trending down",
+    pill: "border-status-danger/35 bg-status-danger/10 text-status-danger",
+  },
+  dropped: {
+    label: "Removed",
+    pill: "border-transparent bg-muted/20 text-muted-foreground line-through",
+  },
+};
+
+const MANUAL_STATUS_OPTIONS: Array<{
+  value: "testing" | "watching" | "promising" | "inconclusive" | "negative";
+  label: string;
+}> = [
+  { value: "testing", label: "Actively testing" },
+  { value: "watching", label: "Collecting signal" },
+  { value: "promising", label: "Looks promising" },
+  { value: "inconclusive", label: "Still unclear" },
+  { value: "negative", label: "Trending negative" },
+];
+
+function formatExperimentStarted(iso: string): string {
+  try {
+    return new Date(iso).toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric",
+    });
+  } catch {
+    return "—";
+  }
+}
+
+function recTypeDisplayLabel(recType: string): string {
+  return REC_ACCENT[recType]?.label ?? recType.replace(/_/g, " ");
+}
+
+function WatchlistExperimentCard({
+  exp,
+  pending,
+  onUpdateExperiment,
+  startTransition,
+  setActionMsg,
+}: {
+  exp: TodayExperiment;
+  pending: boolean;
+  onUpdateExperiment?: (
+    id: string,
+    status: "testing" | "watching" | "promising" | "inconclusive" | "negative" | "dropped",
+  ) => Promise<{ success: boolean }>;
+  startTransition: (cb: () => void) => void;
+  setActionMsg: (s: string | null) => void;
+}) {
+  const st =
+    WATCHLIST_STATUS_PRESENTATION[exp.status] ?? WATCHLIST_STATUS_PRESENTATION.watching;
+  const typeLabel = recTypeDisplayLabel(exp.recType);
+
+  let signalLine: ReactNode;
+  if (exp.baselineCitations !== null && exp.latestCitations !== null) {
+    signalLine = (
+      <>
+        <span className="tabular-nums font-medium text-foreground">
+          {exp.latestCitations}
+        </span>
+        <span className="text-muted-foreground"> citations now</span>
+        <span className="text-muted-foreground"> · baseline </span>
+        <span className="tabular-nums font-medium text-foreground">
+          {exp.baselineCitations}
+        </span>
+        {exp.citDelta !== null && exp.citDelta !== 0 && (
+          <span
+            className={cn(
+              "tabular-nums font-semibold",
+              exp.citDelta > 0 ? "text-status-success" : "text-status-danger",
+            )}
+          >
+            {" "}
+            ({exp.citDelta > 0 ? "+" : ""}
+            {exp.citDelta})
+          </span>
+        )}
+        {exp.citDelta === 0 && (
+          <span className="text-muted-foreground"> · flat vs baseline</span>
+        )}
+      </>
+    );
+  } else if (exp.baselineCitations !== null) {
+    signalLine = (
+      <>
+        <span className="text-muted-foreground">Baseline </span>
+        <span className="tabular-nums font-medium text-foreground">
+          {exp.baselineCitations}
+        </span>
+        <span className="text-muted-foreground">
+          {" "}
+          citations · waiting for a newer import to compare
+        </span>
+      </>
+    );
+  } else {
+    signalLine = (
+      <span className="text-muted-foreground">
+        No baseline citation snapshot yet — next import will anchor the watch.
+      </span>
+    );
+  }
+
+  return (
+    <div className="rounded-lg border border-border/60 bg-card px-4 py-3.5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0 flex-1 space-y-2.5">
+          <div className="flex flex-wrap items-center gap-2 gap-y-1.5">
+            <span
+              className={cn(
+                "inline-flex shrink-0 items-center rounded-full border px-2.5 py-0.5 text-xs font-medium",
+                st.pill,
+              )}
+            >
+              {st.label}
+            </span>
+            <span className="text-xs text-muted-foreground">
+              Day {exp.daysSinceStart + 1} of watch · started{" "}
+              {formatExperimentStarted(exp.startedAt)}
+            </span>
+          </div>
+
+          <p className="text-sm font-semibold leading-snug text-foreground">{exp.headline}</p>
+
+          <p className="text-xs text-muted-foreground leading-relaxed">
+            <span className="font-medium text-foreground/90">{typeLabel}</span>
+            {exp.targetPagePath ? (
+              <>
+                {" "}
+                ·{" "}
+                <span className="break-all text-foreground/80">{exp.targetPagePath}</span>
+              </>
+            ) : null}
+          </p>
+
+          <div className="rounded-md border border-border/50 bg-muted/20 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
+            <span className="font-medium text-foreground">Citation readout · </span>
+            {signalLine}
+          </div>
+
+          {exp.operatorNote ? (
+            <p className="text-xs text-muted-foreground border-l-2 border-border/80 pl-2.5 leading-relaxed">
+              <span className="font-medium text-foreground/80">Your note · </span>
+              {exp.operatorNote}
+            </p>
+          ) : null}
+
+          {exp.watchAfter ? (
+            <details className="group/wa rounded-md border border-border/40 bg-surface-raised/30">
+              <summary className="cursor-pointer px-3 py-2 text-xs font-medium text-foreground list-none [&::-webkit-details-marker]:hidden hover:bg-muted/20 rounded-md">
+                What Beacon is watching for
+              </summary>
+              <p className="px-3 pb-3 pt-0 text-xs text-muted-foreground leading-relaxed border-t border-border/30">
+                {exp.watchAfter}
+              </p>
+            </details>
+          ) : null}
+
+          {onUpdateExperiment && exp.status !== "dropped" && (
+            <details className="rounded-md border border-border/40">
+              <summary className="cursor-pointer px-3 py-2 text-xs font-medium text-muted-foreground list-none [&::-webkit-details-marker]:hidden hover:text-foreground hover:bg-muted/15 rounded-md">
+                Adjust outcome (optional)
+              </summary>
+              <div className="border-t border-border/30 px-3 py-3 space-y-3">
+                <p className="text-[11px] text-muted-foreground leading-relaxed">
+                  Override how this watch reads to you. Fresh imports still update citations and may
+                  move status automatically when the delta is clear.
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {MANUAL_STATUS_OPTIONS.filter((o) => o.value !== exp.status).map((o) => (
+                    <button
+                      key={o.value}
+                      type="button"
+                      disabled={pending}
+                      onClick={() =>
+                        startTransition(async () => {
+                          await onUpdateExperiment(exp.id, o.value);
+                          setActionMsg(`Watch marked: ${o.label}.`);
+                        })
+                      }
+                      className="rounded-md border border-border/70 bg-background px-2.5 py-1.5 text-[11px] font-medium text-foreground hover:bg-muted/30 transition-colors disabled:opacity-50"
+                    >
+                      {o.label}
+                    </button>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  disabled={pending}
+                  onClick={() =>
+                    startTransition(async () => {
+                      await onUpdateExperiment(exp.id, "dropped");
+                      setActionMsg("Removed from watchlist.");
+                    })
+                  }
+                  className="text-[11px] font-medium text-muted-foreground/70 hover:text-status-danger transition-colors disabled:opacity-50"
+                >
+                  Remove from watchlist
+                </button>
+              </div>
+            </details>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function formatScanTime(iso: string | null): string {
   if (!iso) return "—";
@@ -484,67 +716,33 @@ export function TodayClient({
         </p>
       )}
 
-      {/* ── 3b. Watchlist ── */}
+      {/* ── 3b. Watchlist / experiments ── */}
       {experiments && experiments.length > 0 && (
-        <div className="pt-2">
-          <p className="text-xs font-semibold text-foreground mb-3">
-            Watchlist
-          </p>
-          <div className="space-y-2">
-            {experiments.map((exp) => {
-              const statusStyle: Record<string, { color: string; label: string }> = {
-                testing: { color: "text-accent-primary", label: "Testing" },
-                watching: { color: "text-muted-foreground", label: "Watching" },
-                promising: { color: "text-status-success", label: "Promising" },
-                inconclusive: { color: "text-status-warning", label: "Inconclusive" },
-                negative: { color: "text-status-danger", label: "Negative" },
-                dropped: { color: "text-muted-foreground/50", label: "Dropped" },
-              };
-              const st = statusStyle[exp.status] ?? statusStyle.watching;
-              return (
-                <div key={exp.id} className="rounded-lg border border-border/60 px-4 py-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="text-[13px] font-medium truncate flex-1">{exp.headline}</p>
-                    <div className="flex items-center gap-2 shrink-0">
-                      <span className={cn("text-[11px] font-medium", st.color)}>{st.label}</span>
-                      <span className="text-[11px] text-muted-foreground/50 tabular-nums">{exp.daysSinceStart}d</span>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3 mt-1.5 text-[11px] text-muted-foreground flex-wrap">
-                    {exp.targetPagePath && (
-                      <span className="font-mono text-[10px]">{exp.targetPagePath}</span>
-                    )}
-                    {exp.citDelta !== null && (
-                      <span className={cn(
-                        "font-semibold tabular-nums",
-                        exp.citDelta > 0 ? "text-status-success" : exp.citDelta < 0 ? "text-status-danger" : "text-muted-foreground",
-                      )}>
-                        {exp.citDelta > 0 ? "+" : ""}{exp.citDelta} citations
-                      </span>
-                    )}
-                    {exp.citDelta === null && exp.baselineCitations !== null && (
-                      <span>Baseline: {exp.baselineCitations}</span>
-                    )}
-                    {exp.citDelta === null && exp.baselineCitations === null && (
-                      <span className="text-muted-foreground/50">No baseline</span>
-                    )}
-                    {exp.status !== "dropped" && onUpdateExperiment && (
-                      <button
-                        onClick={() => startTransition(async () => { await onUpdateExperiment(exp.id, "dropped"); setActionMsg("Dropped."); })}
-                        className="text-[10px] text-muted-foreground/40 hover:text-muted-foreground transition-colors ml-auto"
-                      >
-                        Drop
-                      </button>
-                    )}
-                  </div>
-                  {exp.operatorNote && (
-                    <p className="text-[11px] text-muted-foreground/60 mt-1">{exp.operatorNote}</p>
-                  )}
-                </div>
-              );
-            })}
+        <section className="pt-3 border-t border-border/40">
+          <div className="mb-4">
+            <p className="text-xs text-muted-foreground">Follow-through</p>
+            <h3 className="text-sm font-semibold text-foreground mt-0.5 tracking-tight">
+              Experiments on your watchlist
+            </h3>
+            <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed max-w-xl">
+              Living continuation of recommendations you chose to test. Citation counts refresh when
+              you import; status can move on its own when the signal is clear — use this strip to
+              remember what you changed and what you are judging.
+            </p>
           </div>
-        </div>
+          <div className="space-y-3">
+            {experiments.map((exp) => (
+              <WatchlistExperimentCard
+                key={exp.id}
+                exp={exp}
+                pending={pending}
+                onUpdateExperiment={onUpdateExperiment}
+                startTransition={startTransition}
+                setActionMsg={setActionMsg}
+              />
+            ))}
+          </div>
+        </section>
       )}
 
       {/* ── 4. What changed ── */}

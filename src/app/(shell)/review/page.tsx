@@ -14,6 +14,7 @@ import {
   type ResolvedItem,
   type Decisionability,
 } from "./review-queue-client";
+import { PageHeader } from "@/components/data/page-header";
 
 const EVENT_TYPE_LABELS: Record<OutcomeEventType, string> = {
   first_appearance: "Showed up",
@@ -251,11 +252,27 @@ export default function ReviewPage() {
 
   return (
     <div className="max-w-4xl">
-      <div className="mb-4">
-        <h2 className="text-[16px] font-semibold tracking-tight">Review</h2>
-        <p className="text-[12px] text-muted-foreground mt-0.5">
-          For each move, make the call. What caused it?
-        </p>
+      <PageHeader
+        title="Review"
+        description="Specialist queue: attribute each visibility shift to a change, competitor pressure, platform behavior, or leave it open. Clearest items surface first."
+      />
+
+      <div className="mb-6 rounded-lg border border-border/60 bg-surface-raised/40 px-5 py-4">
+        <p className="text-xs font-medium text-muted-foreground mb-2">At a glance</p>
+        <div className="flex flex-wrap items-baseline gap-x-8 gap-y-2 text-sm">
+          <span>
+            <span className="font-bold tabular-nums">{items.length}</span>
+            <span className="text-muted-foreground ml-1.5">awaiting decision</span>
+          </span>
+          {easyCallCount > 0 && (
+            <span className="text-status-success font-medium tabular-nums">
+              {easyCallCount} likely quick decision{easyCallCount !== 1 ? "s" : ""}
+            </span>
+          )}
+          <span className="text-muted-foreground text-[13px]">
+            <span className="font-semibold text-foreground tabular-nums">{eventDecisions.length}</span> locked total
+          </span>
+        </div>
       </div>
 
       <InlineReviewQueue
