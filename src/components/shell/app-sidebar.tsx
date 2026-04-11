@@ -17,15 +17,13 @@ const NAV_SHORTCUTS: Record<string, string> = {
   "/": "G T",
   "/pages": "G P",
   "/changes": "G C",
-  "/competitors": "G X",
-  "/topics": "G O",
-  "/import": "G I",
-  "/review": "G R",
+  "/competitors": "G M",
+  "/settings": "G S",
 };
 
 const BADGE_STYLES: Record<string, string> = {
   "/": "bg-status-danger/15 text-status-danger",
-  "/review": "bg-status-warning/15 text-status-warning",
+  "/changes": "bg-status-warning/15 text-status-warning",
   "/pages": "bg-accent-primary/15 text-accent-primary",
 };
 
@@ -48,8 +46,8 @@ function SidebarContent() {
 
       <ScrollArea className="flex-1 py-3">
         <nav className="flex flex-col gap-5 px-3">
-          {navigationGroups.map((group) => (
-            <div key={group.label}>
+          {navigationGroups.map((group, groupIndex) => (
+            <div key={group.label || `nav-group-${groupIndex}`}>
               {group.label && (
                 <p className="px-2 mb-1 text-[11px] font-medium text-sidebar-foreground/50 tracking-normal">
                   {group.label}
