@@ -1,0 +1,80 @@
+export type FindingType =
+  | "title_changed"
+  | "meta_changed"
+  | "h1_changed"
+  | "canonical_changed"
+  | "faq_changed"
+  | "schema_changed"
+  | "content_changed"
+  | "links_changed"
+  | "new_guardrail"
+  | "guardrail_cleared"
+  | "deploy_mismatch"
+  | "unexpected_change"
+  | "page_added"
+  | "page_removed"
+  | "stale_visibility";
+
+export type FindingStatus =
+  | "pending"
+  | "accepted"
+  | "rejected"
+  | "ignored"
+  | "expected";
+
+export type FindingSeverity = "high" | "medium" | "low";
+
+export type Finding = {
+  id: string;
+  type: FindingType;
+  url: string;
+  pagePath: string;
+  detectedAt: string;
+  scanRunId: string;
+  previousState: string | null;
+  currentState: string | null;
+  severity: FindingSeverity;
+  summary: string;
+  suggestedAction: string;
+  status: FindingStatus;
+  resolvedAt: string | null;
+  linkedChangeId: string | null;
+};
+
+export type ScanSettings = {
+  preferredHour: number;
+  timezone: string;
+  scope: "full" | "priority";
+  enabled: boolean;
+};
+
+export const DEFAULT_SCAN_SETTINGS: ScanSettings = {
+  preferredHour: 9,
+  timezone: "America/Los_Angeles",
+  scope: "full",
+  enabled: true,
+};
+
+export const FINDING_TYPE_LABELS: Record<FindingType, string> = {
+  title_changed: "Title changed",
+  meta_changed: "Meta description changed",
+  h1_changed: "H1 changed",
+  canonical_changed: "Canonical changed",
+  faq_changed: "Q&A count changed",
+  schema_changed: "Schema changed",
+  content_changed: "Content changed",
+  links_changed: "Internal links changed",
+  new_guardrail: "New issue detected",
+  guardrail_cleared: "Issue resolved",
+  deploy_mismatch: "Deploy mismatch",
+  unexpected_change: "Unexpected change",
+  page_added: "Page added",
+  page_removed: "Page removed",
+  stale_visibility: "Visibility data stale",
+};
+
+export const FINDING_SEVERITY_LABELS: Record<FindingSeverity, string> = {
+  high: "High",
+  medium: "Medium",
+  low: "Low",
+};

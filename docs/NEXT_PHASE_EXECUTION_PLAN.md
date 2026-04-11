@@ -1,6 +1,6 @@
 # Beacon Execution Plan — 2026-04-07
 
-**Current status (2026-04-10):** Phases 2–23 (attribution through nightly hardening), Shell A–H, Intelligence **24–30** (domains + scaffolds), and **Phase 31 / 31B / 31C** (viz primitives, Pulse, reports-as-data, abstraction layers, route visual saturation) are **reflected as shipped** in repo docs. **Phase 31** still has **partial** items (PDF export, notification badge queue, geo heat map Stage-2 UI). **Recommended next execution phase:** **Phase 32** (Ask Beacon + industry blueprints + training pipeline scaffold) *or* close remaining Phase 31 gaps first — see Phase 31 section below.
+**Current status (2026-04-11):** Phases 2–23, Shell A–H, Intelligence **24–30**, **Phase 31** (viz + abstraction), **Product Stabilization** (crawl truth + usability), and **Phase 32** (Daily Detection + Approval Loop) are **shipped**. Phase 31 still has **partial** items (PDF export, notification badge queue, geo heat map Stage-2 UI). **Next:** close Phase 31 gaps or start **Phase 33** (native querying expansion, multi-model).
 
 ## Phase 2: Candidate Pruning + Evidence Tier Wiring — COMPLETE
 

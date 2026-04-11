@@ -1692,3 +1692,48 @@ Updated only: `docs/master_execution_plan.md` (new § under surface spec: Phases
 - `npm run build` — pass (22 routes)
 - `npm test` — pass (26/26)
 - 0 lint errors
+
+---
+
+## 2026-04-11 — Phase 32: Daily Detection + Approval Loop
+
+### What was built
+
+| System | Files | Purpose |
+|--------|-------|---------|
+| Finding types | `src/domains/scanning/types.ts` | `Finding`, `FindingType`, `FindingStatus`, `FindingSeverity`, `ScanSettings` types + labels |
+| Scan settings | `src/domains/scanning/scan-settings.ts` | `getScanSettings()`, `updateScanSettings()`, `isScanOverdue()` — timezone-aware overdue detection |
+| Detection engine | `src/domains/scanning/detect-findings.ts` | `generateFindings()` — compares snapshots, guardrails, changelog to produce structured findings |
+| Findings store | `src/domains/scanning/findings-store.ts` | CRUD for `scan-findings.json` — add, update status, prune old resolved |
+| Server actions | `src/app/(shell)/finding-actions.ts` | `resolveFinding()`, `saveScanSettings()` |
+| Auto-scan | `src/app/(shell)/page.tsx` | On Today load: check overdue, trigger scan, generate findings, pass to client |
+| Today UI | `src/app/(shell)/today-client.tsx` | "Since last scan" approval queue, scan result banner, FindingRow component |
+| Pages integration | `src/app/(shell)/pages/page.tsx`, `pages-client.tsx` | Per-page pending finding count, "N new" chip on list rows |
+
+### Detection types (15)
+
+`title_changed`, `meta_changed`, `h1_changed`, `canonical_changed`, `faq_changed`, `schema_changed`, `content_changed`, `links_changed`, `new_guardrail`, `guardrail_cleared`, `deploy_mismatch`, `unexpected_change`, `page_added`, `page_removed`, `stale_visibility`
+
+### Finding approval statuses
+
+`pending` → operator reviews → `accepted` / `rejected` / `ignored` / `expected`
+
+### How auto-scan works
+
+1. `TodayPage()` (server component) calls `isScanOverdue()` — checks configured preferred hour + timezone vs last crawl date
+2. If overdue → triggers `triggerPageScan()` (existing CLI script via `exec`)
+3. After scan → reads fresh snapshots + guardrails from disk
+4. Calls `generateFindings()` comparing current vs previous state
+5. Persists new findings to `scan-findings.json`
+6. Passes pending findings to `TodayClient` for approval queue rendering
+
+### Deploy mismatch detection
+
+For changelog entries in the last 30 days that mention FAQ/schema/structured data, the engine checks whether the targeted page's current snapshot actually has those elements. If not → `deploy_mismatch` finding with `high` severity. This catches "shipped but not deployed" situations.
+
+### Build verification
+
+- `npx tsc --noEmit` — pass
+- `npm run build` — pass (22 routes)
+- `npm test` — pass (26/26)
+- 0 lint errors

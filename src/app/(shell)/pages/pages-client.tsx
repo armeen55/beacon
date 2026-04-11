@@ -70,6 +70,7 @@ export type PageRow = {
   }[];
   fixBriefs: ClientFixBrief[];
   playbookBriefs: ClientPlaybookBrief[];
+  pendingFindingCount: number;
   waveId: string | null;
   waveName: string | null;
   wave: {
@@ -427,6 +428,11 @@ export function PagesClient({
                   </div>
                   <div className="flex items-center gap-2 mt-1 text-[11px] text-muted-foreground flex-wrap">
                     {row.totalCitations > 0 && <span className="tabular-nums">{row.totalCitations} mentions</span>}
+                    {row.pendingFindingCount > 0 && (
+                      <span className="rounded bg-accent-primary/10 px-1.5 py-0.5 text-[10px] text-accent-primary font-medium">
+                        {row.pendingFindingCount} new
+                      </span>
+                    )}
                     {!row.snapshot && <span className="rounded bg-status-warning/10 px-1.5 py-0.5 text-[10px] text-status-warning font-medium">Not crawled</span>}
                     {row.snapshot && row.snapshot.faqCount === 0 && (
                       <span className="rounded bg-muted/80 px-1.5 py-0.5 text-[10px] text-muted-foreground">No Q&amp;A</span>

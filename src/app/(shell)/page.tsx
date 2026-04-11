@@ -71,8 +71,71 @@ import { loadCompetitorUniverseRuntime } from "@/domains/competitors/universe-re
 import { buildTodayCompetitorLine } from "@/domains/competitors/today-competitor-line";
 import { PLATFORM_LABELS, type Platform } from "@/lib/constants";
 import Link from "next/link";
+import { getScanSettings, isScanOverdue } from "@/domains/scanning/scan-settings";
+import { generateFindings } from "@/domains/scanning/detect-findings";
+import {
+  getPendingFindings,
+  getResolvedFindingsCount,
+  addFindings,
+} from "@/domains/scanning/findings-store";
+import { resolveFinding, saveScanSettings } from "./finding-actions";
+import { triggerPageScan } from "./pages/scan-action";
 
-export default function TodayPage() {
+export default async function TodayPage() {
+  // ── Auto-scan on morning visit ──
+  const scanSettings = getScanSettings();
+  const lastCrawlRun = latestWebsiteCrawlRun();
+  const scanOverdue = isScanOverdue(lastCrawlRun?.completed_at ?? null, scanSettings);
+
+  let scanRanThisLoad = false;
+  let scanResult: { pagesScanned?: number; pagesChanged?: number; alertCount?: number } | undefined;
+
+  if (scanOverdue) {
+    const previousSnapshots = [...pageSnapshots];
+    const previousGuardrails = [...guardrailAlerts];
+
+    const result = await triggerPageScan();
+    scanRanThisLoad = result.success;
+    if (result.success) {
+      scanResult = {
+        pagesScanned: result.pagesScanned,
+        pagesChanged: result.pagesChanged,
+        alertCount: result.alertCount,
+      };
+
+      const { readDotDataJson } = await import("@/lib/persistence/dotdata-json");
+      const freshSnapshots = readDotDataJson<import("@/domains/pages/types").PageSnapshot[]>("page-snapshots") ?? [];
+      const freshGuardrails = readDotDataJson<import("@/domains/pages/guardrails").GuardrailAlert[]>("page-guardrails") ?? [];
+
+      const citLookup = new Map<string, number>();
+      if (citationEvidenceIndex) {
+        for (const rollup of citationEvidenceIndex.by_page_and_topic) {
+          if (rollup.is_owned) {
+            const key = rollup.page_url.replace(/\/+$/, "").toLowerCase();
+            citLookup.set(key, (citLookup.get(key) ?? 0) + rollup.total_citations);
+          }
+        }
+      }
+
+      const newFindings = generateFindings({
+        currentSnapshots: freshSnapshots,
+        previousSnapshots,
+        currentGuardrails: freshGuardrails,
+        previousGuardrails,
+        changelog: changelogEntries,
+        scanRunId: `scan-${Date.now()}`,
+        citationsByUrl: citLookup,
+      });
+
+      if (newFindings.length > 0) {
+        await addFindings(newFindings);
+      }
+    }
+  }
+
+  const pendingFindings = getPendingFindings();
+  const resolvedFindingsCount = getResolvedFindingsCount();
+
   const { attribution: attrResults } = partitionResultsByMode(results);
   const events = detectOutcomeEvents(attrResults);
   const decidedEventIds = new Set(eventDecisions.map((d) => d.event_id));
@@ -857,6 +920,13 @@ export default function TodayPage() {
         experiments={serializedExperiments}
         onStartExperiment={startExperimentAction}
         onUpdateExperiment={updateExperimentAction}
+        pendingFindings={pendingFindings}
+        resolvedFindingsCount={resolvedFindingsCount}
+        scanRanThisLoad={scanRanThisLoad}
+        scanResult={scanResult}
+        onResolveFinding={resolveFinding}
+        scanSettings={scanSettings}
+        onSaveScanSettings={saveScanSettings}
       />
 
       {enrichedItems.length === 0 && (

@@ -315,18 +315,19 @@ A trust-first AI visibility operating system for builder/home-services businesse
 
 ## 12. Jobs / Orchestration
 
-**CURRENT FACT:** All jobs are manual CLI scripts.
-| Script | Command | Writes |
+**CURRENT STATE (Phase 32):** Auto-scan on Today page load when overdue. CLI scripts kept as manual fallbacks.
+
+| Script / Trigger | Command / Mechanism | Writes |
 |--------|---------|--------|
-| `scan-owned-pages.ts` | `npm run data:scan` | snapshots, diffs, guardrails, render checks, observation runs, scan runs, reconciliation |
+| `scan-owned-pages.ts` | `npm run data:scan` (manual) or auto via `triggerPageScan()` on Today load | snapshots, diffs, guardrails, render checks, observation runs, scan runs, reconciliation |
+| Auto-scan trigger | `isScanOverdue()` in `page.tsx` → `triggerPageScan()` → `generateFindings()` | `scan-findings.json` (findings with approval statuses) |
 | `build-page-registry.ts` | `npm run data:registry` | pages.json, citation-evidence-index.json |
 | `score-snapshot.ts` | `npm run data:score-snapshot` | stdout diagnostics only |
-| `backfill-result-visibility-runs.ts` | manual tsx | visibility-observation-runs.json |
-| `backfill-change-contracts.ts` | manual tsx | change-contracts store |
 
-**TARGET STATE (phased):**
-- Phase 2: Inngest nightly crawl pipeline (replaces `data:scan` + `data:registry`)
-- Phase 3: Inngest visibility sampling pipeline
+**Scan settings:** `.data/scan-settings.json` — `preferredHour` (default 9), `timezone` (default America/Los_Angeles), `scope`, `enabled`. No external cron — overdue check runs on Today page load.
+
+**FUTURE STATE:**
+- Inngest or external scheduler for fully background scans (when deployed)
 - CLI scripts kept as manual fallbacks
 
 ---

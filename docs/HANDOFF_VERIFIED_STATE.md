@@ -442,3 +442,22 @@ Full implementation map: see `master_execution_plan.md` Phase 24+ section and `a
 | `PageSnapshotSummary` | **Expanded** | Added `metaDescription`, `canonicalUrl`, `httpStatus` from extractor |
 
 See `VERIFICATION_LOG.md` for full stabilization entry.
+
+---
+
+## Phase 32 — Daily Detection + Approval Loop (2026-04-11)
+
+| Component | Status | Key Files |
+|-----------|--------|-----------|
+| Finding types + labels | **Shipped** | `src/domains/scanning/types.ts` |
+| Scan settings + overdue logic | **Shipped** | `src/domains/scanning/scan-settings.ts` |
+| Detection engine (15 finding types) | **Shipped** | `src/domains/scanning/detect-findings.ts` |
+| Findings store (CRUD + prune) | **Shipped** | `src/domains/scanning/findings-store.ts` |
+| Finding server actions | **Shipped** | `src/app/(shell)/finding-actions.ts` |
+| Auto-scan on Today load | **Shipped** | `src/app/(shell)/page.tsx` — `isScanOverdue()` check + `triggerPageScan()` + `generateFindings()` |
+| Today findings queue | **Shipped** | `src/app/(shell)/today-client.tsx` — "Since last scan" section with accept/reject/ignore/expected |
+| Pages finding indicators | **Shipped** | `src/app/(shell)/pages/page.tsx` + `pages-client.tsx` — `pendingFindingCount` per row |
+
+**How it works:** Operator opens Today → system checks if scan is overdue (configurable hour + timezone, default 9 AM PT) → if yes, runs crawl automatically → compares current vs previous snapshots → detects 15 types of changes including deploy mismatches → surfaces findings in an approval queue at the top of Today → operator accepts/rejects/ignores each → only accepted findings persist as meaningful.
+
+See `VERIFICATION_LOG.md` for full Phase 32 entry.

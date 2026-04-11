@@ -49,6 +49,7 @@ import { updateIssueStatus, verifyAndUpdateIssue, generateHandoffText, convertBr
 import { getSiteConfig } from "@/lib/site-config";
 import { latestWebsiteCrawlRun } from "@/domains/observations/read";
 import type { GuardrailAlert } from "@/domains/pages/guardrails";
+import { getPendingFindings } from "@/domains/scanning/findings-store";
 
 function guardrailIssueBasis(
   alert: GuardrailAlert,
@@ -57,20 +58,20 @@ function guardrailIssueBasis(
   if (alert.observation_run_id) {
     return {
       issueEvidenceBasis:
-        "Observed — guardrail emitted during a stamped website crawl (ObservationRun).",
+        "Detected during a crawl of the live page.",
       observationRunId: alert.observation_run_id,
     };
   }
   if (snap) {
     return {
       issueEvidenceBasis:
-        "Observed — HTML snapshot on file; guardrail may predate run stamping (legacy import) or share an unstamped alert row.",
+        "Detected from a stored HTML snapshot. Re-run crawl to get fresh evidence.",
       observationRunId: snap.observation_run_id ?? null,
     };
   }
   return {
     issueEvidenceBasis:
-      "Weak — guardrail row without a joined page snapshot in Beacon; re-run scan to establish evidence.",
+      "Detected but no HTML snapshot on file. Run a crawl to verify.",
     observationRunId: null,
   };
 }
@@ -104,6 +105,13 @@ export default function PagesPage() {
   for (const d of pageDiffs) {
     diffByPageId.set(d.page_id, d);
     diffByUrl.set(d.url.replace(/\/+$/, "").toLowerCase(), d);
+  }
+
+  const allPendingFindings = getPendingFindings();
+  const findingCountByUrl = new Map<string, number>();
+  for (const f of allPendingFindings) {
+    const key = f.url.replace(/\/+$/, "").toLowerCase();
+    findingCountByUrl.set(key, (findingCountByUrl.get(key) ?? 0) + 1);
   }
 
   // ── Load guardrails + scan runs ──
@@ -697,6 +705,7 @@ export default function PagesPage() {
             : null,
         };
       }),
+      pendingFindingCount: findingCountByUrl.get(normPageUrl) ?? 0,
       waveId: pageToWaveId.get(normPageUrl) ?? null,
       waveName: (() => {
         const wid = pageToWaveId.get(normPageUrl);

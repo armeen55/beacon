@@ -10,6 +10,21 @@ import { PlatformSplit } from "@/components/viz/platform-split";
 import { MiniBarChart } from "@/components/viz/mini-bar-chart";
 import { KpiCard } from "@/components/viz/kpi-card";
 import { ConfidenceBadge } from "@/components/viz/confidence-badge";
+import { FINDING_TYPE_LABELS } from "@/domains/scanning/types";
+
+type SerializedFinding = {
+  id: string;
+  type: string;
+  url: string;
+  pagePath: string;
+  detectedAt: string;
+  previousState: string | null;
+  currentState: string | null;
+  severity: "high" | "medium" | "low";
+  summary: string;
+  suggestedAction: string;
+  status: string;
+};
 
 export type TodayImpactItem = {
   changeId: string;
@@ -396,6 +411,13 @@ export function TodayClient({
   experiments = [],
   onStartExperiment,
   onUpdateExperiment,
+  pendingFindings = [],
+  resolvedFindingsCount = 0,
+  scanRanThisLoad = false,
+  scanResult,
+  onResolveFinding,
+  scanSettings,
+  onSaveScanSettings,
 }: {
   summary: TodaySummary;
   visibilitySummary?: VisibilitySummary;
@@ -438,6 +460,13 @@ export function TodayClient({
     id: string,
     status: "testing" | "watching" | "promising" | "inconclusive" | "negative" | "dropped"
   ) => Promise<{ success: boolean }>;
+  pendingFindings?: SerializedFinding[];
+  resolvedFindingsCount?: number;
+  scanRanThisLoad?: boolean;
+  scanResult?: { pagesScanned?: number; pagesChanged?: number; alertCount?: number };
+  onResolveFinding?: (findingId: string, status: string) => Promise<{ success: boolean }>;
+  scanSettings?: { preferredHour: number; timezone: string; scope: string; enabled: boolean };
+  onSaveScanSettings?: (patch: Record<string, unknown>) => Promise<{ success: boolean }>;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -526,6 +555,54 @@ export function TodayClient({
 
   return (
     <div className="space-y-6">
+      {/* ── Scan status banner ── */}
+      {scanRanThisLoad && scanResult && (
+        <div className="rounded-lg border border-status-success/30 bg-status-success/[0.05] px-4 py-3">
+          <p className="text-[12px] text-foreground">
+            <span className="font-semibold text-status-success">Scan complete.</span>{" "}
+            {scanResult.pagesScanned ?? 0} pages scanned
+            {(scanResult.pagesChanged ?? 0) > 0 && <> · <span className="font-semibold">{scanResult.pagesChanged} changed</span></>}
+            {(scanResult.alertCount ?? 0) > 0 && <> · <span className="text-status-warning font-medium">{scanResult.alertCount} alerts</span></>}
+          </p>
+        </div>
+      )}
+
+      {/* ── Since last scan: findings approval queue ── */}
+      {pendingFindings.length > 0 && (
+        <div className="rounded-lg border border-border/70 overflow-hidden">
+          <div className="px-4 py-3 bg-surface-inset/30 border-b border-border/40 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <span className="h-2 w-2 rounded-full bg-accent-primary animate-pulse" />
+              <p className="text-[13px] font-semibold text-foreground">Since last scan</p>
+              <span className="text-[11px] font-medium text-accent-primary bg-accent-primary/10 rounded-full px-2 py-0.5">
+                {pendingFindings.length} pending
+              </span>
+            </div>
+            {resolvedFindingsCount > 0 && (
+              <span className="text-[10px] text-muted-foreground">{resolvedFindingsCount} resolved</span>
+            )}
+          </div>
+          <div className="divide-y divide-border/40">
+            {pendingFindings.map((f) => (
+              <FindingRow key={f.id} finding={f} onResolve={onResolveFinding} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {pendingFindings.length === 0 && !scanRanThisLoad && run && (
+        <div className="flex items-center gap-2 text-[11px] text-muted-foreground px-1">
+          <span className="h-1.5 w-1.5 rounded-full bg-status-success" />
+          Last scan: {crawlAgeDays === 0 ? "today" : crawlAgeDays === 1 ? "yesterday" : `${crawlAgeDays}d ago`}
+          {run.completed_at && (
+            <span className="text-muted-foreground/60">
+              {new Date(run.completed_at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
+            </span>
+          )}
+          · nothing new
+        </div>
+      )}
+
       {/* ── 0. Stale / freshness warnings — always visible ── */}
       {dataStale && (
         <div className="rounded-lg border border-status-warning/30 bg-status-warning/[0.05] px-4 py-3 space-y-1.5">
@@ -1193,6 +1270,74 @@ function SecondaryOpportunities({
               </div>
             );
           })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FindingRow({
+  finding,
+  onResolve,
+}: {
+  finding: SerializedFinding;
+  onResolve?: (id: string, status: string) => Promise<{ success: boolean }>;
+}) {
+  const [, startT] = useTransition();
+  const label = (FINDING_TYPE_LABELS as Record<string, string>)[finding.type] ?? finding.type;
+  const severityDot =
+    finding.severity === "high" ? "bg-status-danger"
+    : finding.severity === "medium" ? "bg-status-warning"
+    : "bg-muted-foreground/40";
+
+  return (
+    <div className="px-4 py-3 hover:bg-surface-inset/20 transition-colors">
+      <div className="flex items-start gap-3">
+        <span className={cn("h-2 w-2 rounded-full mt-1.5 shrink-0", severityDot)} />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-[10px] font-medium text-muted-foreground bg-surface-inset/60 rounded px-1.5 py-0.5">
+              {label}
+            </span>
+            <span className="text-[11px] font-mono text-muted-foreground truncate">{finding.pagePath}</span>
+          </div>
+          <p className="text-[12px] text-foreground mt-1 leading-snug">{finding.summary}</p>
+          {finding.previousState && finding.currentState && (
+            <div className="flex items-center gap-2 mt-1.5 text-[10px] text-muted-foreground">
+              <span className="line-through truncate max-w-[40%]">{finding.previousState}</span>
+              <span className="text-muted-foreground/40">→</span>
+              <span className="font-medium text-foreground truncate max-w-[40%]">{finding.currentState}</span>
+            </div>
+          )}
+          <p className="text-[10px] text-muted-foreground/70 mt-1">{finding.suggestedAction}</p>
+        </div>
+      </div>
+      {onResolve && (
+        <div className="flex items-center gap-3 mt-2 pt-2 border-t border-border/30 ml-5">
+          <button
+            onClick={() => startT(async () => { await onResolve(finding.id, "accepted"); })}
+            className="text-[11px] font-medium text-status-success hover:text-status-success/80 transition-colors"
+          >
+            Accept
+          </button>
+          <button
+            onClick={() => startT(async () => { await onResolve(finding.id, "expected"); })}
+            className="text-[11px] font-medium text-muted-foreground hover:text-muted-foreground/80 transition-colors"
+          >
+            Expected
+          </button>
+          <button
+            onClick={() => startT(async () => { await onResolve(finding.id, "ignored"); })}
+            className="text-[11px] font-medium text-muted-foreground/60 hover:text-muted-foreground transition-colors"
+          >
+            Ignore
+          </button>
+          <button
+            onClick={() => startT(async () => { await onResolve(finding.id, "rejected"); })}
+            className="text-[11px] font-medium text-muted-foreground/40 hover:text-muted-foreground transition-colors"
+          >
+            Not real
+          </button>
         </div>
       )}
     </div>

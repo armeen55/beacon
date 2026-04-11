@@ -64,7 +64,7 @@ This prevents artificial inflation. A pattern with 3 attributed events out of 10
 ## Navigation (pilot spine)
 
 Default loop:
-- **Today** — **stale data warning** (always visible when crawl >14d, visibility >7d, or mismatch) + **KPI strip** + **PlatformSplit** + **DO THIS NOW** + **track record** + **watchlist** + **what changed** + **other opportunities** + work queue + **Data sources** section (always-visible compact crawl + visibility status cards; expandable detail)
+- **Today** — **auto-scan** (triggers crawl when overdue per configured hour + timezone) + **"Since last scan" findings queue** (pending findings with accept/reject/ignore/expected approval flow) + **stale data warning** + **KPI strip** + **PlatformSplit** + **DO THIS NOW** + **track record** + **watchlist** + **what changed** + **other opportunities** + work queue + **Data sources** (always-visible compact status cards)
 - **Pages** — **stale crawl warning** (when >14d or 0 crawled) + **KPI + composition strip** + split panel (list with status/crawl chips → detail with **"What the crawl saw"** panel showing title, meta description, H1, canonical, FAQ, schema, word count, links, HTTP status + **"Changed since last crawl"** diff section + next step + fix briefs in progressive disclosure). **Phase 16:** evidence internals in details. **Stabilization:** `PageSnapshotSummary` expanded with `metaDescription`, `canonicalUrl`, `httpStatus`.
 - **Competitors** — **KPI strip** (`KpiCard`: AI share, citations, tracked count, ahead-of-you) + **ranked list** with inline **share bars** + topic signals (including **bar readout** on thinnest share) + **co-mention** (`FilterChips`, `ViewToggle` table/chart, `MiniBarChart`, row bars) + **source trust** (expandable tables + per-source citation bars) + **local pressure** (`ComparisonBar` + `ViewToggle` chart/table) + battlecards (`ThreatMeter`). Universe CRUD in collapsed settings.
 - **Gap ledger** (`/topics`) — typed gaps
@@ -332,6 +332,18 @@ All surfaced in Diagnostics "Advanced intelligence readiness" section — calm, 
 | `VizSection` / `ChartTableSection` | Section chrome + chart/table toggle | Collapsible / mode switch |
 
 **Design rules:** `cn()` for classes; empty or zero-total data returns `null` where appropriate; no fabricated series.
+
+### Phase 32 — Daily Detection + Approval Loop
+
+**Scan settings** (`src/domains/scanning/scan-settings.ts`): configurable `preferredHour` (default 9), `timezone` (default America/Los_Angeles), `scope` (full/priority), `enabled`. Persisted in `.data/scan-settings.json`. `isScanOverdue()` compares current time in operator's timezone against last scan date.
+
+**Auto-scan trigger**: Today server component (`page.tsx`) checks overdue on load → triggers existing `triggerPageScan()` → generates findings from snapshot diff.
+
+**Detection engine** (`src/domains/scanning/detect-findings.ts`): 15 finding types. Compares current vs previous snapshots field-by-field (title, meta, H1, canonical, FAQ, schema, content, links). Also detects new/cleared guardrails, deploy mismatches (changelog says shipped but HTML disagrees), unexpected changes (HTML changed with no changelog entry).
+
+**Findings store** (`src/domains/scanning/findings-store.ts`): `.data/scan-findings.json`, follows `json-store` pattern. Each finding has status: `pending` → `accepted` / `rejected` / `ignored` / `expected`. Auto-prunes resolved findings beyond 500.
+
+**Approval flow**: Today shows pending findings in a dedicated "Since last scan" section. Operator reviews each finding and resolves it. Only meaningful accepted findings persist. No auto-writing to changelog.
 
 **Pulse System** (`src/domains/product/pulse.ts`)
 Aggregates signals from decay, discrepancy, geo, journey, extractability, and sampling freshness into a deduplicated, severity-sorted event list. 3 severity levels (high/medium/info). Surfaced as a compact banner on Diagnostics.
