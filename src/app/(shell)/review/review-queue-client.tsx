@@ -433,7 +433,7 @@ function SprintDecisionCard({
           <p className="mt-2 text-[11px] text-muted-foreground leading-relaxed">{item.decisionabilityReason}</p>
           {item.scoreGap > 0 && (
             <p className="text-[11px] text-muted-foreground tabular-nums mt-1">
-              Separation between top heuristic scores: ~{item.scoreGap} points (not a confidence score).
+              Gap between top match scores: ~{item.scoreGap} points. Higher = stronger correlation, not certainty.
             </p>
           )}
         </details>
@@ -445,7 +445,7 @@ function SprintDecisionCard({
           <div className="min-w-0">
             <p className="text-[13px] font-semibold text-foreground">What do you attribute this to?</p>
             <p className="text-[11px] text-muted-foreground mt-1 leading-relaxed">
-              Pick the change that best explains the shift, or choose a non-change cause. Match scores rank heuristics only.
+              Pick the change that best explains this visibility shift, or choose a non-change cause.
             </p>
           </div>
           <span className="text-[11px] text-muted-foreground tabular-nums shrink-0 font-medium">{position} / {total}</span>

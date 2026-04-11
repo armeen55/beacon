@@ -53,6 +53,46 @@ import {
   CANDIDATE_TYPE_COLORS,
   CANDIDATE_CONFIDENCE_COLORS,
 } from "@/domains/opportunity-candidates/types";
+import { pageSnapshots } from "@/domains/pages/snapshot-store";
+import { allPages } from "@/domains/pages/page-store";
+import { citationEvidenceIndex } from "@/domains/pages/citation-evidence-store";
+import { extractEntities, summarizeEntities } from "@/domains/entity/entity-extract";
+import { detectDiscrepancies } from "@/domains/entity/discrepancy-detect";
+import type { DiscrepancySeverity } from "@/domains/entity/discrepancy-types";
+import { pageIssues } from "@/domains/pages/issues";
+import { computeGeoCoverage, summarizeGeoCoverage } from "@/domains/geo/coverage";
+import { getActivePrompts, promptLibrary } from "@/domains/prompts/prompt-library";
+import { computeJourneyCoverage } from "@/domains/prompts/journey-coverage";
+import { JOURNEY_STAGE_LABELS } from "@/domains/prompts/journey-stages";
+import { computeBeaconScore } from "@/domains/product/beacon-score";
+import type { ScoreDimension } from "@/domains/product/beacon-score-types";
+import { computeCitationDecay, summarizeDecay } from "@/domains/attribution/citation-decay";
+import { getSiteConfig } from "@/lib/site-config";
+import { computeMarketBenchmark } from "@/domains/pages/builder-benchmark";
+import { analyzeAllExtractability, summarizeExtractability } from "@/domains/pages/extractability";
+import { computeSnippetIntelligence } from "@/domains/competitors/snippet-intel";
+import type { SnippetSignal } from "@/domains/competitors/snippet-types";
+import { assessAdversarialReadiness } from "@/domains/prompts/adversarial";
+import { assessWhatIfReadiness } from "@/domains/product/whatif-engine";
+import { outcomeRecords } from "@/domains/product/outcome-store";
+import { assessFounderAuthority } from "@/domains/entity/founder-authority";
+import { assessConversionPathReadiness } from "@/domains/product/conversion-path";
+import { assessTrainingDataReadiness } from "@/domains/product/training-data";
+import { answerSnapshots } from "@/domains/answer-snapshots/store";
+import { computePulse } from "@/domains/product/pulse";
+import { generateVisibilityReport, serializeReport } from "@/domains/product/report-generator";
+import { computeOutcomeSummary } from "@/domains/product/outcome-store";
+import { MiniBarChart } from "@/components/viz/mini-bar-chart";
+import { DonutRing } from "@/components/viz/donut-ring";
+import { ScoreRail } from "@/components/viz/score-rail";
+import { CoverageTrellis } from "@/components/viz/coverage-trellis";
+import { RankLadder } from "@/components/viz/rank-ladder";
+import { StackedBar } from "@/components/viz/stacked-bar";
+import { ThreatMeter } from "@/components/viz/threat-meter";
+import { ConfidenceBadge } from "@/components/viz/confidence-badge";
+import { ComparisonBar } from "@/components/viz/comparison-bar";
+import { KpiCard } from "@/components/viz/kpi-card";
+import { BeaconScoreVisual as BeaconScoreViz } from "./beacon-score-visual";
 
 function StatBlock({
   label,
@@ -74,12 +114,14 @@ function StatBlock({
           ? "text-status-danger"
           : "text-foreground";
   return (
-    <div className="rounded-lg border border-border/60 bg-card p-3">
-      <p className="text-[11px] font-medium text-muted-foreground mb-0.5">
+    <div className="rounded-lg border border-border/50 bg-surface-raised/30 px-3 py-2.5 transition-colors hover:border-border/70">
+      <p className="text-[10px] font-medium text-muted-foreground/70 uppercase tracking-wide">
         {label}
       </p>
-      <p className={`text-lg font-semibold tabular-nums ${color}`}>{value}</p>
-      {sub && <p className="text-[11px] text-muted-foreground mt-0.5">{sub}</p>}
+      <p className={`text-lg font-bold tabular-nums tracking-tight mt-1 ${color}`}>
+        {typeof value === "number" ? value.toLocaleString() : value}
+      </p>
+      {sub && <p className="text-[9px] text-muted-foreground/50 mt-1">{sub}</p>}
     </div>
   );
 }
@@ -185,6 +227,9 @@ export default function DiagnosticsPage() {
         </Link>
         .
       </p>
+
+      {/* ── Pulse summary ── */}
+      <PulseBanner />
 
       <section className="rounded-lg border border-border/60 bg-card p-4">
         <p className="text-xs text-muted-foreground mb-3">At a glance</p>
@@ -443,32 +488,21 @@ export default function DiagnosticsPage() {
                 </Table>
               </div>
               <div className="mt-4">
-                <p className="text-xs font-medium text-muted-foreground mb-2">By status</p>
-                <div className="space-y-1.5">
-                  {statusOrder.map((status) => {
-                    const count = clusters.filter((c) => c.status === status).length;
-                    return (
-                      <div key={status} className="flex items-center gap-2">
-                        <span className={`text-xs w-28 shrink-0 ${CLUSTER_STATUS_COLORS[status]}`}>
-                          {CLUSTER_STATUS_LABELS[status]}
-                        </span>
-                        <Bar
-                          value={count}
-                          max={Math.max(cs.total, 1)}
-                          color={
-                            status === "working"
-                              ? "bg-status-success"
-                              : status === "review_now"
-                                ? "bg-status-warning"
-                                : status === "fix_data" || status === "investigate_external"
-                                  ? "bg-status-danger"
-                                  : "bg-border"
-                          }
-                        />
-                      </div>
-                    );
-                  })}
-                </div>
+                <StackedBar
+                  title="Cluster status mix"
+                  entries={[{
+                    label: "All clusters",
+                    segments: statusOrder.map((status) => ({
+                      label: CLUSTER_STATUS_LABELS[status],
+                      value: clusters.filter((c) => c.status === status).length,
+                      color: status === "working" ? "bg-status-success"
+                        : status === "review_now" ? "bg-status-warning"
+                        : status === "fix_data" || status === "investigate_external" ? "bg-status-danger"
+                        : "bg-muted-foreground/30",
+                    })),
+                  }]}
+                  height={24}
+                />
               </div>
             </DisclosureBlock>
           </div>
@@ -803,28 +837,20 @@ export default function DiagnosticsPage() {
 
         <div className="mt-8">
           <SectionTitle>Model outcome labels</SectionTitle>
-          <div className="space-y-1.5">
-            {Object.entries(diag.verdicts).map(([verdict, count]) => (
-              <div key={verdict} className="flex items-center gap-2">
-                <span className="text-xs text-muted-foreground w-24 capitalize">
-                  {verdict.replace("_", " ")}
-                </span>
-                <Bar
-                  value={count}
-                  max={maxVerdict}
-                  color={
-                    verdict === "validated"
-                      ? "bg-status-success"
-                      : verdict === "partial"
-                        ? "bg-status-warning"
-                        : verdict === "no_impact"
-                          ? "bg-status-danger"
-                          : "bg-border"
-                  }
-                />
-              </div>
-            ))}
-          </div>
+          <StackedBar
+            entries={[{
+              label: "Verdict distribution",
+              segments: Object.entries(diag.verdicts).map(([verdict, count]) => ({
+                label: verdict.replace("_", " "),
+                value: count,
+                color: verdict === "validated" ? "bg-status-success"
+                  : verdict === "partial" ? "bg-status-warning"
+                  : verdict === "no_impact" ? "bg-status-danger"
+                  : "bg-muted-foreground/30",
+              })),
+            }]}
+            height={28}
+          />
         </div>
 
         <div className="mt-8">
@@ -1100,6 +1126,767 @@ export default function DiagnosticsPage() {
           </div>
         </div>
       </div>
+
+      {/* ── Entity + representation intelligence ── */}
+      <EntityRepresentationSection />
+
+      {/* ── Geographic coverage intelligence ── */}
+      <GeoCoverageSection />
+
+      {/* ── Journey stage intelligence ── */}
+      <JourneyCoverageSection />
+
+      {/* ── Beacon Score ── */}
+      <BeaconScoreSection />
+
+      {/* ── Extractability intelligence ── */}
+      <ExtractabilitySection />
+
+      {/* ── Snippet intelligence ── */}
+      <SnippetIntelSection />
+
+      {/* ── Advanced intelligence readiness ── */}
+      <AdvancedReadinessSection />
+    </div>
+  );
+}
+
+function EntityRepresentationSection() {
+  const entityIndex = extractEntities(pageSnapshots);
+  const entitySummary = summarizeEntities(entityIndex);
+  const discrepancyReport = detectDiscrepancies(entityIndex);
+
+  const notable = discrepancyReport.discrepancies.filter((d) => d.severity === "notable");
+  const minor = discrepancyReport.discrepancies.filter((d) => d.severity === "minor");
+
+  return (
+    <div className="space-y-4">
+      <SectionTitle>Entity &amp; representation intelligence</SectionTitle>
+      <p className="text-xs text-muted-foreground -mt-2">
+        How Beacon understands your identity and how AI answers represent you. Early-stage detection — conservative signals only.
+      </p>
+
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <StatBlock label="Entities tracked" value={entitySummary.total} />
+        <StatBlock label="Owned" value={entitySummary.owned} />
+        <StatBlock label="Locations" value={entitySummary.locations} />
+        <StatBlock label="Services" value={entitySummary.services} />
+      </div>
+
+      {entitySummary.external_brands > 0 && (
+        <DisclosureBlock
+          title={`${entitySummary.external_brands} external brands in AI answers`}
+          subtitle="Competitors and other entities mentioned alongside your brand"
+        >
+          <div className="space-y-1">
+            {entitySummary.top_external.map((name) => (
+              <p key={name} className="text-sm text-foreground font-medium">{name}</p>
+            ))}
+            {entitySummary.external_brands > 5 && (
+              <p className="text-xs text-muted-foreground mt-2">
+                +{entitySummary.external_brands - 5} more
+              </p>
+            )}
+          </div>
+        </DisclosureBlock>
+      )}
+
+      {discrepancyReport.discrepancies.length > 0 ? (
+        <DisclosureBlock
+          title={`${discrepancyReport.discrepancies.length} possible representation ${discrepancyReport.discrepancies.length === 1 ? "discrepancy" : "discrepancies"}`}
+          subtitle={`${notable.length > 0 ? `${notable.length} notable` : ""}${notable.length > 0 && minor.length > 0 ? ", " : ""}${minor.length > 0 ? `${minor.length} minor` : ""} · ${discrepancyReport.data_note}`}
+        >
+          <div className="space-y-3">
+            {discrepancyReport.discrepancies.map((d) => (
+              <div
+                key={d.id}
+                className={`rounded-md border px-3 py-2.5 ${
+                  d.severity === "notable"
+                    ? "border-status-warning/30 bg-status-warning/[0.04]"
+                    : "border-border/50 bg-muted/10"
+                }`}
+              >
+                <p className="text-sm font-medium text-foreground">{d.summary}</p>
+                <p className="text-xs text-muted-foreground mt-1 leading-relaxed">{d.detail}</p>
+                <div className="flex gap-3 mt-1.5 text-[10px] text-muted-foreground/70">
+                  <span>{d.evidence_count} evidence points</span>
+                  <span>Confidence: {d.confidence}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </DisclosureBlock>
+      ) : (
+        <div className="rounded-md border border-border/50 bg-muted/10 px-3 py-2.5">
+          <p className="text-sm text-muted-foreground">
+            No clear representation discrepancies detected.
+            {discrepancyReport.total_answers_checked > 0
+              ? ` Checked ${discrepancyReport.total_answers_checked} AI answers.`
+              : " No answer data available yet."}
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function JourneyCoverageSection() {
+  const journeyCoverage = computeJourneyCoverage(promptLibrary);
+  const coreStages = journeyCoverage.stages.filter(
+    (s) => ["awareness", "consideration", "comparison", "decision"].includes(s.stage),
+  );
+
+  return (
+    <div className="space-y-4">
+      <SectionTitle>Journey stage coverage</SectionTitle>
+      <p className="text-xs text-muted-foreground -mt-2">
+        How prompts distribute across buyer journey stages. Based on keyword classification — not ML.
+      </p>
+
+      <div className="rounded-md border border-border/50 bg-muted/10 px-3 py-2.5">
+        <p className="text-sm text-muted-foreground">{journeyCoverage.assessment}</p>
+      </div>
+
+      <div className="flex flex-col sm:flex-row items-start gap-6">
+        <DonutRing
+          segments={journeyCoverage.stages
+            .filter((s) => s.active_prompt_count > 0)
+            .map((s) => ({
+              label: s.label,
+              value: s.active_prompt_count,
+              color: s.status === "strong" ? "stroke-status-success" : s.status === "moderate" ? "stroke-accent-primary" : "stroke-status-warning",
+            }))}
+          size={90}
+          thickness={10}
+          centerValue={journeyCoverage.total_active}
+          centerLabel="prompts"
+        />
+        <div className="flex-1 min-w-0">
+          <MiniBarChart
+            entries={coreStages.map((s) => ({
+              label: s.label,
+              value: s.active_prompt_count,
+              color: s.status === "absent" ? "bg-status-danger/30" : s.status === "strong" ? "bg-status-success" : s.status === "moderate" ? "bg-accent-primary" : "bg-status-warning",
+              meta: s.status === "absent" ? "No prompts tracked" : `${s.pct_of_total}% of total`,
+            }))}
+            height={8}
+          />
+        </div>
+      </div>
+
+      {journeyCoverage.absent_stages.length > 0 && (
+        <div className="rounded-md border border-status-warning/20 bg-status-warning/[0.03] px-3 py-2">
+          <p className="text-sm font-medium text-foreground">
+            Missing stages: {journeyCoverage.absent_stages.map((s) => JOURNEY_STAGE_LABELS[s]).join(", ")}
+          </p>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Adding prompts for these stages would broaden visibility tracking across the buyer journey.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function BeaconScoreSection() {
+  const { siteDomain } = getSiteConfig();
+  const citIndex = citationEvidenceIndex;
+  const benchmark = citIndex ? computeMarketBenchmark(citIndex, pageIssues) : null;
+
+  const geoCoverage = computeGeoCoverage(allPages, citIndex?.by_page_and_topic ?? [], getActivePrompts());
+  const geoSummary = summarizeGeoCoverage(geoCoverage);
+
+  const journeyCoverage = computeJourneyCoverage(promptLibrary);
+  const coveredStages = journeyCoverage.stages.filter((s) => s.active_prompt_count > 0).length;
+
+  const decayResults = computeCitationDecay(siteDomain);
+  const decaySummary = summarizeDecay(decayResults);
+
+  const entityIndex = extractEntities(pageSnapshots);
+  const discReport = detectDiscrepancies(entityIndex);
+
+  const totalOwnedCit = citIndex?.by_page_and_topic
+    .filter((r) => r.is_owned)
+    .reduce((s, r) => s + r.total_citations, 0) ?? 0;
+
+  const scoreResult = computeBeaconScore({
+    totalOwnedCitations: totalOwnedCit,
+    totalOwnedMentions: 0,
+    topicsCovered: citIndex?.by_topic.filter((t) => t.owned_citations > 0).length ?? 0,
+    citiesCovered: geoSummary.strong + geoSummary.moderate,
+    journeyStagesCovered: coveredStages,
+    totalJourneyStages: 4,
+    decayStableCount: decaySummary.stable,
+    decayDecliningCount: decaySummary.meaningful_decline + decaySummary.soft_decline,
+    decayTotal: decaySummary.total_analyzed - decaySummary.insufficient,
+    ownedSharePct: benchmark?.ownedAppearanceRate ?? null,
+    competitorCount: benchmark?.topCompetitors.length ?? 0,
+    discrepancyCount: discReport.discrepancies.length,
+    discrepancyNotableCount: discReport.discrepancies.filter((d) => d.severity === "notable").length,
+    totalAnswersChecked: discReport.total_answers_checked,
+    geoGapCount: geoSummary.gap_count,
+    geoCitiesWithPresence: geoSummary.strong + geoSummary.moderate + geoSummary.weak,
+    geoTotalCities: geoSummary.total_cities,
+  });
+
+  return (
+    <div className="space-y-4">
+      <SectionTitle>Beacon Score</SectionTitle>
+      <p className="text-xs text-muted-foreground -mt-2">
+        Multi-dimensional visibility health. Each dimension is computed independently — the composite only appears when enough data exists.
+      </p>
+
+      <div className="rounded-md border border-border/50 bg-muted/10 px-3 py-2.5">
+        <p className="text-sm text-muted-foreground">{scoreResult.summary}</p>
+      </div>
+
+      <BeaconScoreViz
+        dimensions={scoreResult.dimensions.map((d) => ({ label: d.label, value: d.value, max: d.max, status: d.status }))}
+        composite={scoreResult.composite}
+        compositeStatus={scoreResult.composite_status}
+        sufficientCount={scoreResult.sufficient_count}
+        totalDimensions={scoreResult.total_dimensions}
+      />
+    </div>
+  );
+}
+
+function DimensionRow({ dimension }: { dimension: ScoreDimension }) {
+  const pct = dimension.value !== null ? Math.round((dimension.value / dimension.max) * 100) : 0;
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-sm font-medium text-foreground">{dimension.label}</span>
+        <span className="text-sm font-semibold tabular-nums">
+          {dimension.value !== null ? dimension.value : "—"}
+          <span className="text-muted-foreground font-normal">/{dimension.max}</span>
+        </span>
+      </div>
+      {dimension.value !== null && (
+        <div className="h-1.5 rounded-full bg-border/40">
+          <div
+            className={`h-1.5 rounded-full transition-all ${
+              pct >= 60 ? "bg-status-success" : pct >= 35 ? "bg-status-warning" : "bg-status-danger"
+            }`}
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+      )}
+      <p className="text-[10px] text-muted-foreground">{dimension.explanation}</p>
+      {dimension.status !== "sufficient" && (
+        <p className="text-[10px] text-status-warning italic">
+          {dimension.status === "insufficient" ? "Insufficient data" : "Partial data"}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function ExtractabilitySection() {
+  const citIdx = citationEvidenceIndex;
+  const citMap = new Map<string, number>();
+  if (citIdx) {
+    for (const r of citIdx.by_page_and_topic) {
+      if (!r.is_owned) continue;
+      const key = r.page_url.replace(/\/+$/, "").toLowerCase();
+      citMap.set(key, (citMap.get(key) ?? 0) + r.total_citations);
+    }
+  }
+
+  const results = analyzeAllExtractability(pageSnapshots, citMap);
+  const summary = summarizeExtractability(results);
+
+  if (results.length === 0) {
+    return (
+      <div className="space-y-2">
+        <SectionTitle>Content extractability</SectionTitle>
+        <p className="text-xs text-muted-foreground">No cited owned pages to analyze.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <SectionTitle>Content extractability</SectionTitle>
+      <p className="text-xs text-muted-foreground -mt-2">
+        How well your cited pages are structured for AI extraction. Pages earning citations but missing FAQ, schema, or answer-formatted content have untapped potential.
+      </p>
+
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <StatBlock label="Pages analyzed" value={summary.total} />
+        <StatBlock label="Good" value={summary.good} sub={summary.fair > 0 ? `${summary.fair} fair` : undefined} />
+        <StatBlock label="Needs work" value={summary.needs_work + summary.poor} />
+        <StatBlock label="Avg score" value={summary.avg_score} sub="/100" />
+      </div>
+
+      {results.filter((r) => r.grade !== "good").length > 0 && (
+        <DisclosureBlock
+          title={`${results.filter((r) => r.grade !== "good").length} pages with extractability opportunities`}
+          subtitle="Cited pages that could benefit from structural improvements"
+        >
+          <div className="space-y-3">
+            {results.filter((r) => r.grade !== "good").slice(0, 8).map((r) => (
+              <div key={r.page_url} className="rounded-md border border-border/50 px-3 py-2">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-medium text-foreground truncate">
+                    {r.page_title ?? r.page_url.replace(/^https?:\/\/[^/]+/, "")}
+                  </p>
+                  <span className={`text-[10px] font-medium shrink-0 ${
+                    r.grade === "fair" ? "text-status-warning" : "text-status-danger"
+                  }`}>
+                    {r.score}/100 · {r.citation_count} cit.
+                  </span>
+                </div>
+                {r.suggestions.length > 0 && (
+                  <ul className="mt-1.5 space-y-0.5">
+                    {r.suggestions.slice(0, 3).map((s, i) => (
+                      <li key={i} className="text-[11px] text-muted-foreground">
+                        <span className={`inline-block w-1 h-1 rounded-full mr-1.5 align-middle ${
+                          s.priority === "high" ? "bg-status-danger" : s.priority === "medium" ? "bg-status-warning" : "bg-muted-foreground"
+                        }`} />
+                        {s.summary}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            ))}
+          </div>
+        </DisclosureBlock>
+      )}
+    </div>
+  );
+}
+
+function GeoCoverageSection() {
+  const geoCoverage = computeGeoCoverage(
+    allPages,
+    citationEvidenceIndex?.by_page_and_topic ?? [],
+    getActivePrompts(),
+  );
+  const geoSummary = summarizeGeoCoverage(geoCoverage);
+  const visibleCities = geoCoverage.cities.filter(
+    (c) => c.owned_citations > 0 || c.competitor_pages >= 5,
+  );
+
+  return (
+    <div className="space-y-4">
+      <SectionTitle>Geographic coverage</SectionTitle>
+      <p className="text-xs text-muted-foreground -mt-2">
+        Local market visibility from page registry and citation data. City normalization is deterministic — based on known Bay Area geographies.
+      </p>
+
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <StatBlock label="Markets tracked" value={geoSummary.total_cities} />
+        <StatBlock
+          label="Strong coverage"
+          value={geoSummary.strong}
+          sub={geoSummary.moderate > 0 ? `${geoSummary.moderate} moderate` : undefined}
+        />
+        <StatBlock
+          label="Gaps"
+          value={geoSummary.gap_count}
+          sub={geoSummary.absent > 0 ? `${geoSummary.absent} absent` : undefined}
+        />
+        <StatBlock
+          label="Concentration"
+          value={
+            geoCoverage.concentration.assessment === "healthy"
+              ? "Healthy"
+              : geoCoverage.concentration.assessment === "concentrated"
+                ? "Moderate"
+                : geoCoverage.concentration.assessment === "highly_concentrated"
+                  ? "High"
+                  : "—"
+          }
+          sub={
+            geoCoverage.concentration.top_city
+              ? `${geoCoverage.concentration.top_city}: ${geoCoverage.concentration.top_city_pct}%`
+              : undefined
+          }
+        />
+      </div>
+
+      {geoCoverage.concentration.assessment !== "insufficient_data" && (
+        <div className="rounded-md border border-border/50 bg-muted/10 px-3 py-2.5">
+          <p className="text-sm text-muted-foreground">{geoCoverage.concentration.explanation}</p>
+        </div>
+      )}
+
+      {visibleCities.filter((c) => c.owned_citations > 0).length > 0 && (
+        <div className="rounded-lg border border-border/60 px-4 py-3">
+          <MiniBarChart
+            title="Owned citations by city"
+            subtitle="Hover for details"
+            entries={visibleCities
+              .filter((c) => c.owned_citations > 0)
+              .slice(0, 8)
+              .map((c) => ({
+                label: c.city.replace(/\b\w/g, (ch) => ch.toUpperCase()),
+                value: c.owned_citations,
+                secondaryValue: c.competitor_citations,
+                color: c.coverage_status === "strong" ? "bg-status-success" : c.coverage_status === "moderate" ? "bg-accent-primary" : "bg-status-warning",
+                meta: `Share: ${c.share_pct !== null ? `${c.share_pct}%` : "—"} · ${c.owned_pages} owned page${c.owned_pages !== 1 ? "s" : ""} · ${c.competitor_pages} competitor`,
+              }))}
+            height={8}
+            colorScheme="heat"
+          />
+        </div>
+      )}
+
+      {visibleCities.length > 0 && (
+        <CoverageTrellis
+          cells={visibleCities.slice(0, 18).map((c) => ({
+            label: c.city,
+            status: c.coverage_status,
+            value: c.owned_citations,
+            meta: `${c.owned_pages} owned page${c.owned_pages !== 1 ? "s" : ""}, ${c.competitor_pages} competitor pages. Share: ${c.share_pct !== null ? `${c.share_pct}%` : "—"}`,
+          }))}
+          title="Market coverage at a glance"
+          subtitle="Hover for details"
+          columns={6}
+        />
+      )}
+
+      {visibleCities.length > 0 && (
+        <DisclosureBlock
+          title={`${visibleCities.length} local markets`}
+          subtitle="Cities with owned or notable competitor presence"
+        >
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-[10px] font-medium text-muted-foreground border-b border-border/50">
+                  <th className="text-left py-1.5 pr-3">City</th>
+                  <th className="text-right py-1.5 px-2">Your pages</th>
+                  <th className="text-right py-1.5 px-2">Your cit.</th>
+                  <th className="text-right py-1.5 px-2">Comp. pages</th>
+                  <th className="text-right py-1.5 px-2">Share</th>
+                  <th className="text-right py-1.5 pl-2">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {visibleCities.slice(0, 20).map((c) => (
+                  <tr key={c.city} className="border-b border-border/30 last:border-b-0">
+                    <td className="py-1.5 pr-3 font-medium capitalize">{c.city}</td>
+                    <td className="text-right py-1.5 px-2 tabular-nums">{c.owned_pages}</td>
+                    <td className="text-right py-1.5 px-2 tabular-nums">{c.owned_citations}</td>
+                    <td className="text-right py-1.5 px-2 tabular-nums text-muted-foreground">{c.competitor_pages}</td>
+                    <td className="text-right py-1.5 px-2 tabular-nums text-muted-foreground">
+                      {c.share_pct !== null ? `${c.share_pct}%` : "—"}
+                    </td>
+                    <td className="text-right py-1.5 pl-2">
+                      <span
+                        className={`text-[10px] font-medium ${
+                          c.coverage_status === "strong"
+                            ? "text-status-success"
+                            : c.coverage_status === "moderate"
+                              ? "text-foreground"
+                              : c.coverage_status === "weak"
+                                ? "text-status-warning"
+                                : "text-status-danger"
+                        }`}
+                      >
+                        {c.coverage_status === "strong"
+                          ? "Strong"
+                          : c.coverage_status === "moderate"
+                            ? "Moderate"
+                            : c.coverage_status === "weak"
+                              ? "Weak"
+                              : "Absent"}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </DisclosureBlock>
+      )}
+
+      {geoCoverage.gaps.length > 0 && (
+        <DisclosureBlock
+          title={`${geoCoverage.gaps.length} geographic gap${geoCoverage.gaps.length !== 1 ? "s" : ""}`}
+          subtitle="Markets where competitors have presence but you have limited or no visibility"
+        >
+          <div className="space-y-2">
+            {geoCoverage.gaps.map((g) => (
+              <div key={g.city} className="rounded-md border border-status-warning/20 bg-status-warning/[0.03] px-3 py-2">
+                <p className="text-sm font-medium capitalize">{g.city}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">{g.explanation}</p>
+              </div>
+            ))}
+          </div>
+        </DisclosureBlock>
+      )}
+    </div>
+  );
+}
+
+function SnippetIntelSection() {
+  const citIdx = citationEvidenceIndex;
+  const citMap = new Map<string, number>();
+  if (citIdx) {
+    for (const r of citIdx.by_page_and_topic) {
+      if (!r.is_owned) continue;
+      const key = r.page_url.replace(/\/+$/, "").toLowerCase();
+      citMap.set(key, (citMap.get(key) ?? 0) + r.total_citations);
+    }
+  }
+
+  const extractResults = analyzeAllExtractability(pageSnapshots, citMap);
+
+  const { siteDomain } = getSiteConfig();
+  const snippetIntel = citIdx
+    ? computeSnippetIntelligence({
+        ownedExtractability: extractResults,
+        citationIndex: citIdx,
+        snapshots: pageSnapshots,
+        ownedDomain: siteDomain,
+      })
+    : null;
+
+  if (!snippetIntel || snippetIntel.signals.length === 0) {
+    return (
+      <div className="space-y-2">
+        <SectionTitle>Content intelligence</SectionTitle>
+        <p className="text-xs text-muted-foreground">No snippet intelligence available — need cited pages with snapshot data.</p>
+      </div>
+    );
+  }
+
+  const grounded = snippetIntel.signals.filter((s) => s.confidence === "grounded");
+  const inferred = snippetIntel.signals.filter((s) => s.confidence === "inferred");
+
+  return (
+    <div className="space-y-4">
+      <SectionTitle>Content intelligence</SectionTitle>
+      <p className="text-xs text-muted-foreground -mt-2">
+        Extractability patterns and competitive context from owned page analysis. {snippetIntel.data_note}
+      </p>
+
+      {grounded.length > 0 && (
+        <DisclosureBlock
+          title={`${grounded.length} grounded signal${grounded.length !== 1 ? "s" : ""}`}
+          subtitle="Directly observable from your page structure and citation data"
+        >
+          <div className="space-y-2">
+            {grounded.map((s) => (
+              <SignalRow key={s.id} signal={s} />
+            ))}
+          </div>
+        </DisclosureBlock>
+      )}
+
+      {inferred.length > 0 && (
+        <DisclosureBlock
+          title={`${inferred.length} inferred signal${inferred.length !== 1 ? "s" : ""}`}
+          subtitle="Reasoned from competitive citation patterns — not directly provable"
+        >
+          <div className="space-y-2">
+            {inferred.map((s) => (
+              <SignalRow key={s.id} signal={s} />
+            ))}
+          </div>
+        </DisclosureBlock>
+      )}
+    </div>
+  );
+}
+
+function SignalRow({ signal }: { signal: SnippetSignal }) {
+  return (
+    <div className={`rounded-md border px-3 py-2 ${
+      signal.priority === "high"
+        ? "border-status-danger/20 bg-status-danger/[0.02]"
+        : "border-border/50 bg-muted/5"
+    }`}>
+      <p className="text-sm font-medium text-foreground">{signal.summary}</p>
+      <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">{signal.detail}</p>
+      <div className="flex gap-3 mt-1 text-[10px] text-muted-foreground/70">
+        <span>{signal.confidence}</span>
+        <span>{signal.priority} priority</span>
+        {signal.competitor_domain && <span>vs {signal.competitor_domain}</span>}
+      </div>
+    </div>
+  );
+}
+
+function PulseBanner() {
+  const { siteDomain } = getSiteConfig();
+  const decayResults = computeCitationDecay(siteDomain);
+  const decayAlerts = decayResults.filter((d) => d.status === "meaningful_decline" || d.status === "soft_decline");
+  const entityIdx = extractEntities(pageSnapshots);
+  const discReport = detectDiscrepancies(entityIdx);
+  const geoCov = computeGeoCoverage(allPages, citationEvidenceIndex?.by_page_and_topic ?? [], getActivePrompts());
+  const journeyCov = computeJourneyCoverage(promptLibrary);
+
+  const citMap2 = new Map<string, number>();
+  if (citationEvidenceIndex) {
+    for (const r of citationEvidenceIndex.by_page_and_topic) {
+      if (!r.is_owned) continue;
+      const key = r.page_url.replace(/\/+$/, "").toLowerCase();
+      citMap2.set(key, (citMap2.get(key) ?? 0) + r.total_citations);
+    }
+  }
+  const extractResults2 = analyzeAllExtractability(pageSnapshots, citMap2);
+  const snippetIntel2 = citationEvidenceIndex
+    ? computeSnippetIntelligence({ ownedExtractability: extractResults2, citationIndex: citationEvidenceIndex, snapshots: pageSnapshots, ownedDomain: siteDomain })
+    : null;
+
+  const latestSnap = answerSnapshots.length > 0
+    ? answerSnapshots.reduce((a, b) => a.sampled_at > b.sampled_at ? a : b).sampled_at
+    : null;
+
+  const pulse = computePulse({
+    decayAlerts,
+    discrepancyReport: discReport,
+    geoCoverage: geoCov,
+    journeyCoverage: journeyCov,
+    snippetIntel: snippetIntel2,
+    lastSamplingDate: latestSnap,
+  });
+
+  if (pulse.total === 0) return null;
+
+  return (
+    <div className="rounded-lg border border-border/60 bg-surface-raised/30 px-4 py-3">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Pulse</span>
+          {pulse.high_count > 0 && (
+            <span className="text-[10px] font-semibold text-status-danger bg-status-danger/10 px-1.5 py-px rounded">
+              {pulse.high_count} high
+            </span>
+          )}
+          {pulse.medium_count > 0 && (
+            <span className="text-[10px] font-medium text-status-warning bg-status-warning/10 px-1.5 py-px rounded">
+              {pulse.medium_count} medium
+            </span>
+          )}
+          {pulse.info_count > 0 && (
+            <span className="text-[10px] text-muted-foreground bg-muted/30 px-1.5 py-px rounded">
+              {pulse.info_count} info
+            </span>
+          )}
+        </div>
+        <span className="text-[10px] text-muted-foreground/60">{pulse.total} signal{pulse.total !== 1 ? "s" : ""}</span>
+      </div>
+      <div className="mt-2 space-y-1">
+        {pulse.events.slice(0, 4).map((e) => (
+          <div key={e.id} className="flex items-start gap-2">
+            <span className={`mt-1 w-1.5 h-1.5 rounded-full shrink-0 ${
+              e.severity === "high" ? "bg-status-danger" : e.severity === "medium" ? "bg-status-warning" : "bg-muted-foreground/40"
+            }`} />
+            <Link href={e.href} className="text-[11px] text-muted-foreground hover:text-foreground transition-colors leading-snug">
+              {e.title}
+            </Link>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function AdvancedReadinessSection() {
+  const adversarial = assessAdversarialReadiness(promptLibrary, answerSnapshots.some((s) => s.prompt_text.toLowerCase().includes("complaint") || s.prompt_text.toLowerCase().includes("scam")));
+  const whatIf = assessWhatIfReadiness(outcomeRecords);
+  const founder = assessFounderAuthority();
+  const conversionPath = assessConversionPathReadiness({
+    hasPromptData: promptLibrary.length > 0,
+    hasAnswerData: answerSnapshots.length > 0,
+    hasCitationData: (citationEvidenceIndex?.total_citations_processed ?? 0) > 0,
+    hasAnalyticsIntegration: false,
+  });
+  const trainingData = assessTrainingDataReadiness(pageSnapshots, false, false);
+
+  type ReadinessItem = {
+    label: string;
+    status: string;
+    statusColor: string;
+    detail: string;
+  };
+
+  const items: ReadinessItem[] = [
+    {
+      label: "Adversarial stress testing",
+      status: adversarial.coverage_status === "ready" ? "Ready" : adversarial.coverage_status === "partial" ? "Partial" : "Not started",
+      statusColor: adversarial.coverage_status === "ready" ? "text-status-success" : adversarial.coverage_status === "partial" ? "text-status-warning" : "text-muted-foreground",
+      detail: adversarial.assessment,
+    },
+    {
+      label: "What-if simulator",
+      status: whatIf.readiness === "ready" ? "Ready" : whatIf.readiness === "partial" ? "Partial" : "Not ready",
+      statusColor: whatIf.readiness === "ready" ? "text-status-success" : whatIf.readiness === "partial" ? "text-status-warning" : "text-muted-foreground",
+      detail: whatIf.assessment,
+    },
+    {
+      label: "Founder authority",
+      status: founder.has_configured_founder
+        ? founder.founders.some((f) => f.presence_status === "observed_repeatedly") ? "Active" : founder.founders.some((f) => f.presence_status === "observed_lightly") ? "Light" : "Configured"
+        : "Not configured",
+      statusColor: founder.has_configured_founder && founder.founders.some((f) => f.presence_status === "observed_repeatedly")
+        ? "text-status-success"
+        : founder.has_configured_founder ? "text-status-warning" : "text-muted-foreground",
+      detail: founder.data_note,
+    },
+    {
+      label: "Conversion path",
+      status: conversionPath.readiness === "partial" ? "Partial" : "Not ready",
+      statusColor: conversionPath.readiness === "partial" ? "text-status-warning" : "text-muted-foreground",
+      detail: conversionPath.assessment,
+    },
+    {
+      label: "Training data pipeline",
+      status: trainingData.overall_status === "good" ? "Good" : trainingData.overall_status === "partial" ? "Partial" : "Weak",
+      statusColor: trainingData.overall_status === "good" ? "text-status-success" : trainingData.overall_status === "partial" ? "text-status-warning" : "text-muted-foreground",
+      detail: trainingData.assessment,
+    },
+  ];
+
+  return (
+    <div className="space-y-4">
+      <SectionTitle>Advanced intelligence readiness</SectionTitle>
+      <p className="text-xs text-muted-foreground -mt-2">
+        Scaffold status for future intelligence systems. These are foundations — not active features unless marked ready.
+      </p>
+
+      <div className="rounded-lg border border-border/60 divide-y divide-border/40 overflow-hidden">
+        {items.map((item) => (
+          <div key={item.label} className="px-4 py-3">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-sm font-medium text-foreground">{item.label}</span>
+              <span className={`text-[10px] font-semibold ${item.statusColor}`}>{item.status}</span>
+            </div>
+            <p className="text-[11px] text-muted-foreground mt-0.5 leading-relaxed">{item.detail}</p>
+          </div>
+        ))}
+      </div>
+
+      {founder.has_configured_founder && founder.founders.length > 0 && (
+        <DisclosureBlock
+          title="Founder presence detail"
+          subtitle={`${founder.founders.length} configured`}
+        >
+          <div className="space-y-2">
+            {founder.founders.map((f) => (
+              <div key={f.name} className="rounded-md border border-border/50 px-3 py-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-sm font-medium">{f.name}</span>
+                  <span className={`text-[10px] font-medium ${
+                    f.presence_status === "observed_repeatedly" ? "text-status-success"
+                      : f.presence_status === "observed_lightly" ? "text-status-warning"
+                        : "text-muted-foreground"
+                  }`}>
+                    {f.mention_count} mention{f.mention_count !== 1 ? "s" : ""}
+                  </span>
+                </div>
+                <p className="text-[11px] text-muted-foreground mt-0.5">{f.assessment}</p>
+              </div>
+            ))}
+          </div>
+        </DisclosureBlock>
+      )}
     </div>
   );
 }

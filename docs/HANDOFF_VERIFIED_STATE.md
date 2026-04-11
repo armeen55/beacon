@@ -427,3 +427,18 @@ Working branch: `work/attribution-precision-20260407` (or current feature branch
 - View models: `src/lib/view-models/*.ts` stay constant regardless of data or visual engine
 
 Full implementation map: see `master_execution_plan.md` Phase 24+ section and `architecture.md` Intelligence Expansion section.
+
+---
+
+## Product Truth + Usability Stabilization (2026-04-11)
+
+| Area | Status | Summary |
+|------|--------|---------|
+| Crawl truth in Pages detail | **Shipped** | Title, meta description, H1, canonical, FAQ, schema, word count, links, HTTP status, robots — all visible in "What the crawl saw" panel |
+| Diff rendering | **Shipped** | "Changed since last crawl" section with labeled chips when diff exists |
+| Stale data warnings | **Shipped** | Prominent banners on Today (crawl >14d, visibility >7d, mismatch) and Pages (crawl >14d, 0 crawled) |
+| Today data sources | **Shipped** | Always-visible crawl + visibility status cards (replace hidden "System details") |
+| Product copy cleanup | **Shipped** | "ObservationRun on file" → plain language; "heuristic" → "match score"; "Hypothesis" → "Expected outcome"; History explainer simplified |
+| `PageSnapshotSummary` | **Expanded** | Added `metaDescription`, `canonicalUrl`, `httpStatus` from extractor |
+
+See `VERIFICATION_LOG.md` for full stabilization entry.

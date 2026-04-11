@@ -1,0 +1,171 @@
+"use client";
+
+import { useState, useRef } from "react";
+import { cn } from "@/lib/utils";
+
+export type AreaSeries = {
+  label: string;
+  data: number[];
+  color: string;
+  fillColor?: string;
+};
+
+export function AreaChart({
+  series,
+  labels,
+  width = 400,
+  height = 120,
+  showGrid = true,
+  stacked = false,
+}: {
+  series: AreaSeries[];
+  labels: string[];
+  width?: number;
+  height?: number;
+  showGrid?: boolean;
+  stacked?: boolean;
+}) {
+  const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
+  const pad = { top: 8, right: 8, bottom: 20, left: 8 };
+  const chartW = width - pad.left - pad.right;
+  const chartH = height - pad.top - pad.bottom;
+  const n = labels.length;
+
+  if (n < 2 || series.length === 0) return null;
+
+  let processedSeries: { label: string; data: number[]; color: string; fillColor?: string }[];
+  let globalMax: number;
+
+  if (stacked) {
+    const stackedData: number[][] = series.map((s) => [...s.data]);
+    for (let si = 1; si < stackedData.length; si++) {
+      for (let di = 0; di < n; di++) {
+        stackedData[si][di] += stackedData[si - 1][di];
+      }
+    }
+    globalMax = Math.max(...stackedData[stackedData.length - 1], 1);
+    processedSeries = series.map((s, i) => ({ ...s, data: stackedData[i] }));
+  } else {
+    globalMax = Math.max(...series.flatMap((s) => s.data), 1);
+    processedSeries = series;
+  }
+
+  function x(i: number): number { return pad.left + (chartW / (n - 1)) * i; }
+  function y(v: number): number { return pad.top + chartH * (1 - v / globalMax); }
+
+  function buildPath(data: number[]): string {
+    return data.map((v, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
+  }
+
+  function buildArea(data: number[], baseline?: number[]): string {
+    const top = data.map((v, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
+    const btm = (baseline ?? data.map(() => 0))
+      .map((v, i) => `L${x(n - 1 - i).toFixed(1)},${y(v).toFixed(1)}`)
+      .reverse()
+      .join(" ");
+    const bottomPath = baseline
+      ? [...baseline].reverse().map((v, i) => `L${x(n - 1 - i).toFixed(1)},${y(v).toFixed(1)}`).join(" ")
+      : `L${x(n - 1).toFixed(1)},${y(0).toFixed(1)} L${x(0).toFixed(1)},${y(0).toFixed(1)}`;
+    return `${top} ${bottomPath} Z`;
+  }
+
+  function handleMove(e: React.MouseEvent<SVGSVGElement>) {
+    if (!svgRef.current) return;
+    const rect = svgRef.current.getBoundingClientRect();
+    const relX = e.clientX - rect.left - pad.left;
+    const idx = Math.round(relX / (chartW / (n - 1)));
+    setHoverIdx(Math.max(0, Math.min(idx, n - 1)));
+  }
+
+  const gridLines = 4;
+
+  return (
+    <div className="space-y-1">
+      <svg
+        ref={svgRef}
+        viewBox={`0 0 ${width} ${height}`}
+        className="w-full cursor-crosshair"
+        style={{ maxHeight: height }}
+        onMouseMove={handleMove}
+        onMouseLeave={() => setHoverIdx(null)}
+      >
+        {showGrid && Array.from({ length: gridLines + 1 }, (_, i) => {
+          const yy = pad.top + (chartH / gridLines) * i;
+          return (
+            <line key={i} x1={pad.left} y1={yy} x2={width - pad.right} y2={yy} className="stroke-border/15" strokeWidth={0.5} />
+          );
+        })}
+
+        {stacked
+          ? processedSeries.map((s, si) => (
+              <path
+                key={s.label}
+                d={buildArea(s.data, si > 0 ? processedSeries[si - 1].data : undefined)}
+                className={cn("transition-opacity duration-200", s.fillColor ?? s.color.replace("stroke-", "fill-") + "/20")}
+                style={{ opacity: hoverIdx !== null ? 0.7 : 0.5 }}
+              />
+            ))
+          : processedSeries.map((s) => (
+              <g key={s.label}>
+                <path
+                  d={buildArea(s.data)}
+                  className={cn(s.fillColor ?? s.color.replace("stroke-", "fill-") + "/10")}
+                />
+                <path
+                  d={buildPath(s.data)}
+                  fill="none"
+                  strokeWidth={1.5}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className={s.color}
+                />
+              </g>
+            ))}
+
+        {hoverIdx !== null && (
+          <>
+            <line
+              x1={x(hoverIdx)} y1={pad.top} x2={x(hoverIdx)} y2={height - pad.bottom}
+              className="stroke-foreground/20" strokeWidth={1} strokeDasharray="3,3"
+            />
+            {processedSeries.map((s) => (
+              <circle
+                key={s.label}
+                cx={x(hoverIdx)} cy={y(s.data[hoverIdx])}
+                r={3} className={cn("fill-background", s.color)} strokeWidth={2}
+              />
+            ))}
+          </>
+        )}
+
+        {labels.filter((_, i) => i % Math.ceil(n / 6) === 0 || i === n - 1).map((label, _, arr) => {
+          const origIdx = labels.indexOf(label);
+          return (
+            <text
+              key={label}
+              x={x(origIdx)}
+              y={height - 4}
+              textAnchor="middle"
+              className="fill-muted-foreground/50 text-[8px]"
+            >
+              {label}
+            </text>
+          );
+        })}
+      </svg>
+
+      {hoverIdx !== null && (
+        <div className="flex items-center gap-4 text-[10px] animate-in fade-in duration-100">
+          <span className="text-muted-foreground font-medium">{labels[hoverIdx]}</span>
+          {processedSeries.map((s) => (
+            <span key={s.label} className="tabular-nums">
+              <span className={cn("font-semibold", s.color.replace("stroke-", "text-"))}>{s.data[hoverIdx].toLocaleString()}</span>
+              <span className="text-muted-foreground ml-1">{s.label}</span>
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}

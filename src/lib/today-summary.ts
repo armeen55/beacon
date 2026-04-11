@@ -116,7 +116,7 @@ export function buildTodaySummary(opts: {
       staleNote: note,
     },
     reviewHeuristicLine:
-      "Review queue uses imported visibility shifts + attribution candidates — not a crawl ObservationRun and not live prompt observation unless you import one.",
+      "Attribution is based on imported visibility data and change timing. It is correlation-based, not proven cause and effect.",
     competitorLine: opts.competitorLine ?? null,
     verifiedFixes: opts.verifiedFixes.slice(0, 5),
     nextMove,

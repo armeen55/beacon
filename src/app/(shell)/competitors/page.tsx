@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { PageHeader } from "@/components/data/page-header";
+import { KpiCard } from "@/components/viz/kpi-card";
 import { competitors } from "@/lib/seed-data.server";
 import { citationEvidenceIndex } from "@/domains/pages/citation-evidence-store";
 import { pageIssues } from "@/domains/pages/issues";
@@ -7,12 +8,64 @@ import { computeMarketBenchmark, type MarketBenchmark } from "@/domains/pages/bu
 import { loadCompetitorUniverseRuntime } from "@/domains/competitors/universe-read";
 import { normalizeCompetitorDomain } from "@/domains/competitors/universe-normalize";
 import { CompetitorsManageClient } from "./competitors-manage-client";
+import { CoMentionSection } from "./co-mention-section";
+import { SourceTrustSection } from "./source-trust-section";
+import { LocalPressureSection } from "./local-pressure-section";
+import { BattlecardSection } from "./battlecard-section";
+import { getCachedCoMentionMatrix, computeCoMentionMatrix, persistCoMentionMatrix } from "@/domains/competitors/co-mention";
+import { computeSourceTrustIndex } from "@/domains/competitors/source-trust";
+import { computeBattlecards } from "@/domains/competitors/battlecards";
+import { computeGeoCoverage } from "@/domains/geo/coverage";
+import { allPages } from "@/domains/pages/page-store";
+import { getActivePrompts } from "@/domains/prompts/prompt-library";
+import { getSiteConfig } from "@/lib/site-config";
 import { cn } from "@/lib/utils";
 
 export default function CompetitorsPage() {
   const universe = loadCompetitorUniverseRuntime();
   const activeUniverse = universe.entries.filter((e) => e.status === "active");
   const citIndex = citationEvidenceIndex;
+
+  const { siteDomain } = getSiteConfig();
+  const universeDomains = new Set(activeUniverse.map((e) => e.domain.replace(/^www\./, "").toLowerCase()));
+  let coMentionMatrix = getCachedCoMentionMatrix();
+  if (!coMentionMatrix) {
+    coMentionMatrix = computeCoMentionMatrix(siteDomain, universeDomains);
+    if (coMentionMatrix.entries.length > 0) {
+      persistCoMentionMatrix(coMentionMatrix).catch(() => {});
+    }
+  }
+
+  const trustIndex = computeSourceTrustIndex(siteDomain, universeDomains);
+
+  const geoCoverage = computeGeoCoverage(
+    allPages,
+    citIndex?.by_page_and_topic ?? [],
+    getActivePrompts(),
+  );
+  const competitorPressureCities = geoCoverage.cities
+    .filter((c) => c.competitor_pages >= 5 && (c.coverage_status === "absent" || c.coverage_status === "weak"))
+    .slice(0, 5);
+
+  const compNames = new Map<string, string>();
+  for (const e of activeUniverse) {
+    compNames.set(e.domain.replace(/^www\./, "").toLowerCase(), e.display_name);
+  }
+  for (const c of competitors) {
+    const d = c.domain.replace(/^www\./, "").toLowerCase();
+    if (!compNames.has(d)) compNames.set(d, c.name);
+  }
+
+  const battlecardIndex = citIndex
+    ? computeBattlecards({
+        citationIndex: citIndex,
+        coMentionMatrix: coMentionMatrix,
+        trustIndex,
+        geoCoverage,
+        ownedDomain: siteDomain,
+        competitorNames: compNames,
+      })
+    : null;
 
   const benchmark: MarketBenchmark | null = citIndex
     ? computeMarketBenchmark(citIndex, pageIssues)
@@ -36,31 +89,12 @@ export default function CompetitorsPage() {
 
       {benchmark ? (
         <div className="space-y-8">
-          {/* At a glance */}
-          <div className="rounded-lg border border-border/60 bg-surface-raised/40 px-5 py-4">
-            <p className="text-xs font-medium text-muted-foreground mb-2">At a glance</p>
-            <div className="flex flex-wrap items-baseline gap-x-8 gap-y-2 text-sm">
-              <span>
-                <span className="font-bold tabular-nums">{benchmark.ownedAppearanceRate}%</span>
-                <span className="text-muted-foreground ml-1.5">your AI share</span>
-              </span>
-              <span>
-                <span className="font-semibold tabular-nums">{benchmark.ownedAIMentions.toLocaleString()}</span>
-                <span className="text-muted-foreground ml-1.5">your citations</span>
-              </span>
-              <span>
-                <span className="font-semibold tabular-nums">{benchmark.topCompetitors.length}</span>
-                <span className="text-muted-foreground ml-1.5">in this ranking</span>
-              </span>
-              {aheadCount > 0 && (
-                <span className="text-status-danger font-medium tabular-nums">
-                  {aheadCount} ahead on raw citations
-                </span>
-              )}
-            </div>
-            <p className="text-[10px] text-muted-foreground/70 mt-3">
-              From {benchmark.trackedCitationObservations.toLocaleString()} citation observations in Beacon’s evidence index.
-            </p>
+          {/* At a glance — KPI strip */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <KpiCard label="Your AI Share" value={`${benchmark.ownedAppearanceRate}%`} meta="Across all tracked topics" />
+            <KpiCard label="Your Citations" value={benchmark.ownedAIMentions} meta={`${benchmark.trackedCitationObservations.toLocaleString()} observations`} />
+            <KpiCard label="Competitors Tracked" value={benchmark.topCompetitors.length} />
+            <KpiCard label="Ahead of You" value={aheadCount} meta={aheadCount > 0 ? "On raw citation count" : "You lead the field"} />
           </div>
 
           {/* Ranked threats — list-first */}
@@ -113,6 +147,12 @@ export default function CompetitorsPage() {
                           )}
                         </div>
                         <p className="text-[10px] text-muted-foreground font-mono truncate">{comp.domain}</p>
+                        <div className="h-1 rounded-full bg-border/30 mt-1.5 overflow-hidden hidden sm:block">
+                          <div
+                            className={cn("h-full rounded-full transition-all", isAhead ? "bg-status-danger/60" : "bg-accent-primary/60")}
+                            style={{ width: `${Math.min(comp.rate, 100)}%` }}
+                          />
+                        </div>
                         <div className="mt-1 flex gap-3 text-[11px] text-muted-foreground sm:hidden tabular-nums">
                           <span>{comp.mentions.toLocaleString()} cit.</span>
                           <span>{comp.rate}% share</span>
@@ -212,13 +252,21 @@ export default function CompetitorsPage() {
                 {benchmark.weakestAreas.length > 0 && (
                   <div className="p-4 lg:min-h-[140px]">
                     <p className="text-[10px] font-medium text-status-warning mb-3">Thinnest share</p>
-                    <ul className="space-y-2">
+                    <ul className="space-y-3">
                       {benchmark.weakestAreas.map((a) => (
-                        <li key={a.topic} className="flex items-center justify-between gap-2">
-                          <span className="text-[12px] font-medium leading-snug min-w-0">{a.topic}</span>
-                          <span className="text-[11px] font-semibold tabular-nums text-status-warning shrink-0">
-                            {a.rate}%
-                          </span>
+                        <li key={a.topic}>
+                          <p className="text-[12px] font-medium leading-snug">{a.topic}</p>
+                          <div className="flex items-center gap-2 mt-1">
+                            <div className="h-1 rounded-full bg-status-warning/15 flex-1 min-w-0">
+                              <div
+                                className="h-1 rounded-full bg-status-warning"
+                                style={{ width: `${Math.min(a.rate, 100)}%` }}
+                              />
+                            </div>
+                            <span className="text-[11px] font-semibold tabular-nums text-status-warning shrink-0">
+                              {a.rate}%
+                            </span>
+                          </div>
                         </li>
                       ))}
                     </ul>
@@ -226,6 +274,18 @@ export default function CompetitorsPage() {
                 )}
               </div>
             </section>
+          )}
+          {coMentionMatrix && coMentionMatrix.entries.length > 0 && (
+            <CoMentionSection matrix={coMentionMatrix} />
+          )}
+          {trustIndex.platforms.length > 0 && (
+            <SourceTrustSection index={trustIndex} />
+          )}
+          {competitorPressureCities.length > 0 && (
+            <LocalPressureSection cities={competitorPressureCities} />
+          )}
+          {battlecardIndex && battlecardIndex.cards.length > 0 && (
+            <BattlecardSection index={battlecardIndex} />
           )}
         </div>
       ) : (

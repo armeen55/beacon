@@ -4,6 +4,8 @@ import { useState, useTransition, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { ChangeVerdictBadge } from "@/components/display/change-verdict-badge";
+import { KpiCard } from "@/components/viz/kpi-card";
+import { DonutRing } from "@/components/viz/donut-ring";
 import type { ChangeVerdict } from "@/domains/attribution/types";
 import type { TrustSource } from "@/domains/attribution/scorecard";
 import type { EvidenceTier } from "@/domains/pages/types";
@@ -19,6 +21,8 @@ export type PageChange = { id: string; name: string; description: string; verdic
 export type PageSnapshotSummary = {
   scannedAt: string;
   title: string | null;
+  metaDescription: string | null;
+  canonicalUrl: string | null;
   h1: string | null;
   faqCount: number;
   schemaTypes: string[];
@@ -27,7 +31,7 @@ export type PageSnapshotSummary = {
   wordCount: number;
   hasCanonicalMismatch: boolean;
   robotsMeta: string | null;
-  /** Website crawl ObservationRun that produced this snapshot, when stamped. */
+  httpStatus: number;
   observationRunId?: string | null;
 };
 export type PageDiffSummary = { changed: boolean; summary: string; titleChanged: boolean; h1Changed: boolean; faqCountChanged: boolean; schemaChanged: boolean; contentChanged: boolean };
@@ -271,45 +275,61 @@ export function PagesClient({
     if (el) el.scrollIntoView({ block: "nearest" });
   }, [selectedId]);
 
+  const crawlAgeDays = lastScanAt
+    ? Math.floor((Date.now() - new Date(lastScanAt).getTime()) / 86_400_000)
+    : null;
+  const crawlIsStale = crawlAgeDays !== null && crawlAgeDays > 14;
+  const uncrawledCount = pageSummary ? pageSummary.total - pageSummary.scanned : 0;
+
   return (
     <div>
-      {/* ── Summary strip ── */}
+      {/* ── Stale / missing crawl warning ── */}
+      {(crawlIsStale || (pageSummary && pageSummary.scanned === 0)) && (
+        <div className="rounded-lg border border-status-warning/30 bg-status-warning/[0.05] px-4 py-3 mb-4 text-[12px]">
+          {pageSummary && pageSummary.scanned === 0 ? (
+            <p className="text-foreground">
+              <span className="font-semibold text-status-warning">No pages have been crawled.</span>{" "}
+              Use <span className="font-medium">Refresh crawl</span> to inspect your pages.
+            </p>
+          ) : crawlIsStale ? (
+            <p className="text-foreground">
+              <span className="font-semibold text-status-warning">Crawl data is {crawlAgeDays} days old.</span>{" "}
+              Page structure may have changed since the last scan.
+              {uncrawledCount > 0 && <span className="text-muted-foreground"> · {uncrawledCount} pages not yet crawled.</span>}
+            </p>
+          ) : null}
+        </div>
+      )}
+
+      {/* ── Summary strip: KPI cards + status donut ── */}
       {pageSummary && (
-        <div className="rounded-lg border border-border/60 bg-surface-raised/40 px-5 py-4 mb-5">
-          <div className="flex items-center gap-6 flex-wrap">
-            <div className="flex items-baseline gap-2">
-              <span className="text-2xl font-bold tabular-nums tracking-tight">{pageSummary.total}</span>
-              <span className="text-xs text-muted-foreground">tracked</span>
+        <div className="mb-5 space-y-4">
+          <div className="flex items-start gap-5 flex-wrap">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 flex-1 min-w-0">
+              <KpiCard label="Tracked" value={pageSummary.total} size="lg" />
+              <KpiCard label="Cited" value={pageSummary.cited} meta={`${pageSummary.totalCitations.toLocaleString()} total mentions`} size="lg" />
+              <KpiCard label="Need Work" value={pageSummary.needsAction} meta={pageSummary.needsAction > 0 ? "Open issues" : "All clear"} size="lg" />
+              <KpiCard label="Crawled" value={pageSummary.scanned} size="lg" />
             </div>
-            {pageSummary.winning > 0 && (
-              <div className="flex items-center gap-1.5">
-                <span className="h-2 w-2 rounded-full bg-status-success" />
-                <span className="text-sm font-semibold text-status-success tabular-nums">{pageSummary.winning}</span>
-                <span className="text-xs text-muted-foreground">strong</span>
+            {(pageSummary.winning > 0 || pageSummary.building > 0 || pageSummary.unresolved > 0 || pageSummary.dormant > 0) && (
+              <div className="shrink-0">
+                <DonutRing
+                  segments={[
+                    ...(pageSummary.winning > 0 ? [{ label: "Strong", value: pageSummary.winning, color: "stroke-status-success" }] : []),
+                    ...(pageSummary.building > 0 ? [{ label: "Building", value: pageSummary.building, color: "stroke-accent-primary" }] : []),
+                    ...(pageSummary.unresolved > 0 ? [{ label: "Follow up", value: pageSummary.unresolved, color: "stroke-status-warning" }] : []),
+                    ...(pageSummary.dormant > 0 ? [{ label: "Low signal", value: pageSummary.dormant, color: "stroke-muted-foreground/40" }] : []),
+                  ]}
+                  size={90}
+                  thickness={10}
+                  centerLabel="Status"
+                  centerValue={pageSummary.total}
+                />
               </div>
             )}
-            {pageSummary.needsAction > 0 && (
-              <div className="flex items-center gap-1.5">
-                <span className="h-2 w-2 rounded-full bg-status-danger" />
-                <span className="text-sm font-semibold text-status-danger tabular-nums">{pageSummary.needsAction}</span>
-                <span className="text-xs text-muted-foreground">need work</span>
-              </div>
-            )}
-            {pageSummary.building > 0 && (
-              <div className="flex items-center gap-1.5">
-                <span className="h-2 w-2 rounded-full bg-accent-primary" />
-                <span className="text-sm font-semibold tabular-nums">{pageSummary.building}</span>
-                <span className="text-xs text-muted-foreground">building</span>
-              </div>
-            )}
-            <div className="flex items-baseline gap-1.5">
-              <span className="text-sm font-semibold tabular-nums">{pageSummary.cited}</span>
-              <span className="text-xs text-muted-foreground">cited</span>
-              <span className="text-xs text-muted-foreground/50 tabular-nums">· {pageSummary.totalCitations.toLocaleString()} mentions</span>
-            </div>
           </div>
           {(pageSummary.noFaq > 0 || pageSummary.noSchema > 0) && pageSummary.scanned > 0 && (
-            <div className="flex items-center flex-wrap gap-x-4 gap-y-1 mt-3 pt-3 border-t border-border/40 text-xs text-muted-foreground">
+            <div className="flex items-center flex-wrap gap-x-4 gap-y-1 px-1 text-xs text-muted-foreground">
               {pageSummary.noFaq > 0 && (
                 <span>
                   <span className="font-medium text-foreground/80">{pageSummary.noFaq}</span> without Q&amp;A block
@@ -320,7 +340,6 @@ export function PagesClient({
                   <span className="font-medium text-foreground/80">{pageSummary.noSchema}</span> without structured data
                 </span>
               )}
-              <span className="text-muted-foreground/50">{pageSummary.scanned} crawled</span>
             </div>
           )}
         </div>
@@ -408,11 +427,15 @@ export function PagesClient({
                   </div>
                   <div className="flex items-center gap-2 mt-1 text-[11px] text-muted-foreground flex-wrap">
                     {row.totalCitations > 0 && <span className="tabular-nums">{row.totalCitations} mentions</span>}
+                    {!row.snapshot && <span className="rounded bg-status-warning/10 px-1.5 py-0.5 text-[10px] text-status-warning font-medium">Not crawled</span>}
                     {row.snapshot && row.snapshot.faqCount === 0 && (
                       <span className="rounded bg-muted/80 px-1.5 py-0.5 text-[10px] text-muted-foreground">No Q&amp;A</span>
                     )}
                     {row.snapshot && row.snapshot.schemaTypes.length === 0 && (
                       <span className="rounded bg-muted/80 px-1.5 py-0.5 text-[10px] text-muted-foreground">No schema</span>
+                    )}
+                    {row.snapshot && row.snapshot.hasCanonicalMismatch && (
+                      <span className="rounded bg-status-warning/10 px-1.5 py-0.5 text-[10px] text-status-warning font-medium">Canonical mismatch</span>
                     )}
                     <span className={cn("font-medium", NEXT_MOVE[row.nextMove].color)}>{NEXT_MOVE[row.nextMove].label}</span>
                   </div>
@@ -459,26 +482,63 @@ export function PagesClient({
                       {selected.platforms.slice(0, 4).join(" · ")}
                     </span>
                   )}
-                  {selected.snapshot && (
-                    <>
-                      <span className={cn(
-                        "rounded-md px-2 py-0.5 text-[11px] font-medium",
-                        selected.snapshot.faqCount > 0 ? "bg-status-success/10 text-status-success" : "bg-muted/80 text-muted-foreground",
-                      )}>
-                        {selected.snapshot.faqCount > 0 ? `Q&A · ${selected.snapshot.faqCount}` : "No Q&A"}
-                      </span>
-                      <span className={cn(
-                        "rounded-md px-2 py-0.5 text-[11px] font-medium",
-                        selected.snapshot.schemaTypes.length > 0 ? "bg-status-success/10 text-status-success" : "bg-muted/80 text-muted-foreground",
-                      )}>
-                        {selected.snapshot.schemaTypes.length > 0 ? "Structured data" : "No structured data"}
-                      </span>
-                    </>
-                  )}
                   {selected.validatedChanges > 0 && (
-                    <span className="text-xs font-medium text-status-success">{selected.validatedChanges} validated change{selected.validatedChanges !== 1 ? "s" : ""}</span>
+                    <span className="text-xs font-medium text-status-success">{selected.validatedChanges} validated</span>
                   )}
                 </div>
+
+                {/* ── Live HTML: what the crawl actually saw ── */}
+                {selected.snapshot ? (
+                  <div className="mt-4 rounded-lg border border-border/60 overflow-hidden">
+                    <div className="px-4 py-2.5 bg-surface-inset/30 border-b border-border/40 flex items-center justify-between gap-3">
+                      <p className="text-[11px] font-semibold text-foreground">What the crawl saw</p>
+                      <span className="text-[10px] text-muted-foreground tabular-nums">
+                        {new Date(selected.snapshot.scannedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+                        {selected.snapshot.httpStatus !== 200 && (
+                          <span className="text-status-danger font-medium ml-2">HTTP {selected.snapshot.httpStatus}</span>
+                        )}
+                      </span>
+                    </div>
+                    <div className="px-4 py-3 space-y-2.5 text-[12px]">
+                      <CrawlRow label="Title" value={selected.snapshot.title} />
+                      <CrawlRow label="Meta description" value={selected.snapshot.metaDescription} truncate />
+                      <CrawlRow label="H1" value={selected.snapshot.h1} />
+                      <CrawlRow label="Canonical" value={selected.snapshot.canonicalUrl} warn={selected.snapshot.hasCanonicalMismatch} warnText="Mismatch with page URL" />
+                      <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+                        <CrawlChip label="Q&A blocks" value={selected.snapshot.faqCount} good={selected.snapshot.faqCount > 0} />
+                        <CrawlChip label="Schema types" value={selected.snapshot.schemaTypes.length > 0 ? selected.snapshot.schemaTypes.join(", ") : "None"} good={selected.snapshot.schemaTypes.length > 0} />
+                        <CrawlChip label="Word count" value={selected.snapshot.wordCount.toLocaleString()} good={selected.snapshot.wordCount >= 300} />
+                        <CrawlChip label="Internal links" value={selected.snapshot.internalLinks} good={selected.snapshot.internalLinks >= 3} />
+                      </div>
+                      {selected.snapshot.robotsMeta && selected.snapshot.robotsMeta !== "index, follow" && (
+                        <div className="flex items-center gap-2 text-[11px] text-status-warning font-medium">
+                          <span>Robots: {selected.snapshot.robotsMeta}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="mt-4 rounded-lg border border-dashed border-border/60 px-4 py-3">
+                    <p className="text-[12px] text-muted-foreground">Not crawled yet. Use <span className="font-medium text-foreground">Refresh crawl</span> to inspect this page.</p>
+                  </div>
+                )}
+
+                {/* ── What changed since last crawl ── */}
+                {selected.diff && selected.diff.changed && (
+                  <div className="mt-3 rounded-lg border border-status-warning/20 bg-status-warning/[0.03] px-4 py-3">
+                    <p className="text-[11px] font-semibold text-foreground mb-1.5">Changed since last crawl</p>
+                    <div className="flex flex-wrap gap-2">
+                      {selected.diff.titleChanged && <DiffChip label="Title" />}
+                      {selected.diff.h1Changed && <DiffChip label="H1" />}
+                      {selected.diff.faqCountChanged && <DiffChip label="Q&A" />}
+                      {selected.diff.schemaChanged && <DiffChip label="Schema" />}
+                      {selected.diff.contentChanged && <DiffChip label="Content" />}
+                    </div>
+                    {selected.diff.summary && (
+                      <p className="text-[11px] text-muted-foreground mt-2 leading-relaxed">{selected.diff.summary}</p>
+                    )}
+                  </div>
+                )}
 
                 <div className="mt-4 rounded-lg border border-border/50 bg-surface-inset/40 px-4 py-3">
                   <p className="text-xs font-medium text-muted-foreground">Next step</p>
@@ -732,7 +792,7 @@ export function PagesClient({
                               )}
                               {fb.verificationBindingLegacy && (
                                 <span className="text-[9px] text-muted-foreground block mt-1">
-                                  Legacy verify — exact fetch ObservationRun not recorded.
+                                  Older verification — run details not recorded.
                                 </span>
                               )}
                               {fb.verificationObservationRunId && (
@@ -742,7 +802,7 @@ export function PagesClient({
                                     href={`/observations/${encodeURIComponent(fb.verificationObservationRunId)}`}
                                     className="text-accent-primary hover:underline font-medium"
                                   >
-                                    ObservationRun
+                                    View run
                                   </Link>
                                   {fb.verificationBaselineObservationRunId ? (
                                     <>
@@ -996,5 +1056,45 @@ export function PagesClient({
         </details>
       )}
     </div>
+  );
+}
+
+function CrawlRow({ label, value, truncate, warn, warnText }: { label: string; value: string | null; truncate?: boolean; warn?: boolean; warnText?: string }) {
+  return (
+    <div className="flex items-start gap-2">
+      <span className="text-[10px] font-medium text-muted-foreground/70 uppercase tracking-wide w-28 shrink-0 pt-0.5">{label}</span>
+      <div className="min-w-0 flex-1">
+        {value ? (
+          <p className={cn("text-[12px] text-foreground leading-snug", truncate && "line-clamp-2")}>{value}</p>
+        ) : (
+          <p className="text-[12px] text-muted-foreground/50 italic">Not found</p>
+        )}
+        {warn && warnText && (
+          <p className="text-[10px] text-status-warning font-medium mt-0.5">{warnText}</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function CrawlChip({ label, value, good }: { label: string; value: string | number; good: boolean }) {
+  return (
+    <div className="flex items-center justify-between gap-2">
+      <span className="text-[10px] text-muted-foreground">{label}</span>
+      <span className={cn(
+        "text-[11px] font-semibold tabular-nums",
+        good ? "text-status-success" : "text-muted-foreground",
+      )}>
+        {value}
+      </span>
+    </div>
+  );
+}
+
+function DiffChip({ label }: { label: string }) {
+  return (
+    <span className="inline-flex items-center gap-1 rounded-md bg-status-warning/10 px-2 py-0.5 text-[10px] font-medium text-status-warning">
+      {label} changed
+    </span>
   );
 }

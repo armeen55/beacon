@@ -346,11 +346,11 @@ export default async function ChangeDetailPage({
         </div>
       )}
 
-      {/* Hypothesis */}
+      {/* Expected outcome */}
       {entry.hypothesis && (
         <div>
           <p className="text-[11px] font-medium text-muted-foreground mb-1.5">
-            Hypothesis
+            Expected outcome
           </p>
           <p className="text-[13px] text-foreground-secondary leading-relaxed bg-surface-inset rounded-md px-3 py-2">
             {entry.hypothesis}

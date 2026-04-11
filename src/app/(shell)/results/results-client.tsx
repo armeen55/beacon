@@ -6,6 +6,9 @@ import { PageHeader } from "@/components/data/page-header";
 import { StatCard } from "@/components/data/stat-card";
 import { TabFilter } from "@/components/display/tab-filter";
 import { DeltaIndicator } from "@/components/display/delta-indicator";
+import { KpiCard } from "@/components/viz/kpi-card";
+import { DonutRing } from "@/components/viz/donut-ring";
+import { PlatformSplit } from "@/components/viz/platform-split";
 import {
   Table,
   TableBody,
@@ -234,38 +237,23 @@ export function ResultsClient({
     <div>
       <PageHeader
         title="History"
-        description="Measurement brief: every row is a dated visibility sample. Suggested causes come from Review and heuristics — they are not merged into the raw metric."
+        description="Every row is a raw visibility measurement. Suggested causes are separate — they do not change the measurement."
       />
 
-      <p className="text-sm text-muted-foreground mb-6">
-        New or refreshed exports:{" "}
-        <Link href="/import" className="text-accent-primary font-medium hover:underline">
-          Import
-        </Link>
-        . For what to do next:{" "}
-        <Link href="/" className="text-accent-primary font-medium hover:underline">
-          Today
-        </Link>
-        .
-      </p>
-
       <div className="rounded-lg border border-border/60 bg-surface-raised/40 px-5 py-4 mb-6">
-        <p className="text-xs font-medium text-muted-foreground mb-2">At a glance</p>
-        <div className="flex flex-wrap items-baseline gap-x-8 gap-y-2 text-sm">
-          <span>
-            <span className="font-bold tabular-nums">{sampleObservation.importedRowCount}</span>
-            <span className="text-muted-foreground ml-1.5">sample rows</span>
-          </span>
-          <span>
-            <span className="font-semibold tabular-nums">{stampedRowCount}</span>
-            <span className="text-muted-foreground ml-1.5">linked to a visibility run</span>
-          </span>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+          <KpiCard label="Sample Rows" value={sampleObservation.importedRowCount} />
+          <KpiCard label="Run-Linked" value={stampedRowCount} meta={`${results.length - stampedRowCount} unlinked`} />
+          <KpiCard label="With Cause" value={withDriver} meta={withDriver > 0 ? `${Math.round((withDriver / results.length) * 100)}% attributed` : undefined} />
+          <KpiCard label="Review Locked" value={confirmedCount} />
+        </div>
+        <div className="flex items-center gap-4 flex-wrap text-[11px] text-muted-foreground">
           {sampleObservation.visibilityRunHref && sampleObservation.visibilityRunId && (
-            <span className="text-[13px]">
-              <span className="text-muted-foreground">Primary run </span>
+            <span>
+              Primary run{" "}
               <Link
                 href={sampleObservation.visibilityRunHref}
-                className="text-accent-primary font-medium hover:underline font-mono text-[12px]"
+                className="text-accent-primary font-medium hover:underline font-mono text-[10px]"
               >
                 {sampleObservation.visibilityRunId.length > 24
                   ? `${sampleObservation.visibilityRunId.slice(0, 24)}…`
@@ -274,7 +262,7 @@ export function ResultsClient({
             </span>
           )}
           {sampleObservation.latestCrawlCompletedAt && (
-            <span className="text-muted-foreground text-[13px]">
+            <span>
               Crawl through{" "}
               {new Date(sampleObservation.latestCrawlCompletedAt).toLocaleDateString("en-US", {
                 month: "short",
@@ -339,20 +327,43 @@ export function ResultsClient({
       </div>
 
       <div className="rounded-lg border border-border/60 bg-surface-inset/25 px-4 py-3 mb-6 text-[12px] text-muted-foreground leading-relaxed">
-        <span className="font-medium text-foreground">Reading each row: </span>
-        observed sample (imported metric) · suggested cause (events / matching) · Review trust (your lock). These stay separate on purpose.
+        <span className="font-medium text-foreground">Each column: </span>
+        <span className="text-foreground">Metric</span> = what was measured ·
+        <span className="text-foreground"> Cause</span> = what Beacon thinks happened ·
+        <span className="text-foreground"> Trust</span> = whether you confirmed it.
       </div>
 
-      <div className="grid gap-3 grid-cols-2 lg:grid-cols-6 mb-6">
-        <StatCard label="Sample rows" value={results.length} />
-        <StatCard label="Run-linked" value={stampedRowCount} />
-        <StatCard
-          label="With cause signal"
-          value={withDriver}
-        />
-        <StatCard label="Review locked" value={confirmedCount} />
-        <StatCard label="Auto-cleared" value={autoClearedCount} />
-        <StatCard label="Review pending" value={unresolvedCount} />
+      <div className="flex items-start gap-5 flex-wrap mb-6">
+        {Object.keys(platformCounts).filter((k) => k !== "all").length > 1 && (
+          <div className="rounded-lg border border-border/50 bg-surface-raised/30 px-4 py-3 shrink-0">
+            <p className="text-[10px] font-medium text-muted-foreground/70 uppercase tracking-wide mb-2">Platform mix</p>
+            <PlatformSplit
+              entries={Object.entries(platformCounts)
+                .filter(([k]) => k !== "all")
+                .map(([platform, count]) => ({
+                  platform,
+                  label: (PLATFORM_LABELS as Record<string, string>)[platform] ?? platform,
+                  value: count,
+                }))}
+            />
+          </div>
+        )}
+        {(confirmedCount > 0 || autoClearedCount > 0 || unresolvedCount > 0) && (
+          <div className="rounded-lg border border-border/50 bg-surface-raised/30 px-4 py-3 shrink-0">
+            <p className="text-[10px] font-medium text-muted-foreground/70 uppercase tracking-wide mb-2">Attribution trust</p>
+            <DonutRing
+              segments={[
+                ...(confirmedCount > 0 ? [{ label: "Locked", value: confirmedCount, color: "stroke-status-success" }] : []),
+                ...(autoClearedCount > 0 ? [{ label: "Auto-cleared", value: autoClearedCount, color: "stroke-accent-primary" }] : []),
+                ...(unresolvedCount > 0 ? [{ label: "Pending", value: unresolvedCount, color: "stroke-muted-foreground/50" }] : []),
+              ]}
+              size={80}
+              thickness={8}
+              centerLabel="Trust"
+              centerValue={withDriver}
+            />
+          </div>
+        )}
       </div>
 
       <div className="flex items-center gap-4 mb-4 flex-wrap">

@@ -1615,3 +1615,80 @@ Updated only: `docs/master_execution_plan.md` (new § under surface spec: Phases
 - `npm run build` — pass (22 routes)
 - `npm test` — pass (26/26)
 - No new markdown files created
+
+---
+
+## 2026-04-11 — Product Truth + Usability Stabilization
+
+### What was broken
+
+1. **Crawl truth hidden:** `meta_description`, `canonical_url`, `http_status` were captured by the extractor but never surfaced to the operator. `PageDiffSummary` was computed and serialized but never rendered.
+2. **Vague system language:** "ObservationRun on file", "not a crawl ObservationRun", "not causal proof", "heuristic" — operator-facing strings used internal jargon.
+3. **Stale data invisible:** No prominent warning when crawl data was >14 days old, visibility data >7 days old, or visibility sample older than crawl. Data freshness buried in collapsed system details.
+4. **Pages detail view:** Only showed FAQ count and schema presence as chips. No title, meta description, canonical, H1, word count, or robots inspection. Diff (what changed) was serialized but never shown.
+5. **Today too abstract:** System details hidden by default. Primary data freshness not visible without expanding.
+
+### What was fixed
+
+**Pages route (pages-client.tsx + page.tsx):**
+- `PageSnapshotSummary` expanded: added `metaDescription`, `canonicalUrl`, `httpStatus` fields from extractor
+- New "What the crawl saw" inspection panel in page detail: shows title, meta description, H1, canonical (with mismatch warning), Q&A blocks, schema types, word count, internal links, robots meta, HTTP status, and crawl timestamp
+- New "Changed since last crawl" section: renders `PageDiffSummary` when a diff exists (title/H1/Q&A/schema/content changes as labeled chips + summary)
+- Stale crawl warning banner: prominent if >14 days old or 0 pages crawled
+- "Not crawled" chip on list rows for uncrawled pages
+- "Canonical mismatch" chip on list rows
+- `CrawlRow`, `CrawlChip`, `DiffChip` helper components for consistent inspection layout
+- Fixed "ObservationRun" in user-visible strings → "View run" / "Older verification"
+
+**Today route (today-client.tsx + page.tsx + today-summary.ts):**
+- Stale data banner at top of page: crawl age, visibility age, and mismatch warnings — always visible, not hidden
+- "Data sources" section replaces "System details": compact crawl + visibility cards always visible, expandable detail behind "More detail" link
+- Crawl age computed and compared against 14-day threshold
+- Queue item evidence strings rewritten from jargon to plain language:
+  - "ObservationRun on file" → "Found during crawl"
+  - "not a ranking prediction" → "Found during the latest crawl"
+  - "Ship verification runs a live HTML fetch..." → "This change was marked as shipped. Verify it..."
+  - "not an ObservationRun and not causal proof" → "Imported visibility shifts with unreviewed attribution"
+  - "trend detection, not prediction" → "Citations to this page are declining..."
+- `reviewHeuristicLine` rewritten: "Attribution is based on imported visibility data and change timing. It is correlation-based, not proven cause and effect."
+
+**History route (results-client.tsx):**
+- Header description simplified: "Every row is a raw visibility measurement. Suggested causes are separate — they do not change the measurement."
+- "Reading each row" explainer rewritten: "Metric = what was measured · Cause = what Beacon thinks happened · Trust = whether you confirmed it."
+- Removed intro paragraph (duplicative with header)
+
+**Review route (review-queue-client.tsx):**
+- "heuristic scores" → "match scores" with clearer explanation
+- "Match scores rank heuristics only" → removed jargon
+
+**Changes route (changes/[id]/page.tsx):**
+- "Hypothesis" label → "Expected outcome"
+
+### Routes changed
+
+| Route | Files changed |
+|-------|---------------|
+| Pages | `pages-client.tsx`, `page.tsx` |
+| Today | `today-client.tsx`, `page.tsx`, `today-summary.ts` |
+| History | `results-client.tsx` |
+| Review | `review-queue-client.tsx` |
+| Changes detail | `changes/[id]/page.tsx` |
+
+### What remains uncertain
+
+- **Render checks** (`render-checks.json`): Only run for top citation URLs during scan, not universally. A page can appear crawled but render verification only covered a subset.
+- **Schema detection**: Only JSON-LD. Pages with microdata or RDFa show "No structured data" even when structured data exists.
+- **FAQ detection**: Heuristic-based (JSON-LD FAQPage, `<details>/<summary>`, heading-based). Can over- or under-count vs human "FAQ section" expectations.
+- **Word count**: From raw HTML body text after script/style removal. CSR-heavy pages may under-report.
+- **Verify vs crawl timing**: Verify overwrites a page's stored snapshot but timestamps come from verify, not the bulk crawl. The "last crawl" in UI still refers to the most recent bulk `website_crawl` run.
+
+### Is crawl truth now trustworthy?
+
+**Yes, with caveats.** The operator can now see exactly what the crawler extracted — title, meta, H1, canonical, FAQ, schema, word count, links, HTTP status, and when. They can see what changed since the prior crawl. They get explicit warnings when data is stale. The remaining uncertainty (render checks, schema detection limits, CSR) is inherent to the extraction approach and documented above.
+
+### Build verification
+
+- `npx tsc --noEmit` — pass
+- `npm run build` — pass (22 routes)
+- `npm test` — pass (26/26)
+- 0 lint errors

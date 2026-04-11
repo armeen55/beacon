@@ -534,6 +534,8 @@ export default function PagesPage() {
       ? {
           scannedAt: snap.fetched_at,
           title: snap.title,
+          metaDescription: snap.meta_description,
+          canonicalUrl: snap.canonical_url,
           h1: snap.h1,
           faqCount: snap.faqs.length,
           schemaTypes: snap.schema_types,
@@ -542,6 +544,7 @@ export default function PagesPage() {
           wordCount: snap.word_count,
           hasCanonicalMismatch: snap.has_canonical_mismatch,
           robotsMeta: snap.robots_meta,
+          httpStatus: snap.http_status,
           observationRunId: snap.observation_run_id ?? null,
         }
       : null;

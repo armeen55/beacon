@@ -6,6 +6,10 @@ import Link from "next/link";
 import { cn } from "@/lib/utils";
 import type { TodaySummary } from "@/lib/today-summary";
 import type { ChangeVerdict, ImpactConfidence, ImpactDirection } from "@/domains/attribution/types";
+import { PlatformSplit } from "@/components/viz/platform-split";
+import { MiniBarChart } from "@/components/viz/mini-bar-chart";
+import { KpiCard } from "@/components/viz/kpi-card";
+import { ConfidenceBadge } from "@/components/viz/confidence-badge";
 
 export type TodayImpactItem = {
   changeId: string;
@@ -78,6 +82,9 @@ export type TodayTrackRecord = {
   overallSuccessRate: number;
   totalExplicitAccepted?: number;
   totalExplicitDismissed?: number;
+  outcomeTotal?: number;
+  outcomePositiveRate?: number | null;
+  outcomeAvgDelta?: number | null;
 };
 
 export type VisibilitySummary = {
@@ -372,6 +379,7 @@ const REC_ACCENT: Record<string, { border: string; bg: string; dot: string; labe
   competitive_displacement: { border: "border-status-danger/30", bg: "bg-status-danger/5", dot: "bg-status-danger", label: "Close gap" },
   cross_page_pattern: { border: "border-status-success/30", bg: "bg-status-success/5", dot: "bg-status-success", label: "Apply pattern" },
   topic_cluster_gap: { border: "border-accent-primary/30", bg: "bg-accent-primary/5", dot: "bg-accent-primary", label: "Expand" },
+  refresh_stale_citation: { border: "border-status-warning/30", bg: "bg-status-warning/5", dot: "bg-status-warning", label: "Refresh" },
 };
 
 export function TodayClient({
@@ -509,43 +517,76 @@ export function TodayClient({
     return { daysOld, stale: daysOld > 7 };
   })();
 
+  const crawlAgeDays = run?.completed_at
+    ? Math.floor((Date.now() - new Date(run.completed_at).getTime()) / 86_400_000)
+    : null;
+  const crawlStale = crawlAgeDays !== null && crawlAgeDays > 14;
+  const visStale = vis.staleVsCrawl;
+  const dataStale = importFreshness?.stale || crawlStale || visStale;
+
   return (
     <div className="space-y-6">
-      {/* ── 1. Visibility summary strip ── */}
+      {/* ── 0. Stale / freshness warnings — always visible ── */}
+      {dataStale && (
+        <div className="rounded-lg border border-status-warning/30 bg-status-warning/[0.05] px-4 py-3 space-y-1.5">
+          <p className="text-[12px] font-semibold text-status-warning">Data freshness</p>
+          {crawlStale && (
+            <p className="text-[11px] text-foreground leading-relaxed">
+              Last crawl was <span className="font-semibold">{crawlAgeDays} days ago</span>.
+              Page structure data may not reflect current production HTML.
+              <Link href="/pages" className="text-accent-primary hover:underline font-medium ml-1">Run crawl →</Link>
+            </p>
+          )}
+          {!crawlStale && crawlAgeDays !== null && !visStale && importFreshness?.stale && (
+            <p className="text-[11px] text-foreground leading-relaxed">
+              Visibility data is <span className="font-semibold">{importFreshness.daysOld} days old</span>.
+              Citation and mention counts may have changed.
+              <Link href="/import" className="text-accent-primary hover:underline font-medium ml-1">Import fresh data →</Link>
+            </p>
+          )}
+          {visStale && vis.staleNote && (
+            <p className="text-[11px] text-foreground leading-relaxed">{vis.staleNote}</p>
+          )}
+        </div>
+      )}
+
+      {/* ── 1. Visibility summary — KPI strip + platform visual ── */}
       {visibilitySummary && visibilitySummary.resultCount > 0 && (
-        <div className="rounded-lg border border-border/60 bg-surface-raised/40 px-5 py-4">
-          <div className="flex items-baseline justify-between gap-4 flex-wrap">
-            <div className="flex items-baseline gap-3">
-              <span className="text-2xl font-bold tabular-nums tracking-tight">
-                {visibilitySummary.totalCitations.toLocaleString()}
-              </span>
-              <span className="text-xs text-muted-foreground">
-                citations
-              </span>
-              {visibilitySummary.trendPct !== null && (
-                <span className={cn(
-                  "text-xs font-semibold tabular-nums",
-                  visibilitySummary.trendPct > 0 ? "text-status-success" : visibilitySummary.trendPct < 0 ? "text-status-danger" : "text-muted-foreground",
-                )}>
-                  {visibilitySummary.trendPct > 0 ? "↑" : visibilitySummary.trendPct < 0 ? "↓" : "→"}{" "}
-                  {Math.abs(visibilitySummary.trendPct)}%
-                </span>
-              )}
-            </div>
-            {importFreshness && (
-              <Link href="/import" className={cn("text-[11px] font-medium hover:underline", importFreshness.stale ? "text-status-warning" : "text-muted-foreground/70")}>
-                {importFreshness.stale ? `Data is ${importFreshness.daysOld}d old — refresh →` : `${importFreshness.daysOld}d ago`}
-              </Link>
-            )}
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <KpiCard
+              label="Citations"
+              value={visibilitySummary.totalCitations}
+              delta={visibilitySummary.trendPct}
+              deltaSuffix="%"
+              size="lg"
+            />
+            <KpiCard
+              label="Mentions"
+              value={visibilitySummary.totalMentions}
+              meta={visibilitySummary.dateRange ? `${visibilitySummary.dateRange.from} → ${visibilitySummary.dateRange.to}` : undefined}
+            />
+            <KpiCard
+              label="Platforms"
+              value={visibilitySummary.platformBreakdown.length}
+              meta={visibilitySummary.platformBreakdown.slice(0, 2).map((p) => p.label).join(", ")}
+            />
+            <KpiCard
+              label="Snapshots"
+              value={visibilitySummary.resultCount}
+              meta={importFreshness ? (importFreshness.stale ? `${importFreshness.daysOld}d old` : `${importFreshness.daysOld}d ago`) : undefined}
+            />
           </div>
-          {visibilitySummary.platformBreakdown.length > 0 && (
-            <div className="flex items-center gap-4 mt-2.5 flex-wrap">
-              {visibilitySummary.platformBreakdown.slice(0, 5).map((p) => (
-                <span key={p.platform} className="text-[11px] text-muted-foreground">
-                  <span className="font-medium text-foreground">{p.label}</span>{" "}
-                  {p.citations > 0 ? p.citations.toLocaleString() : `${p.mentions} ment.`}
-                </span>
-              ))}
+          {visibilitySummary.platformBreakdown.length > 1 && (
+            <div className="rounded-lg border border-border/40 px-4 py-3">
+              <PlatformSplit
+                entries={visibilitySummary.platformBreakdown.slice(0, 5).map((p) => ({
+                  platform: p.platform,
+                  label: p.label,
+                  value: p.citations > 0 ? p.citations : p.mentions,
+                }))}
+                title="Platform distribution"
+              />
             </div>
           )}
         </div>
@@ -699,21 +740,31 @@ export function TodayClient({
       )}
 
       {/* ── 3. Track record (momentum) ── */}
-      {trackRecord && (trackRecord.totalActedOn > 0 || (trackRecord.totalExplicitAccepted ?? 0) > 0) && (
-        <p className="text-[11px] text-muted-foreground/70">
-          {(trackRecord.totalExplicitAccepted ?? 0) > 0 && (
-            <span className="text-foreground font-medium">{trackRecord.totalExplicitAccepted} accepted</span>
+      {trackRecord && (trackRecord.totalActedOn > 0 || (trackRecord.totalExplicitAccepted ?? 0) > 0 || (trackRecord.outcomeTotal ?? 0) > 0) && (
+        <div className="rounded-lg border border-border/40 px-4 py-3 space-y-2">
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Momentum</span>
+            {trackRecord.outcomeAvgDelta !== null && trackRecord.outcomeAvgDelta !== undefined && (
+              <span className={cn(
+                "text-[11px] font-bold tabular-nums",
+                trackRecord.outcomeAvgDelta > 0 ? "text-status-success" : trackRecord.outcomeAvgDelta < 0 ? "text-status-danger" : "text-muted-foreground",
+              )}>
+                {trackRecord.outcomeAvgDelta > 0 ? "+" : ""}{trackRecord.outcomeAvgDelta} cit/action
+              </span>
+            )}
+          </div>
+          {((trackRecord.totalExplicitAccepted ?? 0) > 0 || trackRecord.totalActedOn > 0 || trackRecord.totalValidated > 0) && (
+            <MiniBarChart
+              entries={[
+                ...(trackRecord.totalExplicitAccepted ? [{ label: "Accepted", value: trackRecord.totalExplicitAccepted, color: "bg-accent-primary" }] : []),
+                ...(trackRecord.totalActedOn > 0 ? [{ label: "Acted on", value: trackRecord.totalActedOn, color: "bg-muted-foreground/30" }] : []),
+                ...(trackRecord.totalValidated > 0 ? [{ label: "Confirmed positive", value: trackRecord.totalValidated, color: "bg-status-success" }] : []),
+                ...((trackRecord.outcomeTotal ?? 0) > 0 ? [{ label: "Total outcomes", value: trackRecord.outcomeTotal!, color: "bg-border/40", meta: trackRecord.outcomePositiveRate !== null && trackRecord.outcomePositiveRate !== undefined ? `${Math.round(trackRecord.outcomePositiveRate * 100)}% positive rate` : "Not enough resolved data for rates" }] : []),
+              ]}
+              height={5}
+            />
           )}
-          {trackRecord.totalActedOn > 0 && (
-            <span>
-              {(trackRecord.totalExplicitAccepted ?? 0) > 0 ? " · " : ""}
-              {trackRecord.totalActedOn} acted on
-              {trackRecord.totalValidated > 0 && (
-                <span className="text-status-success font-medium"> · {trackRecord.totalValidated} confirmed positive</span>
-              )}
-            </span>
-          )}
-        </p>
+        </div>
       )}
 
       {/* ── 3b. Watchlist / experiments ── */}
@@ -777,14 +828,7 @@ export function TodayClient({
                     <span className="text-[13px] font-medium truncate">
                       {s.assetName}
                     </span>
-                    <span className={cn(
-                      "text-[11px] font-medium shrink-0",
-                      s.confidence === "high" ? "text-status-success"
-                        : s.confidence === "medium" ? "text-status-warning"
-                        : "text-muted-foreground",
-                    )}>
-                      {s.confidence}
-                    </span>
+                    <ConfidenceBadge level={s.confidence} size="sm" />
                   </div>
                   <span className="text-[11px] text-muted-foreground/60 shrink-0">
                     {s.totalEvents} event{s.totalEvents !== 1 ? "s" : ""}
@@ -938,44 +982,72 @@ export function TodayClient({
         </div>
       )}
 
-      {/* ── 7. System details (collapsed) ── */}
-      <div className="pt-1">
-        <button
-          onClick={() => setSystemOpen((v) => !v)}
-          className="flex items-center gap-2 text-[11px] font-medium text-muted-foreground hover:text-foreground transition-colors w-full"
-        >
-          <span className={cn("transition-transform text-[9px]", systemOpen ? "rotate-90" : "")}>
-            ▶
-          </span>
-          System details
-        </button>
+      {/* ── 7. Data sources ── */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-[11px] font-semibold text-foreground">Data sources</p>
+          <button
+            onClick={() => setSystemOpen((v) => !v)}
+            className="text-[10px] text-accent-primary hover:underline font-medium"
+          >
+            {systemOpen ? "Less detail" : "More detail"}
+          </button>
+        </div>
+
+        {/* ── Compact status (always visible) ── */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className={cn(
+            "rounded-lg border px-4 py-3 text-[11px]",
+            crawlStale ? "border-status-warning/30 bg-status-warning/[0.03]" : "border-border/60",
+          )}>
+            <p className="font-semibold text-foreground mb-1">Website crawl</p>
+            {run ? (
+              <div className="space-y-1 text-muted-foreground">
+                <p>{run.pages_scanned} pages · {run.pages_changed} changed · {run.pages_with_errors} errors</p>
+                <p className={crawlStale ? "text-status-warning font-medium" : ""}>
+                  {crawlAgeDays === 0 ? "Today" : crawlAgeDays === 1 ? "Yesterday" : `${crawlAgeDays} days ago`}
+                </p>
+              </div>
+            ) : (
+              <p className="text-muted-foreground">No crawl on file. <Link href="/pages" className="text-accent-primary hover:underline font-medium">Run one →</Link></p>
+            )}
+          </div>
+          <div className={cn(
+            "rounded-lg border px-4 py-3 text-[11px]",
+            importFreshness?.stale ? "border-status-warning/30 bg-status-warning/[0.03]" : "border-border/60",
+          )}>
+            <p className="font-semibold text-foreground mb-1">Visibility data</p>
+            {visibilitySummary ? (
+              <div className="space-y-1 text-muted-foreground">
+                <p>{visibilitySummary.resultCount} samples · {visibilitySummary.totalCitations} citations</p>
+                <p className={importFreshness?.stale ? "text-status-warning font-medium" : ""}>
+                  {importFreshness ? (importFreshness.daysOld === 0 ? "Today" : `${importFreshness.daysOld} days old`) : "Unknown age"}
+                </p>
+              </div>
+            ) : (
+              <p className="text-muted-foreground">No visibility data. <Link href="/import" className="text-accent-primary hover:underline font-medium">Import →</Link></p>
+            )}
+          </div>
+        </div>
+
+        {/* ── Expanded details ── */}
         {systemOpen && (
-          <div className="space-y-4 mt-3">
-            {/* Crawl observation */}
+          <div className="space-y-4 mt-1">
             <div className="rounded-lg border border-border bg-surface-raised/40 p-4 space-y-3">
-              <p className="text-[10px] font-semibold text-muted-foreground">Website crawl</p>
+              <p className="text-[10px] font-semibold text-muted-foreground">Crawl details</p>
               {crawl.hasObservationFile && run ? (
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-[11px]">
-                  <div>
-                    <p className="text-muted-foreground">Last completed</p>
-                    <p className="font-medium tabular-nums">{formatScanTime(run.completed_at)}</p>
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <KpiCard label="Pages Scanned" value={run.pages_scanned} />
+                    <KpiCard label="Changed" value={run.pages_changed} delta={crawl.deltaVsPrior?.pagesChanged ?? null} />
+                    <KpiCard label="Errors" value={run.pages_with_errors} />
+                    <KpiCard label="Alerts" value={run.guardrail_alerts} />
+                  </div>
+                  <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
+                    <span>Completed {formatScanTime(run.completed_at)}</span>
                     {crawl.activeObservationHref && (
-                      <Link href={crawl.activeObservationHref} className="text-[10px] text-accent-primary hover:underline font-medium mt-1 inline-block">Open run →</Link>
+                      <Link href={crawl.activeObservationHref} className="text-accent-primary hover:underline font-medium">Open run →</Link>
                     )}
-                  </div>
-                  <div>
-                    <p className="text-muted-foreground">Pages scanned</p>
-                    <p className="font-medium tabular-nums">{run.pages_scanned}</p>
-                  </div>
-                  <div>
-                    <p className="text-muted-foreground">Changed</p>
-                    <p className="font-medium tabular-nums">
-                      {crawl.deltaVsPrior ? `${run.pages_changed} (${crawl.deltaVsPrior.pagesChanged >= 0 ? "+" : ""}${crawl.deltaVsPrior.pagesChanged})` : String(run.pages_changed)}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-muted-foreground">Errors / alerts</p>
-                    <p className="font-medium tabular-nums">{run.pages_with_errors} err · {run.guardrail_alerts} alerts</p>
                   </div>
                 </div>
               ) : (
@@ -987,13 +1059,13 @@ export function TodayClient({
             <div className="rounded-lg border border-border bg-surface-raised/40 p-4 space-y-3">
               <p className="text-[10px] font-semibold text-muted-foreground">Visibility sample</p>
               {vis.hasObservationFile && vis.activeObservationRun ? (
-                <div className="space-y-2 text-[11px]">
-                  <p className="text-muted-foreground leading-relaxed">{vis.activeObservationRun.scope_label}</p>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[10px] text-muted-foreground">
-                    <span>Topics: {vis.activeObservationRun.counts.topic_buckets}</span>
-                    <span>Rollup rows: {vis.activeObservationRun.counts.page_topic_rollup_rows}</span>
-                    <span>Citations: {vis.activeObservationRun.counts.total_citations_accounted}</span>
-                    <span>External domains: {vis.activeObservationRun.counts.distinct_external_domains_sampled}</span>
+                <div className="space-y-3">
+                  <p className="text-[11px] text-muted-foreground leading-relaxed">{vis.activeObservationRun.scope_label}</p>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <KpiCard label="Topics" value={vis.activeObservationRun.counts.topic_buckets} />
+                    <KpiCard label="Rollup Rows" value={vis.activeObservationRun.counts.page_topic_rollup_rows} />
+                    <KpiCard label="Citations" value={vis.activeObservationRun.counts.total_citations_accounted} />
+                    <KpiCard label="Ext. Domains" value={vis.activeObservationRun.counts.distinct_external_domains_sampled} />
                   </div>
                   {vis.staleVsCrawl && vis.staleNote && (
                     <p className="text-[10px] text-status-warning font-medium">{vis.staleNote}</p>
@@ -1090,14 +1162,7 @@ function SecondaryOpportunities({
                         </span>
                       )}
                     </div>
-                    <span className={cn(
-                      "text-[11px] font-medium shrink-0",
-                      rec.confidence === "high" ? "text-status-success"
-                        : rec.confidence === "medium" ? "text-status-warning"
-                        : "text-muted-foreground",
-                    )}>
-                      {rec.confidence}
-                    </span>
+                    <ConfidenceBadge level={rec.confidence as "high" | "medium" | "low"} />
                   </div>
                   <p className="text-[11px] text-muted-foreground line-clamp-1 leading-relaxed mt-0.5 ml-[14px]">
                     {rec.rationale}

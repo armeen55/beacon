@@ -29,7 +29,7 @@ import {
 } from "@/domains/pages/wave-planner";
 import { TodayClient, type TodayQueueItem } from "./today-client";
 import { updateIssueStatus, verifyAndUpdateIssue } from "./pages/issue-actions";
-import { stripSiteOrigin } from "@/lib/site-config";
+import { stripSiteOrigin, getSiteConfig } from "@/lib/site-config";
 import { buildTodaySummary, type TodayNextMove } from "@/lib/today-summary";
 import { computeRecommendations } from "@/domains/product/recommendation-engine";
 import { rankAndSelect } from "@/domains/product/priority-engine";
@@ -50,6 +50,21 @@ import {
   startExperimentAction,
   updateExperimentAction,
 } from "./experiment-actions";
+import {
+  backfillFromExistingData,
+  computeOutcomeSummary,
+  persistOutcomes,
+  outcomeRecords,
+} from "@/domains/product/outcome-store";
+import { computeCitationDecay, getDecayAlerts, summarizeDecay } from "@/domains/attribution/citation-decay";
+import { extractEntities } from "@/domains/entity/entity-extract";
+import { detectDiscrepancies } from "@/domains/entity/discrepancy-detect";
+import { computeGeoCoverage, summarizeGeoCoverage } from "@/domains/geo/coverage";
+import { getActivePrompts, promptLibrary } from "@/domains/prompts/prompt-library";
+import { computeJourneyCoverage } from "@/domains/prompts/journey-coverage";
+import { JOURNEY_STAGE_LABELS } from "@/domains/prompts/journey-stages";
+import { analyzeAllExtractability } from "@/domains/pages/extractability";
+import { computeSnippetIntelligence } from "@/domains/competitors/snippet-intel";
 import { latestWebsiteCrawlRun } from "@/domains/observations/read";
 import { primaryVisibilityRunForResults } from "@/domains/observations/visibility-context";
 import { loadCompetitorUniverseRuntime } from "@/domains/competitors/universe-read";
@@ -265,8 +280,8 @@ export default function TodayPage() {
         .replace(/citations/g, "tracked mentions")
         .replace(/no FAQ or schema/g, "missing Q&A content"),
       meta: runId
-        ? "Observed · guardrail (ObservationRun on file)"
-        : "Observed · guardrail (run not stamped — legacy)",
+        ? "Found during crawl"
+        : "Found during crawl (older scan, no run ID)",
       href: pagesHref(a.url),
       dot: "bg-status-danger",
       detail: a.detail
@@ -312,7 +327,7 @@ export default function TodayPage() {
       href: "/review",
       dot: "bg-muted-foreground",
       detail:
-        "Suggested links are not causal proof — lock a cause only if you agree with the match.",
+        "Review the suggested cause and lock it if it matches what you know.",
     });
   }
   if (undecidedCount - easyCalls > 0) {
@@ -371,6 +386,11 @@ export default function TodayPage() {
     });
   }
 
+  // ── Citation decay: detect declining pages ──
+  const { siteDomain } = getSiteConfig();
+  const decayResults = computeCitationDecay(siteDomain);
+  const decayAlerts = getDecayAlerts(decayResults);
+
   const allRecommendations = computeRecommendations({
     impactRows,
     patterns,
@@ -379,6 +399,7 @@ export default function TodayPage() {
     citationCountMap: citMap,
     citationIndex: citationEvidenceIndex,
     allPages,
+    decayResults,
   });
 
   // Filter out dismissed / deferred-but-not-due recommendations
@@ -416,14 +437,48 @@ export default function TodayPage() {
     return "/pages";
   }
 
+  // ── Outcome store: idempotent backfill from existing data ──
+  const backfillResult = backfillFromExistingData({
+    responses: recommendationResponses.map((r) => ({
+      recId: r.recId,
+      status: r.status,
+      respondedAt: r.respondedAt,
+    })),
+    experiments: getActiveExperiments().map((e) => ({
+      id: e.id,
+      recId: e.recId,
+      status: e.status,
+      targetPageUrl: e.targetPageUrl,
+      baselineCitations: e.baselineCitations,
+      latestCitations: e.latestCitations,
+      startedAt: e.startedAt,
+    })),
+    scorecardVerdicts: scorecardRows
+      .filter((r) => r.verdict !== "pending" && r.verdict !== "too_early")
+      .map((r) => ({
+        changeId: r.change.id,
+        verdict: r.verdict,
+        assetName: r.change.asset_name,
+        topic: r.topics[0] ?? null,
+        url: null,
+      })),
+  });
+  if (backfillResult.added > 0) {
+    persistOutcomes().catch(() => {});
+  }
+  const outcomeSummary = outcomeRecords.length > 0 ? computeOutcomeSummary() : null;
+
   const trackRecordSummary =
-    trackRecord.totalActedOn > 0 || trackRecord.totalExplicitAccepted > 0
+    trackRecord.totalActedOn > 0 || trackRecord.totalExplicitAccepted > 0 || (outcomeSummary && outcomeSummary.total > 0)
       ? {
           totalActedOn: trackRecord.totalActedOn,
           totalValidated: trackRecord.totalValidated,
           overallSuccessRate: trackRecord.overallSuccessRate,
           totalExplicitAccepted: trackRecord.totalExplicitAccepted,
           totalExplicitDismissed: trackRecord.totalExplicitDismissed,
+          outcomeTotal: outcomeSummary?.total ?? 0,
+          outcomePositiveRate: outcomeSummary?.positive_rate ?? null,
+          outcomeAvgDelta: outcomeSummary?.avg_citation_delta ?? null,
         }
       : null;
 
@@ -458,6 +513,7 @@ export default function TodayPage() {
     if (rec.type === "competitive_displacement") return "After strengthening your content for this topic, watch for citation share shift vs competitors in future imports.";
     if (rec.type === "cross_page_pattern") return "After applying this pattern, monitor the target page for citation count changes. The source pattern took effect within 1-2 import cycles.";
     if (rec.type === "topic_cluster_gap") return "After creating the new content, watch for the topic to appear in your citation evidence for the new page type.";
+    if (rec.type === "refresh_stale_citation") return "After refreshing content, monitor citation counts over the next 1-2 import cycles for recovery.";
     return "After acting, import fresh data and check whether Beacon detects a positive visibility change for the target page.";
   }
 
@@ -654,7 +710,7 @@ export default function TodayPage() {
       title: `Clear ${warningAlerts.length} observed page issue${warningAlerts.length !== 1 ? "s" : ""}`,
       href: pagesHref(first.url),
       evidence:
-        "Guardrail output from website crawl observation — not a ranking prediction.",
+        "Found during the latest crawl. Open in Pages to see what was detected.",
       observationRunId: first.observation_run_id ?? activeCrawlId,
       evidenceScope: "crawl",
     });
@@ -665,7 +721,7 @@ export default function TodayPage() {
       title: "Run ship verification on staged fixes",
       href: pagesHref(s.pageUrl),
       evidence:
-        "Ship verification runs a live HTML fetch and stamps a dedicated `website_verify` ObservationRun on the snapshot — not the same as the last bulk crawl.",
+        "This change was marked as shipped. Verify it by fetching the live page to confirm the fix is in production.",
       observationRunId: activeCrawlId,
       evidenceScope: "mixed",
     });
@@ -685,11 +741,91 @@ export default function TodayPage() {
       title: "Work the Review queue (hypothesis locks)",
       href: "/review",
       evidence:
-        "Review stores your best guess at cause for an imported visibility shift — not an ObservationRun and not causal proof.",
+        "Imported visibility shifts with unreviewed attribution. Lock a cause when you know what happened.",
       observationRunId: null,
       evidenceScope: "review_heuristic",
     });
   }
+  if (decayAlerts.length > 0) {
+    const meaningful = decayAlerts.filter((d) => d.status === "meaningful_decline").length;
+    nextCandidates.push({
+      title: `${decayAlerts.length} page${decayAlerts.length !== 1 ? "s" : ""} with declining citations${meaningful > 0 ? ` (${meaningful} significant)` : ""}`,
+      href: "/pages",
+      evidence:
+        "Citations to this page are declining compared to earlier data. Check if content is outdated or structure has changed.",
+      observationRunId: null,
+      evidenceScope: "mixed",
+    });
+  }
+
+  // ── Representation discrepancy check (quiet — only notable) ──
+  const entityIdx = extractEntities(pageSnapshots);
+  const discrepancyReport = detectDiscrepancies(entityIdx);
+  const notableDisc = discrepancyReport.discrepancies.filter((d) => d.severity === "notable");
+  if (notableDisc.length > 0) {
+    nextCandidates.push({
+      title: `${notableDisc.length} possible representation ${notableDisc.length === 1 ? "discrepancy" : "discrepancies"} in AI answers`,
+      href: "/diagnostics",
+      evidence:
+        "Detected from structural comparison of AI answer content against your owned page data. Conservative signals only — review in Diagnostics.",
+      observationRunId: null,
+      evidenceScope: "mixed",
+    });
+  }
+
+  // ── Geographic coverage insight ──
+  const geoCoverage = computeGeoCoverage(
+    allPages,
+    citationEvidenceIndex?.by_page_and_topic ?? [],
+    getActivePrompts(),
+  );
+  if (geoCoverage.gaps.length > 0) {
+    const topGap = geoCoverage.gaps[0];
+    nextCandidates.push({
+      title: `${geoCoverage.gaps.length} local market${geoCoverage.gaps.length !== 1 ? "s" : ""} with competitor presence and limited owned visibility`,
+      href: "/diagnostics",
+      evidence:
+        `Strongest gap: ${topGap.city} (${topGap.competitor_pages} competitor pages, ${topGap.owned_pages} owned). Based on page registry data.`,
+      observationRunId: null,
+      evidenceScope: "mixed",
+    });
+  }
+
+  // ── Journey stage insight ──
+  const journeyCoverage = computeJourneyCoverage(promptLibrary);
+  if (journeyCoverage.absent_stages.length > 0 && journeyCoverage.total_active >= 10) {
+    nextCandidates.push({
+      title: `No prompt coverage in ${journeyCoverage.absent_stages.map((s) => JOURNEY_STAGE_LABELS[s]).join(", ")} stage${journeyCoverage.absent_stages.length !== 1 ? "s" : ""}`,
+      href: "/diagnostics",
+      evidence:
+        `${journeyCoverage.total_active} active prompts across ${journeyCoverage.stages.filter((s) => s.active_prompt_count > 0).length} stages. Keyword-based classification.`,
+      observationRunId: null,
+      evidenceScope: "mixed",
+    });
+  }
+
+  // ── Snippet intelligence — high-priority extractability gap ──
+  if (citationEvidenceIndex) {
+    const extractResults = analyzeAllExtractability(pageSnapshots, citMap);
+    const snippetIntel = computeSnippetIntelligence({
+      ownedExtractability: extractResults,
+      citationIndex: citationEvidenceIndex,
+      snapshots: pageSnapshots,
+      ownedDomain: siteDomain,
+    });
+    const highPriority = snippetIntel.signals.filter((s) => s.priority === "high");
+    if (highPriority.length > 0) {
+      nextCandidates.push({
+        title: `${highPriority.length} high-priority extractability ${highPriority.length === 1 ? "gap" : "gaps"} on cited pages`,
+        href: "/diagnostics",
+        evidence:
+          `${highPriority[0].summary}. Based on structural analysis of ${snippetIntel.total_owned_pages_analyzed} cited pages.`,
+        observationRunId: null,
+        evidenceScope: "mixed",
+      });
+    }
+  }
+
   nextCandidates.push(null);
 
   const summary = buildTodaySummary({

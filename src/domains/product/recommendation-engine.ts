@@ -10,6 +10,7 @@ import type { ChangelogEntry } from "@/domains/changelog/types";
 import type { MinedPattern, PlaybookBrief } from "@/domains/pages/playbook";
 import type { PageSnapshot, PageEntity } from "@/domains/pages/types";
 import type { CitationEvidenceIndex } from "@/domains/pages/types";
+import type { CitationDecayResult } from "@/domains/attribution/decay-types";
 
 export type RecommendationType =
   | "replicate"
@@ -20,7 +21,8 @@ export type RecommendationType =
   | "refresh_content"
   | "competitive_displacement"
   | "cross_page_pattern"
-  | "topic_cluster_gap";
+  | "topic_cluster_gap"
+  | "refresh_stale_citation";
 
 export type BeaconRecommendation = {
   id: string;
@@ -90,6 +92,7 @@ export function computeRecommendations(opts: {
   citationCountMap?: Map<string, number>;
   citationIndex?: CitationEvidenceIndex | null;
   allPages?: PageEntity[];
+  decayResults?: CitationDecayResult[];
 }): BeaconRecommendation[] {
   const recs: BeaconRecommendation[] = [];
 
@@ -529,6 +532,41 @@ export function computeRecommendations(opts: {
       });
     }
     recs.push(...clusterGapRecs);
+  }
+
+  // ── Refresh stale citations: pages with meaningful citation decay ──
+
+  if (opts.decayResults) {
+    const decaying = opts.decayResults
+      .filter((d) => d.status === "meaningful_decline" && d.current_period_citations >= 3)
+      .slice(0, 2);
+
+    for (const decay of decaying) {
+      const normUrl = decay.page_url.replace(/\/+$/, "").toLowerCase();
+      if (recs.some((r) => r.targetPageUrl?.replace(/\/+$/, "").toLowerCase() === normUrl)) continue;
+
+      const snap = opts.pageSnapshots?.find(
+        (s) => s.url.replace(/\/+$/, "").toLowerCase() === normUrl,
+      );
+      const changePctStr = decay.change_pct !== null
+        ? `${Math.abs(Math.round(decay.change_pct * 100))}%`
+        : "notable";
+
+      recs.push({
+        id: `rec-decay-${normUrl.replace(/[^a-z0-9]/gi, "-").slice(0, 40)}`,
+        type: "refresh_stale_citation",
+        headline: `Refresh: ${snap?.title ?? decay.page_url.replace(/^https?:\/\/[^/]+/, "")}`,
+        rationale: `Citations for this page declined ${changePctStr} (from ${decay.previous_period_citations} to ${decay.current_period_citations}). Refreshing content, updating dates, or adding new answer-formatted sections may help recover visibility.`,
+        sourceEvidence: `${decay.previous_period_citations} → ${decay.current_period_citations} citations across ${decay.periods_analyzed} observation periods`,
+        targetPageUrl: decay.page_url,
+        targetPagePath: decay.page_url.replace(/^https?:\/\/[^/]+/, ""),
+        sourceChangeId: null,
+        confidence: decay.change_pct !== null && decay.change_pct <= -0.4 ? "medium" : "low",
+        priority: 480 + decay.previous_period_citations,
+        patternId: null,
+        citationOpportunity: decay.previous_period_citations,
+      });
+    }
   }
 
   // ── Fallback: top structural briefs when no proven patterns exist ──
