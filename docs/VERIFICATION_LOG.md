@@ -1,5 +1,160 @@
 # Beacon Verification Log
 
+> **PURPOSE:** Pure history and proof. Dated entries of what changed, what was tested, and results.
+> This file answers: "What did we verify and when?"
+>
+> **NOT FOR:** What to do next (→ `NEXT_PHASE_EXECUTION_PLAN.md`), current state (→ `HANDOFF_VERIFIED_STATE.md`).
+
+---
+
+## 2026-04-11 — Phase 1A-1: scan status server action
+
+- Added `src/app/(shell)/scan-status-action.ts` — `"use server"`; exports `getScanStatus()` returning `readScanState()` (`ScanStateFile | null`) for client polling in the non-blocking Today scan flow.
+- `npm run typecheck` — pass; `npm run test` — **77**/77 pass; `npm run build` — pass (Next.js 16.2.2).
+
+---
+
+## 2026-04-11 — Phase 0C-5: hygiene gate passed (Phase 0 finalized)
+
+**Recorded times (machine local):** `23:03:29 PDT` — gate start; Vitest **Start at** `23:03:30` (77/77).
+
+| Command | Result | Notes |
+|---------|--------|--------|
+| `npm run typecheck` | **PASS** | `tsc --noEmit`, exit 0 |
+| `npm run test` | **PASS** | Vitest: 16 files, **77** tests, exit 0 |
+| `npm run build` | **PASS** | Next.js production build, exit 0; route table **19** `○` + **6** `ƒ` app entries |
+
+- Build log scanned for actionable `warn`/`error` strings in output: **none** surfaced in saved build transcript.
+- **Phase 0 (Foundation Safety)** marked complete in active plan + handoff (no app code changes this step).
+
+---
+
+## 2026-04-12 — Phase 0C-4: remove `/opportunities` redirect routes
+
+- Searched `src/` for `"/opportunities"`, `'/opportunities'`, `` `/opportunities` ``, `(shell)/opportunities`, and `href`/`Link` targets: **no** in-app links to `/opportunities` or `/opportunities/…`. Matches were only `@/domains/opportunities/...` (domain module, unrelated to the App Router segment).
+- Deleted `src/app/(shell)/opportunities/` (`page.tsx` → `/competitors`, `[id]/page.tsx` → `/topics/opportunity/[id]`).
+- `npm run build` — pass; build route tree has **no** `/opportunities` or `/opportunities/[id]`. `npm run test` — 77/77 pass.
+- **Note:** bookmarks to the old paths will 404 unless a `next.config` redirect is added later.
+- **Re-verify (follow-up request):** `src/app/(shell)/opportunities/` still absent; `src/` still has zero `"/opportunities"` / `'/opportunities'` string links. `npm run typecheck` — pass; `npm run test` — 77/77; `npm run build` — pass; route tree still has no `/opportunities` entries.
+
+---
+
+## 2026-04-12 — Phase 0C-3: remove `/actions` redirect route
+
+- Repo search for route `/actions` in `src/**/*.ts(x)`: **one** in-app link — `src/app/(shell)/briefs/proposed/page.tsx` (`href="/actions"` for “View Action”). No `navigation.ts` entry; no imports of `(shell)/actions/*` from outside that folder (`actions-client` only used `./action-state` internally).
+- Updated **View Action** link to `href="/"` (same destination the redirect used). Deleted `src/app/(shell)/actions/` (`page.tsx` redirect, `actions-client.tsx`, `action-state.ts`).
+- `npm run build` — pass (route no longer listed). `npm run test` — 77/77 pass.
+
+---
+
+## 2026-04-12 — Phase 0C-2: delete `src/adapters/legacy/`
+
+- Searched repo for `adapters/legacy`, `@/adapters/legacy`, and `from "...legacy` in `.ts`/`.tsx`/`.js`/`.jsx`/`.json`: **zero** matches. Only documentation/audit files referenced the path as a planned deletion.
+- Deleted `src/adapters/legacy/` (contained only `README.md` — no runtime adapter code).
+- `npm run build` — pass. `npm run test` — 77/77 pass. No broken imports.
+
+---
+
+## 2026-04-12 — Phase 0C-1: delete `changelogpdf/`
+
+- Searched entire repo for `changelogpdf` references in source code (`.ts`, `.tsx`, `.js`, `.jsx`, `.json`, `.css`, `.html`, `.gitignore`, `next.config.*`): **zero** matches. Only hits were documentation/audit files mentioning it as a deletion target.
+- Deleted `changelogpdf/` — 39 PDF files (operator-generated changelog screenshots; not imported, linked, or served by the app).
+- `npm run build` — pass. `npm run test` — 77/77 pass. No broken imports.
+
+---
+
+## 2026-04-12 — Phase 0B-3: Changes `loading.tsx`
+
+- Added `src/app/(shell)/changes/loading.tsx` — Server Component; mirrors `/changes`: `PageHeader`-style block, tab strip (Outcomes / Attribution / Replicate), “At a glance” bordered card, outcome-category row, “Outcome mix” bordered strip, **Refine** filter placeholders, then `ScorecardTable`-shaped **9-column** table (`When`, `Work`, `Outcome`, `Score`, `Events`, `Linked`, `Match`, `Lift`, `Next`) with header row + **8** body rows (`animate-pulse`, `border-border/70`, `bg-surface-inset`, `bg-muted/*`, `bg-surface-raised/40`).
+- Scoped to `/changes` segment only.
+- `npm run build` — pass.
+
+---
+
+## 2026-04-12 — Phase 0B-2: Pages `loading.tsx`
+
+- Added `src/app/(shell)/pages/loading.tsx` — Server Component; skeleton mirrors real `/pages` layout: `max-w-5xl` header block, KPI strip + donut placeholder, scan/tab bar placeholders, `lg:grid-cols-[minmax(260px,280px)_1fr]` split with left list (7 row cards: title + status + chip row) and right detail panel (title/path + body lines).
+- Scoped to `/pages` segment only (nested `loading.tsx` under `(shell)/pages`).
+- `npm run build` — pass.
+
+---
+
+## 2026-04-12 — Phase 0B-1: shell `loading.tsx`
+
+- Added `src/app/(shell)/loading.tsx` — Server Component (no `"use client"`); minimal pulse skeleton (header strip + bordered content block + two card placeholders) using `border-border/60`, `bg-surface-inset/30`, `bg-muted/*`, `animate-pulse` (aligned with shell `error.tsx` tokens).
+- Next.js App Router: this file is the Suspense fallback for the `(shell)` segment’s async UI (layout chrome stays mounted; main `children` slot shows skeleton while the page RSC loads).
+- `npm run build` — pass.
+
+---
+
+## 2026-04-12 — Phase 0A-3: error boundary runtime verification
+
+- **Shell boundary** (`src/app/(shell)/error.tsx`) — added temporary `throw new Error("shell boundary test")` inside `TopicsPage()` render body; hit `/topics`; RSC payload confirmed `E{"digest":"4011023310","name":"Error","message":"shell boundary test"}` + `src/app/(shell)/error.tsx` loaded as client module; boundary wired correctly.
+- **Settings boundary** (`src/app/(shell)/settings/error.tsx`) — replaced `settings/health/page.tsx` export with inline throwing component; hit `/settings/health`; RSC payload confirmed `E{"digest":"1846340569","name":"Error","message":"settings boundary test"}` + `src/app/(shell)/settings/error.tsx` loaded with `"pagePath":"(shell)/settings/error.tsx"` in error boundary config; boundary correctly scoped to settings subtree.
+- `reset()` button: verified client component receives error object and calls `reset` prop on click — pattern matches Next.js App Router spec. No additional runtime test needed (reset re-triggers RSC render, confirmed by component code).
+- All temporary throws removed. `npm run build` — pass (23 static + 6 dynamic routes).
+
+---
+
+## 2026-04-12 — Phase 0A-2: settings `error.tsx`
+
+- Added `src/app/(shell)/settings/error.tsx` — same client boundary pattern and styling as `(shell)/error.tsx` (settings subtree only).
+- `npm run build` — pass.
+
+---
+
+## 2026-04-12 — Phase 0A-1: shell `error.tsx`
+
+- Added `src/app/(shell)/error.tsx` — client component, `{ error, reset }`, “Something went wrong” + `error.message` + **Try again** (`reset()`), Beacon tokens (`border-border`, `text-foreground`, `text-muted-foreground`, `bg-surface-inset`).
+- `npm run build` — pass (Next.js 16.2.2, Turbopack).
+
+---
+
+## 2026-04-12 — Doc accuracy + vault ladder + Cursor rule
+
+- Restored **Tiered product stack — research-led nano-phases (1.1a–2.3h)** into `master_execution_plan.md` (before AUDIT SUMMARY; source: prior `NEXT_PHASE` ladder).
+- Fixed **Next.js 15 → 16** in `HANDOFF_VERIFIED_STATE.md`, `architecture.md` (matches `package.json` `next@16`).
+- Fixed **71 → 68** steps in `HANDOFF_VERIFIED_STATE.md`, `VERIFICATION_LOG.md` (2026-04-11 doc-rebuild line).
+- `architecture.md`: Settings **System Health** tab described as **visible** (matches `settings/layout.tsx`).
+- `SCAN_TRUTH_REFACTOR_PLAN.md`: tests section aligned to existing `tests/domains/scanning/*.test.ts` files.
+- `NEXT_PHASE_EXECUTION_PLAN.md`: ladder pointer now targets real `master_execution_plan.md` heading.
+- `HANDOFF_VERIFIED_STATE.md`: Key Numbers labeled **snapshot/example**; render-time row includes `persistExperiments()`.
+- `.cursor/rules/core.mdc`: added **Documentation Sync Rule (MANDATORY)**; removed duplicate frontmatter fragment.
+
+---
+
+## 2026-04-11 — Documentation Reconstruction + Comprehensive Audit
+
+### Documentation system rebuild
+- Rewrote `HANDOFF_VERIFIED_STATE.md` as canonical START HERE entry point
+- Rewrote `NEXT_PHASE_EXECUTION_PLAN.md` as active execution brain (68 steps across 6 phases)
+- Rewrote `architecture.md` as pure system map (routes, domains, persistence, scan pipeline)
+- Restructured `master_execution_plan.md` as context vault (historical + current + future)
+- Added PURPOSE headers to all active docs with clear ownership boundaries
+- Copied 9 audit files from Claude worktree to `docs/archive/audits/`
+- Moved Profound research from `docs/archive/profound-integration/` to `docs/archive/research/profound-integration/`
+- Archived pre-restructure handoff to `docs/archive/handoffs/HANDOFF_VERIFIED_STATE_2026-04-11.md`
+
+### Comprehensive codebase audit (9 files in `docs/archive/audits/`)
+- **Audit type:** Full codebase — product, engineering, UX, trust, launch-readiness
+- **Branch:** `work/attribution-precision-20260407` at `dd121be`
+- **Overall score:** 53/100
+- **Product intelligence:** 75/100 (attribution, scan pipeline, proof layer, replication)
+- **Operator experience:** 45/100 (Today overloaded, no error/loading states, no onboarding)
+- **Production safety:** 25/100 (no error boundaries, scan blocks render, module-cached data)
+- **Launch readiness:** 38/100 → estimated 72/100 after Phases 0-2 (5-8 days)
+- **Key findings:** Error boundaries (0 `error.tsx`), loading states (0 `loading.tsx`), scan blocks render (120s), demo data unlabeled, 15 Today sections, render-time side effects
+- **Build:** typecheck ✓, 77/77 tests ✓, build ✓
+
+### Scan truth refactor verification
+- `orchestrate-scan.ts` no longer contains `revalidatePath` (render-safe)
+- `scan-action.ts` and `postImportSetup` call `revalidatePath` only after successful scans
+- Today page no longer has `export const dynamic = "force-dynamic"`
+- `/` is static in build output
+- Tests added: `orchestrate-render-safe.test.ts`, `scan-action-revalidate-after-scan.test.ts`, `scan-action-delegates.test.ts`
+
+---
+
 ## 2026-04-07 — New Chat Takeover
 
 ### Phase 0: Safety Checkpoint
