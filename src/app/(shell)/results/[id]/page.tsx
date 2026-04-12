@@ -391,7 +391,7 @@ export default async function ResultDetailPage({
         return (
           <div className="flex items-center justify-between border-t border-border pt-4">
             <Link
-              href="/review"
+              href="/changes?tab=attribution"
               className="text-[12px] text-muted-foreground hover:text-foreground transition-colors"
             >
               ← Back to review queue

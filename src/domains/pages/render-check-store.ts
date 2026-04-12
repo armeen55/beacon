@@ -1,7 +1,8 @@
-import { getRepository } from "@/lib/persistence/repositories";
+import "server-only";
+
+import { readDotDataJson } from "@/lib/persistence/dotdata-json";
 import type { RenderCheckResult } from "./render-check";
 
-const repo = getRepository();
-
-export const renderCheckResults: RenderCheckResult[] =
-  await repo.getRenderChecks();
+export function getRenderCheckResults(): RenderCheckResult[] {
+  return readDotDataJson<RenderCheckResult[]>("render-checks") ?? [];
+}

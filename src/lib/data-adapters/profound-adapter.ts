@@ -18,7 +18,7 @@ import {
   competitors,
 } from "@/lib/seed-data.server";
 import { citationEvidenceIndex } from "@/domains/pages/citation-evidence-store";
-import { pageSnapshots } from "@/domains/pages/snapshot-store";
+import { getPageSnapshots } from "@/domains/pages/snapshot-store";
 import { allPages } from "@/domains/pages/page-store";
 import { getSiteConfig } from "@/lib/site-config";
 import { PLATFORM_LABELS, type Platform } from "@/lib/constants";
@@ -94,8 +94,14 @@ export function createProfoundAdapters(): BeaconDataAdapters {
   }
 
   let _entityIndex: ReturnType<typeof extractEntities> | null = null;
+  let _entitySnapSig = "";
   function getEntityIdx() {
-    return _entityIndex ??= extractEntities(pageSnapshots);
+    const snaps = getPageSnapshots();
+    const sig = `${snaps.length}:${snaps[0]?.content_hash ?? ""}`;
+    if (_entityIndex && sig === _entitySnapSig) return _entityIndex;
+    _entitySnapSig = sig;
+    _entityIndex = extractEntities(snaps);
+    return _entityIndex;
   }
 
   let _discReport: ReturnType<typeof detectDiscrepancies> | null = null;
@@ -266,11 +272,11 @@ export function createProfoundAdapters(): BeaconDataAdapters {
   const snippet: SnippetAdapter = {
     getSnippetIntelligence() {
       if (!citIndex) return null;
-      const extractResults = analyzeAllExtractability(pageSnapshots, getCitMap());
+      const extractResults = analyzeAllExtractability(getPageSnapshots(), getCitMap());
       return computeSnippetIntelligence({
         ownedExtractability: extractResults,
         citationIndex: citIndex,
-        snapshots: pageSnapshots,
+        snapshots: getPageSnapshots(),
         ownedDomain: siteDomain,
       });
     },

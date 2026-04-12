@@ -1731,9 +1731,139 @@ Updated only: `docs/master_execution_plan.md` (new § under surface spec: Phases
 
 For changelog entries in the last 30 days that mention FAQ/schema/structured data, the engine checks whether the targeted page's current snapshot actually has those elements. If not → `deploy_mismatch` finding with `high` severity. This catches "shipped but not deployed" situations.
 
-### Build verification
+### Build verification (Phase 32)
 
 - `npx tsc --noEmit` — pass
 - `npm run build` — pass (22 routes)
 - `npm test` — pass (26/26)
 - 0 lint errors
+
+---
+
+## 2026-04-11 — Phase 32B: Finding Triage + Workflow Consequence + Operator Loop
+
+### What was built
+
+1. **Priority scoring engine** — every finding gets a `priorityScore` (0–100+) computed from severity, finding type impact weight, page citation volume, homepage flag, changelog contradiction, and whether the same type was previously rejected. Score maps to 4 buckets: critical (≥60), important (≥35), minor (≥15), informational (<15).
+
+2. **Consequence-aware resolution** — each action now has explicit downstream behavior:
+   - Accept → marks trusted, clears for promotion
+   - Expected → suppresses duplicates for 14 days on same page+type
+   - Ignore → low-priority dismissal, retained in history
+   - Not real → logged as false positive, future same-type detections deprioritized
+
+3. **Promotion workflow** — accepted findings can be promoted to Changelog, Secondary note, or History only. No auto-promotion.
+
+4. **Today re-anchored** — findings queue is now section 1, grouped by priority (critical/important/minor/FYI). Accepted findings awaiting promotion appear in separate block. Recommendations demoted from primary to section 4.
+
+5. **Pages re-anchored** — pending scan findings surfaced at top of page detail with link to Today for triage. Ordering: findings → crawl truth → diff → visibility → next step.
+
+6. **Review/Findings distinction** — Review described as "why did visibility change?" (attribution). Findings are "what changed on site?" (state detection). Cross-references clarified.
+
+7. **Copy cleanup** — removed "heuristic" from operator-facing copy, simplified attribution description, cleaner scan banner.
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| `src/domains/scanning/types.ts` | `FindingPriority`, `PromotionStatus`, priority/promotion fields, label maps |
+| `src/domains/scanning/detect-findings.ts` | `computePriorityScore`, `scoreToPriority`, context fields on all `makeFinding` calls |
+| `src/domains/scanning/findings-store.ts` | Migration for old findings, priority sorting, suppression window, rejection tracking |
+| `src/app/(shell)/finding-actions.ts` | `resolveFinding` with consequences + feedback, new `promoteFinding` action |
+| `src/app/(shell)/page.tsx` | Pass homepageUrl, rejected types, accepted findings to client |
+| `src/app/(shell)/today-client.tsx` | Priority-grouped queue, promotion UI, consequence feedback, section reorder |
+| `src/app/(shell)/pages/pages-client.tsx` | Pending findings banner at detail top |
+| `src/app/(shell)/review/page.tsx` | Updated description |
+| `src/app/(shell)/review/review-queue-client.tsx` | "Heuristic" → "Pattern match" |
+| `src/lib/today-summary.ts` | Attribution line simplified |
+| `src/app/(shell)/diagnostics/page.tsx` | Removed "Heuristic" label |
+
+### Build verification (Phase 32B)
+
+- `npx tsc --noEmit` — pass
+- `npm run build` — pass (22 routes)
+- `npm test` — pass (26/26)
+
+---
+
+## 2026-04-11 — Master Product Plan Phases 33–37 (batch verification)
+
+### Scope
+
+Cross-cutting product work: operator truth on Today/Pages, Today information architecture, verdict + navigation layer on Pages/Changes/History, configurable business profile + import automation, competitor typing, optional tenant-scoped data dirs, and `/setup` onboarding.
+
+### Phase 33 — Product truth stabilization
+
+- **Since last scan** on Today is always rendered; shows **All clear** when there are no pending findings; shows queue + **pending** counts otherwise.
+- **FindingRow** displays **`detectedAt`** timestamps.
+- User-facing copy on **Today** and **Pages** uses **scan** (not crawl) where applicable.
+- **PagesClient** / `pages/page.tsx`: removed dead **`onVerify`** prop path.
+- Pages diff: explicit **"No changes since last scan"** when there is nothing to report.
+- **Recommendations** on Pages: **warning** when the selected page still has **pending** findings.
+- **`pages/page.tsx`**: server lookups use **normalized URLs** for consistent joins across registry, snapshots, and findings.
+
+### Phase 34 — Today simplification
+
+- Primary layout: **Findings inbox** → **Top recommendation** → **System status** (data sources).
+- Secondary block: KPIs, momentum, experiments, what-changed, secondary opportunities, work queue → single **"Visibility, momentum & queue"** disclosure.
+- **Accepted findings awaiting promotion** remain visible in the findings story.
+- **System status** retained at bottom.
+
+### Phase 35 — Pages + Changes verdict layer
+
+- **Pages** detail: **ship / scan status** verdict (e.g. verified live with date, changes detected, not scanned yet, N changes — verify in Today).
+- **Changes**: **outcome category** tabs — All changes · Proven winners · Mixed signals · No measurable impact · Too early.
+- **History** (`/results`) ↔ **Changes**: **companion tabs** linking **Outcomes** ↔ **Measurement detail**.
+
+### Phase 36 — Business abstraction + launch prep
+
+- **`src/lib/business-config.ts`** — `BusinessConfig` type and accessors (name, domain, industry, locations, services, competitors, directoryDomains, scanSettings).
+- **`src/domains/pages/extractor.ts`** — location/service signals from business config.
+- **`postImportSetup()`** in **`src/lib/import/actions.ts`** — post workbook import: **registry build + scan**.
+- **`src/domains/competitors/classify-type.ts`** — Direct / Directory / Editorial / Other; badges on **`/competitors`**.
+
+### Phase 37 — First external users (infrastructure)
+
+- **`src/lib/tenant.ts`** — `BEACON_TENANT` env var; per-tenant **`.data/tenants/{slug}/`** data roots.
+- **`/setup`** — two-step onboarding (`setup/page.tsx`, `setup/actions.ts`).
+- **`src/lib/navigation.ts`** — **Setup** under **System** group.
+
+### Files created (this batch)
+
+- `src/lib/business-config.ts`
+- `src/domains/competitors/classify-type.ts`
+- `src/lib/tenant.ts`
+- `src/app/(shell)/setup/page.tsx`
+- `src/app/(shell)/setup/actions.ts`
+- `tests/domains/pages/extractor.test.ts` (extractor behavior with business-config-driven terms; counts toward Vitest total below)
+
+### Files modified (representative)
+
+- `src/app/(shell)/today-client.tsx`
+- `src/app/(shell)/pages/pages-client.tsx`
+- `src/app/(shell)/pages/page.tsx`
+- `src/app/(shell)/changes/page.tsx`
+- `src/app/(shell)/changes/scorecard-client.tsx`
+- `src/app/(shell)/competitors/page.tsx`
+- `src/app/(shell)/results/results-client.tsx`
+- `src/app/(shell)/import/page.tsx`
+- `src/lib/import/actions.ts`
+- `src/lib/navigation.ts`
+- `src/domains/pages/extractor.ts`
+
+### Build verification (Phases 33–37)
+
+- `npm run typecheck` (`tsc --noEmit`) — **pass**
+- `npm run build` — **pass** (full Next.js production build)
+- `npm test` (Vitest) — **pass** — **34** tests total at checkpoint (includes `tests/domains/pages/extractor.test.ts` and existing suite)
+- 0 TypeScript errors reported at checkpoint
+
+### What is intentionally **not** in this batch
+
+- No auth, billing, teams, or hosted multi-tenant RLS (tenant switch remains env + disk path).
+- Intelligence roadmap **Phase 33 — Native Querying Expansion** in `NEXT_PHASE_EXECUTION_PLAN.md` remains **future** work; these product phases use the same numbers on a **different** track (documented in `NEXT_PHASE_EXECUTION_PLAN.md` and `master_execution_plan.md`).
+
+### Next verification focus
+
+- Exercise **`BEACON_TENANT`** + **`/setup`** + **import** on a clean tree and confirm `.data/tenants/{slug}/` population.
+- Capture first **external user** sessions and feed copy/IA tweaks (no new phase number required until the next planning pass).

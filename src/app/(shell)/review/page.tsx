@@ -254,7 +254,7 @@ export default function ReviewPage() {
     <div className="max-w-4xl">
       <PageHeader
         title="Review"
-        description="Specialist queue: attribute each visibility shift to a change, competitor pressure, platform behavior, or leave it open. Clearest items surface first."
+        description="Why did visibility change? Lock a cause for each shift."
       />
 
       <div className="mb-6 rounded-lg border border-border/60 bg-surface-raised/40 px-5 py-4">

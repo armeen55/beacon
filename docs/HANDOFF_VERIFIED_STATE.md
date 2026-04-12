@@ -1,7 +1,11 @@
-# Beacon Verified State — 2026-04-07 (attribution); product through 2026-04-10 (visual terminal + docs checkpoint)
+# Beacon Verified State — 2026-04-07 (attribution); product through 2026-04-11 (Master Product Plan Phases 33–37)
 
 **Legacy handoff tag:** `beacon-handoff-20260407-1900` on branch `checkpoint/beacon-new-chat-reset-20260407-1900`  
 **Doc checkpoint (2026-04-10):** Intelligence Phases 24–31C, abstraction layers, and route visual saturation reflected in this file + `master_execution_plan.md`, `NEXT_PHASE_EXECUTION_PLAN.md`, `architecture.md`, `VERIFICATION_LOG.md`. **Git docs checkpoint:** one commit on this branch with subject `docs: checkpoint Phase 31C visual saturation and abstraction layers` — locate with `git log -1 --oneline -- docs/`.
+
+**Doc checkpoint (2026-04-11):** Master Product Plan **Phases 33–37** shipped: Today/Pages truth + simplification, verdict layer on Pages/Changes + History cross-links, `business-config` + tenant-aware data dirs + `/setup` onboarding + post-import automation + competitor typing. See `VERIFICATION_LOG.md` (Phases 33–37 entry) for typecheck/build/test counts.
+
+**Doc checkpoint (Tier stack nano-phases):** `NEXT_PHASE_EXECUTION_PLAN.md` now ends with **Tier 1 / Tier 2** execution slices **1.1a–2.3h** (research-led mini-prompts: proof layer, daily ritual perfection, replication engine, listings/reviews local layer, milestones/ATH; then revenue bridge, weekly export, stronger competitor attack). Use that section as the authoritative prompt ladder — not renumbered as “Phase 38.”
 
 Working branch: `work/attribution-precision-20260407` (or current feature branch)
 
@@ -62,6 +66,26 @@ Working branch: `work/attribution-precision-20260407` (or current feature branch
 | **Experiment loop / watchlist** | **WIRED (Phase 22)** | `experiment-store.ts` + server actions; "Start testing" on accepted recs; watchlist on Today with status/citations/delta/watch-after; auto-outcome detection from citation data; `.data/experiments.json` persistence |
 | **Nightly usage hardening** | **WIRED (Phase 23)** | Combined "Accept & test" one-click flow; button hierarchy fixed (no dismiss after accept); experiments capture target page + citation baseline; post-import mentions watchlist refresh |
 | **Product premiumization** | **SHIPPED (Pass)** | Nav: Topics→Opportunities, Draft ideas removed; Today: raw score removed, evidence compressed, rec labels cleaned; Pages: description removed, action labels simplified; Changes/Competitors/Topics/Import: titles+descriptions cleaned; "Gap ledger"→"Opportunities" |
+| **Business profile (`BusinessConfig`)** | **WIRED (Phase 36)** | `src/lib/business-config.ts` — drives extractor terms + onboarding defaults |
+| **Import post-setup** | **WIRED (Phase 36)** | `postImportSetup()` — registry + scan after workbook import |
+| **Competitor type classification** | **WIRED (Phase 36)** | `classify-type.ts` — badges on `/competitors` |
+| **Multi-tenant disk roots** | **WIRED (Phase 37)** | `src/lib/tenant.ts` + `BEACON_TENANT` + `.data/tenants/{slug}/` |
+| **Setup wizard** | **WIRED (Phase 37)** | `/setup` + `setup/actions.ts` + System nav entry |
+
+## Operator configuration (Phases 36–37)
+
+| Item | Purpose |
+|------|---------|
+| **`BusinessConfig`** (`src/lib/business-config.ts`) | Typed profile: name, domain, industry, locations, services, competitors, directoryDomains, scanSettings — drives extractor signals and setup defaults. |
+| **`/setup`** | Two-step onboarding: name/domain/industry → locations/services/competitors; persists profile for extraction and UI context. |
+| **`BEACON_TENANT`** (optional) | Set to a slug so route-critical JSON and related `.data` paths resolve under **`.data/tenants/{slug}/`** (`src/lib/tenant.ts`) — filesystem isolation for separate installs or demos; **not** hosted multi-tenant RLS or auth. |
+| **`postImportSetup()`** | After successful workbook import: automatic **registry build** + **page scan** so inventory and findings stay current. |
+
+## Automated tests (Phase 36+)
+
+| Area | Status | Notes |
+|------|--------|-------|
+| Page extractor (config-driven terms) | **SHIPPED** | `tests/domains/pages/extractor.test.ts` — included in the **34**-test Vitest run at Phases 33–37 checkpoint (`VERIFICATION_LOG.md`). |
 
 ## Score Distribution (baseline — pre-pruning)
 
@@ -434,10 +458,14 @@ Full implementation map: see `master_execution_plan.md` Phase 24+ section and `a
 
 | Area | Status | Summary |
 |------|--------|---------|
-| Crawl truth in Pages detail | **Shipped** | Title, meta description, H1, canonical, FAQ, schema, word count, links, HTTP status, robots — all visible in "What the crawl saw" panel |
-| Diff rendering | **Shipped** | "Changed since last crawl" section with labeled chips when diff exists |
-| Stale data warnings | **Shipped** | Prominent banners on Today (crawl >14d, visibility >7d, mismatch) and Pages (crawl >14d, 0 crawled) |
-| Today data sources | **Shipped** | Always-visible crawl + visibility status cards (replace hidden "System details") |
+| Crawl truth in Pages detail | **Shipped** | Title, meta description, H1, canonical, FAQ, schema, word count, links, HTTP status, robots — all visible in "What the crawl saw" panel (operator copy on Today/Pages now prefers **scan** over crawl where user-facing) |
+| Diff rendering | **Shipped** | "Changed since last **scan**" section with labeled chips when diff exists; **"No changes since last scan"** when baseline matches |
+| Stale data warnings | **Shipped** | Prominent banners on Today (scan >14d, visibility >7d, mismatch) and Pages (scan >14d, 0 scanned) |
+| Today data sources | **Shipped** | Always-visible crawl + visibility status cards (replace hidden "System details"); **"Since last scan"** always visible — **"All clear"** when no pending findings, counts when there are |
+| Finding row timestamps | **Shipped (Phase 33)** | `detectedAt` shown on each finding row |
+| Pages recommendations guard | **Shipped (Phase 33)** | Warning before recommendations when the page has **pending** findings |
+| Pages server lookups | **Shipped (Phase 33)** | Normalized URLs for cross-store consistency |
+| Dead verify prop | **Removed (Phase 33)** | `onVerify` removed from `PagesClient` + `pages/page.tsx` |
 | Product copy cleanup | **Shipped** | "ObservationRun on file" → plain language; "heuristic" → "match score"; "Hypothesis" → "Expected outcome"; History explainer simplified |
 | `PageSnapshotSummary` | **Expanded** | Added `metaDescription`, `canonicalUrl`, `httpStatus` from extractor |
 
@@ -461,3 +489,94 @@ See `VERIFICATION_LOG.md` for full stabilization entry.
 **How it works:** Operator opens Today → system checks if scan is overdue (configurable hour + timezone, default 9 AM PT) → if yes, runs crawl automatically → compares current vs previous snapshots → detects 15 types of changes including deploy mismatches → surfaces findings in an approval queue at the top of Today → operator accepts/rejects/ignores each → only accepted findings persist as meaningful.
 
 See `VERIFICATION_LOG.md` for full Phase 32 entry.
+
+---
+
+## Phase 32B — Finding Triage + Workflow Consequences (2026-04-11)
+
+| Component | Status | Key Files |
+|-----------|--------|-----------|
+| Priority scoring engine | **Shipped** | `src/domains/scanning/detect-findings.ts` — `computePriorityScore()` |
+| Priority grouping (critical/important/minor/FYI) | **Shipped** | `src/domains/scanning/types.ts` — `FindingPriority`, labels, ordering |
+| Consequence-aware resolution | **Shipped** | `src/app/(shell)/finding-actions.ts` — `resolveFinding()` with feedback |
+| Suppression window (Expected → 14d) | **Shipped** | `src/domains/scanning/findings-store.ts` — `getSuppressedTypeKeys()` |
+| False positive tracking (Not real) | **Shipped** | `src/domains/scanning/findings-store.ts` — `getPreviouslyRejectedTypeKeys()` |
+| Promotion workflow | **Shipped** | `src/app/(shell)/finding-actions.ts` — `promoteFinding()`, 3 promotion levels |
+| Today re-anchored | **Shipped** | `src/app/(shell)/today-client.tsx` — findings as section 1, priority-grouped |
+| Pages re-anchored | **Shipped** | `src/app/(shell)/pages/pages-client.tsx` — findings at detail top |
+| Review/Findings distinction | **Shipped** | Updated descriptions, cross-references |
+| Copy cleanup | **Shipped** | "Heuristic" removed, "Pattern match", simplified labels |
+
+**Priority formula:** severity (high=40, medium=20, low=5) + homepage (+25) + citations (100+=30, 50+=20, 10+=10) + changelog contradiction (+20) + high-impact type (+15) − previously rejected (−15). Maps to: critical ≥60, important ≥35, minor ≥15, informational <15.
+
+**Promotion levels:** changelog (major verified change), secondary note (minor/internal), history only (keep record, no action). No auto-promotion.
+
+See `VERIFICATION_LOG.md` for full Phase 32B entry.
+
+---
+
+## Master Product Plan Phase 33 — Product truth stabilization (2026-04-11)
+
+| Component | Status | Key files / behavior |
+|-----------|--------|----------------------|
+| Since last scan (Today) | **Shipped** | Always rendered; empty → **"All clear"**; pending → queue + counts |
+| Finding timestamps | **Shipped** | `FindingRow` shows `detectedAt` |
+| Terminology | **Shipped** | User-facing **scan** (not crawl) on Today + Pages |
+| Pages hygiene | **Shipped** | `onVerify` removed; diff section confirms no changes when applicable |
+| Recommendation guard | **Shipped** | Warning before recs when page has pending findings |
+| URL normalization | **Shipped** | `pages/page.tsx` lookups use normalized URLs |
+
+---
+
+## Master Product Plan Phase 34 — Today simplification (2026-04-11)
+
+| Component | Status | Key files / behavior |
+|-----------|--------|----------------------|
+| Section structure | **Shipped** | **Findings inbox** → **Top recommendation** → **System status** (data sources) |
+| Collapsed secondary | **Shipped** | KPIs, momentum, experiments, what-changed, secondary opportunities, work queue → **"Visibility, momentum & queue"** toggle |
+| Accepted findings | **Shipped** | Awaiting promotion still surfaced |
+| System status | **Shipped** | Data sources retained at bottom |
+
+---
+
+## Master Product Plan Phase 35 — Pages + Changes verdict layer (2026-04-11)
+
+| Component | Status | Key files / behavior |
+|-----------|--------|----------------------|
+| Pages ship status | **Shipped** | Verdict line: verified live + date, changes detected, not scanned yet, N changes — verify in Today |
+| Changes outcome tabs | **Shipped** | All changes · Proven winners · Mixed signals · No measurable impact · Too early |
+| History ↔ Changes | **Shipped** | Companion tabs: **Outcomes** ↔ **Measurement detail** (`results-client.tsx`, `changes/*`) |
+
+---
+
+## Master Product Plan Phase 36 — Business abstraction + launch prep (2026-04-11)
+
+| Component | Status | Key files / behavior |
+|-----------|--------|----------------------|
+| Business profile | **Shipped** | `src/lib/business-config.ts` — `BusinessConfig`: name, domain, industry, locations, services, competitors, directoryDomains, scanSettings |
+| Configurable extractors | **Shipped** | `src/domains/pages/extractor.ts` reads location/service terms from business config (not hardcoded regex only) |
+| Post-import automation | **Shipped** | `postImportSetup()` in `src/lib/import/actions.ts` — registry build + scan after workbook import |
+| Competitor typing | **Shipped** | `src/domains/competitors/classify-type.ts` — Direct / Directory / Editorial / Other + badges on Competitors page |
+
+---
+
+## Master Product Plan Phase 37 — First external users — infrastructure (2026-04-11)
+
+| Component | Status | Key files / behavior |
+|-----------|--------|----------------------|
+| Tenant isolation (disk) | **Shipped** | `src/lib/tenant.ts` — `BEACON_TENANT` env selects slug; data under `.data/tenants/{slug}/` |
+| Onboarding wizard | **Shipped** | `/setup` — step 1: name / domain / industry; step 2: locations / services / competitors (`setup/page.tsx`) |
+| Setup actions | **Shipped** | `src/app/(shell)/setup/actions.ts` |
+| Navigation | **Shipped** | **Setup** under **System** group (`navigation.ts`) |
+
+**Operator configuration:** Set `BEACON_TENANT=<slug>` for isolated on-disk stores; complete `/setup` to seed `BusinessConfig` for extractor + UI context. No auth layer in this phase — isolation is filesystem/env scoped.
+
+---
+
+## Verified commands (Phases 33–37 checkpoint)
+
+| Command | Result (handoff) |
+|---------|------------------|
+| `npm run typecheck` | Pass |
+| `npm run build` | Pass |
+| `npm test` | Pass (**34** tests) |

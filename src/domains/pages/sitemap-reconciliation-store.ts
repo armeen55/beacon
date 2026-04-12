@@ -1,7 +1,8 @@
-import { getRepository } from "@/lib/persistence/repositories";
+import "server-only";
+
+import { readDotDataJson } from "@/lib/persistence/dotdata-json";
 import type { SitemapReconciliation } from "./types";
 
-const repo = getRepository();
-
-export const sitemapReconciliation: SitemapReconciliation | null =
-  await repo.getSitemapReconciliation();
+export function getSitemapReconciliation(): SitemapReconciliation | null {
+  return readDotDataJson<SitemapReconciliation>("sitemap-reconciliation");
+}

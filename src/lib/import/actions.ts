@@ -33,6 +33,11 @@ import {
   syncCompetitors,
   clearAllImportTables,
 } from "@/lib/persistence/dual-write";
+import {
+  runWebsiteScan,
+  scanRoutesShouldRevalidate,
+  type WebsiteScanResult,
+} from "@/domains/scanning/orchestrate-scan";
 
 export async function getImportRuns(): Promise<ImportRun[]> {
   return [...importRuns].reverse();
@@ -614,6 +619,66 @@ async function persistImportedEntities(entityType: ImportEntityType) {
     case "competitors":
       await writeStore("imported-competitors", competitors.filter(isImported));
       break;
+  }
+}
+
+export async function postImportSetup(): Promise<{
+  success: boolean;
+  registryBuilt: boolean;
+  scanRun: boolean;
+  pagesRegistered?: number;
+  pagesScanned?: number;
+  error?: string;
+}> {
+  try {
+    const { exec } = await import("child_process");
+    const { promisify } = await import("util");
+    const execAsync = promisify(exec);
+
+    let registryBuilt = false;
+    let pagesRegistered = 0;
+    try {
+      const { stdout } = await execAsync("npx tsx scripts/build-page-registry.ts", {
+        cwd: process.cwd(),
+        timeout: 30_000,
+      });
+      registryBuilt = true;
+      const match = stdout.match(/(\d+)\s*pages/);
+      if (match) pagesRegistered = parseInt(match[1], 10);
+    } catch {
+      // Registry build script may not exist — non-fatal
+    }
+
+    let scanRun = false;
+    let pagesScanned = 0;
+    let scanRes: WebsiteScanResult | null = null;
+    try {
+      scanRes = await runWebsiteScan({ trigger: "import" });
+      scanRun = !!scanRes.payload;
+      pagesScanned = scanRes.payload?.pagesScanned ?? 0;
+    } catch {
+      // Scan may fail in minimal environments — non-fatal for import
+    }
+
+    revalidatePath("/", "layout");
+    if (scanRes && scanRoutesShouldRevalidate(scanRes)) {
+      revalidatePath("/pages", "layout");
+    }
+
+    return {
+      success: true,
+      registryBuilt,
+      scanRun,
+      pagesRegistered,
+      pagesScanned,
+    };
+  } catch (e) {
+    return {
+      success: false,
+      registryBuilt: false,
+      scanRun: false,
+      error: e instanceof Error ? e.message : String(e),
+    };
   }
 }
 

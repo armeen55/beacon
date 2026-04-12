@@ -64,18 +64,18 @@ This prevents artificial inflation. A pattern with 3 attributed events out of 10
 ## Navigation (pilot spine)
 
 Default loop:
-- **Today** — **auto-scan** (triggers crawl when overdue per configured hour + timezone) + **"Since last scan" findings queue** (pending findings with accept/reject/ignore/expected approval flow) + **stale data warning** + **KPI strip** + **PlatformSplit** + **DO THIS NOW** + **track record** + **watchlist** + **what changed** + **other opportunities** + work queue + **Data sources** (always-visible compact status cards)
-- **Pages** — **stale crawl warning** (when >14d or 0 crawled) + **KPI + composition strip** + split panel (list with status/crawl chips → detail with **"What the crawl saw"** panel showing title, meta description, H1, canonical, FAQ, schema, word count, links, HTTP status + **"Changed since last crawl"** diff section + next step + fix briefs in progressive disclosure). **Phase 16:** evidence internals in details. **Stabilization:** `PageSnapshotSummary` expanded with `metaDescription`, `canonicalUrl`, `httpStatus`.
-- **Competitors** — **KPI strip** (`KpiCard`: AI share, citations, tracked count, ahead-of-you) + **ranked list** with inline **share bars** + topic signals (including **bar readout** on thinnest share) + **co-mention** (`FilterChips`, `ViewToggle` table/chart, `MiniBarChart`, row bars) + **source trust** (expandable tables + per-source citation bars) + **local pressure** (`ComparisonBar` + `ViewToggle` chart/table) + battlecards (`ThreatMeter`). Universe CRUD in collapsed settings.
+- **Today** — **auto-scan** (triggers site scan when overdue per configured hour + timezone) + **"Since last scan"** always visible (pending findings with accept/reject/ignore/expected; **"All clear"** when empty) + **Top recommendation** + **System status** (data sources at bottom). KPIs, momentum, experiments, what-changed, secondary opportunities, and work queue live under **"Visibility, momentum & queue"** (Phase 34). **Stale data warnings** still apply when visibility import or last scan is old.
+- **Pages** — **stale scan warning** (when >14d or 0 scanned) + **KPI + composition strip** + split panel (list with status chips → detail with **"What the scan saw"** panel: title, meta description, H1, canonical, FAQ, schema, word count, links, HTTP status + **"Changed since last scan"** diff with explicit **no changes** confirmation + **ship-status verdict** (verified live / changes detected / not scanned / nudge to Today) + guarded recommendations when **pending findings** exist). **Phase 16:** evidence internals in details. **Stabilization + Phase 33:** `PageSnapshotSummary` expanded; server URL lookups normalized for store alignment.
+- **Competitors** — **KPI strip** (`KpiCard`: AI share, citations, tracked count, ahead-of-you) + **ranked list** with inline **share bars** + **relationship-type badges** (Direct / Directory / Editorial / Other via `classify-type.ts`) + topic signals (including **bar readout** on thinnest share) + **co-mention** (`FilterChips`, `ViewToggle` table/chart, `MiniBarChart`, row bars) + **source trust** (expandable tables + per-source citation bars) + **local pressure** (`ComparisonBar` + `ViewToggle` chart/table) + battlecards (`ThreatMeter`). Universe CRUD in collapsed settings.
 - **Gap ledger** (`/topics`) — typed gaps
 
 Work:
-- **Changes** — log + verification + **change impact** (`computeScorecard` → `enrichWithImpact`: confidence, direction, why, next action). **Phase 6:** URL matching normalized; decline events → `negative` verdicts real. **Phase 10:** `/changes/[id]` runs recommendation engine inline — validated changes show "Apply this pattern" with specific target pages; weak-evidence changes show "Strengthen this entry" nudges. **Phase 12:** `/changes` list runs pattern mining + track record; scorecard table shows "Beacon" badge + "N replicable" per row; "Beacon recommended" toggle filter; "Impact" sortable column; impact snapshot shows Beacon-recommended count + total replication targets.
+- **Changes** — log + verification + **change impact** (`computeScorecard` → `enrichWithImpact`: confidence, direction, why, next action) + **outcome category tabs** (All / Proven winners / Mixed signals / No measurable impact / Too early). **Phase 6:** URL matching normalized; decline events → `negative` verdicts real. **Phase 10:** `/changes/[id]` runs recommendation engine inline — validated changes show "Apply this pattern" with specific target pages; weak-evidence changes show "Strengthen this entry" nudges. **Phase 12:** `/changes` list runs pattern mining + track record; scorecard table shows "Beacon" badge + "N replicable" per row; "Beacon recommended" toggle filter; "Impact" sortable column; impact snapshot shows Beacon-recommended count + total replication targets. **Phase 35:** companion tab cross-link to **History** ("Measurement detail").
 
 Advanced:
 - **Review** — hypothesis locks (attribution bookkeeping)
-- **Sample history** (`/results`) — imported snapshots; **KpiCard** strip + **`PlatformSplit`** (when multiple platforms) + **`DonutRing`** (attribution trust mix when counts exist); existing platform + driver filters unchanged
-- **Import**
+- **Sample history** (`/results`) — imported snapshots; **KpiCard** strip + **`PlatformSplit`** (when multiple platforms) + **`DonutRing`** (attribution trust mix when counts exist); existing platform + driver filters unchanged. **Phase 35:** companion tab to **Changes** ("Outcomes" ↔ measurement detail).
+- **Import** — workbook upload; successful import may call **`postImportSetup()`** (registry + scan) per Phase 36
 - **Diagnostics (analyst)** — pipeline debug, outside daily loop; **StatBlock** tiles match KPI visual language; cluster status + verdict blocks use **`StackedBar`**; journey/geo/score use existing viz (`DonutRing`, `MiniBarChart`, `CoverageTrellis`, `BeaconScoreVisual`)
 
 Experimental:
@@ -131,7 +131,7 @@ Beacon is the AI visibility attribution and action system for high-value busines
 ### Target surfaces (navigation — shipped through Shell Phase F3 shell pass)
 Primary: **Today**, **Pages**, **Changes**, **Competitors**, **Opportunities** (route: `/topics`)
 Data: **Import**, **Review**, **History** (route: `/results`)
-System: **Diagnostics**
+System: **Diagnostics**, **Setup** (`/setup` — two-step business onboarding; persists business profile used by extractors and copy)
 
 **Related routes not in primary nav:** `/briefs/*`, `/results/[id]`, `/changes/[id]`, `/competitors/[id]`, `/topics/opportunity/[id]`, `/observations/[id]`, `/expansion` (**Expansion backlog** — quarantined speculative hypotheses, not primary nav).
 
@@ -255,7 +255,7 @@ Per-platform domain citation frequency from citation cold store. Ranks most-cite
 ### Phase 26 — Entity + Representation Intelligence
 
 **Entity Foundation** (`src/domains/entity/`)
-Lightweight entity extraction from three existing sources: site config (brand name), page snapshots (location_terms, service_terms), and prompt-answer-observation mentions (brand entities from AI answers). Produces an `EntityIndex` with deduplicated `BeaconEntity` entries typed as brand/person/location/service. Frequency-counted and source-tagged. No knowledge graph, no cross-platform stitching — designed as the extensible base for EntityForge.
+Lightweight entity extraction from existing sources: site config (brand name), page snapshots (location_terms, service_terms), operator-declared **`BusinessConfig`** locations/services (Phase 36), and prompt-answer-observation mentions (brand entities from AI answers). Produces an `EntityIndex` with deduplicated `BeaconEntity` entries typed as brand/person/location/service. Frequency-counted and source-tagged. No knowledge graph, no cross-platform stitching — designed as the extensible base for EntityForge.
 
 **AI Says vs Reality** (`src/domains/entity/discrepancy-detect.ts`)
 Conservative discrepancy detection comparing AI answer content against owned entity data. Four detection types: location not in owned data, service not in owned data, brand omission, competitor overrepresentation. Requires minimum 20 answers before analysis runs. Language rules enforced: "possible discrepancy" / "may be missing" — never "wrong" or "hallucinated." Surfaced in Diagnostics (full view) and Today (notable only, as next-move candidate). Uses cold store answer texts (9,596 Profound entries) for content scanning.
@@ -345,6 +345,22 @@ All surfaced in Diagnostics "Advanced intelligence readiness" section — calm, 
 
 **Approval flow**: Today shows pending findings in a dedicated "Since last scan" section. Operator reviews each finding and resolves it. Only meaningful accepted findings persist. No auto-writing to changelog.
 
+### Phase 32B — Finding Triage + Workflow Consequences
+
+**Priority scoring** (`detect-findings.ts`): each finding gets a numeric `priorityScore` (0–100+) based on severity (high=40, medium=20, low=5), page citation count (100+=30, 50+=20, 10+=10), homepage flag (+25), changelog contradiction (+20), high-impact type (deploy_mismatch, title/canonical +15), previously-rejected status (−15). Score maps to 4 buckets: `critical` (≥60), `important` (≥35), `minor` (≥15), `informational` (<15).
+
+**Action consequences**: Accept marks trusted + eligible for promotion. Expected suppresses duplicate detections for 14 days via `suppressUntil` on same page+type. Ignored stays in history without downstream effect. Not real (rejected) logs false positive and de-prioritizes future same-type detections.
+
+**Promotion workflow**: accepted findings can be promoted to `changelog`, `secondary_note`, or `history_only` via `promoteFinding` server action. No auto-promotion.
+
+**Today hierarchy (Phase 32B baseline):** findings queue is section 1, priority-grouped (critical → important → minor → FYI), with accepted findings awaiting promotion surfaced separately.
+
+**Phase 34 supersession:** the daily landing story is now **three primary blocks** — **Findings inbox** (including “Since last scan”) → **Top recommendation** → **System status** — with KPIs, momentum, experiments, what-changed, secondary opportunities, and work queue collapsed under **“Visibility, momentum & queue.”** Priority grouping and promotion behavior from Phase 32B still apply inside the findings story.
+
+**Pages detail**: pending findings surfaced at top of detail panel. Cross-link to Today for triage.
+
+**Review/Findings split**: Review = "why did visibility change?" (attribution). Findings = "what changed on your site?" (state detection). Conceptually complementary, not overlapping.
+
 **Pulse System** (`src/domains/product/pulse.ts`)
 Aggregates signals from decay, discrepancy, geo, journey, extractability, and sampling freshness into a deduplicated, severity-sorted event list. 3 severity levels (high/medium/info). Surfaced as a compact banner on Diagnostics.
 
@@ -375,3 +391,61 @@ Pure functions: domain data → chart-ready props conforming to `chart-types.ts`
 
 **Chart Prop Interfaces** (`src/components/viz/chart-types.ts`)
 Canonical interfaces for all chart types. Any implementation (current inline SVG, future Visx/Recharts/D3) must conform to these shapes. Consumers never depend on implementation details.
+
+### Master Product Plan Phases 33–37 (operator truth through launch prep)
+
+- **Phase 33 — Product truth:** Today always shows **Since last scan** (empty → **All clear**; when there are items, **pending** counts and the queue); each finding shows **when detected** (`detectedAt`); operator vocabulary prefers **scan** over crawl on Today/Pages; Pages blocks recommendations behind a **pending findings** warning; Pages diff explicitly confirms **no changes** when snapshots match; server-side page loads use **normalized URLs** so registry, snapshots, and findings line up; legacy **`onVerify`** wiring removed from Pages.
+- **Phase 34 — Today layout:** Primary story is **findings inbox → top recommendation → system status**; secondary density (KPIs, momentum, experiments, what-changed, secondary opportunities, work queue) sits behind **“Visibility, momentum & queue”**; accepted findings awaiting promotion remain visible; data sources stay at the bottom.
+- **Phase 35 — Verdicts + measurement navigation:** Pages detail adds a **ship / scan status** headline (verified live with date, changes detected, not scanned, or nudge to Today); Changes adds **outcome-oriented tabs** (All / Proven winners / Mixed signals / No measurable impact / Too early); **History** and **Changes** exchange companion tabs (**Outcomes** ↔ **Measurement detail**).
+- **Phase 36 — Business abstraction:** Typed **`BusinessConfig`** (`src/lib/business-config.ts`) replaces scattered defaults; **`extractor.ts`** reads location/service signals from that profile; **`postImportSetup()`** after workbook import runs **registry build + scan**; **`classify-type.ts`** drives competitor relationship badges on `/competitors`. Details: [Business configuration](#business-configuration-businessconfig), [Competitor relationship typing](#competitor-relationship-typing).
+- **Phase 37 — External-user infrastructure:** Optional **`BEACON_TENANT`** + per-tenant **`.data/tenants/{slug}/`** isolation (`src/lib/tenant.ts`); **`/setup`** onboarding wizard + **`setup/actions.ts`**; **Setup** in **System** nav. Details: [Multi-tenant file layout](#multi-tenant-file-layout-early-external-users), [Setup wizard](#setup-wizard-setup).
+
+---
+
+## Business configuration (`BusinessConfig`)
+
+**Location:** `src/lib/business-config.ts`
+
+**Purpose:** Single typed profile for the operator’s business so extraction, scans, and UI can stay honest without scattering magic strings.
+
+**Shape (summary):** `name`, `domain`, `industry`, `locations[]`, `services[]`, `competitors[]`, `directoryDomains[]`, `scanSettings` (and room for future fields).
+
+**Consumers:** `src/domains/pages/extractor.ts` reads **location** and **service** terms from this config for pattern detection instead of relying solely on hardcoded regex lists — the same facts can be edited in `/setup` or extended later (file-backed or generated).
+
+**Import path:** After a successful workbook import, `postImportSetup()` in `src/lib/import/actions.ts` automatically runs **registry build** and a **page scan** so new tenants are not stuck on stale inventory.
+
+---
+
+## Competitor relationship typing
+
+**Location:** `src/domains/competitors/classify-type.ts`
+
+**Purpose:** Classify each tracked competitor as **Direct**, **Directory**, **Editorial**, or **Other** using deterministic rules (domains + heuristics), so the Competitors surface can show **badges** without implying statistical attribution.
+
+**UI:** `/competitors` consumes the classifier for list rows; diagnostics and engines can reuse the same helper as needed.
+
+---
+
+## Multi-tenant file layout (early external users)
+
+**Location:** `src/lib/tenant.ts`
+
+**Mechanism:** Optional env var **`BEACON_TENANT=<slug>`** selects a tenant slug. JSON stores and related `.data` paths resolve under **`.data/tenants/{slug}/`** instead of the repo-wide `.data/` root, giving **filesystem-level isolation** for separate installs or demos.
+
+**Scope:** This is **not** row-level security or hosted SaaS tenancy — no auth layer is implied. It is a deliberate, small surface so multiple static deployments or operator machines can keep data separate with one env change.
+
+**Interaction with imports:** Imports and scans write through the same persistence helpers, so a tenant sees only their subtree once `BEACON_TENANT` is set.
+
+---
+
+## Setup wizard (`/setup`)
+
+**Routes:** `src/app/(shell)/setup/page.tsx` (App Router, shell layout).
+
+**Flow:** Step 1 captures **name, domain, industry**; step 2 captures **locations, services, competitors** — enough to hydrate `BusinessConfig` and make extractors + dashboards meaningful before the first import.
+
+**Actions:** `src/app/(shell)/setup/actions.ts` — server actions for save/validate; wired from the form without exposing secrets.
+
+**Navigation:** Listed under the **System** group in `src/lib/navigation.ts` next to Diagnostics so it does not compete with the daily Today → Pages → Changes loop.
+
+**Relationship to Import:** Operators can run **Setup** first, then **Import**; `postImportSetup()` still runs after import to refresh registry + scan for workbook-driven workflows.

@@ -42,7 +42,7 @@ export function computePulse(opts: {
       severity: meaningfulDecline.length >= 3 ? "high" : "medium",
       title: `${meaningfulDecline.length} page${meaningfulDecline.length !== 1 ? "s" : ""} with significant citation decline`,
       detail: `Citation momentum has dropped ≥30% on these pages. Consider refreshing content.`,
-      href: "/diagnostics",
+      href: "/settings/health",
       created_at: now,
     });
   }
@@ -56,7 +56,7 @@ export function computePulse(opts: {
       severity: notable.length >= 3 ? "high" : "medium",
       title: `${notable.length} notable representation ${notable.length === 1 ? "discrepancy" : "discrepancies"}`,
       detail: `AI answers may contain inconsistencies with your owned data.`,
-      href: "/diagnostics",
+      href: "/settings/health",
       created_at: now,
     });
   }
@@ -82,7 +82,7 @@ export function computePulse(opts: {
       severity: "medium",
       title: `${opts.journeyCoverage.absent_stages.length} journey stages with no coverage`,
       detail: opts.journeyCoverage.assessment,
-      href: "/diagnostics",
+      href: "/settings/health",
       created_at: now,
     });
   }
@@ -96,7 +96,7 @@ export function computePulse(opts: {
       severity: "medium",
       title: `${highPriSnippets.length} high-priority extractability gaps`,
       detail: `Cited pages that could benefit from structural improvements for AI extractability.`,
-      href: "/diagnostics",
+      href: "/settings/health",
       created_at: now,
     });
   }
@@ -111,7 +111,7 @@ export function computePulse(opts: {
         severity: "info",
         title: `Native sampling is ${daysSince} days old`,
         detail: `Run \`npm run data:sample\` to refresh answer snapshots.`,
-        href: "/diagnostics",
+        href: "/settings/health",
         created_at: now,
       });
     }

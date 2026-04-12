@@ -1,8 +1,9 @@
 # Beacon Master Execution Plan
 
 > Living document. Single source of truth for implementation sequence.
-> Updated: 2026-04-09
-> Current phase: **Phase 3C — COMPLETE — observation-runs alignment + 15/15 parity**
+> Updated: 2026-04-11
+> Current phase: **Master Product Plan Phases 33–37 — COMPLETE** (truth, Today, verdicts, business config, tenant + setup). Next: iterate from real user feedback; optional Phase 31 gaps + intelligence execution roadmap (e.g. native multi-model) remain backlog. **Product-led Tier stack (nano-phases 1.1a–2.3h):** proof layer, daily ritual, replication, local listings/reviews, milestones/ATH → then revenue bridge, weekly export, competitor attack — detailed as mini-prompt slices in [`docs/NEXT_PHASE_EXECUTION_PLAN.md`](NEXT_PHASE_EXECUTION_PLAN.md) (final section).
+> Prior checkpoint: **Phase 3C — COMPLETE — observation-runs alignment + 15/15 parity**
 >
 > Phase 0 — COMPLETE (commit `74605b1`)
 > Phase 0.5 — COMPLETE — audit locked minimum Phase 1 scope (15 stores → 12 tables)
@@ -17,6 +18,11 @@
 > Phase 3A — COMPLETE — supplementary + visibility + import reads behind repository
 > Phase 3B — COMPLETE — operator/pages json-store arrays + Profound bridge importRuns unified
 > Phase 3C — COMPLETE — observation-runs file/DB alignment, 15/15 parity achieved
+> **Master Product Plan Phase 33** — COMPLETE — Product truth stabilization (Since last scan, finding timestamps, scan terminology, Pages guards + diff confirmation, normalized URL lookups)
+> **Master Product Plan Phase 34** — COMPLETE — Today simplification (three-section layout, collapsed visibility/momentum/queue, system status retained)
+> **Master Product Plan Phase 35** — COMPLETE — Pages ship-status verdicts; Changes outcome tabs; History ↔ Changes cross-links
+> **Master Product Plan Phase 36** — COMPLETE — `business-config.ts`, configurable extractors, `postImportSetup()` automation, competitor type badges
+> **Master Product Plan Phase 37** — COMPLETE — `tenant.ts` + `BEACON_TENANT`, per-tenant `.data/tenants/{slug}/`, `/setup` wizard + actions + nav
 
 ---
 
@@ -25,8 +31,8 @@
 ### Identity
 - **Name:** `beacon`, private, version 0.1.0
 - **Framework:** Next.js 16.2.2, React 19.2.4, App Router
-- **Persistence:** `.data/*.json` via `src/lib/persistence/json-store.ts` (comment: "NOT the long-term production architecture")
-- **Mode:** Single-user, single-workspace, no auth/billing/teams
+- **Persistence:** `.data/*.json` via `src/lib/persistence/json-store.ts` (comment: "NOT the long-term production architecture"); optional per-tenant roots `.data/tenants/{slug}/` when `BEACON_TENANT` is set (`src/lib/tenant.ts`)
+- **Mode:** Single-user first; lightweight tenant isolation for early external users (env-selected slug). No auth/billing/teams in product rules unless explicitly requested.
 
 ### Navigation spine (from `src/lib/navigation.ts`)
 | Group | Surface | Route | Status |
@@ -43,6 +49,9 @@
 | Legacy redirect | — | `/opportunities` → `/topics` | Redirect |
 | Legacy redirect | — | `/opportunities/[id]` → `/topics/opportunity/[id]` | Redirect |
 | Legacy redirect | — | `/actions` → `/` | Redirect |
+| System | Setup | `/setup` | Active — business onboarding (Phases 36–37) |
+
+**Multi-tenant disk layout (Phase 37):** when `BEACON_TENANT` is set, route-critical JSON stores resolve under `.data/tenants/{slug}/` via `src/lib/tenant.ts` (see `architecture.md`).
 
 ### Persistence stores (all `.data/{name}.json` via `readStore`/`writeStore`)
 | Store basename | Domain | Written by |
@@ -112,7 +121,7 @@
 A trust-first AI visibility operating system for builder/home-services businesses and the operators serving them. Not a dashboard, not vanity analytics, not fake attribution theater.
 
 ### Core operator loop
-1. Observations — what did the crawl / sample find?
+1. Observations — what did the site **scan** / visibility **sample** find?
 2. Inventory — what pages, topics, competitors exist?
 3. Deltas — what changed since last run?
 4. Work queue — what matters next?
@@ -277,14 +286,14 @@ A trust-first AI visibility operating system for builder/home-services businesse
 
 | Surface | Route | Role | Key data sources |
 |---------|-------|------|-----------------|
-| **Today** | `/` | **KPI + platform strip** + **DO THIS NOW** + impact signals + watchlist + opportunities + work queue + **system details** (crawl/visibility as KPI grids) | `today-summary.ts`, `enrichWithImpact`, `computeRecommendations`, `rankAndSelect`, page issues, events, decisions, guardrails, snapshots, citation index, competitor universe |
-| **Your Website** | `/pages` | Execution workbench. **KPI + status donut** + page list/detail + verify actions | Page snapshots, issues, guardrails, render checks, frontier context |
+| **Today** | `/` | **Findings inbox** (“Since last scan”, always visible) → **Top recommendation** → **System status** (data sources); visibility/KPI/momentum/queue behind one toggle | Findings store, `today-summary.ts`, recommendations, snapshots, citation index |
+| **Your Website** | `/pages` | Execution workbench: ship-status verdict, guarded recommendations, normalized URL lookups, scan terminology, diff confirmation when unchanged | Page snapshots, findings, guardrails, `business-config` (extractor terms) |
 | **Gap ledger** | `/topics` | Typed opportunity gaps. Frontier list + detail drilldown | Frontier planner, compiler, citation index, competitor evidence |
 | **Gap detail** | `/topics/opportunity/[id]` | Single frontier detail with attack package + provenance | Frontier compiler, citation evidence, pages, competitor universe |
-| **Changes** | `/changes` | Change log + contracts + **impact table** (verdict, confidence, next action) | Change contracts, `computeScorecard`, `enrichWithImpact` |
+| **Changes** | `/changes` | Change log + contracts + **impact table** + **outcome category tabs**; cross-link to History | Change contracts, `computeScorecard`, `enrichWithImpact` |
 | **Change detail** | `/changes/[id]` | Single change: verdict + **impact assessment** + **"Apply this pattern"** (replicate recs for this change) + **"Strengthen this entry"** (evidence nudges) + event attributions | Scorecard row, `change-impact.ts`, `computeRecommendations`, event attributions |
 | **Review** | `/review` | Attribution decisions queue. Lock/reject/confirm per event | Events, candidates, triage, decisions |
-| **Sample history** | `/results` | Imported rows + **KPI strip** + **platform / trust composition** visuals + filters | Results, drivers, visibility observation runs |
+| **Sample history** | `/results` | Imported rows + **KPI strip** + **platform / trust composition** visuals + filters; tab to **Measurement detail** ↔ Changes | Results, drivers, visibility observation runs |
 | **Result detail** | `/results/[id]` | Single result with event linkage + match factors | Results, candidates, attributions |
 | **Import** | `/import` | Workbook/CSV import with progress | Import engine, workbook parser |
 | **Diagnostics** | `/diagnostics` | Pipeline debug. Full attribution/pattern/cluster analysis | All attribution + pattern + cluster + candidate domains |
@@ -311,16 +320,30 @@ A trust-first AI visibility operating system for builder/home-services businesse
 
 **Opportunities route:** `/opportunities` redirects to `/topics` — no standalone visual surface.
 
+### Master Product Plan — Phases 33–37 (COMPLETE, 2026-04-11)
+
+| Phase | Theme | Shipped highlights |
+|-------|--------|-------------------|
+| **33** | Product truth stabilization | Always-visible “Since last scan” on Today (`FindingRow` shows `detectedAt`); user-facing **scan** terminology on Today/Pages; removed dead `onVerify` from Pages; “No changes since last scan” in Pages diff; recommendation block guarded when page has pending findings; `pages/page.tsx` lookups use normalized URLs |
+| **34** | Today simplification | Three sections: **Findings inbox** → **Top recommendation** → **System status**; KPIs/momentum/experiments/what-changed/secondary opportunities/work queue behind **“Visibility, momentum & queue”**; **“Since last scan”** always visible (**All clear** when empty; **pending** counts + queue when findings exist); accepted findings awaiting promotion kept; data sources at bottom |
+| **35** | Verdict layer | Pages detail: ship status line (“Verified live · date”, changes detected, not scanned, N changes — verify in Today); Changes: outcome tabs (All / Proven winners / Mixed signals / No measurable impact / Too early); History ↔ Changes companion tabs (Outcomes ↔ Measurement detail) |
+| **36** | Business abstraction + launch prep | `src/lib/business-config.ts` (`BusinessConfig`: name, domain, industry, locations, services, competitors, directoryDomains, scanSettings); `extractor.ts` reads location/service terms from config; `postImportSetup()` after workbook import (registry + scan); `classify-type.ts` + Competitors badges |
+| **37** | First external users (infra) | `src/lib/tenant.ts` + `BEACON_TENANT` + `.data/tenants/{slug}/`; `/setup` two-step form; `setup/actions.ts`; Setup under **System** in `navigation.ts` |
+
+**New / touched files (reference):** `business-config.ts`, `classify-type.ts`, `tenant.ts`, `app/(shell)/setup/page.tsx`, `app/(shell)/setup/actions.ts`; updates across `today-client.tsx`, `pages-client.tsx`, `pages/page.tsx`, `changes/*`, `competitors/page.tsx`, `results-client.tsx`, `import/page.tsx`, `import/actions.ts`, `navigation.ts`, `extractor.ts`.
+
+**Next:** prioritize feedback from first external users; keep Phase 31 partial items (PDF export, notification badge, geo Stage-2) and intelligence **execution** Phase 33+ (native multi-model — see `NEXT_PHASE_EXECUTION_PLAN.md`) as normal backlog, not blockers for the product track above.
+
 ---
 
 ## 12. Jobs / Orchestration
 
-**CURRENT STATE (Phase 32):** Auto-scan on Today page load when overdue. CLI scripts kept as manual fallbacks.
+**CURRENT STATE (Phase 32B + Product Phases 33–37):** Auto-scan on Today load when overdue. Findings prioritized by citation volume, homepage status, severity, and type. Actions have consequences (suppression, false-positive tracking, promotion). **Product Phase 33–34:** “Since last scan” always visible on Today (including empty “All clear”); finding rows show `detectedAt`; operator copy uses **scan** (not crawl) on Today/Pages; Pages shows a warning before recommendations when pending findings exist; page detail lookups use normalized URLs. **Product Phase 35:** Pages detail shows ship/scan verdict line; Changes adds outcome category tabs; History and Changes cross-link with companion tabs. **Product Phase 36–37:** Business profile in `src/lib/business-config.ts` drives extractor terms; `postImportSetup()` runs registry + scan after import; competitors classified Direct/Directory/Editorial/Other; optional `BEACON_TENANT` + `/setup` onboarding. CLI scripts remain manual fallbacks.
 
 | Script / Trigger | Command / Mechanism | Writes |
 |--------|---------|--------|
 | `scan-owned-pages.ts` | `npm run data:scan` (manual) or auto via `triggerPageScan()` on Today load | snapshots, diffs, guardrails, render checks, observation runs, scan runs, reconciliation |
-| Auto-scan trigger | `isScanOverdue()` in `page.tsx` → `triggerPageScan()` → `generateFindings()` | `scan-findings.json` (findings with approval statuses) |
+| Auto-scan trigger | `isScanOverdue()` in `page.tsx` → `triggerPageScan()` → `generateFindings()` | `scan-findings.json` (findings with priority, approval, promotion statuses) |
 | `build-page-registry.ts` | `npm run data:registry` | pages.json, citation-evidence-index.json |
 | `score-snapshot.ts` | `npm run data:score-snapshot` | stdout diagnostics only |
 

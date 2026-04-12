@@ -1,8 +1,15 @@
+import "server-only";
+
 import { getRepository } from "@/lib/persistence/repositories";
 import type { ObservationRun } from "./types";
+import { readObservationRunsMergedSync } from "./observation-runs-merge";
 
 const repo = getRepository();
-const _runs = await repo.getObservationRuns();
+
+const supabaseCachedRuns: ObservationRun[] =
+  process.env.DATA_SOURCE === "supabase"
+    ? await repo.getObservationRuns()
+    : [];
 
 function sortByCompleted(runs: ObservationRun[]): ObservationRun[] {
   return [...runs].sort(
@@ -13,11 +20,14 @@ function sortByCompleted(runs: ObservationRun[]): ObservationRun[] {
 
 /**
  * All observation runs, newest first.
- * Repository layer handles merging typed observation-runs.json rows with
- * legacy scan-runs.json rows (file backend) or returning DB rows (supabase backend).
+ * **File `DATA_SOURCE`:** reads merged `observation-runs` + legacy `scan-runs` from disk each call.
+ * **Supabase:** uses the snapshot loaded at module init (same limitation as before this refactor).
  */
 export function listObservationRuns(): ObservationRun[] {
-  return sortByCompleted(_runs);
+  if (process.env.DATA_SOURCE === "supabase") {
+    return sortByCompleted(supabaseCachedRuns);
+  }
+  return sortByCompleted(readObservationRunsMergedSync());
 }
 
 /** Website crawls only — excludes `website_verify` and non-crawl run types. */

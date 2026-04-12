@@ -57,8 +57,9 @@ export function extractPageSnapshot(
     }
   });
 
-  // Heading-based FAQ sections
+  // Heading-based FAQ sections (h2/h3 parent + h3 question children)
   $("h2, h3").each((_, el) => {
+    const tag = (el as unknown as { tagName: string }).tagName?.toLowerCase();
     const text = $(el).text().trim().toLowerCase();
     if (
       text.includes("frequently asked") ||
@@ -66,7 +67,36 @@ export function extractPageSnapshot(
       text.includes("common questions")
     ) {
       let sibling = $(el).next();
-      while (sibling.length && !sibling.is("h2, h3")) {
+      const stopTag = tag === "h3" ? "h2" : undefined;
+      while (sibling.length) {
+        const sibTag = (sibling[0] as unknown as { tagName: string }).tagName?.toLowerCase();
+
+        if (stopTag && sibTag === stopTag) break;
+        if (sibTag === "h2" && tag === "h2") break;
+
+        // h3 headings ending with ? are FAQ questions
+        if (sibTag === "h3") {
+          const qText = sibling.text().trim();
+          if (qText.endsWith("?")) {
+            let answerParts: string[] = [];
+            let ansNext = sibling.next();
+            while (ansNext.length) {
+              const ansTag = (ansNext[0] as unknown as { tagName: string }).tagName?.toLowerCase();
+              if (ansTag === "h2" || ansTag === "h3") break;
+              answerParts.push(ansNext.text().trim());
+              ansNext = ansNext.next();
+            }
+            faqs.push({
+              question: qText,
+              answer_excerpt: answerParts.join(" ").slice(0, 200),
+              source: "html_section",
+            });
+            sibling = ansNext;
+            continue;
+          }
+        }
+
+        // Also check strong/b/dt inside block-level siblings
         const possibleQ = sibling.find("strong, b, dt").first().text().trim();
         if (possibleQ && possibleQ.endsWith("?")) {
           faqs.push({
@@ -112,15 +142,19 @@ export function extractPageSnapshot(
   const bodyText = $("body").text().replace(/\s+/g, " ").trim();
   const wordCount = bodyText ? bodyText.split(/\s+/).length : 0;
 
-  // ── Location + service terms ──
-  const locationTerms = extractTermsByPattern(
-    bodyText,
-    /\b(palo alto|menlo park|atherton|los altos|cupertino|saratoga|woodside|portola valley|mountain view|sunnyvale|san jose|bay area|silicon valley|emerald hills)\b/gi
-  );
-  const serviceTerms = extractTermsByPattern(
-    bodyText,
-    /\b(custom home|remodel|renovation|new construction|tear[ -]?down|rebuild|home builder|general contractor|addition|ADU|design[- ]build)\b/gi
-  );
+  // ── Location + service terms (from business config or inline defaults) ──
+  let locationRegex: RegExp;
+  let serviceRegex: RegExp;
+  try {
+    const { getLocationRegex, getServiceRegex } = require("@/lib/business-config");
+    locationRegex = getLocationRegex();
+    serviceRegex = getServiceRegex();
+  } catch {
+    locationRegex = /\b(palo alto|menlo park|atherton|los altos|cupertino|saratoga|woodside|portola valley|mountain view|sunnyvale|san jose|bay area|silicon valley|emerald hills)\b/gi;
+    serviceRegex = /\b(custom home|remodel|renovation|new construction|tear[ -]?down|rebuild|home builder|general contractor|addition|ADU|design[- ]build)\b/gi;
+  }
+  const locationTerms = extractTermsByPattern(bodyText, locationRegex);
+  const serviceTerms = extractTermsByPattern(bodyText, serviceRegex);
 
   // ── Canonical mismatch ──
   const hasCanonicalMismatch =

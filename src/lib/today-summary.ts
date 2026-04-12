@@ -116,7 +116,7 @@ export function buildTodaySummary(opts: {
       staleNote: note,
     },
     reviewHeuristicLine:
-      "Attribution is based on imported visibility data and change timing. It is correlation-based, not proven cause and effect.",
+      "Attribution matches visibility shifts to your changes by timing and topic overlap. It shows correlation, not proven cause.",
     competitorLine: opts.competitorLine ?? null,
     verifiedFixes: opts.verifiedFixes.slice(0, 5),
     nextMove,

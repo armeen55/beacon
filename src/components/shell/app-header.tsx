@@ -9,7 +9,6 @@ import { allNavItems } from "@/lib/navigation";
 
 function useBreadcrumb(pathname: string) {
   if (pathname === "/") return { title: "Today", parent: null };
-  if (pathname === "/review") return { title: "Review", parent: null };
   const segments = pathname.split("/").filter(Boolean);
   if (
     segments[0] === "topics" &&
@@ -18,7 +17,7 @@ function useBreadcrumb(pathname: string) {
   ) {
     return {
       title: "Opportunity detail",
-      parent: { label: "Opportunities", href: "/topics" },
+      parent: { label: "Market", href: "/competitors" },
     };
   }
   const base = "/" + segments[0];

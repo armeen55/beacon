@@ -24,6 +24,10 @@ export type FindingStatus =
 
 export type FindingSeverity = "high" | "medium" | "low";
 
+export type FindingPriority = "critical" | "important" | "minor" | "informational";
+
+export type PromotionStatus = "none" | "changelog" | "secondary_note" | "history_only";
+
 export type Finding = {
   id: string;
   type: FindingType;
@@ -34,11 +38,19 @@ export type Finding = {
   previousState: string | null;
   currentState: string | null;
   severity: FindingSeverity;
+  priority: FindingPriority;
+  priorityScore: number;
   summary: string;
   suggestedAction: string;
   status: FindingStatus;
   resolvedAt: string | null;
   linkedChangeId: string | null;
+  promotionStatus: PromotionStatus;
+  resolutionNote: string | null;
+  suppressUntil: string | null;
+  citationCount: number;
+  isHomepage: boolean;
+  contradictsChangelog: boolean;
 };
 
 export type ScanSettings = {
@@ -77,4 +89,25 @@ export const FINDING_SEVERITY_LABELS: Record<FindingSeverity, string> = {
   high: "High",
   medium: "Medium",
   low: "Low",
+};
+
+export const FINDING_PRIORITY_LABELS: Record<FindingPriority, string> = {
+  critical: "Critical",
+  important: "Important",
+  minor: "Minor",
+  informational: "FYI",
+};
+
+export const FINDING_PRIORITY_ORDER: Record<FindingPriority, number> = {
+  critical: 0,
+  important: 1,
+  minor: 2,
+  informational: 3,
+};
+
+export const PROMOTION_STATUS_LABELS: Record<PromotionStatus, string> = {
+  none: "Not promoted",
+  changelog: "In changelog",
+  secondary_note: "Secondary note",
+  history_only: "History only",
 };

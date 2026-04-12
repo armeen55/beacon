@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { PageHeader } from "@/components/data/page-header";
 import { KpiCard } from "@/components/viz/kpi-card";
-import { competitors } from "@/lib/seed-data.server";
+import { competitors, results } from "@/lib/seed-data.server";
 import { citationEvidenceIndex } from "@/domains/pages/citation-evidence-store";
 import { pageIssues } from "@/domains/pages/issues";
 import { computeMarketBenchmark, type MarketBenchmark } from "@/domains/pages/builder-benchmark";
@@ -20,8 +20,22 @@ import { allPages } from "@/domains/pages/page-store";
 import { getActivePrompts } from "@/domains/prompts/prompt-library";
 import { getSiteConfig } from "@/lib/site-config";
 import { cn } from "@/lib/utils";
+import { classifyCompetitorType, COMPETITOR_TYPE_LABELS, COMPETITOR_TYPE_COLORS } from "@/domains/competitors/classify-type";
+import { discoverCompetitorUniverse } from "@/domains/competitors/discover";
+import { getBusinessConfig } from "@/lib/business-config";
+import {
+  computeLocalOperatorSurface,
+  loadLocalOperatorImport,
+} from "@/domains/local-operator/surface";
+import { LocalOperatorPanel } from "@/components/local-operator/local-operator-panel";
+import { computeCitationDecay, getDecayAlerts } from "@/domains/attribution/citation-decay";
+import { buildCompetitorRank } from "@/lib/performance-timeseries";
+import {
+  syncMilestonesFromWorkspace,
+  filterMarketMilestones,
+} from "@/domains/milestones";
 
-export default function CompetitorsPage() {
+export default async function CompetitorsPage() {
   const universe = loadCompetitorUniverseRuntime();
   const activeUniverse = universe.entries.filter((e) => e.status === "active");
   const citIndex = citationEvidenceIndex;
@@ -71,6 +85,30 @@ export default function CompetitorsPage() {
     ? computeMarketBenchmark(citIndex, pageIssues)
     : null;
 
+  const discovery = discoverCompetitorUniverse({
+    citationIndex: citIndex,
+    coMentionMatrix,
+    sourceTrustIndex: trustIndex,
+    ownedDomain: siteDomain,
+    universeDomains,
+  });
+
+  const decayForLocal = getDecayAlerts(computeCitationDecay(siteDomain));
+  const topGeoGap = geoCoverage.gaps[0] ?? null;
+  const localMarketSurface = computeLocalOperatorSurface({
+    business: getBusinessConfig(),
+    importRow: loadLocalOperatorImport(),
+    geoGap: topGeoGap
+      ? {
+          city: topGeoGap.city,
+          competitor_pages: topGeoGap.competitor_pages,
+          owned_pages: topGeoGap.owned_pages,
+        }
+      : null,
+    meaningfulDecayCount: decayForLocal.filter((d) => d.status === "meaningful_decline")
+      .length,
+  });
+
   const aheadCount =
     benchmark?.topCompetitors.filter((c) => c.mentions > benchmark.ownedAIMentions).length ?? 0;
 
@@ -80,11 +118,24 @@ export default function CompetitorsPage() {
       benchmark.biggestLosses.length > 0 ||
       benchmark.weakestAreas.length > 0);
 
+  const competitorRankForMilestones = buildCompetitorRank(
+    citIndex,
+    siteDomain,
+    classifyCompetitorType,
+  );
+  const { state: milestoneStateMarket } = await syncMilestonesFromWorkspace({
+    results,
+    citationIndex: citIndex,
+    siteDomain,
+    competitorRank: competitorRankForMilestones,
+  });
+  const marketMilestones = filterMarketMilestones(milestoneStateMarket.events);
+
   return (
     <div className="max-w-4xl">
       <PageHeader
-        title="Competitors"
-        description="Threat-ranked citations first, then topic pressure and the shortest path to act."
+        title="Market"
+        description="Who beats you, where they beat you, and exactly what to do about it."
       />
 
       {benchmark ? (
@@ -96,6 +147,25 @@ export default function CompetitorsPage() {
             <KpiCard label="Competitors Tracked" value={benchmark.topCompetitors.length} />
             <KpiCard label="Ahead of You" value={aheadCount} meta={aheadCount > 0 ? "On raw citation count" : "You lead the field"} />
           </div>
+
+          {marketMilestones.length > 0 && (
+            <div className="rounded-lg border border-border/50 px-4 py-3">
+              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+                Competitive records
+              </p>
+              <p className="text-[11px] text-muted-foreground mt-1 mb-2 leading-relaxed">
+                Share and lead metrics from the same citation corpus as the table below — logged when a new high is measured.
+              </p>
+              <ul className="space-y-2">
+                {marketMilestones.map((e) => (
+                  <li key={e.id} className="text-[11px] border-l-2 border-border/60 pl-3">
+                    <span className="font-semibold text-foreground">{e.title}</span>
+                    <span className="text-muted-foreground"> — {e.subtitle}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           {/* Ranked threats — list-first */}
           {benchmark.topCompetitors.length > 0 && (
@@ -146,7 +216,17 @@ export default function CompetitorsPage() {
                             <span className="text-[10px] font-medium text-status-danger shrink-0">Ahead of you</span>
                           )}
                         </div>
-                        <p className="text-[10px] text-muted-foreground font-mono truncate">{comp.domain}</p>
+                        <div className="flex items-center gap-1.5">
+                          <p className="text-[10px] text-muted-foreground font-mono truncate">{comp.domain}</p>
+                          {(() => {
+                            const cType = classifyCompetitorType(comp.domain);
+                            return (
+                              <span className={cn("text-[9px] font-medium rounded border px-1 py-0.5 leading-none shrink-0", COMPETITOR_TYPE_COLORS[cType])}>
+                                {COMPETITOR_TYPE_LABELS[cType]}
+                              </span>
+                            );
+                          })()}
+                        </div>
                         <div className="h-1 rounded-full bg-border/30 mt-1.5 overflow-hidden hidden sm:block">
                           <div
                             className={cn("h-full rounded-full transition-all", isAhead ? "bg-status-danger/60" : "bg-accent-primary/60")}
@@ -275,6 +355,156 @@ export default function CompetitorsPage() {
               </div>
             </section>
           )}
+          {/* Discovered domains — broader competitive universe */}
+          {discovery.newDiscoveries.length > 0 && (
+            <section>
+              <div className="mb-3">
+                <h2 className="text-sm font-semibold text-foreground">Discovered competitors</h2>
+                <p className="text-[11px] text-muted-foreground mt-0.5">
+                  Domains appearing in AI citations that are not in your configured universe.
+                  {discovery.totalDomainsAnalyzed > 0 && (
+                    <span className="ml-1">{discovery.totalDomainsAnalyzed} total domains analyzed.</span>
+                  )}
+                </p>
+              </div>
+              <div className="rounded-lg border border-border/70 overflow-hidden">
+                <div className="grid grid-cols-[2rem_1fr_auto_auto] gap-x-3 px-3 py-2 bg-surface-inset/50 text-[10px] font-medium text-muted-foreground border-b border-border/60">
+                  <span>#</span>
+                  <span>Domain</span>
+                  <span className="text-right">Citations</span>
+                  <span className="text-right">Share</span>
+                </div>
+                {discovery.newDiscoveries.slice(0, 10).map((d, i) => {
+                  const topicsTheyLead = d.topicThreats.filter((t) => t.theyLead);
+                  return (
+                    <div
+                      key={d.domain}
+                      className="px-3 py-3 border-b border-border/50 last:border-b-0 hover:bg-surface-inset/30"
+                    >
+                      <div className="grid grid-cols-[2rem_1fr_auto_auto] gap-x-3 items-center">
+                        <span className="text-[11px] text-muted-foreground tabular-nums">{i + 1}</span>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[12px] font-medium truncate">{d.domain}</span>
+                            <span className={cn("text-[9px] font-medium rounded border px-1 py-0.5 leading-none shrink-0", COMPETITOR_TYPE_COLORS[d.type])}>
+                              {COMPETITOR_TYPE_LABELS[d.type]}
+                            </span>
+                            {d.citationDelta > 0 && (
+                              <span className="text-[9px] font-semibold text-status-danger shrink-0">
+                                +{d.citationDelta.toLocaleString()} more than you
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <span className="text-right text-[12px] font-semibold tabular-nums">
+                          {d.citations.toLocaleString()}
+                        </span>
+                        <span className="text-right text-[11px] tabular-nums text-muted-foreground">
+                          {d.share}%
+                        </span>
+                      </div>
+                      {/* Actionable intel */}
+                      <div className="ml-8 mt-2 space-y-1.5">
+                        {topicsTheyLead.length > 0 && (
+                          <p className="text-[10px] text-status-danger/80">
+                            They beat you in {topicsTheyLead.length} topic{topicsTheyLead.length !== 1 ? "s" : ""}:{" "}
+                            <span className="text-foreground font-medium">
+                              {topicsTheyLead.slice(0, 3).map((t) => t.topic).join(", ")}
+                            </span>
+                          </p>
+                        )}
+                        {d.topicThreats.filter((t) => !t.theyLead).length > 0 && (
+                          <p className="text-[10px] text-status-success/80">
+                            You lead in {d.topicThreats.filter((t) => !t.theyLead).length} topic{d.topicThreats.filter((t) => !t.theyLead).length !== 1 ? "s" : ""} where they also appear
+                          </p>
+                        )}
+                        {d.suggestedMove && (
+                          <p className="text-[10px] font-medium text-accent-primary">
+                            → {d.suggestedMove}
+                          </p>
+                        )}
+                        <div className="flex items-center gap-2 text-[8px] text-muted-foreground/40 font-medium uppercase tracking-wider">
+                          {d.discoveredVia.map((v) => (
+                            <span key={v}>{v.replace("_", " ")}</span>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              {discovery.newDiscoveries.length > 10 && (
+                <p className="text-[10px] text-muted-foreground mt-2 px-1">
+                  + {discovery.newDiscoveries.length - 10} more discovered domains
+                </p>
+              )}
+            </section>
+          )}
+
+          {/* Growth opportunities — directive attack cards */}
+          {benchmark.biggestLosses.length > 0 && (
+            <section id="opportunities">
+              <div className="mb-3">
+                <h2 className="text-sm font-semibold text-foreground">Growth opportunities</h2>
+                <p className="text-[11px] text-muted-foreground mt-0.5">
+                  Topics where competitors lead. Build or strengthen content here to close the gap.
+                </p>
+              </div>
+              <div className="space-y-2">
+                {[...benchmark.biggestLosses, ...benchmark.weakestAreas.filter((w) => !benchmark.biggestLosses.some((l) => l.topic === w.topic))].slice(0, 6).map((area, i) => {
+                  const loss = benchmark.biggestLosses.find((l) => l.topic === area.topic);
+                  const yourRate = loss ? loss.ownedRate : (area as { rate: number }).rate;
+                  const theirRate = loss ? loss.competitorRate : 0;
+                  const delta = theirRate - yourRate;
+                  return (
+                    <div key={area.topic} className="rounded-lg border border-border/50 px-4 py-3 hover:bg-surface-inset/20 transition-colors">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-[12px] font-semibold text-foreground truncate">{area.topic}</p>
+                          <p className="text-[10px] text-muted-foreground mt-0.5">
+                            {delta > 0
+                              ? `Competitors lead by ${delta}% share — strengthen your content here`
+                              : `Your share is ${yourRate}% — create dedicated content to grow`}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          {theirRate > 0 && (
+                            <span className="text-[10px] text-status-danger font-semibold tabular-nums">{theirRate}% them</span>
+                          )}
+                          <span className="text-[10px] text-muted-foreground font-semibold tabular-nums">{yourRate}% you</span>
+                        </div>
+                      </div>
+                      <div className="h-1.5 rounded-full bg-border/30 mt-2 overflow-hidden flex">
+                        <div className="h-full rounded-l-full bg-accent-primary/60" style={{ width: `${yourRate}%` }} />
+                        {theirRate > 0 && (
+                          <div className="h-full bg-status-danger/40" style={{ width: `${theirRate}%` }} />
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          )}
+
+          {/* Domain type breakdown */}
+          {discovery.all.length > 5 && (
+            <section className="rounded-lg border border-border/50 px-4 py-3">
+              <p className="text-[10px] font-semibold text-muted-foreground mb-2 uppercase tracking-wide">Domain universe breakdown</p>
+              <div className="flex items-center gap-4 text-[11px]">
+                <span><span className="font-semibold text-foreground">{discovery.direct.length}</span> direct</span>
+                <span className="text-border">·</span>
+                <span><span className="font-semibold text-foreground">{discovery.directories.length}</span> directories</span>
+                <span className="text-border">·</span>
+                <span><span className="font-semibold text-foreground">{discovery.editorial.length}</span> editorial</span>
+                <span className="text-border">·</span>
+                <span><span className="font-semibold text-foreground">{discovery.forums.length}</span> forums</span>
+                <span className="text-border">·</span>
+                <span className="text-muted-foreground">{discovery.totalDomainsAnalyzed} total</span>
+              </div>
+            </section>
+          )}
+
           {coMentionMatrix && coMentionMatrix.entries.length > 0 && (
             <CoMentionSection matrix={coMentionMatrix} />
           )}
@@ -295,7 +525,7 @@ export default function CompetitorsPage() {
             Competitive ranking needs imported citation data. Bring Profound (or equivalent) into Beacon to populate this view.
           </p>
           <Link
-            href="/import"
+            href="/settings/import"
             className="text-[12px] text-accent-primary hover:underline font-medium mt-2 inline-block"
           >
             Go to Import
@@ -364,6 +594,10 @@ export default function CompetitorsPage() {
             )}
           </div>
         </details>
+      </div>
+
+      <div className="mt-10 border-t border-border/50 pt-8">
+        <LocalOperatorPanel surface={localMarketSurface} variant="market" />
       </div>
     </div>
   );

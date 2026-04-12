@@ -35,6 +35,11 @@ export type Experiment = {
   baselineCitations: number | null;
   latestCitations: number | null;
   lastCheckedAt: string | null;
+  /** Tier 1B: scorecard change that seeded this replication track */
+  replicationSourceChangeId?: string | null;
+  replicationPatternId?: string | null;
+  /** observed = crawl + imports; mixed; inferred = pattern fit only */
+  replicationEvidenceTier?: "observed" | "mixed" | "inferred";
 };
 
 // ---------------------------------------------------------------------------
@@ -77,6 +82,9 @@ export function startExperiment(opts: {
   watchAfter: string;
   operatorNote: string;
   baselineCitations: number | null;
+  replicationSourceChangeId?: string | null;
+  replicationPatternId?: string | null;
+  replicationEvidenceTier?: "observed" | "mixed" | "inferred";
 }): Experiment {
   const id = `exp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
   const exp: Experiment = {
@@ -93,6 +101,9 @@ export function startExperiment(opts: {
     baselineCitations: opts.baselineCitations,
     latestCitations: null,
     lastCheckedAt: null,
+    replicationSourceChangeId: opts.replicationSourceChangeId ?? null,
+    replicationPatternId: opts.replicationPatternId ?? null,
+    replicationEvidenceTier: opts.replicationEvidenceTier,
   };
 
   const existing = experiments.findIndex((e) => e.recId === opts.recId);

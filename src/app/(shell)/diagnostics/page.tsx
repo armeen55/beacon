@@ -53,7 +53,7 @@ import {
   CANDIDATE_TYPE_COLORS,
   CANDIDATE_CONFIDENCE_COLORS,
 } from "@/domains/opportunity-candidates/types";
-import { pageSnapshots } from "@/domains/pages/snapshot-store";
+import { getPageSnapshots } from "@/domains/pages/snapshot-store";
 import { allPages } from "@/domains/pages/page-store";
 import { citationEvidenceIndex } from "@/domains/pages/citation-evidence-store";
 import { extractEntities, summarizeEntities } from "@/domains/entity/entity-extract";
@@ -66,8 +66,18 @@ import { computeJourneyCoverage } from "@/domains/prompts/journey-coverage";
 import { JOURNEY_STAGE_LABELS } from "@/domains/prompts/journey-stages";
 import { computeBeaconScore } from "@/domains/product/beacon-score";
 import type { ScoreDimension } from "@/domains/product/beacon-score-types";
-import { computeCitationDecay, summarizeDecay } from "@/domains/attribution/citation-decay";
+import {
+  computeCitationDecay,
+  getDecayAlerts,
+  summarizeDecay,
+} from "@/domains/attribution/citation-decay";
 import { getSiteConfig } from "@/lib/site-config";
+import { getBusinessConfig } from "@/lib/business-config";
+import {
+  computeLocalOperatorSurface,
+  loadLocalOperatorImport,
+} from "@/domains/local-operator/surface";
+import { LocalOperatorPanel } from "@/components/local-operator/local-operator-panel";
 import { computeMarketBenchmark } from "@/domains/pages/builder-benchmark";
 import { analyzeAllExtractability, summarizeExtractability } from "@/domains/pages/extractability";
 import { computeSnippetIntelligence } from "@/domains/competitors/snippet-intel";
@@ -201,12 +211,36 @@ export default function DiagnosticsPage() {
 
   const confirmedLinks = candidateLinks.filter((c) => c.status === "confirmed").length;
 
+  const decayLocal = getDecayAlerts(computeCitationDecay(getSiteConfig().siteDomain));
+  const geoLocal = computeGeoCoverage(
+    allPages,
+    citationEvidenceIndex?.by_page_and_topic ?? [],
+    getActivePrompts(),
+  );
+  const localDiagSurface = computeLocalOperatorSurface({
+    business: getBusinessConfig(),
+    importRow: loadLocalOperatorImport(),
+    geoGap: geoLocal.gaps[0]
+      ? {
+          city: geoLocal.gaps[0].city,
+          competitor_pages: geoLocal.gaps[0].competitor_pages,
+          owned_pages: geoLocal.gaps[0].owned_pages,
+        }
+      : null,
+    meaningfulDecayCount: decayLocal.filter((d) => d.status === "meaningful_decline")
+      .length,
+  });
+
   return (
     <div className="max-w-4xl space-y-8">
       <PageHeader
         title="Diagnostics"
         description="System specialist view: how attribution data is shaped, linked, and scored in this workspace. Technical and honest — for operators who need depth without leaving Beacon."
       />
+
+      <div className="-mt-2 mb-6">
+        <LocalOperatorPanel surface={localDiagSurface} variant="health" />
+      </div>
 
       <p className="-mt-4 text-sm text-muted-foreground leading-relaxed">
         Day-to-day decisions live on{" "}
@@ -518,7 +552,7 @@ export default function DiagnosticsPage() {
           <div>
             <SectionTitle>Pattern intelligence</SectionTitle>
             <p className="text-sm text-muted-foreground mb-4">
-              Heuristics from change metadata and cluster history. Historical success % is an internal pattern score from attributed events in clusters — not revenue or closed deals.
+              Patterns from change metadata and cluster history. Historical success % is an internal score from attributed events — not revenue or closed deals.
             </p>
             <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-4">
               <StatBlock label="Patterns" value={ps.total} />
@@ -1038,7 +1072,7 @@ export default function DiagnosticsPage() {
       <div>
         <SectionTitle>Model gaps & recommendations</SectionTitle>
         <p className="text-sm text-muted-foreground mb-4">
-          Heuristic gaps for the scoring model. “Unresolved” here means{" "}
+          Scoring model gaps. “Unresolved” here means{" "}
           <span className="font-medium text-foreground">no stored change IDs on the result row</span> — not “no driver” on History rows.
         </p>
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
@@ -1152,7 +1186,7 @@ export default function DiagnosticsPage() {
 }
 
 function EntityRepresentationSection() {
-  const entityIndex = extractEntities(pageSnapshots);
+  const entityIndex = extractEntities(getPageSnapshots());
   const entitySummary = summarizeEntities(entityIndex);
   const discrepancyReport = detectDiscrepancies(entityIndex);
 
@@ -1302,7 +1336,7 @@ function BeaconScoreSection() {
   const decayResults = computeCitationDecay(siteDomain);
   const decaySummary = summarizeDecay(decayResults);
 
-  const entityIndex = extractEntities(pageSnapshots);
+  const entityIndex = extractEntities(getPageSnapshots());
   const discReport = detectDiscrepancies(entityIndex);
 
   const totalOwnedCit = citIndex?.by_page_and_topic
@@ -1393,7 +1427,7 @@ function ExtractabilitySection() {
     }
   }
 
-  const results = analyzeAllExtractability(pageSnapshots, citMap);
+  const results = analyzeAllExtractability(getPageSnapshots(), citMap);
   const summary = summarizeExtractability(results);
 
   if (results.length === 0) {
@@ -1634,14 +1668,14 @@ function SnippetIntelSection() {
     }
   }
 
-  const extractResults = analyzeAllExtractability(pageSnapshots, citMap);
+  const extractResults = analyzeAllExtractability(getPageSnapshots(), citMap);
 
   const { siteDomain } = getSiteConfig();
   const snippetIntel = citIdx
     ? computeSnippetIntelligence({
         ownedExtractability: extractResults,
         citationIndex: citIdx,
-        snapshots: pageSnapshots,
+        snapshots: getPageSnapshots(),
         ownedDomain: siteDomain,
       })
     : null;
@@ -1716,7 +1750,7 @@ function PulseBanner() {
   const { siteDomain } = getSiteConfig();
   const decayResults = computeCitationDecay(siteDomain);
   const decayAlerts = decayResults.filter((d) => d.status === "meaningful_decline" || d.status === "soft_decline");
-  const entityIdx = extractEntities(pageSnapshots);
+  const entityIdx = extractEntities(getPageSnapshots());
   const discReport = detectDiscrepancies(entityIdx);
   const geoCov = computeGeoCoverage(allPages, citationEvidenceIndex?.by_page_and_topic ?? [], getActivePrompts());
   const journeyCov = computeJourneyCoverage(promptLibrary);
@@ -1729,9 +1763,9 @@ function PulseBanner() {
       citMap2.set(key, (citMap2.get(key) ?? 0) + r.total_citations);
     }
   }
-  const extractResults2 = analyzeAllExtractability(pageSnapshots, citMap2);
+  const extractResults2 = analyzeAllExtractability(getPageSnapshots(), citMap2);
   const snippetIntel2 = citationEvidenceIndex
-    ? computeSnippetIntelligence({ ownedExtractability: extractResults2, citationIndex: citationEvidenceIndex, snapshots: pageSnapshots, ownedDomain: siteDomain })
+    ? computeSnippetIntelligence({ ownedExtractability: extractResults2, citationIndex: citationEvidenceIndex, snapshots: getPageSnapshots(), ownedDomain: siteDomain })
     : null;
 
   const latestSnap = answerSnapshots.length > 0
@@ -1798,7 +1832,7 @@ function AdvancedReadinessSection() {
     hasCitationData: (citationEvidenceIndex?.total_citations_processed ?? 0) > 0,
     hasAnalyticsIntegration: false,
   });
-  const trainingData = assessTrainingDataReadiness(pageSnapshots, false, false);
+  const trainingData = assessTrainingDataReadiness(getPageSnapshots(), false, false);
 
   type ReadinessItem = {
     label: string;

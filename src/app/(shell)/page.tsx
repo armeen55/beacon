@@ -12,8 +12,8 @@ import { discoverCandidates } from "@/domains/attribution/candidates";
 import { triageCandidates } from "@/domains/attribution/triage";
 import { partitionResultsByMode } from "@/domains/attribution/result-mode";
 import { allPages } from "@/domains/pages/page-store";
-import { pageSnapshots } from "@/domains/pages/snapshot-store";
-import { guardrailAlerts } from "@/domains/pages/guardrail-store";
+import { getPageSnapshots } from "@/domains/pages/snapshot-store";
+import { getGuardrailAlerts } from "@/domains/pages/guardrail-store";
 import { citationEvidenceIndex } from "@/domains/pages/citation-evidence-store";
 import {
   pageIssues,
@@ -65,21 +65,45 @@ import { computeJourneyCoverage } from "@/domains/prompts/journey-coverage";
 import { JOURNEY_STAGE_LABELS } from "@/domains/prompts/journey-stages";
 import { analyzeAllExtractability } from "@/domains/pages/extractability";
 import { computeSnippetIntelligence } from "@/domains/competitors/snippet-intel";
-import { latestWebsiteCrawlRun } from "@/domains/observations/read";
+import {
+  latestWebsiteCrawlRun,
+  listObservationRuns,
+  getObservationRun,
+} from "@/domains/observations/read";
 import { primaryVisibilityRunForResults } from "@/domains/observations/visibility-context";
 import { loadCompetitorUniverseRuntime } from "@/domains/competitors/universe-read";
 import { buildTodayCompetitorLine } from "@/domains/competitors/today-competitor-line";
 import { PLATFORM_LABELS, type Platform } from "@/lib/constants";
 import Link from "next/link";
 import { getScanSettings, isScanOverdue } from "@/domains/scanning/scan-settings";
-import { generateFindings } from "@/domains/scanning/detect-findings";
 import {
   getPendingFindings,
   getResolvedFindingsCount,
-  addFindings,
+  getAcceptedFindings,
 } from "@/domains/scanning/findings-store";
-import { resolveFinding, saveScanSettings } from "./finding-actions";
-import { triggerPageScan } from "./pages/scan-action";
+import { resolveFinding, promoteFinding } from "./finding-actions";
+import { runWebsiteScan } from "@/domains/scanning/orchestrate-scan";
+import { buildPerformanceTimeseries, buildCompetitorRank } from "@/lib/performance-timeseries";
+import { classifyCompetitorType } from "@/domains/competitors/classify-type";
+import { getBusinessConfig } from "@/lib/business-config";
+import {
+  computeLocalOperatorSurface,
+  loadLocalOperatorImport,
+} from "@/domains/local-operator/surface";
+import {
+  buildReplicationCards,
+  buildPromisingReplicationCards,
+} from "@/domains/product/replication-engine";
+import { serializeReplicationCards } from "@/domains/product/replication-serialize";
+import type { TodayProofContext } from "@/lib/today-proof-context";
+import {
+  serializeFindingForToday,
+  recommendationLineageBullets,
+} from "@/lib/today-proof-serialize";
+import {
+  syncMilestonesFromWorkspace,
+  pickTodayMilestoneTeaser,
+} from "@/domains/milestones";
 
 export default async function TodayPage() {
   // ── Auto-scan on morning visit ──
@@ -90,51 +114,26 @@ export default async function TodayPage() {
   let scanRanThisLoad = false;
   let scanResult: { pagesScanned?: number; pagesChanged?: number; alertCount?: number } | undefined;
 
+  let pageSnapshots = getPageSnapshots();
+  let guardrailAlerts = getGuardrailAlerts();
+
   if (scanOverdue) {
-    const previousSnapshots = [...pageSnapshots];
-    const previousGuardrails = [...guardrailAlerts];
-
-    const result = await triggerPageScan();
-    scanRanThisLoad = result.success;
-    if (result.success) {
+    const r = await runWebsiteScan({ trigger: "today" });
+    scanRanThisLoad = r.ok;
+    if (r.payload) {
       scanResult = {
-        pagesScanned: result.pagesScanned,
-        pagesChanged: result.pagesChanged,
-        alertCount: result.alertCount,
+        pagesScanned: r.payload.pagesScanned,
+        pagesChanged: r.payload.pagesChanged,
+        alertCount: r.payload.guardrailAlertCount,
       };
-
-      const { readDotDataJson } = await import("@/lib/persistence/dotdata-json");
-      const freshSnapshots = readDotDataJson<import("@/domains/pages/types").PageSnapshot[]>("page-snapshots") ?? [];
-      const freshGuardrails = readDotDataJson<import("@/domains/pages/guardrails").GuardrailAlert[]>("page-guardrails") ?? [];
-
-      const citLookup = new Map<string, number>();
-      if (citationEvidenceIndex) {
-        for (const rollup of citationEvidenceIndex.by_page_and_topic) {
-          if (rollup.is_owned) {
-            const key = rollup.page_url.replace(/\/+$/, "").toLowerCase();
-            citLookup.set(key, (citLookup.get(key) ?? 0) + rollup.total_citations);
-          }
-        }
-      }
-
-      const newFindings = generateFindings({
-        currentSnapshots: freshSnapshots,
-        previousSnapshots,
-        currentGuardrails: freshGuardrails,
-        previousGuardrails,
-        changelog: changelogEntries,
-        scanRunId: `scan-${Date.now()}`,
-        citationsByUrl: citLookup,
-      });
-
-      if (newFindings.length > 0) {
-        await addFindings(newFindings);
-      }
     }
+    pageSnapshots = getPageSnapshots();
+    guardrailAlerts = getGuardrailAlerts();
   }
 
   const pendingFindings = getPendingFindings();
   const resolvedFindingsCount = getResolvedFindingsCount();
+  const acceptedFindings = getAcceptedFindings();
 
   const { attribution: attrResults } = partitionResultsByMode(results);
   const events = detectOutcomeEvents(attrResults);
@@ -386,11 +385,11 @@ export default async function TodayPage() {
       id: "review-easy",
       group: "review",
       label: `${easyCalls} Review item${easyCalls !== 1 ? "s" : ""} with wider score gap`,
-      meta: "Attribution bookkeeping · heuristic",
-      href: "/review",
+      meta: "Why did visibility change? · attribution",
+      href: "/changes?tab=attribution",
       dot: "bg-muted-foreground",
       detail:
-        "Review the suggested cause and lock it if it matches what you know.",
+        "Review the suggested cause and lock it if it matches what you know. This is about why visibility shifted, not what changed on your site.",
     });
   }
   if (undecidedCount - easyCalls > 0) {
@@ -398,11 +397,11 @@ export default async function TodayPage() {
       id: "review-remaining",
       group: "review",
       label: `${undecidedCount - easyCalls} more visibility shifts in Review`,
-      meta: "Attribution bookkeeping · needs decision",
-      href: "/review",
+      meta: "Why did visibility change? · needs decision",
+      href: "/changes?tab=attribution",
       dot: "bg-status-warning",
       detail:
-        "Each row is a hypothesis queue from imported snapshots, not confirmed outcomes.",
+        "Each row links a visibility shift to a possible cause. Lock the best match when you know what happened.",
     });
   }
 
@@ -453,6 +452,27 @@ export default async function TodayPage() {
   const { siteDomain } = getSiteConfig();
   const decayResults = computeCitationDecay(siteDomain);
   const decayAlerts = getDecayAlerts(decayResults);
+  const geoForLocal = computeGeoCoverage(
+    allPages,
+    citationEvidenceIndex?.by_page_and_topic ?? [],
+    getActivePrompts(),
+  );
+  const topLocalGap = geoForLocal.gaps[0] ?? null;
+  const meaningfulDecayCount = decayAlerts.filter(
+    (d) => d.status === "meaningful_decline",
+  ).length;
+  const localOperatorSurface = computeLocalOperatorSurface({
+    business: getBusinessConfig(),
+    importRow: loadLocalOperatorImport(),
+    geoGap: topLocalGap
+      ? {
+          city: topLocalGap.city,
+          competitor_pages: topLocalGap.competitor_pages,
+          owned_pages: topLocalGap.owned_pages,
+        }
+      : null,
+    meaningfulDecayCount,
+  });
 
   const allRecommendations = computeRecommendations({
     impactRows,
@@ -484,6 +504,40 @@ export default async function TodayPage() {
     responses: recommendationResponses,
     recommendations: allRecommendations,
   });
+
+  const activeExperimentRecIdSet = new Set(
+    getActiveExperiments().map((e) => e.recId),
+  );
+  const replicationImpactCards = buildReplicationCards({
+    recommendations,
+    impactRows,
+    patterns,
+    rolloutExecutions,
+    pageIssues,
+    activeExperimentRecIds: activeExperimentRecIdSet,
+  });
+  const replicationExcludeRecIds = new Set(
+    replicationImpactCards.flatMap((c) => c.targets.map((t) => t.recId)),
+  );
+  const replicationPromisingCards = buildPromisingReplicationCards(
+    getActiveExperiments(),
+    allRecommendations,
+    impactRows,
+    patterns,
+    rolloutExecutions,
+    pageIssues,
+    replicationExcludeRecIds,
+  );
+  const replicationWorkspaceCards = [
+    ...replicationImpactCards,
+    ...replicationPromisingCards,
+  ];
+  const replicationCardsForToday = serializeReplicationCards(
+    replicationWorkspaceCards,
+    allRecommendations,
+    pagesHref,
+    citMap,
+  );
 
   const { primaryAction, secondary } = rankAndSelect({
     recommendations,
@@ -624,6 +678,15 @@ export default async function TodayPage() {
     };
   });
 
+  const primaryLineage = primaryAction
+    ? recommendationLineageBullets({
+        sourceEvidence: primaryAction.sourceEvidence,
+        type: primaryAction.type,
+        sourceChangeId: primaryAction.sourceChangeId,
+        dataFreshness,
+      })
+    : [];
+
   const serializedPrimary = primaryAction
     ? {
         id: primaryAction.id,
@@ -646,6 +709,8 @@ export default async function TodayPage() {
         baselineCitations: primaryAction.targetPageUrl
           ? (citMap.get(primaryAction.targetPageUrl.replace(/\/+$/, "").toLowerCase()) ?? 0)
           : null,
+        sourceChangeId: primaryAction.sourceChangeId,
+        lineageBullets: primaryLineage,
       }
     : null;
 
@@ -660,6 +725,12 @@ export default async function TodayPage() {
     href: recHref(r),
     responseStatus: getResponse(r.id)?.status ?? null,
     confidenceReason: buildConfidenceReason(r),
+    lineageBullets: recommendationLineageBullets({
+      sourceEvidence: r.sourceEvidence,
+      type: r.type,
+      sourceChangeId: r.sourceChangeId,
+      dataFreshness,
+    }),
   }));
 
   const proposedWaves = planWaves(
@@ -802,7 +873,7 @@ export default async function TodayPage() {
   if (undecidedCount > 0) {
     nextCandidates.push({
       title: "Work the Review queue (hypothesis locks)",
-      href: "/review",
+      href: "/changes?tab=attribution",
       evidence:
         "Imported visibility shifts with unreviewed attribution. Lock a cause when you know what happened.",
       observationRunId: null,
@@ -828,7 +899,7 @@ export default async function TodayPage() {
   if (notableDisc.length > 0) {
     nextCandidates.push({
       title: `${notableDisc.length} possible representation ${notableDisc.length === 1 ? "discrepancy" : "discrepancies"} in AI answers`,
-      href: "/diagnostics",
+      href: "/settings/health",
       evidence:
         "Detected from structural comparison of AI answer content against your owned page data. Conservative signals only — review in Diagnostics.",
       observationRunId: null,
@@ -846,7 +917,7 @@ export default async function TodayPage() {
     const topGap = geoCoverage.gaps[0];
     nextCandidates.push({
       title: `${geoCoverage.gaps.length} local market${geoCoverage.gaps.length !== 1 ? "s" : ""} with competitor presence and limited owned visibility`,
-      href: "/diagnostics",
+      href: "/settings/health",
       evidence:
         `Strongest gap: ${topGap.city} (${topGap.competitor_pages} competitor pages, ${topGap.owned_pages} owned). Based on page registry data.`,
       observationRunId: null,
@@ -859,7 +930,7 @@ export default async function TodayPage() {
   if (journeyCoverage.absent_stages.length > 0 && journeyCoverage.total_active >= 10) {
     nextCandidates.push({
       title: `No prompt coverage in ${journeyCoverage.absent_stages.map((s) => JOURNEY_STAGE_LABELS[s]).join(", ")} stage${journeyCoverage.absent_stages.length !== 1 ? "s" : ""}`,
-      href: "/diagnostics",
+      href: "/settings/health",
       evidence:
         `${journeyCoverage.total_active} active prompts across ${journeyCoverage.stages.filter((s) => s.active_prompt_count > 0).length} stages. Keyword-based classification.`,
       observationRunId: null,
@@ -880,7 +951,7 @@ export default async function TodayPage() {
     if (highPriority.length > 0) {
       nextCandidates.push({
         title: `${highPriority.length} high-priority extractability ${highPriority.length === 1 ? "gap" : "gaps"} on cited pages`,
-        href: "/diagnostics",
+        href: "/settings/health",
         evidence:
           `${highPriority[0].summary}. Based on structural analysis of ${snippetIntel.total_owned_pages_analyzed} cited pages.`,
         observationRunId: null,
@@ -898,53 +969,109 @@ export default async function TodayPage() {
     primaryVisibilityRun: primaryVis,
   });
 
+  const lastCrawlForProof = summary.crawl.activeObservationRun;
+  const crawlCompletedAt = lastCrawlForProof?.completed_at ?? null;
+  const crawlAgeDaysForProof = crawlCompletedAt
+    ? Math.floor((Date.now() - new Date(crawlCompletedAt).getTime()) / 86_400_000)
+    : null;
+  const crawlStaleForProof =
+    crawlAgeDaysForProof !== null && crawlAgeDaysForProof > 14;
+  const visibilityPartialSample =
+    !!primaryVis?.is_synthetic_wrapper ||
+    (!!crawlCompletedAt && !primaryVis?.citation_index_built_at);
+
+  const crawlRunId = lastCrawlForProof?.run_id ?? null;
+  const visibilityRunId = primaryVis?.run_id ?? null;
+  const crawlHrefResolved =
+    crawlRunId && getObservationRun(crawlRunId)
+      ? summary.crawl.activeObservationHref
+      : null;
+  const visibilityHrefResolved =
+    visibilityRunId && getObservationRun(visibilityRunId)
+      ? summary.visibility.activeObservationHref
+      : null;
+
+  const proofContext: TodayProofContext = {
+    crawlRunId,
+    crawlCompletedAt,
+    crawlHref: crawlHrefResolved,
+    visibilityRunId,
+    visibilityCompletedAt: primaryVis?.completed_at ?? null,
+    visibilityHref: visibilityHrefResolved,
+    citationIndexBuiltAt: primaryVis?.citation_index_built_at ?? null,
+    visibilitySynthetic: !!primaryVis?.is_synthetic_wrapper,
+    visibilitySource: primaryVis?.source ?? null,
+    resultsRowCount: results.length,
+    resultsThrough: visibilitySummary.dateRange?.to ?? null,
+    visibilityStaleVsCrawl: summary.visibility.staleVsCrawl,
+    visibilityStaleNote: summary.visibility.staleNote,
+    crawlAgeDays: crawlAgeDaysForProof,
+    crawlStale: crawlStaleForProof,
+    visibilityPartialSample,
+  };
+
+  const observationRunIds = new Set(
+    listObservationRuns().map((r) => r.run_id),
+  );
+  const serializedPendingFindings = pendingFindings.map((f) =>
+    serializeFindingForToday(f, observationRunIds),
+  );
+  const serializedAcceptedFindings = acceptedFindings.map((f) =>
+    serializeFindingForToday(f, observationRunIds),
+  );
+
+  const perfTimeseries = buildPerformanceTimeseries(results);
+  const perfCompetitorRank = buildCompetitorRank(
+    citationEvidenceIndex,
+    siteDomain,
+    classifyCompetitorType,
+  );
+  const performanceData =
+    perfTimeseries.series.points.length >= 2 || perfCompetitorRank.length > 0
+      ? { timeseries: perfTimeseries, competitorRank: perfCompetitorRank }
+      : null;
+
+  const { state: milestoneState, newEvents: milestoneNewEvents } =
+    await syncMilestonesFromWorkspace({
+      results,
+      citationIndex: citationEvidenceIndex,
+      siteDomain,
+      competitorRank: perfCompetitorRank,
+    });
+  const milestoneTeaserRaw = pickTodayMilestoneTeaser(
+    milestoneState,
+    milestoneNewEvents,
+  );
+  const milestoneTeaser = milestoneTeaserRaw
+    ? {
+        title: milestoneTeaserRaw.title,
+        subtitle: milestoneTeaserRaw.subtitle,
+        proofSummary: milestoneTeaserRaw.proofSummary,
+        achievedAt: milestoneTeaserRaw.achievedAt,
+      }
+    : null;
+
   return (
     <div className="max-w-3xl">
       <TodayClient
         summary={summary}
-        visibilitySummary={visibilitySummary}
-        items={enrichedItems}
-        impactSignals={actionableImpact}
-        recommendedMoves={topRecs}
         primaryAction={serializedPrimary}
-        trackRecord={trackRecordSummary}
-        onUpdateIssue={
-          updateIssueStatus as (
-            issueId: string,
-            status: string,
-            meta?: { pageUrl?: string; pagePath?: string }
-          ) => Promise<{ success: boolean }>
-        }
-        onVerifyIssue={verifyAndUpdateIssue}
         onRespondToRec={respondToRecommendation}
-        experiments={serializedExperiments}
         onStartExperiment={startExperimentAction}
-        onUpdateExperiment={updateExperimentAction}
-        pendingFindings={pendingFindings}
+        pendingFindings={serializedPendingFindings}
+        acceptedFindings={serializedAcceptedFindings}
         resolvedFindingsCount={resolvedFindingsCount}
         scanRanThisLoad={scanRanThisLoad}
         scanResult={scanResult}
         onResolveFinding={resolveFinding}
-        scanSettings={scanSettings}
-        onSaveScanSettings={saveScanSettings}
+        onPromoteFinding={promoteFinding}
+        performanceData={performanceData}
+        proofContext={proofContext}
+        secondaryRecommendations={topRecs}
+        replicationCards={replicationCardsForToday.slice(0, 2)}
+        localUrgentStrip={localOperatorSurface.todayUrgentStrip}
+        milestoneTeaser={milestoneTeaser}
       />
-
-      {enrichedItems.length === 0 && (
-        <p className="text-[11px] text-muted-foreground mt-4">
-          Full sample history lives under{" "}
-          <Link href="/results" className="text-accent-primary hover:underline">
-            History
-          </Link>
-          ; analyst tools under{" "}
-          <Link
-            href="/diagnostics"
-            className="text-accent-primary hover:underline"
-          >
-            Diagnostics
-          </Link>
-          .
-        </p>
-      )}
     </div>
   );
 }

@@ -88,7 +88,7 @@ export default async function ObservationRunPage({
             {v.sample_result_row_count != null && v.sample_result_row_count > 0 && (
               <li className="text-foreground font-medium">
                 Declared Result rows at import: {v.sample_result_row_count} (verify with{" "}
-                <Link href="/results" className="text-accent-primary hover:underline">
+                <Link href="/settings/history" className="text-accent-primary hover:underline">
                   History
                 </Link>{" "}
                 <code className="text-[10px] bg-surface-inset px-1 rounded">
@@ -117,7 +117,7 @@ export default async function ObservationRunPage({
           stores used to build the citation index — this screen shows the visibility run envelope, not every observation row.
         </p>
 
-        <Link href="/results" className="inline-block text-[11px] text-accent-primary hover:underline">
+        <Link href="/settings/history" className="inline-block text-[11px] text-accent-primary hover:underline">
           History →
         </Link>
         <Link href="/" className="inline-block text-[11px] text-accent-primary hover:underline ml-4">

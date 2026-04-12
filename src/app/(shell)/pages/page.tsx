@@ -21,12 +21,12 @@ import type {
   SitemapReconciliation,
 } from "@/domains/pages/types";
 import { allPages } from "@/domains/pages/page-store";
-import { pageSnapshots } from "@/domains/pages/snapshot-store";
-import { guardrailAlerts } from "@/domains/pages/guardrail-store";
+import { getPageSnapshots } from "@/domains/pages/snapshot-store";
+import { getGuardrailAlerts } from "@/domains/pages/guardrail-store";
 import { citationEvidenceIndex } from "@/domains/pages/citation-evidence-store";
-import { pageSnapshotDiffs } from "@/domains/pages/page-snapshot-diff-store";
-import { renderCheckResults } from "@/domains/pages/render-check-store";
-import { sitemapReconciliation } from "@/domains/pages/sitemap-reconciliation-store";
+import { getPageSnapshotDiffs } from "@/domains/pages/page-snapshot-diff-store";
+import { getRenderCheckResults } from "@/domains/pages/render-check-store";
+import { getSitemapReconciliation } from "@/domains/pages/sitemap-reconciliation-store";
 import {
   PagesClient,
   type PageRow,
@@ -47,6 +47,7 @@ import { triggerPageScan } from "./scan-action";
 import { verifyPageFix } from "./verify-action";
 import { updateIssueStatus, verifyAndUpdateIssue, generateHandoffText, convertBriefToIssue, refreshOutcomeObservation } from "./issue-actions";
 import { getSiteConfig } from "@/lib/site-config";
+import { pagesProofSubtitle } from "@/lib/beacon-proof-copy";
 import { latestWebsiteCrawlRun } from "@/domains/observations/read";
 import type { GuardrailAlert } from "@/domains/pages/guardrails";
 import { getPendingFindings } from "@/domains/scanning/findings-store";
@@ -91,8 +92,10 @@ export default function PagesPage() {
 
   const citationIndex = citationEvidenceIndex;
 
-  // ── Load page snapshots + diffs ──
-  const pageDiffs = pageSnapshotDiffs;
+  // ── Load page snapshots + diffs (fresh disk read each request) ──
+  const pageSnapshots = getPageSnapshots();
+  const guardrailAlerts = getGuardrailAlerts();
+  const pageDiffs = getPageSnapshotDiffs();
 
   const snapshotByPageId = new Map<string, PageSnapshot>();
   const snapshotByUrl = new Map<string, PageSnapshot>();
@@ -125,7 +128,7 @@ export default function PagesPage() {
   }
 
   // ── Load render checks ──
-  const renderChecks = renderCheckResults;
+  const renderChecks = getRenderCheckResults();
 
   const renderByUrl = new Map<string, RenderCheckResult>();
   for (const r of renderChecks) {
@@ -149,7 +152,7 @@ export default function PagesPage() {
   }
 
   // ── Load sitemap reconciliation ──
-  const sitemapRecon: SitemapReconciliation | null = sitemapReconciliation;
+  const sitemapRecon: SitemapReconciliation | null = getSitemapReconciliation();
 
   const canonicalUrls = sitemapRecon
     ? new Set(sitemapRecon.canonical_pages.map((c) => c.url.replace(/\/+$/, "").toLowerCase()))
@@ -295,8 +298,8 @@ export default function PagesPage() {
     const normPageUrl = page.url.replace(/\/+$/, "").toLowerCase();
     const isStale = stalePageIds?.has(page.id) || false;
     const isCanonical = canonicalUrls ? canonicalUrls.has(normPageUrl) : page.domain === siteDomain;
-    const linkedRows = urlToRows.get(page.url) ?? [];
-    const citations = urlToCitations.get(page.url) ?? [];
+    const linkedRows = urlToRows.get(normPageUrl) ?? urlToRows.get(page.url) ?? [];
+    const citations = urlToCitations.get(normPageUrl) ?? urlToCitations.get(page.url) ?? [];
     const totalCitations = citations.reduce((s, c) => s + c.total_citations, 0);
 
     // Topics: union of page topics, change topics, and citation topics
@@ -500,10 +503,14 @@ export default function PagesPage() {
       nextMoveDetail = "Waiting for more signals";
     }
 
-    // ── Determine label (prefer snapshot title for sitemap-only pages) ──
+    // ── Determine label: crawl title is ground truth, citation title is fallback ──
+    const rawCitationTitle = page.title_last_seen
+      ?.replace(/\.\s*Opens in new tab\.?$/i, "")
+      .replace(/\s*Opens in new tab\.?$/i, "")
+      .trim() || null;
     const label =
-      page.title_last_seen ??
       snap?.title ??
+      rawCitationTitle ??
       (page.path.replace(/^\//, "").replace(/-/g, " ") || page.domain);
 
     // ── Serialize events ──
@@ -779,6 +786,9 @@ export default function PagesPage() {
         <p className="mt-1 text-sm text-muted-foreground leading-relaxed">
           Health, citations, and the next step for each URL.
         </p>
+        <p className="mt-2 text-xs text-muted-foreground/90 leading-relaxed border-l-2 border-border/60 pl-3">
+          {pagesProofSubtitle()}
+        </p>
       </div>
 
       <PagesClient
@@ -788,7 +798,6 @@ export default function PagesPage() {
         lastScanAt={latestObs?.completed_at ?? null}
         latestObservationRunId={latestObs?.run_id ?? null}
         onScan={triggerPageScan}
-        onVerify={verifyPageFix}
         onUpdateIssue={updateIssueStatus as (issueId: string, status: string, meta?: { pageUrl?: string; pagePath?: string; category?: string }) => Promise<{ success: boolean }>}
         onVerifyIssue={verifyAndUpdateIssue}
         onGenerateHandoff={generateHandoffText}

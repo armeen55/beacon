@@ -102,10 +102,10 @@ export function computeMarketBenchmark(
     nextMoves.push({ label: `Fix ${openIssues.length} page${openIssues.length !== 1 ? "s" : ""} that need attention`, href: "/pages" });
   }
   if (weakest.length > 0) {
-    nextMoves.push({ label: `Add stronger content for ${weakest[0].topic.toLowerCase()} searches`, href: "/topics" });
+    nextMoves.push({ label: `Add stronger content for ${weakest[0].topic.toLowerCase()} searches`, href: "/competitors#opportunities" });
   }
   if (losses.length > 1) {
-    nextMoves.push({ label: `Create or improve your ${losses[1].topic.toLowerCase()} page`, href: "/topics" });
+    nextMoves.push({ label: `Create or improve your ${losses[1].topic.toLowerCase()} page`, href: "/competitors#opportunities" });
   }
   if (nextMoves.length === 0) {
     nextMoves.push({ label: "Review your website pages", href: "/pages" });

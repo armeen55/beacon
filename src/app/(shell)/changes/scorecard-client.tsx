@@ -116,6 +116,16 @@ export function ScorecardTable({
   allPlatforms: string[];
   changeIntel?: Record<string, ChangeIntelEntry>;
 }) {
+  type OutcomeCategory = "all" | "winners" | "mixed" | "no_lift" | "too_early";
+  const OUTCOME_VERDICTS: Record<OutcomeCategory, ChangeVerdict[]> = {
+    all: [],
+    winners: ["validated"],
+    mixed: ["partial", "inconclusive"],
+    no_lift: ["no_impact", "negative"],
+    too_early: ["too_early"],
+  };
+  const [outcomeCategory, setOutcomeCategory] = useState<OutcomeCategory>("all");
+
   const [sortField, setSortField] = useState<SortField>("score");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [verdictFilter, setVerdictFilter] = useState<ChangeVerdict | "all" | "actionable">(() => {
@@ -133,6 +143,10 @@ export function ScorecardTable({
 
   const filtered = useMemo(() => {
     return rows.filter((r) => {
+      if (outcomeCategory !== "all") {
+        const allowed = OUTCOME_VERDICTS[outcomeCategory];
+        if (!allowed.includes(r.verdict)) return false;
+      }
       if (verdictFilter === "actionable" && r.verdict === "too_early") return false;
       else if (verdictFilter !== "all" && verdictFilter !== "actionable" && r.verdict !== verdictFilter) return false;
       if (tierFilter !== "all" && r.evidenceTier !== tierFilter) return false;
@@ -142,7 +156,7 @@ export function ScorecardTable({
       if (beaconFilter && !changeIntel[r.change.id]?.beaconRecommended) return false;
       return true;
     });
-  }, [rows, verdictFilter, tierFilter, topicFilter, platformFilter, beaconFilter, changeIntel]);
+  }, [rows, outcomeCategory, verdictFilter, tierFilter, topicFilter, platformFilter, beaconFilter, changeIntel]);
 
   const IMPACT_CONF_ORDER: Record<ImpactConfidence, number> = {
     high: 0,
@@ -203,8 +217,37 @@ export function ScorecardTable({
     [rows]
   );
 
+  const winnerCount = rows.filter(r => r.verdict === "validated").length;
+  const mixedCount = rows.filter(r => r.verdict === "partial" || r.verdict === "inconclusive").length;
+  const noLiftCount = rows.filter(r => r.verdict === "no_impact" || r.verdict === "negative").length;
+  const tooEarlyCount = rows.filter(r => r.verdict === "too_early").length;
+
   return (
     <div>
+      {/* Outcome category tabs */}
+      <div className="flex items-center gap-1 mb-4 border-b border-border/40 pb-2 overflow-x-auto">
+        {([
+          { key: "all" as OutcomeCategory, label: "All changes", count: rows.length },
+          { key: "winners" as OutcomeCategory, label: "Proven winners", count: winnerCount },
+          { key: "mixed" as OutcomeCategory, label: "Mixed signals", count: mixedCount },
+          { key: "no_lift" as OutcomeCategory, label: "No measurable impact", count: noLiftCount },
+          { key: "too_early" as OutcomeCategory, label: "Too early", count: tooEarlyCount },
+        ] as const).filter(t => t.count > 0 || t.key === "all").map((tab) => (
+          <button
+            key={tab.key}
+            onClick={() => { setOutcomeCategory(tab.key); if (tab.key !== "all") setVerdictFilter("all"); }}
+            className={`px-3 py-1.5 rounded-md text-[11px] font-medium transition-colors whitespace-nowrap ${
+              outcomeCategory === tab.key
+                ? "bg-foreground text-background"
+                : "text-muted-foreground hover:text-foreground hover:bg-surface-inset/50"
+            }`}
+          >
+            {tab.label}
+            <span className="ml-1.5 text-[10px] opacity-60 tabular-nums">{tab.count}</span>
+          </button>
+        ))}
+      </div>
+
       <details className="group/mix mb-4 rounded-md border border-border/50 bg-surface-inset/20 px-3 py-2">
         <summary className="flex cursor-pointer list-none items-center gap-2 text-[11px] font-medium text-muted-foreground hover:text-foreground [&::-webkit-details-marker]:hidden">
           <span className="inline-block text-[9px] text-muted-foreground/50 transition-transform group-open/mix:rotate-90">▶</span>

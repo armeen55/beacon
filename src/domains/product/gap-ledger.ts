@@ -335,7 +335,7 @@ export function deriveGapLedgerFields(
       evidenceClass: "inferred_draft_idea",
       evidenceLine:
         "No citation-frontier package for this topic yet — only imported visibility/changelog signals.",
-      action: { label: "Open Review queue", href: "/review" },
+      action: { label: "Open Review queue", href: "/changes?tab=attribution" },
     };
     const {
       provenanceLines,
@@ -362,7 +362,7 @@ export function deriveGapLedgerFields(
     core = {
       evidenceClass: "competitor_asset_gap",
       evidenceLine: base + competitorAssetGapEvidenceSuffix(ctx, frontierCitationDomains),
-      action: { label: "Review gap detail", href: "/topics" },
+      action: { label: "Review gap detail", href: "/competitors#opportunities" },
     };
   } else if (
     move === "create_missing_page" ||
@@ -380,7 +380,7 @@ export function deriveGapLedgerFields(
         evidenceClass: "coverage_gap",
         evidenceLine:
           "Inventory + citation sample suggest no strong owned URL for this theme vs what competitors cite.",
-        action: { label: "Plan coverage in detail →", href: "/topics" },
+        action: { label: "Plan coverage in detail →", href: "/competitors#opportunities" },
       };
     }
   } else if (
@@ -401,7 +401,7 @@ export function deriveGapLedgerFields(
       evidenceClass: "inferred_draft_idea",
       evidenceLine:
         "Package move is exploratory — confirm against scanner and citation rows before shipping.",
-      action: { label: "Inspect gap detail →", href: "/topics" },
+      action: { label: "Inspect gap detail →", href: "/competitors#opportunities" },
     };
   }
 

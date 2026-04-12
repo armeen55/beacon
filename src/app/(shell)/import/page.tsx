@@ -21,6 +21,7 @@ import {
   importWorkbook,
   resetExperiment,
   getDataCoverage,
+  postImportSetup,
 } from "@/lib/import/actions";
 import { importProfoundData } from "@/adapters/profound/actions";
 import type { ProfoundImportResult } from "@/adapters/profound/import-orchestrator";
@@ -95,8 +96,18 @@ export default function ImportPage() {
     doWorkbookImport(file);
   };
 
+  const [setupResult, setSetupResult] = useState<{
+    success: boolean;
+    registryBuilt?: boolean;
+    scanRun?: boolean;
+    pagesRegistered?: number;
+    pagesScanned?: number;
+    error?: string;
+  } | null>(null);
+
   const doWorkbookImport = (file: File) => {
     setWbResult(null);
+    setSetupResult(null);
     startTransition(async () => {
       const fd = new FormData();
       fd.append("file", file);
@@ -108,6 +119,11 @@ export default function ImportPage() {
       ]);
       setCoverage(newCoverage);
       setRuns(history);
+
+      if (result.success) {
+        const setup = await postImportSetup();
+        setSetupResult(setup);
+      }
     });
   };
 
@@ -284,6 +300,21 @@ export default function ImportPage() {
             </div>
           )}
 
+          {setupResult && (
+            <div className="rounded border border-border/60 bg-background px-4 py-3 space-y-1">
+              <p className="text-[11px] font-semibold text-foreground">Post-import setup</p>
+              <div className="flex flex-wrap gap-3 text-[11px] text-muted-foreground">
+                <span className={setupResult.registryBuilt ? "text-status-success" : "text-muted-foreground/50"}>
+                  {setupResult.registryBuilt ? `Registry built (${setupResult.pagesRegistered ?? 0} pages)` : "Registry: skipped"}
+                </span>
+                <span className={setupResult.scanRun ? "text-status-success" : "text-muted-foreground/50"}>
+                  {setupResult.scanRun ? `Scan run (${setupResult.pagesScanned ?? 0} pages)` : "Scan: skipped"}
+                </span>
+              </div>
+              {setupResult.error && <p className="text-[10px] text-status-warning">{setupResult.error}</p>}
+            </div>
+          )}
+
           {wbResult.success && (
             <div className="space-y-2 pt-1">
               <div className="flex flex-wrap items-center gap-3">
@@ -301,7 +332,7 @@ export default function ImportPage() {
                 </Link>
                 <button
                   type="button"
-                  onClick={() => setWbResult(null)}
+                  onClick={() => { setWbResult(null); setSetupResult(null); }}
                   className="text-[11px] text-muted-foreground hover:text-foreground transition-colors"
                 >
                   Dismiss

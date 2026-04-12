@@ -237,8 +237,15 @@ export function ResultsClient({
     <div>
       <PageHeader
         title="History"
-        description="Every row is a raw visibility measurement. Suggested causes are separate — they do not change the measurement."
+        description="Raw visibility measurements over time. Suggested causes are separate — they do not change the measurement."
       />
+
+      <div className="flex items-center gap-1 mb-4 text-[11px]">
+        <Link href="/changes" className="px-3 py-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-surface-inset/50 font-medium transition-colors">
+          ← Outcomes
+        </Link>
+        <span className="px-3 py-1.5 rounded-md bg-foreground text-background font-semibold">Measurement detail</span>
+      </div>
 
       <div className="rounded-lg border border-border/60 bg-surface-raised/40 px-5 py-4 mb-6">
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">

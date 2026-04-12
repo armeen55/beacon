@@ -32,7 +32,7 @@ export default function ProposedBriefsPage() {
           Import a workbook to generate execution briefs from pattern intelligence.
         </p>
         <Link
-          href="/import"
+          href="/settings/import"
           className="text-[12px] text-accent-primary hover:underline font-medium"
         >
           Go to Import

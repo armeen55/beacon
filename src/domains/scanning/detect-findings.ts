@@ -3,10 +3,11 @@ import "server-only";
 import type { PageSnapshot } from "@/domains/pages/types";
 import type { GuardrailAlert } from "@/domains/pages/guardrails";
 import type { ChangelogEntry } from "@/domains/changelog/types";
-import type { Finding, FindingSeverity, FindingType } from "./types";
+import type { Finding, FindingPriority, FindingSeverity, FindingType } from "./types";
 import { diffSnapshots } from "@/domains/pages/snapshot-diff";
 
 type CitationLookup = Map<string, number>;
+type PreviouslyRejectedLookup = Set<string>;
 
 export function generateFindings(opts: {
   currentSnapshots: PageSnapshot[];
@@ -16,6 +17,8 @@ export function generateFindings(opts: {
   changelog: ChangelogEntry[];
   scanRunId: string;
   citationsByUrl?: CitationLookup;
+  homepageUrl?: string;
+  previouslyRejectedTypes?: PreviouslyRejectedLookup;
 }): Finding[] {
   const {
     currentSnapshots,
@@ -25,6 +28,8 @@ export function generateFindings(opts: {
     changelog,
     scanRunId,
     citationsByUrl,
+    homepageUrl,
+    previouslyRejectedTypes,
   } = opts;
 
   const findings: Finding[] = [];
@@ -44,6 +49,8 @@ export function generateFindings(opts: {
     changedUrls.add(key);
     const citations = citationsByUrl?.get(key) ?? 0;
     const isHighCitation = citations >= 10;
+    const isHP = homepageUrl ? norm(curr.url) === norm(homepageUrl) : curr.url.replace(/^https?:\/\/[^/]+\/?$/, "") === "";
+    const wasRejected = (type: FindingType) => previouslyRejectedTypes?.has(`${type}::${key}`) ?? false;
 
     if (diff.title_changed) {
       findings.push(makeFinding({
@@ -56,6 +63,7 @@ export function generateFindings(opts: {
         severity: "medium",
         summary: `Title changed: "${prev.title ?? "(none)"}" → "${curr.title ?? "(none)"}"`,
         suggestedAction: "Review whether the new title is intentional",
+        citationCount: citations, isHomepage: isHP, previouslyRejected: wasRejected("title_changed"),
       }));
     }
 
@@ -70,6 +78,7 @@ export function generateFindings(opts: {
         severity: "medium",
         summary: `Meta description changed on ${pathOf(curr.url)}`,
         suggestedAction: "Confirm new description matches page intent",
+        citationCount: citations, isHomepage: isHP, previouslyRejected: wasRejected("meta_changed"),
       }));
     }
 
@@ -84,6 +93,7 @@ export function generateFindings(opts: {
         severity: "medium",
         summary: `H1 changed: "${prev.h1 ?? "(none)"}" → "${curr.h1 ?? "(none)"}"`,
         suggestedAction: "Verify the H1 still matches page topic",
+        citationCount: citations, isHomepage: isHP, previouslyRejected: wasRejected("h1_changed"),
       }));
     }
 
@@ -98,6 +108,7 @@ export function generateFindings(opts: {
         severity: isHighCitation ? "high" : "medium",
         summary: `Canonical URL changed on ${pathOf(curr.url)}`,
         suggestedAction: "Ensure canonical is correct — incorrect canonicals can lose citations",
+        citationCount: citations, isHomepage: isHP, previouslyRejected: wasRejected("canonical_changed"),
       }));
     }
 
@@ -119,6 +130,7 @@ export function generateFindings(opts: {
         suggestedAction: disappeared
           ? "Check if Q&A removal was intentional — pages with Q&A tend to get more citations"
           : "Review Q&A content change",
+        citationCount: citations, isHomepage: isHP, previouslyRejected: wasRejected("faq_changed"),
       }));
     }
 
@@ -140,6 +152,7 @@ export function generateFindings(opts: {
         suggestedAction: disappeared
           ? "Verify schema removal was intentional"
           : "Review new schema types",
+        citationCount: citations, isHomepage: isHP, previouslyRejected: wasRejected("schema_changed"),
       }));
     }
 
@@ -157,6 +170,7 @@ export function generateFindings(opts: {
           severity: "medium",
           summary: `Content changed significantly on ${pathOf(curr.url)} (${wcDelta > 0 ? "+" : ""}${wcDelta} words)`,
           suggestedAction: "Review whether content change is expected",
+          citationCount: citations, isHomepage: isHP, previouslyRejected: wasRejected("content_changed"),
         }));
       }
     }
@@ -173,6 +187,7 @@ export function generateFindings(opts: {
         severity: "low",
         summary: `Internal links ${linkDelta > 0 ? "increased" : "decreased"} by ${Math.abs(linkDelta)} on ${pathOf(curr.url)}`,
         suggestedAction: "Check if link changes were part of a site update",
+        citationCount: citations, isHomepage: isHP, previouslyRejected: wasRejected("links_changed"),
       }));
     }
   }
@@ -185,6 +200,7 @@ export function generateFindings(opts: {
     const key = `${g.category}::${norm(g.url)}`;
     if (!prevGuardKeys.has(key)) {
       const citations = citationsByUrl?.get(norm(g.url)) ?? 0;
+      const isHP = homepageUrl ? norm(g.url) === norm(homepageUrl) : false;
       findings.push(makeFinding({
         type: "new_guardrail",
         url: g.url,
@@ -195,6 +211,7 @@ export function generateFindings(opts: {
         severity: citations >= 10 ? "high" : g.severity === "warning" ? "medium" : "low",
         summary: `New issue on ${pathOf(g.url)}: ${g.message}`,
         suggestedAction: "Open in Pages to see full detail",
+        citationCount: citations, isHomepage: isHP,
       }));
     }
   }
@@ -206,6 +223,7 @@ export function generateFindings(opts: {
   for (const g of previousGuardrails) {
     const key = `${g.category}::${norm(g.url)}`;
     if (!currGuardKeys.has(key)) {
+      const citations = citationsByUrl?.get(norm(g.url)) ?? 0;
       findings.push(makeFinding({
         type: "guardrail_cleared",
         url: g.url,
@@ -216,6 +234,7 @@ export function generateFindings(opts: {
         severity: "low",
         summary: `Issue resolved on ${pathOf(g.url)}: ${g.category}`,
         suggestedAction: "No action needed — previously detected issue is now resolved",
+        citationCount: citations,
       }));
     }
   }
@@ -240,6 +259,8 @@ export function generateFindings(opts: {
     }
 
     if (mismatches.length > 0) {
+      const citations = citationsByUrl?.get(norm(entry.url)) ?? 0;
+      const isHP = homepageUrl ? norm(entry.url) === norm(homepageUrl) : false;
       findings.push(makeFinding({
         type: "deploy_mismatch",
         url: entry.url,
@@ -250,6 +271,7 @@ export function generateFindings(opts: {
         severity: "high",
         summary: `Deploy mismatch on ${pathOf(entry.url)}: ${mismatches[0]}`,
         suggestedAction: "Verify whether the intended change actually reached production before creating new work",
+        citationCount: citations, isHomepage: isHP, contradictsChangelog: true,
       }));
     }
   }
@@ -272,6 +294,8 @@ export function generateFindings(opts: {
       }
       if (existingTypes.length === 0) continue;
 
+      const citations = citationsByUrl?.get(changedUrl) ?? 0;
+      const isHP = homepageUrl ? changedUrl === norm(homepageUrl) : false;
       findings.push(makeFinding({
         type: "unexpected_change",
         url: snap.url,
@@ -282,10 +306,12 @@ export function generateFindings(opts: {
         severity: "medium",
         summary: `Unexpected changes on ${pathOf(snap.url)} — no matching changelog entry`,
         suggestedAction: "Check if a team member made changes without logging them",
+        citationCount: citations, isHomepage: isHP,
       }));
     }
   }
 
+  findings.sort((a, b) => b.priorityScore - a.priorityScore);
   return findings;
 }
 
@@ -299,7 +325,26 @@ function makeFinding(opts: {
   severity: FindingSeverity;
   summary: string;
   suggestedAction: string;
+  citationCount?: number;
+  isHomepage?: boolean;
+  contradictsChangelog?: boolean;
+  previouslyRejected?: boolean;
 }): Finding {
+  const citationCount = opts.citationCount ?? 0;
+  const isHomepage = opts.isHomepage ?? false;
+  const contradictsChangelog = opts.contradictsChangelog ?? false;
+
+  const priorityScore = computePriorityScore({
+    severity: opts.severity,
+    type: opts.type,
+    citationCount,
+    isHomepage,
+    contradictsChangelog,
+    previouslyRejected: opts.previouslyRejected ?? false,
+  });
+
+  const priority = scoreToPriority(priorityScore);
+
   return {
     id: `${opts.type}-${norm(opts.url)}-${opts.scanRunId}`,
     type: opts.type,
@@ -310,12 +355,63 @@ function makeFinding(opts: {
     previousState: opts.previousState,
     currentState: opts.currentState,
     severity: opts.severity,
+    priority,
+    priorityScore,
     summary: opts.summary,
     suggestedAction: opts.suggestedAction,
     status: "pending",
     resolvedAt: null,
     linkedChangeId: null,
+    promotionStatus: "none",
+    resolutionNote: null,
+    suppressUntil: null,
+    citationCount,
+    isHomepage,
+    contradictsChangelog,
   };
+}
+
+function computePriorityScore(opts: {
+  severity: FindingSeverity;
+  type: FindingType;
+  citationCount: number;
+  isHomepage: boolean;
+  contradictsChangelog: boolean;
+  previouslyRejected: boolean;
+}): number {
+  let score = 0;
+
+  if (opts.severity === "high") score += 40;
+  else if (opts.severity === "medium") score += 20;
+  else score += 5;
+
+  if (opts.isHomepage) score += 25;
+  if (opts.citationCount >= 100) score += 30;
+  else if (opts.citationCount >= 50) score += 20;
+  else if (opts.citationCount >= 10) score += 10;
+  else if (opts.citationCount >= 1) score += 3;
+
+  if (opts.contradictsChangelog) score += 20;
+
+  const HIGH_IMPACT_TYPES: FindingType[] = [
+    "deploy_mismatch", "title_changed", "canonical_changed", "unexpected_change",
+  ];
+  const MEDIUM_IMPACT_TYPES: FindingType[] = [
+    "meta_changed", "h1_changed", "schema_changed", "faq_changed",
+  ];
+  if (HIGH_IMPACT_TYPES.includes(opts.type)) score += 15;
+  else if (MEDIUM_IMPACT_TYPES.includes(opts.type)) score += 8;
+
+  if (opts.previouslyRejected) score -= 15;
+
+  return Math.max(0, score);
+}
+
+function scoreToPriority(score: number): FindingPriority {
+  if (score >= 60) return "critical";
+  if (score >= 35) return "important";
+  if (score >= 15) return "minor";
+  return "informational";
 }
 
 function norm(url: string): string {

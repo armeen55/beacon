@@ -1,18 +1,21 @@
 "use client";
 
-import { useState, useEffect, useRef, useTransition, type ReactNode } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useTransition, type ReactNode } from "react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import type { TodaySummary } from "@/lib/today-summary";
 import type { ChangeVerdict, ImpactConfidence, ImpactDirection } from "@/domains/attribution/types";
-import { PlatformSplit } from "@/components/viz/platform-split";
-import { MiniBarChart } from "@/components/viz/mini-bar-chart";
-import { KpiCard } from "@/components/viz/kpi-card";
 import { ConfidenceBadge } from "@/components/viz/confidence-badge";
-import { FINDING_TYPE_LABELS } from "@/domains/scanning/types";
+import { FINDING_TYPE_LABELS, FINDING_PRIORITY_LABELS, PROMOTION_STATUS_LABELS } from "@/domains/scanning/types";
+import type { FindingPriority, PromotionStatus } from "@/domains/scanning/types";
+import { TodayPerformance, type TodayPerformanceProps } from "./today-performance";
+import { HowWeKnowPanel } from "@/components/today/how-we-know-panel";
+import type { TodayProofContext } from "@/lib/today-proof-context";
+import { deriveCoverageTone } from "@/lib/today-proof-context";
+import { shouldShowTodayAllClear } from "@/lib/today-ritual";
+import { ReplicationCardsClient } from "@/components/replication/replication-cards-client";
 
-type SerializedFinding = {
+export type SerializedFinding = {
   id: string;
   type: string;
   url: string;
@@ -21,9 +24,19 @@ type SerializedFinding = {
   previousState: string | null;
   currentState: string | null;
   severity: "high" | "medium" | "low";
+  priority: FindingPriority;
+  priorityScore: number;
   summary: string;
   suggestedAction: string;
   status: string;
+  promotionStatus: PromotionStatus;
+  citationCount: number;
+  isHomepage: boolean;
+  contradictsChangelog: boolean;
+  /** Tier 1A: crawl comparison provenance */
+  scanRunId?: string;
+  provenanceSummary?: string;
+  crawlProofHref?: string | null;
 };
 
 export type TodayImpactItem = {
@@ -52,6 +65,8 @@ export type TodayRecommendation = {
   href: string;
   responseStatus?: RecResponseStatus;
   confidenceReason?: string;
+  /** Tier 1A: compact basis lines (same builder as primary) */
+  lineageBullets?: string[];
 };
 
 export type TodayPrimaryAction = {
@@ -73,6 +88,10 @@ export type TodayPrimaryAction = {
   targetPageUrl?: string | null;
   targetPagePath?: string | null;
   baselineCitations?: number | null;
+  /** Tier 1A: link to scorecard row when recommendation is grounded in a change */
+  sourceChangeId?: string | null;
+  /** Tier 1A: bullet list shown under primary card */
+  lineageBullets?: string[];
 };
 
 export type TodayExperiment = {
@@ -89,6 +108,13 @@ export type TodayExperiment = {
   baselineCitations: number | null;
   latestCitations: number | null;
   citDelta: number | null;
+};
+
+export type TodayMilestoneTeaser = {
+  title: string;
+  subtitle: string;
+  proofSummary: string;
+  achievedAt: string;
 };
 
 export type TodayTrackRecord = {
@@ -399,53 +425,29 @@ const REC_ACCENT: Record<string, { border: string; bg: string; dot: string; labe
 
 export function TodayClient({
   summary,
-  visibilitySummary,
-  items,
-  impactSignals = [],
-  recommendedMoves = [],
   primaryAction = null,
-  trackRecord = null,
-  onUpdateIssue,
-  onVerifyIssue,
   onRespondToRec,
-  experiments = [],
   onStartExperiment,
-  onUpdateExperiment,
   pendingFindings = [],
+  acceptedFindings = [],
   resolvedFindingsCount = 0,
   scanRanThisLoad = false,
   scanResult,
   onResolveFinding,
-  scanSettings,
-  onSaveScanSettings,
+  onPromoteFinding,
+  performanceData,
+  proofContext,
+  secondaryRecommendations = [],
+  replicationCards = [],
+  localUrgentStrip = null,
+  milestoneTeaser = null,
 }: {
   summary: TodaySummary;
-  visibilitySummary?: VisibilitySummary;
-  items: TodayQueueItem[];
-  impactSignals?: TodayImpactItem[];
-  recommendedMoves?: TodayRecommendation[];
   primaryAction?: TodayPrimaryAction | null;
-  trackRecord?: TodayTrackRecord | null;
-  onUpdateIssue?: (
-    issueId: string,
-    status: string,
-    meta?: { pageUrl?: string; pagePath?: string }
-  ) => Promise<{ success: boolean }>;
-  onVerifyIssue?: (
-    issueId: string,
-    pageUrl: string
-  ) => Promise<{
-    success: boolean;
-    cleared: boolean;
-    remaining: string[];
-    summary: string;
-    error?: string;
-  }>;
   onRespondToRec?: (
     recId: string,
     status: "accepted" | "dismissed" | "deferred"
   ) => Promise<{ success: boolean }>;
-  experiments?: TodayExperiment[];
   onStartExperiment?: (opts: {
     recId: string;
     headline: string;
@@ -455,221 +457,231 @@ export function TodayClient({
     watchAfter: string;
     operatorNote: string;
     baselineCitations: number | null;
+    replicationSourceChangeId?: string | null;
+    replicationPatternId?: string | null;
+    replicationEvidenceTier?: "observed" | "mixed" | "inferred";
   }) => Promise<{ success: boolean; experimentId: string }>;
-  onUpdateExperiment?: (
-    id: string,
-    status: "testing" | "watching" | "promising" | "inconclusive" | "negative" | "dropped"
-  ) => Promise<{ success: boolean }>;
   pendingFindings?: SerializedFinding[];
+  acceptedFindings?: SerializedFinding[];
   resolvedFindingsCount?: number;
   scanRanThisLoad?: boolean;
   scanResult?: { pagesScanned?: number; pagesChanged?: number; alertCount?: number };
-  onResolveFinding?: (findingId: string, status: string) => Promise<{ success: boolean }>;
-  scanSettings?: { preferredHour: number; timezone: string; scope: string; enabled: boolean };
-  onSaveScanSettings?: (patch: Record<string, unknown>) => Promise<{ success: boolean }>;
+  onResolveFinding?: (findingId: string, status: string, opts?: { resolutionNote?: string; suppressDays?: number }) => Promise<{ success: boolean; consequence?: string }>;
+  onPromoteFinding?: (findingId: string, promotionStatus: string) => Promise<{ success: boolean }>;
+  performanceData?: TodayPerformanceProps | null;
+  proofContext: TodayProofContext;
+  secondaryRecommendations?: TodayRecommendation[];
+  replicationCards?: import("@/domains/product/replication-serialize").SerializedReplicationCard[];
+  localUrgentStrip?: import("@/domains/local-operator/types").LocalTodayUrgentStrip | null;
+  milestoneTeaser?: TodayMilestoneTeaser | null;
 }) {
-  const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [actionMsg, setActionMsg] = useState<string | null>(null);
-
-  const groups = Object.entries(GROUP_CONFIG)
-    .map(([key, cfg]) => ({
-      key,
-      label: cfg.label,
-      order: cfg.order,
-      items: items.filter((i) => (i.plainGroup ?? "fix_this") === key),
-    }))
-    .filter((g) => g.items.length > 0)
-    .sort((a, b) => a.order - b.order);
-
-  const flatItems = groups.flatMap((g) => g.items);
-  const [selectedIdx, setSelectedIdx] = useState(0);
-  const selected = flatItems[selectedIdx] ?? null;
-  const queueWork = items.filter(
-    (i) => i.plainGroup !== "wins" && i.group !== "waiting"
-  ).length;
-
-  const flatItemsRef = useRef(flatItems);
-  const selectedIdxRef = useRef(selectedIdx);
-  useEffect(() => {
-    flatItemsRef.current = flatItems;
-    selectedIdxRef.current = selectedIdx;
-  }, [flatItems, selectedIdx]);
-
-  useEffect(() => {
-    const url = selectedIdx > 0 ? `/?i=${selectedIdx}` : "/";
-    window.history.replaceState(null, "", url);
-  }, [selectedIdx]);
-
-  useEffect(() => {
-    function handleKey(e: KeyboardEvent) {
-      const target = e.target as HTMLElement;
-      if (
-        target.tagName === "INPUT" ||
-        target.tagName === "TEXTAREA" ||
-        target.isContentEditable
-      )
-        return;
-      const len = flatItemsRef.current.length;
-      if (e.key === "j" || e.key === "ArrowDown") {
-        e.preventDefault();
-        setSelectedIdx((i) => Math.min(i + 1, Math.max(0, len - 1)));
-      } else if (e.key === "k" || e.key === "ArrowUp") {
-        e.preventDefault();
-        setSelectedIdx((i) => Math.max(i - 1, 0));
-      } else if (e.key === "Enter") {
-        const sel = flatItemsRef.current[selectedIdxRef.current];
-        if (sel) {
-          e.preventDefault();
-          router.push(sel.href);
-        }
-      }
-    }
-    window.addEventListener("keydown", handleKey);
-    return () => window.removeEventListener("keydown", handleKey);
-  }, [router]);
-
-  useEffect(() => {
-    const el = document.querySelector(`[data-today-idx="${selectedIdx}"]`);
-    if (el) el.scrollIntoView({ block: "nearest" });
-  }, [selectedIdx]);
 
   const crawl = summary.crawl;
   const vis = summary.visibility;
   const run = crawl.activeObservationRun;
-  const [systemOpen, setSystemOpen] = useState(false);
-  const [queueOpen, setQueueOpen] = useState(false);
-
-  const importFreshness = (() => {
-    if (!visibilitySummary?.latestImportDate) return null;
-    const daysOld = Math.floor((new Date().getTime() - new Date(visibilitySummary.latestImportDate).getTime()) / 86_400_000);
-    return { daysOld, stale: daysOld > 7 };
-  })();
 
   const crawlAgeDays = run?.completed_at
     ? Math.floor((Date.now() - new Date(run.completed_at).getTime()) / 86_400_000)
     : null;
   const crawlStale = crawlAgeDays !== null && crawlAgeDays > 14;
   const visStale = vis.staleVsCrawl;
-  const dataStale = importFreshness?.stale || crawlStale || visStale;
+  const coverageTone = deriveCoverageTone(proofContext);
+
+  const reviewPending = summary.reviewHeuristicLine.match(/(\d+)\s*pending/)?.[1] ?? null;
+
+  const allClear = shouldShowTodayAllClear({
+    pendingFindingsCount: pendingFindings.length,
+    hasPrimaryAction: !!primaryAction,
+    primaryResponseStatus: primaryAction?.responseStatus ?? null,
+    crawlStale,
+    visibilityStaleVsCrawl: visStale,
+    coverageTone,
+  });
 
   return (
     <div className="space-y-6">
-      {/* ── Scan status banner ── */}
-      {scanRanThisLoad && scanResult && (
-        <div className="rounded-lg border border-status-success/30 bg-status-success/[0.05] px-4 py-3">
-          <p className="text-[12px] text-foreground">
-            <span className="font-semibold text-status-success">Scan complete.</span>{" "}
-            {scanResult.pagesScanned ?? 0} pages scanned
-            {(scanResult.pagesChanged ?? 0) > 0 && <> · <span className="font-semibold">{scanResult.pagesChanged} changed</span></>}
-            {(scanResult.alertCount ?? 0) > 0 && <> · <span className="text-status-warning font-medium">{scanResult.alertCount} alerts</span></>}
-          </p>
+      {/* ── Scan confirmation banner ── */}
+      {localUrgentStrip && (
+        <div className="rounded-lg border-2 border-status-warning/35 bg-status-warning/[0.05] px-4 py-3">
+          <p className="text-[11px] font-bold text-status-warning">{localUrgentStrip.title}</p>
+          <p className="text-[11px] text-muted-foreground mt-1 leading-relaxed">{localUrgentStrip.body}</p>
+          <Link
+            href={localUrgentStrip.href}
+            className="inline-block mt-2 text-[11px] font-semibold text-accent-primary hover:underline"
+          >
+            Open local tasks →
+          </Link>
         </div>
       )}
 
-      {/* ── Since last scan: findings approval queue ── */}
-      {pendingFindings.length > 0 && (
-        <div className="rounded-lg border border-border/70 overflow-hidden">
-          <div className="px-4 py-3 bg-surface-inset/30 border-b border-border/40 flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <span className="h-2 w-2 rounded-full bg-accent-primary animate-pulse" />
-              <p className="text-[13px] font-semibold text-foreground">Since last scan</p>
-              <span className="text-[11px] font-medium text-accent-primary bg-accent-primary/10 rounded-full px-2 py-0.5">
-                {pendingFindings.length} pending
-              </span>
+      {scanRanThisLoad && scanResult && (
+        <div className="rounded-lg border-2 border-status-success/40 bg-status-success/[0.06] px-4 py-3.5">
+          <div className="flex items-center gap-3">
+            <span className="h-3 w-3 rounded-full bg-status-success animate-pulse shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-[13px] font-bold text-status-success">
+                Scan complete — {new Date().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
+              </p>
+              <p className="text-[12px] text-foreground mt-0.5">
+                {scanResult.pagesScanned ?? 0} pages checked
+                {(scanResult.pagesChanged ?? 0) > 0 ? (
+                  <> · <span className="font-bold text-accent-primary">{scanResult.pagesChanged} changed</span></>
+                ) : (
+                  <> · <span className="text-status-success font-medium">no changes</span></>
+                )}
+                {(scanResult.alertCount ?? 0) > 0 && <> · <span className="font-semibold text-status-warning">{scanResult.alertCount} new alert{scanResult.alertCount !== 1 ? "s" : ""}</span></>}
+                {pendingFindings.length > 0 && <> · <span className="font-bold text-accent-primary">{pendingFindings.length} finding{pendingFindings.length !== 1 ? "s" : ""} to review</span></>}
+              </p>
             </div>
-            {resolvedFindingsCount > 0 && (
-              <span className="text-[10px] text-muted-foreground">{resolvedFindingsCount} resolved</span>
+          </div>
+        </div>
+      )}
+
+      <HowWeKnowPanel context={proofContext} variant="today" />
+      <p className="text-[10px] text-muted-foreground px-0.5 -mt-2">
+        <span className="font-medium text-foreground/90">Morning order:</span>{" "}
+        clear scan findings → act on the top move (see Basis) → skim performance. Use Changes → Attribution when you need “why visibility moved.”
+      </p>
+
+      {milestoneTeaser && (
+        <div className="rounded-lg border border-border/55 bg-surface-inset/25 px-4 py-3">
+          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+            Recent record
+          </p>
+          <p className="text-[13px] font-semibold text-foreground mt-1.5 leading-snug">
+            {milestoneTeaser.title}
+          </p>
+          <p className="text-[11px] text-muted-foreground mt-1 leading-relaxed">
+            {milestoneTeaser.subtitle}
+          </p>
+          <p className="text-[10px] text-muted-foreground/90 mt-2 leading-relaxed">
+            {milestoneTeaser.proofSummary}
+          </p>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2">
+            <span className="text-[9px] text-muted-foreground tabular-nums">
+              {new Date(milestoneTeaser.achievedAt).toLocaleDateString(undefined, {
+                month: "short",
+                day: "numeric",
+                year: "numeric",
+              })}
+            </span>
+            <Link
+              href="/changes"
+              className="text-[10px] font-medium text-accent-primary hover:underline"
+            >
+              Full history on Changes →
+            </Link>
+          </div>
+        </div>
+      )}
+
+      {/* ── 1. Since last scan: findings verdict ── */}
+      {pendingFindings.length === 0 && !scanRanThisLoad && (
+        <div className="rounded-lg border border-border/60 overflow-hidden">
+          <div className="px-4 py-3 bg-surface-inset/20 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <span className="h-2 w-2 rounded-full bg-status-success" />
+              <p className="text-[13px] font-semibold text-foreground">Since last scan</p>
+              <span className="text-[11px] text-status-success font-medium">All clear</span>
+            </div>
+            {run?.completed_at && (
+              <span className="text-[10px] text-muted-foreground tabular-nums">
+                {new Date(run.completed_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}{" "}
+                {new Date(run.completed_at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
+                {crawlAgeDays !== null && crawlAgeDays > 0 && (
+                  <span className="text-muted-foreground/60"> ({crawlAgeDays}d ago)</span>
+                )}
+              </span>
             )}
           </div>
-          <div className="divide-y divide-border/40">
-            {pendingFindings.map((f) => (
-              <FindingRow key={f.id} finding={f} onResolve={onResolveFinding} />
+          <div className="px-4 py-2.5 text-[12px] text-muted-foreground">
+            Nothing changed since the last scan. All pages match their previous state.
+            {resolvedFindingsCount > 0 && (
+              <span className="ml-1 text-foreground font-medium">{resolvedFindingsCount} previously resolved.</span>
+            )}
+          </div>
+        </div>
+      )}
+      {pendingFindings.length > 0 && (() => {
+        const criticalFindings = pendingFindings.filter((f) => f.priority === "critical");
+        const importantFindings = pendingFindings.filter((f) => f.priority === "important");
+        const minorFindings = pendingFindings.filter((f) => f.priority === "minor");
+        const infoFindings = pendingFindings.filter((f) => f.priority === "informational");
+        const fGroups = [
+          { key: "critical", label: "Critical", findings: criticalFindings, accent: "text-status-danger", dot: "bg-status-danger" },
+          { key: "important", label: "Important", findings: importantFindings, accent: "text-status-warning", dot: "bg-status-warning" },
+          { key: "minor", label: "Minor", findings: minorFindings, accent: "text-muted-foreground", dot: "bg-muted-foreground/50" },
+          { key: "informational", label: "FYI", findings: infoFindings, accent: "text-muted-foreground/60", dot: "bg-muted-foreground/30" },
+        ].filter((g) => g.findings.length > 0);
+        const hasCritical = criticalFindings.length > 0;
+        const headerText = hasCritical
+          ? `${criticalFindings.length} critical issue${criticalFindings.length !== 1 ? "s" : ""} need attention`
+          : importantFindings.length > 0
+            ? `${pendingFindings.length} change${pendingFindings.length !== 1 ? "s" : ""} detected — review needed`
+            : `${pendingFindings.length} finding${pendingFindings.length !== 1 ? "s" : ""} since last scan`;
+        return (
+          <div className={cn(
+            "rounded-lg border-2 overflow-hidden",
+            hasCritical ? "border-status-danger/40" : "border-border/70",
+          )}>
+            <div className={cn(
+              "px-4 py-3 border-b border-border/40 flex items-center justify-between gap-3",
+              hasCritical ? "bg-status-danger/[0.06]" : "bg-surface-inset/30",
+            )}>
+              <div className="flex items-center gap-2">
+                <span className={cn(
+                  "h-2.5 w-2.5 rounded-full animate-pulse",
+                  hasCritical ? "bg-status-danger" : "bg-accent-primary",
+                )} />
+                <p className={cn(
+                  "text-[13px] font-bold",
+                  hasCritical ? "text-status-danger" : "text-foreground",
+                )}>
+                  {headerText}
+                </p>
+              </div>
+              {resolvedFindingsCount > 0 && (
+                <span className="text-[10px] text-muted-foreground">{resolvedFindingsCount} resolved</span>
+              )}
+            </div>
+            {fGroups.map((g) => (
+              <div key={g.key}>
+                <div className="px-4 py-1.5 bg-surface-inset/10 border-b border-border/30 flex items-center gap-2">
+                  <span className={cn("h-1.5 w-1.5 rounded-full", g.dot)} />
+                  <span className={cn("text-[10px] font-semibold uppercase tracking-wider", g.accent)}>
+                    {g.label} · {g.findings.length}
+                  </span>
+                </div>
+                <div className="divide-y divide-border/40">
+                  {g.findings.map((f) => (
+                    <FindingRow key={f.id} finding={f} onResolve={onResolveFinding} onPromote={onPromoteFinding} />
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        );
+      })()}
+
+      {/* Accepted findings awaiting promotion */}
+      {acceptedFindings.length > 0 && acceptedFindings.some((f) => f.promotionStatus === "none") && (
+        <div className="rounded-lg border border-status-success/30 overflow-hidden">
+          <div className="px-4 py-2.5 bg-status-success/[0.03] border-b border-status-success/20 flex items-center gap-2">
+            <span className="h-1.5 w-1.5 rounded-full bg-status-success" />
+            <p className="text-[12px] font-semibold text-foreground">Accepted — decide what to do</p>
+            <span className="text-[10px] text-muted-foreground">{acceptedFindings.filter((f) => f.promotionStatus === "none").length} awaiting</span>
+          </div>
+          <div className="divide-y divide-border/30">
+            {acceptedFindings.filter((f) => f.promotionStatus === "none").map((f) => (
+              <FindingRow key={f.id} finding={f} onPromote={onPromoteFinding} showPromotionOnly />
             ))}
           </div>
         </div>
       )}
 
-      {pendingFindings.length === 0 && !scanRanThisLoad && run && (
-        <div className="flex items-center gap-2 text-[11px] text-muted-foreground px-1">
-          <span className="h-1.5 w-1.5 rounded-full bg-status-success" />
-          Last scan: {crawlAgeDays === 0 ? "today" : crawlAgeDays === 1 ? "yesterday" : `${crawlAgeDays}d ago`}
-          {run.completed_at && (
-            <span className="text-muted-foreground/60">
-              {new Date(run.completed_at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
-            </span>
-          )}
-          · nothing new
-        </div>
-      )}
-
-      {/* ── 0. Stale / freshness warnings — always visible ── */}
-      {dataStale && (
-        <div className="rounded-lg border border-status-warning/30 bg-status-warning/[0.05] px-4 py-3 space-y-1.5">
-          <p className="text-[12px] font-semibold text-status-warning">Data freshness</p>
-          {crawlStale && (
-            <p className="text-[11px] text-foreground leading-relaxed">
-              Last crawl was <span className="font-semibold">{crawlAgeDays} days ago</span>.
-              Page structure data may not reflect current production HTML.
-              <Link href="/pages" className="text-accent-primary hover:underline font-medium ml-1">Run crawl →</Link>
-            </p>
-          )}
-          {!crawlStale && crawlAgeDays !== null && !visStale && importFreshness?.stale && (
-            <p className="text-[11px] text-foreground leading-relaxed">
-              Visibility data is <span className="font-semibold">{importFreshness.daysOld} days old</span>.
-              Citation and mention counts may have changed.
-              <Link href="/import" className="text-accent-primary hover:underline font-medium ml-1">Import fresh data →</Link>
-            </p>
-          )}
-          {visStale && vis.staleNote && (
-            <p className="text-[11px] text-foreground leading-relaxed">{vis.staleNote}</p>
-          )}
-        </div>
-      )}
-
-      {/* ── 1. Visibility summary — KPI strip + platform visual ── */}
-      {visibilitySummary && visibilitySummary.resultCount > 0 && (
-        <div className="space-y-3">
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-            <KpiCard
-              label="Citations"
-              value={visibilitySummary.totalCitations}
-              delta={visibilitySummary.trendPct}
-              deltaSuffix="%"
-              size="lg"
-            />
-            <KpiCard
-              label="Mentions"
-              value={visibilitySummary.totalMentions}
-              meta={visibilitySummary.dateRange ? `${visibilitySummary.dateRange.from} → ${visibilitySummary.dateRange.to}` : undefined}
-            />
-            <KpiCard
-              label="Platforms"
-              value={visibilitySummary.platformBreakdown.length}
-              meta={visibilitySummary.platformBreakdown.slice(0, 2).map((p) => p.label).join(", ")}
-            />
-            <KpiCard
-              label="Snapshots"
-              value={visibilitySummary.resultCount}
-              meta={importFreshness ? (importFreshness.stale ? `${importFreshness.daysOld}d old` : `${importFreshness.daysOld}d ago`) : undefined}
-            />
-          </div>
-          {visibilitySummary.platformBreakdown.length > 1 && (
-            <div className="rounded-lg border border-border/40 px-4 py-3">
-              <PlatformSplit
-                entries={visibilitySummary.platformBreakdown.slice(0, 5).map((p) => ({
-                  platform: p.platform,
-                  label: p.label,
-                  value: p.citations > 0 ? p.citations : p.mentions,
-                }))}
-                title="Platform distribution"
-              />
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ── 2. Primary action ── */}
+      {/* ── 2. Primary action — always visible, above the fold ── */}
       {primaryAction ? (() => {
         const bs = BUCKET_STYLE[primaryAction.bucket] ?? BUCKET_STYLE.opportunistic;
         return (
@@ -695,6 +707,26 @@ export function TodayClient({
               {primaryAction.confidenceReason && <span> · {primaryAction.confidenceReason}</span>}
               {primaryAction.dataFreshness && <span> · {primaryAction.dataFreshness.toLowerCase()}</span>}
             </p>
+            {(primaryAction.lineageBullets && primaryAction.lineageBullets.length > 0) && (
+              <div className="mt-3 rounded-md border border-border/40 bg-surface-inset/20 px-3 py-2">
+                <p className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">Basis</p>
+                <ul className="list-disc pl-4 space-y-0.5 text-[11px] text-muted-foreground">
+                  {primaryAction.lineageBullets.map((line, i) => (
+                    <li key={i}>{line}</li>
+                  ))}
+                </ul>
+                {primaryAction.sourceChangeId && (
+                  <p className="mt-1.5 text-[10px]">
+                    <Link
+                      href={`/changes/${encodeURIComponent(primaryAction.sourceChangeId)}`}
+                      className="text-accent-primary hover:underline font-medium"
+                    >
+                      View change record →
+                    </Link>
+                  </p>
+                )}
+              </div>
+            )}
             {primaryAction.watchAfter && (
               <p className="text-[11px] text-muted-foreground/50 mt-1">
                 Watch after: {primaryAction.watchAfter.charAt(0).toLowerCase() + primaryAction.watchAfter.slice(1)}
@@ -720,7 +752,7 @@ export function TodayClient({
                             operatorNote: note,
                             baselineCitations: primaryAction.baselineCitations ?? null,
                           });
-                          setActionMsg("Accepted & tracking — added to watchlist.");
+                          setActionMsg("Accepted & tracking — experiment started.");
                         });
                       }}
                       disabled={pending}
@@ -729,18 +761,17 @@ export function TodayClient({
                       Accept & test →
                     </button>
                   )}
-                  {onRespondToRec && (
+                  {onRespondToRec && !onStartExperiment && (
                     <button
                       onClick={() => startTransition(async () => { await onRespondToRec(primaryAction.id, "accepted"); setActionMsg("Accepted."); })}
                       disabled={pending}
-                      className="text-[11px] font-medium text-muted-foreground hover:text-foreground transition-colors"
+                      className="inline-flex items-center gap-2 rounded-md bg-foreground px-5 py-2.5 text-[13px] font-semibold text-background hover:opacity-90 transition-opacity"
                     >
-                      Accept only
+                      Accept →
                     </button>
                   )}
                   {onRespondToRec && (
                     <>
-                      <span className="text-border">·</span>
                       <button
                         onClick={() => startTransition(async () => { await onRespondToRec(primaryAction.id, "deferred"); setActionMsg("Deferred."); })}
                         disabled={pending}
@@ -765,40 +796,16 @@ export function TodayClient({
                     href={primaryAction.href}
                     className="inline-flex items-center gap-2 rounded-md bg-foreground px-5 py-2.5 text-[13px] font-semibold text-background hover:opacity-90 transition-opacity"
                   >
-                    {primaryAction.hasExperiment ? "Continue" : "Go"} →
+                    Go →
                   </Link>
-                  {!primaryAction.hasExperiment && onStartExperiment && (
-                    <button
-                      onClick={() => {
-                        const note = prompt("What did you change? (short note)");
-                        if (note === null) return;
-                        startTransition(async () => {
-                          await onStartExperiment({
-                            recId: primaryAction.id,
-                            headline: primaryAction.headline,
-                            recType: primaryAction.type,
-                            targetPageUrl: primaryAction.targetPageUrl ?? null,
-                            targetPagePath: primaryAction.targetPagePath ?? null,
-                            watchAfter: primaryAction.watchAfter ?? "",
-                            operatorNote: note,
-                            baselineCitations: primaryAction.baselineCitations ?? null,
-                          });
-                          setActionMsg("Experiment started — added to watchlist.");
-                        });
-                      }}
-                      disabled={pending}
-                      className="text-[11px] font-medium text-accent-primary hover:text-accent-primary/80 transition-colors"
-                    >
-                      Start testing
-                    </button>
-                  )}
                   <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-status-success">
                     <span className="h-1.5 w-1.5 rounded-full bg-status-success" />
-                    {primaryAction.hasExperiment ? "Testing" : "Accepted"}
+                    Accepted
                   </span>
                 </>
               )}
             </div>
+            {actionMsg && <p className="text-[10px] text-status-success mt-2 font-medium">{actionMsg}</p>}
           </div>
         );
       })() : (
@@ -816,373 +823,116 @@ export function TodayClient({
         </div>
       )}
 
-      {/* ── 3. Track record (momentum) ── */}
-      {trackRecord && (trackRecord.totalActedOn > 0 || (trackRecord.totalExplicitAccepted ?? 0) > 0 || (trackRecord.outcomeTotal ?? 0) > 0) && (
-        <div className="rounded-lg border border-border/40 px-4 py-3 space-y-2">
-          <div className="flex items-center justify-between gap-3">
-            <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Momentum</span>
-            {trackRecord.outcomeAvgDelta !== null && trackRecord.outcomeAvgDelta !== undefined && (
-              <span className={cn(
-                "text-[11px] font-bold tabular-nums",
-                trackRecord.outcomeAvgDelta > 0 ? "text-status-success" : trackRecord.outcomeAvgDelta < 0 ? "text-status-danger" : "text-muted-foreground",
-              )}>
-                {trackRecord.outcomeAvgDelta > 0 ? "+" : ""}{trackRecord.outcomeAvgDelta} cit/action
-              </span>
-            )}
-          </div>
-          {((trackRecord.totalExplicitAccepted ?? 0) > 0 || trackRecord.totalActedOn > 0 || trackRecord.totalValidated > 0) && (
-            <MiniBarChart
-              entries={[
-                ...(trackRecord.totalExplicitAccepted ? [{ label: "Accepted", value: trackRecord.totalExplicitAccepted, color: "bg-accent-primary" }] : []),
-                ...(trackRecord.totalActedOn > 0 ? [{ label: "Acted on", value: trackRecord.totalActedOn, color: "bg-muted-foreground/30" }] : []),
-                ...(trackRecord.totalValidated > 0 ? [{ label: "Confirmed positive", value: trackRecord.totalValidated, color: "bg-status-success" }] : []),
-                ...((trackRecord.outcomeTotal ?? 0) > 0 ? [{ label: "Total outcomes", value: trackRecord.outcomeTotal!, color: "bg-border/40", meta: trackRecord.outcomePositiveRate !== null && trackRecord.outcomePositiveRate !== undefined ? `${Math.round(trackRecord.outcomePositiveRate * 100)}% positive rate` : "Not enough resolved data for rates" }] : []),
-              ]}
-              height={5}
-            />
-          )}
-        </div>
+      {secondaryRecommendations.length > 0 && (
+        <SecondaryOpportunities
+          moves={secondaryRecommendations}
+          onRespond={onRespondToRec}
+        />
       )}
 
-      {/* ── 3b. Watchlist / experiments ── */}
-      {experiments && experiments.length > 0 && (
-        <section className="pt-3 border-t border-border/40">
-          <div className="mb-4">
-            <p className="text-xs text-muted-foreground">Follow-through</p>
-            <h3 className="text-sm font-semibold text-foreground mt-0.5 tracking-tight">
-              Experiments on your watchlist
-            </h3>
-            <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed max-w-xl">
-              Living continuation of recommendations you chose to test. Citation counts refresh when
-              you import; status can move on its own when the signal is clear — use this strip to
-              remember what you changed and what you are judging.
+      {replicationCards.length > 0 && onRespondToRec && onStartExperiment && (
+        <ReplicationCardsClient
+          cards={replicationCards}
+          variant="today"
+          respondToRecommendation={onRespondToRec}
+          startExperimentAction={onStartExperiment}
+        />
+      )}
+
+      {/* ── 3. Performance ── */}
+      {performanceData && (
+        <TodayPerformance
+          timeseries={performanceData.timeseries}
+          competitorRank={performanceData.competitorRank}
+        />
+      )}
+
+      {/* ── 4. Coverage + freshness (merged) ── */}
+      {(crawlStale || visStale || coverageTone === "partial") && (
+        <div className={cn(
+          "rounded-lg border-2 px-4 py-3 space-y-2",
+          coverageTone === "critical"
+            ? "border-status-danger/40 bg-status-danger/[0.06]"
+            : coverageTone === "degraded"
+              ? "border-status-warning/35 bg-status-warning/[0.05]"
+              : "border-accent-primary/25 bg-accent-primary/[0.04]",
+        )}>
+          <div className="flex items-center gap-2">
+            <span className={cn(
+              "h-2.5 w-2.5 rounded-full shrink-0",
+              coverageTone === "critical" ? "bg-status-danger animate-pulse"
+                : coverageTone === "degraded" ? "bg-status-warning animate-pulse"
+                : "bg-accent-primary",
+            )} />
+            <p className={cn(
+              "text-[12px] font-bold",
+              coverageTone === "critical" ? "text-status-danger"
+                : coverageTone === "degraded" ? "text-status-warning"
+                : "text-accent-primary",
+            )}>
+              {coverageTone === "critical"
+                ? "Coverage critical — scan is very old"
+                : coverageTone === "degraded"
+                  ? "Coverage degraded — refresh soon"
+                  : "Partial visibility sample"}
             </p>
           </div>
-          <div className="space-y-3">
-            {experiments.map((exp) => (
-              <WatchlistExperimentCard
-                key={exp.id}
-                exp={exp}
-                pending={pending}
-                onUpdateExperiment={onUpdateExperiment}
-                startTransition={startTransition}
-                setActionMsg={setActionMsg}
-              />
-            ))}
-          </div>
-        </section>
+          <ul className="text-[11px] text-foreground leading-relaxed list-disc pl-4 space-y-1">
+            {crawlStale && (
+              <li>
+                Website crawl is <span className="font-semibold tabular-nums">{crawlAgeDays}d</span> old — HTML findings may miss recent edits.
+                <Link href="/pages" className="text-accent-primary hover:underline font-medium ml-1">Run scan →</Link>
+              </li>
+            )}
+            {visStale && vis.staleNote && <li>{vis.staleNote}</li>}
+            {coverageTone === "partial" && !visStale && (
+              <li>
+                {proofContext.visibilitySynthetic
+                  ? "Visibility row is synthetic or demo-pinned — treat charts as directional, not ground truth until a real import is wired."
+                  : "Citation rollup timestamp is missing or older than your crawl — sample may not reflect the latest HTML."}
+              </li>
+            )}
+          </ul>
+        </div>
       )}
 
-      {/* ── 4. What changed ── */}
-      {impactSignals.length > 0 && (
-        <div className="pt-2">
-          <p className="text-xs font-semibold text-foreground mb-3">
-            What changed
-          </p>
-          <div className="space-y-1.5">
-            {impactSignals.map((s) => (
-              <Link
-                key={s.changeId}
-                href={s.href}
-                className={cn(
-                  "block rounded-lg border px-4 py-2.5 hover:bg-surface-inset/50 transition-colors",
-                  s.verdict === "validated"
-                    ? "border-status-success/30 bg-status-success/5"
-                    : s.verdict === "negative"
-                      ? "border-status-danger/30 bg-status-danger/5"
-                      : "border-border/60",
-                )}
-              >
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-2 min-w-0 flex-1">
-                    <span className={cn(
-                      "h-1.5 w-1.5 rounded-full shrink-0",
-                      s.verdict === "validated" ? "bg-status-success"
-                        : s.verdict === "negative" ? "bg-status-danger"
-                        : s.verdict === "partial" ? "bg-status-warning"
-                        : "bg-muted-foreground",
-                    )} />
-                    <span className="text-[13px] font-medium truncate">
-                      {s.assetName}
-                    </span>
-                    <ConfidenceBadge level={s.confidence} size="sm" />
-                  </div>
-                  <span className="text-[11px] text-muted-foreground/60 shrink-0">
-                    {s.totalEvents} event{s.totalEvents !== 1 ? "s" : ""}
-                  </span>
-                </div>
-                <p className="text-[11px] text-muted-foreground line-clamp-1 leading-relaxed mt-0.5 ml-[14px]">
-                  {s.nextAction}
-                </p>
-              </Link>
-            ))}
+      {/* ── 5. Done for today — completion state ── */}
+      {allClear && (
+        <div className="rounded-lg border-2 border-status-success/30 bg-status-success/[0.04] px-5 py-4">
+          <div className="flex items-center gap-3">
+            <span className="h-3 w-3 rounded-full bg-status-success shrink-0" />
+            <div>
+              <p className="text-[13px] font-bold text-status-success">Nothing needs your attention</p>
+              <p className="text-[11px] text-muted-foreground mt-0.5">
+                {resolvedFindingsCount > 0 && <>{resolvedFindingsCount} finding{resolvedFindingsCount !== 1 ? "s" : ""} handled. </>}
+                {primaryAction?.responseStatus === "accepted" && <>Top recommendation accepted. </>}
+                Check back tomorrow.
+              </p>
+            </div>
           </div>
         </div>
       )}
 
-      {/* ── 5. Other opportunities ── */}
-      {recommendedMoves.length > 0 && (
-        <SecondaryOpportunities moves={recommendedMoves} onRespond={onRespondToRec} />
-      )}
-
-      {/* ── 6. Work queue (collapsed by default) ── */}
-      {flatItems.length > 0 && (
-        <div className="pt-1">
-          <button
-            onClick={() => setQueueOpen((v) => !v)}
-            className="flex items-center gap-2 text-[11px] font-medium text-muted-foreground hover:text-foreground transition-colors w-full"
-          >
-            <span className={cn("transition-transform text-[9px]", queueOpen ? "rotate-90" : "")}>
-              ▶
+      {/* ── 6. System status — single line ── */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground px-1">
+        <span className="font-medium text-foreground">System</span>
+        <span>
+          Scan: {run ? (crawlAgeDays === 0 ? "today" : crawlAgeDays === 1 ? "yesterday" : `${crawlAgeDays}d ago`) : <Link href="/pages" className="text-accent-primary hover:underline font-medium">not run</Link>}
+        </span>
+        <span className="text-border">·</span>
+        <span>
+          Visibility: {vis.hasObservationFile ? (visStale ? <span className="text-status-warning font-medium">stale</span> : "fresh") : <Link href="/settings/import" className="text-accent-primary hover:underline font-medium">no data</Link>}
+        </span>
+        {reviewPending && (
+          <>
+            <span className="text-border">·</span>
+            <span>
+              <Link href="/changes?tab=attribution" className="text-accent-primary hover:underline font-medium">{reviewPending} pending review</Link>
             </span>
-            Work queue ({queueWork})
-          </button>
-          {queueOpen && (
-            <div className="mt-3 grid grid-cols-1 lg:grid-cols-[240px_1fr] gap-5">
-              <div className="rounded-lg border border-border overflow-hidden bg-background">
-                <div className="max-h-[calc(100vh-320px)] overflow-y-auto">
-                  {groups.map((group) => (
-                    <div key={group.key}>
-                      <div className="px-3 py-1.5 border-b border-border/60">
-                        <p className="text-[11px] font-semibold text-muted-foreground/60">
-                          {group.label}
-                        </p>
-                      </div>
-                      {group.items.map((item) => {
-                        const idx = flatItems.indexOf(item);
-                        return (
-                          <button
-                            key={item.id}
-                            data-today-idx={idx}
-                            onClick={() => {
-                              setSelectedIdx(idx);
-                              setActionMsg(null);
-                            }}
-                            className={cn(
-                              "w-full text-left px-3 py-2.5 transition-colors border-b border-border/30 last:border-b-0",
-                              idx === selectedIdx
-                                ? "bg-accent-primary/8 border-l-[3px] border-l-accent-primary"
-                                : "hover:bg-surface-inset/60 border-l-[3px] border-l-transparent"
-                            )}
-                          >
-                            <div className="flex items-center gap-1.5">
-                              <span className={cn("h-[6px] w-[6px] rounded-full shrink-0", item.dot)} />
-                              <p className="text-[11px] font-semibold truncate">{item.label}</p>
-                            </div>
-                            <p className="text-[9px] text-muted-foreground/70 truncate mt-0.5 ml-[18px]">
-                              {item.meta}
-                            </p>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="rounded-lg border border-border overflow-hidden bg-background">
-                {selected ? (
-                  <div className="overflow-y-auto max-h-[calc(100vh-320px)]">
-                    <div className="px-6 pt-5 pb-4 border-b border-border/40">
-                      <div className="flex items-center gap-2.5 mb-1.5">
-                        <span className={cn("h-2.5 w-2.5 rounded-full shrink-0", selected.dot)} />
-                        <h3 className="text-[15px] font-semibold tracking-tight">{selected.label}</h3>
-                      </div>
-                      <p className="text-[11px] text-muted-foreground/70">{selected.meta}</p>
-                    </div>
-                    <div className="px-6 py-5 space-y-5">
-                      <p className="text-[12px] text-muted-foreground leading-relaxed">{selected.detail}</p>
-                      {selected.observationRunHref && (
-                        <p className="text-[10px] text-muted-foreground">
-                          Evidence:{" "}
-                          <Link href={selected.observationRunHref} className="text-accent-primary hover:underline font-medium">
-                            Open run
-                          </Link>
-                        </p>
-                      )}
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <Link
-                          href={selected.href}
-                          className="inline-flex items-center gap-2 rounded-md bg-accent-primary px-4 py-2 text-[11px] font-semibold text-white hover:bg-accent-primary/90 transition-colors"
-                        >
-                          {(selected.plainGroup ?? "fix_this") === "fix_this" ? "Open" : selected.plainGroup === "in_progress" ? "Check status" : "View"}
-                          <span className="text-white/60">→</span>
-                        </Link>
-                        {selected.issueId && selected.issueStatus === "new" && onUpdateIssue && (
-                          <button
-                            onClick={() => startTransition(async () => { await onUpdateIssue(selected.issueId!, "dismissed", { pageUrl: selected.pageUrl, pagePath: selected.pagePath }); setActionMsg("Dismissed"); })}
-                            disabled={pending}
-                            className="px-3 py-2 rounded-md border border-border text-[10px] font-medium text-muted-foreground hover:bg-surface-inset transition-colors"
-                          >
-                            Dismiss
-                          </button>
-                        )}
-                        {selected.issueId && (selected.issueStatus === "handed_off" || selected.issueStatus === "in_progress") && onUpdateIssue && (
-                          <button
-                            onClick={() => startTransition(async () => { await onUpdateIssue(selected.issueId!, "shipped", { pageUrl: selected.pageUrl, pagePath: selected.pagePath }); setActionMsg("Updated"); })}
-                            disabled={pending}
-                            className="px-3 py-2 rounded-md border border-accent-primary/30 text-[10px] font-semibold text-accent-primary hover:bg-accent-primary/10 transition-colors"
-                          >
-                            Mark shipped
-                          </button>
-                        )}
-                        {selected.issueId && (selected.issueStatus === "shipped" || selected.issueStatus === "not_fixed") && selected.pageUrl && onVerifyIssue && (
-                          <button
-                            onClick={() => startTransition(async () => { const r = await onVerifyIssue(selected.issueId!, selected.pageUrl!); setActionMsg(r.success ? (r.cleared ? "Working" : r.summary) : `Issue: ${r.error?.slice(0, 60)}`); })}
-                            disabled={pending}
-                            className="px-3 py-2 rounded-md border border-status-success/30 text-[10px] font-semibold text-status-success hover:bg-status-success/10 transition-colors"
-                          >
-                            {pending ? "Checking…" : "Verify fix"}
-                          </button>
-                        )}
-                        {selected.issueId && (selected.issueStatus === "verified" || selected.issueStatus === "dismissed") && onUpdateIssue && (
-                          <button
-                            onClick={() => startTransition(async () => { await onUpdateIssue(selected.issueId!, "new", { pageUrl: selected.pageUrl, pagePath: selected.pagePath }); setActionMsg("Re-opened"); })}
-                            disabled={pending}
-                            className="px-3 py-2 rounded-md border border-border text-[10px] font-medium text-muted-foreground hover:bg-surface-inset transition-colors"
-                          >
-                            Re-open
-                          </button>
-                        )}
-                      </div>
-                      {actionMsg && <p className="text-[10px] text-muted-foreground">{actionMsg}</p>}
-                    </div>
-                  </div>
-                ) : (
-                  <div className="flex items-center justify-center h-48 text-[12px] text-muted-foreground/50">
-                    Select an item · <span className="font-mono text-[10px] ml-1">j/k</span>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ── 7. Data sources ── */}
-      <div className="space-y-3">
-        <div className="flex items-center justify-between gap-3">
-          <p className="text-[11px] font-semibold text-foreground">Data sources</p>
-          <button
-            onClick={() => setSystemOpen((v) => !v)}
-            className="text-[10px] text-accent-primary hover:underline font-medium"
-          >
-            {systemOpen ? "Less detail" : "More detail"}
-          </button>
-        </div>
-
-        {/* ── Compact status (always visible) ── */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div className={cn(
-            "rounded-lg border px-4 py-3 text-[11px]",
-            crawlStale ? "border-status-warning/30 bg-status-warning/[0.03]" : "border-border/60",
-          )}>
-            <p className="font-semibold text-foreground mb-1">Website crawl</p>
-            {run ? (
-              <div className="space-y-1 text-muted-foreground">
-                <p>{run.pages_scanned} pages · {run.pages_changed} changed · {run.pages_with_errors} errors</p>
-                <p className={crawlStale ? "text-status-warning font-medium" : ""}>
-                  {crawlAgeDays === 0 ? "Today" : crawlAgeDays === 1 ? "Yesterday" : `${crawlAgeDays} days ago`}
-                </p>
-              </div>
-            ) : (
-              <p className="text-muted-foreground">No crawl on file. <Link href="/pages" className="text-accent-primary hover:underline font-medium">Run one →</Link></p>
-            )}
-          </div>
-          <div className={cn(
-            "rounded-lg border px-4 py-3 text-[11px]",
-            importFreshness?.stale ? "border-status-warning/30 bg-status-warning/[0.03]" : "border-border/60",
-          )}>
-            <p className="font-semibold text-foreground mb-1">Visibility data</p>
-            {visibilitySummary ? (
-              <div className="space-y-1 text-muted-foreground">
-                <p>{visibilitySummary.resultCount} samples · {visibilitySummary.totalCitations} citations</p>
-                <p className={importFreshness?.stale ? "text-status-warning font-medium" : ""}>
-                  {importFreshness ? (importFreshness.daysOld === 0 ? "Today" : `${importFreshness.daysOld} days old`) : "Unknown age"}
-                </p>
-              </div>
-            ) : (
-              <p className="text-muted-foreground">No visibility data. <Link href="/import" className="text-accent-primary hover:underline font-medium">Import →</Link></p>
-            )}
-          </div>
-        </div>
-
-        {/* ── Expanded details ── */}
-        {systemOpen && (
-          <div className="space-y-4 mt-1">
-            <div className="rounded-lg border border-border bg-surface-raised/40 p-4 space-y-3">
-              <p className="text-[10px] font-semibold text-muted-foreground">Crawl details</p>
-              {crawl.hasObservationFile && run ? (
-                <div className="space-y-3">
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                    <KpiCard label="Pages Scanned" value={run.pages_scanned} />
-                    <KpiCard label="Changed" value={run.pages_changed} delta={crawl.deltaVsPrior?.pagesChanged ?? null} />
-                    <KpiCard label="Errors" value={run.pages_with_errors} />
-                    <KpiCard label="Alerts" value={run.guardrail_alerts} />
-                  </div>
-                  <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
-                    <span>Completed {formatScanTime(run.completed_at)}</span>
-                    {crawl.activeObservationHref && (
-                      <Link href={crawl.activeObservationHref} className="text-accent-primary hover:underline font-medium">Open run →</Link>
-                    )}
-                  </div>
-                </div>
-              ) : (
-                <p className="text-[11px] text-muted-foreground">No crawl data yet. Run a scan from Pages.</p>
-              )}
-            </div>
-
-            {/* Visibility observation */}
-            <div className="rounded-lg border border-border bg-surface-raised/40 p-4 space-y-3">
-              <p className="text-[10px] font-semibold text-muted-foreground">Visibility sample</p>
-              {vis.hasObservationFile && vis.activeObservationRun ? (
-                <div className="space-y-3">
-                  <p className="text-[11px] text-muted-foreground leading-relaxed">{vis.activeObservationRun.scope_label}</p>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                    <KpiCard label="Topics" value={vis.activeObservationRun.counts.topic_buckets} />
-                    <KpiCard label="Rollup Rows" value={vis.activeObservationRun.counts.page_topic_rollup_rows} />
-                    <KpiCard label="Citations" value={vis.activeObservationRun.counts.total_citations_accounted} />
-                    <KpiCard label="Ext. Domains" value={vis.activeObservationRun.counts.distinct_external_domains_sampled} />
-                  </div>
-                  {vis.staleVsCrawl && vis.staleNote && (
-                    <p className="text-[10px] text-status-warning font-medium">{vis.staleNote}</p>
-                  )}
-                  {vis.activeObservationHref && (
-                    <Link href={vis.activeObservationHref} className="text-[10px] text-accent-primary hover:underline font-medium inline-block">Open visibility run →</Link>
-                  )}
-                </div>
-              ) : (
-                <p className="text-[11px] text-muted-foreground">No visibility sample loaded.</p>
-              )}
-              {summary.competitorLine && (
-                <p className="text-[10px] text-muted-foreground border-t border-border/60 pt-2">{summary.competitorLine}</p>
-              )}
-            </div>
-
-            {/* Review line */}
-            <p className="text-[10px] text-muted-foreground border border-dashed border-border rounded-md px-3 py-2">
-              <span className="font-semibold text-foreground">Attribution: </span>
-              {summary.reviewHeuristicLine}
-            </p>
-
-            {/* Verified fixes */}
-            {summary.verifiedFixes.length > 0 && (
-              <div>
-                <p className="text-[10px] font-semibold text-muted-foreground mb-2">Recently verified</p>
-                <ul className="space-y-1">
-                  {summary.verifiedFixes.map((v) => (
-                    <li key={v.issueId}>
-                      <Link href={v.href} className="text-[11px] text-accent-primary hover:underline">{v.pagePath}</Link>
-                      <span className="text-[10px] text-muted-foreground ml-2">
-                        {v.summary.slice(0, 100)}{v.summary.length > 100 ? "…" : ""}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-          </div>
+          </>
         )}
+        <span className="text-border">·</span>
+        <Link href="/settings/health" className="text-accent-primary hover:underline font-medium">Details →</Link>
       </div>
     </div>
   );
@@ -1225,9 +975,12 @@ function SecondaryOpportunities({
                   accent.bg,
                 )}
               >
-                <Link href={rec.href} className="block hover:opacity-80 transition-opacity">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-2 min-w-0 flex-1">
+                <div className="flex items-start justify-between gap-3">
+                  <Link
+                    href={rec.href}
+                    className="block min-w-0 flex-1 hover:opacity-90 transition-opacity"
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
                       <span className={cn("h-1.5 w-1.5 rounded-full shrink-0", accent.dot)} />
                       <span className="text-[13px] font-medium truncate">
                         {rec.headline}
@@ -1239,12 +992,24 @@ function SecondaryOpportunities({
                         </span>
                       )}
                     </div>
-                    <ConfidenceBadge level={rec.confidence as "high" | "medium" | "low"} />
+                    <p className="text-[11px] text-muted-foreground line-clamp-2 leading-relaxed mt-0.5 ml-[14px]">
+                      {rec.rationale}
+                    </p>
+                  </Link>
+                  <ConfidenceBadge level={rec.confidence as "high" | "medium" | "low"} />
+                </div>
+                {rec.lineageBullets && rec.lineageBullets.length > 0 && (
+                  <div className="mt-2 ml-[14px] rounded border border-border/25 bg-surface-inset/15 px-2 py-1.5">
+                    <p className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground mb-0.5">
+                      Basis
+                    </p>
+                    <ul className="list-disc pl-3 space-y-0.5 text-[9px] text-muted-foreground leading-snug">
+                      {rec.lineageBullets.map((line, i) => (
+                        <li key={i}>{line}</li>
+                      ))}
+                    </ul>
                   </div>
-                  <p className="text-[11px] text-muted-foreground line-clamp-1 leading-relaxed mt-0.5 ml-[14px]">
-                    {rec.rationale}
-                  </p>
-                </Link>
+                )}
                 {onRespond && rec.responseStatus !== "accepted" && (
                   <div className="flex items-center gap-3 mt-2 pt-2 border-t border-border/30 ml-[14px]">
                     <button
@@ -1276,30 +1041,57 @@ function SecondaryOpportunities({
   );
 }
 
+const PRIORITY_STYLE: Record<string, { badge: string; text: string }> = {
+  critical: { badge: "bg-status-danger/10 text-status-danger border-status-danger/30", text: "text-status-danger" },
+  important: { badge: "bg-status-warning/10 text-status-warning border-status-warning/30", text: "text-status-warning" },
+  minor: { badge: "bg-muted/30 text-muted-foreground border-border/40", text: "text-muted-foreground" },
+  informational: { badge: "bg-muted/20 text-muted-foreground/60 border-border/30", text: "text-muted-foreground/60" },
+};
+
 function FindingRow({
   finding,
   onResolve,
+  onPromote,
+  showPromotionOnly = false,
 }: {
   finding: SerializedFinding;
-  onResolve?: (id: string, status: string) => Promise<{ success: boolean }>;
+  onResolve?: (id: string, status: string, opts?: { resolutionNote?: string; suppressDays?: number }) => Promise<{ success: boolean; consequence?: string }>;
+  onPromote?: (id: string, promotionStatus: string) => Promise<{ success: boolean }>;
+  showPromotionOnly?: boolean;
 }) {
   const [, startT] = useTransition();
+  const [feedback, setFeedback] = useState<string | null>(null);
   const label = (FINDING_TYPE_LABELS as Record<string, string>)[finding.type] ?? finding.type;
-  const severityDot =
-    finding.severity === "high" ? "bg-status-danger"
-    : finding.severity === "medium" ? "bg-status-warning"
-    : "bg-muted-foreground/40";
+  const ps = PRIORITY_STYLE[finding.priority] ?? PRIORITY_STYLE.minor;
 
   return (
     <div className="px-4 py-3 hover:bg-surface-inset/20 transition-colors">
       <div className="flex items-start gap-3">
-        <span className={cn("h-2 w-2 rounded-full mt-1.5 shrink-0", severityDot)} />
+        <div className="flex flex-col items-center gap-1 pt-0.5 shrink-0">
+          <span className={cn("inline-flex items-center rounded border px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider leading-none", ps.badge)}>
+            {(FINDING_PRIORITY_LABELS as Record<string, string>)[finding.priority] ?? "—"}
+          </span>
+        </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-[10px] font-medium text-muted-foreground bg-surface-inset/60 rounded px-1.5 py-0.5">
               {label}
             </span>
             <span className="text-[11px] font-mono text-muted-foreground truncate">{finding.pagePath}</span>
+            {finding.citationCount > 0 && (
+              <span className="text-[10px] text-muted-foreground/60">{finding.citationCount} citations</span>
+            )}
+            {finding.isHomepage && (
+              <span className="text-[9px] font-semibold text-accent-primary bg-accent-primary/10 rounded px-1.5 py-0.5">Homepage</span>
+            )}
+            {finding.contradictsChangelog && (
+              <span className="text-[9px] font-semibold text-status-danger bg-status-danger/10 rounded px-1.5 py-0.5">Mismatch</span>
+            )}
+            <span className="text-[10px] text-muted-foreground/50 tabular-nums ml-auto shrink-0">
+              {new Date(finding.detectedAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+              {" "}
+              {new Date(finding.detectedAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
+            </span>
           </div>
           <p className="text-[12px] text-foreground mt-1 leading-snug">{finding.summary}</p>
           {finding.previousState && finding.currentState && (
@@ -1310,34 +1102,114 @@ function FindingRow({
             </div>
           )}
           <p className="text-[10px] text-muted-foreground/70 mt-1">{finding.suggestedAction}</p>
+          {(finding.provenanceSummary || finding.scanRunId) && (
+            <div className="mt-2 rounded border border-border/30 bg-surface-inset/25 px-2 py-1.5 text-[10px] text-muted-foreground">
+              <span className="font-semibold text-foreground/80">Basis: </span>
+              {finding.provenanceSummary ?? "Compared consecutive full-site crawls."}
+              {finding.crawlProofHref ? (
+                <>
+                  {" "}
+                  <Link href={finding.crawlProofHref} className="text-accent-primary hover:underline font-medium">
+                    View observation →
+                  </Link>
+                </>
+              ) : finding.scanRunId ? (
+                <span className="block text-[9px] text-muted-foreground/65 mt-1 leading-snug">
+                  No observation index entry for this batch yet (id below).
+                </span>
+              ) : null}
+              {finding.scanRunId && (
+                <span className="block font-mono text-[9px] text-muted-foreground/60 mt-0.5 truncate" title={finding.scanRunId}>
+                  Batch: {finding.scanRunId}
+                </span>
+              )}
+            </div>
+          )}
+          {feedback && (
+            <p className="text-[10px] text-status-success mt-1.5 font-medium">{feedback}</p>
+          )}
         </div>
       </div>
-      {onResolve && (
-        <div className="flex items-center gap-3 mt-2 pt-2 border-t border-border/30 ml-5">
+
+      {/* Resolution actions */}
+      {!showPromotionOnly && onResolve && finding.status === "pending" && (
+        <div className="flex items-center gap-3 mt-2 pt-2 border-t border-border/30 ml-8">
           <button
-            onClick={() => startT(async () => { await onResolve(finding.id, "accepted"); })}
+            onClick={() => startT(async () => {
+              const r = await onResolve(finding.id, "accepted");
+              if (r.consequence) setFeedback(r.consequence);
+            })}
             className="text-[11px] font-medium text-status-success hover:text-status-success/80 transition-colors"
           >
             Accept
           </button>
           <button
-            onClick={() => startT(async () => { await onResolve(finding.id, "expected"); })}
+            onClick={() => startT(async () => {
+              const r = await onResolve(finding.id, "expected", { suppressDays: 14 });
+              if (r.consequence) setFeedback(r.consequence);
+            })}
             className="text-[11px] font-medium text-muted-foreground hover:text-muted-foreground/80 transition-colors"
           >
             Expected
           </button>
           <button
-            onClick={() => startT(async () => { await onResolve(finding.id, "ignored"); })}
+            onClick={() => startT(async () => {
+              const r = await onResolve(finding.id, "ignored");
+              if (r.consequence) setFeedback(r.consequence);
+            })}
             className="text-[11px] font-medium text-muted-foreground/60 hover:text-muted-foreground transition-colors"
           >
             Ignore
           </button>
           <button
-            onClick={() => startT(async () => { await onResolve(finding.id, "rejected"); })}
+            onClick={() => startT(async () => {
+              const r = await onResolve(finding.id, "rejected");
+              if (r.consequence) setFeedback(r.consequence);
+            })}
             className="text-[11px] font-medium text-muted-foreground/40 hover:text-muted-foreground transition-colors"
           >
             Not real
           </button>
+        </div>
+      )}
+
+      {/* Promotion actions for accepted findings */}
+      {(showPromotionOnly || finding.status === "accepted") && onPromote && finding.promotionStatus === "none" && (
+        <div className="flex items-center gap-3 mt-2 pt-2 border-t border-border/30 ml-8">
+          <span className="text-[10px] text-muted-foreground/60 mr-1">Promote:</span>
+          <button
+            onClick={() => startT(async () => {
+              await onPromote(finding.id, "changelog");
+              setFeedback("Promoted to changelog.");
+            })}
+            className="text-[11px] font-medium text-accent-primary hover:text-accent-primary/80 transition-colors"
+          >
+            Changelog
+          </button>
+          <button
+            onClick={() => startT(async () => {
+              await onPromote(finding.id, "secondary_note");
+              setFeedback("Logged as secondary note.");
+            })}
+            className="text-[11px] font-medium text-muted-foreground hover:text-muted-foreground/80 transition-colors"
+          >
+            Secondary note
+          </button>
+          <button
+            onClick={() => startT(async () => {
+              await onPromote(finding.id, "history_only");
+              setFeedback("Kept in history only.");
+            })}
+            className="text-[11px] font-medium text-muted-foreground/50 hover:text-muted-foreground transition-colors"
+          >
+            History only
+          </button>
+        </div>
+      )}
+      {finding.promotionStatus !== "none" && (
+        <div className="flex items-center gap-2 mt-1.5 ml-8 text-[10px] text-muted-foreground/50">
+          <span className="h-1 w-1 rounded-full bg-status-success/40" />
+          {(PROMOTION_STATUS_LABELS as Record<string, string>)[finding.promotionStatus]}
         </div>
       )}
     </div>

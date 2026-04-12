@@ -25,8 +25,8 @@ export async function saveConfiguredCompetitorUniverseAction(
   if (!r.ok) return { ok: false, error: r.error };
   revalidatePath("/competitors");
   revalidatePath("/");
-  revalidatePath("/results");
-  revalidatePath("/topics");
+  revalidatePath("/settings/history");
+  revalidatePath("/competitors");
   revalidatePath("/observations", "layout");
   return { ok: true, universe_version: r.universe_version };
 }

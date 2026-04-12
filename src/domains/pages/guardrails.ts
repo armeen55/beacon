@@ -154,8 +154,24 @@ export function classifyGuardrails(
       ...base,
       severity: "warning",
       category: "weak_structure_high_citations",
-      message: `${citationCount} citations but no FAQ or schema`,
-      detail: "High citation count with weak page structure — prime optimization target",
+      message: `${citationCount} citations but no detected FAQ content or schema markup`,
+      detail: "High citation count with no FAQ or structured data detected in crawled HTML. If the live page has visible FAQ sections, re-run the scan to update extraction.",
+    });
+  } else if (highCitations && snapshot.faqs.length === 0) {
+    alerts.push({
+      ...base,
+      severity: "info",
+      category: "no_faq_high_citations",
+      message: `${citationCount} citations, no FAQ content detected (has schema: ${snapshot.schema_types.join(", ")})`,
+      detail: "Schema markup present but no FAQ content found in crawled HTML.",
+    });
+  } else if (highCitations && snapshot.schema_types.length === 0) {
+    alerts.push({
+      ...base,
+      severity: "info",
+      category: "no_schema_high_citations",
+      message: `${citationCount} citations, has ${snapshot.faqs.length} FAQ${snapshot.faqs.length !== 1 ? "s" : ""} but no schema markup`,
+      detail: "FAQ content detected but no JSON-LD structured data. Adding FAQPage schema could strengthen structured visibility.",
     });
   }
 

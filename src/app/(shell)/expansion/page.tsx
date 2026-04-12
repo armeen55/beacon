@@ -53,21 +53,21 @@ export default function ExpansionPage() {
           </p>
           <p className="mt-3">
             <Link
-              href="/import"
+              href="/settings/import"
               className="font-medium text-foreground underline-offset-4 hover:underline"
             >
               Import
             </Link>
             {" · "}
             <Link
-              href="/review"
+              href="/changes?tab=attribution"
               className="font-medium text-foreground underline-offset-4 hover:underline"
             >
               Review
             </Link>
             {" · "}
             <Link
-              href="/topics"
+              href="/competitors#opportunities"
               className="font-medium text-foreground underline-offset-4 hover:underline"
             >
               Opportunities
@@ -110,15 +110,15 @@ export default function ExpansionPage() {
           Today
         </Link>
         ,{" "}
-        <Link href="/topics" className="text-foreground underline-offset-4 hover:underline">
+        <Link href="/competitors#opportunities" className="text-foreground underline-offset-4 hover:underline">
           Opportunities
         </Link>
         , and{" "}
-        <Link href="/review" className="text-foreground underline-offset-4 hover:underline">
+        <Link href="/changes?tab=attribution" className="text-foreground underline-offset-4 hover:underline">
           Review
         </Link>
         . Use this list only to capture ideas worth researching. Refresh evidence via{" "}
-        <Link href="/import" className="text-foreground underline-offset-4 hover:underline">
+        <Link href="/settings/import" className="text-foreground underline-offset-4 hover:underline">
           Import
         </Link>
         .

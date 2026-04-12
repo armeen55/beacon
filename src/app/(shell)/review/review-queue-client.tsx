@@ -462,7 +462,7 @@ function SprintDecisionCard({
               tier === "exact"
                 ? "Tight match"
                 : tier === "probable"
-                  ? "Heuristic"
+                  ? "Pattern match"
                   : tier === "weak"
                     ? "Low signal"
                     : "";

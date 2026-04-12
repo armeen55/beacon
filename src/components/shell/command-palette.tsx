@@ -16,7 +16,7 @@ export type PaletteItem = {
 
 type Mode = "palette" | "help" | null;
 
-const GROUP_ORDER = ["Navigate", "Changes", "Opportunities"];
+const GROUP_ORDER = ["Navigate", "Changes", "Market"];
 
 export function CommandPalette({ items }: { items: PaletteItem[] }) {
   const [mode, setMode] = useState<Mode>(null);
@@ -53,7 +53,7 @@ export function CommandPalette({ items }: { items: PaletteItem[] }) {
 
       if (isInput || mode) return;
 
-      if (e.key === "?" && pathname !== "/review") {
+      if (e.key === "?") {
         e.preventDefault();
         setMode((m) => (m === "help" ? null : "help"));
         return;
@@ -74,10 +74,8 @@ export function CommandPalette({ items }: { items: PaletteItem[] }) {
           t: "/",
           p: "/pages",
           c: "/changes",
-          x: "/competitors",
-          o: "/topics",
-          i: "/import",
-          r: "/review",
+          m: "/competitors",
+          s: "/settings",
         };
         if (routes[e.key]) {
           e.preventDefault();
@@ -260,24 +258,10 @@ export function CommandPalette({ items }: { items: PaletteItem[] }) {
               <HelpGroup title="Navigation">
                 <HelpRow keys="G T" label="Today" />
                 <HelpRow keys="G P" label="Pages" />
+                <HelpRow keys="G M" label="Market" />
                 <HelpRow keys="G C" label="Changes" />
-                <HelpRow keys="G X" label="Competitors" />
-                <HelpRow keys="G O" label="Opportunities" />
-                <HelpRow keys="G I" label="Import" />
-                <HelpRow keys="G R" label="Review" />
+                <HelpRow keys="G S" label="Settings" />
               </HelpGroup>
-
-              {pathname === "/review" && (
-                <HelpGroup title="Review">
-                  <HelpRow keys="1–5" label="Select candidate" />
-                  <HelpRow keys="C" label="Competitor action" />
-                  <HelpRow keys="A" label="Algorithm shift" />
-                  <HelpRow keys="U" label="Can't tell" />
-                  <HelpRow keys="↵" label="Lock decision" />
-                  <HelpRow keys="→" label="Skip" />
-                  <HelpRow keys="↑↓ / J K" label="Navigate queue" />
-                </HelpGroup>
-              )}
             </div>
           </div>
         </div>

@@ -28,6 +28,10 @@ import { join } from "node:path";
 import { getSiteConfig } from "../src/lib/site-config";
 import { observationUniverseFieldsForCli } from "../src/domains/competitors/universe-fields-cli";
 import type { CompetitorUniverseFile } from "../src/domains/competitors/universe-schema";
+import {
+  writeLastScanResultFile,
+  type LastScanResultPayload,
+} from "../src/domains/scanning/last-scan-result";
 
 const DATA_DIR = join(process.cwd(), ".data");
 const { siteOrigin, siteDomain: CANONICAL_DOMAIN } = getSiteConfig();
@@ -232,7 +236,25 @@ async function main() {
 
   // ── Step 1: Fetch sitemap ──
   console.log(`Fetching sitemap from ${SITEMAP_URL}...`);
-  const sitemapEntries = await fetchSitemap();
+  let sitemapEntries: { url: string; lastmod: string | null }[];
+  try {
+    sitemapEntries = await fetchSitemap();
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    writeLastScanResultFile({
+      schemaVersion: 1,
+      finishedAt: new Date().toISOString(),
+      exit: "failed",
+      trigger: "cli",
+      observationRunId: null,
+      pagesScanned: 0,
+      pagesChanged: 0,
+      pagesWithErrors: 0,
+      guardrailAlertCount: 0,
+      cliError: msg,
+    });
+    throw e;
+  }
   console.log(`Sitemap URLs: ${sitemapEntries.length}`);
 
   // ── Step 2: Load registry ──
@@ -311,6 +333,18 @@ async function main() {
     scanSet = canonical.filter((c) => normalizeUrl(c.url) === normalizeUrl(singleUrl));
     if (scanSet.length === 0) {
       console.log(`\nNo canonical page matches URL: ${singleUrl}`);
+      writeLastScanResultFile({
+        schemaVersion: 1,
+        finishedAt: new Date().toISOString(),
+        exit: "aborted",
+        trigger: "cli",
+        observationRunId: null,
+        pagesScanned: 0,
+        pagesChanged: 0,
+        pagesWithErrors: 0,
+        guardrailAlertCount: 0,
+        abortedReason: `No canonical page matches URL: ${singleUrl}`,
+      });
       return;
     }
   }
@@ -326,6 +360,18 @@ async function main() {
     for (const s of stale) {
       console.log(`  ${s.url}  [${s.reason}]`);
     }
+    writeLastScanResultFile({
+      schemaVersion: 1,
+      finishedAt: new Date().toISOString(),
+      exit: "success",
+      trigger: "cli",
+      observationRunId: null,
+      pagesScanned: 0,
+      pagesChanged: 0,
+      pagesWithErrors: 0,
+      guardrailAlertCount: 0,
+      dryRun: true,
+    });
     return;
   }
 
@@ -591,7 +637,45 @@ async function main() {
     console.log(`  ${s.url.padEnd(62)} [${s.reason}]`);
   }
 
+  const scanExit: LastScanResultPayload["exit"] =
+    errors.length > 0 && newSnapshots.length === 0
+      ? "failed"
+      : errors.length > 0
+        ? "partial"
+        : "success";
+
+  writeLastScanResultFile({
+    schemaVersion: 1,
+    finishedAt: completedAt,
+    exit: scanExit,
+    trigger: "cli",
+    observationRunId: observationRunId,
+    pagesScanned: newSnapshots.length,
+    pagesChanged: diffs.filter((d) => d.changed).length,
+    pagesWithErrors: errors.length,
+    guardrailAlertCount: alertsStamped.length,
+    fetchErrors: errors.length > 0 ? errors : undefined,
+  });
+
   console.log("\n=== Done ===");
 }
 
-main().catch(console.error);
+main().catch((e) => {
+  console.error(e);
+  try {
+    writeLastScanResultFile({
+      schemaVersion: 1,
+      finishedAt: new Date().toISOString(),
+      exit: "failed",
+      trigger: "cli",
+      observationRunId: null,
+      pagesScanned: 0,
+      pagesChanged: 0,
+      pagesWithErrors: 0,
+      guardrailAlertCount: 0,
+      cliError: e instanceof Error ? e.message : String(e),
+    });
+  } catch {
+    /* ignore secondary write failure */
+  }
+});

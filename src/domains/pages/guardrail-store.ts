@@ -1,7 +1,9 @@
-import { getRepository } from "@/lib/persistence/repositories";
+import "server-only";
+
+import { readDotDataJson } from "@/lib/persistence/dotdata-json";
 import type { GuardrailAlert } from "./guardrails";
 
-const repo = getRepository();
-
-export const guardrailAlerts: GuardrailAlert[] =
-  await repo.getGuardrailAlerts();
+/** Always reads `.data/page-guardrails.json` from disk (no import-time cache). */
+export function getGuardrailAlerts(): GuardrailAlert[] {
+  return readDotDataJson<GuardrailAlert[]>("page-guardrails") ?? [];
+}

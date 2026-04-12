@@ -13,10 +13,8 @@ const NAV_SHORTCUTS: Record<string, string> = {
   "/": "G T",
   "/pages": "G P",
   "/changes": "G C",
-  "/competitors": "G X",
-  "/topics": "G O",
-  "/import": "G I",
-  "/review": "G R",
+  "/competitors": "G M",
+  "/settings": "G S",
 };
 
 const CHANGELOG_PALETTE_CAP = 50;
@@ -37,7 +35,7 @@ export default function ShellLayout({
   const badges: NavBadges = {};
   const totalInbox = (reviewPending > 0 ? 1 : 0) + openIssues;
   if (totalInbox > 0) badges["/"] = totalInbox;
-  if (reviewPending > 0) badges["/review"] = reviewPending;
+  if (reviewPending > 0) badges["/changes"] = reviewPending;
   if (openIssues > 0) badges["/pages"] = openIssues;
 
   // ── Palette items ──
@@ -70,8 +68,8 @@ export default function ShellLayout({
     ...uniqueTopics.map((t) => ({
       id: `topic-${t}`,
       label: t,
-      group: "Opportunities",
-      href: "/topics",
+      group: "Market",
+      href: "/competitors#opportunities",
       meta: "Topic",
     })),
   ];

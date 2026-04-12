@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { cn } from "@/lib/utils";
 
 export type AreaSeries = {
@@ -13,10 +13,12 @@ export type AreaSeries = {
 export function AreaChart({
   series,
   labels,
-  width = 400,
-  height = 120,
+  width: widthProp,
+  height = 220,
   showGrid = true,
   stacked = false,
+  responsive = true,
+  className,
 }: {
   series: AreaSeries[];
   labels: string[];
@@ -24,10 +26,34 @@ export function AreaChart({
   height?: number;
   showGrid?: boolean;
   stacked?: boolean;
+  /** When true, width follows container (fills grid). */
+  responsive?: boolean;
+  className?: string;
 }) {
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
-  const pad = { top: 8, right: 8, bottom: 20, left: 8 };
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [measuredW, setMeasuredW] = useState(widthProp ?? 640);
+
+  useEffect(() => {
+    if (!responsive) {
+      if (widthProp != null) setMeasuredW(widthProp);
+      return;
+    }
+    const el = containerRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => {
+      const w = Math.floor(el.getBoundingClientRect().width);
+      setMeasuredW(Math.max(200, w));
+    });
+    ro.observe(el);
+    setMeasuredW(Math.max(200, Math.floor(el.getBoundingClientRect().width)));
+    return () => ro.disconnect();
+  }, [responsive, widthProp]);
+
+  const width = responsive ? measuredW : (widthProp ?? 400);
+
+  const pad = { top: 10, right: 6, bottom: 28, left: 6 };
   const chartW = width - pad.left - pad.right;
   const chartH = height - pad.top - pad.bottom;
   const n = labels.length;
@@ -81,12 +107,16 @@ export function AreaChart({
   const gridLines = 4;
 
   return (
-    <div className="space-y-1">
+    <div
+      ref={containerRef}
+      className={cn("flex w-full min-w-0 flex-col", className)}
+      style={{ height }}
+    >
       <svg
         ref={svgRef}
         viewBox={`0 0 ${width} ${height}`}
-        className="w-full cursor-crosshair"
-        style={{ maxHeight: height }}
+        preserveAspectRatio="xMidYMid meet"
+        className="block h-full w-full shrink-0 cursor-crosshair"
         onMouseMove={handleMove}
         onMouseLeave={() => setHoverIdx(null)}
       >
@@ -156,7 +186,7 @@ export function AreaChart({
       </svg>
 
       {hoverIdx !== null && (
-        <div className="flex items-center gap-4 text-[10px] animate-in fade-in duration-100">
+        <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-[10px] animate-in fade-in duration-100">
           <span className="text-muted-foreground font-medium">{labels[hoverIdx]}</span>
           {processedSeries.map((s) => (
             <span key={s.label} className="tabular-nums">

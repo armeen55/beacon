@@ -1,7 +1,8 @@
-import { getRepository } from "@/lib/persistence/repositories";
+import "server-only";
+
+import { readDotDataJson } from "@/lib/persistence/dotdata-json";
 import type { PageSnapshotDiff } from "./types";
 
-const repo = getRepository();
-
-export const pageSnapshotDiffs: PageSnapshotDiff[] =
-  await repo.getPageSnapshotDiffs();
+export function getPageSnapshotDiffs(): PageSnapshotDiff[] {
+  return readDotDataJson<PageSnapshotDiff[]>("page-snapshot-diffs") ?? [];
+}

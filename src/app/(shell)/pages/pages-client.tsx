@@ -183,7 +183,6 @@ export function PagesClient({
   lastScanAt,
   latestObservationRunId = null,
   onScan,
-  onVerify,
   onUpdateIssue,
   onVerifyIssue,
   onGenerateHandoff,
@@ -198,7 +197,6 @@ export function PagesClient({
   lastScanAt?: string | null;
   latestObservationRunId?: string | null;
   onScan?: () => Promise<{ success: boolean; pagesScanned?: number; pagesChanged?: number; alertCount?: number; error?: string }>;
-  onVerify?: (url: string) => Promise<{ success: boolean; cleared: string[]; remaining: string[]; diff: { changed: boolean; summary: string } | null; error?: string }>;
   onUpdateIssue?: (issueId: string, status: string, meta?: { pageUrl?: string; pagePath?: string; category?: string }) => Promise<{ success: boolean }>;
   onVerifyIssue?: (issueId: string, pageUrl: string) => Promise<{ success: boolean; cleared: boolean; remaining: string[]; summary: string; error?: string }>;
   onGenerateHandoff?: (issueId: string, brief: { issueSummary: string; pageUrl: string; pagePath: string; severity: string; citationCount: number; expectedState: string[]; observedState: string[]; likelyCauses: string[]; verificationChecklist: string[]; bestNextMove: string; intentConflict: boolean; intentDetail: string | null }) => Promise<{ success: boolean; text: string }>;
@@ -289,14 +287,14 @@ export function PagesClient({
         <div className="rounded-lg border border-status-warning/30 bg-status-warning/[0.05] px-4 py-3 mb-4 text-[12px]">
           {pageSummary && pageSummary.scanned === 0 ? (
             <p className="text-foreground">
-              <span className="font-semibold text-status-warning">No pages have been crawled.</span>{" "}
-              Use <span className="font-medium">Refresh crawl</span> to inspect your pages.
+              <span className="font-semibold text-status-warning">No pages have been scanned.</span>{" "}
+              Use <span className="font-medium">Refresh scan</span> to inspect your pages.
             </p>
           ) : crawlIsStale ? (
             <p className="text-foreground">
-              <span className="font-semibold text-status-warning">Crawl data is {crawlAgeDays} days old.</span>{" "}
+              <span className="font-semibold text-status-warning">Scan data is {crawlAgeDays} days old.</span>{" "}
               Page structure may have changed since the last scan.
-              {uncrawledCount > 0 && <span className="text-muted-foreground"> · {uncrawledCount} pages not yet crawled.</span>}
+              {uncrawledCount > 0 && <span className="text-muted-foreground"> · {uncrawledCount} pages not yet scanned.</span>}
             </p>
           ) : null}
         </div>
@@ -310,7 +308,7 @@ export function PagesClient({
               <KpiCard label="Tracked" value={pageSummary.total} size="lg" />
               <KpiCard label="Cited" value={pageSummary.cited} meta={`${pageSummary.totalCitations.toLocaleString()} total mentions`} size="lg" />
               <KpiCard label="Need Work" value={pageSummary.needsAction} meta={pageSummary.needsAction > 0 ? "Open issues" : "All clear"} size="lg" />
-              <KpiCard label="Crawled" value={pageSummary.scanned} size="lg" />
+              <KpiCard label="Scanned" value={pageSummary.scanned} size="lg" />
             </div>
             {(pageSummary.winning > 0 || pageSummary.building > 0 || pageSummary.unresolved > 0 || pageSummary.dormant > 0) && (
               <div className="shrink-0">
@@ -354,13 +352,13 @@ export function PagesClient({
             disabled={scanPending}
             className={cn("px-3 py-1.5 rounded-md text-xs font-medium border transition-colors shrink-0", scanPending ? "border-border text-muted-foreground opacity-50" : "border-border/80 text-foreground hover:bg-surface-inset")}
           >
-            {scanPending ? "Scanning…" : "Refresh crawl"}
+            {scanPending ? "Scanning…" : "Refresh scan"}
           </button>
         )}
         {lastScanAt && (
           <span className="text-[11px] text-muted-foreground/70 shrink-0 flex items-center gap-2 flex-wrap">
             <span>
-              Last crawl{" "}
+              Last scan{" "}
               {new Date(lastScanAt).toLocaleDateString("en-US", {
                 month: "short",
                 day: "numeric",
@@ -433,7 +431,7 @@ export function PagesClient({
                         {row.pendingFindingCount} new
                       </span>
                     )}
-                    {!row.snapshot && <span className="rounded bg-status-warning/10 px-1.5 py-0.5 text-[10px] text-status-warning font-medium">Not crawled</span>}
+                    {!row.snapshot && <span className="rounded bg-status-warning/10 px-1.5 py-0.5 text-[10px] text-status-warning font-medium">Not scanned</span>}
                     {row.snapshot && row.snapshot.faqCount === 0 && (
                       <span className="rounded bg-muted/80 px-1.5 py-0.5 text-[10px] text-muted-foreground">No Q&amp;A</span>
                     )}
@@ -478,26 +476,59 @@ export function PagesClient({
                   </div>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-2 mt-4">
-                  <div className="inline-flex items-baseline gap-1 rounded-md border border-border/50 bg-surface-raised/30 px-2.5 py-1">
-                    <span className="text-lg font-bold tabular-nums">{selected.totalCitations}</span>
-                    <span className="text-xs text-muted-foreground">{selected.totalCitations === 1 ? "mention" : "mentions"}</span>
-                  </div>
-                  {selected.platforms.length > 0 && (
-                    <span className="text-xs text-muted-foreground">
-                      {selected.platforms.slice(0, 4).join(" · ")}
-                    </span>
-                  )}
-                  {selected.validatedChanges > 0 && (
-                    <span className="text-xs font-medium text-status-success">{selected.validatedChanges} validated</span>
-                  )}
+                {/* ── Ship status verdict ── */}
+                <div className={cn(
+                  "mt-3 flex items-center gap-2 rounded-md px-3 py-2 text-[12px] font-semibold",
+                  selected.pendingFindingCount > 0
+                    ? "bg-status-warning/[0.06] text-status-warning border border-status-warning/20"
+                    : !selected.snapshot
+                      ? "bg-surface-inset/30 text-muted-foreground border border-dashed border-border/50"
+                      : selected.diff?.changed
+                        ? "bg-accent-primary/[0.05] text-accent-primary border border-accent-primary/20"
+                        : "bg-status-success/[0.06] text-status-success border border-status-success/20",
+                )}>
+                  <span className={cn(
+                    "h-2 w-2 rounded-full shrink-0",
+                    selected.pendingFindingCount > 0
+                      ? "bg-status-warning animate-pulse"
+                      : !selected.snapshot
+                        ? "bg-muted-foreground/40"
+                        : selected.diff?.changed
+                          ? "bg-accent-primary"
+                          : "bg-status-success",
+                  )} />
+                  {selected.pendingFindingCount > 0
+                    ? `${selected.pendingFindingCount} change${selected.pendingFindingCount !== 1 ? "s" : ""} detected — verify in Today`
+                    : !selected.snapshot
+                      ? "Not scanned yet"
+                      : selected.diff?.changed
+                        ? "Changes detected since last scan"
+                        : selected.snapshot.scannedAt
+                          ? `Verified live · ${new Date(selected.snapshot.scannedAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })} ${new Date(selected.snapshot.scannedAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`
+                          : "Scanned — no changes"
+                  }
                 </div>
 
-                {/* ── Live HTML: what the crawl actually saw ── */}
+                {/* ── Pending scan findings for this page ── */}
+                {selected.pendingFindingCount > 0 && (
+                  <div className="mt-4 rounded-lg border border-accent-primary/30 bg-accent-primary/[0.03] px-4 py-2.5">
+                    <div className="flex items-center gap-2">
+                      <span className="h-2 w-2 rounded-full bg-accent-primary animate-pulse" />
+                      <p className="text-[12px] font-semibold text-foreground">
+                        {selected.pendingFindingCount} change{selected.pendingFindingCount !== 1 ? "s" : ""} detected since last scan
+                      </p>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground mt-1">
+                      Review in <Link href="/" className="text-accent-primary hover:underline font-medium">Today</Link> to accept, dismiss, or mark expected.
+                    </p>
+                  </div>
+                )}
+
+                {/* ── 1. Live HTML: what the scan actually saw (verification truth) ── */}
                 {selected.snapshot ? (
                   <div className="mt-4 rounded-lg border border-border/60 overflow-hidden">
                     <div className="px-4 py-2.5 bg-surface-inset/30 border-b border-border/40 flex items-center justify-between gap-3">
-                      <p className="text-[11px] font-semibold text-foreground">What the crawl saw</p>
+                      <p className="text-[11px] font-semibold text-foreground">What the scan found</p>
                       <span className="text-[10px] text-muted-foreground tabular-nums">
                         {new Date(selected.snapshot.scannedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
                         {selected.snapshot.httpStatus !== 200 && (
@@ -525,14 +556,14 @@ export function PagesClient({
                   </div>
                 ) : (
                   <div className="mt-4 rounded-lg border border-dashed border-border/60 px-4 py-3">
-                    <p className="text-[12px] text-muted-foreground">Not crawled yet. Use <span className="font-medium text-foreground">Refresh crawl</span> to inspect this page.</p>
+                    <p className="text-[12px] text-muted-foreground">Not scanned yet. Use <span className="font-medium text-foreground">Refresh scan</span> to inspect this page.</p>
                   </div>
                 )}
 
-                {/* ── What changed since last crawl ── */}
-                {selected.diff && selected.diff.changed && (
+                {/* ── 2. What changed since last scan ── */}
+                {selected.diff && selected.diff.changed ? (
                   <div className="mt-3 rounded-lg border border-status-warning/20 bg-status-warning/[0.03] px-4 py-3">
-                    <p className="text-[11px] font-semibold text-foreground mb-1.5">Changed since last crawl</p>
+                    <p className="text-[11px] font-semibold text-foreground mb-1.5">Changed since last scan</p>
                     <div className="flex flex-wrap gap-2">
                       {selected.diff.titleChanged && <DiffChip label="Title" />}
                       {selected.diff.h1Changed && <DiffChip label="H1" />}
@@ -544,8 +575,30 @@ export function PagesClient({
                       <p className="text-[11px] text-muted-foreground mt-2 leading-relaxed">{selected.diff.summary}</p>
                     )}
                   </div>
-                )}
+                ) : selected.snapshot ? (
+                  <div className="mt-3 flex items-center gap-2 px-1">
+                    <span className="h-1.5 w-1.5 rounded-full bg-status-success" />
+                    <p className="text-[11px] text-muted-foreground">No changes since last scan</p>
+                  </div>
+                ) : null}
 
+                {/* ── 3. Visibility importance ── */}
+                <div className="flex flex-wrap items-center gap-2 mt-4">
+                  <div className="inline-flex items-baseline gap-1 rounded-md border border-border/50 bg-surface-raised/30 px-2.5 py-1">
+                    <span className="text-lg font-bold tabular-nums">{selected.totalCitations}</span>
+                    <span className="text-xs text-muted-foreground">{selected.totalCitations === 1 ? "mention" : "mentions"}</span>
+                  </div>
+                  {selected.platforms.length > 0 && (
+                    <span className="text-xs text-muted-foreground">
+                      {selected.platforms.slice(0, 4).join(" · ")}
+                    </span>
+                  )}
+                  {selected.validatedChanges > 0 && (
+                    <span className="text-xs font-medium text-status-success">{selected.validatedChanges} validated</span>
+                  )}
+                </div>
+
+                {/* ── 4. Next step ── */}
                 <div className="mt-4 rounded-lg border border-border/50 bg-surface-inset/40 px-4 py-3">
                   <p className="text-xs font-medium text-muted-foreground">Next step</p>
                   <p className={cn("text-sm font-semibold mt-0.5", NEXT_MOVE[selected.nextMove].color)}>
@@ -558,6 +611,15 @@ export function PagesClient({
               </div>
 
               <div className="px-6 py-5 space-y-4">
+                {/* Deployment truth guard */}
+                {selected.pendingFindingCount > 0 && selected.fixBriefs.length > 0 && (
+                  <div className="rounded-lg border border-status-warning/30 bg-status-warning/[0.03] px-4 py-2.5">
+                    <p className="text-[11px] text-status-warning font-semibold">Verify site truth before acting on recommendations</p>
+                    <p className="text-[11px] text-muted-foreground mt-0.5">
+                      This page has {selected.pendingFindingCount} pending scan finding{selected.pendingFindingCount !== 1 ? "s" : ""}. Resolve findings in <Link href="/" className="text-accent-primary hover:underline font-medium">Today</Link> first — the recommendation below may change after verification.
+                    </p>
+                  </div>
+                )}
                 {/* Action summary for fix pages */}
                 {selected.fixBriefs.length > 0 && (
                   <div className="space-y-4">
@@ -585,7 +647,7 @@ export function PagesClient({
                 )}
                 {selected.fixBriefs.length === 0 && selected.playbookBriefs.length === 0 && !selected.snapshot && (
                   <p className="text-sm text-muted-foreground border border-dashed border-border/60 rounded-lg px-3 py-2.5">
-                    No crawl on file yet. Use <span className="font-medium text-foreground">Refresh crawl</span> to analyze this URL.
+                    Not scanned yet. Use <span className="font-medium text-foreground">Refresh scan</span> to analyze this URL.
                   </p>
                 )}
                 {selected.fixBriefs.length === 0 && selected.playbookBriefs.length === 0 && selected.snapshot && (
@@ -813,7 +875,7 @@ export function PagesClient({
                                   {fb.verificationBaselineObservationRunId ? (
                                     <>
                                       {" "}
-                                      · prior crawl:{" "}
+                                      · prior scan:{" "}
                                       <Link
                                         href={`/observations/${encodeURIComponent(fb.verificationBaselineObservationRunId)}`}
                                         className="text-accent-primary hover:underline font-medium"
