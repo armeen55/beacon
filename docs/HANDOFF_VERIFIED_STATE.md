@@ -159,6 +159,8 @@ docs/
       profound-integration/     ← Profound CSV field notes, parsing risks, source map
 ```
 
+**Repo root:** `CLAUDE.md` — portable agent rules for Claude Code / CLI; keep in sync with `.cursor/rules/core.mdc` if you use both tools.
+
 ### Code
 
 ```

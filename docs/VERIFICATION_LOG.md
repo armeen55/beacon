@@ -3761,3 +3761,18 @@ Remove **filename-prefix** coupling; make CSV bridge **append-safe** and **idemp
 ### Validation
 - `npm run typecheck` — **pass**
 - `npm run test` — **328/328 pass**
+
+---
+
+## Repo-root `CLAUDE.md` + git checkpoint for Claude Code (2026-04-13)
+
+### Signal
+Portable project instructions for **Claude Code / CLI** (same substance as `.cursor/rules/core.mdc` + doc sync + capability tiers); single git commit capturing open workspace work.
+
+### Where changed
+- **`CLAUDE.md`** (new) — read `HANDOFF` first; product rules; mandatory doc sync; Fast / Balanced / Max tier mapping.
+- **Git:** commit `52bb72f` on `work/attribution-precision-20260407` — 224 files (merge ingest, docs, routes, connectors, tests, `changelogpdf/` removal, etc.).
+
+### Validation
+- `npm run typecheck` — **pass** (pre-commit)
+- `npm run test` — **328/328 pass** (pre-commit)
