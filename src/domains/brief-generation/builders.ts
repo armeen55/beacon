@@ -373,7 +373,7 @@ function deriveObjective(
   switch (briefType) {
     case "coverage_expansion":
       parts.push(
-        `Expand proven ${pattern ? `"${pattern.label}" pattern` : "change strategy"} to ${action.clusterLabel}.`
+        `Expand observed ${pattern ? `"${pattern.label}" pattern` : "change strategy"} to ${action.clusterLabel}.`
       );
       if (pattern && pattern.successRate > 0) {
         parts.push(
@@ -383,7 +383,7 @@ function deriveObjective(
       break;
     case "faq_upgrade":
       parts.push(
-        `Add or improve FAQ content for ${action.clusterLabel} using proven FAQ pattern.`
+        `Add or improve FAQ content for ${action.clusterLabel} using an observed FAQ pattern.`
       );
       break;
     case "measurement_fix":

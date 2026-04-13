@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { log } from "@/lib/logger";
 import {
   changeContracts,
   persistChangeContracts,
@@ -290,6 +291,15 @@ export async function createChangeContract(
     notes?: string;
   }
 ): Promise<{ success: boolean; contractId?: string; errors?: string[]; warnings?: string[] }> {
+  const action = "createChangeContract";
+  const t0 = Date.now();
+  log.info("Action started", {
+    action,
+    params: {
+      changeType: input.changeType,
+      pageUrlLength: input.pageUrl.length,
+    },
+  });
   const now = new Date().toISOString();
 
   const draft: Partial<ChangeContract> = {
@@ -308,6 +318,11 @@ export async function createChangeContract(
 
   const validation = validateContract(draft);
   if (!validation.valid) {
+    log.error("Action failed", {
+      action,
+      durationMs: Date.now() - t0,
+      error: validation.errors[0] ?? "validation failed",
+    });
     return { success: false, errors: validation.errors, warnings: validation.warnings };
   }
 
@@ -357,6 +372,7 @@ export async function createChangeContract(
   await persistChangeContracts();
   revalidatePath("/", "layout");
 
+  log.info("Action completed", { action, durationMs: Date.now() - t0 });
   return {
     success: true,
     contractId,
@@ -375,8 +391,16 @@ export async function verifyChangeContract(
   summary: string;
   checkRows: VerificationCheckRow[];
 }> {
+  const action = "verifyChangeContract";
+  const t0 = Date.now();
+  log.info("Action started", { action, params: { contractId } });
   const contract = changeContracts.find((c) => c.contractId === contractId);
-  if (!contract)
+  if (!contract) {
+    log.error("Action failed", {
+      action,
+      durationMs: Date.now() - t0,
+      error: "contract not found",
+    });
     return {
       success: false,
       status: "error",
@@ -386,6 +410,7 @@ export async function verifyChangeContract(
       summary: "Contract not found",
       checkRows: [],
     };
+  }
 
   const { existsSync, readFileSync } = await import("node:fs");
   const { join } = await import("node:path");
@@ -506,5 +531,6 @@ export async function verifyChangeContract(
   await persistChangeContracts();
   revalidatePath("/", "layout");
 
+  log.info("Action completed", { action, durationMs: Date.now() - t0 });
   return { success: true, status, matched, missing, skipped, summary, checkRows };
 }

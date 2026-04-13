@@ -106,6 +106,11 @@ export function HowWeKnowPanel({
             </Link>
           </p>
         </div>
+        <div className="pt-2 border-t border-border/30">
+          <Link href="/settings/methodology" className="text-accent-primary hover:underline font-medium">
+            Full methodology →
+          </Link>
+        </div>
       </div>
     </details>
   );

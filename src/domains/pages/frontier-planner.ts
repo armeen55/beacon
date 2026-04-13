@@ -188,7 +188,7 @@ export function computeFrontiers(
       rationale = `Only ${ownedPages.length} owned page${ownedPages.length !== 1 ? "s" : ""} for a ${topic.total_citations}-citation topic.${ar ? ` ${ar.rationale}` : assetContext}`;
     } else if (patterns.some((p) => p.evidence.executionConfidence === "execution_validated")) {
       recommendedMoveType = "roll_out_validated_pattern";
-      rationale = `Validated patterns available. Roll out proven structure to remaining weak pages.${assetContext}`;
+      rationale = `Validated patterns available. Roll out the same observed structure to remaining weak pages.${assetContext}`;
     } else if (ownedPages.length >= 5 && ownedWithFaq.length >= 3) {
       recommendedMoveType = "expand_internal_link_cluster";
       rationale = `Good page coverage with structure. Strengthen internal linking.${assetContext}`;

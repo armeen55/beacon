@@ -175,7 +175,7 @@ function generateExpectedOutcome(
   }
 
   if (rec.type === "cross_page_pattern") {
-    return `Applying a proven pattern from a different page type. The structural gap and topic overlap suggest this page would benefit from the same optimization that worked elsewhere.`;
+    return `Applying an observed pattern from a different page type. The structural gap and topic overlap suggest this page would benefit from the same optimization that worked elsewhere.`;
   }
 
   if (rec.type === "topic_cluster_gap") {
@@ -192,14 +192,14 @@ function generateExpectedOutcome(
       replicableCount > 1
         ? ` Pattern applies to ${replicableCount} additional pages.`
         : "";
-    return `Visibility improvement for ${topics || "target topics"}${platforms ? ` on ${platforms}` : ""}, based on ${sourceRow.totalEventsLinked} proven event${sourceRow.totalEventsLinked !== 1 ? "s" : ""} from similar change.${scale}`;
+    return `Visibility improvement for ${topics || "target topics"}${platforms ? ` on ${platforms}` : ""}, based on ${sourceRow.totalEventsLinked} linked event${sourceRow.totalEventsLinked !== 1 ? "s" : ""} from a similar change.${scale}`;
   }
 
   if (rec.citationOpportunity > 0) {
     return `Structural gap on a page with ${rec.citationOpportunity} existing citations. Adding the missing structure should improve AI platform comprehension.`;
   }
 
-  return "Applying a validated structural pattern to close an identified gap.";
+  return "Applying a strong structural pattern to close an identified gap.";
 }
 
 // ---------------------------------------------------------------------------

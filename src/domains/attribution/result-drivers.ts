@@ -1,5 +1,5 @@
 /**
- * Single source of truth for “who caused this result?” in the Results UI.
+ * Single source of truth for “which changes link to this result?” in the Results UI.
  *
  * Two different mechanisms exist in Beacon:
  * 1) **Stored IDs** — `result.attributed_changelog_ids` (import / workbook / bridge).

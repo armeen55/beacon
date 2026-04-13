@@ -618,7 +618,7 @@ function SprintDecisionCard({
       </div>
 
       <div className="flex items-center justify-start text-[11px] text-muted-foreground">
-        <Link href={`/results/${item.anchorResultId}`} className="text-accent-primary font-medium hover:underline">
+        <Link href={`/settings/history/${item.anchorResultId}`} className="text-accent-primary font-medium hover:underline">
           Open full result →
         </Link>
       </div>
@@ -666,7 +666,7 @@ function ResolvedSection({ items }: { items: ResolvedItem[] }) {
     unknown: "Unknown",
   };
   const CONFIDENCE_LABELS: Record<OperatorConfidence, string> = {
-    high: "high confidence",
+    high: "firm (operator)",
     medium: "balanced",
     low: "tentative",
   };
@@ -700,7 +700,7 @@ function ResolvedSection({ items }: { items: ResolvedItem[] }) {
                     )}
                   </p>
                 </div>
-                <Link href={`/results/${r.anchorResultId}`} className="text-[11px] text-muted-foreground hover:text-accent-primary shrink-0">
+                <Link href={`/settings/history/${r.anchorResultId}`} className="text-[11px] text-muted-foreground hover:text-accent-primary shrink-0">
                   View
                 </Link>
               </div>
@@ -730,7 +730,7 @@ function ResolvedSection({ items }: { items: ResolvedItem[] }) {
                     Auto-cleared: {r.changeName ?? "—"}
                   </p>
                 </div>
-                <Link href={`/results/${r.anchorResultId}`} className="text-[11px] text-muted-foreground hover:text-accent-primary shrink-0">
+                <Link href={`/settings/history/${r.anchorResultId}`} className="text-[11px] text-muted-foreground hover:text-accent-primary shrink-0">
                   View
                 </Link>
               </div>

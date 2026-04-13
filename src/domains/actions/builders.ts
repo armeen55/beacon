@@ -245,7 +245,7 @@ function deriveExpectedOutcome(
       }
       return `Create similar changes for adjacent topics. Expect new outcome events within 1-2 weeks if the pattern holds.`;
     case "expand_adjacent_opportunity":
-      return `New opportunities created from proven cluster. Broadens coverage with evidence-backed strategy.`;
+      return `New opportunities created from a strong-pattern cluster. Broadens coverage with evidence-backed strategy.`;
     case "fix_changelog_coverage":
       return `Logging missing changes enables candidate discovery. ${cluster.noCandidateEventCount} events become attributable.`;
     case "fix_matching_quality":

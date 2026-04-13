@@ -7,8 +7,8 @@ import { cn } from "@/lib/utils";
 const TABS = [
   { href: "/settings/import", label: "Import" },
   { href: "/settings/config", label: "Config" },
-  { href: "/settings/health", label: "System Health" },
-  { href: "/settings/history", label: "Measurement History" },
+  { href: "/settings/history", label: "Data" },
+  { href: "/settings/methodology", label: "Methodology" },
 ] as const;
 
 export default function SettingsLayout({

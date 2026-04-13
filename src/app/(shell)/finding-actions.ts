@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { log } from "@/lib/logger";
 import { updateFindingStatus } from "@/domains/scanning/findings-store";
 import { updateScanSettings } from "@/domains/scanning/scan-settings";
 import type { ScanSettings, FindingStatus, PromotionStatus } from "@/domains/scanning/types";
@@ -13,8 +14,18 @@ export async function resolveFinding(
     suppressDays?: number;
   },
 ): Promise<{ success: boolean; consequence?: string }> {
+  const action = "resolveFinding";
+  const t0 = Date.now();
+  log.info("Action started", { action, params: { findingId, status } });
   const validStatuses: FindingStatus[] = ["pending", "accepted", "rejected", "ignored", "expected"];
-  if (!validStatuses.includes(status as FindingStatus)) return { success: false };
+  if (!validStatuses.includes(status as FindingStatus)) {
+    log.error("Action failed", {
+      action,
+      durationMs: Date.now() - t0,
+      error: "invalid status",
+    });
+    return { success: false };
+  }
 
   const suppressDays = status === "expected" ? (opts?.suppressDays ?? 14) : 0;
 
@@ -26,7 +37,14 @@ export async function resolveFinding(
       suppressDays,
     },
   );
-  if (!result) return { success: false };
+  if (!result) {
+    log.error("Action failed", {
+      action,
+      durationMs: Date.now() - t0,
+      error: "updateFindingStatus returned false",
+    });
+    return { success: false };
+  }
 
   let consequence = "";
   switch (status) {
@@ -45,6 +63,7 @@ export async function resolveFinding(
   }
 
   revalidatePath("/", "layout");
+  log.info("Action completed", { action, durationMs: Date.now() - t0 });
   return { success: true, consequence };
 }
 
@@ -52,21 +71,46 @@ export async function promoteFinding(
   findingId: string,
   promotionStatus: string,
 ): Promise<{ success: boolean }> {
+  const action = "promoteFinding";
+  const t0 = Date.now();
+  log.info("Action started", { action, params: { findingId, promotionStatus } });
   const validPromotions: PromotionStatus[] = ["none", "changelog", "secondary_note", "history_only"];
-  if (!validPromotions.includes(promotionStatus as PromotionStatus)) return { success: false };
+  if (!validPromotions.includes(promotionStatus as PromotionStatus)) {
+    log.error("Action failed", {
+      action,
+      durationMs: Date.now() - t0,
+      error: "invalid promotionStatus",
+    });
+    return { success: false };
+  }
 
   const result = await updateFindingStatus(findingId, "accepted", {
     promotionStatus: promotionStatus as PromotionStatus,
   });
-  if (!result) return { success: false };
+  if (!result) {
+    log.error("Action failed", {
+      action,
+      durationMs: Date.now() - t0,
+      error: "updateFindingStatus returned false",
+    });
+    return { success: false };
+  }
   revalidatePath("/", "layout");
+  log.info("Action completed", { action, durationMs: Date.now() - t0 });
   return { success: true };
 }
 
 export async function saveScanSettings(
   patch: Partial<ScanSettings>,
 ): Promise<{ success: boolean }> {
+  const action = "saveScanSettings";
+  const t0 = Date.now();
+  log.info("Action started", {
+    action,
+    params: { keys: Object.keys(patch) },
+  });
   await updateScanSettings(patch);
   revalidatePath("/", "layout");
+  log.info("Action completed", { action, durationMs: Date.now() - t0 });
   return { success: true };
 }

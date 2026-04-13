@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { log } from "@/lib/logger";
 import { results } from "@/lib/seed-data.server";
 import { generateId, now } from "@/lib/actions";
 import {
@@ -17,8 +18,18 @@ export async function confirmCandidate(
   resultId: string,
   changeId: string
 ): Promise<{ success: boolean; error?: string }> {
+  const action = "confirmCandidate";
+  const t0 = Date.now();
+  log.info("Action started", { action, params: { resultId, changeId } });
   const result = results.find((r) => r.id === resultId);
-  if (!result) return { success: false, error: "Result not found" };
+  if (!result) {
+    log.error("Action failed", {
+      action,
+      durationMs: Date.now() - t0,
+      error: "result not found",
+    });
+    return { success: false, error: "Result not found" };
+  }
 
   if (!result.attributed_changelog_ids.includes(changeId)) {
     result.attributed_changelog_ids.push(changeId);
@@ -45,6 +56,7 @@ export async function confirmCandidate(
 
   await persistCandidateLinks();
   revalidatePath("/", "layout");
+  log.info("Action completed", { action, durationMs: Date.now() - t0 });
   return { success: true };
 }
 
@@ -52,6 +64,9 @@ export async function rejectCandidate(
   resultId: string,
   changeId: string
 ): Promise<{ success: boolean; error?: string }> {
+  const action = "rejectCandidate";
+  const t0 = Date.now();
+  log.info("Action started", { action, params: { resultId, changeId } });
   const existing = candidateLinks.find(
     (cl) => cl.result_id === resultId && cl.change_id === changeId
   );
@@ -73,6 +88,7 @@ export async function rejectCandidate(
 
   await persistCandidateLinks();
   revalidatePath("/", "layout");
+  log.info("Action completed", { action, durationMs: Date.now() - t0 });
   return { success: true };
 }
 
@@ -80,6 +96,12 @@ export async function rejectAllCandidates(
   resultId: string,
   changeIds: string[]
 ): Promise<{ success: boolean }> {
+  const action = "rejectAllCandidates";
+  const t0 = Date.now();
+  log.info("Action started", {
+    action,
+    params: { resultId, changeIdCount: changeIds.length },
+  });
   for (const changeId of changeIds) {
     const existing = candidateLinks.find(
       (cl) => cl.result_id === resultId && cl.change_id === changeId
@@ -102,6 +124,7 @@ export async function rejectAllCandidates(
 
   await persistCandidateLinks();
   revalidatePath("/", "layout");
+  log.info("Action completed", { action, durationMs: Date.now() - t0 });
   return { success: true };
 }
 
@@ -111,6 +134,9 @@ export async function addTruthLabel(
   relation: TruthRelation,
   notes?: string
 ): Promise<{ success: boolean }> {
+  const action = "addTruthLabel";
+  const t0 = Date.now();
+  log.info("Action started", { action, params: { resultId, changeId, relation } });
   const existing = truthLabels.find(
     (tl) => tl.result_id === resultId && tl.change_id === changeId
   );
@@ -132,6 +158,7 @@ export async function addTruthLabel(
 
   await persistTruthLabels();
   revalidatePath("/", "layout");
+  log.info("Action completed", { action, durationMs: Date.now() - t0 });
   return { success: true };
 }
 
@@ -144,6 +171,17 @@ export async function lockDecision(
   operatorNote: string | null,
   allCandidateChangeIds: string[]
 ): Promise<{ success: boolean }> {
+  const action = "lockDecision";
+  const t0 = Date.now();
+  log.info("Action started", {
+    action,
+    params: {
+      eventId,
+      resultId,
+      causeType,
+      candidateCount: allCandidateChangeIds.length,
+    },
+  });
   const existing = eventDecisions.find((d) => d.event_id === eventId);
 
   const rejectedIds = allCandidateChangeIds.filter((id) => id !== primaryChangeId);
@@ -217,5 +255,6 @@ export async function lockDecision(
   await persistEventDecisions();
   await persistCandidateLinks();
   revalidatePath("/", "layout");
+  log.info("Action completed", { action, durationMs: Date.now() - t0 });
   return { success: true };
 }

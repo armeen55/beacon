@@ -69,9 +69,9 @@ export function CandidateReview({
     return (
       <div className="border-t border-border pt-5 space-y-4">
         <div>
-          <h3 className="text-[13px] font-semibold">What might have caused this</h3>
+          <h3 className="text-[13px] font-semibold">What correlates with this change</h3>
           <p className="text-[11px] text-muted-foreground mt-0.5">
-            Pick the change that actually drove this move.
+            Pick the change that best aligns with this move.
           </p>
         </div>
         <div className={cn("space-y-2 transition-opacity", isPending && "opacity-60 pointer-events-none")}>
@@ -86,10 +86,10 @@ export function CandidateReview({
   return (
     <div className="border-t border-border pt-5 space-y-5">
       <div>
-        <h3 className="text-[13px] font-semibold">What might have caused this</h3>
+        <h3 className="text-[13px] font-semibold">What correlates with this change</h3>
         <div className="flex items-center gap-3 mt-1 text-[11px] text-muted-foreground">
-          {primary.length > 0 && <span className="text-status-success font-medium">1 main driver</span>}
-          {contributing.length > 0 && <span>{contributing.length} also helped</span>}
+          {primary.length > 0 && <span className="text-status-success font-medium">1 strongest match</span>}
+          {contributing.length > 0 && <span>{contributing.length} contributing matches</span>}
           {needsReview.length > 0 && <span className="text-status-warning font-medium">{needsReview.length} need your call</span>}
           {suppressed.length > 0 && <span>{suppressed.length} set aside</span>}
         </div>

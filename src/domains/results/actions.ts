@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { log } from "@/lib/logger";
 import { results } from "@/lib/seed-data.server";
 import { generateId, now } from "@/lib/actions";
 import { METRIC_DIRECTION } from "@/lib/constants";
@@ -10,6 +11,15 @@ import type { Platform, MetricType } from "@/lib/constants";
 export async function createResult(
   formData: FormData
 ): Promise<{ success: boolean; error?: string; resultId?: string }> {
+  const action = "createResult";
+  const t0 = Date.now();
+  log.info("Action started", {
+    action,
+    params: {
+      metricType: formData.get("metric_type"),
+      platform: formData.get("platform"),
+    },
+  });
   const metricType = formData.get("metric_type") as MetricType;
   const platform = formData.get("platform") as Platform;
   const metricValueRaw = formData.get("metric_value") as string;
@@ -28,11 +38,21 @@ export async function createResult(
     : [];
 
   if (!metricType || !platform || !metricValueRaw) {
+    log.error("Action failed", {
+      action,
+      durationMs: Date.now() - t0,
+      error: "missing metric/platform/value",
+    });
     return { success: false, error: "Metric, platform, and value are required." };
   }
 
   const metricValue = parseFloat(metricValueRaw);
   if (isNaN(metricValue)) {
+    log.error("Action failed", {
+      action,
+      durationMs: Date.now() - t0,
+      error: "metric value not a number",
+    });
     return { success: false, error: "Value must be a number." };
   }
 
@@ -75,5 +95,6 @@ export async function createResult(
   results.push(result);
 
   revalidatePath("/", "layout");
+  log.info("Action completed", { action, durationMs: Date.now() - t0 });
   return { success: true, resultId };
 }

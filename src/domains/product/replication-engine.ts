@@ -121,7 +121,7 @@ function reasonsForTarget(
   } else if (rec.type === "replicate") {
     similarityReasons.push("Same mined pattern as the winning change");
     inferred.push(
-      "Target was flagged by the same structural playbook pattern as the validated winner (inferred fit).",
+      "Target was flagged by the same structural playbook pattern as the validated source change (inferred fit).",
     );
   }
 
@@ -150,7 +150,7 @@ const MAX_TARGETS_PER_CARD = 3;
 const MAX_CARDS = 12;
 
 /**
- * Group replicate / cross_page_pattern recs that carry a source change (proven winner path).
+ * Group replicate / cross_page_pattern recs that carry a source change (winner-backed path).
  * Fallback replicate recs without sourceChangeId stay in the main engine only — not Tier 1B cards.
  */
 export function buildReplicationCards(opts: BuildReplicationCardsOpts): ReplicationCard[] {
@@ -234,13 +234,13 @@ export function buildReplicationCards(opts: BuildReplicationCardsOpts): Replicat
     const headline =
       patternName != null
         ? `Replicate: ${patternName}`
-        : `Replicate proven play from “${asset}”`;
+        : `Replicate observed play from “${asset}”`;
 
     const summaryLine =
       tierFromImpact === "validated"
-        ? `Validated winner → ${targets.length} ready target(s).`
+        ? `Strong pattern → ${targets.length} ready target(s).`
         : tierFromImpact === "qualified_partial"
-          ? `Strong partial signal (high confidence) → ${targets.length} ready target(s).`
+          ? `Strong partial signal (strong evidence) → ${targets.length} ready target(s).`
           : `Winner signal → ${targets.length} ready target(s).`;
 
     const confRank = (c: "high" | "medium" | "low") =>
@@ -259,7 +259,7 @@ export function buildReplicationCards(opts: BuildReplicationCardsOpts): Replicat
       "After shipping, re-import visibility data and check whether citations or mentions move for this URL within 1–2 cycles.";
 
     const cardObserved: string[] = [
-      `Winner qualification: ${tierFromImpact === "validated" ? "validated" : "partial (high-confidence only)"} with positive visibility direction.`,
+      `Winner qualification: ${tierFromImpact === "validated" ? "validated" : "partial (strong-evidence only)"} with positive visibility direction.`,
       `Evidence tier on winner: ${row?.evidenceTier ?? "unknown"}.`,
     ];
     const cardInferred: string[] = [

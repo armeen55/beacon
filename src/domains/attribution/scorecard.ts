@@ -271,7 +271,7 @@ export function computeScorecard(
       if (negPrimaries.length >= 1) {
         verdict = "negative";
         const topicStr = topics.slice(0, 2).join(", ");
-        verdictSummary = `Visibility declined for ${topicStr} after this change — ${negativeEvents.length} negative event${negativeEvents.length > 1 ? "s" : ""}`;
+        verdictSummary = `Visibility declined for ${topicStr} in the same observation window as this change — ${negativeEvents.length} negative event${negativeEvents.length > 1 ? "s" : ""}`;
       } else {
         verdict = "inconclusive";
         verdictSummary = `Linked to ${negativeEvents.length} decline event${negativeEvents.length > 1 ? "s" : ""} as candidate — not confirmed`;
@@ -284,19 +284,19 @@ export function computeScorecard(
       }
       verdictSummary =
         operatorConfirmed.length === 1
-          ? `Operator-confirmed cause for ${operatorConfirmed[0].event.topic}`
+          ? `Operator-confirmed link for ${operatorConfirmed[0].event.topic}`
           : `Operator-confirmed across ${operatorConfirmed.length} events`;
     } else if (primaries.length >= 2) {
       verdict = "validated";
       const topicStr = topics.slice(0, 2).join(", ");
-      verdictSummary = `Primary cause in ${primaries.length} events across ${topicStr}`;
+      verdictSummary = `Strongest correlate in ${primaries.length} events across ${topicStr}`;
     } else if (primaries.length === 1 && contribs.length >= 1) {
       verdict = "validated";
-      verdictSummary = `Primary in 1 event, contributing in ${contribs.length} more`;
+      verdictSummary = `Strongest match in 1 event, contributing in ${contribs.length} more`;
     } else if (primaries.length === 1) {
       verdict = "partial";
       const ev = primaries[0].event;
-      verdictSummary = `Primary cause for ${ev.topic} on ${platformLabel(ev.platform)}`;
+      verdictSummary = `Strongest correlate for ${ev.topic} on ${platformLabel(ev.platform)}`;
     } else if (contribs.length >= 2) {
       verdict = "partial";
       verdictSummary = `Contributing factor in ${contribs.length} events`;

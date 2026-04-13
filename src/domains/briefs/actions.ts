@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { log } from "@/lib/logger";
 import { briefs, opportunities } from "@/lib/seed-data.server";
 import { CHECKLIST_TEMPLATES } from "@/domains/briefs/checklist-templates";
 import { generateId, now } from "@/lib/actions";
@@ -10,6 +11,15 @@ import type { Brief, ChecklistItem } from "@/domains/briefs/types";
 export async function createBrief(
   formData: FormData
 ): Promise<{ success: boolean; error?: string; briefId?: string }> {
+  const action = "createBrief";
+  const t0 = Date.now();
+  log.info("Action started", {
+    action,
+    params: {
+      briefType: formData.get("brief_type"),
+      hasOpportunityId: Boolean(formData.get("opportunity_id")),
+    },
+  });
   const title = (formData.get("title") as string)?.trim();
   const objective = (formData.get("objective") as string)?.trim();
   const briefType = formData.get("brief_type") as BriefType;
@@ -22,6 +32,11 @@ export async function createBrief(
   const opportunityId = (formData.get("opportunity_id") as string) || null;
 
   if (!title || !objective || !briefType) {
+    log.error("Action failed", {
+      action,
+      durationMs: Date.now() - t0,
+      error: "missing title/objective/type",
+    });
     return { success: false, error: "Title, objective, and type are required." };
   }
 
@@ -79,6 +94,7 @@ export async function createBrief(
   }
 
   revalidatePath("/", "layout");
+  log.info("Action completed", { action, durationMs: Date.now() - t0 });
   return { success: true, briefId };
 }
 
@@ -86,8 +102,18 @@ export async function updateBriefStatus(
   briefId: string,
   newStatus: BriefStatus
 ): Promise<{ success: boolean; error?: string }> {
+  const action = "updateBriefStatus";
+  const t0 = Date.now();
+  log.info("Action started", { action, params: { briefId, newStatus } });
   const brief = briefs.find((b) => b.id === briefId);
-  if (!brief) return { success: false, error: "Brief not found" };
+  if (!brief) {
+    log.error("Action failed", {
+      action,
+      durationMs: Date.now() - t0,
+      error: "brief not found",
+    });
+    return { success: false, error: "Brief not found" };
+  }
 
   brief.status = newStatus;
   const timestamp = now();
@@ -109,6 +135,7 @@ export async function updateBriefStatus(
   }
 
   revalidatePath("/", "layout");
+  log.info("Action completed", { action, durationMs: Date.now() - t0 });
   return { success: true };
 }
 
@@ -116,11 +143,28 @@ export async function toggleChecklistItem(
   briefId: string,
   itemId: string
 ): Promise<{ success: boolean }> {
+  const action = "toggleChecklistItem";
+  const t0 = Date.now();
+  log.info("Action started", { action, params: { briefId, itemId } });
   const brief = briefs.find((b) => b.id === briefId);
-  if (!brief) return { success: false };
+  if (!brief) {
+    log.error("Action failed", {
+      action,
+      durationMs: Date.now() - t0,
+      error: "brief not found",
+    });
+    return { success: false };
+  }
 
   const item = brief.checklist.find((c) => c.id === itemId);
-  if (!item) return { success: false };
+  if (!item) {
+    log.error("Action failed", {
+      action,
+      durationMs: Date.now() - t0,
+      error: "item not found",
+    });
+    return { success: false };
+  }
 
   if (item.status === "done") {
     item.status = "pending";
@@ -132,6 +176,7 @@ export async function toggleChecklistItem(
   brief.updated_at = now();
 
   revalidatePath(`/briefs/${briefId}`);
+  log.info("Action completed", { action, durationMs: Date.now() - t0 });
   return { success: true };
 }
 
@@ -139,9 +184,29 @@ export async function addChecklistItem(
   briefId: string,
   label: string
 ): Promise<{ success: boolean }> {
+  const action = "addChecklistItem";
+  const t0 = Date.now();
+  log.info("Action started", {
+    action,
+    params: { briefId, labelLength: label.length },
+  });
   const brief = briefs.find((b) => b.id === briefId);
-  if (!brief) return { success: false };
-  if (!label.trim()) return { success: false };
+  if (!brief) {
+    log.error("Action failed", {
+      action,
+      durationMs: Date.now() - t0,
+      error: "brief not found",
+    });
+    return { success: false };
+  }
+  if (!label.trim()) {
+    log.error("Action failed", {
+      action,
+      durationMs: Date.now() - t0,
+      error: "empty label",
+    });
+    return { success: false };
+  }
 
   const maxOrder = brief.checklist.reduce(
     (max, c) => Math.max(max, c.sort_order),
@@ -160,6 +225,7 @@ export async function addChecklistItem(
   brief.updated_at = now();
 
   revalidatePath(`/briefs/${briefId}`);
+  log.info("Action completed", { action, durationMs: Date.now() - t0 });
   return { success: true };
 }
 
@@ -169,11 +235,31 @@ export async function judgeOutcome(
   verdict: OutcomeVerdict,
   actualValue?: number
 ): Promise<{ success: boolean }> {
+  const action = "judgeOutcome";
+  const t0 = Date.now();
+  log.info("Action started", {
+    action,
+    params: { briefId, outcomeId, verdict },
+  });
   const brief = briefs.find((b) => b.id === briefId);
-  if (!brief) return { success: false };
+  if (!brief) {
+    log.error("Action failed", {
+      action,
+      durationMs: Date.now() - t0,
+      error: "brief not found",
+    });
+    return { success: false };
+  }
 
   const outcome = brief.expected_outcomes.find((o) => o.id === outcomeId);
-  if (!outcome) return { success: false };
+  if (!outcome) {
+    log.error("Action failed", {
+      action,
+      durationMs: Date.now() - t0,
+      error: "outcome not found",
+    });
+    return { success: false };
+  }
 
   outcome.verdict = verdict;
   outcome.judged_at = verdict === "pending" ? null : now();
@@ -183,5 +269,6 @@ export async function judgeOutcome(
   brief.updated_at = now();
 
   revalidatePath("/", "layout");
+  log.info("Action completed", { action, durationMs: Date.now() - t0 });
   return { success: true };
 }

@@ -252,11 +252,11 @@ export default function DiagnosticsPage() {
           Review
         </Link>
         , and{" "}
-        <Link href="/results" className="text-foreground underline-offset-4 hover:underline">
+        <Link href="/settings/history" className="text-foreground underline-offset-4 hover:underline">
           History
         </Link>
         . Use this page when you need to sanity-check linkage, coverage, or model-shaped stats. Refresh evidence from{" "}
-        <Link href="/import" className="text-foreground underline-offset-4 hover:underline">
+        <Link href="/settings/import" className="text-foreground underline-offset-4 hover:underline">
           Import
         </Link>
         .
@@ -492,7 +492,7 @@ export default function DiagnosticsPage() {
                       <TableHead className="text-xs text-right">Pending</TableHead>
                       <TableHead className="text-xs text-right">Score</TableHead>
                       <TableHead className="text-xs text-right">Urgency</TableHead>
-                      <TableHead className="text-xs">Confidence</TableHead>
+                      <TableHead className="text-xs">Evidence tier</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -556,7 +556,7 @@ export default function DiagnosticsPage() {
             </p>
             <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-4">
               <StatBlock label="Patterns" value={ps.total} />
-              <StatBlock label="High model confidence" value={ps.highConfidence} variant="default" />
+              <StatBlock label="High model score" value={ps.highConfidence} variant="default" />
               <StatBlock label="Avg historical success %" value={`${ps.avgSuccessRate}%`} variant="default" sub="Cluster-tagged only" />
               <StatBlock label="Trend: improving" value={ps.improving} variant="default" />
               <StatBlock label="Trend: declining" value={ps.declining} variant={ps.declining > 0 ? "warning" : "default"} />
@@ -567,7 +567,7 @@ export default function DiagnosticsPage() {
                   <TableHeader>
                     <TableRow>
                       <TableHead className="text-xs">Pattern</TableHead>
-                      <TableHead className="text-xs text-center">Confidence</TableHead>
+                      <TableHead className="text-xs text-center">Evidence tier</TableHead>
                       <TableHead className="text-xs text-center">Trend</TableHead>
                       <TableHead className="text-xs text-right">Executions</TableHead>
                       <TableHead className="text-xs text-right">Clusters</TableHead>
@@ -627,19 +627,19 @@ export default function DiagnosticsPage() {
             <div className="grid grid-cols-2 lg:grid-cols-6 gap-3 mb-4">
               <StatBlock label="Total candidates" value={es.total} />
               <StatBlock label="New" value={es.new} variant="success" />
-              <StatBlock label="High confidence" value={es.high} variant="success" />
+              <StatBlock label="Strong evidence tier" value={es.high} variant="success" />
               <StatBlock label="Medium" value={es.medium} variant="warning" />
               <StatBlock label="Adjacent" value={es.adjacent} />
               <StatBlock label="Expansion" value={es.expansion} />
             </div>
-            <DisclosureBlock title="Candidate sample (first 20)" subtitle="Type, confidence, source pattern">
+            <DisclosureBlock title="Candidate sample (first 20)" subtitle="Type, evidence tier, source pattern">
               <div className="rounded-md border border-border/60 overflow-hidden">
                 <Table>
                   <TableHeader>
                     <TableRow>
                       <TableHead className="text-xs">Candidate</TableHead>
                       <TableHead className="text-xs">Type</TableHead>
-                      <TableHead className="text-xs">Confidence</TableHead>
+                      <TableHead className="text-xs">Evidence tier</TableHead>
                       <TableHead className="text-xs">Pattern</TableHead>
                       <TableHead className="text-xs">Target</TableHead>
                       <TableHead className="text-xs text-right">Score</TableHead>
@@ -727,7 +727,7 @@ export default function DiagnosticsPage() {
         <SectionTitle>Event + Review drivers</SectionTitle>
         <p className="text-sm text-muted-foreground mb-4">
           Same pipeline as{" "}
-          <Link href="/results" className="font-medium text-foreground underline-offset-4 hover:underline">
+          <Link href="/settings/history" className="font-medium text-foreground underline-offset-4 hover:underline">
             History
           </Link>{" "}
           → suggested cause. Attribution-mode snapshots only.
@@ -759,10 +759,10 @@ export default function DiagnosticsPage() {
 
       <DisclosureBlock
         title="Stored-ID pair scoring & model shape"
-        subtitle={`${diag.inflation.total_pairs} change→result pairs from stored IDs only — confidence, factors, inflation checks, verdicts, timing`}
+        subtitle={`${diag.inflation.total_pairs} change→result pairs from stored IDs only — scoring tiers, factors, inflation checks, verdicts, timing`}
       >
         <div>
-          <SectionTitle>Confidence distribution</SectionTitle>
+          <SectionTitle>Attribution tier distribution</SectionTitle>
           <p className="text-sm text-muted-foreground mb-3">
             {diag.inflation.total_pairs} pairs scored from stored IDs only.
             {diag.inflation.total_pairs === 0 && (
@@ -840,9 +840,9 @@ export default function DiagnosticsPage() {
         </div>
 
         <div className="mt-8">
-          <SectionTitle>Confidence inflation risk</SectionTitle>
+          <SectionTitle>Attribution inflation risk</SectionTitle>
           <p className="text-sm text-muted-foreground mb-3">
-            Null fields score as unknown (0 points). High-confidence pairs with missing structural anchors still deserve scrutiny.
+            Null fields score as unknown (0 points). Highest-scoring attribution pairs with missing structural anchors still deserve scrutiny.
           </p>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
             <StatBlock
@@ -864,7 +864,7 @@ export default function DiagnosticsPage() {
               label="High + nulls"
               value={diag.inflation.high_confidence_with_nulls}
               variant={diag.inflation.high_confidence_with_nulls > 0 ? "danger" : "success"}
-              sub="High confidence with URL or geo null"
+              sub="Strong evidence tier with URL or geo null"
             />
           </div>
         </div>
@@ -1244,7 +1244,7 @@ function EntityRepresentationSection() {
                 <p className="text-xs text-muted-foreground mt-1 leading-relaxed">{d.detail}</p>
                 <div className="flex gap-3 mt-1.5 text-[10px] text-muted-foreground/70">
                   <span>{d.evidence_count} evidence points</span>
-                  <span>Confidence: {d.confidence}</span>
+                  <span>Evidence tier: {d.confidence}</span>
                 </div>
               </div>
             ))}

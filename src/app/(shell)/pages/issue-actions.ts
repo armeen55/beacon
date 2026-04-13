@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { log } from "@/lib/logger";
 import {
   pageIssues,
   persistPageIssues,
@@ -40,6 +41,9 @@ export async function updateIssueStatus(
   status: IssueStatus,
   meta?: { pageUrl?: string; pagePath?: string; category?: string }
 ): Promise<{ success: boolean }> {
+  const action = "updateIssueStatus";
+  const t0 = Date.now();
+  log.info("Action started", { action, params: { issueId, status } });
   const now = new Date().toISOString();
   let issue = pageIssues.find((i) => i.issueId === issueId);
 
@@ -92,6 +96,7 @@ export async function updateIssueStatus(
 
   await persistPageIssues();
   revalidatePath("/", "layout");
+  log.info("Action completed", { action, durationMs: Date.now() - t0 });
   return { success: true };
 }
 
@@ -105,9 +110,17 @@ export async function verifyAndUpdateIssue(
   summary: string;
   error?: string;
 }> {
+  const action = "verifyAndUpdateIssue";
+  const t0 = Date.now();
+  log.info("Action started", { action, params: { issueId } });
   const result = await verifyPageFix(pageUrl);
 
   if (!result.success) {
+    log.error("Action failed", {
+      action,
+      durationMs: Date.now() - t0,
+      error: result.error?.slice(0, 500) ?? "verification failed",
+    });
     return {
       success: false,
       cleared: false,
@@ -195,6 +208,7 @@ export async function verifyAndUpdateIssue(
   await persistPageIssues();
   revalidatePath("/", "layout");
 
+  log.info("Action completed", { action, durationMs: Date.now() - t0 });
   return {
     success: true,
     cleared,
@@ -220,6 +234,9 @@ export async function generateHandoffText(
     intentDetail: string | null;
   }
 ): Promise<{ success: boolean; text: string }> {
+  const action = "generateHandoffText";
+  const t0 = Date.now();
+  log.info("Action started", { action, params: { issueId } });
   const lines: string[] = [
     `## Page Issue: ${brief.issueSummary}`,
     "",
@@ -237,7 +254,7 @@ export async function generateHandoffText(
     "### Observed state",
     ...brief.observedState.map((s) => `- ${s}`),
     "",
-    "### Likely causes",
+    "### Likely correlates",
     ...brief.likelyCauses.map((s) => `- ${s}`),
     "",
     "### Best next move",
@@ -256,6 +273,7 @@ export async function generateHandoffText(
     category: issueId.replace(/^issue-/, "").replace(/-[^-]+$/, ""),
   });
 
+  log.info("Action completed", { action, durationMs: Date.now() - t0 });
   return { success: true, text: lines.join("\n") };
 }
 
@@ -278,6 +296,12 @@ export async function convertBriefToIssue(
   recommendations?: string[],
   verificationChecklist?: string[]
 ): Promise<{ success: boolean; issueId: string; handoffText?: string }> {
+  const action = "convertBriefToIssue";
+  const t0 = Date.now();
+  log.info("Action started", {
+    action,
+    params: { briefId, briefType, pageUrlLength: pageUrl.length },
+  });
   const now = new Date().toISOString();
   const issueId = issueIdFromBrief(briefId, pageUrl);
 
@@ -385,6 +409,7 @@ export async function convertBriefToIssue(
     handoffText = lines.join("\n");
   }
 
+  log.info("Action completed", { action, durationMs: Date.now() - t0 });
   return { success: true, issueId, handoffText };
 }
 
@@ -392,6 +417,9 @@ export async function refreshOutcomeObservation(
   issueId: string,
   pageUrl: string
 ): Promise<{ success: boolean; summary: string }> {
+  const action = "refreshOutcomeObservation";
+  const t0 = Date.now();
+  log.info("Action started", { action, params: { issueId } });
   const { generateOutcomeObservation, outcomeObservations, persistOutcomeObservations } = await import("@/domains/pages/outcome-watch");
   const { computeScorecard } = await import("@/domains/attribution/scorecard");
   const { detectOutcomeEvents } = await import("@/domains/attribution/events");
@@ -401,6 +429,11 @@ export async function refreshOutcomeObservation(
 
   const exec = rolloutExecutions.find((r) => r.issueId === issueId);
   if (!exec || !exec.verifiedAt) {
+    log.error("Action failed", {
+      action,
+      durationMs: Date.now() - t0,
+      error: "no shipped checklist",
+    });
     return { success: false, summary: "No shipped checklist tied to this issue yet" };
   }
 
@@ -439,5 +472,6 @@ export async function refreshOutcomeObservation(
   }
 
   revalidatePath("/", "layout");
+  log.info("Action completed", { action, durationMs: Date.now() - t0 });
   return { success: true, summary: obs.evidenceSummary };
 }

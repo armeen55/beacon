@@ -7,6 +7,849 @@
 
 ---
 
+## 2026-04-12 — `/settings/methodology` route (1.1c follow-through)
+
+- **Goal:** Create the methodology destination page defined in 1.1c so all Layer 2/3 disclosure links have a real target.
+- **Scope:** UI + content wiring — no new logic, no schema changes.
+- **Route created:** `src/app/(shell)/settings/methodology/page.tsx` — static page with 5 sections:
+  1. **How Beacon works** — overview of imports → findings → attribution → market → recommendations; every metric bounded by imported sample.
+  2. **What the metrics mean** — Citation Share (with denominator concept), sample quality tiers (limited / moderate / strong), "Strongest correlate" definition, evidence quality labels (Strong / Moderate / Early), change verdicts (Validated / Partial / Inconclusive / Too early / No impact / Negative).
+  3. **What Beacon knows vs. doesn't know** — three-panel grid: observed signals, inferred relationships, unknowns (causation, market share, AI indexing, revenue impact, recommendation certainty).
+  4. **How to interpret recommendations** — evidence ≠ guarantee, patterns ≠ predictions, operator judgment required, outcomes not guaranteed.
+  5. **FAQ** — 5 adversarial questions from 1.1h: attribution causation (Q2), Citation Share vs market share (Q3/Q4), recommendation certainty (Q8), sample quality limited (Q12), "Strongest correlate" definition (Q9). Collapsible `<details>` entries.
+- **Settings tab added:** "Methodology" tab in `settings/layout.tsx` (4 tabs: Import, Config, Data, Methodology).
+- **L3 entry-point links wired (minimal):**
+  - `HowWeKnowPanel` footer → "Full methodology →" (`/settings/methodology`)
+  - Market scope line → "How this works →" (`/settings/methodology#citation-share`)
+  - Changes replication blurb → "How verdicts work →" (`/settings/methodology#verdicts`)
+- **Content sources used:** `TIER_1_1C_METHODOLOGY_SHELL_IA.md` (sections, structure, tone), `TIER_1_1H_ADVERSARIAL_OWNER_FAQ.md` (Q2, Q3/Q4, Q8, Q9, Q12), `TIER_1_1A_SIGNAL_TAXONOMY.md` (forbidden claims boundary), `beacon-proof-copy.ts` (existing proof language).
+- **No logic/schema/component changes.** Pure content route + 3 link additions.
+- **Files touched:** `src/app/(shell)/settings/methodology/page.tsx` (new), `src/app/(shell)/settings/layout.tsx`, `src/components/today/how-we-know-panel.tsx`, `src/app/(shell)/competitors/page.tsx`, `src/app/(shell)/changes/page.tsx`.
+- **Verification:** `npm run typecheck` ✓ · `npm run test` 82/82 ✓ · `npm run build` ✓ (18 static + 4 dynamic routes; `/settings/methodology` appears as ○ static).
+- **Docs updated:** `HANDOFF_VERIFIED_STATE.md`, `NEXT_PHASE_EXECUTION_PLAN.md`, `VERIFICATION_LOG.md` (this entry), `architecture.md` (settings sub-routes table).
+
+---
+
+## 2026-04-12 — Tier 1.1: Final copy sweep (1.1j deferred forbidden-claim strings)
+
+- **Goal:** Remove deferred F1/F4-style wording on non-primary surfaces and generated copy; align with `TIER_1_1A_SIGNAL_TAXONOMY.md` (correlation, evidence tiers, no outcome guarantees in sample hypotheses).
+- **Scope:** Copy-only — no logic, props, or layout changes.
+- **Strings / themes addressed (representative):** “Proven winners” → “Observed winners”; “What might have caused this” / “drove this move” → correlational headings + “best aligns”; “Proven” / “drove visibility” / “Apply proven pattern” in generated recs → “Observed” / “aligned with visibility change” / “Apply observed pattern”; replication tier labels (“Validated winner”, “Partial (high-confidence)”) → “Strong pattern” / “Partial (strong evidence)”; “high-confidence impact” / Tier 1B blurb → “strong-evidence …”; “Likely causes” → “Likely correlates” (UI + issue markdown); seed hypotheses “will improve” → “may correlate …; outcomes not guaranteed”; review operator label “high confidence” → “firm (operator)”; diagnostics stat/table labels reframed (“Strong evidence tier”, “Evidence tier”, “Attribution tier distribution”, “Attribution inflation risk”); attribution summaries “Primary cause” / “after this change” → “Strongest correlate” / “same observation window”; domain builders (`priority-engine`, `frontier-planner`, `brief-generation`, `actions`, `opportunity-candidates`) “proven” phrasing → observed / well-supported / strong-pattern language; `replication-engine` inferred line “validated winner” → “validated source change”.
+- **Files touched:** `src/components/data/candidate-review.tsx`, `src/app/(shell)/changes/scorecard-client.tsx`, `src/app/(shell)/changes/page.tsx`, `src/components/replication/replication-cards-client.tsx`, `src/domains/product/replication-engine.ts`, `src/domains/product/recommendation-engine.ts`, `src/app/(shell)/review/review-queue-client.tsx`, `src/components/pages/pages-selected-detail.tsx`, `src/app/(shell)/pages/issue-actions.ts`, `src/lib/seed-data.ts`, `src/domains/product/priority-engine.ts`, `src/domains/pages/frontier-planner.ts`, `src/domains/brief-generation/builders.ts`, `src/domains/actions/builders.ts`, `src/domains/opportunity-candidates/builders.ts`, `src/domains/attribution/change-impact.ts`, `src/domains/attribution/scorecard.ts`, `src/app/(shell)/diagnostics/page.tsx`, `src/domains/attribution/result-drivers.ts` (module comment), `src/domains/entity/discrepancy-detect.ts` (module comment).
+- **Still deferred (unchanged by this task):** 1.1j rows 12–14 — `/settings/methodology` route, Layer 2/3 methodology links dependent on that route, coverage escalation implementation (spec-only).
+- **Verification:** `npm run typecheck` ✓ · `npm run test` 82/82 ✓ · `npm run build` ✓.
+- **Docs:** `HANDOFF_VERIFIED_STATE.md`, `NEXT_PHASE_EXECUTION_PLAN.md`, `VERIFICATION_LOG.md` (this entry), `master_execution_plan.md` (1.1j note), `TIER_1_1J_EXIT_GATE_CHECKLIST.md` (§8 completion note).
+
+---
+
+## 2026-04-12 — Tier 1.1j: Exit gate checklist (Proof layer completion audit)
+
+- **Deliverable:** `docs/TIER_1_1J_EXIT_GATE_CHECKLIST.md` — cross-surface audit of all Tier 1.1 proof-layer requirements against the shipped codebase.
+- **Final gate decision:** **READY WITH MINOR GAPS.**
+- **Methodology access:** L1 inline proof present on all Tier-1 surfaces (Today, Market, Changes, Findings). L2/L3 links deferred pending `/settings/methodology` route (1.1c follow-through). **PASS.**
+- **Lineage on primary claims:** All primary claims have lineage — evidence-quality framing (Today), denominator + sample tier (Market), match/topic/window scope (Changes), provenance lines (Findings), `confidence_basis` (Changes detail). **All PASS.**
+- **Forbidden claims audit:** Searched entire `src/` for F1–F19 violations.
+  - **Clean on Tier-1 surfaces:** `ConfidenceBadge` labels ("Strongest correlate"), Market KPI ("Citation Share" + denominator), Today recommendation ("Strong evidence"), `beacon-proof-copy.ts` ("not proven causes").
+  - **14 deferred strings on non-primary surfaces:** `candidate-review.tsx` ("caused", "drove"), `recommendation-engine.ts` ("Proven", "drove visibility"), `replication-engine.ts`/`replication-cards-client.tsx` ("Validated winner", "high-confidence"), `scorecard-client.tsx` ("Proven winners" tab), `changes/page.tsx` ("high-confidence impact"), `pages-selected-detail.tsx` ("Likely causes"), `seed-data.ts` ("will improve"). All safe to defer.
+- **Copy consistency:** All P0 patterns consistent — badge labels, evidence framing, denomination, sample quality, attribution methodology. **PASS.**
+- **Coverage escalation readiness:** All surfaces have structural slots for escalation (scope lines, coverage strips, demo-mode gates, suppressible content). **PASS.**
+- **Provenance fields:** 3/3 required v1 fields surfaced (`sample_quality_tier`, `match_count`, `topic_count`) + 2 bonus fields (`window_basis`, `relativeAge` extension). **PASS.**
+- **Highest-risk re-check:** Attribution (PASS on Tier-1), Market KPI (PASS), Recommendations (PASS on Today).
+- **Blocking gaps:** None.
+- **No app code changes.**
+
+---
+
+## 2026-04-12 — Tier 1.1i: Coverage escalation rules (documentation only)
+
+- **Deliverable:** `docs/TIER_1_1I_COVERAGE_ESCALATION_RULES.md` — defines how Beacon detects and escalates stale or incomplete data across all Tier-1 surfaces.
+- **Coverage states defined:** 4 — **Fresh** (all signals current, sample adequate+), **Aging** (approaching stale or limited sample), **Stale** (beyond freshness window), **Critical** (severely outdated or absent).
+- **Trigger rules:** 4 rules with top-down precedence (Critical > Stale > Aging > Fresh). Uses only existing/derivable fields: `crawlAgeDays`, `crawlStale`, `visibilityStaleVsCrawl`, `visibilityPartialSample`, `sample_quality_tier`, `isDemoMode`, `lastImportAt`.
+- **Key thresholds:** crawl >3d → Aging, >14d → Stale, >30d → Critical. Sample <200 → Aging. Import >30d → Stale. Demo mode → Critical.
+- **Per-surface behavior:** Behavior tables defined for Today (primary action, findings, all-clear, proof panel, coverage strip), Market (KPIs, scope line, sample tier, sections), Changes (scope line, attribution labels, verdicts, observation window), Findings (provenance lines, actionability, basis block).
+- **Escalation levels:** 3 — inline note (Aging), warning strip (Stale), suppression/gate (Critical).
+- **Copy transformations:** Concrete transformations for confidence labels, scope/denominator lines, all-clear logic, finding provenance, recommendation headlines.
+- **Edge cases handled:** Zero data, fresh crawl + limited sample, fresh crawl + stale visibility, fresh visibility + stale crawl, rapid recency + low coverage, conflicting surface states, operator overrides (not supported v1).
+- **Integration approach:** Recommends new `CoverageState` type alongside existing `CoverageTone` for backward compatibility. Safest path: extend `deriveCoverageTone()` or add parallel `deriveCoverageState()`.
+- **Source artifacts used:** 1.1a (signal class 13, forbidden claims F7/F18), 1.1c (§6 escalation table), 1.1d (fields 5, 18–20), 1.1h (Q5, Q6, Q7, Q12, Q16).
+- **No app code changes.** Documentation only.
+
+---
+
+## 2026-04-12 — Tier 1.1h: Adversarial owner FAQ (documentation only)
+
+- **Deliverable:** `docs/TIER_1_1H_ADVERSARIAL_OWNER_FAQ.md` — 16 skeptical operator questions with structured answers grounded in Beacon's actual evidence boundaries.
+- **Questions covered:** 16 (spec required ≥12). Covers: change detection (Q1), attribution/causation (Q2, Q9, Q13), percentage trust (Q3), sample-vs-market (Q4), staleness (Q5), prompt count (Q6), AI variability (Q7), recommendation certainty (Q8), competitor rankings (Q10), coverage gaps (Q11), sample quality (Q12), sharing numbers (Q14), no confidence interval (Q15), changed-since-crawl (Q16).
+- **Highest-risk FAQ callouts:**
+  1. **Attribution / causation** — Q2 primary, Q9 + Q13 supporting. Maps to F1, F5, F9.
+  2. **Market denominator / scope** — Q4 primary, Q3 + Q6 + Q12 supporting. Maps to F2, F7, F8.
+  3. **Recommendation certainty** — Q8 primary, Q7 + Q15 supporting. Maps to F4, F17.
+- **Forbidden claims addressed:** 14 of 19 directly referenced in FAQ answers. Remaining 5 (F11, F12, F13, F14, F18) covered by principles in Q5, Q1, and tone guidance.
+- **Answer format (per question):** Short answer → What Beacon knows → What Beacon does not know → How derived → Where to verify in-product → Related signal classes → Stale/partial impact.
+- **Methodology-shell mapping included:** Per-surface entry-point table mapping each FAQ to Today, Changes, Market, Findings, and `/settings/methodology` sections with layer (L1/L2/L3) and priority.
+- **Copy/tone guidance:** Calm, precise, non-defensive, anti-marketing, proof-first. Explicit word lists for use/avoid.
+- **Implementation notes:** P0/P1 inline targets (Q2, Q3, Q8, Q9, Q12) vs P2/P3 destination-only entries. Deferred items documented for post-1.1i/1.1j.
+- **Source artifacts used:** 1.1a (signal taxonomy + forbidden claims), 1.1b (competitor trust patterns), 1.1c (methodology shell IA), 1.1d (provenance metadata spec).
+- **No app code changes.** Documentation only.
+
+---
+
+## 2026-04-12 — Tier 1.1g: Wire lineage into crawl findings and attribution surfaces (class 1 + 5)
+
+- **Goal:** Extend proof-layer lineage to **crawl findings (class 1)** and **attribution surfaces (class 5)** using only derivable fields. No schema changes, no scoring changes, no new stores.
+- **A — Crawl findings provenance (class 1):** **`src/components/today/today-findings.tsx`**
+  - **`relativeAge(iso)`:** New helper derives human-readable age from `detectedAt` (e.g. "2h ago", "3d ago", "just now").
+  - **With provenance block:** Appended `· Observed {relativeAge}` to existing "Basis:" line — freshness visible alongside scan run context.
+  - **Without provenance block:** New fallback line `Observed in latest crawl · {relativeAge}` ensures every finding gets a provenance line.
+  - **All fields derivable:** `detectedAt` already on every `SerializedFinding`.
+- **B — Attribution list window_basis (class 5 list):** **`src/app/(shell)/changes/scorecard-client.tsx`**
+  - **`observationWindowLabel`:** Derived via `useMemo` from `rows.flatMap(r => r.eventAttributions.map(a => a.event.trigger_date))`. Produces "Window: Mar 1 – Apr 5 (35d)" or null when no events or single-day span.
+  - **UI:** Appended to existing scope line as `· Window: …` after match/topic counts.
+  - **Per-row window:** Each `ScorecardRowUI` event attributions column shows `over Nd window` when event dates span > 0 days.
+  - **All fields derivable:** `trigger_date` already on every `OutcomeEvent` in `eventAttributions`.
+- **C — Attribution detail window (class 5 detail):** **`src/lib/attribution-confidence-basis.ts`**
+  - **`deriveObservationWindow(attributions)`:** New helper extracts earliest/latest `trigger_date` from row's `eventAttributions`, produces "observed over Nd" when span > 0.
+  - **`buildAttributionConfidenceBasis(row)`:** Extended to append observation window as last part of basis string (e.g. "3 linked matches · 2 topics · … · observed over 14d").
+  - **All fields derivable:** `trigger_date` already on every `OutcomeEvent`.
+- **No schema changes. No new stores. No scoring changes.**
+- **Gate:** `npm run typecheck` ✓ · `npm run test` 82/82 ✓ · `npm run build` ✓.
+- **Files touched:** `src/components/today/today-findings.tsx`, `src/app/(shell)/changes/scorecard-client.tsx`, `src/lib/attribution-confidence-basis.ts`.
+
+---
+
+## 2026-04-12 — Tier 1.1f: Lineage fields implementation (derivable v1 only)
+
+- **Spec:** **`docs/TIER_1_1D_PROVENANCE_METADATA_SPEC.md`** — implemented only derivable v1 fields; **no schema changes**, **no new persistence**, **no scoring/verdict/recommendation logic changes**.
+- **A — Market `sample_quality_tier`:** **`src/app/(shell)/competitors/page.tsx`**
+  - **Derivation:** `sampleQualityTierFromObservationCount(benchmark.trackedCitationObservations)` from **`src/lib/sample-quality-tier.ts`**.
+  - **Thresholds:** `&lt; 200` → **limited**, `200`–`1000` (inclusive) → **moderate**, `&gt; 1000` → **strong** (constants `SAMPLE_QUALITY_LIMITED_BELOW` = 200, `SAMPLE_QUALITY_MODERATE_AT_OR_BELOW` = 1000).
+  - **UI:** Calm line below directional scope: `Sample quality: limited | moderate | strong`.
+- **B — Changes list `match_count` + `topic_count`:** **`src/app/(shell)/changes/scorecard-client.tsx`**
+  - **`match_count`:** `workspaceLinkedMatchTotal = rows.reduce((sum, r) => sum + r.totalEventsLinked, 0)` (sum of linked outcome matches across all scorecard rows).
+  - **`topic_count`:** `workspaceDistinctTopicCount = new Set(rows.flatMap((r) => r.topics)).size`.
+  - **UI:** Muted scope line between Outcome mix `<details>` and filters — `Based on N linked matches across M topics.` Fallbacks when `N === 0` or `M === 0` per spec.
+- **C — Changes detail `confidence_basis`:** **`src/app/(shell)/changes/[id]/page.tsx`** + **`src/lib/attribution-confidence-basis.ts`**
+  - **`buildAttributionConfidenceBasis(row)`:** Joins `totalEventsLinked`, topic count, platform count, short evidence tier label, `daysSinceChange`, and optional primary-role match summary (`topic`/`url`/`temporal` strengths from `matches`).
+  - **UI:** Outcome summary "Confidence" plain text replaced with **`ConfidenceBadge`** (`@/components/display/confidence-badge`) + `explanation={buildAttributionConfidenceBasis(row)}`; label column title **Attribution fit**.
+- **Reliability:** **`tests/routes/today-smoke.test.ts`** — test timeout **5000ms → 15000ms** for flaky `TodayPage()` RSC resolution (not lineage-related).
+- **Gate:** `npm run typecheck` ✓ · `npm run test` 82/82 ✓ · `npm run build` ✓.
+- **Files touched:** `src/lib/sample-quality-tier.ts` (new), `src/lib/attribution-confidence-basis.ts` (new), `src/app/(shell)/competitors/page.tsx`, `src/app/(shell)/changes/scorecard-client.tsx`, `src/app/(shell)/changes/[id]/page.tsx`, `tests/routes/today-smoke.test.ts`.
+
+---
+
+## 2026-04-12 — Tier 1.1d: Provenance metadata spec (documentation only)
+
+- **File created:** **`docs/TIER_1_1D_PROVENANCE_METADATA_SPEC.md`** — minimum viable provenance/lineage metadata spec for Beacon's proof layer.
+- **Provenance field inventory:** 21 fields defined across 3 categories (core, attribution/impact, coverage/freshness).
+- **Field status breakdown:**
+  - **Already exist and reusable:** 19 fields across `TodayProofContext`, `MarketBenchmark`, `CoMentionMatrix`, `SourceTrustIndex`, `ScorecardRow`, `Finding`, `MilestoneEvent`, `LocalOperatorSurface`
+  - **Derivable without schema changes:** 10 fields (`sample_quality_tier`, `match_count`, `topic_count`, `platform_count`, `confidence_basis`, `window_start`, `coverage_note`, `freshness_basis`, topic count for benchmark, per-recommendation basis)
+  - **Require future schema/type additions:** 4 fields (`confidenceBasis` on `BeaconRecommendation`, `computedAt` on `BeaconRecommendation`, `source_import_batch_id` on `CitationEvidenceIndex`, optional `computedAt` on `ScorecardRow`)
+- **14 signal classes mapped:** minimum required provenance, optional later fields, and current gaps for each.
+- **Top 3 missing provenance fields (highest priority):**
+  1. **`confidence_basis`** — needed on Changes detail ConfidenceBadge `explanation` prop and Today primary action. Currently empty.
+  2. **`match_count` + `topic_count`** (scorecard-level) — needed for Changes scope line. Derivable from existing `ScorecardRow` fields.
+  3. **`sample_quality_tier`** — needed for Market KPI "small sample" conditional warning. Derivable from `trackedCitationObservations` + thresholds.
+- **5 surfaces prioritized for v1 provenance wiring:** Market KPI strip, Changes scorecard header, Changes detail ConfidenceBadge, Today primary action, Methodology destination.
+- **Minimum v1 implementation slice:** 3 derivable fields (`sample_quality_tier`, `match_count`, `topic_count`) + `confidence_basis` wiring. Zero schema changes needed.
+- **4 places where current wording outruns provenance:** Changes ConfidenceBadge (empty explanation), Today primary action (no detail after "Strong evidence"), Market KPI (no small-sample warning), Changes scorecard (no scope line).
+- **Implementation handoff:** 7 files identified as likely touch targets for 1.1f; derivable-first approach recommended; threshold constants should be exported and tested.
+- **No app code changed.**
+- **Downstream:** 1.1f (lineage fields implementation) can proceed immediately using derivable-first approach. No schema migrations needed for v1.
+
+---
+
+## 2026-04-12 — Tier 1.1e: Confidence & uncertainty copy deck (P0 trust fixes)
+
+- **What changed:** All three P0 trust-critical copy changes from 1.1c implemented. Copy only — no domain logic, no data changes.
+- **Gate:** `npm run typecheck` ✓ · `npm run test` 82/82 ✓ · `npm run build` ✓ (17 static + 4 dynamic)
+- **P0 Change 1 — ConfidenceBadge (F1 fix):**
+  - File: `src/components/display/confidence-badge.tsx`
+  - `high` label: "Likely caused by" → **"Strongest correlate"**
+  - `medium` label: "Possibly related to" → **"Possible correlate"**
+  - `low` and `uncertain` labels unchanged (already safe)
+- **P0 Change 1b — Changes detail CONF_LABELS + ROLE_LABELS:**
+  - File: `src/app/(shell)/changes/[id]/page.tsx`
+  - `CONF_LABELS`: "High confidence" → **"Strong evidence"**, "Medium confidence" → **"Moderate evidence"**, "Low confidence" → **"Weak evidence"**
+  - `ROLE_LABELS`: "Primary Cause" → **"Strongest Match"**, "Contributing Factor" → **"Contributing Match"**
+  - `IMPACT_CONF_STYLE`: "High" → **"Strong evidence"**, "Medium" → **"Moderate evidence"**, "Low" → **"Weak evidence"**
+  - Replicate section copy: "This change drove positive visibility" → **"This change correlates with positive visibility shifts"**
+- **P0 Change 2 — Market KPI strip (F2 fix):**
+  - File: `src/app/(shell)/competitors/page.tsx`
+  - KPI label: "Your AI Share" → **"Your Citation Share"** (avoids unqualified "market share" metaphor — anti-pattern A5)
+  - KPI meta: "Across all tracked topics" → **"of N observations"** (denominator disclosure — pattern P1)
+  - "Ahead of You" meta: "On raw citation count" → **"of N tracked competitors"** (scope qualifier)
+  - New directional scope line added below KPI strip: **"Directional — based on your tracked prompt sample, not a market census."** (pattern P2)
+- **P0 Change 3 — Today recommendation (F17 fix):**
+  - File: `src/components/today/today-primary-action.tsx`
+  - Confidence label: `"{confidence} confidence"` → **"Strong evidence" / "Moderate evidence" / "Early signal"** (evidence-quality framing)
+- **Proof copy update:**
+  - File: `src/lib/beacon-proof-copy.ts`
+  - Attribution text: "correlation and best-fit causes" → **"strongest correlates, not proven causes — no A/B test or holdout exists"**
+- **Diagnostics page:** `StatBlock label="High confidence"` left unchanged — technical debug context, not operator-facing trust claim.
+- **Files changed (5):**
+  - `src/components/display/confidence-badge.tsx`
+  - `src/app/(shell)/changes/[id]/page.tsx`
+  - `src/app/(shell)/competitors/page.tsx`
+  - `src/components/today/today-primary-action.tsx`
+  - `src/lib/beacon-proof-copy.ts`
+- **Forbidden claims addressed:** F1 (causal attribution language), F2 (unqualified market share), F17 (high confidence on recommendation)
+- **1.1b patterns applied:** P1 (denominator disclosure), P2 (directional framing), P3 (correlational badge labels), A5 avoided (unqualified "market share")
+
+---
+
+## 2026-04-12 — Tier 1.1c: In-product methodology shell IA (documentation only)
+
+- **File created:** **`docs/TIER_1_1C_METHODOLOGY_SHELL_IA.md`** — Proof-layer information architecture for Beacon's methodology shell.
+- **IA model chosen:** 4-layer progressive disclosure:
+  - **L1 — Inline micro-proof:** Denominators, qualifiers, one-word trust signals (always visible, muted text).
+  - **L2 — Local disclosure:** Collapsed `<details>` blocks per section ("How we know this"). Model: `HowWeKnowPanel`.
+  - **L3 — Surface-level entry:** Persistent links from each surface to the methodology destination.
+  - **L4 — Methodology destination:** `/settings/methodology` with per-signal-class methodology + "What Beacon does not claim" section.
+- **Methodology destination model:** Settings subpage at `/settings/methodology` (not standalone route, not modal/drawer). Reasons: methodology is reference material, not daily workflow; preserves 5-item nav; linkable with section anchors.
+- **Entry points mapped:** 11 new entry points across Today, Pages, Changes (list + detail), Market, and Shell:
+  - **P0 (highest priority):** Market KPI denominator + scope line, ConfidenceBadge label change, Today recommendation qualifier.
+  - **P1:** Market `<details>` methodology block, Changes scorecard scope line + `<details>` block, Market section scope notes (source trust, co-mention, "Ahead of You").
+  - **P2:** Pages `HowWeKnowPanel` wiring, `HowWeKnowPanel` footer methodology link, `DataFreshnessStrip` methodology icon-link, Change detail attribution methodology link.
+- **Minimum v1 shell defined (5 items):**
+  1. `ConfidenceBadge` label change: "Likely caused by" → "Strongest correlate" (copy only).
+  2. Market KPI denominator: promote `trackedCitationObservations` + directional scope line.
+  3. Today recommendation qualifier: evidence-quality framing replaces raw confidence word.
+  4. Methodology destination: `/settings/methodology` with 5 sections (overview, your data, per-metric computation, not-claimed, glossary).
+  5. Layer 3 wiring: "How this works →" links from Market, Changes, `HowWeKnowPanel` to destination.
+- **Denominator/scope-note system designed:** 6 percentage metrics requiring denominators, 6 section-level scope labels, 4 stale/partial escalation conditions, 3-tier sample quality indicator (Small/Adequate/Robust).
+- **Implementation handoff:** 11 files identified for future changes, recommended implementation order (1.1e copy first → destination → wiring → disclosures → Pages panel).
+- **Data dependencies documented:** 7 data points available today, 3 needed from 1.1f lineage work.
+- **No app code changed.**
+- **Downstream:** 1.1e (copy deck) can proceed immediately using this IA as its placement guide. 1.1d and 1.1f are unblocked but independent.
+
+---
+
+## 2026-04-12 — Tier 1.1b: Competitor trust patterns desk research (documentation only)
+
+- **File created:** **`docs/TIER_1_1B_COMPETITOR_TRUST_PATTERNS.md`** — Proof-layer competitor trust comparison memo.
+- **Products researched:** Peec AI, Profound, Writesonic GEO, Otterly.ai, TSM GEO Framework, Aether AI.
+- **Sources reviewed:** Product docs/help centers, methodology pages, MSAs/legal terms, blog posts, independent third-party reviews (Cairrot, Discovered Labs, Aether Insights).
+- **Top 3 recommended trust patterns to adopt:**
+  1. **P1 — Denominator disclosure** on all percentage metrics (from Profound's formula documentation pattern).
+  2. **P3 — Downgrade ConfidenceBadge** from causal ("Likely caused by") to correlational ("Strongest correlate") — no competitor uses causal attribution language; Beacon is uniquely exposed.
+  3. **P4 — Scope line on every computed section** ("Based on N observations across M topics from your imported sample") — exceeds the industry bar; modeled on Otterly.ai research methodology.
+- **Top 3 patterns to avoid:**
+  1. **A1 — Legal-only disclaimers** (Profound anti-pattern) — disclaimers in MSA that never reach the product UI.
+  2. **A2 — Overconfident marketing copy** (Writesonic anti-pattern) — "See exactly where you rank" without sampling caveats.
+  3. **A5 — Unqualified "market share" metaphor** — even Peec hedges with "like market share"; Beacon should use "citation share" or add a qualifier.
+- **Beacon strengths identified vs. competitors:** In-product `HowWeKnowPanel` (no competitor has equivalent), explicit correlation-not-causation language in code, `CoverageTone` freshness signaling, `LocalProof` observed/inferred separation.
+- **Beacon weaknesses identified vs. competitors:** "Likely caused by" badge (unique in market, uniquely risky), market share without prominent denominator, no sample-size or margin-of-error disclosure, "high confidence" on recommendations, methodology not linked from Market/Changes surfaces.
+- **Implications documented for 1.1c (methodology shell IA):** entry points needed on Market + Changes + recommendation cards; per-surface methodology pattern; scope notes at section level.
+- **Implications documented for 1.1e (confidence/uncertainty copy deck):** Priority 1 = ConfidenceBadge label change; Priority 2 = Market KPI denominator + directional qualifier; Priority 3 = recommendation confidence reframing; lexicon provided.
+- **No app code changed.**
+- **Downstream:** 1.1c (methodology shell IA) and 1.1e (confidence/uncertainty copy deck) are now fully informed by both 1.1a + 1.1b deliverables.
+
+---
+
+## 2026-04-12 — Tier 1.1a: Signal taxonomy audit (documentation only)
+
+- **File created:** **`docs/TIER_1_1A_SIGNAL_TAXONOMY.md`** — Proof-layer foundation document.
+- **Signal classes identified:** **14** — crawl findings, guardrail alerts, imported visibility measurements, citation evidence index, attribution scoring, change verdicts & impact, market benchmark, competitor intelligence (co-mention / source trust / battlecards / discovery), geo coverage, recommendations & priority scoring, milestones / all-time highs, entity discrepancies, coverage & freshness signals, local operator signals.
+- **Forbidden claims catalogued:** **19** (6 critical, 6 high, 7 medium) — consolidated in a single reference list with signal class cross-references.
+- **Highest-risk claim areas found:**
+  1. **Attribution confidence labels** — `ConfidenceBadge` says "Likely caused by" for `high` confidence, implying causation from correlation evidence (F1).
+  2. **Market share percentages** — "Your AI Share: X%" shown without prominent sample-size qualifier (F2).
+  3. **Recommendation confidence** — "high confidence" on a recommendation conflates evidence strength with outcome certainty (F17).
+- **Provenance gap map:** tabulated per signal class — which have source timestamps, run/batch ids, sample sizes, staleness checks, and where lineage metadata is missing (feeds 1.1f).
+- **Existing trust controls assessed:** 10 controls documented (e.g. `BEACON_METHODOLOGY`, `HowWeKnowPanel`, `CoverageTone`, `LocalProof` observed/inferred/dataGaps). `source-trust.ts` and `local-operator/types.ts` identified as trust-model exemplars.
+- **No app code changed.**
+- **Audited files:** 33 source files across `src/lib/`, `src/domains/scanning/`, `src/domains/pages/`, `src/domains/competitors/`, `src/domains/attribution/`, `src/domains/milestones/`, `src/domains/product/`, `src/domains/entity/`, `src/domains/local-operator/`, `src/domains/geo/`, `src/components/`.
+- **Downstream:** 1.1b (competitor trust patterns) and 1.1c (methodology shell IA) are now unblocked by this deliverable.
+
+---
+
+## 2026-04-12 — Tier 1.1 execution target locked (planning only)
+
+- **Selected slice:** **Tier 1.1 — Proof layer** → entry step **1.1a — Signal taxonomy audit**.
+- **Why first:** The `master_execution_plan.md` priority law states "Finish Tier 1 tracks **1.1 → 1.5** in order." Track 1.1 (Proof layer) is the first listed track. Within 1.1, step **1.1a** is the only step with `Depends on: none` — all subsequent steps (1.1b–1.1j) depend on 1.1a.
+- **What 1.1a delivers:** Markdown matrix: signal class → source artifact → UI surface(s) → user-facing claim allowed. Plus a "forbidden claims" list. Done when matrix reviewed.
+- **Scope for 1.1a:** Read/audit existing proof infrastructure: `src/lib/beacon-proof-copy.ts`, `src/lib/today-proof-context.ts`, `src/lib/today-proof-serialize.ts`, `src/components/today/how-we-know-panel.tsx`, `src/components/display/confidence-badge.tsx`, `src/domains/results/visibility-provenance.ts`, `src/domains/attribution/types.ts` (confidence levels), `src/domains/scanning/` (finding generation), `src/domains/pages/` (guardrails, snapshots, citation evidence). Deliverable is a doc, not app code.
+- **Explicitly deferred:** 1.1b (competitor trust patterns), 1.1c (methodology shell IA), 1.1d–1.1j (all depend on 1.1a). Tracks 1.2–1.5 and all of Tier 2. Module-cache invalidation (unrelated to proof layer). No app code changes for 1.1a.
+- **No app code changes for this planning step.**
+
+---
+
+## 2026-04-12 — Phase 5-10: Full gate verification + Phase 5 close-out
+
+- **Gate run:** **`npm run typecheck`** — pass (clean). **`npm run test`** — pass **82**/82, **20** test files (Vitest **v4.1.3**). **`npm run build`** — pass; route table **17** static (○) + **4** dynamic (ƒ); no unexpected missing routes in build output.
+- **Phase 5 regression checklist (no code changes this step):** **`src/lib/logger.ts`** — present. **5-2** scan logging — **`src/domains/scanning/orchestrate-scan.ts`**. **5-3** import logging — **`src/lib/import/actions.ts`**. **5-4** server-action logging — unchanged from prior phase entries. **5-5**–**5-8** smokes — **`tests/routes/today-smoke.test.ts`**, **`pages-smoke.test.ts`**, **`changes-smoke.test.ts`**, **`market-smoke.test.ts`** all included in suite. **5-9** stale-running — **`scan-state.ts`** (`STALE_SCAN_THRESHOLD_MS`, `isScanRunningAndFresh`), **`orchestrate-scan.ts`** (guard + recovery), **`scan-status-action.ts`** (stale UI normalization).
+- **Final test count:** **82** (matches repo state at close-out).
+- **Phase 5:** **COMPLETE** (steps **5-1** through **5-10**). **Next phase pointer:** Launch plan in **`NEXT_PHASE_EXECUTION_PLAN.md`** has no **Phase 6**; follow **`Future Roadmap: Tiered Product Stack`** (e.g. Tier **1.1**) or **`master_execution_plan.md`** for subsequent priorities.
+
+---
+
+## 2026-04-12 — Phase 5-9: Scan crash recovery (stale-running detection)
+
+- **Files changed:**
+  1. **`src/domains/scanning/scan-state.ts`** — added **`STALE_SCAN_THRESHOLD_MS`** (5 min / 300 000 ms), **`runningScanAgeMs(state)`** (returns age in ms when `phase === "running"`, else `null`; uses `updatedAt` ISO field), **`isScanRunningAndFresh(state)`** (true when running and age < threshold).
+  2. **`src/domains/scanning/orchestrate-scan.ts`** — guard block at top of **`runWebsiteScan`**: reads `readScanState()` before starting. If `phase === "running"` and **fresh** → early return `{ ok: false, phase: "running", error: "A scan is already in progress" }` (duplicate guard). If `phase === "running"` and **stale** (age ≥ threshold) → writes failed payload via `writeIdleScanStateFromLastResult`, then proceeds to start new scan normally.
+  3. **`src/app/(shell)/scan-status-action.ts`** — `getScanStatus()` normalizes stale `running` → `{ phase: "failed", message: "Previous scan appears to have crashed — ready to retry" }` so client UI never shows "scanning" indefinitely.
+- **Timestamp/age field used:** **`updatedAt`** (ISO string on `ScanStateFile`) — set when `writeRunningScanState` is called at scan start. No new fields added.
+- **Threshold:** **5 minutes** (300 000 ms) — CLI timeout is 120 s; 5 min gives generous headroom for process overhead and finding regeneration.
+- **Recovery mechanism:** Stale state is written to terminal `failed` phase (via `writeIdleScanStateFromLastResult` with a descriptive `cliError`) before the new scan writes `running`. This ensures clean state transition, no dual-running risk.
+- **Logger events added:**
+  - `log.warn("Scan already running", { runId, trigger })` — duplicate guard (fresh running scan blocks new start)
+  - `log.warn("Scan marked stale", { runId, ageMs, thresholdMs })` — stale detection
+  - `log.info("Recovered stale scan state", { runId })` — after recovery write
+- **Normal active-scan behavior:** Unchanged. All paths below the guard (CLI exec, failure handling, finding regeneration, terminal state writes) are identical.
+- `npm run typecheck` — pass; `npm run test` — **82**/82 pass; `npm run build` — pass.
+
+---
+
+## 2026-04-12 — Phase 5-8: Market route smoke test
+
+- **File added:** **`tests/routes/market-smoke.test.ts`** — same pattern as **5-5**–**5-7**: **`vi.mock("next/cache")`**, dynamic **`import("@/app/(shell)/competitors/page")`**, **`await CompetitorsPage()`**, **`renderToStaticMarkup`**.
+- **Markers asserted:** (1) **`max-w-4xl`** — root wrapper in **`src/app/(shell)/competitors/page.tsx`** (import-empty + full Market). (2) **`Who beats you, where they beat you, and exactly what to do about it.`** — **`PageHeader`** `description` on that file (stable RSC copy; not competitor names or KPI counts).
+- **Client stub:** **Yes** — five **`vi.mock`** stubs under **`@/app/(shell)/competitors/`**: **`competitors-manage-client`**, **`co-mention-section`**, **`source-trust-section`**, **`local-pressure-section`**, **`battlecard-section`** (each **`"use client"`** with hooks; full Market path can render them when data exists).
+- `npm run typecheck` — pass; `npm run test` — **82**/82 pass; `npm run build` — pass.
+
+---
+
+## 2026-04-12 — Phase 5-7: Changes route smoke test
+
+- **File added:** **`tests/routes/changes-smoke.test.ts`** — same pattern as **5-5** / **5-6**: **`vi.mock("next/cache")`**, dynamic **`import("@/app/(shell)/changes/page")`**, **`await ChangeScorecardPage()`**, **`renderToStaticMarkup`**.
+- **Markers asserted:** (1) **`What worked. What to scale. Why visibility moved.`** — **`PageHeader`** `description` on **`changes/page.tsx`** for both demo and full branches. (2) **`flex items-start justify-between gap-4 mb-8`** — outer wrapper class from **`src/components/data/page-header.tsx`** (structural; not scorecard counts).
+- **Client stub:** **Yes** — **`vi.mock("@/app/(shell)/changes/changes-tab-shell")`** → empty stub div (**`ChangesTabShell`** is **`"use client"`**).
+- **Note:** Changes root has **no** **`max-w-*`** wrapper (unlike Today **`max-w-3xl`** / Pages **`max-w-5xl`**), so smoke uses **`PageHeader`** layout + copy instead.
+- `npm run typecheck` — pass; `npm run test` — **81**/81 pass; `npm run build` — pass.
+
+---
+
+## 2026-04-12 — Phase 5-6: Pages route smoke test
+
+- **File added:** **`tests/routes/pages-smoke.test.ts`** — mirrors **`today-smoke.test.ts`**: **`vi.mock("next/cache")`**, dynamic **`import("@/app/(shell)/pages/page")`**, **`renderToStaticMarkup`**.
+- **Markers asserted:** **`max-w-5xl`** (wrapper in **`src/app/(shell)/pages/page.tsx`** for demo + full); **`Health, citations, and the next step for each URL.`** (same file — route subtitle; stable, not row/timestamp data).
+- **Client stub:** **Yes** — **`vi.mock("@/app/(shell)/pages/pages-client")`** replaces **`PagesClient`** with a hook-free stub (same reason as **`TodayClient`** in **5-5**).
+- `npm run typecheck` — pass; `npm run test` — **80**/80 pass; `npm run build` — pass.
+
+---
+
+## 2026-04-12 — Phase 5-5: Today route smoke test
+
+- **File added:** **`tests/routes/today-smoke.test.ts`** (Vitest, same **`tests/**/*.test.ts`** include as existing suite).
+- **What runs:** Dynamic **`import("@/app/(shell)/page")`** → default **`TodayPage`** (RSC) → **`await TodayPage()`** runs real **`loadTodayPageData()`** and returns JSX; **`react-dom/server`** **`renderToStaticMarkup`** for assertions.
+- **Markers asserted:**
+  1. **`max-w-3xl`** — literal wrapper class from **`src/app/(shell)/page.tsx`**; stable across demo/real data and copy edits.
+  2. **`Since last scan`** — canonical Today findings section title in **`src/components/today/today-findings.tsx`**; surfaced here via a **minimal `TodayClient` mock** (real **`TodayClient`** uses client hooks and does not static-render under Vitest without a client runtime).
+- **`vi.mock`:** **`next/cache`** (`revalidatePath` no-op), **`@/app/(shell)/today-client`** (stub div text only).
+- **Why stub:** Deterministic, fast smoke of **data prep + page composition** without introducing **`@testing-library`** or a dev-server **`fetch`** dependency.
+- `npm run typecheck` — pass; `npm run test` — **79**/79 pass; `npm run build` — pass.
+
+---
+
+## 2026-04-12 — Phase 5-4: structured logging on shared server actions
+
+- **Pattern:** At each exported async server action entry: **`log.info("Action started", { action, params })`** → terminal **`log.info("Action completed", { action, durationMs })`** or **`log.error("Action failed", { action, durationMs, error })`**. **`action`** = stable string (e.g. **`triggerScan`**, **`saveSetup`**). No signature or control-flow changes beyond log lines and **`Date.now()`** timers.
+- **Context rules:** **`params`** limited to IDs, status enums, **`Object.keys(patch)`**, string **lengths**, row counts, **`entryCount`**, **`briefCount`**, flags — no large payloads, no secrets.
+- **Shell / app routes:** **`src/app/(shell)/trigger-scan-action.ts`** (`triggerScan`), **`pages/scan-action.ts`** (`triggerPageScan`), **`recommendation-actions.ts`**, **`experiment-actions.ts`** (3), **`finding-actions.ts`** (3), **`settings/config/actions.ts`** (`saveSetup` only), **`pages/wave-actions.ts`** (3), **`pages/issue-actions.ts`** (5), **`pages/verify-action.ts`** (`verifyPageFix`), **`topics/package-actions.ts`** (4), **`competitors/competitors-actions.ts`**, **`changes/contract-actions.ts`** (`createChangeContract`, **`verifyChangeContract`**).
+- **Import module (additive to 5-3):** **`src/lib/import/actions.ts`** — **`previewImport`**, **`clearEntityData`**, **`clearImportedData`**, **`resetExperiment`**, **`postImportSetup`**. **`executeImport`** / **`importWorkbook`** left on **`Import *`** logs only.
+- **Domains / adapters:** **`domains/actions/actions.ts`**, **`domains/attribution/candidate-actions.ts`** (5), **`domains/changelog/actions.ts`**, **`domains/results/actions.ts`**, **`domains/briefs/actions.ts`** (5), **`domains/opportunities/actions.ts`** (4), **`domains/opportunity-candidates/actions.ts`**, **`domains/brief-generation/actions.ts`** (3), **`adapters/profound/actions.ts`** (`importProfoundData` — failure uses **`result.errors[0]`**).
+- **Skipped:** **`getScanStatus`** (polling), **`loadSetup`** (read), **`executeImport`/`importWorkbook`** (duplicate lifecycle), inline **`use server`** in **`pages/page.tsx`** / **`topics/page.tsx`**.
+- `npm run typecheck` — pass; `npm run test` — **78**/78 pass; `npm run build` — pass.
+- **Manual action + log verification:** not run (gate green).
+
+---
+
+## 2026-04-12 — Phase 5-3: import engine logging (entry points)
+
+- **File:** **`src/lib/import/actions.ts`** only — **`import { log } from "@/lib/logger"`**.
+- **`executeImport`:** **`Import started`** (`runId` = **`generateId("imp")`**, **`source: "upload"`**) immediately after batch id + wall clock **`t0`**; CSV/JSON parse failure → **`Import failed`** (`durationMs`, truncated parse **`error`**) before early return; after existing persist/revalidate path, **`imported > 0`** → **`Import completed`** (`rowCount` = **`imported`**); otherwise **`Import failed`** (`error` from first row validation message or fixed “No data rows” / “No rows imported”).
+- **`importWorkbook`:** missing **`File`** → **`Import failed`** only (`runId: ""`, **`error: "No file provided"`**); otherwise **`Import started`** then workbook parse catch → **`Import failed`**; successful path → **`Import completed`** with **`rowCount: run.imported_count`** (no new totals computed for logs).
+- **`source`:** **`upload`** for both functions (operator-driven import UI). **`api`** not used until a programmatic entry point exists.
+- **Not instrumented:** **`previewImport`**, **`postImportSetup`**, **`getImportRuns`**, clears/resets, dual-write / domain modules.
+- **Behavior:** Logging and **`t0`** only; return shapes and control flow unchanged.
+- `npm run typecheck` — pass; `npm run test` — **78**/78 pass; `npm run build` — pass.
+- **Manual import + log verification:** not run (gate green).
+
+---
+
+## 2026-04-12 — Phase 5-2: scan orchestrator logging
+
+- **Module:** **`src/domains/scanning/orchestrate-scan.ts`** — **`runWebsiteScan` only** (no changes to **`trigger-scan-action`**, **`scan-action`**, import wiring).
+- **Logger:** **`import { log } from "@/lib/logger"`**.
+- **Events:**
+  1. **`Scan started`** — `log.info` once per invocation, after `runId` / `startedAt` minted, before **`writeRunningScanState`**.
+  2. **`Scan failed`** — `log.error` on: CLI **`execAsync`** catch (spawn/timeout/script error); missing **`readLastScanResult()`** after CLI; terminal **`ok === false`** (e.g. failed/partial with zero pages / aborted), using short **`error`** string from payload.
+  3. **`Scan completed`** — `log.info` when terminal **`ok === true`**.
+- **Context fields:**
+  - **All terminal logs:** `runId` (orchestrator id: **`scan-${Date.now()}`** at entry), `durationMs` (from entry `startedAt`, except start log).
+  - **Start:** `trigger` ∈ **`manual` | `auto`** — **`auto`** only for **`ScanTrigger === "import"`**; **`today` / `pages` / `cli`** → **`manual`**.
+  - **Completed:** `resultCount` = **`merged.pagesScanned`** (from last-scan payload).
+  - **Failed:** `error` — truncated CLI message, fixed missing-file message, or payload-derived summary.
+- **Not added:** skip-if-already-running / client polling (no trivial hook in orchestrator).
+- **Behavior:** Logging only; scan state + findings + return shape unchanged.
+- `npm run typecheck` — pass; `npm run test` — **78**/78 pass; `npm run build` — pass.
+- **Manual scan + log verification:** not run here (module is **`server-only`**; full path invokes **120s** CLI). Gate + code review green.
+
+---
+
+## 2026-04-12 — Phase 5-1: add `src/lib/logger.ts` (JSON logger)
+
+- **File:** **`src/lib/logger.ts`** — 47 lines.
+- **API:** `log.debug(msg, ctx?)`, `log.info(msg, ctx?)`, `log.warn(msg, ctx?)`, `log.error(msg, ctx?)`.
+- **Output:** Single JSON line per call: `{"level":"info","ts":"2026-04-12T10:15:22.155Z","msg":"Import started","context":{"runId":"abc123","source":"upload"}}`.
+- **Level routing:** `debug` / `info` → `console.log`; `warn` → `console.warn`; `error` → `console.error`.
+- **Safety:** Circular/non-serializable context falls back to `{"_serializationError":"…"}` instead of crashing.
+- **Deps:** None (no external logging library).
+- **Instrumentation:** None yet — utility only; call-site wiring deferred to 5-2 / 5-3 / 5-4.
+- **Manual test:** `npx tsx -e …` — all 4 levels produced valid JSON; circular ref handled.
+- `npm run typecheck` — pass; `npm run test` — **78**/78 pass; `npm run build` — pass.
+
+---
+
+## 2026-04-12 — Phase 4-8: split Today server prep out of `page.tsx` (+ Phase 4-9 gate)
+
+### Extracted (Today-specific server / data prep)
+- **Moved from** **`src/app/(shell)/page.tsx`** **to** **`src/app/(shell)/today-data.ts`**: entire former **`TodayPage`** body — **`isDemoMode`**, scan settings / **`isScanOverdue`** → **`shouldTriggerScan`**, page snapshots + guardrails, findings counts, attribution partition + outcome events + scorecard + enrichment + candidates + triage, pages/issues/waves/playbook, site strip, **`buildTodaySummary`**, recommendations + suppression + responses + experiments + rank/select + track record, citation decay + geo coverage (trimmed imports only), prompts + journey coverage + extractability, snippet intel, observation runs + visibility context, competitor universe + today competitor line, replication card builders → today replication summary, local operator surface, primary action serialization (**`serializeFindingForToday`** / lineage), crawl age helpers, **`proofContext`**, pending findings serialization, accepted-awaiting-promotion count, read-only **`getMilestoneState`** + **`pickTodayMilestoneTeaser`**, and **`formatTimeAgo`** (local helper used only in this prep).
+- **New API:** **`export async function loadTodayPageData(): Promise<TodayPageData>`** where **`TodayPageData`** = **`Omit<ComponentProps<typeof TodayClient>, "onRespondToRec" | "onStartExperiment" | "onResolveFinding" | "onPromoteFinding">`** — preserves exact **`TodayClient`** prop shapes for everything except the four callbacks.
+
+### Route shell (`page.tsx`)
+- **Imports:** **`TodayClient`**, **`loadTodayPageData`**, **`respondToRecommendation`**, **`startExperimentAction`**, **`resolveFinding`**, **`promoteFinding`**.
+- **Renders:** **`await loadTodayPageData()`** then **`<TodayClient {...data} … />`** inside **`max-w-3xl`** wrapper. Server actions stay on the route file (no behavior change).
+
+### Line counts
+- **`page.tsx`:** **21 lines** (`wc -l`).
+- **`today-data.ts`:** **952 lines** (`wc -l`) — prep consolidated here (under **< 400** target for **`page.tsx`** met).
+
+### Read-only / behavior
+- **Structural extraction only** — no new product logic, no route changes, no UI redesign. **`today-data.ts`** header documents read-only render (Track **1C**); no **`persist*`** / **`write*`** / sync calls added to the Today render path.
+- `npm run typecheck` — pass; `npm run test` — **78**/78 pass; `npm run build` — pass.
+- **Manual Today verification:** not run (prop contract enforced by **`TodayPageData`** + typecheck).
+
+---
+
+## 2026-04-12 — Phase 4-6: extract `PageRowCard` from `pages-client.tsx`
+
+- **Extracted:** Left workbench **queue row** — one **`button`** per **`PageRow`**: **`data-page-id`**, selection border/background, **label**, status dot + open-items vs status label, second line (mentions, pending findings badge, not scanned, no Q&A / no schema / canonical mismatch, next-move label/color).
+- **New file:** **`src/components/pages/page-row-card.tsx`** — **`PageRowCard`**; **`STATUS_CONFIG`** and **`NEXT_MOVE`** moved here and **re-exported** so **`pages-client.tsx`** detail header / next-step still use the same maps (no duplicate constants).
+- **Wiring:** **`filtered.map`** → **`<PageRowCard key={row.id} row={row} isSelected={…} onSelect={() => setSelectedId(row.id)} />`**. List filtering, **`selected`**, keyboard nav, and right-hand detail remain in **`pages-client.tsx`**.
+- **Types:** **`import type { PageRow }`** from **`pages-client`** (type-only; no runtime cycle).
+- **Behavior:** Structural only — same markup and **`cn`** classes as pre-extract.
+- `npm run typecheck` — pass; `npm run test` — **78**/78 pass; `npm run build` — pass.
+- **Manual Pages verification:** not run.
+
+---
+
+## 2026-04-12 — Phase 4-7: slim `pages-client.tsx` (< 400 lines)
+
+- **Before:** **`src/app/(shell)/pages/pages-client.tsx`** **1114 lines** — monolithic list + full selected-page detail + crawl helpers + unused **`PAGE_TYPE_LABELS`**.
+- **After:** **`pages-client.tsx`** **340 lines** — orchestration only: exported types, **`PagesClient`** state (**`view`**, **`selectedId`**, scan/issue transitions, **`copiedId`**, **`verifyMsg`**), derived row sets, keyboard/URL effects, composition of **`PagesWorkbenchTop`** + list + **`PageRowCard`** map + **`PagesSelectedDetail`** + stale URLs footer.
+- **New files:**
+  - **`src/components/pages/pages-selected-detail.tsx`** (~739 lines) — entire right-hand **selected page** UI (unchanged JSX moved verbatim) + **`STATUS_BADGE`**, **`CrawlRow`**, **`CrawlChip`**, **`DiffChip`**. Imports **`PageRow`** (type-only) from **`pages-client`**; **`STATUS_CONFIG` / `NEXT_MOVE`** from **`page-row-card`**.
+  - **`src/components/pages/pages-workbench-top.tsx`** (~157 lines) — crawl-age warning, KPI row + **`DonutRing`**, scan CTA + last-scan link + view filter tabs.
+- **Removed from `pages-client`:** dead **`PAGE_TYPE_LABELS`**; **`STATUS_BADGE`** (moved to detail); **`CrawlRow` / `CrawlChip` / `DiffChip`**; unused imports **`Link`**, **`cn`**, **`ChangeVerdictBadge`**, **`KpiCard`**, **`DonutRing`**.
+- **Behavior:** Same render tree and handlers — props passed through; no filtering/sort/selection logic changes.
+- `npm run typecheck` — pass; `npm run test` — **78**/78 pass; `npm run build` — pass.
+- **Manual Pages verification:** not run.
+
+---
+
+## 2026-04-12 — Phase 4-5: tighten `today-client.tsx` composition + fix diagnostics duplicate key
+
+### `today-client.tsx` composition cleanup
+- **Before:** ~612 lines (after 4-4). Still contained dead **`WatchlistExperimentCard`** (never rendered), **`GROUP_CONFIG`**, **`WATCHLIST_STATUS_PRESENTATION`**, **`MANUAL_STATUS_OPTIONS`**, **`REC_ACCENT`**, **`formatExperimentStarted`**, **`recTypeDisplayLabel`**, **`formatScanTime`**; dead types **`TodayImpactItem`**, **`TodayExperiment`**, **`TodayTrackRecord`**, **`VisibilitySummary`**; dead imports **`cn`**, **`ReactNode`**, **`ChangeVerdict`**, **`ImpactConfidence`**, **`ImpactDirection`**.
+- **After:** **299 lines**. File is now purely: shared serialization types (5: `SerializedFinding`, `RecResponseStatus`, `TodayPrimaryAction`, `TodayMilestoneTeaser`, `TodayQueueItem`) + `TodayClient` component (prop intake → derived values → composition of `TodayScanStrip`, `TodayVisibilitySnapshot`, `TodayFindings`, `TodayPrimaryAction`). No presentation helpers, no orphaned constants.
+- **Behavior:** Identical — same prop surface, same render tree, same conditionals. All removed items were unreferenced dead code.
+
+### Diagnostics duplicate key fix
+- **Bug:** React console error "Encountered two children with the same key `owned-pattern-https---ritzbuilders-com-locat`" in **`SnippetIntelSection`** on `/diagnostics`.
+- **Root cause:** **`src/domains/competitors/snippet-intel.ts`** generated signal IDs with `.slice(0, 30)` on sanitized URLs. Pages sharing the first 30 characters after `/[^a-z0-9]/gi → "-"` produced collisions.
+- **Fix:** Changed `.slice(0, 30)` → `.slice(0, 80)` on all 4 ID templates (`owned-pattern-`, `gap-`, `comp-context-`, `strengthen-`).
+- `npm run typecheck` — pass; `npm run test` — **78**/78 pass; `npm run build` — pass.
+
+---
+
+## 2026-04-12 — Phase 4-4: extract `TodayVisibilitySnapshot` from `today-client.tsx`
+
+- **Extracted:** **`HowWeKnowPanel`** + **morning order** helper line; **merged coverage / freshness** alert (crawl stale, visibility stale note, partial-sample copy); **“Done for today”** all-clear card; **System** status row (scan recency, visibility fresh/stale/no data, optional pending-review link, Health link). Same JSX and conditions as before; **`deriveCoverageTone`**, **`shouldShowTodayAllClear`**, and **`reviewPending`** remain computed in **`TodayClient`** (unchanged).
+- **New file:** **`src/components/today/today-visibility-snapshot.tsx`** — **`TodayVisibilitySnapshot`** + **`TodayVisibilitySnapshotProps`**.
+- **Wiring:** **`today-client.tsx`** wraps milestone teaser + **`TodayFindings`** + **`TodayPrimaryAction`** + replication note as **`children`** so document order stays: proof → morning order → those blocks → coverage strip → all-clear → System line (structural **`children`** only; no new behavior).
+- `npm run typecheck` — pass; `npm run test` — **78**/78 pass; `npm run build` — pass.
+- **Manual Today verification:** not run.
+
+---
+
+## 2026-04-12 — Phase 4-3: extract `TodayFindings` from `today-client.tsx`
+
+- **Extracted:** Section **“1. Since last scan: findings verdict”** — all-clear card (timestamp + crawl age + resolved count line), grouped **pending** findings (**critical** / **important** / **minor** / **informational** with same header rules), per-row **`FindingRow`** (resolve + promote controls, provenance block); plus **accepted awaiting promotion** paragraph with **`/pages`** link.
+- **New file:** **`src/components/today/today-findings.tsx`** — **`TodayFindings`**, **`FindingRow`**, **`PRIORITY_STYLE`** (moved from **`today-client.tsx`**; removed duplicate there).
+- **Wiring:** **`today-client.tsx`** — **`<TodayFindings pendingFindings={...} resolvedFindingsCount={...} scanCompletedAt={run?.completed_at ?? null} crawlAgeDays={...} onResolveFinding={...} onPromoteFinding={...} acceptedAwaitingPromotionCount={...} />`**. No change to how **`pendingFindings`** / counts are computed in **`page.tsx`** or parent.
+- **Types:** **`import type { SerializedFinding }`** from **`today-client`** (type-only).
+- **Behavior:** Structural extraction only — same JSX grouping, labels, and handlers; **`npm run typecheck` / `test` / `build`** — pass (**78**/78 tests).
+- **Manual Today verification:** not run (same markup moved verbatim).
+
+---
+
+## 2026-04-12 — Phase 4-2: extract `TodayPrimaryAction` from `today-client.tsx`
+
+- **Extracted:** Section **“2. Primary action — always visible, above the fold”** — full **`primaryAction`** card (bucket pill, headline, rationale, confidence, lineage / change link, watch-after, CTA row with accept+experiment / accept-only / defer / dismiss / post-accept **Go →**) and **`actionMsg`** line; plus **`summary.nextMove`** fallback when **`primaryAction`** is null.
+- **New file:** **`src/components/today/today-primary-action.tsx`** — **`TodayPrimaryAction`** + **`TodayPrimaryActionProps`**; **`BUCKET_STYLE`** moved from **`today-client.tsx`** (removed duplicate there).
+- **Wiring:** Parent passes **`pending`**, **`startTransition`**, **`actionMsg`**, **`setActionMsg`** so experiment strip and primary action still share one transition + message state (unchanged).
+- **Types:** **`import type { TodayPrimaryAction }`** from **`today-client`** (type-only; no runtime cycle).
+- `npm run typecheck` — pass; `npm run test` — **78**/78 pass; `npm run build` — pass.
+- **Manual Today verification:** not run.
+
+---
+
+## 2026-04-12 — Phase 4-1: extract `TodayScanStrip` from `today-client.tsx`
+
+- **Extracted:** Top-of-Today **non-blocking scan status** block — previously inline **`ScanStatusBanner`** + comment in **`src/app/(shell)/today-client.tsx`** (first child inside root **`space-y-6`**).
+- **New file:** **`src/components/today/today-scan-strip.tsx`** — **`TodayScanStrip`** + **`TodayScanStripProps`** (`shouldTriggerScan: boolean`); delegates to **`ScanStatusBanner`** unchanged (same import path, same prop).
+- **Wiring:** **`today-client.tsx`** — import **`TodayScanStrip`**; **`<TodayScanStrip shouldTriggerScan={shouldTriggerScan} />`** (prop still from **`TodayClient`** default **`false`**).
+- **Behavior:** No edits to **`scan-status-banner.tsx`**, **`trigger-scan-action`**, or poll interval — structural only.
+- `npm run typecheck` — pass; `npm run test` — **78**/78 pass; `npm run build` — pass.
+- **Manual Today verification:** not run.
+
+---
+
+## 2026-04-12 — Phase 3-8: Settings surface smoke verification — **VERIFIED**
+
+- **Nav (`src/app/(shell)/settings/layout.tsx`):** **`TABS`** = **Import** → `/settings/import`, **Config** → `/settings/config`, **Data** → `/settings/history` — **no** Health tab in UI.
+- **Routes (`curl` vs `http://127.0.0.1:3000`, dev server):** `/settings/import` **200**, `/settings/config` **200**, `/settings/history` **200**, `/settings/health` **200** (direct only).
+- **Removed routes:** `/import` **404**, `/setup` **404**, `/results` **404**.
+- **Link integrity:** **`rg`** `src/` for `href="/import"`, `"/setup"`, `"/results"` and template `.../import`, `/setup`, `/results` route targets — **no matches** (CTAs use settings paths per 3-5–3-7).
+- **Data framing (3-4):** Response body for `/settings/history` contains string **`Imported measurements`**.
+- **Gates:** `npm run typecheck` — pass; `npm run test` — **78**/78 pass; `npm run build` — pass (17 static ○ + 4 dynamic ƒ).
+- **App code changes:** **none** (verification-only).
+
+---
+
+## 2026-04-12 — Phase 3-7: remove standalone `/results` and `/results/[id]`
+
+- **Removed:** **`src/app/(shell)/results/`** — **`page.tsx`**, **`results-client.tsx`**, **`[id]/page.tsx`** (entire segment).
+- **Colocated (mirror of 3-5):** **`src/app/(shell)/settings/history/results-page.tsx`**, **`results-client.tsx`**, **`[id]/page.tsx`**. **`settings/history/page.tsx`** imports **`./results-page`** (was **`../../results/page`**).
+- **Links retargeted** (`/results` → **`/settings/history`**, `/results/:id` → **`/settings/history/:id`**): **`settings/import/import-page.tsx`**, **`diagnostics/page.tsx`**, **`attribution-card.tsx`**, **`brief-outcomes.tsx`**, **`interactive-outcomes.tsx`**, **`briefs/[id]/page.tsx`**, **`changes/[id]/page.tsx`**, **`pages/pages-client.tsx`**, **`review/review-queue-client.tsx`**, **`topics/topics-client.tsx`**, **`topics/opportunity/[id]/page.tsx`**; row links inside **`results-client.tsx`** and next-row link in **`[id]/page.tsx`**. **`src/lib/today-summary.ts`** comment only (wording).
+- **Single entry:** List + detail for imported measurement rows live only under **Settings → Data** URLs; **`/results`** absent from production route table after build.
+- **Validation:** `rm -rf .next`; `npm run typecheck` — pass; `npm run test` — **78**/78 pass; `npm run build` — pass.
+- **Manual route verification:** not run.
+
+---
+
+## 2026-04-12 — Phase 3-6: remove standalone `/setup` route
+
+- **Removed:** **`src/app/(shell)/setup/page.tsx`** (two-step onboarding wizard) and **`src/app/(shell)/setup/actions.ts`**; directory **`(shell)/setup/`** deleted.
+- **Colocated (mirror of 3-5 actions move):** **`src/app/(shell)/settings/config/actions.ts`** — same **`"use server"`** module: **`saveSetup`**, **`loadSetup`** (unchanged logic).
+- **Wiring:** **`src/app/(shell)/settings/config/config-form.tsx`** — import **`saveSetup`** from **`./actions`** (was `@/app/(shell)/setup/actions`).
+- **Links:** No **`href="/setup"`** or **`/setup`** string matches in **`src/`** besides removed paths—**no** link updates required.
+- **Single entry point:** **`/settings/config`** is the only App Router path for business setup/config UI; former wizard flow superseded by **Config** (Phase 3-1). **`/setup`** absent from production route table after build.
+- **Validation:** `rm -rf .next`; `npm run typecheck` — pass; `npm run test` — **78**/78 pass; `npm run build` — pass (18 static ○ routes).
+- **Manual route verification:** not run.
+
+---
+
+## 2026-04-12 — Phase 3-5: remove standalone `/import` route
+
+- **Removed:** `src/app/(shell)/import/page.tsx` (and the **`(shell)/import/`** segment); **`/import`** no longer appears in the Next.js route table after build.
+- **Preserved entry point:** **`/settings/import`** — implementation file is now **`src/app/(shell)/settings/import/import-page.tsx`** (same client module as before, moved). **`src/app/(shell)/settings/import/page.tsx`** is one line: `export { default } from "./import-page"`.
+- **Links updated:** **`src/app/(shell)/diagnostics/page.tsx`** — **`href="/import"`** → **`href="/settings/import"`** (only in-repo `href="/import"` match in `src/`).
+- **Import logic:** no edits to **`src/lib/import/actions.ts`** or adapters.
+- **Validation:** cleared stale **`.next`** (validator still referenced deleted route); `npm run typecheck` — pass; `npm run test` — **78**/78 pass; `npm run build` — pass (19 static ○ routes).
+- **Manual route verification:** not run.
+
+---
+
+## 2026-04-12 — Phase 3-4: framing text on Data tab (`/settings/history`)
+
+- **Where added:** `src/app/(shell)/settings/history/page.tsx` — replaced bare re-export with a wrapper: **`role="note"`** callout (`rounded-lg border … text-muted-foreground`) **immediately before** `<ResultsPage />` (default import from **`../../results/page`**).
+- **What the copy communicates:** This surface is **imported** row-level visibility measurements and citation evidence; it feeds Today/Changes/Market; operators should use it for **audit**, **run linkage checks**, and **freshness** tracking—not for attribution or recommendations (those live elsewhere).
+- **Behavior / data:** **`results/page.tsx`** and **`ResultsClient`** unchanged; **`/results`** route unchanged (no framing). No new deps; copy-only UI addition at settings entry.
+- `npm run typecheck` — pass; `npm run test` — **78**/78 pass; `npm run build` — pass.
+- **Manual page verification:** not run.
+
+---
+
+## 2026-04-12 — Phase 3-3: Settings tab label "Data" (route still `/settings/history`)
+
+- **Where changed:** `src/app/(shell)/settings/layout.tsx` — **`TABS`** entry for the history results surface: **`label`** only, **`"Measurement History"` → `"Data"`**; **`href`** remains **`"/settings/history"`** (no path or file renames).
+- **Unchanged:** `src/app/(shell)/settings/history/page.tsx` (still re-exports `results/page`), **`/results`** route, and all navigation targets using `/settings/history`.
+- `npm run typecheck` — pass; `npm run test` — **78**/78 pass; `npm run build` — pass.
+- **Manual nav label verification:** not run.
+
+---
+
+## 2026-04-12 — Phase 3-2: hide Health tab from settings navigation
+
+- **Where removed:** `src/app/(shell)/settings/layout.tsx` — the **`TABS`** constant no longer includes `{ href: "/settings/health", label: "System Health" }`. Tab links are Import, Config, Measurement History only.
+- **Route preserved:** `src/app/(shell)/settings/health/page.tsx` **not** modified; **`/settings/health`** remains registered and reachable by direct URL (no redirect, no delete).
+- `npm run typecheck` — pass; `npm run test` — **78**/78 pass; `npm run build` — pass.
+- **Manual navigation verification:** not run (no browser session); change is a single static array edit.
+
+---
+
+## 2026-04-12 — Phase 3-1: real Settings Config page (editable business profile)
+
+- **Replaced:** `src/app/(shell)/settings/config/page.tsx` no longer re-exports `setup/page`; it is a dedicated Settings **Config** surface (not the multi-step setup wizard).
+- **Settings implemented (editable):** **business name**, **website domain**, **industry** (select + passthrough option if value not in preset list), **locations** (comma-separated → `BusinessConfig.locations`), **services** (→ `services`), **known competitors** (→ `primaryCompetitors`). Matches `architecture.md` business profile scope + fields already supported by `saveSetup`.
+- **Read path:** `getBusinessConfig()` from `src/lib/business-config.ts` (module cache + `.data/business-config.json` merge with defaults).
+- **Write path:** Client `ConfigForm` calls server action **`saveSetup`** (`src/app/(shell)/settings/config/actions.ts` since Phase 3-6; was `setup/actions.ts`) → **`saveBusinessConfig(...)`** → **`writeFileSync`** to **`.data/business-config.json`**; then **`revalidatePath("/", "layout")`**. After success, **`router.refresh()`** so the RSC reloads values.
+- **Routing / rendering:** `export const dynamic = "force-dynamic"` on the Config page so local JSON edits are not baked into static prerender output (`/settings/config` is **ƒ** dynamic in production build).
+- **Files added:** `src/app/(shell)/settings/config/config-form.tsx`.
+- `npm run typecheck` — pass; `npm run test` — **78**/78 pass; `npm run build` — pass.
+- **Manual config page verification:** not run (no `next dev` + browser in this session).
+
+---
+
+## 2026-04-12 — Phase 2C-2: mount `DataFreshnessStrip` in shell layout
+
+- **Mount point:** `src/app/(shell)/layout.tsx` — **one** `<DataFreshnessStrip />` **immediately after** `<AppHeader />`, **before** `<main>` (content column; strip stays visible while `main` scrolls).
+- **`lastImportAt` source:** Same signal as `getDataCoverage().lastImportAt` — `importRuns` from `@/lib/seed-data.server`, sorted by `started_at` descending; newest run’s `started_at` or `null`. **No new freshness logic** (same derivation as `getDataCoverage`, inlined in layout).
+- **`lastScanCompletedAt` source:** `latestWebsiteCrawlRun()?.completed_at` from `@/domains/observations/read` (same as Today crawl proof / documented component contract).
+- **Unchanged:** Sidebar, `AppHeader`, `DemoBannerGate`, `main` children structure; only minimal imports + two locals + one component node.
+- **Validation:** `npm run typecheck` — pass; `npm run test` — **78**/78 pass; `npm run build` — pass.
+- **Manual strip verification:** Not run in this session (no `next dev` + browser); layout wiring + types + build confirm component is on every `(shell)` route tree.
+
+---
+
+## 2026-04-12 — Phase 1C-2: move experiment citation update off Today render path
+
+- **Removed from `src/app/(shell)/page.tsx`:** experiment citation sync loop (lines 577-591) — `getActiveExperiments()` iteration with `updateExperimentCitations()` + `persistExperiments().catch(...)`. Dropped `updateExperimentCitations` and `persistExperiments` imports from experiment-store (kept `getActiveExperiments`, `getExperimentByRecId` — still used by Today).
+- **Created `src/domains/product/experiment-citation-sync.ts`:** new `runExperimentCitationSync()` function — builds `citMap` from `citationEvidenceIndex`, iterates active experiments, calls `updateExperimentCitations` when counts differ, persists if changed. Uses `server-only`.
+- **Wired into post-import:** Added `await runExperimentCitationSync().catch(() => {})` into `executeImport()` and `importWorkbook()` in `src/lib/import/actions.ts`, right after `runOutcomeBackfill`. Non-fatal (`.catch`). Not added to `triggerScan` — scans crawl HTML and don't change citation evidence data; citation counts come from imports.
+- **Today render is now read-only** with respect to the experiment store — no `updateExperimentCitations`, no `persistExperiments`, no disk writes during RSC render for experiment data.
+- **Behavior equivalent:** Same sync logic, same `citMap` construction, same status update rules in `updateExperimentCitations`. Only the trigger location changed (render → post-import).
+- `npm run typecheck` — pass; `npm run test` — **77**/77 pass; `npm run build` — pass.
+- `GET http://127.0.0.1:3000/` — **200**, full Today content, no errors, no stale references.
+
+---
+
+## 2026-04-12 — Phase 1C-1: move outcome backfill off Today render path
+
+- **Removed from `src/app/(shell)/page.tsx`:** `backfillFromExistingData(...)` call (lines 538-563) and `persistOutcomes().catch(...)` (line 564-565). Dropped imports `backfillFromExistingData` and `persistOutcomes` from `@/domains/product/outcome-store`.
+- **Created `src/domains/product/outcome-backfill.ts`:** new `runOutcomeBackfill()` function — encapsulates scorecard computation + `backfillFromExistingData` + conditional `persistOutcomes`. Uses `server-only`; reads from same module-cached stores.
+- **Wired into post-import:** Added `await runOutcomeBackfill().catch(() => {})` into `executeImport()` and `importWorkbook()` in `src/lib/import/actions.ts`, immediately before `revalidatePath`. Non-fatal (`.catch`), idempotent (backfill skips duplicates).
+- **Today render is now read-only** with respect to the outcome store — no `backfillFromExistingData`, no `persistOutcomes`, no disk writes during RSC render for outcome data.
+- **Behavior equivalent:** Same backfill logic, same inputs, same persistence. Only the trigger location changed (render → post-import).
+- `npm run typecheck` — pass; `npm run test` — **77**/77 pass; `npm run build` — pass.
+- `GET http://127.0.0.1:3000/` — **200**, full Today content, no errors.
+
+---
+
+## 2026-04-12 — Phase 1B-11: browser verification of simplified Today surface — **verified**
+
+- **Method:** Live `GET http://127.0.0.1:3000/` against running `next dev` (HTTP **200**); HTML string checks for error boundary copy and removed surfaces; `src/app/(shell)/today-client.tsx` read-through for structure and conditional sections. *(No separate GUI browser automation in this environment; equivalent to loading Today in the browser for SSR + document body content.)*
+- **Gates:** `npm run typecheck` — pass; `npm run test` — **77**/77 pass; `npm run build` — pass (production compile after verification).
+- **Error / blank / cache:** No `Something went wrong` in HTML; full Today shell + main content present; no `ReferenceError` / `is not defined` strings.
+
+**Five intended areas (as implemented on Today):**
+
+| Area | Result |
+|------|--------|
+| **Scan status** | `<ScanStatusBanner />` is first child in `TodayClient`; when `shouldTriggerScan` is **false**, component returns **`null`** (no visible strip) — correct per Phase 1A behavior, not a regression. |
+| **Primary action + next moves** | Present: primary recommendation card (or `summary.nextMove` fallback when no primary). |
+| **Findings queue** | Present: “Since last scan” all-clear card **or** grouped findings list when `pendingFindings.length > 0`. |
+| **Visibility / safety** | Present: `HowWeKnowPanel` (visibility sample + crawl proof copy); conditional **Coverage / freshness** strip when crawl stale, visibility stale vs crawl, or partial sample; **System** single-line footer (scan age, visibility fresh/stale, optional attribution pending link). |
+| **Milestone teaser** | **Conditional** — `milestoneTeaser && (… “Recent record” …)`; sample load had **`milestoneTeaser: null`** so block correctly absent (not broken). |
+
+**Removals / collapses (must stay gone):**
+
+| Check | Result |
+|-------|--------|
+| Performance trend block (`TodayPerformance`) | **Absent** from `today-client.tsx` and HTML (no performance chart / trend UI strings). |
+| Expanded accepted findings list | **Absent**; only one-line **`acceptedAwaitingPromotionCount`** + link when count > 0. |
+| Standalone experiments block | **Absent** (`WatchlistExperimentCard` never rendered in tree). |
+| Standalone verified fixes | **Absent** (no verified-fixes section). |
+| Entity discrepancy block | **Absent** (no entity mismatch section; “Mismatch” chip remains only inside **`FindingRow`** for applicable crawl/changelog findings — not domain entity UI). |
+| Replication cards | **Absent**; only optional one-line **replication summary** link to Changes → Replicate when `replicationSummary.pageCount > 0` (sample had no line — **correct**). |
+| Secondary recommendation cards | **Absent**. |
+
+**UX notes (non-blocking):** `HowWeKnowPanel` + “Morning order” line still sit above the core stack (adds vertical density vs strict “5 sections only” narrative). Morning order copy still mentions “skim performance” while the performance **chart** was removed — minor copy drift only, not a removed block reappearing. No empty placeholder regions observed in sample HTML beyond expected `space-y-6` spacing.
+
+**App code changes:** none (verification-only).
+
+---
+
+## 2026-04-12 — Phase 1B-2: inline attribution review queue on Today — **NO-OP**
+
+- **Searched:** `src/app/(shell)/today-client.tsx`, `src/app/(shell)/page.tsx` for attribution review queue / review list / triage list / scorecard rows rendered only on Today.
+- **Finding:** No inline list or card block of attribution items on Today. `TodayClient` uses `summary.reviewHeuristicLine` **only** to parse a pending count (`reviewPending`) for a **single compact link** in the System footer (`/changes?tab=attribution` — “N pending review”). That is not an inline queue. `summary.nextMove` can point to Attribution when selected as the top move, but that is one **next-move** card, not a queue UI.
+- **`page.tsx`:** Attribution engines (`discoverCandidates`, `triageCandidates`, `computeScorecard`, etc.) feed `buildTodaySummary` / `nextMoveCandidates`; no Today-only serialized attribution review list is passed to the client for a queue.
+- **No app code changes.**
+- `npm run typecheck` — pass; `npm run test` — **77**/77 pass; `npm run build` — pass; `GET http://127.0.0.1:3000/` — **200** (Today loads).
+
+---
+
+## 2026-04-12 — Phase 1B-11 (follow-up pass): browser re-verification — **verified**
+
+- **Trigger:** Repeat verification prompt (same acceptance criteria as prior 1B-11 entry above).
+- **Gates:** `npm run typecheck` — pass; `npm run test` — **77**/77 pass; `npm run build` — pass.
+- **Today:** `GET http://127.0.0.1:3000/` — **200**; no `Something went wrong`; “Since last scan”, primary action surface, System/visibility copy present; `TodayPerformance` / `SecondaryOpportunities` strings absent from HTML.
+- **Conclusion:** Matches prior 1B-11 sign-off; **no app code changes.**
+
+---
+
+## 2026-04-12 — Regression investigation: `outcomeRecords is not defined` after 1B-10
+
+- **Reported symptom:** runtime error "outcomeRecords is not defined" on Today page.
+- **Investigation:** Searched all files in `src/app/(shell)/page.tsx` and `src/app/(shell)/today-client.tsx` — zero references to `outcomeRecords`, `outcomeSummary`, `trackRecordSummary`, or `serializedExperiments`. The 1B-10 cleanup correctly removed all usage.
+- `outcomeRecords` exists only in its definition file (`src/domains/product/outcome-store.ts`) and in `src/lib/data-adapters/profound-adapter.ts` and `src/app/(shell)/diagnostics/page.tsx` — none of which are in the Today render path.
+- `backfillFromExistingData` and `persistOutcomes` (still imported in `page.tsx`) are both legitimately used at lines 539 and 565.
+- **SSR verification:** `curl http://localhost:3000/` returns HTTP 200 with full TodayClient rendered (all expected props present: `primaryAction`, `pendingFindings`, `shouldTriggerScan`, `proofContext`, `replicationSummary`, `milestoneTeaser`). No `ReferenceError`, `is not defined`, or `Something went wrong` text in HTML output.
+- **`error.tsx` in HTML** — confirmed to be the error boundary script tag (normal Next.js behavior: always loaded as fallback), not an active error display.
+- **Result: NO-OP.** No stale references found. No code changes needed. The reported error was likely caused by a stale dev server cache or `.next` build artifact that resolved on recompilation.
+- `npm run typecheck` — pass; `npm run test` — **77**/77 pass; `npm run build` — pass.
+
+---
+
+## 2026-04-11 — Phase 1B-10: remove unused Today-only server computation from `page.tsx`
+
+- Removed **`serializedExperiments`** (built from `getActiveExperiments()` but never passed to `TodayClient`).
+- Removed dead **`trackRecordSummary`** and **`outcomeSummary`** / **`outcomeRecords`** usage chain (nothing consumed those values on Today).
+- Dropped unused imports: **`computeOutcomeSummary`**, **`outcomeRecords`** (`outcome-store`); **`updateExperimentAction`** (`experiment-actions`).
+- **Unchanged:** experiment citation auto-update loop + `persistExperiments`, `backfillFromExistingData` / `persistOutcomes`, all domain engines and `TodayClient` props.
+- `page.tsx` line count after edit: **1002** (still above 600; further shrink is optional follow-up).
+- `npm run typecheck` — pass; `npm run test` — **77**/77 pass; `npm run build` — pass.
+
+---
+
+## 2026-04-11 — Phase 1B-9: verified fixes on Today — **NO-OP**
+
+- Searched `today-client.tsx` and `page.tsx` for verified fixes / completed fixes wiring.
+- **Finding:** `page.tsx` builds `verifiedFixes` and passes it to `buildTodaySummary`; `TodaySummary` includes `verifiedFixes`, but **`TodayClient` does not reference `summary.verifiedFixes`** — no standalone verified-fixes section renders on Today.
+- **No code changes.**
+- `npm run typecheck` — pass; `npm run test` — **77**/77 pass; `npm run build` — pass.
+
+---
+
+## 2026-04-11 — Phase 1B-8: experiments on Today — **NO-OP**
+
+- Inspected `today-client.tsx` and `page.tsx`: **no** experiments array/list passed to `TodayClient`; `serializedExperiments` is built in `page.tsx` but never wired to the client.
+- `WatchlistExperimentCard` + `TodayExperiment` / `formatExperimentStarted` exist in `today-client.tsx` but **`<WatchlistExperimentCard />` is never used** — no standalone expanded experiments block on Today. Experiment UX on Today is only via primary action (`onStartExperiment`, `hasExperiment` flag).
+- **No code changes** (per instructions: NO-OP when no expanded block).
+- `npm run typecheck` — pass; `npm run test` — **77**/77 pass; `npm run build` — pass.
+
+---
+
+## 2026-04-11 — Phase 1B-7: collapse accepted findings on Today
+
+- `src/app/(shell)/today-client.tsx` — removed expanded “Accepted — decide what to do” card and `FindingRow` list; replaced with one line: count + link to `/pages` (“continue on Pages”); prop `acceptedFindings` replaced by `acceptedAwaitingPromotionCount`; removed `showPromotionOnly` from `FindingRow` (promotion actions only when `finding.status === "accepted"` in-row).
+- `src/app/(shell)/page.tsx` — removed `serializedAcceptedFindings` and top-level `acceptedFindings` variable; pass `acceptedAwaitingPromotionCount` from `getAcceptedFindings().filter(promotionStatus === "none").length`.
+- `npm run typecheck` — pass; `npm run test` — **77**/77 pass; `npm run build` — pass.
+
+---
+
+## 2026-04-11 — Phase 1B-6: entity discrepancy UI on Today — **NO-OP**
+
+- Searched `today-client.tsx`, `components/today/`, and Today-related paths for `entity`, `discrep`, `mismatch`, `drift` (case-insensitive).
+- **Finding:** No dedicated entity-discrepancy block or copy on Today. `page.tsx` pushes a *next-move candidate* when `notableDisc.length > 0` (“possible representation discrepancies…”), which can surface only as the generic `summary.nextMove` card when there is no primary action — not a separate Today section. `FindingRow` label “Mismatch” is **changelog vs crawl** for scan findings, not the entity `detectDiscrepancies` pipeline.
+- **Action:** No code changes (per plan: NO-OP when already clean).
+- `npm run typecheck` — pass; `npm run test` — **77**/77 pass; `npm run build` — pass.
+
+---
+
+## 2026-04-11 — Phase 1B-5: remove performance trend from Today
+
+- `src/app/(shell)/today-client.tsx` — removed `TodayPerformance` import, `performanceData` prop, and performance section JSX; renumbered section comments (coverage → 3, done → 4, system → 5).
+- `src/app/(shell)/page.tsx` — removed `buildPerformanceTimeseries` import and `perfTimeseries` / `performanceData`; kept `buildCompetitorRank` for `syncMilestonesFromWorkspace`.
+- `src/app/(shell)/today-performance.tsx` and `buildPerformanceTimeseries` in `src/lib/performance-timeseries.ts` are now **unused** by the app (no other imports); left in tree for optional follow-up cleanup.
+- `npm run typecheck` — pass; `npm run test` — **77**/77 pass; `npm run build` — pass.
+
+---
+
+## 2026-04-11 — Phase 1B-4: replication cards off Today, compact Replicate link
+
+- `src/app/(shell)/today-client.tsx` — removed `ReplicationCardsClient` block; added optional `replicationSummary` (`{ pageCount } | null`); when `pageCount` is positive, renders one muted line with linked count to `/changes?tab=replicate`.
+- `src/app/(shell)/page.tsx` — removed `serializeReplicationCards` import and Today serialization; counts unique normalized `targetPageUrl` across `replicationWorkspaceCards` targets → `replicationSummaryForToday`.
+- Replication engine (`buildReplicationCards` / `buildPromisingReplicationCards`) unchanged; Changes route unchanged.
+- `npm run typecheck` — pass; `npm run test` — **77**/77 pass; `npm run build` — pass.
+
+---
+
+## 2026-04-11 — Phase 1B-3: remove secondary recommendations from Today
+
+- `src/app/(shell)/today-client.tsx` — removed `SecondaryOpportunities` UI, `secondaryRecommendations` prop, exported `TodayRecommendation` type, and unused `ConfidenceBadge` import.
+- `src/app/(shell)/page.tsx` — removed `topRecs` serialization; `rankAndSelect` now destructures only `primaryAction` (recommendation engine unchanged).
+- `.cursor/rules/core.mdc` — added **Model Recommendation Rule (MANDATORY)** (Composer 2 / Opus 4.6 / Opus 4.6 Max + final-output requirement).
+- `npm run typecheck` — pass; `npm run test` — **77**/77 pass; `npm run build` — pass.
+
+---
+
+## 2026-04-11 — Phase 1B-1: Today section classification (KEEP / MOVE / COLLAPSE / REMOVE)
+
+Analysis of `src/app/(shell)/today-client.tsx` (1197 lines). Every rendered section in order:
+
+| # | Section (lines) | Current purpose | Classification | Reason |
+|---|-----------------|-----------------|----------------|--------|
+| 1 | **ScanStatusBanner** (506) | Non-blocking scan trigger + status | **KEEP** | Core morning ritual — just shipped in 1A |
+| 2 | **Local urgent strip** (508–519) | Local operator market alert | **KEEP** | Conditional, compact, high-urgency signal |
+| 3 | **HowWeKnowPanel** (521) | Proof/methodology panel | **MOVE → collapse** | Useful but not morning-essential; move to a "How we know" toggle or footer |
+| 4 | **Morning order instruction** (522–525) | Static instruction text | **REMOVE** | One-time onboarding, not daily value; clutters morning view |
+| 5 | **Milestone teaser** (527–557) | Recent ATH / first-time record | **KEEP** | Compact, conditional, motivating — fits "what matters" |
+| 6a | **Findings: all-clear** (559–585) | "Since last scan — All clear" banner | **KEEP** | Core scan-result verdict |
+| 6b | **Findings: pending queue** (586–645) | Prioritized pending findings with actions | **KEEP** | Core morning action — clear the queue |
+| 7 | **Accepted findings promotion** (647–661) | Accepted findings awaiting promotion decision | **COLLAPSE** | Secondary; show count + link to `/pages` instead of full cards |
+| 8 | **Primary action card** (663–803) | Top recommendation with accept/test/defer | **KEEP** | Core "what should I do next" |
+| 9 | **Secondary recommendations** (805–810) | Collapsible list of other opportunities | **REMOVE** | Duplicates Changes tab; adds 100+ lines; operator acts on one thing |
+| 10 | **Replication cards** (812–819) | Top 2 replication pattern cards | **REMOVE** | Belongs on Changes > Replicate tab; noise for morning triage |
+| 11 | **Performance chart** (821–827) | Citation timeseries + competitor rank | **COLLAPSE** | Useful KPI but secondary to triage; collapse to compact KPI strip |
+| 12 | **Coverage + freshness alert** (829–876) | Stale crawl / visibility warnings | **KEEP** | Safety signal — operator needs to know data is degraded |
+| 13 | **All clear / done state** (878–893) | "Nothing needs your attention" | **KEEP** | Completion ritual — morning inbox zero |
+| 14 | **System status line** (895–915) | Scan age / visibility freshness / pending review link | **KEEP** | Compact, essential status footer |
+
+### Target structure (5 sections, top-to-bottom):
+
+1. **Scan status** — `ScanStatusBanner` (section 1) — already done
+2. **Primary action + next moves** — primary action card (section 8) — KEEP as-is
+3. **Findings queue** — sections 6a/6b + milestone teaser (5) + local urgent (2) — KEEP
+4. **Visibility KPIs** — collapse performance (section 11) to compact strip; keep coverage alert (12)
+5. **Milestone teaser** — section 5 — KEEP (already compact)
+
+### Sections to act on in 1B-2 through 1B-9:
+
+| Plan step | Section # | Action |
+|-----------|-----------|--------|
+| 1B-2 | — (no inline attribution queue exists; was removed in prior phases) | Verify already gone — may be a no-op |
+| 1B-3 | 9 | REMOVE secondary recommendation cards |
+| 1B-4 | 10 | REMOVE replication cards |
+| 1B-5 | 11 | COLLAPSE performance → compact KPI strip (or link) |
+| 1B-6 | — (no entity discrepancies section in today-client) | Verify already gone — no-op |
+| 1B-7 | 7 | COLLAPSE accepted findings to count only |
+| 1B-8 | — (no experiments section in today-client; watchlist only renders from page.tsx data) | Verify — may already be handled |
+| 1B-9 | — (no verified fixes section in today-client; summary.verifiedFixes not rendered) | Verify — likely no-op |
+| — | 3 | REMOVE HowWeKnowPanel from Today (methodology, not morning triage) |
+| — | 4 | REMOVE morning order instruction text |
+
+---
+
+## 2026-04-11 — Phase 1A-6: end-to-end morning flow verification
+
+- **Test setup:** No temporary overdue forcing needed — `latestWebsiteCrawlRun()` returns `null` (no `website_crawl` run-type entries in observation-runs.json), so `isScanOverdue(null, settings)` → `true` naturally at current hour (23 PT ≥ preferredHour 9).
+- **SSR verification:** `curl http://localhost:3000/` returned **200 in 7.5 s** (cold Turbopack compile); warm requests **5.3 s** (dev-mode baseline). SSR HTML contains `shouldTriggerScan\":true` in React Flight payload and "Starting scan…" banner text — no scan blocks render.
+- **Client-side trigger:** After hydration, `scan-state.json` `updatedAt` moved from `06:15:25` → `06:26:28` with `trigger: "today"` — confirms `triggerScan()` fired from the client, not during SSR. Phase resolved to `failed` (expected: target site unreachable in dev env; `cliError: "fetch failed"`).
+- **Banner states observed:** triggering → running → failed (complete path would include success/partial in production with a reachable site).
+- **No fixes needed.** No temporary hacks to remove. `npm run typecheck` — pass; `npm run test` — **77**/77 pass; `npm run build` — pass.
+- **Track 1A (non-blocking scan) is complete.**
+
+---
+
+## 2026-04-11 — Phases 1A-4 + 1A-5: ScanStatusBanner + Today wiring
+
+- **Created** `src/components/today/scan-status-banner.tsx` — client component; on mount calls `triggerScan()` when `shouldTriggerScan`; polls `getScanStatus()` every 5 s while phase is `running`; shows four visual states (triggering / running / complete / failed) with matching tokens; calls `router.refresh()` on completion; guards against duplicate triggers via `useRef`; cleans up interval on unmount.
+- **Updated** `src/app/(shell)/today-client.tsx` — imported `ScanStatusBanner`; renders it at the top of Today with `shouldTriggerScan`; removed dead `scanRanThisLoad` / `scanResult` prop + inline scan-complete banner + `data-should-trigger-scan` attribute. "All clear" guard no longer depends on removed prop.
+- `npm run typecheck` — pass; `npm run test` — **77**/77 pass; `npm run build` — pass.
+
+---
+
+## 2026-04-11 — Phase 1A-3: remove blocking scan from Today RSC
+
+- `src/app/(shell)/page.tsx` — removed `await runWebsiteScan({ trigger: "today" })` and post-scan snapshot refresh from render; kept `getScanSettings` + `latestWebsiteCrawlRun` + `isScanOverdue` → `shouldTriggerScan` for client.
+- `src/app/(shell)/today-client.tsx` — accepts optional `shouldTriggerScan` (default `false`); root `data-should-trigger-scan` for wiring in 1A-5; removed server-passed `scanRanThisLoad` / `scanResult` from `page.tsx` (defaults cover until banner restores completion UX).
+- `npm run typecheck` — pass; `npm run test` — **77**/77 pass; `npm run build` — pass.
+
+---
+
+## 2026-04-11 — Phase 1A-2: trigger-scan server action
+
+- Added `src/app/(shell)/trigger-scan-action.ts` — `"use server"`; `triggerScan()` calls `runWebsiteScan({ trigger: "today" })`, then `revalidatePath("/", "layout")` and `revalidatePath("/pages", "layout")` when `scanRoutesShouldRevalidate(result)` (same pattern as `pages/scan-action.ts`). Returns `{ status: "ok" | "error", result?: WebsiteScanResult, error?: string }` with try/catch for unexpected failures.
+- `npm run typecheck` — pass; `npm run test` — **77**/77 pass; `npm run build` — pass.
+
+---
+
 ## 2026-04-11 — Phase 1A-1: scan status server action
 
 - Added `src/app/(shell)/scan-status-action.ts` — `"use server"`; exports `getScanStatus()` returning `readScanState()` (`ScanStateFile | null`) for client polling in the non-blocking Today scan flow.
@@ -2022,3 +2865,246 @@ Cross-cutting product work: operator truth on Today/Pages, Today information arc
 
 - Exercise **`BEACON_TENANT`** + **`/setup`** + **import** on a clean tree and confirm `.data/tenants/{slug}/` population.
 - Capture first **external user** sessions and feed copy/IA tweaks (no new phase number required until the next planning pass).
+
+---
+
+## Phase 1C-3 — Audit `page.tsx` for remaining write ops in render (2026-04-12)
+
+### Goal
+Confirm Today is fully read-only during server render. If any render-time write remains, remove it.
+
+### What was found
+Line-by-line audit of `src/app/(shell)/page.tsx` identified **one remaining write path**:
+
+- **`syncMilestonesFromWorkspace()`** (lines 907–913): calls `applyMilestoneSync()` which may set `dirty = true`, then calls `persistState()` → `writeStore("milestone-state", [state])` — a disk write during render.
+
+All other call sites were verified as **read-only**:
+- Data imports (`results`, `changelogEntries`, `opportunities`, etc.) — module-level reads
+- Pure computations (`computeScorecard`, `enrichWithImpact`, `minePatterns`, `generateBriefs`, `planWaves`, `computeRecommendations`, `rankAndSelect`, etc.) — no side effects
+- Store reads (`getPageSnapshots`, `getGuardrailAlerts`, `getPendingFindings`, `getActiveExperiments`, `getMilestoneState`, etc.) — read-only accessors
+- Server action refs passed as props (`respondToRecommendation`, `resolveFinding`, `promoteFinding`, `startExperimentAction`) — not invoked during render
+- `buildTodaySummary`, `buildTodayCompetitorLine`, `pickTodayMilestoneTeaser` — pure functions
+
+### What changed
+
+| File | Change |
+|------|--------|
+| `src/app/(shell)/page.tsx` | Replaced `syncMilestonesFromWorkspace()` (write) with `getMilestoneState()` (read-only) + `pickTodayMilestoneTeaser(state, [])`. Removed dead `perfCompetitorRank` computation and imports (`buildCompetitorRank`, `classifyCompetitorType`). |
+| `src/domains/milestones/post-import-sync.ts` | **Created.** `runMilestoneSync()` — server-only helper that calls `syncMilestonesFromWorkspace()` after import, so milestones are up-to-date without writing during render. |
+| `src/lib/import/actions.ts` | Added `runMilestoneSync().catch(() => {})` to both `executeImport()` and `importWorkbook()`, after the existing `runOutcomeBackfill` and `runExperimentCitationSync` calls. |
+| `docs/HANDOFF_VERIFIED_STATE.md` | Track 1C marked COMPLETE; render-time side effects → DONE |
+| `docs/NEXT_PHASE_EXECUTION_PLAN.md` | 1C-3 marked done with implementation notes |
+
+### Behavior equivalence
+- New milestone events are now computed during import and written to `state.events` in the persisted store.
+- During render, `pickTodayMilestoneTeaser(state, [])` reads from persisted `state.events` to find recent milestones — equivalent behavior since events are already there from the last import.
+- `newEvents` from `syncMilestonesFromWorkspace` was previously used only to prefer brand-new-this-render milestones; after import sync, these events are already in `state.events` and will be found by `pickTodayMilestoneTeaser`.
+
+### Validation
+
+- `npm run typecheck` — **pass**
+- `npm run test` (77/77) — **pass**
+- `npm run build` — **pass** (21 static pages generated)
+- `GET /` — **200 OK**, full content rendered, no errors
+- Render-time write audit — **pass** (zero `persist`/`writeStore`/`update`/`sync` calls remain in `page.tsx` render path)
+
+### Result
+**REMOVAL** — `syncMilestonesFromWorkspace()` was the last remaining render-time write. Moved to post-import. **Today RSC is now fully read-only.** Track 1C is complete.
+
+---
+
+## Phase 2A-1 — Create `DemoBanner` component (2026-04-12)
+
+### Goal
+Create a sticky, dismissable banner component that clearly communicates demo/sample state and links to the import flow.
+
+### What changed
+
+| File | Change |
+|------|--------|
+| `src/components/shell/demo-banner.tsx` | **Created.** Client component (`"use client"`) with `useState` dismiss. Sticky positioning (`sticky top-0 z-40`). Warning-toned strip (`border-status-warning/25 bg-status-warning/[0.06]`). Copy: "Sample data. You're viewing demo content. Import your data to see your real visibility briefing." X button dismisses in-session. Link to `/settings/import`. |
+
+### Design decisions
+- **Placed in `components/shell/`** — this is a shell-level banner, not Today-specific. Matches the pattern of other shell components (`app-sidebar`, `app-header`, `command-palette`).
+- **Session-only dismiss** — `useState(false)` resets on page reload. No persistence needed for demo state (user either imports or doesn't). If needed later, localStorage dismiss can be added.
+- **Not mounted yet** — per the phase plan, 2A-2 computes `isDemoMode` flag and 2A-3 conditionally renders the banner. This step is component creation only.
+- **Visual treatment** — warning-toned to signal "this isn't your real data" without being alarming. Consistent with existing banner patterns (`scan-status-banner`, `narrative-banner`).
+
+### Validation
+
+- `npm run typecheck` — **pass**
+- `npm run test` (77/77) — **pass**
+- `npm run build` — **pass** (21 static pages)
+- Lint check — **pass** (no errors)
+- Component creation — **verified** (file exists, types check, builds clean)
+- Not mounted — **confirmed** (no import of `DemoBanner` in any layout or page file)
+
+---
+
+## Phase 2A-2 — Pass `isDemoMode` from shell layout (2026-04-12)
+
+### Signal
+`hasActiveExperiment()` in `src/lib/seed-data.server.ts` returns `_importRuns.length > 0` — when **false**, the app hydrates from static `seed-data` (walkthrough / sample workspace). That matches audit copy: demo state when no import runs.
+
+`isDemoMode = !hasActiveExperiment()`.
+
+### Where computed / passed
+- **Computed:** `src/app/(shell)/layout.tsx` (server layout), after badge computation.
+- **Passed:** `ShellProvider` receives `isDemoMode={isDemoMode}`.
+- **Exposed:** `src/components/shell/shell-provider.tsx` — `isDemoMode` on context value; default `false` if omitted (only `(shell)/layout` uses `ShellProvider`).
+
+### Banner
+**Intentionally not mounted** — Phase 2A-3 will render `DemoBanner` when `isDemoMode` (via `useShell().isDemoMode` or prop from layout).
+
+### Validation
+- `npm run typecheck` — **pass**
+- `npm run test` (77/77) — **pass**
+- `npm run build` — **pass**
+- Wiring: `DemoBanner` still not imported in `layout.tsx` — **confirmed**
+
+---
+
+## Phase 2A-3 — Render `DemoBanner` when `isDemoMode` (2026-04-12)
+
+### Where mounted
+- **Single point:** `src/app/(shell)/layout.tsx` — first child inside `<main className="flex-1 overflow-y-auto">`, immediately above the `max-w-[1120px]` content wrapper.
+- **Gate:** `DemoBannerGate` exported from `src/components/shell/demo-banner.tsx` — reads `useShell().isDemoMode`; returns `null` when false, otherwise `<DemoBanner />`.
+
+### Conditional
+`if (!isDemoMode) return null` in `DemoBannerGate` (no duplicate demo computation; flag still supplied by server layout → `ShellProvider` from 2A-2).
+
+### Layout tweak
+`main` no longer has horizontal padding; padding applied to inner `div` wrapping `{children}` so the banner spans the full main column width while sticky behavior remains tied to the main scroll area.
+
+### New domain logic
+**None** — only UI wiring + `DemoBannerGate` client wrapper.
+
+### Validation
+- `npm run typecheck` — **pass**
+- `npm run test` (77/77) — **pass**
+- `npm run build` — **pass**
+- Manual: with empty import-runs, SSR/HTML should include “Sample data”; after import, `isDemoMode` false and gate returns null — operator verifies on their machine.
+
+---
+
+## Phase 2B-1 — Today empty state when demo / no real data (2026-04-12)
+
+### Condition
+`isDemoMode === !hasActiveExperiment()` — identical to Phase 2A shell demo signal (`import-runs` empty ⇒ seed sample workspace).
+
+### Where rendered
+- **`src/app/(shell)/page.tsx`** — computes `isDemoMode`, passes `isDemoMode={isDemoMode}` to `TodayClient`.
+- **`src/app/(shell)/today-client.tsx`** — after `ScanStatusBanner`, when `isDemoMode`: a single `<section>` with heading “Import your data to see your real briefing”, explanatory copy, and `Link` to **`/settings/import`** (same destination as `DemoBanner`). When not demo: that section is omitted (`null`).
+
+### Normal Today unchanged when false
+All prior Today UI from `HowWeKnowPanel` through the System status line is wrapped in `{!isDemoMode && ( <> … </> )}`. `localUrgentStrip` also gated with `!isDemoMode` so it does not appear above the hidden briefing in demo mode.
+
+### New domain logic
+**None** — only prop + conditional JSX.
+
+### Validation
+- `npm run typecheck` — **pass**
+- `npm run test` (77/77) — **pass**
+- `npm run build` — **pass**
+
+---
+
+## Phase 2B-2 — Pages empty state when demo / no real data (2026-04-12)
+
+### Condition
+`!hasActiveExperiment()` — same as Phase 2A shell / Today 2B-1 (`import-runs` empty ⇒ sample workspace).
+
+### Where rendered
+- **`src/app/(shell)/pages/page.tsx`** — at the start of `PagesPage()`, before any page-row computation: if `!hasActiveExperiment()`, return `max-w-5xl` with the same Pages title + proof subtitle block as the normal route, then a compact `<section>` (“Import your data to see your real page list”), copy, and **`next/link`** to **`/settings/import`**.
+
+### Normal Pages unchanged when false
+When at least one import run exists, execution continues into the existing function body; **`PagesClient` and all row logic are unchanged**.
+
+### New domain logic
+**None** — only `hasActiveExperiment` + early return + `Link` import.
+
+### Validation
+- `npm run typecheck` — **pass**
+- `npm run test` (77/77) — **pass**
+- `npm run build` — **pass**
+
+---
+
+## Phase 2B-3 — Changes empty state when demo / no real data (2026-04-12)
+
+### Condition
+`!hasActiveExperiment()` — same as Phase 2A shell / Today 2B-1 / Pages 2B-2.
+
+### Where rendered
+- **`src/app/(shell)/changes/page.tsx`** — first lines of `ChangeScorecardPage()`: if `!hasActiveExperiment()`, return `<div>` with existing **`PageHeader`** (“Changes” / same description as live route) plus a compact `<section>` with heading “Import your data to see your real Changes workspace”, copy referencing scorecard / attribution / replication, and **`Link`** to **`/settings/import`**.
+
+### Normal Changes unchanged when false
+When at least one import run exists, the function continues with the existing body (scorecard, `ChangesTabShell`, milestone sync, etc.).
+
+### New domain logic
+**None** — only `hasActiveExperiment` import + early return branch.
+
+### Validation
+- `npm run typecheck` — **pass**
+- `npm run test` (77/77) — **pass**
+- `npm run build` — **pass**
+
+---
+
+## Phase 2B-4 — Market empty / import path verification (2026-04-12)
+
+### Verification
+- **`src/app/(shell)/competitors/page.tsx`** already had import guidance when **`benchmark === null`** (no `citationEvidenceIndex`): “No citation evidence yet” + **Link** to **`/settings/import`** (“Go to Import”).
+- That path does **not** use **`!hasActiveExperiment()`** — in demo/no-import mode the citation index from bundled/sample data is often present, so the full Market UI could render without the Phase 2B “import your real data” signal.
+
+### Result: **ADDED** (not NO-OP)
+- Inserted **`!hasActiveExperiment()`** early return at the top of `CompetitorsPage()` (same signal as Today / Pages / Changes / shell): **`PageHeader`** (“Market”) + restrained `<section>` + **`/settings/import`** CTA (“Go to Import →”).
+- Skips heavy Market computation and **`syncMilestonesFromWorkspace`** when demo.
+- The existing **`benchmark ? … : …`** “No citation evidence yet” block remains for **post-import** runs where the citation index is still missing.
+
+### Validation
+- `npm run typecheck` — **pass**
+- `npm run test` (77/77) — **pass**
+- `npm run build` — **pass**
+
+---
+
+## Phase 2B-5 — Today “All Clear” hidden in demo / no-real-data (2026-04-12)
+
+### Signal
+**`isDemoMode`** on Today — same as elsewhere: **`!hasActiveExperiment()`** (passed from `src/app/(shell)/page.tsx` into `TodayClient` since 2B-1).
+
+### Where changed
+- **`src/lib/today-ritual.ts`** — `shouldShowTodayAllClear` params gain optional **`isDemoMode?: boolean`**. If truthy, return **`false`** before existing queue/coverage checks.
+- **`src/app/(shell)/today-client.tsx`** — passes **`isDemoMode`** into **`shouldShowTodayAllClear({ …, isDemoMode })`**.
+
+### Real-data behavior
+When **`isDemoMode`** is false or omitted, logic is **unchanged** from prior criteria (pending findings, primary response, crawl/visibility staleness, partial coverage).
+
+### Note
+The All Clear **UI** was already inside **`{!isDemoMode && (<>…</>)}`** from 2B-1; this step **centralizes** the rule in the ritual helper so the decision cannot drift if layout changes.
+
+### Validation
+- `npm run typecheck` — **pass**
+- `npm run test` (78/78) — **pass**
+- `npm run build` — **pass**
+
+---
+
+## Phase 2C-1 — Create `DataFreshnessStrip` component (2026-04-12)
+
+### Created
+- **`src/components/shell/data-freshness-strip.tsx`** — server-safe presentational component (no `"use client"`).
+
+### Inputs
+- **`lastImportAt: string | null`** — intended to mirror **`getDataCoverage().lastImportAt`** / newest import run `started_at`.
+- **`lastScanCompletedAt: string | null`** — intended to mirror **`latestWebsiteCrawlRun()?.completed_at`**.
+- Optional **`className`** for layout integration in 2C-2.
+
+### Mounting
+**Intentionally not mounted** in this step (Phase **2C-2** wires into shell layout).
+
+### Validation
+- `npm run typecheck` — **pass**
+- `npm run test` (78/78) — **pass**
+- `npm run build` — **pass**

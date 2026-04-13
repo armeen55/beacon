@@ -117,7 +117,7 @@ function generateWhyExplanation(
   if (negativeAttrs.length > 0) {
     const negTopics = [...new Set(negativeAttrs.map((a) => a.event.topic))];
     parts.push(
-      `Visibility declined for ${negTopics.slice(0, 2).join(", ")} — ${negativeAttrs.length} negative event${negativeAttrs.length > 1 ? "s" : ""} detected after this change`,
+      `Visibility declined for ${negTopics.slice(0, 2).join(", ")} — ${negativeAttrs.length} negative event${negativeAttrs.length > 1 ? "s" : ""} detected in the same observation window as this change`,
     );
   }
 
@@ -125,7 +125,7 @@ function generateWhyExplanation(
     const topicStr =
       row.topics.length > 0 ? ` for ${row.topics.slice(0, 2).join(", ")}` : "";
     parts.push(
-      `Primary cause in ${primaries.length} positive outcome event${primaries.length > 1 ? "s" : ""}${topicStr}`,
+      `Strongest correlate in ${primaries.length} positive outcome event${primaries.length > 1 ? "s" : ""}${topicStr}`,
     );
   }
   if (contribs.length > 0) {
@@ -214,7 +214,7 @@ function generateNextAction(
   const { maxDays } = ATTRIBUTION_CONFIG.discovery;
 
   if (direction === "negative") {
-    return "Metrics declined after this change. Investigate whether it introduced a regression or if external factors are at play.";
+    return "Metrics declined in the same observation window as this change. Investigate whether it introduced a regression or if external factors are at play.";
   }
 
   if (direction === "mixed") {
@@ -286,7 +286,7 @@ function generateNextAction(
   }
 
   if (verdict === "negative") {
-    return "Performance declined after this change. Review whether it introduced a regression or if external factors are at play.";
+    return "Performance declined in the same observation window as this change. Review whether it introduced a regression or if external factors are at play.";
   }
 
   return "Awaiting more evidence before a recommendation can be made.";

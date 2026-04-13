@@ -5,6 +5,7 @@ import {
   changelogEntries,
   opportunities,
   results,
+  hasActiveExperiment,
 } from "@/lib/seed-data.server";
 import { eventDecisions } from "@/domains/attribution/store";
 import { computeScorecard } from "@/domains/attribution/scorecard";
@@ -70,6 +71,40 @@ import { respondToRecommendation } from "../recommendation-actions";
 import { startExperimentAction } from "../experiment-actions";
 
 export default async function ChangeScorecardPage() {
+  // Same signal as Today / Pages / shell (Phase 2A): no import runs ⇒ sample workspace, not operator Changes.
+  if (!hasActiveExperiment()) {
+    return (
+      <div>
+        <PageHeader
+          title="Changes"
+          description="What worked. What to scale. Why visibility moved."
+        />
+        <section
+          className="rounded-lg border border-border/60 bg-surface-inset/30 px-5 py-5"
+          aria-labelledby="changes-import-empty-heading"
+        >
+          <h2
+            id="changes-import-empty-heading"
+            className="text-[13px] font-semibold text-foreground tracking-tight"
+          >
+            Import your data to see your real Changes workspace
+          </h2>
+          <p className="mt-2 text-[13px] leading-relaxed text-muted-foreground">
+            Scorecard, impact verdicts, replication, and attribution review are built from your imported
+            visibility history and change log. Until you import, this route shows sample changes for
+            orientation only — not your business.
+          </p>
+          <Link
+            href="/settings/import"
+            className="mt-4 inline-flex text-[13px] font-semibold text-accent-primary underline underline-offset-2 hover:text-accent-primary/85"
+          >
+            Go to Import →
+          </Link>
+        </section>
+      </div>
+    );
+  }
+
   const rawRows = computeScorecard(changelogEntries, results, opportunities, eventDecisions);
   const rows = enrichWithImpact(rawRows);
 
@@ -210,9 +245,12 @@ export default async function ChangeScorecardPage() {
     <div className="space-y-4">
       <div className="rounded-lg border border-border/60 bg-surface-raised/40 px-5 py-4">
         <p className="text-[12px] text-muted-foreground leading-relaxed">
-          Tier 1B replication: validated or high-confidence partial winners, plus promising
+          Tier 1B replication: validated or strong-evidence partial winners, plus promising
           experiments, become grouped targets. Observed rows are scorecard + citations; inferred
-          rows are pattern and HTML similarity — not guaranteed outcomes.
+          rows are pattern and HTML similarity — not guaranteed outcomes.{" "}
+          <a href="/settings/methodology#verdicts" className="text-accent-primary hover:underline">
+            How verdicts work →
+          </a>
         </p>
       </div>
       {serializedReplicationCards.length === 0 ? (
@@ -422,7 +460,7 @@ export default async function ChangeScorecardPage() {
           )}
           {highConfidence > 0 && (
             <span className="text-status-success font-semibold tabular-nums">
-              {highConfidence} high-confidence impact
+              {highConfidence} strong-evidence impact
             </span>
           )}
           {operatorConfirmed > 0 && (

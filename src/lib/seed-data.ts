@@ -951,7 +951,7 @@ export const changelogEntries: ChangelogEntry[] = [
     topic_targeted: "Whole House Remodel",
     city_targeted: null,
     hypothesis:
-      "Structured data coverage will improve organic position from #12 to top 5 within 1-2 weeks.",
+      "Structured data coverage may correlate with better organic position from #12 toward top 5 within 1-2 weeks; outcomes not guaranteed.",
     expected_impact_window: "1-2 Weeks",
     brief_id: "brief-2",
     opportunity_id: "opp-5",
@@ -991,7 +991,7 @@ export const changelogEntries: ChangelogEntry[] = [
     topic_targeted: "Citation Building",
     city_targeted: null,
     hypothesis:
-      "Directory citations will improve Perplexity and ChatGPT citation rates within 4-6 weeks as these sources are indexed.",
+      "Directory citations may correlate with higher Perplexity and ChatGPT citation rates within 4-6 weeks as these sources are indexed; outcomes not guaranteed.",
     expected_impact_window: "4-6 Weeks",
     brief_id: "brief-4",
     opportunity_id: "opp-3",
@@ -1031,7 +1031,7 @@ export const changelogEntries: ChangelogEntry[] = [
     topic_targeted: "Home Additions",
     city_targeted: null,
     hypothesis:
-      "Comprehensive content depth will improve topical authority signals for AI search models.",
+      "Comprehensive content depth may correlate with stronger topical authority signals for AI search models; outcomes not guaranteed.",
     expected_impact_window: "1-2 Weeks",
     brief_id: null,
     opportunity_id: "opp-6",

@@ -222,13 +222,38 @@ export function ScorecardTable({
   const noLiftCount = rows.filter(r => r.verdict === "no_impact" || r.verdict === "negative").length;
   const tooEarlyCount = rows.filter(r => r.verdict === "too_early").length;
 
+  const workspaceLinkedMatchTotal = useMemo(
+    () => rows.reduce((sum, r) => sum + r.totalEventsLinked, 0),
+    [rows],
+  );
+  const workspaceDistinctTopicCount = useMemo(
+    () => new Set(rows.flatMap((r) => r.topics)).size,
+    [rows],
+  );
+  const observationWindowLabel = useMemo(() => {
+    const dates = rows
+      .flatMap((r) => r.eventAttributions.map((a) => a.event.trigger_date))
+      .filter(Boolean)
+      .sort();
+    if (dates.length === 0) return null;
+    const fmt = (d: string) =>
+      new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    const first = dates[0];
+    const last = dates[dates.length - 1];
+    const spanDays = Math.round(
+      (new Date(last).getTime() - new Date(first).getTime()) / 86_400_000,
+    );
+    if (spanDays <= 0) return `Window: ${fmt(first)}`;
+    return `Window: ${fmt(first)} – ${fmt(last)} (${spanDays}d)`;
+  }, [rows]);
+
   return (
     <div>
       {/* Outcome category tabs */}
       <div className="flex items-center gap-1 mb-4 border-b border-border/40 pb-2 overflow-x-auto">
         {([
           { key: "all" as OutcomeCategory, label: "All changes", count: rows.length },
-          { key: "winners" as OutcomeCategory, label: "Proven winners", count: winnerCount },
+          { key: "winners" as OutcomeCategory, label: "Observed winners", count: winnerCount },
           { key: "mixed" as OutcomeCategory, label: "Mixed signals", count: mixedCount },
           { key: "no_lift" as OutcomeCategory, label: "No measurable impact", count: noLiftCount },
           { key: "too_early" as OutcomeCategory, label: "Too early", count: tooEarlyCount },
@@ -267,6 +292,17 @@ export function ScorecardTable({
           <StatPill label={changeVerdictLabel("too_early")} count={verdictCounts.too_early ?? 0} color="text-muted-foreground" />
         </div>
       </details>
+
+      <p className="text-[10px] text-muted-foreground/75 mb-3 leading-relaxed">
+        {workspaceLinkedMatchTotal === 0
+          ? "No linked visibility matches in this workspace yet — import more history or wait for outcomes."
+          : workspaceDistinctTopicCount === 0
+            ? `Based on ${workspaceLinkedMatchTotal} linked ${workspaceLinkedMatchTotal === 1 ? "match" : "matches"} in this workspace.`
+            : `Based on ${workspaceLinkedMatchTotal} linked ${workspaceLinkedMatchTotal === 1 ? "match" : "matches"} across ${workspaceDistinctTopicCount} ${workspaceDistinctTopicCount === 1 ? "topic" : "topics"}.`}
+        {observationWindowLabel && (
+          <span className="text-muted-foreground/60"> · {observationWindowLabel}</span>
+        )}
+      </p>
 
       {/* Filters */}
       <div className="flex items-center gap-2 mb-3 text-[11px] flex-wrap">
@@ -480,6 +516,17 @@ function ScorecardRowUI({ row, intel }: { row: ScorecardRowWithImpact; intel?: C
                 +{row.eventAttributions.length - 3} more
               </span>
             )}
+            {(() => {
+              const dates = row.eventAttributions.map((a) => a.event.trigger_date).filter(Boolean).sort();
+              if (dates.length < 2) return null;
+              const spanDays = Math.round((new Date(dates[dates.length - 1]).getTime() - new Date(dates[0]).getTime()) / 86_400_000);
+              if (spanDays <= 0) return null;
+              return (
+                <span className="text-[9px] text-muted-foreground/55">
+                  over {spanDays}d window
+                </span>
+              );
+            })()}
           </div>
         ) : (
           <span className="text-[10px] text-muted-foreground">

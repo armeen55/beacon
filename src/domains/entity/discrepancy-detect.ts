@@ -2,7 +2,7 @@
  * AI Says vs Reality — conservative discrepancy detection.
  *
  * Compares what AI answers claim against what Beacon knows from owned data.
- * Only surfaces HIGH-CONFIDENCE structural mismatches:
+ * Only surfaces high-signal structural mismatches:
  *
  * 1. Location not in owned data — AI mentions a location we don't serve
  * 2. Service not in owned data — AI mentions a service not present in snapshots

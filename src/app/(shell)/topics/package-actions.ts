@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { log } from "@/lib/logger";
 import {
   attackPackages,
   persistAttackPackages,
@@ -18,6 +19,15 @@ export async function launchAttackPackage(
   pkg: FrontierAttackPackage,
   briefs: PlaybookBrief[]
 ): Promise<{ success: boolean; handoffText: string }> {
+  const action = "launchAttackPackage";
+  const t0 = Date.now();
+  log.info("Action started", {
+    action,
+    params: {
+      packageId: pkg.frontierAttackPackageId,
+      briefCount: briefs.length,
+    },
+  });
   const now = new Date().toISOString();
 
   let persisted = attackPackages.find((p) => p.frontierAttackPackageId === pkg.frontierAttackPackageId);
@@ -75,6 +85,7 @@ export async function launchAttackPackage(
   const handoffText = generatePackageHandoff(persisted, trackedMissingPages);
 
   revalidatePath("/", "layout");
+  log.info("Action completed", { action, durationMs: Date.now() - t0 });
   return { success: true, handoffText };
 }
 
@@ -82,11 +93,22 @@ export async function updatePackageStatus(
   packageId: string,
   status: PackageStatus
 ): Promise<{ success: boolean }> {
+  const action = "updatePackageStatus";
+  const t0 = Date.now();
+  log.info("Action started", { action, params: { packageId, status } });
   const pkg = attackPackages.find((p) => p.frontierAttackPackageId === packageId);
-  if (!pkg) return { success: false };
+  if (!pkg) {
+    log.error("Action failed", {
+      action,
+      durationMs: Date.now() - t0,
+      error: "package not found",
+    });
+    return { success: false };
+  }
   pkg.status = status;
   await persistAttackPackages();
   revalidatePath("/", "layout");
+  log.info("Action completed", { action, durationMs: Date.now() - t0 });
   return { success: true };
 }
 
@@ -94,8 +116,18 @@ export async function updateMissingPageStatus(
   planId: string,
   status: string
 ): Promise<{ success: boolean }> {
+  const action = "updateMissingPageStatus";
+  const t0 = Date.now();
+  log.info("Action started", { action, params: { planId, status } });
   const plan = trackedMissingPages.find((p) => p.missingPagePlanId === planId);
-  if (!plan) return { success: false };
+  if (!plan) {
+    log.error("Action failed", {
+      action,
+      durationMs: Date.now() - t0,
+      error: "plan not found",
+    });
+    return { success: false };
+  }
   const now = new Date().toISOString();
   plan.status = status as typeof plan.status;
   if (status === "handed_off") plan.handedOffAt = now;
@@ -103,10 +135,14 @@ export async function updateMissingPageStatus(
   if (status === "indexed") plan.indexedAt = now;
   await persistTrackedMissingPages();
   revalidatePath("/", "layout");
+  log.info("Action completed", { action, durationMs: Date.now() - t0 });
   return { success: true };
 }
 
 export async function refreshCompetitorEvidence(): Promise<{ success: boolean; topicCount: number }> {
+  const action = "refreshCompetitorEvidence";
+  const t0 = Date.now();
+  log.info("Action started", { action, params: {} });
   const { existsSync, readFileSync } = await import("node:fs");
   const { join } = await import("node:path");
   const { computeCompetitorEvidence, persistComputedEvidence } = await import("@/domains/pages/competitor-evidence");
@@ -120,7 +156,14 @@ export async function refreshCompetitorEvidence(): Promise<{ success: boolean; t
   const { computeScorecard } = await import("@/domains/attribution/scorecard");
 
   const ciPath = join(process.cwd(), ".data", "citation-evidence-index.json");
-  if (!existsSync(ciPath)) return { success: false, topicCount: 0 };
+  if (!existsSync(ciPath)) {
+    log.error("Action failed", {
+      action,
+      durationMs: Date.now() - t0,
+      error: "citation index missing",
+    });
+    return { success: false, topicCount: 0 };
+  }
   const ci = JSON.parse(readFileSync(ciPath, "utf8"));
 
   const summaries = computeCompetitorEvidence(ci);
@@ -146,5 +189,9 @@ export async function refreshCompetitorEvidence(): Promise<{ success: boolean; t
   await persistComputedAssetResponses(assetResps);
 
   revalidatePath("/", "layout");
+  log.info("Action completed", {
+    action,
+    durationMs: Date.now() - t0,
+  });
   return { success: true, topicCount: summaries.size };
 }

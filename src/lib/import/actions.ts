@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { generateId, now } from "@/lib/actions";
+import { log } from "@/lib/logger";
 import { writeStore } from "@/lib/persistence/json-store";
 import { parseCSV, parseJSON } from "./parsers";
 import {
@@ -38,6 +39,9 @@ import {
   scanRoutesShouldRevalidate,
   type WebsiteScanResult,
 } from "@/domains/scanning/orchestrate-scan";
+import { runOutcomeBackfill } from "@/domains/product/outcome-backfill";
+import { runExperimentCitationSync } from "@/domains/product/experiment-citation-sync";
+import { runMilestoneSync } from "@/domains/milestones/post-import-sync";
 
 export async function getImportRuns(): Promise<ImportRun[]> {
   return [...importRuns].reverse();
@@ -75,21 +79,38 @@ export async function previewImport(
   format: ImportFormat,
   source: string
 ): Promise<ImportPreview> {
+  const action = "previewImport";
+  const t0 = Date.now();
+  log.info("Action started", {
+    action,
+    params: { entityType, format, rawLength: rawData.length },
+  });
   let rows: Record<string, string>[];
   try {
     rows = format === "csv" ? parseCSV(rawData) : parseJSON(rawData);
   } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    log.error("Action failed", {
+      action,
+      durationMs: Date.now() - t0,
+      error: msg.slice(0, 500),
+    });
     return {
       valid: false,
       total_rows: 0,
       valid_count: 0,
-      errors: [`Parse error: ${e instanceof Error ? e.message : String(e)}`],
+      errors: [`Parse error: ${msg}`],
       warnings: [],
       sample: [],
     };
   }
 
   if (rows.length === 0) {
+    log.error("Action failed", {
+      action,
+      durationMs: Date.now() - t0,
+      error: "no data rows",
+    });
     return { valid: false, total_rows: 0, valid_count: 0, errors: ["No data rows found"], warnings: [], sample: [] };
   }
 
@@ -106,7 +127,7 @@ export async function previewImport(
     if (result.entity) validCount++;
   }
 
-  return {
+  const out: ImportPreview = {
     valid: allErrors.length === 0 || validCount > 0,
     total_rows: rows.length,
     valid_count: validCount,
@@ -114,6 +135,16 @@ export async function previewImport(
     warnings: allWarnings.slice(0, 20),
     sample: rows.slice(0, 5),
   };
+  if (out.valid) {
+    log.info("Action completed", { action, durationMs: Date.now() - t0 });
+  } else {
+    log.error("Action failed", {
+      action,
+      durationMs: Date.now() - t0,
+      error: out.errors[0] ?? "preview invalid",
+    });
+  }
+  return out;
 }
 
 export async function executeImport(
@@ -123,18 +154,27 @@ export async function executeImport(
   source: string
 ): Promise<ImportResult> {
   const batchId = generateId("imp");
+  const t0 = Date.now();
   const startedAt = now();
+
+  log.info("Import started", { runId: batchId, source: "upload" });
 
   let rows: Record<string, string>[];
   try {
     rows = format === "csv" ? parseCSV(rawData) : parseJSON(rawData);
   } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    log.error("Import failed", {
+      runId: batchId,
+      durationMs: Date.now() - t0,
+      error: msg.slice(0, 500),
+    });
     return {
       success: false,
       run_id: batchId,
       imported_count: 0,
       skipped_count: 0,
-      errors: [`Parse error: ${e instanceof Error ? e.message : String(e)}`],
+      errors: [`Parse error: ${msg}`],
       warnings: [],
     };
   }
@@ -223,7 +263,28 @@ export async function executeImport(
   await persistImportedEntities(entityType);
   await dualWriteImportedEntities(entityType);
 
+  await runOutcomeBackfill().catch(() => {});
+  await runExperimentCitationSync().catch(() => {});
+  await runMilestoneSync().catch(() => {});
+
   revalidatePath("/", "layout");
+
+  const durationMs = Date.now() - t0;
+  if (imported > 0) {
+    log.info("Import completed", {
+      runId: batchId,
+      durationMs,
+      rowCount: imported,
+    });
+  } else {
+    log.error("Import failed", {
+      runId: batchId,
+      durationMs,
+      error:
+        allErrors[0] ??
+        (rows.length === 0 ? "No data rows" : "No rows imported"),
+    });
+  }
 
   return {
     success: imported > 0,
@@ -238,6 +299,9 @@ export async function executeImport(
 export async function clearEntityData(
   entityType: ImportEntityType
 ): Promise<{ success: boolean; cleared: number }> {
+  const action = "clearEntityData";
+  const t0 = Date.now();
+  log.info("Action started", { action, params: { entityType } });
   let cleared = 0;
   switch (entityType) {
     case "results":
@@ -259,12 +323,16 @@ export async function clearEntityData(
   }
 
   revalidatePath("/", "layout");
+  log.info("Action completed", { action, durationMs: Date.now() - t0 });
   return { success: true, cleared };
 }
 
 export async function clearImportedData(
   entityType: ImportEntityType
 ): Promise<{ success: boolean; cleared: number }> {
+  const action = "clearImportedData";
+  const t0 = Date.now();
+  log.info("Action started", { action, params: { entityType } });
   let cleared = 0;
   const isImported = (item: { source_system?: string }) => !!item.source_system;
 
@@ -300,6 +368,7 @@ export async function clearImportedData(
   }
 
   revalidatePath("/", "layout");
+  log.info("Action completed", { action, durationMs: Date.now() - t0 });
   return { success: true, cleared };
 }
 
@@ -316,6 +385,12 @@ export async function resetExperiment(
     importRuns: number;
   };
 }> {
+  const action = "resetExperiment";
+  const t0 = Date.now();
+  log.info("Action started", {
+    action,
+    params: { preserveTruthLabels: options.preserveTruthLabels ?? false },
+  });
   const { candidateLinks, truthLabels, persistCandidateLinks, persistTruthLabels } = await import("@/domains/attribution/store");
   const { actionStates, persistActionStates } = await import("@/domains/actions/store");
   const { briefStates, persistBriefStates } = await import("@/domains/brief-generation/store");
@@ -357,6 +432,7 @@ export async function resetExperiment(
   await clearAllImportTables();
 
   revalidatePath("/", "layout");
+  log.info("Action completed", { action, durationMs: Date.now() - t0 });
   return { cleared };
 }
 
@@ -365,6 +441,7 @@ export async function importWorkbook(
 ): Promise<WorkbookImportResult> {
   const file = formData.get("file");
   if (!file || !(file instanceof File)) {
+    log.error("Import failed", { runId: "", error: "No file provided" });
     return {
       success: false,
       run_id: "",
@@ -382,7 +459,10 @@ export async function importWorkbook(
   }
 
   const batchId = generateId("wb");
+  const t0 = Date.now();
   const startedAt = now();
+
+  log.info("Import started", { runId: batchId, source: "upload" });
 
   let data;
   const visibilityRunId = `vis-wb-${batchId}`;
@@ -390,6 +470,12 @@ export async function importWorkbook(
     const buffer = await file.arrayBuffer();
     data = parseWorkbook(buffer, batchId, visibilityRunId);
   } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    log.error("Import failed", {
+      runId: batchId,
+      durationMs: Date.now() - t0,
+      error: msg.slice(0, 500),
+    });
     return {
       success: false,
       run_id: batchId,
@@ -402,9 +488,7 @@ export async function importWorkbook(
       changes_linked: 0,
       sheets: [],
       warnings: [],
-      errors: [
-        `Workbook parse error: ${e instanceof Error ? e.message : String(e)}`,
-      ],
+      errors: [`Workbook parse error: ${msg}`],
     };
   }
 
@@ -540,6 +624,10 @@ export async function importWorkbook(
     appendVisibilityObservationRunSync(visRun);
   }
 
+  await runOutcomeBackfill().catch(() => {});
+  await runExperimentCitationSync().catch(() => {});
+  await runMilestoneSync().catch(() => {});
+
   revalidatePath("/", "layout");
 
   const attrCount = data.results.filter(
@@ -547,6 +635,12 @@ export async function importWorkbook(
   ).length;
 
   const allDates = results.map((r) => r.snapshot_date).filter(Boolean).sort();
+
+  log.info("Import completed", {
+    runId: batchId,
+    durationMs: Date.now() - t0,
+    rowCount: run.imported_count,
+  });
 
   return {
     success: true,
@@ -630,6 +724,9 @@ export async function postImportSetup(): Promise<{
   pagesScanned?: number;
   error?: string;
 }> {
+  const action = "postImportSetup";
+  const t0 = Date.now();
+  log.info("Action started", { action, params: {} });
   try {
     const { exec } = await import("child_process");
     const { promisify } = await import("util");
@@ -665,6 +762,7 @@ export async function postImportSetup(): Promise<{
       revalidatePath("/pages", "layout");
     }
 
+    log.info("Action completed", { action, durationMs: Date.now() - t0 });
     return {
       success: true,
       registryBuilt,
@@ -673,11 +771,17 @@ export async function postImportSetup(): Promise<{
       pagesScanned,
     };
   } catch (e) {
+    const err = e instanceof Error ? e.message : String(e);
+    log.error("Action failed", {
+      action,
+      durationMs: Date.now() - t0,
+      error: err.slice(0, 500),
+    });
     return {
       success: false,
       registryBuilt: false,
       scanRun: false,
-      error: e instanceof Error ? e.message : String(e),
+      error: err,
     };
   }
 }

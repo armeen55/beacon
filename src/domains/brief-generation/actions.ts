@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { log } from "@/lib/logger";
 import { briefs } from "@/lib/seed-data.server";
 import { generateId, now } from "@/lib/actions";
 import { briefStates, persistBriefStates } from "./store";
@@ -23,8 +24,19 @@ const PROPOSED_TO_BRIEF_TYPE: Record<string, BriefType> = {
 export async function acceptProposedBrief(
   proposed: ProposedBrief
 ): Promise<{ success: boolean; briefId?: string; error?: string }> {
+  const action = "acceptProposedBrief";
+  const t0 = Date.now();
+  log.info("Action started", {
+    action,
+    params: { proposedId: proposed.id, briefType: proposed.briefType },
+  });
   const existing = briefStates.find((s) => s.briefId === proposed.id);
   if (existing?.status === "accepted") {
+    log.error("Action failed", {
+      action,
+      durationMs: Date.now() - t0,
+      error: "already accepted",
+    });
     return {
       success: false,
       error: "Brief already accepted",
@@ -98,24 +110,33 @@ export async function acceptProposedBrief(
   await persistBriefStates();
 
   revalidatePath("/", "layout");
+  log.info("Action completed", { action, durationMs: Date.now() - t0 });
   return { success: true, briefId };
 }
 
 export async function rejectProposedBrief(
   briefId: string
 ): Promise<{ success: boolean }> {
+  const action = "rejectProposedBrief";
+  const t0 = Date.now();
+  log.info("Action started", { action, params: { briefId } });
   updateBriefState(briefId, "rejected", null);
   await persistBriefStates();
   revalidatePath("/", "layout");
+  log.info("Action completed", { action, durationMs: Date.now() - t0 });
   return { success: true };
 }
 
 export async function archiveProposedBrief(
   briefId: string
 ): Promise<{ success: boolean }> {
+  const action = "archiveProposedBrief";
+  const t0 = Date.now();
+  log.info("Action started", { action, params: { briefId } });
   updateBriefState(briefId, "archived", null);
   await persistBriefStates();
   revalidatePath("/", "layout");
+  log.info("Action completed", { action, durationMs: Date.now() - t0 });
   return { success: true };
 }
 

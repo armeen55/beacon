@@ -5,9 +5,9 @@
 >
 > **NOT FOR:** Execution steps (→ `NEXT_PHASE_EXECUTION_PLAN.md`), system diagrams (→ `architecture.md`), deep history (→ `master_execution_plan.md`), verification proof (→ `VERIFICATION_LOG.md`).
 
-**Last updated:** 2026-04-11
+**Last updated:** 2026-04-12
 **Branch:** `work/attribution-precision-20260407`
-**Build:** `npm run typecheck` ✓ · `npm run test` 77/77 ✓ · `npm run build` ✓ (19 static ○ + 6 dynamic ƒ in route table; Phase 0C-5 gate)
+**Build:** `npm run typecheck` ✓ · `npm run test` 82/82 ✓ · `npm run build` ✓ (18 static ○ + 4 dynamic ƒ in route table)
 
 ---
 
@@ -41,7 +41,7 @@ Beacon is a **daily AI visibility operating system** for local businesses. One o
 | Changes route | 70/100 | Scorecard + verdicts + replication. Core "what worked" view |
 | Market route | 62/100 | Real competitive intelligence (rankings, topic signals, battlecards). Data-dependent |
 | Navigation | Clean | 5 items: Today, Pages, Market, Changes, Settings. Keyboard shortcuts, command palette |
-| Build health | Solid | Zero type errors, 77 tests pass, production build succeeds |
+| Build health | Solid | Zero type errors, 82 tests pass, production build succeeds |
 | Copy/wording | 75/100 | Operator-focused, honest, avoids jargon |
 
 ### What is broken or risky
@@ -50,14 +50,14 @@ Beacon is a **daily AI visibility operating system** for local businesses. One o
 |---------|----------|--------|
 | **Error boundaries** | DONE | `(shell)/error.tsx` + `settings/error.tsx` implemented and runtime-verified (2026-04-12) |
 | **Loading states** | DONE (Phase 0B) | `(shell)/loading.tsx`, `(shell)/pages/loading.tsx`, `(shell)/changes/loading.tsx` — shell + Pages + Changes Suspense fallbacks |
-| **Today scan blocks render** | LAUNCH BLOCKER | Morning visit can block 2 min while scan runs during RSC render |
-| **Demo data not labeled** | HIGH | Ritz Builders sample shown with no "demo mode" indicator |
-| **Empty states missing** | HIGH | Most routes have no "no data yet" guidance |
+| **Today scan blocks render** | DONE (1A-1–6) | RSC never awaits scan; `ScanStatusBanner` triggers + polls from client; `router.refresh()` on complete. Flow verified end-to-end. **Phase 5-9:** stale-running detection + duplicate guard added — crashed scans no longer block indefinitely |
+| **Demo data not labeled** | MITIGATED (2A) | `DemoBannerGate` + `isDemoMode` when no import runs; sticky banner with import CTA (Phase 2A-3) |
+| **Empty states missing** | LOW (2B done) | Import empty states on main routes; **2B-5:** `shouldShowTodayAllClear` returns false when `isDemoMode` (no false “all clear” on sample data) |
 | **Module-cached import data** | MEDIUM | `seed-data.server.ts` top-level await → stale in long-running production process |
-| **Settings fragmented** | MEDIUM | Config/Health/History are re-exports of mismatched pages |
-| **Today has 15 sections** | MEDIUM | Cognitive overload for a morning briefing |
-| **Render-time side effects** | MEDIUM | `persistOutcomes()`, `updateExperimentCitations()` / `persistExperiments()` during Today render |
-| **Test coverage narrow** | LOW | 77 tests cover domain logic only. Zero route, integration, or E2E tests |
+| **Settings fragmented** | DONE (Phase 3) | Route consolidation + smoke **3-8** verified **2026-04-12**: Import / Config / Data tabs only; Health direct URL; **`/import`**, **`/setup`**, **`/results`** → **404** |
+| **Today section count** | MITIGATED (1B) | Core morning blocks verified 2026-04-12; `HowWeKnowPanel` + morning-order line still add density (not removed in 1B) |
+| **Render-time side effects** | DONE (1C) | `persistOutcomes()`, `updateExperimentCitations()`/`persistExperiments()`, and `syncMilestonesFromWorkspace()` all moved to post-import; 1C-3 audit confirmed zero writes in render path |
+| **Test coverage narrow** | LOW | 82 tests (domain + lib + **Today + Pages + Changes + Market route smokes**); no full E2E |
 
 ### Overall scores (from 2026-04-11 audit)
 
@@ -74,15 +74,15 @@ Beacon is a **daily AI visibility operating system** for local businesses. One o
 
 ## Current Phase & Next Actions
 
-**Status:** **Phase 0 (Foundation Safety) is complete** — error boundaries, segment `loading.tsx`, dead-route/dead-asset cleanup, full hygiene gate (`typecheck` + `test` + `build`). Phases 2–37 (infrastructure through product truth) remain **shipped**. **Current execution focus:** **Phase 1 — Morning Experience** (non-blocking scan, Today simplification, render-side-effect cleanup). **Phase 1A-1 done:** `scan-status-action.ts` exposes `getScanStatus()` for polling.
+**Status:** **Launch Phases 0–5 COMPLETE. Tier 1.1 — Proof layer: COMPLETE.** **1.1a–j** all done (**2026-04-12**). Copy sweep done (2026-04-12). **`/settings/methodology` route shipped (2026-04-12):** 5-section methodology destination (overview, metrics, boundaries, recommendation interpretation, FAQ) + L3 entry-point links from HowWeKnowPanel, Market scope line, Changes replication blurb. 18 static + 4 dynamic routes in build. **Still open:** coverage escalation wiring (1.1i spec only). Gate: typecheck ✓, 82/82 tests ✓, build ✓. **Track 1.1 signed off.**
 
 **Immediate next 3 actions:**
 
-1. **Phase 1A-2** — Add `src/app/(shell)/trigger-scan-action.ts`.
-2. **Phase 1A-3** — Remove `await runWebsiteScan()` from Today `page.tsx` render path.
-3. **Phase 1A-4** — Add `ScanStatusBanner` client component (poll + refresh on complete).
+1. **Track 1.2** — Daily ritual perfection (inbox-zero, digest, keyboard path).
+2. **1.1i implementation (when prioritized)** — Wire `CoverageState` / escalation UI per spec.
+3. **Layer 2 disclosures** — Add collapsed `<details>` methodology blocks on Market and Changes list (low-priority, ready when capacity allows).
 
-**Full execution plan:** See `NEXT_PHASE_EXECUTION_PLAN.md` — 68 steps across 6 phases.
+**Full execution plan:** See `NEXT_PHASE_EXECUTION_PLAN.md` — launch phases complete; active roadmap is **Tier 1** tracks **1.1 → 1.5** (see `master_execution_plan.md` §"Tiered product stack").
 
 ---
 
@@ -98,7 +98,7 @@ Beacon is a **daily AI visibility operating system** for local businesses. One o
 | Auto-resolved events | 13/45 (29%) |
 | Domain modules | 31 |
 | App routes (build) | 29 |
-| Vitest tests | 77 |
+| Vitest tests | 82 |
 | Viz components | 19 |
 
 ---

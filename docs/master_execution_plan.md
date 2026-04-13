@@ -1,10 +1,22 @@
-# Beacon Master Execution Plan
+# Beacon Master Context Vault
 
-> Living document. Single source of truth for implementation sequence.
-> Updated: 2026-04-11
-> Current phase: **Master Product Plan Phases 33–37 — COMPLETE** (truth, Today, verdicts, business config, tenant + setup). Next: iterate from real user feedback; optional Phase 31 gaps + intelligence execution roadmap (e.g. native multi-model) remain backlog. **Product-led Tier stack (nano-phases 1.1a–2.3h):** proof layer, daily ritual, replication, local listings/reviews, milestones/ATH → then revenue bridge, weekly export, competitor attack — detailed as mini-prompt slices in [`docs/NEXT_PHASE_EXECUTION_PLAN.md`](NEXT_PHASE_EXECUTION_PLAN.md) (final section).
-> Prior checkpoint: **Phase 3C — COMPLETE — observation-runs alignment + 15/15 parity**
+> **PURPOSE:** Full-depth context preservation. All history, all ideas, all backlog, all audit details.
+> This is where nothing gets lost.
 >
+> **NOT FOR:** Current state (→ `HANDOFF_VERIFIED_STATE.md`), active execution steps (→ `NEXT_PHASE_EXECUTION_PLAN.md`), system diagrams (→ `architecture.md`), verification proof (→ `VERIFICATION_LOG.md`).
+>
+> **ORGANIZATION:**
+> - § 1 — Repo identity + current repo truth
+> - § 2–11 — Domain model, systems, surface specs (REFERENCE)
+> - § 12–20 — Infrastructure phases: 0 through 3E (HISTORICAL — all COMPLETE)
+> - § Phase 5–37 — Product phases (HISTORICAL — all COMPLETE)
+> - § Intelligence 24–31C — Intelligence expansion (HISTORICAL — all SHIPPED)
+> - § **Tiered product stack — research-led nano-phases (1.1a–2.3h)** — full mini-prompt ladder (Tier 1 then Tier 2); appears in this file **before** “AUDIT SUMMARY”. Summary tables + launch phases: `NEXT_PHASE_EXECUTION_PLAN.md`.
+> - § Upgrade path — Profound → Native data transition plan (FUTURE)
+>
+> ---
+>
+> **Phase completion summary (all COMPLETE):**
 > Phase 0 — COMPLETE (commit `74605b1`)
 > Phase 0.5 — COMPLETE — audit locked minimum Phase 1 scope (15 stores → 12 tables)
 > Phase 1A — COMPLETE — Supabase client + 5-table core schema
@@ -2533,3 +2545,512 @@ The transition from Profound-imported data to native-owned data is designed as a
 **No store schema changes required.** The `source_system` field on Results, the `model` field on answer snapshots, and the `sampled_by` field on citations provide clean filtering at every computation boundary.
 
 **Repository layer handles the swap:** `SeedDataRepository` getters already abstract the storage backend. Native data enters the same tables (Supabase) and files (`.data/`) through the same dual-write paths. Consumers never know the difference.
+
+---
+
+## Tiered product stack — research-led nano-phases (1.1a–2.3h)
+
+**Purpose:** Executable **mini-prompt** slices (each completable in one focused session). Each row is **research-led first** (questions + spec), then implementation. **Numbering is independent** of historical “Phase 2–37” above.
+
+**Priority law:** Finish **Tier 1** tracks **1.1 → 1.5** in order unless **Depends on** explicitly allows parallel work. **Tier 2** (2.1–2.3) starts only when Tier 1 exit criteria are met (see end of §1.5).
+
+**Tier 1 — must build now:** Proof layer · Daily ritual perfection · Replication engine · Listings/reviews local layer · Milestones/ATH.  
+**Tier 2 — after Tier 1:** Revenue bridge · Weekly export/proof summary · Stronger competitor attack.
+
+---
+
+### Track 1.1 — Proof layer
+
+**1.1a — Signal taxonomy audit**  
+- **Context:** Beacon blends crawl, import, synthetic wrappers, and heuristics.  
+- **Research questions:** What signal classes exist today? Which are “observed” vs “inferred”? Where is provenance stored vs missing?  
+- **Deliverable:** Markdown matrix: signal → source artifact → UI surfaces → user-facing claim allowed.  
+- **Done when:** Matrix reviewed; “forbidden claims” list exists.  
+- **Depends on:** none.
+
+**1.1b — Competitor trust patterns (desk research)**  
+- **Context:** AEO/GEO vendors vary in methodology transparency.  
+- **Research questions:** How do Peec, Profound, SE Visible, Writesonic describe sampling? What disclaimers are common?  
+- **Deliverable:** 1-page “industry bar” + list of patterns to adopt or avoid.  
+- **Done when:** Doc linked from 1.1a matrix footnotes.  
+- **Depends on:** 1.1a.
+
+**1.1c — In-product methodology shell (IA)**  
+- **Context:** Proof must be reachable without burying Today.  
+- **Research questions:** Where do operators look when they doubt a number? (Settings vs Today vs per-card.)  
+- **Deliverable:** Wireframe notes: entry points, depth (summary → detail), cross-links.  
+- **Done when:** Agreed IA for “How we know this” for Tier-1 surfaces.  
+- **Depends on:** 1.1a.
+
+**1.1d — Prompt bank governance spec**  
+- **Context:** Prompt-derived visibility is easy to attack.  
+- **Research questions:** Versioning? Who edits? Retention? Per-tenant? Audit log fields?  
+- **Deliverable:** Spec: `PromptSet` lifecycle, diff, rollback, display rules.  
+- **Done when:** Spec + API shape (even if file-backed v1).  
+- **Depends on:** 1.1a.
+
+**1.1e — Confidence & uncertainty copy deck**  
+- **Context:** Operators punish false precision.  
+- **Research questions:** Which strings currently imply certainty? What’s the replacement lexicon (likely / observed / insufficient sample)?  
+- **Deliverable:** Copy table: before → after, by surface (Today, Market, Changes).  
+- **Done when:** Stakeholder pass on 10 highest-traffic strings.  
+- **Depends on:** 1.1a.
+
+**1.1f — Lineage fields (minimal schema)**  
+- **Context:** Evidence needs machine-readable lineage for UI + export.  
+- **Research questions:** Minimum fields: `source`, `observed_at`, `sample_id`, `coverage_note` — enough?  
+- **Deliverable:** Type definitions + which entities get lineage first (findings, verdicts, chart points).  
+- **Done when:** Schema merged as plan; first consumer chosen.  
+- **Depends on:** 1.1d.
+
+**1.1g — Wire lineage into top finding types**  
+- **Context:** Findings are the trust-critical path.  
+- **Research questions:** Which finding codes account for 80% of user decisions?  
+- **Deliverable:** Implementation plan per finding family + test cases.  
+- **Done when:** Each chosen family lists lineage in UI.  
+- **Depends on:** 1.1f.
+
+**1.1h — “Adversarial owner” FAQ**  
+- **Context:** Skeptical owners ask the same 12 questions.  
+- **Research questions:** What breaks trust fastest? (stale crawl, single prompt, etc.)  
+- **Deliverable:** FAQ + short answers grounded in 1.1a matrix.  
+- **Done when:** FAQ reachable from methodology shell (1.1c).  
+- **Depends on:** 1.1c, 1.1e.
+
+**1.1i — Stale / partial coverage escalation rules**  
+- **Context:** Silent failure is worse than empty data.  
+- **Research questions:** What thresholds? What’s blocking vs warning?  
+- **Deliverable:** State machine: fresh → degrading → stale → action required.  
+- **Done when:** Rules mapped to UI + copy (ties 1.2).  
+- **Depends on:** 1.1a.
+
+**1.1j — Proof layer exit gate**  
+- **Deliverable:** Checklist: every Tier-1 surface has methodology link + lineage on primary claims + no forbidden strings.  
+- **Done when:** Checklist signed off for ship.  
+- **Depends on:** 1.1g, 1.1h, 1.1i.  
+- **2026-04-12:** Follow-up **copy sweep** completed for 1.1j §8 items 1–11 (non-primary + generated copy + diagnostics labels + aligned attribution verdict phrasing). Methodology **route** (1.1c) and coverage **wiring** (1.1i) remain open.
+
+---
+
+### Track 1.2 — Daily ritual perfection
+
+**1.2a — Ritual user journey map**  
+- **Research questions:** Morning minutes available? Who skips days? What triggers return?  
+- **Deliverable:** Journey: trigger → open → triage → assign → done → weekly proof.  
+- **Done when:** Map approved.  
+- **Depends on:** none.
+
+**1.2b — “Inbox zero” definition for Beacon**  
+- **Research questions:** What counts as “done for today” beyond findings? (imports, attribution, scans.)  
+- **Deliverable:** Single definition + priority order when multiple queues non-empty.  
+- **Done when:** Product agrees one stack rank.  
+- **Depends on:** 1.2a.
+
+**1.2c — Digest channel spec (email / SMS / Slack)**  
+- **Research questions:** Which channel for which ICP? Frequency caps? Quiet days?  
+- **Deliverable:** v1 channel matrix + payload outline (“3 actions”).  
+- **Done when:** Legal/privacy notes captured (even if “later”).  
+- **Depends on:** 1.2b.
+
+**1.2d — Notification payload copy templates**  
+- **Deliverable:** 5 template variants (critical, stale, win, nudge, all-clear).  
+- **Done when:** Templates reviewed against proof layer (1.1e).  
+- **Depends on:** 1.1e, 1.2c.
+
+**1.2e — Assignment + ownership model**  
+- **Research questions:** Single assignee vs team? Snooze reasons?  
+- **Deliverable:** State + fields + UI placement (Today vs Pages).  
+- **Done when:** Spec + empty states.  
+- **Depends on:** 1.2b.
+
+**1.2f — Mobile / job-site use case**  
+- **Research questions:** What can be done on phone in 60s? What must wait for desktop?  
+- **Deliverable:** Must-have mobile actions list vs deferred.  
+- **Done when:** Scoped for v1.  
+- **Depends on:** 1.2a.
+
+**1.2g — Ritual metrics (instrumentation plan)**  
+- **Deliverable:** Events: `ritual_opened`, `primary_action_*`, `digest_sent`, `time_to_clear`.  
+- **Done when:** Event names + properties documented.  
+- **Depends on:** 1.2b.
+
+**1.2h — Daily ritual exit gate**  
+- **Deliverable:** Checklist: digest + clear done-state + escalation + assignment + mobile scope.  
+- **Done when:** Signed off.  
+- **Depends on:** 1.2c–1.2g, 1.1j (proof strings in ritual).
+
+**1.2i — Keyboard / power-user path**  
+- **Deliverable:** Shortcuts spec for triage (align with command palette).  
+- **Done when:** Documented; conflicts resolved.  
+- **Depends on:** 1.2e.
+
+---
+
+### Track 1.3 — Replication engine
+
+**1.3a — “Winner” definition v2**  
+- **Research questions:** Validated vs partial vs operator-confirmed — which counts as replication seed?  
+- **Deliverable:** Decision tree + exclusions (e.g. one-off news).  
+- **Done when:** Agreed with Changes/attribution owners.  
+- **Depends on:** none.
+
+**1.3b — Pattern library gap analysis**  
+- **Context:** `minePatterns` / briefs / track record exist.  
+- **Research questions:** What patterns are under-detected for local? (FAQ, LocalBusiness, service area, etc.)  
+- **Deliverable:** Prioritized pattern backlog.  
+- **Done when:** Top 10 patterns ranked.  
+- **Depends on:** 1.3a.
+
+**1.3c — Replication queue IA**  
+- **Research questions:** Queue lives on Changes vs Today vs both?  
+- **Deliverable:** Wireflow: pick winner → select targets → confirm → track experiment.  
+- **Done when:** Approved flow.  
+- **Depends on:** 1.3b.
+
+**1.3d — Target selection rules**  
+- **Deliverable:** Rules: same metro, same service, citation gap, not already shipped.  
+- **Done when:** Pseudocode + edge cases.  
+- **Depends on:** 1.3b.
+
+**1.3e — Batch size & operator cognitive cap**  
+- **Research questions:** Max simultaneous replications before noise?  
+- **Deliverable:** Default cap + “show more”.  
+- **Done when:** Product number chosen.  
+- **Depends on:** 1.3c.
+
+**1.3f — Experiment linkage spec**  
+- **Deliverable:** How replication enqueue ties to `experiment-store` + success criteria.  
+- **Done when:** One end-to-end example written on paper.  
+- **Depends on:** 1.3c.
+
+**1.3g — Replication metrics**  
+- **Deliverable:** KPIs: suggested → accepted → shipped → validated rate.  
+- **Done when:** Dashboard spec (even if internal first).  
+- **Depends on:** 1.3f.
+
+**1.3h — Replication engine exit gate**  
+- **Deliverable:** Checklist: queue visible, one-click enqueue, tracking, proof strings.  
+- **Done when:** Signed off.  
+- **Depends on:** 1.3d–1.3g, 1.1j.
+
+---
+
+### Track 1.4 — Listings / reviews first-class local layer
+
+**1.4a — Scope boundary doc (not Yext)**  
+- **Research questions:** Read vs write? GBP only first? Listings without full CRM?  
+- **Deliverable:** “In / out” table vs BrightLocal/Moz.  
+- **Done when:** Exec sign-off on boundary.  
+- **Depends on:** none.
+
+**1.4b — GBP data model (read path v1)**  
+- **Deliverable:** Fields needed for health: hours, categories, attributes, posts cadence, Q&A.  
+- **Done when:** API/source choice documented (manual import vs connector).  
+- **Depends on:** 1.4a.
+
+**1.4c — Listings health score methodology**  
+- **Research questions:** Which mismatches matter for AI local answers?  
+- **Deliverable:** Score components + weights + disclaimers.  
+- **Done when:** Aligns with proof layer (1.1).  
+- **Depends on:** 1.4b, 1.1b.
+
+**1.4d — Review monitoring v1 scope**  
+- **Deliverable:** Sites v1 (Google + one optional); SLA for “new review”.  
+- **Done when:** Scope frozen.  
+- **Depends on:** 1.4a.
+
+**1.4e — Review response workflow**  
+- **Research questions:** AI draft + human approve vs templates only?  
+- **Deliverable:** Workflow + liability note.  
+- **Done when:** Legal/comms sign-off pattern.  
+- **Depends on:** 1.4d.
+
+**1.4f — Today / Market surfacing rules**  
+- **Deliverable:** When listings/reviews appear on Today vs Settings vs Market.  
+- **Done when:** IA doc.  
+- **Depends on:** 1.4c, 1.4d.
+
+**1.4g — NAP consistency checks (lightweight)**  
+- **Deliverable:** Compare GBP vs site footer vs schema; diff UI spec.  
+- **Done when:** Rules + false-positive handling.  
+- **Depends on:** 1.4b.
+
+**1.4h — Competitive context for reviews**  
+- **Deliverable:** “vs local pack competitors” framing research (data availability).  
+- **Done when:** Feasibility verdict.  
+- **Depends on:** 1.4d.
+
+**1.4i — Import / connector fallback**  
+- **Deliverable:** If no API: CSV/manual refresh cadence for GBP metrics.  
+- **Done when:** Operator comms drafted.  
+- **Depends on:** 1.4b.
+
+**1.4j — Local layer privacy & retention**  
+- **Deliverable:** Retention policy for review text, PII in logs.  
+- **Done when:** Checklist for ship.  
+- **Depends on:** 1.4d.
+
+**1.4k — Permissions (future multi-user)**  
+- **Deliverable:** Who can respond to reviews vs view financials.  
+- **Done when:** Roles stub for v1 single-user.  
+- **Depends on:** 1.4e.
+
+**1.4l — Local layer exit gate**  
+- **Deliverable:** v1 ship: health card + review alert + methodology links + boundary visible.  
+- **Done when:** Signed off.  
+- **Depends on:** 1.4f–1.4j, 1.1j.
+
+---
+
+### Track 1.5 — Milestones / all-time-high (ATH) system
+
+**1.5a — ATH metric catalog**  
+- **Research questions:** Which metrics motivate local owners without lying? (citations, share, rank, mentions.)  
+- **Deliverable:** Allowed ATH dimensions + anti-gaming rules.  
+- **Depends on:** 1.1a.
+
+**1.5b — Rolling vs calendar windows for records**  
+- **Deliverable:** Define window for “best week ever” vs ATH.  
+- **Done when:** Spec avoids overlap with Today chart windows.  
+- **Depends on:** 1.5a.
+
+**1.5c — Milestone event types**  
+- **Deliverable:** Enum: first_time_top3, ATH_citations, streak_7d, etc. + trigger conditions.  
+- **Done when:** Backend plan matches UI slots.  
+- **Depends on:** 1.5a, 1.5b.
+
+**1.5d — Celebration UX (proportionality)**  
+- **Research questions:** When is celebration annoying?  
+- **Deliverable:** Intensity rules + “share” optional.  
+- **Depends on:** 1.5c.
+
+**1.5e — History store for milestones**  
+- **Deliverable:** Persistence shape + dedupe (same ATH daily).  
+- **Depends on:** 1.5c.
+
+**1.5f — Today surfacing of milestones**  
+- **Deliverable:** Placement + max noise per week.  
+- **Depends on:** 1.5d, 1.2 (ritual).
+
+**1.5g — Milestones exit gate**  
+- **Deliverable:** Checklist: ATH truthful, deduped, linked to proof.  
+- **Done when:** Signed off.  
+- **Depends on:** 1.5e, 1.5f, 1.1j.
+
+---
+
+### Tier 1 completion criterion
+
+Tier 1 is **closed** when **1.1j, 1.2h, 1.3h, 1.4l, 1.5g** are all signed off and one **internal dogfood week** completes without P0 trust regressions.
+
+---
+
+### Track 2.1 — Revenue bridge / business-signal layer
+
+**2.1a — Signal inventory beyond visibility**  
+- **Deliverable:** Calls, forms, LSA, GBP actions — which exist for ICP?  
+- **Depends on:** Tier 1 closed.
+
+**2.1b — Integration priority matrix**  
+- **Deliverable:** Build vs partner; effort vs impact chart.  
+- **Depends on:** 2.1a.
+
+**2.1c — Identity graph (visitor ↔ AI visibility)**  
+- **Research questions:** Match rates realistic?  
+- **Deliverable:** Honest feasibility tier (A/B/C).  
+- **Depends on:** 2.1a.
+
+**2.1d — Metric definitions for “AI-assisted revenue”**  
+- **Deliverable:** Definitions that legal/marketing can defend.  
+- **Depends on:** 2.1c.
+
+**2.1e — UI: where revenue story lives**  
+- **Deliverable:** Changes vs Today vs new “Outcomes” — placement.  
+- **Depends on:** 2.1d.
+
+**2.1f — v1 minimum lovable bridge**  
+- **Deliverable:** Pick **one** signal (e.g. call clicks from GBP) for first bridge.  
+- **Depends on:** 2.1b.
+
+**2.1g — Revenue bridge exit gate**  
+- **Deliverable:** One defended metric live + methodology.  
+- **Depends on:** 2.1f, 1.1j.
+
+---
+
+### Track 2.2 — Weekly export / proof summary
+
+**2.2a — Audience variants (owner vs agency client)**  
+- **Deliverable:** Two outline templates.  
+- **Depends on:** Tier 1 closed.
+
+**2.2b — Data inclusion rules**  
+- **Deliverable:** What proof objects export (screenshots? links? tables?).  
+- **Depends on:** 1.1g, 2.2a.
+
+**2.2c — PDF / deck layout spec**  
+- **Deliverable:** Branding, page count cap, white-label fields.  
+- **Depends on:** 2.2b.
+
+**2.2d — Generation pipeline**  
+- **Deliverable:** Server job vs on-demand; caching; failure modes.  
+- **Depends on:** 2.2c.
+
+**2.2e — Weekly cadence + email attachment**  
+- **Deliverable:** Cron spec + unsubscribe.  
+- **Depends on:** 2.2d.
+
+**2.2f — Weekly export exit gate**  
+- **Deliverable:** One real client packet generated from prod-like data.  
+- **Depends on:** 2.2e, 1.1j.
+
+---
+
+### Track 2.3 — Stronger competitor attack system
+
+**2.3a — “Attack” semantics research**  
+- **Deliverable:** Ethical framing; avoid war metaphors in regulated verticals.  
+- **Depends on:** Tier 1 closed.
+
+**2.3b — Countermove taxonomy**  
+- **Deliverable:** Map threat types → allowed actions (content, schema, PR, local).  
+- **Depends on:** 2.3a.
+
+**2.3c — One-click strategy spec**  
+- **Research questions:** What does button do? (enqueue replication? open brief? schedule scan?)  
+- **Deliverable:** Flow per competitor row.  
+- **Depends on:** 1.3c, 2.3b.
+
+**2.3d — Evidence pack for “why they win”**  
+- **Deliverable:** Which artifacts prove topic-level gap.  
+- **Depends on:** 1.1, citation index.
+
+**2.3e — Competitive narrative QA**  
+- **Deliverable:** 10 synthetic cases; expected output.  
+- **Depends on:** 2.3d.
+
+**2.3f — Market UI density review**  
+- **Deliverable:** Reduce to top-N threats + progressive disclosure.  
+- **Depends on:** 2.3e.
+
+**2.3g — Attack system metrics**  
+- **Deliverable:** Usage: strategies run → shipped → outcome.  
+- **Depends on:** 2.3c.
+
+**2.3h — Competitor attack exit gate**  
+- **Deliverable:** One-click path live for ≥1 strategy class + proof.  
+- **Depends on:** 2.3c–2.3g, 1.1j.
+
+---
+
+### Tier 2 completion criterion
+
+Tier 2 is **closed** when **2.1g, 2.2f, 2.3h** are signed off and **one agency pilot** can run a week without manual spreadsheet side-channel.
+
+---
+
+## AUDIT SUMMARY (2026-04-11)
+
+Full audit files are in `docs/archive/audits/` (9 documents). Key findings preserved here for vault completeness.
+
+### Overall scores
+
+| Composite | Score |
+|-----------|-------|
+| Product intelligence | 75/100 |
+| Operator experience | 45/100 |
+| Production safety | 25/100 |
+| Overall | 53/100 |
+| Launch readiness (current) | 38/100 |
+| Launch readiness (after safety fixes) | 72/100 |
+
+### 10 strongest aspects
+
+1. Domain model depth (80) — 31 well-bounded, well-typed domains
+2. Finding detection (78) — 15 types from real scan diffs, 5 dedicated tests
+3. Proof layer (78) — Confidence badges, evidence tiers, trust sources, freshness dots
+4. Architecture quality (76) — Clean separation, server/client boundary, consistent patterns
+5. Pages route (75) — Page truth + fix briefs + verification workflow
+6. Copy/wording (75) — Operator-focused, honest, avoids jargon
+7. Attribution engine — Candidate discovery, triage, scoring, operator verification
+8. Replication engine (72) — Pattern mining → target identification → rollout coordination
+9. Changes scorecard (70) — Core "what worked" view with honest verdicts
+10. Test quality (70) — Tests that exist are well-written
+
+### 10 most dangerous weaknesses
+
+1. No error boundaries (15/100) — Any error → white screen crash
+2. No loading states (15/100) — Heavy computation → blank page
+3. Today scan blocks render — Up to 120s blank page on morning visit
+4. Empty states missing (30/100) — Most routes have no "no data yet" state
+5. Production readiness (32/100) — No health checks, observability, monitoring
+6. Test coverage (35/100) — Zero route, integration, E2E, or UI tests
+7. Business consequence framing (35/100) — "business impact" but visibility-only data
+8. Dead-weight surface (35/100) — PDFs, legacy adapters, redirect routes
+9. Overall launch readiness (38/100) — Too many gaps for paying users
+10. Cognitive load (42/100) — 15 Today sections, 10+ fields per Pages row
+
+### Route audit summary
+
+| Route | Score | Classification |
+|-------|-------|---------------|
+| Today | 60/100 | REAL BUT FRAGILE — scan blocks render, 15 sections, render-time side effects |
+| Pages | 75/100 | REAL — strongest route, fix briefs + verification is differentiated |
+| Market | 62/100 | REAL BUT DATA-DEPENDENT — empty without imports, no competitive trends |
+| Changes | 70/100 | REAL — dense scorecard, core "what worked" view |
+| Settings | 50/100 | REAL BUT FRAGMENTED — Import solid, Config/Health/History mismatched |
+
+### Detailed audit files
+
+| File | Content |
+|------|---------|
+| `docs/archive/audits/AUDIT_RECONCILIATION.md` | Every claim verified TRUE/FALSE/PARTIAL against current code |
+| `docs/archive/audits/VERIFIED_CURRENT_AUDIT.md` | Full route-by-route + data + UX + engineering audit |
+| `docs/archive/audits/SCORECARD_1_TO_100.md` | 37-category scoring with evidence |
+| `docs/archive/audits/KEEP_HIDE_FIX_KILL_MATRIX.md` | Every route/component/domain classified |
+| `docs/archive/audits/TOP_25_HIGHEST_LEVERAGE_FIXES.md` | Prioritized fixes with effort estimates |
+| `docs/archive/audits/PHASED_PATH_TO_LAUNCH.md` | 7-phase roadmap with acceptance criteria |
+| `docs/archive/audits/MICRO_STEP_EXECUTION_PLAN.md` | 71 discrete steps with file paths |
+| `docs/archive/audits/CURSOR_PROMPTS_BY_PHASE.md` | 11 ready-to-paste Cursor prompts |
+| `docs/archive/audits/FINAL_LAUNCH_VERDICT.md` | Launch verdict + definition of done |
+
+---
+
+## FUTURE IDEAS (not in current execution plan)
+
+These are ideas, experiments, and dream-state features that are NOT in the active phases. They live here so they are never lost. Move to `NEXT_PHASE_EXECUTION_PLAN.md` only when they become active work.
+
+### V1+ Ideas
+
+- **Dark mode** — premium feel improvement (currently light-only)
+- **PDF export** — weekly proof summary for clients/stakeholders (Phase 31 gap)
+- **Notification badge queue** — real-time alerts system (Phase 31 gap)
+- **Geo heat map Stage-2 UI** — visual geographic coverage (Phase 31 gap, data shape exists)
+- **Onboarding guided tour** — step-by-step first-run experience beyond setup wizard
+- **Playwright E2E tests** — browser-level route smoke testing
+- **Module-cache invalidation** — TTL or per-request initialization for production data freshness
+
+### Post-V1 Ideas
+
+- **Multi-model AI sampling** — native Perplexity/ChatGPT/GAIO querying (client exists, not wired to prod)
+- **Revenue bridge** — calls, forms, LSA, GBP actions linked to visibility changes (Tier 2.1)
+- **Weekly export / proof summary** — automated PDF/deck for clients (Tier 2.2)
+- **Competitive attack system** — one-click countermove strategies (Tier 2.3)
+- **Assignment + ownership model** — team workflow with snooze/delegate
+- **Email/SMS/Slack digest** — push notifications for morning briefing
+- **Mobile-optimized view** — job-site 60-second triage
+- **Auth + billing** — multi-tenant SaaS (currently single-user, filesystem isolation only)
+- **Agency multi-tenant** — proper RLS, per-client dashboards, white-label
+- **Content syndication tracking** — which external platforms drive AI citations
+- **Adversarial stress testing** — brand defense prompt testing (scaffold exists)
+- **What-if simulator** — outcome prediction from action types (scaffold exists)
+- **Conversion path tracking** — prompt → answer → citation → visit → conversion (scaffold exists, needs analytics integration)
+
+### Experimental / Dream State
+
+- **Founder authority tracking** — person-entity mentions in AI answers
+- **Training data pipeline assessment** — content visibility channel scoring
+- **Citation genealogy** — trace source ancestry of AI citations (module exists)
+- **Prompt mining** — discover new prompts from competitor citations
+- **Real-time competitive monitoring** — continuous competitor citation tracking
+- **AI content optimization suggestions** — structure improvements for better AI pickup

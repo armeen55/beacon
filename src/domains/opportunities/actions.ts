@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { log } from "@/lib/logger";
 import { opportunities } from "@/lib/seed-data.server";
 import { now } from "@/lib/actions";
 import type { OpportunityStatus, CloseReason } from "@/lib/constants";
@@ -9,8 +10,21 @@ export async function updateOpportunityStatus(
   opportunityId: string,
   newStatus: OpportunityStatus
 ): Promise<{ success: boolean; error?: string }> {
+  const action = "updateOpportunityStatus";
+  const t0 = Date.now();
+  log.info("Action started", {
+    action,
+    params: { opportunityId, newStatus },
+  });
   const opp = opportunities.find((o) => o.id === opportunityId);
-  if (!opp) return { success: false, error: "Opportunity not found" };
+  if (!opp) {
+    log.error("Action failed", {
+      action,
+      durationMs: Date.now() - t0,
+      error: "opportunity not found",
+    });
+    return { success: false, error: "Opportunity not found" };
+  }
 
   opp.current_status = newStatus;
   const timestamp = now();
@@ -35,6 +49,7 @@ export async function updateOpportunityStatus(
   }
 
   revalidatePath("/", "layout");
+  log.info("Action completed", { action, durationMs: Date.now() - t0 });
   return { success: true };
 }
 
@@ -42,8 +57,18 @@ export async function captureOpportunity(
   opportunityId: string,
   notes?: string
 ): Promise<{ success: boolean; error?: string }> {
+  const action = "captureOpportunity";
+  const t0 = Date.now();
+  log.info("Action started", { action, params: { opportunityId } });
   const opp = opportunities.find((o) => o.id === opportunityId);
-  if (!opp) return { success: false, error: "Opportunity not found" };
+  if (!opp) {
+    log.error("Action failed", {
+      action,
+      durationMs: Date.now() - t0,
+      error: "opportunity not found",
+    });
+    return { success: false, error: "Opportunity not found" };
+  }
 
   const timestamp = now();
   opp.current_status = "captured";
@@ -54,6 +79,7 @@ export async function captureOpportunity(
   }
 
   revalidatePath("/", "layout");
+  log.info("Action completed", { action, durationMs: Date.now() - t0 });
   return { success: true };
 }
 
@@ -62,8 +88,18 @@ export async function deferOpportunity(
   until?: string,
   notes?: string
 ): Promise<{ success: boolean; error?: string }> {
+  const action = "deferOpportunity";
+  const t0 = Date.now();
+  log.info("Action started", { action, params: { opportunityId } });
   const opp = opportunities.find((o) => o.id === opportunityId);
-  if (!opp) return { success: false, error: "Opportunity not found" };
+  if (!opp) {
+    log.error("Action failed", {
+      action,
+      durationMs: Date.now() - t0,
+      error: "opportunity not found",
+    });
+    return { success: false, error: "Opportunity not found" };
+  }
 
   const timestamp = now();
   opp.current_status = "deferred";
@@ -75,6 +111,7 @@ export async function deferOpportunity(
   }
 
   revalidatePath("/", "layout");
+  log.info("Action completed", { action, durationMs: Date.now() - t0 });
   return { success: true };
 }
 
@@ -83,8 +120,18 @@ export async function closeOpportunity(
   reason: CloseReason,
   notes?: string
 ): Promise<{ success: boolean; error?: string }> {
+  const action = "closeOpportunity";
+  const t0 = Date.now();
+  log.info("Action started", { action, params: { opportunityId, reason } });
   const opp = opportunities.find((o) => o.id === opportunityId);
-  if (!opp) return { success: false, error: "Opportunity not found" };
+  if (!opp) {
+    log.error("Action failed", {
+      action,
+      durationMs: Date.now() - t0,
+      error: "opportunity not found",
+    });
+    return { success: false, error: "Opportunity not found" };
+  }
 
   const timestamp = now();
   opp.current_status = "closed";
@@ -96,5 +143,6 @@ export async function closeOpportunity(
   }
 
   revalidatePath("/", "layout");
+  log.info("Action completed", { action, durationMs: Date.now() - t0 });
   return { success: true };
 }

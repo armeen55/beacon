@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { log } from "@/lib/logger";
 import { opportunities } from "@/lib/seed-data.server";
 import { writeStore } from "@/lib/persistence/json-store";
 import { generateId, now } from "@/lib/actions";
@@ -10,6 +11,15 @@ import type { OpportunityCandidate } from "./types";
 export async function promoteToOpportunity(
   candidate: OpportunityCandidate
 ): Promise<{ success: boolean; opportunityId?: string; error?: string }> {
+  const action = "promoteToOpportunity";
+  const t0 = Date.now();
+  log.info("Action started", {
+    action,
+    params: {
+      opportunityType: candidate.opportunityType,
+      confidence: candidate.confidence,
+    },
+  });
   const exists = opportunities.some(
     (o) =>
       o.title.toLowerCase() === candidate.label.toLowerCase() ||
@@ -17,6 +27,11 @@ export async function promoteToOpportunity(
   );
 
   if (exists) {
+    log.error("Action failed", {
+      action,
+      durationMs: Date.now() - t0,
+      error: "duplicate opportunity",
+    });
     return {
       success: false,
       error: "An opportunity with this title or query already exists",
@@ -95,5 +110,6 @@ export async function promoteToOpportunity(
   );
 
   revalidatePath("/", "layout");
+  log.info("Action completed", { action, durationMs: Date.now() - t0 });
   return { success: true, opportunityId: id };
 }

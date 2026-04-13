@@ -1,5 +1,5 @@
 /**
- * Recommendation Engine — synthesizes proven impact into specific next moves.
+ * Recommendation Engine — synthesizes observed impact into specific next moves.
  *
  * Connects attribution-backed change impact to structural page gaps,
  * producing ranked, evidence-grounded recommendations for the operator.
@@ -153,7 +153,7 @@ export function computeRecommendations(opts: {
       id: `rec-replicate-${brief.id}`,
       type: "replicate",
       headline: brief.title,
-      rationale: `Proven: "${bestProven.change.asset_name}" (${bestProven.verdict}) drove visibility${topics ? ` for ${topics}` : ""}${platforms ? ` on ${platforms}` : ""}. This page has the same structural gap.`,
+      rationale: `Observed: "${bestProven.change.asset_name}" (${bestProven.verdict}) aligned with visibility change${topics ? ` for ${topics}` : ""}${platforms ? ` on ${platforms}` : ""}. This page has the same structural gap.`,
       sourceEvidence: `${bestProven.totalEventsLinked} event${bestProven.totalEventsLinked !== 1 ? "s" : ""}, score ${Math.round(bestProven.topScore ?? 0)}, ${bestProven.evidenceTier} evidence`,
       targetPageUrl: brief.pageUrl,
       targetPagePath: brief.pagePath,
@@ -223,7 +223,7 @@ export function computeRecommendations(opts: {
       id: `rec-investigate-${row.change.id}`,
       type: "investigate",
       headline: `Investigate: "${row.change.asset_name}"`,
-      rationale: `Visibility declined after this change — ${row.totalEventsLinked} negative event${row.totalEventsLinked !== 1 ? "s" : ""}. Check for regression or external factors.`,
+      rationale: `Visibility declined in the same observation window as this change — ${row.totalEventsLinked} negative event${row.totalEventsLinked !== 1 ? "s" : ""}. Check for regression or external factors.`,
       sourceEvidence: `${row.totalEventsLinked} negative event${row.totalEventsLinked !== 1 ? "s" : ""}, ${row.topics.slice(0, 2).join(", ")}`,
       targetPageUrl: row.change.url,
       targetPagePath:
@@ -463,8 +463,8 @@ export function computeRecommendations(opts: {
         crossRecs.push({
           id: `rec-cross-${targetSnap.page_id}`,
           type: "cross_page_pattern",
-          headline: `Apply proven pattern to ${targetSnap.title ?? targetUrl.replace(/^https?:\/\/[^/]+/, "")}`,
-          rationale: `"${row.change.asset_name}" (${row.verdict}) improved a ${sourceType.replace(/_/g, " ")}. This ${targetType.replace(/_/g, " ")} shares ${overlap} term${overlap !== 1 ? "s" : ""} and has ${targetGaps.join(" + ")} gaps.`,
+          headline: `Apply observed pattern to ${targetSnap.title ?? targetUrl.replace(/^https?:\/\/[^/]+/, "")}`,
+          rationale: `"${row.change.asset_name}" (${row.verdict}) aligned with gains on a ${sourceType.replace(/_/g, " ")}. This ${targetType.replace(/_/g, " ")} shares ${overlap} term${overlap !== 1 ? "s" : ""} and has ${targetGaps.join(" + ")} gaps.`,
           sourceEvidence: `Source: ${row.totalEventsLinked} event${row.totalEventsLinked !== 1 ? "s" : ""}, ${row.evidenceTier} evidence · Target: ${targetCit} citations, ${targetGaps.join(", ")}`,
           targetPageUrl: targetSnap.url,
           targetPagePath: targetSnap.url.replace(/^https?:\/\/[^/]+/, ""),

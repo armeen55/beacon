@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { log } from "@/lib/logger";
 import { existsSync, readFileSync, writeFileSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import { extractPageSnapshot } from "@/domains/pages/extractor";
@@ -55,6 +56,9 @@ function countGuardrailBuckets(alerts: GuardrailAlert[]): Pick<
 }
 
 export async function verifyPageFix(url: string): Promise<VerifyResult> {
+  const action = "verifyPageFix";
+  const t0 = Date.now();
+  log.info("Action started", { action, params: { urlLength: url.length } });
   const base: VerifyResult = {
     success: false,
     url,
@@ -186,6 +190,7 @@ export async function verifyPageFix(url: string): Promise<VerifyResult> {
 
     revalidatePath("/", "layout");
 
+    log.info("Action completed", { action, durationMs: Date.now() - t0 });
     return {
       success: true,
       url,
@@ -200,9 +205,15 @@ export async function verifyPageFix(url: string): Promise<VerifyResult> {
       verificationBaselineObservationRunId: baselineRunId,
     };
   } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    log.error("Action failed", {
+      action,
+      durationMs: Date.now() - t0,
+      error: msg.slice(0, 500),
+    });
     return {
       ...base,
-      error: err instanceof Error ? err.message : String(err),
+      error: msg,
     };
   }
 }

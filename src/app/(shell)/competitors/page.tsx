@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { PageHeader } from "@/components/data/page-header";
 import { KpiCard } from "@/components/viz/kpi-card";
-import { competitors, results } from "@/lib/seed-data.server";
+import { competitors, results, hasActiveExperiment } from "@/lib/seed-data.server";
 import { citationEvidenceIndex } from "@/domains/pages/citation-evidence-store";
 import { pageIssues } from "@/domains/pages/issues";
 import { computeMarketBenchmark, type MarketBenchmark } from "@/domains/pages/builder-benchmark";
@@ -20,6 +20,10 @@ import { allPages } from "@/domains/pages/page-store";
 import { getActivePrompts } from "@/domains/prompts/prompt-library";
 import { getSiteConfig } from "@/lib/site-config";
 import { cn } from "@/lib/utils";
+import {
+  sampleQualityTierFromObservationCount,
+  sampleQualityTierLabel,
+} from "@/lib/sample-quality-tier";
 import { classifyCompetitorType, COMPETITOR_TYPE_LABELS, COMPETITOR_TYPE_COLORS } from "@/domains/competitors/classify-type";
 import { discoverCompetitorUniverse } from "@/domains/competitors/discover";
 import { getBusinessConfig } from "@/lib/business-config";
@@ -36,6 +40,40 @@ import {
 } from "@/domains/milestones";
 
 export default async function CompetitorsPage() {
+  // Same signal as Today / Pages / Changes (Phase 2B): no import runs ⇒ sample workspace, not operator Market.
+  if (!hasActiveExperiment()) {
+    return (
+      <div className="max-w-4xl">
+        <PageHeader
+          title="Market"
+          description="Who beats you, where they beat you, and exactly what to do about it."
+        />
+        <section
+          className="rounded-lg border border-border/60 bg-surface-inset/30 px-5 py-5"
+          aria-labelledby="market-import-empty-heading"
+        >
+          <h2
+            id="market-import-empty-heading"
+            className="text-[13px] font-semibold text-foreground tracking-tight"
+          >
+            Import your data to see your real Market view
+          </h2>
+          <p className="mt-2 text-[13px] leading-relaxed text-muted-foreground">
+            Rankings, co-mentions, battlecards, and local pressure are built from your imported citation sample
+            and configured competitor universe. Until you import, this route shows sample market data for
+            orientation only — not your business.
+          </p>
+          <Link
+            href="/settings/import"
+            className="mt-4 inline-flex text-[13px] font-semibold text-accent-primary underline underline-offset-2 hover:text-accent-primary/85"
+          >
+            Go to Import →
+          </Link>
+        </section>
+      </div>
+    );
+  }
+
   const universe = loadCompetitorUniverseRuntime();
   const activeUniverse = universe.entries.filter((e) => e.status === "active");
   const citIndex = citationEvidenceIndex;
@@ -142,10 +180,25 @@ export default async function CompetitorsPage() {
         <div className="space-y-8">
           {/* At a glance — KPI strip */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-            <KpiCard label="Your AI Share" value={`${benchmark.ownedAppearanceRate}%`} meta="Across all tracked topics" />
-            <KpiCard label="Your Citations" value={benchmark.ownedAIMentions} meta={`${benchmark.trackedCitationObservations.toLocaleString()} observations`} />
+            <KpiCard label="Your Citation Share" value={`${benchmark.ownedAppearanceRate}%`} meta={`of ${benchmark.trackedCitationObservations.toLocaleString()} observations`} />
+            <KpiCard label="Your Citations" value={benchmark.ownedAIMentions} meta={`${benchmark.trackedCitationObservations.toLocaleString()} observations tracked`} />
             <KpiCard label="Competitors Tracked" value={benchmark.topCompetitors.length} />
-            <KpiCard label="Ahead of You" value={aheadCount} meta={aheadCount > 0 ? "On raw citation count" : "You lead the field"} />
+            <KpiCard label="Ahead of You" value={aheadCount} meta={aheadCount > 0 ? `of ${benchmark.topCompetitors.length} tracked competitors` : "You lead the field"} />
+          </div>
+          <div className="-mt-5 space-y-0.5">
+            <p className="text-[10px] text-muted-foreground/70">
+              Directional — based on your tracked prompt sample, not a market census.{" "}
+              <a href="/settings/methodology#citation-share" className="text-accent-primary hover:underline">
+                How this works →
+              </a>
+            </p>
+            <p className="text-[10px] text-muted-foreground/60">
+              {sampleQualityTierLabel(
+                sampleQualityTierFromObservationCount(
+                  benchmark.trackedCitationObservations,
+                ),
+              )}
+            </p>
           </div>
 
           {marketMilestones.length > 0 && (

@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { log } from "@/lib/logger";
 import {
   startExperiment,
   updateExperimentStatus,
@@ -23,6 +24,18 @@ export async function startExperimentAction(opts: {
   replicationPatternId?: string | null;
   replicationEvidenceTier?: "observed" | "mixed" | "inferred";
 }): Promise<{ success: boolean; experimentId: string }> {
+  const action = "startExperimentAction";
+  const t0 = Date.now();
+  log.info("Action started", {
+    action,
+    params: {
+      recId: opts.recId,
+      recType: opts.recType,
+      hasReplication: Boolean(
+        opts.replicationSourceChangeId || opts.replicationPatternId,
+      ),
+    },
+  });
   const exp = startExperiment(opts);
   await persistExperiments();
 
@@ -46,6 +59,10 @@ export async function startExperimentAction(opts: {
   }
 
   revalidatePath("/", "layout");
+  log.info("Action completed", {
+    action,
+    durationMs: Date.now() - t0,
+  });
   return { success: true, experimentId: exp.id };
 }
 
@@ -53,9 +70,13 @@ export async function updateExperimentAction(
   id: string,
   status: ExperimentStatus,
 ): Promise<{ success: boolean }> {
+  const action = "updateExperimentAction";
+  const t0 = Date.now();
+  log.info("Action started", { action, params: { id, status } });
   updateExperimentStatus(id, status);
   await persistExperiments();
   revalidatePath("/", "layout");
+  log.info("Action completed", { action, durationMs: Date.now() - t0 });
   return { success: true };
 }
 
@@ -63,8 +84,15 @@ export async function updateExperimentNoteAction(
   id: string,
   note: string,
 ): Promise<{ success: boolean }> {
+  const action = "updateExperimentNoteAction";
+  const t0 = Date.now();
+  log.info("Action started", {
+    action,
+    params: { id, noteLength: note.length },
+  });
   updateExperimentNote(id, note);
   await persistExperiments();
   revalidatePath("/", "layout");
+  log.info("Action completed", { action, durationMs: Date.now() - t0 });
   return { success: true };
 }

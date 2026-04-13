@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { log } from "@/lib/logger";
 import { changelogEntries, briefs, opportunities } from "@/lib/seed-data.server";
 import { generateId, now } from "@/lib/actions";
 import type { ChangelogEntry } from "@/domains/changelog/types";
@@ -9,6 +10,16 @@ import type { SignalType, AssetType } from "@/lib/constants";
 export async function createChangelogEntry(
   formData: FormData
 ): Promise<{ success: boolean; error?: string; changeId?: string }> {
+  const action = "createChangelogEntry";
+  const t0 = Date.now();
+  log.info("Action started", {
+    action,
+    params: {
+      signalType: formData.get("signal_type"),
+      assetType: formData.get("asset_type"),
+      hasBriefId: Boolean(formData.get("brief_id")),
+    },
+  });
   const assetName = (formData.get("asset_name") as string)?.trim();
   const changeDescription = (formData.get("change_description") as string)?.trim();
   const signalType = formData.get("signal_type") as SignalType;
@@ -23,6 +34,11 @@ export async function createChangelogEntry(
   const opportunityId = (formData.get("opportunity_id") as string) || null;
 
   if (!assetName || !changeDescription || !signalType || !assetType || !topicTargeted) {
+    log.error("Action failed", {
+      action,
+      durationMs: Date.now() - t0,
+      error: "missing required fields",
+    });
     return { success: false, error: "Fill in all required fields." };
   }
 
@@ -67,5 +83,6 @@ export async function createChangelogEntry(
   }
 
   revalidatePath("/", "layout");
+  log.info("Action completed", { action, durationMs: Date.now() - t0 });
   return { success: true, changeId };
 }

@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { log } from "@/lib/logger";
 import { now } from "@/lib/actions";
 import { actionStates, persistActionStates } from "./store";
 import type { OperatorState } from "./types";
@@ -11,6 +12,9 @@ export async function updateActionState(
   operatorNote?: string,
   linkedFollowUpChangeIds?: string[]
 ): Promise<{ success: boolean }> {
+  const action = "updateActionState";
+  const t0 = Date.now();
+  log.info("Action started", { action, params: { actionId, state } });
   const existing = actionStates.find((s) => s.actionId === actionId);
 
   if (existing) {
@@ -32,5 +36,6 @@ export async function updateActionState(
 
   await persistActionStates();
   revalidatePath("/", "layout");
+  log.info("Action completed", { action, durationMs: Date.now() - t0 });
   return { success: true };
 }
