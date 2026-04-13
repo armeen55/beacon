@@ -24,6 +24,8 @@ import {
   sampleQualityTierFromObservationCount,
   sampleQualityTierLabel,
 } from "@/lib/sample-quality-tier";
+import { deriveCoverageState, coverageWarningLine } from "@/lib/coverage-state";
+import { LAYER2_MARKET_METHODOLOGY_BULLETS } from "@/lib/beacon-proof-copy";
 import { classifyCompetitorType, COMPETITOR_TYPE_LABELS, COMPETITOR_TYPE_COLORS } from "@/domains/competitors/classify-type";
 import { discoverCompetitorUniverse } from "@/domains/competitors/discover";
 import { getBusinessConfig } from "@/lib/business-config";
@@ -32,12 +34,15 @@ import {
   loadLocalOperatorImport,
 } from "@/domains/local-operator/surface";
 import { LocalOperatorPanel } from "@/components/local-operator/local-operator-panel";
+import { MarketLocalStrip } from "@/components/local/market-local-strip";
+import { getLocalPresenceSnapshot, buildMarketLocalStripModel } from "@/lib/local-presence";
 import { computeCitationDecay, getDecayAlerts } from "@/domains/attribution/citation-decay";
 import { buildCompetitorRank } from "@/lib/performance-timeseries";
 import {
   syncMilestonesFromWorkspace,
   filterMarketMilestones,
 } from "@/domains/milestones";
+import { latestWebsiteCrawlRun } from "@/domains/observations/read";
 
 export default async function CompetitorsPage() {
   // Same signal as Today / Pages / Changes (Phase 2B): no import runs ⇒ sample workspace, not operator Market.
@@ -150,6 +155,21 @@ export default async function CompetitorsPage() {
   const aheadCount =
     benchmark?.topCompetitors.filter((c) => c.mentions > benchmark.ownedAIMentions).length ?? 0;
 
+  const lastCrawl = latestWebsiteCrawlRun();
+  const marketCrawlAgeDays = lastCrawl?.completed_at
+    ? Math.floor(
+        (Date.now() - new Date(lastCrawl.completed_at).getTime()) / 86_400_000,
+      )
+    : null;
+  const marketCoverageState = deriveCoverageState({
+    crawlAgeDays: marketCrawlAgeDays,
+    visibilityStaleVsCrawl: false,
+    sampleQualityTier: benchmark
+      ? sampleQualityTierFromObservationCount(benchmark.trackedCitationObservations)
+      : "limited",
+  });
+  const marketCoverageWarning = coverageWarningLine(marketCoverageState);
+
   const hasTopicReadout =
     benchmark &&
     (benchmark.strongestAreas.length > 0 ||
@@ -169,12 +189,16 @@ export default async function CompetitorsPage() {
   });
   const marketMilestones = filterMarketMilestones(milestoneStateMarket.events);
 
+  const marketLocalStripModel = buildMarketLocalStripModel(getLocalPresenceSnapshot());
+
   return (
     <div className="max-w-4xl">
       <PageHeader
         title="Market"
         description="Who beats you, where they beat you, and exactly what to do about it."
       />
+
+      <MarketLocalStrip model={marketLocalStripModel} className="mb-6" />
 
       {benchmark ? (
         <div className="space-y-8">
@@ -187,7 +211,11 @@ export default async function CompetitorsPage() {
           </div>
           <div className="-mt-5 space-y-0.5">
             <p className="text-[10px] text-muted-foreground/70">
-              Directional — based on your tracked prompt sample, not a market census.{" "}
+              Directional — based on your tracked prompt sample, not a market census.
+              {marketCoverageState === "partial" && (
+                <span className="text-status-warning/70"> (limited sample)</span>
+              )}
+              {" "}
               <a href="/settings/methodology#citation-share" className="text-accent-primary hover:underline">
                 How this works →
               </a>
@@ -199,7 +227,41 @@ export default async function CompetitorsPage() {
                 ),
               )}
             </p>
+            {marketCoverageWarning &&
+              (marketCoverageState === "stale" ||
+                marketCoverageState === "critical" ||
+                marketCoverageState === "aging" ||
+                marketCoverageState === "partial") && (
+              <p className="text-[10px] text-status-warning/70">
+                {marketCoverageWarning}{" "}
+                <a
+                  href="/settings/methodology#coverage-states"
+                  className="text-accent-primary hover:underline font-medium"
+                >
+                  Coverage states →
+                </a>
+              </p>
+            )}
           </div>
+
+          <details className="text-[11px] text-muted-foreground leading-relaxed">
+            <summary className="cursor-pointer font-medium text-foreground/85 hover:underline select-none">
+              How this works
+            </summary>
+            <ul className="mt-2 ml-4 list-disc space-y-1.5 pl-0.5">
+              {LAYER2_MARKET_METHODOLOGY_BULLETS.map((line, i) => (
+                <li key={i}>{line}</li>
+              ))}
+            </ul>
+            <p className="mt-2">
+              <Link
+                href="/settings/methodology#citation-share"
+                className="text-accent-primary font-medium hover:underline"
+              >
+                Full methodology: Citation Share &amp; sample quality →
+              </Link>
+            </p>
+          </details>
 
           {marketMilestones.length > 0 && (
             <div className="rounded-lg border border-border/50 px-4 py-3">

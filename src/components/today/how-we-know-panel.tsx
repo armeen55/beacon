@@ -61,6 +61,10 @@ export function HowWeKnowPanel({
         <div>
           <p className="text-[10px] font-semibold uppercase tracking-wide text-foreground/80 mb-1">Visibility sample</p>
           <p>{BEACON_METHODOLOGY.visibilitySample}</p>
+          <p className="mt-1.5 text-[10px] text-muted-foreground/85">
+            Beacon does not know real-time AI answers or full-web coverage — only what your last
+            completed crawl and imports contain.
+          </p>
           <ul className="mt-1.5 space-y-0.5 list-disc pl-4">
             <li>
               Rows in sample:{" "}

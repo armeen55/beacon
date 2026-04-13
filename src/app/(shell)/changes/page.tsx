@@ -48,6 +48,10 @@ import {
 } from "@/domains/local-operator/surface";
 import { partitionResultsByMode } from "@/domains/attribution/result-mode";
 import { detectOutcomeEvents, type OutcomeEventType } from "@/domains/attribution/events";
+import { deriveCoverageState, coverageWarningLine } from "@/lib/coverage-state";
+import { latestWebsiteCrawlRun } from "@/domains/observations/read";
+import { LAYER2_CHANGES_METHODOLOGY_BULLETS } from "@/lib/beacon-proof-copy";
+import { sampleQualityTierFromObservationCount } from "@/lib/sample-quality-tier";
 import { discoverCandidates } from "@/domains/attribution/candidates";
 import { triageCandidates } from "@/domains/attribution/triage";
 import { candidateLinks } from "@/domains/attribution/store";
@@ -124,6 +128,19 @@ export default async function ChangeScorecardPage() {
   const withEvents = rows.filter((r) => r.totalEventsLinked > 0).length;
   const operatorConfirmed = rows.filter((r) => r.operatorConfirmedCount > 0).length;
   const highConfidence = rows.filter((r) => r.impact.confidence === "high").length;
+
+  const lastCrawlChanges = latestWebsiteCrawlRun();
+  const changesCrawlAgeDays = lastCrawlChanges?.completed_at
+    ? Math.floor(
+        (Date.now() - new Date(lastCrawlChanges.completed_at).getTime()) / 86_400_000,
+      )
+    : null;
+  const changesCoverageState = deriveCoverageState({
+    crawlAgeDays: changesCrawlAgeDays,
+    visibilityStaleVsCrawl: false,
+    sampleQualityTier: sampleQualityTierFromObservationCount(results.length),
+  });
+  const changesCoverageWarning = coverageWarningLine(changesCoverageState);
 
   // Recommendation intelligence: pattern mining + track record
   const citationIndex2 = citationEvidenceIndex as {
@@ -245,9 +262,9 @@ export default async function ChangeScorecardPage() {
     <div className="space-y-4">
       <div className="rounded-lg border border-border/60 bg-surface-raised/40 px-5 py-4">
         <p className="text-[12px] text-muted-foreground leading-relaxed">
-          Tier 1B replication: validated or strong-evidence partial winners, plus promising
-          experiments, become grouped targets. Observed rows are scorecard + citations; inferred
-          rows are pattern and HTML similarity — not guaranteed outcomes.{" "}
+          Patterns observed across validated changes and promising experiments, grouped by
+          similar pages. Evidence comes from scorecard verdicts and citations; target selection
+          is based on structural and topic overlap — outcomes not guaranteed.{" "}
           <a href="/settings/methodology#verdicts" className="text-accent-primary hover:underline">
             How verdicts work →
           </a>
@@ -255,8 +272,8 @@ export default async function ChangeScorecardPage() {
       </div>
       {serializedReplicationCards.length === 0 ? (
         <p className="text-[12px] text-muted-foreground">
-          No replication queue right now — import fresh results and lock a few validated changes
-          first.
+          No observed patterns to replicate yet. Import fresh results and validate a few changes
+          on the Outcomes tab first.
         </p>
       ) : (
         <ReplicationCardsClient
@@ -460,7 +477,7 @@ export default async function ChangeScorecardPage() {
           )}
           {highConfidence > 0 && (
             <span className="text-status-success font-semibold tabular-nums">
-              {highConfidence} strong-evidence impact
+              {highConfidence} {changesCoverageState === "partial" ? "limited-evidence" : "strong-evidence"} impact
             </span>
           )}
           {operatorConfirmed > 0 && (
@@ -475,7 +492,18 @@ export default async function ChangeScorecardPage() {
           )}
           {totalReplicationTargets > 0 && (
             <span className="text-muted-foreground tabular-nums">
-              {totalReplicationTargets} replication targets
+              {totalReplicationTargets} similar-pattern target{totalReplicationTargets !== 1 ? "s" : ""}
+            </span>
+          )}
+          {changesCoverageWarning && (
+            <span className="text-[11px] text-status-warning/70">
+              · {changesCoverageWarning.toLowerCase()}{" "}
+              <a
+                href="/settings/methodology#coverage-states"
+                className="text-accent-primary hover:underline font-medium"
+              >
+                Coverage states →
+              </a>
             </span>
           )}
         </div>
@@ -493,43 +521,82 @@ export default async function ChangeScorecardPage() {
         )}
       </div>
 
-      {milestoneState.events.length > 0 && (
-        <div className="mb-6 rounded-lg border border-border/55 bg-surface-inset/20 px-4 py-3">
-          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
-            Milestones
-          </p>
-          <p className="text-[11px] text-muted-foreground mt-1 mb-3 leading-relaxed">
-            All-time highs and first-time outcomes from measured visibility. Each line is logged once when the bar moves — not on every page load.
-          </p>
-          <ul className="space-y-3">
-            {milestoneState.events.slice(0, 20).map((e) => (
-              <li
-                key={e.id}
-                className="text-[11px] border-l-2 border-accent-primary/20 pl-3"
-              >
-                <p className="font-semibold text-foreground">{e.title}</p>
-                <p className="text-muted-foreground mt-0.5">{e.subtitle}</p>
-                <p className="text-[10px] text-muted-foreground/90 mt-1 leading-relaxed">
-                  {e.proofSummary}
-                </p>
-                <p className="text-[9px] text-muted-foreground mt-1 tabular-nums">
-                  {new Date(e.achievedAt).toLocaleDateString(undefined, {
-                    month: "short",
-                    day: "numeric",
-                    year: "numeric",
-                  })}
-                </p>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+      <details className="mb-6 text-[11px] text-muted-foreground leading-relaxed">
+        <summary className="cursor-pointer font-medium text-foreground/85 hover:underline select-none">
+          How verdicts work
+        </summary>
+        <ul className="mt-2 ml-4 list-disc space-y-1.5 pl-0.5">
+          {LAYER2_CHANGES_METHODOLOGY_BULLETS.map((line, i) => (
+            <li key={i}>{line}</li>
+          ))}
+        </ul>
+        <p className="mt-2">
+          <Link
+            href="/settings/methodology#verdicts"
+            className="text-accent-primary font-medium hover:underline"
+          >
+            Full methodology: verdicts &amp; correlates →
+          </Link>
+        </p>
+      </details>
+
+      {milestoneState.events.length > 0 && (() => {
+        const visible = milestoneState.events.slice(0, 5);
+        const rest = milestoneState.events.slice(5, 25);
+        const renderEvent = (e: import("@/domains/milestones/types").MilestoneEvent) => (
+          <li
+            key={e.id}
+            className={`text-[11px] border-l-2 pl-3 ${
+              e.magnitude === "major"
+                ? "border-accent-primary/50"
+                : "border-accent-primary/20"
+            }`}
+          >
+            <p className={e.magnitude === "major" ? "font-semibold text-foreground" : "font-medium text-foreground"}>{e.title}</p>
+            <p className="text-muted-foreground mt-0.5">{e.subtitle}</p>
+            <p className="text-[10px] text-muted-foreground/90 mt-1 leading-relaxed">
+              {e.proofSummary}
+            </p>
+            <p className="text-[9px] text-muted-foreground mt-1 tabular-nums">
+              {new Date(e.achievedAt).toLocaleDateString(undefined, {
+                month: "short",
+                day: "numeric",
+                year: "numeric",
+              })}
+            </p>
+          </li>
+        );
+        return (
+          <div className="mb-6 rounded-lg border border-border/55 bg-surface-inset/20 px-4 py-3">
+            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+              Milestones
+            </p>
+            <p className="text-[11px] text-muted-foreground mt-1 mb-3 leading-relaxed">
+              All-time highs and first-time outcomes from measured visibility. Each line is logged once when the bar moves — not on every page load.
+            </p>
+            <ul className="space-y-3">
+              {visible.map(renderEvent)}
+            </ul>
+            {rest.length > 0 && (
+              <details className="mt-3">
+                <summary className="text-[11px] text-muted-foreground cursor-pointer hover:underline select-none">
+                  {rest.length} more milestone{rest.length !== 1 ? "s" : ""}
+                </summary>
+                <ul className="space-y-3 mt-3">
+                  {rest.map(renderEvent)}
+                </ul>
+              </details>
+            )}
+          </div>
+        );
+      })()}
 
       <ScorecardTable
         rows={rows}
         allTopics={allTopics}
         allPlatforms={allPlatforms}
         changeIntel={changeIntel}
+        coverageState={changesCoverageState}
       />
 
       {/* Experiments / watchlist */}
@@ -559,7 +626,7 @@ export default async function ChangeScorecardPage() {
                         </p>
                         {(exp.replicationSourceChangeId || exp.replicationPatternId) && (
                           <p className="text-[9px] text-muted-foreground/85 mt-1">
-                            Replication lineage
+                            Pattern lineage
                             {exp.replicationEvidenceTier && (
                               <span className="ml-1">· {exp.replicationEvidenceTier}</span>
                             )}
@@ -570,7 +637,7 @@ export default async function ChangeScorecardPage() {
                                   href={`/changes/${encodeURIComponent(exp.replicationSourceChangeId)}`}
                                   className="text-accent-primary hover:underline font-medium"
                                 >
-                                  winner change
+                                  source change
                                 </Link>
                               </>
                             )}

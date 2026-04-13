@@ -5,9 +5,20 @@
 >
 > **NOT FOR:** Execution steps (→ `NEXT_PHASE_EXECUTION_PLAN.md`), system diagrams (→ `architecture.md`), deep history (→ `master_execution_plan.md`), verification proof (→ `VERIFICATION_LOG.md`).
 
-**Last updated:** 2026-04-12
+**Last updated:** 2026-04-13
 **Branch:** `work/attribution-precision-20260407`
-**Build:** `npm run typecheck` ✓ · `npm run test` 82/82 ✓ · `npm run build` ✓ (18 static ○ + 4 dynamic ƒ in route table)
+**Build:** `npm run typecheck` ✓ · `npm run test` 280/280 ✓ · `npm run build` ✓
+**Track 1.2:** Daily ritual perfection — Phases 1–3 complete (2026-04-12): layout + Inbox Zero/digest + Today keyboard path (A / J/K, finding focus, primary `autoFocus` when safe)
+**Track 1.3:** Replication engine refinement — Phases 1–2 complete (2026-04-12): language/hierarchy + queue structure/experiment linkage/vague suppression
+**Track 1.2 / 1.3 exit gates (persistence):** Settings → **Sign-offs** `/settings/exit-gates` + `.data/exit-gates.json` — `daily_ritual` + `replication` status / note / `updated_at` only; internal sign-off; does not affect metrics, scores, or proof (`exit-gates-store.ts`, `exit-gates-types.ts`, methodology `#exit-gates`; optional Settings layout hint when engaged and not both `passed`)
+**Tier 1.1i:** Coverage escalation — **expanded (2026-04-13):** five-state model (`fresh` / `aging` / `stale` / `critical` / `partial`) in `coverage-state.ts` only; aging = crawl age in `(0.7×T, T]` for `T=3`; critical = missing crawl when flagged or age `> 2T`; Today digest + findings attention strip + `shouldShowTodayAllClear`; Market/Changes use `latestWebsiteCrawlRun()` crawl age; methodology `#coverage-states`
+**Tier 1.1j:** Proof layer **final trust pass (2026-04-13)** — methodology: “How to read it” + “Beacon does not know” across core metrics; FAQ (coverage labels, continuous updates, every review); standardized review phrases + connector disclosures; overview five-pillar list. Product: `beacon-proof-copy.ts` (`BEACON_LOCAL_SURFACE_FOOTNOTE`, Layer-2 bullets), `local-presence.ts` footnotes + Market review lines, Today `HowWeKnowPanel` + coverage → `#coverage-states`, Market **partial** coverage warning, Connectors page/client, `/local` stored-review wording, `local-operator/surface.ts` data gaps. Checklist refresh: `docs/TIER_1_1J_EXIT_GATE_CHECKLIST.md`.
+**Proof layer:** Layer-2 collapsed disclosures on Market + Changes Outcomes (2026-04-12): `<details>` “How this works” / “How verdicts work” + links to `/settings/methodology#citation-share` and `#verdicts`; copy from `beacon-proof-copy.ts`
+**Track 1.4:** Local listings / reviews — Phase 1 + **Phases 2B–4** (2026-04-12/13); **1.4d (spec):** `docs/TIER_1_4D_REVIEW_MONITORING_V1_SPEC.md`; **1.4e connectors (2026-04-13):** `docs/TIER_1_4E_REVIEW_CONNECTORS_SPEC.md` + `/settings/connectors` — **Google:** OAuth + **multi-location picker** (fetch → select → persist `selected_location_id` on token) + on-demand Sync now → GBP v4 reviews for selected location only → strict map → `mergeUpsertLocalReviews`; sync blocked until location selected. **Yelp:** server-stored Fusion API key + Sync now → Fusion business + reviews → `mapYelpReviewToLocalReview` → same merge; ids `yelp:…`, import run `connector:yelp`. `last_synced_at` per provider; local-presence freshness = max(import run, Google sync, Yelp sync). No auto-sync. `/local` + manual import unchanged.
+**Track 1.4f–g (NAP + surfacing):** NAP consistency expanded to 4 states (`complete` / `incomplete` / `inconsistent` / `unknown`); centralized in `napState` on `LocalPresenceSnapshot`; inconsistency detects conflicting `listing_name` on imported reviews vs configured name. Today attention uses 4-state NAP (inconsistent fact line). Market strip shows NAP state with tone coloring. `/local` shows explicit label + factual explanation. Methodology `#nap-consistency`. No new connectors, scoring formulas, or ranking claims.
+**Track 1.4 — Per-source last sync (`/local`):** `LocalPresenceSnapshot.lastSync` — `google` / `yelp` from connector `last_synced_at`; `manual` from latest non-connector `ImportRun` (`entity_type: reviews`, `imported_count > 0`). **Data freshness** section on `/local` (always three rows + disclosure); methodology `#review-source-timestamps`. Pure projection — no merged timestamp, no new thresholds.
+**Methodology (connectors + freshness):** `/settings/methodology` — `#review-connectors` documents **shipped** Google + Yelp (on-demand); `#review-monitoring-v1`, `#local-reviews`, boundaries, and FAQ aligned with manual + connectors, per-source timestamps, no auto-sync, no SLA language. **2026-04-13:** FAQ “connection breaks” + **`/local`** “How this works” / empty-state copy aligned with shipped connectors (no “not syncing yet” drift); tier specs `TIER_1_4D` / `TIER_1_4E` docstrings match.
+**Track 1.5:** Milestone polish (2026-04-12): magnitude classification (major/minor), same-key-same-day dedupe, weekly noise cap (3+ minors → suppress on Today), enriched Today teaser (subtitle + relative date + magnitude-aware styling), Changes list collapsed (5 visible, rest behind expand). Exit gate 1.5g verified: ATH truthful, deduped, linked to proof
 
 ---
 
@@ -40,8 +51,8 @@ Beacon is a **daily AI visibility operating system** for local businesses. One o
 | Pages route | 75/100 | Page truth + fix briefs + verification workflow. Strongest route |
 | Changes route | 70/100 | Scorecard + verdicts + replication. Core "what worked" view |
 | Market route | 62/100 | Real competitive intelligence (rankings, topic signals, battlecards). Data-dependent |
-| Navigation | Clean | 5 items: Today, Pages, Market, Changes, Settings. Keyboard shortcuts, command palette |
-| Build health | Solid | Zero type errors, 82 tests pass, production build succeeds |
+| Navigation | Clean | 6 items: Today, Pages, Market, Local, Changes, Settings. Today: **A** → primary CTA, **J/K** → findings; command palette |
+| Build health | Solid | Zero type errors, 280 tests pass, production build succeeds |
 | Copy/wording | 75/100 | Operator-focused, honest, avoids jargon |
 
 ### What is broken or risky
@@ -55,9 +66,9 @@ Beacon is a **daily AI visibility operating system** for local businesses. One o
 | **Empty states missing** | LOW (2B done) | Import empty states on main routes; **2B-5:** `shouldShowTodayAllClear` returns false when `isDemoMode` (no false “all clear” on sample data) |
 | **Module-cached import data** | MEDIUM | `seed-data.server.ts` top-level await → stale in long-running production process |
 | **Settings fragmented** | DONE (Phase 3) | Route consolidation + smoke **3-8** verified **2026-04-12**: Import / Config / Data tabs only; Health direct URL; **`/import`**, **`/setup`**, **`/results`** → **404** |
-| **Today section count** | MITIGATED (1B) | Core morning blocks verified 2026-04-12; `HowWeKnowPanel` + morning-order line still add density (not removed in 1B) |
+| **Today section count** | DONE (1.2) | Track 1.2 Phase 1: primary action promoted to #1 slot, findings collapsed, proof/system moved to bottom, morning-order text removed, milestone/replication compacted |
 | **Render-time side effects** | DONE (1C) | `persistOutcomes()`, `updateExperimentCitations()`/`persistExperiments()`, and `syncMilestonesFromWorkspace()` all moved to post-import; 1C-3 audit confirmed zero writes in render path |
-| **Test coverage narrow** | LOW | 82 tests (domain + lib + **Today + Pages + Changes + Market route smokes**); no full E2E |
+| **Test coverage narrow** | LOW | 280 tests (domain + lib + `exit-gates-store` + local-presence + NAP 4-state + per-source `lastSync` + GBP/Yelp map/sync + GBP location picker + Tier 1.1i coverage + components + **route smokes**); Vitest `fileParallelism: false` + 30s timeout stabilizes heavy dynamic imports; no full E2E |
 
 ### Overall scores (from 2026-04-11 audit)
 
@@ -74,13 +85,14 @@ Beacon is a **daily AI visibility operating system** for local businesses. One o
 
 ## Current Phase & Next Actions
 
-**Status:** **Launch Phases 0–5 COMPLETE. Tier 1.1 — Proof layer: COMPLETE.** **1.1a–j** all done (**2026-04-12**). Copy sweep done (2026-04-12). **`/settings/methodology` route shipped (2026-04-12):** 5-section methodology destination (overview, metrics, boundaries, recommendation interpretation, FAQ) + L3 entry-point links from HowWeKnowPanel, Market scope line, Changes replication blurb. 18 static + 4 dynamic routes in build. **Still open:** coverage escalation wiring (1.1i spec only). Gate: typecheck ✓, 82/82 tests ✓, build ✓. **Track 1.1 signed off.**
+**Status:** **Launch Phases 0–5 COMPLETE. Tier 1.1 + 1.1i COMPLETE. Track 1.2 Phases 1–3 COMPLETE. Track 1.3 Phases 1–2 COMPLETE. Track 1.4 through per-source last sync on `/local` + 1.4e connectors shipped.** **`/local`:** NAP state + **Data freshness** (Google / Yelp / manual timestamps independently). **Today** / **Market** local surfacing unchanged in wiring. **Sign-offs** at `/settings/exit-gates`. Gate: typecheck ✓, 280/280 tests ✓, build ✓.
 
 **Immediate next 3 actions:**
 
-1. **Track 1.2** — Daily ritual perfection (inbox-zero, digest, keyboard path).
-2. **1.1i implementation (when prioritized)** — Wire `CoverageState` / escalation UI per spec.
-3. **Layer 2 disclosures** — Add collapsed `<details>` methodology blocks on Market and Changes list (low-priority, ready when capacity allows).
+1. **Track 1.4h–k** — Advanced local surfacing (review trend, GBP field audit) per `NEXT_PHASE_EXECUTION_PLAN.md`.
+2. **Tier 2** tracks or **1.2h / 1.3h** checklist dogfood.
+3. **Tier 1.1j regression spot-check** — operator read-through of methodology + Today/Market/Changes/`/local` after the 2026-04-13 pass (no code unless a trust gap surfaces). **Sign-offs** page records operator state only.
+
 
 **Full execution plan:** See `NEXT_PHASE_EXECUTION_PLAN.md` — launch phases complete; active roadmap is **Tier 1** tracks **1.1 → 1.5** (see `master_execution_plan.md` §"Tiered product stack").
 
@@ -98,7 +110,7 @@ Beacon is a **daily AI visibility operating system** for local businesses. One o
 | Auto-resolved events | 13/45 (29%) |
 | Domain modules | 31 |
 | App routes (build) | 29 |
-| Vitest tests | 82 |
+| Vitest tests | 280 |
 | Viz components | 19 |
 
 ---
@@ -128,6 +140,9 @@ docs/
   architecture.md               ← system map
   master_execution_plan.md      ← full context vault (history + ideas + backlog)
   SCAN_TRUTH_REFACTOR_PLAN.md   ← scan refactor spec (completed)
+  TIER_1_4_PHASE_2_LOCAL_REVIEW_READ_PATH_SPEC.md  ← local review import contract
+  TIER_1_4D_REVIEW_MONITORING_V1_SPEC.md           ← review monitoring v1 scope (1.4d)
+  TIER_1_4E_REVIEW_CONNECTORS_SPEC.md             ← connector sub-spec extending 1.4d (1.4e)
   archive/
     audits/                     ← 9 audit files from 2026-04-11 comprehensive audit
     handoffs/                   ← archived handoff snapshots

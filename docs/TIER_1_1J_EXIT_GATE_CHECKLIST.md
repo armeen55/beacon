@@ -8,6 +8,8 @@
 **Audited by:** Opus 4.6
 **Spec artifacts used:** 1.1a (signal taxonomy), 1.1b (competitor trust patterns), 1.1c (methodology shell IA), 1.1d (provenance metadata spec), 1.1h (adversarial FAQ), 1.1i (coverage escalation rules)
 
+> **2026-04-13 — Implementation sign-off (Tier 1.1j):** Shipped a **final trust pass** in code + `/settings/methodology`: added **How to read it** / **Beacon does not know** blocks across core metrics; expanded FAQ (coverage labels, continuous updates, full review coverage); standardized **Based on imported or synced data** / **May not reflect full platform data** / **No automatic syncing** / **Each source updates independently** in review + connector sections; aligned **Today** (`HowWeKnowPanel`, coverage → `#coverage-states`), **Market** (partial coverage warning + local strip footnote), **Changes** (Layer-2 bullets), **`/local`** + **Connectors** copy, **`local-operator` data-gap** strings, and **`BEACON_LOCAL_SURFACE_FOOTNOTE`** in `local-presence`. **280/280** tests. Earlier rows that cited a missing methodology **route** are **obsolete** — `/settings/methodology` is live.
+
 ---
 
 ## 1. Methodology Access
@@ -22,7 +24,7 @@ Does every Tier-1 surface have a path to methodology (direct or indirect)?
 | **Changes (detail)** | `ConfidenceBadge` with `explanation` prop + evidence tier + trust source + match factors | No "How attribution works →" link | **PARTIAL** | Missing Layer 3 link. All L1 inline proof is present. |
 | **Findings** | Per-finding provenance line + relative age + basis block with scan run ID | Via Today → `HowWeKnowPanel` | **PASS** | Findings are embedded in Today surface which has methodology. |
 
-**Summary:** L1 (inline micro-proof) is **complete** on all surfaces. L2/L3 (local disclosure + methodology links) are deferred — these depend on the `/settings/methodology` route which is a 1.1c follow-through task, not a 1.1j blocker.
+**Summary:** L1 (inline micro-proof) remains **complete** on all surfaces. **2026-04-13:** `/settings/methodology` is shipped; L2 `<details>` on Market + Changes; Today links to `#coverage-states`. Prior “deferred methodology route” language is **obsolete**.
 
 ---
 

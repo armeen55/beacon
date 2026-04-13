@@ -42,25 +42,28 @@ Today Morning Briefing
 
 ## Routes
 
-### Primary navigation (5 items — `src/lib/navigation.ts`)
+### Primary navigation (6 items — `src/lib/navigation.ts`)
 
 | Route | Component | What it does | Score |
 |-------|-----------|-------------|-------|
-| **Today** `/` | `page.tsx` (1087 lines) → `today-client.tsx` (1217 lines) | Morning briefing: scan status, primary action, findings, visibility KPIs, milestones. Auto-scan trigger when overdue | 60/100 |
+| **Today** `/` | `page.tsx` → `today-data.ts` → `today-client.tsx` | Morning briefing: scan status, optional **local attention** strip (`TodayLocalAttentionStrip` from `getLocalPresenceSnapshot` when not all-good), primary action, findings, visibility KPIs, milestones. Auto-scan trigger when overdue | 60/100 |
 | **Pages** `/pages` | `pages/page.tsx` (818 lines) → `pages-client.tsx` (1168 lines) | Page health: every tracked URL with status, snapshots, diffs, guardrails, fix briefs, playbook briefs, rollout waves, findings | 75/100 |
-| **Market** `/competitors` | `competitors/page.tsx` (604 lines) | Competitive analysis: AI share, rankings, topic signals, discovered competitors, co-mention, source trust, battlecards | 62/100 |
+| **Market** `/competitors` | `competitors/page.tsx` | Competitive analysis + compact **`MarketLocalStrip`** (listing health tier, NAP state with tone, imported reviews line, link to `/local`). AI share, rankings, topic signals, co-mention, source trust, battlecards | 62/100 |
+| **Local** `/local` | `local/page.tsx` | Track 1.4: read-only local presence — explicit **NAP state**; **Data freshness** strip (`lastSync.google` / `yelp` / `manual` from `getLocalPresenceSnapshot()` — connector `last_synced_at` vs manual `ImportRun` excluding `connector:*`); 7-component listing health; methodology `#review-source-timestamps` + `#nap-consistency` + `#listing-health` + `#local-reviews` | — |
 | **Changes** `/changes` | `changes/page.tsx` (594 lines) → 3 tabs (Outcomes/Replicate/Attribution) | Change impact: scorecard, verdicts, evidence tiers, pattern mining, replication targets, attribution review | 70/100 |
-| **Settings** `/settings` | Settings layout → **4 visible tabs** | Import, **Config** (dedicated business profile editor), **Data** (tab label; route **`/settings/history`** unchanged — Phase 3-3), **Methodology** (`/settings/methodology` — proof-layer reference, 1.1c). **`/settings/health`** remains a valid route (diagnostics re-export) but is **not** linked from the settings tab bar |
+| **Settings** `/settings` | Server `settings/layout.tsx` (readiness hint + client tab bar) | Import, **Config**, **Connectors**, **Data** (`/settings/history`), **Sign-offs** (`/settings/exit-gates` — internal Daily Ritual / Replication exit gates; `.data/exit-gates.json`), **Methodology**. **`/settings/health`** remains valid (diagnostics) but **not** in the tab bar |
 
 ### Settings sub-routes
 
 | Tab | Route | Re-exports | Purpose |
 |-----|-------|------------|---------|
-| Import | `/settings/import` | `settings/import/page.tsx` → `./import-page.tsx` (**only** entry; standalone **`/import`** removed — Phase 3-5) | Workbook upload, Profound adapter, CSV/JSON import |
+| Import | `/settings/import` | `settings/import/page.tsx` → `./import-page.tsx` (**only** entry; standalone **`/import`** removed — Phase 3-5) | Workbook upload, Profound adapter, CSV/JSON import (including **Local reviews** entity → `.data/local-reviews.json`) |
 | Config | `/settings/config` | `settings/config/page.tsx` + `config-form.tsx` + **`actions.ts`** (`saveSetup` / `loadSetup`) | Editable business profile; **`/setup`** route removed (Phase 3-6)—**only** this path for setup/config UI |
+| Connectors | `/settings/connectors` | `settings/connectors/page.tsx` + `connectors-client.tsx` + **`actions.ts`** (Google OAuth + **`loadGoogleLocations`** / **`selectGoogleLocation`** / **`syncGoogleReviews`**; Yelp **`saveYelpApiKey`** / **`syncYelpReviews`** / **`disconnectYelp`**) | **Google:** OAuth + **location picker** (`fetchGoogleLocations` → select → `selected_location_id` on token) + on-demand **Sync now** (requires location) → `runGoogleReviewsSync` → GBP v4 reviews for selected location → `LocalReview` → `mergeUpsertLocalReviews`; callback `/api/connectors/google/callback`. **Yelp:** API key only (server store) + **Sync now** → Fusion `businesses/{id}` + `reviews` → `runYelpReviewsSync` → same merge path; `connector:google` / `connector:yelp` import runs. Tokens + `last_synced_at` + `selected_location_id`: `connector-store.ts` → `.data/connector-tokens.json`. **Yelp business id** from `business-config.json` (`yelpBusinessId`) or token `business_id` |
 | Health | `/settings/health` | `../../diagnostics/page` | Attribution diagnostics (developer-facing). **Not** shown in settings tab nav (direct URL only) |
 | Data (tab) | `/settings/history`, **`/settings/history/[id]`** | `settings/history/page.tsx` (framing + `./results-page`), **`results-page.tsx`**, **`results-client.tsx`**, **`[id]/page.tsx`** (Phase 3-7: former **`(shell)/results/`** tree; standalone **`/results`** removed) | Imported measurement / citation evidence + row detail; tab label **Data** |
-| Methodology | `/settings/methodology` | `settings/methodology/page.tsx` (static, 5 sections + FAQ) | Proof-layer methodology destination (1.1c): how Beacon works, metric definitions, evidence boundaries, recommendation interpretation, adversarial FAQ. Linked from HowWeKnowPanel, Market scope line, Changes replication blurb |
+| Sign-offs | `/settings/exit-gates` | `settings/exit-gates/page.tsx` + `exit-gates-client.tsx` + **`actions.ts`** | Internal operator sign-off only (`readExitGates` / `updateExitGate` → **`exit-gates.json`**). Does not affect metrics, scores, or proof. Optional strip in Settings layout when engaged and a gate is not `passed`. Methodology **`#exit-gates`** |
+| Methodology | `/settings/methodology` | `settings/methodology/page.tsx` (static, 5 sections + FAQ) | Proof layer (1.1c + **1.1j 2026-04-13**): per-metric **How to read it** / **Beacon does not know** blocks, expanded FAQ (incl. coverage states), boundaries. Anchors: **`#exit-gates`**, **`#nap-consistency`**, **`#local-reviews`**, **`#review-source-timestamps`**, **`#listing-health`**, **`#review-monitoring-v1`**, **`#review-connectors`**, **`#coverage-states`**, **`#boundaries`**. Specs: `docs/TIER_1_4D_REVIEW_MONITORING_V1_SPEC.md`, `docs/TIER_1_4E_REVIEW_CONNECTORS_SPEC.md`. Linked from HowWeKnowPanel, Today coverage line, Market/Changes `<details>`, **`/local`** disclosure |
 
 ### Hidden / secondary routes
 
@@ -73,6 +76,7 @@ Today Morning Briefing
 | `/topics`, `/topics/opportunity/[id]` | Topic detail views | Command palette |
 | `/observations/[id]` | Crawl proof detail | Linked from finding provenance |
 | `/changes/[id]` | Change detail + inline recommendations | Linked from Changes list |
+| `/local` | Local presence (GBP/reviews read-path v1) | Primary nav **Local**; command palette |
 
 ---
 
@@ -126,6 +130,7 @@ All route-critical data persists as JSON files under `.data/` via `src/lib/persi
 
 | Data | Freshness | Mechanism |
 |------|-----------|-----------|
+| **UI coverage label** (Today / Market / Changes) | Derived | `src/lib/coverage-state.ts` — `deriveCoverageState()` (fresh / aging / stale / critical / partial) from crawl age vs fixed thresholds (`T=3` days), optional missing-crawl flag, visibility-vs-crawl, and sample tier only. No persistence. |
 | Page snapshots | FRESH | `readDotDataJson()` — no cache, disk read every call |
 | Guardrail alerts | FRESH | `readDotDataJson()` |
 | Scan state | FRESH | `readDotDataJson()` |
@@ -162,6 +167,7 @@ All route-critical data persists as JSON files under `.data/` via `src/lib/persi
 | `competitor-universe` | Competitor config | `universe-read.ts` |
 | `business-config` | Business profile | `setup/actions.ts` |
 | `scan-settings` | Scan schedule config | `domains/scanning/scan-settings.ts` |
+| `exit-gates` | Track 1.2 / 1.3 internal sign-off (Daily Ritual, Replication) | `lib/exit-gates-store.ts` + `settings/exit-gates/actions.ts` |
 
 ### Cold stores
 

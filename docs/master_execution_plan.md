@@ -2628,7 +2628,9 @@ The transition from Profound-imported data to native-owned data is designed as a
 - **Deliverable:** Checklist: every Tier-1 surface has methodology link + lineage on primary claims + no forbidden strings.  
 - **Done when:** Checklist signed off for ship.  
 - **Depends on:** 1.1g, 1.1h, 1.1i.  
-- **2026-04-12:** Follow-up **copy sweep** completed for 1.1j §8 items 1–11 (non-primary + generated copy + diagnostics labels + aligned attribution verdict phrasing). Methodology **route** (1.1c) and coverage **wiring** (1.1i) remain open.
+- **2026-04-12:** Follow-up **copy sweep** completed for 1.1j §8 items 1–11 (non-primary + generated copy + diagnostics labels + aligned attribution verdict phrasing). Methodology **route** (`/settings/methodology`), **1.1i v1** coverage state (`deriveCoverageState`), and **Layer-2** collapsed `<details>` on Market + Changes Outcomes are shipped.
+- **2026-04-13:** **1.1i expansion** — `deriveCoverageState` now returns **aging** and **critical** using fixed fractions of `T=3` (aging `(0.7T, T]`, critical `>2T` or missing crawl when flagged); Today/Market/Changes wired; methodology `#coverage-states`.
+- **2026-04-13:** **1.1j final trust pass** — methodology completeness (“How to read it” / “Beacon does not know”), FAQ expansion (coverage labels, continuous updates, full review coverage), standardized local proof footnote + connectors copy, Today/Market/Changes/`/local`/local-operator string alignment; `TIER_1_1J_EXIT_GATE_CHECKLIST.md` sign-off refresh; 280/280 tests.
 
 ---
 
@@ -2678,11 +2680,13 @@ The transition from Profound-imported data to native-owned data is designed as a
 - **Deliverable:** Checklist: digest + clear done-state + escalation + assignment + mobile scope.  
 - **Done when:** Signed off.  
 - **Depends on:** 1.2c–1.2g, 1.1j (proof strings in ritual).
+- **2026-04-12 (persistence slice):** Settings → **Sign-offs** (`/settings/exit-gates`) + `.data/exit-gates.json` — operator can record `daily_ritual` status / note / `updated_at` only; no workflow; does not change metrics or proof (`exit-gates-store.ts`, methodology `#exit-gates`). Product checklist above remains the definition of “done.”
 
 **1.2i — Keyboard / power-user path**  
 - **Deliverable:** Shortcuts spec for triage (align with command palette).  
 - **Done when:** Documented; conflicts resolved.  
 - **Depends on:** 1.2e.
+- **2026-04-12 (product slice shipped):** Today-only minimal path — **A** focuses primary CTA, **J/K** moves among visible finding rows, **Enter** on a focused row triggers its first action; no global shortcut manager. See `VERIFICATION_LOG.md` (Track 1.2 Phase 3). Full 1.2i spec + command-palette alignment remains open.
 
 ---
 
@@ -2732,10 +2736,19 @@ The transition from Profound-imported data to native-owned data is designed as a
 - **Deliverable:** Checklist: queue visible, one-click enqueue, tracking, proof strings.  
 - **Done when:** Signed off.  
 - **Depends on:** 1.3d–1.3g, 1.1j.
+- **2026-04-12 (persistence slice):** Same **Sign-offs** page + store row `replication` — internal sign-off state only; does not satisfy checklist items until operator marks accordingly.
 
 ---
 
 ### Track 1.4 — Listings / reviews first-class local layer
+
+- **2026-04-12 — Phase 1 (read-path foundation):** Route **`/local`** + `src/lib/local-presence.ts` (`getLocalPresenceSnapshot`). Shell nav **Local**; listing inferred from configured domain only; reviews explicitly not connected; simple health tier (weak / OK / strong); Layer-2 methodology `<details>`. No GBP API, no new persistence.
+- **2026-04-12 — Phase 2B (manual review import):** Entity **`reviews`** on Settings → Import; `local-reviews-types` + `local-reviews-store` + `review-mapper`; `.data/local-reviews.json`; `/local` shows real counts, average rating, sentiment band (average only), import staleness; reset/clear paths; spec `TIER_1_4_PHASE_2_LOCAL_REVIEW_READ_PATH_SPEC.md`. Still no GBP API, no background sync.
+- **2026-04-12 — Phase 2C (methodology / proof layer):** **`/settings/methodology`** — `#local-reviews` metric block + overview + boundaries + FAQ aligned with spec §6; **`/local`** disclosure points to that anchor.
+- **2026-04-13 — Phase 3 (NAP consistency + listing health):** `BusinessConfig` gains `phone`, `address`; `checkNap()` 4-field completeness; `computeListingHealth()` 7-component weighted composite 0–100 (domain 25, name 15, phone 10, address 10, reviews 15, avg rating 15, freshness 10); tier weak/ok/strong from score. `/local` shows score + bars + missing fields. Config form adds phone + address. Methodology `#listing-health` + FAQ. 153 tests.
+- **2026-04-13 — Phase 4 (Today + Market local surfacing):** `buildTodayLocalAttention` / `MarketLocalStrip` — passive strips from existing snapshot only; staleness binary uses last reviews import >30d; hidden when strong + full NAP + reviews + fresh. Vitest includes `*.test.tsx` for component smoke.
+- **2026-04-12 — Per-source last sync on `/local`:** `LocalPresenceSnapshot.lastSync` — Google/Yelp from connector `last_synced_at`; manual from latest `ImportRun` with `entity_type: reviews` and `imported_count > 0` excluding `connector:google` / `connector:yelp` rows. `/local` **Data freshness** section (three rows always + disclosure); `#review-source-timestamps` methodology. No merged timestamp, no new freshness thresholds.
+- **2026-04-13 — 1.4d Review monitoring v1 (spec + methodology):** `docs/TIER_1_4D_REVIEW_MONITORING_V1_SPEC.md` + `/settings/methodology#review-monitoring-v1` — bounded monitoring scope; **manual import + optional on-demand Google/Yelp connectors** (no auto-sync, no SLA); combined vs per-source freshness consistent with `#review-source-timestamps`. **2026-04-13 (doc pass):** 1.4d + `TIER_1_4E_REVIEW_CONNECTORS_SPEC.md` wording aligned with shipped connectors and methodology (no “import-only / not shipped” drift).
 
 **1.4a — Scope boundary doc (not Yext)**  
 - **Research questions:** Read vs write? GBP only first? Listings without full CRM?  
@@ -2755,25 +2768,32 @@ The transition from Profound-imported data to native-owned data is designed as a
 - **Depends on:** 1.4b, 1.1b.
 
 **1.4d — Review monitoring v1 scope**  
-- **Deliverable:** Sites v1 (Google + one optional); SLA for “new review”.  
-- **Done when:** Scope frozen.  
-- **Depends on:** 1.4a.
+- **Deliverable:** Written scope + methodology mirror — sources (Google primary, Yelp secondary, `other` manual); **v1 = manual import path always available + optional additive on-demand connectors** (see 1.4e); coverage/freshness rules **without** polling, background sync, or alert SLAs; `docs/TIER_1_4D_REVIEW_MONITORING_V1_SPEC.md` + `/settings/methodology#review-monitoring-v1` (+ `#local-reviews`, `#review-source-timestamps`, `#review-connectors`).  
+- **Done when:** Scope frozen and stays consistent with shipped product (2026-04-13+). *Legacy line:* “SLA for new review” applies only to a **future** phase if explicitly rescoped — **not** v1.  
+- **Depends on:** 1.4a (conceptual); connector implementation is separate track **1.4e** (shipped).
 
-**1.4e — Review response workflow**  
+**1.4e — Review connectors sub-spec + GBP + Yelp connectors (on-demand review sync)**
+- **Deliverable:** Spec + methodology (`TIER_1_4E` + `#review-connectors`) **+ shipped connectors:** **Google** — OAuth, `/settings/connectors` Connect/Disconnect/Sync now, GBP v4 fetch→strict map→`mergeUpsertLocalReviews`, `last_synced_at`, import-run audit (`connector:google`), token refresh. **Yelp** — API key in server-only store, same page card, Fusion fetch→`mapYelpReviewToLocalReview`→merge, `connector:yelp` import runs, `yelp:` id prefix. **Shared:** local-presence `lastReviewImportAt` uses max(import runs, Google `last_synced_at`, Yelp `last_synced_at`); partial-fetch / invalid-key handling; **no** auto-sync / background jobs.
+- **Done when:** On-demand sync merged to `local-reviews` and verified (2026-04-13).  
+- **Depends on:** 1.4d.
+
+**1.4e-legacy — Review response workflow** *(original 1.4e — relabeled; blocked by connectors)*  
 - **Research questions:** AI draft + human approve vs templates only?  
 - **Deliverable:** Workflow + liability note.  
 - **Done when:** Legal/comms sign-off pattern.  
-- **Depends on:** 1.4d.
+- **Depends on:** 1.4e (connector spec ships first; response workflow requires active platform connection).
 
 **1.4f — Today / Market surfacing rules**  
 - **Deliverable:** When listings/reviews appear on Today vs Settings vs Market.  
 - **Done when:** IA doc.  
 - **Depends on:** 1.4c, 1.4d.
+- **2026-04-12 (shipped):** Today + Market + `/local` now use centralized `napState` (complete/incomplete/inconsistent/unknown) from `LocalPresenceSnapshot`. Today attention shows inconsistency fact line. Market strip applies NAP tone coloring. `/local` shows explicit label + factual explanation. No new connectors or scoring.
 
 **1.4g — NAP consistency checks (lightweight)**  
 - **Deliverable:** Compare GBP vs site footer vs schema; diff UI spec.  
 - **Done when:** Rules + false-positive handling.  
 - **Depends on:** 1.4b.
+- **2026-04-12 (shipped):** `deriveNapConsistencyState` in `local-presence.ts` — 4 states; `inconsistent` detected when imported review `listing_name` values conflict with configured business name (case-insensitive). Methodology `#nap-consistency`. No live-directory verification, no auto-fixes. Tests: 15 new (derivation + boundary + precedence + attention + strip).
 
 **1.4h — Competitive context for reviews**  
 - **Deliverable:** “vs local pack competitors” framing research (data availability).  

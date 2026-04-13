@@ -52,7 +52,7 @@ export function computeLocalOperatorSurface(
   const stalenessListings = daysSince(imp.listing_import_at ?? null);
 
   const dataGapsBase: string[] = [
-    "Beacon does not pull live GBP/Yelp APIs in this phase — tasks are operator-sized checklists plus optional `.data/local-operator-surface.json`.",
+    "This checklist layer does not call Google/Yelp APIs by itself — review rows in Beacon come from Settings → Import and/or Connectors; optional `.data/local-operator-surface.json` augments operator notes.",
   ];
 
   if (geoGap) {
@@ -138,7 +138,7 @@ export function computeLocalOperatorSurface(
       inferred:
         unresp > 0
           ? [
-              "Estimate is whatever your review tool or CSV supplied — Beacon does not verify against live APIs.",
+              "Estimate is whatever your review tool or CSV supplied — Beacon does not verify it against platform APIs from this field alone.",
             ]
           : [],
       dataGaps: [

@@ -7,6 +7,469 @@
 
 ---
 
+## 2026-04-13 — Tier 1.1j: Proof layer final trust pass (methodology + surfaces)
+
+- **Goal:** Lock proof copy — every surfaced metric has methodology definition + boundaries; standardize “imported or synced” language; no causation / completeness / continuous-feed implications; FAQ covers coverage, Last synced, counts mismatch, NAP, continuous updates.
+- **`src/app/(shell)/settings/methodology/page.tsx`:** Overview boundary sentence + five-item list; exit-gates “does not know”; citation share / sample quality / coverage states / strongest correlate / evidence quality / listing health / NAP / local reviews blocks expanded; review-source timestamps + connector disclosures + verdicts; boundaries card wording; new FAQ entries; listing-health / ranking / connection-break FAQ tweaks; removed “live” phrasing where replaced by factual directory language.
+- **`src/lib/beacon-proof-copy.ts`:** `BEACON_LOCAL_SURFACE_FOOTNOTE`; visibilitySample wording; Market + Changes Layer-2 extra boundary bullet each.
+- **`src/lib/local-presence.ts`:** Today + Market footnotes use shared constant; Market review lines say “stored”.
+- **`src/components/today/how-we-know-panel.tsx`**, **`today-visibility-snapshot.tsx`:** Visibility “does not know” line; coverage link to `#coverage-states`.
+- **`src/app/(shell)/competitors/page.tsx`**, **`changes/page.tsx`:** Show coverage warning for **partial** on Market; inline **Coverage states →** methodology link when a coverage warning is shown.
+- **`src/app/(shell)/settings/connectors/page.tsx`**, **`connectors-client.tsx`:** Page description + per-source independence disclosure.
+- **`src/app/(shell)/local/page.tsx`:** “Stored reviews” headline when counts present.
+- **`src/domains/local-operator/surface.ts`:** Data-gap strings aligned with Import + Connectors reality.
+- **Docs:** `HANDOFF_VERIFIED_STATE.md`, `NEXT_PHASE_EXECUTION_PLAN.md`, `TIER_1_1J_EXIT_GATE_CHECKLIST.md` (sign-off block), `master_execution_plan.md` (1.1j line).
+- **Tests:** `market-local-strip`, `today-local-attention`, `local-presence-attention` expectations updated.
+- **Verification:** `npm run typecheck` ✓ · `npm run test` 280/280 ✓.
+
+---
+
+## 2026-04-13 — Docs: 1.4d + 1.4e specs aligned with shipped connectors + methodology
+
+- **Goal:** Remove drift (“not shipped”, “manual only”, “when connectors…”) for **Google/Yelp**; match **`/settings/methodology`** on manual + optional connectors, on-demand-only sync, no SLA / no “real-time”, combined freshness (Today/Market/listing health) vs per-source **`/local`** timestamps and meaning of **Last synced**.
+- **`docs/TIER_1_4D_REVIEW_MONITORING_V1_SPEC.md`:** Intro, sources, data collection, freshness, disclosures, FAQ, hard rules, and document control updated for shipped connector reality while keeping 1.4d a **bounded monitoring** spec (implementation detail → 1.4e).
+- **`docs/TIER_1_4E_REVIEW_CONNECTORS_SPEC.md`:** Marked connectors **shipped**; Settings → Connectors paths; `source_system` on connector `ImportRun`; §6.2 UI + §9 disclosures + FAQ + document control v1.1; `source_system` wording in §6.1; success criteria → maintain/extend shipped behavior.
+- **`docs/master_execution_plan.md`:** Track 1.4d log line + 1.4d deliverable bullets corrected (no “import-only” / false “no connector” history).
+- **`docs/HANDOFF_VERIFIED_STATE.md`**, **`docs/NEXT_PHASE_EXECUTION_PLAN.md`:** Next-actions / current-status note — stale “not shipped” methodology follow-up removed from immediate next actions.
+- **`src/app/(shell)/settings/methodology/page.tsx`:** FAQ “connection breaks” — Today strip vs `/local` / Connectors clarified to match actual surfacing.
+- **`src/app/(shell)/local/page.tsx`:** Reviews section + “How this works” copy aligned with manual + optional on-demand connectors (removed “not syncing yet” / manual-only drift).
+- **`docs/TIER_1_4E_REVIEW_CONNECTORS_SPEC.md`:** FAQ “connection breaks” aligned with that FAQ wording.
+- **Verification:** `npm run test -- --run tests/routes/local-smoke.test.ts` ✓ (4/4).
+
+---
+
+## 2026-04-12 — Methodology: review connectors shipped + freshness alignment
+
+- **Goal:** `/settings/methodology` reflects manual import + Google/Yelp connectors, per-source timestamps, and on-demand-only behavior; remove outdated “not shipped” / “manual only” contradictions; align FAQ and boundaries.
+- **`src/app/(shell)/settings/methodology/page.tsx`:** Overview **Local reviews** bullet updated. **`#local-reviews`**, **`#review-source-timestamps`** (title + cross-links), **`#review-monitoring-v1`** (sources, data collection, coverage, freshness vs per-source, disclosures), **`#review-connectors`** (retitled shipped; additive/on-demand copy; link to timestamps; operator disclosures). **`#listing-health`** — review rows / freshness wording matches combined observation clock. **Boundaries** cards — stored rows, no auto-ingestion, connector partial coverage. **FAQ** — Local presence source, mismatch, auto-sync (new question title), sync frequency, new “What does Last synced mean?”, connector mismatch. **Footer** — links to connectors + timestamps. Removed “real-time” phrasing for Beacon; no SLA / no auto-sync language consistent.
+- **Docs:** `architecture.md` methodology row note.
+- **Verification:** `npm run typecheck` ✓ · `npm run test` 280/280 ✓.
+
+---
+
+## 2026-04-12 — Track 1.4: Per-source last sync on `/local` (projection only)
+
+- **Goal:** Show Google, Yelp, and manual import last-update times independently on Local presence — reuse existing `last_synced_at` (connectors) and `ImportRun.completed_at` (manual reviews only); no merge, no new freshness thresholds or scoring.
+- **`src/lib/local-presence.ts`:** `ReviewSourceLastSync` + `lastSync` on `LocalPresenceSnapshot` — `google` / `yelp` from `connectorLastSyncedAt`; `manual` from `lastManualReviewsImportCompletedAt()` (max `completed_at` where `entity_type === "reviews"`, `imported_count > 0`, `source_system` ∉ `connector:google` | `connector:yelp`). Exported `formatReviewSourceTimeForDisplay(iso)` for relative-or-datetime display only.
+- **`src/app/(shell)/local/page.tsx`:** **Data freshness** section — three always-visible rows; disclosure lines; link to `#review-source-timestamps`.
+- **`src/app/(shell)/settings/methodology/page.tsx`:** New `#review-source-timestamps` MetricBlock — per-source semantics, no completeness/real-time guarantees.
+- **Tests:** `local-presence.test.ts` — `lastSync` shape, connector mirrors, manual max, connector run excluded from manual; `formatReviewSourceTimeForDisplay`; `local-smoke.test.ts` — empty / manual-only / all-three cases + connector cleanup.
+- **Verification:** `npm run typecheck` ✓ · `npm run test` 280/280 ✓ · `npm run build` ✓.
+
+---
+
+## 2026-04-12 — Track 1.4f–g: NAP consistency 4-state + Today/Market surfacing tightening
+
+- **Goal:** Expand NAP consistency from 3 labels (`consistent`/`incomplete`/`unknown`) to 4 explicit states (`complete`/`incomplete`/`inconsistent`/`unknown`); centralize derivation; surface consistently on Today, Market, `/local`; add methodology section; no new connectors, scoring formulas, or ranking claims.
+- **`src/lib/local-presence.ts`:** `NapConsistencyState` replaces `NapConsistencyLabel`; `deriveNapConsistencyState()` — precedence `unknown` > `inconsistent` > `incomplete` > `complete`; **`inconsistent`** detected when imported review `listing_name` values conflict with configured business `name` (case-insensitive trim); no live-directory guess; no canonical value invention. `napStateDisplay()` + `napStateExplanation()` centralize factual copy. `LocalPresenceSnapshot` gains `napState` computed once in `getLocalPresenceSnapshot()`. `shouldShowTodayLocalAttention` uses `napState === "complete"` instead of `nap.missing.length === 0`. `buildTodayLocalAttention` adds `inconsistent` fact line. `MarketLocalStripModel.napState` replaces old `napConsistency` field.
+- **`src/components/local/market-local-strip.tsx`:** NAP display uses `napTone()` — inconsistent → `text-status-danger`, incomplete → `text-status-warning`, else no extra tone.
+- **`src/app/(shell)/local/page.tsx`:** Listing identity section shows explicit `NAP: [state]` label with color + factual explanation from `napStateExplanation()`. "How this works" gains NAP consistency bullet. Methodology link → `#nap-consistency`.
+- **`src/app/(shell)/settings/methodology/page.tsx`:** New `#nap-consistency` MetricBlock — defines all 4 states; states Beacon only judges from imported/configured data; NAP consistency = data-quality signal, not a ranking claim.
+- **Tests:** `tests/lib/local-presence-attention.test.ts` rewritten — 15 new tests for `deriveNapConsistencyState` (all states, boundary, precedence, case-insensitive match, empty configured name), `napStateDisplay`, `napStateExplanation`, Today attention (inconsistent, unknown, incomplete, complete+fresh→hidden), Market strip (inconsistent/unknown display). `tests/components/market-local-strip.test.tsx` — tone assertion tests. `tests/lib/local-presence.test.ts` — snapshot `napState` assertion. Total: +15 net new tests.
+- **No changes to:** Today page layout, Changes, Settings connectors, exit gates, scoring, proof logic, attribution.
+- **Verification:** `npm run typecheck` ✓ · `npm run test` 271/271 ✓ · `npm run build` ✓.
+
+---
+
+## 2026-04-12 — Track 1.2 / 1.3 exit gates: internal sign-off persistence
+
+- **Goal:** Minimal persistent operator sign-off for **Daily Ritual** and **Replication** only — no workflow engine, notifications, multi-user logic, audit trail beyond `updated_at`, and no effect on scores, findings, or proof.
+- **`src/lib/exit-gates-types.ts`:** Shared types + `EXIT_GATE_DEFAULT_UPDATED_AT` (client-importable; avoids pulling `server-only` into client bundles).
+- **`src/lib/exit-gates-store.ts`:** `readExitGates`, `writeExitGates`, `getExitGate`, `updateExitGate`, `normalizeExitGates` → `.data/exit-gates.json` via `json-store`; always exactly `daily_ritual` + `replication`; statuses `not_started` | `in_review` | `passed` | `failed`; optional `note`; `updated_at` ISO; `_resetExitGatesStoreForTests`.
+- **`src/app/(shell)/settings/exit-gates/`:** `page.tsx` (dynamic) + `exit-gates-client.tsx` + `actions.ts` (`setExitGateStatus`, `saveExitGateNote`) + `revalidatePath` for `/settings` + `/settings/exit-gates`.
+- **`src/app/(shell)/settings/layout.tsx`:** Server layout wraps **`ExitGatesSettingsHint`** (subtle strip when operator has engaged and not both `passed`) + **`SettingsTabsClient`** (new **Sign-offs** tab).
+- **`src/app/(shell)/settings/methodology/page.tsx`:** Section **`#exit-gates`** — exit gates are internal operator reviews; sign-off state ≠ performance; no modification of scores/findings/proof logic.
+- **Tests:** `tests/lib/exit-gates-store.test.ts` (empty state, normalize, roundtrip, `getExitGate`, transitions, note persistence); `tests/routes/exit-gates-smoke.test.tsx`; `tests/routes/exit-gates-hint-smoke.test.tsx`.
+- **Docs:** `architecture.md` (Settings + persistence table); `HANDOFF_VERIFIED_STATE.md`, `NEXT_PHASE_EXECUTION_PLAN.md`, `master_execution_plan.md` (1.2h / 1.3h persistence slice notes).
+- **Verification:** `npm run typecheck` ✓ · `npm run test` 256/256 ✓ · `npm run build` ✓.
+
+---
+
+## 2026-04-13 — Tier 1.1i: Coverage state expansion (aging + critical)
+
+- **Goal:** Extend coverage labels without new persistence, metrics, or predictive logic — strict multiples of existing stale day threshold `T=3`.
+- **`src/lib/coverage-state.ts`:** `CoverageState` = `fresh` | `aging` | `stale` | `critical` | `partial`; exported `COVERAGE_STALE_DAY_THRESHOLD` (3); `deriveCoverageState` — precedence `partial` > `critical` > `stale` > `aging` > `fresh`; aging = crawl age in `(0.7×T, T]`; stale = age `> T` or `visibilityStaleVsCrawl`; critical = age `> 2×T` or optional `treatMissingPrimaryCrawlAsNoData` + null age; `coverageStateDisplayLabel`, `coverageWarningLine` (factual copy), `coverageAttentionForFindings` (aging only when no critical finding and zero actionable findings).
+- **`src/lib/today-ritual.ts`:** `shouldShowTodayAllClear` blocks on `coverageState` ∈ {critical, stale, partial}; aging does not block. `computeTodayDigest` appends factual lines for critical / stale (not aging).
+- **`today-client.tsx`:** Passes `treatMissingPrimaryCrawlAsNoData: !isDemoMode && !run`, `coverageState` into ritual + digest; passes `coverageFindingsAttention` into `TodayFindings`.
+- **`today-findings.tsx`:** Header strip for critical/stale; aging strip only when attention helper returns aging; finding row qualifiers for critical/aging/stale.
+- **`today-visibility-snapshot.tsx`:** Always shows `Coverage: [label]`; big freshness box for critical/stale/aging/partial or legacy crawl/visibility/tone triggers; factual bullets.
+- **`competitors/page.tsx`**, **`changes/page.tsx`**, **`changes/[id]/page.tsx`:** `deriveCoverageState` now includes `crawlAgeDays` from `latestWebsiteCrawlRun()` where applicable; Market warning for stale/critical/aging; detail + scorecard qualifiers for new states.
+- **`settings/methodology/page.tsx`:** New `#coverage-states` `MetricBlock` (definitions, numeric rule, “Coverage reflects data freshness, not performance”).
+- **Tests:** `coverage-state.test.ts` rewritten for five states + boundaries + attention helper; `today-ritual.test.ts` +4.
+- **Verification:** `npx tsc --noEmit` ✓ · `npx vitest run` 246/246 ✓ · `npm run build` ✓.
+
+---
+
+## 2026-04-13 — Track 1.4: GBP Multi-Location Picker (polish, no ingestion changes)
+
+- **Goal:** Allow the operator to select the correct Google Business Profile location when multiple locations are returned, without breaking existing sync logic or trust rules.
+- **`src/lib/connector-store.ts`:** `GoogleConnectorToken` extended with optional `selected_location_id` (GBP resource name) + `selected_location_name`; `ConnectorInfo` returns both; `GoogleConnectorPatch` includes both; `getConnectorInfo("google")` populates them.
+- **`src/lib/connectors/google-reviews-sync.ts`:**
+  - New `fetchGoogleLocations()` — GBP v4 accounts→locations with 401 retry, returns `GbpLocationInfo[]` (locationId, locationName, address). No data sync.
+  - `runGoogleReviewsSync()` rewritten to require `selected_location_id` — returns `no_location` error if unset; skips accounts→locations discovery loop; fetches reviews directly for the selected location only.
+- **`src/app/(shell)/settings/connectors/actions.ts`:** New `loadGoogleLocations()` and `selectGoogleLocation(id, name)` server actions; `selectGoogleLocation` patches `selected_location_id` + `selected_location_name` via `updateConnectorToken`.
+- **`src/app/(shell)/settings/connectors/page.tsx`:** Passes `googleSelectedLocation` (id + name or null) to client.
+- **`connectors-client.tsx`:** Location picker UI — "Load locations" button (or "Change location" if already selected); single-location auto-select; multi-location scrollable list with address + "Currently selected" indicator; Sync now disabled until location selected; warning "No location selected" shown in connected state; disclosure: "Reviews are pulled only from the selected location. Does not include all business locations."
+- **Tests:** `google-reviews-sync.test.ts` rewritten (all tokens include `selected_location_id`; tests cover: sync success, dedup, rejected rows, reconnect, refresh, `no_location` error, 500 partial, not connected, selection persistence). `fetchGoogleLocations` tests (multi-location, not connected, empty accounts, API failure). `connector-store.test.ts` +4 (store/patch/info selected location fields). Smoke test updated for new disclosure text.
+- **Verification:** `npx tsc --noEmit` ✓ · `npx vitest run` 235/235 ✓ · `npm run build` ✓.
+
+---
+
+## 2026-04-13 — Track 1.4e: Yelp Fusion review connector (API key, symmetric to Google)
+
+- **Goal:** On-demand Yelp review pull using the same trust path as Google: Fusion fetch → strict map → `mergeUpsertLocalReviews`; server-only API key; no auto-sync.
+- **`src/lib/connector-store.ts`:** Discriminated union `GoogleConnectorToken` | `YelpConnectorToken`; `getYelpConnectorToken` / `getGoogleConnectorToken`; Yelp patches include `business_id`, `api_key`, `last_synced_at`.
+- **`src/lib/connectors/yelp-reviews-map.ts`:** `mapYelpReviewToLocalReview` — `id` = `yelp:{review.id}`, `source` = `yelp`, integer rating 1–5, `created_at` from `time_created` (ISO or space-separated), optional `review_text` / `reviewer_name` / `review_url` / `listing_name` / `location_id`; rejects missing id, invalid rating, invalid date.
+- **`src/lib/connectors/yelp-reviews-sync.ts`:** `runYelpReviewsSync()` — business id from `getBusinessConfig().yelpBusinessId` or token `business_id`; `GET /v3/businesses/{id}` (optional name) + `GET /v3/businesses/{id}/reviews`; 401 → `invalid_key`; 429 → rate-limit copy; non-401 business failure → partial + warning, still merge valid review rows; `updateConnectorToken("yelp", { last_synced_at })`; `appendConnectorReviewsImportRun` (`connector:yelp`, `idPrefix: "yelp"`); `safeRevalidatePath` same targets as Google.
+- **`src/app/(shell)/settings/connectors/`:** Yelp card — Save API Key, connected state + Last synced + Sync now + Disconnect; disclosures (on-demand, bounded sample, no automatic syncing). **`actions.ts`:** `saveYelpApiKey`, `syncYelpReviews`, `disconnectYelp`, `getYelpConnectorStatus`.
+- **`src/lib/business-config.ts` + settings config:** `yelpBusinessId` field; `saveSetup` updates Yelp token `business_id` when connector exists.
+- **`src/lib/local-presence.ts`:** `lastReviewsDataObservedAt()` includes Yelp `last_synced_at` in the max alongside Google and import runs.
+- **Tests:** `yelp-reviews-map.test.ts`; `yelp-reviews-sync.test.ts` (mocked `fetch` + hoisted `getBusinessConfig`); `google-reviews-sync.test.ts` updated for `GoogleConnectorToken`; `local-presence.test.ts` (+1 max Google vs Yelp); `connectors-smoke.test.ts` (Yelp strings).
+- **Verification:** `npx tsc --noEmit` ✓ · `npx vitest run` 226/226 ✓ · `npm run build` ✓.
+
+---
+
+## 2026-04-13 — Track 1.4e: GBP review ingestion (on-demand sync)
+
+- **Goal:** Pull Google Business Profile reviews on operator demand; merge into existing `local-reviews` via `mergeUpsertLocalReviews`; preserve trust rules (no auto-sync, no enrichment).
+- **`src/lib/connectors/google-reviews-map.ts`:** Strict `mapGbpReviewToLocalReview` — `id` = `google:{reviewId}`, `source` = `google`, rating 1–5 from star enum, `created_at` ISO, optional text/reviewer/listing/location_id; rejects missing id, invalid rating, invalid date.
+- **`src/lib/connectors/google-reviews-sync.ts`:** `runGoogleReviewsSync()` — `ensureAccessToken` + refresh on expiry; GBP v4 `accounts` → `locations` → `reviews` with `nextPageToken` loops; 401 → refresh + single retry; partial failures keep prior data + warnings; `mergeUpsertLocalReviews(mapped)`; `updateConnectorToken(..., last_synced_at)`; append `ImportRun` (`source_system: connector:google`, `entity_type: reviews`); `safeRevalidatePath` for `/settings/connectors`, `/local`, `/competitors`, `/` layout.
+- **`src/app/(shell)/settings/connectors/actions.ts`:** `syncGoogleReviews()` server action.
+- **`connectors-client.tsx`:** When connected — “Last synced”, “Source: Google”, “Sync now” (loading state), disconnect; trust copy (on-demand pull, may not reflect full set, no automatic syncing); success/error from sync result (partial warning count).
+- **`connector-store.ts`:** `last_synced_at` optional on token; `ConnectorInfo.last_synced_at`; `updateConnectorToken` accepts `last_synced_at`.
+- **`local-presence.ts`:** `lastReviewsDataObservedAt()` = max(import-run completion vs Google `last_synced_at`) for `lastReviewImportAt` when `hasReviews`.
+- **Tests:** `google-reviews-map.test.ts` (6); `google-reviews-sync.test.ts` (8 mocked fetch); `local-presence.test.ts` (+1 connector freshness); connector-store (+`last_synced_at` cases).
+- **Verification:** `npm run typecheck` ✓ · `npm run test` 203/203 ✓ · `npm run build` ✓.
+
+---
+
+## 2026-04-13 — Track 1.4e: GBP OAuth connector prototype (auth only, no ingestion)
+
+- **Goal:** Prove secure Google Business Profile connection flow end-to-end (auth only) while preserving trust model. No review fetching or data merging.
+- **New files:**
+  - `src/lib/connector-store.ts` — server-only token store (`ConnectorToken`, `ConnectorInfo`); atomic writes via temp+rename to `.data/connector-tokens.json`; `getConnectorToken`, `saveConnectorToken`, `updateConnectorToken`, `deleteConnectorToken`, `isTokenExpired`.
+  - `src/lib/connectors/google-auth.ts` — Google OAuth 2.0 helpers; `buildGoogleAuthUrl` (GBP scope, offline access, prompt=consent), `exchangeGoogleCode`, `refreshGoogleAccessToken`, `getRedirectUri`. Env vars: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `NEXT_PUBLIC_APP_URL`.
+  - `src/app/api/connectors/google/callback/route.ts` — OAuth callback handler; exchanges code for tokens, stores via `saveConnectorToken`, redirects to `/settings/connectors` with success/error query params. Handles: user denied, missing code, exchange failure.
+  - `src/app/(shell)/settings/connectors/page.tsx` — server component with `force-dynamic`; reads `getConnectorInfo("google")` → passes to client.
+  - `src/app/(shell)/settings/connectors/connectors-client.tsx` — client component; Connect Google / Disconnect buttons; reads URL search params for error/success feedback; disclosure copy on every state; Yelp placeholder card.
+  - `src/app/(shell)/settings/connectors/actions.ts` — server actions: `getGoogleConnectorStatus`, `getGoogleAuthUrl`, `disconnectGoogle`.
+- **Modified:** `src/app/(shell)/settings/layout.tsx` — added "Connectors" tab between Config and Data.
+- **Tests (20 new):**
+  - `tests/lib/connector-store.test.ts` — 12 tests: CRUD lifecycle, persistence across cache clears, expiration check, update patch, delete survives cache.
+  - `tests/lib/connectors/google-auth.test.ts` — 7 tests: redirect URI defaults + env var + trailing slash stripping; auth URL building with/without state; missing env throws.
+  - `tests/routes/connectors-smoke.test.ts` — 1 test: RSC renders Google section, disconnect state, disclosure copy, Yelp placeholder, manual import note.
+- **Verification:** `npm run typecheck` ✓ · `npm run test` 186/186 ✓ · `npm run build` ✓ (new routes: `/api/connectors/google/callback` ƒ, `/settings/connectors` ƒ).
+
+---
+
+## 2026-04-13 — Track 1.4e: Review connectors sub-spec (SPEC + methodology only)
+
+- **Goal:** Define platform-specific connector architecture for GBP and Yelp that extends 1.4d without breaking the manual-import trust baseline.
+- **Doc:** `docs/TIER_1_4E_REVIEW_CONNECTORS_SPEC.md` — relation to 1.4d (additive, not replacing); supported connectors (GBP primary, Yelp secondary, no others); auth model (GBP OAuth 2.0, Yelp API key, server-only tokens, disconnect flow); data contract per platform (mapping to existing `LocalReview` schema, ID prefixing, no enrichment); ingestion rules (pull-only, snapshot-based, operator-initiated sync, merge-upsert dedup); freshness model (source tagging, no SLA, same 30-day threshold); failure modes (auth failure, partial fetch, API downtime, quota limits — all degrade gracefully to last good snapshot); coverage truth (even with connectors, partial coverage expected); UI disclosures (connected/disconnected states, last synced, may not reflect full data); security (tokens never client-side, encrypted at rest, minimal retention, revoke/delete); FAQ (sync cadence, count mismatch, connection break, manual + connector coexistence); 16 out-of-scope rejections.
+- **UI:** `src/app/(shell)/settings/methodology/page.tsx` — new **`#review-connectors`** `MetricBlock` (supported connectors, key principles, still-not-allowed, connector-era disclosures); cross-link from **`#review-monitoring-v1`** to new anchor; footer link; three new FAQ entries (sync cadence, connector count mismatch, connection break); boundary bullet on full platform coverage even with connectors.
+- **Verification:** `npm run typecheck` ✓ (no logic changes beyond TSX methodology updates).
+
+---
+
+## 2026-04-13 — Track 1.4d: Review monitoring v1 (SPEC + methodology only)
+
+- **Goal:** Lock trust boundaries for review monitoring before any connector work — no implementation.
+- **Doc:** `docs/TIER_1_4D_REVIEW_MONITORING_V1_SPEC.md` — supported sources (Google primary, Yelp secondary, `other` manual); current vs future collection; coverage model; import-based freshness (30-day alignment with `REVIEW_IMPORT_STALE_AFTER_DAYS` / listing-health copy); allowed vs not allowed surfaces; operator guidance; required disclosures; FAQ; hard rules; success criteria.
+- **UI:** `src/app/(shell)/settings/methodology/page.tsx` — new **`#review-monitoring-v1`** `MetricBlock`; cross-link from **`#local-reviews`**; footer link; four new FAQ entries (counts mismatch, auto track, respond, rankings); boundary bullet on automatic ingestion / SLAs.
+- **Verification:** Doc + methodology copy review; `npm run typecheck` ✓ (no logic changes beyond TSX).
+
+---
+
+## 2026-04-13 — Track 1.4 Phase 4: Today + Market surfacing (local snapshot reuse)
+
+- **Goal:** Surface listing health + NAP + review import state on Today (when attention needed) and Market (compact strip), using only `getLocalPresenceSnapshot()` — no new scoring, connectors, or thresholds beyond one stale day constant.
+- **`src/lib/local-presence.ts`:** `REVIEW_IMPORT_STALE_AFTER_DAYS = 30`; `reviewsImportStale`, `deriveReviewImportFreshness`, `deriveNapConsistency`, `napConsistencyDisplay`, `healthTierDisplay`, `buildMarketLocalStripModel`, `shouldShowTodayLocalAttention`, `buildTodayLocalAttention`; exported types `TodayLocalAttention`, `MarketLocalStripModel`, `NapConsistencyLabel`, `ReviewImportFreshness`.
+- **Today:** `loadTodayPageData` sets `localAttentionStrip` (null in demo); `TodayClient` renders `TodayLocalAttentionStrip` after `localUrgentStrip`; `autoFocusPrimary` false when attention strip present.
+- **Market:** `MarketLocalStrip` below `PageHeader` on full Market route (post-import path).
+- **Components:** `today-local-attention.tsx`, `local/market-local-strip.tsx`.
+- **Tests:** `tests/lib/local-presence-attention.test.ts` (visibility + facts + Market model); `tests/components/market-local-strip.test.tsx`, `today-local-attention.test.tsx`; `vitest.config.ts` includes `tests/**/*.test.tsx`.
+- **Verification:** `npm run typecheck` ✓ · `npm run test` 166/166 ✓ · `npm run build` ✓.
+
+---
+
+## 2026-04-13 — Track 1.4 Phase 3: NAP consistency + listing health score
+
+- **Goal:** Replace the simple 3-tier health label with a weighted 0–100 listing health composite; add NAP completeness checks; surface missing identity fields; update methodology.
+- **BusinessConfig:** Added `phone: string` and `address: string` fields (default `""`); backward-compatible with existing `.data/business-config.json` (spread default fills gaps).
+- **`checkNap()`** in `src/lib/local-presence.ts`: Checks 4 NAP fields (name, domain, phone, address); returns `present`, `missing`, `completeness` (0–100%).
+- **`computeListingHealth()`** in `src/lib/local-presence.ts`: 7-component weighted composite (domain 25, name 15, phone 10, address 10, reviews 15, avg rating 15, freshness 10). Tier: `weak` <35, `ok` 35–64, `strong` ≥65. Pure function, tested.
+- **`LocalPresenceSnapshot`:** Now includes `healthScore` (number 0–100), `healthTier` (label), `healthBreakdown` (full component list), `nap` (NapStatus). Old `healthScore: "weak"|"ok"|"strong"` replaced.
+- **`/local` page:** "Listing identity" section shows NAP fields present + completeness %. "Listing health" section: 0–100 score + tier badge + per-component bar chart + missing-field nudge linking to Config. Methodology link to `#listing-health`.
+- **Config form:** `phone` and `address` inputs added between domain and industry.
+- **`saveSetup` action:** Accepts optional `phone`, `address`; passes through to `saveBusinessConfig`.
+- **Methodology:** New `MetricBlock id="listing-health"` with weight table, tier thresholds, NAP disclaimer; FAQ entry "What does the listing health score measure?"; observed-signals card includes NAP configured fields.
+- **Tests:** `checkNap` (3 cases: all set, partial, empty), `computeListingHealth` (5 cases: zero, perfect, partial freshness, stale freshness, rating scaling), snapshot integration tests updated for `healthTier`/`healthScore`/`nap`. Local smoke test updated for new section headings.
+- **Verification:** `npm run typecheck` ✓ · `npm run test` 153/153 ✓ · `npm run build` ✓.
+
+---
+
+## 2026-04-12 — Track 1.4 Phase 2C: Methodology + proof copy for local reviews (spec §6)
+
+- **Goal:** Ship operator-defensible methodology for manual review import and `/local` metrics (no completeness or live-sync claims).
+- **`src/app/(shell)/settings/methodology/page.tsx`:** Overview bullet for optional **Local reviews** (manual CSV/JSON, link to `/local`). New **`MetricBlock id="local-reviews"`** — import-only counts; sentiment from **average star rating only**; bullets on no ranking / no competitor comparison / staleness; **Observed signals** + **does not know** (import vs live profile); FAQ on how counts/sentiment are derived; footer link to **Local presence**.
+- **`src/app/(shell)/local/page.tsx`:** Methodology link target **`/settings/methodology#local-reviews`** (anchor matches `MetricBlock` id).
+- **Verification:** `npm run typecheck` ✓ · `npm run test` 142/142 ✓ · `npm run build` ✓.
+
+---
+
+## 2026-04-12 — Track 1.4 Phase 2B: Manual local review import + `/local` derivation
+
+- **Goal:** Implement v1 manual local-review read path per `TIER_1_4_PHASE_2_LOCAL_REVIEW_READ_PATH_SPEC.md` — no connector, no NLP, no fake data.
+- **Types & store:** `src/lib/local-reviews-types.ts` (`LocalReview`, `LocalReviewSource`, `LocalSentimentBand`); `src/lib/local-reviews-store.ts` (`readLocalReviews`, `writeLocalReviews`, `mergeUpsertLocalReviews` → `writeStore("local-reviews")`).
+- **Import:** `src/lib/import/review-mapper.ts` — `mapLocalReviewRow` (id, source, rating, created_at + optional fields; validation per spec). `ImportEntityType` + `IMPORT_COLUMN_DOCS.reviews`; `executeImport` branch: batch dedupe by id (last wins), merge upsert, logs **Local reviews import started / completed / failed**; skips outcome/milestone dual-write for reviews; `revalidatePath("/local")`. `previewImport` + `getMapper` support. `clearImportedData` / `clearEntityData` / `resetExperiment` clear `local-reviews`.
+- **Persistence fix:** `json-store` `atomicWrite` now `cache.set(name, data)` after disk write so reads stay consistent with writes.
+- **Derivation:** `getLocalPresenceSnapshot()` reads imported reviews + `import-runs` for last reviews import timestamp; `sentimentBand` (positive ≥4.0, mixed ≥3.0 and under 4.0, concerning under 3.0), `reviewImportAgeDays`, staleness framing.
+- **UI:** `/local` — empty “No review data yet” + link to Import; populated count, avg, signal line, last import, staleness; disclosure updated. Import page — entity **Local reviews (manual)**, callout, success/error panel, link to `/local`.
+- **Tests:** `tests/lib/import/review-mapper.test.ts`, `tests/lib/local-reviews-store.test.ts`; isolation `writeStore("local-reviews", [])` in presence + smoke `beforeEach`.
+- **Verification:** `npm run typecheck` ✓ · `npm run test` 142/142 ✓ · `npm run build` ✓.
+
+---
+
+## 2026-04-12 — Track 1.4 Phase 2A: Local review read-path spec
+
+- **Goal:** Lock the v1 local-review data contract and ingestion path so `/local` can move from placeholder review state to real imported review signals. Decision + spec task only — no code changes.
+- **Decision:** Manual CSV/JSON import (Option A). Connector deferred — no OAuth, no API quotas, no connector maintenance. Existing import pipeline (`src/lib/import/`) is a proven pattern; extending to `"reviews"` entity type is low-risk.
+- **Contract:** `LocalReviewRecord` with 4 required fields (`id`, `source`, `rating`, `created_at`) and 5 optional fields (`review_text`, `reviewer_name`, `listing_name`, `review_url`, `location_id`). Source restricted to: `google`, `yelp`, `bbb`, `houzz`, `other`. Rating: 1–5. Created_at: parseable date, no future dates.
+- **Import:** CSV/JSON via existing pipeline. Dedup by `id` (upsert). Partial import allowed. Store: `"local-reviews"` via `readStore`/`writeStore`.
+- **Derived metrics:** `hasReviews` (count > 0), `reviewCount`, `avgRating` (1 decimal), sentiment band (Positive >= 4.0, Mixed >= 3.0, Concerning < 3.0 — from avg only, no NLP). Health auto-promotes `ok` → `strong` when reviews present. Freshness: staleness warning at 30d and 90d since last import.
+- **Trust boundaries:** No ranking claims, no completeness claims, no sentiment analysis claims, no competitive comparison, no freshness guarantees. All statistics qualified as "imported" data.
+- **Implementation handoff:** 1 new file (`review-mapper.ts`), 5 files to modify, 2 test files to create. Order: types → mapper → pipeline wiring → derivation → UI → docs.
+- **Not in scope:** Reply flows, alerts, NLP, ranking claims, connector, background refresh, competitor benchmarking.
+- **Verification:** Spec completeness: all 8 sections present. Source decision: clear. Contract: explicit. Trust boundaries: explicit. No code changed.
+- **Spec:** `docs/TIER_1_4_PHASE_2_LOCAL_REVIEW_READ_PATH_SPEC.md`
+
+---
+
+## 2026-04-12 — Track 1.5: Milestone system polish (celebration proportionality, dedupe, noise cap, exit gate)
+
+- **Goal:** Polish milestones with celebration proportionality, noise control, dedupe hardening, Today teaser enrichment, and exit gate verification — closing Track 1.5d/e/f/g.
+- **Magnitude classification (1.5d):**
+  - Added `MilestoneMagnitude = "major" | "minor"` to `src/domains/milestones/types.ts`.
+  - `classifyMagnitude()` in `src/domains/milestones/apply.ts`: first-time events (`topic_first_top3`, `topic_first_rank1`) always major; improvement >= 20% over previous peak = major; otherwise minor. New key with no previous value = major.
+  - `peakToEvent()` now accepts `prevValue` parameter and tags every event with magnitude.
+- **Same-key-same-day dedupe (1.5e):**
+  - In `applyMilestoneSync`, before emitting an event for an improved peak, checks if `state.events` already contains an event with the same `key` and same calendar day (`achievedAt` date portion). If so, peak value is updated silently but no duplicate event is emitted.
+- **Weekly noise cap (1.5f):**
+  - `pickTodayMilestoneTeaser()` in `src/domains/milestones/surface.ts`: major milestones always surface. When 3+ minor events exist in the past 7 days, minor candidates are suppressed; falls back to a recent major if one exists within 14 days, otherwise returns `null`.
+- **Today teaser enrichment:**
+  - `TodayMilestoneTeaser` type updated with `magnitude?: "major" | "minor"`.
+  - `today-data.ts` passes `magnitude` through serialization.
+  - `today-visibility-snapshot.tsx`: teaser now shows subtitle (after title, muted), relative date ("2d ago"), and magnitude-aware styling (major: accent border-left + semibold title; minor: current compact style).
+- **Changes list collapse:**
+  - `src/app/(shell)/changes/page.tsx`: first 5 milestones visible, rest collapsed behind `<details>` "N more milestones". Magnitude-aware border styling on each event.
+- **Exit gate 1.5g verified:**
+  - ATH truthful: all peaks computed from real `Result[]`, `CitationEvidenceIndex`, `CompetitorRankEntry[]`. Every peak has `proofSummary` grounded in measurement dates.
+  - Deduped: bootstrap suppression + `SILENT_FIRST_KEY` + monotonic value + same-day guard + 150 event cap + weekly noise cap.
+  - Linked to proof: every event has `proofSummary`, Today links to Changes, Changes shows full proof + date.
+- **Tests:** 21 new tests (132 total): `classifyMagnitude` (7), `applyMilestoneSync` magnitude + dedupe (4), `pickTodayMilestoneTeaser` noise cap (7), `filterMarketMilestones` (2), existing (1 updated for `achievedAt` param).
+- **Verification:** `npm run typecheck` ✓ · `npm run test` 132/132 ✓ · `npm run build` ✓.
+- **Files changed:** `src/domains/milestones/types.ts`, `src/domains/milestones/apply.ts`, `src/domains/milestones/surface.ts`, `src/components/today/today-visibility-snapshot.tsx`, `src/app/(shell)/today-client.tsx`, `src/app/(shell)/today-data.ts`, `src/app/(shell)/changes/page.tsx`, `tests/domains/milestones/apply.test.ts`, `tests/domains/milestones/surface.test.ts` (new).
+
+---
+
+## 2026-04-12 — Track 1.4 Phase 1: Local presence read-path (`/local`)
+
+- **Goal:** Trust-aligned local surface (GBP + reviews framing) answering visibility, listing health, and reviews — read-only, derived signals only; no integrations, writes, or alerts.
+- **Route:** `src/app/(shell)/local/page.tsx` — static **`/local`**; `PageHeader` “Local presence”; blocks for listing status (Present / Not detected from trimmed `business-config` domain), health (Weak / OK / Strong with explanations), reviews (“Not connected yet” — no fake numbers); collapsed `<details>` “How this works” + link to `/settings/methodology`.
+- **Derivation:** `src/lib/local-presence.ts` — `getLocalPresenceSnapshot()` returns `{ hasListing, hasReviews, reviewCount, avgRating, healthScore }`. Rules: `hasListing` = `Boolean(domain.trim())`; `hasReviews` = `false`, `reviewCount`/`avgRating` = `null` (placeholder); `healthScore` = `weak` if `!hasListing`, else `ok` if `!hasReviews`, else `strong` (strong reserved for future when reviews connected).
+- **Navigation:** `src/lib/navigation.ts` — **Local** between Market and Changes (`MapPin`); `NAV_SHORTCUTS` **`G L`** in `layout.tsx` + `app-sidebar.tsx`.
+- **Tests:** `tests/lib/local-presence.test.ts` (placeholder + health alignment); `tests/routes/local-smoke.test.ts` (RSC smoke).
+- **Not in scope:** API calls, Google integration, persistence beyond existing business config, scoring engine, alerts, estimated ratings.
+- **Verification:** `npm run typecheck` ✓ · `npm run test` 111/111 ✓ · `npm run build` ✓ (19 static + 4 dynamic).
+- **Docs:** `HANDOFF_VERIFIED_STATE.md`, `NEXT_PHASE_EXECUTION_PLAN.md`, `VERIFICATION_LOG.md` (this entry), `architecture.md`, `master_execution_plan.md` (Track 1.4 note).
+
+---
+
+## 2026-04-12 — Proof layer: Layer-2 disclosures (Market + Changes)
+
+- **Goal:** In-context collapsed methodology so operators can expand “how this works” on `/competitors` and `/changes` without leaving the workflow. Bounded UI + shared copy only.
+- **Implementation:**
+  1. **`src/lib/beacon-proof-copy.ts`** — Added `LAYER2_MARKET_METHODOLOGY_BULLETS` (4 bullets: Citation Share denominator, tracked prompts / sampled citations, sample quality, directional not census) and `LAYER2_CHANGES_METHODOLOGY_BULLETS` (4 bullets: strongest correlate ≠ causation, reused `BEACON_METHODOLOGY.attribution`, match/topic/window framing, stale/partial coverage softening). No new vocabulary beyond methodology alignment.
+  2. **`src/app/(shell)/competitors/page.tsx`** — After KPI + scope/coverage lines, added `<details>` summary **“How this works”** with bullet list + `Link` to `/settings/methodology#citation-share` (“Full methodology: Citation Share & sample quality →”). Collapsed by default, `text-[11px]`, no card/banner.
+  3. **`src/app/(shell)/changes/page.tsx`** — On Outcomes tab, after “At a glance” block and before Milestones, added `<details>` summary **“How verdicts work”** with bullet list + `Link` to `/settings/methodology#verdicts` (“Full methodology: verdicts & correlates →”). Same lightweight styling.
+- **Not changed:** No new routes, schema, derivation, tooltips, or layout redesign.
+- **Verification:** `npm run typecheck` ✓ · `npm run test` 107/107 ✓ · `npm run build` ✓.
+- **Docs:** `HANDOFF_VERIFIED_STATE.md`, `NEXT_PHASE_EXECUTION_PLAN.md`, `VERIFICATION_LOG.md` (this entry).
+
+---
+
+## 2026-04-12 — Tier 1.1i: Coverage escalation (v1 implementation)
+
+- **Goal:** Implement a coverage-state system so Beacon never presents stale or partial data as complete truth. UI + derivation wiring only — no new data, schema, or scoring changes.
+- **Scope:** 3 states (fresh, stale, partial) — "aging" deferred for v1.
+- **Changes made:**
+  1. **New helper:** `src/lib/coverage-state.ts` — exports `CoverageState` type, `deriveCoverageState()`, and `coverageWarningLine()`.
+     - **Derivation rules:** partial if `sampleQualityTier === "limited"` · stale if `crawlAgeDays > 3` OR `visibilityStaleVsCrawl === true` · fresh otherwise. Precedence: partial > stale > fresh.
+  2. **Today (visibility snapshot + client):**
+     - `today-client.tsx`: computes `coverageState` from `crawlAgeDays`, `visStale`, and `sampleQualityTierFromObservationCount(proofContext.resultsRowCount)`. Passes to `TodayVisibilitySnapshot` and `TodayFindings`.
+     - `today-visibility-snapshot.tsx`: accepts `coverageState` prop. When state is stale or partial AND the existing coverage/freshness warning block is NOT showing (i.e. no `crawlStale`/`visStale`/`coverageTone === "partial"`), renders a subtle inline warning line above the proof block. Stale: "Data may be outdated — refresh recommended." Partial: "Limited coverage — based on a small sample."
+  3. **Findings:**
+     - `today-findings.tsx`: `FindingRow` accepts optional `coverageState` prop. When stale, appends "(may be outdated)" to the provenance line on each finding row.
+  4. **Market:**
+     - `competitors/page.tsx`: computes `marketCoverageState` from observation count. When partial, appends "(limited sample)" to the directional scope line. When stale, shows "Data may be outdated" below the KPI strip.
+  5. **Changes (page + scorecard + detail):**
+     - `changes/page.tsx`: computes `changesCoverageState`. When partial, softens "strong-evidence impact" → "limited-evidence impact" in the At a Glance block. Appends coverage warning inline to the stats strip.
+     - `scorecard-client.tsx`: `ScorecardTable` and `ScorecardRowUI` accept `coverageState` prop. When stale, appends "(stale)" after confidence badge. When partial + high confidence, appends "(limited)".
+     - `changes/[id]/page.tsx`: computes `changeCoverageState`. Appends qualifier next to confidence badge in impact assessment. Shows coverage warning line under the assessment when non-fresh.
+- **Tests:**
+  - `tests/lib/coverage-state.test.ts` — 13 new unit tests covering all derivation rules (fresh defaults, partial from limited sample, stale from crawl age, stale from visibility mismatch, partial precedence over stale, boundary at exactly 3 days, null/undefined handling) + `coverageWarningLine` (null for fresh, warning strings for stale/partial).
+- **Not changed:** Scoring, attribution, recommendations, pattern detection, persistence, schema, architecture, Today layout, keyboard shortcuts, replication engine. No new routes. No blocking UI or banners.
+- **Files changed:**
+  - `src/lib/coverage-state.ts` (created)
+  - `src/app/(shell)/today-client.tsx`
+  - `src/components/today/today-visibility-snapshot.tsx`
+  - `src/components/today/today-findings.tsx`
+  - `src/app/(shell)/competitors/page.tsx`
+  - `src/app/(shell)/changes/page.tsx`
+  - `src/app/(shell)/changes/scorecard-client.tsx`
+  - `src/app/(shell)/changes/[id]/page.tsx`
+  - `tests/lib/coverage-state.test.ts` (created)
+- **Verification:** `npm run typecheck` ✓ · `npm run test` 107/107 ✓ · `npm run build` ✓ (18 static + 4 dynamic routes).
+- **Docs updated:** `HANDOFF_VERIFIED_STATE.md`, `NEXT_PHASE_EXECUTION_PLAN.md`, `VERIFICATION_LOG.md` (this entry).
+
+---
+
+## 2026-04-12 — Track 1.3 Phase 2: Replication queue structure + experiment linkage
+
+- **Goal:** Turn replication from descriptive cards into a clear execution pathway: what to repeat, where, and how to track it — without new logic, scoring, or persistence.
+- **Scope:** IA + wiring + clarity only. Reuse existing experiment action. No new data models.
+- **Changes made:**
+  1. **Queue-like card structure** — Each `ReplicationCard` now carries `targetingSummary` (derived from common path prefix of target URLs, e.g. "Relevant to /locations/* pages (3)" or "Across 3 similar pages") and `actionVerb` (derived from pattern name: "Add FAQ blocks", "Add structured data", "Apply {pattern} pattern", or generic "Apply similar structural changes"). These appear in the collapsed card header as a clear What → Do → Where line.
+  2. **Experiment CTA repositioned** — "Try as experiment →" is now the primary per-target action (styled as a small bordered button with success accent), placed directly under each target row instead of buried at the bottom of the expanded panel. Reuses existing `respondToRecommendation` + `startExperimentAction` wiring — no new experiment logic.
+  3. **Observed/Inferred collapsed** — The evidence breakdown (previously always expanded) is now behind a `<details>` element ("Evidence details") so the card focuses on actionability, not provenance. Still accessible for advanced users.
+  4. **Vague card suppression** — Cards where no pattern name exists AND total citation opportunity across all targets is zero are now filtered before card creation. These cards cannot answer "where" or "why" meaningfully.
+  5. **Similarity reasons compact** — Target rows now show only the first similarity reason inline, with a "+N more" indicator if additional reasons exist, reducing visual noise.
+- **New fields (engine → serializer → client):**
+  - `ReplicationCard.targetingSummary: string` — derived, no persistence
+  - `ReplicationCard.actionVerb: string` — derived, no persistence
+  - `SerializedReplicationCard.targetingSummary` / `.actionVerb` — pass-through
+- **Helper functions (engine, internal):**
+  - `deriveTargetingSummary(targets)` — groups by common path prefix or falls back to "Across N similar pages"
+  - `commonPathPrefix(paths)` — finds longest shared directory prefix
+  - `deriveActionVerb(recType, patternName)` — maps pattern names to short human-readable actions
+- **Files changed:**
+  - `src/domains/product/replication-engine.ts` — added `targetingSummary`, `actionVerb` fields to `ReplicationCard` type; added `deriveTargetingSummary()`, `commonPathPrefix()`, `deriveActionVerb()` helper functions; wired into `buildReplicationCards` and `buildPromisingReplicationCards`; added vague-card suppression filter
+  - `src/domains/product/replication-serialize.ts` — added `targetingSummary`, `actionVerb` to `SerializedReplicationCard` type and serializer output
+  - `src/components/replication/replication-cards-client.tsx` — restructured card layout: collapsed header shows headline + actionVerb + targetingSummary; experiment CTA repositioned as primary per-target action ("Try as experiment →"); Observed/Inferred moved into `<details>`; similarity reasons compacted
+- **Not changed:** Replication engine scoring, pattern detection, qualification tiers, recommendation-engine, experiment-store, persistence, Today layout, Changes page structure, test suite.
+- **Verification:** `npm run typecheck` ✓ · `npm run test` 94/94 ✓ · `npm run build` ✓ (18 static + 4 dynamic routes).
+- **Docs updated:** `HANDOFF_VERIFIED_STATE.md`, `NEXT_PHASE_EXECUTION_PLAN.md`, `VERIFICATION_LOG.md` (this entry).
+
+---
+
+## 2026-04-12 — Track 1.2 Phase 3: Today keyboard path (minimal shortcuts + focus)
+
+- **Goal:** Make Today fast to operate: primary focus target, navigable findings, minimal shortcuts — no global shortcut system.
+- **Scope:** Light interaction + wiring only on Today; no new components beyond a tiny shared helper.
+- **Shortcuts:** **A** (letter) focuses the primary CTA (`primaryFocusRef` on first Accept / Go / next-move link); ignored when `meta`/`ctrl`/`alt` held or when focus is in `input`, `textarea`, `select`, or `[contenteditable=true]`. **J** / **K** move focus among visible finding rows (same order as UI: actionable groups, then low-priority when expanded); only registered when `navigableRows.length > 0`. No shortcut UI, no settings, no Escape binding in this phase (per scope: 2–3 affordances only).
+- **Findings:** Each row wrapper is `tabIndex={0}` with `data-today-finding-row={id}`, `focus-visible` ring; **Enter** activates the first enabled `button` in the row, else first `a[href]` (e.g. crawl proof link).
+- **Primary CTA:** `autoFocus` on the main primary button/link when `autoFocusPrimary` (`!isDemoMode && !localUrgentStrip`); skipped when local urgent strip precedes primary in tab order to avoid focus fights. Focus-visible rings on primary actions.
+- **Helper:** `src/lib/keyboard-shortcut-scope.ts` — `isKeyboardTypingTarget()`; safe when `Element` is undefined (non-DOM test env).
+- **Test harness:** `vitest.config.ts` — `fileParallelism: false`, `testTimeout: 30_000` to stop intermittent timeouts on parallel dynamic imports of heavy App Router pages (unrelated logic; stabilizes `npm run test` gate).
+- **Files changed:** `src/app/(shell)/today-client.tsx`, `src/components/today/today-primary-action.tsx`, `src/components/today/today-findings.tsx`, `src/lib/keyboard-shortcut-scope.ts`, `tests/lib/keyboard-shortcut-scope.test.ts`, `vitest.config.ts`
+- **Verification:** `npm run typecheck` ✓ · `npm run test` 94/94 ✓ · `npm run build` ✓
+- **Docs updated:** `HANDOFF_VERIFIED_STATE.md`, `NEXT_PHASE_EXECUTION_PLAN.md`, `VERIFICATION_LOG.md` (this entry).
+
+---
+
+## 2026-04-12 — Track 1.3 Phase 1: Replication engine refinement (language, hierarchy, evidence framing)
+
+- **Goal:** Turn replication from a passive summary into a clear, actionable system that reinforces operator confidence without adding noise. Fix all causal/guarantee language. Ensure replication is secondary on Today.
+- **Scope:** Copy + visibility refinement only — no new logic, no new scoring, no new UI components.
+- **Changes made:**
+  1. **Replication engine copy (critical fixes)** — `src/domains/product/replication-engine.ts`:
+     - "Winner change" → "Source change" in all references
+     - "Replicate: {pattern}" → "Observed pattern: {pattern}" (evidence-framed headline)
+     - "Strong pattern → N ready target(s)" → "Validated pattern across N similar pages" (no "ready" certainty)
+     - "Ship the same structural moves that worked on the winner" → "Consider applying the same structural elements" (advisory, not causal)
+     - "Winner qualification" → "Source qualification" in card observed lines
+     - "Promising trial → scale:" → "Promising experiment:" (no "scale" certainty)
+     - "candidate to repeat on similar pages" → "worth repeating based on observed patterns"
+     - "soft replication signal" → "early replication signal"
+     - "apply the same structural package" → "consider applying similar structural changes"
+  2. **Replication cards client** — `src/components/replication/replication-cards-client.tsx`:
+     - "Replicate winners" heading → "Similar patterns observed"
+     - "Confidence: high/medium/low" → "Evidence: strong/moderate/early"
+     - "Winner change →" link → "Source change →"
+     - "Tracking replication on this target" → "Now tracking this target"
+  3. **Changes page** — `src/app/(shell)/changes/page.tsx`:
+     - Replicate tab intro rewritten: "Tier 1B replication: validated or strong-evidence partial winners…" → "Patterns observed across validated changes and promising experiments…outcomes not guaranteed."
+     - Empty state: "lock a few validated changes" → "validate a few changes on the Outcomes tab"
+     - "N replication targets" stat → "N similar-pattern targets"
+     - "winner change" link → "source change"
+     - "Replication lineage" label → "Pattern lineage"
+  4. **Changes detail page** — `src/app/(shell)/changes/[id]/page.tsx`:
+     - "Apply this pattern" → "Similar pattern observed"
+     - Added "worth considering based on observed patterns" to framing copy
+  5. **Today visibility snapshot** — `src/components/today/today-visibility-snapshot.tsx`:
+     - "N replication targets" → "Similar patterns observed · N pages →"
+     - Added evidence context to the compact link
+  6. **Scorecard badge** — `src/app/(shell)/changes/scorecard-client.tsx`:
+     - "N replicable" badge → "N similar"
+- **Not changed:** Replication engine logic (qualification tiers, target selection, blocking, scoring), experiment store, recommendation types, route structure, Today layout order, test suite.
+- **Verification:** `npm run typecheck` ✓ · `npm run test` 90/90 ✓ · `npm run build` ✓ (18 static + 4 dynamic routes).
+- **Docs updated:** `HANDOFF_VERIFIED_STATE.md`, `NEXT_PHASE_EXECUTION_PLAN.md`, `VERIFICATION_LOG.md` (this entry).
+
+---
+
+## 2026-04-12 — Track 1.2 Phase 2: Operator loop (Inbox Zero + digest + action clarity)
+
+- **Goal:** Define and implement the operator loop: what "done for the day" means, how Beacon communicates unfinished work, how fast an operator can move.
+- **Scope:** Behavior + light UX refinement — no new features, no backend changes, no new routes.
+- **Changes made:**
+  1. **Inbox Zero definition formalized** — `src/lib/today-ritual.ts` now contains the formal rule as a code comment: operator is "done" when (a) no primary action remains unhandled, (b) no critical/important findings remain, (c) no urgent coverage issues, (d) not in demo mode. `shouldShowTodayAllClear` logic unchanged — already matched this definition.
+  2. **`computeTodayDigest()` added** — new pure function in `today-ritual.ts`. Returns `{ criticalWorkDone: boolean, line: string | null }`. Computes a single-line remaining-work summary from system state. Examples: "1 action remaining · 2 findings to review", "All critical work complete · 4 optional items remain", or `null` when all clear.
+  3. **Digest line wired into Today** — `today-client.tsx` computes actionable vs low-priority finding counts, calls `computeTodayDigest()`, renders the line between primary action and findings. Line uses green text when `criticalWorkDone`, default muted otherwise. Negative top margin (`-mt-2`) keeps it visually connected to the action card above.
+  4. **All Clear copy tightened** — `today-visibility-snapshot.tsx`: "Nothing needs your attention" → "You're clear. Nothing needs your attention." Feels more earned and definitive.
+  5. **`nextMove` fallback card demoted** — `today-primary-action.tsx`: the fallback card (when no recommendation exists) now uses a lighter outline button instead of the same filled black button as the primary action. Added "Suggested next" label. Reduced font sizes. Eliminates visual competition.
+  6. **8 new tests** — `tests/lib/today-ritual.test.ts`: covers `computeTodayDigest` for allClear, action pending, findings count, combined state, optional items, singular/plural, accepted primary not counting as pending.
+- **New render order (unchanged from Phase 1):** Scan strip → Primary action → **Digest line** → Findings queue → Coverage/freshness → Inbox Zero → Milestone + replication → HowWeKnowPanel → System line.
+- **Inbox Zero contract:**
+  - "You're clear. Nothing needs your attention." — only shown when earned (same conditions as before, no regression from 2B-5).
+  - Demo mode: never shows all clear (unchanged).
+  - Partial/stale coverage: never shows all clear (unchanged).
+- **Files changed:**
+  - `src/lib/today-ritual.ts` — formalized Inbox Zero definition, added `computeTodayDigest()` + `TodayDigest` type
+  - `src/app/(shell)/today-client.tsx` — imports `computeTodayDigest`, computes actionable/low-priority counts, renders digest line
+  - `src/components/today/today-visibility-snapshot.tsx` — All Clear copy update
+  - `src/components/today/today-primary-action.tsx` — `nextMove` fallback card demoted to lighter visual weight
+  - `tests/lib/today-ritual.test.ts` — 8 new tests for `computeTodayDigest`
+- **Not changed:** `shouldShowTodayAllClear` logic, `TodayFindings`, `HowWeKnowPanel`, `TodayScanStrip`, `today-data.ts`, `page.tsx`. No new routes, no backend changes, no schema changes.
+- **Verification:** `npm run typecheck` ✓ · `npm run test` 90/90 ✓ · `npm run build` ✓ (18 static + 4 dynamic routes).
+- **Docs updated:** `HANDOFF_VERIFIED_STATE.md`, `NEXT_PHASE_EXECUTION_PLAN.md`, `VERIFICATION_LOG.md` (this entry).
+
+---
+
+## 2026-04-12 — Track 1.2 Phase 1: Daily ritual perfection (Today tightening)
+
+- **Goal:** Tighten Today into a true daily operating surface — clear, decisive, low-noise, single-action focused.
+- **Scope:** Behavior + UX refinement only — no new features, no domain logic, no schema changes.
+- **Changes made:**
+  1. **Primary action promoted to #1 position** — `TodayPrimaryAction` now renders immediately after scan strip (was below findings + HowWeKnowPanel + morning-order text). Undeniable, visually dominant.
+  2. **Findings queue with low-priority collapse** — Critical and Important findings always expanded. Minor and Informational findings collapsed behind a "N lower-priority items → Show" button. When only low-priority findings exist, they expand by default. Header text tightened to reflect actionable count only.
+  3. **"Morning order" instructional text removed** — The `<p>` with "Morning order: clear scan findings → act on the top move..." was noise competing with the action card. Removed entirely.
+  4. **Milestone teaser collapsed** — Was a full card with title, subtitle, proof summary, date, link. Now a compact inline line: title + "Changes →" link. Moved below all-clear block.
+  5. **Replication summary compact** — Moved into the same compact line area as milestone. Shows "N replication targets" link only.
+  6. **HowWeKnowPanel moved to bottom** — Was the first thing rendered (hero position). Now renders below action/findings/coverage as a reference `<details>` element (already collapsed by default).
+  7. **System line tightened** — Removed "Details →" link to `/settings/health`. Kept scan age, visibility fresh/stale, pending review count.
+  8. **`TodayVisibilitySnapshot` refactored** — No longer uses `children` prop / wrapper pattern. Now receives `milestoneTeaser` and `replicationSummary` as direct props. Cleaner composition.
+- **New render order (non-demo):** Scan strip → Primary action → Findings queue → Coverage/freshness strip → All clear → Milestone + replication (compact) → HowWeKnowPanel → System line.
+- **All Clear logic:** Unchanged. `shouldShowTodayAllClear` in `src/lib/today-ritual.ts` — same conditions, same demo-mode guard. No regressions from 2B-5.
+- **Files changed:**
+  - `src/app/(shell)/today-client.tsx` — reordered component composition, removed children-wrapping of TodayVisibilitySnapshot
+  - `src/components/today/today-visibility-snapshot.tsx` — refactored from children-wrapper to flat component; milestone/replication as props; removed morning-order text; removed `ReactNode` children prop
+  - `src/components/today/today-findings.tsx` — added `useMemo`/`useState` for priority grouping; low-priority collapse with expand button; header text reflects actionable count
+- **Not changed:** `shouldShowTodayAllClear` logic, `TodayPrimaryAction` component internals, `HowWeKnowPanel`, `TodayScanStrip`, `today-data.ts`, `page.tsx`.
+- **Verification:** `npm run typecheck` ✓ · `npm run test` 82/82 ✓ · `npm run build` ✓ (18 static + 4 dynamic routes).
+- **Docs updated:** `HANDOFF_VERIFIED_STATE.md`, `NEXT_PHASE_EXECUTION_PLAN.md`, `VERIFICATION_LOG.md` (this entry).
+
+---
+
 ## 2026-04-12 — `/settings/methodology` route (1.1c follow-through)
 
 - **Goal:** Create the methodology destination page defined in 1.1c so all Layer 2/3 disclosure links have a real target.

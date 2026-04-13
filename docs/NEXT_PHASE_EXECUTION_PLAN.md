@@ -5,8 +5,8 @@
 >
 > **NOT FOR:** System architecture (→ `architecture.md`), historical phase details (→ `master_execution_plan.md`), verification proof (→ `VERIFICATION_LOG.md`).
 
-**Last updated:** 2026-04-12
-**Current status:** **Launch Phases 0–5 COMPLETE. Tier 1.1 — Proof layer: COMPLETE.** **1.1a–j done** (2026-04-12). Copy sweep done. **`/settings/methodology` shipped** (2026-04-12): 5-section destination + L3 links from HowWeKnowPanel / Market / Changes. **Remaining 1.1-adjacent work:** coverage escalation wiring (1.1i). Next: **Track 1.2**. Full nano-phase breakdown: `master_execution_plan.md` §"Tiered product stack — research-led nano-phases (1.1a–2.3h)".
+**Last updated:** 2026-04-13
+**Current status:** **Launch Phases 0–5 COMPLETE. Tier 1.1 + 1.1i + 1.1j COMPLETE** (1.1i: `coverage-state.ts` aging/critical; **1.1j 2026-04-13:** proof-layer copy + `/settings/methodology` completeness + cross-surface phrasing + FAQ). **Track 1.2 Phases 1–3 COMPLETE. Track 1.3 Phases 1–2 COMPLETE. Track 1.4 Phases 1–4 + 1.4e + 1.4f–g + per-source `/local` last sync COMPLETE.** Track 1.4d SPEC COMPLETE (written spec + **1.4e** copy aligned with shipped connectors). Track 1.2/1.3 exit-gate persistence shipped. **`lastSync`** on `LocalPresenceSnapshot`; methodology `#review-source-timestamps`. **280 tests.** **Next:** **Track 1.4h–k**, **Tier 2**, or **1.2h / 1.3h** dogfood. Full nano-phase breakdown: `master_execution_plan.md` §"Tiered product stack — research-led nano-phases (1.1a–2.3h)".
 **Overall score:** 53/100. Launch readiness: 38/100 → 72/100 after Phases 0–3 safety + settings coherence.
 
 ---
@@ -195,7 +195,7 @@ These are **research-led nano-phases** — each is a mini-prompt slice, not a mo
 
 | Track | Focus | Key deliverables | Exit gate |
 |-------|-------|-------------------|-----------|
-| 1.1 | Proof layer | Methodology shell, confidence lexicon, lineage fields, adversarial FAQ | 1.1j signed off |
+| 1.1 | Proof layer | Methodology shell, confidence lexicon, lineage fields, adversarial FAQ | **1.1j signed off (2026-04-13)** |
 | 1.2 | Daily ritual | Inbox-zero definition, digest channel, assignment model, keyboard path | 1.2h signed off |
 | 1.3 | Replication engine | Winner definition v2, pattern gap analysis, queue IA, experiment linkage | 1.3h signed off |
 | 1.4 | Local listings/reviews | GBP read-path, health score, review monitoring, NAP checks | 1.4l signed off |
