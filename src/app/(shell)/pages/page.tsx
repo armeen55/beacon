@@ -1,7 +1,9 @@
+import Link from "next/link";
 import {
   results,
   changelogEntries,
   opportunities,
+  hasActiveExperiment,
 } from "@/lib/seed-data.server";
 import { eventDecisions } from "@/domains/attribution/store";
 import {
@@ -86,6 +88,45 @@ type PageNextMove =
   | "no_action";
 
 export default function PagesPage() {
+  // Same signal as Today / shell demo mode (Phase 2A): no import runs ⇒ sample workspace, not operator Pages.
+  const isDemoMode = !hasActiveExperiment();
+  if (isDemoMode) {
+    return (
+      <div className="max-w-5xl">
+        <div className="mb-6">
+          <h2 className="text-lg font-semibold tracking-tight">Pages</h2>
+          <p className="mt-1 text-sm text-muted-foreground leading-relaxed">
+            Health, citations, and the next step for each URL.
+          </p>
+          <p className="mt-2 text-xs text-muted-foreground/90 leading-relaxed border-l-2 border-border/60 pl-3">
+            {pagesProofSubtitle()}
+          </p>
+        </div>
+        <section
+          className="rounded-lg border border-border/60 bg-surface-inset/30 px-5 py-5"
+          aria-labelledby="pages-import-empty-heading"
+        >
+          <h2
+            id="pages-import-empty-heading"
+            className="text-[13px] font-semibold text-foreground tracking-tight"
+          >
+            Import your data to see your real page list
+          </h2>
+          <p className="mt-2 text-[13px] leading-relaxed text-muted-foreground">
+            Pages is built from your imported registry, crawl snapshots, and citation rollup. Until you
+            import, this workspace shows sample URLs for orientation only — not your site.
+          </p>
+          <Link
+            href="/settings/import"
+            className="mt-4 inline-flex text-[13px] font-semibold text-accent-primary underline underline-offset-2 hover:text-accent-primary/85"
+          >
+            Go to Import →
+          </Link>
+        </section>
+      </div>
+    );
+  }
+
   const siteDomain = getSiteConfig().siteDomain;
   // ── Load data ──
   const ownedPages = allPages.filter((p) => p.is_owned);

@@ -25,6 +25,8 @@ export type MilestonePeakRow = {
   meta?: Record<string, unknown>;
 };
 
+export type MilestoneMagnitude = "major" | "minor";
+
 export type MilestoneEvent = {
   id: string;
   kind: MilestoneKind;
@@ -34,6 +36,7 @@ export type MilestoneEvent = {
   achievedAt: string;
   value: number;
   proofSummary: string;
+  magnitude?: MilestoneMagnitude;
   meta?: Record<string, unknown>;
 };
 

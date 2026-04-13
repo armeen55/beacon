@@ -4,13 +4,36 @@ import {
   eventSubtitleForPeak,
   eventTitleForPeak,
 } from "./compute";
-import type { MilestoneEvent, MilestoneKind, MilestonePeakRow, MilestoneState } from "./types";
+import type { MilestoneEvent, MilestoneKind, MilestoneMagnitude, MilestonePeakRow, MilestoneState } from "./types";
 
 const MAX_EVENTS = 150;
 
 const SILENT_FIRST_KEY: ReadonlySet<MilestoneKind> = new Set(["topic_rank_best"]);
 
-function peakToEvent(p: MilestonePeakRow): MilestoneEvent {
+const FIRST_TIME_KINDS: ReadonlySet<MilestoneKind> = new Set([
+  "topic_first_top3",
+  "topic_first_rank1",
+]);
+
+export function classifyMagnitude(
+  kind: MilestoneKind,
+  newValue: number,
+  prevValue: number | null,
+): MilestoneMagnitude {
+  if (FIRST_TIME_KINDS.has(kind)) return "major";
+  if (prevValue === null || prevValue <= 0) return "major";
+  const ratio = (newValue - prevValue) / prevValue;
+  return ratio >= 0.2 ? "major" : "minor";
+}
+
+function calendarDay(iso: string): string {
+  return iso.slice(0, 10);
+}
+
+function peakToEvent(
+  p: MilestonePeakRow,
+  prevValue: number | null,
+): MilestoneEvent {
   return {
     id: randomUUID(),
     kind: p.kind,
@@ -20,6 +43,7 @@ function peakToEvent(p: MilestonePeakRow): MilestoneEvent {
     achievedAt: p.achievedAt,
     value: p.value,
     proofSummary: p.proofSummary,
+    magnitude: classifyMagnitude(p.kind, p.value, prevValue),
     meta: p.meta ? { ...p.meta } : undefined,
   };
 }
@@ -57,14 +81,20 @@ export function applyMilestoneSync(
       state.peaks[p.key] = { ...p };
       dirty = true;
       if (!SILENT_FIRST_KEY.has(p.kind)) {
-        newEvents.push(peakToEvent(state.peaks[p.key]!));
+        newEvents.push(peakToEvent(state.peaks[p.key]!, null));
       }
       continue;
     }
     if (p.value > peakPrev.value) {
+      const prevVal = peakPrev.value;
       state.peaks[p.key] = { ...p };
       dirty = true;
-      newEvents.push(peakToEvent(state.peaks[p.key]!));
+      const sameDayExists = state.events.some(
+        (e) => e.key === p.key && calendarDay(e.achievedAt) === calendarDay(p.achievedAt),
+      );
+      if (!sameDayExists) {
+        newEvents.push(peakToEvent(state.peaks[p.key]!, prevVal));
+      }
     }
   }
 

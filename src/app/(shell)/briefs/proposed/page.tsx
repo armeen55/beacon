@@ -29,7 +29,7 @@ export default function ProposedBriefsPage() {
       <div className="rounded-md border border-border p-8 text-center">
         <p className="text-[14px] font-medium mb-1">No active experiment</p>
         <p className="text-[12px] text-muted-foreground mb-3">
-          Import a workbook to generate execution briefs from pattern intelligence.
+          Import visibility data (e.g. your standard .xlsx export) to generate execution briefs from pattern intelligence.
         </p>
         <Link
           href="/settings/import"
@@ -333,7 +333,7 @@ function BriefCard({ brief }: { brief: ProposedBrief }) {
         )}
         {brief.sourceActionId && (
           <Link
-            href="/actions"
+            href="/"
             className="text-accent-primary hover:underline"
           >
             View Action

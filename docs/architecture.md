@@ -5,6 +5,8 @@
 >
 > **NOT FOR:** What to do next (→ `NEXT_PHASE_EXECUTION_PLAN.md`), current state summary (→ `HANDOFF_VERIFIED_STATE.md`), historical phase details (→ `master_execution_plan.md`).
 
+**Tier 1 vault closure (operator):** Evidence for the internal dogfood week lives in **`docs/TIER_1_DOGFOOD_WEEK_LOG.md`** (daily table + final note). Until that file records consecutive real-use days with no P0 trust regressions, treat **Tier 1** as not fully closed per `master_execution_plan.md` — even if Sign-offs are `passed`.
+
 ---
 
 ## What Beacon Is
@@ -48,10 +50,10 @@ Today Morning Briefing
 |-------|-----------|-------------|-------|
 | **Today** `/` | `page.tsx` → `today-data.ts` → `today-client.tsx` | Morning briefing: scan status, optional **local attention** strip (`TodayLocalAttentionStrip` from `getLocalPresenceSnapshot` when not all-good), primary action, findings, visibility KPIs, milestones. Auto-scan trigger when overdue | 60/100 |
 | **Pages** `/pages` | `pages/page.tsx` (818 lines) → `pages-client.tsx` (1168 lines) | Page health: every tracked URL with status, snapshots, diffs, guardrails, fix briefs, playbook briefs, rollout waves, findings | 75/100 |
-| **Market** `/competitors` | `competitors/page.tsx` | Competitive analysis + compact **`MarketLocalStrip`** (listing health tier, NAP state with tone, imported reviews line, link to `/local`). AI share, rankings, topic signals, co-mention, source trust, battlecards | 62/100 |
-| **Local** `/local` | `local/page.tsx` | Track 1.4: read-only local presence — explicit **NAP state**; **Data freshness** strip (`lastSync.google` / `yelp` / `manual` from `getLocalPresenceSnapshot()` — connector `last_synced_at` vs manual `ImportRun` excluding `connector:*`); 7-component listing health; methodology `#review-source-timestamps` + `#nap-consistency` + `#listing-health` + `#local-reviews` | — |
+| **Market** `/competitors` | `competitors/page.tsx` | Competitive analysis + compact **`MarketLocalStrip`** (listing health tier, NAP state with tone, optional listing-completeness phrase, imported reviews line, link to `/local`). AI share, rankings, topic signals, co-mention, source trust, battlecards | 62/100 |
+| **Local** `/local` | `local/page.tsx` | Track 1.4: read-only local presence (page header states Config/import/sync scope, not live directory truth) — explicit **NAP state**; **Data freshness** strip (`lastSync.google` / `yelp` / `manual` from `getLocalPresenceSnapshot()` — connector `last_synced_at` vs manual `ImportRun` excluding `connector:*`); **Listing completeness** (read-only field presence audit: `listingCompleteness` on snapshot — no live GBP verification); 7-component listing health; methodology `#review-source-timestamps` + `#nap-consistency` + `#listing-health` + `#listing-completeness` + `#local-reviews` | — |
 | **Changes** `/changes` | `changes/page.tsx` (594 lines) → 3 tabs (Outcomes/Replicate/Attribution) | Change impact: scorecard, verdicts, evidence tiers, pattern mining, replication targets, attribution review | 70/100 |
-| **Settings** `/settings` | Server `settings/layout.tsx` (readiness hint + client tab bar) | Import, **Config**, **Connectors**, **Data** (`/settings/history`), **Sign-offs** (`/settings/exit-gates` — internal Daily Ritual / Replication exit gates; `.data/exit-gates.json`), **Methodology**. **`/settings/health`** remains valid (diagnostics) but **not** in the tab bar |
+| **Settings** `/settings` | Server `settings/layout.tsx` (readiness hint + client tab bar) | Import, **Config**, **Connectors**, **Data** (`/settings/history`), **Sign-offs** (`/settings/exit-gates` — internal Daily Ritual, Replication, **Local layer** exit gates; `.data/exit-gates.json`), **Methodology**. **`/settings/health`** remains valid (diagnostics) but **not** in the tab bar |
 
 ### Settings sub-routes
 
@@ -62,8 +64,8 @@ Today Morning Briefing
 | Connectors | `/settings/connectors` | `settings/connectors/page.tsx` + `connectors-client.tsx` + **`actions.ts`** (Google OAuth + **`loadGoogleLocations`** / **`selectGoogleLocation`** / **`syncGoogleReviews`**; Yelp **`saveYelpApiKey`** / **`syncYelpReviews`** / **`disconnectYelp`**) | **Google:** OAuth + **location picker** (`fetchGoogleLocations` → select → `selected_location_id` on token) + on-demand **Sync now** (requires location) → `runGoogleReviewsSync` → GBP v4 reviews for selected location → `LocalReview` → `mergeUpsertLocalReviews`; callback `/api/connectors/google/callback`. **Yelp:** API key only (server store) + **Sync now** → Fusion `businesses/{id}` + `reviews` → `runYelpReviewsSync` → same merge path; `connector:google` / `connector:yelp` import runs. Tokens + `last_synced_at` + `selected_location_id`: `connector-store.ts` → `.data/connector-tokens.json`. **Yelp business id** from `business-config.json` (`yelpBusinessId`) or token `business_id` |
 | Health | `/settings/health` | `../../diagnostics/page` | Attribution diagnostics (developer-facing). **Not** shown in settings tab nav (direct URL only) |
 | Data (tab) | `/settings/history`, **`/settings/history/[id]`** | `settings/history/page.tsx` (framing + `./results-page`), **`results-page.tsx`**, **`results-client.tsx`**, **`[id]/page.tsx`** (Phase 3-7: former **`(shell)/results/`** tree; standalone **`/results`** removed) | Imported measurement / citation evidence + row detail; tab label **Data** |
-| Sign-offs | `/settings/exit-gates` | `settings/exit-gates/page.tsx` + `exit-gates-client.tsx` + **`actions.ts`** | Internal operator sign-off only (`readExitGates` / `updateExitGate` → **`exit-gates.json`**). Does not affect metrics, scores, or proof. Optional strip in Settings layout when engaged and a gate is not `passed`. Methodology **`#exit-gates`** |
-| Methodology | `/settings/methodology` | `settings/methodology/page.tsx` (static, 5 sections + FAQ) | Proof layer (1.1c + **1.1j 2026-04-13**): per-metric **How to read it** / **Beacon does not know** blocks, expanded FAQ (incl. coverage states), boundaries. Anchors: **`#exit-gates`**, **`#nap-consistency`**, **`#local-reviews`**, **`#review-source-timestamps`**, **`#listing-health`**, **`#review-monitoring-v1`**, **`#review-connectors`**, **`#coverage-states`**, **`#boundaries`**. Specs: `docs/TIER_1_4D_REVIEW_MONITORING_V1_SPEC.md`, `docs/TIER_1_4E_REVIEW_CONNECTORS_SPEC.md`. Linked from HowWeKnowPanel, Today coverage line, Market/Changes `<details>`, **`/local`** disclosure |
+| Sign-offs | `/settings/exit-gates` | `settings/exit-gates/page.tsx` + `exit-gates-client.tsx` + **`actions.ts`** + **`exit-gates-settings-hint-client.tsx`** | Internal operator sign-off only (`readExitGates` / `updateExitGate` → **`exit-gates.json`**; keys `daily_ritual`, `replication`, `local_layer`). Does not affect metrics, scores, freshness states, or proof. Settings layout hint when not all gates `passed` (engaged and/or Sign-offs page + **`local_layer`** rule); **hidden when all three `passed`**. Methodology **`#exit-gates`** |
+| Methodology | `/settings/methodology` | `settings/methodology/page.tsx` (static, 5 sections + FAQ) | Proof layer (1.1c + **1.1j 2026-04-13**): per-metric **How to read it** / **Beacon does not know** blocks, expanded FAQ (incl. coverage states), boundaries. Anchors: **`#exit-gates`**, **`#nap-consistency`**, **`#local-reviews`**, **`#review-source-timestamps`**, **`#listing-health`**, **`#listing-completeness`**, **`#review-monitoring-v1`**, **`#review-connectors`**, **`#coverage-states`**, **`#boundaries`**. Specs: `docs/TIER_1_4D_REVIEW_MONITORING_V1_SPEC.md`, `docs/TIER_1_4E_REVIEW_CONNECTORS_SPEC.md`. Linked from HowWeKnowPanel, Today coverage line, Market/Changes `<details>`, **`/local`** disclosure |
 
 ### Hidden / secondary routes
 
@@ -167,7 +169,7 @@ All route-critical data persists as JSON files under `.data/` via `src/lib/persi
 | `competitor-universe` | Competitor config | `universe-read.ts` |
 | `business-config` | Business profile | `setup/actions.ts` |
 | `scan-settings` | Scan schedule config | `domains/scanning/scan-settings.ts` |
-| `exit-gates` | Track 1.2 / 1.3 internal sign-off (Daily Ritual, Replication) | `lib/exit-gates-store.ts` + `settings/exit-gates/actions.ts` |
+| `exit-gates` | Track 1.2 / 1.3 / 1.4l internal sign-off (Daily Ritual, Replication, Local layer) | `lib/exit-gates-store.ts` + `settings/exit-gates/actions.ts` |
 
 ### Cold stores
 

@@ -2,7 +2,15 @@ import { ShellProvider, type NavBadges } from "@/components/shell/shell-provider
 import { AppSidebar, MobileSidebar } from "@/components/shell/app-sidebar";
 import { AppHeader } from "@/components/shell/app-header";
 import { CommandPalette, type PaletteItem } from "@/components/shell/command-palette";
-import { changelogEntries, results } from "@/lib/seed-data.server";
+import { DemoBannerGate } from "@/components/shell/demo-banner";
+import { DataFreshnessStrip } from "@/components/shell/data-freshness-strip";
+import {
+  changelogEntries,
+  results,
+  hasActiveExperiment,
+  importRuns,
+} from "@/lib/seed-data.server";
+import { latestWebsiteCrawlRun } from "@/domains/observations/read";
 import { allNavItems } from "@/lib/navigation";
 import { eventDecisions } from "@/domains/attribution/store";
 import { detectOutcomeEvents } from "@/domains/attribution/events";
@@ -14,6 +22,7 @@ const NAV_SHORTCUTS: Record<string, string> = {
   "/pages": "G P",
   "/changes": "G C",
   "/competitors": "G M",
+  "/local": "G L",
   "/settings": "G S",
 };
 
@@ -37,6 +46,16 @@ export default function ShellLayout({
   if (totalInbox > 0) badges["/"] = totalInbox;
   if (reviewPending > 0) badges["/changes"] = reviewPending;
   if (openIssues > 0) badges["/pages"] = openIssues;
+
+  // Sample / walkthrough data when no import runs exist (`import-runs` store empty).
+  const isDemoMode = !hasActiveExperiment();
+
+  // Same sources as `getDataCoverage().lastImportAt` and Today crawl proof (`latestWebsiteCrawlRun`).
+  const sortedImportRuns = [...importRuns].sort(
+    (a, b) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime(),
+  );
+  const lastImportAt = sortedImportRuns[0]?.started_at ?? null;
+  const lastScanCompletedAt = latestWebsiteCrawlRun()?.completed_at ?? null;
 
   // ── Palette items ──
   const uniqueTopics = [
@@ -75,14 +94,20 @@ export default function ShellLayout({
   ];
 
   return (
-    <ShellProvider badges={badges}>
+    <ShellProvider badges={badges} isDemoMode={isDemoMode}>
       <div className="flex h-screen overflow-hidden">
         <AppSidebar />
         <MobileSidebar />
         <div className="flex flex-1 flex-col overflow-hidden">
           <AppHeader />
-          <main className="flex-1 overflow-y-auto p-6 lg:p-8">
-            <div className="mx-auto max-w-[1120px]">{children}</div>
+          <DataFreshnessStrip
+            lastImportAt={lastImportAt}
+            lastScanCompletedAt={lastScanCompletedAt}
+            className="shrink-0 px-6"
+          />
+          <main className="flex-1 overflow-y-auto">
+            <DemoBannerGate />
+            <div className="mx-auto max-w-[1120px] p-6 lg:p-8">{children}</div>
           </main>
         </div>
       </div>

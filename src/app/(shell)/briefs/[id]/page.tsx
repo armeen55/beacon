@@ -238,7 +238,7 @@ export default async function BriefDetailPage({
               <EntityLinkCard
                 key={result.id}
                 type="result"
-                href={`/results/${result.id}`}
+                href={`/settings/history/${result.id}`}
                 title={METRIC_TYPE_LABELS[result.metric_type]}
                 subtitle={result.notes ?? undefined}
                 meta={PLATFORM_LABELS[result.platform]}
@@ -316,7 +316,7 @@ export default async function BriefDetailPage({
                   <EntityLinkCard
                     key={result.id}
                     type="result"
-                    href={`/results/${result.id}`}
+                    href={`/settings/history/${result.id}`}
                     title={METRIC_TYPE_LABELS[result.metric_type]}
                     subtitle={result.notes ?? undefined}
                     meta={PLATFORM_LABELS[result.platform]}

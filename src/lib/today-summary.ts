@@ -61,7 +61,7 @@ export function buildTodaySummary(opts: {
   verifiedFixes: TodayVerifiedFix[];
   nextMoveCandidates: (TodayNextMove | null)[];
   competitorLine?: string | null;
-  /** Row-majority visibility run from Sample history (same identity as /results header). */
+  /** Row-majority visibility run from Sample history (same identity as Data / `/settings/history` header). */
   primaryVisibilityRun: VisibilityObservationRun | null;
 }): TodaySummary {
   const crawls = listWebsiteCrawlRuns();

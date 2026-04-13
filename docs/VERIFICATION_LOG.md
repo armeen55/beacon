@@ -7,6 +7,158 @@
 
 ---
 
+## 2026-04-12 — Today primary card: decision framing (no new metrics)
+
+- **Goal:** Answer “why this / if I ignore / if I ship / leverage & confidence” using **only** existing `rationale`, `expectedOutcome`, `bucket`, `confidence`, `confidenceReason`, `type`, `dataFreshness`.
+- **Code:** `src/lib/today-primary-decision-copy.ts` + `TodayPrimaryAction` structured sections + evidence band row; `tests/lib/today-primary-decision-copy.test.ts`.
+- **Verified:** `npm run typecheck` ✓ · `npm run test` **319/319** ✓.
+
+---
+
+## 2026-04-12 — Import / Today copy: visibility export mental model (not “workbook”)
+
+- **Intent:** Operator loop = **latest export → Settings → Import → Today**; Profound is temporary transport only; same **.xlsx** path until native — product language de-emphasizes workbook/ETL framing.
+- **Change:** `settings/import/import-page.tsx` (header, primary drop zone, History blurb, advanced CSV note, friendly run label); `today-one-decision.ts` + `today-next-line.ts` aligned strings; `demo-banner.tsx`; `briefs/proposed/page.tsx` one line.
+- **Verified:** `npm run test` **317/317** ✓.
+
+---
+
+## 2026-04-12 — Today: **one decision** card (operator yes/no + first step)
+
+- **Goal:** Force a single actionable choice — stale coverage vs local vs headline rec — with **Should you do this?** yes/no, plain **why**, **first step** (under 5 min, linked) or **why skip / when to reopen**.
+- **Code:** `src/lib/today-one-decision.ts` (`deriveTodayOneDecision`, same precedence stack as `deriveTodayNextLine`); `src/components/today/today-one-decision-card.tsx`; `today-client.tsx` replaces duplicate **Next:** line + separate stale banner with one card (demo path folded into card).
+- **Tests:** `tests/lib/today-one-decision.test.ts`.
+- **Verified:** `npm run typecheck` ✓ · `npm run test` **317/317** ✓ · `npm run build` ✓.
+
+---
+
+## 2026-04-12 — Today: hard stale-visibility truth gate (no new scoring)
+
+- **Goal:** When scan can be complete but visibility/coverage is stale, Today reads **blocked** — import fresh visibility is the real next step; queue calmness does not read “all healthy.”
+- **Change:** `isVisibilityCoverageStaleTruth` + `hasImportedVisibility` drive **Next:** → **`/settings/import`** with **“Import fresh visibility data before acting.”** when applicable; amber **Data is stale** section in `today-client.tsx`; body under snapshot **demoted**; `TodayFindings` **`staleTruthDominant`** empty-state warning frame + import-specific note (even when `coverageTone === "degraded"` without full `truthBlocked`); `TodayVisibilitySnapshot` **`staleTruthGateActive`** ring + **Last visibility data:** line inside the big freshness box only when `proofContext.visibilityCompletedAt` is already set.
+- **Tests:** `tests/lib/today-next-line.test.ts` — `hasImportedVisibility` on `base()` + import-path cases.
+- **Verified:** `npm run typecheck` ✓ · `npm run test` **310/310** ✓.
+
+---
+
+## 2026-04-14 — Scan: end-to-end verification (workspace)
+
+- **Ran:** `npx tsx --require ./scripts/mock-server-only.cjs --require ./scripts/apply-scan-site-domain.cjs scripts/scan-owned-pages.ts` (full 35 canonical URLs).
+- **Domain:** `ritzbuilders.com` (`[scan] canonical_domain=ritzbuilders.com`, `origin=https://ritzbuilders.com`).
+- **Sitemap:** `https://ritzbuilders.com/sitemap.xml` — fetch OK (35 URLs).
+- **CLI:** exit code **0**; `last-scan-result.json` → `exit: success`, `pagesScanned: 35`, `observationRunId: obs-1776107043222`.
+- **Scan state:** aligned to success (see `scripts/sync-scan-state-from-last-result.ts` once for drift repair; **product fix:** `scan-owned-pages.ts` now calls `writeIdleScanStateFromLastResult` after every terminal `writeLastScanResultFile` so CLI runs update `scan-state.json` without opening the app).
+- **`npm run data:scan`:** `package.json` script now includes `apply-scan-site-domain.cjs` preload (same as orchestrator).
+
+---
+
+## 2026-04-14 — Scan: wrong default host + opaque errors (fixed)
+
+- **Root cause:** With `BEACON_SITE_DOMAIN` unset, `getSiteConfig()` defaulted to **`example.com`**, while imported `.data/pages.json` owned URLs use the real pilot host (e.g. **ritzbuilders.com**). The CLI fetched `https://example.com/sitemap.xml` → **fetch failed** (TLS / connectivity), so `last-scan-result.json` showed `cliError: "fetch failed"` and Today stayed blocked.
+- **Fix:** `resolveBeaconSiteDomainForScan()` (`scan-site-domain.ts`, **server-only**) resolves domain from **`.data/business-config.json`** then **majority `is_owned` domain in `.data/pages.json`**. `runWebsiteScan` injects `BEACON_SITE_DOMAIN` into the **child** `exec` env (does not mutate the Next server). CLI parity: `--require ./scripts/apply-scan-site-domain.cjs` added to `SCAN_CLI_CMD` + documented in `scan-owned-pages.ts` header. Richer errors: `formatErrorWithCause` + sitemap URL in `cliError`; `[scan] step=…` logs in CLI; extra `log.info` steps in `orchestrate-scan.ts`.
+- **Tests:** `tests/domains/scanning/scan-site-domain.test.ts`.
+- **Verified:** `npm run typecheck` ✓ · `npm run test` **308/308** ✓ · `npm run build` ✓.
+
+---
+
+## 2026-04-14 — Today: **Next:** truth-first + aligned findings / primary (no new scoring)
+
+- **Problem:** “Next:” + local + primary + “Since last scan: All clear” + stale coverage + scan failed felt mutually contradictory.
+- **Change:** `deriveTodayNextLine` precedence is now **demo → truth blockers** (`scanPhaseFailed` from `readScanState()` in `today-data.ts`, plus same data signals as `shouldShowTodayAllClear` via `isTodayDataTruthBlocked`) **→** local urgent **→** attention **→** primary **→** critical findings **→** all clear / fallbacks. Truth **Next:** copy branches: failed scan, `coverageState` critical / stale, else generic refresh-before-acting (all `/pages`). `isTodayTruthBlocked` drives digest suppression when `criticalWorkDone`, `TodayFindings` empty-state **No pending diffs** + factual note, `TodayPrimaryAction` `truthDataSecondary` muted card + banner. Primary **autoFocus** skipped when truth blocked.
+- **Tests:** `tests/lib/today-next-line.test.ts` expanded.
+- **Verified:** `npm run typecheck` ✓ · `npm run test` **306/306** ✓.
+
+---
+
+## 2026-04-14 — Today: single **Next:** directive (routing only)
+
+- **Goal:** One sentence at top of Today (under `TodayScanStrip`) so the operator sees the single best next move without scrolling.
+- **Code:** `src/lib/today-next-line.ts` — `deriveTodayNextLine()` with strict precedence (demo → local urgent → local attention → unhandled primary → critical finding → crawl/coverage block aligned with `shouldShowTodayAllClear` inputs → all-clear → fallbacks). `src/app/(shell)/today-client.tsx` renders one `<Link>` or plain text; `id="today-findings"` on findings queue container for `/#today-findings`.
+- **Tests:** `tests/lib/today-next-line.test.ts` (9 cases).
+- **Verified:** `npm run test` — **301/301** pass.
+
+---
+
+## 2026-04-14 — Tier 1 dogfood log: operator micro-step guide added
+
+- **`docs/TIER_1_DOGFOOD_WEEK_LOG.md`:** New section **“Operator: smallest step-by-step”** — clarifies no date “import” into log; optional Beacon import for UI richness; fresh streak vs honest backfill; per-day browser + markdown loop; Final Tier 1 note + re-verify when done.
+- **Product / build:** none.
+
+---
+
+## 2026-04-13 — Tier 1 dogfood log: one honesty row (no live session)
+
+- **`docs/TIER_1_DOGFOOD_WEEK_LOG.md`:** **Day 1 — 2026-04-13** table row + raw log rewritten: factual **routine not run** (Today, Replicate, `/local` not opened); no invented digest or change IDs; verdict **minor issue** = **dogfood routine incomplete** for that day (not vault-eligible until real walkthrough days exist). Removed prior Cursor/agent “process placeholder” wording.
+- **Product / build:** none.
+
+---
+
+## 2026-04-14 — Tier 1 vault closure: dogfood log verification **failed** (Tier 1 **not** closed)
+
+- **Request:** Close Tier 1 after verifying `docs/TIER_1_DOGFOOD_WEEK_LOG.md`.
+- **Verification:** Read log — table has **template row only** (`_YYYY-MM-DD_`); **no** 5–7 consecutive real operator days; **Final Tier 1 note** not completed (placeholders remain).
+- **Decision:** **Do not** close Tier 1 in `master_execution_plan.md`, `NEXT_PHASE_EXECUTION_PLAN.md`, or `HANDOFF_VERIFIED_STATE.md`. Track **2.1** “Depends on: Tier 1 closed” remains unsatisfied.
+- **Recorded in:** `docs/TIER_1_DOGFOOD_WEEK_LOG.md` → **Verification record** table.
+- **Product / build:** none.
+
+---
+
+## 2026-04-14 — Tier 1 dogfood log (operator schema + human-only rule)
+
+- **Goal:** Executable Tier 1 closure path — real usage only; no fabricated 5–7 day weeks.
+- **`docs/TIER_1_DOGFOOD_WEEK_LOG.md`:** Daily routine per owner spec (Today: digest, coverage + freshness, all-clear appropriateness; Replication: evidence vs inference, act/ignore/unclear; `/local`: NAP, health, completeness, per-source timestamps, no real-time/full-coverage drift). Log table: date, what you did, confusion, misleading/overconfident copy, action, verdict (`clean` / `minor issue` / `trust risk`). **Human-only** rows; **Final Tier 1 note** + vault “Tier 1 closed” in docs only after 5–7 consecutive logged days with no P0 regressions.
+- **Prior content retained:** 2026-04-13 static validation section; 2026-04-13 `replication-engine.ts` em-dash copy tweak (see earlier log + tests from that change).
+- **`HANDOFF_VERIFIED_STATE.md`:** Tier 1 dogfood line updated.
+- **Product / build (this entry):** none.
+
+---
+
+## 2026-04-13 — Tier 1 exit gates: Daily Ritual + Replication operator sign-off
+
+- **Daily Ritual (1.2):** Reviewed Today — digest / `shouldShowTodayAllClear`, visibility snapshot + coverage states (`coverage-state` labels, methodology link), `HowWeKnowPanel` sample boundaries, findings path; no performance implied by coverage; no real-time / full-coverage drift vs methodology. **`daily_ritual`** = **`passed`** with operator note in `.data/exit-gates.json`.
+- **Replication (1.3):** Reviewed Changes → Replicate intro (evidence, overlap, outcomes not guaranteed, verdicts link), change-detail replicate copy (“correlates”), replication cards (tiers, evidence strong/moderate/early, observed/inferred). **`replication`** = **`passed`** with operator note.
+- **`local_layer`:** Left **`passed`** (prior sign-off timestamp preserved).
+- **Product code:** No edits (no copy gaps requiring fixes).
+- **Verification:** Operator review only (no `npm run build` per request).
+
+---
+
+## 2026-04-13 — Track 1.4l: Operator Local layer sign-off (`local_layer` = passed)
+
+- **Review:** Checklist on Settings → Sign-offs vs `/local`, `buildTodayLocalAttention` / Today local strip, `MarketLocalStrip`, methodology `#local-reviews`, `#nap-consistency`, `#listing-health`, `#listing-completeness`, `#review-source-timestamps`, shared footnote (`BEACON_LOCAL_SURFACE_FOOTNOTE`). No real-time or full-coverage claims found; disclosures match shipped manual + optional connectors.
+- **Copy fix:** `/local` `PageHeader` description — replaced “How you appear in maps…” with explicit read-only / not-live-directory framing (`local/page.tsx`; `local-smoke.test.ts`).
+- **Persistence:** `.data/exit-gates.json` — `local_layer` **`passed`** with operator note (other gates unchanged `not_started`).
+- **Verification:** `npm run test` 292/292 ✓.
+
+---
+
+## 2026-04-13 — Track 1.4l: Local layer exit gate (`local_layer` sign-off)
+
+- **Goal:** Close the Local track with an explicit internal operator review — checklist + persisted status/note only; no workflow engine, no product logic changes, no banners on Today/Market/`/local`.
+- **`src/lib/exit-gates-types.ts`:** `EXIT_GATE_KEYS` includes **`local_layer`**.
+- **`src/lib/exit-gates-store.ts`:** `parseRow` / `normalizeExitGates` accept the third key; same persistence contract.
+- **`src/app/(shell)/settings/exit-gates/exit-gates-client.tsx`:** Local layer card title, static **Review checklist** (seven bullets), same Mark in review / passed / failed + Save note as other gates.
+- **`src/app/(shell)/settings/exit-gates/page.tsx`**, **`exit-gates-settings-hint.tsx`**, **`exit-gates-settings-hint-client.tsx`:** Page copy mentions Local layer + freshness; server short-circuits when all gates `passed`; client uses **`usePathname`** — on **`/settings/exit-gates`**, shows readiness strip when **`local_layer`** is not `passed` even if Daily Ritual + Replication are `passed` (low-noise nudge).
+- **`src/app/(shell)/settings/methodology/page.tsx`:** **`#exit-gates`** — Local layer scope; sign-off does not affect freshness or metrics.
+- **Tests:** `exit-gates-store.test.ts` (three keys, `local_layer` transitions); `exit-gates-smoke.test.tsx` + `exit-gates-hint-smoke.test.tsx` (checklist test id, Sign-offs pathname case).
+- **Docs:** `HANDOFF_VERIFIED_STATE.md`, `NEXT_PHASE_EXECUTION_PLAN.md`, `master_execution_plan.md` §1.4l, `architecture.md`.
+- **Verification:** `npm run typecheck` ✓ · `npm run test` 292/292 ✓ · `npm run build` ✓.
+
+---
+
+## 2026-04-13 — Track 1.4: Listing completeness / GBP field coverage audit (read-only surfacing)
+
+- **Goal:** Operator-grade `/local` diagnostic: which key listing fields Beacon **has** vs **missing** in stored/config data only — no new API calls, no enrichment, no ranking claims, no competitor comparison.
+- **`src/lib/local-presence.ts`:** `ListingCompletenessAudit` on `LocalPresenceSnapshot` (`present_fields` / `missing_fields` / `coverage_state` `strong` | `partial` | `weak` from present-count thresholds); `deriveListingCompletenessAudit`, `listingCompletenessSummaryLine`, `listingCompletenessMarketPhrase`; optional Google selected-location display name for **name** when config name absent; **hours** not evaluated (no v1 hours signal). `MarketLocalStripModel.listingCompletenessPhrase`; `buildTodayLocalAttention` appends weak-completeness fact only when NAP does not dominate (`incomplete`/`inconsistent`) and attention slot budget allows.
+- **`src/app/(shell)/local/page.tsx`:** **Listing completeness** section (`data-testid="local-listing-completeness"`), methodology link `#listing-completeness`.
+- **`src/app/(shell)/settings/methodology/page.tsx`:** `#listing-completeness` metric block (fields checked, boundaries: no live verification, no ranking implication).
+- **`src/components/local/market-local-strip.tsx`:** Subtle optional completeness phrase.
+- **Tests:** `tests/lib/listing-completeness.test.ts`; updates to `local-presence.test.ts`, `local-presence-attention.test.ts`, `market-local-strip.test.tsx`, `local-smoke.test.ts`.
+- **Docs:** `HANDOFF_VERIFIED_STATE.md`, `NEXT_PHASE_EXECUTION_PLAN.md`, `master_execution_plan.md` (Track 1.4 log), `architecture.md`.
+- **Verification:** `npm run typecheck` ✓ · `npm run test` 290/290 ✓ · `npm run build` ✓.
+
+---
+
 ## 2026-04-13 — Tier 1.1j: Proof layer final trust pass (methodology + surfaces)
 
 - **Goal:** Lock proof copy — every surfaced metric has methodology definition + boundaries; standardize “imported or synced” language; no causation / completeness / continuous-feed implications; FAQ covers coverage, Last synced, counts mismatch, NAP, continuous updates.
@@ -75,7 +227,7 @@
 
 - **Goal:** Minimal persistent operator sign-off for **Daily Ritual** and **Replication** only — no workflow engine, notifications, multi-user logic, audit trail beyond `updated_at`, and no effect on scores, findings, or proof.
 - **`src/lib/exit-gates-types.ts`:** Shared types + `EXIT_GATE_DEFAULT_UPDATED_AT` (client-importable; avoids pulling `server-only` into client bundles).
-- **`src/lib/exit-gates-store.ts`:** `readExitGates`, `writeExitGates`, `getExitGate`, `updateExitGate`, `normalizeExitGates` → `.data/exit-gates.json` via `json-store`; always exactly `daily_ritual` + `replication`; statuses `not_started` | `in_review` | `passed` | `failed`; optional `note`; `updated_at` ISO; `_resetExitGatesStoreForTests`.
+- **`src/lib/exit-gates-store.ts`:** `readExitGates`, `writeExitGates`, `getExitGate`, `updateExitGate`, `normalizeExitGates` → `.data/exit-gates.json` via `json-store`; normalized keys **`daily_ritual`**, **`replication`**, **`local_layer`** (2026-04-13); statuses `not_started` | `in_review` | `passed` | `failed`; optional `note`; `updated_at` ISO; `_resetExitGatesStoreForTests`.
 - **`src/app/(shell)/settings/exit-gates/`:** `page.tsx` (dynamic) + `exit-gates-client.tsx` + `actions.ts` (`setExitGateStatus`, `saveExitGateNote`) + `revalidatePath` for `/settings` + `/settings/exit-gates`.
 - **`src/app/(shell)/settings/layout.tsx`:** Server layout wraps **`ExitGatesSettingsHint`** (subtle strip when operator has engaged and not both `passed`) + **`SettingsTabsClient`** (new **Sign-offs** tab).
 - **`src/app/(shell)/settings/methodology/page.tsx`:** Section **`#exit-gates`** — exit gates are internal operator reviews; sign-off state ≠ performance; no modification of scores/findings/proof logic.
@@ -3571,3 +3723,41 @@ The All Clear **UI** was already inside **`{!isDemoMode && (<>…</>)}`** from 2
 - `npm run typecheck` — **pass**
 - `npm run test` (78/78) — **pass**
 - `npm run build` — **pass**
+
+---
+
+## Native ingestion readiness audit + workbook removal + bridge dual-write (2026-04-12)
+
+### Signal
+Prepare for **API → Supabase** ingestion without changing product surfaces; remove the **xlsx workbook** import path; ensure Profound **CSV batch → bridge** path mirrors to Supabase when dual-write is enabled.
+
+### Where changed / documented
+- **`docs/NATIVE_INGESTION_READINESS_AUDIT.md`** — end-to-end audit: filename-prefix ingestion rules, destructive replace vs shard merge, utilization hypotheses, target pipeline (idempotent upserts, source tags, snapshots), scale notes, **open questions §7** for the operator.
+- **`src/lib/import/actions.ts`**, **`src/lib/import/types.ts`**, **`src/lib/import/workbook.ts` (deleted)** — workbook import removed; Profound batch remains canonical UI path.
+- **`src/app/(shell)/settings/import/import-page.tsx`** — workbook UI removed; **Reset** clears `profoundResult` / manual import / preview / setup state (fixes stray `setWbResult` after workbook removal).
+- **`src/adapters/profound/bridge.ts`** — `writeLegacyBridge` calls **`syncResults`**, **`syncChangelogEntries`** (when changes exist), **`syncImportRuns`** after file writes so **`DUAL_WRITE=true`** is not file-only for this path.
+
+### Validation
+- `npm run typecheck` — **pass**
+- `npm run test` — **319/319 pass**
+
+---
+
+## Profound CSV discovery + merge-safe ingest (2026-04-13)
+
+### Signal
+Remove **filename-prefix** coupling; make CSV bridge **append-safe** and **idempotent** on natural keys so partial-week Profound exports merge with existing `.data` stores instead of being skipped or wiping history.
+
+### Where changed
+- **`src/adapters/profound/csv-discovery.ts`** — header fingerprint classification; all top-level `.data/*.csv` considered.
+- **`src/adapters/profound/merge-ingest.ts`** — `mergeById`, citation URL dedupe + per-run renumbering, changelog content dedupe, `rebuildProfoundImportRuns`.
+- **`src/adapters/profound/import-orchestrator.ts`** — multi-file merge pipeline; `ProfoundImportResult.ingest_files` / `unclassified_csv`; total citation count = all shards on disk after merge.
+- **`src/lib/persistence/cold-store.ts`** — `readAnswerTextsFromDisk()` for merge.
+- **`src/adapters/profound/bridge.ts`** — optional `changelogEntries` for merged changelog writes.
+- **`src/app/(shell)/settings/import/import-page.tsx`** — copy reflects header discovery + merge semantics.
+- **`docs/NATIVE_INGESTION_READINESS_AUDIT.md`** — §1.1 / §1.2 updated to match behavior.
+- **Tests:** `tests/adapters/profound/csv-discovery.test.ts`, `tests/adapters/profound/merge-ingest.test.ts`.
+
+### Validation
+- `npm run typecheck` — **pass**
+- `npm run test` — **328/328 pass**

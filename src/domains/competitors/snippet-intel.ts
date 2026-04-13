@@ -44,7 +44,7 @@ export function computeSnippetIntelligence(opts: {
     if (page.factors.has_h2_structure) factors.push("clear section headings");
 
     signals.push({
-      id: `owned-pattern-${page.page_url.replace(/[^a-z0-9]/gi, "-").slice(0, 30)}`,
+      id: `owned-pattern-${page.page_url.replace(/[^a-z0-9]/gi, "-").slice(0, 80)}`,
       type: "owned_extractable_pattern",
       page_url: page.page_url,
       page_title: page.page_title,
@@ -69,7 +69,7 @@ export function computeSnippetIntelligence(opts: {
     if (!page.factors.has_direct_answers) missing.push("direct answer sections");
 
     signals.push({
-      id: `gap-${page.page_url.replace(/[^a-z0-9]/gi, "-").slice(0, 30)}`,
+      id: `gap-${page.page_url.replace(/[^a-z0-9]/gi, "-").slice(0, 80)}`,
       type: "extractability_gap",
       page_url: page.page_url,
       page_title: page.page_title,
@@ -96,7 +96,7 @@ export function computeSnippetIntelligence(opts: {
     const compDomain = topComp ? new URL(topComp.url).hostname.replace(/^www\./, "") : null;
 
     signals.push({
-      id: `comp-context-${topic.topic.replace(/[^a-z0-9]/gi, "-").slice(0, 30)}`,
+      id: `comp-context-${topic.topic.replace(/[^a-z0-9]/gi, "-").slice(0, 80)}`,
       type: "competitor_citation_context",
       page_url: null,
       page_title: null,
@@ -115,7 +115,7 @@ export function computeSnippetIntelligence(opts: {
     if (!topSuggestion) continue;
 
     signals.push({
-      id: `strengthen-${page.page_url.replace(/[^a-z0-9]/gi, "-").slice(0, 30)}`,
+      id: `strengthen-${page.page_url.replace(/[^a-z0-9]/gi, "-").slice(0, 80)}`,
       type: "strengthening_opportunity",
       page_url: page.page_url,
       page_title: page.page_title,

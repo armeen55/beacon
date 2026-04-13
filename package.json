@@ -9,7 +9,7 @@
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "check": "npm run typecheck && npm run lint && npm run build",
-    "data:scan": "npx tsx --require ./scripts/mock-server-only.cjs scripts/scan-owned-pages.ts",
+    "data:scan": "npx tsx --require ./scripts/mock-server-only.cjs --require ./scripts/apply-scan-site-domain.cjs scripts/scan-owned-pages.ts",
     "data:registry": "npx tsx --require ./scripts/mock-server-only.cjs scripts/build-page-registry.ts",
     "data:score-snapshot": "npx tsx --require ./scripts/mock-server-only.cjs scripts/score-snapshot.ts",
     "data:sample": "npx tsx --require ./scripts/mock-server-only.cjs scripts/sample-visibility.ts",

@@ -1,28 +1,34 @@
 /**
  * Master import orchestrator for Profound CSV exports.
  *
- * Runs all 4 adapters in dependency order:
- * 1. Entity seed (from known domains)
- * 2. Prompt import (from prompts_export.csv)
- * 3. Execution import (from raw_data_with_citations.csv)
- * 4. Citation import (from citations_data.csv)
- * 5. Benchmark import (from summarized_export.csv)
- *
- * Persists everything to the appropriate hot/cold stores.
+ * Discovery: CSVs under `.data/` are classified by **header signature** (not filename).
+ * Multiple files per kind are **merged** with stable natural keys (idempotent; newest file wins on key collision).
+ * Existing prompts / observations / answer texts / citation shards / benchmark snapshots are preserved
+ * and unioned with new data; derived snapshots are recomputed from the merged observation set.
  */
 
 import "server-only";
 
 import { join } from "node:path";
-import { existsSync, readdirSync } from "node:fs";
+import { renameSync, writeFileSync } from "node:fs";
 import {
   replaceTrackedPrompts,
   replaceTrackedEntities,
   replaceObservationRuns,
   replaceObservations,
   replaceSnapshots,
+  trackedPrompts,
+  promptAnswerObservations,
+  dailyMetricSnapshots,
 } from "@/storage/canonical-store";
-import { writeAnswerTexts, writeCitationShard, clearCitationCache } from "@/lib/persistence/cold-store";
+import {
+  writeAnswerTexts,
+  writeCitationShard,
+  clearCitationCache,
+  getAllCitationDates,
+  getCitationsForDate,
+  readAnswerTextsFromDisk,
+} from "@/lib/persistence/cold-store";
 import { buildEntitySeed } from "./entity-seed";
 import { parseProfoundPrompts } from "./prompt-adapter";
 import { parseProfoundExecutions } from "./execution-adapter";
@@ -30,13 +36,24 @@ import { parseProfoundCitations } from "./citation-adapter";
 import { parseProfoundBenchmark } from "./benchmark-adapter";
 import type { EntityCandidate } from "./benchmark-adapter";
 import { buildDerivedSnapshots } from "@/derivations/snapshot-builder";
-import { writeLegacyBridge } from "./bridge";
+import { writeLegacyBridge, parseChangelogCSVToLegacy } from "./bridge";
+import { discoverProfoundCsvFiles } from "./csv-discovery";
+import type { ProfoundCsvKind } from "./csv-discovery";
+import {
+  mergeById,
+  mergeCitationLists,
+  mergeChangelogEntries,
+  mergeEntityCandidates,
+  rebuildProfoundImportRuns,
+} from "./merge-ingest";
 import { discoverPages } from "@/domains/pages/discover";
 import { buildCitationEvidenceIndex } from "@/domains/pages/citation-index";
 import { writeStore, readStore } from "@/lib/persistence/json-store";
-import { getAllCitationDates, getCitationsForDate } from "@/lib/persistence/cold-store";
 import { getSiteConfig } from "@/lib/site-config";
-import { writeFileSync, renameSync } from "node:fs";
+import type { ChangelogEntry } from "@/domains/changelog/types";
+import type { CitationObservation } from "@/domains/citation-observations/types";
+import type { PromptAnswerObservation } from "@/domains/prompt-answer-observations/types";
+import type { DailyMetricSnapshot } from "@/domains/daily-metric-snapshots/types";
 
 const DATA_DIR = join(process.cwd(), ".data");
 
@@ -60,6 +77,10 @@ export type ProfoundImportResult = {
   warnings: string[];
   errors: string[];
   elapsed_ms: number;
+  /** Which `.data/*.csv` files were used per kind (merge order = array order). */
+  ingest_files?: Partial<Record<ProfoundCsvKind, string[]>>;
+  /** CSVs present but not recognized as Profound-shaped (ignored). */
+  unclassified_csv?: string[];
 };
 
 export async function runProfoundImport(
@@ -69,23 +90,52 @@ export async function runProfoundImport(
   const warnings: string[] = [];
   const errors: string[] = [];
 
-  const promptsFile = findFile("prompts_export");
-  const rawFile = findFile("profound_raw_data_with_citations");
-  const citationsFile = findFile("profound_citations_data");
-  const summarizedFile = findFile("profound_summarized_export");
+  const discovery = discoverProfoundCsvFiles(DATA_DIR);
+  const { byKind, unclassified } = discovery;
 
-  if (!promptsFile) errors.push("Missing prompts_export CSV in .data/");
-  if (!rawFile) errors.push("Missing profound_raw_data_with_citations.csv in .data/");
-  if (!citationsFile) errors.push("Missing profound_citations_data.csv in .data/");
+  if (unclassified.length > 0) {
+    warnings.push(
+      `Unclassified CSV (ignored): ${unclassified.map((p) => p.split("/").pop()).join(", ")}`
+    );
+  }
+
+  if (byKind.prompts.length === 0) {
+    errors.push("No prompts CSV found in .data/ (expected columns: id, prompt, topic)");
+  }
+  if (byKind.raw_executions.length === 0) {
+    errors.push(
+      "No raw execution CSV found in .data/ (expected columns: run_id, date, platform, prompt, response, …)"
+    );
+  }
+  if (byKind.citations.length === 0) {
+    errors.push(
+      "No citations CSV found in .data/ (expected columns: run_id, date, url, hostname, …)"
+    );
+  }
 
   if (errors.length > 0) {
     return {
       success: false,
-      counts: { prompts: 0, entities: 0, observationRuns: 0, observations: 0, citations: 0, derivedSnapshots: 0, benchmarkSnapshots: 0, entityCandidates: 0, bridgedResults: 0, bridgedChanges: 0, pagesDiscovered: 0, citationRollups: 0 },
+      counts: {
+        prompts: 0,
+        entities: 0,
+        observationRuns: 0,
+        observations: 0,
+        citations: 0,
+        derivedSnapshots: 0,
+        benchmarkSnapshots: 0,
+        entityCandidates: 0,
+        bridgedResults: 0,
+        bridgedChanges: 0,
+        pagesDiscovered: 0,
+        citationRollups: 0,
+      },
       entityCandidates: [],
       warnings,
       errors,
       elapsed_ms: Date.now() - start,
+      ingest_files: byKind,
+      unclassified_csv: unclassified,
     };
   }
 
@@ -95,84 +145,133 @@ export async function runProfoundImport(
   const { entities, ownedDomains, domainToEntityId } = buildEntitySeed(accountId);
   await replaceTrackedEntities(entities);
 
-  // Phase 2: Prompt import
-  const promptResult = parseProfoundPrompts(promptsFile!, accountId);
-  warnings.push(...promptResult.warnings);
-  await replaceTrackedPrompts(promptResult.prompts);
+  // Phase 2: Prompts — merge all prompt-shaped CSVs + existing store
+  let mergedPrompts = [...trackedPrompts];
+  for (const filePath of byKind.prompts) {
+    const pr = parseProfoundPrompts(filePath, accountId);
+    warnings.push(...pr.warnings);
+    mergedPrompts = mergeById(mergedPrompts, pr.prompts, true);
+  }
+  await replaceTrackedPrompts(mergedPrompts);
 
   const promptLookup = new Map<string, string>();
-  for (const p of promptResult.prompts) {
+  for (const p of mergedPrompts) {
     promptLookup.set(p.text, p.id);
   }
 
-  // Phase 3: Execution import
-  const execResult = parseProfoundExecutions(
-    rawFile!,
+  // Phase 3: Raw executions — merge observations + answer texts + rebuild runs
+  let mergedObservations: PromptAnswerObservation[] = [...promptAnswerObservations];
+  const mergedAnswerTexts: Record<string, string> = { ...readAnswerTextsFromDisk() };
+  for (const filePath of byKind.raw_executions) {
+    const ex = parseProfoundExecutions(
+      filePath,
+      accountId,
+      importRunId,
+      promptLookup,
+      ownedDomains
+    );
+    warnings.push(...ex.warnings);
+    mergedObservations = mergeById(mergedObservations, ex.observations, true);
+    Object.assign(mergedAnswerTexts, ex.answerTexts);
+  }
+  const mergedRuns = rebuildProfoundImportRuns(
+    mergedObservations,
     accountId,
-    importRunId,
-    promptLookup,
-    ownedDomains
+    importRunId
   );
-  warnings.push(...execResult.warnings);
-  await replaceObservationRuns(execResult.runs);
-  await replaceObservations(execResult.observations);
-  writeAnswerTexts(execResult.answerTexts);
+  await replaceObservationRuns(mergedRuns);
+  await replaceObservations(mergedObservations);
+  writeAnswerTexts(mergedAnswerTexts);
 
-  // Phase 4: Citation import (to sharded cold storage)
-  const citResult = parseProfoundCitations(citationsFile!, ownedDomains, domainToEntityId);
-  warnings.push(...citResult.warnings);
+  // Phase 4: Citations — merge per date into shards
   clearCitationCache();
-  let totalCitations = 0;
-  for (const [date, citations] of citResult.citationsByDate) {
-    writeCitationShard(date, citations);
-    totalCitations += citations.length;
+  const datesTouched = new Set<string>();
+  const incomingByDate = new Map<string, CitationObservation[]>();
+
+  for (const filePath of byKind.citations) {
+    const cit = parseProfoundCitations(filePath, ownedDomains, domainToEntityId);
+    warnings.push(...cit.warnings);
+    for (const [date, list] of cit.citationsByDate) {
+      datesTouched.add(date);
+      if (!incomingByDate.has(date)) incomingByDate.set(date, []);
+      incomingByDate.get(date)!.push(...list);
+    }
   }
 
-  // Phase 5: Derive Beacon-native snapshots from raw observations
+  for (const date of [...datesTouched].sort()) {
+    const existing = getCitationsForDate(date);
+    const incoming = incomingByDate.get(date) ?? [];
+    const merged = mergeCitationLists(existing, incoming);
+    writeCitationShard(date, merged);
+  }
+  // Dates only on disk (not in this import) are left unchanged.
+
+  let totalCitations = 0;
+  for (const d of getAllCitationDates()) {
+    totalCitations += getCitationsForDate(d).length;
+  }
+
+  // Phase 5: Derived snapshots from merged observations
   const ownedEntity = entities.find((e) => e.is_owned && e.entity_type === "brand");
   const ownedEntityId = ownedEntity?.id ?? "ritz";
-  const derivedSnapshots = buildDerivedSnapshots(execResult.observations, ownedEntityId);
+  const derivedSnapshots = buildDerivedSnapshots(mergedObservations, ownedEntityId);
 
-  // Phase 6: Benchmark import (optional)
-  let benchmarkCount = 0;
-  let entityCandidates: EntityCandidate[] = [];
-  const allSnapshots = [...derivedSnapshots];
-  if (summarizedFile) {
-    const entityLookup = new Map<string, string>();
-    for (const e of entities) {
-      if (e.name) entityLookup.set(e.name, e.id);
-    }
-    const benchResult = parseProfoundBenchmark(summarizedFile, accountId, entityLookup);
-    warnings.push(...benchResult.warnings);
-    allSnapshots.push(...benchResult.snapshots);
-    benchmarkCount = benchResult.snapshots.length;
-    entityCandidates = benchResult.entityCandidates;
+  // Phase 6: Benchmark — merge all summarized files + existing benchmark rows on disk
+  const entityLookup = new Map<string, string>();
+  for (const e of entities) {
+    if (e.name) entityLookup.set(e.name, e.id);
   }
+
+  const existingBench = dailyMetricSnapshots.filter(
+    (s) => s.source_type === "benchmark"
+  );
+  let mergedBenchmark: DailyMetricSnapshot[] = [...existingBench];
+  const candidateLists: EntityCandidate[][] = [];
+
+  for (const filePath of byKind.benchmark) {
+    const bench = parseProfoundBenchmark(filePath, accountId, entityLookup);
+    warnings.push(...bench.warnings);
+    mergedBenchmark = mergeById(mergedBenchmark, bench.snapshots, true);
+    candidateLists.push(bench.entityCandidates);
+  }
+
+  const allSnapshots: DailyMetricSnapshot[] = [
+    ...derivedSnapshots,
+    ...mergedBenchmark,
+  ];
   await replaceSnapshots(allSnapshots);
 
-  // Phase 7: Bridge canonical data → legacy stores so existing
-  // Review / event-detection / candidate-discovery pipeline works
-  const changelogFile = findFile("ChangeLogWebsite");
-  const bridgeResult = await writeLegacyBridge({
-    snapshots: allSnapshots,
-    changelogCSVPath: changelogFile,
-    importBatchId: importRunId,
-    sourceSystem: "profound",
-    totalCanonicalRows: execResult.observations.length + totalCitations,
-  });
-  if (!changelogFile) {
-    warnings.push("No ChangeLogWebsite CSV found — Review will have events but no candidate causes");
+  const entityCandidates =
+    candidateLists.length > 0 ? mergeEntityCandidates(candidateLists) : [];
+
+  // Phase 7: Changelog — optional; merge discovered files into existing imported-changes
+  let changelogForBridge: ChangelogEntry[] | undefined;
+  if (byKind.changelog.length > 0) {
+    let mergedChangelog = readStore<ChangelogEntry>("imported-changes");
+    for (const filePath of byKind.changelog) {
+      const parsed = parseChangelogCSVToLegacy(filePath, importRunId);
+      mergedChangelog = mergeChangelogEntries(mergedChangelog, parsed);
+    }
+    changelogForBridge = mergedChangelog;
+  }
+  if (byKind.changelog.length === 0) {
+    warnings.push(
+      "No changelog CSV found — Review may lack candidate causes (expected columns: Date, Signal Type, …)"
+    );
   }
 
-  // Phase 8: Build page registry + citation evidence index
-  // INTENTIONAL: CLI/batch uses json-store cache for `imported-changes` — do not swap to
-  // SeedDataRepository without an explicit file-vs-DB policy for this pipeline.
-  const importedChanges = readStore<import("@/domains/changelog/types").ChangelogEntry>(
-    "imported-changes"
-  );
+  const bridgeResult = await writeLegacyBridge({
+    snapshots: allSnapshots,
+    changelogCSVPath: null,
+    changelogEntries: changelogForBridge,
+    importBatchId: importRunId,
+    sourceSystem: "profound",
+    totalCanonicalRows: mergedObservations.length + totalCitations,
+  });
 
-  const allCitationsForIndex: import("@/domains/citation-observations/types").CitationObservation[] =
-    [];
+  const importedChanges = readStore<ChangelogEntry>("imported-changes");
+
+  const allCitationsForIndex: CitationObservation[] = [];
   for (const d of getAllCitationDates()) {
     allCitationsForIndex.push(...getCitationsForDate(d));
   }
@@ -188,7 +287,7 @@ export async function runProfoundImport(
 
   const citationIndex = buildCitationEvidenceIndex({
     citations: allCitationsForIndex,
-    promptAnswers: execResult.observations,
+    promptAnswers: mergedObservations,
   });
   const ciPath = join(DATA_DIR, "citation-evidence-index.json");
   const ciTmp = ciPath + ".tmp";
@@ -198,13 +297,13 @@ export async function runProfoundImport(
   return {
     success: true,
     counts: {
-      prompts: promptResult.prompts.length,
+      prompts: mergedPrompts.length,
       entities: entities.length,
-      observationRuns: execResult.runs.length,
-      observations: execResult.observations.length,
+      observationRuns: mergedRuns.length,
+      observations: mergedObservations.length,
       citations: totalCitations,
       derivedSnapshots: derivedSnapshots.length,
-      benchmarkSnapshots: benchmarkCount,
+      benchmarkSnapshots: mergedBenchmark.length,
       entityCandidates: entityCandidates.length,
       bridgedResults: bridgeResult.resultCount,
       bridgedChanges: bridgeResult.changeCount,
@@ -215,15 +314,7 @@ export async function runProfoundImport(
     warnings,
     errors,
     elapsed_ms: Date.now() - start,
+    ingest_files: byKind,
+    unclassified_csv: unclassified,
   };
-}
-
-function findFile(prefix: string): string | null {
-  if (!existsSync(DATA_DIR)) return null;
-  const files = readdirSync(DATA_DIR) as string[];
-  const lowerPrefix = prefix.toLowerCase();
-  const match = files.find(
-    (f) => f.toLowerCase().startsWith(lowerPrefix) && f.endsWith(".csv")
-  );
-  return match ? join(DATA_DIR, match) : null;
 }

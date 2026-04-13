@@ -62,6 +62,28 @@ export function terminalPhaseFromPayload(
   return mapExitKindToPhase(p.exit);
 }
 
+/**
+ * A scan that has been "running" longer than this is treated as crashed/orphaned.
+ * CLI timeout is 120 s; 5 minutes gives generous headroom for process overhead.
+ */
+export const STALE_SCAN_THRESHOLD_MS = 5 * 60 * 1000;
+
+/** Age in ms of a running scan, or `null` when not in running phase. */
+export function runningScanAgeMs(state: ScanStateFile | null): number | null {
+  if (!state || state.phase !== "running") return null;
+  return Date.now() - new Date(state.updatedAt).getTime();
+}
+
+/**
+ * True when a scan is running AND still within the freshness window.
+ * False for stale-running (crashed) and all non-running phases.
+ */
+export function isScanRunningAndFresh(state: ScanStateFile | null): boolean {
+  const age = runningScanAgeMs(state);
+  if (age === null) return false;
+  return age < STALE_SCAN_THRESHOLD_MS;
+}
+
 export function writeRunningScanState(trigger: ScanTrigger): void {
   writeScanStateFile({
     schemaVersion: 1,

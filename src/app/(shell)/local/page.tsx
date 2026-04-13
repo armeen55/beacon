@@ -3,6 +3,7 @@ import { PageHeader } from "@/components/data/page-header";
 import {
   formatReviewSourceTimeForDisplay,
   getLocalPresenceSnapshot,
+  listingCompletenessSummaryLine,
   napStateDisplay,
   napStateExplanation,
   type NapConsistencyState,
@@ -67,7 +68,7 @@ export default function LocalPresencePage() {
     <div className="max-w-3xl space-y-8">
       <PageHeader
         title="Local presence"
-        description="How you appear in maps, listings, and reviews"
+        description="Listing identity, health, completeness, and stored reviews from Config, import, and optional on-demand sync — read-only; not live directory truth."
       />
 
       <section className="rounded-lg border border-border/60 bg-surface-raised/30 px-5 py-4 space-y-2">
@@ -102,6 +103,48 @@ export default function LocalPresencePage() {
         <p className="text-[11px] text-muted-foreground">
           Based on configured business identity in{" "}
           <Link href="/settings/config" className="text-accent-primary hover:underline">Settings → Config</Link>.
+        </p>
+      </section>
+
+      <section
+        className="rounded-lg border border-border/60 bg-surface-raised/30 px-5 py-4 space-y-2"
+        data-testid="local-listing-completeness"
+      >
+        <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+          Listing completeness
+        </h2>
+        <p className="text-[13px] text-foreground leading-relaxed">
+          {listingCompletenessSummaryLine(snapshot.listingCompleteness)}
+        </p>
+        {snapshot.listingCompleteness.missing_fields.length > 0 ? (
+          <ul className="text-[12px] text-muted-foreground leading-relaxed list-disc pl-5 space-y-1 max-w-prose">
+            {snapshot.listingCompleteness.missing_fields.slice(0, 5).map((label) => (
+              <li key={label}>
+                <span className="font-medium text-foreground/90">Missing:</span> {label}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-[12px] text-muted-foreground leading-relaxed">
+            No missing fields detected among the inputs Beacon checks (see methodology).
+          </p>
+        )}
+        <p className="text-[11px] text-muted-foreground leading-relaxed">
+          Beacon only evaluates fields it has in Settings → Config and, for business name only, the
+          Google connector&apos;s selected location label when set. This is not a live-platform
+          audit and does not imply ranking impact.
+        </p>
+        <p className="text-[10px] text-muted-foreground/85">
+          Checked in v1: business name, address, phone, website (domain), category (industry).
+          Opening hours are not stored — not evaluated here.
+        </p>
+        <p className="text-[11px]">
+          <Link
+            href="/settings/methodology#listing-completeness"
+            className="text-accent-primary font-medium hover:underline"
+          >
+            Methodology → listing completeness
+          </Link>
         </p>
       </section>
 

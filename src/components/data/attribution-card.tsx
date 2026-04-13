@@ -39,7 +39,7 @@ export function AttributionCard({
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <Link
-            href={`/results/${result.id}`}
+            href={`/settings/history/${result.id}`}
             className="text-[13px] font-medium hover:text-accent-primary transition-colors"
           >
             {METRIC_TYPE_LABELS[result.metric_type]}

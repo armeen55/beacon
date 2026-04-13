@@ -11,6 +11,8 @@ import {
   mapOpportunityRow,
   mapCompetitorRow,
 } from "./engine";
+import { mapLocalReviewRow } from "./review-mapper";
+import { mergeUpsertLocalReviews } from "@/lib/local-reviews-store";
 import {
   opportunities,
   briefs,
@@ -20,9 +22,7 @@ import {
   importRuns,
 } from "@/lib/seed-data.server";
 import { citationEvidenceIndex } from "@/domains/pages/citation-evidence-store";
-import { parseWorkbook, WORKBOOK_IMPORT_SOURCE } from "./workbook";
-import { classifyResultMode } from "@/domains/attribution/result-mode";
-import type { ImportEntityType, ImportFormat, ImportRun, ImportResult, ImportPreview, WorkbookImportResult } from "./types";
+import type { ImportEntityType, ImportFormat, ImportRun, ImportResult, ImportPreview } from "./types";
 import type { VisibilityObservationRun } from "@/domains/observations/visibility-types";
 import { appendVisibilityObservationRunSync } from "@/domains/observations/visibility-persist";
 import { universeFieldsForObservationPersistence } from "@/domains/competitors/universe-run-pin";
@@ -179,7 +179,6 @@ export async function executeImport(
     };
   }
 
-  const mapper = getMapper(entityType);
   const allErrors: string[] = [];
   const allWarnings: string[] = [];
   let imported = 0;
@@ -188,25 +187,75 @@ export async function executeImport(
   const visibilityRunIdForResults =
     entityType === "results" ? `vis-imp-${batchId}` : null;
 
-  for (let i = 0; i < rows.length; i++) {
-    const result =
-      entityType === "results"
-        ? mapResultRow(
-            rows[i],
-            i,
-            batchId,
-            source,
-            visibilityRunIdForResults ?? undefined
-          )
-        : mapper(rows[i], i, batchId, source);
-    allErrors.push(...result.errors);
-    allWarnings.push(...result.warnings);
+  if (entityType === "reviews") {
+    log.info("Local reviews import started", { runId: batchId });
+    const batch = new Map<string, import("@/lib/local-reviews-types").LocalReview>();
+    for (let i = 0; i < rows.length; i++) {
+      const result = mapLocalReviewRow(rows[i], i);
+      allErrors.push(...result.errors);
+      allWarnings.push(...result.warnings);
+      if (result.entity) {
+        batch.set(result.entity.id, result.entity);
+      } else {
+        skipped++;
+      }
+    }
+    imported = batch.size;
+    if (imported === 0) {
+      log.error("Local reviews import failed", {
+        runId: batchId,
+        reason: allErrors[0] ?? "No valid review records found",
+      });
+      return {
+        success: false,
+        run_id: batchId,
+        imported_count: 0,
+        skipped_count: skipped,
+        errors: allErrors.length
+          ? allErrors.slice(0, 20)
+          : ["No valid review records found"],
+        warnings: allWarnings.slice(0, 20),
+      };
+    }
+    try {
+      await mergeUpsertLocalReviews([...batch.values()]);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      log.error("Local reviews import failed", {
+        runId: batchId,
+        error: msg.slice(0, 500),
+      });
+      return {
+        success: false,
+        run_id: batchId,
+        imported_count: 0,
+        skipped_count: skipped,
+        errors: [msg],
+        warnings: allWarnings.slice(0, 20),
+      };
+    }
+  } else {
+    const mapper = getMapper(entityType);
+    for (let i = 0; i < rows.length; i++) {
+      const result =
+        entityType === "results"
+          ? mapResultRow(
+              rows[i],
+              i,
+              batchId,
+              source,
+              visibilityRunIdForResults ?? undefined
+            )
+          : mapper(rows[i], i, batchId, source);
+      allErrors.push(...result.errors);
+      allWarnings.push(...result.warnings);
 
-    if (result.entity) {
-      insertEntity(entityType, result.entity);
-      imported++;
-    } else {
-      skipped++;
+      if (result.entity) {
+        insertEntity(entityType, result.entity);
+        imported++;
+      } else {
+        skipped++;
+      }
     }
   }
 
@@ -260,17 +309,29 @@ export async function executeImport(
   importRuns.push(run);
   await writeStore("import-runs", importRuns);
   await syncImportRuns(importRuns);
-  await persistImportedEntities(entityType);
-  await dualWriteImportedEntities(entityType);
-
-  await runOutcomeBackfill().catch(() => {});
-  await runExperimentCitationSync().catch(() => {});
-  await runMilestoneSync().catch(() => {});
+  if (entityType !== "reviews") {
+    await persistImportedEntities(entityType);
+    await dualWriteImportedEntities(entityType);
+    await runOutcomeBackfill().catch(() => {});
+    await runExperimentCitationSync().catch(() => {});
+    await runMilestoneSync().catch(() => {});
+  }
 
   revalidatePath("/", "layout");
+  if (entityType === "reviews") {
+    revalidatePath("/local", "layout");
+  }
 
   const durationMs = Date.now() - t0;
-  if (imported > 0) {
+  if (entityType === "reviews") {
+    if (imported > 0) {
+      log.info("Local reviews import completed", {
+        runId: batchId,
+        durationMs,
+        imported,
+      });
+    }
+  } else if (imported > 0) {
     log.info("Import completed", {
       runId: batchId,
       durationMs,
@@ -320,6 +381,13 @@ export async function clearEntityData(
       cleared = competitors.length;
       competitors.length = 0;
       break;
+    case "reviews": {
+      const { readLocalReviews, writeLocalReviews } = await import("@/lib/local-reviews-store");
+      cleared = readLocalReviews().length;
+      await writeLocalReviews([]);
+      revalidatePath("/local", "layout");
+      break;
+    }
   }
 
   revalidatePath("/", "layout");
@@ -363,6 +431,13 @@ export async function clearImportedData(
       cleared = competitors.length - keep.length;
       competitors.length = 0;
       competitors.push(...keep);
+      break;
+    }
+    case "reviews": {
+      const { readLocalReviews, writeLocalReviews } = await import("@/lib/local-reviews-store");
+      cleared = readLocalReviews().length;
+      await writeLocalReviews([]);
+      revalidatePath("/local", "layout");
       break;
     }
   }
@@ -422,6 +497,7 @@ export async function resetExperiment(
   await writeStore("imported-changes", []);
   await writeStore("imported-opportunities", []);
   await writeStore("imported-competitors", []);
+  await writeStore("local-reviews", []);
   await writeStore("import-runs", []);
   await writeStore("action-states", []);
   await writeStore("brief-states", []);
@@ -436,237 +512,6 @@ export async function resetExperiment(
   return { cleared };
 }
 
-export async function importWorkbook(
-  formData: FormData
-): Promise<WorkbookImportResult> {
-  const file = formData.get("file");
-  if (!file || !(file instanceof File)) {
-    log.error("Import failed", { runId: "", error: "No file provided" });
-    return {
-      success: false,
-      run_id: "",
-      changes_imported: 0,
-      results_imported: 0,
-      results_attribution: 0,
-      results_visibility: 0,
-      opportunities_derived: 0,
-      competitors_imported: 0,
-      changes_linked: 0,
-      sheets: [],
-      warnings: [],
-      errors: ["No file provided"],
-    };
-  }
-
-  const batchId = generateId("wb");
-  const t0 = Date.now();
-  const startedAt = now();
-
-  log.info("Import started", { runId: batchId, source: "upload" });
-
-  let data;
-  const visibilityRunId = `vis-wb-${batchId}`;
-  try {
-    const buffer = await file.arrayBuffer();
-    data = parseWorkbook(buffer, batchId, visibilityRunId);
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    log.error("Import failed", {
-      runId: batchId,
-      durationMs: Date.now() - t0,
-      error: msg.slice(0, 500),
-    });
-    return {
-      success: false,
-      run_id: batchId,
-      changes_imported: 0,
-      results_imported: 0,
-      results_attribution: 0,
-      results_visibility: 0,
-      opportunities_derived: 0,
-      competitors_imported: 0,
-      changes_linked: 0,
-      sheets: [],
-      warnings: [],
-      errors: [`Workbook parse error: ${msg}`],
-    };
-  }
-
-  const existingIds = new Set([
-    ...results.map((r) => r.id),
-    ...changelogEntries.map((c) => c.id),
-    ...opportunities.map((o) => o.id),
-    ...competitors.map((c) => c.id),
-  ]);
-
-  let changesLinked = 0;
-  let changesNew = 0;
-  let changesUpdated = 0;
-  let resultsNew = 0;
-  let resultsUpdated = 0;
-
-  for (const entry of data.changes) {
-    if (existingIds.has(entry.id)) {
-      const idx = changelogEntries.findIndex((c) => c.id === entry.id);
-      if (idx >= 0) changelogEntries[idx] = entry;
-      changesUpdated++;
-    } else {
-      changelogEntries.push(entry);
-      changesNew++;
-    }
-    if (entry.opportunity_id) changesLinked++;
-  }
-
-  for (const result of data.results) {
-    if (existingIds.has(result.id)) {
-      const idx = results.findIndex((r) => r.id === result.id);
-      if (idx >= 0) results[idx] = result;
-      resultsUpdated++;
-    } else {
-      results.push(result);
-      resultsNew++;
-    }
-  }
-
-  for (const opp of data.opportunities) {
-    if (existingIds.has(opp.id)) {
-      const idx = opportunities.findIndex((o) => o.id === opp.id);
-      if (idx >= 0) opportunities[idx] = opp;
-    } else {
-      opportunities.push(opp);
-    }
-  }
-
-  for (const comp of data.competitors) {
-    if (existingIds.has(comp.id)) {
-      const idx = competitors.findIndex((c) => c.id === comp.id);
-      if (idx >= 0) competitors[idx] = comp;
-    } else {
-      competitors.push(comp);
-    }
-  }
-
-  await writeStore(
-    "imported-changes",
-    changelogEntries.filter(isImported)
-  );
-  await writeStore("imported-results", results.filter(isImported));
-  await writeStore(
-    "imported-opportunities",
-    opportunities.filter(isImported)
-  );
-  await writeStore(
-    "imported-competitors",
-    competitors.filter(isImported)
-  );
-  await syncChangelogEntries(changelogEntries.filter(isImported));
-  await syncResults(results.filter(isImported));
-  await syncOpportunities(opportunities.filter(isImported));
-  await syncCompetitors(competitors.filter(isImported));
-
-  const run: ImportRun = {
-    id: batchId,
-    source_system: WORKBOOK_IMPORT_SOURCE,
-    entity_type: "results",
-    format: "csv",
-    started_at: startedAt,
-    completed_at: now(),
-    total_rows:
-      data.changes.length +
-      data.results.length +
-      data.opportunities.length +
-      data.competitors.length,
-    imported_count:
-      data.changes.length +
-      data.results.length +
-      data.opportunities.length +
-      data.competitors.length,
-    skipped_count: data.sheets.reduce((sum, s) => sum + s.skipped, 0),
-    errors: data.warnings.filter((w) => w.toLowerCase().includes("error")),
-    warnings: data.warnings,
-  };
-  importRuns.push(run);
-  await writeStore("import-runs", importRuns);
-  await syncImportRuns(importRuns);
-
-  if (data.results.length > 0) {
-    const completedAt = now();
-    const linkedCit =
-      citationEvidenceIndex?.built_at != null
-        ? `vis-citation-${encodeURIComponent(citationEvidenceIndex.built_at)}`
-        : null;
-    const visRun: VisibilityObservationRun = {
-      run_id: visibilityRunId,
-      run_type: "prompt_results_import",
-      source: `Workbook · ${WORKBOOK_IMPORT_SOURCE}`,
-      status: "completed",
-      started_at: startedAt,
-      completed_at: completedAt,
-      scope_label: `Workbook import ${batchId} — ${data.results.length} aggregated history row(s) from prompt_intelligence_daily.`,
-      prompt_set_version: "prompt_intelligence_daily",
-      engine_platform_note:
-        "Rows are aggregated buckets (date × engine × topic cluster), not raw prompts.",
-      parser_version: "workbook-v1",
-      baseline_visibility_run_id: null,
-      counts: {
-        topic_buckets: 0,
-        page_topic_rollup_rows: 0,
-        total_citations_accounted: 0,
-        distinct_external_domains_sampled: 0,
-        owned_rollup_rows: 0,
-      },
-      is_synthetic_wrapper: false,
-      citation_index_built_at: null,
-      sample_result_row_count: data.results.length,
-      linked_citation_index_run_id: linkedCit,
-      ...universeFieldsForObservationPersistence(),
-    };
-    appendVisibilityObservationRunSync(visRun);
-  }
-
-  await runOutcomeBackfill().catch(() => {});
-  await runExperimentCitationSync().catch(() => {});
-  await runMilestoneSync().catch(() => {});
-
-  revalidatePath("/", "layout");
-
-  const attrCount = data.results.filter(
-    (r) => classifyResultMode(r) === "attribution"
-  ).length;
-
-  const allDates = results.map((r) => r.snapshot_date).filter(Boolean).sort();
-
-  log.info("Import completed", {
-    runId: batchId,
-    durationMs: Date.now() - t0,
-    rowCount: run.imported_count,
-  });
-
-  return {
-    success: true,
-    run_id: batchId,
-    changes_imported: data.changes.length,
-    results_imported: data.results.length,
-    results_attribution: attrCount,
-    results_visibility: data.results.length - attrCount,
-    opportunities_derived: data.opportunities.length,
-    competitors_imported: data.competitors.length,
-    changes_linked: changesLinked,
-    sheets: data.sheets,
-    warnings: data.warnings,
-    errors: [],
-    delta: {
-      results_new: resultsNew,
-      results_updated: resultsUpdated,
-      changes_new: changesNew,
-      changes_updated: changesUpdated,
-      date_range_after: allDates.length > 0
-        ? { from: allDates[0], to: allDates[allDates.length - 1] }
-        : null,
-    },
-  };
-}
-
 function getMapper(entityType: ImportEntityType) {
   switch (entityType) {
     case "results":
@@ -677,6 +522,13 @@ function getMapper(entityType: ImportEntityType) {
       return mapOpportunityRow;
     case "competitors":
       return mapCompetitorRow;
+    case "reviews":
+      return (
+        row: Record<string, string>,
+        idx: number,
+        _batchId: string,
+        _source: string,
+      ) => mapLocalReviewRow(row, idx);
   }
 }
 
@@ -693,6 +545,8 @@ function insertEntity(entityType: ImportEntityType, entity: unknown) {
       break;
     case "competitors":
       competitors.push(entity as (typeof competitors)[number]);
+      break;
+    case "reviews":
       break;
   }
 }
@@ -712,6 +566,8 @@ async function persistImportedEntities(entityType: ImportEntityType) {
       break;
     case "competitors":
       await writeStore("imported-competitors", competitors.filter(isImported));
+      break;
+    case "reviews":
       break;
   }
 }
@@ -799,6 +655,8 @@ async function dualWriteImportedEntities(entityType: ImportEntityType) {
       break;
     case "competitors":
       await syncCompetitors(competitors.filter(isImported));
+      break;
+    case "reviews":
       break;
   }
 }

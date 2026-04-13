@@ -78,15 +78,17 @@ export default function MethodologyPage() {
         <p className="text-sm text-muted-foreground leading-relaxed">
           Under <span className="font-medium text-foreground">Settings → Sign-offs</span>, Beacon
           stores a lightweight <span className="font-medium text-foreground">readiness review</span>{" "}
-          for Daily Ritual and Replication only. These fields record internal operator sign-off state —
-          not performance. They <span className="font-medium text-foreground">do not</span> change
-          scores, findings, attribution, recommendations, or proof logic, and they do not alter
-          underlying metrics.
+          for Daily Ritual, Replication, and the <span className="font-medium text-foreground">Local layer</span>{" "}
+          (Track 1.4 — the Local route, connectors, NAP, listing health, listing completeness, Today/Market local
+          strips). These fields record internal operator sign-off state — not performance. They{" "}
+          <span className="font-medium text-foreground">do not</span> change scores, findings, attribution,
+          recommendations, proof logic, freshness labels, or underlying metrics. They only record a
+          readiness judgment you choose to save.
         </p>
         <p className="mt-3 text-[12px] font-semibold text-foreground/90">Beacon does not know</p>
         <ul className="mt-1.5 list-disc pl-5 space-y-1 text-sm text-muted-foreground">
           <li>Whether your team actually shipped marketing or ops work — only what you record in Beacon.</li>
-          <li>Any automatic effect on scores, findings, or recommendations from these fields (there is none).</li>
+          <li>Any automatic effect on scores, findings, freshness, or recommendations from these fields (there is none).</li>
         </ul>
       </section>
 
@@ -292,9 +294,60 @@ export default function MethodologyPage() {
           </p>
           <p className="mt-2 text-[12px] font-semibold text-foreground/90">Beacon does not know</p>
           <ul className="mt-1 list-disc pl-5 space-y-1 text-sm text-muted-foreground">
-            <li>True ranking impact from listing completeness.</li>
+            <li>True ranking impact from the listing health score.</li>
             <li>Complete listing accuracy across every directory on the web.</li>
             <li>Whether your configured NAP matches what consumers see on Google or Yelp without your own verification.</li>
+          </ul>
+        </MetricBlock>
+
+        <MetricBlock id="listing-completeness" title="Listing completeness">
+          <p>
+            On{" "}
+            <Link href="/local" className="text-accent-primary font-medium hover:underline">
+              Local presence
+            </Link>
+            , <span className="font-medium text-foreground">Listing completeness</span> is a
+            read-only checklist of whether Beacon has values for a small set of listing-related
+            fields — not a score, not an SEO grade, and not a comparison to competitors.
+          </p>
+          <p className="mt-2 text-[12px] font-semibold text-foreground/90">Fields checked (v1)</p>
+          <ul className="mt-1 list-disc pl-5 space-y-1 text-sm text-muted-foreground">
+            <li>
+              <span className="font-medium text-foreground">Business name</span> — Settings → Config
+              name and/or the Google connector&apos;s selected location display name when present.
+            </li>
+            <li>
+              <span className="font-medium text-foreground">Address</span> and{" "}
+              <span className="font-medium text-foreground">Phone</span> — from Settings → Config.
+            </li>
+            <li>
+              <span className="font-medium text-foreground">Website (domain)</span> — configured
+              website domain in Settings → Config.
+            </li>
+            <li>
+              <span className="font-medium text-foreground">Category (industry)</span> — the
+              industry value stored in Settings → Config (used as the only category-like field
+              Beacon holds without new imports).
+            </li>
+          </ul>
+          <p className="mt-2 text-[12px] font-semibold text-foreground/90">Not checked in v1</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Opening hours are not persisted from connectors in this version — Beacon does not show
+            an hours row in this audit.
+          </p>
+          <p className="mt-2 text-[12px] font-semibold text-foreground/90">How to read it</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Labels are <span className="font-medium text-foreground">strong</span> (most key fields
+            present), <span className="font-medium text-foreground">partial</span> (some missing), or{" "}
+            <span className="font-medium text-foreground">limited</span> (many missing). Use it to see
+            what is still empty in Beacon — then fill Config or run connector flows as you already
+            do today.
+          </p>
+          <p className="mt-2 text-[12px] font-semibold text-foreground/90">Beacon does not know</p>
+          <ul className="mt-1 list-disc pl-5 space-y-1 text-sm text-muted-foreground">
+            <li>Whether values match what consumers see on Google, Yelp, or other directories.</li>
+            <li>Whether filling a missing field would change rankings or AI answers.</li>
+            <li>Any data Beacon has not stored (including hours until a future read path adds them).</li>
           </ul>
         </MetricBlock>
 

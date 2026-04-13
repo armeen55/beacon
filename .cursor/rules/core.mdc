@@ -1,3 +1,65 @@
 ---
+description: Core rules for Beacon
 alwaysApply: true
 ---
+
+- Build Beacon as a real long-term product, not a throwaway prototype.
+- Optimize for a premium single-user internal app first.
+- Do not add auth, billing, teams, permissions, webhooks, cron jobs, or external integrations unless explicitly asked.
+- Keep files modular and reasonably small.
+- Do not modify unrelated files.
+- Reuse existing patterns whenever possible.
+- Explain the plan before implementing major changes.
+- Do not leave placeholder comments like "rest of logic here".
+- Prefer production-shaped architecture without premature SaaS complexity.
+- Pages should stay thin; domain logic belongs in `src/domains`.
+
+## Documentation Sync Rule (MANDATORY)
+
+After **ANY** task is completed, the agent **MUST**:
+
+1. **Update these files if impacted**
+   - `docs/HANDOFF_VERIFIED_STATE.md` — current state + next 3 actions
+   - `docs/NEXT_PHASE_EXECUTION_PLAN.md` — mark steps done / reorder if needed
+   - `docs/VERIFICATION_LOG.md` — add dated entry: what changed, what verified
+   - `docs/master_execution_plan.md` — add any new ideas / decisions if relevant
+
+2. **Confirm completion**
+   - Explicitly state: **Task completed**
+   - List what changed (1–5 bullets)
+
+3. **Provide ONLY ONE next best recommendation**
+   - Must be the single highest-leverage next step
+   - Must align with `NEXT_PHASE_EXECUTION_PLAN.md`
+
+4. **Adjust plan if needed**
+   - If order should change, edit `NEXT_PHASE_EXECUTION_PLAN.md`
+   - Clearly note why order changed (1–2 lines)
+
+5. **Do NOT**
+   - Create new docs unless necessary
+   - Duplicate plans
+   - Leave docs stale after code changes
+
+This rule is always applied.
+
+## Model Recommendation Rule (MANDATORY)
+
+For every future task, **before execution begins** and **again in the final output**, the agent must recommend exactly one of:
+
+- **Composer 2**
+- **Opus 4.6**
+- **Opus 4.6 Max**
+
+The recommendation must be based on task type:
+
+| Model | Use when |
+|-------|----------|
+| **Composer 2** | Simple UI work, loading/error states, styling, file cleanup, bounded component work, straightforward CRUD, safe repetitive execution |
+| **Opus 4.6** | Logic changes, product behavior changes, medium-complexity refactors, state/data flow work, route orchestration, tasks with some reasoning required |
+| **Opus 4.6 Max** | Architecture decisions, phase transitions, multi-file system design, ambiguous/high-risk changes, anything affecting trust, scoring, attribution, persistence, or the core product wedge |
+
+The **final output** of every task must include:
+
+- `Recommended model for next step: [Composer 2 / Opus 4.6 / Opus 4.6 Max]`
+- One-line reason why

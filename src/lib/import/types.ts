@@ -2,7 +2,8 @@ export type ImportEntityType =
   | "results"
   | "changes"
   | "opportunities"
-  | "competitors";
+  | "competitors"
+  | "reviews";
 
 export type ImportFormat = "csv" | "json";
 
@@ -38,36 +39,6 @@ export type ImportResult = {
   warnings: string[];
 };
 
-export type WorkbookSheetSummary = {
-  sheet: string;
-  rows: number;
-  imported: number;
-  skipped: number;
-  warnings: string[];
-};
-
-export type WorkbookImportResult = {
-  success: boolean;
-  run_id: string;
-  changes_imported: number;
-  results_imported: number;
-  results_attribution: number;
-  results_visibility: number;
-  opportunities_derived: number;
-  competitors_imported: number;
-  changes_linked: number;
-  sheets: WorkbookSheetSummary[];
-  warnings: string[];
-  errors: string[];
-  delta?: {
-    results_new: number;
-    results_updated: number;
-    changes_new: number;
-    changes_updated: number;
-    date_range_after: { from: string; to: string } | null;
-  };
-};
-
 export const IMPORT_COLUMN_DOCS: Record<ImportEntityType, { required: string[]; optional: string[] }> = {
   results: {
     required: ["snapshot_date", "platform", "metric_type", "metric_value"],
@@ -88,5 +59,15 @@ export const IMPORT_COLUMN_DOCS: Record<ImportEntityType, { required: string[]; 
   competitors: {
     required: ["name", "domain"],
     optional: ["description", "notes"],
+  },
+  reviews: {
+    required: ["id", "source", "rating", "created_at"],
+    optional: [
+      "review_text",
+      "reviewer_name",
+      "listing_name",
+      "review_url",
+      "location_id",
+    ],
   },
 };

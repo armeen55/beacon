@@ -684,7 +684,7 @@ export function TopicsClient({
                     <p className="text-[10px] font-semibold text-muted-foreground mb-1.5">Recent visibility shifts</p>
                     <div className="space-y-0.5">
                       {selected.events.slice(0, 5).map((e) => (
-                        <Link key={e.id} href={`/results/${e.anchorResultId}`} className="flex items-center gap-2 rounded px-2 py-1.5 hover:bg-surface-inset/50 transition-colors text-[10px]">
+                        <Link key={e.id} href={`/settings/history/${e.anchorResultId}`} className="flex items-center gap-2 rounded px-2 py-1.5 hover:bg-surface-inset/50 transition-colors text-[10px]">
                           <span className="truncate flex-1">{e.description}</span>
                           {e.isDecided ? <span className="text-status-success text-[9px]">Decided</span> : <span className="text-muted-foreground text-[9px]">Open</span>}
                         </Link>

@@ -36,7 +36,10 @@
 
 ## Tests added
 
-- **`tests/domains/scanning/orchestrate-scan.test.ts`** — mocks `child_process.exec`, asserts findings regeneration and scan-state writes for **today**, **pages**, and **import** triggers; asserts **`getPageSnapshots()`** reads fresh length after mocked disk write.
+- **`tests/domains/scanning/orchestrate-render-safe.test.ts`** — source-level guard: orchestrator + Today shell stay free of forbidden cache APIs; **`scanRoutesShouldRevalidate`** behavior.
+- **`tests/domains/scanning/scan-action-revalidate-after-scan.test.ts`** — `triggerPageScan` calls Next cache invalidation after a successful scan (mocked).
+- **`tests/domains/scanning/scan-action-delegates.test.ts`** — scan action delegates to orchestrator; **`next/cache`** mocked in tests.
+- **`tests/domains/scanning/scan-state.test.ts`**, **`tests/domains/scanning/snapshot-fresh.test.ts`** — scan state + fresh snapshot reads.
 
 ## What is still not “perfect”
 

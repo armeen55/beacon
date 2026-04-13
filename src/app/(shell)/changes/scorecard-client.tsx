@@ -110,11 +110,13 @@ export function ScorecardTable({
   allTopics,
   allPlatforms,
   changeIntel = {},
+  coverageState,
 }: {
   rows: ScorecardRowWithImpact[];
   allTopics: string[];
   allPlatforms: string[];
   changeIntel?: Record<string, ChangeIntelEntry>;
+  coverageState?: import("@/lib/coverage-state").CoverageState;
 }) {
   type OutcomeCategory = "all" | "winners" | "mixed" | "no_lift" | "too_early";
   const OUTCOME_VERDICTS: Record<OutcomeCategory, ChangeVerdict[]> = {
@@ -400,7 +402,7 @@ export function ScorecardTable({
           </thead>
           <tbody>
             {sorted.map((row) => (
-              <ScorecardRowUI key={row.change.id} row={row} intel={changeIntel[row.change.id]} />
+              <ScorecardRowUI key={row.change.id} row={row} intel={changeIntel[row.change.id]} coverageState={coverageState} />
             ))}
           </tbody>
         </table>
@@ -415,7 +417,7 @@ export function ScorecardTable({
   );
 }
 
-function ScorecardRowUI({ row, intel }: { row: ScorecardRowWithImpact; intel?: ChangeIntelEntry }) {
+function ScorecardRowUI({ row, intel, coverageState }: { row: ScorecardRowWithImpact; intel?: ChangeIntelEntry; coverageState?: import("@/lib/coverage-state").CoverageState }) {
   const ch = row.change;
   const dateStr = new Date(ch.timestamp).toLocaleDateString("en-US", {
     month: "short",
@@ -449,7 +451,7 @@ function ScorecardRowUI({ row, intel }: { row: ScorecardRowWithImpact; intel?: C
         )}
         {intel && intel.replicationCount > 0 && (
           <span className="inline-flex items-center gap-1 mt-1 ml-1 px-1.5 py-0.5 rounded border border-status-success/30 bg-status-success/8 text-[9px] font-semibold text-status-success">
-            {intel.replicationCount} replicable
+            {intel.replicationCount} similar
           </span>
         )}
       </td>
@@ -541,6 +543,20 @@ function ScorecardRowUI({ row, intel }: { row: ScorecardRowWithImpact; intel?: C
       </td>
       <td className="px-2.5 py-2 align-top whitespace-nowrap">
         <ConfidenceBadge confidence={row.impact.confidence} />
+        {(coverageState === "stale" ||
+          coverageState === "critical" ||
+          coverageState === "aging") && (
+          <span className="text-[8px] text-status-warning/60 ml-0.5">
+            (
+            {coverageState === "critical"
+              ? "no recent data"
+              : coverageState === "aging"
+                ? "aging"
+                : "stale"}
+            )
+          </span>
+        )}
+        {coverageState === "partial" && row.impact.confidence === "high" && <span className="text-[8px] text-status-warning/60 ml-0.5">(limited)</span>}
       </td>
       <td className="px-2.5 py-2 align-top max-w-[200px]">
         <p className="text-[10px] text-muted-foreground line-clamp-2 leading-snug">

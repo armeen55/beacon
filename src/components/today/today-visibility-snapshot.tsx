@@ -37,6 +37,8 @@ export type TodayVisibilitySnapshotProps = {
   hasObservationFile: boolean;
   milestoneTeaser?: TodayMilestoneTeaser | null;
   replicationSummary?: { pageCount: number } | null;
+  /** When Today visibility/coverage gate is active, freshness callout reads louder than the queue above. */
+  staleTruthGateActive?: boolean;
 };
 
 export function TodayVisibilitySnapshot({
@@ -55,6 +57,7 @@ export function TodayVisibilitySnapshot({
   hasObservationFile,
   milestoneTeaser,
   replicationSummary,
+  staleTruthGateActive = false,
 }: TodayVisibilitySnapshotProps) {
   const csWarning = coverageWarningLine(coverageState);
   const showBigFreshnessBox =
@@ -92,6 +95,7 @@ export function TodayVisibilitySnapshot({
       {showBigFreshnessBox && (
         <div className={cn(
           "rounded-lg border-2 px-4 py-3 space-y-2",
+          staleTruthGateActive && "ring-2 ring-status-warning/30 shadow-sm",
           coverageState === "critical" || coverageTone === "critical"
             ? "border-status-danger/40 bg-status-danger/[0.06]"
             : coverageState === "stale" || coverageTone === "degraded" || crawlStale || visStale
@@ -158,6 +162,18 @@ export function TodayVisibilitySnapshot({
               </li>
             )}
           </ul>
+          {proofContext.visibilityCompletedAt ? (
+            <p className="text-[10px] text-muted-foreground/90 pt-1 border-t border-border/40 tabular-nums">
+              Last visibility data:{" "}
+              {new Date(proofContext.visibilityCompletedAt).toLocaleString("en-US", {
+                month: "short",
+                day: "numeric",
+                year: "numeric",
+                hour: "numeric",
+                minute: "2-digit",
+              })}
+            </p>
+          ) : null}
         </div>
       )}
 

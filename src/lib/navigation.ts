@@ -3,6 +3,7 @@ import {
   Sun,
   Globe,
   Users,
+  MapPin,
   Settings,
   type LucideIcon,
 } from "lucide-react";
@@ -25,6 +26,7 @@ export const navigationGroups: NavGroup[] = [
       { label: "Today", href: "/", icon: Sun },
       { label: "Pages", href: "/pages", icon: Globe },
       { label: "Market", href: "/competitors", icon: Users },
+      { label: "Local", href: "/local", icon: MapPin },
       { label: "Changes", href: "/changes", icon: ListChecks },
       { label: "Settings", href: "/settings", icon: Settings },
     ],

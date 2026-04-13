@@ -13,12 +13,12 @@ const styles: Record<
 > = {
   high: {
     dot: "bg-status-success",
-    label: "Likely caused by",
+    label: "Strongest correlate",
     text: "text-status-success",
   },
   medium: {
     dot: "bg-status-warning",
-    label: "Possibly related to",
+    label: "Possible correlate",
     text: "text-status-warning",
   },
   low: {

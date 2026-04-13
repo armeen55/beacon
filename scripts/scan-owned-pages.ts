@@ -5,8 +5,8 @@
  * Reconciles sitemap URLs against the page registry to separate canonical
  * current-site pages from stale legacy-domain entries.
  *
- * Run with:
- *   npx tsx --require ./scripts/mock-server-only.cjs scripts/scan-owned-pages.ts
+ * Run with (same flags as `orchestrate-scan.ts`):
+ *   npx tsx --require ./scripts/mock-server-only.cjs --require ./scripts/apply-scan-site-domain.cjs scripts/scan-owned-pages.ts
  *
  * Flags:
  *   --dry-run     Show what would be scanned without fetching
@@ -32,10 +32,31 @@ import {
   writeLastScanResultFile,
   type LastScanResultPayload,
 } from "../src/domains/scanning/last-scan-result";
+import { writeIdleScanStateFromLastResult } from "../src/domains/scanning/scan-state";
 
 const DATA_DIR = join(process.cwd(), ".data");
+
+/** Keeps `.data/scan-state.json` aligned with the CLI outcome (Today polls this file). */
+function syncScanStateAfterResult(payload: LastScanResultPayload): void {
+  try {
+    writeIdleScanStateFromLastResult("cli", payload);
+  } catch (err) {
+    console.warn("[scan] scan-state sync failed:", err instanceof Error ? err.message : String(err));
+  }
+}
 const { siteOrigin, siteDomain: CANONICAL_DOMAIN } = getSiteConfig();
 const SITEMAP_URL = `${siteOrigin.replace(/\/+$/, "")}/sitemap.xml`;
+
+function formatErrorWithCause(e: unknown): string {
+  if (!(e instanceof Error)) return String(e).slice(0, 2000);
+  const parts = [e.message];
+  const c = e.cause;
+  if (c instanceof Error && c.message) parts.push(c.message);
+  else if (typeof c === "object" && c !== null && "code" in c) {
+    parts.push(String((c as { code?: unknown }).code));
+  }
+  return parts.filter(Boolean).join(" — ").slice(0, 2000);
+}
 
 // ── Types ──
 
@@ -119,8 +140,7 @@ async function fetchPage(
     const html = await res.text();
     return { html, status: res.status };
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return { error: msg, status: 0 };
+    return { error: formatErrorWithCause(err), status: 0 };
   } finally {
     clearTimeout(timer);
   }
@@ -233,15 +253,16 @@ async function main() {
   const singleUrl = urlArg ? urlArg.split("=").slice(1).join("=") : null;
 
   console.log("=== Page Scanner v1 (Sitemap-First) ===\n");
+  console.log(`[scan] canonical_domain=${CANONICAL_DOMAIN} origin=${siteOrigin}`);
 
   // ── Step 1: Fetch sitemap ──
+  console.log(`[scan] step=sitemap_fetch url=${SITEMAP_URL}`);
   console.log(`Fetching sitemap from ${SITEMAP_URL}...`);
   let sitemapEntries: { url: string; lastmod: string | null }[];
   try {
     sitemapEntries = await fetchSitemap();
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    writeLastScanResultFile({
+    const failPayload: LastScanResultPayload = {
       schemaVersion: 1,
       finishedAt: new Date().toISOString(),
       exit: "failed",
@@ -251,15 +272,20 @@ async function main() {
       pagesChanged: 0,
       pagesWithErrors: 0,
       guardrailAlertCount: 0,
-      cliError: msg,
-    });
+      cliError: `${formatErrorWithCause(e)} (sitemap: ${SITEMAP_URL})`,
+    };
+    writeLastScanResultFile(failPayload);
+    syncScanStateAfterResult(failPayload);
     throw e;
   }
+  console.log(`[scan] step=sitemap_ok count=${sitemapEntries.length}`);
   console.log(`Sitemap URLs: ${sitemapEntries.length}`);
 
   // ── Step 2: Load registry ──
+  console.log(`[scan] step=load_pages_registry`);
   const allPages = readStore<PageEntity>("pages");
   const ownedPages = allPages.filter((p) => p.is_owned);
+  console.log(`[scan] step=registry_loaded total=${allPages.length} owned=${ownedPages.length}`);
   console.log(`Registry owned pages: ${ownedPages.length}`);
 
   // ── Step 3: Reconcile ──
@@ -333,7 +359,7 @@ async function main() {
     scanSet = canonical.filter((c) => normalizeUrl(c.url) === normalizeUrl(singleUrl));
     if (scanSet.length === 0) {
       console.log(`\nNo canonical page matches URL: ${singleUrl}`);
-      writeLastScanResultFile({
+      const abortedPayload: LastScanResultPayload = {
         schemaVersion: 1,
         finishedAt: new Date().toISOString(),
         exit: "aborted",
@@ -344,7 +370,9 @@ async function main() {
         pagesWithErrors: 0,
         guardrailAlertCount: 0,
         abortedReason: `No canonical page matches URL: ${singleUrl}`,
-      });
+      };
+      writeLastScanResultFile(abortedPayload);
+      syncScanStateAfterResult(abortedPayload);
       return;
     }
   }
@@ -360,7 +388,7 @@ async function main() {
     for (const s of stale) {
       console.log(`  ${s.url}  [${s.reason}]`);
     }
-    writeLastScanResultFile({
+    const dryPayload: LastScanResultPayload = {
       schemaVersion: 1,
       finishedAt: new Date().toISOString(),
       exit: "success",
@@ -371,11 +399,14 @@ async function main() {
       pagesWithErrors: 0,
       guardrailAlertCount: 0,
       dryRun: true,
-    });
+    };
+    writeLastScanResultFile(dryPayload);
+    syncScanStateAfterResult(dryPayload);
     return;
   }
 
   // ── Step 5: Scan canonical pages ──
+  console.log(`[scan] step=page_fetch_start pages=${scanSet.length}`);
   console.log(`\n--- Scanning ${scanSet.length} canonical pages ---\n`);
 
   const previousSnapshots = loadPreviousSnapshots();
@@ -425,6 +456,9 @@ async function main() {
   }
 
   console.log("\n");
+  console.log(
+    `[scan] step=page_fetch_done snapshots=${newSnapshots.length} errors=${errors.length}`,
+  );
 
   // ── Step 6: Classify guardrails (load citation counts for context) ──
   let citationsByUrl = new Map<string, number>();
@@ -644,7 +678,7 @@ async function main() {
         ? "partial"
         : "success";
 
-  writeLastScanResultFile({
+  const finalPayload: LastScanResultPayload = {
     schemaVersion: 1,
     finishedAt: completedAt,
     exit: scanExit,
@@ -655,7 +689,9 @@ async function main() {
     pagesWithErrors: errors.length,
     guardrailAlertCount: alertsStamped.length,
     fetchErrors: errors.length > 0 ? errors : undefined,
-  });
+  };
+  writeLastScanResultFile(finalPayload);
+  syncScanStateAfterResult(finalPayload);
 
   console.log("\n=== Done ===");
 }
@@ -663,7 +699,7 @@ async function main() {
 main().catch((e) => {
   console.error(e);
   try {
-    writeLastScanResultFile({
+    const crashPayload: LastScanResultPayload = {
       schemaVersion: 1,
       finishedAt: new Date().toISOString(),
       exit: "failed",
@@ -673,8 +709,10 @@ main().catch((e) => {
       pagesChanged: 0,
       pagesWithErrors: 0,
       guardrailAlertCount: 0,
-      cliError: e instanceof Error ? e.message : String(e),
-    });
+      cliError: formatErrorWithCause(e),
+    };
+    writeLastScanResultFile(crashPayload);
+    syncScanStateAfterResult(crashPayload);
   } catch {
     /* ignore secondary write failure */
   }

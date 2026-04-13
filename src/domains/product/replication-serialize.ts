@@ -10,6 +10,8 @@ export type SerializedReplicationCard = {
   patternId: string | null;
   sourceChangeId: string | null;
   confidence: string;
+  targetingSummary: string;
+  actionVerb: string;
   expectedNextStep: string;
   watchAfter: string;
   cardObserved: string[];
@@ -49,6 +51,8 @@ export function serializeReplicationCards(
     patternId: c.patternId,
     sourceChangeId: c.sourceChangeId,
     confidence: c.confidence,
+    targetingSummary: c.targetingSummary,
+    actionVerb: c.actionVerb,
     expectedNextStep: c.expectedNextStep,
     watchAfter: c.watchAfter,
     cardObserved: c.cardObserved,

@@ -2,12 +2,19 @@
 
 import { log } from "@/lib/logger";
 import { saveBusinessConfig, getBusinessConfig, type BusinessConfig } from "@/lib/business-config";
+import {
+  getYelpConnectorToken,
+  updateConnectorToken,
+} from "@/lib/connector-store";
 import { revalidatePath } from "next/cache";
 
 export async function saveSetup(data: {
   name: string;
   domain: string;
   industry: string;
+  phone?: string;
+  address?: string;
+  yelpBusinessId?: string;
   locations: string[];
   services: string[];
   primaryCompetitors: string[];
@@ -27,11 +34,20 @@ export async function saveSetup(data: {
       name: data.name,
       domain: data.domain,
       industry: data.industry,
+      phone: data.phone ?? "",
+      address: data.address ?? "",
+      yelpBusinessId: data.yelpBusinessId?.trim() ?? "",
       locations: data.locations,
       services: data.services,
       primaryCompetitors: data.primaryCompetitors,
     });
+    const yelpBid = (data.yelpBusinessId ?? "").trim();
+    const yelp = getYelpConnectorToken();
+    if (yelp) {
+      updateConnectorToken("yelp", { business_id: yelpBid });
+    }
     revalidatePath("/", "layout");
+    revalidatePath("/settings/connectors");
     log.info("Action completed", { action, durationMs: Date.now() - t0 });
     return { success: true };
   } catch (e) {

@@ -18,6 +18,7 @@ const NAV_SHORTCUTS: Record<string, string> = {
   "/pages": "G P",
   "/changes": "G C",
   "/competitors": "G M",
+  "/local": "G L",
   "/settings": "G S",
 };
 

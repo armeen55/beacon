@@ -55,6 +55,19 @@ export function writeAnswerTexts(texts: Record<string, string>): void {
   _answerTextsCache = null;
 }
 
+/** Full map from disk (for merge imports). Does not populate the read-through cache. */
+export function readAnswerTextsFromDisk(): Record<string, string> {
+  const path = join(DATA_DIR, "answer-texts.json");
+  if (!existsSync(path)) return {};
+  try {
+    const raw = readFileSync(path, "utf-8");
+    const obj = JSON.parse(raw) as Record<string, string>;
+    return obj && typeof obj === "object" ? { ...obj } : {};
+  } catch {
+    return {};
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Sharded citations — one file per date in .data/citations-by-date/
 // ---------------------------------------------------------------------------

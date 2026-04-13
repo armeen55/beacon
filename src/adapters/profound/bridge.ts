@@ -24,6 +24,11 @@ import type { ImportRun } from "@/lib/import/types";
 import { normalizePlatform } from "@/lib/platform";
 import { writeStore } from "@/lib/persistence/json-store";
 import { importRuns } from "@/lib/seed-data.server";
+import {
+  syncChangelogEntries,
+  syncImportRuns,
+  syncResults,
+} from "@/lib/persistence/dual-write";
 
 // ── Snapshot → Result bridge ────────────────────────────────────────
 
@@ -257,6 +262,11 @@ function normalizeAssetType(raw: string): AssetType {
 export async function writeLegacyBridge(opts: {
   snapshots: DailyMetricSnapshot[];
   changelogCSVPath: string | null;
+  /**
+   * When provided, these rows replace `imported-changes` instead of parsing `changelogCSVPath`.
+   * Used for header-discovered multi-file changelog merge. Omit to fall back to CSV path.
+   */
+  changelogEntries?: ChangelogEntry[];
   importBatchId: string;
   sourceSystem: string;
   totalCanonicalRows: number;
@@ -265,7 +275,10 @@ export async function writeLegacyBridge(opts: {
   await writeStore("imported-results", results);
 
   let changes: ChangelogEntry[] = [];
-  if (opts.changelogCSVPath) {
+  if (opts.changelogEntries !== undefined) {
+    changes = opts.changelogEntries;
+    await writeStore("imported-changes", changes);
+  } else if (opts.changelogCSVPath) {
     changes = parseChangelogCSVToLegacy(opts.changelogCSVPath, opts.importBatchId);
     await writeStore("imported-changes", changes);
   }
@@ -286,6 +299,12 @@ export async function writeLegacyBridge(opts: {
 
   importRuns.push(importRun);
   await writeStore("import-runs", importRuns);
+
+  await syncResults(results);
+  if (changes.length > 0) {
+    await syncChangelogEntries(changes);
+  }
+  await syncImportRuns(importRuns);
 
   return { resultCount: results.length, changeCount: changes.length };
 }

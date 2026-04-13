@@ -4,6 +4,7 @@ import {
   REVIEW_IMPORT_STALE_AFTER_DAYS,
   buildMarketLocalStripModel,
   buildTodayLocalAttention,
+  deriveListingCompletenessAudit,
   deriveNapConsistencyState,
   deriveReviewImportFreshness,
   napStateDisplay,
@@ -35,6 +36,14 @@ function snap(p: Partial<LocalPresenceSnapshot>): LocalPresenceSnapshot {
     lastReviewImportAt: null,
     reviewImportAgeDays: null,
     lastSync: { google: null, yelp: null, manual: null },
+    listingCompleteness: deriveListingCompletenessAudit({
+      nameFromConfig: "Co",
+      nameFromGoogleLocation: null,
+      address: "",
+      phone: "",
+      domain: "co.example",
+      industry: "",
+    }),
   };
   return {
     ...defaults,
@@ -43,6 +52,7 @@ function snap(p: Partial<LocalPresenceSnapshot>): LocalPresenceSnapshot {
     napState: p.napState ?? defaults.napState,
     healthBreakdown: p.healthBreakdown ?? defaults.healthBreakdown,
     lastSync: p.lastSync ?? defaults.lastSync,
+    listingCompleteness: p.listingCompleteness ?? defaults.listingCompleteness,
   };
 }
 
@@ -271,6 +281,7 @@ describe("Track 1.4g — Market strip model (4-state NAP)", () => {
     expect(m.reviewLine).toContain("3 stored");
     expect(m.reviewLine).toContain("4.2");
     expect(m.footnote).toContain("imported or synced");
+    expect(m.listingCompletenessPhrase).toBe("Listing completeness: limited");
   });
 
   it("renders no review copy when empty", () => {
@@ -299,5 +310,65 @@ describe("Track 1.4g — Market strip model (4-state NAP)", () => {
     );
     expect(m.napDisplay).toBe("Unknown");
     expect(m.napState).toBe("unknown");
+  });
+
+  it("includes listing completeness phrase when not strong", () => {
+    const partial = deriveListingCompletenessAudit({
+      nameFromConfig: "A",
+      nameFromGoogleLocation: null,
+      address: "",
+      phone: "",
+      domain: "a.com",
+      industry: "x",
+    });
+    const m = buildMarketLocalStripModel(
+      snap({
+        napState: "complete",
+        nap: { present: ["name", "domain", "phone", "address"], missing: [], completeness: 100 },
+        healthTier: "strong",
+        hasReviews: true,
+        reviewCount: 1,
+        avgRating: 5,
+        listingCompleteness: partial,
+      }),
+    );
+    expect(m.listingCompletenessPhrase).toBe("Listing completeness: partial");
+  });
+});
+
+describe("Track 1.4h–k — Today listing completeness line", () => {
+  it("does not add listing completeness when NAP incomplete dominates", () => {
+    const a = buildTodayLocalAttention(snap({ napState: "incomplete" }));
+    expect(a!.facts.some((f) => f.includes("Listing data is limited"))).toBe(false);
+  });
+
+  it("adds listing data limited when weak completeness and NAP is unknown", () => {
+    const weak = deriveListingCompletenessAudit({
+      nameFromConfig: "",
+      nameFromGoogleLocation: null,
+      address: "",
+      phone: "",
+      domain: "",
+      industry: "",
+    });
+    expect(weak.coverage_state).toBe("weak");
+    const s = snap({
+      hasListing: false,
+      napState: "unknown",
+      nap: { present: [], missing: ["name", "domain", "phone", "address"], completeness: 0 },
+      hasReviews: true,
+      reviewCount: 1,
+      avgRating: 5,
+      lastReviewImportAt: new Date().toISOString(),
+      reviewImportAgeDays: 1,
+      healthTier: "strong",
+      healthScore: 80,
+      healthBreakdown: emptyBreakdown("strong", 80),
+      listingCompleteness: weak,
+    });
+    const a = buildTodayLocalAttention(s);
+    expect(a!.facts.some((f) => f.includes("No website domain configured"))).toBe(true);
+    expect(a!.facts.some((f) => f.includes("Listing data is limited"))).toBe(true);
+    expect(a!.facts.length).toBeLessThanOrEqual(2);
   });
 });

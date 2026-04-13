@@ -3,6 +3,7 @@ import "server-only";
 import { getBusinessConfig } from "@/lib/business-config";
 import {
   getConnectorToken,
+  getGoogleConnectorToken,
   type ConnectorProvider,
 } from "@/lib/connector-store";
 import { BEACON_LOCAL_SURFACE_FOOTNOTE } from "@/lib/beacon-proof-copy";
@@ -42,6 +43,27 @@ export type ReviewSourceLastSync = {
   manual: string | null;
 };
 
+/** Keys Beacon checks for listing completeness (read-only; no API calls). Hours omitted — not persisted in v1. */
+export type ListingCompletenessFieldKey =
+  | "name"
+  | "address"
+  | "phone"
+  | "website"
+  | "category";
+
+/** Coverage of key listing fields from existing config + connector display fields only — not an SEO score. */
+export type ListingCompletenessCoverage = "strong" | "partial" | "weak";
+
+export type ListingCompletenessAudit = {
+  /** Fields included in this audit (v1 fixed set). */
+  checked_field_keys: ListingCompletenessFieldKey[];
+  /** Human-readable labels for fields Beacon has a value for. */
+  present_fields: string[];
+  /** Human-readable labels for fields Beacon has no value for. */
+  missing_fields: string[];
+  coverage_state: ListingCompletenessCoverage;
+};
+
 export type LocalPresenceSnapshot = {
   hasListing: boolean;
   hasReviews: boolean;
@@ -63,6 +85,8 @@ export type LocalPresenceSnapshot = {
   reviewImportAgeDays: number | null;
   /** When each review data path was last updated — independent, not merged. */
   lastSync: ReviewSourceLastSync;
+  /** Which listing-related fields Beacon has in config / GBP selection only — not live-platform verification. */
+  listingCompleteness: ListingCompletenessAudit;
 };
 
 const CONNECTOR_REVIEW_SOURCE_SYSTEMS = new Set(["connector:google", "connector:yelp"]);
@@ -120,6 +144,94 @@ function sentimentFromAvg(avg: number): LocalSentimentBand {
 }
 
 const ALL_NAP_FIELDS: NapField[] = ["name", "domain", "phone", "address"];
+
+const LISTING_COMPLETENESS_KEYS: readonly ListingCompletenessFieldKey[] = [
+  "name",
+  "address",
+  "phone",
+  "website",
+  "category",
+] as const;
+
+const LISTING_COMPLETENESS_LABELS: Record<ListingCompletenessFieldKey, string> = {
+  name: "Business name",
+  address: "Address",
+  phone: "Phone",
+  website: "Website (domain)",
+  category: "Category (industry)",
+};
+
+/**
+ * Read-only audit: which listing-related fields Beacon has in Settings → Config
+ * and (for name only) the Google connector’s selected location display name.
+ * Does not call APIs, does not verify live GBP, does not score for ranking.
+ */
+export function deriveListingCompletenessAudit(opts: {
+  nameFromConfig: string;
+  /** From GBP connector token when set — optional second source for “name” only. */
+  nameFromGoogleLocation?: string | null;
+  address: string;
+  phone: string;
+  domain: string;
+  industry: string;
+}): ListingCompletenessAudit {
+  const hasName =
+    Boolean(opts.nameFromConfig.trim()) || Boolean(opts.nameFromGoogleLocation?.trim());
+  const hasAddress = Boolean(opts.address.trim());
+  const hasPhone = Boolean(opts.phone.trim());
+  const hasWebsite = Boolean(opts.domain.trim());
+  const hasCategory = Boolean(opts.industry.trim());
+
+  const present: ListingCompletenessFieldKey[] = [];
+  const missing: ListingCompletenessFieldKey[] = [];
+
+  const flags: Record<ListingCompletenessFieldKey, boolean> = {
+    name: hasName,
+    address: hasAddress,
+    phone: hasPhone,
+    website: hasWebsite,
+    category: hasCategory,
+  };
+
+  for (const key of LISTING_COMPLETENESS_KEYS) {
+    if (flags[key]) present.push(key);
+    else missing.push(key);
+  }
+
+  const nPresent = present.length;
+  let coverage_state: ListingCompletenessCoverage;
+  if (nPresent >= 4) coverage_state = "strong";
+  else if (nPresent === 3) coverage_state = "partial";
+  else coverage_state = "weak";
+
+  return {
+    checked_field_keys: [...LISTING_COMPLETENESS_KEYS],
+    present_fields: present.map((k) => LISTING_COMPLETENESS_LABELS[k]),
+    missing_fields: missing.map((k) => LISTING_COMPLETENESS_LABELS[k]),
+    coverage_state,
+  };
+}
+
+/** One-line summary for `/local` and similar surfaces. */
+export function listingCompletenessSummaryLine(audit: ListingCompletenessAudit): string {
+  switch (audit.coverage_state) {
+    case "strong":
+      return "Most key listing fields are present.";
+    case "partial":
+      return "Some key listing fields are missing.";
+    default:
+      return "Listing data is limited.";
+  }
+}
+
+/** Short trailing phrase for Market local strip; null when strong. */
+export function listingCompletenessMarketPhrase(
+  audit: ListingCompletenessAudit,
+): string | null {
+  if (audit.coverage_state === "strong") return null;
+  if (audit.coverage_state === "partial") return "Listing completeness: partial";
+  return "Listing completeness: limited";
+}
 
 export function checkNap(config: {
   name: string;
@@ -287,6 +399,16 @@ export function getLocalPresenceSnapshot(): LocalPresenceSnapshot {
     manual: lastManualReviewsImportCompletedAt(),
   };
 
+  const googleTok = getGoogleConnectorToken();
+  const listingCompleteness = deriveListingCompletenessAudit({
+    nameFromConfig: config.name,
+    nameFromGoogleLocation: googleTok?.selected_location_name,
+    address: config.address,
+    phone: config.phone,
+    domain: config.domain,
+    industry: config.industry,
+  });
+
   return {
     hasListing,
     hasReviews,
@@ -301,6 +423,7 @@ export function getLocalPresenceSnapshot(): LocalPresenceSnapshot {
     lastReviewImportAt,
     reviewImportAgeDays,
     lastSync,
+    listingCompleteness,
   };
 }
 
@@ -345,6 +468,8 @@ export type MarketLocalStripModel = {
   napState: NapConsistencyState;
   napDisplay: string;
   reviewLine: string;
+  /** Subtle Market-only hint; null when listing completeness is strong. */
+  listingCompletenessPhrase: string | null;
   footnote: string;
 };
 
@@ -440,6 +565,7 @@ export function buildMarketLocalStripModel(
     napState: snapshot.napState,
     napDisplay: napStateDisplay(snapshot.napState),
     reviewLine,
+    listingCompletenessPhrase: listingCompletenessMarketPhrase(snapshot.listingCompleteness),
     footnote: BEACON_LOCAL_SURFACE_FOOTNOTE,
   };
 }
@@ -490,6 +616,16 @@ export function buildTodayLocalAttention(
     push(
       `Listing presence score is ${snapshot.healthScore}/100 (${healthTierDisplay(snapshot.healthTier)}) based on configured identity and imports.`,
     );
+  }
+
+  // Track 1.4h–k: weak listing completeness only; skip when NAP incomplete/inconsistent dominates.
+  if (
+    snapshot.listingCompleteness.coverage_state === "weak" &&
+    facts.length < 2 &&
+    snapshot.napState !== "incomplete" &&
+    snapshot.napState !== "inconsistent"
+  ) {
+    push(listingCompletenessSummaryLine(snapshot.listingCompleteness));
   }
 
   return {

@@ -315,7 +315,7 @@ export default async function OpportunityDetailPage({
                 <div key={result.id} className="space-y-1">
                   <EntityLinkCard
                     type="result"
-                    href={`/results/${result.id}`}
+                    href={`/settings/history/${result.id}`}
                     title={METRIC_TYPE_LABELS[result.metric_type]}
                     subtitle={result.notes ?? undefined}
                     meta={PLATFORM_LABELS[result.platform]}

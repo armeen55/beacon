@@ -2680,13 +2680,19 @@ The transition from Profound-imported data to native-owned data is designed as a
 - **Deliverable:** Checklist: digest + clear done-state + escalation + assignment + mobile scope.  
 - **Done when:** Signed off.  
 - **Depends on:** 1.2c–1.2g, 1.1j (proof strings in ritual).
-- **2026-04-12 (persistence slice):** Settings → **Sign-offs** (`/settings/exit-gates`) + `.data/exit-gates.json` — operator can record `daily_ritual` status / note / `updated_at` only; no workflow; does not change metrics or proof (`exit-gates-store.ts`, methodology `#exit-gates`). Product checklist above remains the definition of “done.”
+- **2026-04-12 (persistence slice):** Settings → **Sign-offs** (`/settings/exit-gates`) + `.data/exit-gates.json` — operator records per-gate `status` / `note` / `updated_at` (`exit-gates-store.ts`, methodology `#exit-gates`). Keys: **`daily_ritual`** (this track), **`replication`** (Track 1.3), **`local_layer`** (Track 1.4l, **2026-04-13**). No workflow; does not change metrics, scores, freshness, or proof. Product checklist above remains the definition of “done.” **2026-04-13:** operator **`passed`** for **`daily_ritual`** + **`replication`** (notes on file) — together with **`local_layer`**, all three Sign-off rows **`passed`**.
 
 **1.2i — Keyboard / power-user path**  
 - **Deliverable:** Shortcuts spec for triage (align with command palette).  
 - **Done when:** Documented; conflicts resolved.  
 - **Depends on:** 1.2e.
 - **2026-04-12 (product slice shipped):** Today-only minimal path — **A** focuses primary CTA, **J/K** moves among visible finding rows, **Enter** on a focused row triggers its first action; no global shortcut manager. See `VERIFICATION_LOG.md` (Track 1.2 Phase 3). Full 1.2i spec + command-palette alignment remains open.
+- **2026-04-14:** Today **Next:** one-liner under the scan strip — `deriveTodayNextLine` routes on existing inputs only (no new scoring); `#today-findings` anchor; `tests/lib/today-next-line.test.ts`.
+- **2026-04-14 (follow-up):** Truth blockers **outrank** local + primary + critical-queue **Next:** (`scanPhaseFailed` + same coverage/crawl gates as all-clear); aligned empty-findings label + digest + primary secondary styling when truth blocked.
+- **2026-04-12 (Today stale visibility):** Hard **truth-blocker** when `isVisibilityCoverageStaleTruth` — keep scan strip green on success, but headline **Data is stale** + import-first copy + `/settings/import`; **Next:** concrete import line when `hasImportedVisibility`; local/primary/digest/findings visually deferred; empty queue uses warning frame + import note (not “healthy” closure); optional **Last visibility data:** from existing `proofContext.visibilityCompletedAt` inside the freshness box.
+- **2026-04-12 (Today one decision):** `deriveTodayOneDecision` + `TodayOneDecisionCard` — single **Right now** block (yes/no, why, first step or defer); replaces parallel Next line + duplicate stale banner; `deriveTodayNextLine` kept for lib/tests.
+- **2026-04-12 (Today primary card):** `buildPrimaryDecisionCopy` — sections **Why this matters** / **If you ignore it** / **If you ship it** / **Leverage & how sure Beacon is** from existing rec fields only; Basis block unchanged.
+- **2026-04-14 (scan):** Website scan CLI inferred **`example.com`** without `BEACON_SITE_DOMAIN` while seed pages used the real domain → sitemap **fetch failed**; fixed with `scan-site-domain.ts` + `exec` env injection + `apply-scan-site-domain.cjs` preload (see `VERIFICATION_LOG.md`).
 
 ---
 
@@ -2737,6 +2743,7 @@ The transition from Profound-imported data to native-owned data is designed as a
 - **Done when:** Signed off.  
 - **Depends on:** 1.3d–1.3g, 1.1j.
 - **2026-04-12 (persistence slice):** Same **Sign-offs** page + store row `replication` — internal sign-off state only; does not satisfy checklist items until operator marks accordingly.
+- **2026-04-13:** Operator **`replication`** = **`passed`** (see `.data/exit-gates.json`); static checklist pass logged in **`docs/TIER_1_DOGFOOD_WEEK_LOG.md`** (not a substitute for calendar dogfood week).
 
 ---
 
@@ -2795,6 +2802,8 @@ The transition from Profound-imported data to native-owned data is designed as a
 - **Depends on:** 1.4b.
 - **2026-04-12 (shipped):** `deriveNapConsistencyState` in `local-presence.ts` — 4 states; `inconsistent` detected when imported review `listing_name` values conflict with configured business name (case-insensitive). Methodology `#nap-consistency`. No live-directory verification, no auto-fixes. Tests: 15 new (derivation + boundary + precedence + attention + strip).
 
+- **2026-04-13 — Listing completeness / GBP field coverage (read-only):** `LocalPresenceSnapshot.listingCompleteness` — audit of **name** (business config or Google connector selected-location label), **address**, **phone**, **website** (configured domain), **category** (config industry); **hours** omitted until a stored hours signal exists. Output: `present_fields` / `missing_fields` / `coverage_state` (`strong` / `partial` / `weak`) from simple present-count thresholds — **not** a second health score. `/local` **Listing completeness** UI; Today + Market optional surfacing when weak/partial; methodology `#listing-completeness`. No new connectors, no external validation language.
+
 **1.4h — Competitive context for reviews**  
 - **Deliverable:** “vs local pack competitors” framing research (data availability).  
 - **Done when:** Feasibility verdict.  
@@ -2819,6 +2828,7 @@ The transition from Profound-imported data to native-owned data is designed as a
 - **Deliverable:** v1 ship: health card + review alert + methodology links + boundary visible.  
 - **Done when:** Signed off.  
 - **Depends on:** 1.4f–1.4j, 1.1j.
+- **2026-04-13 (operator sign-off mechanism shipped):** Third internal exit gate **`local_layer`** in `.data/exit-gates.json` (same `status` / `note` / `updated_at` as Daily Ritual + Replication). **Settings → Sign-offs** — static review checklist, status actions, note save; methodology **`#exit-gates`** documents Local layer + “does not affect metrics, scores, or freshness.” Optional Settings layout hint: on **`/settings/exit-gates`**, if Local layer is not `passed`, a one-line readiness strip appears even when the other two gates are already `passed` (low noise; no banners on Today/Market/`/local`). **2026-04-13 (operator judgment):** checklist review recorded — **`local_layer`** **`passed`** with note; minor **`/local`** header copy aligned to read-only truth (no live-directory implication).
 
 ---
 
@@ -2862,6 +2872,9 @@ The transition from Profound-imported data to native-owned data is designed as a
 ### Tier 1 completion criterion
 
 Tier 1 is **closed** when **1.1j, 1.2h, 1.3h, 1.4l, 1.5g** are all signed off and one **internal dogfood week** completes without P0 trust regressions.
+
+- **2026-04-13 (engineering):** Added **`docs/TIER_1_DOGFOOD_WEEK_LOG.md`** — daily-use protocol, log table, **static validation** pass for 1.2h/1.3h (code + copy review; minimal string fix in `replication-engine.ts`). This does **not** replace five to seven **consecutive calendar days** of operator use; the human operator fills the log table and pastes the **Final Tier 1 note** in that file when done. Until then, treat “Tier 1 closed” as **not** satisfied for downstream vault dependencies (e.g. Track 2.1).
+- **2026-04-14 (verification):** Dogfood log reviewed for vault closure — **insufficient evidence** (no consecutive dated operator rows; Final note not completed). **Tier 1 remains open.** See **`docs/TIER_1_DOGFOOD_WEEK_LOG.md`** → **Verification record** and **`VERIFICATION_LOG.md`** (2026-04-14 entry).
 
 ---
 
@@ -3049,6 +3062,7 @@ These are ideas, experiments, and dream-state features that are NOT in the activ
 - **Onboarding guided tour** — step-by-step first-run experience beyond setup wizard
 - **Playwright E2E tests** — browser-level route smoke testing
 - **Module-cache invalidation** — TTL or per-request initialization for production data freshness
+- **Profound-native ingestion (2026-04-12 prep)** — API → normalize → **Supabase** with idempotent upserts + source/run tags; product routes keep reading the same domain contracts. Readiness audit: `docs/NATIVE_INGESTION_READINESS_AUDIT.md`. CSV batch remains the bridge; **workbook import removed** from the app; **`writeLegacyBridge`** now calls **`syncResults` / `syncChangelogEntries` / `syncImportRuns`** when dual-write is on so the Profound path is not file-only.
 
 ### Post-V1 Ideas
 

@@ -7,6 +7,10 @@ export interface BusinessConfig {
   name: string;
   domain: string;
   industry: string;
+  phone: string;
+  address: string;
+  /** Yelp Fusion business id or alias (used by Settings → Connectors → Yelp sync). */
+  yelpBusinessId: string;
   locations: string[];
   services: string[];
   primaryCompetitors: string[];
@@ -30,6 +34,9 @@ const DEFAULT_CONFIG: BusinessConfig = {
   name: "Ritz Builders",
   domain: "ritzbuilders.com",
   industry: "home-builder",
+  phone: "",
+  address: "",
+  yelpBusinessId: "",
   locations: [
     "Palo Alto",
     "Menlo Park",

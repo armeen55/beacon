@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ChangeVerdictBadge } from "@/components/display/change-verdict-badge";
+import { ConfidenceBadge } from "@/components/display/confidence-badge";
 import { MatchFactors } from "@/components/display/match-factors";
+import { buildAttributionConfidenceBasis } from "@/lib/attribution-confidence-basis";
 import { changelogEntries, results, opportunities } from "@/lib/seed-data.server";
 import { eventDecisions } from "@/domains/attribution/store";
 import { computeScorecard } from "@/domains/attribution/scorecard";
@@ -24,6 +26,9 @@ import {
   SIGNAL_TYPE_LABELS,
   ASSET_TYPE_LABELS,
 } from "@/lib/constants";
+import { deriveCoverageState, coverageWarningLine } from "@/lib/coverage-state";
+import { latestWebsiteCrawlRun } from "@/domains/observations/read";
+import { sampleQualityTierFromObservationCount } from "@/lib/sample-quality-tier";
 
 const PLATFORM_LABELS: Record<string, string> = {
   chatgpt: "ChatGPT",
@@ -32,9 +37,9 @@ const PLATFORM_LABELS: Record<string, string> = {
 };
 
 const CONF_LABELS: Record<AttributionConfidence, string> = {
-  high: "High confidence",
-  medium: "Medium confidence",
-  low: "Low confidence",
+  high: "Strong evidence",
+  medium: "Moderate evidence",
+  low: "Weak evidence",
   uncertain: "Uncertain",
 };
 
@@ -53,8 +58,8 @@ const TIER_COLORS: Record<EvidenceTier, string> = {
 };
 
 const ROLE_LABELS: Record<string, string> = {
-  primary: "Primary Cause",
-  contributing: "Contributing Factor",
+  primary: "Strongest Match",
+  contributing: "Contributing Match",
   candidate: "Unresolved Candidate",
 };
 
@@ -102,6 +107,19 @@ export default async function ChangeDetailPage({
   const allRows = computeScorecard(changelogEntries, results, opportunities, eventDecisions);
   const row = allRows.find((r) => r.change.id === id);
   if (!row) notFound();
+
+  const lastCrawlDetail = latestWebsiteCrawlRun();
+  const changeCrawlAgeDays = lastCrawlDetail?.completed_at
+    ? Math.floor(
+        (Date.now() - new Date(lastCrawlDetail.completed_at).getTime()) / 86_400_000,
+      )
+    : null;
+  const changeCoverageState = deriveCoverageState({
+    crawlAgeDays: changeCrawlAgeDays,
+    visibilityStaleVsCrawl: false,
+    sampleQualityTier: sampleQualityTierFromObservationCount(results.length),
+  });
+  const changeCoverageWarning = coverageWarningLine(changeCoverageState);
 
   const impact = computeChangeImpact(row);
 
@@ -248,11 +266,17 @@ export default async function ChangeDetailPage({
               </div>
             )}
             {row.topConfidence && (
-              <div className="text-right">
-                <p className="text-[10px] text-muted-foreground">Confidence</p>
-                <p className="text-[13px] font-medium">
-                  {CONF_LABELS[row.topConfidence]}
+              <div className="text-right max-w-[min(100%,14rem)]">
+                <p className="text-[10px] text-muted-foreground mb-0.5">
+                  Attribution fit
                 </p>
+                <div className="flex justify-end">
+                  <ConfidenceBadge
+                    confidence={row.topConfidence}
+                    explanation={buildAttributionConfidenceBasis(row)}
+                    className="max-w-full flex-wrap justify-end"
+                  />
+                </div>
               </div>
             )}
           </div>
@@ -288,12 +312,29 @@ export default async function ChangeDetailPage({
             <div className="flex items-center gap-2">
               <span className="text-[10px] text-muted-foreground">Confidence:</span>
               <ImpactConfidenceBadge confidence={impact.confidence} />
+              {(changeCoverageState === "stale" ||
+                changeCoverageState === "critical" ||
+                changeCoverageState === "aging") && (
+                <span className="text-[8px] text-status-warning/60">
+                  (
+                  {changeCoverageState === "critical"
+                    ? "no recent data"
+                    : changeCoverageState === "aging"
+                      ? "data may be outdated"
+                      : "stale data"}
+                  )
+                </span>
+              )}
+              {changeCoverageState === "partial" && impact.confidence === "high" && <span className="text-[8px] text-status-warning/60">(limited sample)</span>}
             </div>
             <div className="flex items-center gap-2">
               <span className="text-[10px] text-muted-foreground">Direction:</span>
               <DirectionBadge direction={impact.direction} />
             </div>
           </div>
+          {changeCoverageWarning && (
+            <p className="text-[10px] text-status-warning/70 mt-1">{changeCoverageWarning}</p>
+          )}
           <div>
             <p className="text-[10px] font-medium text-muted-foreground mb-1">Why</p>
             <p className="text-[12px] text-foreground-secondary leading-relaxed">
@@ -314,10 +355,10 @@ export default async function ChangeDetailPage({
         <div className="border-2 border-status-success/40 rounded-lg overflow-hidden">
           <div className="px-4 py-3 bg-status-success/8 border-b border-status-success/20">
             <p className="text-[11px] font-bold text-status-success">
-              Apply this pattern ({replicateRecs.length} page{replicateRecs.length !== 1 ? "s" : ""})
+              Similar pattern observed ({replicateRecs.length} page{replicateRecs.length !== 1 ? "s" : ""})
             </p>
             <p className="text-[11px] text-muted-foreground mt-0.5">
-              This change drove positive visibility. These pages have the same structural gap.
+              This change correlates with positive visibility shifts. These pages share a similar structural gap — worth considering based on observed patterns.
             </p>
           </div>
           <div className="divide-y divide-border">
@@ -388,7 +429,7 @@ export default async function ChangeDetailPage({
 function EventAttributionCard({ ea }: { ea: EventAttribution }) {
   return (
     <Link
-      href={`/results/${ea.event.anchor_result_id}`}
+      href={`/settings/history/${ea.event.anchor_result_id}`}
       className={`block border rounded-lg px-4 py-3 hover:bg-surface-inset/50 transition-colors border-l-[3px] ${ROLE_BORDER[ea.role]} ${ea.trustSource === "operator_confirmed" ? "border-status-success/30 bg-status-success/5" : "border-border"}`}
     >
       <div className="flex items-start justify-between gap-3">
@@ -448,9 +489,9 @@ function EventAttributionCard({ ea }: { ea: EventAttribution }) {
 }
 
 const IMPACT_CONF_STYLE: Record<ImpactConfidence, { label: string; className: string }> = {
-  high: { label: "High", className: "text-status-success bg-status-success/10 border-status-success/20" },
-  medium: { label: "Medium", className: "text-foreground-secondary bg-surface-inset border-border" },
-  low: { label: "Low", className: "text-muted-foreground bg-surface-inset border-border" },
+  high: { label: "Strong evidence", className: "text-status-success bg-status-success/10 border-status-success/20" },
+  medium: { label: "Moderate evidence", className: "text-foreground-secondary bg-surface-inset border-border" },
+  low: { label: "Weak evidence", className: "text-muted-foreground bg-surface-inset border-border" },
 };
 
 function ImpactConfidenceBadge({ confidence }: { confidence: ImpactConfidence }) {

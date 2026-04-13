@@ -1,1 +1,1 @@
-export { default } from "../../import/page";
+export { default } from "./import-page";

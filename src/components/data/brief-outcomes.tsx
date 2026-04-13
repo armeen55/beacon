@@ -72,7 +72,7 @@ export function BriefOutcomes({
                 Actual: <span className="font-medium">{o.actual_value}</span>
                 {o.result_id && (
                   <Link
-                    href={`/results/${o.result_id}`}
+                    href={`/settings/history/${o.result_id}`}
                     className="ml-1.5 text-accent-primary hover:underline"
                   >
                     View result →

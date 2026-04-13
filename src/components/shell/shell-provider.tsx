@@ -9,6 +9,8 @@ type ShellContextValue = {
   toggleSidebar: () => void;
   setSidebarOpen: (open: boolean) => void;
   badges: NavBadges;
+  /** True when no import runs exist — workspace is showing bundled sample data (see `seed-data.server.ts`). */
+  isDemoMode: boolean;
 };
 
 const ShellContext = createContext<ShellContextValue | null>(null);
@@ -16,16 +18,18 @@ const ShellContext = createContext<ShellContextValue | null>(null);
 export function ShellProvider({
   children,
   badges = {},
+  isDemoMode = false,
 }: {
   children: React.ReactNode;
   badges?: NavBadges;
+  isDemoMode?: boolean;
 }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const toggleSidebar = useCallback(() => setSidebarOpen((s) => !s), []);
 
   return (
     <ShellContext.Provider
-      value={{ sidebarOpen, toggleSidebar, setSidebarOpen, badges }}
+      value={{ sidebarOpen, toggleSidebar, setSidebarOpen, badges, isDemoMode }}
     >
       {children}
     </ShellContext.Provider>

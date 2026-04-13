@@ -5,8 +5,8 @@
 >
 > **NOT FOR:** System architecture (→ `architecture.md`), historical phase details (→ `master_execution_plan.md`), verification proof (→ `VERIFICATION_LOG.md`).
 
-**Last updated:** 2026-04-13
-**Current status:** **Launch Phases 0–5 COMPLETE. Tier 1.1 + 1.1i + 1.1j COMPLETE** (1.1i: `coverage-state.ts` aging/critical; **1.1j 2026-04-13:** proof-layer copy + `/settings/methodology` completeness + cross-surface phrasing + FAQ). **Track 1.2 Phases 1–3 COMPLETE. Track 1.3 Phases 1–2 COMPLETE. Track 1.4 Phases 1–4 + 1.4e + 1.4f–g + per-source `/local` last sync COMPLETE.** Track 1.4d SPEC COMPLETE (written spec + **1.4e** copy aligned with shipped connectors). Track 1.2/1.3 exit-gate persistence shipped. **`lastSync`** on `LocalPresenceSnapshot`; methodology `#review-source-timestamps`. **280 tests.** **Next:** **Track 1.4h–k**, **Tier 2**, or **1.2h / 1.3h** dogfood. Full nano-phase breakdown: `master_execution_plan.md` §"Tiered product stack — research-led nano-phases (1.1a–2.3h)".
+**Last updated:** 2026-04-12
+**Current status:** **Launch Phases 0–5 COMPLETE. Tier 1.1 + 1.1i + 1.1j COMPLETE** (1.1i: `coverage-state.ts` aging/critical; **1.1j 2026-04-13:** proof-layer copy + `/settings/methodology` completeness + cross-surface phrasing + FAQ). **Track 1.2 Phases 1–3 COMPLETE** (+ Today **one decision** card + truth-first precedence + aligned findings/digest/primary; **2026-04-12** hard **stale visibility** demotion + import path when prior import exists). **Track 1.3 Phases 1–2 COMPLETE. Track 1.4** Phases 1–4 + 1.4e + 1.4f–g + per-source `/local` last sync + listing completeness **+ 1.4l Local layer Sign-off (`local_layer` in exit gates) COMPLETE (2026-04-13).** Track 1.4d SPEC COMPLETE (written spec + **1.4e** copy aligned with shipped connectors). Sign-offs: **`daily_ritual`**, **`replication`**, **`local_layer`**. **`lastSync`** + **`listingCompleteness`** on `LocalPresenceSnapshot`; methodology `#review-source-timestamps`, `#listing-completeness`, `#exit-gates`. **319 tests.** **Sign-offs (2026-04-13):** **`daily_ritual`**, **`replication`**, **`local_layer`** all **`passed`**. **Dogfood / vault Tier 1:** `docs/TIER_1_DOGFOOD_WEEK_LOG.md` — protocol + **2026-04-13 static validation** entry; **operator must log 5–7 consecutive usage days** + paste **Final Tier 1 note** there before vault “Tier 1 closed” (and thus Track **2.1** dependency) is literally satisfied. **2026-04-14:** Closure verification attempted — **failed** (log incomplete); Tier 1 **still active** for vault purposes. **Next:** complete dogfood log → re-verify → **Tier 2**; optional vault **1.4h–1.4k** research. Full nano-phase breakdown: `master_execution_plan.md` §"Tiered product stack — research-led nano-phases (1.1a–2.3h)".
 **Overall score:** 53/100. Launch readiness: 38/100 → 72/100 after Phases 0–3 safety + settings coherence.
 
 ---
@@ -201,7 +201,7 @@ These are **research-led nano-phases** — each is a mini-prompt slice, not a mo
 | 1.4 | Local listings/reviews | GBP read-path, health score, review monitoring, NAP checks | 1.4l signed off |
 | 1.5 | Milestones/ATH | ATH metrics, rolling windows, celebration UX, history store | 1.5g signed off |
 
-**Tier 1 closed when:** 1.1j, 1.2h, 1.3h, 1.4l, 1.5g all signed off + one internal dogfood week without P0 trust regressions.
+**Tier 1 closed when:** 1.1j, 1.2h, 1.3h, 1.4l, 1.5g all signed off + one internal dogfood week without P0 trust regressions. **Evidence:** append dated rows + final note in `docs/TIER_1_DOGFOOD_WEEK_LOG.md` (see file for template).
 
 ### Tier 2 — Growth + differentiation
 
@@ -214,6 +214,12 @@ These are **research-led nano-phases** — each is a mini-prompt slice, not a mo
 **Tier 2 closed when:** 2.1g, 2.2f, 2.3h signed off + one agency pilot runs a week without manual spreadsheet side-channel.
 
 **Full nano-phase breakdown:** Each track has 7-12 lettered research steps (e.g., 1.1a through 1.1j). Authoritative copy: `master_execution_plan.md` — heading **“Tiered product stack — research-led nano-phases (1.1a–2.3h)”** (section appears before **AUDIT SUMMARY** in that file).
+
+### Native ingestion (Profound → API → Supabase) — prep only
+
+- **Audit + gaps:** `docs/NATIVE_INGESTION_READINESS_AUDIT.md` (filename-prefix trap, merge vs full-replace semantics, field utilization, idempotency target).
+- **Shipped in prep pass:** Workbook import **removed**; `writeLegacyBridge` **dual-writes** results / changelog / import-runs when `DUAL_WRITE=true`. **2026-04-13:** Profound batch uses **header-based CSV discovery** + **merge-safe** ingest (multi-file, stable keys); filename prefixes no longer required.
+- **Not shipped:** Staging tables, worker, API transport, repository-only reads — design in audit; implement when Tier 1 dogfood + operator answers to §7 unblock.
 
 ---
 

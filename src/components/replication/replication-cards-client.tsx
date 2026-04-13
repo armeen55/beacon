@@ -22,6 +22,12 @@ function tierToEvidence(
   return "inferred";
 }
 
+function evidenceLabel(confidence: string): string {
+  if (confidence === "high") return "strong";
+  if (confidence === "medium") return "moderate";
+  return "early";
+}
+
 export function ReplicationCardsClient({
   cards,
   variant,
@@ -62,7 +68,7 @@ export function ReplicationCardsClient({
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-2">
         <h3 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-          Replicate winners
+          Similar patterns observed
         </h3>
         {variant === "today" && cards.length > 2 && (
           <Link
@@ -83,16 +89,22 @@ export function ReplicationCardsClient({
             key={card.id}
             className="rounded-lg border border-status-success/25 bg-status-success/[0.03] overflow-hidden"
           >
+            {/* ── Collapsed header: What + Where + Do ── */}
             <button
               type="button"
               onClick={() => setOpenId(open ? null : card.id)}
               className="w-full text-left px-3 py-2.5 flex items-start justify-between gap-2 hover:bg-surface-inset/20 transition-colors"
             >
-              <div className="min-w-0">
+              <div className="min-w-0 space-y-0.5">
                 <p className="text-[12px] font-semibold text-foreground leading-snug">
                   {card.headline}
                 </p>
-                <p className="text-[10px] text-muted-foreground mt-0.5">
+                <p className="text-[10px] text-muted-foreground leading-snug">
+                  <span className="font-medium text-foreground/80">{card.actionVerb}</span>
+                  {" · "}
+                  {card.targetingSummary}
+                </p>
+                <p className="text-[10px] text-muted-foreground/70">
                   <span className="font-medium text-foreground/90">
                     {tierLabel(card.winnerTier)}
                   </span>
@@ -104,103 +116,85 @@ export function ReplicationCardsClient({
                 {open ? "▾" : "▸"}
               </span>
             </button>
+
+            {/* ── Expanded: targets with experiment CTA + evidence ── */}
             {open && (
               <div className="border-t border-border/40 px-3 py-2.5 space-y-3 text-[10px] text-muted-foreground">
+                {/* Target list — each target is a queue row */}
+                <div className="space-y-2">
+                  {card.targets.map((t) => (
+                    <div
+                      key={t.recId}
+                      className="rounded border border-border/35 bg-background/40 px-2.5 py-2"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <Link
+                          href={t.pagesHref}
+                          className="font-mono text-[10px] text-accent-primary hover:underline truncate"
+                        >
+                          {t.targetPagePath}
+                        </Link>
+                        <span className="text-[9px] tabular-nums shrink-0">
+                          ~{t.citationOpportunity} cit
+                        </span>
+                      </div>
+                      {t.similarityReasons.length > 0 && (
+                        <p className="text-[9px] text-muted-foreground/70 mt-0.5 leading-snug">
+                          {t.similarityReasons[0]}
+                          {t.similarityReasons.length > 1 && ` (+${t.similarityReasons.length - 1} more)`}
+                        </p>
+                      )}
+                      {/* Experiment CTA — primary action for this target */}
+                      <button
+                        type="button"
+                        disabled={pending}
+                        onClick={() => {
+                          const note = prompt(
+                            "What will you ship on this page? (short note)",
+                          );
+                          if (note === null) return;
+                          startT(async () => {
+                            await respondToRecommendation(t.recId, "accepted");
+                            await startExperimentAction({
+                              recId: t.recId,
+                              headline: `${card.headline} → ${t.targetPagePath}`,
+                              recType: t.recType,
+                              targetPageUrl: t.targetPageUrl,
+                              targetPagePath: t.targetPagePath,
+                              watchAfter: card.watchAfter,
+                              operatorNote: note,
+                              baselineCitations: t.baselineCitations,
+                              replicationSourceChangeId: card.sourceChangeId,
+                              replicationPatternId: card.patternId,
+                              replicationEvidenceTier: tierToEvidence(
+                                card.winnerTier,
+                              ),
+                            });
+                            setMsg("Now tracking — experiment started.");
+                          });
+                        }}
+                        className="mt-1.5 inline-flex items-center gap-1.5 rounded-md border border-status-success/30 bg-status-success/[0.06] px-2.5 py-1 text-[10px] font-semibold text-status-success hover:bg-status-success/[0.12] transition-colors disabled:opacity-50"
+                      >
+                        Try as experiment →
+                      </button>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Next step prose (collapsed) */}
                 <div>
                   <p className="font-semibold text-foreground/85 text-[9px] uppercase tracking-wide mb-1">
                     Next step
                   </p>
                   <p className="leading-relaxed">{card.expectedNextStep}</p>
                 </div>
-                <div>
-                  <p className="font-semibold text-foreground/85 text-[9px] uppercase tracking-wide mb-1">
-                    Targets
-                  </p>
-                  <ul className="space-y-2">
-                    {card.targets.map((t) => (
-                      <li
-                        key={t.recId}
-                        className="rounded border border-border/35 bg-background/40 px-2 py-1.5"
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <Link
-                            href={t.pagesHref}
-                            className="font-mono text-[10px] text-accent-primary hover:underline truncate"
-                          >
-                            {t.targetPagePath}
-                          </Link>
-                          <span className="text-[9px] tabular-nums shrink-0">
-                            ~{t.citationOpportunity} cit
-                          </span>
-                        </div>
-                        <ul className="list-disc pl-3 mt-1 space-y-0.5 text-[9px]">
-                          {t.similarityReasons.map((r, i) => (
-                            <li key={i}>{r}</li>
-                          ))}
-                        </ul>
-                        <button
-                          type="button"
-                          disabled={pending}
-                          onClick={() => {
-                            const note = prompt(
-                              "Short note: what will you ship on this URL?",
-                            );
-                            if (note === null) return;
-                            startT(async () => {
-                              await respondToRecommendation(t.recId, "accepted");
-                              await startExperimentAction({
-                                recId: t.recId,
-                                headline: `${card.headline} → ${t.targetPagePath}`,
-                                recType: t.recType,
-                                targetPageUrl: t.targetPageUrl,
-                                targetPagePath: t.targetPagePath,
-                                watchAfter: card.watchAfter,
-                                operatorNote: note,
-                                baselineCitations: t.baselineCitations,
-                                replicationSourceChangeId: card.sourceChangeId,
-                                replicationPatternId: card.patternId,
-                                replicationEvidenceTier: tierToEvidence(
-                                  card.winnerTier,
-                                ),
-                              });
-                              setMsg("Tracking replication on this target.");
-                            });
-                          }}
-                          className={cn(
-                            "mt-1.5 text-[9px] font-semibold text-status-success hover:underline disabled:opacity-50",
-                          )}
-                        >
-                          Track this target →
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  <div>
-                    <p className="font-semibold text-foreground/80 text-[9px] uppercase mb-0.5">
-                      Observed
-                    </p>
-                    <ul className="list-disc pl-3 space-y-0.5">
-                      {card.cardObserved.map((o, i) => (
-                        <li key={i}>{o}</li>
-                      ))}
-                    </ul>
-                  </div>
-                  <div>
-                    <p className="font-semibold text-foreground/80 text-[9px] uppercase mb-0.5">
-                      Inferred
-                    </p>
-                    <ul className="list-disc pl-3 space-y-0.5">
-                      {card.cardInferred.map((o, i) => (
-                        <li key={i}>{o}</li>
-                      ))}
-                    </ul>
-                  </div>
-                </div>
+
+                {/* Evidence + source link */}
                 <p className="text-[9px] text-muted-foreground/80">
-                  Confidence:{" "}
-                  <span className="font-medium text-foreground">{card.confidence}</span>
+                  Evidence:{" "}
+                  <span className="font-medium text-foreground">
+                    {evidenceLabel(card.confidence)}
+                  </span>
                   {card.sourceChangeId && (
                     <>
                       {" · "}
@@ -208,11 +202,40 @@ export function ReplicationCardsClient({
                         href={`/changes/${encodeURIComponent(card.sourceChangeId)}`}
                         className="text-accent-primary hover:underline font-medium"
                       >
-                        Winner change →
+                        Source change →
                       </Link>
                     </>
                   )}
                 </p>
+
+                {/* Observed / Inferred (compact, for advanced users) */}
+                <details className="group">
+                  <summary className="text-[9px] font-medium text-muted-foreground/60 cursor-pointer hover:text-muted-foreground transition-colors">
+                    Evidence details
+                  </summary>
+                  <div className="mt-1.5 grid grid-cols-1 sm:grid-cols-2 gap-2 text-[9px]">
+                    <div>
+                      <p className="font-semibold text-foreground/80 uppercase mb-0.5">
+                        Observed
+                      </p>
+                      <ul className="list-disc pl-3 space-y-0.5">
+                        {card.cardObserved.map((o, i) => (
+                          <li key={i}>{o}</li>
+                        ))}
+                      </ul>
+                    </div>
+                    <div>
+                      <p className="font-semibold text-foreground/80 uppercase mb-0.5">
+                        Inferred
+                      </p>
+                      <ul className="list-disc pl-3 space-y-0.5">
+                        {card.cardInferred.map((o, i) => (
+                          <li key={i}>{o}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+                </details>
               </div>
             )}
           </div>

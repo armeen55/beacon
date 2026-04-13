@@ -11,6 +11,7 @@ describe("MarketLocalStrip", () => {
       napState: "complete",
       napDisplay: "Complete",
       reviewLine: "12 stored reviews, 4.5 avg (1–5)",
+      listingCompletenessPhrase: null,
       footnote:
         "Based on imported or synced data. May not reflect full platform data. No automatic syncing.",
     };
@@ -25,6 +26,7 @@ describe("MarketLocalStrip", () => {
     expect(html).toContain("12 stored");
     expect(html).toContain("/local");
     expect(html).toContain("Based on imported or synced data.");
+    expect(html).not.toContain("Listing completeness:");
   });
 
   it("renders inconsistent NAP with danger tone", () => {
@@ -32,7 +34,8 @@ describe("MarketLocalStrip", () => {
       healthTierLabel: "OK",
       napState: "inconsistent",
       napDisplay: "Inconsistent",
-      reviewLine: "5 imported reviews, 4.0 avg (1–5)",
+      reviewLine: "5 stored reviews, 4.0 avg (1–5)",
+      listingCompletenessPhrase: "Listing completeness: partial",
       footnote:
         "Based on imported or synced data. May not reflect full platform data. No automatic syncing.",
     };
@@ -49,6 +52,7 @@ describe("MarketLocalStrip", () => {
       napState: "incomplete",
       napDisplay: "Incomplete",
       reviewLine: "No review rows in Beacon yet",
+      listingCompletenessPhrase: "Listing completeness: limited",
       footnote:
         "Based on imported or synced data. May not reflect full platform data. No automatic syncing.",
     };
@@ -57,5 +61,6 @@ describe("MarketLocalStrip", () => {
     );
     expect(html).toContain("Incomplete");
     expect(html).toContain("text-status-warning");
+    expect(html).toContain("Listing completeness: limited");
   });
 });

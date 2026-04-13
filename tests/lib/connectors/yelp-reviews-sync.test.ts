@@ -1,0 +1,276 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { readStore, writeStore } from "@/lib/persistence/json-store";
+import { readLocalReviews } from "@/lib/local-reviews-store";
+import type { LocalReview } from "@/lib/local-reviews-types";
+import {
+  _deleteStoreFile,
+  _resetCache,
+  saveConnectorToken,
+  getYelpConnectorToken,
+  type YelpConnectorToken,
+} from "@/lib/connector-store";
+import { runYelpReviewsSync } from "@/lib/connectors/yelp-reviews-sync";
+import type { ImportRun } from "@/lib/import/types";
+
+const yelpCfg = vi.hoisted(() => ({ yelpBusinessId: "test-yelp-biz" }));
+
+vi.mock("@/lib/business-config", () => ({
+  getBusinessConfig: () => ({ yelpBusinessId: yelpCfg.yelpBusinessId }),
+}));
+
+function jsonResponse(obj: unknown, status = 200): Promise<Response> {
+  return Promise.resolve(
+    new Response(JSON.stringify(obj), {
+      status,
+      headers: { "Content-Type": "application/json" },
+    }),
+  );
+}
+
+function yelpToken(over: Partial<YelpConnectorToken> = {}): YelpConnectorToken {
+  return {
+    provider: "yelp",
+    api_key: "yelp-key-test",
+    connected_at: "2026-04-13T10:00:00Z",
+    business_id: "",
+    ...over,
+  };
+}
+
+const fusionReview = {
+  id: "yr-1",
+  rating: 5,
+  text: "Excellent",
+  time_created: "2026-04-10T10:00:00.000Z",
+  user: { name: "Alex" },
+};
+
+describe("runYelpReviewsSync", () => {
+  beforeEach(async () => {
+    yelpCfg.yelpBusinessId = "test-yelp-biz";
+    vi.unstubAllGlobals();
+    _deleteStoreFile();
+    _resetCache();
+    await writeStore("local-reviews", []);
+    await writeStore("import-runs", []);
+  });
+
+  afterEach(async () => {
+    vi.unstubAllGlobals();
+    _deleteStoreFile();
+    _resetCache();
+    await writeStore("local-reviews", []);
+    await writeStore("import-runs", []);
+  });
+
+  it("fetches business + reviews, merges, records import run and last_synced_at", async () => {
+    saveConnectorToken(yelpToken());
+
+    vi.stubGlobal("fetch", (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/v3/businesses/") && !url.includes("/reviews")) {
+        return jsonResponse({ name: "Beacon Test Yelp" });
+      }
+      if (url.includes("/reviews")) {
+        return jsonResponse({ reviews: [fusionReview] });
+      }
+      return jsonResponse({}, 404);
+    });
+
+    const result = await runYelpReviewsSync();
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.imported).toBe(1);
+    expect(result.rejected).toBe(0);
+    expect(result.partial).toBe(false);
+
+    const rows = readLocalReviews();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.id).toBe("yelp:yr-1");
+    expect(rows[0]!.source).toBe("yelp");
+    expect(rows[0]!.rating).toBe(5);
+    expect(rows[0]!.listing_name).toBe("Beacon Test Yelp");
+
+    expect(getYelpConnectorToken()?.last_synced_at).toBeTruthy();
+
+    const runs = readStore<ImportRun>("import-runs", []);
+    const yelpRun = runs.find((r) => r.source_system === "connector:yelp");
+    expect(yelpRun).toBeDefined();
+    expect(yelpRun!.imported_count).toBe(1);
+  });
+
+  it("dedupes by id: new Yelp row overwrites same yelp:id", async () => {
+    const existing: LocalReview = {
+      id: "yelp:yr-1",
+      source: "yelp",
+      rating: 2,
+      created_at: "2020-01-01T00:00:00.000Z",
+    };
+    await writeStore("local-reviews", [existing]);
+    saveConnectorToken(yelpToken());
+
+    vi.stubGlobal("fetch", (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/reviews")) {
+        return jsonResponse({ reviews: [fusionReview] });
+      }
+      return jsonResponse({ name: "L" });
+    });
+
+    const result = await runYelpReviewsSync();
+    expect(result.ok).toBe(true);
+    const rows = readLocalReviews();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.rating).toBe(5);
+  });
+
+  it("merges alongside other sources without deleting them", async () => {
+    const googleRow: LocalReview = {
+      id: "google:g1",
+      source: "google",
+      rating: 4,
+      created_at: "2026-01-01T00:00:00.000Z",
+    };
+    await writeStore("local-reviews", [googleRow]);
+    saveConnectorToken(yelpToken());
+
+    vi.stubGlobal("fetch", (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/reviews")) {
+        return jsonResponse({ reviews: [fusionReview] });
+      }
+      return jsonResponse({ name: "N" });
+    });
+
+    const result = await runYelpReviewsSync();
+    expect(result.ok).toBe(true);
+    const rows = readLocalReviews();
+    expect(rows).toHaveLength(2);
+    expect(rows.map((r) => r.id).sort()).toEqual(["google:g1", "yelp:yr-1"]);
+  });
+
+  it("counts rejected invalid rows and still merges valid ones", async () => {
+    saveConnectorToken(yelpToken());
+    const bad = {
+      id: "bad",
+      rating: 99,
+      time_created: "2026-01-01T00:00:00Z",
+    };
+
+    vi.stubGlobal("fetch", (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/reviews")) {
+        return jsonResponse({ reviews: [bad, fusionReview] });
+      }
+      return jsonResponse({});
+    });
+
+    const result = await runYelpReviewsSync();
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.imported).toBe(1);
+    expect(result.rejected).toBe(1);
+    expect(readLocalReviews()).toHaveLength(1);
+  });
+
+  it("returns partial with warnings when business details fail but reviews succeed", async () => {
+    saveConnectorToken(yelpToken());
+
+    vi.stubGlobal("fetch", (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/v3/businesses/") && !url.includes("/reviews")) {
+        return jsonResponse({ error: { code: "NOT_FOUND" } }, 404);
+      }
+      if (url.includes("/reviews")) {
+        return jsonResponse({ reviews: [fusionReview] });
+      }
+      return jsonResponse({}, 404);
+    });
+
+    const result = await runYelpReviewsSync();
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.partial).toBe(true);
+    expect(result.warnings.length).toBeGreaterThan(0);
+    const rows = readLocalReviews();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.listing_name).toBeUndefined();
+    expect(getYelpConnectorToken()?.last_synced_at).toBeTruthy();
+  });
+
+  it("returns invalid_key on 401 from business fetch", async () => {
+    saveConnectorToken(yelpToken());
+    vi.stubGlobal("fetch", () => jsonResponse({ error: { code: "UNAUTHORIZED" } }, 401));
+
+    const result = await runYelpReviewsSync();
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.code).toBe("invalid_key");
+    expect(result.message).toMatch(/Invalid Yelp API key/i);
+  });
+
+  it("returns invalid_key on 401 from reviews fetch", async () => {
+    saveConnectorToken(yelpToken());
+    let n = 0;
+    vi.stubGlobal("fetch", () => {
+      n += 1;
+      if (n === 1) return jsonResponse({ name: "X" });
+      return jsonResponse({ error: {} }, 401);
+    });
+
+    const result = await runYelpReviewsSync();
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.code).toBe("invalid_key");
+  });
+
+  it("returns sync_failed on reviews 500", async () => {
+    saveConnectorToken(yelpToken());
+    let p = 0;
+    vi.stubGlobal("fetch", () => {
+      p += 1;
+      if (p === 1) return jsonResponse({ name: "X" });
+      return jsonResponse({ error: { description: "Internal" } }, 500);
+    });
+
+    const result = await runYelpReviewsSync();
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.code).toBe("sync_failed");
+  });
+
+  it("returns rate-limit message on 429", async () => {
+    saveConnectorToken(yelpToken());
+    let p = 0;
+    vi.stubGlobal("fetch", () => {
+      p += 1;
+      if (p === 1) return jsonResponse({ name: "X" });
+      return jsonResponse({}, 429);
+    });
+
+    const result = await runYelpReviewsSync();
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.code).toBe("sync_failed");
+    expect(result.message).toMatch(/rate limit/i);
+  });
+
+  it("returns not_connected when no Yelp token", async () => {
+    vi.stubGlobal("fetch", () => jsonResponse({}));
+    const result = await runYelpReviewsSync();
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.code).toBe("not_connected");
+  });
+
+  it("returns sync_failed when business id missing in config and token", async () => {
+    yelpCfg.yelpBusinessId = "";
+    saveConnectorToken(yelpToken({ business_id: "" }));
+
+    const result = await runYelpReviewsSync();
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.code).toBe("sync_failed");
+    expect(result.message).toMatch(/Yelp business ID/i);
+  });
+});

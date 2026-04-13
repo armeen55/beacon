@@ -9,6 +9,9 @@ export default defineConfig({
     },
   },
   test: {
-    include: ["tests/**/*.test.ts"],
+    include: ["tests/**/*.test.ts", "tests/**/*.test.tsx"],
+    /** Avoid dynamic-import timeouts when many heavy route modules load in parallel. */
+    fileParallelism: false,
+    testTimeout: 30_000,
   },
 });

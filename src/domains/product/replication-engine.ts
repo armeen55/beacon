@@ -1,5 +1,5 @@
 /**
- * Tier 1B — Replication engine: winner qualification, target selection, and
+ * Tier 1B — Replication engine: pattern qualification, target selection, and
  * grouped rollout cards (no separate wave planner).
  */
 
@@ -36,6 +36,10 @@ export type ReplicationCard = {
   headline: string;
   summaryLine: string;
   confidence: "high" | "medium" | "low";
+  /** Short targeting summary — answers "where to apply" (derived from target paths). */
+  targetingSummary: string;
+  /** Short action verb — answers "what to do" (derived from pattern type). */
+  actionVerb: string;
   expectedNextStep: string;
   watchAfter: string;
   targets: ReplicationTarget[];
@@ -48,9 +52,9 @@ function normUrl(u: string): string {
 }
 
 /**
- * Explicit Tier 1B winner rules (honest):
+ * Explicit Tier 1B qualification rules (honest):
  * - validated: attribution verdict validated, positive direction, events linked
- * - qualified_partial: partial verdict only if impact confidence is high and ≥2 events
+ * - qualified_partial: partial verdict only if impact confidence is high and >=2 events
  * - promising_experiment: accepted experiment in promising status for this rec family
  */
 export function qualifyWinnerTierFromImpact(
@@ -114,12 +118,12 @@ function reasonsForTarget(
     observed.push(`Citation rollup shows ${rec.citationOpportunity} citations (import-backed).`);
   }
   if (rec.type === "cross_page_pattern") {
-    similarityReasons.push("Cross-page pattern transfer (different template, shared signals)");
+    similarityReasons.push("Cross-page pattern match (different template, shared signals)");
     inferred.push(
-      "Beacon matched location/service terms between winner HTML and this page (inferred similarity).",
+      "Beacon matched location/service terms between source HTML and this page (inferred similarity).",
     );
   } else if (rec.type === "replicate") {
-    similarityReasons.push("Same mined pattern as the winning change");
+    similarityReasons.push("Same structural pattern as the source change");
     inferred.push(
       "Target was flagged by the same structural playbook pattern as the validated source change (inferred fit).",
     );
@@ -127,13 +131,62 @@ function reasonsForTarget(
 
   if (row) {
     observed.push(
-      `Winner change "${row.change.asset_name}" — ${row.verdict}, ${row.totalEventsLinked} linked visibility event(s), ${row.evidenceTier} evidence tier.`,
+      `Source change "${row.change.asset_name}" -- ${row.verdict}, ${row.totalEventsLinked} linked visibility event(s), ${row.evidenceTier} evidence tier.`,
     );
   }
 
   observed.push("Target gaps and crawl facts come from latest HTML snapshots and citation index.");
 
   return { similarityReasons, observed, inferred };
+}
+
+/**
+ * Derive a compact targeting line from target paths.
+ * Groups by common path prefix when possible, otherwise lists paths.
+ */
+function deriveTargetingSummary(targets: ReplicationTarget[]): string {
+  if (targets.length === 0) return "";
+  const paths = targets.map((t) => t.targetPagePath);
+  const prefix = commonPathPrefix(paths);
+  if (prefix.length > 1) {
+    return `Relevant to ${prefix}* pages (${targets.length})`;
+  }
+  if (targets.length === 1) {
+    return `Relevant to ${paths[0]}`;
+  }
+  return `Across ${targets.length} similar pages`;
+}
+
+function commonPathPrefix(paths: string[]): string {
+  if (paths.length <= 1) return "";
+  const sorted = [...paths].sort();
+  const first = sorted[0];
+  const last = sorted[sorted.length - 1];
+  let i = 0;
+  while (i < first.length && first[i] === last[i]) i++;
+  const raw = first.slice(0, i);
+  const lastSlash = raw.lastIndexOf("/");
+  if (lastSlash <= 0) return "";
+  return raw.slice(0, lastSlash + 1);
+}
+
+function deriveActionVerb(
+  recType: string,
+  patternName: string | null,
+): string {
+  if (patternName) {
+    const lower = patternName.toLowerCase();
+    if (lower.includes("faq")) return "Add FAQ blocks";
+    if (lower.includes("schema") || lower.includes("structured"))
+      return "Add structured data";
+    if (lower.includes("internal link")) return "Strengthen internal links";
+    if (lower.includes("content") || lower.includes("copy"))
+      return "Enhance page content";
+    return `Apply ${patternName} pattern`;
+  }
+  if (recType === "cross_page_pattern")
+    return "Apply structural elements (FAQ/schema/content)";
+  return "Apply similar structural changes";
 }
 
 export type BuildReplicationCardsOpts = {
@@ -150,8 +203,8 @@ const MAX_TARGETS_PER_CARD = 3;
 const MAX_CARDS = 12;
 
 /**
- * Group replicate / cross_page_pattern recs that carry a source change (winner-backed path).
- * Fallback replicate recs without sourceChangeId stay in the main engine only — not Tier 1B cards.
+ * Group replicate / cross_page_pattern recs that carry a source change.
+ * Fallback replicate recs without sourceChangeId stay in the main engine only -- not Tier 1B cards.
  */
 export function buildReplicationCards(opts: BuildReplicationCardsOpts): ReplicationCard[] {
   const { recommendations, impactRows, patterns, rolloutExecutions, pageIssues } = opts;
@@ -228,20 +281,23 @@ export function buildReplicationCards(opts: BuildReplicationCardsOpts): Replicat
 
     if (targets.length === 0) continue;
 
+    const totalCitOpp = targets.reduce((s, t) => s + t.citationOpportunity, 0);
     const headRec = g.recs[0];
     const patternName = patternNameFrom(patterns, g.patternId);
-    const asset = row?.change.asset_name ?? "Winner change";
+
+    if (!patternName && totalCitOpp === 0) continue;
+    const asset = row?.change.asset_name ?? "Source change";
     const headline =
       patternName != null
-        ? `Replicate: ${patternName}`
-        : `Replicate observed play from “${asset}”`;
+        ? `Observed pattern: ${patternName}`
+        : `Observed pattern from "${asset}"`;
 
     const summaryLine =
       tierFromImpact === "validated"
-        ? `Strong pattern → ${targets.length} ready target(s).`
+        ? `Validated pattern across ${targets.length} similar page${targets.length !== 1 ? "s" : ""}.`
         : tierFromImpact === "qualified_partial"
-          ? `Strong partial signal (strong evidence) → ${targets.length} ready target(s).`
-          : `Winner signal → ${targets.length} ready target(s).`;
+          ? `Strong partial signal across ${targets.length} similar page${targets.length !== 1 ? "s" : ""}.`
+          : `Early signal across ${targets.length} similar page${targets.length !== 1 ? "s" : ""}.`;
 
     const confRank = (c: "high" | "medium" | "low") =>
       c === "high" ? 2 : c === "medium" ? 1 : 0;
@@ -252,18 +308,18 @@ export function buildReplicationCards(opts: BuildReplicationCardsOpts): Replicat
 
     const expectedNextStep =
       headRec.type === "cross_page_pattern"
-        ? "Ship the same structural moves that worked on the winner (FAQ/schema/content), then verify in Pages."
-        : "Apply the same pattern fix as the winner page, then run crawl + watch citations on the next import.";
+        ? "Consider applying the same structural elements (FAQ/schema/content) to these pages, then verify in Pages."
+        : "Consider applying a similar pattern to these pages, then run crawl + watch citations on the next import.";
 
     const watchAfter =
-      "After shipping, re-import visibility data and check whether citations or mentions move for this URL within 1–2 cycles.";
+      "After shipping, re-import visibility data and check whether citations or mentions move for this URL within 1-2 cycles.";
 
     const cardObserved: string[] = [
-      `Winner qualification: ${tierFromImpact === "validated" ? "validated" : "partial (strong-evidence only)"} with positive visibility direction.`,
-      `Evidence tier on winner: ${row?.evidenceTier ?? "unknown"}.`,
+      `Source qualification: ${tierFromImpact === "validated" ? "validated" : "partial (strong-evidence only)"} with positive visibility direction.`,
+      `Evidence tier on source: ${row?.evidenceTier ?? "unknown"}.`,
     ];
     const cardInferred: string[] = [
-      "Target list is playbook + structure + topic overlap — not proof the page will respond the same way.",
+      "Target list is based on playbook, structure, and topic overlap — not proof the page will respond the same way.",
     ];
 
     cards.push({
@@ -276,6 +332,8 @@ export function buildReplicationCards(opts: BuildReplicationCardsOpts): Replicat
       headline,
       summaryLine,
       confidence,
+      targetingSummary: deriveTargetingSummary(targets),
+      actionVerb: deriveActionVerb(headRec.type, patternName),
       expectedNextStep,
       watchAfter,
       targets,
@@ -331,7 +389,7 @@ export function buildPromisingExperimentReplicationHints(
       headline: exp.headline,
       targetPagePath: exp.targetPagePath,
       hint:
-        "Experiment status is promising — Beacon treats this as a soft replication signal (not a validated scorecard verdict).",
+        "Experiment status is promising — Beacon treats this as an early replication signal (not a validated scorecard verdict).",
     });
     if (out.length >= 5) break;
   }
@@ -341,7 +399,7 @@ export function buildPromisingExperimentReplicationHints(
 const MAX_PROMISING_CARDS = 2;
 
 /**
- * Soft winner seed: experiments marked promising for replicate / cross_page recs.
+ * Soft signal seed: experiments marked promising for replicate / cross_page recs.
  * Explicitly lower trust than scorecard-validated cards.
  */
 export function buildPromisingReplicationCards(
@@ -380,35 +438,40 @@ export function buildPromisingReplicationCards(
         : null;
 
     const observed: string[] = [
-      `Experiment watchlist: status “promising”.`,
+      `Experiment watchlist: status "promising".`,
       delta !== null
         ? `Citation delta since baseline: ${delta > 0 ? "+" : ""}${delta}.`
         : "Citation outcome still accumulating.",
     ];
     const inferred: string[] = [
-      "This is an operator-accepted test, not a fresh attribution verdict — replication fit is still inferred.",
+      "This is an operator-accepted test, not a fresh attribution verdict -- replication fit is still inferred.",
     ];
+
+    const expPatternName = patternNameFrom(patterns, rec.patternId);
+    const expTargetPath = exp.targetPagePath ?? exp.targetPageUrl.replace(/^https?:\/\/[^/]+/, "");
 
     cards.push({
       id: `repl-promising-${exp.id}`,
       winnerTier: "promising_experiment",
       patternId: rec.patternId,
-      patternName: patternNameFrom(patterns, rec.patternId),
+      patternName: expPatternName,
       sourceChangeId: rec.sourceChangeId,
       sourceAssetName: row?.change.asset_name ?? null,
-      headline: `Promising trial → scale: ${exp.headline}`,
+      headline: `Promising experiment: ${exp.headline}`,
       summaryLine:
-        "Operator-accepted experiment trending positive — candidate to repeat on similar pages.",
+        "Operator-accepted experiment trending positive -- worth repeating based on observed patterns.",
       confidence: "medium",
+      targetingSummary: `Relevant to ${expTargetPath}`,
+      actionVerb: deriveActionVerb(rec.type, expPatternName),
       expectedNextStep:
-        "Document what shipped for this URL, then apply the same structural package to the next target.",
+        "Document what shipped for this URL, then consider applying similar structural changes to the next target.",
       watchAfter:
-        "Keep the experiment open one more import cycle before opening new targets with the same play.",
+        "Keep the experiment open one more import cycle before opening new targets with the same approach.",
       targets: [
         {
           recId: rec.id,
           targetPageUrl: exp.targetPageUrl,
-          targetPagePath: exp.targetPagePath ?? exp.targetPageUrl.replace(/^https?:\/\/[^/]+/, ""),
+          targetPagePath: expTargetPath,
           citationOpportunity: rec.citationOpportunity,
           similarityReasons: ["Current promising experiment target"],
           observed,

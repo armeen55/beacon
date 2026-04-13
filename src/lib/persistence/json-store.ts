@@ -84,4 +84,5 @@ async function atomicWrite(name: string, data: unknown[]): Promise<void> {
   const json = JSON.stringify(data, null, 2);
   writeFileSync(tmp, json, "utf-8");
   renameSync(tmp, path);
+  cache.set(name, data);
 }
