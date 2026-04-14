@@ -48,6 +48,7 @@ import {
 } from "./merge-ingest";
 import { discoverPages } from "@/domains/pages/discover";
 import { buildCitationEvidenceIndex } from "@/domains/pages/citation-index";
+import { buildAnswerIntelligenceIndex } from "@/domains/answer-intelligence/build-index";
 import { writeStore, readStore } from "@/lib/persistence/json-store";
 import { getSiteConfig } from "@/lib/site-config";
 import type { ChangelogEntry } from "@/domains/changelog/types";
@@ -293,6 +294,21 @@ export async function runProfoundImport(
   const ciTmp = ciPath + ".tmp";
   writeFileSync(ciTmp, JSON.stringify(citationIndex), "utf-8");
   renameSync(ciTmp, ciPath);
+
+  // Build answer intelligence index — extracts brand positioning, visibility
+  // time-series, co-citation analysis, and narrative shifts from observation +
+  // answer text data that the citation-evidence-index doesn't surface.
+  const { entityDisplayName } = getSiteConfig();
+  const answerIntelIndex = buildAnswerIntelligenceIndex({
+    observations: mergedObservations,
+    answerTexts: mergedAnswerTexts,
+    brandName: entityDisplayName,
+    ownedDomain: siteDomain,
+  });
+  const aiPath = join(DATA_DIR, "answer-intelligence-index.json");
+  const aiTmp = aiPath + ".tmp";
+  writeFileSync(aiTmp, JSON.stringify(answerIntelIndex), "utf-8");
+  renameSync(aiTmp, aiPath);
 
   return {
     success: true,

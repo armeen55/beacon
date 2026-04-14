@@ -3,14 +3,12 @@ import { AppSidebar, MobileSidebar } from "@/components/shell/app-sidebar";
 import { AppHeader } from "@/components/shell/app-header";
 import { CommandPalette, type PaletteItem } from "@/components/shell/command-palette";
 import { DemoBannerGate } from "@/components/shell/demo-banner";
-import { DataFreshnessStrip } from "@/components/shell/data-freshness-strip";
 import {
   changelogEntries,
   results,
   hasActiveExperiment,
   importRuns,
 } from "@/lib/seed-data.server";
-import { latestWebsiteCrawlRun } from "@/domains/observations/read";
 import { allNavItems } from "@/lib/navigation";
 import { eventDecisions } from "@/domains/attribution/store";
 import { detectOutcomeEvents } from "@/domains/attribution/events";
@@ -49,13 +47,6 @@ export default function ShellLayout({
 
   // Sample / walkthrough data when no import runs exist (`import-runs` store empty).
   const isDemoMode = !hasActiveExperiment();
-
-  // Same sources as `getDataCoverage().lastImportAt` and Today crawl proof (`latestWebsiteCrawlRun`).
-  const sortedImportRuns = [...importRuns].sort(
-    (a, b) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime(),
-  );
-  const lastImportAt = sortedImportRuns[0]?.started_at ?? null;
-  const lastScanCompletedAt = latestWebsiteCrawlRun()?.completed_at ?? null;
 
   // ── Palette items ──
   const uniqueTopics = [
@@ -100,11 +91,6 @@ export default function ShellLayout({
         <MobileSidebar />
         <div className="flex flex-1 flex-col overflow-hidden">
           <AppHeader />
-          <DataFreshnessStrip
-            lastImportAt={lastImportAt}
-            lastScanCompletedAt={lastScanCompletedAt}
-            className="shrink-0 px-6"
-          />
           <main className="flex-1 overflow-y-auto">
             <DemoBannerGate />
             <div className="mx-auto max-w-[1120px] p-6 lg:p-8">{children}</div>

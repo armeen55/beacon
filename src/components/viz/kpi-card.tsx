@@ -28,30 +28,32 @@ export function KpiCard({
 
   return (
     <div className={cn(
-      "rounded-lg border border-border/50 bg-surface-raised/30 transition-colors hover:border-border/70",
-      size === "lg" ? "px-5 py-4" : "px-3 py-2.5",
+      "rounded-lg border border-border/60 bg-surface-raised/40",
+      size === "lg" ? "px-5 py-4" : "px-4 py-3",
     )}>
-      <p className="text-[10px] font-medium text-muted-foreground/70 uppercase tracking-wide">{label}</p>
-      <div className="flex items-end justify-between gap-2 mt-1">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-[10px] font-semibold text-muted-foreground/80 uppercase tracking-wider">{label}</p>
+        {delta !== null && delta !== undefined && (
+          <span className={cn(
+            "text-[11px] font-bold tabular-nums",
+            delta > 0 ? "text-status-success" : delta < 0 ? "text-status-danger" : "text-muted-foreground",
+          )}>
+            {delta > 0 ? "+" : ""}{delta}{deltaSuffix}
+          </span>
+        )}
+      </div>
+      <div className="flex items-end justify-between gap-2 mt-1.5">
         <div className="flex items-baseline gap-1.5">
-          <span className={cn("font-bold tabular-nums tracking-tight", size === "lg" ? "text-2xl" : "text-lg")}>
+          <span className={cn("font-extrabold tabular-nums tracking-tighter", size === "lg" ? "text-3xl" : "text-2xl")}>
             {typeof value === "number" ? value.toLocaleString() : value}
           </span>
           {suffix && <span className="text-xs text-muted-foreground">{suffix}</span>}
-          {delta !== null && delta !== undefined && (
-            <span className={cn(
-              "text-xs font-semibold tabular-nums",
-              delta > 0 ? "text-status-success" : delta < 0 ? "text-status-danger" : "text-muted-foreground",
-            )}>
-              {delta > 0 ? "+" : ""}{delta}{deltaSuffix}
-            </span>
-          )}
         </div>
         {sparklineData && sparklineData.length >= 2 && (
-          <Sparkline points={sparklineData} width={80} height={24} trend={effectiveTrend} showTooltip={false} />
+          <Sparkline points={sparklineData} width={80} height={28} trend={effectiveTrend} showTooltip={false} />
         )}
       </div>
-      {meta && <p className="text-[9px] text-muted-foreground/50 mt-1">{meta}</p>}
+      {meta && <p className="text-[10px] text-muted-foreground/60 mt-1.5 leading-snug">{meta}</p>}
     </div>
   );
 }

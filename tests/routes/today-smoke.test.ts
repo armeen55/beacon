@@ -33,7 +33,7 @@ describe("Today route smoke", () => {
     const html = renderToStaticMarkup(tree as ReactElement);
 
     // Stable class from `src/app/(shell)/page.tsx` — not copy-dependent.
-    expect(html).toContain("max-w-3xl");
+    expect(html).toContain("max-w-6xl");
     // Canonical Today findings heading (see `today-findings.tsx`); echoed by stub
     // so the route still wires a Today subtree without running client hooks here.
     expect(html).toContain("Since last scan");

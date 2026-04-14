@@ -4,6 +4,7 @@ import { existsSync, readFileSync, writeFileSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import type { ScanSettings } from "./types";
 import { DEFAULT_SCAN_SETTINGS } from "./types";
+import { readScanState } from "./scan-state";
 
 const SETTINGS_PATH = join(process.cwd(), ".data", "scan-settings.json");
 
@@ -42,13 +43,25 @@ export function isScanOverdue(
   settings: ScanSettings,
 ): boolean {
   if (!settings.enabled) return false;
-  if (!lastScanCompletedAt) return true;
 
   const now = new Date();
   const todayInTz = toDateInTimezone(now, settings.timezone);
   const currentHourInTz = getHourInTimezone(now, settings.timezone);
 
+  // Before the preferred hour, never trigger
   if (currentHourInTz < settings.preferredHour) return false;
+
+  // Check scan-state.json — a scan that completed today means we're not overdue,
+  // even if the observation run it created hasn't been indexed yet.
+  const scanState = readScanState();
+  if (scanState && (scanState.phase === "success" || scanState.phase === "partial")) {
+    const scanDay = toDateInTimezone(new Date(scanState.updatedAt), settings.timezone);
+    if (scanDay >= todayInTz) return false;
+  }
+  // If a scan is currently running, don't trigger another
+  if (scanState?.phase === "running") return false;
+
+  if (!lastScanCompletedAt) return true;
 
   const lastScanDate = new Date(lastScanCompletedAt);
   const lastScanDayInTz = toDateInTimezone(lastScanDate, settings.timezone);

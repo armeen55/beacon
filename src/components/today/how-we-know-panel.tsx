@@ -97,6 +97,44 @@ export function HowWeKnowPanel({
             )}
           </ul>
         </div>
+        {context.answerIntelligence && context.answerIntelligence.totalObservations > 0 && (
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-foreground/80 mb-1">AI answer analysis</p>
+            <p>
+              Based on {context.answerIntelligence.totalObservations.toLocaleString()} AI answer observations
+              across {context.answerIntelligence.topicCount} tracked topics. Covers mention rates,
+              competitive co-citation, and answer-level positioning.
+            </p>
+            <ul className="mt-1.5 space-y-0.5 list-disc pl-4">
+              <li>
+                Brand mentioned in{" "}
+                <span className="font-medium text-foreground tabular-nums">
+                  {Math.round(context.answerIntelligence.overallMentionRate * 100)}%
+                </span>
+                {" "}of tracked AI answers
+              </li>
+              {context.answerIntelligence.decliningTopics.length > 0 && (
+                <li>
+                  Declining:{" "}
+                  <span className="text-foreground font-medium">
+                    {context.answerIntelligence.decliningTopics.slice(0, 3).join(", ")}
+                  </span>
+                </li>
+              )}
+              {context.answerIntelligence.risingTopics.length > 0 && (
+                <li>
+                  Rising:{" "}
+                  <span className="text-foreground font-medium">
+                    {context.answerIntelligence.risingTopics.slice(0, 3).join(", ")}
+                  </span>
+                </li>
+              )}
+              <li>
+                Built: <span className="font-mono text-[10px]">{fmt(context.answerIntelligence.builtAt)}</span>
+              </li>
+            </ul>
+          </div>
+        )}
         <div>
           <p className="text-[10px] font-semibold uppercase tracking-wide text-foreground/80 mb-1">Top move</p>
           <p>{BEACON_METHODOLOGY.recommendations}</p>

@@ -43,6 +43,7 @@ import {
   filterMarketMilestones,
 } from "@/domains/milestones";
 import { latestWebsiteCrawlRun } from "@/domains/observations/read";
+import { answerIntelligenceIndex } from "@/domains/answer-intelligence/store";
 
 export default async function CompetitorsPage() {
   // Same signal as Today / Pages / Changes (Phase 2B): no import runs ⇒ sample workspace, not operator Market.
@@ -470,6 +471,114 @@ export default async function CompetitorsPage() {
               </div>
             </section>
           )}
+          {/* Answer intelligence — who replaces you in AI answers */}
+          {(() => {
+            if (!answerIntelligenceIndex) return null;
+            // Gate: only show when we have meaningful competitor data
+            // Require ≥ 50 total appearances to avoid noise from thin samples
+            const qualifiedCompetitors = answerIntelligenceIndex.co_citation.competitors
+              .filter((c) => c.total_answer_appearances >= 50 && c.displacement_ratio >= 0.3)
+              .sort((a, b) => b.when_owned_absent - a.when_owned_absent)
+              .slice(0, 6);
+            if (qualifiedCompetitors.length === 0) return null;
+
+            // Gate: need enough answer data to be meaningful
+            const totalAnswers = answerIntelligenceIndex.co_citation.total_answers_with_owned +
+              answerIntelligenceIndex.co_citation.total_answers_without_owned;
+            if (totalAnswers < 100) return null;
+
+            return (
+              <section>
+                <div className="mb-3">
+                  <h2 className="text-sm font-semibold text-foreground">Who replaces you</h2>
+                  <p className="text-[11px] text-muted-foreground mt-0.5">
+                    Competitors who appear in AI answers where you{"'"}re absent.
+                    Sorted by how often they show up without you.
+                  </p>
+                </div>
+                <div className="rounded-lg border border-border/70 overflow-hidden">
+                  <div className="grid grid-cols-[1fr_auto_auto] gap-x-4 px-3 py-2 bg-surface-inset/50 text-[10px] font-medium text-muted-foreground border-b border-border/60">
+                    <span>Competitor</span>
+                    <span className="text-right">Answers with you</span>
+                    <span className="text-right">Answers without you</span>
+                  </div>
+                  {qualifiedCompetitors.map((comp) => {
+                    const absentHeavy = comp.when_owned_absent > comp.when_owned_present * 3;
+                    return (
+                      <div
+                        key={comp.domain}
+                        className={cn(
+                          "grid grid-cols-[1fr_auto_auto] gap-x-4 px-3 py-2.5 border-b border-border/50 last:border-b-0 items-center",
+                          absentHeavy ? "bg-status-danger/[0.04]" : "hover:bg-surface-inset/30",
+                        )}
+                      >
+                        <div className="min-w-0">
+                          <p className="text-[12px] font-medium truncate">{comp.domain}</p>
+                        </div>
+                        <span className="text-right text-[12px] tabular-nums font-medium">
+                          {comp.when_owned_present.toLocaleString()}
+                        </span>
+                        <span className={cn(
+                          "text-right text-[12px] tabular-nums font-medium",
+                          absentHeavy ? "text-status-danger" : "text-foreground",
+                        )}>
+                          {comp.when_owned_absent.toLocaleString()}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+                <p className="text-[10px] text-muted-foreground/60 mt-1.5 px-1">
+                  From {totalAnswers.toLocaleString()} AI answer observations.
+                  Directories and platforms are excluded.
+                </p>
+                {/* Per-topic: where are you absent? */}
+                {(() => {
+                  const topicGaps = answerIntelligenceIndex.co_citation.by_topic
+                    .filter((t) => t.answers_without_owned >= 20 && t.top_when_absent.length > 0)
+                    .sort((a, b) => {
+                      const aRatio = a.answers_without_owned / (a.answers_with_owned + a.answers_without_owned);
+                      const bRatio = b.answers_without_owned / (b.answers_with_owned + b.answers_without_owned);
+                      return bRatio - aRatio;
+                    })
+                    .slice(0, 5);
+                  if (topicGaps.length === 0) return null;
+                  return (
+                    <details className="mt-3 text-[11px]">
+                      <summary className="cursor-pointer font-medium text-foreground/85 hover:underline select-none px-1">
+                        By topic — where you{"'"}re absent most
+                      </summary>
+                      <div className="mt-2 rounded-lg border border-border/50 overflow-hidden">
+                        {topicGaps.map((topic) => {
+                          const total = topic.answers_with_owned + topic.answers_without_owned;
+                          const absentPct = total > 0 ? Math.round((topic.answers_without_owned / total) * 100) : 0;
+                          return (
+                            <div key={topic.topic} className="px-3 py-2.5 border-b border-border/50 last:border-b-0">
+                              <div className="flex items-center justify-between gap-2">
+                                <p className="text-[12px] font-medium text-foreground">{topic.topic}</p>
+                                <span className="text-[10px] tabular-nums text-muted-foreground">
+                                  absent in {absentPct}% of answers
+                                </span>
+                              </div>
+                              {topic.top_when_absent.length > 0 && (
+                                <p className="text-[10px] text-muted-foreground mt-1">
+                                  Who fills the gap:{" "}
+                                  <span className="text-foreground font-medium">
+                                    {topic.top_when_absent.slice(0, 3).map((c) => c.domain).join(", ")}
+                                  </span>
+                                </p>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </details>
+                  );
+                })()}
+              </section>
+            );
+          })()}
+
           {/* Discovered domains — broader competitive universe */}
           {discovery.newDiscoveries.length > 0 && (
             <section>

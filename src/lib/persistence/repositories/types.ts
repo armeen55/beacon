@@ -35,6 +35,7 @@ import type {
   CitationEvidenceIndex,
   SitemapReconciliation,
 } from "@/domains/pages/types";
+import type { AnswerIntelligenceIndex } from "@/domains/answer-intelligence/types";
 import type { RenderCheckResult } from "@/domains/pages/render-check";
 import type { VisibilityObservationRun } from "@/domains/observations/visibility-types";
 import type { GuardrailAlert } from "@/domains/pages/guardrails";
@@ -70,6 +71,7 @@ export interface SeedDataRepository {
   getPageSnapshots(): Promise<PageSnapshot[]>;
   getGuardrailAlerts(): Promise<GuardrailAlert[]>;
   getCitationEvidenceIndex(): Promise<CitationEvidenceIndex | null>;
+  getAnswerIntelligenceIndex(): Promise<AnswerIntelligenceIndex | null>;
   getObservationRuns(): Promise<ObservationRun[]>;
   getCompetitorConfigEntries(): Promise<ConfiguredCompetitorEntry[]>;
 

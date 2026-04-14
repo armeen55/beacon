@@ -35,6 +35,7 @@ import type {
   CitationEvidenceIndex,
   SitemapReconciliation,
 } from "@/domains/pages/types";
+import type { AnswerIntelligenceIndex } from "@/domains/answer-intelligence/types";
 import type { RenderCheckResult } from "@/domains/pages/render-check";
 import type { VisibilityObservationRun } from "@/domains/observations/visibility-types";
 import type { GuardrailAlert } from "@/domains/pages/guardrails";
@@ -78,6 +79,9 @@ export const fileBackend: SeedDataRepository = {
 
   getCitationEvidenceIndex: async () =>
     readDotDataJson<CitationEvidenceIndex>("citation-evidence-index"),
+
+  getAnswerIntelligenceIndex: async () =>
+    readDotDataJson<AnswerIntelligenceIndex>("answer-intelligence-index"),
 
   getObservationRuns: async () => readObservationRunsMergedSync(),
 

@@ -20,6 +20,15 @@ export type TodayProofContext = {
   crawlStale: boolean;
   /** Amber: synthetic visibility row or missing citation_index_built_at while crawl exists */
   visibilityPartialSample: boolean;
+  /** Answer intelligence context — null if index not yet built. */
+  answerIntelligence?: {
+    builtAt: string;
+    totalObservations: number;
+    topicCount: number;
+    overallMentionRate: number;
+    decliningTopics: string[];
+    risingTopics: string[];
+  } | null;
 };
 
 export type CoverageTone = "ok" | "partial" | "degraded" | "critical";

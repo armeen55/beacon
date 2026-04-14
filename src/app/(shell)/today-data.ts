@@ -93,6 +93,7 @@ import {
   getMilestoneState,
   pickTodayMilestoneTeaser,
 } from "@/domains/milestones";
+import { answerIntelligenceIndex } from "@/domains/answer-intelligence/store";
 
 
 import type { ComponentProps } from "react";
@@ -102,8 +103,6 @@ export type TodayPageData = Omit<
   ComponentProps<typeof TodayClient>,
   | "onRespondToRec"
   | "onStartExperiment"
-  | "onResolveFinding"
-  | "onPromoteFinding"
 >;
 
 export async function loadTodayPageData(): Promise<TodayPageData> {
@@ -469,6 +468,7 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
     citationIndex: citationEvidenceIndex,
     allPages,
     decayResults,
+    answerIntelligence: answerIntelligenceIndex,
   });
 
   // Filter out dismissed / deferred-but-not-due recommendations
@@ -531,7 +531,7 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
       ? { pageCount: replicationBeneficiaryPages.size }
       : null;
 
-  const { primaryAction } = rankAndSelect({
+  const { primaryAction, secondary: secondaryActions } = rankAndSelect({
     recommendations,
     impactRows,
     patterns,
@@ -624,8 +624,70 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
           : null,
         sourceChangeId: primaryAction.sourceChangeId,
         lineageBullets: primaryLineage,
+        answerContext: primaryAction.answerContext ?? null,
       }
     : null;
+
+  // Serialize secondary action (next best recommendation after primary)
+  const secondaryRec = secondaryActions.filter((r) => !isRecSuppressed(r.id))[0] ?? null;
+  const serializedSecondary = secondaryRec
+    ? {
+        id: secondaryRec.id,
+        headline: secondaryRec.headline,
+        rationale: secondaryRec.rationale,
+        expectedOutcome: secondaryRec.expectedOutcome,
+        sourceEvidence: secondaryRec.sourceEvidence,
+        priorityScore: secondaryRec.priorityScore,
+        bucket: secondaryRec.bucket as "critical" | "high_leverage" | "opportunistic",
+        type: secondaryRec.type,
+        confidence: secondaryRec.confidence,
+        href: recHref(secondaryRec),
+        responseStatus: getResponse(secondaryRec.id)?.status ?? null,
+        confidenceReason: buildConfidenceReason(secondaryRec),
+        watchAfter: buildWatchAfter(secondaryRec),
+        dataFreshness,
+        hasExperiment: !!getExperimentByRecId(secondaryRec.id),
+        targetPageUrl: secondaryRec.targetPageUrl,
+        targetPagePath: secondaryRec.targetPagePath,
+        baselineCitations: secondaryRec.targetPageUrl
+          ? (citMap.get(secondaryRec.targetPageUrl.replace(/\/+$/, "").toLowerCase()) ?? 0)
+          : null,
+        sourceChangeId: secondaryRec.sourceChangeId,
+        lineageBullets: recommendationLineageBullets({
+          sourceEvidence: secondaryRec.sourceEvidence,
+          type: secondaryRec.type,
+          sourceChangeId: secondaryRec.sourceChangeId,
+          dataFreshness,
+        }),
+        answerContext: secondaryRec.answerContext ?? null,
+      }
+    : null;
+
+  // Scoreboard data for command center
+  const citedPageCount = citationIndex2
+    ? new Set(
+        citationIndex2.by_page_and_topic
+          .filter((r) => r.is_owned && r.total_citations > 0)
+          .map((r) => r.page_url),
+      ).size
+    : 0;
+
+  const answerIntelProof = answerIntelligenceIndex
+    ? buildAnswerIntelligenceProofContext(answerIntelligenceIndex)
+    : null;
+
+  const scoreboard = {
+    totalCitations: visibilitySummary.totalCitations,
+    totalMentions: visibilitySummary.totalMentions,
+    trendPct: visibilitySummary.trendPct,
+    platformBreakdown: visibilitySummary.platformBreakdown,
+    citedPageCount,
+    resultCount: visibilitySummary.resultCount,
+    dateRange: visibilitySummary.dateRange,
+    mentionRate: answerIntelProof?.overallMentionRate ?? null,
+    decliningTopicCount: answerIntelProof?.decliningTopics.length ?? 0,
+    risingTopicCount: answerIntelProof?.risingTopics.length ?? 0,
+  };
 
   const proposedWaves = planWaves(
     playbookBriefs,
@@ -902,6 +964,7 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
     crawlAgeDays: crawlAgeDaysForProof,
     crawlStale: crawlStaleForProof,
     visibilityPartialSample,
+    answerIntelligence: answerIntelProof,
   };
 
   const observationRunIds = new Set(
@@ -941,15 +1004,12 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
     scanPhaseFailed,
     summary,
     primaryAction: serializedPrimary,
+    secondaryAction: serializedSecondary,
+    scoreboard,
     pendingFindings: serializedPendingFindings,
-    acceptedAwaitingPromotionCount,
-    resolvedFindingsCount,
     shouldTriggerScan: scanOverdue,
     proofContext,
-    replicationSummary: replicationSummaryForToday,
-    localUrgentStrip: localOperatorSurface.todayUrgentStrip,
     localAttentionStrip,
-    milestoneTeaser,
   };
 }
 
@@ -962,4 +1022,42 @@ function formatTimeAgo(date: Date): string {
   const hours = Math.floor(mins / 60);
   if (hours < 24) return `${hours}h ago`;
   return `${Math.floor(hours / 24)}d ago`;
+}
+
+function buildAnswerIntelligenceProofContext(
+  ai: NonNullable<typeof answerIntelligenceIndex>,
+): NonNullable<import("@/lib/today-proof-context").TodayProofContext["answerIntelligence"]> {
+  const totalMentioned = ai.brand_positioning.reduce(
+    (s, bp) => s + bp.mention_count,
+    0,
+  );
+  const totalObs = ai.brand_positioning.reduce(
+    (s, bp) => s + bp.total_observations,
+    0,
+  );
+  const overallMentionRate =
+    totalObs > 0 ? Math.round((totalMentioned / totalObs) * 1000) / 1000 : 0;
+
+  const declining: string[] = [];
+  const rising: string[] = [];
+  for (const [topic, platforms] of Object.entries(
+    ai.topic_platform_summary,
+  )) {
+    const dirs = Object.values(platforms).map((p) => p.trend_direction);
+    if (dirs.filter((d) => d === "down").length > dirs.length / 2) {
+      declining.push(topic);
+    }
+    if (dirs.filter((d) => d === "up").length > dirs.length / 2) {
+      rising.push(topic);
+    }
+  }
+
+  return {
+    builtAt: ai.built_at,
+    totalObservations: ai.total_observations,
+    topicCount: ai.brand_positioning.length,
+    overallMentionRate,
+    decliningTopics: declining,
+    risingTopics: rising,
+  };
 }

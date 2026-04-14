@@ -42,6 +42,7 @@ import { computeGeoCoverage } from "@/domains/geo/coverage";
 import { getActivePrompts } from "@/domains/prompts/prompt-library";
 import { computeCitationDecay, getDecayAlerts } from "@/domains/attribution/citation-decay";
 import { getBusinessConfig } from "@/lib/business-config";
+import { answerIntelligenceIndex } from "@/domains/answer-intelligence/store";
 import {
   computeLocalOperatorSurface,
   loadLocalOperatorImport,
@@ -192,6 +193,7 @@ export default async function ChangeScorecardPage() {
     citationIndex: citationEvidenceIndex,
     allPages,
     decayResults: decayResultsChanges,
+    answerIntelligence: answerIntelligenceIndex,
   });
   const recommendationsFiltered = allRecs.filter((r) => !isRecSuppressed(r.id));
 

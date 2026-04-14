@@ -196,6 +196,12 @@ export function TodayPrimaryAction({
             )}
           </div>
         )}
+        {primaryAction.answerContext && (
+          <div className="mt-3 rounded-md border border-border/40 bg-surface-inset/20 px-3 py-2">
+            <p className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">From AI answers</p>
+            <p className="text-[11px] text-muted-foreground leading-relaxed">{primaryAction.answerContext}</p>
+          </div>
+        )}
         {primaryAction.watchAfter && (
           <p className="text-[11px] text-muted-foreground/50 mt-1">
             Watch after: {primaryAction.watchAfter.charAt(0).toLowerCase() + primaryAction.watchAfter.slice(1)}

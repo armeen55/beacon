@@ -11,6 +11,7 @@ import type { MinedPattern, PlaybookBrief } from "@/domains/pages/playbook";
 import type { PageSnapshot, PageEntity } from "@/domains/pages/types";
 import type { CitationEvidenceIndex } from "@/domains/pages/types";
 import type { CitationDecayResult } from "@/domains/attribution/decay-types";
+import type { AnswerIntelligenceIndex } from "@/domains/answer-intelligence/types";
 
 export type RecommendationType =
   | "replicate"
@@ -37,6 +38,8 @@ export type BeaconRecommendation = {
   priority: number;
   patternId: string | null;
   citationOpportunity: number;
+  /** Answer-intelligence enrichment: what the AI actually says about this topic. */
+  answerContext?: string | null;
 };
 
 // ---------------------------------------------------------------------------
@@ -93,6 +96,7 @@ export function computeRecommendations(opts: {
   citationIndex?: CitationEvidenceIndex | null;
   allPages?: PageEntity[];
   decayResults?: CitationDecayResult[];
+  answerIntelligence?: AnswerIntelligenceIndex | null;
 }): BeaconRecommendation[] {
   const recs: BeaconRecommendation[] = [];
 
@@ -593,7 +597,139 @@ export function computeRecommendations(opts: {
     }
   }
 
+  // ── Answer intelligence enrichment pass ──
+  // Attach real AI context to each recommendation so the operator sees
+  // what the AI actually says, not just structural gap heuristics.
+  if (opts.answerIntelligence) {
+    enrichRecsWithAnswerIntelligence(recs, opts.answerIntelligence);
+  }
+
   return recs.sort((a, b) => b.priority - a.priority);
+}
+
+// ---------------------------------------------------------------------------
+// Answer intelligence enrichment
+// ---------------------------------------------------------------------------
+
+function enrichRecsWithAnswerIntelligence(
+  recs: BeaconRecommendation[],
+  ai: AnswerIntelligenceIndex,
+): void {
+  // Build topic lookup from page_to_topics in citation index isn't available here,
+  // so we match via recommendation's source evidence / headline topic references.
+  const positionByTopic = new Map(
+    ai.brand_positioning.map((bp) => [bp.topic.toLowerCase(), bp]),
+  );
+
+  // Build topic summary lookup
+  const summaryByTopic = new Map<string, Record<string, import("@/domains/answer-intelligence/types").TopicPlatformSummary>>();
+  for (const [topic, platforms] of Object.entries(ai.topic_platform_summary)) {
+    summaryByTopic.set(topic.toLowerCase(), platforms);
+  }
+
+  // Recent narrative losses (brand_lost in last 14 days)
+  const recentLosses = ai.narrative_shifts.filter(
+    (s) =>
+      s.shift_type === "brand_lost" &&
+      daysSince(s.to_date) <= 14,
+  );
+  const lossTopics = new Set(recentLosses.map((s) => s.topic.toLowerCase()));
+
+  for (const rec of recs) {
+    // Try to find a matching topic from the recommendation text
+    const matchedTopic = findMatchingTopic(rec, positionByTopic);
+    if (!matchedTopic) continue;
+
+    const bp = positionByTopic.get(matchedTopic);
+    if (!bp) continue;
+
+    const parts: string[] = [];
+    const mentionPct = Math.round(bp.mention_rate * 100);
+
+    // Only surface context when there's real signal — skip low-mention topics
+    if (mentionPct === 0 && bp.brand_descriptors.length === 0) continue;
+
+    // Mention rate — the core number
+    if (mentionPct > 0) {
+      parts.push(
+        `Mentioned in ${mentionPct}% of ${bp.total_observations.toLocaleString()} AI answers for this topic`,
+      );
+    }
+
+    // Position context — only when meaningful
+    if (bp.avg_position_when_mentioned != null && bp.avg_position_when_mentioned <= 10) {
+      parts.push(`typically listed #${bp.avg_position_when_mentioned}`);
+    }
+
+    // Competitive context — only top competitor with meaningful overlap
+    const topCompetitor = bp.top_co_appearing_competitors[0];
+    if (topCompetitor && topCompetitor.co_appearance_count >= 10) {
+      parts.push(
+        `most often alongside ${topCompetitor.domain}`,
+      );
+    }
+
+    // Trend context from topic_platform_summary — only declining (actionable)
+    const summaries = summaryByTopic.get(matchedTopic);
+    if (summaries) {
+      const declining = Object.entries(summaries).filter(
+        ([, s]) => s.trend_direction === "down",
+      );
+      if (declining.length > 0) {
+        parts.push(
+          `declining on ${declining.map(([p]) => p).join(", ")}`,
+        );
+      }
+    }
+
+    // Recent brand losses — only when there are several (not single-day noise)
+    if (lossTopics.has(matchedTopic)) {
+      const topicLosses = recentLosses.filter(
+        (s) => s.topic.toLowerCase() === matchedTopic,
+      );
+      if (topicLosses.length >= 3) {
+        parts.push(
+          `dropped from ${topicLosses.length} answers in last 14 days`,
+        );
+      }
+    }
+
+    // Only attach if we have at least the mention rate + one other signal
+    if (parts.length >= 2) {
+      rec.answerContext = parts.join(". ") + ".";
+    }
+  }
+}
+
+function findMatchingTopic(
+  rec: BeaconRecommendation,
+  topicMap: Map<string, unknown>,
+): string | null {
+  // Try matching the recommendation's text content against known topics
+  const searchText = `${rec.headline} ${rec.rationale} ${rec.sourceEvidence}`.toLowerCase();
+
+  let bestMatch: string | null = null;
+  let bestLength = 0;
+
+  for (const topic of topicMap.keys()) {
+    // Check if the topic name (or substantial part) appears in the rec text
+    const topicWords = topic.split(/\s+/).filter((w) => w.length > 3);
+    const matchingWords = topicWords.filter((w) => searchText.includes(w));
+    if (matchingWords.length >= Math.max(1, topicWords.length * 0.5)) {
+      if (topic.length > bestLength) {
+        bestMatch = topic;
+        bestLength = topic.length;
+      }
+    }
+  }
+
+  return bestMatch;
+}
+
+function daysSince(dateStr: string): number {
+  return Math.floor(
+    (Date.now() - new Date(dateStr).getTime()) / 86_400_000,
+  );
 }
 
 const PLATFORM_LABELS: Record<string, string> = {
