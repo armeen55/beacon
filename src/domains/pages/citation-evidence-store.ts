@@ -1,7 +1,15 @@
-import { getRepository } from "@/lib/persistence/repositories";
+import { readDotDataJson } from "@/lib/persistence/dotdata-json";
 import type { CitationEvidenceIndex } from "./types";
 
-const repo = getRepository();
+function loadFromDisk(): CitationEvidenceIndex | null {
+  return readDotDataJson<CitationEvidenceIndex>("citation-evidence-index") ?? null;
+}
 
-export const citationEvidenceIndex: CitationEvidenceIndex | null =
-  await repo.getCitationEvidenceIndex();
+let _cached: CitationEvidenceIndex | null = loadFromDisk();
+
+export { _cached as citationEvidenceIndex };
+
+/** Call after rebuilding the index (e.g. post-import) to refresh the in-memory reference. */
+export function refreshCitationEvidenceStore(): void {
+  _cached = loadFromDisk();
+}

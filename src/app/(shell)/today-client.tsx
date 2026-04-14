@@ -17,6 +17,9 @@ import { TodayScanStrip } from "@/components/today/today-scan-strip";
 import { TodayScoreboard, type ScoreboardData } from "@/components/today/today-scoreboard";
 import { TodayActionQueue, type FindingsStripData } from "@/components/today/today-action-queue";
 import type { ActionCardAction } from "@/components/today/action-card";
+import { MorningBrief } from "@/components/today/morning-brief";
+import type { MorningBriefData } from "@/domains/product/morning-brief";
+import { ChangeReview } from "@/components/today/change-review";
 
 /* ── Shared serialization types (consumed by page.tsx, child components) ── */
 
@@ -106,6 +109,7 @@ export function TodayClient({
   summary,
   primaryAction = null,
   secondaryAction = null,
+  morningBrief = null,
   scoreboard,
   onRespondToRec,
   onStartExperiment,
@@ -113,12 +117,15 @@ export function TodayClient({
   shouldTriggerScan = false,
   proofContext,
   localAttentionStrip = null,
+  onConfirmFinding,
+  onDismissFinding,
 }: {
   isDemoMode?: boolean;
   scanPhaseFailed?: boolean;
   summary: TodaySummary;
   primaryAction?: TodayPrimaryAction | null;
   secondaryAction?: TodayPrimaryAction | null;
+  morningBrief?: MorningBriefData | null;
   scoreboard: ScoreboardData;
   onRespondToRec?: (
     recId: string,
@@ -141,6 +148,8 @@ export function TodayClient({
   shouldTriggerScan?: boolean;
   proofContext: TodayProofContext;
   localAttentionStrip?: import("@/lib/local-presence").TodayLocalAttention | null;
+  onConfirmFinding?: (findingId: string) => Promise<{ success: boolean; changeId?: string }>;
+  onDismissFinding?: (findingId: string) => Promise<{ success: boolean }>;
 }) {
   const [pending, startTransition] = useTransition();
   const [actionMsg, setActionMsg] = useState<string | null>(null);
@@ -201,9 +210,36 @@ export function TodayClient({
     );
   }
 
+  // Count content-type pending changes for scan banner
+  const CONTENT_TYPES = new Set([
+    "title_changed", "meta_changed", "h1_changed", "faq_changed",
+    "schema_changed", "content_changed", "canonical_changed",
+    "links_changed", "page_added", "page_removed",
+  ]);
+  const pendingContentChanges = pendingFindings.filter((f) => CONTENT_TYPES.has(f.type)).length;
+
   return (
     <div className="space-y-6">
-      <TodayScanStrip shouldTriggerScan={shouldTriggerScan} />
+      <TodayScanStrip
+        shouldTriggerScan={shouldTriggerScan}
+        pendingChangesCount={pendingContentChanges}
+      />
+
+      {/* Morning Brief — primary content */}
+      {morningBrief && morningBrief.items.length > 0 && (
+        <MorningBrief data={morningBrief} />
+      )}
+
+      {/* Change Review — detected changes from scan */}
+      {onConfirmFinding && onDismissFinding && pendingFindings.length > 0 && (
+        <div id="change-review-section">
+          <ChangeReview
+            findings={pendingFindings}
+            onConfirm={onConfirmFinding}
+            onDismiss={onDismissFinding}
+          />
+        </div>
+      )}
 
       {/* Command center: two-panel layout */}
       <div className="grid grid-cols-1 lg:grid-cols-[2fr_3fr] gap-6">

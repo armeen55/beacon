@@ -104,6 +104,200 @@ describe("extractPageSnapshot – FAQ extraction", () => {
   });
 });
 
+describe("extractPageSnapshot – top-level JSON-LD array (menlo-park bug fix)", () => {
+  it("extracts FAQs from a top-level JSON-LD array", () => {
+    const html = `<html><head>
+      <script type="application/ld+json">[
+        {"@context":"https://schema.org","@type":"HomeAndConstructionBusiness","name":"Ritz Builders"},
+        {"@context":"https://schema.org","@type":"WebPage","name":"Test"},
+        {"@context":"https://schema.org","@type":"BreadcrumbList"},
+        {"@context":"https://schema.org","@type":"FAQPage","mainEntity":[
+          {"@type":"Question","name":"Who are the best builders?","acceptedAnswer":{"@type":"Answer","text":"Firms with design-build."}},
+          {"@type":"Question","name":"Should I hire design-build?","acceptedAnswer":{"@type":"Answer","text":"Yes for complex projects."}}
+        ]}
+      ]</script>
+    </head><body><p>Content here about building.</p></body></html>`;
+    const snap = extractPageSnapshot(html, "https://example.com/locations/menlo-park", "pg-mp");
+    expect(snap.faqs).toHaveLength(2);
+    expect(snap.faqs[0].question).toContain("best builders");
+    expect(snap.faqs[0].source).toBe("jsonld");
+  });
+
+  it("extracts all schema types from a top-level JSON-LD array", () => {
+    const html = `<html><head>
+      <script type="application/ld+json">[
+        {"@type":"HomeAndConstructionBusiness"},
+        {"@type":"WebPage"},
+        {"@type":"BreadcrumbList"},
+        {"@type":"FAQPage","mainEntity":[]}
+      ]</script>
+    </head><body><p>Content</p></body></html>`;
+    const snap = extractPageSnapshot(html, "https://example.com/page", "pg-arr");
+    expect(snap.schema_types).toContain("HomeAndConstructionBusiness");
+    expect(snap.schema_types).toContain("WebPage");
+    expect(snap.schema_types).toContain("BreadcrumbList");
+    expect(snap.schema_types).toContain("FAQPage");
+    expect(snap.schema_types).toHaveLength(4);
+  });
+
+  it("handles mixed array + separate JSON-LD blocks", () => {
+    const html = `<html><head>
+      <script type="application/ld+json">[
+        {"@type":"Article"},
+        {"@type":"FAQPage","mainEntity":[
+          {"@type":"Question","name":"Q from array?","acceptedAnswer":{"@type":"Answer","text":"A1"}}
+        ]}
+      ]</script>
+      <script type="application/ld+json">{"@type":"FAQPage","mainEntity":[
+        {"@type":"Question","name":"Q from standalone?","acceptedAnswer":{"@type":"Answer","text":"A2"}}
+      ]}</script>
+    </head><body><p>Content</p></body></html>`;
+    const snap = extractPageSnapshot(html, "https://example.com/mixed", "pg-mix");
+    expect(snap.faqs).toHaveLength(2);
+    expect(snap.schema_types).toContain("Article");
+    expect(snap.schema_types).toContain("FAQPage");
+  });
+});
+
+describe("extractPageSnapshot – duplicate FAQ schema detection", () => {
+  it("detects duplicate FAQPage blocks and sets warning", () => {
+    const html = `<html><head>
+      <script type="application/ld+json">[
+        {"@type":"FAQPage","mainEntity":[
+          {"@type":"Question","name":"Q1?","acceptedAnswer":{"@type":"Answer","text":"A1"}}
+        ]}
+      ]</script>
+      <script type="application/ld+json">{"@type":"FAQPage","mainEntity":[
+        {"@type":"Question","name":"Q1?","acceptedAnswer":{"@type":"Answer","text":"A1"}}
+      ]}</script>
+    </head><body><p>Content</p></body></html>`;
+    const snap = extractPageSnapshot(html, "https://example.com/dup", "pg-dup");
+    expect(snap.faq_schema_block_count).toBe(2);
+    expect(snap.structural_warnings).toBeDefined();
+    expect(snap.structural_warnings![0]).toContain("duplicate_faq_schema");
+  });
+
+  it("does not warn for single FAQPage block", () => {
+    const html = `<html><head>
+      <script type="application/ld+json">{"@type":"FAQPage","mainEntity":[
+        {"@type":"Question","name":"Q1?","acceptedAnswer":{"@type":"Answer","text":"A1"}}
+      ]}</script>
+    </head><body><p>Content</p></body></html>`;
+    const snap = extractPageSnapshot(html, "https://example.com/single", "pg-s");
+    expect(snap.faq_schema_block_count).toBe(1);
+    expect(snap.structural_warnings).toBeUndefined();
+  });
+});
+
+describe("extractPageSnapshot – extraction certainty", () => {
+  it("marks extraction as confirmed when JSON-LD is present", () => {
+    const html = `<html><head>
+      <script type="application/ld+json">{"@type":"FAQPage","mainEntity":[]}</script>
+    </head><body><p>Some content here for word count purposes in this test case.</p></body></html>`;
+    const snap = extractPageSnapshot(html, "https://example.com/page", "pg-c");
+    expect(snap.extraction_certainty).toBe("confirmed");
+  });
+
+  it("marks extraction as confirmed when body has substantial content", () => {
+    const html = `<html><body><p>${"word ".repeat(100)}</p></body></html>`;
+    const snap = extractPageSnapshot(html, "https://example.com/page", "pg-c2");
+    expect(snap.extraction_certainty).toBe("confirmed");
+  });
+
+  it("marks extraction as uncertain when body is nearly empty", () => {
+    const html = `<html><body><div id="root"></div></body></html>`;
+    const snap = extractPageSnapshot(html, "https://example.com/spa", "pg-u");
+    expect(snap.extraction_certainty).toBe("uncertain");
+  });
+});
+
+describe("extractPageSnapshot – edge cases", () => {
+  it("handles nested @graph inside array items", () => {
+    const html = `<html><head>
+      <script type="application/ld+json">[
+        {"@type":"Organization","@graph":[
+          {"@type":"FAQPage","mainEntity":[
+            {"@type":"Question","name":"Nested Q?","acceptedAnswer":{"@type":"Answer","text":"A"}}
+          ]}
+        ]}
+      ]</script>
+    </head><body><p>Content</p></body></html>`;
+    const snap = extractPageSnapshot(html, "https://example.com/nested", "pg-nest");
+    expect(snap.faqs).toHaveLength(1);
+    expect(snap.faqs[0].question).toBe("Nested Q?");
+    expect(snap.schema_types).toContain("Organization");
+    expect(snap.schema_types).toContain("FAQPage");
+  });
+
+  it("handles empty JSON-LD array", () => {
+    const html = `<html><head>
+      <script type="application/ld+json">[]</script>
+    </head><body><p>Content</p></body></html>`;
+    const snap = extractPageSnapshot(html, "https://example.com/empty-arr", "pg-ea");
+    expect(snap.faqs).toHaveLength(0);
+    expect(snap.schema_types).toHaveLength(0);
+    expect(snap.faq_schema_block_count).toBe(0);
+  });
+
+  it("handles malformed JSON-LD gracefully", () => {
+    const html = `<html><head>
+      <script type="application/ld+json">{"broken json</script>
+      <script type="application/ld+json">{"@type":"FAQPage","mainEntity":[
+        {"@type":"Question","name":"Valid Q?","acceptedAnswer":{"@type":"Answer","text":"A"}}
+      ]}</script>
+    </head><body><p>Content</p></body></html>`;
+    const snap = extractPageSnapshot(html, "https://example.com/broken", "pg-br");
+    expect(snap.faqs).toHaveLength(1);
+    expect(snap.faqs[0].question).toBe("Valid Q?");
+  });
+
+  it("deduplicates schema types from multiple blocks", () => {
+    const html = `<html><head>
+      <script type="application/ld+json">{"@type":"FAQPage","mainEntity":[]}</script>
+      <script type="application/ld+json">[{"@type":"FAQPage","mainEntity":[]}]</script>
+    </head><body><p>Content</p></body></html>`;
+    const snap = extractPageSnapshot(html, "https://example.com/dedup", "pg-dd");
+    // schema_types uses Set — should deduplicate
+    expect(snap.schema_types.filter(t => t === "FAQPage")).toHaveLength(1);
+    // But faq_schema_block_count should count both
+    expect(snap.faq_schema_block_count).toBe(2);
+  });
+
+  it("handles FAQPage with no mainEntity", () => {
+    const html = `<html><head>
+      <script type="application/ld+json">{"@type":"FAQPage"}</script>
+    </head><body><p>Content</p></body></html>`;
+    const snap = extractPageSnapshot(html, "https://example.com/no-me", "pg-nm");
+    expect(snap.faqs).toHaveLength(0);
+    expect(snap.schema_types).toContain("FAQPage");
+    expect(snap.faq_schema_block_count).toBe(1);
+  });
+
+  it("handles array @type like [\"WebPage\", \"FAQPage\"]", () => {
+    const html = `<html><head>
+      <script type="application/ld+json">{"@type":["WebPage","FAQPage"],"mainEntity":[
+        {"@type":"Question","name":"Multi-type Q?","acceptedAnswer":{"@type":"Answer","text":"A"}}
+      ]}</script>
+    </head><body><p>Content</p></body></html>`;
+    const snap = extractPageSnapshot(html, "https://example.com/multi-type", "pg-mt");
+    expect(snap.schema_types).toContain("WebPage");
+    expect(snap.schema_types).toContain("FAQPage");
+  });
+
+  it("counts FAQPage blocks inside @graph", () => {
+    const html = `<html><head>
+      <script type="application/ld+json">{"@graph":[
+        {"@type":"FAQPage","mainEntity":[]},
+        {"@type":"WebPage"}
+      ]}</script>
+    </head><body><p>Content</p></body></html>`;
+    const snap = extractPageSnapshot(html, "https://example.com/graph", "pg-gr");
+    expect(snap.faq_schema_block_count).toBe(1);
+    expect(snap.schema_types).toContain("FAQPage");
+    expect(snap.schema_types).toContain("WebPage");
+  });
+});
+
 describe("extractPageSnapshot – title and meta", () => {
   it("extracts title, meta, h1, canonical correctly", () => {
     const html = `<html><head>

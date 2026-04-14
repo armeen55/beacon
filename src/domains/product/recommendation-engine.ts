@@ -12,6 +12,7 @@ import type { PageSnapshot, PageEntity } from "@/domains/pages/types";
 import type { CitationEvidenceIndex } from "@/domains/pages/types";
 import type { CitationDecayResult } from "@/domains/attribution/decay-types";
 import type { AnswerIntelligenceIndex } from "@/domains/answer-intelligence/types";
+import { absoluteUrlForPath } from "@/lib/site-config";
 
 export type RecommendationType =
   | "replicate"
@@ -97,6 +98,7 @@ export function computeRecommendations(opts: {
   allPages?: PageEntity[];
   decayResults?: CitationDecayResult[];
   answerIntelligence?: AnswerIntelligenceIndex | null;
+  changelogEntries?: ChangelogEntry[];
 }): BeaconRecommendation[] {
   const recs: BeaconRecommendation[] = [];
 
@@ -198,15 +200,19 @@ export function computeRecommendations(opts: {
 
     const gapStr = gaps.join(", ");
 
+    const strengthenUrl = row.change.url;
+    const strengthenFullUrl = strengthenUrl
+      ? (strengthenUrl.startsWith("/") ? absoluteUrlForPath(strengthenUrl) : strengthenUrl)
+      : null;
     recs.push({
       id: `rec-strengthen-${row.change.id}`,
       type: "strengthen",
       headline: `Improve changelog: "${row.change.asset_name}"`,
       rationale: `${row.totalEventsLinked} linked event${row.totalEventsLinked !== 1 ? "s" : ""} but ${row.evidenceTier} evidence (${gapStr}). Filling gaps could unlock auto-resolution.${suggestedTopic ? ` Suggested topic: "${suggestedTopic}".` : ""}`,
       sourceEvidence: `${row.evidenceTier} tier, ${gapStr}`,
-      targetPageUrl: row.change.url,
+      targetPageUrl: strengthenFullUrl,
       targetPagePath:
-        row.change.url?.replace(/^https?:\/\/[^/]+/, "") ?? null,
+        strengthenUrl?.replace(/^https?:\/\/[^/]+/, "") ?? null,
       sourceChangeId: row.change.id,
       confidence: row.totalEventsLinked >= 2 ? "medium" : "low",
       priority:
@@ -223,15 +229,19 @@ export function computeRecommendations(opts: {
   );
 
   for (const row of negativeImpact) {
+    const rawUrl = row.change.url;
+    const fullUrl = rawUrl
+      ? (rawUrl.startsWith("/") ? absoluteUrlForPath(rawUrl) : rawUrl)
+      : null;
     recs.push({
       id: `rec-investigate-${row.change.id}`,
       type: "investigate",
       headline: `Investigate: "${row.change.asset_name}"`,
       rationale: `Visibility declined in the same observation window as this change — ${row.totalEventsLinked} negative event${row.totalEventsLinked !== 1 ? "s" : ""}. Check for regression or external factors.`,
       sourceEvidence: `${row.totalEventsLinked} negative event${row.totalEventsLinked !== 1 ? "s" : ""}, ${row.topics.slice(0, 2).join(", ")}`,
-      targetPageUrl: row.change.url,
+      targetPageUrl: fullUrl,
       targetPagePath:
-        row.change.url?.replace(/^https?:\/\/[^/]+/, "") ?? null,
+        rawUrl?.replace(/^https?:\/\/[^/]+/, "") ?? null,
       sourceChangeId: row.change.id,
       confidence: row.impact.confidence,
       priority: 800 + row.totalEventsLinked * 100,
@@ -241,10 +251,14 @@ export function computeRecommendations(opts: {
   }
 
   // ── Strengthen structure: cited pages missing FAQ or schema ──
+  //    Skip pages with uncertain extraction — we can't trust that "missing"
+  //    is real if the parser couldn't verify structural content.
 
   if (opts.pageSnapshots && opts.citationCountMap) {
     const structureCandidates = opts.pageSnapshots
       .filter((snap) => {
+        // Do NOT recommend structural changes when extraction is uncertain
+        if (snap.extraction_certainty === "uncertain") return false;
         const normUrl = snap.url.replace(/\/+$/, "").toLowerCase();
         const cit = opts.citationCountMap!.get(normUrl) ?? 0;
         if (cit < 10) return false;
@@ -602,6 +616,51 @@ export function computeRecommendations(opts: {
   // what the AI actually says, not just structural gap heuristics.
   if (opts.answerIntelligence) {
     enrichRecsWithAnswerIntelligence(recs, opts.answerIntelligence);
+  }
+
+  // ── Cross-reference changelog: if a change was logged for the same page +
+  // same type of work, adjust the recommendation to flag it as a deploy check ──
+  if (opts.changelogEntries && opts.changelogEntries.length > 0) {
+    const recentChanges = opts.changelogEntries
+      .filter((c) => c.url)
+      .sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+
+    for (const rec of recs) {
+      if (!rec.targetPageUrl) continue;
+      const recPath = rec.targetPageUrl.replace(/^https?:\/\/[^/]+/, "").replace(/\/+$/, "").toLowerCase();
+
+      // Find changelog entries for the same page
+      const matchingChanges = recentChanges.filter((c) => {
+        const changePath = (c.url ?? "").replace(/^https?:\/\/[^/]+/, "").replace(/\/+$/, "").toLowerCase();
+        return changePath === recPath;
+      });
+
+      if (matchingChanges.length === 0) continue;
+
+      // Check if the changelog mentions the same kind of work
+      const desc = matchingChanges.map((c) => c.change_description.toLowerCase()).join(" ");
+      const recType = rec.type;
+
+      let isDeployCheck = false;
+      if (recType === "strengthen_structure" && (desc.includes("faq") || desc.includes("schema"))) {
+        isDeployCheck = true;
+      }
+      if (recType === "replicate" && rec.headline.toLowerCase().includes("schema") && desc.includes("schema")) {
+        isDeployCheck = true;
+      }
+      if (recType === "refresh_content" && desc.includes("content")) {
+        isDeployCheck = true;
+      }
+
+      if (isDeployCheck) {
+        const latestChange = matchingChanges[0];
+        const changeDate = latestChange.timestamp.slice(0, 10);
+        rec.headline = `Deploy check: ${rec.headline}`;
+        rec.rationale = `You logged a change on ${changeDate} ("${latestChange.change_description.slice(0, 60)}…") but our scan still can't detect the update. Verify the change is live, or re-run the scan.`;
+        // Lower priority so fresh recs rank above deploy checks
+        rec.priority = Math.max(rec.priority - 200, 10);
+      }
+    }
   }
 
   return recs.sort((a, b) => b.priority - a.priority);

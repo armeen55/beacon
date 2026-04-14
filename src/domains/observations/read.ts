@@ -1,15 +1,7 @@
 import "server-only";
 
-import { getRepository } from "@/lib/persistence/repositories";
 import type { ObservationRun } from "./types";
 import { readObservationRunsMergedSync } from "./observation-runs-merge";
-
-const repo = getRepository();
-
-const supabaseCachedRuns: ObservationRun[] =
-  process.env.DATA_SOURCE === "supabase"
-    ? await repo.getObservationRuns()
-    : [];
 
 function sortByCompleted(runs: ObservationRun[]): ObservationRun[] {
   return [...runs].sort(
@@ -20,13 +12,10 @@ function sortByCompleted(runs: ObservationRun[]): ObservationRun[] {
 
 /**
  * All observation runs, newest first.
- * **File `DATA_SOURCE`:** reads merged `observation-runs` + legacy `scan-runs` from disk each call.
- * **Supabase:** uses the snapshot loaded at module init (same limitation as before this refactor).
+ * Always reads from `.data/` files on disk (merged observation-runs + legacy scan-runs).
+ * This ensures scan CLI writes are immediately visible without module cache staleness.
  */
 export function listObservationRuns(): ObservationRun[] {
-  if (process.env.DATA_SOURCE === "supabase") {
-    return sortByCompleted(supabaseCachedRuns);
-  }
   return sortByCompleted(readObservationRunsMergedSync());
 }
 

@@ -61,6 +61,8 @@ export function generateFixBrief(
     case "faq_lost":
     case "schema_lost":
       return buildRegressionBrief(alert, snapshot, relatedChanges, hasIntendedSchemaWork, citationCount, path);
+    case "duplicate_faq_schema":
+      return buildDuplicateFaqBrief(alert, snapshot, relatedChanges, citationCount, path);
     default:
       return buildGenericBrief(alert, snapshot, relatedChanges, citationCount, path);
   }
@@ -272,6 +274,40 @@ function buildRegressionBrief(
     ],
     bestNextMove: "Review recent changes to this page and restore the lost FAQ/schema content.",
     relatedChangelog: changes, intentConflict: hasIntendedWork, intentDetail: null, citationCount: citations,
+  };
+}
+
+function buildDuplicateFaqBrief(
+  alert: GuardrailAlert, snap: PageSnapshot | null,
+  changes: FixBrief["relatedChangelog"], citations: number, path: string
+): FixBrief {
+  const blockCount = snap?.faq_schema_block_count ?? 2;
+  return {
+    alertCategory: alert.category, alertSeverity: alert.severity,
+    pageUrl: alert.url, pagePath: path,
+    issueSummary: `${blockCount} duplicate FAQPage JSON-LD blocks on ${path}`,
+    expectedState: [
+      "Exactly 1 FAQPage JSON-LD block per page",
+      "All FAQ questions consolidated into a single mainEntity array",
+    ],
+    observedState: [
+      `${blockCount} separate FAQPage schema blocks detected in page HTML`,
+      snap ? `${snap.faqs.length} total FAQ questions across all blocks` : "",
+      "Likely caused by React Helmet injecting one block + a hardcoded block in the template",
+    ].filter(Boolean),
+    likelyCauses: [
+      "Two separate components are each injecting FAQPage JSON-LD",
+      "A global template includes FAQPage schema AND the page component adds its own",
+      "React Helmet data-rh block + a static script block both present",
+    ],
+    verificationChecklist: [
+      "View page source and search for 'FAQPage' — count occurrences",
+      "Identify which component/template injects each block",
+      "Consolidate all FAQ questions into a single FAQPage JSON-LD block",
+      "Re-scan in Beacon to confirm only 1 FAQPage block remains",
+    ],
+    bestNextMove: "Find the two sources of FAQPage JSON-LD in the page template and merge them into one.",
+    relatedChangelog: changes, intentConflict: false, intentDetail: null, citationCount: citations,
   };
 }
 

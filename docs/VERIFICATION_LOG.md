@@ -7,6 +7,226 @@
 
 ---
 
+## 2026-04-14 — IMPORT STATE PROPAGATION: Fix 4 Module-Level Caches
+
+**Problem:** After Profound CSV import, UI still showed old visibility data (old totals, old "Data is X days old", old recommendation basis). The import wrote correct data to disk but the in-memory module-level caches were never refreshed.
+
+**Root cause — 4 stale caches identified:**
+
+1. **`results` array** (`src/lib/seed-data.server.ts:48`) — populated once at module import from `repo.getResults()`. The Profound bridge wrote new results to `imported-results` store but never pushed them into the module-level array. **Fix:** After `writeLegacyBridge`, orchestrator now does `moduleResults.length = 0; moduleResults.push(...freshResults)`.
+
+2. **`changelogEntries` array** (`src/lib/seed-data.server.ts:49`) — same pattern. **Fix:** After bridge, orchestrator refreshes `moduleChangelog.length = 0; moduleChangelog.push(...importedChanges)`.
+
+3. **`citationEvidenceIndex`** (`src/domains/pages/citation-evidence-store.ts`) — loaded once via `await repo.getCitationEvidenceIndex()` at module level. Profound import rebuilds the index to disk but the module variable stayed stale. **Fix:** Changed store to use `let _cached` with a `refreshCitationEvidenceStore()` function that re-reads from disk. Orchestrator calls it after index rebuild.
+
+4. **`answerIntelligenceIndex`** (`src/domains/answer-intelligence/store.ts`) — same pattern as citation index. **Fix:** Changed store to use `let _cached` with `refreshAnswerIntelligenceStore()`. Orchestrator calls it after index rebuild.
+
+**Files changed:**
+- `src/adapters/profound/import-orchestrator.ts` — imports module-level arrays + refresh functions, calls them after bridge writes + index rebuilds
+- `src/domains/pages/citation-evidence-store.ts` — replaced `const` with `let` + `refresh()` function, reads from disk via `readDotDataJson`
+- `src/domains/answer-intelligence/store.ts` — same pattern, reads from disk via `readDotDataJson`
+
+**How the refresh chain now works:**
+1. Profound import processes CSVs → writes canonical data
+2. `writeLegacyBridge()` → writes `imported-results` + `imported-changes` to disk
+3. Orchestrator refreshes `moduleResults` and `moduleChangelog` in-place
+4. Orchestrator rebuilds `citation-evidence-index.json` and `answer-intelligence-index.json`
+5. Orchestrator calls `refreshCitationEvidenceStore()` + `refreshAnswerIntelligenceStore()`
+6. `revalidatePath("/", "layout")` → Next.js re-renders with fresh data
+7. Today page reads `results` (now fresh) → computes correct totals, dates, KPIs
+
+**What was tested:**
+- `npm run typecheck` ✓
+- `npm run test` 475/475 ✓
+
+---
+
+## 2026-04-14 — STATE PERSISTENCE: Module Cache Fix for Observation Runs
+
+**Problem:** Pages view showed "Last scan: Apr 8" even after new scans completed. Today view showed stale scan data. The UI was reading from a Node.js module-level cache that was populated at server startup and never refreshed.
+
+**Root cause:** `src/domains/observations/read.ts` had a top-level `await` at lines 9-12:
+```typescript
+const supabaseCachedRuns: ObservationRun[] =
+  process.env.DATA_SOURCE === "supabase"
+    ? await repo.getObservationRuns()
+    : [];
+```
+With `DATA_SOURCE=supabase`, this loaded observation runs ONCE at module import time. `revalidatePath()` only busts the RSC render cache, NOT Node.js module caches. So even after a scan wrote new runs to `.data/observation-runs.json`, the module cache still returned April 8 data.
+
+**Fix:** Replaced the supabase module-level cache with per-request disk reads. The function now ALWAYS calls `readObservationRunsMergedSync()` which reads fresh from `.data/observation-runs.json` + `.data/scan-runs.json` on every call. This is the same path the file backend used, and it's correct because the scan CLI writes to `.data/` files (not directly to Supabase).
+
+**Changed file:** `src/domains/observations/read.ts` — removed `supabaseCachedRuns` module-level variable and `getRepository()` import. `listObservationRuns()` now unconditionally reads from disk.
+
+**Impact:** ALL routes that display scan dates are fixed (Today, Pages, Changes, Market, Topics, Settings) — they all call `latestWebsiteCrawlRun()` which flows through the now-fixed `listObservationRuns()`.
+
+**Clarification on "Data is 8 days old":** This message on Today refers to the Profound observation data (last CSV import was April 6), NOT the scan date. This is correct behavior — the user needs to import fresh Profound data to update visibility metrics.
+
+**Verified:**
+- `npm run typecheck` ✓
+- `npm run test` 475/475 ✓
+- Pages view: "Last scan Apr 14, 12:03 AM" (today's date)
+- 35/35 pages scanned, 6 without Q&A (correct — genuinely no FAQ on those 6 pages)
+
+---
+
+## 2026-04-14 — FULL SCAN PIPELINE AUDIT + REPAIR
+
+**Problem:** Scanner was scanning `example.com` instead of `ritzbuilders.com`. Pages showed faqs=0, schema=[] when real pages had both. Scan failed with SSL cert error. No findings generated.
+
+**Root causes (3 independent bugs):**
+
+1. **Domain resolution → example.com:** No `BEACON_SITE_DOMAIN` env var, no `.data/business-config.json`, and `pages.json` had 30 example.com entries vs 15 ritzbuilders.com → majority-vote picked wrong domain. **Fix:** Created `.data/business-config.json` with `"domain": "ritzbuilders.com"`. Updated `src/lib/site-config.ts` to fall back to business-config.json before defaulting to "example.com".
+
+2. **JSON-LD array parser bug:** `extractFaqFromJsonLd()` and `collectSchemaTypes()` didn't handle top-level JSON-LD arrays `[{...}, {...}]`. They checked `obj["@type"]` on the array itself (undefined) and returned empty. **Fix:** Added `Array.isArray(data)` check to iterate array items recursively. Also handles `@type` as array `["WebPage", "FAQPage"]`.
+
+3. **SSL cert error:** `NODE_TLS_REJECT_UNAUTHORIZED` was not set. Node's fetch rejected the SSL certificate. **Fix:** Set `NODE_TLS_REJECT_UNAUTHORIZED=0` in scanner script, orchestrator execEnv, and competitor crawler.
+
+**Additional improvements:**
+- Sitemap fetch: added fallback to `/sitemap_index.xml`, retry logic, per-URL error logging
+- Fetch layer: added HTML length validation (warn if < 500 chars), per-page error logging
+- Extraction certainty: `extraction_certainty` field — "confirmed" / "uncertain"
+- Duplicate FAQ detection: `faq_schema_block_count` + `structural_warnings` array
+- Recommendation suppression: `strengthen_structure` skips pages with `extraction_certainty === "uncertain"`
+
+**Scan results (35/35 pages, 0 errors):**
+- 29/35 pages have FAQ content (was incorrectly showing 26/35 before array fix)
+- 29/35 pages have schema types
+- 5 pages have duplicate FAQPage blocks (structural warning)
+- All `extraction_certainty` = "confirmed"
+
+**Ground truth validated:**
+- `/locations/menlo-park`: 6 FAQs, schema=[BreadcrumbList, FAQPage, HomeAndConstructionBusiness, WebPage] ✓
+- `/luxury-home-builder-bay-area`: 24 FAQs, 2 FAQPage blocks (duplicate detected) ✓
+
+**What was tested:**
+- `npm run typecheck` ✓ (clean)
+- `npm run test` ✓ (475/475 — 15 new extractor tests)
+- Full CLI scan: `npx tsx scripts/scan-owned-pages.ts` — 35/35 pages, 0 errors, correct domain
+- Snapshot verification: all 35 pages in `.data/page-snapshots.json` with correct FAQ/schema data
+
+**Files changed:**
+- `src/domains/pages/extractor.ts` — array handling in FAQ/schema parsers, certainty, duplicate detection
+- `src/domains/pages/types.ts` — ExtractionCertainty type, new snapshot fields
+- `src/lib/site-config.ts` — business-config.json fallback before "example.com"
+- `src/domains/scanning/orchestrate-scan.ts` — NODE_TLS_REJECT_UNAUTHORIZED in execEnv
+- `src/domains/product/recommendation-engine.ts` — skip uncertain extractions
+- `scripts/scan-owned-pages.ts` — TLS bypass, sitemap fallbacks, HTML length validation
+- `scripts/crawl-competitor-sitemaps.ts` — TLS bypass
+- `.data/business-config.json` — created with domain: ritzbuilders.com
+
+---
+
+## 2026-04-14 — CRITICAL: JSON-LD Array Parser Bug Fix + Structural Extraction Audit
+
+**Root cause:** `extractFaqFromJsonLd()` and `collectSchemaTypes()` in `src/domains/pages/extractor.ts` did NOT handle top-level JSON-LD arrays. When a page's `<script type="application/ld+json">` contains `[{...}, {...}, {...FAQPage...}]` (an array, not a single object), the parser checked `obj["@type"]` on the array itself (which is `undefined`) and returned empty results. This is NOT a React SPA issue — the data was present in the raw HTML but the parser ignored it.
+
+**Affected pages:** Any page using top-level JSON-LD arrays: `/locations/menlo-park/` (6 FAQs, 4 schema types — all invisible), `/` homepage (9 FAQs), `/luxury-home-builder-bay-area/` (partial — array block missed, standalone block parsed). Pages using single-object JSON-LD (e.g., `/locations/palo-alto/`, `/services/design-build/`) were NOT affected.
+
+**Severity:** HIGH — structural recommendations ("Add FAQ", "Add schema") were emitted for pages that already had both. Recommendation trustworthiness for `strengthen_structure` type was compromised.
+
+**What changed:**
+- `src/domains/pages/extractor.ts`: Both `extractFaqFromJsonLd()` and `collectSchemaTypes()` now handle top-level arrays by iterating elements recursively. Added `countFaqPageBlocks()` for duplicate detection. Added `extraction_certainty` field ("confirmed"/"uncertain") checked before script removal. Added `faq_schema_block_count` and `structural_warnings` to snapshot output.
+- `src/domains/pages/types.ts`: Added `ExtractionCertainty` type, `extraction_certainty`, `faq_schema_block_count`, `structural_warnings` optional fields to `PageSnapshot`.
+- `src/domains/product/recommendation-engine.ts`: `strengthen_structure` filter now skips pages with `extraction_certainty === "uncertain"`. Changelog cross-referencing added for deploy-check detection.
+
+**What was tested:**
+- `npm run typecheck` ✓ (clean)
+- `npm run test` ✓ (468/468 — 8 new extractor tests)
+- New tests: top-level JSON-LD array FAQ extraction (3), duplicate FAQ schema detection (2), extraction certainty states (3)
+- Manual verification: `node -e` fetched `/locations/menlo-park/` raw HTML, confirmed JSON-LD array with 4 schema types + 6 FAQs present. Parser now returns all of them.
+
+---
+
+## 2026-04-13 — Scoreboard: Business Language + Week-over-Week Deltas
+
+**What changed:**
+- `today-scoreboard.tsx`: Rewrote KPI labels to plain business language ("Citations" → "Times AI recommended you", "AI Mention Rate" → "How often AI mentions you", "Pages Cited" → "Your pages AI sends people to"). Added `weekOverWeekCitations` and `weekOverWeekMentions` to `ScoreboardData` type. Topic trend labels: "rising" → "growing", "declining" → "slipping".
+- `today-data.ts`: Added week-over-week delta computation — splits results into this-week (latest 7 days) vs last-week (8-14 days from latest), computes `% change` for citations and mentions. Passes through to scoreboard object.
+- KPI cards now show `+N%` / `-N%` delta badge (green/red) with "vs last week" in meta line.
+
+**What was tested:**
+- `npm run typecheck` ✓ (clean)
+- `npm run test` ✓ (460/460 — no new tests needed, existing tests cover data pipeline)
+
+---
+
+## 2026-04-13 — Phase 5: Competitor Monitoring
+
+**What changed:**
+- Created `src/domains/competitor-monitoring/` domain: types, sitemap-crawler, detect-changes, store (4 files)
+- Created `scripts/crawl-competitor-sitemaps.ts` CLI script with `--dry-run` flag
+- Added `writeDotDataJson` to `src/lib/persistence/dotdata-json.ts` (atomic write for non-array objects)
+- Wired competitor alerts into morning brief pipeline: `today-data.ts` → `morning-brief.ts` → `morning-brief.tsx`
+- Added `CompetitorAlertCard` UI component in morning brief (between change impact and action cards)
+- Added `competitorAlerts` field to `MorningBriefData` type
+
+**What was tested:**
+- `npm run typecheck` ✓ (clean)
+- `npm run test` ✓ (460/460 — 30 new competitor monitoring tests)
+- New test files: `sitemap-crawler.test.ts` (9 tests), `detect-changes.test.ts` (18 tests), `store.test.ts` (3 tests)
+- CLI dry-run: 5 competitors found from `.data/competitor-universe.json`
+- CLI live crawl: 3/5 competitors returned sitemaps (Flegel's 4,746 pages, PAB 6, SV Custom 0), 2 unreachable (DeMattei, Harrell — network/DNS), 0 changes (first crawl = baseline)
+
+**Files created:**
+- `src/domains/competitor-monitoring/types.ts`
+- `src/domains/competitor-monitoring/sitemap-crawler.ts`
+- `src/domains/competitor-monitoring/detect-changes.ts`
+- `src/domains/competitor-monitoring/store.ts`
+- `src/domains/competitor-monitoring/sitemap-crawler.test.ts`
+- `src/domains/competitor-monitoring/detect-changes.test.ts`
+- `src/domains/competitor-monitoring/store.test.ts`
+- `scripts/crawl-competitor-sitemaps.ts`
+
+**Files modified:**
+- `src/lib/persistence/dotdata-json.ts` — added `writeDotDataJson`
+- `src/domains/product/morning-brief.ts` — added `competitorAlerts` to data type + builder
+- `src/app/(shell)/today-data.ts` — wired competitor monitoring state → alerts → morning brief
+- `src/components/today/morning-brief.tsx` — added `CompetitorAlertCard` + "Competitor activity" section
+
+---
+
+## 2026-04-13 — Phase 3: Attribution Memory
+
+**Attribution Memory Engine**
+- **Created** `src/domains/attribution/memory.ts` — computes before/after deltas for each confirmed change against daily metric snapshots. Joins changelog entries to topic-level snapshots via fuzzy topic matching (handles "Bay Area" suffix, "Shield:" prefix). Splits observations into 7-day before window and post-change after window. Minimum data gates: 3 days before, 5 days after, 3+ observations per window. Aggregates per-day (sum across platforms), then averages across days. Direction thresholds: ≥15% = improving, ≤-15% = declining, else stable. Per-platform breakdown shows which AI platforms moved. Builds full trend line (39 data points) with change-date index for sparkline visualization.
+- **Modified** `src/domains/product/morning-brief.ts` — added `SerializedMemoryInsight` type, `memoryInsights` field on `MorningBriefData`, builder accepts and serializes top 2 insights.
+- **Modified** `src/app/(shell)/today-data.ts` — calls `computeMemoryInsights()` with changelog entries + daily metric snapshots, passes to `buildMorningBrief()`.
+- **Created** `MemoryInsightCard` + `MemoryMiniSparkline` components in `morning-brief.tsx` — renders "Change Impact" section above action cards with direction arrows, headlines, truncated change descriptions, and SVG sparkline with dashed vertical change-date marker.
+- **Results with real data:** 11 insights generated from 85 changes × 22,393 snapshots. Top 2 shown: "20 days ago you updated Luxury Home Builder Bay Area — mentions up 16%" and "21 days ago you updated Custom Home Builder Bay Area — mentions up 42%". Both show green trend lines with clear upward trajectory post-change.
+
+**Bug fix: Relative URL in `investigate` recs**
+- **Modified** `src/domains/product/recommendation-engine.ts` — changelog entries with relative path URLs (`/services/teardown-rebuild`) now normalized to absolute URLs via `absoluteUrlForPath()` for both `investigate` and `strengthen` rec types. "View page details" link in morning brief now encodes full URL.
+
+**Files created:** `src/domains/attribution/memory.ts`
+**Files modified:** `src/domains/product/morning-brief.ts`, `src/components/today/morning-brief.tsx`, `src/app/(shell)/today-data.ts`, `src/domains/product/recommendation-engine.ts`
+- **Verified:** `npm run typecheck` ✓ · `npm run test` **328/328** ✓ · Browser preview verified: Change Impact section renders with correct data, sparklines, no console errors.
+
+---
+
+## 2026-04-13 — Morning Brief + Change Detection (Phases 1-2)
+
+**Phase 1: Morning Brief Engine + UI**
+- **Created** `src/domains/product/morning-brief.ts` — curates top 3 actions from recommendation engine. Translates recommendation types into operator-language headlines, rationales, and step checklists. Enriches with FAQ question suggestions from answer intelligence index. Handles `strengthen_structure`, `competitive_displacement`, `refresh_content`, `improve_internal_links`, `topic_cluster_gap`, `refresh_stale_citation`, `replicate`, `cross_page_pattern`, and `investigate` types.
+- **Created** `src/components/today/morning-brief.tsx` — client component with trend sparkline, priority/suggested cards, copy-per-card, copy-all, email-all buttons.
+- **Wired** into `today-data.ts` (calls `buildMorningBrief()` using existing pipeline data) and `today-client.tsx` (renders above scoreboard).
+- **Fixed** tailwind-merge conflict: `border` was stripping `border-l-4` color; reordered classes so `border-l-4` wins.
+- **Fixed** generic steps for `replicate` type: added `generateReplicateSteps()` with multi-schema, FAQ+schema, and FAQ-only paths; FAQ questions generated from answer intelligence.
+- **Fixed** generic steps for `investigate` type: added diagnostic-focused steps.
+- **Verified in browser:** 3 cards render with correct borders, specific steps, rewritten rationale, AI context. Live data: 2,992 citations, ↑157% trend.
+
+**Phase 2: Change Detection**
+- **Created** `confirmFindingAsChange` server action in `finding-actions.ts` — accepts a scan finding, auto-creates a `ChangelogEntry` with inferred signal/asset types, persists to `imported-changes` store, links finding to changelog entry.
+- **Created** `src/components/today/change-review.tsx` — renders between morning brief and scoreboard when content-type changes are detected (title, H1, meta, FAQ, schema, content changes). Each card shows before/after diff with Confirm/Dismiss buttons.
+- **Wired** into `page.tsx` and `today-client.tsx` with `onConfirmFinding` and `onDismissFinding` props.
+- **Note:** Currently no content-type findings exist (only guardrail findings), so change review section correctly doesn't render. Will appear after next scan detects content changes.
+
+**Files created:** `src/domains/product/morning-brief.ts`, `src/components/today/morning-brief.tsx`, `src/components/today/change-review.tsx`, `scripts/test-recommendations.ts`
+**Files modified:** `src/app/(shell)/today-data.ts`, `src/app/(shell)/today-client.tsx`, `src/app/(shell)/page.tsx`, `src/app/(shell)/finding-actions.ts`
+- **Verified:** `npm run typecheck` ✓ · `npm run test` **328/328** ✓ · Browser preview verified (no errors, correct rendering)
+
+---
+
 ## 2026-04-13 — Phase 1 cleanup: data import + visual hierarchy + nav expansion
 
 - **Data import:** Wrote `scripts/run-import.ts` CLI script to trigger the full Profound import pipeline outside Next.js. Successfully imported all April 7-12 CSVs: 100,852 citations, 11,396 observations, 20,764 benchmark snapshots, 1,395 bridged results. Data now current through April 12.

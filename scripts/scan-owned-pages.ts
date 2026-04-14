@@ -15,6 +15,9 @@
  *   --skip-fetch-sitemap   Use cached sitemap reconciliation instead of re-fetching
  */
 
+// Allow self-signed / intermediate cert issues in scanner context
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+
 import { readStore } from "../src/lib/persistence/json-store";
 import { extractPageSnapshot } from "../src/domains/pages/extractor";
 import { diffSnapshots } from "../src/domains/pages/snapshot-diff";
@@ -89,25 +92,52 @@ type SitemapReconciliation = {
 // ── Sitemap fetcher ──
 
 async function fetchSitemap(): Promise<{ url: string; lastmod: string | null }[]> {
-  const res = await fetch(SITEMAP_URL, {
-    headers: { "User-Agent": "BeaconScanner/1.0" },
-  });
-  if (!res.ok) throw new Error(`Sitemap fetch failed: ${res.status}`);
-  const xml = await res.text();
+  const origin = siteOrigin.replace(/\/+$/, "");
+  const candidates = [
+    `${origin}/sitemap.xml`,
+    `${origin}/sitemap_index.xml`,
+  ];
+  let lastError = "";
 
-  const entries: { url: string; lastmod: string | null }[] = [];
-  const urlBlocks = xml.match(/<url>[\s\S]*?<\/url>/g) ?? [];
-  for (const block of urlBlocks) {
-    const locMatch = block.match(/<loc>([^<]+)<\/loc>/);
-    const modMatch = block.match(/<lastmod>([^<]+)<\/lastmod>/);
-    if (locMatch) {
-      entries.push({
-        url: locMatch[1].replace(/\/+$/, ""),
-        lastmod: modMatch ? modMatch[1] : null,
+  for (const url of candidates) {
+    try {
+      console.log(`[scan] Trying sitemap: ${url}`);
+      const res = await fetch(url, {
+        headers: { "User-Agent": "BeaconScanner/1.0" },
       });
+      if (!res.ok) {
+        lastError = `${url} → HTTP ${res.status}`;
+        console.warn(`[scan] Sitemap ${lastError}`);
+        continue;
+      }
+      const xml = await res.text();
+      console.log(`[scan] Sitemap fetched: ${url} (${xml.length} chars)`);
+
+      const entries: { url: string; lastmod: string | null }[] = [];
+      const urlBlocks = xml.match(/<url>[\s\S]*?<\/url>/g) ?? [];
+      for (const block of urlBlocks) {
+        const locMatch = block.match(/<loc>([^<]+)<\/loc>/);
+        const modMatch = block.match(/<lastmod>([^<]+)<\/lastmod>/);
+        if (locMatch) {
+          entries.push({
+            url: locMatch[1].replace(/\/+$/, ""),
+            lastmod: modMatch ? modMatch[1] : null,
+          });
+        }
+      }
+      if (entries.length > 0) {
+        console.log(`[scan] Sitemap resolved: ${url} → ${entries.length} URLs`);
+        return entries;
+      }
+      console.warn(`[scan] Sitemap at ${url} parsed but contained 0 <url> entries`);
+      lastError = `${url} → 0 entries`;
+    } catch (err) {
+      lastError = `${url} → ${err instanceof Error ? err.message : String(err)}`;
+      console.warn(`[scan] Sitemap fetch error: ${lastError}`);
     }
   }
-  return entries;
+
+  throw new Error(`All sitemap URLs failed for ${origin}. Last error: ${lastError}`);
 }
 
 // ── URL normalization ──
@@ -138,9 +168,14 @@ async function fetchPage(
       return { error: `Non-HTML content-type: ${contentType}`, status: res.status };
     }
     const html = await res.text();
+    if (html.length < 500) {
+      console.warn(`[scan] WARNING: ${url} returned only ${html.length} chars — may be empty shell`);
+    }
     return { html, status: res.status };
   } catch (err) {
-    return { error: formatErrorWithCause(err), status: 0 };
+    const msg = formatErrorWithCause(err);
+    console.error(`[scan] Fetch failed for ${url}: ${msg}`);
+    return { error: msg, status: 0 };
   } finally {
     clearTimeout(timer);
   }

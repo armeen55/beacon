@@ -14,6 +14,8 @@ export type ScoreboardData = {
   mentionRate: number | null;
   decliningTopicCount: number;
   risingTopicCount: number;
+  weekOverWeekCitations: number | null;
+  weekOverWeekMentions: number | null;
 };
 
 /** Compact platform breakdown as text, not a chart */
@@ -41,40 +43,51 @@ export function TodayScoreboard({
     : null;
 
   const topicMeta = [
-    scoreboard.decliningTopicCount > 0 ? `${scoreboard.decliningTopicCount} declining` : null,
-    scoreboard.risingTopicCount > 0 ? `${scoreboard.risingTopicCount} rising` : null,
+    scoreboard.risingTopicCount > 0 ? `${scoreboard.risingTopicCount} growing` : null,
+    scoreboard.decliningTopicCount > 0 ? `${scoreboard.decliningTopicCount} slipping` : null,
   ].filter(Boolean).join(" · ");
 
   const platMeta = platformSummary(scoreboard.platformBreakdown);
+
+  const wowCit = scoreboard.weekOverWeekCitations;
+  const wowMen = scoreboard.weekOverWeekMentions;
 
   return (
     <div className="space-y-5">
       {/* KPI cards */}
       <div className="grid grid-cols-1 gap-3">
         <KpiCard
-          label="Citations"
+          label="Times AI recommended you"
           value={scoreboard.totalCitations}
-          delta={scoreboard.trendPct}
+          delta={wowCit}
           deltaSuffix="%"
           meta={
-            platMeta
-              ? platMeta
-              : scoreboard.dateRange
-                ? `through ${scoreboard.dateRange.to}`
-                : undefined
+            wowCit !== null
+              ? `vs last week${platMeta ? ` · ${platMeta}` : ""}`
+              : platMeta
+                ? platMeta
+                : scoreboard.dateRange
+                  ? `through ${scoreboard.dateRange.to}`
+                  : undefined
           }
         />
         {mentionRatePct !== null && (
           <KpiCard
-            label="AI Mention Rate"
+            label="How often AI mentions you"
             value={`${mentionRatePct}%`}
-            meta={topicMeta || `across ${scoreboard.resultCount.toLocaleString()} observations`}
+            delta={wowMen}
+            deltaSuffix="%"
+            meta={
+              wowMen !== null
+                ? `vs last week${topicMeta ? ` · ${topicMeta}` : ""}`
+                : topicMeta || `across ${scoreboard.resultCount.toLocaleString()} AI answers`
+            }
           />
         )}
         <KpiCard
-          label="Pages Cited"
+          label="Your pages AI sends people to"
           value={scoreboard.citedPageCount}
-          meta={scoreboard.citedPageCount > 0 ? "owned pages with AI citations" : "no citation data yet"}
+          meta={scoreboard.citedPageCount > 0 ? "pages where AI links directly to you" : "no data yet"}
         />
       </div>
 

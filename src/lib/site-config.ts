@@ -30,9 +30,25 @@ function explicitSiteDomainSet(): boolean {
   return Boolean(process.env.BEACON_SITE_DOMAIN?.trim());
 }
 
+function domainFromBusinessConfig(): string | null {
+  try {
+    const fs = require("node:fs");
+    const path = require("node:path");
+    const p = path.join(process.cwd(), ".data", "business-config.json");
+    if (!fs.existsSync(p)) return null;
+    const j = JSON.parse(fs.readFileSync(p, "utf8")) as { domain?: unknown };
+    if (typeof j.domain === "string") {
+      const d = j.domain.trim().toLowerCase().replace(/^www\./, "");
+      if (d.length > 0) return d;
+    }
+  } catch { /* ignore */ }
+  return null;
+}
+
 function readConfig(): SiteConfig {
   const raw = process.env.BEACON_SITE_DOMAIN?.trim();
-  const siteDomain = (raw && raw.length > 0 ? raw : "example.com")
+  const fromConfig = !raw || raw.length === 0 ? domainFromBusinessConfig() : null;
+  const siteDomain = (raw && raw.length > 0 ? raw : fromConfig ?? "example.com")
     .toLowerCase()
     .replace(/^www\./, "");
   let siteOrigin = (process.env.BEACON_SITE_ORIGIN ?? "").trim().replace(/\/+$/, "");

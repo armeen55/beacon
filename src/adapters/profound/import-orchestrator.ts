@@ -51,6 +51,12 @@ import { buildCitationEvidenceIndex } from "@/domains/pages/citation-index";
 import { buildAnswerIntelligenceIndex } from "@/domains/answer-intelligence/build-index";
 import { writeStore, readStore } from "@/lib/persistence/json-store";
 import { getSiteConfig } from "@/lib/site-config";
+import {
+  results as moduleResults,
+  changelogEntries as moduleChangelog,
+} from "@/lib/seed-data.server";
+import { refreshCitationEvidenceStore } from "@/domains/pages/citation-evidence-store";
+import { refreshAnswerIntelligenceStore } from "@/domains/answer-intelligence/store";
 import type { ChangelogEntry } from "@/domains/changelog/types";
 import type { CitationObservation } from "@/domains/citation-observations/types";
 import type { PromptAnswerObservation } from "@/domains/prompt-answer-observations/types";
@@ -270,7 +276,15 @@ export async function runProfoundImport(
     totalCanonicalRows: mergedObservations.length + totalCitations,
   });
 
+  // Refresh the module-level arrays so the UI immediately reflects bridged data.
+  // Without this, seed-data.server.ts keeps the stale arrays from server startup.
+  const freshResults = readStore<import("@/domains/results/types").Result>("imported-results");
+  moduleResults.length = 0;
+  moduleResults.push(...freshResults);
+
   const importedChanges = readStore<ChangelogEntry>("imported-changes");
+  moduleChangelog.length = 0;
+  moduleChangelog.push(...importedChanges);
 
   const allCitationsForIndex: CitationObservation[] = [];
   for (const d of getAllCitationDates()) {
@@ -309,6 +323,10 @@ export async function runProfoundImport(
   const aiTmp = aiPath + ".tmp";
   writeFileSync(aiTmp, JSON.stringify(answerIntelIndex), "utf-8");
   renameSync(aiTmp, aiPath);
+
+  // Refresh module-level caches so the UI reads fresh data without server restart
+  refreshCitationEvidenceStore();
+  refreshAnswerIntelligenceStore();
 
   return {
     success: true,

@@ -181,6 +181,7 @@ export async function runWebsiteScan(opts: {
   const execEnv: NodeJS.ProcessEnv = {
     ...process.env,
     NODE_NO_WARNINGS: "1",
+    NODE_TLS_REJECT_UNAUTHORIZED: "0",
   };
   if (!execEnv.BEACON_SITE_DOMAIN?.trim() && scanDomain) {
     execEnv.BEACON_SITE_DOMAIN = scanDomain;

@@ -66,6 +66,9 @@ export type FaqItem = {
   source: "jsonld" | "html_details" | "html_section";
 };
 
+/** How confident the extractor is about a structural field */
+export type ExtractionCertainty = "confirmed" | "uncertain";
+
 export type PageSnapshot = {
   id: string;
   page_id: string;
@@ -93,6 +96,12 @@ export type PageSnapshot = {
   headings_hash: string;
   faq_hash: string;
   schema_hash: string;
+  /** Extraction confidence — "confirmed" when JSON-LD was found and parsed, "uncertain" when raw fetch may have missed client-rendered content */
+  extraction_certainty?: ExtractionCertainty;
+  /** Number of distinct FAQPage JSON-LD blocks found (>1 = duplicate on the page) */
+  faq_schema_block_count?: number;
+  /** Structural warnings detected during extraction */
+  structural_warnings?: string[];
 };
 
 export type PageSnapshotDiff = {

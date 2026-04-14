@@ -6,8 +6,12 @@
 > **NOT FOR:** Execution steps (→ `NEXT_PHASE_EXECUTION_PLAN.md`), system diagrams (→ `architecture.md`), deep history (→ `master_execution_plan.md`), verification proof (→ `VERIFICATION_LOG.md`).
 
 **Last updated:** 2026-04-13
-**Branch:** `work/attribution-precision-20260407`
-**Build:** `npm run typecheck` ✓ · `npm run test` 328/328 ✓ · `npm run build` ✓
+**Branch:** `main`
+**Build:** `npm run typecheck` ✓ · `npm run test` 460/460 ✓
+**Scoreboard upgrade (2026-04-13):** KPI cards rewritten to business language ("Times AI recommended you", "How often AI mentions you", "Your pages AI sends people to"). Added week-over-week deltas: citations and mention rate now show `+N%` / `-N%` vs last week with green/red coloring. Topic trends relabeled: "rising" → "growing", "declining" → "slipping". Meta lines show "vs last week" context when delta data exists. Data pipeline computes this-week vs last-week buckets from results time series in `today-data.ts`.
+**Phase 5: Competitor Monitoring (2026-04-13):** Sitemap-based competitor monitoring — crawls XML sitemaps for 5 configured competitors, diffs page lists to detect new/removed/updated pages, generates contextual alerts (topic inference from URL paths for builder site patterns). Wired into morning brief: alerts appear as "Competitor activity" section between change impact and action cards. CLI script `scripts/crawl-competitor-sitemaps.ts` with `--dry-run` flag. Initial baseline crawl completed: Flegel's (4,746 pages), PAB (6 pages), SV Custom Homes (0 entries), 2 competitors unreachable. Domain: `src/domains/competitor-monitoring/` (types, sitemap-crawler, detect-changes, store). Also added `writeDotDataJson` to persistence layer for non-array object storage. 30 new tests (sitemap parsing, change detection, alert generation, store).
+**Phase 3: Attribution Memory (2026-04-13):** Today page now shows **Change Impact** section above action cards — up to 2 memory insights with mini sparklines showing before/after trends. Computed from 85 changelog entries × 22K daily metric snapshots; 11 insights generated from real data, top 2 shown. Example: "20 days ago you updated Luxury Home Builder Bay Area — mentions up 16%" with green trend line + vertical change-date marker. Engine: `src/domains/attribution/memory.ts` — per-topic before/after window comparison with minimum data gates (3 days before, 5 days after, 3+ observations per window). Direction: improving (≥15%), declining (≤-15%), stable. Platform breakdown shows which AI platforms moved. Also fixed: `investigate` rec type relative URL bug — changelog entries with relative paths now normalized via `absoluteUrlForPath`.
+**Morning Brief + Change Detection (2026-04-13):** Phase 1 complete: Today page now renders **morning brief** as primary content — citation trend sparkline (2,992 citations, ↑157%) + 3 prioritized action cards with copy/email. Each card has operator-language rationale, concrete step checklists, and AI context from answer intelligence. Phase 2: **Change detection** — `confirmFindingAsChange` server action auto-creates changelog entries from confirmed scan findings; `ChangeReview` component renders on Today when content-type changes are detected (title, H1, meta, FAQ, schema, content changes). Scan trigger already exists via `TodayScanStrip`.
 **Product reorientation Phase 1 + cleanup (2026-04-13):** Command Center layout — Today is now a two-panel grid (`2fr_3fr`): **left** = visibility scoreboard (3 KPI cards + compact platform text + health strip), **right** = action queue (primary + secondary action cards + findings count strip). **Nav expanded to 7 items:** Today, Pages, Changes, Market, Local, Topics, Settings. **Data imported:** all April 7-12 CSVs processed (100K+ citations, 11K observations, 20K benchmark snapshots). **Cleanup:** removed donut chart (low density), consolidated stale warnings to health strip only (removed DataFreshnessStrip from shell + warning box from action queue), improved KPI card visual weight (larger numbers, delta top-right), improved action card hierarchy (larger headline, subtler coloring).
 **Track 1.2:** Daily ritual perfection — Phases 1–3 complete (2026-04-12): layout + Inbox Zero/digest + Today keyboard path (A / J/K, finding focus, primary `autoFocus` when safe) + **one decision card** (now cut — replaced by action queue). **Stale visibility gate:** hard demotion + findings warning unchanged. **Import copy (2026-04-12):** “latest visibility export / decision layer” framing — not workbook-first.
 **Track 1.3:** Replication engine refinement — Phases 1–2 complete (2026-04-12): language/hierarchy + queue structure/experiment linkage/vague suppression
@@ -74,7 +78,7 @@ Beacon is a **daily AI visibility operating system** for local businesses. One o
 | **Settings fragmented** | DONE (Phase 3) | Route consolidation + smoke **3-8** verified **2026-04-12**: Import / Config / Data tabs only; Health direct URL; **`/import`**, **`/setup`**, **`/results`** → **404** |
 | **Today section count** | DONE (1.2) | Track 1.2 Phase 1: primary action promoted to #1 slot, findings collapsed, proof/system moved to bottom, morning-order text removed, milestone/replication compacted |
 | **Render-time side effects** | DONE (1C) | `persistOutcomes()`, `updateExperimentCitations()`/`persistExperiments()`, and `syncMilestonesFromWorkspace()` all moved to post-import; 1C-3 audit confirmed zero writes in render path |
-| **Test coverage narrow** | LOW | 328 tests (domain + lib + `exit-gates-store` + local-presence + NAP 4-state + listing completeness + per-source `lastSync` + GBP/Yelp map/sync + GBP location picker + Tier 1.1i coverage + components + **route smokes** + `today-next-line` + `today-one-decision` + **scan-site-domain** + Profound **csv-discovery** / **merge-ingest**); Vitest `fileParallelism: false` + 30s timeout stabilizes heavy dynamic imports; no full E2E |
+| **Test coverage narrow** | LOW | 460 tests (domain + lib + `exit-gates-store` + local-presence + NAP 4-state + listing completeness + per-source `lastSync` + GBP/Yelp map/sync + GBP location picker + Tier 1.1i coverage + components + **route smokes** + `today-next-line` + `today-one-decision` + **scan-site-domain** + Profound **csv-discovery** / **merge-ingest**); Vitest `fileParallelism: false` + 30s timeout stabilizes heavy dynamic imports; no full E2E |
 
 ### Overall scores (from 2026-04-11 audit)
 
@@ -95,9 +99,9 @@ Beacon is a **daily AI visibility operating system** for local businesses. One o
 
 **Immediate next 3 actions:**
 
-1. **Operator:** Run **5–7 consecutive days** per `docs/TIER_1_DOGFOOD_WEEK_LOG.md`; append rows + final note when done (P0 trust only → smallest fix, then re-log).
-2. **Native ingestion prep:** Read **`docs/NATIVE_INGESTION_READINESS_AUDIT.md` §7** + run **Settings → Import batch** with `DUAL_WRITE=true`; confirm Supabase `results` / `changelog_entries` / `import_runs` vs merged file set (canonical hot stores still file-first unless expanded dual-write).
-3. **Engineering (when unblocked):** Spec **staging + idempotent upsert keys** for API ingestion (no product UI change); keep file bridge until parity tests pass.
+1. **Operator:** Run the 2-week native test — open Today daily, copy morning brief actions to devs, import fresh Profound CSVs, run scans to detect changes, confirm detected changes into changelog. Run `npx tsx scripts/crawl-competitor-sitemaps.ts` periodically to track competitor page changes.
+2. **Phase 4: Native Prompt Execution** — build platform adapters (Perplexity, ChatGPT, Gemini) to replace Profound CSV imports with nightly API-based prompt execution. Start with Perplexity (best citation quality).
+3. **Competitor monitoring enhancement** — add competitor alert detail view, link alerts to answer intelligence topics for counter-move suggestions, add Settings UI for managing monitored competitors.
 
 
 **Full execution plan:** See `NEXT_PHASE_EXECUTION_PLAN.md` — launch phases complete; active roadmap is **Tier 1** tracks **1.1 → 1.5** (see `master_execution_plan.md` §"Tiered product stack").
@@ -116,7 +120,7 @@ Beacon is a **daily AI visibility operating system** for local businesses. One o
 | Auto-resolved events | 13/45 (29%) |
 | Domain modules | 31 |
 | App routes (build) | 29 |
-| Vitest tests | 328 |
+| Vitest tests | 460 |
 | Viz components | 19 |
 
 ---

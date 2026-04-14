@@ -1,13 +1,24 @@
 import "server-only";
 
-import { getRepository } from "@/lib/persistence/repositories";
+import { readDotDataJson } from "@/lib/persistence/dotdata-json";
 import type { AnswerIntelligenceIndex } from "./types";
 
-const repo = getRepository();
+/**
+ * Reads the answer intelligence index fresh from disk.
+ * Always returns current data — no module-level cache staleness.
+ */
+function loadFromDisk(): AnswerIntelligenceIndex | null {
+  return readDotDataJson<AnswerIntelligenceIndex>("answer-intelligence-index") ?? null;
+}
+
+let _cached: AnswerIntelligenceIndex | null = loadFromDisk();
 
 /**
- * Module-level load of the answer intelligence index.
- * Null if the index hasn't been built yet (pre-import state).
+ * Answer intelligence index. Module-level variable refreshed by `refreshAnswerIntelligenceStore()`.
  */
-export const answerIntelligenceIndex: AnswerIntelligenceIndex | null =
-  await repo.getAnswerIntelligenceIndex();
+export { _cached as answerIntelligenceIndex };
+
+/** Call after rebuilding the index (e.g. post-import) to refresh the in-memory reference. */
+export function refreshAnswerIntelligenceStore(): void {
+  _cached = loadFromDisk();
+}

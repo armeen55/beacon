@@ -278,20 +278,30 @@ export default function ImportPage() {
             )}
 
             {profoundResult.success && (
-              <div className="flex flex-wrap gap-2 pt-1">
-                <Link href="/" className="inline-flex items-center gap-2 rounded-md bg-foreground px-4 py-2 text-[11px] font-semibold text-background hover:opacity-90">
-                  Today →
-                </Link>
-                <Link href="/settings/history" className="inline-flex items-center gap-2 rounded-md border border-border px-4 py-2 text-[11px] font-medium hover:bg-surface-inset">
-                  History →
-                </Link>
-                <button
-                  type="button"
-                  onClick={() => { setProfoundResult(null); setSetupResult(null); }}
-                  className="text-[11px] text-muted-foreground hover:text-foreground"
-                >
-                  Dismiss
-                </button>
+              <div className="space-y-2 pt-1">
+                <div className="rounded-lg border border-accent-primary/30 bg-accent-primary/5 px-3 py-2">
+                  <p className="text-[11px] font-medium text-accent-primary">
+                    Data imported — scan your site to detect what changed
+                  </p>
+                  <p className="text-[10px] text-muted-foreground mt-0.5">
+                    Go to Today and run a scan. Beacon will compare your site now vs your last scan and surface any changes for you to confirm.
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Link href="/" className="inline-flex items-center gap-2 rounded-md bg-foreground px-4 py-2 text-[11px] font-semibold text-background hover:opacity-90">
+                    Today — scan &amp; review →
+                  </Link>
+                  <Link href="/settings/history" className="inline-flex items-center gap-2 rounded-md border border-border px-4 py-2 text-[11px] font-medium hover:bg-surface-inset">
+                    History →
+                  </Link>
+                  <button
+                    type="button"
+                    onClick={() => { setProfoundResult(null); setSetupResult(null); }}
+                    className="text-[11px] text-muted-foreground hover:text-foreground"
+                  >
+                    Dismiss
+                  </button>
+                </div>
               </div>
             )}
           </div>
@@ -426,17 +436,24 @@ export default function ImportPage() {
                     </div>
                   )}
                   {importResult.success && (
-                    <div className="flex flex-wrap gap-3">
-                      {entityType === "reviews" && (
-                        <Link
-                          href="/local"
-                          className="inline-flex items-center gap-2 text-[11px] text-accent-primary hover:underline font-medium"
-                        >
-                          Local presence →
-                        </Link>
+                    <div className="space-y-2">
+                      {entityType === "results" && (
+                        <p className="text-[10px] text-accent-primary">
+                          Scan your site from Today to detect changes since your last scan.
+                        </p>
                       )}
-                      <Link href="/" className="inline-flex items-center gap-2 text-[11px] text-accent-primary hover:underline font-medium">Today →</Link>
-                      <Link href="/settings/history" className="inline-flex items-center gap-2 text-[11px] text-accent-primary hover:underline font-medium">History →</Link>
+                      <div className="flex flex-wrap gap-3">
+                        {entityType === "reviews" && (
+                          <Link
+                            href="/local"
+                            className="inline-flex items-center gap-2 text-[11px] text-accent-primary hover:underline font-medium"
+                          >
+                            Local presence →
+                          </Link>
+                        )}
+                        <Link href="/" className="inline-flex items-center gap-2 text-[11px] text-accent-primary hover:underline font-medium">Today →</Link>
+                        <Link href="/settings/history" className="inline-flex items-center gap-2 text-[11px] text-accent-primary hover:underline font-medium">History →</Link>
+                      </div>
                     </div>
                   )}
                 </div>

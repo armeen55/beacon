@@ -6,7 +6,7 @@
  * (pin metadata), and `topics/page.tsx` server action (fresh read at mutation time).
  * Elsewhere prefer `getRepository()` or domain store modules.
  */
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync } from "node:fs";
 import { join } from "node:path";
 
 /** Read `.data/{baseName}.json` synchronously; returns null if missing or invalid. */
@@ -18,4 +18,14 @@ export function readDotDataJson<T>(baseName: string): T | null {
   } catch {
     return null;
   }
+}
+
+/** Write `.data/{baseName}.json` atomically (temp → rename). */
+export function writeDotDataJson<T>(baseName: string, data: T): void {
+  const dir = join(process.cwd(), ".data");
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  const p = join(dir, `${baseName}.json`);
+  const tmp = p + ".tmp";
+  writeFileSync(tmp, JSON.stringify(data, null, 2), "utf-8");
+  renameSync(tmp, p);
 }

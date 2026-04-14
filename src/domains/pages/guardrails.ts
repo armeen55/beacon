@@ -185,6 +185,50 @@ export function classifyGuardrails(
     });
   }
 
+  // ── Technical SEO issues (from structural_warnings) ──
+
+  if (snapshot.faq_schema_block_count && snapshot.faq_schema_block_count > 1) {
+    alerts.push({
+      ...base,
+      severity: "warning",
+      category: "duplicate_faq_schema",
+      message: `${snapshot.faq_schema_block_count} duplicate FAQPage JSON-LD blocks`,
+      detail: "Multiple FAQPage structured data blocks detected. Search engines may ignore or penalize duplicate schema. Consolidate into a single FAQPage block.",
+    });
+  }
+
+  for (const w of snapshot.structural_warnings ?? []) {
+    if (w.startsWith("multiple_h1:")) {
+      alerts.push({
+        ...base,
+        severity: "warning",
+        category: "multiple_h1",
+        message: w.replace("multiple_h1: ", ""),
+        detail: "Pages should have exactly one <h1> tag. Multiple H1s can confuse search engines about the page's primary topic.",
+      });
+    }
+    if (w.startsWith("faq_without_schema:")) {
+      alerts.push({
+        ...base,
+        severity: "info",
+        category: "faq_without_schema",
+        message: "FAQ content in HTML but no FAQPage JSON-LD",
+        detail: "The page has visible FAQ sections but no corresponding FAQPage structured data. Adding FAQPage JSON-LD could improve rich result eligibility.",
+      });
+    }
+  }
+
+  // Missing title on any cited page
+  if ((citationCount ?? 0) > 0 && !snapshot.title) {
+    alerts.push({
+      ...base,
+      severity: "warning",
+      category: "missing_title",
+      message: "No <title> tag detected",
+      detail: "Page has citations but no title tag. This hurts search appearance and AI citation attribution.",
+    });
+  }
+
   return alerts;
 }
 

@@ -94,6 +94,11 @@ import {
   pickTodayMilestoneTeaser,
 } from "@/domains/milestones";
 import { answerIntelligenceIndex } from "@/domains/answer-intelligence/store";
+import { buildMorningBrief, type MorningBriefData } from "@/domains/product/morning-brief";
+import { computeMemoryInsights } from "@/domains/attribution/memory";
+import { dailyMetricSnapshots } from "@/storage/canonical-store";
+import { getCompetitorMonitoringState } from "@/domains/competitor-monitoring/store";
+import { generateCompetitorAlerts } from "@/domains/competitor-monitoring/detect-changes";
 
 
 import type { ComponentProps } from "react";
@@ -187,6 +192,33 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
     }
   }
 
+  // ── Week-over-week deltas ──
+  let weekOverWeekCitations: number | null = null;
+  let weekOverWeekMentions: number | null = null;
+  if (latestDate) {
+    const latestMs = new Date(latestDate).getTime();
+    const thisWeek = results.filter((r) => {
+      const d = new Date(r.snapshot_date).getTime();
+      return d > latestMs - 7 * 86_400_000;
+    });
+    const lastWeek = results.filter((r) => {
+      const d = new Date(r.snapshot_date).getTime();
+      return d > latestMs - 14 * 86_400_000 && d <= latestMs - 7 * 86_400_000;
+    });
+    if (lastWeek.length > 0) {
+      const twCit = thisWeek.reduce((s, r) => s + r.citation_count, 0);
+      const lwCit = lastWeek.reduce((s, r) => s + r.citation_count, 0);
+      if (lwCit > 0) {
+        weekOverWeekCitations = Math.round(((twCit - lwCit) / lwCit) * 100);
+      }
+      const twMen = thisWeek.reduce((s, r) => s + r.mention_count, 0);
+      const lwMen = lastWeek.reduce((s, r) => s + r.mention_count, 0);
+      if (lwMen > 0) {
+        weekOverWeekMentions = Math.round(((twMen - lwMen) / lwMen) * 100);
+      }
+    }
+  }
+
   const visibilitySummary = {
     totalCitations,
     totalMentions,
@@ -195,6 +227,8 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
     latestImportDate: latestDate,
     trendPct,
     resultCount: results.length,
+    weekOverWeekCitations,
+    weekOverWeekMentions,
   };
 
   const actionableImpact = impactRows
@@ -469,6 +503,7 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
     allPages,
     decayResults,
     answerIntelligence: answerIntelligenceIndex,
+    changelogEntries,
   });
 
   // Filter out dismissed / deferred-but-not-due recommendations
@@ -537,6 +572,29 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
     patterns,
     briefPatternCounts,
     patternTrackRecords: trackRecord.patternRecords,
+  });
+
+  // ── Morning brief (Phase 1D) + Attribution Memory (Phase 3) ──
+  // Use visibilitySummary.totalCitations (from results array) to match scoreboard
+  const memoryInsights = computeMemoryInsights({
+    changes: changelogEntries,
+    snapshots: dailyMetricSnapshots,
+  });
+  // ── Competitor monitoring alerts (Phase 5) ──
+  const competitorMonState = getCompetitorMonitoringState();
+  const competitorAlerts = generateCompetitorAlerts(competitorMonState.recentChanges);
+
+  const morningBrief: MorningBriefData = buildMorningBrief({
+    primaryAction,
+    secondaryActions,
+    answerIntelligence: answerIntelligenceIndex,
+    citationIndex: citationEvidenceIndex,
+    trendPct: visibilitySummary.trendPct,
+    totalOwnedCitations: visibilitySummary.totalCitations,
+    latestDataDate: visibilitySummary.dateRange?.to ?? null,
+    memoryInsights,
+    competitorAlerts,
+    competitorSnapshots: competitorMonState.snapshots,
   });
 
   function recHref(r: { type: string; targetPageUrl: string | null; sourceChangeId: string | null }): string {
@@ -687,6 +745,8 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
     mentionRate: answerIntelProof?.overallMentionRate ?? null,
     decliningTopicCount: answerIntelProof?.decliningTopics.length ?? 0,
     risingTopicCount: answerIntelProof?.risingTopics.length ?? 0,
+    weekOverWeekCitations: visibilitySummary.weekOverWeekCitations,
+    weekOverWeekMentions: visibilitySummary.weekOverWeekMentions,
   };
 
   const proposedWaves = planWaves(
@@ -1005,6 +1065,7 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
     summary,
     primaryAction: serializedPrimary,
     secondaryAction: serializedSecondary,
+    morningBrief,
     scoreboard,
     pendingFindings: serializedPendingFindings,
     shouldTriggerScan: scanOverdue,
