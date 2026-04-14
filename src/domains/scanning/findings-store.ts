@@ -1,6 +1,7 @@
 import "server-only";
 
 import { readStore, writeStore } from "@/lib/persistence/json-store";
+import { syncScanFindings } from "@/lib/persistence/dual-write";
 import type { Finding, FindingStatus, PromotionStatus } from "./types";
 import { FINDING_PRIORITY_ORDER } from "./types";
 
@@ -94,6 +95,7 @@ export async function addFindings(newFindings: Finding[]): Promise<void> {
 
   pruneOldResolved(existing);
   await writeStore(STORE_NAME, existing);
+  await syncScanFindings(existing);
 }
 
 export async function updateFindingStatus(
@@ -129,6 +131,7 @@ export async function updateFindingStatus(
   }
 
   await writeStore(STORE_NAME, findings);
+  await syncScanFindings(findings);
   return finding;
 }
 

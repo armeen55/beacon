@@ -281,6 +281,44 @@ async function backfill() {
     console.log("  competitor_config: 0 entries — skip");
   }
 
+  // ── Phase 10 stores ──
+  console.log("\nPhase 10 stores:");
+
+  // tracked_prompts: snake_case, direct
+  total += await upsertRows("tracked_prompts", readJsonArray("tracked-prompts"), "id");
+
+  // tracked_entities: snake_case, direct
+  total += await upsertRows("tracked_entities", readJsonArray("tracked-entities"), "id");
+
+  // answer_texts: local format is { observation_id: text_body } map
+  const answerTextsRaw = readJsonFile<Record<string, string>>("answer-texts");
+  if (answerTextsRaw && typeof answerTextsRaw === "object" && !Array.isArray(answerTextsRaw)) {
+    const entries = Object.entries(answerTextsRaw);
+    console.log(`  answer_texts: ${entries.length} entries on disk — upserting...`);
+    const rows = entries.map(([observation_id, body]) => ({ observation_id, body }));
+    const BATCH = 500;
+    let answerInserted = 0;
+    for (let i = 0; i < rows.length; i += BATCH) {
+      const batch = rows.slice(i, i + BATCH);
+      const { error } = await sb
+        .from("answer_texts")
+        .upsert(batch, { onConflict: "observation_id" });
+      if (error) {
+        console.error(`  answer_texts: FAILED batch ${i}–${i + batch.length}: ${error.message}`);
+        process.exitCode = 1;
+        break;
+      }
+      answerInserted += batch.length;
+    }
+    const { count } = await sb
+      .from("answer_texts")
+      .select("*", { count: "exact", head: true });
+    console.log(`  answer_texts: ${answerInserted} upserted (${count} in DB)`);
+    total += answerInserted;
+  } else {
+    console.log("  answer_texts: missing or invalid — skip");
+  }
+
   console.log(`\nDone. ${total} total rows processed.`);
 }
 

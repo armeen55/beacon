@@ -14,7 +14,7 @@ import { ScorecardTable, type ChangeIntelEntry } from "./scorecard-client";
 import { changeContracts } from "@/domains/changelog/change-contract";
 import { ChangeContractUI } from "./change-contract-client";
 import { createChangeContract, verifyChangeContract } from "./contract-actions";
-import { getPageSnapshots } from "@/domains/pages/snapshot-store";
+import { getRepository } from "@/lib/persistence/repositories";
 import { citationEvidenceIndex } from "@/domains/pages/citation-evidence-store";
 import {
   rolloutExecutions,
@@ -160,7 +160,8 @@ export default async function ChangeScorecardPage() {
       citMap.set(key, (citMap.get(key) ?? 0) + r.total_citations);
     }
   }
-  const pageSnapshots = getPageSnapshots();
+  const repo = getRepository();
+  const pageSnapshots = await repo.getPageSnapshots();
   const patterns = minePatterns(
     pageSnapshots,
     citMap,

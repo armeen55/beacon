@@ -8,7 +8,7 @@ import { changelogEntries, results, opportunities } from "@/lib/seed-data.server
 import { eventDecisions } from "@/domains/attribution/store";
 import { computeScorecard } from "@/domains/attribution/scorecard";
 import { enrichWithImpact, computeChangeImpact } from "@/domains/attribution/change-impact";
-import { getPageSnapshots } from "@/domains/pages/snapshot-store";
+import { getRepository } from "@/lib/persistence/repositories";
 import { citationEvidenceIndex } from "@/domains/pages/citation-evidence-store";
 import { allPages } from "@/domains/pages/page-store";
 import {
@@ -147,7 +147,8 @@ export default async function ChangeDetailPage({
     }
   }
 
-  const pageSnapshots = getPageSnapshots();
+  const repo = getRepository();
+  const pageSnapshots = await repo.getPageSnapshots();
   const patterns = minePatterns(
     pageSnapshots,
     citMap,

@@ -57,6 +57,11 @@ import {
 } from "@/lib/seed-data.server";
 import { refreshCitationEvidenceStore } from "@/domains/pages/citation-evidence-store";
 import { refreshAnswerIntelligenceStore } from "@/domains/answer-intelligence/store";
+import {
+  syncCitationEvidenceIndex,
+  syncAnswerIntelligenceIndex,
+  syncPages,
+} from "@/lib/persistence/dual-write";
 import type { ChangelogEntry } from "@/domains/changelog/types";
 import type { CitationObservation } from "@/domains/citation-observations/types";
 import type { PromptAnswerObservation } from "@/domains/prompt-answer-observations/types";
@@ -299,6 +304,7 @@ export async function runProfoundImport(
     ownedDomain: siteDomain,
   });
   await writeStore("pages", pages);
+  await syncPages(pages);
 
   const citationIndex = buildCitationEvidenceIndex({
     citations: allCitationsForIndex,
@@ -308,6 +314,7 @@ export async function runProfoundImport(
   const ciTmp = ciPath + ".tmp";
   writeFileSync(ciTmp, JSON.stringify(citationIndex), "utf-8");
   renameSync(ciTmp, ciPath);
+  await syncCitationEvidenceIndex(citationIndex);
 
   // Build answer intelligence index — extracts brand positioning, visibility
   // time-series, co-citation analysis, and narrative shifts from observation +
@@ -323,6 +330,7 @@ export async function runProfoundImport(
   const aiTmp = aiPath + ".tmp";
   writeFileSync(aiTmp, JSON.stringify(answerIntelIndex), "utf-8");
   renameSync(aiTmp, aiPath);
+  await syncAnswerIntelligenceIndex(answerIntelIndex);
 
   // Refresh module-level caches so the UI reads fresh data without server restart
   refreshCitationEvidenceStore();

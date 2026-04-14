@@ -20,6 +20,7 @@ import {
   readdirSync,
 } from "node:fs";
 import { join } from "node:path";
+import { syncAnswerTexts } from "./dual-write";
 
 const DATA_DIR = join(process.cwd(), ".data");
 
@@ -53,6 +54,8 @@ export function writeAnswerTexts(texts: Record<string, string>): void {
   writeFileSync(tmp, JSON.stringify(texts), "utf-8");
   renameSync(tmp, path);
   _answerTextsCache = null;
+  // Best-effort dual-write — fire and forget
+  syncAnswerTexts(texts).catch(() => {});
 }
 
 /** Full map from disk (for merge imports). Does not populate the read-through cache. */

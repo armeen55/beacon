@@ -13,6 +13,11 @@ import type { PageSnapshot } from "@/domains/pages/types";
 
 import { generateFindings } from "./detect-findings";
 import { addFindings, getPreviouslyRejectedTypeKeys } from "./findings-store";
+import {
+  syncPageSnapshots,
+  syncGuardrailAlerts,
+  syncObservationRuns,
+} from "@/lib/persistence/dual-write";
 import type { LastScanResultPayload } from "./last-scan-result";
 import { readLastScanResult, writeLastScanResultFile } from "./last-scan-result";
 import type { ScanTrigger } from "./scan-state";
@@ -94,9 +99,9 @@ export async function regenerateScanFindings(opts: {
     previouslyRejectedTypes,
   });
 
-  if (newFindings.length > 0) {
-    await addFindings(newFindings);
-  }
+  // Always call addFindings — even with empty array — so the full findings
+  // store is written and synced to Supabase (prune + dual-write on every scan).
+  await addFindings(newFindings);
   return newFindings.length;
 }
 
@@ -258,6 +263,28 @@ export async function runWebsiteScan(opts: {
       scanRunId,
     });
     log.info("Scan step", { runId, step: "regenerate_findings_done", findingsAdded });
+
+    // Dual-write scan outputs to Supabase (best-effort, errors logged)
+    const syncSnaps =
+      readDotDataJson<PageSnapshot[]>("page-snapshots") ?? [];
+    const syncGuards =
+      readDotDataJson<GuardrailAlert[]>("page-guardrails") ?? [];
+    await syncPageSnapshots(syncSnaps);
+    await syncGuardrailAlerts(syncGuards);
+    const syncRuns =
+      readDotDataJson<import("@/domains/observations/types").ObservationRun[]>(
+        "observation-runs",
+      ) ?? [];
+    if (syncRuns.length > 0) {
+      await syncObservationRuns(syncRuns);
+    }
+    log.info("Scan step", {
+      runId,
+      step: "dual_write_scan_outputs",
+      snapshots: syncSnaps.length,
+      guardrails: syncGuards.length,
+      observationRuns: syncRuns.length,
+    });
   }
 
   writeLastScanResultFile(merged);

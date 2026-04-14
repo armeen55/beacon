@@ -42,6 +42,7 @@ import type { GuardrailAlert } from "@/domains/pages/guardrails";
 import type { ObservationRun } from "@/domains/observations/types";
 import { readObservationRunsMergedSync } from "@/domains/observations/observation-runs-merge";
 import type { ConfiguredCompetitorEntry } from "@/domains/competitors/universe-types";
+import { getFindings, getPendingFindings } from "@/domains/scanning/findings-store";
 
 /**
  * `DATA_SOURCE=file` implementation of `SeedDataRepository`.
@@ -130,4 +131,8 @@ export const fileBackend: SeedDataRepository = {
   getBriefStates: async () =>
     readStore<PersistedBriefState>("brief-states", []),
   getTruthLabels: async () => readStore<TruthLabel>("truth-labels"),
+
+  // Phase 7 — scan findings via repository
+  getScanFindings: async () => getFindings(),
+  getPendingScanFindings: async () => getPendingFindings(),
 };

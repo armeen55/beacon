@@ -5,9 +5,10 @@
 >
 > **NOT FOR:** Execution steps (→ `NEXT_PHASE_EXECUTION_PLAN.md`), system diagrams (→ `architecture.md`), deep history (→ `master_execution_plan.md`), verification proof (→ `VERIFICATION_LOG.md`).
 
-**Last updated:** 2026-04-13
+**Last updated:** 2026-04-14
 **Branch:** `main`
-**Build:** `npm run typecheck` ✓ · `npm run test` 460/460 ✓
+**Build:** `npm run typecheck` ✓ · `npm run test` 507/507 ✓
+**Phase 10: Portability & Recovery (2026-04-14):** Beacon can now fully reconstruct itself from Supabase alone. Created `scripts/bootstrap-from-supabase.ts` — reads all 23 Supabase tables, writes 49 `.data/*.json` files. Added 3 new tables (`tracked_prompts`, `tracked_entities`, `answer_texts`) with dual-write. Added 5 database indexes for query performance. Verified: deleted `.data/`, bootstrapped, all routes render correctly, scan runs successfully with findings.
 **Scoreboard upgrade (2026-04-13):** KPI cards rewritten to business language ("Times AI recommended you", "How often AI mentions you", "Your pages AI sends people to"). Added week-over-week deltas: citations and mention rate now show `+N%` / `-N%` vs last week with green/red coloring. Topic trends relabeled: "rising" → "growing", "declining" → "slipping". Meta lines show "vs last week" context when delta data exists. Data pipeline computes this-week vs last-week buckets from results time series in `today-data.ts`.
 **Phase 5: Competitor Monitoring (2026-04-13):** Sitemap-based competitor monitoring — crawls XML sitemaps for 5 configured competitors, diffs page lists to detect new/removed/updated pages, generates contextual alerts (topic inference from URL paths for builder site patterns). Wired into morning brief: alerts appear as "Competitor activity" section between change impact and action cards. CLI script `scripts/crawl-competitor-sitemaps.ts` with `--dry-run` flag. Initial baseline crawl completed: Flegel's (4,746 pages), PAB (6 pages), SV Custom Homes (0 entries), 2 competitors unreachable. Domain: `src/domains/competitor-monitoring/` (types, sitemap-crawler, detect-changes, store). Also added `writeDotDataJson` to persistence layer for non-array object storage. 30 new tests (sitemap parsing, change detection, alert generation, store).
 **Phase 3: Attribution Memory (2026-04-13):** Today page now shows **Change Impact** section above action cards — up to 2 memory insights with mini sparklines showing before/after trends. Computed from 85 changelog entries × 22K daily metric snapshots; 11 insights generated from real data, top 2 shown. Example: "20 days ago you updated Luxury Home Builder Bay Area — mentions up 16%" with green trend line + vertical change-date marker. Engine: `src/domains/attribution/memory.ts` — per-topic before/after window comparison with minimum data gates (3 days before, 5 days after, 3+ observations per window). Direction: improving (≥15%), declining (≤-15%), stable. Platform breakdown shows which AI platforms moved. Also fixed: `investigate` rec type relative URL bug — changelog entries with relative paths now normalized via `absoluteUrlForPath`.
@@ -42,7 +43,7 @@ Beacon is a **daily AI visibility operating system** for local businesses. One o
 - What should I do next?
 - Where is competition beating me?
 
-**Stack:** Next.js 16 (App Router), React 19, TypeScript strict, `.data/*.json` file persistence (optional Supabase dual-write). Single-user, premium, self-hosted.
+**Stack:** Next.js 16 (App Router), React 19, TypeScript strict, `.data/*.json` file persistence + Supabase dual-write (23 tables). Bootstrap from cloud: `npx tsx scripts/bootstrap-from-supabase.ts`. Single-user, premium, self-hosted.
 
 **Not:** a generic SEO dashboard, a crawler, a CRM, an agency platform, a science project.
 

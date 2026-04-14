@@ -2,6 +2,7 @@ import "server-only";
 
 import { readFileSync, existsSync, writeFileSync, mkdirSync } from "fs";
 import path from "path";
+import { syncBusinessConfig } from "@/lib/persistence/dual-write";
 
 export interface BusinessConfig {
   name: string;
@@ -116,6 +117,8 @@ export function saveBusinessConfig(patch: Partial<BusinessConfig>): BusinessConf
   if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true });
   writeFileSync(CONFIG_PATH, JSON.stringify(updated, null, 2));
   _cached = updated;
+  // Fire-and-forget: saveBusinessConfig is synchronous, dual-write is async best-effort
+  syncBusinessConfig(updated).catch(() => {});
   return updated;
 }
 

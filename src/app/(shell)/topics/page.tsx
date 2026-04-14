@@ -16,7 +16,7 @@ import { triageCandidates } from "@/domains/attribution/triage";
 import { partitionResultsByMode } from "@/domains/attribution/result-mode";
 import { TopicsClient, type TopicRow, type TopicEvent, type TopicChange } from "./topics-client";
 import type { CitationEvidenceIndex, PageSnapshot } from "@/domains/pages/types";
-import { getPageSnapshots } from "@/domains/pages/snapshot-store";
+import { getRepository } from "@/lib/persistence/repositories";
 import { citationEvidenceIndex } from "@/domains/pages/citation-evidence-store";
 import { minePatterns, generateBriefs } from "@/domains/pages/playbook";
 import { rolloutExecutions, patternEvidence } from "@/domains/pages/issues";
@@ -52,7 +52,9 @@ type NextMove =
   | "push_supporting"
   | "too_early";
 
-export default function TopicsPage() {
+export default async function TopicsPage() {
+  const repo = getRepository();
+  const topicSnapshots = await repo.getPageSnapshots();
   const { attribution: attrResults } = partitionResultsByMode(results);
   const events = detectOutcomeEvents(attrResults);
   const rows = computeScorecard(
@@ -391,7 +393,7 @@ export default function TopicsPage() {
         gapLedgerContext={gapLedgerContext}
         frontiers={(() => {
         const ci = citationEvidenceIndex;
-        const snaps = getPageSnapshots();
+        const snaps = topicSnapshots;
         if (!ci) return [];
         const citMap = new Map<string, number>();
         for (const r of ci.by_page_and_topic) {

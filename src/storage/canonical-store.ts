@@ -18,6 +18,12 @@
 import "server-only";
 
 import { readStore, writeStore } from "@/lib/persistence/json-store";
+import {
+  syncDailyMetricSnapshots,
+  syncPromptAnswerObservations,
+  syncTrackedPrompts,
+  syncTrackedEntities,
+} from "@/lib/persistence/dual-write";
 import type { TrackedPrompt } from "@/domains/tracked-prompts/types";
 import type { TrackedEntity } from "@/domains/tracked-entities/types";
 import type { ProfoundImportRun } from "@/domains/observation-runs/types";
@@ -48,10 +54,12 @@ export const eventDecisions: EventDecision[] = readStore<EventDecision>("event-d
 
 export async function persistTrackedPrompts(): Promise<void> {
   await writeStore("tracked-prompts", trackedPrompts);
+  await syncTrackedPrompts(trackedPrompts);
 }
 
 export async function persistTrackedEntities(): Promise<void> {
   await writeStore("tracked-entities", trackedEntities);
+  await syncTrackedEntities(trackedEntities);
 }
 
 export async function persistObservationRuns(): Promise<void> {
@@ -60,10 +68,12 @@ export async function persistObservationRuns(): Promise<void> {
 
 export async function persistObservations(): Promise<void> {
   await writeStore("prompt-answer-observations", promptAnswerObservations);
+  await syncPromptAnswerObservations(promptAnswerObservations);
 }
 
 export async function persistSnapshots(): Promise<void> {
   await writeStore("daily-metric-snapshots", dailyMetricSnapshots);
+  await syncDailyMetricSnapshots(dailyMetricSnapshots);
 }
 
 export async function persistOutcomeEvents(): Promise<void> {

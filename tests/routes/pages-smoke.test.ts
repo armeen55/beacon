@@ -22,7 +22,7 @@ vi.mock("@/app/(shell)/pages/pages-client", () => {
 describe("Pages route smoke", () => {
   it("PagesPage RSC loads data and renders the shell wrapper plus Pages client slot", async () => {
     const { default: PagesPage } = await import("@/app/(shell)/pages/page");
-    const tree = PagesPage();
+    const tree = await PagesPage();
     const html = renderToStaticMarkup(tree as ReactElement);
 
     // Stable class from `src/app/(shell)/pages/page.tsx` (demo + full paths).

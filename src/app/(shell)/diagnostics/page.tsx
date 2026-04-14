@@ -53,7 +53,7 @@ import {
   CANDIDATE_TYPE_COLORS,
   CANDIDATE_CONFIDENCE_COLORS,
 } from "@/domains/opportunity-candidates/types";
-import { getPageSnapshots } from "@/domains/pages/snapshot-store";
+import { getRepository } from "@/lib/persistence/repositories";
 import { allPages } from "@/domains/pages/page-store";
 import { citationEvidenceIndex } from "@/domains/pages/citation-evidence-store";
 import { extractEntities, summarizeEntities } from "@/domains/entity/entity-extract";
@@ -177,7 +177,10 @@ function Bar({ value, max, color }: { value: number; max: number; color: string 
   );
 }
 
-export default function DiagnosticsPage() {
+const repo = getRepository();
+const pageSnapshots = await repo.getPageSnapshots();
+
+export default async function DiagnosticsPage() {
   const diag = computeDiagnostics(results, changelogEntries, opportunities, briefs, competitors);
   const cdiag = computeCandidateDiagnostics(results, changelogEntries, opportunities);
   const modelReport = computeModelReport(results, changelogEntries, opportunities, cdiag);
@@ -1186,7 +1189,7 @@ export default function DiagnosticsPage() {
 }
 
 function EntityRepresentationSection() {
-  const entityIndex = extractEntities(getPageSnapshots());
+  const entityIndex = extractEntities(pageSnapshots);
   const entitySummary = summarizeEntities(entityIndex);
   const discrepancyReport = detectDiscrepancies(entityIndex);
 
@@ -1336,7 +1339,7 @@ function BeaconScoreSection() {
   const decayResults = computeCitationDecay(siteDomain);
   const decaySummary = summarizeDecay(decayResults);
 
-  const entityIndex = extractEntities(getPageSnapshots());
+  const entityIndex = extractEntities(pageSnapshots);
   const discReport = detectDiscrepancies(entityIndex);
 
   const totalOwnedCit = citIndex?.by_page_and_topic
@@ -1427,7 +1430,7 @@ function ExtractabilitySection() {
     }
   }
 
-  const results = analyzeAllExtractability(getPageSnapshots(), citMap);
+  const results = analyzeAllExtractability(pageSnapshots, citMap);
   const summary = summarizeExtractability(results);
 
   if (results.length === 0) {
@@ -1668,14 +1671,14 @@ function SnippetIntelSection() {
     }
   }
 
-  const extractResults = analyzeAllExtractability(getPageSnapshots(), citMap);
+  const extractResults = analyzeAllExtractability(pageSnapshots, citMap);
 
   const { siteDomain } = getSiteConfig();
   const snippetIntel = citIdx
     ? computeSnippetIntelligence({
         ownedExtractability: extractResults,
         citationIndex: citIdx,
-        snapshots: getPageSnapshots(),
+        snapshots: pageSnapshots,
         ownedDomain: siteDomain,
       })
     : null;
@@ -1750,7 +1753,7 @@ function PulseBanner() {
   const { siteDomain } = getSiteConfig();
   const decayResults = computeCitationDecay(siteDomain);
   const decayAlerts = decayResults.filter((d) => d.status === "meaningful_decline" || d.status === "soft_decline");
-  const entityIdx = extractEntities(getPageSnapshots());
+  const entityIdx = extractEntities(pageSnapshots);
   const discReport = detectDiscrepancies(entityIdx);
   const geoCov = computeGeoCoverage(allPages, citationEvidenceIndex?.by_page_and_topic ?? [], getActivePrompts());
   const journeyCov = computeJourneyCoverage(promptLibrary);
@@ -1763,9 +1766,9 @@ function PulseBanner() {
       citMap2.set(key, (citMap2.get(key) ?? 0) + r.total_citations);
     }
   }
-  const extractResults2 = analyzeAllExtractability(getPageSnapshots(), citMap2);
+  const extractResults2 = analyzeAllExtractability(pageSnapshots, citMap2);
   const snippetIntel2 = citationEvidenceIndex
-    ? computeSnippetIntelligence({ ownedExtractability: extractResults2, citationIndex: citationEvidenceIndex, snapshots: getPageSnapshots(), ownedDomain: siteDomain })
+    ? computeSnippetIntelligence({ ownedExtractability: extractResults2, citationIndex: citationEvidenceIndex, snapshots: pageSnapshots, ownedDomain: siteDomain })
     : null;
 
   const latestSnap = answerSnapshots.length > 0
@@ -1832,7 +1835,7 @@ function AdvancedReadinessSection() {
     hasCitationData: (citationEvidenceIndex?.total_citations_processed ?? 0) > 0,
     hasAnalyticsIntegration: false,
   });
-  const trainingData = assessTrainingDataReadiness(getPageSnapshots(), false, false);
+  const trainingData = assessTrainingDataReadiness(pageSnapshots, false, false);
 
   type ReadinessItem = {
     label: string;

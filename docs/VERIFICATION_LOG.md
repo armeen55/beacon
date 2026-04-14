@@ -7,6 +7,35 @@
 
 ---
 
+## 2026-04-14 — PHASE 10: Portability & Recovery
+
+**Goal:** Beacon fully reconstructs itself from Supabase alone — no `.data/` directory required.
+
+**Changes:**
+1. Created 3 Supabase tables: `tracked_prompts` (100 rows), `tracked_entities` (40 rows), `answer_texts` (11,396 rows)
+2. Added 5 database indexes: `page_snapshots(page_id, fetched_at DESC)`, `daily_metric_snapshots(scope_type, scope_id)`, `prompt_answer_observations(topic, platform)`, `scan_findings(status)`, `observation_runs(run_type, started_at DESC)`
+3. Added dual-write for `tracked_prompts`, `tracked_entities`, `answer_texts` — wired into `canonical-store.ts` and `cold-store.ts`
+4. Created `scripts/bootstrap-from-supabase.ts` — reads all 23 Supabase tables, reconstructs 49 `.data/*.json` files including camelCase mapping, page_snapshots dedup, singleton blob unwrapping, answer-texts map format, and empty defaults for supplementary stores
+5. Updated `scripts/backfill-to-supabase.ts` with Phase 10 stores
+
+**Verification:**
+- `npm run typecheck` ✓
+- `npm run test` 507/507 ✓
+- Deleted `.data/` directory entirely (simulated new machine)
+- Ran `npx tsx scripts/bootstrap-from-supabase.ts` → 49 files reconstructed
+- Row count comparison: all 9 critical tables match backup exactly (95 changelog, 33 findings, 5790 pages, 22393 daily metrics, 11396 observations, 100 prompts, 40 entities, 85 contracts, 6 issues)
+- Tests pass on bootstrapped data: 507/507 ✓
+- Today page renders: KPIs (3,729 citations, +123% growing), change impact (+11%, +16%), 3 action cards ✓
+- Pages route renders: 4 tracked pages, citations, health status, scan metadata ✓
+- Changes route renders: 95 changes, 34 with signal, 11 strong-evidence, full table ✓
+- Triggered scan from Today: 35 pages scanned, 30 findings generated, dual-write fired (snapshots, guardrails, observation runs) ✓
+- Findings appear with Review actions after scan ✓
+- Restored original `.data/`, final typecheck + tests pass ✓
+
+**Supabase table count:** 23 tables, ~53K total rows
+
+---
+
 ## 2026-04-14 — IMPORT STATE PROPAGATION: Fix 4 Module-Level Caches
 
 **Problem:** After Profound CSV import, UI still showed old visibility data (old totals, old "Data is X days old", old recommendation basis). The import wrote correct data to disk but the in-memory module-level caches were never refreshed.

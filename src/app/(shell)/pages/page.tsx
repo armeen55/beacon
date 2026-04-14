@@ -23,8 +23,7 @@ import type {
   SitemapReconciliation,
 } from "@/domains/pages/types";
 import { allPages } from "@/domains/pages/page-store";
-import { getPageSnapshots } from "@/domains/pages/snapshot-store";
-import { getGuardrailAlerts } from "@/domains/pages/guardrail-store";
+import { getRepository } from "@/lib/persistence/repositories";
 import { citationEvidenceIndex } from "@/domains/pages/citation-evidence-store";
 import { getPageSnapshotDiffs } from "@/domains/pages/page-snapshot-diff-store";
 import { getRenderCheckResults } from "@/domains/pages/render-check-store";
@@ -52,7 +51,6 @@ import { getSiteConfig } from "@/lib/site-config";
 import { pagesProofSubtitle } from "@/lib/beacon-proof-copy";
 import { latestWebsiteCrawlRun } from "@/domains/observations/read";
 import type { GuardrailAlert } from "@/domains/pages/guardrails";
-import { getPendingFindings } from "@/domains/scanning/findings-store";
 
 function guardrailIssueBasis(
   alert: GuardrailAlert,
@@ -87,7 +85,7 @@ type PageNextMove =
   | "wait"
   | "no_action";
 
-export default function PagesPage() {
+export default async function PagesPage() {
   // Same signal as Today / shell demo mode (Phase 2A): no import runs ⇒ sample workspace, not operator Pages.
   const isDemoMode = !hasActiveExperiment();
   if (isDemoMode) {
@@ -133,9 +131,10 @@ export default function PagesPage() {
 
   const citationIndex = citationEvidenceIndex;
 
-  // ── Load page snapshots + diffs (fresh disk read each request) ──
-  const pageSnapshots = getPageSnapshots();
-  const guardrailAlerts = getGuardrailAlerts();
+  // ── Load page snapshots + diffs ──
+  const repo = getRepository();
+  const pageSnapshots = await repo.getPageSnapshots();
+  const guardrailAlerts = await repo.getGuardrailAlerts();
   const pageDiffs = getPageSnapshotDiffs();
 
   const snapshotByPageId = new Map<string, PageSnapshot>();
@@ -151,7 +150,7 @@ export default function PagesPage() {
     diffByUrl.set(d.url.replace(/\/+$/, "").toLowerCase(), d);
   }
 
-  const allPendingFindings = getPendingFindings();
+  const allPendingFindings = await repo.getPendingScanFindings();
   const findingCountByUrl = new Map<string, number>();
   for (const f of allPendingFindings) {
     const key = f.url.replace(/\/+$/, "").toLowerCase();

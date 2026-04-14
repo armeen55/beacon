@@ -48,6 +48,7 @@ import type { VisibilityObservationRun } from "@/domains/observations/visibility
 import type { GuardrailAlert } from "@/domains/pages/guardrails";
 import type { ObservationRun } from "@/domains/observations/types";
 import type { ConfiguredCompetitorEntry } from "@/domains/competitors/universe-types";
+import type { Finding } from "@/domains/scanning/types";
 import { mapRowToEntity } from "./key-mapper";
 
 async function query<T>(table: string): Promise<T[]> {
@@ -86,7 +87,29 @@ export const supabaseBackend: SeedDataRepository = {
 
   // Phase 1E
   getPages: () => query<PageEntity>("pages"),
-  getPageSnapshots: () => query<PageSnapshot>("page_snapshots"),
+  getPageSnapshots: async () => {
+    // Supabase accumulates snapshot history (35 rows per scan).
+    // Routes expect only the latest snapshot per page.
+    // Order by fetched_at DESC and deduplicate by page_id in application code
+    // (PostgREST does not support DISTINCT ON).
+    const { data, error } = await getSupabaseAdmin()
+      .from("page_snapshots")
+      .select("*")
+      .order("fetched_at", { ascending: false });
+    if (error)
+      throw new Error(
+        `Supabase query failed on page_snapshots: ${error.message}`,
+      );
+    const seen = new Set<string>();
+    const latest: PageSnapshot[] = [];
+    for (const row of (data ?? []) as PageSnapshot[]) {
+      if (!seen.has(row.page_id)) {
+        seen.add(row.page_id);
+        latest.push(row);
+      }
+    }
+    return latest;
+  },
   getGuardrailAlerts: () => query<GuardrailAlert>("guardrail_alerts"),
 
   getCitationEvidenceIndex: async () => {
@@ -156,4 +179,32 @@ export const supabaseBackend: SeedDataRepository = {
   getBriefStates: async () =>
     readStore<PersistedBriefState>("brief-states", []),
   getTruthLabels: async () => readStore<TruthLabel>("truth-labels"),
+
+  // Phase 7 — scan findings via repository
+  getScanFindings: async () => {
+    const { data, error } = await getSupabaseAdmin()
+      .from("scan_findings")
+      .select("*");
+    if (error)
+      throw new Error(
+        `Supabase query failed on scan_findings: ${error.message}`,
+      );
+    return (data ?? []).map((row) =>
+      mapRowToEntity<Finding>(row as Record<string, unknown>),
+    );
+  },
+  getPendingScanFindings: async () => {
+    const { data, error } = await getSupabaseAdmin()
+      .from("scan_findings")
+      .select("*")
+      .eq("status", "pending")
+      .order("priority_score", { ascending: false });
+    if (error)
+      throw new Error(
+        `Supabase query failed on scan_findings: ${error.message}`,
+      );
+    return (data ?? []).map((row) =>
+      mapRowToEntity<Finding>(row as Record<string, unknown>),
+    );
+  },
 };

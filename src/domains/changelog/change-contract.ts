@@ -7,6 +7,7 @@
  */
 
 import { writeStore } from "@/lib/persistence/json-store";
+import { syncChangeContracts } from "@/lib/persistence/dual-write";
 import { getRepository } from "@/lib/persistence/repositories";
 
 // ── Change Type Taxonomy ──
@@ -299,6 +300,7 @@ export const changeContracts: ChangeContract[] = await repo.getChangeContracts()
 
 export async function persistChangeContracts(): Promise<void> {
   await writeStore("change-contracts", changeContracts);
+  await syncChangeContracts(changeContracts);
 }
 
 // ── Auto-parsing helpers ──

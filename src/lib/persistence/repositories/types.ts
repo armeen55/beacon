@@ -8,6 +8,7 @@ import type {
   CandidateLink,
   TruthLabel,
 } from "@/domains/attribution/types";
+import type { Finding } from "@/domains/scanning/types";
 import type { PersistedActionState } from "@/domains/actions/types";
 import type { PersistedBriefState } from "@/domains/brief-generation/types";
 import type {
@@ -71,6 +72,10 @@ export interface SeedDataRepository {
   getPageSnapshots(): Promise<PageSnapshot[]>;
   getGuardrailAlerts(): Promise<GuardrailAlert[]>;
   getCitationEvidenceIndex(): Promise<CitationEvidenceIndex | null>;
+
+  // Phase 7 — scan findings via repository
+  getScanFindings(): Promise<Finding[]>;
+  getPendingScanFindings(): Promise<Finding[]>;
   getAnswerIntelligenceIndex(): Promise<AnswerIntelligenceIndex | null>;
   getObservationRuns(): Promise<ObservationRun[]>;
   getCompetitorConfigEntries(): Promise<ConfiguredCompetitorEntry[]>;

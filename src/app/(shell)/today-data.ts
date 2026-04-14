@@ -18,8 +18,7 @@ import { discoverCandidates } from "@/domains/attribution/candidates";
 import { triageCandidates } from "@/domains/attribution/triage";
 import { partitionResultsByMode } from "@/domains/attribution/result-mode";
 import { allPages } from "@/domains/pages/page-store";
-import { getPageSnapshots } from "@/domains/pages/snapshot-store";
-import { getGuardrailAlerts } from "@/domains/pages/guardrail-store";
+import { getRepository } from "@/lib/persistence/repositories";
 import { citationEvidenceIndex } from "@/domains/pages/citation-evidence-store";
 import {
   pageIssues,
@@ -68,11 +67,7 @@ import { buildTodayCompetitorLine } from "@/domains/competitors/today-competitor
 import { PLATFORM_LABELS, type Platform } from "@/lib/constants";
 import { getScanSettings, isScanOverdue } from "@/domains/scanning/scan-settings";
 import { readScanState } from "@/domains/scanning/scan-state";
-import {
-  getPendingFindings,
-  getResolvedFindingsCount,
-  getAcceptedFindings,
-} from "@/domains/scanning/findings-store";
+import { FINDING_PRIORITY_ORDER } from "@/domains/scanning/types";
 // buildCompetitorRank / classifyCompetitorType moved to post-import milestone sync (Phase 1C-3)
 import { getBusinessConfig } from "@/lib/business-config";
 import { getLocalPresenceSnapshot, buildTodayLocalAttention } from "@/lib/local-presence";
@@ -119,11 +114,23 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
   const lastCrawlRun = latestWebsiteCrawlRun();
   const scanOverdue = isScanOverdue(lastCrawlRun?.completed_at ?? null, scanSettings);
 
-  const pageSnapshots = getPageSnapshots();
-  const guardrailAlerts = getGuardrailAlerts();
+  const repo = getRepository();
+  const pageSnapshots = await repo.getPageSnapshots();
+  const guardrailAlerts = await repo.getGuardrailAlerts();
 
-  const pendingFindings = getPendingFindings();
-  const resolvedFindingsCount = getResolvedFindingsCount();
+  const allScanFindings = await repo.getScanFindings();
+  const pendingFindings = allScanFindings
+    .filter((f) => f.status === "pending")
+    .sort((a, b) => {
+      const po =
+        (FINDING_PRIORITY_ORDER[a.priority] ?? 3) -
+        (FINDING_PRIORITY_ORDER[b.priority] ?? 3);
+      if (po !== 0) return po;
+      return b.priorityScore - a.priorityScore;
+    });
+  const resolvedFindingsCount = allScanFindings.filter(
+    (f) => f.status !== "pending",
+  ).length;
 
   const { attribution: attrResults } = partitionResultsByMode(results);
   const events = detectOutcomeEvents(attrResults);
@@ -1033,8 +1040,8 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
   const serializedPendingFindings = pendingFindings.map((f) =>
     serializeFindingForToday(f, observationRunIds),
   );
-  const acceptedAwaitingPromotionCount = getAcceptedFindings().filter(
-    (f) => f.promotionStatus === "none",
+  const acceptedAwaitingPromotionCount = allScanFindings.filter(
+    (f) => f.status === "accepted" && f.promotionStatus === "none",
   ).length;
 
   // Milestone sync moved to post-import (Phase 1C-3) — Today render reads only.

@@ -6,6 +6,7 @@
  */
 
 import { writeStore } from "@/lib/persistence/json-store";
+import { syncPageIssues } from "@/lib/persistence/dual-write";
 import { getRepository } from "@/lib/persistence/repositories";
 
 export type IssueStatus =
@@ -121,4 +122,5 @@ export async function persistPatternEvidence(): Promise<void> {
 
 export async function persistPageIssues(): Promise<void> {
   await writeStore("page-issues", pageIssues);
+  await syncPageIssues(pageIssues);
 }
