@@ -144,7 +144,7 @@ describe("Duplicate FAQ consolidation – full detection flow", () => {
     expect(faqFinding!.status).toBe("pending");
   });
 
-  it("findings: generates guardrail_cleared for duplicate_faq_schema", () => {
+  it("findings: generates guardrail_cleared for duplicate_faq_schema (auto-accepted)", () => {
     const before = extractPageSnapshot(HTML_BEFORE, PAGE_URL, PAGE_ID);
     const after = extractPageSnapshot(HTML_AFTER, PAGE_URL, PAGE_ID);
     const prevGuardrails = classifyGuardrails(before, null, 50);
@@ -165,9 +165,12 @@ describe("Duplicate FAQ consolidation – full detection flow", () => {
     expect(clearedFinding).toBeDefined();
     expect(clearedFinding!.summary).toContain("Issue resolved");
     expect(clearedFinding!.summary).toContain("duplicate_faq_schema");
+    // Auto-accepted — not pending
+    expect(clearedFinding!.status).toBe("accepted");
+    expect(clearedFinding!.resolvedAt).toBeDefined();
   });
 
-  it("findings: both faq_changed and guardrail_cleared appear in pending findings", () => {
+  it("findings: faq_changed is pending, guardrail_cleared is auto-accepted", () => {
     const before = extractPageSnapshot(HTML_BEFORE, PAGE_URL, PAGE_ID);
     const after = extractPageSnapshot(HTML_AFTER, PAGE_URL, PAGE_ID);
     const prevGuardrails = classifyGuardrails(before, null, 50);
@@ -182,11 +185,14 @@ describe("Duplicate FAQ consolidation – full detection flow", () => {
       scanRunId: "test-run-1",
     });
 
-    const relevantFindings = findings.filter(
-      (f) => f.type === "faq_changed" || (f.type === "guardrail_cleared" && f.summary.includes("duplicate_faq_schema"))
+    const faqFinding = findings.find((f) => f.type === "faq_changed");
+    const clearedFinding = findings.find(
+      (f) => f.type === "guardrail_cleared" && f.summary.includes("duplicate_faq_schema")
     );
-    expect(relevantFindings).toHaveLength(2);
-    expect(relevantFindings.every((f) => f.status === "pending")).toBe(true);
+    expect(faqFinding).toBeDefined();
+    expect(clearedFinding).toBeDefined();
+    expect(faqFinding!.status).toBe("pending");
+    expect(clearedFinding!.status).toBe("accepted");
   });
 
   it("findings: no false positives — title/h1/content/schema_changed do NOT fire", () => {

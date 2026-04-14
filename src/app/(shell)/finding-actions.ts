@@ -10,6 +10,7 @@ import { generateId, now } from "@/lib/actions";
 import { writeStore } from "@/lib/persistence/json-store";
 import type { ChangelogEntry } from "@/domains/changelog/types";
 import type { SignalType, AssetType } from "@/lib/constants";
+import { syncChangelogEntries } from "@/lib/persistence/dual-write";
 
 export async function resolveFinding(
   findingId: string,
@@ -175,9 +176,10 @@ export async function confirmFindingAsChange(
     source_system: "scan_detection",
   };
 
-  // 3. Persist: add to in-memory array + write to disk
+  // 3. Persist: add to in-memory array + write to disk + Supabase
   changelogEntries.push(entry);
   await writeStore("imported-changes", changelogEntries);
+  await syncChangelogEntries([entry]);
 
   // 4. Link the finding to the new changelog entry
   await updateFindingStatus(findingId, "accepted", {

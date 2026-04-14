@@ -216,7 +216,7 @@ export function generateFindings(opts: {
     }
   }
 
-  // Cleared guardrails
+  // Cleared guardrails — auto-accepted (informational, no user action needed)
   const currGuardKeys = new Set(
     currentGuardrails.map((g) => `${g.category}::${norm(g.url)}`),
   );
@@ -224,7 +224,7 @@ export function generateFindings(opts: {
     const key = `${g.category}::${norm(g.url)}`;
     if (!currGuardKeys.has(key)) {
       const citations = citationsByUrl?.get(norm(g.url)) ?? 0;
-      findings.push(makeFinding({
+      const finding = makeFinding({
         type: "guardrail_cleared",
         url: g.url,
         scanRunId,
@@ -235,7 +235,12 @@ export function generateFindings(opts: {
         summary: `Issue resolved on ${pathOf(g.url)}: ${g.category}`,
         suggestedAction: "No action needed — previously detected issue is now resolved",
         citationCount: citations,
-      }));
+      });
+      // Auto-resolve: guardrail clearings are informational records, not user-confirmable
+      finding.status = "accepted";
+      finding.resolvedAt = now;
+      finding.resolutionNote = "Auto-resolved: issue no longer detected";
+      findings.push(finding);
     }
   }
 
