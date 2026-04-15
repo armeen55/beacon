@@ -10,6 +10,7 @@
 
 import type { ChangelogEntry } from "@/domains/changelog/types";
 import type { DailyMetricSnapshot } from "@/domains/daily-metric-snapshots/types";
+import { GEO_CONTAINMENT } from "./config";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -157,6 +158,64 @@ export function computeMemoryInsights(opts: {
   }
 
   return deduped;
+}
+
+// ---------------------------------------------------------------------------
+// Per-change insights — no topic dedup (for learning system outcomes)
+// ---------------------------------------------------------------------------
+
+export function computeAllChangeInsights(opts: {
+  changes: ChangelogEntry[];
+  snapshots: DailyMetricSnapshot[];
+  now?: Date;
+}): MemoryInsight[] {
+  const now = opts.now ?? new Date();
+  const today = now.toISOString().slice(0, 10);
+  const insights: MemoryInsight[] = [];
+
+  const actionableChanges = opts.changes.filter(
+    (c) =>
+      c.topic_targeted &&
+      c.topic_targeted.length > 0 &&
+      isSiteChange(c),
+  );
+
+  const topicSnapshots = buildTopicSnapshotIndex(opts.snapshots);
+
+  for (const change of actionableChanges) {
+    const changeDate = change.timestamp.slice(0, 10);
+    const daysSince = daysBetween(changeDate, today);
+
+    if (daysSince < MIN_AFTER_DAYS) continue;
+
+    const topicKey = normalizeTopicKey(change.topic_targeted);
+    let matchingSnapshots = topicSnapshots.get(topicKey);
+
+    if (!matchingSnapshots || matchingSnapshots.length === 0) {
+      const fuzzyKey = findFuzzyTopicMatch(topicKey, topicSnapshots);
+      if (!fuzzyKey) continue;
+      matchingSnapshots = topicSnapshots.get(fuzzyKey);
+      if (!matchingSnapshots || matchingSnapshots.length === 0) continue;
+    }
+
+    const insight = computeInsightForChange(
+      change,
+      matchingSnapshots,
+      changeDate,
+      daysSince,
+    );
+    if (insight) insights.push(insight);
+  }
+
+  // Sort by impact magnitude but DO NOT deduplicate
+  insights.sort((a, b) => {
+    const dirOrder = { improving: 0, declining: 1, stable: 2 };
+    const dirDiff = dirOrder[a.direction] - dirOrder[b.direction];
+    if (dirDiff !== 0) return dirDiff;
+    return a.daysSince - b.daysSince;
+  });
+
+  return insights;
 }
 
 // ---------------------------------------------------------------------------
@@ -497,7 +556,16 @@ function findFuzzyTopicMatch(
   target: string,
   index: Map<string, DailyMetricSnapshot[]>,
 ): string | null {
-  // Try to find a topic that contains the target or vice versa
+  // 1. City-aware matching: if the target contains a known city,
+  //    prefer a snapshot topic that contains that same city.
+  const targetCity = extractCity(target);
+  if (targetCity) {
+    for (const key of index.keys()) {
+      if (key.includes(targetCity)) return key;
+    }
+  }
+
+  // 2. Word-overlap fallback for non-city topics
   const targetWords = target.split(/\s+/).filter((w) => w.length > 2);
 
   for (const key of index.keys()) {
@@ -510,6 +578,21 @@ function findFuzzyTopicMatch(
     }
   }
 
+  return null;
+}
+
+/** Extract a known city name from a topic string using GEO_CONTAINMENT. */
+function extractCity(topic: string): string | null {
+  const lower = topic.toLowerCase();
+  // Check all cities in all metro areas, longest first to avoid partial matches
+  const allCities: string[] = [];
+  for (const cities of Object.values(GEO_CONTAINMENT)) {
+    allCities.push(...cities);
+  }
+  allCities.sort((a, b) => b.length - a.length);
+  for (const city of allCities) {
+    if (lower.includes(city)) return city;
+  }
   return null;
 }
 

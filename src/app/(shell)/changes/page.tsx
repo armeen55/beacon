@@ -38,6 +38,8 @@ import { getSiteConfig } from "@/lib/site-config";
 import { buildCompetitorRank } from "@/lib/performance-timeseries";
 import { classifyCompetitorType } from "@/domains/competitors/classify-type";
 import { syncMilestonesFromWorkspace } from "@/domains/milestones";
+import { readStore } from "@/lib/persistence/json-store";
+import type { ChangePattern } from "@/domains/learning/change-patterns";
 import { computeGeoCoverage } from "@/domains/geo/coverage";
 import { getActivePrompts } from "@/domains/prompts/prompt-library";
 import { computeCitationDecay, getDecayAlerts } from "@/domains/attribution/citation-decay";
@@ -129,6 +131,11 @@ export default async function ChangeScorecardPage() {
   const withEvents = rows.filter((r) => r.totalEventsLinked > 0).length;
   const operatorConfirmed = rows.filter((r) => r.operatorConfirmedCount > 0).length;
   const highConfidence = rows.filter((r) => r.impact.confidence === "high").length;
+
+  const changePatterns = readStore<ChangePattern>("change-patterns")
+    .filter((p) => p.sample_count >= 3)
+    .sort((a, b) => b.success_rate - a.success_rate || b.sample_count - a.sample_count)
+    .slice(0, 5);
 
   const lastCrawlChanges = latestWebsiteCrawlRun();
   const changesCrawlAgeDays = lastCrawlChanges?.completed_at
@@ -523,6 +530,37 @@ export default async function ChangeScorecardPage() {
           </p>
         )}
       </div>
+
+      {changePatterns.length > 0 && (
+      <div className="mb-6 rounded-lg border border-border/60 bg-surface-inset/30 px-5 py-4">
+        <p className="text-xs font-medium text-muted-foreground mb-3">Signal effectiveness — what&apos;s working</p>
+        <div className="grid gap-2">
+          {changePatterns.map((p) => {
+            const label = `${p.signal_type} × ${p.asset_type}`.replace(/_/g, " ");
+            const pct = Math.round(p.success_rate * 100);
+            const conf = p.confidence;
+            return (
+              <div key={p.id} className="flex items-baseline gap-3 text-[12px]">
+                <span className="font-mono text-muted-foreground w-[220px] truncate">{label}</span>
+                <span className={`font-semibold tabular-nums ${pct >= 80 ? "text-status-success" : pct >= 50 ? "text-foreground" : "text-muted-foreground"}`}>
+                  {p.success_count}/{p.sample_count} positive ({pct}%)
+                </span>
+                {p.avg_citation_delta > 0 && (
+                  <span className="text-muted-foreground">avg +{Math.round(p.avg_citation_delta)}% citations</span>
+                )}
+                <span className={`text-[10px] px-1.5 py-0.5 rounded ${conf === "high" ? "bg-status-success/10 text-status-success" : conf === "medium" ? "bg-status-warning/10 text-status-warning" : "bg-muted text-muted-foreground"}`}>
+                  {conf}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+        <p className="text-[10px] text-muted-foreground mt-3">
+          Based on {changePatterns.reduce((a, p) => a + p.sample_count, 0)} qualified outcomes.
+          Patterns with &lt;3 samples are hidden.
+        </p>
+      </div>
+      )}
 
       <details className="mb-6 text-[11px] text-muted-foreground leading-relaxed">
         <summary className="cursor-pointer font-medium text-foreground/85 hover:underline select-none">

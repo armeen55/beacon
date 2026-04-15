@@ -373,9 +373,15 @@ function generateSteps(
 
     case "replicate":
     case "cross_page_pattern": {
-      // Playbook brief recs — parse the gap from rationale or headline
-      const gapSteps = generateReplicateSteps(action, ai, citIndex);
-      steps.push(...gapSteps);
+      // Use enrichment-based step generation when actionClass is available
+      if (action.actionClass) {
+        const enrichedSteps = generateStepsFromActionClass(action);
+        steps.push(...enrichedSteps);
+      } else {
+        // Fallback: parse keywords from headline/rationale
+        const gapSteps = generateReplicateSteps(action, ai, citIndex);
+        steps.push(...gapSteps);
+      }
       break;
     }
 
@@ -401,7 +407,142 @@ function generateSteps(
 }
 
 // ---------------------------------------------------------------------------
-// Replicate/cross-page-pattern step generation
+// Action-class-based step generation (uses enrichment data)
+// ---------------------------------------------------------------------------
+
+function generateStepsFromActionClass(
+  action: PrioritizedAction,
+): string[] {
+  const steps: string[] = [];
+  const page = action.targetPagePath ?? action.targetPageUrl ?? "the target page";
+  const section = action.targetSection
+    ? action.targetSection.split(" (")[0]
+    : null;
+  const insertPoint = action.targetSection?.match(/after "([^"]+)"/)?.[1];
+
+  switch (action.actionClass) {
+    case "faq_addition":
+      steps.push(
+        section
+          ? `Add FAQ section to ${page}${insertPoint ? ` after "${insertPoint}"` : ""}`
+          : `Add FAQ section to ${page} addressing top questions for this topic`,
+      );
+      steps.push("Write 5-7 answer-formatted questions (conversational tone, 2-3 sentences each)");
+      steps.push("Wrap in FAQPage JSON-LD schema");
+      steps.push("Validate schema with Google Rich Results Test");
+      break;
+
+    case "faq_expansion":
+      steps.push(`Expand existing FAQ answers on ${page} to 3-4 sentences each`);
+      steps.push("Add 3-5 new questions based on common AI query patterns");
+      steps.push("Update FAQPage schema to include new questions");
+      break;
+
+    case "faq_consolidation":
+      steps.push(`Consolidate duplicate FAQ blocks on ${page} into a single section`);
+      steps.push("Remove duplicate FAQPage JSON-LD blocks");
+      steps.push("Verify one clean FAQPage schema with Rich Results Test");
+      break;
+
+    case "comparison_table":
+      steps.push(
+        `Add builder comparison table to ${page}${insertPoint ? ` after "${insertPoint}"` : ""}`,
+      );
+      steps.push("Include 4-6 comparison criteria (experience, services, certifications, project types)");
+      steps.push("Use structured HTML table with clear headers");
+      break;
+
+    case "schema_addition":
+    case "schema_update":
+      steps.push(`Add structured data schema (JSON-LD) to ${page}`);
+      steps.push("Include Article, FAQPage, and Service types as applicable");
+      steps.push("Validate with Google Rich Results Test after deploying");
+      break;
+
+    case "content_section":
+    case "general_content":
+      if (section) {
+        steps.push(
+          `Add ${section.toLowerCase()} to ${page}${insertPoint ? ` after "${insertPoint}"` : ""}`,
+        );
+        steps.push("Structure with answer-formatted H2/H3 headings");
+      } else {
+        steps.push(`Add new content section to ${page} covering gaps vs top-performing similar pages`);
+        steps.push("Use H2 headings that match common AI query patterns");
+      }
+      steps.push("Include 200+ words of substantive, answer-formatted content");
+      break;
+
+    case "hero_update":
+    case "subheading_update":
+      steps.push(`Update hero/subheading on ${page} with keyword-rich, answer-formatted copy`);
+      steps.push("Ensure H1 directly answers the primary query for this page's topic");
+      break;
+
+    case "title_update":
+      steps.push(`Update title tag on ${page} to include primary topic keyword`);
+      steps.push("Keep under 60 characters, front-load the key term");
+      break;
+
+    case "meta_update":
+      steps.push(`Update meta description on ${page} with answer-formatted summary`);
+      steps.push("Include primary keyword and a clear value proposition (under 155 characters)");
+      break;
+
+    case "internal_links":
+      steps.push(`Add 3-5 contextual internal links to ${page} from high-citation pages`);
+      steps.push("Use descriptive anchor text matching the target topic");
+      break;
+
+    case "cost_section":
+      steps.push(
+        `Add cost breakdown section to ${page}${insertPoint ? ` after "${insertPoint}"` : ""}`,
+      );
+      steps.push("Include price ranges, factors affecting cost, and comparison to alternatives");
+      break;
+
+    case "process_section":
+      steps.push(
+        `Add process overview section to ${page}${insertPoint ? ` after "${insertPoint}"` : ""}`,
+      );
+      steps.push("Structure as numbered steps with clear outcomes at each stage");
+      break;
+
+    case "testimonials":
+      steps.push(`Add client testimonials section to ${page}`);
+      steps.push("Include 2-3 specific, named testimonials with project details");
+      steps.push("Add Review schema (JSON-LD) for rich result eligibility");
+      break;
+
+    case "page_creation":
+      steps.push(`Create new page at ${page}`);
+      steps.push("Include FAQ section + FAQPage schema from day one");
+      steps.push("Add internal links from 3+ existing pages");
+      break;
+
+    default:
+      steps.push(`Review ${page} for structural gaps`);
+      steps.push("Apply the pattern from top-performing pages of this type");
+      break;
+  }
+
+  // Add monitoring step with learned timing when available
+  if (action.engineTiming && action.engineTiming.length > 0) {
+    const fastest = action.engineTiming.reduce((a, b) =>
+      a.medianDays < b.medianDays ? a : b,
+    );
+    steps.push(
+      `Monitor: expect first signal on ${fastest.platform} in ~${fastest.medianDays} days`,
+    );
+  } else {
+    steps.push("Monitor AI citations for this page over the next 7-14 days");
+  }
+
+  return steps;
+}
+
+// ---------------------------------------------------------------------------
+// Replicate/cross-page-pattern step generation (keyword-based fallback)
 // ---------------------------------------------------------------------------
 
 function generateReplicateSteps(

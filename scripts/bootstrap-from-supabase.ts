@@ -346,6 +346,32 @@ async function bootstrap() {
   totalFiles++;
 
   // ─────────────────────────────────────────────────
+  // Phase 11 stores
+  // ─────────────────────────────────────────────────
+
+  console.log("\nPhase 11 stores:");
+  await directTable("change_outcomes", "change-outcomes");
+  await directTable("page_visibility", "page-visibility");
+
+  console.log("\nPhase 12 stores:");
+  await directTable("change_patterns", "change-patterns");
+  await directTable("triage_rules", "triage-rules");
+
+  // confidence_calibration: singleton
+  const { data: calData } = await sb
+    .from("confidence_calibration")
+    .select("*")
+    .eq("id", "current")
+    .maybeSingle();
+  if (calData) {
+    writeJsonFile("confidence-calibration", [calData]);
+    console.log("  confidence-calibration.json <- 1 document");
+    totalFiles++;
+  } else {
+    console.log("  confidence-calibration: no data in Supabase -- skip");
+  }
+
+  // ─────────────────────────────────────────────────
   // Empty defaults for supplementary stores (no tables)
   // These prevent crashes when json-store or dotdata-json read them.
   // ─────────────────────────────────────────────────

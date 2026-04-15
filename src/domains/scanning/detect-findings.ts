@@ -316,6 +316,53 @@ export function generateFindings(opts: {
     }
   }
 
+  // ── Auto-reconcile: if a finding's URL matches a recent changelog entry
+  // with a compatible signal type, auto-link and accept the finding so it
+  // doesn't appear as an unresolved detection on Today. ──
+  const now2 = new Date().toISOString();
+  const recentByPath = new Map<string, ChangelogEntry[]>();
+  for (const entry of changelog) {
+    if (!entry.url) continue;
+    if (new Date(entry.timestamp).getTime() < thirtyDaysAgo) continue;
+    const p = norm(entry.url);
+    const arr = recentByPath.get(p) ?? [];
+    arr.push(entry);
+    recentByPath.set(p, arr);
+  }
+
+  const FINDING_TO_SIGNAL: Record<string, { signals: string[]; keywords: string[] }> = {
+    title_changed: { signals: ["technical"], keywords: ["title"] },
+    meta_changed: { signals: ["technical"], keywords: ["meta"] },
+    h1_changed: { signals: ["content"], keywords: ["h1", "heading"] },
+    faq_changed: { signals: ["faq", "technical"], keywords: ["faq", "q&a", "json-ld"] },
+    schema_changed: { signals: ["technical"], keywords: ["schema", "json-ld", "structured data"] },
+    content_changed: { signals: ["content"], keywords: ["content", "copy", "section"] },
+    links_changed: { signals: ["content", "technical"], keywords: ["link", "internal link"] },
+  };
+
+  for (const f of findings) {
+    if (f.status !== "pending") continue;
+    const fPath = norm(f.url);
+    const matches = recentByPath.get(fPath);
+    if (!matches || matches.length === 0) continue;
+
+    const mapping = FINDING_TO_SIGNAL[f.type];
+    if (!mapping) continue;
+
+    const linked = matches.find((c) => {
+      if (mapping.signals.includes(c.signal_type)) return true;
+      const desc = c.change_description.toLowerCase();
+      return mapping.keywords.some((kw) => desc.includes(kw));
+    });
+
+    if (linked) {
+      f.status = "accepted";
+      f.resolvedAt = now2;
+      f.linkedChangeId = linked.id;
+      f.resolutionNote = `Auto-linked: matches changelog "${linked.change_description.slice(0, 60)}" (${linked.timestamp.slice(0, 10)})`;
+    }
+  }
+
   findings.sort((a, b) => b.priorityScore - a.priorityScore);
   return findings;
 }
@@ -420,7 +467,7 @@ function scoreToPriority(score: number): FindingPriority {
 }
 
 function norm(url: string): string {
-  return url.replace(/\/+$/, "").toLowerCase();
+  return url.replace(/^https?:\/\/[^/]+/, "").replace(/\/+$/, "").toLowerCase();
 }
 
 function pathOf(url: string): string {

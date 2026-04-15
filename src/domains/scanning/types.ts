@@ -51,6 +51,10 @@ export type Finding = {
   citationCount: number;
   isHomepage: boolean;
   contradictsChangelog: boolean;
+  /** Phase 11: whether topic-level metrics moved ≥15% around detection date */
+  metricMovementDetected?: boolean;
+  /** Phase 11: composite signal strength 0-100 */
+  signalStrength?: number;
 };
 
 export type ScanSettings = {

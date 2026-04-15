@@ -3,6 +3,9 @@
  *
  * An experiment tracks: what Beacon recommended, what the operator actually did,
  * what to watch, and whether the outcome looks positive after future imports.
+ *
+ * Timeline: each experiment appends daily snapshots so progression is visible
+ * over time. Snapshots are never overwritten — chronology is preserved.
  */
 
 import "server-only";
@@ -21,6 +24,16 @@ export type ExperimentStatus =
   | "negative"
   | "dropped";
 
+export type TimelineEntry = {
+  date: string;
+  citations: number;
+  mentions: number;
+  visibility: number;
+  platformBreakdown?: Record<string, { citations: number; mentions: number }>;
+  status: ExperimentStatus;
+  confidence: "none" | "low" | "medium" | "high";
+};
+
 export type Experiment = {
   id: string;
   recId: string;
@@ -32,14 +45,26 @@ export type Experiment = {
   operatorNote: string;
   startedAt: string;
   status: ExperimentStatus;
+  // Citations
   baselineCitations: number | null;
   latestCitations: number | null;
   lastCheckedAt: string | null;
-  /** Tier 1B: scorecard change that seeded this replication track */
+  // Mentions + visibility
+  baselineMentions: number | null;
+  latestMentions: number | null;
+  baselineVisibility: number | null;
+  latestVisibility: number | null;
+  // Topic tracking
+  trackedTopic: string | null;
+  // Daily timeline (append-only)
+  timeline: TimelineEntry[];
+  // Replication linkage
   replicationSourceChangeId?: string | null;
   replicationPatternId?: string | null;
-  /** observed = crawl + imports; mixed; inferred = pattern fit only */
   replicationEvidenceTier?: "observed" | "mixed" | "inferred";
+  // Backfill provenance
+  backfilled?: boolean;
+  backfillReason?: string | null;
 };
 
 // ---------------------------------------------------------------------------
@@ -82,9 +107,14 @@ export function startExperiment(opts: {
   watchAfter: string;
   operatorNote: string;
   baselineCitations: number | null;
+  baselineMentions?: number | null;
+  baselineVisibility?: number | null;
+  trackedTopic?: string | null;
   replicationSourceChangeId?: string | null;
   replicationPatternId?: string | null;
   replicationEvidenceTier?: "observed" | "mixed" | "inferred";
+  backfilled?: boolean;
+  backfillReason?: string | null;
 }): Experiment {
   const id = `exp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
   const exp: Experiment = {
@@ -101,9 +131,17 @@ export function startExperiment(opts: {
     baselineCitations: opts.baselineCitations,
     latestCitations: null,
     lastCheckedAt: null,
+    baselineMentions: opts.baselineMentions ?? null,
+    latestMentions: null,
+    baselineVisibility: opts.baselineVisibility ?? null,
+    latestVisibility: null,
+    trackedTopic: opts.trackedTopic ?? null,
+    timeline: [],
     replicationSourceChangeId: opts.replicationSourceChangeId ?? null,
     replicationPatternId: opts.replicationPatternId ?? null,
     replicationEvidenceTier: opts.replicationEvidenceTier,
+    backfilled: opts.backfilled,
+    backfillReason: opts.backfillReason ?? null,
   };
 
   const existing = experiments.findIndex((e) => e.recId === opts.recId);
@@ -124,30 +162,87 @@ export function updateExperimentStatus(
   if (exp) exp.status = status;
 }
 
+// ---------------------------------------------------------------------------
+// Multi-metric update with timeline
+// ---------------------------------------------------------------------------
+
+function computeConfidence(exp: Experiment): TimelineEntry["confidence"] {
+  if (!exp.baselineCitations && !exp.baselineMentions) return "none";
+  const daysSinceStart = Math.floor(
+    (Date.now() - new Date(exp.startedAt).getTime()) / 86_400_000,
+  );
+  if (daysSinceStart < 3) return "low";
+  if (daysSinceStart < 7) return "medium";
+  return "high";
+}
+
+export function updateExperimentMetrics(
+  id: string,
+  metrics: {
+    latestCitations: number;
+    latestMentions: number;
+    latestVisibility: number;
+    platformBreakdown?: Record<string, { citations: number; mentions: number }>;
+  },
+): void {
+  const exp = experiments.find((e) => e.id === id);
+  if (!exp) return;
+
+  exp.latestCitations = metrics.latestCitations;
+  exp.latestMentions = metrics.latestMentions;
+  exp.latestVisibility = metrics.latestVisibility;
+  exp.lastCheckedAt = new Date().toISOString();
+
+  if (exp.status === "dropped") return;
+
+  // Status from combined signals
+  const citDelta = (exp.baselineCitations ?? 0) > 0
+    ? metrics.latestCitations - exp.baselineCitations!
+    : 0;
+  const menDelta = (exp.baselineMentions ?? 0) > 0
+    ? metrics.latestMentions - exp.baselineMentions!
+    : 0;
+  const daysSinceStart = Math.floor(
+    (Date.now() - new Date(exp.startedAt).getTime()) / 86_400_000,
+  );
+
+  if (citDelta > 0 || menDelta > 0) {
+    exp.status = "promising";
+  } else if (citDelta < 0 && menDelta < 0) {
+    exp.status = "negative";
+  } else {
+    exp.status = daysSinceStart > 14 ? "inconclusive" : "watching";
+  }
+
+  // Append timeline snapshot (one per date — skip if today already recorded)
+  const today = new Date().toISOString().slice(0, 10);
+  if (!exp.timeline) exp.timeline = [];
+  const alreadyRecorded = exp.timeline.some((t) => t.date === today);
+  if (!alreadyRecorded) {
+    exp.timeline.push({
+      date: today,
+      citations: metrics.latestCitations,
+      mentions: metrics.latestMentions,
+      visibility: metrics.latestVisibility,
+      platformBreakdown: metrics.platformBreakdown,
+      status: exp.status,
+      confidence: computeConfidence(exp),
+    });
+  }
+}
+
+/** Legacy single-metric update — delegates to updateExperimentMetrics */
 export function updateExperimentCitations(
   id: string,
   latestCitations: number,
 ): void {
   const exp = experiments.find((e) => e.id === id);
   if (!exp) return;
-  exp.latestCitations = latestCitations;
-  exp.lastCheckedAt = new Date().toISOString();
-
-  if (exp.baselineCitations === null) return;
-  const delta = latestCitations - exp.baselineCitations;
-
-  if (exp.status === "dropped") return;
-
-  if (delta > 0) {
-    exp.status = "promising";
-  } else if (delta < 0) {
-    exp.status = "negative";
-  } else {
-    const daysSinceStart = Math.floor(
-      (Date.now() - new Date(exp.startedAt).getTime()) / 86_400_000,
-    );
-    exp.status = daysSinceStart > 14 ? "inconclusive" : "watching";
-  }
+  updateExperimentMetrics(id, {
+    latestCitations,
+    latestMentions: exp.latestMentions ?? exp.baselineMentions ?? 0,
+    latestVisibility: exp.latestVisibility ?? exp.baselineVisibility ?? 0,
+  });
 }
 
 export function updateExperimentNote(id: string, note: string): void {

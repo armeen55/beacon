@@ -12,6 +12,7 @@ import type { PageSnapshot, PageEntity } from "@/domains/pages/types";
 import type { CitationEvidenceIndex } from "@/domains/pages/types";
 import type { CitationDecayResult } from "@/domains/attribution/decay-types";
 import type { AnswerIntelligenceIndex } from "@/domains/answer-intelligence/types";
+import type { ChangePattern } from "@/domains/learning/change-patterns";
 import { absoluteUrlForPath } from "@/lib/site-config";
 
 export type RecommendationType =
@@ -41,6 +42,25 @@ export type BeaconRecommendation = {
   citationOpportunity: number;
   /** Answer-intelligence enrichment: what the AI actually says about this topic. */
   answerContext?: string | null;
+  /** Specific action to take (e.g., "Add comparison table") */
+  specificMove?: string | null;
+  /** Action class for programmatic use */
+  actionClass?: string | null;
+  /** Which page section to target (e.g., "between Process and Testimonials") */
+  targetSection?: string | null;
+  /** Prior change where this move worked, with measured delta */
+  priorSuccess?: {
+    changeId: string;
+    pagePath: string;
+    description: string;
+    citationDelta: number;
+  } | null;
+  /** Per-engine expected signal timing */
+  engineTiming?: { platform: string; medianDays: number; sampleCount: number }[] | null;
+  /** Concrete expected metric from pattern data */
+  expectedMetric?: string | null;
+  /** Secondary recs bundled during dedup — shown separately, not in rationale */
+  alsoConsider?: string[];
 };
 
 // ---------------------------------------------------------------------------
@@ -99,8 +119,14 @@ export function computeRecommendations(opts: {
   decayResults?: CitationDecayResult[];
   answerIntelligence?: AnswerIntelligenceIndex | null;
   changelogEntries?: ChangelogEntry[];
+  changePatterns?: ChangePattern[];
+  activeExperimentUrls?: Set<string>;
+  changeOutcomes?: import("@/domains/attribution/change-outcome").ChangeOutcome[];
 }): BeaconRecommendation[] {
   const recs: BeaconRecommendation[] = [];
+
+  // Pages with active experiments should not get new recommendations
+  const experimentUrls = opts.activeExperimentUrls ?? new Set();
 
   const provenPositive = opts.impactRows.filter(
     (r) =>
@@ -215,8 +241,11 @@ export function computeRecommendations(opts: {
         strengthenUrl?.replace(/^https?:\/\/[^/]+/, "") ?? null,
       sourceChangeId: row.change.id,
       confidence: row.totalEventsLinked >= 2 ? "medium" : "low",
-      priority:
+      // Cap at 499 — strengthen recs are metadata cleanup, never the primary action
+      priority: Math.min(
         300 + row.totalEventsLinked * 50 + (suggestedTopic ? 100 : 0),
+        499,
+      ),
       patternId: null,
       citationOpportunity: 0,
     });
@@ -229,7 +258,14 @@ export function computeRecommendations(opts: {
   );
 
   for (const row of negativeImpact) {
+    // Skip investigate recs for pages with no meaningful citation evidence
     const rawUrl = row.change.url;
+    if (rawUrl && opts.citationCountMap) {
+      const normUrl = (rawUrl.startsWith("/") ? absoluteUrlForPath(rawUrl) : rawUrl)
+        .replace(/\/+$/, "").toLowerCase();
+      const pageCitations = opts.citationCountMap.get(normUrl) ?? 0;
+      if (pageCitations < 5) continue; // Not enough signal to investigate
+    }
     const fullUrl = rawUrl
       ? (rawUrl.startsWith("/") ? absoluteUrlForPath(rawUrl) : rawUrl)
       : null;
@@ -280,6 +316,28 @@ export function computeRecommendations(opts: {
       if (snap.faqs.length === 0) gaps.push("FAQ content");
       if (snap.schema_types.length === 0) gaps.push("structured data");
 
+      // Hard suppression: if changelog already records FAQ/schema work for
+      // this page, do NOT recommend adding the same thing again — even if
+      // the scan snapshot couldn't detect it (JS rendering inconsistency).
+      if (opts.changelogEntries && opts.changelogEntries.length > 0) {
+        const snapPath = snap.url.replace(/^https?:\/\/[^/]+/, "").replace(/\/+$/, "").toLowerCase();
+        const pageChanges = opts.changelogEntries.filter((c) => {
+          const cp = (c.url ?? "").replace(/^https?:\/\/[^/]+/, "").replace(/\/+$/, "").toLowerCase();
+          return cp === snapPath;
+        });
+        if (pageChanges.length > 0) {
+          const hasLoggedFaq = pageChanges.some(
+            (c) =>
+              c.signal_type === "faq" ||
+              c.signal_type === "technical" ||
+              c.change_description.toLowerCase().includes("faq") ||
+              c.change_description.toLowerCase().includes("schema") ||
+              c.change_description.toLowerCase().includes("json-ld"),
+          );
+          if (hasLoggedFaq) continue; // Already done — skip entirely
+        }
+      }
+
       recs.push({
         id: `rec-structure-${snap.page_id}`,
         type: "strengthen_structure",
@@ -304,6 +362,7 @@ export function computeRecommendations(opts: {
       .filter((snap) => {
         const normUrl = snap.url.replace(/\/+$/, "").toLowerCase();
         const cit = opts.citationCountMap!.get(normUrl) ?? 0;
+        if (snap.extraction_certainty === "uncertain") return false;
         return cit >= 5 && snap.internal_link_count < 5;
       })
       .sort((a, b) => {
@@ -341,6 +400,7 @@ export function computeRecommendations(opts: {
       .filter((snap) => {
         const normUrl = snap.url.replace(/\/+$/, "").toLowerCase();
         const cit = opts.citationCountMap!.get(normUrl) ?? 0;
+        if (snap.extraction_certainty === "uncertain") return false;
         if (cit < 20) return false;
         const thinContent = snap.word_count < 800;
         const weakStructure = snap.h2_list.length < 2;
@@ -414,7 +474,9 @@ export function computeRecommendations(opts: {
         targetPagePath: null,
         sourceChangeId: null,
         confidence: topic.owned_citations >= 5 ? "medium" : "low",
-        priority: 500 + (topic.competitor_citations - topic.owned_citations) * 2,
+        // Topic-level recs rank below page-level recs (cap at 599)
+        // They're strategic context, not immediate actionable tests
+        priority: Math.min(599, 500 + Math.round(Math.log2(topic.competitor_citations - topic.owned_citations + 1) * 10)),
         patternId: null,
         citationOpportunity: topic.competitor_citations - topic.owned_citations,
       });
@@ -544,7 +606,8 @@ export function computeRecommendations(opts: {
         targetPagePath: null,
         sourceChangeId: null,
         confidence: topicSummary.owned_citations >= 30 ? "medium" : "low",
-        priority: 380 + topicSummary.owned_citations * 2,
+        // Topic-level: cap below page-level recs
+        priority: Math.min(499, 380 + Math.round(Math.log2(topicSummary.owned_citations + 1) * 10)),
         patternId: null,
         citationOpportunity: topicSummary.total_citations - topicSummary.owned_citations,
       });
@@ -587,6 +650,98 @@ export function computeRecommendations(opts: {
     }
   }
 
+  // ── Pattern-driven recommendations: use learning data to suggest proven
+  //    signal types on pages that haven't been optimized recently ──
+  // Pattern-driven recs always run — the dedup pass handles any overlap
+  if (
+    opts.changePatterns &&
+    opts.changePatterns.length > 0 &&
+    opts.pageSnapshots &&
+    opts.citationCountMap
+  ) {
+    const highPatterns = opts.changePatterns
+      .filter(
+        (p) => p.confidence !== "low" && p.success_rate >= 0.7 && p.sample_count >= 5,
+      )
+      // Prioritize page-level patterns (city/service/project) over infrastructure
+      .sort((a, b) => {
+        const pageTypes = ["city_page", "service_page", "project_page"];
+        const aPage = pageTypes.includes(a.asset_type) ? 1 : 0;
+        const bPage = pageTypes.includes(b.asset_type) ? 1 : 0;
+        if (bPage !== aPage) return bPage - aPage;
+        return b.sample_count - a.sample_count;
+      });
+    const twentyOneDaysAgo = Date.now() - 21 * 86_400_000;
+
+    for (const pattern of highPatterns.slice(0, 5)) {
+      // Find pages matching this asset type that haven't been changed recently
+      const assetType = pattern.asset_type;
+      const matchingPages = opts.pageSnapshots.filter((snap) => {
+        if (snap.extraction_certainty === "uncertain") return false;
+        const normUrl = snap.url.replace(/\/+$/, "").toLowerCase();
+        const cit = opts.citationCountMap!.get(normUrl) ?? 0;
+        if (cit < 10) return false;
+
+        // Match asset type to page path
+        const path = snap.url.replace(/^https?:\/\/[^/]+/, "").toLowerCase();
+        const isCity = path.includes("/locations/");
+        const isService = path.includes("/services/");
+        const isProject = path.includes("/explore-projects/") || path.includes("/project");
+        const isHomepage = path === "/" || path === "";
+        const isInfra = !isCity && !isService && !isProject && !isHomepage;
+        const matchesType =
+          (assetType === "city_page" && isCity) ||
+          (assetType === "service_page" && isService) ||
+          (assetType === "project_page" && isProject) ||
+          (assetType === "homepage" && isHomepage) ||
+          (assetType === "infrastructure" && isInfra);
+        if (!matchesType) return false;
+
+        // Skip pages with active experiments
+        const snapPath = path.replace(/\/+$/, "");
+        if (experimentUrls.has(snapPath)) return false;
+
+        // Skip pages with recent changelog entries (last 21 days)
+        if (opts.changelogEntries) {
+          const recentWork = opts.changelogEntries.some((c) => {
+            const cp = (c.url ?? "").replace(/^https?:\/\/[^/]+/, "").replace(/\/+$/, "").toLowerCase();
+            return cp === snapPath && new Date(c.timestamp).getTime() > twentyOneDaysAgo;
+          });
+          if (recentWork) return false;
+        }
+
+        return true;
+      });
+
+      // Pick the page with highest citations
+      const bestPage = matchingPages.sort((a, b) => {
+        const cA = opts.citationCountMap!.get(a.url.replace(/\/+$/, "").toLowerCase()) ?? 0;
+        const cB = opts.citationCountMap!.get(b.url.replace(/\/+$/, "").toLowerCase()) ?? 0;
+        return cB - cA;
+      })[0];
+
+      if (bestPage) {
+        const normUrl = bestPage.url.replace(/\/+$/, "").toLowerCase();
+        const cit = opts.citationCountMap!.get(normUrl) ?? 0;
+        const pagePath = bestPage.url.replace(/^https?:\/\/[^/]+/, "");
+        recs.push({
+          id: `rec-pattern-${pattern.id.replace(/[^a-z0-9]/gi, "-").slice(0, 30)}-${bestPage.page_id}`,
+          type: "replicate",
+          headline: `Enhance ${pagePath} (${pattern.signal_type} on ${pattern.asset_type.replace(/_/g, " ")})`,
+          rationale: `This page has ${cit} citations and matches a proven pattern: ${pattern.signal_type} changes on ${pattern.asset_type.replace(/_/g, " ")}s have a ${Math.round(pattern.success_rate * 100)}% success rate across ${pattern.sample_count} samples (avg +${pattern.avg_citation_delta}% citations).`,
+          sourceEvidence: `${cit} citations, ${pattern.sample_count} similar changes at ${Math.round(pattern.success_rate * 100)}% success`,
+          targetPageUrl: bestPage.url,
+          targetPagePath: pagePath,
+          sourceChangeId: null,
+          confidence: pattern.confidence === "high" ? "high" : "medium",
+          priority: 700 + cit,
+          patternId: pattern.id,
+          citationOpportunity: cit,
+        });
+      }
+    }
+  }
+
   // ── Fallback: top structural briefs when no proven patterns exist ──
 
   if (!recs.some((r) => r.type === "replicate")) {
@@ -618,6 +773,10 @@ export function computeRecommendations(opts: {
     enrichRecsWithAnswerIntelligence(recs, opts.answerIntelligence);
   }
 
+  // ── Hyper-specific enrichment: action class, section gap, prior success, timing ──
+  enrichWithSpecifics(recs, opts);
+  // (enrichment pass populated specificMove, targetSection, priorSuccess, engineTiming, expectedMetric)
+
   // ── Cross-reference changelog: if a change was logged for the same page +
   // same type of work, adjust the recommendation to flag it as a deploy check ──
   if (opts.changelogEntries && opts.changelogEntries.length > 0) {
@@ -641,29 +800,456 @@ export function computeRecommendations(opts: {
       const desc = matchingChanges.map((c) => c.change_description.toLowerCase()).join(" ");
       const recType = rec.type;
 
+      // Check if the changelog mentions the same kind of work by signal_type or keywords
+      const signalTypes = matchingChanges.map((c) => c.signal_type);
+      const hasFaqOrSchema =
+        signalTypes.includes("faq") ||
+        signalTypes.includes("technical") ||
+        desc.includes("faq") ||
+        desc.includes("schema") ||
+        desc.includes("json-ld");
+      const hasContent = desc.includes("content") || signalTypes.includes("content");
+
       let isDeployCheck = false;
-      if (recType === "strengthen_structure" && (desc.includes("faq") || desc.includes("schema"))) {
+      if (recType === "strengthen_structure" && hasFaqOrSchema) {
         isDeployCheck = true;
       }
-      if (recType === "replicate" && rec.headline.toLowerCase().includes("schema") && desc.includes("schema")) {
+      // Replicate: suppress if RECENT changelog entries (last 30 days) match
+      const thirtyDaysAgo = Date.now() - 30 * 86_400_000;
+      const recentMatchingChanges = matchingChanges.filter(
+        (c) => new Date(c.timestamp).getTime() > thirtyDaysAgo,
+      );
+      if (recType === "replicate" && recentMatchingChanges.length >= 2) {
         isDeployCheck = true;
       }
-      if (recType === "refresh_content" && desc.includes("content")) {
+      if (recType === "replicate" && recentMatchingChanges.length > 0 && (hasFaqOrSchema || hasContent)) {
+        isDeployCheck = true;
+      }
+      if (recType === "refresh_content" && hasContent) {
+        isDeployCheck = true;
+      }
+      if (recType === "improve_internal_links" && (desc.includes("link") || signalTypes.includes("content"))) {
+        isDeployCheck = true;
+      }
+      if (recType === "cross_page_pattern" && (hasFaqOrSchema || hasContent)) {
         isDeployCheck = true;
       }
 
       if (isDeployCheck) {
-        const latestChange = matchingChanges[0];
-        const changeDate = latestChange.timestamp.slice(0, 10);
-        rec.headline = `Deploy check: ${rec.headline}`;
-        rec.rationale = `You logged a change on ${changeDate} ("${latestChange.change_description.slice(0, 60)}…") but our scan still can't detect the update. Verify the change is live, or re-run the scan.`;
-        // Lower priority so fresh recs rank above deploy checks
-        rec.priority = Math.max(rec.priority - 200, 10);
+        rec.priority = -1;
       }
     }
   }
 
-  return recs.sort((a, b) => b.priority - a.priority);
+  // ── Experiment suppression: don't recommend changes on pages being tested ──
+  if (experimentUrls.size > 0) {
+    for (const rec of recs) {
+      if (rec.priority < 0 || !rec.targetPageUrl) continue;
+      const recPath = rec.targetPageUrl
+        .replace(/^https?:\/\/[^/]+/, "")
+        .replace(/\/+$/, "")
+        .toLowerCase();
+      if (experimentUrls.has(recPath)) {
+        rec.priority = -1;
+      }
+    }
+  }
+
+  // ── Pattern-backed confidence boost ──
+  if (opts.changePatterns && opts.changePatterns.length > 0) {
+    const patternMap = new Map(opts.changePatterns.map((p) => [p.id, p]));
+    for (const rec of recs) {
+      if (!rec.sourceChangeId || rec.priority < 0) continue;
+      // Don't boost "strengthen" recs — they're changelog cleanup, not page signals
+      if (rec.type === "strengthen") continue;
+      const sourceChange = opts.changelogEntries?.find(
+        (c) => c.id === rec.sourceChangeId,
+      );
+      if (!sourceChange) continue;
+      const patternKey = `${sourceChange.signal_type}::${sourceChange.asset_type}`;
+      const pattern = patternMap.get(patternKey);
+      if (pattern && pattern.confidence !== "low" && pattern.success_rate > 0.5) {
+        rec.priority += Math.round(pattern.success_rate * 200);
+        rec.rationale += ` Historical: ${Math.round(pattern.success_rate * 100)}% success rate across ${pattern.sample_count} similar changes (avg +${pattern.avg_citation_delta}% citations).`;
+        if (pattern.confidence === "high") rec.confidence = "high";
+      }
+    }
+  }
+
+  // ── "Why now" temporal context ──
+  if (opts.changelogEntries && opts.changelogEntries.length > 0) {
+    for (const rec of recs) {
+      if (rec.priority < 0 || !rec.targetPageUrl) continue;
+      const recPath = rec.targetPageUrl
+        .replace(/^https?:\/\/[^/]+/, "")
+        .replace(/\/+$/, "")
+        .toLowerCase();
+      const pageChanges = opts.changelogEntries
+        .filter((c) => {
+          const cp = (c.url ?? "")
+            .replace(/^https?:\/\/[^/]+/, "")
+            .replace(/\/+$/, "")
+            .toLowerCase();
+          return cp === recPath;
+        })
+        .sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+      if (pageChanges.length > 0) {
+        const days = Math.floor(
+          (Date.now() - new Date(pageChanges[0].timestamp).getTime()) / 86_400_000,
+        );
+        // Use learned timing if available, otherwise state the fact without hardcoded thresholds
+        if (rec.engineTiming && rec.engineTiming.length > 0) {
+          const fastest = rec.engineTiming.reduce(
+            (a, b) => (a.medianDays < b.medianDays ? a : b),
+          );
+          if (days > fastest.medianDays) {
+            rec.rationale += ` Last change was ${days} days ago — beyond the typical ${fastest.platform} signal window (~${fastest.medianDays} days).`;
+          } else {
+            rec.rationale += ` Last change was ${days} days ago — within the expected signal window for ${fastest.platform} (~${fastest.medianDays} days).`;
+          }
+        } else if (days > 14) {
+          rec.rationale += ` Last change: ${days} days ago.`;
+        }
+      } else {
+        rec.rationale += ` No prior changes logged for this page — this is an untested opportunity.`;
+      }
+    }
+  }
+
+  // ── Diversity enforcement: demote duplicate actionClasses across pages ──
+  // Sort by priority first so highest-priority recs claim their actionClass
+  const sortedForDiversity = recs
+    .filter((r) => r.priority >= 0)
+    .sort((a, b) => b.priority - a.priority);
+  const claimedActionClasses = new Set<string>();
+  for (const r of sortedForDiversity) {
+    if (!r.actionClass || !r.targetPageUrl) continue;
+    if (claimedActionClasses.has(r.actionClass)) {
+      // Same action class on a different page — demote priority
+      r.priority = Math.max(r.priority - 300, 10);
+    } else {
+      claimedActionClasses.add(r.actionClass);
+    }
+  }
+
+  // ── Final dedup: one rec per target URL (or per sourceChangeId for null-URL recs) ──
+  const filtered = sortedForDiversity.filter((r) => r.priority >= 0);
+  const seen = new Map<string, number>();
+  const deduped: BeaconRecommendation[] = [];
+  for (const r of filtered) {
+    if (!r.targetPageUrl) {
+      // For recs without a URL, dedup by sourceChangeId
+      const changeKey = r.sourceChangeId ? `change:${r.sourceChangeId}` : null;
+      if (changeKey) {
+        const existingIdx = seen.get(changeKey);
+        if (existingIdx !== undefined) {
+          if (r.priority > deduped[existingIdx].priority) {
+            deduped[existingIdx] = r;
+          }
+          continue;
+        }
+        seen.set(changeKey, deduped.length);
+      }
+      deduped.push(r);
+      continue;
+    }
+    const key = r.targetPageUrl
+      .replace(/^https?:\/\/[^/]+/, "")
+      .replace(/\/+$/, "")
+      .toLowerCase();
+    const existingIdx = seen.get(key);
+    if (existingIdx === undefined) {
+      seen.set(key, deduped.length);
+      deduped.push(r);
+    } else if (r.priority > deduped[existingIdx].priority) {
+      const prev = deduped[existingIdx];
+      const also = [...(r.alsoConsider ?? []), prev.headline];
+      deduped[existingIdx] = { ...r, alsoConsider: also };
+    } else {
+      const also = deduped[existingIdx].alsoConsider ?? [];
+      also.push(r.headline);
+      deduped[existingIdx].alsoConsider = also;
+    }
+  }
+
+  return deduped.sort((a, b) => b.priority - a.priority);
+}
+
+// ---------------------------------------------------------------------------
+// Hyper-specific enrichment — action class, section gap, prior success, timing
+// ---------------------------------------------------------------------------
+
+import { classifyChangeDescription, inferMoveFromSignalType } from "./action-classifier";
+import { analyzeSectionGaps } from "./section-analyzer";
+
+function enrichWithSpecifics(
+  recs: BeaconRecommendation[],
+  opts: {
+    changelogEntries?: ChangelogEntry[];
+    changePatterns?: ChangePattern[];
+    changeOutcomes?: import("@/domains/attribution/change-outcome").ChangeOutcome[];
+    pageSnapshots?: PageSnapshot[];
+  },
+): void {
+  // Pre-classify all changelog entries for prior success lookup
+  const classifiedChanges = new Map<
+    string,
+    { actionClass: string; entry: ChangelogEntry }
+  >();
+  if (opts.changelogEntries) {
+    for (const entry of opts.changelogEntries) {
+      const classified = classifyChangeDescription(entry.change_description);
+      classifiedChanges.set(entry.id, {
+        actionClass: classified.actionClass,
+        entry,
+      });
+    }
+  }
+
+  for (const rec of recs) {
+    if (rec.priority < 0) continue;
+
+    // 1. Action classification
+    if (rec.sourceChangeId && classifiedChanges.has(rec.sourceChangeId)) {
+      const { actionClass, entry } = classifiedChanges.get(rec.sourceChangeId)!;
+      const classified = classifyChangeDescription(entry.change_description);
+      rec.specificMove = classified.label;
+      rec.actionClass = classified.actionClass;
+    } else if (rec.patternId && opts.changePatterns) {
+      const pattern = opts.changePatterns.find((p) => p.id === rec.patternId);
+      if (pattern) {
+        const inferred = inferMoveFromSignalType(
+          pattern.signal_type,
+          pattern.asset_type,
+        );
+        rec.specificMove = inferred.label;
+        rec.actionClass = inferred.actionClass;
+      }
+    }
+
+    // 2. Section gap targeting
+    if (rec.targetPageUrl && opts.pageSnapshots) {
+      const normRecUrl = rec.targetPageUrl
+        .replace(/\/+$/, "")
+        .toLowerCase();
+      const targetSnap = opts.pageSnapshots.find(
+        (s) => s.url.replace(/\/+$/, "").toLowerCase() === normRecUrl,
+      );
+      if (targetSnap) {
+        const gaps = analyzeSectionGaps(targetSnap, opts.pageSnapshots);
+        // Pick the gap that best matches the action class
+        const matchedGap =
+          gaps.find((g) => g.sectionLabel === rec.actionClass) ?? gaps[0];
+        if (matchedGap) {
+          rec.targetSection = matchedGap.insertAfter
+            ? `${matchedGap.displayName} (after "${matchedGap.insertAfter}")`
+            : matchedGap.displayName;
+        }
+      }
+    }
+
+    // 3. Prior success reference — diversified across pages
+    if (rec.actionClass && opts.changeOutcomes && opts.changeOutcomes.length > 0) {
+      const CONTENT_FAMILY = new Set([
+        "content_section", "general_content", "page_creation",
+        "hero_update", "subheading_update", "neighborhoods_section",
+      ]);
+      const isCompatibleAction = (a: string, b: string) =>
+        a === b || (CONTENT_FAMILY.has(a) && CONTENT_FAMILY.has(b));
+
+      // Collect ALL compatible successes, deduplicated by page
+      const successesByPage = new Map<
+        string,
+        { changeId: string; pagePath: string; description: string; citationDelta: number }
+      >();
+
+      for (const [changeId, classified] of classifiedChanges) {
+        if (!isCompatibleAction(classified.actionClass, rec.actionClass!)) continue;
+        const changePath = (classified.entry.url ?? "")
+          .replace(/^https?:\/\/[^/]+/, "")
+          .replace(/\/+$/, "")
+          .toLowerCase();
+        const recPath = (rec.targetPagePath ?? "")
+          .replace(/\/+$/, "")
+          .toLowerCase();
+        if (changePath === recPath) continue;
+
+        const outcome = opts.changeOutcomes.find(
+          (o) => o.change_id === changeId && o.direction === "improving",
+        );
+        if (!outcome || outcome.citation_delta_pct <= 0) continue;
+
+        const existing = successesByPage.get(changePath);
+        if (!existing || outcome.citation_delta_pct > existing.citationDelta) {
+          successesByPage.set(changePath, {
+            changeId,
+            pagePath: changePath || classified.entry.asset_name,
+            description: classified.entry.change_description.slice(0, 80),
+            citationDelta: outcome.citation_delta_pct,
+          });
+        }
+      }
+
+      const allSuccesses = [...successesByPage.values()]
+        .sort((a, b) => b.citationDelta - a.citationDelta);
+
+      if (allSuccesses.length > 0) {
+        // Use the median success (not the max outlier) for expectedMetric
+        const medianIdx = Math.floor(allSuccesses.length / 2);
+        const medianSuccess = allSuccesses[medianIdx];
+        const bestSuccess = allSuccesses[0];
+
+        rec.priorSuccess = {
+          ...bestSuccess,
+          // Annotate with evidence breadth
+          description: allSuccesses.length === 1
+            ? `${bestSuccess.description} (1 prior example — limited evidence)`
+            : `${bestSuccess.description} (${allSuccesses.length} prior examples)`,
+        };
+
+        // Use median delta for expectedMetric to avoid outlier overfit
+        if (allSuccesses.length >= 3) {
+          rec.expectedMetric = `+${Math.round(medianSuccess.citationDelta)}% citations (median of ${allSuccesses.length} similar changes, range ${Math.round(allSuccesses[allSuccesses.length - 1].citationDelta)}–${Math.round(bestSuccess.citationDelta)}%)`;
+        } else if (allSuccesses.length === 2) {
+          rec.expectedMetric = `+${Math.round((allSuccesses[0].citationDelta + allSuccesses[1].citationDelta) / 2)}% citations (avg of 2 prior examples)`;
+        } else {
+          rec.expectedMetric = `+${Math.round(bestSuccess.citationDelta)}% citations based on 1 prior example — treat as directional`;
+        }
+
+        // Reduce confidence when only 1 example
+        if (allSuccesses.length === 1 && rec.confidence === "high") {
+          rec.confidence = "medium";
+        }
+      }
+    }
+
+    // 4. Engine timing — match patternId against changePattern IDs
+    //    Mined pattern IDs use "pattern-city-page" format, change patterns use "content::city_page"
+    if (opts.changePatterns && opts.changePatterns.length > 0) {
+      let matchedPattern: typeof opts.changePatterns[0] | undefined;
+      if (rec.patternId) {
+        // Direct ID match first
+        matchedPattern = opts.changePatterns.find((p) => p.id === rec.patternId);
+        // Fallback: match via action class + asset type inference
+        if (!matchedPattern && rec.actionClass) {
+          const signalFamily: Record<string, string[]> = {
+            faq_addition: ["faq"], faq_expansion: ["faq"], faq_consolidation: ["faq", "technical"],
+            schema_addition: ["technical"], schema_update: ["technical"],
+            content_section: ["content"], general_content: ["content"], page_creation: ["content"],
+            hero_update: ["content"], comparison_table: ["content"],
+            title_update: ["technical"], meta_update: ["technical"],
+            internal_links: ["content", "technical"],
+          };
+          const signals = signalFamily[rec.actionClass] ?? ["content"];
+          const recPath = (rec.targetPagePath ?? "").toLowerCase();
+          const assetGuess = recPath.includes("/locations/") ? "city_page"
+            : recPath.includes("/services/") ? "service_page"
+            : recPath.includes("/explore-projects/") ? "project_page"
+            : "infrastructure";
+          for (const sig of signals) {
+            const candidate = opts.changePatterns.find((p) => p.signal_type === sig && p.asset_type === assetGuess);
+            if (candidate) { matchedPattern = candidate; break; }
+          }
+        }
+      }
+      const timing = matchedPattern?.engine_timing ?? [];
+      if (timing.length > 0) {
+        rec.engineTiming = timing.map((t) => ({
+          platform: t.platform,
+          medianDays: t.median_days,
+          sampleCount: t.sample_count,
+        }));
+      }
+      // Also set expectedMetric from pattern if not already set via prior success
+      if (!rec.expectedMetric && matchedPattern && matchedPattern.avg_citation_delta > 0) {
+        rec.expectedMetric = `+${matchedPattern.avg_citation_delta}% avg citation delta across ${matchedPattern.sample_count} similar changes`;
+      }
+    }
+
+    // 5. Expected metric (only if not already set by diversified prior success in step 3)
+    if (!rec.expectedMetric) {
+      if (rec.priorSuccess) {
+        rec.expectedMetric = `+${Math.round(rec.priorSuccess.citationDelta)}% citations based on prior result on ${rec.priorSuccess.pagePath}`;
+      } else if (rec.patternId && opts.changePatterns) {
+        const pattern = opts.changePatterns.find((p) => p.id === rec.patternId);
+        if (pattern && pattern.avg_citation_delta > 0) {
+          rec.expectedMetric = `+${pattern.avg_citation_delta}% avg citation delta across ${pattern.sample_count} similar changes`;
+        }
+      }
+    }
+
+    // 6. Upgrade headline with specific move
+    if (rec.specificMove && rec.targetPagePath) {
+      // Upgrade generic labels using real H2 text from successful pages
+      if (
+        (rec.specificMove === "Enhance content sections" ||
+          rec.specificMove === "Update content") &&
+        rec.targetSection
+      ) {
+        const sectionName = rec.targetSection.split(" (")[0].toLowerCase();
+        rec.specificMove = `Add ${sectionName}`;
+      }
+
+      // Try to derive a concrete section title from successful pages' H2s
+      if (rec.priorSuccess && opts.pageSnapshots) {
+        const successSnap = opts.pageSnapshots.find(
+          (s) =>
+            s.url
+              .replace(/^https?:\/\/[^/]+/, "")
+              .replace(/\/+$/, "")
+              .toLowerCase() === rec.priorSuccess!.pagePath,
+        );
+        if (successSnap && rec.targetSection) {
+          const gapLabel = rec.targetSection.split(" (")[0].toLowerCase();
+          // Find the matching H2 from the success page
+          const matchingH2 = successSnap.h2_list.find((h2) => {
+            const lower = h2.toLowerCase();
+            return (
+              lower.includes(gapLabel.replace(/\s+section$/, "")) ||
+              (gapLabel === "design-build overview" &&
+                lower.includes("design-build")) ||
+              (gapLabel === "comparison table" &&
+                (lower.includes("comparison") || lower.includes("vs"))) ||
+              (gapLabel === "cost breakdown" && lower.includes("cost")) ||
+              (gapLabel === "process overview" && lower.includes("process"))
+            );
+          });
+          if (matchingH2) {
+            // Replace city/location names in the H2 with the target page's context
+            const targetCity =
+              rec.targetPagePath
+                .split("/")
+                .filter(Boolean)
+                .pop()
+                ?.replace(/-/g, " ")
+                .replace(/\b\w/g, (c) => c.toUpperCase()) ?? "";
+            const successCity =
+              rec.priorSuccess.pagePath
+                .split("/")
+                .filter(Boolean)
+                .pop()
+                ?.replace(/-/g, " ")
+                .replace(/\b\w/g, (c) => c.toUpperCase()) ?? "";
+            if (targetCity && successCity && targetCity !== successCity) {
+              const adapted = matchingH2.replace(
+                new RegExp(successCity.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi"),
+                targetCity,
+              );
+              rec.specificMove = `Add "${adapted}"`;
+            } else {
+              rec.specificMove = `Add "${matchingH2}"`;
+            }
+          }
+        }
+      }
+
+      if (rec.targetSection) {
+        rec.headline = `${rec.specificMove} on ${rec.targetPagePath}`;
+      } else {
+        rec.headline = `${rec.specificMove} on ${rec.targetPagePath}`;
+      }
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------

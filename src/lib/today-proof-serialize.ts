@@ -6,11 +6,21 @@ export function recommendationLineageBullets(opts: {
   type: string;
   sourceChangeId: string | null;
   dataFreshness: string | null;
+  priorSuccess?: { changeId: string; pagePath: string; description: string; citationDelta: number } | null;
+  expectedMetric?: string | null;
 }): string[] {
   const lines: string[] = [
     `Evidence: ${opts.sourceEvidence}`,
     `Signal type: ${opts.type.replace(/_/g, " ")}`,
   ];
+  if (opts.priorSuccess) {
+    lines.push(
+      `This move worked on ${opts.priorSuccess.pagePath}: +${Math.round(opts.priorSuccess.citationDelta)}% citations`,
+    );
+  }
+  if (opts.expectedMetric) {
+    lines.push(`Expected: ${opts.expectedMetric}`);
+  }
   if (opts.sourceChangeId) {
     lines.push("Grounded in a scorecard change row when you act from Changes.");
   }

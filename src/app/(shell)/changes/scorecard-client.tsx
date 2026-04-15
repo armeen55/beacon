@@ -427,7 +427,12 @@ function ScorecardRowUI({ row, intel, coverageState }: { row: ScorecardRowWithIm
   return (
     <tr className={`border-b border-border last:border-b-0 hover:bg-surface-inset/50 transition-colors ${row.operatorConfirmedCount > 0 ? "bg-status-success/[0.03]" : ""}`}>
       <td className="px-2.5 py-2 text-muted-foreground tabular-nums whitespace-nowrap align-top text-[11px]">
-        {dateStr}
+        <span>{dateStr}</span>
+        {ch.source_system && (
+          <span className={`block text-[8px] mt-0.5 ${ch.source_system === "scan_promoted" ? "text-amber-500" : "text-muted-foreground/50"}`}>
+            {ch.source_system === "scan_promoted" ? "scan" : "imported"}
+          </span>
+        )}
       </td>
       <td className="px-2.5 py-2 align-top max-w-[300px]">
         <Link

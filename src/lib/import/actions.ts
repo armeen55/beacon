@@ -660,3 +660,46 @@ async function dualWriteImportedEntities(entityType: ImportEntityType) {
       break;
   }
 }
+
+// ---------------------------------------------------------------------------
+// On-demand attribution refresh — recompute outcomes + patterns from
+// existing changelog + daily metric snapshots without requiring re-import.
+// ---------------------------------------------------------------------------
+
+export async function refreshAttributionAction(): Promise<{
+  success: boolean;
+  outcomes: number;
+  patterns: number;
+  durationMs: number;
+}> {
+  const action = "refreshAttribution";
+  const t0 = Date.now();
+  log.info("Action started", { action });
+
+  try {
+    const { readStore: readStoreLocal } = await import("@/lib/persistence/json-store");
+    const { materializePerChangeOutcomes } = await import(
+      "@/domains/attribution/change-outcome"
+    );
+    const { materializeChangePatterns } = await import(
+      "@/domains/learning/change-patterns"
+    );
+    type DMS = import("@/domains/daily-metric-snapshots/types").DailyMetricSnapshot;
+
+    const snapshots = readStoreLocal<DMS>("daily-metric-snapshots");
+    const outcomes = await materializePerChangeOutcomes(
+      changelogEntries,
+      snapshots,
+    );
+    const patterns = await materializeChangePatterns(outcomes, changelogEntries);
+
+    revalidatePath("/changes", "layout");
+    const durationMs = Date.now() - t0;
+    log.info("Action completed", { action, durationMs, outcomes: outcomes.length, patterns: patterns.length });
+    return { success: true, outcomes: outcomes.length, patterns: patterns.length, durationMs };
+  } catch (err) {
+    const durationMs = Date.now() - t0;
+    log.error("Action failed", { action, durationMs, error: String(err) });
+    return { success: false, outcomes: 0, patterns: 0, durationMs };
+  }
+}

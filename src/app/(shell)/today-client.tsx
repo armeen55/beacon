@@ -74,6 +74,16 @@ export type TodayPrimaryAction = {
   lineageBullets?: string[];
   /** AI answer context — mention rate, positioning, trend for matched topic */
   answerContext?: string | null;
+  /** Specific action to take */
+  specificMove?: string | null;
+  /** Which page section to target */
+  targetSection?: string | null;
+  /** Prior change where this move worked */
+  priorSuccess?: { changeId: string; pagePath: string; description: string; citationDelta: number } | null;
+  /** Per-engine expected signal timing */
+  engineTiming?: { platform: string; medianDays: number; sampleCount: number }[] | null;
+  /** Concrete expected metric */
+  expectedMetric?: string | null;
 };
 
 export type TodayMilestoneTeaser = {

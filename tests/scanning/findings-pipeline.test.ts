@@ -226,7 +226,7 @@ describe("Findings pipeline — priority scoring", () => {
   });
 
   it("high-citation pages get priority boost", () => {
-    const citLookup = new Map([[URL.replace(/\/+$/, "").toLowerCase(), 150]]);
+    const citLookup = new Map([[URL.replace(/^https?:\/\/[^/]+/, "").replace(/\/+$/, "").toLowerCase(), 150]]);
     const findings = generateFindings({
       currentSnapshots: [after],
       previousSnapshots: [before],
@@ -255,7 +255,7 @@ describe("Findings pipeline — priority scoring", () => {
     });
 
     const rejectedTypes = new Set([
-      `title_changed::${URL.replace(/\/+$/, "").toLowerCase()}`,
+      `title_changed::${URL.replace(/^https?:\/\/[^/]+/, "").replace(/\/+$/, "").toLowerCase()}`,
     ]);
     const rejectedFindings = generateFindings({
       currentSnapshots: [after],

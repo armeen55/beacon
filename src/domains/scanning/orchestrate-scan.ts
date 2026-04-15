@@ -264,6 +264,36 @@ export async function runWebsiteScan(opts: {
     });
     log.info("Scan step", { runId, step: "regenerate_findings_done", findingsAdded });
 
+    // Phase 11: enrich findings with signal quality (best-effort)
+    try {
+      const { enrichFindingsWithSignalQuality } = await import("./findings-store");
+      const { readDotDataJson: readDotData } = await import("@/lib/persistence/dotdata-json");
+      const { dailyMetricSnapshots: dms } = await import("@/storage/canonical-store");
+      await enrichFindingsWithSignalQuality({
+        citationIndex: readDotData<import("@/domains/pages/types").CitationEvidenceIndex>("citation-evidence-index"),
+        snapshots: dms,
+      });
+      log.info("Scan step", { runId, step: "findings_enrichment_done" });
+    } catch (e) {
+      log.warn("Finding enrichment failed", {
+        runId,
+        error: e instanceof Error ? e.message : String(e),
+      });
+    }
+
+    // Phase 12: triage rule learning (best-effort, passive storage only)
+    try {
+      const { materializeTriageRules } = await import("@/domains/learning/triage-rules");
+      const { getFindings: getAllFindings } = await import("./findings-store");
+      await materializeTriageRules(getAllFindings());
+      log.info("Scan step", { runId, step: "triage_rules_done" });
+    } catch (e) {
+      log.warn("Triage rule learning failed", {
+        runId,
+        error: e instanceof Error ? e.message : String(e),
+      });
+    }
+
     // Dual-write scan outputs to Supabase (best-effort, errors logged)
     const syncSnaps =
       readDotDataJson<PageSnapshot[]>("page-snapshots") ?? [];

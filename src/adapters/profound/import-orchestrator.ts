@@ -84,6 +84,8 @@ export type ProfoundImportResult = {
     bridgedChanges: number;
     pagesDiscovered: number;
     citationRollups: number;
+    changeOutcomes?: number;
+    pageVisibilitySummaries?: number;
   };
   entityCandidates: EntityCandidate[];
   warnings: string[];
@@ -336,6 +338,64 @@ export async function runProfoundImport(
   refreshCitationEvidenceStore();
   refreshAnswerIntelligenceStore();
 
+  // Phase 11: materialize relationship stores (best-effort)
+  let changeOutcomeCount = 0;
+  let pageVisibilityCount = 0;
+  let materializedOutcomes: import("@/domains/attribution/change-outcome").ChangeOutcome[] = [];
+  try {
+    const { materializePerChangeOutcomes } = await import(
+      "@/domains/attribution/change-outcome"
+    );
+    materializedOutcomes = await materializePerChangeOutcomes(
+      importedChanges,
+      allSnapshots,
+    );
+    changeOutcomeCount = materializedOutcomes.length;
+  } catch (e) {
+    console.warn(
+      "[materialize] change-outcomes:",
+      e instanceof Error ? e.message : e,
+    );
+  }
+  try {
+    const { materializePageVisibility } = await import(
+      "@/domains/pages/page-visibility"
+    );
+    const summaries = await materializePageVisibility(
+      citationIndex,
+      allSnapshots,
+      materializedOutcomes,
+    );
+    pageVisibilityCount = summaries.length;
+  } catch (e) {
+    console.warn(
+      "[materialize] page-visibility:",
+      e instanceof Error ? e.message : e,
+    );
+  }
+
+  // Phase 12: learning loops (best-effort, passive storage only)
+  try {
+    const { materializeChangePatterns } = await import(
+      "@/domains/learning/change-patterns"
+    );
+    await materializeChangePatterns(materializedOutcomes, importedChanges);
+  } catch (e) {
+    console.warn("[learning] change-patterns:", e instanceof Error ? e.message : e);
+  }
+  try {
+    const { materializeConfidenceCalibration } = await import(
+      "@/domains/learning/confidence-calibration"
+    );
+    const { readStore: readLearningStore } = await import(
+      "@/lib/persistence/json-store"
+    );
+    const decisions = readLearningStore<{ id: string; primary_change_id: string | null; operator_confidence: string; cause_type: string }>("event-decisions");
+    await materializeConfidenceCalibration(decisions, materializedOutcomes);
+  } catch (e) {
+    console.warn("[learning] confidence-calibration:", e instanceof Error ? e.message : e);
+  }
+
   return {
     success: true,
     counts: {
@@ -351,6 +411,8 @@ export async function runProfoundImport(
       bridgedChanges: bridgeResult.changeCount,
       pagesDiscovered: pages.length,
       citationRollups: citationIndex.by_page_and_topic.length,
+      changeOutcomes: changeOutcomeCount,
+      pageVisibilitySummaries: pageVisibilityCount,
     },
     entityCandidates,
     warnings,

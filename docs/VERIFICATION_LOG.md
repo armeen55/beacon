@@ -7,6 +7,169 @@
 
 ---
 
+## 2026-04-15 — Operator Loop Fix: Persistence + Auto-Experiment + Rec Quality
+
+**Goal:** Fix the complete operator loop so confirmed changes persist, experiments auto-start, and recommendations are trustworthy.
+
+**Root causes found:**
+1. `createChangelogEntry` (changelog/actions.ts) pushed to in-memory array but NEVER wrote to disk or Supabase. Every manually logged change was ephemeral — lost on process restart.
+2. `syncChangelogEntries` in dual-write.ts caught all Supabase errors silently. When `DATA_SOURCE=supabase`, a failed write meant data appeared saved but vanished on restart.
+3. No auto-experiment creation on change confirmation. Required manual "Try as experiment" click.
+4. Experiment type only tracked citations — no mentions, visibility, timeline, or per-platform data.
+5. Recommendation engine: no dedup across types, hard suppression only on strengthen_structure, no learning pattern integration, no "why now" context.
+
+**Changes (7 files):**
+1. `src/domains/changelog/actions.ts` — Added `writeStore` + `syncChangelogEntries` persistence. Added auto-experiment creation via `startExperiment()` with baseline metrics. Added `lookupBaselineMetrics` helper. Used `absoluteUrlForPath` (no hardcoded domains).
+2. `src/lib/persistence/dual-write.ts` — `dualWriteUpsert` now re-throws on Supabase error when `DATA_SOURCE=supabase`. Silent failures become surfaced errors.
+3. `src/domains/product/experiment-store.ts` — Extended `Experiment` type with `baselineMentions`, `latestMentions`, `baselineVisibility`, `latestVisibility`, `trackedTopic`, `timeline: TimelineEntry[]`, `backfilled`, `backfillReason`. Added `TimelineEntry` type. Added `updateExperimentMetrics()` with combined status logic and timeline append. Legacy `updateExperimentCitations` delegates to new function.
+4. `src/app/(shell)/finding-actions.ts` — Added auto-experiment creation after finding→changelog promotion. Added `lookupBaselineMetricsForFinding` helper.
+5. `src/domains/product/experiment-citation-sync.ts` — Extended to track mentions + visibility from daily-metric-snapshots. Builds per-topic 7-day averages. Per-platform breakdown. Calls `updateExperimentMetrics` with all three metrics.
+6. `src/domains/product/recommendation-engine.ts` — Extended hard suppression to `improve_internal_links` and `cross_page_pattern`. Added extraction_certainty check to internal links + refresh content filters. Added `changePatterns` integration: pattern-backed confidence boost with success rate in rationale. Added "why now" temporal context (last change age). Added final dedup pass: one rec per target URL, others bundled as "Also consider."
+7. `src/app/(shell)/today-data.ts` — Wired `changePatterns` from `readStore("change-patterns")` into `computeRecommendations`.
+
+**Recovery:**
+- 10 accepted findings with `promotionStatus: "changelog"` linked to their existing April 14 changelog entries (all were "Removed duplicate FAQPage JSON-LD" changes)
+- 5 backfilled experiments created with `backfilled: true`, `backfillReason: "accepted_before_auto_experiment_fix"`
+- 0 new changelog entries needed — all matched to existing entries
+- Supabase findings updated with `linked_change_id`
+
+**Verified:**
+- `npm run typecheck` ✓
+- `npm run test` 507/507 ✓
+- 6 total experiments (1 original + 5 backfilled)
+- 317 changelog entries (unchanged — no new entries created)
+- 0 pending findings in both file and Supabase
+
+---
+
+## 2026-04-15 — State Reconciliation: Full Truth Layer Fix
+
+**Goal:** Make Beacon's product state trustworthy by fixing all truth-layer confusion between imported changelog, scan detections, and measured outcomes.
+
+**What was fixed:**
+1. **`detect-findings.ts` — auto-reconciliation** (lines 319-368): New post-detection step matches pending findings to existing changelog entries by URL+type. Findings that match imported changes are auto-accepted with `linkedChangeId` instead of sitting as unresolved pending items on Today. Matching uses `FINDING_TO_SIGNAL` map (title→technical, faq→faq/technical, schema→technical, content→content, etc).
+2. **`recommendation-engine.ts` — hard suppression** (lines 276-299): `strengthen_structure` recommendations now check changelog entries for same page. If any entry has `signal_type === "faq" | "technical"` or description includes "faq"/"schema"/"json-ld", the recommendation is skipped entirely (not just demoted). Deploy-check logic (lines 644-661) also expanded: uses `signal_type` field instead of just description keywords; matched recs are removed (`priority = -1`) instead of demoted.
+3. **`import-orchestrator.ts`** (line 346): Switched from `materializeChangeOutcomes` (per-topic dedup) to `materializePerChangeOutcomes` (per-change) so import pipeline produces learning-ready outcomes.
+4. **`scorecard-client.tsx`** — source provenance label: date column now shows "imported" or "scan" label based on `source_system` field, distinguishing imported history from scan-promoted entries.
+5. **Supabase findings cleaned**: All 30 pending findings in Supabase resolved (7 `unexpected_change` → rejected, 23 `faq_changed`/`schema_changed` → accepted). 0 pending in both file store and Supabase.
+6. **Fresh recomputation**: 237 per-change outcomes (up from 17), 27 patterns (13 high-confidence), April 13-14 data now feeding all computations.
+
+**What was causing the mismatch:**
+- `DATA_SOURCE=supabase` means the server reads from Supabase, not local files. Resolving findings in `.data/scan-findings.json` had no effect on what the server showed. Both stores needed updating.
+- Import orchestrator was calling the per-topic dedup materialization function, overwriting per-change outcomes on every import.
+- Recommendation engine had no awareness of changelog entries when generating structural suggestions — only checked current page snapshot state.
+- Scan findings had no mechanism to auto-link to existing changelog entries — every detection sat as "unresolved" requiring manual operator triage.
+
+**Before / After:**
+
+| Area | Before | After |
+|------|--------|-------|
+| Today banner | "23 changes detected" (false positives) | "Ready to scan" (clean) |
+| Pending findings | 30 in Supabase | 0 |
+| Outcomes materialized | 17 (per-topic dedup) | 237 (per-change) |
+| Learning patterns | 7 (1 high-confidence) | 27 (13 high-confidence) |
+| FAQ/schema recommendations | Fire for pages with logged changelog work | Hard-suppressed when changelog covers it |
+| Scan→changelog linking | Never worked (URL mismatch) | Auto-links by type+URL on detection |
+| Changes provenance | No distinction | "imported" / "scan" labels on each row |
+
+**Verified:**
+- `npm run typecheck` ✓
+- `npm run test` 507/507 ✓
+- Today: no false findings, shows "Ready to scan", attribution insights render correctly
+- Changes: 327 entries, 5 high-confidence patterns, 127 qualified outcomes, provenance labels visible
+- Supabase: 0 pending findings
+- No new changelog entries created
+- No new features added
+
+---
+
+## 2026-04-14 — System Audit: 3 Hard Bug Fixes
+
+**Goal:** Fix 3 root causes making Beacon operate on broken truth: URL normalization mismatch, guardrail oscillation spam, missing April 13-14 data.
+
+**Changes:**
+1. `src/domains/scanning/detect-findings.ts` — Fixed `norm()` to strip protocol+domain (`url.replace(/^https?:\/\/[^/]+/, "")`). Previously, changelog paths (`/custom-home-builder-bay-area`) never matched scan URLs (`https://ritzbuilders.com/custom-home-builder-bay-area`), making `unexpected_change` and `deploy_mismatch` cross-references permanently broken for all 207 path-only changelog entries.
+2. `src/domains/scanning/findings-store.ts` — Added `normUrl()` helper for consistent path normalization. Updated `getPreviouslyRejectedTypeKeys()`, `getSuppressedTypeKeys()`, `getFindingsForUrl()`, and `addFindings()` to use it. Added guardrail dedup: `new_guardrail` and `guardrail_cleared` findings for same type+URL replace pending entries instead of accumulating (fixes oscillation from JS-rendered content).
+3. Copied April 13-14 CSVs to `.data/` — 3 files from `/Users/armeen/Downloads/ProfoundExports/` (citations, raw data, summarized export). Daily metric snapshots previously ended at April 12.
+4. Resolved all 23 stale findings: 13 rejected (5 false-positive `unexpected_change` from URL bug, 3+6 render-mismatch oscillation noise), 10 accepted (5 `guardrail_cleared` for duplicate FAQ fix, 4 `new_guardrail` schema improvements, plus existing `faq_changed`/`schema_changed`).
+5. Updated `tests/scanning/findings-pipeline.test.ts` — citation lookup and rejected-type keys now use path-only normalized URLs matching the new `norm()` behavior.
+
+**Verified:**
+- `npm run typecheck` ✓
+- `npm run test` 507/507 ✓
+- 0 pending findings (was 23)
+- Status breakdown: 13 rejected, 20 accepted
+
+---
+
+## 2026-04-14 — Attribution Activation (Phases 1-3)
+
+**Goal:** Fix outcome materialization deduplication bottleneck, add per-change outcomes for learning system, surface learning patterns in UI.
+
+**Changes:**
+1. `src/domains/attribution/memory.ts` — Added city-aware topic matching (`extractCity` + `GEO_CONTAINMENT`), added `computeAllChangeInsights()` (no topic dedup)
+2. `src/domains/attribution/change-outcome.ts` — Added `materializePerChangeOutcomes()` for per-change learning
+3. `src/lib/import/actions.ts` — Added `refreshAttributionAction()` server action
+4. `src/app/(shell)/changes/page.tsx` — Added "Signal effectiveness — what's working" panel showing top 5 patterns
+
+**Verified:**
+- `npm run typecheck` ✓ · `npm run test` 507/507 ✓
+- 159 change outcomes (was 10)
+- 17 change patterns (was 4), 10 high-confidence
+- All 5 city topics have outcomes (Cupertino, Atherton, Menlo Park, Palo Alto, Los Altos)
+
+---
+
+## 2026-04-14 — PHASE 12: Learning System
+
+**Goal:** Implement 4 learning loops that detect patterns from materialized relationships. All passive — stored only, no UI changes.
+
+**Changes:**
+1. Created Supabase tables: `change_patterns`, `triage_rules`, `confidence_calibration` + `response_profile` column on `page_visibility`
+2. Created `src/domains/learning/change-patterns.ts` — groups change_outcomes by signal_type × asset_type, computes success rates with noise guards (days_after >= 7, observations_after >= 10)
+3. Created `src/domains/learning/triage-rules.ts` — analyzes resolved findings by type × citation_bucket, computes acceptance/rejection rates, generates recommendations (auto_accept/suppress/boost/none)
+4. Created `src/domains/learning/confidence-calibration.ts` — compares operator attribution_decisions against algorithmic change_outcomes, bounded ±5% threshold adjustment
+5. Updated `src/domains/pages/page-visibility.ts` — enriches PageVisibilitySummary with response_profile (changes_applied, responsive_to, avg_citation_delta) for pages with ≥2 matching outcomes
+
+**Verification:**
+- `npm run typecheck` ✓
+- `npm run test` 507/507 ✓
+- Change patterns: 4 patterns (content::infrastructure 100% @ 3 samples/medium confidence, 3 others low confidence)
+- Triage rules: 4 rules (faq_changed and schema_changed both 100% acceptance, all low confidence due to <5 samples)
+- Confidence calibration: correctly returned null (insufficient data — need 10+ high-confidence decisions, currently 28 decisions but most without primary_change_id links to outcomes)
+- All learning stores are passive — no UI changes, no route changes
+
+---
+
+## 2026-04-14 — PHASE 11: Relationship Materialization
+
+**Goal:** Store explicit relationships between changes, pages, and outcomes as durable data — not recomputed on every read.
+
+**Changes:**
+1. Created Supabase tables: `change_outcomes`, `page_visibility` + added `metric_movement_detected`, `signal_strength` columns to `scan_findings`
+2. Created `src/domains/attribution/change-outcome.ts` — `ChangeOutcome` type + `materializeChangeOutcomes()` that wraps existing `computeMemoryInsights()` and persists before/after metric deltas per changelog entry
+3. Created `src/domains/pages/page-visibility.ts` — `PageVisibilitySummary` type + `materializePageVisibility()` that aggregates citation_evidence_index per owned page with trend direction
+4. Added `metricMovementDetected` and `signalStrength` optional fields to Finding type + `enrichFindingsWithSignalQuality()` function
+5. Added `syncChangeOutcomes()` and `syncPageVisibility()` to dual-write + updated `mapFindingToRow()` with new columns
+6. Wired materialization into import pipeline (import-orchestrator.ts, best-effort after index builds)
+7. Wired enrichment into scan pipeline (orchestrate-scan.ts, best-effort after regenerateScanFindings)
+8. Updated bootstrap + backfill scripts for new tables
+
+**Verification:**
+- `npm run typecheck` ✓
+- `npm run test` 507/507 ✓
+- Today page renders: "CHANGES ARE WORKING", Today's actions, no errors ✓
+- Pages route renders: TRACKED, CITED, SCANNED sections ✓
+- Changes route renders: 95 changes, visibility signal ✓
+- Materialized stores populated: 10 change outcomes, 13 page visibility summaries ✓
+- Finding enrichment: 33/33 findings enriched (signalStrength 35-85, metricMovementDetected computed) ✓
+- Backfill to Supabase: change_outcomes 10 ✓, page_visibility 13 ✓
+- No route behavior changed — materialized stores are additional data for learning systems
+
+**Supabase table count:** 25 tables
+
+---
+
 ## 2026-04-14 — PHASE 10: Portability & Recovery
 
 **Goal:** Beacon fully reconstructs itself from Supabase alone — no `.data/` directory required.

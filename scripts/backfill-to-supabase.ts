@@ -319,6 +319,23 @@ async function backfill() {
     console.log("  answer_texts: missing or invalid — skip");
   }
 
+  // ── Phase 11 stores ──
+  console.log("\nPhase 11 stores:");
+  total += await upsertRows("change_outcomes", readJsonArray("change-outcomes"), "id");
+  total += await upsertRows("page_visibility", readJsonArray("page-visibility"), "id");
+
+  // ── Phase 12 stores ──
+  console.log("\nPhase 12 stores:");
+  total += await upsertRows("change_patterns", readJsonArray("change-patterns"), "id");
+  total += await upsertRows("triage_rules", readJsonArray("triage-rules"), "id");
+
+  const calibrationData = readJsonArray("confidence-calibration");
+  if (calibrationData.length > 0) {
+    total += await upsertRows("confidence_calibration", calibrationData, "id");
+  } else {
+    console.log("  confidence_calibration: 0 rows on disk — skip");
+  }
+
   console.log(`\nDone. ${total} total rows processed.`);
 }
 

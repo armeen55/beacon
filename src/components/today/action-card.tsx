@@ -26,6 +26,12 @@ export type ActionCardAction = {
   sourceChangeId?: string | null;
   lineageBullets?: string[];
   answerContext?: string | null;
+  specificMove?: string | null;
+  actionClass?: string | null;
+  targetSection?: string | null;
+  priorSuccess?: { changeId: string; pagePath: string; description: string; citationDelta: number } | null;
+  engineTiming?: { platform: string; medianDays: number; sampleCount: number }[] | null;
+  expectedMetric?: string | null;
 };
 
 export type ActionCardProps = {
@@ -113,7 +119,41 @@ export function ActionCard({
         {action.headline}
       </p>
 
-      {/* Rationale — one paragraph, not three sections */}
+      {/* Prior success + expected metric chips */}
+      {(action.priorSuccess || action.expectedMetric || action.engineTiming) && (
+        <div className="flex flex-wrap gap-1.5 mt-2">
+          {action.priorSuccess && (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-status-success/10 text-[10px] font-medium text-status-success">
+              Worked on {action.priorSuccess.pagePath}: +{Math.round(action.priorSuccess.citationDelta)}%
+            </span>
+          )}
+          {action.expectedMetric && !action.priorSuccess && (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-accent-primary/10 text-[10px] font-medium text-accent-primary">
+              {action.expectedMetric}
+            </span>
+          )}
+          {action.engineTiming && action.engineTiming.length > 0 && (() => {
+            const sorted = [...action.engineTiming].sort((a, b) => a.medianDays - b.medianDays);
+            const allSame = sorted.every(t => t.medianDays === sorted[0].medianDays);
+            if (allSame && sorted.length > 1) {
+              const lo = Math.max(sorted[0].medianDays - 14, 7);
+              const hi = sorted[0].medianDays + 5;
+              return (
+                <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-surface-inset/50 text-[9px] text-muted-foreground/60">
+                  Signal: {lo}–{hi} days
+                </span>
+              );
+            }
+            return sorted.map(t => (
+              <span key={t.platform} className="inline-flex items-center px-1.5 py-0.5 rounded bg-surface-inset/50 text-[9px] text-muted-foreground/60">
+                {t.platform} ~{t.medianDays}d
+              </span>
+            ));
+          })()}
+        </div>
+      )}
+
+      {/* Rationale */}
       <p className={cn(
         "text-muted-foreground leading-relaxed mt-2",
         isPrimary ? "text-[13px]" : "text-[12px]",

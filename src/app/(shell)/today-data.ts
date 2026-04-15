@@ -18,6 +18,7 @@ import { discoverCandidates } from "@/domains/attribution/candidates";
 import { triageCandidates } from "@/domains/attribution/triage";
 import { partitionResultsByMode } from "@/domains/attribution/result-mode";
 import { allPages } from "@/domains/pages/page-store";
+import { readStore } from "@/lib/persistence/json-store";
 import { getRepository } from "@/lib/persistence/repositories";
 import { citationEvidenceIndex } from "@/domains/pages/citation-evidence-store";
 import {
@@ -500,6 +501,14 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
     meaningfulDecayCount,
   });
 
+  const changePatterns = readStore<import("@/domains/learning/change-patterns").ChangePattern>("change-patterns");
+  const changeOutcomes = readStore<import("@/domains/attribution/change-outcome").ChangeOutcome>("change-outcomes");
+  const { getActiveExperiments: getExps } = await import("@/domains/product/experiment-store");
+  const activeExperimentUrls = new Set(
+    getExps()
+      .filter((e) => e.targetPagePath)
+      .map((e) => e.targetPagePath!.replace(/\/+$/, "").toLowerCase()),
+  );
   const allRecommendations = computeRecommendations({
     impactRows,
     patterns,
@@ -511,6 +520,9 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
     decayResults,
     answerIntelligence: answerIntelligenceIndex,
     changelogEntries,
+    changePatterns,
+    activeExperimentUrls,
+    changeOutcomes,
   });
 
   // Filter out dismissed / deferred-but-not-due recommendations
@@ -637,6 +649,31 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
 
   function buildWatchAfter(rec: typeof primaryAction): string {
     if (!rec) return "";
+    // Dynamic timing from engine_timing when available
+    const timing = rec.engineTiming;
+    if (timing && timing.length > 0) {
+      const sorted = timing.sort(
+        (a: { medianDays: number }, b: { medianDays: number }) => a.medianDays - b.medianDays,
+      );
+      const allSame = sorted.every(
+        (t: { medianDays: number }) => t.medianDays === sorted[0].medianDays,
+      );
+      if (allSame && sorted.length > 1) {
+        // All platforms show same timing — present as range using earliest/latest from pattern data
+        const earliest = Math.min(
+          ...sorted.map((t: { medianDays: number }) => Math.max(t.medianDays - 14, 7)),
+        );
+        const latest = Math.max(
+          ...sorted.map((t: { medianDays: number }) => t.medianDays + 5),
+        );
+        return `Expected signal: ${earliest}–${latest} days depending on platform (${sorted[0].sampleCount} observations).`;
+      }
+      const parts = sorted.map(
+        (t: { platform: string; medianDays: number; sampleCount: number }) =>
+          `${t.platform}: ~${t.medianDays}d`,
+      );
+      return `Expected signal: ${parts.join(", ")}. Monitor after acting.`;
+    }
     if (rec.type === "investigate") return "Watch for further visibility changes on the affected topics. If decline stabilizes, the cause may be external.";
     if (rec.type === "strengthen") return "After updating the changelog entry, check if attribution events auto-resolve.";
     if (rec.type === "strengthen_structure") return "After adding structure, monitor citation counts for this page over 1-2 import cycles.";
@@ -662,6 +699,8 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
         type: primaryAction.type,
         sourceChangeId: primaryAction.sourceChangeId,
         dataFreshness,
+        priorSuccess: primaryAction.priorSuccess ?? null,
+        expectedMetric: primaryAction.expectedMetric ?? null,
       })
     : [];
 
@@ -690,6 +729,12 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
         sourceChangeId: primaryAction.sourceChangeId,
         lineageBullets: primaryLineage,
         answerContext: primaryAction.answerContext ?? null,
+        specificMove: primaryAction.specificMove ?? null,
+        actionClass: primaryAction.actionClass ?? null,
+        targetSection: primaryAction.targetSection ?? null,
+        priorSuccess: primaryAction.priorSuccess ?? null,
+        engineTiming: primaryAction.engineTiming ?? null,
+        expectedMetric: primaryAction.expectedMetric ?? null,
       }
     : null;
 
@@ -723,8 +768,16 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
           type: secondaryRec.type,
           sourceChangeId: secondaryRec.sourceChangeId,
           dataFreshness,
+          priorSuccess: secondaryRec.priorSuccess ?? null,
+          expectedMetric: secondaryRec.expectedMetric ?? null,
         }),
         answerContext: secondaryRec.answerContext ?? null,
+        specificMove: secondaryRec.specificMove ?? null,
+        actionClass: secondaryRec.actionClass ?? null,
+        targetSection: secondaryRec.targetSection ?? null,
+        priorSuccess: secondaryRec.priorSuccess ?? null,
+        engineTiming: secondaryRec.engineTiming ?? null,
+        expectedMetric: secondaryRec.expectedMetric ?? null,
       }
     : null;
 

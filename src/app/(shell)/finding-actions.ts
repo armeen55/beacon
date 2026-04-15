@@ -187,9 +187,56 @@ export async function confirmFindingAsChange(
     linkedChangeId: changeId,
   });
 
+  // 5. Auto-create experiment to track this change's impact
+  try {
+    const { startExperiment, persistExperiments } = await import(
+      "@/domains/product/experiment-store"
+    );
+    const baseline = await lookupBaselineMetricsForFinding(finding.url, signalType);
+    startExperiment({
+      recId: changeId,
+      headline: entry.asset_name,
+      recType: `scan_${signalType}`,
+      targetPageUrl: finding.url,
+      targetPagePath: pagePath,
+      watchAfter: "Check after 7 days",
+      operatorNote: finding.summary,
+      baselineCitations: baseline.citations,
+      baselineMentions: baseline.mentions,
+      baselineVisibility: baseline.visibility,
+      trackedTopic: entry.topic_targeted || null,
+    });
+    await persistExperiments();
+  } catch (e) {
+    console.warn("[auto-experiment] creation failed:", e);
+  }
+
   revalidatePath("/", "layout");
   log.info("Action completed", { action, durationMs: Date.now() - t0, changeId });
   return { success: true, changeId };
+}
+
+async function lookupBaselineMetricsForFinding(
+  url: string,
+  _signalType: string,
+): Promise<{ citations: number; mentions: number; visibility: number }> {
+  try {
+    const { citationEvidenceIndex } = await import(
+      "@/domains/pages/citation-evidence-store"
+    );
+    let citations = 0;
+    if (citationEvidenceIndex && url) {
+      const normPath = url.replace(/^https?:\/\/[^/]+/, "").replace(/\/+$/, "").toLowerCase();
+      for (const r of citationEvidenceIndex.by_page_and_topic) {
+        if (!r.is_owned) continue;
+        const rPath = r.page_url.replace(/\/+$/, "").toLowerCase().replace(/^https?:\/\/[^/]+/, "");
+        if (rPath === normPath) citations += r.total_citations;
+      }
+    }
+    return { citations, mentions: 0, visibility: 0 };
+  } catch {
+    return { citations: 0, mentions: 0, visibility: 0 };
+  }
 }
 
 export async function saveScanSettings(

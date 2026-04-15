@@ -40,12 +40,20 @@ export async function dualWriteUpsert(
         console.error(
           `[dual-write] ${table}: upsert chunk ${i}-${i + chunk.length} failed — ${error.message}`,
         );
+        // When Supabase is the canonical read source, a silent write failure
+        // causes data loss on restart. Surface the error so callers can handle it.
+        if (process.env.DATA_SOURCE === "supabase") {
+          throw new Error(`[dual-write] ${table}: ${error.message}`);
+        }
       }
     }
   } catch (e) {
     console.error(
       `[dual-write] ${table}: unexpected error — ${e instanceof Error ? e.message : e}`,
     );
+    if (process.env.DATA_SOURCE === "supabase") {
+      throw e;
+    }
   }
 }
 
@@ -87,6 +95,11 @@ import type { DailyMetricSnapshot } from "@/domains/daily-metric-snapshots/types
 import type { PromptAnswerObservation } from "@/domains/prompt-answer-observations/types";
 import type { TrackedPrompt } from "@/domains/tracked-prompts/types";
 import type { TrackedEntity } from "@/domains/tracked-entities/types";
+import type { ChangeOutcome } from "@/domains/attribution/change-outcome";
+import type { PageVisibilitySummary } from "@/domains/pages/page-visibility";
+import type { ChangePattern } from "@/domains/learning/change-patterns";
+import type { TriageRule } from "@/domains/learning/triage-rules";
+import type { ConfidenceCalibration } from "@/domains/learning/confidence-calibration";
 
 type AnyRow = Record<string, unknown>;
 
@@ -369,6 +382,8 @@ function mapFindingToRow(f: Finding): AnyRow {
     citation_count: f.citationCount,
     is_homepage: f.isHomepage,
     contradicts_changelog: f.contradictsChangelog,
+    metric_movement_detected: f.metricMovementDetected ?? null,
+    signal_strength: f.signalStrength ?? null,
   };
 }
 
@@ -480,6 +495,44 @@ export async function syncAnswerTexts(
       `[dual-write] answer_texts: unexpected error — ${e instanceof Error ? e.message : e}`,
     );
   }
+}
+
+// ── Materialized relationship stores (Phase 11) ──
+
+export async function syncChangeOutcomes(
+  rows: ChangeOutcome[],
+): Promise<void> {
+  await dualWriteUpsert("change_outcomes", rows as unknown as AnyRow[], "id");
+}
+
+export async function syncPageVisibility(
+  rows: PageVisibilitySummary[],
+): Promise<void> {
+  await dualWriteUpsert("page_visibility", rows as unknown as AnyRow[], "id");
+}
+
+// ── Learning stores sync (Phase 12) ──
+
+export async function syncChangePatterns(
+  rows: ChangePattern[],
+): Promise<void> {
+  await dualWriteUpsert("change_patterns", rows as unknown as AnyRow[], "id");
+}
+
+export async function syncTriageRules(
+  rows: TriageRule[],
+): Promise<void> {
+  await dualWriteUpsert("triage_rules", rows as unknown as AnyRow[], "id");
+}
+
+export async function syncConfidenceCalibration(
+  calibration: ConfidenceCalibration,
+): Promise<void> {
+  await dualWriteUpsert(
+    "confidence_calibration",
+    [calibration] as unknown as AnyRow[],
+    "id",
+  );
 }
 
 /**
