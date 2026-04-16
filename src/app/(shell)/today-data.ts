@@ -510,6 +510,11 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
       .filter((e) => e.targetPagePath)
       .map((e) => e.targetPagePath!.replace(/\/+$/, "").toLowerCase()),
   );
+  // Build query keyword index from fan-out data — unlocks 5,289 real search
+  // queries for keyword optimization recs AND morning brief step generation.
+  const { promptAnswerObservations } = await import("@/storage/canonical-store");
+  const queryIndex = buildQueryKeywordIndex(citationEvidenceIndex, promptAnswerObservations);
+
   const allRecommendations = computeRecommendations({
     impactRows,
     patterns,
@@ -525,6 +530,7 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
     activeExperimentUrls,
     changeOutcomes,
     sectionAnalyzerConfig: getSectionAnalyzerConfig(),
+    queryIndex,
   });
 
   // Filter out dismissed / deferred-but-not-due recommendations
@@ -605,10 +611,7 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
   const competitorMonState = getCompetitorMonitoringState();
   const competitorAlerts = generateCompetitorAlerts(competitorMonState.recentChanges);
 
-  // Build query keyword index from fan-out data — unlocks 5,289 real
-  // search queries for use in title rewrites, FAQ generation, H2
-  // suggestions, anchor text, and section skeletons.
-  const queryIndex = buildQueryKeywordIndex(citationEvidenceIndex);
+  // queryIndex already built above — used in both rec engine and morning brief.
 
   const morningBrief: MorningBriefData = buildMorningBrief({
     primaryAction,

@@ -13,7 +13,9 @@ import type { CitationEvidenceIndex } from "@/domains/pages/types";
 import type { CitationDecayResult } from "@/domains/attribution/decay-types";
 import type { AnswerIntelligenceIndex } from "@/domains/answer-intelligence/types";
 import type { ChangePattern } from "@/domains/learning/change-patterns";
+import type { QueryKeywordIndex } from "@/domains/answer-intelligence/query-index";
 import { absoluteUrlForPath } from "@/lib/site-config";
+import { scanKeywordOptimizations, keywordFindingsToRecs } from "./keyword-optimizer";
 
 export type RecommendationType =
   | "replicate"
@@ -25,7 +27,8 @@ export type RecommendationType =
   | "competitive_displacement"
   | "cross_page_pattern"
   | "topic_cluster_gap"
-  | "refresh_stale_citation";
+  | "refresh_stale_citation"
+  | "keyword_optimization";
 
 export type BeaconRecommendation = {
   id: string;
@@ -61,7 +64,91 @@ export type BeaconRecommendation = {
   expectedMetric?: string | null;
   /** Secondary recs bundled during dedup — shown separately, not in rationale */
   alsoConsider?: string[];
+  /** Full section gaps from analyzer — for step generation specificity */
+  sectionGaps?: { label: string; display: string; pct: number; insertAfter: string | null }[];
+  /** Competitor context for displacement recs */
+  competitorContext?: {
+    competitorDomain: string;
+    competitorCitations: number;
+    ownedCitations: number;
+    topic: string;
+    /** What the competitor has that we don't (from co-citation analysis) */
+    competitorAdvantage?: string;
+  } | null;
+  /** Observed AI query text for this topic (from answer intelligence prompts) */
+  observedQueries?: string[];
+  /**
+   * Which platforms this recommendation primarily impacts.
+   * Based on observed correlations in data, not universal AEO claims.
+   * - "google_aio": structural/schema changes, comparison tables
+   * - "chatgpt": FAQ schema, clean markup, structural content
+   * - "perplexity": source breadth, authority (experimental — sparse signal)
+   */
+  targetPlatforms?: ("google_aio" | "chatgpt" | "perplexity")[];
 };
+
+// ---------------------------------------------------------------------------
+// Platform targeting — maps rec types to observed platform behavior
+// ---------------------------------------------------------------------------
+
+type TargetPlatform = "google_aio" | "chatgpt" | "perplexity";
+
+/**
+ * Assign target platforms based on observed data behavior.
+ * Based on Ritz Builders 40-day dataset:
+ * - Sitewide FAQ schema deployment (Apr 10-12) → ChatGPT cite rate 22% → 62% in 3 days
+ * - Sitewide structural content (SSG prerender, Apr 2) → all platforms moved
+ * - Google AIO dominates baseline citations (67% cite rate, always highest)
+ * - Perplexity is sparse (0.5% cite rate) — excluded unless rec explicitly targets it
+ */
+function assignPlatforms(recType: RecommendationType, actionClass?: string | null): TargetPlatform[] {
+  // FAQ schema work — strongest ChatGPT correlation in data
+  if (actionClass === "faq_addition" || actionClass === "faq_expansion" || actionClass === "faq_consolidation") {
+    return ["chatgpt", "google_aio"];
+  }
+  // Comparison tables — heavily crawled, correlated with Google AIO citation growth
+  if (actionClass === "comparison_table") {
+    return ["google_aio"];
+  }
+  // Schema additions — broad AEO lever, both major platforms
+  if (actionClass === "schema_addition" || actionClass === "schema_update") {
+    return ["chatgpt", "google_aio"];
+  }
+
+  switch (recType) {
+    case "strengthen_structure":
+      // Structural gaps impact Google AIO primarily, ChatGPT secondarily
+      return ["google_aio", "chatgpt"];
+    case "competitive_displacement":
+      // Topic-level competition is platform-agnostic within Google + ChatGPT
+      return ["google_aio", "chatgpt"];
+    case "refresh_content":
+    case "refresh_stale_citation":
+      // Content freshness — all platforms but Google AIO strongest in data
+      return ["google_aio", "chatgpt"];
+    case "keyword_optimization":
+      // Title/H1/H2 keyword alignment — both major platforms index these
+      return ["chatgpt", "google_aio"];
+    case "improve_internal_links":
+      // Authority signals — Google AIO weights link graphs
+      return ["google_aio"];
+    case "topic_cluster_gap":
+      // New topic coverage — broad reach
+      return ["google_aio", "chatgpt"];
+    case "replicate":
+    case "cross_page_pattern":
+      // Inherits from source pattern — default to Google + ChatGPT
+      return ["google_aio", "chatgpt"];
+    case "investigate":
+      // Regressions affect whichever platform moved — unknown without detail
+      return ["google_aio", "chatgpt"];
+    case "strengthen":
+      // Metadata cleanup — low platform signal
+      return ["google_aio"];
+    default:
+      return ["google_aio"];
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Pattern matching: link a proven change to a structural pattern
@@ -122,6 +209,9 @@ export function computeRecommendations(opts: {
   changePatterns?: ChangePattern[];
   activeExperimentUrls?: Set<string>;
   changeOutcomes?: import("@/domains/attribution/change-outcome").ChangeOutcome[];
+  sectionAnalyzerConfig?: SectionAnalyzerConfig;
+  /** Fan-out query index for keyword optimization recs. */
+  queryIndex?: QueryKeywordIndex;
 }): BeaconRecommendation[] {
   const recs: BeaconRecommendation[] = [];
 
@@ -284,6 +374,168 @@ export function computeRecommendations(opts: {
       patternId: null,
       citationOpportunity: 0,
     });
+  }
+
+  // ── FAQ without schema: pages with visible FAQ but no FAQPage JSON-LD ──
+  //    Highest-leverage structural fix. FAQ schema coverage is the proven
+  //    ChatGPT visibility driver (22% → 62% cite rate in 3 days after sitewide deploy).
+  //    Priority: above all other structural recommendations.
+
+  if (opts.pageSnapshots && opts.citationCountMap) {
+    // --- A: Full gap — visible FAQ but NO FAQPage schema at all ---
+    const faqSchemaGaps = opts.pageSnapshots.filter((snap) => {
+      if (snap.extraction_certainty === "uncertain") return false;
+      const hasFaq = snap.faqs.length > 0;
+      const hasFaqSchema = snap.schema_types.some((s) => s.toLowerCase().includes("faq"));
+      if (!hasFaq || hasFaqSchema) return false;
+      // Citation gate: only recommend for pages with citations OR homepage
+      const normUrl = snap.url.replace(/\/+$/, "").toLowerCase();
+      const cit = opts.citationCountMap!.get(normUrl) ?? 0;
+      const isHomepage = normUrl === "" || normUrl === "/" || snap.url.replace(/^https?:\/\/[^/]+\/?$/, "") === "";
+      return cit >= 1 || isHomepage;
+    });
+
+    for (const snap of faqSchemaGaps) {
+      const normUrl = snap.url.replace(/\/+$/, "").toLowerCase();
+      const cit = opts.citationCountMap.get(normUrl) ?? 0;
+      const faqCount = snap.faqs.length;
+      const snapPath = snap.url.replace(/^https?:\/\/[^/]+/, "");
+
+      recs.push({
+        id: `rec-faq-schema-${snap.page_id}`,
+        type: "strengthen_structure",
+        headline: `Add FAQ schema to ${snapPath}`,
+        rationale: `${faqCount} FAQ questions visible on this page but no FAQPage JSON-LD schema. Adding schema makes these answers extractable by AI platforms. Beacon tracks direction, not cause.`,
+        sourceEvidence: `${faqCount} visible FAQs, 0 FAQPage schema blocks`,
+        targetPageUrl: snap.url,
+        targetPagePath: snapPath,
+        sourceChangeId: null,
+        confidence: cit >= 50 ? "high" : cit >= 10 ? "medium" : "low",
+        // Priority: below investigate (800+events*100) but above strengthen_structure (600+cit)
+        // Capped so that investigate with 1+ events (900+) always wins
+        priority: Math.min(850 + Math.min(cit, 200), 899),
+        patternId: null,
+        citationOpportunity: cit,
+        // Data-proven: sitewide FAQ schema deployment (Apr 10-12) drove ChatGPT
+        // cite rate from 22% to 62% in 3 days. Also correlates with Google AIO.
+        targetPlatforms: ["chatgpt", "google_aio"],
+      });
+    }
+
+    // --- B: Partial gap — FAQPage schema exists but covers fewer questions than visible ---
+    for (const snap of opts.pageSnapshots) {
+      if (snap.extraction_certainty === "uncertain") continue;
+      const visibleCount = snap.faqs.length;
+      if (visibleCount === 0) continue;
+      const hasFaqSchema = snap.schema_types.some((s) => s.toLowerCase().includes("faq"));
+      if (!hasFaqSchema) continue; // Full gap handled above
+      const schemaCount = snap.faq_schema_block_count ?? 1;
+      // Heuristic: if faq_schema_block_count exists and is 1, we can't know
+      // exactly how many questions are in the schema vs on page from snapshot data alone.
+      // But if there are multiple schema blocks, that's a duplication issue (already handled).
+      // For partial gap: compare visible FAQ count against a reasonable threshold.
+      // If the page has 8+ visible FAQs but schema was likely added with fewer,
+      // this is a partial schema gap. We can only flag this reliably when
+      // the scan data includes per-question schema counts (future enhancement).
+      // For now, skip partial detection — it requires richer snapshot data.
+      void schemaCount;
+      void visibleCount;
+    }
+
+    // --- C: Comparison table gap — city/service pages with citations but no table ---
+    //     Comparison tables are heavily crawled by AI bots and correlate with
+    //     higher citation rates across all city pages in the Ritz dataset.
+    //     Only fires for city, service, and homepage page types.
+    const COMPARISON_PAGE_TYPES = ["/locations/", "/services/"];
+    for (const snap of opts.pageSnapshots) {
+      if (snap.extraction_certainty === "uncertain") continue;
+      const normUrl = snap.url.replace(/\/+$/, "").toLowerCase();
+      const snapPath = snap.url.replace(/^https?:\/\/[^/]+/, "").toLowerCase();
+      const cit = opts.citationCountMap.get(normUrl) ?? 0;
+      if (cit < 5) continue; // Only for pages with meaningful citations
+
+      // Page type gate: only city/service/homepage
+      const isRelevantType = COMPARISON_PAGE_TYPES.some((p) => snapPath.includes(p))
+        || snapPath === "/" || snapPath === "";
+      if (!isRelevantType) continue;
+
+      // Check if page has a table (via table_count if available, or fall back to
+      // checking if the page already has a rec with comparison_table action class)
+      const tableCount = snap.table_count ?? 0;
+      if (tableCount > 0) continue; // Already has a table
+
+      // Also skip if sectionGaps will be populated later and include comparison —
+      // the enrichment pass will add comparison to the strengthen_structure rec.
+      // This dedicated rec only fires when the page has NO comparison theme detected
+      // in its H2 structure (the section analyzer would detect it if present).
+
+      // Check competitor data for this page's topic
+      const pageTopics = opts.citationIndex?.page_to_topics?.[normUrl] ?? [];
+      const primaryTopic = pageTopics[0] ?? null;
+      let competitorNames: string[] = [];
+      if (primaryTopic && opts.answerIntelligence?.co_citation?.by_topic) {
+        const topicCoCit = opts.answerIntelligence.co_citation.by_topic.find(
+          (t) => t.topic.toLowerCase() === primaryTopic.toLowerCase(),
+        );
+        if (topicCoCit) {
+          competitorNames = [
+            ...topicCoCit.top_when_present.slice(0, 2).map((d) => d.domain),
+            ...topicCoCit.top_when_absent.slice(0, 2).map((d) => d.domain),
+          ].filter((v, i, a) => a.indexOf(v) === i).slice(0, 4);
+        }
+      }
+      if (competitorNames.length === 0 && primaryTopic && opts.answerIntelligence) {
+        const bp = opts.answerIntelligence.brand_positioning.find(
+          (b) => b.topic.toLowerCase() === primaryTopic.toLowerCase(),
+        );
+        if (bp) {
+          competitorNames = bp.top_co_appearing_competitors
+            .slice(0, 4)
+            .map((c) => c.domain);
+        }
+      }
+
+      const competitorNote = competitorNames.length > 0
+        ? ` Include: ${competitorNames.join(", ")}, and your business.`
+        : "";
+
+      recs.push({
+        id: `rec-comparison-${snap.page_id}`,
+        type: "strengthen_structure",
+        headline: `Add comparison table to ${snap.url.replace(/^https?:\/\/[^/]+/, "")}`,
+        rationale: `City/service pages with comparison tables show higher citation rates in your data. This page has ${cit} citations but no structured comparison.${competitorNote} Beacon tracks direction, not cause.`,
+        sourceEvidence: `${cit} citations, no comparison table detected`,
+        targetPageUrl: snap.url,
+        targetPagePath: snap.url.replace(/^https?:\/\/[^/]+/, ""),
+        sourceChangeId: null,
+        confidence: cit >= 50 ? "high" : "medium",
+        // Between FAQ schema (850-899) and generic strengthen (600+cit)
+        priority: Math.min(750 + Math.min(cit, 100), 849),
+        patternId: null,
+        citationOpportunity: cit,
+        actionClass: "comparison_table",
+        // Tables are heavily crawled by AI bots; correlate with Google AIO
+        // citation growth across Ritz city pages.
+        targetPlatforms: ["google_aio"],
+      });
+    }
+  }
+
+  // ── Keyword optimization: title/H1/H2 rewrites from query data ──
+  //    Scans ALL pages for keyword mismatches between headings and fan-out
+  //    queries. Each rec is ONE atomic change on ONE page.
+  //    Priority: 900-999 (above FAQ schema, above comparison table)
+
+  if (opts.pageSnapshots && opts.citationCountMap && opts.queryIndex) {
+    const keywordFindings = scanKeywordOptimizations({
+      pageSnapshots: opts.pageSnapshots,
+      citationCountMap: opts.citationCountMap,
+      queryIndex: opts.queryIndex,
+      citationIndex: opts.citationIndex ?? null,
+      experimentUrls: opts.activeExperimentUrls,
+    });
+    const keywordRecs = keywordFindingsToRecs(keywordFindings, 10);
+    recs.push(...keywordRecs);
   }
 
   // ── Strengthen structure: cited pages missing FAQ or schema ──
@@ -464,6 +716,14 @@ export function computeRecommendations(opts: {
         .replace(/^Shield: /, "")
         .replace(/ \(Bay Area\)$/, "");
 
+      // Find top competitor domain for this topic from co-citation data
+      const topicCoCit = opts.answerIntelligence?.co_citation?.by_topic?.find(
+        (t2) => t2.topic.toLowerCase() === topic.topic.toLowerCase(),
+      );
+      const topCompetitorDomain = topicCoCit?.top_when_absent?.[0]?.domain
+        ?? topicCoCit?.top_when_present?.[0]?.domain
+        ?? null;
+
       recs.push({
         id: `rec-displace-${topic.topic.replace(/[^a-z0-9]/gi, "-").slice(0, 40)}`,
         type: "competitive_displacement",
@@ -479,6 +739,12 @@ export function computeRecommendations(opts: {
         priority: Math.min(599, 500 + Math.round(Math.log2(topic.competitor_citations - topic.owned_citations + 1) * 10)),
         patternId: null,
         citationOpportunity: topic.competitor_citations - topic.owned_citations,
+        competitorContext: {
+          competitorDomain: topCompetitorDomain ?? "competitors",
+          competitorCitations: topic.competitor_citations,
+          ownedCitations: topic.owned_citations,
+          topic: shortTopic,
+        },
       });
     }
   }
@@ -777,6 +1043,13 @@ export function computeRecommendations(opts: {
   enrichWithSpecifics(recs, opts);
   // (enrichment pass populated specificMove, targetSection, priorSuccess, engineTiming, expectedMetric)
 
+  // ── Platform targeting: assign target platforms based on rec type + action class ──
+  for (const rec of recs) {
+    if (!rec.targetPlatforms || rec.targetPlatforms.length === 0) {
+      rec.targetPlatforms = assignPlatforms(rec.type, rec.actionClass);
+    }
+  }
+
   // ── Cross-reference changelog: if a change was logged for the same page +
   // same type of work, adjust the recommendation to flag it as a deploy check ──
   if (opts.changelogEntries && opts.changelogEntries.length > 0) {
@@ -953,10 +1226,17 @@ export function computeRecommendations(opts: {
       deduped.push(r);
       continue;
     }
-    const key = r.targetPageUrl
+    // Keyword optimization recs use a type-specific dedup key so they
+    // survive alongside structural recs for the same page. A page can
+    // have both "add a section" AND "change the title" as separate
+    // atomic actions — they shouldn't merge.
+    const urlPath = r.targetPageUrl
       .replace(/^https?:\/\/[^/]+/, "")
       .replace(/\/+$/, "")
       .toLowerCase();
+    const key = r.type === "keyword_optimization"
+      ? `kw:${urlPath}:${r.actionClass ?? ""}`
+      : urlPath;
     const existingIdx = seen.get(key);
     if (existingIdx === undefined) {
       seen.set(key, deduped.length);
@@ -980,7 +1260,7 @@ export function computeRecommendations(opts: {
 // ---------------------------------------------------------------------------
 
 import { classifyChangeDescription, inferMoveFromSignalType } from "./action-classifier";
-import { analyzeSectionGaps } from "./section-analyzer";
+import { analyzeSectionGaps, type SectionAnalyzerConfig } from "./section-analyzer";
 
 function enrichWithSpecifics(
   recs: BeaconRecommendation[],
@@ -989,6 +1269,9 @@ function enrichWithSpecifics(
     changePatterns?: ChangePattern[];
     changeOutcomes?: import("@/domains/attribution/change-outcome").ChangeOutcome[];
     pageSnapshots?: PageSnapshot[];
+    sectionAnalyzerConfig?: SectionAnalyzerConfig;
+    answerIntelligence?: AnswerIntelligenceIndex | null;
+    citationIndex?: CitationEvidenceIndex | null;
   },
 ): void {
   // Pre-classify all changelog entries for prior success lookup
@@ -1036,8 +1319,17 @@ function enrichWithSpecifics(
         (s) => s.url.replace(/\/+$/, "").toLowerCase() === normRecUrl,
       );
       if (targetSnap) {
-        const gaps = analyzeSectionGaps(targetSnap, opts.pageSnapshots);
-        // Pick the gap that best matches the action class
+        const gaps = analyzeSectionGaps(targetSnap, opts.pageSnapshots, opts.sectionAnalyzerConfig);
+        // Store full gaps for step generation specificity
+        if (gaps.length > 0) {
+          rec.sectionGaps = gaps.map((g) => ({
+            label: g.sectionLabel,
+            display: g.displayName,
+            pct: g.presentOnPct,
+            insertAfter: g.insertAfter,
+          }));
+        }
+        // Pick the gap that best matches the action class for the headline
         const matchedGap =
           gaps.find((g) => g.sectionLabel === rec.actionClass) ?? gaps[0];
         if (matchedGap) {
@@ -1178,7 +1470,25 @@ function enrichWithSpecifics(
       }
     }
 
-    // 6. Upgrade headline with specific move
+    // 6. Observed AI queries for this topic — feeds FAQ specificity
+    if (opts.answerIntelligence && rec.targetPageUrl) {
+      const pageUrl = rec.targetPageUrl.replace(/\/+$/, "").toLowerCase();
+      const topics = opts.citationIndex?.page_to_topics?.[pageUrl] ?? [];
+      if (topics.length > 0) {
+        const primaryTopic = topics[0];
+        const bp = opts.answerIntelligence.brand_positioning.find(
+          (b) => b.topic.toLowerCase() === primaryTopic.toLowerCase(),
+        );
+        if (bp && bp.brand_descriptors.length > 0) {
+          // Extract how AI describes the brand for this topic
+          rec.observedQueries = bp.brand_descriptors
+            .slice(0, 3)
+            .map((d) => d.fragment);
+        }
+      }
+    }
+
+    // 7. Upgrade headline with specific move
     if (rec.specificMove && rec.targetPagePath) {
       // Upgrade generic labels using real H2 text from successful pages
       if (

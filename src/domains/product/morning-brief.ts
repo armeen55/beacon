@@ -297,6 +297,8 @@ function rewriteHeadline(action: PrioritizedAction): string {
       return action.headline; // Playbook brief titles are already good
     case "cross_page_pattern":
       return action.headline;
+    case "keyword_optimization":
+      return action.headline; // Already specific: "Change title tag on /path"
     default:
       return action.headline;
   }
@@ -335,6 +337,9 @@ function rewriteRationale(action: PrioritizedAction): string {
       return `AI visibility on this page may have shifted recently. Check if anything changed before taking action.`;
     case "cross_page_pattern":
       return `A pattern observed on your other pages can be applied here too. Replicating patterns with positive trends may increase AI citations. Beacon tracks direction, not cause.`;
+    case "keyword_optimization":
+      // Rationale already contains the exact before/after + query evidence
+      return action.rationale;
     default:
       return action.rationale;
   }
@@ -775,6 +780,13 @@ function generateSteps(
         const gapSteps = generateReplicateSteps(action, ai, citIndex, faqTemplates, pageSnapshots, queryIndex);
         steps.push(...gapSteps);
       }
+      break;
+    }
+
+    case "keyword_optimization": {
+      // The rationale already contains the exact before/after text.
+      // Use it directly as the step — it's already paste-ready.
+      steps.push(action.rationale);
       break;
     }
 
