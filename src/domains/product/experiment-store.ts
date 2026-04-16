@@ -179,8 +179,24 @@ export const MIN_DELTA_PCT = 5;
 /** Must see direction sustained across this many timeline entries. */
 export const MIN_SUSTAINED_POINTS = 3;
 
-/** Don't change status from "watching" before this many days. */
+/** Don't change status from "watching" before this many days for FULL verdict. */
 export const MIN_DAYS_FOR_VERDICT = 7;
+
+/**
+ * Wave-based check-in thresholds (in days).
+ * Instead of one binary gate at 7 days, the experiment progresses
+ * through waves so the operator gets feedback sooner:
+ *
+ *   Wave 1 (3 days): "early_signal" — any delta ≥3% in consistent direction
+ *   Wave 2 (5 days): "signal_building" — delta ≥5% AND 2+ sustained points
+ *   Wave 3 (7 days): full verdict — standard MIN_DELTA_PCT + MIN_SUSTAINED_POINTS
+ *   Wave 4 (14 days): "confirmed" or "no_movement" — high-confidence outcome
+ *   Wave 5 (21 days): "inconclusive" if still flat
+ */
+const EARLY_SIGNAL_DAYS = 3;
+const EARLY_SIGNAL_MIN_DELTA = 3; // Lower bar for early signal
+const BUILDING_SIGNAL_DAYS = 5;
+const CONFIRMED_DAYS = 14;
 
 /** After this many days with no clear signal, mark inconclusive. */
 const INCONCLUSIVE_DAYS = 21;
@@ -287,43 +303,74 @@ export function updateExperimentMetrics(
     });
   }
 
-  // --- Status determination with noise floor ---
+  // --- Wave-based status determination ---
+  // Check-in at 3d, 5d, 7d, 14d, 21d — not one binary gate at 7d.
+  // Each wave gives the operator earlier feedback.
 
-  // Too early: don't change status before MIN_DAYS_FOR_VERDICT
-  if (daysSinceStart < MIN_DAYS_FOR_VERDICT) {
-    exp.status = "watching";
-  }
-  // Positive: citation delta above noise floor AND sustained direction
-  else if (
-    citDeltaPct >= MIN_DELTA_PCT &&
-    sustainedDirection(exp.timeline, "up", MIN_SUSTAINED_POINTS)
-  ) {
-    exp.status = "promising";
-  }
-  // Negative: citation delta below negative noise floor AND sustained
-  else if (
-    citDeltaPct <= -MIN_DELTA_PCT &&
-    sustainedDirection(exp.timeline, "down", MIN_SUSTAINED_POINTS)
-  ) {
-    exp.status = "negative";
-  }
-  // Mention-only positive (secondary signal, requires higher bar)
-  else if (
-    menDeltaPct >= MIN_DELTA_PCT * 2 &&
-    citDeltaPct > -MIN_DELTA_PCT &&
-    sustainedDirection(exp.timeline, "up", MIN_SUSTAINED_POINTS)
-  ) {
-    exp.status = "promising";
-  }
-  // Inconclusive: enough time passed, delta below noise floor
-  else if (
-    daysSinceStart > INCONCLUSIVE_DAYS &&
-    Math.abs(citDeltaPct) < MIN_DELTA_PCT
-  ) {
-    exp.status = "inconclusive";
-  }
-  // Default: keep watching
-  else {
+  if (daysSinceStart >= CONFIRMED_DAYS) {
+    // Wave 4 (14+ days): high-confidence verdict
+    if (
+      citDeltaPct >= MIN_DELTA_PCT &&
+      sustainedDirection(exp.timeline, "up", MIN_SUSTAINED_POINTS)
+    ) {
+      exp.status = "promising"; // Could upgrade to "confirmed" in future
+    } else if (
+      citDeltaPct <= -MIN_DELTA_PCT &&
+      sustainedDirection(exp.timeline, "down", MIN_SUSTAINED_POINTS)
+    ) {
+      exp.status = "negative";
+    } else if (daysSinceStart > INCONCLUSIVE_DAYS && Math.abs(citDeltaPct) < MIN_DELTA_PCT) {
+      exp.status = "inconclusive";
+    } else {
+      exp.status = "watching";
+    }
+  } else if (daysSinceStart >= MIN_DAYS_FOR_VERDICT) {
+    // Wave 3 (7-13 days): standard verdict
+    if (
+      citDeltaPct >= MIN_DELTA_PCT &&
+      sustainedDirection(exp.timeline, "up", MIN_SUSTAINED_POINTS)
+    ) {
+      exp.status = "promising";
+    } else if (
+      citDeltaPct <= -MIN_DELTA_PCT &&
+      sustainedDirection(exp.timeline, "down", MIN_SUSTAINED_POINTS)
+    ) {
+      exp.status = "negative";
+    } else if (
+      menDeltaPct >= MIN_DELTA_PCT * 2 &&
+      citDeltaPct > -MIN_DELTA_PCT &&
+      sustainedDirection(exp.timeline, "up", MIN_SUSTAINED_POINTS)
+    ) {
+      exp.status = "promising";
+    } else {
+      exp.status = "watching";
+    }
+  } else if (daysSinceStart >= BUILDING_SIGNAL_DAYS) {
+    // Wave 2 (5-6 days): signal building — standard delta + 2 sustained
+    if (
+      citDeltaPct >= MIN_DELTA_PCT &&
+      sustainedDirection(exp.timeline, "up", 2)
+    ) {
+      exp.status = "promising";
+    } else if (
+      citDeltaPct <= -MIN_DELTA_PCT &&
+      sustainedDirection(exp.timeline, "down", 2)
+    ) {
+      exp.status = "negative";
+    } else {
+      exp.status = "watching";
+    }
+  } else if (daysSinceStart >= EARLY_SIGNAL_DAYS) {
+    // Wave 1 (3-4 days): early signal — lower bar, any consistent direction
+    if (citDeltaPct >= EARLY_SIGNAL_MIN_DELTA) {
+      exp.status = "promising";
+    } else if (citDeltaPct <= -EARLY_SIGNAL_MIN_DELTA) {
+      exp.status = "negative";
+    } else {
+      exp.status = "watching";
+    }
+  } else {
+    // Days 0-2: too early for any signal
     exp.status = "watching";
   }
 
