@@ -223,6 +223,7 @@ export function parseProfoundExecutions(
       metadata: {
         search_queries: row.search_queries ?? "",
       },
+      tenant_id: "",
     });
   }
 

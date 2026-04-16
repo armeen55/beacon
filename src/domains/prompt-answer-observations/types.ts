@@ -15,4 +15,6 @@ export type PromptAnswerObservation = {
   platform: string;
   topic: string;
   metadata: Record<string, unknown>;
+  /** Owning tenant. */
+  tenant_id: string;
 };

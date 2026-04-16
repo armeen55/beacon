@@ -61,6 +61,7 @@ describe("rebuildProfoundImportRuns", () => {
         platform: "ChatGPT",
         topic: "t",
         metadata: {},
+        tenant_id: "tenant-test",
       },
       {
         id: "o2",
@@ -79,6 +80,7 @@ describe("rebuildProfoundImportRuns", () => {
         platform: "ChatGPT",
         topic: "t",
         metadata: {},
+        tenant_id: "tenant-test",
       },
     ];
     const runs = rebuildProfoundImportRuns(obs, "acct", "batch-1");
