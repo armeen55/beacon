@@ -7,7 +7,8 @@
  * from reused primitives (memory.ts, change-outcomes, change-patterns,
  * observation runs, triage.ts) — see E1 plan.
  *
- * Internal-truth-first page. Rough UI, rigorous logic.
+ * Founder-only diagnostic — reads the visibility-events engine with
+ * real tenant data. Not customer-facing (customer shell is at /audit).
  */
 
 import { PageHeader } from "@/components/data/page-header";

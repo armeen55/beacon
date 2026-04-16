@@ -1,5 +1,7 @@
 # Beacon — Start Here
 
+> **Active plan:** `/Users/armeen/.claude/plans/jazzy-tumbling-stroustrup.md` — the CX0-CX11 MAX implementation plan. Reference spec: Part 14 of `/Users/armeen/.claude/plans/rippling-munching-pnueli.md`.
+
 > **PURPOSE:** This is the entry point for anyone (human or AI) working on Beacon.
 > Read this file first. It tells you what Beacon is, where everything stands, what works, what's broken, and where to go next.
 >
