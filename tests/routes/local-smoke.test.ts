@@ -71,6 +71,7 @@ describe("Local presence route smoke", () => {
       skipped_count: 0,
       errors: [],
       warnings: [],
+      tenant_id: "tenant-test",
     };
     await writeStore("import-runs", [run]);
 
@@ -112,6 +113,7 @@ describe("Local presence route smoke", () => {
       skipped_count: 0,
       errors: [],
       warnings: [],
+      tenant_id: "tenant-test",
     };
     await writeStore("import-runs", [run]);
 

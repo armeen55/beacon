@@ -23,4 +23,6 @@ export type DailyMetricSnapshot = {
   avg_position: number | null;
   total_possible: number | null;
   metadata: Record<string, unknown>;
+  /** Owning tenant. */
+  tenant_id: string;
 };

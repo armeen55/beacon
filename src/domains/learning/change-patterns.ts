@@ -17,6 +17,7 @@ import { syncChangePatterns } from "@/lib/persistence/dual-write";
 // Type
 // ---------------------------------------------------------------------------
 
+/** Intentionally no tenant_id — this is a global aggregate across all tenants. CX4 replaces with GlobalPattern. */
 export type ChangePattern = {
   id: string; // `${signal_type}::${asset_type}`
   signal_type: string;

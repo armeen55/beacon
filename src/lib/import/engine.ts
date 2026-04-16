@@ -103,6 +103,7 @@ export function mapResultRow(
       visibilityObservationRunId ??
       row.visibility_observation_run_id?.trim() ??
       null,
+    tenant_id: "",
   };
 
   return { entity: result, errors, warnings };
@@ -176,6 +177,7 @@ export function mapChangeRow(
     updated_at: row.updated_at || now(),
     source_system: source,
     import_batch_id: batchId,
+    tenant_id: "",
   };
 
   return { entity: entry, errors, warnings };
@@ -253,6 +255,7 @@ export function mapOpportunityRow(
     updated_at: row.updated_at || now(),
     source_system: source,
     import_batch_id: batchId,
+    tenant_id: "",
   };
 
   return { entity: opp, errors, warnings };
@@ -287,6 +290,7 @@ export function mapCompetitorRow(
     source_system: source,
     import_batch_id: batchId,
     source_of_truth: "imported_entity",
+    tenant_id: "",
   };
 
   return { entity: comp, errors, warnings };

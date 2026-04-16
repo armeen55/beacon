@@ -155,6 +155,7 @@ export function buildDerivedSnapshots(
         total_citations_all_sources: acc.citation_count,
         cited_count: acc.cited,
       },
+      tenant_id: "",
     });
   }
 

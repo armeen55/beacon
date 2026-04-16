@@ -73,6 +73,7 @@ export function buildAnswerIntelligenceIndex(opts: {
     co_citation: coCitation,
     narrative_shifts: narrativeShifts,
     topic_platform_summary: topicPlatformSummary,
+    tenant_id: "",
   };
 }
 

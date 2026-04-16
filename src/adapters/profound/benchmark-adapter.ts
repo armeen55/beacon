@@ -200,6 +200,7 @@ export function parseProfoundBenchmark(
         rank: row.rank,
         asset,
       },
+      tenant_id: "",
     });
   }
 

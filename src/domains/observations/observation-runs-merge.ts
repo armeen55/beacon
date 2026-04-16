@@ -37,6 +37,7 @@ export function readObservationRunsMergedSync(): ObservationRun[] {
         scope_label: "Owned pages from sitemap scan (legacy row)",
         parser_version: undefined,
         baseline_run_id: null,
+        tenant_id: "",
       });
     }
   }

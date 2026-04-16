@@ -99,6 +99,7 @@ async function main() {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       notes: `Auto-backfilled from ${entry.id}: ${name}`,
+      tenant_id: "",
     };
 
     contracts.push(contract);

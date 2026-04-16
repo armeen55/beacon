@@ -19,6 +19,8 @@ export type ImportRun = {
   skipped_count: number;
   errors: string[];
   warnings: string[];
+  /** Owning tenant. */
+  tenant_id: string;
 };
 
 export type ImportPreview = {

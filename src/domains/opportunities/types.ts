@@ -50,4 +50,6 @@ export type Opportunity = {
   updated_at: string;
   source_system?: string;
   import_batch_id?: string;
+  /** Owning tenant. */
+  tenant_id: string;
 };

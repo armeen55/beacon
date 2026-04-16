@@ -42,6 +42,7 @@ function snap(
     avg_position: null,
     total_possible: null,
     metadata: {},
+    tenant_id: "tenant-test",
   };
 }
 
@@ -70,6 +71,7 @@ function change(
     notes: null,
     created_at: `${timestamp}T12:00:00Z`,
     updated_at: `${timestamp}T12:00:00Z`,
+    tenant_id: "tenant-test",
   };
 }
 

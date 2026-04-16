@@ -52,6 +52,8 @@ export type ChangeOutcome = {
     }
   >;
   computed_at: string;
+  /** Owning tenant. */
+  tenant_id: string;
 };
 
 // ---------------------------------------------------------------------------
@@ -115,6 +117,7 @@ function insightToOutcome(insight: MemoryInsight): ChangeOutcome {
     observations_after: insight.metricsAfter.totalObservations,
     platform_deltas: platformDeltas,
     computed_at: new Date().toISOString(),
+    tenant_id: "",
   };
 }
 

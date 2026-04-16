@@ -52,6 +52,7 @@ function makeRun(
     critical_count: 0,
     regression_count: 0,
     improvement_count: 0,
+    tenant_id: "tenant-test",
   };
 }
 

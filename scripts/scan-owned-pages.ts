@@ -546,6 +546,7 @@ async function main() {
             detail: r.mismatches
               .map((m) => `${m.field}: raw="${m.raw}" vs rendered="${m.rendered}"`)
               .join("; "),
+            tenant_id: "",
           });
         }
       }
@@ -619,6 +620,7 @@ async function main() {
     parser_version: OBSERVATION_RUN_PARSER_VERSION,
     baseline_run_id: baselineRunId,
     ...cliUniversePin,
+    tenant_id: "",
   };
   appendObservationRun(observationRun);
   console.log(`Appended observation run to .data/observation-runs.json (${observationRunId})`);

@@ -17,6 +17,7 @@ import { syncConfidenceCalibration } from "@/lib/persistence/dual-write";
 // Type
 // ---------------------------------------------------------------------------
 
+/** Intentionally no tenant_id — this is a global aggregate across all tenants. CX4 replaces with GlobalPattern. */
 export type ConfidenceCalibration = {
   id: string; // always "current" (singleton)
   total_compared: number;

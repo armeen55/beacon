@@ -13,7 +13,8 @@ export type FindingType =
   | "unexpected_change"
   | "page_added"
   | "page_removed"
-  | "stale_visibility";
+  | "stale_visibility"
+  | "faq_without_schema";
 
 export type FindingStatus =
   | "pending"
@@ -55,6 +56,8 @@ export type Finding = {
   metricMovementDetected?: boolean;
   /** Phase 11: composite signal strength 0-100 */
   signalStrength?: number;
+  /** Owning tenant. */
+  tenant_id: string;
 };
 
 export type ScanSettings = {
@@ -87,6 +90,7 @@ export const FINDING_TYPE_LABELS: Record<FindingType, string> = {
   page_added: "Page added",
   page_removed: "Page removed",
   stale_visibility: "Visibility data stale",
+  faq_without_schema: "FAQ visible, no schema",
 };
 
 export const FINDING_SEVERITY_LABELS: Record<FindingSeverity, string> = {

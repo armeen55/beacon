@@ -18,6 +18,8 @@ export type GuardrailAlert = {
   detail: string;
   /** Present when alert was emitted during a crawl that recorded an observation run. */
   observation_run_id?: string;
+  /** Owning tenant. */
+  tenant_id: string;
 };
 
 export function classifyGuardrails(
@@ -26,7 +28,7 @@ export function classifyGuardrails(
   citationCount?: number
 ): GuardrailAlert[] {
   const alerts: GuardrailAlert[] = [];
-  const base = { page_id: snapshot.page_id, url: snapshot.url };
+  const base = { page_id: snapshot.page_id, url: snapshot.url, tenant_id: "" };
 
   // ── Critical: indexability issues ──
 

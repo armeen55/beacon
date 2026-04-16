@@ -48,6 +48,8 @@ export type ObservationRun = ObservationArtifactCounts & {
   competitor_universe_scope?: "configured_file" | "demo_defaults" | "empty" | null;
   /** `pinned` when stamped at write time; omit or `legacy_unpinned` for older rows. */
   competitor_universe_pin_status?: "pinned" | "legacy_unpinned";
+  /** Owning tenant. */
+  tenant_id: string;
 };
 
 export const OBSERVATION_RUN_PARSER_VERSION = "page-snapshot-v1";

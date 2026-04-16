@@ -130,6 +130,8 @@ export type ChangeContract = {
   createdAt: string;
   updatedAt: string;
   notes: string | null;
+  /** Owning tenant. */
+  tenant_id: string;
 };
 
 // ── Verification ──

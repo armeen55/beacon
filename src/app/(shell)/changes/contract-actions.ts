@@ -366,6 +366,7 @@ export async function createChangeContract(
     createdAt: now,
     updatedAt: now,
     notes: input.notes ?? null,
+    tenant_id: "",
   };
 
   changeContracts.push(contract);

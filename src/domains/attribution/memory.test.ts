@@ -30,6 +30,7 @@ function makeChange(overrides: Partial<ChangelogEntry> = {}): ChangelogEntry {
     notes: null,
     created_at: "2026-03-01T12:00:00Z",
     updated_at: "2026-03-01T12:00:00Z",
+    tenant_id: "tenant-test",
     ...overrides,
   };
 }
@@ -53,6 +54,7 @@ function makeSnapshot(
     avg_position: null,
     total_possible: null,
     metadata: {},
+    tenant_id: "tenant-test",
     ...overrides,
   };
 }
@@ -638,7 +640,8 @@ describe("computeMemoryInsights", () => {
     });
 
     expect(result.length).toBe(1);
-    expect(result[0].headline).toContain("days ago");
+    expect(result[0].headline).toContain("past");
+    expect(result[0].headline).toContain("days");
     expect(result[0].headline).toContain("/services/kitchen-remodel");
     expect(result[0].headline).toContain("up");
     expect(result[0].headline).toContain("mentions");

@@ -108,6 +108,7 @@ describe("mergeChangelogEntries", () => {
       updated_at: "2026-01-01",
       source_system: "x",
       import_batch_id: "b",
+      tenant_id: "tenant-test",
     };
     const merged = mergeChangelogEntries([a], [a]);
     expect(merged).toHaveLength(1);

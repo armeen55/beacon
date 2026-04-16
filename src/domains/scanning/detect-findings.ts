@@ -244,6 +244,35 @@ export function generateFindings(opts: {
     }
   }
 
+  // FAQ without schema: pages with visible FAQ content but no matching FAQPage JSON-LD
+  // This is the single highest-leverage finding — FAQ schema coverage drives ChatGPT citations
+  for (const curr of currentSnapshots) {
+    const hasFaq = (curr.faqs?.length ?? 0) > 0;
+    const hasSchema = curr.schema_types.some((s) => s.toLowerCase().includes("faq"));
+    const certainty = curr.extraction_certainty ?? "confident";
+
+    if (hasFaq && !hasSchema && certainty !== "uncertain") {
+      const key = norm(curr.url);
+      const citations = citationsByUrl?.get(key) ?? 0;
+      const isHP = homepageUrl ? key === norm(homepageUrl) : false;
+      const faqCount = curr.faqs?.length ?? 0;
+      // Severity scales with citation importance — zero-citation pages get "medium" not "high"
+      const sev = (citations >= 1 || isHP) ? "high" as const : "medium" as const;
+      findings.push(makeFinding({
+        type: "faq_without_schema",
+        url: curr.url,
+        scanRunId,
+        now,
+        previousState: `${faqCount} visible FAQ questions on page`,
+        currentState: "No FAQPage JSON-LD schema detected",
+        severity: sev,
+        summary: `${pathOf(curr.url)}: ${faqCount} FAQ questions visible but no FAQPage schema`,
+        suggestedAction: `Add FAQPage JSON-LD matching the ${faqCount} visible FAQ questions`,
+        citationCount: citations, isHomepage: isHP,
+      }));
+    }
+  }
+
   // Deploy mismatch: shipped changelog entries whose expected structural change is missing
   const thirtyDaysAgo = Date.now() - 30 * 86_400_000;
   for (const entry of changelog) {
@@ -420,6 +449,7 @@ function makeFinding(opts: {
     citationCount,
     isHomepage,
     contradictsChangelog,
+    tenant_id: "",
   };
 }
 
@@ -447,6 +477,7 @@ function computePriorityScore(opts: {
 
   const HIGH_IMPACT_TYPES: FindingType[] = [
     "deploy_mismatch", "title_changed", "canonical_changed", "unexpected_change",
+    "faq_without_schema",
   ];
   const MEDIUM_IMPACT_TYPES: FindingType[] = [
     "meta_changed", "h1_changed", "schema_changed", "faq_changed",

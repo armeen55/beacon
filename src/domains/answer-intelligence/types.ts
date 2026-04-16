@@ -29,6 +29,8 @@ export type AnswerIntelligenceIndex = {
 
   /** Pre-computed lookup: topic → platform → latest rates + trend. */
   topic_platform_summary: Record<string, Record<string, TopicPlatformSummary>>;
+  /** Owning tenant. */
+  tenant_id: string;
 };
 
 // ── Section 1: Brand positioning ────────────────────────────────────

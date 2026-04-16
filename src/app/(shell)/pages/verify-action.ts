@@ -164,6 +164,7 @@ export async function verifyPageFix(url: string): Promise<VerifyResult> {
       pages_with_errors: newSnapshot.http_status !== 200 ? 1 : 0,
       ...buckets,
       ...universeFieldsForObservationPersistence(),
+      tenant_id: "",
     };
     appendObservationRunSync(verifyRun);
 

@@ -65,6 +65,7 @@ export async function createChangelogEntry(
     notes: null,
     created_at: timestamp,
     updated_at: timestamp,
+    tenant_id: "",
   };
 
   changelogEntries.push(entry);

@@ -174,6 +174,7 @@ export async function confirmFindingAsChange(
     created_at: timestamp,
     updated_at: timestamp,
     source_system: "scan_detection",
+    tenant_id: "",
   };
 
   // 3. Persist: add to in-memory array + write to disk + Supabase

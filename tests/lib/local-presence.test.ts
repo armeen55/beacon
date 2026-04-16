@@ -170,6 +170,7 @@ describe("getLocalPresenceSnapshot + connector last_synced_at", () => {
       skipped_count: 0,
       errors: [],
       warnings: [],
+      tenant_id: "tenant-test",
     };
     const newer: ImportRun = {
       id: "r-new",
@@ -183,6 +184,7 @@ describe("getLocalPresenceSnapshot + connector last_synced_at", () => {
       skipped_count: 0,
       errors: [],
       warnings: [],
+      tenant_id: "tenant-test",
     };
     await writeStore("import-runs", [older, newer]);
     const s = getLocalPresenceSnapshot();
@@ -202,6 +204,7 @@ describe("getLocalPresenceSnapshot + connector last_synced_at", () => {
       skipped_count: 0,
       errors: [],
       warnings: [],
+      tenant_id: "tenant-test",
     };
     await writeStore("import-runs", [connectorRun]);
     const s = getLocalPresenceSnapshot();

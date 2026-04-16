@@ -45,6 +45,7 @@ export const opportunities: Opportunity[] = [
     notes: null,
     created_at: "2025-03-15T10:00:00Z",
     updated_at: "2025-03-28T08:00:00Z",
+    tenant_id: "tenant-ritz-founder",
   },
   {
     id: "opp-2",
@@ -85,6 +86,7 @@ export const opportunities: Opportunity[] = [
     notes: "FAQ content drafted, pending schema markup",
     created_at: "2025-03-14T09:00:00Z",
     updated_at: "2025-03-26T08:00:00Z",
+    tenant_id: "tenant-ritz-founder",
   },
   {
     id: "opp-3",
@@ -125,6 +127,7 @@ export const opportunities: Opportunity[] = [
     notes: null,
     created_at: "2025-03-18T11:00:00Z",
     updated_at: "2025-03-25T08:00:00Z",
+    tenant_id: "tenant-ritz-founder",
   },
   {
     id: "opp-4",
@@ -165,6 +168,7 @@ export const opportunities: Opportunity[] = [
     notes: null,
     created_at: "2025-03-20T08:00:00Z",
     updated_at: "2025-03-22T10:00:00Z",
+    tenant_id: "tenant-ritz-founder",
   },
   {
     id: "opp-5",
@@ -205,6 +209,7 @@ export const opportunities: Opportunity[] = [
     notes: "Schema implementation in progress",
     created_at: "2025-03-12T15:00:00Z",
     updated_at: "2025-03-27T08:00:00Z",
+    tenant_id: "tenant-ritz-founder",
   },
   {
     id: "opp-6",
@@ -245,6 +250,7 @@ export const opportunities: Opportunity[] = [
     notes: "Monitoring for stability over next 2 weeks",
     created_at: "2025-02-28T09:00:00Z",
     updated_at: "2025-03-28T08:00:00Z",
+    tenant_id: "tenant-ritz-founder",
   },
   {
     id: "opp-7",
@@ -285,6 +291,7 @@ export const opportunities: Opportunity[] = [
     notes: null,
     created_at: "2025-03-22T09:00:00Z",
     updated_at: "2025-03-22T09:00:00Z",
+    tenant_id: "tenant-ritz-founder",
   },
 ];
 
@@ -918,6 +925,7 @@ export const changelogEntries: ChangelogEntry[] = [
     notes: null,
     created_at: "2025-03-22T14:30:00Z",
     updated_at: "2025-03-22T14:30:00Z",
+    tenant_id: "tenant-ritz-founder",
   },
   {
     id: "cl-2",
@@ -938,6 +946,7 @@ export const changelogEntries: ChangelogEntry[] = [
     notes: "Major rebuild — 2,400 words of new content",
     created_at: "2025-03-21T10:00:00Z",
     updated_at: "2025-03-21T10:00:00Z",
+    tenant_id: "tenant-ritz-founder",
   },
   {
     id: "cl-3",
@@ -958,6 +967,7 @@ export const changelogEntries: ChangelogEntry[] = [
     notes: null,
     created_at: "2025-03-20T16:00:00Z",
     updated_at: "2025-03-20T16:00:00Z",
+    tenant_id: "tenant-ritz-founder",
   },
   {
     id: "cl-4",
@@ -978,6 +988,7 @@ export const changelogEntries: ChangelogEntry[] = [
     notes: "Part of broader local SEO campaign",
     created_at: "2025-03-14T12:00:00Z",
     updated_at: "2025-03-14T12:00:00Z",
+    tenant_id: "tenant-ritz-founder",
   },
   {
     id: "cl-5",
@@ -998,6 +1009,7 @@ export const changelogEntries: ChangelogEntry[] = [
     notes: null,
     created_at: "2025-03-12T09:00:00Z",
     updated_at: "2025-03-12T09:00:00Z",
+    tenant_id: "tenant-ritz-founder",
   },
   {
     id: "cl-6",
@@ -1018,6 +1030,7 @@ export const changelogEntries: ChangelogEntry[] = [
     notes: null,
     created_at: "2025-03-25T11:00:00Z",
     updated_at: "2025-03-25T11:00:00Z",
+    tenant_id: "tenant-ritz-founder",
   },
   {
     id: "cl-7",
@@ -1038,6 +1051,7 @@ export const changelogEntries: ChangelogEntry[] = [
     notes: null,
     created_at: "2025-03-23T15:00:00Z",
     updated_at: "2025-03-23T15:00:00Z",
+    tenant_id: "tenant-ritz-founder",
   },
 ];
 
@@ -1062,6 +1076,7 @@ export const results: Result[] = [
     position: null,
     created_at: "2025-03-25T08:00:00Z",
     visibility_observation_run_id: VISIBILITY_SEED_WALKTHROUGH_RUN_ID,
+    tenant_id: "tenant-ritz-founder",
   },
   {
     id: "res-2",
@@ -1083,6 +1098,7 @@ export const results: Result[] = [
     position: 3,
     created_at: "2025-03-25T08:00:00Z",
     visibility_observation_run_id: VISIBILITY_SEED_WALKTHROUGH_RUN_ID,
+    tenant_id: "tenant-ritz-founder",
   },
   {
     id: "res-3",
@@ -1104,6 +1120,7 @@ export const results: Result[] = [
     position: null,
     created_at: "2025-03-25T08:00:00Z",
     visibility_observation_run_id: VISIBILITY_SEED_WALKTHROUGH_RUN_ID,
+    tenant_id: "tenant-ritz-founder",
   },
   {
     id: "res-4",
@@ -1125,6 +1142,7 @@ export const results: Result[] = [
     position: 4.2,
     created_at: "2025-03-25T08:00:00Z",
     visibility_observation_run_id: VISIBILITY_SEED_WALKTHROUGH_RUN_ID,
+    tenant_id: "tenant-ritz-founder",
   },
   {
     id: "res-5",
@@ -1146,6 +1164,7 @@ export const results: Result[] = [
     position: null,
     created_at: "2025-03-18T08:00:00Z",
     visibility_observation_run_id: VISIBILITY_SEED_WALKTHROUGH_RUN_ID,
+    tenant_id: "tenant-ritz-founder",
   },
   {
     id: "res-6",
@@ -1167,6 +1186,7 @@ export const results: Result[] = [
     position: null,
     created_at: "2025-03-25T08:00:00Z",
     visibility_observation_run_id: VISIBILITY_SEED_WALKTHROUGH_RUN_ID,
+    tenant_id: "tenant-ritz-founder",
   },
 ];
 
@@ -1182,6 +1202,7 @@ export const competitors: Competitor[] = [
     created_at: "2025-03-01T08:00:00Z",
     updated_at: "2025-03-25T08:00:00Z",
     source_of_truth: "demo_seed",
+    tenant_id: "tenant-ritz-founder",
   },
   {
     id: "comp-2",
@@ -1194,6 +1215,7 @@ export const competitors: Competitor[] = [
     created_at: "2025-03-01T08:00:00Z",
     updated_at: "2025-03-20T08:00:00Z",
     source_of_truth: "demo_seed",
+    tenant_id: "tenant-ritz-founder",
   },
   {
     id: "comp-3",
@@ -1206,6 +1228,7 @@ export const competitors: Competitor[] = [
     created_at: "2025-03-01T08:00:00Z",
     updated_at: "2025-03-18T08:00:00Z",
     source_of_truth: "demo_seed",
+    tenant_id: "tenant-ritz-founder",
   },
   {
     id: "comp-4",
@@ -1218,6 +1241,7 @@ export const competitors: Competitor[] = [
     created_at: "2025-03-01T08:00:00Z",
     updated_at: "2025-03-15T08:00:00Z",
     source_of_truth: "demo_seed",
+    tenant_id: "tenant-ritz-founder",
   },
   {
     id: "comp-5",
@@ -1230,6 +1254,7 @@ export const competitors: Competitor[] = [
     created_at: "2025-03-05T08:00:00Z",
     updated_at: "2025-03-22T08:00:00Z",
     source_of_truth: "demo_seed",
+    tenant_id: "tenant-ritz-founder",
   },
 ];
 

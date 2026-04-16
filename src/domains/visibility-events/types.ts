@@ -200,4 +200,6 @@ export type VisibilityEvent = {
   crawlAlignment: CrawlAlignment;
   /** Directional human-readable explanation. */
   explanation: string;
+  /** Owning tenant. */
+  tenant_id: string;
 };

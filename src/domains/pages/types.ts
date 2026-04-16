@@ -56,6 +56,8 @@ export type PageEntity = {
   title_last_seen: string | null;
   changelog_ids: string[];
   metadata: Record<string, unknown>;
+  /** Owning tenant. */
+  tenant_id: string;
 };
 
 // ── PageSnapshot (future extraction) ────────────────────────────────
@@ -102,6 +104,10 @@ export type PageSnapshot = {
   faq_schema_block_count?: number;
   /** Structural warnings detected during extraction */
   structural_warnings?: string[];
+  /** Count of meaningful HTML tables (≥2 rows) on the page */
+  table_count?: number;
+  /** Owning tenant. */
+  tenant_id: string;
 };
 
 export type PageSnapshotDiff = {

@@ -18,6 +18,8 @@ export type Competitor = {
   import_batch_id?: string;
   /** Imported CSV/workbook row vs bundled demo seed — not the configured universe file. */
   source_of_truth?: CompetitorEntitySource;
+  /** Owning tenant. */
+  tenant_id: string;
 };
 
 export type CompetitorSnapshot = {

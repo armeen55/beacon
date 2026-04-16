@@ -94,6 +94,7 @@ export function canonicalSnapshotsToResults(
         created_at: new Date().toISOString(),
         source_system: "profound",
         import_batch_id: importBatchId,
+        tenant_id: "",
       });
     }
   }
@@ -223,6 +224,7 @@ export function parseChangelogCSVToLegacy(
       updated_at: now,
       source_system: "changelog_csv",
       import_batch_id: importBatchId,
+      tenant_id: "",
     });
   }
 
@@ -295,6 +297,7 @@ export async function writeLegacyBridge(opts: {
     skipped_count: 0,
     errors: [],
     warnings: [],
+    tenant_id: "",
   };
 
   importRuns.push(importRun);

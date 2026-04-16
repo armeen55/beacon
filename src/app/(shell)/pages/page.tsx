@@ -327,6 +327,7 @@ export default async function PagesPage() {
           title_last_seen: null,
           changelog_ids: [],
           metadata: {},
+          tenant_id: "",
         });
       }
     }

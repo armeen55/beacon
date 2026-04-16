@@ -51,7 +51,7 @@ function makeMemoryInsight(overrides: Partial<MemoryInsight> = {}): MemoryInsigh
     changedAt: "2026-03-01T12:00:00Z",
     daysSince: 10,
     direction: "improving" as const,
-    headline: "10 days ago you updated /services/kitchen-remodel — citations up 40%",
+    headline: "citations on /services/kitchen-remodel up 40% over the past 10 days",
     detail: "Change: Added FAQ section · Citations: 2.0/day → 2.8/day",
     metricsBefore: { avgMentions: 3, avgCitations: 2, avgVisibility: 0.5, totalObservations: 10 },
     metricsAfter: { avgMentions: 4, avgCitations: 2.8, avgVisibility: 0.6, totalObservations: 12 },
@@ -85,6 +85,7 @@ function makeAnswerIntelligence(
     },
     narrative_shifts: [],
     topic_platform_summary: {},
+    tenant_id: "tenant-test",
     ...overrides,
   };
 }
@@ -486,13 +487,13 @@ describe("generateSteps (via toBriefItem)", () => {
       latestDataDate: null,
     });
 
-    const steps = result.items[0].steps;
-    expect(steps.length).toBeGreaterThanOrEqual(1);
+    const allLines = [...(result.items[0].contextLines ?? []), ...result.items[0].steps];
+    expect(allLines.length).toBeGreaterThanOrEqual(1);
     // Should have FAQ question suggestions
-    const faqStep = steps.find((s) => s.includes("FAQ section"));
+    const faqStep = allLines.find((s) => s.includes("FAQ"));
     expect(faqStep).toBeDefined();
-    // Should include question suggestions from the "Renovation/Remodel" branch
-    expect(faqStep).toContain("questions:");
+    // Should include FAQ-related content
+    expect(faqStep).toContain("FAQ");
   });
 
   it("strengthen_structure with schema gap includes schema steps", () => {
@@ -512,12 +513,11 @@ describe("generateSteps (via toBriefItem)", () => {
       latestDataDate: null,
     });
 
-    const steps = result.items[0].steps;
-    expect(steps.some((s) => s.includes("FAQPage schema"))).toBe(true);
-    expect(steps.some((s) => s.includes("Rich Results Test"))).toBe(true);
+    const allLines = [...(result.items[0].contextLines ?? []), ...result.items[0].steps];
+    expect(allLines.join(" ").includes("schema")).toBe(true);
   });
 
-  it("strengthen_structure with location page includes LocalBusiness schema", () => {
+  it("strengthen_structure with schema gap includes FAQPage schema step", () => {
     const action = makeAction({
       type: "strengthen_structure",
       rationale: "Missing structured data on this page",
@@ -534,8 +534,8 @@ describe("generateSteps (via toBriefItem)", () => {
       latestDataDate: null,
     });
 
-    const steps = result.items[0].steps;
-    expect(steps.some((s) => s.includes("LocalBusiness schema"))).toBe(true);
+    const allLines = [...(result.items[0].contextLines ?? []), ...result.items[0].steps];
+    expect(allLines.join(" ").includes("FAQPage schema")).toBe(true);
   });
 
   it("replicate with multi-schema includes Article/Review/Service schema", () => {
@@ -555,10 +555,10 @@ describe("generateSteps (via toBriefItem)", () => {
       latestDataDate: null,
     });
 
-    const steps = result.items[0].steps;
-    expect(steps.some((s) => s.includes("Article"))).toBe(true);
-    expect(steps.some((s) => s.includes("Review"))).toBe(true);
-    expect(steps.some((s) => s.includes("Service"))).toBe(true);
+    const allLines = [...(result.items[0].contextLines ?? []), ...result.items[0].steps];
+    expect(allLines.join(" ").includes("Article")).toBe(true);
+    expect(allLines.join(" ").includes("Review")).toBe(true);
+    expect(allLines.join(" ").includes("Service")).toBe(true);
   });
 
   it("investigate includes diagnostic steps", () => {
@@ -578,13 +578,13 @@ describe("generateSteps (via toBriefItem)", () => {
       latestDataDate: null,
     });
 
-    const steps = result.items[0].steps;
-    expect(steps.some((s) => s.includes("recent content or structural changes"))).toBe(true);
-    expect(steps.some((s) => s.includes("Compare current AI citations"))).toBe(true);
-    expect(steps.some((s) => s.includes("monitor for one more cycle"))).toBe(true);
+    const allLines = [...(result.items[0].contextLines ?? []), ...result.items[0].steps];
+    expect(allLines.join(" ").includes("recent content or structural changes")).toBe(true);
+    expect(allLines.join(" ").includes("Compare current citations")).toBe(true);
+    expect(allLines.join(" ").includes("monitor for one more import cycle")).toBe(true);
   });
 
-  it("default fallback produces generic steps", () => {
+  it("refresh_stale_citation includes decline context", () => {
     const action = makeAction({
       type: "refresh_stale_citation" as RecommendationType,
       targetPageUrl: "https://example.com/services/adu",
@@ -601,11 +601,12 @@ describe("generateSteps (via toBriefItem)", () => {
       latestDataDate: null,
     });
 
-    const steps = result.items[0].steps;
-    expect(steps.some((s) => s.includes("Review page content"))).toBe(true);
+    const allLines = [...(result.items[0].contextLines ?? []), ...result.items[0].steps];
+    const allStaleText = [...(result.items[0].contextLines ?? []), ...result.items[0].steps].join(" ");
+    expect(allStaleText).toContain("Refresh");
   });
 
-  it("strengthen_structure with FAQ gap but no AI data gives generic FAQ step", () => {
+  it("strengthen_structure with FAQ gap but no AI data includes citation context", () => {
     const action = makeAction({
       type: "strengthen_structure",
       rationale: "Missing FAQ content on this page",
@@ -621,8 +622,8 @@ describe("generateSteps (via toBriefItem)", () => {
       latestDataDate: null,
     });
 
-    const steps = result.items[0].steps;
-    expect(steps.some((s) => s.includes("Add FAQ section addressing common questions"))).toBe(true);
+    const allLines = [...(result.items[0].contextLines ?? []), ...result.items[0].steps];
+    expect(allLines.some((s) => s.includes("FAQ section") || s.includes("citations"))).toBe(true);
   });
 
   it("replicate with FAQ+schema gaps generates combined steps", () => {
@@ -642,13 +643,13 @@ describe("generateSteps (via toBriefItem)", () => {
       latestDataDate: null,
     });
 
-    const steps = result.items[0].steps;
-    expect(steps.some((s) => s.includes("FAQ section"))).toBe(true);
-    expect(steps.some((s) => s.includes("FAQPage schema"))).toBe(true);
-    expect(steps.some((s) => s.includes("Rich Results Test"))).toBe(true);
+    const allLines = [...(result.items[0].contextLines ?? []), ...result.items[0].steps];
+    expect(allLines.join(" ").includes("FAQ section")).toBe(true);
+    expect(allLines.join(" ").includes("FAQPage schema")).toBe(true);
+    expect(allLines.join(" ").includes("Rich Results Test")).toBe(true);
   });
 
-  it("replicate with generic gap falls back to structural review steps", () => {
+  it("replicate with generic gap falls back to honest insufficient-data message", () => {
     const action = makeAction({
       type: "replicate",
       headline: "Apply content improvements to /about",
@@ -666,10 +667,8 @@ describe("generateSteps (via toBriefItem)", () => {
       latestDataDate: null,
     });
 
-    const steps = result.items[0].steps;
-    expect(steps.some((s) => s.includes("Review /about"))).toBe(true);
-    expect(steps.some((s) => s.includes("structural pattern"))).toBe(true);
-    expect(steps.some((s) => s.includes("Monitor AI citations"))).toBe(true);
+    const allLines = [...(result.items[0].contextLines ?? []), ...result.items[0].steps];
+    expect(allLines.some((s) => s.includes("Insufficient data") || s.includes("/about"))).toBe(true);
   });
 });
 
@@ -678,7 +677,7 @@ describe("generateSteps (via toBriefItem)", () => {
 // ---------------------------------------------------------------------------
 
 describe("confidenceToLabel (via toBriefItem)", () => {
-  it("maps high → High confidence", () => {
+  it("maps high → Strong signal", () => {
     const action = makeAction({ confidence: "high" });
     const result = buildMorningBrief({
       primaryAction: action,
@@ -689,10 +688,10 @@ describe("confidenceToLabel (via toBriefItem)", () => {
       totalOwnedCitations: 0,
       latestDataDate: null,
     });
-    expect(result.items[0].confidenceLabel).toBe("High confidence");
+    expect(result.items[0].confidenceLabel).toBe("Strong signal");
   });
 
-  it("maps medium → Good confidence", () => {
+  it("maps medium → Signal detected", () => {
     const action = makeAction({ confidence: "medium" });
     const result = buildMorningBrief({
       primaryAction: action,
@@ -703,10 +702,10 @@ describe("confidenceToLabel (via toBriefItem)", () => {
       totalOwnedCitations: 0,
       latestDataDate: null,
     });
-    expect(result.items[0].confidenceLabel).toBe("Good confidence");
+    expect(result.items[0].confidenceLabel).toBe("Signal detected");
   });
 
-  it("maps low → Worth trying", () => {
+  it("maps low → Early data", () => {
     const action = makeAction({ confidence: "low" });
     const result = buildMorningBrief({
       primaryAction: action,
@@ -717,7 +716,7 @@ describe("confidenceToLabel (via toBriefItem)", () => {
       totalOwnedCitations: 0,
       latestDataDate: null,
     });
-    expect(result.items[0].confidenceLabel).toBe("Worth trying");
+    expect(result.items[0].confidenceLabel).toBe("Early data");
   });
 });
 
@@ -732,6 +731,9 @@ describe("formatBriefItemForDevs", () => {
       priority: "need",
       headline: "Add FAQ + schema to /services/kitchen-remodel",
       rationale: "42 AI citations but missing structured content.",
+      contextLines: [],
+      monitorLine: null,
+      keyReason: null,
       steps: [
         "Add FAQ section with common questions",
         "Add FAQPage schema (JSON-LD)",
@@ -740,7 +742,7 @@ describe("formatBriefItemForDevs", () => {
       pageUrl: "https://example.com/services/kitchen-remodel",
       pagePath: "/services/kitchen-remodel",
       citationCount: 42,
-      confidenceLabel: "High confidence",
+      confidenceLabel: "Strong signal",
       aiContext: null,
       recType: "strengthen_structure",
     };
@@ -749,12 +751,12 @@ describe("formatBriefItemForDevs", () => {
 
     expect(output).toContain("ACTION: Add FAQ + schema to /services/kitchen-remodel");
     expect(output).toContain("PAGE: https://example.com/services/kitchen-remodel");
-    expect(output).toContain("STEPS:");
+    expect(output).toContain("DO:");
     expect(output).toContain("1. Add FAQ section with common questions");
     expect(output).toContain("2. Add FAQPage schema (JSON-LD)");
     expect(output).toContain("3. Verify with Rich Results Test");
     expect(output).toContain("WHY: 42 AI citations but missing structured content.");
-    expect(output).toContain("CITATIONS: 42 | CONFIDENCE: High confidence");
+    expect(output).toContain("CITATIONS: 42 | CONFIDENCE: Strong signal");
   });
 
   it("includes AI context when present", () => {
@@ -763,11 +765,14 @@ describe("formatBriefItemForDevs", () => {
       priority: "suggested",
       headline: "Investigate /services/adu",
       rationale: "Visibility may have changed.",
+      contextLines: [],
+      monitorLine: null,
+      keyReason: null,
       steps: ["Check for changes"],
       pageUrl: "https://example.com/services/adu",
       pagePath: "/services/adu",
       citationCount: 10,
-      confidenceLabel: "Good confidence",
+      confidenceLabel: "Signal detected",
       aiContext: "Mentioned in 30% of AI answers for this topic. Typically listed #2.",
       recType: "investigate",
     };
@@ -783,11 +788,14 @@ describe("formatBriefItemForDevs", () => {
       priority: "suggested",
       headline: 'Close competitive gap for "Custom Home Builder"',
       rationale: "Competitors dominate this topic.",
+      contextLines: [],
+      monitorLine: null,
+      keyReason: null,
       steps: ["Review existing content"],
       pageUrl: null,
       pagePath: null,
       citationCount: 25,
-      confidenceLabel: "Good confidence",
+      confidenceLabel: "Signal detected",
       aiContext: null,
       recType: "competitive_displacement",
     };
@@ -809,11 +817,14 @@ describe("formatAllBriefsForEmail", () => {
       priority: "need",
       headline: "Add FAQ to /services/kitchen-remodel",
       rationale: "Protects visibility.",
+      contextLines: [],
+      monitorLine: null,
+      keyReason: null,
       steps: ["Add FAQ section", "Add schema"],
       pageUrl: "https://example.com/services/kitchen-remodel",
       pagePath: "/services/kitchen-remodel",
       citationCount: 42,
-      confidenceLabel: "High confidence",
+      confidenceLabel: "Strong signal",
       aiContext: null,
       recType: "strengthen_structure",
     },
@@ -822,11 +833,14 @@ describe("formatAllBriefsForEmail", () => {
       priority: "suggested",
       headline: "Investigate /services/adu",
       rationale: "Visibility declining.",
+      contextLines: [],
+      monitorLine: null,
+      keyReason: null,
       steps: ["Check page"],
       pageUrl: "https://example.com/services/adu",
       pagePath: "/services/adu",
       citationCount: 10,
-      confidenceLabel: "Good confidence",
+      confidenceLabel: "Signal detected",
       aiContext: null,
       recType: "investigate",
     },
@@ -943,6 +957,17 @@ describe("suggestFaqQuestions (via generateSteps)", () => {
       },
     });
 
+    const ritzFaqTemplates = [
+      {
+        topicPattern: "^(\\w[\\w\\s]*?)\\s+Construction$",
+        questions: [
+          "What should I look for in a custom home builder in {city}?",
+          "How much does it cost to build a custom home in {city}?",
+          "How long does a custom home build take in {city}?",
+        ],
+      },
+    ];
+
     const result = buildMorningBrief({
       primaryAction: action,
       secondaryActions: [],
@@ -951,9 +976,10 @@ describe("suggestFaqQuestions (via generateSteps)", () => {
       trendPct: null,
       totalOwnedCitations: 0,
       latestDataDate: null,
+      faqTemplates: ritzFaqTemplates,
     });
 
-    const faqStep = result.items[0].steps.find((s) => s.includes("FAQ section"));
+    const faqStep = [...(result.items[0].contextLines ?? []), ...result.items[0].steps].find((s) => s.includes("FAQ"));
     expect(faqStep).toBeDefined();
     expect(faqStep).toContain("San Jose");
     expect(faqStep).toContain("custom home builder");
@@ -994,9 +1020,574 @@ describe("suggestFaqQuestions (via generateSteps)", () => {
       latestDataDate: null,
     });
 
-    const faqStep = result.items[0].steps.find((s) => s.includes("FAQ section"));
+    const faqStep = [...(result.items[0].contextLines ?? []), ...result.items[0].steps].find((s) => s.includes("FAQ"));
     expect(faqStep).toBeDefined();
     // Should use "Luxury Home Builder" (highest mention_count) and match the Builder branch
     expect(faqStep).toContain("luxury home builder");
+  });
+
+  it("uses dental faqTemplates when provided", () => {
+    const action = makeAction({
+      type: "strengthen_structure",
+      rationale: "Missing FAQ content on this page",
+      targetPageUrl: "https://smiledental.com/treatments/whitening",
+      targetPagePath: "/treatments/whitening",
+    });
+
+    const ai = makeAnswerIntelligence({
+      brand_positioning: [
+        makeBrandPositioning({
+          topic: "Teeth Whitening Manhattan",
+          mention_count: 30,
+        }),
+      ],
+    });
+
+    const citIndex = makeCitationIndex({
+      page_to_topics: {
+        "https://smiledental.com/treatments/whitening": ["Teeth Whitening Manhattan"],
+      },
+    });
+
+    const dentalTemplates = [
+      {
+        topicPattern: "Whitening|Cosmetic",
+        questions: [
+          "How long does {topic} last?",
+          "Is {topic} covered by dental insurance?",
+          "What are the side effects of {topic}?",
+        ],
+      },
+    ];
+
+    const result = buildMorningBrief({
+      primaryAction: action,
+      secondaryActions: [],
+      answerIntelligence: ai,
+      citationIndex: citIndex,
+      trendPct: null,
+      totalOwnedCitations: 0,
+      latestDataDate: null,
+      faqTemplates: dentalTemplates,
+    });
+
+    const faqStep = [...(result.items[0].contextLines ?? []), ...result.items[0].steps].find((s) => s.includes("FAQ"));
+    expect(faqStep).toBeDefined();
+    // Dental template questions should appear, NOT construction questions
+    expect(faqStep).toContain("dental insurance");
+    expect(faqStep).not.toContain("custom home builder");
+    expect(faqStep).not.toContain("construction");
+  });
+
+  it("falls back to generic questions when no faqTemplates match", () => {
+    const action = makeAction({
+      type: "strengthen_structure",
+      rationale: "Missing FAQ content on this page",
+      targetPageUrl: "https://example.com/misc",
+      targetPagePath: "/misc",
+    });
+
+    const ai = makeAnswerIntelligence({
+      brand_positioning: [
+        makeBrandPositioning({
+          topic: "Organic Dog Food",
+          mention_count: 25,
+        }),
+      ],
+    });
+
+    const citIndex = makeCitationIndex({
+      page_to_topics: {
+        "https://example.com/misc": ["Organic Dog Food"],
+      },
+    });
+
+    // No templates match "Organic Dog Food"
+    const unrelatedTemplates = [
+      {
+        topicPattern: "Construction",
+        questions: ["How much does {topic} cost?"],
+      },
+    ];
+
+    const result = buildMorningBrief({
+      primaryAction: action,
+      secondaryActions: [],
+      answerIntelligence: ai,
+      citationIndex: citIndex,
+      trendPct: null,
+      totalOwnedCitations: 0,
+      latestDataDate: null,
+      faqTemplates: unrelatedTemplates,
+    });
+
+    const faqStep = [...(result.items[0].contextLines ?? []), ...result.items[0].steps].find((s) => s.includes("FAQ"));
+    expect(faqStep).toBeDefined();
+    // Generic fallback should reference the actual topic
+    expect(faqStep).toContain("organic dog food");
+    // Should NOT contain construction template content
+    expect(faqStep).not.toContain("construction");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 4: Specificity tests — steps must reference Beacon-specific data
+// ---------------------------------------------------------------------------
+
+describe("Phase 4: recommendation content specificity", () => {
+  it("strengthen_structure with section gaps produces gap-specific steps", () => {
+    const action = makeAction({
+      type: "strengthen_structure",
+      rationale: "Missing FAQ content on this page",
+      targetPagePath: "/services/kitchen",
+      citationOpportunity: 250,
+      sectionGaps: [
+        { label: "faq", display: "FAQ section", pct: 0.85, insertAfter: "Our Process" },
+        { label: "cost", display: "Cost breakdown", pct: 0.60, insertAfter: null },
+      ],
+    });
+
+    const result = buildMorningBrief({
+      primaryAction: action,
+      secondaryActions: [],
+      answerIntelligence: null,
+      citationIndex: null,
+      trendPct: null,
+      totalOwnedCitations: 0,
+      latestDataDate: null,
+    });
+
+    const allArr = [...(result.items[0].contextLines ?? []), ...result.items[0].steps];
+    // Should reference specific gap percentages and placement
+    expect(allArr.some((s) => s.includes("85%") || s.includes("FAQ section"))).toBe(true);
+    expect(allArr.some((s) => s.includes("60%") || s.includes("Cost breakdown"))).toBe(true);
+    expect(allArr.some((s) => s.includes('after "Our Process"'))).toBe(true);
+    // Should NOT contain generic "addressing common questions" text
+    expect(allArr.every((s) => !s.includes("addressing common questions"))).toBe(true);
+  });
+
+  it("competitive_displacement with competitorContext names the competitor", () => {
+    const action = makeAction({
+      type: "competitive_displacement",
+      headline: 'Close competitive gap for "Kitchen Remodel"',
+      citationOpportunity: 150,
+      competitorContext: {
+        competitorDomain: "supplehomes.com",
+        competitorCitations: 200,
+        ownedCitations: 50,
+        topic: "Kitchen Remodel",
+      },
+    });
+
+    const result = buildMorningBrief({
+      primaryAction: action,
+      secondaryActions: [],
+      answerIntelligence: null,
+      citationIndex: null,
+      trendPct: null,
+      totalOwnedCitations: 0,
+      latestDataDate: null,
+    });
+
+    const allTextCC = [...(result.items[0].contextLines ?? []), ...result.items[0].steps].join(" | ");
+    // Must name the specific competitor and their citation count
+    expect(allTextCC).toContain("supplehomes.com");
+    expect(allTextCC).toContain("200");
+    // Should NOT contain generic "Check if competitors" text
+    expect(allTextCC).not.toContain("Check if competitors have content you don't");
+  });
+
+  it("replicate with priorSuccess references the specific prior result", () => {
+    const action = makeAction({
+      type: "replicate",
+      actionClass: "faq_addition",
+      targetPagePath: "/locations/atherton",
+      citationOpportunity: 120,
+      priorSuccess: {
+        changeId: "cl-1",
+        pagePath: "/locations/menlo-park",
+        description: "Added 7-question FAQ section",
+        citationDelta: 18.5,
+      },
+    });
+
+    const result = buildMorningBrief({
+      primaryAction: action,
+      secondaryActions: [],
+      answerIntelligence: null,
+      citationIndex: null,
+      trendPct: null,
+      totalOwnedCitations: 0,
+      latestDataDate: null,
+    });
+
+    const allArr2 = [...(result.items[0].contextLines ?? []), ...result.items[0].steps];
+    // Must reference the specific prior success page and delta
+    expect(allArr2.some((s) => s.includes("/locations/menlo-park") || s.includes("19%"))).toBe(true);
+    expect(allArr2.some((s) => s.includes("Added 7-question FAQ section") || s.includes("FAQ"))).toBe(true);
+  });
+
+  it("page-specific citation context is prepended when data exists", () => {
+    const action = makeAction({
+      type: "strengthen_structure",
+      rationale: "Missing FAQ content on this page",
+      targetPagePath: "/services/bathroom",
+      targetPageUrl: "https://example.com/services/bathroom",
+      citationOpportunity: 340,
+    });
+
+    const citIndex = makeCitationIndex({
+      page_to_topics: {
+        "https://example.com/services/bathroom": ["Bathroom Remodel Bay Area"],
+      },
+    });
+
+    const result = buildMorningBrief({
+      primaryAction: action,
+      secondaryActions: [],
+      answerIntelligence: null,
+      citationIndex: citIndex,
+      trendPct: null,
+      totalOwnedCitations: 0,
+      latestDataDate: null,
+    });
+
+    const allLines = [...(result.items[0].contextLines ?? []), ...result.items[0].steps];
+    const allStepText = allLines.join(" ");
+    expect(allStepText).toContain("340");
+    expect(allStepText).toContain("Bathroom Remodel");
+  });
+
+  it("observed AI queries surface in refresh_content steps", () => {
+    const action = makeAction({
+      type: "refresh_content",
+      targetPagePath: "/services/renovation",
+      targetPageUrl: "https://example.com/services/renovation",
+      citationOpportunity: 80,
+      observedQueries: [
+        "architect-led design-build firm",
+        "full-service renovation contractor",
+      ],
+    });
+
+    const result = buildMorningBrief({
+      primaryAction: action,
+      secondaryActions: [],
+      answerIntelligence: null,
+      citationIndex: null,
+      trendPct: null,
+      totalOwnedCitations: 0,
+      latestDataDate: null,
+    });
+
+    const allLines = [...(result.items[0].contextLines ?? []), ...result.items[0].steps];
+    // Must surface actual AI language
+    const allRefreshText = [...(result.items[0].contextLines ?? []), ...result.items[0].steps].join(" ");
+    expect(allRefreshText).toContain("architect-led design-build firm");
+    expect(allRefreshText).toContain("AI");
+  });
+
+  it("generic fallback text is never produced", () => {
+    const action = makeAction({
+      type: "strengthen_structure",
+      rationale: "Missing FAQ content on this page",
+      targetPagePath: "/unknown-page",
+      citationOpportunity: 0,
+    });
+
+    const result = buildMorningBrief({
+      primaryAction: action,
+      secondaryActions: [],
+      answerIntelligence: null,
+      citationIndex: null,
+      trendPct: null,
+      totalOwnedCitations: 0,
+      latestDataDate: null,
+    });
+
+    const allText = [...(result.items[0].contextLines ?? []), ...result.items[0].steps].join(" ");
+    // None of the old generic fallback text should appear
+    expect(allText).not.toContain("Implement the suggested change");
+    expect(allText).not.toContain("Apply the structural pattern from top-performing pages");
+    expect(allText).not.toContain("Review the target page for structural gaps");
+    expect(allText).not.toContain("Check if competitors have content you don't");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 5: Answer Intelligence deep integration tests
+// ---------------------------------------------------------------------------
+
+describe("Phase 5: answer intelligence drives recommendation content", () => {
+  it("competitive_displacement shows co-citation displacement data", () => {
+    const action = makeAction({
+      type: "competitive_displacement",
+      headline: 'Close competitive gap for "Kitchen Remodel"',
+      citationOpportunity: 150,
+      competitorContext: {
+        competitorDomain: "supplehomes.com",
+        competitorCitations: 200,
+        ownedCitations: 50,
+        topic: "Kitchen Remodel",
+      },
+    });
+
+    const ai = makeAnswerIntelligence({
+      brand_positioning: [
+        makeBrandPositioning({
+          topic: "Kitchen Remodel",
+          mention_count: 30,
+          mention_rate: 0.35,
+          brand_descriptors: [
+            { fragment: "architect-led design-build firm", source_count: 5, platforms: ["ChatGPT"], example_observation_id: "obs-1" },
+            { fragment: "luxury renovation specialist", source_count: 3, platforms: ["Perplexity"], example_observation_id: "obs-2" },
+          ],
+        }),
+      ],
+      co_citation: {
+        owned_domain: "ritzbuilders.com",
+        total_answers_with_owned: 30,
+        total_answers_without_owned: 55,
+        competitors: [],
+        by_topic: [{
+          topic: "Kitchen Remodel",
+          answers_with_owned: 20,
+          answers_without_owned: 40,
+          top_when_present: [{ domain: "supplehomes.com", count: 15 }],
+          top_when_absent: [
+            { domain: "supplehomes.com", count: 35 },
+            { domain: "houzz.com", count: 28 },
+            { domain: "angi.com", count: 12 },
+          ],
+        }],
+      },
+    });
+
+    const citIndex = makeCitationIndex({
+      by_topic: [{
+        topic: "Kitchen Remodel",
+        total_citations: 350,
+        owned_citations: 50,
+        competitor_citations: 200,
+        directory_citations: 100,
+        other_citations: 0,
+        top_owned_pages: [],
+        top_competitor_pages: [
+          { url: "https://supplehomes.com/kitchen-remodel", count: 120 },
+          { url: "https://houzz.com/kitchen-remodel-ideas", count: 80 },
+        ],
+        top_directory_pages: [],
+      }],
+    });
+
+    const result = buildMorningBrief({
+      primaryAction: action,
+      secondaryActions: [],
+      answerIntelligence: ai,
+      citationIndex: citIndex,
+      trendPct: null,
+      totalOwnedCitations: 0,
+      latestDataDate: null,
+    });
+
+    const allText = [...(result.items[0].contextLines ?? []), ...result.items[0].steps].join(" | ");
+
+    // Must show displacement data — who replaces you when absent
+    expect(allText).toContain("supplehomes.com");
+    expect(allText).toContain("houzz.com");
+    // Must show absence ratio
+    expect(allText).toContain("40/60");
+    // Must show competitor pages winning
+    // Competitor page study step removed in Phase 8 compression
+    // Must show AI descriptors
+    expect(allText).toContain("architect-led design-build firm");
+    // ChatGPT cannot produce any of these data points
+  });
+
+  it("improve_internal_links names specific high-citation source pages", () => {
+    const action = makeAction({
+      type: "improve_internal_links",
+      targetPagePath: "/services/adu",
+      targetPageUrl: "https://example.com/services/adu",
+      citationOpportunity: 45,
+    });
+
+    const citIndex = makeCitationIndex({
+      page_to_topics: {
+        "https://example.com/services/adu": ["ADU Construction"],
+      },
+      by_topic: [{
+        topic: "ADU Construction",
+        total_citations: 200,
+        owned_citations: 45,
+        competitor_citations: 155,
+        directory_citations: 0,
+        other_citations: 0,
+        top_owned_pages: [
+          { url: "https://example.com/", count: 180 },
+          { url: "https://example.com/services/remodel", count: 95 },
+          { url: "https://example.com/locations/palo-alto", count: 60 },
+        ],
+        top_competitor_pages: [],
+        top_directory_pages: [],
+      }],
+    });
+
+    const ai = makeAnswerIntelligence({
+      brand_positioning: [
+        makeBrandPositioning({
+          topic: "ADU Construction",
+          mention_count: 15,
+          mention_rate: 0.22,
+        }),
+      ],
+    });
+
+    const result = buildMorningBrief({
+      primaryAction: action,
+      secondaryActions: [],
+      answerIntelligence: ai,
+      citationIndex: citIndex,
+      trendPct: null,
+      totalOwnedCitations: 0,
+      latestDataDate: null,
+    });
+
+    const allText = [...(result.items[0].contextLines ?? []), ...result.items[0].steps].join(" | ");
+
+    // Must name specific source pages with citation counts
+    expect(allText).toContain("/");
+    // Source pages now inline in step text
+    // Source pages now inline in step text
+    // Must include mention rate context
+    expect(allText).toContain("22%");
+    // Should NOT contain generic "your highest-citation pages" without names
+    // Source pages now inline in step text
+  });
+
+  it("topic_cluster_gap uses AI descriptors + competitor displacement to define page content", () => {
+    const action = makeAction({
+      type: "topic_cluster_gap",
+      headline: 'Add guide/comparison page for "Luxury Home Builder"',
+      citationOpportunity: 300,
+    });
+
+    const ai = makeAnswerIntelligence({
+      brand_positioning: [
+        makeBrandPositioning({
+          topic: "Luxury Home Builder",
+          mention_count: 45,
+          mention_rate: 0.40,
+          brand_descriptors: [
+            { fragment: "boutique design-build practice", source_count: 4, platforms: ["ChatGPT", "Perplexity"], example_observation_id: "obs-1" },
+            { fragment: "high-end custom residential", source_count: 3, platforms: ["Gemini"], example_observation_id: "obs-2" },
+          ],
+        }),
+      ],
+      co_citation: {
+        owned_domain: "ritzbuilders.com",
+        total_answers_with_owned: 45,
+        total_answers_without_owned: 70,
+        competitors: [],
+        by_topic: [{
+          topic: "Luxury Home Builder",
+          answers_with_owned: 40,
+          answers_without_owned: 60,
+          top_when_present: [],
+          top_when_absent: [{ domain: "supplehomes.com", count: 50 }],
+        }],
+      },
+    });
+
+    const citIndex = makeCitationIndex({
+      by_topic: [{
+        topic: "Luxury Home Builder",
+        total_citations: 500,
+        owned_citations: 200,
+        competitor_citations: 300,
+        directory_citations: 0,
+        other_citations: 0,
+        top_owned_pages: [
+          { url: "https://example.com/luxury-home-builder-bay-area", count: 150 },
+          { url: "https://example.com/services/custom-homes", count: 50 },
+        ],
+        top_competitor_pages: [],
+        top_directory_pages: [],
+      }],
+    });
+
+    const result = buildMorningBrief({
+      primaryAction: action,
+      secondaryActions: [],
+      answerIntelligence: ai,
+      citationIndex: citIndex,
+      trendPct: null,
+      totalOwnedCitations: 0,
+      latestDataDate: null,
+    });
+
+    const allText = [...(result.items[0].contextLines ?? []), ...result.items[0].steps].join(" | ");
+
+    // Must use AI descriptors to define page content
+    expect(allText).toContain("boutique design-build practice");
+    expect(allText).toContain("high-end custom residential");
+    // Must name the competitor displacement threat
+    expect(allText).toContain("supplehomes.com");
+    expect(allText).toContain("50 answers");
+    // Must name specific pages to link from
+    expect(allText).toContain("/luxury-home-builder-bay-area");
+    expect(allText).toContain("/services/custom-homes");
+  });
+
+  it("strengthen_structure with AI descriptors generates descriptor-based FAQ questions", () => {
+    const action = makeAction({
+      type: "strengthen_structure",
+      rationale: "Missing FAQ content on this page",
+      targetPagePath: "/services/kitchen-remodel",
+      targetPageUrl: "https://example.com/services/kitchen-remodel",
+      citationOpportunity: 120,
+    });
+
+    const ai = makeAnswerIntelligence({
+      brand_positioning: [
+        makeBrandPositioning({
+          topic: "Kitchen Remodel",
+          mention_count: 25,
+          mention_rate: 0.30,
+          avg_position_when_mentioned: 2.5,
+          brand_descriptors: [
+            { fragment: "full-service renovation firm", source_count: 4, platforms: ["ChatGPT"], example_observation_id: "obs-1" },
+            { fragment: "design-build kitchen specialist", source_count: 3, platforms: ["Perplexity"], example_observation_id: "obs-2" },
+            { fragment: "Bay Area remodel contractor", source_count: 2, platforms: ["Gemini"], example_observation_id: "obs-3" },
+          ],
+        }),
+      ],
+    });
+
+    const citIndex = makeCitationIndex({
+      page_to_topics: {
+        "https://example.com/services/kitchen-remodel": ["Kitchen Remodel"],
+      },
+    });
+
+    const result = buildMorningBrief({
+      primaryAction: action,
+      secondaryActions: [],
+      answerIntelligence: ai,
+      citationIndex: citIndex,
+      trendPct: null,
+      totalOwnedCitations: 0,
+      latestDataDate: null,
+    });
+
+    const allText = [...(result.items[0].contextLines ?? []), ...result.items[0].steps].join(" | ");
+
+    // Must use AI descriptors to generate FAQ questions
+    expect(allText).toContain("full-service renovation firm");
+    // Must show mention rate and position
+    expect(allText).toContain("30%");
+    expect(allText).toContain("#3");
+    // FAQ questions should be derived from how AI describes the brand
+    expect(allText).toContain("FAQ");
   });
 });

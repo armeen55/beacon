@@ -159,6 +159,7 @@ export function discoverPages(opts: {
       title_last_seen: p.titles.length > 0 ? p.titles[p.titles.length - 1] : null,
       changelog_ids: p.changelog_ids,
       metadata: {},
+      tenant_id: "",
     });
   }
 

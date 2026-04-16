@@ -32,6 +32,7 @@ export async function appendConnectorReviewsImportRun(opts: {
     skipped_count: opts.skipped,
     errors: opts.errors.slice(0, 50),
     warnings: opts.warnings.slice(0, 50),
+    tenant_id: "",
   });
   await writeStore("import-runs", runs);
   await syncImportRuns(runs);

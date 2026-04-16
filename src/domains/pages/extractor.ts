@@ -156,6 +156,14 @@ export function extractPageSnapshot(
     }
   });
 
+  // ── Table detection ──
+  // Count meaningful tables (must have >1 row to filter decorative/layout tables)
+  let tableCount = 0;
+  $("table").each((_, el) => {
+    const rows = $(el).find("tr").length;
+    if (rows >= 2) tableCount++; // At least header + 1 data row
+  });
+
   // ── Word count (body text only) ──
   $("script, style, noscript, svg, iframe").remove();
   const bodyText = $("body").text().replace(/\s+/g, " ").trim();
@@ -226,6 +234,8 @@ export function extractPageSnapshot(
     extraction_certainty: extractionCertainty,
     faq_schema_block_count: faqSchemaBlockCount,
     structural_warnings: structuralWarnings.length > 0 ? structuralWarnings : undefined,
+    table_count: tableCount,
+    tenant_id: "",
   };
 }
 

@@ -90,6 +90,7 @@ export async function createResult(
     total_possible: null,
     position: null,
     created_at: now(),
+    tenant_id: "",
   };
 
   results.push(result);

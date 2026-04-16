@@ -13,6 +13,8 @@ export type CandidateLink = {
   attribution: Attribution;
   created_at: string;
   reviewed_at: string | null;
+  /** Owning tenant. */
+  tenant_id: string;
 };
 
 export type TruthRelation = "causal" | "contributing" | "unrelated" | "unknown";
@@ -39,6 +41,8 @@ export type EventDecision = {
   operator_note: string | null;
   rejected_change_ids: string[];
   decided_at: string;
+  /** Owning tenant. */
+  tenant_id: string;
 };
 
 export type AttributionRole = "primary" | "contributing" | "supporting";

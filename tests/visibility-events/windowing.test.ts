@@ -40,6 +40,7 @@ function makeChange(
     notes: null,
     created_at: `${timestamp}T12:00:00Z`,
     updated_at: `${timestamp}T12:00:00Z`,
+    tenant_id: "tenant-test",
   };
 }
 
@@ -82,6 +83,7 @@ function makeSnap(
     avg_position: null,
     total_possible: null,
     metadata: {},
+    tenant_id: "tenant-test",
   };
 }
 
@@ -397,6 +399,7 @@ describe("buildVisibilityEventWindows — memory insight enrichment", () => {
         observations_after: 5,
         platform_deltas: {},
         computed_at: "2026-04-14T00:00:00Z",
+        tenant_id: "tenant-test",
       },
     ];
     // Provide empty snapshots that would NOT match — outcomes must win.

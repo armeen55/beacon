@@ -94,6 +94,7 @@ export async function promoteToOpportunity(
     updated_at: timestamp,
     source_system: "beacon-expansion",
     import_batch_id: undefined,
+    tenant_id: "",
   };
 
   opportunities.push(opp);

@@ -51,6 +51,7 @@ export async function confirmCandidate(
       attribution: null!,
       created_at: now(),
       reviewed_at: now(),
+      tenant_id: "",
     });
   }
 
@@ -83,6 +84,7 @@ export async function rejectCandidate(
       attribution: null!,
       created_at: now(),
       reviewed_at: now(),
+      tenant_id: "",
     });
   }
 
@@ -118,6 +120,7 @@ export async function rejectAllCandidates(
         attribution: null!,
         created_at: now(),
         reviewed_at: now(),
+        tenant_id: "",
       });
     }
   }
@@ -204,6 +207,7 @@ export async function lockDecision(
       operator_note: operatorNote?.trim() || null,
       rejected_change_ids: rejectedIds,
       decided_at: now(),
+      tenant_id: "",
     });
   }
 
@@ -228,6 +232,7 @@ export async function lockDecision(
         attribution: null!,
         created_at: now(),
         reviewed_at: now(),
+        tenant_id: "",
       });
     }
   }
@@ -248,6 +253,7 @@ export async function lockDecision(
         attribution: null!,
         created_at: now(),
         reviewed_at: now(),
+        tenant_id: "",
       });
     }
   }

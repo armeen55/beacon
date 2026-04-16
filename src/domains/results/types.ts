@@ -25,4 +25,6 @@ export type Result = {
   import_batch_id?: string;
   /** Visibility ObservationRun that produced or owns this sample row (import / seed / workbook). */
   visibility_observation_run_id?: string | null;
+  /** Owning tenant. */
+  tenant_id: string;
 };

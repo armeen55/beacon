@@ -82,6 +82,7 @@ function makeFinding(overrides: Partial<Finding> = {}): Finding {
     citationCount: 0,
     isHomepage: false,
     contradictsChangelog: false,
+    tenant_id: "tenant-test",
     ...overrides,
   };
 }

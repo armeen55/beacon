@@ -216,6 +216,7 @@ export function analyzeVisibilityEvent(opts: {
   });
 
   return {
+    tenant_id: "", // CX1: filled by caller
     spike: opts.spike,
     windows: {
       oneDay: windows.oneDay,
