@@ -14,6 +14,7 @@ import type { CitationEvidenceIndex, PageSnapshot, FaqItem } from "@/domains/pag
 import type { MemoryInsight } from "@/domains/attribution/memory";
 import type { CompetitorAlert, CompetitorSitemapSnapshot } from "@/domains/competitor-monitoring/types";
 import { recConfidenceLabel } from "@/lib/confidence-labels";
+import { type QueryKeywordIndex, getQueriesForPage, getQueriesForTopic, getTopQueryForTopicCity } from "@/domains/answer-intelligence/query-index";
 
 // ---------------------------------------------------------------------------
 // Config type for industry-specific FAQ generation
@@ -116,19 +117,22 @@ export function buildMorningBrief(opts: {
   faqTemplates?: FaqTemplate[];
   /** Page snapshots for generating paste-ready code blocks in steps. */
   pageSnapshots?: PageSnapshot[];
+  /** Fan-out query keyword index for query-driven recommendations. */
+  queryIndex?: QueryKeywordIndex;
 }): MorningBriefData {
   const items: MorningBriefItem[] = [];
   const pageSnaps = opts.pageSnapshots ?? [];
+  const qIdx = opts.queryIndex ?? null;
 
   if (opts.primaryAction) {
     items.push(
-      toBriefItem(opts.primaryAction, "need", opts.answerIntelligence, opts.citationIndex, opts.faqTemplates, pageSnaps)
+      toBriefItem(opts.primaryAction, "need", opts.answerIntelligence, opts.citationIndex, opts.faqTemplates, pageSnaps, qIdx)
     );
   }
 
   for (const action of opts.secondaryActions.slice(0, 2)) {
     items.push(
-      toBriefItem(action, "suggested", opts.answerIntelligence, opts.citationIndex, opts.faqTemplates, pageSnaps)
+      toBriefItem(action, "suggested", opts.answerIntelligence, opts.citationIndex, opts.faqTemplates, pageSnaps, qIdx)
     );
   }
 
@@ -215,8 +219,9 @@ function toBriefItem(
   citIndex: CitationEvidenceIndex | null,
   faqTemplates?: FaqTemplate[],
   pageSnapshots?: PageSnapshot[],
+  queryIndex?: QueryKeywordIndex | null,
 ): MorningBriefItem {
-  const { contextLines, steps: rawSteps } = generateSteps(action, ai, citIndex, faqTemplates, pageSnapshots);
+  const { contextLines, steps: rawSteps } = generateSteps(action, ai, citIndex, faqTemplates, pageSnapshots, queryIndex ?? undefined);
   const headline = rewriteHeadline(action);
   const rationale = rewriteRationale(action);
   const aiContext = action.answerContext ?? null;
@@ -412,10 +417,25 @@ function getTopCitedPages(
  * Extract AI-observed descriptors/phrases for a topic.
  * These are how AI platforms actually describe the brand for this topic.
  */
+/**
+ * Get AI-derived keywords for a topic.
+ *
+ * Priority: fan-out queries from query index (real search keywords) →
+ * brand_descriptors from answer intelligence (usually EMPTY for Ritz data).
+ * Fan-out queries are the actual keywords AI platforms search on.
+ */
 function getAIDescriptors(
   topic: string,
   ai: AnswerIntelligenceIndex | null,
+  queryIndex?: QueryKeywordIndex,
 ): string[] {
+  // Priority 1: fan-out queries — the actual search keywords
+  if (queryIndex) {
+    const topicQueries = getQueriesForTopic(queryIndex, topic, null, 5);
+    if (topicQueries.length > 0) return topicQueries.slice(0, 3);
+  }
+
+  // Priority 2: brand_descriptors (usually empty for Ritz data)
   const bp = getTopicPositioning(topic, ai);
   if (!bp || bp.brand_descriptors.length === 0) return [];
   return bp.brand_descriptors
@@ -506,6 +526,7 @@ function generateSteps(
   citIndex: CitationEvidenceIndex | null,
   faqTemplates?: FaqTemplate[],
   pageSnapshots?: PageSnapshot[],
+  queryIndex?: QueryKeywordIndex,
 ): { contextLines: string[]; steps: string[] } {
   const ctx: string[] = [];   // Intelligence context (displayed as header)
   const steps: string[] = []; // Pure execution steps (3-4 max)
@@ -548,14 +569,17 @@ function generateSteps(
         break;
       }
 
-      // Section gaps → inline micro-proof in step text
+      // Section gaps → structured content skeleton with H2, bullets, why
       if (action.sectionGaps && action.sectionGaps.length > 0) {
         const primaryGap = action.sectionGaps[0];
-        const placement = primaryGap.insertAfter ? ` after "${primaryGap.insertAfter}"` : "";
-        const proof = `${Math.round(primaryGap.pct * 100)}% of similar pages have this`;
-        steps.push(`Add ${primaryGap.display}${placement} — ${proof}`);
+        const skeleton = generateSectionSkeleton(primaryGap, pagePath, pageTopics);
+        steps.push(skeleton);
         if (action.sectionGaps.length > 1) {
-          steps.push(`Also add: ${action.sectionGaps.slice(1, 3).map((g) => `${g.display.toLowerCase()} (${Math.round(g.pct * 100)}%)`).join(", ")}`);
+          // Secondary gaps: shorter but still structured
+          for (const gap of action.sectionGaps.slice(1, 3)) {
+            const miniSkeleton = generateSectionSkeleton(gap, pagePath, pageTopics);
+            steps.push(miniSkeleton);
+          }
         }
       } else if (hasFaqGap) {
         // Try snapshot-based code generation first
@@ -563,10 +587,10 @@ function generateSteps(
           const faqSteps = generateFaqSchemaStep(snap, pagePath);
           steps.push(...faqSteps);
         } else {
-          const aiDescriptors = primaryTopic ? getAIDescriptors(primaryTopic, ai) : [];
+          const aiDescriptors = primaryTopic ? getAIDescriptors(primaryTopic, ai, queryIndex) : [];
           const questions = aiDescriptors.length > 0
             ? aiDescriptors.map((d) => `What does "${d}" mean for your project?`)
-            : suggestFaqQuestions(action, ai, citIndex, faqTemplates);
+            : suggestFaqQuestions(action, ai, citIndex, faqTemplates, queryIndex);
           const schemaNote = hasSchemaGap ? " + schema" : "";
           const proof = citations > 0 ? ` — ${citations} citations, no extractable Q&A` : "";
           if (questions.length > 0) {
@@ -581,7 +605,7 @@ function generateSteps(
 
       // Phase B: add title/H2 specificity when snapshot is available
       if (snap && pageTopics.length > 0) {
-        const titleSuggestion = suggestTitleRewrite(snap, pageTopics);
+        const titleSuggestion = suggestTitleRewrite(snap, pageTopics, queryIndex);
         if (titleSuggestion) {
           steps.push(titleSuggestion);
         }
@@ -613,7 +637,7 @@ function generateSteps(
       }
 
       // Actions with inline proof
-      const descriptors = getAIDescriptors(topicForCC, ai);
+      const descriptors = getAIDescriptors(topicForCC, ai, queryIndex);
       const absenceProof = topicCoCit
         ? ` — you're absent from ${topicCoCit.answers_without_owned}/${topicCoCit.answers_with_owned + topicCoCit.answers_without_owned} AI answers`
         : cc ? ` — ${cc.competitorDomain} has ${cc.competitorCitations} citations vs your ${cc.ownedCitations}` : "";
@@ -626,15 +650,16 @@ function generateSteps(
     }
 
     case "refresh_content": {
-      const refreshDesc = primaryTopic ? getAIDescriptors(primaryTopic, ai) : (action.observedQueries ?? []);
+      const refreshDesc = primaryTopic ? getAIDescriptors(primaryTopic, ai, queryIndex) : (action.observedQueries ?? []);
       if (refreshDesc.length > 0) {
         ctx.push(`AI frames this as: ${refreshDesc.slice(0, 2).map((d) => `"${d}"`).join(", ")}`);
       }
       if (action.sectionGaps && action.sectionGaps.length > 0) {
-        const gapProof = action.sectionGaps.slice(0, 3)
-          .map((g) => `${g.display.toLowerCase()} (${Math.round(g.pct * 100)}%)`)
-          .join(", ");
-        steps.push(`Add missing sections: ${gapProof}`);
+        // Use content skeletons instead of generic "add missing sections"
+        for (const gap of action.sectionGaps.slice(0, 2)) {
+          const skeleton = generateSectionSkeleton(gap, page ?? "this page", pageTopics);
+          steps.push(skeleton);
+        }
       } else {
         steps.push(`Expand content on ${page ?? "this page"} — ${citations > 0 ? `${citations} citations but content is thin` : "content is thin"}`);
       }
@@ -642,6 +667,16 @@ function generateSteps(
     }
 
     case "improve_internal_links": {
+      // Phase D: try snapshot-based link generation with actual <a> tags
+      const linkSnap = findSnapshot(action, pageSnapshots);
+      if (linkSnap && pageSnapshots && pageSnapshots.length > 0) {
+        const linkSteps = generateInternalLinkSteps(linkSnap, pageSnapshots, citIndex);
+        if (linkSteps.length > 0) {
+          steps.push(...linkSteps);
+          break;
+        }
+      }
+      // Fallback: suggest linking from high-citation pages
       if (primaryTopic) {
         const topPages = getTopCitedPages(primaryTopic, citIndex, action.targetPageUrl);
         if (topPages.length > 0) {
@@ -661,7 +696,7 @@ function generateSteps(
       const topic = topicMatch?.[1] ?? "this topic";
 
       // Context: AI intel + competition
-      const clusterDesc = getAIDescriptors(topic, ai);
+      const clusterDesc = getAIDescriptors(topic, ai, queryIndex);
       if (clusterDesc.length > 0) {
         ctx.push(`AI frames this space as: ${clusterDesc.slice(0, 2).map((d) => `"${d}"`).join(", ")}`);
       }
@@ -696,7 +731,7 @@ function generateSteps(
       }
 
       // Actions with inline proof
-      const staleDesc = primaryTopic ? getAIDescriptors(primaryTopic, ai) : (action.observedQueries ?? []);
+      const staleDesc = primaryTopic ? getAIDescriptors(primaryTopic, ai, queryIndex) : (action.observedQueries ?? []);
       if (staleDesc.length > 0) {
         steps.push(`Refresh content to match current AI framing: ${staleDesc.slice(0, 2).map((d) => `"${d}"`).join(", ")} — citations declining`);
       } else {
@@ -712,7 +747,7 @@ function generateSteps(
         const enrichedSteps = generateStepsFromActionClass(action, pageSnapshots);
         steps.push(...enrichedSteps);
       } else {
-        const gapSteps = generateReplicateSteps(action, ai, citIndex, faqTemplates, pageSnapshots);
+        const gapSteps = generateReplicateSteps(action, ai, citIndex, faqTemplates, pageSnapshots, queryIndex);
         steps.push(...gapSteps);
       }
       break;
@@ -776,49 +811,66 @@ function generateFaqSchemaJsonLd(faqs: FaqItem[]): string {
 }
 
 /**
- * Suggest a title rewrite if the current title is generic (doesn't contain
- * the page's primary cited topic keyword or city name).
- * Returns null if the title is already good.
+ * Suggest a title rewrite using the top FAN-OUT QUERY (not topic label).
+ *
+ * Fan-out queries are the ACTUAL KEYWORDS AI platforms search on:
+ *   "best custom home builders in Atherton California"
+ * vs topic labels which are just Profound folder names:
+ *   "Atherton Construction"
  */
 function suggestTitleRewrite(
   snap: PageSnapshot,
   citedTopics: string[],
+  queryIndex?: QueryKeywordIndex,
 ): string | null {
   const title = snap.title;
-  if (!title || citedTopics.length === 0) return null;
+  if (!title) return null;
 
   const titleLower = title.toLowerCase();
-  const primaryTopic = citedTopics[0]
-    .replace(/^Shield: /, "")
-    .replace(/ \([^)]+\)$/, "");
-  const topicLower = primaryTopic.toLowerCase();
-
-  // Extract city from topic if present (e.g., "Atherton Construction" → "atherton")
-  const topicWords = topicLower.split(/\s+/);
-  const cityWord = topicWords.find(
-    (w) => w.length > 4 && !["construction", "builder", "builders", "custom", "luxury", "home", "homes", "remodel", "renovation"].includes(w),
-  );
-
-  // Check if the key differentiating words are already in the title
-  const keyWords = topicWords.filter(
-    (w) => w.length > 3 && !["the", "bay", "area", "home", "builder", "builders"].includes(w),
-  );
-  const titleHasKeys = keyWords.filter((w) => titleLower.includes(w));
-
-  // If title already contains most keywords, it's probably fine
-  if (titleHasKeys.length >= keyWords.length * 0.6) return null;
-
-  // Generate a suggested title
-  const pagePath = snap.url.replace(/^https?:\/\/[^/]+/, "");
   const siteName = title.match(/\|\s*(.+)$/)?.[1]?.trim() ?? "";
   const suffix = siteName ? ` | ${siteName}` : "";
 
-  if (cityWord) {
-    const cityName = cityWord.charAt(0).toUpperCase() + cityWord.slice(1);
-    return `Current: <title>${title}</title>\nSuggested: <title>${primaryTopic}${suffix}</title>\nReason: this page's top cited topic is "${primaryTopic}" — AI platforms cite pages with topic-specific titles more frequently.`;
+  // Try fan-out query first (best signal)
+  if (queryIndex && citedTopics.length > 0) {
+    const pageUrl = snap.url.replace(/\/+$/, "").toLowerCase();
+    const pageQueries = getQueriesForPage(queryIndex, pageUrl, 5);
+    // Also try topic-level queries
+    const topicQueries = citedTopics.length > 0
+      ? getQueriesForTopic(queryIndex, citedTopics[0], null, 5)
+      : [];
+    const allQueries = pageQueries.length > 0 ? pageQueries : topicQueries;
+
+    if (allQueries.length > 0) {
+      const topQuery = allQueries[0];
+      // Check if the top query keywords are already in the title
+      const queryWords = topQuery.toLowerCase().split(/\s+/).filter((w) => w.length > 3);
+      const missingWords = queryWords.filter((w) => !titleLower.includes(w));
+
+      if (missingWords.length >= 2) {
+        // Capitalize for title case
+        const titleCase = topQuery
+          .split(" ")
+          .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+          .join(" ");
+        return `Current: <title>${title}</title>\nSuggested: <title>${titleCase}${suffix}</title>\nReason: AI platforms search "${topQuery}" — this query drives citations to this page but the keywords are missing from the title.`;
+      }
+    }
   }
 
-  return `Current: <title>${title}</title>\nSuggested: <title>${primaryTopic}${suffix}</title>\nReason: top cited topic "${primaryTopic}" is not reflected in the title.`;
+  // Fallback to topic-label comparison (less precise but still useful)
+  if (citedTopics.length > 0) {
+    const primaryTopic = citedTopics[0]
+      .replace(/^Shield: /, "")
+      .replace(/ \([^)]+\)$/, "");
+    const topicWords = primaryTopic.toLowerCase().split(/\s+/)
+      .filter((w) => w.length > 3 && !["the", "bay", "area"].includes(w));
+    const titleHasKeys = topicWords.filter((w) => titleLower.includes(w));
+    if (titleHasKeys.length >= topicWords.length * 0.6) return null;
+
+    return `Current: <title>${title}</title>\nSuggested: <title>${primaryTopic}${suffix}</title>\nReason: top cited topic "${primaryTopic}" is not reflected in the title.`;
+  }
+
+  return null;
 }
 
 /**
@@ -856,6 +908,142 @@ function suggestH2Rewrites(
   }
 
   return rewrites;
+}
+
+/**
+ * Generate a content skeleton for a section gap — not full copy, but a
+ * structured outline with H2, bullet structure, and why.
+ */
+function generateSectionSkeleton(
+  gap: { label: string; display: string; pct: number; insertAfter: string | null },
+  pagePath: string,
+  citedTopics: string[],
+): string {
+  const placement = gap.insertAfter ? `after "${gap.insertAfter}"` : "in the main content area";
+  const topic = citedTopics[0]?.replace(/^Shield: /, "").replace(/ \([^)]+\)$/, "") ?? "";
+  const pct = Math.round(gap.pct * 100);
+  const label = gap.display;
+
+  // City extraction from page path
+  const cityMatch = pagePath.match(/\/locations?\/([\w-]+)/i);
+  const city = cityMatch
+    ? cityMatch[1].split("-").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ")
+    : null;
+
+  const lines: string[] = [];
+  lines.push(`Add "${label}" section to ${pagePath} ${placement}:`);
+  lines.push("");
+
+  // Generate section-specific skeletons
+  const labelLower = gap.label.toLowerCase();
+  if (labelLower.includes("neighborhood") || labelLower.includes("area")) {
+    lines.push(`- H2: "Neighborhoods We Build In${city ? ` — ${city}` : ""}"`);
+    lines.push("- Paragraph: 2-3 sentences about your coverage area (you write this)");
+    lines.push("- List: link to each neighborhood or sub-area you serve");
+    lines.push("- Include internal links to adjacent city pages");
+  } else if (labelLower.includes("cost") || labelLower.includes("pricing")) {
+    lines.push(`- H2: "How Much Does ${topic || "This"} Cost?"`);
+    lines.push("- Paragraph: typical cost ranges for your area (e.g., $X-$Y per sq ft)");
+    lines.push("- Factors list: size, complexity, materials, site conditions, permits");
+    lines.push("- Note: do NOT give a single number — give ranges with context");
+  } else if (labelLower.includes("process") || labelLower.includes("timeline")) {
+    lines.push(`- H2: "Our ${topic || "Build"} Process"`);
+    lines.push("- Numbered steps: consultation → design → permits → construction → walkthrough");
+    lines.push("- Include typical timeline for each phase");
+  } else if (labelLower.includes("testimonial") || labelLower.includes("review")) {
+    lines.push(`- H2: "What Our Clients Say${city ? ` in ${city}` : ""}"`);
+    lines.push("- 2-3 client quotes with names and project type");
+    lines.push("- Add Review schema (JSON-LD) for each testimonial");
+  } else if (labelLower.includes("design") || labelLower.includes("build")) {
+    lines.push(`- H2: "Design-Build${city ? ` in ${city}` : ""}: Architecture to Construction"`);
+    lines.push("- Paragraph: explain what design-build means for the homeowner");
+    lines.push("- Benefits list: single point of contact, cost control, faster timeline");
+    lines.push("- Include link to your /services/design-build page if it exists");
+  } else if (labelLower.includes("comparison") || labelLower.includes("vs")) {
+    lines.push(`- H2: "How We Compare${city ? ` in ${city}` : ""}"`);
+    lines.push("- Comparison table with your top 4-5 competitors (see comparison table rec)");
+  } else {
+    // Generic fallback — still structured, not just "add X"
+    lines.push(`- H2: "${label}${city ? ` — ${city}` : ""}"`);
+    lines.push("- 2-3 paragraphs of relevant content (you write this)");
+    lines.push("- Include at least one internal link to a related page");
+  }
+
+  lines.push("");
+  lines.push(`Why: ${pct}% of similar pages ranking for "${topic || "this topic"}" have this section. Yours doesn't.`);
+
+  return lines.join("\n");
+}
+
+/**
+ * Generate exact internal link <a> tags for a city page that's missing
+ * links to other city pages. Uses actual page snapshot data to find
+ * which city pages exist and which aren't linked from this page.
+ */
+function generateInternalLinkSteps(
+  snap: PageSnapshot,
+  allSnapshots: PageSnapshot[],
+  citIndex: CitationEvidenceIndex | null,
+): string[] {
+  const pagePath = snap.url.replace(/^https?:\/\/[^/]+/, "");
+
+  // Find all city/location pages in the snapshot set
+  const cityPages = allSnapshots
+    .filter((s) => {
+      const path = s.url.replace(/^https?:\/\/[^/]+/, "").toLowerCase();
+      return path.includes("/location") && path !== pagePath.toLowerCase();
+    })
+    .map((s) => ({
+      path: s.url.replace(/^https?:\/\/[^/]+/, ""),
+      title: s.title ?? s.url,
+    }));
+
+  if (cityPages.length === 0) return [];
+
+  // Check which city pages this page already links to
+  const existingHrefs = new Set(
+    (snap.internal_links ?? []).map((l) => l.href.replace(/\/+$/, "").toLowerCase()),
+  );
+
+  const missingLinks = cityPages.filter(
+    (cp) => !existingHrefs.has(cp.path.replace(/\/+$/, "").toLowerCase()),
+  );
+
+  if (missingLinks.length === 0) return [];
+
+  // Generate <a> tags with topic-relevant anchor text
+  const links = missingLinks.slice(0, 5).map((cp) => {
+    // Extract city name from path
+    const cityMatch = cp.path.match(/\/locations?\/([\w-]+)/i);
+    const cityName = cityMatch
+      ? cityMatch[1].split("-").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ")
+      : cp.title.replace(/\s*\|.*$/, "").trim();
+
+    // Use citation topic to make anchor text specific
+    const normalizedUrl = cp.path.replace(/\/+$/, "").toLowerCase();
+    // Search for pages matching this path in citation index
+    const topicKey = citIndex?.page_to_topics
+      ? Object.keys(citIndex.page_to_topics).find((k) =>
+          k.toLowerCase().includes(normalizedUrl),
+        )
+      : null;
+    const citedTopic = topicKey
+      ? citIndex!.page_to_topics[topicKey]?.[0]
+          ?.replace(/^Shield: /, "")
+          ?.replace(/ \([^)]+\)$/, "")
+      : null;
+
+    const anchorText = citedTopic ?? `Custom Home Builder in ${cityName}`;
+    return `<a href="${cp.path}">${anchorText}</a>`;
+  });
+
+  const linkedCount = existingHrefs.size;
+  const steps: string[] = [];
+  steps.push(
+    `${pagePath} links to ${linkedCount} other city page${linkedCount !== 1 ? "s" : ""} but NOT to ${missingLinks.length} others.\n\nAdd these links in a "Service Areas" or footer section:\n\n${links.join("\n")}\n\nUse descriptive anchor text — not "click here" or "learn more."`,
+  );
+
+  return steps;
 }
 
 /**
@@ -995,9 +1183,19 @@ function generateStepsFromActionClass(
     case "meta_update":
       steps.push(`Update meta description on ${page} — answer-formatted, under 155 chars`);
       break;
-    case "internal_links":
-      steps.push(`Add internal links to ${page} from your highest-citation pages`);
+    case "internal_links": {
+      if (snap && pageSnapshots && pageSnapshots.length > 0) {
+        const linkSteps = generateInternalLinkSteps(snap, pageSnapshots, null);
+        if (linkSteps.length > 0) {
+          steps.push(...linkSteps);
+        } else {
+          steps.push(`Add internal links to ${page} from your highest-citation pages`);
+        }
+      } else {
+        steps.push(`Add internal links to ${page} from your highest-citation pages`);
+      }
       break;
+    }
     case "cost_section":
       steps.push(`Add cost breakdown section to ${page}${loc}`);
       break;
@@ -1040,6 +1238,7 @@ function generateReplicateSteps(
   citIndex: CitationEvidenceIndex | null,
   faqTemplates?: FaqTemplate[],
   pageSnapshots?: PageSnapshot[],
+  queryIndex?: QueryKeywordIndex,
 ): string[] {
   const steps: string[] = [];
   const headline = action.headline.toLowerCase();
@@ -1065,7 +1264,7 @@ function generateReplicateSteps(
       const faqSteps = generateFaqSchemaStep(snap, pagePath);
       steps.push(...faqSteps);
     } else {
-      const questions = suggestFaqQuestions(action, ai, citIndex, faqTemplates);
+      const questions = suggestFaqQuestions(action, ai, citIndex, faqTemplates, queryIndex);
       if (questions.length > 0) {
         steps.push(
           `Add FAQ section with these questions: ${questions.map((q) => `"${q}"`).join(", ")}`
@@ -1081,7 +1280,7 @@ function generateReplicateSteps(
       const faqSteps = generateFaqSchemaStep(snap, pagePath);
       steps.push(...faqSteps);
     } else {
-      const questions = suggestFaqQuestions(action, ai, citIndex, faqTemplates);
+      const questions = suggestFaqQuestions(action, ai, citIndex, faqTemplates, queryIndex);
       if (questions.length > 0) {
         steps.push(
           `Add FAQ section with these questions: ${questions.map((q) => `"${q}"`).join(", ")}`,
@@ -1118,10 +1317,42 @@ function suggestFaqQuestions(
   ai: AnswerIntelligenceIndex | null,
   citIndex: CitationEvidenceIndex | null,
   faqTemplates?: FaqTemplate[],
+  queryIndex?: QueryKeywordIndex,
 ): string[] {
+  // Priority 1: Use REAL FAN-OUT QUERIES from the query index
+  // These are the actual search keywords AI platforms digest — converting
+  // them into FAQ questions means the page answers the EXACT queries
+  // that drive citations.
+  if (queryIndex) {
+    const pageUrl = action.targetPageUrl?.replace(/\/+$/, "").toLowerCase();
+    if (pageUrl) {
+      const pageQueries = getQueriesForPage(queryIndex, pageUrl, 7);
+      if (pageQueries.length >= 3) {
+        // Convert fan-out queries into FAQ questions
+        return pageQueries.slice(0, 5).map((q) => {
+          // Capitalize first letter and add question mark if missing
+          const clean = q.charAt(0).toUpperCase() + q.slice(1);
+          return clean.endsWith("?") ? clean : `${clean}?`;
+        });
+      }
+    }
+
+    // Fallback: try topic-level queries
+    const pageTopics = getPageTopics(action, citIndex ?? null);
+    for (const topic of pageTopics.slice(0, 2)) {
+      const topicQueries = getQueriesForTopic(queryIndex, topic, null, 7);
+      if (topicQueries.length >= 3) {
+        return topicQueries.slice(0, 5).map((q) => {
+          const clean = q.charAt(0).toUpperCase() + q.slice(1);
+          return clean.endsWith("?") ? clean : `${clean}?`;
+        });
+      }
+    }
+  }
+
+  // Priority 2: config-driven templates (if provided)
   if (!ai || !citIndex) return [];
 
-  // Find the topic(s) this page is cited for
   const pageUrl = action.targetPageUrl?.replace(/\/+$/, "").toLowerCase();
   if (!pageUrl) return [];
 
@@ -1130,61 +1361,37 @@ function suggestFaqQuestions(
     ?? [];
 
   if (pageTopics.length === 0) {
-    // Try to match via path keywords
     const pathParts = (action.targetPagePath ?? "")
       .split("/")
       .filter((p) => p.length > 2)
       .map((p) => p.replace(/-/g, " ").toLowerCase());
-
     if (pathParts.length > 0) {
       for (const bp of ai.brand_positioning) {
-        const topicLower = bp.topic.toLowerCase();
-        if (pathParts.some((part) => topicLower.includes(part))) {
+        if (pathParts.some((part) => bp.topic.toLowerCase().includes(part))) {
           pageTopics.push(bp.topic);
         }
       }
     }
-
-    // For root/homepage or if no path match, use the highest-mention topic
     if (pageTopics.length === 0) {
-      const sorted = [...ai.brand_positioning].sort(
-        (a, b) => b.mention_count - a.mention_count
-      );
+      const sorted = [...ai.brand_positioning].sort((a, b) => b.mention_count - a.mention_count);
       if (sorted.length > 0) pageTopics.push(sorted[0].topic);
     }
   }
 
-  // Find the primary topic and generate questions from it
   const questions: string[] = [];
-
   for (const topic of pageTopics.slice(0, 2)) {
-    const bp = ai.brand_positioning.find(
-      (b) => b.topic.toLowerCase() === topic.toLowerCase()
-    );
-    if (!bp) continue;
-
-    // Clean up topic for display
-    const topicClean = topic
-      .replace(/^Shield: /, "")
-      .replace(/ \([^)]+\)$/, ""); // strip any trailing parenthetical
-
-    // Try config-driven templates first (if provided)
+    const topicClean = topic.replace(/^Shield: /, "").replace(/ \([^)]+\)$/, "");
     if (faqTemplates && faqTemplates.length > 0) {
       const matched = matchFaqTemplate(topic, topicClean, faqTemplates);
-      if (matched.length > 0) {
-        questions.push(...matched);
-        continue;
-      }
+      if (matched.length > 0) { questions.push(...matched); continue; }
     }
-
-    // Generic fallback — works for any industry
+    // Generic fallback
     questions.push(
       `What should I know about ${topicClean.toLowerCase()}?`,
       `How do I choose the right ${topicClean.toLowerCase()}?`,
       `What does ${topicClean.toLowerCase()} typically cost?`,
     );
   }
-
   return questions.slice(0, 3);
 }
 

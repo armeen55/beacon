@@ -141,16 +141,30 @@ export function extractPageSnapshot(
   const hasJsonLd = $('script[type="application/ld+json"]').length > 0;
 
   // ── Links ──
-  let internalLinks = 0;
+  let internalLinkCount = 0;
   let externalLinks = 0;
   const pageDomain = extractDomain(url);
+  const internalLinksArr: { href: string; anchor_text: string }[] = [];
 
   $("a[href]").each((_, el) => {
     const href = $(el).attr("href");
     if (!href) return;
     if (href.startsWith("#") || href.startsWith("mailto:") || href.startsWith("tel:")) return;
     if (href.startsWith("/") || href.startsWith(url) || (pageDomain && href.includes(pageDomain))) {
-      internalLinks++;
+      internalLinkCount++;
+      const anchorText = $(el).text().trim();
+      if (anchorText && href.startsWith("/")) {
+        // Store path-relative internal links with their anchor text
+        internalLinksArr.push({ href, anchor_text: anchorText });
+      } else if (anchorText && pageDomain && href.includes(pageDomain)) {
+        // Normalize absolute internal links to path-relative
+        try {
+          const parsed = new URL(href);
+          internalLinksArr.push({ href: parsed.pathname, anchor_text: anchorText });
+        } catch {
+          internalLinksArr.push({ href, anchor_text: anchorText });
+        }
+      }
     } else if (href.startsWith("http")) {
       externalLinks++;
     }
@@ -222,8 +236,9 @@ export function extractPageSnapshot(
     schema_types: dedupedSchemaTypes,
     location_terms: [...new Set(locationTerms)],
     service_terms: [...new Set(serviceTerms)],
-    internal_link_count: internalLinks,
+    internal_link_count: internalLinkCount,
     external_link_count: externalLinks,
+    internal_links: internalLinksArr.length > 0 ? internalLinksArr : undefined,
     word_count: wordCount,
     robots_meta: robotsMeta,
     has_canonical_mismatch: hasCanonicalMismatch,

@@ -106,6 +106,8 @@ export type PageSnapshot = {
   structural_warnings?: string[];
   /** Count of meaningful HTML tables (≥2 rows) on the page */
   table_count?: number;
+  /** All internal links on this page — href + anchor text. Populated after scan. */
+  internal_links?: { href: string; anchor_text: string }[];
   /** Owning tenant. */
   tenant_id: string;
 };

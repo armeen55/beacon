@@ -91,6 +91,7 @@ import {
 } from "@/domains/milestones";
 import { answerIntelligenceIndex } from "@/domains/answer-intelligence/store";
 import { buildMorningBrief, type MorningBriefData } from "@/domains/product/morning-brief";
+import { buildQueryKeywordIndex, type QueryKeywordIndex } from "@/domains/answer-intelligence/query-index";
 import { computeMemoryInsights } from "@/domains/attribution/memory";
 import { dailyMetricSnapshots } from "@/storage/canonical-store";
 import { getCompetitorMonitoringState } from "@/domains/competitor-monitoring/store";
@@ -604,6 +605,11 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
   const competitorMonState = getCompetitorMonitoringState();
   const competitorAlerts = generateCompetitorAlerts(competitorMonState.recentChanges);
 
+  // Build query keyword index from fan-out data — unlocks 5,289 real
+  // search queries for use in title rewrites, FAQ generation, H2
+  // suggestions, anchor text, and section skeletons.
+  const queryIndex = buildQueryKeywordIndex(citationEvidenceIndex);
+
   const morningBrief: MorningBriefData = buildMorningBrief({
     primaryAction,
     secondaryActions,
@@ -617,6 +623,7 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
     competitorSnapshots: competitorMonState.snapshots,
     faqTemplates: getFaqTemplates(),
     pageSnapshots,
+    queryIndex,
   });
 
   function recHref(r: { type: string; targetPageUrl: string | null; sourceChangeId: string | null }): string {
