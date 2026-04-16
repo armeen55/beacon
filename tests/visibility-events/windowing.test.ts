@@ -399,6 +399,9 @@ describe("buildVisibilityEventWindows — memory insight enrichment", () => {
         observations_after: 5,
         platform_deltas: {},
         computed_at: "2026-04-14T00:00:00Z",
+        normalized_citation_delta_pct: 25.0,
+        raw_citation_delta_pct: 25.0,
+        normalized: false,
         tenant_id: "tenant-test",
       },
     ];

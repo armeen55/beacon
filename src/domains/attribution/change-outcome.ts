@@ -18,6 +18,7 @@ import {
 } from "./memory";
 import { writeStore } from "@/lib/persistence/json-store";
 import { syncChangeOutcomes } from "@/lib/persistence/dual-write";
+import { normalizeImpact } from "@/domains/global-patterns/contracts";
 
 // ---------------------------------------------------------------------------
 // Type
@@ -52,6 +53,18 @@ export type ChangeOutcome = {
     }
   >;
   computed_at: string;
+  /**
+   * CX4.0 — Normalized citation delta. Adjusts for observation-count
+   * inflation: when observations_after > observations_before * 1.5,
+   * the raw delta is scaled by sqrt(before/after). One changelog entry
+   * contributes exactly one outcome to the pattern engine, regardless
+   * of how many prompts observed the change. Capped at [-95%, +500%].
+   */
+  normalized_citation_delta_pct: number;
+  /** Raw (pre-normalization) value, kept for debugging. */
+  raw_citation_delta_pct: number;
+  /** Whether normalization was applied. */
+  normalized: boolean;
   /** Owning tenant. */
   tenant_id: string;
 };
@@ -87,6 +100,17 @@ function insightToOutcome(insight: MemoryInsight): ChangeOutcome {
     };
   }
 
+  const rawCitationDelta = pctDelta(
+    insight.metricsBefore.avgCitations,
+    insight.metricsAfter.avgCitations,
+  );
+  const normalizedCitationDelta = normalizeImpact({
+    raw_delta_pct: rawCitationDelta,
+    observations_before: insight.metricsBefore.totalObservations,
+    observations_after: insight.metricsAfter.totalObservations,
+  });
+  const wasNormalized = normalizedCitationDelta !== rawCitationDelta;
+
   return {
     id: insight.changeId,
     change_id: insight.changeId,
@@ -97,10 +121,7 @@ function insightToOutcome(insight: MemoryInsight): ChangeOutcome {
       insight.metricsBefore.avgMentions,
       insight.metricsAfter.avgMentions,
     ),
-    citation_delta_pct: pctDelta(
-      insight.metricsBefore.avgCitations,
-      insight.metricsAfter.avgCitations,
-    ),
+    citation_delta_pct: normalizedCitationDelta,
     visibility_delta_pct: pctDelta(
       insight.metricsBefore.avgVisibility,
       insight.metricsAfter.avgVisibility,
@@ -117,6 +138,9 @@ function insightToOutcome(insight: MemoryInsight): ChangeOutcome {
     observations_after: insight.metricsAfter.totalObservations,
     platform_deltas: platformDeltas,
     computed_at: new Date().toISOString(),
+    normalized_citation_delta_pct: normalizedCitationDelta,
+    raw_citation_delta_pct: rawCitationDelta,
+    normalized: wasNormalized,
     tenant_id: "",
   };
 }
