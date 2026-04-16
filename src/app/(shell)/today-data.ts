@@ -70,7 +70,7 @@ import { getScanSettings, isScanOverdue } from "@/domains/scanning/scan-settings
 import { readScanState } from "@/domains/scanning/scan-state";
 import { FINDING_PRIORITY_ORDER } from "@/domains/scanning/types";
 // buildCompetitorRank / classifyCompetitorType moved to post-import milestone sync (Phase 1C-3)
-import { getBusinessConfig } from "@/lib/business-config";
+import { getBusinessConfig, getSectionAnalyzerConfig, getFaqTemplates } from "@/lib/business-config";
 import { getLocalPresenceSnapshot, buildTodayLocalAttention } from "@/lib/local-presence";
 import {
   computeLocalOperatorSurface,
@@ -523,6 +523,7 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
     changePatterns,
     activeExperimentUrls,
     changeOutcomes,
+    sectionAnalyzerConfig: getSectionAnalyzerConfig(),
   });
 
   // Filter out dismissed / deferred-but-not-due recommendations
@@ -614,6 +615,8 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
     memoryInsights,
     competitorAlerts,
     competitorSnapshots: competitorMonState.snapshots,
+    faqTemplates: getFaqTemplates(),
+    pageSnapshots,
   });
 
   function recHref(r: { type: string; targetPageUrl: string | null; sourceChangeId: string | null }): string {
@@ -808,6 +811,48 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
     weekOverWeekCitations: visibilitySummary.weekOverWeekCitations,
     weekOverWeekMentions: visibilitySummary.weekOverWeekMentions,
   };
+
+  // FAQ schema coverage metric
+  const pagesWithFaq = pageSnapshots.filter((s) => s.faqs.length > 0);
+  const pagesWithFaqAndSchema = pagesWithFaq.filter((s) =>
+    s.schema_types.some((t) => t.toLowerCase().includes("faq")),
+  );
+  const faqSchemaCoverage = pagesWithFaq.length > 0
+    ? { covered: pagesWithFaqAndSchema.length, total: pagesWithFaq.length }
+    : null;
+
+  // Platform distribution for Today context strip
+  // Normalizes raw citations into percentages across the 3 major AI platforms
+  const platformDistribution = (() => {
+    const total = visibilitySummary.platformBreakdown.reduce(
+      (s, p) => s + p.citations,
+      0,
+    );
+    if (total === 0) return null;
+    const buckets = { google_aio: 0, chatgpt: 0, perplexity: 0, other: 0 };
+    for (const p of visibilitySummary.platformBreakdown) {
+      if (p.platform === "google_aio") buckets.google_aio += p.citations;
+      else if (p.platform === "chatgpt") buckets.chatgpt += p.citations;
+      else if (p.platform === "perplexity") buckets.perplexity += p.citations;
+      else buckets.other += p.citations;
+    }
+    const pct = (n: number) => Math.round((n / total) * 100);
+    const result = {
+      google_aio: pct(buckets.google_aio),
+      chatgpt: pct(buckets.chatgpt),
+      perplexity: pct(buckets.perplexity),
+      total,
+    };
+    return result;
+  })();
+
+  // Platform concentration risk: single platform > 85%
+  const concentratedPlatform = platformDistribution
+    ? (platformDistribution.google_aio > 85 ? "google_aio" as const
+      : platformDistribution.chatgpt > 85 ? "chatgpt" as const
+      : platformDistribution.perplexity > 85 ? "perplexity" as const
+      : null)
+    : null;
 
   const proposedWaves = planWaves(
     playbookBriefs,
@@ -1119,6 +1164,36 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
   const scanState = readScanState();
   const scanPhaseFailed = scanState?.phase === "failed";
 
+  // Build experiment proof — most active non-dropped experiment
+  const activeExps = getActiveExperiments();
+  const experimentProof = activeExps.length > 0
+    ? (() => {
+        // Pick experiment with most timeline data
+        const best = activeExps
+          .filter((e) => (e.timeline?.length ?? 0) > 0)
+          .sort((a, b) => (b.timeline?.length ?? 0) - (a.timeline?.length ?? 0))[0];
+        if (!best) return null;
+        const daysSinceStart = Math.floor(
+          (Date.now() - new Date(best.startedAt).getTime()) / 86_400_000,
+        );
+        const citDeltaPct = best.baselineCitations && best.latestCitations
+          ? Math.round(((best.latestCitations - best.baselineCitations) / best.baselineCitations) * 1000) / 10
+          : null;
+        const menDeltaPct = best.baselineMentions && best.latestMentions
+          ? Math.round(((best.latestMentions - best.baselineMentions) / best.baselineMentions) * 1000) / 10
+          : null;
+        return {
+          id: best.id,
+          headline: best.headline,
+          status: best.status,
+          daysSinceStart,
+          citationDeltaPct: citDeltaPct,
+          mentionDeltaPct: menDeltaPct,
+          targetPagePath: best.targetPagePath,
+        };
+      })()
+    : null;
+
   return {
     isDemoMode,
     scanPhaseFailed,
@@ -1131,6 +1206,10 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
     shouldTriggerScan: scanOverdue,
     proofContext,
     localAttentionStrip,
+    experimentProof,
+    faqSchemaCoverage,
+    platformDistribution,
+    concentratedPlatform,
   };
 }
 

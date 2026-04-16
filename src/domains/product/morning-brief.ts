@@ -10,9 +10,19 @@
 import type { BeaconRecommendation, RecommendationType } from "./recommendation-engine";
 import type { PrioritizedAction } from "./priority-engine";
 import type { AnswerIntelligenceIndex, BrandPositioningByTopic } from "@/domains/answer-intelligence/types";
-import type { CitationEvidenceIndex } from "@/domains/pages/types";
+import type { CitationEvidenceIndex, PageSnapshot, FaqItem } from "@/domains/pages/types";
 import type { MemoryInsight } from "@/domains/attribution/memory";
 import type { CompetitorAlert, CompetitorSitemapSnapshot } from "@/domains/competitor-monitoring/types";
+import { recConfidenceLabel } from "@/lib/confidence-labels";
+
+// ---------------------------------------------------------------------------
+// Config type for industry-specific FAQ generation
+// ---------------------------------------------------------------------------
+
+export type FaqTemplate = {
+  topicPattern: string;
+  questions: string[];
+};
 
 // ---------------------------------------------------------------------------
 // Types
@@ -25,7 +35,9 @@ export type MorningBriefItem = {
   priority: BriefItemPriority;
   headline: string;
   rationale: string;
-  /** Concrete checklist: what to actually do */
+  /** Intelligence context: citations, prior success, AI positioning — displayed as compact header */
+  contextLines: string[];
+  /** Pure execution steps: what to actually do (3-4 max) */
   steps: string[];
   /** Target page URL (null for topic-level recs) */
   pageUrl: string | null;
@@ -37,6 +49,10 @@ export type MorningBriefItem = {
   confidenceLabel: string;
   /** AI context: what platforms say about this topic */
   aiContext: string | null;
+  /** Single strongest proof point — always visible under headline */
+  keyReason: string | null;
+  /** Monitoring expectation — separated from execution steps */
+  monitorLine: string | null;
   /** Original recommendation type for styling */
   recType: RecommendationType;
 };
@@ -53,7 +69,7 @@ export type CompetitorSummary = {
 
 export type MorningBriefData = {
   items: MorningBriefItem[];
-  /** Attribution memory: "your change X days ago is working" insights */
+  /** Attribution memory: "after your update X days ago — metrics moved" insights */
   memoryInsights: SerializedMemoryInsight[];
   /** Competitor monitoring alerts */
   competitorAlerts: CompetitorAlert[];
@@ -97,18 +113,22 @@ export function buildMorningBrief(opts: {
   memoryInsights?: MemoryInsight[];
   competitorAlerts?: CompetitorAlert[];
   competitorSnapshots?: CompetitorSitemapSnapshot[];
+  faqTemplates?: FaqTemplate[];
+  /** Page snapshots for generating paste-ready code blocks in steps. */
+  pageSnapshots?: PageSnapshot[];
 }): MorningBriefData {
   const items: MorningBriefItem[] = [];
+  const pageSnaps = opts.pageSnapshots ?? [];
 
   if (opts.primaryAction) {
     items.push(
-      toBriefItem(opts.primaryAction, "need", opts.answerIntelligence, opts.citationIndex)
+      toBriefItem(opts.primaryAction, "need", opts.answerIntelligence, opts.citationIndex, opts.faqTemplates, pageSnaps)
     );
   }
 
   for (const action of opts.secondaryActions.slice(0, 2)) {
     items.push(
-      toBriefItem(action, "suggested", opts.answerIntelligence, opts.citationIndex)
+      toBriefItem(action, "suggested", opts.answerIntelligence, opts.citationIndex, opts.faqTemplates, pageSnaps)
     );
   }
 
@@ -193,23 +213,43 @@ function toBriefItem(
   priority: BriefItemPriority,
   ai: AnswerIntelligenceIndex | null,
   citIndex: CitationEvidenceIndex | null,
+  faqTemplates?: FaqTemplate[],
+  pageSnapshots?: PageSnapshot[],
 ): MorningBriefItem {
-  const steps = generateSteps(action, ai, citIndex);
+  const { contextLines, steps: rawSteps } = generateSteps(action, ai, citIndex, faqTemplates, pageSnapshots);
   const headline = rewriteHeadline(action);
   const rationale = rewriteRationale(action);
   const aiContext = action.answerContext ?? null;
+
+  // Separate monitoring line from execution steps
+  const monitorIdx = rawSteps.findIndex((s) => s.startsWith("Monitor:"));
+  const monitorLine = monitorIdx >= 0 ? rawSteps[monitorIdx] : null;
+  const coreSteps = monitorIdx >= 0
+    ? [...rawSteps.slice(0, monitorIdx), ...rawSteps.slice(monitorIdx + 1)]
+    : rawSteps;
+
+  // Cap at 2 core execution steps — merge extras into step 2 if needed
+  const steps = coreSteps.length <= 2
+    ? coreSteps
+    : [coreSteps[0], coreSteps.slice(1).join(". ")];
+
+  // Pick the single strongest proof point for inline display
+  const keyReason = pickKeyReason(action);
 
   return {
     id: action.id,
     priority,
     headline,
     rationale,
+    contextLines,
     steps,
     pageUrl: action.targetPageUrl,
     pagePath: action.targetPagePath,
     citationCount: action.citationOpportunity,
-    confidenceLabel: confidenceToLabel(action.confidence),
+    confidenceLabel: recConfidenceLabel(action.confidence),
     aiContext,
+    keyReason,
+    monitorLine,
     recType: action.type,
   };
 }
@@ -273,26 +313,187 @@ function extractStructuralGaps(rationale: string): string {
 function rewriteRationale(action: PrioritizedAction): string {
   switch (action.type) {
     case "strengthen_structure":
-      return `AI platforms recommended this page ${action.citationOpportunity} times but can't easily pull answers from it. Adding FAQ and schema makes it easier for ChatGPT, Google AI, and Perplexity to quote you directly.`;
+      return `AI platforms cited this page ${action.citationOpportunity} times but can't easily pull answers from it. Adding FAQ and schema makes it easier for ChatGPT, Google AI, and Perplexity to quote you directly. Beacon tracks direction, not cause.`;
     case "competitive_displacement":
       return action.rationale;
     case "refresh_content":
-      return `This page gets AI recommendations but the content is thin. Adding more detail helps AI platforms give better, more specific answers that send people to you.`;
+      return `This page gets AI citations but the content is thin. Adding more detail helps AI platforms give better, more specific answers that send people to you.`;
     case "improve_internal_links":
-      return `This page gets mentioned by AI but isn't well-connected to your other pages. Linking from your strongest pages tells AI this content matters.`;
+      return `This page gets mentioned by AI but isn't well-connected to your other pages. Linking from your strongest pages signals to AI that this content matters.`;
     case "topic_cluster_gap":
       return action.rationale;
     case "refresh_stale_citation":
-      return `AI platforms are recommending this page less than before. Updating the content signals freshness and can recover lost visibility.`;
+      return `AI platforms are citing this page less than before. Updating the content signals freshness and may recover lost visibility. Beacon tracks direction, not cause.`;
     case "replicate":
-      return `AI platforms recommended this page ${action.citationOpportunity} times but it's missing elements that your best-performing pages have. Adding them means more people see your name when they ask AI for help.`;
+      return `AI platforms cited this page ${action.citationOpportunity} times but it's missing elements that your best-performing pages have. Adding them may increase how often AI mentions you. Beacon tracks direction, not cause.`;
     case "investigate":
       return `AI visibility on this page may have shifted recently. Check if anything changed before taking action.`;
     case "cross_page_pattern":
-      return `Something that works on your other pages can be applied here too. Replicating what works means more AI recommendations.`;
+      return `A pattern observed on your other pages can be applied here too. Replicating patterns with positive trends may increase AI citations. Beacon tracks direction, not cause.`;
     default:
       return action.rationale;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Helpers for step specificity — answer intelligence extraction
+// ---------------------------------------------------------------------------
+
+/** Get the primary topic(s) for a page from citation evidence index. */
+function getPageTopics(
+  action: PrioritizedAction,
+  citIndex: CitationEvidenceIndex | null,
+): string[] {
+  if (!citIndex) return [];
+  const pageUrl = action.targetPageUrl?.replace(/\/+$/, "").toLowerCase();
+  if (!pageUrl) return [];
+  return citIndex.page_to_topics?.[pageUrl] ?? [];
+}
+
+/** Get the primary topic display name for a page. */
+function getPageTopicLine(
+  action: PrioritizedAction,
+  ai: AnswerIntelligenceIndex | null,
+  citIndex: CitationEvidenceIndex | null,
+): string | null {
+  const topics = getPageTopics(action, citIndex);
+  if (topics.length === 0) return null;
+  // Clean up topic for display
+  const clean = topics[0]
+    .replace(/^Shield: /, "")
+    .replace(/ \([^)]+\)$/, "");
+  return `"${clean}"`;
+}
+
+/** Get brand positioning data for a topic from answer intelligence. */
+function getTopicPositioning(
+  topic: string,
+  ai: AnswerIntelligenceIndex | null,
+): BrandPositioningByTopic | null {
+  if (!ai) return null;
+  return ai.brand_positioning.find(
+    (b) => b.topic.toLowerCase() === topic.toLowerCase(),
+  ) ?? null;
+}
+
+/** Get co-citation topic breakdown. */
+function getTopicCoCitation(
+  topic: string,
+  ai: AnswerIntelligenceIndex | null,
+): import("@/domains/answer-intelligence/types").CoCitationTopicBreakdown | null {
+  if (!ai?.co_citation?.by_topic) return null;
+  return ai.co_citation.by_topic.find(
+    (t) => t.topic.toLowerCase() === topic.toLowerCase(),
+  ) ?? null;
+}
+
+/**
+ * Get top N pages by citation count for a topic — used for internal link source suggestions.
+ * Returns owned pages sorted by citation count descending.
+ */
+function getTopCitedPages(
+  topic: string,
+  citIndex: CitationEvidenceIndex | null,
+  excludeUrl?: string | null,
+  limit = 3,
+): { url: string; count: number }[] {
+  if (!citIndex?.by_topic) return [];
+  const topicSummary = citIndex.by_topic.find(
+    (t) => t.topic.toLowerCase() === topic.toLowerCase(),
+  );
+  if (!topicSummary) return [];
+  const excludeNorm = excludeUrl?.replace(/\/+$/, "").toLowerCase();
+  return topicSummary.top_owned_pages
+    .filter((p) => !excludeNorm || p.url.replace(/\/+$/, "").toLowerCase() !== excludeNorm)
+    .slice(0, limit);
+}
+
+/**
+ * Extract AI-observed descriptors/phrases for a topic.
+ * These are how AI platforms actually describe the brand for this topic.
+ */
+function getAIDescriptors(
+  topic: string,
+  ai: AnswerIntelligenceIndex | null,
+): string[] {
+  const bp = getTopicPositioning(topic, ai);
+  if (!bp || bp.brand_descriptors.length === 0) return [];
+  return bp.brand_descriptors
+    .filter((d) => d.source_count >= 2)
+    .slice(0, 3)
+    .map((d) => d.fragment);
+}
+
+/**
+ * Get per-platform mention rate for display context.
+ */
+function getPlatformContext(
+  topic: string,
+  ai: AnswerIntelligenceIndex | null,
+): string | null {
+  if (!ai?.topic_platform_summary) return null;
+  const platforms = ai.topic_platform_summary[topic];
+  if (!platforms) return null;
+  const entries = Object.entries(platforms)
+    .filter(([, v]) => v.latest_mention_rate > 0)
+    .sort((a, b) => b[1].latest_mention_rate - a[1].latest_mention_rate)
+    .slice(0, 3);
+  if (entries.length === 0) return null;
+  return entries
+    .map(([platform, v]) => {
+      const trend = v.trend_direction === "up" ? " ↑" : v.trend_direction === "down" ? " ↓" : "";
+      return `${platform}: ${Math.round(v.latest_mention_rate * 100)}% mention rate${trend}`;
+    })
+    .join(", ");
+}
+
+// ---------------------------------------------------------------------------
+// Key reason — single strongest proof point for inline display
+// ---------------------------------------------------------------------------
+
+/** Pick the ONE most compelling reason this action matters — priority order. */
+/** Short platform suffix: "· primarily ChatGPT + Google AIO" */
+function platformSuffix(action: PrioritizedAction): string {
+  const platforms = action.targetPlatforms ?? [];
+  if (platforms.length === 0) return "";
+  const labels: Record<string, string> = {
+    chatgpt: "ChatGPT",
+    google_aio: "Google AIO",
+    perplexity: "Perplexity",
+  };
+  const names = platforms.map((p) => labels[p] ?? p).join(" + ");
+  return ` · primarily ${names}`;
+}
+
+function pickKeyReason(action: PrioritizedAction): string | null {
+  // 0. FAQ without schema — highest-leverage finding, data-proven
+  if (action.sourceEvidence?.includes("visible FAQs, 0 FAQPage schema")) {
+    const faqMatch = action.sourceEvidence.match(/^(\d+) visible FAQs/);
+    const n = faqMatch?.[1] ?? "multiple";
+    return `${n} FAQ questions visible, no schema — FAQPage JSON-LD strongly correlated with higher ChatGPT citation rates in your data`;
+  }
+  // 1. Prior success with delta (strongest proof)
+  if (action.priorSuccess && action.priorSuccess.citationDelta > 0) {
+    return `+${Math.round(action.priorSuccess.citationDelta)}% when applied to ${action.priorSuccess.pagePath}${platformSuffix(action)}`;
+  }
+  // 2. Expected metric from pattern data
+  if (action.expectedMetric) {
+    return `${action.expectedMetric}${platformSuffix(action)}`;
+  }
+  // 3. Competitive gap (for displacement recs)
+  if (action.competitorContext) {
+    const cc = action.competitorContext;
+    return `${cc.competitorDomain} has ${cc.competitorCitations} citations, you have ${cc.ownedCitations}${platformSuffix(action)}`;
+  }
+  // 4. Citation count + section gap percentage (for structural recs)
+  if (action.sectionGaps && action.sectionGaps.length > 0 && action.citationOpportunity > 0) {
+    return `${action.citationOpportunity} citations · ${action.sectionGaps[0].display} missing (${Math.round(action.sectionGaps[0].pct * 100)}% of peers have it)${platformSuffix(action)}`;
+  }
+  // 5. Citation count alone
+  if (action.citationOpportunity > 0) {
+    return `${action.citationOpportunity} AI citations on this page${platformSuffix(action)}`;
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -303,83 +504,215 @@ function generateSteps(
   action: PrioritizedAction,
   ai: AnswerIntelligenceIndex | null,
   citIndex: CitationEvidenceIndex | null,
-): string[] {
-  const steps: string[] = [];
+  faqTemplates?: FaqTemplate[],
+  pageSnapshots?: PageSnapshot[],
+): { contextLines: string[]; steps: string[] } {
+  const ctx: string[] = [];   // Intelligence context (displayed as header)
+  const steps: string[] = []; // Pure execution steps (3-4 max)
+  const page = action.targetPagePath ?? action.targetPageUrl ?? null;
+  const citations = action.citationOpportunity;
+
+  // --- Resolve page topics and AI intel once for the whole function ---
+  const pageTopics = getPageTopics(action, citIndex);
+  const primaryTopic = pageTopics[0] ?? null;
+
+  // --- Intelligence context → compact header, not action steps ---
+  if (page && citations > 0) {
+    const topicLine = getPageTopicLine(action, ai, citIndex);
+    const platformLine = primaryTopic ? getPlatformContext(primaryTopic, ai) : null;
+    ctx.push(`${citations} AI citations${topicLine ? ` for ${topicLine}` : ""}`);
+    if (platformLine) ctx.push(platformLine);
+  }
+  if (action.priorSuccess) {
+    ctx.push(`Prior result: +${Math.round(action.priorSuccess.citationDelta)}% on ${action.priorSuccess.pagePath}`);
+  }
+  if (primaryTopic) {
+    const bp = getTopicPositioning(primaryTopic, ai);
+    if (bp && bp.mention_rate > 0) {
+      ctx.push(`Mentioned in ${Math.round(bp.mention_rate * 100)}% of AI answers${bp.avg_position_when_mentioned ? ` (avg #${Math.round(bp.avg_position_when_mentioned)})` : ""}`);
+    }
+  }
 
   switch (action.type) {
     case "strengthen_structure": {
       const hasFaqGap = action.rationale.includes("FAQ content");
       const hasSchemaGap = action.rationale.includes("structured data");
+      const snap = findSnapshot(action, pageSnapshots);
+      const pagePath = action.targetPagePath ?? action.targetPageUrl ?? "the target page";
 
-      if (hasFaqGap) {
-        const questions = suggestFaqQuestions(action, ai, citIndex);
-        if (questions.length > 0) {
-          steps.push(
-            `Add FAQ section with these questions: ${questions.map((q) => `"${q}"`).join(", ")}`
-          );
+      // ── FAQ-specific recs: generate actual JSON-LD when page has FAQ questions ──
+      if (action.id.startsWith("rec-faq-schema-") && snap) {
+        // This is the high-value FAQ-without-schema rec — generate paste-ready code
+        const faqSteps = generateFaqSchemaStep(snap, pagePath);
+        steps.push(...faqSteps);
+        break;
+      }
+
+      // Section gaps → inline micro-proof in step text
+      if (action.sectionGaps && action.sectionGaps.length > 0) {
+        const primaryGap = action.sectionGaps[0];
+        const placement = primaryGap.insertAfter ? ` after "${primaryGap.insertAfter}"` : "";
+        const proof = `${Math.round(primaryGap.pct * 100)}% of similar pages have this`;
+        steps.push(`Add ${primaryGap.display}${placement} — ${proof}`);
+        if (action.sectionGaps.length > 1) {
+          steps.push(`Also add: ${action.sectionGaps.slice(1, 3).map((g) => `${g.display.toLowerCase()} (${Math.round(g.pct * 100)}%)`).join(", ")}`);
+        }
+      } else if (hasFaqGap) {
+        // Try snapshot-based code generation first
+        if (snap && snap.faqs.length > 0 && hasSchemaGap) {
+          const faqSteps = generateFaqSchemaStep(snap, pagePath);
+          steps.push(...faqSteps);
         } else {
-          steps.push("Add FAQ section addressing common questions about this service/location");
+          const aiDescriptors = primaryTopic ? getAIDescriptors(primaryTopic, ai) : [];
+          const questions = aiDescriptors.length > 0
+            ? aiDescriptors.map((d) => `What does "${d}" mean for your project?`)
+            : suggestFaqQuestions(action, ai, citIndex, faqTemplates);
+          const schemaNote = hasSchemaGap ? " + schema" : "";
+          const proof = citations > 0 ? ` — ${citations} citations, no extractable Q&A` : "";
+          if (questions.length > 0) {
+            steps.push(`Add FAQ${schemaNote}: ${questions.slice(0, 3).map((q) => `"${q}"`).join(", ")}`);
+          } else {
+            steps.push(`Add FAQ section${schemaNote}${proof}`);
+          }
         }
+      } else if (hasSchemaGap) {
+        steps.push(`Add FAQPage schema (JSON-LD)${citations > 0 ? ` — ${citations} citations but no schema` : ""}`);
       }
 
-      if (hasSchemaGap) {
-        steps.push("Add FAQPage schema (JSON-LD) wrapping the FAQ section");
-        if (action.targetPagePath?.includes("locations")) {
-          steps.push("Add LocalBusiness schema with address, phone, service area");
+      // Phase B: add title/H2 specificity when snapshot is available
+      if (snap && pageTopics.length > 0) {
+        const titleSuggestion = suggestTitleRewrite(snap, pageTopics);
+        if (titleSuggestion) {
+          steps.push(titleSuggestion);
+        }
+        const h2Suggestions = suggestH2Rewrites(snap, pageTopics);
+        if (h2Suggestions.length > 0) {
+          steps.push(...h2Suggestions.slice(0, 2));
         }
       }
-
-      steps.push("Verify schema with Google Rich Results Test after deploying");
       break;
     }
 
     case "competitive_displacement": {
-      const topicMatch = action.headline.match(/"([^"]+)"/);
-      const topic = topicMatch?.[1] ?? "this topic";
+      const cc = action.competitorContext;
+      const topicForCC = cc?.topic ?? action.headline.match(/"([^"]+)"/)?.[1] ?? "this topic";
 
-      steps.push(`Review your existing content for "${topic}" — is it comprehensive?`);
-      steps.push("Check if competitors have content you don't (guides, comparisons, case studies)");
-      steps.push("Add answer-formatted content that directly addresses common AI queries");
+      // Context: competitive intelligence
+      if (cc) {
+        ctx.push(`${cc.competitorDomain}: ${cc.competitorCitations} citations vs your ${cc.ownedCitations}`);
+      }
+      const topicCoCit = getTopicCoCitation(topicForCC, ai);
+      if (topicCoCit) {
+        if (topicCoCit.top_when_absent.length > 0) {
+          ctx.push(`When you're absent, AI cites: ${topicCoCit.top_when_absent.slice(0, 3).map((d) => d.domain).join(", ")}`);
+        }
+        const total = topicCoCit.answers_with_owned + topicCoCit.answers_without_owned;
+        if (total > 0) {
+          ctx.push(`Absent from ${topicCoCit.answers_without_owned}/${total} AI answers`);
+        }
+      }
+
+      // Actions with inline proof
+      const descriptors = getAIDescriptors(topicForCC, ai);
+      const absenceProof = topicCoCit
+        ? ` — you're absent from ${topicCoCit.answers_without_owned}/${topicCoCit.answers_with_owned + topicCoCit.answers_without_owned} AI answers`
+        : cc ? ` — ${cc.competitorDomain} has ${cc.competitorCitations} citations vs your ${cc.ownedCitations}` : "";
+      if (descriptors.length > 0) {
+        steps.push(`Create content using AI's framing: ${descriptors.slice(0, 2).map((d) => `"${d}"`).join(", ")}${absenceProof}`);
+      } else {
+        steps.push(`Add FAQ + comparison for "${topicForCC}"${absenceProof}`);
+      }
       break;
     }
 
     case "refresh_content": {
-      steps.push("Add 2-3 new H2 sections covering related subtopics");
-      steps.push("Include comparison or FAQ blocks that AI can extract directly");
-      steps.push("Update any outdated dates, stats, or references");
+      const refreshDesc = primaryTopic ? getAIDescriptors(primaryTopic, ai) : (action.observedQueries ?? []);
+      if (refreshDesc.length > 0) {
+        ctx.push(`AI frames this as: ${refreshDesc.slice(0, 2).map((d) => `"${d}"`).join(", ")}`);
+      }
+      if (action.sectionGaps && action.sectionGaps.length > 0) {
+        const gapProof = action.sectionGaps.slice(0, 3)
+          .map((g) => `${g.display.toLowerCase()} (${Math.round(g.pct * 100)}%)`)
+          .join(", ");
+        steps.push(`Add missing sections: ${gapProof}`);
+      } else {
+        steps.push(`Expand content on ${page ?? "this page"} — ${citations > 0 ? `${citations} citations but content is thin` : "content is thin"}`);
+      }
       break;
     }
 
     case "improve_internal_links": {
-      steps.push("Identify your highest-authority pages (homepage, top service pages)");
-      steps.push("Add contextual links from those pages to this one");
-      steps.push("Use descriptive anchor text that matches the target topic");
+      if (primaryTopic) {
+        const topPages = getTopCitedPages(primaryTopic, citIndex, action.targetPageUrl);
+        if (topPages.length > 0) {
+          const sources = topPages.slice(0, 2).map((p) => p.url.replace(/^https?:\/\/[^/]+/, "")).join(", ");
+          steps.push(`Link to ${page ?? "this page"} from ${sources} — your highest-citation pages for this topic`);
+        } else {
+          steps.push(`Add internal links to ${page ?? "this page"} from your highest-citation pages`);
+        }
+      } else {
+        steps.push(`Add internal links to ${page ?? "this page"} from your highest-citation pages`);
+      }
       break;
     }
 
     case "topic_cluster_gap": {
-      steps.push("Create a new informational page covering this topic");
-      steps.push("Link it from your existing service/location pages");
-      steps.push("Include FAQ schema and answer-formatted content");
+      const topicMatch = action.headline.match(/"([^"]+)"/);
+      const topic = topicMatch?.[1] ?? "this topic";
+
+      // Context: AI intel + competition
+      const clusterDesc = getAIDescriptors(topic, ai);
+      if (clusterDesc.length > 0) {
+        ctx.push(`AI frames this space as: ${clusterDesc.slice(0, 2).map((d) => `"${d}"`).join(", ")}`);
+      }
+      const coCit = getTopicCoCitation(topic, ai);
+      if (coCit?.top_when_absent?.[0]) {
+        ctx.push(`${coCit.top_when_absent[0].domain} fills ${coCit.top_when_absent[0].count} answers where you're absent`);
+      }
+
+      // Actions with inline proof
+      const clusterCompetitor = coCit?.top_when_absent?.[0];
+      const clusterProof = clusterCompetitor
+        ? ` — ${clusterCompetitor.domain} fills ${clusterCompetitor.count} answers where you're absent`
+        : "";
+      steps.push(`Create new page for "${topic}" with FAQ + schema${clusterProof}`);
+      const topPages = getTopCitedPages(topic, citIndex, null, 3);
+      if (topPages.length > 0) {
+        steps.push(`Link from: ${topPages.map((p) => p.url.replace(/^https?:\/\/[^/]+/, "")).join(", ")}`);
+      }
       break;
     }
 
     case "refresh_stale_citation": {
-      steps.push("Review page content for outdated information");
-      steps.push("Add fresh sections or update existing ones");
-      steps.push("Check if competitors have published newer content on this topic");
+      // Context: narrative shifts
+      if (primaryTopic && ai?.narrative_shifts) {
+        const shifts = ai.narrative_shifts
+          .filter((s) => s.topic.toLowerCase() === primaryTopic.toLowerCase())
+          .filter((s) => s.shift_type === "brand_lost" || s.shift_type === "position_declined")
+          .slice(0, 1);
+        if (shifts.length > 0) {
+          ctx.push(`AI shift on ${shifts[0].platform}: ${shifts[0].detail}`);
+        }
+      }
+
+      // Actions with inline proof
+      const staleDesc = primaryTopic ? getAIDescriptors(primaryTopic, ai) : (action.observedQueries ?? []);
+      if (staleDesc.length > 0) {
+        steps.push(`Refresh content to match current AI framing: ${staleDesc.slice(0, 2).map((d) => `"${d}"`).join(", ")} — citations declining`);
+      } else {
+        steps.push(`Refresh content on ${page ?? "this page"} — citations declining, update to signal freshness`);
+      }
       break;
     }
 
     case "replicate":
     case "cross_page_pattern": {
-      // Use enrichment-based step generation when actionClass is available
+      // Prior success is now in context header — don't repeat in steps
       if (action.actionClass) {
-        const enrichedSteps = generateStepsFromActionClass(action);
+        const enrichedSteps = generateStepsFromActionClass(action, pageSnapshots);
         steps.push(...enrichedSteps);
       } else {
-        // Fallback: parse keywords from headline/rationale
-        const gapSteps = generateReplicateSteps(action, ai, citIndex);
+        const gapSteps = generateReplicateSteps(action, ai, citIndex, faqTemplates, pageSnapshots);
         steps.push(...gapSteps);
       }
       break;
@@ -388,19 +721,191 @@ function generateSteps(
     case "investigate": {
       const displayPath = action.targetPagePath ?? action.targetPageUrl ?? "the affected page";
       steps.push(`Check ${displayPath} for any recent content or structural changes`);
-      steps.push("Compare current AI citations to previous levels — is the decline significant?");
-      steps.push("If no changes were made, monitor for one more cycle before acting");
+      steps.push(`Compare current citations (${citations}) to previous levels — is the decline sustained?`);
+      steps.push("If no changes were made, monitor for one more import cycle before acting");
       break;
     }
 
     default: {
-      // Generic steps for any other rec type
-      if (action.targetPageUrl) {
-        steps.push(`Review ${action.targetPagePath ?? action.targetPageUrl}`);
+      if (page) {
+        steps.push(`Insufficient data to generate specific steps for ${page} — review manually`);
+      } else {
+        steps.push("Insufficient data to generate specific steps — review the affected area manually");
       }
-      steps.push("Implement the suggested change");
-      steps.push("Monitor AI citations for this page over the next 7-14 days");
     }
+  }
+
+  return { contextLines: ctx, steps };
+}
+
+// ---------------------------------------------------------------------------
+// Snapshot lookup + paste-ready code generation
+// ---------------------------------------------------------------------------
+
+/** Find the snapshot matching a recommendation's target page. */
+function findSnapshot(
+  action: PrioritizedAction,
+  snapshots?: PageSnapshot[],
+): PageSnapshot | null {
+  if (!snapshots || snapshots.length === 0) return null;
+  const targetUrl = action.targetPageUrl?.replace(/\/+$/, "").toLowerCase();
+  if (!targetUrl) return null;
+  return snapshots.find(
+    (s) => s.url.replace(/\/+$/, "").toLowerCase() === targetUrl,
+  ) ?? null;
+}
+
+/**
+ * Generate a valid FAQPage JSON-LD block from actual FAQ items on the page.
+ * Returns the full <script> tag ready to paste into the page <head>.
+ */
+function generateFaqSchemaJsonLd(faqs: FaqItem[]): string {
+  const schema = {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    mainEntity: faqs.map((faq) => ({
+      "@type": "Question",
+      name: faq.question,
+      acceptedAnswer: {
+        "@type": "Answer",
+        text: faq.answer_excerpt,
+      },
+    })),
+  };
+  return `<script type="application/ld+json">\n${JSON.stringify(schema, null, 2)}\n</script>`;
+}
+
+/**
+ * Suggest a title rewrite if the current title is generic (doesn't contain
+ * the page's primary cited topic keyword or city name).
+ * Returns null if the title is already good.
+ */
+function suggestTitleRewrite(
+  snap: PageSnapshot,
+  citedTopics: string[],
+): string | null {
+  const title = snap.title;
+  if (!title || citedTopics.length === 0) return null;
+
+  const titleLower = title.toLowerCase();
+  const primaryTopic = citedTopics[0]
+    .replace(/^Shield: /, "")
+    .replace(/ \([^)]+\)$/, "");
+  const topicLower = primaryTopic.toLowerCase();
+
+  // Extract city from topic if present (e.g., "Atherton Construction" → "atherton")
+  const topicWords = topicLower.split(/\s+/);
+  const cityWord = topicWords.find(
+    (w) => w.length > 4 && !["construction", "builder", "builders", "custom", "luxury", "home", "homes", "remodel", "renovation"].includes(w),
+  );
+
+  // Check if the key differentiating words are already in the title
+  const keyWords = topicWords.filter(
+    (w) => w.length > 3 && !["the", "bay", "area", "home", "builder", "builders"].includes(w),
+  );
+  const titleHasKeys = keyWords.filter((w) => titleLower.includes(w));
+
+  // If title already contains most keywords, it's probably fine
+  if (titleHasKeys.length >= keyWords.length * 0.6) return null;
+
+  // Generate a suggested title
+  const pagePath = snap.url.replace(/^https?:\/\/[^/]+/, "");
+  const siteName = title.match(/\|\s*(.+)$/)?.[1]?.trim() ?? "";
+  const suffix = siteName ? ` | ${siteName}` : "";
+
+  if (cityWord) {
+    const cityName = cityWord.charAt(0).toUpperCase() + cityWord.slice(1);
+    return `Current: <title>${title}</title>\nSuggested: <title>${primaryTopic}${suffix}</title>\nReason: this page's top cited topic is "${primaryTopic}" — AI platforms cite pages with topic-specific titles more frequently.`;
+  }
+
+  return `Current: <title>${title}</title>\nSuggested: <title>${primaryTopic}${suffix}</title>\nReason: top cited topic "${primaryTopic}" is not reflected in the title.`;
+}
+
+/**
+ * Suggest H2 rewrites for generic headings that don't match cited topics.
+ * Returns rewrite suggestions or empty array if all H2s are already specific.
+ */
+function suggestH2Rewrites(
+  snap: PageSnapshot,
+  citedTopics: string[],
+): string[] {
+  if (!snap.h2_list || snap.h2_list.length === 0 || citedTopics.length === 0) return [];
+
+  const genericPatterns = [
+    /^our services$/i,
+    /^about us$/i,
+    /^learn more$/i,
+    /^what we do$/i,
+    /^our team$/i,
+    /^get started$/i,
+    /^contact$/i,
+    /^overview$/i,
+    /^services$/i,
+    /^about$/i,
+  ];
+
+  const primaryTopic = citedTopics[0]
+    .replace(/^Shield: /, "")
+    .replace(/ \([^)]+\)$/, "");
+
+  const rewrites: string[] = [];
+  for (const h2 of snap.h2_list) {
+    if (genericPatterns.some((p) => p.test(h2.trim()))) {
+      rewrites.push(`H2 "${h2}" is generic — change to something specific like "${primaryTopic} — ${h2}"`);
+    }
+  }
+
+  return rewrites;
+}
+
+/**
+ * Generate a paste-ready comparison table HTML with real competitor names.
+ * Columns: Your Business + top competitors. Rows: standard comparison criteria.
+ */
+function generateComparisonTableHtml(competitors: string[]): string {
+  const cols = ["Your Business", ...competitors.slice(0, 4)];
+  const criteria = [
+    "Years in Business",
+    "Project Types",
+    "Service Area",
+    "Budget Range",
+    "Licensed & Insured",
+    "Design-Build Capability",
+    "Notable Projects",
+  ];
+
+  const headerCells = ["Criteria", ...cols].map((c) => `    <th>${c}</th>`).join("\n");
+  const rows = criteria
+    .map(
+      (criterion) =>
+        `  <tr>\n    <td>${criterion}</td>\n${cols.map(() => "    <td></td>").join("\n")}\n  </tr>`,
+    )
+    .join("\n");
+
+  return `<table>\n<thead>\n  <tr>\n${headerCells}\n  </tr>\n</thead>\n<tbody>\n${rows}\n</tbody>\n</table>`;
+}
+
+/**
+ * Generate a paste-ready FAQ step with actual JSON-LD code from the page's
+ * existing FAQ content. This is the difference between "Add FAQ schema"
+ * (vague direction) and "Paste this exact code" (executable instruction).
+ */
+function generateFaqSchemaStep(
+  snap: PageSnapshot,
+  pagePath: string,
+): string[] {
+  const steps: string[] = [];
+  const faqCount = snap.faqs.length;
+
+  if (faqCount > 0) {
+    const jsonLd = generateFaqSchemaJsonLd(snap.faqs);
+    steps.push(
+      `${pagePath} has ${faqCount} FAQ question${faqCount !== 1 ? "s" : ""} in the HTML but no FAQPage JSON-LD schema.\n\nPaste this into the page <head>:\n\n${jsonLd}\n\nVerify at https://search.google.com/test/rich-results`,
+    );
+  } else {
+    steps.push(
+      `${pagePath} has no FAQ content. Add 5-7 questions relevant to this page's topic, then wrap them in FAQPage JSON-LD schema.`,
+    );
   }
 
   return steps;
@@ -412,6 +917,7 @@ function generateSteps(
 
 function generateStepsFromActionClass(
   action: PrioritizedAction,
+  pageSnapshots?: PageSnapshot[],
 ): string[] {
   const steps: string[] = [];
   const page = action.targetPagePath ?? action.targetPageUrl ?? "the target page";
@@ -420,109 +926,92 @@ function generateStepsFromActionClass(
     : null;
   const insertPoint = action.targetSection?.match(/after "([^"]+)"/)?.[1];
 
+  // Each case: 1 primary move, optionally 1 secondary. No fluff.
+  const loc = insertPoint ? ` after "${insertPoint}"` : "";
+
+  // Try to get the actual page snapshot for code generation
+  const snap = findSnapshot(action, pageSnapshots);
+
   switch (action.actionClass) {
-    case "faq_addition":
-      steps.push(
-        section
-          ? `Add FAQ section to ${page}${insertPoint ? ` after "${insertPoint}"` : ""}`
-          : `Add FAQ section to ${page} addressing top questions for this topic`,
-      );
-      steps.push("Write 5-7 answer-formatted questions (conversational tone, 2-3 sentences each)");
-      steps.push("Wrap in FAQPage JSON-LD schema");
-      steps.push("Validate schema with Google Rich Results Test");
+    case "faq_addition": {
+      if (snap) {
+        const faqSteps = generateFaqSchemaStep(snap, page);
+        steps.push(...faqSteps);
+      } else {
+        steps.push(`Add FAQ section (5-7 questions) + FAQPage schema to ${page}${loc}`);
+      }
       break;
-
+    }
     case "faq_expansion":
-      steps.push(`Expand existing FAQ answers on ${page} to 3-4 sentences each`);
-      steps.push("Add 3-5 new questions based on common AI query patterns");
-      steps.push("Update FAQPage schema to include new questions");
+      steps.push(`Expand FAQ on ${page}: add 3-5 new questions, extend answers to 3-4 sentences`);
       break;
-
-    case "faq_consolidation":
-      steps.push(`Consolidate duplicate FAQ blocks on ${page} into a single section`);
-      steps.push("Remove duplicate FAQPage JSON-LD blocks");
-      steps.push("Verify one clean FAQPage schema with Rich Results Test");
+    case "faq_consolidation": {
+      const dupCount = snap?.faq_schema_block_count ?? 0;
+      if (dupCount > 1) {
+        steps.push(`${page} has ${dupCount} FAQPage JSON-LD blocks — consolidate into one. Remove the duplicate <script type="application/ld+json"> block.`);
+      } else {
+        steps.push(`Consolidate duplicate FAQ blocks on ${page} into one section with one schema`);
+      }
       break;
-
-    case "comparison_table":
-      steps.push(
-        `Add builder comparison table to ${page}${insertPoint ? ` after "${insertPoint}"` : ""}`,
-      );
-      steps.push("Include 4-6 comparison criteria (experience, services, certifications, project types)");
-      steps.push("Use structured HTML table with clear headers");
+    }
+    case "comparison_table": {
+      // Generate paste-ready comparison table HTML with real competitor names
+      const competitors = action.competitorContext
+        ? [action.competitorContext.competitorDomain]
+        : [];
+      // Also pull from rationale if it mentions competitor domains
+      const rationaleMatch = action.rationale.match(/Include: ([^.]+)/);
+      if (rationaleMatch) {
+        const names = rationaleMatch[1].split(",").map((s) => s.replace(" and your business", "").trim()).filter(Boolean);
+        for (const n of names) {
+          if (!competitors.includes(n)) competitors.push(n);
+        }
+      }
+      if (competitors.length > 0) {
+        const tableHtml = generateComparisonTableHtml(competitors);
+        steps.push(
+          `Add this comparison table to ${page}${loc}:\n\n${tableHtml}\n\nFill in your business data in the first column. Competitor data sourced from AI co-citation analysis.`,
+        );
+      } else {
+        steps.push(`Add comparison table to ${page}${loc} — include your top 4-5 competitors`);
+      }
       break;
-
+    }
     case "schema_addition":
     case "schema_update":
-      steps.push(`Add structured data schema (JSON-LD) to ${page}`);
-      steps.push("Include Article, FAQPage, and Service types as applicable");
-      steps.push("Validate with Google Rich Results Test after deploying");
+      steps.push(`Add JSON-LD schema to ${page} (FAQPage, Article, Service as applicable)`);
       break;
-
     case "content_section":
     case "general_content":
-      if (section) {
-        steps.push(
-          `Add ${section.toLowerCase()} to ${page}${insertPoint ? ` after "${insertPoint}"` : ""}`,
-        );
-        steps.push("Structure with answer-formatted H2/H3 headings");
-      } else {
-        steps.push(`Add new content section to ${page} covering gaps vs top-performing similar pages`);
-        steps.push("Use H2 headings that match common AI query patterns");
-      }
-      steps.push("Include 200+ words of substantive, answer-formatted content");
+      steps.push(`Add ${section ? section.toLowerCase() : "content section"} to ${page}${loc}`);
       break;
-
     case "hero_update":
     case "subheading_update":
-      steps.push(`Update hero/subheading on ${page} with keyword-rich, answer-formatted copy`);
-      steps.push("Ensure H1 directly answers the primary query for this page's topic");
+      steps.push(`Update H1 on ${page} to directly answer the primary AI query`);
       break;
-
     case "title_update":
-      steps.push(`Update title tag on ${page} to include primary topic keyword`);
-      steps.push("Keep under 60 characters, front-load the key term");
+      steps.push(`Update title tag on ${page} — include primary topic, under 60 chars`);
       break;
-
     case "meta_update":
-      steps.push(`Update meta description on ${page} with answer-formatted summary`);
-      steps.push("Include primary keyword and a clear value proposition (under 155 characters)");
+      steps.push(`Update meta description on ${page} — answer-formatted, under 155 chars`);
       break;
-
     case "internal_links":
-      steps.push(`Add 3-5 contextual internal links to ${page} from high-citation pages`);
-      steps.push("Use descriptive anchor text matching the target topic");
+      steps.push(`Add internal links to ${page} from your highest-citation pages`);
       break;
-
     case "cost_section":
-      steps.push(
-        `Add cost breakdown section to ${page}${insertPoint ? ` after "${insertPoint}"` : ""}`,
-      );
-      steps.push("Include price ranges, factors affecting cost, and comparison to alternatives");
+      steps.push(`Add cost breakdown section to ${page}${loc}`);
       break;
-
     case "process_section":
-      steps.push(
-        `Add process overview section to ${page}${insertPoint ? ` after "${insertPoint}"` : ""}`,
-      );
-      steps.push("Structure as numbered steps with clear outcomes at each stage");
+      steps.push(`Add process overview section to ${page}${loc}`);
       break;
-
     case "testimonials":
-      steps.push(`Add client testimonials section to ${page}`);
-      steps.push("Include 2-3 specific, named testimonials with project details");
-      steps.push("Add Review schema (JSON-LD) for rich result eligibility");
+      steps.push(`Add testimonials section + Review schema to ${page}`);
       break;
-
     case "page_creation":
-      steps.push(`Create new page at ${page}`);
-      steps.push("Include FAQ section + FAQPage schema from day one");
-      steps.push("Add internal links from 3+ existing pages");
+      steps.push(`Create ${page} with FAQ + schema + internal links from day one`);
       break;
-
     default:
       steps.push(`Review ${page} for structural gaps`);
-      steps.push("Apply the pattern from top-performing pages of this type");
       break;
   }
 
@@ -532,7 +1021,7 @@ function generateStepsFromActionClass(
       a.medianDays < b.medianDays ? a : b,
     );
     steps.push(
-      `Monitor: expect first signal on ${fastest.platform} in ~${fastest.medianDays} days`,
+      `Monitor: expect first signal on ${fastest.platform} in ~${fastest.medianDays} days (based on ${fastest.sampleCount} prior observations)`,
     );
   } else {
     steps.push("Monitor AI citations for this page over the next 7-14 days");
@@ -549,10 +1038,14 @@ function generateReplicateSteps(
   action: PrioritizedAction,
   ai: AnswerIntelligenceIndex | null,
   citIndex: CitationEvidenceIndex | null,
+  faqTemplates?: FaqTemplate[],
+  pageSnapshots?: PageSnapshot[],
 ): string[] {
   const steps: string[] = [];
   const headline = action.headline.toLowerCase();
   const rationale = action.rationale.toLowerCase();
+  const snap = findSnapshot(action, pageSnapshots);
+  const pagePath = action.targetPagePath ?? "this page";
 
   // Detect gap type from headline/rationale
   const hasSchemaGap =
@@ -567,37 +1060,50 @@ function generateReplicateSteps(
     steps.push("Ensure each schema type has complete required properties");
     steps.push("Verify all schemas with Google Rich Results Test after deploying");
   } else if (hasFaqGap && hasSchemaGap) {
-    const questions = suggestFaqQuestions(action, ai, citIndex);
-    if (questions.length > 0) {
-      steps.push(
-        `Add FAQ section with these questions: ${questions.map((q) => `"${q}"`).join(", ")}`
-      );
+    // Paste-ready path: if snapshot has FAQ questions, generate the exact JSON-LD
+    if (snap && snap.faqs.length > 0) {
+      const faqSteps = generateFaqSchemaStep(snap, pagePath);
+      steps.push(...faqSteps);
     } else {
-      steps.push("Add FAQ section addressing common questions about this service/location");
-    }
-    steps.push("Add FAQPage schema (JSON-LD) wrapping the FAQ section");
-    if (action.targetPagePath?.includes("locations")) {
-      steps.push("Add LocalBusiness schema with address, phone, service area");
+      const questions = suggestFaqQuestions(action, ai, citIndex, faqTemplates);
+      if (questions.length > 0) {
+        steps.push(
+          `Add FAQ section with these questions: ${questions.map((q) => `"${q}"`).join(", ")}`
+        );
+      } else {
+        steps.push(`Add FAQ section to ${pagePath} — ${action.citationOpportunity} citations but no extractable Q&A`);
+      }
+      steps.push("Add FAQPage schema (JSON-LD) wrapping the FAQ section");
     }
     steps.push("Verify schema with Google Rich Results Test after deploying");
   } else if (hasFaqGap) {
-    const questions = suggestFaqQuestions(action, ai, citIndex);
-    if (questions.length > 0) {
-      steps.push(
-        `Add FAQ section with these questions: ${questions.map((q) => `"${q}"`).join(", ")}`
-      );
+    if (snap && snap.faqs.length > 0) {
+      const faqSteps = generateFaqSchemaStep(snap, pagePath);
+      steps.push(...faqSteps);
     } else {
-      steps.push("Add FAQ section addressing common questions about this service/location");
+      const questions = suggestFaqQuestions(action, ai, citIndex, faqTemplates);
+      if (questions.length > 0) {
+        steps.push(
+          `Add FAQ section with these questions: ${questions.map((q) => `"${q}"`).join(", ")}`,
+        );
+      } else {
+        steps.push(`Add FAQ section to ${pagePath} — ${action.citationOpportunity} citations but no extractable Q&A`);
+      }
+      steps.push("Wrap FAQ in FAQPage schema (JSON-LD)");
     }
-    steps.push("Wrap FAQ in FAQPage schema (JSON-LD)");
   } else if (hasSchemaGap) {
     steps.push("Add structured data schema (JSON-LD) matching the page content type");
     steps.push("Verify schema with Google Rich Results Test after deploying");
   } else {
-    // Generic playbook action
-    steps.push(`Review ${action.targetPagePath ?? action.targetPageUrl ?? "the target page"} for structural gaps`);
-    steps.push("Apply the structural pattern from top-performing pages");
-    steps.push("Monitor AI citations for this page over the next 7-14 days");
+    // No keyword match — use section gaps if available
+    if (action.sectionGaps && action.sectionGaps.length > 0) {
+      for (const gap of action.sectionGaps.slice(0, 2)) {
+        const placement = gap.insertAfter ? ` after "${gap.insertAfter}"` : "";
+        steps.push(`Add ${gap.display} (${Math.round(gap.pct * 100)}% of similar pages have this)${placement}`);
+      }
+    } else {
+      steps.push(`Insufficient data to generate specific steps for ${action.targetPagePath ?? "this page"} — review manually`);
+    }
   }
 
   return steps;
@@ -611,6 +1117,7 @@ function suggestFaqQuestions(
   action: PrioritizedAction,
   ai: AnswerIntelligenceIndex | null,
   citIndex: CitationEvidenceIndex | null,
+  faqTemplates?: FaqTemplate[],
 ): string[] {
   if (!ai || !citIndex) return [];
 
@@ -656,60 +1163,60 @@ function suggestFaqQuestions(
     );
     if (!bp) continue;
 
-    // Generate questions based on topic type
+    // Clean up topic for display
     const topicClean = topic
       .replace(/^Shield: /, "")
-      .replace(/ \(Bay Area\)$/, "");
+      .replace(/ \([^)]+\)$/, ""); // strip any trailing parenthetical
 
-    // Location-based topics: "X Construction" where X is a city
-    const cityMatch = topicClean.match(/^(\w[\w\s]*?)\s+Construction$/);
-    if (cityMatch) {
-      const city = cityMatch[1];
-      questions.push(
-        `What should I look for in a custom home builder in ${city}?`,
-        `How much does it cost to build a custom home in ${city}?`,
-        `How long does a custom home build take in ${city}?`
-      );
-    } else if (topic.includes("Builder") || topic.includes("Home")) {
-      // Service-category topics: "Custom Home Builder Bay Area", "Luxury Home Builder"
-      questions.push(
-        `How do I choose the right ${topicClean.toLowerCase()}?`,
-        `What questions should I ask a ${topicClean.toLowerCase()}?`,
-        `What does a ${topicClean.toLowerCase()} typically cost?`
-      );
-    } else if (topic.includes("Renovation") || topic.includes("Remodel")) {
-      questions.push(
-        `What is the typical timeline for a ${topicClean.toLowerCase()}?`,
-        `How do I choose the right contractor for a ${topicClean.toLowerCase()}?`,
-        `What permits are needed for a ${topicClean.toLowerCase()}?`
-      );
-    } else {
-      // Generic topic
-      questions.push(
-        `What makes a good ${topicClean.toLowerCase()}?`,
-        `How do I evaluate a ${topicClean.toLowerCase()}?`,
-        `What questions should I ask a ${topicClean.toLowerCase()}?`
-      );
+    // Try config-driven templates first (if provided)
+    if (faqTemplates && faqTemplates.length > 0) {
+      const matched = matchFaqTemplate(topic, topicClean, faqTemplates);
+      if (matched.length > 0) {
+        questions.push(...matched);
+        continue;
+      }
     }
+
+    // Generic fallback — works for any industry
+    questions.push(
+      `What should I know about ${topicClean.toLowerCase()}?`,
+      `How do I choose the right ${topicClean.toLowerCase()}?`,
+      `What does ${topicClean.toLowerCase()} typically cost?`,
+    );
   }
 
   return questions.slice(0, 3);
+}
+
+/**
+ * Match a topic against config-driven FAQ templates.
+ * Templates use {topic} and {city} placeholders.
+ * City is extracted via the first capture group in topicPattern if present.
+ */
+function matchFaqTemplate(
+  rawTopic: string,
+  cleanTopic: string,
+  templates: FaqTemplate[],
+): string[] {
+  for (const tmpl of templates) {
+    const re = new RegExp(tmpl.topicPattern);
+    const match = cleanTopic.match(re) ?? rawTopic.match(re);
+    if (match) {
+      const city = match[1] ?? "";
+      return tmpl.questions.map((q) =>
+        q
+          .replace(/\{topic\}/g, cleanTopic.toLowerCase())
+          .replace(/\{city\}/g, city),
+      );
+    }
+  }
+  return [];
 }
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-function confidenceToLabel(confidence: "high" | "medium" | "low"): string {
-  switch (confidence) {
-    case "high":
-      return "High confidence";
-    case "medium":
-      return "Good confidence";
-    case "low":
-      return "Worth trying";
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Copy-for-devs formatter
@@ -719,12 +1226,17 @@ export function formatBriefItemForDevs(item: MorningBriefItem): string {
   const lines = [
     `ACTION: ${item.headline}`,
     `PAGE: ${item.pageUrl ?? "(no specific page)"}`,
-    "",
-    "STEPS:",
-    ...item.steps.map((s, i) => `${i + 1}. ${s}`),
-    "",
-    `WHY: ${item.rationale}`,
   ];
+
+  if (item.contextLines.length > 0) {
+    lines.push("", "CONTEXT:", ...item.contextLines.map((c) => `  ${c}`));
+  }
+
+  lines.push("", "DO:", ...item.steps.map((s, i) => `${i + 1}. ${s}`));
+  if (item.monitorLine) {
+    lines.push("", `MONITOR: ${item.monitorLine}`);
+  }
+  lines.push("", `WHY: ${item.rationale}`);
 
   if (item.aiContext) {
     lines.push("", `AI CONTEXT: ${item.aiContext}`);
