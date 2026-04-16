@@ -14,7 +14,7 @@
 export type CoverageState = "fresh" | "aging" | "stale" | "critical" | "partial";
 
 /** Days after last crawl after which coverage is "stale" (strictly greater than this value). */
-export const COVERAGE_STALE_DAY_THRESHOLD = 3;
+export const COVERAGE_STALE_DAY_THRESHOLD = 7;
 
 const AGING_LOWER_EXCLUSIVE = 0.7 * COVERAGE_STALE_DAY_THRESHOLD;
 const CRITICAL_MULTIPLIER = 2;

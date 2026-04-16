@@ -18,7 +18,6 @@
  * Built on demand from the prompt-answer-observations store + citation evidence index.
  */
 
-import { readStore } from "@/lib/persistence/json-store";
 import type { PromptAnswerObservation } from "@/domains/prompt-answer-observations/types";
 import type { CitationEvidenceIndex } from "@/domains/pages/types";
 
@@ -78,8 +77,8 @@ function extractCityFromQuery(query: string): string | null {
  */
 export function buildQueryKeywordIndex(
   citationIndex: CitationEvidenceIndex | null,
+  observations: PromptAnswerObservation[],
 ): QueryKeywordIndex {
-  const observations = readStore<PromptAnswerObservation>("prompt-answer-observations");
 
   // Step 1: Extract all fan-out queries grouped by topic
   const topicQueryCounts = new Map<string, Map<string, number>>();
@@ -243,4 +242,171 @@ export function getQueriesForTopic(
   }
 
   return topicData.top_queries.slice(0, topN);
+}
+
+// ---------------------------------------------------------------------------
+// Intelligent page-relevance filtered queries (Fix 1)
+// ---------------------------------------------------------------------------
+// The old getQueriesForPage dumped ALL topic queries onto ALL pages.
+// This version filters by what the page is actually ABOUT, determined
+// from the URL pattern and the snapshot's H1/H2/title content.
+
+const STOP_WORDS = new Set([
+  "the", "a", "an", "in", "for", "of", "on", "to", "and", "or", "my",
+  "is", "are", "i", "do", "which", "who", "what", "how", "best", "top",
+  "should", "hire", "builders", "builder", "home", "homes", "bay", "area",
+  "custom", "luxury",
+]);
+
+/** Extract meaningful keywords from a text string. */
+function extractKeywords(text: string): string[] {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, " ")
+    .split(/\s+/)
+    .filter((w) => w.length > 3 && !STOP_WORDS.has(w));
+}
+
+/** Extract city name from a URL path like /locations/menlo-park → "menlo park". */
+function extractCityFromPath(path: string): string | null {
+  const match = path.match(/\/locations?\/([\w-]+)/i);
+  if (!match) return null;
+  return match[1].replace(/-/g, " ").replace(/custom.*/, "").trim();
+}
+
+/** Extract service keywords from a URL path like /services/whole-home-remodel. */
+function extractServiceFromPath(path: string): string[] {
+  const match = path.match(/\/services?\/([\w-]+)/i);
+  if (!match) return [];
+  return match[1].split("-").filter((w) => w.length > 3);
+}
+
+/** True if the query mentions a specific city (not just "bay area"). */
+function queryHasSpecificCity(query: string): boolean {
+  const lower = query.toLowerCase();
+  const specificCities = KNOWN_CITIES.filter((c) => c !== "bay area");
+  return specificCities.some((c) => lower.includes(c));
+}
+
+/**
+ * Service-specific keywords — the core terms that distinguish a service page.
+ * Used to ensure service page queries actually match the service being offered.
+ */
+const SERVICE_KEYWORD_MAP: Record<string, string[]> = {
+  "whole-home-remodel": ["remodel", "renovation", "renovate", "whole home", "whole-home"],
+  "new-construction": ["construction", "build", "ground-up", "new home", "custom home"],
+  "adu": ["adu", "addition", "accessory dwelling"],
+  "design-build": ["design-build", "design build", "architect"],
+  "teardown": ["teardown", "tear-down", "tear down", "rebuild", "demolition"],
+};
+
+/**
+ * Get fan-out queries filtered by relevance to a specific page.
+ *
+ * Unlike getQueriesForPage (which returns an unfiltered dump), this
+ * function understands what the page is ABOUT and only returns queries
+ * that match:
+ *
+ *   City pages (/locations/atherton): query must contain the city name
+ *   Service pages (/services/whole-home-remodel): query must contain a
+ *     service keyword from the page's H1, H2s, or URL path
+ *   Homepage: broad queries without city filter
+ *   Other pages: use H1/title keywords for matching
+ *
+ * Returns queries sorted by frequency. Returns empty if no relevant
+ * queries exist — a missing result is better than an irrelevant one.
+ */
+export function getRelevantQueriesForPage(
+  index: QueryKeywordIndex,
+  pageUrl: string,
+  snap: {
+    title?: string | null;
+    h1?: string | null;
+    h2_list?: string[];
+  } | null,
+  topN: number = 10,
+): string[] {
+  const normalizedUrl = pageUrl.replace(/\/+$/, "").toLowerCase();
+  const path = normalizedUrl.replace(/^https?:\/\/[^/]+/, "");
+
+  // Collect ALL queries from all topics mapped to this page
+  const allPageQueries = index.by_page[normalizedUrl] ?? [];
+  if (allPageQueries.length === 0) return [];
+
+  // Determine page type and build relevance filter
+  const city = extractCityFromPath(path);
+  const serviceWords = extractServiceFromPath(path);
+  const isHomepage = path === "" || path === "/";
+
+  // Build page content keywords from snapshot
+  const pageKeywords = new Set<string>();
+  if (snap?.h1) extractKeywords(snap.h1).forEach((w) => pageKeywords.add(w));
+  if (snap?.title) extractKeywords(snap.title).forEach((w) => pageKeywords.add(w));
+  if (snap?.h2_list) {
+    for (const h2 of snap.h2_list) {
+      extractKeywords(h2).forEach((w) => pageKeywords.add(w));
+    }
+  }
+  for (const sw of serviceWords) pageKeywords.add(sw);
+
+  // Determine service-specific required keywords for service pages
+  const isServicePage = serviceWords.length > 0;
+  let serviceRequiredTerms: string[] = [];
+  if (isServicePage) {
+    // Find the most specific match from the keyword map
+    const pathSlug = path.match(/\/services?\/([\w-]+)/i)?.[1] ?? "";
+    serviceRequiredTerms = SERVICE_KEYWORD_MAP[pathSlug] ?? [];
+    // Fallback: use the service words from the path itself
+    if (serviceRequiredTerms.length === 0) {
+      serviceRequiredTerms = serviceWords;
+    }
+  }
+
+  // Score each query by relevance
+  const scored: Array<{ query: string; score: number }> = [];
+
+  for (const query of allPageQueries) {
+    const qLower = query.toLowerCase();
+    let relevance = 0;
+
+    if (isHomepage) {
+      // Homepage: all broad queries are relevant, slight boost for "bay area"
+      relevance = qLower.includes("bay area") ? 1.2 : 1.0;
+    } else if (city) {
+      // City page: query MUST contain the city name
+      if (!qLower.includes(city)) continue;
+      relevance = 1.5;
+    } else if (isServicePage) {
+      // Service page: STRICT filtering.
+      // 1. Query MUST contain at least one service-relevant keyword
+      const hasServiceTerm = serviceRequiredTerms.some((term) =>
+        qLower.includes(term),
+      );
+      if (!hasServiceTerm) continue; // HARD REJECT — no service match
+
+      // 2. REJECT queries with specific city names — those belong on
+      //    city pages, not service pages. "best remodel builders Menlo
+      //    Park" is for /locations/menlo-park, not /services/whole-home-remodel.
+      if (queryHasSpecificCity(qLower)) continue;
+
+      relevance = 1.0;
+    } else {
+      // Other page: use content keywords for soft matching
+      const queryWords = qLower.split(/\s+/);
+      const contentMatches = [...pageKeywords].filter((pk) =>
+        queryWords.some((qw) => qw.includes(pk) || pk.includes(qw)),
+      );
+      if (contentMatches.length === 0) continue;
+      relevance = 0.3 * contentMatches.length;
+    }
+
+    scored.push({ query, score: relevance });
+  }
+
+  // Sort by relevance score (frequency is already baked into the order
+  // of allPageQueries from the index build step)
+  return scored
+    .sort((a, b) => b.score - a.score)
+    .slice(0, topN)
+    .map((s) => s.query);
 }

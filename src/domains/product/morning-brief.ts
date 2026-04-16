@@ -14,7 +14,7 @@ import type { CitationEvidenceIndex, PageSnapshot, FaqItem } from "@/domains/pag
 import type { MemoryInsight } from "@/domains/attribution/memory";
 import type { CompetitorAlert, CompetitorSitemapSnapshot } from "@/domains/competitor-monitoring/types";
 import { recConfidenceLabel } from "@/lib/confidence-labels";
-import { type QueryKeywordIndex, getQueriesForPage, getQueriesForTopic, getTopQueryForTopicCity } from "@/domains/answer-intelligence/query-index";
+import { type QueryKeywordIndex, getQueriesForPage, getQueriesForTopic, getTopQueryForTopicCity, getRelevantQueriesForPage } from "@/domains/answer-intelligence/query-index";
 
 // ---------------------------------------------------------------------------
 // Config type for industry-specific FAQ generation
@@ -614,6 +614,31 @@ function generateSteps(
           steps.push(...h2Suggestions.slice(0, 2));
         }
       }
+
+      // Fallback: if no specific step was generated, find EXACT keyword
+      // mismatches between the page's H2s/title and the top fan-out queries.
+      // Produce "Change H2 from X to Y" instructions, not vague directions.
+      if (steps.length === 0) {
+        const relevantQueries = queryIndex
+          ? getRelevantQueriesForPage(queryIndex, action.targetPageUrl ?? "", snap, 10)
+          : [];
+
+        if (relevantQueries.length > 0 && snap) {
+          const specificSteps = generateQueryGapSteps(snap, relevantQueries, pagePath);
+          if (specificSteps.length > 0) {
+            steps.push(...specificSteps);
+          } else {
+            steps.push(
+              `This page has ${citations} AI citations and is well-structured. Monitor for changes — no specific gap detected against current AI queries.`,
+            );
+          }
+        } else {
+          const gapDesc = hasFaqGap ? "FAQ content" : hasSchemaGap ? "structured data" : "structured content";
+          steps.push(
+            `Add ${gapDesc} to ${pagePath} — this page has ${citations} AI citations but is missing elements that top-performing pages have.`,
+          );
+        }
+      }
       break;
     }
 
@@ -744,7 +769,7 @@ function generateSteps(
     case "cross_page_pattern": {
       // Prior success is now in context header — don't repeat in steps
       if (action.actionClass) {
-        const enrichedSteps = generateStepsFromActionClass(action, pageSnapshots);
+        const enrichedSteps = generateStepsFromActionClass(action, pageSnapshots, pageTopics);
         steps.push(...enrichedSteps);
       } else {
         const gapSteps = generateReplicateSteps(action, ai, citIndex, faqTemplates, pageSnapshots, queryIndex);
@@ -811,12 +836,15 @@ function generateFaqSchemaJsonLd(faqs: FaqItem[]): string {
 }
 
 /**
- * Suggest a title rewrite using the top FAN-OUT QUERY (not topic label).
+ * Suggest a title rewrite using RELEVANT fan-out queries.
  *
- * Fan-out queries are the ACTUAL KEYWORDS AI platforms search on:
- *   "best custom home builders in Atherton California"
- * vs topic labels which are just Profound folder names:
- *   "Atherton Construction"
+ * This function is INTELLIGENT, not a keyword stuffer:
+ *   1. Filters queries to those that match THIS page's purpose
+ *   2. Extracts the intent (what the searcher wants) from the top query
+ *   3. Builds a natural-sounding title under 60 chars
+ *   4. Returns null if no relevant query exists or the current title is fine
+ *
+ * A bad suggestion is worse than no suggestion.
  */
 function suggestTitleRewrite(
   snap: PageSnapshot,
@@ -830,34 +858,91 @@ function suggestTitleRewrite(
   const siteName = title.match(/\|\s*(.+)$/)?.[1]?.trim() ?? "";
   const suffix = siteName ? ` | ${siteName}` : "";
 
-  // Try fan-out query first (best signal)
-  if (queryIndex && citedTopics.length > 0) {
-    const pageUrl = snap.url.replace(/\/+$/, "").toLowerCase();
-    const pageQueries = getQueriesForPage(queryIndex, pageUrl, 5);
-    // Also try topic-level queries
-    const topicQueries = citedTopics.length > 0
-      ? getQueriesForTopic(queryIndex, citedTopics[0], null, 5)
-      : [];
-    const allQueries = pageQueries.length > 0 ? pageQueries : topicQueries;
+  // Use RELEVANT queries filtered by page content, not the unfiltered dump
+  if (queryIndex) {
+    const relevantQueries = getRelevantQueriesForPage(
+      queryIndex,
+      snap.url,
+      snap, // snapshot provides H1/H2/title for relevance matching
+      10,
+    );
 
-    if (allQueries.length > 0) {
-      const topQuery = allQueries[0];
-      // Check if the top query keywords are already in the title
-      const queryWords = topQuery.toLowerCase().split(/\s+/).filter((w) => w.length > 3);
-      const missingWords = queryWords.filter((w) => !titleLower.includes(w));
+    if (relevantQueries.length === 0) return null; // No relevant queries → no suggestion
 
-      if (missingWords.length >= 2) {
-        // Capitalize for title case
-        const titleCase = topQuery
-          .split(" ")
-          .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-          .join(" ");
-        return `Current: <title>${title}</title>\nSuggested: <title>${titleCase}${suffix}</title>\nReason: AI platforms search "${topQuery}" — this query drives citations to this page but the keywords are missing from the title.`;
-      }
+    const topQuery = relevantQueries[0];
+    const topQueryLower = topQuery.toLowerCase();
+
+    // Check if the current title already contains the key differentiating
+    // words from the top query. If yes, the title is already good.
+    const queryContentWords = topQueryLower
+      .split(/\s+/)
+      .filter((w) => w.length > 3 && !["best", "top", "builders", "builder", "home", "homes", "custom", "luxury", "the", "for", "and", "bay", "area", "which", "who", "should", "hire"].includes(w));
+
+    const missingWords = queryContentWords.filter((w) => !titleLower.includes(w));
+    if (missingWords.length < 2) return null; // Title already has the keywords
+
+    // Build a natural-sounding title from the query's intent
+    // Extract city if present
+    const cityMatch = topQueryLower.match(/\b(atherton|menlo park|palo alto|los altos|cupertino|saratoga|woodside|bay area)\b/);
+    const city = cityMatch
+      ? cityMatch[1].split(" ").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ")
+      : null;
+
+    // Extract the core intent (what kind of service)
+    const intentWords: string[] = [];
+    const servicePatterns = [
+      /whole[- ]home (?:remodel|renovation)/i,
+      /teardown (?:and |& )?rebuild/i,
+      /design[- ]build/i,
+      /custom home/i,
+      /home renovation/i,
+      /structural (?:home )?renovation/i,
+      /architect[- ]designed/i,
+      /ground[- ]up/i,
+    ];
+    for (const pattern of servicePatterns) {
+      const match = topQuery.match(pattern);
+      if (match) { intentWords.push(match[0]); break; }
     }
+
+    if (intentWords.length === 0) {
+      // Fallback: use "Custom Home Builder" as default intent
+      intentWords.push("Custom Home Builder");
+    }
+
+    // Title case the intent
+    const intentPhrase = intentWords[0]
+      .split(/\s+/)
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+      .join(" ");
+
+    // Build the suggested title — keep under 60 chars
+    let suggested: string;
+    if (city) {
+      suggested = `Best ${intentPhrase} in ${city}${suffix}`;
+    } else {
+      suggested = `Best ${intentPhrase} Bay Area${suffix}`;
+    }
+
+    // Truncate if over 60 chars (drop "Best " prefix first, then suffix)
+    if (suggested.length > 65) {
+      suggested = city
+        ? `${intentPhrase} in ${city}${suffix}`
+        : `${intentPhrase} Bay Area${suffix}`;
+    }
+    if (suggested.length > 65 && suffix.length > 0) {
+      suggested = suggested.replace(suffix, "").trim();
+    }
+
+    // Don't suggest if it's basically the same as the current title
+    if (suggested.toLowerCase().replace(/[^a-z0-9]/g, "") === titleLower.replace(/[^a-z0-9]/g, "")) {
+      return null;
+    }
+
+    return `Current: <title>${title}</title>\nSuggested: <title>${suggested}</title>\nBased on: "${topQuery}" — the most frequent relevant AI search query for this page.`;
   }
 
-  // Fallback to topic-label comparison (less precise but still useful)
+  // Fallback: no query index available
   if (citedTopics.length > 0) {
     const primaryTopic = citedTopics[0]
       .replace(/^Shield: /, "")
@@ -1047,6 +1132,157 @@ function generateInternalLinkSteps(
 }
 
 /**
+ * Find exact keyword gaps between a page's H2s/title and the top fan-out
+ * queries. Produces "Change H2 from X to Y" instructions.
+ *
+ * This is the core specificity engine: it compares what the page SAYS
+ * against what AI platforms SEARCH FOR, and finds the exact words that
+ * are missing. Each step is one isolated, testable change.
+ */
+function generateQueryGapSteps(
+  snap: PageSnapshot,
+  relevantQueries: string[],
+  pagePath: string,
+): string[] {
+  const steps: string[] = [];
+  const title = snap.title ?? "";
+  const h1 = snap.h1 ?? "";
+  const h2s = snap.h2_list ?? [];
+
+  // Combine all page text for keyword presence check
+  const allPageText = [title, h1, ...h2s].join(" ").toLowerCase();
+
+  // Significant keywords from top queries that are NOT generic
+  const GENERIC = new Set([
+    "best", "top", "which", "who", "what", "how", "should", "hire",
+    "builders", "builder", "home", "homes", "custom", "luxury", "the",
+    "for", "and", "bay", "area", "firms", "firm", "that", "are",
+    "this", "with", "from", "your", "their", "have", "been", "most",
+  ]);
+
+  // Extract significant multi-word PHRASES from queries
+  // (e.g., "major structural renovation", "steep hillside lots",
+  //  "teardown rebuild", "architect-designed")
+  const phraseCounts = new Map<string, number>();
+  for (const query of relevantQueries) {
+    const words = query.toLowerCase().split(/\s+/).filter((w) => w.length > 3 && !GENERIC.has(w));
+    // Try 2-word and 3-word phrases
+    for (let i = 0; i < words.length - 1; i++) {
+      const bigram = `${words[i]} ${words[i + 1]}`;
+      if (!allPageText.includes(bigram)) {
+        phraseCounts.set(bigram, (phraseCounts.get(bigram) ?? 0) + 1);
+      }
+    }
+  }
+
+  // Sort by frequency — most-mentioned missing phrases first
+  const missingPhrases = [...phraseCounts.entries()]
+    .filter(([, count]) => count >= 3) // Must appear in 3+ queries
+    .sort((a, b) => b[1] - a[1]);
+
+  if (missingPhrases.length === 0) return [];
+
+  const topMissing = missingPhrases[0];
+  const [phrase, freq] = topMissing;
+
+  // Find the H2 that's CLOSEST to this phrase (most word overlap) — that's
+  // the one to rewrite. If no H2 is close, suggest the title instead.
+  let bestH2 = "";
+  let bestOverlap = 0;
+  const phraseWords = phrase.split(/\s+/);
+
+  for (const h2 of h2s) {
+    const h2Lower = h2.toLowerCase();
+    const overlap = phraseWords.filter((pw) => h2Lower.includes(pw)).length;
+    if (overlap > bestOverlap) {
+      bestOverlap = overlap;
+      bestH2 = h2;
+    }
+  }
+
+  // Capitalize the phrase naturally
+  const phraseTitle = phrase
+    .split(" ")
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+
+  // Extract city from the page path
+  const cityMatch = pagePath.match(/\/locations?\/([\w-]+)/i);
+  const cityName = cityMatch
+    ? cityMatch[1].split("-").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ")
+    : null;
+
+  if (bestH2 && bestOverlap > 0) {
+    // Try to produce a natural rewrite by substituting or inserting
+    // the missing phrase into the existing H2, not awkwardly prepending.
+    let newH2: string;
+
+    // Strategy 1: If the H2 contains a near-synonym of a phrase word,
+    // swap it. E.g., "Home Remodeling" → "Home Renovation" when
+    // "renovation" is the missing keyword.
+    const synonymSwaps: Record<string, string> = {
+      remodeling: "renovation", remodel: "renovation",
+      renovation: "remodel", build: "construction",
+      construction: "build",
+    };
+    let swapped = bestH2;
+    let didSwap = false;
+    for (const pw of phraseWords) {
+      for (const [from, to] of Object.entries(synonymSwaps)) {
+        if (pw === to && swapped.toLowerCase().includes(from) && !swapped.toLowerCase().includes(to)) {
+          // Swap the synonym — preserve original casing
+          const regex = new RegExp(from, "gi");
+          swapped = swapped.replace(regex, to.charAt(0).toUpperCase() + to.slice(1));
+          didSwap = true;
+        }
+      }
+    }
+
+    if (didSwap) {
+      newH2 = swapped;
+    } else if (cityName) {
+      // Strategy 2: For city pages, build a clean heading
+      newH2 = `${phraseTitle} in ${cityName}`;
+    } else {
+      // Strategy 3: Insert the phrase naturally — replace the most
+      // generic part of the H2 with the specific phrase
+      newH2 = `${phraseTitle} — ${bestH2}`;
+    }
+
+    // Don't suggest if the rewrite is basically the same
+    if (newH2.toLowerCase().replace(/[^a-z0-9]/g, "") !== bestH2.toLowerCase().replace(/[^a-z0-9]/g, "")) {
+      steps.push(
+        `Change H2:\n  Current:  "${bestH2}"\n  Change to: "${newH2}"\n\nAI platforms search "${phrase}" (${freq}+ queries) but this exact phrasing doesn't appear in any heading on your page.`,
+      );
+    }
+  } else {
+    // No close H2 — check the title
+    const titleLower = title.toLowerCase();
+    if (!titleLower.includes(phrase)) {
+      const siteName = title.match(/\|\s*(.+)$/)?.[1]?.trim() ?? "";
+      const suffix = siteName ? ` | ${siteName}` : "";
+      const newTitle = cityName
+        ? `Best ${phraseTitle} in ${cityName}${suffix}`
+        : `${phraseTitle} Bay Area${suffix}`;
+
+      steps.push(
+        `Change title from:\n  <title>${title}</title>\nto:\n  <title>${newTitle}</title>\n\nAI platforms search "${phrase}" (${freq}x frequency) but this phrase doesn't appear in your title or any H2. Adding it aligns the page with the most-searched query.`,
+      );
+    }
+  }
+
+  // If there's a second missing phrase, add it as a secondary suggestion
+  if (missingPhrases.length > 1) {
+    const [phrase2, freq2] = missingPhrases[1];
+    steps.push(
+      `Also missing from all headings: "${phrase2}" (${freq2}x frequency in AI searches). Consider adding an H2 section that addresses this topic.`,
+    );
+  }
+
+  return steps;
+}
+
+/**
  * Generate a paste-ready comparison table HTML with real competitor names.
  * Columns: Your Business + top competitors. Rows: standard comparison criteria.
  */
@@ -1106,6 +1342,7 @@ function generateFaqSchemaStep(
 function generateStepsFromActionClass(
   action: PrioritizedAction,
   pageSnapshots?: PageSnapshot[],
+  citedTopics?: string[],
 ): string[] {
   const steps: string[] = [];
   const page = action.targetPagePath ?? action.targetPageUrl ?? "the target page";
@@ -1170,9 +1407,22 @@ function generateStepsFromActionClass(
       steps.push(`Add JSON-LD schema to ${page} (FAQPage, Article, Service as applicable)`);
       break;
     case "content_section":
-    case "general_content":
-      steps.push(`Add ${section ? section.toLowerCase() : "content section"} to ${page}${loc}`);
+    case "general_content": {
+      // Use section skeleton with query-driven content when available
+      if (action.sectionGaps && action.sectionGaps.length > 0) {
+        const skeleton = generateSectionSkeleton(
+          action.sectionGaps[0],
+          page,
+          citedTopics ?? [],
+        );
+        steps.push(skeleton);
+      } else if (section) {
+        steps.push(`Add ${section.toLowerCase()} to ${page}${loc}`);
+      } else {
+        steps.push(`Add content section to ${page}${loc}`);
+      }
       break;
+    }
     case "hero_update":
     case "subheading_update":
       steps.push(`Update H1 on ${page} to directly answer the primary AI query`);

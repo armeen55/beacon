@@ -6,6 +6,7 @@ import {
   GitCompareArrows,
   MapPin,
   MessageSquare,
+  Activity,
   type LucideIcon,
 } from "lucide-react";
 
@@ -30,6 +31,7 @@ export const navigationGroups: NavGroup[] = [
       { label: "Market", href: "/competitors", icon: Users },
       { label: "Local", href: "/local", icon: MapPin },
       { label: "Topics", href: "/topics", icon: MessageSquare },
+      { label: "Diagnostics", href: "/diagnostics/spikes", icon: Activity },
       { label: "Settings", href: "/settings", icon: Settings },
     ],
   },

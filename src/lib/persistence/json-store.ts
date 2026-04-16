@@ -80,6 +80,24 @@ export async function writeStore<T>(name: string, data: T[]): Promise<void> {
 async function atomicWrite(name: string, data: unknown[]): Promise<void> {
   ensureDataDir();
   const path = filePath(name);
+
+  // Guard: don't overwrite a non-empty import-runs file with an empty array.
+  // This prevents the module-cache startup race where readStore("import-runs")
+  // returns [] (before the file is populated), then writeStore flushes the
+  // empty cache. Scoped to import-runs specifically to avoid blocking
+  // legitimate empty-store writes in other modules.
+  if (data.length === 0 && name === "import-runs" && existsSync(path)) {
+    try {
+      const existing = JSON.parse(readFileSync(path, "utf-8"));
+      if (Array.isArray(existing) && existing.length > 0) {
+        cache.set(name, existing);
+        return;
+      }
+    } catch {
+      // Corrupted file — OK to overwrite
+    }
+  }
+
   const tmp = path + ".tmp";
   const json = JSON.stringify(data, null, 2);
   writeFileSync(tmp, json, "utf-8");

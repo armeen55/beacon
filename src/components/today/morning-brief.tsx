@@ -120,80 +120,98 @@ function BriefCard({ item }: { item: MorningBriefItem }) {
   return (
     <div
       className={cn(
-        "rounded-lg bg-card p-4 space-y-3 border border-border",
+        "rounded-lg bg-card border border-border",
         "border-l-4",
-        borderColor
+        borderColor,
       )}
     >
-      {/* Header */}
-      <div className="flex items-start justify-between gap-3">
+      {/* ── Row 1: Badge + Headline + Copy — THE MOVE ── */}
+      <div className="flex items-start justify-between gap-3 p-4 pb-2">
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1">
-            <span
-              className={cn(
-                "text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded",
-                badge.className
-              )}
-            >
-              {badge.text}
-            </span>
-            <span className="text-[10px] text-muted-foreground">
-              {item.confidenceLabel}
-            </span>
-            {item.citationCount > 0 && (
-              <span className="text-[10px] text-muted-foreground tabular-nums">
-                {item.citationCount} citations
-              </span>
+          <span
+            className={cn(
+              "text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded inline-block mb-1.5",
+              badge.className,
             )}
-          </div>
-          <h3 className="text-sm font-semibold leading-snug">{item.headline}</h3>
+          >
+            {badge.text}
+          </span>
+          <h3 className="text-[15px] font-semibold leading-snug">{item.headline}</h3>
+          {item.keyReason && (
+            <p className="text-[11px] text-muted-foreground mt-0.5">{item.keyReason}</p>
+          )}
         </div>
         <button
           type="button"
           onClick={handleCopy}
           className={cn(
-            "shrink-0 text-xs px-2 py-1 rounded border transition-colors",
+            "shrink-0 text-xs px-2.5 py-1.5 rounded border transition-colors font-medium",
             copied
               ? "border-status-success text-status-success bg-status-success/10"
-              : "border-border text-muted-foreground hover:text-foreground hover:bg-muted"
+              : "border-border text-muted-foreground hover:text-foreground hover:bg-muted",
           )}
         >
           {copied ? "Copied" : "Copy"}
         </button>
       </div>
 
-      {/* Rationale */}
-      <p className="text-xs text-muted-foreground leading-relaxed">
-        {item.rationale}
-      </p>
-
-      {/* Steps */}
-      <div className="space-y-1.5">
+      {/* ── Row 2: Steps — pure execution, no interpretation ── */}
+      <div className="px-4 pb-3 space-y-1">
         {item.steps.map((step, i) => (
-          <div key={i} className="flex gap-2 text-xs">
-            <span className="shrink-0 text-muted-foreground tabular-nums w-4 text-right">
+          <div key={i} className="flex gap-2 text-[13px]">
+            <span className="shrink-0 font-bold text-foreground/50 tabular-nums w-4 text-right">
               {i + 1}.
             </span>
-            <span className="text-foreground/90">{step}</span>
+            <span className="text-foreground font-medium whitespace-pre-wrap">{step}</span>
           </div>
         ))}
       </div>
 
-      {/* AI context */}
-      {item.aiContext && (
-        <p className="text-[11px] text-muted-foreground/80 border-t border-border/50 pt-2 leading-relaxed">
-          {item.aiContext}
-        </p>
+      {/* ── Monitor line — separate from execution ── */}
+      {item.monitorLine && (
+        <div className="px-4 pb-2 text-[11px] text-muted-foreground/70 italic">
+          {item.monitorLine}
+        </div>
       )}
+
+      {/* ── Row 3: Context + Why — collapsed detail ── */}
+      <details className="border-t border-border/40 px-4 py-2 text-[11px] text-muted-foreground">
+        <summary className="cursor-pointer hover:text-foreground/80 transition-colors select-none flex items-center gap-2">
+          <span className="transition-transform group-open:rotate-90 text-[9px]">▶</span>
+          <span>
+            Why this action
+            {item.contextLines.length > 0 && <> · {item.contextLines.length} data points</>}
+            {item.citationCount > 0 && <> · {item.citationCount} citations</>}
+          </span>
+        </summary>
+        <div className="pt-2 space-y-2">
+          {/* Context lines */}
+          {item.contextLines.length > 0 && (
+            <div className="flex flex-wrap gap-x-3 gap-y-1">
+              {item.contextLines.map((line, i) => (
+                <span key={i} className="inline-flex items-center gap-1">
+                  <span className="h-1 w-1 rounded-full bg-muted-foreground/40 shrink-0" />
+                  {line}
+                </span>
+              ))}
+            </div>
+          )}
+          {/* Rationale */}
+          <p className="leading-relaxed">{item.rationale}</p>
+          {item.aiContext && (
+            <p className="leading-relaxed">{item.aiContext}</p>
+          )}
+        </div>
+      </details>
 
       {/* Page link */}
       {item.pageUrl && (
-        <div className="pt-1">
+        <div className="border-t border-border/40 px-4 py-2">
           <Link
             href={`/pages?url=${encodeURIComponent(item.pageUrl)}`}
-            className="text-xs text-accent-primary hover:underline"
+            className="text-[11px] text-accent-primary hover:underline"
           >
-            View page details →
+            View page →
           </Link>
         </div>
       )}
@@ -202,7 +220,7 @@ function BriefCard({ item }: { item: MorningBriefItem }) {
 }
 
 // ---------------------------------------------------------------------------
-// Memory Insight card — "your change X days ago is working"
+// Memory Insight card — "after your update X days ago — metrics moved"
 // ---------------------------------------------------------------------------
 
 function MemoryMiniSparkline({
@@ -392,9 +410,11 @@ function CompetitorRow({ summary }: { summary: CompetitorSummary }) {
 
 export type MorningBriefProps = {
   data: MorningBriefData;
+  /** When true, suppresses the trend header (parent renders it separately). */
+  compact?: boolean;
 };
 
-export function MorningBrief({ data }: MorningBriefProps) {
+export function MorningBrief({ data, compact = false }: MorningBriefProps) {
   const [copyAllPending, setEmailPending] = useState(false);
 
   const handleEmailAll = useCallback(() => {
@@ -428,20 +448,24 @@ export function MorningBrief({ data }: MorningBriefProps) {
 
   return (
     <div className="space-y-4">
-      {/* Trend header + freshness */}
-      <TrendSparkline
-        trendPct={data.trendPct}
-        totalCitations={data.totalOwnedCitations}
-      />
-      {data.latestDataDate && (
-        <DataFreshness date={data.latestDataDate} />
+      {/* Trend header + freshness — suppressed in compact mode (parent renders) */}
+      {!compact && (
+        <>
+          <TrendSparkline
+            trendPct={data.trendPct}
+            totalCitations={data.totalOwnedCitations}
+          />
+          {data.latestDataDate && (
+            <DataFreshness date={data.latestDataDate} />
+          )}
+        </>
       )}
 
-      {/* Memory insights — "your changes are working" */}
+      {/* Memory insights — metric trends following recent changes */}
       {data.memoryInsights.length > 0 && (
         <div className="space-y-2">
           <h2 className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-            Your changes are working
+            Recent metric trends
           </h2>
           {data.memoryInsights.map((m) => (
             <MemoryInsightCard key={m.changeId} insight={m} />

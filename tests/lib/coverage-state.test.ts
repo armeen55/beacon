@@ -32,10 +32,10 @@ describe("deriveCoverageState", () => {
     ).toBe("partial");
   });
 
-  it("returns aging when crawl age is in (0.7*T, T] — day 3 at T=3", () => {
+  it("returns aging when crawl age is in (0.7*T, T] — day 6 at T=7", () => {
     expect(
       deriveCoverageState({
-        crawlAgeDays: 3,
+        crawlAgeDays: 6,
         visibilityStaleVsCrawl: false,
         sampleQualityTier: "strong",
       }),
@@ -52,10 +52,10 @@ describe("deriveCoverageState", () => {
     ).toBe("fresh");
   });
 
-  it("returns stale when crawl is strictly past threshold (day 4)", () => {
+  it("returns stale when crawl is strictly past threshold (day 8)", () => {
     expect(
       deriveCoverageState({
-        crawlAgeDays: 4,
+        crawlAgeDays: 8,
         visibilityStaleVsCrawl: false,
         sampleQualityTier: "strong",
       }),
@@ -82,20 +82,20 @@ describe("deriveCoverageState", () => {
     ).toBe("stale");
   });
 
-  it("returns critical when crawl age exceeds 2x threshold (day 7)", () => {
+  it("returns critical when crawl age exceeds 2x threshold (day 15)", () => {
     expect(
       deriveCoverageState({
-        crawlAgeDays: 7,
+        crawlAgeDays: 15,
         visibilityStaleVsCrawl: false,
         sampleQualityTier: "strong",
       }),
     ).toBe("critical");
   });
 
-  it("returns stale at day 6 (not yet critical)", () => {
+  it("returns stale at day 12 (not yet critical)", () => {
     expect(
       deriveCoverageState({
-        crawlAgeDays: 6,
+        crawlAgeDays: 12,
         visibilityStaleVsCrawl: false,
         sampleQualityTier: "strong",
       }),
@@ -123,7 +123,7 @@ describe("deriveCoverageState", () => {
   });
 
   it("documents threshold constant", () => {
-    expect(COVERAGE_STALE_DAY_THRESHOLD).toBe(3);
+    expect(COVERAGE_STALE_DAY_THRESHOLD).toBe(7);
   });
 });
 
