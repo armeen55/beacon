@@ -296,22 +296,32 @@ export function keywordFindingsToRecs(
         ? "H1"
         : "H2";
 
+    const displayPath = f.pagePath === "/" ? "homepage" : f.pagePath;
+
     return {
       id: `rec-keyword-${f.pagePath.replace(/[^a-z0-9]/gi, "-")}-${f.changeType}-${i}`,
       type: "keyword_optimization" as const,
-      headline: `Change ${changeLabel} on ${f.pagePath}`,
+      headline: `Change ${changeLabel}: "${f.currentText.slice(0, 45)}${f.currentText.length > 45 ? "…" : ""}" on ${displayPath}`,
       rationale: `Change ${changeLabel}:\n  Current:  "${f.currentText}"\n  Change to: "${f.suggestedText}"\n\n${f.queryEvidence}. This is one isolated change — make it, scan, and measure.`,
       sourceEvidence: `${f.queryFrequency} query matches, ${f.citations} citations`,
       targetPageUrl: f.pageUrl,
       targetPagePath: f.pagePath,
       sourceChangeId: null,
-      confidence: f.citations >= 100 ? "high" : f.citations >= 20 ? "medium" : "low",
-      // Priority: above comparison table (750-849), below investigate (800+)
-      // Title changes get highest priority within keyword_optimization
-      priority: Math.min(
-        900 + Math.round(f.impactScore),
-        999,
-      ),
+      // Title changes on cited pages get "high" confidence — they're the
+      // fastest, most measurable change type for AI visibility.
+      confidence: f.changeType === "title" && f.citations >= 20
+        ? "high"
+        : f.citations >= 100
+          ? "high"
+          : f.citations >= 20
+            ? "medium"
+            : "low",
+      // Priority: keyword optimizations are the fastest, most isolated, most
+      // measurable changes. Title rewrites backed by high-frequency queries
+      // on high-citation pages should be the TOP recommendation.
+      // Base 900 + impactScore (uncapped) — title changes with 285 queries
+      // on a 66-citation page score ~1941, which competes with proven patterns.
+      priority: 900 + Math.round(f.impactScore),
       patternId: null,
       citationOpportunity: f.citations,
       actionClass: `${f.changeType}_rewrite`,

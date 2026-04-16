@@ -93,6 +93,7 @@ function scoreDimension(
 
   // Type urgency (0-15)
   if (rec.type === "investigate") s += 15;
+  else if (rec.type === "keyword_optimization") s += 14; // Fast, isolated, measurable — highest non-investigate
   else if (rec.type === "competitive_displacement") s += 12;
   else if (rec.type === "strengthen_structure") s += 10;
   else if (rec.type === "replicate") s += 8;
@@ -108,6 +109,16 @@ function scoreDimension(
     s += Math.round(fresh * 10);
   } else {
     s += 5; // neutral when no source row
+  }
+
+  // Query evidence bonus (0-20) — keyword_optimization recs don't have
+  // sourceRow/pattern/replication but they DO have query frequency +
+  // citation data. Use citationOpportunity as a proxy for evidence
+  // quality — a title change on a 300-citation page is stronger evidence
+  // than one on a 5-citation page.
+  if (rec.type === "keyword_optimization" && rec.citationOpportunity > 0) {
+    const citScore = Math.min(rec.citationOpportunity / 50, 1); // 50+ cit = max
+    s += Math.round(citScore * 20);
   }
 
   // Pattern track record (-7 to +14) — reward patterns that historically
@@ -130,7 +141,7 @@ function scoreDimension(
   if (trackRecord && trackRecord.explicitDismissed >= 2) s -= 7;
   else if (trackRecord && trackRecord.explicitDismissed >= 1) s -= 3;
 
-  return Math.max(0, Math.min(s, 100));
+  return Math.max(0, Math.min(s, 120)); // 120 cap to accommodate query evidence bonus
 }
 
 // ---------------------------------------------------------------------------
