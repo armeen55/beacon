@@ -294,10 +294,10 @@ export function buildReplicationCards(opts: BuildReplicationCardsOpts): Replicat
 
     const summaryLine =
       tierFromImpact === "validated"
-        ? `Validated pattern across ${targets.length} similar page${targets.length !== 1 ? "s" : ""}.`
+        ? `Positive trend across ${targets.length} similar page${targets.length !== 1 ? "s" : ""}.`
         : tierFromImpact === "qualified_partial"
-          ? `Strong partial signal across ${targets.length} similar page${targets.length !== 1 ? "s" : ""}.`
-          : `Early signal across ${targets.length} similar page${targets.length !== 1 ? "s" : ""}.`;
+          ? `Partial signal across ${targets.length} similar page${targets.length !== 1 ? "s" : ""}.`
+          : `Early data across ${targets.length} similar page${targets.length !== 1 ? "s" : ""}.`;
 
     const confRank = (c: "high" | "medium" | "low") =>
       c === "high" ? 2 : c === "medium" ? 1 : 0;
@@ -315,7 +315,7 @@ export function buildReplicationCards(opts: BuildReplicationCardsOpts): Replicat
       "After shipping, re-import visibility data and check whether citations or mentions move for this URL within 1-2 cycles.";
 
     const cardObserved: string[] = [
-      `Source qualification: ${tierFromImpact === "validated" ? "validated" : "partial (strong-evidence only)"} with positive visibility direction.`,
+      `Source qualification: ${tierFromImpact === "validated" ? "positive trend" : "partial signal"} with positive visibility direction.`,
       `Evidence tier on source: ${row?.evidenceTier ?? "unknown"}.`,
     ];
     const cardInferred: string[] = [

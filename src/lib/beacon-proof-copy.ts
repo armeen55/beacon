@@ -36,7 +36,7 @@ export const LAYER2_MARKET_METHODOLOGY_BULLETS: readonly string[] = [
  * Wording aligned with methodology §verdicts / strongest correlate / BEACON_METHODOLOGY.attribution.
  */
 export const LAYER2_CHANGES_METHODOLOGY_BULLETS: readonly string[] = [
-  "“Strongest correlate” means timing, topic, URL, and platform alignment scored highly — it is match evidence, not proof the change caused the visibility shift.",
+  "“Closest match” means timing, topic, URL, and platform alignment scored highly — it is match evidence, not proof the change caused the visibility shift.",
   BEACON_METHODOLOGY.attribution,
   "Match counts and topic counts summarize how many linked visibility events and which themes Beacon used; the observation window is the date range of imported results.",
   "When coverage is partial or stale, Beacon softens labels and scope lines so thin or older data is not read as complete truth.",

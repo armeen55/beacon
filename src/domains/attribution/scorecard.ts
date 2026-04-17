@@ -289,14 +289,14 @@ export function computeScorecard(
     } else if (primaries.length >= 2) {
       verdict = "validated";
       const topicStr = topics.slice(0, 2).join(", ");
-      verdictSummary = `Strongest correlate in ${primaries.length} events across ${topicStr}`;
+      verdictSummary = `Closest match in ${primaries.length} events across ${topicStr}`;
     } else if (primaries.length === 1 && contribs.length >= 1) {
       verdict = "validated";
-      verdictSummary = `Strongest match in 1 event, contributing in ${contribs.length} more`;
+      verdictSummary = `Closest match in 1 event, contributing in ${contribs.length} more`;
     } else if (primaries.length === 1) {
       verdict = "partial";
       const ev = primaries[0].event;
-      verdictSummary = `Strongest correlate for ${ev.topic} on ${platformLabel(ev.platform)}`;
+      verdictSummary = `Closest match for ${ev.topic} on ${platformLabel(ev.platform)}`;
     } else if (contribs.length >= 2) {
       verdict = "partial";
       verdictSummary = `Contributing factor in ${contribs.length} events`;

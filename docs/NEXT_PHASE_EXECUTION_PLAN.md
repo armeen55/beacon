@@ -5,7 +5,28 @@
 >
 > **NOT FOR:** System architecture (→ `architecture.md`), historical phase details (→ `master_execution_plan.md`), verification proof (→ `VERIFICATION_LOG.md`).
 
-**Last updated:** 2026-04-12
+**Last updated:** 2026-04-16
+
+---
+
+## Next best step — Phase 2 of /changes rebuild (2026-04-16)
+
+**Phase 1 shipped today (see `VERIFICATION_LOG.md` 2026-04-16):**
+- `/changes` is now one list, newest first — every confirm lands at the top
+- `/changes/dedupe` review flow (38 pairs identified)
+- Auto-stamped hypothesis on scan confirmation + editable on detail page
+
+**Phase 2 (next):** Replace the hardcoded `"Check after 7 days"` experiment watch window with pattern-learned progressive checkpoints (1d / 3d / 7d / 14d / 30d). First checkpoint with statistically meaningful movement = `landedAtDays: N`, stored back into the change pattern's `median_days_to_impact`. Dynamic "Expected outcome" strings pulled from the rec engine's pattern data (`computeTrackRecord` + `minePatterns`). Smarter per-day status phrases on each `/changes` row.
+
+Touches `src/domains/product/experiment-store.ts` (add `checkpoints` array), `src/domains/product/experiment-citation-sync.ts` (checkpoint scheduler), `src/domains/learning/change-patterns.ts` (feedback into median_days_to_impact), `src/app/(shell)/changes/scorecard-client.tsx` (smarter status cell). Ship behind existing experiment infra — no new routes.
+
+**Out of scope for Phase 2:** backfilling checkpoints for experiments that are already watching (leave as-is, new experiments get the new schedule).
+
+**Capability:** Max — the feedback loop from actual observed `landedAtDays` into future predictions is a wedge feature and touches three domains.
+
+---
+
+**Prior last-updated:** 2026-04-12
 **Current status:** **Launch Phases 0–5 COMPLETE. Tier 1.1 + 1.1i + 1.1j COMPLETE** (1.1i: `coverage-state.ts` aging/critical; **1.1j 2026-04-13:** proof-layer copy + `/settings/methodology` completeness + cross-surface phrasing + FAQ). **Track 1.2 Phases 1–3 COMPLETE** (+ Today **one decision** card + truth-first precedence + aligned findings/digest/primary; **2026-04-12** hard **stale visibility** demotion + import path when prior import exists). **Track 1.3 Phases 1–2 COMPLETE. Track 1.4** Phases 1–4 + 1.4e + 1.4f–g + per-source `/local` last sync + listing completeness **+ 1.4l Local layer Sign-off (`local_layer` in exit gates) COMPLETE (2026-04-13).** Track 1.4d SPEC COMPLETE (written spec + **1.4e** copy aligned with shipped connectors). Sign-offs: **`daily_ritual`**, **`replication`**, **`local_layer`**. **`lastSync`** + **`listingCompleteness`** on `LocalPresenceSnapshot`; methodology `#review-source-timestamps`, `#listing-completeness`, `#exit-gates`. **319 tests.** **Sign-offs (2026-04-13):** **`daily_ritual`**, **`replication`**, **`local_layer`** all **`passed`**. **Dogfood / vault Tier 1:** `docs/TIER_1_DOGFOOD_WEEK_LOG.md` — protocol + **2026-04-13 static validation** entry; **operator must log 5–7 consecutive usage days** + paste **Final Tier 1 note** there before vault “Tier 1 closed” (and thus Track **2.1** dependency) is literally satisfied. **2026-04-14:** Closure verification attempted — **failed** (log incomplete); Tier 1 **still active** for vault purposes. **Next:** complete dogfood log → re-verify → **Tier 2**; optional vault **1.4h–1.4k** research. Full nano-phase breakdown: `master_execution_plan.md` §"Tiered product stack — research-led nano-phases (1.1a–2.3h)".
 **Overall score:** 53/100. Launch readiness: 38/100 → 72/100 after Phases 0–3 safety + settings coherence.
 

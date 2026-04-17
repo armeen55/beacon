@@ -3,7 +3,7 @@
  *
  * For each confirmed change with a targeted topic, computes before/after
  * metrics from daily metric snapshots, producing human-readable insights
- * like "10 days ago you added FAQ to /kitchen-remodel — citations up 50%."
+ * like "citations on /kitchen-remodel up 50% over the past 10 days"
  *
  * Design: conservative — only shows insights when sufficient data exists.
  */
@@ -28,7 +28,7 @@ export type MemoryInsight = {
   changedAt: string;
   daysSince: number;
   direction: MemoryDirection;
-  /** Headline for display: "Your FAQ change on /page is working — mentions up 40%" */
+  /** Headline for display: "After your update to /page — mentions up 40%" */
   headline: string;
   /** Detailed explanation */
   detail: string;
@@ -352,30 +352,27 @@ function generateHeadline(
   const primaryDelta = citationDelta !== 0 ? citationDelta : mentionDelta;
   const pct = Math.round(Math.abs(primaryDelta) * 100);
   const metric = citationDelta !== 0 ? "citations" : "mentions";
-  const timeAgo =
-    daysSince === 1
-      ? "Yesterday"
-      : `${daysSince} days ago`;
-
   // For very low baselines (<3/day), show absolute values instead of
   // misleading percentages (e.g. "509%" from 1.6 → 9.5/day)
   const baseline = citationDelta !== 0 ? metricsBefore.avgCitations : metricsBefore.avgMentions;
   const current = citationDelta !== 0 ? metricsAfter.avgCitations : metricsAfter.avgMentions;
   const useAbsolute = baseline < 3 && pct > 100;
 
+  const timeFrame = daysSince === 1 ? "since yesterday" : `over the past ${daysSince} days`;
+
   switch (direction) {
     case "improving":
       if (useAbsolute) {
-        return `${timeAgo} you updated ${displayPath} — ${metric} up from ${fmtAvg(baseline)} to ${fmtAvg(current)}/day`;
+        return `${metric} on ${displayPath} increased from ${fmtAvg(baseline)} to ${fmtAvg(current)}/day ${timeFrame}`;
       }
-      return `${timeAgo} you updated ${displayPath} — ${metric} up ${pct}%`;
+      return `${metric} on ${displayPath} up ${pct}% ${timeFrame}`;
     case "declining":
       if (useAbsolute) {
-        return `${timeAgo} you updated ${displayPath} — ${metric} down from ${fmtAvg(baseline)} to ${fmtAvg(current)}/day, worth investigating`;
+        return `${metric} on ${displayPath} declined from ${fmtAvg(baseline)} to ${fmtAvg(current)}/day ${timeFrame} — worth investigating`;
       }
-      return `${timeAgo} you updated ${displayPath} — ${metric} down ${pct}%, worth investigating`;
+      return `${metric} on ${displayPath} down ${pct}% ${timeFrame} — worth investigating`;
     case "stable":
-      return `${timeAgo} you updated ${displayPath} — visibility holding steady`;
+      return `Visibility on ${displayPath} holding steady ${timeFrame}`;
   }
 }
 

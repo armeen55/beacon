@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
+import { REC_CONFIDENCE_LABEL } from "@/lib/confidence-labels";
 
 export type ActionCardAction = {
   id: string;
@@ -64,11 +65,7 @@ const BUCKET_STYLE: Record<string, { dot: string; label: string; border: string;
   opportunistic: { dot: "bg-muted-foreground/60", label: "Opportunistic", border: "border-border/60", bg: "bg-surface-raised/30" },
 };
 
-const CONFIDENCE_LABEL: Record<string, string> = {
-  high: "Strong evidence",
-  medium: "Moderate evidence",
-  low: "Early signal",
-};
+const CONFIDENCE_LABEL = REC_CONFIDENCE_LABEL;
 
 export function ActionCard({
   action,

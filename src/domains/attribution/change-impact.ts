@@ -125,7 +125,7 @@ function generateWhyExplanation(
     const topicStr =
       row.topics.length > 0 ? ` for ${row.topics.slice(0, 2).join(", ")}` : "";
     parts.push(
-      `Strongest correlate in ${primaries.length} positive outcome event${primaries.length > 1 ? "s" : ""}${topicStr}`,
+      `Closest match in ${primaries.length} positive outcome event${primaries.length > 1 ? "s" : ""}${topicStr}`,
     );
   }
   if (contribs.length > 0) {
@@ -223,12 +223,12 @@ function generateNextAction(
 
   if (verdict === "validated" && confidence === "high") {
     if (platforms.length > 1) {
-      return `Cross-platform lift on ${platformList(platforms)}. Replicate this ${change.signal_type} pattern for other pages.`;
+      return `Positive trend across ${platformList(platforms)}. Consider replicating this ${change.signal_type} pattern for other pages.`;
     }
     if (topicStr) {
-      return `Winning pattern for ${topicStr}. Replicate this change type for adjacent topics and pages.`;
+      return `Positive trend for ${topicStr}. Consider replicating this change type for adjacent topics and pages.`;
     }
-    return "Strong result. Apply this change pattern to similar pages.";
+    return "Positive trend detected. Consider applying this pattern to similar pages.";
   }
 
   if (verdict === "validated") {
@@ -238,7 +238,7 @@ function generateNextAction(
     if (topicStr) {
       return `Confirmed for ${topicStr}. Look for similar pages that could benefit from the same change.`;
     }
-    return "Confirmed impact. Look for other pages where this approach applies.";
+    return "Positive signal confirmed. Look for other pages where this approach applies.";
   }
 
   if (verdict === "partial") {

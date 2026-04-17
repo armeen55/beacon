@@ -14,7 +14,16 @@ export type FindingType =
   | "page_added"
   | "page_removed"
   | "stale_visibility"
-  | "faq_without_schema";
+  | "faq_without_schema"
+  /** G8 — JSON-LD doesn't satisfy Google rich-result requirements. */
+  | "schema_invalid"
+  /** G6 — at least one AI crawler (GPTBot/PerplexityBot/ClaudeBot/...) is
+   * disallowed by robots.txt on a cited URL. Silent AEO killer. */
+  | "robots_txt_blocked"
+  /** Phase 1 — page's `schema_types` is missing at least one type from
+   * the expected set for its `asset_type`. Proactive (pre-change)
+   * finding that surfaces schema-parity opportunities. */
+  | "schema_missing_for_page_type";
 
 export type FindingStatus =
   | "pending"
@@ -91,6 +100,9 @@ export const FINDING_TYPE_LABELS: Record<FindingType, string> = {
   page_removed: "Page removed",
   stale_visibility: "Visibility data stale",
   faq_without_schema: "FAQ visible, no schema",
+  schema_invalid: "Schema fails rich-result spec",
+  robots_txt_blocked: "robots.txt blocks AI crawler",
+  schema_missing_for_page_type: "Schema missing for page type",
 };
 
 export const FINDING_SEVERITY_LABELS: Record<FindingSeverity, string> = {

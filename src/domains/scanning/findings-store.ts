@@ -95,9 +95,16 @@ export async function addFindings(newFindings: Finding[]): Promise<void> {
     const typeKey = `${f.type}::${normUrl(f.url)}`;
     if (suppressed.has(typeKey)) continue;
 
-    // Deduplicate guardrail findings: replace pending entry for same type+URL
-    // instead of stacking duplicates from consecutive scans (oscillation fix).
-    if (f.type === "new_guardrail" || f.type === "guardrail_cleared") {
+    // Deduplicate persistent-state findings: replace pending entry for same
+    // type+URL instead of stacking duplicates from consecutive scans.
+    //   - guardrails: oscillation fix (new_guardrail / guardrail_cleared flip)
+    //   - schema_missing_for_page_type: Phase 1 — persistent-state finding,
+    //     refreshed on every scan until the operator deploys the missing types
+    if (
+      f.type === "new_guardrail" ||
+      f.type === "guardrail_cleared" ||
+      f.type === "schema_missing_for_page_type"
+    ) {
       const fNorm = normUrl(f.url);
       const dupeIdx = existing.findIndex(
         (e) =>

@@ -6,12 +6,12 @@ export const CHANGE_VERDICT_DISPLAY: Record<
   ChangeVerdict,
   { status: "success" | "warning" | "danger" | "neutral"; label: string }
 > = {
-  validated: { status: "success", label: "Strong signal" },
+  validated: { status: "success", label: "Positive trend" },
   partial: { status: "warning", label: "Mixed signal" },
   inconclusive: { status: "neutral", label: "Unclear" },
-  no_impact: { status: "danger", label: "No lift in data" },
+  no_impact: { status: "danger", label: "No movement detected" },
   negative: { status: "danger", label: "Decline detected" },
-  too_early: { status: "neutral", label: "Too soon to tell" },
+  too_early: { status: "neutral", label: "Too early to tell" },
   pending: { status: "neutral", label: "Not rated" },
 };
 

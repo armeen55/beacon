@@ -313,7 +313,7 @@ function deriveRecommendation(
         recommendationReason:
           confirmedCount > 1
             ? `${attributed} events attributed across ${confirmedCount} confirmed changes. Repeat this pattern.`
-            : `${attributed} event${attributed !== 1 ? "s" : ""} attributed. Strong signal — extend this workstream.`,
+            : `${attributed} event${attributed !== 1 ? "s" : ""} attributed. Positive trend — consider extending this workstream.`,
       };
     case "review_now":
       return {

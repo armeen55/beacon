@@ -168,7 +168,7 @@ const PRODUCT_GAP_HEADLINE: Record<string, string> = {
   competitor_asset_gap: "Others winning citations here",
   coverage_gap: "Thin owned coverage for this theme",
   technical_gap: "Possible technical blockers",
-  inferred_draft_idea: "Early signal — confirm with data",
+  inferred_draft_idea: "Early data — confirm with more observations",
 };
 
 function gapHeadline(evidenceClass: string, fallback: string) {

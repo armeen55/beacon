@@ -13,22 +13,22 @@ const styles: Record<
 > = {
   high: {
     dot: "bg-status-success",
-    label: "Strongest correlate",
+    label: "Closest match",
     text: "text-status-success",
   },
   medium: {
     dot: "bg-status-warning",
-    label: "Possible correlate",
+    label: "Possible match",
     text: "text-status-warning",
   },
   low: {
     dot: "bg-status-neutral",
-    label: "Weak connection",
+    label: "Weak match",
     text: "text-muted-foreground",
   },
   uncertain: {
     dot: "bg-muted-foreground/50",
-    label: "Unclear link",
+    label: "Unclear",
     text: "text-muted-foreground",
   },
 };

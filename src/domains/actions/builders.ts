@@ -215,7 +215,7 @@ function deriveWhyNow(
         }
         return parts.join(" ");
       }
-      return `${cluster.confirmedChangeIds.length} changes confirmed across ${cluster.attributedEventCount} events. Strong evidence this pattern works.`;
+      return `${cluster.confirmedChangeIds.length} changes confirmed across ${cluster.attributedEventCount} events. Consistent positive trend across this pattern.`;
     case "expand_adjacent_opportunity":
       return `Working cluster with opportunity linkage. Extending to adjacent topics could multiply impact.`;
     case "fix_changelog_coverage":

@@ -111,7 +111,7 @@ export const FOLLOW_THROUGH_LABELS: Record<FollowThroughStatus, string> = {
   evidence_positive: "Showed up in the numbers",
   evidence_weak: "Signal is fuzzy",
   no_evidence_yet: "Nothing yet",
-  too_early: "Too soon to tell",
+  too_early: "Too early to tell",
   unknown: "Not tracked yet",
 };
 

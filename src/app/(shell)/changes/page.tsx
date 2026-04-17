@@ -1,4 +1,3 @@
-import { Suspense } from "react";
 import Link from "next/link";
 import { PageHeader } from "@/components/data/page-header";
 import {
@@ -10,81 +9,35 @@ import {
 import { eventDecisions } from "@/domains/attribution/store";
 import { computeScorecard } from "@/domains/attribution/scorecard";
 import { enrichWithImpact } from "@/domains/attribution/change-impact";
-import { ScorecardTable, type ChangeIntelEntry } from "./scorecard-client";
-import { changeContracts } from "@/domains/changelog/change-contract";
-import { ChangeContractUI } from "./change-contract-client";
-import { createChangeContract, verifyChangeContract } from "./contract-actions";
-import { getRepository } from "@/lib/persistence/repositories";
-import { citationEvidenceIndex } from "@/domains/pages/citation-evidence-store";
-import {
-  rolloutExecutions,
-  pageIssues,
-  patternEvidence as persistedPatternEvidence,
-} from "@/domains/pages/issues";
-import { minePatterns, generateBriefs } from "@/domains/pages/playbook";
-import {
-  computeTrackRecord,
-  wasChangeRecommended,
-  matchChangeToPattern,
-} from "@/domains/product/recommendation-tracker";
-import { getActiveExperiments } from "@/domains/product/experiment-store";
-import {
-  recommendationResponses,
-  isRecSuppressed,
-} from "@/domains/product/recommendation-response-store";
-import { computeRecommendations } from "@/domains/product/recommendation-engine";
-import { allPages } from "@/domains/pages/page-store";
-import { getSiteConfig } from "@/lib/site-config";
-import { buildCompetitorRank } from "@/lib/performance-timeseries";
-import { classifyCompetitorType } from "@/domains/competitors/classify-type";
-import { syncMilestonesFromWorkspace } from "@/domains/milestones";
-import { readStore } from "@/lib/persistence/json-store";
-import type { ChangePattern } from "@/domains/learning/change-patterns";
-import { computeGeoCoverage } from "@/domains/geo/coverage";
-import { getActivePrompts } from "@/domains/prompts/prompt-library";
-import { computeCitationDecay, getDecayAlerts } from "@/domains/attribution/citation-decay";
-import { getBusinessConfig } from "@/lib/business-config";
-import { answerIntelligenceIndex } from "@/domains/answer-intelligence/store";
-import {
-  computeLocalOperatorSurface,
-  loadLocalOperatorImport,
-} from "@/domains/local-operator/surface";
-import { partitionResultsByMode } from "@/domains/attribution/result-mode";
-import { detectOutcomeEvents, type OutcomeEventType } from "@/domains/attribution/events";
+import { ScorecardTable, type EnrichedChangeRow } from "./scorecard-client";
 import { deriveCoverageState, coverageWarningLine } from "@/lib/coverage-state";
 import { latestWebsiteCrawlRun } from "@/domains/observations/read";
-import { LAYER2_CHANGES_METHODOLOGY_BULLETS } from "@/lib/beacon-proof-copy";
 import { sampleQualityTierFromObservationCount } from "@/lib/sample-quality-tier";
-import { discoverCandidates } from "@/domains/attribution/candidates";
-import { triageCandidates } from "@/domains/attribution/triage";
-import { candidateLinks } from "@/domains/attribution/store";
-import { buildJudgment } from "@/domains/attribution/judgment";
-import { resolveEvents, computeEventIntelligence } from "@/domains/attribution/event-resolution";
-import { PLATFORM_LABELS, METRIC_TYPE_LABELS } from "@/lib/constants";
+import { getActiveExperiments } from "@/domains/product/experiment-store";
+import { findDuplicatePairs } from "@/domains/changelog/dedupe";
 import {
-  InlineReviewQueue,
-  type ReviewQueueItem,
-  type ResolvedItem,
-  type Decisionability,
-} from "../review/review-queue-client";
-import { ChangesTabShell } from "./changes-tab-shell";
+  buildUrlCitationHistory,
+  getSeriesForUrl,
+  denseSeries,
+  normalizeUrl,
+} from "@/domains/product/url-citation-history";
+import { computeUrlVerdict } from "@/domains/attribution/url-verdict";
+import { maybeRefreshUrlWatcher } from "@/domains/product/url-watcher";
+import { readStore } from "@/lib/persistence/json-store";
 import {
-  buildReplicationCards,
-  buildPromisingReplicationCards,
-} from "@/domains/product/replication-engine";
-import { serializeReplicationCards } from "@/domains/product/replication-serialize";
-import { ReplicationCardsClient } from "@/components/replication/replication-cards-client";
-import { respondToRecommendation } from "../recommendation-actions";
-import { startExperimentAction } from "../experiment-actions";
+  findBestUrlPattern,
+  type UrlChangePattern,
+} from "@/domains/learning/change-patterns";
+import { extractEditTokens } from "@/domains/changelog/dedupe";
+import { isEventTruthPreviewEnabled } from "@/lib/flags";
 
 export default async function ChangeScorecardPage() {
-  // Same signal as Today / Pages / shell (Phase 2A): no import runs ⇒ sample workspace, not operator Changes.
   if (!hasActiveExperiment()) {
     return (
       <div>
         <PageHeader
           title="Changes"
-          description="What worked. What to scale. Why visibility moved."
+          description="Every change you've made. Newest first."
         />
         <section
           className="rounded-lg border border-border/60 bg-surface-inset/30 px-5 py-5"
@@ -97,9 +50,8 @@ export default async function ChangeScorecardPage() {
             Import your data to see your real Changes workspace
           </h2>
           <p className="mt-2 text-[13px] leading-relaxed text-muted-foreground">
-            Scorecard, impact verdicts, replication, and attribution review are built from your imported
-            visibility history and change log. Until you import, this route shows sample changes for
-            orientation only — not your business.
+            The changelog shows every change you&apos;ve imported plus every change
+            Beacon detects on your site. Import to get started.
           </p>
           <Link
             href="/settings/import"
@@ -112,629 +64,395 @@ export default async function ChangeScorecardPage() {
     );
   }
 
-  const rawRows = computeScorecard(changelogEntries, results, opportunities, eventDecisions);
+  // ── Refresh URL watcher if stale (≥6h since last success). No-op when
+  // throttled or if another run is already in flight. Never throws —
+  // page still renders on watcher failure.
+  try {
+    await maybeRefreshUrlWatcher("page-load");
+  } catch (err) {
+    console.error("[changes] URL watcher refresh error (non-fatal)", err);
+  }
+
+  // Hide archived (dedupe-retired) entries from the main list.
+  const liveEntries = changelogEntries.filter((c) => !c.archived);
+
+  // ── Build URL citation history once per page load ──
+  // The watcher above persisted the latest to disk if it ran this tick;
+  // `buildUrlCitationHistory` itself is cheap enough (~100ms) to call on
+  // every render. Watcher's real job is persistence + experiment metrics.
+  const urlHistory = buildUrlCitationHistory({ ownedOnly: true });
+  const today = new Date().toISOString().slice(0, 10);
+  const historyRange = {
+    first: urlHistory.date_range.first ?? today,
+    last: urlHistory.date_range.last ?? today,
+  };
+
+  // ── Legacy scorecard rows (still used for drill-down topic/platform breakdown) ──
+  const rawRows = computeScorecard(liveEntries, results, opportunities, eventDecisions);
   const rows = enrichWithImpact(rawRows);
 
-  rows.sort((a, b) => {
-    if (a.operatorConfirmedCount !== b.operatorConfirmedCount)
-      return b.operatorConfirmedCount - a.operatorConfirmedCount;
-    return (b.topScore ?? -1) - (a.topScore ?? -1);
+  // Newest-first default sort.
+  rows.sort(
+    (a, b) =>
+      new Date(b.change.timestamp).getTime() -
+      new Date(a.change.timestamp).getTime(),
+  );
+
+  // Pattern brain — read once, used to compute "Ready on [date]" for too-early
+  // rows. When the brain has no helping-outcome history for a given
+  // (edit_type × asset_type), we fall back transparently.
+  const urlPatterns = readStore<UrlChangePattern>("url-change-patterns");
+
+  // ── Compute URL-level verdict per row ──
+  const enriched: EnrichedChangeRow[] = rows.map((scorecard) => {
+    const change = scorecard.change;
+    const changeDate = change.timestamp.slice(0, 10);
+
+    // Only treat values that truly look like URLs as URLs. Asset labels like
+    // "Profound" or "Google Business Profile" are site-wide / offsite signals.
+    const rawUrl = change.url?.trim() ?? "";
+    const looksLikeUrl =
+      rawUrl.startsWith("/") || /^https?:\/\//i.test(rawUrl);
+    const normUrl = looksLikeUrl ? normalizeUrl(rawUrl) : null;
+    const series = normUrl ? getSeriesForUrl(urlHistory, normUrl) : null;
+
+    if (!series) {
+      return {
+        scorecard,
+        urlVerdict: null,
+        seriesPreview: null,
+        hasUrl: !!normUrl,
+      };
+    }
+
+    const dense = denseSeries(series, historyRange);
+    const verdict = computeUrlVerdict({
+      series: dense,
+      changeDate,
+      asOfDate: historyRange.last,
+    });
+
+    // G5 — Ready-on prediction for too-early rows from the pattern brain.
+    // Honest fallback when the brain has no helping-outcome history yet.
+    let readyOn: EnrichedChangeRow["readyOn"] = null;
+    if (verdict.verdict === "too_early") {
+      readyOn = computeReadyOn({
+        changeTimestamp: change.timestamp,
+        editTypeTokens: [...extractEditTokens(change.change_description)],
+        assetType: change.asset_type,
+        patterns: urlPatterns,
+      });
+    }
+
+    return {
+      scorecard,
+      urlVerdict: verdict,
+      seriesPreview: dense.filter((d) => {
+        // Small window around change date for any sparkline use in the expand.
+        const c = new Date(changeDate).getTime();
+        const t = new Date(d.date).getTime();
+        return Math.abs(t - c) / 86_400_000 <= 45;
+      }),
+      hasUrl: true,
+      readyOn,
+    };
   });
 
-  const allTopics = [
-    ...new Set(rows.flatMap((r) => r.topics)),
-  ].sort();
-  const allPlatforms = [
-    ...new Set(rows.flatMap((r) => r.platforms)),
-  ].sort();
+  const allTopics = [...new Set(rows.flatMap((r) => r.topics))].sort();
+  const allPlatforms = [...new Set(rows.flatMap((r) => r.platforms))].sort();
 
-  const withEvents = rows.filter((r) => r.totalEventsLinked > 0).length;
-  const operatorConfirmed = rows.filter((r) => r.operatorConfirmedCount > 0).length;
-  const highConfidence = rows.filter((r) => r.impact.confidence === "high").length;
-
-  const changePatterns = readStore<ChangePattern>("change-patterns")
-    .filter((p) => p.sample_count >= 3)
-    .sort((a, b) => b.success_rate - a.success_rate || b.sample_count - a.sample_count)
-    .slice(0, 5);
-
-  const lastCrawlChanges = latestWebsiteCrawlRun();
-  const changesCrawlAgeDays = lastCrawlChanges?.completed_at
+  const lastCrawl = latestWebsiteCrawlRun();
+  const crawlAgeDays = lastCrawl?.completed_at
     ? Math.floor(
-        (Date.now() - new Date(lastCrawlChanges.completed_at).getTime()) / 86_400_000,
+        (Date.now() - new Date(lastCrawl.completed_at).getTime()) / 86_400_000,
       )
     : null;
-  const changesCoverageState = deriveCoverageState({
-    crawlAgeDays: changesCrawlAgeDays,
+  const coverageState = deriveCoverageState({
+    crawlAgeDays,
     visibilityStaleVsCrawl: false,
     sampleQualityTier: sampleQualityTierFromObservationCount(results.length),
   });
-  const changesCoverageWarning = coverageWarningLine(changesCoverageState);
+  const coverageWarning = coverageWarningLine(coverageState);
 
-  // Recommendation intelligence: pattern mining + track record
-  const citationIndex2 = citationEvidenceIndex as {
-    by_page_and_topic: {
-      page_url: string;
-      is_owned: boolean;
-      total_citations: number;
-    }[];
-    by_topic: { topic: string }[];
-  } | null;
-  const citMap = new Map<string, number>();
-  if (citationIndex2) {
-    for (const r of citationIndex2.by_page_and_topic) {
-      if (!r.is_owned) continue;
-      const key = r.page_url.replace(/\/+$/, "").toLowerCase();
-      citMap.set(key, (citMap.get(key) ?? 0) + r.total_citations);
-    }
-  }
-  const repo = getRepository();
-  const pageSnapshots = await repo.getPageSnapshots();
-  const patterns = minePatterns(
-    pageSnapshots,
-    citMap,
-    rawRows,
-    rolloutExecutions,
-    persistedPatternEvidence,
-  );
-  const briefs = generateBriefs(pageSnapshots, citMap, patterns);
-  const trackRecord = computeTrackRecord({ impactRows: rows, patterns });
+  // Dedupe banner
+  const duplicatePairs = findDuplicatePairs(changelogEntries);
+  const duplicatePairCount = duplicatePairs.length;
 
-  const { siteDomain } = getSiteConfig();
-  const milestoneCompetitorRank = buildCompetitorRank(
-    citationEvidenceIndex,
-    siteDomain,
-    classifyCompetitorType,
-  );
-  const { state: milestoneState } = await syncMilestonesFromWorkspace({
-    results,
-    citationIndex: citationEvidenceIndex,
-    siteDomain,
-    competitorRank: milestoneCompetitorRank,
-  });
-  const decayResultsChanges = computeCitationDecay(siteDomain);
-  const allRecs = computeRecommendations({
-    impactRows: rows,
-    patterns,
-    briefs,
-    pageSnapshots,
-    citationCountMap: citMap,
-    citationIndex: citationEvidenceIndex,
-    allPages,
-    decayResults: decayResultsChanges,
-    answerIntelligence: answerIntelligenceIndex,
-  });
-  const recommendationsFiltered = allRecs.filter((r) => !isRecSuppressed(r.id));
+  const newestISO = rows[0]?.change.timestamp ?? null;
+  const newestLabel = newestISO ? describeRecency(newestISO) : null;
 
-  const urlToPageIdChanges = new Map(
-    allPages.map((p) => [p.url.replace(/\/+$/, "").toLowerCase(), p.id]),
-  );
-  function pagesHrefChange(pageUrl: string, briefId?: string): string {
-    const pageId = urlToPageIdChanges.get(
-      pageUrl.replace(/\/+$/, "").toLowerCase(),
-    );
-    if (!pageId) return "/pages";
-    return briefId ? `/pages?p=${pageId}&b=${briefId}` : `/pages?p=${pageId}`;
-  }
+  const truthPreviewEnabled = isEventTruthPreviewEnabled();
 
-  const activeExperimentRecIdSetChanges = new Set(
-    getActiveExperiments().map((e) => e.recId),
-  );
-  const repImpactCards = buildReplicationCards({
-    recommendations: recommendationsFiltered,
-    impactRows: rows,
-    patterns,
-    rolloutExecutions,
-    pageIssues,
-    activeExperimentRecIds: activeExperimentRecIdSetChanges,
-  });
-  const repExcludeRecIds = new Set(
-    repImpactCards.flatMap((c) => c.targets.map((t) => t.recId)),
-  );
-  const repPromisingCards = buildPromisingReplicationCards(
-    getActiveExperiments(),
-    allRecs,
-    rows,
-    patterns,
-    rolloutExecutions,
-    pageIssues,
-    repExcludeRecIds,
-  );
-  const repAllCards = [...repImpactCards, ...repPromisingCards];
-  const serializedReplicationCards = serializeReplicationCards(
-    repAllCards,
-    allRecs,
-    (u) => pagesHrefChange(u),
-    citMap,
+  const activeExperiments = getActiveExperiments().filter(
+    (e) => e.status !== "dropped",
   );
 
-  const decayAlertsChanges = getDecayAlerts(decayResultsChanges);
-  const geoGapChanges = computeGeoCoverage(
-    allPages,
-    citationEvidenceIndex?.by_page_and_topic ?? [],
-    getActivePrompts(),
-  ).gaps[0];
-  const localSurfaceChanges = computeLocalOperatorSurface({
-    business: getBusinessConfig(),
-    importRow: loadLocalOperatorImport(),
-    geoGap: geoGapChanges
-      ? {
-          city: geoGapChanges.city,
-          competitor_pages: geoGapChanges.competitor_pages,
-          owned_pages: geoGapChanges.owned_pages,
-        }
-      : null,
-    meaningfulDecayCount: decayAlertsChanges.filter(
-      (d) => d.status === "meaningful_decline",
-    ).length,
-  });
-
-  const replicateContent = (
-    <div className="space-y-4">
-      <div className="rounded-lg border border-border/60 bg-surface-raised/40 px-5 py-4">
-        <p className="text-[12px] text-muted-foreground leading-relaxed">
-          Patterns observed across validated changes and promising experiments, grouped by
-          similar pages. Evidence comes from scorecard verdicts and citations; target selection
-          is based on structural and topic overlap — outcomes not guaranteed.{" "}
-          <a href="/settings/methodology#verdicts" className="text-accent-primary hover:underline">
-            How verdicts work →
-          </a>
-        </p>
-      </div>
-      {serializedReplicationCards.length === 0 ? (
-        <p className="text-[12px] text-muted-foreground">
-          No observed patterns to replicate yet. Import fresh results and validate a few changes
-          on the Outcomes tab first.
-        </p>
-      ) : (
-        <ReplicationCardsClient
-          cards={serializedReplicationCards}
-          variant="changes"
-          respondToRecommendation={respondToRecommendation}
-          startExperimentAction={startExperimentAction}
-        />
-      )}
-    </div>
-  );
-
-  const briefCountByPattern = new Map<string, number>();
-  for (const b of briefs) {
-    briefCountByPattern.set(b.patternId, (briefCountByPattern.get(b.patternId) ?? 0) + 1);
-  }
-
-  const changeIntel: Record<string, ChangeIntelEntry> = {};
-  let beaconRecommendedCount = 0;
-  let totalReplicationTargets = 0;
-
-  for (const row of rows) {
-    const match = wasChangeRecommended(row.change.id, trackRecord);
-
-    let replicationCount = 0;
-    let patternName: string | undefined;
-    if (
-      (row.verdict === "validated" || row.verdict === "partial") &&
-      row.impact.direction === "positive"
-    ) {
-      const matchedPattern = matchChangeToPattern(row.change, patterns);
-      if (matchedPattern) {
-        replicationCount = briefCountByPattern.get(matchedPattern.id) ?? 0;
-        patternName = matchedPattern.name;
-      }
-    }
-
-    if (match || replicationCount > 0) {
-      const entry: ChangeIntelEntry = {
-        beaconRecommended: !!match,
-        replicationCount,
-      };
-      if (match) {
-        entry.matchConfidence = match.matchConfidence;
-        entry.patternName = match.patternId
-          .replace("pattern-", "")
-          .replace(/-/g, " ");
-      }
-      if (replicationCount > 0 && patternName) {
-        entry.patternName = entry.patternName ?? patternName;
-      }
-      changeIntel[row.change.id] = entry;
-      if (match) beaconRecommendedCount++;
-      totalReplicationTargets += replicationCount;
-    }
-  }
-
-  const sortedContracts = [...changeContracts].sort(
-    (a, b) => b.createdAt.localeCompare(a.createdAt)
-  );
-
-  // ── Attribution (Review) computation ──
-  const EVENT_TYPE_LABELS: Record<OutcomeEventType, string> = {
-    first_appearance: "Showed up",
-    visibility_regained: "Came back",
-    mention_surge: "Mentions spiked",
-    visibility_lost: "Dropped off",
-    mention_decline: "Mentions fell",
+  // Counts for the at-a-glance strip (based on the new URL verdicts).
+  const countsByVerdict = {
+    helping: enriched.filter((e) => e.urlVerdict?.verdict === "helping").length,
+    hurting: enriched.filter((e) => e.urlVerdict?.verdict === "hurting").length,
+    nothing_yet: enriched.filter((e) => e.urlVerdict?.verdict === "nothing_yet").length,
+    too_early: enriched.filter((e) => e.urlVerdict?.verdict === "too_early").length,
+    no_baseline: enriched.filter((e) => e.urlVerdict?.verdict === "not_enough_data").length,
+    site_wide: enriched.filter((e) => !e.hasUrl).length,
   };
-  const EVENT_TYPE_COLORS: Record<OutcomeEventType, string> = {
-    first_appearance: "text-status-success",
-    visibility_regained: "text-accent-primary",
-    mention_surge: "text-status-warning",
-    visibility_lost: "text-status-danger",
-    mention_decline: "text-status-danger",
-  };
-
-  const { attribution: attrResults } = partitionResultsByMode(results);
-  const attrEvents = detectOutcomeEvents(attrResults);
-  const resultMap = new Map(results.map((r) => [r.id, r]));
-  const decidedEventIds = new Set(eventDecisions.map((d) => d.event_id));
-
-  const triageMap = new Map<string, ReturnType<typeof triageCandidates>>();
-  const candCountMap = new Map<string, number>();
-  const reviewItems: ReviewQueueItem[] = [];
-
-  for (const event of attrEvents) {
-    if (decidedEventIds.has(event.id)) continue;
-    const anchorResult = resultMap.get(event.anchor_result_id);
-    if (!anchorResult) continue;
-    const candidates = discoverCandidates(anchorResult, changelogEntries, opportunities);
-    candCountMap.set(event.anchor_result_id, candidates.length);
-    if (candidates.length === 0) continue;
-    const triage = triageCandidates(candidates);
-    triageMap.set(event.anchor_result_id, triage);
-    if (triage.autoResolved) continue;
-    if (triage.needsReview.length === 0) continue;
-    const allTriaged = [
-      ...(triage.primary ? [triage.primary] : []),
-      ...triage.contributing, ...triage.needsReview, ...triage.suppressed,
-    ];
-    const serializedCandidates = allTriaged.map((c) => ({
-      change: { id: c.change.id, asset_name: c.change.asset_name, signal_type: c.change.signal_type, timestamp: c.change.timestamp, topic_targeted: c.change.topic_targeted, change_description: c.change.change_description },
-      attribution: c.attribution, score: c.score, triage: c.triage, triageReason: c.triageReason,
-    }));
-    const platformLabel = PLATFORM_LABELS[event.platform] ?? event.platform;
-    const judgment = buildJudgment(event.topic, platformLabel, event.type, event.trigger_date, anchorResult.metric_value, anchorResult.delta_percentage, event.context.cited, event.context.mentions_before, event.context.mentions_after, event.context.gap_days, triage.primary, triage.needsReview, triage.contributing, triage.suppressed, candidates.length);
-    const base = {
-      eventId: event.id, anchorResultId: event.anchor_result_id, eventType: event.type,
-      eventTypeLabel: EVENT_TYPE_LABELS[event.type], eventTypeColor: EVENT_TYPE_COLORS[event.type],
-      platform: platformLabel, topic: event.topic, triggerDate: event.trigger_date,
-      description: event.description, reviewCount: triage.needsReview.length,
-      totalCandidates: candidates.length, hasPrimary: triage.primary !== null,
-      candidates: serializedCandidates, truthLabelMap: {} as Record<string, "causal" | "contributing" | "unrelated" | "unknown">,
-      metricLabel: METRIC_TYPE_LABELS[anchorResult.metric_type], metricValue: anchorResult.metric_value,
-      delta: anchorResult.delta_percentage, judgment,
-    };
-    const actionable = base.candidates.filter((c) => c.triage === "primary" || c.triage === "needs_review" || c.triage === "contributing");
-    let d: Decisionability = "ambiguous";
-    let reason = "Close scores";
-    let gap = 0;
-    if (actionable.length > 0) {
-      const sorted = [...actionable].sort((a, b) => b.score - a.score);
-      gap = sorted.length > 1 ? Math.round(sorted[0].score - sorted[1].score) : sorted[0].score;
-      const topTier = sorted[0].attribution.evidence_tier;
-      const hasStrong = topTier === "exact" || topTier === "probable";
-      if (base.hasPrimary && gap >= 10) { d = "easy_call"; reason = "Clear primary candidate"; }
-      else if (gap >= 15) { d = "easy_call"; reason = `Leading by ~${gap} pts`; }
-      else if (gap >= 5 || actionable.length === 1) { d = "good_candidate"; reason = hasStrong ? "Strong evidence" : "Some separation"; }
-    }
-    reviewItems.push({ ...base, decisionability: d, decisionabilityReason: reason, scoreGap: gap });
-  }
-  reviewItems.sort((a, b) => {
-    const order: Record<Decisionability, number> = { easy_call: 0, good_candidate: 1, ambiguous: 2 };
-    return (order[a.decisionability] - order[b.decisionability]) || (b.scoreGap - a.scoreGap);
-  });
-
-  const resolved = resolveEvents(attrEvents, candidateLinks, triageMap, candCountMap);
-  const intel = computeEventIntelligence(resolved);
-  const resolvedItems: ResolvedItem[] = resolved
-    .filter((r) => r.status === "attributed" || r.status === "auto_resolved")
-    .map((r) => {
-      const change = r.primary_change_id ? changelogEntries.find((c) => c.id === r.primary_change_id) : null;
-      const decision = eventDecisions.find((d) => d.event_id === r.event.id);
-      return { eventId: r.event.id, anchorResultId: r.event.anchor_result_id, eventTypeLabel: EVENT_TYPE_LABELS[r.event.type], eventTypeColor: EVENT_TYPE_COLORS[r.event.type], topic: r.event.topic, status: r.status, changeName: change?.asset_name ?? null, causeType: decision?.cause_type ?? null, operatorConfidence: decision?.operator_confidence ?? null };
-    });
-  const decidedNoChangeItems: ResolvedItem[] = eventDecisions
-    .filter((dd) => dd.cause_type !== "change")
-    .filter((dd) => !resolvedItems.some((r) => r.eventId === dd.event_id))
-    .map((dd) => {
-      const event = attrEvents.find((e) => e.id === dd.event_id);
-      return { eventId: dd.event_id, anchorResultId: dd.result_id, eventTypeLabel: event ? EVENT_TYPE_LABELS[event.type] : "—", eventTypeColor: event ? EVENT_TYPE_COLORS[event.type] : "", topic: event?.topic ?? "—", status: "decided", changeName: null, causeType: dd.cause_type, operatorConfidence: dd.operator_confidence };
-    });
-  const allResolved = [...resolvedItems, ...decidedNoChangeItems];
-  const easyCallCount = reviewItems.filter((i) => i.decisionability === "easy_call").length;
-  const noCandidateCount = resolved.filter((r) => r.status === "pending" && !triageMap.has(r.event.anchor_result_id)).length;
-
-  const attributionContent = (
-    <div>
-      <div className="mb-6 rounded-lg border border-border/60 bg-surface-raised/40 px-5 py-4">
-        <p className="text-xs font-medium text-muted-foreground mb-2">At a glance</p>
-        <div className="flex flex-wrap items-baseline gap-x-8 gap-y-2 text-sm">
-          <span><span className="font-bold tabular-nums">{reviewItems.length}</span><span className="text-muted-foreground ml-1.5">awaiting decision</span></span>
-          {easyCallCount > 0 && <span className="text-status-success font-medium tabular-nums">{easyCallCount} likely quick decision{easyCallCount !== 1 ? "s" : ""}</span>}
-          <span className="text-muted-foreground text-[13px]"><span className="font-semibold text-foreground tabular-nums">{eventDecisions.length}</span> locked total</span>
-        </div>
-      </div>
-      <InlineReviewQueue
-        items={reviewItems}
-        resolvedItems={allResolved}
-        stats={{ pending: reviewItems.length, noCandidates: noCandidateCount, confirmed: intel.attributed, autoResolved: intel.auto_resolved, decided: eventDecisions.length, easyCalls: easyCallCount }}
-      />
-    </div>
-  );
 
   return (
     <div>
       <PageHeader
         title="Changes"
-        description="What worked. What to scale. Why visibility moved."
+        description="Every change you've made. Newest first. Every verdict shows its math."
       />
 
-      <Suspense fallback={null}>
-      <ChangesTabShell
-        replicateContent={replicateContent}
-        outcomesContent={
-          <>
-            {/* Impact snapshot — leads the page */}
+      {/* At-a-glance */}
       <div className="mb-6 rounded-lg border border-border/60 bg-surface-raised/40 px-5 py-4">
-        <p className="text-xs font-medium text-muted-foreground mb-2">At a glance</p>
         <div className="flex flex-wrap items-baseline gap-x-6 gap-y-2 text-sm">
           <span>
-            <span className="font-bold tabular-nums">{rows.length}</span>
-            <span className="text-muted-foreground ml-1.5">changes</span>
+            <span className="font-bold tabular-nums">{enriched.length}</span>
+            <span className="text-muted-foreground ml-1.5">changes tracked</span>
           </span>
-          {withEvents > 0 && (
-            <span>
-              <span className="font-semibold tabular-nums">{withEvents}</span>
-              <span className="text-muted-foreground ml-1.5">with visibility signal</span>
-            </span>
-          )}
-          {highConfidence > 0 && (
-            <span className="text-status-success font-semibold tabular-nums">
-              {highConfidence} {changesCoverageState === "partial" ? "limited-evidence" : "strong-evidence"} impact
-            </span>
-          )}
-          {operatorConfirmed > 0 && (
+          {newestLabel && (
             <span className="text-muted-foreground">
-              <span className="font-semibold text-foreground tabular-nums">{operatorConfirmed}</span> confirmed in Review
+              Latest: <span className="font-medium text-foreground">{newestLabel}</span>
             </span>
           )}
-          {beaconRecommendedCount > 0 && (
-            <span className="text-accent-primary font-medium tabular-nums">
-              {beaconRecommendedCount} Beacon-highlighted
+          {countsByVerdict.helping > 0 && (
+            <span className="text-status-success font-semibold tabular-nums">
+              {countsByVerdict.helping} helping
             </span>
           )}
-          {totalReplicationTargets > 0 && (
+          {countsByVerdict.hurting > 0 && (
+            <span className="text-status-danger font-semibold tabular-nums">
+              {countsByVerdict.hurting} hurting
+            </span>
+          )}
+          {countsByVerdict.too_early > 0 && (
             <span className="text-muted-foreground tabular-nums">
-              {totalReplicationTargets} similar-pattern target{totalReplicationTargets !== 1 ? "s" : ""}
+              {countsByVerdict.too_early} too early
             </span>
           )}
-          {changesCoverageWarning && (
+          {activeExperiments.length > 0 && (
+            <span className="text-muted-foreground tabular-nums">
+              {activeExperiments.length} being watched
+            </span>
+          )}
+          {coverageWarning && (
             <span className="text-[11px] text-status-warning/70">
-              · {changesCoverageWarning.toLowerCase()}{" "}
-              <a
-                href="/settings/methodology#coverage-states"
-                className="text-accent-primary hover:underline font-medium"
-              >
-                Coverage states →
-              </a>
+              · {coverageWarning.toLowerCase()}
             </span>
           )}
         </div>
-        {localSurfaceChanges.changesOutcomesHook && (
-          <p className="text-[11px] text-muted-foreground mt-3 leading-relaxed border-l-2 border-accent-primary/30 pl-3">
-            <span className="font-medium text-foreground">Local &amp; reviews: </span>
-            {localSurfaceChanges.changesOutcomesHook.text}{" "}
-            <Link
-              href={localSurfaceChanges.changesOutcomesHook.href}
-              className="text-accent-primary hover:underline font-medium"
-            >
-              Market →
-            </Link>
-          </p>
-        )}
       </div>
 
-      {changePatterns.length > 0 && (
-      <div className="mb-6 rounded-lg border border-border/60 bg-surface-inset/30 px-5 py-4">
-        <p className="text-xs font-medium text-muted-foreground mb-3">Signal effectiveness — what&apos;s working</p>
-        <div className="grid gap-2">
-          {changePatterns.map((p) => {
-            const label = `${p.signal_type} × ${p.asset_type}`.replace(/_/g, " ");
-            const pct = Math.round(p.success_rate * 100);
-            const conf = p.confidence;
-            return (
-              <div key={p.id} className="flex items-baseline gap-3 text-[12px]">
-                <span className="font-mono text-muted-foreground w-[220px] truncate">{label}</span>
-                <span className={`font-semibold tabular-nums ${pct >= 80 ? "text-status-success" : pct >= 50 ? "text-foreground" : "text-muted-foreground"}`}>
-                  {p.success_count}/{p.sample_count} positive ({pct}%)
-                </span>
-                {p.avg_citation_delta > 0 && (
-                  <span className="text-muted-foreground">avg +{Math.round(p.avg_citation_delta)}% citations</span>
-                )}
-                <span className={`text-[10px] px-1.5 py-0.5 rounded ${conf === "high" ? "bg-status-success/10 text-status-success" : conf === "medium" ? "bg-status-warning/10 text-status-warning" : "bg-muted text-muted-foreground"}`}>
-                  {conf}
-                </span>
-              </div>
-            );
-          })}
+      {/* Event-level truth preview (flag-gated) */}
+      {truthPreviewEnabled && (
+        <div className="mb-4 flex items-center justify-end">
+          <Link
+            href="/changes/truth"
+            className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-accent-primary hover:text-accent-primary/85 underline underline-offset-2"
+          >
+            Event-level truth (preview) →
+          </Link>
         </div>
-        <p className="text-[10px] text-muted-foreground mt-3">
-          Based on {changePatterns.reduce((a, p) => a + p.sample_count, 0)} qualified outcomes.
-          Patterns with &lt;3 samples are hidden.
-        </p>
-      </div>
       )}
 
-      <details className="mb-6 text-[11px] text-muted-foreground leading-relaxed">
-        <summary className="cursor-pointer font-medium text-foreground/85 hover:underline select-none">
-          How verdicts work
-        </summary>
-        <ul className="mt-2 ml-4 list-disc space-y-1.5 pl-0.5">
-          {LAYER2_CHANGES_METHODOLOGY_BULLETS.map((line, i) => (
-            <li key={i}>{line}</li>
-          ))}
-        </ul>
-        <p className="mt-2">
-          <Link
-            href="/settings/methodology#verdicts"
-            className="text-accent-primary font-medium hover:underline"
-          >
-            Full methodology: verdicts &amp; correlates →
-          </Link>
-        </p>
-      </details>
-
-      {milestoneState.events.length > 0 && (() => {
-        const visible = milestoneState.events.slice(0, 5);
-        const rest = milestoneState.events.slice(5, 25);
-        const renderEvent = (e: import("@/domains/milestones/types").MilestoneEvent) => (
-          <li
-            key={e.id}
-            className={`text-[11px] border-l-2 pl-3 ${
-              e.magnitude === "major"
-                ? "border-accent-primary/50"
-                : "border-accent-primary/20"
-            }`}
-          >
-            <p className={e.magnitude === "major" ? "font-semibold text-foreground" : "font-medium text-foreground"}>{e.title}</p>
-            <p className="text-muted-foreground mt-0.5">{e.subtitle}</p>
-            <p className="text-[10px] text-muted-foreground/90 mt-1 leading-relaxed">
-              {e.proofSummary}
+      {/* Dedupe banner */}
+      {duplicatePairCount > 0 && (
+        <div className="mb-5 rounded-lg border border-accent-primary/30 bg-accent-primary/5 px-4 py-3 flex items-center justify-between gap-3">
+          <div>
+            <p className="text-[12px] font-semibold text-foreground">
+              {duplicatePairCount} possible duplicate{duplicatePairCount === 1 ? "" : "s"} in your changelog
             </p>
-            <p className="text-[9px] text-muted-foreground mt-1 tabular-nums">
-              {new Date(e.achievedAt).toLocaleDateString(undefined, {
-                month: "short",
-                day: "numeric",
-                year: "numeric",
-              })}
+            <p className="text-[11px] text-muted-foreground mt-0.5">
+              CSV summaries that look like they describe the same edits as your PDF entries. Review once to clean the list.
             </p>
-          </li>
-        );
-        return (
-          <div className="mb-6 rounded-lg border border-border/55 bg-surface-inset/20 px-4 py-3">
-            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
-              Milestones
-            </p>
-            <p className="text-[11px] text-muted-foreground mt-1 mb-3 leading-relaxed">
-              All-time highs and first-time outcomes from measured visibility. Each line is logged once when the bar moves — not on every page load.
-            </p>
-            <ul className="space-y-3">
-              {visible.map(renderEvent)}
-            </ul>
-            {rest.length > 0 && (
-              <details className="mt-3">
-                <summary className="text-[11px] text-muted-foreground cursor-pointer hover:underline select-none">
-                  {rest.length} more milestone{rest.length !== 1 ? "s" : ""}
-                </summary>
-                <ul className="space-y-3 mt-3">
-                  {rest.map(renderEvent)}
-                </ul>
-              </details>
-            )}
           </div>
-        );
-      })()}
+          <Link
+            href="/changes/dedupe"
+            className="shrink-0 inline-flex items-center gap-1.5 rounded-md border border-accent-primary/50 bg-accent-primary/10 px-3 py-1.5 text-[11px] font-semibold text-accent-primary hover:bg-accent-primary/20 transition-colors"
+          >
+            Review duplicates →
+          </Link>
+        </div>
+      )}
 
       <ScorecardTable
-        rows={rows}
+        rows={enriched}
         allTopics={allTopics}
         allPlatforms={allPlatforms}
-        changeIntel={changeIntel}
-        coverageState={changesCoverageState}
+        coverageState={coverageState}
       />
 
-      {/* Experiments / watchlist */}
-      {(() => {
-        const experiments = getActiveExperiments().filter((e) => e.status !== "dropped");
-        if (experiments.length === 0) return null;
-        return (
-          <div className="mt-8 border-t border-border/50 pt-6">
-            <h2 className="text-sm font-semibold text-foreground mb-1">Active experiments</h2>
-            <p className="text-[11px] text-muted-foreground mb-3">
-              Recommendations you accepted and are tracking for citation impact.
-            </p>
-            <div className="rounded-lg border border-border/60 divide-y divide-border/40 overflow-hidden">
-              {experiments.map((exp) => {
-                const days = Math.floor((Date.now() - new Date(exp.startedAt).getTime()) / 86_400_000);
-                const delta = exp.baselineCitations !== null && exp.latestCitations !== null
+      {/* Active experiments strip */}
+      {activeExperiments.length > 0 && (
+        <div className="mt-8 border-t border-border/50 pt-6">
+          <h2 className="text-sm font-semibold text-foreground mb-1">
+            Currently being watched
+          </h2>
+          <p className="text-[11px] text-muted-foreground mb-3">
+            Changes Beacon is tracking to see whether visibility moves.
+          </p>
+          <div className="rounded-lg border border-border/60 divide-y divide-border/40 overflow-hidden">
+            {activeExperiments.map((exp) => {
+              const days = Math.floor(
+                (Date.now() - new Date(exp.startedAt).getTime()) / 86_400_000,
+              );
+              const delta =
+                exp.baselineCitations !== null && exp.latestCitations !== null
                   ? exp.latestCitations - exp.baselineCitations
                   : null;
-                return (
-                  <div key={exp.id} className="px-4 py-3 hover:bg-surface-inset/20 transition-colors">
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="text-[12px] font-semibold truncate">{exp.headline}</p>
-                        <p className="text-[10px] text-muted-foreground mt-0.5">
-                          Day {days + 1} · {exp.recType.replace(/_/g, " ")}
-                          {exp.targetPagePath && <span className="ml-1 font-mono">{exp.targetPagePath}</span>}
-                        </p>
-                        {(exp.replicationSourceChangeId || exp.replicationPatternId) && (
-                          <p className="text-[9px] text-muted-foreground/85 mt-1">
-                            Pattern lineage
-                            {exp.replicationEvidenceTier && (
-                              <span className="ml-1">· {exp.replicationEvidenceTier}</span>
-                            )}
-                            {exp.replicationSourceChangeId && (
-                              <>
-                                {" · "}
-                                <Link
-                                  href={`/changes/${encodeURIComponent(exp.replicationSourceChangeId)}`}
-                                  className="text-accent-primary hover:underline font-medium"
-                                >
-                                  source change
-                                </Link>
-                              </>
-                            )}
-                          </p>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-2 shrink-0">
-                        {delta !== null && (
-                          <span className={`text-[11px] font-semibold tabular-nums ${delta > 0 ? "text-status-success" : delta < 0 ? "text-status-danger" : "text-muted-foreground"}`}>
-                            {delta > 0 ? "+" : ""}{delta} cit
+              return (
+                <div
+                  key={exp.id}
+                  className="px-4 py-3 hover:bg-surface-inset/20 transition-colors"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-[12px] font-semibold truncate">
+                        {exp.headline}
+                      </p>
+                      <p className="text-[10px] text-muted-foreground mt-0.5">
+                        Day {days + 1}
+                        {exp.targetPagePath && (
+                          <span className="ml-1 font-mono">
+                            {exp.targetPagePath}
                           </span>
                         )}
-                        <span className={`text-[9px] font-medium rounded-full px-2 py-0.5 border ${
-                          exp.status === "promising" ? "text-status-success bg-status-success/10 border-status-success/30"
-                          : exp.status === "negative" ? "text-status-danger bg-status-danger/10 border-status-danger/30"
-                          : "text-muted-foreground bg-surface-inset/60 border-border/40"
-                        }`}>
-                          {exp.status}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {delta !== null && (
+                        <span
+                          className={`text-[11px] font-semibold tabular-nums ${
+                            delta > 0
+                              ? "text-status-success"
+                              : delta < 0
+                                ? "text-status-danger"
+                                : "text-muted-foreground"
+                          }`}
+                        >
+                          {delta > 0 ? "+" : ""}
+                          {delta} cit
                         </span>
-                      </div>
+                      )}
+                      <span
+                        className={`text-[9px] font-medium rounded-full px-2 py-0.5 border ${
+                          exp.status === "promising"
+                            ? "text-status-success bg-status-success/10 border-status-success/30"
+                            : exp.status === "negative"
+                              ? "text-status-danger bg-status-danger/10 border-status-danger/30"
+                              : "text-muted-foreground bg-surface-inset/60 border-border/40"
+                        }`}
+                      >
+                        {exp.status}
+                      </span>
                     </div>
                   </div>
-                );
-              })}
-            </div>
-          </div>
-        );
-      })()}
-
-      {/* Momentum / track record */}
-      {trackRecord.totalActedOn > 0 && (
-        <div className="mt-6 rounded-lg border border-border/40 px-4 py-3">
-          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-2">Momentum</p>
-          <div className="flex flex-wrap items-baseline gap-x-5 gap-y-1 text-[11px]">
-            <span><span className="font-bold text-foreground tabular-nums">{trackRecord.totalActedOn}</span> acted on</span>
-            <span><span className="font-bold text-foreground tabular-nums">{trackRecord.totalValidated}</span> confirmed positive</span>
-            {trackRecord.overallSuccessRate > 0 && (
-              <span className="text-status-success font-semibold tabular-nums">{Math.round(trackRecord.overallSuccessRate * 100)}% success rate</span>
-            )}
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
-
-      <div className="mt-10 border-t border-border/50 pt-8">
-        <p className="text-xs font-medium text-muted-foreground mb-4">Records &amp; verification</p>
-        <ChangeContractUI
-          contracts={sortedContracts}
-          onCreateContract={createChangeContract}
-          onVerifyContract={verifyChangeContract}
-        />
-      </div>
-          </>
-        }
-        attributionContent={attributionContent}
-      />
-      </Suspense>
     </div>
   );
+}
+
+/**
+ * G5 — Compute the "Ready on [date]" prediction for a too-early row.
+ *
+ * Priority:
+ *   1. Pattern brain hit with ≥1 helping outcome → use median_landing_day
+ *      and cite the sample counts.
+ *   2. Pattern brain hit with 0 helping outcomes → fallback to 7-day default,
+ *      but explicitly SAY that no prior similar-edit landings exist yet.
+ *   3. No pattern bucket at all (new edit type or asset_type combo) → same
+ *      7-day default, different narrative.
+ *
+ * This preserves the "every verdict defensible" rule: the narrative on screen
+ * always matches the data actually used.
+ */
+function computeReadyOn(input: {
+  changeTimestamp: string;
+  editTypeTokens: string[];
+  assetType: import("@/lib/constants").AssetType;
+  patterns: UrlChangePattern[];
+}): EnrichedChangeRow["readyOn"] {
+  const FALLBACK_DAYS = 7;
+
+  const pattern = findBestUrlPattern(
+    input.editTypeTokens as import("@/domains/changelog/dedupe").EditToken[],
+    input.assetType,
+    input.patterns,
+  );
+
+  const changeMs = new Date(input.changeTimestamp).getTime();
+
+  // Case 1 — pattern has helping history → trust the median landing day.
+  if (
+    pattern &&
+    pattern.helping_count > 0 &&
+    pattern.median_landing_day !== null
+  ) {
+    const readyMs = changeMs + pattern.median_landing_day * 86_400_000;
+    return {
+      readyDate: new Date(readyMs).toISOString().slice(0, 10),
+      daysFromChange: pattern.median_landing_day,
+      patternId: pattern.id,
+      helpingCount: pattern.helping_count,
+      sampleCount: pattern.sample_count,
+      confidenceTier: pattern.confidence_tier,
+      narrative: `${pattern.helping_count} of ${pattern.sample_count} similar ${prettyToken(pattern.edit_type_token)} edits on ${prettyAsset(pattern.asset_type)}s landed by day ${pattern.median_landing_day}.`,
+    };
+  }
+
+  // Case 2 — pattern exists but has 0 helping samples yet.
+  if (pattern) {
+    const readyMs = changeMs + FALLBACK_DAYS * 86_400_000;
+    return {
+      readyDate: new Date(readyMs).toISOString().slice(0, 10),
+      daysFromChange: FALLBACK_DAYS,
+      patternId: pattern.id,
+      helpingCount: 0,
+      sampleCount: pattern.sample_count,
+      confidenceTier: pattern.confidence_tier,
+      narrative: `No prior ${prettyToken(pattern.edit_type_token)} edits on ${prettyAsset(pattern.asset_type)}s have landed as helping yet in your workspace (${pattern.sample_count} sample${pattern.sample_count === 1 ? "" : "s"}, 0 helping). Using 7-day default.`,
+    };
+  }
+
+  // Case 3 — no pattern bucket at all for this (token × asset_type).
+  const readyMs = changeMs + FALLBACK_DAYS * 86_400_000;
+  return {
+    readyDate: new Date(readyMs).toISOString().slice(0, 10),
+    daysFromChange: FALLBACK_DAYS,
+    patternId: null,
+    helpingCount: 0,
+    sampleCount: 0,
+    confidenceTier: null,
+    narrative: `No prior similar-edit data in your workspace yet. Using 7-day default. The pattern brain will sharpen this once more changes land.`,
+  };
+}
+
+function prettyToken(token: string): string {
+  return token.replace(/_/g, " ");
+}
+
+function prettyAsset(asset: string): string {
+  return asset.replace(/_/g, " ");
+}
+
+function describeRecency(iso: string): string {
+  const ms = Date.now() - new Date(iso).getTime();
+  if (!Number.isFinite(ms) || ms < 0) return "just now";
+  const minutes = Math.floor(ms / 60_000);
+  if (minutes < 60) return minutes <= 1 ? "just now" : `${minutes} min ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return hours === 1 ? "1 hour ago" : `${hours} hours ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return days === 1 ? "yesterday" : `${days} days ago`;
+  return new Date(iso).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
 }

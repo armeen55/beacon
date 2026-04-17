@@ -104,6 +104,12 @@ export type PageSnapshot = {
   faq_schema_block_count?: number;
   /** Structural warnings detected during extraction */
   structural_warnings?: string[];
+  /**
+   * G8 — JSON-LD schema validation warnings vs Google rich-result specs.
+   * Format: `schema_<severity>:<type>: <message>` (see `schema-validator.ts`).
+   * Empty or undefined means no recognized schemas or all valid.
+   */
+  schema_validation_warnings?: string[];
   /** Count of meaningful HTML tables (≥2 rows) on the page */
   table_count?: number;
   /** All internal links on this page — href + anchor text. Populated after scan. */

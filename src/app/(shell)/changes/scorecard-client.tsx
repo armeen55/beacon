@@ -2,77 +2,81 @@
 
 import { useState, useMemo } from "react";
 import Link from "next/link";
-import type { TrustSource } from "@/domains/attribution/scorecard";
 import type { ScorecardRowWithImpact } from "@/domains/attribution/change-impact";
-import type { ChangeVerdict, AttributionConfidence, ImpactConfidence } from "@/domains/attribution/types";
-import type { EvidenceTier } from "@/domains/pages/types";
-import { ChangeVerdictBadge, changeVerdictLabel } from "@/components/display/change-verdict-badge";
+import type {
+  UrlVerdict,
+  VerdictLabel,
+} from "@/domains/attribution/url-verdict";
+import { VERDICT_LABEL } from "@/domains/attribution/url-verdict";
 
-export type ChangeIntelEntry = {
-  beaconRecommended: boolean;
-  matchConfidence?: "likely" | "possible";
-  patternName?: string;
-  replicationCount: number;
+/**
+ * A single row on the /changes page.
+ * - `scorecard` = the legacy per-change row with topic event attributions
+ *   (kept for drill-down context only; NOT used for the verdict).
+ * - `urlVerdict` = the URL-level Z-score verdict (the new primary signal).
+ *   null when the change has no URL (site-wide).
+ * - `seriesPreview` = trimmed dense daily series around the change date for
+ *   optional sparkline rendering in the expand panel.
+ * - `hasUrl` = convenience; `false` means site-wide / untracked.
+ * - `readyOn` = dynamic "Ready on [date]" prediction from the URL pattern
+ *   brain, attached only when the verdict is `too_early`. Tells the
+ *   operator when to check back for a landed verdict.
+ */
+export type EnrichedChangeRow = {
+  scorecard: ScorecardRowWithImpact;
+  urlVerdict: UrlVerdict | null;
+  seriesPreview: Array<{ date: string; count: number }> | null;
+  hasUrl: boolean;
+  readyOn?: ReadyOnPrediction | null;
 };
 
-type SortField =
-  | "date"
-  | "verdict"
-  | "score"
-  | "events"
-  | "tier"
-  | "impact";
-
-type SortDir = "asc" | "desc";
-
-const VERDICT_ORDER: Record<ChangeVerdict, number> = {
-  validated: 0,
-  partial: 1,
-  inconclusive: 2,
-  pending: 3,
-  too_early: 4,
-  no_impact: 5,
-  negative: 6,
+/**
+ * G5 — "Ready on [date]" block shown on too-early rows. Sourced from the
+ * URL pattern brain (`url-change-patterns.json`) when a matching bucket
+ * exists, else a transparent fallback.
+ */
+export type ReadyOnPrediction = {
+  /** ISO date string for when first verdict read-out is expected. */
+  readyDate: string;
+  /** Days from the change timestamp until readyDate. */
+  daysFromChange: number;
+  /** Bucket we derived from, or null when falling back. */
+  patternId: string | null;
+  /** Helping-count in bucket. 0 = fallback triggered. */
+  helpingCount: number;
+  /** Total sample count in the bucket. */
+  sampleCount: number;
+  /** Confidence tier of the bucket (null when fallback). */
+  confidenceTier: "high" | "medium" | "low" | null;
+  /** Plain-English sentence ready for render. */
+  narrative: string;
 };
 
-const CONFIDENCE_LABEL: Record<ImpactConfidence, string> = {
-  high: "High",
-  medium: "Med",
-  low: "Low",
+type VerdictFilter = VerdictLabel | "all" | "site_wide";
+
+const VERDICT_TONE_CLASS: Record<VerdictLabel | "site_wide", string> = {
+  helping:
+    "border-status-success/40 bg-status-success/10 text-status-success",
+  hurting:
+    "border-status-danger/40 bg-status-danger/10 text-status-danger",
+  nothing_yet:
+    "border-border/60 bg-surface-inset/60 text-muted-foreground",
+  too_early:
+    "border-accent-primary/30 bg-accent-primary/8 text-accent-primary",
+  not_enough_data:
+    "border-border/50 bg-surface-inset/40 text-muted-foreground",
+  site_wide:
+    "border-border/50 bg-surface-inset/40 text-muted-foreground",
 };
 
-const CONFIDENCE_COLOR: Record<ImpactConfidence, string> = {
-  high: "text-status-success",
-  medium: "text-status-warning",
-  low: "text-muted-foreground",
-};
-
-const TIER_ORDER: Record<EvidenceTier, number> = {
-  exact: 0,
-  probable: 1,
-  weak: 2,
-  inferred: 3,
-};
-
-const TIER_LABELS: Record<EvidenceTier, string> = {
-  exact: "Exact",
-  probable: "Probable",
-  weak: "Weak",
-  inferred: "Inferred",
-};
-
-const TIER_COLORS: Record<EvidenceTier, string> = {
-  exact: "text-status-success",
-  probable: "text-foreground-secondary",
-  weak: "text-muted-foreground",
-  inferred: "text-muted-foreground",
-};
-
-const CONF_LABELS: Record<AttributionConfidence, string> = {
-  high: "High",
-  medium: "Med",
-  low: "Low",
-  uncertain: "—",
+const FILTER_LABEL: Record<VerdictFilter, string> = {
+  all: "All",
+  helping: "Helping",
+  hurting: "Hurting",
+  nothing_yet: "Nothing yet",
+  too_early: "Too early",
+  not_enough_data: "No baseline",
+  site_wide: "Site-wide",
 };
 
 const PLATFORM_SHORT: Record<string, string> = {
@@ -81,590 +85,451 @@ const PLATFORM_SHORT: Record<string, string> = {
   perplexity: "Pplx",
 };
 
-const ROLE_DOT: Record<string, string> = {
-  primary: "bg-status-success",
-  contributing: "bg-status-warning",
-  candidate: "bg-muted-foreground/50",
-};
-
-const TRUST_DOT: Record<TrustSource, string> = {
-  operator_confirmed: "bg-status-success",
-  auto_cleared: "bg-accent-primary",
-  system_primary: "bg-accent-primary",
-  contributing: "bg-status-warning",
-  candidate: "bg-muted-foreground/50",
-  operator_rejected: "bg-status-danger",
-};
-
-const TRUST_SHORT: Record<TrustSource, string> = {
-  operator_confirmed: "Confirmed",
-  auto_cleared: "Auto",
-  system_primary: "System",
-  contributing: "Contributing",
-  candidate: "Candidate",
-  operator_rejected: "Rejected",
-};
-
 export function ScorecardTable({
   rows,
-  allTopics,
-  allPlatforms,
-  changeIntel = {},
+  allTopics: _allTopics,
+  allPlatforms: _allPlatforms,
   coverageState,
 }: {
-  rows: ScorecardRowWithImpact[];
-  allTopics: string[];
-  allPlatforms: string[];
-  changeIntel?: Record<string, ChangeIntelEntry>;
+  rows: EnrichedChangeRow[];
+  /** Reserved for future per-topic filter in drill-down. */
+  allTopics?: string[];
+  /** Reserved for future per-platform filter in drill-down. */
+  allPlatforms?: string[];
   coverageState?: import("@/lib/coverage-state").CoverageState;
 }) {
-  type OutcomeCategory = "all" | "winners" | "mixed" | "no_lift" | "too_early";
-  const OUTCOME_VERDICTS: Record<OutcomeCategory, ChangeVerdict[]> = {
-    all: [],
-    winners: ["validated"],
-    mixed: ["partial", "inconclusive"],
-    no_lift: ["no_impact", "negative"],
-    too_early: ["too_early"],
-  };
-  const [outcomeCategory, setOutcomeCategory] = useState<OutcomeCategory>("all");
-
-  const [sortField, setSortField] = useState<SortField>("score");
-  const [sortDir, setSortDir] = useState<SortDir>("desc");
-  const [verdictFilter, setVerdictFilter] = useState<ChangeVerdict | "all" | "actionable">(() => {
-    const actionableCount = rows.filter(r => r.verdict !== "too_early").length;
-    return actionableCount < rows.length ? "actionable" : "all";
-  });
-  const [tierFilter, setTierFilter] = useState<EvidenceTier | "all">("all");
-  const [topicFilter, setTopicFilter] = useState<string>("all");
-  const [platformFilter, setPlatformFilter] = useState<string>("all");
-  const [beaconFilter, setBeaconFilter] = useState(false);
-
-  const hasAnyIntel = Object.values(changeIntel).some(
-    (e) => e.beaconRecommended || e.replicationCount > 0,
-  );
+  const [filter, setFilter] = useState<VerdictFilter>("all");
 
   const filtered = useMemo(() => {
-    return rows.filter((r) => {
-      if (outcomeCategory !== "all") {
-        const allowed = OUTCOME_VERDICTS[outcomeCategory];
-        if (!allowed.includes(r.verdict)) return false;
+    if (filter === "all") return rows;
+    if (filter === "site_wide") return rows.filter((r) => !r.hasUrl);
+    return rows.filter((r) => r.urlVerdict?.verdict === filter);
+  }, [rows, filter]);
+
+  const counts = useMemo(() => {
+    const c: Record<VerdictFilter, number> = {
+      all: rows.length,
+      helping: 0,
+      hurting: 0,
+      nothing_yet: 0,
+      too_early: 0,
+      not_enough_data: 0,
+      site_wide: 0,
+    };
+    for (const r of rows) {
+      if (!r.hasUrl) {
+        c.site_wide += 1;
+        continue;
       }
-      if (verdictFilter === "actionable" && r.verdict === "too_early") return false;
-      else if (verdictFilter !== "all" && verdictFilter !== "actionable" && r.verdict !== verdictFilter) return false;
-      if (tierFilter !== "all" && r.evidenceTier !== tierFilter) return false;
-      if (topicFilter !== "all" && !r.topics.includes(topicFilter)) return false;
-      if (platformFilter !== "all" && !r.platforms.includes(platformFilter))
-        return false;
-      if (beaconFilter && !changeIntel[r.change.id]?.beaconRecommended) return false;
-      return true;
-    });
-  }, [rows, outcomeCategory, verdictFilter, tierFilter, topicFilter, platformFilter, beaconFilter, changeIntel]);
-
-  const IMPACT_CONF_ORDER: Record<ImpactConfidence, number> = {
-    high: 0,
-    medium: 1,
-    low: 2,
-  };
-
-  const sorted = useMemo(() => {
-    const dir = sortDir === "asc" ? 1 : -1;
-    return [...filtered].sort((a, b) => {
-      switch (sortField) {
-        case "date":
-          return (
-            dir *
-            (new Date(a.change.timestamp).getTime() -
-              new Date(b.change.timestamp).getTime())
-          );
-        case "verdict":
-          return dir * (VERDICT_ORDER[a.verdict] - VERDICT_ORDER[b.verdict]);
-        case "score":
-          return dir * ((a.topScore ?? -1) - (b.topScore ?? -1));
-        case "events":
-          return dir * (a.totalEventsLinked - b.totalEventsLinked);
-        case "tier":
-          return (
-            dir *
-            (TIER_ORDER[a.evidenceTier] - TIER_ORDER[b.evidenceTier])
-          );
-        case "impact":
-          return (
-            dir *
-            (IMPACT_CONF_ORDER[a.impact.confidence] -
-              IMPACT_CONF_ORDER[b.impact.confidence])
-          );
-        default:
-          return 0;
-      }
-    });
-  }, [filtered, sortField, sortDir]);
-
-  function handleSort(field: SortField) {
-    if (sortField === field) {
-      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
-    } else {
-      setSortField(field);
-      setSortDir(field === "date" ? "desc" : "desc");
+      const v = r.urlVerdict?.verdict ?? "not_enough_data";
+      c[v] += 1;
     }
-  }
-
-  const verdictCounts = useMemo(() => {
-    const c: Record<string, number> = {};
-    for (const r of rows) c[r.verdict] = (c[r.verdict] ?? 0) + 1;
     return c;
   }, [rows]);
 
-  const operatorConfirmedCount = useMemo(
-    () => rows.filter((r) => r.operatorConfirmedCount > 0).length,
-    [rows]
-  );
-
-  const winnerCount = rows.filter(r => r.verdict === "validated").length;
-  const mixedCount = rows.filter(r => r.verdict === "partial" || r.verdict === "inconclusive").length;
-  const noLiftCount = rows.filter(r => r.verdict === "no_impact" || r.verdict === "negative").length;
-  const tooEarlyCount = rows.filter(r => r.verdict === "too_early").length;
-
-  const workspaceLinkedMatchTotal = useMemo(
-    () => rows.reduce((sum, r) => sum + r.totalEventsLinked, 0),
-    [rows],
-  );
-  const workspaceDistinctTopicCount = useMemo(
-    () => new Set(rows.flatMap((r) => r.topics)).size,
-    [rows],
-  );
-  const observationWindowLabel = useMemo(() => {
-    const dates = rows
-      .flatMap((r) => r.eventAttributions.map((a) => a.event.trigger_date))
-      .filter(Boolean)
-      .sort();
-    if (dates.length === 0) return null;
-    const fmt = (d: string) =>
-      new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric" });
-    const first = dates[0];
-    const last = dates[dates.length - 1];
-    const spanDays = Math.round(
-      (new Date(last).getTime() - new Date(first).getTime()) / 86_400_000,
-    );
-    if (spanDays <= 0) return `Window: ${fmt(first)}`;
-    return `Window: ${fmt(first)} – ${fmt(last)} (${spanDays}d)`;
-  }, [rows]);
+  const filterOptions: VerdictFilter[] = [
+    "all",
+    "helping",
+    "hurting",
+    "nothing_yet",
+    "too_early",
+    "not_enough_data",
+    "site_wide",
+  ];
 
   return (
     <div>
-      {/* Outcome category tabs */}
+      {/* Verdict filter chips */}
       <div className="flex items-center gap-1 mb-4 border-b border-border/40 pb-2 overflow-x-auto">
-        {([
-          { key: "all" as OutcomeCategory, label: "All changes", count: rows.length },
-          { key: "winners" as OutcomeCategory, label: "Observed winners", count: winnerCount },
-          { key: "mixed" as OutcomeCategory, label: "Mixed signals", count: mixedCount },
-          { key: "no_lift" as OutcomeCategory, label: "No measurable impact", count: noLiftCount },
-          { key: "too_early" as OutcomeCategory, label: "Too early", count: tooEarlyCount },
-        ] as const).filter(t => t.count > 0 || t.key === "all").map((tab) => (
-          <button
-            key={tab.key}
-            onClick={() => { setOutcomeCategory(tab.key); if (tab.key !== "all") setVerdictFilter("all"); }}
-            className={`px-3 py-1.5 rounded-md text-[11px] font-medium transition-colors whitespace-nowrap ${
-              outcomeCategory === tab.key
-                ? "bg-foreground text-background"
-                : "text-muted-foreground hover:text-foreground hover:bg-surface-inset/50"
-            }`}
-          >
-            {tab.label}
-            <span className="ml-1.5 text-[10px] opacity-60 tabular-nums">{tab.count}</span>
-          </button>
-        ))}
-      </div>
-
-      <details className="group/mix mb-4 rounded-md border border-border/50 bg-surface-inset/20 px-3 py-2">
-        <summary className="flex cursor-pointer list-none items-center gap-2 text-[11px] font-medium text-muted-foreground hover:text-foreground [&::-webkit-details-marker]:hidden">
-          <span className="inline-block text-[9px] text-muted-foreground/50 transition-transform group-open/mix:rotate-90">▶</span>
-          Outcome mix
-          <span className="text-[10px] font-normal text-muted-foreground/80 tabular-nums">
-            ({rows.length} total{operatorConfirmedCount > 0 ? ` · ${operatorConfirmedCount} confirmed in Review` : ""})
-          </span>
-        </summary>
-        <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1.5 text-[11px] pt-1 border-t border-border/40">
-          <StatPill label={changeVerdictLabel("validated")} count={verdictCounts.validated ?? 0} color="text-status-success" />
-          <StatPill label={changeVerdictLabel("partial")} count={verdictCounts.partial ?? 0} color="text-status-warning" />
-          <StatPill label={changeVerdictLabel("inconclusive")} count={verdictCounts.inconclusive ?? 0} color="text-muted-foreground" />
-          <StatPill label={changeVerdictLabel("no_impact")} count={verdictCounts.no_impact ?? 0} color="text-status-danger" />
-          {(verdictCounts.negative ?? 0) > 0 && (
-            <StatPill label={changeVerdictLabel("negative")} count={verdictCounts.negative ?? 0} color="text-status-danger" />
-          )}
-          <StatPill label={changeVerdictLabel("too_early")} count={verdictCounts.too_early ?? 0} color="text-muted-foreground" />
-        </div>
-      </details>
-
-      <p className="text-[10px] text-muted-foreground/75 mb-3 leading-relaxed">
-        {workspaceLinkedMatchTotal === 0
-          ? "No linked visibility matches in this workspace yet — import more history or wait for outcomes."
-          : workspaceDistinctTopicCount === 0
-            ? `Based on ${workspaceLinkedMatchTotal} linked ${workspaceLinkedMatchTotal === 1 ? "match" : "matches"} in this workspace.`
-            : `Based on ${workspaceLinkedMatchTotal} linked ${workspaceLinkedMatchTotal === 1 ? "match" : "matches"} across ${workspaceDistinctTopicCount} ${workspaceDistinctTopicCount === 1 ? "topic" : "topics"}.`}
-        {observationWindowLabel && (
-          <span className="text-muted-foreground/60"> · {observationWindowLabel}</span>
-        )}
-      </p>
-
-      {/* Filters */}
-      <div className="flex items-center gap-2 mb-3 text-[11px] flex-wrap">
-        <span className="text-muted-foreground font-medium">Refine</span>
-        <FilterSelect
-          value={verdictFilter}
-          onChange={(v) => setVerdictFilter(v as ChangeVerdict | "all" | "actionable")}
-          options={[
-            { value: "actionable", label: "Actionable" },
-            { value: "all", label: "All outcomes" },
-            { value: "validated", label: changeVerdictLabel("validated") },
-            { value: "partial", label: changeVerdictLabel("partial") },
-            { value: "inconclusive", label: changeVerdictLabel("inconclusive") },
-            { value: "no_impact", label: changeVerdictLabel("no_impact") },
-            { value: "negative", label: changeVerdictLabel("negative") },
-            { value: "too_early", label: changeVerdictLabel("too_early") },
-          ]}
-        />
-        <FilterSelect
-          value={tierFilter}
-          onChange={(v) => setTierFilter(v as EvidenceTier | "all")}
-          options={[
-            { value: "all", label: "All evidence" },
-            { value: "exact", label: "Exact" },
-            { value: "probable", label: "Probable" },
-            { value: "weak", label: "Weak" },
-          ]}
-        />
-        <FilterSelect
-          value={topicFilter}
-          onChange={(v) => setTopicFilter(v)}
-          options={[
-            { value: "all", label: "All topics" },
-            ...allTopics.map((t) => ({
-              value: t,
-              label: t.length > 30 ? t.slice(0, 28) + "…" : t,
-            })),
-          ]}
-        />
-        <FilterSelect
-          value={platformFilter}
-          onChange={(v) => setPlatformFilter(v)}
-          options={[
-            { value: "all", label: "All platforms" },
-            ...allPlatforms.map((p) => ({
-              value: p,
-              label: PLATFORM_SHORT[p] ?? p,
-            })),
-          ]}
-        />
-        {hasAnyIntel && (
-          <button
-            onClick={() => setBeaconFilter((v) => !v)}
-            className={`px-2 py-0.5 rounded border text-[10px] font-medium transition-colors ${
-              beaconFilter
-                ? "border-accent-primary bg-accent-primary/10 text-accent-primary"
-                : "border-border text-muted-foreground hover:border-accent-primary/40"
-            }`}
-          >
-            Beacon picks only
-          </button>
-        )}
-        <span className="text-muted-foreground ml-auto tabular-nums">
-          {sorted.length}/{rows.length} changes
+        {filterOptions
+          .filter((key) => key === "all" || counts[key] > 0)
+          .map((key) => (
+            <button
+              key={key}
+              onClick={() => setFilter(key)}
+              className={`px-3 py-1.5 rounded-md text-[11px] font-medium transition-colors whitespace-nowrap ${
+                filter === key
+                  ? "bg-foreground text-background"
+                  : "text-muted-foreground hover:text-foreground hover:bg-surface-inset/50"
+              }`}
+            >
+              {FILTER_LABEL[key]}
+              <span className="ml-1.5 text-[10px] opacity-60 tabular-nums">
+                {counts[key]}
+              </span>
+            </button>
+          ))}
+        <span className="ml-auto text-[11px] text-muted-foreground tabular-nums">
+          {filtered.length}/{rows.length}
         </span>
       </div>
 
-      {/* Table */}
       <div className="border border-border/70 rounded-lg overflow-hidden">
         <table className="w-full text-[12px]">
           <thead>
             <tr className="border-b border-border bg-surface-inset text-[10px] text-muted-foreground">
-              <SortHeader field="date" current={sortField} dir={sortDir} onClick={handleSort}>
-                When
-              </SortHeader>
-              <th className="text-left px-2.5 py-1.5 font-medium">Work</th>
-              <SortHeader field="verdict" current={sortField} dir={sortDir} onClick={handleSort}>
-                Outcome
-              </SortHeader>
-              <SortHeader field="score" current={sortField} dir={sortDir} onClick={handleSort}>
-                Score
-              </SortHeader>
-              <SortHeader field="events" current={sortField} dir={sortDir} onClick={handleSort}>
-                Events
-              </SortHeader>
-              <th className="text-left px-2.5 py-1.5 font-medium">Linked</th>
-              <SortHeader field="tier" current={sortField} dir={sortDir} onClick={handleSort}>
-                Match
-              </SortHeader>
-              <SortHeader field="impact" current={sortField} dir={sortDir} onClick={handleSort}>
-                Lift
-              </SortHeader>
-              <th className="text-left px-2.5 py-1.5 font-medium">Next step</th>
+              <th className="text-left px-2.5 py-1.5 font-medium w-[90px]">When</th>
+              <th className="text-left px-2.5 py-1.5 font-medium">Change</th>
+              <th className="text-left px-2.5 py-1.5 font-medium w-[120px]">Verdict</th>
+              <th className="text-left px-2.5 py-1.5 font-medium w-[80px] tabular-nums">
+                Delta
+              </th>
+              <th className="w-[32px]" />
             </tr>
           </thead>
           <tbody>
-            {sorted.map((row) => (
-              <ScorecardRowUI key={row.change.id} row={row} intel={changeIntel[row.change.id]} coverageState={coverageState} />
+            {filtered.map((row) => (
+              <ChangeRow key={row.scorecard.change.id} row={row} />
             ))}
           </tbody>
         </table>
       </div>
 
-      {sorted.length === 0 && (
+      {filtered.length === 0 && (
         <div className="text-center py-8 text-[13px] text-muted-foreground">
-          No changes match the current filters.
+          No changes match this filter.
         </div>
       )}
+
+      {coverageState === "stale" || coverageState === "critical" ? (
+        <p className="mt-3 text-[10px] text-status-warning/70">
+          Coverage state is {coverageState} — verdicts may reflect stale data
+          until the next import.
+        </p>
+      ) : null}
     </div>
   );
 }
 
-function ScorecardRowUI({ row, intel, coverageState }: { row: ScorecardRowWithImpact; intel?: ChangeIntelEntry; coverageState?: import("@/lib/coverage-state").CoverageState }) {
-  const ch = row.change;
+function ChangeRow({ row }: { row: EnrichedChangeRow }) {
+  const [open, setOpen] = useState(false);
+  const ch = row.scorecard.change;
   const dateStr = new Date(ch.timestamp).toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
   });
 
+  const verdictLabel = row.hasUrl
+    ? row.urlVerdict
+      ? VERDICT_LABEL[row.urlVerdict.verdict]
+      : "No data"
+    : "Site-wide";
+  const verdictTone = row.hasUrl
+    ? row.urlVerdict
+      ? VERDICT_TONE_CLASS[row.urlVerdict.verdict]
+      : VERDICT_TONE_CLASS.not_enough_data
+    : VERDICT_TONE_CLASS.site_wide;
+
+  const delta = row.urlVerdict?.delta_pct;
+  const deltaAbs = row.urlVerdict?.delta_abs;
+  const deltaStr = (() => {
+    if (delta == null) return "—";
+    const pct = Math.round(delta * 100);
+    return pct > 0 ? `+${pct}%` : `${pct}%`;
+  })();
+  const deltaColor =
+    delta == null
+      ? "text-muted-foreground"
+      : delta > 0
+        ? "text-status-success"
+        : delta < 0
+          ? "text-status-danger"
+          : "text-muted-foreground";
+
   return (
-    <tr className={`border-b border-border last:border-b-0 hover:bg-surface-inset/50 transition-colors ${row.operatorConfirmedCount > 0 ? "bg-status-success/[0.03]" : ""}`}>
-      <td className="px-2.5 py-2 text-muted-foreground tabular-nums whitespace-nowrap align-top text-[11px]">
-        <span>{dateStr}</span>
-        {ch.source_system && (
-          <span className={`block text-[8px] mt-0.5 ${ch.source_system === "scan_promoted" ? "text-amber-500" : "text-muted-foreground/50"}`}>
-            {ch.source_system === "scan_promoted" ? "scan" : "imported"}
-          </span>
-        )}
-      </td>
-      <td className="px-2.5 py-2 align-top max-w-[300px]">
-        <Link
-          href={`/changes/${ch.id}`}
-          className="hover:text-accent-primary transition-colors"
-        >
-          <p className="font-medium text-[12px] leading-snug line-clamp-2">{ch.asset_name}</p>
-          <ChangeDescriptionPreview text={ch.change_description} />
-          {ch.url && (
-            <p className="text-[10px] font-mono text-muted-foreground/70 mt-0.5 truncate max-w-[260px]">
-              {ch.url}
-            </p>
-          )}
-        </Link>
-        {intel?.beaconRecommended && (
-          <span className="inline-flex items-center gap-1 mt-1 px-1.5 py-0.5 rounded border border-accent-primary/30 bg-accent-primary/8 text-[9px] font-semibold text-accent-primary">
-            <span className="h-1 w-1 rounded-full bg-accent-primary" />
-            Beacon
-            {intel.matchConfidence === "likely" ? "" : " (possible)"}
-          </span>
-        )}
-        {intel && intel.replicationCount > 0 && (
-          <span className="inline-flex items-center gap-1 mt-1 ml-1 px-1.5 py-0.5 rounded border border-status-success/30 bg-status-success/8 text-[9px] font-semibold text-status-success">
-            {intel.replicationCount} similar
-          </span>
-        )}
-      </td>
-      <td className="px-2.5 py-2 align-top whitespace-nowrap">
-        <div className="flex flex-col gap-0.5">
-          <div className="flex items-center gap-1.5">
-            <ChangeVerdictBadge verdict={row.verdict} />
-          </div>
-          {row.topTrust && (
-            <span className="inline-flex items-center gap-1">
-              <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${TRUST_DOT[row.topTrust]}`} />
-              <span className="text-[9px] text-muted-foreground">
-                {TRUST_SHORT[row.topTrust]}
-              </span>
+    <>
+      <tr
+        className={`border-b border-border hover:bg-surface-inset/50 transition-colors cursor-pointer ${
+          open ? "bg-surface-inset/30" : ""
+        }`}
+        onClick={() => setOpen((v) => !v)}
+      >
+        <td className="px-2.5 py-2 text-muted-foreground tabular-nums whitespace-nowrap align-top text-[11px]">
+          <span>{dateStr}</span>
+          {ch.source_system && (
+            <span
+              className={`block text-[8px] mt-0.5 ${
+                ch.source_system === "scan_detection" ||
+                ch.source_system === "scan_promoted"
+                  ? "text-amber-500"
+                  : "text-muted-foreground/50"
+              }`}
+            >
+              {ch.source_system === "scan_detection"
+                ? "scan · auto-caught"
+                : ch.source_system === "scan_promoted"
+                  ? "scan"
+                  : "imported"}
             </span>
           )}
-        </div>
-      </td>
-      <td className="px-2.5 py-2 align-top tabular-nums whitespace-nowrap">
-        {row.topScore != null ? (
-          <span className="font-medium">{Math.round(row.topScore)}</span>
-        ) : (
-          <span className="text-muted-foreground">—</span>
-        )}
-        {row.topConfidence && row.topConfidence !== "uncertain" && (
-          <span className="text-muted-foreground text-[10px] ml-1">
-            {CONF_LABELS[row.topConfidence]}
-          </span>
-        )}
-      </td>
-      <td className="px-2.5 py-2 align-top tabular-nums whitespace-nowrap">
-        {row.totalEventsLinked > 0 ? (
-          <span>{row.totalEventsLinked}</span>
-        ) : (
-          <span className="text-muted-foreground">0</span>
-        )}
-      </td>
-      <td className="px-2.5 py-2 align-top">
-        {row.eventAttributions.length > 0 ? (
-          <div className="flex flex-col gap-0.5">
-            {row.eventAttributions.slice(0, 3).map((ea, i) => (
-              <div key={i} className="flex items-center gap-1.5">
-                <span className="inline-flex items-center gap-1 rounded border border-border/50 bg-background/80 px-1 py-0.5 text-[9px] font-medium text-muted-foreground">
-                  <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${ROLE_DOT[ea.role] ?? ROLE_DOT.candidate}`} />
-                  {ea.role === "primary"
-                    ? "Primary"
-                    : ea.role === "contributing"
-                    ? "Also"
-                    : "Maybe"}
-                </span>
-                {ea.trustSource === "operator_confirmed" && (
-                  <span className="h-1.5 w-1.5 rounded-full bg-status-success shrink-0" title="You confirmed in Review" />
-                )}
-                <span className="text-[10px] text-muted-foreground">
-                  {PLATFORM_SHORT[ea.event.platform] ?? ea.event.platform}
-                </span>
-                <span className="text-[10px] truncate max-w-[140px]">
-                  {ea.event.topic}
-                </span>
-              </div>
-            ))}
-            {row.eventAttributions.length > 3 && (
-              <span className="text-[10px] text-muted-foreground">
-                +{row.eventAttributions.length - 3} more
-              </span>
+        </td>
+        <td className="px-2.5 py-2 align-top max-w-[380px]">
+          <Link
+            href={`/changes/${ch.id}`}
+            onClick={(e) => e.stopPropagation()}
+            className="hover:text-accent-primary transition-colors"
+          >
+            <p className="font-medium text-[12px] leading-snug line-clamp-2">
+              {ch.asset_name}
+            </p>
+            <p className="text-[10px] text-muted-foreground line-clamp-2 mt-0.5 leading-snug">
+              {ch.change_description}
+            </p>
+            {ch.url ? (
+              <p className="text-[10px] font-mono text-muted-foreground/70 mt-0.5 truncate max-w-[340px]">
+                {ch.url}
+              </p>
+            ) : (
+              <p className="text-[10px] text-muted-foreground/60 mt-0.5 italic">
+                Site-wide infra
+              </p>
             )}
-            {(() => {
-              const dates = row.eventAttributions.map((a) => a.event.trigger_date).filter(Boolean).sort();
-              if (dates.length < 2) return null;
-              const spanDays = Math.round((new Date(dates[dates.length - 1]).getTime() - new Date(dates[0]).getTime()) / 86_400_000);
-              if (spanDays <= 0) return null;
-              return (
-                <span className="text-[9px] text-muted-foreground/55">
-                  over {spanDays}d window
-                </span>
-              );
-            })()}
+          </Link>
+        </td>
+        <td className="px-2.5 py-2 align-top whitespace-nowrap">
+          <span
+            className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-semibold ${verdictTone}`}
+          >
+            {verdictLabel}
+          </span>
+        </td>
+        <td className="px-2.5 py-2 align-top whitespace-nowrap tabular-nums">
+          <span className={`text-[12px] font-semibold ${deltaColor}`}>
+            {deltaStr}
+          </span>
+          {deltaAbs != null && Math.abs(deltaAbs) >= 0.1 && (
+            <span className="block text-[9px] text-muted-foreground mt-0.5">
+              {deltaAbs > 0 ? "+" : ""}
+              {deltaAbs.toFixed(1)}/day
+            </span>
+          )}
+        </td>
+        <td className="px-2.5 py-2 align-top text-muted-foreground text-[12px] select-none">
+          {open ? "▾" : "▸"}
+        </td>
+      </tr>
+      {open && <ExpandPanel row={row} />}
+    </>
+  );
+}
+
+function ExpandPanel({ row }: { row: EnrichedChangeRow }) {
+  const v = row.urlVerdict;
+  const sc = row.scorecard;
+  const isTooEarly = v?.verdict === "too_early";
+  const ro = row.readyOn ?? null;
+
+  return (
+    <tr className="border-b border-border bg-surface-inset/20">
+      <td colSpan={5} className="px-4 py-4">
+        {/* G5: Ready-on block for Too-early rows. Honest fallback when the
+            pattern brain has zero helping samples for this edit type. */}
+        {isTooEarly && ro && (
+          <div className="mb-4 rounded-md border border-accent-primary/30 bg-accent-primary/[0.03] px-3 py-2.5">
+            <p className="text-[10px] font-semibold text-accent-primary uppercase tracking-wide">
+              Check again on this date to evaluate impact
+            </p>
+            <p className="text-[13px] font-semibold text-foreground mt-1">
+              {formatReadyDate(ro.readyDate)} ·{" "}
+              <span className="text-muted-foreground font-normal">
+                {ro.daysFromChange}d from change
+              </span>
+            </p>
+            <p className="text-[11px] text-muted-foreground mt-1.5 leading-relaxed">
+              {ro.narrative}{" "}
+              <span className="text-muted-foreground/70">
+                (Open this page on that date and the watcher will refresh.)
+              </span>
+            </p>
+            {ro.patternId && (
+              <p className="text-[10px] text-muted-foreground/70 mt-1.5 font-mono">
+                pattern: {ro.patternId} · {ro.sampleCount} sample
+                {ro.sampleCount === 1 ? "" : "s"}
+                {ro.confidenceTier && ` · ${ro.confidenceTier} confidence`}
+              </p>
+            )}
           </div>
-        ) : (
-          <span className="text-[10px] text-muted-foreground">
-            {row.verdict === "too_early" ? "Waiting" : "—"}
-          </span>
         )}
-      </td>
-      <td className="px-2.5 py-2 align-top whitespace-nowrap">
-        <span className={`text-[10px] font-medium ${TIER_COLORS[row.evidenceTier]}`}>
-          {TIER_LABELS[row.evidenceTier]}
-        </span>
-      </td>
-      <td className="px-2.5 py-2 align-top whitespace-nowrap">
-        <ConfidenceBadge confidence={row.impact.confidence} />
-        {(coverageState === "stale" ||
-          coverageState === "critical" ||
-          coverageState === "aging") && (
-          <span className="text-[8px] text-status-warning/60 ml-0.5">
-            (
-            {coverageState === "critical"
-              ? "no recent data"
-              : coverageState === "aging"
-                ? "aging"
-                : "stale"}
-            )
-          </span>
-        )}
-        {coverageState === "partial" && row.impact.confidence === "high" && <span className="text-[8px] text-status-warning/60 ml-0.5">(limited)</span>}
-      </td>
-      <td className="px-2.5 py-2 align-top max-w-[200px]">
-        <p className="text-[10px] text-muted-foreground line-clamp-2 leading-snug">
-          {row.impact.nextAction}
-        </p>
+        <div className="grid md:grid-cols-[1fr_1fr] gap-5">
+          {/* Left: Explain this verdict (URL-level math) */}
+          <section>
+            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-2">
+              Explain this verdict
+            </p>
+            {!row.hasUrl ? (
+              <p className="text-[12px] text-muted-foreground italic">
+                This change has no URL — site-wide changes aren&apos;t tracked
+                per-URL. Look at the topic breakdown on the right for whether
+                any prompts moved.
+              </p>
+            ) : !v ? (
+              <p className="text-[12px] text-muted-foreground italic">
+                No citation data found for this URL yet. Either the page
+                isn&apos;t cited anywhere in your Profound prompts, or the URL
+                doesn&apos;t match any indexed page.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                <p className="text-[12px] leading-relaxed text-foreground">
+                  {v.explanation.summary}
+                </p>
+                <div className="rounded-md border border-border/60 bg-background/50 px-3 py-2 text-[11px] font-mono leading-relaxed">
+                  <MathRow
+                    label="μ_pre (baseline mean)"
+                    value={`${v.explanation.math.mu_pre}/day`}
+                    note={`${v.explanation.math.baseline_days_used}d window`}
+                  />
+                  <MathRow
+                    label="σ_pre (baseline noise)"
+                    value={`${v.explanation.math.sigma_pre_used.toFixed(2)}`}
+                    note={
+                      v.explanation.math.sigma_pre_raw < 1
+                        ? `raw ${v.explanation.math.sigma_pre_raw.toFixed(2)} → floored to 1`
+                        : undefined
+                    }
+                  />
+                  <MathRow
+                    label="μ_post (after change)"
+                    value={`${v.explanation.math.mu_post}/day`}
+                    note={`${v.explanation.math.post_days_used}d window`}
+                  />
+                  <MathRow
+                    label="z-score"
+                    value={`${v.explanation.math.z > 0 ? "+" : ""}${v.explanation.math.z.toFixed(2)}`}
+                    note={
+                      Math.abs(v.explanation.math.z) >= 2
+                        ? "≥ ±2 significance"
+                        : "below ±2 bar"
+                    }
+                  />
+                  <MathRow
+                    label="sustain (last 7d)"
+                    value={`↑${v.explanation.math.sustain_up} / ↓${v.explanation.math.sustain_down}`}
+                    note={
+                      v.explanation.math.sustain_up >= 5
+                        ? "5/7 up → sustained"
+                        : v.explanation.math.sustain_down >= 5
+                          ? "5/7 down → sustained"
+                          : "no sustained direction"
+                    }
+                  />
+                </div>
+                <p className="text-[10px] text-muted-foreground italic">
+                  Confidence: <span className="font-medium">{v.confidence}</span>
+                </p>
+              </div>
+            )}
+          </section>
+
+          {/* Right: Topic & platform drill-down from legacy scorecard data */}
+          <section>
+            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-2">
+              Topic &amp; platform drill-down
+            </p>
+            {sc.eventAttributions.length === 0 ? (
+              <p className="text-[12px] text-muted-foreground italic">
+                No attribution events matched this change — either too early,
+                or no tracked topic moved around the change date.
+              </p>
+            ) : (
+              <ul className="space-y-1.5">
+                {sc.eventAttributions.slice(0, 8).map((ea, i) => (
+                  <li
+                    key={i}
+                    className="flex items-center gap-2 text-[11px] text-muted-foreground"
+                  >
+                    <span
+                      className={`inline-flex items-center justify-center rounded px-1.5 py-0.5 text-[9px] font-semibold ${
+                        ea.role === "primary"
+                          ? "bg-status-success/10 text-status-success"
+                          : ea.role === "contributing"
+                            ? "bg-status-warning/10 text-status-warning"
+                            : "bg-surface-inset text-muted-foreground"
+                      }`}
+                    >
+                      {ea.role === "primary"
+                        ? "Primary"
+                        : ea.role === "contributing"
+                          ? "Also"
+                          : "Maybe"}
+                    </span>
+                    <span className="text-[10px] font-medium text-foreground">
+                      {PLATFORM_SHORT[ea.event.platform] ?? ea.event.platform}
+                    </span>
+                    <span className="truncate flex-1">{ea.event.topic}</span>
+                  </li>
+                ))}
+                {sc.eventAttributions.length > 8 && (
+                  <li className="text-[10px] text-muted-foreground/70">
+                    +{sc.eventAttributions.length - 8} more…
+                  </li>
+                )}
+              </ul>
+            )}
+
+            {sc.topics.length > 0 && (
+              <div className="mt-3 pt-3 border-t border-border/40">
+                <p className="text-[9px] font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">
+                  Targeted topics
+                </p>
+                <div className="flex flex-wrap gap-1">
+                  {sc.topics.map((t) => (
+                    <span
+                      key={t}
+                      className="text-[10px] rounded border border-border/60 px-1.5 py-0.5 text-muted-foreground"
+                    >
+                      {t}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="mt-3 pt-3 border-t border-border/40">
+              <Link
+                href={`/changes/${sc.change.id}`}
+                className="text-[11px] font-semibold text-accent-primary hover:underline"
+              >
+                Open full detail page →
+              </Link>
+            </div>
+          </section>
+        </div>
       </td>
     </tr>
   );
 }
 
-function SortHeader({
-  field,
-  current,
-  dir,
-  onClick,
-  children,
-}: {
-  field: SortField;
-  current: SortField;
-  dir: SortDir;
-  onClick: (f: SortField) => void;
-  children: React.ReactNode;
-}) {
-  const active = current === field;
-  return (
-    <th
-      className="text-left px-2.5 py-1.5 font-medium cursor-pointer hover:text-foreground transition-colors whitespace-nowrap select-none"
-      onClick={() => onClick(field)}
-    >
-      {children}
-      {active && (
-        <span className="ml-0.5 text-[8px]">{dir === "asc" ? "▲" : "▼"}</span>
-      )}
-    </th>
-  );
+function formatReadyDate(iso: string): string {
+  try {
+    return new Date(iso + "T00:00:00Z").toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+  } catch {
+    return iso;
+  }
 }
 
-function StatPill({
+function MathRow({
   label,
-  count,
-  color,
+  value,
+  note,
 }: {
   label: string;
-  count: number;
-  color: string;
-}) {
-  return (
-    <span className="inline-flex items-center gap-1">
-      <span className={`font-semibold tabular-nums ${color}`}>{count}</span>
-      <span className="text-muted-foreground">{label}</span>
-    </span>
-  );
-}
-
-function FilterSelect({
-  value,
-  onChange,
-  options,
-}: {
   value: string;
-  onChange: (v: string) => void;
-  options: { value: string; label: string }[];
+  note?: string;
 }) {
   return (
-    <select
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      className="rounded border border-border bg-background px-1.5 py-0.5 text-[10px] text-foreground focus:outline-none focus:ring-1 focus:ring-accent-primary"
-    >
-      {options.map((o) => (
-        <option key={o.value} value={o.value}>
-          {o.label}
-        </option>
-      ))}
-    </select>
-  );
-}
-
-function ChangeDescriptionPreview({ text }: { text: string }) {
-  const t = text?.trim() ?? "";
-  if (!t) return null;
-  const long = t.length > 96 || t.split(/\s+/).length > 14;
-  if (!long) {
-    return (
-      <p className="text-[10px] text-muted-foreground mt-0.5 line-clamp-2 leading-snug">{t}</p>
-    );
-  }
-  return (
-    <details className="group/desc mt-0.5 max-w-full">
-      <summary className="cursor-pointer list-none text-left [&::-webkit-details-marker]:hidden">
-        <span className="text-[10px] text-muted-foreground line-clamp-2 leading-snug group-open/desc:hidden">{t}</span>
-        <span className="hidden text-[10px] text-muted-foreground leading-snug group-open/desc:block whitespace-pre-wrap break-words">{t}</span>
-        <span className="mt-0.5 block text-[9px] text-accent-primary/90 group-open/desc:hidden">Full description</span>
-        <span className="mt-0.5 hidden text-[9px] text-muted-foreground group-open/desc:block">Tap to collapse</span>
-      </summary>
-    </details>
-  );
-}
-
-function ConfidenceBadge({ confidence }: { confidence: ImpactConfidence }) {
-  return (
-    <span className={`text-[9px] font-semibold ${CONFIDENCE_COLOR[confidence]}`}>
-      {CONFIDENCE_LABEL[confidence]}
-    </span>
+    <div className="flex items-baseline gap-2 py-0.5">
+      <span className="text-muted-foreground min-w-[140px]">{label}</span>
+      <span className="text-foreground font-semibold">{value}</span>
+      {note && (
+        <span className="text-muted-foreground/70 text-[10px] ml-auto">
+          {note}
+        </span>
+      )}
+    </div>
   );
 }

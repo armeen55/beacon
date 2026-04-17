@@ -630,7 +630,7 @@ export default async function DiagnosticsPage() {
             <div className="grid grid-cols-2 lg:grid-cols-6 gap-3 mb-4">
               <StatBlock label="Total candidates" value={es.total} />
               <StatBlock label="New" value={es.new} variant="success" />
-              <StatBlock label="Strong evidence tier" value={es.high} variant="success" />
+              <StatBlock label="Strong signal tier" value={es.high} variant="success" />
               <StatBlock label="Medium" value={es.medium} variant="warning" />
               <StatBlock label="Adjacent" value={es.adjacent} />
               <StatBlock label="Expansion" value={es.expansion} />
@@ -867,7 +867,7 @@ export default async function DiagnosticsPage() {
               label="High + nulls"
               value={diag.inflation.high_confidence_with_nulls}
               variant={diag.inflation.high_confidence_with_nulls > 0 ? "danger" : "success"}
-              sub="Strong evidence tier with URL or geo null"
+              sub="Strong signal tier with URL or geo null"
             />
           </div>
         </div>

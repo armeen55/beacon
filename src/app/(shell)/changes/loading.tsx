@@ -12,13 +12,6 @@ export default function ChangesLoading() {
         </div>
       </div>
 
-      {/* ChangesTabShell tab row */}
-      <div className="mb-4 flex flex-wrap items-center gap-1">
-        <div className="h-8 w-24 rounded-md bg-muted/30" />
-        <div className="h-8 w-28 rounded-md bg-muted/20" />
-        <div className="h-8 w-24 rounded-md bg-muted/20" />
-      </div>
-
       {/* “At a glance” snapshot */}
       <div className="mb-6 rounded-lg border border-border/60 bg-surface-raised/40 px-5 py-4">
         <div className="mb-2 h-3 w-24 rounded bg-muted/25" />

@@ -13,6 +13,7 @@ export type FindingsStripData = {
 export function TodayActionQueue({
   primaryAction,
   secondaryAction,
+  moreActions = [],
   findings,
   onRespondToRec,
   onStartExperiment,
@@ -24,6 +25,8 @@ export function TodayActionQueue({
 }: {
   primaryAction: ActionCardProps["action"] | null;
   secondaryAction: ActionCardProps["action"] | null;
+  /** Brain-action stack beyond the primary + secondary slots. Up to 2 extra. */
+  moreActions?: ActionCardProps["action"][];
   findings: FindingsStripData;
   onRespondToRec?: (recId: string, status: "accepted" | "dismissed" | "deferred") => Promise<{ success: boolean }>;
   onStartExperiment?: (opts: {
@@ -42,7 +45,8 @@ export function TodayActionQueue({
   setActionMsg: (s: string | null) => void;
   truthBlocked: boolean;
 }) {
-  const hasActions = primaryAction || secondaryAction;
+  const hasActions =
+    primaryAction || secondaryAction || moreActions.length > 0;
 
   return (
     <div className="space-y-4">
@@ -73,6 +77,21 @@ export function TodayActionQueue({
           dimmed={truthBlocked}
         />
       )}
+
+      {moreActions.map((a) => (
+        <ActionCard
+          key={a.id}
+          action={a}
+          variant="secondary"
+          onRespondToRec={onRespondToRec}
+          onStartExperiment={onStartExperiment}
+          pending={pending}
+          startTransition={startTransition}
+          actionMsg={null}
+          setActionMsg={setActionMsg}
+          dimmed={truthBlocked}
+        />
+      ))}
 
       {!hasActions && !truthBlocked && (
         <div className="rounded-lg border border-border/50 bg-surface-raised/30 px-5 py-8 text-center">

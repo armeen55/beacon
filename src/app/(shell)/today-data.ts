@@ -94,6 +94,13 @@ import { buildMorningBrief, type MorningBriefData } from "@/domains/product/morn
 import { buildQueryKeywordIndex, type QueryKeywordIndex } from "@/domains/answer-intelligence/query-index";
 import { computeMemoryInsights } from "@/domains/attribution/memory";
 import { dailyMetricSnapshots } from "@/storage/canonical-store";
+import {
+  computeBrainActions,
+  type BrainAction,
+} from "@/domains/product/url-brain-recommender";
+import { urlChangeOutcomes } from "@/domains/attribution/url-change-outcome";
+import type { UrlChangePattern } from "@/domains/learning/change-patterns";
+import { buildSchemaParityActions } from "@/domains/actions/schema-parity-actions";
 import { getCompetitorMonitoringState } from "@/domains/competitor-monitoring/store";
 import { generateCompetitorAlerts } from "@/domains/competitor-monitoring/detect-changes";
 
@@ -1204,12 +1211,67 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
       })()
     : null;
 
+  // ── BRAIN-DRIVEN ACTION STACK (Post-Checkpoint Alignment) ──
+  // Today's action cards are now sourced from the URL-level pattern brain
+  // (G3/G4/G5) instead of the legacy topic-based recommendation engine.
+  // The legacy `serializedPrimary`/`serializedSecondary` above still power
+  // the morning brief for now (they feed buildMorningBrief upstream) and are
+  // kept as a safety fallback only when the brain has zero actions.
+  const urlChangePatterns = readStore<UrlChangePattern>("url-change-patterns");
+  const brainActions: BrainAction[] = computeBrainActions({
+    patterns: urlChangePatterns,
+    outcomes: urlChangeOutcomes,
+    changelog: changelogEntries,
+    citationsByUrl: citMap,
+    maxActions: 4,
+  });
+  const serializedBrainActions = brainActions.map((a) =>
+    serializeBrainAction(a, citMap, getResponse, getExperimentByRecId, dataFreshness),
+  );
+
+  // Phase 1: schema_parity actions from schema_missing_for_page_type findings.
+  // Max 1 by default. `high` severity gets lifted into the visible part of
+  // the stack; `medium`/`low` appends to the end (falls through to the cap).
+  const schemaParityActions = buildSchemaParityActions({
+    findings: pendingFindings,
+    citationsByUrl: citMap,
+    maxActions: 1,
+  });
+
+  // Assembly rule: brain actions in their current order, with ONE schema_parity
+  // action appended. Position depends on severity:
+  //   - high  → inserted at position 1 (becomes secondary, brain-primary preserved)
+  //   - other → appended to the end
+  // Overall cap remains maxActions = 4 (primary + secondary + 2 more).
+  //
+  // Typed to the canonical `ActionCardAction` shape so narrower brain-serialized
+  // types widen on assembly without friction.
+  const assembled: import("@/components/today/action-card").ActionCardAction[] = [
+    ...serializedBrainActions,
+  ];
+  if (schemaParityActions.length > 0) {
+    const sp = schemaParityActions[0];
+    if (sp.bucket === "critical" && assembled.length >= 1) {
+      assembled.splice(1, 0, sp);
+    } else {
+      assembled.push(sp);
+    }
+  }
+  const capped = assembled.slice(0, 4);
+
+  // Prefer brain-driven actions on Today. Legacy flow remains only as safety
+  // fallback if both brain and schema-parity produced nothing.
+  const todayPrimary = capped[0] ?? serializedPrimary;
+  const todaySecondary = capped[1] ?? serializedSecondary;
+  const todayMoreActions = capped.slice(2);
+
   return {
     isDemoMode,
     scanPhaseFailed,
     summary,
-    primaryAction: serializedPrimary,
-    secondaryAction: serializedSecondary,
+    primaryAction: todayPrimary,
+    secondaryAction: todaySecondary,
+    moreActions: todayMoreActions,
     morningBrief,
     scoreboard,
     pendingFindings: serializedPendingFindings,
@@ -1223,6 +1285,129 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
   };
 }
 
+
+/**
+ * Serialize a brain action into the shape the existing ActionCard component
+ * already knows (`ActionCardAction`). No new UI types needed.
+ *
+ * Maps the brain's action kind → card bucket:
+ *   reverse_hurter    → "critical"        (red frame, urgent)
+ *   replicate_winner  → "high_leverage"   (amber frame, high value)
+ *   start_experiment  → "opportunistic"   (neutral frame, exploratory)
+ *   exploratory       → "opportunistic"   (neutral, explicitly exploratory)
+ *
+ * Confidence `exploratory` collapses to `low` so the existing ActionCard
+ * confidence rendering doesn't need new enum values.
+ */
+function serializeBrainAction(
+  action: BrainAction,
+  citMap: Map<string, number>,
+  getResponse: (id: string) => { status: "accepted" | "dismissed" | "deferred" } | undefined,
+  getExperimentByRecId: (id: string) => unknown,
+  dataFreshness: string | null,
+) {
+  const bucket: "critical" | "high_leverage" | "opportunistic" =
+    action.kind === "reverse_hurter"
+      ? "critical"
+      : action.kind === "replicate_winner"
+        ? "high_leverage"
+        : "opportunistic";
+
+  // Priority score drives client-side sorting if ever needed; mirrors rank.
+  // Higher = rendered first. reverse_hurter > replicate_winner > start > exploratory.
+  const priorityScore =
+    action.kind === "reverse_hurter"
+      ? 90
+      : action.kind === "replicate_winner"
+        ? 80
+        : action.kind === "start_experiment"
+          ? 60
+          : 40;
+
+  const cardConfidence: "high" | "medium" | "low" =
+    action.confidence === "exploratory" ? "low" : action.confidence;
+
+  // Source evidence summary — short string under rationale on the card.
+  const sourceEvidence = buildBrainEvidence(action);
+
+  // Confidence reason mirrors the data-citations layer for the expand.
+  const confidenceReason = buildBrainConfidenceReason(action);
+
+  // Where the card's CTA link points. Prefer the target URL page detail if
+  // available; else /changes as a neutral anchor.
+  const href = action.targetUrl ? `/changes` : "/changes";
+
+  // Baseline citations for the auto-experiment — looked up from citMap for
+  // the target URL (same logic as legacy serializedPrimary).
+  const baselineCitations = action.targetUrl
+    ? (citMap.get(action.targetUrl.replace(/\/+$/, "").toLowerCase()) ?? 0)
+    : null;
+
+  return {
+    id: action.id,
+    headline: action.headline,
+    rationale: action.rationale,
+    expectedOutcome: action.expectedOutcome,
+    sourceEvidence,
+    priorityScore,
+    bucket,
+    type: `brain_${action.kind}`,
+    confidence: cardConfidence,
+    href,
+    responseStatus: getResponse(action.id)?.status ?? null,
+    confidenceReason,
+    watchAfter: "Check again in 7 days to evaluate impact",
+    dataFreshness,
+    hasExperiment: !!getExperimentByRecId(action.id),
+    targetPageUrl: action.targetUrl,
+    targetPagePath: action.targetUrl,
+    baselineCitations,
+    sourceChangeId: null,
+    lineageBullets: [],
+    answerContext: null,
+    specificMove: null,
+    actionClass: null,
+    targetSection: null,
+    priorSuccess: null,
+    engineTiming: null,
+    expectedMetric: action.expectedOutcome,
+  };
+}
+
+function buildBrainEvidence(a: BrainAction): string {
+  const cit = a.dataCitations;
+  const parts: string[] = [];
+  if (cit.patternSampleCount !== undefined) {
+    parts.push(`${cit.patternSampleCount} sample${cit.patternSampleCount === 1 ? "" : "s"}`);
+  }
+  if (cit.patternHelpingCount !== undefined && cit.patternHelpingCount > 0) {
+    parts.push(`${cit.patternHelpingCount} helping`);
+  }
+  if (cit.patternHurtingCount !== undefined && cit.patternHurtingCount > 0) {
+    parts.push(`${cit.patternHurtingCount} hurting`);
+  }
+  if (cit.urlCitationCount !== undefined) {
+    parts.push(`${cit.urlCitationCount} AI citations on target`);
+  }
+  return parts.length > 0
+    ? parts.join(" · ")
+    : a.confidence === "exploratory"
+      ? "No prior data in your workspace yet"
+      : "Brain-derived";
+}
+
+function buildBrainConfidenceReason(a: BrainAction): string {
+  if (a.confidence === "exploratory") {
+    return "Exploratory — no proven wins in your workspace yet. First landing becomes the first data point.";
+  }
+  const cit = a.dataCitations;
+  if (a.patternId && cit.patternSampleCount) {
+    const helpCt = cit.patternHelpingCount ?? 0;
+    const hurtCt = cit.patternHurtingCount ?? 0;
+    return `Pattern ${a.patternId}: ${cit.patternSampleCount} samples (${helpCt} helping, ${hurtCt} hurting)`;
+  }
+  return "Based on URL citation history";
+}
 
 function formatTimeAgo(date: Date): string {
   const diff = Date.now() - date.getTime();

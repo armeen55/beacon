@@ -14,6 +14,10 @@ import type { PageSnapshot } from "@/domains/pages/types";
 import { generateFindings } from "./detect-findings";
 import { addFindings, getPreviouslyRejectedTypeKeys } from "./findings-store";
 import {
+  refreshRobotsState,
+  readRobotsState,
+} from "@/domains/pages/robots-parser";
+import {
   syncPageSnapshots,
   syncGuardrailAlerts,
   syncObservationRuns,
@@ -87,6 +91,22 @@ export async function regenerateScanFindings(opts: {
   const homepageUrl = `https://${siteDomain}/`;
   const previouslyRejectedTypes = getPreviouslyRejectedTypeKeys();
 
+  // G9: refresh robots.txt state before emitting findings. Degrades gracefully —
+  // if the fetch fails or no rules exist, we just pass a null so the robots
+  // detection branch in generateFindings is a no-op. Never blocks the scan.
+  let robots = null;
+  try {
+    const refreshed = await refreshRobotsState(siteDomain);
+    robots = refreshed.parsed;
+  } catch (err) {
+    log.warn("robots.txt refresh failed (continuing scan)", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    // Fallback to cached state if present.
+    const cached = readRobotsState();
+    robots = cached?.parsed ?? null;
+  }
+
   const newFindings = generateFindings({
     currentSnapshots: freshSnapshots,
     previousSnapshots: opts.previousSnapshots,
@@ -97,6 +117,7 @@ export async function regenerateScanFindings(opts: {
     citationsByUrl: citLookup,
     homepageUrl,
     previouslyRejectedTypes,
+    robots,
   });
 
   // Always call addFindings — even with empty array — so the full findings

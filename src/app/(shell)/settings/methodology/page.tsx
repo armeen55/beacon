@@ -194,9 +194,9 @@ export default function MethodologyPage() {
           </ul>
         </MetricBlock>
 
-        <MetricBlock id="strongest-correlate" title="&ldquo;Strongest correlate&rdquo;">
+        <MetricBlock id="closest-match" title="&ldquo;Closest match&rdquo;">
           <p>
-            When Beacon labels a change as the &ldquo;Strongest correlate&rdquo; for a visibility
+            When Beacon labels a change as the &ldquo;Closest match&rdquo; for a visibility
             shift, it means the change scored ≥70/100 on a composite of timing, topic, URL, platform,
             and geo alignment. It does <em>not</em> mean the change caused the shift. Other factors —
             algorithm updates, competitor actions, seasonal demand — could be responsible.
@@ -214,20 +214,20 @@ export default function MethodologyPage() {
           </p>
           <ul className="mt-1.5 list-disc pl-5 space-y-1">
             <li>
-              <span className="font-medium text-foreground">Strong evidence</span> — input signals
+              <span className="font-medium text-foreground">Strong signal</span> — input signals
               are solid (multiple matches, high evidence tier).
             </li>
             <li>
-              <span className="font-medium text-foreground">Moderate evidence</span> — supporting
+              <span className="font-medium text-foreground">Signal detected</span> — supporting
               signal exists but is not conclusive.
             </li>
             <li>
-              <span className="font-medium text-foreground">Early signal</span> — limited data;
+              <span className="font-medium text-foreground">Early data</span> — limited data;
               treat as directional.
             </li>
           </ul>
           <p className="mt-1.5">
-            &ldquo;Strong evidence&rdquo; means the inputs are strong — not that the recommended
+            &ldquo;Strong signal&rdquo; means the inputs are strong — not that the recommended
             action will definitely work.
           </p>
           <p className="mt-2 text-[12px] font-semibold text-foreground/90">Beacon does not know</p>
@@ -791,7 +791,7 @@ export default function MethodologyPage() {
             <ul className="list-disc pl-5 space-y-1 text-[12px]">
               <li>
                 <span className="font-medium text-foreground">Evidence ≠ guarantee.</span>{" "}
-                &ldquo;Strong evidence&rdquo; means the supporting data is solid. It does not promise
+                &ldquo;Strong signal&rdquo; means the supporting data is solid. It does not promise
                 the action will improve visibility.
               </li>
               <li>
@@ -820,7 +820,7 @@ export default function MethodologyPage() {
         <div className="space-y-1">
           <FaqEntry
             question="How do you know this change caused anything?"
-            answer="Beacon does not know that. It identifies the strongest correlate — the best-fit match between a site change and a visibility shift based on timing, topic overlap, URL alignment, and platform. This is correlation, not causation. No A/B test or holdout exists. The operator can manually confirm a link in Review, which is the strongest trust signal — but is still a correlational judgment."
+            answer="Beacon does not know that. It identifies the closest match — the best-fit match between a site change and a visibility shift based on timing, topic overlap, URL alignment, and platform. This is correlation, not causation. No A/B test or holdout exists. The operator can manually confirm a link in Review, which is the strongest trust signal — but is still a correlational judgment."
           />
           <FaqEntry
             question="Is &ldquo;Citation Share&rdquo; my actual market share?"
@@ -828,7 +828,7 @@ export default function MethodologyPage() {
           />
           <FaqEntry
             question="Why is Beacon recommending this if it cannot guarantee outcomes?"
-            answer="Beacon recommends the highest-leverage next step based on available evidence — not a guaranteed outcome. &ldquo;Strong evidence&rdquo; means the input signals are solid, not that the result is certain. The priority score blends impact confidence, evidence strength, and pattern fit. It is a prioritized suggestion, not a guarantee."
+            answer="Beacon recommends the highest-leverage next step based on available signals — not a guaranteed outcome. &ldquo;Strong signal&rdquo; means the input data is solid, not that the result is certain. The priority score blends impact confidence, signal strength, and pattern fit. It is a prioritized suggestion, not a guarantee."
           />
           <FaqEntry
             question="What does &ldquo;sample quality: limited&rdquo; mean?"
@@ -847,7 +847,7 @@ export default function MethodologyPage() {
             answer="No. Beacon shows review rows stored after import or sync. APIs may omit some reviews; timing differs from the consumer site; manual rows can coexist. Empty or partial data in Beacon does not prove you have no public reviews."
           />
           <FaqEntry
-            question="What does &ldquo;Strongest correlate&rdquo; actually mean?"
+            question="What does &ldquo;Closest match&rdquo; actually mean?"
             answer="It means this change is the best-fit match for this visibility shift based on timing, topic overlap, URL alignment, and platform — scoring ≥70 out of 100. It does not mean Beacon proved causation. Other unmeasured factors could be the actual cause."
           />
           <FaqEntry

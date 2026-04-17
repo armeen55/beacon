@@ -3,6 +3,10 @@ import "server-only";
 import { readFileSync, existsSync, writeFileSync, mkdirSync } from "fs";
 import path from "path";
 import { syncBusinessConfig } from "@/lib/persistence/dual-write";
+import { EVENT_PRIORS_V1 as EVENT_PRIORS_V1_SOURCE } from "@/lib/event-priors";
+
+/** Re-export for backwards compatibility with code that imports from business-config. */
+export const EVENT_PRIORS_V1 = EVENT_PRIORS_V1_SOURCE;
 
 export interface BusinessConfig {
   name: string;
@@ -26,7 +30,58 @@ export interface BusinessConfig {
     scope: "priority" | "full";
     enabled: boolean;
   };
+
+  // ---------------------------------------------------------------------------
+  // Domain knowledge — drives section analysis, page type inference, and FAQ
+  // generation. These fields make Beacon portable across industries.
+  // ---------------------------------------------------------------------------
+
+  /** URL path prefixes that identify page types. Keys are page type names. */
+  urlPatterns?: {
+    city?: string;       // e.g., "/locations/"
+    service?: string;    // e.g., "/services/"
+    project?: string;    // e.g., "/explore-projects/"
+  };
+
+  /**
+   * Words to strip when normalizing H2s for section comparison.
+   * Should include brand-specific words, city names, and local geography.
+   * Merged with a universal set (articles, prepositions).
+   */
+  stripWords?: string[];
+
+  /**
+   * Additional section themes beyond the universal set.
+   * Each entry: { pattern: regex source string, label: internal key, display: human label }
+   * These are appended to (not replacing) the universal themes.
+   */
+  industryThemes?: { pattern: string; label: string; display: string }[];
+
+  /**
+   * FAQ question templates keyed by topic-matching pattern.
+   * Each entry: { topicPattern: regex source string, questions: template strings with {topic} and {city} placeholders }
+   * Checked in order; first match wins. Falls back to generic if none match.
+   */
+  faqTemplates?: { topicPattern: string; questions: string[] }[];
+
+  /**
+   * Phase 0 — static edit-type priors used by the event-attributor when
+   * scoring sitewide rollouts. Values are the prior probability that an event
+   * of the given type moves owned-citation volume. Every use of this table
+   * MUST be accompanied by `confidence_source: "seed_prior"` on the
+   * attribution record so seed priors never masquerade as learned truth.
+   */
+  event_priors_v1?: {
+    metadata_publication: number;
+    schema_rollout: number;
+    crawlability_fix: number;
+    page_created: number;
+    performance_batch: number;
+    content_rollout: number;
+    content_edit: number;
+  };
 }
+
 
 const DATA_DIR = path.join(process.cwd(), ".data");
 const CONFIG_PATH = path.join(DATA_DIR, "business-config.json");
@@ -88,6 +143,59 @@ const DEFAULT_CONFIG: BusinessConfig = {
     scope: "full",
     enabled: true,
   },
+
+  // Domain knowledge — Ritz Builders defaults
+  urlPatterns: {
+    city: "/locations/",
+    service: "/services/",
+    project: "/explore-projects/",
+  },
+
+  stripWords: [
+    // Ritz city names
+    "atherton", "menlo", "park", "palo", "alto", "cupertino", "saratoga",
+    "los", "altos", "hills", "emerald", "sunnyvale", "mountain", "view",
+    "san", "jose", "francisco", "bay", "area", "silicon", "valley",
+    "california", "ca",
+    // Ritz brand words
+    "ritz", "builders", "construction", "homes", "home", "builder",
+  ],
+
+  industryThemes: [
+    { pattern: "\\bdesign\\b.*\\bbuild|\\barchitect", label: "design_build", display: "Design-build overview" },
+    { pattern: "\\badu\\b|\\baccessory\\s+dwelling", label: "adu", display: "ADU section" },
+    { pattern: "\\bremodel|\\brenovation", label: "remodel", display: "Remodel section" },
+    { pattern: "\\bzoning|\\bpermit|\\bregulation", label: "zoning", display: "Zoning & permits" },
+  ],
+
+  faqTemplates: [
+    {
+      topicPattern: "^(\\w[\\w\\s]*?)\\s+Construction$",
+      questions: [
+        "What should I look for in a custom home builder in {city}?",
+        "How much does it cost to build a custom home in {city}?",
+        "How long does a custom home build take in {city}?",
+      ],
+    },
+    {
+      topicPattern: "Builder|Home",
+      questions: [
+        "How do I choose the right {topic}?",
+        "What questions should I ask a {topic}?",
+        "What does a {topic} typically cost?",
+      ],
+    },
+    {
+      topicPattern: "Renovation|Remodel",
+      questions: [
+        "What is the typical timeline for a {topic}?",
+        "How do I choose the right contractor for a {topic}?",
+        "What permits are needed for a {topic}?",
+      ],
+    },
+  ],
+
+  event_priors_v1: { ...EVENT_PRIORS_V1 },
 };
 
 let _cached: BusinessConfig | null = null;
@@ -150,4 +258,27 @@ export function isDirectoryDomain(domain: string, config?: BusinessConfig): bool
   const cfg = config ?? getBusinessConfig();
   const norm = domain.toLowerCase().replace(/^www\./, "");
   return cfg.directoryDomains.some((d) => norm === d || norm.endsWith(`.${d}`));
+}
+
+// ---------------------------------------------------------------------------
+// Derived config objects for subsystems
+// ---------------------------------------------------------------------------
+
+import type { SectionAnalyzerConfig } from "@/domains/product/section-analyzer";
+import type { FaqTemplate } from "@/domains/product/morning-brief";
+
+/** Build the section analyzer config from business config. */
+export function getSectionAnalyzerConfig(config?: BusinessConfig): SectionAnalyzerConfig {
+  const cfg = config ?? getBusinessConfig();
+  return {
+    urlPatterns: cfg.urlPatterns,
+    stripWords: cfg.stripWords,
+    industryThemes: cfg.industryThemes,
+  };
+}
+
+/** Get FAQ templates from business config. */
+export function getFaqTemplates(config?: BusinessConfig): FaqTemplate[] {
+  const cfg = config ?? getBusinessConfig();
+  return cfg.faqTemplates ?? [];
 }

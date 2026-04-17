@@ -8,9 +8,9 @@ import type { SerializedReplicationCard } from "@/domains/product/replication-se
 export type { SerializedReplicationCard } from "@/domains/product/replication-serialize";
 
 function tierLabel(tier: string): string {
-  if (tier === "validated") return "Strong pattern";
-  if (tier === "qualified_partial") return "Partial (strong evidence)";
-  if (tier === "promising_experiment") return "Promising experiment";
+  if (tier === "validated") return "Positive trend";
+  if (tier === "qualified_partial") return "Partial signal";
+  if (tier === "promising_experiment") return "Experiment running";
   return tier;
 }
 

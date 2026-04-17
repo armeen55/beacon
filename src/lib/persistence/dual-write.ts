@@ -111,10 +111,47 @@ export async function syncResults(rows: Result[]): Promise<void> {
   await dualWriteUpsert("results", rows as unknown as AnyRow[], "id");
 }
 
+/**
+ * Map a ChangelogEntry to a Supabase-safe row by stripping Phase 1
+ * schema-experiment fields that may not exist in the remote table yet.
+ * The full record (including those fields) is always preserved on disk in
+ * `.data/imported-changes.json` — this mapper only affects dual-write.
+ *
+ * When the Supabase `changelog_entries` table is migrated to add these
+ * columns, drop this mapper or expand it to pass them through.
+ */
+function mapChangelogEntryToRow(entry: ChangelogEntry): AnyRow {
+  const {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    change_family: _cf,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    change_type: _ct,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    schema_types_before: _stb,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    schema_types_after: _sta,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    schema_types_added: _sad,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    schema_types_removed: _srm,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    schema_hash_before: _shb,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    schema_hash_after: _sha,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    visible_copy_changed: _vcc,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    page_scope: _ps,
+    ...remoteSafe
+  } = entry;
+  return remoteSafe as unknown as AnyRow;
+}
+
 export async function syncChangelogEntries(
   rows: ChangelogEntry[],
 ): Promise<void> {
-  await dualWriteUpsert("changelog_entries", rows as unknown as AnyRow[], "id");
+  const mapped = rows.map(mapChangelogEntryToRow);
+  await dualWriteUpsert("changelog_entries", mapped, "id");
 }
 
 export async function syncOpportunities(rows: Opportunity[]): Promise<void> {

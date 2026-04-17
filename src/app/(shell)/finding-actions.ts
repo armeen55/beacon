@@ -9,8 +9,14 @@ import { changelogEntries } from "@/lib/seed-data.server";
 import { generateId, now } from "@/lib/actions";
 import { writeStore } from "@/lib/persistence/json-store";
 import type { ChangelogEntry } from "@/domains/changelog/types";
-import type { SignalType, AssetType } from "@/lib/constants";
+import type { SignalType } from "@/lib/constants";
 import { syncChangelogEntries } from "@/lib/persistence/dual-write";
+import { classifyAssetType } from "@/domains/pages/classify-asset-type";
+import { deriveSchemaChangelogFields } from "@/domains/changelog/derive-schema-fields";
+import {
+  getPageSnapshots,
+  getPreviousPageSnapshots,
+} from "@/domains/pages/snapshot-store";
 
 export async function resolveFinding(
   findingId: string,
@@ -121,16 +127,40 @@ const FINDING_TO_SIGNAL: Partial<Record<FindingType, SignalType>> = {
   links_changed: "technical",
   page_added: "page",
   page_removed: "page",
+  // Phase 1 — confirming a schema-parity finding produces a technical-signal changelog row.
+  schema_missing_for_page_type: "technical",
 };
 
-function inferAssetType(url: string): AssetType {
-  const path = url.replace(/^https?:\/\/[^/]+/, "").replace(/\/+$/, "");
-  if (!path || path === "/") return "homepage";
-  if (/\/locations?\//i.test(path)) return "city_page";
-  if (/\/services?\//i.test(path)) return "service_page";
-  if (/\/projects?\//i.test(path)) return "project_page";
-  return "service_page";
-}
+/**
+ * Default hypothesis inferred from the edit type when the user confirms a scan finding.
+ * The operator can always overwrite this on the /changes/[id] detail page.
+ */
+const FINDING_HYPOTHESIS: Partial<Record<FindingType, string>> = {
+  title_changed:
+    "Title rewrite — repositioning the page for a different keyword variant. Expect citation lift if the new title better matches AI search queries.",
+  meta_changed:
+    "Meta description rewrite — aiming to improve CTR from search and AI-answer extractability.",
+  h1_changed:
+    "H1 rewrite — clarifying the page's primary topic for crawlers and AI answer engines.",
+  faq_changed:
+    "FAQ update — expanding the question coverage for answer-engine retrieval.",
+  schema_changed:
+    "Schema change — improving structured-data coverage so AI engines can lift facts more reliably.",
+  content_changed:
+    "Content edit — refreshing on-page copy to better match current answer-engine prompts.",
+  canonical_changed:
+    "Canonical change — redirecting crawl/citation credit to the preferred URL.",
+  links_changed:
+    "Internal link change — redistributing authority to priority pages.",
+  page_added:
+    "New page — filling a known content gap. Expect first citations when engines recrawl and retrieve the page.",
+  page_removed:
+    "Page removed — cleaning up low-signal pages or consolidating into stronger ones.",
+  faq_without_schema:
+    "Added FAQ schema to existing FAQ content — making Q&A blocks machine-readable for AI engines.",
+  schema_missing_for_page_type:
+    "Page-scoped schema parity — adding the structured-data types that peer pages of the same asset_type already carry. Tests whether schema coverage moves AI citations on this URL.",
+};
 
 export async function confirmFindingAsChange(
   findingId: string,
@@ -153,8 +183,10 @@ export async function confirmFindingAsChange(
   const changeId = generateId("cl");
   const timestamp = now();
   const signalType: SignalType = FINDING_TO_SIGNAL[finding.type] ?? "content";
-  const assetType = finding.url ? inferAssetType(finding.url) : "homepage";
+  const assetType = classifyAssetType(finding.url);
   const pagePath = finding.pagePath || (finding.url ? finding.url.replace(/^https?:\/\/[^/]+/, "") : "") || "/";
+
+  const inferredHypothesis = FINDING_HYPOTHESIS[finding.type] ?? null;
 
   const entry: ChangelogEntry = {
     id: changeId,
@@ -166,7 +198,8 @@ export async function confirmFindingAsChange(
     change_description: finding.summary,
     topic_targeted: "",
     city_targeted: null,
-    hypothesis: null,
+    hypothesis: inferredHypothesis,
+    hypothesis_source: inferredHypothesis ? "inferred" : undefined,
     expected_impact_window: "7-14 days",
     brief_id: null,
     opportunity_id: null,
@@ -176,6 +209,38 @@ export async function confirmFindingAsChange(
     source_system: "scan_detection",
     tenant_id: "",
   };
+
+  // Phase 1 — stamp structured schema-experiment fields when the finding
+  // is a schema-class signal. Only runs for schema_changed /
+  // schema_missing_for_page_type / faq_without_schema confirmations; other
+  // finding types leave the entry unchanged (legacy free-text match path).
+  //
+  // When prev/current snapshots show the schema changed, the derived
+  // fields go onto the entry so downstream attribution can match via
+  // schema_types_added instead of free-text `change_description`.
+  const schemaFindingTypes: ReadonlySet<string> = new Set([
+    "schema_changed",
+    "schema_missing_for_page_type",
+    "faq_without_schema",
+  ]);
+  if (finding.url && schemaFindingTypes.has(finding.type)) {
+    const normTarget = finding.url
+      .replace(/^https?:\/\/[^/]+/, "")
+      .replace(/\/+$/, "")
+      .toLowerCase();
+    const matchesUrl = (s: { url: string }) =>
+      s.url.replace(/^https?:\/\/[^/]+/, "").replace(/\/+$/, "").toLowerCase() ===
+      normTarget;
+    const cur = getPageSnapshots().find(matchesUrl) ?? null;
+    const prev = getPreviousPageSnapshots().find(matchesUrl) ?? null;
+    if (cur) {
+      const derived = deriveSchemaChangelogFields({
+        currentSnapshot: cur,
+        previousSnapshot: prev,
+      });
+      if (derived) Object.assign(entry, derived);
+    }
+  }
 
   // 3. Persist: add to in-memory array + write to disk + Supabase
   changelogEntries.push(entry);

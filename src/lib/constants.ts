@@ -94,9 +94,9 @@ export const CONFIDENCE_LEVELS = [
 export type ConfidenceLevel = (typeof CONFIDENCE_LEVELS)[number];
 
 export const CONFIDENCE_LEVEL_LABELS: Record<ConfidenceLevel, string> = {
-  high: "Strong evidence",
+  high: "Strong signal",
   medium: "Mixed signals",
-  low: "Thin evidence",
+  low: "Limited data",
   speculative: "Hunch",
 };
 
@@ -258,6 +258,10 @@ export const ASSET_TYPES = [
   "directory_profile",
   "lead_form",
   "project_page",
+  // Phase 1 additions — canonical page-class coverage for the schema-experiment pipeline.
+  "process_page",
+  "brand_page",
+  "hub_page",
 ] as const;
 export type AssetType = (typeof ASSET_TYPES)[number];
 
@@ -270,6 +274,9 @@ export const ASSET_TYPE_LABELS: Record<AssetType, string> = {
   directory_profile: "Directory Profile",
   lead_form: "Lead Form",
   project_page: "Project Page",
+  process_page: "Process Page",
+  brand_page: "Brand Page",
+  hub_page: "Hub Page",
 };
 
 export const METRIC_TYPES = [

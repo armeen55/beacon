@@ -5,6 +5,16 @@ import type { GuardrailAlert } from "@/domains/pages/guardrails";
 import type { ChangelogEntry } from "@/domains/changelog/types";
 import type { Finding, FindingPriority, FindingSeverity, FindingType } from "./types";
 import { diffSnapshots } from "@/domains/pages/snapshot-diff";
+import {
+  evaluateAiBotAccess,
+  type RobotsFile,
+} from "@/domains/pages/robots-parser";
+import { classifyAssetType } from "@/domains/pages/classify-asset-type";
+import {
+  diffSchemaCoverage,
+  type SchemaCoverageDiff,
+} from "@/domains/pages/expected-schema";
+import { isFindingAutoLinkEnabled } from "@/lib/flags";
 
 type CitationLookup = Map<string, number>;
 type PreviouslyRejectedLookup = Set<string>;
@@ -19,6 +29,8 @@ export function generateFindings(opts: {
   citationsByUrl?: CitationLookup;
   homepageUrl?: string;
   previouslyRejectedTypes?: PreviouslyRejectedLookup;
+  /** G9 — parsed robots.txt for AI-bot disallow detection. Null/undefined → skip. */
+  robots?: RobotsFile | null;
 }): Finding[] {
   const {
     currentSnapshots,
@@ -30,6 +42,7 @@ export function generateFindings(opts: {
     citationsByUrl,
     homepageUrl,
     previouslyRejectedTypes,
+    robots,
   } = opts;
 
   const findings: Finding[] = [];
@@ -273,6 +286,134 @@ export function generateFindings(opts: {
     }
   }
 
+  // ── G8: Schema validation vs Google rich-result specs ──
+  // The extractor already populates `schema_validation_warnings` on each
+  // snapshot. We emit ONE finding per snapshot with issues, severity bumped
+  // by whether any `schema_critical:*` entries exist. These are the "your
+  // rich snippets silently don't fire" findings.
+  for (const curr of currentSnapshots) {
+    const warnings = curr.schema_validation_warnings ?? [];
+    if (warnings.length === 0) continue;
+
+    const hasCritical = warnings.some((w) => w.startsWith("schema_critical:"));
+    const hasWarning = warnings.some((w) => w.startsWith("schema_warning:"));
+    const key = norm(curr.url);
+    const citations = citationsByUrl?.get(key) ?? 0;
+    const isHP = homepageUrl ? key === norm(homepageUrl) : false;
+
+    // Severity: critical warnings on cited pages → high; otherwise medium/low.
+    const severity: FindingSeverity = hasCritical && (citations >= 1 || isHP)
+      ? "high"
+      : hasCritical || hasWarning
+        ? "medium"
+        : "low";
+
+    // Summary surfaces the first 2 warnings verbatim (short enough to read at
+    // a glance on Today; "+N more" for the rest).
+    const preview = warnings.slice(0, 2).join("; ");
+    const remainder = warnings.length > 2 ? ` (+${warnings.length - 2} more)` : "";
+
+    findings.push(makeFinding({
+      type: "schema_invalid",
+      url: curr.url,
+      scanRunId,
+      now,
+      previousState: null,
+      currentState: preview + remainder,
+      severity,
+      summary: `${pathOf(curr.url)}: schema issues — ${preview}${remainder}`,
+      suggestedAction:
+        "Fix the flagged fields — each one blocks a specific Google rich-result type from firing.",
+      citationCount: citations,
+      isHomepage: isHP,
+    }));
+  }
+
+  // ── G6: robots.txt AI-bot disallow detection ──
+  // If robots.txt blocks GPTBot/PerplexityBot/ClaudeBot/Google-Extended/CCBot/
+  // Applebot-Extended on any cited owned URL, emit a critical finding. This
+  // is a silent AEO killer: everything else you do won't help if bots can't
+  // reach the page.
+  if (robots && robots.status === 200) {
+    for (const curr of currentSnapshots) {
+      const key = norm(curr.url);
+      const citations = citationsByUrl?.get(key) ?? 0;
+      const isHP = homepageUrl ? key === norm(homepageUrl) : false;
+
+      // Only check cited or homepage URLs — we don't care about robots blocks
+      // on pages nobody is citing anyway.
+      if (citations < 1 && !isHP) continue;
+
+      const verdict = evaluateAiBotAccess(robots, pathOf(curr.url));
+      if (!verdict.anyDisallowed) continue;
+
+      const blockedList = verdict.blockedCrawlers.join(", ");
+      findings.push(makeFinding({
+        type: "robots_txt_blocked",
+        url: curr.url,
+        scanRunId,
+        now,
+        previousState: null,
+        currentState: `robots.txt disallows: ${blockedList}`,
+        severity: "high",
+        summary: `${pathOf(curr.url)} blocked by robots.txt for ${verdict.blockedCrawlers.length} AI crawler${verdict.blockedCrawlers.length === 1 ? "" : "s"}: ${blockedList}`,
+        suggestedAction: `Update robots.txt to allow these AI crawlers on this path. Without this, ${blockedList} cannot index the page and won't cite it in AI answers.`,
+        citationCount: citations,
+        isHomepage: isHP,
+      }));
+    }
+  }
+
+  // ── Phase 1: schema_missing_for_page_type ──
+  // For each current snapshot, compare observed `schema_types` against the
+  // per-`asset_type` expected set. Emit ONE finding per URL that's missing
+  // any required type. Persistent state — not diff-based.
+  //
+  // Dedupe across scans: `addFindings` in findings-store.ts replaces
+  // same-type+same-url pending findings (see that file for the branch).
+  for (const curr of currentSnapshots) {
+    const assetType = classifyAssetType(curr.url);
+    const schemaTypes = curr.schema_types ?? [];
+    const coverage = diffSchemaCoverage(assetType, schemaTypes);
+    if (coverage.satisfies_all_required) continue;
+
+    const key = norm(curr.url);
+    const citations = citationsByUrl?.get(key) ?? 0;
+    const isHP = homepageUrl ? key === norm(homepageUrl) : false;
+
+    // Severity ladder (Phase 1 plan):
+    //   high   — homepage or city_page with >50 lifetime citations
+    //   medium — any other asset_type with >10 citations AND ≥2 missing types
+    //   medium — ≥2 missing types regardless of citations
+    //   low    — 1 missing type
+    const missingCount = coverage.missing_required.length;
+    const severity: FindingSeverity =
+      (assetType === "homepage" || assetType === "city_page") && citations > 50
+        ? "high"
+        : missingCount >= 2
+          ? "medium"
+          : "low";
+
+    const missingStr = coverage.missing_required.join(", ");
+    const presentStr = schemaTypes.length > 0 ? schemaTypes.join(", ") : "(none)";
+
+    findings.push(
+      makeSchemaMissingFinding({
+        url: curr.url,
+        assetType,
+        severity,
+        missingCount,
+        missingStr,
+        presentStr,
+        coverage,
+        scanRunId,
+        now,
+        citations,
+        isHP,
+      }),
+    );
+  }
+
   // Deploy mismatch: shipped changelog entries whose expected structural change is missing
   const thirtyDaysAgo = Date.now() - 30 * 86_400_000;
   for (const entry of changelog) {
@@ -348,15 +489,25 @@ export function generateFindings(opts: {
   // ── Auto-reconcile: if a finding's URL matches a recent changelog entry
   // with a compatible signal type, auto-link and accept the finding so it
   // doesn't appear as an unresolved detection on Today. ──
+  //
+  // Phase 1 gate — OFF by default. When disabled, every finding stays in
+  // `status: "pending"` until an operator confirms or dismisses it via
+  // `confirmFindingAsChange()`, which is the only path that stamps
+  // structured schema-experiment fields. Flip BEACON_AUTO_LINK_FINDINGS=1
+  // to re-enable the legacy 30-day auto-collapse behavior (not recommended
+  // while running schema-experiment dogfeed).
+  const autoLinkEnabled = isFindingAutoLinkEnabled();
   const now2 = new Date().toISOString();
   const recentByPath = new Map<string, ChangelogEntry[]>();
-  for (const entry of changelog) {
-    if (!entry.url) continue;
-    if (new Date(entry.timestamp).getTime() < thirtyDaysAgo) continue;
-    const p = norm(entry.url);
-    const arr = recentByPath.get(p) ?? [];
-    arr.push(entry);
-    recentByPath.set(p, arr);
+  if (autoLinkEnabled) {
+    for (const entry of changelog) {
+      if (!entry.url) continue;
+      if (new Date(entry.timestamp).getTime() < thirtyDaysAgo) continue;
+      const p = norm(entry.url);
+      const arr = recentByPath.get(p) ?? [];
+      arr.push(entry);
+      recentByPath.set(p, arr);
+    }
   }
 
   const FINDING_TO_SIGNAL: Record<string, { signals: string[]; keywords: string[] }> = {
@@ -369,26 +520,28 @@ export function generateFindings(opts: {
     links_changed: { signals: ["content", "technical"], keywords: ["link", "internal link"] },
   };
 
-  for (const f of findings) {
-    if (f.status !== "pending") continue;
-    const fPath = norm(f.url);
-    const matches = recentByPath.get(fPath);
-    if (!matches || matches.length === 0) continue;
+  if (autoLinkEnabled) {
+    for (const f of findings) {
+      if (f.status !== "pending") continue;
+      const fPath = norm(f.url);
+      const matches = recentByPath.get(fPath);
+      if (!matches || matches.length === 0) continue;
 
-    const mapping = FINDING_TO_SIGNAL[f.type];
-    if (!mapping) continue;
+      const mapping = FINDING_TO_SIGNAL[f.type];
+      if (!mapping) continue;
 
-    const linked = matches.find((c) => {
-      if (mapping.signals.includes(c.signal_type)) return true;
-      const desc = c.change_description.toLowerCase();
-      return mapping.keywords.some((kw) => desc.includes(kw));
-    });
+      const linked = matches.find((c) => {
+        if (mapping.signals.includes(c.signal_type)) return true;
+        const desc = c.change_description.toLowerCase();
+        return mapping.keywords.some((kw) => desc.includes(kw));
+      });
 
-    if (linked) {
-      f.status = "accepted";
-      f.resolvedAt = now2;
-      f.linkedChangeId = linked.id;
-      f.resolutionNote = `Auto-linked: matches changelog "${linked.change_description.slice(0, 60)}" (${linked.timestamp.slice(0, 10)})`;
+      if (linked) {
+        f.status = "accepted";
+        f.resolvedAt = now2;
+        f.linkedChangeId = linked.id;
+        f.resolutionNote = `Auto-linked: matches changelog "${linked.change_description.slice(0, 60)}" (${linked.timestamp.slice(0, 10)})`;
+      }
     }
   }
 
@@ -453,6 +606,45 @@ function makeFinding(opts: {
   };
 }
 
+/**
+ * Phase 1 — factory for `schema_missing_for_page_type` findings.
+ *
+ * Separate from `makeFinding` because the summary/action/state strings are
+ * deterministically derived from the coverage diff, not from free-text
+ * input. Keeps the emitter block above short.
+ */
+function makeSchemaMissingFinding(opts: {
+  url: string;
+  assetType: import("@/lib/constants").AssetType;
+  severity: FindingSeverity;
+  missingCount: number;
+  missingStr: string;
+  presentStr: string;
+  coverage: SchemaCoverageDiff;
+  scanRunId: string;
+  now: string;
+  citations: number;
+  isHP: boolean;
+}): Finding {
+  const assetLabel = opts.assetType.replace(/_/g, " ");
+  const summary = `${pathOf(opts.url)}: ${assetLabel} is missing ${opts.missingCount} required schema type${opts.missingCount === 1 ? "" : "s"} — ${opts.missingStr}`;
+  const suggestedAction = `Add page-scoped JSON-LD for: ${opts.missingStr}. Do not change visible content. Run a fresh scan after deploy.`;
+
+  return makeFinding({
+    type: "schema_missing_for_page_type",
+    url: opts.url,
+    scanRunId: opts.scanRunId,
+    now: opts.now,
+    previousState: `schema_types: [${opts.presentStr}]`,
+    currentState: `missing_required: [${opts.missingStr}]`,
+    severity: opts.severity,
+    summary,
+    suggestedAction,
+    citationCount: opts.citations,
+    isHomepage: opts.isHP,
+  });
+}
+
 function computePriorityScore(opts: {
   severity: FindingSeverity;
   type: FindingType;
@@ -478,6 +670,8 @@ function computePriorityScore(opts: {
   const HIGH_IMPACT_TYPES: FindingType[] = [
     "deploy_mismatch", "title_changed", "canonical_changed", "unexpected_change",
     "faq_without_schema",
+    // G9: new AEO-critical types. Blocked crawlers kill everything else.
+    "robots_txt_blocked", "schema_invalid",
   ];
   const MEDIUM_IMPACT_TYPES: FindingType[] = [
     "meta_changed", "h1_changed", "schema_changed", "faq_changed",

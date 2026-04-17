@@ -18,6 +18,8 @@ import {
 import { minePatterns, generateBriefs } from "@/domains/pages/playbook";
 import { computeRecommendations } from "@/domains/product/recommendation-engine";
 import { computeTrackRecord, wasChangeRecommended } from "@/domains/product/recommendation-tracker";
+import { getSectionAnalyzerConfig } from "@/lib/business-config";
+import { ATTRIBUTION_CONFIDENCE_LABEL, REC_CONFIDENCE_LABEL } from "@/lib/confidence-labels";
 import type { EventAttribution, TrustSource } from "@/domains/attribution/scorecard";
 import type { AttributionConfidence, ImpactConfidence, ImpactDirection } from "@/domains/attribution/types";
 import type { EvidenceTier } from "@/domains/pages/types";
@@ -29,6 +31,7 @@ import {
 import { deriveCoverageState, coverageWarningLine } from "@/lib/coverage-state";
 import { latestWebsiteCrawlRun } from "@/domains/observations/read";
 import { sampleQualityTierFromObservationCount } from "@/lib/sample-quality-tier";
+import { HypothesisEditor } from "./hypothesis-editor";
 
 const PLATFORM_LABELS: Record<string, string> = {
   chatgpt: "ChatGPT",
@@ -36,12 +39,7 @@ const PLATFORM_LABELS: Record<string, string> = {
   perplexity: "Perplexity",
 };
 
-const CONF_LABELS: Record<AttributionConfidence, string> = {
-  high: "Strong evidence",
-  medium: "Moderate evidence",
-  low: "Weak evidence",
-  uncertain: "Uncertain",
-};
+const CONF_LABELS = ATTRIBUTION_CONFIDENCE_LABEL as Record<AttributionConfidence, string>;
 
 const TIER_LABELS: Record<EvidenceTier, string> = {
   exact: "Exact — verified page in registry",
@@ -157,7 +155,7 @@ export default async function ChangeDetailPage({
     persistedPatternEvidence,
   );
   const briefs = generateBriefs(pageSnapshots, citMap, patterns);
-  const allRecs = computeRecommendations({ impactRows, patterns, briefs });
+  const allRecs = computeRecommendations({ impactRows, patterns, briefs, sectionAnalyzerConfig: getSectionAnalyzerConfig() });
 
   const trackRecord = computeTrackRecord({ impactRows, patterns });
   const recommendedMatch = wasChangeRecommended(id, trackRecord);
@@ -237,6 +235,13 @@ export default async function ChangeDetailPage({
           )}
         </div>
       </div>
+
+      {/* Hypothesis (editable) */}
+      <HypothesisEditor
+        changeId={entry.id}
+        initialHypothesis={entry.hypothesis}
+        initialSource={entry.hypothesis_source ?? null}
+      />
 
       {/* Verdict summary */}
       <div className={`border rounded-lg px-4 py-3 ${row.operatorConfirmedCount > 0 ? "border-status-success/30 bg-status-success/5" : "border-border"}`}>
@@ -490,9 +495,9 @@ function EventAttributionCard({ ea }: { ea: EventAttribution }) {
 }
 
 const IMPACT_CONF_STYLE: Record<ImpactConfidence, { label: string; className: string }> = {
-  high: { label: "Strong evidence", className: "text-status-success bg-status-success/10 border-status-success/20" },
-  medium: { label: "Moderate evidence", className: "text-foreground-secondary bg-surface-inset border-border" },
-  low: { label: "Weak evidence", className: "text-muted-foreground bg-surface-inset border-border" },
+  high: { label: REC_CONFIDENCE_LABEL.high, className: "text-status-success bg-status-success/10 border-status-success/20" },
+  medium: { label: REC_CONFIDENCE_LABEL.medium, className: "text-foreground-secondary bg-surface-inset border-border" },
+  low: { label: REC_CONFIDENCE_LABEL.low, className: "text-muted-foreground bg-surface-inset border-border" },
 };
 
 function ImpactConfidenceBadge({ confidence }: { confidence: ImpactConfidence }) {

@@ -6,6 +6,7 @@
 import { load as cheerioLoad } from "cheerio";
 import { createHash } from "node:crypto";
 import type { PageSnapshot, FaqItem } from "./types";
+import { validateSchemaToStrings } from "./schema-validator";
 
 function hash(input: string): string {
   return createHash("sha256").update(input).digest("hex").slice(0, 16);
@@ -111,17 +112,25 @@ export function extractPageSnapshot(
     }
   });
 
-  // ── Schema types + structural audit ──
+  // ── Schema types + structural audit + G8 spec validation ──
   const schemaTypes: string[] = [];
   let faqSchemaBlockCount = 0;
   const structuralWarnings: string[] = [];
+  const schemaValidationWarnings: string[] = [];
   $('script[type="application/ld+json"]').each((_, el) => {
     try {
       const data = JSON.parse($(el).html() || "");
       collectSchemaTypes(data, schemaTypes);
       faqSchemaBlockCount += countFaqPageBlocks(data);
+      // G8: validate this block's structured data against Google rich-result specs.
+      // Warnings are appended as strings; empty / all-valid blocks contribute
+      // nothing. Pure function — no side effects outside this array.
+      schemaValidationWarnings.push(...validateSchemaToStrings(data));
     } catch {
       // malformed
+      schemaValidationWarnings.push(
+        "schema_critical:UNPARSEABLE: JSON-LD block did not parse as valid JSON.",
+      );
     }
   });
   if (faqSchemaBlockCount > 1) {
@@ -249,6 +258,8 @@ export function extractPageSnapshot(
     extraction_certainty: extractionCertainty,
     faq_schema_block_count: faqSchemaBlockCount,
     structural_warnings: structuralWarnings.length > 0 ? structuralWarnings : undefined,
+    schema_validation_warnings:
+      schemaValidationWarnings.length > 0 ? schemaValidationWarnings : undefined,
     table_count: tableCount,
     tenant_id: "",
   };

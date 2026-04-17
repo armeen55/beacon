@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import type { SerializedFinding } from "@/app/(shell)/today-client";
+import { CONTENT_CHANGE_TYPES } from "@/domains/scanning/content-change-types";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -126,15 +127,20 @@ function ChangeCard({
 // ---------------------------------------------------------------------------
 
 export function ChangeReview({ findings, onConfirm, onDismiss }: ChangeReviewProps) {
-  // Only show content-relevant change types (not guardrails or stale visibility)
+  // Only show content-relevant change types (not guardrails or stale visibility).
+  // `f.type` is typed as `string` on SerializedFinding — Set.has accepts it
+  // at runtime, cast is narrow + safe.
   const contentChanges = findings.filter((f) =>
-    CONTENT_CHANGE_TYPES.has(f.type),
+    (CONTENT_CHANGE_TYPES as ReadonlySet<string>).has(f.type),
   );
 
   if (contentChanges.length === 0) return null;
 
   return (
-    <div className="rounded-lg border border-accent-primary/30 bg-accent-primary/5 p-4 space-y-3">
+    <div
+      id="change-review-section"
+      className="rounded-lg border border-accent-primary/30 bg-accent-primary/5 p-4 space-y-3 scroll-mt-6"
+    >
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-sm font-semibold">
@@ -170,18 +176,8 @@ export function ChangeReview({ findings, onConfirm, onDismiss }: ChangeReviewPro
 // Helpers
 // ---------------------------------------------------------------------------
 
-const CONTENT_CHANGE_TYPES = new Set([
-  "title_changed",
-  "meta_changed",
-  "h1_changed",
-  "faq_changed",
-  "schema_changed",
-  "content_changed",
-  "canonical_changed",
-  "links_changed",
-  "page_added",
-  "page_removed",
-]);
+// CONTENT_CHANGE_TYPES moved to `@/domains/scanning/content-change-types`
+// so the sidebar Today badge and this component use one source of truth.
 
 const CHANGE_TYPE_LABELS: Record<string, string> = {
   title_changed: "Title",
