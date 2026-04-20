@@ -89,6 +89,36 @@ export const urlChangeOutcomes: UrlChangeOutcome[] = readStore<UrlChangeOutcome>
   "url-change-outcomes",
 );
 
+/**
+ * Verdicts that count as "currently being watched" for UI surfaces (sidebar
+ * badge, /changes strip, etc.). `helping` is a settled win \u2014 excluded from
+ * watch counts. `not_enough_data` means we literally can't call it \u2014
+ * excluded. Everything else represents live attention-worthy state.
+ */
+const WATCHING_VERDICTS: ReadonlySet<VerdictLabel> = new Set([
+  "hurting",
+  "nothing_yet",
+  "too_early",
+]);
+
+/**
+ * Return one row per distinct URL currently worth watching. If a URL has
+ * multiple outcomes (multiple changes over time), keep the most recent one.
+ * Replaces the old `getActiveExperiments()` in UI surfaces after Phase 2
+ * of the experiments\u2192verdicts convergence (2026-04-19).
+ */
+export function getWatchingUrlOutcomes(): UrlChangeOutcome[] {
+  const latestByUrl = new Map<string, UrlChangeOutcome>();
+  for (const o of urlChangeOutcomes) {
+    if (!WATCHING_VERDICTS.has(o.verdict)) continue;
+    const existing = latestByUrl.get(o.url);
+    if (!existing || o.updated_at > existing.updated_at) {
+      latestByUrl.set(o.url, o);
+    }
+  }
+  return Array.from(latestByUrl.values());
+}
+
 // ---------------------------------------------------------------------------
 // Landing-day computation
 // ---------------------------------------------------------------------------

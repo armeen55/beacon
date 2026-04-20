@@ -1,6 +1,5 @@
 import { TodayClient } from "./today-client";
 import { respondToRecommendation } from "./recommendation-actions";
-import { startExperimentAction } from "./experiment-actions";
 import { confirmFindingAsChange, resolveFinding } from "./finding-actions";
 import { loadTodayPageData } from "./today-data";
 
@@ -17,7 +16,6 @@ export default async function TodayPage() {
       <TodayClient
         {...data}
         onRespondToRec={respondToRecommendation}
-        onStartExperiment={startExperimentAction}
         onConfirmFinding={confirmFindingAsChange}
         onDismissFinding={dismissFinding}
       />

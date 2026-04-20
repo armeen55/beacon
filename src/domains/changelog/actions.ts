@@ -80,29 +80,9 @@ export async function createChangelogEntry(
     console.error("[changelog] Supabase sync failed:", e);
   }
 
-  // Auto-create experiment to track this change's impact
-  try {
-    const { startExperiment, persistExperiments } = await import(
-      "@/domains/product/experiment-store"
-    );
-    const baseline = await lookupBaselineMetrics(url, topicTargeted);
-    startExperiment({
-      recId: changeId,
-      headline: assetName,
-      recType: `changelog_${signalType}`,
-      targetPageUrl: url ? absoluteUrlForPath(url) : null,
-      targetPagePath: url,
-      watchAfter: expectedImpactWindow || "Check after 7 days",
-      operatorNote: changeDescription,
-      baselineCitations: baseline.citations,
-      baselineMentions: baseline.mentions,
-      baselineVisibility: baseline.visibility,
-      trackedTopic: topicTargeted,
-    });
-    await persistExperiments();
-  } catch (e) {
-    console.warn("[auto-experiment] creation failed:", e);
-  }
+  // Phase 4 (2026-04-19): auto-experiment creation removed. The Z-score engine
+  // in url-change-outcomes watches every URL change automatically via
+  // url-watcher \u2014 no separate tracking table needed.
 
   if (briefId) {
     const brief = briefs.find((b) => b.id === briefId);
@@ -123,58 +103,6 @@ export async function createChangelogEntry(
   revalidatePath("/", "layout");
   log.info("Action completed", { action, durationMs: Date.now() - t0 });
   return { success: true, changeId };
-}
-
-// ---------------------------------------------------------------------------
-// Baseline metrics for auto-experiment
-// ---------------------------------------------------------------------------
-
-async function lookupBaselineMetrics(
-  url: string | null,
-  topic: string,
-): Promise<{ citations: number; mentions: number; visibility: number }> {
-  try {
-    const { readStore: rs } = await import("@/lib/persistence/json-store");
-    type DMS = { date: string; scope_type: string; scope_id: string; mention_count: number; citation_count: number; visibility_score: number };
-
-    let citations = 0;
-    if (url) {
-      const { citationEvidenceIndex } = await import(
-        "@/domains/pages/citation-evidence-store"
-      );
-      if (citationEvidenceIndex) {
-        const normUrl = (url.startsWith("http") ? url : `https://placeholder${url}`)
-          .replace(/\/+$/, "")
-          .toLowerCase();
-        const pathOnly = normUrl.replace(/^https?:\/\/[^/]+/, "");
-        for (const r of citationEvidenceIndex.by_page_and_topic) {
-          if (!r.is_owned) continue;
-          const rPath = r.page_url.replace(/\/+$/, "").toLowerCase().replace(/^https?:\/\/[^/]+/, "");
-          if (rPath === pathOnly) citations += r.total_citations;
-        }
-      }
-    }
-
-    // 7-day average mentions + visibility from daily-metric-snapshots
-    const snapshots = rs<DMS>("daily-metric-snapshots");
-    const topicLower = topic.toLowerCase();
-    const matching = snapshots.filter(
-      (s) => s.scope_type === "topic" && s.scope_id.toLowerCase().includes(topicLower.split(/\s+/)[0]),
-    );
-    const dates = [...new Set(matching.map((s) => s.date))].sort().slice(-7);
-    const recent = matching.filter((s) => dates.includes(s.date));
-
-    const mentions = recent.length > 0
-      ? Math.round(recent.reduce((a, s) => a + (s.mention_count || 0), 0) / Math.max(dates.length, 1))
-      : 0;
-    const visibility = recent.length > 0
-      ? Math.round(recent.reduce((a, s) => a + (s.visibility_score || 0), 0) / Math.max(dates.length, 1) * 10) / 10
-      : 0;
-
-    return { citations, mentions, visibility };
-  } catch {
-    return { citations: 0, mentions: 0, visibility: 0 };
-  }
 }
 
 // ---------------------------------------------------------------------------

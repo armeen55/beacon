@@ -4,13 +4,15 @@ import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 
+// Hidden from Settings tabs 2026-04-17 (Day 2 trust cleanup):
+// - Connectors (internal review-integration operator surface)
+// - Sign-offs (/settings/exit-gates — internal tier-closure protocol)
+// - Methodology (proof-layer explainer — moved out of daily operator view)
+// Routes stay alive, just removed from visible tabs. Restore by re-adding below.
 const TABS = [
   { href: "/settings/import", label: "Import" },
   { href: "/settings/config", label: "Config" },
-  { href: "/settings/connectors", label: "Connectors" },
   { href: "/settings/history", label: "Data" },
-  { href: "/settings/exit-gates", label: "Sign-offs" },
-  { href: "/settings/methodology", label: "Methodology" },
 ] as const;
 
 export function SettingsTabsClient({ children }: { children: React.ReactNode }) {

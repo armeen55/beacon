@@ -7,10 +7,11 @@ import { buildPrimaryDecisionCopy } from "@/lib/today-primary-decision-copy";
 import type { TodayNextMove } from "@/lib/today-summary";
 import type { TodayPrimaryAction } from "@/app/(shell)/today-client";
 
+// Labels rewritten 2026-04-17 (Day 4 jargon sweep) — match action-card.tsx.
 const BUCKET_STYLE: Record<string, { border: string; bg: string; label: string; accent: string }> = {
-  critical: { border: "border-status-danger", bg: "bg-status-danger/8", label: "Critical", accent: "text-status-danger" },
-  high_leverage: { border: "border-status-success", bg: "bg-status-success/8", label: "High leverage", accent: "text-status-success" },
-  opportunistic: { border: "border-accent-primary", bg: "bg-accent-primary/5", label: "Opportunistic", accent: "text-accent-primary" },
+  critical: { border: "border-status-danger", bg: "bg-status-danger/8", label: "Fix now", accent: "text-status-danger" },
+  high_leverage: { border: "border-status-success", bg: "bg-status-success/8", label: "Biggest win", accent: "text-status-success" },
+  opportunistic: { border: "border-accent-primary", bg: "bg-accent-primary/5", label: "Worth trying", accent: "text-accent-primary" },
 };
 
 export type TodayPrimaryActionProps = {
@@ -148,7 +149,7 @@ export function TodayPrimaryAction({
           </div>
           <div className="rounded-md border border-border/35 bg-surface-inset/15 px-3 py-2">
             <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-              {"Leverage & how sure Beacon is"}
+              {"How much this matters + how sure we are"}
             </p>
             <p className="text-[12px] text-foreground/90 leading-relaxed mt-1">
               {decisionCopy.leverageAndConfidence}
@@ -165,10 +166,10 @@ export function TodayPrimaryAction({
                 )}
               >
                 {primaryAction.confidence === "high"
-                  ? "Evidence band: strong"
+                  ? "Strong data"
                   : primaryAction.confidence === "medium"
-                    ? "Evidence band: moderate"
-                    : "Evidence band: early"}
+                    ? "Moderate data"
+                    : "Early data — small sample"}
               </span>
               {primaryAction.dataFreshness ? (
                 <span className="tabular-nums">· {primaryAction.dataFreshness}</span>
@@ -178,7 +179,7 @@ export function TodayPrimaryAction({
         </div>
         {primaryAction.lineageBullets && primaryAction.lineageBullets.length > 0 && (
           <div className="mt-3 rounded-md border border-border/40 bg-surface-inset/20 px-3 py-2">
-            <p className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">Basis</p>
+            <p className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">Based on</p>
             <ul className="list-disc pl-4 space-y-0.5 text-[11px] text-muted-foreground">
               {primaryAction.lineageBullets.map((line, i) => (
                 <li key={i}>{line}</li>
@@ -190,7 +191,7 @@ export function TodayPrimaryAction({
                   href={`/changes/${encodeURIComponent(primaryAction.sourceChangeId)}`}
                   className="text-accent-primary hover:underline font-medium"
                 >
-                  View change record →
+                  See what happened →
                 </Link>
               </p>
             )}
@@ -204,7 +205,7 @@ export function TodayPrimaryAction({
         )}
         {primaryAction.watchAfter && (
           <p className="text-[11px] text-muted-foreground/50 mt-1">
-            Watch after: {primaryAction.watchAfter.charAt(0).toLowerCase() + primaryAction.watchAfter.slice(1)}
+            Check back: {primaryAction.watchAfter.charAt(0).toLowerCase() + primaryAction.watchAfter.slice(1)}
           </p>
         )}
         <div className="flex items-center gap-3 mt-4 flex-wrap">
@@ -230,13 +231,13 @@ export function TodayPrimaryAction({
                         operatorNote: note,
                         baselineCitations: primaryAction.baselineCitations ?? null,
                       });
-                      setActionMsg("Accepted & tracking — experiment started.");
+                      setActionMsg("Got it — we're watching this now.");
                     });
                   }}
                   disabled={pending}
                   className="inline-flex items-center gap-2 rounded-md bg-foreground px-5 py-2.5 text-[13px] font-semibold text-background hover:opacity-90 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary/70 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
                 >
-                  Accept & test →
+                  Try this →
                 </button>
               )}
               {onRespondToRec && !onStartExperiment && (
@@ -312,7 +313,7 @@ export function TodayPrimaryAction({
 
   return (
     <div className="rounded-lg border border-border/60 bg-surface-raised/40 px-5 py-4">
-      <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-2">Suggested next</p>
+      <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-2">What to try next</p>
       <p className="text-[14px] font-semibold leading-snug mb-1">{nextMove.title}</p>
       <p className="text-[12px] text-muted-foreground leading-relaxed">{nextMove.evidence}</p>
       <Link

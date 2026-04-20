@@ -16,10 +16,18 @@ import { sampleQualityTierFromObservationCount } from "@/lib/sample-quality-tier
 import { TodayScanStrip } from "@/components/today/today-scan-strip";
 import { TodayScoreboard, type ScoreboardData } from "@/components/today/today-scoreboard";
 import { TodayActionQueue, type FindingsStripData } from "@/components/today/today-action-queue";
+import { SinceLastVisit } from "@/components/today/since-last-visit";
 import type { ActionCardAction } from "@/components/today/action-card";
 import { MorningBrief } from "@/components/today/morning-brief";
 import type { MorningBriefData } from "@/domains/product/morning-brief";
 import { ChangeReview } from "@/components/today/change-review";
+import { VisibilityScoreChart } from "@/components/today/visibility-score-chart";
+import { VisibilityLeaderboard } from "@/components/today/visibility-leaderboard";
+import type {
+  VisibilityMetric,
+  VisibilityPoint,
+  EntityVisibility,
+} from "@/domains/product/visibility-score";
 
 /* ── Shared serialization types (consumed by page.tsx, child components) ── */
 
@@ -134,7 +142,6 @@ export function TodayClient({
   morningBrief = null,
   scoreboard,
   onRespondToRec,
-  onStartExperiment,
   pendingFindings = [],
   shouldTriggerScan = false,
   proofContext,
@@ -145,6 +152,8 @@ export function TodayClient({
   faqSchemaCoverage = null,
   platformDistribution = null,
   concentratedPlatform = null,
+  visibilityData = null,
+  urlVerdictProof = null,
 }: {
   isDemoMode?: boolean;
   scanPhaseFailed?: boolean;
@@ -154,23 +163,24 @@ export function TodayClient({
   moreActions?: TodayPrimaryAction[];
   morningBrief?: MorningBriefData | null;
   scoreboard: ScoreboardData;
+  visibilityData?: {
+    brandName: string;
+    brandSeriesByMetric: Record<VisibilityMetric, VisibilityPoint[]>;
+    brandSeriesByPlatform?: Record<string, VisibilityPoint[]>;
+    leaderboardByMetric: Record<VisibilityMetric, EntityVisibility[]>;
+    competitorSeriesByMetric: Record<
+      VisibilityMetric,
+      Array<{ name: string; points: VisibilityPoint[] }>
+    >;
+    chartEvents?: Array<{ date: string; tone: "danger" | "success" | "neutral"; label: string }>;
+  } | null;
+  /** 2026-04-20: URL-level proof signal for "Latest signal" strip. Replaces
+   *  topic-level MemoryInsight path. Null when no URL has a current `helping` verdict. */
+  urlVerdictProof?: UrlVerdictProof | null;
   onRespondToRec?: (
     recId: string,
     status: "accepted" | "dismissed" | "deferred"
   ) => Promise<{ success: boolean }>;
-  onStartExperiment?: (opts: {
-    recId: string;
-    headline: string;
-    recType: string;
-    targetPageUrl: string | null;
-    targetPagePath: string | null;
-    watchAfter: string;
-    operatorNote: string;
-    baselineCitations: number | null;
-    replicationSourceChangeId?: string | null;
-    replicationPatternId?: string | null;
-    replicationEvidenceTier?: "observed" | "mixed" | "inferred";
-  }) => Promise<{ success: boolean; experimentId: string }>;
   pendingFindings?: SerializedFinding[];
   shouldTriggerScan?: boolean;
   proofContext: TodayProofContext;
@@ -212,12 +222,42 @@ export function TodayClient({
     [scanPhaseFailed, crawlAgeDays, summary.visibility.staleVsCrawl, coverageState, proofContext.crawlStale],
   );
 
-  // Findings strip data
-  const findingsData: FindingsStripData = useMemo(() => ({
-    totalCount: pendingFindings.length,
-    criticalCount: pendingFindings.filter((f) => f.priority === "critical").length,
-    importantCount: pendingFindings.filter((f) => f.priority === "important").length,
-  }), [pendingFindings]);
+  // Findings strip data. Human-readable type-breakdown label replaces the old
+  // "65 things to check" jargon (2026-04-19): pick the top 2 types, label them
+  // by what they actually are (missing FAQ, low extractability, etc.).
+  const findingsData: FindingsStripData = useMemo(() => {
+    const TYPE_LABEL: Record<string, string> = {
+      faq_without_schema: "missing FAQ schema",
+      schema_invalid: "invalid schema",
+      low_extractability: "low extractability",
+      robots_txt_blocked: "robots blocked",
+      deploy_mismatch: "deploy mismatch",
+      missing_h1: "missing H1",
+      missing_meta_description: "missing meta description",
+      duplicate_title: "duplicate title",
+      thin_content: "thin content",
+    };
+    const counts = new Map<string, number>();
+    for (const f of pendingFindings) {
+      counts.set(f.type, (counts.get(f.type) ?? 0) + 1);
+    }
+    const sorted = [...counts.entries()].sort((a, b) => b[1] - a[1]);
+    const top = sorted.slice(0, 2);
+    const rest = sorted.slice(2).reduce((acc, [, n]) => acc + n, 0);
+    const topLabel = top
+      .map(([type, n]) => `${n} ${TYPE_LABEL[type] ?? type.replace(/_/g, " ")}`)
+      .join(" \u00b7 ");
+    const restLabel = rest > 0 ? ` \u00b7 ${rest} other` : "";
+    const typeBreakdownLabel = pendingFindings.length > 0 && topLabel
+      ? `${topLabel}${restLabel}`
+      : null;
+    return {
+      totalCount: pendingFindings.length,
+      criticalCount: pendingFindings.filter((f) => f.priority === "critical").length,
+      importantCount: pendingFindings.filter((f) => f.priority === "important").length,
+      typeBreakdownLabel,
+    };
+  }, [pendingFindings]);
 
   if (isDemoMode) {
     return (
@@ -254,36 +294,40 @@ export function TodayClient({
   // Secondary items (go into "More")
   const secondaryBriefItems = morningBrief?.items.slice(1) ?? [];
 
-  // Proof line — best available experiment or memory insight
-  const proofLine = experimentProof
-    ? formatExperimentProof(experimentProof)
-    : morningBrief?.memoryInsights?.[0]
-      ? formatMemoryProof(morningBrief.memoryInsights[0])
+  // Proof line \u2014 URL-level verdict (Z-score engine) first, then experiment
+  // fallback. 2026-04-20: topic-level MemoryInsight proof source removed
+  // (produced false causal claims from topic-aggregated deltas).
+  const proofLine = urlVerdictProof
+    ? formatUrlVerdictProof(urlVerdictProof)
+    : experimentProof
+      ? formatExperimentProof(experimentProof)
       : null;
 
   return (
-    <div className="space-y-5 max-w-2xl">
-      {/* ── Row 1: Trend — one number ── */}
-      {morningBrief && (
-        <TrendLine
-          totalCitations={morningBrief.totalOwnedCitations}
-          trendPct={morningBrief.trendPct}
-          latestDataDate={morningBrief.latestDataDate}
-        />
-      )}
-
-      {/* Platform distribution line */}
-      {platformDistribution && platformDistribution.total > 0 && (
-        <div className="text-[11px] text-muted-foreground -mt-2 tabular-nums">
-          Visibility: Google {platformDistribution.google_aio}% · ChatGPT {platformDistribution.chatgpt}% · Perplexity {platformDistribution.perplexity}%
+    <div className="space-y-5 max-w-5xl">
+      {/* ── Row 1: Visibility Score dashboard (Day 6 visual rebuild) ──
+          Profound-style chart (left) + top-5 entity leaderboard (right).
+          Replaces the old 5,146-big-number + platform-distribution line.
+          Stacks vertically on narrow screens. */}
+      {visibilityData && (
+        <div className="grid grid-cols-1 lg:grid-cols-[3fr_2fr] gap-4">
+          <VisibilityScoreChart
+            brandName={visibilityData.brandName}
+            brandSeriesByMetric={visibilityData.brandSeriesByMetric}
+            brandSeriesByPlatform={visibilityData.brandSeriesByPlatform ?? {}}
+            competitorSeriesByMetric={visibilityData.competitorSeriesByMetric}
+            events={visibilityData.chartEvents ?? []}
+          />
+          <VisibilityLeaderboard
+            entities={visibilityData.leaderboardByMetric.composite}
+          />
         </div>
       )}
 
-      {/* ── Top-of-Today: scan banner + pending-changes review ──
-          Moved to the very top (right below the Visibility line) so the
-          operator sees pending changes without scrolling. The banner's
-          "Review changes" button scrolls to the inline review card right
-          below it (anchor id="change-review-section"). */}
+      {/* ── Scan banner + pending-changes review ──
+          Sits between the dashboard above and the action cards below.
+          The banner's "Review changes" button scrolls to the inline
+          review card right below it (anchor id="change-review-section"). */}
       <TodayScanStrip
         shouldTriggerScan={shouldTriggerScan}
         pendingChangesCount={pendingContentChanges}
@@ -296,19 +340,23 @@ export function TodayClient({
         />
       )}
 
-      {/* Removed: "Heavy reliance on [platform] — limited diversification" warning.
-          Insight-without-action creates noise. Platform diversification is best
-          handled as a brain-derived action when the pattern brain detects a
-          pattern that moves a specific underweighted platform. Until then,
-          showing the imbalance without a next step is analytics theater. */}
+      {/* Removed 2026-04-17 (Day 3 trust cleanup): platform-reliance warning AND
+          FAQ schema coverage warning. Both were insight-without-action ("analytics
+          theater"). Schema parity already surfaces via the pattern brain's
+          schema-parity ActionCards when it detects a page that should have the
+          schema. Raw coverage numbers without a "do this now" don't belong on
+          Today — they live on /pages if someone wants to audit systematically. */}
 
-      {/* FAQ schema coverage warning — FAQ→schema only, not whether pages should have FAQ */}
-      {faqSchemaCoverage && faqSchemaCoverage.covered < faqSchemaCoverage.total && (
-        <div className="text-[11px] text-status-warning flex items-center gap-1.5 -mt-2">
-          <span className="h-1.5 w-1.5 rounded-full bg-status-warning shrink-0" />
-          FAQ schema: {faqSchemaCoverage.covered}/{faqSchemaCoverage.total} pages with FAQ have matching schema — {faqSchemaCoverage.total - faqSchemaCoverage.covered} pages need FAQPage JSON-LD
-        </div>
-      )}
+      {/* Since-last-visit delta (client-side, localStorage). Renders only when
+         something has actually changed since the user's last open \u2014 so it's
+         never wallpaper. Added 2026-04-19 ("Today UX pass"). */}
+      <SinceLastVisit
+        currentCardIds={[
+          ...(primaryAction ? [primaryAction.id] : []),
+          ...(secondaryAction ? [secondaryAction.id] : []),
+          ...moreActions.map((a) => a.id),
+        ].filter((id) => id.startsWith("hurt-") || id.startsWith("win-"))}
+      />
 
       {/* ── Row 2: Primary action stack (brain-driven) ──
          Prefer brain actions (url-brain-recommender). Fall back to legacy
@@ -321,7 +369,6 @@ export function TodayClient({
           moreActions={moreActions as ActionCardAction[]}
           findings={findingsData}
           onRespondToRec={onRespondToRec}
-          onStartExperiment={onStartExperiment}
           pending={pending}
           startTransition={startTransition}
           actionMsg={actionMsg}
@@ -356,102 +403,14 @@ export function TodayClient({
         </a>
       )}
 
-      {/* ── More: everything else ── */}
-      <details className="group">
-        <summary className="cursor-pointer text-xs font-medium text-muted-foreground hover:text-foreground transition-colors select-none py-2">
-          <span className="inline-flex items-center gap-1.5 flex-wrap">
-            <span className="transition-transform group-open:rotate-90">▶</span>
-            Scoreboard, secondary actions, memory
-            {secondaryBriefItems.length > 0 && (
-              <span className="text-[10px] bg-accent-primary/10 text-accent-primary px-1.5 py-0.5 rounded-full tabular-nums">
-                +{secondaryBriefItems.length} action{secondaryBriefItems.length !== 1 ? "s" : ""}
-              </span>
-            )}
-            {pendingFindings.length > 0 && (
-              <span className="text-[10px] bg-status-warning/10 text-status-warning px-1.5 py-0.5 rounded-full tabular-nums">
-                {pendingFindings.length} change{pendingFindings.length !== 1 ? "s" : ""} detected
-              </span>
-            )}
-            {(morningBrief?.competitorSummaries?.length ?? 0) > 0 && (
-              <span className="text-[10px] bg-muted/50 text-muted-foreground px-1.5 py-0.5 rounded-full tabular-nums">
-                competitor activity
-              </span>
-            )}
-          </span>
-        </summary>
-
-        <div className="space-y-5 pt-3">
-          {/* Secondary actions */}
-          {secondaryBriefItems.length > 0 && morningBrief && (
-            <MorningBrief
-              data={{
-                ...morningBrief,
-                items: secondaryBriefItems,
-                memoryInsights: [],
-                competitorSummaries: [],
-                competitorAlerts: [],
-                trendPct: null,
-                totalOwnedCitations: 0,
-                latestDataDate: null,
-              }}
-              compact
-            />
-          )}
-
-          {/* Memory insights */}
-          {morningBrief && morningBrief.memoryInsights.length > 0 && (
-            <MorningBrief
-              data={{
-                ...morningBrief,
-                items: [],
-                competitorSummaries: [],
-                competitorAlerts: [],
-                trendPct: null,
-                totalOwnedCitations: 0,
-                latestDataDate: null,
-              }}
-              compact
-            />
-          )}
-
-          {/* Competitor activity */}
-          {morningBrief && morningBrief.competitorSummaries.length > 0 && (
-            <MorningBrief
-              data={{
-                ...morningBrief,
-                items: [],
-                memoryInsights: [],
-                trendPct: null,
-                totalOwnedCitations: 0,
-                latestDataDate: null,
-              }}
-              compact
-            />
-          )}
-
-          {/* Change review moved to top of Today (directly below Visibility line).
-              See the TodayScanStrip + ChangeReview block near the top of the
-              render tree. The in-place comment stays as a breadcrumb in case
-              the decision is revisited. */}
-
-          {/* Scoreboard + health */}
-          <div className="grid grid-cols-1 lg:grid-cols-[2fr_3fr] gap-6">
-            <TodayScoreboard
-              scoreboard={scoreboard}
-              health={{
-                coverageState,
-                crawlAgeDays,
-                hasScanRun: !!run,
-                localNeedsAttention: !!localAttentionStrip,
-                proofContext,
-              }}
-            />
-            {/* Inner TodayActionQueue removed — the primary render above
-               already shows the brain-driven stack. The "More" drawer now
-               only carries health + findings context, not duplicate cards. */}
-          </div>
-        </div>
-      </details>
+      {/* Drawer + nested Scoreboard/MorningBrief/competitor sections all
+          removed 2026-04-18 (Phase 7 cleanup).
+            \u2014 Scoreboard KPI cards: redundant with chart + leaderboard above
+            \u2014 Secondary MorningBrief blocks: source of the duplicate
+              "No actions to recommend right now" empty-state bug
+            \u2014 Memory/competitor reused MorningBrief renders: same bug cause
+          Today's shape is now: chart/leaderboard \u2192 scan + change review
+          \u2192 action cards \u2192 latest-signal proof line. That's it. */}
     </div>
   );
 }
@@ -538,18 +497,22 @@ function formatExperimentProof(exp: TodayExperimentProof): { text: string; dot: 
   };
 }
 
-function formatMemoryProof(m: import("@/domains/product/morning-brief").SerializedMemoryInsight): { text: string; dot: string } {
-  const delta = m.mentionsDeltaPct !== 0
-    ? `${m.mentionsDeltaPct > 0 ? "+" : ""}${m.mentionsDeltaPct}%`
-    : "stable";
-
-  const dot =
-    m.direction === "improving" ? "bg-status-success"
-    : m.direction === "declining" ? "bg-status-danger"
-    : "bg-muted-foreground/50";
-
-  return {
-    text: m.headline,
-    dot,
-  };
+/**
+ * 2026-04-20: URL-verdict proof formatter. Replaces formatMemoryProof (which
+ * used topic-level aggregation and produced false causal claims). Consumes
+ * the `urlVerdictProof` payload from today-data (sourced directly from the
+ * Z-score engine's url-change-outcomes store).
+ */
+type UrlVerdictProof = {
+  changeId: string;
+  pagePath: string;
+  changeDate: string | null;
+  citationDeltaPct: number;
+  deltaLabel: string;
+};
+function formatUrlVerdictProof(p: UrlVerdictProof): { text: string; dot: string } {
+  const text = p.changeDate
+    ? `${p.pagePath} is up ${p.deltaLabel} after your ${p.changeDate} change (URL-level Z-score)`
+    : `${p.pagePath} is up ${p.deltaLabel} (URL-level Z-score)`;
+  return { text, dot: "bg-status-success" };
 }

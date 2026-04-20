@@ -14,7 +14,7 @@ import {
   CONTENT_CHANGE_TYPES,
   BUG_FINDING_TYPES,
 } from "@/domains/scanning/content-change-types";
-import { getActiveExperiments } from "@/domains/product/experiment-store";
+import { getWatchingUrlOutcomes } from "@/domains/attribution/url-change-outcome";
 
 const NAV_SHORTCUTS: Record<string, string> = {
   "/": "G T",
@@ -45,8 +45,9 @@ export default function ShellLayout({
   //            Bugs to fix, not experiments to run. De-duped by URL so the
   //            number counts affected pages, not raw findings.
   //
-  //   Changes — active experiments being watched (from `experiment-store`).
-  //             A number that moves naturally as experiments complete.
+  //   Changes — URLs currently being watched by the Z-score engine (verdict
+  //             in {hurting, nothing_yet, too_early}). One row per URL.
+  //             Replaces the legacy `experiment-store` read as of 2026-04-19.
   const pendingFindings = getPendingFindings();
   const todayBadge = pendingFindings.filter((f) =>
     CONTENT_CHANGE_TYPES.has(f.type),
@@ -57,9 +58,9 @@ export default function ShellLayout({
       .map((f) => f.pagePath),
   );
   const pagesBadge = pagesWithBugs.size;
-  // `getActiveExperiments()` already excludes `dropped`/`completed` per its
-  // internal filter; the returned list length is the sidebar badge value.
-  const changesBadge = getActiveExperiments().length;
+  // Count distinct URLs with a live verdict \u2014 hurting, nothing_yet, too_early.
+  // Settled wins ("helping") and dead ends ("not_enough_data") are excluded.
+  const changesBadge = getWatchingUrlOutcomes().length;
 
   const badges: NavBadges = {};
   if (todayBadge > 0) badges["/"] = todayBadge;

@@ -10,6 +10,17 @@ export type AreaSeries = {
   fillColor?: string;
 };
 
+/**
+ * Optional event annotations \u2014 vertical markers on specific x-positions.
+ * Each event gets a small dot + vertical guideline, plus a label on hover.
+ * Index must match `labels` array. Added 2026-04-19 for hurting-event overlay.
+ */
+export type AreaEvent = {
+  index: number;
+  tone: "danger" | "success" | "neutral";
+  label: string;
+};
+
 export function AreaChart({
   series,
   labels,
@@ -19,6 +30,7 @@ export function AreaChart({
   stacked = false,
   responsive = true,
   className,
+  events,
 }: {
   series: AreaSeries[];
   labels: string[];
@@ -29,6 +41,7 @@ export function AreaChart({
   /** When true, width follows container (fills grid). */
   responsive?: boolean;
   className?: string;
+  events?: AreaEvent[];
 }) {
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
@@ -153,6 +166,38 @@ export function AreaChart({
               </g>
             ))}
 
+        {/* Event annotations (hurting dates, etc). Thin guideline + dot on
+           the bottom axis so the series itself stays readable. */}
+        {events?.filter((e) => e.index >= 0 && e.index < n).map((ev, i) => {
+          const tone =
+            ev.tone === "danger" ? "stroke-status-danger" :
+            ev.tone === "success" ? "stroke-status-success" :
+            "stroke-muted-foreground";
+          const fill =
+            ev.tone === "danger" ? "fill-status-danger" :
+            ev.tone === "success" ? "fill-status-success" :
+            "fill-muted-foreground";
+          return (
+            <g key={`ev-${i}-${ev.index}`}>
+              <line
+                x1={x(ev.index)} y1={pad.top}
+                x2={x(ev.index)} y2={height - pad.bottom}
+                className={cn(tone, "opacity-40")}
+                strokeWidth={1}
+                strokeDasharray="2,3"
+              />
+              <circle
+                cx={x(ev.index)}
+                cy={height - pad.bottom}
+                r={3}
+                className={cn(fill, "opacity-85")}
+              >
+                <title>{ev.label}</title>
+              </circle>
+            </g>
+          );
+        })}
+
         {hoverIdx !== null && (
           <>
             <line
@@ -171,12 +216,16 @@ export function AreaChart({
 
         {labels.filter((_, i) => i % Math.ceil(n / 6) === 0 || i === n - 1).map((label, _, arr) => {
           const origIdx = labels.indexOf(label);
+          // Anchor first/last labels to edges so they don't clip against the
+          // SVG viewport. Middle labels stay centered.
+          const anchor =
+            origIdx === 0 ? "start" : origIdx === n - 1 ? "end" : "middle";
           return (
             <text
               key={label}
               x={x(origIdx)}
               y={height - 4}
-              textAnchor="middle"
+              textAnchor={anchor}
               className="fill-muted-foreground/50 text-[8px]"
             >
               {label}

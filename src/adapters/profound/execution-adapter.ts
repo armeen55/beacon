@@ -2,6 +2,7 @@ import "server-only";
 
 import type { ProfoundImportRun } from "@/domains/observation-runs/types";
 import type { PromptAnswerObservation } from "@/domains/prompt-answer-observations/types";
+import { parseSearchQueries } from "@/domains/prompt-answer-observations/search-query-parser";
 import {
   normalizeHostname,
   parsePosition,
@@ -43,6 +44,39 @@ function splitNormalizedMentions(raw: string | undefined): string[] {
     .split(", ")
     .map((s) => s.trim())
     .filter(Boolean);
+}
+
+/**
+ * 2026-04-19: Profound's `mentions` and `mentioned?` CSV columns are
+ * systematically incomplete. On certain platform-days (especially ChatGPT
+ * and post-Apr 18 Google AI Overviews), the mentions column is 100% empty
+ * even when the answer text clearly names the brand. Our store read-only
+ * from those columns, producing a fake "mentions going down" trend while
+ * citations correctly went up.
+ *
+ * Fix: also scan the `response` answer text for brand aliases. If the text
+ * contains any alias OR the brand domain appears in a citation, treat as
+ * mentioned. This aligns our numbers with Profound's UI (which does its
+ * own text scan), and matches the SEO/AEO definition of a "mention."
+ */
+function scanResponseForBrand(
+  response: string,
+  brandAliases: string[],
+  ownedHosts: string[],
+): boolean {
+  if (!response) return false;
+  const haystack = response; // case-sensitive by default; aliases are cased already
+  const haystackLower = response.toLowerCase();
+  for (const alias of brandAliases) {
+    if (!alias) continue;
+    // Word-boundary match to avoid partial hits like "Ritz-Carlton".
+    const pattern = new RegExp(`\\b${alias.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&")}\\b`, "i");
+    if (pattern.test(haystack)) return true;
+  }
+  for (const host of ownedHosts) {
+    if (host && haystackLower.includes(host.toLowerCase())) return true;
+  }
+  return false;
 }
 
 function hostnameFromCitationUrl(url: string): string | null {
@@ -112,7 +146,8 @@ export function parseProfoundExecutions(
   accountId: string,
   importRunId: string,
   promptLookup: Map<string, string>,
-  ownedDomains: string[]
+  ownedDomains: string[],
+  brandAliases: string[] = []
 ): {
   observations: PromptAnswerObservation[];
   runs: ProfoundImportRun[];
@@ -124,6 +159,9 @@ export function parseProfoundExecutions(
   const ownedNormalized = ownedDomains
     .map(normalizeOwnedDomainEntry)
     .filter(Boolean);
+  // Strict-cased aliases used for text-scan mention detection. Lowercase
+  // prefix-match is handled inside scanResponseForBrand.
+  const aliases = brandAliases.map((a) => a.trim()).filter(Boolean);
 
   const groupCounts = new Map<string, number>();
   for (const row of rows) {
@@ -204,24 +242,61 @@ export function parseProfoundExecutions(
           ? true
           : false;
 
+    // 2026-04-19: mention detection uses TEXT SCAN of the answer as the
+    // source of truth. Profound's "mentioned?" and "normalized_mentions"
+    // columns are systematically wrong on many platform-days (e.g. ChatGPT
+    // frequently reports "No" even when "Ritz Builders" is clearly in the
+    // response text). Column flags are only trusted as a fallback when we
+    // have NO answer text to scan.
+    const colFlag = parseMentionedFlag(row["mentioned?"]);
+    const mentionsFromCol = splitNormalizedMentions(row.normalized_mentions);
+    const aliasInMentions = aliases.length > 0
+      ? mentionsFromCol.some((m) => aliases.some((a) => a.toLowerCase() === m.toLowerCase()))
+      : false;
+    const aliasInResponse = aliases.length > 0
+      ? scanResponseForBrand(response, aliases, ownedNormalized)
+      : false;
+    const hasResponse = response.length > 0;
+    const tracked_brand_mentioned =
+      aliasInResponse ? true
+      : aliasInMentions ? true
+      : hasResponse ? false
+      : colFlag; // fallback when no text to scan and no alias match
+    // Ensure `mentions[]` contains the owned brand alias when detected
+    // via text scan, so downstream readers have the name available.
+    const mergedMentions = [...mentionsFromCol];
+    if (aliasInResponse && aliases.length > 0 && !aliasInMentions) {
+      const ownedAlias = aliases[0];
+      if (ownedAlias && !mergedMentions.includes(ownedAlias)) {
+        mergedMentions.push(ownedAlias);
+      }
+    }
+
+    const rawSearchQueries = row.search_queries ?? "";
     observations.push({
       id,
       prompt_id,
       run_id: runRecord?.id ?? "",
       answer_hash: response.length ? djb2Hash(response) : null,
       position: parsePosition(row.position),
-      tracked_brand_mentioned: parseMentionedFlag(row["mentioned?"]),
+      tracked_brand_mentioned,
       tracked_brand_cited,
       citation_count: cited.citation_count,
       owned_citation_count: cited.owned_citation_count,
       citation_domains: cited.citation_domains,
       citation_categories: {},
-      mentions: splitNormalizedMentions(row.normalized_mentions),
+      mentions: mergedMentions,
       observed_at: date ? `${date}T00:00:00.000Z` : "",
       platform,
       topic: row.topic?.trim() ?? "",
+      // Phase 7 Part 1b-v2 (2026-04-19): elevated search_queries to first-class
+      // field + parsed array. Raw string preserved for lossless re-parsing.
+      // metadata.search_queries kept for backward compat in case any legacy
+      // reader still looks there.
+      raw_search_queries: rawSearchQueries,
+      search_queries: parseSearchQueries(rawSearchQueries),
       metadata: {
-        search_queries: row.search_queries ?? "",
+        search_queries: rawSearchQueries,
       },
       tenant_id: "",
     });

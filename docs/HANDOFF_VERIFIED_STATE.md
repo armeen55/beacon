@@ -7,9 +7,19 @@
 >
 > **NOT FOR:** Execution steps (→ `NEXT_PHASE_EXECUTION_PLAN.md`), system diagrams (→ `architecture.md`), deep history (→ `master_execution_plan.md`), verification proof (→ `VERIFICATION_LOG.md`).
 
-**Last updated:** 2026-04-17 (Phase 1 complete + first dogfeed night executed + UX hardening pass)
+**Last updated:** 2026-04-17 (Phase 7 Part 1b-v2 Step 2 — keyword-gap scanner v3 LIVE on Today)
 **Branch:** `main`
-**Build:** `npm run typecheck` ✓ · `npm run test` 995/1002 ✓ (same 7 pre-existing `local-presence` + `tests/tenants/isolation` failures, confirmed unrelated 6× via `git stash`)
+**Build:** `npm run typecheck` ✓ · `npm run test` 1000/1007 ✓ (same 7 pre-existing tenant-isolation failures, no regression)
+
+**Phase 7 Part 1b-v2 Step 2 — COMPLETE (2026-04-17).** The keyword-gap scanner, silenced since Apr 19 when we caught it mining AI answer boilerplate ("Track Record" appeared in 28.7% of all answers), is now live on Today. V3 mines concepts from each observation's `search_queries` field (AI's internal retrieval queries, not output vocabulary). Tier-aware pipeline:
+- Tier 1 (saturation_miss) uses raw bigram/trigram concepts — surfaced labels like "Custom Homes", "Luxury Home".
+- Tier 2 (gap) applies concept expansion from example queries to produce longer readable phrases — "Home Renovation Contractors Menlo Park", "Modernizing Older Homes Without Expanding".
+- Tier 3 (positive) computed but deliberately not surfaced.
+- Readability gate rejects 2-3 word fragments starting with plural nouns (e.g., "Builders Bay Area" is filtered out).
+- Cities excluded via knownLocations; competitors excluded via dynamic top-40 non-brand mentions.
+- Top 3 cards visible on live Today page: "Position 'Custom Homes' on /locations/los-altos" (Tier 1), "Position 'Luxury Home' on /locations/cupertino-custom-home-builder" (Tier 1), 1 gap rec on /locations/menlo-park.
+
+Details in `docs/VERIFICATION_LOG.md` 2026-04-17 entry (Phase 7 Part 1b-v2 Step 2).
 
 **Phase 1 SCHEMA-EXPERIMENT ATTRIBUTION — COMPLETE (2026-04-17):** Missing-schema detector surfaces as Today ActionCard before the change; manual confirm stamps structured schema-diff fields after the change; 5-rung matching ladder attributes at exact specificity. Auto-promote OFF by default (`BEACON_AUTO_PROMOTE_SCHEMA=1` to flip, no scan-side wire-up shipped). 127 new tests, Phase 0 acceptance still 8/8. Details: `docs/VERIFICATION_LOG.md` 2026-04-17 entry.
 

@@ -8,6 +8,8 @@ export type FindingsStripData = {
   totalCount: number;
   criticalCount: number;
   importantCount: number;
+  /** Short human-readable breakdown by finding type, e.g. "12 missing FAQ schema \u00b7 8 low extractability". Optional \u2014 falls back to the generic count if absent. */
+  typeBreakdownLabel?: string | null;
 };
 
 export function TodayActionQueue({
@@ -95,9 +97,9 @@ export function TodayActionQueue({
 
       {!hasActions && !truthBlocked && (
         <div className="rounded-lg border border-border/50 bg-surface-raised/30 px-5 py-8 text-center">
-          <p className="text-[14px] font-semibold text-foreground/80">No actions right now</p>
+          <p className="text-[14px] font-semibold text-foreground/80">Nothing to do right now</p>
           <p className="text-[12px] text-muted-foreground/60 mt-2 max-w-[280px] mx-auto leading-relaxed">
-            Beacon will surface recommendations when it detects opportunities in your data.
+            Beacon will show you things to try when it spots them in your data.
           </p>
         </div>
       )}
@@ -114,20 +116,15 @@ export function TodayActionQueue({
           )}
         >
           <span className="text-foreground font-medium">
-            {findings.totalCount} issue{findings.totalCount !== 1 ? "s" : ""} detected
+            {findings.typeBreakdownLabel ?? `${findings.totalCount} page issue${findings.totalCount !== 1 ? "s" : ""}`}
             {findings.criticalCount > 0 && (
               <span className="text-status-danger ml-1.5">
-                · {findings.criticalCount} critical
-              </span>
-            )}
-            {findings.importantCount > 0 && findings.criticalCount === 0 && (
-              <span className="text-status-warning ml-1.5">
-                · {findings.importantCount} important
+                \u00b7 {findings.criticalCount} urgent
               </span>
             )}
           </span>
           <span className="text-accent-primary font-medium shrink-0 ml-3">
-            View in Pages →
+            See on Pages →
           </span>
         </Link>
       )}

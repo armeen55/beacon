@@ -109,12 +109,9 @@ export function HealthStrip({
           {statusDot(localStatus)}
           <span>Local: <span className="font-medium">{localNeedsAttention ? "needs review" : "ok"}</span></span>
         </span>
-        <Link
-          href="/settings/methodology"
-          className="text-[10px] text-accent-primary hover:underline"
-        >
-          Methodology
-        </Link>
+        {/* Methodology link removed 2026-04-17 (Day 3 trust cleanup). Route still
+            exists at /settings/methodology for direct access; hidden from the
+            daily-view HealthStrip because Settings also removed the tab today. */}
       </div>
       {expanded && (
         <HowWeKnowPanel context={proofContext} variant="today" />

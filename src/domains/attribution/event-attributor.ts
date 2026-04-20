@@ -248,11 +248,102 @@ function attributeSitewideRollout(
 // page_level
 // ---------------------------------------------------------------------------
 
+/**
+ * Phase 0.6 (2026-04-17) — shared landing-verdict helper used when a
+ * `page_level` event is actually a missed page-creation. Mirrors the
+ * `compound_launch` 3/14/30-day post-window ladder. Returns null when the URL
+ * has no citation series, so the caller can fall through to the standard
+ * inconclusive path.
+ *
+ * Kept separate from `attributeCompoundLaunch` on purpose — the compound_launch
+ * code path is frozen for Phase 0 acceptance tests and must not change.
+ */
+function attributeLandingOnly(
+  event: ChangeEvent,
+  input: AttributeEventsInput,
+  asOf: string,
+): EventAttribution | null {
+  const url = event.target_urls?.[0] ?? event.created_url ?? null;
+  const series = url ? input.urlSeriesByUrl[url] : null;
+  if (!series || series.daily.length === 0) return null;
+
+  const firstDay = firstCitationDay(series);
+  const daysToFirst = firstDay ? daysBetween(event.ended_at, firstDay) : null;
+
+  const windowDays14 = filterWindow(series, event.ended_at, 14, asOf);
+  const windowDays3 = filterWindow(series, event.ended_at, 3, asOf);
+  const windowDays30 = filterWindow(series, event.ended_at, 30, asOf);
+
+  const sum14 = sumCounts(windowDays14);
+  const sum3 = sumCounts(windowDays3);
+  const sum30 = sumCounts(windowDays30);
+
+  let verdict: string;
+  if (sum3 >= 5) verdict = "landed_fast";
+  else if (sum14 >= 5) verdict = "landed_normal";
+  else if (sum30 > 0) verdict = "landed_slow";
+  else verdict = "never_landed";
+
+  const c_timing =
+    daysToFirst == null
+      ? 0.1
+      : daysToFirst <= 3
+        ? 1.0
+        : daysToFirst <= 14
+          ? 0.7
+          : daysToFirst <= 30
+            ? 0.4
+            : 0.2;
+  const c_scope = 1.0;
+  const peakPerDay = maxCounts(windowDays30);
+  const c_magnitude = Math.min(1.0, peakPerDay / 10);
+  const confidence = geomean([c_timing, c_scope, c_magnitude]);
+
+  const confidence_source: ConfidenceSource = "measured";
+  const observed_lift_pct = sum30 > 0 ? sum14 / Math.max(14, 1) : null;
+
+  const narrative = [
+    `New page ${url}.`,
+    daysToFirst == null
+      ? "URL never cited."
+      : `First citation observed ${daysToFirst}d after the last edit.`,
+    `Post-launch citations: ${sum3} by day 3, ${sum14} by day 14, ${sum30} by day 30.`,
+  ].join(" ");
+
+  return {
+    event_id: event.id,
+    site_movement_event_id: matchNearbyMovement(event, input.siteMovements, 5)?.id ?? null,
+    verdict,
+    confidence,
+    evidence: {
+      c_timing,
+      c_scope,
+      c_magnitude,
+      confidence_source,
+      narrative,
+      observed_lift_pct,
+      days_to_first_citation: daysToFirst,
+    },
+    recorded_at: new Date().toISOString(),
+  };
+}
+
 function attributePageLevel(
   event: ChangeEvent,
   input: AttributeEventsInput,
   asOf: string,
 ): EventAttribution {
+  // Phase 0.6 (2026-04-17) — page_created events missed by Rule A still get
+  // the landing-verdict ladder so new pages with post-launch citations don't
+  // vanish into "not_enough_data". Only fires when the assembler flagged
+  // event_type === "page_created"; all other page_level events continue
+  // through the Z-score engine unchanged.
+  if (event.event_type === "page_created") {
+    const landingAttr = attributeLandingOnly(event, input, asOf);
+    if (landingAttr) return landingAttr;
+    // No series → fall through to the existing inconclusive path below.
+  }
+
   const url = event.target_urls?.[0] ?? event.created_url ?? null;
   const series = url ? input.urlSeriesByUrl[url] : null;
   const changeDate = event.ended_at;

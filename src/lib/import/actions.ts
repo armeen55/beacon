@@ -39,8 +39,9 @@ import {
   scanRoutesShouldRevalidate,
   type WebsiteScanResult,
 } from "@/domains/scanning/orchestrate-scan";
-import { runOutcomeBackfill } from "@/domains/product/outcome-backfill";
-import { runExperimentCitationSync } from "@/domains/product/experiment-citation-sync";
+// Phase 4 (2026-04-19): outcome-backfill + experiment-citation-sync removed.
+// URL-level outcomes are materialized inside url-watcher from observation
+// history; no separate experiment-refresh step is needed.
 import { runMilestoneSync } from "@/domains/milestones/post-import-sync";
 
 export async function getImportRuns(): Promise<ImportRun[]> {
@@ -313,8 +314,7 @@ export async function executeImport(
   if (entityType !== "reviews") {
     await persistImportedEntities(entityType);
     await dualWriteImportedEntities(entityType);
-    await runOutcomeBackfill().catch(() => {});
-    await runExperimentCitationSync().catch(() => {});
+    // Phase 4 (2026-04-19): outcome-backfill + experiment-citation-sync removed.
     await runMilestoneSync().catch(() => {});
   }
 

@@ -7,6 +7,33 @@
 
 ---
 
+## 2026-04-17 — Phase 7 Part 1b-v2 Step 2: Keyword-gap scanner v3 LIVE on Today
+
+**Goal:** Replace the silenced-since-Apr-19 gap-scanner stub with the search_queries-based v3 scanner. Scanner must use AI's internal retrieval queries (not answer-text n-grams), produce human-readable concept labels, and surface cleanly on Today.
+
+**Shipped:**
+
+1. Tier-aware expansion fix in `src/domains/product/keyword-gap-scanner.ts` — Tier 1 (saturation_miss) uses raw concept, Tier 2 (gap) uses `expandConcept()` from example queries. Resolves regression where broad Tier 1 concepts expanded to nonsense like "Harwood Construction Redwood City Atherton". Readability gate rejects 2-3 word fragments starting with plural nouns.
+2. Stale `expandedConcept` reference in `pageFindings.push()` renamed to `finalConcept`.
+3. Scanner wired in `src/domains/product/recommendation-engine.ts:560-597` — replaces `_gapScannerSilenced` stub. Defensive-guards on all required inputs. Limit=8 recs per page render.
+4. `computeRecommendations` opts gained two new optional fields: `competitorExclusions?: string[]`, `knownLocations?: string[]`.
+5. `src/app/(shell)/today-data.ts` builds dynamic competitor list (top-40 non-brand mentions across all observations) + Bay Area location list, passes both to scanner.
+
+**Dry-run at default Threshold A (≥25% sat, ≤50% coverage, ≥15 occ) — 17 findings across 5 pages:**
+- Tier 1 (sat-miss, 2): "Custom Homes" on /locations/los-altos, "Luxury Home" on /locations/cupertino-custom-home-builder.
+- Tier 2 (gap, 10): "Major Structural Home Renovation", "Home Renovation Builders", "Home Renovation Contractors Menlo Park", "Modernizing Older Homes Without Expanding", "Major Structural Home Renovation Atherton", etc.
+- Tier 3 (positive, 5): "Custom Home Builders" on 3 pages — computed, not surfaced.
+- Every label passes human smell test. No "Builders Bay Area" fragments. No "Track Record" boilerplate.
+
+**Verified on live Today page (curl http://localhost:3000/):**
+- `rec-satmiss--locations-los-altos-bigram-0` ("Position 'Custom Homes' in your H2")
+- `rec-satmiss--locations-cupertino-custom-home-builder-bigram-1` ("Position 'Luxury Home' in your H2")
+- `rec-gap--locations-menlo-park-trigram-3` (top-3 card)
+
+**Quality gate:** `npm run typecheck` clean. `npm run test` → 1000/1007 passing (same 7 pre-existing tenant-isolation failures; no regression).
+
+---
+
 ## 2026-04-17 — Phase 1 Schema-Experiment Attribution Pipeline
 
 **Goal:** Ship the product gap that made schema-parity opportunities invisible in Beacon. Detector surfaces missing schema BEFORE the change. Manual confirm stamps structured schema-diff fields AFTER the change. Matching ladder attributes at high specificity without changing behavior for non-schema events. Source plan: `/Users/armeen/.claude/plans/dreamy-beaming-sphinx.md` (Phase 1 overwrite).

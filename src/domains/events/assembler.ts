@@ -360,11 +360,20 @@ function ruleC_pageLevel(
     if (claimed.has(row.id)) continue;
     const path = pathOnly(row.url);
     const d = dateOf(row.timestamp);
+    // Phase 0.6 (2026-04-17) — detect page_created signals that Rule A missed
+    // (no matching citation data, keyword-timing mismatch, or new URLs that
+    // weren't yet in firstCitationDateByUrl at assembly time). Routes these
+    // to the landing-verdict path in attributePageLevel so new pages with
+    // post-launch citations don't silently fall into "not_enough_data".
+    const isPageCreation = PAGE_CREATION_KEYWORDS.test(row.change_description);
+    const eventType: EventType = isPageCreation ? "page_created" : "content_edit";
     events.push({
       id: `evt-page_level-${slug(path ?? "unknown")}-${d.replaceAll("-", "")}-${row.id}`,
       scope: "page_level",
-      event_type: "content_edit",
-      label: `Page edit${path ? `: ${path}` : ""}`,
+      event_type: eventType,
+      label: isPageCreation
+        ? `Page created${path ? `: ${path}` : ""}`
+        : `Page edit${path ? `: ${path}` : ""}`,
       started_at: d,
       ended_at: d,
       target_urls: path ? [path] : null,

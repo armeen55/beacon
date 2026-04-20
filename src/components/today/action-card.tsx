@@ -59,10 +59,13 @@ export type ActionCardProps = {
   dimmed?: boolean;
 };
 
+// Labels rewritten 2026-04-17 (Day 4 jargon sweep):
+//   Critical → Fix now | High leverage → Biggest win | Opportunistic → Worth trying
+// Internal bucket keys stay the same so nothing downstream breaks.
 const BUCKET_STYLE: Record<string, { dot: string; label: string; border: string; bg: string }> = {
-  critical: { dot: "bg-status-danger", label: "Critical", border: "border-status-danger/40", bg: "bg-status-danger/[0.03]" },
-  high_leverage: { dot: "bg-status-success", label: "High leverage", border: "border-status-success/30", bg: "bg-status-success/[0.02]" },
-  opportunistic: { dot: "bg-muted-foreground/60", label: "Opportunistic", border: "border-border/60", bg: "bg-surface-raised/30" },
+  critical: { dot: "bg-status-danger", label: "Fix now", border: "border-status-danger/40", bg: "bg-status-danger/[0.03]" },
+  high_leverage: { dot: "bg-status-success", label: "Biggest win", border: "border-status-success/30", bg: "bg-status-success/[0.02]" },
+  opportunistic: { dot: "bg-muted-foreground/60", label: "Worth trying", border: "border-border/60", bg: "bg-surface-raised/30" },
 };
 
 const CONFIDENCE_LABEL = REC_CONFIDENCE_LABEL;
@@ -92,19 +95,16 @@ export function ActionCard({
         !isPrimary && "border-border/50 bg-surface-raised/20 px-4 pt-3 pb-4",
       )}
     >
-      {/* Header: bucket + confidence */}
-      <div className="flex items-center justify-between gap-2 mb-2.5">
+      {/* Header: bucket dot + label only. Confidence label ("Signal detected",
+         "Strong signal") removed 2026-04-19 \u2014 uniform on every card = noise.
+         Confidence still lives on the card via rationale copy (e.g. "medium
+         confidence" in hurting card text) where it actually carries context. */}
+      <div className="flex items-center gap-2 mb-2.5">
         <span className="flex items-center gap-1.5">
           <span className={cn("h-1.5 w-1.5 rounded-full", dimmed ? "bg-muted-foreground/40" : bs.dot)} />
           <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
             {bs.label}
           </span>
-        </span>
-        <span className={cn(
-          "text-[10px] font-medium",
-          action.confidence === "high" ? "text-status-success/80" : "text-muted-foreground/50",
-        )}>
-          {CONFIDENCE_LABEL[action.confidence]}
         </span>
       </div>
 
@@ -160,27 +160,59 @@ export function ActionCard({
 
       {/* CTA row */}
       <div className="flex items-center gap-3 mt-3 flex-wrap">
-        {action.responseStatus !== "accepted" && (
+        {/* Verdict cards (hurting / helping) \u2014 single nav CTA + Acknowledge.
+           Apply/Dismiss are semantically wrong here: the verdict is a fact,
+           not a rec you apply. Phase 7 Part 1d (2026-04-19). */}
+        {(action.type === "hurting_verdict" || action.type === "helping_verdict") && action.responseStatus !== "accepted" && (
           <>
-            {onStartExperiment && onRespondToRec && (
+            <Link
+              href={action.href}
+              className={cn(
+                "inline-flex items-center gap-2 rounded-md px-4 py-2 text-[12px] font-semibold transition-opacity",
+                isPrimary
+                  ? "bg-foreground text-background hover:opacity-90"
+                  : "border border-foreground/20 text-foreground hover:bg-surface-inset/40",
+              )}
+            >
+              {action.type === "hurting_verdict" ? "See the change \u2192" : "Replicate this win \u2192"}
+            </Link>
+            {onRespondToRec && (
+              <button
+                type="button"
+                onClick={() =>
+                  startTransition(async () => {
+                    await onRespondToRec(action.id, "dismissed");
+                    setActionMsg(
+                      action.type === "hurting_verdict"
+                        ? "Acknowledged \u2014 we'll stop surfacing until the verdict changes."
+                        : "Acknowledged.",
+                    );
+                  })
+                }
+                disabled={pending}
+                className="text-[11px] font-medium text-muted-foreground/50 hover:text-muted-foreground transition-colors"
+              >
+                Acknowledge
+              </button>
+            )}
+          </>
+        )}
+        {/* Rec cards \u2014 standard Apply / Not now / Dismiss row. */}
+        {action.type !== "hurting_verdict" && action.type !== "helping_verdict" && action.responseStatus !== "accepted" && (
+          <>
+            {onRespondToRec && (
               <button
                 type="button"
                 onClick={() => {
-                  const note = prompt("What did you change or plan to change? (short note)");
-                  if (note === null) return;
                   startTransition(async () => {
+                    // Phase 3 (2026-04-19): "Apply this" no longer creates an
+                    // experiment row. The Z-score engine watches every URL
+                    // change automatically via url-watcher. This click just
+                    // records that the operator accepted the rec \u2014 used for
+                    // causal attribution when the next change on this URL is
+                    // detected.
                     await onRespondToRec(action.id, "accepted");
-                    await onStartExperiment({
-                      recId: action.id,
-                      headline: action.headline,
-                      recType: action.type,
-                      targetPageUrl: action.targetPageUrl ?? null,
-                      targetPagePath: action.targetPagePath ?? null,
-                      watchAfter: action.watchAfter ?? "",
-                      operatorNote: note,
-                      baselineCitations: action.baselineCitations ?? null,
-                    });
-                    setActionMsg("Accepted & tracking.");
+                    setActionMsg("Noted \u2014 we'll track the next change on this page.");
                   });
                 }}
                 disabled={pending}
@@ -191,7 +223,7 @@ export function ActionCard({
                     : "border border-foreground/20 text-foreground hover:bg-surface-inset/40",
                 )}
               >
-                Accept & test →
+                Apply this
               </button>
             )}
             {onRespondToRec && (
@@ -255,7 +287,7 @@ export function ActionCard({
             onClick={() => setEvidenceOpen((v) => !v)}
             className="text-[10px] font-medium text-muted-foreground/60 hover:text-muted-foreground transition-colors"
           >
-            {evidenceOpen ? "▾ Less" : "▸ Evidence & context"}
+            {evidenceOpen ? "▾ Hide" : "▸ Why we suggest this"}
           </button>
           {evidenceOpen && (
             <div className="mt-2 space-y-2">
@@ -279,7 +311,7 @@ export function ActionCard({
               )}
               {action.watchAfter && (
                 <p className="text-[10px] text-muted-foreground/50">
-                  Watch after: {action.watchAfter.charAt(0).toLowerCase() + action.watchAfter.slice(1)}
+                  Check back: {action.watchAfter.charAt(0).toLowerCase() + action.watchAfter.slice(1)}
                 </p>
               )}
             </div>

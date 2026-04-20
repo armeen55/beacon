@@ -43,10 +43,8 @@ import {
   getResponse,
   recommendationResponses,
 } from "@/domains/product/recommendation-response-store";
-import {
-  getActiveExperiments,
-  getExperimentByRecId,
-} from "@/domains/product/experiment-store";
+// Phase 4 (2026-04-19): experiment-store deleted. url-change-outcomes is now
+// the single source of truth for tracking. See getWatchingUrlOutcomes().
 // outcome-store backfill/persist moved to post-import (Phase 1C-1)
 import { computeCitationDecay, getDecayAlerts } from "@/domains/attribution/citation-decay";
 import { extractEntities } from "@/domains/entity/entity-extract";
@@ -92,17 +90,27 @@ import {
 import { answerIntelligenceIndex } from "@/domains/answer-intelligence/store";
 import { buildMorningBrief, type MorningBriefData } from "@/domains/product/morning-brief";
 import { buildQueryKeywordIndex, type QueryKeywordIndex } from "@/domains/answer-intelligence/query-index";
-import { computeMemoryInsights } from "@/domains/attribution/memory";
+// 2026-04-20: MemoryInsight (topic-level attribution) removed in favor of
+// url-change-outcomes (URL-level Z-score). See win-card logic below.
 import { dailyMetricSnapshots } from "@/storage/canonical-store";
-import {
-  computeBrainActions,
-  type BrainAction,
-} from "@/domains/product/url-brain-recommender";
+// url-brain-recommender removed 2026-04-18 (Phase 7 cleanup) \u2014 was producing
+// vague "Investigate h1 regression" shrug cards with low-sample pattern math
+// (often 2-of-3 cases). Being replaced by data-grounded keyword-gap scanner +
+// LLM-as-judge ablation (see docs/IDEAS_PARKING_LOT.md for ablation roadmap).
 import { urlChangeOutcomes } from "@/domains/attribution/url-change-outcome";
 import type { UrlChangePattern } from "@/domains/learning/change-patterns";
 import { buildSchemaParityActions } from "@/domains/actions/schema-parity-actions";
 import { getCompetitorMonitoringState } from "@/domains/competitor-monitoring/store";
 import { generateCompetitorAlerts } from "@/domains/competitor-monitoring/detect-changes";
+import {
+  computeVisibilityTimeSeries,
+  computeVisibilityTimeSeriesByPlatform,
+  computeLeaderboard,
+  computeCompetitorSeries,
+  type VisibilityMetric,
+  type VisibilityPoint,
+  type EntityVisibility,
+} from "@/domains/product/visibility-score";
 
 
 import type { ComponentProps } from "react";
@@ -511,16 +519,71 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
 
   const changePatterns = readStore<import("@/domains/learning/change-patterns").ChangePattern>("change-patterns");
   const changeOutcomes = readStore<import("@/domains/attribution/change-outcome").ChangeOutcome>("change-outcomes");
-  const { getActiveExperiments: getExps } = await import("@/domains/product/experiment-store");
+  // Phase 4 (2026-04-19): "active experiments" concept removed. Scanner watches
+  // every URL change automatically via url-watcher; no opt-in required. The
+  // gap-scanner still wants to avoid recommending on URLs where we're already
+  // watching \u2014 feed it the current watchlist from url-change-outcomes.
+  const { getWatchingUrlOutcomes } = await import("@/domains/attribution/url-change-outcome");
   const activeExperimentUrls = new Set(
-    getExps()
-      .filter((e) => e.targetPagePath)
-      .map((e) => e.targetPagePath!.replace(/\/+$/, "").toLowerCase()),
+    getWatchingUrlOutcomes().map((o) => o.url.replace(/\/+$/, "").toLowerCase()),
   );
   // Build query keyword index from fan-out data — unlocks 5,289 real search
   // queries for keyword optimization recs AND morning brief step generation.
   const { promptAnswerObservations } = await import("@/storage/canonical-store");
   const queryIndex = buildQueryKeywordIndex(citationEvidenceIndex, promptAnswerObservations);
+
+  // Phase 7 Part 1b (2026-04-18): load answer-texts from disk so the
+  // data-grounded keyword-gap scanner has the raw AI answer corpus to mine
+  // for competitor-citing vs you-citing phrase deltas. Cheap read (~38 MB
+  // hit once per render; cold-store internally caches).
+  const { readAnswerTextsFromDisk } = await import("@/lib/persistence/cold-store");
+  const answerTexts = readAnswerTextsFromDisk();
+
+  // Brand aliases for the scanner. Mirrors the Visibility-chart alias logic.
+  const scannerBusinessConfig = getBusinessConfig();
+  const scannerBrandAliases = [
+    scannerBusinessConfig.name,
+    scannerBusinessConfig.name.split(" ")[0],
+  ].filter((a, i, arr) => a && arr.indexOf(a) === i);
+
+  // Phase 7 Part 1b-v2: dynamic competitor exclusion list. businessConfig
+  // lists only the top 5 primaryCompetitors, but observation data surfaces
+  // 30+ competitor brands. Use top-40 non-brand mentions to keep
+  // competitor names out of concept extraction.
+  const scannerBrandAliasesLC = new Set(
+    scannerBrandAliases.map((s) => s.toLowerCase()),
+  );
+  const scannerMentionCounts = new Map<string, number>();
+  for (const o of promptAnswerObservations) {
+    for (const m of o.mentions ?? []) {
+      if (!scannerBrandAliasesLC.has(m.toLowerCase())) {
+        scannerMentionCounts.set(m, (scannerMentionCounts.get(m) ?? 0) + 1);
+      }
+    }
+  }
+  const scannerTopMentioned = [...scannerMentionCounts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 40)
+    .map(([name]) => name);
+  const scannerCompetitorExclusions = Array.from(
+    new Set([
+      ...((scannerBusinessConfig as unknown as { competitors?: string[] }).competitors ?? []),
+      ...(scannerBusinessConfig.primaryCompetitors ?? []),
+      ...scannerTopMentioned,
+    ]),
+  );
+
+  // Known city/location labels for the city-filter. Expand beyond
+  // businessConfig.locations to include commonly-co-occurring neighbors
+  // that AI frequently mentions together.
+  const scannerKnownLocations: string[] = [
+    ...(scannerBusinessConfig.locations ?? []),
+    "Atherton", "Menlo Park", "Palo Alto", "Los Altos", "Los Altos Hills",
+    "Cupertino", "Saratoga", "Portola Valley", "Woodside", "Mountain View",
+    "Emerald Hills", "Redwood City", "San Carlos", "Hillsborough",
+    "Silicon Valley", "Bay Area", "San Francisco", "Peninsula",
+    "California", "CA", "USA",
+  ];
 
   const allRecommendations = computeRecommendations({
     impactRows,
@@ -535,9 +598,16 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
     changelogEntries,
     changePatterns,
     activeExperimentUrls,
-    changeOutcomes,
+    // 2026-04-20: changeOutcomes (topic-level) no longer used for prior-success
+    // attribution. urlChangeOutcomes (URL-level Z-score) is the new source.
+    urlChangeOutcomes,
     sectionAnalyzerConfig: getSectionAnalyzerConfig(),
     queryIndex,
+    observations: promptAnswerObservations,
+    answerTexts,
+    brandAliases: scannerBrandAliases,
+    competitorExclusions: scannerCompetitorExclusions,
+    knownLocations: scannerKnownLocations,
   });
 
   // Filter out dismissed / deferred-but-not-due recommendations
@@ -560,8 +630,13 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
     recommendations: allRecommendations,
   });
 
+  // Phase 4 (2026-04-19): recIds-with-accepted-status now come from the
+  // recommendation-response store directly (what the operator clicked "Apply
+  // this" on), not from a separate experiment table.
   const activeExperimentRecIdSet = new Set(
-    getActiveExperiments().map((e) => e.recId),
+    recommendationResponses
+      .filter((r) => r.status === "accepted")
+      .map((r) => r.recId),
   );
   const replicationImpactCards = buildReplicationCards({
     recommendations,
@@ -574,8 +649,11 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
   const replicationExcludeRecIds = new Set(
     replicationImpactCards.flatMap((c) => c.targets.map((t) => t.recId)),
   );
+  // Phase 4 (2026-04-19): experiment-based promising seed removed. Replication
+  // "promising" seeding is disabled for now; will be rebuilt on top of
+  // url-change-outcomes `helping` verdicts in a later phase.
   const replicationPromisingCards = buildPromisingReplicationCards(
-    getActiveExperiments(),
+    [],
     allRecommendations,
     impactRows,
     patterns,
@@ -608,12 +686,9 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
     patternTrackRecords: trackRecord.patternRecords,
   });
 
-  // ── Morning brief (Phase 1D) + Attribution Memory (Phase 3) ──
-  // Use visibilitySummary.totalCitations (from results array) to match scoreboard
-  const memoryInsights = computeMemoryInsights({
-    changes: changelogEntries,
-    snapshots: dailyMetricSnapshots,
-  });
+  // 2026-04-20: topic-level MemoryInsight pipeline removed. Attribution now
+  // lives entirely in url-change-outcomes (URL-level Z-score engine).
+
   // ── Competitor monitoring alerts (Phase 5) ──
   const competitorMonState = getCompetitorMonitoringState();
   const competitorAlerts = generateCompetitorAlerts(competitorMonState.recentChanges);
@@ -628,7 +703,7 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
     trendPct: visibilitySummary.trendPct,
     totalOwnedCitations: visibilitySummary.totalCitations,
     latestDataDate: visibilitySummary.dateRange?.to ?? null,
-    memoryInsights,
+    memoryInsights: [],
     competitorAlerts,
     competitorSnapshots: competitorMonState.snapshots,
     faqTemplates: getFaqTemplates(),
@@ -740,7 +815,7 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
         confidenceReason: buildConfidenceReason(primaryAction),
         watchAfter: buildWatchAfter(primaryAction),
         dataFreshness,
-        hasExperiment: !!getExperimentByRecId(primaryAction.id),
+        hasExperiment: false, // Phase 4: experiment store removed; field kept for client-side type compat.
         targetPageUrl: primaryAction.targetPageUrl,
         targetPagePath: primaryAction.targetPagePath,
         baselineCitations: primaryAction.targetPageUrl
@@ -776,7 +851,7 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
         confidenceReason: buildConfidenceReason(secondaryRec),
         watchAfter: buildWatchAfter(secondaryRec),
         dataFreshness,
-        hasExperiment: !!getExperimentByRecId(secondaryRec.id),
+        hasExperiment: false, // Phase 4: experiment store removed; field kept for client-side type compat.
         targetPageUrl: secondaryRec.targetPageUrl,
         targetPagePath: secondaryRec.targetPagePath,
         baselineCitations: secondaryRec.targetPageUrl
@@ -1181,82 +1256,292 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
   const scanState = readScanState();
   const scanPhaseFailed = scanState?.phase === "failed";
 
-  // Build experiment proof — most active non-dropped experiment
-  const activeExps = getActiveExperiments();
-  const experimentProof = activeExps.length > 0
-    ? (() => {
-        // Pick experiment with most timeline data
-        const best = activeExps
-          .filter((e) => (e.timeline?.length ?? 0) > 0)
-          .sort((a, b) => (b.timeline?.length ?? 0) - (a.timeline?.length ?? 0))[0];
-        if (!best) return null;
-        const daysSinceStart = Math.floor(
-          (Date.now() - new Date(best.startedAt).getTime()) / 86_400_000,
-        );
-        const citDeltaPct = best.baselineCitations && best.latestCitations
-          ? Math.round(((best.latestCitations - best.baselineCitations) / best.baselineCitations) * 1000) / 10
-          : null;
-        const menDeltaPct = best.baselineMentions && best.latestMentions
-          ? Math.round(((best.latestMentions - best.baselineMentions) / best.baselineMentions) * 1000) / 10
-          : null;
-        return {
-          id: best.id,
-          headline: best.headline,
-          status: best.status,
-          daysSinceStart,
-          citationDeltaPct: citDeltaPct,
-          mentionDeltaPct: menDeltaPct,
-          targetPagePath: best.targetPagePath,
-        };
-      })()
-    : null;
+  // Phase 4 (2026-04-19): experimentProof removed. It was a "show the newest
+  // promising experiment" card that depended on the experiments table. The
+  // hurting-verdict action cards on Today now carry the same signal in a more
+  // honest form (actual Z-score verdict, not "operator-started experiment").
+  const experimentProof = null;
 
-  // ── BRAIN-DRIVEN ACTION STACK (Post-Checkpoint Alignment) ──
-  // Today's action cards are now sourced from the URL-level pattern brain
-  // (G3/G4/G5) instead of the legacy topic-based recommendation engine.
-  // The legacy `serializedPrimary`/`serializedSecondary` above still power
-  // the morning brief for now (they feed buildMorningBrief upstream) and are
-  // kept as a safety fallback only when the brain has zero actions.
+  // Brain-driven action stack removed 2026-04-18 (Phase 7 cleanup).
+  // Was producing "Investigate h1 regression" shrug cards with 2-of-3 sample
+  // size pattern math. Ablation + data-grounded gap scanner coming (see
+  // docs/IDEAS_PARKING_LOT.md).
+  //
+  // For NOW the Today action stack sources from two feeds only:
+  //   1. Schema-parity actions (Phase 1 work, genuinely useful \u2014 kept)
+  //   2. Legacy recommendation-engine top picks (serializedPrimary, serializedSecondary)
+  //      \u2014 with the bigram Frankenstein already removed at the engine level
+  //      so whatever remains is structural/investigative recs, no H2 garbage.
+  //
+  // The new data-grounded scanner will slot in here once Part 1b lands.
   const urlChangePatterns = readStore<UrlChangePattern>("url-change-patterns");
-  const brainActions: BrainAction[] = computeBrainActions({
-    patterns: urlChangePatterns,
-    outcomes: urlChangeOutcomes,
-    changelog: changelogEntries,
-    citationsByUrl: citMap,
-    maxActions: 4,
-  });
-  const serializedBrainActions = brainActions.map((a) =>
-    serializeBrainAction(a, citMap, getResponse, getExperimentByRecId, dataFreshness),
-  );
+  void urlChangePatterns; // Reserved for Phase 7 Part 3 composite ranking
 
-  // Phase 1: schema_parity actions from schema_missing_for_page_type findings.
-  // Max 1 by default. `high` severity gets lifted into the visible part of
-  // the stack; `medium`/`low` appends to the end (falls through to the cap).
   const schemaParityActions = buildSchemaParityActions({
     findings: pendingFindings,
     citationsByUrl: citMap,
     maxActions: 1,
   });
 
-  // Assembly rule: brain actions in their current order, with ONE schema_parity
-  // action appended. Position depends on severity:
-  //   - high  → inserted at position 1 (becomes secondary, brain-primary preserved)
-  //   - other → appended to the end
-  // Overall cap remains maxActions = 4 (primary + secondary + 2 more).
+  // Phase 7 Part 1b (2026-04-18): data-grounded gap-scanner recs flow through
+  // the normal rec-engine \u2192 rankAndSelect pipeline. Once the scanner's
+  // experiment-URL filter was fixed (match path-only, not full URL), gap recs
+  // correctly top-rank and land as serializedPrimary / serializedSecondary.
+  // Schema-parity actions still get the primary slot when present.
   //
-  // Typed to the canonical `ActionCardAction` shape so narrower brain-serialized
-  // types widen on assembly without friction.
-  const assembled: import("@/components/today/action-card").ActionCardAction[] = [
-    ...serializedBrainActions,
-  ];
-  if (schemaParityActions.length > 0) {
-    const sp = schemaParityActions[0];
-    if (sp.bucket === "critical" && assembled.length >= 1) {
-      assembled.splice(1, 0, sp);
-    } else {
-      assembled.push(sp);
+  // Phase 7 Part 1c (2026-04-19): surface URL-level "hurting" verdicts from the
+  // Z-score engine directly on Today as critical action cards. This is the first
+  // cut of the experiments\u2192verdicts convergence. Previously these verdicts
+  // lived only in url-change-outcomes.json with no UI surface; a -27 z-score
+  // on /custom-home-builder-bay-area (the money page) was invisible to the user.
+  //
+  // Dedup: one card per URL (worst Z-score wins). Priority: 80+|z| so they beat
+  // most engine recs but stay below near-impossible scores.
+  // Phase 7 Part 1d (2026-04-19): hurting cards now carry the full story \u2014
+  // named the change that caused it, how long it's been hurting, whether the
+  // Z-score is worsening. Joined from imported-changes + url-change-outcomes
+  // `transitions` counter.
+  type HurtingRow = {
+    url: string;
+    changeId: string;
+    z: number;
+    deltaPct: number;
+    confidence: "low" | "medium" | "high";
+    baselineDaysUsed: number;
+    postDaysUsed: number;
+    recordedAt: string;
+    transitions: number;
+  };
+  // Only surface URLs whose LATEST verdict is still "hurting" (2026-04-19
+  // correctness fix). A page that was hurting and has since recovered \u2014
+  // flipping to `helping` on a later outcome \u2014 shouldn't still show as a
+  // FIX NOW card. First pass: find each URL's most recent outcome and whether
+  // it's currently hurting.
+  const latestVerdictByUrl = new Map<string, { verdict: string; updatedAt: string }>();
+  for (const o of urlChangeOutcomes) {
+    const existing = latestVerdictByUrl.get(o.url);
+    if (!existing || o.updated_at > existing.updatedAt) {
+      latestVerdictByUrl.set(o.url, { verdict: o.verdict, updatedAt: o.updated_at });
     }
   }
+  const hurtingByUrl = new Map<string, HurtingRow>();
+  for (const o of urlChangeOutcomes) {
+    if (o.verdict !== "hurting") continue;
+    const latest = latestVerdictByUrl.get(o.url);
+    if (latest?.verdict !== "hurting") continue; // recovered \u2014 skip
+    const z = o.landing_z ?? 0;
+    const existing = hurtingByUrl.get(o.url);
+    if (!existing || Math.abs(z) > Math.abs(existing.z)) {
+      hurtingByUrl.set(o.url, {
+        url: o.url,
+        changeId: o.change_id,
+        z,
+        deltaPct: o.delta_pct ?? 0,
+        confidence: (o.confidence as "low" | "medium" | "high") ?? "low",
+        baselineDaysUsed: o.baseline_days_used,
+        postDaysUsed: o.post_days_used,
+        recordedAt: o.recorded_at,
+        transitions: o.transitions,
+      });
+    }
+  }
+  const changeByIdForHurt = new Map(changelogEntries.map((c) => [c.id, c]));
+  const fmtDate = (iso: string): string => {
+    try {
+      return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    } catch { return "recently"; }
+  };
+  const hurtingActions: import("@/components/today/action-card").ActionCardAction[] =
+    Array.from(hurtingByUrl.values()).map((h) => {
+      const absZ = Math.abs(h.z);
+      const pctStr = h.deltaPct < 0
+        ? `${Math.abs(h.deltaPct * 100).toFixed(0)}% fewer citations`
+        : "a citation decline";
+      const change = changeByIdForHurt.get(h.changeId);
+      const changeDate = change?.timestamp ? fmtDate(change.timestamp) : null;
+      const changeDesc = change?.change_description?.trim()
+        ?? change?.asset_name?.trim()
+        ?? null;
+      const daysSinceRecorded = Math.max(
+        0,
+        Math.floor((Date.now() - new Date(h.recordedAt).getTime()) / 86_400_000),
+      );
+      const trendSuffix = h.transitions > 1 ? " \u00b7 worsening" : "";
+      const headline = changeDate
+        ? `${h.url} regressed after your ${changeDate} change`
+        : `${h.url} is losing AI visibility`;
+      const rationaleLead = changeDesc && changeDate
+        ? `On ${changeDate}, ${changeDesc}. Since then`
+        : changeDate
+          ? `Since your ${changeDate} change`
+          : "Since the latest detected change";
+      const rationale = `${rationaleLead}, this page is getting ${pctStr} (Z-score ${h.z.toFixed(1)}, ${h.confidence} confidence). Hurting for ${daysSinceRecorded}d${trendSuffix}. Review the change \u2014 revert, iterate, or confirm it's platform noise.`;
+      return {
+        id: `hurt-${h.changeId}-${h.url}`,
+        headline,
+        rationale,
+        expectedOutcome: "Restore or improve citation count to baseline.",
+        sourceEvidence: `${h.baselineDaysUsed}d baseline \u2192 ${h.postDaysUsed}d post-change`,
+        priorityScore: 80 + Math.min(absZ, 30),
+        bucket: "critical",
+        type: "hurting_verdict",
+        confidence: h.confidence,
+        href: `/changes/${h.changeId}`,
+        responseStatus: null,
+        targetPageUrl: h.url,
+        targetPagePath: h.url,
+        baselineCitations: citMap.get(h.url.replace(/\/+$/, "").toLowerCase()) ?? null,
+        sourceChangeId: h.changeId,
+      };
+    });
+  // Sort hurting cards by severity (most negative Z first).
+  hurtingActions.sort((a, b) => b.priorityScore - a.priorityScore);
+
+  // Acknowledgment filter: if the user clicked "Acknowledge" on a hurting card,
+  // suppress it until the verdict changes (different z-score triggers a new
+  // card id, which won't have a dismissed status). Reuses the existing
+  // recommendation-response store \u2014 no new data plumbing.
+  const acknowledgedHurtingCardIds = new Set(
+    recommendationResponses
+      .filter((r) => r.status === "dismissed" && r.recId.startsWith("hurt-"))
+      .map((r) => r.recId),
+  );
+  const visibleHurtingActions = hurtingActions.filter(
+    (a) => !acknowledgedHurtingCardIds.has(a.id),
+  );
+
+  // ── Winning action card: sourced from URL-level Z-score engine only.
+  //
+  // 2026-04-20 architectural rewrite: deleted the topic-level MemoryInsight
+  // path that was producing false causal claims (e.g. crediting a trivial
+  // "Removed duplicate FAQPage JSON-LD" sitewide cleanup for a +65% lift
+  // that was actually driven by competitor decline). Topic-level attribution
+  // conflates "change happened in topic X" with "topic X's trajectory was
+  // caused by the change." Dead architecture.
+  //
+  // New source: url-change-outcomes.json, which runs per-URL Z-score analysis
+  // with real pre/post windows. A URL earns a `helping` verdict only when its
+  // own citation series rises significantly post-change. Topic is metadata,
+  // not a causal primitive.
+  //
+  // Additional guards beyond the Z-score:
+  //   1. TEMPLATE-EDIT DEDUP: if the same change_description appears on
+  //      \u22653 pages within a week, it's a sitewide template edit, not a
+  //      per-page causal move. Drop all pages that inherited that description.
+  //   2. ACKNOWLEDGED SUPPRESSION: "Acknowledge" click on a previous win card
+  //      hides until verdict transitions.
+
+  // Template-edit dedup: find change_descriptions that appear on 3+ pages.
+  const changeDescToChangeIds = new Map<string, Set<string>>();
+  for (const c of changelogEntries) {
+    const desc = (c.change_description || "").trim().toLowerCase();
+    if (!desc || desc.length < 10) continue;
+    if (!changeDescToChangeIds.has(desc)) changeDescToChangeIds.set(desc, new Set());
+    changeDescToChangeIds.get(desc)!.add(c.id);
+  }
+  const templateEditChangeIds = new Set<string>();
+  for (const ids of changeDescToChangeIds.values()) {
+    if (ids.size >= 3) {
+      for (const id of ids) templateEditChangeIds.add(id);
+    }
+  }
+
+  // Build the winning-URL list from url-change-outcomes. One row per URL; take
+  // the most recent `helping` verdict for each URL, rank by |delta_pct|.
+  type HelpingRow = {
+    url: string;
+    changeId: string;
+    deltaPct: number;
+    landingZ: number;
+    confidence: "low" | "medium" | "high";
+    baselineDaysUsed: number;
+    postDaysUsed: number;
+    updatedAt: string;
+    landingDayN: number | null;
+  };
+  const helpingByUrl = new Map<string, HelpingRow>();
+  for (const o of urlChangeOutcomes) {
+    if (o.verdict !== "helping") continue;
+    if (templateEditChangeIds.has(o.change_id)) continue; // sitewide edits excluded
+    const existing = helpingByUrl.get(o.url);
+    if (!existing || o.updated_at > existing.updatedAt) {
+      helpingByUrl.set(o.url, {
+        url: o.url,
+        changeId: o.change_id,
+        deltaPct: o.delta_pct ?? 0,
+        landingZ: o.landing_z ?? 0,
+        confidence: (o.confidence as "low" | "medium" | "high") ?? "low",
+        baselineDaysUsed: o.baseline_days_used,
+        postDaysUsed: o.post_days_used,
+        updatedAt: o.updated_at,
+        landingDayN: o.landing_day_n,
+      });
+    }
+  }
+  // Only show URLs where the latest verdict is still `helping` (avoids
+  // showing a historical helping that has since reverted to `hurting` or
+  // `nothing_yet`).
+  const visibleHelping = Array.from(helpingByUrl.values()).filter((h) => {
+    const latest = latestVerdictByUrl.get(h.url);
+    return latest?.verdict === "helping";
+  });
+  // Rank by delta magnitude (biggest effect first).
+  visibleHelping.sort((a, b) => Math.abs(b.deltaPct) - Math.abs(a.deltaPct));
+
+  const winningActions: import("@/components/today/action-card").ActionCardAction[] = [];
+  // Take at most the top 2 winning URLs.
+  const topHelpingUrls = visibleHelping.slice(0, 2);
+  for (const h of topHelpingUrls) {
+    const winCardId = `win-${h.changeId}-${h.url}`;
+    const acknowledgedWin = recommendationResponses.some(
+      (r) => r.recId === winCardId && r.status === "dismissed",
+    );
+    if (acknowledgedWin) continue;
+    const change = changeByIdForHurt.get(h.changeId);
+    const changeDate = change?.timestamp ? fmtDate(change.timestamp) : null;
+    const changeDesc = change?.change_description?.trim()
+      ?? change?.asset_name?.trim()
+      ?? null;
+    const deltaPctAbs = Math.abs(h.deltaPct * 100);
+    const pctStr = h.deltaPct > 0
+      ? `up ${deltaPctAbs.toFixed(0)}%`
+      : `${deltaPctAbs.toFixed(0)}% shift`;
+    const landedSuffix = h.landingDayN !== null && h.landingDayN > 0
+      ? ` (landed ${h.landingDayN}d after change)`
+      : "";
+    const headline = changeDate
+      ? `${h.url} is winning after your ${changeDate} change`
+      : `${h.url} is winning (URL-level Z-score)`;
+    const rationaleLead = changeDesc && changeDate
+      ? `On ${changeDate}, ${changeDesc}. Since then, this page's citations are ${pctStr}`
+      : `Since your latest change, this page's citations are ${pctStr}`;
+    const rationale = `${rationaleLead} (Z-score ${h.landingZ.toFixed(1)}, ${h.confidence} confidence${landedSuffix}). Attribution is URL-level \u2014 this page's own citations rose, not a topic-wide trend.`;
+    winningActions.push({
+      id: winCardId,
+      headline,
+      rationale,
+      expectedOutcome: "Consider similar pages where this pattern could repeat.",
+      sourceEvidence: `${h.baselineDaysUsed}d baseline \u2192 ${h.postDaysUsed}d post-change`,
+      priorityScore: 75 - winningActions.length, // first wins slightly higher
+      bucket: "high_leverage",
+      type: "helping_verdict",
+      confidence: h.confidence,
+      href: `/changes/${h.changeId}`,
+      responseStatus: null,
+      targetPageUrl: h.url,
+      targetPagePath: h.url,
+      baselineCitations: citMap.get(h.url.replace(/\/+$/, "").toLowerCase()) ?? null,
+      sourceChangeId: h.changeId,
+    });
+  }
+
+  const assembled: import("@/components/today/action-card").ActionCardAction[] = [
+    ...visibleHurtingActions,
+    ...winningActions,
+    ...schemaParityActions,
+    ...(serializedPrimary ? [serializedPrimary] : []),
+    ...(serializedSecondary ? [serializedSecondary] : []),
+  ];
   const capped = assembled.slice(0, 4);
 
   // Prefer brain-driven actions on Today. Legacy flow remains only as safety
@@ -1264,6 +1549,162 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
   const todayPrimary = capped[0] ?? serializedPrimary;
   const todaySecondary = capped[1] ?? serializedSecondary;
   const todayMoreActions = capped.slice(2);
+
+  // ─────────────────────────────────────────────────────────────────────
+  // Visibility Score chart + leaderboard (Day 6 visual rebuild, 2026-04-17)
+  //
+  // Profound-style dashboard: daily mention/citation/composite score for the
+  // tenant + a top-5 competitor leaderboard. Pre-computes ALL three metric
+  // series so the chart toggle is instant client-side. Pre-computes both
+  // current (last 14d) AND previous (14d before that) windows so the
+  // "Previous period" overlay is also zero-latency.
+  //
+  // Data source: the `promptAnswerObservations` canonical store already
+  // imported above (line 522 ish) for the query-index build. We reuse it
+  // here to avoid a second pass over the same file.
+  // ─────────────────────────────────────────────────────────────────────
+  const businessConfig = getBusinessConfig();
+  const brandAliases = [
+    businessConfig.name,
+    // Simple shortened alias — "Ritz Builders" → "Ritz"
+    businessConfig.name.split(" ")[0],
+  ].filter((a, i, arr) => a && arr.indexOf(a) === i);
+
+  // Compute a FULL 60-day time series server-side. The chart then slices
+  // client-side based on the user's selected time range (7/14/30/60d).
+  // Leaderboard still uses a 14-day window with a 14-day previous window
+  // for its delta column (unchanged).
+  const today = new Date();
+  const isoDay = (d: Date) => d.toISOString().slice(0, 10);
+  const daysAgo = (n: number) => {
+    const d = new Date(today);
+    d.setUTCDate(d.getUTCDate() - n);
+    return isoDay(d);
+  };
+  const chartEndDate = isoDay(today);
+  const chartStartDate = daysAgo(59); // inclusive \u2192 60 days
+  const leaderEndDate = isoDay(today);
+  const leaderStartDate = daysAgo(13);
+  const leaderPrevEndDate = daysAgo(14);
+  const leaderPrevStartDate = daysAgo(27);
+
+  const METRICS: VisibilityMetric[] = ["composite", "mention_rate", "citation_rate"];
+
+  // Tenant 60-day time series, all three metrics.
+  const brandSeriesByMetric = {} as Record<VisibilityMetric, VisibilityPoint[]>;
+  for (const m of METRICS) {
+    brandSeriesByMetric[m] = computeVisibilityTimeSeries({
+      observations: promptAnswerObservations,
+      metric: m,
+      brandAliases,
+      startDate: chartStartDate,
+      endDate: chartEndDate,
+    });
+  }
+
+  // 2026-04-19: per-platform breakdown for the chart's "by platform" view.
+  // Matches Profound's per-platform visibility column.
+  const brandSeriesByPlatform = computeVisibilityTimeSeriesByPlatform({
+    observations: promptAnswerObservations,
+    brandAliases,
+    startDate: chartStartDate,
+    endDate: chartEndDate,
+  });
+
+  // Leaderboard: 14d window with 14d previous for delta.
+  const leaderboardByMetric = {} as Record<VisibilityMetric, EntityVisibility[]>;
+  for (const m of METRICS) {
+    leaderboardByMetric[m] = computeLeaderboard({
+      observations: promptAnswerObservations,
+      brandAliases,
+      startDate: leaderStartDate,
+      endDate: leaderEndDate,
+      prevStartDate: leaderPrevStartDate,
+      prevEndDate: leaderPrevEndDate,
+      metric: m,
+      limit: 5,
+    });
+  }
+
+  // Top competitors from the composite leaderboard (top 4 non-owned), with
+  // their own 60-day time series so the "Compare competitors" toggle is
+  // zero-latency.
+  const topCompetitorNames = leaderboardByMetric.composite
+    .filter((e) => !e.isOwned)
+    .slice(0, 4)
+    .map((e) => e.name);
+
+  const competitorSeriesByMetric = {} as Record<
+    VisibilityMetric,
+    Array<{ name: string; points: VisibilityPoint[] }>
+  >;
+  for (const m of METRICS) {
+    const series = computeCompetitorSeries({
+      observations: promptAnswerObservations,
+      brandAliases,
+      competitorNames: topCompetitorNames,
+      metric: m,
+      startDate: chartStartDate,
+      endDate: chartEndDate,
+    });
+    competitorSeriesByMetric[m] = series
+      .filter((s) => !s.isOwned)
+      .map((s) => ({ name: s.name, points: s.points }));
+  }
+
+  // Chart event overlay (2026-04-19): annotate each currently-hurting URL's
+  // change date with a red dot + guideline, and each helping URL with a green
+  // one. Makes the chart honest \u2014 "up 10.5%" with context.
+  const chartEvents: Array<{ date: string; tone: "danger" | "success" | "neutral"; label: string }> = [];
+  const eventDateKey = new Set<string>();
+  for (const h of hurtingByUrl.values()) {
+    const change = changeByIdForHurt.get(h.changeId);
+    const date = change?.timestamp?.slice(0, 10);
+    if (!date) continue;
+    const key = `hurt:${date}`;
+    if (eventDateKey.has(key)) continue;
+    eventDateKey.add(key);
+    chartEvents.push({
+      date,
+      tone: "danger",
+      label: `${h.url} \u2014 ${Math.abs((h.deltaPct ?? 0) * 100).toFixed(0)}% drop after change on ${date}`,
+    });
+  }
+  // Green dots for URLs currently in `helping` state (from Z-score engine).
+  for (const [url, latest] of latestVerdictByUrl.entries()) {
+    if (latest.verdict !== "helping") continue;
+    // Find the most recent helping outcome row for this URL to get its change_id.
+    let bestHelping: typeof urlChangeOutcomes[number] | null = null;
+    for (const o of urlChangeOutcomes) {
+      if (o.url !== url) continue;
+      if (o.verdict !== "helping") continue;
+      if (!bestHelping || o.updated_at > bestHelping.updated_at) bestHelping = o;
+    }
+    if (!bestHelping) continue;
+    const change = changeByIdForHurt.get(bestHelping.change_id);
+    const date = change?.timestamp?.slice(0, 10);
+    if (!date) continue;
+    const key = `help:${date}`;
+    if (eventDateKey.has(key)) continue;
+    eventDateKey.add(key);
+    chartEvents.push({
+      date,
+      tone: "success",
+      label: `${url} \u2014 winning after change on ${date}`,
+    });
+  }
+  // 2026-04-20: removed MemoryInsight-derived bestImproving green dot \u2014 the
+  // url-change-outcomes `helping` dots above already cover all legitimate
+  // winning events at URL level with Z-score validation.
+
+  const visibilityData = {
+    brandName: brandAliases[0] ?? "You",
+    brandSeriesByMetric,
+    brandSeriesByPlatform,
+    leaderboardByMetric,
+    competitorSeriesByMetric,
+    chartEvents,
+  };
 
   return {
     isDemoMode,
@@ -1282,6 +1723,26 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
     faqSchemaCoverage,
     platformDistribution,
     concentratedPlatform,
+    visibilityData,
+    // 2026-04-20: URL-verdict proof for the "Latest signal" strip. Replaces
+    // the topic-level MemoryInsight source that was producing false causal
+    // claims. Null when no URL is currently in `helping` state with rising
+    // citations.
+    urlVerdictProof: topHelpingUrls[0]
+      ? (() => {
+          const h = topHelpingUrls[0];
+          const change = changeByIdForHurt.get(h.changeId);
+          const changeDate = change?.timestamp ? fmtDate(change.timestamp) : null;
+          const deltaPctAbs = Math.abs(h.deltaPct * 100);
+          return {
+            changeId: h.changeId,
+            pagePath: h.url,
+            changeDate: changeDate ?? null,
+            citationDeltaPct: Math.round(h.deltaPct * 1000) / 10, // one decimal
+            deltaLabel: `${h.deltaPct > 0 ? "+" : ""}${deltaPctAbs.toFixed(0)}%`,
+          };
+        })()
+      : null,
   };
 }
 
@@ -1299,115 +1760,11 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
  * Confidence `exploratory` collapses to `low` so the existing ActionCard
  * confidence rendering doesn't need new enum values.
  */
-function serializeBrainAction(
-  action: BrainAction,
-  citMap: Map<string, number>,
-  getResponse: (id: string) => { status: "accepted" | "dismissed" | "deferred" } | undefined,
-  getExperimentByRecId: (id: string) => unknown,
-  dataFreshness: string | null,
-) {
-  const bucket: "critical" | "high_leverage" | "opportunistic" =
-    action.kind === "reverse_hurter"
-      ? "critical"
-      : action.kind === "replicate_winner"
-        ? "high_leverage"
-        : "opportunistic";
-
-  // Priority score drives client-side sorting if ever needed; mirrors rank.
-  // Higher = rendered first. reverse_hurter > replicate_winner > start > exploratory.
-  const priorityScore =
-    action.kind === "reverse_hurter"
-      ? 90
-      : action.kind === "replicate_winner"
-        ? 80
-        : action.kind === "start_experiment"
-          ? 60
-          : 40;
-
-  const cardConfidence: "high" | "medium" | "low" =
-    action.confidence === "exploratory" ? "low" : action.confidence;
-
-  // Source evidence summary — short string under rationale on the card.
-  const sourceEvidence = buildBrainEvidence(action);
-
-  // Confidence reason mirrors the data-citations layer for the expand.
-  const confidenceReason = buildBrainConfidenceReason(action);
-
-  // Where the card's CTA link points. Prefer the target URL page detail if
-  // available; else /changes as a neutral anchor.
-  const href = action.targetUrl ? `/changes` : "/changes";
-
-  // Baseline citations for the auto-experiment — looked up from citMap for
-  // the target URL (same logic as legacy serializedPrimary).
-  const baselineCitations = action.targetUrl
-    ? (citMap.get(action.targetUrl.replace(/\/+$/, "").toLowerCase()) ?? 0)
-    : null;
-
-  return {
-    id: action.id,
-    headline: action.headline,
-    rationale: action.rationale,
-    expectedOutcome: action.expectedOutcome,
-    sourceEvidence,
-    priorityScore,
-    bucket,
-    type: `brain_${action.kind}`,
-    confidence: cardConfidence,
-    href,
-    responseStatus: getResponse(action.id)?.status ?? null,
-    confidenceReason,
-    watchAfter: "Check again in 7 days to evaluate impact",
-    dataFreshness,
-    hasExperiment: !!getExperimentByRecId(action.id),
-    targetPageUrl: action.targetUrl,
-    targetPagePath: action.targetUrl,
-    baselineCitations,
-    sourceChangeId: null,
-    lineageBullets: [],
-    answerContext: null,
-    specificMove: null,
-    actionClass: null,
-    targetSection: null,
-    priorSuccess: null,
-    engineTiming: null,
-    expectedMetric: action.expectedOutcome,
-  };
-}
-
-function buildBrainEvidence(a: BrainAction): string {
-  const cit = a.dataCitations;
-  const parts: string[] = [];
-  if (cit.patternSampleCount !== undefined) {
-    parts.push(`${cit.patternSampleCount} sample${cit.patternSampleCount === 1 ? "" : "s"}`);
-  }
-  if (cit.patternHelpingCount !== undefined && cit.patternHelpingCount > 0) {
-    parts.push(`${cit.patternHelpingCount} helping`);
-  }
-  if (cit.patternHurtingCount !== undefined && cit.patternHurtingCount > 0) {
-    parts.push(`${cit.patternHurtingCount} hurting`);
-  }
-  if (cit.urlCitationCount !== undefined) {
-    parts.push(`${cit.urlCitationCount} AI citations on target`);
-  }
-  return parts.length > 0
-    ? parts.join(" · ")
-    : a.confidence === "exploratory"
-      ? "No prior data in your workspace yet"
-      : "Brain-derived";
-}
-
-function buildBrainConfidenceReason(a: BrainAction): string {
-  if (a.confidence === "exploratory") {
-    return "Exploratory — no proven wins in your workspace yet. First landing becomes the first data point.";
-  }
-  const cit = a.dataCitations;
-  if (a.patternId && cit.patternSampleCount) {
-    const helpCt = cit.patternHelpingCount ?? 0;
-    const hurtCt = cit.patternHurtingCount ?? 0;
-    return `Pattern ${a.patternId}: ${cit.patternSampleCount} samples (${helpCt} helping, ${hurtCt} hurting)`;
-  }
-  return "Based on URL citation history";
-}
+// serializeBrainAction / buildBrainEvidence / buildBrainConfidenceReason
+// removed 2026-04-18 (Phase 7 cleanup). These served the url-brain-recommender
+// shrug-card pipeline which is now gone. ~140 lines of dead serialization
+// helpers excised. Replacement pipeline (data-grounded scanner + LLM-as-judge
+// ablation) will have its own serialization layer when built.
 
 function formatTimeAgo(date: Date): string {
   const diff = Date.now() - date.getTime();

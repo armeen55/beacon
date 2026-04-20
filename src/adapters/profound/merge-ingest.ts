@@ -36,24 +36,53 @@ export function citationDedupeKey(c: CitationObservation): string {
   return `${c.prompt_answer_id}\t${url}`;
 }
 
+/**
+ * Merge two citation lists for a single date shard.
+ *
+ * Derived fields (is_owned, tracked_entity_id) are ALWAYS taken from incoming
+ * when incoming is present for a given (prompt_answer_id, url) tuple. This
+ * prevents "stale ownership" bugs where an older import wrote is_owned=false
+ * (because the ownedSet was empty/wrong) and later imports preserve that wrong
+ * flag. 2026-04-19: this exact bug silently corrupted Apr 7-12 owned citation
+ * data for weeks before detection.
+ *
+ * Content fields (title, source_category, domain, url) prefer INCOMING on
+ * collision too \u2014 newer exports reflect the current source of truth.
+ */
 export function mergeCitationLists(
   existing: CitationObservation[],
   incoming: CitationObservation[]
 ): CitationObservation[] {
+  // Index incoming by dedupe key so we can prefer its copy on collisions
+  // without double-scanning.
+  const incomingByKey = new Map<string, CitationObservation>();
+  for (const c of incoming) {
+    incomingByKey.set(citationDedupeKey(c), c);
+  }
+
   const seen = new Set<string>();
   const out: CitationObservation[] = [];
-  for (const c of existing) {
-    const k = citationDedupeKey(c);
+
+  // Pass 1: walk existing. For each row, prefer the incoming row if present.
+  // This ensures derived fields (is_owned, tracked_entity_id) reflect the
+  // most recent ownedSet / entity lookup, not a stale snapshot from an
+  // earlier import run.
+  for (const ex of existing) {
+    const k = citationDedupeKey(ex);
     if (seen.has(k)) continue;
     seen.add(k);
-    out.push(c);
+    const fresh = incomingByKey.get(k);
+    out.push(fresh ?? ex);
   }
+
+  // Pass 2: append any incoming rows not seen in existing.
   for (const c of incoming) {
     const k = citationDedupeKey(c);
     if (seen.has(k)) continue;
     seen.add(k);
     out.push(c);
   }
+
   out.sort((a, b) => {
     const byRun = a.prompt_answer_id.localeCompare(b.prompt_answer_id);
     if (byRun !== 0) return byRun;

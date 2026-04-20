@@ -174,6 +174,30 @@ export async function runProfoundImport(
   }
 
   // Phase 3: Raw executions — merge observations + answer texts + rebuild runs
+  // 2026-04-19: pass brand aliases so the execution adapter can fall back to
+  // text-scan mention detection when Profound's CSV "mentions" column is
+  // incomplete (a systematic Profound bug).
+  //
+  // Aliases come from THREE sources, unioned:
+  //   1. business-config.json `name` (canonical brand name, e.g. "Ritz Builders")
+  //   2. Tracked entity names with is_owned=true
+  //   3. First-word shortening of the above ("Ritz Builders" \u2192 "Ritz")
+  // The entity-seed-only path produced "Ritzbuilders" (one word) which failed
+  // to match "Ritz Builders" in actual response text.
+  const { getBusinessConfig } = await import("@/lib/business-config");
+  const bizName = getBusinessConfig().name;
+  const rawAliases = new Set<string>();
+  if (bizName) rawAliases.add(bizName);
+  for (const e of entities) {
+    if (e.is_owned && e.entity_type === "brand" && e.name) rawAliases.add(e.name);
+  }
+  // Add first-word shortening for each multi-word alias.
+  for (const a of [...rawAliases]) {
+    const first = a.split(/\s+/)[0];
+    if (first && first !== a && first.length >= 3) rawAliases.add(first);
+  }
+  const ownedBrandAliases = [...rawAliases];
+
   let mergedObservations: PromptAnswerObservation[] = [...promptAnswerObservations];
   const mergedAnswerTexts: Record<string, string> = { ...readAnswerTextsFromDisk() };
   for (const filePath of byKind.raw_executions) {
@@ -182,7 +206,8 @@ export async function runProfoundImport(
       accountId,
       importRunId,
       promptLookup,
-      ownedDomains
+      ownedDomains,
+      ownedBrandAliases
     );
     warnings.push(...ex.warnings);
     mergedObservations = mergeById(mergedObservations, ex.observations, true);

@@ -4,8 +4,6 @@ import {
   Users,
   Settings,
   GitCompareArrows,
-  MapPin,
-  MessageSquare,
   Activity,
   type LucideIcon,
 } from "lucide-react";
@@ -21,6 +19,8 @@ export type NavGroup = {
   items: NavItem[];
 };
 
+// Hidden from nav 2026-04-17 (Day 2 trust cleanup): /local, /topics.
+// URLs stay alive, just removed from daily-ritual view. Restore by re-adding below.
 export const navigationGroups: NavGroup[] = [
   {
     label: "",
@@ -29,8 +29,6 @@ export const navigationGroups: NavGroup[] = [
       { label: "Pages", href: "/pages", icon: Globe },
       { label: "Changes", href: "/changes", icon: GitCompareArrows },
       { label: "Market", href: "/competitors", icon: Users },
-      { label: "Local", href: "/local", icon: MapPin },
-      { label: "Topics", href: "/topics", icon: MessageSquare },
       { label: "Diagnostics", href: "/diagnostics/spikes", icon: Activity },
       { label: "Settings", href: "/settings", icon: Settings },
     ],

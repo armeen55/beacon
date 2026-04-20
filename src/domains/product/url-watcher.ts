@@ -26,7 +26,9 @@ import {
   persistUrlCitationHistory,
   type UrlCitationHistory,
 } from "./url-citation-history";
-import { runExperimentCitationSync } from "./experiment-citation-sync";
+// Phase 4 (2026-04-19): experiment-citation-sync removed. URL-level outcomes
+// are materialized directly from observation history; no separate experiment
+// record to refresh.
 import {
   readUrlWatcherState,
   shouldRefreshUrlWatcher,
@@ -99,8 +101,9 @@ export async function runUrlWatcher(
     // 2. Persist to disk + Supabase (dual-write when enabled).
     await persistUrlCitationHistory(history);
 
-    // 3. Refresh active experiments from fresh daily metrics.
-    const syncResult = await runExperimentCitationSync();
+    // 3. (Phase 4) Experiment citation sync removed \u2014 URL-level outcomes are
+    //    materialized from observation history directly below.
+    const syncResult = { updated: 0, total: 0 };
 
     // 4. Record per-URL outcomes so the pattern brain has memory to eat.
     // Idempotent — re-running updates existing records in place via

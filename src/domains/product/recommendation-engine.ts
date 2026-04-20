@@ -15,7 +15,12 @@ import type { AnswerIntelligenceIndex } from "@/domains/answer-intelligence/type
 import type { ChangePattern } from "@/domains/learning/change-patterns";
 import type { QueryKeywordIndex } from "@/domains/answer-intelligence/query-index";
 import { absoluteUrlForPath } from "@/lib/site-config";
-import { scanKeywordOptimizations, keywordFindingsToRecs } from "./keyword-optimizer";
+// keyword-optimizer removed 2026-04-18 (Phase 7 cleanup) \u2014 bigram Frankenstein.
+// Replaced by data-grounded keyword-gap scanner that emits evidence-only
+// findings (no auto-rewrite). See docs/IDEAS_PARKING_LOT.md for the ablation
+// roadmap that will layer LLM-generated rewrites on top in Part 1c.
+import type { PromptAnswerObservation } from "@/domains/prompt-answer-observations/types";
+import { scanKeywordGaps, gapFindingsToRecs } from "./keyword-gap-scanner";
 
 export type RecommendationType =
   | "replicate"
@@ -208,10 +213,23 @@ export function computeRecommendations(opts: {
   changelogEntries?: ChangelogEntry[];
   changePatterns?: ChangePattern[];
   activeExperimentUrls?: Set<string>;
+  /** DEPRECATED 2026-04-20: topic-level attribution source. Ignored by engine. */
   changeOutcomes?: import("@/domains/attribution/change-outcome").ChangeOutcome[];
+  /** URL-level Z-score outcomes \u2014 source of truth for causal attribution. */
+  urlChangeOutcomes?: import("@/domains/attribution/url-change-outcome").UrlChangeOutcome[];
   sectionAnalyzerConfig?: SectionAnalyzerConfig;
   /** Fan-out query index for keyword optimization recs. */
   queryIndex?: QueryKeywordIndex;
+  /** Observations for the data-grounded keyword-gap scanner (Phase 7 Part 1b). */
+  observations?: PromptAnswerObservation[];
+  /** Answer-text lookup for the gap scanner. */
+  answerTexts?: Record<string, string>;
+  /** Tenant brand aliases for the gap scanner (defaults to Ritz-style aliases when omitted). */
+  brandAliases?: string[];
+  /** Competitor names to exclude from concept extraction (Phase 7 Part 1b-v2). */
+  competitorExclusions?: string[];
+  /** Known city/location labels used to suppress pure-city concepts (Phase 7 Part 1b-v2). */
+  knownLocations?: string[];
 }): BeaconRecommendation[] {
   const recs: BeaconRecommendation[] = [];
 
@@ -526,16 +544,43 @@ export function computeRecommendations(opts: {
   //    queries. Each rec is ONE atomic change on ONE page.
   //    Priority: 900-999 (above FAQ schema, above comparison table)
 
-  if (opts.pageSnapshots && opts.citationCountMap && opts.queryIndex) {
-    const keywordFindings = scanKeywordOptimizations({
+  // ── Data-grounded keyword gap scanner v3 (Phase 7 Part 1b-v2) ──
+  //    Re-enabled 2026-04-17. Scanner now mines concepts from
+  //    observations.search_queries (AI's internal retrieval queries), not
+  //    answer-text n-grams. Tier-aware: sat-miss (Tier 1) surfaces raw
+  //    concepts, gap (Tier 2) uses expanded concepts from example queries.
+  //    Readability gate rejects 2-3 word fragments starting with plural
+  //    nouns. Cities excluded via knownLocations. Competitors excluded via
+  //    competitorExclusions (dynamic top-40 + config list). Positives (Tier 3)
+  //    computed but not surfaced.
+  //
+  //    Dry-run at default Threshold A (\u226525% saturation, \u226450% coverage,
+  //    \u226515 occurrences) produced ship-ready labels on 5 Ritz pages:
+  //    Tier 1 "Custom Homes", "Luxury Home"; Tier 2 "Major Structural Home
+  //    Renovation", "Home Renovation Builders", "Home Renovation Contractors
+  //    Menlo Park", "Modernizing Older Homes Without Expanding".
+  if (
+    opts.pageSnapshots &&
+    opts.citationCountMap &&
+    opts.citationIndex &&
+    opts.observations &&
+    opts.answerTexts &&
+    opts.brandAliases
+  ) {
+    const gapFindings = scanKeywordGaps({
       pageSnapshots: opts.pageSnapshots,
       citationCountMap: opts.citationCountMap,
-      queryIndex: opts.queryIndex,
-      citationIndex: opts.citationIndex ?? null,
+      citationIndex: opts.citationIndex,
+      observations: opts.observations,
+      answerTexts: opts.answerTexts,
+      brandAliases: opts.brandAliases,
+      competitorExclusions: opts.competitorExclusions ?? [],
       experimentUrls: opts.activeExperimentUrls,
+      knownLocations: opts.knownLocations,
     });
-    const keywordRecs = keywordFindingsToRecs(keywordFindings, 10);
-    recs.push(...keywordRecs);
+    for (const rec of gapFindingsToRecs(gapFindings, 8)) {
+      recs.push(rec);
+    }
   }
 
   // ── Strengthen structure: cited pages missing FAQ or schema ──
@@ -1267,7 +1312,10 @@ function enrichWithSpecifics(
   opts: {
     changelogEntries?: ChangelogEntry[];
     changePatterns?: ChangePattern[];
+    /** 2026-04-20: topic-level ChangeOutcome deprecated. Left optional for legacy
+     *  callers; new callers should pass urlChangeOutcomes instead. */
     changeOutcomes?: import("@/domains/attribution/change-outcome").ChangeOutcome[];
+    urlChangeOutcomes?: import("@/domains/attribution/url-change-outcome").UrlChangeOutcome[];
     pageSnapshots?: PageSnapshot[];
     sectionAnalyzerConfig?: SectionAnalyzerConfig;
     answerIntelligence?: AnswerIntelligenceIndex | null;
@@ -1340,8 +1388,15 @@ function enrichWithSpecifics(
       }
     }
 
-    // 3. Prior success reference — diversified across pages
-    if (rec.actionClass && opts.changeOutcomes && opts.changeOutcomes.length > 0) {
+    // 3. Prior success reference \u2014 URL-level Z-score helping verdicts only.
+    //
+    // 2026-04-20: replaced topic-level ChangeOutcome source (which was false-
+    // causal — crediting topic moves to specific changes regardless of whether
+    // the specific URL actually moved) with url-change-outcomes `helping`
+    // verdicts. A "prior success" is now a change whose OWN URL's citations
+    // rose post-change per the Z-score engine. Template edits (same
+    // description on 3+ URLs within a week) excluded.
+    if (rec.actionClass && opts.urlChangeOutcomes && opts.urlChangeOutcomes.length > 0) {
       const CONTENT_FAMILY = new Set([
         "content_section", "general_content", "page_creation",
         "hero_update", "subheading_update", "neighborhoods_section",
@@ -1349,7 +1404,21 @@ function enrichWithSpecifics(
       const isCompatibleAction = (a: string, b: string) =>
         a === b || (CONTENT_FAMILY.has(a) && CONTENT_FAMILY.has(b));
 
-      // Collect ALL compatible successes, deduplicated by page
+      // Template-edit dedup: descriptions that appear on 3+ pages are
+      // sitewide cleanups, not per-page causal moves.
+      const descToChangeIds = new Map<string, Set<string>>();
+      for (const [id, c] of classifiedChanges) {
+        const desc = (c.entry.change_description || "").trim().toLowerCase();
+        if (!desc || desc.length < 10) continue;
+        if (!descToChangeIds.has(desc)) descToChangeIds.set(desc, new Set());
+        descToChangeIds.get(desc)!.add(id);
+      }
+      const templateEditChangeIds = new Set<string>();
+      for (const ids of descToChangeIds.values()) {
+        if (ids.size >= 3) for (const id of ids) templateEditChangeIds.add(id);
+      }
+
+      // Collect compatible URL-level successes, dedup by page.
       const successesByPage = new Map<
         string,
         { changeId: string; pagePath: string; description: string; citationDelta: number }
@@ -1357,6 +1426,8 @@ function enrichWithSpecifics(
 
       for (const [changeId, classified] of classifiedChanges) {
         if (!isCompatibleAction(classified.actionClass, rec.actionClass!)) continue;
+        if (templateEditChangeIds.has(changeId)) continue;
+
         const changePath = (classified.entry.url ?? "")
           .replace(/^https?:\/\/[^/]+/, "")
           .replace(/\/+$/, "")
@@ -1366,18 +1437,20 @@ function enrichWithSpecifics(
           .toLowerCase();
         if (changePath === recPath) continue;
 
-        const outcome = opts.changeOutcomes.find(
-          (o) => o.change_id === changeId && o.direction === "improving",
+        // URL-level helping verdict for this specific change.
+        const outcome = opts.urlChangeOutcomes.find(
+          (o) => o.change_id === changeId && o.verdict === "helping",
         );
-        if (!outcome || outcome.citation_delta_pct <= 0) continue;
+        if (!outcome || (outcome.delta_pct ?? 0) <= 0) continue;
+        const deltaPct = (outcome.delta_pct ?? 0) * 100; // Z-score engine uses ratios
 
         const existing = successesByPage.get(changePath);
-        if (!existing || outcome.citation_delta_pct > existing.citationDelta) {
+        if (!existing || deltaPct > existing.citationDelta) {
           successesByPage.set(changePath, {
             changeId,
             pagePath: changePath || classified.entry.asset_name,
             description: classified.entry.change_description.slice(0, 80),
-            citationDelta: outcome.citation_delta_pct,
+            citationDelta: deltaPct,
           });
         }
       }
@@ -1386,29 +1459,25 @@ function enrichWithSpecifics(
         .sort((a, b) => b.citationDelta - a.citationDelta);
 
       if (allSuccesses.length > 0) {
-        // Use the median success (not the max outlier) for expectedMetric
         const medianIdx = Math.floor(allSuccesses.length / 2);
         const medianSuccess = allSuccesses[medianIdx];
         const bestSuccess = allSuccesses[0];
 
         rec.priorSuccess = {
           ...bestSuccess,
-          // Annotate with evidence breadth
           description: allSuccesses.length === 1
-            ? `${bestSuccess.description} (1 prior example — limited evidence)`
-            : `${bestSuccess.description} (${allSuccesses.length} prior examples)`,
+            ? `${bestSuccess.description} (1 prior URL-level example \u2014 limited evidence)`
+            : `${bestSuccess.description} (${allSuccesses.length} prior URL-level examples)`,
         };
 
-        // Use median delta for expectedMetric to avoid outlier overfit
         if (allSuccesses.length >= 3) {
-          rec.expectedMetric = `+${Math.round(medianSuccess.citationDelta)}% citations (median of ${allSuccesses.length} similar changes, range ${Math.round(allSuccesses[allSuccesses.length - 1].citationDelta)}–${Math.round(bestSuccess.citationDelta)}%)`;
+          rec.expectedMetric = `+${Math.round(medianSuccess.citationDelta)}% citations (median of ${allSuccesses.length} URL-level wins, range ${Math.round(allSuccesses[allSuccesses.length - 1].citationDelta)}\u2013${Math.round(bestSuccess.citationDelta)}%)`;
         } else if (allSuccesses.length === 2) {
-          rec.expectedMetric = `+${Math.round((allSuccesses[0].citationDelta + allSuccesses[1].citationDelta) / 2)}% citations (avg of 2 prior examples)`;
+          rec.expectedMetric = `+${Math.round((allSuccesses[0].citationDelta + allSuccesses[1].citationDelta) / 2)}% citations (avg of 2 URL-level wins)`;
         } else {
-          rec.expectedMetric = `+${Math.round(bestSuccess.citationDelta)}% citations based on 1 prior example — treat as directional`;
+          rec.expectedMetric = `+${Math.round(bestSuccess.citationDelta)}% citations from 1 URL-level win \u2014 treat as directional`;
         }
 
-        // Reduce confidence when only 1 example
         if (allSuccesses.length === 1 && rec.confidence === "high") {
           rec.confidence = "medium";
         }

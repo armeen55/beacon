@@ -13,7 +13,7 @@ import { ScorecardTable, type EnrichedChangeRow } from "./scorecard-client";
 import { deriveCoverageState, coverageWarningLine } from "@/lib/coverage-state";
 import { latestWebsiteCrawlRun } from "@/domains/observations/read";
 import { sampleQualityTierFromObservationCount } from "@/lib/sample-quality-tier";
-import { getActiveExperiments } from "@/domains/product/experiment-store";
+import { getWatchingUrlOutcomes } from "@/domains/attribution/url-change-outcome";
 import { findDuplicatePairs } from "@/domains/changelog/dedupe";
 import {
   buildUrlCitationHistory,
@@ -183,9 +183,33 @@ export default async function ChangeScorecardPage() {
 
   const truthPreviewEnabled = isEventTruthPreviewEnabled();
 
-  const activeExperiments = getActiveExperiments().filter(
-    (e) => e.status !== "dropped",
-  );
+  // Phase 2 (2026-04-19): strip now reads directly from url-change-outcomes
+  // (Z-score engine output). Every URL being watched becomes a row \u2014 no
+  // "Apply this" ceremony required. One row per URL, most recent outcome wins.
+  const watchingOutcomes = getWatchingUrlOutcomes();
+  const changeById = new Map(changelogEntries.map((c) => [c.id, c]));
+  const watchingRows = watchingOutcomes.map((o) => {
+    const change = changeById.get(o.change_id);
+    const days = Math.floor(
+      (Date.now() - new Date(o.recorded_at).getTime()) / 86_400_000,
+    );
+    // Map verdict to a user-facing status label matching the old pill colors.
+    const statusLabel =
+      o.verdict === "hurting" ? "hurting"
+      : o.verdict === "too_early" ? "too early"
+      : "watching";
+    const deltaCitations = o.delta_abs;
+    return {
+      id: `${o.change_id}::${o.url}`,
+      changeId: o.change_id,
+      headline: change?.change_description ?? change?.asset_name ?? `Change on ${o.url}`,
+      targetPagePath: o.url,
+      days,
+      deltaCitations,
+      statusLabel,
+      verdict: o.verdict,
+    };
+  });
 
   // Counts for the at-a-glance strip (based on the new URL verdicts).
   const countsByVerdict = {
@@ -231,9 +255,9 @@ export default async function ChangeScorecardPage() {
               {countsByVerdict.too_early} too early
             </span>
           )}
-          {activeExperiments.length > 0 && (
+          {watchingRows.length > 0 && (
             <span className="text-muted-foreground tabular-nums">
-              {activeExperiments.length} being watched
+              {watchingRows.length} being watched
             </span>
           )}
           {coverageWarning && (
@@ -283,52 +307,44 @@ export default async function ChangeScorecardPage() {
         coverageState={coverageState}
       />
 
-      {/* Active experiments strip */}
-      {activeExperiments.length > 0 && (
+      {/* Currently watching strip \u2014 Z-score engine output, one row per URL */}
+      {watchingRows.length > 0 && (
         <div className="mt-8 border-t border-border/50 pt-6">
           <h2 className="text-sm font-semibold text-foreground mb-1">
             Currently being watched
           </h2>
           <p className="text-[11px] text-muted-foreground mb-3">
-            Changes Beacon is tracking to see whether visibility moves.
+            URLs Beacon is tracking to see whether visibility moves.
           </p>
           <div className="rounded-lg border border-border/60 divide-y divide-border/40 overflow-hidden">
-            {activeExperiments.map((exp) => {
-              const days = Math.floor(
-                (Date.now() - new Date(exp.startedAt).getTime()) / 86_400_000,
-              );
-              const delta =
-                exp.baselineCitations !== null && exp.latestCitations !== null
-                  ? exp.latestCitations - exp.baselineCitations
-                  : null;
+            {watchingRows.map((row) => {
+              const delta = row.deltaCitations;
               return (
                 <div
-                  key={exp.id}
+                  key={row.id}
                   className="px-4 py-3 hover:bg-surface-inset/20 transition-colors"
                 >
                   <div className="flex items-center justify-between gap-3">
                     <div className="min-w-0">
                       <p className="text-[12px] font-semibold truncate">
-                        {exp.headline}
+                        {row.headline}
                       </p>
                       <p className="text-[10px] text-muted-foreground mt-0.5">
-                        Day {days + 1}
-                        {exp.targetPagePath && (
+                        Day {row.days + 1}
+                        {row.targetPagePath && (
                           <span className="ml-1 font-mono">
-                            {exp.targetPagePath}
+                            {row.targetPagePath}
                           </span>
                         )}
                       </p>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
-                      {delta !== null && (
+                      {delta !== null && delta !== 0 && (
                         <span
                           className={`text-[11px] font-semibold tabular-nums ${
                             delta > 0
                               ? "text-status-success"
-                              : delta < 0
-                                ? "text-status-danger"
-                                : "text-muted-foreground"
+                              : "text-status-danger"
                           }`}
                         >
                           {delta > 0 ? "+" : ""}
@@ -337,14 +353,14 @@ export default async function ChangeScorecardPage() {
                       )}
                       <span
                         className={`text-[9px] font-medium rounded-full px-2 py-0.5 border ${
-                          exp.status === "promising"
-                            ? "text-status-success bg-status-success/10 border-status-success/30"
-                            : exp.status === "negative"
-                              ? "text-status-danger bg-status-danger/10 border-status-danger/30"
+                          row.verdict === "hurting"
+                            ? "text-status-danger bg-status-danger/10 border-status-danger/30"
+                            : row.verdict === "too_early"
+                              ? "text-muted-foreground bg-surface-inset/60 border-border/40"
                               : "text-muted-foreground bg-surface-inset/60 border-border/40"
                         }`}
                       >
-                        {exp.status}
+                        {row.statusLabel}
                       </span>
                     </div>
                   </div>

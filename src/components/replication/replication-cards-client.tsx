@@ -14,14 +14,6 @@ function tierLabel(tier: string): string {
   return tier;
 }
 
-function tierToEvidence(
-  tier: string,
-): "observed" | "mixed" | "inferred" {
-  if (tier === "validated") return "observed";
-  if (tier === "qualified_partial") return "mixed";
-  return "inferred";
-}
-
 function evidenceLabel(confidence: string): string {
   if (confidence === "high") return "strong";
   if (confidence === "medium") return "moderate";
@@ -32,7 +24,6 @@ export function ReplicationCardsClient({
   cards,
   variant,
   respondToRecommendation,
-  startExperimentAction,
 }: {
   cards: SerializedReplicationCard[];
   variant: "today" | "changes";
@@ -40,19 +31,6 @@ export function ReplicationCardsClient({
     recId: string,
     status: "accepted" | "dismissed" | "deferred",
   ) => Promise<{ success: boolean }>;
-  startExperimentAction: (opts: {
-    recId: string;
-    headline: string;
-    recType: string;
-    targetPageUrl: string | null;
-    targetPagePath: string | null;
-    watchAfter: string;
-    operatorNote: string;
-    baselineCitations: number | null;
-    replicationSourceChangeId?: string | null;
-    replicationPatternId?: string | null;
-    replicationEvidenceTier?: "observed" | "mixed" | "inferred";
-  }) => Promise<{ success: boolean; experimentId: string }>;
 }) {
   const [openId, setOpenId] = useState<string | null>(() =>
     variant === "today" && cards[0] ? cards[0].id : null,
@@ -144,38 +122,21 @@ export function ReplicationCardsClient({
                           {t.similarityReasons.length > 1 && ` (+${t.similarityReasons.length - 1} more)`}
                         </p>
                       )}
-                      {/* Experiment CTA — primary action for this target */}
+                      {/* Phase 4 (2026-04-19): "Try as experiment" button
+                         removed. Accepting this rec just marks it accepted \u2014
+                         the Z-score engine watches the URL automatically. */}
                       <button
                         type="button"
                         disabled={pending}
                         onClick={() => {
-                          const note = prompt(
-                            "What will you ship on this page? (short note)",
-                          );
-                          if (note === null) return;
                           startT(async () => {
                             await respondToRecommendation(t.recId, "accepted");
-                            await startExperimentAction({
-                              recId: t.recId,
-                              headline: `${card.headline} → ${t.targetPagePath}`,
-                              recType: t.recType,
-                              targetPageUrl: t.targetPageUrl,
-                              targetPagePath: t.targetPagePath,
-                              watchAfter: card.watchAfter,
-                              operatorNote: note,
-                              baselineCitations: t.baselineCitations,
-                              replicationSourceChangeId: card.sourceChangeId,
-                              replicationPatternId: card.patternId,
-                              replicationEvidenceTier: tierToEvidence(
-                                card.winnerTier,
-                              ),
-                            });
-                            setMsg("Now tracking — experiment started.");
+                            setMsg("Noted \u2014 we'll track the next change on this page.");
                           });
                         }}
                         className="mt-1.5 inline-flex items-center gap-1.5 rounded-md border border-status-success/30 bg-status-success/[0.06] px-2.5 py-1 text-[10px] font-semibold text-status-success hover:bg-status-success/[0.12] transition-colors disabled:opacity-50"
                       >
-                        Try as experiment →
+                        Apply this →
                       </button>
                     </div>
                   ))}

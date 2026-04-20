@@ -7,9 +7,11 @@ import type { ScorecardRowWithImpact } from "@/domains/attribution/change-impact
 import type { BeaconRecommendation } from "@/domains/product/recommendation-engine";
 import type { MinedPattern } from "@/domains/pages/playbook";
 import type { PersistedIssue, RolloutExecution } from "@/domains/pages/issues";
-import type { Experiment } from "@/domains/product/experiment-store";
 import { isRecSuppressed } from "@/domains/product/recommendation-response-store";
 
+// Phase 4 (2026-04-19): removed dependency on experiment-store. "promising_experiment"
+// tier retained in the union for existing data/test compat but no code path produces it.
+// Will be rebuilt on top of url-change-outcomes `helping` verdicts in a later phase.
 export type WinnerTier =
   | "validated"
   | "qualified_partial"
@@ -357,53 +359,19 @@ export function buildReplicationCards(opts: BuildReplicationCardsOpts): Replicat
   return cards;
 }
 
-/**
- * Promising experiments: secondary seed for Changes surface (explicitly labeled).
- */
-export function buildPromisingExperimentReplicationHints(
-  experiments: Experiment[],
-  recommendations: BeaconRecommendation[],
-): Array<{
-  experimentId: string;
-  recId: string;
-  headline: string;
-  targetPagePath: string | null;
-  hint: string;
-}> {
-  const out: Array<{
-    experimentId: string;
-    recId: string;
-    headline: string;
-    targetPagePath: string | null;
-    hint: string;
-  }> = [];
-
-  for (const exp of experiments) {
-    if (exp.status !== "promising") continue;
-    if (exp.recType !== "replicate" && exp.recType !== "cross_page_pattern") continue;
-    const rec = recommendations.find((r) => r.id === exp.recId);
-    if (!rec) continue;
-    out.push({
-      experimentId: exp.id,
-      recId: exp.recId,
-      headline: exp.headline,
-      targetPagePath: exp.targetPagePath,
-      hint:
-        "Experiment status is promising — Beacon treats this as an early replication signal (not a validated scorecard verdict).",
-    });
-    if (out.length >= 5) break;
-  }
-  return out;
-}
+// Phase 4 (2026-04-19): buildPromisingExperimentReplicationHints removed \u2014
+// it depended on the experiment-store which is gone.
 
 const MAX_PROMISING_CARDS = 2;
 
 /**
- * Soft signal seed: experiments marked promising for replicate / cross_page recs.
- * Explicitly lower trust than scorecard-validated cards.
+ * Soft signal seed: replicate / cross_page recs that used to be promoted by
+ * experiment status. After Phase 4 (experiment-store removal), this function
+ * is a no-op returning an empty list. A future phase will rebuild it on top
+ * of url-change-outcomes `helping` verdicts.
  */
 export function buildPromisingReplicationCards(
-  experiments: Experiment[],
+  _experiments: unknown[],
   recommendations: BeaconRecommendation[],
   impactRows: ScorecardRowWithImpact[],
   patterns: MinedPattern[],
@@ -411,77 +379,7 @@ export function buildPromisingReplicationCards(
   pageIssues: PersistedIssue[],
   excludeRecIds: Set<string>,
 ): ReplicationCard[] {
-  const rowByChange = new Map<string, ScorecardRowWithImpact>();
-  for (const row of impactRows) {
-    rowByChange.set(row.change.id, row);
-  }
-
-  const cards: ReplicationCard[] = [];
-
-  for (const exp of experiments) {
-    if (cards.length >= MAX_PROMISING_CARDS) break;
-    if (exp.status !== "promising") continue;
-    if (exp.recType !== "replicate" && exp.recType !== "cross_page_pattern") continue;
-    if (!exp.targetPageUrl) continue;
-    if (excludeRecIds.has(exp.recId)) continue;
-
-    const rec = recommendations.find((r) => r.id === exp.recId);
-    if (!rec?.sourceChangeId) continue;
-
-    const { blocked } = isReplicationTargetBlocked(exp.targetPageUrl, rolloutExecutions, pageIssues);
-    if (blocked) continue;
-
-    const row = rowByChange.get(rec.sourceChangeId) ?? null;
-    const delta =
-      exp.baselineCitations !== null && exp.latestCitations !== null
-        ? exp.latestCitations - exp.baselineCitations
-        : null;
-
-    const observed: string[] = [
-      `Experiment watchlist: status "promising".`,
-      delta !== null
-        ? `Citation delta since baseline: ${delta > 0 ? "+" : ""}${delta}.`
-        : "Citation outcome still accumulating.",
-    ];
-    const inferred: string[] = [
-      "This is an operator-accepted test, not a fresh attribution verdict -- replication fit is still inferred.",
-    ];
-
-    const expPatternName = patternNameFrom(patterns, rec.patternId);
-    const expTargetPath = exp.targetPagePath ?? exp.targetPageUrl.replace(/^https?:\/\/[^/]+/, "");
-
-    cards.push({
-      id: `repl-promising-${exp.id}`,
-      winnerTier: "promising_experiment",
-      patternId: rec.patternId,
-      patternName: expPatternName,
-      sourceChangeId: rec.sourceChangeId,
-      sourceAssetName: row?.change.asset_name ?? null,
-      headline: `Promising experiment: ${exp.headline}`,
-      summaryLine:
-        "Operator-accepted experiment trending positive -- worth repeating based on observed patterns.",
-      confidence: "medium",
-      targetingSummary: `Relevant to ${expTargetPath}`,
-      actionVerb: deriveActionVerb(rec.type, expPatternName),
-      expectedNextStep:
-        "Document what shipped for this URL, then consider applying similar structural changes to the next target.",
-      watchAfter:
-        "Keep the experiment open one more import cycle before opening new targets with the same approach.",
-      targets: [
-        {
-          recId: rec.id,
-          targetPageUrl: exp.targetPageUrl,
-          targetPagePath: expTargetPath,
-          citationOpportunity: rec.citationOpportunity,
-          similarityReasons: ["Current promising experiment target"],
-          observed,
-          inferred,
-        },
-      ],
-      cardObserved: observed,
-      cardInferred: inferred,
-    });
-  }
-
-  return cards;
+  void recommendations; void impactRows; void patterns; void rolloutExecutions; void pageIssues; void excludeRecIds;
+  void MAX_PROMISING_CARDS;
+  return [];
 }
