@@ -32,6 +32,8 @@ import { deriveCoverageState, coverageWarningLine } from "@/lib/coverage-state";
 import { latestWebsiteCrawlRun } from "@/domains/observations/read";
 import { sampleQualityTierFromObservationCount } from "@/lib/sample-quality-tier";
 import { HypothesisEditor } from "./hypothesis-editor";
+import { AttributionDrilldown } from "../attribution-drilldown";
+import { loadChangeOutcomeById } from "@/domains/attribution/change-outcome-store";
 
 const PLATFORM_LABELS: Record<string, string> = {
   chatgpt: "ChatGPT",
@@ -203,7 +205,9 @@ export default async function ChangeDetailPage({
               <span>{row.daysSinceChange}d ago</span>
             </div>
           </div>
-          <ChangeVerdictBadge verdict={row.verdict} />
+          {/* Legacy verdict badge removed in Phase 2C — the attribution
+              drilldown panel below is the source of truth for this change's
+              status. */}
         </div>
         {recommendedMatch && (
           <div className="flex items-center gap-2 mt-2 text-[10px]">
@@ -217,6 +221,14 @@ export default async function ChangeDetailPage({
           </div>
         )}
       </div>
+
+      {/* Phase 2C: attribution drilldown (natural-controls engine output).
+          Source of truth for this change's attribution status. Replaces the
+          old verdict-led block. */}
+      {(() => {
+        const storedOutcome = loadChangeOutcomeById(entry.id);
+        return storedOutcome ? <AttributionDrilldown outcome={storedOutcome} /> : null;
+      })()}
 
       {/* What changed */}
       <div className="bg-surface-inset rounded-lg px-4 py-3 space-y-2">

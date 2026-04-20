@@ -3,11 +3,12 @@
 import { useState, useMemo } from "react";
 import Link from "next/link";
 import type { ScorecardRowWithImpact } from "@/domains/attribution/change-impact";
-import type {
-  UrlVerdict,
-  VerdictLabel,
-} from "@/domains/attribution/url-verdict";
-import { VERDICT_LABEL } from "@/domains/attribution/url-verdict";
+import type { UrlVerdict } from "@/domains/attribution/url-verdict";
+// Note: UrlVerdict type is retained on EnrichedChangeRow because the internal
+// row-expand panel ("Explain this verdict") still renders the legacy Z-score
+// math. The primary drilldown at /changes/[id] is the source of truth for
+// attribution status.
+import { AttributionStatusPill } from "./attribution-status-pill";
 
 /**
  * A single row on the /changes page.
@@ -52,32 +53,36 @@ export type ReadyOnPrediction = {
   narrative: string;
 };
 
-type VerdictFilter = VerdictLabel | "all" | "site_wide";
+// Phase 2C cleanup — status-based filter (replaces legacy helping/hurting model).
+// "other" bundles the remaining rare statuses so operators have a catch-all without
+// a chip explosion. Changes with no stored outcome fall under "no_data".
+type StatusFilter =
+  | "all"
+  | "computed"
+  | "weak_estimate"
+  | "no_controls"
+  | "unsupported_scope"
+  | "insufficient_baseline"
+  | "other"
+  | "no_data";
 
-const VERDICT_TONE_CLASS: Record<VerdictLabel | "site_wide", string> = {
-  helping:
-    "border-status-success/40 bg-status-success/10 text-status-success",
-  hurting:
-    "border-status-danger/40 bg-status-danger/10 text-status-danger",
-  nothing_yet:
-    "border-border/60 bg-surface-inset/60 text-muted-foreground",
-  too_early:
-    "border-accent-primary/30 bg-accent-primary/8 text-accent-primary",
-  not_enough_data:
-    "border-border/50 bg-surface-inset/40 text-muted-foreground",
-  site_wide:
-    "border-border/50 bg-surface-inset/40 text-muted-foreground",
-};
-
-const FILTER_LABEL: Record<VerdictFilter, string> = {
+const STATUS_FILTER_LABEL: Record<StatusFilter, string> = {
   all: "All",
-  helping: "Helping",
-  hurting: "Hurting",
-  nothing_yet: "Nothing yet",
-  too_early: "Too early",
-  not_enough_data: "No baseline",
-  site_wide: "Site-wide",
+  computed: "Computed",
+  weak_estimate: "Weak estimate",
+  no_controls: "No controls",
+  unsupported_scope: "Unsupported",
+  insufficient_baseline: "No baseline",
+  other: "Other",
+  no_data: "No data",
 };
+
+const OTHER_STATUSES = new Set([
+  "insufficient_post_data",
+  "zero_signal",
+  "ineligible_layer",
+  "ineligible_event",
+]);
 
 const PLATFORM_SHORT: Record<string, string> = {
   chatgpt: "GPT",
@@ -90,6 +95,7 @@ export function ScorecardTable({
   allTopics: _allTopics,
   allPlatforms: _allPlatforms,
   coverageState,
+  outcomesById,
 }: {
   rows: EnrichedChangeRow[];
   /** Reserved for future per-topic filter in drill-down. */
@@ -97,49 +103,65 @@ export function ScorecardTable({
   /** Reserved for future per-platform filter in drill-down. */
   allPlatforms?: string[];
   coverageState?: import("@/lib/coverage-state").CoverageState;
+  /**
+   * Phase 2C — stored attribution outcomes keyed by change_id. When present,
+   * each row renders the new attribution status pill (computed / weak_estimate /
+   * no_controls / unsupported_scope / ...) in place of the legacy verdict pill.
+   */
+  outcomesById?: Record<string, import("@/domains/attribution/change-outcome-store").StoredChangeOutcome>;
 }) {
-  const [filter, setFilter] = useState<VerdictFilter>("all");
+  const [filter, setFilter] = useState<StatusFilter>("all");
+
+  const statusOf = (row: EnrichedChangeRow): StatusFilter => {
+    const outcome = outcomesById?.[row.scorecard.change.id];
+    if (!outcome) return "no_data";
+    const s = outcome.status;
+    if (s === "computed" || s === "weak_estimate" || s === "no_controls" || s === "unsupported_scope" || s === "insufficient_baseline") {
+      return s;
+    }
+    if (OTHER_STATUSES.has(s)) return "other";
+    return "no_data";
+  };
 
   const filtered = useMemo(() => {
     if (filter === "all") return rows;
-    if (filter === "site_wide") return rows.filter((r) => !r.hasUrl);
-    return rows.filter((r) => r.urlVerdict?.verdict === filter);
-  }, [rows, filter]);
+    return rows.filter((r) => statusOf(r) === filter);
+    // statusOf depends on outcomesById — include in deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows, filter, outcomesById]);
 
   const counts = useMemo(() => {
-    const c: Record<VerdictFilter, number> = {
+    const c: Record<StatusFilter, number> = {
       all: rows.length,
-      helping: 0,
-      hurting: 0,
-      nothing_yet: 0,
-      too_early: 0,
-      not_enough_data: 0,
-      site_wide: 0,
+      computed: 0,
+      weak_estimate: 0,
+      no_controls: 0,
+      unsupported_scope: 0,
+      insufficient_baseline: 0,
+      other: 0,
+      no_data: 0,
     };
     for (const r of rows) {
-      if (!r.hasUrl) {
-        c.site_wide += 1;
-        continue;
-      }
-      const v = r.urlVerdict?.verdict ?? "not_enough_data";
-      c[v] += 1;
+      c[statusOf(r)] += 1;
     }
     return c;
-  }, [rows]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows, outcomesById]);
 
-  const filterOptions: VerdictFilter[] = [
+  const filterOptions: StatusFilter[] = [
     "all",
-    "helping",
-    "hurting",
-    "nothing_yet",
-    "too_early",
-    "not_enough_data",
-    "site_wide",
+    "computed",
+    "weak_estimate",
+    "no_controls",
+    "unsupported_scope",
+    "insufficient_baseline",
+    "other",
+    "no_data",
   ];
 
   return (
     <div>
-      {/* Verdict filter chips */}
+      {/* Attribution status filter chips */}
       <div className="flex items-center gap-1 mb-4 border-b border-border/40 pb-2 overflow-x-auto">
         {filterOptions
           .filter((key) => key === "all" || counts[key] > 0)
@@ -153,7 +175,7 @@ export function ScorecardTable({
                   : "text-muted-foreground hover:text-foreground hover:bg-surface-inset/50"
               }`}
             >
-              {FILTER_LABEL[key]}
+              {STATUS_FILTER_LABEL[key]}
               <span className="ml-1.5 text-[10px] opacity-60 tabular-nums">
                 {counts[key]}
               </span>
@@ -170,7 +192,7 @@ export function ScorecardTable({
             <tr className="border-b border-border bg-surface-inset text-[10px] text-muted-foreground">
               <th className="text-left px-2.5 py-1.5 font-medium w-[90px]">When</th>
               <th className="text-left px-2.5 py-1.5 font-medium">Change</th>
-              <th className="text-left px-2.5 py-1.5 font-medium w-[120px]">Verdict</th>
+              <th className="text-left px-2.5 py-1.5 font-medium w-[120px]">Status</th>
               <th className="text-left px-2.5 py-1.5 font-medium w-[80px] tabular-nums">
                 Delta
               </th>
@@ -179,7 +201,11 @@ export function ScorecardTable({
           </thead>
           <tbody>
             {filtered.map((row) => (
-              <ChangeRow key={row.scorecard.change.id} row={row} />
+              <ChangeRow
+                key={row.scorecard.change.id}
+                row={row}
+                outcome={outcomesById?.[row.scorecard.change.id]}
+              />
             ))}
           </tbody>
         </table>
@@ -193,15 +219,21 @@ export function ScorecardTable({
 
       {coverageState === "stale" || coverageState === "critical" ? (
         <p className="mt-3 text-[10px] text-status-warning/70">
-          Coverage state is {coverageState} — verdicts may reflect stale data
-          until the next import.
+          Coverage state is {coverageState} — attribution may reflect stale
+          data until the next import.
         </p>
       ) : null}
     </div>
   );
 }
 
-function ChangeRow({ row }: { row: EnrichedChangeRow }) {
+function ChangeRow({
+  row,
+  outcome,
+}: {
+  row: EnrichedChangeRow;
+  outcome?: import("@/domains/attribution/change-outcome-store").StoredChangeOutcome;
+}) {
   const [open, setOpen] = useState(false);
   const ch = row.scorecard.change;
   const dateStr = new Date(ch.timestamp).toLocaleDateString("en-US", {
@@ -209,32 +241,26 @@ function ChangeRow({ row }: { row: EnrichedChangeRow }) {
     day: "numeric",
   });
 
-  const verdictLabel = row.hasUrl
-    ? row.urlVerdict
-      ? VERDICT_LABEL[row.urlVerdict.verdict]
-      : "No data"
-    : "Site-wide";
-  const verdictTone = row.hasUrl
-    ? row.urlVerdict
-      ? VERDICT_TONE_CLASS[row.urlVerdict.verdict]
-      : VERDICT_TONE_CLASS.not_enough_data
-    : VERDICT_TONE_CLASS.site_wide;
-
-  const delta = row.urlVerdict?.delta_pct;
-  const deltaAbs = row.urlVerdict?.delta_abs;
+  // Phase 2C: read delta from the new store when status === "computed"; for
+  // weak_estimate / no_controls, show the RAW treated delta explicitly labeled
+  // "raw" so it cannot be misread as adjusted/causal. For all other statuses
+  // (insufficient / ineligible / unsupported / zero_signal): em-dash.
+  const delta =
+    outcome?.status === "computed" ? outcome.computed!.overall.relative_lift : null;
+  const deltaAbs =
+    outcome?.status === "computed"
+      ? outcome.computed!.overall.adjusted_lift
+      : outcome?.raw?.overall.treated_delta ?? null;
+  const deltaIsRaw = outcome?.status !== "computed" && outcome?.raw !== null && outcome?.raw !== undefined;
   const deltaStr = (() => {
     if (delta == null) return "—";
     const pct = Math.round(delta * 100);
     return pct > 0 ? `+${pct}%` : `${pct}%`;
   })();
-  const deltaColor =
-    delta == null
-      ? "text-muted-foreground"
-      : delta > 0
-        ? "text-status-success"
-        : delta < 0
-          ? "text-status-danger"
-          : "text-muted-foreground";
+  // Intentionally NOT colored green/red — attribution is not a pass/fail judgment.
+  // Computed results get accent-primary to signal "measured"; raw stays muted so it
+  // cannot be misread as a causal signal.
+  const deltaColor = delta == null ? "text-muted-foreground" : "text-accent-primary";
 
   return (
     <>
@@ -287,11 +313,17 @@ function ChangeRow({ row }: { row: EnrichedChangeRow }) {
           </Link>
         </td>
         <td className="px-2.5 py-2 align-top whitespace-nowrap">
-          <span
-            className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-semibold ${verdictTone}`}
-          >
-            {verdictLabel}
-          </span>
+          {outcome ? (
+            <AttributionStatusPill status={outcome.status} confidence={outcome.confidence} compact />
+          ) : row.hasUrl ? (
+            <span className="inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-semibold text-muted-foreground bg-surface-inset/60 border-border/60">
+              No data
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-semibold text-muted-foreground bg-surface-inset/60 border-border/60">
+              Site-wide
+            </span>
+          )}
         </td>
         <td className="px-2.5 py-2 align-top whitespace-nowrap tabular-nums">
           <span className={`text-[12px] font-semibold ${deltaColor}`}>
@@ -299,6 +331,7 @@ function ChangeRow({ row }: { row: EnrichedChangeRow }) {
           </span>
           {deltaAbs != null && Math.abs(deltaAbs) >= 0.1 && (
             <span className="block text-[9px] text-muted-foreground mt-0.5">
+              {deltaIsRaw && <span className="mr-0.5 uppercase tracking-wider">raw</span>}
               {deltaAbs > 0 ? "+" : ""}
               {deltaAbs.toFixed(1)}/day
             </span>

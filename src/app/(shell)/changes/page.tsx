@@ -10,10 +10,14 @@ import { eventDecisions } from "@/domains/attribution/store";
 import { computeScorecard } from "@/domains/attribution/scorecard";
 import { enrichWithImpact } from "@/domains/attribution/change-impact";
 import { ScorecardTable, type EnrichedChangeRow } from "./scorecard-client";
+import {
+  loadAllChangeOutcomes,
+  type StoredChangeOutcome,
+} from "@/domains/attribution/change-outcome-store";
 import { deriveCoverageState, coverageWarningLine } from "@/lib/coverage-state";
 import { latestWebsiteCrawlRun } from "@/domains/observations/read";
 import { sampleQualityTierFromObservationCount } from "@/lib/sample-quality-tier";
-import { getWatchingUrlOutcomes } from "@/domains/attribution/url-change-outcome";
+// Legacy Z-score "watching" outcomes import removed in Phase 2C cleanup.
 import { findDuplicatePairs } from "@/domains/changelog/dedupe";
 import {
   buildUrlCitationHistory,
@@ -183,49 +187,38 @@ export default async function ChangeScorecardPage() {
 
   const truthPreviewEnabled = isEventTruthPreviewEnabled();
 
-  // Phase 2 (2026-04-19): strip now reads directly from url-change-outcomes
-  // (Z-score engine output). Every URL being watched becomes a row \u2014 no
-  // "Apply this" ceremony required. One row per URL, most recent outcome wins.
-  const watchingOutcomes = getWatchingUrlOutcomes();
-  const changeById = new Map(changelogEntries.map((c) => [c.id, c]));
-  const watchingRows = watchingOutcomes.map((o) => {
-    const change = changeById.get(o.change_id);
-    const days = Math.floor(
-      (Date.now() - new Date(o.recorded_at).getTime()) / 86_400_000,
-    );
-    // Map verdict to a user-facing status label matching the old pill colors.
-    const statusLabel =
-      o.verdict === "hurting" ? "hurting"
-      : o.verdict === "too_early" ? "too early"
-      : "watching";
-    const deltaCitations = o.delta_abs;
-    return {
-      id: `${o.change_id}::${o.url}`,
-      changeId: o.change_id,
-      headline: change?.change_description ?? change?.asset_name ?? `Change on ${o.url}`,
-      targetPagePath: o.url,
-      days,
-      deltaCitations,
-      statusLabel,
-      verdict: o.verdict,
-    };
-  });
+  // Phase 2C cleanup — legacy "watching" rows removed. Attribution status
+  // (computed / weak_estimate / no_controls / ...) is now the single source
+  // of truth in the scorecard below.
 
-  // Counts for the at-a-glance strip (based on the new URL verdicts).
-  const countsByVerdict = {
-    helping: enriched.filter((e) => e.urlVerdict?.verdict === "helping").length,
-    hurting: enriched.filter((e) => e.urlVerdict?.verdict === "hurting").length,
-    nothing_yet: enriched.filter((e) => e.urlVerdict?.verdict === "nothing_yet").length,
-    too_early: enriched.filter((e) => e.urlVerdict?.verdict === "too_early").length,
-    no_baseline: enriched.filter((e) => e.urlVerdict?.verdict === "not_enough_data").length,
-    site_wide: enriched.filter((e) => !e.hasUrl).length,
+  // Phase 2C — load stored attribution outcomes (natural-controls engine output)
+  // and key by change_id so the scorecard row can render the new attribution
+  // status pill instead of the legacy verdict label. Absent key → no outcome
+  // yet (row shows muted "not yet" pill instead of fake verdict).
+  let outcomesById: Record<string, StoredChangeOutcome> = {};
+  try {
+    const stored = loadAllChangeOutcomes();
+    outcomesById = Object.fromEntries(stored.map((o) => [o.source_id, o]));
+  } catch {
+    // Store may not exist yet on a fresh machine — graceful degrade.
+    outcomesById = {};
+  }
+
+  // Phase 2C cleanup — at-a-glance counts now derived from the attribution
+  // store (computed / weak_estimate / no_controls). Legacy verdict counts
+  // (helping / hurting / too_early) retired.
+  const countsByStatus = {
+    computed: Object.values(outcomesById).filter((o) => o.status === "computed").length,
+    weak_estimate: Object.values(outcomesById).filter((o) => o.status === "weak_estimate").length,
+    no_controls: Object.values(outcomesById).filter((o) => o.status === "no_controls").length,
+    unsupported_scope: Object.values(outcomesById).filter((o) => o.status === "unsupported_scope").length,
   };
 
   return (
     <div>
       <PageHeader
         title="Changes"
-        description="Every change you've made. Newest first. Every verdict shows its math."
+        description="Every change you've made. Newest first. Each row shows its attribution status and confidence."
       />
 
       {/* At-a-glance */}
@@ -240,24 +233,24 @@ export default async function ChangeScorecardPage() {
               Latest: <span className="font-medium text-foreground">{newestLabel}</span>
             </span>
           )}
-          {countsByVerdict.helping > 0 && (
-            <span className="text-status-success font-semibold tabular-nums">
-              {countsByVerdict.helping} helping
+          {countsByStatus.computed > 0 && (
+            <span className="text-accent-primary font-semibold tabular-nums">
+              {countsByStatus.computed} computed
             </span>
           )}
-          {countsByVerdict.hurting > 0 && (
-            <span className="text-status-danger font-semibold tabular-nums">
-              {countsByVerdict.hurting} hurting
+          {countsByStatus.weak_estimate > 0 && (
+            <span className="text-status-warning/90 font-semibold tabular-nums">
+              {countsByStatus.weak_estimate} weak
             </span>
           )}
-          {countsByVerdict.too_early > 0 && (
+          {countsByStatus.no_controls > 0 && (
+            <span className="text-status-warning/90 font-semibold tabular-nums">
+              {countsByStatus.no_controls} no controls
+            </span>
+          )}
+          {countsByStatus.unsupported_scope > 0 && (
             <span className="text-muted-foreground tabular-nums">
-              {countsByVerdict.too_early} too early
-            </span>
-          )}
-          {watchingRows.length > 0 && (
-            <span className="text-muted-foreground tabular-nums">
-              {watchingRows.length} being watched
+              {countsByStatus.unsupported_scope} unsupported
             </span>
           )}
           {coverageWarning && (
@@ -305,71 +298,13 @@ export default async function ChangeScorecardPage() {
         allTopics={allTopics}
         allPlatforms={allPlatforms}
         coverageState={coverageState}
+        outcomesById={outcomesById}
       />
 
-      {/* Currently watching strip \u2014 Z-score engine output, one row per URL */}
-      {watchingRows.length > 0 && (
-        <div className="mt-8 border-t border-border/50 pt-6">
-          <h2 className="text-sm font-semibold text-foreground mb-1">
-            Currently being watched
-          </h2>
-          <p className="text-[11px] text-muted-foreground mb-3">
-            URLs Beacon is tracking to see whether visibility moves.
-          </p>
-          <div className="rounded-lg border border-border/60 divide-y divide-border/40 overflow-hidden">
-            {watchingRows.map((row) => {
-              const delta = row.deltaCitations;
-              return (
-                <div
-                  key={row.id}
-                  className="px-4 py-3 hover:bg-surface-inset/20 transition-colors"
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="text-[12px] font-semibold truncate">
-                        {row.headline}
-                      </p>
-                      <p className="text-[10px] text-muted-foreground mt-0.5">
-                        Day {row.days + 1}
-                        {row.targetPagePath && (
-                          <span className="ml-1 font-mono">
-                            {row.targetPagePath}
-                          </span>
-                        )}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      {delta !== null && delta !== 0 && (
-                        <span
-                          className={`text-[11px] font-semibold tabular-nums ${
-                            delta > 0
-                              ? "text-status-success"
-                              : "text-status-danger"
-                          }`}
-                        >
-                          {delta > 0 ? "+" : ""}
-                          {delta} cit
-                        </span>
-                      )}
-                      <span
-                        className={`text-[9px] font-medium rounded-full px-2 py-0.5 border ${
-                          row.verdict === "hurting"
-                            ? "text-status-danger bg-status-danger/10 border-status-danger/30"
-                            : row.verdict === "too_early"
-                              ? "text-muted-foreground bg-surface-inset/60 border-border/40"
-                              : "text-muted-foreground bg-surface-inset/60 border-border/40"
-                        }`}
-                      >
-                        {row.statusLabel}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
+      {/* Phase 2C cleanup — legacy "Currently being watched" strip removed.
+          Its helping/hurting/too-early language contradicted the new
+          attribution status model. The scorecard list above renders every
+          change's attribution status; detail pages drill into the math. */}
     </div>
   );
 }
