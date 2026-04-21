@@ -21,6 +21,7 @@ import { absoluteUrlForPath } from "@/lib/site-config";
 // roadmap that will layer LLM-generated rewrites on top in Part 1c.
 import type { PromptAnswerObservation } from "@/domains/prompt-answer-observations/types";
 import { scanKeywordGaps, gapFindingsToRecs } from "./keyword-gap-scanner";
+import { containsConcept } from "@/lib/text-normalize";
 
 export type RecommendationType =
   | "replicate"
@@ -578,7 +579,20 @@ export function computeRecommendations(opts: {
       experimentUrls: opts.activeExperimentUrls,
       knownLocations: opts.knownLocations,
     });
-    for (const rec of gapFindingsToRecs(gapFindings, 8)) {
+
+    // Phase 3A trust guardrail (2026-04-20):
+    // Suppress literal insertion/positioning recs when the concept is already
+    // present in the exact target field (title / H1 / H2) after light
+    // normalization. Field-specific — `currentHeadingText` is the target
+    // element's actual content, attached to every KeywordGap by the scanner.
+    // Generic rule, not Ritz-specific. Empty `currentHeadingText` (no
+    // heading present) still emits — that's a real gap. Matches are
+    // contiguous and singular/plural-folded per `containsConcept`.
+    const trustedFindings = gapFindings.filter(
+      (f) => !containsConcept(f.currentHeadingText ?? "", f.concept),
+    );
+
+    for (const rec of gapFindingsToRecs(trustedFindings, 8)) {
       recs.push(rec);
     }
   }
