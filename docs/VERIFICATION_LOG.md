@@ -7,6 +7,54 @@
 
 ---
 
+## 2026-04-20 — Customer-One Plan B2: Deterministic phrase-shape gates
+
+**Source plan:** `plans/curried-strolling-backus.md` Phase 3-post → B2. Operator-tuned before coding: Rule E dropped, Rule C and Rule A narrowed.
+
+**Goal.** Reject robotic / malformed scanner concepts at emission — before they become Today recommendations. Deterministic only. Phrase-shape only (no relevance filtering at scanner level — relevance is the router's job).
+
+**Why.** After the page-placement router (`6b54a86`) shipped, concept placement was fixed, but the scanner still emitted phrases that read like parser output even when correctly routed ("Design-Build Firm Architect" / "Homes Without Expanding"). The next bottleneck was phrase quality, not routing.
+
+**Shipped — four narrow gates in `src/domains/product/keyword-gap-scanner.ts`:**
+
+**Rule A (STOPWORDS additions, narrow)** — added to existing `STOPWORDS` set: `without`, `through`, `during`, `while`, `after`, `before`, `between`. These were the highest-confidence fragment-makers missing from the list. Once added, the scanner treats them as concept-span boundaries at tokenization, so "Modernizing Older Homes Without Expanding" can no longer be generated (expansion cannot reach across `without`). Additional prepositions (over/under/about/against/among/beyond/across) deferred until dogfood demonstrates need.
+
+**Rule B (FRAGMENT_STARTERS_2WORD extension)** — added to existing readability-gate plural-noun list: `remodelers`, `renovators`, `modernizers`, `designers`, `architects`, `developers`, `engineers`, `agencies`, `consultants`, `professionals`. 2- and 3-word concepts starting with these plural nouns are now rejected by the existing mechanism. "Modernizers Bay Area" / "Renovators Menlo Park" / "Architects Silicon Valley" can no longer surface.
+
+**Rule C (noun-head juxtaposition, narrow)** — new function `passesPhraseShapeGate`. A concept of 3+ tokens whose last two tokens are BOTH in `NOUN_HEAD_SET` = {firm, company, agency, contractor, builder, architect, designer, consultant, engineer, developer} is rejected as a noun pileup. Deliberately excludes softer words (specialist, professional, provider, service, team, partner, advisor, manager, director, organization) to avoid killing borderline-readable phrases in v1. "Design-Build Firm Architect" → `firm + architect` → reject. "Custom Home Builder" → `home + builder`, `home` not in narrow set → survive. "Builder Contractor" → both in set → reject.
+
+**Rule D (preposition-in-concept, defensive)** — any token in the final (post-expansion) concept that appears in `PREPOSITION_SET` triggers rejection. Defensive belt-and-suspenders after Rule A's STOPWORDS expansion, which makes the common prepositions boundaries at tokenization anyway. Catches edge cases where expansion might produce a preposition-containing concept.
+
+**Rule E (tenant-vocab resonance) — deliberately NOT shipped.** Operator direction: "B2 should be phrase-shape only, not hidden relevance filtering. Router already handles off-scope / new-page routing. Do not hide real opportunities too early at scanner level." The scanner does NOT take any tenant-scope opt. The router remains the single gate for relevance.
+
+**Design discipline honored:**
+
+- Zero changes to router logic (`6b54a86` stands).
+- Zero changes to ranking, shared-brain, evidence-basis, or Today layout.
+- Phrase-shape logic lives in one new function (`passesPhraseShapeGate`) called exactly once in the existing concept loop. Surface area: minimal.
+- Every rejection emits one readable stderr line: `[phrase-shape] "<concept>" on <path> → reject: rule X (<reason>)`.
+- No LLM, no embeddings, no synonym tables, no POS tagger. Only set membership.
+
+**Verification:**
+
+- `npx tsc --noEmit` clean.
+- `npx vitest run tests/domains/product/keyword-gap-scanner-phrase-shape.test.ts` → 14/14.
+- Full `npx vitest run` → 1132 passed, 7 failed (same 7 pre-existing tenant-isolation failures; +14 new tests, no regression).
+- Live DOM search after preview restart: zero matches on `Firm Architect`, `Builder Contractor`, `Without Expanding`, `Modernizers `, `Architects `, `Renovators `.
+- Router/scanner logs show Rule C firing cleanly (~6 unique "Firm Architect"-family rejections × ~8 pages = ~48 rejection lines per render; deduplicated via scanner's per-concept loop).
+- Headlines on Today after B2 (before-after pair):
+  - BEFORE: `Best current page for "Design-Build Firm Architect": /our-difference`
+  - AFTER:  `Competitors own "Design-Build Custom Home Builder Silicon" — /locations/palo-alto does not cover it` (different concept surfaced; previous one rejected at scanner)
+- Schema parity + neighborhoods + helping verdict cards unchanged.
+
+**Known artifact (acceptable per operator direction):** the survivor `Design-Build Custom Home Builder Silicon` reads as a URL-slug-y fragment of "silicon valley". It passes all four v1 rules because `silicon` isn't in NOUN_HEAD_SET and no preposition appears in the concept. That's the "strict on obviously robotic, not kill borderline-readable" tradeoff. Dogfood observation will show whether it needs follow-up tuning (widen NOUN_HEAD_SET, or address at extraction level in Plan A + B1).
+
+**Stopping condition met.** Phrase-shape v1 shipped. Next in the locked order: Plan A + B1 (extraction coverage expansion + broader semantic coverage text) — same chat or next.
+
+**Tracker:** `docs/CUSTOMER_ONE_TRACKER.md` — Plan B2 row shipped.
+
+---
+
 ## 2026-04-20 — Customer-One Plan C: Declarative customer-facing copy + page-placement router
 
 **Source plan:** `plans/curried-strolling-backus.md` Phase 3-post (router) + Plan C (copy cleanup). Two pieces shipped together as one coherent product improvement.

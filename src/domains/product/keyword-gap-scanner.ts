@@ -66,6 +66,33 @@ const STOPWORDS = new Set([
   "some", "all", "any", "every", "each", "very", "really", "much", "many",
   "one", "two", "also", "well", "just", "new", "get", "make", "need",
   "want", "like", "top", "best",
+  // Plan B2 Rule A (2026-04-20): narrow preposition additions. These are the
+  // highest-confidence fragment-makers — they commonly appear in AI search
+  // queries as connectors that produce awkward concepts when expansion
+  // reaches across them ("Modernizing Older Homes Without Expanding").
+  // Additional prepositions (over, under, about, against, etc.) deferred
+  // until dogfood demonstrates need.
+  "without", "through", "during", "while", "after", "before", "between",
+]);
+
+// Plan B2 Rule C (2026-04-20): narrow noun-head set. A 3+ word concept whose
+// last two tokens are BOTH in this set is almost always a robotic noun pileup
+// ("Firm Architect", "Builder Contractor"). Deliberately does NOT include
+// softer words (specialist, professional, provider, service, team, partner,
+// advisor, manager, director, organization) to avoid killing borderline-
+// readable phrases in v1. Expand later only if dogfood demonstrates need.
+const NOUN_HEAD_SET = new Set([
+  "firm", "company", "agency", "contractor", "builder",
+  "architect", "designer", "consultant", "engineer", "developer",
+]);
+
+// Plan B2 Rule D (2026-04-20): defensive preposition-in-concept check. After
+// Rule A's STOPWORDS additions, concepts should rarely contain these tokens
+// mid-phrase — the expansion logic treats STOPWORDS as hard boundaries. Rule
+// D is belt-and-suspenders for any edge case that slips through expansion.
+const PREPOSITION_SET = new Set([
+  "with", "without", "for", "of", "in", "on", "at", "by", "from", "to",
+  "through", "during", "while", "after", "before", "between",
 ]);
 
 /** Tier 1 thresholds \u2014 tunable at call time. */
@@ -407,6 +434,17 @@ function scanPage(
     // Readability gate \u2014 strict for Tier 1, same filter for Tier 2/3.
     if (!isReadableConcept(finalConcept)) continue;
 
+    // Plan B2 (2026-04-20): phrase-shape gate — rejects noun-pileup (Rule C)
+    // and preposition-governed fragments (Rule D). Logs each rejection in
+    // one readable line so dogfood can see what's being stripped.
+    const shape = passesPhraseShapeGate(finalConcept);
+    if (!shape.ok) {
+      console.error(
+        `[phrase-shape] "${titleCaseConcept(finalConcept)}" on ${snap.url.replace(/^https?:\/\/[^/]+/, "")} \u2192 reject: rule ${shape.rule} (${shape.reason})`,
+      );
+      continue;
+    }
+
     // Fix-2: Smart heading target selection.
     const target = pickBestHeadingTarget(snap, finalConceptWords);
     const targetElement = target.element;
@@ -742,9 +780,14 @@ function isReadableConcept(concept: string): boolean {
   if (tokens.length === 0) return false;
 
   // Plural nouns that are fragment-starters when they head a 2-word concept.
+  // Plan B2 Rule B (2026-04-20): extended with additional plural trade nouns
+  // that commonly start fragment concepts in AI search query corpora.
   const FRAGMENT_STARTERS_2WORD = new Set([
     "builders", "contractors", "homes", "houses", "firms", "companies",
     "reviews", "services", "options", "specialists", "experts",
+    // B2 extension:
+    "remodelers", "renovators", "modernizers", "designers", "architects",
+    "developers", "engineers", "agencies", "consultants", "professionals",
   ]);
 
   if (tokens.length === 2 && FRAGMENT_STARTERS_2WORD.has(tokens[0])) {
@@ -761,6 +804,56 @@ function isReadableConcept(concept: string): boolean {
   }
 
   return true;
+}
+
+/**
+ * Plan B2 (2026-04-20): deterministic phrase-shape gate applied AFTER the
+ * existing `isReadableConcept` check. Rejects robotic / malformed phrases.
+ *
+ * Rule C — noun-head juxtaposition:
+ *   Trigrams (or longer expanded concepts) whose last two tokens are BOTH
+ *   in NOUN_HEAD_SET are almost always noun pileups ("Firm Architect",
+ *   "Builder Contractor"). Reject.
+ *
+ * Rule D — preposition-in-concept (defensive):
+ *   If any token in the final concept is in PREPOSITION_SET, reject. Rule A
+ *   makes most of these stopword-boundaries upstream, so Rule D is a safety
+ *   net for edge cases that slip through expansion.
+ *
+ * Returns { ok: true } if the concept survives, or { ok: false, rule, reason }
+ * for a single readable log line.
+ */
+function passesPhraseShapeGate(
+  concept: string,
+): { ok: true } | { ok: false; rule: "C" | "D"; reason: string } {
+  const tokens = concept.toLowerCase().split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) return { ok: true };
+
+  // Rule C: noun-head juxtaposition on the final two tokens of a 3+ concept.
+  if (tokens.length >= 3) {
+    const last = tokens[tokens.length - 1];
+    const penult = tokens[tokens.length - 2];
+    if (NOUN_HEAD_SET.has(last) && NOUN_HEAD_SET.has(penult)) {
+      return {
+        ok: false,
+        rule: "C",
+        reason: `noun-head juxtaposition: ${penult}, ${last}`,
+      };
+    }
+  }
+
+  // Rule D: any preposition inside the final concept.
+  for (const t of tokens) {
+    if (PREPOSITION_SET.has(t)) {
+      return {
+        ok: false,
+        rule: "D",
+        reason: `contains preposition: ${t}`,
+      };
+    }
+  }
+
+  return { ok: true };
 }
 
 function pullExcerptsFromIds(
