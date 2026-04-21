@@ -102,6 +102,27 @@ export type ChangelogEntry = {
   /** `"single_url"` for page-scoped experiments, `"sitewide"` for rollouts. */
   page_scope?: "single_url" | "sitewide";
 
+  // ---------------------------------------------------------------------
+  // Fix 2 (2026-04-21) — rec → finding → changelog linkage
+  //
+  // Stamped by `confirmFindingAsChange` when the source finding was
+  // auto-linked to a previously-accepted recommendation. Attribution
+  // engines use these to measure per-rec / per-pattern success rates
+  // instead of relying on URL-only retroactive inference.
+  //
+  // Both optional. Null/absent on:
+  //   - legacy rows
+  //   - imported CSV rows
+  //   - rows confirmed from findings that weren't preceded by an
+  //     accepted rec on the same URL within the link window
+  // ---------------------------------------------------------------------
+
+  /** RecommendationResponse.recId of the accepted rec that was most likely
+   *  the cause of this change. */
+  source_rec_id?: string;
+  /** BeaconRecommendation.patternId if the source rec was pattern-backed. */
+  source_pattern_id?: string | null;
+
   /** Owning tenant. */
   tenant_id: string;
 };

@@ -35,6 +35,11 @@ export type ActionCardAction = {
   targetPagePath?: string | null;
   baselineCitations?: number | null;
   sourceChangeId?: string | null;
+  /** Fix 2 (2026-04-21) — carried through to the accept-response handler so
+   *  the recommendation-response-store can auto-link a later-detected change
+   *  on the same URL back to this acceptance. Optional: not every rec has a
+   *  pattern. */
+  patternId?: string | null;
   lineageBullets?: string[];
   answerContext?: string | null;
   specificMove?: string | null;
@@ -61,6 +66,7 @@ export type ActionCardProps = {
   onRespondToRec?: (
     recId: string,
     status: "accepted" | "dismissed" | "deferred",
+    context?: { targetPageUrl?: string | null; patternId?: string | null },
   ) => Promise<{ success: boolean }>;
   onStartExperiment?: (opts: {
     recId: string;
@@ -287,7 +293,13 @@ export function ActionCard({
                     // records that the operator accepted the rec \u2014 used for
                     // causal attribution when the next change on this URL is
                     // detected.
-                    await onRespondToRec(action.id, "accepted");
+                    // Fix 2 (2026-04-21): pass targetPageUrl + patternId so
+                    // detect-findings can auto-link a later-detected change
+                    // on this URL back to this acceptance.
+                    await onRespondToRec(action.id, "accepted", {
+                      targetPageUrl: action.targetPageUrl ?? null,
+                      patternId: action.patternId ?? null,
+                    });
                     setActionMsg("Noted \u2014 we'll track the next change on this page.");
                   });
                 }}

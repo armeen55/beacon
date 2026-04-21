@@ -92,6 +92,9 @@ export type TodayPrimaryAction = {
   engineTiming?: { platform: string; medianDays: number; sampleCount: number }[] | null;
   /** Concrete expected metric */
   expectedMetric?: string | null;
+  /** Fix 2 (2026-04-21): carried so accept handler can pass auto-link
+   *  context (targetPageUrl + patternId) to the response store. */
+  patternId?: string | null;
 };
 
 export type TodayMilestoneTeaser = {

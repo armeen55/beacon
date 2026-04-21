@@ -30,6 +30,7 @@ export function ReplicationCardsClient({
   respondToRecommendation: (
     recId: string,
     status: "accepted" | "dismissed" | "deferred",
+    context?: { targetPageUrl?: string | null; patternId?: string | null },
   ) => Promise<{ success: boolean }>;
 }) {
   const [openId, setOpenId] = useState<string | null>(() =>

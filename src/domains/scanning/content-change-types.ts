@@ -17,6 +17,13 @@ export const CONTENT_CHANGE_TYPES: ReadonlySet<FindingType> = new Set([
   "title_changed",
   "meta_changed",
   "h1_changed",
+  // Phase post-A+B1 (2026-04-21): surface H2 / H3 / schema-entity-name
+  // edits in Today's "Review changes" banner. Previously these flowed
+  // through the diff but produced `unexpected_change` findings that the
+  // banner filter excluded.
+  "h2_changed",
+  "h3_changed",
+  "schema_entity_names_changed",
   "faq_changed",
   "schema_changed",
   "content_changed",

@@ -867,6 +867,10 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
         // Phase 3-post (2026-04-20): page-job-fit router verdict.
         placementMode: primaryAction.placementMode ?? "keep",
         movedFromPath: primaryAction.movedFromPath ?? null,
+        // Fix 2 (2026-04-21): carried to the accept handler so the response
+        // store can auto-link a later-detected change on this URL back to
+        // this acceptance. Null when rec isn't pattern-backed.
+        patternId: primaryAction.patternId ?? null,
       }
     : null;
 
@@ -914,6 +918,8 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
         // Phase 3-post (2026-04-20): page-job-fit router verdict.
         placementMode: secondaryRec.placementMode ?? "keep",
         movedFromPath: secondaryRec.movedFromPath ?? null,
+        // Fix 2 (2026-04-21): carried for the accept handler's auto-link.
+        patternId: secondaryRec.patternId ?? null,
       }
     : null;
 

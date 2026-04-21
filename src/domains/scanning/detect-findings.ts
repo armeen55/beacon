@@ -15,9 +15,69 @@ import {
   type SchemaCoverageDiff,
 } from "@/domains/pages/expected-schema";
 import { isFindingAutoLinkEnabled } from "@/lib/flags";
+// Fix 2 (2026-04-21) — auto-link lookup: read persisted recommendation
+// responses so a detected change on a URL with a recent accepted rec can
+// be stamped with source_rec_id + source_pattern_id at detection time.
+import { recommendationResponses } from "@/domains/product/recommendation-response-store";
 
 type CitationLookup = Map<string, number>;
 type PreviouslyRejectedLookup = Set<string>;
+
+/** Fix 2 (2026-04-21). Window for matching an accepted rec to a later-
+ *  detected change on the same URL. 14 days is generous enough to cover
+ *  dev cycles (accept Monday, ship next Monday) without false-linking
+ *  stale acceptances. */
+const REC_LINK_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
+
+/** Build a normalized URL → most-recent-accepted-rec lookup. Used to stamp
+ *  findings with `source_rec_id` + `source_pattern_id` so `confirmFindingAsChange`
+ *  can carry the linkage into ChangelogEntry, and per-rec / per-pattern
+ *  attribution becomes ground truth instead of URL-only inference. */
+function buildAcceptedRecLookup(
+  nowIso: string,
+): Map<string, { recId: string; patternId: string | null }> {
+  const out = new Map<string, { recId: string; patternId: string | null }>();
+  const nowMs = Date.parse(nowIso);
+  const cutoff = nowMs - REC_LINK_WINDOW_MS;
+
+  // Newest-first so the first hit per URL is the most recent acceptance.
+  const sorted = [...recommendationResponses].sort((a, b) =>
+    b.respondedAt.localeCompare(a.respondedAt),
+  );
+
+  for (const r of sorted) {
+    if (r.status !== "accepted") continue;
+    const respondedMs = Date.parse(r.respondedAt);
+    if (!Number.isFinite(respondedMs)) continue;
+    if (respondedMs < cutoff) continue;
+    if (!r.targetPageUrl) continue;
+    const key = r.targetPageUrl
+      .replace(/^https?:\/\/[^/]+/, "")
+      .replace(/\/+$/, "")
+      .toLowerCase();
+    if (!key) continue;
+    if (out.has(key)) continue; // keep newest-per-URL
+    out.set(key, { recId: r.recId, patternId: r.patternId ?? null });
+  }
+  return out;
+}
+
+/** Fix 2 (2026-04-21). Stamp a finding with auto-link IDs when its URL has
+ *  a recent accepted rec. No-op when no match. */
+function stampAutoLinkIfMatch(
+  finding: Finding,
+  lookup: Map<string, { recId: string; patternId: string | null }>,
+): void {
+  if (!finding.url) return;
+  const key = finding.url
+    .replace(/^https?:\/\/[^/]+/, "")
+    .replace(/\/+$/, "")
+    .toLowerCase();
+  const match = lookup.get(key);
+  if (!match) return;
+  finding.source_rec_id = match.recId;
+  finding.source_pattern_id = match.patternId;
+}
 
 export function generateFindings(opts: {
   currentSnapshots: PageSnapshot[];
@@ -107,6 +167,88 @@ export function generateFindings(opts: {
         summary: `H1 changed: "${prev.h1 ?? "(none)"}" → "${curr.h1 ?? "(none)"}"`,
         suggestedAction: "Verify the H1 still matches page topic",
         citationCount: citations, isHomepage: isHP, previouslyRejected: wasRejected("h1_changed"),
+      }));
+    }
+
+    // Phase post-A+B1 (2026-04-21) — H2 / H3 / schema-entity-names findings.
+    // Replace the previous fall-through into `unexpected_change` for these
+    // specific field diffs. Each finding carries a compact summary of the
+    // first differing entry (or count delta) so Today's banner has real
+    // operator copy, not a generic "unexpected" bucket.
+
+    if (diff.h2_changed) {
+      const prevH2 = prev.h2_list ?? [];
+      const currH2 = curr.h2_list ?? [];
+      const firstDiffIndex = (() => {
+        const max = Math.max(prevH2.length, currH2.length);
+        for (let i = 0; i < max; i++) {
+          if (prevH2[i] !== currH2[i]) return i;
+        }
+        return -1;
+      })();
+      const detailPrev = firstDiffIndex >= 0 ? (prevH2[firstDiffIndex] ?? "(none)") : "(none)";
+      const detailCurr = firstDiffIndex >= 0 ? (currH2[firstDiffIndex] ?? "(none)") : "(none)";
+      findings.push(makeFinding({
+        type: "h2_changed",
+        url: curr.url,
+        scanRunId,
+        now,
+        previousState: prevH2.join(" | ") || null,
+        currentState: currH2.join(" | ") || null,
+        severity: "medium",
+        summary:
+          prevH2.length !== currH2.length
+            ? `H2 count changed on ${pathOf(curr.url)}: ${prevH2.length} → ${currH2.length}`
+            : `H2 changed on ${pathOf(curr.url)}: "${detailPrev}" → "${detailCurr}"`,
+        suggestedAction: "Review whether the new H2 still signposts the section's topic",
+        citationCount: citations, isHomepage: isHP, previouslyRejected: wasRejected("h2_changed"),
+      }));
+    }
+
+    if (diff.h3_changed) {
+      const prevH3 = prev.h3_list ?? [];
+      const currH3 = curr.h3_list ?? [];
+      const added = currH3.filter((h) => !prevH3.includes(h)).slice(0, 3);
+      const removed = prevH3.filter((h) => !currH3.includes(h)).slice(0, 3);
+      const deltaPieces: string[] = [];
+      if (added.length) deltaPieces.push(`+${added.length} (${added[0]}${added.length > 1 ? "…" : ""})`);
+      if (removed.length) deltaPieces.push(`-${removed.length} (${removed[0]}${removed.length > 1 ? "…" : ""})`);
+      findings.push(makeFinding({
+        type: "h3_changed",
+        url: curr.url,
+        scanRunId,
+        now,
+        previousState: prevH3.join(" | ") || null,
+        currentState: currH3.join(" | ") || null,
+        severity: "low",
+        summary:
+          deltaPieces.length > 0
+            ? `H3 list changed on ${pathOf(curr.url)}: ${deltaPieces.join(", ")}`
+            : `H3 list changed on ${pathOf(curr.url)} (${prevH3.length} → ${currH3.length})`,
+        suggestedAction: "Review whether new sub-headings still signpost their sections clearly",
+        citationCount: citations, isHomepage: isHP, previouslyRejected: wasRejected("h3_changed"),
+      }));
+    }
+
+    if (diff.schema_entity_names_changed) {
+      const prevNames = prev.schema_entity_names ?? [];
+      const currNames = curr.schema_entity_names ?? [];
+      const added = currNames.filter((n) => !prevNames.includes(n));
+      const removed = prevNames.filter((n) => !currNames.includes(n));
+      const deltaPieces: string[] = [];
+      if (added.length) deltaPieces.push(`+${added.slice(0, 3).join(", ")}${added.length > 3 ? "…" : ""}`);
+      if (removed.length) deltaPieces.push(`-${removed.slice(0, 3).join(", ")}${removed.length > 3 ? "…" : ""}`);
+      findings.push(makeFinding({
+        type: "schema_entity_names_changed",
+        url: curr.url,
+        scanRunId,
+        now,
+        previousState: prevNames.join(", ") || "(none)",
+        currentState: currNames.join(", ") || "(none)",
+        severity: "low",
+        summary: `Schema entity names changed on ${pathOf(curr.url)}: ${deltaPieces.join(" · ") || "updated"}`,
+        suggestedAction: "Confirm the new schema entity names match the page's content",
+        citationCount: citations, isHomepage: isHP, previouslyRejected: wasRejected("schema_entity_names_changed"),
       }));
     }
 
@@ -542,6 +684,18 @@ export function generateFindings(opts: {
         f.linkedChangeId = linked.id;
         f.resolutionNote = `Auto-linked: matches changelog "${linked.change_description.slice(0, 60)}" (${linked.timestamp.slice(0, 10)})`;
       }
+    }
+  }
+
+  // Fix 2 (2026-04-21) — auto-link pass. For every finding whose URL has
+  // a recently-accepted rec, stamp source_rec_id + source_pattern_id.
+  // `confirmFindingAsChange` then carries these into the created
+  // ChangelogEntry. Manual Confirm preserved — this is metadata linkage,
+  // not auto-confirmation.
+  const acceptedRecLookup = buildAcceptedRecLookup(now);
+  if (acceptedRecLookup.size > 0) {
+    for (const f of findings) {
+      stampAutoLinkIfMatch(f, acceptedRecLookup);
     }
   }
 

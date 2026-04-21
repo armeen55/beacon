@@ -120,6 +120,10 @@ const FINDING_TO_SIGNAL: Partial<Record<FindingType, SignalType>> = {
   title_changed: "content",
   meta_changed: "content",
   h1_changed: "content",
+  // Phase post-A+B1 (2026-04-21) — new heading / schema-name finding types.
+  h2_changed: "content",
+  h3_changed: "content",
+  schema_entity_names_changed: "technical",
   faq_changed: "faq",
   schema_changed: "technical",
   content_changed: "content",
@@ -142,6 +146,13 @@ const FINDING_HYPOTHESIS: Partial<Record<FindingType, string>> = {
     "Meta description rewrite — aiming to improve CTR from search and AI-answer extractability.",
   h1_changed:
     "H1 rewrite — clarifying the page's primary topic for crawlers and AI answer engines.",
+  // Phase post-A+B1 (2026-04-21) — new heading / schema-name edit hypotheses.
+  h2_changed:
+    "H2 rewrite — sharpening a section heading so AI retrieval can locate the relevant content block.",
+  h3_changed:
+    "H3 rewrite — improving sub-section signposting for topical retrieval.",
+  schema_entity_names_changed:
+    "Schema entity-name update — refining the semantic labels on Service / Offer / Breadcrumb entities so AI engines can match them to user intent.",
   faq_changed:
     "FAQ update — expanding the question coverage for answer-engine retrieval.",
   schema_changed:
@@ -199,7 +210,14 @@ export async function confirmFindingAsChange(
     topic_targeted: "",
     city_targeted: null,
     hypothesis: inferredHypothesis,
-    hypothesis_source: inferredHypothesis ? "inferred" : undefined,
+    // Fix 2 (2026-04-21) — when the finding auto-linked to an accepted rec,
+    // the hypothesis semantically came from that rec, not just the edit-type
+    // classifier. Upgrade source accordingly.
+    hypothesis_source: finding.source_rec_id
+      ? "recommendation"
+      : inferredHypothesis
+        ? "inferred"
+        : undefined,
     expected_impact_window: "7-14 days",
     brief_id: null,
     opportunity_id: null,
@@ -207,6 +225,12 @@ export async function confirmFindingAsChange(
     created_at: timestamp,
     updated_at: timestamp,
     source_system: "scan_detection",
+    // Fix 2 (2026-04-21) — carry the auto-linked rec/pattern IDs from the
+    // finding into the changelog entry so per-rec and per-pattern attribution
+    // becomes ground truth. Null when the finding had no recent accepted rec
+    // on this URL (legitimate case: operator change without a Beacon rec).
+    source_rec_id: finding.source_rec_id,
+    source_pattern_id: finding.source_pattern_id ?? null,
     tenant_id: "",
   };
 

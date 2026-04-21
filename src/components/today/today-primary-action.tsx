@@ -20,6 +20,7 @@ export type TodayPrimaryActionProps = {
   onRespondToRec?: (
     recId: string,
     status: "accepted" | "dismissed" | "deferred",
+    context?: { targetPageUrl?: string | null; patternId?: string | null },
   ) => Promise<{ success: boolean }>;
   onStartExperiment?: (opts: {
     recId: string;
@@ -229,7 +230,13 @@ export function TodayPrimaryAction({
                     const note = prompt("What did you change or plan to change? (short note)");
                     if (note === null) return;
                     startTransition(async () => {
-                      await onRespondToRec(primaryAction.id, "accepted");
+                      // Fix 2 (2026-04-21): carry target URL + pattern so
+                      // the response store can auto-link later-detected
+                      // changes on this URL back to this acceptance.
+                      await onRespondToRec(primaryAction.id, "accepted", {
+                        targetPageUrl: primaryAction.targetPageUrl ?? null,
+                        patternId: primaryAction.patternId ?? null,
+                      });
                       await onStartExperiment({
                         recId: primaryAction.id,
                         headline: primaryAction.headline,
@@ -256,7 +263,11 @@ export function TodayPrimaryAction({
                   autoFocus={autoFocusPrimary}
                   onClick={() =>
                     startTransition(async () => {
-                      await onRespondToRec(primaryAction.id, "accepted");
+                      // Fix 2 (2026-04-21): same auto-link context as above.
+                      await onRespondToRec(primaryAction.id, "accepted", {
+                        targetPageUrl: primaryAction.targetPageUrl ?? null,
+                        patternId: primaryAction.patternId ?? null,
+                      });
                       setActionMsg("Accepted.");
                     })
                   }

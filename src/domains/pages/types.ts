@@ -155,6 +155,15 @@ export type PageSnapshotDiff = {
   schema_changed: boolean;
   content_changed: boolean;
   headings_changed: boolean;
+  /** Phase post-A+B1 (2026-04-21). True when h2_list arrays differ
+   *  (order-sensitive string equality). */
+  h2_changed: boolean;
+  /** Phase post-A+B1 (2026-04-21). True when h3_list arrays differ.
+   *  Absent on either side is treated as empty. */
+  h3_changed: boolean;
+  /** Phase post-A+B1 (2026-04-21). True when schema_entity_names arrays
+   *  differ (set-based — order doesn't matter). */
+  schema_entity_names_changed: boolean;
   summary: string;
 };
 

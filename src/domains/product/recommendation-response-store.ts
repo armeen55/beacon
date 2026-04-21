@@ -25,6 +25,12 @@ export type RecommendationResponse = {
   respondedAt: string;
   /** ISO date — only set for deferred; re-show after this date */
   deferUntil: string | null;
+  /** Fix 2 (2026-04-21) — auto-link context. When the rec has a target URL
+   *  and/or pattern at response time, persist it here so `detect-findings`
+   *  can match a later-detected change on the same URL back to this
+   *  acceptance. Absent on legacy rows. */
+  targetPageUrl?: string | null;
+  patternId?: string | null;
 };
 
 // ---------------------------------------------------------------------------
@@ -68,15 +74,26 @@ export function isRecSuppressed(recId: string): boolean {
 /**
  * Record an operator response to a recommendation.
  * Upserts — a new response for the same recId replaces the old one.
+ *
+ * Fix 2 (2026-04-21) — accepts optional `context` carrying `targetPageUrl`
+ * and `patternId` so `detect-findings` can auto-link a later-detected change
+ * on that URL back to this acceptance. Non-blocking: callers that don't
+ * know the context can omit it.
  */
 export function recordResponse(
   recId: string,
   status: RecommendationResponseStatus,
+  context?: { targetPageUrl?: string | null; patternId?: string | null },
 ): void {
   const now = new Date().toISOString();
   const existing = recommendationResponses.findIndex(
     (r) => r.recId === recId,
   );
+
+  // Preserve existing context on status updates (e.g. acceptance recorded
+  // with URL, then later toggled to deferred) — don't clobber with
+  // undefined if the new call omitted context.
+  const prior = existing >= 0 ? recommendationResponses[existing] : undefined;
 
   const entry: RecommendationResponse = {
     recId,
@@ -86,6 +103,8 @@ export function recordResponse(
       status === "deferred"
         ? new Date(Date.now() + DEFER_DAYS * 86_400_000).toISOString()
         : null,
+    targetPageUrl: context?.targetPageUrl ?? prior?.targetPageUrl ?? null,
+    patternId: context?.patternId ?? prior?.patternId ?? null,
   };
 
   if (existing >= 0) {

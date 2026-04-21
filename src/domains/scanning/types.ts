@@ -2,9 +2,20 @@ export type FindingType =
   | "title_changed"
   | "meta_changed"
   | "h1_changed"
+  /** Phase post-A+B1 (2026-04-21) — H2 list changed between scans.
+   *  Replaces the fallback into `unexpected_change` that previously
+   *  swallowed H2 edits. Surfaces in the Today banner. */
+  | "h2_changed"
+  /** Phase post-A+B1 (2026-04-21) — H3 list changed. h3_list was added
+   *  to PageSnapshot yesterday but had no diff/finding surface until now. */
+  | "h3_changed"
   | "canonical_changed"
   | "faq_changed"
   | "schema_changed"
+  /** Phase post-A+B1 (2026-04-21) — schema entity names (Service.name,
+   *  Offer.name, BreadcrumbList items, etc.) changed. Distinct from
+   *  `schema_changed` which only tracks @type values. */
+  | "schema_entity_names_changed"
   | "content_changed"
   | "links_changed"
   | "new_guardrail"
@@ -65,6 +76,16 @@ export type Finding = {
   metricMovementDetected?: boolean;
   /** Phase 11: composite signal strength 0-100 */
   signalStrength?: number;
+  /** Fix 2 (2026-04-21) — auto-link: if this finding's URL matches a recently-
+   *  accepted recommendation (within 14 days), the rec's ID is stamped here at
+   *  detection time. `confirmFindingAsChange` carries this into the created
+   *  ChangelogEntry so the attribution engine knows the outcome came from an
+   *  accepted Beacon rec. Manual Confirm preserved — this is linkage, not
+   *  auto-confirmation. */
+  source_rec_id?: string;
+  /** Matching pattern ID (from `BeaconRecommendation.patternId`) when the
+   *  auto-linked rec carries one. Null when the rec isn't pattern-backed. */
+  source_pattern_id?: string | null;
   /** Owning tenant. */
   tenant_id: string;
 };
@@ -87,9 +108,12 @@ export const FINDING_TYPE_LABELS: Record<FindingType, string> = {
   title_changed: "Title changed",
   meta_changed: "Meta description changed",
   h1_changed: "H1 changed",
+  h2_changed: "H2 changed",
+  h3_changed: "H3 changed",
   canonical_changed: "Canonical changed",
   faq_changed: "Q&A count changed",
   schema_changed: "Schema changed",
+  schema_entity_names_changed: "Schema entity names changed",
   content_changed: "Content changed",
   links_changed: "Internal links changed",
   new_guardrail: "New issue detected",
