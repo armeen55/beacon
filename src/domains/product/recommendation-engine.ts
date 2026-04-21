@@ -23,6 +23,11 @@ import type { PromptAnswerObservation } from "@/domains/prompt-answer-observatio
 import { scanKeywordGaps, gapFindingsToRecs } from "./keyword-gap-scanner";
 import { containsConcept } from "@/lib/text-normalize";
 import {
+  classifySectionPresence,
+  formatSectionPresenceLog,
+  parseAddSectionHeadline,
+} from "@/lib/section-presence";
+import {
   buildPageJobFitContext,
   routeKeywordFinding,
   formatRouteLog,
@@ -1268,6 +1273,84 @@ export function computeRecommendations(opts: {
   // ── Hyper-specific enrichment: action class, section gap, prior success, timing ──
   enrichWithSpecifics(recs, opts);
   // (enrichment pass populated specificMove, targetSection, priorSuccess, engineTiming, expectedMetric)
+
+  // Phase post-A+B1 (2026-04-20) — section-presence classifier.
+  // For every "Add X section on /path" rec, decide whether the section is:
+  //   absent                   → keep the "Add …" headline
+  //   exists_weakly_signposted → rewrite to "Strengthen the X section framing…"
+  //                              (content exists but no H2/H3 signposts it)
+  //   exists_signposted        → suppress entirely (H2 or H3 already titles it)
+  //
+  // Signpost discipline: H2 and H3 ONLY count as signposts. Title, H1,
+  // meta, body, cards, FAQs, schema entity names are substance. Matches
+  // the operator's rule: the concern is "section-level signposting", not
+  // "page-level mention".
+  if (opts.pageSnapshots && opts.pageSnapshots.length > 0) {
+    const snapByPath = new Map<string, PageSnapshot>();
+    for (const s of opts.pageSnapshots) {
+      const path = s.url.replace(/^https?:\/\/[^/]+/, "").replace(/\/+$/, "") || "/";
+      snapByPath.set(path.toLowerCase(), s);
+    }
+
+    const filtered: BeaconRecommendation[] = [];
+    for (const rec of recs) {
+      const parsed = parseAddSectionHeadline(rec.headline);
+      if (!parsed) {
+        filtered.push(rec);
+        continue;
+      }
+      const normPath = parsed.path.replace(/\/+$/, "").toLowerCase() || "/";
+      const snap = snapByPath.get(normPath);
+      if (!snap) {
+        // No snapshot to read from — leave the rec as-is.
+        filtered.push(rec);
+        continue;
+      }
+      const result = classifySectionPresence(
+        {
+          h2_list: snap.h2_list,
+          h3_list: snap.h3_list,
+          title: snap.title,
+          h1: snap.h1,
+          meta_description: snap.meta_description,
+          body_paragraph_sample: snap.body_paragraph_sample,
+          card_texts: snap.card_texts,
+          schema_entity_names: snap.schema_entity_names,
+          faqs: snap.faqs,
+        },
+        parsed.concept,
+      );
+
+      // Log every classification for dogfood visibility.
+      console.error(formatSectionPresenceLog(parsed.concept, parsed.path, result));
+
+      if (result.state === "exists_signposted") {
+        // Suppress: drop the rec entirely.
+        continue;
+      }
+
+      if (result.state === "exists_weakly_signposted") {
+        // Rewrite: swap headline + prepend one explanatory sentence to
+        // rationale. Preserve all other rec context (proof, priorSuccess,
+        // engineTiming, evidenceBasis, etc.).
+        const conceptLC = parsed.concept.toLowerCase();
+        rec.headline = `Strengthen the ${conceptLC} section framing on ${parsed.path}`;
+        const strengthenNote =
+          `Content about "${conceptLC}" already appears on ${parsed.path}, but no H2 or H3 signposts it as a section. A clear section heading makes it discoverable to AI retrieval and readers. `;
+        rec.rationale = strengthenNote + rec.rationale;
+        if (rec.specificMove) {
+          rec.specificMove = `Strengthen "${conceptLC}" section framing`;
+        }
+        filtered.push(rec);
+        continue;
+      }
+
+      // state === "absent" or "unknown": keep unchanged.
+      filtered.push(rec);
+    }
+    recs.length = 0;
+    recs.push(...filtered);
+  }
 
   // ── Platform targeting: assign target platforms based on rec type + action class ──
   for (const rec of recs) {

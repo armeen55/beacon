@@ -7,6 +7,63 @@
 
 ---
 
+## 2026-04-20 — Customer-One Section-presence classifier
+
+**Source plan:** `plans/curried-strolling-backus.md` — post-A+B1 trust pass. Operator-tuned before coding: H2/H3 ONLY count as signposts (title/H1/schema NOT).
+
+**Goal.** Stop Beacon from telling operators to "Add X section" when the section's content already exists on the page in substance — but still let Beacon say so when the H2/H3 doesn't signpost it properly. Handles the operator's key case: "I already have it, but the H2 may still need to change."
+
+**Three-way classification:**
+
+| State | Definition | Rec becomes |
+|---|---|---|
+| `absent` | Concept appears in no extracted field | Keep "Add X section on /path" |
+| `exists_weakly_signposted` | Concept appears in title/H1/meta/body/cards/FAQs/schema entity names, but NOT as an H2 or H3 | Rewrite to "Strengthen the X section framing on /path" + prepended rationale sentence |
+| `exists_signposted` | Concept appears as an H2 OR H3 heading | Suppress entirely |
+
+**Key signpost discipline (operator-directed):** H2/H3 only count as signposts. Title, H1, meta, body, cards, FAQs, and schema entity names all count as substance. Rationale: page title/H1 mentioning a concept doesn't mean there's a section for it; schema entity names aren't user-visible section framing; content in body without an H2/H3 above it still needs the operator to add a clear section heading.
+
+**Shipped:**
+
+1. `src/lib/section-presence.ts` — pure classifier. `classifySectionPresence(pageFields, concept) → { state, matchedField, matchedText }`. Reuses `containsConcept` from 3A (contiguous-subsequence match with singular/plural fold, no semantic stretching). `parseAddSectionHeadline(headline) → { concept, path } | null` extracts the section concept from "Add X section on /path" headlines. `formatSectionPresenceLog(...)` for one-line stderr dogfood logs.
+2. `tests/lib/section-presence.test.ts` — 22 tests across all three states, signpost precedence, singular/plural fold, contiguous-match discipline, pre-A+B1 snapshot compatibility, parser edge cases, log format.
+3. `src/domains/product/recommendation-engine.ts` — classifier pass runs AFTER `enrichWithSpecifics` (where the "Add X section on /path" headline is assembled). For each matching rec, classifies against the target page's snapshot. `exists_signposted` → drop. `exists_weakly_signposted` → swap headline + prepend explanatory rationale sentence + update `specificMove`. `absent`/`unknown` → unchanged. Every decision logged.
+
+**Design discipline honored:**
+
+- Zero changes to router, scanner, phrase-shape gates, extraction, ranking, shared-brain, or Today layout.
+- Generic — not Ritz-specific. No section family ontology. No hardcoded concept allowlists.
+- Reuses existing matcher + existing PageSnapshot fields. No new extraction, no new store.
+- No LLM, no embeddings, no synonym table.
+
+**Verification:**
+
+- `npx tsc --noEmit` clean (after `.next/` cache clear).
+- `npx vitest run tests/lib/section-presence.test.ts` → 22/22.
+- Full `npx vitest run` → 1181 passed, 7 failed (same 7 pre-existing tenant-isolation failures; +22 new tests, no regression).
+- Live preview after fresh restart:
+  - `[section-presence] "neighborhoods" on /locations/atherton → absent` in stderr.
+  - Snapshot inspection of /locations/atherton confirms NO "neighborhood" mention in any field (title, H1, meta, H2s, H3s, 10 body paragraphs, 5 card texts, 6 FAQ questions, no schema entity names) — `absent` is the principled outcome.
+  - `Add neighborhoods section on /locations/atherton` card correctly kept unchanged on Today.
+
+**Key test cases proving the tune:**
+
+- Title mentions concept but H2/H3 don't → classifier returns `exists_weakly_signposted` (NOT `exists_signposted`). Operator gets "Strengthen the X section framing" rec, preserving the "H2 may still need to change" case.
+- H1 mentions concept but H2/H3 don't → same: `exists_weakly_signposted`.
+- Schema entity name mentions concept but H2/H3 don't → same: `exists_weakly_signposted`.
+- H2 signpost beats body substance — `exists_signposted` wins over any substance evidence.
+
+**Rewrite example (if any Atherton-like page had neighborhood content in body but no H2):**
+- Before: `Add neighborhoods section on /locations/atherton`
+- After: `Strengthen the neighborhoods section framing on /locations/atherton`
+- Rationale prepended: `Content about "neighborhoods" already appears on /locations/atherton, but no H2 or H3 signposts it as a section. A clear section heading makes it discoverable to AI retrieval and readers.`
+
+**Stopping condition met:** classifier active, three-way outcomes verified in tests + live logs, Atherton card correctly unchanged for a principled reason, no regression in other rec types.
+
+**Tracker:** `docs/CUSTOMER_ONE_TRACKER.md` — Section presence row shipped.
+
+---
+
 ## 2026-04-20 — Customer-One Plan A + B1: Extraction + coverage widening
 
 **Source plan:** `plans/curried-strolling-backus.md` Plan A + B1 (operator-trimmed: `image_alts` dropped from v1).
