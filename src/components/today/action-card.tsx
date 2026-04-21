@@ -46,6 +46,13 @@ export type ActionCardAction = {
   /** Phase 2 (2026-04-20): strongest honest evidence basis for this card.
    *  One of "heuristic" | "tenant_history" | "current_dataset" | "shared_pattern". */
   evidenceBasis?: "heuristic" | "tenant_history" | "current_dataset" | "shared_pattern";
+  /** Phase 3-post (2026-04-20): page-job-fit router verdict for keyword
+   *  positioning recs. Drives card label overrides and badge rendering.
+   *  Defaults to "keep" when absent. */
+  placementMode?: "keep" | "move" | "new_page";
+  /** When placementMode === "move", the path the rec was originally written
+   *  against before the router swapped the target. */
+  movedFromPath?: string | null;
 };
 
 export type ActionCardProps = {
@@ -91,6 +98,15 @@ const HELPING_VERDICT_STYLE = {
   bg: "bg-status-success/[0.015]",
 } as const;
 
+// Phase 3-post (2026-04-20): new-page-opportunity cards are low-confidence
+// growth signals. Render as visibly secondary with a distinct label.
+const NEW_PAGE_OPPORTUNITY_STYLE = {
+  dot: "bg-accent-primary/60",
+  label: "New page opportunity",
+  border: "border-accent-primary/25",
+  bg: "bg-accent-primary/[0.02]",
+} as const;
+
 const CONFIDENCE_LABEL = REC_CONFIDENCE_LABEL;
 
 export function ActionCard({
@@ -107,10 +123,14 @@ export function ActionCard({
   const [evidenceOpen, setEvidenceOpen] = useState(false);
   // Phase 3C (2026-04-20): render-time label override for helping_verdict
   // cards so they read "Measured win" instead of the generic bucket label.
+  // Phase 3-post (2026-04-20): similarly override for new-page-opportunity
+  // cards routed by the page-job-fit classifier.
   const bs =
     action.type === "helping_verdict"
       ? HELPING_VERDICT_STYLE
-      : (BUCKET_STYLE[action.bucket] ?? BUCKET_STYLE.opportunistic);
+      : action.placementMode === "new_page"
+        ? NEW_PAGE_OPPORTUNITY_STYLE
+        : (BUCKET_STYLE[action.bucket] ?? BUCKET_STYLE.opportunistic);
   const isPrimary = variant === "primary";
 
   return (
@@ -153,6 +173,11 @@ export function ActionCard({
       )}>
         {action.headline}
       </p>
+
+      {/* Plan C (2026-04-20): the prominent "Better fit than /x" badge was
+         removed here. It exposed internal routing machinery on the card
+         face. The same information now lives in the "Why we suggest this"
+         expander as a single neutral bullet. */}
 
       {/* Prior success + expected metric chips */}
       {(action.priorSuccess || action.expectedMetric || action.engineTiming) && (
@@ -330,8 +355,9 @@ export function ActionCard({
         )}
       </div>
 
-      {/* Expandable details: evidence, prior success, timing, AI context, watch-after */}
-      {(action.lineageBullets?.length || action.priorSuccess || (action.engineTiming && action.engineTiming.length > 0) || action.answerContext || action.watchAfter) && (
+      {/* Expandable details: evidence, prior success, timing, AI context,
+         watch-after, plus Plan C move-context bullet when present. */}
+      {(action.lineageBullets?.length || action.priorSuccess || (action.engineTiming && action.engineTiming.length > 0) || action.answerContext || action.watchAfter || (action.placementMode === "move" && action.movedFromPath)) && (
         <div className="mt-3 pt-2 border-t border-border/30">
           <button
             type="button"
@@ -342,6 +368,15 @@ export function ActionCard({
           </button>
           {evidenceOpen && (
             <div className="mt-2 space-y-2">
+              {/* Plan C (2026-04-20): move-context lives in the expander, not
+                 on the card face. Neutral, declarative, no color emphasis. */}
+              {action.placementMode === "move" && action.movedFromPath && (
+                <p className="text-[11px] text-muted-foreground/80">
+                  Originally tested against{" "}
+                  <code className="font-mono text-[10px]">{action.movedFromPath}</code>
+                  ; swapped to the better-fitting page.
+                </p>
+              )}
               {action.lineageBullets && action.lineageBullets.length > 0 && (
                 <ul className="list-disc pl-4 space-y-0.5 text-[11px] text-muted-foreground">
                   {action.lineageBullets.map((line, i) => (

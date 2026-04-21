@@ -22,6 +22,12 @@ import { absoluteUrlForPath } from "@/lib/site-config";
 import type { PromptAnswerObservation } from "@/domains/prompt-answer-observations/types";
 import { scanKeywordGaps, gapFindingsToRecs } from "./keyword-gap-scanner";
 import { containsConcept } from "@/lib/text-normalize";
+import {
+  buildPageJobFitContext,
+  routeKeywordFinding,
+  formatRouteLog,
+  type OwnedPageLike,
+} from "@/lib/page-job-fit";
 
 export type RecommendationType =
   | "replicate"
@@ -91,6 +97,12 @@ export type BeaconRecommendation = {
    * - "perplexity": source breadth, authority (experimental — sparse signal)
    */
   targetPlatforms?: ("google_aio" | "chatgpt" | "perplexity")[];
+  /** Phase 3-post (2026-04-20): page-job-fit router verdict for keyword
+   *  insertion/positioning recs. Defaults to "keep" when absent. */
+  placementMode?: "keep" | "move" | "new_page";
+  /** Phase 3-post: when placementMode === "move", the path the rec was
+   *  originally written against before the router swapped the target. */
+  movedFromPath?: string | null;
 };
 
 // ---------------------------------------------------------------------------
@@ -231,6 +243,13 @@ export function computeRecommendations(opts: {
   competitorExclusions?: string[];
   /** Known city/location labels used to suppress pure-city concepts (Phase 7 Part 1b-v2). */
   knownLocations?: string[];
+  /** Phase 3-post (2026-04-20): business-config.services (or equivalent). Used
+   *  by the page-job-fit router to widen tenant scope beyond current site
+   *  vocabulary. Optional and non-blocking — empty/undefined → no-op. */
+  tenantServices?: string[];
+  /** Phase 3-post: business-config.stripWords (or equivalent). Tokens merged
+   *  into the tenant-generic set so common industry words don't anchor fits. */
+  additionalGenerics?: string[];
 }): BeaconRecommendation[] {
   const recs: BeaconRecommendation[] = [];
 
@@ -582,18 +601,166 @@ export function computeRecommendations(opts: {
 
     // Phase 3A trust guardrail (2026-04-20):
     // Suppress literal insertion/positioning recs when the concept is already
-    // present in the exact target field (title / H1 / H2) after light
-    // normalization. Field-specific — `currentHeadingText` is the target
-    // element's actual content, attached to every KeywordGap by the scanner.
-    // Generic rule, not Ritz-specific. Empty `currentHeadingText` (no
-    // heading present) still emits — that's a real gap. Matches are
-    // contiguous and singular/plural-folded per `containsConcept`.
+    // present in the exact target field after light normalization. Generic,
+    // field-specific, contiguous-match with singular/plural fold.
     const trustedFindings = gapFindings.filter(
       (f) => !containsConcept(f.currentHeadingText ?? "", f.concept),
     );
 
-    for (const rec of gapFindingsToRecs(trustedFindings, 8)) {
-      recs.push(rec);
+    // Phase 3-post page-placement router (2026-04-20):
+    // For every finding that survives 3A, decide where the concept should
+    // live — keep on the current page, reroute to a better existing page,
+    // surface as a new-page opportunity, or suppress (junk / off-scope).
+    // Thresholds: KEEP_FIT_MIN=1, REROUTE_FIT_MIN=2, REROUTE_MARGIN=2.
+    const ownedPagesForRouter: OwnedPageLike[] = opts.pageSnapshots.map((s) => ({
+      url: s.url,
+      h1: s.h1,
+      title: s.title,
+      h2_list: s.h2_list,
+      service_terms: s.service_terms,
+      location_terms: s.location_terms,
+    }));
+    const jobFitCtx = buildPageJobFitContext({
+      pages: ownedPagesForRouter,
+      brandAliases: opts.brandAliases ?? [],
+      knownLocations: opts.knownLocations ?? [],
+      tenantServices: opts.tenantServices ?? [],
+      additionalGenerics: opts.additionalGenerics ?? [],
+    });
+
+    type RoutedForEmit = {
+      finding: typeof trustedFindings[number];
+      outcome: ReturnType<typeof routeKeywordFinding>;
+      rewrittenForMove: typeof trustedFindings[number] | null;
+    };
+    const routed: RoutedForEmit[] = [];
+
+    for (const f of trustedFindings) {
+      const outcome = routeKeywordFinding(f, ownedPagesForRouter, jobFitCtx);
+
+      // Log every decision for dogfood. Single readable line per finding.
+      // Written to stderr so it doesn't contaminate normal Next.js stdout
+      // formatting but is visible in dev logs.
+      console.error(formatRouteLog({ concept: f.concept, pagePath: f.pagePath }, outcome));
+
+      let rewrittenForMove: typeof trustedFindings[number] | null = null;
+      if (outcome.kind === "better_existing_page") {
+        rewrittenForMove = {
+          ...f,
+          pageUrl: outcome.bestOtherUrl,
+          pagePath: outcome.bestOtherPath,
+          currentHeadingText: outcome.bestOtherHeadingText ?? "",
+        };
+      }
+      routed.push({ finding: f, outcome, rewrittenForMove });
+    }
+
+    // Emit recs per outcome.
+    //  - keep_here          → gapFindingsToRecs on original finding
+    //  - better_existing_page → gapFindingsToRecs on the rewritten finding,
+    //                           then annotate with placementMode="move" and
+    //                           movedFromPath
+    //  - new_page_opportunity → emit a custom low-priority rec inline
+    //  - suppress           → drop
+    const keepFindings = routed
+      .filter((r) => r.outcome.kind === "keep_here")
+      .map((r) => r.finding);
+    const moveRewrites = routed
+      .filter((r) => r.outcome.kind === "better_existing_page" && r.rewrittenForMove)
+      .map((r) => ({ original: r.finding, rewritten: r.rewrittenForMove! }));
+    const newPageOps = routed.filter((r) => r.outcome.kind === "new_page_opportunity");
+
+    // Budget: keep the overall cap at 8 across keep + move. New-page ops are
+    // always low-priority and bounded separately (≤ 2).
+    const NORMAL_BUDGET = 8;
+    const keepRecs = gapFindingsToRecs(keepFindings, NORMAL_BUDGET).map((r) => ({
+      ...r,
+      placementMode: "keep" as const,
+    }));
+
+    const moveRecs: BeaconRecommendation[] = [];
+    for (const { original, rewritten } of moveRewrites) {
+      const produced = gapFindingsToRecs([rewritten], 1);
+      for (const rec of produced) {
+        // Plan C (2026-04-20): override move-mode headline + rationale with
+        // customer-facing declarative copy. Lead with the target page and
+        // the concept; no imperative "Position/Address", no internal
+        // swap-comparison language on the card face. The "originally tested
+        // against /x" context lives in the expander only (action-card.tsx).
+        const elementLabel =
+          rewritten.targetElement === "title"
+            ? "title tag"
+            : rewritten.targetElement === "h1"
+              ? "H1"
+              : "H2";
+        const displayPath = rewritten.pagePath === "/" ? "homepage" : rewritten.pagePath;
+        const headingSnippet = rewritten.currentHeadingText
+          ? ` \u2014 "${rewritten.currentHeadingText}"`
+          : "";
+        const satPct = Math.round(rewritten.evidence.saturation_rate * 100);
+        const ritzObsLabel =
+          rewritten.evidence.ritz_obs_count === 0
+            ? "not once"
+            : rewritten.evidence.ritz_obs_count === 1
+              ? "once"
+              : `${rewritten.evidence.ritz_obs_count} times`;
+        const evidenceSentence =
+          rewritten.kind === "saturation_miss"
+            ? `AI searches mention "${rewritten.concept}" in ${satPct}% of answers in this topic (${rewritten.evidence.observation_count} of ${rewritten.evidence.topic_cluster_size}).`
+            : `AI cites competitors ${rewritten.evidence.competitor_obs_count}\u00d7 on queries containing "${rewritten.concept}", your page ${ritzObsLabel}.`;
+        const moveHeadline = `Best current page for "${rewritten.concept}": ${displayPath}`;
+        const moveRationale = [
+          `The ${elementLabel} on ${displayPath}${headingSnippet} anchors on this concept more cleanly than the page we originally tested.`,
+          evidenceSentence,
+        ].join(" ");
+
+        moveRecs.push({
+          ...rec,
+          headline: moveHeadline,
+          rationale: moveRationale,
+          placementMode: "move",
+          movedFromPath: original.pagePath,
+        });
+      }
+    }
+
+    const remainingBudget = Math.max(0, NORMAL_BUDGET - keepRecs.length - moveRecs.length);
+    for (const rec of keepRecs) recs.push(rec);
+    for (const rec of moveRecs.slice(0, remainingBudget + moveRecs.length)) recs.push(rec);
+
+    // New-page opportunities: emit at low priority so they never crowd the
+    // top of the Decide tonight section. Cap at 2.
+    const NEW_PAGE_CAP = 2;
+    let newPageEmitted = 0;
+    for (const { finding: f } of newPageOps) {
+      if (newPageEmitted >= NEW_PAGE_CAP) break;
+      // Plan C (2026-04-20): declarative framing. No "consider creating one"
+      // imperative; operator draws their own conclusion from the evidence.
+      void f.targetElement; // preserved on finding but not needed for copy here
+      const headline = `"${f.concept}" shows up in your topic queries but lives on no current page`;
+      const rationale = [
+        `AI searches mention "${f.concept}" in ${Math.round(f.evidence.saturation_rate * 100)}% of answers in this topic cluster (${f.evidence.observation_count} of ${f.evidence.topic_cluster_size}).`,
+        `None of your current pages cover it in their title, H1, or H2. Could be worth a dedicated page.`,
+      ].join(" ");
+      recs.push({
+        id: `rec-newpage-${f.pagePath.replace(/[^a-z0-9]/gi, "-")}-${f.conceptType}-${newPageEmitted}`,
+        type: "keyword_optimization",
+        headline,
+        rationale,
+        sourceEvidence: `Topic cluster: ${f.evidence.topic_cluster_size} obs · cluster saturation ${Math.round(f.evidence.saturation_rate * 100)}%`,
+        targetPageUrl: null,
+        targetPagePath: null,
+        sourceChangeId: null,
+        confidence: "low",
+        priority: 200 + newPageEmitted, // always below decide-tonight rec range
+        patternId: null,
+        citationOpportunity: 0,
+        actionClass: "new_page_opportunity",
+        targetPlatforms: ["chatgpt", "perplexity"],
+        placementMode: "new_page",
+        answerContext: null,
+      });
+      newPageEmitted++;
     }
   }
 

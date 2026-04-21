@@ -846,17 +846,22 @@ export function gapFindingsToRecs(
         .filter(Boolean)
         .join("\n\n");
 
+      // Plan C (2026-04-20): declarative customer-facing copy. No imperative
+      // "Position"/"Reframe"/"preserving brand voice" engineer-speak.
+      const headingSnippet = f.currentHeadingText
+        ? ` \u2014 "${f.currentHeadingText}"`
+        : "";
+
       if (f.kind === "saturation_miss") {
         const rationale = [
-          `AI searches for "${f.concept}" in ${satPct}% of answers about your ${displayPath} topic cluster (${f.evidence.observation_count} of ${f.evidence.topic_cluster_size} observations).`,
-          `Your current ${elementLabel} is "${f.currentHeadingText}" \u2014 it does not cover this concept.`,
-          `This is a table-stakes signal: AI expects this concept to appear on pages about this topic. Position your ${elementLabel} to include it.`,
+          `AI searches mention "${f.concept}" in ${satPct}% of answers in this topic cluster (${f.evidence.observation_count} of ${f.evidence.topic_cluster_size}).`,
+          `The ${elementLabel} on ${displayPath}${headingSnippet} does not cover it.`,
         ].join(" ");
 
         return {
           id: `rec-satmiss-${f.pagePath.replace(/[^a-z0-9]/gi, "-")}-${f.conceptType}-${i}`,
           type: "keyword_optimization" as const,
-          headline: `Position "${f.concept}" in your ${elementLabel} on ${displayPath}`,
+          headline: `"${f.concept}" is missing from ${displayPath}`,
           rationale,
           sourceEvidence: `${satPct}% saturation across ${f.evidence.topic_cluster_size} observations \u00b7 ${f.page_citations} page citations`,
           targetPageUrl: f.pageUrl,
@@ -873,16 +878,21 @@ export function gapFindingsToRecs(
       }
 
       // gap
+      const ritzObsLabel =
+        f.evidence.ritz_obs_count === 0
+          ? "not once"
+          : f.evidence.ritz_obs_count === 1
+            ? "once"
+            : `${f.evidence.ritz_obs_count} times`;
       const rationale = [
-        `AI searches for "${f.concept}" led to competitor citations ${f.evidence.competitor_obs_count} times and to your page ${f.evidence.ritz_obs_count === 0 ? "not once" : `only ${f.evidence.ritz_obs_count} time(s)`}.`,
-        `Your current ${elementLabel} on ${displayPath} is "${f.currentHeadingText}" \u2014 it does not cover this concept.`,
-        `Reframe your ${elementLabel} to include this concept while preserving brand voice.`,
+        `AI cites competitors ${f.evidence.competitor_obs_count}\u00d7 on queries containing "${f.concept}", your page ${ritzObsLabel}.`,
+        `The ${elementLabel} on ${displayPath}${headingSnippet} does not anchor on this concept.`,
       ].join(" ");
 
       return {
         id: `rec-gap-${f.pagePath.replace(/[^a-z0-9]/gi, "-")}-${f.conceptType}-${i}`,
         type: "keyword_optimization" as const,
-        headline: `Address "${f.concept}" in your ${elementLabel} on ${displayPath}`,
+        headline: `Competitors own "${f.concept}" \u2014 ${displayPath} does not cover it`,
         rationale,
         sourceEvidence: `${f.evidence.competitor_obs_count} competitor citations vs ${f.evidence.ritz_obs_count} yours \u00b7 ${f.page_citations} page citations`,
         targetPageUrl: f.pageUrl,

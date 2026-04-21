@@ -7,6 +7,60 @@
 
 ---
 
+## 2026-04-20 — Customer-One Plan C: Declarative customer-facing copy + page-placement router
+
+**Source plan:** `plans/curried-strolling-backus.md` Phase 3-post (router) + Plan C (copy cleanup). Two pieces shipped together as one coherent product improvement.
+
+**Goal.** (1) Route keyword-positioning recs to the best home on the site — keep / move / new_page / suppress. (2) Strip engineer-speak from customer-facing copy — no more "Position X in your H2", "Reframe… preserving brand voice", or amber "Better fit than /x" debug badge.
+
+**Why.** Screenshot review surfaced two orthogonal failures: (a) recs that suggested inserting a concept on the wrong page when a better page existed, and (b) robotic copy that read like parser output instead of operator guidance. Fixing (a) without (b) would have left the product "logically correct but dumb-sounding." Fixing (b) without (a) would have polished wrong recs.
+
+**Shipped — page-placement router:**
+
+1. `src/lib/page-job-fit.ts` — pure 4-way classifier. Input: finding + owned pages + tenant context. Output: discriminated union of `keep_here | better_existing_page | new_page_opportunity | suppress`. Thresholds: `KEEP_FIT_MIN = 1`, `REROUTE_FIT_MIN = 2`, `REROUTE_MARGIN = 2`. Tenant scope = union of page-job tokens + service_terms + URL slugs + optional `business-config.services`. Tenant generics auto-derived (tokens on ≥30% of owned pages' H1+title), with cold-start stopword fallback for < 10 pages.
+2. `tests/lib/page-job-fit.test.ts` — 22 unit tests covering all 4 outcomes, threshold behavior, context-builder, token helpers.
+3. `src/domains/product/recommendation-engine.ts` — added `placementMode` + `movedFromPath` to `BeaconRecommendation`; added `tenantServices` + `additionalGenerics` opts (threaded from business-config, optional/non-blocking); inserted router after 3A filter. For each finding: `keep → pass-through`, `move → rewrite target then annotate`, `new_page → emit custom low-priority rec`, `suppress → drop`. Every decision logged to stderr in one line.
+4. `src/app/(shell)/today-data.ts` — passes `businessConfig.services` + `stripWords`; serializes `placementMode` + `movedFromPath` through primary + secondary cards.
+5. `src/components/today/action-card.tsx` — added `placementMode` + `movedFromPath` fields; `NEW_PAGE_OPPORTUNITY_STYLE` bucket override for `placementMode === "new_page"` cards.
+
+**Shipped — Plan C customer-facing copy:**
+
+1. `src/domains/product/keyword-gap-scanner.ts` — rewrote `gapFindingsToRecs` templates. Tier 1 now reads `"X" is missing from /path` + `AI searches mention "X" in N% of answers in this topic cluster...`. Tier 2 now reads `Competitors own "X" — /path does not cover it` + `AI cites competitors N× on queries containing "X", your page K times...`. No "Position", no "Address", no "Reframe", no "preserving brand voice".
+2. `src/domains/product/recommendation-engine.ts` — for move-mode recs, overrides headline + rationale to the preferred declarative form: `Best current page for "X": /path`. Rationale leads with `The {elementLabel} on /path — "{headingText}" — anchors on this concept more cleanly than the page we originally tested.` New-page template tightened: `"X" shows up in your topic queries but lives on no current page` + `Could be worth a dedicated page.` (no imperative "consider creating one").
+3. `src/components/today/action-card.tsx` — deleted the prominent amber `Better fit than /x` badge that sat below the headline. Added a single neutral bullet inside the "Why we suggest this" expander: `Originally tested against /x; swapped to the better-fitting page.` No color emphasis, no debug vibes.
+
+**Design discipline honored:**
+
+- Zero industry hardcoding. Tenant scope and generics derived from tenant corpus + optional business-config.
+- No new ranking logic, no priority-engine changes, no shared-brain changes, no evidence-basis changes.
+- Router logs every outcome (keep / move / new_page / suppress:junk / suppress:off_scope) with currentFit, bestOther, scope hit/miss, and plain-English reason.
+- No scanner concept-generation changes (deferred to Plan B2).
+- No extractor changes (deferred to Plan A + B1).
+
+**Verification:**
+
+- `npx tsc --noEmit` clean.
+- 22/22 page-job-fit tests pass.
+- Full `npx vitest run` → 1118 passed, 7 failed (same 7 pre-existing tenant-isolation failures; +22 new tests, no regression).
+- Live DOM search after preview restart: zero matches on `Position `, `Address `, `Reframe`, `preserving brand voice`, `Better fit than`.
+- Visible Today card headlines:
+  - `Add 2 missing schema types to /available-homes` (schema parity)
+  - `Best current page for "Design-Build Firm Architect": /our-difference` ← move-mode, preferred form
+  - `Add neighborhoods section on /locations/atherton` (brain-driven rec)
+  - `/luxury-home-builder-bay-area is winning after your Mar 10 change` (helping_verdict)
+  - `/locations/palo-alto is winning after your Mar 12 change` (helping_verdict)
+- Move-mode expander reveals: `Originally tested against /explore-projects/riverside-way; swapped to the better-fitting page.`
+- "Modernizing Older Homes Without Expanding" → `suppress:off_scope` in router log.
+- "Major Structural Home Renovation" → `new_page_opportunity` in router log (doesn't surface in top-4 due to low priority, correct).
+
+**Known artifact (out of scope for Plan C):** scanner still emits robotic-sounding raw phrases like "Design-Build Firm Architect" that pass 3A + router but fail as natural language. Next pass (Plan B2) adds deterministic phrase-shape gates. Plan A + B1 after that widens extraction coverage so the scanner sees more of what the page actually contains.
+
+**Stopping condition met:** customer-facing copy clean, routing logic preserved, internal reasoning moved to expander.
+
+**Tracker:** `docs/CUSTOMER_ONE_TRACKER.md` — router + Plan C rows both `shipped` with date.
+
+---
+
 ## 2026-04-20 — Customer-One Phase 3B + 3C: Stack split + label cleanup
 
 **Source plan:** `plans/curried-strolling-backus.md` Phase 3 (split into 3A/3B/3C/3D per operator direction after screenshot review of Phase 2).

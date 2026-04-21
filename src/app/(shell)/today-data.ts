@@ -609,6 +609,11 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
     brandAliases: scannerBrandAliases,
     competitorExclusions: scannerCompetitorExclusions,
     knownLocations: scannerKnownLocations,
+    // Phase 3-post (2026-04-20): widen tenant scope for the page-job-fit
+    // router beyond current-site vocabulary. Optional and non-blocking — if
+    // business-config lacks these fields, fallback is corpus-derived only.
+    tenantServices: scannerBusinessConfig.services ?? [],
+    additionalGenerics: scannerBusinessConfig.stripWords ?? [],
   });
 
   // Filter out dismissed / deferred-but-not-due recommendations
@@ -859,6 +864,9 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
         engineTiming: primaryAction.engineTiming ?? null,
         expectedMetric: primaryAction.expectedMetric ?? null,
         evidenceBasis: buildEvidenceBasis(primaryAction),
+        // Phase 3-post (2026-04-20): page-job-fit router verdict.
+        placementMode: primaryAction.placementMode ?? "keep",
+        movedFromPath: primaryAction.movedFromPath ?? null,
       }
     : null;
 
@@ -903,6 +911,9 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
         engineTiming: secondaryRec.engineTiming ?? null,
         expectedMetric: secondaryRec.expectedMetric ?? null,
         evidenceBasis: buildEvidenceBasis(secondaryRec),
+        // Phase 3-post (2026-04-20): page-job-fit router verdict.
+        placementMode: secondaryRec.placementMode ?? "keep",
+        movedFromPath: secondaryRec.movedFromPath ?? null,
       }
     : null;
 
