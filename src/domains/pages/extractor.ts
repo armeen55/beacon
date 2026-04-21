@@ -36,6 +36,15 @@ export function extractPageSnapshot(
   });
   const h3Count = $("h3").length;
 
+  // Plan A + B1 (2026-04-20): capture H3 text (not just count) parallel to
+  // h2_list. Cap at 30 entries, 200 chars each.
+  const h3List: string[] = [];
+  $("h3").each((_, el) => {
+    if (h3List.length >= 30) return;
+    const text = $(el).text().trim();
+    if (text) h3List.push(text.slice(0, 200));
+  });
+
   // ── FAQ extraction ──
   const faqs: FaqItem[] = [];
 
@@ -149,6 +158,73 @@ export function extractPageSnapshot(
   // ── JSON-LD presence (checked before script removal for word count) ──
   const hasJsonLd = $('script[type="application/ld+json"]').length > 0;
 
+  // Plan A + B1 (2026-04-20): schema entity names. Distinct from
+  // schema_types (which only captures @type). Harvest .name fields from
+  // Service/Offer/Organization/BreadcrumbList/ListItem entities so that a
+  // Service named "Whole-Home Remodel" contributes to coverage text.
+  const schemaEntityNames: string[] = [];
+  $('script[type="application/ld+json"]').each((_, el) => {
+    try {
+      const data = JSON.parse($(el).html() || "");
+      collectSchemaEntityNames(data, schemaEntityNames);
+    } catch {
+      // malformed — already tracked in schema_validation_warnings
+    }
+  });
+
+  // Plan A + B1 (2026-04-20): body paragraph sample + card/tile texts.
+  // Restricted to the content area (prefer <main> or <article>; fall back
+  // to <body> with nav/footer/header/aside removed). Excludes boilerplate
+  // so cross-page menus don't create false "covered" signals in coverage.
+  const bodyParagraphSample: string[] = [];
+  const cardTexts: string[] = [];
+  {
+    const $clone = cheerioLoad($.html());
+    // Remove non-content regions before content extraction. Removing these
+    // from the clone (not the main $) means word_count and other downstream
+    // extractors are unaffected by this cleanup.
+    $clone("nav, footer, header, aside, script, style, noscript, svg, iframe").remove();
+
+    // Prefer <main>/<article> if present; otherwise fall back to the body
+    // of the pruned clone.
+    const mainCount = $clone("main").length;
+    const articleCount = $clone("article").length;
+    const contentRoot =
+      mainCount > 0
+        ? $clone("main").first()
+        : articleCount > 0
+          ? $clone("article").first()
+          : $clone("body");
+
+    // Body paragraph sample: pick <p> nodes inside the content root with
+    // ≥ 8 words (drop captions, tiny footers, empty divs with <p>).
+    contentRoot.find("p").each((_, el) => {
+      if (bodyParagraphSample.length >= 10) return;
+      const text = $clone(el).text().replace(/\s+/g, " ").trim();
+      const words = text.split(/\s+/).filter(Boolean).length;
+      if (words < 8) return;
+      bodyParagraphSample.push(text.slice(0, 300));
+    });
+
+    // Card / tile / item texts: <li>, <article>, or elements whose class
+    // matches a card-pattern regex. Restricted to the content root.
+    const CARD_CLASS_RE = /\b(card|tile|item|neighborhood|service|offering)\b/i;
+    contentRoot.find("li, article, [class]").each((_, el) => {
+      if (cardTexts.length >= 20) return;
+      const tag = (el as unknown as { tagName: string }).tagName?.toLowerCase();
+      const className = ($clone(el).attr("class") ?? "").toString();
+      const isCard =
+        tag === "li" ||
+        tag === "article" ||
+        CARD_CLASS_RE.test(className);
+      if (!isCard) return;
+      const text = $clone(el).text().replace(/\s+/g, " ").trim();
+      // Skip items that are basically empty or just contain a link label.
+      if (text.length < 8) return;
+      cardTexts.push(text.slice(0, 120));
+    });
+  }
+
   // ── Links ──
   let internalLinkCount = 0;
   let externalLinks = 0;
@@ -261,6 +337,14 @@ export function extractPageSnapshot(
     schema_validation_warnings:
       schemaValidationWarnings.length > 0 ? schemaValidationWarnings : undefined,
     table_count: tableCount,
+    // Plan A + B1 (2026-04-20): broader page-content extraction. All four
+    // fields optional on the type so prior snapshots remain valid.
+    h3_list: h3List.length > 0 ? h3List : undefined,
+    body_paragraph_sample:
+      bodyParagraphSample.length > 0 ? bodyParagraphSample : undefined,
+    card_texts: cardTexts.length > 0 ? cardTexts : undefined,
+    schema_entity_names:
+      schemaEntityNames.length > 0 ? schemaEntityNames : undefined,
     tenant_id: "",
   };
 }
@@ -303,6 +387,53 @@ function extractFaqFromJsonLd(data: unknown): FaqItem[] {
   }
 
   return items;
+}
+
+/** Plan A + B1 (2026-04-20): harvest `.name` fields from common JSON-LD
+ *  entity types that carry editorial labels. Same recursive walk style as
+ *  `collectSchemaTypes`. Capped so a list-heavy page (BreadcrumbList,
+ *  ItemList) doesn't explode the set. */
+function collectSchemaEntityNames(data: unknown, out: string[]): void {
+  if (out.length >= 20) return;
+  if (!data || typeof data !== "object") return;
+  if (Array.isArray(data)) {
+    for (const node of data) {
+      if (out.length >= 20) return;
+      collectSchemaEntityNames(node, out);
+    }
+    return;
+  }
+  const obj = data as Record<string, unknown>;
+  const rawType = obj["@type"];
+  const types = Array.isArray(rawType)
+    ? (rawType as unknown[])
+    : typeof rawType === "string"
+      ? [rawType]
+      : [];
+  const ENTITY_TYPES_WITH_NAMES = new Set([
+    "Service", "Offer", "Product", "Organization", "LocalBusiness",
+    "HomeAndConstructionBusiness", "BreadcrumbList", "ListItem",
+    "ItemList", "Place", "CreativeWork", "WebPage", "Article",
+  ]);
+  const isNamedType = types.some(
+    (t) => typeof t === "string" && ENTITY_TYPES_WITH_NAMES.has(t),
+  );
+  if (isNamedType && typeof obj.name === "string") {
+    const name = obj.name.trim();
+    if (name.length >= 3 && name.length <= 100) out.push(name.slice(0, 100));
+  }
+  if (Array.isArray(obj["@graph"])) {
+    for (const node of obj["@graph"]) {
+      if (out.length >= 20) return;
+      collectSchemaEntityNames(node, out);
+    }
+  }
+  if (Array.isArray(obj.itemListElement)) {
+    for (const node of obj.itemListElement) {
+      if (out.length >= 20) return;
+      collectSchemaEntityNames(node, out);
+    }
+  }
 }
 
 function collectSchemaTypes(data: unknown, types: string[]): void {

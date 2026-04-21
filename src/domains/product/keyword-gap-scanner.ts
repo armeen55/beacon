@@ -328,8 +328,30 @@ function scanPage(
 
   if (conceptStats.size === 0 || topicClusterSize === 0) return [];
 
-  // Build page-coverage reference from title/H1/H2.
-  const pageText = [snap.title ?? "", snap.h1 ?? "", ...(snap.h2_list ?? [])]
+  // Plan A + B1 (2026-04-20): broader coverage reference. Was previously
+  // limited to title + H1 + H2, which made the scanner emit saturation_miss
+  // recs for concepts already covered in H3s, body paragraphs, card text,
+  // schema entity names, FAQ questions, or meta description. Widened to
+  // read from all safe sources.
+  //
+  // Deliberately EXCLUDED: nav labels, image alts, internal_links anchor
+  // text — all of those carry cross-page boilerplate that would produce
+  // false "covered" signals.
+  //
+  // Matcher unchanged (raw substring). Singular-fold matcher migration is
+  // out of scope for this pass.
+  const pageText = [
+    snap.title ?? "",
+    snap.meta_description ?? "",
+    snap.h1 ?? "",
+    ...(snap.h2_list ?? []),
+    ...(snap.h3_list ?? []),
+    ...(snap.body_paragraph_sample ?? []),
+    ...(snap.card_texts ?? []),
+    ...(snap.schema_entity_names ?? []),
+    ...(snap.faqs ?? []).map((f) => f.question),
+  ]
+    .filter(Boolean)
     .join(" \u00b7 ")
     .toLowerCase();
 

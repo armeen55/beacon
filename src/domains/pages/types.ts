@@ -114,6 +114,30 @@ export type PageSnapshot = {
   table_count?: number;
   /** All internal links on this page — href + anchor text. Populated after scan. */
   internal_links?: { href: string; anchor_text: string }[];
+
+  // ── Plan A + B1 (2026-04-20): broader page-content extraction ──
+  // All new fields are optional so pre-existing snapshots stay valid.
+  // Captured in `extractor.ts`; consumed by the keyword-gap scanner's
+  // coverage check to reduce false "not covered" signals.
+
+  /** All <h3> text in document order. Parallel to `h2_list`. Cap 30. */
+  h3_list?: string[];
+  /** First N content paragraphs by word count, pulled from <main>/
+   *  <article> (fallback: <body> minus <nav>/<footer>/<header>/<aside>).
+   *  Cap 10 entries × 300 chars each. Explicitly excludes nav/footer
+   *  boilerplate so cross-page menus don't create false "covered"
+   *  signals. */
+  body_paragraph_sample?: string[];
+  /** Text from list/card/tile elements inside the content area. Heuristic:
+   *  <li>, <article>, or class-names matching /\b(card|tile|item|neighborhood|
+   *  service|offering)\b/i — restricted to the content selector, so
+   *  sidebar/nav children don't leak in. Cap 20 entries × 120 chars. */
+  card_texts?: string[];
+  /** Schema entity names from JSON-LD Service/Offer/Organization/
+   *  BreadcrumbList items (.name fields). Cap 20 entries × 100 chars.
+   *  Distinct from `schema_types` which only captures @type strings. */
+  schema_entity_names?: string[];
+
   /** Owning tenant. */
   tenant_id: string;
 };

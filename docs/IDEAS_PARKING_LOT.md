@@ -131,3 +131,101 @@ Reopen any idea at any time. Mark updates with dates.
 - **Updates:**
   - YYYY-MM-DD: [what changed]
 ```
+
+---
+
+## Deferred from Plan A + B1 (2026-04-20)
+
+These were considered and explicitly deferred when extraction coverage + scanner coverage-text expansion shipped. Captured here so we don't lose them.
+
+### Image alt text as extraction field
+
+**Added:** 2026-04-20 · **Status:** `parked`
+
+- **The idea:** Extract `<img alt="">` values into a `image_alts` field on `PageSnapshot`.
+- **Source:** Plan A + B1 audit; operator decision to trim before ship.
+- **Why it's interesting:** Alt text sometimes carries the cleanest editorial label for a section/card (e.g. "Custom Home Builder Palo Alto hero image").
+- **Why it's hard / risky:** Alt text is often empty, SEO-stuffed, or filename-derived. Including it naively in coverage would flood the scanner with low-signal tokens.
+- **Claude's take:** Worth it only if we can filter junk (length threshold, exclude filename-stub patterns, exclude alts that match the filename). Defer until dogfood shows a case where a concept is ONLY covered in alt text.
+
+### Nav-label / menu-label extraction (for coverage)
+
+**Added:** 2026-04-20 · **Status:** `parked`
+
+- **The idea:** Extract `<nav>`-descendant link labels into a `nav_labels` field and use them in scanner coverage.
+- **Why it's interesting:** Menu items are the canonical labels for site sections; most pages in the same site share the same nav, so the menu itself is a good concept-vocab anchor.
+- **Why it's hard / risky:** If every page has the same nav, then every page looks like it covers every listed service → false "covered" signals everywhere. The whole point of the B1 cross-page boilerplate defense.
+- **Claude's take:** Only safe with a dedup-across-pages filter ("this token appears in ≥ 50% of pages' nav → strip"). That's extra logic not in current scope. Keep parked.
+
+### Internal link anchor text as coverage signal
+
+**Added:** 2026-04-20 · **Status:** `parked`
+
+- **The idea:** Use `internal_links[].anchor_text` on a page as part of that page's coverage text.
+- **Why it's hard / risky:** Same cross-page boilerplate problem as nav_labels. Navigation anchors + footer links repeat across pages.
+- **Claude's take:** Same mitigation path as nav_labels; park together.
+
+### Singular-fold matcher migration in scanner
+
+**Added:** 2026-04-20 · **Status:** `parked`
+
+- **The idea:** Replace scanner's raw `.includes()` coverage match with a normalized + singular-fold match (same `containsConcept` helper as 3A's trust guardrail).
+- **Why it's interesting:** Would catch `homes` ↔ `home` variants that substring match misses. 3A uses this; scanner does not.
+- **Why it's hard / risky:** Changes semantics of the existing `pageCoverageRatio` math. Need to re-verify saturation-miss threshold behaves the same. Might have cascading effects on what fires as `saturation_miss` vs `gap`.
+- **Claude's take:** Defer until dogfood shows a specific case where raw substring misses a real semantic coverage. Current word-level split already helps somewhat.
+
+### LLM second-pass judge for phrase quality / rec review
+
+**Added:** 2026-04-20 · **Status:** `queued month 2-3`
+
+- **The idea:** For each top candidate keyword-positioning rec, run an LLM pass to check (a) phrase reads natural, (b) concept belongs on this page archetype, (c) alternative phrasing exists. Use the LLM as judge/rewrite layer on ≤ 5 shortlisted recs per render.
+- **Why it's interesting:** The 10% of cases where deterministic rules can't catch awkwardness ("Design-Build Custom Home Builder Silicon" level nuance). Also enables rewriting robotic phrases to human-natural ones.
+- **Why it's hard / risky:** Cost (~$0.001 per rec × 50/render × 30 tenants = manageable). Latency (~1s added to each render unless cached). Trust (LLM might rewrite in a way that subtly changes meaning).
+- **Claude's take:** Yes — but only AFTER everything deterministic is squeezed dry. Current plan already goes far; LLM is the cleanup layer, not the engine.
+- **Prerequisites before building:** native-engine work (month 1-2), LLM-as-judge ablation v1 (idea #1 above), explicit cost/latency budget.
+
+### Broaden Rule A STOPWORDS / Rule C NOUN_HEAD_SET
+
+**Added:** 2026-04-20 · **Status:** `parked`
+
+- **The idea:** Expand B2's narrow sets with additional prepositions (over, under, about, against, among, beyond, across) and additional head-nouns (specialist, professional, provider, service, team, partner, advisor, manager, director, organization).
+- **Source:** B2 audit; operator-tuned narrow for v1.
+- **Claude's take:** Only if dogfood shows specific concepts slipping through that the narrower v1 set doesn't catch. Keep v1 narrow; add incrementally with evidence.
+
+### Rule E (tenant-vocab resonance) at scanner level
+
+**Added:** 2026-04-20 · **Status:** `killed (for v1)` — may revisit if scanner-level log discipline matters.
+
+- **The idea:** Require every scanner-emitted concept to contain ≥ 1 token from tenant scope.
+- **Why killed for v1:** Redundant with router's `off_scope` suppress; operator directive: "B2 should be phrase-shape only, not hidden relevance filtering."
+- **Claude's take:** Could be revisited if we ever want scanner-level log visibility into off-scope concepts that the router later suppresses. Low priority.
+
+### Tier-3 positive findings surfaced on Today
+
+**Added:** 2026-04-20 · **Status:** `parked`
+
+- **The idea:** The scanner computes Tier 3 "positive" concepts (both we and competitors cite) but filters them out of the Today stack. Could surface as a separate "you're competitive on" stripe.
+- **Claude's take:** Good for confidence / proof display, not for decision surface. Defer until there's a product surface that needs it.
+
+### Surface `new_page_opportunity` cards on Today
+
+**Added:** 2026-04-20 · **Status:** `parked`
+
+- **The idea:** Router produces `new_page_opportunity` recs at priority 200 — below the 4-card cap, so they never render. Reserve a dedicated slot (e.g. "Growth ideas" stripe below Wins-to-learn-from).
+- **Why it's interesting:** Router is already correctly producing ~15 of these per render for Ritz. Operator just can't see them.
+- **Why it's hard / risky:** Adding a third Today section changes the Decide-tonight / Wins hierarchy. Touches Today layout.
+- **Claude's take:** Ship after a few more cleanup passes. Ideally with a distinct "low-confidence growth" framing.
+
+### Widen router's own `pageJobTokens` with Plan A new fields
+
+**Added:** 2026-04-20 · **Status:** `parked`
+
+- **The idea:** Plan A+B1 widened the scanner's coverage check but deliberately did NOT widen the router's `pageJobTokens` (operator constraint: "do not touch the router"). Worth reconsidering once dogfood shows the router missing legitimate fits that broader extraction would catch.
+- **Claude's take:** Only worth it if dogfood shows concrete cases where the router's fit-scoring misses a page that clearly covers the concept in H3/body/cards.
+
+### Spotlight / Phase 3D + operator memory / Phase 5 + nightly loop / Phase 6
+
+**Added:** 2026-04-20 · **Status:** `queued month 2+`
+
+- Covered in the top-level customer-one plan. Deferred until rec quality stabilizes after A + B1 dogfood.
+

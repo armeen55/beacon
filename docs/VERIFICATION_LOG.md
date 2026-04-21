@@ -7,6 +7,84 @@
 
 ---
 
+## 2026-04-20 — Customer-One Plan A + B1: Extraction + coverage widening
+
+**Source plan:** `plans/curried-strolling-backus.md` Plan A + B1 (operator-trimmed: `image_alts` dropped from v1).
+
+**Goal.** Fix the remaining borderline awkward keyword cards ("Design-Build Custom Home Builder Silicon") by widening what Beacon knows about page content — NOT by making phrase-shape rules more aggressive. Extraction-quality problem, solved at extraction level.
+
+**Why.** After Plan C + page-placement router + Plan B2 shipped, the remaining surviving keyword-positioning card was `Competitors own "Design-Build Custom Home Builder Silicon" — /locations/palo-alto does not cover it`. The card reads robotic, but Plan B2's phrase-shape rules were operator-tuned narrow to NOT kill borderline phrases like this. The honest diagnosis: the scanner's coverage check was reading only title + h1 + h2_list — missing "design-build" which actually lived on the page's H3s, body paragraphs, cards, and schema entity names. Fix is at extraction level, not phrase-shape level.
+
+**Shipped — Plan A (extraction expansion, `src/domains/pages/extractor.ts` + `types.ts`):**
+
+Four new OPTIONAL PageSnapshot fields. All backward-compatible (existing snapshots without the fields still valid):
+
+1. `h3_list?: string[]` — parallel to `h2_list`, in document order. Cap 30 × 200 chars.
+2. `body_paragraph_sample?: string[]` — content-only paragraphs from `<main>`/`<article>` (fallback: `<body>` minus `<nav>`/`<footer>`/`<header>`/`<aside>`). Minimum 8 words per paragraph. Cap 10 × 300 chars.
+3. `card_texts?: string[]` — `<li>`, `<article>`, or elements matching `/\b(card|tile|item|neighborhood|service|offering)\b/i` inside the content root. Min 8 chars. Cap 20 × 120 chars.
+4. `schema_entity_names?: string[]` — `.name` from JSON-LD Service/Offer/Organization/BreadcrumbList/ListItem/etc. Cap 20 × 100 chars.
+
+**Deliberately NOT captured for coverage:**
+- `image_alts` — operator-trimmed from v1 (not doing work yet; can add later if dogfood demonstrates need).
+- `nav_labels` — cross-page boilerplate risk.
+- Internal link anchor text — same boilerplate risk.
+
+**Shipped — Plan B1 (scanner coverage widening, `src/domains/product/keyword-gap-scanner.ts`):**
+
+Expanded the per-page `pageText` local variable in `scanPage` to read from the new fields + two fields that were already extracted but never used in coverage: `meta_description` and `faqs[].question`. Matcher unchanged (raw `.includes()`). Router untouched.
+
+**Verification:**
+
+- `npx tsc --noEmit` clean (after clearing stale `.next/types/`).
+- `npx vitest run tests/domains/pages/extractor-expanded.test.ts tests/domains/product/keyword-gap-scanner-coverage.test.ts` → 27/27.
+- Full `npx vitest run` → 1159 passed, 7 failed (same 7 pre-existing tenant-isolation failures; +27 new tests, no regression).
+- Backfill scan executed via `npx tsx ... scripts/scan-owned-pages.ts`; `.data/page-snapshots.json` regenerated with new fields populated.
+- Live inspection of `/locations/palo-alto` snapshot confirmed:
+  - `h3_list`: 30 entries, `[0] = "Design-Build Custom Homes"`
+  - `body_paragraph_sample`: 10 entries
+  - `card_texts`: 14 entries
+  - `schema_entity_names`: 5 entries including `"Luxury Custom Home Builder in Palo Alto, California"`
+  - `faqs`: 6 questions (already extracted; now used in coverage)
+
+**Principled suppression of the target case:**
+
+The `"Design-Build Custom Home Builder Silicon"` card is now gone. Verified principled reason by running the same coverage math against the regenerated snapshot:
+- Concept tokens: `[design-build, custom, home, builder, silicon]`.
+- Pre-A+B1 word-level coverage on title+h1+h2: 3/5 = 60% (`design-build` and `silicon` missed) → below 75% → Tier-2 `gap` fires → card surfaces.
+- Post-A+B1 word-level coverage: 4/5 = 80% (`design-build` now visible via `h3_list[0]` + body + cards + faqs) → exceeds 75% Tier-2 threshold → `gap` does NOT fire → finding never emitted → NO router log entry (scanner-level suppression, not router-level).
+- Only remaining uncovered token is `silicon` (URL-slug fragment of "silicon valley"). One uncovered token is fine.
+
+**Current Today stack after A+B1:**
+1. `Add 2 missing schema types to /available-homes` (BIGGEST WIN · Heuristic) — schema parity, unchanged
+2. `Add neighborhoods section on /locations/atherton` (WORTH TRYING · Measured on your site) — brain rec
+3. `Close competitive gap for "Atherton Construction"` — NEW surfaced after Silicon card suppressed
+4. `/luxury-home-builder-bay-area is winning…` — helping verdict
+5. `/locations/palo-alto is winning…` — helping verdict
+
+**Design discipline honored:**
+
+- Zero router changes.
+- Zero phrase-shape rule changes (B2 stands).
+- Zero ranking changes.
+- Zero Today layout changes.
+- Matcher unchanged (raw substring, not singular-fold — parked).
+- `image_alts` / `nav_labels` / `internal_links` anchor text NOT included for coverage (parked explicitly in `docs/IDEAS_PARKING_LOT.md`).
+- All new PageSnapshot fields OPTIONAL so pre-A+B1 snapshots remain valid.
+
+**Parking-lot entries added to `docs/IDEAS_PARKING_LOT.md`:**
+
+Explicitly deferred items captured so we don't lose them: `image_alts` extraction, `nav_labels` (with dedup defense needed), internal-link anchor text for coverage, singular-fold matcher migration, LLM-as-judge for phrase quality, broader Rule A/C sets, Rule E revisit, Tier-3 positive surfacing, dedicated `new_page_opportunity` slot, widening router's own `pageJobTokens`, Spotlight / operator-memory / nightly-loop phases.
+
+**Stopping condition met:**
+1. Palo Alto Silicon card disappears for a verifiable, principled reason (4/5 coverage from h3 + schema entity names).
+2. No false "covered" signal from nav/footer — content-only selectors enforced.
+3. Legitimate gaps still survive (schema parity, neighborhoods, helping verdicts, a new competitive displacement card).
+4. Full vitest: 1159/1166, no new regressions.
+
+**Tracker:** `docs/CUSTOMER_ONE_TRACKER.md` — Plan A + B1 row shipped.
+
+---
+
 ## 2026-04-20 — Customer-One Plan B2: Deterministic phrase-shape gates
 
 **Source plan:** `plans/curried-strolling-backus.md` Phase 3-post → B2. Operator-tuned before coding: Rule E dropped, Rule C and Rule A narrowed.
