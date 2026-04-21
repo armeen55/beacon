@@ -27,6 +27,7 @@ import {
   formatSectionPresenceLog,
   parseAddSectionHeadline,
 } from "@/lib/section-presence";
+import { debugRecEngine } from "@/lib/debug-log";
 import {
   buildPageJobFitContext,
   routeKeywordFinding,
@@ -644,9 +645,9 @@ export function computeRecommendations(opts: {
       const outcome = routeKeywordFinding(f, ownedPagesForRouter, jobFitCtx);
 
       // Log every decision for dogfood. Single readable line per finding.
-      // Written to stderr so it doesn't contaminate normal Next.js stdout
-      // formatting but is visible in dev logs.
-      console.error(formatRouteLog({ concept: f.concept, pagePath: f.pagePath }, outcome));
+      // Gated behind BEACON_DEBUG_RECS=1 so it doesn't pollute the Next.js
+      // dev error overlay with intentional operational decisions.
+      debugRecEngine(formatRouteLog({ concept: f.concept, pagePath: f.pagePath }, outcome));
 
       let rewrittenForMove: typeof trustedFindings[number] | null = null;
       if (outcome.kind === "better_existing_page") {
@@ -1321,8 +1322,9 @@ export function computeRecommendations(opts: {
         parsed.concept,
       );
 
-      // Log every classification for dogfood visibility.
-      console.error(formatSectionPresenceLog(parsed.concept, parsed.path, result));
+      // Log every classification for dogfood visibility. Gated behind
+      // BEACON_DEBUG_RECS=1 so it doesn't trigger the Next.js dev overlay.
+      debugRecEngine(formatSectionPresenceLog(parsed.concept, parsed.path, result));
 
       if (result.state === "exists_signposted") {
         // Suppress: drop the rec entirely.

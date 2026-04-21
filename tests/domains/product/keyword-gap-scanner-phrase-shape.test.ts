@@ -118,14 +118,26 @@ function floodObs(query: string, n: number = 20): PromptAnswerObservation[] {
   return out;
 }
 
+// Phase post-plan cleanup (2026-04-20): intentional diagnostic logs in the
+// scanner are now routed through `debugRecEngine()`, which is gated behind
+// BEACON_DEBUG_RECS=1. Set the env flag in tests that assert on log output
+// and spy `console.log` (not `console.error`) so the tests verify the same
+// behavior without triggering the Next.js dev error overlay in production.
 let stderrSpy: ReturnType<typeof vi.spyOn>;
+const prevDebugFlag = process.env.BEACON_DEBUG_RECS;
 
 beforeEach(() => {
-  stderrSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+  process.env.BEACON_DEBUG_RECS = "1";
+  stderrSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 });
 
 afterEach(() => {
   stderrSpy.mockRestore();
+  if (prevDebugFlag === undefined) {
+    delete process.env.BEACON_DEBUG_RECS;
+  } else {
+    process.env.BEACON_DEBUG_RECS = prevDebugFlag;
+  }
 });
 
 function stderrContains(substr: string): boolean {

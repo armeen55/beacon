@@ -28,6 +28,7 @@
 import type { PageSnapshot, CitationEvidenceIndex } from "@/domains/pages/types";
 import type { PromptAnswerObservation } from "@/domains/prompt-answer-observations/types";
 import type { BeaconRecommendation } from "./recommendation-engine";
+import { debugRecEngine } from "@/lib/debug-log";
 
 // ---------------------------------------------------------------------------
 // Thresholds (tuning knobs)
@@ -461,7 +462,7 @@ function scanPage(
     // one readable line so dogfood can see what's being stripped.
     const shape = passesPhraseShapeGate(finalConcept);
     if (!shape.ok) {
-      console.error(
+      debugRecEngine(
         `[phrase-shape] "${titleCaseConcept(finalConcept)}" on ${snap.url.replace(/^https?:\/\/[^/]+/, "")} \u2192 reject: rule ${shape.rule} (${shape.reason})`,
       );
       continue;
