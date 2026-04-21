@@ -81,6 +81,22 @@ export const EVIDENCE_TIER_LABEL: Record<string, string> = {
 };
 
 // ---------------------------------------------------------------------------
+// Evidence basis → display (Phase 2, 2026-04-20)
+// ---------------------------------------------------------------------------
+
+/** Operator-facing label for each evidenceBasis tier on Today action cards. */
+export const EVIDENCE_BASIS_LABEL: Record<string, string> = {
+  heuristic: "Heuristic",
+  tenant_history: "Measured on your site",
+  current_dataset: "Early signal",
+  shared_pattern: "Cross-site pattern",
+};
+
+export function evidenceBasisLabel(basis: string): string {
+  return EVIDENCE_BASIS_LABEL[basis] ?? "Heuristic";
+}
+
+// ---------------------------------------------------------------------------
 // Experiment status → display
 // ---------------------------------------------------------------------------
 

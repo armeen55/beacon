@@ -3,7 +3,17 @@
 import { useState } from "react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
-import { REC_CONFIDENCE_LABEL } from "@/lib/confidence-labels";
+import { REC_CONFIDENCE_LABEL, EVIDENCE_BASIS_LABEL } from "@/lib/confidence-labels";
+
+// Phase 2 (2026-04-20): per-tier pill styling. Neutral by default; measured
+// signals lean success-tone, cross-site pattern accent. No alarming colors —
+// the pill is an honesty label, not a severity indicator.
+const EVIDENCE_BASIS_PILL: Record<string, string> = {
+  heuristic: "bg-surface-inset/50 text-muted-foreground/70",
+  current_dataset: "bg-accent-primary/10 text-accent-primary",
+  tenant_history: "bg-status-success/10 text-status-success",
+  shared_pattern: "bg-foreground/10 text-foreground",
+};
 
 export type ActionCardAction = {
   id: string;
@@ -33,6 +43,9 @@ export type ActionCardAction = {
   priorSuccess?: { changeId: string; pagePath: string; description: string; citationDelta: number } | null;
   engineTiming?: { platform: string; medianDays: number; sampleCount: number }[] | null;
   expectedMetric?: string | null;
+  /** Phase 2 (2026-04-20): strongest honest evidence basis for this card.
+   *  One of "heuristic" | "tenant_history" | "current_dataset" | "shared_pattern". */
+  evidenceBasis?: "heuristic" | "tenant_history" | "current_dataset" | "shared_pattern";
 };
 
 export type ActionCardProps = {
@@ -67,6 +80,7 @@ const BUCKET_STYLE: Record<string, { dot: string; label: string; border: string;
   high_leverage: { dot: "bg-status-success", label: "Biggest win", border: "border-status-success/30", bg: "bg-status-success/[0.02]" },
   opportunistic: { dot: "bg-muted-foreground/60", label: "Worth trying", border: "border-border/60", bg: "bg-surface-raised/30" },
 };
+
 
 const CONFIDENCE_LABEL = REC_CONFIDENCE_LABEL;
 
@@ -106,6 +120,16 @@ export function ActionCard({
             {bs.label}
           </span>
         </span>
+        {action.evidenceBasis && (
+          <span
+            className={cn(
+              "inline-flex items-center rounded-full px-2 py-0.5 text-[9px] font-medium tracking-wide",
+              EVIDENCE_BASIS_PILL[action.evidenceBasis] ?? EVIDENCE_BASIS_PILL.heuristic,
+            )}
+          >
+            {EVIDENCE_BASIS_LABEL[action.evidenceBasis] ?? "Heuristic"}
+          </span>
+        )}
       </div>
 
       {/* Headline */}
@@ -157,6 +181,19 @@ export function ActionCard({
       )}>
         {action.rationale}
       </p>
+
+      {/* Why we think this — confidenceReason rendered verbatim when present.
+         Phase 1 (2026-04-20): surfaces the already-computed reason string that
+         was previously dropped on the floor. Muted, one line, between rationale
+         and CTA. */}
+      {action.confidenceReason && (
+        <p className={cn(
+          "text-muted-foreground/70 italic leading-snug mt-1.5",
+          isPrimary ? "text-[11px]" : "text-[10px]",
+        )}>
+          {action.confidenceReason}
+        </p>
+      )}
 
       {/* CTA row */}
       <div className="flex items-center gap-3 mt-3 flex-wrap">
@@ -279,8 +316,8 @@ export function ActionCard({
         )}
       </div>
 
-      {/* Expandable details: evidence, AI context, watch-after */}
-      {(action.lineageBullets?.length || action.answerContext || action.watchAfter) && (
+      {/* Expandable details: evidence, prior success, timing, AI context, watch-after */}
+      {(action.lineageBullets?.length || action.priorSuccess || (action.engineTiming && action.engineTiming.length > 0) || action.answerContext || action.watchAfter) && (
         <div className="mt-3 pt-2 border-t border-border/30">
           <button
             type="button"
@@ -297,6 +334,23 @@ export function ActionCard({
                     <li key={i}>{line}</li>
                   ))}
                 </ul>
+              )}
+              {/* Phase 1 (2026-04-20): fuller sentences for priorSuccess + engineTiming.
+                 Chips at top stay; these expand the operator's model of why. */}
+              {action.priorSuccess && (
+                <p className="text-[11px] text-muted-foreground/90">
+                  <span className="font-medium text-foreground/80">Worked before:</span>{" "}
+                  {action.priorSuccess.description ? `${action.priorSuccess.description} — ` : ""}
+                  {action.priorSuccess.pagePath} saw +{Math.round(action.priorSuccess.citationDelta)}% citations.
+                </p>
+              )}
+              {action.engineTiming && action.engineTiming.length > 0 && (
+                <p className="text-[11px] text-muted-foreground/90">
+                  <span className="font-medium text-foreground/80">Typical landing:</span>{" "}
+                  {action.engineTiming
+                    .map((t) => `${t.platform} ~${t.medianDays}d (n=${t.sampleCount})`)
+                    .join(" · ")}
+                </p>
               )}
               {action.answerContext && (
                 <p className="text-[11px] text-muted-foreground/80">{action.answerContext}</p>

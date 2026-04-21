@@ -175,6 +175,15 @@ export function TodayPrimaryAction({
                 <span className="tabular-nums">· {primaryAction.dataFreshness}</span>
               ) : null}
             </p>
+            {/* Phase 1 (2026-04-20): surface the raw confidenceReason string verbatim.
+               buildPrimaryDecisionCopy already consumes it into interpreted copy, but
+               the specific evidence (e.g. "87 citations · 78% pattern success rate")
+               wasn't otherwise visible. */}
+            {primaryAction.confidenceReason && (
+              <p className="text-[10px] italic text-muted-foreground/70 leading-snug mt-1.5">
+                {primaryAction.confidenceReason}
+              </p>
+            )}
           </div>
         </div>
         {primaryAction.lineageBullets && primaryAction.lineageBullets.length > 0 && (

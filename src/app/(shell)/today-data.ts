@@ -38,6 +38,7 @@ import { buildTodaySummary, type TodayNextMove } from "@/lib/today-summary";
 import { computeRecommendations } from "@/domains/product/recommendation-engine";
 import { rankAndSelect } from "@/domains/product/priority-engine";
 import { computeTrackRecord } from "@/domains/product/recommendation-tracker";
+import { classifyEvidenceBasis } from "@/domains/product/evidence-basis";
 import {
   isRecSuppressed,
   getResponse,
@@ -721,6 +722,33 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
   // Outcome backfill moved to post-import (Phase 1C-1) — Today render is now read-only
   // for the outcome store. See src/domains/product/outcome-backfill.ts.
 
+  /** Phase 2 (2026-04-20): classify the strongest honest evidence basis for a
+   *  recommendation-engine rec (primary / secondary). Hurting / helping /
+   *  schema-parity cards are classified separately at their build sites
+   *  below. */
+  function buildEvidenceBasis(rec: typeof primaryAction): "heuristic" | "tenant_history" | "current_dataset" | "shared_pattern" {
+    if (!rec) return "heuristic";
+    const patternTr = rec.patternId
+      ? trackRecord.patternRecords.find((p) => p.patternId === rec.patternId)
+      : null;
+    const minedPattern = rec.patternId
+      ? patterns.find((p) => p.id === rec.patternId)
+      : null;
+    return classifyEvidenceBasis({
+      recType: rec.type,
+      hasPriorSuccess: Boolean(rec.priorSuccess),
+      patternTrackRecord: patternTr
+        ? { successRate: patternTr.successRate, actedOn: patternTr.actedOn }
+        : null,
+      minedPatternStrength: minedPattern?.strength ?? null,
+      baselineCitations:
+        typeof rec.citationOpportunity === "number" ? rec.citationOpportunity : null,
+      // shared-brain not consulted at render time (Phase 2 stays honest:
+      // no cross-site label without explicit BrainPattern evidence).
+      brainPatternStrength: null,
+    });
+  }
+
   function buildConfidenceReason(rec: typeof primaryAction): string {
     if (!rec) return "";
     const parts: string[] = [];
@@ -830,6 +858,7 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
         priorSuccess: primaryAction.priorSuccess ?? null,
         engineTiming: primaryAction.engineTiming ?? null,
         expectedMetric: primaryAction.expectedMetric ?? null,
+        evidenceBasis: buildEvidenceBasis(primaryAction),
       }
     : null;
 
@@ -873,6 +902,7 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
         priorSuccess: secondaryRec.priorSuccess ?? null,
         engineTiming: secondaryRec.engineTiming ?? null,
         expectedMetric: secondaryRec.expectedMetric ?? null,
+        evidenceBasis: buildEvidenceBasis(secondaryRec),
       }
     : null;
 
@@ -1392,6 +1422,8 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
         targetPagePath: h.url,
         baselineCitations: citMap.get(h.url.replace(/\/+$/, "").toLowerCase()) ?? null,
         sourceChangeId: h.changeId,
+        // Phase 2 (2026-04-20): URL-level verdict → measured on this tenant.
+        evidenceBasis: "tenant_history" as const,
       };
     });
   // Sort hurting cards by severity (most negative Z first).
@@ -1532,13 +1564,31 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
       targetPagePath: h.url,
       baselineCitations: citMap.get(h.url.replace(/\/+$/, "").toLowerCase()) ?? null,
       sourceChangeId: h.changeId,
+      // Phase 2 (2026-04-20): URL-level verdict → measured on this tenant.
+      evidenceBasis: "tenant_history" as const,
     });
   }
+
+  // Phase 2 (2026-04-20): classify evidence basis on schema-parity cards via
+  // the shared classifier. These cards carry no priorSuccess / no URL verdict
+  // / no mined-pattern link, so the result is driven entirely by whether the
+  // target page has ≥50 existing citations.
+  const schemaParityActionsWithBasis = schemaParityActions.map((a) => ({
+    ...a,
+    evidenceBasis: classifyEvidenceBasis({
+      recType: a.type,
+      hasPriorSuccess: Boolean(a.priorSuccess),
+      patternTrackRecord: null,
+      minedPatternStrength: null,
+      baselineCitations: a.baselineCitations ?? null,
+      brainPatternStrength: null,
+    }),
+  }));
 
   const assembled: import("@/components/today/action-card").ActionCardAction[] = [
     ...visibleHurtingActions,
     ...winningActions,
-    ...schemaParityActions,
+    ...schemaParityActionsWithBasis,
     ...(serializedPrimary ? [serializedPrimary] : []),
     ...(serializedSecondary ? [serializedSecondary] : []),
   ];
