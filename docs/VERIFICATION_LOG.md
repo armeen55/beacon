@@ -7,6 +7,153 @@
 
 ---
 
+## 2026-04-20 — Customer-One Phase 3B + 3C: Stack split + label cleanup
+
+**Source plan:** `plans/curried-strolling-backus.md` Phase 3 (split into 3A/3B/3C/3D per operator direction after screenshot review of Phase 2).
+
+**Goal.** Today should read as two clearly different sections:
+- **Decide tonight** — real action cards only (hurting verdicts, schema parity, brain-driven recs).
+- **Wins to learn from** — `helping_verdict` cards with measured lift; visibly secondary; do not shout "BIGGEST WIN".
+
+**Why.** After Phase 2 the screenshot showed all four visible cards labeled "BIGGEST WIN" because `helping_verdict` cards hardcoded `bucket: "high_leverage"`. Wins (celebrations) were interleaved with chores (actions to take) and shared the same label. No hierarchy. 3A fixed the redundant-card trust bug; 3B + 3C fix the structural bug without a new ranking engine, new buckets, or spotlight logic.
+
+**Shipped:**
+
+1. **3B — Stack split** (`src/app/(shell)/today-data.ts` + `src/app/(shell)/today-client.tsx`):
+   - `assembledAll` partitioned by rec type: `decideTonightActions = assembledAll.filter((a) => a.type !== "helping_verdict")` and `measuredWins = assembledAll.filter((a) => a.type === "helping_verdict")`.
+   - Caps: top 4 decide-tonight, top 2 wins.
+   - `primaryAction` / `secondaryAction` / `moreActions` now derived from `cappedDecide` (helping_verdict cards never land in the action queue).
+   - New `measuredWins` field on the TodayPageData payload; new `measuredWins?` prop on `TodayClient`.
+   - Inline render in `TodayClient`: `<section>` with heading "Wins to learn from" + count, rendering each win via the existing `ActionCard` (`variant="secondary"`, outer `opacity-90` container for visible-secondary feel). Added a matching "Decide tonight" heading above `TodayActionQueue` so both sections are clearly labeled.
+2. **3C — Label cleanup** (`src/components/today/action-card.tsx`):
+   - New `HELPING_VERDICT_STYLE` constant (muted green tone, "Measured win" label, lower-contrast border/bg).
+   - Render-time override: when `action.type === "helping_verdict"`, use `HELPING_VERDICT_STYLE` instead of `BUCKET_STYLE[action.bucket]`. No new bucket enum value; existing `bucket: "high_leverage"` stays on the data shape (preserves downstream consumers).
+
+**Design discipline honored:**
+
+- No new ranking engine, no new stores, no new bucket enum, no spotlight logic.
+- No changes to priority-engine, shared-brain, evidence-basis classifier, or recommendation generation.
+- Render-time-only override for 3C (reversible, doesn't leak into persistence or types downstream).
+
+**Verification:**
+
+- `npx tsc --noEmit` clean.
+- Full `npx vitest run` → 1096 passed, 7 failed (same 7 pre-existing tenant-isolation failures; no regression).
+- Preview restart needed after 3C edit (Next.js dev module cache had a stale server-side compile → hydration mismatch error caught during verification; resolved by bouncing the dev server).
+- Live verification on `/` after clean restart:
+  - Two section headings visible: **"Decide tonight"** and **"Wins to learn from"**.
+  - `helping_verdict` cards live only in the Wins section.
+  - Helping cards labeled **"Measured win"** with muted green tone (2 cards × 2 pills: bucket label + evidence-basis pill).
+  - Zero hydration errors after restart.
+  - Pill distribution unchanged from Phase 2 (2× Measured on your site, 1× Early signal, 1× Heuristic, 0× Cross-site pattern).
+
+**Known artifact (not a 3B/3C bug):** 3 of 3 "Decide tonight" cards still display "Biggest win" (rendered uppercase as "BIGGEST WIN") because schema-parity and keyword_optimization recs all legitimately bucket as `high_leverage` in the current Ritz dataset. This is a bucket-assignment artifact, not a label bug. Addressing it requires either a bucket-threshold rework or a spotlight/urgency pass (Phase 3D, deferred per operator direction pending decision on whether hierarchy alone resolves the felt-intelligence issue).
+
+**Recommendation-quality issue surfaced during verification:** some keyword-positioning cards that survived 3A's redundancy guard still feel semantically off (e.g. "Modernizing Older Homes Without Expanding" landing on /luxury-home-builder-bay-area, which reads more like a remodel/additions concept than a core job of that page archetype). This is a new problem domain — **page-job-fit** — distinct from both 3A (redundancy) and 3B/3C (hierarchy). Deferred as a potential next phase.
+
+**Stopping condition met.** Phase 3B + 3C shipped. Phase 3D (spotlight) deferred per operator direction.
+
+**Tracker:** `docs/CUSTOMER_ONE_TRACKER.md` — Phases 3B and 3C marked `shipped` with date.
+
+---
+
+## 2026-04-20 — Customer-One Phase 3A: Wording trust guardrail
+
+**Source plan:** `plans/curried-strolling-backus.md` Phase 3 (re-scoped mid-flight per operator direction after screenshot review).
+
+**Goal.** Generic, field-specific, concept-specific trust guard on literal keyword insertion/positioning recommendations. If the recommendation tells the operator to add / position / include a concept in a specific field (H1, H2, or title) and that concept already exists in that exact target field after light normalization, the recommendation must not be emitted.
+
+**Why.** Screenshot review of Phase 2 surface exposed a trust-breaking card on Today: "Position 'Custom Homes' in your H2 on /luxury-home-builder-bay-area" — but the current H2 was *"What Defines a True Bay Area Luxury Custom Home Builder?"*, which already contains the concept "Custom Home(s)". The app confidently telling the operator to add something already present makes the product feel dumb. No structural hierarchy fix would have covered this.
+
+**Shipped:**
+
+1. `src/lib/text-normalize.ts` — pure helpers: `normalizeForMatch`, `foldToken`, `tokenizeForMatch`, `containsConcept`. Design:
+   - Lowercase, strip punctuation/quotes/hyphens/dashes, collapse whitespace, trim.
+   - Singular/plural fold: `-ies → -y` (length ≥ 5); trailing `-s` stripped for length ≥ 4 unless ending in `-ss`.
+   - Contiguous-subsequence match — concept tokens must appear as a phrase in haystack tokens. Non-contiguous matches deliberately rejected ("custom modern homes" does not match "custom homes"). No semantic stretching.
+2. `tests/lib/text-normalize.test.ts` — 23 unit tests. Coverage: concept truly present, concept absent, only one token matches, singular/plural variants (home↔homes, builder↔builders, cities via `-ies → -y`), wrong-field situation (no false matches to body text), non-contiguous rejected, unrelated similar wording rejected, empty haystack/concept edge cases, concept longer than haystack, punctuation-insensitive (hyphens).
+3. `src/domains/product/recommendation-engine.ts` — at the keyword-gap emit site only (~line 580), filter the raw `gapFindings` array: `gapFindings.filter((f) => !containsConcept(f.currentHeadingText ?? "", f.concept))`. `currentHeadingText` is already attached by the scanner and is the actual content of the exact target element (H1/H2/title) — field-specific by construction. No changes to the scanner itself; no changes to other recommendation types.
+
+**Design discipline honored:**
+
+- Generic, not Ritz-specific. The rule is "concept already in target field" — it applies to any page, any concept, any tenant.
+- Field-specific. Compares only against `currentHeadingText` (the element the scanner selected), never page-wide text.
+- Recommendation-type-specific. Only keyword-positioning recs (produced by `gapFindingsToRecs`). Other rec types untouched.
+- Suppress only, no rewrite. "Rewrite to emphasis" deferred until there's evidence that suppression removes too many useful recs.
+- No giant NLP. Light normalization only; hardcoded singular/plural fold.
+
+**Verification:**
+
+- `npx tsc --noEmit` clean.
+- `npx vitest run tests/lib/text-normalize.test.ts` → 23 passed.
+- Full `npx vitest run` → 1096 passed, 7 failed (same 7 pre-existing tenant-isolation failures; +23 new tests over previous baseline, no regression).
+- Live verification on `/` after preview restart (server-side module cache needed a bounce):
+  - BEFORE: "Position 'Custom Homes' in your H2 on /luxury-home-builder-bay-area" visible.
+  - AFTER: that card gone. Replacement rec surfaced: "Address 'Major Structural Home Renovation' in your H2 on /locations/los-altos". Rationale explicitly shows target H2 is "Best Design Build Firm for New Home Construction in Los Altos and Los Altos Hills, CA" — concept genuinely absent. Guardrail correctly let a genuine gap survive.
+  - Pill distribution on Today unchanged (2× Measured on your site, 1× Early signal, 1× Heuristic, 0× Cross-site pattern).
+
+**Stopping condition met.** Phase 3A shipped. Phase 3B (stack split) + 3C (label cleanup) not attempted in this chat per operator directive ("do 3A first, verify independently").
+
+**Tracker:** `docs/CUSTOMER_ONE_TRACKER.md` — Phase 3A marked `shipped` with date.
+
+---
+
+## 2026-04-20 — Customer-One Phase 2: Evidence basis pill
+
+**Source plan:** `plans/curried-strolling-backus.md` Phase 2.
+
+**Goal:** Every Today action card carries one honest evidence-basis pill (`Heuristic` / `Measured on your site` / `Early signal` / `Cross-site pattern`). No fabricated cross-site labels; strongest honest tier wins.
+
+**Shipped:**
+
+1. `src/domains/product/evidence-basis.ts` — pure classifier. Input: `{recType, hasPriorSuccess, patternTrackRecord, minedPatternStrength, baselineCitations, brainPatternStrength}`. Output: one of four tiers. Precedence: shared_pattern (BrainPattern emerging/strong) → tenant_history (priorSuccess, URL-verdict recType, or track record successRate≥0.6 & actedOn≥2) → current_dataset (MinedPattern validated/probable or baselineCitations≥50) → heuristic.
+2. `tests/domains/product/evidence-basis.test.ts` — 18 unit tests covering every tier trigger, precedence, and explicit null-safety for thin shared-brain data.
+3. `src/lib/confidence-labels.ts` — added `EVIDENCE_BASIS_LABEL` map + `evidenceBasisLabel()` helper.
+4. `src/components/today/action-card.tsx` — added `evidenceBasis?` to `ActionCardAction`, added tier-colored pill render in card header next to bucket label. `EVIDENCE_BASIS_PILL` style map: neutral/gray for heuristic, accent-primary for current_dataset, status-success for tenant_history, foreground for shared_pattern.
+5. `src/app/(shell)/today-data.ts` — added `buildEvidenceBasis(rec)` helper for primary/secondary engine recs (looks up `trackRecord.patternRecords` + `patterns` in scope by patternId). Hurting/helping cards set `evidenceBasis: "tenant_history"` inline at build site. Schema-parity cards classified via post-hoc pass using `classifyEvidenceBasis()` — keeps schema-parity-actions.ts untouched.
+
+**Design discipline honored:**
+
+- shared_pattern is never synthesized — `brainPatternStrength: null` is passed at every call site because the shared-brain store is not consulted at render time in current architecture. Zero risk of false cross-site labels.
+- No changes to ranking (Phase 3 territory), recommendation generation, or shared-brain thresholds.
+- Classifier is pure: single file, no I/O, no stateful imports.
+
+**Verification:**
+
+- `npx tsc --noEmit` clean.
+- `npx vitest run tests/domains/product/evidence-basis.test.ts` → 18 passed.
+- Full `npx vitest run` → 1073 passed, 7 failed (same 7 pre-existing tenant-isolation failures documented in `HANDOFF_VERIFIED_STATE.md`; no regression).
+- Live on Today (`http://localhost:3000/`) — DOM query confirmed distribution: 2× "Measured on your site" (helping_verdict cards), 1× "Early signal" (keyword_optimization card with 1481 citations), 1× "Heuristic" (schema_parity card). 0× "Cross-site pattern" — correct.
+- Screenshots captured showing all three pill tiers rendering with correct tier-specific tones.
+
+**Stopping condition met:** every Today card has a pill; no card falsely shows `Cross-site pattern`. Phase 2 shipped.
+
+**Tracker:** `docs/CUSTOMER_ONE_TRACKER.md` — Phase 2 marked `shipped` with date.
+
+---
+
+## 2026-04-20 — Customer-One Phase 1: Render existing fields on Today action card
+
+**Source plan:** `plans/curried-strolling-backus.md` Phase 1.
+
+**Goal:** Wire already-computed recommendation fields (`confidenceReason`, fuller `priorSuccess` + `engineTiming` sentences) into Today card UI. No upstream logic changes.
+
+**Shipped:**
+
+1. `src/components/today/action-card.tsx` — renders `confidenceReason` as muted italic line between rationale and CTA. Expander ("Why we suggest this") grew two new guarded sentence blocks: "Worked before: …" from `priorSuccess`, "Typical landing: …" from `engineTiming`.
+2. `src/components/today/today-primary-action.tsx` — renders raw `confidenceReason` verbatim inside the "How much this matters + how sure we are" box, below the interpreted Strong/Moderate/Early data line.
+
+**Verification:**
+
+- `npx tsc --noEmit` clean.
+- Preview reload: no console errors, page served 200.
+- DOM query confirmed `confidenceReason` renders on the schema-parity card ("1481 existing citations" italic line). Guards correctly hide priorSuccess/engineTiming blocks on cards without those fields populated.
+- Screenshot captured.
+
+**Stopping condition met:** cards render the extra evidence blocks; no scope creep into Phase 2.
+
+---
+
 ## 2026-04-17 — Phase 7 Part 1b-v2 Step 2: Keyword-gap scanner v3 LIVE on Today
 
 **Goal:** Replace the silenced-since-Apr-19 gap-scanner stub with the search_queries-based v3 scanner. Scanner must use AI's internal retrieval queries (not answer-text n-grams), produce human-readable concept labels, and surface cleanly on Today.

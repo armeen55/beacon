@@ -1585,20 +1585,32 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
     }),
   }));
 
-  const assembled: import("@/components/today/action-card").ActionCardAction[] = [
+  // Phase 3B (2026-04-20): split Today into two semantic sections.
+  //   Decide tonight   = action cards the operator must decide on (hurting
+  //                       verdicts, schema parity, brain-driven recs).
+  //   Wins to learn from = helping_verdict cards with measured lift. They
+  //                       belong in a visibly secondary stripe, not crowding
+  //                       the action stack. Fixes the "everything says BIGGEST
+  //                       WIN and wins are interleaved with chores" problem.
+  const assembledAll: import("@/components/today/action-card").ActionCardAction[] = [
     ...visibleHurtingActions,
     ...winningActions,
     ...schemaParityActionsWithBasis,
     ...(serializedPrimary ? [serializedPrimary] : []),
     ...(serializedSecondary ? [serializedSecondary] : []),
   ];
-  const capped = assembled.slice(0, 4);
+
+  const decideTonightActions = assembledAll.filter((a) => a.type !== "helping_verdict");
+  const measuredWins = assembledAll.filter((a) => a.type === "helping_verdict");
+
+  const cappedDecide = decideTonightActions.slice(0, 4);
+  const cappedMeasuredWins = measuredWins.slice(0, 2);
 
   // Prefer brain-driven actions on Today. Legacy flow remains only as safety
   // fallback if both brain and schema-parity produced nothing.
-  const todayPrimary = capped[0] ?? serializedPrimary;
-  const todaySecondary = capped[1] ?? serializedSecondary;
-  const todayMoreActions = capped.slice(2);
+  const todayPrimary = cappedDecide[0] ?? serializedPrimary;
+  const todaySecondary = cappedDecide[1] ?? serializedSecondary;
+  const todayMoreActions = cappedDecide.slice(2);
 
   // ─────────────────────────────────────────────────────────────────────
   // Visibility Score chart + leaderboard (Day 6 visual rebuild, 2026-04-17)
@@ -1763,6 +1775,8 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
     primaryAction: todayPrimary,
     secondaryAction: todaySecondary,
     moreActions: todayMoreActions,
+    // Phase 3B (2026-04-20): wins live in their own section on TodayClient.
+    measuredWins: cappedMeasuredWins,
     morningBrief,
     scoreboard,
     pendingFindings: serializedPendingFindings,

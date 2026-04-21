@@ -17,7 +17,7 @@ import { TodayScanStrip } from "@/components/today/today-scan-strip";
 import { TodayScoreboard, type ScoreboardData } from "@/components/today/today-scoreboard";
 import { TodayActionQueue, type FindingsStripData } from "@/components/today/today-action-queue";
 import { SinceLastVisit } from "@/components/today/since-last-visit";
-import type { ActionCardAction } from "@/components/today/action-card";
+import { ActionCard, type ActionCardAction } from "@/components/today/action-card";
 import { MorningBrief } from "@/components/today/morning-brief";
 import type { MorningBriefData } from "@/domains/product/morning-brief";
 import { ChangeReview } from "@/components/today/change-review";
@@ -139,6 +139,7 @@ export function TodayClient({
   primaryAction = null,
   secondaryAction = null,
   moreActions = [],
+  measuredWins = [],
   morningBrief = null,
   scoreboard,
   onRespondToRec,
@@ -161,6 +162,9 @@ export function TodayClient({
   primaryAction?: TodayPrimaryAction | null;
   secondaryAction?: TodayPrimaryAction | null;
   moreActions?: TodayPrimaryAction[];
+  /** Phase 3B (2026-04-20): helping_verdict cards rendered in a
+   *  visibly-secondary "Wins to learn from" stripe below the action queue. */
+  measuredWins?: TodayPrimaryAction[];
   morningBrief?: MorningBriefData | null;
   scoreboard: ScoreboardData;
   visibilityData?: {
@@ -361,7 +365,21 @@ export function TodayClient({
       {/* ── Row 2: Primary action stack (brain-driven) ──
          Prefer brain actions (url-brain-recommender). Fall back to legacy
          MorningBrief primaryBriefItem ONLY if brain produced zero actions
-         (rare — exploratory fallback guarantees ≥1 when citations exist). */}
+         (rare — exploratory fallback guarantees ≥1 when citations exist).
+
+         Phase 3B (2026-04-20): section gets an explicit "Decide tonight"
+         heading so the partition from the measured-wins stripe below reads
+         as a clear two-section layout. */}
+      {primaryAction && (
+        <div className="flex items-center justify-between -mb-1">
+          <h3 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+            Decide tonight
+          </h3>
+          <span className="text-[10px] text-muted-foreground/40">
+            {[primaryAction, secondaryAction, ...moreActions].filter(Boolean).length} to review
+          </span>
+        </div>
+      )}
       {primaryAction ? (
         <TodayActionQueue
           primaryAction={primaryAction as ActionCardAction | null}
@@ -388,6 +406,37 @@ export function TodayClient({
             compact
           />
         )
+      )}
+
+      {/* ── Wins to learn from (Phase 3B, 2026-04-20) ──
+         helping_verdict cards live here, visibly secondary to the action
+         queue above. Their purpose is memory, not decision — replicate-this-
+         win framing, not "BIGGEST WIN" urgency. */}
+      {measuredWins && measuredWins.length > 0 && (
+        <section className="space-y-2">
+          <div className="flex items-center justify-between">
+            <h3 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+              Wins to learn from
+            </h3>
+            <span className="text-[10px] text-muted-foreground/40">
+              {measuredWins.length} measured
+            </span>
+          </div>
+          <div className="space-y-2 opacity-90">
+            {measuredWins.map((win) => (
+              <ActionCard
+                key={win.id}
+                action={win as ActionCardAction}
+                variant="secondary"
+                onRespondToRec={onRespondToRec}
+                pending={pending}
+                startTransition={startTransition}
+                actionMsg={actionMsg}
+                setActionMsg={setActionMsg}
+              />
+            ))}
+          </div>
+        </section>
       )}
 
       {/* ── Row 3: Proof — system intelligence validation ── */}

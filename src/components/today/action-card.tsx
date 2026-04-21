@@ -81,6 +81,15 @@ const BUCKET_STYLE: Record<string, { dot: string; label: string; border: string;
   opportunistic: { dot: "bg-muted-foreground/60", label: "Worth trying", border: "border-border/60", bg: "bg-surface-raised/30" },
 };
 
+// Phase 3C (2026-04-20): helping_verdict cards live in the "Wins to learn
+// from" stripe and must not shout "BIGGEST WIN". Render-time override —
+// muted green, factual, secondary. Keeps the bucket enum unchanged.
+const HELPING_VERDICT_STYLE = {
+  dot: "bg-status-success/70",
+  label: "Measured win",
+  border: "border-status-success/20",
+  bg: "bg-status-success/[0.015]",
+} as const;
 
 const CONFIDENCE_LABEL = REC_CONFIDENCE_LABEL;
 
@@ -96,7 +105,12 @@ export function ActionCard({
   dimmed = false,
 }: ActionCardProps) {
   const [evidenceOpen, setEvidenceOpen] = useState(false);
-  const bs = BUCKET_STYLE[action.bucket] ?? BUCKET_STYLE.opportunistic;
+  // Phase 3C (2026-04-20): render-time label override for helping_verdict
+  // cards so they read "Measured win" instead of the generic bucket label.
+  const bs =
+    action.type === "helping_verdict"
+      ? HELPING_VERDICT_STYLE
+      : (BUCKET_STYLE[action.bucket] ?? BUCKET_STYLE.opportunistic);
   const isPrimary = variant === "primary";
 
   return (
