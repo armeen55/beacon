@@ -24,6 +24,7 @@ import {
   syncTrackedPrompts,
   syncTrackedEntities,
 } from "@/lib/persistence/dual-write";
+import { getRepository } from "@/lib/persistence/repositories";
 import type { TrackedPrompt } from "@/domains/tracked-prompts/types";
 import type { TrackedEntity } from "@/domains/tracked-entities/types";
 import type { ProfoundImportRun } from "@/domains/observation-runs/types";
@@ -47,6 +48,89 @@ export const dailyMetricSnapshots: DailyMetricSnapshot[] =
 export const outcomeEvents: OutcomeEvent[] = readStore<OutcomeEvent>("outcome-events");
 export const candidateCauses: CandidateCause[] = readStore<CandidateCause>("candidate-causes");
 export const eventDecisions: EventDecision[] = readStore<EventDecision>("event-decisions");
+
+// ---------------------------------------------------------------------------
+// Phase 3.5E (2026-04-22) — hosted hero-surface seeder.
+//
+// On Vercel, the module-init `readStore(...)` calls above return `[]` because
+// `.data/*.json` doesn't exist on the read-only FS. `ensureCanonicalStoresSeeded()`
+// merges Supabase state into the four module-level arrays that drive Today's
+// visibility score, rankings, competitor comparison, and entity universe.
+//
+// Idempotent — first call awaits the DB fetches, subsequent calls return
+// immediately. Same pattern as the 3.5C rec-response / url-outcome seeders.
+//
+// Scope is DELIBERATELY narrow: only the four stores that drive today's hero
+// path are seeded. `observationRuns`, `outcomeEvents`, `candidateCauses`, and
+// `eventDecisions` are left as module-init `readStore` reads (unused on the
+// hosted critical path today; revisit if that changes).
+// ---------------------------------------------------------------------------
+
+let _canonSeeded = false;
+let _canonSeedPromise: Promise<void> | null = null;
+
+export async function ensureCanonicalStoresSeeded(): Promise<void> {
+  if (_canonSeeded) return;
+  if (_canonSeedPromise) return _canonSeedPromise;
+  if (process.env.DATA_SOURCE !== "supabase") {
+    _canonSeeded = true;
+    return;
+  }
+  _canonSeedPromise = (async () => {
+    try {
+      const repo = getRepository();
+      const [obs, snaps, ents, prompts] = await Promise.all([
+        repo.getPromptAnswerObservations(),
+        repo.getDailyMetricSnapshots(),
+        repo.getTrackedEntities(),
+        repo.getTrackedPrompts(),
+      ]);
+      // Merge semantics: DB is the source of truth on hosted. If the local
+      // array has anything (dev mode), prefer DB rows by id; otherwise replace.
+      // In practice on Vercel all four start empty, so this degenerates to a
+      // straight replace.
+      if (obs.length > 0) {
+        const byId = new Map<string, PromptAnswerObservation>();
+        for (const o of promptAnswerObservations) byId.set(o.id, o);
+        for (const o of obs) byId.set(o.id, o);
+        promptAnswerObservations.length = 0;
+        promptAnswerObservations.push(...byId.values());
+      }
+      if (snaps.length > 0) {
+        const byId = new Map<string, DailyMetricSnapshot>();
+        for (const s of dailyMetricSnapshots) byId.set(s.id, s);
+        for (const s of snaps) byId.set(s.id, s);
+        dailyMetricSnapshots.length = 0;
+        dailyMetricSnapshots.push(...byId.values());
+      }
+      if (ents.length > 0) {
+        const byId = new Map<string, TrackedEntity>();
+        for (const e of trackedEntities) byId.set(e.id, e);
+        for (const e of ents) byId.set(e.id, e);
+        trackedEntities.length = 0;
+        trackedEntities.push(...byId.values());
+      }
+      if (prompts.length > 0) {
+        const byId = new Map<string, TrackedPrompt>();
+        for (const p of trackedPrompts) byId.set(p.id, p);
+        for (const p of prompts) byId.set(p.id, p);
+        trackedPrompts.length = 0;
+        trackedPrompts.push(...byId.values());
+      }
+    } catch (e) {
+      console.error("[canonical-store] DB seed failed:", e);
+    } finally {
+      _canonSeeded = true;
+    }
+  })();
+  return _canonSeedPromise;
+}
+
+/** Reset the seed cache. Use after large mutations if freshness matters. */
+export function invalidateCanonicalStoresSeed(): void {
+  _canonSeeded = false;
+  _canonSeedPromise = null;
+}
 
 // ---------------------------------------------------------------------------
 // Persistence helpers

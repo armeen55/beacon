@@ -44,6 +44,10 @@ import type { ObservationRun } from "@/domains/observations/types";
 import type { ConfiguredCompetitorEntry } from "@/domains/competitors/universe-types";
 import type { RecommendationResponse } from "@/domains/product/recommendation-response-store";
 import type { UrlChangeOutcome } from "@/domains/attribution/url-change-outcome";
+import type { PromptAnswerObservation } from "@/domains/prompt-answer-observations/types";
+import type { DailyMetricSnapshot } from "@/domains/daily-metric-snapshots/types";
+import type { TrackedEntity } from "@/domains/tracked-entities/types";
+import type { TrackedPrompt } from "@/domains/tracked-prompts/types";
 
 /**
  * Async read interface for route-critical and repository-routed stores.
@@ -113,4 +117,13 @@ export interface SeedDataRepository {
   // Phase 1a — operator loop stores
   getRecommendationResponses(): Promise<RecommendationResponse[]>;
   getUrlChangeOutcomes(): Promise<UrlChangeOutcome[]>;
+
+  // Phase 3.5E — hosted hero-surface data (visibility score / rankings /
+  // competitor comparison / entity universe). File backend wraps existing
+  // canonical-store consts; Supabase backend fetches from the corresponding
+  // tables with explicit paging for the large ones.
+  getPromptAnswerObservations(): Promise<PromptAnswerObservation[]>;
+  getDailyMetricSnapshots(): Promise<DailyMetricSnapshot[]>;
+  getTrackedEntities(): Promise<TrackedEntity[]>;
+  getTrackedPrompts(): Promise<TrackedPrompt[]>;
 }

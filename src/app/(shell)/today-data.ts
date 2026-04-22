@@ -94,7 +94,10 @@ import { buildMorningBrief, type MorningBriefData } from "@/domains/product/morn
 import { buildQueryKeywordIndex, type QueryKeywordIndex } from "@/domains/answer-intelligence/query-index";
 // 2026-04-20: MemoryInsight (topic-level attribution) removed in favor of
 // url-change-outcomes (URL-level Z-score). See win-card logic below.
-import { dailyMetricSnapshots } from "@/storage/canonical-store";
+import {
+  dailyMetricSnapshots,
+  ensureCanonicalStoresSeeded,
+} from "@/storage/canonical-store";
 // url-brain-recommender removed 2026-04-18 (Phase 7 cleanup) \u2014 was producing
 // vague "Investigate h1 regression" shrug cards with low-sample pattern math
 // (often 2-of-3 cases). Being replaced by data-grounded keyword-gap scanner +
@@ -133,9 +136,15 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
   // `.data/*.json` doesn't exist). Seed them from Supabase once per request
   // before any sync consumer (`isRecSuppressed`, the `.filter`/`for..of`
   // bodies below) runs against them.
+  //
+  // Phase 3.5E (2026-04-22): same problem for canonical-store exports that
+  // drive the visibility score, rankings, competitor comparison, and entity
+  // universe (`promptAnswerObservations`, `dailyMetricSnapshots`,
+  // `trackedEntities`, `trackedPrompts`). Run all seeds in parallel.
   await Promise.all([
     ensureRecommendationResponsesSeeded(),
     ensureUrlChangeOutcomesSeeded(),
+    ensureCanonicalStoresSeeded(),
   ]);
 
   // Same signal as shell `isDemoMode` (Phase 2A): no import runs ⇒ sample seed data, not operator briefing.

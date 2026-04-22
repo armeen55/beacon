@@ -51,6 +51,10 @@ import type { ConfiguredCompetitorEntry } from "@/domains/competitors/universe-t
 import type { Finding } from "@/domains/scanning/types";
 import type { RecommendationResponse } from "@/domains/product/recommendation-response-store";
 import type { UrlChangeOutcome } from "@/domains/attribution/url-change-outcome";
+import type { PromptAnswerObservation } from "@/domains/prompt-answer-observations/types";
+import type { DailyMetricSnapshot } from "@/domains/daily-metric-snapshots/types";
+import type { TrackedEntity } from "@/domains/tracked-entities/types";
+import type { TrackedPrompt } from "@/domains/tracked-prompts/types";
 import { mapRowToEntity } from "./key-mapper";
 
 async function query<T>(table: string): Promise<T[]> {
@@ -60,6 +64,33 @@ async function query<T>(table: string): Promise<T[]> {
   if (error)
     throw new Error(`Supabase query failed on ${table}: ${error.message}`);
   return (data ?? []) as T[];
+}
+
+/**
+ * Phase 3.5E (2026-04-22) — pages through a table in 1000-row batches. Use
+ * this for tables that can exceed PostgREST's default `max-rows` limit
+ * (prompt_answer_observations at 11,996 and daily_metric_snapshots at
+ * 24,085 both do). One-shot per cold start; results held in-memory by the
+ * canonical-store seed layer.
+ */
+async function queryAllPaged<T>(table: string): Promise<T[]> {
+  const sb = getSupabaseAdmin();
+  const PAGE = 1000;
+  const out: T[] = [];
+  let from = 0;
+  for (;;) {
+    const { data, error } = await sb
+      .from(table)
+      .select("*")
+      .range(from, from + PAGE - 1);
+    if (error)
+      throw new Error(`Supabase query failed on ${table}: ${error.message}`);
+    const rows = (data ?? []) as T[];
+    out.push(...rows);
+    if (rows.length < PAGE) break;
+    from += PAGE;
+  }
+  return out;
 }
 
 async function queryMapped<T>(table: string): Promise<T[]> {
@@ -134,9 +165,24 @@ export const supabaseBackend: SeedDataRepository = {
     } as CitationEvidenceIndex;
   },
 
-  // Answer intelligence — no Supabase table yet; read from disk (same as file backend)
-  getAnswerIntelligenceIndex: async () =>
-    readDotDataJson<AnswerIntelligenceIndex>("answer-intelligence-index"),
+  // Phase 3.5E (2026-04-22) — the `answer_intelligence_index` Supabase table
+  // exists and is dual-written on import. Read the `data` jsonb column. Stale
+  // previously-disk-only comment removed; file backend still reads disk for
+  // DATA_SOURCE=file.
+  getAnswerIntelligenceIndex: async () => {
+    const { data, error } = await getSupabaseAdmin()
+      .from("answer_intelligence_index")
+      .select("*")
+      .eq("id", "current")
+      .maybeSingle();
+    if (error)
+      throw new Error(
+        `Supabase query failed on answer_intelligence_index: ${error.message}`,
+      );
+    if (!data) return null;
+    // Row shape: { id, built_at, data: AnswerIntelligenceIndex }
+    return (data.data as AnswerIntelligenceIndex) ?? null;
+  },
 
   getObservationRuns: () => query<ObservationRun>("observation_runs"),
   getCompetitorConfigEntries: () =>
@@ -238,4 +284,16 @@ export const supabaseBackend: SeedDataRepository = {
       );
     return (data ?? []) as UrlChangeOutcome[];
   },
+
+  // Phase 3.5E — hero-surface data. Paged reads for the two large tables
+  // (prompt_answer_observations 11,996 rows, daily_metric_snapshots 24,085
+  // rows) to defeat PostgREST's default 1000-row cap.
+  getPromptAnswerObservations: async () =>
+    queryAllPaged<PromptAnswerObservation>("prompt_answer_observations"),
+  getDailyMetricSnapshots: async () =>
+    queryAllPaged<DailyMetricSnapshot>("daily_metric_snapshots"),
+  getTrackedEntities: async () =>
+    query<TrackedEntity>("tracked_entities"),
+  getTrackedPrompts: async () =>
+    query<TrackedPrompt>("tracked_prompts"),
 };
