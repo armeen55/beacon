@@ -157,7 +157,14 @@ import type { UrlChangeOutcome } from "@/domains/attribution/url-change-outcome"
 type AnyRow = Record<string, unknown>;
 
 export async function syncImportRuns(runs: ImportRun[]): Promise<void> {
-  await dualWriteUpsert("import_runs", runs as unknown as AnyRow[], "id");
+  // Phase 3.5G-fix (2026-04-22): legacy `.data/import-runs.json` rows pre-date
+  // the `tenant_id` field on ImportRun. When a new row is pushed onto the
+  // heterogeneous array and upserted, Supabase-js serializes missing keys as
+  // `null`, which PostgREST applies as UPDATE SET tenant_id=null → violates
+  // the NOT NULL column added by `import_runs_add_tenant_id`. Normalize
+  // defensively so every row in the payload has a valid tenant_id.
+  const rows = runs.map((r) => ({ ...r, tenant_id: r.tenant_id ?? "" }));
+  await dualWriteUpsert("import_runs", rows as unknown as AnyRow[], "id");
 }
 
 export async function syncResults(rows: Result[]): Promise<void> {
