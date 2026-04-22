@@ -192,7 +192,12 @@ export async function confirmFindingAsChange(
 
   // 2. Create a changelog entry from the finding
   const changeId = generateId("cl");
-  const timestamp = now();
+  // Phase 3.5I-trust (2026-04-22): use the scanner's `detectedAt` for the
+  // changelog `timestamp` (when the page actually changed, per HTML diff),
+  // not `now()` (when the operator clicked Confirm). This keeps /changes
+  // date-accurate for attribution. `created_at` below stays `now()` so the
+  // audit trail for "when it was confirmed" is preserved.
+  const timestamp = finding.detectedAt ?? now();
   const signalType: SignalType = FINDING_TO_SIGNAL[finding.type] ?? "content";
   const assetType = classifyAssetType(finding.url);
   const pagePath = finding.pagePath || (finding.url ? finding.url.replace(/^https?:\/\/[^/]+/, "") : "") || "/";
