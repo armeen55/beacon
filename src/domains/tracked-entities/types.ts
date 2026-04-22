@@ -10,6 +10,13 @@ export type TrackedEntity = {
   account_id: string;
   entity_type: EntityType;
   name: string;
+  /**
+   * Optional known-name variants. Used by poll adapters for alias-aware
+   * matching: an entity is considered mentioned if the answer contains `name`
+   * OR any string in `aliases`. Optional in the TS type so legacy JSON records
+   * without the field are safe; the DB column is NOT NULL DEFAULT '{}'.
+   */
+  aliases?: string[];
   domain: string | null;
   url: string | null;
   location_scope: string | null;

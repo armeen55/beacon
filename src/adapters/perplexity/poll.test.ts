@@ -316,4 +316,111 @@ describe("pollPerplexityForTenant", () => {
     expect(result.observations).toHaveLength(0);
     expect(result.observationRun.status).toBe("completed");
   });
+
+  // ── Alias-aware matching (Phase 1: entity canonicalization v0) ──
+
+  it("matches owned brand via an alias when the answer uses the variant phrasing", async () => {
+    const OWNED_WITH_ALIAS: TrackedEntity = {
+      ...OWNED,
+      name: "Ritz Builders",
+      aliases: ["Ritzbuilders", "Ritz"],
+    };
+    const client = makeClient([
+      // answer uses the one-word variant, never the canonical form
+      { answer: "Ritzbuilders is a top choice for Atherton teardowns.", citations: [] },
+    ]);
+
+    const result = await pollPerplexityForTenant("tenant-ritz-founder", {
+      client,
+      trackedPrompts: [makePrompt({ id: "p-alias" })],
+      trackedEntities: [OWNED_WITH_ALIAS],
+    });
+
+    const obs = result.observations[0];
+    expect(obs.tracked_brand_mentioned).toBe(true);
+    // mentions[] stores the canonical name, not the alias that matched
+    expect(obs.mentions).toEqual(["Ritz Builders"]);
+  });
+
+  it("still matches owned brand via the canonical name when no alias is present", async () => {
+    const OWNED_NO_ALIASES: TrackedEntity = {
+      ...OWNED,
+      name: "Ritz Builders",
+      aliases: undefined,
+    };
+    const client = makeClient([
+      { answer: "Ritz Builders is a top choice.", citations: [] },
+    ]);
+
+    const result = await pollPerplexityForTenant("tenant-ritz-founder", {
+      client,
+      trackedPrompts: [makePrompt({ id: "p-noalias" })],
+      trackedEntities: [OWNED_NO_ALIASES],
+    });
+
+    expect(result.observations[0].tracked_brand_mentioned).toBe(true);
+  });
+
+  it("matches a competitor via alias and surfaces it under the canonical name in mentions[]", async () => {
+    const COMPETITOR_WITH_ALIAS: TrackedEntity = {
+      ...COMPETITOR,
+      name: "De Mattei Construction",
+      aliases: ["De Mattei", "DeMattei"],
+    };
+    const client = makeClient([
+      // answer uses the short form
+      { answer: "De Mattei is well-known in the Bay Area.", citations: [] },
+    ]);
+
+    const result = await pollPerplexityForTenant("tenant-ritz-founder", {
+      client,
+      trackedPrompts: [makePrompt({ id: "p-comp-alias" })],
+      trackedEntities: [COMPETITOR_WITH_ALIAS],
+    });
+
+    expect(result.observations[0].mentions).toEqual(["De Mattei Construction"]);
+  });
+
+  it("does not duplicate a mention when both name and alias appear in the same answer", async () => {
+    const ENTITY: TrackedEntity = {
+      ...COMPETITOR,
+      name: "Golden Gate Group",
+      aliases: ["Golden Gate Group, Inc."],
+    };
+    const client = makeClient([
+      {
+        answer:
+          "Golden Gate Group builds estates. Formally: Golden Gate Group, Inc.",
+        citations: [],
+      },
+    ]);
+
+    const result = await pollPerplexityForTenant("tenant-ritz-founder", {
+      client,
+      trackedPrompts: [makePrompt({ id: "p-dup" })],
+      trackedEntities: [ENTITY],
+    });
+
+    // Only one entry even though both variants appear
+    expect(result.observations[0].mentions).toEqual(["Golden Gate Group"]);
+  });
+
+  it("empty aliases array behaves identically to undefined aliases", async () => {
+    const ENTITY: TrackedEntity = {
+      ...OWNED,
+      name: "Ritz Builders",
+      aliases: [],
+    };
+    const client = makeClient([
+      { answer: "Ritz Builders was recommended.", citations: [] },
+    ]);
+
+    const result = await pollPerplexityForTenant("tenant-ritz-founder", {
+      client,
+      trackedPrompts: [makePrompt({ id: "p-empty-aliases" })],
+      trackedEntities: [ENTITY],
+    });
+
+    expect(result.observations[0].tracked_brand_mentioned).toBe(true);
+  });
 });

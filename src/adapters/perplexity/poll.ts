@@ -81,7 +81,11 @@ export async function pollPerplexityForTenant(
       .map((e) => e.domain?.toLowerCase())
       .filter((d): d is string => Boolean(d)),
   );
-  const ownedNames = ownedEntities.map((e) => e.name).filter(Boolean);
+  // Owned-brand match checks name + aliases so variant phrasings
+  // ("Ritzbuilders", "Ritz") still resolve to the tracked brand.
+  const ownedNameVariants = ownedEntities.flatMap((e) =>
+    entityNameVariants(e),
+  );
 
   const startedAt = now().toISOString();
   const runId = `pollrun-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -108,8 +112,8 @@ export async function pollPerplexityForTenant(
       ).length;
 
       const mentions = detectMentions(result.answer_text, activeEntities);
-      const brandMentioned = ownedNames.some((name) =>
-        containsCaseInsensitive(result.answer_text, name),
+      const brandMentioned = ownedNameVariants.some((variant) =>
+        containsCaseInsensitive(result.answer_text, variant),
       );
 
       const obs: PromptAnswerObservation = {
@@ -186,14 +190,38 @@ function containsCaseInsensitive(haystack: string, needle: string): boolean {
   return haystack.toLowerCase().includes(needle.toLowerCase());
 }
 
+/**
+ * Returns all name variants that represent an entity: the canonical `name`
+ * followed by any `aliases`. Blank/falsy values are stripped. Order is stable
+ * (name first) so downstream logic that prefers the canonical form can take
+ * the first match.
+ */
+function entityNameVariants(entity: TrackedEntity): string[] {
+  const variants: string[] = [];
+  if (entity.name) variants.push(entity.name);
+  if (entity.aliases) {
+    for (const alias of entity.aliases) {
+      if (alias) variants.push(alias);
+    }
+  }
+  return variants;
+}
+
 function detectMentions(
   answerText: string,
   entities: TrackedEntity[],
 ): string[] {
+  // Store matches under the canonical `name` even when matched via an alias,
+  // so mentions[] stays stable across alias list changes. The raw variant is
+  // still in answer_texts for forensic inspection.
   const found = new Set<string>();
   for (const entity of entities) {
-    if (entity.name && containsCaseInsensitive(answerText, entity.name)) {
-      found.add(entity.name);
+    const variants = entityNameVariants(entity);
+    for (const variant of variants) {
+      if (containsCaseInsensitive(answerText, variant)) {
+        if (entity.name) found.add(entity.name);
+        break;
+      }
     }
   }
   return Array.from(found);
