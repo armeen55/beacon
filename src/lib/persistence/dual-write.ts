@@ -100,6 +100,8 @@ import type { PageVisibilitySummary } from "@/domains/pages/page-visibility";
 import type { ChangePattern } from "@/domains/learning/change-patterns";
 import type { TriageRule } from "@/domains/learning/triage-rules";
 import type { ConfidenceCalibration } from "@/domains/learning/confidence-calibration";
+import type { RecommendationResponse } from "@/domains/product/recommendation-response-store";
+import type { UrlChangeOutcome } from "@/domains/attribution/url-change-outcome";
 
 type AnyRow = Record<string, unknown>;
 
@@ -112,39 +114,13 @@ export async function syncResults(rows: Result[]): Promise<void> {
 }
 
 /**
- * Map a ChangelogEntry to a Supabase-safe row by stripping Phase 1
- * schema-experiment fields that may not exist in the remote table yet.
- * The full record (including those fields) is always preserved on disk in
- * `.data/imported-changes.json` — this mapper only affects dual-write.
- *
- * When the Supabase `changelog_entries` table is migrated to add these
- * columns, drop this mapper or expand it to pass them through.
+ * Map a ChangelogEntry to a DB row. Phase 1a (2026-04-21): schema-experiment
+ * fields + rec/pattern linkage + dedupe/archive flags + tenant_id are now
+ * columns on `changelog_entries`, so we pass the full shape through.
+ * `tenant_id` defaults to '' server-side when absent.
  */
 function mapChangelogEntryToRow(entry: ChangelogEntry): AnyRow {
-  const {
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    change_family: _cf,
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    change_type: _ct,
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    schema_types_before: _stb,
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    schema_types_after: _sta,
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    schema_types_added: _sad,
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    schema_types_removed: _srm,
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    schema_hash_before: _shb,
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    schema_hash_after: _sha,
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    visible_copy_changed: _vcc,
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    page_scope: _ps,
-    ...remoteSafe
-  } = entry;
-  return remoteSafe as unknown as AnyRow;
+  return entry as unknown as AnyRow;
 }
 
 export async function syncChangelogEntries(
@@ -421,6 +397,9 @@ function mapFindingToRow(f: Finding): AnyRow {
     contradicts_changelog: f.contradictsChangelog,
     metric_movement_detected: f.metricMovementDetected ?? null,
     signal_strength: f.signalStrength ?? null,
+    source_rec_id: f.source_rec_id ?? null,
+    source_pattern_id: f.source_pattern_id ?? null,
+    tenant_id: f.tenant_id ?? "",
   };
 }
 
@@ -569,6 +548,42 @@ export async function syncConfidenceCalibration(
     "confidence_calibration",
     [calibration] as unknown as AnyRow[],
     "id",
+  );
+}
+
+// ── Operator loop (Phase 1a) ──
+
+/** Map camelCase RecommendationResponse to snake_case DB row. PK: rec_id. */
+function mapRecommendationResponseToRow(r: RecommendationResponse): AnyRow {
+  return {
+    rec_id: r.recId,
+    status: r.status,
+    responded_at: r.respondedAt,
+    defer_until: r.deferUntil,
+    target_page_url: r.targetPageUrl ?? null,
+    pattern_id: r.patternId ?? null,
+    tenant_id: (r as RecommendationResponse & { tenant_id?: string }).tenant_id ?? "",
+    updated_at: new Date().toISOString(),
+  };
+}
+
+export async function syncRecommendationResponses(
+  rows: RecommendationResponse[],
+): Promise<void> {
+  if (!isDualWriteEnabled() || rows.length === 0) return;
+  const mapped = rows.map(mapRecommendationResponseToRow);
+  await dualWriteUpsert("recommendation_responses", mapped, "rec_id");
+}
+
+export async function syncUrlChangeOutcomes(
+  rows: UrlChangeOutcome[],
+): Promise<void> {
+  if (!isDualWriteEnabled() || rows.length === 0) return;
+  // Shape is already snake_case — pass through, compound PK.
+  await dualWriteUpsert(
+    "url_change_outcomes",
+    rows as unknown as AnyRow[],
+    "change_id,url",
   );
 }
 

@@ -42,6 +42,8 @@ import type { VisibilityObservationRun } from "@/domains/observations/visibility
 import type { GuardrailAlert } from "@/domains/pages/guardrails";
 import type { ObservationRun } from "@/domains/observations/types";
 import type { ConfiguredCompetitorEntry } from "@/domains/competitors/universe-types";
+import type { RecommendationResponse } from "@/domains/product/recommendation-response-store";
+import type { UrlChangeOutcome } from "@/domains/attribution/url-change-outcome";
 
 /**
  * Async read interface for route-critical and repository-routed stores.
@@ -107,4 +109,8 @@ export interface SeedDataRepository {
   getActionStates(): Promise<PersistedActionState[]>;
   getBriefStates(): Promise<PersistedBriefState[]>;
   getTruthLabels(): Promise<TruthLabel[]>;
+
+  // Phase 1a — operator loop stores
+  getRecommendationResponses(): Promise<RecommendationResponse[]>;
+  getUrlChangeOutcomes(): Promise<UrlChangeOutcome[]>;
 }

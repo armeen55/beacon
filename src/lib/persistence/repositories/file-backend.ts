@@ -43,6 +43,8 @@ import type { ObservationRun } from "@/domains/observations/types";
 import { readObservationRunsMergedSync } from "@/domains/observations/observation-runs-merge";
 import type { ConfiguredCompetitorEntry } from "@/domains/competitors/universe-types";
 import { getFindings, getPendingFindings } from "@/domains/scanning/findings-store";
+import type { RecommendationResponse } from "@/domains/product/recommendation-response-store";
+import type { UrlChangeOutcome } from "@/domains/attribution/url-change-outcome";
 
 /**
  * `DATA_SOURCE=file` implementation of `SeedDataRepository`.
@@ -135,4 +137,10 @@ export const fileBackend: SeedDataRepository = {
   // Phase 7 — scan findings via repository
   getScanFindings: async () => getFindings(),
   getPendingScanFindings: async () => getPendingFindings(),
+
+  // Phase 1a — operator loop stores
+  getRecommendationResponses: async () =>
+    readStore<RecommendationResponse>("recommendation-responses"),
+  getUrlChangeOutcomes: async () =>
+    readStore<UrlChangeOutcome>("url-change-outcomes"),
 };

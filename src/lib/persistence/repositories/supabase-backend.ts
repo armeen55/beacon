@@ -49,6 +49,8 @@ import type { GuardrailAlert } from "@/domains/pages/guardrails";
 import type { ObservationRun } from "@/domains/observations/types";
 import type { ConfiguredCompetitorEntry } from "@/domains/competitors/universe-types";
 import type { Finding } from "@/domains/scanning/types";
+import type { RecommendationResponse } from "@/domains/product/recommendation-response-store";
+import type { UrlChangeOutcome } from "@/domains/attribution/url-change-outcome";
 import { mapRowToEntity } from "./key-mapper";
 
 async function query<T>(table: string): Promise<T[]> {
@@ -206,5 +208,34 @@ export const supabaseBackend: SeedDataRepository = {
     return (data ?? []).map((row) =>
       mapRowToEntity<Finding>(row as Record<string, unknown>),
     );
+  },
+
+  // Phase 1a — operator loop stores
+  getRecommendationResponses: async () => {
+    const { data, error } = await getSupabaseAdmin()
+      .from("recommendation_responses")
+      .select("*");
+    if (error)
+      throw new Error(
+        `Supabase query failed on recommendation_responses: ${error.message}`,
+      );
+    return (data ?? []).map((row) => ({
+      recId: row.rec_id,
+      status: row.status,
+      respondedAt: row.responded_at,
+      deferUntil: row.defer_until,
+      targetPageUrl: row.target_page_url ?? null,
+      patternId: row.pattern_id ?? null,
+    })) as RecommendationResponse[];
+  },
+  getUrlChangeOutcomes: async () => {
+    const { data, error } = await getSupabaseAdmin()
+      .from("url_change_outcomes")
+      .select("*");
+    if (error)
+      throw new Error(
+        `Supabase query failed on url_change_outcomes: ${error.message}`,
+      );
+    return (data ?? []) as UrlChangeOutcome[];
   },
 };

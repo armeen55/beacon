@@ -9,6 +9,7 @@
 import "server-only";
 
 import { readStore, writeStore } from "@/lib/persistence/json-store";
+import { syncRecommendationResponses } from "@/lib/persistence/dual-write";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -45,6 +46,7 @@ export const recommendationResponses: RecommendationResponse[] =
 
 export async function persistResponses(): Promise<void> {
   await writeStore(STORE_NAME, recommendationResponses);
+  await syncRecommendationResponses(recommendationResponses);
 }
 
 // ---------------------------------------------------------------------------

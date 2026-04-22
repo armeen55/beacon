@@ -21,6 +21,7 @@
 import "server-only";
 
 import { readStore, writeStore } from "@/lib/persistence/json-store";
+import { syncUrlChangeOutcomes } from "@/lib/persistence/dual-write";
 import { log } from "@/lib/logger";
 import type { ChangelogEntry } from "@/domains/changelog/types";
 import type { AssetType } from "@/lib/constants";
@@ -363,6 +364,7 @@ export async function materializeUrlOutcomes(input: {
   transitionsAdded = transitionsAfter - transitionsBefore;
 
   await writeStore("url-change-outcomes", urlChangeOutcomes);
+  await syncUrlChangeOutcomes(urlChangeOutcomes);
 
   log.info("URL outcomes materialized", {
     processed,
