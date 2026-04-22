@@ -138,6 +138,8 @@ export type TodayExperimentProof = {
 export function TodayClient({
   isDemoMode = false,
   scanPhaseFailed = false,
+  todayFreshness = null,
+  hostedScanDisabled = false,
   summary,
   primaryAction = null,
   secondaryAction = null,
@@ -161,6 +163,15 @@ export function TodayClient({
 }: {
   isDemoMode?: boolean;
   scanPhaseFailed?: boolean;
+  /** Phase 3.5F: freshness signal for the data powering visibility / rankings.
+   *  Null when the newest observation is within 3 days. (Named `todayFreshness`
+   *  to avoid colliding with the existing `dataFreshness: string` on rec cards.) */
+  todayFreshness?: {
+    lastObservationDate: string;
+    daysStale: number;
+  } | null;
+  /** Phase 3.5F: hide the hosted Scan-now strip on Vercel until Phase 4 ships. */
+  hostedScanDisabled?: boolean;
   summary: TodaySummary;
   primaryAction?: TodayPrimaryAction | null;
   secondaryAction?: TodayPrimaryAction | null;
@@ -312,6 +323,26 @@ export function TodayClient({
 
   return (
     <div className="space-y-5 max-w-5xl">
+      {/* Phase 3.5F (2026-04-22): freshness banner. Renders only when the
+          most recent AI-answer observation is 3+ days old. Reads as "known
+          state" rather than "broken product". */}
+      {todayFreshness && (
+        <div
+          className="rounded-md border border-foreground/10 bg-surface-inset/30 px-4 py-2.5 text-[12px] text-muted-foreground"
+          role="status"
+        >
+          Visibility data current through{" "}
+          <span className="font-medium text-foreground">
+            {todayFreshness.lastObservationDate}
+          </span>
+          . Import a newer Profound CSV in{" "}
+          <Link href="/settings/import" className="underline underline-offset-2 hover:text-foreground">
+            Settings → Import
+          </Link>{" "}
+          to extend.
+        </div>
+      )}
+
       {/* ── Row 1: Visibility Score dashboard (Day 6 visual rebuild) ──
           Profound-style chart (left) + top-5 entity leaderboard (right).
           Replaces the old 5,146-big-number + platform-distribution line.
@@ -334,11 +365,15 @@ export function TodayClient({
       {/* ── Scan banner + pending-changes review ──
           Sits between the dashboard above and the action cards below.
           The banner's "Review changes" button scrolls to the inline
-          review card right below it (anchor id="change-review-section"). */}
-      <TodayScanStrip
-        shouldTriggerScan={shouldTriggerScan}
-        pendingChangesCount={pendingContentChanges}
-      />
+          review card right below it (anchor id="change-review-section").
+          Phase 3.5F (2026-04-22): suppressed on Vercel until Phase 4
+          ships a serverless-safe scan. Local dev keeps it. */}
+      {!hostedScanDisabled && (
+        <TodayScanStrip
+          shouldTriggerScan={shouldTriggerScan}
+          pendingChangesCount={pendingContentChanges}
+        />
+      )}
       {onConfirmFinding && onDismissFinding && pendingFindings.length > 0 && (
         <ChangeReview
           findings={pendingFindings}

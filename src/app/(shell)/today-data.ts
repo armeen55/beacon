@@ -147,6 +147,37 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
     ensureCanonicalStoresSeeded(),
   ]);
 
+  // Phase 3.5F (2026-04-22): freshness signal derived from the seeded
+  // `promptAnswerObservations` array. Today's visibility/ranking/competitor
+  // charts all roll up from this table. When the newest observation is more
+  // than 3 days old, surface a thin banner so the operator reads the cutoff
+  // as "known state" not "broken product". Null when fresh.
+  const { promptAnswerObservations: _pao } = await import("@/storage/canonical-store");
+  const lastObservationAt = _pao.reduce<string | null>((max, o) => {
+    const t = o.observed_at;
+    if (!t) return max;
+    return max === null || t > max ? t : max;
+  }, null);
+  let todayFreshness: {
+    lastObservationDate: string;
+    daysStale: number;
+  } | null = null;
+  if (lastObservationAt) {
+    const lastMs = new Date(lastObservationAt).getTime();
+    const ageDays = Math.floor((Date.now() - lastMs) / 86_400_000);
+    if (ageDays >= 3) {
+      todayFreshness = {
+        lastObservationDate: lastObservationAt.slice(0, 10),
+        daysStale: ageDays,
+      };
+    }
+  }
+
+  // Phase 3.5F: on Vercel the serverless scan path is incomplete (Phase 4 work).
+  // Suppress the auto-scan strip + trigger so the hosted UI doesn't surface a
+  // feature that would 500. Local dev keeps the button.
+  const hostedScanDisabled = process.env.VERCEL === "1";
+
   // Same signal as shell `isDemoMode` (Phase 2A): no import runs ⇒ sample seed data, not operator briefing.
   const isDemoMode = !hasActiveExperiment();
 
@@ -1811,6 +1842,9 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
   return {
     isDemoMode,
     scanPhaseFailed,
+    // Phase 3.5F
+    todayFreshness,
+    hostedScanDisabled,
     summary,
     primaryAction: todayPrimary,
     secondaryAction: todaySecondary,
