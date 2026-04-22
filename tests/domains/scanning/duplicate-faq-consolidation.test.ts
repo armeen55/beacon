@@ -140,7 +140,12 @@ describe("Duplicate FAQ consolidation – full detection flow", () => {
     expect(faqFinding).toBeDefined();
     expect(faqFinding!.previousState).toBe("6 Q&A blocks");
     expect(faqFinding!.currentState).toBe("3 Q&A blocks");
-    expect(faqFinding!.summary).toContain("Q&A count changed");
+    // Phase 3.5I (2026-04-22) — Rule β reframes exact-half faq_changed
+    // reductions as likely duplicate-schema-injection fixes. This test's
+    // 6 → 3 case is exactly that pattern, so the summary now reads
+    // "Q&A count halved ... likely a duplicate-schema-injection fix".
+    expect(faqFinding!.summary).toContain("halved");
+    expect(faqFinding!.summary).toContain("duplicate-schema-injection fix");
     expect(faqFinding!.status).toBe("pending");
   });
 

@@ -699,8 +699,48 @@ export function generateFindings(opts: {
     }
   }
 
-  findings.sort((a, b) => b.priorityScore - a.priorityScore);
-  return findings;
+  // Phase 3.5I (2026-04-22) — detector accuracy.
+  //
+  // Rule α (overlap suppression): when `schema_invalid` fires on a URL in a
+  // given run, the downstream `schema_changed` and `faq_changed` findings on
+  // that same URL describe the SAME underlying problem (unparseable JSON-LD →
+  // extracted types = none → mainEntity count = 0). Keep the root-cause
+  // finding (schema_invalid) and drop the echoes so operators don't read one
+  // broken JSON-LD block as three separate issues.
+  //
+  // Rule β (dedup-fix reframing): when `faq_changed` shows an exact-half
+  // reduction (current ≈ previous / 2, tolerance ±1 to handle odd/even),
+  // it's a classic duplicate-schema-injection fix signature. Reframe the
+  // summary/suggestedAction so operators see "likely dedupe fix" instead of
+  // "content disappeared".
+  const urlsWithSchemaInvalid = new Set<string>();
+  for (const f of findings) {
+    if (f.type === "schema_invalid") urlsWithSchemaInvalid.add(norm(f.url));
+  }
+  const afterOverlapSuppression = findings.filter((f) => {
+    if (f.type !== "schema_changed" && f.type !== "faq_changed") return true;
+    return !urlsWithSchemaInvalid.has(norm(f.url));
+  });
+
+  for (const f of afterOverlapSuppression) {
+    if (f.type !== "faq_changed") continue;
+    // previousState/currentState are strings like "16 Q&A blocks" or "0 Q&A blocks".
+    const prevMatch = /^(\d+)/.exec(f.previousState ?? "");
+    const currMatch = /^(\d+)/.exec(f.currentState ?? "");
+    if (!prevMatch || !currMatch) continue;
+    const prev = Number(prevMatch[1]);
+    const curr = Number(currMatch[1]);
+    if (prev <= 0 || curr <= 0) continue; // "disappeared" case stays as-is
+    const expectedHalf = prev / 2;
+    if (Math.abs(curr - expectedHalf) <= 1) {
+      f.summary = `Q&A count halved on ${pathOf(f.url)} (${prev} → ${curr}) — likely a duplicate-schema-injection fix. Verify visible Q&A matches canonical ${curr}.`;
+      f.suggestedAction =
+        "Likely a dedup fix of a duplicated FAQPage schema block. Inspect the page's JSON-LD: if there's now a single FAQPage with the canonical count, no action needed.";
+    }
+  }
+
+  afterOverlapSuppression.sort((a, b) => b.priorityScore - a.priorityScore);
+  return afterOverlapSuppression;
 }
 
 function makeFinding(opts: {
