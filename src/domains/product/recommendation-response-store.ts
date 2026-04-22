@@ -10,6 +10,7 @@ import "server-only";
 
 import { readStore, writeStore } from "@/lib/persistence/json-store";
 import { syncRecommendationResponses } from "@/lib/persistence/dual-write";
+import { getRepository } from "@/lib/persistence/repositories";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -43,6 +44,52 @@ const DEFER_DAYS = 7;
 
 export const recommendationResponses: RecommendationResponse[] =
   readStore<RecommendationResponse>(STORE_NAME);
+
+// Phase 3.5C (2026-04-22): on Vercel / `DATA_SOURCE=supabase`, the module-init
+// `readStore` above returns [] because `.data/*.json` doesn't exist on Vercel's
+// read-only FS. `ensureRecommendationResponsesSeeded()` merges DB state into
+// the module-level array on first call. Idempotent; callers that need fresh
+// data should await this once per request before using `recommendationResponses`,
+// `getResponse()`, or `isRecSuppressed()`.
+let _dbSeeded = false;
+let _dbSeedPromise: Promise<void> | null = null;
+
+export async function ensureRecommendationResponsesSeeded(): Promise<void> {
+  if (_dbSeeded) return;
+  if (_dbSeedPromise) return _dbSeedPromise;
+  if (process.env.DATA_SOURCE !== "supabase") {
+    _dbSeeded = true;
+    return;
+  }
+  _dbSeedPromise = (async () => {
+    try {
+      const rows = await getRepository().getRecommendationResponses();
+      // Keep the newest response per recId (by respondedAt) across the
+      // module-init array and the DB rows. Prevents a cold lambda that
+      // already did one write from wiping its own fresh state.
+      const byId = new Map<string, RecommendationResponse>();
+      for (const r of recommendationResponses) byId.set(r.recId, r);
+      for (const r of rows) {
+        const cur = byId.get(r.recId);
+        if (!cur || r.respondedAt > cur.respondedAt) byId.set(r.recId, r);
+      }
+      recommendationResponses.length = 0;
+      recommendationResponses.push(...byId.values());
+    } catch (e) {
+      console.error("[rec-responses] DB seed failed:", e);
+    } finally {
+      _dbSeeded = true;
+    }
+  })();
+  return _dbSeedPromise;
+}
+
+/** Resets the DB-seed cache. Call after a write that should be reflected on
+ *  the next read in this process. */
+export function invalidateRecommendationResponsesSeed(): void {
+  _dbSeeded = false;
+  _dbSeedPromise = null;
+}
 
 export async function persistResponses(): Promise<void> {
   await writeStore(STORE_NAME, recommendationResponses);

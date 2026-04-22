@@ -43,6 +43,7 @@ import {
   isRecSuppressed,
   getResponse,
   recommendationResponses,
+  ensureRecommendationResponsesSeeded,
 } from "@/domains/product/recommendation-response-store";
 // Phase 4 (2026-04-19): experiment-store deleted. url-change-outcomes is now
 // the single source of truth for tracking. See getWatchingUrlOutcomes().
@@ -98,7 +99,10 @@ import { dailyMetricSnapshots } from "@/storage/canonical-store";
 // vague "Investigate h1 regression" shrug cards with low-sample pattern math
 // (often 2-of-3 cases). Being replaced by data-grounded keyword-gap scanner +
 // LLM-as-judge ablation (see docs/IDEAS_PARKING_LOT.md for ablation roadmap).
-import { urlChangeOutcomes } from "@/domains/attribution/url-change-outcome";
+import {
+  urlChangeOutcomes,
+  ensureUrlChangeOutcomesSeeded,
+} from "@/domains/attribution/url-change-outcome";
 import type { UrlChangePattern } from "@/domains/learning/change-patterns";
 import { buildSchemaParityActions } from "@/domains/actions/schema-parity-actions";
 import { getCompetitorMonitoringState } from "@/domains/competitor-monitoring/store";
@@ -124,6 +128,16 @@ export type TodayPageData = Omit<
 >;
 
 export async function loadTodayPageData(): Promise<TodayPageData> {
+  // Phase 3.5C (2026-04-22): on Vercel, the module-level `recommendationResponses`
+  // and `urlChangeOutcomes` arrays are empty (readStore() returned [] because
+  // `.data/*.json` doesn't exist). Seed them from Supabase once per request
+  // before any sync consumer (`isRecSuppressed`, the `.filter`/`for..of`
+  // bodies below) runs against them.
+  await Promise.all([
+    ensureRecommendationResponsesSeeded(),
+    ensureUrlChangeOutcomesSeeded(),
+  ]);
+
   // Same signal as shell `isDemoMode` (Phase 2A): no import runs ⇒ sample seed data, not operator briefing.
   const isDemoMode = !hasActiveExperiment();
 

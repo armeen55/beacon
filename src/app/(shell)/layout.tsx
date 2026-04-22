@@ -14,7 +14,10 @@ import {
   CONTENT_CHANGE_TYPES,
   BUG_FINDING_TYPES,
 } from "@/domains/scanning/content-change-types";
-import { getWatchingUrlOutcomes } from "@/domains/attribution/url-change-outcome";
+import {
+  getWatchingUrlOutcomes,
+  ensureUrlChangeOutcomesSeeded,
+} from "@/domains/attribution/url-change-outcome";
 
 const NAV_SHORTCUTS: Record<string, string> = {
   "/": "G T",
@@ -27,11 +30,15 @@ const NAV_SHORTCUTS: Record<string, string> = {
 
 const CHANGELOG_PALETTE_CAP = 50;
 
-export default function ShellLayout({
+export default async function ShellLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  // Phase 3.5C (2026-04-22): seed the URL-change-outcomes array from Supabase
+  // so the Changes-badge count reflects real verdict state on Vercel.
+  await ensureUrlChangeOutcomesSeeded();
+
   // ── Badge computation ──
   //
   // Each badge is wired to something the operator can act on.

@@ -78,6 +78,16 @@ export async function writeStore<T>(name: string, data: T[]): Promise<void> {
 }
 
 async function atomicWrite(name: string, data: unknown[]): Promise<void> {
+  // Phase 3.5A (2026-04-22): Vercel's lambda FS is read-only; `mkdirSync`
+  // on `.data/` throws EROFS. Update the in-process cache only and skip disk.
+  // Supabase dual-write is called by the store modules AFTER writeStore, so
+  // persistent state still lands in the DB. Stores that aren't yet
+  // dual-written no-op on hosted — matches the "expected broken" guardrail.
+  if (process.env.VERCEL === "1") {
+    cache.set(name, data);
+    return;
+  }
+
   ensureDataDir();
   const path = filePath(name);
 

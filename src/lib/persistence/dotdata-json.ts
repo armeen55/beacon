@@ -22,6 +22,10 @@ export function readDotDataJson<T>(baseName: string): T | null {
 
 /** Write `.data/{baseName}.json` atomically (temp → rename). */
 export function writeDotDataJson<T>(baseName: string, data: T): void {
+  // Phase 3.5A (2026-04-22): Vercel's lambda FS is read-only; skip disk
+  // writes on hosted. Callers that need durability must pair this with a
+  // Supabase dual-write; stores without dual-write silently no-op on hosted.
+  if (process.env.VERCEL === "1") return;
   const dir = join(process.cwd(), ".data");
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
   const p = join(dir, `${baseName}.json`);

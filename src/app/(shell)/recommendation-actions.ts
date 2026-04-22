@@ -5,6 +5,7 @@ import { log } from "@/lib/logger";
 import {
   recordResponse,
   persistResponses,
+  ensureRecommendationResponsesSeeded,
   type RecommendationResponseStatus,
 } from "@/domains/product/recommendation-response-store";
 
@@ -24,6 +25,9 @@ export async function respondToRecommendation(
       hasPattern: Boolean(context?.patternId),
     },
   });
+  // Phase 3.5C: merge DB state into the in-memory array before mutating so
+  // we don't overwrite existing rows on a cold Vercel lambda.
+  await ensureRecommendationResponsesSeeded();
   recordResponse(recId, status, context);
   await persistResponses();
   revalidatePath("/", "layout");

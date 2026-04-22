@@ -22,6 +22,7 @@ import "server-only";
 
 import { readStore, writeStore } from "@/lib/persistence/json-store";
 import { syncUrlChangeOutcomes } from "@/lib/persistence/dual-write";
+import { getRepository } from "@/lib/persistence/repositories";
 import { log } from "@/lib/logger";
 import type { ChangelogEntry } from "@/domains/changelog/types";
 import type { AssetType } from "@/lib/constants";
@@ -89,6 +90,51 @@ export type UrlChangeOutcome = {
 export const urlChangeOutcomes: UrlChangeOutcome[] = readStore<UrlChangeOutcome>(
   "url-change-outcomes",
 );
+
+// Phase 3.5C (2026-04-22): on Vercel / `DATA_SOURCE=supabase`, `readStore`
+// returns [] because the JSON file doesn't exist on the read-only FS. Seed
+// from `url_change_outcomes` table on first call so `urlChangeOutcomes`,
+// `getWatchingUrlOutcomes()`, and `materializeUrlOutcomes()` see real data.
+let _dbSeeded = false;
+let _dbSeedPromise: Promise<void> | null = null;
+
+export async function ensureUrlChangeOutcomesSeeded(): Promise<void> {
+  if (_dbSeeded) return;
+  if (_dbSeedPromise) return _dbSeedPromise;
+  if (process.env.DATA_SOURCE !== "supabase") {
+    _dbSeeded = true;
+    return;
+  }
+  _dbSeedPromise = (async () => {
+    try {
+      const rows = await getRepository().getUrlChangeOutcomes();
+      // Keep the newer `updated_at` per compound (change_id, url) key.
+      const byKey = new Map<string, UrlChangeOutcome>();
+      for (const o of urlChangeOutcomes) {
+        byKey.set(`${o.change_id}::${o.url}`, o);
+      }
+      for (const o of rows) {
+        const k = `${o.change_id}::${o.url}`;
+        const cur = byKey.get(k);
+        if (!cur || o.updated_at > cur.updated_at) byKey.set(k, o);
+      }
+      urlChangeOutcomes.length = 0;
+      urlChangeOutcomes.push(...byKey.values());
+    } catch (e) {
+      console.error("[url-change-outcomes] DB seed failed:", e);
+    } finally {
+      _dbSeeded = true;
+    }
+  })();
+  return _dbSeedPromise;
+}
+
+/** Resets the DB-seed cache. Call after a write that should be reflected on
+ *  the next read in this process. */
+export function invalidateUrlChangeOutcomesSeed(): void {
+  _dbSeeded = false;
+  _dbSeedPromise = null;
+}
 
 /**
  * Verdicts that count as "currently being watched" for UI surfaces (sidebar
@@ -318,6 +364,9 @@ export async function materializeUrlOutcomes(input: {
   asOfDate?: string;
   thresholds?: VerdictThresholds;
 }): Promise<{ processed: number; recorded: number; transitions: number }> {
+  // Phase 3.5C: seed from Supabase before mutating so a cold Vercel lambda
+  // doesn't overwrite 120 existing rows with only its new ones.
+  await ensureUrlChangeOutcomesSeeded();
   const t0 = Date.now();
   let processed = 0;
   let newlyRecorded = 0;
