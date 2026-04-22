@@ -181,10 +181,10 @@ async function countsFor(
       .from("prompt_answer_observations")
       .select("*", { count: "exact", head: true })
       .eq("tenant_id", tenantId),
-    sb
-      .from("observation_runs")
-      .select("*", { count: "exact", head: true })
-      .eq("tenant_id", tenantId),
+    // observation_runs table has no tenant_id column — count is global.
+    // Drift vs the ObservationRun TS type is tracked separately; not in
+    // scope for this phase.
+    sb.from("observation_runs").select("*", { count: "exact", head: true }),
     sb
       .from("prompt_answer_observations")
       .select("observed_at")
