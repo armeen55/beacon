@@ -100,10 +100,20 @@ export async function addFindings(newFindings: Finding[]): Promise<void> {
     //   - guardrails: oscillation fix (new_guardrail / guardrail_cleared flip)
     //   - schema_missing_for_page_type: Phase 1 — persistent-state finding,
     //     refreshed on every scan until the operator deploys the missing types
+    //   - Phase 3.5H (2026-04-22): add `schema_invalid`, `schema_changed`,
+    //     `faq_changed`, `unexpected_change`. All four are "latest-observation"
+    //     semantics — the most recent scan's reading of that (type, URL) is
+    //     the one that should be pending; older-run findings describe stale
+    //     page state and were stacking 2-9× per URL under the previous
+    //     narrower list.
     if (
       f.type === "new_guardrail" ||
       f.type === "guardrail_cleared" ||
-      f.type === "schema_missing_for_page_type"
+      f.type === "schema_missing_for_page_type" ||
+      f.type === "schema_invalid" ||
+      f.type === "schema_changed" ||
+      f.type === "faq_changed" ||
+      f.type === "unexpected_change"
     ) {
       const fNorm = normUrl(f.url);
       const dupeIdx = existing.findIndex(
