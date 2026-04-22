@@ -17,6 +17,23 @@ import { getSupabaseAdmin } from "./supabase";
 
 const CHUNK_SIZE = 500;
 
+// Phase 3.5G-fix (2026-04-22): `TypeError: fetch failed` during long sequential
+// uploads (seen at chunk 9 of 29 on prompt_answer_observations) aborts the
+// whole import. Per-chunk retry with exponential backoff absorbs transient
+// network / TLS / connection-reset failures. Schema/constraint errors bypass
+// retry — they won't improve with time and need a migration, not another
+// attempt.
+const MAX_RETRY_ATTEMPTS = 4; // 1 initial + 3 retries
+const RETRY_BACKOFF_BASE_MS = 500; // 500 → 1000 → 2000 between attempts
+
+/** Schema-shape / constraint errors; retry is pointless. Match on message
+ *  text because Supabase-js error objects don't always populate `.code`. */
+function isNonRetryableError(msg: string): boolean {
+  return /schema cache|does not exist|column|violates|constraint|invalid input syntax/i.test(
+    msg,
+  );
+}
+
 export function isDualWriteEnabled(): boolean {
   return process.env.DUAL_WRITE === "true";
 }
@@ -33,17 +50,51 @@ export async function dualWriteUpsert(
   try {
     for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
       const chunk = rows.slice(i, i + CHUNK_SIZE);
-      const { error } = await sb
-        .from(table)
-        .upsert(chunk, { onConflict: primaryKey });
-      if (error) {
+      const chunkLabel = `${table} chunk ${i}-${i + chunk.length}`;
+
+      // Retry loop — up to MAX_RETRY_ATTEMPTS total attempts per chunk.
+      let lastErr: unknown = null;
+      for (let attempt = 1; attempt <= MAX_RETRY_ATTEMPTS; attempt++) {
+        try {
+          const { error } = await sb
+            .from(table)
+            .upsert(chunk, { onConflict: primaryKey });
+          if (!error) {
+            lastErr = null;
+            break;
+          }
+          if (isNonRetryableError(error.message ?? "")) {
+            throw new Error(error.message ?? String(error));
+          }
+          lastErr = new Error(error.message ?? String(error));
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          if (isNonRetryableError(msg)) throw e;
+          lastErr = e;
+        }
+        if (attempt < MAX_RETRY_ATTEMPTS) {
+          const backoffMs = RETRY_BACKOFF_BASE_MS * 2 ** (attempt - 1);
+          console.error(
+            `[dual-write] ${chunkLabel}: attempt ${attempt} transient failure (${
+              lastErr instanceof Error ? lastErr.message : String(lastErr)
+            }) — retrying in ${backoffMs}ms`,
+          );
+          await new Promise((r) => setTimeout(r, backoffMs));
+        }
+      }
+
+      if (lastErr) {
         console.error(
-          `[dual-write] ${table}: upsert chunk ${i}-${i + chunk.length} failed — ${error.message}`,
+          `[dual-write] ${chunkLabel} failed after ${MAX_RETRY_ATTEMPTS} attempts — ${
+            lastErr instanceof Error ? lastErr.message : String(lastErr)
+          }`,
         );
         // When Supabase is the canonical read source, a silent write failure
         // causes data loss on restart. Surface the error so callers can handle it.
         if (process.env.DATA_SOURCE === "supabase") {
-          throw new Error(`[dual-write] ${table}: ${error.message}`);
+          throw new Error(
+            `[dual-write] ${table}: ${lastErr instanceof Error ? lastErr.message : String(lastErr)}`,
+          );
         }
       }
     }
