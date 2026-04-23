@@ -57,6 +57,10 @@ export function buildDailySnapshotsFromObservations(
 
   const activeEntities = trackedEntities.filter((e) => e.is_active);
   const totalPossible = observations.length;
+  const totalCitationsInRun = observations.reduce(
+    (sum, o) => sum + (o.citation_count ?? 0),
+    0,
+  );
   const platformSlug = slugifyPlatform(platform);
 
   const rows: DailyMetricSnapshot[] = [];
@@ -67,6 +71,22 @@ export function buildDailySnapshotsFromObservations(
     const mentionCount = countMentions(observations, entity.name);
     const citationCount = countCitations(observations, entity.domain);
 
+    // v0 formulas (endorsed Phase 3 Step 1):
+    //   visibility_score = mention_rate × 100
+    //     "percentage of prompts where this entity was mentioned in the answer"
+    //     — honest mention-rate-derived visibility, not a fancier claim
+    //   share_of_voice = entity_citations / total_citations_in_run × 100
+    //     "of every citation slot in the run, what percentage went to this entity"
+    //     — includes untracked-domain slots in the denominator so SOV naturally
+    //     accounts for competitive and directory-dominated prompts
+    //   Both null-safe when the respective denominator is 0.
+    const visibilityScore =
+      totalPossible > 0 ? roundTo2((mentionCount / totalPossible) * 100) : null;
+    const shareOfVoice =
+      totalCitationsInRun > 0
+        ? roundTo2((citationCount / totalCitationsInRun) * 100)
+        : null;
+
     rows.push({
       id,
       date,
@@ -74,11 +94,13 @@ export function buildDailySnapshotsFromObservations(
       scope_id: scopeId,
       platform,
       source_type: "derived",
-      visibility_score: null,
+      visibility_score: visibilityScore,
       mention_count: mentionCount,
       citation_count: citationCount,
-      share_of_voice: null,
-      avg_position: null,
+      share_of_voice: shareOfVoice,
+      avg_position: null, // Perplexity (and likely ChatGPT/Claude with web_search)
+      // don't expose a native ranking position. Needs a dedicated
+      // rank-detection pass to populate; explicitly deferred.
       total_possible: totalPossible,
       metadata: {
         source_system: "beacon_native",
@@ -92,6 +114,10 @@ export function buildDailySnapshotsFromObservations(
   }
 
   return rows;
+}
+
+function roundTo2(n: number): number {
+  return Math.round(n * 100) / 100;
 }
 
 /**
