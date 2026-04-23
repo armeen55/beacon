@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { PageHeader } from "@/components/data/page-header";
+import { EvidenceFreshnessBanner } from "@/components/shell/evidence-freshness-banner";
+import { citationEvidenceIndex } from "@/domains/pages/citation-evidence-store";
 import {
   changelogEntries,
   opportunities,
@@ -219,6 +221,17 @@ export default async function ChangeScorecardPage() {
       <PageHeader
         title="Changes"
         description="Every change you've made. Newest first. Each row shows its attribution status and confidence."
+      />
+
+      {/* Commit 2 (2026-04-24): evidence-freshness honesty banner. Z-score
+          verdicts below are computed from url-citation-history which reads
+          Profound citation shards only. Native polls from Apr 22+ are not
+          yet mixed into the series. Changes made post-pivot render
+          "too_early" (honest); changes pre-pivot get Profound-only verdicts. */}
+      <EvidenceFreshnessBanner
+        builtAt={citationEvidenceIndex?.built_at ?? null}
+        label="Change verdicts"
+        className="mb-6"
       />
 
       {/* At-a-glance */}

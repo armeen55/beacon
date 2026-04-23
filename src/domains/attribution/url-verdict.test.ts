@@ -323,3 +323,160 @@ describe("computeUrlVerdict — thresholds override", () => {
     expect(loose.verdict).toBe("helping");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Commit 2 (2026-04-24) — pure-split mixed-source guard
+// ---------------------------------------------------------------------------
+
+/** Helper: tag every point in a series with a source_type. */
+function tagSeries(
+  points: DailyPoint[],
+  tag: "benchmark" | "derived",
+): DailyPoint[] {
+  return points.map((p) => ({ ...p, source_type: tag }));
+}
+
+describe("computeUrlVerdict — mixed-source abstain guard", () => {
+  it("abstains with not_enough_native_baseline when baseline is benchmark-only and post is derived-only", () => {
+    // Baseline 5/day for 14d (benchmark era), then change, then 10/day for 14d (derived era).
+    const baseline = tagSeries(
+      series("2026-04-08", [5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5]),
+      "benchmark",
+    );
+    const afterChange = tagSeries(
+      series("2026-04-23", [10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10]),
+      "derived",
+    );
+    // Change day is 2026-04-22 — not in either window.
+    const changeDay: DailyPoint[] = [
+      { date: "2026-04-22", count: 0, source_type: "derived" },
+    ];
+    const s = [...baseline, ...changeDay, ...afterChange];
+
+    const r = computeUrlVerdict({
+      series: s,
+      changeDate: "2026-04-22",
+      asOfDate: "2026-05-06",
+    });
+
+    expect(r.verdict).toBe("not_enough_native_baseline");
+    expect(r.z).toBeNull();
+    expect(r.delta_pct).toBeNull();
+    expect(r.delta_abs).toBeNull();
+    expect(r.explanation.summary).toMatch(/Profound benchmark/);
+    expect(r.explanation.summary).toMatch(/native polling/);
+  });
+
+  it("computes normally when baseline and post are both benchmark-tagged (pure same-source)", () => {
+    const baseline = tagSeries(
+      series("2026-03-01", [5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5]),
+      "benchmark",
+    );
+    const afterChange = tagSeries(
+      series("2026-03-16", [10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10]),
+      "benchmark",
+    );
+    const changeDay: DailyPoint[] = [
+      { date: "2026-03-15", count: 0, source_type: "benchmark" },
+    ];
+    const s = [...baseline, ...changeDay, ...afterChange];
+
+    const r = computeUrlVerdict({
+      series: s,
+      changeDate: "2026-03-15",
+      asOfDate: "2026-03-29",
+    });
+
+    expect(r.verdict).toBe("helping");
+    expect(r.z).not.toBeNull();
+  });
+
+  it("computes normally when baseline and post are both derived-tagged (pure same-source native)", () => {
+    const baseline = tagSeries(
+      series("2026-04-22", [5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5]),
+      "derived",
+    );
+    const afterChange = tagSeries(
+      series("2026-05-07", [10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10]),
+      "derived",
+    );
+    const changeDay: DailyPoint[] = [
+      { date: "2026-05-06", count: 0, source_type: "derived" },
+    ];
+    const s = [...baseline, ...changeDay, ...afterChange];
+
+    const r = computeUrlVerdict({
+      series: s,
+      changeDate: "2026-05-06",
+      asOfDate: "2026-05-20",
+    });
+
+    expect(r.verdict).toBe("helping");
+    expect(r.z).not.toBeNull();
+  });
+
+  it("does not fire the guard when ANY point is untagged (back-compat path)", () => {
+    // Baseline has one untagged day — guard is disabled; normal Z-score math runs.
+    const baseline: DailyPoint[] = [
+      ...tagSeries(series("2026-04-08", [5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5]), "benchmark"),
+      { date: "2026-04-21", count: 5 }, // untagged
+    ];
+    const afterChange = tagSeries(
+      series("2026-04-23", [10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10]),
+      "derived",
+    );
+    const s = [...baseline, { date: "2026-04-22", count: 0 }, ...afterChange];
+
+    const r = computeUrlVerdict({
+      series: s,
+      changeDate: "2026-04-22",
+      asOfDate: "2026-05-06",
+    });
+
+    // Untagged baseline disables guard — engine computes normally.
+    expect(r.verdict).toBe("helping");
+    expect(r.verdict).not.toBe("not_enough_native_baseline");
+  });
+
+  it("does not fire when baseline and post carry the same source (no split to detect)", () => {
+    const baseline = tagSeries(
+      series("2026-03-01", [5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5]),
+      "derived",
+    );
+    const afterChange = tagSeries(
+      series("2026-03-16", [10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10]),
+      "derived",
+    );
+    const s = [...baseline, { date: "2026-03-15", count: 0, source_type: "derived" as const }, ...afterChange];
+
+    const r = computeUrlVerdict({
+      series: s,
+      changeDate: "2026-03-15",
+      asOfDate: "2026-03-29",
+    });
+
+    expect(r.verdict).toBe("helping");
+  });
+
+  it("disables the guard when baseline window has mixed sources (only pure-split abstains)", () => {
+    const baselineMixed: DailyPoint[] = [
+      ...tagSeries(series("2026-04-08", [5, 5, 5, 5, 5, 5, 5]), "benchmark"),
+      ...tagSeries(series("2026-04-15", [5, 5, 5, 5, 5, 5, 5]), "derived"),
+    ];
+    const afterChange = tagSeries(
+      series("2026-04-23", [10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10]),
+      "derived",
+    );
+    const s = [...baselineMixed, { date: "2026-04-22", count: 0, source_type: "derived" as const }, ...afterChange];
+
+    const r = computeUrlVerdict({
+      series: s,
+      changeDate: "2026-04-22",
+      asOfDate: "2026-05-06",
+    });
+
+    // Baseline is mixed internally → not a "pure" split → guard does not fire.
+    // Full partial-overlap math is deferred to a later commit (Commit 7).
+    expect(r.verdict).not.toBe("not_enough_native_baseline");
+  });
+});

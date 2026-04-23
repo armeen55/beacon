@@ -76,7 +76,26 @@ export type VerdictLabel =
   | "hurting"
   | "nothing_yet"
   | "too_early"
-  | "not_enough_data";
+  | "not_enough_data"
+  /**
+   * Commit 2 (2026-04-24) — pure-split mixed-source abstain. Pre-change
+   * window is entirely one measurement source (e.g. Profound benchmark)
+   * and post-change window is entirely another (e.g. native polling).
+   * Z-score across different measurement systems is not comparable, so
+   * we abstain. Full partial-overlap mixed-window math is deferred to a
+   * later commit in this phase.
+   */
+  | "not_enough_native_baseline";
+
+/**
+ * Optional per-day source tag. When every day in the baseline window carries
+ * one tag and every day in the post-change window carries a DIFFERENT tag,
+ * the Z-score is crossing measurement systems — we abstain with
+ * `not_enough_native_baseline` rather than report a nonsense verdict. When
+ * the tag is absent on any point in a window, the guard does not fire and
+ * the engine behaves as before.
+ */
+export type DailyPointSource = "benchmark" | "derived";
 
 export type VerdictExplanation = {
   /** Plain English narrative (~1–2 sentences) summarising the math. */
@@ -112,7 +131,17 @@ export type UrlVerdict = {
   explanation: VerdictExplanation;
 };
 
-export type DailyPoint = { date: string; count: number };
+export type DailyPoint = {
+  date: string;
+  count: number;
+  /**
+   * Commit 2: optional source tag used by the pure-split mixed-source guard.
+   * When omitted, the guard never fires (back-compat). Callers that build
+   * the series from mixed measurement systems (Profound benchmark + native
+   * polling) should tag every point.
+   */
+  source_type?: DailyPointSource;
+};
 
 export type ComputeVerdictInput = {
   /** Day-by-day citation counts for the URL, sorted ascending by date,
@@ -202,6 +231,55 @@ export function computeUrlVerdict(input: ComputeVerdictInput): UrlVerdict {
   for (const p of sustainWindow) {
     if (p.count > muPre) sustainUp += 1;
     else if (p.count < muPre) sustainDown += 1;
+  }
+
+  // --- Pure-split mixed-source abstain (Commit 2, 2026-04-24)
+  // When every day in the baseline window carries one source_type and every
+  // day in the post-change window carries a DIFFERENT source_type, the Z-
+  // score is comparing measurement systems (Profound benchmark vs native
+  // polling), not a real change. Abstain with explanation instead of
+  // reporting a nonsense verdict. When the tag is absent on any point,
+  // the guard does not fire — back-compat for callers that don't yet tag
+  // their series.
+  const baselineSource = uniformSourceType(baselinePoints);
+  const postSource = uniformSourceType(postPoints);
+  if (
+    baselineSource !== null &&
+    postSource !== null &&
+    baselineSource !== postSource &&
+    baselinePoints.length > 0 &&
+    postPoints.length > 0
+  ) {
+    const muPreLocal = mean(baselineCounts);
+    const sigmaPreRawLocal = stddev(baselineCounts, muPreLocal);
+    const sigmaPreUsedLocal = Math.max(
+      sigmaPreRawLocal,
+      t.poissonSigmaFloor,
+    );
+    const muPostLocal = mean(postCounts);
+    return {
+      verdict: "not_enough_native_baseline",
+      z: null,
+      delta_pct: null,
+      delta_abs: null,
+      post_days: postCounts.length,
+      confidence: "low",
+      sustain: { up: sustainUp, down: sustainDown },
+      explanation: {
+        summary: `Mixed measurement sources: baseline ${baselinePoints.length}d from ${sourceLabel(baselineSource)}, post-change ${postPoints.length}d from ${sourceLabel(postSource)}. Z-score across different systems is not comparable — not enough native baseline to judge yet.`,
+        math: {
+          baseline_days_used: baselineCounts.length,
+          mu_pre: muPreLocal,
+          sigma_pre_raw: sigmaPreRawLocal,
+          sigma_pre_used: sigmaPreUsedLocal,
+          post_days_used: postCounts.length,
+          mu_post: muPostLocal,
+          z: 0,
+          sustain_up: sustainUp,
+          sustain_down: sustainDown,
+        },
+      },
+    };
   }
 
   // --- Not-enough-data short-circuit
@@ -315,6 +393,24 @@ function round(n: number, digits: number): number {
   return Math.round(n * f) / f;
 }
 
+/** Returns the single source_type if every point in the window carries the
+ *  same (non-null) tag; returns null when any point is untagged or when the
+ *  window is empty or mixed. Used by the pure-split abstain guard. */
+function uniformSourceType(points: DailyPoint[]): DailyPointSource | null {
+  if (points.length === 0) return null;
+  let found: DailyPointSource | null = null;
+  for (const p of points) {
+    if (!p.source_type) return null; // untagged → guard disabled
+    if (found === null) found = p.source_type;
+    else if (found !== p.source_type) return null; // mixed within window
+  }
+  return found;
+}
+
+function sourceLabel(source: DailyPointSource): string {
+  return source === "benchmark" ? "Profound benchmark" : "native polling";
+}
+
 function buildSummary(args: {
   verdict: VerdictLabel;
   muPre: number;
@@ -354,6 +450,9 @@ function buildSummary(args: {
       return `Too early — only ${N}d of post-change data. ${pre}, ${post}, z=${zStr} so far.`;
     case "not_enough_data":
       return `Not enough baseline data before the change to judge.`;
+    case "not_enough_native_baseline":
+      // Generated inline at the guard site above (carries richer context).
+      return `Mixed measurement sources — not enough native baseline to judge yet.`;
   }
 }
 
@@ -367,6 +466,7 @@ export const VERDICT_LABEL: Record<VerdictLabel, string> = {
   nothing_yet: "Nothing yet",
   too_early: "Too early",
   not_enough_data: "No baseline",
+  not_enough_native_baseline: "No native baseline",
 };
 
 export const VERDICT_TONE: Record<VerdictLabel, "success" | "danger" | "muted" | "neutral"> = {
@@ -375,4 +475,5 @@ export const VERDICT_TONE: Record<VerdictLabel, "success" | "danger" | "muted" |
   nothing_yet: "muted",
   too_early: "neutral",
   not_enough_data: "muted",
+  not_enough_native_baseline: "neutral",
 };

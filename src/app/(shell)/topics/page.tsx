@@ -34,6 +34,7 @@ import { pageIssues } from "@/domains/pages/issues";
 import { launchAttackPackage, updatePackageStatus, updateMissingPageStatus } from "./package-actions";
 import { getSiteConfig } from "@/lib/site-config";
 import { PageHeader } from "@/components/data/page-header";
+import { EvidenceFreshnessBanner } from "@/components/shell/evidence-freshness-banner";
 import { latestWebsiteCrawlRun } from "@/domains/observations/read";
 import { citationRollupVisibilityRun } from "@/domains/observations/visibility-read";
 import { visibilitySampleStaleVsCrawl } from "@/domains/observations/staleness";
@@ -347,6 +348,15 @@ export default async function TopicsPage() {
       <PageHeader
         title="Opportunities"
         description="Pick a topic to see where you can win next — from citations, page scans, and visibility shifts. Detail panels stay optional."
+      />
+
+      {/* Commit 2 (2026-04-24): evidence-freshness honesty banner. Topic
+          rankings + frontier opportunities below are built from the frozen
+          citation_evidence_index. Native-poll integration pending. */}
+      <EvidenceFreshnessBanner
+        builtAt={citationEvidenceIndex?.built_at ?? null}
+        label="Topic rankings"
+        className="mb-6"
       />
 
       <div className="mb-6 rounded-lg border border-border/60 bg-surface-raised/40 px-5 py-4">

@@ -243,10 +243,14 @@ describe("extractWindowSeries", () => {
       { date: "2026-04-03", count: 5 },
     ]);
     const out = extractWindowSeries(s, { start: "2026-04-01", end: "2026-04-03" }, null);
+    // Commit 2 (2026-04-24): denseSeries now tags every emitted point as
+    // source_type="benchmark" so the pure-split abstain guard in
+    // url-verdict.ts becomes source-aware. Test expectation updated to
+    // match the new output shape.
     expect(out).toEqual([
-      { date: "2026-04-01", count: 3 },
-      { date: "2026-04-02", count: 0 },
-      { date: "2026-04-03", count: 5 },
+      { date: "2026-04-01", count: 3, source_type: "benchmark" },
+      { date: "2026-04-02", count: 0, source_type: "benchmark" },
+      { date: "2026-04-03", count: 5, source_type: "benchmark" },
     ]);
   });
 

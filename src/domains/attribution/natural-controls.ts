@@ -250,7 +250,11 @@ export function extractWindowSeries(
   series: UrlCitationSeries,
   range: { start: string; end: string },
   platform: string | null,
-): Array<{ date: string; count: number }> {
+): Array<{
+  date: string;
+  count: number;
+  source_type: "benchmark" | "derived";
+}> {
   const dense = denseSeries(series, { first: range.start, last: range.end });
   if (platform === null) return dense;
   const byDate = new Map<string, number>();
@@ -258,7 +262,11 @@ export function extractWindowSeries(
     if (d.date < range.start || d.date > range.end) continue;
     byDate.set(d.date, d.by_platform[platform] ?? 0);
   }
-  return dense.map((d) => ({ date: d.date, count: byDate.get(d.date) ?? 0 }));
+  return dense.map((d) => ({
+    date: d.date,
+    count: byDate.get(d.date) ?? 0,
+    source_type: d.source_type,
+  }));
 }
 
 function mean(nums: number[]): number {

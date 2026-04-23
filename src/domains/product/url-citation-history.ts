@@ -212,12 +212,23 @@ export function getSeriesForUrl(
  * date appears in the set are OMITTED from the output rather than zero-filled.
  * The verdict engine filters its window by date range, so omitting a day is
  * equivalent to treating it as missing (neither a zero nor a real count).
+ *
+ * Commit 2 (2026-04-24): every emitted point is tagged `source_type: "benchmark"`
+ * because the underlying `buildUrlCitationHistory` reads only Profound cold-store
+ * citation shards — no native polling data is in the series yet. The tag makes
+ * the new pure-split abstain guard in url-verdict.ts source-aware, so when native
+ * observations are integrated in a later commit the tagging branches without
+ * changing this function's signature.
  */
 export function denseSeries(
   series: UrlCitationSeries,
   range: { first: string; last: string },
   dataQualityFlags?: Set<string> | string[],
-): Array<{ date: string; count: number }> {
+): Array<{
+  date: string;
+  count: number;
+  source_type: "benchmark" | "derived";
+}> {
   const bad =
     dataQualityFlags instanceof Set
       ? dataQualityFlags
@@ -225,13 +236,21 @@ export function denseSeries(
   const counts = new Map<string, number>();
   for (const d of series.daily) counts.set(d.date, d.count);
 
-  const out: Array<{ date: string; count: number }> = [];
+  const out: Array<{
+    date: string;
+    count: number;
+    source_type: "benchmark" | "derived";
+  }> = [];
   const start = new Date(range.first + "T00:00:00Z").getTime();
   const end = new Date(range.last + "T00:00:00Z").getTime();
   for (let t = start; t <= end; t += 86_400_000) {
     const iso = new Date(t).toISOString().slice(0, 10);
     if (bad.has(iso)) continue;
-    out.push({ date: iso, count: counts.get(iso) ?? 0 });
+    out.push({
+      date: iso,
+      count: counts.get(iso) ?? 0,
+      source_type: "benchmark",
+    });
   }
   return out;
 }

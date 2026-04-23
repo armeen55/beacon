@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { PageHeader } from "@/components/data/page-header";
+import { EvidenceFreshnessBanner } from "@/components/shell/evidence-freshness-banner";
 import { KpiCard } from "@/components/viz/kpi-card";
 import { competitors, results, hasActiveExperiment } from "@/lib/seed-data.server";
 import { citationEvidenceIndex } from "@/domains/pages/citation-evidence-store";
@@ -200,6 +201,16 @@ export default async function CompetitorsPage() {
       />
 
       <MarketLocalStrip model={marketLocalStripModel} className="mb-6" />
+
+      {/* Commit 2 (2026-04-24): evidence-freshness honesty banner. The
+          citation_evidence_index feeding rankings below is frozen at the last
+          Profound import (no native-poll rebuild yet). Surface the cutoff
+          plainly so the operator reads rankings as "known snapshot" vs live. */}
+      <EvidenceFreshnessBanner
+        builtAt={citIndex?.built_at ?? null}
+        label="Competitor rankings"
+        className="mb-6"
+      />
 
       {benchmark ? (
         <div className="space-y-8">

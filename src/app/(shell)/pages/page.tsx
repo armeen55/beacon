@@ -25,6 +25,7 @@ import type {
 import { allPages } from "@/domains/pages/page-store";
 import { getRepository } from "@/lib/persistence/repositories";
 import { citationEvidenceIndex } from "@/domains/pages/citation-evidence-store";
+import { EvidenceFreshnessBanner } from "@/components/shell/evidence-freshness-banner";
 import { getPageSnapshotDiffs } from "@/domains/pages/page-snapshot-diff-store";
 import { getRenderCheckResults } from "@/domains/pages/render-check-store";
 import { getSitemapReconciliation } from "@/domains/pages/sitemap-reconciliation-store";
@@ -831,6 +832,15 @@ export default async function PagesPage() {
           {pagesProofSubtitle()}
         </p>
       </div>
+
+      {/* Commit 2 (2026-04-24): evidence-freshness honesty banner. Per-URL
+          citation counts below are sourced from citation_evidence_index,
+          frozen at the last Profound import. Native-poll integration pending. */}
+      <EvidenceFreshnessBanner
+        builtAt={citationIndex?.built_at ?? null}
+        label="Per-URL citation counts"
+        className="mb-6"
+      />
 
       <PagesClient
         pageSummary={pageSummary}
