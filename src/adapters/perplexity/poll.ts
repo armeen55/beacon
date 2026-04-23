@@ -26,6 +26,12 @@ import type { PromptAnswerObservation } from "@/domains/prompt-answer-observatio
 import type { TrackedPrompt } from "@/domains/tracked-prompts/types";
 import type { TrackedEntity } from "@/domains/tracked-entities/types";
 import type { ObservationRun } from "@/domains/observations/types";
+import {
+  extractMentionPosition,
+  extractCitationRank,
+  rankEntitiesByFirstAppearance,
+  extractPrimaryRecommendation,
+} from "@/domains/prompt-answer-observations/extraction";
 
 // Default platform constants for Perplexity. Callers targeting other platforms
 // (e.g. ChatGPT adapter in src/adapters/openai/poll.ts) override these via opts
@@ -147,6 +153,30 @@ export async function pollPerplexityForTenant(
         containsCaseInsensitive(result.answer_text, variant),
       );
 
+      // Schema v2 Commit 4 (2026-04-24) — must-have-now extraction.
+      // Pure, deterministic, cheap: runs inline per prompt. See
+      // docs/OBSERVATION_SCHEMA_V2.md for field semantics.
+      const mentionPosition = extractMentionPosition(
+        result.answer_text,
+        ownedNameVariants,
+      );
+      const citationRank = extractCitationRank(citationDomains, ownedDomains);
+      // For the primary-recommendation heuristic we need the order entities
+      // appear in the answer. Canonical brand name = first owned entity's
+      // canonical name (single-tenant assumption holds single-owned for
+      // Ritz; generalizes cleanly to future multi-owned).
+      const brandCanonicalName = ownedEntities[0]?.name ?? "";
+      const entitiesInOrder = rankEntitiesByFirstAppearance(
+        result.answer_text,
+        activeEntities,
+      );
+      const primaryRecommendation = extractPrimaryRecommendation(
+        result.answer_text,
+        mentionPosition,
+        entitiesInOrder,
+        brandCanonicalName,
+      );
+
       const obs: PromptAnswerObservation = {
         id: observationId,
         prompt_id: prompt.id,
@@ -171,6 +201,9 @@ export async function pollPerplexityForTenant(
           service_scope: prompt.service_scope ?? null,
         },
         tenant_id: tenantId,
+        mention_position: mentionPosition,
+        citation_rank: citationRank,
+        primary_recommendation: primaryRecommendation,
       };
 
       observations.push(obs);
