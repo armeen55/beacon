@@ -1,0 +1,344 @@
+import "server-only";
+
+import Link from "next/link";
+import { PageHeader } from "@/components/data/page-header";
+import { cn } from "@/lib/utils";
+import { ensureCanonicalStoresSeeded } from "@/storage/canonical-store";
+import {
+  trackedPrompts,
+  promptAnswerObservations,
+  trackedEntities,
+} from "@/storage/canonical-store";
+import {
+  buildPromptDecisionMatrix,
+  type CategoryGroupSummary,
+  type DecisionMatrix,
+} from "@/domains/prompts/decision-matrix";
+import type {
+  PromptOpportunity,
+  PromptOpportunityCategory,
+} from "@/domains/prompts/opportunity-classify";
+
+/**
+ * Prompt Decision Surface v1 — grouped-by-opportunity list (Phase v5 Commit 2).
+ *
+ * Optimizes for 10-second scannability:
+ *   - Section headers carry category + count + cluster notes.
+ *   - Each row carries prompt text + one-line decision reasoning.
+ *   - No per-platform columns, no scoring numbers, no filter chrome.
+ *   - Drilldown lives at /prompts/[id] (Phase v5 Commit 3).
+ */
+export default async function PromptsPage() {
+  // Seed canonical stores before the aggregator reads them (hosted Vercel
+  // has empty disk; this fetches from Supabase once per request).
+  await ensureCanonicalStoresSeeded();
+
+  const matrix = buildPromptDecisionMatrix({
+    prompts: trackedPrompts,
+    observations: promptAnswerObservations,
+    activeEntities: trackedEntities,
+    now: new Date(),
+  });
+
+  const totalPrompts = matrix.prompts.length;
+  const hasAnyNativeObservations = matrix.prompts.some(
+    (p) => p.category !== "early",
+  );
+
+  return (
+    <div className="max-w-4xl">
+      <PageHeader
+        title="Prompts"
+        description="Decision view across your tracked prompts. Grouped by how AI answers them."
+      />
+
+      {totalPrompts === 0 ? (
+        <EmptyState
+          title="No active prompts"
+          body="Add prompts in Settings → Prompts to start daily polling."
+          cta={{ href: "/settings/prompts", label: "Manage prompts →" }}
+        />
+      ) : !hasAnyNativeObservations ? (
+        <EmptyState
+          title="Too early to judge"
+          body={`${totalPrompts} prompts active but no native observations in the last 7 days. The next poll cron fires at 10:00 UTC.`}
+        />
+      ) : (
+        <>
+          <AtGlance matrix={matrix} />
+          <div className="space-y-8">
+            {matrix.groupSummaries
+              .filter((g) => g.count > 0)
+              .map((group) => (
+                <CategorySection
+                  key={group.category}
+                  group={group}
+                  prompts={matrix.prompts.filter(
+                    (p) => p.category === group.category,
+                  )}
+                />
+              ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+/* ────────────────────────────────────────────────────────────────────────── */
+
+function AtGlance({ matrix }: { matrix: DecisionMatrix }) {
+  const counts = Object.fromEntries(
+    matrix.groupSummaries.map((g) => [g.category, g.count]),
+  );
+  const latest = mostRecentObservation(matrix);
+  return (
+    <div className="mb-6 rounded-lg border border-border/60 bg-surface-raised/40 px-5 py-4">
+      <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1 text-sm">
+        <span>
+          <span className="font-bold tabular-nums">{matrix.prompts.length}</span>
+          <span className="text-muted-foreground ml-1.5">prompts</span>
+        </span>
+        {counts.winning > 0 && (
+          <span className="text-status-success">
+            <span className="font-semibold tabular-nums">{counts.winning}</span>{" "}
+            winning
+          </span>
+        )}
+        {counts.close > 0 && (
+          <span className="text-status-warning/85">
+            <span className="font-semibold tabular-nums">{counts.close}</span>{" "}
+            close
+          </span>
+        )}
+        {counts.absent > 0 && (
+          <span className="text-status-warning">
+            <span className="font-semibold tabular-nums">{counts.absent}</span>{" "}
+            absent
+          </span>
+        )}
+        {counts.outranked > 0 && (
+          <span className="text-status-danger">
+            <span className="font-semibold tabular-nums">
+              {counts.outranked}
+            </span>{" "}
+            outranked
+          </span>
+        )}
+        {counts.early > 0 && (
+          <span className="text-muted-foreground">
+            <span className="font-semibold tabular-nums">{counts.early}</span>{" "}
+            early
+          </span>
+        )}
+      </div>
+      <p className="mt-2 text-[11px] text-muted-foreground/80 leading-relaxed">
+        Lookback: last 7 days of native observations (from{" "}
+        <span className="tabular-nums">{matrix.lookbackFrom}</span>). Thresholds
+        fixed in v1 — surface only native Perplexity + ChatGPT data.
+        {latest ? (
+          <>
+            {" "}Latest observation:{" "}
+            <span className="tabular-nums">{latest.slice(0, 10)}</span>.
+          </>
+        ) : null}
+      </p>
+    </div>
+  );
+}
+
+function mostRecentObservation(matrix: DecisionMatrix): string | null {
+  let max: string | null = null;
+  for (const p of matrix.prompts) {
+    for (const plat of p.evidence.byPlatform) {
+      // byPlatform carries observation counts but not a timestamp; fall back
+      // to lookbackFrom when we don't carry per-obs timestamps here. This is
+      // a minor polish — OK to drop if not trivially available.
+      if (plat.observations > 0 && max === null) max = matrix.date;
+    }
+  }
+  return max;
+}
+
+/* ────────────────────────────────────────────────────────────────────────── */
+
+const CATEGORY_META: Record<
+  PromptOpportunityCategory,
+  {
+    label: string;
+    lead: string;
+    accent: string;
+    bg: string;
+    dotClass: string;
+  }
+> = {
+  outranked: {
+    label: "Outranked",
+    lead: "Competitors dominate here. You're absent.",
+    accent: "text-status-danger",
+    bg: "border-status-danger/25 bg-status-danger/[0.03]",
+    dotClass: "bg-status-danger",
+  },
+  absent: {
+    label: "Absent",
+    lead: "AI never mentioned you for these.",
+    accent: "text-status-warning",
+    bg: "border-status-warning/25 bg-status-warning/[0.03]",
+    dotClass: "bg-status-warning",
+  },
+  close: {
+    label: "Close",
+    lead: "You're cited, not primary. Room to step up.",
+    accent: "text-status-warning/85",
+    bg: "border-border/60 bg-surface-inset/30",
+    dotClass: "bg-status-warning/60",
+  },
+  winning: {
+    label: "Winning",
+    lead: "You're primary on at least one platform.",
+    accent: "text-status-success",
+    bg: "border-status-success/25 bg-status-success/[0.03]",
+    dotClass: "bg-status-success",
+  },
+  early: {
+    label: "Early",
+    lead: "Not enough native observations yet to judge.",
+    accent: "text-muted-foreground",
+    bg: "border-border/50 bg-surface-inset/20",
+    dotClass: "bg-muted-foreground/60",
+  },
+};
+
+function CategorySection({
+  group,
+  prompts,
+}: {
+  group: CategoryGroupSummary;
+  prompts: PromptOpportunity[];
+}) {
+  const meta = CATEGORY_META[group.category];
+  // Sort by signal strength descending within the group.
+  const sorted = [...prompts].sort(
+    (a, b) => b.signalStrength - a.signalStrength,
+  );
+
+  return (
+    <section
+      className={cn("rounded-lg border px-5 py-4", meta.bg)}
+      aria-labelledby={`prompts-${group.category}-heading`}
+    >
+      <header className="mb-3 flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-2">
+          <span className={cn("h-2 w-2 rounded-full shrink-0", meta.dotClass)} />
+          <h2
+            id={`prompts-${group.category}-heading`}
+            className={cn("text-[13px] font-bold tracking-tight", meta.accent)}
+          >
+            {meta.label.toUpperCase()} · {group.count}
+          </h2>
+        </div>
+        {group.clusterNote && (
+          <p className="text-[11px] text-muted-foreground tabular-nums">
+            {group.clusterNote}
+          </p>
+        )}
+      </header>
+
+      <p className="mb-3 text-[11px] text-muted-foreground leading-relaxed">
+        {meta.lead}
+      </p>
+
+      <ul className="space-y-2">
+        {sorted.map((op) => (
+          <PromptRow key={op.prompt_id} op={op} />
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+/* ────────────────────────────────────────────────────────────────────────── */
+
+function PromptRow({ op }: { op: PromptOpportunity }) {
+  // Look the prompt text up from the trackedPrompts store. Server component
+  // — reads the already-seeded module-level canonical store.
+  const prompt = trackedPrompts.find((p) => p.id === op.prompt_id);
+  const text = prompt?.text ?? op.prompt_id;
+
+  // Extract cluster tags for display as small pills.
+  const clusterTags = op.tags.filter(
+    (t) => t.startsWith("geo_cluster:") || t.startsWith("topic_cluster:"),
+  );
+  const hasRankedListMiss = op.tags.includes("ranked_list_miss");
+
+  return (
+    <li>
+      <Link
+        href={`/prompts/${encodeURIComponent(op.prompt_id)}`}
+        className="block rounded-md border border-border/40 bg-background px-3 py-2.5 hover:border-accent-primary/40 hover:bg-surface-raised/30 transition-colors"
+      >
+        <p className="text-[13px] font-medium text-foreground leading-snug">
+          {text}
+        </p>
+        <p className="mt-1 text-[11px] text-muted-foreground leading-relaxed">
+          {op.reasoning}
+        </p>
+        {(clusterTags.length > 0 || hasRankedListMiss) && (
+          <ul className="mt-1.5 flex flex-wrap gap-1">
+            {hasRankedListMiss && (
+              <li className="text-[10px] px-1.5 py-0.5 rounded border border-border/50 bg-surface-inset/30 text-muted-foreground">
+                ranked list miss
+              </li>
+            )}
+            {clusterTags.map((t) => {
+              const [type, ...rest] = t.split(":");
+              const label = rest.join(":");
+              const kind = type === "geo_cluster" ? "geo" : "topic";
+              return (
+                <li
+                  key={t}
+                  className="text-[10px] px-1.5 py-0.5 rounded border border-border/50 bg-surface-inset/30 text-muted-foreground"
+                >
+                  <span className="font-medium text-foreground/80">{kind}</span>
+                  <span className="mx-0.5">·</span>
+                  <span>{label}</span>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </Link>
+    </li>
+  );
+}
+
+/* ────────────────────────────────────────────────────────────────────────── */
+
+function EmptyState({
+  title,
+  body,
+  cta,
+}: {
+  title: string;
+  body: string;
+  cta?: { href: string; label: string };
+}) {
+  return (
+    <section className="rounded-lg border border-border/60 bg-surface-inset/30 px-5 py-5">
+      <h2 className="text-[13px] font-semibold text-foreground tracking-tight">
+        {title}
+      </h2>
+      <p className="mt-2 text-[13px] leading-relaxed text-muted-foreground">
+        {body}
+      </p>
+      {cta ? (
+        <Link
+          href={cta.href}
+          className="mt-4 inline-flex text-[13px] font-semibold text-accent-primary underline underline-offset-2 hover:text-accent-primary/85"
+        >
+          {cta.label}
+        </Link>
+      ) : null}
+    </section>
+  );
+}
