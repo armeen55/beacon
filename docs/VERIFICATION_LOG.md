@@ -7,6 +7,34 @@
 
 ---
 
+## 2026-04-24 — "Replace Profound in 2 weeks" Phase v4, Commits 1–4
+
+**Source plan:** `/Users/armeen/.claude/plans/you-are-taking-over-floofy-giraffe.md` (v4). Two parallel tracks: Track A (product replacement — truth surfaces, reliability) and Track B (evidence compounding — schema depth, extraction).
+
+**Commits (in order, with sha and one-line)**
+
+| Commit | SHA | Track | One-line |
+|---|---|---|---|
+| 1 | `ed86637` | A | Poll-health block + 10:45 UTC canary workflow. Silent cron failures (like the 2026-04-23 ChatGPT incident) now surface on /today and email via GitHub Actions within 45 min of a failed poll. |
+| 2 | `fc40116` | A | Truth-surface sweep: shared `EvidenceFreshnessBanner` mounted on /pages, /competitors, /topics, /changes. Engine-level pure-split mixed-source abstain guard in `url-verdict.ts` (new verdict `not_enough_native_baseline`). Profound shards tagged `source_type="benchmark"` in `denseSeries`. |
+| 3 | `2f0dee2` | B | Schema v2 migration applied to `prompt_answer_observations`: 3 nullable columns (`mention_position`, `citation_rank`, `primary_recommendation`). Non-breaking — 14,516 existing rows untouched. |
+| 4 | `1d843d7` | B | Extraction v1 + backfill. Deterministic extractors in `src/domains/prompt-answer-observations/extraction.ts`. Wired into Perplexity adapter (OpenAI delegates). Backfill script populated all 420 Apr-22+ observations from live answer text. |
+
+**Backfill proof (Commit 4).** `SELECT COUNT(*) FROM prompt_answer_observations WHERE observed_at >= '2026-04-22' AND mention_position IS NOT NULL` returns 228 (brand mentioned); `citation_rank IS NOT NULL` returns 235 (brand cited); `primary_recommendation = true` returns 195. Per-platform split: ChatGPT 117 obs, 52% primary; Perplexity 303 obs, 44% primary. Spot-checked 3 real rows; "Ritz Builders" correctly flagged as primary recommendation with citation_rank=1 in answers opening "Recommended luxury home builders…", "Architects often recommend…", "Homeowners seeking builders…".
+
+**Gate.** `npm run typecheck` ✓. `npm run test` — 1297/1307 pass (10 pre-existing failures unchanged from baseline: 6 tenant-isolation, 3 local-presence connector timestamps, 1 finding-actions timestamp). `npm run build` ✓. Preview dev server boots with zero errors. Canary verified against live Apr 23 Supabase data — correctly detects ChatGPT's partial-failure state.
+
+**Operator action required.** (1) Add two new GitHub Actions repo secrets for the canary workflow: `NEXT_PUBLIC_SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` (Settings → Secrets and variables → Actions). Without these the 10:45 UTC canary fails on first scheduled fire. (2) Confirm "Send notifications for failed workflows only" is enabled (Settings → Notifications → Actions) — required for canary to actually email.
+
+**Surfaces still on the "silent lie" list.** `citation_evidence_index` remains frozen at 2026-04-15 (last Profound import). `/pages`, `/competitors`, `/topics` render rankings/counts from it; Commit 2 added a banner making the cutoff plain. The rebuild-from-native-observations is deferred to Commits 6–7 of this phase.
+
+**Next.** Phase commits 5–7:
+- 5 [A]: Today KPI tiles flip fully to `daily_metric_snapshots source_type='derived' scope_type='platform'` with fallback-to-yesterday badge.
+- 6 [B]: Extraction v2 — `descriptor_window`, `competitor_co_mentions`, `citation_domain_classes`, `answer_structure` (high-value-soon fields). Second migration + backfill pass.
+- 7 [A]: /changes full mixed-source Z-score math (partial-overlap windows); Today enrichment badges ("You're the #1 recommendation on Perplexity", "Cited #3 on ChatGPT", descriptor chips); copy audit.
+
+---
+
 ## 2026-04-20 — Customer-One Section-presence classifier
 
 **Source plan:** `plans/curried-strolling-backus.md` — post-A+B1 trust pass. Operator-tuned before coding: H2/H3 ONLY count as signposts (title/H1/schema NOT).

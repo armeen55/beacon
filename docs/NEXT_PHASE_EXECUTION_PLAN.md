@@ -1,11 +1,19 @@
 # Beacon Execution Plan
 
+> ⚠️ **STALE — last updated 2026-04-16.** The "/changes Phase 2" next-step
+> below is superseded. Native polling shipped 2026-04-22 and the active phase
+> is now "Replace Profound in 2 weeks while compounding the moat" (v4).
+>
+> - **Active plan:** `/Users/armeen/.claude/plans/you-are-taking-over-floofy-giraffe.md`
+> - **Latest verification:** `docs/VERIFICATION_LOG.md` — 2026-04-24 entry covers Phase v4 Commits 1–4 (poll-health canary, truth-surface sweep, schema v2 migration, extraction v1 + backfill)
+> - **Remaining commits in this phase:** Commit 5 (Today KPI flip to derived), Commit 6 (extraction v2 — descriptor_window / co-mentions / domain classes / answer structure), Commit 7 (full mixed-source Z-score math + enrichment badges + copy audit)
+
 > **PURPOSE:** The only active execution plan. What to do, in what order, with what acceptance criteria.
 > This file answers: "What do I work on next?"
 >
 > **NOT FOR:** System architecture (→ `architecture.md`), historical phase details (→ `master_execution_plan.md`), verification proof (→ `VERIFICATION_LOG.md`).
 
-**Last updated:** 2026-04-16
+**Last updated (legacy content below, superseded 2026-04-24):** 2026-04-16
 
 ---
 

@@ -1,6 +1,21 @@
 # Beacon — Start Here
 
-> **Active plan:** `/Users/armeen/.claude/plans/jazzy-tumbling-stroustrup.md` — the CX0-CX11 MAX implementation plan. Reference spec: Part 14 of `/Users/armeen/.claude/plans/rippling-munching-pnueli.md`.
+> ⚠️ **STALE — last updated 2026-04-17.** Most of the content below describes
+> pre-pivot (Profound-era) state. Since 2026-04-22 Beacon has shipped the
+> native-polling pipeline (Perplexity + OpenAI adapters, hosted `/api/poll/run`,
+> GitHub Actions daily cron, chunked retry dedupe) and the "Replace Profound in
+> 2 weeks" Phase v4 is now active. Trust these sources over anything below:
+>
+> - **Active plan:** `/Users/armeen/.claude/plans/you-are-taking-over-floofy-giraffe.md`
+> - **What actually shipped 04-22 onward:** `docs/VERIFICATION_LOG.md` (2026-04-24 entry covers Phase v4 Commits 1–4 and the ground-truth surface audit)
+> - **Schema v2 design:** `docs/OBSERVATION_SCHEMA_V2.md`
+> - **Which surfaces silently lie and which are trustworthy:** `docs/TRUTH_SURFACE_AUDIT_2026-04-24.md`
+>
+> The legacy "Active plan" reference below (jazzy-tumbling-stroustrup) is no
+> longer in play. Everything in this file that predates 2026-04-22 should be
+> read as history, not current state.
+
+> **Active plan (legacy, superseded 2026-04-24):** `/Users/armeen/.claude/plans/jazzy-tumbling-stroustrup.md` — the CX0-CX11 MAX implementation plan. Reference spec: Part 14 of `/Users/armeen/.claude/plans/rippling-munching-pnueli.md`.
 
 > **PURPOSE:** This is the entry point for anyone (human or AI) working on Beacon.
 > Read this file first. It tells you what Beacon is, where everything stands, what works, what's broken, and where to go next.
