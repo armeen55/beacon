@@ -61,4 +61,50 @@ export type PromptAnswerObservation = {
    * mentioned" — the single most sellable-to-customers signal.
    */
   primary_recommendation?: boolean | null;
+  /**
+   * Schema v2.1 Commit 6 (2026-04-24) — high-value-soon extraction fields.
+   * Deterministic; backfilled across Apr-22+ rows and emitted on every new
+   * poll. See docs/OBSERVATION_SCHEMA_V2.md.
+   */
+  /**
+   * Up to 10 adjectives/nouns in a ±5-word window around the first brand
+   * mention. Proxy for how AI positions the brand: "luxury", "affordable",
+   * "award-winning". Empty when brand not mentioned.
+   */
+  descriptor_window?: string[] | null;
+  /**
+   * Canonical names of tracked non-owned entities mentioned in this
+   * answer, in order of first appearance. Empty when no competitor was
+   * mentioned alongside the brand.
+   */
+  competitor_co_mentions?: string[] | null;
+  /**
+   * Per-citation class, parallel to `citation_domains` (same length, same
+   * index). Values from CitationDomainClass. Empty when the answer has no
+   * citations.
+   */
+  citation_domain_classes?: string[] | null;
+  /**
+   * Shape of the answer. Values from AnswerStructure. Null when answer
+   * text is empty.
+   */
+  answer_structure?: string | null;
 };
+
+/** Citation domain classes emitted by classifyCitationDomains. */
+export type CitationDomainClass =
+  | "owned"
+  | "competitor"
+  | "directory"
+  | "news"
+  | "review"
+  | "social"
+  | "other";
+
+/** Answer structure enum values emitted by extractAnswerStructure. */
+export type AnswerStructure =
+  | "ranked_list"
+  | "bullet_list"
+  | "narrative"
+  | "comparison"
+  | "mixed";

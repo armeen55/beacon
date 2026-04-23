@@ -1,22 +1,26 @@
 /**
- * Pure extractors for observation schema v2 (Commit 4, 2026-04-24).
+ * Pure extractors for observation schema v2 + v2.1
+ * (Commits 4 + 6, 2026-04-24).
  *
- * Three deterministic functions compute must-have-now structured fields
- * from an answer text + entity list + citation domains. Called from both
- * the Perplexity adapter (src/adapters/perplexity/poll.ts) and the OpenAI
- * adapter (which wraps Perplexity), and also from the backfill script
- * (scripts/backfill-observation-extraction.ts) over existing Apr-22+ rows
- * where answer_texts is available.
+ * Deterministic functions compute structured fields from an answer text
+ * + entity list + citation domains. Called from both adapters (Perplexity;
+ * OpenAI wraps Perplexity) and from the backfill script over existing
+ * Apr-22+ rows where answer_texts is available.
  *
  * Design constraints:
  *   - Deterministic (same inputs → same outputs). No LLM, no randomness.
  *   - Pure. No I/O. No side effects. All inputs passed in.
- *   - Null-safe. Empty text → null / false; brand absent → null / false.
+ *   - Null-safe. Empty text → null / empty; brand absent → null / false.
  *   - Case-insensitive matching. All matching lower-cases both sides.
  *   - Idempotent. Backfill can re-run over the same row without churn.
  *
- * Why these three specifically: see docs/OBSERVATION_SCHEMA_V2.md.
+ * See docs/OBSERVATION_SCHEMA_V2.md for field semantics.
  */
+
+import type {
+  AnswerStructure,
+  CitationDomainClass,
+} from "./types";
 
 export type EntityForOrdering = {
   name: string;
@@ -141,4 +145,228 @@ export function extractPrimaryRecommendation(
   const topTwo = entitiesInOrder.slice(0, 2);
   const inTopTwo = topTwo.includes(brandName);
   return inTopTwo;
+}
+
+// ---------------------------------------------------------------------------
+// Schema v2.1 Commit 6 (2026-04-24) — high-value-soon extractors
+// ---------------------------------------------------------------------------
+
+/** Words to skip when building the descriptor window. Kept intentionally
+ *  small — if a word is functional plumbing ("the", "and"), it's in here.
+ *  URL-ish tokens were added after live-data spot-check (2026-04-24): raw
+ *  URL fragments near brand citations pollute the window with tokens like
+ *  "https", "com", "utm_source". These carry no positioning signal. */
+const DESCRIPTOR_STOPWORDS: ReadonlySet<string> = new Set([
+  "the", "a", "an", "and", "or", "but", "of", "in", "on", "at", "to", "for",
+  "from", "with", "by", "is", "are", "was", "were", "be", "been", "being",
+  "as", "than", "that", "which", "who", "when", "where", "why", "how",
+  "what", "not", "no", "if", "else", "then", "into", "onto", "about",
+  "over", "under", "this", "these", "those", "their", "theirs", "its",
+  "it", "they", "them", "there", "here", "also", "more", "most", "some",
+  "any", "all", "each", "every", "one", "two", "three", "four", "five",
+  "many", "much", "very", "will", "can", "could", "should", "would",
+  "may", "might", "must", "has", "have", "had", "do", "does", "did",
+  "between", "among", "such", "like", "other", "another", "you", "your",
+  "yours", "we", "our", "ours", "us",
+  // URL-ish noise (tokenizer splits URLs into component words; these are
+  // always-noise in a descriptor window).
+  "http", "https", "www", "com", "org", "net", "io", "co",
+  "utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term",
+  "url", "href", "link", "ref",
+]);
+
+/**
+ * Up to `max` adjective/noun-like tokens in a ±`windowWords`-word window
+ * around `brandPosition` in `answerText`. Returns [] when brand not
+ * mentioned, text empty, or window finds no non-stopword tokens.
+ *
+ * Words are lowercased; deduped while preserving first-appearance order;
+ * short tokens (< 3 chars) and stopwords dropped. Brand variants are also
+ * dropped so the window is "words near brand, not brand itself".
+ */
+export function extractDescriptorWindow(
+  answerText: string,
+  brandPosition: number | null,
+  brandVariants: string[],
+  options?: { windowWords?: number; max?: number },
+): string[] {
+  if (!answerText || brandPosition === null) return [];
+  const windowWords = options?.windowWords ?? 5;
+  const max = options?.max ?? 10;
+
+  // Strip inline URLs before tokenizing. Raw URLs ("https://.../?utm=…")
+  // would otherwise break into a dozen junk tokens and consume window
+  // slots, pushing real descriptors outside the ±N-word window. Spaces
+  // preserve length so the brand's char-offset still lines up with the
+  // resulting token stream.
+  const cleaned = answerText.replace(/https?:\/\/\S+/g, (m) =>
+    " ".repeat(m.length),
+  );
+
+  // Tokenize the full answer into word positions (start offset → token).
+  // A simple `\w+` walk is sufficient for English-Western text; CJK /
+  // zero-width cases get short windows which is acceptable for v1.
+  const tokens: Array<{ start: number; word: string }> = [];
+  const re = /\w+(?:['-]\w+)*/g;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(cleaned)) !== null) {
+    tokens.push({ start: match.index, word: match[0] });
+  }
+  if (tokens.length === 0) return [];
+
+  // Find the token index whose start is at or immediately after brandPosition.
+  let brandTokenIdx = -1;
+  for (let i = 0; i < tokens.length; i++) {
+    if (tokens[i].start >= brandPosition) {
+      brandTokenIdx = i;
+      break;
+    }
+  }
+  if (brandTokenIdx < 0) brandTokenIdx = tokens.length - 1;
+
+  const firstIdx = Math.max(0, brandTokenIdx - windowWords);
+  const lastIdx = Math.min(tokens.length - 1, brandTokenIdx + windowWords);
+
+  // Drop brand variants from consideration.
+  const brandVariantWords = new Set<string>();
+  for (const variant of brandVariants) {
+    if (!variant) continue;
+    const vm = variant.toLowerCase().match(/\w+(?:['-]\w+)*/g);
+    if (vm) for (const w of vm) brandVariantWords.add(w);
+  }
+
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (let i = firstIdx; i <= lastIdx; i++) {
+    const raw = tokens[i].word.toLowerCase();
+    if (raw.length < 3) continue;
+    if (DESCRIPTOR_STOPWORDS.has(raw)) continue;
+    if (brandVariantWords.has(raw)) continue;
+    if (/^\d+$/.test(raw)) continue; // pure numeric
+    if (seen.has(raw)) continue;
+    seen.add(raw);
+    out.push(raw);
+    if (out.length >= max) break;
+  }
+  return out;
+}
+
+/**
+ * Canonical names of tracked non-owned entities that appear in the answer,
+ * in order of first appearance. Returns [] when no competitor is mentioned.
+ */
+export function extractCompetitorCoMentions(
+  entitiesInOrder: string[],
+  ownedEntityNames: ReadonlySet<string>,
+): string[] {
+  const out: string[] = [];
+  for (const name of entitiesInOrder) {
+    if (ownedEntityNames.has(name)) continue;
+    out.push(name);
+  }
+  return out;
+}
+
+// Domain classification heuristic. Seeded with the minimum set that covers
+// the Bay-Area-custom-home-builder tenant; operator can expand via a
+// follow-up if a real citation comes in that we miscategorize. Matches run
+// against the full domain string lower-cased; subdomain prefixes are
+// stripped during match (e.g. `www.houzz.com` matches `houzz.com`).
+const DIRECTORY_DOMAINS: ReadonlySet<string> = new Set([
+  "houzz.com", "yelp.com", "angi.com", "bbb.org", "porch.com",
+  "homeadvisor.com", "bark.com", "thumbtack.com", "buildzoom.com",
+  "nari.org", "procurenet.com", "contractor-connection.com",
+]);
+const NEWS_DOMAINS: ReadonlySet<string> = new Set([
+  "nytimes.com", "wsj.com", "bloomberg.com", "forbes.com",
+  "businessinsider.com", "reuters.com", "apnews.com", "cnbc.com",
+  "sfgate.com", "mercurynews.com", "paloaltoonline.com", "sfchronicle.com",
+  "theatlantic.com", "wired.com", "architecturaldigest.com",
+  "dwell.com", "housebeautiful.com",
+]);
+const REVIEW_DOMAINS: ReadonlySet<string> = new Set([
+  "trustpilot.com", "sitejabber.com", "tripadvisor.com", "glassdoor.com",
+  "consumerreports.org",
+]);
+const SOCIAL_DOMAINS: ReadonlySet<string> = new Set([
+  "facebook.com", "instagram.com", "twitter.com", "x.com", "linkedin.com",
+  "youtube.com", "tiktok.com", "pinterest.com", "reddit.com",
+  "quora.com",
+]);
+
+function normalizeDomain(raw: string): string {
+  const lower = raw.toLowerCase().trim();
+  // Strip protocol if ever present.
+  const noProto = lower.replace(/^https?:\/\//, "");
+  // Strip path portion if present.
+  const hostOnly = noProto.split("/")[0] ?? "";
+  // Strip www. prefix.
+  return hostOnly.replace(/^www\./, "");
+}
+
+/**
+ * Classifies each citation domain into one of `CitationDomainClass`.
+ * Output is parallel to the input array (same length, same order). Uses
+ * the tracked-entity lists to identify owned + competitor domains, then
+ * falls through to the directory / news / review / social seed lists.
+ */
+export function classifyCitationDomains(
+  citationDomains: string[],
+  ownedDomains: ReadonlySet<string>,
+  competitorDomains: ReadonlySet<string>,
+): CitationDomainClass[] {
+  return citationDomains.map((raw) => {
+    if (!raw) return "other" as CitationDomainClass;
+    const d = normalizeDomain(raw);
+    if (ownedDomains.has(d)) return "owned";
+    if (competitorDomains.has(d)) return "competitor";
+    if (DIRECTORY_DOMAINS.has(d)) return "directory";
+    if (NEWS_DOMAINS.has(d)) return "news";
+    if (REVIEW_DOMAINS.has(d)) return "review";
+    if (SOCIAL_DOMAINS.has(d)) return "social";
+    return "other";
+  });
+}
+
+/**
+ * Classifies the shape of the answer text. Heuristic — looks for numbered-
+ * list markers, bullet markers, comparison words. Returns "narrative" as
+ * the default fallback. "mixed" when multiple strong structural signals
+ * fire (e.g., both a ranked list and heavy comparison language).
+ *
+ * Returns null when answerText is empty (distinct from "narrative").
+ */
+export function extractAnswerStructure(
+  answerText: string,
+): AnswerStructure | null {
+  if (!answerText) return null;
+
+  // Count numbered-list markers at line start: "1.", "2.", "1)" etc.
+  const rankedMarkers = (
+    answerText.match(/(^|\n)\s*\d+[.)]\s+/g) ?? []
+  ).length;
+  // Count bullet markers at line start: "- ", "* ", "• " (various bullets).
+  const bulletMarkers = (
+    answerText.match(/(^|\n)\s*[-*+•·▪]\s+/g) ?? []
+  ).length;
+  // Comparison language (case-insensitive).
+  const comparisonMarkers = (
+    answerText.match(
+      /\b(?:vs\.?|versus|compared to|whereas|while|than|over|better than|worse than)\b/gi,
+    ) ?? []
+  ).length;
+
+  const hasRanked = rankedMarkers >= 3;
+  const hasBullet = bulletMarkers >= 3;
+  const hasComparison = comparisonMarkers >= 3;
+
+  const strongSignals = [hasRanked, hasBullet, hasComparison].filter(
+    (x) => x,
+  ).length;
+
+  if (strongSignals >= 2) return "mixed";
+  if (hasRanked) return "ranked_list";
+  if (hasBullet) return "bullet_list";
+  if (hasComparison) return "comparison";
+  return "narrative";
 }

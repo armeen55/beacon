@@ -5,6 +5,10 @@ import {
   extractCitationRank,
   rankEntitiesByFirstAppearance,
   extractPrimaryRecommendation,
+  extractDescriptorWindow,
+  extractCompetitorCoMentions,
+  classifyCitationDomains,
+  extractAnswerStructure,
 } from "@/domains/prompt-answer-observations/extraction";
 
 describe("extractMentionPosition", () => {
@@ -243,5 +247,238 @@ describe("extractPrimaryRecommendation", () => {
     expect(
       extractPrimaryRecommendation("Ritz Builders is good.", 0, ["Ritz Builders"], ""),
     ).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Schema v2.1 Commit 6 (2026-04-24) — high-value-soon extractors
+// ---------------------------------------------------------------------------
+
+describe("extractDescriptorWindow", () => {
+  it("returns [] when brand position is null", () => {
+    expect(
+      extractDescriptorWindow("any text", null, ["Ritz Builders"]),
+    ).toEqual([]);
+  });
+
+  it("returns [] when text is empty", () => {
+    expect(extractDescriptorWindow("", 0, ["Ritz Builders"])).toEqual([]);
+  });
+
+  it("returns adjectives/nouns near the brand mention", () => {
+    const text =
+      "The luxury custom home builder Ritz Builders handles award-winning modern projects.";
+    const pos = text.indexOf("Ritz Builders");
+    const out = extractDescriptorWindow(text, pos, ["Ritz Builders"]);
+    expect(out).toContain("luxury");
+    expect(out).toContain("custom");
+    expect(out).toContain("home");
+    expect(out).toContain("builder");
+    expect(out).toContain("award-winning");
+    expect(out).toContain("modern");
+  });
+
+  it("drops the brand's own words from the window", () => {
+    const text = "Ritz Builders is a trusted Bay Area custom home builder.";
+    const pos = 0;
+    const out = extractDescriptorWindow(text, pos, ["Ritz Builders", "Ritz"]);
+    expect(out).not.toContain("ritz");
+    expect(out).not.toContain("builders");
+    expect(out).toContain("trusted");
+  });
+
+  it("drops stopwords and short words", () => {
+    const text = "it is the and or in Ritz Builders of to for at on";
+    const pos = text.indexOf("Ritz Builders");
+    const out = extractDescriptorWindow(text, pos, ["Ritz Builders"]);
+    expect(out).not.toContain("it");
+    expect(out).not.toContain("is");
+    expect(out).not.toContain("the");
+    expect(out).not.toContain("or");
+    expect(out).not.toContain("of");
+  });
+
+  it("caps at `max` descriptors in order of appearance", () => {
+    // Include 15 unique non-stopword nouns, all valid; expect first 10 only.
+    const text =
+      "modern luxury custom affordable sustainable trusted prestigious elite premium traditional contemporary craftsmanship Ritz Builders";
+    const pos = text.indexOf("Ritz Builders");
+    const out = extractDescriptorWindow(text, pos, ["Ritz Builders"], {
+      windowWords: 20,
+      max: 10,
+    });
+    expect(out.length).toBeLessThanOrEqual(10);
+    // Should include at least some of the preceding descriptors.
+    expect(out).toContain("modern");
+    expect(out).toContain("luxury");
+    expect(out).toContain("custom");
+  });
+
+  it("dedupes repeated tokens within the window", () => {
+    const text =
+      "luxury luxury custom custom Ritz Builders builds luxury custom homes.";
+    const pos = text.indexOf("Ritz Builders");
+    const out = extractDescriptorWindow(text, pos, ["Ritz Builders"]);
+    const luxuryCount = out.filter((w) => w === "luxury").length;
+    const customCount = out.filter((w) => w === "custom").length;
+    expect(luxuryCount).toBe(1);
+    expect(customCount).toBe(1);
+  });
+
+  it("skips pure-numeric tokens", () => {
+    const text =
+      "With 20 years and 300 projects, Ritz Builders leads the market.";
+    const pos = text.indexOf("Ritz Builders");
+    const out = extractDescriptorWindow(text, pos, ["Ritz Builders"]);
+    expect(out).not.toContain("20");
+    expect(out).not.toContain("300");
+    expect(out).toContain("years");
+    expect(out).toContain("projects");
+  });
+
+  it("filters URL-ish noise tokens from the window", () => {
+    // Matches a real 2026-04-24 live-data pattern: brand citation
+    // followed by inline URL splits into junk tokens.
+    const text =
+      "Visit trusted builder Ritz Builders https://ritzbuilders.com?utm_source=chatgpt for modern projects.";
+    const pos = text.indexOf("Ritz Builders");
+    const out = extractDescriptorWindow(text, pos, ["Ritz Builders"]);
+    expect(out).not.toContain("https");
+    expect(out).not.toContain("com");
+    expect(out).not.toContain("utm_source");
+    expect(out).toContain("trusted");
+    expect(out).toContain("builder");
+    expect(out).toContain("modern");
+    expect(out).toContain("projects");
+  });
+});
+
+describe("extractCompetitorCoMentions", () => {
+  it("returns [] when no competitors are in the order list", () => {
+    expect(
+      extractCompetitorCoMentions(["Ritz Builders"], new Set(["Ritz Builders"])),
+    ).toEqual([]);
+  });
+
+  it("returns [] on empty input", () => {
+    expect(extractCompetitorCoMentions([], new Set(["Ritz Builders"]))).toEqual([]);
+  });
+
+  it("returns competitor names in order, dropping owned", () => {
+    const entitiesInOrder = [
+      "Homestead",
+      "Ritz Builders",
+      "Flegel's",
+      "PAB",
+    ];
+    const owned = new Set(["Ritz Builders"]);
+    expect(extractCompetitorCoMentions(entitiesInOrder, owned)).toEqual([
+      "Homestead",
+      "Flegel's",
+      "PAB",
+    ]);
+  });
+});
+
+describe("classifyCitationDomains", () => {
+  const owned = new Set(["ritzbuilders.com"]);
+  const competitors = new Set(["homestead.com", "flegels.com"]);
+
+  it("classifies owned, competitor, directory, news, review, social, other", () => {
+    const domains = [
+      "ritzbuilders.com",
+      "homestead.com",
+      "houzz.com",
+      "nytimes.com",
+      "trustpilot.com",
+      "linkedin.com",
+      "somepersonalblog.net",
+    ];
+    const out = classifyCitationDomains(domains, owned, competitors);
+    expect(out).toEqual([
+      "owned",
+      "competitor",
+      "directory",
+      "news",
+      "review",
+      "social",
+      "other",
+    ]);
+  });
+
+  it("strips www. and protocol prefixes before matching", () => {
+    const domains = ["www.ritzbuilders.com", "https://www.houzz.com"];
+    const out = classifyCitationDomains(domains, owned, competitors);
+    expect(out).toEqual(["owned", "directory"]);
+  });
+
+  it("returns 'other' for empty string and unknown domains", () => {
+    const out = classifyCitationDomains(
+      ["", "somerandom.com"],
+      owned,
+      competitors,
+    );
+    expect(out).toEqual(["other", "other"]);
+  });
+
+  it("preserves input array length and order", () => {
+    const domains = Array.from({ length: 5 }, (_, i) => `unknown${i}.com`);
+    const out = classifyCitationDomains(domains, owned, competitors);
+    expect(out).toHaveLength(5);
+    expect(out.every((c) => c === "other")).toBe(true);
+  });
+});
+
+describe("extractAnswerStructure", () => {
+  it("returns null on empty text", () => {
+    expect(extractAnswerStructure("")).toBeNull();
+  });
+
+  it("detects ranked_list with 3+ numbered markers", () => {
+    const text = `Here are three options:
+1. Ritz Builders
+2. Homestead
+3. Flegel's`;
+    expect(extractAnswerStructure(text)).toBe("ranked_list");
+  });
+
+  it("detects bullet_list with 3+ bullet markers", () => {
+    const text = `Consider these builders:
+- Ritz Builders
+- Homestead
+- Flegel's
+- PAB`;
+    expect(extractAnswerStructure(text)).toBe("bullet_list");
+  });
+
+  it("detects comparison when language flags fire 3+ times", () => {
+    const text =
+      "Ritz Builders vs Homestead: Ritz is better than Homestead while Flegel's is compared to traditional builders, whereas PAB is more specialized. It performs better than many alternatives.";
+    expect(extractAnswerStructure(text)).toBe("comparison");
+  });
+
+  it("returns narrative for straight prose with no structural markers", () => {
+    const text =
+      "Ritz Builders is a custom home builder in the Bay Area known for luxury construction and design-build process. They work closely with architects on each project.";
+    expect(extractAnswerStructure(text)).toBe("narrative");
+  });
+
+  it("returns mixed when two strong signals fire", () => {
+    const text = `Compared to Homestead and versus Flegel's, these builders stand out:
+1. Ritz Builders — better than PAB
+2. Homestead — compared to generic options
+3. Flegel's — versus large firms`;
+    expect(extractAnswerStructure(text)).toBe("mixed");
+  });
+
+  it("does not false-trigger ranked_list on 1-2 numbered markers", () => {
+    const text =
+      "Ritz Builders has 1 thing that stands out: their track record. Also 2 key traits: quality and timeliness.";
+    // Only "1" once at weird position — shouldn't count as 3+ start-of-line.
+    // The regex wants "(^|\n)\s*\d+[.)]\s" which requires a period/paren after.
+    // "1 thing" has no period, so 0 matches.
+    const out = extractAnswerStructure(text);
+    expect(out).not.toBe("ranked_list");
+    expect(out).not.toBe("mixed");
   });
 });

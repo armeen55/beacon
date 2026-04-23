@@ -31,6 +31,10 @@ import {
   extractCitationRank,
   rankEntitiesByFirstAppearance,
   extractPrimaryRecommendation,
+  extractDescriptorWindow,
+  extractCompetitorCoMentions,
+  classifyCitationDomains,
+  extractAnswerStructure,
 } from "@/domains/prompt-answer-observations/extraction";
 
 // Default platform constants for Perplexity. Callers targeting other platforms
@@ -177,6 +181,35 @@ export async function pollPerplexityForTenant(
         brandCanonicalName,
       );
 
+      // Schema v2.1 Commit 6 (2026-04-24) — high-value-soon extraction.
+      // Four more deterministic fields: descriptor window around brand,
+      // competitor co-mentions ordered, per-citation domain classes,
+      // answer structure enum.
+      const descriptorWindow = extractDescriptorWindow(
+        result.answer_text,
+        mentionPosition,
+        ownedNameVariants,
+      );
+      const ownedEntityNames = new Set<string>(
+        ownedEntities.map((e) => e.name).filter(Boolean),
+      );
+      const competitorCoMentions = extractCompetitorCoMentions(
+        entitiesInOrder,
+        ownedEntityNames,
+      );
+      const competitorDomains = new Set<string>(
+        activeEntities
+          .filter((e) => !e.is_owned)
+          .map((e) => e.domain?.toLowerCase())
+          .filter((d): d is string => Boolean(d)),
+      );
+      const citationDomainClasses = classifyCitationDomains(
+        citationDomains,
+        ownedDomains,
+        competitorDomains,
+      );
+      const answerStructure = extractAnswerStructure(result.answer_text);
+
       const obs: PromptAnswerObservation = {
         id: observationId,
         prompt_id: prompt.id,
@@ -204,6 +237,10 @@ export async function pollPerplexityForTenant(
         mention_position: mentionPosition,
         citation_rank: citationRank,
         primary_recommendation: primaryRecommendation,
+        descriptor_window: descriptorWindow,
+        competitor_co_mentions: competitorCoMentions,
+        citation_domain_classes: citationDomainClasses,
+        answer_structure: answerStructure,
       };
 
       observations.push(obs);
