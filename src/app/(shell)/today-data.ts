@@ -67,6 +67,10 @@ import {
   todayISOUtc,
   type PollHealthSnapshot,
 } from "@/domains/observations/poll-health";
+import {
+  fetchTodayDerivedKpis,
+  type TodayDerivedKpis,
+} from "@/domains/daily-metric-snapshots/today-kpis";
 import { primaryVisibilityRunForResults } from "@/domains/observations/visibility-context";
 import { loadCompetitorUniverseRuntime } from "@/domains/competitors/universe-read";
 import { buildTodayCompetitorLine } from "@/domains/competitors/today-competitor-line";
@@ -194,6 +198,21 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
   } catch (err) {
     console.error("Today poll-health fetch failed:", err);
     pollHealth = null;
+  }
+
+  // Commit 5 (2026-04-24): flip today's headline KPI tiles (Times AI
+  // recommended you / How often AI mentions you) off raw `results` (frozen at
+  // the Profound cliff — last row Apr 21) and onto `daily_metric_snapshots`
+  // rows with source_type='derived' scope_type='platform'. Fallback policy:
+  // today → yesterday → null (caller handles null by retaining old results-
+  // based values; never falls through to source_type='benchmark'). Defensive:
+  // Supabase hiccup at render-time degrades to null.
+  let todayKpis: TodayDerivedKpis | null = null;
+  try {
+    todayKpis = await fetchTodayDerivedKpis();
+  } catch (err) {
+    console.error("Today derived KPI fetch failed:", err);
+    todayKpis = null;
   }
 
   // Same signal as shell `isDemoMode` (Phase 2A): no import runs ⇒ sample seed data, not operator briefing.
@@ -1008,9 +1027,25 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
     ? buildAnswerIntelligenceProofContext(answerIntelligenceIndex)
     : null;
 
+  // Commit 5 (2026-04-24): when today's derived platform rows exist, the
+  // headline "Times AI recommended you" / "How often AI mentions you" tiles
+  // use those values instead of the frozen raw-results totals (which stop
+  // updating at the Profound cliff, Apr 21). The TodayScoreboard renders an
+  // "As of <date>" badge in tile meta when this happens. When todayKpis is
+  // null (no derived rows today or yesterday) the tiles keep the
+  // results-based totals so we never black-hole the header.
+  const useDerivedKpis = todayKpis !== null;
   const scoreboard = {
-    totalCitations: visibilitySummary.totalCitations,
-    totalMentions: visibilitySummary.totalMentions,
+    totalCitations: useDerivedKpis
+      ? todayKpis!.totalCitations
+      : visibilitySummary.totalCitations,
+    totalMentions: useDerivedKpis
+      ? todayKpis!.totalMentions
+      : visibilitySummary.totalMentions,
+    // Trend, week-over-week, and platform breakdown still read from raw
+    // results because they need a wider date history than the last 1–2 days
+    // of derived snapshots can provide. Commit 7 revisits once native has
+    // multi-week history.
     trendPct: visibilitySummary.trendPct,
     platformBreakdown: visibilitySummary.platformBreakdown,
     citedPageCount,
@@ -1021,6 +1056,11 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
     risingTopicCount: answerIntelProof?.risingTopics.length ?? 0,
     weekOverWeekCitations: visibilitySummary.weekOverWeekCitations,
     weekOverWeekMentions: visibilitySummary.weekOverWeekMentions,
+    /** ISO date rendered in tile meta when derived KPIs are in use. Null
+     *  when tiles fell back to raw-results totals. */
+    derivedKpiAsOfDate: useDerivedKpis ? todayKpis!.date : null,
+    /** True when derived KPIs fell back to yesterday's row (e.g. pre-cron). */
+    derivedKpiIsFallback: useDerivedKpis ? todayKpis!.isFallback : false,
   };
 
   // FAQ schema coverage metric

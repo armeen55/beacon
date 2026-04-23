@@ -16,7 +16,29 @@ export type ScoreboardData = {
   risingTopicCount: number;
   weekOverWeekCitations: number | null;
   weekOverWeekMentions: number | null;
+  /**
+   * Commit 5 (2026-04-24). When non-null, `totalCitations`/`totalMentions`
+   * are read from `daily_metric_snapshots source_type='derived'` for the
+   * given ISO date (today or yesterday), not from the cumulative raw
+   * `results` totals. The tile meta renders "As of Apr 23" so the operator
+   * reads the single-day semantics plainly.
+   */
+  derivedKpiAsOfDate?: string | null;
+  /** True when derivedKpiAsOfDate fell back to yesterday's row. */
+  derivedKpiIsFallback?: boolean;
 };
+
+/** "2026-04-23" → "Apr 23". Used by the derivedKpiAsOfDate meta line. */
+function formatShortDate(iso: string): string {
+  const [y, m, d] = iso.split("-").map((x) => parseInt(x, 10));
+  if (!y || !m || !d) return iso;
+  const date = new Date(Date.UTC(y, m - 1, d));
+  return date.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    timeZone: "UTC",
+  });
+}
 
 /** Compact platform breakdown as text, not a chart */
 function platformSummary(
@@ -52,6 +74,18 @@ export function TodayScoreboard({
   const wowCit = scoreboard.weekOverWeekCitations;
   const wowMen = scoreboard.weekOverWeekMentions;
 
+  // Commit 5 (2026-04-24): when derivedKpiAsOfDate is present, the headline
+  // count tiles render today's (or yesterday's) native-poll totals instead
+  // of cumulative raw-results counts. Meta line leads with the date so the
+  // operator reads single-day semantics. Week-over-week pills suppressed
+  // because they're computed from cumulative raw-results and would
+  // conflict with the single-day tile value.
+  const asOfDate = scoreboard.derivedKpiAsOfDate ?? null;
+  const asOfIsFallback = scoreboard.derivedKpiIsFallback ?? false;
+  const asOfLabel = asOfDate
+    ? `As of ${formatShortDate(asOfDate)}${asOfIsFallback ? " (yesterday)" : " (today)"}`
+    : null;
+
   return (
     <div className="space-y-5">
       {/* KPI cards */}
@@ -59,28 +93,32 @@ export function TodayScoreboard({
         <KpiCard
           label="Times AI recommended you"
           value={scoreboard.totalCitations}
-          delta={wowCit}
+          delta={asOfDate ? null : wowCit}
           deltaSuffix="%"
           meta={
-            wowCit !== null
-              ? `vs last week${platMeta ? ` · ${platMeta}` : ""}`
-              : platMeta
-                ? platMeta
-                : scoreboard.dateRange
-                  ? `through ${scoreboard.dateRange.to}`
-                  : undefined
+            asOfLabel
+              ? `${asOfLabel}${platMeta ? ` · ${platMeta}` : ""}`
+              : wowCit !== null
+                ? `vs last week${platMeta ? ` · ${platMeta}` : ""}`
+                : platMeta
+                  ? platMeta
+                  : scoreboard.dateRange
+                    ? `through ${scoreboard.dateRange.to}`
+                    : undefined
           }
         />
         {mentionRatePct !== null && (
           <KpiCard
             label="How often AI mentions you"
             value={`${mentionRatePct}%`}
-            delta={wowMen}
+            delta={asOfDate ? null : wowMen}
             deltaSuffix="%"
             meta={
-              wowMen !== null
-                ? `vs last week${topicMeta ? ` · ${topicMeta}` : ""}`
-                : topicMeta || `across ${scoreboard.resultCount.toLocaleString()} AI answers`
+              asOfLabel
+                ? `${asOfLabel}${topicMeta ? ` · ${topicMeta}` : ""}`
+                : wowMen !== null
+                  ? `vs last week${topicMeta ? ` · ${topicMeta}` : ""}`
+                  : topicMeta || `across ${scoreboard.resultCount.toLocaleString()} AI answers`
             }
           />
         )}
