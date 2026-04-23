@@ -17,6 +17,8 @@ import { TodayScanStrip } from "@/components/today/today-scan-strip";
 import { TodayScoreboard, type ScoreboardData } from "@/components/today/today-scoreboard";
 import { TodayActionQueue, type FindingsStripData } from "@/components/today/today-action-queue";
 import { SinceLastVisit } from "@/components/today/since-last-visit";
+import { PollHealthBlock } from "@/components/today/poll-health-block";
+import type { PollHealthSnapshot } from "@/domains/observations/poll-health";
 import { ActionCard, type ActionCardAction } from "@/components/today/action-card";
 import { MorningBrief } from "@/components/today/morning-brief";
 import type { MorningBriefData } from "@/domains/product/morning-brief";
@@ -160,6 +162,7 @@ export function TodayClient({
   concentratedPlatform = null,
   visibilityData = null,
   urlVerdictProof = null,
+  pollHealth = null,
 }: {
   isDemoMode?: boolean;
   scanPhaseFailed?: boolean;
@@ -209,6 +212,11 @@ export function TodayClient({
   faqSchemaCoverage?: { covered: number; total: number } | null;
   platformDistribution?: { google_aio: number; chatgpt: number; perplexity: number; total: number } | null;
   concentratedPlatform?: "google_aio" | "chatgpt" | "perplexity" | null;
+  /** Commit 1 (2026-04-24): native-poll health for today's UTC date. Renders
+   *  at top of Today so silent cron failures surface immediately. Null when
+   *  the Supabase fetch failed at render-time (defensive — don't block Today
+   *  on poll-health availability). */
+  pollHealth?: PollHealthSnapshot | null;
 }) {
   const [pending, startTransition] = useTransition();
   const [actionMsg, setActionMsg] = useState<string | null>(null);
@@ -323,6 +331,13 @@ export function TodayClient({
 
   return (
     <div className="space-y-5 max-w-5xl">
+      {/* Commit 1 (2026-04-24): native-poll health strip. First thing an operator
+          sees on /today — yesterday's per-platform chunk status + observation
+          counts. On 2026-04-23 ChatGPT's 4 chunks silently failed (OPENAI_API_KEY
+          missing from Vercel env); this block + the 10:45 UTC canary workflow
+          make that kind of failure visible instead of silent. */}
+      {pollHealth && <PollHealthBlock snapshot={pollHealth} />}
+
       {/* Phase 3.5F (2026-04-22): freshness banner. Renders only when the
           most recent AI-answer observation is 3+ days old. Reads as "known
           state" rather than "broken product". */}

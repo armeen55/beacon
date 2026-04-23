@@ -62,6 +62,11 @@ import {
   listObservationRuns,
   getObservationRun,
 } from "@/domains/observations/read";
+import {
+  fetchPollHealthForDate,
+  todayISOUtc,
+  type PollHealthSnapshot,
+} from "@/domains/observations/poll-health";
 import { primaryVisibilityRunForResults } from "@/domains/observations/visibility-context";
 import { loadCompetitorUniverseRuntime } from "@/domains/competitors/universe-read";
 import { buildTodayCompetitorLine } from "@/domains/competitors/today-competitor-line";
@@ -177,6 +182,19 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
   // Suppress the auto-scan strip + trigger so the hosted UI doesn't surface a
   // feature that would 500. Local dev keeps the button.
   const hostedScanDisabled = process.env.VERCEL === "1";
+
+  // Commit 1 (2026-04-24): fetch today's per-platform native-poll health for
+  // the top-of-Today status strip. Defensive: render-time Supabase hiccups
+  // must not crash /today — we degrade to null and the PollHealthBlock is
+  // simply not rendered. The 10:45 UTC canary workflow is the primary alert
+  // channel; this block is the passive-observation one.
+  let pollHealth: PollHealthSnapshot | null = null;
+  try {
+    pollHealth = await fetchPollHealthForDate(todayISOUtc());
+  } catch (err) {
+    console.error("Today poll-health fetch failed:", err);
+    pollHealth = null;
+  }
 
   // Same signal as shell `isDemoMode` (Phase 2A): no import runs ⇒ sample seed data, not operator briefing.
   const isDemoMode = !hasActiveExperiment();
@@ -1881,6 +1899,7 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
           };
         })()
       : null,
+    pollHealth,
   };
 }
 

@@ -1,0 +1,74 @@
+# ============================================================================
+#  Poll canary — silent-failure alerting for the native-poll cron
+# ============================================================================
+#
+#  Why this workflow exists (read this before editing):
+#
+#  On 2026-04-23 the daily native-poll cron at 10:00 UTC succeeded for
+#  Perplexity but silently failed for ChatGPT (all 4 chunks returned HTTP 200
+#  with `status: "failed"` JSON bodies because OPENAI_API_KEY was missing
+#  from Vercel env). The main `daily-native-poll.yml` workflow was marked
+#  GREEN in GitHub because `curl --fail-with-body` didn't trip on an
+#  application-level failure, and nobody noticed for hours.
+#
+#  This workflow fixes that blind spot:
+#
+#    - Fires at 10:45 UTC, 45 min after the main poll cron at 10:00 UTC.
+#      Perplexity runs take ~10 min; ChatGPT ~11 min. By 10:45 UTC both
+#      jobs must be terminal.
+#    - Runs `scripts/check-yesterday-poll.ts`, which queries Supabase for
+#      today's observation_runs and exits non-zero if any platform isn't
+#      "ok" (4/4 chunks completed).
+#    - Non-zero exit fails the workflow. GitHub's default
+#      "email on failed workflow" sends Armeen an email within minutes.
+#      Re-enable at Settings → Notifications → Actions if turned off.
+#
+#  Required repo secrets (same as main poll workflow):
+#    NEXT_PUBLIC_SUPABASE_URL
+#    SUPABASE_SERVICE_ROLE_KEY
+#
+#  Manual fire for testing:
+#    Actions → "Poll canary" → Run workflow
+#
+#  Forced-fail smoke test (do once after first deploy):
+#    Temporarily rename one of today's observation_runs rows in Supabase so
+#    the canary sees < 4 chunks for that platform, run workflow manually,
+#    confirm email arrives, revert the rename.
+# ============================================================================
+
+name: Poll canary
+
+on:
+  schedule:
+    # 10:45 UTC daily — 45 min after the 10:00 UTC main poll cron. Gives both
+    # Perplexity (~10 min) and ChatGPT (~11 min) time to finish all 4 chunks.
+    - cron: "45 10 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: poll-canary
+  cancel-in-progress: true
+
+jobs:
+  canary:
+    name: Check today's poll health
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Run poll-health canary
+        run: npx tsx --require ./scripts/mock-server-only.cjs scripts/check-yesterday-poll.ts
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
