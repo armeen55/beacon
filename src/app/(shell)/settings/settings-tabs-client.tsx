@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils";
 const TABS = [
   { href: "/settings/import", label: "Import" },
   { href: "/settings/config", label: "Config" },
+  { href: "/settings/prompts", label: "Prompts" },
   { href: "/settings/history", label: "Data" },
 ] as const;
 
