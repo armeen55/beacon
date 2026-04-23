@@ -1,28 +1,68 @@
 import "server-only";
 
 /**
- * Derive `DailyMetricSnapshot[]` for a tenant's active tracked entities from a
- * single poll run's observations.
+ * Derive `DailyMetricSnapshot[]` rows for a tenant's active tracked entities
+ * PLUS per-topic rollup rows PLUS a platform aggregate row, from a single
+ * poll run's observations.
  *
  * Pure function. Zero writes. Zero DB reads. Caller provides everything it
  * needs and persists the returned rows via `syncDailyMetricSnapshots`.
  *
- * Why this exists: native polls currently only write to
- * `prompt_answer_observations` + `answer_texts` + `observation_runs`. The
- * `daily_metric_snapshots` table — which Today's per-entity/per-platform
- * product surfaces read from — stays frozen at the last Profound import
- * (2026-04-14 for Ritz). This helper is the smallest durable bridge between
- * raw native observations and that derived daily-state layer.
+ * ## What this helper emits
  *
- * v0 scope (intentionally narrow):
- * - emits one row per active tracked entity × (date, platform)
- * - populates unambiguous counts: mention_count, citation_count, total_possible
- * - leaves visibility_score / share_of_voice / avg_position as NULL because
- *   their canonical formulas aren't yet defined across platforms, and
- *   guessing would lock wrong numbers into historical data
- * - uses source_type "derived" to distinguish from Profound-era "benchmark"
- * - uses id prefix `derived-` so rows never collide with a future Profound
- *   re-import's `bench-` rows
+ * **Per-entity rows** (one per active tracked entity):
+ *   - scope_type = "entity", scope_id = slugified entity id
+ *   - metrics are PER-ENTITY (mention_count = # obs where entity appeared in
+ *     mentions[]; citation_count = # obs where entity.domain appeared)
+ *   - drives the competitive comparison panel
+ *
+ * **Per-topic rows** (one per distinct topic encountered in the run):
+ *   - scope_type = "topic", scope_id = topic (empty topic → "unknown")
+ *   - metrics are OWNED-BRAND ROLLUPS across that topic's observations:
+ *     how visible is THE TENANT on this topic. NOT competitive totals.
+ *   - drives "my visibility on recommendation prompts" / "on comparison
+ *     prompts" kinds of surfaces
+ *
+ * **One platform aggregate row** (emitted only when observations is non-empty):
+ *   - scope_type = "platform", scope_id = platform
+ *   - metrics are OWNED-BRAND ROLLUPS across the whole run: the headline
+ *     "overall Perplexity visibility today" number. NOT a competitive total.
+ *   - drives the platform-scope trend line and the single-platform daily
+ *     headline score
+ *
+ * Topic + platform rows explicitly do NOT emit per-competitor rollups at those
+ * scopes. A competitor's topic-level visibility is a separate product concern
+ * (shared-brain territory) and is out of scope here.
+ *
+ * ## Formulas (v0, endorsed Phase 3 Step 1)
+ *
+ *   visibility_score = (mention_count / total_possible) × 100
+ *   share_of_voice   = (citation_count / total_citations_in_scope) × 100
+ *   avg_position     = null   (Perplexity/ChatGPT/Claude web_search don't
+ *                               expose native rank; needs separate phase)
+ *
+ * Both scores are null-safe when their denominator is 0.
+ *
+ * ## ID conventions (known asymmetry — intentional for now)
+ *
+ *   entity:   derived-{date}-{scope-id-slug}-{platform-slug}
+ *   topic:    derived-{date}-topic-{topic-slug}-{platform-slug}
+ *   platform: derived-{date}-platform-{platform-slug}
+ *
+ * The entity-row IDs do NOT contain "entity" as a segment — they predate
+ * Step 2's multi-scope emission and were not migrated to preserve idempotency
+ * of prior backfills. Topic + platform IDs include their scope_type as a
+ * segment to disambiguate cleanly from entity IDs (and from each other).
+ * Filtering consumers should use the `scope_type` column, not ID parsing.
+ * Unifying to a single `derived-{date}-{scope-type}-{slug}-{platform}` form
+ * is deferred until the existing Profound-path snapshot-builder is retired.
+ *
+ * ## Source-type + ID-prefix
+ *
+ * - source_type = "derived" distinguishes native-computed rows from Profound-
+ *   era "benchmark" rows.
+ * - id prefix "derived-" never collides with a future Profound re-import's
+ *   "bench-" rows.
  */
 
 import type { PromptAnswerObservation } from "@/domains/prompt-answer-observations/types";
@@ -61,9 +101,12 @@ export function buildDailySnapshotsFromObservations(
     (sum, o) => sum + (o.citation_count ?? 0),
     0,
   );
-  const platformSlug = slugifyPlatform(platform);
+  const platformSlug = slugifyForId(platform);
 
   const rows: DailyMetricSnapshot[] = [];
+
+  // ── Per-entity rows (competitive panel) ─────────────────────────────
+  // One row per active tracked entity. Metrics are PER-ENTITY.
   for (const entity of activeEntities) {
     const scopeId = entityToScopeId(entity);
     const id = `derived-${date}-${scopeId}-${platformSlug}`;
@@ -108,6 +151,116 @@ export function buildDailySnapshotsFromObservations(
         entity_id: entity.id,
         entity_type: entity.entity_type,
         is_owned: entity.is_owned,
+      },
+      tenant_id: tenantId,
+    });
+  }
+
+  // ── Per-topic rows (OWNED-BRAND rollups, not competitive totals) ─────
+  // One row per distinct topic encountered in the run. Metrics describe
+  // how visible THE TENANT is on this topic — mention_count is owned-brand
+  // mentions only, citation_count is owned-brand citations only.
+  const observationsByTopic = new Map<string, PromptAnswerObservation[]>();
+  for (const obs of observations) {
+    const topicKey = obs.topic || "unknown";
+    let bucket = observationsByTopic.get(topicKey);
+    if (!bucket) {
+      bucket = [];
+      observationsByTopic.set(topicKey, bucket);
+    }
+    bucket.push(obs);
+  }
+
+  for (const [topicKey, topicObs] of observationsByTopic) {
+    const topicTotal = topicObs.length;
+    const topicOwnedMentions = topicObs.filter(
+      (o) => o.tracked_brand_mentioned,
+    ).length;
+    const topicOwnedCitations = topicObs.reduce(
+      (sum, o) => sum + (o.owned_citation_count ?? 0),
+      0,
+    );
+    const topicTotalCitations = topicObs.reduce(
+      (sum, o) => sum + (o.citation_count ?? 0),
+      0,
+    );
+
+    const topicSlug = slugifyForId(topicKey);
+    const id = `derived-${date}-topic-${topicSlug}-${platformSlug}`;
+
+    const vs =
+      topicTotal > 0
+        ? roundTo2((topicOwnedMentions / topicTotal) * 100)
+        : null;
+    const sov =
+      topicTotalCitations > 0
+        ? roundTo2((topicOwnedCitations / topicTotalCitations) * 100)
+        : null;
+
+    rows.push({
+      id,
+      date,
+      scope_type: "topic",
+      scope_id: topicKey,
+      platform,
+      source_type: "derived",
+      visibility_score: vs,
+      mention_count: topicOwnedMentions,
+      citation_count: topicOwnedCitations,
+      share_of_voice: sov,
+      avg_position: null,
+      total_possible: topicTotal,
+      metadata: {
+        source_system: "beacon_native",
+        derived_from_run_id: observationRunId,
+        scope_semantics: "owned_brand_rollup",
+      },
+      tenant_id: tenantId,
+    });
+  }
+
+  // ── Platform aggregate row (OWNED-BRAND rollup, run-wide) ────────────
+  // A single row summarizing the tenant's owned-brand visibility across
+  // the whole run on this platform. This IS the "overall Perplexity
+  // visibility today" headline number for the tenant. NOT a cross-entity
+  // competitive total. Skipped for empty runs (no observations to report).
+  if (observations.length > 0) {
+    const platformOwnedMentions = observations.filter(
+      (o) => o.tracked_brand_mentioned,
+    ).length;
+    const platformOwnedCitations = observations.reduce(
+      (sum, o) => sum + (o.owned_citation_count ?? 0),
+      0,
+    );
+
+    const id = `derived-${date}-platform-${platformSlug}`;
+
+    const vs =
+      totalPossible > 0
+        ? roundTo2((platformOwnedMentions / totalPossible) * 100)
+        : null;
+    const sov =
+      totalCitationsInRun > 0
+        ? roundTo2((platformOwnedCitations / totalCitationsInRun) * 100)
+        : null;
+
+    rows.push({
+      id,
+      date,
+      scope_type: "platform",
+      scope_id: platform,
+      platform,
+      source_type: "derived",
+      visibility_score: vs,
+      mention_count: platformOwnedMentions,
+      citation_count: platformOwnedCitations,
+      share_of_voice: sov,
+      avg_position: null,
+      total_possible: totalPossible,
+      metadata: {
+        source_system: "beacon_native",
+        derived_from_run_id: observationRunId,
+        scope_semantics: "owned_brand_rollup",
       },
       tenant_id: tenantId,
     });
@@ -183,11 +336,19 @@ export function entityToScopeId(entity: TrackedEntity): string {
 }
 
 /**
- * Normalize a platform label for use inside a deterministic ID:
- *   "Perplexity"          -> "perplexity"
- *   "Google AI Overviews" -> "google-ai-overviews"
- *   "ChatGPT"             -> "chatgpt"
+ * Normalize a string for use inside a deterministic ID. Lowercase, whitespace
+ * collapsed to hyphens, non-alphanumeric chars replaced with hyphens, leading
+ * and trailing hyphens trimmed. Used for both platform labels and topic keys.
+ *
+ *   "Perplexity"           -> "perplexity"
+ *   "Google AI Overviews"  -> "google-ai-overviews"
+ *   "ChatGPT"              -> "chatgpt"
+ *   "topic-builders"       -> "topic-builders"
+ *   "  Local / Services  " -> "local-services"
  */
-function slugifyPlatform(platform: string): string {
-  return platform.toLowerCase().trim().replace(/\s+/g, "-");
+function slugifyForId(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
 }

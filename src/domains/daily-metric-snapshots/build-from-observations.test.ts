@@ -123,9 +123,10 @@ describe("buildDailySnapshotsFromObservations", () => {
       observationRunId: "pollrun-xyz",
     });
 
-    expect(rows).toHaveLength(2);
+    const entityRows = rows.filter((r) => r.scope_type === "entity");
+    expect(entityRows).toHaveLength(2);
 
-    const ritz = rows.find((r) => r.scope_id === "ritzbuilders")!;
+    const ritz = entityRows.find((r) => r.scope_id === "ritzbuilders")!;
     expect(ritz.id).toBe("derived-2026-04-22-ritzbuilders-perplexity");
     expect(ritz.date).toBe("2026-04-22");
     expect(ritz.scope_type).toBe("entity");
@@ -149,7 +150,7 @@ describe("buildDailySnapshotsFromObservations", () => {
       is_owned: true,
     });
 
-    const supple = rows.find((r) => r.scope_id === "supplehomesinc")!;
+    const supple = entityRows.find((r) => r.scope_id === "supplehomesinc")!;
     expect(supple.mention_count).toBe(2);
     expect(supple.citation_count).toBe(1);
     expect(supple.total_possible).toBe(3);
@@ -216,8 +217,9 @@ describe("buildDailySnapshotsFromObservations", () => {
       observationRunId: "r",
     });
 
-    expect(rows[0].mention_count).toBe(1);
-    expect(rows[0].citation_count).toBe(0);
+    const entityRow = rows.find((r) => r.scope_type === "entity")!;
+    expect(entityRow.mention_count).toBe(1);
+    expect(entityRow.citation_count).toBe(0);
   });
 
   it("citation domain match is case-insensitive", () => {
@@ -235,7 +237,8 @@ describe("buildDailySnapshotsFromObservations", () => {
       observationRunId: "r",
     });
 
-    expect(rows[0].citation_count).toBe(1);
+    const entityRow = rows.find((r) => r.scope_type === "entity")!;
+    expect(entityRow.citation_count).toBe(1);
   });
 
   it("deterministic IDs — same inputs produce the same id (idempotent upserts)", () => {
@@ -261,8 +264,11 @@ describe("buildDailySnapshotsFromObservations", () => {
       date: "2026-04-22",
       observationRunId: "r",
     });
-    expect(gaio[0].platform).toBe("Google AI Overviews");
-    expect(gaio[0].id).toBe("derived-2026-04-22-ritzbuilders-google-ai-overviews");
+    const entityRow = gaio.find((r) => r.scope_type === "entity")!;
+    expect(entityRow.platform).toBe("Google AI Overviews");
+    expect(entityRow.id).toBe(
+      "derived-2026-04-22-ritzbuilders-google-ai-overviews",
+    );
   });
 
   // ── v0 formula (Phase 3 Step 1): visibility_score + share_of_voice ──
@@ -293,7 +299,9 @@ describe("buildDailySnapshotsFromObservations", () => {
       observationRunId: "r",
     });
 
-    const ritz = rows[0];
+    const ritz = rows.find(
+      (r) => r.scope_type === "entity" && r.scope_id === "ritzbuilders",
+    )!;
     expect(ritz.mention_count).toBe(5);
     expect(ritz.citation_count).toBe(6);
     expect(ritz.total_possible).toBe(10);
@@ -317,8 +325,9 @@ describe("buildDailySnapshotsFromObservations", () => {
       date: "2026-04-22",
       observationRunId: "r",
     });
-    expect(r1[0].visibility_score).toBeCloseTo(50.0, 2); // 1/2 × 100
-    expect(r1[0].share_of_voice).toBeNull();
+    const r1Entity = r1.find((r) => r.scope_type === "entity")!;
+    expect(r1Entity.visibility_score).toBeCloseTo(50.0, 2); // 1/2 × 100
+    expect(r1Entity.share_of_voice).toBeNull();
 
     // Zero observations: both scores null (no denominator).
     const r2 = buildDailySnapshotsFromObservations({
@@ -329,8 +338,9 @@ describe("buildDailySnapshotsFromObservations", () => {
       date: "2026-04-22",
       observationRunId: "r",
     });
-    expect(r2[0].visibility_score).toBeNull();
-    expect(r2[0].share_of_voice).toBeNull();
+    const r2Entity = r2.find((r) => r.scope_type === "entity")!;
+    expect(r2Entity.visibility_score).toBeNull();
+    expect(r2Entity.share_of_voice).toBeNull();
   });
 
   it("share_of_voice denominator is total citations across the run, not tracked-only", () => {
@@ -364,7 +374,200 @@ describe("buildDailySnapshotsFromObservations", () => {
       date: "2026-04-22",
       observationRunId: "r",
     });
-    expect(rows[0].citation_count).toBe(1);
-    expect(rows[0].share_of_voice).toBeCloseTo(10.0, 2);
+    const entityRow = rows.find((r) => r.scope_type === "entity")!;
+    expect(entityRow.citation_count).toBe(1);
+    expect(entityRow.share_of_voice).toBeCloseTo(10.0, 2);
+  });
+
+  // ── Scope expansion (Phase 3 Step 2): topic + platform rows ──────────
+
+  it("emits one topic row per distinct topic, with OWNED-BRAND metrics (not competitive)", () => {
+    // Two topics: "builders" (3 obs) and "renovations" (2 obs).
+    // Owned-brand rollup per topic: we use tracked_brand_mentioned and
+    // owned_citation_count — NOT per-competitor sums.
+    const obs: PromptAnswerObservation[] = [
+      makeObs({
+        id: "o1",
+        topic: "builders",
+        tracked_brand_mentioned: true,
+        owned_citation_count: 1,
+        citation_count: 3,
+      }),
+      makeObs({
+        id: "o2",
+        topic: "builders",
+        tracked_brand_mentioned: true,
+        owned_citation_count: 1,
+        citation_count: 3,
+      }),
+      makeObs({
+        id: "o3",
+        topic: "builders",
+        tracked_brand_mentioned: false,
+        owned_citation_count: 0,
+        citation_count: 2,
+      }),
+      makeObs({
+        id: "o4",
+        topic: "renovations",
+        tracked_brand_mentioned: true,
+        owned_citation_count: 2,
+        citation_count: 5,
+      }),
+      makeObs({
+        id: "o5",
+        topic: "renovations",
+        tracked_brand_mentioned: false,
+        owned_citation_count: 0,
+        citation_count: 4,
+      }),
+    ];
+
+    const rows = buildDailySnapshotsFromObservations({
+      tenantId: "t",
+      platform: "Perplexity",
+      observations: obs,
+      trackedEntities: [OWNED],
+      date: "2026-04-22",
+      observationRunId: "r",
+    });
+
+    const topicRows = rows.filter((r) => r.scope_type === "topic");
+    expect(topicRows).toHaveLength(2);
+
+    const builders = topicRows.find((r) => r.scope_id === "builders")!;
+    expect(builders.id).toBe(
+      "derived-2026-04-22-topic-builders-perplexity",
+    );
+    expect(builders.total_possible).toBe(3);
+    expect(builders.mention_count).toBe(2); // owned brand mentioned in 2/3
+    expect(builders.citation_count).toBe(2); // owned citation sum = 1+1+0
+    // visibility_score = 2/3 * 100 = 66.67
+    expect(builders.visibility_score).toBeCloseTo(66.67, 2);
+    // total citations in builders topic = 3+3+2 = 8; SOV = 2/8 * 100 = 25.0
+    expect(builders.share_of_voice).toBeCloseTo(25.0, 2);
+    expect(builders.avg_position).toBeNull();
+    expect(builders.metadata).toMatchObject({
+      scope_semantics: "owned_brand_rollup",
+      derived_from_run_id: "r",
+    });
+
+    const renovations = topicRows.find((r) => r.scope_id === "renovations")!;
+    expect(renovations.total_possible).toBe(2);
+    expect(renovations.mention_count).toBe(1);
+    expect(renovations.citation_count).toBe(2);
+    expect(renovations.visibility_score).toBeCloseTo(50.0, 2);
+    // total citations in renovations = 5+4 = 9; SOV = 2/9 * 100 = 22.22
+    expect(renovations.share_of_voice).toBeCloseTo(22.22, 2);
+  });
+
+  it("empty topic string groups observations under scope_id='unknown'", () => {
+    const obs: PromptAnswerObservation[] = [
+      makeObs({
+        id: "o1",
+        topic: "",
+        tracked_brand_mentioned: true,
+        owned_citation_count: 1,
+        citation_count: 2,
+      }),
+    ];
+    const rows = buildDailySnapshotsFromObservations({
+      tenantId: "t",
+      platform: "Perplexity",
+      observations: obs,
+      trackedEntities: [OWNED],
+      date: "2026-04-22",
+      observationRunId: "r",
+    });
+
+    const topicRow = rows.find((r) => r.scope_type === "topic")!;
+    expect(topicRow.scope_id).toBe("unknown");
+    expect(topicRow.id).toBe("derived-2026-04-22-topic-unknown-perplexity");
+    expect(topicRow.mention_count).toBe(1);
+  });
+
+  it("emits exactly one platform aggregate row with run-wide OWNED-BRAND metrics", () => {
+    // 5 obs, 3 with owned brand mentioned, owned_citation_count totals to 4,
+    // citation_count totals to 20.
+    const obs: PromptAnswerObservation[] = [
+      makeObs({
+        id: "o1",
+        topic: "t1",
+        tracked_brand_mentioned: true,
+        owned_citation_count: 1,
+        citation_count: 4,
+      }),
+      makeObs({
+        id: "o2",
+        topic: "t1",
+        tracked_brand_mentioned: true,
+        owned_citation_count: 2,
+        citation_count: 4,
+      }),
+      makeObs({
+        id: "o3",
+        topic: "t2",
+        tracked_brand_mentioned: true,
+        owned_citation_count: 1,
+        citation_count: 4,
+      }),
+      makeObs({
+        id: "o4",
+        topic: "t2",
+        tracked_brand_mentioned: false,
+        owned_citation_count: 0,
+        citation_count: 4,
+      }),
+      makeObs({
+        id: "o5",
+        topic: "t3",
+        tracked_brand_mentioned: false,
+        owned_citation_count: 0,
+        citation_count: 4,
+      }),
+    ];
+
+    const rows = buildDailySnapshotsFromObservations({
+      tenantId: "t",
+      platform: "Perplexity",
+      observations: obs,
+      trackedEntities: [OWNED],
+      date: "2026-04-22",
+      observationRunId: "r",
+    });
+
+    const platformRows = rows.filter((r) => r.scope_type === "platform");
+    expect(platformRows).toHaveLength(1);
+
+    const p = platformRows[0];
+    expect(p.id).toBe("derived-2026-04-22-platform-perplexity");
+    expect(p.scope_id).toBe("Perplexity");
+    expect(p.platform).toBe("Perplexity");
+    expect(p.total_possible).toBe(5);
+    expect(p.mention_count).toBe(3); // owned-brand mentions
+    expect(p.citation_count).toBe(4); // owned_citation_count sum
+    expect(p.visibility_score).toBeCloseTo(60.0, 2); // 3/5 * 100
+    // total citations = 20; SOV = 4/20 * 100 = 20.0
+    expect(p.share_of_voice).toBeCloseTo(20.0, 2);
+    expect(p.avg_position).toBeNull();
+    expect(p.metadata).toMatchObject({
+      scope_semantics: "owned_brand_rollup",
+    });
+  });
+
+  it("no topic or platform rows when there are zero observations", () => {
+    const rows = buildDailySnapshotsFromObservations({
+      tenantId: "t",
+      platform: "Perplexity",
+      observations: [],
+      trackedEntities: [OWNED, SUPPLE],
+      date: "2026-04-22",
+      observationRunId: "r",
+    });
+
+    expect(rows.filter((r) => r.scope_type === "topic")).toHaveLength(0);
+    expect(rows.filter((r) => r.scope_type === "platform")).toHaveLength(0);
+    // Entity rows still emitted regardless of observations
+    expect(rows.filter((r) => r.scope_type === "entity")).toHaveLength(2);
   });
 });
