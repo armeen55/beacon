@@ -143,6 +143,21 @@ const SNAPSHOT_PLATFORM_LABEL: Record<NativePollPlatform, string> = {
   perplexity: "Perplexity",
   openai: "ChatGPT",
 };
+/**
+ * The value stored on `prompt_answer_observations.platform` — the
+ * observation-level label the adapters write. NOT the same as the
+ * snapshot-level label (`"ChatGPT"` vs `"chatgpt"`) or the
+ * NativePollPlatform enum ("openai" vs "chatgpt"). Used by chunk-mode
+ * cumulative derivation to query today's observations with the correct
+ * filter. Perplexity's three labels happen to match ("perplexity"); OpenAI's
+ * NativePollPlatform ("openai") and observation label ("chatgpt") differ.
+ * Getting this wrong returned zero observations and zeroed the 37 entity
+ * rows for ChatGPT on 2026-04-23 — that's what this mapping fixes.
+ */
+const OBSERVATION_PLATFORM_LABEL: Record<NativePollPlatform, string> = {
+  perplexity: "perplexity",
+  openai: "chatgpt",
+};
 const COST_PER_OBS_USD: Record<NativePollPlatform, number> = {
   perplexity: 0.005,
   openai: 0.012,
@@ -256,7 +271,15 @@ export async function runNativePoll(
   const entities = await getEntities();
   const date = run.completed_at.slice(0, 10); // YYYY-MM-DD (UTC)
   const observationsForDerivation: PromptAnswerObservation[] = isChunked
-    ? await getDayObs({ tenantId, platform, date })
+    ? await getDayObs({
+        tenantId,
+        // NB: observation-level label, not the NativePollPlatform enum.
+        // "openai" (enum) vs "chatgpt" (stored on observations) — mismatched
+        // before this mapping was added; caused entity-row zeroing on
+        // 2026-04-23 for ChatGPT.
+        platform: OBSERVATION_PLATFORM_LABEL[platform],
+        date,
+      })
     : result.observations;
 
   const snapshots = buildSnaps({

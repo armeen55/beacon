@@ -465,6 +465,64 @@ describe("runNativePoll", () => {
     expect(capturedBuildArgs!.observations).toHaveLength(100);
   });
 
+  it("chunk mode: getObservationsForDay receives the OBSERVATION-level platform label, not the NativePollPlatform enum (regression guard for the 2026-04-23 ChatGPT entity-zeroing bug)", async () => {
+    const sync = mkSyncSpies();
+    // Capture variable (not vi.fn) so we get a concrete typed reference,
+    // avoiding TS strict-mode issues with vi.fn.mock.calls tuple inference.
+    let capturedPlatform: string | null = null;
+    const getDayObsCapture = async (args: {
+      tenantId: string;
+      platform: string;
+      date: string;
+    }): Promise<PromptAnswerObservation[]> => {
+      capturedPlatform = args.platform;
+      return [];
+    };
+
+    // OpenAI: NativePollPlatform "openai", observation-level label "chatgpt".
+    // If the mapping regresses this will capture "openai" and the test fails.
+    await runNativePoll(
+      {
+        tenantId: "tenant-ritz-founder",
+        platform: "openai",
+        offset: 0,
+        limit: 5,
+        force: true,
+      },
+      {
+        runAdapter: async (p) => makeAdapterResult(p, 5, "completed", 0),
+        hasRecentCompletedChunk: async () => false,
+        ...sync,
+        buildDailySnapshotsFromObservations: () => [],
+        getTrackedEntities: async () => trackedEntities(),
+        getObservationsForDay: getDayObsCapture,
+      },
+    );
+    expect(capturedPlatform).toBe("chatgpt"); // ← NOT "openai"
+
+    capturedPlatform = null;
+
+    // Perplexity: both labels are "perplexity" so they match either way.
+    await runNativePoll(
+      {
+        tenantId: "tenant-ritz-founder",
+        platform: "perplexity",
+        offset: 0,
+        limit: 5,
+        force: true,
+      },
+      {
+        runAdapter: async (p) => makeAdapterResult(p, 5, "completed", 0),
+        hasRecentCompletedChunk: async () => false,
+        ...sync,
+        buildDailySnapshotsFromObservations: () => [],
+        getTrackedEntities: async () => trackedEntities(),
+        getObservationsForDay: getDayObsCapture,
+      },
+    );
+    expect(capturedPlatform).toBe("perplexity");
+  });
+
   it("offset=0 alone is chunk mode (bypasses guard); limit=undefined means 'to the end'", async () => {
     const sync = mkSyncSpies();
     const adapterSpy = vi.fn(async (platform: string) =>
