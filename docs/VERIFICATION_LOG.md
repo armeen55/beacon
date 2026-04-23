@@ -7,6 +7,45 @@
 
 ---
 
+## 2026-04-24 — Phase v5 "Prompt Decision Surface v1", Commits 1–5
+
+**Framing:** Phase v4 answered "can I trust this data?" Phase v5 answers "where are my opportunities, specifically?" The prompt is Beacon's product atom; /prompts is the first operator surface that treats it that way.
+
+**Commits (in order, with sha and one-line)**
+
+| Commit | SHA | Description |
+|---|---|---|
+| 1 | `50110ad` | Opportunity classifier + decision-matrix aggregator (pure). 5 state-shaped categories: Outranked / Absent / Close / Winning / Early. Cluster detection by geo + topic when ≥3 weak prompts share a label. 19 unit tests. |
+| 2 | `67c3588` | `/prompts` decision list view. Grouped-by-opportunity sections, cluster notes in section headers, one-line decision reasoning per row, drilldown links. No tables, no filter chrome, no visible scoring numbers. Sidebar nav adds "Prompts" between Today and Changes. 2 route smoke tests. |
+| 3 | `4db3a31` | `/prompts/[id]` drilldown. Top block = category dot + rich "so what" sentence (classifier reasoning + likely-action suffix) + prompt text + topic/geo/cluster tags. Six evidence sections in decision-proximity order: platform split → competitor leaderboard → descriptor cloud → dominant-structure callout → raw-evidence expanders. 8 aggregator tests + 2 route smokes. |
+| 4 | `f703624` | `/settings/prompts` minimum-viable management hub. Active/inactive list, toggle server action, "Add prompt" form with text + topic + geo + platforms. Settings tab wired. No inline editing, no bulk ops, no tenant picker. 1 route smoke. |
+| 5 | `<this commit>` | Today prompts teaser — small card between enrichment badges and the freshness banner. Renders per-category counts + a one-line summary sentence ("Winning 42, weak on 52 · 6 close to breaking through") + "View →" link to /prompts. Uses the same aggregator the /prompts route uses; no extra Supabase round-trip. 6 sentence-builder tests. |
+
+**Live Ritz data sanity check (2026-04-24):**
+```
+OUTRANKED  · 11 prompts — 3 cluster to Whole Home Renovation Builders (Bay Area)
+ABSENT     · 41 prompts — 8 cluster to Custom Home Builder Bay Area · 5 cluster to Luxury Home Builder
+CLOSE      ·  6 prompts
+WINNING    · 42 prompts
+EARLY      ·  0 prompts
+```
+Concrete product pattern the matrix surfaced: **Ritz owns teardown-rebuild intent (3 of 3 primary on multiple prompts); Ritz is invisible or outranked on renovation intent.** Geo clusters detected: Atherton (10), Menlo Park (9), Cupertino (8), Los Altos (8), Palo Alto (6). Topic clusters detected: 11, most concentrated in Custom Home Builder Bay Area (8) and Luxury Home Builder Bay Area (5).
+
+**Gate (end of Phase v5, after Commit 5):**
+- `npm run typecheck` ✓
+- `npm run test`: 1384 passing, 10 pre-existing failures unchanged.
+- `npm run build` ✓. Routes added: `/prompts` (static), `/prompts/[id]` (dynamic), `/settings/prompts` (static).
+
+**What's now actually usable:**
+- `/prompts` = daily decision surface. Groups prompts by opportunity. Cluster notes call out systemic weaknesses.
+- `/prompts/[id]` = per-prompt decision drilldown. "So what" at top. Evidence in decreasing decision-proximity.
+- `/settings/prompts` = add/toggle management.
+- Today carries a teaser card pointing into `/prompts` with one-line summary.
+
+**Next:** Phase v6 — recommendation/intelligence layer grounded on the v5 substrate (scored expected-upside per opportunity; tied to the prompt-decision groundwork that just landed).
+
+---
+
 ## 2026-04-24 — "Replace Profound in 2 weeks" Phase v4, Commits 1–4
 
 **Source plan:** `/Users/armeen/.claude/plans/you-are-taking-over-floofy-giraffe.md` (v4). Two parallel tracks: Track A (product replacement — truth surfaces, reliability) and Track B (evidence compounding — schema depth, extraction).

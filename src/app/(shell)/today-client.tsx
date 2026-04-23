@@ -21,6 +21,7 @@ import { PollHealthBlock } from "@/components/today/poll-health-block";
 import type { PollHealthSnapshot } from "@/domains/observations/poll-health";
 import { EnrichmentBadges } from "@/components/today/enrichment-badges";
 import type { EnrichmentRollup } from "@/domains/prompt-answer-observations/enrichment-rollup";
+import { PromptsTeaser, type PromptsTeaserSummary } from "@/components/today/prompts-teaser";
 import { ActionCard, type ActionCardAction } from "@/components/today/action-card";
 import { MorningBrief } from "@/components/today/morning-brief";
 import type { MorningBriefData } from "@/domains/product/morning-brief";
@@ -166,6 +167,7 @@ export function TodayClient({
   urlVerdictProof = null,
   pollHealth = null,
   enrichmentRollup = null,
+  promptsTeaser = null,
 }: {
   isDemoMode?: boolean;
   scanPhaseFailed?: boolean;
@@ -225,6 +227,10 @@ export function TodayClient({
    *  descriptor chip cloud, answer-structure mix. Null when today (and
    *  yesterday) has no native observations yet. */
   enrichmentRollup?: EnrichmentRollup | null;
+  /** Phase v5 Commit 5 (2026-04-24): per-category prompt-decision summary
+   *  pointing into /prompts. Small teaser card, not a mini dashboard.
+   *  Null when no active prompts. */
+  promptsTeaser?: PromptsTeaserSummary | null;
 }) {
   const [pending, startTransition] = useTransition();
   const [actionMsg, setActionMsg] = useState<string | null>(null);
@@ -351,6 +357,12 @@ export function TodayClient({
           answer-structure mix). Renders null when no native observations
           landed today or yesterday. */}
       {enrichmentRollup && <EnrichmentBadges rollup={enrichmentRollup} />}
+
+      {/* Phase v5 Commit 5 (2026-04-24): prompts decision teaser. Points into
+          /prompts with per-category counts + a one-line summary sentence.
+          Not a mini dashboard — reads category counts in <2 seconds then
+          links out. */}
+      {promptsTeaser && <PromptsTeaser summary={promptsTeaser} />}
 
       {/* Phase 3.5F (2026-04-22): freshness banner. Renders only when the
           most recent AI-answer observation is 3+ days old. Reads as "known

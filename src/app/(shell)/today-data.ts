@@ -75,6 +75,8 @@ import {
   buildEnrichmentRollup,
   type EnrichmentRollup,
 } from "@/domains/prompt-answer-observations/enrichment-rollup";
+import { buildPromptDecisionMatrix } from "@/domains/prompts/decision-matrix";
+import type { PromptsTeaserSummary } from "@/components/today/prompts-teaser";
 import { primaryVisibilityRunForResults } from "@/domains/observations/visibility-context";
 import { loadCompetitorUniverseRuntime } from "@/domains/competitors/universe-read";
 import { buildTodayCompetitorLine } from "@/domains/competitors/today-competitor-line";
@@ -245,6 +247,31 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
   } catch (err) {
     console.error("Today enrichment rollup failed:", err);
     enrichmentRollup = null;
+  }
+
+  // Phase v5 Commit 5 (2026-04-24): prompts decision teaser — tiny card that
+  // points into /prompts with category counts + a one-line summary sentence.
+  // Uses the same aggregator /prompts uses; no Supabase round-trip of its
+  // own. Defensive null fallback when something's off.
+  let promptsTeaser: PromptsTeaserSummary | null = null;
+  try {
+    const { trackedPrompts, trackedEntities, promptAnswerObservations } =
+      await import("@/storage/canonical-store");
+    const matrix = buildPromptDecisionMatrix({
+      prompts: trackedPrompts,
+      observations: promptAnswerObservations,
+      activeEntities: trackedEntities,
+      now: new Date(),
+    });
+    if (matrix.prompts.length > 0) {
+      promptsTeaser = {
+        totalPrompts: matrix.prompts.length,
+        groupSummaries: matrix.groupSummaries,
+      };
+    }
+  } catch (err) {
+    console.error("Today prompts teaser failed:", err);
+    promptsTeaser = null;
   }
 
   // Same signal as shell `isDemoMode` (Phase 2A): no import runs ⇒ sample seed data, not operator briefing.
@@ -1973,6 +2000,7 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
       : null,
     pollHealth,
     enrichmentRollup,
+    promptsTeaser,
   };
 }
 
