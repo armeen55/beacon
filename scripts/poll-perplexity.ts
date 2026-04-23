@@ -45,10 +45,14 @@ import {
   syncPromptAnswerObservations,
   syncAnswerTexts,
   syncObservationRuns,
+  syncDailyMetricSnapshots,
   isDualWriteEnabled,
 } from "../src/lib/persistence/dual-write";
 import { getSupabaseAdmin } from "../src/lib/persistence/supabase";
 import { getRepository } from "../src/lib/persistence/repositories";
+import { buildDailySnapshotsFromObservations } from "../src/domains/daily-metric-snapshots/build-from-observations";
+import type { PromptAnswerObservation } from "../src/domains/prompt-answer-observations/types";
+import type { ObservationRun } from "../src/domains/observations/types";
 
 // ── CLI args ──
 const args = process.argv.slice(2);
@@ -67,13 +71,21 @@ const tenantId =
 const limitRaw = getArg("--limit");
 const limit = limitRaw ? Math.max(1, parseInt(limitRaw, 10)) : undefined;
 const isDryRun = args.includes("--dry-run");
+/**
+ * Backfill-only mode: re-derive daily_metric_snapshots from an existing
+ * observation run (read from Supabase), without calling Perplexity again.
+ * Use for cheap replay — e.g., re-deriving after the helper gains fields.
+ */
+const fromRunId = getArg("--from-run");
+const PLATFORM_LABEL = "Perplexity";
 
 async function main() {
   console.log("─── Beacon · Native Perplexity Poll ───\n");
 
-  // Preflight: required env
+  // Preflight: required env (PERPLEXITY_API_KEY skipped in --from-run mode)
   const missing: string[] = [];
-  if (!process.env.PERPLEXITY_API_KEY) missing.push("PERPLEXITY_API_KEY");
+  if (!fromRunId && !process.env.PERPLEXITY_API_KEY)
+    missing.push("PERPLEXITY_API_KEY");
   if (!process.env.NEXT_PUBLIC_SUPABASE_URL)
     missing.push("NEXT_PUBLIC_SUPABASE_URL");
   if (!process.env.SUPABASE_SERVICE_ROLE_KEY)
@@ -94,10 +106,21 @@ async function main() {
     process.exit(1);
   }
 
+  const mode = isDryRun
+    ? "DRY RUN (no writes)"
+    : fromRunId
+      ? `BACKFILL (re-derive snapshots from run ${fromRunId} — no Perplexity calls)`
+      : "LIVE";
   console.log(`Tenant: ${tenantId}`);
   console.log(`Limit:  ${limit ?? "none (all active + perplexity-scoped prompts)"}`);
-  console.log(`Mode:   ${isDryRun ? "DRY RUN (no writes)" : "LIVE"}`);
+  console.log(`Mode:   ${mode}`);
   console.log();
+
+  // BACKFILL: skip poll, read observations from DB, re-derive snapshots.
+  if (fromRunId) {
+    await runBackfillMode(fromRunId);
+    return;
+  }
 
   // DRY RUN: preview prompts without calling Perplexity (saves API cost).
   if (isDryRun) {
@@ -148,6 +171,14 @@ async function main() {
   console.log(`  ✓ prompt_answer_observations: ${result.observations.length} rows`);
   await syncAnswerTexts(result.answerTexts);
   console.log(`  ✓ answer_texts:               ${Object.keys(result.answerTexts).length} rows`);
+
+  // Derive + write daily snapshots (Phase 2 Step 2 — native data now feeds
+  // the derived per-entity/per-platform product layer).
+  const snapshotCount = await deriveAndSyncSnapshots({
+    observations: result.observations,
+    observationRun: result.observationRun,
+  });
+  console.log(`  ✓ daily_metric_snapshots:     ${snapshotCount} rows (derived)`);
   console.log();
 
   // Row counts AFTER
@@ -164,6 +195,115 @@ async function main() {
   console.log(`Estimated cost: ~$${estCost} (Perplexity sonar @ ~$0.005/query)`);
   console.log();
   console.log("Done. Reload /today to verify freshness banner clears.");
+}
+
+/**
+ * Derive daily_metric_snapshots rows from a run's observations and sync them.
+ * Idempotent — deterministic IDs upsert in place on re-runs.
+ */
+async function deriveAndSyncSnapshots(input: {
+  observations: PromptAnswerObservation[];
+  observationRun: ObservationRun;
+}): Promise<number> {
+  const trackedEntities = await getRepository().getTrackedEntities();
+  const date = input.observationRun.completed_at.slice(0, 10); // YYYY-MM-DD
+  const snapshots = buildDailySnapshotsFromObservations({
+    tenantId,
+    platform: PLATFORM_LABEL,
+    observations: input.observations,
+    trackedEntities,
+    date,
+    observationRunId: input.observationRun.run_id,
+  });
+  await syncDailyMetricSnapshots(snapshots);
+  return snapshots.length;
+}
+
+/**
+ * Backfill mode: re-derive + write daily_metric_snapshots for a previously
+ * persisted observation run. Reads observations + run row directly from
+ * Supabase (no Perplexity API call, no cost). Useful when the snapshot shape
+ * or helper logic changes and we want to replay without re-polling.
+ */
+async function runBackfillMode(runId: string): Promise<void> {
+  const sb = getSupabaseAdmin();
+
+  // Load the observation run row
+  const { data: runRow, error: runErr } = await sb
+    .from("observation_runs")
+    .select("*")
+    .eq("run_id", runId)
+    .single();
+  if (runErr || !runRow) {
+    console.error(
+      `ERROR: observation_runs run_id='${runId}' not found.${runErr ? ` ${runErr.message}` : ""}`,
+    );
+    process.exit(1);
+  }
+
+  // Load the run's observations (tenant-filtered for safety)
+  const { data: obsRows, error: obsErr } = await sb
+    .from("prompt_answer_observations")
+    .select("*")
+    .eq("run_id", runId)
+    .eq("tenant_id", tenantId)
+    .limit(10000);
+  if (obsErr) {
+    console.error(`ERROR reading observations: ${obsErr.message}`);
+    process.exit(1);
+  }
+  const observations = (obsRows ?? []) as PromptAnswerObservation[];
+  const observationRun: ObservationRun = {
+    // DB row → ObservationRun. tenant_id column doesn't exist in the table;
+    // we inject the CLI-provided tenantId so the helper's row provenance is
+    // correct. Other fields cast through.
+    ...(runRow as Omit<ObservationRun, "tenant_id">),
+    tenant_id: tenantId,
+  };
+
+  console.log(
+    `Loaded run: ${observationRun.run_id}\n` +
+      `  observations:  ${observations.length}\n` +
+      `  completed_at:  ${observationRun.completed_at}\n` +
+      `  status:        ${observationRun.status}\n`,
+  );
+
+  if (observations.length === 0) {
+    console.error(
+      `ERROR: run has 0 observations for tenant '${tenantId}' — nothing to derive.`,
+    );
+    process.exit(1);
+  }
+
+  // Count before
+  const beforeCount = await countSnapshotsFor(sb, observationRun.completed_at.slice(0, 10));
+  console.log(`Before: daily_metric_snapshots with source_type='derived' for ${observationRun.completed_at.slice(0, 10)} = ${beforeCount}`);
+
+  const snapshotCount = await deriveAndSyncSnapshots({
+    observations,
+    observationRun,
+  });
+
+  const afterCount = await countSnapshotsFor(sb, observationRun.completed_at.slice(0, 10));
+  console.log(`  ✓ daily_metric_snapshots: ${snapshotCount} rows written`);
+  console.log(
+    `After:  daily_metric_snapshots with source_type='derived' for ${observationRun.completed_at.slice(0, 10)} = ${afterCount}`,
+  );
+  console.log();
+  console.log("Done. No Perplexity API calls made. $0 cost.");
+}
+
+async function countSnapshotsFor(
+  sb: ReturnType<typeof getSupabaseAdmin>,
+  date: string,
+): Promise<number> {
+  const { count } = await sb
+    .from("daily_metric_snapshots")
+    .select("*", { count: "exact", head: true })
+    .eq("tenant_id", tenantId)
+    .eq("date", date)
+    .eq("source_type", "derived");
+  return count ?? 0;
 }
 
 type CountsSnapshot = {
