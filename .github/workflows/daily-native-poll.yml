@@ -1,0 +1,170 @@
+# ============================================================================
+#  Daily native AI-visibility poll (Hobby-safe orchestrator)
+# ============================================================================
+#
+#  Why this workflow exists (read this before editing):
+#
+#  Our hosted /api/poll/run endpoint on Vercel is capped at 300s (Hobby plan).
+#  A full 100-prompt poll per platform takes ~685s locally, so we chunk each
+#  platform into 4 calls of 25 prompts. That means we need 8 trigger events
+#  per day (4 chunks × 2 platforms).
+#
+#  Vercel Hobby cron supports up to 100 entries but each cron fires only
+#  once/day with hourly (±59 min) timing precision. Running 8 chunks via 8
+#  separate Hobby crons works technically but produces unreliable timing +
+#  fragmented observability. GitHub Actions gives us precise scheduling, one
+#  file of config, native retry via the Actions UI, and failure emails.
+#
+#  We burn ~960 GitHub Actions minutes/month (well under the 2,000 free).
+#  Escape hatch if we ever want to move back onto Vercel cron: Pro upgrade
+#  gives us unlimited minute-precise cron entries; this YAML maps to a
+#  vercel.json cron block in ~10 lines when the time comes.
+#
+#  Chunk semantics + idempotency:
+#
+#  - Each chunk call writes its own observation_run tagged with
+#    `chunk offset=N limit=25` in scope_label.
+#  - runNativePoll dedupes same-chunk retries within a 15-min window
+#    (Phase 5 Step 1.6). Accidental GitHub re-runs within that window are
+#    absorbed silently via status "skipped_chunk_recently_ran".
+#  - Snapshot derivation is cumulative-per-UTC-day; out-of-order or
+#    partial-day completion still produces correct daily_metric_snapshots.
+#
+#  Required repo secrets (Settings → Secrets and variables → Actions):
+#    BEACON_URL    e.g. https://beacon-bice.vercel.app
+#    CRON_SECRET   same value as the Vercel env var
+#
+#  Ops workflow:
+#    - Scheduled daily at 10:00 UTC (~3 AM PT summer / 2 AM PT winter)
+#    - Failures → GitHub emails you; also visible in the Actions tab
+#    - Manual fire: Actions → "Daily native AI-visibility poll" → Run workflow
+#
+#  Future extensions (all single-YAML-file edits):
+#    - Platform 3 (Google/Gemini/Claude): add a third parallel job
+#    - N>1 multi-run sampling: add `matrix: run_index: [1, 2, 3]` to each job
+#    - Multi-tenant: parametrize tenantId or duplicate jobs per tenant
+# ============================================================================
+
+name: Daily native AI-visibility poll
+
+on:
+  schedule:
+    # 10:00 UTC daily = ~3 AM PT (PDT) / ~2 AM PT (PST). Low-traffic window.
+    - cron: "0 10 * * *"
+  # Manual trigger from the Actions tab. Use this to verify the flow once
+  # after first deploy, then let the schedule take over.
+  workflow_dispatch:
+
+# Prevent overlapping runs (e.g. if a previous day's workflow is still going
+# when the next daily schedule fires). Cancel the older run.
+concurrency:
+  group: daily-native-poll
+  cancel-in-progress: true
+
+jobs:
+  # --------------------------------------------------------------------------
+  # Perplexity — 4 sequential chunks of 25 prompts each (~170–260s per chunk)
+  # --------------------------------------------------------------------------
+  poll-perplexity:
+    name: Poll Perplexity (100 prompts, 4 chunks × 25)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30 # safety: any single chunk over 300s already failed
+    steps:
+      - name: Chunk 0 (offset 0, limit 25)
+        run: |
+          curl -sS -X POST "$BEACON_URL/api/poll/run" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            -H "Content-Type: application/json" \
+            -d '{"platform":"perplexity","tenantId":"tenant-ritz-founder","offset":0,"limit":25}' \
+            --max-time 320 --fail-with-body \
+            || echo "::warning title=Perplexity chunk 0 failed::continuing to chunk 1"
+        env:
+          BEACON_URL: ${{ secrets.BEACON_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+      - name: Chunk 1 (offset 25, limit 25)
+        run: |
+          curl -sS -X POST "$BEACON_URL/api/poll/run" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            -H "Content-Type: application/json" \
+            -d '{"platform":"perplexity","tenantId":"tenant-ritz-founder","offset":25,"limit":25}' \
+            --max-time 320 --fail-with-body \
+            || echo "::warning title=Perplexity chunk 1 failed::continuing to chunk 2"
+        env:
+          BEACON_URL: ${{ secrets.BEACON_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+      - name: Chunk 2 (offset 50, limit 25)
+        run: |
+          curl -sS -X POST "$BEACON_URL/api/poll/run" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            -H "Content-Type: application/json" \
+            -d '{"platform":"perplexity","tenantId":"tenant-ritz-founder","offset":50,"limit":25}' \
+            --max-time 320 --fail-with-body \
+            || echo "::warning title=Perplexity chunk 2 failed::continuing to chunk 3"
+        env:
+          BEACON_URL: ${{ secrets.BEACON_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+      - name: Chunk 3 (offset 75, limit 25)
+        run: |
+          curl -sS -X POST "$BEACON_URL/api/poll/run" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            -H "Content-Type: application/json" \
+            -d '{"platform":"perplexity","tenantId":"tenant-ritz-founder","offset":75,"limit":25}' \
+            --max-time 320 --fail-with-body \
+            || echo "::warning title=Perplexity chunk 3 failed::job done"
+        env:
+          BEACON_URL: ${{ secrets.BEACON_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+
+  # --------------------------------------------------------------------------
+  # ChatGPT (OpenAI) — 4 sequential chunks of 25 prompts each
+  # Runs in parallel with Perplexity (separate job).
+  # --------------------------------------------------------------------------
+  poll-openai:
+    name: Poll ChatGPT (100 prompts, 4 chunks × 25)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Chunk 0 (offset 0, limit 25)
+        run: |
+          curl -sS -X POST "$BEACON_URL/api/poll/run" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            -H "Content-Type: application/json" \
+            -d '{"platform":"openai","tenantId":"tenant-ritz-founder","offset":0,"limit":25}' \
+            --max-time 320 --fail-with-body \
+            || echo "::warning title=ChatGPT chunk 0 failed::continuing to chunk 1"
+        env:
+          BEACON_URL: ${{ secrets.BEACON_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+      - name: Chunk 1 (offset 25, limit 25)
+        run: |
+          curl -sS -X POST "$BEACON_URL/api/poll/run" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            -H "Content-Type: application/json" \
+            -d '{"platform":"openai","tenantId":"tenant-ritz-founder","offset":25,"limit":25}' \
+            --max-time 320 --fail-with-body \
+            || echo "::warning title=ChatGPT chunk 1 failed::continuing to chunk 2"
+        env:
+          BEACON_URL: ${{ secrets.BEACON_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+      - name: Chunk 2 (offset 50, limit 25)
+        run: |
+          curl -sS -X POST "$BEACON_URL/api/poll/run" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            -H "Content-Type: application/json" \
+            -d '{"platform":"openai","tenantId":"tenant-ritz-founder","offset":50,"limit":25}' \
+            --max-time 320 --fail-with-body \
+            || echo "::warning title=ChatGPT chunk 2 failed::continuing to chunk 3"
+        env:
+          BEACON_URL: ${{ secrets.BEACON_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+      - name: Chunk 3 (offset 75, limit 25)
+        run: |
+          curl -sS -X POST "$BEACON_URL/api/poll/run" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            -H "Content-Type: application/json" \
+            -d '{"platform":"openai","tenantId":"tenant-ritz-founder","offset":75,"limit":25}' \
+            --max-time 320 --fail-with-body \
+            || echo "::warning title=ChatGPT chunk 3 failed::job done"
+        env:
+          BEACON_URL: ${{ secrets.BEACON_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
