@@ -19,6 +19,8 @@ import { TodayActionQueue, type FindingsStripData } from "@/components/today/tod
 import { SinceLastVisit } from "@/components/today/since-last-visit";
 import { PollHealthBlock } from "@/components/today/poll-health-block";
 import type { PollHealthSnapshot } from "@/domains/observations/poll-health";
+import { EnrichmentBadges } from "@/components/today/enrichment-badges";
+import type { EnrichmentRollup } from "@/domains/prompt-answer-observations/enrichment-rollup";
 import { ActionCard, type ActionCardAction } from "@/components/today/action-card";
 import { MorningBrief } from "@/components/today/morning-brief";
 import type { MorningBriefData } from "@/domains/product/morning-brief";
@@ -163,6 +165,7 @@ export function TodayClient({
   visibilityData = null,
   urlVerdictProof = null,
   pollHealth = null,
+  enrichmentRollup = null,
 }: {
   isDemoMode?: boolean;
   scanPhaseFailed?: boolean;
@@ -217,6 +220,11 @@ export function TodayClient({
    *  the Supabase fetch failed at render-time (defensive — don't block Today
    *  on poll-health availability). */
   pollHealth?: PollHealthSnapshot | null;
+  /** Commit 7C (2026-04-24): schema v2+v2.1 extraction rolled up as
+   *  per-platform primary-recommendation rate, avg citation rank,
+   *  descriptor chip cloud, answer-structure mix. Null when today (and
+   *  yesterday) has no native observations yet. */
+  enrichmentRollup?: EnrichmentRollup | null;
 }) {
   const [pending, startTransition] = useTransition();
   const [actionMsg, setActionMsg] = useState<string | null>(null);
@@ -337,6 +345,12 @@ export function TodayClient({
           missing from Vercel env); this block + the 10:45 UTC canary workflow
           make that kind of failure visible instead of silent. */}
       {pollHealth && <PollHealthBlock snapshot={pollHealth} />}
+
+      {/* Commit 7C (2026-04-24): today's AI-extracted brand-position signal
+          (primary-recommendation rate, avg citation rank, descriptor chips,
+          answer-structure mix). Renders null when no native observations
+          landed today or yesterday. */}
+      {enrichmentRollup && <EnrichmentBadges rollup={enrichmentRollup} />}
 
       {/* Phase 3.5F (2026-04-22): freshness banner. Renders only when the
           most recent AI-answer observation is 3+ days old. Reads as "known

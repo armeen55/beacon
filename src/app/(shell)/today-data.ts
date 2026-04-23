@@ -71,6 +71,10 @@ import {
   fetchTodayDerivedKpis,
   type TodayDerivedKpis,
 } from "@/domains/daily-metric-snapshots/today-kpis";
+import {
+  buildEnrichmentRollup,
+  type EnrichmentRollup,
+} from "@/domains/prompt-answer-observations/enrichment-rollup";
 import { primaryVisibilityRunForResults } from "@/domains/observations/visibility-context";
 import { loadCompetitorUniverseRuntime } from "@/domains/competitors/universe-read";
 import { buildTodayCompetitorLine } from "@/domains/competitors/today-competitor-line";
@@ -213,6 +217,34 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
   } catch (err) {
     console.error("Today derived KPI fetch failed:", err);
     todayKpis = null;
+  }
+
+  // Commit 7C (2026-04-24): roll up today's native observations into
+  // extraction-v1/v2 badges. Reads from the already-seeded
+  // promptAnswerObservations canonical store (no extra Supabase round-trip).
+  // Renders nothing when rollup is null or totalObservations=0.
+  let enrichmentRollup: EnrichmentRollup | null = null;
+  try {
+    const { promptAnswerObservations } = await import("@/storage/canonical-store");
+    enrichmentRollup = buildEnrichmentRollup({
+      observations: promptAnswerObservations,
+      date: todayISOUtc(),
+    });
+    if (enrichmentRollup.totalObservations === 0) {
+      // Fall back to yesterday (mirrors today-kpis fallback behavior) so
+      // a pre-cron /today load still surfaces the latest native signal.
+      const yesterdayISO = new Date(Date.now() - 86_400_000)
+        .toISOString()
+        .slice(0, 10);
+      const fallback = buildEnrichmentRollup({
+        observations: promptAnswerObservations,
+        date: yesterdayISO,
+      });
+      if (fallback.totalObservations > 0) enrichmentRollup = fallback;
+    }
+  } catch (err) {
+    console.error("Today enrichment rollup failed:", err);
+    enrichmentRollup = null;
   }
 
   // Same signal as shell `isDemoMode` (Phase 2A): no import runs ⇒ sample seed data, not operator briefing.
@@ -1940,6 +1972,7 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
         })()
       : null,
     pollHealth,
+    enrichmentRollup,
   };
 }
 
