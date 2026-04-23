@@ -35,4 +35,30 @@ export type PromptAnswerObservation = {
   metadata: Record<string, unknown>;
   /** Owning tenant. */
   tenant_id: string;
+  /**
+   * Schema v2 Commit 3 (2026-04-24) — must-have-now extraction fields.
+   * Deterministically extracted from answer text + citations (no LLM).
+   * All three are nullable: populated by Commit 4's adapter extraction and
+   * backfill script. Older rows (pre-Apr-22, Profound-era imports where
+   * answer_text isn't stored) stay null forever.
+   */
+  /**
+   * Character offset of the first brand mention in answer_text.
+   * Null when the brand is not mentioned. Correlates strongly with
+   * recommendation strength — early mention ≠ buried mention.
+   */
+  mention_position?: number | null;
+  /**
+   * 1-indexed position of the owned domain in the citations list.
+   * Null when the brand is not cited. Profound does not capture this
+   * at all — #1-cited vs #8-cited is dramatically different signal.
+   */
+  citation_rank?: number | null;
+  /**
+   * Heuristic: brand mentioned AND first mention is in the first 20% of
+   * answer text AND brand is one of the first 2 distinct entities by
+   * order of appearance. Captures "Beacon is THE answer" vs "also
+   * mentioned" — the single most sellable-to-customers signal.
+   */
+  primary_recommendation?: boolean | null;
 };
