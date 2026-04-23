@@ -95,8 +95,8 @@ export function TodayPrimaryAction({
         {truthDataSecondary ? (
           <p className="text-[10px] text-muted-foreground leading-snug mb-3 pb-2 border-b border-border/35">
             {visibilityImportDeferred
-              ? "Visibility results are behind the crawl — import a fresh visibility export before accepting this recommendation."
-              : "Crawl or coverage is limiting how much to trust recommendations — refresh data first when you can. This stays here for when you are ready."}
+              ? "Visibility data is behind the latest scan — wait for a fresh poll before accepting this recommendation."
+              : "Data is incomplete — refresh when you can. This recommendation stays here for when you're ready."}
           </p>
         ) : null}
         <div className="flex items-center gap-2 mb-3">

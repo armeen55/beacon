@@ -13,7 +13,7 @@ import { saveExitGateNote, setExitGateStatus } from "./actions";
 const LABEL: Record<ExitGateKey, string> = {
   daily_ritual: "Daily Ritual",
   replication: "Replication",
-  local_layer: "Local layer (Track 1.4)",
+  local_layer: "Local layer",
 };
 
 /** Static operator checklist for the Local layer sign-off — not persisted. */

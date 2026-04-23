@@ -364,11 +364,8 @@ export function TodayClient({
           <span className="font-medium text-foreground">
             {todayFreshness.lastObservationDate}
           </span>
-          . Import a newer Profound CSV in{" "}
-          <Link href="/settings/import" className="underline underline-offset-2 hover:text-foreground">
-            Settings → Import
-          </Link>{" "}
-          to extend.
+          . The daily poll cron hasn&apos;t landed a newer observation — check
+          the poll-health strip at the top of Today if this persists.
         </div>
       )}
 

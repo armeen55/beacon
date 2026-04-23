@@ -104,7 +104,7 @@ export default function ImportPage() {
     <div className="max-w-3xl">
       <PageHeader
         title="Import"
-        description="Canonical path: place Profound-style CSVs on the server under .data/ with the required filenames, then run the batch importer. Native ingestion will feed the same stores via API — no UI change to Today when that lands."
+        description="Place historical citation CSVs on the server under .data/ and run the batch importer. Native polls run automatically on their daily schedule and feed the same stores — this page is for backfilling or replacing legacy exports."
       />
 
       <p className="text-sm text-muted-foreground mb-6">
@@ -164,10 +164,10 @@ export default function ImportPage() {
       <div className="rounded-lg border-2 border-border/70 bg-surface-raised/30 p-6 mb-6 space-y-4">
         <div className="flex items-center gap-2">
           <Upload className="h-5 w-5 text-accent-primary" />
-          <h2 className="text-[15px] font-semibold">Batch import (Profound-shaped CSVs)</h2>
+          <h2 className="text-[15px] font-semibold">Batch import — historical citation CSVs</h2>
         </div>
         <p className="text-[12px] text-muted-foreground leading-relaxed">
-          Place any Profound-shaped <code className="text-[11px] bg-muted px-1 rounded">*.csv</code> in{" "}
+          Place any <code className="text-[11px] bg-muted px-1 rounded">*.csv</code> with the expected headers in{" "}
           <code className="text-[11px] bg-muted px-1 rounded">.data/</code> (top level). The importer{" "}
           <span className="font-medium text-foreground">detects file type from CSV headers</span> — filenames are irrelevant.
           Multiple files of the same type are <span className="font-medium text-foreground">merged</span> (stable keys: prompt id, observation{" "}
@@ -324,7 +324,7 @@ export default function ImportPage() {
         {advancedOpen && (
           <div className="space-y-8 mt-6">
             <p className="text-[12px] text-muted-foreground">
-              Profound batch import lives in the main section above. Advanced is for manual entity paste, reset, and the import log table.
+              The historical-CSV batch import lives in the main section above. Advanced is for manual entity paste, reset, and the import log table.
             </p>
 
             {/* Manual Import */}
@@ -356,7 +356,7 @@ export default function ImportPage() {
               {entityType === "reviews" && (
                 <div className="rounded-md border border-border/60 bg-surface-raised/40 px-4 py-3 text-[12px] text-muted-foreground leading-relaxed">
                   <span className="font-medium text-foreground">Local reviews</span> — paste CSV or JSON you exported
-                  yourself (e.g. from Google Business Profile or Yelp). Separate from the Profound batch section above. Required: <span className="font-mono">id, source, rating, created_at</span>.
+                  yourself (e.g. from Google Business Profile or Yelp). Separate from the historical-citation batch section above. Required: <span className="font-mono">id, source, rating, created_at</span>.
                 </div>
               )}
 

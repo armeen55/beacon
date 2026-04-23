@@ -107,7 +107,7 @@ export default async function ChangesTruthPage() {
 
       <div className="mb-5 rounded-lg border border-accent-primary/30 bg-accent-primary/[0.04] px-4 py-3">
         <p className="text-[12px] font-semibold text-foreground">
-          Phase 0 preview · feature-flagged · read-only
+          Event-level attribution view (optional, read-only)
         </p>
         <p className="text-[11px] text-muted-foreground mt-1 leading-relaxed">
           One verdict per event instead of one per edit. The 23 same-day edits

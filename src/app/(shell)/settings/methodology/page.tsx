@@ -79,7 +79,7 @@ export default function MethodologyPage() {
           Under <span className="font-medium text-foreground">Settings → Sign-offs</span>, Beacon
           stores a lightweight <span className="font-medium text-foreground">readiness review</span>{" "}
           for Daily Ritual, Replication, and the <span className="font-medium text-foreground">Local layer</span>{" "}
-          (Track 1.4 — the Local route, connectors, NAP, listing health, listing completeness, Today/Market local
+          (the Local route, connectors, NAP, listing health, listing completeness, Today/Market local
           strips). These fields record internal operator sign-off state — not performance. They{" "}
           <span className="font-medium text-foreground">do not</span> change scores, findings, attribution,
           recommendations, proof logic, freshness labels, or underlying metrics. They only record a

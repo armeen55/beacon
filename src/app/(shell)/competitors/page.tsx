@@ -757,7 +757,7 @@ export default async function CompetitorsPage() {
         <div className="rounded-lg border border-status-warning/25 bg-status-warning/[0.06] px-4 py-4">
           <p className="text-[13px] text-foreground font-medium mb-1">No citation evidence yet</p>
           <p className="text-[12px] text-muted-foreground leading-relaxed">
-            Competitive ranking needs imported citation data. Bring Profound (or equivalent) into Beacon to populate this view.
+            Competitive ranking needs citation evidence. Run a poll or import a historical citation CSV to populate this view.
           </p>
           <Link
             href="/settings/import"

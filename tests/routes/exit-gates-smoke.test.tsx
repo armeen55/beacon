@@ -26,7 +26,7 @@ describe("Exit gates settings route smoke", () => {
     expect(html).toContain("freshness states");
     expect(html).toContain("Daily Ritual");
     expect(html).toContain("Replication");
-    expect(html).toContain("Local layer (Track 1.4)");
+    expect(html).toContain("Local layer");
     expect(html).toContain("Review checklist");
     expect(html).toContain("Per-source timestamps are understandable");
     expect(html).toContain("Mark in review");
