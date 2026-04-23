@@ -40,6 +40,7 @@ import { buildDailySnapshotsFromObservations as realBuildSnaps } from "@/domains
 import { getRepository } from "@/lib/persistence/repositories";
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import type { TrackedEntity } from "@/domains/tracked-entities/types";
+import type { PromptAnswerObservation } from "@/domains/prompt-answer-observations/types";
 
 export type NativePollPlatform = "perplexity" | "openai";
 
@@ -53,7 +54,22 @@ export type NativePollResult = {
   status: NativePollStatus;
   runId: string | null;
   platform: NativePollPlatform;
+  /**
+   * What slice of the prompt list this invocation targeted. For full-run
+   * calls, offset=0, limit=null, promptsPolled = total eligible prompts.
+   * For chunked calls, offset/limit reflect the requested window.
+   */
+  chunk: {
+    offset: number;
+    limit: number | null;
+    promptsPolled: number;
+  };
   observationsWritten: number;
+  /**
+   * Count of daily_metric_snapshots rows derived on this call. For chunked
+   * calls this reflects the CUMULATIVE derivation for the whole day (all
+   * chunks so far), not just this chunk.
+   */
   snapshotsWritten: number;
   errorCount: number;
   costEstimateUsd: number;
@@ -64,7 +80,16 @@ export type NativePollResult = {
 export type RunNativePollArgs = {
   tenantId: string;
   platform: NativePollPlatform;
-  /** Bypass the 20-hour budget guard. Defaults to false. */
+  /**
+   * Chunk window start (skip first N eligible prompts). Defaults to 0.
+   * Setting offset OR limit activates chunk mode: budget guard is bypassed
+   * and snapshot derivation reads all of today's observations (cumulative)
+   * instead of just this chunk's.
+   */
+  offset?: number;
+  /** Chunk window size (max prompts to poll from `offset`). */
+  limit?: number;
+  /** Bypass the 20-hour budget guard. Defaults to false. Implicit in chunk mode. */
   force?: boolean;
 };
 
@@ -73,6 +98,7 @@ export type RunNativePollDeps = {
   runAdapter?: (
     platform: NativePollPlatform,
     tenantId: string,
+    chunk: { offset?: number; limit?: number },
   ) => Promise<PerplexityPollResult>;
   /** Budget guard. Returns true if a completed run for `source` exists in the last 20h. */
   hasRecentCompletedRun?: (source: string) => Promise<boolean>;
@@ -84,6 +110,16 @@ export type RunNativePollDeps = {
   /** Snapshot derivation + entity fetcher. */
   buildDailySnapshotsFromObservations?: typeof realBuildSnaps;
   getTrackedEntities?: () => Promise<TrackedEntity[]>;
+  /**
+   * Load all observations for (tenant, platform, UTC date). Used in chunk mode
+   * to cumulatively derive day-level snapshots across chunks. Default queries
+   * Supabase directly.
+   */
+  getObservationsForDay?: (args: {
+    tenantId: string;
+    platform: string; // lowercase observation-level label
+    date: string; // YYYY-MM-DD (UTC)
+  }) => Promise<PromptAnswerObservation[]>;
 };
 
 // ── Platform-specific metadata ───────────────────────────────────────
@@ -123,27 +159,44 @@ export async function runNativePoll(
   const getEntities =
     deps.getTrackedEntities ??
     (async () => getRepository().getTrackedEntities());
+  const getDayObs =
+    deps.getObservationsForDay ?? defaultGetObservationsForDay;
+
+  const isChunked = args.offset !== undefined || args.limit !== undefined;
+  const chunkOffset = args.offset ?? 0;
+  const chunkLimit = args.limit ?? null;
 
   // ── Budget guard ────────────────────────────────────────────────────
-  if (!force) {
+  // Chunked calls bypass the guard unconditionally: the caller is explicitly
+  // orchestrating chunks back-to-back, and the first chunk's completed run
+  // would otherwise block the second.
+  if (!force && !isChunked) {
     const recent = await hasRecentRun(source);
     if (recent) {
       return {
         status: "skipped_already_ran_today",
         runId: null,
         platform,
+        chunk: {
+          offset: chunkOffset,
+          limit: chunkLimit,
+          promptsPolled: 0,
+        },
         observationsWritten: 0,
         snapshotsWritten: 0,
         errorCount: 0,
         costEstimateUsd: 0,
         completedAt: null,
-        note: `A completed ${source} run already landed within the last 20 hours. Pass force=true to bypass.`,
+        note: `A completed ${source} run already landed within the last 20 hours. Pass force=true to bypass (or use chunk mode, which implicitly bypasses).`,
       };
     }
   }
 
   // ── Run the poll ────────────────────────────────────────────────────
-  const result = await runAdapter(platform, tenantId);
+  const result = await runAdapter(platform, tenantId, {
+    offset: args.offset,
+    limit: args.limit,
+  });
   const run = result.observationRun;
 
   // ── Sync raw artifacts ──────────────────────────────────────────────
@@ -152,12 +205,23 @@ export async function runNativePoll(
   await syncTexts(result.answerTexts);
 
   // ── Derive + sync daily snapshots ───────────────────────────────────
+  // Chunk mode: derive from ALL of today's observations for this tenant +
+  // platform, not just this chunk's. This way chunk 1 sees 25 obs, chunk 2
+  // sees 50 obs (accumulated), etc. Resulting snapshot always reflects
+  // current-day truth regardless of which chunks have completed.
+  //
+  // Non-chunk mode: keep the original behavior (derive from just this run).
+  // Full-run callers see identical semantics to pre-Step-1.5.
   const entities = await getEntities();
   const date = run.completed_at.slice(0, 10); // YYYY-MM-DD (UTC)
+  const observationsForDerivation: PromptAnswerObservation[] = isChunked
+    ? await getDayObs({ tenantId, platform, date })
+    : result.observations;
+
   const snapshots = buildSnaps({
     tenantId,
     platform: platformLabel,
-    observations: result.observations,
+    observations: observationsForDerivation,
     trackedEntities: entities,
     date,
     observationRunId: run.run_id,
@@ -176,6 +240,11 @@ export async function runNativePoll(
     status,
     runId: run.run_id,
     platform,
+    chunk: {
+      offset: chunkOffset,
+      limit: chunkLimit,
+      promptsPolled: result.observations.length,
+    },
     observationsWritten: result.observations.length,
     snapshotsWritten: snapshots.length,
     errorCount: result.errorCount,
@@ -189,10 +258,47 @@ export async function runNativePoll(
 async function defaultRunAdapter(
   platform: NativePollPlatform,
   tenantId: string,
+  chunk: { offset?: number; limit?: number },
 ): Promise<PerplexityPollResult> {
-  if (platform === "perplexity") return pollPerplexityForTenant(tenantId);
-  if (platform === "openai") return pollOpenAIForTenant(tenantId);
+  if (platform === "perplexity")
+    return pollPerplexityForTenant(tenantId, {
+      offset: chunk.offset,
+      limit: chunk.limit,
+    });
+  if (platform === "openai")
+    return pollOpenAIForTenant(tenantId, {
+      offset: chunk.offset,
+      limit: chunk.limit,
+    });
   throw new Error(`Unknown native platform: ${platform}`);
+}
+
+async function defaultGetObservationsForDay(args: {
+  tenantId: string;
+  platform: string;
+  date: string;
+}): Promise<PromptAnswerObservation[]> {
+  const sb = getSupabaseAdmin();
+  const dayStart = `${args.date}T00:00:00.000Z`;
+  // [dayStart, nextDayStart) — exclusive upper bound avoids 23:59:59.999 edge
+  const [y, m, d] = args.date.split("-").map(Number);
+  const next = new Date(Date.UTC(y, (m ?? 1) - 1, (d ?? 1) + 1));
+  const nextDayStart = next.toISOString().slice(0, 10) + "T00:00:00.000Z";
+
+  const { data, error } = await sb
+    .from("prompt_answer_observations")
+    .select("*")
+    .eq("tenant_id", args.tenantId)
+    .eq("platform", args.platform)
+    .gte("observed_at", dayStart)
+    .lt("observed_at", nextDayStart)
+    .limit(10000);
+  if (error) {
+    throw new Error(
+      `getObservationsForDay query failed: ${error.message}`,
+    );
+  }
+  return (data ?? []) as PromptAnswerObservation[];
 }
 
 async function defaultHasRecentRun(source: string): Promise<boolean> {

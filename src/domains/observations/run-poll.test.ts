@@ -145,8 +145,19 @@ describe("runNativePoll", () => {
     expect(result.errorCount).toBe(0);
     expect(result.costEstimateUsd).toBeCloseTo(0.5, 4); // 100 × $0.005
     expect(result.completedAt).toBe("2026-04-24T10:11:00.000Z");
+    // Non-chunked call: offset=0, limit=null in the summary
+    expect(result.chunk).toEqual({
+      offset: 0,
+      limit: null,
+      promptsPolled: 100,
+    });
 
-    expect(adapterSpy).toHaveBeenCalledWith("perplexity", "tenant-ritz-founder");
+    // Adapter receives platform + tenantId + chunk window (both undefined here)
+    expect(adapterSpy).toHaveBeenCalledWith(
+      "perplexity",
+      "tenant-ritz-founder",
+      { offset: undefined, limit: undefined },
+    );
     expect(sync.syncObservationRuns).toHaveBeenCalledOnce();
     expect(sync.syncPromptAnswerObservations).toHaveBeenCalledOnce();
     expect(sync.syncAnswerTexts).toHaveBeenCalledOnce();
@@ -262,5 +273,154 @@ describe("runNativePoll", () => {
       },
     );
     expect(openaiResult.costEstimateUsd).toBeCloseTo(1.2, 4); // 100 × $0.012
+  });
+
+  // ── Phase 5 Step 1.5: chunked hosted polling (Hobby-tier 300s cap) ──
+
+  it("chunk mode: skips budget guard and passes offset/limit to the adapter", async () => {
+    const sync = mkSyncSpies();
+    const adapterSpy = vi.fn(async (platform: string) =>
+      makeAdapterResult(platform, 25, "completed", 0),
+    );
+    const hasRecent = vi.fn(async () => true); // recent run exists — normally blocks
+
+    const result = await runNativePoll(
+      {
+        tenantId: "tenant-ritz-founder",
+        platform: "perplexity",
+        offset: 50,
+        limit: 25,
+      },
+      {
+        runAdapter: adapterSpy,
+        hasRecentCompletedRun: hasRecent,
+        ...sync,
+        buildDailySnapshotsFromObservations: () => [],
+        getTrackedEntities: async () => trackedEntities(),
+        // Chunk-mode derivation reads all of today's observations; return the
+        // just-polled 25 as if this is chunk 1 of 4 (before others run).
+        getObservationsForDay: async () => makeAdapterResult("perplexity", 25)
+          .observations,
+      },
+    );
+
+    expect(result.status).toBe("completed");
+    expect(result.chunk).toEqual({
+      offset: 50,
+      limit: 25,
+      promptsPolled: 25,
+    });
+    // Chunk mode bypasses the budget guard entirely — hasRecent not consulted
+    expect(hasRecent).not.toHaveBeenCalled();
+    // Adapter receives the chunk window
+    expect(adapterSpy).toHaveBeenCalledWith(
+      "perplexity",
+      "tenant-ritz-founder",
+      { offset: 50, limit: 25 },
+    );
+  });
+
+  it("chunk mode: derivation reads all today's observations (cumulative), not just this chunk's", async () => {
+    const sync = mkSyncSpies();
+    // This chunk's adapter yields 25 observations (chunk 3 of 4, say).
+    const adapterResult = makeAdapterResult("perplexity", 25, "completed", 0);
+
+    // Simulate that chunks 0, 1, and 2 have already landed 75 observations
+    // earlier today. getObservationsForDay returns ALL 100 (75 prior + 25 just
+    // synced): cumulative derivation input.
+    const observationsAcrossAllChunks = Array.from({ length: 100 }, (_, i) =>
+      makeObs(`obs-cumulative-${i}`),
+    );
+
+    let capturedBuildArgs: Parameters<typeof import("@/domains/daily-metric-snapshots/build-from-observations").buildDailySnapshotsFromObservations>[0] | null = null;
+    const buildSnapsSpy: typeof import("@/domains/daily-metric-snapshots/build-from-observations").buildDailySnapshotsFromObservations =
+      (args) => {
+        capturedBuildArgs = args;
+        return [];
+      };
+
+    const result = await runNativePoll(
+      {
+        tenantId: "tenant-ritz-founder",
+        platform: "perplexity",
+        offset: 75,
+        limit: 25,
+      },
+      {
+        runAdapter: async () => adapterResult,
+        hasRecentCompletedRun: async () => false,
+        ...sync,
+        buildDailySnapshotsFromObservations: buildSnapsSpy,
+        getTrackedEntities: async () => trackedEntities(),
+        getObservationsForDay: async () => observationsAcrossAllChunks,
+      },
+    );
+
+    // observationsWritten is this chunk's only (25)
+    expect(result.observationsWritten).toBe(25);
+    // But the snapshot builder received ALL 100 cumulative observations
+    expect(capturedBuildArgs).not.toBeNull();
+    expect(capturedBuildArgs!.observations).toHaveLength(100);
+    expect(capturedBuildArgs!.date).toBe("2026-04-24");
+    expect(capturedBuildArgs!.platform).toBe("Perplexity");
+  });
+
+  it("non-chunk call: derivation still uses THIS run's observations (back-compat)", async () => {
+    const sync = mkSyncSpies();
+    const adapterResult = makeAdapterResult("perplexity", 100, "completed", 0);
+
+    const dayObsSpy = vi.fn(async () => [] as PromptAnswerObservation[]);
+    let capturedBuildArgs: Parameters<typeof import("@/domains/daily-metric-snapshots/build-from-observations").buildDailySnapshotsFromObservations>[0] | null = null;
+    const buildSnapsSpy: typeof import("@/domains/daily-metric-snapshots/build-from-observations").buildDailySnapshotsFromObservations =
+      (args) => {
+        capturedBuildArgs = args;
+        return [];
+      };
+
+    await runNativePoll(
+      { tenantId: "t", platform: "perplexity" }, // no offset, no limit
+      {
+        runAdapter: async () => adapterResult,
+        hasRecentCompletedRun: async () => false,
+        ...sync,
+        buildDailySnapshotsFromObservations: buildSnapsSpy,
+        getTrackedEntities: async () => trackedEntities(),
+        getObservationsForDay: dayObsSpy,
+      },
+    );
+
+    // Non-chunk path doesn't query getObservationsForDay at all.
+    expect(dayObsSpy).not.toHaveBeenCalled();
+    // Builder receives just this run's observations (100).
+    expect(capturedBuildArgs).not.toBeNull();
+    expect(capturedBuildArgs!.observations).toHaveLength(100);
+  });
+
+  it("offset=0 alone is chunk mode (bypasses guard); limit=undefined means 'to the end'", async () => {
+    const sync = mkSyncSpies();
+    const adapterSpy = vi.fn(async (platform: string) =>
+      makeAdapterResult(platform, 100, "completed", 0),
+    );
+    const hasRecent = vi.fn(async () => true);
+
+    // offset=0, limit=undefined → chunk mode active (offset is defined)
+    const result = await runNativePoll(
+      { tenantId: "t", platform: "perplexity", offset: 0 },
+      {
+        runAdapter: adapterSpy,
+        hasRecentCompletedRun: hasRecent,
+        ...sync,
+        buildDailySnapshotsFromObservations: () => [],
+        getTrackedEntities: async () => trackedEntities(),
+        getObservationsForDay: async () => [],
+      },
+    );
+
+    expect(result.chunk).toEqual({
+      offset: 0,
+      limit: null,
+      promptsPolled: 100,
+    });
+    expect(hasRecent).not.toHaveBeenCalled();
   });
 });

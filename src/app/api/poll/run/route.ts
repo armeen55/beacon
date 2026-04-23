@@ -6,31 +6,38 @@ import type { NativePollPlatform } from "@/domains/observations/run-poll";
 /**
  * POST /api/poll/run
  *
- * Hosted trigger for native polling. Accepts `platform` + `tenantId` and runs
- * the same shared pipeline the CLI scripts use. Designed to be called:
+ * Hosted trigger for native polling. Accepts `platform` + `tenantId` (+ optional
+ * chunking params) and runs the shared pipeline. Designed to be called:
  *
- *   (a) Manually via curl (Phase 5 Step 1 — verify hosted path works)
+ *   (a) Manually via curl with offset/limit chunking (Phase 5 Step 1.5)
  *   (b) Later by Vercel Cron (Phase 5 Step 2 — not wired yet)
  *
  * Auth: `Authorization: Bearer <CRON_SECRET>` header.
  *
  * Body:
- *   { platform: "perplexity" | "openai", tenantId: string, force?: boolean }
+ *   {
+ *     platform: "perplexity" | "openai",
+ *     tenantId: string,
+ *     offset?: number,    // chunk start (default 0)
+ *     limit?: number,     // chunk size (default: all remaining from offset)
+ *     force?: boolean
+ *   }
  *
  * Runtime:
- *   Node.js, maxDuration 800s (Vercel Pro ceiling). Perplexity 100 took ~685s,
- *   ChatGPT 100 took ~685s — both land under the cap with ~100-115s margin
- *   on observed runs. Genuinely close to the ceiling; see handoff notes in
- *   Phase 5 plan for the cron-vs-chunking decision.
+ *   Node.js, maxDuration 300s — Vercel Hobby serverless cap. Single-shot 100-
+ *   prompt runs take ~685s and cannot fit in this window; chunk in 4 × 25
+ *   (~171s each, 43% margin) and the caller orchestrates them sequentially.
  */
 
 export const runtime = "nodejs";
-export const maxDuration = 800;
+export const maxDuration = 300;
 export const dynamic = "force-dynamic";
 
 type PollRunBody = {
   platform?: unknown;
   tenantId?: unknown;
+  offset?: unknown;
+  limit?: unknown;
   force?: unknown;
 };
 
@@ -77,12 +84,37 @@ export async function POST(req: NextRequest) {
   }
   const force = body.force === true;
 
+  // Optional chunk params. Either both unset (full run), or one/both set
+  // (chunked). Invalid numeric types are rejected with 400.
+  let offset: number | undefined;
+  if (body.offset !== undefined) {
+    if (typeof body.offset !== "number" || !Number.isFinite(body.offset) || body.offset < 0) {
+      return NextResponse.json(
+        { error: "`offset` must be a non-negative integer" },
+        { status: 400 },
+      );
+    }
+    offset = Math.floor(body.offset);
+  }
+  let limit: number | undefined;
+  if (body.limit !== undefined) {
+    if (typeof body.limit !== "number" || !Number.isFinite(body.limit) || body.limit <= 0) {
+      return NextResponse.json(
+        { error: "`limit` must be a positive integer" },
+        { status: 400 },
+      );
+    }
+    limit = Math.floor(body.limit);
+  }
+
   // ── Run ──
   const startedAt = Date.now();
   try {
     const result = await runNativePoll({
       tenantId: body.tenantId,
       platform: body.platform,
+      offset,
+      limit,
       force,
     });
     const elapsedMs = Date.now() - startedAt;

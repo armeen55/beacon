@@ -257,6 +257,80 @@ describe("pollPerplexityForTenant", () => {
     expect(result.observations).toHaveLength(2);
   });
 
+  // ── Phase 5 Step 1.5: offset / chunk window ─────────────────────────
+
+  it("offset skips the first N eligible prompts", async () => {
+    const prompts = Array.from({ length: 5 }, (_, i) =>
+      makePrompt({ id: `p-${i}` }),
+    );
+    const client = makeClient(
+      Array.from({ length: 5 }, (_, i) => ({
+        answer: `answer-${i}`,
+        citations: [],
+      })),
+    );
+
+    const result = await pollPerplexityForTenant("tenant-ritz-founder", {
+      client,
+      trackedPrompts: prompts,
+      trackedEntities: [OWNED],
+      offset: 3,
+    });
+
+    // offset=3 → skip p-0, p-1, p-2 → poll p-3, p-4
+    expect(result.observations).toHaveLength(2);
+    expect(result.observations.map((o) => o.prompt_id)).toEqual([
+      "p-3",
+      "p-4",
+    ]);
+  });
+
+  it("offset + limit defines an exact chunk window: prompts[offset..offset+limit)", async () => {
+    const prompts = Array.from({ length: 10 }, (_, i) =>
+      makePrompt({ id: `p-${i}` }),
+    );
+    const client = makeClient(
+      Array.from({ length: 10 }, (_, i) => ({
+        answer: `answer-${i}`,
+        citations: [],
+      })),
+    );
+
+    // offset=5, limit=3 → poll exactly p-5, p-6, p-7
+    const result = await pollPerplexityForTenant("tenant-ritz-founder", {
+      client,
+      trackedPrompts: prompts,
+      trackedEntities: [OWNED],
+      offset: 5,
+      limit: 3,
+    });
+
+    expect(result.observations).toHaveLength(3);
+    expect(result.observations.map((o) => o.prompt_id)).toEqual([
+      "p-5",
+      "p-6",
+      "p-7",
+    ]);
+  });
+
+  it("offset beyond eligible range yields zero observations cleanly (empty but 'completed')", async () => {
+    const prompts = Array.from({ length: 3 }, (_, i) =>
+      makePrompt({ id: `p-${i}` }),
+    );
+    const client = makeClient([]); // no canned responses needed
+
+    const result = await pollPerplexityForTenant("tenant-ritz-founder", {
+      client,
+      trackedPrompts: prompts,
+      trackedEntities: [OWNED],
+      offset: 10, // way past the end
+      limit: 25,
+    });
+
+    expect(result.observations).toHaveLength(0);
+    expect(result.observationRun.status).toBe("completed");
+  });
+
   it("marks the run partial when some prompts error and some succeed", async () => {
     let calls = 0;
     const flakyClient: QueryClient = {

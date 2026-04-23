@@ -46,7 +46,13 @@ export type PerplexityPollOptions = {
   client?: QueryClient;
   /** Inject clock for deterministic tests. */
   now?: () => Date;
-  /** Cap how many prompts to poll (dry-runs, budget guards). */
+  /**
+   * Skip the first N eligible prompts. Combined with `limit` this defines a
+   * chunk window: prompts[offset .. offset+limit). Defaults to 0.
+   * (Phase 5 Step 1.5 — hosted chunking for Hobby-tier 300s cap.)
+   */
+  offset?: number;
+  /** Cap how many prompts to poll (dry-runs, budget guards, chunk limit). */
   limit?: number;
   /** Optional pre-fetched prompts; if omitted, read via repository. */
   trackedPrompts?: TrackedPrompt[];
@@ -92,10 +98,12 @@ export async function pollPerplexityForTenant(
     .filter(
       (p) => p.platforms.length === 0 || p.platforms.includes(platform),
     );
-  const prompts =
-    opts.limit && opts.limit > 0
-      ? activePrompts.slice(0, opts.limit)
-      : activePrompts;
+  // Chunk slicing: offset defaults to 0, limit defaults to "all remaining".
+  // When both unset, slice(0, undefined) === full list (back-compat).
+  const offset = opts.offset && opts.offset > 0 ? opts.offset : 0;
+  const sliceEnd =
+    opts.limit && opts.limit > 0 ? offset + opts.limit : undefined;
+  const prompts = activePrompts.slice(offset, sliceEnd);
 
   const activeEntities = trackedEntities.filter((e) => e.is_active);
   const ownedEntities = activeEntities.filter((e) => e.is_owned);
