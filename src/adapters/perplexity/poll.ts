@@ -197,7 +197,7 @@ export async function pollPerplexityForTenant(
     status,
     started_at: startedAt,
     completed_at: completedAt,
-    scope_label: `Native ${platform} poll · ${observations.length}/${prompts.length} prompts`,
+    scope_label: `Native ${platform} poll · chunk offset=${offset} limit=${opts.limit ?? "all"} · ${observations.length}/${prompts.length} prompts`,
     parser_version: parserVersion,
     pages_scanned: 0,
     pages_changed: 0,

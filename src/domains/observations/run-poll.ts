@@ -48,7 +48,8 @@ export type NativePollStatus =
   | "completed"
   | "partial"
   | "failed"
-  | "skipped_already_ran_today";
+  | "skipped_already_ran_today"
+  | "skipped_chunk_recently_ran";
 
 export type NativePollResult = {
   status: NativePollStatus;
@@ -102,6 +103,17 @@ export type RunNativePollDeps = {
   ) => Promise<PerplexityPollResult>;
   /** Budget guard. Returns true if a completed run for `source` exists in the last 20h. */
   hasRecentCompletedRun?: (source: string) => Promise<boolean>;
+  /**
+   * Chunk retry dedupe. Returns true if a completed run for the same chunk
+   * identity (source + offset + limit) was landed within the last 15 minutes.
+   * Purpose: catch double-fires and cron retry storms without blocking
+   * intentional later re-runs. Works for both N=1 and N>1 cadences.
+   */
+  hasRecentCompletedChunk?: (
+    source: string,
+    offset: number,
+    limit: number | null,
+  ) => Promise<boolean>;
   /** Sync wrappers — all default to real dual-write helpers. */
   syncObservationRuns?: typeof realSyncRuns;
   syncPromptAnswerObservations?: typeof realSyncObs;
@@ -136,6 +148,7 @@ const COST_PER_OBS_USD: Record<NativePollPlatform, number> = {
   openai: 0.012,
 };
 const BUDGET_GUARD_WINDOW_MS = 20 * 60 * 60 * 1000; // 20 hours
+const CHUNK_RETRY_DEDUPE_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
 
 export async function runNativePoll(
   args: RunNativePollArgs,
@@ -150,6 +163,8 @@ export async function runNativePoll(
 
   const runAdapter = deps.runAdapter ?? defaultRunAdapter;
   const hasRecentRun = deps.hasRecentCompletedRun ?? defaultHasRecentRun;
+  const hasRecentChunk =
+    deps.hasRecentCompletedChunk ?? defaultHasRecentChunk;
   const syncRuns = deps.syncObservationRuns ?? realSyncRuns;
   const syncObs = deps.syncPromptAnswerObservations ?? realSyncObs;
   const syncTexts = deps.syncAnswerTexts ?? realSyncTexts;
@@ -167,28 +182,54 @@ export async function runNativePoll(
   const chunkLimit = args.limit ?? null;
 
   // ── Budget guard ────────────────────────────────────────────────────
-  // Chunked calls bypass the guard unconditionally: the caller is explicitly
-  // orchestrating chunks back-to-back, and the first chunk's completed run
-  // would otherwise block the second.
-  if (!force && !isChunked) {
-    const recent = await hasRecentRun(source);
-    if (recent) {
-      return {
-        status: "skipped_already_ran_today",
-        runId: null,
-        platform,
-        chunk: {
-          offset: chunkOffset,
-          limit: chunkLimit,
-          promptsPolled: 0,
-        },
-        observationsWritten: 0,
-        snapshotsWritten: 0,
-        errorCount: 0,
-        costEstimateUsd: 0,
-        completedAt: null,
-        note: `A completed ${source} run already landed within the last 20 hours. Pass force=true to bypass (or use chunk mode, which implicitly bypasses).`,
-      };
+  // Two separate guards with different time windows:
+  // - Non-chunk mode (full-run call): 20-hour "already ran today" guard.
+  //   Blocks accidental double whole-day polls.
+  // - Chunk mode: 15-minute per-chunk retry-dedupe. Blocks double-fires /
+  //   cron retry storms for the SAME chunk identity, but allows intentional
+  //   later re-runs (multi-run sampling, manual force triggers hours later).
+  // Both guards respect force=true.
+  if (!force) {
+    if (isChunked) {
+      const recentChunk = await hasRecentChunk(source, chunkOffset, chunkLimit);
+      if (recentChunk) {
+        return {
+          status: "skipped_chunk_recently_ran",
+          runId: null,
+          platform,
+          chunk: {
+            offset: chunkOffset,
+            limit: chunkLimit,
+            promptsPolled: 0,
+          },
+          observationsWritten: 0,
+          snapshotsWritten: 0,
+          errorCount: 0,
+          costEstimateUsd: 0,
+          completedAt: null,
+          note: `A completed ${source} run for chunk offset=${chunkOffset} limit=${chunkLimit ?? "all"} landed within the last 15 minutes. Pass force=true to bypass (e.g. legitimate retry).`,
+        };
+      }
+    } else {
+      const recent = await hasRecentRun(source);
+      if (recent) {
+        return {
+          status: "skipped_already_ran_today",
+          runId: null,
+          platform,
+          chunk: {
+            offset: chunkOffset,
+            limit: chunkLimit,
+            promptsPolled: 0,
+          },
+          observationsWritten: 0,
+          snapshotsWritten: 0,
+          errorCount: 0,
+          costEstimateUsd: 0,
+          completedAt: null,
+          note: `A completed ${source} run already landed within the last 20 hours. Pass force=true to bypass (or use chunk mode, which uses a 15-minute retry-dedupe window instead).`,
+        };
+      }
     }
   }
 
@@ -299,6 +340,42 @@ async function defaultGetObservationsForDay(args: {
     );
   }
   return (data ?? []) as PromptAnswerObservation[];
+}
+
+async function defaultHasRecentChunk(
+  source: string,
+  offset: number,
+  limit: number | null,
+): Promise<boolean> {
+  try {
+    const sb = getSupabaseAdmin();
+    const cutoff = new Date(
+      Date.now() - CHUNK_RETRY_DEDUPE_WINDOW_MS,
+    ).toISOString();
+    // Match on scope_label suffix that embeds chunk identity:
+    //   "Native <platform> poll · chunk offset=<N> limit=<M> · ..."
+    const chunkLabel = `%chunk offset=${offset} limit=${limit ?? "all"}%`;
+    const { data, error } = await sb
+      .from("observation_runs")
+      .select("run_id")
+      .eq("source", source)
+      .eq("status", "completed")
+      .ilike("scope_label", chunkLabel)
+      .gt("completed_at", cutoff)
+      .limit(1);
+    if (error) {
+      console.error(
+        `[runNativePoll] chunk-retry-dedupe query failed (fail-open): ${error.message}`,
+      );
+      return false;
+    }
+    return (data?.length ?? 0) > 0;
+  } catch (e) {
+    console.error(
+      `[runNativePoll] chunk-retry-dedupe threw (fail-open): ${e instanceof Error ? e.message : e}`,
+    );
+    return false;
+  }
 }
 
 async function defaultHasRecentRun(source: string): Promise<boolean> {

@@ -277,12 +277,13 @@ describe("runNativePoll", () => {
 
   // ── Phase 5 Step 1.5: chunked hosted polling (Hobby-tier 300s cap) ──
 
-  it("chunk mode: skips budget guard and passes offset/limit to the adapter", async () => {
+  it("chunk mode: does NOT call the 20-hour guard, uses 15-min retry dedupe instead", async () => {
     const sync = mkSyncSpies();
     const adapterSpy = vi.fn(async (platform: string) =>
       makeAdapterResult(platform, 25, "completed", 0),
     );
-    const hasRecent = vi.fn(async () => true); // recent run exists — normally blocks
+    const hasRecent = vi.fn(async () => true); // 20-hr guard says "recent"
+    const hasRecentChunk = vi.fn(async () => false); // no recent chunk retry
 
     const result = await runNativePoll(
       {
@@ -294,11 +295,10 @@ describe("runNativePoll", () => {
       {
         runAdapter: adapterSpy,
         hasRecentCompletedRun: hasRecent,
+        hasRecentCompletedChunk: hasRecentChunk,
         ...sync,
         buildDailySnapshotsFromObservations: () => [],
         getTrackedEntities: async () => trackedEntities(),
-        // Chunk-mode derivation reads all of today's observations; return the
-        // just-polled 25 as if this is chunk 1 of 4 (before others run).
         getObservationsForDay: async () => makeAdapterResult("perplexity", 25)
           .observations,
       },
@@ -310,14 +310,83 @@ describe("runNativePoll", () => {
       limit: 25,
       promptsPolled: 25,
     });
-    // Chunk mode bypasses the budget guard entirely — hasRecent not consulted
+    // Chunk mode does NOT consult the 20-hr guard
     expect(hasRecent).not.toHaveBeenCalled();
-    // Adapter receives the chunk window
+    // Chunk mode DOES consult the 15-min retry guard, with the chunk identity
+    expect(hasRecentChunk).toHaveBeenCalledWith(
+      "perplexity-native-poll",
+      50,
+      25,
+    );
     expect(adapterSpy).toHaveBeenCalledWith(
       "perplexity",
       "tenant-ritz-founder",
       { offset: 50, limit: 25 },
     );
+  });
+
+  it("chunk mode: skips with 'skipped_chunk_recently_ran' if same chunk fired in last 15 minutes", async () => {
+    const sync = mkSyncSpies();
+    const adapterSpy = vi.fn();
+    const hasRecentChunk = vi.fn(async () => true); // same chunk landed <15min ago
+
+    const result = await runNativePoll(
+      {
+        tenantId: "tenant-ritz-founder",
+        platform: "perplexity",
+        offset: 25,
+        limit: 25,
+      },
+      {
+        runAdapter: adapterSpy,
+        hasRecentCompletedChunk: hasRecentChunk,
+        ...sync,
+      },
+    );
+
+    expect(result.status).toBe("skipped_chunk_recently_ran");
+    expect(result.runId).toBeNull();
+    expect(result.observationsWritten).toBe(0);
+    expect(result.snapshotsWritten).toBe(0);
+    expect(result.note).toMatch(/15 minutes/);
+    expect(hasRecentChunk).toHaveBeenCalledWith(
+      "perplexity-native-poll",
+      25,
+      25,
+    );
+    expect(adapterSpy).not.toHaveBeenCalled();
+    expect(sync.syncObservationRuns).not.toHaveBeenCalled();
+  });
+
+  it("chunk mode: force=true bypasses the 15-min retry dedupe", async () => {
+    const sync = mkSyncSpies();
+    const adapterSpy = vi.fn(async (platform: string) =>
+      makeAdapterResult(platform, 25, "completed", 0),
+    );
+    const hasRecentChunk = vi.fn(async () => true);
+
+    const result = await runNativePoll(
+      {
+        tenantId: "tenant-ritz-founder",
+        platform: "perplexity",
+        offset: 0,
+        limit: 25,
+        force: true,
+      },
+      {
+        runAdapter: adapterSpy,
+        hasRecentCompletedChunk: hasRecentChunk,
+        ...sync,
+        buildDailySnapshotsFromObservations: () => [],
+        getTrackedEntities: async () => trackedEntities(),
+        getObservationsForDay: async () => [],
+      },
+    );
+
+    expect(result.status).toBe("completed");
+    // force=true short-circuits BEFORE any guard is consulted
+    expect(hasRecentChunk).not.toHaveBeenCalled();
+    expect(adapterSpy).toHaveBeenCalledOnce();
   });
 
   it("chunk mode: derivation reads all today's observations (cumulative), not just this chunk's", async () => {
