@@ -27,9 +27,12 @@ import type { TrackedPrompt } from "@/domains/tracked-prompts/types";
 import type { TrackedEntity } from "@/domains/tracked-entities/types";
 import type { ObservationRun } from "@/domains/observations/types";
 
-const PERPLEXITY_POLL_SOURCE = "perplexity-native-poll";
-const PLATFORM = "perplexity";
-const PARSER_VERSION = "perplexity-native-v1";
+// Default platform constants for Perplexity. Callers targeting other platforms
+// (e.g. ChatGPT adapter in src/adapters/openai/poll.ts) override these via opts
+// to reuse the same generic polling logic without duplication.
+const DEFAULT_POLL_SOURCE = "perplexity-native-poll";
+const DEFAULT_PLATFORM = "perplexity";
+const DEFAULT_PARSER_VERSION = "perplexity-native-v1";
 
 export type PerplexityPollResult = {
   observations: PromptAnswerObservation[];
@@ -49,6 +52,23 @@ export type PerplexityPollOptions = {
   trackedPrompts?: TrackedPrompt[];
   /** Optional pre-fetched entities; if omitted, read via repository. */
   trackedEntities?: TrackedEntity[];
+  /**
+   * Platform label stored on observations (lowercase convention:
+   * "perplexity", "chatgpt", etc.). Also the value matched against
+   * TrackedPrompt.platforms[] when filtering eligible prompts. Defaults
+   * to "perplexity".
+   */
+  platform?: string;
+  /**
+   * Source label for the observation_run row (e.g. "perplexity-native-poll",
+   * "openai-native-poll"). Defaults to the Perplexity source.
+   */
+  pollSource?: string;
+  /**
+   * Parser version string stamped on the observation_run row. Defaults to
+   * the Perplexity v1 parser tag.
+   */
+  parserVersion?: string;
 };
 
 export async function pollPerplexityForTenant(
@@ -57,6 +77,9 @@ export async function pollPerplexityForTenant(
 ): Promise<PerplexityPollResult> {
   const now = opts.now ?? (() => new Date());
   const client = opts.client ?? createPerplexityClient();
+  const platform = opts.platform ?? DEFAULT_PLATFORM;
+  const pollSource = opts.pollSource ?? DEFAULT_POLL_SOURCE;
+  const parserVersion = opts.parserVersion ?? DEFAULT_PARSER_VERSION;
 
   const repo = getRepository();
   const trackedPrompts =
@@ -67,7 +90,7 @@ export async function pollPerplexityForTenant(
   const activePrompts = trackedPrompts
     .filter((p) => p.is_active)
     .filter(
-      (p) => p.platforms.length === 0 || p.platforms.includes(PLATFORM),
+      (p) => p.platforms.length === 0 || p.platforms.includes(platform),
     );
   const prompts =
     opts.limit && opts.limit > 0
@@ -130,7 +153,7 @@ export async function pollPerplexityForTenant(
         citation_categories: {},
         mentions,
         observed_at: observedAt,
-        platform: PLATFORM,
+        platform,
         topic: prompt.topic_id ?? "",
         metadata: {
           source_system: "beacon_native",
@@ -162,12 +185,12 @@ export async function pollPerplexityForTenant(
   const observationRun: ObservationRun = {
     run_id: runId,
     run_type: "citation_sample_import",
-    source: PERPLEXITY_POLL_SOURCE,
+    source: pollSource,
     status,
     started_at: startedAt,
     completed_at: completedAt,
-    scope_label: `Native Perplexity poll · ${observations.length}/${prompts.length} prompts`,
-    parser_version: PARSER_VERSION,
+    scope_label: `Native ${platform} poll · ${observations.length}/${prompts.length} prompts`,
+    parser_version: parserVersion,
     pages_scanned: 0,
     pages_changed: 0,
     pages_with_errors: errorCount,

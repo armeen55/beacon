@@ -14,6 +14,7 @@
     "data:score-snapshot": "npx tsx --require ./scripts/mock-server-only.cjs scripts/score-snapshot.ts",
     "data:sample": "npx tsx --require ./scripts/mock-server-only.cjs scripts/sample-visibility.ts",
     "data:poll-perplexity": "npx tsx --require ./scripts/mock-server-only.cjs scripts/poll-perplexity.ts",
+    "data:poll-openai": "npx tsx --require ./scripts/mock-server-only.cjs scripts/poll-openai.ts",
     "data:backfill-db": "npx tsx scripts/backfill-to-supabase.ts",
     "data:parity": "npx tsx scripts/compare-parity.ts",
     "test": "vitest run"
