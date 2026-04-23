@@ -148,6 +148,13 @@ export async function pollPerplexityForTenant(
             .filter((d): d is string => Boolean(d)),
         ),
       );
+      // Commit 7 (2026-04-24): preserve full URLs in order so
+      // url-citation-history can match native citations at URL granularity
+      // against owned-site URL paths. citation_domains is deduped + host-only;
+      // citation_urls is order-preserving and full-URL.
+      const citationUrls = result.citations
+        .map((c) => c.url)
+        .filter((u): u is string => Boolean(u));
       const ownedCitationCount = citationDomains.filter((d) =>
         ownedDomains.has(d),
       ).length;
@@ -241,6 +248,7 @@ export async function pollPerplexityForTenant(
         competitor_co_mentions: competitorCoMentions,
         citation_domain_classes: citationDomainClasses,
         answer_structure: answerStructure,
+        citation_urls: citationUrls,
       };
 
       observations.push(obs);

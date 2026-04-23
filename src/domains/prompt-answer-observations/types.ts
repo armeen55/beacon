@@ -89,6 +89,19 @@ export type PromptAnswerObservation = {
    * text is empty.
    */
   answer_structure?: string | null;
+  /**
+   * Schema v2.2 Commit 7 (2026-04-24) — full URLs of citations in order.
+   * Parallel to `citation_domains` (same length, same index). `citation_urls[i]`
+   * is the authoritative URL of the i-th citation in the LLM response;
+   * `citation_domains[i]` is the (deduped) host. Needed for native per-URL
+   * citation history (url-citation-history.ts), which matches citation
+   * URLs against owned-site URL paths.
+   *
+   * Null on pre-Commit-7 rows: raw URLs weren't stored at poll time, so
+   * domain-level analysis is the only native signal available for those.
+   * Re-polling would recover them but is not worth the API spend.
+   */
+  citation_urls?: string[] | null;
 };
 
 /** Citation domain classes emitted by classifyCitationDomains. */
