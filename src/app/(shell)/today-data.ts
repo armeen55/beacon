@@ -76,7 +76,10 @@ import {
   type EnrichmentRollup,
 } from "@/domains/prompt-answer-observations/enrichment-rollup";
 import { buildPromptDecisionMatrix } from "@/domains/prompts/decision-matrix";
+import { generateRecommendations } from "@/domains/recommendations/generate";
+import { prioritizeRecommendations } from "@/domains/recommendations/prioritize";
 import type { PromptsTeaserSummary } from "@/components/today/prompts-teaser";
+import type { TopPickSummary } from "@/components/today/top-pick-card";
 import { primaryVisibilityRunForResults } from "@/domains/observations/visibility-context";
 import { loadCompetitorUniverseRuntime } from "@/domains/competitors/universe-read";
 import { buildTodayCompetitorLine } from "@/domains/competitors/today-competitor-line";
@@ -253,7 +256,12 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
   // points into /prompts with category counts + a one-line summary sentence.
   // Uses the same aggregator /prompts uses; no Supabase round-trip of its
   // own. Defensive null fallback when something's off.
+  //
+  // Phase v6 Commit 5 (2026-04-23): piggyback on the same matrix to build the
+  // Top Pick card. Queue top-1 lands as a single opinionated Today card so
+  // the operator sees the day's prioritized work at a glance.
   let promptsTeaser: PromptsTeaserSummary | null = null;
+  let topPick: TopPickSummary | null = null;
   try {
     const { trackedPrompts, trackedEntities, promptAnswerObservations } =
       await import("@/storage/canonical-store");
@@ -268,10 +276,27 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
         totalPrompts: matrix.prompts.length,
         groupSummaries: matrix.groupSummaries,
       };
+      const candidates = generateRecommendations({
+        matrix,
+        activeEntities: trackedEntities,
+        trackedPrompts,
+      });
+      const { queue } = prioritizeRecommendations(candidates);
+      const top = queue[0];
+      if (top) {
+        topPick = {
+          stableKey: top.stableKey,
+          type: top.type,
+          title: top.title,
+          reasoning: top.reasoning,
+          tier: top.tier,
+        };
+      }
     }
   } catch (err) {
-    console.error("Today prompts teaser failed:", err);
+    console.error("Today prompts teaser / top pick failed:", err);
     promptsTeaser = null;
+    topPick = null;
   }
 
   // Same signal as shell `isDemoMode` (Phase 2A): no import runs ⇒ sample seed data, not operator briefing.
@@ -2001,6 +2026,7 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
     pollHealth,
     enrichmentRollup,
     promptsTeaser,
+    topPick,
   };
 }
 

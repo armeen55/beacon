@@ -22,6 +22,7 @@ import type { PollHealthSnapshot } from "@/domains/observations/poll-health";
 import { EnrichmentBadges } from "@/components/today/enrichment-badges";
 import type { EnrichmentRollup } from "@/domains/prompt-answer-observations/enrichment-rollup";
 import { PromptsTeaser, type PromptsTeaserSummary } from "@/components/today/prompts-teaser";
+import { TopPickCard, type TopPickSummary } from "@/components/today/top-pick-card";
 import { ActionCard, type ActionCardAction } from "@/components/today/action-card";
 import { MorningBrief } from "@/components/today/morning-brief";
 import type { MorningBriefData } from "@/domains/product/morning-brief";
@@ -168,6 +169,7 @@ export function TodayClient({
   pollHealth = null,
   enrichmentRollup = null,
   promptsTeaser = null,
+  topPick = null,
 }: {
   isDemoMode?: boolean;
   scanPhaseFailed?: boolean;
@@ -231,6 +233,10 @@ export function TodayClient({
    *  pointing into /prompts. Small teaser card, not a mini dashboard.
    *  Null when no active prompts. */
   promptsTeaser?: PromptsTeaserSummary | null;
+  /** Phase v6 Commit 5 (2026-04-23): first row of the prioritized
+   *  recommendations queue, surfaced as a single opinionated card above
+   *  the prompts teaser. Null when the queue is empty. */
+  topPick?: TopPickSummary | null;
 }) {
   const [pending, startTransition] = useTransition();
   const [actionMsg, setActionMsg] = useState<string | null>(null);
@@ -357,6 +363,12 @@ export function TodayClient({
           answer-structure mix). Renders null when no native observations
           landed today or yesterday. */}
       {enrichmentRollup && <EnrichmentBadges rollup={enrichmentRollup} />}
+
+      {/* Phase v6 Commit 5 (2026-04-23): top-ranked recommendation. Single
+          opinionated card linking into /recommendations. Renders above the
+          prompts teaser because "what should I do" beats "state of prompts"
+          at 8 AM. Null when the prioritized queue is empty. */}
+      {topPick && <TopPickCard pick={topPick} />}
 
       {/* Phase v5 Commit 5 (2026-04-24): prompts decision teaser. Points into
           /prompts with per-category counts + a one-line summary sentence.
