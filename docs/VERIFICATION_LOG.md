@@ -7,6 +7,81 @@
 
 ---
 
+## 2026-04-24 — Sprint 4 / Phase 4.2 — /recommendations reads response state fresh from repo
+
+**Context.** Phase 4.1 audit proved `/recommendations` suffers the same
+cross-lambda staleness bug that Sprint 1 fixed on `/changes`. Operator
+clicks Accept/Defer/Dismiss on lambda B → Supabase row written → next
+render lands on lambda A whose `_dbSeeded=true` is already cached. A
+returns its stale module-level array. Operator sees the rec still
+sitting unresponded in the queue.
+
+**Option 1 (invalidate-in-writer-lambda) rejected by operator** as
+structurally wrong: lambda B can only invalidate its own memory, never
+another lambda's. Phase 4.2 uses the Sprint 1 per-request-fresh-read
+pattern.
+
+**Fix — commit `526612f`.** `src/app/(shell)/recommendations/page.tsx`:
+
+- Removed `getResponse` from the seed-store import list.
+- Added fresh repo fetch: `const freshResponsesRes = await safeCall(() =>
+  getRepository().getRecommendationResponses(), [], "fetch fresh
+  recommendation responses")` at the top of the decoration phase.
+- Built `freshResponsesByRecId: Map<string, RecommendationResponse>`.
+- Queue + watchlist decoration reads from the map. Module-level array
+  never touches the render path.
+- Removed the now-dead `safeGetResponse` helper.
+- Graceful degrade: repo failure pushes onto existing `errors[]` array
+  (surfaces the "Some recommendation data couldn't load" banner),
+  decoration falls back to empty map. Never falls back to stale module
+  memory.
+
+**Write path unchanged.** `acceptRecommendation` /
+`deferRecommendation` / `dismissRecommendation` / `undoRecommendationResponse`
+in `/recommendations/actions.ts` already dual-write to Supabase on
+`rec_id` upsert (verified in Phase 4.1 audit). Module-level
+`recommendationResponses` + `getResponse()` + `isRecSuppressed()` still
+exist for non-render callers.
+
+**Out of Phase 4.2 scope (flagged for Sprint 5+):**
+- `today-data.ts:814,1040,1071,1084` — Today's primary/secondary action
+  decoration still reads module memory
+- `replication-engine.ts:222` — replication-rec suppression still reads
+  module memory
+- `canonical-store.ts` — same `_canonSeeded` one-shot cache bug for
+  trackedPrompts/observations/entities/snapshots
+
+These all suffer the same cross-lambda staleness pattern and will be
+swept in Sprint 5.
+
+**Regression tests** —
+`tests/routes/recommendations-page-reads-fresh.test.ts`, 8 invariants all
+green:
+1. Source does NOT import `getResponse`
+2. Source DOES call `getRepository().getRecommendationResponses()`
+3. `export const dynamic = "force-dynamic"` declared
+4. Dead `safeGetResponse` helper removed
+5. Fresh repo response (not in module memory) decorates queue
+6. Stale module memory cannot override fresh repo data (repo wins)
+7. Missing response in repo yields `none` decoration even with stale
+   module data
+8. Repo read failure surfaces the diagnostic banner (no stale success)
+
+**Phase 4.2 verification.** Typecheck clean. `vitest run` → 1603 passing
+(+8 from Sprint 3's 1595), 10 pre-existing fails unchanged. Commit
+`526612f` pushed to `main`; Vercel auto-deploy up. Operator-side check
+pending: Accept one rec, wait ~30s, hard-refresh `/recommendations` and
+confirm the rec shows its new response state on every refresh regardless
+of which lambda serves the render.
+
+**Sprint 4.5 readiness.** Phase 4.2 closes the highest-impact cross-
+lambda bug on the operator's daily path. verify-action.ts (discovered in
+Phase 3.4 audit) is the next queued sprint — hosted Verify button on
+/pages currently fails noisily because of unguarded `.data` writes.
+Sprint 5 MEDIUM sweep follows.
+
+---
+
 ## 2026-04-24 — Sprint 3 — URL watcher hosted safety (memory-backed state on Vercel)
 
 **Context.** Every `/changes` and `/` render on Vercel was logging:
