@@ -2,7 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { log } from "@/lib/logger";
-import { getFindings, updateFindingStatus } from "@/domains/scanning/findings-store";
+import { updateFindingStatus } from "@/domains/scanning/findings-store";
+import { getRepository } from "@/lib/persistence/repositories";
 import { updateScanSettings } from "@/domains/scanning/scan-settings";
 import type { ScanSettings, FindingStatus, PromotionStatus, FindingType } from "@/domains/scanning/types";
 import { changelogEntries } from "@/lib/seed-data.server";
@@ -180,8 +181,12 @@ export async function confirmFindingAsChange(
   const t0 = Date.now();
   log.info("Action started", { action, params: { findingId } });
 
-  const findings = getFindings();
-  const finding = findings.find((f) => f.id === findingId);
+  // Phase C-follow-up (2026-04-24): read the finding fresh from the
+  // repository. The old `getFindings()` path pulled from an in-memory
+  // cache that's empty on Vercel cold start, so every Confirm click on
+  // hosted silently failed here before even reaching updateFindingStatus.
+  const repoFindings = await getRepository().getScanFindings();
+  const finding = repoFindings.find((f) => f.id === findingId);
   if (!finding) {
     log.error("Action failed", { action, durationMs: Date.now() - t0, error: "finding not found" });
     return { success: false };

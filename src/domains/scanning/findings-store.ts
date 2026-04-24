@@ -2,6 +2,7 @@ import "server-only";
 
 import { readStore, writeStore } from "@/lib/persistence/json-store";
 import { syncScanFindings } from "@/lib/persistence/dual-write";
+import { getRepository } from "@/lib/persistence/repositories";
 import type { Finding, FindingStatus, PromotionStatus } from "./types";
 import { FINDING_PRIORITY_ORDER } from "./types";
 import type { CitationEvidenceIndex } from "@/domains/pages/types";
@@ -148,8 +149,18 @@ export async function updateFindingStatus(
     suppressDays?: number;
   },
 ): Promise<Finding | null> {
-  const findings = getFindings();
-  const finding = findings.find((f) => f.id === id);
+  // Phase C-follow-up (2026-04-24): read fresh from repository, not from
+  // the module-level in-memory cache. On Vercel cold start the cache is
+  // empty, so `getFindings().find(id)` returned undefined and this
+  // function silently no-oped — Confirm/Dismiss clicks never persisted.
+  //
+  // Same architectural fix as /changes/dedupe read-path: repo is truth;
+  // in-memory cache is an optimization, not a source. We also update
+  // the cache after the mutation so a second call within the same
+  // lambda (e.g. confirmFindingAsChange calling updateFindingStatus
+  // twice) sees the mutation.
+  const repoFindings = await getRepository().getScanFindings();
+  const finding = repoFindings.find((f) => f.id === id);
   if (!finding) return null;
 
   finding.status = status;
@@ -170,8 +181,13 @@ export async function updateFindingStatus(
     finding.suppressUntil = until.toISOString();
   }
 
-  await writeStore(STORE_NAME, findings);
-  await syncScanFindings(findings);
+  // writeStore updates the local cache (disk write is skipped on Vercel
+  // via the VERCEL=1 guard). Keeps in-lambda consistency for subsequent
+  // synchronous getFindings() reads within the same request.
+  await writeStore(STORE_NAME, repoFindings);
+  // syncScanFindings upserts on `id`, so passing only the mutated row is
+  // a single-row write to Supabase — cheaper than re-syncing the full set.
+  await syncScanFindings([finding]);
   return finding;
 }
 
