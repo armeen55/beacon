@@ -170,6 +170,24 @@ describe("buildPageInventory", () => {
     expect(inv).toHaveLength(1);
   });
 
+  it("includes pages when host is owned even if PageEntity.is_owned is stale/false (Phase 2)", () => {
+    const pages = [
+      mkPage({
+        id: "p1",
+        url: "https://ritzbuilders.com/locations/palo-alto",
+        page_type: "city_page",
+        is_owned: false, // stale data from Supabase
+      }),
+    ];
+    const inv = buildPageInventory({
+      pages,
+      snapshots: [],
+      activeEntities: [RITZ],
+    });
+    expect(inv).toHaveLength(1);
+    expect(inv[0].url).toBe("https://ritzbuilders.com/locations/palo-alto");
+  });
+
   it("skips pages whose host is not owned", () => {
     const pages = [
       mkPage({
@@ -319,12 +337,14 @@ describe("tokenizeForMatch", () => {
     ]);
   });
 
-  it("splits on punctuation and underscores", () => {
+  it("splits on punctuation and underscores (and normalizes via synonym map)", () => {
+    // Phase 2 (2026-04-24): synonym map normalizes services → service and
+    // similar plurals so URL-path tokens align with cluster-label tokens.
     expect(tokenizeForMatch("whole-home_remodel services/luxury")).toEqual([
       "whole",
       "home",
       "remodel",
-      "services",
+      "service",
       "luxury",
     ]);
   });

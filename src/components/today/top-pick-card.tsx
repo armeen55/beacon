@@ -32,6 +32,7 @@ const ACTION_LABEL: Record<RecommendationAction, string> = {
   add_section_or_faq: "Add section",
   create_new_page: "Create page",
   merge_or_dedupe: "Merge",
+  split_or_separate_page: "Split",
   needs_review: "Review",
   watch: "Watch",
 };

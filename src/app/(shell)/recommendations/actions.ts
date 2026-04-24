@@ -77,7 +77,14 @@ function shouldStampChangelog(
   type: RecommendationType,
   action: RecommendationAction | null,
 ): boolean {
-  if (action === "watch" || action === "needs_review") return false;
+  // watch / needs_review / split_or_separate_page all require explicit
+  // operator confirmation before creating a tracked experiment.
+  if (
+    action === "watch" ||
+    action === "needs_review" ||
+    action === "split_or_separate_page"
+  )
+    return false;
   return type !== "watch_winning_cluster";
 }
 

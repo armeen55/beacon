@@ -26,8 +26,31 @@ export type RecommendationAction =
   | "add_section_or_faq"
   | "create_new_page"
   | "merge_or_dedupe"
+  | "split_or_separate_page"
   | "needs_review"
   | "watch";
+
+/**
+ * How the cluster's coverage maps against existing owned pages. Drives the
+ * action (and the reasoning copy). Separate from `tier` (which layer
+ * produced the resolution) and `confidence` (how sure we are).
+ *
+ *   exact_match        — specific page matches the cluster cleanly
+ *   partial_match      — page is relevant but doesn't fully cover
+ *   bundled_match      — one page covers cluster + more (e.g., "Los Altos
+ *                        & Los Altos Hills"). Split is possible; default
+ *                        to needs_review.
+ *   near_match         — low-confidence inventory match; LLM may override
+ *   cannibalization    — ≥2 owned pages compete for the cluster
+ *   no_match           — no existing page covers the cluster
+ */
+export type CoverageClassification =
+  | "exact_match"
+  | "partial_match"
+  | "bundled_match"
+  | "near_match"
+  | "cannibalization"
+  | "no_match";
 
 /** Why this action is recommended. Separate from action on purpose. */
 export type RecommendationMotive =
@@ -73,6 +96,9 @@ export type PageIntentResolution = {
   cannibalization: string[] | null;
   /** Structured evidence refs; UI links back to these. */
   evidenceRefs: EvidenceRef[];
+  /** How the cluster's coverage maps against existing owned pages.
+   *  Optional for backward compatibility; Phase 2+ resolvers always set it. */
+  coverage?: CoverageClassification;
   /** Adjudicator-only fields — populated when tier === "adjudicated". */
   operatorTitle?: string;
   specificRecommendation?: string;

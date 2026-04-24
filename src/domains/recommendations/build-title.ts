@@ -59,7 +59,9 @@ export function buildResolvedRecommendationTitle(rec: BuildTitleInput): string {
 
   const cleanLabel =
     sanitizeOperatorCopy(rec.clusterLabel ?? "") ||
-    sanitizeOperatorCopy(rec.promptTextFallback ?? "") ||
+    stripActionVerbPrefix(
+      sanitizeOperatorCopy(rec.promptTextFallback ?? ""),
+    ) ||
     null;
   const truncatedLabel =
     cleanLabel && cleanLabel.length > 70
@@ -97,6 +99,13 @@ export function buildResolvedRecommendationTitle(rec: BuildTitleInput): string {
         ? `Merge owned pages into ${shortUrlPath(resolvedUrl)}`
         : "Merge or dedupe overlapping pages";
 
+    case "split_or_separate_page":
+      return resolvedUrl
+        ? `Consider splitting ${shortUrlPath(resolvedUrl)}${truncatedLabel ? ` into a dedicated ${truncatedLabel} page` : ""}`
+        : truncatedLabel
+          ? `Consider splitting into a dedicated ${truncatedLabel} page`
+          : "Consider splitting a bundled page";
+
     case "needs_review":
       return truncatedLabel
         ? `Review ${truncatedLabel} recommendation`
@@ -121,4 +130,25 @@ function shortUrlPath(url: string): string {
   } catch {
     return url;
   }
+}
+
+/**
+ * Generator titles for single-prompt recs follow templates like:
+ *   `Strengthen "<prompt text>"`
+ *   `Target "<prompt text>"`
+ *   `Build for "<prompt text>"`
+ *   `Create a <label> page`
+ * When we fall back to one of these as a label, the leading action verb
+ * produces doubled-verb titles like "Expand / to cover Strengthen ...".
+ * Extract just the inner prompt text.
+ */
+function stripActionVerbPrefix(raw: string): string {
+  if (!raw) return raw;
+  // `Strengthen "..."` / `Target "..."` / `Build for "..."` / `Watch "..."`
+  const quoted = raw.match(/^(?:Strengthen|Target|Build for|Watch|Review)\s+"(.+?)"\s*$/);
+  if (quoted) return quoted[1];
+  // `Create a <label> page` — strip the generator wrapper to surface the label.
+  const createWrap = raw.match(/^Create a (.+?) page\s*$/);
+  if (createWrap) return createWrap[1];
+  return raw;
 }

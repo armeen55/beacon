@@ -55,6 +55,11 @@ export type InventoryMatch = {
   score: number;
   reasons: string[];
   entry: PageInventoryEntry;
+  /** Phase 2 (2026-04-24): bundled pages have H1/title tokens that clearly
+   *  cover the cluster AND additional distinct parts (e.g.,
+   *  "Los Altos & Los Altos Hills"). Resolver maps this to
+   *  needs_review / split_or_separate_page rather than strengthen. */
+  isBundled?: boolean;
 };
 
 // ---------------------------------------------------------------------------
@@ -81,7 +86,11 @@ export function buildPageInventory(args: {
   const seenUrls = new Set<string>();
 
   for (const page of args.pages) {
-    if (!page.is_owned) continue;
+    // Phase 2 (2026-04-24): do NOT trust the PageEntity.is_owned flag as
+    // the gate — in Supabase that flag is frequently stale or wrong for
+    // pages discovered via citations. The tracked-entity owned-domain
+    // host match is the authoritative source of ownership. When that
+    // matches we keep the page even if is_owned is false.
     const host = extractHost(page.url);
     if (!host) continue;
     if (!hostIsOwned(host, ownedHosts)) continue;
@@ -114,6 +123,42 @@ export function buildPageInventory(args: {
 /** Tokenize a cluster label or prompt text into lowercase word tokens,
  *  dropping short filler words. Matching uses overlap against a similarly
  *  tokenized searchable text per page. */
+/**
+ * Synonym map for known customer-domain vocabulary variations.
+ * Applied AFTER stopword filtering, BEFORE overlap matching.
+ *
+ * Conservative set — only unambiguous equivalences where the two forms
+ * refer to the same intent in the construction/home-builder domain.
+ * Extending this map is how we widen deterministic matching without
+ * reaching for an LLM.
+ *
+ * Each key token is normalized to the value token. Non-listed tokens
+ * pass through unchanged.
+ */
+const SYNONYM_MAP: Readonly<Record<string, string>> = {
+  // renovation ↔ remodel
+  renovation: "remodel",
+  renovations: "remodel",
+  renovating: "remodel",
+  remodeling: "remodel",
+  remodels: "remodel",
+  // "build on my lot" ↔ "build on your lot"
+  your: "my",
+  // architect-provided ↔ architectural
+  architectural: "architect",
+  architects: "architect",
+  // construction ↔ builder (one-way: construction → builder, since "builder"
+  // is the more common customer-facing token in this domain)
+  construction: "builder",
+  constructions: "builder",
+  builders: "builder",
+  // common plural/singular normalizations
+  homes: "home",
+  services: "service",
+  locations: "location",
+  projects: "project",
+};
+
 export function tokenizeForMatch(input: string): string[] {
   const stopwords = new Set<string>([
     "the", "a", "an", "of", "in", "on", "at", "to", "for", "with", "and", "or",
@@ -126,7 +171,9 @@ export function tokenizeForMatch(input: string): string[] {
   // Remodel" — essential for URL-token vs cluster-label matching.
   const cleaned = input.toLowerCase().replace(/'/g, "");
   const raw = cleaned.split(/[^a-z0-9]+/g).filter(Boolean);
-  return raw.filter((t) => t.length >= 3 && !stopwords.has(t));
+  return raw
+    .filter((t) => t.length >= 3 && !stopwords.has(t))
+    .map((t) => SYNONYM_MAP[t] ?? t);
 }
 
 export function matchClusterToInventory(args: {
@@ -197,16 +244,92 @@ export function matchClusterToInventory(args: {
       }
     }
 
+    // Phase 2 (2026-04-24): page specificity score. A page whose URL-path
+    // slug tokens are exactly (or very close to) the cluster tokens is a
+    // more specific match than a page whose slug has many unrelated tokens.
+    // This is what stops the homepage from beating /locations/palo-alto for
+    // a "Palo Alto" cluster.
+    const urlPathTokens = urlPathTokenSet(entry.url);
+    const unmatchedSlugTokens = [...urlPathTokens].filter(
+      (t) => !clusterTokenSet.has(t),
+    );
+    if (urlPathTokens.size > 0) {
+      // Slug-only tokens drag the match down unless they're legitimate
+      // descriptors that live in the searchable set anyway. Penalty is
+      // proportional to unmatched slug tokens, capped so good matches
+      // with a couple extra descriptors still score well.
+      const noiseRatio = Math.min(unmatchedSlugTokens.length / 4, 0.3);
+      score -= noiseRatio;
+      if (noiseRatio > 0) {
+        reasons.push(
+          `slug has ${unmatchedSlugTokens.length} tokens outside the cluster (−${noiseRatio.toFixed(2)})`,
+        );
+      }
+    }
+
+    // Phase 2 (2026-04-24): hard penalty for the homepage. The homepage
+    // almost always contains the brand's headline tokens, which would
+    // otherwise make it the top match for every specific cluster. The
+    // homepage is a legitimate target only when the cluster itself is
+    // brand/homepage-level (single-token brand cluster), not for specific
+    // location/service clusters.
+    if (entry.routeType === "home") {
+      const isBrandCluster =
+        clusterTokenCount <= 2 &&
+        args.kind === null; // single-prompt brand query
+      if (!isBrandCluster) {
+        score = score * 0.25;
+        reasons.push("homepage penalty (not a specific-cluster target)");
+      }
+    }
+
+    // Phase 2 (2026-04-24): bundled-match detection. A page whose H1/title
+    // explicitly lists multiple distinct parts (separated by " and ", " & ",
+    // " + ", " / ", or comma) covers the cluster AND more. Flag for
+    // needs_review / split_or_separate_page rather than auto-strengthen.
+    const isBundled = detectBundledCoverage(entry, clusterTokenSet);
+    if (isBundled) {
+      reasons.push("page title covers cluster + additional parts (bundled)");
+    }
+
     matches.push({
       url: entry.url,
-      score: Math.min(score, 1),
+      score: Math.min(Math.max(score, 0), 1),
       reasons,
       entry,
+      isBundled,
     });
   }
 
+  // Phase 2 tiebreak: at equal score, prefer the route-type that matches
+  // the cluster kind (geo → location, topic → service/hub over project/
+  // other/home). This stops `/explore-projects/louis-road-palo-alto`
+  // beating `/locations/palo-alto` when both score 1.0 for a Palo Alto
+  // geo cluster.
+  const rankForKind = (rt: PageRouteType): number => {
+    if (args.kind === "geo") {
+      return (
+        { location: 0, hub: 1, service: 2, project: 3, other: 4, blog: 5, home: 6, contact: 7 } as Record<
+          PageRouteType,
+          number
+        >
+      )[rt];
+    }
+    if (args.kind === "topic") {
+      return (
+        { service: 0, hub: 1, location: 2, project: 3, other: 4, blog: 5, home: 6, contact: 7 } as Record<
+          PageRouteType,
+          number
+        >
+      )[rt];
+    }
+    return 0;
+  };
   matches.sort(
-    (a, b) => b.score - a.score || a.url.localeCompare(b.url),
+    (a, b) =>
+      b.score - a.score ||
+      rankForKind(a.entry.routeType) - rankForKind(b.entry.routeType) ||
+      a.url.localeCompare(b.url),
   );
   return matches.slice(0, topN);
 }
@@ -214,6 +337,61 @@ export function matchClusterToInventory(args: {
 // ---------------------------------------------------------------------------
 // Internals
 // ---------------------------------------------------------------------------
+
+/**
+ * Return the set of tokens extracted from the page URL's pathname only.
+ * Used by the specificity score — a page whose slug is close to the
+ * cluster label is more likely the intended target than a page whose
+ * slug has many extra unrelated tokens.
+ */
+function urlPathTokenSet(url: string): Set<string> {
+  try {
+    const pathname = new URL(url).pathname;
+    const set = new Set<string>();
+    for (const t of tokenizeForMatch(pathname.replace(/[/_-]+/g, " "))) {
+      set.add(t);
+    }
+    return set;
+  } catch {
+    return new Set();
+  }
+}
+
+/**
+ * True when the page's title or H1 appears to bundle multiple distinct
+ * coverage parts — e.g. "Los Altos & Los Altos Hills" or
+ * "Palo Alto / Menlo Park Home Builder". Triggered when a bundling
+ * connector appears between two substantive phrases AND at least one
+ * of the cluster tokens is in the page.
+ *
+ * Keeps the implementation conservative so "Kitchen & Bath Remodel"
+ * doesn't trigger for a "Kitchen" cluster — we require distinct
+ * phrases on each side of the connector, each with ≥2 non-stopword
+ * tokens.
+ */
+function detectBundledCoverage(
+  entry: PageInventoryEntry,
+  clusterTokenSet: ReadonlySet<string>,
+): boolean {
+  const texts = [entry.h1, entry.title].filter(
+    (t): t is string => typeof t === "string" && t.length > 0,
+  );
+  if (texts.length === 0) return false;
+  const connectorPattern = /\s+(?:and|&|\+|\/|,)\s+/i;
+  for (const text of texts) {
+    const parts = text.split(connectorPattern);
+    if (parts.length < 2) continue;
+    const significant = parts.filter((p) => tokenizeForMatch(p).length >= 2);
+    if (significant.length < 2) continue;
+    // At least one side must overlap the cluster label — otherwise it's
+    // a bundled page unrelated to this cluster.
+    const anyOverlaps = significant.some((p) =>
+      tokenizeForMatch(p).some((t) => clusterTokenSet.has(t)),
+    );
+    if (anyOverlaps) return true;
+  }
+  return false;
+}
 
 function buildSearchableTokens(entry: PageInventoryEntry): Set<string> {
   const parts: string[] = [];

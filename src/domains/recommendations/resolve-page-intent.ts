@@ -203,6 +203,7 @@ function resolveOne(
         reasoning: `Multiple owned pages compete for this intent. Consolidate into ${topUrl} and redirect or update the others.`,
         cannibalization: otherUrls,
         evidenceRefs: buildEvidenceRefs(candidate, sortedUrls.slice(0, 5)),
+        coverage: "cannibalization",
       },
     };
   }
@@ -221,6 +222,7 @@ function resolveOne(
         reasoning: `AI already cites this page on most prompts in the cluster. Strengthen its lead copy / descriptors / authority rather than creating a new page.`,
         cannibalization: null,
         evidenceRefs: buildEvidenceRefs(candidate, sortedUrls.slice(0, 3)),
+        coverage: "exact_match",
       },
     };
   }
@@ -238,12 +240,22 @@ function resolveOne(
         reasoning: `Page exists and is cited on some prompts, but doesn't cover the full cluster. Expand with missing angles before creating a new page.`,
         cannibalization: null,
         evidenceRefs: buildEvidenceRefs(candidate, sortedUrls.slice(0, 3)),
+        coverage: "partial_match",
       },
     };
   }
 
-  // Citations exist but all URLs below expand threshold → treat as silent,
-  // fall through to create. Later layers may override.
+  // Observations exist and cite owned URLs, but all citations are below
+  // the expand threshold (very thin). Before declaring create_new_page,
+  // try the inventory — the AI just hasn't cited the right page much yet
+  // but a strong-matching page might still exist.
+  const inventoryFallback = tryInventoryMatch(candidate, inventory, {
+    observationsScanned,
+    layer1Reason: `AI cites owned URLs on this cluster only thinly (top URL ${topUrl} at ${pct(topShare)}%) — checking inventory for stronger match.`,
+  });
+  if (inventoryFallback) {
+    return { ...candidate, resolution: inventoryFallback };
+  }
   return {
     ...candidate,
     resolution: buildCreateNewResolution(
@@ -277,6 +289,26 @@ function tryInventoryMatch(
   if (matches.length === 0) return null;
 
   const top = matches[0];
+
+  // Phase 2 (2026-04-24): bundled pages take precedence over strengthen.
+  // A page whose title covers cluster + more shouldn't get
+  // "Strengthen" — operator needs to decide whether to split.
+  if (top.isBundled && top.score >= INVENTORY_EXPAND_THRESHOLD) {
+    return {
+      action: "needs_review",
+      motive: inferMotive(candidate),
+      targetUrl: top.url,
+      confidence: "low",
+      confidenceReason: `${opts.layer1Reason} Site inventory shows ${top.url} already bundles this cluster with other coverage (${top.entry.title ?? top.entry.h1 ?? top.url}). Operator should decide whether to strengthen in-place or split into a dedicated page.`,
+      tier: "inventory",
+      reasoning: `An existing page already bundles this cluster with other coverage. Do not auto-create a duplicate — review whether to strengthen in-place or split into a dedicated page.`,
+      cannibalization: null,
+      evidenceRefs: buildInventoryEvidenceRefs(candidate, matches),
+      coverage: "bundled_match",
+      needsHumanReview: true,
+    };
+  }
+
   if (top.score >= INVENTORY_STRENGTHEN_THRESHOLD) {
     return {
       action: "strengthen_existing_page",
@@ -288,6 +320,7 @@ function tryInventoryMatch(
       reasoning: `Page already exists on the site; AI just hasn't cited it yet on these prompts. Strengthen copy / schema before creating a new page.`,
       cannibalization: null,
       evidenceRefs: buildInventoryEvidenceRefs(candidate, matches),
+      coverage: "exact_match",
     };
   }
   if (top.score >= INVENTORY_EXPAND_THRESHOLD) {
@@ -301,6 +334,7 @@ function tryInventoryMatch(
       reasoning: `A related page exists. Expand its scope (new section / FAQ / heading) to cover this cluster before creating a separate page.`,
       cannibalization: null,
       evidenceRefs: buildInventoryEvidenceRefs(candidate, matches),
+      coverage: "partial_match",
     };
   }
   return null;
@@ -354,6 +388,7 @@ function buildSilentResolution(
     reasoning: buildDefaultReasoning(action, candidate),
     cannibalization: null,
     evidenceRefs: [],
+    coverage: "no_match",
   };
 }
 
@@ -376,6 +411,7 @@ function buildCreateNewResolution(
     reasoning: buildDefaultReasoning(action, candidate),
     cannibalization: null,
     evidenceRefs: [],
+    coverage: "no_match",
   };
 }
 
