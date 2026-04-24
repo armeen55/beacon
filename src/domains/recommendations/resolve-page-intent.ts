@@ -186,6 +186,35 @@ function resolveOne(
   const [topUrl, topCount] = sortedUrls[0];
   const topShare = topCount / observationsScanned;
 
+  // Phase 2.8 (2026-04-24): homepage special-case. For specific (non-
+  // brand) clusters, a thin-to-moderate homepage citation represents
+  // "AI knows the domain," not "homepage is the right answer." Before
+  // committing to homepage as the target, check the inventory for a
+  // stronger specific-page match. Homepage still wins when
+  //   (a) share is very high (≥ STRENGTHEN_HIGH_CONFIDENCE_SHARE) — then
+  //       the homepage IS the answer AI is giving, or
+  //   (b) no specific inventory match exists (inventory empty, or only
+  //       matches the homepage itself — the Phase 2 inventory homepage
+  //       penalty already downscores homepage for non-brand clusters,
+  //       so if homepage is still the top inventory match that means
+  //       the cluster is genuinely brand-level).
+  if (
+    isHomepageUrl(topUrl) &&
+    topShare < STRENGTHEN_HIGH_CONFIDENCE_SHARE
+  ) {
+    const invMatch = tryInventoryMatch(candidate, inventory, {
+      observationsScanned,
+      layer1Reason: `Top cited URL is the homepage at ${pct(topShare)}% — specific-cluster queries should not target the brand homepage.`,
+    });
+    if (
+      invMatch &&
+      invMatch.targetUrl !== NEEDS_NEW_PAGE &&
+      !isHomepageUrl(invMatch.targetUrl)
+    ) {
+      return { ...candidate, resolution: invMatch };
+    }
+  }
+
   const cannibalizing = sortedUrls.filter(
     ([, count]) => count / observationsScanned >= CANNIBALIZATION_SHARE,
   );
@@ -548,6 +577,15 @@ function isOwnedHost(host: string, ownedDomains: ReadonlySet<string>): boolean {
     if (host.endsWith(`.${owned}`)) return true;
   }
   return false;
+}
+
+function isHomepageUrl(url: string): boolean {
+  try {
+    const p = new URL(url).pathname;
+    return p === "/" || p === "";
+  } catch {
+    return false;
+  }
 }
 
 export function canonicalizeUrl(rawUrl: string): string | null {
