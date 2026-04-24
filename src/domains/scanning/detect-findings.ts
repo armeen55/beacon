@@ -16,68 +16,175 @@ import {
 } from "@/domains/pages/expected-schema";
 import { classifyFaqChange } from "./faq-change-classifier";
 import { isFindingAutoLinkEnabled } from "@/lib/flags";
-// Fix 2 (2026-04-21) — auto-link lookup: read persisted recommendation
-// responses so a detected change on a URL with a recent accepted rec can
-// be stamped with source_rec_id + source_pattern_id at detection time.
-import { recommendationResponses } from "@/domains/product/recommendation-response-store";
 
 type CitationLookup = Map<string, number>;
 type PreviouslyRejectedLookup = Set<string>;
 
-/** Fix 2 (2026-04-21). Window for matching an accepted rec to a later-
- *  detected change on the same URL. 14 days is generous enough to cover
- *  dev cycles (accept Monday, ship next Monday) without false-linking
- *  stale acceptances. */
+/** Phase Auto-Link v2 (2026-04-24). Window for matching a finding to a
+ *  recommendation-sourced changelog entry on the same URL. 14 days covers
+ *  accept-Monday-ship-next-Monday cycles without false-linking stale
+ *  acceptances. */
 const REC_LINK_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
 
-/** Build a normalized URL → most-recent-accepted-rec lookup. Used to stamp
- *  findings with `source_rec_id` + `source_pattern_id` so `confirmFindingAsChange`
- *  can carry the linkage into ChangelogEntry, and per-rec / per-pattern
- *  attribution becomes ground truth instead of URL-only inference. */
-function buildAcceptedRecLookup(
+/**
+ * Phase Auto-Link v2 (2026-04-24) signal compatibility table.
+ *
+ * Determines whether a given finding type is "caused by" a changelog
+ * entry of a given signal_type. Used to prevent over-linking: a
+ * schema_changed scan finding should NOT link to a Strengthen content
+ * changelog just because they share a URL.
+ *
+ * Mapping rationale:
+ *   - Heading / meta / content findings → only content-signal changelog
+ *     (Strengthen, Expand accept → content).
+ *   - faq_changed → content OR technical. FAQ edits can come from
+ *     Strengthen (content) or from add_section_or_faq (technical).
+ *   - Schema / canonical / link findings → technical only (add_section,
+ *     merge_or_dedupe, explicit schema work).
+ *   - page_added / page_removed → page only (create_new_page).
+ *   - faq_without_schema / schema_missing_for_page_type / faq_schema_*
+ *     findings → technical (schema-family).
+ */
+const FINDING_TYPE_TO_COMPATIBLE_CHANGELOG_SIGNALS: Partial<
+  Record<FindingType, ReadonlyArray<"content" | "technical" | "faq" | "page">>
+> = {
+  title_changed: ["content"],
+  meta_changed: ["content"],
+  h1_changed: ["content"],
+  h2_changed: ["content"],
+  h3_changed: ["content"],
+  content_changed: ["content"],
+  // FAQ edits legitimately come from Strengthen/Expand (content) or from
+  // add_section_or_faq (technical). Both are valid source actions.
+  faq_changed: ["content", "technical", "faq"],
+  // Schema + canonical + links are structural — only technical changelog
+  // actions (add_section_or_faq, merge_or_dedupe, explicit schema work)
+  // should be able to claim a schema finding as their downstream effect.
+  schema_changed: ["technical"],
+  schema_entity_names_changed: ["technical"],
+  schema_invalid: ["technical"],
+  schema_missing_for_page_type: ["technical"],
+  faq_without_schema: ["technical", "faq"],
+  canonical_changed: ["technical"],
+  links_changed: ["technical"],
+  page_added: ["page"],
+  page_removed: ["page"],
+};
+
+type ChangelogCandidate = {
+  id: string;
+  recId: string;
+  patternId: string | null;
+  signalType: string;
+  timestampMs: number;
+};
+
+/**
+ * Phase Auto-Link v2 (2026-04-24). Build a lookup of recent
+ * recommendation-sourced changelog entries, keyed by normalised URL
+ * path. Eligible entries:
+ *   - hypothesis_source === "recommendation"
+ *   - source_rec_id present
+ *   - url present
+ *   - timestamp within the 14-day window
+ *
+ * Multiple eligible entries on the same URL are preserved; the match
+ * step picks the newest one whose signal_type is compatible with the
+ * finding's type.
+ *
+ * needs_review / split / watch actions don't create changelog entries
+ * via `acceptRecommendation` (see Phase 5 `shouldStampChangelog`), so
+ * they're automatically excluded from this lookup.
+ */
+function buildRecommendationChangelogLookup(
+  changelog: ReadonlyArray<ChangelogEntry>,
   nowIso: string,
-): Map<string, { recId: string; patternId: string | null }> {
-  const out = new Map<string, { recId: string; patternId: string | null }>();
+): Map<string, ChangelogCandidate[]> {
+  const out = new Map<string, ChangelogCandidate[]>();
   const nowMs = Date.parse(nowIso);
   const cutoff = nowMs - REC_LINK_WINDOW_MS;
 
-  // Newest-first so the first hit per URL is the most recent acceptance.
-  const sorted = [...recommendationResponses].sort((a, b) =>
-    b.respondedAt.localeCompare(a.respondedAt),
-  );
+  for (const entry of changelog) {
+    if (entry.hypothesis_source !== "recommendation") continue;
+    if (!entry.source_rec_id) continue;
+    if (!entry.url) continue;
+    const tsMs = Date.parse(entry.timestamp);
+    if (!Number.isFinite(tsMs)) continue;
+    if (tsMs < cutoff) continue;
 
-  for (const r of sorted) {
-    if (r.status !== "accepted") continue;
-    const respondedMs = Date.parse(r.respondedAt);
-    if (!Number.isFinite(respondedMs)) continue;
-    if (respondedMs < cutoff) continue;
-    if (!r.targetPageUrl) continue;
-    const key = r.targetPageUrl
+    const key = entry.url
       .replace(/^https?:\/\/[^/]+/, "")
       .replace(/\/+$/, "")
       .toLowerCase();
     if (!key) continue;
-    if (out.has(key)) continue; // keep newest-per-URL
-    out.set(key, { recId: r.recId, patternId: r.patternId ?? null });
+
+    const existing = out.get(key) ?? [];
+    existing.push({
+      id: entry.id,
+      recId: entry.source_rec_id,
+      patternId: entry.source_pattern_id ?? null,
+      signalType: entry.signal_type,
+      timestampMs: tsMs,
+    });
+    out.set(key, existing);
   }
   return out;
 }
 
-/** Fix 2 (2026-04-21). Stamp a finding with auto-link IDs when its URL has
- *  a recent accepted rec. No-op when no match. */
-function stampAutoLinkIfMatch(
+/**
+ * Phase Auto-Link v2 (2026-04-24). Stamp a finding with metadata from
+ * the newest eligible recommendation-sourced changelog entry whose URL
+ * matches and whose signal_type is compatible with the finding's type.
+ *
+ * Hard guardrails (in order):
+ *   1. URL path must match (normalised, exact).
+ *   2. Finding's `detectedAt` must be STRICTLY AFTER the changelog's
+ *      timestamp — the edit must exist before it can be observed.
+ *   3. Within 14-day window (already ensured by the lookup builder).
+ *   4. Finding type must be compatible with changelog signal_type per
+ *      FINDING_TYPE_TO_COMPATIBLE_CHANGELOG_SIGNALS.
+ *   5. Finding stays `status=pending` — only metadata is stamped.
+ *      Operator still has to click Confirm.
+ *
+ * No-op when no candidate matches. Never flips status.
+ */
+function stampFindingFromChangelog(
   finding: Finding,
-  lookup: Map<string, { recId: string; patternId: string | null }>,
+  lookup: Map<string, ChangelogCandidate[]>,
 ): void {
   if (!finding.url) return;
   const key = finding.url
     .replace(/^https?:\/\/[^/]+/, "")
     .replace(/\/+$/, "")
     .toLowerCase();
-  const match = lookup.get(key);
+  const candidates = lookup.get(key);
+  if (!candidates || candidates.length === 0) return;
+
+  const compatible =
+    FINDING_TYPE_TO_COMPATIBLE_CHANGELOG_SIGNALS[finding.type];
+  if (!compatible) return;
+
+  const detectedMs = Date.parse(finding.detectedAt);
+  if (!Number.isFinite(detectedMs)) return;
+
+  const eligible = candidates
+    .filter((c) => {
+      // Guardrail 2: finding must be detected STRICTLY AFTER the
+      // recommendation-sourced changelog was stamped.
+      if (c.timestampMs >= detectedMs) return false;
+      // Guardrail 4: signal-type compatibility.
+      return compatible.includes(
+        c.signalType as "content" | "technical" | "faq" | "page",
+      );
+    })
+    .sort((a, b) => b.timestampMs - a.timestampMs); // newest first
+
+  const match = eligible[0];
   if (!match) return;
+
   finding.source_rec_id = match.recId;
   finding.source_pattern_id = match.patternId;
+  finding.linkedChangeId = match.id;
 }
 
 export function generateFindings(opts: {
@@ -643,74 +750,32 @@ export function generateFindings(opts: {
     }
   }
 
-  // ── Auto-reconcile: if a finding's URL matches a recent changelog entry
-  // with a compatible signal type, auto-link and accept the finding so it
-  // doesn't appear as an unresolved detection on Today. ──
+  // ── Auto-link (Phase Auto-Link v2, 2026-04-24) ────────────────────
   //
-  // Phase 1 gate — OFF by default. When disabled, every finding stays in
-  // `status: "pending"` until an operator confirms or dismisses it via
-  // `confirmFindingAsChange()`, which is the only path that stamps
-  // structured schema-experiment fields. Flip BEACON_AUTO_LINK_FINDINGS=1
-  // to re-enable the legacy 30-day auto-collapse behavior (not recommended
-  // while running schema-experiment dogfeed).
-  const autoLinkEnabled = isFindingAutoLinkEnabled();
-  const now2 = new Date().toISOString();
-  const recentByPath = new Map<string, ChangelogEntry[]>();
-  if (autoLinkEnabled) {
-    for (const entry of changelog) {
-      if (!entry.url) continue;
-      if (new Date(entry.timestamp).getTime() < thirtyDaysAgo) continue;
-      const p = norm(entry.url);
-      const arr = recentByPath.get(p) ?? [];
-      arr.push(entry);
-      recentByPath.set(p, arr);
-    }
-  }
-
-  const FINDING_TO_SIGNAL: Record<string, { signals: string[]; keywords: string[] }> = {
-    title_changed: { signals: ["technical"], keywords: ["title"] },
-    meta_changed: { signals: ["technical"], keywords: ["meta"] },
-    h1_changed: { signals: ["content"], keywords: ["h1", "heading"] },
-    faq_changed: { signals: ["faq", "technical"], keywords: ["faq", "q&a", "json-ld"] },
-    schema_changed: { signals: ["technical"], keywords: ["schema", "json-ld", "structured data"] },
-    content_changed: { signals: ["content"], keywords: ["content", "copy", "section"] },
-    links_changed: { signals: ["content", "technical"], keywords: ["link", "internal link"] },
-  };
-
-  if (autoLinkEnabled) {
-    for (const f of findings) {
-      if (f.status !== "pending") continue;
-      const fPath = norm(f.url);
-      const matches = recentByPath.get(fPath);
-      if (!matches || matches.length === 0) continue;
-
-      const mapping = FINDING_TO_SIGNAL[f.type];
-      if (!mapping) continue;
-
-      const linked = matches.find((c) => {
-        if (mapping.signals.includes(c.signal_type)) return true;
-        const desc = c.change_description.toLowerCase();
-        return mapping.keywords.some((kw) => desc.includes(kw));
-      });
-
-      if (linked) {
-        f.status = "accepted";
-        f.resolvedAt = now2;
-        f.linkedChangeId = linked.id;
-        f.resolutionNote = `Auto-linked: matches changelog "${linked.change_description.slice(0, 60)}" (${linked.timestamp.slice(0, 10)})`;
+  // Gated on BEACON_AUTO_LINK_FINDINGS. When enabled, stamps each
+  // pending finding with metadata from the newest compatible recent
+  // recommendation-sourced changelog entry on the same URL. Finding
+  // stays pending — operator still has to click Confirm.
+  //
+  // Match-through-changelog (Option B) replaces the previous Fix 2
+  // (Apr-21) "buildAcceptedRecLookup from recommendation_responses"
+  // path entirely. Matching against recommendation-sourced changelog
+  // entries (hypothesis_source === "recommendation") gives us:
+  //   - automatic exclusion of needs_review / split / watch actions
+  //     (they don't produce changelog entries in the first place per
+  //     Phase 5 shouldStampChangelog)
+  //   - access to signal_type for finding-type compatibility
+  //   - a concrete changelog id for finding.linkedChangeId
+  //
+  // The old Dogfeed Night 1 failure mode (auto-accepting findings into
+  // keyword-matched older changelog entries) is retired for good. This
+  // pass NEVER flips status — metadata only.
+  if (isFindingAutoLinkEnabled()) {
+    const lookup = buildRecommendationChangelogLookup(changelog, now);
+    if (lookup.size > 0) {
+      for (const f of findings) {
+        stampFindingFromChangelog(f, lookup);
       }
-    }
-  }
-
-  // Fix 2 (2026-04-21) — auto-link pass. For every finding whose URL has
-  // a recently-accepted rec, stamp source_rec_id + source_pattern_id.
-  // `confirmFindingAsChange` then carries these into the created
-  // ChangelogEntry. Manual Confirm preserved — this is metadata linkage,
-  // not auto-confirmation.
-  const acceptedRecLookup = buildAcceptedRecLookup(now);
-  if (acceptedRecLookup.size > 0) {
-    for (const f of findings) {
-      stampAutoLinkIfMatch(f, acceptedRecLookup);
     }
   }
 

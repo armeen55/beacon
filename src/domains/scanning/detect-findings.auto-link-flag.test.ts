@@ -174,29 +174,43 @@ describe("auto-link feature flag (BEACON_AUTO_LINK_FINDINGS)", () => {
     expect(faqFinding?.linkedChangeId).toBeNull();
   });
 
-  it('FLAG ON ("1") — legacy auto-link behavior returns', () => {
+  // Phase Auto-Link v2 (2026-04-24): legacy Path 1 retired for good.
+  // Flipping the flag no longer resurrects the keyword-match auto-accept
+  // behaviour — it now enables ONLY the metadata stamp against
+  // recommendation-sourced changelog entries, finding stays pending.
+  // Deep contract for the new path lives in
+  // tests/domains/scanning/auto-link-via-changelog.test.ts.
+
+  it('FLAG ON ("1") with a non-recommendation-sourced old entry on the same URL → finding STILL stays pending (legacy keyword-match retired)', () => {
     process.env.BEACON_AUTO_LINK_FINDINGS = "1";
+    // OLD_GENERIC_ENTRY has hypothesis_source unset (not
+    // "recommendation"), so it's NOT a candidate under the new path
+    // even with the flag on. Old Path 1 would have keyword-matched
+    // "schema" in its description and auto-accepted — that behaviour
+    // is gone.
     const findings = generateFindings(buildScanInputWithSchemaChange());
     const schemaFinding = findings.find((f) => f.type === "schema_changed");
-    // With flag on, the keyword-match auto-link applies. 16 days is inside
-    // the legacy 30-day window, and the description contains "schema".
-    expect(schemaFinding?.status).toBe("accepted");
-    expect(schemaFinding?.linkedChangeId).toBe("cl-old");
+    expect(schemaFinding?.status).toBe("pending");
+    expect(schemaFinding?.linkedChangeId).toBeFalsy();
+    expect(schemaFinding?.resolvedAt).toBeFalsy();
   });
 
-  it("FLAG ON — does NOT auto-link when URLs differ", () => {
+  it("FLAG ON — URL mismatch still produces no link", () => {
     process.env.BEACON_AUTO_LINK_FINDINGS = "1";
     const unrelated = entry({
       id: "cl-unrelated",
       timestamp: "2026-04-10T08:00:00+00:00",
       url: "/different-page",
       change_description: "Added schema to different page",
+      hypothesis_source: "recommendation",
+      source_rec_id: "rec-unrelated",
     });
     const input = buildScanInputWithSchemaChange();
     input.changelog = [unrelated];
     const findings = generateFindings(input);
     const schemaFinding = findings.find((f) => f.type === "schema_changed");
     expect(schemaFinding?.status).toBe("pending");
+    expect(schemaFinding?.source_rec_id).toBeFalsy();
   });
 
   it("Value other than '1' is treated as OFF (e.g. 'true' does NOT enable)", () => {
