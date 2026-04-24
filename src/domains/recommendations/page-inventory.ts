@@ -65,6 +65,15 @@ export type InventoryMatch = {
    *  explicitly names the cluster should beat pages that only mention the
    *  cluster in H1/body via brand boilerplate. */
   urlPathOverlap: number;
+  /** Phase 2.7 (2026-04-24): true for a service-route page whose URL slug
+   *  tokens are ALL contained in the cluster tokens. Fires the cluster
+   *  "Best Design-Build Firm for Custom Homes (Bay Area)" to prefer
+   *  `/services/design-build` over `/custom-home-builder-bay-area`.
+   *  Used as a tiebreak slot between score and urlPathOverlap so a
+   *  service-specific page wins ties against broad hubs. Never
+   *  overrides raw score — only decides between pages that are
+   *  already roughly tied. */
+  isExplicitServiceMatch: boolean;
 };
 
 // ---------------------------------------------------------------------------
@@ -318,6 +327,22 @@ export function matchClusterToInventory(args: {
       urlPathTokens.has(t),
     ).length;
 
+    // Phase 2.7 (2026-04-24): explicit-service-match flag. True iff the
+    // entry is a service-route page whose URL slug tokens are ALL
+    // contained in the cluster tokens. Used as a tiebreak between score
+    // and urlPathOverlap so clusters like "Best Design-Build Firm for
+    // Custom Homes (Bay Area)" pick `/services/design-build` over a
+    // broad `/custom-home-builder-bay-area` hub.
+    const svcSlug = serviceSlugTokens(entry);
+    const isExplicitServiceMatch =
+      svcSlug.size > 0 &&
+      [...svcSlug].every((t) => clusterTokenSet.has(t));
+    if (isExplicitServiceMatch) {
+      reasons.push(
+        `cluster names the service explicitly ("${[...svcSlug].join("-")}") — service page preferred`,
+      );
+    }
+
     matches.push({
       url: entry.url,
       score: Math.min(Math.max(score, 0), 1),
@@ -325,6 +350,7 @@ export function matchClusterToInventory(args: {
       entry,
       isBundled,
       urlPathOverlap,
+      isExplicitServiceMatch,
     });
   }
 
@@ -352,14 +378,19 @@ export function matchClusterToInventory(args: {
     }
     return 0;
   };
-  // Phase 2.6 (2026-04-24): URL-path-overlap is the primary tiebreak after
-  // score. At equal score, a page whose URL path names the cluster
-  // explicitly wins over a page that only mentions cluster tokens via
-  // brand boilerplate. This fixes "Luxury Home Builder Bay Area" resolving
-  // to /services/build-on-your-lot instead of /luxury-home-builder-bay-area.
+  // Tiebreak chain:
+  //   1. score desc
+  //   2. isExplicitServiceMatch true first (Phase 2.7) — a service page
+  //      whose slug is fully named in the cluster beats a broad hub that
+  //      only matches via common modifiers
+  //   3. urlPathOverlap desc (Phase 2.6) — pages whose URL path names
+  //      the cluster beat pages that only mention it via H1 boilerplate
+  //   4. route-type rank for cluster kind
+  //   5. alphabetical url as the final stable key
   matches.sort(
     (a, b) =>
       b.score - a.score ||
+      Number(b.isExplicitServiceMatch) - Number(a.isExplicitServiceMatch) ||
       b.urlPathOverlap - a.urlPathOverlap ||
       rankForKind(a.entry.routeType) - rankForKind(b.entry.routeType) ||
       a.url.localeCompare(b.url),
@@ -370,6 +401,30 @@ export function matchClusterToInventory(args: {
 // ---------------------------------------------------------------------------
 // Internals
 // ---------------------------------------------------------------------------
+
+/**
+ * Phase 2.7 (2026-04-24). For a service-route page, return the tokens
+ * of its URL slug with the leading `/services/` segment stripped. The
+ * stripped form is the canonical identifier of what service the page is
+ * about (e.g. "/services/design-build" → {design, build}). Used to
+ * detect when a cluster explicitly names a service and the service page
+ * should win the target slot. Returns an empty set for non-service
+ * routeTypes, so hub pages are never treated as explicit-service
+ * matches even if their URL slug happens to tokenize into the cluster.
+ */
+function serviceSlugTokens(entry: PageInventoryEntry): Set<string> {
+  if (entry.routeType !== "service") return new Set();
+  try {
+    const pathname = new URL(entry.url).pathname;
+    const slug = pathname
+      .replace(/^\/services\//, "")
+      .replace(/^\/+|\/+$/g, "");
+    if (!slug) return new Set();
+    return new Set(tokenizeForMatch(slug));
+  } catch {
+    return new Set();
+  }
+}
 
 /**
  * Return the set of tokens extracted from the page URL's pathname only.
