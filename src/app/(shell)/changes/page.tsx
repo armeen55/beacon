@@ -3,11 +3,11 @@ import { PageHeader } from "@/components/data/page-header";
 import { EvidenceFreshnessBanner } from "@/components/shell/evidence-freshness-banner";
 import { citationEvidenceIndex } from "@/domains/pages/citation-evidence-store";
 import {
-  changelogEntries,
   opportunities,
   results,
   hasActiveExperiment,
 } from "@/lib/seed-data.server";
+import type { ChangelogEntry } from "@/domains/changelog/types";
 import { eventDecisions } from "@/domains/attribution/store";
 import { computeScorecard } from "@/domains/attribution/scorecard";
 import { enrichWithImpact } from "@/domains/attribution/change-impact";
@@ -37,6 +37,11 @@ import {
 } from "@/domains/learning/change-patterns";
 import { extractEditTokens } from "@/domains/changelog/dedupe";
 import { isEventTruthPreviewEnabled } from "@/lib/flags";
+
+// Phase 1.2 (Sprint 1, 2026-04-24): force dynamic render so every request
+// runs the single-fresh-repo-read pattern below. Prevents any accidental ISR
+// caching that would re-introduce the cross-lambda staleness we just fixed.
+export const dynamic = "force-dynamic";
 
 export default async function ChangeScorecardPage() {
   if (!hasActiveExperiment()) {
@@ -80,8 +85,25 @@ export default async function ChangeScorecardPage() {
     console.error("[changes] URL watcher refresh error (non-fatal)", err);
   }
 
+  // Phase 1.2 (Sprint 1, 2026-04-24): single fresh repo read per request.
+  // Every render-visible changelog value on this page derives from this
+  // array. The prior implementation read from the module-level
+  // `changelogEntries` import in @/lib/seed-data.server, which is hydrated
+  // once per Vercel lambda cold start. Writes made by other lambdas stayed
+  // invisible until that lambda reset, which is why operator Confirm clicks
+  // appeared to succeed but /changes did not show the new scan_detection
+  // entries. Honest error state below prevents a silent fallback to stale
+  // cached data on repo failure.
+  const repository = getRepository();
+  let freshChangelogEntries: ChangelogEntry[];
+  try {
+    freshChangelogEntries = await repository.getChangelogEntries();
+  } catch (error) {
+    return <ChangesReadError error={error} />;
+  }
+
   // Hide archived (dedupe-retired) entries from the main list.
-  const liveEntries = changelogEntries.filter((c) => !c.archived);
+  const liveEntries = freshChangelogEntries.filter((c) => !c.archived);
 
   // ── Build URL citation history once per page load ──
   // The watcher above persisted the latest to disk if it ran this tick;
@@ -181,14 +203,11 @@ export default async function ChangeScorecardPage() {
   });
   const coverageWarning = coverageWarningLine(coverageState);
 
-  // Dedupe banner — Phase B read-fix (2026-04-24): fetch fresh from the
-  // repository per request. The module-level `changelogEntries` is
-  // hydrated once per Vercel lambda cold start, so write-after-read
-  // shows stale pair counts across lambdas. See
-  // /changes/dedupe/page.tsx for the matching fix.
-  const duplicatePairs = findDuplicatePairs(
-    await getRepository().getChangelogEntries(),
-  );
+  // Dedupe banner — reuses the single fresh read above (Phase 1.2, Sprint 1).
+  // Prior Phase B fix did its own repo round-trip here; consolidating with the
+  // main fresh read eliminates a duplicate fetch per request and keeps all
+  // page-level changelog computations on the same snapshot.
+  const duplicatePairs = findDuplicatePairs(freshChangelogEntries);
   const duplicatePairCount = duplicatePairs.length;
 
   const newestISO = rows[0]?.change.timestamp ?? null;
@@ -325,6 +344,47 @@ export default async function ChangeScorecardPage() {
           Its helping/hurting/too-early language contradicted the new
           attribution status model. The scorecard list above renders every
           change's attribution status; detail pages drill into the math. */}
+    </div>
+  );
+}
+
+/**
+ * Phase 1.2 (Sprint 1, 2026-04-24) — honest error state.
+ *
+ * Rendered when the repository fetch fails. Deliberately does NOT fall back
+ * to the stale module-level `changelogEntries` array; the whole point of the
+ * fresh-read pattern is that operators never see data that conflicts with
+ * what's actually in Supabase. A transient read failure is rare enough that a
+ * plain retry message is the right UX — not a silent degrade to cached truth.
+ */
+function ChangesReadError({ error }: { error: unknown }) {
+  const message =
+    error instanceof Error ? error.message : "Unknown error reading changelog";
+  return (
+    <div>
+      <PageHeader
+        title="Changes"
+        description="We couldn't load your changelog right now."
+      />
+      <section
+        className="rounded-lg border border-status-warning/40 bg-status-warning/5 px-5 py-5"
+        aria-labelledby="changes-read-error-heading"
+      >
+        <h2
+          id="changes-read-error-heading"
+          className="text-[13px] font-semibold text-foreground tracking-tight"
+        >
+          Couldn&apos;t load changes
+        </h2>
+        <p className="mt-2 text-[13px] leading-relaxed text-muted-foreground">
+          {message}
+        </p>
+        <p className="mt-2 text-[12px] leading-relaxed text-muted-foreground">
+          This usually means the database is temporarily unreachable. Refresh
+          the page to retry. We never fall back to cached data here, so you
+          won&apos;t see stale truth by accident.
+        </p>
+      </section>
     </div>
   );
 }
