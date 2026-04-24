@@ -107,7 +107,8 @@ async function queryMapped<T>(table: string): Promise<T[]> {
 export const supabaseBackend: SeedDataRepository = {
   // Phase 1B
   getImportRuns: () => query<ImportRun>("import_runs"),
-  getResults: () => query<Result>("results"),
+  // results: 1719 rows as of 2026-04-24 — past PostgREST's 1000-row cap.
+  getResults: () => queryAllPaged<Result>("results"),
   getChangelogEntries: () => query<ChangelogEntry>("changelog_entries"),
   getOpportunities: () => query<Opportunity>("opportunities"),
   getCompetitors: () => query<Competitor>("competitors"),
@@ -119,7 +120,10 @@ export const supabaseBackend: SeedDataRepository = {
   getChangeContracts: () => queryMapped<ChangeContract>("change_contracts"),
 
   // Phase 1E
-  getPages: () => query<PageEntity>("pages"),
+  // pages: 5929 rows as of 2026-04-24 — past PostgREST's 1000-row cap. Without
+  // pagination, buildPageInventory saw only ~3 owned rows on hosted and the
+  // resolver fell through to create_new_page for every blocker cluster.
+  getPages: () => queryAllPaged<PageEntity>("pages"),
   getPageSnapshots: async () => {
     // Supabase accumulates snapshot history (35 rows per scan).
     // Routes expect only the latest snapshot per page.
