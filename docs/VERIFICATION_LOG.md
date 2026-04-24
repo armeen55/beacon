@@ -7,6 +7,105 @@
 
 ---
 
+## 2026-04-24 — Sprint 4 / Phase 4.5 — verify-action hosted safety
+
+**Context.** Phase 3.4 audit flagged `src/app/(shell)/pages/verify-action.ts`
+as an unsafe render-path fs-write: clicking Verify on /pages threw ENOENT
+on Vercel's read-only FS. Phase 4.5 read-only diagnosis (SQL + source
+trace) pinpointed the exact throw at `persist-run.ts:26`
+(`writeFileSync(tmp, ...)` inside `appendObservationRunSync`), which
+came BEFORE the `isDualWriteEnabled()` block — so the observation_runs
+Supabase write never ran either. SQL confirmed: **zero
+`website_verify` rows had ever landed in `observation_runs`**.
+
+**Fix — commit `495ea1a`:**
+
+1. `src/domains/observations/persist-run.ts` — gated the FS write block
+   on `VERCEL !== "1"`. Supabase dual-write block stays unconditional.
+   On Vercel: no FS touch, observation_runs row now upserts. On local:
+   behavior unchanged.
+
+2. `src/lib/persistence/dual-write.ts` — new
+   `syncGuardrailAlertsForUrl(url, alerts)` helper. Scopes the
+   delete-replace to a single URL via `.delete().eq("url", url)`.
+   Existing global `syncGuardrailAlerts` (used by orchestrate-scan, does
+   `.delete().gte("id", 0)`) is PRESERVED unchanged. Two helpers, two
+   callsites.
+
+3. `src/app/(shell)/pages/verify-action.ts`:
+   - Reads prev alerts + prev snapshot from repository when
+     `IS_VERCEL`; from FS otherwise.
+   - Gates both `writeFileSync`/`renameSync` blocks behind
+     `if (!IS_VERCEL)`.
+   - Always calls `syncPageSnapshots([newSnapshot])` (upserts on id).
+   - Always calls `syncGuardrailAlertsForUrl(url, newAlerts)`.
+
+**Regression tests** —
+`tests/routes/verify-action-vercel-safe.test.ts`, 12 invariants all
+green:
+
+Structural (6):
+1. verify-action has 2+ `if (!IS_VERCEL)`-guarded `writeFileSync` blocks
+2. verify-action calls `syncPageSnapshots([newSnapshot])`
+3. verify-action calls `syncGuardrailAlertsForUrl(url, newAlerts)`
+4. verify-action does NOT call the global `syncGuardrailAlerts(`
+5. verify-action uses repository reads on Vercel
+6. persist-run.ts gates FS on `!isVercel`, dual-write unconditional
+
+Behavioral — appendObservationRunSync (2):
+7. With `VERCEL=1`: does not throw, upsert is invoked
+8. With VERCEL unset, DUAL_WRITE=false: does not throw
+
+Behavioral — syncGuardrailAlertsForUrl (3):
+9. Delete is URL-scoped (`delete().eq("url", url)`)
+10. Empty alerts: delete fires, insert does not
+11. DUAL_WRITE=false: full no-op
+
+Behavioral — global syncGuardrailAlerts preserved (1):
+12. Still uses `delete().gte("id", 0)` — orchestrate-scan behavior
+    unchanged
+
+**Phase 4.5 verification.** Typecheck clean. `vitest run` → 1628
+passing (+12), 10 pre-existing fails unchanged. Commit `495ea1a`
+pushed; Vercel auto-deploy up.
+
+**Operator hosted verification (after deploy):**
+1. Open beacon-bice.vercel.app/pages.
+2. Click Verify on any page row.
+3. Result panel shows "Verify completed" with real diff/cleared/remaining counts — NOT "ENOENT".
+4. In Supabase SQL editor, confirm:
+   ```
+   select * from observation_runs where run_type='website_verify'
+     order by started_at desc limit 5;
+   ```
+   A fresh row with today's `started_at`.
+5.
+   ```
+   select url, fetched_at from page_snapshots
+     where url = '<verified-url>'
+     order by fetched_at desc limit 1;
+   ```
+   Latest is today, not 2026-04-15.
+6.
+   ```
+   select count(*) from guardrail_alerts where url = '<verified-url>';
+   ```
+   Matches the UI's currentAlertCount.
+
+**Out of Phase 4.5 scope (deferred, unchanged):**
+- `orchestrate-scan.ts` FS writes — invoked only from local scripts
+  today (not Vercel)
+- Citation-evidence-index FS read inside verify — returns 0 silently
+  on Vercel, non-fatal
+- Other FS-write domain stores from Phase 3.4 audit
+
+**Sprint 5 readiness.** Phase 4.5 closes the final operator-visible
+hosted-fs-write bug. Sprint 5 MEDIUM sweep (canonical-store,
+replication-engine, remaining module-cache stores) is the next step —
+same pure-helper-plus-fresh-map template Phase 4.3 validated.
+
+---
+
 ## 2026-04-24 — Sprint 4 / Phase 4.3 — Today reads recommendation responses fresh from repo
 
 **Context.** Phase 4.2 fixed /recommendations. Today (the operator home
