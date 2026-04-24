@@ -7,6 +7,97 @@
 
 ---
 
+## 2026-04-24 — Sprint 1 / Phase 1.2 — /changes reads fresh from repo
+
+**Context.** After `b71ab35` shipped the Confirm/Dismiss write-path fix,
+operator clicked 5 pre-Phase-C findings on hosted. UI reported success and
+findings disappeared, but `/changes` did not show the 3 new `scan_detection`
+changelog entries even after force-refresh. Logs additionally showed
+`[changes] URL watcher refresh error (non-fatal) ENOENT: open
+'/vercel/path0/.data/url-watcher-state.json.tmp'`.
+
+**Phase 1.1 SQL verification (read-only).** Supabase proved the write path
+was fine:
+
+- `scan_findings` — 5 rows updated at 2026-04-24 19:03 UTC (3 accepted + 2
+  rejected). All 3 accepted have `linked_change_id` populated.
+- `changelog_entries` — the 3 linked IDs (`cl-moda36fcnit6nf`,
+  `cl-moda380cpwfb4s`, `cl-moda39pttbsiu0`) exist with
+  `source_system='scan_detection'`, `archived=false`, `dedupe_reviewed=false`.
+  `timestamp=2026-04-22 18:21:08` (scan detectedAt, correct per Phase 5
+  contract — timestamp reflects when the edit happened, not when the
+  operator clicked).
+
+Conclusion: pure read-path bug.
+
+**Data-truth side note.** `scan_findings.updated_at` is stuck at
+2026-04-22 18:21 on all 5 rows while `resolved_at` correctly tracks the click
+time (2026-04-24 19:03). The dual-write mapper sets `resolved_at` on
+mutation but does not refresh `updated_at`. Flagged for a future fix —
+not blocking.
+
+**Phase 1.2 fix — commit `e0ddb17`.** `src/app/(shell)/changes/page.tsx`:
+
+- Removed mutable `changelogEntries` from the `@/lib/seed-data.server`
+  import (kept `opportunities`, `results`, `hasActiveExperiment` — out of
+  Sprint 1 scope).
+- Added `const freshChangelogEntries = await
+  repository.getChangelogEntries()` at the top of the server component.
+  Every downstream derivation (main list, scorecard rows, dedupe pairs,
+  at-a-glance count) uses this snapshot.
+- Consolidated the Phase-B dedupe-banner fresh read into the same snapshot
+  (one repo fetch instead of two per request).
+- Added `export const dynamic = "force-dynamic"` at module top to prevent
+  any ISR re-introducing the stale path.
+- Added `ChangesReadError` — honest error UI when the repo read throws.
+  Explicitly does NOT fall back to cached stale data.
+
+**Phase 1.3 regression tests — `tests/routes/changes-page-reads-fresh.test.ts`.**
+Five invariants, all green:
+
+1. Source does NOT import mutable `changelogEntries` from `seed-data.server`
+2. Source DOES use `repository.getChangelogEntries()`
+3. Source declares `force-dynamic`
+4. Rendered page shows entries returned by the mocked repo
+5. Rendered page shows honest error when the repo throws — scorecard + dedupe
+   banner markup is absent in the error branch
+
+**Phase 1.4 verification.**
+`npm run typecheck` clean. `npx vitest run` → 1584 passing (+5), 10
+pre-existing fails unchanged (tenant-isolation ×6, local-presence connector
+timestamps ×3, finding-actions date fixture ×1). Commit `e0ddb17` pushed
+to `main`; Vercel auto-deploy up. Operator-side browser check pending:
+open beacon-bice.vercel.app/changes, confirm the 3 scan_detection rows for
+/faq, /our-process, /locations/palo-alto appear without a stale flicker.
+
+**Phase 1.5 audit — `seed-data.server` imports in `src/app/(shell)`.**
+21 import sites total. Classification:
+
+- ✅ FIXED: `changes/page.tsx` (this commit), `changes/dedupe/page.tsx`
+  (Phase B), `finding-actions.ts` (b71ab35 — writes via repo already),
+  `finding-actions.test.ts` (test-only mock)
+- ⚠️ UNSAFE, `/changes`-adjacent — **Phase 1.6 trigger**:
+  `changes/[id]/page.tsx` still imports mutable `changelogEntries`
+- ⚠️ UNSAFE, global / dogfood-visible — deferred to Sprint 3/4:
+  `layout.tsx` (sidebar badges), `today-data.ts`, `pages/page.tsx`,
+  `topics/page.tsx`
+- ⚠️ UNSAFE, non-critical surfaces — deferred to Sprint 5+:
+  `briefs/proposed/page.tsx`, `briefs/[id]/page.tsx`, `review/page.tsx`,
+  `diagnostics/page.tsx`, `diagnostics/spikes/page.tsx`, `expansion/page.tsx`,
+  `settings/history/[id]/page.tsx`, `settings/history/results-page.tsx`
+- ✓ SAFE (no mutable-changelog import): `briefs/page.tsx`,
+  `competitors/page.tsx`, `competitors/[id]/page.tsx`,
+  `topics/opportunity/[id]/page.tsx`
+
+**Non-changelog mutable arrays still in scope.** `results`, `opportunities`,
+`competitors`, `briefs`, `competitorSnapshots` imports from seed-data.server
+have the same cross-lambda staleness risk but are out of Sprint 1's
+changelog-only scope. Tracked for Sprint 4/5 sweep.
+
+**URL watcher ENOENT — not touched.** Non-fatal per logs; Sprint 3 scope.
+
+---
+
 ## 2026-04-24 — Phase 5.5 cron shift + snapshot-derivation self-correction
 
 **Context.** Earlier the same day during a Phase A diagnosis I reported that
