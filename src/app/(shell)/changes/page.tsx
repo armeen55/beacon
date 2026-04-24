@@ -21,6 +21,7 @@ import { latestWebsiteCrawlRun } from "@/domains/observations/read";
 import { sampleQualityTierFromObservationCount } from "@/lib/sample-quality-tier";
 // Legacy Z-score "watching" outcomes import removed in Phase 2C cleanup.
 import { findDuplicatePairs } from "@/domains/changelog/dedupe";
+import { getRepository } from "@/lib/persistence/repositories";
 import {
   buildUrlCitationHistory,
   getSeriesForUrl,
@@ -180,8 +181,14 @@ export default async function ChangeScorecardPage() {
   });
   const coverageWarning = coverageWarningLine(coverageState);
 
-  // Dedupe banner
-  const duplicatePairs = findDuplicatePairs(changelogEntries);
+  // Dedupe banner — Phase B read-fix (2026-04-24): fetch fresh from the
+  // repository per request. The module-level `changelogEntries` is
+  // hydrated once per Vercel lambda cold start, so write-after-read
+  // shows stale pair counts across lambdas. See
+  // /changes/dedupe/page.tsx for the matching fix.
+  const duplicatePairs = findDuplicatePairs(
+    await getRepository().getChangelogEntries(),
+  );
   const duplicatePairCount = duplicatePairs.length;
 
   const newestISO = rows[0]?.change.timestamp ?? null;
