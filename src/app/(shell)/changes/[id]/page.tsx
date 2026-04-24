@@ -4,7 +4,8 @@ import { ChangeVerdictBadge } from "@/components/display/change-verdict-badge";
 import { ConfidenceBadge } from "@/components/display/confidence-badge";
 import { MatchFactors } from "@/components/display/match-factors";
 import { buildAttributionConfidenceBasis } from "@/lib/attribution-confidence-basis";
-import { changelogEntries, results, opportunities } from "@/lib/seed-data.server";
+import { results, opportunities } from "@/lib/seed-data.server";
+import type { ChangelogEntry } from "@/domains/changelog/types";
 import { eventDecisions } from "@/domains/attribution/store";
 import { computeScorecard } from "@/domains/attribution/scorecard";
 import { enrichWithImpact, computeChangeImpact } from "@/domains/attribution/change-impact";
@@ -95,16 +96,45 @@ const EVENT_TYPE_LABELS: Record<string, string> = {
   mention_decline: "Mention Decline",
 };
 
+// Phase 1.6 (Sprint 1 follow-up, 2026-04-24): force dynamic render so every
+// request runs the fresh-repo-read pattern below. Matches /changes main list.
+export const dynamic = "force-dynamic";
+
 export default async function ChangeDetailPage({
   params,
 }: {
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const entry = changelogEntries.find((c) => c.id === id);
+
+  // Phase 1.6 (Sprint 1 follow-up, 2026-04-24): fresh per-request repo read.
+  // The prior implementation called `changelogEntries.find(...)` against the
+  // module-level array from @/lib/seed-data.server, which is hydrated once
+  // per Vercel lambda cold start. A scan_detection entry written by a
+  // different lambda was invisible here and the page rendered notFound.
+  //
+  // Scope: only `changelogEntries` is fresh this phase. `results`,
+  // `opportunities`, and `eventDecisions` below continue to read from their
+  // module-level arrays — they enrich the attribution/coverage display but
+  // do not affect whether the target entry renders or what its core fields
+  // say. Full mutable-array sweep is Sprint 4/5 scope.
+  const repository = getRepository();
+  let freshChangelogEntries: ChangelogEntry[];
+  try {
+    freshChangelogEntries = await repository.getChangelogEntries();
+  } catch (error) {
+    return <ChangeDetailReadError error={error} />;
+  }
+
+  const entry = freshChangelogEntries.find((c) => c.id === id);
   if (!entry) notFound();
 
-  const allRows = computeScorecard(changelogEntries, results, opportunities, eventDecisions);
+  const allRows = computeScorecard(
+    freshChangelogEntries,
+    results,
+    opportunities,
+    eventDecisions,
+  );
   const row = allRows.find((r) => r.change.id === id);
   if (!row) notFound();
 
@@ -440,6 +470,52 @@ export default async function ChangeDetailPage({
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Phase 1.6 (Sprint 1 follow-up, 2026-04-24) — honest error state.
+ *
+ * Rendered when the repository fetch fails. Deliberately does NOT fall back
+ * to the stale module-level `changelogEntries` array that this page used to
+ * read from — the whole point of the fresh-read pattern is that operators
+ * never see a detail page that conflicts with /changes. A transient read
+ * failure is rare enough that a plain retry message is the right UX.
+ * Matches the error shape on /changes main list.
+ */
+function ChangeDetailReadError({ error }: { error: unknown }) {
+  const message =
+    error instanceof Error
+      ? error.message
+      : "Unknown error reading changelog entry";
+  return (
+    <div className="max-w-3xl">
+      <section
+        className="rounded-lg border border-status-warning/40 bg-status-warning/5 px-5 py-5"
+        aria-labelledby="change-detail-read-error-heading"
+      >
+        <h2
+          id="change-detail-read-error-heading"
+          className="text-[13px] font-semibold text-foreground tracking-tight"
+        >
+          Couldn&apos;t load this change
+        </h2>
+        <p className="mt-2 text-[13px] leading-relaxed text-muted-foreground">
+          {message}
+        </p>
+        <p className="mt-2 text-[12px] leading-relaxed text-muted-foreground">
+          This usually means the database is temporarily unreachable. Refresh
+          the page to retry. We never fall back to cached data here, so you
+          won&apos;t see stale truth by accident.
+        </p>
+        <Link
+          href="/changes"
+          className="mt-4 inline-flex text-[13px] font-semibold text-accent-primary underline underline-offset-2 hover:text-accent-primary/85"
+        >
+          ← Back to Changes
+        </Link>
+      </section>
     </div>
   );
 }
