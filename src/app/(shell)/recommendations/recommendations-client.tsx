@@ -17,6 +17,14 @@ import type {
 } from "./page";
 import type { RecommendationType } from "@/domains/recommendations/generate";
 import type { PrioritizedRecommendationTier } from "@/domains/recommendations/prioritize";
+import type {
+  PageIntentResolution,
+  RecommendationAction,
+  RecommendationMotive,
+  ResolverTier,
+} from "@/domains/recommendations/resolved-types";
+import { NEEDS_NEW_PAGE } from "@/domains/recommendations/resolved-types";
+import type { SuggestedEdit } from "@/domains/recommendations/adjudicator-schema";
 
 type Props = {
   queue: RecommendationQueueRow[];
@@ -206,6 +214,47 @@ const REC_TYPE_LABEL: Record<RecommendationType, string> = {
   watch_winning_cluster: "Watch",
 };
 
+const ACTION_LABEL: Record<RecommendationAction, string> = {
+  strengthen_existing_page: "Strengthen",
+  expand_existing_page: "Expand",
+  add_section_or_faq: "Add section",
+  create_new_page: "Create page",
+  merge_or_dedupe: "Merge",
+  needs_review: "Review",
+  watch: "Watch",
+};
+
+const MOTIVE_LABEL: Record<RecommendationMotive, string> = {
+  counter_competitor: "Counter competitor",
+  capture_absent_cluster: "Capture absent cluster",
+  improve_close_prompt: "Close the gap",
+  defend_winning_cluster: "Defend winning cluster",
+  resolve_cannibalization: "Resolve cannibalization",
+  improve_citation_depth: "Improve citation depth",
+};
+
+const TIER_BADGE: Record<ResolverTier, { label: string | null; className: string } | null> = {
+  observation: null,
+  inventory: {
+    label: "Site match",
+    className: "border-accent-primary/40 bg-accent-primary/[0.06] text-accent-primary",
+  },
+  adjudicated: {
+    label: "AI-reviewed",
+    className: "border-status-success/40 bg-status-success/[0.06] text-status-success",
+  },
+  deterministic_only: null,
+};
+
+function shortUrl(url: string): string {
+  try {
+    const u = new URL(url);
+    return `${u.host.replace(/^www\./, "")}${u.pathname}`;
+  } catch {
+    return url;
+  }
+}
+
 function RecommendationRow({
   row,
   feedback,
@@ -272,8 +321,35 @@ function RecommendationRow({
   const dismissed = response?.status === "dismissed";
   const deferred = response?.status === "deferred";
 
+  // v7 Commit 4: prefer resolved fields when the resolver attached them.
+  // Falls back to the candidate's generator-stage labels for safety.
+  const resolution = rec.resolution;
+  const action: RecommendationAction =
+    resolution?.action ?? actionFromCandidateType(rec.type);
+  const actionLabel = ACTION_LABEL[action];
+  const motive = resolution?.motive ?? null;
+  const motiveLabel = motive ? MOTIVE_LABEL[motive] : null;
+  const tierBadge = resolution ? TIER_BADGE[resolution.tier] : null;
+  const resolvedUrl =
+    resolution && resolution.targetUrl !== NEEDS_NEW_PAGE
+      ? resolution.targetUrl
+      : null;
+  const title =
+    resolution?.operatorTitle && resolution.operatorTitle.length > 0
+      ? resolution.operatorTitle
+      : rec.title;
+  const reasoning = resolution?.reasoning ?? rec.reasoning;
+  const specificRecommendation = resolution?.specificRecommendation ?? null;
+  const confidenceReason = resolution?.confidenceReason ?? null;
+  const suggestedEdits = resolution?.suggestedEdits ?? [];
+  const pageBrief = resolution?.pageBrief ?? null;
+  const risks = resolution?.risks ?? [];
+  const cannibalization = resolution?.cannibalization ?? null;
+  const needsHumanReview = resolution?.needsHumanReview ?? false;
+
   return (
     <li
+      id={`rec-${encodeURIComponent(rec.stableKey)}`}
       className={cn(
         "rounded-md border bg-background px-3 py-2.5",
         accepted
@@ -292,18 +368,80 @@ function RecommendationRow({
             "border-border/60 bg-surface-inset/40 text-muted-foreground",
           )}
         >
-          {REC_TYPE_LABEL[rec.type]}
+          {actionLabel}
         </span>
+        {tierBadge && tierBadge.label && (
+          <span
+            className={cn(
+              "text-[10px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded border",
+              tierBadge.className,
+            )}
+            title={
+              resolution?.tier === "adjudicated"
+                ? "Reviewed by GPT-5-mini adjudicator"
+                : "Matched against site inventory"
+            }
+          >
+            {tierBadge.label}
+          </span>
+        )}
+        {needsHumanReview && (
+          <span className="text-[10px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded border border-status-warning/40 bg-status-warning/[0.06] text-status-warning">
+            Needs review
+          </span>
+        )}
         <h3 className="text-[13px] font-medium text-foreground leading-snug flex-1">
-          {rec.title}
+          {title}
         </h3>
       </div>
 
+      {resolvedUrl && (
+        <p className="mt-1 text-[11px]">
+          <span className="text-muted-foreground">→</span>{" "}
+          <a
+            href={resolvedUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-accent-primary hover:underline font-mono tabular-nums"
+          >
+            {shortUrl(resolvedUrl)}
+          </a>
+        </p>
+      )}
+
       <p className="mt-1 text-[12px] text-muted-foreground leading-relaxed">
-        {rec.reasoning}
+        {reasoning}
       </p>
 
+      {confidenceReason && (
+        <p className="mt-0.5 text-[11px] text-muted-foreground/80 leading-relaxed">
+          {confidenceReason}
+        </p>
+      )}
+
+      {motiveLabel && (
+        <p className="mt-1 text-[11px]">
+          <span className="text-muted-foreground">Motive:</span>{" "}
+          <span className="font-medium text-foreground/90">{motiveLabel}</span>
+        </p>
+      )}
+
       <EvidenceChips rec={rec} />
+
+      {(specificRecommendation ||
+        suggestedEdits.length > 0 ||
+        pageBrief ||
+        risks.length > 0 ||
+        (cannibalization && cannibalization.length > 0)) && (
+        <AdjudicatorDetails
+          stableKey={rec.stableKey}
+          specificRecommendation={specificRecommendation}
+          suggestedEdits={suggestedEdits}
+          pageBrief={pageBrief ?? null}
+          risks={risks}
+          cannibalization={cannibalization}
+        />
+      )}
 
       {showFeedback && (
         <p
@@ -423,6 +561,175 @@ function RecommendationRow({
         )}
       </div>
     </li>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────── */
+
+/** Map the generator's candidate type to a default RecommendationAction
+ *  for the UI when the resolver didn't produce a resolution. Defensive
+ *  fallback — every v7-pipeline render should hit the resolver. */
+function actionFromCandidateType(type: RecommendationType): RecommendationAction {
+  switch (type) {
+    case "create_cluster_page":
+    case "create_single":
+    case "target_competitors":
+      return "create_new_page";
+    case "strengthen_page_copy":
+      return "strengthen_existing_page";
+    case "watch_winning_cluster":
+      return "watch";
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────── */
+
+const EDIT_TYPE_LABEL: Record<SuggestedEdit["type"], string> = {
+  new_page: "New page",
+  section: "Section",
+  faq: "FAQ",
+  heading: "Heading",
+  meta_description: "Meta description",
+  schema_markup: "Schema",
+  internal_link: "Internal link",
+};
+
+function AdjudicatorDetails({
+  stableKey,
+  specificRecommendation,
+  suggestedEdits,
+  pageBrief,
+  risks,
+  cannibalization,
+}: {
+  stableKey: string;
+  specificRecommendation: string | null;
+  suggestedEdits: SuggestedEdit[];
+  pageBrief: PageIntentResolution["pageBrief"];
+  risks: string[];
+  cannibalization: string[] | null;
+}) {
+  return (
+    <details className="mt-2 group">
+      <summary className="cursor-pointer text-[11px] text-muted-foreground hover:text-foreground select-none">
+        <span className="group-open:hidden">Show brief + suggested edits</span>
+        <span className="hidden group-open:inline">Hide details</span>
+      </summary>
+      <div className="mt-2 space-y-3 text-[12px] leading-relaxed">
+        {specificRecommendation && (
+          <div>
+            <p className="text-[11px] uppercase tracking-wider font-semibold text-muted-foreground mb-0.5">
+              Do this
+            </p>
+            <p className="text-foreground">{specificRecommendation}</p>
+          </div>
+        )}
+        {pageBrief && (
+          <div>
+            <p className="text-[11px] uppercase tracking-wider font-semibold text-muted-foreground mb-1">
+              Page brief
+            </p>
+            <ul className="space-y-0.5 text-foreground/90">
+              <li>
+                <span className="text-muted-foreground">Title:</span>{" "}
+                {pageBrief.recommendedTitle}
+              </li>
+              <li>
+                <span className="text-muted-foreground">H1:</span>{" "}
+                {pageBrief.recommendedH1}
+              </li>
+              {pageBrief.mustCoverAngles.length > 0 && (
+                <li>
+                  <span className="text-muted-foreground">
+                    Must cover:
+                  </span>{" "}
+                  {pageBrief.mustCoverAngles.join(" · ")}
+                </li>
+              )}
+              {pageBrief.competitorAnglesToCounter.length > 0 && (
+                <li>
+                  <span className="text-muted-foreground">
+                    Counter competitors:
+                  </span>{" "}
+                  {pageBrief.competitorAnglesToCounter.join(" · ")}
+                </li>
+              )}
+              {pageBrief.internalLinksToAdd.length > 0 && (
+                <li>
+                  <span className="text-muted-foreground">
+                    Link internally:
+                  </span>{" "}
+                  {pageBrief.internalLinksToAdd.join(" · ")}
+                </li>
+              )}
+            </ul>
+          </div>
+        )}
+        {suggestedEdits.length > 0 && (
+          <div>
+            <p className="text-[11px] uppercase tracking-wider font-semibold text-muted-foreground mb-1">
+              Suggested edits
+            </p>
+            <ul className="space-y-1.5">
+              {suggestedEdits.map((edit, i) => (
+                <li
+                  key={`${stableKey}-edit-${i}`}
+                  className="border-l-2 border-border/60 pl-2"
+                >
+                  <p className="text-foreground/90">
+                    <span className="text-[10px] uppercase tracking-wider font-semibold text-muted-foreground mr-1.5">
+                      {EDIT_TYPE_LABEL[edit.type]}
+                    </span>
+                    {edit.title && (
+                      <span className="font-medium">{edit.title}</span>
+                    )}
+                  </p>
+                  {edit.body && (
+                    <p className="text-foreground/80 mt-0.5">{edit.body}</p>
+                  )}
+                  <p className="text-muted-foreground text-[11px] mt-0.5">
+                    {edit.why}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {risks.length > 0 && (
+          <div>
+            <p className="text-[11px] uppercase tracking-wider font-semibold text-status-warning mb-0.5">
+              Risks
+            </p>
+            <ul className="list-disc pl-4 text-status-warning/90">
+              {risks.map((r, i) => (
+                <li key={`${stableKey}-risk-${i}`}>{r}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {cannibalization && cannibalization.length > 0 && (
+          <div>
+            <p className="text-[11px] uppercase tracking-wider font-semibold text-status-warning mb-0.5">
+              Merge with
+            </p>
+            <ul className="list-disc pl-4 font-mono text-[11px] tabular-nums text-foreground/80">
+              {cannibalization.map((u, i) => (
+                <li key={`${stableKey}-merge-${i}`}>
+                  <a
+                    href={u}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-accent-primary hover:underline"
+                  >
+                    {shortUrl(u)}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+    </details>
   );
 }
 

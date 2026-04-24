@@ -14,6 +14,10 @@
  */
 
 import type { RecommendationCandidate } from "./generate";
+import type {
+  PageBrief,
+  SuggestedEdit,
+} from "./adjudicator-schema";
 
 /** Operator-facing final action. The thing they actually do. */
 export type RecommendationAction =
@@ -69,6 +73,14 @@ export type PageIntentResolution = {
   cannibalization: string[] | null;
   /** Structured evidence refs; UI links back to these. */
   evidenceRefs: EvidenceRef[];
+  /** Adjudicator-only fields — populated when tier === "adjudicated". */
+  operatorTitle?: string;
+  specificRecommendation?: string;
+  suggestedEdits?: SuggestedEdit[];
+  pageBrief?: PageBrief | null;
+  proposedSlug?: string | null;
+  risks?: string[];
+  needsHumanReview?: boolean;
 };
 
 /** A candidate with its resolved action/motive/URL attached. */

@@ -405,6 +405,13 @@ export function applyAdjudicationToResolution(
           };
         return { type: "competitor", name: r.name, primaryShare: 0 };
       }),
+      operatorTitle: output.operatorTitle,
+      specificRecommendation: output.specificRecommendation,
+      suggestedEdits: output.suggestedEdits,
+      pageBrief: output.pageBrief,
+      proposedSlug: output.proposedSlug,
+      risks: output.risks,
+      needsHumanReview: output.needsHumanReview,
     },
   };
 }
