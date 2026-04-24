@@ -2,7 +2,11 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
-import { archiveDuplicate, dismissAllRemainingDedupe } from "./actions";
+import {
+  archiveDuplicate,
+  dismissAllRemainingDedupe,
+  markPairNotDuplicate,
+} from "./actions";
 
 export type SerializedPair = {
   keeper: {
@@ -124,11 +128,28 @@ export function DedupeReview({ pairs }: { pairs: SerializedPair[] }) {
     });
   }
 
+  // Phase B (2026-04-24): "Different edits — keep both" means the operator
+  // has reviewed this pair and confirms they are NOT duplicates. Persist
+  // via markDedupeReviewedBulk so the pair stops re-surfacing on future
+  // /changes/dedupe visits.
   function handleKeep() {
-    setDecisions((d) => ({ ...d, [pair.archiveCandidate.id]: "kept" }));
-    advance();
+    setError(null);
+    startTransition(async () => {
+      const r = await markPairNotDuplicate(pair.archiveCandidate.id);
+      if (!r.success) {
+        setError(
+          r.error ?? "Failed to save decision. Try again.",
+        );
+        return;
+      }
+      setDecisions((d) => ({ ...d, [pair.archiveCandidate.id]: "kept" }));
+      advance();
+    });
   }
 
+  // "Decide later" is intentionally local-only — the pair will re-surface on
+  // the next visit so the operator can come back to it. Renamed from "Skip"
+  // in Phase B so the semantic difference from "keep both" is clear.
   function handleSkip() {
     setDecisions((d) => ({ ...d, [pair.archiveCandidate.id]: "skipped" }));
     advance();
@@ -262,8 +283,9 @@ export function DedupeReview({ pairs }: { pairs: SerializedPair[] }) {
           onClick={handleSkip}
           disabled={pending}
           className="text-[11px] font-medium text-muted-foreground/70 hover:text-muted-foreground transition-colors ml-1"
+          title="Come back to this pair later — won't be saved"
         >
-          Skip
+          Decide later
         </button>
       </div>
     </div>

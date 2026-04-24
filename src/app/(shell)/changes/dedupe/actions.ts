@@ -29,6 +29,53 @@ export async function archiveDuplicate(
 }
 
 /**
+ * Mark a single CSV-summary entry as operator-confirmed NOT a duplicate.
+ * Called from the /changes/dedupe "Different edits — keep both" button.
+ *
+ * Phase B (2026-04-24): before this action, "keep both" only updated local
+ * React state. On refresh, dedupe.ts:174 rebuilt the pair list from
+ * `!archived && !dedupe_reviewed` and the same pair reappeared. This wrapper
+ * flips `dedupe_reviewed=true` via the existing bulk helper so the decision
+ * persists across refreshes and the pair disappears from future runs.
+ */
+export async function markPairNotDuplicate(
+  archiveId: string,
+): Promise<{ success: boolean; error?: string }> {
+  const action = "markPairNotDuplicate";
+  const t0 = Date.now();
+  log.info("Action started", { action, params: { archiveId } });
+
+  const result = await markDedupeReviewedBulk([archiveId]);
+  if (!result.success) {
+    log.error("Action failed", {
+      action,
+      durationMs: Date.now() - t0,
+      error: result.error ?? "unknown",
+    });
+    return { success: false, error: result.error };
+  }
+  if (result.count === 0) {
+    // Entry not found OR already dedupe_reviewed. Surface explicitly rather
+    // than silent success — the client needs to know it didn't change state.
+    log.warn("markPairNotDuplicate no-op", {
+      action,
+      archiveId,
+      reason: "entry not found or already reviewed",
+    });
+    return {
+      success: false,
+      error:
+        "Entry not found, or was already marked reviewed. Refresh the page.",
+    };
+  }
+
+  revalidatePath("/changes/dedupe");
+  revalidatePath("/changes");
+  log.info("Action completed", { action, durationMs: Date.now() - t0 });
+  return { success: true };
+}
+
+/**
  * Bulk-dismiss all remaining CSV-summary ids as "reviewed, not duplicates".
  * Exposed for the one-time "Dismiss all remaining" button on /changes/dedupe.
  * After one click, the banner on /changes stays at zero forever — operator
