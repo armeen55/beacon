@@ -55,8 +55,31 @@ export const URL_WATCHER_REFRESH_INTERVAL_MS = 6 * 60 * 60 * 1000;
 /** Running watcher older than this is assumed crashed/orphaned. */
 export const URL_WATCHER_STALE_RUNNING_MS = 10 * 60 * 1000;
 
+/**
+ * Phase 3.2 (Sprint 3, 2026-04-24) — Vercel in-memory state path.
+ *
+ * On Vercel the working directory is read-only, so prior logic that wrote
+ * `.data/url-watcher-state.json.tmp` crashed with ENOENT on every /changes
+ * and / page render. That log-noise was non-fatal (the exception was caught
+ * in /changes/page.tsx) but it also meant the watcher pipeline never ran in
+ * production — the first `writeRunningState` threw before the pipeline body
+ * executed.
+ *
+ * Phase 3.1 classified this state as cache-only / advisory throttle
+ * metadata. Primary watcher outputs (citation history, URL outcomes,
+ * pattern brain) are dual-written to Supabase by the pipeline itself and
+ * survive state loss. So on Vercel we keep state in module-level memory:
+ * warm lambdas throttle correctly, cold-start lambdas run the idempotent
+ * pipeline once. No FS writes, no ENOENT.
+ */
+let vercelMemoryState: UrlWatcherStateFile | null = null;
+
+function isVercel(): boolean {
+  return process.env.VERCEL === "1";
+}
+
 function ensureDataDir(): void {
-  if (process.env.VERCEL === "1") return;
+  if (isVercel()) return;
   if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true });
 }
 
@@ -65,6 +88,9 @@ function statePath(): string {
 }
 
 export function readUrlWatcherState(): UrlWatcherStateFile | null {
+  if (isVercel()) {
+    return vercelMemoryState;
+  }
   try {
     const p = statePath();
     if (!existsSync(p)) return null;
@@ -77,11 +103,24 @@ export function readUrlWatcherState(): UrlWatcherStateFile | null {
 }
 
 export function writeUrlWatcherState(state: UrlWatcherStateFile): void {
+  if (isVercel()) {
+    vercelMemoryState = state;
+    return;
+  }
   ensureDataDir();
   const path = statePath();
   const tmp = path + ".tmp";
   writeFileSync(tmp, JSON.stringify(state, null, 2), "utf8");
   renameSync(tmp, path);
+}
+
+/**
+ * Test-only: reset the in-memory Vercel state. Not exported for production
+ * callers. Needed because module-level state survives across tests unless
+ * explicitly cleared.
+ */
+export function __resetVercelMemoryStateForTests(): void {
+  vercelMemoryState = null;
 }
 
 /** Milliseconds since the last successful run finished, or `null` if never. */
