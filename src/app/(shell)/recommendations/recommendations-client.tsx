@@ -364,6 +364,8 @@ function RecommendationRow({
           motive: resolution.motive,
           targetUrl: resolution.targetUrl,
           reasoning: resolution.reasoning,
+          // Phase 5 (2026-04-24): confidence reaches changelog notes.
+          confidence: resolution.confidence,
           operatorTitle: title,
           specificRecommendation: resolution.specificRecommendation,
           suggestedEdits: resolution.suggestedEdits,

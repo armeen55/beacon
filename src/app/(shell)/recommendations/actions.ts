@@ -62,6 +62,10 @@ export type RecommendationActionPayload = {
     motive: RecommendationMotive;
     targetUrl: string;
     reasoning: string;
+    /** Phase 5 (2026-04-24): surfaces through to changelog notes so the
+     *  operator (and the URL-watcher) can see how confident the resolver
+     *  was when the entry was stamped. Optional for safety. */
+    confidence?: "low" | "medium" | "high";
     operatorTitle?: string;
     specificRecommendation?: string;
     suggestedEdits?: SuggestedEdit[];
@@ -143,25 +147,52 @@ function mapRecToChangelogShape(rec: RecommendationActionPayload): {
 }
 
 /** Build the notes body that travels with the changelog entry. Contains
- *  the adjudicator brief when present so it's reviewable at /changes. */
+ *  the decision summary (action / motive / confidence / reasoning), the
+ *  adjudicator brief when present, proposed slug for create_new_page,
+ *  suggested edits, and risks — so it's fully reviewable at /changes.
+ *
+ *  Phase 5 (2026-04-24): every string field is run through
+ *  sanitizeOperatorCopy so Shield:/Internal: prefixes cannot reach the
+ *  changelog even if the adjudicator ever emitted them. */
 function buildChangelogNotes(rec: RecommendationActionPayload): string | null {
   const r = rec.resolution;
   if (!r) return null;
   const parts: string[] = [];
+
+  // Decision summary — always present when resolution exists.
+  const decisionLines = [
+    `Action: ${r.action}`,
+    `Motive: ${r.motive}`,
+    r.confidence ? `Confidence: ${r.confidence}` : "",
+    `Reasoning: ${sanitizeOperatorCopy(r.reasoning)}`,
+  ].filter(Boolean);
+  parts.push(`Decision:\n${decisionLines.join("\n")}`);
+
   if (r.specificRecommendation) {
-    parts.push(`Specific recommendation:\n${r.specificRecommendation}`);
+    parts.push(
+      `Specific recommendation:\n${sanitizeOperatorCopy(r.specificRecommendation)}`,
+    );
+  }
+  // Proposed slug for create_new_page — needed so the operator can pick up
+  // where the resolver left off when the eventual page is built.
+  if (r.action === "create_new_page" && r.proposedSlug) {
+    parts.push(`Proposed slug: ${sanitizeOperatorCopy(r.proposedSlug)}`);
   }
   if (r.pageBrief) {
     parts.push(
       [
         "Page brief:",
-        `- Title: ${r.pageBrief.recommendedTitle}`,
-        `- H1: ${r.pageBrief.recommendedH1}`,
+        `- Title: ${sanitizeOperatorCopy(r.pageBrief.recommendedTitle)}`,
+        `- H1: ${sanitizeOperatorCopy(r.pageBrief.recommendedH1)}`,
         r.pageBrief.mustCoverAngles.length > 0
-          ? `- Must cover: ${r.pageBrief.mustCoverAngles.join("; ")}`
+          ? `- Must cover: ${r.pageBrief.mustCoverAngles
+              .map((a) => sanitizeOperatorCopy(a))
+              .join("; ")}`
           : "",
         r.pageBrief.competitorAnglesToCounter.length > 0
-          ? `- Counter competitors: ${r.pageBrief.competitorAnglesToCounter.join("; ")}`
+          ? `- Counter competitors: ${r.pageBrief.competitorAnglesToCounter
+              .map((a) => sanitizeOperatorCopy(a))
+              .join("; ")}`
           : "",
         r.pageBrief.internalLinksToAdd.length > 0
           ? `- Link internally: ${r.pageBrief.internalLinksToAdd.join("; ")}`
@@ -173,13 +204,17 @@ function buildChangelogNotes(rec: RecommendationActionPayload): string | null {
   }
   if (r.suggestedEdits && r.suggestedEdits.length > 0) {
     const editLines = r.suggestedEdits.map((e) => {
-      const title = e.title ? ` — ${e.title}` : "";
-      return `- [${e.type}/${e.scope}]${title}: ${e.body ?? ""} (why: ${e.why})`;
+      const title = e.title ? ` — ${sanitizeOperatorCopy(e.title)}` : "";
+      const body = e.body ? sanitizeOperatorCopy(e.body) : "";
+      const why = sanitizeOperatorCopy(e.why);
+      return `- [${e.type}/${e.scope}]${title}: ${body} (why: ${why})`;
     });
     parts.push(`Suggested edits:\n${editLines.join("\n")}`);
   }
   if (r.risks && r.risks.length > 0) {
-    parts.push(`Risks:\n- ${r.risks.join("\n- ")}`);
+    parts.push(
+      `Risks:\n- ${r.risks.map((risk) => sanitizeOperatorCopy(risk)).join("\n- ")}`,
+    );
   }
   return parts.length > 0 ? parts.join("\n\n") : null;
 }
