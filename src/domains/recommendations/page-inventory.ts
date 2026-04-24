@@ -60,6 +60,11 @@ export type InventoryMatch = {
    *  "Los Altos & Los Altos Hills"). Resolver maps this to
    *  needs_review / split_or_separate_page rather than strengthen. */
   isBundled?: boolean;
+  /** Phase 2.6 (2026-04-24): how many cluster tokens appear in the URL
+   *  path. Used as the primary tiebreak after score. Pages whose URL path
+   *  explicitly names the cluster should beat pages that only mention the
+   *  cluster in H1/body via brand boilerplate. */
+  urlPathOverlap: number;
 };
 
 // ---------------------------------------------------------------------------
@@ -206,12 +211,22 @@ export function matchClusterToInventory(args: {
     let score = overlap / clusterTokenCount;
     reasons.push(`${overlap}/${clusterTokenCount} label tokens match page`);
 
-    // Boost: cluster label is a substring of URL path.
+    // Boost: cluster label tokens appear in URL path. Phase 2.6
+    // (2026-04-24): scale the boost to the number of matching tokens,
+    // not only the 100% case. A page whose URL covers 4/5 cluster
+    // tokens is still the better target than one whose URL covers 0
+    // but only matches via brand boilerplate in the H1.
     const lowerUrl = entry.url.toLowerCase();
     const pathMatches = clusterTokens.filter((t) => lowerUrl.includes(t));
     if (pathMatches.length === clusterTokens.length) {
       score += 0.25;
       reasons.push("all label tokens appear in URL path");
+    } else if (pathMatches.length > 0) {
+      const boost = 0.05 * pathMatches.length;
+      score += boost;
+      reasons.push(
+        `${pathMatches.length}/${clusterTokenCount} label tokens in URL path (+${boost.toFixed(2)})`,
+      );
     }
 
     // Boost: cluster kind aligns with route type.
@@ -292,12 +307,24 @@ export function matchClusterToInventory(args: {
       reasons.push("page title covers cluster + additional parts (bundled)");
     }
 
+    // Phase 2.6 (2026-04-24): count cluster tokens that actually appear in
+    // the URL path. Used as primary tiebreak after score — a page whose URL
+    // path contains every cluster token (e.g. /luxury-home-builder-bay-area
+    // for "Luxury Home Builder Bay Area") should beat a page that only
+    // mentions those tokens via brand boilerplate in the H1 or title
+    // (e.g. /services/build-on-your-lot whose H1 is "Luxury Custom Home
+    // Construction on Your Lot").
+    const urlPathOverlap = [...clusterTokenSet].filter((t) =>
+      urlPathTokens.has(t),
+    ).length;
+
     matches.push({
       url: entry.url,
       score: Math.min(Math.max(score, 0), 1),
       reasons,
       entry,
       isBundled,
+      urlPathOverlap,
     });
   }
 
@@ -325,9 +352,15 @@ export function matchClusterToInventory(args: {
     }
     return 0;
   };
+  // Phase 2.6 (2026-04-24): URL-path-overlap is the primary tiebreak after
+  // score. At equal score, a page whose URL path names the cluster
+  // explicitly wins over a page that only mentions cluster tokens via
+  // brand boilerplate. This fixes "Luxury Home Builder Bay Area" resolving
+  // to /services/build-on-your-lot instead of /luxury-home-builder-bay-area.
   matches.sort(
     (a, b) =>
       b.score - a.score ||
+      b.urlPathOverlap - a.urlPathOverlap ||
       rankForKind(a.entry.routeType) - rankForKind(b.entry.routeType) ||
       a.url.localeCompare(b.url),
   );
@@ -378,11 +411,31 @@ function detectBundledCoverage(
   );
   if (texts.length === 0) return false;
   const connectorPattern = /\s+(?:and|&|\+|\/|,)\s+/i;
-  for (const text of texts) {
+  for (const rawText of texts) {
+    // Phase 2.6 (2026-04-24): strip brand/tagline boilerplate after a pipe
+    // separator before detecting bundling. In "Build on Your Lot Bay Area
+    // | Custom Home & Site Specialists" the "&" sits inside the tagline,
+    // not inside the content-scope phrase. Checking the primary phrase
+    // (before "|") removes that whole class of false positives.
+    const text = rawText.split("|")[0].trim();
+    if (!text) continue;
     const parts = text.split(connectorPattern);
     if (parts.length < 2) continue;
     const significant = parts.filter((p) => tokenizeForMatch(p).length >= 2);
     if (significant.length < 2) continue;
+    // Phase 2.6 (2026-04-24): require at least one side to carry ≥4
+    // substantive tokens. Short two-sided titles like
+    //   "Custom Home & Site Specialists"         (2 + 2)
+    //   "Luxury Teardown & Rebuild Bay Area"     (2 + 3)
+    //   "Luxury Teardown & Rebuild in the Bay Area" (2 + 3)
+    // are compound product names, not genuine multi-intent bundles. Real
+    // bundling titles carry more coverage ("Luxury Custom Home Builder in
+    // Los Altos & Los Altos Hills | Design Build Firm" = 6 + 6, or
+    // "Palo Alto and Menlo Park remodeling services" = 2 + 4).
+    const maxSubstantive = Math.max(
+      ...significant.map((p) => tokenizeForMatch(p).length),
+    );
+    if (maxSubstantive < 4) continue;
     // At least one side must overlap the cluster label — otherwise it's
     // a bundled page unrelated to this cluster.
     const anyOverlaps = significant.some((p) =>
