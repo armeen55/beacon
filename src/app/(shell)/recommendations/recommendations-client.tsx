@@ -24,6 +24,7 @@ import type {
   ResolverTier,
 } from "@/domains/recommendations/resolved-types";
 import { NEEDS_NEW_PAGE } from "@/domains/recommendations/resolved-types";
+import { buildResolvedRecommendationTitle } from "@/domains/recommendations/build-title";
 import type { SuggestedEdit } from "@/domains/recommendations/adjudicator-schema";
 
 type Props = {
@@ -327,10 +328,15 @@ function RecommendationRow({
     resolution && resolution.targetUrl !== NEEDS_NEW_PAGE
       ? resolution.targetUrl
       : null;
-  const title =
-    resolution?.operatorTitle && resolution.operatorTitle.length > 0
-      ? resolution.operatorTitle
-      : rec.title;
+  // Phase 1 (2026-04-24): title ALWAYS goes through the shared builder.
+  // Never fall back to rec.title — the raw generator title carries
+  // Shield:/Internal: prefixes and contradicts Strengthen/Expand/Merge
+  // badges when the resolver flipped the action.
+  const title = buildResolvedRecommendationTitle({
+    clusterLabel: rec.clusterLabel,
+    promptTextFallback: rec.title,
+    resolution,
+  });
   const reasoning = resolution?.reasoning ?? rec.reasoning;
   const specificRecommendation = resolution?.specificRecommendation ?? null;
   const confidenceReason = resolution?.confidenceReason ?? null;
@@ -340,10 +346,14 @@ function RecommendationRow({
   const cannibalization = resolution?.cannibalization ?? null;
   const needsHumanReview = resolution?.needsHumanReview ?? false;
 
+  // Phase 1 (2026-04-24): payload ships the already-resolved title so the
+  // server action writes it directly to the changelog. Never ship the raw
+  // generator title — it contradicts the resolved action and leaks
+  // internal taxonomy prefixes.
   const payload: RecommendationActionPayload = {
     stableKey: rec.stableKey,
     type: rec.type,
-    title: rec.title,
+    title,
     description: rec.description,
     clusterLabel: rec.clusterLabel,
     clusterKind: rec.clusterKind,
@@ -353,7 +363,7 @@ function RecommendationRow({
           motive: resolution.motive,
           targetUrl: resolution.targetUrl,
           reasoning: resolution.reasoning,
-          operatorTitle: resolution.operatorTitle,
+          operatorTitle: title,
           specificRecommendation: resolution.specificRecommendation,
           suggestedEdits: resolution.suggestedEdits,
           pageBrief: resolution.pageBrief ?? null,

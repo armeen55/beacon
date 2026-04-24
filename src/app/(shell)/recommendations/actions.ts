@@ -20,6 +20,8 @@ import type {
 } from "@/domains/recommendations/resolved-types";
 import { NEEDS_NEW_PAGE } from "@/domains/recommendations/resolved-types";
 import type { PageBrief, SuggestedEdit } from "@/domains/recommendations/adjudicator-schema";
+import { buildResolvedRecommendationTitle } from "@/domains/recommendations/build-title";
+import { sanitizeOperatorCopy } from "@/domains/recommendations/copy-sanitize";
 import type { SignalType, AssetType } from "@/lib/constants";
 
 /**
@@ -202,12 +204,38 @@ export async function acceptRecommendation(
   let changeId: string | undefined;
   if (shouldStampChangelog(payload.type, resolvedAction)) {
     const shape = mapRecToChangelogShape(payload);
-    const operatorTitle =
-      payload.resolution?.operatorTitle ?? payload.title;
-    const changeDescription =
+    // Phase 1 (2026-04-24): server-side defense. Pass the resolution back
+    // through the shared title builder + sanitizer so the changelog entry
+    // never carries a raw generator title or Shield:/Internal: prefix,
+    // even if a legacy or misbehaving caller sent one in payload.title.
+    const operatorTitle = buildResolvedRecommendationTitle({
+      clusterLabel: payload.clusterLabel,
+      promptTextFallback: sanitizeOperatorCopy(payload.title),
+      resolution: payload.resolution
+        ? {
+            action: payload.resolution.action,
+            motive: payload.resolution.motive,
+            targetUrl: payload.resolution.targetUrl,
+            confidence: "medium",
+            confidenceReason: "",
+            tier: "observation",
+            reasoning: payload.resolution.reasoning,
+            cannibalization: null,
+            evidenceRefs: [],
+            operatorTitle: payload.resolution.operatorTitle,
+            specificRecommendation: payload.resolution.specificRecommendation,
+            suggestedEdits: payload.resolution.suggestedEdits,
+            pageBrief: payload.resolution.pageBrief ?? null,
+            proposedSlug: payload.resolution.proposedSlug ?? null,
+            risks: payload.resolution.risks,
+          }
+        : undefined,
+    });
+    const changeDescription = sanitizeOperatorCopy(
       payload.resolution?.specificRecommendation ??
-      payload.resolution?.reasoning ??
-      payload.description;
+        payload.resolution?.reasoning ??
+        payload.description,
+    );
     const notes = buildChangelogNotes(payload);
 
     const fd = new FormData();
@@ -215,8 +243,9 @@ export async function acceptRecommendation(
     fd.set("change_description", changeDescription);
     fd.set("signal_type", shape.signalType);
     fd.set("asset_type", shape.assetType);
-    fd.set("topic_targeted", shape.topicTargeted);
-    if (shape.cityTargeted) fd.set("city_targeted", shape.cityTargeted);
+    fd.set("topic_targeted", sanitizeOperatorCopy(shape.topicTargeted));
+    if (shape.cityTargeted)
+      fd.set("city_targeted", sanitizeOperatorCopy(shape.cityTargeted));
     if (shape.url) fd.set("url", shape.url);
     fd.set("hypothesis", operatorTitle);
     if (notes) fd.set("notes", notes);
@@ -235,7 +264,7 @@ export async function acceptRecommendation(
     }
     changeId = result.changeId;
     if (changeId) {
-      await updateChangelogHypothesis(changeId, payload.title, "recommendation");
+      await updateChangelogHypothesis(changeId, operatorTitle, "recommendation");
     }
   }
 

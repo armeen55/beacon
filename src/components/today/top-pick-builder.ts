@@ -1,15 +1,17 @@
 /**
  * Pure builder that converts a prioritized + resolved rec into a
- * TopPickSummary with clean operator-facing copy. Extracted from
- * today-data.ts so it's unit-testable and doesn't pull in Supabase
- * reads by accident.
+ * TopPickSummary. Delegates all title generation to the shared
+ * buildResolvedRecommendationTitle() so Today Top Pick, /recommendations
+ * rows, and Accept → changelog all produce identical title copy for the
+ * same resolved rec.
  *
- * Stabilization (2026-04-24): title + action always derive from the
- * resolver's output, never the raw generator title. Internal taxonomy
- * prefixes are stripped.
+ * Phase 1 (2026-04-24): title logic moved into
+ * src/domains/recommendations/build-title.ts. This module is now a thin
+ * adapter that shapes the output for the TopPickSummary contract.
  */
 
-import { sanitizeOperatorCopy } from "@/domains/recommendations/copy-sanitize";
+import { buildResolvedRecommendationTitle } from "@/domains/recommendations/build-title";
+import { NEEDS_NEW_PAGE } from "@/domains/recommendations/resolved-types";
 import type { prioritizeRecommendations } from "@/domains/recommendations/prioritize";
 import type { TopPickSummary } from "./top-pick-card";
 
@@ -25,39 +27,15 @@ export function buildTopPickSummary(
   const resolvedUrl =
     resolution &&
     resolution.targetUrl &&
-    resolution.targetUrl !== "needs_new_page"
+    resolution.targetUrl !== NEEDS_NEW_PAGE
       ? resolution.targetUrl
       : null;
 
-  let title: string;
-  if (resolution?.operatorTitle && resolution.operatorTitle.trim().length > 0) {
-    title = resolution.operatorTitle;
-  } else {
-    const cleanLabel = sanitizeOperatorCopy(top.clusterLabel ?? "") || null;
-    if (action === "strengthen_existing_page" && resolvedUrl) {
-      title = `Strengthen ${shortUrlPath(resolvedUrl)}${
-        cleanLabel ? ` for ${cleanLabel} prompts` : ""
-      }`;
-    } else if (action === "expand_existing_page" && resolvedUrl) {
-      title = `Expand ${shortUrlPath(resolvedUrl)}${
-        cleanLabel ? ` to cover ${cleanLabel}` : ""
-      }`;
-    } else if (action === "merge_or_dedupe" && resolvedUrl) {
-      title = `Merge owned pages into ${shortUrlPath(resolvedUrl)}`;
-    } else if (action === "needs_review") {
-      title = cleanLabel
-        ? `Review ${cleanLabel} recommendation`
-        : "Review recommendation";
-    } else if (action === "watch") {
-      title = cleanLabel ? `Watch ${cleanLabel}` : "Watch winning cluster";
-    } else if (action === "add_section_or_faq" && resolvedUrl) {
-      title = `Add section to ${shortUrlPath(resolvedUrl)}`;
-    } else {
-      title = cleanLabel
-        ? `Create a ${cleanLabel} page`
-        : "Create a new page";
-    }
-  }
+  const title = buildResolvedRecommendationTitle({
+    clusterLabel: top.clusterLabel,
+    promptTextFallback: null,
+    resolution,
+  });
 
   return {
     stableKey: top.stableKey,
@@ -68,12 +46,4 @@ export function buildTopPickSummary(
     action,
     resolvedUrl,
   };
-}
-
-function shortUrlPath(url: string): string {
-  try {
-    return new URL(url).pathname.replace(/\/$/, "") || "/";
-  } catch {
-    return url;
-  }
 }
