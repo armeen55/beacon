@@ -1,5 +1,10 @@
 import "server-only";
 
+// v7 Commit 3 (2026-04-23): GPT-5-mini adjudicator runs on Layer 1/2
+// fall-throughs. Build-time prerender would hit the real API — mark the
+// route dynamic so it renders per-request only.
+export const dynamic = "force-dynamic";
+
 import { PageHeader } from "@/components/data/page-header";
 import { ensureCanonicalStoresSeeded } from "@/storage/canonical-store";
 import {
@@ -12,6 +17,11 @@ import { generateRecommendations } from "@/domains/recommendations/generate";
 import { resolvePageIntent } from "@/domains/recommendations/resolve-page-intent";
 import { buildPageInventory } from "@/domains/recommendations/page-inventory";
 import { prioritizeRecommendations } from "@/domains/recommendations/prioritize";
+import {
+  adjudicateRecommendation,
+  shouldAdjudicate,
+  applyAdjudicationToResolution,
+} from "@/domains/recommendations/adjudicate";
 import { allPages } from "@/domains/pages/page-store";
 import { getRepository } from "@/lib/persistence/repositories";
 import {
@@ -74,7 +84,46 @@ export default async function RecommendationsPage() {
     pageInventory,
   });
 
-  const { queue, watchlist } = prioritizeRecommendations(resolved);
+  // v7 Commit 3 (2026-04-23): LLM adjudicator. Runs only on ambiguous /
+  // high-value resolutions (merge_or_dedupe, needs_review, low-confidence,
+  // create_new_page w/ inventory partial match, URL-less changelog risks).
+  // Hard cap per request + monthly budget + evidence-hash cache keep cost
+  // bounded. Silent failure mode: if adjudicator returns error / skipped /
+  // budget-blocked, the resolution passes through as Layer 1/2 output.
+  const adjudicated: typeof resolved = [];
+  let firedCount = 0;
+  const MAX_ADJUDICATIONS_PER_REQUEST = 5;
+  for (const candidate of resolved) {
+    const decision = shouldAdjudicate(candidate, {
+      alreadyFiredCount: firedCount,
+      maxPerRequest: MAX_ADJUDICATIONS_PER_REQUEST,
+    });
+    if (!decision.fire) {
+      adjudicated.push(candidate);
+      continue;
+    }
+    firedCount += 1;
+    try {
+      const result = await adjudicateRecommendation({
+        customerId: "ritz",
+        candidate,
+        matrixPrompts: matrix.prompts,
+        trackedPrompts,
+        activeEntities: trackedEntities,
+        observations: promptAnswerObservations,
+        pageInventory,
+      });
+      if (result.status === "ok") {
+        adjudicated.push(applyAdjudicationToResolution(candidate, result.output));
+      } else {
+        adjudicated.push(candidate);
+      }
+    } catch {
+      adjudicated.push(candidate);
+    }
+  }
+
+  const { queue, watchlist } = prioritizeRecommendations(adjudicated);
 
   // Join in current operator decisions so the client can render state
   // pills and hide dismissed / defer-still-active items behind "Show all".
