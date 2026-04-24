@@ -7,6 +7,99 @@
 
 ---
 
+## 2026-04-24 — Sprint 4 / Phase 4.3 — Today reads recommendation responses fresh from repo
+
+**Context.** Phase 4.2 fixed /recommendations. Today (the operator home
+screen) had the same cross-lambda staleness bug with 8 call sites
+touching module-level response state. Symptom: operator dismisses a rec
+on lambda B (Supabase updated), returns to Today, lambda A serves the
+refresh with its stale `_dbSeeded=true` cache, rec reappears as Top
+Pick. Stops confidence in the whole accept/defer/dismiss loop.
+
+**Phase 4.3a audit — 8 call sites in today-data.ts (not 6 as Phase 4.1
+estimated; two additional "acknowledged hurting/winning card" filters
+were hiding in the 1700s):**
+
+| Call site | Drives |
+|-----------|--------|
+| L813 `allRecommendations.filter(!isRecSuppressed)` | root filter — every downstream Today rec derivative |
+| L828 `responses: recommendationResponses` → computeTrackRecord | track record pattern history |
+| L836 `recommendationResponses.filter(accepted)` | active-experiment set → replication cards |
+| L1040 `getResponse(primaryAction.id).status` | Top Pick responseStatus |
+| L1071 `secondaryActions.filter(!isRecSuppressed)` | secondary action selection |
+| L1084 `getResponse(secondaryRec.id).status` | secondary responseStatus |
+| L1711 `recommendationResponses.filter(dismissed+hurt-)` | hurting-card acknowledgment filter |
+| L1802 `recommendationResponses.some(dismissed+winCardId)` | winning-card acknowledgment filter |
+
+**Fix — commit `9907e0b`.**
+
+1. `src/domains/product/recommendation-response-store.ts` — added pure
+   helpers:
+   - `getResponseFromMap(recId, map)`
+   - `isRecSuppressedFromMap(recId, map, now?)`
+   Both take a `Map<string, RecommendationResponse>` and have zero
+   module-level access. Module-reading variants (`getResponse`,
+   `isRecSuppressed`) kept alive for non-render callers.
+
+2. `src/app/(shell)/today-data.ts`:
+   - Single fresh fetch at top of `loadTodayPageData`:
+     `getRepository().getRecommendationResponses()` → build
+     `freshResponsesByRecId: Map`.
+   - All 8 call sites rewritten to use `freshRecommendationResponses` or
+     the pure `*FromMap` helpers.
+   - Graceful degrade on repo failure: logs, array = [], Today still
+     renders (never falls back to stale module state).
+   - Imports updated: removed stale readers, added fresh-map helpers +
+     `RecommendationResponse` type.
+
+**Regression tests** —
+`tests/routes/today-recommendation-responses-fresh.test.ts`, 11
+invariants all green:
+
+Structural (4):
+1. today-data.ts does NOT import stale readers from response-store
+2. today-data.ts DOES import `getResponseFromMap` +
+   `isRecSuppressedFromMap`
+3. today-data.ts DOES call
+   `getRepository().getRecommendationResponses()` at render
+4. today-data.ts has zero residual references to the stale module array
+   on the render path
+
+Pure helpers (7):
+5. `isRecSuppressedFromMap` suppresses dismissed rec
+6. `isRecSuppressedFromMap` suppresses future-deferred rec
+7. `isRecSuppressedFromMap` does NOT suppress past-deferred rec
+8. `isRecSuppressedFromMap` does NOT suppress accepted rec
+9. `isRecSuppressedFromMap` does NOT suppress rec with no response in
+   the map
+10. `getResponseFromMap` returns the exact stored record
+11. `getResponseFromMap` returns undefined when absent — proving stale
+    module memory can't bleed through (helper only sees the map passed
+    in)
+
+**Phase 4.3d verification.** Typecheck clean. `vitest run` → 1614
+passing (+11 from Phase 4.2's 1603), 10 pre-existing fails unchanged.
+Commit `9907e0b` pushed to `main`; Vercel auto-deploy up.
+
+**Operator-side hosted verification:**
+1. Open beacon-bice.vercel.app/recommendations. Accept or Dismiss one
+   rec; confirm it sticks on /recommendations (Phase 4.2 fix).
+2. Open / (Today). Hard-refresh 5+ times in quick succession (spreads
+   across warm lambdas).
+3. The accepted/dismissed/deferred rec must NOT reappear as Top Pick or
+   secondary action. Its response state must be consistent across every
+   refresh.
+4. If you Dismissed a "hurting" or "winning" action card on Today, hard-
+   refresh repeatedly — the card must stay dismissed.
+
+**Sprint 4.5 readiness.** Phase 4.3 closes the second cross-lambda hole
+on the operator daily-driver path. `verify-action.ts` (Phase 3.4 audit
+flagged; loud-failure hosted UX bug on /pages Verify button) is next.
+Sprint 5 MEDIUM sweep follows — replication-engine, canonical-store,
+remaining module-cache stores.
+
+---
+
 ## 2026-04-24 — Sprint 4 / Phase 4.2 — /recommendations reads response state fresh from repo
 
 **Context.** Phase 4.1 audit proved `/recommendations` suffers the same
