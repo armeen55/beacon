@@ -14,10 +14,12 @@ import { cn } from "@/lib/utils";
  *
  * This banner tells the operator the date cutoff plainly so the rankings
  * and per-URL counts on these surfaces read as "known Profound-era snapshot"
- * rather than "live current state". The native-integration rebuild is
- * scheduled for a later commit in this phase.
+ * rather than "live current state". The native-integration rebuild ships
+ * in a later commit of this phase.
  *
  * Commit 2 (2026-04-24) — truth-surface sweep.
+ * Copy refreshed 2026-04-23 (Phase A fix-first) to describe the index as
+ * a pre-pivot snapshot, not a "not yet integrated" deferred promise.
  */
 
 export type EvidenceFreshnessBannerProps = {
@@ -79,12 +81,13 @@ export function EvidenceFreshnessBanner({
           isStale ? "text-status-warning" : "text-foreground",
         )}
       >
-        {label} computed from citation evidence built{" "}
+        {label} reflects the citation-evidence index built{" "}
         <span className="tabular-nums">{builtLabel}</span>
         {ageDays > 0 && <> ({ageDays}d ago)</>}
       </span>
-      . Native Perplexity and ChatGPT polls are running daily but are not yet
-      integrated into the evidence index — that ships in an upcoming release.{" "}
+      {" "}— a pre-pivot Profound-era snapshot. Daily native Perplexity and
+      ChatGPT polls are writing richer per-observation signal, and the next
+      rebuild will fold that into this index.{" "}
       <Link
         href={methodologyHref}
         className="underline underline-offset-2 hover:text-foreground"

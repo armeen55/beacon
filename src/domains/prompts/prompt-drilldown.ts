@@ -65,6 +65,7 @@ export type PromptDrilldown = {
   dominantAnswerStructure: {
     structure: string;
     share: number;
+    topCount: number;
     total: number;
   } | null;
   /** Last 3 observations in time-desc order for the raw-evidence viewer. */
@@ -173,6 +174,7 @@ export function buildPromptDrilldown(
       dominantAnswerStructure = {
         structure: topStructure,
         share: Math.round(share * 100) / 100,
+        topCount,
         total: totalStructureObs,
       };
     }

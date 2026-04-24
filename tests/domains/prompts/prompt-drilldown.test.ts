@@ -211,6 +211,7 @@ describe("buildPromptDrilldown", () => {
     expect(d.dominantAnswerStructure).toEqual({
       structure: "ranked_list",
       share: 0.8,
+      topCount: 4,
       total: 5,
     });
   });

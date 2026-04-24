@@ -541,61 +541,6 @@ export function TodayClient({
 }
 
 // ---------------------------------------------------------------------------
-// Compact trend line — one number, one trend, one freshness note
-// ---------------------------------------------------------------------------
-
-function TrendLine({
-  totalCitations,
-  trendPct,
-  latestDataDate,
-}: {
-  totalCitations: number;
-  trendPct: number | null;
-  latestDataDate: string | null;
-}) {
-  const direction =
-    trendPct === null ? "flat" : trendPct > 2 ? "up" : trendPct < -2 ? "down" : "flat";
-  const color =
-    direction === "up"
-      ? "text-status-success"
-      : direction === "down"
-        ? "text-status-danger"
-        : "text-muted-foreground";
-  const arrow =
-    direction === "up" ? "↑" : direction === "down" ? "↓" : "→";
-
-  const freshness = latestDataDate
-    ? (() => {
-        const days = Math.floor(
-          (Date.now() - new Date(latestDataDate).getTime()) / 86_400_000,
-        );
-        if (days <= 1) return "Data current";
-        if (days <= 3) return `Data ${days}d old`;
-        return `Data ${days}d old — import fresh`;
-      })()
-    : null;
-
-  return (
-    <div className="flex items-baseline gap-3 flex-wrap">
-      <span className="text-3xl font-bold tabular-nums">
-        {totalCitations.toLocaleString()}
-      </span>
-      <span className="text-sm text-muted-foreground">AI citations</span>
-      {trendPct !== null && (
-        <span className={`text-sm font-medium ${color}`}>
-          {arrow} {Math.abs(trendPct)}%
-        </span>
-      )}
-      {freshness && (
-        <span className="text-[11px] text-muted-foreground/60 ml-auto">
-          {freshness}
-        </span>
-      )}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Proof line formatters
 // ---------------------------------------------------------------------------
 

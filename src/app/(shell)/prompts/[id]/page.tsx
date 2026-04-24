@@ -382,7 +382,7 @@ function AnswerShapeCallout({
     <section className="mb-6">
       <SectionHeading>Answer shape</SectionHeading>
       <p className="text-[13px] text-foreground">
-        <span className="font-medium">{pct}%</span> of answers ({s.total} of {s.total}) came back as a{" "}
+        <span className="font-medium">{pct}%</span> of answers ({s.topCount} of {s.total}) came back as a{" "}
         <span className="font-medium">{pretty}</span>. Worth appearing in one.
       </p>
     </section>
