@@ -7,6 +7,70 @@
 
 ---
 
+## 2026-04-24 — Sprint 1 / Phase 1.6 — /changes/[id] reads fresh from repo
+
+**Context.** Sprint 1 Phase 1.2 fixed the `/changes` main list. Phase 1.5
+audit flagged `/changes/[id]` as the only remaining `/changes`-adjacent
+surface still reading the module-level `changelogEntries` array from
+`@/lib/seed-data.server`. Without this fix, operator sees a scan_detection
+row on `/changes`, clicks through, and the detail page 404s because the
+lambda serving `/changes/[id]` has a cold-start array that doesn't include
+the row.
+
+**Fix — commit `4dc2c06`.** `src/app/(shell)/changes/[id]/page.tsx`:
+
+- Removed `changelogEntries` from the seed-data.server import. `results`
+  and `opportunities` stay (enrichment — feed the attribution/coverage
+  display but don't gate whether the entry renders).
+- `const repository = getRepository()` + `await
+  repository.getChangelogEntries()` at the top of the server component.
+  Both the direct `entry = entries.find(id)` lookup and the
+  `computeScorecard(entries, ...)` → `row.find(id)` derivation use this
+  fresh snapshot.
+- `export const dynamic = "force-dynamic"`.
+- `ChangeDetailReadError` — honest error UI mirroring the `/changes`
+  main-list error state. No silent stale-cache fallback.
+- `notFound()` unchanged — correct 404 when the id genuinely isn't in the
+  fresh repo read.
+
+**Phase 1.6a audit classification of secondary reads on this page.**
+- `changelogEntries` → fixed (fresh)
+- `results` → enrichment (scorecard match enrichment + coverage sample
+  tier). Stale but acceptable. Sprint 4/5 scope.
+- `opportunities` → enrichment (scorecard match enrichment). Stale but
+  acceptable. Sprint 4/5 scope.
+- `eventDecisions` (from `@/domains/attribution/store`, separate module) →
+  enrichment (scorecard event matching). Same bug class, different
+  module. Sprint 4/5 cross-module sweep.
+- `allPages`, `rolloutExecutions`, `patternEvidence` (from
+  `@/domains/pages/*`) → enrichment. Out of Sprint 1 scope.
+
+**Regression tests** — `tests/routes/changes-id-page-reads-fresh.test.ts`,
+6 invariants all green:
+
+1. Source does NOT import mutable `changelogEntries`
+2. Source DOES use `repository.getChangelogEntries()`
+3. Source declares `force-dynamic`
+4. Renders a scan_detection entry that exists only in the fresh repo read
+5. Shows honest error state when repo throws (no stale fallback)
+6. Calls `notFound()` when id is absent from the fresh repo (no stale
+   reconstitution from module-level array)
+
+**Phase 1.6d verification.**
+`npm run typecheck` clean. `npx vitest run` → 1590 passing (+6), 10
+pre-existing fails unchanged. Commit `4dc2c06` pushed to `main`; Vercel
+auto-deploy up. Operator browser check pending: open
+beacon-bice.vercel.app/changes, click any of /faq, /our-process,
+/locations/palo-alto rows → detail page shows the entry without 404.
+
+**Sprint 2 gating.** `/changes` main list + `/changes/[id]` detail page
+both now read fresh from Supabase per request. Other `/changes`-adjacent
+surfaces (`/changes/dedupe`) were already fixed in Phase B. The `/changes`
+tree is cross-lambda-safe. Sprint 2 (pre-Phase-C finding copy migration)
+is unblocked.
+
+---
+
 ## 2026-04-24 — Sprint 1 / Phase 1.2 — /changes reads fresh from repo
 
 **Context.** After `b71ab35` shipped the Confirm/Dismiss write-path fix,
