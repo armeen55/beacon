@@ -12,8 +12,14 @@ import type { ObservationRun } from "@/domains/observations/types";
 import { OBSERVATION_RUN_PARSER_VERSION } from "@/domains/observations/types";
 import { appendObservationRunSync } from "@/domains/observations/persist-run";
 import { universeFieldsForObservationPersistence } from "@/domains/competitors/universe-run-pin";
+import {
+  syncPageSnapshots,
+  syncGuardrailAlertsForUrl,
+} from "@/lib/persistence/dual-write";
+import { getRepository } from "@/lib/persistence/repositories";
 
 const DATA_DIR = join(process.cwd(), ".data");
+const IS_VERCEL = process.env.VERCEL === "1";
 
 export type VerifyResult = {
   success: boolean;
@@ -69,26 +75,52 @@ export async function verifyPageFix(url: string): Promise<VerifyResult> {
     diff: null,
   };
 
+  const normUrl = url.replace(/\/+$/, "").toLowerCase();
+  const gPath = join(DATA_DIR, "page-guardrails.json");
+  const snapPath = join(DATA_DIR, "page-snapshots.json");
+
   try {
-    // Load previous alerts for this URL
-    const gPath = join(DATA_DIR, "page-guardrails.json");
+    // Load previous alerts for this URL.
+    // Phase 4.5: on Vercel .data is read-only; source from Supabase via
+    // the repository instead. On local dev, keep the FS read.
     let prevAlerts: GuardrailAlert[] = [];
-    if (existsSync(gPath)) {
+    if (IS_VERCEL) {
+      const allDbAlerts = await getRepository().getGuardrailAlerts();
+      prevAlerts = allDbAlerts.filter(
+        (a) => a.url.replace(/\/+$/, "").toLowerCase() === normUrl,
+      );
+    } else if (existsSync(gPath)) {
       const all = JSON.parse(readFileSync(gPath, "utf8")) as GuardrailAlert[];
       prevAlerts = all.filter(
-        (a) => a.url.replace(/\/+$/, "").toLowerCase() === url.replace(/\/+$/, "").toLowerCase()
+        (a) => a.url.replace(/\/+$/, "").toLowerCase() === normUrl,
       );
     }
     base.previousAlertCount = prevAlerts.length;
 
-    // Load previous snapshot
-    const snapPath = join(DATA_DIR, "page-snapshots.json");
+    // Load previous snapshot.
+    // Phase 4.5: Vercel → Supabase via repo; local → FS as before.
+    // `allSnapshots` is retained in the local-dev branch so the FS
+    // replace-dance below still works; on Vercel we don't need it since
+    // Supabase upsert handles per-snapshot replacement directly.
     let prevSnapshot: PageSnapshot | null = null;
     let allSnapshots: PageSnapshot[] = [];
-    if (existsSync(snapPath)) {
+    if (IS_VERCEL) {
+      const allDbSnapshots = await getRepository().getPageSnapshots();
+      // Pick the most recent snapshot for this URL (repo returns all).
+      const matches = allDbSnapshots
+        .filter(
+          (s) => s.url.replace(/\/+$/, "").toLowerCase() === normUrl,
+        )
+        .sort(
+          (a, b) =>
+            new Date(b.fetched_at).getTime() -
+            new Date(a.fetched_at).getTime(),
+        );
+      prevSnapshot = matches[0] ?? null;
+    } else if (existsSync(snapPath)) {
       allSnapshots = JSON.parse(readFileSync(snapPath, "utf8")) as PageSnapshot[];
       prevSnapshot = allSnapshots.find(
-        (s) => s.url.replace(/\/+$/, "").toLowerCase() === url.replace(/\/+$/, "").toLowerCase()
+        (s) => s.url.replace(/\/+$/, "").toLowerCase() === normUrl,
       ) ?? null;
     }
 
@@ -166,28 +198,44 @@ export async function verifyPageFix(url: string): Promise<VerifyResult> {
       ...universeFieldsForObservationPersistence(),
       tenant_id: "",
     };
+    // Phase 4.5: appendObservationRunSync now internally gates its FS write
+    // on Vercel while always running the Supabase dual-write. Safe to call
+    // in both environments.
     appendObservationRunSync(verifyRun);
 
-    // Update snapshots file — replace this page's snapshot
-    const updatedSnapshots = allSnapshots.filter(
-      (s) => s.url.replace(/\/+$/, "").toLowerCase() !== url.replace(/\/+$/, "").toLowerCase()
-    );
-    updatedSnapshots.push(newSnapshot);
-    const snapTmp = snapPath + ".tmp";
-    writeFileSync(snapTmp, JSON.stringify(updatedSnapshots, null, 2), "utf8");
-    renameSync(snapTmp, snapPath);
+    // Update snapshots. Phase 4.5: Vercel skips FS; local keeps FS
+    // (replace-dance against `allSnapshots`). Both paths call
+    // `syncPageSnapshots([newSnapshot])` to upsert on `id` — idempotent
+    // regardless of environment.
+    if (!IS_VERCEL) {
+      const updatedSnapshots = allSnapshots.filter(
+        (s) => s.url.replace(/\/+$/, "").toLowerCase() !== normUrl,
+      );
+      updatedSnapshots.push(newSnapshot);
+      const snapTmp = snapPath + ".tmp";
+      writeFileSync(snapTmp, JSON.stringify(updatedSnapshots, null, 2), "utf8");
+      renameSync(snapTmp, snapPath);
+    }
+    await syncPageSnapshots([newSnapshot]);
 
-    // Update guardrails — replace this page's alerts
-    if (existsSync(gPath)) {
+    // Update guardrails for THIS URL only. Phase 4.5:
+    //   - On local: FS replace-dance AND URL-scoped Supabase sync
+    //   - On Vercel: Supabase URL-scoped sync only
+    // The new helper `syncGuardrailAlertsForUrl` deletes only rows whose
+    // `url = this URL` before inserting the fresh alert set. Other URLs'
+    // alerts are untouched — unlike the global `syncGuardrailAlerts`
+    // (delete-replace everything) used by orchestrate-scan.
+    if (!IS_VERCEL && existsSync(gPath)) {
       const allAlerts = JSON.parse(readFileSync(gPath, "utf8")) as GuardrailAlert[];
       const otherAlerts = allAlerts.filter(
-        (a) => a.url.replace(/\/+$/, "").toLowerCase() !== url.replace(/\/+$/, "").toLowerCase()
+        (a) => a.url.replace(/\/+$/, "").toLowerCase() !== normUrl,
       );
       const updated = [...otherAlerts, ...newAlerts];
       const gTmp = gPath + ".tmp";
       writeFileSync(gTmp, JSON.stringify(updated, null, 2), "utf8");
       renameSync(gTmp, gPath);
     }
+    await syncGuardrailAlertsForUrl(url, newAlerts);
 
     revalidatePath("/", "layout");
 

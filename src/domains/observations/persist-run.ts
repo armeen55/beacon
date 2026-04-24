@@ -8,23 +8,35 @@ const CAP = 50;
 /**
  * Append a website observation row to `.data/observation-runs.json` (scan + verify passes).
  * When DUAL_WRITE=true, also upserts to the `observation_runs` Supabase table (best-effort).
+ *
+ * Phase 4.5 (Sprint 4, 2026-04-24): gate the FS write on Vercel. Previously
+ * the `writeFileSync` at the top threw ENOENT on Vercel (read-only FS) before
+ * the dual-write block ran, which meant verify-action.ts + any other caller
+ * on Vercel silently lost the observation_runs row — Supabase never saw it.
+ * On Vercel we now skip FS entirely; on local dev we keep the atomic write.
+ * The Supabase dual-write runs in both environments (gated only on
+ * `DUAL_WRITE=true`).
  */
 export function appendObservationRunSync(run: ObservationRun): void {
-  const dir = join(process.cwd(), ".data");
-  const path = join(dir, "observation-runs.json");
-  let runs: ObservationRun[] = [];
-  if (existsSync(path)) {
-    try {
-      runs = JSON.parse(readFileSync(path, "utf8")) as ObservationRun[];
-    } catch {
-      runs = [];
+  const isVercel = process.env.VERCEL === "1";
+
+  if (!isVercel) {
+    const dir = join(process.cwd(), ".data");
+    const path = join(dir, "observation-runs.json");
+    let runs: ObservationRun[] = [];
+    if (existsSync(path)) {
+      try {
+        runs = JSON.parse(readFileSync(path, "utf8")) as ObservationRun[];
+      } catch {
+        runs = [];
+      }
     }
+    runs.push(run);
+    if (runs.length > CAP) runs = runs.slice(-CAP);
+    const tmp = path + ".tmp";
+    writeFileSync(tmp, JSON.stringify(runs, null, 2), "utf8");
+    renameSync(tmp, path);
   }
-  runs.push(run);
-  if (runs.length > CAP) runs = runs.slice(-CAP);
-  const tmp = path + ".tmp";
-  writeFileSync(tmp, JSON.stringify(runs, null, 2), "utf8");
-  renameSync(tmp, path);
 
   if (isDualWriteEnabled()) {
     upsertObservationRunToDb(run).catch((e) =>

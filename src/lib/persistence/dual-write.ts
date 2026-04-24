@@ -426,6 +426,65 @@ export async function syncGuardrailAlerts(
   }
 }
 
+/**
+ * Phase 4.5 (Sprint 4, 2026-04-24) — URL-scoped guardrail_alerts replace.
+ *
+ * `syncGuardrailAlerts` above is a GLOBAL delete-replace (nukes every row
+ * before re-inserting). That's correct for `orchestrate-scan` which rewrites
+ * every URL's alerts in one transaction, but unsafe for verify-action which
+ * only has fresh alerts for ONE URL — calling the global helper from verify
+ * would wipe every OTHER URL's alerts as a side effect.
+ *
+ * This helper mirrors verify-action.ts's local-file behavior: delete only
+ * the rows matching the passed URL, then insert the fresh alert set for
+ * that URL. Other URLs' alerts untouched.
+ *
+ * Pass `alerts = []` to clear this URL's alerts entirely (valid — means
+ * the verify pass found zero guardrail issues).
+ */
+export async function syncGuardrailAlertsForUrl(
+  url: string,
+  alerts: GuardrailAlert[],
+): Promise<void> {
+  if (!isDualWriteEnabled()) return;
+  const sb = getSupabaseAdmin();
+  try {
+    const { error: delErr } = await sb
+      .from("guardrail_alerts")
+      .delete()
+      .eq("url", url);
+    if (delErr) {
+      console.error(
+        `[dual-write] guardrail_alerts (url=${url}): delete failed — ${delErr.message}`,
+      );
+      return;
+    }
+    if (alerts.length === 0) return;
+    const rows = alerts.map((a) => ({
+      page_id: a.page_id,
+      url: a.url,
+      severity: a.severity,
+      category: a.category,
+      message: a.message,
+      detail: a.detail,
+      observation_run_id: a.observation_run_id ?? null,
+    }));
+    for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
+      const chunk = rows.slice(i, i + CHUNK_SIZE);
+      const { error } = await sb.from("guardrail_alerts").insert(chunk);
+      if (error) {
+        console.error(
+          `[dual-write] guardrail_alerts (url=${url}): insert chunk ${i}-${i + chunk.length} failed — ${error.message}`,
+        );
+      }
+    }
+  } catch (e) {
+    console.error(
+      `[dual-write] guardrail_alerts (url=${url}): unexpected error — ${e instanceof Error ? e.message : e}`,
+    );
+  }
+}
+
 // ── Scan findings sync (Phase 3) ──
 
 /** Map camelCase Finding to snake_case DB row. */
