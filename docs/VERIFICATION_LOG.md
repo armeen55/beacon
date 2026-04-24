@@ -7,6 +7,37 @@
 
 ---
 
+## 2026-04-23 — Phase v6 "Recommendation / Decision Queue", Commits 2–5 + Phase A trust fixes
+
+**Framing:** Phase v6 Commit 1 (candidate generator, pure) shipped but was disconnected — Today still rendered the deprecated `computeRecommendations` output, there was no `/recommendations` route, and no prioritizer. This session closed the v6 loop end-to-end as one product slice, with competitor-primary evidence and the Accept→changelog action loop as **core**, not optional.
+
+**Commits (in order)**
+
+| Commit | SHA | Description |
+|---|---|---|
+| Phase A | `352b562` | Three trust fixes before v6 continuation: (1) `/prompts/[id]` AnswerShapeCallout was rendering `{s.total} of {s.total}` — added `topCount` to type + builder, fixed renderer; (2) evidence-freshness banner reframed from "not yet integrated" deferred promise to "pre-pivot Profound-era snapshot" (index built 2026-04-20 predates the 2026-04-22 native pivot); (3) removed dead `TrendLine` component from `today-client.tsx`. |
+| v6-3 | `5b7a718` | Competitor-primary aggregation (pure). New `src/domains/prompts/competitor-primary.ts` with `summarizePromptPrimary` + `summarizeAllPromptsPrimary`. `DecisionMatrix` carries `primaryByPromptId` rollup. `RecommendationCandidate.evidence` gains `primaryCompetitors`, `brandPrimaryPromptCount`, `fragmentedPromptCount`. `/prompts/[id]` adds "Who IS the answer" section with tone-coded verdict. 10 new tests. |
+| v6-2 | `9eb8fda` | Prioritizer (pure). `src/domains/recommendations/prioritize.ts`. Transparent rubric: severity + clusterSize (cap +5) + competitorPressure (+3 when a competitor is primary on ≥50% of affected prompts; +2 when fragmented) + recentSignal (+1 if maxSignalStrength ≥60) − effortPenalty. Outputs queue (tiered now / this_week / later) + watchlist. Each row carries a transparent `reasoning` string. 13 tests. |
+| v6-4 | `4e48bf9` | `/recommendations` route + accept loop. RSC runs the full `buildPromptDecisionMatrix → generateRecommendations → prioritizeRecommendations` pipeline, joins operator responses, renders Queue (grouped by tier) + Watchlist. `[Accept]` calls `createChangelogEntry` with `signal_type`/`asset_type` derived from rec kind and stamps `hypothesis_source="recommendation"`. `[Defer]`/`[Dismiss]` persist decision only. Reuses existing `recommendation-response-store`. Nav adds `/recommendations` between Today and Prompts. 1 route smoke test. |
+| v6-5 | `3a23e39` | Today Top Pick teaser. Queue[0] surfaces as a single opinionated card above `PromptsTeaser`, linking into `/recommendations#rec-{stableKey}`. Piggybacks on the already-built matrix — no second pipeline run. Hidden when queue empty. |
+
+**Gate (after Phase E):**
+- `npm run typecheck` ✓
+- `npm run test`: 1419 passing, 10 pre-existing failures (tenant-isolation, local-presence connector-timestamp fixtures, finding-actions date fixture) unchanged — zero regressions.
+- `npm run build` ✓. New static route: `/recommendations`.
+
+**What's now actually usable:**
+- `/recommendations` = ranked decision queue. Now / This week / Later tiers, transparent reasoning per row, primary-competitor evidence visible as chips and in the reasoning string.
+- Accept → changelog experiment: one click creates a tracked entry with `hypothesis_source="recommendation"`; the existing Z-score url-watcher picks it up automatically.
+- `/prompts/[id]` = drilldown with "Who IS the answer" section answering "brand primary / competitor primary / fragmented / absent."
+- Today Top Pick card = the one thing the operator should do today, above the prompts teaser.
+
+**Browser verification blocked by Supabase auth gate at `/` and `/pages`; relied on typecheck, test, and build signals. Auth-bypass env var exists (`BEACON_AUTH_DISABLED=1`) but not used without explicit operator permission.**
+
+**Next:** checkpoint with operator (queue quality, competitor-primary trust, action-loop working/blocked, remaining Profound-replacement gaps) before Phase F cleanup or weekly-theme extension.
+
+---
+
 ## 2026-04-24 — Phase v5 "Prompt Decision Surface v1", Commits 1–5
 
 **Framing:** Phase v4 answered "can I trust this data?" Phase v5 answers "where are my opportunities, specifically?" The prompt is Beacon's product atom; /prompts is the first operator surface that treats it that way.
