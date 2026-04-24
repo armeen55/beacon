@@ -14,6 +14,12 @@ import type {
   RecommendationCandidate,
   RecommendationType,
 } from "@/domains/recommendations/generate";
+import type {
+  RecommendationAction,
+  RecommendationMotive,
+} from "@/domains/recommendations/resolved-types";
+import { NEEDS_NEW_PAGE } from "@/domains/recommendations/resolved-types";
+import type { PageBrief, SuggestedEdit } from "@/domains/recommendations/adjudicator-schema";
 import type { SignalType, AssetType } from "@/lib/constants";
 
 /**
@@ -36,7 +42,11 @@ export type RecommendationActionResponse = {
 
 /** A minimal slice of RecommendationCandidate that the client sends back
  *  with the accept action. Decoupling the action from the full candidate
- *  shape makes the client surface stable across small generator tweaks. */
+ *  shape makes the client surface stable across small generator tweaks.
+ *
+ *  v7 Commit 5 (2026-04-23): carries the resolver's output so Accept
+ *  stamps the changelog with the resolved URL + brief. Legacy fields
+ *  stay for backward compatibility. */
 export type RecommendationActionPayload = {
   stableKey: string;
   type: RecommendationType;
@@ -44,27 +54,51 @@ export type RecommendationActionPayload = {
   description: string;
   clusterLabel: string | null;
   clusterKind: "geo" | "topic" | null;
+  /** v7: resolver / adjudicator output (optional for safety). */
+  resolution?: {
+    action: RecommendationAction;
+    motive: RecommendationMotive;
+    targetUrl: string;
+    reasoning: string;
+    operatorTitle?: string;
+    specificRecommendation?: string;
+    suggestedEdits?: SuggestedEdit[];
+    pageBrief?: PageBrief | null;
+    proposedSlug?: string | null;
+    risks?: string[];
+  };
 };
 
 /** Determine whether an Accept should create a changelog entry. Watch recs
- *  don't — there's no action implied. Other rec types imply an observable
- *  site change. Defer / dismiss always skip the changelog regardless. */
-function shouldStampChangelog(type: RecommendationType): boolean {
+ *  and explicit Review recs don't — there's no action implied yet. */
+function shouldStampChangelog(
+  type: RecommendationType,
+  action: RecommendationAction | null,
+): boolean {
+  if (action === "watch" || action === "needs_review") return false;
   return type !== "watch_winning_cluster";
 }
 
-/** Map a rec into the shape `createChangelogEntry` expects. No URL target
- *  in v1 — recs don't carry resolved URLs yet. Operator can edit on the
- *  changelog detail page. */
+/** Map a rec into the shape `createChangelogEntry` expects. */
 function mapRecToChangelogShape(rec: RecommendationActionPayload): {
   signalType: SignalType;
   assetType: AssetType;
   topicTargeted: string;
   cityTargeted: string | null;
+  url: string | null;
 } {
+  const action: RecommendationAction | null = rec.resolution?.action ?? null;
+
+  // v7 Commit 5: map the resolved action (not the raw candidate type) to
+  // changelog signal/asset types so /changes correctly categorizes it.
   const isNewPage =
-    rec.type === "create_cluster_page" || rec.type === "create_single";
-  const signalType: SignalType = isNewPage ? "page" : "content";
+    action === "create_new_page" ||
+    (!action &&
+      (rec.type === "create_cluster_page" || rec.type === "create_single"));
+  const isStructural =
+    action === "add_section_or_faq" || action === "merge_or_dedupe";
+
+  const signalType: SignalType = isNewPage ? "page" : isStructural ? "technical" : "content";
 
   let assetType: AssetType;
   if (rec.clusterKind === "geo") {
@@ -82,7 +116,63 @@ function mapRecToChangelogShape(rec: RecommendationActionPayload): {
   const cityTargeted =
     rec.clusterKind === "geo" ? (rec.clusterLabel ?? null) : null;
 
-  return { signalType, assetType, topicTargeted, cityTargeted };
+  // Prefer the resolved URL when it's a real page (not the sentinel).
+  const resolvedUrl =
+    rec.resolution &&
+    rec.resolution.targetUrl &&
+    rec.resolution.targetUrl !== NEEDS_NEW_PAGE
+      ? rec.resolution.targetUrl
+      : null;
+
+  return {
+    signalType,
+    assetType,
+    topicTargeted,
+    cityTargeted,
+    url: resolvedUrl,
+  };
+}
+
+/** Build the notes body that travels with the changelog entry. Contains
+ *  the adjudicator brief when present so it's reviewable at /changes. */
+function buildChangelogNotes(rec: RecommendationActionPayload): string | null {
+  const r = rec.resolution;
+  if (!r) return null;
+  const parts: string[] = [];
+  if (r.specificRecommendation) {
+    parts.push(`Specific recommendation:\n${r.specificRecommendation}`);
+  }
+  if (r.pageBrief) {
+    parts.push(
+      [
+        "Page brief:",
+        `- Title: ${r.pageBrief.recommendedTitle}`,
+        `- H1: ${r.pageBrief.recommendedH1}`,
+        r.pageBrief.mustCoverAngles.length > 0
+          ? `- Must cover: ${r.pageBrief.mustCoverAngles.join("; ")}`
+          : "",
+        r.pageBrief.competitorAnglesToCounter.length > 0
+          ? `- Counter competitors: ${r.pageBrief.competitorAnglesToCounter.join("; ")}`
+          : "",
+        r.pageBrief.internalLinksToAdd.length > 0
+          ? `- Link internally: ${r.pageBrief.internalLinksToAdd.join("; ")}`
+          : "",
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    );
+  }
+  if (r.suggestedEdits && r.suggestedEdits.length > 0) {
+    const editLines = r.suggestedEdits.map((e) => {
+      const title = e.title ? ` — ${e.title}` : "";
+      return `- [${e.type}/${e.scope}]${title}: ${e.body ?? ""} (why: ${e.why})`;
+    });
+    parts.push(`Suggested edits:\n${editLines.join("\n")}`);
+  }
+  if (r.risks && r.risks.length > 0) {
+    parts.push(`Risks:\n- ${r.risks.join("\n- ")}`);
+  }
+  return parts.length > 0 ? parts.join("\n\n") : null;
 }
 
 export async function acceptRecommendation(
@@ -95,24 +185,41 @@ export async function acceptRecommendation(
     params: { stableKey: payload.stableKey, type: payload.type },
   });
 
+  const resolvedUrlForStore =
+    payload.resolution?.targetUrl &&
+    payload.resolution.targetUrl !== NEEDS_NEW_PAGE
+      ? payload.resolution.targetUrl
+      : null;
+
   await ensureRecommendationResponsesSeeded();
   recordResponse(payload.stableKey, "accepted", {
-    targetPageUrl: null,
+    targetPageUrl: resolvedUrlForStore,
     patternId: null,
   });
   await persistResponses();
 
+  const resolvedAction = payload.resolution?.action ?? null;
   let changeId: string | undefined;
-  if (shouldStampChangelog(payload.type)) {
+  if (shouldStampChangelog(payload.type, resolvedAction)) {
     const shape = mapRecToChangelogShape(payload);
+    const operatorTitle =
+      payload.resolution?.operatorTitle ?? payload.title;
+    const changeDescription =
+      payload.resolution?.specificRecommendation ??
+      payload.resolution?.reasoning ??
+      payload.description;
+    const notes = buildChangelogNotes(payload);
+
     const fd = new FormData();
-    fd.set("asset_name", payload.title);
-    fd.set("change_description", payload.description);
+    fd.set("asset_name", operatorTitle);
+    fd.set("change_description", changeDescription);
     fd.set("signal_type", shape.signalType);
     fd.set("asset_type", shape.assetType);
     fd.set("topic_targeted", shape.topicTargeted);
     if (shape.cityTargeted) fd.set("city_targeted", shape.cityTargeted);
-    fd.set("hypothesis", payload.title);
+    if (shape.url) fd.set("url", shape.url);
+    fd.set("hypothesis", operatorTitle);
+    if (notes) fd.set("notes", notes);
 
     const result = await createChangelogEntry(fd);
     if (!result.success) {

@@ -37,6 +37,10 @@ export async function createChangelogEntry(
     (formData.get("expected_impact_window") as string) || null;
   const briefId = (formData.get("brief_id") as string) || null;
   const opportunityId = (formData.get("opportunity_id") as string) || null;
+  // v7 Commit 5 (2026-04-23): Accept from /recommendations passes a
+  // serialized brief here so the full edit list + page brief travels
+  // with the changelog entry for review on /changes.
+  const notes = (formData.get("notes") as string)?.trim() || null;
 
   if (!assetName || !changeDescription || !signalType || !assetType || !topicTargeted) {
     log.error("Action failed", {
@@ -64,7 +68,7 @@ export async function createChangelogEntry(
     expected_impact_window: expectedImpactWindow,
     brief_id: briefId,
     opportunity_id: opportunityId,
-    notes: null,
+    notes,
     created_at: timestamp,
     updated_at: timestamp,
     tenant_id: "",

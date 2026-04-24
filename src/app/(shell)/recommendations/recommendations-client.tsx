@@ -275,14 +275,7 @@ function RecommendationRow({
 
   const showFeedback = feedback && feedback.stableKey === rec.stableKey;
 
-  const payload: RecommendationActionPayload = {
-    stableKey: rec.stableKey,
-    type: rec.type,
-    title: rec.title,
-    description: rec.description,
-    clusterLabel: rec.clusterLabel,
-    clusterKind: rec.clusterKind,
-  };
+  // Payload built below after `resolution` is resolved.
 
   function handle(
     action: () => Promise<RecommendationActionResponse>,
@@ -346,6 +339,29 @@ function RecommendationRow({
   const risks = resolution?.risks ?? [];
   const cannibalization = resolution?.cannibalization ?? null;
   const needsHumanReview = resolution?.needsHumanReview ?? false;
+
+  const payload: RecommendationActionPayload = {
+    stableKey: rec.stableKey,
+    type: rec.type,
+    title: rec.title,
+    description: rec.description,
+    clusterLabel: rec.clusterLabel,
+    clusterKind: rec.clusterKind,
+    resolution: resolution
+      ? {
+          action: resolution.action,
+          motive: resolution.motive,
+          targetUrl: resolution.targetUrl,
+          reasoning: resolution.reasoning,
+          operatorTitle: resolution.operatorTitle,
+          specificRecommendation: resolution.specificRecommendation,
+          suggestedEdits: resolution.suggestedEdits,
+          pageBrief: resolution.pageBrief ?? null,
+          proposedSlug: resolution.proposedSlug ?? null,
+          risks: resolution.risks,
+        }
+      : undefined,
+  };
 
   return (
     <li
