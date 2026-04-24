@@ -171,6 +171,14 @@ vi.mock("@/storage/canonical-store", async () => {
   void todayIso;
   return {
     ensureCanonicalStoresSeeded: vi.fn(async () => {}),
+    // Phase 4.9: render paths now call loadFreshCanonicalData instead of
+    // reading the module-level arrays. Mock returns the same fixture set.
+    loadFreshCanonicalData: vi.fn(async () => ({
+      trackedPrompts,
+      promptAnswerObservations,
+      trackedEntities,
+      dailyMetricSnapshots: [],
+    })),
     trackedPrompts,
     trackedEntities,
     promptAnswerObservations,

@@ -6,11 +6,9 @@ import "server-only";
 export const dynamic = "force-dynamic";
 
 import { PageHeader } from "@/components/data/page-header";
-import { ensureCanonicalStoresSeeded } from "@/storage/canonical-store";
 import {
-  trackedPrompts,
-  promptAnswerObservations,
-  trackedEntities,
+  ensureCanonicalStoresSeeded,
+  loadFreshCanonicalData,
 } from "@/storage/canonical-store";
 import { buildPromptDecisionMatrix } from "@/domains/prompts/decision-matrix";
 import { generateRecommendations } from "@/domains/recommendations/generate";
@@ -78,6 +76,29 @@ export default async function RecommendationsPage() {
     "seed recommendation responses",
   );
   if (respSeedRes.error) errors.push(respSeedRes.error);
+
+  // Phase 4.9 (Sprint 4, 2026-04-24): fetch canonical arrays FRESH from the
+  // repository per render. The module-level arrays in canonical-store.ts
+  // are seeded once per Vercel lambda behind `_canonSeeded`; after the
+  // 07:00 UTC poll writes fresh observations to Supabase, already-warm
+  // lambdas kept serving yesterday's data. On repo failure we surface the
+  // error banner and fall through to empty arrays (never stale module state).
+  const freshCanonRes = await safeCall(
+    () => loadFreshCanonicalData(),
+    {
+      trackedPrompts: [],
+      promptAnswerObservations: [],
+      trackedEntities: [],
+      dailyMetricSnapshots: [],
+    },
+    "fetch fresh canonical data",
+  );
+  if (freshCanonRes.error) errors.push(freshCanonRes.error);
+  const {
+    trackedPrompts,
+    promptAnswerObservations,
+    trackedEntities,
+  } = freshCanonRes.value;
 
   const matrixRes = await safeCall(
     () =>

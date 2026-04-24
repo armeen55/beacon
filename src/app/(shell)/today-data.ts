@@ -116,8 +116,8 @@ import { buildQueryKeywordIndex, type QueryKeywordIndex } from "@/domains/answer
 // 2026-04-20: MemoryInsight (topic-level attribution) removed in favor of
 // url-change-outcomes (URL-level Z-score). See win-card logic below.
 import {
-  dailyMetricSnapshots,
   ensureCanonicalStoresSeeded,
+  loadFreshCanonicalData,
 } from "@/storage/canonical-store";
 // url-brain-recommender removed 2026-04-18 (Phase 7 cleanup) \u2014 was producing
 // vague "Investigate h1 regression" shrug cards with low-sample pattern math
@@ -196,13 +196,48 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
     freshRecommendationResponses.map((r) => [r.recId, r]),
   );
 
-  // Phase 3.5F (2026-04-22): freshness signal derived from the seeded
+  // Phase 4.9 (Sprint 4, 2026-04-24): fresh canonical data per render.
+  // Module-level arrays in canonical-store.ts are seeded once per Vercel
+  // lambda behind `_canonSeeded`. After the 07:00 UTC poll writes fresh
+  // observations to Supabase, already-warm lambdas served yesterday's
+  // data forever. Fetch all four canonical tables fresh here and pass
+  // into every downstream derivation. Module-level arrays remain for
+  // non-render consumers (prompt-library, url-citation-history, etc.).
+  //
+  // On repo failure: graceful degrade to empty arrays — Today still
+  // renders, other signals (changelog, scan findings, URL watcher) are
+  // unaffected. Never fall back to the stale module state.
+  let trackedPrompts: Awaited<
+    ReturnType<typeof loadFreshCanonicalData>
+  >["trackedPrompts"] = [];
+  let promptAnswerObservations: Awaited<
+    ReturnType<typeof loadFreshCanonicalData>
+  >["promptAnswerObservations"] = [];
+  let trackedEntities: Awaited<
+    ReturnType<typeof loadFreshCanonicalData>
+  >["trackedEntities"] = [];
+  let dailyMetricSnapshots: Awaited<
+    ReturnType<typeof loadFreshCanonicalData>
+  >["dailyMetricSnapshots"] = [];
+  try {
+    const fresh = await loadFreshCanonicalData();
+    trackedPrompts = fresh.trackedPrompts;
+    promptAnswerObservations = fresh.promptAnswerObservations;
+    trackedEntities = fresh.trackedEntities;
+    dailyMetricSnapshots = fresh.dailyMetricSnapshots;
+  } catch (err) {
+    console.error(
+      "[today] fresh canonical read failed — continuing with empty canonical arrays",
+      err,
+    );
+  }
+
+  // Phase 3.5F (2026-04-22): freshness signal derived from the fresh
   // `promptAnswerObservations` array. Today's visibility/ranking/competitor
   // charts all roll up from this table. When the newest observation is more
   // than 3 days old, surface a thin banner so the operator reads the cutoff
   // as "known state" not "broken product". Null when fresh.
-  const { promptAnswerObservations: _pao } = await import("@/storage/canonical-store");
-  const lastObservationAt = _pao.reduce<string | null>((max, o) => {
+  const lastObservationAt = promptAnswerObservations.reduce<string | null>((max, o) => {
     const t = o.observed_at;
     if (!t) return max;
     return max === null || t > max ? t : max;
@@ -261,7 +296,7 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
   // Renders nothing when rollup is null or totalObservations=0.
   let enrichmentRollup: EnrichmentRollup | null = null;
   try {
-    const { promptAnswerObservations } = await import("@/storage/canonical-store");
+    // Phase 4.9: using fresh `promptAnswerObservations` from outer scope.
     enrichmentRollup = buildEnrichmentRollup({
       observations: promptAnswerObservations,
       date: todayISOUtc(),
@@ -294,8 +329,7 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
   let promptsTeaser: PromptsTeaserSummary | null = null;
   let topPick: TopPickSummary | null = null;
   try {
-    const { trackedPrompts, trackedEntities, promptAnswerObservations } =
-      await import("@/storage/canonical-store");
+    // Phase 4.9: using fresh canonical arrays from outer scope.
     const matrix = buildPromptDecisionMatrix({
       prompts: trackedPrompts,
       observations: promptAnswerObservations,
@@ -764,7 +798,7 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
   );
   // Build query keyword index from fan-out data — unlocks 5,289 real search
   // queries for keyword optimization recs AND morning brief step generation.
-  const { promptAnswerObservations } = await import("@/storage/canonical-store");
+  // Phase 4.9: using fresh `promptAnswerObservations` from outer scope.
   const queryIndex = buildQueryKeywordIndex(citationEvidenceIndex, promptAnswerObservations);
 
   // Phase 7 Part 1b (2026-04-18): load answer-texts from disk so the

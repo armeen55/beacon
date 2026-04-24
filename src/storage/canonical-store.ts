@@ -132,6 +132,51 @@ export function invalidateCanonicalStoresSeed(): void {
   _canonSeedPromise = null;
 }
 
+/**
+ * Phase 4.9 (Sprint 4, 2026-04-24) — fresh canonical data per render.
+ *
+ * The module-level arrays above are seeded exactly once per Vercel lambda
+ * behind `_canonSeeded`. After the 07:00 UTC poll writes fresh
+ * observations + derived snapshots to Supabase, already-warm lambdas keep
+ * serving their original seed forever until cold-recycled. This helper
+ * bypasses the seed cache entirely — fetches all four canonical tables
+ * fresh from the repository in parallel.
+ *
+ * Contract: render paths that show visibility/decision data to the
+ * operator (Today, Recommendations, Prompts) must await this helper once
+ * per request and pass the returned arrays to downstream pure functions.
+ * Module-level arrays remain for non-render consumers (poll pipeline,
+ * prompt-library, url-citation-history, import-orchestrator,
+ * build-from-observations, orchestrate-scan) — those update their own
+ * module state via `ensureCanonicalStoresSeeded()` or direct mutation.
+ *
+ * On repo failure the helper throws. Callers wrap in `safeCall` /
+ * try-catch and graceful-degrade to empty arrays with a banner; they
+ * must NOT silently fall back to module-level stale state.
+ */
+export type FreshCanonicalData = {
+  trackedPrompts: TrackedPrompt[];
+  promptAnswerObservations: PromptAnswerObservation[];
+  trackedEntities: TrackedEntity[];
+  dailyMetricSnapshots: DailyMetricSnapshot[];
+};
+
+export async function loadFreshCanonicalData(): Promise<FreshCanonicalData> {
+  const repo = getRepository();
+  const [prompts, observations, entities, snapshots] = await Promise.all([
+    repo.getTrackedPrompts(),
+    repo.getPromptAnswerObservations(),
+    repo.getTrackedEntities(),
+    repo.getDailyMetricSnapshots(),
+  ]);
+  return {
+    trackedPrompts: prompts,
+    promptAnswerObservations: observations,
+    trackedEntities: entities,
+    dailyMetricSnapshots: snapshots,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Persistence helpers
 // ---------------------------------------------------------------------------

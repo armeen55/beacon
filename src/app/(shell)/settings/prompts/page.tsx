@@ -1,7 +1,9 @@
 import "server-only";
 
-import { ensureCanonicalStoresSeeded } from "@/storage/canonical-store";
-import { trackedPrompts } from "@/storage/canonical-store";
+import {
+  ensureCanonicalStoresSeeded,
+  loadFreshCanonicalData,
+} from "@/storage/canonical-store";
 import { SettingsPromptsClient } from "./settings-prompts-client";
 
 /**
@@ -14,6 +16,9 @@ import { SettingsPromptsClient } from "./settings-prompts-client";
  */
 export default async function SettingsPromptsPage() {
   await ensureCanonicalStoresSeeded();
+
+  // Phase 4.9 (Sprint 4, 2026-04-24): fresh per-render canonical read.
+  const { trackedPrompts } = await loadFreshCanonicalData();
 
   const rows = [...trackedPrompts]
     .sort((a, b) => {

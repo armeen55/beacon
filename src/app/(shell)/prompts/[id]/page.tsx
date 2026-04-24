@@ -3,11 +3,9 @@ import "server-only";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { ensureCanonicalStoresSeeded } from "@/storage/canonical-store";
 import {
-  trackedPrompts,
-  trackedEntities,
-  promptAnswerObservations,
+  ensureCanonicalStoresSeeded,
+  loadFreshCanonicalData,
 } from "@/storage/canonical-store";
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { buildPromptDrilldown } from "@/domains/prompts/prompt-drilldown";
@@ -36,6 +34,14 @@ export default async function PromptDrilldownPage({
   const promptId = decodeURIComponent(id);
 
   await ensureCanonicalStoresSeeded();
+
+  // Phase 4.9 (Sprint 4, 2026-04-24): fresh per-render canonical read.
+  const {
+    trackedPrompts,
+    trackedEntities,
+    promptAnswerObservations,
+  } = await loadFreshCanonicalData();
+
   const prompt = trackedPrompts.find((p) => p.id === promptId);
   if (!prompt) notFound();
 

@@ -162,6 +162,14 @@ vi.mock("@/storage/canonical-store", async () => {
 
   return {
     ensureCanonicalStoresSeeded: vi.fn(async () => {}),
+    // Phase 4.9: render paths use loadFreshCanonicalData; mock returns
+    // the same fixture set so the drilldown renders as before.
+    loadFreshCanonicalData: vi.fn(async () => ({
+      trackedPrompts,
+      promptAnswerObservations,
+      trackedEntities,
+      dailyMetricSnapshots: [],
+    })),
     trackedPrompts,
     trackedEntities,
     promptAnswerObservations,

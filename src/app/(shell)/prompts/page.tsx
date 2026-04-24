@@ -3,11 +3,9 @@ import "server-only";
 import Link from "next/link";
 import { PageHeader } from "@/components/data/page-header";
 import { cn } from "@/lib/utils";
-import { ensureCanonicalStoresSeeded } from "@/storage/canonical-store";
 import {
-  trackedPrompts,
-  promptAnswerObservations,
-  trackedEntities,
+  ensureCanonicalStoresSeeded,
+  loadFreshCanonicalData,
 } from "@/storage/canonical-store";
 import {
   buildPromptDecisionMatrix,
@@ -29,9 +27,23 @@ import type {
  *   - Drilldown lives at /prompts/[id] (Phase v5 Commit 3).
  */
 export default async function PromptsPage() {
-  // Seed canonical stores before the aggregator reads them (hosted Vercel
-  // has empty disk; this fetches from Supabase once per request).
+  // Seed canonical stores once per lambda — kept so non-render consumers
+  // (prompt-library, url-citation-history) still populate their module-level
+  // arrays. Render path below does NOT read from those; it fetches fresh.
   await ensureCanonicalStoresSeeded();
+
+  // Phase 4.9 (Sprint 4, 2026-04-24): fresh canonical data per render.
+  // Module-level arrays are seeded once per Vercel lambda; after the
+  // 07:00 UTC poll writes fresh observations to Supabase, already-warm
+  // lambdas served yesterday's prompt-decision matrix until cold-recycled.
+  const {
+    trackedPrompts,
+    promptAnswerObservations,
+    trackedEntities,
+  } = await loadFreshCanonicalData();
+  const promptTextById = new Map(
+    trackedPrompts.map((p) => [p.id, p.text]),
+  );
 
   const matrix = buildPromptDecisionMatrix({
     prompts: trackedPrompts,
@@ -76,6 +88,7 @@ export default async function PromptsPage() {
                   prompts={matrix.prompts.filter(
                     (p) => p.category === group.category,
                   )}
+                  promptTextById={promptTextById}
                 />
               ))}
           </div>
@@ -212,9 +225,11 @@ const CATEGORY_META: Record<
 function CategorySection({
   group,
   prompts,
+  promptTextById,
 }: {
   group: CategoryGroupSummary;
   prompts: PromptOpportunity[];
+  promptTextById: Map<string, string>;
 }) {
   const meta = CATEGORY_META[group.category];
   // Sort by signal strength descending within the group.
@@ -250,7 +265,11 @@ function CategorySection({
 
       <ul className="space-y-2">
         {sorted.map((op) => (
-          <PromptRow key={op.prompt_id} op={op} />
+          <PromptRow
+            key={op.prompt_id}
+            op={op}
+            promptTextById={promptTextById}
+          />
         ))}
       </ul>
     </section>
@@ -259,11 +278,16 @@ function CategorySection({
 
 /* ────────────────────────────────────────────────────────────────────────── */
 
-function PromptRow({ op }: { op: PromptOpportunity }) {
-  // Look the prompt text up from the trackedPrompts store. Server component
-  // — reads the already-seeded module-level canonical store.
-  const prompt = trackedPrompts.find((p) => p.id === op.prompt_id);
-  const text = prompt?.text ?? op.prompt_id;
+function PromptRow({
+  op,
+  promptTextById,
+}: {
+  op: PromptOpportunity;
+  promptTextById: Map<string, string>;
+}) {
+  // Phase 4.9: prompt text resolved from the fresh repo-sourced Map built
+  // in the parent. No module-level trackedPrompts read here.
+  const text = promptTextById.get(op.prompt_id) ?? op.prompt_id;
 
   // Extract cluster tags for display as small pills.
   const clusterTags = op.tags.filter(
