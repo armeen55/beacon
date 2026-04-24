@@ -7,6 +7,83 @@
 
 ---
 
+## 2026-04-24 — Sprint 3 — URL watcher hosted safety (memory-backed state on Vercel)
+
+**Context.** Every `/changes` and `/` render on Vercel was logging:
+```
+[changes] URL watcher refresh error (non-fatal)
+ENOENT: open '/vercel/path0/.data/url-watcher-state.json.tmp'
+```
+Non-fatal but noisy. Secondary (more important) effect: the watcher
+pipeline never ran in production — `writeRunningState` was the first
+action in `runUrlWatcher`, it threw, the exception was caught at the
+page boundary, and the rest of the pipeline (citation history rebuild,
+URL outcome materialization, pattern-brain rebuild) never executed.
+
+**Phase 3.1 classification.** Watcher state is cache-only / advisory
+throttle metadata (phase, timestamps, trigger, run stats). The real
+watcher outputs (citation history, URL outcomes, pattern brain) are
+dual-written to Supabase by the pipeline itself and survive state loss.
+Pipeline is idempotent (per `url-watcher.ts:110-112`). Loss on cold
+start = harmless re-run.
+
+**Fix — commit `f9feb8d`.** `src/domains/product/url-watcher-state.ts`:
+on Vercel, `readUrlWatcherState` and `writeUrlWatcherState` route to a
+module-level `vercelMemoryState` variable. Warm lambdas throttle from
+memory; cold-start lambdas run the idempotent pipeline once. Local dev
+path unchanged. Added `__resetVercelMemoryStateForTests` helper.
+
+**Side benefit**: the watcher now actually RUNS on Vercel (it has been
+silently dead in production since the earliest Vercel deploys). Safe to
+land — outputs are all idempotent upserts.
+
+**Regression tests** — `tests/routes/url-watcher-vercel-safe.test.ts`,
+5 invariants:
+1. `writeUrlWatcherState` with `VERCEL=1` does not throw
+2. `readUrlWatcherState` returns the same-lambda written state
+3. `readUrlWatcherState` returns null cleanly on fresh cold-start
+4. `writeRunningState` → `writeSuccessState` round-trip does not throw
+5. `shouldRefreshUrlWatcher` throttles correctly against memory-stored
+   success state
+
+**Phase 3.4 — fs-write audit of src/**
+
+✅ **SAFE (fully VERCEL-gated):**
+- `src/lib/tenant.ts:30,38` (both mkdirSync gated)
+- `src/lib/business-config.ts:226-227` (write wrapped in VERCEL check)
+- `src/lib/persistence/json-store.ts:36,119-120` (atomicWrite has explicit
+  `if (VERCEL === "1") cache.set; return;` at lines 92-95)
+- `src/domains/product/url-watcher-state.ts` (this commit)
+
+✅ **SAFE in practice (script/cron only):** not called on Vercel render path
+- `src/adapters/profound/import-orchestrator.ts:342-343,358-359` — Profound CSV import (CLI)
+- `src/lib/persistence/cold-store.ts:31,55-57,125-126` — Profound citation shards (CLI only)
+- `src/lib/persistence/dotdata-json.ts:30,33-34` — generic helper, callers are script-only
+- `src/domains/competitors/universe-write.ts:81-82` — competitor universe refresh (CLI)
+- `src/domains/observations/persist-run.ts:26-27` — only called from verify-action.ts (below)
+- `src/domains/observations/visibility-persist.ts:28-29` — visibility pipeline (script)
+- `src/domains/scanning/scan-state.ts:44-50` — scan pipeline (script)
+- `src/domains/scanning/scan-settings.ts:29-30` — scan settings update (operator-triggered server action; may hit Vercel if operator changes settings)
+- `src/domains/scanning/last-scan-result.ts:41-42` — scan pipeline (script)
+- `src/domains/pages/robots-parser.ts:120-121` — robots refresh (scan pipeline, script)
+- `src/lib/connector-store.ts:100-101` — OAuth token persistence (currently only CLI; operator-add flow would trigger on Vercel if wired up)
+- `src/lib/cost/budget.ts:80` — adjudicator budget ledger (adjudicator is cache-only on render path today per handoff)
+
+⚠️ **UNSAFE render-path — deferred beyond Sprint 3:**
+- `src/app/(shell)/pages/verify-action.ts:177-178,188-189` — server action triggered by operator clicking Verify on `/pages`. Writes to `.data/page-snapshots.json` and `.data/guardrail-alerts.json` without VERCEL gating. Will throw if invoked on Vercel. Flagged for a future sprint (Sprint 4/5 module-level sweep is the natural slot — this path also needs Supabase dual-write to carry the verify outcome durably).
+
+**Phase 3.5 verification.** Typecheck clean. `vitest run` → 1595 passing
+(+5 from Sprint 1's 1590), 10 pre-existing fails unchanged. Commit
+`f9feb8d` pushed to `main`; Vercel auto-deploy up. Operator-side log
+check pending: refresh `/changes` a few times, grep Vercel logs for
+`url-watcher-state.json.tmp` — expect zero hits.
+
+**Sprint 4 gating.** URL watcher noise eliminated. Watcher pipeline
+restored on Vercel. `verify-action.ts` flagged but out of Sprint 3 scope.
+Sprint 4 (module-level array HIGH-risk sweep) is unblocked.
+
+---
+
 ## 2026-04-24 — Sprint 1 / Phase 1.6 — /changes/[id] reads fresh from repo
 
 **Context.** Sprint 1 Phase 1.2 fixed the `/changes` main list. Phase 1.5
