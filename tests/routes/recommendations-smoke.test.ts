@@ -1,0 +1,48 @@
+import { describe, it, expect, vi } from "vitest";
+import { renderToStaticMarkup } from "react-dom/server";
+import type { ReactElement } from "react";
+
+vi.mock("next/cache", () => ({
+  revalidatePath: vi.fn(),
+}));
+
+/**
+ * RecommendationsClient is a client component (hooks + server actions). The
+ * stub preserves the route contract: the RSC should build the matrix, run
+ * the generator + prioritizer, join operator responses, and hand off to the
+ * client without throwing. The stub echoes a stable string so we can assert
+ * the RSC reached the hand-off.
+ */
+vi.mock("@/app/(shell)/recommendations/recommendations-client", () => {
+  const React = require("react") as typeof import("react");
+  return {
+    RecommendationsClient: function RecommendationsClientStub() {
+      return React.createElement(
+        "div",
+        { className: "recs-smoke-stub" },
+        "recommendations-client-stub",
+      );
+    },
+  };
+});
+
+describe("/recommendations route smoke", () => {
+  it(
+    "RecommendationsPage RSC runs the full generate → prioritize pipeline and renders the shell",
+    async () => {
+      const { default: RecommendationsPage } = await import(
+        "@/app/(shell)/recommendations/page"
+      );
+      const tree = await RecommendationsPage();
+      const html = renderToStaticMarkup(tree as ReactElement);
+
+      // Route wrapper class from page.tsx — not copy-dependent.
+      expect(html).toContain("max-w-4xl");
+      // PageHeader renders "Recommendations".
+      expect(html).toContain("Recommendations");
+      // Client stub reached (i.e. server load path didn't throw).
+      expect(html).toContain("recommendations-client-stub");
+    },
+    15_000,
+  );
+});
