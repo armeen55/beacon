@@ -334,7 +334,20 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
         pageInventory: pageInventoryForTopPick,
       });
       const { queue } = prioritizeRecommendations(resolved);
-      const top = queue[0];
+      // Phase 4.3 hotfix (2026-04-24): the new-pipeline topPick carries
+      // a `stableKey` that matches the canonical key /recommendations
+      // writes to `recommendation_responses.rec_id`. Suppress dismissed
+      // / future-deferred recs here so a rec the operator dismissed on
+      // /recommendations doesn't reappear as Today's Top Pick. Previously
+      // the queue was consumed raw (queue[0]) and the old-engine
+      // suppression (via `primaryAction.id`) was in a different key
+      // space — so /recommendations dismissals never reached Today.
+      // Fall-through: skip any suppressed rec and take the next best.
+      const unsuppressedQueue = queue.filter(
+        (rec) =>
+          !isRecSuppressedFromMap(rec.stableKey, freshResponsesByRecId),
+      );
+      const top = unsuppressedQueue[0];
       if (top) {
         topPick = buildTopPickSummary(top);
       }

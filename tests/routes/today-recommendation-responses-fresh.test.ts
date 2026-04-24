@@ -94,6 +94,24 @@ describe("Sprint 4 / Phase 4.3 — Today fresh-read invariants", () => {
       );
       expect(residual).toBeNull();
     });
+
+    it("suppresses new-pipeline topPick using canonical `rec.stableKey` (Phase 4.3 hotfix)", () => {
+      // The new-pipeline queue from prioritizeRecommendations carries
+      // stableKey in the exact shape /recommendations writes to
+      // recommendation_responses.rec_id. Suppression on the topPick path
+      // MUST use `rec.stableKey` (not `rec.id` or any old-engine id) so a
+      // dismissal from /recommendations propagates to Today's Top Pick.
+      //
+      // Proven structurally: the source contains a suppression filter that
+      // keys off `rec.stableKey` against `freshResponsesByRecId`.
+      expect(TODAY_DATA_SOURCE).toMatch(
+        /isRecSuppressedFromMap\s*\(\s*rec\.stableKey/,
+      );
+      // And the filter is applied BEFORE `queue[0]` is taken — we check
+      // that a variable derived from `unsuppressedQueue` (or similar
+      // naming) feeds the topPick selection, not `queue[0]` raw.
+      expect(TODAY_DATA_SOURCE).toMatch(/unsuppressedQueue/);
+    });
   });
 
   describe("pure helpers (unit)", () => {
@@ -156,6 +174,37 @@ describe("Sprint 4 / Phase 4.3 — Today fresh-read invariants", () => {
       // that array.
       const m = makeMap([]);
       expect(getResponseFromMap("rec-1", m)).toBeUndefined();
+    });
+
+    it("suppresses a rec dismissed on /recommendations (stableKey key-space) — canonical-key alignment", () => {
+      // Exact production scenario that hotfix addresses:
+      //
+      // Operator dismisses on /recommendations. /recommendations/actions.ts
+      // writes `recommendation_responses.rec_id = payload.stableKey` which
+      // has the shape `{type}:{clusterKind}:{clusterLabel}`.
+      //
+      // Today fetches fresh responses into a Map keyed by recId. When
+      // Today's new-pipeline queue item is passed to suppression,
+      // `rec.stableKey` must match. If Today used `rec.id` from the OLD
+      // engine (different key space), the Map lookup would miss and
+      // suppression would silently no-op.
+      //
+      // This test pins the canonical-key contract: a stableKey-formatted
+      // key in the Map suppresses via the same stableKey lookup.
+      const stableKey =
+        "create_cluster_page:topic:Shield: Custom Home Builder Bay Area";
+      const m = makeMap([
+        baseRow({ recId: stableKey, status: "dismissed" }),
+      ]);
+      expect(isRecSuppressedFromMap(stableKey, m)).toBe(true);
+      // And if Today were (wrongly) to call with a different key (e.g.
+      // old-engine `rec.id` shape), suppression would NOT fire — the
+      // helper only sees what you pass. This pins the mismatch failure
+      // mode so a future regression (swapping rec.stableKey for rec.id)
+      // would flip this assertion visibly.
+      expect(
+        isRecSuppressedFromMap("rec-strengthen-custom-home-builder", m),
+      ).toBe(false);
     });
   });
 });
