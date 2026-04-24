@@ -7,6 +7,100 @@
 
 ---
 
+## 2026-04-24 — Sprint 4 / Phase 4.9 — canonical-store fresh-per-render
+
+**Context.** Post-Phase-4.5 checkpoint surfaced the remaining blocker for
+Sprint 6A.1: canonical-store.ts's four module-level arrays
+(`trackedPrompts`, `promptAnswerObservations`, `trackedEntities`,
+`dailyMetricSnapshots`) are seeded exactly once per Vercel lambda behind
+`_canonSeeded`. After the 07:00 UTC poll lands fresh observations and
+derived snapshots in Supabase, already-warm lambdas kept serving
+yesterday's data for Today, Recommendations, Prompts, Prompt detail, and
+Settings/prompts — until cold-recycled.
+
+Sprint 6A.1's evidence-packet builder reads from these same arrays.
+Staleness here would cascade into Specific Edit Generator outputs.
+
+**Fix — commit `08d36e1`:**
+
+New helper at `src/storage/canonical-store.ts`:
+```ts
+export async function loadFreshCanonicalData(): Promise<FreshCanonicalData>
+```
+Fetches all four canonical tables in parallel via the repository. Each
+call triggers a fresh Supabase round-trip — no in-process cache.
+
+Rewired 5 render paths:
+1. `/recommendations/page.tsx` — `safeCall`-wrapped fresh fetch; error
+   banner on failure.
+2. `/prompts/page.tsx` — fresh fetch; `promptTextById: Map` threaded
+   through `CategorySection` → `PromptRow` (was module-level `find` in
+   the leaf).
+3. `/prompts/[id]/page.tsx` — fresh fetch replaces the three module
+   imports.
+4. `/settings/prompts/page.tsx` — fresh fetch replaces module
+   `trackedPrompts` import.
+5. `today-data.ts` — removed static `dailyMetricSnapshots` import +
+   three `await import("@/storage/canonical-store")` dynamic imports
+   that were shadowing outer locals with stale module references. All
+   downstream derivations (decision matrix, Top Pick, enrichment rollup,
+   query keyword index, visibility time series, etc.) consume the
+   fresh arrays.
+
+Non-render consumers preserved: `prompt-library`, `url-citation-history`,
+Perplexity/Profound adapters, `run-poll`, `build-from-observations`,
+`orchestrate-scan`. They still read module-level arrays via
+`ensureCanonicalStoresSeeded()`. Sprint 5+ scope.
+
+**Regression tests** — `tests/routes/canonical-store-fresh.test.ts`, 11
+invariants all green:
+- `loadFreshCanonicalData` fetches all four tables via repository
+- Each call triggers a fresh fetch (bypasses `_canonSeeded` cache)
+- All 5 render paths import the helper + do NOT import module arrays
+- `today-data.ts` has ZERO remaining dynamic canonical-store imports
+- All 5 render paths call `loadFreshCanonicalData()` at render time
+- Non-render exports preserved
+
+Existing smoke tests updated to mock `loadFreshCanonicalData`:
+`prompts-smoke`, `prompt-drilldown-smoke`, `settings-prompts-smoke`.
+
+**Phase 4.9 verification.** Typecheck clean. `vitest run` → 1639
+passing (+11), 10 pre-existing fails unchanged. Commit `08d36e1`
+pushed; Vercel auto-deploy up.
+
+**Operator-side hosted verification:**
+1. Wait until after the next 07:00 UTC cron fires (so new observations
+   land in Supabase).
+2. Open beacon-bice.vercel.app/today and hard-refresh 5+ times —
+   visibility tile + Top Pick must reflect today's data, not yesterday's.
+3. beacon-bice.vercel.app/recommendations — queue matrix must show
+   fresh clusters.
+4. beacon-bice.vercel.app/prompts — prompt categories reflect fresh
+   observation classifications.
+5. beacon-bice.vercel.app/prompts/[any-id] — drilldown uses fresh
+   observations.
+6. beacon-bice.vercel.app/settings/prompts — any prompt added via the
+   settings action shows up on every refresh (not just after lambda
+   recycle).
+
+**Out of Phase 4.9 scope (deferred):**
+- `/diagnostics/spikes` reads `dailyMetricSnapshots` — not in user's
+  Today/Recommendations/Prompts list; low-priority diagnostic
+- `replication-engine.ts` module-level `isRecSuppressed` — Sprint 5
+- `layout.tsx` sidebar badge counts from stale `changelogEntries` —
+  Sprint 5
+- Other MEDIUM module-level stores (outcome-store, global-patterns,
+  tenants, seed-data.server mutable arrays on non-primary surfaces)
+  — Sprint 5 or reactive
+
+**Sprint 6A.1 readiness.** Phase 4.9 closes the last operator-visible
+render-path staleness issue that would have degraded Sprint 6A.1's
+deterministic Specific Edit Generator outputs. The evidence-packet
+builder now reads from fresh Supabase data every render. Sprint 6A.1
+can start on solid foundations.
+
+---
+
 ## 2026-04-24 — Sprint 4 / Phase 4.5 — verify-action hosted safety
 
 **Context.** Phase 3.4 audit flagged `src/app/(shell)/pages/verify-action.ts`
