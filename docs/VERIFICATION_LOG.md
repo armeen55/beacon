@@ -7,6 +7,42 @@
 
 ---
 
+## 2026-04-23 — Phase v7 "Page Intent Resolver + LLM Adjudicator", Commits 1–5
+
+**Framing:** v6 surfaced "Create a Los Altos page" even though `/locations/los-altos/` already exists. Fix: a generalized site-intelligence layer that works for any customer. Layered resolver — observation-led first (strongest evidence: AI's own citations), HTML inventory second (catches pages AI hasn't cited yet), GPT-5-mini adjudicator third (writes edit briefs for ambiguous + high-value cases). Action taxonomy split from motive because "counter competitor" is not an operator action.
+
+**Commits (in order)**
+
+| Commit | SHA | Description |
+|---|---|---|
+| v7-1 | `930d824` | Observation-led resolver. New `src/domains/recommendations/resolve-page-intent.ts` + `resolved-types.ts`. For each candidate, scan cluster observations' `citation_urls` for owned URLs; one-URL-dominates → strengthen; thin coverage → expand; ≥2 compete → merge_or_dedupe; no owned URLs → create. Action (7) separated from motive (6). URL canonicalization + subdomain-aware owned-host matching. 12 tests. |
+| v7-2 | `5e2102d` | Page-inventory fallback. New `page-inventory.ts` joins `PageEntity` + latest `PageSnapshot`. `matchClusterToInventory` scores cluster label vs URL path + title + H1 + H2s + detected geo/service; weighted bonuses for geo-cluster → location page and topic-cluster → service page. Layer 1 silence triggers Layer 2: score ≥0.8 → strengthen (tier="inventory"), ≥0.5 → expand, else create. 15 tests. |
+| v7-3 | `c2a6a10` | GPT-5-mini adjudicator. New `adjudicate.ts` + `adjudicator-schema.ts` + `evidence-packet.ts` + `adjudicator-budget.ts` + `adjudicator-cache.ts` + `adjudicator-history.ts`. Strict JSON schema with enum-constrained `targetUrl` (URL hallucination structurally impossible), 7-action + 6-motive enums, `pageBrief` / `suggestedEdits` / `proposedSlug` / `risks`. Firing rule: needs_review / merge_or_dedupe / low-confidence / create-with-inventory-partial / URL-less changelog risk. Cap 5 per request + $10/month monthly budget + SHA-256 cache by packet (generatedAt stripped). Error / refusal / budget-block all fall through silently to Layer 1/2 output. Route marked `dynamic = "force-dynamic"` to skip build-time API calls. 15 tests (mocked fetch). |
+| v7-4 | `f1c9acd` | `/recommendations` UI reads resolved fields: action badge (Strengthen / Expand / Add section / Create / Merge / Review / Watch), "Site match" / "AI-reviewed" tier pills, resolved URL chip (short host+path link), motive chip, confidence-reason sentence, expandable `<AdjudicatorDetails>` with "Do this" / page brief / suggested edits / risks / merge list. Each row gets `id="rec-{stableKey}"` for deep-linking. |
+| v7-5 | `3f58dc7` | Accept → changelog uses resolved URL + brief. RecommendationActionPayload carries optional `resolution`. `mapRecToChangelogShape` maps the resolved action to signal_type (page / technical / content), attaches the resolved URL when present, uses operatorTitle + specificRecommendation for asset_name + change_description. `buildChangelogNotes` serializes brief + edits + risks into the entry's `notes` field. `createChangelogEntry` now reads `notes` from FormData (was hardcoded null). Watch + Review actions skip changelog creation. |
+
+**Gate (after Commit 5):**
+- `npm run typecheck` ✓
+- `npm run test`: 1461 passing, 10 pre-existing failures unchanged (tenant-isolation + date-fixture).
+- `npm run build` ✓. `/recommendations` is dynamic (ƒ).
+
+**What's now actually usable:**
+- **The Los Altos failure is fixed** for every customer automatically. The resolver checks AI's citation evidence first, then the customer's own site inventory. No hardcoded URL maps.
+- **Operator sees what to do** — resolved URL, specific recommendation, page brief with must-cover angles + competitor angles to counter, suggested section/FAQ/heading/meta/schema/internal-link edits.
+- **Operator sees why** — confidenceReason sentence, motive chip, evidence refs.
+- **AI-reviewed badge** distinguishes adjudicator output from deterministic. Tier pill ("Site match") distinguishes inventory matches from observation matches.
+- **Accept closes the loop** — creates a changelog entry with the resolved URL + the brief in notes. Existing Z-score url-watcher picks it up automatically.
+- **Cost bounded** — $10/month cap, evidence-hash cache, selective firing rule. At Ritz dogfood scale, ~$0.50/mo.
+
+**Budget + audit:**
+- `.data/llm-budget.json` tracks monthly spend + call count.
+- `.data/adjudicator-cache.json` caches outputs by SHA-256(packet). Capped at 500 entries.
+- `.data/adjudicator-history.json` append-only audit log (live_call / cache_hit / budget_blocked / error). Capped at 2000 entries.
+
+**Next checkpoint (operator decides):** Let the adjudicator run for 3-5 days on live Ritz data, then review the history log + cost + output quality. If queue reads feel thin, tune rubric or adjust firing rule. If reads feel rich, roll forward to Phase F (legacy-engine cleanup).
+
+---
+
 ## 2026-04-23 — Phase v6 "Recommendation / Decision Queue", Commits 2–5 + Phase A trust fixes
 
 **Framing:** Phase v6 Commit 1 (candidate generator, pure) shipped but was disconnected — Today still rendered the deprecated `computeRecommendations` output, there was no `/recommendations` route, and no prioritizer. This session closed the v6 loop end-to-end as one product slice, with competitor-primary evidence and the Accept→changelog action loop as **core**, not optional.
