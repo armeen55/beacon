@@ -27,6 +27,7 @@ import type {
   PromptOpportunity,
   PromptOpportunityCategory,
 } from "@/domains/prompts/opportunity-classify";
+import type { PromptPrimarySummary } from "@/domains/prompts/competitor-primary";
 
 /** Action taxonomy for v1. Five types; four participate in the ranked
  *  work queue, one (watch_winning_cluster) routes to the Watchlist. */
@@ -43,6 +44,15 @@ export type RecommendationSeverity = "high" | "medium" | "low";
 /** Rule-based effort hint. No estimation math; maps directly from type. */
 export type RecommendationEffort = "low" | "medium" | "high";
 
+/** Aggregated primary-competitor rollup across the affected prompts. */
+export type RecommendationPrimaryCompetitor = {
+  name: string;
+  /** How many of the affected prompts this competitor is primary-majority on. */
+  promptsWherePrimary: number;
+  /** Total affected prompts (denominator for share). */
+  totalAffectedPrompts: number;
+};
+
 /** Evidence aggregated across the affected prompts. No extrapolation. */
 export type RecommendationEvidence = {
   promptCount: number;
@@ -56,6 +66,16 @@ export type RecommendationEvidence = {
   descriptorsNearBrand: string[];
   /** Highest signalStrength from the affected prompt set (for ranking). */
   maxSignalStrength: number;
+  /**
+   * Top competitors by prompts where they're primary-majority, sorted
+   * desc. Empty when no competitor hits majority on any affected prompt.
+   * Populated from `matrix.primaryByPromptId`. (Phase v6 Commit 3.)
+   */
+  primaryCompetitors: RecommendationPrimaryCompetitor[];
+  /** Count of affected prompts where the tracked brand is primary-majority. */
+  brandPrimaryPromptCount: number;
+  /** Count of affected prompts classified as fragmented (no majority). */
+  fragmentedPromptCount: number;
 };
 
 export type RecommendationCandidate = {
@@ -168,6 +188,11 @@ export function generateRecommendations(
       affectedOpportunities.map((o) => o.category),
     );
 
+    const primaryRollup = aggregatePrimaryAcrossPrompts(
+      cluster.promptIds,
+      args.matrix.primaryByPromptId,
+    );
+
     candidates.push({
       stableKey: `create_cluster_page:${cluster.type}:${cluster.label}`,
       type: "create_cluster_page",
@@ -183,6 +208,9 @@ export function generateRecommendations(
         dominantCompetitors,
         descriptorsNearBrand: [],
         maxSignalStrength,
+        primaryCompetitors: primaryRollup.primaryCompetitors,
+        brandPrimaryPromptCount: primaryRollup.brandPrimaryPromptCount,
+        fragmentedPromptCount: primaryRollup.fragmentedPromptCount,
       },
       severity,
       effort: EFFORT_BY_TYPE.create_cluster_page,
@@ -211,6 +239,11 @@ export function generateRecommendations(
     const dominantCompetitors = opp.evidence.dominantCompetitors.slice(0, 3);
     const descriptorsNearBrand = opp.evidence.topDescriptors.slice(0, 6);
 
+    const primaryRollup = aggregatePrimaryAcrossPrompts(
+      [opp.prompt_id],
+      args.matrix.primaryByPromptId,
+    );
+
     if (opp.category === "outranked") {
       candidates.push({
         stableKey: `target_competitors:prompt:${opp.prompt_id}`,
@@ -227,6 +260,9 @@ export function generateRecommendations(
           dominantCompetitors,
           descriptorsNearBrand: [],
           maxSignalStrength: opp.signalStrength,
+          primaryCompetitors: primaryRollup.primaryCompetitors,
+          brandPrimaryPromptCount: primaryRollup.brandPrimaryPromptCount,
+          fragmentedPromptCount: primaryRollup.fragmentedPromptCount,
         },
         severity: severityForCategory(opp.category),
         effort: EFFORT_BY_TYPE.target_competitors,
@@ -247,6 +283,9 @@ export function generateRecommendations(
           dominantCompetitors,
           descriptorsNearBrand: [],
           maxSignalStrength: opp.signalStrength,
+          primaryCompetitors: primaryRollup.primaryCompetitors,
+          brandPrimaryPromptCount: primaryRollup.brandPrimaryPromptCount,
+          fragmentedPromptCount: primaryRollup.fragmentedPromptCount,
         },
         severity: severityForCategory(opp.category),
         effort: EFFORT_BY_TYPE.create_single,
@@ -267,6 +306,9 @@ export function generateRecommendations(
           dominantCompetitors,
           descriptorsNearBrand,
           maxSignalStrength: opp.signalStrength,
+          primaryCompetitors: primaryRollup.primaryCompetitors,
+          brandPrimaryPromptCount: primaryRollup.brandPrimaryPromptCount,
+          fragmentedPromptCount: primaryRollup.fragmentedPromptCount,
         },
         severity: severityForCategory(opp.category),
         effort: EFFORT_BY_TYPE.strengthen_page_copy,
@@ -375,6 +417,53 @@ function aggregateCompetitors(
     .sort(([, a], [, b]) => b - a)
     .slice(0, 3)
     .map(([name]) => name);
+}
+
+/** Aggregate competitor-primary evidence across a set of affected prompts.
+ *  A competitor counts as primary on a prompt when its primaryCount /
+ *  totalAnswers ≥ 0.5 AND the tracked brand isn't primary-majority on that
+ *  same prompt. Returns top-3 by count + brand / fragmented tallies. */
+function aggregatePrimaryAcrossPrompts(
+  affectedPromptIds: ReadonlyArray<string>,
+  primaryByPromptId: Record<string, PromptPrimarySummary>,
+): {
+  primaryCompetitors: RecommendationPrimaryCompetitor[];
+  brandPrimaryPromptCount: number;
+  fragmentedPromptCount: number;
+} {
+  const competitorPrimaryCount = new Map<string, number>();
+  let brandPrimaryPromptCount = 0;
+  let fragmentedPromptCount = 0;
+  for (const id of affectedPromptIds) {
+    const summary = primaryByPromptId[id];
+    if (!summary) continue;
+    if (summary.fragmented) fragmentedPromptCount += 1;
+    if (summary.ritzState === "primary") {
+      brandPrimaryPromptCount += 1;
+      continue;
+    }
+    const top = summary.primaryCompetitors[0];
+    if (top && summary.totalAnswers > 0) {
+      const share = top.primaryCount / summary.totalAnswers;
+      if (share >= 0.5) {
+        competitorPrimaryCount.set(
+          top.name,
+          (competitorPrimaryCount.get(top.name) ?? 0) + 1,
+        );
+      }
+    }
+  }
+  const primaryCompetitors: RecommendationPrimaryCompetitor[] = [
+    ...competitorPrimaryCount.entries(),
+  ]
+    .sort(([aName, aN], [bName, bN]) => bN - aN || aName.localeCompare(bName))
+    .slice(0, 3)
+    .map(([name, promptsWherePrimary]) => ({
+      name,
+      promptsWherePrimary,
+      totalAffectedPrompts: affectedPromptIds.length,
+    }));
+  return { primaryCompetitors, brandPrimaryPromptCount, fragmentedPromptCount };
 }
 
 function describeCategoryMix(

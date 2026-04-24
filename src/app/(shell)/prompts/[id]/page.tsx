@@ -89,6 +89,11 @@ export default async function PromptDrilldownPage({
       {/* 2. Platform split */}
       <PlatformSplit drilldown={drilldown} />
 
+      {/* 2.5 Who IS the primary answer */}
+      {drilldown.primarySummary.totalAnswers > 0 && (
+        <PrimaryAnswerBlock drilldown={drilldown} />
+      )}
+
       {/* 3. Who else is here */}
       {drilldown.competitors.length > 0 && (
         <CompetitorList drilldown={drilldown} />
@@ -299,6 +304,81 @@ function PlatformSplit({
           );
         })}
       </ul>
+    </section>
+  );
+}
+
+/* ────────────────────────────────────────────────────────────────────────── */
+
+function PrimaryAnswerBlock({
+  drilldown,
+}: {
+  drilldown: ReturnType<typeof buildPromptDrilldown>;
+}) {
+  const s = drilldown.primarySummary;
+  const topCompetitor = s.primaryCompetitors[0] ?? null;
+
+  // Compose a one-line verdict + tone per state.
+  let headline: string;
+  let tone: "good" | "bad" | "mixed" | "neutral";
+  if (s.ritzState === "primary") {
+    const pct = Math.round(s.ritzPrimaryShare * 100);
+    headline = `You're the primary recommendation in ${s.ritzPrimaryCount} of ${s.totalAnswers} answers (${pct}%).`;
+    tone = "good";
+  } else if (topCompetitor && !s.fragmented) {
+    const pct = Math.round(
+      (topCompetitor.primaryCount / topCompetitor.totalAnswers) * 100,
+    );
+    headline = `${topCompetitor.name} is the primary recommendation in ${topCompetitor.primaryCount} of ${topCompetitor.totalAnswers} answers (${pct}%).`;
+    tone = "bad";
+  } else if (s.fragmented) {
+    const distinct =
+      (s.ritzPrimaryCount > 0 ? 1 : 0) + s.primaryCompetitors.length;
+    headline = `No single primary — ${distinct} different entities split the top slot across ${s.totalAnswers} answers.`;
+    tone = "mixed";
+  } else {
+    // Ritz mentioned but never primary AND no competitor majority AND
+    // not fragmented (single entity but < 50%). Rare. Or: nobody mentioned
+    // at all (ritzState="absent" with no competitors).
+    headline =
+      s.ritzState === "absent"
+        ? `No recommendation primary yet — brand absent and no competitor has a majority in ${s.totalAnswers} answers.`
+        : `Brand mentioned, never primary. No competitor has a majority in ${s.totalAnswers} answers yet.`;
+    tone = "neutral";
+  }
+
+  const toneClass =
+    tone === "good"
+      ? "border-status-success/30 bg-status-success/[0.05]"
+      : tone === "bad"
+        ? "border-status-danger/30 bg-status-danger/[0.05]"
+        : tone === "mixed"
+          ? "border-status-warning/30 bg-status-warning/[0.05]"
+          : "border-border/50 bg-surface-inset/30";
+
+  // Detail line: enumerate up to 3 primary competitors beyond the top one
+  // so the operator sees the share of the field.
+  const otherCompetitors = s.primaryCompetitors.slice(topCompetitor ? 1 : 0, 3);
+
+  return (
+    <section className="mb-6">
+      <SectionHeading>Who IS the answer</SectionHeading>
+      <div
+        className={cn(
+          "rounded-md border px-3 py-2.5 text-[13px] leading-relaxed",
+          toneClass,
+        )}
+      >
+        <p className="text-foreground">{headline}</p>
+        {otherCompetitors.length > 0 && (
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            Also primary on some answers:{" "}
+            {otherCompetitors
+              .map((c) => `${c.name} (${c.primaryCount})`)
+              .join(" · ")}
+          </p>
+        )}
+      </div>
     </section>
   );
 }

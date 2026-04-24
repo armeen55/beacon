@@ -22,6 +22,10 @@ import {
   type PromptOpportunityTag,
   type ClassifyOptions,
 } from "./opportunity-classify";
+import {
+  summarizeAllPromptsPrimary,
+  type PromptPrimarySummary,
+} from "./competitor-primary";
 
 export type ClusterWeakness = {
   type: "geo" | "topic";
@@ -53,6 +57,14 @@ export type DecisionMatrix = {
   clusters: ClusterWeakness[];
   /** Per-category summary for list-view headers. Ordered by display priority. */
   groupSummaries: CategoryGroupSummary[];
+  /**
+   * Per-prompt competitor-primary rollup keyed by prompt_id. Describes who
+   * occupies the "primary" slot in each answer (brand vs competitor), which
+   * competitors dominate, and whether the prompt is fragmented. Drives the
+   * competitor-primary evidence on recommendation rows + `/prompts/[id]`.
+   * (Phase v6 Commit 3, 2026-04-23.)
+   */
+  primaryByPromptId: Record<string, PromptPrimarySummary>;
 };
 
 export type BuildDecisionMatrixArgs = {
@@ -222,11 +234,28 @@ export function buildPromptDecisionMatrix(
   const lookbackFrom = new Date(lookbackFromMs).toISOString().slice(0, 10);
   const today = now.toISOString().slice(0, 10);
 
+  const ownedEntityNames = new Set(
+    args.activeEntities
+      .filter((e) => e.is_owned)
+      .map((e) => e.name)
+      .filter((n): n is string => Boolean(n)),
+  );
+  const primarySummaries = summarizeAllPromptsPrimary({
+    promptIds: activePrompts.map((p) => p.id),
+    observations: args.observations,
+    ownedEntityNames,
+  });
+  const primaryByPromptId: Record<string, PromptPrimarySummary> = {};
+  for (const [id, summary] of primarySummaries.entries()) {
+    primaryByPromptId[id] = summary;
+  }
+
   return {
     date: today,
     lookbackFrom,
     prompts: classified,
     clusters,
     groupSummaries,
+    primaryByPromptId,
   };
 }

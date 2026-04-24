@@ -382,4 +382,35 @@ describe("generateRecommendations — action-type coverage", () => {
     expect(cluster.evidence.observationCount).toBe(15); // 3 prompts × 5 obs each
     expect(cluster.evidence.promptCount).toBe(3);
   });
+
+  it("evidence.primaryCompetitors reflects who is primary-majority across affected prompts", () => {
+    // 3 Menlo Park prompts, all outranked. Each is absent-with-competitors.
+    // In every answer, CRC is the first listed competitor → CRC holds the
+    // primary slot on every prompt. The cluster rec should call that out.
+    const prompts = [
+      mkPrompt({ id: "mp1", location_scope: "Menlo Park", topic_id: "t-1" }),
+      mkPrompt({ id: "mp2", location_scope: "Menlo Park", topic_id: "t-2" }),
+      mkPrompt({ id: "mp3", location_scope: "Menlo Park", topic_id: "t-3" }),
+    ];
+    // Use ≥3 obs per prompt so each registers as Outranked. Each obs lists
+    // CRC Builders first, making it the primary-position entity.
+    const observations = prompts.flatMap((p) =>
+      Array.from({ length: 3 }, (_, i) => absentObs(p.id, i)),
+    );
+    const matrix = runMatrix(prompts, observations);
+    const recs = generateRecommendations({
+      matrix,
+      activeEntities: ENTITIES,
+      trackedPrompts: prompts,
+    });
+    const cluster = recs.find((r) => r.type === "create_cluster_page");
+    expect(cluster).toBeDefined();
+    // CRC is first-listed in every co-mention array → primary-majority on
+    // every prompt → appears as a RecommendationPrimaryCompetitor.
+    expect(cluster!.evidence.primaryCompetitors).toEqual([
+      { name: "CRC Builders", promptsWherePrimary: 3, totalAffectedPrompts: 3 },
+    ]);
+    expect(cluster!.evidence.brandPrimaryPromptCount).toBe(0);
+    expect(cluster!.evidence.fragmentedPromptCount).toBe(0);
+  });
 });

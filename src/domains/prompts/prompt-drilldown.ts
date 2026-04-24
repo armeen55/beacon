@@ -19,6 +19,10 @@ import {
   type PromptOpportunityCategory,
   type ClassifyOptions,
 } from "./opportunity-classify";
+import {
+  summarizePromptPrimary,
+  type PromptPrimarySummary,
+} from "./competitor-primary";
 
 /** A competitor appearing on this prompt's observations. */
 export type PromptCompetitorRow = {
@@ -68,6 +72,12 @@ export type PromptDrilldown = {
     topCount: number;
     total: number;
   } | null;
+  /**
+   * Who occupies the "primary" slot in each answer — the brand, a dominant
+   * competitor, or nobody (fragmented). Drives the "who IS the answer on
+   * this prompt" subsection. (Phase v6 Commit 3, 2026-04-23.)
+   */
+  primarySummary: PromptPrimarySummary;
   /** Last 3 observations in time-desc order for the raw-evidence viewer. */
   rawSamples: PromptRawAnswerSample[];
 };
@@ -211,6 +221,12 @@ export function buildPromptDrilldown(
       };
     });
 
+  const primarySummary = summarizePromptPrimary({
+    prompt_id: args.prompt.id,
+    observations: args.observations,
+    ownedEntityNames: ownedNames,
+  });
+
   return {
     promptId: args.prompt.id,
     promptText: args.prompt.text,
@@ -222,6 +238,7 @@ export function buildPromptDrilldown(
     competitors,
     descriptorsNearBrand,
     dominantAnswerStructure,
+    primarySummary,
     rawSamples,
   };
 }
