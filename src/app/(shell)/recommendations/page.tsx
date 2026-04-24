@@ -25,7 +25,6 @@ import { allPages } from "@/domains/pages/page-store";
 import { getRepository } from "@/lib/persistence/repositories";
 import {
   ensureRecommendationResponsesSeeded,
-  getResponse,
   type RecommendationResponse,
 } from "@/domains/product/recommendation-response-store";
 import { RecommendationsClient } from "./recommendations-client";
@@ -186,13 +185,39 @@ export default async function RecommendationsPage() {
   )).value;
   const { queue, watchlist } = prioritized;
 
+  // Phase 4.2 (Sprint 4, 2026-04-24): fetch recommendation responses FRESH
+  // from the repository per render. The prior implementation read the
+  // module-level `recommendationResponses` array, seeded once per Vercel
+  // lambda behind a `_dbSeeded` one-shot flag. Once lambda A has seeded, a
+  // write performed by lambda B is invisible on A even after
+  // `revalidatePath` — A's `_dbSeeded=true` blocks re-fetching. Fresh
+  // per-request fetch is the only way to guarantee cross-lambda truth on the
+  // render path. `invalidateRecommendationResponsesSeed()` cannot help
+  // because lambda B can only invalidate its own memory, never another
+  // lambda's.
+  //
+  // The write path (recordResponse + persistResponses + dual-write) is
+  // unchanged — it already writes durably to Supabase on `rec_id` upsert.
+  // Module-level `recommendationResponses` + `getResponse()` + `isRecSuppressed()`
+  // still exist for non-render callers (today-data, replication-engine). Those
+  // surfaces have the same bug class and will be addressed in a later sprint.
+  const freshResponsesRes = await safeCall(
+    () => getRepository().getRecommendationResponses(),
+    [] as RecommendationResponse[],
+    "fetch fresh recommendation responses",
+  );
+  if (freshResponsesRes.error) errors.push(freshResponsesRes.error);
+  const freshResponsesByRecId = new Map(
+    freshResponsesRes.value.map((r) => [r.recId, r]),
+  );
+
   const decorated = queue.map((rec) => ({
     rec,
-    response: safeGetResponse(rec.stableKey),
+    response: freshResponsesByRecId.get(rec.stableKey) ?? null,
   }));
   const watchDecorated = watchlist.map((rec) => ({
     rec,
-    response: safeGetResponse(rec.stableKey),
+    response: freshResponsesByRecId.get(rec.stableKey) ?? null,
   }));
 
   return (
@@ -216,16 +241,6 @@ export default async function RecommendationsPage() {
       />
     </div>
   );
-}
-
-function safeGetResponse(
-  stableKey: string,
-): RecommendationResponse | null {
-  try {
-    return getResponse(stableKey) ?? null;
-  } catch {
-    return null;
-  }
 }
 
 function ErrorFallback({ errors }: { errors: string[] }) {

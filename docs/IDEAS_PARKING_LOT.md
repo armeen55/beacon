@@ -229,3 +229,17 @@ These were considered and explicitly deferred when extraction coverage + scanner
 
 - Covered in the top-level customer-one plan. Deferred until rec quality stabilizes after A + B1 dogfood.
 
+### Change Detail (/changes/[id]) copy polish
+
+**Added:** 2026-04-24 · **Status:** `parked`
+
+- **The idea:** `/changes/[id]` now reads durable truth (Sprint 1 Phase 1.6), but some rendered copy still feels robotic or redundant:
+  - "Check back in ~26 days" reads too mechanical
+  - "Expected outcome" panel repeats the hypothesis verbatim (two panels saying the same thing)
+  - Outcome summary is useful but could be more human / plain-English
+  - "Beacon recommended" linkage is cool but doesn't yet name the specific recommendation the change fulfilled
+- **Source:** Armeen, post-Sprint-3 hosted walkthrough (2026-04-24)
+- **Why it's interesting:** Detail page is now trustworthy — next lever is warmth/clarity. Operator spends real time reading this once per confirmed change.
+- **Why it's hard / risky:** Copy tone pass only, but "Beacon recommended" → "which rec" needs the response→changelog linkage to surface the rec id + title cleanly. Touches `/changes/[id]/page.tsx`.
+- **Claude's take:** Pure copy + linkage polish. Low risk. Queue after Sprint 6 (recs UX detail) since that sprint will surface recommendation titles in a format directly reusable here.
+
