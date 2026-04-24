@@ -14,6 +14,7 @@ import {
   diffSchemaCoverage,
   type SchemaCoverageDiff,
 } from "@/domains/pages/expected-schema";
+import { classifyFaqChange } from "./faq-change-classifier";
 import { isFindingAutoLinkEnabled } from "@/lib/flags";
 // Fix 2 (2026-04-21) — auto-link lookup: read persisted recommendation
 // responses so a detected change on a URL with a recent accepted rec can
@@ -268,23 +269,37 @@ export function generateFindings(opts: {
     }
 
     if (diff.faq_count_changed) {
+      // Phase C (2026-04-24): classify using per-source breakdown +
+      // FAQPage block count so duplicate-schema cleanup, schema removal
+      // with visible content intact, and real content removal each get
+      // their own honest copy. Replaces the pre-Phase-C "disappeared/
+      // changed" binary that conflated these cases.
+      const c = classifyFaqChange(prev, curr);
       const prevCount = prev.faqs.length;
       const currCount = curr.faqs.length;
-      const disappeared = prevCount > 0 && currCount === 0;
+      // Escalate severity on pages that actually get cited a lot, but
+      // never escalate a duplicate_schema_cleanup (it's not a loss).
+      const severity: FindingSeverity =
+        c.kind === "duplicate_schema_cleanup"
+          ? "low"
+          : c.severity === "high" && isHighCitation
+            ? "high"
+            : c.severity;
       findings.push(makeFinding({
         type: "faq_changed",
         url: curr.url,
         scanRunId,
         now,
+        // Keep the legacy "N Q&A blocks" shape for backward compatibility
+        // with Rule β's numeric regex + per-finding UI cards that surface
+        // prev/curr counts. The richer source breakdown lives on the
+        // classifier's `evidence` object — if future UI wants it, thread
+        // it through via a new field on Finding.
         previousState: `${prevCount} Q&A blocks`,
         currentState: `${currCount} Q&A blocks`,
-        severity: disappeared && isHighCitation ? "high" : disappeared ? "medium" : "low",
-        summary: disappeared
-          ? `Q&A blocks disappeared from ${pathOf(curr.url)} (was ${prevCount})`
-          : `Q&A count changed: ${prevCount} → ${currCount} on ${pathOf(curr.url)}`,
-        suggestedAction: disappeared
-          ? "Check if Q&A removal was intentional — pages with Q&A tend to get more citations"
-          : "Review Q&A content change",
+        severity,
+        summary: c.summary,
+        suggestedAction: c.suggestedAction,
         citationCount: citations, isHomepage: isHP, previouslyRejected: wasRejected("faq_changed"),
       }));
     }
@@ -708,11 +723,14 @@ export function generateFindings(opts: {
   // finding (schema_invalid) and drop the echoes so operators don't read one
   // broken JSON-LD block as three separate issues.
   //
-  // Rule β (dedup-fix reframing): when `faq_changed` shows an exact-half
-  // reduction (current ≈ previous / 2, tolerance ±1 to handle odd/even),
-  // it's a classic duplicate-schema-injection fix signature. Reframe the
-  // summary/suggestedAction so operators see "likely dedupe fix" instead of
-  // "content disappeared".
+  // Rule β retired in Phase C (2026-04-24). The legacy string-regex
+  // halving reframer has been superseded by `classifyFaqChange` in
+  // detect-findings.ts's faq_count_changed branch, which uses the
+  // snapshot's per-source faq counts + faq_schema_block_count to detect
+  // duplicate-schema cleanup correctly instead of inferring from a
+  // 2×-ratio heuristic. The classifier also handles the other four
+  // cases (schema-removed-visible-present, visible-removed, expanded,
+  // structure-changed) that Rule β couldn't.
   const urlsWithSchemaInvalid = new Set<string>();
   for (const f of findings) {
     if (f.type === "schema_invalid") urlsWithSchemaInvalid.add(norm(f.url));
@@ -721,23 +739,6 @@ export function generateFindings(opts: {
     if (f.type !== "schema_changed" && f.type !== "faq_changed") return true;
     return !urlsWithSchemaInvalid.has(norm(f.url));
   });
-
-  for (const f of afterOverlapSuppression) {
-    if (f.type !== "faq_changed") continue;
-    // previousState/currentState are strings like "16 Q&A blocks" or "0 Q&A blocks".
-    const prevMatch = /^(\d+)/.exec(f.previousState ?? "");
-    const currMatch = /^(\d+)/.exec(f.currentState ?? "");
-    if (!prevMatch || !currMatch) continue;
-    const prev = Number(prevMatch[1]);
-    const curr = Number(currMatch[1]);
-    if (prev <= 0 || curr <= 0) continue; // "disappeared" case stays as-is
-    const expectedHalf = prev / 2;
-    if (Math.abs(curr - expectedHalf) <= 1) {
-      f.summary = `Q&A count halved on ${pathOf(f.url)} (${prev} → ${curr}) — likely a duplicate-schema-injection fix. Verify visible Q&A matches canonical ${curr}.`;
-      f.suggestedAction =
-        "Likely a dedup fix of a duplicated FAQPage schema block. Inspect the page's JSON-LD: if there's now a single FAQPage with the canonical count, no action needed.";
-    }
-  }
 
   afterOverlapSuppression.sort((a, b) => b.priorityScore - a.priorityScore);
   return afterOverlapSuppression;

@@ -140,12 +140,14 @@ describe("Duplicate FAQ consolidation – full detection flow", () => {
     expect(faqFinding).toBeDefined();
     expect(faqFinding!.previousState).toBe("6 Q&A blocks");
     expect(faqFinding!.currentState).toBe("3 Q&A blocks");
-    // Phase 3.5I (2026-04-22) — Rule β reframes exact-half faq_changed
-    // reductions as likely duplicate-schema-injection fixes. This test's
-    // 6 → 3 case is exactly that pattern, so the summary now reads
-    // "Q&A count halved ... likely a duplicate-schema-injection fix".
-    expect(faqFinding!.summary).toContain("halved");
-    expect(faqFinding!.summary).toContain("duplicate-schema-injection fix");
+    // Phase C (2026-04-24) — the legacy Rule β halving reframer was
+    // retired in favour of `classifyFaqChange`, which reads per-source
+    // FAQ counts and the FAQPage block count. A 6 → 3 drop with
+    // prev_blocks=2 → curr_blocks=1 is classified as a duplicate-schema
+    // cleanup using snapshot data, not string-regex halving.
+    expect(faqFinding!.summary).toMatch(/Duplicate FAQ\/schema cleanup/);
+    expect(faqFinding!.severity).toBe("low");
+    expect(faqFinding!.suggestedAction).toMatch(/Intentional cleanup|Confirm to log/);
     expect(faqFinding!.status).toBe("pending");
   });
 
