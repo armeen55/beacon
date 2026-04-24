@@ -80,9 +80,9 @@ import { generateRecommendations } from "@/domains/recommendations/generate";
 import { resolvePageIntent } from "@/domains/recommendations/resolve-page-intent";
 import { buildPageInventory } from "@/domains/recommendations/page-inventory";
 import { prioritizeRecommendations } from "@/domains/recommendations/prioritize";
-import { sanitizeOperatorCopy } from "@/domains/recommendations/copy-sanitize";
 import type { PromptsTeaserSummary } from "@/components/today/prompts-teaser";
 import type { TopPickSummary } from "@/components/today/top-pick-card";
+import { buildTopPickSummary } from "@/components/today/top-pick-builder";
 import { primaryVisibilityRunForResults } from "@/domains/observations/visibility-context";
 import { loadCompetitorUniverseRuntime } from "@/domains/competitors/universe-read";
 import { buildTodayCompetitorLine } from "@/domains/competitors/today-competitor-line";
@@ -2076,73 +2076,6 @@ function formatTimeAgo(date: Date): string {
   const hours = Math.floor(mins / 60);
   if (hours < 24) return `${hours}h ago`;
   return `${Math.floor(hours / 24)}d ago`;
-}
-
-/**
- * Build the Today Top Pick payload from a prioritized+resolved rec.
- * Title + action + URL all derive from the resolution — never the raw
- * generator title — so internal taxonomy tokens like "Shield: …" can't
- * reach Today.
- */
-function buildTopPickSummary(
-  top: ReturnType<typeof prioritizeRecommendations>["queue"][number],
-): TopPickSummary {
-  const resolution = top.resolution;
-  const action = resolution?.action ?? "create_new_page";
-  const resolvedUrl =
-    resolution && resolution.targetUrl && resolution.targetUrl !== "needs_new_page"
-      ? resolution.targetUrl
-      : null;
-
-  let title: string;
-  if (resolution?.operatorTitle && resolution.operatorTitle.trim().length > 0) {
-    title = resolution.operatorTitle;
-  } else {
-    // Deterministic title derived from action + cluster label / URL. Never
-    // use top.title (raw generator output that may carry internal prefixes).
-    const cleanLabel = sanitizeOperatorCopy(top.clusterLabel ?? "") || null;
-    if (action === "strengthen_existing_page" && resolvedUrl) {
-      title = `Strengthen ${shortUrlPath(resolvedUrl)}${
-        cleanLabel ? ` for ${cleanLabel} prompts` : ""
-      }`;
-    } else if (action === "expand_existing_page" && resolvedUrl) {
-      title = `Expand ${shortUrlPath(resolvedUrl)}${
-        cleanLabel ? ` to cover ${cleanLabel}` : ""
-      }`;
-    } else if (action === "merge_or_dedupe" && resolvedUrl) {
-      title = `Merge owned pages into ${shortUrlPath(resolvedUrl)}`;
-    } else if (action === "needs_review") {
-      title = cleanLabel
-        ? `Review ${cleanLabel} recommendation`
-        : "Review recommendation";
-    } else if (action === "watch") {
-      title = cleanLabel ? `Watch ${cleanLabel}` : "Watch winning cluster";
-    } else if (action === "add_section_or_faq" && resolvedUrl) {
-      title = `Add section to ${shortUrlPath(resolvedUrl)}`;
-    } else {
-      title = cleanLabel
-        ? `Create a ${cleanLabel} page`
-        : "Create a new page";
-    }
-  }
-
-  return {
-    stableKey: top.stableKey,
-    type: top.type,
-    title,
-    reasoning: resolution?.reasoning ?? top.reasoning,
-    tier: top.tier,
-    action,
-    resolvedUrl,
-  };
-}
-
-function shortUrlPath(url: string): string {
-  try {
-    return new URL(url).pathname.replace(/\/$/, "") || "/";
-  } catch {
-    return url;
-  }
 }
 
 function buildAnswerIntelligenceProofContext(
