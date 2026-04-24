@@ -7,6 +7,91 @@
 
 ---
 
+## 2026-04-24 — Phase 5.5 cron shift + snapshot-derivation self-correction
+
+**Context.** Earlier the same day during a Phase A diagnosis I reported that
+`daily_metric_snapshots` had 0 rows for Apr 23 and Apr 24 and that Today KPI
+tiles were therefore reading a stale pre-pivot index. Phase 5.5 re-probed the
+table with the correct column name and both claims turned out to be wrong.
+
+**Self-correction — daily_metric_snapshots are actually fresh.** My Phase A
+probe filtered on `.eq("metric_date", d)`. The real column is `date`. When
+Phase 5.5 re-queried with `date`, the table had:
+
+  - 2026-04-24: 100 derived rows (50 per platform — 37 entity + 12 topic + 1
+    platform scope, for Perplexity + ChatGPT)
+  - 2026-04-23: 100 derived rows (same shape)
+  - 2026-04-22: 50 derived rows (Perplexity only — ChatGPT cron failed that
+    day per prior entry)
+
+Derivation at `src/domains/daily-metric-snapshots/build-from-observations.ts`
+is wired into `src/domains/observations/run-poll.ts:285-293` and fires at the
+end of every chunked poll run via `syncDailyMetricSnapshots` (dual-write,
+gated on `DUAL_WRITE=true` which Vercel has set — confirmed by observations
+landing). `fetchTodayDerivedKpis` in `src/domains/daily-metric-snapshots/
+today-kpis.ts` reads today's derived platform rows per request and falls
+back to yesterday only when today has no rows. For 2026-04-24 it returns
+the fresh Apr-24 platform rows (isFallback=false). Today KPI tiles are NOT
+stale.
+
+What the operator may have been seeing: the `EvidenceFreshnessBanner`
+mounted on /pages, /competitors, /topics, /changes (and sometimes surfaced
+on Today via those page links) reads from the frozen
+`citation_evidence_index` (built_at = 2026-04-15, last Profound import).
+Rebuilding that index from native observations is a separate deferred
+phase (Phase v4 Commit 6+); not touched here.
+
+**Cron timing was the real issue.** observation_runs `started_at` for the
+first chunk of each recent day showed the scheduled 10:00 UTC cron landing
+hours late:
+
+| Day | First chunked run | Delay vs 10:00 UTC |
+|---|---|---|
+| 2026-04-23 | 17:14 UTC | +7h 14m |
+| 2026-04-24 | 14:55 UTC | +4h 55m |
+
+Root cause: GitHub Actions shared scheduler delays scheduled workflows at
+peak UTC hours. 10:00 UTC coincides with European workday-start load. Not a
+config bug on our side, and not fixable in code — GitHub's documented
+behavior.
+
+**Fix (this commit).** Shifted the daily native-poll cron to off-peak UTC:
+
+  - `.github/workflows/daily-native-poll.yml`:
+      `0 10 * * *` → `0 7 * * *`  (07:00 UTC = midnight PT)
+  - `.github/workflows/poll-canary.yml`:
+      `45 10 * * *` → `45 7 * * *` (07:45 UTC, 45 min after main cron)
+
+Comments in both files now describe the history and reason for the shift.
+
+**How tomorrow verifies this.** On 2026-04-25 (first scheduled day on the
+new cron), query:
+
+```sql
+SELECT run_id, source, started_at, scope_label, status
+FROM observation_runs
+WHERE source IN ('perplexity-native-poll','openai-native-poll')
+  AND started_at >= '2026-04-25T00:00:00Z'
+ORDER BY started_at ASC LIMIT 20;
+```
+
+Expected: first chunk (`chunk offset=0`) for each platform lands within
+10 minutes of 07:00 UTC; all 8 chunks (4 per platform) complete within
+~15 minutes; poll canary at 07:45 UTC finds all 8 completed and exits 0.
+
+**What was NOT changed.**
+- Derivation code (already correct).
+- `citation_evidence_index` / /pages / /competitors / /topics / /changes
+  (frozen index rebuild is a later phase).
+- Today UI (no dual-status pending/yesterday widget yet; defer until we
+  see whether the cron shift eliminates the confusion window).
+- Recommendations path (Phase 2.5–2.8 stands).
+
+Tests unchanged: 1556 passed, 10 pre-existing failures. No typecheck
+delta — pure YAML edits plus a docs append.
+
+---
+
 ## 2026-04-23 — Phase v7 "Page Intent Resolver + LLM Adjudicator", Commits 1–5
 
 **Framing:** v6 surfaced "Create a Los Altos page" even though `/locations/los-altos/` already exists. Fix: a generalized site-intelligence layer that works for any customer. Layered resolver — observation-led first (strongest evidence: AI's own citations), HTML inventory second (catches pages AI hasn't cited yet), GPT-5-mini adjudicator third (writes edit briefs for ambiguous + high-value cases). Action taxonomy split from motive because "counter competitor" is not an operator action.

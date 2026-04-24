@@ -35,9 +35,17 @@
 #    CRON_SECRET   same value as the Vercel env var
 #
 #  Ops workflow:
-#    - Scheduled daily at 10:00 UTC (~3 AM PT summer / 2 AM PT winter)
+#    - Scheduled daily at 07:00 UTC (~12 AM PT summer / 11 PM PT prev-day winter)
 #    - Failures → GitHub emails you; also visible in the Actions tab
 #    - Manual fire: Actions → "Daily native AI-visibility poll" → Run workflow
+#
+#  Schedule history:
+#    - 2026-04-24: shifted from `0 10 * * *` to `0 7 * * *`. 10:00 UTC was
+#      routinely delivered 5–7 hours late by GitHub Actions during European
+#      workday-start peak load (observation_runs.started_at for Apr 23 +
+#      Apr 24 both far past the scheduled mark). 07:00 UTC is off-peak and
+#      typically fires within 10 min. See docs/VERIFICATION_LOG.md 2026-04-24
+#      Phase 5.5 entry.
 #
 #  Future extensions (all single-YAML-file edits):
 #    - Platform 3 (Google/Gemini/Claude): add a third parallel job
@@ -49,8 +57,11 @@ name: Daily native AI-visibility poll
 
 on:
   schedule:
-    # 10:00 UTC daily = ~3 AM PT (PDT) / ~2 AM PT (PST). Low-traffic window.
-    - cron: "0 10 * * *"
+    # 07:00 UTC daily = ~12 AM PT (PDT) / ~11 PM PT prev-day (PST). Off-peak on
+    # GitHub Actions so the schedule actually fires close to the set time.
+    # 10:00 UTC (prior value) was 5–7 hours late in production — peak European
+    # workday-start load on GitHub's shared scheduler. See file-top comment.
+    - cron: "0 7 * * *"
   # Manual trigger from the Actions tab. Use this to verify the flow once
   # after first deploy, then let the schedule take over.
   workflow_dispatch:

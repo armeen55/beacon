@@ -13,9 +13,10 @@
 #
 #  This workflow fixes that blind spot:
 #
-#    - Fires at 10:45 UTC, 45 min after the main poll cron at 10:00 UTC.
-#      Perplexity runs take ~10 min; ChatGPT ~11 min. By 10:45 UTC both
-#      jobs must be terminal.
+#    - Fires at 07:45 UTC, 45 min after the main poll cron at 07:00 UTC.
+#      Perplexity runs take ~10 min; ChatGPT ~11 min. By 07:45 UTC both
+#      jobs must be terminal. (Shifted 2026-04-24 alongside the main cron
+#      from 10:45 UTC → 07:45 UTC to avoid GitHub Actions peak-hour delay.)
 #    - Runs `scripts/check-yesterday-poll.ts`, which queries Supabase for
 #      today's observation_runs and exits non-zero if any platform isn't
 #      "ok" (4/4 chunks completed).
@@ -40,9 +41,10 @@ name: Poll canary
 
 on:
   schedule:
-    # 10:45 UTC daily — 45 min after the 10:00 UTC main poll cron. Gives both
+    # 07:45 UTC daily — 45 min after the 07:00 UTC main poll cron. Gives both
     # Perplexity (~10 min) and ChatGPT (~11 min) time to finish all 4 chunks.
-    - cron: "45 10 * * *"
+    # Shifted from 10:45 UTC 2026-04-24 to stay aligned with main cron.
+    - cron: "45 7 * * *"
   workflow_dispatch:
 
 concurrency:
