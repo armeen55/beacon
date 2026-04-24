@@ -37,6 +37,10 @@ import {
   type RecommendationMotive,
   type ResolvedRecommendationCandidate,
 } from "./resolved-types";
+import {
+  matchClusterToInventory,
+  type PageInventoryEntry,
+} from "./page-inventory";
 
 // ---------------------------------------------------------------------------
 // Thresholds — tuned from Ritz dogfood, revise after feedback.
@@ -50,6 +54,13 @@ const STRENGTHEN_HIGH_CONFIDENCE_SHARE = 0.6;
 const EXPAND_SHARE = 0.1;
 /** Per-URL share used to flag cannibalization. Must appear on ≥2 URLs. */
 const CANNIBALIZATION_SHARE = 0.2;
+/** Inventory-match score above which we override create_new_page →
+ *  strengthen_existing_page. Page URL + title + H1 all strongly match
+ *  the cluster label. */
+const INVENTORY_STRENGTHEN_THRESHOLD = 0.8;
+/** Score above which we override create_new_page → expand_existing_page.
+ *  Partial match; page exists but probably doesn't fully cover the cluster. */
+const INVENTORY_EXPAND_THRESHOLD = 0.5;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -59,6 +70,11 @@ export type ResolvePageIntentArgs = {
   candidates: ReadonlyArray<RecommendationCandidate>;
   observations: ReadonlyArray<PromptAnswerObservation>;
   activeEntities: ReadonlyArray<TrackedEntity>;
+  /** Layer 2 fallback (v7 Commit 2). When provided, resolver attempts to
+   *  match cluster labels against existing page URLs / titles / H1s
+   *  whenever Layer 1 (observations) falls through to create_new_page.
+   *  Pass buildPageInventory(...) output. */
+  pageInventory?: ReadonlyArray<PageInventoryEntry>;
 };
 
 // ---------------------------------------------------------------------------
@@ -69,8 +85,9 @@ export function resolvePageIntent(
   args: ResolvePageIntentArgs,
 ): ResolvedRecommendationCandidate[] {
   const ownedDomains = extractOwnedDomains(args.activeEntities);
+  const inventory = args.pageInventory ?? [];
   return args.candidates.map((c) =>
-    resolveOne(c, args.observations, ownedDomains),
+    resolveOne(c, args.observations, ownedDomains, inventory),
   );
 }
 
@@ -82,6 +99,7 @@ function resolveOne(
   candidate: RecommendationCandidate,
   observations: ReadonlyArray<PromptAnswerObservation>,
   ownedDomains: ReadonlySet<string>,
+  inventory: ReadonlyArray<PageInventoryEntry>,
 ): ResolvedRecommendationCandidate {
   if (candidate.type === "watch_winning_cluster") {
     return {
@@ -133,6 +151,14 @@ function resolveOne(
   );
 
   if (observationsScanned === 0) {
+    const inventoryFallback = tryInventoryMatch(candidate, inventory, {
+      observationsScanned: 0,
+      layer1Reason:
+        "No native observations yet on this cluster — falling back to site inventory.",
+    });
+    if (inventoryFallback) {
+      return { ...candidate, resolution: inventoryFallback };
+    }
     return {
       ...candidate,
       resolution: buildSilentResolution(candidate),
@@ -140,6 +166,13 @@ function resolveOne(
   }
 
   if (sortedUrls.length === 0) {
+    const inventoryFallback = tryInventoryMatch(candidate, inventory, {
+      observationsScanned,
+      layer1Reason: `No owned URLs cited across ${observationsScanned} observations — falling back to site inventory.`,
+    });
+    if (inventoryFallback) {
+      return { ...candidate, resolution: inventoryFallback };
+    }
     return {
       ...candidate,
       resolution: buildCreateNewResolution(
@@ -219,6 +252,87 @@ function resolveOne(
       "observation",
     ),
   };
+}
+
+// ---------------------------------------------------------------------------
+// Layer 2 — page inventory fallback
+// ---------------------------------------------------------------------------
+
+function tryInventoryMatch(
+  candidate: RecommendationCandidate,
+  inventory: ReadonlyArray<PageInventoryEntry>,
+  opts: { observationsScanned: number; layer1Reason: string },
+): PageIntentResolution | null {
+  if (inventory.length === 0) return null;
+
+  const label = candidate.clusterLabel ?? candidate.title;
+  if (!label) return null;
+
+  const matches = matchClusterToInventory({
+    label,
+    kind: candidate.clusterKind,
+    inventory,
+    topN: 3,
+  });
+  if (matches.length === 0) return null;
+
+  const top = matches[0];
+  if (top.score >= INVENTORY_STRENGTHEN_THRESHOLD) {
+    return {
+      action: "strengthen_existing_page",
+      motive: inferMotive(candidate),
+      targetUrl: top.url,
+      confidence: "medium",
+      confidenceReason: `${opts.layer1Reason} Site inventory shows ${top.url} (${top.entry.routeType}) matches the cluster label strongly [${top.reasons.join("; ")}].`,
+      tier: "inventory",
+      reasoning: `Page already exists on the site; AI just hasn't cited it yet on these prompts. Strengthen copy / schema before creating a new page.`,
+      cannibalization: null,
+      evidenceRefs: buildInventoryEvidenceRefs(candidate, matches),
+    };
+  }
+  if (top.score >= INVENTORY_EXPAND_THRESHOLD) {
+    return {
+      action: "expand_existing_page",
+      motive: inferMotive(candidate),
+      targetUrl: top.url,
+      confidence: "low",
+      confidenceReason: `${opts.layer1Reason} Site inventory shows ${top.url} partially matches [${top.reasons.join("; ")}] — page exists but may not fully cover the cluster.`,
+      tier: "inventory",
+      reasoning: `A related page exists. Expand its scope (new section / FAQ / heading) to cover this cluster before creating a separate page.`,
+      cannibalization: null,
+      evidenceRefs: buildInventoryEvidenceRefs(candidate, matches),
+    };
+  }
+  return null;
+}
+
+function buildInventoryEvidenceRefs(
+  candidate: RecommendationCandidate,
+  matches: ReadonlyArray<{ url: string; score: number }>,
+): EvidenceRef[] {
+  const refs: EvidenceRef[] = [];
+  for (const m of matches) {
+    refs.push({
+      type: "url",
+      url: m.url,
+      citationCount: 0,
+      observationCount: 0,
+    });
+  }
+  const topCompetitor = candidate.evidence.primaryCompetitors[0];
+  if (topCompetitor && topCompetitor.totalAffectedPrompts > 0) {
+    refs.push({
+      type: "competitor",
+      name: topCompetitor.name,
+      primaryShare:
+        topCompetitor.promptsWherePrimary /
+        topCompetitor.totalAffectedPrompts,
+    });
+  }
+  for (const id of candidate.affectedPromptIds.slice(0, 5)) {
+    refs.push({ type: "prompt", id });
+  }
+  return refs;
 }
 
 // ---------------------------------------------------------------------------

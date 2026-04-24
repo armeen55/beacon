@@ -10,7 +10,10 @@ import {
 import { buildPromptDecisionMatrix } from "@/domains/prompts/decision-matrix";
 import { generateRecommendations } from "@/domains/recommendations/generate";
 import { resolvePageIntent } from "@/domains/recommendations/resolve-page-intent";
+import { buildPageInventory } from "@/domains/recommendations/page-inventory";
 import { prioritizeRecommendations } from "@/domains/recommendations/prioritize";
+import { allPages } from "@/domains/pages/page-store";
+import { getRepository } from "@/lib/persistence/repositories";
 import {
   ensureRecommendationResponsesSeeded,
   getResponse,
@@ -52,14 +55,23 @@ export default async function RecommendationsPage() {
     trackedPrompts,
   });
 
-  // v7 Commit 1 (2026-04-23): observation-led page-intent resolver inserts
-  // between generator and prioritizer. Transforms e.g. "Create a Los Altos
-  // page" → "Strengthen /locations/los-altos" when AI already cites that
-  // page on the cluster's prompts.
+  // v7 Commit 1 + 2 (2026-04-23): observation-led resolver + page-inventory
+  // fallback insert between generator and prioritizer. Transforms e.g.
+  // "Create a Los Altos page" → "Strengthen /locations/los-altos" when
+  // AI cites the page OR when the page exists in the inventory but AI
+  // hasn't cited it yet.
+  const repo = getRepository();
+  const pageSnapshots = await repo.getPageSnapshots();
+  const pageInventory = buildPageInventory({
+    pages: allPages,
+    snapshots: pageSnapshots,
+    activeEntities: trackedEntities,
+  });
   const resolved = resolvePageIntent({
     candidates,
     observations: promptAnswerObservations,
     activeEntities: trackedEntities,
+    pageInventory,
   });
 
   const { queue, watchlist } = prioritizeRecommendations(resolved);

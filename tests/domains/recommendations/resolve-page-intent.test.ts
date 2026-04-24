@@ -8,6 +8,7 @@ import {
   NEEDS_NEW_PAGE,
   type ResolvedRecommendationCandidate,
 } from "@/domains/recommendations/resolved-types";
+import type { PageInventoryEntry } from "@/domains/recommendations/page-inventory";
 import type { RecommendationCandidate } from "@/domains/recommendations/generate";
 import type { PromptAnswerObservation } from "@/domains/prompt-answer-observations/types";
 import type { TrackedEntity } from "@/domains/tracked-entities/types";
@@ -461,6 +462,124 @@ describe("resolvePageIntent — observation-led resolver", () => {
     expect(resolved.resolution.targetUrl).toBe(
       "https://blog.ritzbuilders.com/palo-alto-renovations",
     );
+  });
+
+  it("Layer 2: falls back to inventory when observations are silent AND a page strongly matches", () => {
+    const candidate = mkCandidate({
+      stableKey: "k-los-altos",
+      clusterLabel: "Los Altos",
+      clusterKind: "geo",
+    });
+    const inventory: PageInventoryEntry[] = [
+      {
+        url: "https://ritzbuilders.com/locations/los-altos",
+        title: "Los Altos Custom Home Builder",
+        h1: "Los Altos Custom Home Builder",
+        metaDescription: null,
+        h2s: [],
+        routeType: "location",
+        detectedGeo: "Los Altos",
+        detectedService: "Custom Home Builder",
+      },
+    ];
+    const [resolved] = resolvePageIntent({
+      candidates: [candidate],
+      observations: [],
+      activeEntities: [RITZ],
+      pageInventory: inventory,
+    });
+    expect(resolved.resolution.action).toBe("strengthen_existing_page");
+    expect(resolved.resolution.tier).toBe("inventory");
+    expect(resolved.resolution.targetUrl).toBe(
+      "https://ritzbuilders.com/locations/los-altos",
+    );
+  });
+
+  it("Layer 2: observations exist but cite no owned URL — inventory still rescues create → strengthen", () => {
+    const candidate = mkCandidate({
+      stableKey: "k-palo-alto",
+      clusterLabel: "Palo Alto",
+      clusterKind: "geo",
+    });
+    const observations = [
+      mkObs({
+        id: "o1",
+        prompt_id: "p1",
+        observed_at: "2026-04-23T10:00:00Z",
+        citation_urls: ["https://houzz.com/pro/xyz"],
+      }),
+      mkObs({
+        id: "o2",
+        prompt_id: "p2",
+        observed_at: "2026-04-23T10:01:00Z",
+        citation_urls: ["https://baybuilders.com/palo-alto"],
+      }),
+      mkObs({
+        id: "o3",
+        prompt_id: "p3",
+        observed_at: "2026-04-23T10:02:00Z",
+        citation_urls: [],
+      }),
+    ];
+    const inventory: PageInventoryEntry[] = [
+      {
+        url: "https://ritzbuilders.com/locations/palo-alto",
+        title: "Palo Alto Custom Home Builder | Ritz Builders",
+        h1: "Palo Alto Custom Home Builder",
+        metaDescription: null,
+        h2s: [],
+        routeType: "location",
+        detectedGeo: "Palo Alto",
+        detectedService: "Custom Home Builder",
+      },
+    ];
+    const [resolved] = resolvePageIntent({
+      candidates: [candidate],
+      observations,
+      activeEntities: [RITZ],
+      pageInventory: inventory,
+    });
+    expect(resolved.resolution.action).toBe("strengthen_existing_page");
+    expect(resolved.resolution.tier).toBe("inventory");
+    expect(resolved.resolution.targetUrl).toBe(
+      "https://ritzbuilders.com/locations/palo-alto",
+    );
+  });
+
+  it("Layer 2: low-confidence match does NOT trigger — stays create_new_page", () => {
+    const candidate = mkCandidate({
+      stableKey: "k-obscure",
+      clusterLabel: "Obscure Unrelated Cluster",
+      clusterKind: "topic",
+    });
+    const inventory: PageInventoryEntry[] = [
+      {
+        url: "https://ritzbuilders.com/services/whole-home-remodel",
+        title: "Whole Home Remodel",
+        h1: "Whole Home Remodel",
+        metaDescription: null,
+        h2s: [],
+        routeType: "service",
+        detectedGeo: null,
+        detectedService: "Whole Home Remodel",
+      },
+    ];
+    const [resolved] = resolvePageIntent({
+      candidates: [candidate],
+      observations: [
+        mkObs({
+          id: "o1",
+          prompt_id: "p1",
+          observed_at: "2026-04-23T10:00:00Z",
+          citation_urls: ["https://thirdparty.com"],
+        }),
+      ],
+      activeEntities: [RITZ],
+      pageInventory: inventory,
+    });
+    expect(resolved.resolution.action).toBe("create_new_page");
+    expect(resolved.resolution.tier).toBe("observation");
+    expect(resolved.resolution.targetUrl).toBe(NEEDS_NEW_PAGE);
   });
 
   it("resolves multiple candidates in a single call without cross-contamination", () => {
