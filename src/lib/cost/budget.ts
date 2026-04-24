@@ -59,6 +59,7 @@ const DATA_DIR = join(process.cwd(), ".data");
 const LEDGER_PATH = join(DATA_DIR, "cost-ledger.json");
 
 function ensureDataDir(): void {
+  if (process.env.VERCEL === "1") return;
   if (!existsSync(DATA_DIR)) {
     mkdirSync(DATA_DIR, { recursive: true });
   }

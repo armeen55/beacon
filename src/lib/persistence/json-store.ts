@@ -25,7 +25,13 @@ import { join } from "node:path";
 
 const DATA_DIR = join(process.cwd(), ".data");
 
+/** Vercel/serverless filesystems are read-only under process.cwd() — any
+ *  mkdirSync on `.data` throws ENOENT/EROFS. Skip the mkdir on hosted so
+ *  that readers fall through to their existsSync check (which returns
+ *  false for missing files on Vercel) and return empty arrays without
+ *  crashing the route. Writers already skip disk on VERCEL=1 below. */
 function ensureDataDir() {
+  if (process.env.VERCEL === "1") return;
   if (!existsSync(DATA_DIR)) {
     mkdirSync(DATA_DIR, { recursive: true });
   }

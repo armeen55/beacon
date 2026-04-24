@@ -71,6 +71,7 @@ const STORE_PATH = join(DATA_DIR, "connector-tokens.json");
 let _cached: TokenStore | null = null;
 
 function ensureDir(): void {
+  if (process.env.VERCEL === "1") return;
   if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true });
 }
 

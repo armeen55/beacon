@@ -222,8 +222,10 @@ export function saveBusinessConfig(patch: Partial<BusinessConfig>): BusinessConf
   const current = getBusinessConfig();
   const updated = { ...current, ...patch };
 
-  if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true });
-  writeFileSync(CONFIG_PATH, JSON.stringify(updated, null, 2));
+  if (process.env.VERCEL !== "1") {
+    if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true });
+    writeFileSync(CONFIG_PATH, JSON.stringify(updated, null, 2));
+  }
   _cached = updated;
   // Fire-and-forget: saveBusinessConfig is synchronous, dual-write is async best-effort
   syncBusinessConfig(updated).catch(() => {});

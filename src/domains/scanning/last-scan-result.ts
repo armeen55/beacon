@@ -30,6 +30,7 @@ export type LastScanResultPayload = {
 const DATA_DIR = join(process.cwd(), ".data");
 
 function ensureDataDir() {
+  if (process.env.VERCEL === "1") return;
   if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true });
 }
 

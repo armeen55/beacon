@@ -56,6 +56,7 @@ export const URL_WATCHER_REFRESH_INTERVAL_MS = 6 * 60 * 60 * 1000;
 export const URL_WATCHER_STALE_RUNNING_MS = 10 * 60 * 1000;
 
 function ensureDataDir(): void {
+  if (process.env.VERCEL === "1") return;
   if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true });
 }
 

@@ -25,6 +25,8 @@ import { syncAnswerTexts } from "./dual-write";
 const DATA_DIR = join(process.cwd(), ".data");
 
 function ensureDir(dir: string) {
+  // Vercel/serverless FS is read-only under process.cwd(); skip mkdir on hosted.
+  if (process.env.VERCEL === "1") return;
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true });
   }

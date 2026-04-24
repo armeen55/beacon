@@ -21,6 +21,7 @@ const DATA_DIR = join(process.cwd(), ".data");
 const SCAN_STATE_NAME = "scan-state";
 
 function ensureDataDir() {
+  if (process.env.VERCEL === "1") return;
   if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true });
 }
 

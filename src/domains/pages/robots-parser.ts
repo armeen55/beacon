@@ -93,6 +93,7 @@ export type RobotsStateFile = {
 };
 
 function ensureDataDir(): void {
+  if (process.env.VERCEL === "1") return;
   if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true });
 }
 

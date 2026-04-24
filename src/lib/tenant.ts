@@ -25,7 +25,16 @@ export function getDataDir(tenantSlug?: string | null): string {
   if (!slug) return ROOT_DATA_DIR;
 
   const dir = join(TENANTS_DIR, slug);
-  if (!existsSync(dir)) {
+  // Vercel FS read-only; skip mkdir (callers must handle missing dir).
+  if (process.env.VERCEL !== "1" && !existsSync(dir)) {
+    mkdirSync(dir, { recursive: true });
+  }
+  return dir;
+}
+
+export function createTenant(slug: string): string {
+  const dir = join(TENANTS_DIR, slug);
+  if (process.env.VERCEL !== "1" && !existsSync(dir)) {
     mkdirSync(dir, { recursive: true });
   }
   return dir;
@@ -37,12 +46,4 @@ export function listTenants(): string[] {
   return (readdirSync(TENANTS_DIR, { withFileTypes: true }) as { name: string; isDirectory: () => boolean }[])
     .filter((d) => d.isDirectory())
     .map((d) => d.name);
-}
-
-export function createTenant(slug: string): string {
-  const dir = join(TENANTS_DIR, slug);
-  if (!existsSync(dir)) {
-    mkdirSync(dir, { recursive: true });
-  }
-  return dir;
 }
