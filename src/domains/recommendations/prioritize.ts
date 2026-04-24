@@ -43,9 +43,16 @@ import type {
   RecommendationEffort,
   RecommendationPrimaryCompetitor,
 } from "./generate";
+import type { ResolvedRecommendationCandidate } from "./resolved-types";
 
 export type PrioritizedRecommendationTier = "now" | "this_week" | "later";
 
+/**
+ * The v7 pipeline runs the page-intent resolver before the prioritizer,
+ * so prioritized rows carry a `resolution` field. The field is optional
+ * on this type so legacy callers that haven't adopted the resolver yet
+ * still compile — the UI will fall back to generic labels when absent.
+ */
 export type PrioritizedRecommendation = RecommendationCandidate & {
   /** Final rubric score. Exposed so the UI can show it if ever useful;
    *  reasoning is the primary justification surface, not the number. */
@@ -57,6 +64,8 @@ export type PrioritizedRecommendation = RecommendationCandidate & {
    *  the specific signals that drove ranking (severity, cluster size,
    *  competitor-primary, etc). */
   reasoning: string;
+  /** Attached by the v7 resolver when the input includes it. */
+  resolution?: ResolvedRecommendationCandidate["resolution"];
 };
 
 export type PrioritizeRecommendationsResult = {

@@ -77,6 +77,7 @@ import {
 } from "@/domains/prompt-answer-observations/enrichment-rollup";
 import { buildPromptDecisionMatrix } from "@/domains/prompts/decision-matrix";
 import { generateRecommendations } from "@/domains/recommendations/generate";
+import { resolvePageIntent } from "@/domains/recommendations/resolve-page-intent";
 import { prioritizeRecommendations } from "@/domains/recommendations/prioritize";
 import type { PromptsTeaserSummary } from "@/components/today/prompts-teaser";
 import type { TopPickSummary } from "@/components/today/top-pick-card";
@@ -281,7 +282,15 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
         activeEntities: trackedEntities,
         trackedPrompts,
       });
-      const { queue } = prioritizeRecommendations(candidates);
+      // v7 Commit 1 (2026-04-23): resolve page intent before ranking so
+      // the Top Pick card already names a resolved target URL when
+      // observations identify one.
+      const resolved = resolvePageIntent({
+        candidates,
+        observations: promptAnswerObservations,
+        activeEntities: trackedEntities,
+      });
+      const { queue } = prioritizeRecommendations(resolved);
       const top = queue[0];
       if (top) {
         topPick = {

@@ -9,6 +9,7 @@ import {
 } from "@/storage/canonical-store";
 import { buildPromptDecisionMatrix } from "@/domains/prompts/decision-matrix";
 import { generateRecommendations } from "@/domains/recommendations/generate";
+import { resolvePageIntent } from "@/domains/recommendations/resolve-page-intent";
 import { prioritizeRecommendations } from "@/domains/recommendations/prioritize";
 import {
   ensureRecommendationResponsesSeeded,
@@ -51,7 +52,17 @@ export default async function RecommendationsPage() {
     trackedPrompts,
   });
 
-  const { queue, watchlist } = prioritizeRecommendations(candidates);
+  // v7 Commit 1 (2026-04-23): observation-led page-intent resolver inserts
+  // between generator and prioritizer. Transforms e.g. "Create a Los Altos
+  // page" → "Strengthen /locations/los-altos" when AI already cites that
+  // page on the cluster's prompts.
+  const resolved = resolvePageIntent({
+    candidates,
+    observations: promptAnswerObservations,
+    activeEntities: trackedEntities,
+  });
+
+  const { queue, watchlist } = prioritizeRecommendations(resolved);
 
   // Join in current operator decisions so the client can render state
   // pills and hide dismissed / defer-still-active items behind "Show all".
