@@ -22,6 +22,7 @@
  */
 
 import type { SignalType, AssetType } from "@/lib/constants";
+import type { ElementType } from "@/domains/pages/extractors/registry";
 
 // ── Enum ────────────────────────────────────────────────────────────────────
 
@@ -63,6 +64,22 @@ export type ActionTypeSpec = {
    *  callers pass around a single `ActionTypeSpec` without losing
    *  provenance. */
   actionType: ActionType;
+  /**
+   * Which element types this action can legitimately target. Used by
+   * Phase 6A.1.10's output-validation layer to reject LLM outputs that
+   * pair an action_type with an incompatible element_type (e.g.,
+   * `edit_title` with `target_element_key` pointing at an `h2`).
+   *
+   * Empty array means "no specific element" — applies to page-level
+   * lifecycle actions (`split_page`, `merge_pages`, `create_page`,
+   * `watch`). Those actions store `target_element_key = NULL` on the
+   * `recommended_edits` row; the upsert's NULLS NOT DISTINCT behavior
+   * keeps them deduplicated per (rec_id, action_type).
+   *
+   * Wired in Phase 6A.1.4 (pure type-level addition, no runtime logic
+   * changes from Phase 6A.1.2).
+   */
+  elementTypeDomain: ElementType[];
   /**
    * How the resulting changelog entry is categorized for attribution.
    * Maps 1:1 to the existing `SignalType` enum used on
@@ -114,6 +131,7 @@ export const ACTION_TYPE_REGISTRY: Record<ActionType, ActionTypeSpec> = {
   // ── On-page copy edits ───────────────────────────────────────────────────
   edit_title: {
     actionType: "edit_title",
+    elementTypeDomain: ["title"],
     signalType: "content",
     requiresCurrentText: true,
     requiresProposedText: true,
@@ -123,6 +141,7 @@ export const ACTION_TYPE_REGISTRY: Record<ActionType, ActionTypeSpec> = {
   },
   edit_meta: {
     actionType: "edit_meta",
+    elementTypeDomain: ["meta"],
     signalType: "content",
     requiresCurrentText: true,
     requiresProposedText: true,
@@ -132,6 +151,7 @@ export const ACTION_TYPE_REGISTRY: Record<ActionType, ActionTypeSpec> = {
   },
   change_h1: {
     actionType: "change_h1",
+    elementTypeDomain: ["h1"],
     signalType: "content",
     requiresCurrentText: true,
     requiresProposedText: true,
@@ -141,6 +161,7 @@ export const ACTION_TYPE_REGISTRY: Record<ActionType, ActionTypeSpec> = {
   },
   add_h2_section: {
     actionType: "add_h2_section",
+    elementTypeDomain: ["h2"],
     signalType: "content",
     requiresCurrentText: false,
     requiresProposedText: true,
@@ -150,6 +171,7 @@ export const ACTION_TYPE_REGISTRY: Record<ActionType, ActionTypeSpec> = {
   },
   rewrite_h2: {
     actionType: "rewrite_h2",
+    elementTypeDomain: ["h2"],
     signalType: "content",
     requiresCurrentText: true,
     requiresProposedText: true,
@@ -159,6 +181,7 @@ export const ACTION_TYPE_REGISTRY: Record<ActionType, ActionTypeSpec> = {
   },
   add_faq: {
     actionType: "add_faq",
+    elementTypeDomain: ["faq_question", "faq_answer"],
     signalType: "faq",
     requiresCurrentText: false,
     requiresProposedText: true,
@@ -168,6 +191,7 @@ export const ACTION_TYPE_REGISTRY: Record<ActionType, ActionTypeSpec> = {
   },
   rewrite_faq: {
     actionType: "rewrite_faq",
+    elementTypeDomain: ["faq_question", "faq_answer"],
     signalType: "faq",
     requiresCurrentText: true,
     requiresProposedText: true,
@@ -177,6 +201,7 @@ export const ACTION_TYPE_REGISTRY: Record<ActionType, ActionTypeSpec> = {
   },
   add_table: {
     actionType: "add_table",
+    elementTypeDomain: ["table"],
     signalType: "content",
     requiresCurrentText: false,
     requiresProposedText: true,
@@ -186,6 +211,7 @@ export const ACTION_TYPE_REGISTRY: Record<ActionType, ActionTypeSpec> = {
   },
   edit_table_row: {
     actionType: "edit_table_row",
+    elementTypeDomain: ["table_row"],
     signalType: "content",
     requiresCurrentText: true,
     requiresProposedText: true,
@@ -195,6 +221,7 @@ export const ACTION_TYPE_REGISTRY: Record<ActionType, ActionTypeSpec> = {
   },
   add_answer_block: {
     actionType: "add_answer_block",
+    elementTypeDomain: ["answer_block"],
     signalType: "content",
     requiresCurrentText: false,
     requiresProposedText: true,
@@ -204,6 +231,7 @@ export const ACTION_TYPE_REGISTRY: Record<ActionType, ActionTypeSpec> = {
   },
   add_proof_section: {
     actionType: "add_proof_section",
+    elementTypeDomain: ["proof"],
     signalType: "content",
     requiresCurrentText: false,
     requiresProposedText: true,
@@ -213,6 +241,7 @@ export const ACTION_TYPE_REGISTRY: Record<ActionType, ActionTypeSpec> = {
   },
   add_comparison_section: {
     actionType: "add_comparison_section",
+    elementTypeDomain: ["comparison_block"],
     signalType: "content",
     requiresCurrentText: false,
     requiresProposedText: true,
@@ -222,6 +251,7 @@ export const ACTION_TYPE_REGISTRY: Record<ActionType, ActionTypeSpec> = {
   },
   add_cost_section: {
     actionType: "add_cost_section",
+    elementTypeDomain: ["cost_section"],
     signalType: "content",
     requiresCurrentText: false,
     requiresProposedText: true,
@@ -231,6 +261,7 @@ export const ACTION_TYPE_REGISTRY: Record<ActionType, ActionTypeSpec> = {
   },
   add_timeline_section: {
     actionType: "add_timeline_section",
+    elementTypeDomain: ["timeline_section"],
     signalType: "content",
     requiresCurrentText: false,
     requiresProposedText: true,
@@ -241,6 +272,7 @@ export const ACTION_TYPE_REGISTRY: Record<ActionType, ActionTypeSpec> = {
   // ── Technical / structural ───────────────────────────────────────────────
   add_internal_link: {
     actionType: "add_internal_link",
+    elementTypeDomain: ["internal_link"],
     signalType: "technical",
     requiresCurrentText: false,
     requiresProposedText: true,
@@ -250,6 +282,7 @@ export const ACTION_TYPE_REGISTRY: Record<ActionType, ActionTypeSpec> = {
   },
   add_schema: {
     actionType: "add_schema",
+    elementTypeDomain: ["schema_type", "schema_property"],
     signalType: "technical",
     requiresCurrentText: false,
     requiresProposedText: true,
@@ -259,6 +292,7 @@ export const ACTION_TYPE_REGISTRY: Record<ActionType, ActionTypeSpec> = {
   },
   fix_schema: {
     actionType: "fix_schema",
+    elementTypeDomain: ["schema_type", "schema_property"],
     signalType: "technical",
     requiresCurrentText: true,
     requiresProposedText: true,
@@ -268,6 +302,7 @@ export const ACTION_TYPE_REGISTRY: Record<ActionType, ActionTypeSpec> = {
   },
   reorder_sections: {
     actionType: "reorder_sections",
+    elementTypeDomain: ["h2", "h3"],
     signalType: "technical",
     requiresCurrentText: false,
     requiresProposedText: true,
@@ -278,6 +313,7 @@ export const ACTION_TYPE_REGISTRY: Record<ActionType, ActionTypeSpec> = {
   // ── Page-level lifecycle ─────────────────────────────────────────────────
   split_page: {
     actionType: "split_page",
+    elementTypeDomain: [],
     signalType: "page",
     requiresCurrentText: false,
     requiresProposedText: false,
@@ -287,6 +323,7 @@ export const ACTION_TYPE_REGISTRY: Record<ActionType, ActionTypeSpec> = {
   },
   merge_pages: {
     actionType: "merge_pages",
+    elementTypeDomain: [],
     signalType: "page",
     requiresCurrentText: false,
     requiresProposedText: false,
@@ -296,6 +333,7 @@ export const ACTION_TYPE_REGISTRY: Record<ActionType, ActionTypeSpec> = {
   },
   create_page: {
     actionType: "create_page",
+    elementTypeDomain: [],
     signalType: "page",
     requiresCurrentText: false,
     requiresProposedText: false,
@@ -306,6 +344,7 @@ export const ACTION_TYPE_REGISTRY: Record<ActionType, ActionTypeSpec> = {
   // ── Passive ──────────────────────────────────────────────────────────────
   watch: {
     actionType: "watch",
+    elementTypeDomain: [],
     signalType: "page",
     requiresCurrentText: false,
     requiresProposedText: false,

@@ -13,6 +13,10 @@ import {
   isValidActionType,
   type ActionType,
 } from "./action-types";
+import {
+  ELEMENT_TYPES,
+  type ElementType,
+} from "@/domains/pages/extractors/registry";
 
 // ---------------------------------------------------------------------------
 // Sprint 6A.1 Phase 2 — action-type registry tests.
@@ -303,9 +307,10 @@ describe("Sprint 6A.1 Phase 2 — action-type registry", () => {
       }
     });
 
-    it("spec fields are exactly the 7 documented in the plan (data-only)", () => {
+    it("spec fields are exactly the 8 documented in the plan (data-only; elementTypeDomain wired in Phase 6A.1.4)", () => {
       const EXPECTED_FIELDS = new Set([
         "actionType",
+        "elementTypeDomain",
         "signalType",
         "requiresCurrentText",
         "requiresProposedText",
@@ -317,6 +322,89 @@ describe("Sprint 6A.1 Phase 2 — action-type registry", () => {
         const fields = new Set(Object.keys(ACTION_TYPE_REGISTRY[t]));
         expect(fields).toEqual(EXPECTED_FIELDS);
       }
+    });
+  });
+
+  describe("elementTypeDomain (Phase 6A.1.4 wiring)", () => {
+    it("every spec has an elementTypeDomain array", () => {
+      for (const t of ACTION_TYPES) {
+        expect(Array.isArray(ACTION_TYPE_REGISTRY[t].elementTypeDomain)).toBe(
+          true,
+        );
+      }
+    });
+
+    it("every element type in every spec.elementTypeDomain is a valid ElementType", () => {
+      for (const t of ACTION_TYPES) {
+        const domain = ACTION_TYPE_REGISTRY[t].elementTypeDomain;
+        for (const et of domain) {
+          expect(
+            ELEMENT_TYPES.includes(et),
+            `ACTION_TYPE_REGISTRY.${t}.elementTypeDomain contains ${et}, which is not a valid ElementType`,
+          ).toBe(true);
+        }
+      }
+    });
+
+    it("page-lifecycle actions have empty elementTypeDomain (no element target)", () => {
+      const pageLifecycle: ActionType[] = [
+        "split_page",
+        "merge_pages",
+        "create_page",
+        "watch",
+      ];
+      for (const t of pageLifecycle) {
+        expect(ACTION_TYPE_REGISTRY[t].elementTypeDomain).toEqual([]);
+      }
+    });
+
+    it("element-specific actions have non-empty elementTypeDomain", () => {
+      const elementScoped = ACTION_TYPES.filter(
+        (t) =>
+          !["split_page", "merge_pages", "create_page", "watch"].includes(t),
+      );
+      for (const t of elementScoped) {
+        expect(ACTION_TYPE_REGISTRY[t].elementTypeDomain.length).toBeGreaterThan(0);
+      }
+    });
+
+    it("title/meta/h1 actions each domain to a single matching element type", () => {
+      expect(ACTION_TYPE_REGISTRY.edit_title.elementTypeDomain).toEqual(["title"]);
+      expect(ACTION_TYPE_REGISTRY.edit_meta.elementTypeDomain).toEqual(["meta"]);
+      expect(ACTION_TYPE_REGISTRY.change_h1.elementTypeDomain).toEqual(["h1"]);
+    });
+
+    it("add_h2_section + rewrite_h2 both domain to h2", () => {
+      expect(ACTION_TYPE_REGISTRY.add_h2_section.elementTypeDomain).toEqual([
+        "h2",
+      ]);
+      expect(ACTION_TYPE_REGISTRY.rewrite_h2.elementTypeDomain).toEqual([
+        "h2",
+      ]);
+    });
+
+    it("FAQ actions domain to both faq_question AND faq_answer (Q+A are paired)", () => {
+      expect(new Set(ACTION_TYPE_REGISTRY.add_faq.elementTypeDomain)).toEqual(
+        new Set<ElementType>(["faq_question", "faq_answer"]),
+      );
+      expect(new Set(ACTION_TYPE_REGISTRY.rewrite_faq.elementTypeDomain)).toEqual(
+        new Set<ElementType>(["faq_question", "faq_answer"]),
+      );
+    });
+
+    it("schema actions domain to both schema_type AND schema_property", () => {
+      expect(new Set(ACTION_TYPE_REGISTRY.add_schema.elementTypeDomain)).toEqual(
+        new Set<ElementType>(["schema_type", "schema_property"]),
+      );
+      expect(new Set(ACTION_TYPE_REGISTRY.fix_schema.elementTypeDomain)).toEqual(
+        new Set<ElementType>(["schema_type", "schema_property"]),
+      );
+    });
+
+    it("reorder_sections targets heading types (h2, h3)", () => {
+      expect(new Set(ACTION_TYPE_REGISTRY.reorder_sections.elementTypeDomain)).toEqual(
+        new Set<ElementType>(["h2", "h3"]),
+      );
     });
   });
 });
