@@ -40,10 +40,10 @@ import { rankAndSelect } from "@/domains/product/priority-engine";
 import { computeTrackRecord } from "@/domains/product/recommendation-tracker";
 import { classifyEvidenceBasis } from "@/domains/product/evidence-basis";
 import {
-  isRecSuppressed,
-  getResponse,
-  recommendationResponses,
+  isRecSuppressedFromMap,
+  getResponseFromMap,
   ensureRecommendationResponsesSeeded,
+  type RecommendationResponse,
 } from "@/domains/product/recommendation-response-store";
 // Phase 4 (2026-04-19): experiment-store deleted. url-change-outcomes is now
 // the single source of truth for tracking. See getWatchingUrlOutcomes().
@@ -152,11 +152,11 @@ export type TodayPageData = Omit<
 >;
 
 export async function loadTodayPageData(): Promise<TodayPageData> {
-  // Phase 3.5C (2026-04-22): on Vercel, the module-level `recommendationResponses`
-  // and `urlChangeOutcomes` arrays are empty (readStore() returned [] because
+  // Phase 3.5C (2026-04-22): on Vercel, the module-level response-store and
+  // url-change-outcomes arrays are empty (readStore() returned [] because
   // `.data/*.json` doesn't exist). Seed them from Supabase once per request
-  // before any sync consumer (`isRecSuppressed`, the `.filter`/`for..of`
-  // bodies below) runs against them.
+  // before any sync consumer (the module-level suppression/lookup helpers,
+  // the `.filter`/`for..of` bodies below) runs against them.
   //
   // Phase 3.5E (2026-04-22): same problem for canonical-store exports that
   // drive the visibility score, rankings, competitor comparison, and entity
@@ -167,6 +167,34 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
     ensureUrlChangeOutcomesSeeded(),
     ensureCanonicalStoresSeeded(),
   ]);
+
+  // Phase 4.3 (Sprint 4, 2026-04-24): fetch recommendation responses FRESH
+  // from the repository per render. The prior implementation read the
+  // module-level response-store array + used the module-level suppression
+  // and lookup helpers. That array is seeded once per Vercel lambda behind
+  // a `_dbSeeded` one-shot flag, so a dismiss/defer/accept performed on
+  // lambda B stays invisible on lambda A whose seed cache is already primed.
+  // Operator symptom: a dismissed rec keeps reappearing as the Top Pick
+  // until the lambda cold-recycles.
+  //
+  // Fix mirrors Phase 4.2 on /recommendations: fetch once, build a Map,
+  // use the pure `*FromMap` helpers for suppression + decoration. Module-
+  // level readers stay alive for non-render callers (replication-engine).
+  // Sprint 5 sweeps the remaining cross-lambda call sites.
+  let freshRecommendationResponses: RecommendationResponse[];
+  try {
+    freshRecommendationResponses =
+      await getRepository().getRecommendationResponses();
+  } catch (err) {
+    console.error(
+      "[today] fresh recommendation_responses read failed — continuing without response state",
+      err,
+    );
+    freshRecommendationResponses = [];
+  }
+  const freshResponsesByRecId = new Map(
+    freshRecommendationResponses.map((r) => [r.recId, r]),
+  );
 
   // Phase 3.5F (2026-04-22): freshness signal derived from the seeded
   // `promptAnswerObservations` array. Today's visibility/ranking/competitor
@@ -809,9 +837,10 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
     additionalGenerics: scannerBusinessConfig.stripWords ?? [],
   });
 
-  // Filter out dismissed / deferred-but-not-due recommendations
+  // Filter out dismissed / deferred-but-not-due recommendations.
+  // Phase 4.3: uses fresh repo map, not module-level array.
   const recommendations = allRecommendations.filter(
-    (r) => !isRecSuppressed(r.id),
+    (r) => !isRecSuppressedFromMap(r.id, freshResponsesByRecId),
   );
 
   const briefPatternCounts = new Map<string, number>();
@@ -825,15 +854,17 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
   const trackRecord = computeTrackRecord({
     impactRows,
     patterns,
-    responses: recommendationResponses,
+    // Phase 4.3: fresh repo array, not module-level.
+    responses: freshRecommendationResponses,
     recommendations: allRecommendations,
   });
 
   // Phase 4 (2026-04-19): recIds-with-accepted-status now come from the
   // recommendation-response store directly (what the operator clicked "Apply
   // this" on), not from a separate experiment table.
+  // Phase 4.3: fresh repo array, not module-level.
   const activeExperimentRecIdSet = new Set(
-    recommendationResponses
+    freshRecommendationResponses
       .filter((r) => r.status === "accepted")
       .map((r) => r.recId),
   );
@@ -1037,7 +1068,10 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
         type: primaryAction.type,
         confidence: primaryAction.confidence,
         href: recHref(primaryAction),
-        responseStatus: getResponse(primaryAction.id)?.status ?? null,
+        // Phase 4.3: fresh repo map, not module-level.
+        responseStatus:
+          getResponseFromMap(primaryAction.id, freshResponsesByRecId)
+            ?.status ?? null,
         confidenceReason: buildConfidenceReason(primaryAction),
         watchAfter: buildWatchAfter(primaryAction),
         dataFreshness,
@@ -1067,8 +1101,12 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
       }
     : null;
 
-  // Serialize secondary action (next best recommendation after primary)
-  const secondaryRec = secondaryActions.filter((r) => !isRecSuppressed(r.id))[0] ?? null;
+  // Serialize secondary action (next best recommendation after primary).
+  // Phase 4.3: fresh repo map, not module-level.
+  const secondaryRec =
+    secondaryActions.filter(
+      (r) => !isRecSuppressedFromMap(r.id, freshResponsesByRecId),
+    )[0] ?? null;
   const serializedSecondary = secondaryRec
     ? {
         id: secondaryRec.id,
@@ -1081,7 +1119,10 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
         type: secondaryRec.type,
         confidence: secondaryRec.confidence,
         href: recHref(secondaryRec),
-        responseStatus: getResponse(secondaryRec.id)?.status ?? null,
+        // Phase 4.3: fresh repo map, not module-level.
+        responseStatus:
+          getResponseFromMap(secondaryRec.id, freshResponsesByRecId)
+            ?.status ?? null,
         confidenceReason: buildConfidenceReason(secondaryRec),
         watchAfter: buildWatchAfter(secondaryRec),
         dataFreshness,
@@ -1664,8 +1705,9 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
   // suppress it until the verdict changes (different z-score triggers a new
   // card id, which won't have a dismissed status). Reuses the existing
   // recommendation-response store \u2014 no new data plumbing.
+  // Phase 4.3: fresh repo array, not module-level.
   const acknowledgedHurtingCardIds = new Set(
-    recommendationResponses
+    freshRecommendationResponses
       .filter((r) => r.status === "dismissed" && r.recId.startsWith("hurt-"))
       .map((r) => r.recId),
   );
@@ -1756,7 +1798,8 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
   const topHelpingUrls = visibleHelping.slice(0, 2);
   for (const h of topHelpingUrls) {
     const winCardId = `win-${h.changeId}-${h.url}`;
-    const acknowledgedWin = recommendationResponses.some(
+    // Phase 4.3: fresh repo array, not module-level.
+    const acknowledgedWin = freshRecommendationResponses.some(
       (r) => r.recId === winCardId && r.status === "dismissed",
     );
     if (acknowledgedWin) continue;

@@ -1,0 +1,161 @@
+import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import type { RecommendationResponse } from "@/domains/product/recommendation-response-store";
+import {
+  getResponseFromMap,
+  isRecSuppressedFromMap,
+} from "@/domains/product/recommendation-response-store";
+
+// ---------------------------------------------------------------------------
+// Sprint 4 / Phase 4.3 regression tests — Today's recommendation response
+// freshness across Vercel lambdas.
+//
+// today-data.ts used to call isRecSuppressed / getResponse / read
+// `recommendationResponses` directly from the module-level array. Same
+// cross-lambda staleness bug as Phase 4.2 fixed on /recommendations. A rec
+// the operator dismissed on lambda B would reappear as Top Pick on lambda A
+// whose `_dbSeeded=true` was already cached.
+//
+// Phase 4.3 adds pure `getResponseFromMap` / `isRecSuppressedFromMap`
+// helpers in the response store, and today-data fetches responses fresh
+// from the repository per render, builds a Map, and uses the pure helpers.
+//
+// These tests prove:
+//   Structural (today-data.ts source):
+//     (1) does NOT import the stale readers (`isRecSuppressed`,
+//         `getResponse`, `recommendationResponses`) from the response store
+//     (2) DOES import the fresh-map helpers
+//     (3) DOES call `getRepository().getRecommendationResponses()`
+//     (4) has no residual references to the stale module-level array
+//         on the render path
+//
+//   Pure helpers (unit):
+//     (5) `isRecSuppressedFromMap` suppresses a dismissed rec
+//     (6) `isRecSuppressedFromMap` suppresses a deferred rec while
+//         `deferUntil` is in the future
+//     (7) `isRecSuppressedFromMap` does NOT suppress a deferred rec after
+//         `deferUntil` has passed
+//     (8) `isRecSuppressedFromMap` does NOT suppress an accepted rec
+//     (9) `isRecSuppressedFromMap` does NOT suppress a rec that has no
+//         response in the map (fresh repo truth)
+//    (10) `getResponseFromMap` returns the exact record stored in the map
+//    (11) `getResponseFromMap` returns undefined when rec is absent —
+//         meaning a stale module-level dismissal CANNOT bleed through the
+//         fresh map (the helper only sees what was passed in)
+// ---------------------------------------------------------------------------
+
+const TODAY_DATA_PATH = resolve(
+  __dirname,
+  "../../src/app/(shell)/today-data.ts",
+);
+const TODAY_DATA_SOURCE = readFileSync(TODAY_DATA_PATH, "utf8");
+
+describe("Sprint 4 / Phase 4.3 — Today fresh-read invariants", () => {
+  describe("structural invariants (today-data.ts source)", () => {
+    it("does NOT import stale readers from recommendation-response-store", () => {
+      // Allowed imports: ensureRecommendationResponsesSeeded (still needed
+      // for non-render callers), getResponseFromMap, isRecSuppressedFromMap,
+      // type imports.
+      // Forbidden: getResponse (stale reader), isRecSuppressed (stale
+      // reader), recommendationResponses (module-level array).
+      const importBlocks = TODAY_DATA_SOURCE.match(
+        /import\s+\{[^}]+\}\s+from\s+["'][^"']*recommendation-response-store["']/g,
+      );
+      expect(importBlocks).not.toBeNull();
+      for (const block of importBlocks!) {
+        expect(block).not.toMatch(/\bisRecSuppressed\b(?!FromMap)/);
+        expect(block).not.toMatch(/\bgetResponse\b(?!FromMap)/);
+        expect(block).not.toMatch(/\brecommendationResponses\b/);
+      }
+    });
+
+    it("DOES import the fresh-map helpers", () => {
+      expect(TODAY_DATA_SOURCE).toMatch(/\bgetResponseFromMap\b/);
+      expect(TODAY_DATA_SOURCE).toMatch(/\bisRecSuppressedFromMap\b/);
+    });
+
+    it("DOES call `getRepository().getRecommendationResponses()` at render", () => {
+      expect(TODAY_DATA_SOURCE).toMatch(
+        /getRepository\(\)\.getRecommendationResponses\(\)/,
+      );
+    });
+
+    it("has NO residual references to the stale module array or stale readers", () => {
+      // Explicit scan — any call site that still reads module-level state
+      // means Today's render has a cross-lambda hole. Must return zero
+      // matches.
+      expect(TODAY_DATA_SOURCE).not.toMatch(/\bisRecSuppressed\b(?!FromMap)/);
+      expect(TODAY_DATA_SOURCE).not.toMatch(/\bgetResponse\(/);
+      // `recommendationResponses` as a bare identifier (not
+      // `freshRecommendationResponses` and not `ensureRecommendationResponsesSeeded`).
+      const residual = TODAY_DATA_SOURCE.match(
+        /(?<!fresh)(?<!ensure)\brecommendationResponses\b(?!Seeded)/g,
+      );
+      expect(residual).toBeNull();
+    });
+  });
+
+  describe("pure helpers (unit)", () => {
+    const makeMap = (rows: RecommendationResponse[]) =>
+      new Map(rows.map((r) => [r.recId, r]));
+
+    const baseRow = (
+      overrides: Partial<RecommendationResponse>,
+    ): RecommendationResponse => ({
+      recId: "rec-1",
+      status: "accepted",
+      respondedAt: "2026-04-24T10:00:00.000Z",
+      deferUntil: null,
+      targetPageUrl: null,
+      patternId: null,
+      ...overrides,
+    });
+
+    it("suppresses a dismissed rec", () => {
+      const m = makeMap([baseRow({ status: "dismissed" })]);
+      expect(isRecSuppressedFromMap("rec-1", m)).toBe(true);
+    });
+
+    it("suppresses a deferred rec while deferUntil is in the future", () => {
+      const future = new Date(Date.now() + 3 * 86_400_000).toISOString();
+      const m = makeMap([
+        baseRow({ status: "deferred", deferUntil: future }),
+      ]);
+      expect(isRecSuppressedFromMap("rec-1", m)).toBe(true);
+    });
+
+    it("does NOT suppress a deferred rec once deferUntil has passed", () => {
+      const past = new Date(Date.now() - 86_400_000).toISOString();
+      const m = makeMap([
+        baseRow({ status: "deferred", deferUntil: past }),
+      ]);
+      expect(isRecSuppressedFromMap("rec-1", m)).toBe(false);
+    });
+
+    it("does NOT suppress an accepted rec (operator saw it; keeps visible in Today card with state)", () => {
+      const m = makeMap([baseRow({ status: "accepted" })]);
+      expect(isRecSuppressedFromMap("rec-1", m)).toBe(false);
+    });
+
+    it("does NOT suppress a rec that has no response in the map", () => {
+      const m = makeMap([]);
+      expect(isRecSuppressedFromMap("rec-1", m)).toBe(false);
+    });
+
+    it("getResponseFromMap returns the exact record stored in the map", () => {
+      const row = baseRow({ status: "deferred", deferUntil: "2026-05-01T00:00:00.000Z" });
+      const m = makeMap([row]);
+      expect(getResponseFromMap("rec-1", m)).toEqual(row);
+    });
+
+    it("getResponseFromMap returns undefined when rec is absent — stale module memory cannot leak through", () => {
+      // The key invariant: callers passing the fresh Map will ONLY see
+      // what the fresh repo fetch returned. A stale module-level dismissal
+      // cannot bleed into this call because the helper has no access to
+      // that array.
+      const m = makeMap([]);
+      expect(getResponseFromMap("rec-1", m)).toBeUndefined();
+    });
+  });
+});

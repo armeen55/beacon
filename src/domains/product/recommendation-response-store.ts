@@ -121,6 +121,38 @@ export function isRecSuppressed(recId: string): boolean {
 }
 
 /**
+ * Phase 4.3 (Sprint 4, 2026-04-24) — pure fresh-map variants.
+ *
+ * The module-level `recommendationResponses` array suffers cross-lambda
+ * staleness (a write on lambda B is invisible on lambda A whose
+ * `_dbSeeded=true` is already cached). Render paths that need durable truth
+ * must fetch `getRepository().getRecommendationResponses()` fresh per request
+ * and use these pure helpers to decorate / suppress recs. Non-render
+ * callers (replication-engine) continue to use the module-reading variants
+ * above until Sprint 5's MEDIUM sweep.
+ */
+export function getResponseFromMap(
+  recId: string,
+  responsesByRecId: Map<string, RecommendationResponse>,
+): RecommendationResponse | undefined {
+  return responsesByRecId.get(recId);
+}
+
+export function isRecSuppressedFromMap(
+  recId: string,
+  responsesByRecId: Map<string, RecommendationResponse>,
+  now: number = Date.now(),
+): boolean {
+  const resp = responsesByRecId.get(recId);
+  if (!resp) return false;
+  if (resp.status === "dismissed") return true;
+  if (resp.status === "deferred" && resp.deferUntil) {
+    return new Date(resp.deferUntil).getTime() > now;
+  }
+  return false;
+}
+
+/**
  * Record an operator response to a recommendation.
  * Upserts — a new response for the same recId replaces the old one.
  *
