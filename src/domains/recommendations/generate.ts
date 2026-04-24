@@ -28,6 +28,7 @@ import type {
   PromptOpportunityCategory,
 } from "@/domains/prompts/opportunity-classify";
 import type { PromptPrimarySummary } from "@/domains/prompts/competitor-primary";
+import { sanitizeOperatorCopy } from "./copy-sanitize";
 
 /** Action taxonomy for v1. Five types; four participate in the ranked
  *  work queue, one (watch_winning_cluster) routes to the Watchlist. */
@@ -193,13 +194,15 @@ export function generateRecommendations(
       args.matrix.primaryByPromptId,
     );
 
+    const sanitizedClusterLabel =
+      sanitizeOperatorCopy(cluster.label) || cluster.label;
     candidates.push({
       stableKey: `create_cluster_page:${cluster.type}:${cluster.label}`,
       type: "create_cluster_page",
-      title: `Create a ${cluster.label} page`,
-      description: `${affectedOpportunities.length} prompts in the ${cluster.type === "geo" ? "geo" : "topic"} cluster "${cluster.label}" are ${describeCategoryMix(categoryBreakdown)}. A focused page targeting this cluster would address all of them in one move.`,
+      title: `Create a ${sanitizedClusterLabel} page`,
+      description: `${affectedOpportunities.length} prompts in the ${cluster.type === "geo" ? "geo" : "topic"} cluster "${sanitizedClusterLabel}" are ${describeCategoryMix(categoryBreakdown)}. A focused page targeting this cluster would address all of them in one move.`,
       affectedPromptIds: [...cluster.promptIds],
-      clusterLabel: cluster.label,
+      clusterLabel: sanitizedClusterLabel,
       clusterKind: cluster.type,
       evidence: {
         promptCount: affectedOpportunities.length,

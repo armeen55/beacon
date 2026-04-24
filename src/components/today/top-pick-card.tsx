@@ -1,34 +1,49 @@
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import type { RecommendationType } from "@/domains/recommendations/generate";
+import type { RecommendationAction } from "@/domains/recommendations/resolved-types";
 
 /**
- * Today "Top pick" card (Phase v6 Commit 5, 2026-04-23).
+ * Today "Top pick" card (Phase v6 Commit 5, 2026-04-23; revised v7
+ * stabilization 2026-04-24).
  *
  * Pulls the first queue item from /recommendations and surfaces it on
- * Today as a single opinionated suggestion. Opens the full queue with
- * the row anchor so the operator can accept in one click.
- *
- * Deliberately narrower than the old action-card surfaces: one title,
- * one-line reasoning, type badge, and a single link. No action buttons
- * inline — the accept / defer / dismiss buttons live on /recommendations.
+ * Today. Reads the resolved action + URL so the title never leaks
+ * internal generator titles like "Create a Shield: X page".
  */
 
 export type TopPickSummary = {
   stableKey: string;
+  /** Legacy candidate type — kept for back-compat but unused for display. */
   type: RecommendationType;
+  /** Operator-facing title, already sanitized. */
   title: string;
   reasoning: string;
   tier: "now" | "this_week" | "later";
+  /** Resolved final action (post-resolver). Drives the type badge. */
+  action: RecommendationAction;
+  /** Canonical URL when the resolver attached one; null when create_new_page / watch. */
+  resolvedUrl: string | null;
 };
 
-const TYPE_LABEL: Record<RecommendationType, string> = {
-  create_cluster_page: "Create page",
-  create_single: "Create page",
-  target_competitors: "Target",
-  strengthen_page_copy: "Strengthen",
-  watch_winning_cluster: "Watch",
+const ACTION_LABEL: Record<RecommendationAction, string> = {
+  strengthen_existing_page: "Strengthen",
+  expand_existing_page: "Expand",
+  add_section_or_faq: "Add section",
+  create_new_page: "Create page",
+  merge_or_dedupe: "Merge",
+  needs_review: "Review",
+  watch: "Watch",
 };
+
+function shortUrl(url: string): string {
+  try {
+    const u = new URL(url);
+    return `${u.host.replace(/^www\./, "")}${u.pathname}`;
+  } catch {
+    return url;
+  }
+}
 
 const TIER_TONE: Record<
   TopPickSummary["tier"],
@@ -72,12 +87,20 @@ export function TopPickCard({ pick }: { pick: TopPickSummary }) {
           {meta.label}
         </span>
         <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">
-          {TYPE_LABEL[pick.type]}
+          {ACTION_LABEL[pick.action]}
         </span>
       </div>
       <h3 className="mt-1 text-[14px] font-semibold text-foreground leading-snug">
         {pick.title}
       </h3>
+      {pick.resolvedUrl && (
+        <p className="mt-1 text-[11px]">
+          <span className="text-muted-foreground">→</span>{" "}
+          <span className="text-accent-primary font-mono tabular-nums">
+            {shortUrl(pick.resolvedUrl)}
+          </span>
+        </p>
+      )}
       <p className="mt-1 text-[12px] text-muted-foreground leading-relaxed">
         {pick.reasoning}
       </p>

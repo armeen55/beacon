@@ -121,6 +121,42 @@ export type AdjudicateResult =
   | { status: "skipped"; reason: string; evidenceHash: string }
   | { status: "error"; error: string; evidenceHash: string | null };
 
+/**
+ * Cache-only read. No network call. Safe to call from the server render
+ * path on Vercel where any outbound request risks the 10-60s serverless
+ * timeout.
+ *
+ * Stabilization fix (2026-04-24): the synchronous adjudicator loop in the
+ * /recommendations render was timing out in production (5 sequential
+ * LLM calls × ~30s = 2+ minutes). Cache-only reads on the render path,
+ * live calls only from explicit opt-in contexts (cron, on-demand API
+ * route, or local dev with BEACON_ADJUDICATOR_MAX_PER_REQUEST > 0).
+ */
+export async function adjudicateFromCacheOnly(
+  args: AdjudicateRecommendationArgs,
+): Promise<AdjudicateResult> {
+  const now = args.now ?? new Date();
+  let packet;
+  try {
+    packet = buildEvidencePacket({ ...args, now });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return { status: "error", error: `packet: ${msg}`, evidenceHash: null };
+  }
+  const evidenceHash = hashEvidencePacket(packet);
+  const cached = await readCacheEntry(evidenceHash).catch(() => null);
+  if (cached) {
+    return {
+      status: "ok",
+      output: cached.output,
+      evidenceHash,
+      source: "cache_hit",
+      costUsd: 0,
+    };
+  }
+  return { status: "skipped", reason: "no cache entry", evidenceHash };
+}
+
 export async function adjudicateRecommendation(
   args: AdjudicateRecommendationArgs,
 ): Promise<AdjudicateResult> {

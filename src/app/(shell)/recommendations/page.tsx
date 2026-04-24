@@ -18,8 +18,7 @@ import { resolvePageIntent } from "@/domains/recommendations/resolve-page-intent
 import { buildPageInventory } from "@/domains/recommendations/page-inventory";
 import { prioritizeRecommendations } from "@/domains/recommendations/prioritize";
 import {
-  adjudicateRecommendation,
-  shouldAdjudicate,
+  adjudicateFromCacheOnly,
   applyAdjudicationToResolution,
 } from "@/domains/recommendations/adjudicate";
 import { allPages } from "@/domains/pages/page-store";
@@ -48,92 +47,152 @@ import { RecommendationsClient } from "./recommendations-client";
  * power users via drilldown if ever needed; v1 shows reasoning string
  * instead). Operator should read the top row and know what to do.
  */
+/**
+ * Hard rule (stabilization 2026-04-24): no layer is allowed to 500 this
+ * route. Every step is try/catch-wrapped with a safe fallback. If any
+ * layer fails, we render as much as we have and surface a small banner
+ * instead of crashing.
+ */
+async function safeCall<T>(fn: () => Promise<T> | T, fallback: T, label: string): Promise<{ value: T; error: string | null }> {
+  try {
+    const v = await fn();
+    return { value: v, error: null };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error(`[recommendations] ${label} failed:`, msg);
+    return { value: fallback, error: `${label}: ${msg}` };
+  }
+}
+
 export default async function RecommendationsPage() {
-  await ensureCanonicalStoresSeeded();
-  await ensureRecommendationResponsesSeeded();
+  const errors: string[] = [];
 
-  const matrix = buildPromptDecisionMatrix({
-    prompts: trackedPrompts,
-    observations: promptAnswerObservations,
-    activeEntities: trackedEntities,
-    now: new Date(),
-  });
+  const seedRes = await safeCall(
+    () => ensureCanonicalStoresSeeded(),
+    undefined,
+    "seed canonical stores",
+  );
+  if (seedRes.error) errors.push(seedRes.error);
+  const respSeedRes = await safeCall(
+    () => ensureRecommendationResponsesSeeded(),
+    undefined,
+    "seed recommendation responses",
+  );
+  if (respSeedRes.error) errors.push(respSeedRes.error);
 
-  const candidates = generateRecommendations({
-    matrix,
-    activeEntities: trackedEntities,
-    trackedPrompts,
-  });
-
-  // v7 Commit 1 + 2 (2026-04-23): observation-led resolver + page-inventory
-  // fallback insert between generator and prioritizer. Transforms e.g.
-  // "Create a Los Altos page" → "Strengthen /locations/los-altos" when
-  // AI cites the page OR when the page exists in the inventory but AI
-  // hasn't cited it yet.
-  const repo = getRepository();
-  const pageSnapshots = await repo.getPageSnapshots();
-  const pageInventory = buildPageInventory({
-    pages: allPages,
-    snapshots: pageSnapshots,
-    activeEntities: trackedEntities,
-  });
-  const resolved = resolvePageIntent({
-    candidates,
-    observations: promptAnswerObservations,
-    activeEntities: trackedEntities,
-    pageInventory,
-  });
-
-  // v7 Commit 3 (2026-04-23): LLM adjudicator. Runs only on ambiguous /
-  // high-value resolutions (merge_or_dedupe, needs_review, low-confidence,
-  // create_new_page w/ inventory partial match, URL-less changelog risks).
-  // Hard cap per request + monthly budget + evidence-hash cache keep cost
-  // bounded. Silent failure mode: if adjudicator returns error / skipped /
-  // budget-blocked, the resolution passes through as Layer 1/2 output.
-  const adjudicated: typeof resolved = [];
-  let firedCount = 0;
-  const MAX_ADJUDICATIONS_PER_REQUEST = 5;
-  for (const candidate of resolved) {
-    const decision = shouldAdjudicate(candidate, {
-      alreadyFiredCount: firedCount,
-      maxPerRequest: MAX_ADJUDICATIONS_PER_REQUEST,
-    });
-    if (!decision.fire) {
-      adjudicated.push(candidate);
-      continue;
-    }
-    firedCount += 1;
-    try {
-      const result = await adjudicateRecommendation({
-        customerId: "ritz",
-        candidate,
-        matrixPrompts: matrix.prompts,
-        trackedPrompts,
-        activeEntities: trackedEntities,
+  const matrixRes = await safeCall(
+    () =>
+      buildPromptDecisionMatrix({
+        prompts: trackedPrompts,
         observations: promptAnswerObservations,
+        activeEntities: trackedEntities,
+        now: new Date(),
+      }),
+    null,
+    "build decision matrix",
+  );
+  if (matrixRes.error) errors.push(matrixRes.error);
+  const matrix = matrixRes.value;
+
+  if (!matrix) {
+    return (
+      <div className="max-w-4xl">
+        <PageHeader
+          title="Recommendations"
+          description="Decision queue temporarily unavailable."
+        />
+        <ErrorFallback errors={errors} />
+      </div>
+    );
+  }
+
+  const candidates = (await safeCall(
+    () =>
+      generateRecommendations({
+        matrix,
+        activeEntities: trackedEntities,
+        trackedPrompts,
+      }),
+    [],
+    "generate candidates",
+  )).value;
+
+  const pageSnapshots = (await safeCall(
+    async () => {
+      const repo = getRepository();
+      return repo.getPageSnapshots();
+    },
+    [],
+    "fetch page snapshots",
+  )).value;
+
+  const pageInventory = (await safeCall(
+    () =>
+      buildPageInventory({
+        pages: allPages,
+        snapshots: pageSnapshots,
+        activeEntities: trackedEntities,
+      }),
+    [],
+    "build page inventory",
+  )).value;
+
+  const resolved = (await safeCall(
+    () =>
+      resolvePageIntent({
+        candidates,
+        observations: promptAnswerObservations,
+        activeEntities: trackedEntities,
         pageInventory,
-      });
-      if (result.status === "ok") {
-        adjudicated.push(applyAdjudicationToResolution(candidate, result.output));
-      } else {
-        adjudicated.push(candidate);
-      }
-    } catch {
+      }),
+    [],
+    "resolve page intent",
+  )).value;
+
+  // v7 Commit 3 (2026-04-23) + stabilization (2026-04-24): the adjudicator
+  // only reads cache on the render path. Live LLM calls run out-of-band
+  // (explicit opt-in API route / cron) because 5 × 30s sequential calls
+  // would exceed Vercel's serverless timeout. Cache hit = adjudicated
+  // tier; cache miss = Layer 1/2 output, no blocking I/O.
+  const adjudicated: typeof resolved = [];
+  for (const candidate of resolved) {
+    const result = await safeCall(
+      () =>
+        adjudicateFromCacheOnly({
+          customerId: "ritz",
+          candidate,
+          matrixPrompts: matrix.prompts,
+          trackedPrompts,
+          activeEntities: trackedEntities,
+          observations: promptAnswerObservations,
+          pageInventory,
+        }),
+      null,
+      `adjudicator cache read ${candidate.stableKey}`,
+    );
+    if (result.value && result.value.status === "ok") {
+      adjudicated.push(
+        applyAdjudicationToResolution(candidate, result.value.output),
+      );
+    } else {
       adjudicated.push(candidate);
     }
   }
 
-  const { queue, watchlist } = prioritizeRecommendations(adjudicated);
+  const prioritized = (await safeCall(
+    () => prioritizeRecommendations(adjudicated),
+    { queue: [], watchlist: [] },
+    "prioritize recommendations",
+  )).value;
+  const { queue, watchlist } = prioritized;
 
-  // Join in current operator decisions so the client can render state
-  // pills and hide dismissed / defer-still-active items behind "Show all".
   const decorated = queue.map((rec) => ({
     rec,
-    response: getResponse(rec.stableKey) ?? null,
+    response: safeGetResponse(rec.stableKey),
   }));
   const watchDecorated = watchlist.map((rec) => ({
     rec,
-    response: getResponse(rec.stableKey) ?? null,
+    response: safeGetResponse(rec.stableKey),
   }));
 
   return (
@@ -142,11 +201,57 @@ export default async function RecommendationsPage() {
         title="Recommendations"
         description="What to do this week. Ranked by severity, cluster size, and who actually owns the prompt. Accept to start a tracked experiment."
       />
+      {errors.length > 0 && (
+        <div
+          className="mb-4 rounded-md border border-status-warning/40 bg-status-warning/[0.06] px-3 py-2 text-[12px] text-status-warning leading-relaxed"
+          role="status"
+        >
+          Some recommendation data couldn&apos;t load. Showing what we have.
+        </div>
+      )}
       <RecommendationsClient
         queue={decorated}
         watchlist={watchDecorated}
         matrixDate={matrix.date}
       />
+    </div>
+  );
+}
+
+function safeGetResponse(
+  stableKey: string,
+): RecommendationResponse | null {
+  try {
+    return getResponse(stableKey) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function ErrorFallback({ errors }: { errors: string[] }) {
+  return (
+    <div className="rounded-lg border border-status-warning/40 bg-status-warning/[0.06] px-5 py-4 text-[13px]">
+      <p className="font-medium text-status-warning">
+        Decision queue couldn&apos;t load.
+      </p>
+      <p className="mt-1 text-muted-foreground">
+        Beacon hit an error while computing recommendations. The rest of the
+        app is unaffected. Try again in a minute or check logs.
+      </p>
+      {errors.length > 0 && (
+        <details className="mt-2">
+          <summary className="cursor-pointer text-[11px] text-muted-foreground">
+            Diagnostic ({errors.length})
+          </summary>
+          <ul className="mt-1 list-disc pl-4 text-[11px] text-muted-foreground">
+            {errors.map((e, i) => (
+              <li key={i} className="font-mono">
+                {e}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
     </div>
   );
 }
