@@ -7,6 +7,141 @@
 
 ---
 
+## 2026-04-25 — Sprint 6A.1 / Phase 15 — page_element_inventory populated on hosted
+
+**Context.** Phase 14 (commit `6e2c7f4`) shipped the orchestration
+extract + queue-driven CLI. Phase 15 closes the remaining gap before
+Phase 6A.1.13 can run for real: `page_element_inventory` is now
+populated on production Supabase from a real scan. **No
+recommended_edits writes. No changelog writes. No LLM. No paid API.**
+
+### What ran
+
+New wrapper `scripts/run-orchestrated-scan.ts` (added in this commit)
+mirrors `runWebsiteScan`'s two-stage behavior without going through
+`orchestrate-scan.ts` directly — that module imports
+`seed-data.server.ts` whose top-level await breaks tsx's CJS
+transform. The wrapper imports only `dual-write.ts` (no top-level
+await chain).
+
+Stage 1 — spawn `scripts/scan-owned-pages.ts` as a subprocess: same
+CLI the operator's "Scan now" button + GitHub Actions cron run.
+Fetches every owned URL, builds new snapshots + guardrails +
+page_element_inventory rows, writes to `.data/`.
+
+Stage 2 — read back the freshly-written `.data/*.json` and dual-
+write to Supabase via the existing helpers. Defensive dedup before
+each upsert (PostgREST refuses chunks with duplicate
+conflict-target pairs).
+
+Command actually run:
+```
+DUAL_WRITE=true DATA_SOURCE=supabase BEACON_TENANT_ID=tenant-ritz-founder \
+  npx tsx --require ./scripts/mock-server-only.cjs \
+  scripts/run-orchestrated-scan.ts
+```
+
+### Results — production Supabase project `jdegznovgysxyweknewh`
+
+**Scan stage:**
+- 35 pages fetched (all canonical sitemap pages)
+- 35 snapshots, 35 diffs, 7 guardrail alerts, 4315 inventory rows
+  written to `.data/`
+- 0 fetch errors
+- 2 pages flagged "CHANGED" (homepage + /about-us — H3 changes
+  vs. the April-15 baseline; no operator action required)
+
+**Inventory dual-write:**
+- 4315 raw rows → 4312 after defensive dedup (3 duplicate
+  `(source_snapshot_id, element_key)` pairs dropped — extractor
+  emission edge case worth noting; tracked separately as
+  out-of-scope here).
+- All 4312 rows persisted to `page_element_inventory`.
+
+**Verification SQL probes:**
+| Probe | Result |
+|-------|--------|
+| `page_element_inventory` total rows | **4312** (was 0) |
+| Distinct URLs | **35** (matches scan) |
+| Distinct snapshot_ids | **35** |
+| Latest `observed_at` | `2026-04-25 18:53:09 UTC` |
+| `recommended_edits` rows | **0** (untouched) ✓ |
+| Changelog entries created today | **0** (untouched) ✓ |
+| Changelog entries with Phase-12 fields populated | **0** (no fan-out happened) ✓ |
+
+**Element-type breakdown:**
+| Type | Rows | Distinct URLs | Notes |
+|------|------|---------------|-------|
+| internal_link | 1480 | 35 | ~42 avg per page |
+| schema_property | 994 | 29 | ~34 avg per schema-bearing page |
+| h3 | 707 | 35 | ~20 avg per page |
+| h2 | 293 | 35 | ~8 avg per page |
+| faq_answer | 264 | 28 | ~9 avg per FAQ page |
+| faq_question | 264 | 28 | matches faq_answer |
+| city_mention | 75 | 26 | dictionary-driven |
+| schema_type | 54 | 29 | unique @types per page |
+| service_mention | 41 | 24 | dictionary-driven |
+| title | 35 | 35 | 1:1 singleton |
+| h1 | 35 | 35 | 1:1 |
+| meta | 35 | 35 | 1:1 |
+| canonical | 35 | 35 | 1:1 |
+
+All 13 active extractors fired and produced rows.
+
+**Sample rows (verified well-formed):**
+- title: `https://ritzbuilders.com` → key `title[0]:ead08ae09d7e`,
+  text `Luxury Custom Home Builder Bay Area | Ritz Builders`
+- h2: `https://ritzbuilders.com` h2[2] → text `Award-Winning Excellence`
+- faq_question: `https://ritzbuilders.com` faq_question[6] → text
+  `What is included in Ritz Builders' construction process?`
+- schema_type: `https://ritzbuilders.com` → key
+  `schema[HomeAndConstructionBusiness]`
+
+Element keys match the documented format
+(`<type>[<idx>]:<contentHash>` for positional, `schema[<TypeName>]`
+for schema_type). Display labels are operator-friendly.
+
+### Side effects worth noting
+
+- **page_snapshots dual-write FAILED** — `body_paragraph_sample`
+  column missing on production schema. Pre-existing schema drift,
+  unrelated to Phase 6A.1.15. Snapshots stayed at the April-15
+  baseline in Supabase; the local `.data/page-snapshots.json` IS
+  fresh (35 rows). This is OUT OF SCOPE for Phase 15 — flagged for
+  a separate one-line migration.
+- **observation_runs dual-write succeeded** after defensive dedup
+  (46 of 50 in-file rows were duplicates — separate bug worth
+  flagging; not Phase-6A.1 scope).
+- **scan_findings** wasn't part of this stage (no
+  `regenerateScanFindings` invocation in this wrapper). The
+  `.data/scan-findings.json` may have changed; production
+  scan_findings is unchanged. If operator wants findings re-derived,
+  the existing scan + findings flow on hosted handles it.
+- **Nothing in `recommended_edits` or `changelog_entries` was
+  modified.** Both confirmed by SQL probe AT 0.
+
+### What this unblocks
+
+Phase 6A.1.13 (hosted UI verification) is now unblocked:
+1. `npx tsx --require ./scripts/mock-server-only.cjs scripts/build-edits-for-queue.ts --list` →
+   pick a real stableKey from today's queue.
+2. `npx tsx --require ./scripts/mock-server-only.cjs scripts/build-edits-for-queue.ts --rec-id=<stableKey>` →
+   DRY-RUN inspection (will show non-zero target_element_count now).
+3. `DUAL_WRITE=true npx tsx --require ./scripts/mock-server-only.cjs scripts/build-edits-for-queue.ts --rec-id=<stableKey> --write` →
+   persist `recommended_edits` rows.
+4. Refresh `https://beacon-bice.vercel.app/recommendations` →
+   confirm **Specific edits (N)** section appears for that rec.
+
+### Phase 15 verification
+
+- `npm run typecheck` — clean
+- Scan ran end-to-end (~42s) with 0 fetch errors
+- Inventory dual-write succeeded after defensive dedup
+- Production SQL probes confirm 4312 inventory rows + 0 unintended
+  side effects on `recommended_edits` / `changelog_entries`
+
+---
+
 ## 2026-04-24 — Sprint 6A.1 / Phase 14 — Orchestration extract + queue-driven CLI
 
 **Context.** Phase 6A.1.13 verification could not be completed because no

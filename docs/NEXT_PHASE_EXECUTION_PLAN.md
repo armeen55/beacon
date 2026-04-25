@@ -17,6 +17,22 @@
 
 ---
 
+## Sprint 6A.1 — Phase 15 (page_element_inventory populated) COMPLETE 2026-04-25
+
+**Done:** New `scripts/run-orchestrated-scan.ts` wrapper, scanned 35 owned URLs, wrote **4312 page_element_inventory rows** to production Supabase. Zero unintended writes to `recommended_edits` or `changelog_entries` (verified). All 13 active extractors fired and persisted clean rows. Took ~42s scan + ~5s dual-write.
+
+**Phase 6A.1.13 (hosted UI verification) is finally unblocked.** Steps:
+1. `npx tsx --require ./scripts/mock-server-only.cjs scripts/build-edits-for-queue.ts --list` — pick a stableKey from today's queue.
+2. `npx tsx --require ./scripts/mock-server-only.cjs scripts/build-edits-for-queue.ts --rec-id=<stableKey>` — DRY-RUN, confirm `target_element_count > 0`.
+3. `DUAL_WRITE=true npx tsx --require ./scripts/mock-server-only.cjs scripts/build-edits-for-queue.ts --rec-id=<stableKey> --write` — persist.
+4. Visit `https://beacon-bice.vercel.app/recommendations`, find that rec, confirm **Specific edits (N)** renders.
+
+After Phase 6A.1.13 passes, **Sprint 6A.1 is done end-to-end on hosted.**
+
+Capability for Phase 6A.1.13: **Fast** — three CLI commands + visual confirmation.
+
+---
+
 ## Sprint 6A.1 — Phase 14 (orchestration extract + CLI) COMPLETE 2026-04-24
 
 **Why this exists:** Phase 6A.1.13 (hosted UI verification) blocked because no script bridged `/recommendations` queue → EvidencePacket → Phase 11 CLI. Phase 14 closes that bridge.
