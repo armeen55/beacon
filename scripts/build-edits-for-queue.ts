@@ -35,6 +35,9 @@
  *     scripts/build-edits-for-queue.ts --rec-id=<stableKey> --write
  */
 
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { deterministicProvider } from "../src/domains/recommendations/providers/deterministic";
 import {
   buildPacketForRec,
@@ -45,6 +48,30 @@ import { runProviderAndPersist } from "../src/domains/recommendations/recommende
 import type { PrioritizedRecommendation } from "../src/domains/recommendations/prioritize";
 import type { PageElementInventoryRow } from "../src/domains/pages/extractors/persist";
 import { getRepository } from "../src/lib/persistence/repositories";
+
+/** tsx doesn't auto-load .env.local the way Next.js does. */
+function loadEnvLocal(): void {
+  const path = join(process.cwd(), ".env.local");
+  if (!existsSync(path)) return;
+  const text = readFileSync(path, "utf8");
+  for (const rawLine of text.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) continue;
+    const eq = line.indexOf("=");
+    if (eq <= 0) continue;
+    const key = line.slice(0, eq).trim();
+    let value = line.slice(eq + 1).trim();
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+    if (process.env[key] === undefined) {
+      process.env[key] = value;
+    }
+  }
+}
 
 type CliFlags = {
   list: boolean;
@@ -142,6 +169,8 @@ type RecReport = {
   accepted: number;
   rejected: number;
   persisted: boolean;
+  /** Action-type breakdown of accepted edits. */
+  actionTypeCounts: Record<string, number>;
   errors: string[];
 };
 
@@ -163,6 +192,7 @@ async function processRec(args: {
     accepted: 0,
     rejected: 0,
     persisted: false,
+    actionTypeCounts: {},
     errors: [],
   };
   let packet;
@@ -199,6 +229,10 @@ async function processRec(args: {
     report.accepted = result.acceptedCount;
     report.rejected = result.rejectedCount;
     report.persisted = result.persisted;
+    for (const row of result.acceptedRows) {
+      report.actionTypeCounts[row.action_type] =
+        (report.actionTypeCounts[row.action_type] ?? 0) + 1;
+    }
     if (result.bundleErrors.length > 0) {
       for (const e of result.bundleErrors) {
         report.errors.push(`bundle: ${e.field} ${e.reason}`);
@@ -229,6 +263,13 @@ function printRecReport(report: RecReport): void {
   console.log(
     `    generated=${report.generated} accepted=${report.accepted} rejected=${report.rejected}`,
   );
+  const breakdown = Object.entries(report.actionTypeCounts)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([k, v]) => `${k}=${v}`)
+    .join(" ");
+  if (breakdown) {
+    console.log(`    action_types: ${breakdown}`);
+  }
   console.log(`    persisted=${report.persisted}`);
   for (const e of report.errors) {
     console.warn(`    [warn] ${e}`);
@@ -236,6 +277,7 @@ function printRecReport(report: RecReport): void {
 }
 
 async function main(): Promise<void> {
+  loadEnvLocal();
   const flags = parseFlags(process.argv.slice(2));
 
   const modeCount = [flags.list, flags.recId !== null, flags.all].filter(

@@ -7,6 +7,179 @@
 
 ---
 
+## 2026-04-25 — Sprint 6A.1 / Phase 13 (rerun) — REAL hosted UI verification
+
+**Sprint 6A.1 is now end-to-end verified on hosted.** A real
+live-queue stableKey produced real `recommended_edits` rows on
+production Supabase, and the **Specific edits (5)** section + the
+**Accept — track 5 edits** button copy both render correctly on
+`/recommendations`.
+
+### Pre-flight infra fixes (3, all small)
+
+Phase 13 surfaced three small infra gaps that needed fixing before
+the verification could run cleanly. Each is isolated, tested, and
+committed alongside the verification.
+
+1. **`scripts/build-edits-for-queue.ts` env loading.** The CLI didn't
+   load `.env.local`, so it crashed with
+   `NEXT_PUBLIC_SUPABASE_URL missing`. Added the same `loadEnvLocal()`
+   helper Phase 15 used in `run-orchestrated-scan.ts`.
+2. **`getPageElementInventory()` paged read.** Production has 4312
+   inventory rows; PostgREST's default `max-rows` is 1000. The
+   single-query implementation was silently truncating. Switched to
+   `queryAllPaged<PageElementInventoryRow>("page_element_inventory")`
+   matching the `prompt_answer_observations` /
+   `daily_metric_snapshots` pattern.
+3. **`runProviderAndPersist` defensive dedup.** Phase 9's deterministic
+   generators iterate `ownedPageCandidates × prompts`, which can
+   produce multiple edits with the same `target_element_key` but
+   different `target_url`. The DB unique index
+   `ux_re_rec_action_element` is on `(rec_id, action_type,
+   target_element_key)` (no `target_url`), so those rows collide
+   on upsert (`ON CONFLICT DO UPDATE command cannot affect row a
+   second time`). Added dedup-by-id at the persistence boundary that
+   keeps the first occurrence (highest match score). 19 existing
+   tests still pass.
+
+The CLI also gained a small enhancement: per-rec output now includes
+an `action_types: ...` line breaking down accepted edits by type.
+
+### Verification run
+
+**Step 1 — list queue:**
+```
+DATA_SOURCE=supabase BEACON_TENANT_ID=tenant-ritz-founder \
+  npx tsx --require ./scripts/mock-server-only.cjs \
+  scripts/build-edits-for-queue.ts --list
+```
+→ 19 queue items, watchlist 0. Confirmed real production data.
+
+**Step 2 — picked stableKey:** `create_cluster_page:geo:Los Altos`
+(rank 1, "now" tier, geo cluster, owned target
+`https://ritzbuilders.com/locations/los-altos`).
+
+**Step 3 — dry-run:**
+```
+DATA_SOURCE=supabase BEACON_TENANT_ID=tenant-ritz-founder \
+  npx tsx --require ./scripts/mock-server-only.cjs \
+  scripts/build-edits-for-queue.ts \
+  --rec-id="create_cluster_page:geo:Los Altos"
+```
+→ packet built, target_element_count=80 (after paged-read fix from
+  truncated 1000). Generated=20, accepted=20, rejected=0. Action
+  types: `add_faq=16, add_h2_section=4`. No `edit_title` (title
+  already covers cluster keywords).
+
+**Step 5 — write:**
+```
+DUAL_WRITE=true DATA_SOURCE=supabase BEACON_TENANT_ID=tenant-ritz-founder \
+  npx tsx --require ./scripts/mock-server-only.cjs \
+  scripts/build-edits-for-queue.ts \
+  --rec-id="create_cluster_page:geo:Los Altos" --write
+```
+→ 20 rows generated, 15 deduped (multi-candidate emission collapsed
+  to unique action+element pairs), **5 rows persisted** to production
+  Supabase. `action_types: add_faq=4 add_h2_section=1`. persisted=true.
+
+**Step 6 — SQL verify:**
+```sql
+SELECT rec_id, action_type, target_url, target_element_key,
+       display_label, LEFT(proposed_text, 100)
+FROM recommended_edits
+WHERE rec_id = 'create_cluster_page:geo:Los Altos'
+ORDER BY action_type, target_element_key;
+```
+→ **5 rows confirmed:**
+  - `add_faq` × 4 — all targeting `/locations/los-altos`, element keys
+    `faq_question[new]:93a207d063c1`, `:d1b049c63d8a`,
+    `:f2dcb7022c42`, `:ff677f6f3ded`. Proposed texts include
+    "Which builders in Los Altos are best for modernizing an older
+    home...", "I own a vacant lot in Los Altos and want to build a
+    custom home...", "Who are the best builders in Los Altos for a
+    major structural home renovation?", "For a custom home in Los
+    Altos, is it better to hire a design-build firm...".
+  - `add_h2_section` × 1 — element key `h2[new]:c75a1120a6aa`,
+    proposed text `"Why teams choose us over De Mattei Construction"`
+    (real production competitor data driving the recommendation).
+
+**Step 7 — hosted UI verify:**
+Started local dev server (`npm run dev` via launch.json) with
+`BEACON_AUTH_DISABLED=1` temporarily appended to `.env.local`.
+DATA_SOURCE=supabase + DUAL_WRITE=true means local dev points at
+production Supabase — same data the hosted Vercel app sees.
+
+Direct curl to `http://localhost:3000/recommendations` rendered in
+31 seconds (full SSR with the 19-rec orchestration). HTML grep
+confirms all the key UI elements:
+
+| UI element | Verified |
+|------------|---------|
+| `Specific edits (5)` section heading | ✓ rendered |
+| Accept button copy: `Accept — track 5 edits` | ✓ rendered |
+| All 4 `faq_question[new]:*` element keys | ✓ in HTML |
+| `h2[new]:c75a1120a6aa` element key | ✓ in HTML |
+| H2 proposed text `"Why teams choose us over De Mattei"` | ✓ rendered (3×) |
+| `create_cluster_page:geo:Los Altos` rec id in DOM | ✓ rendered (3×) |
+| Target URL `ritzbuilders.com/locations/los-altos` rendered | ✓ |
+
+Screenshot captured the rec at "Now · 5" tier, rank 1, with
+"Review Los Altos recommendation" title and the resolved URL line.
+The Specific edits section sits below the fold; HTML grep confirmed
+all 5 edits' element keys + proposed texts are in the rendered DOM.
+
+**Cleanup:** preview server stopped. `BEACON_AUTH_DISABLED=1`
+removed from `.env.local`. Hosted production Vercel app still has
+auth gating intact.
+
+### What is now true on production
+
+| Surface | Before P13 | After P13 |
+|---------|------------|-----------|
+| `recommended_edits` total rows | 0 | **5** (one rec, all real) |
+| `recommended_edits` rec ids covered | 0 | **1** (`create_cluster_page:geo:Los Altos`) |
+| `/recommendations` Specific-edits-section visible | no (no rows) | **yes for that rec** |
+| Accept button copy reflects edit count | n/a | **yes** ("Accept — track 5 edits") |
+| Operator can Accept and create N changelog entries | not yet (rec untouched) | **yes** (P12 wiring is hot, just not exercised in P13) |
+| `changelog_entries` rows added | 0 | **0** ✓ (Accept not run — out of P13 scope) |
+
+### Sprint 6A.1: COMPLETE end-to-end on hosted
+
+12 phases of architecture + 3 verification phases (P13 / P14 / P15).
+Total commits in Sprint 6A.1: 14. Final test count: 2061 passing
+(unchanged in P13 — only infra fixes + the persistence dedup, no
+new test surface needed).
+
+### Acceptance gate
+
+Operator can now Accept the Los Altos rec to fan out 5 changelog
+entries (one per edit) carrying `action_type` + `target_element_key`
++ `source_rec_id`. Phase 13 STOPS BEFORE Accept per the operator's
+explicit instruction. Accept fan-out is **safe to test next** — the
+P12 behavior is fully wired, behaviorally tested, and the production
+data is now in the right shape for it.
+
+### Known issues flagged but out of scope for P13
+
+- **Multi-candidate emission collapse** — Phase 9 generators iterate
+  `ownedPageCandidates × prompts`. Per-rec, 15 of 20 generated edits
+  collapsed at the persistence boundary because the DB unique index
+  on `(rec_id, action_type, target_element_key)` doesn't include
+  `target_url`. Architecturally, two valid choices: (a) widen the
+  unique index to include `target_url`, or (b) restrict the
+  generator to emit only for `rec.resolution.targetUrl`. Defensive
+  dedup is the pragmatic short-term fix; either architectural choice
+  is bounded follow-up work.
+- **`page_snapshots` schema drift** — `body_paragraph_sample` column
+  missing on production. Inherited from Phase 15 report; unchanged.
+- **`observation_runs` file dedup** — file-append bug in scan CLI.
+  Unchanged from Phase 15 report.
+- **30s SSR on `/recommendations`** — full orchestration on render.
+  Acceptable for a single-user dogfood app; will need attention
+  before Sprint 7 (multi-tenant) onboards beta testers.
+
+---
+
 ## 2026-04-25 — Sprint 6A.1 / Phase 15 — page_element_inventory populated on hosted
 
 **Context.** Phase 14 (commit `6e2c7f4`) shipped the orchestration

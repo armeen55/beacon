@@ -230,7 +230,7 @@ export async function runProviderAndPersist(
     (p) => !p.result.ok,
   );
 
-  const acceptedRows = acceptedEdits.map((edit) =>
+  const allRows = acceptedEdits.map((edit) =>
     mapSpecificEditToRow({
       edit,
       recId: opts.packet.recId,
@@ -239,6 +239,36 @@ export async function runProviderAndPersist(
       now,
     }),
   );
+
+  // Defensive dedup at the persistence boundary by row `id` (which is
+  // deterministic on `(rec_id, action_type, target_element_key)` —
+  // exactly the DB unique-index target with `NULLS NOT DISTINCT`).
+  // Phase 9 generators iterate `ownedPageCandidates × prompts`, which
+  // can produce multiple edits with the same element_key but different
+  // `target_url`. The unique index doesn't include `target_url`, so
+  // those rows collide on upsert. Keep the FIRST occurrence (highest
+  // match score) until the schema or generator design is broadened.
+  const seenIds = new Set<string>();
+  const acceptedRows: RecommendedEditRow[] = [];
+  let droppedDuplicateRowCount = 0;
+  for (const row of allRows) {
+    if (seenIds.has(row.id)) {
+      droppedDuplicateRowCount += 1;
+      continue;
+    }
+    seenIds.add(row.id);
+    acceptedRows.push(row);
+  }
+  if (droppedDuplicateRowCount > 0) {
+    log.warn(
+      "runProviderAndPersist: dropped duplicate (rec_id, action_type, target_element_key) rows",
+      {
+        recId: opts.packet.recId,
+        droppedDuplicateRowCount,
+        keptCount: acceptedRows.length,
+      },
+    );
+  }
 
   let persisted = false;
   if (

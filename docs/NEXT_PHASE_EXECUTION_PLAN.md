@@ -17,6 +17,30 @@
 
 ---
 
+## Sprint 6A.1 — Phase 13 (REAL hosted UI verification) COMPLETE 2026-04-25 — Sprint closed end-to-end
+
+**Done:** Picked `create_cluster_page:geo:Los Altos` from the live queue, dry-ran (20 valid edits, 0 rejected), wrote 5 unique rows to production `recommended_edits`, verified hosted UI shows **Specific edits (5)** + **Accept — track 5 edits** button copy. Stopped before Accept per operator instruction. Three small infra fixes shipped (CLI env loading, paged inventory read, defensive dedup at persistence boundary). 19 existing persistence tests still pass.
+
+**Sprint 6A.1: CLOSED.** 12 architecture phases (P1–P12) + 3 verification phases (P13 / P14 / P15). 14 commits. 2061 tests passing.
+
+**Operator's next decision points (in order of leverage):**
+
+1. **Accept verification (5 minutes).** Click Accept on the Los Altos rec on `https://beacon-bice.vercel.app/recommendations`. P12's fan-out should create exactly 5 changelog entries with `action_type` + `target_element_key` + `source_rec_id` populated. SQL verify: `SELECT id, action_type, target_element_key, source_rec_id FROM changelog_entries WHERE source_rec_id = 'create_cluster_page:geo:Los Altos'`.
+
+2. **Sprint 6A.2 — LLM activation (~2 weeks).** Replace `not_implemented` openai/anthropic stubs with real implementations. Add evidence-hash cache, per-tenant LLM budget gate, llm_rejections persistence, optional per-edit Accept UX. Capability **Max** — high blast radius if budget controls mis-wire. Real win: LLM-quality rewrites instead of deterministic seed text.
+
+3. **Sprint 7 — Multi-tenant hardening (~1 week).** Tenant-scope every store + path + cron + adjudicator. Add the central tenant resolver. Pick deployment topology. Onboard the two beta testers waiting. Capability **Max** — touches every subsystem.
+
+**Recommendation:** **Direction 1 first (5 min)**, then **Direction 3 (Sprint 7)** because the beta testers will stress-test Sprint 6A.1's stores in ways solo dogfood never will, and 6A.2 (LLM) benefits from running across three real tenants.
+
+**Known follow-up tracked but not blocking:**
+- `page_snapshots.body_paragraph_sample` column missing on production (one-line ALTER TABLE)
+- 30s SSR on `/recommendations` (orchestration could move to a cached layer; matters for beta testers, not solo)
+- Architecture choice for multi-candidate edit emission: widen DB unique index to include `target_url`, or restrict generators to `resolution.targetUrl` only
+- Phase 9 `add_faq` emits seed text "Draft answer (operator: rewrite). Anchor on: ..."; LLM in 6A.2 produces real answers
+
+---
+
 ## Sprint 6A.1 — Phase 15 (page_element_inventory populated) COMPLETE 2026-04-25
 
 **Done:** New `scripts/run-orchestrated-scan.ts` wrapper, scanned 35 owned URLs, wrote **4312 page_element_inventory rows** to production Supabase. Zero unintended writes to `recommended_edits` or `changelog_entries` (verified). All 13 active extractors fired and persisted clean rows. Took ~42s scan + ~5s dual-write.

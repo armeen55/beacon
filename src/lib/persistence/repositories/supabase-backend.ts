@@ -305,17 +305,12 @@ export const supabaseBackend: SeedDataRepository = {
   },
 
   // Sprint 6A.1 Phase 14 — page_element_inventory read path.
-  // Production-empty until a scan runs after Phase 6's wiring.
-  getPageElementInventory: async () => {
-    const { data, error } = await getSupabaseAdmin()
-      .from("page_element_inventory")
-      .select("*");
-    if (error)
-      throw new Error(
-        `Supabase query failed on page_element_inventory: ${error.message}`,
-      );
-    return (data ?? []) as unknown as PageElementInventoryRow[];
-  },
+  // Phase 15 (2026-04-25): a single scan produces ~4300 rows for 35
+  // pages. PostgREST's default `max-rows` is 1000, so a non-paged
+  // query silently truncates. Use queryAllPaged like the other
+  // big tables.
+  getPageElementInventory: async () =>
+    queryAllPaged<PageElementInventoryRow>("page_element_inventory"),
 
   // Phase 3.5E — hero-surface data. Paged reads for the two large tables
   // (prompt_answer_observations 11,996 rows, daily_metric_snapshots 24,085
