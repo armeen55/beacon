@@ -7,6 +7,115 @@
 
 ---
 
+## 2026-04-24 — Sprint 6A.1 / Phase 8 — SpecificEditProvider interface + 3 provider implementations (1 shell, 2 stubs)
+
+**Context.** Phase 7 (commit `39cf277`) shipped the structured
+`SpecificEditEvidencePacket` contract. Phase 8 closes the
+producer-side: the `SpecificEditProvider` interface every Specific
+Edit Generator (deterministic v1, deterministic+LLM in 6A.2)
+implements. **No LLM calls. No SDK dependencies. No DB writes. No
+generators yet (Phase 6A.1.9 will fill the deterministic shell).
+No UI.**
+
+### What changed (5 new files)
+
+1. **`src/domains/recommendations/specific-edit-provider.ts`** —
+   types + interface (no implementations). Exports:
+   - `SpecificEdit` — single edit row matching `recommended_edits`
+     schema (12 fields incl. `actionType`, `targetUrl`,
+     `targetElement` (nullable nested object with `elementKey` /
+     `displayLabel` / `currentText` / `proposedText`), `why`,
+     `evidence[]`, `expectedImpact`, `difficulty`, `confidence`,
+     `measurementPlan`, `risks`, `source`, `providerName`, `model`,
+     `costUsd`).
+   - `SpecificEditBundle` — full output: `schemaVersion
+     "specific-edit-bundle/v1"`, `tenantId`, `recId`, `evidenceHash`
+     (mirrored from input packet), `providerName`,
+     `recommendations: SpecificEdit[]`, `totalCostUsd`,
+     `generatedAt`.
+   - `SpecificEditEvidenceRef` — typed union pointing back to packet
+     content (prompt / element / owned_page / competitor /
+     prior_outcome).
+   - `SpecificEditTargetElement`, `SpecificEditDifficulty`,
+     `SpecificEditConfidence`, `SpecificEditSource`,
+     `SpecificEditProviderName`.
+   - `SpecificEditProvider` interface: `name:
+     SpecificEditProviderName` + `generate(packet:
+     SpecificEditEvidencePacket): Promise<SpecificEditBundle>`.
+   - `emptyBundleFor(packet, providerName, now?)` helper — threads
+     packet metadata into a fresh bundle skeleton.
+
+2. **`src/domains/recommendations/providers/deterministic.ts`** —
+   shell. Returns `emptyBundleFor(packet, "deterministic")` with
+   `recommendations: []` and `totalCostUsd: 0`. Phase 9 fills in
+   the actual generators.
+
+3. **`src/domains/recommendations/providers/openai.ts`** — stub.
+   `generate()` throws
+   `"openai SpecificEditProvider not implemented (Sprint 6A.2)"`.
+   No `openai` SDK import.
+
+4. **`src/domains/recommendations/providers/anthropic.ts`** — stub.
+   `generate()` throws
+   `"anthropic SpecificEditProvider not implemented (Sprint 6A.2)"`.
+   No `@anthropic-ai/sdk` import.
+
+5. **`src/domains/recommendations/providers/index.ts`** — registry.
+   Exports `PROVIDERS: Record<SpecificEditProviderName,
+   SpecificEditProvider>` covering all 3 implementations + a typed
+   `getProvider(name)` lookup that throws on unknown names.
+
+### Tests added (22, 1915 passing total)
+
+`src/domains/recommendations/providers/providers.test.ts`:
+
+- **Interface contract** (5): every provider's `name` matches its key;
+  `generate` returns a Promise; `PROVIDERS` registry covers all
+  3 provider names; `getProvider(name)` returns the right impl.
+- **Deterministic shell** (5): valid empty bundle; `tenantId` /
+  `recId` / `evidenceHash` threaded from packet; does NOT mutate the
+  input packet; output JSON-serializable + round-trips losslessly;
+  strict serializability (no functions / Date / Map / Set / class
+  instances / undefined).
+- **OpenAI stub** (2): throws `not_implemented`; message references
+  Sprint 6A.2.
+- **Anthropic stub** (2): throws `not_implemented`; message references
+  Sprint 6A.2.
+- **`emptyBundleFor` helper** (2): threads packet metadata + provider
+  identity; returns fresh objects (independent recommendations
+  arrays).
+- **`SpecificEdit` type-shape sanity** (2): a fully-populated edit
+  fixture is JSON-serializable + round-trips; a page-level
+  lifecycle (`create_page`) fixture allows `targetElement: null`.
+- **Source-scan invariants** (3): provider files do NOT import the
+  `openai` SDK or `@anthropic-ai/sdk`; no app route page.tsx /
+  route.ts imports any provider; no new top-level dep added to
+  `package.json` (Phase 8 stays SDK-free).
+- **Interface accepts SpecificEditEvidencePacket** (1): a packet
+  built by Phase 7's `buildSpecificEditEvidencePacket` flows through
+  every provider's `generate()` (deterministic resolves; stubs
+  reject).
+
+### Phase 8 verification
+
+- `npm run typecheck` — clean
+- `npx vitest run` — 1915 passing (+22 over Phase 7 revision's 1893),
+  10 pre-existing fails unchanged
+
+### What's NOT yet wired (Phase 9+)
+
+- Actual deterministic generators for `edit_title`, `add_h2_section`,
+  `add_faq` (Phase 6A.1.9)
+- Output validation layer that rejects hallucinated targetUrl /
+  elementKey / actionType (Phase 6A.1.10)
+- LLM-backed implementations of openai / anthropic providers
+  (Sprint 6A.2)
+- Persistence layer that maps `SpecificEdit` → `recommended_edits`
+  row (Phase 6A.1.11)
+- Sprint 6A.2's evidence-hash cache + per-tenant budget gate
+
+---
+
 ## 2026-04-24 — Sprint 6A.1 / Phase 7 (revision) — packet shape adjustment + serializability + no-render guard
 
 **Context.** Phase 7's first cut (commit `e183704`) shipped the builder with

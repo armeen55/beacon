@@ -17,13 +17,18 @@
 
 ---
 
-## Sprint 6A.1 progress — Phase 7 (Specific Edit Evidence Packet) COMPLETE 2026-04-24
+## Sprint 6A.1 progress — Phase 8 (provider interface + 3 implementations) COMPLETE 2026-04-24
 
-**Done so far:** P1 migrations · P2 ActionType registry · P3 ElementType registry · P4 element_key helpers · P5 13 active extractors + dispatcher · P6 inventory persistence wired · **P7 (today) — `buildSpecificEditEvidencePacket` pure builder at `src/domains/recommendations/specific-edit-evidence.ts`. Composes recommendation/cluster/prompt opportunities/competitor-primary/owned page inventory/page_element_inventory rows into the contract every Specific Edit Generator (deterministic + LLM) will consume. Deterministic 16-char sha256 evidenceHash. allowedTargetUrls owned-only + `needs_new_page` sentinel. allowedActionTypes default to v1 generatorActive set (`add_faq`, `add_h2_section`, `edit_title`). 48 new tests (1887 passing).**
+**Done so far:** P1 migrations · P2 ActionType registry · P3 ElementType registry · P4 element_key helpers · P5 13 active extractors + dispatcher · P6 inventory persistence wired · P7 EvidencePacket builder · **P8 (today) — `SpecificEditProvider` interface + types + 3 provider implementations (1 deterministic shell + 2 LLM stubs). Files: `src/domains/recommendations/specific-edit-provider.ts` + `providers/{deterministic,openai,anthropic,index}.ts`. Deterministic provider returns empty `recommendations: []` (Phase 9 will fill); openai/anthropic stubs throw `not_implemented` so any premature caller hits a loud failure. No SDK dependencies, no LLM, no DB writes, no UI. 22 new tests (1915 passing).**
 
-**Next Sprint 6A.1 step (P8):** Provider-adapter contract. New file `src/domains/recommendations/specific-edit-provider.ts` exporting `SpecificEditProvider` interface (`name: "deterministic" | "openai" | "anthropic"`, `generate(packet) → Promise<SpecificEditBundle>`), `SpecificEditBundle` shape (rows of `{actionType, targetUrl, targetElementKey, currentText, proposedText, why, evidence, ...}`), plus stub implementations for openai/anthropic that throw `not_implemented`. Deterministic provider stays unimplemented until P9. NO generators, NO LLM, NO UI.
+**Next Sprint 6A.1 step (P9):** Deterministic generators for the v1 active action types. New file `src/domains/recommendations/providers/deterministic-generators.ts` (or split per-action if cleaner). Three generators:
+- `edit_title` — fires when title misses cluster's top keyword(s). Proposes a title rewrite that includes them.
+- `add_h2_section` — fires when a competitor angle phrase appears in ≥40% of cluster's competitor-primary answers but no H2 on the target page covers it. Proposes an H2 add.
+- `add_faq` — fires when cluster's query fanout includes a question pattern unmatched by any existing FAQ on the target page. Proposes adding the FAQ.
 
-Capability: **Balanced** — interface design + stubs.
+Each generator emits 0+ `SpecificEdit` rows. Deterministic provider's `generate()` calls all three, concatenates results, returns the populated bundle. Still no LLM, no DB writes (the persistence layer to `recommended_edits` lives in Phase 6A.1.11).
+
+Capability: **Balanced** — bounded compute over already-typed inputs.
 
 ---
 
