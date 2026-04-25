@@ -7,6 +7,138 @@
 
 ---
 
+## 2026-04-24 — Sprint 6A.1 / Phase 11 — Persistence layer + generate-specific-edits CLI
+
+**Context.** Phase 10 (commit `794b51b`) shipped the validator. Phase 11
+closes the deterministic-only end-to-end path: validated `SpecificEdit[]`
+maps to `recommended_edits` rows, file-first writes to
+`.data/recommended-edits.json`, dual-writes to Supabase. New CLI
+exercises the pipeline locally without LLM, without UI, without paid
+API calls.
+
+**No LLM. No UI. No Accept/changelog wiring (those are Phase 6 / 12).
+No route-render generation. Deterministic provider only.**
+
+### Files added (4)
+
+1. **`src/domains/recommendations/recommended-edits-persistence.ts`**
+   — exports:
+   - `RecommendedEditRow` — snake_case mirror of the migration
+     schema (24 fields).
+   - `mapSpecificEditToRow({ edit, recId, tenantId, evidenceHash, now })`
+     — pure mapping. Flattens `targetElement` into the four element
+     columns. Derives deterministic `id =
+     ${recId}__${actionType}__${target_element_key ?? "null"}` so re-
+     runs are idempotent at both the file layer and the DB unique
+     index `ux_re_rec_action_element`.
+   - `readRecommendedEditsLocal()` /
+     `persistRecommendedEditsLocal(rows)` — `.data/recommended-edits.json`
+     replace-by-id read/write (Vercel-safe via `writeDotDataJson`).
+   - `runProviderAndPersist({ provider, packet, dryRun?, now? })` —
+     orchestration: provider.generate → validateSpecificEditBundle →
+     mapSpecificEditToRow per accepted edit → file write +
+     `syncRecommendedEdits` dual-write. Dry-run skips both writes.
+     Bundle-level validation failure aborts persistence entirely (no
+     half-broken state). Throws on dual-write failure (no silent
+     degradation). Returns `{ ok, bundle, bundleErrors,
+     totalGenerated, acceptedCount, rejectedCount, acceptedRows,
+     rejected, persisted }`.
+
+2. **`src/lib/persistence/dual-write.ts`** — adds
+   `syncRecommendedEdits(rows)`. Idempotent on
+   `(rec_id, action_type, target_element_key)` matching the
+   migration's `NULLS NOT DISTINCT` unique index.
+
+3. **`scripts/generate-specific-edits.ts`** — CLI. Default mode is
+   DRY-RUN for safety; `--write` opts in. `--smoke` builds an empty
+   packet and exercises the pipeline (always dry-run). `--packet=<file>`
+   reads a JSON packet. Exits non-zero on bundle-level errors or
+   per-edit rejections so CI surfaces broken outputs.
+
+4. **`src/domains/recommendations/recommended-edits-persistence.test.ts`** — 19 tests.
+
+### CLI usage
+
+```
+# Smoke test — empty packet, exercises pipeline, always dry-run.
+npx tsx --require ./scripts/mock-server-only.cjs \
+  scripts/generate-specific-edits.ts --smoke
+
+# Real packet (default = dry-run).
+npx tsx --require ./scripts/mock-server-only.cjs \
+  scripts/generate-specific-edits.ts --packet=path/to/packet.json
+
+# Same, but persist.
+npx tsx --require ./scripts/mock-server-only.cjs \
+  scripts/generate-specific-edits.ts --packet=path/to/packet.json --write
+```
+
+### Hard rules locked by tests
+
+- Only validated edits are persisted. Rejected edits surface in
+  `result.rejected` with field + reason — no silent success.
+- Bundle-level validation failure (tenantId / recId / evidenceHash
+  mismatch) aborts persistence entirely.
+- `id` is deterministic so re-runs are idempotent. The DB layer's
+  `(rec_id, action_type, target_element_key)` unique index enforces
+  the same idempotency at upsert time.
+- Dry-run skips both `writeDotDataJson` AND `syncRecommendedEdits`.
+- Every persisted row carries `tenant_id`, `evidence_hash`, `source`,
+  `provider_name`, `model`, `cost_usd`. Deterministic rows have
+  `model: null` and `cost_usd: null`.
+- File write is replace-by-id — rows from other recs / runs are
+  preserved.
+- Orchestration helper does NOT mutate the input packet.
+- No LLM SDK imports anywhere in the new code.
+- No app route imports the persistence module or the CLI.
+
+### Tests added (19, 2015 passing total)
+
+`recommended-edits-persistence.test.ts`:
+
+- **`mapSpecificEditToRow`** (5): row shape + snake_case mapping;
+  deterministic id derivation; null `target_element_key` handling
+  for page-level lifecycle actions; pure (same inputs → same row);
+  JSON round-trip.
+- **`runProviderAndPersist`** (9): maps deterministic provider
+  output and dual-writes; dry-run skips writes; idempotency across
+  re-runs; rejected edits not persisted (custom provider with
+  hallucinated targetUrl); bundle-level validation failure aborts
+  persistence entirely; zero accepted edits → no writes;
+  tenant_id/evidence_hash/provider_name threaded into every
+  persisted row; file write is replace-by-id (preserves other recs);
+  no input mutation.
+- **`persistRecommendedEditsLocal` direct** (2): empty input no-op;
+  `readRecommendedEditsLocal` returns `[]` on missing file.
+- **Source-scan invariants** (3): no app route imports the
+  persistence module or the CLI; CLI script has the expected hooks
+  (`runProviderAndPersist`, `deterministicProvider`, `--smoke`,
+  `--packet=`, `--write`) and ZERO LLM SDK imports; dual-write
+  helper registered with the right onConflict.
+
+### Phase 11 verification
+
+- `npm run typecheck` — clean
+- `npx vitest run` — 2015 passing (+19 over Phase 10's 1996), 10
+  pre-existing fails unchanged
+- CLI smoke run — pipeline executes cleanly:
+  ```
+  [generate-specific-edits] tenant=tenant-ritz-founder rec=smoke-... cluster="" hash=... mode=DRY-RUN
+  [generate-specific-edits] generated=0 accepted=0 rejected=0 persisted=false
+  ```
+
+### What's NOT yet wired (Phase 12+)
+
+- Persistence of REJECTED edits → `llm_rejections` rows. Today
+  `result.rejected` returns the per-edit results in-memory only;
+  Phase 12 (or Sprint 6A.2 when LLM lands) will dual-write them.
+- LLM provider implementations (Sprint 6A.2).
+- /recommendations UI rendering of validated typed edits (Sprint 6 /
+  6A.1.12).
+- Per-edit Accept changelog wiring (Sprint 6 / 6A.1.12).
+
+---
+
 ## 2026-04-24 — Sprint 6A.1 / Phase 10 — Output validation layer
 
 **Context.** Phase 9 (commit `c36d5dd`) shipped the deterministic

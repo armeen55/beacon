@@ -17,17 +17,23 @@
 
 ---
 
-## Sprint 6A.1 progress — Phase 10 (output validation layer) COMPLETE 2026-04-24
+## Sprint 6A.1 progress — Phase 11 (persistence + CLI) COMPLETE 2026-04-24
 
-**Done so far:** P1 migrations · P2 ActionType registry · P3 ElementType registry · P4 element_key helpers · P5 13 active extractors + dispatcher · P6 inventory persistence wired · P7 EvidencePacket builder · P8 SpecificEditProvider interface + 3 implementations · P9 deterministic generators · **P10 (today) — output validation layer at `src/domains/recommendations/specific-edit-validator.ts`. Exports `validateSpecificEdit(edit, packet)` + `validateSpecificEditBundle(bundle, packet)` + helpers (`parseElementTypeFromKey`, `isAdditiveElementKey`, `validateSerializable`). Discriminated result type. 10 check categories. All deterministic provider outputs validate clean. 47 new tests (1996 passing).**
+**Done so far:** P1–P10 + **P11 (today) — persistence layer + CLI**:
+- `src/domains/recommendations/recommended-edits-persistence.ts` exports `RecommendedEditRow`, `mapSpecificEditToRow`, `persistRecommendedEditsLocal`, `readRecommendedEditsLocal`, `runProviderAndPersist`.
+- `src/lib/persistence/dual-write.ts` adds `syncRecommendedEdits` (onConflict `rec_id,action_type,target_element_key`).
+- `scripts/generate-specific-edits.ts` CLI: `--smoke` / `--packet=<file>` / `--write` / `--help`. Default mode is DRY-RUN. Idempotent re-runs. Exits non-zero on validation failures.
+- 19 new tests, 2015 passing total. CLI smoke run clean.
 
-**Next Sprint 6A.1 step (P11):** Persistence layer. New file `src/domains/recommendations/recommended-edits-persistence.ts` (or similar) exporting:
-- `mapSpecificEditToRow(edit, recId, tenantId, evidenceHash) → RecommendedEditRow` — flattens `targetElement` nested object into the four `target_element_key` / `display_label` / `current_text` / `proposed_text` columns, snake_cases everything.
-- `syncRecommendedEdits(rows)` dual-write helper in `src/lib/persistence/dual-write.ts` — onConflict on `(rec_id, action_type, target_element_key)` matching the migration's NULLS NOT DISTINCT unique index.
-- Optional persistence of rejected edits → `llm_rejections` rows (rare today since deterministic is always valid; matters for Sprint 6A.2 LLM).
-- Caller orchestration: `provider.generate(packet) → validateSpecificEditBundle → mapToRows → syncRecommendedEdits`. Lives outside route render.
+**Next Sprint 6A.1 step (P12):** Persistence of rejected edits + (optional) UI hook. Two viable directions, operator picks:
 
-Capability: **Balanced** — bounded persistence + mapping logic over already-validated inputs.
+**Direction A — `llm_rejections` persistence.** Add `mapRejectionToRow` + `syncLlmRejections` dual-write helper. Wire `runProviderAndPersist` to also persist rejected edits to `llm_rejections` (raw_output + validation_error + provider + model + cost). Mostly inert today since deterministic output is always valid; activates fully with Sprint 6A.2's LLM. Still no LLM, no UI.
+
+**Direction B — `/recommendations` UI surfacing.** Render the validated `SpecificEdit` rows on the existing `/recommendations` page so the operator can see what the deterministic provider proposed. Pulls from `recommended_edits` via the repository pattern. Reads fresh per request (Sprint 1 pattern). Operator can scan + edit; Accept-into-changelog wiring is its own follow-up.
+
+**Recommendation:** Direction A first — it closes the data-layer loop entirely (no LLM-prep gaps left) and is bounded pure-mapping work. UI surfacing then fits the existing Sprint 6 plan (recommendation action detail UX) and benefits from having the rejection table populated when LLM lands in 6A.2.
+
+Capability: **Balanced** — same pattern as P11.
 
 ---
 

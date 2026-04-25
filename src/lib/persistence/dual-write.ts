@@ -706,6 +706,31 @@ export async function syncUrlChangeOutcomes(
 
 // ── Page element inventory sync (Sprint 6A.1 Phase 6) ──
 
+// ── Recommended edits sync (Sprint 6A.1 Phase 11) ──
+
+/**
+ * Sprint 6A.1 Phase 11 (2026-04-24) — recommended_edits dual-write.
+ *
+ * Idempotent on `(rec_id, action_type, target_element_key)` matching
+ * the migration's `ux_re_rec_action_element` unique index. The index
+ * was created `NULLS NOT DISTINCT` so page-level lifecycle actions
+ * (which write `target_element_key = NULL`) de-duplicate per
+ * `(rec_id, action_type)` instead of accumulating duplicates.
+ *
+ * Rows arrive already snake_cased + DB-shaped from
+ * `mapSpecificEditToRow` — pass-through, no further mapping.
+ */
+export async function syncRecommendedEdits(
+  rows: import("@/domains/recommendations/recommended-edits-persistence").RecommendedEditRow[],
+): Promise<void> {
+  if (!isDualWriteEnabled() || rows.length === 0) return;
+  await dualWriteUpsert(
+    "recommended_edits",
+    rows as unknown as AnyRow[],
+    "rec_id,action_type,target_element_key",
+  );
+}
+
 /**
  * Sprint 6A.1 Phase 6 (2026-04-24) — page_element_inventory dual-write.
  *
