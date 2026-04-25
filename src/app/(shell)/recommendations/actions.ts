@@ -385,108 +385,112 @@ export async function acceptRecommendation(
   const resolvedAction = payload.resolution?.action ?? null;
   let changeId: string | undefined;
   let changeIds: string[] | undefined;
-  if (shouldStampChangelog(payload.type, resolvedAction)) {
-    const shape = mapRecToChangelogShape(payload);
 
-    // Sprint 6A.1 Phase 12 — fresh-read the rec's typed edits. If any
-    // exist, we fan out one changelog entry per edit (with action_type
-    // + target_element_key + source_rec_id stamped). If none, fall
-    // through to the legacy single-entry path below — preserves
-    // existing behavior for recs that pre-date typed edits.
-    let editsForRec: RecommendedEditRow[] = [];
+  // Sprint 6A.1 Phase 12-fix (2026-04-25): fresh-read the rec's typed
+  // edits BEFORE any gating. The presence of N typed edits in
+  // `recommended_edits` IS the operator's explicit per-edit approval
+  // (the UI button copy literally says "Accept — track N edits"), so
+  // the fan-out must fire regardless of `shouldStampChangelog`'s
+  // generic action-type gate. The gate still applies to the legacy
+  // single-entry path below.
+  let editsForRec: RecommendedEditRow[] = [];
+  try {
+    const allEdits = await getRepository().getRecommendedEdits();
+    editsForRec = allEdits.filter((e) => e.rec_id === payload.stableKey);
+  } catch (e) {
+    // Graceful degrade: if the repo read fails, log and fall back
+    // to the legacy path. Acceptance never fails because edits read
+    // failed.
+    log.warn("acceptRecommendation: edits read failed; falling back", {
+      stableKey: payload.stableKey,
+      error: e instanceof Error ? e.message : String(e),
+    });
+  }
+
+  const shape = mapRecToChangelogShape(payload);
+
+  // Phase 1 (2026-04-24): server-side defense. Pass the resolution back
+  // through the shared title builder + sanitizer so the changelog entry
+  // never carries a raw generator title or Shield:/Internal: prefix,
+  // even if a legacy or misbehaving caller sent one in payload.title.
+  const operatorTitle = buildResolvedRecommendationTitle({
+    clusterLabel: payload.clusterLabel,
+    promptTextFallback: sanitizeOperatorCopy(payload.title),
+    resolution: payload.resolution
+      ? {
+          action: payload.resolution.action,
+          motive: payload.resolution.motive,
+          targetUrl: payload.resolution.targetUrl,
+          confidence: "medium",
+          confidenceReason: "",
+          tier: "observation",
+          reasoning: payload.resolution.reasoning,
+          cannibalization: null,
+          evidenceRefs: [],
+          operatorTitle: payload.resolution.operatorTitle,
+          specificRecommendation: payload.resolution.specificRecommendation,
+          suggestedEdits: payload.resolution.suggestedEdits,
+          pageBrief: payload.resolution.pageBrief ?? null,
+          proposedSlug: payload.resolution.proposedSlug ?? null,
+          risks: payload.resolution.risks,
+        }
+      : undefined,
+  });
+
+  // Per-edit fan-out — fires whenever typed edits exist. Bypasses
+  // `shouldStampChangelog` because the typed edits ARE the operator's
+  // explicit, scoped approval (overrides the generic needs_review /
+  // watch / split gate that protects the LEGACY single-entry path).
+  if (editsForRec.length > 0) {
     try {
-      const allEdits = await getRepository().getRecommendedEdits();
-      editsForRec = allEdits.filter((e) => e.rec_id === payload.stableKey);
+      changeIds = await createChangelogEntriesForEdits(
+        payload,
+        editsForRec,
+        shape,
+        operatorTitle,
+      );
+      changeId = changeIds[0];
+      // Stamp hypothesis for each so /changes shows the rec-derived
+      // title immediately. Best-effort.
+      for (const id of changeIds) {
+        try {
+          await updateChangelogHypothesis(id, operatorTitle, "recommendation");
+        } catch (err) {
+          log.warn("acceptRecommendation: hypothesis stamp failed", {
+            changeId: id,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+      revalidatePath("/recommendations");
+      revalidatePath("/", "layout");
+      log.info("Action completed", {
+        action,
+        durationMs: Date.now() - t0,
+        params: {
+          changeIds,
+          editCount: editsForRec.length,
+          mode: "per-edit",
+        },
+      });
+      return { success: true, changeId, changeIds };
     } catch (e) {
-      // Graceful degrade: if the repo read fails, log and fall back
-      // to the single-entry path. Acceptance never fails because the
-      // edits read failed.
-      log.warn("acceptRecommendation: edits read failed; falling back", {
+      log.error("acceptRecommendation: per-edit fan-out failed", {
         stableKey: payload.stableKey,
         error: e instanceof Error ? e.message : String(e),
       });
+      return {
+        success: false,
+        error: `Failed to create per-edit changelog entries: ${
+          e instanceof Error ? e.message : String(e)
+        }`,
+      };
     }
+  }
 
-    // Phase 1 (2026-04-24): server-side defense. Pass the resolution back
-    // through the shared title builder + sanitizer so the changelog entry
-    // never carries a raw generator title or Shield:/Internal: prefix,
-    // even if a legacy or misbehaving caller sent one in payload.title.
-    const operatorTitle = buildResolvedRecommendationTitle({
-      clusterLabel: payload.clusterLabel,
-      promptTextFallback: sanitizeOperatorCopy(payload.title),
-      resolution: payload.resolution
-        ? {
-            action: payload.resolution.action,
-            motive: payload.resolution.motive,
-            targetUrl: payload.resolution.targetUrl,
-            confidence: "medium",
-            confidenceReason: "",
-            tier: "observation",
-            reasoning: payload.resolution.reasoning,
-            cannibalization: null,
-            evidenceRefs: [],
-            operatorTitle: payload.resolution.operatorTitle,
-            specificRecommendation: payload.resolution.specificRecommendation,
-            suggestedEdits: payload.resolution.suggestedEdits,
-            pageBrief: payload.resolution.pageBrief ?? null,
-            proposedSlug: payload.resolution.proposedSlug ?? null,
-            risks: payload.resolution.risks,
-          }
-        : undefined,
-    });
-    // Sprint 6A.1 Phase 12 — when typed edits exist, fan out N entries
-    // and skip the single-entry path. The operator's button copy
-    // already advertises "Accept — track N edits" so this matches the
-    // user-visible promise.
-    if (editsForRec.length > 0) {
-      try {
-        changeIds = await createChangelogEntriesForEdits(
-          payload,
-          editsForRec,
-          shape,
-          operatorTitle,
-        );
-        changeId = changeIds[0];
-        // Stamp hypothesis for each so /changes shows the rec-derived
-        // title immediately. Best-effort.
-        for (const id of changeIds) {
-          try {
-            await updateChangelogHypothesis(id, operatorTitle, "recommendation");
-          } catch (err) {
-            log.warn("acceptRecommendation: hypothesis stamp failed", {
-              changeId: id,
-              error: err instanceof Error ? err.message : String(err),
-            });
-          }
-        }
-        revalidatePath("/recommendations");
-        revalidatePath("/", "layout");
-        log.info("Action completed", {
-          action,
-          durationMs: Date.now() - t0,
-          params: {
-            changeIds,
-            editCount: editsForRec.length,
-            mode: "per-edit",
-          },
-        });
-        return { success: true, changeId, changeIds };
-      } catch (e) {
-        log.error("acceptRecommendation: per-edit fan-out failed", {
-          stableKey: payload.stableKey,
-          error: e instanceof Error ? e.message : String(e),
-        });
-        return {
-          success: false,
-          error: `Failed to create per-edit changelog entries: ${
-            e instanceof Error ? e.message : String(e)
-          }`,
-        };
-      }
-    }
-
-    // Legacy single-entry path: rec has no typed edits. Preserves
-    // existing behavior bit-for-bit.
+  // Legacy single-entry path — runs ONLY when no typed edits exist
+  // AND the rec's resolved action is changelog-worthy.
+  if (shouldStampChangelog(payload.type, resolvedAction)) {
     const changeDescription = sanitizeOperatorCopy(
       payload.resolution?.specificRecommendation ??
         payload.resolution?.reasoning ??
@@ -529,7 +533,10 @@ export async function acceptRecommendation(
   log.info("Action completed", {
     action,
     durationMs: Date.now() - t0,
-    params: { changeId: changeId ?? null, mode: "single-entry" },
+    params: {
+      changeId: changeId ?? null,
+      mode: changeId ? "single-entry" : "no-changelog",
+    },
   });
   return { success: true, changeId };
 }

@@ -7,6 +7,165 @@
 
 ---
 
+## 2026-04-25 — Sprint 6A.1 / Phase 13b — Accept fan-out test + bug fix
+
+**Sprint 6A.1's Accept-into-changelog fan-out is now fully proven on
+production data.** Operator clicked the Accept button for the Los
+Altos rec; 5 changelog entries were created (one per typed edit),
+each carrying `source_rec_id`, `action_type`, `target_element_key`,
+and structured `notes` (Proposed / Evidence / Measurement plan / Risks).
+`/changes` lists all 5 entries with the correct cards.
+
+**Bug found + fixed in this phase.**
+
+### The bug
+
+The first Accept click logged `mode:"single-entry"` with
+`changeId:null` — meaning NO changelog entries were created — but
+the UI still showed "Accepted — 5 edits tracked." A real operator
+seeing this would believe their edits were persisted when they
+weren't.
+
+Root cause: `acceptRecommendation` gated the WHOLE changelog block
+(both fan-out + legacy paths) on `shouldStampChangelog(type, action)`.
+That helper returns false for `needs_review` / `watch` /
+`split_or_separate_page` actions. The Los Altos rec's resolver
+classified it as `needs_review` (bundled-match — close existing
+page), so the gate blocked everything — including the per-edit
+fan-out that the operator's UI button explicitly authorized.
+
+### The fix
+
+`src/app/(shell)/recommendations/actions.ts`: refactored the action
+to read typed edits BEFORE any gating, and fire fan-out
+unconditionally when edits exist. The `shouldStampChangelog` gate
+now applies ONLY to the legacy single-entry path:
+
+```ts
+// Read edits first.
+const editsForRec = ... ;
+
+if (editsForRec.length > 0) {
+  // FAN-OUT — always fires when edits exist. Bypasses
+  // shouldStampChangelog because typed edits ARE the operator's
+  // explicit per-edit approval.
+  return await createChangelogEntriesForEdits(...);
+}
+
+if (shouldStampChangelog(payload.type, resolvedAction)) {
+  // Legacy single-entry path — still gated.
+}
+```
+
+Also tightened the trailing log: `mode: "no-changelog"` when no
+changeId was created (instead of misleading `"single-entry"`).
+
+### Regression test added
+
+`src/app/(shell)/recommendations/accept-fanout.test.ts` — new test
+"fan-out fires even when resolution.action is needs_review (typed
+edits override the generic gate)". 7 tests in the file all pass.
+
+### Verification on production
+
+**Reset state** — The first (broken) Accept click had recorded the
+recommendation_response as "accepted" without creating changelog
+entries. `Undo` from the UI removes the in-memory row +
+syncRecommendationResponses (which is upsert-only — can't delete) so
+the row stayed in Supabase as a stale "accepted". Cleared via
+`DELETE FROM recommendation_responses WHERE rec_id = '...'` to reset
+the rec's UI state. (Note: this exposes a separate bug — the
+recommendation-response store doesn't dual-write deletions. Out of
+scope for Phase 6A.1.)
+
+**Re-clicked Accept via the UI button** — same code path the
+operator uses on hosted. The dev server runs against production
+Supabase (DATA_SOURCE=supabase, DUAL_WRITE=true), so the writes
+land in production.
+
+**Returned changeIds (5):**
+```
+cl-moeqr4alp3aomk  add_faq           faq_question[new]:93a207d063c1
+cl-moeqr4aly2qps4  add_faq           faq_question[new]:d1b049c63d8a
+cl-moeqr4al0gsxhz  add_faq           faq_question[new]:f2dcb7022c42
+cl-moeqr4al3c21mc  add_faq           faq_question[new]:ff677f6f3ded
+cl-moeqr4alnbq81z  add_h2_section    h2[new]:c75a1120a6aa
+```
+
+UI feedback: "Accepted — 5 edits tracked".
+
+**SQL verification on production Supabase:**
+```sql
+SELECT id, source_rec_id, action_type, target_element_key,
+       LEFT(notes, 200), hypothesis_source, signal_type, asset_type
+FROM changelog_entries
+WHERE source_rec_id = 'create_cluster_page:geo:Los Altos'
+ORDER BY action_type, target_element_key;
+```
+
+→ **5 rows returned.** Each row carries:
+- ✓ `source_rec_id = 'create_cluster_page:geo:Los Altos'`
+- ✓ `action_type` populated (4× add_faq, 1× add_h2_section)
+- ✓ `target_element_key` populated (matches recommended_edits row 1:1)
+- ✓ `notes` populated with `Proposed:`, `Evidence:`,
+  `Measurement plan:`, and (where applicable) `Risks:` blocks
+- ✓ `hypothesis_source = "recommendation"` (P12 wiring)
+- ✓ `signal_type` from `ACTION_TYPE_REGISTRY[edit.action_type]`
+  (faq for add_faq, content for add_h2_section)
+- ✓ `asset_type = "city_page"` (geo cluster mapped correctly)
+- ✓ `asset_name = "Review Los Altos recommendation"`
+
+**`/changes` UI verification:**
+- Page header reads "**293 changes tracked / Latest: just now**"
+  (was 288 before; +5 matches expected fan-out count)
+- 5 cards visible with title "Review Los Altos recommendation"
+- Per-card descriptions show actual edit content:
+  - 4× `New FAQ: "<question>" — Prompt "<question>" is question-shaped
+    but no existing FAQ on this page covers ≥40% of its tokens.`
+  - 1× `H2 heading (new): "Why teams choose us over De Mattei
+    Construction" — Top competitor "De Mattei Construction" is primary on
+    3 of 4 affected prompts but no H2 on this page directly addresses why
+    we're a better choice.`
+- Target URL `https://ritzbuilders.com/locations/los-altos` rendered
+  on each card
+
+### Phase 13b verification
+
+- `npm run typecheck` — clean
+- `npx vitest run` — 2064 passing (+1 new fan-out test from 2061);
+  baseline pre-existing fails dropped from 10 → 8 (two tenant-
+  isolation tests now pass because real production data is present)
+- 5 fan-out changelog entries on production Supabase, /changes UI
+  shows them, no errors
+
+### Sprint 6A.1: TRULY end-to-end verified
+
+What works on production today:
+- ✅ scan → page_element_inventory (Phase 15)
+- ✅ live-queue stableKey → SpecificEditEvidencePacket → deterministic
+   provider → recommended_edits write (Phase 13)
+- ✅ /recommendations renders Specific edits (N) panel (Phase 13)
+- ✅ Accept button → N changelog entries with action_type +
+   target_element_key + source_rec_id (Phase 13b)
+- ✅ /changes lists per-edit entries (Phase 13b)
+
+### Non-blocking issues flagged
+
+1. **`recommendation_responses` deletion path** — `Undo` and
+   `dismissRecommendation` mutate the in-memory array but the dual-
+   write helper is upsert-only. Stale rows accumulate in Supabase.
+   Same bug class as pre-Sprint-1 stores. One-line fix possible but
+   out of scope here.
+2. **`updateChangelogHypothesis` may write to `.data/imported-changes.json`
+   without dual-writing to Supabase** — observed during Phase 13b
+   that hypothesis_source IS dual-written (the SQL query confirmed
+   it = "recommendation"), but worth verifying this isn't a fragile
+   path.
+3. **First-click misfire pattern in legacy gate** — fixed; covered
+   by regression test.
+
+---
+
 ## 2026-04-25 — Sprint 6A.1 / Phase 13 (rerun) — REAL hosted UI verification
 
 **Sprint 6A.1 is now end-to-end verified on hosted.** A real

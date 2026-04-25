@@ -272,6 +272,46 @@ describe("Phase 6A.1.12 — acceptRecommendation per-edit fan-out", () => {
     expect(mocks.createChangelogEntry).toHaveBeenCalledTimes(1);
   });
 
+  it("fan-out fires even when resolution.action is needs_review (typed edits override the generic gate)", async () => {
+    // Phase 6A.1.13 verification surfaced this gap: the Los Altos rec
+    // resolved to action=needs_review, which the legacy
+    // shouldStampChangelog gate blocked. Fan-out must bypass that gate
+    // — N typed edits IS the operator's explicit per-edit approval.
+    mocks.editsToReturn = [
+      makeEdit({
+        action_type: "add_faq",
+        target_element_key: "faq_question[new]:abc",
+      }),
+      makeEdit({
+        action_type: "add_h2_section",
+        target_element_key: "h2[new]:def",
+      }),
+    ];
+    const payload: RecommendationActionPayload = {
+      ...basePayload(),
+      type: "create_cluster_page",
+      resolution: {
+        action: "needs_review", // ← would normally block changelog stamping
+        motive: "capture_absent_cluster",
+        targetUrl: URL_BRACES,
+        reasoning: "Bundled match — operator review required.",
+        confidence: "low",
+      },
+    };
+    const result = await acceptRecommendation(payload);
+    expect(result.success).toBe(true);
+    expect(result.changeIds).toHaveLength(2);
+    expect(mocks.changelogEntriesArr).toHaveLength(2);
+    // Legacy single-entry createChangelogEntry must NOT have been called.
+    expect(mocks.createChangelogEntry).not.toHaveBeenCalled();
+    // Each entry carries the action_type / target_element_key / source_rec_id.
+    for (const entry of mocks.changelogEntriesArr) {
+      expect(entry.source_rec_id).toBe(STABLE_KEY);
+      expect(entry.action_type).toBeTruthy();
+      expect(entry.target_element_key).toBeTruthy();
+    }
+  });
+
   it("filters edits by rec_id — edits for OTHER recs are ignored", async () => {
     mocks.editsToReturn = [
       makeEdit({ rec_id: "rec-OTHER", id: "rec-OTHER__edit_title__x" }),
