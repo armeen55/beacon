@@ -20,6 +20,10 @@ process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 
 import { readStore } from "../src/lib/persistence/json-store";
 import { extractPageSnapshot } from "../src/domains/pages/extractor";
+import {
+  buildPageElementRows,
+  type PageElementInventoryRow,
+} from "../src/domains/pages/extractors/persist";
 import { diffSnapshots } from "../src/domains/pages/snapshot-diff";
 import { classifyGuardrails, type GuardrailAlert, type ScanRunMeta } from "../src/domains/pages/guardrails";
 import type { ObservationRun } from "../src/domains/observations/types";
@@ -198,6 +202,44 @@ function saveSnapshots(snapshots: PageSnapshot[]): void {
   const tmp = path + ".tmp";
   writeFileSync(tmp, JSON.stringify(snapshots, null, 2), "utf8");
   renameSync(tmp, path);
+}
+
+/** Sprint 6A.1 Phase 6 — write the freshly-extracted page_element_inventory
+ *  rows for this scan. Full replace (matches `saveSnapshots`'s
+ *  full-rewrite shape). orchestrate-scan reads this file after the CLI
+ *  exits and dual-writes to Supabase. */
+function saveElementInventory(rows: PageElementInventoryRow[]): void {
+  const path = join(DATA_DIR, "page-element-inventory.json");
+  const tmp = path + ".tmp";
+  writeFileSync(tmp, JSON.stringify(rows, null, 2), "utf8");
+  renameSync(tmp, path);
+}
+
+/** Read city + service dictionaries directly from the on-disk
+ *  business config. Avoids importing server-only modules into the CLI
+ *  subprocess. Missing/invalid file → empty dictionaries (mention
+ *  extractors degrade to zero rows gracefully). */
+function loadInventoryDictionaries(): {
+  cities: string[];
+  services: string[];
+} {
+  try {
+    const cfgPath = join(DATA_DIR, "business-config.json");
+    if (!existsSync(cfgPath)) return { cities: [], services: [] };
+    const cfg = JSON.parse(readFileSync(cfgPath, "utf8")) as {
+      locations?: unknown;
+      services?: unknown;
+    };
+    const cities = Array.isArray(cfg.locations)
+      ? cfg.locations.filter((s): s is string => typeof s === "string")
+      : [];
+    const services = Array.isArray(cfg.services)
+      ? cfg.services.filter((s): s is string => typeof s === "string")
+      : [];
+    return { cities, services };
+  } catch {
+    return { cities: [], services: [] };
+  }
 }
 
 function saveDiffs(diffs: PageSnapshotDiff[]): void {
@@ -458,6 +500,18 @@ async function main() {
   const errors: { url: string; error: string }[] = [];
   let scanned = 0;
 
+  // Sprint 6A.1 Phase 6 — accumulate page_element_inventory rows during
+  // the scan loop. Written to disk near the snapshot save so the
+  // file-first invariant matches `page-snapshots.json`.
+  // Dictionaries + tenantId are read once before the loop; both live in
+  // .data and are read directly from JSON (avoids dragging server-only
+  // BusinessConfig + Supabase imports into the CLI subprocess).
+  const allElementRows: PageElementInventoryRow[] = [];
+  const tenantIdForInventory =
+    process.env.BEACON_TENANT_ID ?? "tenant-ritz-founder";
+  const { cities: cityDictionary, services: serviceDictionary } =
+    loadInventoryDictionaries();
+
   const observationRunId = `obs-${Date.now()}`;
   const baselineRunId = loadLastRunId();
 
@@ -480,7 +534,25 @@ async function main() {
       page.scan_page_id,
       result.status
     );
-    newSnapshots.push({ ...snapshot, observation_run_id: observationRunId });
+    const stamped: PageSnapshot = { ...snapshot, observation_run_id: observationRunId };
+    newSnapshots.push(stamped);
+
+    // Sprint 6A.1 Phase 6 — extract inventory rows alongside the snapshot.
+    // Per-page try/catch so a bad page doesn't abort the rest of the scan.
+    try {
+      const rows = buildPageElementRows({
+        snapshot: stamped,
+        html: result.html,
+        tenantId: tenantIdForInventory,
+        cityDictionary,
+        serviceDictionary,
+      });
+      for (const r of rows) allElementRows.push(r);
+    } catch (err) {
+      console.warn(
+        `[scan] inventory extraction failed for ${page.url}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
 
     const prev = prevByPageId.get(page.scan_page_id) ?? prevByUrl.get(normalizeUrl(page.url));
     if (prev) {
@@ -560,6 +632,14 @@ async function main() {
   archivePreviousSnapshots();
   saveSnapshots(newSnapshots);
   console.log(`Wrote ${newSnapshots.length} snapshots to .data/page-snapshots.json`);
+
+  // Sprint 6A.1 Phase 6 — write the inventory rows accumulated in the
+  // scan loop. orchestrate-scan reads this file after the CLI exits and
+  // calls `syncPageElementInventory` to dual-write to Supabase.
+  saveElementInventory(allElementRows);
+  console.log(
+    `Wrote ${allElementRows.length} page-element-inventory rows to .data/page-element-inventory.json`,
+  );
 
   if (diffs.length > 0) {
     saveDiffs(diffs);

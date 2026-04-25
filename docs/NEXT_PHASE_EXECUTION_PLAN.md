@@ -17,6 +17,16 @@
 
 ---
 
+## Sprint 6A.1 progress — Phase 6 (page_element_inventory persistence) COMPLETE 2026-04-24
+
+**Done so far:** P1 migrations · P2 ActionType registry · P3 ElementType registry · P4 element_key helpers · P5 13 active extractors + dispatcher · **P6 (today) — extractor wired into `verify-action.ts`, `scripts/scan-owned-pages.ts`, `orchestrate-scan.ts`. `syncPageElementInventory` dual-write helper added (idempotent on `source_snapshot_id, element_key`). Tenant + city/service dictionaries threaded; not Ritz-hardcoded. 36 new tests (1839 passing).**
+
+**Next Sprint 6A.1 step (P7):** Evidence packet builder. Pure function `buildEvidencePacket(rec, tenant) → EvidencePacket` with affectedPrompts / ownedPageCandidates / targetPageElements / competitorAngles / priorOutcomes / allowedTargetUrls / allowedActionTypes / budgetRemainingUsd / maxRecommendations / evidenceHash. Reads from page_element_inventory + cluster data + recommendation_responses + change_outcomes. NO generators yet. Sets up the input shape every provider (deterministic + LLM) will consume.
+
+Capability: **Balanced** — bounded pure-function work over already-typed inputs.
+
+---
+
 ## Next best step — Phase 2 of /changes rebuild (2026-04-16)
 
 **Phase 1 shipped today (see `VERIFICATION_LOG.md` 2026-04-16):**

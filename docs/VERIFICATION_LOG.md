@@ -7,6 +7,132 @@
 
 ---
 
+## 2026-04-24 — Sprint 6A.1 / Phase 6 — page_element_inventory persistence wired into scan + verify
+
+**Context.** Phase 5 (commit `b2f8623`) shipped the extractor pipeline:
+13 active extractors + 18 stubs + dispatcher. Pure compute, zero I/O. Phase 6
+adds the persistence boundary so every scan + every operator-driven verify
+produces durable `page_element_inventory` rows in Supabase.
+
+**No recommended_edits, no evidence packet, no generators, no UI, no LLM
+in this phase** — strictly the inventory-only path.
+
+### What changed (5 files)
+
+1. **`src/domains/pages/extractors/persist.ts`** (new) — module exports:
+   - `PageElementInventoryRow` — DB-row shape (12 columns matching the
+     migration schema in Phase 1).
+   - `buildPageElementRows({ snapshot, html, tenantId, cityDictionary?,
+     serviceDictionary?, entityDictionary?, competitorDictionary? })` —
+     **pure** function. Calls `extractAllElements` then wraps each
+     `ExtractedElement` with `id`, `tenant_id`, `page_id`, `url`,
+     `observed_at`, `source_snapshot_id`. `id = ${snapshot.id}__${element_key}`
+     so repeated calls produce identical rows (deterministic).
+   - `persistPageElements(args)` — `buildPageElementRows` + dual-write.
+     Whole flow wrapped in try/catch; returns `[]` on failure.
+
+2. **`src/lib/persistence/dual-write.ts`** — adds
+   `syncPageElementInventory(rows)`. Pass-through to `dualWriteUpsert`
+   with `onConflict = "source_snapshot_id,element_key"` matching the
+   `ux_pei_snapshot_element_key` unique index from Phase 1. No-op when
+   `DUAL_WRITE != "true"` or rows empty.
+
+3. **`src/app/(shell)/pages/verify-action.ts`** — after the existing
+   `syncPageSnapshots([newSnapshot])` call, wraps a try/catch around
+   `persistPageElements({ snapshot: newSnapshot, html, tenantId:
+   currentTenantId(), cityDictionary: cfg.locations, serviceDictionary:
+   cfg.services })`. Snapshot is durable BEFORE the inventory write —
+   any extractor / dual-write failure cannot regress verify success.
+
+4. **`scripts/scan-owned-pages.ts`** (CLI) — accumulates inventory rows
+   inside the page-fetch loop (per-page try/catch) and writes them to
+   `.data/page-element-inventory.json` near the snapshot save. Tenant
+   threaded via `process.env.BEACON_TENANT_ID ?? "tenant-ritz-founder"`;
+   city + service dictionaries read directly from `.data/business-config.json`
+   to avoid dragging server-only `getBusinessConfig` into the CLI subprocess.
+
+5. **`src/domains/scanning/orchestrate-scan.ts`** — the existing
+   dual-write block (which already reads `.data/page-snapshots.json` after
+   the CLI exits) now also reads `.data/page-element-inventory.json` and
+   calls `syncPageElementInventory`. Wrapped in try/catch; failure
+   logged, scan not aborted. New `pageElements: N` counter on the
+   `dual_write_scan_outputs` log line.
+
+### Tenant convention
+
+`tenantId` resolves via `currentTenantId()` from `src/lib/tenant-context.ts` in
+verify-action (returns `process.env.BEACON_TENANT_ID ?? "tenant-ritz-founder"`).
+Identical resolution inlined in the CLI to avoid the heavier import chain.
+**Not Ritz-hardcoded** — env-var driven; Sprint 7 multi-tenant will swap the
+default for Clerk-session resolution without touching either call site.
+
+### page_id reliability
+
+Confirmed before wiring. `PageSnapshot.page_id` is `NOT NULL` in the type and
+populated by every snapshot producer (`scripts/scan-owned-pages.ts`,
+`extractPageSnapshot` in both CLI and verify paths). Verify path uses
+`prevSnapshot?.page_id ?? \`verify-${Date.now()}\`` as a last-resort fallback
+for first-time URLs that have no prior snapshot — already in place from
+Phase 4.5. No `page_id` propagation work needed for Phase 6.
+
+### Tests added (36 new, 1839 passing total)
+
+**`src/domains/pages/extractors/persist.test.ts`** — 16 tests:
+- `buildPageElementRows` row-shape contract: every column present, all
+  NOT NULL fields populated, `tenant_id` / `page_id` / `url` /
+  `observed_at` / `source_snapshot_id` threaded correctly.
+- Idempotency: same inputs → same rows; same `id` derivation
+  (`snapshot.id + "__" + element_key`).
+- Content-hash invariant: changing title text shifts `element_key` AND
+  `id` together.
+- Dictionary threading is tenant-agnostic: city/service mentions reflect
+  whatever dictionary the caller passes (test uses non-Ritz terms —
+  Burbank, Pasadena, "roof replacement", "chimney rebuild").
+- `persistPageElements` calls `syncPageElementInventory` exactly once
+  with the built rows; swallows dual-write failure and returns `[]`;
+  no-op safe on empty extraction.
+
+**`tests/sprint6a1-phase6-wiring.test.ts`** — 20 tests:
+- `syncPageElementInventory` no-op when `DUAL_WRITE != "true"` and on
+  empty rows; uses `page_element_inventory` table + compound onConflict
+  `source_snapshot_id,element_key`.
+- `verify-action.ts` source invariants: imports `persistPageElements`,
+  threads `getBusinessConfig` + `currentTenantId`, calls
+  `persistPageElements` AFTER `syncPageSnapshots([newSnapshot])`, wraps
+  in try/catch.
+- `scan-owned-pages.ts` source invariants: imports `buildPageElementRows`
+  + `PageElementInventoryRow`, calls inside the page-fetch loop with
+  per-page try/catch, writes `.data/page-element-inventory.json`,
+  threads tenant via env + dictionaries via on-disk business config.
+- `orchestrate-scan.ts` source invariants: imports
+  `syncPageElementInventory`, reads `.data/page-element-inventory.json`,
+  wraps the dual-write in try/catch.
+- **No-route-render-extraction guarantee** — recursively walks
+  `src/app/**/{page.tsx,route.ts}` and asserts ZERO files import the
+  dispatcher, `extractAllElements`, `buildPageElementRows`, or
+  `persistPageElements`. Locks in the rule that extraction never runs
+  on render.
+
+### Phase 6 verification
+
+- `npm run typecheck` — clean
+- `npx vitest run` — 1839 passing (+36 over Phase 5's 1803), 10
+  pre-existing fails unchanged
+- No new files in `.data/` will exist on hosted (Vercel-only env) until
+  the next CLI scan; verify-action triggers Supabase upsert directly so
+  hosted-first behavior is preserved.
+
+### What is NOT yet wired (out of scope for 6A.1.6, future phases)
+
+- recommended_edits population (Phase 6A.1.7+ — generators)
+- evidence packet builder (Phase 6A.1.5 deliverable, queued)
+- LLM provider adapter (Sprint 6A.2)
+- /recommendations UI rendering of typed edits (Sprint 6 / 6A.1.10)
+- per-edit Accept UX (Sprint 6A.2)
+- backlog extractor activation (18 stubs flip on in 6A.2)
+
+---
+
 ## 2026-04-24 — Sprint 4 / Phase 4.9 — canonical-store fresh-per-render
 
 **Context.** Post-Phase-4.5 checkpoint surfaced the remaining blocker for

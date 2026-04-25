@@ -21,7 +21,9 @@ import {
   syncPageSnapshots,
   syncGuardrailAlerts,
   syncObservationRuns,
+  syncPageElementInventory,
 } from "@/lib/persistence/dual-write";
+import type { PageElementInventoryRow } from "@/domains/pages/extractors/persist";
 import type { LastScanResultPayload } from "./last-scan-result";
 import { readLastScanResult, writeLastScanResultFile } from "./last-scan-result";
 import type { ScanTrigger } from "./scan-state";
@@ -329,12 +331,35 @@ export async function runWebsiteScan(opts: {
     if (syncRuns.length > 0) {
       await syncObservationRuns(syncRuns);
     }
+
+    // Sprint 6A.1 Phase 6 — dual-write the inventory rows the CLI wrote
+    // to `.data/page-element-inventory.json`. Idempotent on
+    // `(source_snapshot_id, element_key)` so re-runs replace in place.
+    // Best-effort — failure here must not regress the scan.
+    let inventoryRowCount = 0;
+    try {
+      const syncInventory =
+        readDotDataJson<PageElementInventoryRow[]>(
+          "page-element-inventory",
+        ) ?? [];
+      if (syncInventory.length > 0) {
+        await syncPageElementInventory(syncInventory);
+        inventoryRowCount = syncInventory.length;
+      }
+    } catch (e) {
+      log.warn("Page element inventory dual-write failed", {
+        runId,
+        error: e instanceof Error ? e.message : String(e),
+      });
+    }
+
     log.info("Scan step", {
       runId,
       step: "dual_write_scan_outputs",
       snapshots: syncSnaps.length,
       guardrails: syncGuards.length,
       observationRuns: syncRuns.length,
+      pageElements: inventoryRowCount,
     });
   }
 

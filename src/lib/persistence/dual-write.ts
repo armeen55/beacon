@@ -704,6 +704,32 @@ export async function syncUrlChangeOutcomes(
   );
 }
 
+// ── Page element inventory sync (Sprint 6A.1 Phase 6) ──
+
+/**
+ * Sprint 6A.1 Phase 6 (2026-04-24) — page_element_inventory dual-write.
+ *
+ * Idempotent on `(source_snapshot_id, element_key)` — re-extracting the
+ * same snapshot replaces existing rows in place rather than accumulating
+ * duplicates. The unique index `ux_pei_snapshot_element_key` enforces
+ * this at the DB level. Different snapshots (different `id`) keep their
+ * own inventory rows so the table doubles as a per-scan audit trail.
+ *
+ * Rows arrive already snake_cased + DB-shaped from
+ * `buildPageElementRows` in `src/domains/pages/extractors/persist.ts` —
+ * pass-through, no mapping needed.
+ */
+export async function syncPageElementInventory(
+  rows: import("@/domains/pages/extractors/persist").PageElementInventoryRow[],
+): Promise<void> {
+  if (!isDualWriteEnabled() || rows.length === 0) return;
+  await dualWriteUpsert(
+    "page_element_inventory",
+    rows as unknown as AnyRow[],
+    "source_snapshot_id,element_key",
+  );
+}
+
 /**
  * Clear all 7 import-path tables in Supabase (used by resetExperiment).
  * Best-effort — errors logged, never thrown.

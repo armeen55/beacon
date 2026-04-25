@@ -17,6 +17,9 @@ import {
   syncGuardrailAlertsForUrl,
 } from "@/lib/persistence/dual-write";
 import { getRepository } from "@/lib/persistence/repositories";
+import { persistPageElements } from "@/domains/pages/extractors/persist";
+import { getBusinessConfig } from "@/lib/business-config";
+import { currentTenantId } from "@/lib/tenant-context";
 
 const DATA_DIR = join(process.cwd(), ".data");
 const IS_VERCEL = process.env.VERCEL === "1";
@@ -217,6 +220,26 @@ export async function verifyPageFix(url: string): Promise<VerifyResult> {
       renameSync(snapTmp, snapPath);
     }
     await syncPageSnapshots([newSnapshot]);
+
+    // Sprint 6A.1 Phase 6 — extract + dual-write the inventory rows for
+    // this snapshot. Runs AFTER `syncPageSnapshots` so the snapshot is
+    // already durable; `persistPageElements` swallows any extractor or
+    // dual-write failure internally so it cannot regress verify success.
+    try {
+      const cfg = getBusinessConfig();
+      await persistPageElements({
+        snapshot: newSnapshot,
+        html,
+        tenantId: currentTenantId(),
+        cityDictionary: cfg.locations,
+        serviceDictionary: cfg.services,
+      });
+    } catch (e) {
+      log.warn("verifyPageFix: page element persistence failed (non-fatal)", {
+        url,
+        error: e instanceof Error ? e.message : String(e),
+      });
+    }
 
     // Update guardrails for THIS URL only. Phase 4.5:
     //   - On local: FS replace-dance AND URL-scoped Supabase sync
