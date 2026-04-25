@@ -9,7 +9,10 @@
 import "server-only";
 
 import { readStore, writeStore } from "@/lib/persistence/json-store";
-import { syncRecommendationResponses } from "@/lib/persistence/dual-write";
+import {
+  deleteRecommendationResponseByRecId,
+  syncRecommendationResponses,
+} from "@/lib/persistence/dual-write";
 import { getRepository } from "@/lib/persistence/repositories";
 
 // ---------------------------------------------------------------------------
@@ -94,6 +97,31 @@ export function invalidateRecommendationResponsesSeed(): void {
 export async function persistResponses(): Promise<void> {
   await writeStore(STORE_NAME, recommendationResponses);
   await syncRecommendationResponses(recommendationResponses);
+}
+
+/**
+ * Sprint 6A.1.16 (2026-04-25) — Undo path helper.
+ *
+ * Removes a single response by `recId` from BOTH the in-memory array
+ * AND the Supabase row, then re-persists the local file. Splits cleanly
+ * from `persistResponses` (which is upsert-only and can't delete) so
+ * Undo's intent — "this rec has no operator response" — survives across
+ * Vercel lambdas.
+ *
+ * Returns true when an in-memory row was found + removed, false when
+ * the recId wasn't present locally (still attempts the Supabase delete
+ * for safety — a row could have been written by a different lambda).
+ */
+export async function deleteResponseByRecId(recId: string): Promise<boolean> {
+  const idx = recommendationResponses.findIndex((r) => r.recId === recId);
+  let removed = false;
+  if (idx >= 0) {
+    recommendationResponses.splice(idx, 1);
+    removed = true;
+  }
+  await writeStore(STORE_NAME, recommendationResponses);
+  await deleteRecommendationResponseByRecId(recId);
+  return removed;
 }
 
 // ---------------------------------------------------------------------------

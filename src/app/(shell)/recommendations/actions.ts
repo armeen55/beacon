@@ -3,10 +3,10 @@
 import { revalidatePath } from "next/cache";
 import { log } from "@/lib/logger";
 import {
-  recommendationResponses,
   recordResponse,
   persistResponses,
   ensureRecommendationResponsesSeeded,
+  deleteResponseByRecId,
 } from "@/domains/product/recommendation-response-store";
 import { createChangelogEntry } from "@/domains/changelog/actions";
 import { updateChangelogHypothesis } from "@/domains/changelog/actions";
@@ -581,12 +581,18 @@ export async function undoRecommendationResponse(
   log.info("Action started", { action, params: { stableKey } });
 
   await ensureRecommendationResponsesSeeded();
-  const idx = recommendationResponses.findIndex((r) => r.recId === stableKey);
-  if (idx >= 0) {
-    recommendationResponses.splice(idx, 1);
-    await persistResponses();
-  }
+  // Sprint 6A.1.16 (2026-04-25): use the new deleteResponseByRecId
+  // helper so the Supabase row is actually removed. The pre-fix path
+  // spliced the in-memory array + called persistResponses (upsert-
+  // only), which left a stale "accepted" / "dismissed" / "deferred"
+  // row in production for any other lambda to read.
+  const removed = await deleteResponseByRecId(stableKey);
+  log.info("Action completed", {
+    action,
+    durationMs: Date.now() - t0,
+    params: { removed },
+  });
+
   revalidatePath("/recommendations");
-  log.info("Action completed", { action, durationMs: Date.now() - t0 });
   return { success: true };
 }

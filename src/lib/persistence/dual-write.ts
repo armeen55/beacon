@@ -692,6 +692,41 @@ export async function syncRecommendationResponses(
   await dualWriteUpsert("recommendation_responses", mapped, "rec_id");
 }
 
+/**
+ * Sprint 6A.1.16 (2026-04-25) — delete a recommendation_responses row by
+ * rec_id. Required for the Undo path: the in-memory + on-disk arrays
+ * splice the row out, but `syncRecommendationResponses` is upsert-only
+ * — without an explicit delete, the row stays in Supabase and the
+ * /recommendations page surfaces a stale "accepted" state on the next
+ * cross-lambda render.
+ *
+ * Best-effort: errors logged, never thrown (matches the rest of this
+ * module's posture). Caller has already removed the row from in-memory
+ * state by the time this fires; if the Supabase delete fails, the
+ * stale row is the worst case.
+ */
+export async function deleteRecommendationResponseByRecId(
+  recId: string,
+): Promise<void> {
+  if (!isDualWriteEnabled()) return;
+  try {
+    const sb = getSupabaseAdmin();
+    const { error } = await sb
+      .from("recommendation_responses")
+      .delete()
+      .eq("rec_id", recId);
+    if (error) {
+      console.error(
+        `[dual-write] recommendation_responses delete (rec_id=${recId}) failed — ${error.message}`,
+      );
+    }
+  } catch (e) {
+    console.error(
+      `[dual-write] recommendation_responses delete (rec_id=${recId}) error — ${e instanceof Error ? e.message : e}`,
+    );
+  }
+}
+
 export async function syncUrlChangeOutcomes(
   rows: UrlChangeOutcome[],
 ): Promise<void> {

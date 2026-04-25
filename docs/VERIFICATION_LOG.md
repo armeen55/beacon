@@ -7,6 +7,113 @@
 
 ---
 
+## 2026-04-25 — Sprint 6A.1.16 — cleanup before Sprint 7 (response-deletion + page_snapshots schema drift)
+
+Two surgical pre-Sprint-7 fixes. Both isolated, additive, fully tested.
+
+### Part A — recommendation_responses deletion
+
+**Audit (read-only) confirmed:**
+- `accept` / `defer` / `dismiss` → `recordResponse` + `persistResponses` (upsert). Correct as-is. Dismiss persists `status=dismissed` so the rec is suppressed on subsequent renders; deleting it would make the rec re-appear.
+- `undo` → `recommendationResponses.splice(...)` + `persistResponses` (upsert-only). The deleted row stayed in Supabase, surfacing a stale "accepted" / "deferred" / "dismissed" state on cross-lambda renders. **This was the bug.**
+
+**Fix:**
+- `src/lib/persistence/dual-write.ts` — new helper
+  `deleteRecommendationResponseByRecId(recId)`. Issues an explicit
+  `delete().eq("rec_id", recId)` on Supabase. Best-effort (errors
+  logged, never thrown). Gated on `DUAL_WRITE === "true"`.
+- `src/domains/product/recommendation-response-store.ts` — new helper
+  `deleteResponseByRecId(recId)`. Removes from in-memory array,
+  re-persists local file, then calls the dual-write delete. Returns
+  `boolean` indicating whether the in-memory row was found.
+- `src/app/(shell)/recommendations/actions.ts` — `undoRecommendationResponse`
+  now calls `deleteResponseByRecId` instead of the broken splice +
+  upsert combo. Removed unused import (`recommendationResponses`).
+
+**Tests added** (7, all passing — `tests/domains/product/recommendation-response-undo.test.ts`):
+
+1. Accept upserts (legacy path preserved).
+2. Defer upserts (legacy path preserved).
+3. Dismiss upserts AS dismissed — NOT deleted.
+4. Undo removes from in-memory state.
+5. Undo issues an explicit Supabase DELETE for the rec_id.
+6. Undo issues Supabase DELETE even when the recId isn't in this
+   lambda's in-memory array (cross-lambda safety).
+7. Undo is a no-op against Supabase when DUAL_WRITE is off.
+
+### Part B — page_snapshots schema drift
+
+**Audit (read-only) found 8 missing columns** on production
+`page_snapshots`, not just `body_paragraph_sample`:
+
+| Column | Type | Why it matters |
+|--------|------|---------------|
+| `tenant_id` | text NOT NULL DEFAULT '' | TS shape declares it required |
+| `body_paragraph_sample` | text[] | Plan A+B1 (2026-04-20) field — caused the original error |
+| `h3_list` | text[] | Plan A+B1 |
+| `card_texts` | text[] | Plan A+B1 |
+| `schema_entity_names` | text[] | Plan A+B1 |
+| `schema_validation_warnings` | text[] | G8 schema validator |
+| `table_count` | integer | G8 |
+| `internal_links` | jsonb (array of {href, anchor_text}) | Phase post-A+B1 |
+
+**Scope-expansion rationale:** the user spec named only
+`body_paragraph_sample`. But adding ONLY that column would fix
+exactly one row's worth of writes — the next snapshot dual-write
+would fail on `h3_list`, then `card_texts`, etc. Adding all 8 in
+one additive migration is the only fix that actually delivers
+"snapshot dual-write no longer fails" (the spec's stated goal).
+All columns nullable (or NOT NULL DEFAULT '' for tenant_id, matching
+the existing `scan_findings` convention). Zero blast radius.
+
+**Migration applied:** `sprint6a116_page_snapshots_drift_columns`.
+
+**Verification (production SQL):**
+- 35 fresh snapshots from today's scan re-uploaded successfully.
+- `page_snapshots` total: 595 → **630** (was capped at the April-15
+  snapshot until now; today's scan added 35).
+- Latest `fetched_at`: 2026-04-25 18:53:09 UTC.
+- 35/35 fresh rows carry `body_paragraph_sample`, `h3_list`,
+  `internal_links`. 4/35 carry `schema_validation_warnings` (only
+  pages with warnings).
+- Pre-existing 595 rows have NULL for the new fields (correct
+  additive behavior — those snapshots predate the extractor changes
+  that produce these fields).
+- `dual-write: snapshots=true guardrails=true runs=true inventory=true`
+  in the wrapper output. **Zero errors.**
+
+### Phase 6A.1.16 verification
+
+- `npm run typecheck` — clean
+- `npx vitest run` — **2071 passing** (+7 from Phase 13b's 2064),
+  8 baseline pre-existing fails unchanged
+- Migration applied via Supabase MCP; SQL verifies all 8 columns
+  present with correct types
+- Snapshot dual-write succeeded against production with zero errors
+
+### Sprint 7 readiness
+
+Sprint 6A.1.16 closes the two issues that would have surfaced
+hostilely during Sprint 7:
+1. Multi-tenant rebuild needs every store to support per-tenant
+   delete (you can't have stale `accepted` rows from a deleted
+   tenant). Undo path is now correct.
+2. Multi-tenant scan would have hit the same `body_paragraph_sample`
+   error on every tenant's first scan. Schema is now aligned.
+
+**Sprint 7 (multi-tenant hardening) is safe to start.**
+
+### Out of scope (deferred per operator instruction)
+
+- Multi-candidate unique-index on `recommended_edits` (Phase 9
+  generators emit per-(URL × prompt) but the index doesn't include
+  `target_url`; Phase 13 added defensive dedup at the persistence
+  boundary).
+- 30s SSR on `/recommendations` (full orchestration on render).
+- Sprint 6A.2 (LLM activation).
+
+---
+
 ## 2026-04-25 — Sprint 6A.1 / Phase 13b — Accept fan-out test + bug fix
 
 **Sprint 6A.1's Accept-into-changelog fan-out is now fully proven on

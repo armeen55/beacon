@@ -17,6 +17,20 @@
 
 ---
 
+## Sprint 6A.1.16 (pre-Sprint-7 cleanup) COMPLETE 2026-04-25
+
+**Done:** Two isolated fixes shipped before Sprint 7. Part A — `recommendation_responses` Undo deletion path (new `deleteRecommendationResponseByRecId` dual-write helper + `deleteResponseByRecId` store helper, wired into `undoRecommendationResponse`; 7 new tests pass). Part B — production `page_snapshots` schema drift closed via additive migration `sprint6a116_page_snapshots_drift_columns` (8 columns added: `tenant_id`, `body_paragraph_sample`, `h3_list`, `card_texts`, `schema_entity_names`, `schema_validation_warnings`, `table_count`, `internal_links`). Snapshot dual-write now succeeds end-to-end. 2071 tests passing.
+
+**Sprint 7 (multi-tenant hardening) — APPROVED + SAFE TO START.**
+
+The two issues that would have surfaced hostilely during Sprint 7 are closed:
+- Multi-tenant rebuild needs per-tenant delete (no stale rows from deleted tenants). ✓ Undo path corrected.
+- Multi-tenant scan would have hit the snapshot schema-drift error on every tenant's first scan. ✓ Schema aligned.
+
+Begin Sprint 7 when ready. Sprint 6A.2 (LLM activation) remains queued behind Sprint 7.
+
+---
+
 ## Sprint 6A.1 — Phase 13 (REAL hosted UI verification) COMPLETE 2026-04-25 — Sprint closed end-to-end
 
 **Done:** Picked `create_cluster_page:geo:Los Altos` from the live queue, dry-ran (20 valid edits, 0 rejected), wrote 5 unique rows to production `recommended_edits`, verified hosted UI shows **Specific edits (5)** + **Accept — track 5 edits** button copy. Stopped before Accept per operator instruction. Three small infra fixes shipped (CLI env loading, paged inventory read, defensive dedup at persistence boundary). 19 existing persistence tests still pass.
