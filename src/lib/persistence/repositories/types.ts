@@ -45,6 +45,7 @@ import type { ConfiguredCompetitorEntry } from "@/domains/competitors/universe-t
 import type { RecommendationResponse } from "@/domains/product/recommendation-response-store";
 import type { UrlChangeOutcome } from "@/domains/attribution/url-change-outcome";
 import type { RecommendedEditRow } from "@/domains/recommendations/recommended-edits-persistence";
+import type { PageElementInventoryRow } from "@/domains/pages/extractors/persist";
 import type { PromptAnswerObservation } from "@/domains/prompt-answer-observations/types";
 import type { DailyMetricSnapshot } from "@/domains/daily-metric-snapshots/types";
 import type { TrackedEntity } from "@/domains/tracked-entities/types";
@@ -122,6 +123,12 @@ export interface SeedDataRepository {
   // Sprint 6A.1 Phase 12 (2026-04-24) — specific edits read path.
   // Fetched fresh per request on /recommendations (Sprint 1 pattern).
   getRecommendedEdits(): Promise<RecommendedEditRow[]>;
+
+  // Sprint 6A.1 Phase 14 (2026-04-24) — page_element_inventory read path.
+  // Used by the queue-driven CLI to feed `targetPageElements` into
+  // `buildSpecificEditEvidencePacket`. Production-empty until a scan
+  // runs after Phase 6's wiring (callers must handle empty gracefully).
+  getPageElementInventory(): Promise<PageElementInventoryRow[]>;
 
   // Phase 3.5E — hosted hero-surface data (visibility score / rankings /
   // competitor comparison / entity universe). File backend wraps existing

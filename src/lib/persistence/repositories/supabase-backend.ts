@@ -52,6 +52,7 @@ import type { Finding } from "@/domains/scanning/types";
 import type { RecommendationResponse } from "@/domains/product/recommendation-response-store";
 import type { UrlChangeOutcome } from "@/domains/attribution/url-change-outcome";
 import type { RecommendedEditRow } from "@/domains/recommendations/recommended-edits-persistence";
+import type { PageElementInventoryRow } from "@/domains/pages/extractors/persist";
 import type { PromptAnswerObservation } from "@/domains/prompt-answer-observations/types";
 import type { DailyMetricSnapshot } from "@/domains/daily-metric-snapshots/types";
 import type { TrackedEntity } from "@/domains/tracked-entities/types";
@@ -301,6 +302,19 @@ export const supabaseBackend: SeedDataRepository = {
         `Supabase query failed on recommended_edits: ${error.message}`,
       );
     return (data ?? []) as unknown as RecommendedEditRow[];
+  },
+
+  // Sprint 6A.1 Phase 14 — page_element_inventory read path.
+  // Production-empty until a scan runs after Phase 6's wiring.
+  getPageElementInventory: async () => {
+    const { data, error } = await getSupabaseAdmin()
+      .from("page_element_inventory")
+      .select("*");
+    if (error)
+      throw new Error(
+        `Supabase query failed on page_element_inventory: ${error.message}`,
+      );
+    return (data ?? []) as unknown as PageElementInventoryRow[];
   },
 
   // Phase 3.5E — hero-surface data. Paged reads for the two large tables

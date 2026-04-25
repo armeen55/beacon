@@ -6,25 +6,10 @@ import "server-only";
 export const dynamic = "force-dynamic";
 
 import { PageHeader } from "@/components/data/page-header";
-import {
-  ensureCanonicalStoresSeeded,
-  loadFreshCanonicalData,
-} from "@/storage/canonical-store";
-import { buildPromptDecisionMatrix } from "@/domains/prompts/decision-matrix";
-import { generateRecommendations } from "@/domains/recommendations/generate";
-import { resolvePageIntent } from "@/domains/recommendations/resolve-page-intent";
-import { buildPageInventory } from "@/domains/recommendations/page-inventory";
-import { prioritizeRecommendations } from "@/domains/recommendations/prioritize";
-import {
-  adjudicateFromCacheOnly,
-  applyAdjudicationToResolution,
-} from "@/domains/recommendations/adjudicate";
-import { allPages } from "@/domains/pages/page-store";
+import { loadLiveRecommendationQueue } from "@/domains/recommendations/load-queue";
+import type { prioritizeRecommendations } from "@/domains/recommendations/prioritize";
 import { getRepository } from "@/lib/persistence/repositories";
-import {
-  ensureRecommendationResponsesSeeded,
-  type RecommendationResponse,
-} from "@/domains/product/recommendation-response-store";
+import type { RecommendationResponse } from "@/domains/product/recommendation-response-store";
 import type { RecommendedEditRow } from "@/domains/recommendations/recommended-edits-persistence";
 import { RecommendationsClient } from "./recommendations-client";
 
@@ -63,59 +48,13 @@ async function safeCall<T>(fn: () => Promise<T> | T, fallback: T, label: string)
 }
 
 export default async function RecommendationsPage() {
-  const errors: string[] = [];
+  // Sprint 6A.1 Phase 14 (2026-04-24) — orchestration extracted to
+  // `loadLiveRecommendationQueue` so the queue-driven CLI consumes the
+  // same source. Page render behavior is byte-equivalent.
+  const live = await loadLiveRecommendationQueue();
+  const errors = [...live.errors];
 
-  const seedRes = await safeCall(
-    () => ensureCanonicalStoresSeeded(),
-    undefined,
-    "seed canonical stores",
-  );
-  if (seedRes.error) errors.push(seedRes.error);
-  const respSeedRes = await safeCall(
-    () => ensureRecommendationResponsesSeeded(),
-    undefined,
-    "seed recommendation responses",
-  );
-  if (respSeedRes.error) errors.push(respSeedRes.error);
-
-  // Phase 4.9 (Sprint 4, 2026-04-24): fetch canonical arrays FRESH from the
-  // repository per render. The module-level arrays in canonical-store.ts
-  // are seeded once per Vercel lambda behind `_canonSeeded`; after the
-  // 07:00 UTC poll writes fresh observations to Supabase, already-warm
-  // lambdas kept serving yesterday's data. On repo failure we surface the
-  // error banner and fall through to empty arrays (never stale module state).
-  const freshCanonRes = await safeCall(
-    () => loadFreshCanonicalData(),
-    {
-      trackedPrompts: [],
-      promptAnswerObservations: [],
-      trackedEntities: [],
-      dailyMetricSnapshots: [],
-    },
-    "fetch fresh canonical data",
-  );
-  if (freshCanonRes.error) errors.push(freshCanonRes.error);
-  const {
-    trackedPrompts,
-    promptAnswerObservations,
-    trackedEntities,
-  } = freshCanonRes.value;
-
-  const matrixRes = await safeCall(
-    () =>
-      buildPromptDecisionMatrix({
-        prompts: trackedPrompts,
-        observations: promptAnswerObservations,
-        activeEntities: trackedEntities,
-        now: new Date(),
-      }),
-    null,
-    "build decision matrix",
-  );
-  if (matrixRes.error) errors.push(matrixRes.error);
-  const matrix = matrixRes.value;
-
-  if (!matrix) {
+  if (!live.matrix) {
     return (
       <div className="max-w-4xl">
         <PageHeader
@@ -127,102 +66,9 @@ export default async function RecommendationsPage() {
     );
   }
 
-  const candidates = (await safeCall(
-    () =>
-      generateRecommendations({
-        matrix,
-        activeEntities: trackedEntities,
-        trackedPrompts,
-      }),
-    [],
-    "generate candidates",
-  )).value;
+  const matrix = live.matrix;
+  const { queue, watchlist } = live;
 
-  const pageSnapshots = (await safeCall(
-    async () => {
-      const repo = getRepository();
-      return repo.getPageSnapshots();
-    },
-    [],
-    "fetch page snapshots",
-  )).value;
-
-  const pageInventory = (await safeCall(
-    () =>
-      buildPageInventory({
-        pages: allPages,
-        snapshots: pageSnapshots,
-        activeEntities: trackedEntities,
-      }),
-    [],
-    "build page inventory",
-  )).value;
-
-  const resolved = (await safeCall(
-    () =>
-      resolvePageIntent({
-        candidates,
-        observations: promptAnswerObservations,
-        activeEntities: trackedEntities,
-        pageInventory,
-      }),
-    [],
-    "resolve page intent",
-  )).value;
-
-  // v7 Commit 3 (2026-04-23) + stabilization (2026-04-24): the adjudicator
-  // only reads cache on the render path. Live LLM calls run out-of-band
-  // (explicit opt-in API route / cron) because 5 × 30s sequential calls
-  // would exceed Vercel's serverless timeout. Cache hit = adjudicated
-  // tier; cache miss = Layer 1/2 output, no blocking I/O.
-  const adjudicated: typeof resolved = [];
-  for (const candidate of resolved) {
-    const result = await safeCall(
-      () =>
-        adjudicateFromCacheOnly({
-          customerId: "ritz",
-          candidate,
-          matrixPrompts: matrix.prompts,
-          trackedPrompts,
-          activeEntities: trackedEntities,
-          observations: promptAnswerObservations,
-          pageInventory,
-        }),
-      null,
-      `adjudicator cache read ${candidate.stableKey}`,
-    );
-    if (result.value && result.value.status === "ok") {
-      adjudicated.push(
-        applyAdjudicationToResolution(candidate, result.value.output),
-      );
-    } else {
-      adjudicated.push(candidate);
-    }
-  }
-
-  const prioritized = (await safeCall(
-    () => prioritizeRecommendations(adjudicated),
-    { queue: [], watchlist: [] },
-    "prioritize recommendations",
-  )).value;
-  const { queue, watchlist } = prioritized;
-
-  // Phase 4.2 (Sprint 4, 2026-04-24): fetch recommendation responses FRESH
-  // from the repository per render. The prior implementation read the
-  // module-level `recommendationResponses` array, seeded once per Vercel
-  // lambda behind a `_dbSeeded` one-shot flag. Once lambda A has seeded, a
-  // write performed by lambda B is invisible on A even after
-  // `revalidatePath` — A's `_dbSeeded=true` blocks re-fetching. Fresh
-  // per-request fetch is the only way to guarantee cross-lambda truth on the
-  // render path. `invalidateRecommendationResponsesSeed()` cannot help
-  // because lambda B can only invalidate its own memory, never another
-  // lambda's.
-  //
-  // The write path (recordResponse + persistResponses + dual-write) is
-  // unchanged — it already writes durably to Supabase on `rec_id` upsert.
-  // Module-level `recommendationResponses` + `getResponse()` + `isRecSuppressed()`
-  // still exist for non-render callers (today-data, replication-engine). Those
-  // surfaces have the same bug class and will be addressed in a later sprint.
   const freshResponsesRes = await safeCall(
     () => getRepository().getRecommendationResponses(),
     [] as RecommendationResponse[],

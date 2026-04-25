@@ -43,8 +43,13 @@ describe("Sprint 4 / Phase 4.2 — /recommendations fresh-read invariants", () =
       // scope). What must NOT appear is `getResponse` — which is the
       // function that reads the module-level array and caused the
       // cross-lambda staleness bug.
+      //
+      // Phase 14 (2026-04-24): the page now imports
+      // `RecommendationResponse` as a TYPE (and the seed call moved
+      // into `loadLiveRecommendationQueue`). Regex matches both
+      // `import { ... }` and `import type { ... }` forms.
       const responseStoreImports = PAGE_SOURCE.match(
-        /import\s+\{[^}]+\}\s+from\s+["'][^"']*recommendation-response-store["']/g,
+        /import\s+(?:type\s+)?\{[^}]+\}\s+from\s+["'][^"']*recommendation-response-store["']/g,
       );
       expect(responseStoreImports).not.toBeNull();
       for (const block of responseStoreImports!) {

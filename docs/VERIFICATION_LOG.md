@@ -7,6 +7,158 @@
 
 ---
 
+## 2026-04-24 — Sprint 6A.1 / Phase 14 — Orchestration extract + queue-driven CLI
+
+**Context.** Phase 6A.1.13 verification could not be completed because no
+script bridged the live `/recommendations` queue → `SpecificEditEvidencePacket`
+→ Phase 11 CLI. The orchestration that produces queue stableKeys lived
+inline in `src/app/(shell)/recommendations/page.tsx`. Phase 14 extracts
+that orchestration into a reusable server module and adds a CLI that
+consumes the same source.
+
+**No behavior change to /recommendations.** No LLM. No production writes.
+No hosted scan. No new architecture beyond the extract.
+
+### What changed (3 new + 4 edited)
+
+1. **`src/domains/recommendations/load-queue.ts`** (NEW) — exports:
+   - `loadLiveRecommendationQueue({ customerId?, now? })` — runs the
+     full orchestration the page used to inline (seed → fresh canonical
+     read → matrix → generate → page inventory → resolve intent →
+     adjudicator cache → prioritize). Returns `{ queue, watchlist,
+     matrix, trackedPrompts, trackedEntities,
+     promptAnswerObservations, pageInventory, errors[] }`. Each layer
+     is `safeCall`-wrapped — same posture as the page.
+   - `buildPacketForRec({ rec, context, pageElementInventory,
+     tenantId, now? })` — pure: composes a `SpecificEditEvidencePacket`
+     from a queue rec + the loaded context + a fetched inventory. The
+     CLI calls this; the page does not.
+   - Sourced `pages` via `getRepository().getPages()` instead of
+     importing `allPages` from `page-store.ts` — the seeded module
+     uses top-level await which `tsx → esbuild` CJS transform can't
+     handle in CLI context.
+
+2. **`scripts/build-edits-for-queue.ts`** (NEW) — CLI exposing the
+   same orchestration. Modes: `--list` (print every queue
+   stableKey + cluster + top match), `--rec-id=<stableKey>` (build
+   packet for one rec), `--all` (build for every rec). `--write`
+   opt-in (default DRY-RUN). Per-rec output: `packet_built /
+   target_url / target_element_count / generated / accepted /
+   rejected / persisted`. When `page_element_inventory` is empty,
+   the CLI says so loudly (`EMPTY — generator outputs will be
+   limited; not a real-world signal`). Exits non-zero on validation
+   failures.
+
+3. **`src/domains/recommendations/load-queue.test.ts`** (NEW) — 18
+   tests.
+
+4. **`src/lib/persistence/repositories/{types,file-backend,supabase-backend}.ts`**
+   — added `getPageElementInventory(): Promise<PageElementInventoryRow[]>`
+   to the repository interface + both backends. File backend reads
+   `.data/page-element-inventory.json`; Supabase backend reads the
+   `page_element_inventory` table.
+
+5. **`src/app/(shell)/recommendations/page.tsx`** — refactored to call
+   `loadLiveRecommendationQueue()` + decorate. Removed every inline
+   orchestration step the function now owns. Render output unchanged.
+
+6. **`tests/routes/canonical-store-fresh.test.ts`** + **`tests/routes/recommendations-page-reads-fresh.test.ts`** —
+   updated to reflect the extract:
+   - The Sprint 4 contract "loadFreshCanonicalData runs at render
+     time" still holds, just one layer down. Test asserts that the
+     page calls `loadLiveRecommendationQueue()` AND
+     `load-queue.ts` calls `loadFreshCanonicalData()`.
+   - The Phase 4.2 "no `getResponse` import" test regex now also
+     matches `import type { ... }` form (the page now type-imports
+     `RecommendationResponse`).
+   - All other Sprint 4 contracts (per-page direct reads of
+     `/prompts`, `/prompts/[id]`, `/settings/prompts`, `today-data.ts`)
+     unchanged.
+
+### Hard rules locked by tests
+
+- The page imports `loadLiveRecommendationQueue`; no longer inlines
+  `buildPromptDecisionMatrix`, `generateRecommendations`,
+  `buildPageInventory`, `resolvePageIntent`,
+  `adjudicateFromCacheOnly`, or `prioritizeRecommendations`.
+- The page still does its OWN fresh-read of recommendation_responses
+  + recommended_edits (Phase 12 concern, not part of the queue load).
+- The CLI imports `loadLiveRecommendationQueue` + `buildPacketForRec`
+  from the SAME module the page uses.
+- The CLI uses `runProviderAndPersist` from Phase 11.
+- The CLI default is DRY-RUN; `--write` is explicit opt-in.
+- The CLI reports honestly when `page_element_inventory` is empty
+  (no fake "everything works" signal).
+- `load-queue.ts` carries `import "server-only"` so it can't leak
+  into the client bundle.
+- No app route imports `build-edits-for-queue.ts`,
+  `runProviderAndPersist`, or `buildPacketForRec`.
+- No LLM SDK imports anywhere in the new code.
+
+### Tests added (18, 2061 passing total)
+
+`load-queue.test.ts`:
+
+- **buildPacketForRec** (5): tenantId/recId/cluster threading;
+  empty inventory → empty `targetPageElements`; populated inventory
+  → matched elements; null matrix throws; primarySummaries flow
+  from `matrix.primaryByPromptId`.
+- **Orchestration sharing** (5): page imports
+  `loadLiveRecommendationQueue`; page no longer inlines the 6
+  orchestration steps; page still does its own
+  recommendation_responses + recommended_edits reads (Phase 12);
+  CLI imports same module; CLI uses Phase 11 persistence.
+- **CLI surface** (6): supports `--list / --rec-id= / --all /
+  --write`; default DRY-RUN; per-rec report format; honest empty-
+  inventory warning; no LLM SDK imports; mode exclusivity.
+- **No-route-render-generation** (2): no app route imports the
+  CLI/persistence/buildPacketForRec; load-queue.ts has
+  `server-only`.
+
+### Phase 14 verification
+
+- `npm run typecheck` — clean
+- `npx vitest run` — 2061 passing (+18 over Phase 12's 2043), 10
+  pre-existing fails unchanged
+- CLI smoke run — `--help` prints, `--list` runs end-to-end against
+  local env (returns `queue=0 watchlist=0` because DATA_SOURCE=supabase
+  on local doesn't match production-side seeded canonical state; no
+  fake win)
+
+### What this unblocks
+
+- Phase 6A.1.13 (hosted UI verification) can now be executed against
+  a real live-queue stableKey:
+  ```
+  # See what's in today's queue:
+  npx tsx --require ./scripts/mock-server-only.cjs \
+    scripts/build-edits-for-queue.ts --list
+
+  # Build (DRY-RUN) for one rec:
+  npx tsx --require ./scripts/mock-server-only.cjs \
+    scripts/build-edits-for-queue.ts --rec-id=<stableKey>
+
+  # Persist (BUT inventory still needs to be populated first):
+  DUAL_WRITE=true npx tsx --require ./scripts/mock-server-only.cjs \
+    scripts/build-edits-for-queue.ts --rec-id=<stableKey> --write
+  ```
+- The remaining gap is `page_element_inventory` being empty in
+  production. **Phase 6A.1.15 (run scan to populate inventory)**
+  is now the only blocker before 6A.1.13 can run for real.
+
+### What's NOT in this phase
+
+- No production writes attempted.
+- No hosted scan triggered.
+- No data populated to `page_element_inventory` or
+  `recommended_edits` on production Supabase.
+- No `seed-data.server.ts` work — the page-store top-level await is
+  worked around at the load-queue layer, not removed at the source.
+  (The seeded module is still used by Sprint 4 paths that aren't
+  CLI-exercised.)
+
+---
+
 ## 2026-04-24 — Sprint 6A.1 / Phase 12 — /recommendations UI surfacing + per-edit Accept fan-out
 
 **Context.** Phase 11 (commit `1523cbc`) shipped the persistence layer +

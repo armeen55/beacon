@@ -17,7 +17,36 @@
 
 ---
 
-## Sprint 6A.1 — COMPLETE 2026-04-24 (12 phases, 2043 tests passing)
+## Sprint 6A.1 — Phase 14 (orchestration extract + CLI) COMPLETE 2026-04-24
+
+**Why this exists:** Phase 6A.1.13 (hosted UI verification) blocked because no script bridged `/recommendations` queue → EvidencePacket → Phase 11 CLI. Phase 14 closes that bridge.
+
+**Done:** `src/domains/recommendations/load-queue.ts` exports `loadLiveRecommendationQueue` + `buildPacketForRec`. `/recommendations/page.tsx` now calls it (render unchanged). New `scripts/build-edits-for-queue.ts` CLI: `--list / --rec-id=<...> / --all / --write`, default DRY-RUN, honest empty-inventory reporting. New `getPageElementInventory()` repository method. 18 new tests, 2061 passing total.
+
+**Next Sprint 6A.1 step (P15):** Populate `page_element_inventory` on hosted. Two viable paths:
+
+**Path A — Run a scan locally with dual-write enabled (~10 min):**
+```
+DATA_SOURCE=supabase DUAL_WRITE=true npm run data:scan
+```
+This invokes `scripts/scan-owned-pages.ts` which already wired Phase 6's inventory persistence. The CLI fetches the live site, extracts inventory rows for each page, writes `.data/page-element-inventory.json`, and after the CLI exits `orchestrate-scan.ts` would call `syncPageElementInventory` — but `npm run data:scan` runs the standalone CLI, not the orchestrate-scan flow. **Path A actually has a gap**: the CLI writes `.data/page-element-inventory.json` but doesn't dual-write to Supabase itself. Need to verify whether the `data:scan` script invokes the orchestrator or runs raw.
+
+**Path B — Trigger hosted scan via the UI (operator action, ~5 min on Vercel):**
+Visit `/today` (or wherever the scan trigger lives) and hit the "Scan now" button. The hosted scan runs `orchestrate-scan.ts` which DOES dual-write inventory rows.
+
+**Recommended:** Path B if available — it exercises the production path the cron uses. Otherwise verify Path A's dual-write behavior and use it.
+
+After Phase 6A.1.15: rerun Phase 6A.1.13 against a real live-queue stableKey:
+1. `npx tsx --require ./scripts/mock-server-only.cjs scripts/build-edits-for-queue.ts --list` — pick a stableKey.
+2. Same with `--rec-id=<stableKey>` to dry-run.
+3. Same with `--rec-id=<stableKey> --write` to persist.
+4. Refresh `https://beacon-bice.vercel.app/recommendations` — confirm the **Specific edits (N)** section appears.
+
+Capability: **Fast** for Phase 6A.1.15 (one scan invocation + verification) — once that's done, Sprint 6A.1 is truly closed.
+
+---
+
+## Sprint 6A.1 — Original 12-phase scope COMPLETE 2026-04-24
 
 **Phases shipped end-to-end:**
 

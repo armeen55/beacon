@@ -127,16 +127,28 @@ describe("Sprint 4 / Phase 4.9 — canonical-store fresh-per-render", () => {
   });
 
   describe("render-path structural invariants", () => {
-    it("/recommendations imports loadFreshCanonicalData AND does not import the module arrays directly", () => {
-      const canonImports = SRC.recommendations.match(
-        /import\s+\{[^}]+\}\s+from\s+["']@\/storage\/canonical-store["']/g,
+    it("/recommendations delegates canonical-store reads via loadLiveRecommendationQueue (Phase 14 extract)", () => {
+      // Sprint 6A.1 Phase 14 (2026-04-24): the page no longer imports
+      // canonical-store directly — orchestration moved to
+      // `src/domains/recommendations/load-queue.ts`. The Sprint 4
+      // contract is preserved one layer down: `loadLiveRecommendationQueue`
+      // calls `loadFreshCanonicalData` and the page calls
+      // `loadLiveRecommendationQueue`.
+      expect(SRC.recommendations).toMatch(/\bloadLiveRecommendationQueue\b/);
+      expect(SRC.recommendations).not.toMatch(
+        /\b(?:trackedPrompts|promptAnswerObservations|trackedEntities|dailyMetricSnapshots)\b\s*=/,
       );
-      expect(canonImports).not.toBeNull();
-      const joined = canonImports!.join("\n");
-      expect(joined).toMatch(/\bloadFreshCanonicalData\b/);
-      expect(joined).not.toMatch(
-        /\b(?:trackedPrompts|promptAnswerObservations|trackedEntities|dailyMetricSnapshots)\b/,
+      const loadQueueSrc = readFileSync(
+        resolve(
+          __dirname,
+          "../../src/domains/recommendations/load-queue.ts",
+        ),
+        "utf8",
       );
+      expect(loadQueueSrc).toMatch(
+        /import\s+\{[^}]*loadFreshCanonicalData[^}]*\}\s+from\s+["']@\/storage\/canonical-store["']/,
+      );
+      expect(loadQueueSrc).toMatch(/loadFreshCanonicalData\(\s*\)/);
     });
 
     it("/prompts imports loadFreshCanonicalData AND does not import the module arrays", () => {
@@ -192,19 +204,35 @@ describe("Sprint 4 / Phase 4.9 — canonical-store fresh-per-render", () => {
       );
     });
 
-    it("all five render paths call loadFreshCanonicalData() at render time", () => {
-      const targets = [
-        { name: "/recommendations", src: SRC.recommendations },
+    it("all five render paths call loadFreshCanonicalData() at render time (directly OR via loadLiveRecommendationQueue)", () => {
+      // Phase 14 (2026-04-24): /recommendations no longer calls
+      // `loadFreshCanonicalData()` directly — the call moved into
+      // `loadLiveRecommendationQueue`. The other four render paths
+      // still call it directly.
+      const directTargets = [
         { name: "/prompts", src: SRC.prompts },
         { name: "/prompts/[id]", src: SRC.promptDetail },
         { name: "/settings/prompts", src: SRC.settingsPrompts },
         { name: "today-data.ts", src: SRC.todayData },
       ];
-      for (const { name, src } of targets) {
+      for (const { name, src } of directTargets) {
         expect(src, `${name} must call loadFreshCanonicalData()`).toMatch(
           /loadFreshCanonicalData\(\s*\)/,
         );
       }
+      // /recommendations: page must call loadLiveRecommendationQueue,
+      // and load-queue.ts must call loadFreshCanonicalData.
+      expect(SRC.recommendations).toMatch(
+        /loadLiveRecommendationQueue\(\s*\)/,
+      );
+      const loadQueueSrc = readFileSync(
+        resolve(
+          __dirname,
+          "../../src/domains/recommendations/load-queue.ts",
+        ),
+        "utf8",
+      );
+      expect(loadQueueSrc).toMatch(/loadFreshCanonicalData\(\s*\)/);
     });
   });
 
