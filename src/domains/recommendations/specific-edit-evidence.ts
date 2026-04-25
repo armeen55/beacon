@@ -63,15 +63,11 @@ import { NEEDS_NEW_PAGE } from "./resolved-types";
 
 // ---------------------------------------------------------------------------
 // Types — every field designed to round-trip through JSON.stringify cleanly.
+// No Date objects, no Maps/Sets, no class instances, no functions. Only
+// JSON primitives + plain objects + arrays.
 // ---------------------------------------------------------------------------
 
-export type SpecificEditClusterRef = {
-  /** Operator-facing cluster label (e.g. "Palo Alto", "kitchen renovation").
-   *  Null for single-prompt recs that don't participate in any cluster. */
-  label: string | null;
-  /** "geo" / "topic" / null. Drives generator heuristics. */
-  kind: "geo" | "topic" | null;
-};
+export type SpecificEditClusterKind = "geo" | "topic";
 
 export type AffectedPromptBlock = {
   promptId: string;
@@ -153,7 +149,19 @@ export type SpecificEditEvidencePacket = {
   generatedAt: string;
   tenantId: string;
   recId: string;
-  cluster: SpecificEditClusterRef;
+  /**
+   * Optional stable identifier for the cluster this rec belongs to.
+   * Null today — the existing recommendation pipeline doesn't materialize
+   * clusters as first-class entities (the cluster IS its label). Reserved
+   * here so when clusters get promoted to first-class in a future phase
+   * the contract doesn't break.
+   */
+  clusterId: string | null;
+  /** Operator-facing cluster label (e.g. "Palo Alto", "kitchen renovation").
+   *  Null for single-prompt recs that don't participate in any cluster. */
+  clusterLabel: string | null;
+  /** "geo" / "topic" / null. Drives generator heuristics. */
+  clusterKind: SpecificEditClusterKind | null;
   affectedPrompts: AffectedPromptBlock[];
   ownedPageCandidates: OwnedPageCandidateBlock[];
   targetPageElements: TargetPageElementBlock[];
@@ -179,7 +187,12 @@ export type SpecificEditEvidencePacket = {
 export type BuildSpecificEditEvidencePacketArgs = {
   tenantId: string;
   recId: string;
-  cluster: SpecificEditClusterRef;
+  /** Optional — pass `null` when the cluster has no first-class id. */
+  clusterId?: string | null;
+  /** Operator-facing cluster label or null for single-prompt recs. */
+  clusterLabel: string | null;
+  /** "geo" | "topic" | null. */
+  clusterKind: SpecificEditClusterKind | null;
   /** Prompt IDs the recommendation declares as affected. Ordering preserved. */
   affectedPromptIds: ReadonlyArray<string>;
   /** Already-classified prompt opportunities. Builder filters by
@@ -239,7 +252,8 @@ export function buildSpecificEditEvidencePacket(
   );
 
   const ownedPageCandidates = buildOwnedPageCandidates(
-    args.cluster,
+    args.clusterLabel,
+    args.clusterKind,
     args.ownedPageInventory,
     args.affectedPromptIds,
     promptTextById,
@@ -286,7 +300,9 @@ export function buildSpecificEditEvidencePacket(
     generatedAt: now.toISOString(),
     tenantId: args.tenantId,
     recId: args.recId,
-    cluster: args.cluster,
+    clusterId: args.clusterId ?? null,
+    clusterLabel: args.clusterLabel,
+    clusterKind: args.clusterKind,
     affectedPrompts,
     ownedPageCandidates,
     targetPageElements,
@@ -349,7 +365,8 @@ function buildAffectedPromptBlocks(
 }
 
 function buildOwnedPageCandidates(
-  cluster: SpecificEditClusterRef,
+  clusterLabel: string | null,
+  clusterKind: SpecificEditClusterKind | null,
   ownedPageInventory: ReadonlyArray<PageInventoryEntry>,
   affectedPromptIds: ReadonlyArray<string>,
   promptTextById: ReadonlyMap<string, string>,
@@ -357,17 +374,17 @@ function buildOwnedPageCandidates(
 ): OwnedPageCandidateBlock[] {
   if (ownedPageInventory.length === 0) return [];
 
-  // Match label preference: cluster.label, fall back to first affected
+  // Match label preference: clusterLabel, fall back to first affected
   // prompt's text. If neither is available, return [] gracefully.
   const matchLabel =
-    cluster.label ??
+    clusterLabel ??
     promptTextById.get(affectedPromptIds[0] ?? "") ??
     null;
   if (!matchLabel) return [];
 
   const matches = matchClusterToInventory({
     label: matchLabel,
-    kind: cluster.kind,
+    kind: clusterKind,
     inventory: ownedPageInventory,
     topN,
   });

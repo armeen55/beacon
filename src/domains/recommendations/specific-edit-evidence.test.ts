@@ -1,4 +1,6 @@
 import { describe, it, expect } from "vitest";
+import { readFileSync, readdirSync, statSync } from "node:fs";
+import { join, resolve } from "node:path";
 import type { PageElementInventoryRow } from "@/domains/pages/extractors/persist";
 import type { PromptOpportunity } from "@/domains/prompts/opportunity-classify";
 import type { PromptPrimarySummary } from "@/domains/prompts/competitor-primary";
@@ -133,7 +135,8 @@ function buildArgs(
   return {
     tenantId: TENANT_ID,
     recId: REC_ID,
-    cluster: { label: "braces for teens", kind: "topic" },
+    clusterLabel: "braces for teens",
+    clusterKind: "topic",
     affectedPromptIds: [promptId],
     promptOpportunities: [makeOpportunity(promptId)],
     trackedPrompts: [makePrompt(promptId, "best orthodontist for teens braces")],
@@ -203,11 +206,36 @@ describe("Phase 6A.1.7 — buildSpecificEditEvidencePacket core invariants", () 
     expect(packet.recId).toBe(REC_ID);
   });
 
-  it("threads cluster label + kind unchanged", () => {
+  it("threads clusterLabel + clusterKind unchanged at top level", () => {
     const packet = buildSpecificEditEvidencePacket(
-      buildArgs({ cluster: { label: "Burbank", kind: "geo" } }),
+      buildArgs({ clusterLabel: "Burbank", clusterKind: "geo" }),
     );
-    expect(packet.cluster).toEqual({ label: "Burbank", kind: "geo" });
+    expect(packet.clusterLabel).toBe("Burbank");
+    expect(packet.clusterKind).toBe("geo");
+  });
+
+  it("threads optional clusterId — defaults to null when not provided", () => {
+    const packet = buildSpecificEditEvidencePacket(buildArgs());
+    expect(packet.clusterId).toBeNull();
+  });
+
+  it("threads optional clusterId from args when provided", () => {
+    const packet = buildSpecificEditEvidencePacket(
+      buildArgs({ clusterId: "cluster-geo-burbank-2026-04-24" }),
+    );
+    expect(packet.clusterId).toBe("cluster-geo-burbank-2026-04-24");
+  });
+
+  it("required fields are always present on the packet (tenantId, recId, hash, schemaVersion)", () => {
+    const packet = buildSpecificEditEvidencePacket(buildArgs());
+    expect(packet.tenantId).toBeTruthy();
+    expect(packet.recId).toBeTruthy();
+    expect(packet.evidenceHash).toBeTruthy();
+    expect(packet.schemaVersion).toBe("specific-edit/v1");
+    // Cluster fields exist (may be null) — the keys must be present.
+    expect("clusterId" in packet).toBe(true);
+    expect("clusterLabel" in packet).toBe(true);
+    expect("clusterKind" in packet).toBe(true);
   });
 
   it("emits generatedAt from the provided now", () => {
@@ -220,6 +248,51 @@ describe("Phase 6A.1.7 — buildSpecificEditEvidencePacket core invariants", () 
     const json = JSON.stringify(packet);
     const parsed = JSON.parse(json) as SpecificEditEvidencePacket;
     expect(parsed).toEqual(packet);
+  });
+
+  it("output contains no functions, no Date/Map/Set/class instances, no undefined values", () => {
+    const packet = buildSpecificEditEvidencePacket(buildArgs());
+    const offenders: string[] = [];
+    walk(packet, "$");
+    expect(offenders).toEqual([]);
+
+    function walk(value: unknown, path: string): void {
+      if (value === null) return;
+      if (value === undefined) {
+        offenders.push(`${path}: undefined (not JSON-serializable)`);
+        return;
+      }
+      const t = typeof value;
+      if (t === "function") {
+        offenders.push(`${path}: function`);
+        return;
+      }
+      if (t === "string" || t === "number" || t === "boolean") return;
+      if (t === "symbol" || t === "bigint") {
+        offenders.push(`${path}: ${t}`);
+        return;
+      }
+      if (Array.isArray(value)) {
+        value.forEach((v, i) => walk(v, `${path}[${i}]`));
+        return;
+      }
+      if (t === "object") {
+        // Plain objects only — anything with a non-Object prototype (Date,
+        // Map, Set, Buffer, custom class instances, etc.) is rejected.
+        const proto = Object.getPrototypeOf(value);
+        if (proto !== Object.prototype && proto !== null) {
+          const ctor =
+            (value as { constructor?: { name?: string } }).constructor?.name ??
+            "unknown";
+          offenders.push(`${path}: non-plain-object (${ctor})`);
+          return;
+        }
+        for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+          walk(v, `${path}.${k}`);
+        }
+        return;
+      }
+    }
   });
 });
 
@@ -347,20 +420,22 @@ describe("Phase 6A.1.7 — ownedPageCandidates", () => {
     expect(packet.ownedPageCandidates).toEqual([]);
   });
 
-  it("returns [] when cluster.label is null and no affected prompt provides text", () => {
+  it("returns [] when clusterLabel is null and no affected prompt provides text", () => {
     const packet = buildSpecificEditEvidencePacket(
       buildArgs({
-        cluster: { label: null, kind: null },
+        clusterLabel: null,
+        clusterKind: null,
         affectedPromptIds: [],
       }),
     );
     expect(packet.ownedPageCandidates).toEqual([]);
   });
 
-  it("falls back to first affected prompt's text when cluster.label is null", () => {
+  it("falls back to first affected prompt's text when clusterLabel is null", () => {
     const packet = buildSpecificEditEvidencePacket(
       buildArgs({
-        cluster: { label: null, kind: null },
+        clusterLabel: null,
+        clusterKind: null,
       }),
     );
     // Should still match the braces-related inventory page off the prompt
@@ -681,10 +756,18 @@ describe("Phase 6A.1.7 — evidenceHash", () => {
     expect(a.evidenceHash).not.toBe(b.evidenceHash);
   });
 
-  it("changes when cluster label changes", () => {
+  it("changes when clusterLabel changes", () => {
     const a = buildSpecificEditEvidencePacket(buildArgs());
     const b = buildSpecificEditEvidencePacket(
-      buildArgs({ cluster: { label: "different cluster", kind: "topic" } }),
+      buildArgs({ clusterLabel: "different cluster", clusterKind: "topic" }),
+    );
+    expect(a.evidenceHash).not.toBe(b.evidenceHash);
+  });
+
+  it("changes when clusterId changes (null → set)", () => {
+    const a = buildSpecificEditEvidencePacket(buildArgs());
+    const b = buildSpecificEditEvidencePacket(
+      buildArgs({ clusterId: "cluster-XYZ" }),
     );
     expect(a.evidenceHash).not.toBe(b.evidenceHash);
   });
@@ -736,7 +819,8 @@ describe("Phase 6A.1.7 — evidenceHash", () => {
     ];
     const b = buildSpecificEditEvidencePacket(
       buildArgs({
-        cluster: { label: "palatal expander", kind: "topic" },
+        clusterLabel: "palatal expander",
+        clusterKind: "topic",
         ownedPageInventory: extraInventory,
       }),
     );
@@ -773,7 +857,8 @@ describe("Phase 6A.1.7 — empty-input resilience", () => {
     const packet = buildSpecificEditEvidencePacket({
       tenantId: TENANT_ID,
       recId: REC_ID,
-      cluster: { label: null, kind: null },
+      clusterLabel: null,
+      clusterKind: null,
       affectedPromptIds: [],
       promptOpportunities: [],
       trackedPrompts: [],
@@ -811,5 +896,56 @@ describe("Phase 6A.1.7 — empty-input resilience", () => {
       buildArgs({ recId: "rec-7" }),
     );
     expect(packet.recId).toBe("rec-7");
+  });
+});
+
+// ── No route-render generation guarantee ──────────────────────────────────
+
+function walkSync(dir: string, predicate: (p: string) => boolean): string[] {
+  const out: string[] = [];
+  const stack: string[] = [dir];
+  while (stack.length > 0) {
+    const cur = stack.pop()!;
+    let entries: string[] = [];
+    try {
+      entries = readdirSync(cur);
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      const full = join(cur, entry);
+      let st;
+      try {
+        st = statSync(full);
+      } catch {
+        continue;
+      }
+      if (st.isDirectory()) stack.push(full);
+      else if (st.isFile() && predicate(full)) out.push(full);
+    }
+  }
+  return out;
+}
+
+describe("Phase 6A.1.7 — packet builder never runs on render", () => {
+  it("buildSpecificEditEvidencePacket is NOT imported from any route page.tsx or route.ts", () => {
+    const appDir = resolve(__dirname, "../../app");
+    const matches = walkSync(
+      appDir,
+      (p) => p.endsWith("/page.tsx") || p.endsWith("/route.ts"),
+    );
+    const offenders: string[] = [];
+    for (const file of matches) {
+      const src = readFileSync(file, "utf8");
+      if (
+        /\bbuildSpecificEditEvidencePacket\b/.test(src) ||
+        /from\s+["'][^"']*recommendations\/specific-edit-evidence["']/.test(
+          src,
+        )
+      ) {
+        offenders.push(file);
+      }
+    }
+    expect(offenders).toEqual([]);
   });
 });

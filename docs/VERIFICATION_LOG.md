@@ -7,6 +7,69 @@
 
 ---
 
+## 2026-04-24 — Sprint 6A.1 / Phase 7 (revision) — packet shape adjustment + serializability + no-render guard
+
+**Context.** Phase 7's first cut (commit `e183704`) shipped the builder with
+cluster fields nested inside a `cluster: { label, kind }` object. The
+revised spec from operator listed `clusterId | clusterLabel | clusterKind`
+as required top-level fields and added stricter serializability + no-route-
+render-generation guarantees. This entry covers the in-place reshape.
+
+**Code change is contract-only — no consumers exist yet** (Phase 6A.1.8+
+not built), so the v1 contract is updated in place rather than versioned.
+
+### What changed
+
+`src/domains/recommendations/specific-edit-evidence.ts`:
+
+- `cluster: { label, kind }` (nested) → flattened to top-level fields
+  `clusterId: string | null` + `clusterLabel: string | null` +
+  `clusterKind: "geo" | "topic" | null`.
+- Builder args mirror the flattened shape: `clusterId?` (optional, defaults
+  to `null`), `clusterLabel`, `clusterKind`.
+- New exported type alias `SpecificEditClusterKind = "geo" | "topic"`.
+- File-header comment expanded to spell out the no-Date/Map/Set/class-
+  instance/function-output rule.
+- `clusterId` is reserved for first-class cluster IDs in a future phase.
+  Today no upstream producer materializes clusters as entities, so
+  callers pass `null` (or omit) and the builder threads it through.
+
+### Tests added (6 new, 54 total in this file; 1893 passing project-wide)
+
+- `clusterLabel + clusterKind` thread-through at top level.
+- `clusterId` thread-through — default null.
+- `clusterId` thread-through — provided value.
+- `clusterId` change → evidenceHash change.
+- Required-fields presence (tenantId / recId / evidenceHash /
+  schemaVersion / cluster fields all present in every packet).
+- **Strict serializability** — recursive walk of the packet asserts no
+  `function`, no `undefined`, no `symbol` / `bigint`, no Date / Map /
+  Set / Buffer / class instances. Catches any future field that would
+  silently `JSON.stringify` to `null` or be lost across an HTTP boundary.
+- **No-route-render-generation** — recursive walk of `src/app/**/{page.tsx,
+  route.ts}` asserts ZERO files import the builder or its module. Mirrors
+  Phase 6A.1.6's no-route-render-extraction guard.
+
+### Hash determinism preserved
+
+The hash was always computed over `canonicalStringify` of the packet
+sans `evidenceHash`. Flattening the cluster fields changes the canonical
+string (different keys at different paths), so any cached hashes from
+the previous cut (none in the wild — packet wasn't yet materialized
+anywhere) are invalid. This is acceptable because Phase 7's hash-
+storage path doesn't exist yet (Phase 6A.2's evidence-hash cache is
+built later). All Phase 7 hash invariants — deterministic, sensitive
+to meaningful evidence change, insensitive to allowedActionTypes input
+order — still hold.
+
+### Verification
+
+- `npm run typecheck` — clean
+- `npx vitest run` — 1893 passing (+6 from previous Phase 7 cut at 1887),
+  10 pre-existing fails unchanged
+
+---
+
 ## 2026-04-24 — Sprint 6A.1 / Phase 7 — Specific Edit Evidence Packet builder (pure)
 
 **Context.** Phase 6 (commit `2da6639`) made `page_element_inventory` rows
