@@ -183,11 +183,12 @@ Beacon is a **daily AI visibility operating system** for local businesses. One o
 2. **Phase 4: Native Prompt Execution** — build platform adapters (Perplexity, ChatGPT, Gemini) to replace Profound CSV imports with nightly API-based prompt execution. Start with Perplexity (best citation quality).
 3. **Competitor monitoring enhancement** — add competitor alert detail view, link alerts to answer intelligence topics for counter-move suggestions, add Settings UI for managing monitored competitors.
 
-**Sprint 6A.1 progress (2026-04-24):** Phases 1–6 COMPLETE.
+**Sprint 6A.1 progress (2026-04-24):** Phases 1–7 COMPLETE.
 - P1 migrations (page_element_inventory + recommended_edits + llm_rejections + changelog action_type/target_element_key)
 - P2 ActionType registry, P3 ElementType registry, P4 element_key helpers, P5 13 active extractors + dispatcher
-- **P6 (today)** — extractor wired into `verify-action.ts` + `scripts/scan-owned-pages.ts` + `orchestrate-scan.ts` dual-write block. Idempotent on `(source_snapshot_id, element_key)`. Tenant + dictionaries threaded; not Ritz-hardcoded. 36 new tests, 1839 passing.
-- **Next Sprint 6A.1 step:** Phase 6A.1.7 — evidence packet builder (`buildEvidencePacket`) + provider-adapter contract stub. NO generators yet.
+- P6 — extractor wired into `verify-action.ts` + `scripts/scan-owned-pages.ts` + `orchestrate-scan.ts` dual-write block. Idempotent on `(source_snapshot_id, element_key)`.
+- **P7 (today)** — `buildSpecificEditEvidencePacket` pure builder ships at `src/domains/recommendations/specific-edit-evidence.ts`. Composes recommendation + cluster + prompt opportunities + competitor-primary + owned page inventory + page_element_inventory rows into the contract every Specific Edit Generator (deterministic + LLM) will consume. 16-char sha256 evidenceHash; deterministic; changes when meaningful evidence changes. allowedTargetUrls owned-only. 48 new tests, **1887 passing**.
+- **Next Sprint 6A.1 step:** Phase 6A.1.8 — provider-adapter contract `SpecificEditProvider` interface + stub implementations. Still no generators / LLM (those are P9 / 6A.2).
 
 
 **Full execution plan:** See `NEXT_PHASE_EXECUTION_PLAN.md` — launch phases complete; active roadmap is **Tier 1** tracks **1.1 → 1.5** (see `master_execution_plan.md` §"Tiered product stack").

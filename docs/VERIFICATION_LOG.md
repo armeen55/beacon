@@ -7,6 +7,122 @@
 
 ---
 
+## 2026-04-24 — Sprint 6A.1 / Phase 7 — Specific Edit Evidence Packet builder (pure)
+
+**Context.** Phase 6 (commit `2da6639`) made `page_element_inventory` rows
+durable on every scan + verify. Phase 7 builds the structured contract
+that every Specific Edit Generator (deterministic v1, deterministic+LLM
+in Sprint 6A.2) consumes. **Pure compute only — no I/O, no DB writes,
+no UI, no generators, no LLM in this phase.**
+
+The new packet is intentionally distinct from the existing
+`evidence-packet.ts` (Phase v7, 2026-04-23) which feeds the
+recommendation ADJUDICATOR (decides action + motive + target URL). The
+Phase 7 packet feeds the SPECIFIC EDIT GENERATOR (decides
+"change H2 X to Y, add FAQ Z" given the rec's action + URL). Two
+pipelines, two packets — sharing the type would force one to carry the
+other's bloat.
+
+### What changed
+
+1. **`src/domains/recommendations/specific-edit-evidence.ts`** (new) —
+   exports:
+   - `SpecificEditEvidencePacket` — schemaVersion `"specific-edit/v1"`,
+     fields: `tenantId`, `recId`, `cluster`, `affectedPrompts`,
+     `ownedPageCandidates`, `targetPageElements`, `competitorAngles`,
+     `priorOutcomes`, `allowedTargetUrls`, `allowedActionTypes`,
+     `evidenceHash`, `generatedAt`.
+   - `buildSpecificEditEvidencePacket(args)` — pure function. Composes
+     already-derived inputs (`PromptOpportunity`, `PromptPrimarySummary`,
+     `PageInventoryEntry`, `PageElementInventoryRow`) into the packet
+     and computes a 16-char sha256 prefix as `evidenceHash`.
+   - Block types: `AffectedPromptBlock`, `OwnedPageCandidateBlock`,
+     `TargetPageElementBlock`, `CompetitorAngleBlock`, `PriorOutcomeBlock`.
+
+### Hard rules locked by tests
+
+1. **`allowedTargetUrls` come from owned inventory only** (+ the
+   `needs_new_page` sentinel). Off-domain URLs that appear in
+   `pageElementInventory` are filtered out.
+2. **`targetPageElements` come from `page_element_inventory`** —
+   include `elementKey`, `displayLabel`, `elementText`, `elementType`,
+   `elementMetadata`. Builder dedupes by `(url, element_key)` keeping
+   the latest `observed_at`.
+3. **`evidenceHash` is deterministic.** Same inputs → same hash. Tests
+   confirm hash CHANGES when any of these change: `tenantId`, `recId`,
+   `cluster.label`, `affectedPromptIds`, `targetPageElements` content,
+   `ownedPageCandidates`, `allowedActionTypes`. Hash does NOT change
+   when input array order shifts (sorted before hashing).
+4. **`tenantId` + `recId` required** and threaded through to the packet
+   plus the hash itself.
+5. **No tenant-specific hardcoding.** Test fixtures use neutral
+   orthodontic vocabulary (Acme, AcmeOrtho, PrismDental, "braces for
+   teens") — no Ritz / Bay Area terms.
+6. **Empty data on any dimension does not crash.** Every collection
+   defaults to `[]`; the packet still validates and remains JSON-
+   serializable.
+
+### Defaults
+
+- `allowedActionTypes` defaults to the v1 active set from
+  `ACTION_TYPE_REGISTRY` — currently `["add_faq", "add_h2_section",
+  "edit_title"]` (sorted). Caller can widen for Sprint 6A.2's LLM
+  provider without a code change.
+- `priorOutcomes` defaults to `[]` (Sprint 6A.2 will populate via the
+  `element_change_outcomes` aggregation job).
+- `maxCandidatePages` = 8, `maxTargetElements` = 80,
+  `maxDescriptorsPerPrompt` = 6, `maxH2sPerCandidate` = 8.
+
+### Tests added (48, 1887 passing total)
+
+`src/domains/recommendations/specific-edit-evidence.test.ts`:
+
+- Core invariants: schemaVersion, tenantId/recId threading, cluster
+  threading, generatedAt, JSON round-trip.
+- affectedPrompts: one block per id; missing opportunity → `early`
+  fallback; topPrimaryCompetitor from primarySummary; null when
+  competitor primary count is 0; descriptors capped at 6.
+- ownedPageCandidates: matched scoring; empty inventory → `[]`;
+  cluster.label null + no prompt text → `[]`; falls back to first
+  prompt's text when label null; respects maxCandidatePages cap.
+- targetPageElements: contract on every row; off-domain rows filtered
+  out; dedupes by (url, element_key) latest observed_at; empty
+  inventory → `[]`; no candidate match → `[]`; respects
+  maxTargetElements cap.
+- allowedTargetUrls: only owned URLs + sentinel; sentinel always
+  present; off-domain excluded; sentinel-only when no owned candidates.
+- allowedActionTypes: defaults match registry's `generatorActive=true`
+  (3 types); caller override deduped + sorted.
+- competitorAngles: aggregation across prompts; empty summaries → `[]`;
+  empty affectedPromptIds → `[]`; ordering (primary count desc, total
+  obs desc, name asc).
+- priorOutcomes: defaults to `[]`; missing input → `[]`; provided
+  rows sorted by actionType.
+- evidenceHash: hex string; deterministic; changes when meaningful
+  evidence changes (8 separate change-detection tests); independent
+  of input array order.
+- Empty-input resilience: all-empty packet still valid + JSON-
+  serializable; empty tenantId / arbitrary recId accepted at type
+  layer (downstream Sprint 7 enforces non-empty tenantId).
+
+### Phase 7 verification
+
+- `npm run typecheck` — clean
+- `npx vitest run` — 1887 passing (+48 over Phase 6's 1839), 10
+  pre-existing fails unchanged
+
+### What is NOT yet wired (Phase 8+)
+
+- `priorOutcomes` materialization (Sprint 6A.2 — element_change_outcomes
+  aggregation)
+- Provider-adapter contract `SpecificEditProvider` (Phase 6A.1.6 stub +
+  6A.1.7 packet → Phase 6A.1.8 provider interface)
+- Deterministic generators for the 3 active action types (Phase 6A.1.9)
+- Output validation layer (Phase 6A.1.10)
+- LLM provider implementations (Sprint 6A.2)
+
+---
+
 ## 2026-04-24 — Sprint 6A.1 / Phase 6 — page_element_inventory persistence wired into scan + verify
 
 **Context.** Phase 5 (commit `b2f8623`) shipped the extractor pipeline:

@@ -17,13 +17,13 @@
 
 ---
 
-## Sprint 6A.1 progress — Phase 6 (page_element_inventory persistence) COMPLETE 2026-04-24
+## Sprint 6A.1 progress — Phase 7 (Specific Edit Evidence Packet) COMPLETE 2026-04-24
 
-**Done so far:** P1 migrations · P2 ActionType registry · P3 ElementType registry · P4 element_key helpers · P5 13 active extractors + dispatcher · **P6 (today) — extractor wired into `verify-action.ts`, `scripts/scan-owned-pages.ts`, `orchestrate-scan.ts`. `syncPageElementInventory` dual-write helper added (idempotent on `source_snapshot_id, element_key`). Tenant + city/service dictionaries threaded; not Ritz-hardcoded. 36 new tests (1839 passing).**
+**Done so far:** P1 migrations · P2 ActionType registry · P3 ElementType registry · P4 element_key helpers · P5 13 active extractors + dispatcher · P6 inventory persistence wired · **P7 (today) — `buildSpecificEditEvidencePacket` pure builder at `src/domains/recommendations/specific-edit-evidence.ts`. Composes recommendation/cluster/prompt opportunities/competitor-primary/owned page inventory/page_element_inventory rows into the contract every Specific Edit Generator (deterministic + LLM) will consume. Deterministic 16-char sha256 evidenceHash. allowedTargetUrls owned-only + `needs_new_page` sentinel. allowedActionTypes default to v1 generatorActive set (`add_faq`, `add_h2_section`, `edit_title`). 48 new tests (1887 passing).**
 
-**Next Sprint 6A.1 step (P7):** Evidence packet builder. Pure function `buildEvidencePacket(rec, tenant) → EvidencePacket` with affectedPrompts / ownedPageCandidates / targetPageElements / competitorAngles / priorOutcomes / allowedTargetUrls / allowedActionTypes / budgetRemainingUsd / maxRecommendations / evidenceHash. Reads from page_element_inventory + cluster data + recommendation_responses + change_outcomes. NO generators yet. Sets up the input shape every provider (deterministic + LLM) will consume.
+**Next Sprint 6A.1 step (P8):** Provider-adapter contract. New file `src/domains/recommendations/specific-edit-provider.ts` exporting `SpecificEditProvider` interface (`name: "deterministic" | "openai" | "anthropic"`, `generate(packet) → Promise<SpecificEditBundle>`), `SpecificEditBundle` shape (rows of `{actionType, targetUrl, targetElementKey, currentText, proposedText, why, evidence, ...}`), plus stub implementations for openai/anthropic that throw `not_implemented`. Deterministic provider stays unimplemented until P9. NO generators, NO LLM, NO UI.
 
-Capability: **Balanced** — bounded pure-function work over already-typed inputs.
+Capability: **Balanced** — interface design + stubs.
 
 ---
 
