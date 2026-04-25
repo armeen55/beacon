@@ -638,7 +638,13 @@ function walkSync(dir: string, predicate: (p: string) => boolean): string[] {
 }
 
 describe("Phase 6A.1.11 — source-scan invariants", () => {
-  it("no app route page.tsx or route.ts imports the persistence module or the CLI", () => {
+  it("no app route page.tsx or route.ts CALLS the persistence functions or the CLI", () => {
+    // Phase 12 (2026-04-24): tightened from a blanket "no module
+    // import" rule to a "no implementation call" rule. Type-only
+    // imports of `RecommendedEditRow` from this module are legitimate
+    // (the page surfaces the row shape on /recommendations); the
+    // dangerous pattern is calling the WRITE-PATH helpers from a
+    // render path.
     const appDir = resolve(__dirname, "../../app");
     const matches = walkSync(
       appDir,
@@ -648,7 +654,6 @@ describe("Phase 6A.1.11 — source-scan invariants", () => {
     for (const file of matches) {
       const src = readFileSync(file, "utf8");
       if (
-        /from\s+["'][^"']*recommended-edits-persistence["']/.test(src) ||
         /\brunProviderAndPersist\b/.test(src) ||
         /\bmapSpecificEditToRow\b/.test(src) ||
         /\bpersistRecommendedEditsLocal\b/.test(src) ||

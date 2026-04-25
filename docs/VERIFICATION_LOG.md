@@ -7,6 +7,168 @@
 
 ---
 
+## 2026-04-24 — Sprint 6A.1 / Phase 12 — /recommendations UI surfacing + per-edit Accept fan-out
+
+**Context.** Phase 11 (commit `1523cbc`) shipped the persistence layer +
+CLI; recommendations rows now flow into Supabase. Phase 12 closes the
+operator-facing loop:
+1. `/recommendations` reads `recommended_edits` FRESH from the
+   repository per request, groups by `rec_id`, decorates each rec row
+   with its edits slice, gracefully degrades on read failure.
+2. The client renders a `Specific edits (N)` collapsible section per
+   rec showing actionType / displayLabel / current → proposed / why /
+   evidence / confidence / difficulty.
+3. The Accept button copy switches to "Accept — track N edits" when
+   edits exist.
+4. Accept fans out to N changelog entries (one per edit) stamped with
+   `action_type` + `target_element_key` + `source_rec_id`. When no
+   edits exist, the legacy single-entry path runs unchanged.
+
+**Sprint 6A.1 is now complete end-to-end.** Migrations → registries →
+extractors → persistence → packet → provider interface → deterministic
+generators → validator → row persistence + CLI → UI surfacing + Accept
+fan-out. No LLM. No paid API calls.
+
+### Files changed (8)
+
+1. **`src/domains/changelog/types.ts`** — extends `ChangelogEntry`
+   with optional `action_type` + `target_element_key` columns
+   (matching the migration's nullable extensions). Legacy rows stay
+   undefined; Phase 12 fan-out populates them.
+
+2. **`src/lib/persistence/repositories/types.ts`** — adds
+   `getRecommendedEdits(): Promise<RecommendedEditRow[]>` to the
+   interface.
+
+3. **`src/lib/persistence/repositories/file-backend.ts`** — implements
+   the new method via `readDotDataJson<RecommendedEditRow[]>("recommended-edits")`.
+
+4. **`src/lib/persistence/repositories/supabase-backend.ts`** —
+   implements via `from("recommended_edits").select("*")`. Rows are
+   already snake_cased — pass-through.
+
+5. **`src/app/(shell)/recommendations/page.tsx`** — fetches edits
+   fresh per request via `safeCall`, groups by `rec_id`, threads
+   `edits: RecommendedEditRow[]` into every queue + watchlist row.
+   Read failure flows through the existing `errors[]` banner pattern.
+
+6. **`src/app/(shell)/recommendations/recommendations-client.tsx`** —
+   destructures `edits` from the row, renders `<SpecificEditsSection>`
+   when count > 0, dynamic Accept button text. New
+   `SpecificEditsSection` component renders each edit with
+   action-type badge, display label, current/proposed text (line-
+   through diff style), why, evidence summary, confidence + difficulty
+   pills.
+
+7. **`src/app/(shell)/recommendations/actions.ts`** — extended
+   `acceptRecommendation` to fresh-read this rec's edits before
+   stamping the changelog. When edits exist, calls the new
+   `createChangelogEntriesForEdits` helper which builds N entries
+   (one per edit) carrying `action_type` + `target_element_key` +
+   `source_rec_id`, persists via `writeStore` + `syncChangelogEntries`
+   dual-write, returns `changeIds: string[]`. When no edits, the
+   pre-Phase-12 single-entry path runs unchanged. Repo read failure
+   gracefully degrades to single-entry fallback (acceptance never
+   fails because edits read failed).
+
+8. **Tests:**
+   - `tests/sprint6a1-phase12-wiring.test.ts` (22 tests) — repository
+     wiring (interface + file + supabase backends), page wiring,
+     client UI source-scan, accept action source-scan, ChangelogEntry
+     type extension.
+   - `src/app/(shell)/recommendations/accept-fanout.test.ts` (6 tests)
+     — behavioral: N edits → N entries with stamped fields; legacy
+     single-entry fallback when no edits; graceful degrade on repo
+     failure; rec_id filtering ignores edits for other recs;
+     current/proposed text appears in notes.
+   - Tightened the Phase 11 source-scan test from "no module import"
+     to "no implementation function call" — Phase 12's legitimate
+     `RecommendedEditRow` TYPE imports in page.tsx + actions.ts no
+     longer trip the rule.
+
+### Hard rules locked by tests
+
+- /recommendations reads via `getRepository().getRecommendedEdits()`
+  (fresh per request); does not import `readRecommendedEditsLocal`
+  (no module-level cache).
+- Read failure is captured in the existing `errors[]` array;
+  page still renders with empty edits.
+- `Specific edits (N)` section appears iff `editCount > 0`.
+- Accept button copy is `Accept — track N edit(s)` when edits exist.
+- Accept fan-out creates exactly N changelog entries with
+  `action_type` + `target_element_key` + `source_rec_id` populated.
+- Legacy single-entry path preserved when edits is empty OR the read
+  failed.
+- Per-edit notes include current/proposed text + evidence summary.
+
+### Hosted verification steps
+
+Local dev server compiled clean (`npm run dev` → `Ready in 390ms`,
+zero errors); auth middleware redirects to `/login` as expected,
+matching pre-Phase-12 behavior. The new `Specific edits (N)`
+section will be visible on /recommendations once `recommended_edits`
+rows are populated for tracked recs. To populate in production:
+
+```
+# Build a packet, write it to a JSON file (later Phase will automate
+# this from the existing decision-matrix output), then:
+DUAL_WRITE=true BEACON_TENANT_ID=tenant-ritz-founder \
+  npx tsx --require ./scripts/mock-server-only.cjs \
+  scripts/generate-specific-edits.ts --packet=path/to/packet.json --write
+```
+
+Then visit https://beacon-bice.vercel.app/recommendations — the rec
+whose `stableKey` matched `packet.recId` will show the `Specific
+edits (N)` section. Accept the rec → /changes will show N new entries
+each carrying `action_type` + `target_element_key`.
+
+### Phase 12 verification
+
+- `npm run typecheck` — clean
+- `npx vitest run` — 2043 passing (+28 over Phase 11's 2015), 10
+  pre-existing fails unchanged (3 local-presence, 6 tenant isolation,
+  1 finding-actions date — all pre-Sprint-6A.1 baseline)
+- Dev server compiles clean; /recommendations route returns 200
+  through the auth middleware as expected
+
+### Sprint 6A.1 status: COMPLETE
+
+12 phases, 12 commits, end-to-end:
+
+| Phase | Deliverable | Commit |
+|-------|-------------|--------|
+| P1 | Migrations | f947a6f |
+| P2 | ActionType registry | 7b0c7b3 |
+| P3 | ElementType registry | 1e421cf |
+| P4 | element_key helpers | c917a71 |
+| P5 | 13 active extractors + dispatcher | b2f8623 |
+| P6 | page_element_inventory persistence wired | 2da6639 |
+| P7 | EvidencePacket builder (+ revision) | e183704 / 39cf277 |
+| P8 | SpecificEditProvider interface + 3 impls | bd9354a |
+| P9 | Deterministic generators | c36d5dd |
+| P10 | Output validation layer | 794b51b |
+| P11 | recommended_edits persistence + CLI | 1523cbc |
+| P12 | UI surfacing + Accept fan-out | (this commit) |
+
+Test count: 2043 passing (started at 1759 pre-Phase-5).
+
+### What's NOT in this sprint (deferred to 6A.2 / future)
+
+- LLM provider implementations (openai / anthropic) — stubs throw
+  `not_implemented (Sprint 6A.2)`.
+- Per-edit Accept (operator picks subset to track) — current Accept
+  is bundle-only; selective Accept ships in 6A.2 / Sprint 6.
+- Persistence of rejected edits → `llm_rejections` table —
+  in-memory only today; meaningful once LLM lands.
+- Evidence-hash cache + per-tenant LLM budget gate — Sprint 6A.2.
+- Backlog extractor activation (the 18 inactive `EXTRACTOR_REGISTRY`
+  entries) — Sprint 6A.2.
+- Element-level attribution (`element_change_outcomes`) + nightly
+  aggregation — Sprint 6A.2.
+- Provider-rejection diagnostics dashboard — Sprint 6A.2.
+
+---
+
 ## 2026-04-24 — Sprint 6A.1 / Phase 11 — Persistence layer + generate-specific-edits CLI
 
 **Context.** Phase 10 (commit `794b51b`) shipped the validator. Phase 11

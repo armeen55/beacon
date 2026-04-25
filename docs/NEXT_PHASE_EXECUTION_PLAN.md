@@ -17,23 +17,36 @@
 
 ---
 
-## Sprint 6A.1 progress — Phase 11 (persistence + CLI) COMPLETE 2026-04-24
+## Sprint 6A.1 — COMPLETE 2026-04-24 (12 phases, 2043 tests passing)
 
-**Done so far:** P1–P10 + **P11 (today) — persistence layer + CLI**:
-- `src/domains/recommendations/recommended-edits-persistence.ts` exports `RecommendedEditRow`, `mapSpecificEditToRow`, `persistRecommendedEditsLocal`, `readRecommendedEditsLocal`, `runProviderAndPersist`.
-- `src/lib/persistence/dual-write.ts` adds `syncRecommendedEdits` (onConflict `rec_id,action_type,target_element_key`).
-- `scripts/generate-specific-edits.ts` CLI: `--smoke` / `--packet=<file>` / `--write` / `--help`. Default mode is DRY-RUN. Idempotent re-runs. Exits non-zero on validation failures.
-- 19 new tests, 2015 passing total. CLI smoke run clean.
+**Phases shipped end-to-end:**
 
-**Next Sprint 6A.1 step (P12):** Persistence of rejected edits + (optional) UI hook. Two viable directions, operator picks:
+| Phase | Deliverable | Commit |
+|-------|-------------|--------|
+| P1 | Migrations (page_element_inventory + recommended_edits + llm_rejections + changelog ext) | f947a6f |
+| P2 | ActionType registry (22 types, 3 active) | 7b0c7b3 |
+| P3 | ElementType registry (31 types, 13 active) | 1e421cf |
+| P4 | element_key helpers + element-type domain wire-up | c917a71 |
+| P5 | 13 active extractors + dispatcher | b2f8623 |
+| P6 | page_element_inventory persistence wired into scan + verify | 2da6639 |
+| P7 | EvidencePacket builder (pure) + revision flatten cluster | e183704 / 39cf277 |
+| P8 | SpecificEditProvider interface + 3 implementations (1 shell, 2 stubs) | bd9354a |
+| P9 | Deterministic generators (edit_title / add_h2_section / add_faq) | c36d5dd |
+| P10 | Output validation layer | 794b51b |
+| P11 | recommended_edits persistence + generate-specific-edits CLI | 1523cbc |
+| P12 | /recommendations UI surfacing + per-edit Accept fan-out | (current) |
 
-**Direction A — `llm_rejections` persistence.** Add `mapRejectionToRow` + `syncLlmRejections` dual-write helper. Wire `runProviderAndPersist` to also persist rejected edits to `llm_rejections` (raw_output + validation_error + provider + model + cost). Mostly inert today since deterministic output is always valid; activates fully with Sprint 6A.2's LLM. Still no LLM, no UI.
+**End-to-end loop is closed.** From a snapshot crawl → page_element_inventory → cluster-aware EvidencePacket → deterministic provider → validator → recommended_edits row → /recommendations renders a `Specific edits (N)` panel → Accept stamps N changelog entries with `action_type` + `target_element_key` + `source_rec_id`.
 
-**Direction B — `/recommendations` UI surfacing.** Render the validated `SpecificEdit` rows on the existing `/recommendations` page so the operator can see what the deterministic provider proposed. Pulls from `recommended_edits` via the repository pattern. Reads fresh per request (Sprint 1 pattern). Operator can scan + edit; Accept-into-changelog wiring is its own follow-up.
+**Operator: pick the next sprint.** Two viable directions:
 
-**Recommendation:** Direction A first — it closes the data-layer loop entirely (no LLM-prep gaps left) and is bounded pure-mapping work. UI surfacing then fits the existing Sprint 6 plan (recommendation action detail UX) and benefits from having the rejection table populated when LLM lands in 6A.2.
+**Direction A — Sprint 6A.2 (LLM activation).** Replace the `not_implemented` openai/anthropic stubs with real implementations behind the existing `SpecificEditProvider` interface. Add evidence-hash cache (Supabase-backed), per-tenant LLM budget gate, llm_rejections persistence, optional per-edit Accept UX. Capability: **Max** — touches budget control, structured-output schemas, cost accounting; high blast radius if mis-wired.
 
-Capability: **Balanced** — same pattern as P11.
+**Direction B — Sprint 7 (multi-tenant hardening).** Tenant-scope every store + path + cron + adjudicator. Add the central tenant resolver. Pick deployment topology (one Vercel project per tenant vs. host-based). Onboard the two beta testers waiting. Capability: **Max** — touches every subsystem.
+
+**Recommendation:** Direction B first. Beta testers are blocked on multi-tenant; their usage will stress-test stores that today only Ritz touches. Sprint 6A.2 is high-value but the LLM behavior depends on cluster + competitor data that beta tester usage will surface — running 6A.2 against three real tenants gives much better signal than running it solo.
+
+Either way, the Sprint 6A.1 data layer is locked + tested + production-ready.
 
 ---
 

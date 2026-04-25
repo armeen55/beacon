@@ -10,6 +10,12 @@ import {
 } from "@/domains/product/recommendation-response-store";
 import { createChangelogEntry } from "@/domains/changelog/actions";
 import { updateChangelogHypothesis } from "@/domains/changelog/actions";
+import { generateId, now } from "@/lib/actions";
+import { writeStore } from "@/lib/persistence/json-store";
+import { syncChangelogEntries } from "@/lib/persistence/dual-write";
+import { changelogEntries } from "@/lib/seed-data.server";
+import { getRepository } from "@/lib/persistence/repositories";
+import type { ChangelogEntry } from "@/domains/changelog/types";
 import type {
   RecommendationCandidate,
   RecommendationType,
@@ -23,6 +29,11 @@ import type { PageBrief, SuggestedEdit } from "@/domains/recommendations/adjudic
 import { buildResolvedRecommendationTitle } from "@/domains/recommendations/build-title";
 import { sanitizeOperatorCopy } from "@/domains/recommendations/copy-sanitize";
 import type { SignalType, AssetType } from "@/lib/constants";
+import {
+  ACTION_TYPE_REGISTRY,
+  type ActionType,
+} from "@/domains/recommendations/action-types";
+import type { RecommendedEditRow } from "@/domains/recommendations/recommended-edits-persistence";
 
 /**
  * Server actions for /recommendations (Phase v6 Commit 4, 2026-04-23).
@@ -39,7 +50,13 @@ import type { SignalType, AssetType } from "@/lib/constants";
 export type RecommendationActionResponse = {
   success: boolean;
   error?: string;
+  /** Backward-compat: first changelog id for single-entry path; first
+   *  per-edit changelog id when N entries are created. */
   changeId?: string;
+  /** Sprint 6A.1 Phase 12 — populated when Accept fanned out to N
+   *  per-edit changelog entries. Empty array on the legacy single-
+   *  entry path. */
+  changeIds?: string[];
 };
 
 /** A minimal slice of RecommendationCandidate that the client sends back
@@ -219,6 +236,129 @@ function buildChangelogNotes(rec: RecommendationActionPayload): string | null {
   return parts.length > 0 ? parts.join("\n\n") : null;
 }
 
+/**
+ * Sprint 6A.1 Phase 12 (2026-04-24) — fan out Accept to N changelog
+ * entries when the rec has typed `recommended_edits`.
+ *
+ * One changelog entry per edit. Each entry carries:
+ *   - `action_type` (from the registry's enum)
+ *   - `target_element_key` (stable key from page_element_inventory or
+ *     `<type>[new]:<hash>` for additive)
+ *   - `source_rec_id` (the rec's stableKey)
+ *   - `change_description` = `displayLabel — why` (truncated)
+ *   - `notes` = current/proposed text + evidence summary
+ *
+ * Pure server-side; pushes onto the in-memory `changelogEntries`
+ * array AND dual-writes to Supabase (matches `createChangelogEntry`
+ * semantics). Returns the array of created changelog ids.
+ */
+async function createChangelogEntriesForEdits(
+  payload: RecommendationActionPayload,
+  edits: ReadonlyArray<RecommendedEditRow>,
+  shape: ReturnType<typeof mapRecToChangelogShape>,
+  operatorTitle: string,
+): Promise<string[]> {
+  const tsp = now();
+  const ids: string[] = [];
+  const newEntries: ChangelogEntry[] = [];
+
+  for (const edit of edits) {
+    const editId = generateId("cl");
+    ids.push(editId);
+
+    const spec = ACTION_TYPE_REGISTRY[edit.action_type as ActionType];
+    // Pull signal_type from the registry when known; otherwise inherit
+    // the rec-shape's signal_type as a safe default.
+    const signalType = spec?.signalType ?? shape.signalType;
+
+    // Per-edit description: short imperative the operator can scan
+    // on /changes. Sanitized — no Shield:/Internal: prefixes.
+    const editLabel = sanitizeOperatorCopy(
+      edit.display_label ?? edit.action_type,
+    );
+    const editWhy = sanitizeOperatorCopy(edit.why);
+    const description = `${editLabel} — ${editWhy}`;
+
+    // Notes carry the structured before/after + evidence summary.
+    const noteParts: string[] = [];
+    if (edit.current_text) {
+      noteParts.push(`Current:\n${sanitizeOperatorCopy(edit.current_text)}`);
+    }
+    if (edit.proposed_text) {
+      noteParts.push(`Proposed:\n${sanitizeOperatorCopy(edit.proposed_text)}`);
+    }
+    if (edit.evidence && edit.evidence.length > 0) {
+      const evidenceSummary = edit.evidence
+        .map((ref) => {
+          if (ref.type === "prompt") return `prompt:${ref.promptId}`;
+          if (ref.type === "element") return `element:${ref.elementKey}`;
+          if (ref.type === "owned_page") return `page:${ref.url}`;
+          if (ref.type === "competitor")
+            return `competitor:${ref.competitorName}`;
+          if (ref.type === "prior_outcome")
+            return `prior:${ref.actionType}`;
+          return "";
+        })
+        .filter(Boolean)
+        .join(" · ");
+      if (evidenceSummary) noteParts.push(`Evidence: ${evidenceSummary}`);
+    }
+    if (edit.measurement_plan) {
+      noteParts.push(
+        `Measurement plan:\n${sanitizeOperatorCopy(edit.measurement_plan)}`,
+      );
+    }
+    if (edit.risks && edit.risks.length > 0) {
+      noteParts.push(
+        `Risks:\n- ${edit.risks.map((r) => sanitizeOperatorCopy(r)).join("\n- ")}`,
+      );
+    }
+    const notes = noteParts.length > 0 ? noteParts.join("\n\n") : null;
+
+    const entry: ChangelogEntry = {
+      id: editId,
+      timestamp: tsp,
+      signal_type: signalType,
+      asset_type: shape.assetType,
+      url: shape.url,
+      asset_name: operatorTitle,
+      change_description: description,
+      topic_targeted: sanitizeOperatorCopy(shape.topicTargeted),
+      city_targeted: shape.cityTargeted
+        ? sanitizeOperatorCopy(shape.cityTargeted)
+        : null,
+      hypothesis: operatorTitle,
+      hypothesis_source: "recommendation",
+      expected_impact_window: null,
+      brief_id: null,
+      opportunity_id: null,
+      notes,
+      created_at: tsp,
+      updated_at: tsp,
+      source_rec_id: payload.stableKey,
+      action_type: edit.action_type,
+      target_element_key: edit.target_element_key ?? undefined,
+      tenant_id: edit.tenant_id ?? "",
+    };
+    newEntries.push(entry);
+  }
+
+  // Push all then persist once for efficiency.
+  for (const entry of newEntries) {
+    changelogEntries.push(entry);
+  }
+  await writeStore("imported-changes", changelogEntries);
+  try {
+    await syncChangelogEntries(newEntries);
+  } catch (e) {
+    console.error(
+      "[recommendations] per-edit changelog Supabase sync failed:",
+      e,
+    );
+  }
+  return ids;
+}
+
 export async function acceptRecommendation(
   payload: RecommendationActionPayload,
 ): Promise<RecommendationActionResponse> {
@@ -244,8 +384,29 @@ export async function acceptRecommendation(
 
   const resolvedAction = payload.resolution?.action ?? null;
   let changeId: string | undefined;
+  let changeIds: string[] | undefined;
   if (shouldStampChangelog(payload.type, resolvedAction)) {
     const shape = mapRecToChangelogShape(payload);
+
+    // Sprint 6A.1 Phase 12 — fresh-read the rec's typed edits. If any
+    // exist, we fan out one changelog entry per edit (with action_type
+    // + target_element_key + source_rec_id stamped). If none, fall
+    // through to the legacy single-entry path below — preserves
+    // existing behavior for recs that pre-date typed edits.
+    let editsForRec: RecommendedEditRow[] = [];
+    try {
+      const allEdits = await getRepository().getRecommendedEdits();
+      editsForRec = allEdits.filter((e) => e.rec_id === payload.stableKey);
+    } catch (e) {
+      // Graceful degrade: if the repo read fails, log and fall back
+      // to the single-entry path. Acceptance never fails because the
+      // edits read failed.
+      log.warn("acceptRecommendation: edits read failed; falling back", {
+        stableKey: payload.stableKey,
+        error: e instanceof Error ? e.message : String(e),
+      });
+    }
+
     // Phase 1 (2026-04-24): server-side defense. Pass the resolution back
     // through the shared title builder + sanitizer so the changelog entry
     // never carries a raw generator title or Shield:/Internal: prefix,
@@ -273,6 +434,59 @@ export async function acceptRecommendation(
           }
         : undefined,
     });
+    // Sprint 6A.1 Phase 12 — when typed edits exist, fan out N entries
+    // and skip the single-entry path. The operator's button copy
+    // already advertises "Accept — track N edits" so this matches the
+    // user-visible promise.
+    if (editsForRec.length > 0) {
+      try {
+        changeIds = await createChangelogEntriesForEdits(
+          payload,
+          editsForRec,
+          shape,
+          operatorTitle,
+        );
+        changeId = changeIds[0];
+        // Stamp hypothesis for each so /changes shows the rec-derived
+        // title immediately. Best-effort.
+        for (const id of changeIds) {
+          try {
+            await updateChangelogHypothesis(id, operatorTitle, "recommendation");
+          } catch (err) {
+            log.warn("acceptRecommendation: hypothesis stamp failed", {
+              changeId: id,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+        }
+        revalidatePath("/recommendations");
+        revalidatePath("/", "layout");
+        log.info("Action completed", {
+          action,
+          durationMs: Date.now() - t0,
+          params: {
+            changeIds,
+            editCount: editsForRec.length,
+            mode: "per-edit",
+          },
+        });
+        return { success: true, changeId, changeIds };
+      } catch (e) {
+        log.error("acceptRecommendation: per-edit fan-out failed", {
+          stableKey: payload.stableKey,
+          error: e instanceof Error ? e.message : String(e),
+        });
+        return {
+          success: false,
+          error: `Failed to create per-edit changelog entries: ${
+            e instanceof Error ? e.message : String(e)
+          }`,
+        };
+      }
+    }
+
+    // Legacy single-entry path: rec has no typed edits. Preserves
+    // existing behavior bit-for-bit.
     const changeDescription = sanitizeOperatorCopy(
       payload.resolution?.specificRecommendation ??
         payload.resolution?.reasoning ??
@@ -315,7 +529,7 @@ export async function acceptRecommendation(
   log.info("Action completed", {
     action,
     durationMs: Date.now() - t0,
-    params: { changeId: changeId ?? null },
+    params: { changeId: changeId ?? null, mode: "single-entry" },
   });
   return { success: true, changeId };
 }

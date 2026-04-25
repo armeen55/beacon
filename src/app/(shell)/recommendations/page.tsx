@@ -25,6 +25,7 @@ import {
   ensureRecommendationResponsesSeeded,
   type RecommendationResponse,
 } from "@/domains/product/recommendation-response-store";
+import type { RecommendedEditRow } from "@/domains/recommendations/recommended-edits-persistence";
 import { RecommendationsClient } from "./recommendations-client";
 
 /**
@@ -232,13 +233,32 @@ export default async function RecommendationsPage() {
     freshResponsesRes.value.map((r) => [r.recId, r]),
   );
 
+  // Sprint 6A.1 Phase 12 (2026-04-24): fresh-read recommended_edits per
+  // request. Group by `rec_id` so each rec row gets its own edits slice.
+  // Failure here gracefully degrades: edits are absent → UI falls back
+  // to the existing single-changelog Accept behavior.
+  const freshEditsRes = await safeCall(
+    () => getRepository().getRecommendedEdits(),
+    [] as RecommendedEditRow[],
+    "fetch fresh recommended edits",
+  );
+  if (freshEditsRes.error) errors.push(freshEditsRes.error);
+  const editsByRecId = new Map<string, RecommendedEditRow[]>();
+  for (const row of freshEditsRes.value) {
+    const list = editsByRecId.get(row.rec_id);
+    if (list) list.push(row);
+    else editsByRecId.set(row.rec_id, [row]);
+  }
+
   const decorated = queue.map((rec) => ({
     rec,
     response: freshResponsesByRecId.get(rec.stableKey) ?? null,
+    edits: editsByRecId.get(rec.stableKey) ?? [],
   }));
   const watchDecorated = watchlist.map((rec) => ({
     rec,
     response: freshResponsesByRecId.get(rec.stableKey) ?? null,
+    edits: editsByRecId.get(rec.stableKey) ?? [],
   }));
 
   return (
@@ -295,9 +315,14 @@ function ErrorFallback({ errors }: { errors: string[] }) {
 export type RecommendationQueueRow = {
   rec: ReturnType<typeof prioritizeRecommendations>["queue"][number];
   response: RecommendationResponse | null;
+  /** Sprint 6A.1 Phase 12 — typed edits from `recommended_edits`,
+   *  fresh-read per request. Empty array when the rec has none — the
+   *  UI then falls back to the legacy single-changelog Accept path. */
+  edits: RecommendedEditRow[];
 };
 
 export type RecommendationWatchRow = {
   rec: ReturnType<typeof prioritizeRecommendations>["watchlist"][number];
   response: RecommendationResponse | null;
+  edits: RecommendedEditRow[];
 };

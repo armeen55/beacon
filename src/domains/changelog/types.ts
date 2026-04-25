@@ -123,6 +123,29 @@ export type ChangelogEntry = {
   /** BeaconRecommendation.patternId if the source rec was pattern-backed. */
   source_pattern_id?: string | null;
 
+  // ---------------------------------------------------------------------
+  // Sprint 6A.1 Phase 1 (2026-04-24) — typed-edit attribution columns.
+  //
+  // Stamped by `acceptRecommendation` when the source rec carried
+  // `recommended_edits` rows (Phase 6A.1.11+). Each accepted rec
+  // produces N changelog entries, one per edit; each entry carries the
+  // ActionType + element_key it targeted so attribution can learn at
+  // element granularity instead of just page granularity.
+  //
+  // Both optional. Null/absent on:
+  //   - legacy rows (pre-Phase-6A.1)
+  //   - rows confirmed from findings (no SpecificEdit involved)
+  //   - rows from recs that had no recommended_edits (Phase 6A.1.12
+  //     fallback path — preserves legacy single-changelog behavior)
+  // ---------------------------------------------------------------------
+
+  /** ActionType from `ACTION_TYPE_REGISTRY` (e.g. "edit_title",
+   *  "add_h2_section", "add_faq"). */
+  action_type?: string;
+  /** Stable element key from `page_element_inventory` (e.g.
+   *  "title[0]:abc"), or `<type>[new]:<hash>` for additive edits. */
+  target_element_key?: string;
+
   /** Owning tenant. */
   tenant_id: string;
 };

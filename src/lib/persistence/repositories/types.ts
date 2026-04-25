@@ -44,6 +44,7 @@ import type { ObservationRun } from "@/domains/observations/types";
 import type { ConfiguredCompetitorEntry } from "@/domains/competitors/universe-types";
 import type { RecommendationResponse } from "@/domains/product/recommendation-response-store";
 import type { UrlChangeOutcome } from "@/domains/attribution/url-change-outcome";
+import type { RecommendedEditRow } from "@/domains/recommendations/recommended-edits-persistence";
 import type { PromptAnswerObservation } from "@/domains/prompt-answer-observations/types";
 import type { DailyMetricSnapshot } from "@/domains/daily-metric-snapshots/types";
 import type { TrackedEntity } from "@/domains/tracked-entities/types";
@@ -117,6 +118,10 @@ export interface SeedDataRepository {
   // Phase 1a — operator loop stores
   getRecommendationResponses(): Promise<RecommendationResponse[]>;
   getUrlChangeOutcomes(): Promise<UrlChangeOutcome[]>;
+
+  // Sprint 6A.1 Phase 12 (2026-04-24) — specific edits read path.
+  // Fetched fresh per request on /recommendations (Sprint 1 pattern).
+  getRecommendedEdits(): Promise<RecommendedEditRow[]>;
 
   // Phase 3.5E — hosted hero-surface data (visibility score / rankings /
   // competitor comparison / entity universe). File backend wraps existing

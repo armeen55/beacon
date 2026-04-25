@@ -51,6 +51,7 @@ import type { ConfiguredCompetitorEntry } from "@/domains/competitors/universe-t
 import type { Finding } from "@/domains/scanning/types";
 import type { RecommendationResponse } from "@/domains/product/recommendation-response-store";
 import type { UrlChangeOutcome } from "@/domains/attribution/url-change-outcome";
+import type { RecommendedEditRow } from "@/domains/recommendations/recommended-edits-persistence";
 import type { PromptAnswerObservation } from "@/domains/prompt-answer-observations/types";
 import type { DailyMetricSnapshot } from "@/domains/daily-metric-snapshots/types";
 import type { TrackedEntity } from "@/domains/tracked-entities/types";
@@ -287,6 +288,19 @@ export const supabaseBackend: SeedDataRepository = {
         `Supabase query failed on url_change_outcomes: ${error.message}`,
       );
     return (data ?? []) as UrlChangeOutcome[];
+  },
+
+  // Sprint 6A.1 Phase 12 — specific edits read path. Rows are already
+  // snake_cased to match the migration; no key mapping needed.
+  getRecommendedEdits: async () => {
+    const { data, error } = await getSupabaseAdmin()
+      .from("recommended_edits")
+      .select("*");
+    if (error)
+      throw new Error(
+        `Supabase query failed on recommended_edits: ${error.message}`,
+      );
+    return (data ?? []) as unknown as RecommendedEditRow[];
   },
 
   // Phase 3.5E — hero-surface data. Paged reads for the two large tables

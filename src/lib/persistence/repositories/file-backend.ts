@@ -45,6 +45,7 @@ import type { ConfiguredCompetitorEntry } from "@/domains/competitors/universe-t
 import { getFindings, getPendingFindings } from "@/domains/scanning/findings-store";
 import type { RecommendationResponse } from "@/domains/product/recommendation-response-store";
 import type { UrlChangeOutcome } from "@/domains/attribution/url-change-outcome";
+import type { RecommendedEditRow } from "@/domains/recommendations/recommended-edits-persistence";
 import type { PromptAnswerObservation } from "@/domains/prompt-answer-observations/types";
 import type { DailyMetricSnapshot } from "@/domains/daily-metric-snapshots/types";
 import type { TrackedEntity } from "@/domains/tracked-entities/types";
@@ -147,6 +148,13 @@ export const fileBackend: SeedDataRepository = {
     readStore<RecommendationResponse>("recommendation-responses"),
   getUrlChangeOutcomes: async () =>
     readStore<UrlChangeOutcome>("url-change-outcomes"),
+
+  // Sprint 6A.1 Phase 12 — specific edits read path.
+  // .data/recommended-edits.json — replace-by-id semantics from
+  // `runProviderAndPersist`. Local-mode reads through readDotDataJson;
+  // empty array when missing.
+  getRecommendedEdits: async () =>
+    readDotDataJson<RecommendedEditRow[]>("recommended-edits") ?? [],
 
   // Phase 3.5E — hero-surface data (local mode reads same files canonical-store
   // reads at module init; arrays are already hot in memory, so these re-reads

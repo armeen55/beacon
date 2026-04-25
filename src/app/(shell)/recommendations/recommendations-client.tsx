@@ -26,6 +26,7 @@ import type {
 import { NEEDS_NEW_PAGE } from "@/domains/recommendations/resolved-types";
 import { buildResolvedRecommendationTitle } from "@/domains/recommendations/build-title";
 import type { SuggestedEdit } from "@/domains/recommendations/adjudicator-schema";
+import type { RecommendedEditRow } from "@/domains/recommendations/recommended-edits-persistence";
 
 type Props = {
   queue: RecommendationQueueRow[];
@@ -272,7 +273,8 @@ function RecommendationRow({
     f: { stableKey: string; message: string; isError: boolean } | null,
   ) => void;
 }) {
-  const { rec, response } = row;
+  const { rec, response, edits } = row;
+  const editCount = edits.length;
   const [pending, startTransition] = useTransition();
 
   const showFeedback = feedback && feedback.stableKey === rec.stableKey;
@@ -472,6 +474,8 @@ function RecommendationRow({
         />
       )}
 
+      {editCount > 0 && <SpecificEditsSection edits={edits} />}
+
       {showFeedback && (
         <p
           className={cn(
@@ -553,12 +557,16 @@ function RecommendationRow({
               onClick={() =>
                 handle(
                   () => acceptRecommendation(payload),
-                  "Accepted — Beacon will watch for results.",
+                  editCount > 0
+                    ? `Accepted — ${editCount} edit${editCount === 1 ? "" : "s"} tracked.`
+                    : "Accepted — Beacon will watch for results.",
                 )
               }
               className="text-[11px] font-medium px-2 py-1 rounded border border-status-success/50 bg-status-success/[0.05] text-status-success hover:bg-status-success/[0.1] transition-colors disabled:opacity-50"
             >
-              Accept
+              {editCount > 0
+                ? `Accept — track ${editCount} edit${editCount === 1 ? "" : "s"}`
+                : "Accept"}
             </button>
             <button
               type="button"
@@ -875,5 +883,115 @@ function EmptyQueue() {
         for raw decision signals.
       </p>
     </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────── */
+/* Sprint 6A.1 Phase 12 — typed edits surfacing                         */
+/* ─────────────────────────────────────────────────────────────────── */
+
+const ACTION_TYPE_BADGE: Record<string, string> = {
+  edit_title: "Title",
+  edit_meta: "Meta",
+  change_h1: "H1",
+  add_h2_section: "H2 (new)",
+  rewrite_h2: "H2",
+  add_faq: "FAQ (new)",
+  rewrite_faq: "FAQ",
+  add_table: "Table",
+  edit_table_row: "Table row",
+  add_internal_link: "Internal link",
+  add_schema: "Schema",
+  fix_schema: "Schema fix",
+  add_answer_block: "Answer block",
+  add_proof_section: "Proof",
+  add_comparison_section: "Comparison",
+  add_cost_section: "Cost",
+  add_timeline_section: "Timeline",
+  reorder_sections: "Reorder",
+  split_page: "Split page",
+  merge_pages: "Merge pages",
+  create_page: "Create page",
+  watch: "Watch",
+};
+
+function SpecificEditsSection({ edits }: { edits: RecommendedEditRow[] }) {
+  if (edits.length === 0) return null;
+  const count = edits.length;
+  return (
+    <details className="mt-2 rounded border border-accent-primary/30 bg-accent-primary/[0.04] px-2.5 py-1.5">
+      <summary className="cursor-pointer text-[11px] font-medium text-accent-primary list-none flex items-center gap-1.5">
+        <span>Specific edits ({count})</span>
+        <span className="text-muted-foreground/60 font-normal">— click to expand</span>
+      </summary>
+      <ul className="mt-2 space-y-2.5">
+        {edits.map((edit) => (
+          <li
+            key={edit.id}
+            className="rounded border border-border/40 bg-background px-2.5 py-2 text-[11px]"
+          >
+            <div className="flex items-baseline gap-1.5 flex-wrap">
+              <span className="text-[10px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded border border-accent-primary/40 bg-accent-primary/[0.06] text-accent-primary">
+                {ACTION_TYPE_BADGE[edit.action_type] ?? edit.action_type}
+              </span>
+              <span className="font-medium text-foreground/90">
+                {edit.display_label ?? edit.action_type}
+              </span>
+              <span
+                className={cn(
+                  "ml-auto text-[10px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded border",
+                  edit.confidence === "high"
+                    ? "border-status-success/40 text-status-success"
+                    : edit.confidence === "low"
+                      ? "border-status-warning/40 text-status-warning"
+                      : "border-border/60 text-muted-foreground",
+                )}
+              >
+                {edit.confidence}
+              </span>
+              <span className="text-[10px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded border border-border/60 text-muted-foreground">
+                {edit.difficulty}
+              </span>
+            </div>
+            {(edit.current_text || edit.proposed_text) && (
+              <div className="mt-1.5 space-y-1">
+                {edit.current_text && (
+                  <p className="text-muted-foreground line-through font-mono tabular-nums break-words">
+                    {edit.current_text}
+                  </p>
+                )}
+                {edit.proposed_text && (
+                  <p className="text-foreground font-mono tabular-nums whitespace-pre-wrap break-words">
+                    {edit.proposed_text}
+                  </p>
+                )}
+              </div>
+            )}
+            <p className="mt-1.5 text-muted-foreground leading-relaxed">
+              <span className="font-medium text-foreground/80">Why: </span>
+              {edit.why}
+            </p>
+            {edit.evidence && edit.evidence.length > 0 && (
+              <p className="mt-1 text-[10px] text-muted-foreground/80 leading-relaxed">
+                Evidence:{" "}
+                {edit.evidence
+                  .map((ref) => {
+                    if (ref.type === "prompt") return `prompt:${ref.promptId}`;
+                    if (ref.type === "element") return `element:${ref.elementKey}`;
+                    if (ref.type === "owned_page") return `page:${ref.url}`;
+                    if (ref.type === "competitor")
+                      return `competitor:${ref.competitorName}`;
+                    if (ref.type === "prior_outcome")
+                      return `prior:${ref.actionType}`;
+                    return "";
+                  })
+                  .filter(Boolean)
+                  .join(" · ")}
+              </p>
+            )}
+          </li>
+        ))}
+      </ul>
+    </details>
   );
 }
