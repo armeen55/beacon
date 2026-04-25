@@ -7,6 +7,126 @@
 
 ---
 
+## 2026-04-24 — Sprint 6A.1 / Phase 9 — Deterministic generators for the 3 v1 active action types
+
+**Context.** Phase 8 (commit `bd9354a`) shipped the
+`SpecificEditProvider` interface + a deterministic shell that
+returned `recommendations: []`. Phase 9 fills the shell with the 3
+v1 active generators (per `ACTION_TYPE_REGISTRY.generatorActive`):
+`edit_title`, `add_h2_section`, `add_faq`.
+
+**Pure functions only.** No DB writes. No UI. No LLM. No SDK
+dependencies. No route-render generation. No mutation of the input
+packet.
+
+### Files added (5)
+
+1. **`providers/generators/_text-utils.ts`** — `titleCase`,
+   `isQuestionLike`, `truncate`, `asQuestion`. Pure helpers shared
+   across generators. Underscore prefix marks it folder-internal.
+
+2. **`providers/generators/edit-title.ts`** — `generateEditTitle`.
+   Fires when an owned candidate page's `<title>` lacks any cluster
+   keyword token. Skips when `clusterLabel` is null, no `title`
+   element exists, or the title already covers every cluster token.
+   Composes a deterministic proposed title that surfaces cluster
+   intent at the front while preserving the brand suffix (separator-
+   aware: handles `·`, `|`, `—`, `–`, `-`).
+
+3. **`providers/generators/add-h2-section.ts`** — `generateAddH2Section`.
+   Two-branch trigger:
+   - Branch 1 (precedence): top `competitorAngles` entry isn't
+     mentioned in any existing H2 → propose "Why teams choose us
+     over {Competitor}". When the competitor IS mentioned, the
+     generator skips entirely (does NOT fall through to cluster).
+   - Branch 2 (fallback, only when there is NO top competitor at
+     all): cluster label tokens missing from every existing H2 →
+     propose "{Title-cased cluster}: what to know".
+   Both branches use `newElementKey("h2", proposedText)` for the
+   element key.
+
+4. **`providers/generators/add-faq.ts`** — `generateAddFaq`. For each
+   question-shaped (`isQuestionLike`) affected prompt × candidate
+   URL, propose a new FAQ when no existing `faq_question` element
+   on that URL covers ≥40% of the prompt's tokens. Proposed text is
+   a combined `Q: …\n\nA: …` block with a deterministic answer seed
+   built from `descriptorsNearBrand` (operator rewrites the body
+   before publishing). Element key:
+   `newElementKey("faq_question", question)`.
+
+5. **`providers/generators/generators.test.ts`** — 34 tests.
+
+`providers/deterministic.ts` updated:
+- Now imports + runs all 3 generators in stable order (edit_title →
+  add_h2_section → add_faq).
+- `runDeterministicGenerators(packet)` exported for unit tests +
+  Phase 10 validation chain reuse.
+- `totalCostUsd` stays 0 — deterministic generators spend no
+  tokens.
+
+### Hard rules locked by tests
+
+- No generator emits a `targetUrl` outside `packet.allowedTargetUrls`.
+- No generator emits an `actionType` outside
+  `packet.allowedActionTypes`.
+- Every emitted `actionType` is a valid `ACTION_TYPES` enum member.
+- For `edit_title`, `targetElement.elementKey` MUST come from the
+  inventory (existing element). For `add_h2_section` /
+  `add_faq`, the key MUST be `<elementType>[new]:<hash>`.
+- All output JSON-serializable + round-trips losslessly.
+- Generators do NOT mutate the input packet.
+- Same packet → same output (deterministic).
+- No tenant-specific (Ritz / Palo Alto / Menlo Park / Bay Area)
+  hardcoding in either the generator output OR the source files.
+- No app route imports any generator or
+  `runDeterministicGenerators`.
+- No generator file imports the openai or @anthropic-ai/sdk SDKs.
+
+### Tests added (34, 1949 passing total)
+
+`providers/generators/generators.test.ts`:
+
+- **_text-utils sanity** (2): titleCase + isQuestionLike behavior.
+- **edit_title** (5): positive (proposes rewrite when keyword
+  missing); negatives (already covered, no title element, no
+  clusterLabel, action type not allowed).
+- **add_h2_section** (5): positive (top competitor missing from H2
+  → proposal); positive fallback (no competitor → cluster-themed
+  proposal); negatives (competitor already mentioned, no signal at
+  all, action type not allowed).
+- **add_faq** (5): positive (question-shaped prompt + uncovered);
+  negatives (non-question prompt, existing FAQ covers prompt, action
+  type not allowed, no candidate URLs).
+- **Cross-generator invariants** (7): all targetUrl ⊆
+  allowedTargetUrls; all actionType ⊆ allowedActionTypes; valid
+  ACTION_TYPES enum members; element-key shape correct per generator;
+  JSON round-trip; no input mutation; deterministic.
+- **No Ritz hardcoding** (2): no offending tokens in generator
+  output OR generator source.
+- **Provider integration** (6): aggregates all 3 in stable order;
+  totalCostUsd stays 0; empty packet → []; no input mutation; full
+  bundle JSON round-trips; tenantId/recId/evidenceHash threaded.
+- **No-route-render-generation** (2): no app route imports any
+  generator; no generator file imports an LLM SDK.
+
+### Phase 9 verification
+
+- `npm run typecheck` — clean
+- `npx vitest run` — 1949 passing (+34 over Phase 8's 1915), 10
+  pre-existing fails unchanged
+
+### What's NOT yet wired (Phase 10+)
+
+- Output validation layer (Phase 6A.1.10) — rejects hallucinated
+  URLs / element keys / action types from LLM providers; logs to
+  `llm_rejections`. Deterministic output is implicitly valid so the
+  layer is a no-op for it; symmetry with LLM path matters.
+- Persistence: `SpecificEdit[]` → `recommended_edits` rows
+  (Phase 6A.1.11).
+- LLM provider implementations (Sprint 6A.2).
+
+---
+
 ## 2026-04-24 — Sprint 6A.1 / Phase 8 — SpecificEditProvider interface + 3 provider implementations (1 shell, 2 stubs)
 
 **Context.** Phase 7 (commit `39cf277`) shipped the structured

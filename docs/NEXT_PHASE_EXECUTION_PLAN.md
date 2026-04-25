@@ -17,18 +17,21 @@
 
 ---
 
-## Sprint 6A.1 progress — Phase 8 (provider interface + 3 implementations) COMPLETE 2026-04-24
+## Sprint 6A.1 progress — Phase 9 (deterministic generators) COMPLETE 2026-04-24
 
-**Done so far:** P1 migrations · P2 ActionType registry · P3 ElementType registry · P4 element_key helpers · P5 13 active extractors + dispatcher · P6 inventory persistence wired · P7 EvidencePacket builder · **P8 (today) — `SpecificEditProvider` interface + types + 3 provider implementations (1 deterministic shell + 2 LLM stubs). Files: `src/domains/recommendations/specific-edit-provider.ts` + `providers/{deterministic,openai,anthropic,index}.ts`. Deterministic provider returns empty `recommendations: []` (Phase 9 will fill); openai/anthropic stubs throw `not_implemented` so any premature caller hits a loud failure. No SDK dependencies, no LLM, no DB writes, no UI. 22 new tests (1915 passing).**
+**Done so far:** P1 migrations · P2 ActionType registry · P3 ElementType registry · P4 element_key helpers · P5 13 active extractors + dispatcher · P6 inventory persistence wired · P7 EvidencePacket builder · P8 SpecificEditProvider interface + 3 implementations · **P9 (today) — Deterministic generators wired. New folder `src/domains/recommendations/providers/generators/` with `edit-title.ts`, `add-h2-section.ts`, `add-faq.ts`, `_text-utils.ts`. Each pure. Aggregated into `runDeterministicGenerators(packet)` and surfaced via `deterministicProvider.generate()`. Element-key shape correct (existing key for edit_title; `<type>[new]:<hash>` for additive actions). 34 new tests (1949 passing).**
 
-**Next Sprint 6A.1 step (P9):** Deterministic generators for the v1 active action types. New file `src/domains/recommendations/providers/deterministic-generators.ts` (or split per-action if cleaner). Three generators:
-- `edit_title` — fires when title misses cluster's top keyword(s). Proposes a title rewrite that includes them.
-- `add_h2_section` — fires when a competitor angle phrase appears in ≥40% of cluster's competitor-primary answers but no H2 on the target page covers it. Proposes an H2 add.
-- `add_faq` — fires when cluster's query fanout includes a question pattern unmatched by any existing FAQ on the target page. Proposes adding the FAQ.
+**Next Sprint 6A.1 step (P10):** Output validation layer. New file `src/domains/recommendations/specific-edit-validator.ts` exporting `validateSpecificEdit(edit, packet)` and `validateSpecificEditBundle(bundle, packet)`. Rejects:
+- `targetUrl` not in `allowedTargetUrls` (and not `needs_new_page` for create_page actions).
+- `actionType` not in `allowedActionTypes`.
+- `targetElement.elementKey` that's neither in `packet.targetPageElements` (existing) NOR `<elementType>[new]:<hash>` (additive).
+- `actionType` × `targetElement.elementType` domain violations per `ACTION_TYPE_REGISTRY[actionType].elementTypeDomain`.
+- `requiresCurrentText`/`requiresProposedText` violations per registry.
+- Page-level lifecycle actions (create_page / split_page / merge_pages / watch) MUST have `targetElement: null`.
 
-Each generator emits 0+ `SpecificEdit` rows. Deterministic provider's `generate()` calls all three, concatenates results, returns the populated bundle. Still no LLM, no DB writes (the persistence layer to `recommended_edits` lives in Phase 6A.1.11).
+Deterministic output is implicitly valid (the generators are designed to never violate); the validator's real value is gating LLM output in Sprint 6A.2. Persisted rejections land in `llm_rejections` table (added in P1 migrations).
 
-Capability: **Balanced** — bounded compute over already-typed inputs.
+Capability: **Balanced** — pure validation logic over already-typed inputs.
 
 ---
 
