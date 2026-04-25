@@ -7,6 +7,144 @@
 
 ---
 
+## 2026-04-24 — Sprint 6A.1 / Phase 10 — Output validation layer
+
+**Context.** Phase 9 (commit `c36d5dd`) shipped the deterministic
+generators. Phase 10 adds the validation layer every provider's
+output passes through before persistence (Phase 11) or operator
+display. **Pure functions only. No DB writes. No UI. No LLM. No
+mutation of input edit / packet.**
+
+The validator's real customer is the Sprint 6A.2 LLM provider —
+deterministic output is implicitly valid by construction (Phase 9
+generators never violate). Running it on deterministic output today
+for symmetry locks in the contract before LLM lands.
+
+### Files added (2)
+
+1. **`src/domains/recommendations/specific-edit-validator.ts`** —
+   pure validator. Exports:
+   - `ValidationOk` / `ValidationFail` / `ValidationResult`
+     discriminated union.
+   - `parseElementTypeFromKey(elementKey)` — handles positional
+     (`title[0]:abc`), additive (`h2[new]:abc`), schema_type
+     (`schema[FAQPage]`), schema_property
+     (`schema[FAQPage].mainEntity[2].name:abc`).
+   - `isAdditiveElementKey(elementKey)` — `[new]:` matcher.
+   - `validateSerializable(value, path?)` — recursive walker
+     rejecting functions, undefined, symbol/bigint, Date/Map/Set/
+     class instances.
+   - `validateSpecificEdit(edit, packet)` — per-row validator (10
+     check categories below).
+   - `validateSpecificEditBundle(bundle, packet)` — bundle-level
+     validator + per-edit aggregation. Returns `{ ok, bundleErrors,
+     perEdit, acceptedCount, rejectedCount }`.
+
+2. **`src/domains/recommendations/specific-edit-validator.test.ts`** —
+   47 tests.
+
+### Validation rules (10 categories)
+
+1. **actionType** valid `ACTION_TYPES` member + present in
+   `packet.allowedActionTypes`.
+2. **targetUrl** non-empty + in `packet.allowedTargetUrls`.
+3. **targetElement** presence/null:
+   - Page-level actions (`elementTypeDomain == []`) — must be `null`.
+   - Element actions — must be a non-null object.
+3a. **elementKey** parseable, `element_type` in action's
+    `elementTypeDomain`, additive (`[new]`) keys not allowed when
+    `requiresCurrentText: true`, non-additive keys must exist in
+    `packet.targetPageElements` for the same `targetUrl`.
+3b. **displayLabel** non-empty.
+3c. **currentText / proposedText** match `requiresCurrentText` /
+    `requiresProposedText` per `ACTION_TYPE_REGISTRY`.
+4. **why** non-empty.
+5. **evidence** array; every ref points to known packet content
+   (prompt / element / owned_page / competitor / prior_outcome). The
+   `needs_new_page` sentinel is rejected as an `owned_page` ref.
+6. **difficulty** ∈ {low, medium, high}; **confidence** ∈ same.
+7. **risks** array of strings.
+8. **expectedImpact / measurementPlan** string or null.
+9. **source** ∈ {deterministic, openai, anthropic, operator_edited}.
+   Coherence:
+   - `deterministic`: `providerName="deterministic"`, `model=null`,
+     `costUsd=null`.
+   - `openai` / `anthropic`: `providerName` matches `source`,
+     `model` string-or-null, `costUsd` non-negative-or-null.
+   - `operator_edited`: `providerName` ∈ `SpecificEditProviderName`.
+10. **JSON-serializability** — recursive walk rejects any non-JSON
+    value (functions, Date, Map, Set, class instances, undefined,
+    symbol, bigint).
+
+Bundle-level checks:
+- `bundle.tenantId === packet.tenantId`.
+- `bundle.recId === packet.recId`.
+- `bundle.evidenceHash === packet.evidenceHash`.
+- `totalCostUsd` non-negative number.
+
+### Tests added (47, 1996 passing total)
+
+`specific-edit-validator.test.ts`:
+
+- **Key-parsing helpers** (3): positional / additive / schema_type /
+  schema_property; null on malformed; additive detector.
+- **Serializability walker** (3): accepts plain JSON; rejects
+  function / undefined / symbol / bigint / Date / Map / Set /
+  class instance; nested rejection has correct field path.
+- **Positive cases** (4): valid edit_title fixture; valid
+  add_h2_section fixture with `[new]` key; ALL deterministic
+  provider outputs validate clean; page-level lifecycle (`watch`)
+  with `targetElement: null`.
+- **actionType negatives** (2): unknown actionType; actionType not
+  in allowedActionTypes (e.g. `edit_meta` outside v1 active set).
+- **targetUrl negatives** (2): hallucinated URL; empty.
+- **targetElement negatives** (6): element action with null
+  targetElement; page-level action with non-null targetElement;
+  inventory key not in inventory; valid `[new]` key for additive
+  action; `[new]` key for action requiring currentText; element_type
+  outside action's `elementTypeDomain`; unparseable elementKey.
+- **Required-text negatives** (2): missing currentText for
+  edit_title; missing proposedText for add_h2_section.
+- **Evidence-ref negatives** (5): unknown promptId; element ref not
+  in inventory; owned_page ref off-domain; competitor ref unknown;
+  unknown ref type.
+- **Enum negatives** (3): difficulty / confidence / source.
+- **Coherence negatives** (4): deterministic + non-null model;
+  deterministic + non-null costUsd; source/providerName mismatch;
+  negative costUsd for openai source.
+- **Non-serializable negatives** (3): Date in expectedImpact;
+  function in why; Map deep inside risks.
+- **Bundle validator** (7): accepts deterministic bundle; accepts
+  empty-recommendations bundle; flags tenantId / recId /
+  evidenceHash mismatches; flags negative totalCostUsd; aggregates
+  rejected per-edit results into rejectedCount.
+- **No-mutation invariants** (2): edit / bundle / packet unchanged
+  after validation.
+
+### Phase 10 verification
+
+- `npm run typecheck` — clean
+- `npx vitest run` — 1996 passing (+47 over Phase 9's 1949), 10
+  pre-existing fails unchanged
+
+### Side-effect: Phase 9 typecheck fix
+
+Phase 10 implementation surfaced a pre-existing type narrowness in
+`providers/generators/generators.test.ts` — its `basePacketArgs()`
+return type inferred `clusterLabel: string` (concrete) so `null`
+overrides failed. Widened to
+`Partial<BuildSpecificEditEvidencePacketArgs>` which permits the
+nullable shape. No runtime behavior change.
+
+### What's NOT yet wired (Phase 11+)
+
+- Persistence: validated `SpecificEdit[]` → `recommended_edits` rows;
+  rejected edits → `llm_rejections` (Phase 6A.1.11).
+- LLM provider implementations (Sprint 6A.2).
+- /recommendations UI rendering of validated typed edits (Sprint 6).
+
+---
+
 ## 2026-04-24 — Sprint 6A.1 / Phase 9 — Deterministic generators for the 3 v1 active action types
 
 **Context.** Phase 8 (commit `bd9354a`) shipped the

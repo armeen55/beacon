@@ -17,21 +17,17 @@
 
 ---
 
-## Sprint 6A.1 progress — Phase 9 (deterministic generators) COMPLETE 2026-04-24
+## Sprint 6A.1 progress — Phase 10 (output validation layer) COMPLETE 2026-04-24
 
-**Done so far:** P1 migrations · P2 ActionType registry · P3 ElementType registry · P4 element_key helpers · P5 13 active extractors + dispatcher · P6 inventory persistence wired · P7 EvidencePacket builder · P8 SpecificEditProvider interface + 3 implementations · **P9 (today) — Deterministic generators wired. New folder `src/domains/recommendations/providers/generators/` with `edit-title.ts`, `add-h2-section.ts`, `add-faq.ts`, `_text-utils.ts`. Each pure. Aggregated into `runDeterministicGenerators(packet)` and surfaced via `deterministicProvider.generate()`. Element-key shape correct (existing key for edit_title; `<type>[new]:<hash>` for additive actions). 34 new tests (1949 passing).**
+**Done so far:** P1 migrations · P2 ActionType registry · P3 ElementType registry · P4 element_key helpers · P5 13 active extractors + dispatcher · P6 inventory persistence wired · P7 EvidencePacket builder · P8 SpecificEditProvider interface + 3 implementations · P9 deterministic generators · **P10 (today) — output validation layer at `src/domains/recommendations/specific-edit-validator.ts`. Exports `validateSpecificEdit(edit, packet)` + `validateSpecificEditBundle(bundle, packet)` + helpers (`parseElementTypeFromKey`, `isAdditiveElementKey`, `validateSerializable`). Discriminated result type. 10 check categories. All deterministic provider outputs validate clean. 47 new tests (1996 passing).**
 
-**Next Sprint 6A.1 step (P10):** Output validation layer. New file `src/domains/recommendations/specific-edit-validator.ts` exporting `validateSpecificEdit(edit, packet)` and `validateSpecificEditBundle(bundle, packet)`. Rejects:
-- `targetUrl` not in `allowedTargetUrls` (and not `needs_new_page` for create_page actions).
-- `actionType` not in `allowedActionTypes`.
-- `targetElement.elementKey` that's neither in `packet.targetPageElements` (existing) NOR `<elementType>[new]:<hash>` (additive).
-- `actionType` × `targetElement.elementType` domain violations per `ACTION_TYPE_REGISTRY[actionType].elementTypeDomain`.
-- `requiresCurrentText`/`requiresProposedText` violations per registry.
-- Page-level lifecycle actions (create_page / split_page / merge_pages / watch) MUST have `targetElement: null`.
+**Next Sprint 6A.1 step (P11):** Persistence layer. New file `src/domains/recommendations/recommended-edits-persistence.ts` (or similar) exporting:
+- `mapSpecificEditToRow(edit, recId, tenantId, evidenceHash) → RecommendedEditRow` — flattens `targetElement` nested object into the four `target_element_key` / `display_label` / `current_text` / `proposed_text` columns, snake_cases everything.
+- `syncRecommendedEdits(rows)` dual-write helper in `src/lib/persistence/dual-write.ts` — onConflict on `(rec_id, action_type, target_element_key)` matching the migration's NULLS NOT DISTINCT unique index.
+- Optional persistence of rejected edits → `llm_rejections` rows (rare today since deterministic is always valid; matters for Sprint 6A.2 LLM).
+- Caller orchestration: `provider.generate(packet) → validateSpecificEditBundle → mapToRows → syncRecommendedEdits`. Lives outside route render.
 
-Deterministic output is implicitly valid (the generators are designed to never violate); the validator's real value is gating LLM output in Sprint 6A.2. Persisted rejections land in `llm_rejections` table (added in P1 migrations).
-
-Capability: **Balanced** — pure validation logic over already-typed inputs.
+Capability: **Balanced** — bounded persistence + mapping logic over already-validated inputs.
 
 ---
 

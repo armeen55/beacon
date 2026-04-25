@@ -5,6 +5,7 @@ import { join, resolve } from "node:path";
 import type { PageElementInventoryRow } from "@/domains/pages/extractors/persist";
 import {
   buildSpecificEditEvidencePacket,
+  type BuildSpecificEditEvidencePacketArgs,
   type SpecificEditEvidencePacket,
 } from "../../specific-edit-evidence";
 import type { SpecificEdit } from "../../specific-edit-provider";
@@ -140,7 +141,7 @@ function makeElement(
 
 const URL_BRACES = "https://example.com/services/braces";
 
-function basePacketArgs() {
+function basePacketArgs(): BuildSpecificEditEvidencePacketArgs {
   const promptId = "prompt-1";
   return {
     tenantId: TENANT,
@@ -193,7 +194,7 @@ function basePacketArgs() {
 }
 
 function buildPacket(
-  overrides: Partial<ReturnType<typeof basePacketArgs>> = {},
+  overrides: Partial<BuildSpecificEditEvidencePacketArgs> = {},
 ): SpecificEditEvidencePacket {
   return buildSpecificEditEvidencePacket({ ...basePacketArgs(), ...overrides });
 }
