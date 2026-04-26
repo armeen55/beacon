@@ -204,6 +204,47 @@ export async function dualWriteUpsertScoped(
   await dualWriteUpsert(table, rows as Record<string, unknown>[], primaryKey);
 }
 
+/**
+ * Force-stamps `tenant_id = tenantId` on every row. Throws only when an
+ * input row already carries a NON-EMPTY `tenant_id` that doesn't match.
+ * Empty string, `null`, and `undefined` are all coerced to `tenantId`.
+ *
+ * Phase 7.7b (2026-04-25) transitional helper. Production row-creation
+ * sites still stamp `tenant_id: ""` literally (~40 sites verified by
+ * audit). Tier A `sync*` wrappers wrap their input through `tenantizeRows`
+ * so the resolved tenant ends up on every row before the upsert, while
+ * any pre-stamped non-empty mismatch — the actual cross-tenant leak
+ * vector — fails loud.
+ *
+ * Once row-creation sites are clean (Phase 7.7b.1 or 7.8 cleanup), Tier
+ * A wrappers move from `dualWriteUpsert(tenantizeRows(...))` to
+ * `dualWriteUpsertScoped(...)`, which enforces the strict contract.
+ *
+ * Pure / no I/O. Does not mutate input rows (returns a new array).
+ */
+export function tenantizeRows<
+  T extends Record<string, unknown> & { tenant_id?: string | null },
+>(
+  rows: ReadonlyArray<T>,
+  tenantId: string,
+  context: string,
+): T[] {
+  if (!tenantId) {
+    throw new Error(
+      `[dual-write/${context}] tenantizeRows: tenantId must be a non-empty string`,
+    );
+  }
+  return rows.map((row) => {
+    const existing = row.tenant_id ?? "";
+    if (existing !== "" && existing !== tenantId) {
+      throw new Error(
+        `[dual-write/${context}] tenant mismatch: row.tenant_id=${JSON.stringify(existing)} expected=${tenantId}`,
+      );
+    }
+    return { ...row, tenant_id: tenantId };
+  });
+}
+
 export async function dualWriteTruncate(table: string): Promise<void> {
   if (!isDualWriteEnabled()) return;
 
