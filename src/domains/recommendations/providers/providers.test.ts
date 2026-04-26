@@ -17,9 +17,10 @@ import {
   type SpecificEdit,
   type SpecificEditProvider,
 } from "../specific-edit-provider";
-import {
-  NOT_IMPLEMENTED_MESSAGE as OPENAI_NOT_IMPL,
-} from "./openai";
+// Phase 6A.2b (2026-04-26): the openai provider no longer exports
+// NOT_IMPLEMENTED_MESSAGE — its body is implemented behind a mockable
+// fetch boundary. Live-behavior tests live in `./openai.test.ts`. The
+// anthropic stub is unchanged (Sprint 6A.2 is openai-only).
 import {
   NOT_IMPLEMENTED_MESSAGE as ANTHROPIC_NOT_IMPL,
 } from "./anthropic";
@@ -176,19 +177,12 @@ describe("Phase 6A.1.8 — deterministic provider shell", () => {
   });
 });
 
-// ── OpenAI stub behavior ──────────────────────────────────────────────────
-
-describe("Phase 6A.1.8 — openai provider stub", () => {
-  it("throws not_implemented when generate() is called", async () => {
-    await expect(openaiProvider.generate(makePacket())).rejects.toThrow(
-      OPENAI_NOT_IMPL,
-    );
-  });
-
-  it("the not_implemented message references Sprint 6A.2 (the activation milestone)", () => {
-    expect(OPENAI_NOT_IMPL).toMatch(/6A\.2/i);
-  });
-});
+// ── OpenAI live provider — implemented in 6A.2b ────────────────────────────
+// Live behavior is covered in `./openai.test.ts`. The interface contract
+// test above already proves `openaiProvider.generate` exists and returns a
+// Promise. Without an explicit fetchImpl the provider rejects in vitest
+// (Sprint 6A.2b safety guard) — that rejection is captured by the
+// interface-contract test's `.catch(() => {})`.
 
 // ── Anthropic stub behavior ───────────────────────────────────────────────
 
