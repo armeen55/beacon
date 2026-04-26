@@ -14,7 +14,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { LibraryPrompt } from "@/domains/prompts/types";
 
 const readMock = vi.hoisted(() => vi.fn(async () => [] as LibraryPrompt[]));
-const writeMock = vi.hoisted(() => vi.fn(async () => undefined));
+const writeMock = vi.hoisted(() => vi.fn(async (_name: string, _data: unknown[]) => undefined));
 
 vi.mock("@/lib/persistence/json-store", () => ({
   readStore: readMock,

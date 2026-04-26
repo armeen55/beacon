@@ -7,6 +7,86 @@
 
 ---
 
+## 2026-04-26 — Sprint 7 Phase 7.8e — module-level top-level await reads lifted to request-scope getters across 21 production files
+
+Phase 7.8e completes the multi-tenant hardening sprint by replacing every module-level top-level await read in `src/` with `cache(async () => ...)` getters. Conversion landed in seven sub-commits plus two deploy-fix commits along the way.
+
+### Commits (in order)
+
+| Commit | Phase | Scope |
+|---|---|---|
+| `627f9e9` | 7.8e-1 | `seed-data.server.ts` — module-level array exports lifted to request-scope getters; mocks retargeted |
+| `cc0ba05` | 7.8e-2 | `storage/canonical-store.ts` — same pattern; DB-merge logic preserved verbatim inside `ensureLoaded` |
+| `441cee8` | 7.8e-3 | 16 mutable Group 2/3 stores (attribution, changelog/change-contract, pages/issues + wave-planner + asset-response + outcome-watch + frontier-planner + frontier-compiler + competitor-evidence, brief-generation, actions, observations/visibility, product/outcome + recommendation-response, answer-snapshots) |
+| `52891e8` | deploy fix | `answer-snapshots` + `frontier-opportunities` classified in `store-classification.ts`; Vercel prerender of `/settings/health` was throwing on unknown stores after 7.8d-1's fail-loud contract |
+| `fa169fa` | 7.8e-4a | `citation-evidence-store.ts` — singleton; `undefined`/`null` sentinel distinction added |
+| `ea39a35` | 7.8e-4b | `answer-intelligence/store.ts` — same pattern as 4a |
+| `f67ce8f` | deploy fix | `BEACON_TENANT_SLUG` env fallback in `currentTenantSlug`; Vercel's gitignored `.data/global/tenants.json` was breaking tenant-aware routes |
+| `0dd90e2` | deploy fix | 5 focused tests pinning the env-fallback contract (added after Vercel still showed the old error message — root cause was Vercel rebuilding a stale commit, not a code bug) |
+| `899d516` | 7.8e-4c | `prompt-library.ts` — global store; `addPrompt`/`initFromTrackedPrompts` mutators promoted to async, push semantics preserved |
+| `<7.8e-4d>` | 7.8e-4d | New architecture invariant; docs sync (this entry + `HANDOFF_VERIFIED_STATE.md` + `NEXT_PHASE_EXECUTION_PLAN.md`) |
+
+### Architecture invariant added (7.8e-4d)
+
+[tests/architecture/json-store-routing-invariants.test.ts](tests/architecture/json-store-routing-invariants.test.ts) gained a 6-test `Phase 7.8e-4d` block:
+
+1. Walks every `.ts`/`.tsx`/`.mts` file under `src/`. Fails on any module-level (column-0) line matching:
+   - `(export?)?(const|let) X = await readStore(...)` / `readDotDataJson(...)`
+   - `(export?)?(const|let) X = (cond ?)? await repo.X()` / `await repository.X()` (the universe-read shape)
+   - `(export?)?(const|let) X = await getRepository().X()`
+2. Documented allowlist: `repositories/file-backend.ts`, `repositories/supabase-backend.ts`, `repositories/types.ts`, `repositories/index.ts`, `lib/tenant-data.ts`, `domains/competitors/universe-read.ts`. Exactly the operator-approved exceptions; **`seed-data.server.ts` and `canonical-store.ts` are NOT on the allowlist** (they were converted in 7.8e-1/2 and must stay clean).
+3-6. Per-file regex pins for `seed-data.server.ts`, `canonical-store.ts`, `citation-evidence-store.ts`, `answer-intelligence/store.ts`, `prompt-library.ts`: each must contain zero module-level `await readStore` / `await ` lines.
+
+### Forbidden value-imports also extended (rolling pin from 7.8e-3 / 4a/b/c)
+
+The Phase 7.8e-3 invariant block already forbids any production caller from `import { name } from "module"` for the legacy mutable-array exports. 7.8e-4a/b/c added three more entries: `citationEvidenceIndex`, `answerIntelligenceIndex`, `promptLibrary`. The full list (18 names) is pinned in source.
+
+### Deploy-fix details
+
+**`52891e8` — classification gap:** Pre-7.8d-1 the flat-fallback returned `[]` for unknown stores; post-7.8d-1 `readStore` throws with a message naming `store-classification.ts`. Local tests don't traverse the static-prerender path so the gap surfaced only on Vercel build. `answer-snapshots` (referenced by `getAnswerSnapshots` in `diagnostics/page.tsx`) and `frontier-opportunities` (referenced by `getFrontierOpportunities`) were both unclassified. Both added to `TENANT_SCOPED_STORES` since the rows reference per-tenant prompt_ids and per-tenant pages respectively. Single-operator Ritz today routes correctly under any of the three Sets.
+
+**`f67ce8f` — env-fallback:** `.data/global/tenants.json` is gitignored and not on the Vercel lambda. `currentTenantSlug` would always throw on Vercel because `getTenant(id)` returned null. Added `BEACON_TENANT_SLUG` env fallback that fires only when `BEACON_TENANT_ID === id` (multi-tenant safety guard preserved). Operator set the env in Vercel project settings.
+
+**`0dd90e2` — diagnostic + tests:** After `f67ce8f` shipped, the operator reported Vercel still failing with the OLD error message. Local Vercel-equivalent reproduction (`mv .data /tmp; BEACON_TENANT_ID=tenant-ritz-founder npm run build`) produced the NEW message verbatim, proving the fix was on disk and reachable. Diagnosis: Vercel was redeploying a stale commit (clicking "Redeploy" on a failed deployment uses that deployment's frozen git SHA, not latest main). Added 5 unit tests pinning the fallback contract; operator triggered fresh deploy of latest main; Vercel went green.
+
+### Production deploy verification
+
+- **Commit:** `0dd90e2`
+- **Status:** Ready
+- **Source:** main
+- **TypeScript + static page generation:** passed
+- **Live domain:** [beacon-bice.vercel.app](http://beacon-bice.vercel.app)
+
+### Local verification (this session)
+
+- `npm run typecheck` — clean
+- `npx vitest run` — **2356 / 2356 pass** (was 2330 entering 7.8e; +26 net new tests across 7.8e-3 invariant, 7.8e-4a/b/c unit tests, currentTenantSlug-fallback tests, and the 7.8e-4d architecture invariant)
+- `npm run build` — green with `.data/` present (26 pages generated)
+- **Vercel-equivalent build:**
+  ```bash
+  mv .data /tmp/beacon-data-bak
+  rm -rf .next
+  BEACON_TENANT_ID=tenant-ritz-founder BEACON_TENANT_SLUG=ritz-builders npm run build
+  ```
+  → green, all 26 pages generated, no prerender errors. `.data` then restored.
+
+### Files changed across the cascade (cumulative)
+
+- **Stores converted (5 source files in 7.8e-4 alone; 16 stores in 7.8e-3; 2 in 7.8e-1/2):** total 23 store modules
+- **Production callers cascaded:** ~50 unique files across server components, server actions, CLI scripts, and the orchestrator
+- **Tests added/updated:** ~12 test files (4 new unit-test files + architecture invariants + mock retargeting)
+- **Lines net change:** ~1500 across the seven sub-commits (signature changes + threading + invariants + tests)
+- **Schema changes:** 0
+- **Migration changes:** 0
+- **Middleware changes:** 0 (unrelated to deploy fixes)
+- **LLM changes:** 0
+
+### Rollback
+
+Each sub-phase commit is `git revert <hash>`-clean. The deploy-fix commits are similarly revertable but reverting them would re-fail Vercel; they should stay. The architecture invariant + docs commit (`<7.8e-4d>`) can revert without affecting runtime.
+
+---
+
 ## 2026-04-26 — Sprint 7 Phase 7.8d — flat fallback removed; routed dirs are sole truth; 72 flat originals moved to `.data/_legacy/`
 
 Three sub-commits this session: 7.8c (`--commit` migration; verified prior entry), 7.8d-1 (runtime fallback removal + fail-loud unknowns + 7 newly-classified stores), 7.8d-2 (flat file move to `_legacy/`), 7.8d-3 (this docs entry + commit).

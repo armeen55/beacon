@@ -17,6 +17,43 @@
 
 ---
 
+## Sprint 7 Phase 7.8e — COMPLETE 2026-04-26
+
+Phase 7.8e shipped in seven sub-commits this session: **7.8e-1 → 7.8e-2 → 7.8e-3 → 7.8e-4a → 7.8e-4b → 7.8e-4c → 7.8e-4d**. Plus two deploy-fix commits along the way that surfaced as the cascade hit production prerender + Vercel runtime: store-classification gap (`answer-snapshots` + `frontier-opportunities`) and the `currentTenantSlug` env-fallback for environments where the gitignored `.data/global/tenants.json` isn't on disk.
+
+**7.8e-1 (`627f9e9` — seed-data.server.ts):** lifted module-level top-level await reads to `cache(async () => ...)` getters. Pattern A established. Mocks retargeted across the wider test surface.
+
+**7.8e-2 (`cc0ba05` — canonical-store):** same conversion for `src/storage/canonical-store.ts`'s array exports (`promptAnswerObservations`, `dailyMetricSnapshots`, `trackedEntities`, `trackedPrompts`, etc.). DB-merge logic preserved verbatim inside the lazy `ensureLoaded` block.
+
+**7.8e-3 (`441cee8` — Group 2/3 mutable-array stores):** 16 stores converted (attribution/store + url-change-outcome, changelog/change-contract, pages/issues + wave-planner + asset-response + outcome-watch + frontier-planner + frontier-compiler + competitor-evidence, brief-generation/store, actions/store, observations/visibility-observation-explicit-store, product/outcome-store + recommendation-response-store, answer-snapshots/store). Mutators promoted to async; ~30 production callers cascaded via `Promise.all` batches; new architecture invariant pins legacy value-imports out.
+
+**7.8e-4a (`fa169fa` — citation-evidence-store):** singleton store. Sentinel `undefined`/`null` distinction added (`undefined` = not loaded; `null` = loaded but no index on disk). 13 production callers retargeted. 4 unit tests pin the contract.
+
+**7.8e-4b (`ea39a35` — answer-intelligence/store):** same pattern as 4a. 3 production callers; 4 unit tests.
+
+**7.8e-4c (`899d516` — prompt-library):** global store. `addPrompt`/`initFromTrackedPrompts` mutators promoted to async — preserve push semantics on the cached array reference (verified by test). 5 callers. 8 unit tests + architecture invariant extended to forbid value-imports of all three 7.8e-4 store names.
+
+**7.8e-4d (`<this commit>` — final invariant + docs sync):** new architecture invariant in `tests/architecture/json-store-routing-invariants.test.ts` walks `src/` and fails-loud on any module-level top-level await read of `readStore`/`readDotDataJson`/`repo`/`repository` outside the documented allowlist (repo backends, tenant-data plumbing, competitors/universe-read private cache). Five additional invariants pin the empty-state of `seed-data.server.ts`, `canonical-store.ts`, `citation-evidence-store.ts`, `answer-intelligence/store.ts`, and `prompt-library.ts` against future regression. Docs synced (this entry + `HANDOFF_VERIFIED_STATE.md` banner + `VERIFICATION_LOG.md`).
+
+**Two deploy fixes during the cascade:**
+- **`52891e8` — store classification gap:** Vercel's static-prerender of `/settings/health` (re-exports `/diagnostics`) hit `getAnswerSnapshots()` → `readStore("answer-snapshots")` → `classifyStore` returned `"unknown"` → throw (Phase 7.8d-1's fail-loud contract). `frontier-opportunities` had the same gap. Both classified as per-tenant; Vercel build green.
+- **`f67ce8f` — `BEACON_TENANT_SLUG` env fallback:** `currentTenantSlug` resolved slugs by reading `.data/global/tenants.json`, but that file is gitignored and not bundled into the Vercel lambda. Added env fallback consistent with the existing `BEACON_TENANT_ID` pattern: when registry is empty AND env id matches, return env slug. Multi-tenant safety preserved by the id-match guard.
+
+**Verification:**
+- `npm run typecheck` — **clean**.
+- `npx vitest run` — **2356 / 2356 pass** (was 2330/2330 entering 7.8e; gained 5 architecture invariants, 4 citation-evidence tests, 4 answer-intelligence tests, 8 prompt-library tests, 5 currentTenantSlug-fallback tests).
+- `npm run build` — green with `.data/` present.
+- **Vercel-equivalent build** (`mv .data /tmp; BEACON_TENANT_ID=tenant-ritz-founder BEACON_TENANT_SLUG=ritz-builders npm run build`) — green; all 26 pages generated; no prerender errors.
+- **Production deploy:** Vercel commit `0dd90e2`, status Ready, live at `beacon-bice.vercel.app`.
+
+**Phase 7.8 complete.** No further sub-phases planned. Sprint 7 multi-tenant hardening (7.0 → 7.8e) is feature-complete: tenant resolution, repository scoping, dual-write tenantization, json-store routing, request-scope getters, architecture invariants. Operator instructions don't require 7.9 (multi-tenant onboarding flow) until a second tenant is imminent — single-operator Ritz today is fully supported.
+
+**Recommended next phase (operator decision):**
+- **Sprint 6A.2** — LLM activation in `runProviderAndPersist`. Highest signal once a real packet round-trips through openai/anthropic providers.
+- **Phase 7.9** — only when a second tenant is imminent. Adds onboarding CLI, registry UI, header-driven tenant resolution at request layer. Architecture is ready; this is product surface, not infrastructure.
+
+---
+
 ## Sprint 7 Phase 7.8d — COMPLETE 2026-04-26
 
 Phase 7.8d shipped in three sub-commits this session.

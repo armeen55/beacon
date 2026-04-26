@@ -447,3 +447,144 @@ describe("Phase 7.8e-3 — mutable-array stores expose cached async getters", ()
     expect(offenders).toEqual([]);
   });
 });
+
+// ── Phase 7.8e-4d: no module-level top-level await reads of tenant data ──
+
+describe("Phase 7.8e-4d — no module-level tenant/data reads outside allowlist", () => {
+  // Files that legitimately keep a module-level read (or repo grab).
+  // Each entry is justified — adding to this set is a real architectural
+  // exception and should be reviewed in plan mode before landing.
+  const MODULE_LEVEL_READ_ALLOWLIST = new Set<string>([
+    // Repository implementations themselves — readStore lives inside their
+    // exported async closures (readStore<T>() inside `getX: async () => ...`),
+    // not at the module top. The grep above won't match them, but we
+    // allowlist anyway as a documentation anchor.
+    "src/lib/persistence/repositories/file-backend.ts",
+    "src/lib/persistence/repositories/supabase-backend.ts",
+    "src/lib/persistence/repositories/types.ts",
+    "src/lib/persistence/repositories/index.ts",
+    // Internal repo plumbing: tenant id → data path resolver, no tenant-
+    // scoped data read. Carries no per-render state.
+    "src/lib/tenant-data.ts",
+    // Private cache holding ONLY a config-flag-driven entry list. The
+    // underlying store (`competitor_config` table OR an explicit on-disk
+    // file) is operator-shared / global; module-load capture is a documented
+    // risk noted in Phase 7.8a.1's audit notes (post-7.8 cleanup item).
+    "src/domains/competitors/universe-read.ts",
+  ]);
+
+  function* walk(dir: string): Generator<string> {
+    for (const entry of readdirSync(dir)) {
+      const full = join(dir, entry);
+      const st = statSync(full);
+      if (st.isDirectory()) {
+        if (entry === "node_modules" || entry === ".next" || entry === "dist") continue;
+        yield* walk(full);
+      } else if (
+        entry.endsWith(".ts") ||
+        entry.endsWith(".tsx") ||
+        entry.endsWith(".mts")
+      ) {
+        yield full;
+      }
+    }
+  }
+
+  /**
+   * Detects module-level top-level await reads on tenant-scoped or store
+   * primitives. A "module level" line starts at column 0 (no indentation)
+   * and matches one of:
+   *   - `const X = await readStore(...)`        / `let X = await ...`
+   *   - `export const X = await readStore(...)` / `export let X = await ...`
+   *   - `const X = await readDotDataJson(...)`
+   *   - `const X = await repo.getY(...)`         / `await repository.getY(...)`
+   *   - `const X = <ternary> ? await repo.X() : <fallback>` (universe-read shape)
+   *
+   * Per-line scan is sufficient because TypeScript module-level statements
+   * are not inside `function`/`class`/`async function` bodies — those bodies
+   * are indented. Top-level await is the only legal location for `await`
+   * outside an async-function body.
+   */
+  const FORBIDDEN_TOP_LEVEL_PATTERNS: RegExp[] = [
+    // Direct: const|let|export X = await readStore(...) / readDotDataJson(...)
+    /^(?:export\s+)?(?:const|let)\s+\w+[^=]*=\s*await\s+(?:readStore|readDotDataJson)\b/,
+    // Repo/repository call: const X = await repo.getY() OR
+    //                       const X = <cond> ? await repo.getY() : <fallback>
+    /^(?:export\s+)?(?:const|let)\s+\w+[^=]*=\s*(?:[^?]*\?\s*)?await\s+(?:repo|repository)\./,
+    // Repository.getX direct (less common; keep for safety)
+    /^(?:export\s+)?(?:const|let)\s+\w+[^=]*=\s*await\s+getRepository\(\s*\)\.\w+/,
+  ];
+
+  it("no production file (outside allowlist) declares a module-level top-level await read", () => {
+    const offenders: string[] = [];
+    for (const f of walk(SRC_ROOT)) {
+      const rel = f.slice(REPO_ROOT.length + 1);
+      if (MODULE_LEVEL_READ_ALLOWLIST.has(rel)) continue;
+      const src = readFileSync(f, "utf8");
+      const lines = src.split("\n");
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        for (const re of FORBIDDEN_TOP_LEVEL_PATTERNS) {
+          if (re.test(line)) {
+            offenders.push(`${rel}:${i + 1}: ${line.trim()}`);
+          }
+        }
+      }
+    }
+    if (offenders.length > 0) {
+      // Surface the full list — debugging top-level-await regressions is
+      // easier when the failure tells you exactly which lines to fix.
+      throw new Error(
+        `Module-level top-level await reads detected (Phase 7.8e-4d):\n` +
+          offenders.map((o) => `  ${o}`).join("\n") +
+          `\n\nIf this is a legitimate exception, add the file to ` +
+          `MODULE_LEVEL_READ_ALLOWLIST in this test with a one-line ` +
+          `justification. Otherwise, lift the read into a cached async ` +
+          `getter (Pattern A — see citation-evidence-store.ts for the canonical example).`,
+      );
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it("seed-data.server.ts has NO module-level top-level await read (Phase 7.8e-1)", () => {
+    const src = readFileSync(
+      resolve(SRC_ROOT, "lib/seed-data.server.ts"),
+      "utf8",
+    );
+    // The file's lazy hydration pattern lives entirely inside `cache(async () => ...)`.
+    // A top-level `await readStore(...)` would be a regression of 7.8e-1.
+    expect(src).not.toMatch(/^(?:export\s+)?(?:const|let)[^=]*=\s*await\s+readStore/m);
+  });
+
+  it("canonical-store.ts has NO module-level top-level await read (Phase 7.8e-2)", () => {
+    const src = readFileSync(
+      resolve(SRC_ROOT, "storage/canonical-store.ts"),
+      "utf8",
+    );
+    expect(src).not.toMatch(/^(?:export\s+)?(?:const|let)[^=]*=\s*await\s+readStore/m);
+  });
+
+  it("citation-evidence-store.ts has NO module-level top-level await read (Phase 7.8e-4a)", () => {
+    const src = readFileSync(
+      resolve(SRC_ROOT, "domains/pages/citation-evidence-store.ts"),
+      "utf8",
+    );
+    expect(src).not.toMatch(/^(?:export\s+)?(?:const|let)[^=]*=\s*await\s+/m);
+  });
+
+  it("answer-intelligence/store.ts has NO module-level top-level await read (Phase 7.8e-4b)", () => {
+    const src = readFileSync(
+      resolve(SRC_ROOT, "domains/answer-intelligence/store.ts"),
+      "utf8",
+    );
+    expect(src).not.toMatch(/^(?:export\s+)?(?:const|let)[^=]*=\s*await\s+/m);
+  });
+
+  it("prompt-library.ts has NO module-level top-level await read (Phase 7.8e-4c)", () => {
+    const src = readFileSync(
+      resolve(SRC_ROOT, "domains/prompts/prompt-library.ts"),
+      "utf8",
+    );
+    expect(src).not.toMatch(/^(?:export\s+)?(?:const|let)[^=]*=\s*await\s+readStore/m);
+  });
+});
