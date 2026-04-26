@@ -113,7 +113,8 @@ import {
   getMilestoneState,
   pickTodayMilestoneTeaser,
 } from "@/domains/milestones";
-import { answerIntelligenceIndex } from "@/domains/answer-intelligence/store";
+import { getAnswerIntelligenceIndex } from "@/domains/answer-intelligence/store";
+import type { AnswerIntelligenceIndex } from "@/domains/answer-intelligence/types";
 import { buildMorningBrief, type MorningBriefData } from "@/domains/product/morning-brief";
 import { buildQueryKeywordIndex, type QueryKeywordIndex } from "@/domains/answer-intelligence/query-index";
 // 2026-04-20: MemoryInsight (topic-level attribution) removed in favor of
@@ -171,8 +172,11 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
     ensureCanonicalStoresSeeded(),
   ]);
 
-  // Phase 7.8e-4a: hoist citation index read once per request.
-  const citationEvidenceIndex = await getCitationEvidenceIndex();
+  // Phase 7.8e-4a/b: hoist citation + answer-intelligence index reads once per request.
+  const [citationEvidenceIndex, answerIntelligenceIndex] = await Promise.all([
+    getCitationEvidenceIndex(),
+    getAnswerIntelligenceIndex(),
+  ]);
 
   // Sprint 7 Phase 7.5b Commit 4 (2026-04-25) — resolve tenant once and
   // thread it into every Tier A repository read below. Header-injected by
@@ -2222,7 +2226,7 @@ function formatTimeAgo(date: Date): string {
 }
 
 function buildAnswerIntelligenceProofContext(
-  ai: NonNullable<typeof answerIntelligenceIndex>,
+  ai: AnswerIntelligenceIndex,
 ): NonNullable<import("@/lib/today-proof-context").TodayProofContext["answerIntelligence"]> {
   const totalMentioned = ai.brand_positioning.reduce(
     (s, bp) => s + bp.mention_count,

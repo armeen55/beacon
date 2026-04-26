@@ -44,7 +44,7 @@ import {
   filterMarketMilestones,
 } from "@/domains/milestones";
 import { latestWebsiteCrawlRun } from "@/domains/observations/read";
-import { answerIntelligenceIndex } from "@/domains/answer-intelligence/store";
+import { getAnswerIntelligenceIndex } from "@/domains/answer-intelligence/store";
 
 export default async function CompetitorsPage() {
   // Same signal as Today / Pages / Changes (Phase 2B): no import runs ⇒ sample workspace, not operator Market.
@@ -84,6 +84,7 @@ export default async function CompetitorsPage() {
   const universe = await loadCompetitorUniverseRuntime();
   const activeUniverse = universe.entries.filter((e) => e.status === "active");
   const citIndex = await getCitationEvidenceIndex();
+  const answerIntelligenceIndex = await getAnswerIntelligenceIndex();
   const [competitors, results] = await Promise.all([getCompetitors(), getResults()]);
   void results; // some downstream JSX may use this; keep available
 

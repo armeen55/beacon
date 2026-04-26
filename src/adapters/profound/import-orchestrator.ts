@@ -373,7 +373,7 @@ export async function runProfoundImport(
 
   // Refresh module-level caches so the UI reads fresh data without server restart
   await refreshCitationEvidenceStore();
-  refreshAnswerIntelligenceStore();
+  await refreshAnswerIntelligenceStore();
 
   // Phase 11: materialize relationship stores (best-effort)
   let changeOutcomeCount = 0;
