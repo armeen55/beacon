@@ -4,9 +4,19 @@
  * Stage 1: Initialized from Profound tracked prompts (100 rows).
  * Stage 2: Expanded via prompt mining + validation.
  * Stage 3: Auto-expansion from answer text patterns.
+ *
+ * Sprint 7 Phase 7.8e-4c (2026-04-26): module-level top-level await removed
+ * in favor of Pattern A cached async getter. The store remains classified
+ * as GLOBAL (operator-shared corpus, no tenant_id on rows). Mutators
+ * (`addPrompt`, `initFromTrackedPrompts`) preserve in-memory array
+ * mutation semantics by retrieving and operating on the cached array
+ * reference — `Array.push`/index assignment behave identically to the
+ * pre-7.8e-4c module-level array.
  */
 
 import "server-only";
+
+import { cache } from "react";
 
 import { readStore, writeStore } from "@/lib/persistence/json-store";
 import type { LibraryPrompt, JourneyStage, PromptSource } from "./types";
@@ -14,40 +24,51 @@ import { classifyJourneyStage } from "./journey-stages";
 
 const STORE_NAME = "prompt-library";
 
-export const promptLibrary: LibraryPrompt[] =
-  await readStore<LibraryPrompt>(STORE_NAME);
+let _state: LibraryPrompt[] | null = null;
+
+const ensureLoaded = cache(async (): Promise<void> => {
+  if (_state !== null) return;
+  _state = await readStore<LibraryPrompt>(STORE_NAME);
+});
+
+export const getPromptLibrary = cache(
+  async (): Promise<LibraryPrompt[]> => {
+    await ensureLoaded();
+    return _state!;
+  },
+);
 
 export async function persistPromptLibrary(): Promise<void> {
-  await writeStore(STORE_NAME, promptLibrary);
+  await writeStore(STORE_NAME, await getPromptLibrary());
 }
 
-export function getActivePrompts(): LibraryPrompt[] {
-  return promptLibrary.filter((p) => p.is_active);
+export async function getActivePrompts(): Promise<LibraryPrompt[]> {
+  return (await getPromptLibrary()).filter((p) => p.is_active);
 }
 
-export function getPromptsByJourneyStage(
+export async function getPromptsByJourneyStage(
   stage: JourneyStage,
-): LibraryPrompt[] {
-  return promptLibrary.filter(
+): Promise<LibraryPrompt[]> {
+  return (await getPromptLibrary()).filter(
     (p) => p.is_active && p.journey_stage === stage,
   );
 }
 
-export function getPromptsByTopic(topic: string): LibraryPrompt[] {
+export async function getPromptsByTopic(topic: string): Promise<LibraryPrompt[]> {
   const t = topic.toLowerCase();
-  return promptLibrary.filter(
+  return (await getPromptLibrary()).filter(
     (p) => p.is_active && p.topic?.toLowerCase() === t,
   );
 }
 
-export function addPrompt(opts: {
+export async function addPrompt(opts: {
   prompt_text: string;
   topic?: string | null;
   city?: string | null;
   service_type?: string | null;
   journey_stage?: JourneyStage;
   source: PromptSource;
-}): LibraryPrompt {
+}): Promise<LibraryPrompt> {
   const id = `prm-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
   const prompt: LibraryPrompt = {
     id,
@@ -62,6 +83,7 @@ export function addPrompt(opts: {
     created_at: new Date().toISOString(),
   };
 
+  const promptLibrary = await getPromptLibrary();
   const existing = promptLibrary.findIndex(
     (p) => p.prompt_text.toLowerCase() === opts.prompt_text.toLowerCase(),
   );
@@ -78,7 +100,7 @@ export function addPrompt(opts: {
  * Initialize the prompt library from Profound tracked prompts.
  * Only adds prompts that don't already exist in the library.
  */
-export function initFromTrackedPrompts(
+export async function initFromTrackedPrompts(
   trackedPrompts: Array<{
     id: string;
     text: string;
@@ -88,10 +110,11 @@ export function initFromTrackedPrompts(
     intent_type: string | null;
     is_active: boolean;
   }>,
-): { added: number; skipped: number } {
+): Promise<{ added: number; skipped: number }> {
   let added = 0;
   let skipped = 0;
 
+  const promptLibrary = await getPromptLibrary();
   const existingTexts = new Set(
     promptLibrary.map((p) => p.prompt_text.toLowerCase()),
   );
@@ -122,18 +145,19 @@ export function initFromTrackedPrompts(
   return { added, skipped };
 }
 
-export function getLibrarySummary(): {
+export async function getLibrarySummary(): Promise<{
   total: number;
   active: number;
   byJourneyStage: Record<string, number>;
   bySource: Record<string, number>;
   byTopic: Record<string, number>;
-} {
+}> {
   const byJourneyStage: Record<string, number> = {};
   const bySource: Record<string, number> = {};
   const byTopic: Record<string, number> = {};
   let active = 0;
 
+  const promptLibrary = await getPromptLibrary();
   for (const p of promptLibrary) {
     if (p.is_active) active++;
     byJourneyStage[p.journey_stage] =
@@ -150,4 +174,9 @@ export function getLibrarySummary(): {
     bySource,
     byTopic,
   };
+}
+
+/** Test-only reset hook. */
+export function _resetPromptLibraryForTests(): void {
+  _state = null;
 }

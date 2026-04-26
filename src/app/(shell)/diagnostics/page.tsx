@@ -64,7 +64,8 @@ import { detectDiscrepancies } from "@/domains/entity/discrepancy-detect";
 import type { DiscrepancySeverity } from "@/domains/entity/discrepancy-types";
 import { getPageIssues } from "@/domains/pages/issues";
 import { computeGeoCoverage, summarizeGeoCoverage } from "@/domains/geo/coverage";
-import { getActivePrompts, promptLibrary } from "@/domains/prompts/prompt-library";
+import { getActivePrompts, getPromptLibrary } from "@/domains/prompts/prompt-library";
+import type { LibraryPrompt } from "@/domains/prompts/types";
 import { computeJourneyCoverage } from "@/domains/prompts/journey-coverage";
 import { JOURNEY_STAGE_LABELS } from "@/domains/prompts/journey-stages";
 import { computeBeaconScore } from "@/domains/product/beacon-score";
@@ -190,10 +191,12 @@ type DiagnosticsContext = {
   pages: PageEntity[];
   pageSnapshots: PageSnapshot[];
   citationEvidenceIndex: import("@/domains/pages/types").CitationEvidenceIndex | null;
+  promptLibrary: LibraryPrompt[];
+  activePrompts: LibraryPrompt[];
 };
 
 export default async function DiagnosticsPage() {
-  const [results, changelogEntries, opportunities, briefs, competitors, eventDecisions, candidateLinks, pageIssues, outcomeRecords, answerSnapshots, citationEvidenceIndex] = await Promise.all([
+  const [results, changelogEntries, opportunities, briefs, competitors, eventDecisions, candidateLinks, pageIssues, outcomeRecords, answerSnapshots, citationEvidenceIndex, promptLibrary, activePrompts] = await Promise.all([
     getResults(),
     getChangelogEntries(),
     getOpportunities(),
@@ -205,6 +208,8 @@ export default async function DiagnosticsPage() {
     getOutcomeRecords(),
     getAnswerSnapshots(),
     getCitationEvidenceIndex(),
+    getPromptLibrary(),
+    getActivePrompts(),
   ]);
   const diag = computeDiagnostics(results, changelogEntries, opportunities, briefs, competitors);
   const cdiag = await computeCandidateDiagnostics(results, changelogEntries, opportunities);
@@ -230,7 +235,7 @@ export default async function DiagnosticsPage() {
     repo.getPageSnapshots(),
   ]);
   await warmPageRegistry();
-  const ctx: DiagnosticsContext = { pages, pageSnapshots, citationEvidenceIndex };
+  const ctx: DiagnosticsContext = { pages, pageSnapshots, citationEvidenceIndex, promptLibrary, activePrompts };
 
   const { attribution: attrResults } = partitionResultsByMode(results);
   const events = detectOutcomeEvents(attrResults);
@@ -257,7 +262,7 @@ export default async function DiagnosticsPage() {
   const geoLocal = computeGeoCoverage(
     pages,
     citationEvidenceIndex?.by_page_and_topic ?? [],
-    getActivePrompts(),
+    activePrompts,
   );
   const localDiagSurface = computeLocalOperatorSurface({
     business: getBusinessConfig(),
@@ -1210,7 +1215,7 @@ export default async function DiagnosticsPage() {
       <GeoCoverageSection ctx={ctx} />
 
       {/* ── Journey stage intelligence ── */}
-      <JourneyCoverageSection />
+      <JourneyCoverageSection ctx={ctx} />
 
       {/* ── Beacon Score ── */}
       <BeaconScoreSection ctx={ctx} />
@@ -1306,8 +1311,8 @@ async function EntityRepresentationSection({ ctx }: { ctx: DiagnosticsContext })
   );
 }
 
-function JourneyCoverageSection() {
-  const journeyCoverage = computeJourneyCoverage(promptLibrary);
+function JourneyCoverageSection({ ctx }: { ctx: DiagnosticsContext }) {
+  const journeyCoverage = computeJourneyCoverage(ctx.promptLibrary);
   const coreStages = journeyCoverage.stages.filter(
     (s) => ["awareness", "consideration", "comparison", "decision"].includes(s.stage),
   );
@@ -1370,10 +1375,10 @@ async function BeaconScoreSection({ ctx }: { ctx: DiagnosticsContext }) {
   const pageIssues = await getPageIssues();
   const benchmark = citIndex ? computeMarketBenchmark(citIndex, pageIssues) : null;
 
-  const geoCoverage = computeGeoCoverage(ctx.pages, citIndex?.by_page_and_topic ?? [], getActivePrompts());
+  const geoCoverage = computeGeoCoverage(ctx.pages, citIndex?.by_page_and_topic ?? [], ctx.activePrompts);
   const geoSummary = summarizeGeoCoverage(geoCoverage);
 
-  const journeyCoverage = computeJourneyCoverage(promptLibrary);
+  const journeyCoverage = computeJourneyCoverage(ctx.promptLibrary);
   const coveredStages = journeyCoverage.stages.filter((s) => s.active_prompt_count > 0).length;
 
   const decayResults = computeCitationDecay(siteDomain);
@@ -1539,7 +1544,7 @@ function GeoCoverageSection({ ctx }: { ctx: DiagnosticsContext }) {
   const geoCoverage = computeGeoCoverage(
     ctx.pages,
     ctx.citationEvidenceIndex?.by_page_and_topic ?? [],
-    getActivePrompts(),
+    ctx.activePrompts,
   );
   const geoSummary = summarizeGeoCoverage(geoCoverage);
   const visibleCities = geoCoverage.cities.filter(
@@ -1796,8 +1801,8 @@ async function PulseBanner({ ctx }: { ctx: DiagnosticsContext }) {
   const entityIdx = await extractEntities(ctx.pageSnapshots);
   const discReport = await detectDiscrepancies(entityIdx);
   const answerSnapshots = await getAnswerSnapshots();
-  const geoCov = computeGeoCoverage(ctx.pages, ctx.citationEvidenceIndex?.by_page_and_topic ?? [], getActivePrompts());
-  const journeyCov = computeJourneyCoverage(promptLibrary);
+  const geoCov = computeGeoCoverage(ctx.pages, ctx.citationEvidenceIndex?.by_page_and_topic ?? [], ctx.activePrompts);
+  const journeyCov = computeJourneyCoverage(ctx.promptLibrary);
 
   const citMap2 = new Map<string, number>();
   if (ctx.citationEvidenceIndex) {
@@ -1871,11 +1876,11 @@ async function AdvancedReadinessSection({ ctx }: { ctx: DiagnosticsContext }) {
     getAnswerSnapshots(),
     getOutcomeRecords(),
   ]);
-  const adversarial = assessAdversarialReadiness(promptLibrary, answerSnapshots.some((s) => s.prompt_text.toLowerCase().includes("complaint") || s.prompt_text.toLowerCase().includes("scam")));
+  const adversarial = assessAdversarialReadiness(ctx.promptLibrary, answerSnapshots.some((s) => s.prompt_text.toLowerCase().includes("complaint") || s.prompt_text.toLowerCase().includes("scam")));
   const whatIf = assessWhatIfReadiness(outcomeRecords);
   const founder = await assessFounderAuthority();
   const conversionPath = assessConversionPathReadiness({
-    hasPromptData: promptLibrary.length > 0,
+    hasPromptData: ctx.promptLibrary.length > 0,
     hasAnswerData: answerSnapshots.length > 0,
     hasCitationData: (ctx.citationEvidenceIndex?.total_citations_processed ?? 0) > 0,
     hasAnalyticsIntegration: false,

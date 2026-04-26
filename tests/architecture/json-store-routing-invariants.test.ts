@@ -405,6 +405,12 @@ describe("Phase 7.8e-3 — mutable-array stores expose cached async getters", ()
     { module: "@/domains/product/outcome-store", name: "outcomeRecords" },
     { module: "@/domains/product/recommendation-response-store", name: "recommendationResponses" },
     { module: "@/domains/answer-snapshots/store", name: "answerSnapshots" },
+    // Phase 7.8e-4a/b/c (2026-04-26) — singletons + global prompt corpus
+    // converted to cached async getters. The legacy module-level value
+    // exports were removed; pin so they don't get reintroduced.
+    { module: "@/domains/pages/citation-evidence-store", name: "citationEvidenceIndex" },
+    { module: "@/domains/answer-intelligence/store", name: "answerIntelligenceIndex" },
+    { module: "@/domains/prompts/prompt-library", name: "promptLibrary" },
   ];
 
   function* walk(dir: string): Generator<string> {

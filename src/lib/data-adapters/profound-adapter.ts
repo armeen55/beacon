@@ -50,7 +50,13 @@ const allPages: PageEntity[] = [];
 import { getSiteConfig } from "@/lib/site-config";
 import { PLATFORM_LABELS, type Platform } from "@/lib/constants";
 import { computeGeoCoverage } from "@/domains/geo/coverage";
-import { getActivePrompts, promptLibrary } from "@/domains/prompts/prompt-library";
+// Phase 7.8e-4c (2026-04-26): prompt-library is now async. profound-adapter
+// is phased-out (matches the citation-evidence / answer-snapshots / outcome
+// stubs). Stub locally so this file's sync `getJourneyCov` / `getGeoCov`
+// closures keep their shapes.
+import type { LibraryPrompt } from "@/domains/prompts/types";
+const promptLibrary: LibraryPrompt[] = [];
+const getActivePrompts = (): LibraryPrompt[] => [];
 import { computeJourneyCoverage } from "@/domains/prompts/journey-coverage";
 import { computeBeaconScore } from "@/domains/product/beacon-score";
 import { computeCitationDecay, getDecayAlerts as getDecayAlertsRaw } from "@/domains/attribution/citation-decay";

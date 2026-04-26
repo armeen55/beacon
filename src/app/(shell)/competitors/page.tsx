@@ -105,7 +105,7 @@ export default async function CompetitorsPage() {
   const geoCoverage = computeGeoCoverage(
     allPages,
     citIndex?.by_page_and_topic ?? [],
-    getActivePrompts(),
+    await getActivePrompts(),
   );
   const competitorPressureCities = geoCoverage.cities
     .filter((c) => c.competitor_pages >= 5 && (c.coverage_status === "absent" || c.coverage_status === "weak"))

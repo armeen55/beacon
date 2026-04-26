@@ -61,7 +61,7 @@ async function main() {
   console.log("─── Beacon visibility sampling ───\n");
 
   // ── Step 1: ensure prompt library is populated ──
-  let libSummary = getLibrarySummary();
+  let libSummary = await getLibrarySummary();
   if (libSummary.total === 0) {
     console.log("Prompt library empty — seeding from Profound tracked prompts…");
     const tpPath = join(process.cwd(), ".data", "tracked-prompts.json");
@@ -75,13 +75,13 @@ async function main() {
         intent_type: string | null;
         is_active: boolean;
       }>;
-      const { added, skipped } = initFromTrackedPrompts(raw);
+      const { added, skipped } = await initFromTrackedPrompts(raw);
       await persistPromptLibrary();
       console.log(`  → Added ${added}, skipped ${skipped} duplicates\n`);
     } else {
       console.log("  → No tracked-prompts.json found. Library remains empty.\n");
     }
-    libSummary = getLibrarySummary();
+    libSummary = await getLibrarySummary();
   }
 
   console.log(`Prompt library: ${libSummary.total} total, ${libSummary.active} active`);
@@ -92,14 +92,15 @@ async function main() {
   console.log();
 
   // ── Step 2: select prompts to sample ──
-  const prompts = getActivePrompts().slice(0, isFinite(limit) ? limit : undefined);
+  const allActivePrompts = await getActivePrompts();
+  const prompts = allActivePrompts.slice(0, isFinite(limit) ? limit : undefined);
 
   if (prompts.length === 0) {
     console.log("No active prompts to sample. Exiting.");
     return;
   }
 
-  console.log(`Prompts to sample: ${prompts.length}${isFinite(limit) ? ` (limited from ${getActivePrompts().length})` : ""}`);
+  console.log(`Prompts to sample: ${prompts.length}${isFinite(limit) ? ` (limited from ${allActivePrompts.length})` : ""}`);
 
   if (isDryRun) {
     console.log("\n── DRY RUN — no API calls ──\n");

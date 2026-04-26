@@ -55,7 +55,7 @@ import { computeCitationDecay, getDecayAlerts } from "@/domains/attribution/cita
 import { extractEntities } from "@/domains/entity/entity-extract";
 import { detectDiscrepancies } from "@/domains/entity/discrepancy-detect";
 import { computeGeoCoverage } from "@/domains/geo/coverage";
-import { getActivePrompts, promptLibrary } from "@/domains/prompts/prompt-library";
+import { getActivePrompts, getPromptLibrary } from "@/domains/prompts/prompt-library";
 import { computeJourneyCoverage } from "@/domains/prompts/journey-coverage";
 import { JOURNEY_STAGE_LABELS } from "@/domains/prompts/journey-stages";
 import { analyzeAllExtractability } from "@/domains/pages/extractability";
@@ -172,10 +172,12 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
     ensureCanonicalStoresSeeded(),
   ]);
 
-  // Phase 7.8e-4a/b: hoist citation + answer-intelligence index reads once per request.
-  const [citationEvidenceIndex, answerIntelligenceIndex] = await Promise.all([
+  // Phase 7.8e-4a/b/c: hoist citation + answer-intelligence + prompt-library reads once per request.
+  const [citationEvidenceIndex, answerIntelligenceIndex, promptLibrary, activePrompts] = await Promise.all([
     getCitationEvidenceIndex(),
     getAnswerIntelligenceIndex(),
+    getPromptLibrary(),
+    getActivePrompts(),
   ]);
 
   // Sprint 7 Phase 7.5b Commit 4 (2026-04-25) — resolve tenant once and
@@ -817,7 +819,7 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
   const geoForLocal = computeGeoCoverage(
     allPages,
     citationEvidenceIndex?.by_page_and_topic ?? [],
-    getActivePrompts(),
+    activePrompts,
   );
   const topLocalGap = geoForLocal.gaps[0] ?? null;
   const meaningfulDecayCount = decayAlerts.filter(
@@ -1530,7 +1532,7 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
   const geoCoverage = computeGeoCoverage(
     allPages,
     citationEvidenceIndex?.by_page_and_topic ?? [],
-    getActivePrompts(),
+    activePrompts,
   );
   if (geoCoverage.gaps.length > 0) {
     const topGap = geoCoverage.gaps[0];
