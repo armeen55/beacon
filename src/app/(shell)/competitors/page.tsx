@@ -3,7 +3,7 @@ import { PageHeader } from "@/components/data/page-header";
 import { EvidenceFreshnessBanner } from "@/components/shell/evidence-freshness-banner";
 import { KpiCard } from "@/components/viz/kpi-card";
 import { getCompetitors, getResults, hasActiveExperiment } from "@/lib/seed-data.server";
-import { citationEvidenceIndex } from "@/domains/pages/citation-evidence-store";
+import { getCitationEvidenceIndex } from "@/domains/pages/citation-evidence-store";
 import { getPageIssues } from "@/domains/pages/issues";
 import { computeMarketBenchmark, type MarketBenchmark } from "@/domains/pages/builder-benchmark";
 import { loadCompetitorUniverseRuntime } from "@/domains/competitors/universe-read";
@@ -83,7 +83,7 @@ export default async function CompetitorsPage() {
 
   const universe = await loadCompetitorUniverseRuntime();
   const activeUniverse = universe.entries.filter((e) => e.status === "active");
-  const citIndex = citationEvidenceIndex;
+  const citIndex = await getCitationEvidenceIndex();
   const [competitors, results] = await Promise.all([getCompetitors(), getResults()]);
   void results; // some downstream JSX may use this; keep available
 

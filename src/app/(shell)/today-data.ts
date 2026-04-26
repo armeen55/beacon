@@ -23,7 +23,7 @@ import { readStore } from "@/lib/persistence/json-store";
 import { getRepository } from "@/lib/persistence/repositories";
 import { currentTenantId } from "@/lib/tenant-context";
 import { getOutcomesForTenant } from "@/lib/tenant-data";
-import { citationEvidenceIndex } from "@/domains/pages/citation-evidence-store";
+import { getCitationEvidenceIndex } from "@/domains/pages/citation-evidence-store";
 import {
   getPageIssues,
   getRolloutExecutions,
@@ -170,6 +170,9 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
     ensureUrlChangeOutcomesSeeded(),
     ensureCanonicalStoresSeeded(),
   ]);
+
+  // Phase 7.8e-4a: hoist citation index read once per request.
+  const citationEvidenceIndex = await getCitationEvidenceIndex();
 
   // Sprint 7 Phase 7.5b Commit 4 (2026-04-25) — resolve tenant once and
   // thread it into every Tier A repository read below. Header-injected by

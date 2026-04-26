@@ -7,7 +7,7 @@
 import "server-only";
 
 import { getResults } from "@/lib/seed-data.server";
-import { citationEvidenceIndex } from "@/domains/pages/citation-evidence-store";
+import { getCitationEvidenceIndex } from "@/domains/pages/citation-evidence-store";
 import { stripSiteOrigin, getSiteConfig } from "@/lib/site-config";
 import { buildCompetitorRank } from "@/lib/performance-timeseries";
 import { classifyCompetitorType } from "@/domains/competitors/classify-type";
@@ -18,6 +18,7 @@ export async function runMilestoneSync(): Promise<{
   dirty: boolean;
 }> {
   const { siteDomain } = getSiteConfig();
+  const citationEvidenceIndex = await getCitationEvidenceIndex();
   const competitorRank = buildCompetitorRank(
     citationEvidenceIndex,
     siteDomain,

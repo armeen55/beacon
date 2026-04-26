@@ -1,5 +1,5 @@
 import type { CitationEvidenceIndex } from "@/domains/pages/types";
-import { citationEvidenceIndex } from "@/domains/pages/citation-evidence-store";
+import { getCitationEvidenceIndex } from "@/domains/pages/citation-evidence-store";
 import { getVisibilityObservationRunsExplicit } from "./visibility-observation-explicit-store";
 import {
   type VisibilityObservationRun,
@@ -123,7 +123,7 @@ export async function listVisibilityObservationRuns(): Promise<VisibilityObserva
     byId.set(r.run_id, r);
   }
 
-  const ci: CitationEvidenceIndex | null = citationEvidenceIndex;
+  const ci: CitationEvidenceIndex | null = await getCitationEvidenceIndex();
   if (ci?.built_at) {
     const synthetic = syntheticFromCitationIndex(ci);
     if (!byId.has(synthetic.run_id)) {

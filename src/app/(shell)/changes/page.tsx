@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { PageHeader } from "@/components/data/page-header";
 import { EvidenceFreshnessBanner } from "@/components/shell/evidence-freshness-banner";
-import { citationEvidenceIndex } from "@/domains/pages/citation-evidence-store";
+import { getCitationEvidenceIndex } from "@/domains/pages/citation-evidence-store";
 import {
   getOpportunities,
   getResults,
@@ -119,10 +119,11 @@ export default async function ChangeScorecardPage() {
   };
 
   // ── Legacy scorecard rows (still used for drill-down topic/platform breakdown) ──
-  const [results, opportunities, eventDecisions] = await Promise.all([
+  const [results, opportunities, eventDecisions, citationEvidenceIndex] = await Promise.all([
     getResults(),
     getOpportunities(),
     getEventDecisions(),
+    getCitationEvidenceIndex(),
   ]);
   const rawRows = computeScorecard(liveEntries, results, opportunities, eventDecisions);
   const rows = enrichWithImpact(rawRows);

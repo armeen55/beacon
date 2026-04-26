@@ -30,7 +30,11 @@ const competitors: Competitor[] = [];
 // changing the stub semantics above.
 void changelogEntries;
 void opportunities;
-import { citationEvidenceIndex } from "@/domains/pages/citation-evidence-store";
+// Phase 7.8e-4a (2026-04-26): citation-evidence-store is now async.
+// profound-adapter is phased-out (see other stubs in this file). Stub
+// to null — adapter is no longer the production read path.
+import type { CitationEvidenceIndex } from "@/domains/pages/types";
+const citationEvidenceIndex: CitationEvidenceIndex | null = null;
 import { getPageSnapshots } from "@/domains/pages/snapshot-store";
 // Sprint 7 Phase 7.5c/3 (2026-04-25): page-store no longer exports a
 // module-level `allPages` const (multi-tenant correctness). The Profound

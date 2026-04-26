@@ -19,7 +19,7 @@ import { primaryVisibilityRunForResults } from "@/domains/observations/visibilit
 import { loadCompetitorUniverseRuntime } from "@/domains/competitors/universe-read";
 import { buildResultsCompetitorUniverseSummary } from "@/domains/competitors/universe-banners";
 import { computeMarketBenchmark } from "@/domains/pages/builder-benchmark";
-import { citationEvidenceIndex } from "@/domains/pages/citation-evidence-store";
+import { getCitationEvidenceIndex } from "@/domains/pages/citation-evidence-store";
 import type { PersistedIssue } from "@/domains/pages/issues";
 
 export default async function ResultsPage() {
@@ -49,7 +49,7 @@ export default async function ResultsPage() {
     visibilitySampleStaleVsCrawl(rollupForStale, crawl?.completed_at ?? null);
 
   const universeRuntime = await loadCompetitorUniverseRuntime();
-  const citIdx = citationEvidenceIndex;
+  const citIdx = await getCitationEvidenceIndex();
   const competitorUniverseSummary =
     citIdx && citIdx.by_topic?.length
       ? buildResultsCompetitorUniverseSummary(

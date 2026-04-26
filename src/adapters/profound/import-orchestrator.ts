@@ -372,7 +372,7 @@ export async function runProfoundImport(
   await syncAnswerIntelligenceIndex(answerIntelIndex);
 
   // Refresh module-level caches so the UI reads fresh data without server restart
-  refreshCitationEvidenceStore();
+  await refreshCitationEvidenceStore();
   refreshAnswerIntelligenceStore();
 
   // Phase 11: materialize relationship stores (best-effort)

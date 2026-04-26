@@ -25,7 +25,7 @@ import type {
 import { getOwnedPages } from "@/domains/pages/page-store";
 import { getRepository } from "@/lib/persistence/repositories";
 import { currentTenantId } from "@/lib/tenant-context";
-import { citationEvidenceIndex } from "@/domains/pages/citation-evidence-store";
+import { getCitationEvidenceIndex } from "@/domains/pages/citation-evidence-store";
 import { EvidenceFreshnessBanner } from "@/components/shell/evidence-freshness-banner";
 import { getPageSnapshotDiffs } from "@/domains/pages/page-snapshot-diff-store";
 import { getRenderCheckResults } from "@/domains/pages/render-check-store";
@@ -142,7 +142,7 @@ export default async function PagesPage() {
   // Sprint 7 Phase 7.5c/3 (2026-04-25) — tenant-scoped page fetch.
   const ownedPages = (await getOwnedPages()).filter((p) => p.is_owned);
 
-  const citationIndex = citationEvidenceIndex;
+  const citationIndex = await getCitationEvidenceIndex();
 
   // ── Load page snapshots + diffs ──
   // Sprint 7 Phase 7.5b Commit 5 (2026-04-25) — tenant-bound read.

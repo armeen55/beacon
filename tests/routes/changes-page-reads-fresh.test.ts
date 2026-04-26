@@ -155,7 +155,7 @@ describe("Sprint 1 / Phase 1.3 — /changes fresh-read invariants", () => {
         writeStore: vi.fn(async () => {}),
       }));
       vi.doMock("@/domains/pages/citation-evidence-store", () => ({
-        citationEvidenceIndex: null,
+        getCitationEvidenceIndex: vi.fn(async () => null),
       }));
       vi.doMock("@/lib/flags", () => ({
         isEventTruthPreviewEnabled: () => false,

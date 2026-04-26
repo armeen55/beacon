@@ -11,7 +11,7 @@ import { computeScorecard } from "@/domains/attribution/scorecard";
 import { enrichWithImpact, computeChangeImpact } from "@/domains/attribution/change-impact";
 import { getRepository } from "@/lib/persistence/repositories";
 import { currentTenantId } from "@/lib/tenant-context";
-import { citationEvidenceIndex } from "@/domains/pages/citation-evidence-store";
+import { getCitationEvidenceIndex } from "@/domains/pages/citation-evidence-store";
 import { getOwnedPages } from "@/domains/pages/page-store";
 import {
   getRolloutExecutions,
@@ -170,7 +170,7 @@ export default async function ChangeDetailPage({
   // Compute recommendations originating from this change
   const impactRows = enrichWithImpact(allRows);
 
-  const citationIndex2 = citationEvidenceIndex as {
+  const citationIndex2 = (await getCitationEvidenceIndex()) as {
     by_page_and_topic: {
       page_url: string;
       is_owned: boolean;

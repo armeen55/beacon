@@ -121,7 +121,7 @@ describe("Sprint 1 / Phase 1.6 — /changes/[id] fresh-read invariants", () => {
         writeStore: vi.fn(async () => {}),
       }));
       vi.doMock("@/domains/pages/citation-evidence-store", () => ({
-        citationEvidenceIndex: null,
+        getCitationEvidenceIndex: vi.fn(async () => null),
       }));
       // Sprint 7 Phase 7.5c/3 (2026-04-25) — page-store now exports a lazy
       // async function instead of a module-level array.

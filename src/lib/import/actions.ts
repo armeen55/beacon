@@ -21,7 +21,7 @@ import {
   getCompetitors,
   getImportRuns as getImportRunsArray,
 } from "@/lib/seed-data.server";
-import { citationEvidenceIndex } from "@/domains/pages/citation-evidence-store";
+import { getCitationEvidenceIndex } from "@/domains/pages/citation-evidence-store";
 import type { ImportEntityType, ImportFormat, ImportRun, ImportResult, ImportPreview } from "./types";
 import type { VisibilityObservationRun } from "@/domains/observations/visibility-types";
 import { appendVisibilityObservationRunSync } from "@/domains/observations/visibility-persist";
@@ -269,6 +269,7 @@ export async function executeImport(
 
   if (entityType === "results" && imported > 0 && visibilityRunIdForResults) {
     const completedAt = now();
+    const citationEvidenceIndex = await getCitationEvidenceIndex();
     const linkedCit =
       citationEvidenceIndex?.built_at != null
         ? `vis-citation-${encodeURIComponent(citationEvidenceIndex.built_at)}`

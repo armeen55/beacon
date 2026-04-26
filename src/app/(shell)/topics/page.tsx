@@ -18,7 +18,7 @@ import { TopicsClient, type TopicRow, type TopicEvent, type TopicChange } from "
 import type { CitationEvidenceIndex, PageSnapshot } from "@/domains/pages/types";
 import { getRepository } from "@/lib/persistence/repositories";
 import { currentTenantId } from "@/lib/tenant-context";
-import { citationEvidenceIndex } from "@/domains/pages/citation-evidence-store";
+import { getCitationEvidenceIndex } from "@/domains/pages/citation-evidence-store";
 import { minePatterns, generateBriefs } from "@/domains/pages/playbook";
 import { getRolloutExecutions, getPatternEvidence, getPageIssues } from "@/domains/pages/issues";
 import { getRolloutWaves } from "@/domains/pages/wave-planner";
@@ -58,7 +58,7 @@ export default async function TopicsPage() {
   const repo = getRepository().forTenant(await currentTenantId());
   const topicSnapshots = await repo.getPageSnapshots();
   await warmPageRegistry();
-  const [results, changelogEntries, opportunities, eventDecisions, rolloutExecutions, patternEvidence, pageIssues, rolloutWaves, attackPackages, trackedMissingPages] = await Promise.all([
+  const [results, changelogEntries, opportunities, eventDecisions, rolloutExecutions, patternEvidence, pageIssues, rolloutWaves, attackPackages, trackedMissingPages, citationEvidenceIndex] = await Promise.all([
     getResults(),
     getChangelogEntries(),
     getOpportunities(),
@@ -69,6 +69,7 @@ export default async function TopicsPage() {
     getRolloutWaves(),
     getAttackPackages(),
     getTrackedMissingPages(),
+    getCitationEvidenceIndex(),
   ]);
   const { attribution: attrResults } = partitionResultsByMode(results);
   const events = detectOutcomeEvents(attrResults);

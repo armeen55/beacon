@@ -58,7 +58,7 @@ import { currentTenantId } from "@/lib/tenant-context";
 import { getOwnedPages } from "@/domains/pages/page-store";
 import { warmPageRegistry } from "@/domains/attribution/candidates";
 import type { PageEntity, PageSnapshot } from "@/domains/pages/types";
-import { citationEvidenceIndex } from "@/domains/pages/citation-evidence-store";
+import { getCitationEvidenceIndex } from "@/domains/pages/citation-evidence-store";
 import { extractEntities, summarizeEntities } from "@/domains/entity/entity-extract";
 import { detectDiscrepancies } from "@/domains/entity/discrepancy-detect";
 import type { DiscrepancySeverity } from "@/domains/entity/discrepancy-types";
@@ -189,10 +189,11 @@ function Bar({ value, max, color }: { value: number; max: number; color: string 
 type DiagnosticsContext = {
   pages: PageEntity[];
   pageSnapshots: PageSnapshot[];
+  citationEvidenceIndex: import("@/domains/pages/types").CitationEvidenceIndex | null;
 };
 
 export default async function DiagnosticsPage() {
-  const [results, changelogEntries, opportunities, briefs, competitors, eventDecisions, candidateLinks, pageIssues, outcomeRecords, answerSnapshots] = await Promise.all([
+  const [results, changelogEntries, opportunities, briefs, competitors, eventDecisions, candidateLinks, pageIssues, outcomeRecords, answerSnapshots, citationEvidenceIndex] = await Promise.all([
     getResults(),
     getChangelogEntries(),
     getOpportunities(),
@@ -203,6 +204,7 @@ export default async function DiagnosticsPage() {
     getPageIssues(),
     getOutcomeRecords(),
     getAnswerSnapshots(),
+    getCitationEvidenceIndex(),
   ]);
   const diag = computeDiagnostics(results, changelogEntries, opportunities, briefs, competitors);
   const cdiag = await computeCandidateDiagnostics(results, changelogEntries, opportunities);
@@ -228,7 +230,7 @@ export default async function DiagnosticsPage() {
     repo.getPageSnapshots(),
   ]);
   await warmPageRegistry();
-  const ctx: DiagnosticsContext = { pages, pageSnapshots };
+  const ctx: DiagnosticsContext = { pages, pageSnapshots, citationEvidenceIndex };
 
   const { attribution: attrResults } = partitionResultsByMode(results);
   const events = detectOutcomeEvents(attrResults);
@@ -1364,7 +1366,7 @@ function JourneyCoverageSection() {
 
 async function BeaconScoreSection({ ctx }: { ctx: DiagnosticsContext }) {
   const { siteDomain } = getSiteConfig();
-  const citIndex = citationEvidenceIndex;
+  const citIndex = ctx.citationEvidenceIndex;
   const pageIssues = await getPageIssues();
   const benchmark = citIndex ? computeMarketBenchmark(citIndex, pageIssues) : null;
 
@@ -1458,7 +1460,7 @@ function DimensionRow({ dimension }: { dimension: ScoreDimension }) {
 }
 
 function ExtractabilitySection({ ctx }: { ctx: DiagnosticsContext }) {
-  const citIdx = citationEvidenceIndex;
+  const citIdx = ctx.citationEvidenceIndex;
   const citMap = new Map<string, number>();
   if (citIdx) {
     for (const r of citIdx.by_page_and_topic) {
@@ -1536,7 +1538,7 @@ function ExtractabilitySection({ ctx }: { ctx: DiagnosticsContext }) {
 function GeoCoverageSection({ ctx }: { ctx: DiagnosticsContext }) {
   const geoCoverage = computeGeoCoverage(
     ctx.pages,
-    citationEvidenceIndex?.by_page_and_topic ?? [],
+    ctx.citationEvidenceIndex?.by_page_and_topic ?? [],
     getActivePrompts(),
   );
   const geoSummary = summarizeGeoCoverage(geoCoverage);
@@ -1699,7 +1701,7 @@ function GeoCoverageSection({ ctx }: { ctx: DiagnosticsContext }) {
 }
 
 function SnippetIntelSection({ ctx }: { ctx: DiagnosticsContext }) {
-  const citIdx = citationEvidenceIndex;
+  const citIdx = ctx.citationEvidenceIndex;
   const citMap = new Map<string, number>();
   if (citIdx) {
     for (const r of citIdx.by_page_and_topic) {
@@ -1794,20 +1796,20 @@ async function PulseBanner({ ctx }: { ctx: DiagnosticsContext }) {
   const entityIdx = await extractEntities(ctx.pageSnapshots);
   const discReport = await detectDiscrepancies(entityIdx);
   const answerSnapshots = await getAnswerSnapshots();
-  const geoCov = computeGeoCoverage(ctx.pages, citationEvidenceIndex?.by_page_and_topic ?? [], getActivePrompts());
+  const geoCov = computeGeoCoverage(ctx.pages, ctx.citationEvidenceIndex?.by_page_and_topic ?? [], getActivePrompts());
   const journeyCov = computeJourneyCoverage(promptLibrary);
 
   const citMap2 = new Map<string, number>();
-  if (citationEvidenceIndex) {
-    for (const r of citationEvidenceIndex.by_page_and_topic) {
+  if (ctx.citationEvidenceIndex) {
+    for (const r of ctx.citationEvidenceIndex.by_page_and_topic) {
       if (!r.is_owned) continue;
       const key = r.page_url.replace(/\/+$/, "").toLowerCase();
       citMap2.set(key, (citMap2.get(key) ?? 0) + r.total_citations);
     }
   }
   const extractResults2 = analyzeAllExtractability(ctx.pageSnapshots, citMap2);
-  const snippetIntel2 = citationEvidenceIndex
-    ? computeSnippetIntelligence({ ownedExtractability: extractResults2, citationIndex: citationEvidenceIndex, snapshots: ctx.pageSnapshots, ownedDomain: siteDomain })
+  const snippetIntel2 = ctx.citationEvidenceIndex
+    ? computeSnippetIntelligence({ ownedExtractability: extractResults2, citationIndex: ctx.citationEvidenceIndex, snapshots: ctx.pageSnapshots, ownedDomain: siteDomain })
     : null;
 
   const latestSnap = answerSnapshots.length > 0
@@ -1875,7 +1877,7 @@ async function AdvancedReadinessSection({ ctx }: { ctx: DiagnosticsContext }) {
   const conversionPath = assessConversionPathReadiness({
     hasPromptData: promptLibrary.length > 0,
     hasAnswerData: answerSnapshots.length > 0,
-    hasCitationData: (citationEvidenceIndex?.total_citations_processed ?? 0) > 0,
+    hasCitationData: (ctx.citationEvidenceIndex?.total_citations_processed ?? 0) > 0,
     hasAnalyticsIntegration: false,
   });
   const trainingData = assessTrainingDataReadiness(ctx.pageSnapshots, false, false);
