@@ -25,73 +25,14 @@ import {
   renameSync,
   writeFileSync,
 } from "node:fs";
-import { join } from "node:path";
 
 import { log } from "@/lib/logger";
-import { getDataDir } from "@/lib/tenant";
-import { currentTenantSlug } from "@/lib/tenant-context";
-import { classifyStore, type StoreScope } from "./store-classification";
 
-// Phase 7.8b-1 (2026-04-25): computed at call time (not module load)
-// so tests can `process.chdir()` into a tmpdir and have routing follow.
-const rootDataDir = (): string => join(process.cwd(), ".data");
-const globalDir = (): string => join(rootDataDir(), "global");
+import { resolveDataPath } from "./resolve-data-path";
 
-type ResolvedPath = {
-  scope: StoreScope;
-  routedDir: string;
-  routedPath: string;
-  flatPath: string;
-};
-
-/**
- * Decide where a given `.data` store lives.
- *
- *   - global stores             → `.data/global/{name}.json`
- *   - per-tenant / singleton    → `.data/tenants/{slug}/{name}.json`
- *   - unknown                   → `.data/{name}.json` (flat — no
- *                                 reclassification yet; treat unknowns
- *                                 as still-flat to keep them readable)
- *
- * Pure resolution. The actual fallback (routed → flat) happens in
- * `readDotDataJson`.
- */
-async function resolveDataPath(baseName: string): Promise<ResolvedPath> {
-  const scope = classifyStore(baseName);
-  const root = rootDataDir();
-  const flatPath = join(root, `${baseName}.json`);
-
-  if (scope === "global") {
-    const gd = globalDir();
-    return {
-      scope,
-      routedDir: gd,
-      routedPath: join(gd, `${baseName}.json`),
-      flatPath,
-    };
-  }
-
-  if (scope === "per-tenant" || scope === "singleton") {
-    const slug = await currentTenantSlug();
-    const tenantDir = getDataDir(slug);
-    return {
-      scope,
-      routedDir: tenantDir,
-      routedPath: join(tenantDir, `${baseName}.json`),
-      flatPath,
-    };
-  }
-
-  // Unknown — keep using flat. Phase 7.8d will move flat → _legacy
-  // and fail loud on unknowns; until then, "unknown" stays flat so
-  // legacy stores keep working.
-  return {
-    scope,
-    routedDir: root,
-    routedPath: flatPath,
-    flatPath,
-  };
-}
+// Phase 7.8b-2-a (2026-04-25): path resolution moved to
+// `resolve-data-path.ts` so json-store (Phase 7.8b-2-b) reuses the
+// same dispatch. dotdata-json's behavior is byte-identical pre/post.
 
 /**
  * Read `.data/{name}.json` from the per-tenant or global subdir if
