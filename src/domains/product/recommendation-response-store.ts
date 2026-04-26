@@ -97,9 +97,9 @@ export function invalidateRecommendationResponsesSeed(): void {
   _dbSeedPromise = null;
 }
 
-export async function persistResponses(): Promise<void> {
+export async function persistResponses(tenantId: string): Promise<void> {
   await writeStore(STORE_NAME, recommendationResponses);
-  await syncRecommendationResponses(recommendationResponses);
+  await syncRecommendationResponses(recommendationResponses, tenantId);
 }
 
 /**

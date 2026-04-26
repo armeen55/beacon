@@ -349,7 +349,7 @@ export async function runWebsiteScan(opts: {
           "page-element-inventory",
         ) ?? [];
       if (syncInventory.length > 0) {
-        await syncPageElementInventory(syncInventory);
+        await syncPageElementInventory(syncInventory, tenantId);
         inventoryRowCount = syncInventory.length;
       }
     } catch (e) {

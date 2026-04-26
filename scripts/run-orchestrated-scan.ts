@@ -226,7 +226,7 @@ async function main(): Promise<void> {
   }
   try {
     if (inventory.length > 0) {
-      await syncPageElementInventory(inventory);
+      await syncPageElementInventory(inventory, tenant);
     }
     inventoryOk = true;
   } catch (e) {

@@ -367,6 +367,8 @@ export async function materializeUrlOutcomes(input: {
   asOfDate?: string;
   thresholds?: VerdictThresholds;
 }): Promise<{ processed: number; recorded: number; transitions: number }> {
+  // Phase 7.7b Commit 5 (2026-04-25): server-context tenant resolution.
+  const tenantId = await currentTenantId();
   // Phase 3.5C: seed from Supabase before mutating so a cold Vercel lambda
   // doesn't overwrite 120 existing rows with only its new ones.
   await ensureUrlChangeOutcomesSeeded();
@@ -416,7 +418,7 @@ export async function materializeUrlOutcomes(input: {
   transitionsAdded = transitionsAfter - transitionsBefore;
 
   await writeStore("url-change-outcomes", urlChangeOutcomes);
-  await syncUrlChangeOutcomes(urlChangeOutcomes);
+  await syncUrlChangeOutcomes(urlChangeOutcomes, tenantId);
 
   log.info("URL outcomes materialized", {
     processed,

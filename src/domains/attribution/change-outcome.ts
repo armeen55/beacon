@@ -19,6 +19,7 @@ import {
 import { writeStore } from "@/lib/persistence/json-store";
 import { syncChangeOutcomes } from "@/lib/persistence/dual-write";
 import { normalizeImpact } from "@/domains/global-patterns/contracts";
+import { currentTenantId } from "@/lib/tenant-context";
 
 // ---------------------------------------------------------------------------
 // Type
@@ -153,11 +154,13 @@ export async function materializeChangeOutcomes(
   changes: ChangelogEntry[],
   snapshots: DailyMetricSnapshot[],
 ): Promise<ChangeOutcome[]> {
+  // Phase 7.7b Commit 5 (2026-04-25): server-context tenant resolution.
+  const tenantId = await currentTenantId();
   const insights = computeMemoryInsights({ changes, snapshots });
   const outcomes = insights.map(insightToOutcome);
 
   await writeStore("change-outcomes", outcomes);
-  await syncChangeOutcomes(outcomes);
+  await syncChangeOutcomes(outcomes, tenantId);
 
   return outcomes;
 }
@@ -176,12 +179,14 @@ export async function materializePerChangeOutcomes(
   changes: ChangelogEntry[],
   snapshots: DailyMetricSnapshot[],
 ): Promise<ChangeOutcome[]> {
+  // Phase 7.7b Commit 5 (2026-04-25): server-context tenant resolution.
+  const tenantId = await currentTenantId();
   // Use computeAllChangeInsights which skips the topic dedup
   const insights = computeAllChangeInsights({ changes, snapshots });
   const outcomes = insights.map(insightToOutcome);
 
   await writeStore("change-outcomes", outcomes);
-  await syncChangeOutcomes(outcomes);
+  await syncChangeOutcomes(outcomes, tenantId);
 
   return outcomes;
 }

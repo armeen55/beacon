@@ -8,6 +8,7 @@ import {
   ensureRecommendationResponsesSeeded,
   type RecommendationResponseStatus,
 } from "@/domains/product/recommendation-response-store";
+import { currentTenantId } from "@/lib/tenant-context";
 
 export async function respondToRecommendation(
   recId: string,
@@ -29,7 +30,7 @@ export async function respondToRecommendation(
   // we don't overwrite existing rows on a cold Vercel lambda.
   await ensureRecommendationResponsesSeeded();
   recordResponse(recId, status, context);
-  await persistResponses();
+  await persistResponses(await currentTenantId());
   revalidatePath("/", "layout");
   log.info("Action completed", { action, durationMs: Date.now() - t0 });
   return { success: true };

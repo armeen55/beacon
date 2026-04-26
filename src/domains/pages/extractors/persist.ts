@@ -140,7 +140,7 @@ export async function persistPageElements(
 ): Promise<PageElementInventoryRow[]> {
   try {
     const rows = buildPageElementRows(args);
-    await syncPageElementInventory(rows);
+    await syncPageElementInventory(rows, args.tenantId);
     return rows;
   } catch (err) {
     log.error("Page element persist failed", {

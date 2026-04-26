@@ -70,7 +70,7 @@ describe("Sprint 6A.1.16 — recommendation-response Undo deletion path", () => 
 
   it("Accept upserts (legacy path preserved)", async () => {
     recordResponse("rec-accept-1", "accepted", { targetPageUrl: "/a" });
-    await persistResponses();
+    await persistResponses("tenant-ritz-founder");
     expect(supabaseMocks.fromMock).toHaveBeenCalledWith("recommendation_responses");
     expect(supabaseMocks.upsertMock).toHaveBeenCalled();
     expect(supabaseMocks.deleteMock).not.toHaveBeenCalled();
@@ -78,14 +78,14 @@ describe("Sprint 6A.1.16 — recommendation-response Undo deletion path", () => 
 
   it("Defer upserts (legacy path preserved)", async () => {
     recordResponse("rec-defer-1", "deferred");
-    await persistResponses();
+    await persistResponses("tenant-ritz-founder");
     expect(supabaseMocks.upsertMock).toHaveBeenCalled();
     expect(supabaseMocks.deleteMock).not.toHaveBeenCalled();
   });
 
   it("Dismiss upserts AS dismissed (NOT deleted)", async () => {
     recordResponse("rec-dismiss-1", "dismissed");
-    await persistResponses();
+    await persistResponses("tenant-ritz-founder");
     // Dismiss must persist as a row with status=dismissed so the rec
     // is suppressed on subsequent renders. Deleting the row would
     // make the rec re-appear in the queue.

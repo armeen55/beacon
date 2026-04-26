@@ -371,6 +371,10 @@ export async function acceptRecommendation(
     params: { stableKey: payload.stableKey, type: payload.type },
   });
 
+  // Phase 7.7b Commit 5 (2026-04-25): persistResponses now requires
+  // tenantId; hoist resolution to the top of the action.
+  const tenantId = await currentTenantId();
+
   const resolvedUrlForStore =
     payload.resolution?.targetUrl &&
     payload.resolution.targetUrl !== NEEDS_NEW_PAGE
@@ -382,7 +386,7 @@ export async function acceptRecommendation(
     targetPageUrl: resolvedUrlForStore,
     patternId: null,
   });
-  await persistResponses();
+  await persistResponses(tenantId);
 
   const resolvedAction = payload.resolution?.action ?? null;
   let changeId: string | undefined;
@@ -398,7 +402,8 @@ export async function acceptRecommendation(
   // Sprint 7 Phase 7.5b Commit 2 (2026-04-25) — tenant-bound read.
   // Phase 7.7b Commit 2 (2026-04-25) — hoisted out of the try block so
   // the per-edit fan-out below can thread it into syncChangelogEntries.
-  const tenantId = await currentTenantId();
+  // Phase 7.7b Commit 5 (2026-04-25) — tenantId resolved at the top of
+  // the action; reuse here.
   let editsForRec: RecommendedEditRow[] = [];
   try {
     const allEdits = await getRepository().forTenant(tenantId).getRecommendedEdits();
@@ -557,7 +562,7 @@ export async function deferRecommendation(
 
   await ensureRecommendationResponsesSeeded();
   recordResponse(stableKey, "deferred");
-  await persistResponses();
+  await persistResponses(await currentTenantId());
 
   revalidatePath("/recommendations");
   log.info("Action completed", { action, durationMs: Date.now() - t0 });
@@ -573,7 +578,7 @@ export async function dismissRecommendation(
 
   await ensureRecommendationResponsesSeeded();
   recordResponse(stableKey, "dismissed");
-  await persistResponses();
+  await persistResponses(await currentTenantId());
 
   revalidatePath("/recommendations");
   log.info("Action completed", { action, durationMs: Date.now() - t0 });

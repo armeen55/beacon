@@ -74,22 +74,26 @@ describe("Phase 6A.1.6 — syncPageElementInventory helper", () => {
     const { syncPageElementInventory } = await import(
       "@/lib/persistence/dual-write"
     );
-    await syncPageElementInventory([
-      {
-        id: "snap-1__title[0]:abc",
-        tenant_id: "t",
-        page_id: "pg",
-        url: "https://example.com/",
-        element_type: "title",
-        element_key: "title[0]:abc",
-        display_label: "Title",
-        element_text: "x",
-        element_metadata: {},
-        extractor_version: 1,
-        observed_at: "2026-04-24T00:00:00Z",
-        source_snapshot_id: "snap-1",
-      },
-    ]);
+    // Phase 7.7b Commit 5 (2026-04-25): syncPageElementInventory now requires tenantId.
+    await syncPageElementInventory(
+      [
+        {
+          id: "snap-1__title[0]:abc",
+          tenant_id: "t",
+          page_id: "pg",
+          url: "https://example.com/",
+          element_type: "title",
+          element_key: "title[0]:abc",
+          display_label: "Title",
+          element_text: "x",
+          element_metadata: {},
+          extractor_version: 1,
+          observed_at: "2026-04-24T00:00:00Z",
+          source_snapshot_id: "snap-1",
+        },
+      ],
+      "t",
+    );
     expect(upsertMock).not.toHaveBeenCalled();
   });
 
@@ -104,7 +108,7 @@ describe("Phase 6A.1.6 — syncPageElementInventory helper", () => {
     const { syncPageElementInventory } = await import(
       "@/lib/persistence/dual-write"
     );
-    await syncPageElementInventory([]);
+    await syncPageElementInventory([], "t");
     expect(upsertMock).not.toHaveBeenCalled();
   });
 
@@ -127,22 +131,25 @@ describe("Phase 6A.1.6 — syncPageElementInventory helper", () => {
     const { syncPageElementInventory } = await import(
       "@/lib/persistence/dual-write"
     );
-    await syncPageElementInventory([
-      {
-        id: "snap-1__h2[0]:abc",
-        tenant_id: "t",
-        page_id: "pg",
-        url: "https://example.com/",
-        element_type: "h2",
-        element_key: "h2[0]:abc",
-        display_label: "H2",
-        element_text: "x",
-        element_metadata: {},
-        extractor_version: 1,
-        observed_at: "2026-04-24T00:00:00Z",
-        source_snapshot_id: "snap-1",
-      },
-    ]);
+    await syncPageElementInventory(
+      [
+        {
+          id: "snap-1__h2[0]:abc",
+          tenant_id: "t",
+          page_id: "pg",
+          url: "https://example.com/",
+          element_type: "h2",
+          element_key: "h2[0]:abc",
+          display_label: "H2",
+          element_text: "x",
+          element_metadata: {},
+          extractor_version: 1,
+          observed_at: "2026-04-24T00:00:00Z",
+          source_snapshot_id: "snap-1",
+        },
+      ],
+      "t",
+    );
     expect(upsertMock).toHaveBeenCalledTimes(1);
     expect(lastTable).toBe("page_element_inventory");
     expect(lastOptions.onConflict).toBe("source_snapshot_id,element_key");
@@ -241,14 +248,15 @@ describe("Phase 6A.1.6 — orchestrate-scan.ts wiring", () => {
     expect(ORCHESTRATE_SOURCE).toMatch(
       /readDotDataJson<PageElementInventoryRow\[\]>\(\s*["']page-element-inventory["']/,
     );
+    // Phase 7.7b Commit 5 (2026-04-25): syncPageElementInventory now requires tenantId.
     expect(ORCHESTRATE_SOURCE).toMatch(
-      /syncPageElementInventory\(syncInventory\)/,
+      /syncPageElementInventory\(syncInventory,\s*tenantId\)/,
     );
   });
 
   it("wraps the inventory dual-write in try/catch so it cannot regress the scan", () => {
     expect(ORCHESTRATE_SOURCE).toMatch(
-      /try\s*\{[\s\S]*?syncPageElementInventory\(syncInventory\)[\s\S]*?\}\s*catch/,
+      /try\s*\{[\s\S]*?syncPageElementInventory\(syncInventory,\s*tenantId\)[\s\S]*?\}\s*catch/,
     );
   });
 });

@@ -816,8 +816,10 @@ export async function syncAnswerTexts(
 
 export async function syncChangeOutcomes(
   rows: ChangeOutcome[],
+  tenantId: string,
 ): Promise<void> {
-  await dualWriteUpsert("change_outcomes", rows as unknown as AnyRow[], "id");
+  const stamped = tenantizeRows(rows, tenantId, "change_outcomes");
+  await dualWriteUpsert("change_outcomes", stamped as unknown as AnyRow[], "id");
 }
 
 export async function syncPageVisibility(
@@ -852,8 +854,13 @@ export async function syncConfidenceCalibration(
 
 // ── Operator loop (Phase 1a) ──
 
-/** Map camelCase RecommendationResponse to snake_case DB row. PK: rec_id. */
-function mapRecommendationResponseToRow(r: RecommendationResponse): AnyRow {
+/** Map camelCase RecommendationResponse to snake_case DB row. PK: rec_id.
+ *  Phase 7.7b Commit 5 (2026-04-25): tenant_id is supplied by the helper's
+ *  caller-provided tenantId, not by the input row. */
+function mapRecommendationResponseToRow(
+  r: RecommendationResponse,
+  tenantId: string,
+): AnyRow {
   return {
     rec_id: r.recId,
     status: r.status,
@@ -861,16 +868,27 @@ function mapRecommendationResponseToRow(r: RecommendationResponse): AnyRow {
     defer_until: r.deferUntil,
     target_page_url: r.targetPageUrl ?? null,
     pattern_id: r.patternId ?? null,
-    tenant_id: (r as RecommendationResponse & { tenant_id?: string }).tenant_id ?? "",
+    tenant_id: tenantId,
     updated_at: new Date().toISOString(),
   };
 }
 
 export async function syncRecommendationResponses(
   rows: RecommendationResponse[],
+  tenantId: string,
 ): Promise<void> {
   if (!isDualWriteEnabled() || rows.length === 0) return;
-  const mapped = rows.map(mapRecommendationResponseToRow);
+  // Phase 7.7b Commit 5 (2026-04-25): RecommendationResponse type doesn't
+  // carry tenant_id natively — the prior mapper used a defensive cast. We
+  // still validate any row that DOES carry a stray tenant_id field via
+  // tenantizeRows (catches a hypothetical cross-tenant leak), but the
+  // mapper now stamps tenantId directly.
+  tenantizeRows(
+    rows as unknown as Array<{ tenant_id?: string | null } & Record<string, unknown>>,
+    tenantId,
+    "recommendation_responses",
+  );
+  const mapped = rows.map((r) => mapRecommendationResponseToRow(r, tenantId));
   await dualWriteUpsert("recommendation_responses", mapped, "rec_id");
 }
 
@@ -911,12 +929,14 @@ export async function deleteRecommendationResponseByRecId(
 
 export async function syncUrlChangeOutcomes(
   rows: UrlChangeOutcome[],
+  tenantId: string,
 ): Promise<void> {
   if (!isDualWriteEnabled() || rows.length === 0) return;
+  const stamped = tenantizeRows(rows, tenantId, "url_change_outcomes");
   // Shape is already snake_case — pass through, compound PK.
   await dualWriteUpsert(
     "url_change_outcomes",
-    rows as unknown as AnyRow[],
+    stamped as unknown as AnyRow[],
     "change_id,url",
   );
 }
@@ -963,11 +983,13 @@ export async function syncRecommendedEdits(
  */
 export async function syncPageElementInventory(
   rows: import("@/domains/pages/extractors/persist").PageElementInventoryRow[],
+  tenantId: string,
 ): Promise<void> {
   if (!isDualWriteEnabled() || rows.length === 0) return;
+  const stamped = tenantizeRows(rows, tenantId, "page_element_inventory");
   await dualWriteUpsert(
     "page_element_inventory",
-    rows as unknown as AnyRow[],
+    stamped as unknown as AnyRow[],
     "source_snapshot_id,element_key",
   );
 }
