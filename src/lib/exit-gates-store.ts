@@ -74,8 +74,8 @@ export function normalizeExitGates(rows: unknown[]): ExitGateRecord[] {
 }
 
 /** Full snapshot (immutable copy). Empty / missing file → all gates `not_started`. */
-export function readExitGates(): ExitGateRecord[] {
-  const raw = readStore<ExitGateRecord>(STORE, []);
+export async function readExitGates(): Promise<ExitGateRecord[]> {
+  const raw = await readStore<ExitGateRecord>(STORE, []);
   return normalizeExitGates(raw).map((r) => ({ ...r }));
 }
 
@@ -85,8 +85,8 @@ export async function writeExitGates(gates: ExitGateRecord[]): Promise<void> {
   await writeStore(STORE, normalized);
 }
 
-export function getExitGate(key: ExitGateKey): ExitGateRecord {
-  return readExitGates().find((g) => g.key === key) ?? defaultRecord(key);
+export async function getExitGate(key: ExitGateKey): Promise<ExitGateRecord> {
+  return (await readExitGates()).find((g) => g.key === key) ?? defaultRecord(key);
 }
 
 export type ExitGatePatch = Partial<Pick<ExitGateRecord, "status" | "note">>;
@@ -98,7 +98,7 @@ export async function updateExitGate(
   key: ExitGateKey,
   patch: ExitGatePatch,
 ): Promise<ExitGateRecord> {
-  const list = readExitGates();
+  const list = await readExitGates();
   const idx = list.findIndex((g) => g.key === key);
   const prev = list[idx] ?? defaultRecord(key);
   const note = patch.note !== undefined ? patch.note : prev.note;

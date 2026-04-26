@@ -91,8 +91,8 @@ export type LocalPresenceSnapshot = {
 
 const CONNECTOR_REVIEW_SOURCE_SYSTEMS = new Set(["connector:google", "connector:yelp"]);
 
-function lastReviewsImportCompletedAt(): string | null {
-  const runs = readStore<ImportRun>("import-runs", []);
+async function lastReviewsImportCompletedAt(): Promise<string | null> {
+  const runs = await readStore<ImportRun>("import-runs", []);
   let latest: string | null = null;
   for (const r of runs) {
     if (r.entity_type !== "reviews" || r.imported_count <= 0) continue;
@@ -104,8 +104,8 @@ function lastReviewsImportCompletedAt(): string | null {
 }
 
 /** Latest manual Local reviews import (excludes connector-driven import-run rows). */
-function lastManualReviewsImportCompletedAt(): string | null {
-  const runs = readStore<ImportRun>("import-runs", []);
+async function lastManualReviewsImportCompletedAt(): Promise<string | null> {
+  const runs = await readStore<ImportRun>("import-runs", []);
   let latest: string | null = null;
   for (const r of runs) {
     if (r.entity_type !== "reviews" || r.imported_count <= 0) continue;
@@ -130,8 +130,8 @@ function connectorLastSyncedAt(provider: ConnectorProvider): string | null {
 }
 
 /** Latest reviews data observation: manual import runs or connector last sync. */
-function lastReviewsDataObservedAt(): string | null {
-  const fromRuns = lastReviewsImportCompletedAt();
+async function lastReviewsDataObservedAt(): Promise<string | null> {
+  const fromRuns = await lastReviewsImportCompletedAt();
   let latest = maxIsoTimestamp(fromRuns, connectorLastSyncedAt("google"));
   latest = maxIsoTimestamp(latest, connectorLastSyncedAt("yelp"));
   return latest;
@@ -353,11 +353,11 @@ export function computeListingHealth(opts: {
  * Listing from configured domain; reviews from manual import store when present.
  * NAP from business config fields; health from weighted composite.
  */
-export function getLocalPresenceSnapshot(): LocalPresenceSnapshot {
+export async function getLocalPresenceSnapshot(): Promise<LocalPresenceSnapshot> {
   const config = getBusinessConfig();
   const hasListing = Boolean(config.domain?.trim());
 
-  const reviews = readLocalReviews();
+  const reviews = await readLocalReviews();
   const hasReviews = reviews.length > 0;
   const reviewCount = hasReviews ? reviews.length : null;
   let avgRating: number | null = null;
@@ -369,7 +369,7 @@ export function getLocalPresenceSnapshot(): LocalPresenceSnapshot {
     sentimentBand = sentimentFromAvg(avgRating);
   }
 
-  const lastReviewImportAt = hasReviews ? lastReviewsDataObservedAt() : null;
+  const lastReviewImportAt = hasReviews ? await lastReviewsDataObservedAt() : null;
   let reviewImportAgeDays: number | null = null;
   if (lastReviewImportAt) {
     const ms = Date.now() - Date.parse(lastReviewImportAt);
@@ -396,7 +396,7 @@ export function getLocalPresenceSnapshot(): LocalPresenceSnapshot {
   const lastSync: ReviewSourceLastSync = {
     google: connectorLastSyncedAt("google"),
     yelp: connectorLastSyncedAt("yelp"),
-    manual: lastManualReviewsImportCompletedAt(),
+    manual: await lastManualReviewsImportCompletedAt(),
   };
 
   const googleTok = getGoogleConnectorToken();

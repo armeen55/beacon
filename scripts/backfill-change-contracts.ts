@@ -20,10 +20,10 @@ import {
 } from "../src/domains/changelog/change-contract";
 
 async function main() {
-  const entries = readStore<ChangelogEntry>("imported-changes");
+  const entries = await readStore<ChangelogEntry>("imported-changes");
   console.log(`Loaded ${entries.length} changelog entries`);
 
-  const existing = readStore<ChangeContract>("change-contracts");
+  const existing = await readStore<ChangeContract>("change-contracts");
   const existingIds = new Set(existing.map((c) => c.linkedChangelogEntryId));
 
   let created = 0;

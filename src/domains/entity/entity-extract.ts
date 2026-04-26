@@ -34,9 +34,9 @@ function entityId(type: BeaconEntityType, canonical: string): string {
 /**
  * Extract entities from all available Beacon data sources.
  */
-export function extractEntities(
+export async function extractEntities(
   snapshots: PageSnapshot[],
-): EntityIndex {
+): Promise<EntityIndex> {
   const config = getSiteConfig();
   const entityMap = new Map<string, BeaconEntity>();
   const now = new Date().toISOString();
@@ -94,7 +94,7 @@ export function extractEntities(
   }
 
   // Source 3: PAO mentions → brand entities from AI answers
-  const paoStore = readStore<{
+  const paoStore = await readStore<{
     id: string;
     mentions: string[];
     tracked_brand_mentioned: boolean | null;

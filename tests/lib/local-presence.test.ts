@@ -20,8 +20,8 @@ describe("getLocalPresenceSnapshot", () => {
     await writeStore("import-runs", []);
   });
 
-  it("returns empty review fields when no imported reviews", () => {
-    const s = getLocalPresenceSnapshot();
+  it("returns empty review fields when no imported reviews", async () => {
+    const s = await getLocalPresenceSnapshot();
     expect(s.hasReviews).toBe(false);
     expect(s.reviewCount).toBeNull();
     expect(s.avgRating).toBeNull();
@@ -30,19 +30,19 @@ describe("getLocalPresenceSnapshot", () => {
     expect(s.reviewImportAgeDays).toBeNull();
   });
 
-  it("returns a valid health tier", () => {
-    const s = getLocalPresenceSnapshot();
+  it("returns a valid health tier", async () => {
+    const s = await getLocalPresenceSnapshot();
     expect(["weak", "ok", "strong"]).toContain(s.healthTier);
   });
 
-  it("returns a numeric health score 0–100", () => {
-    const s = getLocalPresenceSnapshot();
+  it("returns a numeric health score 0–100", async () => {
+    const s = await getLocalPresenceSnapshot();
     expect(s.healthScore).toBeGreaterThanOrEqual(0);
     expect(s.healthScore).toBeLessThanOrEqual(100);
   });
 
-  it("includes NAP status and napState", () => {
-    const s = getLocalPresenceSnapshot();
+  it("includes NAP status and napState", async () => {
+    const s = await getLocalPresenceSnapshot();
     expect(s.nap).toBeDefined();
     expect(s.nap.completeness).toBeGreaterThanOrEqual(0);
     expect(s.nap.completeness).toBeLessThanOrEqual(100);
@@ -52,8 +52,8 @@ describe("getLocalPresenceSnapshot", () => {
     expect(["complete", "incomplete", "inconsistent", "unknown"]).toContain(s.napState);
   });
 
-  it("includes lastSync with independent google/yelp/manual fields", () => {
-    const s = getLocalPresenceSnapshot();
+  it("includes lastSync with independent google/yelp/manual fields", async () => {
+    const s = await getLocalPresenceSnapshot();
     expect(Object.keys(s.lastSync).sort()).toEqual(["google", "manual", "yelp"].sort());
     for (const k of ["google", "yelp", "manual"] as const) {
       const v = s.lastSync[k];
@@ -61,15 +61,15 @@ describe("getLocalPresenceSnapshot", () => {
     }
   });
 
-  it("includes listingCompleteness audit with five checked keys", () => {
-    const s = getLocalPresenceSnapshot();
+  it("includes listingCompleteness audit with five checked keys", async () => {
+    const s = await getLocalPresenceSnapshot();
     expect(s.listingCompleteness.checked_field_keys).toHaveLength(5);
     expect(["strong", "partial", "weak"]).toContain(s.listingCompleteness.coverage_state);
     expect(s.listingCompleteness.present_fields.length + s.listingCompleteness.missing_fields.length).toBe(5);
   });
 
-  it("includes breakdown with 7 components summing to score", () => {
-    const s = getLocalPresenceSnapshot();
+  it("includes breakdown with 7 components summing to score", async () => {
+    const s = await getLocalPresenceSnapshot();
     expect(s.healthBreakdown.components).toHaveLength(7);
     const sum = s.healthBreakdown.components.reduce((a, c) => a + c.earned, 0);
     expect(sum).toBe(s.healthScore);
@@ -103,7 +103,7 @@ describe("getLocalPresenceSnapshot + connector last_synced_at", () => {
       scopes: [],
       last_synced_at: "2026-04-13T18:00:00.000Z",
     });
-    const s = getLocalPresenceSnapshot();
+    const s = await getLocalPresenceSnapshot();
     expect(s.hasReviews).toBe(true);
     expect(s.lastReviewImportAt).toBe("2026-04-13T18:00:00.000Z");
   });
@@ -129,11 +129,11 @@ describe("getLocalPresenceSnapshot + connector last_synced_at", () => {
       last_synced_at: "2026-04-14T12:00:00.000Z",
     };
     saveConnectorToken(yelp);
-    const s = getLocalPresenceSnapshot();
+    const s = await getLocalPresenceSnapshot();
     expect(s.lastReviewImportAt).toBe("2026-04-14T12:00:00.000Z");
   });
 
-  it("lastSync.google and lastSync.yelp mirror connector tokens independently", () => {
+  it("lastSync.google and lastSync.yelp mirror connector tokens independently", async () => {
     saveConnectorToken({
       provider: "google",
       access_token: "a",
@@ -151,7 +151,7 @@ describe("getLocalPresenceSnapshot + connector last_synced_at", () => {
       last_synced_at: "2026-04-15T09:00:00.000Z",
     };
     saveConnectorToken(yelp);
-    const s = getLocalPresenceSnapshot();
+    const s = await getLocalPresenceSnapshot();
     expect(s.lastSync.google).toBe("2026-04-13T18:00:00.000Z");
     expect(s.lastSync.yelp).toBe("2026-04-15T09:00:00.000Z");
     expect(s.lastSync.manual).toBeNull();
@@ -187,7 +187,7 @@ describe("getLocalPresenceSnapshot + connector last_synced_at", () => {
       tenant_id: "tenant-test",
     };
     await writeStore("import-runs", [older, newer]);
-    const s = getLocalPresenceSnapshot();
+    const s = await getLocalPresenceSnapshot();
     expect(s.lastSync.manual).toBe("2026-04-10T10:05:00.000Z");
   });
 
@@ -207,7 +207,7 @@ describe("getLocalPresenceSnapshot + connector last_synced_at", () => {
       tenant_id: "tenant-test",
     };
     await writeStore("import-runs", [connectorRun]);
-    const s = getLocalPresenceSnapshot();
+    const s = await getLocalPresenceSnapshot();
     expect(s.lastSync.manual).toBeNull();
   });
 });

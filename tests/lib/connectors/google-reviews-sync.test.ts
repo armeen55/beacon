@@ -57,12 +57,20 @@ const gbpReview = {
 // file before each test so the guard's `existsSync` short-circuits and
 // the empty write succeeds.
 function forceClearImportRunsFile(): void {
-  const path = join(process.cwd(), ".data", "import-runs.json");
-  if (existsSync(path)) {
-    try {
-      unlinkSync(path);
-    } catch {
-      // Best-effort; the writeStore below will still attempt a clean overwrite.
+  const candidates = [
+    join(process.cwd(), ".data", "import-runs.json"),
+    // Phase 7.8b-2-d (2026-04-26): tenant-aware json-store routing now writes
+    // import-runs to `.data/tenants/<slug>/import-runs.json`. Cross-test
+    // pollution can land in either path; clear both.
+    join(process.cwd(), ".data", "tenants", "ritz-builders", "import-runs.json"),
+  ];
+  for (const path of candidates) {
+    if (existsSync(path)) {
+      try {
+        unlinkSync(path);
+      } catch {
+        // Best-effort; the writeStore below will still attempt a clean overwrite.
+      }
     }
   }
 }
@@ -100,7 +108,7 @@ describe("runGoogleReviewsSync", () => {
     expect(result.rejected).toBe(0);
     expect(result.partial).toBe(false);
 
-    const rows = readLocalReviews();
+    const rows = await readLocalReviews();
     expect(rows).toHaveLength(1);
     expect(rows[0]!.id).toBe("google:rev-sync-1");
     expect(rows[0]!.rating).toBe(4);
@@ -108,7 +116,7 @@ describe("runGoogleReviewsSync", () => {
 
     expect(getGoogleConnectorToken()?.last_synced_at).toBeTruthy();
 
-    const runs = readStore<ImportRun>("import-runs", []);
+    const runs = await readStore<ImportRun>("import-runs", []);
     const gbpRun = runs.find((r) => r.source_system === "connector:google");
     expect(gbpRun).toBeDefined();
     expect(gbpRun!.imported_count).toBe(1);
@@ -127,7 +135,7 @@ describe("runGoogleReviewsSync", () => {
 
     const result = await runGoogleReviewsSync();
     expect(result.ok).toBe(true);
-    const rows = readLocalReviews();
+    const rows = await readLocalReviews();
     expect(rows).toHaveLength(1);
     expect(rows[0]!.rating).toBe(4);
   });
@@ -142,7 +150,7 @@ describe("runGoogleReviewsSync", () => {
     if (!result.ok) return;
     expect(result.imported).toBe(1);
     expect(result.rejected).toBe(1);
-    expect(readLocalReviews()).toHaveLength(1);
+    expect(await readLocalReviews()).toHaveLength(1);
   });
 
   it("returns reconnect when token refresh fails", async () => {

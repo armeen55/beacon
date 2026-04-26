@@ -804,8 +804,8 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
   // change-patterns: GLOBAL store (cross-tenant aggregate by design) — direct
   // readStore stays. change-outcomes: tenant-scoped (Phase 7.5a stamped the
   // .data file); read via the tenant adapter so the filter fires.
-  const changePatterns = readStore<import("@/domains/learning/change-patterns").ChangePattern>("change-patterns");
-  const changeOutcomes = getOutcomesForTenant(tenantId);
+  const changePatterns = await readStore<import("@/domains/learning/change-patterns").ChangePattern>("change-patterns");
+  const changeOutcomes = await getOutcomesForTenant(tenantId);
   // Phase 4 (2026-04-19): "active experiments" concept removed. Scanner watches
   // every URL change automatically via url-watcher; no opt-in required. The
   // gap-scanner still wants to avoid recommending on URLs where we're already
@@ -1473,8 +1473,8 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
   }
 
   // ── Representation discrepancy check (quiet — only notable) ──
-  const entityIdx = extractEntities(pageSnapshots);
-  const discrepancyReport = detectDiscrepancies(entityIdx);
+  const entityIdx = await extractEntities(pageSnapshots);
+  const discrepancyReport = await detectDiscrepancies(entityIdx);
   const notableDisc = discrepancyReport.discrepancies.filter((d) => d.severity === "notable");
   if (notableDisc.length > 0) {
     nextCandidates.push({
@@ -1604,7 +1604,7 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
   // Milestone sync moved to post-import (Phase 1C-3) — Today render reads only.
   // New milestone events are written to state.events during import, so
   // pickTodayMilestoneTeaser can find them from persisted state.
-  const milestoneState = getMilestoneState();
+  const milestoneState = await getMilestoneState();
   const milestoneTeaserRaw = pickTodayMilestoneTeaser(milestoneState, []);
   const milestoneTeaser = milestoneTeaserRaw
     ? {
@@ -1618,7 +1618,7 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
 
   const localAttentionStrip = isDemoMode
     ? null
-    : buildTodayLocalAttention(getLocalPresenceSnapshot());
+    : buildTodayLocalAttention(await getLocalPresenceSnapshot());
 
   const scanState = readScanState();
   const scanPhaseFailed = scanState?.phase === "failed";
@@ -1641,7 +1641,7 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
   //      so whatever remains is structural/investigative recs, no H2 garbage.
   //
   // The new data-grounded scanner will slot in here once Part 1b lands.
-  const urlChangePatterns = readStore<UrlChangePattern>("url-change-patterns");
+  const urlChangePatterns = await readStore<UrlChangePattern>("url-change-patterns");
   void urlChangePatterns; // Reserved for Phase 7 Part 3 composite ranking
 
   const schemaParityActions = buildSchemaParityActions({

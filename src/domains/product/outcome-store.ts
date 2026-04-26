@@ -21,8 +21,11 @@ import type {
 
 const STORE_NAME = "outcome-store";
 
+// Phase 7.8b-2-c: top-level await; same module-load-tenant-capture
+// caveat as canonical-store / seed-data.server. Phase 7.8e lifts to
+// request-scope.
 export const outcomeRecords: OutcomeRecord[] =
-  readStore<OutcomeRecord>(STORE_NAME);
+  await readStore<OutcomeRecord>(STORE_NAME);
 
 export async function persistOutcomes(): Promise<void> {
   await writeStore(STORE_NAME, outcomeRecords);

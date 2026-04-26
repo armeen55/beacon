@@ -8,8 +8,8 @@ const STORE = "local-reviews";
 /**
  * Current imported reviews (may be empty). Safe when file is missing.
  */
-export function readLocalReviews(): LocalReview[] {
-  const rows = readStore<LocalReview>(STORE, []);
+export async function readLocalReviews(): Promise<LocalReview[]> {
+  const rows = await readStore<LocalReview>(STORE, []);
   return [...rows];
 }
 
@@ -25,7 +25,7 @@ export async function writeLocalReviews(reviews: LocalReview[]): Promise<void> {
  * Order within `incoming` matters — later entries win for the same id.
  */
 export async function mergeUpsertLocalReviews(incoming: LocalReview[]): Promise<void> {
-  const existing = readStore<LocalReview>(STORE, []);
+  const existing = await readStore<LocalReview>(STORE, []);
   const byId = new Map<string, LocalReview>();
   for (const r of existing) {
     byId.set(r.id, r);

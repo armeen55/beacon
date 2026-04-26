@@ -19,8 +19,8 @@ describe("exit-gates-store", () => {
     await _resetExitGatesStoreForTests();
   });
 
-  it("readExitGates returns all gates with not_started when store empty", () => {
-    const gates = readExitGates();
+  it("readExitGates returns all gates with not_started when store empty", async () => {
+    const gates = await readExitGates();
     expect(gates).toHaveLength(3);
     expect(gates.map((g) => g.key)).toEqual(["daily_ritual", "replication", "local_layer"]);
     expect(gates.every((g) => g.status === "not_started")).toBe(true);
@@ -63,7 +63,7 @@ describe("exit-gates-store", () => {
         updated_at: "2026-04-10T10:00:00.000Z",
       },
     ]);
-    const again = readExitGates();
+    const again = await readExitGates();
     expect(again[0]!.status).toBe("in_review");
     expect(again[0]!.note).toBe("checking");
     expect(again[1]!.status).toBe("failed");
@@ -80,11 +80,11 @@ describe("exit-gates-store", () => {
         updated_at: "2026-04-11T00:00:00.000Z",
       },
     ]);
-    const g = getExitGate("replication");
+    const g = await getExitGate("replication");
     expect(g.status).toBe("passed");
     expect(g.note).toBe("x");
-    expect(getExitGate("daily_ritual").status).toBe("not_started");
-    expect(getExitGate("local_layer").status).toBe("not_started");
+    expect((await getExitGate("daily_ritual")).status).toBe("not_started");
+    expect((await getExitGate("local_layer")).status).toBe("not_started");
   });
 
   it("updateExitGate advances updated_at on status change", async () => {
@@ -104,7 +104,7 @@ describe("exit-gates-store", () => {
 
   it("updateExitGate persists note and status together", async () => {
     await updateExitGate("daily_ritual", { status: "failed", note: "gap in ritual" });
-    const disk = readExitGates().find((g) => g.key === "daily_ritual")!;
+    const disk = (await readExitGates()).find((g) => g.key === "daily_ritual")!;
     expect(disk.status).toBe("failed");
     expect(disk.note).toBe("gap in ritual");
   });
@@ -115,7 +115,7 @@ describe("exit-gates-store", () => {
     const b = await updateExitGate("local_layer", { status: "passed", note: "methodology aligned" });
     expect(b.status).toBe("passed");
     expect(b.note).toBe("methodology aligned");
-    const disk = readExitGates().find((g) => g.key === "local_layer")!;
+    const disk = (await readExitGates()).find((g) => g.key === "local_layer")!;
     expect(disk.status).toBe("passed");
     expect(disk.note).toBe("methodology aligned");
   });

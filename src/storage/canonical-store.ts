@@ -38,17 +38,24 @@ import type { EventDecision } from "@/domains/event-decisions/types";
 // ---------------------------------------------------------------------------
 // Hot stores — small, loaded at startup
 // ---------------------------------------------------------------------------
+//
+// Phase 7.8b-2-c (2026-04-25): top-level await because `readStore` is
+// async (Phase 7.8b-2-b). Same module-load-tenant-capture caveat as
+// `seed-data.server.ts` and the singleton stores in 7.8b-1 — captures
+// the env-resolved tenant once at module load. Phase 7.8e lifts these
+// to request-scope; until then, single-tenant production is unaffected
+// because BEACON_TENANT_ID is constant per process.
 
-export const trackedPrompts: TrackedPrompt[] = readStore<TrackedPrompt>("tracked-prompts");
-export const trackedEntities: TrackedEntity[] = readStore<TrackedEntity>("tracked-entities");
-export const observationRuns: ProfoundImportRun[] = readStore<ProfoundImportRun>("observation-runs");
+export const trackedPrompts: TrackedPrompt[] = await readStore<TrackedPrompt>("tracked-prompts");
+export const trackedEntities: TrackedEntity[] = await readStore<TrackedEntity>("tracked-entities");
+export const observationRuns: ProfoundImportRun[] = await readStore<ProfoundImportRun>("observation-runs");
 export const promptAnswerObservations: PromptAnswerObservation[] =
-  readStore<PromptAnswerObservation>("prompt-answer-observations");
+  await readStore<PromptAnswerObservation>("prompt-answer-observations");
 export const dailyMetricSnapshots: DailyMetricSnapshot[] =
-  readStore<DailyMetricSnapshot>("daily-metric-snapshots");
-export const outcomeEvents: OutcomeEvent[] = readStore<OutcomeEvent>("outcome-events");
-export const candidateCauses: CandidateCause[] = readStore<CandidateCause>("candidate-causes");
-export const eventDecisions: EventDecision[] = readStore<EventDecision>("event-decisions");
+  await readStore<DailyMetricSnapshot>("daily-metric-snapshots");
+export const outcomeEvents: OutcomeEvent[] = await readStore<OutcomeEvent>("outcome-events");
+export const candidateCauses: CandidateCause[] = await readStore<CandidateCause>("candidate-causes");
+export const eventDecisions: EventDecision[] = await readStore<EventDecision>("event-decisions");
 
 // ---------------------------------------------------------------------------
 // Phase 3.5E (2026-04-22) — hosted hero-surface seeder.

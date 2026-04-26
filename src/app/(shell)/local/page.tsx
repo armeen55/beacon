@@ -51,8 +51,8 @@ function manualImportLine(iso: string | null): string {
   return iso ? `Last imported: ${formatReviewSourceTimeForDisplay(iso)}` : "No imports yet";
 }
 
-export default function LocalPresencePage() {
-  const snapshot = getLocalPresenceSnapshot();
+export default async function LocalPresencePage() {
+  const snapshot = await getLocalPresenceSnapshot();
   const business = getBusinessConfig();
 
   const stalenessNote =

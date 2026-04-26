@@ -45,7 +45,7 @@ export type AdjudicatorHistoryEntry = {
 const HISTORY_CAP = 2000;
 
 export async function appendHistory(entry: AdjudicatorHistoryEntry): Promise<void> {
-  const rows = readStore<AdjudicatorHistoryEntry>(STORE_NAME);
+  const rows = await readStore<AdjudicatorHistoryEntry>(STORE_NAME);
   rows.push(entry);
   if (rows.length > HISTORY_CAP) rows.splice(0, rows.length - HISTORY_CAP);
   await writeStore<AdjudicatorHistoryEntry>(STORE_NAME, rows);

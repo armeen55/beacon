@@ -132,7 +132,7 @@ export default async function ChangeScorecardPage() {
   // Pattern brain — read once, used to compute "Ready on [date]" for too-early
   // rows. When the brain has no helping-outcome history for a given
   // (edit_type × asset_type), we fall back transparently.
-  const urlPatterns = readStore<UrlChangePattern>("url-change-patterns");
+  const urlPatterns = await readStore<UrlChangePattern>("url-change-patterns");
 
   // ── Compute URL-level verdict per row ──
   const enriched: EnrichedChangeRow[] = rows.map((scorecard) => {
@@ -227,7 +227,7 @@ export default async function ChangeScorecardPage() {
   // yet (row shows muted "not yet" pill instead of fake verdict).
   let outcomesById: Record<string, StoredChangeOutcome> = {};
   try {
-    const stored = loadAllChangeOutcomes();
+    const stored = await loadAllChangeOutcomes();
     outcomesById = Object.fromEntries(stored.map((o) => [o.source_id, o]));
   } catch {
     // Store may not exist yet on a fresh machine — graceful degrade.

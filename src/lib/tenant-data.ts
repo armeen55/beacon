@@ -14,6 +14,11 @@
  * Global/aggregate stores (change-patterns, triage-rules, etc.) are NOT
  * exposed here — they have no tenant_id by design. Import them directly
  * from their domain modules.
+ *
+ * Sprint 7 Phase 7.8b-2-c (2026-04-25): each adapter is async because
+ * `readStore` is async (Phase 7.8b-2-b). Filtering still happens
+ * synchronously in memory after the routed-or-flat-fallback read
+ * resolves.
  */
 
 import "server-only";
@@ -48,105 +53,123 @@ function filterByTenant<T extends { tenant_id: string }>(
 // Per-entity adapters
 // ---------------------------------------------------------------------------
 
-export function getResultsForTenant(tenantId: string): Result[] {
-  return filterByTenant(readStore<Result>("imported-results"), tenantId);
+export async function getResultsForTenant(tenantId: string): Promise<Result[]> {
+  return filterByTenant(await readStore<Result>("imported-results"), tenantId);
 }
 
-export function getChangesForTenant(tenantId: string): ChangelogEntry[] {
-  return filterByTenant(
-    readStore<ChangelogEntry>("imported-changes"),
-    tenantId,
-  );
-}
-
-export function getOpportunitiesForTenant(tenantId: string): Opportunity[] {
-  return filterByTenant(
-    readStore<Opportunity>("imported-opportunities"),
-    tenantId,
-  );
-}
-
-export function getCompetitorsForTenant(tenantId: string): Competitor[] {
-  return filterByTenant(
-    readStore<Competitor>("imported-competitors"),
-    tenantId,
-  );
-}
-
-export function getImportRunsForTenant(tenantId: string): ImportRun[] {
-  return filterByTenant(readStore<ImportRun>("import-runs"), tenantId);
-}
-
-export function getFindingsForTenant(tenantId: string): Finding[] {
-  return filterByTenant(readStore<Finding>("scan-findings"), tenantId);
-}
-
-export function getPagesForTenant(tenantId: string): PageEntity[] {
-  return filterByTenant(readStore<PageEntity>("pages"), tenantId);
-}
-
-export function getPageSnapshotsForTenant(tenantId: string): PageSnapshot[] {
-  return filterByTenant(
-    readStore<PageSnapshot>("page-snapshots"),
-    tenantId,
-  );
-}
-
-export function getObservationRunsForTenant(
+export async function getChangesForTenant(
   tenantId: string,
-): ObservationRun[] {
+): Promise<ChangelogEntry[]> {
   return filterByTenant(
-    readStore<ObservationRun>("observation-runs"),
+    await readStore<ChangelogEntry>("imported-changes"),
     tenantId,
   );
 }
 
-export function getSnapshotsForTenant(
+export async function getOpportunitiesForTenant(
   tenantId: string,
-): DailyMetricSnapshot[] {
+): Promise<Opportunity[]> {
   return filterByTenant(
-    readStore<DailyMetricSnapshot>("daily-metric-snapshots"),
+    await readStore<Opportunity>("imported-opportunities"),
     tenantId,
   );
 }
 
-export function getOutcomesForTenant(tenantId: string): ChangeOutcome[] {
-  return filterByTenant(
-    readStore<ChangeOutcome>("change-outcomes"),
-    tenantId,
-  );
-}
-
-export function getChangeContractsForTenant(
+export async function getCompetitorsForTenant(
   tenantId: string,
-): ChangeContract[] {
+): Promise<Competitor[]> {
   return filterByTenant(
-    readStore<ChangeContract>("change-contracts"),
+    await readStore<Competitor>("imported-competitors"),
     tenantId,
   );
 }
 
-export function getGuardrailsForTenant(tenantId: string): GuardrailAlert[] {
-  return filterByTenant(
-    readStore<GuardrailAlert>("page-guardrails"),
-    tenantId,
-  );
-}
-
-export function getEventDecisionsForTenant(
+export async function getImportRunsForTenant(
   tenantId: string,
-): EventDecision[] {
+): Promise<ImportRun[]> {
+  return filterByTenant(await readStore<ImportRun>("import-runs"), tenantId);
+}
+
+export async function getFindingsForTenant(
+  tenantId: string,
+): Promise<Finding[]> {
+  return filterByTenant(await readStore<Finding>("scan-findings"), tenantId);
+}
+
+export async function getPagesForTenant(
+  tenantId: string,
+): Promise<PageEntity[]> {
+  return filterByTenant(await readStore<PageEntity>("pages"), tenantId);
+}
+
+export async function getPageSnapshotsForTenant(
+  tenantId: string,
+): Promise<PageSnapshot[]> {
   return filterByTenant(
-    readStore<EventDecision>("event-decisions"),
+    await readStore<PageSnapshot>("page-snapshots"),
     tenantId,
   );
 }
 
-export function getCandidateLinksForTenant(
+export async function getObservationRunsForTenant(
   tenantId: string,
-): CandidateLink[] {
+): Promise<ObservationRun[]> {
   return filterByTenant(
-    readStore<CandidateLink>("candidate-links"),
+    await readStore<ObservationRun>("observation-runs"),
+    tenantId,
+  );
+}
+
+export async function getSnapshotsForTenant(
+  tenantId: string,
+): Promise<DailyMetricSnapshot[]> {
+  return filterByTenant(
+    await readStore<DailyMetricSnapshot>("daily-metric-snapshots"),
+    tenantId,
+  );
+}
+
+export async function getOutcomesForTenant(
+  tenantId: string,
+): Promise<ChangeOutcome[]> {
+  return filterByTenant(
+    await readStore<ChangeOutcome>("change-outcomes"),
+    tenantId,
+  );
+}
+
+export async function getChangeContractsForTenant(
+  tenantId: string,
+): Promise<ChangeContract[]> {
+  return filterByTenant(
+    await readStore<ChangeContract>("change-contracts"),
+    tenantId,
+  );
+}
+
+export async function getGuardrailsForTenant(
+  tenantId: string,
+): Promise<GuardrailAlert[]> {
+  return filterByTenant(
+    await readStore<GuardrailAlert>("page-guardrails"),
+    tenantId,
+  );
+}
+
+export async function getEventDecisionsForTenant(
+  tenantId: string,
+): Promise<EventDecision[]> {
+  return filterByTenant(
+    await readStore<EventDecision>("event-decisions"),
+    tenantId,
+  );
+}
+
+export async function getCandidateLinksForTenant(
+  tenantId: string,
+): Promise<CandidateLink[]> {
+  return filterByTenant(
+    await readStore<CandidateLink>("candidate-links"),
     tenantId,
   );
 }

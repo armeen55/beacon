@@ -41,13 +41,13 @@ function canonicalize(text: string): string {
 /**
  * Detect discrepancies between AI answer content and owned entity data.
  */
-export function detectDiscrepancies(
+export async function detectDiscrepancies(
   entityIndex: EntityIndex,
-): DiscrepancyReport {
+): Promise<DiscrepancyReport> {
   const now = new Date().toISOString();
   const discrepancies: Discrepancy[] = [];
 
-  const paoStore = readStore<{
+  const paoStore = await readStore<{
     id: string;
     mentions: string[];
     tracked_brand_mentioned: boolean | null;

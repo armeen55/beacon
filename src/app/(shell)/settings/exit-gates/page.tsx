@@ -4,8 +4,8 @@ import { ExitGatesClient } from "./exit-gates-client";
 
 export const dynamic = "force-dynamic";
 
-export default function ExitGatesPage() {
-  const gates = readExitGates();
+export default async function ExitGatesPage() {
+  const gates = await readExitGates();
 
   return (
     <div>

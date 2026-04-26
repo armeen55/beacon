@@ -52,12 +52,12 @@ function stripVolatile(obj: Record<string, unknown>): Record<string, unknown> {
 export async function readCacheEntry(
   evidenceHash: string,
 ): Promise<AdjudicatorCacheEntry | null> {
-  const rows = readStore<AdjudicatorCacheEntry>(STORE_NAME);
+  const rows = await readStore<AdjudicatorCacheEntry>(STORE_NAME);
   return rows.find((r) => r.evidenceHash === evidenceHash) ?? null;
 }
 
 export async function writeCacheEntry(entry: AdjudicatorCacheEntry): Promise<void> {
-  const rows = readStore<AdjudicatorCacheEntry>(STORE_NAME);
+  const rows = await readStore<AdjudicatorCacheEntry>(STORE_NAME);
   const idx = rows.findIndex((r) => r.evidenceHash === entry.evidenceHash);
   if (idx >= 0) rows[idx] = entry;
   else rows.push(entry);
@@ -70,5 +70,5 @@ export async function writeCacheEntry(entry: AdjudicatorCacheEntry): Promise<voi
 }
 
 export async function listCacheEntries(): Promise<AdjudicatorCacheEntry[]> {
-  return readStore<AdjudicatorCacheEntry>(STORE_NAME);
+  return await readStore<AdjudicatorCacheEntry>(STORE_NAME);
 }

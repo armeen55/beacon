@@ -26,10 +26,10 @@ const MAX_TOP_SOURCES = 20;
 /**
  * Compute the source trust index from citation cold store data.
  */
-export function computeSourceTrustIndex(
+export async function computeSourceTrustIndex(
   ownedDomain: string,
   competitorDomains: Set<string>,
-): SourceTrustIndex {
+): Promise<SourceTrustIndex> {
   const dates = getAllCitationDates();
   const ownedNorm = ownedDomain.replace(/^www\./, "").toLowerCase();
 
@@ -41,7 +41,7 @@ export function computeSourceTrustIndex(
   const platformTotals = new Map<string, number>();
 
   // Resolve platform from prompt-answer-observations
-  const paoStore = readStore<{
+  const paoStore = await readStore<{
     id: string;
     platform: string;
     topic: string;

@@ -149,7 +149,7 @@ describe("gap detector", () => {
 // ---------------------------------------------------------------------------
 
 describe("priority scorer", () => {
-  it("scores high-citation pages higher than low-citation pages", () => {
+  it("scores high-citation pages higher than low-citation pages", async () => {
     const gaps: DetectedGap[] = [
       {
         type: "missing_faq",
@@ -175,12 +175,12 @@ describe("priority scorer", () => {
       },
     ];
     const citations = new Map([["/high-cit", 500], ["/low-cit", 2]]);
-    const scored = scoreAllGaps(gaps, citations);
+    const scored = await scoreAllGaps(gaps, citations);
     expect(scored[0].gap.page_url).toBe("/high-cit");
     expect(scored[0].priority).toBeGreaterThan(scored[1].priority);
   });
 
-  it("scores critical severity higher than medium", () => {
+  it("scores critical severity higher than medium", async () => {
     const gaps: DetectedGap[] = [
       {
         type: "missing_faq",
@@ -205,7 +205,7 @@ describe("priority scorer", () => {
         affected_page_count: 1,
       },
     ];
-    const scored = scoreAllGaps(gaps, new Map());
+    const scored = await scoreAllGaps(gaps, new Map());
     expect(scored[0].gap.severity).toBe("critical");
   });
 });
@@ -325,14 +325,14 @@ describe("payload generators", () => {
 // ---------------------------------------------------------------------------
 
 describe("assembleMoves", () => {
-  it("produces up to 3 moves from page snapshots", () => {
+  it("produces up to 3 moves from page snapshots", async () => {
     const tenant = makeTenant();
     const snapshots = [
       makeSnapshot("/", { faqs: [], schema_types: [] }),
       makeSnapshot("/services/custom-homes", { faqs: [] }),
       makeSnapshot("/locations/palo-alto", { faqs: [] }),
     ];
-    const result = assembleMoves({
+    const result = await assembleMoves({
       tenant,
       snapshots,
       pages: [],
@@ -351,14 +351,14 @@ describe("assembleMoves", () => {
     }
   });
 
-  it("returns diverse change types in top 3", () => {
+  it("returns diverse change types in top 3", async () => {
     const tenant = makeTenant();
     const snapshots = [
       makeSnapshot("/services/a", { faqs: [], schema_types: [] }),
       makeSnapshot("/services/b", { faqs: [], schema_types: [] }),
       makeSnapshot("/services/c", { faqs: [], schema_types: [] }),
     ];
-    const result = assembleMoves({
+    const result = await assembleMoves({
       tenant,
       snapshots,
       pages: [],
@@ -373,10 +373,10 @@ describe("assembleMoves", () => {
     }
   });
 
-  it("includes JSON-LD in FAQ move payloads", () => {
+  it("includes JSON-LD in FAQ move payloads", async () => {
     const tenant = makeTenant();
     const snapshots = [makeSnapshot("/services/remodel", { faqs: [] })];
-    const result = assembleMoves({
+    const result = await assembleMoves({
       tenant,
       snapshots,
       pages: [],

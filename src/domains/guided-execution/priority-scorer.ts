@@ -46,7 +46,7 @@ function scorePageImportance(pageUrl: string): number {
   return 40;
 }
 
-function scorePatternConfidence(gap: DetectedGap): number {
+async function scorePatternConfidence(gap: DetectedGap): Promise<number> {
   // Query the global pattern store for this gap's fix type + platform
   const key: PatternKey = {
     segment: "local_residential_builder",
@@ -55,7 +55,7 @@ function scorePatternConfidence(gap: DetectedGap): number {
     context_bin: "zero::established", // default bin for scoring
   };
 
-  const result = queryPattern(key);
+  const result = await queryPattern(key);
   if (!result) return 0;
 
   // Pattern confidence = positive_rate × tenant_count_factor
@@ -77,13 +77,13 @@ const WEIGHTS = {
 /**
  * Score a single gap as a potential move.
  */
-export function scoreGap(
+export async function scoreGap(
   gap: DetectedGap,
   citationCount: number,
-): ScoredMove {
+): Promise<ScoredMove> {
   const components: PriorityComponents = {
     citation_impact: scoreCitationImpact(citationCount),
-    pattern_confidence: scorePatternConfidence(gap),
+    pattern_confidence: await scorePatternConfidence(gap),
     gap_severity: SEVERITY_SCORES[gap.severity],
     page_importance: scorePageImportance(gap.page_url),
   };
@@ -101,16 +101,17 @@ export function scoreGap(
 /**
  * Score all gaps and return sorted by priority (highest first).
  */
-export function scoreAllGaps(
+export async function scoreAllGaps(
   gaps: DetectedGap[],
   citationCounts: Map<string, number>,
-): ScoredMove[] {
-  return gaps
-    .map((gap) => scoreGap(gap, citationCounts.get(gap.page_url) ?? 0))
-    .sort((a, b) => {
-      if (a.priority !== b.priority) return b.priority - a.priority;
-      return b.gap.affected_page_count - a.gap.affected_page_count;
-    });
+): Promise<ScoredMove[]> {
+  const scored = await Promise.all(
+    gaps.map((gap) => scoreGap(gap, citationCounts.get(gap.page_url) ?? 0)),
+  );
+  return scored.sort((a, b) => {
+    if (a.priority !== b.priority) return b.priority - a.priority;
+    return b.gap.affected_page_count - a.gap.affected_page_count;
+  });
 }
 
 // ---------------------------------------------------------------------------

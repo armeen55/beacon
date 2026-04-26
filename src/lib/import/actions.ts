@@ -386,7 +386,7 @@ export async function clearEntityData(
       break;
     case "reviews": {
       const { readLocalReviews, writeLocalReviews } = await import("@/lib/local-reviews-store");
-      cleared = readLocalReviews().length;
+      cleared = (await readLocalReviews()).length;
       await writeLocalReviews([]);
       revalidatePath("/local", "layout");
       break;
@@ -438,7 +438,7 @@ export async function clearImportedData(
     }
     case "reviews": {
       const { readLocalReviews, writeLocalReviews } = await import("@/lib/local-reviews-store");
-      cleared = readLocalReviews().length;
+      cleared = (await readLocalReviews()).length;
       await writeLocalReviews([]);
       revalidatePath("/local", "layout");
       break;
@@ -695,7 +695,7 @@ export async function refreshAttributionAction(): Promise<{
     );
     type DMS = import("@/domains/daily-metric-snapshots/types").DailyMetricSnapshot;
 
-    const snapshots = readStoreLocal<DMS>("daily-metric-snapshots");
+    const snapshots = await readStoreLocal<DMS>("daily-metric-snapshots");
     const outcomes = await materializePerChangeOutcomes(
       changelogEntries,
       snapshots,

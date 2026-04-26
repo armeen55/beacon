@@ -296,7 +296,7 @@ export async function runProfoundImport(
   // Phase 7: Changelog — optional; merge discovered files into existing imported-changes
   let changelogForBridge: ChangelogEntry[] | undefined;
   if (byKind.changelog.length > 0) {
-    let mergedChangelog = readStore<ChangelogEntry>("imported-changes");
+    let mergedChangelog = await readStore<ChangelogEntry>("imported-changes");
     for (const filePath of byKind.changelog) {
       const parsed = parseChangelogCSVToLegacy(filePath, importRunId);
       mergedChangelog = mergeChangelogEntries(mergedChangelog, parsed);
@@ -320,11 +320,11 @@ export async function runProfoundImport(
 
   // Refresh the module-level arrays so the UI immediately reflects bridged data.
   // Without this, seed-data.server.ts keeps the stale arrays from server startup.
-  const freshResults = readStore<import("@/domains/results/types").Result>("imported-results");
+  const freshResults = await readStore<import("@/domains/results/types").Result>("imported-results");
   moduleResults.length = 0;
   moduleResults.push(...freshResults);
 
-  const importedChanges = readStore<ChangelogEntry>("imported-changes");
+  const importedChanges = await readStore<ChangelogEntry>("imported-changes");
   moduleChangelog.length = 0;
   moduleChangelog.push(...importedChanges);
 
@@ -425,7 +425,7 @@ export async function runProfoundImport(
     const { readStore: readLearningStore } = await import(
       "@/lib/persistence/json-store"
     );
-    const decisions = readLearningStore<{ id: string; primary_change_id: string | null; operator_confidence: string; cause_type: string }>("event-decisions");
+    const decisions = await readLearningStore<{ id: string; primary_change_id: string | null; operator_confidence: string; cause_type: string }>("event-decisions");
     await materializeConfidenceCalibration(decisions, materializedOutcomes);
   } catch (e) {
     console.warn("[learning] confidence-calibration:", e instanceof Error ? e.message : e);

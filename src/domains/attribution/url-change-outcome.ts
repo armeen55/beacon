@@ -88,7 +88,10 @@ export type UrlChangeOutcome = {
 };
 
 // In-memory cache, loaded at module init, persisted after writes.
-export const urlChangeOutcomes: UrlChangeOutcome[] = readStore<UrlChangeOutcome>(
+// Phase 7.8b-2-c: top-level await; same module-load-tenant-capture
+// caveat as canonical-store / seed-data.server. Phase 7.8e lifts to
+// request-scope.
+export const urlChangeOutcomes: UrlChangeOutcome[] = await readStore<UrlChangeOutcome>(
   "url-change-outcomes",
 );
 

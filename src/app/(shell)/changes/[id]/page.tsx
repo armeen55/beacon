@@ -262,8 +262,8 @@ export default async function ChangeDetailPage({
       {/* Phase 2C: attribution drilldown (natural-controls engine output).
           Source of truth for this change's attribution status. Replaces the
           old verdict-led block. */}
-      {(() => {
-        const storedOutcome = loadChangeOutcomeById(entry.id);
+      {await (async () => {
+        const storedOutcome = await loadChangeOutcomeById(entry.id);
         return storedOutcome ? <AttributionDrilldown outcome={storedOutcome} /> : null;
       })()}
 

@@ -28,10 +28,10 @@ const MIN_CO_OCCURRENCES = 2;
  * Groups citations by prompt_answer_id, finds domain co-occurrences
  * with the owned domain.
  */
-export function computeCoMentionMatrix(
+export async function computeCoMentionMatrix(
   ownedDomain: string,
   universedomains: Set<string>,
-): CoMentionMatrix {
+): Promise<CoMentionMatrix> {
   const dates = getAllCitationDates();
   const ownedNorm = ownedDomain.replace(/^www\./, "").toLowerCase();
 
@@ -54,7 +54,7 @@ export function computeCoMentionMatrix(
     }
   }
 
-  const paoStore = readStore<{
+  const paoStore = await readStore<{
     id: string;
     platform: string;
     topic: string;

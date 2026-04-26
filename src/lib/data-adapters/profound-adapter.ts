@@ -103,48 +103,47 @@ export function createProfoundAdapters(): BeaconDataAdapters {
     return _decayResults ??= computeCitationDecay(siteDomain);
   }
 
-  let _entityIndex: ReturnType<typeof extractEntities> | null = null;
-  let _entitySnapSig = "";
+  // Phase 7.8b-2-d (2026-04-26): profound-adapter is phased out (production
+  // routes don't invoke getAdapters()). With extractEntities/detectDiscrepancies/
+  // computeCoMentionMatrix/computeSourceTrustIndex all now async (json-store
+  // routing), threading async through the sync adapter is wasted churn for
+  // a phased-out path. Stub each lazy getter with an empty result that matches
+  // the type contract so this compiles. Repathing happens if/when the adapter
+  // is ever re-wired (it isn't).
   function getEntityIdx() {
-    // Phase 7.8b-1 (2026-04-25): profound-adapter is the legacy
-    // Profound import pipeline (phased out 2026-04-22 per native-poll
-    // cutover). Sprint 7 Phase 7.5c/3 already replaced `allPages` with
-    // an empty-array fallback for the same reason. Now `getPageSnapshots`
-    // is async and this synchronous adapter can't await; keep an
-    // empty-fallback to compile cleanly without cascading async into
-    // a phased-out caller. Production routes don't invoke getAdapters().
-    const snaps: PageSnapshot[] = [];
-    const sig = `${snaps.length}:${snaps[0]?.content_hash ?? ""}`;
-    if (_entityIndex && sig === _entitySnapSig) return _entityIndex;
-    _entitySnapSig = sig;
-    _entityIndex = extractEntities(snaps);
-    return _entityIndex;
+    return {
+      computed_at: new Date().toISOString(),
+      entities: [],
+      owned_brand: null,
+      owned_locations: [],
+      owned_services: [],
+    };
   }
 
-  let _discReport: ReturnType<typeof detectDiscrepancies> | null = null;
-  function getDiscReport() {
-    return _discReport ??= detectDiscrepancies(getEntityIdx());
+  function getDiscReport(): Awaited<ReturnType<typeof detectDiscrepancies>> {
+    return {
+      computed_at: new Date().toISOString(),
+      total_answers_checked: 0,
+      discrepancies: [],
+      data_note: "profound-adapter (phased-out path) — empty stub",
+    };
   }
 
-  // Phase 7.8b-1 (2026-04-25): same phased-out-adapter rationale as
-  // `getEntityIdx` above. `loadCompetitorUniverseRuntime` is async; the
-  // sync adapter gets an empty universe rather than cascading async.
-  const universeDomains: Set<string> = new Set();
-
-  let _coMention: ReturnType<typeof computeCoMentionMatrix> | null = null;
   function getCoMention() {
-    if (_coMention) return _coMention;
-    _coMention = getCachedCoMentionMatrix();
-    if (!_coMention) {
-      _coMention = computeCoMentionMatrix(siteDomain, universeDomains);
-      if (_coMention.entries.length > 0) persistCoMentionMatrix(_coMention).catch(() => {});
-    }
-    return _coMention;
+    return {
+      owned_domain: siteDomain,
+      computed_at: new Date().toISOString(),
+      total_answers_analyzed: 0,
+      entries: [],
+    };
   }
 
-  let _trustIndex: ReturnType<typeof computeSourceTrustIndex> | null = null;
   function getTrust() {
-    return _trustIndex ??= computeSourceTrustIndex(siteDomain, universeDomains);
+    return {
+      computed_at: new Date().toISOString(),
+      total_citations_analyzed: 0,
+      platforms: [],
+    };
   }
 
   // Visibility adapter

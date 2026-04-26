@@ -1212,10 +1212,10 @@ export default async function DiagnosticsPage() {
   );
 }
 
-function EntityRepresentationSection({ ctx }: { ctx: DiagnosticsContext }) {
-  const entityIndex = extractEntities(ctx.pageSnapshots);
+async function EntityRepresentationSection({ ctx }: { ctx: DiagnosticsContext }) {
+  const entityIndex = await extractEntities(ctx.pageSnapshots);
   const entitySummary = summarizeEntities(entityIndex);
-  const discrepancyReport = detectDiscrepancies(entityIndex);
+  const discrepancyReport = await detectDiscrepancies(entityIndex);
 
   const notable = discrepancyReport.discrepancies.filter((d) => d.severity === "notable");
   const minor = discrepancyReport.discrepancies.filter((d) => d.severity === "minor");
@@ -1349,7 +1349,7 @@ function JourneyCoverageSection() {
   );
 }
 
-function BeaconScoreSection({ ctx }: { ctx: DiagnosticsContext }) {
+async function BeaconScoreSection({ ctx }: { ctx: DiagnosticsContext }) {
   const { siteDomain } = getSiteConfig();
   const citIndex = citationEvidenceIndex;
   const benchmark = citIndex ? computeMarketBenchmark(citIndex, pageIssues) : null;
@@ -1363,8 +1363,8 @@ function BeaconScoreSection({ ctx }: { ctx: DiagnosticsContext }) {
   const decayResults = computeCitationDecay(siteDomain);
   const decaySummary = summarizeDecay(decayResults);
 
-  const entityIndex = extractEntities(ctx.pageSnapshots);
-  const discReport = detectDiscrepancies(entityIndex);
+  const entityIndex = await extractEntities(ctx.pageSnapshots);
+  const discReport = await detectDiscrepancies(entityIndex);
 
   const totalOwnedCit = citIndex?.by_page_and_topic
     .filter((r) => r.is_owned)
@@ -1773,12 +1773,12 @@ function SignalRow({ signal }: { signal: SnippetSignal }) {
   );
 }
 
-function PulseBanner({ ctx }: { ctx: DiagnosticsContext }) {
+async function PulseBanner({ ctx }: { ctx: DiagnosticsContext }) {
   const { siteDomain } = getSiteConfig();
   const decayResults = computeCitationDecay(siteDomain);
   const decayAlerts = decayResults.filter((d) => d.status === "meaningful_decline" || d.status === "soft_decline");
-  const entityIdx = extractEntities(ctx.pageSnapshots);
-  const discReport = detectDiscrepancies(entityIdx);
+  const entityIdx = await extractEntities(ctx.pageSnapshots);
+  const discReport = await detectDiscrepancies(entityIdx);
   const geoCov = computeGeoCoverage(ctx.pages, citationEvidenceIndex?.by_page_and_topic ?? [], getActivePrompts());
   const journeyCov = computeJourneyCoverage(promptLibrary);
 
@@ -1849,10 +1849,10 @@ function PulseBanner({ ctx }: { ctx: DiagnosticsContext }) {
   );
 }
 
-function AdvancedReadinessSection({ ctx }: { ctx: DiagnosticsContext }) {
+async function AdvancedReadinessSection({ ctx }: { ctx: DiagnosticsContext }) {
   const adversarial = assessAdversarialReadiness(promptLibrary, answerSnapshots.some((s) => s.prompt_text.toLowerCase().includes("complaint") || s.prompt_text.toLowerCase().includes("scam")));
   const whatIf = assessWhatIfReadiness(outcomeRecords);
-  const founder = assessFounderAuthority();
+  const founder = await assessFounderAuthority();
   const conversionPath = assessConversionPathReadiness({
     hasPromptData: promptLibrary.length > 0,
     hasAnswerData: answerSnapshots.length > 0,

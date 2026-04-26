@@ -54,7 +54,7 @@ export const currentTenantId = cache(async (): Promise<string> => {
  * as `currentTenantId`.
  */
 export const currentTenant = cache(async (): Promise<BeaconTenant> => {
-  return getTenantOrThrow(await currentTenantId());
+  return await getTenantOrThrow(await currentTenantId());
 });
 
 /**
@@ -64,7 +64,7 @@ export const currentTenant = cache(async (): Promise<BeaconTenant> => {
  */
 export const currentTenantSlug = cache(async (): Promise<string> => {
   const id = await currentTenantId();
-  const tenant = getTenant(id);
+  const tenant = await getTenant(id);
   if (!tenant) {
     throw new Error(
       `currentTenantSlug: tenant ${id} not found in store. ` +

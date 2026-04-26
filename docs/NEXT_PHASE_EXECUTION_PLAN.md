@@ -17,6 +17,25 @@
 
 ---
 
+## Sprint 7 Phase 7.8b-2-d — COMPLETE 2026-04-26
+
+**Done:** Final cascade of the json-store async/tenant-aware migration. Twelve deferred sync→async helper conversions landed in one batch (couldn't be split safely — `readStore` became async in 7.8b-2-b and these were the last sync callers blocking typecheck).
+
+Helpers converted to async:
+- Recommendations adjudicator: [adjudicator-cache](src/domains/recommendations/adjudicator-cache.ts), [adjudicator-history](src/domains/recommendations/adjudicator-history.ts), [adjudicator-budget](src/domains/recommendations/adjudicator-budget.ts) (`readState`).
+- Entity helpers: [discrepancy-detect.detectDiscrepancies](src/domains/entity/discrepancy-detect.ts), [founder-authority.assessFounderAuthority](src/domains/entity/founder-authority.ts), [entity-extract.extractEntities](src/domains/entity/entity-extract.ts).
+- Other: [milestones/sync.readState](src/domains/milestones/sync.ts) (+ `getMilestoneState`), [answer-snapshots/store](src/domains/answer-snapshots/store.ts) (top-level await), [competitors/co-mention.computeCoMentionMatrix](src/domains/competitors/co-mention.ts), [competitors/source-trust.computeSourceTrustIndex](src/domains/competitors/source-trust.ts), [global-patterns/store](src/domains/global-patterns/store.ts) (5 helpers), [prompts/prompt-library](src/domains/prompts/prompt-library.ts) (top-level await).
+
+Caller cascade: [global-patterns/aggregate.ts](src/domains/global-patterns/aggregate.ts), [global-patterns/query.ts](src/domains/global-patterns/query.ts), [guided-execution/assemble-moves.ts](src/domains/guided-execution/assemble-moves.ts), [guided-execution/priority-scorer.ts](src/domains/guided-execution/priority-scorer.ts), shell pages [today-data.ts](src/app/(shell)/today-data.ts) + [competitors/page.tsx](src/app/(shell)/competitors/page.tsx) + [diagnostics/page.tsx](src/app/(shell)/diagnostics/page.tsx) (4 sections converted to async server components). [profound-adapter.ts](src/lib/data-adapters/profound-adapter.ts) — phased-out path stubbed (no production callers; threading async through the sync DI surface for dead code is wasted churn).
+
+Tests: [gaps-and-moves.test.ts](tests/guided-execution/gaps-and-moves.test.ts), [json-store-vercel.test.ts](tests/lib/persistence/json-store-vercel.test.ts) (seeded `tenants.json` + narrowed assertions to per-tenant subdir contract), [google-reviews-sync.test.ts](tests/lib/connectors/google-reviews-sync.test.ts) + [yelp-reviews-sync.test.ts](tests/lib/connectors/yelp-reviews-sync.test.ts) (`forceClearImportRunsFile` now also clears the tenant-routed path), [canonical-store-fresh.test.ts](tests/routes/canonical-store-fresh.test.ts), [recommended-edits-persistence.test.ts](src/domains/recommendations/recommended-edits-persistence.test.ts) (added `currentTenantSlug` to mocks).
+
+**Verification:** `npm run typecheck` clean. Full vitest **2316 / 2317** — single remaining failure is the pre-existing `finding-actions.test.ts:213` timestamp fixture, verified unchanged by `git stash` re-run on prior `main`. Architecture invariants + tenant isolation + json-store routing all green.
+
+**Phase 7.8b-2-e — APPROVED + SAFE TO START** when operator approves. Scope: architectural invariant tests for the routing layer, any remaining shell-page cascade hygiene, doc cleanup. Then 7.8c (`--commit` migration run), 7.8d (move flat → `_legacy/`, fail-loud on unknowns), 7.8e (lift seed-data.server top-level await to request-scope).
+
+---
+
 ## Sprint 7 Phase 7.7b — COMPLETE 2026-04-25 (Phase 7.7b ALL 6 COMMITS COMPLETE)
 
 **Done:** Lenient-stamping write-path tenant binding across 6 commits. New `tenantizeRows<T>(rows, tenantId, context)` helper added in Commit 1; the 15 converted Tier A `sync*` helpers (14 from `TIER_A_METHODS` + `syncChangeOutcomes`) all gain a required `tenantId: string` parameter and route their input through `tenantizeRows` before delegating to `dualWriteUpsert`. Lenient-stamping pattern coerces the legacy `tenant_id: ""` row-creation sites silently and still throws loud on cross-tenant non-empty mismatches — the actual leak vector. Caller threading complete across server actions, CLI scripts, the orchestrator, the DI poll harness, and the canonical-store wrappers. Per-helper sanity invariants in [tests/persistence/dual-write-tenant.test.ts](tests/persistence/dual-write-tenant.test.ts) prevent silent regressions. **2228 passed / 1 failed** — baseline preserved exactly (sole remaining failure is the pre-existing `finding-actions.test.ts:213` timestamp fixture mismatch, unrelated to multi-tenant). Architecture + tenant-isolation + dual-write-tenant invariants 95/95 green.

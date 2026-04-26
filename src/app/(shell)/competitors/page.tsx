@@ -89,13 +89,13 @@ export default async function CompetitorsPage() {
   const universeDomains = new Set(activeUniverse.map((e) => e.domain.replace(/^www\./, "").toLowerCase()));
   let coMentionMatrix = getCachedCoMentionMatrix();
   if (!coMentionMatrix) {
-    coMentionMatrix = computeCoMentionMatrix(siteDomain, universeDomains);
+    coMentionMatrix = await computeCoMentionMatrix(siteDomain, universeDomains);
     if (coMentionMatrix.entries.length > 0) {
       persistCoMentionMatrix(coMentionMatrix).catch(() => {});
     }
   }
 
-  const trustIndex = computeSourceTrustIndex(siteDomain, universeDomains);
+  const trustIndex = await computeSourceTrustIndex(siteDomain, universeDomains);
 
   // Sprint 7 Phase 7.5c/3 (2026-04-25) — tenant-scoped page fetch.
   const allPages = await getOwnedPages();
@@ -193,7 +193,7 @@ export default async function CompetitorsPage() {
   });
   const marketMilestones = filterMarketMilestones(milestoneStateMarket.events);
 
-  const marketLocalStripModel = buildMarketLocalStripModel(getLocalPresenceSnapshot());
+  const marketLocalStripModel = buildMarketLocalStripModel(await getLocalPresenceSnapshot());
 
   return (
     <div className="max-w-4xl">

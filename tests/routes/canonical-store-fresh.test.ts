@@ -86,6 +86,7 @@ describe("Sprint 4 / Phase 4.9 — canonical-store fresh-per-render", () => {
       });
       vi.doMock("@/lib/tenant-context", () => ({
         currentTenantId: async () => "tenant-ritz-founder",
+        currentTenantSlug: async () => "ritz-builders",
       }));
 
       const { loadFreshCanonicalData } = await import(
@@ -125,6 +126,7 @@ describe("Sprint 4 / Phase 4.9 — canonical-store fresh-per-render", () => {
       });
       vi.doMock("@/lib/tenant-context", () => ({
         currentTenantId: async () => "tenant-ritz-founder",
+        currentTenantSlug: async () => "ritz-builders",
       }));
 
       const { loadFreshCanonicalData } = await import(

@@ -15,7 +15,7 @@ import { classifyJourneyStage } from "./journey-stages";
 const STORE_NAME = "prompt-library";
 
 export const promptLibrary: LibraryPrompt[] =
-  readStore<LibraryPrompt>(STORE_NAME);
+  await readStore<LibraryPrompt>(STORE_NAME);
 
 export async function persistPromptLibrary(): Promise<void> {
   await writeStore(STORE_NAME, promptLibrary);

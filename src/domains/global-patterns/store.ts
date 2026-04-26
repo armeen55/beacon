@@ -15,18 +15,18 @@ import type { GlobalPattern } from "./contracts";
 
 const STORE_NAME = "global-patterns";
 
-export function listGlobalPatterns(): GlobalPattern[] {
-  return readStore<GlobalPattern>(STORE_NAME);
+export async function listGlobalPatterns(): Promise<GlobalPattern[]> {
+  return await readStore<GlobalPattern>(STORE_NAME);
 }
 
-export function getGlobalPattern(id: string): GlobalPattern | null {
-  return listGlobalPatterns().find((p) => p.id === id) ?? null;
+export async function getGlobalPattern(id: string): Promise<GlobalPattern | null> {
+  return (await listGlobalPatterns()).find((p) => p.id === id) ?? null;
 }
 
 export async function upsertGlobalPattern(
   pattern: GlobalPattern,
 ): Promise<void> {
-  const all = listGlobalPatterns();
+  const all = await listGlobalPatterns();
   const idx = all.findIndex((p) => p.id === pattern.id);
   if (idx >= 0) {
     all[idx] = pattern;
@@ -42,6 +42,6 @@ export async function writeAllGlobalPatterns(
   await writeStore(STORE_NAME, patterns);
 }
 
-export function countGlobalPatterns(): number {
-  return listGlobalPatterns().length;
+export async function countGlobalPatterns(): Promise<number> {
+  return (await listGlobalPatterns()).length;
 }

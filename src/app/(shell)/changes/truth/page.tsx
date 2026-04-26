@@ -29,11 +29,11 @@ export default async function ChangesTruthPage() {
     notFound();
   }
 
-  const events = readStore<ChangeEvent>("change-events");
-  const attributions = readStore<EventAttribution>("event-attributions");
-  const oldOutcomes = readStore<UrlChangeOutcome>("url-change-outcomes");
-  const changelog = readStore<ImportedChange>("imported-changes");
-  const movements = readStore<SiteMovementEvent>("site-movement-events");
+  const events = await readStore<ChangeEvent>("change-events");
+  const attributions = await readStore<EventAttribution>("event-attributions");
+  const oldOutcomes = await readStore<UrlChangeOutcome>("url-change-outcomes");
+  const changelog = await readStore<ImportedChange>("imported-changes");
+  const movements = await readStore<SiteMovementEvent>("site-movement-events");
 
   const attrByEvent = new Map(attributions.map((a) => [a.event_id, a]));
   const changeById = new Map(changelog.map((c) => [c.id, c]));

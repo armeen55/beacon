@@ -32,8 +32,8 @@ export const dynamic = "force-dynamic";
 
 export default async function SpikeForensicsPage() {
   // Load upstream primitives once for all events.
-  const outcomes = readStore<ChangeOutcome>("change-outcomes");
-  const patterns = readStore<ChangePattern>("change-patterns");
+  const outcomes = await readStore<ChangeOutcome>("change-outcomes");
+  const patterns = await readStore<ChangePattern>("change-patterns");
   const observationRuns = await listWebsiteCrawlRuns();
 
   // Detect events across all three metrics via the new engine.

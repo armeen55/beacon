@@ -46,8 +46,11 @@ export type RecommendationResponse = {
 const STORE_NAME = "recommendation-responses";
 const DEFER_DAYS = 7;
 
+// Phase 7.8b-2-c: top-level await; same module-load-tenant-capture
+// caveat as canonical-store / seed-data.server. Phase 7.8e lifts to
+// request-scope.
 export const recommendationResponses: RecommendationResponse[] =
-  readStore<RecommendationResponse>(STORE_NAME);
+  await readStore<RecommendationResponse>(STORE_NAME);
 
 // Phase 3.5C (2026-04-22): on Vercel / `DATA_SOURCE=supabase`, the module-init
 // `readStore` above returns [] because `.data/*.json` doesn't exist on Vercel's

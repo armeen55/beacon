@@ -17,11 +17,11 @@ import { getSiteConfig } from "../src/lib/site-config";
 
 async function main() {
   const siteDomain = getSiteConfig().siteDomain;
-  const results = readStore<Result>("imported-results");
-  const changes = readStore<ChangelogEntry>("imported-changes");
-  const opps = readStore<Opportunity>("imported-opportunities");
+  const results = await readStore<Result>("imported-results");
+  const changes = await readStore<ChangelogEntry>("imported-changes");
+  const opps = await readStore<Opportunity>("imported-opportunities");
 
-  const pages = readStore<PageEntity>("pages");
+  const pages = await readStore<PageEntity>("pages");
   const pageRegistry = new Map(pages.map((p) => [p.url, p]));
 
   // Load citation evidence page_to_topics index

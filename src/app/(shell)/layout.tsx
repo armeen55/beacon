@@ -55,7 +55,7 @@ export default async function ShellLayout({
   //   Changes — URLs currently being watched by the Z-score engine (verdict
   //             in {hurting, nothing_yet, too_early}). One row per URL.
   //             Replaces the legacy `experiment-store` read as of 2026-04-19.
-  const pendingFindings = getPendingFindings();
+  const pendingFindings = await getPendingFindings();
   const todayBadge = pendingFindings.filter((f) =>
     CONTENT_CHANGE_TYPES.has(f.type),
   ).length;

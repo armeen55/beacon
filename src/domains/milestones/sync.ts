@@ -19,8 +19,8 @@ function cloneState(raw: MilestoneState): MilestoneState {
   };
 }
 
-function readState(): MilestoneState {
-  const rows = readStore<MilestoneState>(STORE, []);
+async function readState(): Promise<MilestoneState> {
+  const rows = await readStore<MilestoneState>(STORE, []);
   if (!rows.length) {
     return { peaks: {}, events: [], meta: {} };
   }
@@ -49,13 +49,13 @@ export async function syncMilestonesFromWorkspace(input: {
     input.competitorRank,
   );
 
-  const prev = readState();
+  const prev = await readState();
   const { state, newEvents, dirty } = applyMilestoneSync(prev, proposed);
   if (dirty) await persistState(state);
   return { state, newEvents };
 }
 
 /** Read-only snapshot for pages that should not mutate state twice in one request. */
-export function getMilestoneState(): MilestoneState {
-  return readState();
+export async function getMilestoneState(): Promise<MilestoneState> {
+  return await readState();
 }

@@ -37,9 +37,9 @@ export type PatternQueryResult = {
  * Returns the pattern + a pre-computed PopulationEvidence object when
  * the confidence gate passes.
  */
-export function queryPattern(key: PatternKey): PatternQueryResult | null {
+export async function queryPattern(key: PatternKey): Promise<PatternQueryResult | null> {
   const id = patternKeyHash(key);
-  const all = listGlobalPatterns();
+  const all = await listGlobalPatterns();
   const pattern = all.find((p) => p.id === id);
 
   if (!pattern) return null;
@@ -65,11 +65,11 @@ export function queryPattern(key: PatternKey): PatternQueryResult | null {
  * Useful for showing "what patterns exist for FAQ changes on ChatGPT?"
  * regardless of context bin.
  */
-export function queryPatternsForChangeType(opts: {
+export async function queryPatternsForChangeType(opts: {
   changeType: string;
   platform: PatternKey["platform"];
-}): PatternQueryResult[] {
-  const all = listGlobalPatterns();
+}): Promise<PatternQueryResult[]> {
+  const all = await listGlobalPatterns();
   const results: PatternQueryResult[] = [];
 
   for (const pattern of all) {

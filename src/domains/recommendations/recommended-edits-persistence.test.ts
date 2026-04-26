@@ -77,6 +77,7 @@ const tenantMocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/tenant-context", () => ({
   currentTenantId: tenantMocks.currentTenantId,
+  currentTenantSlug: vi.fn(async () => "test-acme"),
 }));
 
 // ── Fixture builders ───────────────────────────────────────────────────────

@@ -50,7 +50,7 @@ describe("json-store on VERCEL=1 — safe against missing .data", () => {
 
   it("readStore on VERCEL=1 with no .data dir returns [] and does NOT create .data", async () => {
     const { readStore } = await import("@/lib/persistence/json-store");
-    const result = readStore<{ id: string }>("hosted-safe-cache-test");
+    const result = await readStore<{ id: string }>("hosted-safe-cache-test");
     expect(result).toEqual([]);
     expect(fs.existsSync(path.join(isolatedCwd!, ".data"))).toBe(false);
   });
@@ -67,10 +67,10 @@ describe("json-store on VERCEL=1 — safe against missing .data", () => {
     const { readStore, writeStore } = await import(
       "@/lib/persistence/json-store"
     );
-    const before = readStore<{ id: string }>("round-trip-test");
+    const before = await readStore<{ id: string }>("round-trip-test");
     expect(before).toEqual([]);
     await writeStore("round-trip-test", [{ id: "a" }, { id: "b" }]);
-    const after = readStore<{ id: string }>("round-trip-test");
+    const after = await readStore<{ id: string }>("round-trip-test");
     expect(after).toEqual([{ id: "a" }, { id: "b" }]);
     expect(fs.existsSync(path.join(isolatedCwd!, ".data"))).toBe(false);
   });
@@ -85,6 +85,29 @@ describe("adjudicator stores on VERCEL=1 with no .data — safe defaults", () =>
     process.env.VERCEL = "1";
     isolatedCwd = makeIsolatedCwd();
     process.chdir(isolatedCwd);
+    // Phase 7.8b-2-d (2026-04-26): canonical-store / adjudicator-cache module
+    // init now reads through the tenant-aware json-store router, which requires
+    // `.data/tenants.json` to exist for tenant resolution. Seed a minimal
+    // registry; the original "no .data created" contract continues to hold for
+    // the per-tenant subdirs checked in the assertions below.
+    fs.mkdirSync(path.join(isolatedCwd, ".data"), { recursive: true });
+    fs.writeFileSync(
+      path.join(isolatedCwd, ".data", "tenants.json"),
+      JSON.stringify(
+        [
+          {
+            id: "tenant-ritz-founder",
+            slug: "ritz-builders",
+            business_name: "Ritz Builders",
+            role: "founder",
+            created_at: "2026-04-25T00:00:00.000Z",
+            updated_at: "2026-04-25T00:00:00.000Z",
+          },
+        ],
+        null,
+        2,
+      ),
+    );
     vi.resetModules();
   });
 
@@ -102,24 +125,25 @@ describe("adjudicator stores on VERCEL=1 with no .data — safe defaults", () =>
     isolatedCwd = null;
   });
 
-  it("readCacheEntry returns null for missing hash, no .data created", async () => {
+  it("readCacheEntry returns null for missing hash, no per-tenant subdir created", async () => {
     const { readCacheEntry } = await import(
       "@/domains/recommendations/adjudicator-cache"
     );
     expect(await readCacheEntry("no-such-hash")).toBeNull();
-    expect(fs.existsSync(path.join(isolatedCwd!, ".data"))).toBe(false);
+    // Per-tenant subdir is the failure mode this test exists to catch on Vercel.
+    expect(fs.existsSync(path.join(isolatedCwd!, ".data", "tenants", "ritz-builders"))).toBe(false);
   });
 
-  it("checkBudget returns allowed=true at empty state, no .data created", async () => {
+  it("checkBudget returns allowed=true at empty state, no per-tenant subdir created", async () => {
     const { checkBudget } = await import(
       "@/domains/recommendations/adjudicator-budget"
     );
     const r = await checkBudget();
     expect(r.allowed).toBe(true);
-    expect(fs.existsSync(path.join(isolatedCwd!, ".data"))).toBe(false);
+    expect(fs.existsSync(path.join(isolatedCwd!, ".data", "tenants", "ritz-builders"))).toBe(false);
   });
 
-  it("appendHistory + writeCacheEntry + recordSpend all no-throw, no .data created", async () => {
+  it("appendHistory + writeCacheEntry + recordSpend all no-throw, no per-tenant subdir created", async () => {
     const { appendHistory } = await import(
       "@/domains/recommendations/adjudicator-history"
     );
@@ -187,6 +211,6 @@ describe("adjudicator stores on VERCEL=1 with no .data — safe defaults", () =>
 
     await expect(recordSpend(0.001)).resolves.toBeUndefined();
 
-    expect(fs.existsSync(path.join(isolatedCwd!, ".data"))).toBe(false);
+    expect(fs.existsSync(path.join(isolatedCwd!, ".data", "tenants", "ritz-builders"))).toBe(false);
   });
 });

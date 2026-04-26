@@ -92,7 +92,7 @@ export async function regenerateScanFindings(opts: {
   const citLookup = buildCitationLookup(citationIndex);
   const { siteDomain } = getSiteConfig();
   const homepageUrl = `https://${siteDomain}/`;
-  const previouslyRejectedTypes = getPreviouslyRejectedTypeKeys();
+  const previouslyRejectedTypes = await getPreviouslyRejectedTypeKeys();
 
   // G9: refresh robots.txt state before emitting findings. Degrades gracefully —
   // if the fetch fails or no rules exist, we just pass a null so the robots
@@ -322,7 +322,7 @@ export async function runWebsiteScan(opts: {
     try {
       const { materializeTriageRules } = await import("@/domains/learning/triage-rules");
       const { getFindings: getAllFindings } = await import("./findings-store");
-      await materializeTriageRules(getAllFindings());
+      await materializeTriageRules(await getAllFindings());
       log.info("Scan step", { runId, step: "triage_rules_done" });
     } catch (e) {
       log.warn("Triage rule learning failed", {

@@ -422,22 +422,22 @@ export async function persistChangeOutcomes(outcomes: StoredChangeOutcome[]): Pr
   await writeStore(STORE_NAME, outcomes);
 }
 
-export function loadAllChangeOutcomes(): StoredChangeOutcome[] {
-  return readStore<StoredChangeOutcome>(STORE_NAME);
+export async function loadAllChangeOutcomes(): Promise<StoredChangeOutcome[]> {
+  return await readStore<StoredChangeOutcome>(STORE_NAME);
 }
 
-export function loadChangeOutcomeById(sourceId: string): StoredChangeOutcome | null {
-  const all = loadAllChangeOutcomes();
+export async function loadChangeOutcomeById(sourceId: string): Promise<StoredChangeOutcome | null> {
+  const all = await loadAllChangeOutcomes();
   return all.find((o) => o.source_id === sourceId) ?? null;
 }
 
-export function loadSparklineWindowById(sourceId: string): SparklineData | null {
-  const o = loadChangeOutcomeById(sourceId);
+export async function loadSparklineWindowById(sourceId: string): Promise<SparklineData | null> {
+  const o = await loadChangeOutcomeById(sourceId);
   return o?.sparklines ?? null;
 }
 
-export function loadOutcomeSummaryIndex(): OutcomeSummaryIndex {
-  return buildOutcomeSummaryIndex(loadAllChangeOutcomes());
+export async function loadOutcomeSummaryIndex(): Promise<OutcomeSummaryIndex> {
+  return buildOutcomeSummaryIndex(await loadAllChangeOutcomes());
 }
 
 // ---------------------------------------------------------------------------

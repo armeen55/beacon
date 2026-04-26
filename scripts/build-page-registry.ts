@@ -21,9 +21,9 @@ import { getSiteConfig } from "../src/lib/site-config";
 async function main() {
   console.log("=== Building Page Registry ===\n");
 
-  const changes = readStore<ChangelogEntry>("imported-changes");
-  const entities = readStore<TrackedEntity>("tracked-entities");
-  const promptAnswers = readStore<PromptAnswerObservation>("prompt-answer-observations");
+  const changes = await readStore<ChangelogEntry>("imported-changes");
+  const entities = await readStore<TrackedEntity>("tracked-entities");
+  const promptAnswers = await readStore<PromptAnswerObservation>("prompt-answer-observations");
 
   console.log(`Loaded: ${changes.length} changes, ${entities.length} entities, ${promptAnswers.length} prompt answers`);
 

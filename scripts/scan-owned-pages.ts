@@ -361,7 +361,7 @@ async function main() {
 
   // ── Step 2: Load registry ──
   console.log(`[scan] step=load_pages_registry`);
-  const allPages = readStore<PageEntity>("pages");
+  const allPages = await readStore<PageEntity>("pages");
   const ownedPages = allPages.filter((p) => p.is_owned);
   console.log(`[scan] step=registry_loaded total=${allPages.length} owned=${ownedPages.length}`);
   console.log(`Registry owned pages: ${ownedPages.length}`);

@@ -43,7 +43,7 @@ function emptyState(now: Date = new Date()): AdjudicatorBudgetState {
 }
 
 async function readState(now: Date): Promise<AdjudicatorBudgetState> {
-  const rows = readStore<AdjudicatorBudgetState>(STORE_NAME);
+  const rows = await readStore<AdjudicatorBudgetState>(STORE_NAME);
   const existing = rows[0];
   if (!existing) return emptyState(now);
   const month = currentMonthKey(now);

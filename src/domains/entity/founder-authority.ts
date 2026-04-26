@@ -26,7 +26,7 @@ function getConfiguredFounders(): string[] {
 /**
  * Assess founder presence from AI answer mention data.
  */
-export function assessFounderAuthority(): FounderAuthorityResult {
+export async function assessFounderAuthority(): Promise<FounderAuthorityResult> {
   const configuredNames = getConfiguredFounders();
 
   if (configuredNames.length === 0) {
@@ -38,7 +38,7 @@ export function assessFounderAuthority(): FounderAuthorityResult {
     };
   }
 
-  const paoStore = readStore<{
+  const paoStore = await readStore<{
     id: string;
     mentions: string[];
   }>("prompt-answer-observations");

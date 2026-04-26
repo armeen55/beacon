@@ -86,7 +86,7 @@ function generateWhy(scored: ScoredMove, evidence: PopulationEvidence | null): s
 // Pattern lookup for a gap
 // ---------------------------------------------------------------------------
 
-function lookupPatternEvidence(scored: ScoredMove): PopulationEvidence | null {
+async function lookupPatternEvidence(scored: ScoredMove): Promise<PopulationEvidence | null> {
   const key: PatternKey = {
     segment: "local_residential_builder",
     change_type: scored.gap.fix_change_type,
@@ -94,7 +94,7 @@ function lookupPatternEvidence(scored: ScoredMove): PopulationEvidence | null {
     context_bin: "zero::established",
   };
 
-  const result = queryPattern(key);
+  const result = await queryPattern(key);
   if (!result) return null;
 
   return result.evidence;
@@ -123,51 +123,53 @@ export type AssembledMoves = {
  *   4. Generate paste-ready payloads for each selected move
  *   5. Assemble into Move objects ready for CX3's UI
  */
-export function assembleMoves(opts: {
+export async function assembleMoves(opts: {
   tenant: BeaconTenant;
   snapshots: PageSnapshot[];
   pages: PageEntity[];
   citationCounts: Map<string, number>;
   moveCount?: number;
-}): AssembledMoves {
+}): Promise<AssembledMoves> {
   const { tenant, snapshots, pages, citationCounts, moveCount = 3 } = opts;
 
   // 1. Detect gaps
   const gaps = detectGaps({ snapshots, pages, citationCounts });
 
   // 2. Score
-  const scored = scoreAllGaps(gaps, citationCounts);
+  const scored = await scoreAllGaps(gaps, citationCounts);
 
   // 3. Select top N with diversity
   const topScored = selectTopMoves(scored, moveCount);
 
   // 4-5. Generate payloads + assemble Moves
-  const moves: Move[] = topScored.map((sm, idx) => {
-    const evidence = lookupPatternEvidence(sm);
-    const payload = generatePayload({ gap: sm.gap, tenant });
-    const ticket = formatAsTicket({
-      gap: sm.gap,
-      payload,
-      populationNarrative: evidence?.narrative ?? null,
-      format: "markdown",
-    });
+  const moves: Move[] = await Promise.all(
+    topScored.map(async (sm, idx) => {
+      const evidence = await lookupPatternEvidence(sm);
+      const payload = generatePayload({ gap: sm.gap, tenant });
+      const ticket = formatAsTicket({
+        gap: sm.gap,
+        payload,
+        populationNarrative: evidence?.narrative ?? null,
+        format: "markdown",
+      });
 
-    return {
-      id: `move-${tenant.id}-${idx + 1}-${sm.gap.type}`,
-      headline: generateHeadline(sm),
-      why: generateWhy(sm, evidence),
-      target: sm.gap.page_url,
-      action_class: sm.gap.fix_change_type,
-      platform: sm.gap.primary_platform,
-      priority: sm.priority,
-      population_evidence: evidence,
-      guided_payload: {
-        ...payload,
-        dev_ticket_markdown: ticket,
-      },
-      tenant_id: tenant.id,
-    };
-  });
+      return {
+        id: `move-${tenant.id}-${idx + 1}-${sm.gap.type}`,
+        headline: generateHeadline(sm),
+        why: generateWhy(sm, evidence),
+        target: sm.gap.page_url,
+        action_class: sm.gap.fix_change_type,
+        platform: sm.gap.primary_platform,
+        priority: sm.priority,
+        population_evidence: evidence,
+        guided_payload: {
+          ...payload,
+          dev_ticket_markdown: ticket,
+        },
+        tenant_id: tenant.id,
+      };
+    }),
+  );
 
   return {
     moves,

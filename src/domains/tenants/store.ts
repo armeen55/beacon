@@ -17,23 +17,25 @@ const STORE_NAME = "tenants";
 // Read
 // ---------------------------------------------------------------------------
 
-export function listTenants(): BeaconTenant[] {
-  return readStore<BeaconTenant>(STORE_NAME);
+export async function listTenants(): Promise<BeaconTenant[]> {
+  return await readStore<BeaconTenant>(STORE_NAME);
 }
 
-export function getTenant(id: string): BeaconTenant | null {
-  return listTenants().find((t) => t.id === id) ?? null;
+export async function getTenant(id: string): Promise<BeaconTenant | null> {
+  return (await listTenants()).find((t) => t.id === id) ?? null;
 }
 
-export function getTenantBySlug(slug: string): BeaconTenant | null {
-  return listTenants().find((t) => t.slug === slug) ?? null;
+export async function getTenantBySlug(
+  slug: string,
+): Promise<BeaconTenant | null> {
+  return (await listTenants()).find((t) => t.slug === slug) ?? null;
 }
 
-export function getTenantOrThrow(id: string): BeaconTenant {
-  const tenant = getTenant(id);
+export async function getTenantOrThrow(id: string): Promise<BeaconTenant> {
+  const tenant = await getTenant(id);
   if (!tenant) {
     throw new Error(
-      `Unknown tenant: ${id}. Available: ${listTenants().map((t) => t.id).join(", ") || "(none)"}`,
+      `Unknown tenant: ${id}. Available: ${(await listTenants()).map((t) => t.id).join(", ") || "(none)"}`,
     );
   }
   return tenant;
@@ -53,7 +55,7 @@ export async function createTenant(
     updated_at: now,
   };
 
-  const all = listTenants();
+  const all = await listTenants();
   const existing = all.findIndex((t) => t.id === tenant.id);
   if (existing >= 0) {
     all[existing] = tenant;
@@ -69,7 +71,7 @@ export async function updateTenant(
   id: string,
   patch: Partial<Omit<BeaconTenant, "id" | "slug" | "created_at">>,
 ): Promise<BeaconTenant> {
-  const all = listTenants();
+  const all = await listTenants();
   const idx = all.findIndex((t) => t.id === id);
   if (idx < 0) throw new Error(`Tenant not found: ${id}`);
 

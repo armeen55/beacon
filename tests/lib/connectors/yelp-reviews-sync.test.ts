@@ -52,12 +52,19 @@ const fusionReview = {
 // leak past `writeStore("import-runs", [])`; force-unlink the file first
 // so the empty-write actually clears it.
 function forceClearImportRunsFile(): void {
-  const path = join(process.cwd(), ".data", "import-runs.json");
-  if (existsSync(path)) {
-    try {
-      unlinkSync(path);
-    } catch {
-      // Best-effort.
+  const candidates = [
+    join(process.cwd(), ".data", "import-runs.json"),
+    // Phase 7.8b-2-d (2026-04-26): tenant-aware json-store routing — see
+    // google-reviews-sync.test.ts for the same dual-clear rationale.
+    join(process.cwd(), ".data", "tenants", "ritz-builders", "import-runs.json"),
+  ];
+  for (const path of candidates) {
+    if (existsSync(path)) {
+      try {
+        unlinkSync(path);
+      } catch {
+        // Best-effort.
+      }
     }
   }
 }
@@ -103,7 +110,7 @@ describe("runYelpReviewsSync", () => {
     expect(result.rejected).toBe(0);
     expect(result.partial).toBe(false);
 
-    const rows = readLocalReviews();
+    const rows = await readLocalReviews();
     expect(rows).toHaveLength(1);
     expect(rows[0]!.id).toBe("yelp:yr-1");
     expect(rows[0]!.source).toBe("yelp");
@@ -112,7 +119,7 @@ describe("runYelpReviewsSync", () => {
 
     expect(getYelpConnectorToken()?.last_synced_at).toBeTruthy();
 
-    const runs = readStore<ImportRun>("import-runs", []);
+    const runs = await readStore<ImportRun>("import-runs", []);
     const yelpRun = runs.find((r) => r.source_system === "connector:yelp");
     expect(yelpRun).toBeDefined();
     expect(yelpRun!.imported_count).toBe(1);
@@ -138,7 +145,7 @@ describe("runYelpReviewsSync", () => {
 
     const result = await runYelpReviewsSync();
     expect(result.ok).toBe(true);
-    const rows = readLocalReviews();
+    const rows = await readLocalReviews();
     expect(rows).toHaveLength(1);
     expect(rows[0]!.rating).toBe(5);
   });
@@ -163,7 +170,7 @@ describe("runYelpReviewsSync", () => {
 
     const result = await runYelpReviewsSync();
     expect(result.ok).toBe(true);
-    const rows = readLocalReviews();
+    const rows = await readLocalReviews();
     expect(rows).toHaveLength(2);
     expect(rows.map((r) => r.id).sort()).toEqual(["google:g1", "yelp:yr-1"]);
   });
@@ -189,7 +196,7 @@ describe("runYelpReviewsSync", () => {
     if (!result.ok) return;
     expect(result.imported).toBe(1);
     expect(result.rejected).toBe(1);
-    expect(readLocalReviews()).toHaveLength(1);
+    expect(await readLocalReviews()).toHaveLength(1);
   });
 
   it("returns partial with warnings when business details fail but reviews succeed", async () => {
@@ -211,7 +218,7 @@ describe("runYelpReviewsSync", () => {
     if (!result.ok) return;
     expect(result.partial).toBe(true);
     expect(result.warnings.length).toBeGreaterThan(0);
-    const rows = readLocalReviews();
+    const rows = await readLocalReviews();
     expect(rows).toHaveLength(1);
     expect(rows[0]!.listing_name).toBeUndefined();
     expect(getYelpConnectorToken()?.last_synced_at).toBeTruthy();

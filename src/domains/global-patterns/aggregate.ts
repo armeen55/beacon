@@ -194,7 +194,7 @@ export async function aggregateTenantOutcomes(
     return { patternsUpdated: 0, samplesAdded: 0 };
   }
 
-  const existingPatterns = listGlobalPatterns();
+  const existingPatterns = await listGlobalPatterns();
   const patternsById = new Map(existingPatterns.map((p) => [p.id, p]));
 
   // Track dedup keys already in each pattern

@@ -19,7 +19,7 @@ export async function appendConnectorReviewsImportRun(opts: {
   errors: string[];
 }): Promise<void> {
   const tenantId = await currentTenantId();
-  const runs = readStore<ImportRun>("import-runs", []);
+  const runs = await readStore<ImportRun>("import-runs", []);
   const id = generateId(opts.idPrefix);
   const ts = now();
   runs.push({

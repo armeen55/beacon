@@ -13,7 +13,7 @@ import type { AnswerSnapshot } from "./types";
 const STORE_NAME = "answer-snapshots";
 
 export const answerSnapshots: AnswerSnapshot[] =
-  readStore<AnswerSnapshot>(STORE_NAME);
+  await readStore<AnswerSnapshot>(STORE_NAME);
 
 export async function persistAnswerSnapshots(): Promise<void> {
   await writeStore(STORE_NAME, answerSnapshots);

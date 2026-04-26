@@ -31,12 +31,12 @@ function migrateOldFinding(f: Finding): Finding {
   };
 }
 
-export function getFindings(): Finding[] {
-  return readStore<Finding>(STORE_NAME).map(migrateOldFinding);
+export async function getFindings(): Promise<Finding[]> {
+  return (await readStore<Finding>(STORE_NAME)).map(migrateOldFinding);
 }
 
-export function getPendingFindings(): Finding[] {
-  return getFindings()
+export async function getPendingFindings(): Promise<Finding[]> {
+  return (await getFindings())
     .filter((f) => f.status === "pending")
     .sort((a, b) => {
       const po = (FINDING_PRIORITY_ORDER[a.priority] ?? 3) - (FINDING_PRIORITY_ORDER[b.priority] ?? 3);
@@ -45,21 +45,21 @@ export function getPendingFindings(): Finding[] {
     });
 }
 
-export function getResolvedFindingsCount(): number {
-  return getFindings().filter((f) => f.status !== "pending").length;
+export async function getResolvedFindingsCount(): Promise<number> {
+  return (await getFindings()).filter((f) => f.status !== "pending").length;
 }
 
-export function getFindingsForUrl(url: string): Finding[] {
+export async function getFindingsForUrl(url: string): Promise<Finding[]> {
   const key = normUrl(url);
-  return getFindings().filter((f) => normUrl(f.url) === key);
+  return (await getFindings()).filter((f) => normUrl(f.url) === key);
 }
 
-export function getPendingFindingsForUrl(url: string): Finding[] {
-  return getFindingsForUrl(url).filter((f) => f.status === "pending");
+export async function getPendingFindingsForUrl(url: string): Promise<Finding[]> {
+  return (await getFindingsForUrl(url)).filter((f) => f.status === "pending");
 }
 
-export function getPreviouslyRejectedTypeKeys(): Set<string> {
-  const findings = getFindings();
+export async function getPreviouslyRejectedTypeKeys(): Promise<Set<string>> {
+  const findings = await getFindings();
   const keys = new Set<string>();
   for (const f of findings) {
     if (f.status === "rejected") {
@@ -69,13 +69,13 @@ export function getPreviouslyRejectedTypeKeys(): Set<string> {
   return keys;
 }
 
-export function getAcceptedFindings(): Finding[] {
-  return getFindings().filter((f) => f.status === "accepted");
+export async function getAcceptedFindings(): Promise<Finding[]> {
+  return (await getFindings()).filter((f) => f.status === "accepted");
 }
 
-export function getSuppressedTypeKeys(): Set<string> {
+export async function getSuppressedTypeKeys(): Promise<Set<string>> {
   const now = Date.now();
-  const findings = getFindings();
+  const findings = await getFindings();
   const keys = new Set<string>();
   for (const f of findings) {
     if (f.status === "expected" && f.suppressUntil) {
@@ -90,9 +90,9 @@ export function getSuppressedTypeKeys(): Set<string> {
 export async function addFindings(newFindings: Finding[]): Promise<void> {
   // Phase 7.7b Commit 3 (2026-04-25): server-context tenant resolution.
   const tenantId = await currentTenantId();
-  const existing = getFindings();
+  const existing = await getFindings();
   const existingIds = new Set(existing.map((f) => f.id));
-  const suppressed = getSuppressedTypeKeys();
+  const suppressed = await getSuppressedTypeKeys();
 
   for (const f of newFindings) {
     if (existingIds.has(f.id)) continue;
@@ -211,7 +211,7 @@ export async function enrichFindingsWithSignalQuality(opts: {
   citationIndex: CitationEvidenceIndex | null;
   snapshots: DailyMetricSnapshot[];
 }): Promise<void> {
-  const findings = getFindings();
+  const findings = await getFindings();
   if (findings.length === 0) return;
   // Phase 7.7b Commit 3 (2026-04-25): server-context tenant resolution.
   const tenantId = await currentTenantId();
