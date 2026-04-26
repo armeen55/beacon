@@ -20,13 +20,15 @@
 import { join } from "node:path";
 import { existsSync, mkdirSync } from "node:fs";
 
-const ROOT_DATA_DIR = join(process.cwd(), ".data");
-const TENANTS_DIR = join(ROOT_DATA_DIR, "tenants");
+// Phase 7.8b-1 (2026-04-25): computed at call time so tests can
+// `process.chdir()` and have path resolution follow.
+const rootDataDir = (): string => join(process.cwd(), ".data");
+const tenantsDir = (): string => join(rootDataDir(), "tenants");
 
 export function getDataDir(tenantSlug?: string | null): string {
-  if (!tenantSlug) return ROOT_DATA_DIR;
+  if (!tenantSlug) return rootDataDir();
 
-  const dir = join(TENANTS_DIR, tenantSlug);
+  const dir = join(tenantsDir(), tenantSlug);
   // Vercel FS read-only; skip mkdir (callers must handle missing dir).
   if (process.env.VERCEL !== "1" && !existsSync(dir)) {
     mkdirSync(dir, { recursive: true });
@@ -35,7 +37,7 @@ export function getDataDir(tenantSlug?: string | null): string {
 }
 
 export function createTenant(slug: string): string {
-  const dir = join(TENANTS_DIR, slug);
+  const dir = join(tenantsDir(), slug);
   if (process.env.VERCEL !== "1" && !existsSync(dir)) {
     mkdirSync(dir, { recursive: true });
   }
@@ -43,9 +45,10 @@ export function createTenant(slug: string): string {
 }
 
 export function listTenants(): string[] {
-  if (!existsSync(TENANTS_DIR)) return [];
+  const td = tenantsDir();
+  if (!existsSync(td)) return [];
   const { readdirSync } = require("fs");
-  return (readdirSync(TENANTS_DIR, { withFileTypes: true }) as { name: string; isDirectory: () => boolean }[])
+  return (readdirSync(td, { withFileTypes: true }) as { name: string; isDirectory: () => boolean }[])
     .filter((d) => d.isDirectory())
     .map((d) => d.name);
 }

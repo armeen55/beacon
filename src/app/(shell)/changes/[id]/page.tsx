@@ -141,7 +141,7 @@ export default async function ChangeDetailPage({
   const row = allRows.find((r) => r.change.id === id);
   if (!row) notFound();
 
-  const lastCrawlDetail = latestWebsiteCrawlRun();
+  const lastCrawlDetail = await latestWebsiteCrawlRun();
   const changeCrawlAgeDays = lastCrawlDetail?.completed_at
     ? Math.floor(
         (Date.now() - new Date(lastCrawlDetail.completed_at).getTime()) / 86_400_000,

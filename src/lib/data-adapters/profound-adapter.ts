@@ -28,7 +28,7 @@ import { getPageSnapshots } from "@/domains/pages/snapshot-store";
 // only, we accept an empty page array here as a documented partial fix.
 // Multi-tenant geo coverage in the Profound pipeline degrades to empty
 // until a follow-up commit wires `await getOwnedPages()` through.
-import type { PageEntity } from "@/domains/pages/types";
+import type { PageEntity, PageSnapshot } from "@/domains/pages/types";
 const allPages: PageEntity[] = [];
 import { getSiteConfig } from "@/lib/site-config";
 import { PLATFORM_LABELS, type Platform } from "@/lib/constants";
@@ -106,7 +106,14 @@ export function createProfoundAdapters(): BeaconDataAdapters {
   let _entityIndex: ReturnType<typeof extractEntities> | null = null;
   let _entitySnapSig = "";
   function getEntityIdx() {
-    const snaps = getPageSnapshots();
+    // Phase 7.8b-1 (2026-04-25): profound-adapter is the legacy
+    // Profound import pipeline (phased out 2026-04-22 per native-poll
+    // cutover). Sprint 7 Phase 7.5c/3 already replaced `allPages` with
+    // an empty-array fallback for the same reason. Now `getPageSnapshots`
+    // is async and this synchronous adapter can't await; keep an
+    // empty-fallback to compile cleanly without cascading async into
+    // a phased-out caller. Production routes don't invoke getAdapters().
+    const snaps: PageSnapshot[] = [];
     const sig = `${snaps.length}:${snaps[0]?.content_hash ?? ""}`;
     if (_entityIndex && sig === _entitySnapSig) return _entityIndex;
     _entitySnapSig = sig;
@@ -119,10 +126,10 @@ export function createProfoundAdapters(): BeaconDataAdapters {
     return _discReport ??= detectDiscrepancies(getEntityIdx());
   }
 
-  const universe = loadCompetitorUniverseRuntime();
-  const universeDomains = new Set(
-    universe.entries.filter((e) => e.status === "active").map((e) => e.domain.replace(/^www\./, "").toLowerCase()),
-  );
+  // Phase 7.8b-1 (2026-04-25): same phased-out-adapter rationale as
+  // `getEntityIdx` above. `loadCompetitorUniverseRuntime` is async; the
+  // sync adapter gets an empty universe rather than cascading async.
+  const universeDomains: Set<string> = new Set();
 
   let _coMention: ReturnType<typeof computeCoMentionMatrix> | null = null;
   function getCoMention() {
@@ -240,10 +247,9 @@ export function createProfoundAdapters(): BeaconDataAdapters {
     getSourceTrustIndex() { return getTrust(); },
     getBattlecards() {
       if (!citIndex) return null;
+      // Phase 7.8b-1 (2026-04-25): empty universe per the
+      // adapter-level stub above; phased-out path.
       const compNames = new Map<string, string>();
-      for (const e of universe.entries.filter((e) => e.status === "active")) {
-        compNames.set(e.domain.replace(/^www\./, "").toLowerCase(), e.display_name);
-      }
       for (const c of competitors) {
         const d = c.domain.replace(/^www\./, "").toLowerCase();
         if (!compNames.has(d)) compNames.set(d, c.name);
@@ -282,11 +288,14 @@ export function createProfoundAdapters(): BeaconDataAdapters {
   const snippet: SnippetAdapter = {
     getSnippetIntelligence() {
       if (!citIndex) return null;
-      const extractResults = analyzeAllExtractability(getPageSnapshots(), getCitMap());
+      // Phase 7.8b-1 (2026-04-25): same empty-snapshots stub as
+      // `getEntityIdx`; phased-out adapter path.
+      const emptySnaps: PageSnapshot[] = [];
+      const extractResults = analyzeAllExtractability(emptySnaps, getCitMap());
       return computeSnippetIntelligence({
         ownedExtractability: extractResults,
         citationIndex: citIndex,
-        snapshots: getPageSnapshots(),
+        snapshots: emptySnaps,
         ownedDomain: siteDomain,
       });
     },

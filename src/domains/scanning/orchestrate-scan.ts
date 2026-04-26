@@ -82,11 +82,11 @@ export async function regenerateScanFindings(opts: {
   scanRunId: string;
 }): Promise<number> {
   const freshSnapshots =
-    readDotDataJson<PageSnapshot[]>("page-snapshots") ?? [];
+    (await readDotDataJson<PageSnapshot[]>("page-snapshots")) ?? [];
   const freshGuardrails =
-    readDotDataJson<GuardrailAlert[]>("page-guardrails") ?? [];
+    (await readDotDataJson<GuardrailAlert[]>("page-guardrails")) ?? [];
 
-  const citationIndex = readDotDataJson<CitationEvidenceIndex>(
+  const citationIndex = await readDotDataJson<CitationEvidenceIndex>(
     "citation-evidence-index",
   );
   const citLookup = buildCitationLookup(citationIndex);
@@ -196,8 +196,8 @@ export async function runWebsiteScan(opts: {
     log.info("Recovered stale scan state", { runId });
   }
 
-  const previousSnapshots = [...getPageSnapshots()];
-  const previousGuardrails = [...getGuardrailAlerts()];
+  const previousSnapshots = [...(await getPageSnapshots())];
+  const previousGuardrails = [...(await getGuardrailAlerts())];
 
   log.info("Scan started", {
     runId,
@@ -260,7 +260,7 @@ export async function runWebsiteScan(opts: {
 
   log.info("Scan step", { runId, step: "read_last_scan_result" });
 
-  const payload = readLastScanResult();
+  const payload = await readLastScanResult();
   if (!payload) {
     const durationMs = Date.now() - startedAt;
     log.error("Scan failed", {
@@ -307,7 +307,7 @@ export async function runWebsiteScan(opts: {
       const { readDotDataJson: readDotData } = await import("@/lib/persistence/dotdata-json");
       const { dailyMetricSnapshots: dms } = await import("@/storage/canonical-store");
       await enrichFindingsWithSignalQuality({
-        citationIndex: readDotData<import("@/domains/pages/types").CitationEvidenceIndex>("citation-evidence-index"),
+        citationIndex: await readDotData<import("@/domains/pages/types").CitationEvidenceIndex>("citation-evidence-index"),
         snapshots: dms,
       });
       log.info("Scan step", { runId, step: "findings_enrichment_done" });
@@ -333,15 +333,15 @@ export async function runWebsiteScan(opts: {
 
     // Dual-write scan outputs to Supabase (best-effort, errors logged)
     const syncSnaps =
-      readDotDataJson<PageSnapshot[]>("page-snapshots") ?? [];
+      (await readDotDataJson<PageSnapshot[]>("page-snapshots")) ?? [];
     const syncGuards =
-      readDotDataJson<GuardrailAlert[]>("page-guardrails") ?? [];
+      (await readDotDataJson<GuardrailAlert[]>("page-guardrails")) ?? [];
     await syncPageSnapshots(syncSnaps, tenantId);
     await syncGuardrailAlerts(syncGuards, tenantId);
     const syncRuns =
-      readDotDataJson<import("@/domains/observations/types").ObservationRun[]>(
+      (await readDotDataJson<import("@/domains/observations/types").ObservationRun[]>(
         "observation-runs",
-      ) ?? [];
+      )) ?? [];
     if (syncRuns.length > 0) {
       await syncObservationRuns(syncRuns, tenantId);
     }
@@ -353,9 +353,9 @@ export async function runWebsiteScan(opts: {
     let inventoryRowCount = 0;
     try {
       const syncInventory =
-        readDotDataJson<PageElementInventoryRow[]>(
+        (await readDotDataJson<PageElementInventoryRow[]>(
           "page-element-inventory",
-        ) ?? [];
+        )) ?? [];
       if (syncInventory.length > 0) {
         await syncPageElementInventory(syncInventory, tenantId);
         inventoryRowCount = syncInventory.length;

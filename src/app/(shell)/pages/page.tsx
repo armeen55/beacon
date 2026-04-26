@@ -139,7 +139,7 @@ export default async function PagesPage() {
   const repo = getRepository().forTenant(await currentTenantId());
   const pageSnapshots = await repo.getPageSnapshots();
   const guardrailAlerts = await repo.getGuardrailAlerts();
-  const pageDiffs = getPageSnapshotDiffs();
+  const pageDiffs = await getPageSnapshotDiffs();
 
   const snapshotByPageId = new Map<string, PageSnapshot>();
   const snapshotByUrl = new Map<string, PageSnapshot>();
@@ -162,7 +162,7 @@ export default async function PagesPage() {
   }
 
   // ── Load guardrails + scan runs ──
-  const latestObs = latestWebsiteCrawlRun();
+  const latestObs = await latestWebsiteCrawlRun();
 
   const alertsByUrl = new Map<string, GuardrailAlert[]>();
   for (const a of guardrailAlerts) {
@@ -172,7 +172,7 @@ export default async function PagesPage() {
   }
 
   // ── Load render checks ──
-  const renderChecks = getRenderCheckResults();
+  const renderChecks = await getRenderCheckResults();
 
   const renderByUrl = new Map<string, RenderCheckResult>();
   for (const r of renderChecks) {
@@ -196,7 +196,7 @@ export default async function PagesPage() {
   }
 
   // ── Load sitemap reconciliation ──
-  const sitemapRecon: SitemapReconciliation | null = getSitemapReconciliation();
+  const sitemapRecon: SitemapReconciliation | null = await getSitemapReconciliation();
 
   const canonicalUrls = sitemapRecon
     ? new Set(sitemapRecon.canonical_pages.map((c) => c.url.replace(/\/+$/, "").toLowerCase()))

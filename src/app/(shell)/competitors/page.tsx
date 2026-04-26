@@ -81,7 +81,7 @@ export default async function CompetitorsPage() {
     );
   }
 
-  const universe = loadCompetitorUniverseRuntime();
+  const universe = await loadCompetitorUniverseRuntime();
   const activeUniverse = universe.entries.filter((e) => e.status === "active");
   const citIndex = citationEvidenceIndex;
 
@@ -144,7 +144,7 @@ export default async function CompetitorsPage() {
   const topGeoGap = geoCoverage.gaps[0] ?? null;
   const localMarketSurface = computeLocalOperatorSurface({
     business: getBusinessConfig(),
-    importRow: loadLocalOperatorImport(),
+    importRow: await loadLocalOperatorImport(),
     geoGap: topGeoGap
       ? {
           city: topGeoGap.city,
@@ -159,7 +159,7 @@ export default async function CompetitorsPage() {
   const aheadCount =
     benchmark?.topCompetitors.filter((c) => c.mentions > benchmark.ownedAIMentions).length ?? 0;
 
-  const lastCrawl = latestWebsiteCrawlRun();
+  const lastCrawl = await latestWebsiteCrawlRun();
   const marketCrawlAgeDays = lastCrawl?.completed_at
     ? Math.floor(
         (Date.now() - new Date(lastCrawl.completed_at).getTime()) / 86_400_000,

@@ -192,7 +192,7 @@ export default async function ChangeScorecardPage() {
   const allTopics = [...new Set(rows.flatMap((r) => r.topics))].sort();
   const allPlatforms = [...new Set(rows.flatMap((r) => r.platforms))].sort();
 
-  const lastCrawl = latestWebsiteCrawlRun();
+  const lastCrawl = await latestWebsiteCrawlRun();
   const crawlAgeDays = lastCrawl?.completed_at
     ? Math.floor(
         (Date.now() - new Date(lastCrawl.completed_at).getTime()) / 86_400_000,

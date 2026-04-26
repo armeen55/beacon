@@ -18,10 +18,10 @@ beforeEach(() => {
 });
 
 describe("getCompetitorMonitoringState", () => {
-  it("returns empty state when no file exists", () => {
-    (readDotDataJson as ReturnType<typeof vi.fn>).mockReturnValue(null);
+  it("returns empty state when no file exists", async () => {
+    (readDotDataJson as ReturnType<typeof vi.fn>).mockResolvedValue(null);
 
-    const state = getCompetitorMonitoringState();
+    const state = await getCompetitorMonitoringState();
 
     expect(state).toEqual({
       lastCrawlAt: null,
@@ -30,7 +30,7 @@ describe("getCompetitorMonitoringState", () => {
     });
   });
 
-  it("returns stored state when file exists", () => {
+  it("returns stored state when file exists", async () => {
     const stored: CompetitorMonitoringState = {
       lastCrawlAt: "2024-03-15T10:00:00Z",
       snapshots: [
@@ -45,22 +45,22 @@ describe("getCompetitorMonitoringState", () => {
       ],
       recentChanges: [],
     };
-    (readDotDataJson as ReturnType<typeof vi.fn>).mockReturnValue(stored);
+    (readDotDataJson as ReturnType<typeof vi.fn>).mockResolvedValue(stored);
 
-    const state = getCompetitorMonitoringState();
+    const state = await getCompetitorMonitoringState();
     expect(state).toEqual(stored);
   });
 });
 
 describe("saveCompetitorMonitoringState", () => {
-  it("writes state to store", () => {
+  it("writes state to store", async () => {
     const state: CompetitorMonitoringState = {
       lastCrawlAt: "2024-03-15T10:00:00Z",
       snapshots: [],
       recentChanges: [],
     };
 
-    saveCompetitorMonitoringState(state);
+    await saveCompetitorMonitoringState(state);
 
     expect(writeDotDataJson).toHaveBeenCalledWith("competitor-monitoring", state);
   });

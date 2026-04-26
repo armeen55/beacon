@@ -57,14 +57,14 @@ export type TodaySummary = {
 /**
  * Build Today with explicit crawl vs visibility observation scopes.
  */
-export function buildTodaySummary(opts: {
+export async function buildTodaySummary(opts: {
   verifiedFixes: TodayVerifiedFix[];
   nextMoveCandidates: (TodayNextMove | null)[];
   competitorLine?: string | null;
   /** Row-majority visibility run from Sample history (same identity as Data / `/settings/history` header). */
   primaryVisibilityRun: VisibilityObservationRun | null;
-}): TodaySummary {
-  const crawls = listWebsiteCrawlRuns();
+}): Promise<TodaySummary> {
+  const crawls = await listWebsiteCrawlRuns();
   const lastCrawl = crawls[0] ?? null;
   const priorCrawl = crawls[1] ?? null;
 

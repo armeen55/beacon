@@ -14,12 +14,12 @@ export default async function ObservationRunPage({
 }) {
   const { id: rawId } = await params;
   const id = decodeURIComponent(rawId);
-  const resolved = resolveObservationById(id);
+  const resolved = await resolveObservationById(id);
   if (!resolved) notFound();
 
   if (resolved.kind === "visibility") {
     const v = resolved.run;
-    const currentU = loadCompetitorUniverseRuntime();
+    const currentU = await loadCompetitorUniverseRuntime();
     return (
       <div className="max-w-2xl space-y-5">
         <div>
@@ -129,7 +129,7 @@ export default async function ObservationRunPage({
 
   const run = resolved.run;
   const isVerify = run.run_type === "website_verify";
-  const currentU = loadCompetitorUniverseRuntime();
+  const currentU = await loadCompetitorUniverseRuntime();
   const webUni = websiteRunUniverseSummaryLine(run);
 
   return (

@@ -7,8 +7,8 @@ export type ResolvedObservation =
   | { kind: "website"; run: ObservationRun }
   | { kind: "visibility"; run: VisibilityObservationRun };
 
-export function resolveObservationById(id: string): ResolvedObservation | null {
-  const website = getObservationRun(id);
+export async function resolveObservationById(id: string): Promise<ResolvedObservation | null> {
+  const website = await getObservationRun(id);
   if (website) return { kind: "website", run: website };
   const visibility = getVisibilityObservationRun(id);
   if (visibility) return { kind: "visibility", run: visibility };

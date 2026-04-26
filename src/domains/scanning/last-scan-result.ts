@@ -42,8 +42,8 @@ export function writeLastScanResultFile(payload: LastScanResultPayload): void {
   renameSync(tmp, path);
 }
 
-export function readLastScanResult(): LastScanResultPayload | null {
-  const raw = readDotDataJson<LastScanResultPayload>(LAST_SCAN_RESULT_BASENAME);
+export async function readLastScanResult(): Promise<LastScanResultPayload | null> {
+  const raw = await readDotDataJson<LastScanResultPayload>(LAST_SCAN_RESULT_BASENAME);
   if (!raw || raw.schemaVersion !== 1) return null;
   return raw;
 }

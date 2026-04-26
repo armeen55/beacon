@@ -34,7 +34,7 @@ export default async function SpikeForensicsPage() {
   // Load upstream primitives once for all events.
   const outcomes = readStore<ChangeOutcome>("change-outcomes");
   const patterns = readStore<ChangePattern>("change-patterns");
-  const observationRuns = listWebsiteCrawlRuns();
+  const observationRuns = await listWebsiteCrawlRuns();
 
   // Detect events across all three metrics via the new engine.
   const spikes = detectVisibilityEvents({ snapshots: dailyMetricSnapshots });

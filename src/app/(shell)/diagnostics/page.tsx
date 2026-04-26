@@ -246,7 +246,7 @@ export default async function DiagnosticsPage() {
   );
   const localDiagSurface = computeLocalOperatorSurface({
     business: getBusinessConfig(),
-    importRow: loadLocalOperatorImport(),
+    importRow: await loadLocalOperatorImport(),
     geoGap: geoLocal.gaps[0]
       ? {
           city: geoLocal.gaps[0].city,

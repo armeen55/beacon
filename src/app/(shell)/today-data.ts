@@ -412,7 +412,7 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
 
   // Overdue signal for client-side scan trigger (Phase 1A-5); scan never runs during this render.
   const scanSettings = getScanSettings();
-  const lastCrawlRun = latestWebsiteCrawlRun();
+  const lastCrawlRun = await latestWebsiteCrawlRun();
   const scanOverdue = isScanOverdue(lastCrawlRun?.completed_at ?? null, scanSettings);
 
   const repo = getRepository().forTenant(tenantId);
@@ -598,7 +598,7 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
       a.severity === "regression"
   );
 
-  const activeCrawl = latestWebsiteCrawlRun();
+  const activeCrawl = await latestWebsiteCrawlRun();
   const activeCrawlId = activeCrawl?.run_id ?? null;
 
   const citationIndex2 = citationEvidenceIndex as {
@@ -790,7 +790,7 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
   ).length;
   const localOperatorSurface = computeLocalOperatorSurface({
     business: getBusinessConfig(),
-    importRow: loadLocalOperatorImport(),
+    importRow: await loadLocalOperatorImport(),
     geoGap: topLocalGap
       ? {
           city: topLocalGap.city,
@@ -985,7 +985,7 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
   // lives entirely in url-change-outcomes (URL-level Z-score engine).
 
   // ── Competitor monitoring alerts (Phase 5) ──
-  const competitorMonState = getCompetitorMonitoringState();
+  const competitorMonState = await getCompetitorMonitoringState();
   const competitorAlerts = generateCompetitorAlerts(competitorMonState.recentChanges);
 
   // queryIndex already built above — used in both rec engine and morning brief.
@@ -1408,7 +1408,7 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
 
   const citIdx = citationEvidenceIndex;
   const primaryVis = primaryVisibilityRunForResults(results);
-  const competitorUniverse = loadCompetitorUniverseRuntime();
+  const competitorUniverse = await loadCompetitorUniverseRuntime();
   const competitorLine = buildTodayCompetitorLine({
     universe: competitorUniverse,
     citationIndex: citIdx,
@@ -1542,7 +1542,7 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
 
   nextCandidates.push(null);
 
-  const summary = buildTodaySummary({
+  const summary = await buildTodaySummary({
     verifiedFixes,
     nextMoveCandidates: nextCandidates,
     competitorLine,
@@ -1563,11 +1563,11 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
   const crawlRunId = lastCrawlForProof?.run_id ?? null;
   const visibilityRunId = primaryVis?.run_id ?? null;
   const crawlHrefResolved =
-    crawlRunId && getObservationRun(crawlRunId)
+    crawlRunId && (await getObservationRun(crawlRunId))
       ? summary.crawl.activeObservationHref
       : null;
   const visibilityHrefResolved =
-    visibilityRunId && getObservationRun(visibilityRunId)
+    visibilityRunId && (await getObservationRun(visibilityRunId))
       ? summary.visibility.activeObservationHref
       : null;
 
@@ -1592,7 +1592,7 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
   };
 
   const observationRunIds = new Set(
-    listObservationRuns().map((r) => r.run_id),
+    (await listObservationRuns()).map((r) => r.run_id),
   );
   const serializedPendingFindings = pendingFindings.map((f) =>
     serializeFindingForToday(f, observationRunIds),

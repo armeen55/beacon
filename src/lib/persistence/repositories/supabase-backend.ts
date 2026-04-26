@@ -236,18 +236,18 @@ export const supabaseBackend: SeedDataRepository = {
 
   // Supplementary dotdata — no tables yet; read same files as file mode
   getPageSnapshotDiffs: async () =>
-    readDotDataJson<PageSnapshotDiff[]>("page-snapshot-diffs") ?? [],
+    (await readDotDataJson<PageSnapshotDiff[]>("page-snapshot-diffs")) ?? [],
 
   getRenderChecks: async () =>
-    readDotDataJson<RenderCheckResult[]>("render-checks") ?? [],
+    (await readDotDataJson<RenderCheckResult[]>("render-checks")) ?? [],
 
   getSitemapReconciliation: async () =>
-    readDotDataJson<SitemapReconciliation>("sitemap-reconciliation"),
+    await readDotDataJson<SitemapReconciliation>("sitemap-reconciliation"),
 
   getVisibilityObservationRunsExplicit: async () =>
-    readDotDataJson<VisibilityObservationRun[]>(
+    (await readDotDataJson<VisibilityObservationRun[]>(
       "visibility-observation-runs",
-    ) ?? [],
+    )) ?? [],
 
   getRolloutExecutions: async () =>
     readStore<RolloutExecution>("rollout-executions"),

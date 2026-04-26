@@ -321,14 +321,14 @@ export default async function TopicsPage() {
   const totalEasyCalls = topicRows.reduce((s, t) => s + t.easyCalls, 0);
   const ownedBrandShort = getSiteConfig().ownedBrandShort;
 
-  const latestCrawlRun = latestWebsiteCrawlRun();
+  const latestCrawlRun = await latestWebsiteCrawlRun();
   const primaryVisForGap = primaryVisibilityRunForResults(results);
   const citationLedgerForGap = citationEvidenceIndex;
   const { stale: visibilityStaleVsCrawl } = visibilitySampleStaleVsCrawl(
     citationRollupVisibilityRun(),
     latestCrawlRun?.completed_at ?? null
   );
-  const competitorRuntimeForGap = loadCompetitorUniverseRuntime();
+  const competitorRuntimeForGap = await loadCompetitorUniverseRuntime();
   const cuLedger = competitorUniverseForGapLedger(competitorRuntimeForGap);
   const gapLedgerContext = {
     websiteCrawlRunId: latestCrawlRun?.run_id ?? null,
@@ -513,8 +513,8 @@ export default async function TopicsPage() {
         "use server";
         // INTENTIONAL EXCEPTION: fresh disk read — avoids stale module-cached snapshots/citation index.
         const { readDotDataJson: rd } = await import("@/lib/persistence/dotdata-json");
-        const ci2 = rd<CitationEvidenceIndex>("citation-evidence-index");
-        const snaps2 = rd<PageSnapshot[]>("page-snapshots") ?? [];
+        const ci2 = await rd<CitationEvidenceIndex>("citation-evidence-index");
+        const snaps2 = (await rd<PageSnapshot[]>("page-snapshots")) ?? [];
         if (!ci2) return { success: false, handoffText: "" };
         const citMap2 = new Map<string, number>();
         for (const r of ci2.by_page_and_topic) { if (r.is_owned) citMap2.set(r.page_url.replace(/\/+$/, "").toLowerCase(), (citMap2.get(r.page_url.replace(/\/+$/, "").toLowerCase()) ?? 0) + r.total_citations); }

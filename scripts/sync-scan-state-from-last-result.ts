@@ -7,10 +7,14 @@
 import { readLastScanResult } from "@/domains/scanning/last-scan-result";
 import { writeIdleScanStateFromLastResult } from "@/domains/scanning/scan-state";
 
-const p = readLastScanResult();
-if (!p) {
-  console.error("No .data/last-scan-result.json");
-  process.exit(1);
+async function main() {
+  const p = await readLastScanResult();
+  if (!p) {
+    console.error("No .data/last-scan-result.json");
+    process.exit(1);
+  }
+  writeIdleScanStateFromLastResult("today", p);
+  console.log("OK", p.exit, "pagesScanned=", p.pagesScanned);
 }
-writeIdleScanStateFromLastResult("today", p);
-console.log("OK", p.exit, "pagesScanned=", p.pagesScanned);
+
+main();

@@ -13,12 +13,12 @@ const EMPTY_STATE: CompetitorMonitoringState = {
   recentChanges: [],
 };
 
-export function getCompetitorMonitoringState(): CompetitorMonitoringState {
-  return readDotDataJson<CompetitorMonitoringState>(STORE_FILE) ?? EMPTY_STATE;
+export async function getCompetitorMonitoringState(): Promise<CompetitorMonitoringState> {
+  return (await readDotDataJson<CompetitorMonitoringState>(STORE_FILE)) ?? EMPTY_STATE;
 }
 
-export function saveCompetitorMonitoringState(
+export async function saveCompetitorMonitoringState(
   state: CompetitorMonitoringState,
-): void {
-  writeDotDataJson(STORE_FILE, state);
+): Promise<void> {
+  await writeDotDataJson(STORE_FILE, state);
 }

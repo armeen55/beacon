@@ -18,8 +18,8 @@ function daysSince(iso: string | null | undefined): number | null {
   return Math.floor((Date.now() - t) / 86_400_000);
 }
 
-export function loadLocalOperatorImport(): LocalOperatorImport | null {
-  return readDotDataJson<LocalOperatorImport>(IMPORT_FILE);
+export async function loadLocalOperatorImport(): Promise<LocalOperatorImport | null> {
+  return await readDotDataJson<LocalOperatorImport>(IMPORT_FILE);
 }
 
 export type ComputeLocalSurfaceContext = {

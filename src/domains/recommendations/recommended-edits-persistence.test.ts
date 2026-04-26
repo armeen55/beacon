@@ -706,9 +706,9 @@ describe("Phase 6A.1.11 — persistRecommendedEditsLocal", () => {
     expect(dotDataMocks.write).not.toHaveBeenCalled();
   });
 
-  it("readRecommendedEditsLocal returns [] when the file is missing", () => {
-    dotDataMocks.read.mockReturnValueOnce(null);
-    expect(readRecommendedEditsLocal()).toEqual([]);
+  it("readRecommendedEditsLocal returns [] when the file is missing", async () => {
+    dotDataMocks.read.mockResolvedValueOnce(null);
+    expect(await readRecommendedEditsLocal()).toEqual([]);
   });
 });
 

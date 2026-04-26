@@ -13,8 +13,8 @@ function scopeFromOrigin(o: CompetitorUniverseOrigin): ObservationCompetitorUniv
 }
 
 /** Snapshot current workspace universe for pinning a new run (crawl, verify, import). */
-export function universeFieldsForObservationPersistence(): ObservationCompetitorUniverseFields {
-  const rt = loadCompetitorUniverseRuntime();
+export async function universeFieldsForObservationPersistence(): Promise<ObservationCompetitorUniverseFields> {
+  const rt = await loadCompetitorUniverseRuntime();
   return {
     competitor_universe_version: rt.pin.universe_version,
     competitor_universe_fingerprint: rt.pin.universe_fingerprint,

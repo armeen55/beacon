@@ -270,8 +270,8 @@ export async function confirmFindingAsChange(
     const matchesUrl = (s: { url: string }) =>
       s.url.replace(/^https?:\/\/[^/]+/, "").replace(/\/+$/, "").toLowerCase() ===
       normTarget;
-    const cur = getPageSnapshots().find(matchesUrl) ?? null;
-    const prev = getPreviousPageSnapshots().find(matchesUrl) ?? null;
+    const cur = (await getPageSnapshots()).find(matchesUrl) ?? null;
+    const prev = (await getPreviousPageSnapshots()).find(matchesUrl) ?? null;
     if (cur) {
       const derived = deriveSchemaChangelogFields({
         currentSnapshot: cur,

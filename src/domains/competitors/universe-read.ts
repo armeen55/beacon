@@ -52,7 +52,7 @@ function buildRuntime(
  * In supabase mode, entries come from `competitor_config` table; pin is
  * reconstructed (the DB doesn't store version/fingerprint metadata).
  */
-export function loadCompetitorUniverseRuntime(): CompetitorUniverseRuntime {
+export async function loadCompetitorUniverseRuntime(): Promise<CompetitorUniverseRuntime> {
   if (IS_SUPABASE && _dbConfigEntries.length > 0) {
     const fp = computeCompetitorUniverseFingerprint(_dbConfigEntries);
     return buildRuntime("configured_file", _dbConfigEntries, {
@@ -64,7 +64,7 @@ export function loadCompetitorUniverseRuntime(): CompetitorUniverseRuntime {
   }
 
   if (!IS_SUPABASE) {
-    const raw = readDotDataJson<CompetitorUniverseFile>("competitor-universe");
+    const raw = await readDotDataJson<CompetitorUniverseFile>("competitor-universe");
     const parsed = parseUniverseFile(raw);
     if (parsed) {
       return buildRuntime("configured_file", parsed.entries, parsed.pin);

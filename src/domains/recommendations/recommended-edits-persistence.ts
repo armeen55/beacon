@@ -146,8 +146,8 @@ export function mapSpecificEditToRow(
 const STORE = "recommended-edits";
 
 /** Read all current rows from `.data/recommended-edits.json`. */
-export function readRecommendedEditsLocal(): RecommendedEditRow[] {
-  return readDotDataJson<RecommendedEditRow[]>(STORE) ?? [];
+export async function readRecommendedEditsLocal(): Promise<RecommendedEditRow[]> {
+  return (await readDotDataJson<RecommendedEditRow[]>(STORE)) ?? [];
 }
 
 /**
@@ -157,15 +157,15 @@ export function readRecommendedEditsLocal(): RecommendedEditRow[] {
  * `writeDotDataJson` no-ops there; the dual-write keeps the canonical
  * source up to date in Supabase.
  */
-export function persistRecommendedEditsLocal(
+export async function persistRecommendedEditsLocal(
   incoming: RecommendedEditRow[],
-): void {
+): Promise<void> {
   if (incoming.length === 0) return;
-  const existing = readRecommendedEditsLocal();
+  const existing = await readRecommendedEditsLocal();
   const byId = new Map<string, RecommendedEditRow>();
   for (const row of existing) byId.set(row.id, row);
   for (const row of incoming) byId.set(row.id, row);
-  writeDotDataJson(STORE, [...byId.values()]);
+  await writeDotDataJson(STORE, [...byId.values()]);
 }
 
 // ---------------------------------------------------------------------------
@@ -294,7 +294,7 @@ export async function runProviderAndPersist(
     acceptedRows.length > 0
   ) {
     try {
-      persistRecommendedEditsLocal(acceptedRows);
+      await persistRecommendedEditsLocal(acceptedRows);
       await syncRecommendedEdits(acceptedRows, ctxTenantId);
       persisted = true;
     } catch (err) {

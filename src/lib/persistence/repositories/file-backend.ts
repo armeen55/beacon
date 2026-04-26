@@ -82,39 +82,39 @@ export const fileBackend: SeedDataRepository = {
   getPages: async () => readStore<PageEntity>("pages"),
 
   getPageSnapshots: async () =>
-    readDotDataJson<PageSnapshot[]>("page-snapshots") ?? [],
+    (await readDotDataJson<PageSnapshot[]>("page-snapshots")) ?? [],
 
   getGuardrailAlerts: async () =>
-    readDotDataJson<GuardrailAlert[]>("page-guardrails") ?? [],
+    (await readDotDataJson<GuardrailAlert[]>("page-guardrails")) ?? [],
 
   getCitationEvidenceIndex: async () =>
-    readDotDataJson<CitationEvidenceIndex>("citation-evidence-index"),
+    await readDotDataJson<CitationEvidenceIndex>("citation-evidence-index"),
 
   getAnswerIntelligenceIndex: async () =>
-    readDotDataJson<AnswerIntelligenceIndex>("answer-intelligence-index"),
+    await readDotDataJson<AnswerIntelligenceIndex>("answer-intelligence-index"),
 
-  getObservationRuns: async () => readObservationRunsMergedSync(),
+  getObservationRuns: async () => await readObservationRunsMergedSync(),
 
   getCompetitorConfigEntries: async () => {
-    const raw = readDotDataJson<{ competitors?: ConfiguredCompetitorEntry[] }>(
+    const raw = await readDotDataJson<{ competitors?: ConfiguredCompetitorEntry[] }>(
       "competitor-universe",
     );
     return raw?.competitors?.filter(Boolean) ?? [];
   },
 
   getPageSnapshotDiffs: async () =>
-    readDotDataJson<PageSnapshotDiff[]>("page-snapshot-diffs") ?? [],
+    (await readDotDataJson<PageSnapshotDiff[]>("page-snapshot-diffs")) ?? [],
 
   getRenderChecks: async () =>
-    readDotDataJson<RenderCheckResult[]>("render-checks") ?? [],
+    (await readDotDataJson<RenderCheckResult[]>("render-checks")) ?? [],
 
   getSitemapReconciliation: async () =>
-    readDotDataJson<SitemapReconciliation>("sitemap-reconciliation"),
+    await readDotDataJson<SitemapReconciliation>("sitemap-reconciliation"),
 
   getVisibilityObservationRunsExplicit: async () =>
-    readDotDataJson<VisibilityObservationRun[]>(
+    (await readDotDataJson<VisibilityObservationRun[]>(
       "visibility-observation-runs",
-    ) ?? [],
+    )) ?? [],
 
   getRolloutExecutions: async () =>
     readStore<RolloutExecution>("rollout-executions"),
@@ -156,13 +156,13 @@ export const fileBackend: SeedDataRepository = {
   // `runProviderAndPersist`. Local-mode reads through readDotDataJson;
   // empty array when missing.
   getRecommendedEdits: async () =>
-    readDotDataJson<RecommendedEditRow[]>("recommended-edits") ?? [],
+    (await readDotDataJson<RecommendedEditRow[]>("recommended-edits")) ?? [],
 
   // Sprint 6A.1 Phase 14 — page_element_inventory read path.
   // .data/page-element-inventory.json is written by scan-owned-pages CLI;
   // local-mode reads through readDotDataJson. Empty when no scan has run.
   getPageElementInventory: async () =>
-    readDotDataJson<PageElementInventoryRow[]>("page-element-inventory") ?? [],
+    (await readDotDataJson<PageElementInventoryRow[]>("page-element-inventory")) ?? [],
 
   // Phase 3.5E — hero-surface data (local mode reads same files canonical-store
   // reads at module init; arrays are already hot in memory, so these re-reads

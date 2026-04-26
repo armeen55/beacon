@@ -22,7 +22,7 @@ import { computeMarketBenchmark } from "@/domains/pages/builder-benchmark";
 import { citationEvidenceIndex } from "@/domains/pages/citation-evidence-store";
 import type { PersistedIssue } from "@/domains/pages/issues";
 
-export default function ResultsPage() {
+export default async function ResultsPage() {
   const driverMap = buildAttributionDriverMap(
     results,
     changelogEntries,
@@ -35,13 +35,13 @@ export default function ResultsPage() {
     drivers[k] = v;
   }
 
-  const crawl = latestWebsiteCrawlRun();
+  const crawl = await latestWebsiteCrawlRun();
   const primaryVisibility = primaryVisibilityRunForResults(results);
   const rollupForStale = citationRollupVisibilityRun();
   const { stale: visibilityStaleVsCrawl, note: staleNote } =
     visibilitySampleStaleVsCrawl(rollupForStale, crawl?.completed_at ?? null);
 
-  const universeRuntime = loadCompetitorUniverseRuntime();
+  const universeRuntime = await loadCompetitorUniverseRuntime();
   const citIdx = citationEvidenceIndex;
   const competitorUniverseSummary =
     citIdx && citIdx.by_topic?.length

@@ -83,7 +83,7 @@ export default async function OpportunityDetailPage({
   const compBasis = opportunityCompetitorBasis(
     opp,
     competitors,
-    loadCompetitorUniverseRuntime()
+    await loadCompetitorUniverseRuntime()
   );
 
   return (
