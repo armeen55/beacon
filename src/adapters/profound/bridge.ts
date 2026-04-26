@@ -273,6 +273,16 @@ export async function writeLegacyBridge(opts: {
   sourceSystem: string;
   totalCanonicalRows: number;
 }): Promise<{ resultCount: number; changeCount: number }> {
+  // Phase 7.7b Commit 2 (2026-04-25): CLI-context tenantId resolution.
+  // No silent fallback — Profound bridge runs from CLI scripts that must
+  // export BEACON_TENANT_ID per Phase 7.5d.
+  const tenantId = process.env.BEACON_TENANT_ID;
+  if (!tenantId) {
+    throw new Error(
+      "[profound/bridge] writeLegacyBridge requires BEACON_TENANT_ID env var (CLI context)",
+    );
+  }
+
   const results = canonicalSnapshotsToResults(opts.snapshots, opts.importBatchId);
   await writeStore("imported-results", results);
 
@@ -303,11 +313,11 @@ export async function writeLegacyBridge(opts: {
   importRuns.push(importRun);
   await writeStore("import-runs", importRuns);
 
-  await syncResults(results);
+  await syncResults(results, tenantId);
   if (changes.length > 0) {
-    await syncChangelogEntries(changes);
+    await syncChangelogEntries(changes, tenantId);
   }
-  await syncImportRuns(importRuns);
+  await syncImportRuns(importRuns, tenantId);
 
   return { resultCount: results.length, changeCount: changes.length };
 }

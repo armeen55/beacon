@@ -187,8 +187,9 @@ export async function confirmFindingAsChange(
   // cache that's empty on Vercel cold start, so every Confirm click on
   // hosted silently failed here before even reaching updateFindingStatus.
   // Sprint 7 Phase 7.5b Commit 5 (2026-04-25) — tenant-bound read.
+  const tenantId = await currentTenantId();
   const repoFindings = await getRepository()
-    .forTenant(await currentTenantId())
+    .forTenant(tenantId)
     .getScanFindings();
   const finding = repoFindings.find((f) => f.id === findingId);
   if (!finding) {
@@ -283,7 +284,7 @@ export async function confirmFindingAsChange(
   // 3. Persist: add to in-memory array + write to disk + Supabase
   changelogEntries.push(entry);
   await writeStore("imported-changes", changelogEntries);
-  await syncChangelogEntries([entry]);
+  await syncChangelogEntries([entry], tenantId);
 
   // 4. Link the finding to the new changelog entry
   await updateFindingStatus(findingId, "accepted", {

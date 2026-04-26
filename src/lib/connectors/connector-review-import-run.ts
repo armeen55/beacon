@@ -8,6 +8,7 @@ import { generateId, now } from "@/lib/actions";
 import type { ImportRun } from "@/lib/import/types";
 import { readStore, writeStore } from "@/lib/persistence/json-store";
 import { syncImportRuns } from "@/lib/persistence/dual-write";
+import { currentTenantId } from "@/lib/tenant-context";
 
 export async function appendConnectorReviewsImportRun(opts: {
   source_system: "connector:google" | "connector:yelp";
@@ -17,6 +18,7 @@ export async function appendConnectorReviewsImportRun(opts: {
   warnings: string[];
   errors: string[];
 }): Promise<void> {
+  const tenantId = await currentTenantId();
   const runs = readStore<ImportRun>("import-runs", []);
   const id = generateId(opts.idPrefix);
   const ts = now();
@@ -35,5 +37,5 @@ export async function appendConnectorReviewsImportRun(opts: {
     tenant_id: "",
   });
   await writeStore("import-runs", runs);
-  await syncImportRuns(runs);
+  await syncImportRuns(runs, tenantId);
 }

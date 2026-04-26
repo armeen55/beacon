@@ -293,19 +293,24 @@ import type { UrlChangeOutcome } from "@/domains/attribution/url-change-outcome"
 
 type AnyRow = Record<string, unknown>;
 
-export async function syncImportRuns(runs: ImportRun[]): Promise<void> {
-  // Phase 3.5G-fix (2026-04-22): legacy `.data/import-runs.json` rows pre-date
-  // the `tenant_id` field on ImportRun. When a new row is pushed onto the
-  // heterogeneous array and upserted, Supabase-js serializes missing keys as
-  // `null`, which PostgREST applies as UPDATE SET tenant_id=null → violates
-  // the NOT NULL column added by `import_runs_add_tenant_id`. Normalize
-  // defensively so every row in the payload has a valid tenant_id.
-  const rows = runs.map((r) => ({ ...r, tenant_id: r.tenant_id ?? "" }));
+export async function syncImportRuns(
+  runs: ImportRun[],
+  tenantId: string,
+): Promise<void> {
+  // Phase 7.7b Commit 2 (2026-04-25): tenantizeRows replaces the prior
+  // `r.tenant_id ?? ""` defensive map. Any pre-stamped row with a non-
+  // empty mismatched tenant_id now fails loud instead of silently
+  // upserting under the wrong tenant.
+  const rows = tenantizeRows(runs, tenantId, "import_runs");
   await dualWriteUpsert("import_runs", rows as unknown as AnyRow[], "id");
 }
 
-export async function syncResults(rows: Result[]): Promise<void> {
-  await dualWriteUpsert("results", rows as unknown as AnyRow[], "id");
+export async function syncResults(
+  rows: Result[],
+  tenantId: string,
+): Promise<void> {
+  const stamped = tenantizeRows(rows, tenantId, "results");
+  await dualWriteUpsert("results", stamped as unknown as AnyRow[], "id");
 }
 
 /**
@@ -320,8 +325,10 @@ function mapChangelogEntryToRow(entry: ChangelogEntry): AnyRow {
 
 export async function syncChangelogEntries(
   rows: ChangelogEntry[],
+  tenantId: string,
 ): Promise<void> {
-  const mapped = rows.map(mapChangelogEntryToRow);
+  const stamped = tenantizeRows(rows, tenantId, "changelog_entries");
+  const mapped = stamped.map(mapChangelogEntryToRow);
   await dualWriteUpsert("changelog_entries", mapped, "id");
 }
 
@@ -351,8 +358,12 @@ export async function syncCandidateLinks(
 
 // ── Entity sync (Phase 6) ──
 
-export async function syncPages(rows: PageEntity[]): Promise<void> {
-  await dualWriteUpsert("pages", rows as unknown as AnyRow[], "id");
+export async function syncPages(
+  rows: PageEntity[],
+  tenantId: string,
+): Promise<void> {
+  const stamped = tenantizeRows(rows, tenantId, "pages");
+  await dualWriteUpsert("pages", stamped as unknown as AnyRow[], "id");
 }
 
 export async function syncBusinessConfig(

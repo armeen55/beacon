@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { existsSync, unlinkSync } from "node:fs";
+import { join } from "node:path";
 import { readStore, writeStore } from "@/lib/persistence/json-store";
 import { readLocalReviews } from "@/lib/local-reviews-store";
 import type { LocalReview } from "@/lib/local-reviews-types";
@@ -45,12 +47,28 @@ const fusionReview = {
   user: { name: "Alex" },
 };
 
+// Phase 7.7b Commit 2 (2026-04-25): see google-reviews-sync.test.ts for
+// the rationale. json-store's anti-race guard lets cross-test pollution
+// leak past `writeStore("import-runs", [])`; force-unlink the file first
+// so the empty-write actually clears it.
+function forceClearImportRunsFile(): void {
+  const path = join(process.cwd(), ".data", "import-runs.json");
+  if (existsSync(path)) {
+    try {
+      unlinkSync(path);
+    } catch {
+      // Best-effort.
+    }
+  }
+}
+
 describe("runYelpReviewsSync", () => {
   beforeEach(async () => {
     yelpCfg.yelpBusinessId = "test-yelp-biz";
     vi.unstubAllGlobals();
     _deleteStoreFile();
     _resetCache();
+    forceClearImportRunsFile();
     await writeStore("local-reviews", []);
     await writeStore("import-runs", []);
   });
@@ -59,6 +77,7 @@ describe("runYelpReviewsSync", () => {
     vi.unstubAllGlobals();
     _deleteStoreFile();
     _resetCache();
+    forceClearImportRunsFile();
     await writeStore("local-reviews", []);
     await writeStore("import-runs", []);
   });

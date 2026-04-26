@@ -6,6 +6,7 @@ import { changelogEntries, briefs, opportunities } from "@/lib/seed-data.server"
 import { generateId, now } from "@/lib/actions";
 import { writeStore } from "@/lib/persistence/json-store";
 import { syncChangelogEntries } from "@/lib/persistence/dual-write";
+import { currentTenantId } from "@/lib/tenant-context";
 import type { ChangelogEntry, HypothesisSource } from "@/domains/changelog/types";
 import type { SignalType, AssetType } from "@/lib/constants";
 import { absoluteUrlForPath } from "@/lib/site-config";
@@ -79,7 +80,7 @@ export async function createChangelogEntry(
   // Persist to disk + Supabase (fixes data loss on restart)
   await writeStore("imported-changes", changelogEntries);
   try {
-    await syncChangelogEntries([entry]);
+    await syncChangelogEntries([entry], await currentTenantId());
   } catch (e) {
     console.error("[changelog] Supabase sync failed:", e);
   }
@@ -162,7 +163,7 @@ export async function softDeleteChangelogEntry(
 
   await writeStore("imported-changes", changelogEntries);
   try {
-    await syncChangelogEntries([entry]);
+    await syncChangelogEntries([entry], await currentTenantId());
   } catch (e) {
     console.error("[changelog] Supabase sync failed:", e);
   }
@@ -189,7 +190,7 @@ export async function restoreChangelogEntry(
 
   await writeStore("imported-changes", changelogEntries);
   try {
-    await syncChangelogEntries([entry]);
+    await syncChangelogEntries([entry], await currentTenantId());
   } catch (e) {
     console.error("[changelog] Supabase sync failed:", e);
   }
@@ -230,7 +231,7 @@ export async function markDedupeReviewedBulk(
 
   await writeStore("imported-changes", changelogEntries);
   try {
-    await syncChangelogEntries(touched);
+    await syncChangelogEntries(touched, await currentTenantId());
   } catch (e) {
     console.error("[changelog] Supabase sync failed:", e);
   }
@@ -264,7 +265,7 @@ export async function updateChangelogHypothesis(
 
   await writeStore("imported-changes", changelogEntries);
   try {
-    await syncChangelogEntries([entry]);
+    await syncChangelogEntries([entry], await currentTenantId());
   } catch (e) {
     console.error("[changelog] Supabase sync failed:", e);
   }

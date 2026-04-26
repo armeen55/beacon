@@ -34,6 +34,7 @@ import {
   syncCompetitors,
   clearAllImportTables,
 } from "@/lib/persistence/dual-write";
+import { currentTenantId } from "@/lib/tenant-context";
 import {
   runWebsiteScan,
   scanRoutesShouldRevalidate,
@@ -157,6 +158,7 @@ export async function executeImport(
   const batchId = generateId("imp");
   const t0 = Date.now();
   const startedAt = now();
+  const tenantId = await currentTenantId();
 
   log.info("Import started", { runId: batchId, source: "upload" });
 
@@ -310,10 +312,10 @@ export async function executeImport(
   };
   importRuns.push(run);
   await writeStore("import-runs", importRuns);
-  await syncImportRuns(importRuns);
+  await syncImportRuns(importRuns, tenantId);
   if (entityType !== "reviews") {
     await persistImportedEntities(entityType);
-    await dualWriteImportedEntities(entityType);
+    await dualWriteImportedEntities(entityType, tenantId);
     // Phase 4 (2026-04-19): outcome-backfill + experiment-citation-sync removed.
     await runMilestoneSync().catch(() => {});
   }
@@ -643,18 +645,24 @@ export async function postImportSetup(): Promise<{
   }
 }
 
-async function dualWriteImportedEntities(entityType: ImportEntityType) {
+async function dualWriteImportedEntities(
+  entityType: ImportEntityType,
+  tenantId: string,
+) {
   switch (entityType) {
     case "results":
-      await syncResults(results.filter(isImported));
+      await syncResults(results.filter(isImported), tenantId);
       break;
     case "changes":
-      await syncChangelogEntries(changelogEntries.filter(isImported));
+      await syncChangelogEntries(changelogEntries.filter(isImported), tenantId);
       break;
     case "opportunities":
+      // Phase 7.7b Commit 2 — `syncOpportunities` not yet converted (Tier
+      // classification pending; see plan §G). Stays unscoped for now.
       await syncOpportunities(opportunities.filter(isImported));
       break;
     case "competitors":
+      // Phase 7.7b Commit 2 — same as opportunities; unscoped pending audit.
       await syncCompetitors(competitors.filter(isImported));
       break;
     case "reviews":

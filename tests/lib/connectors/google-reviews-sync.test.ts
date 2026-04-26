@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { existsSync, unlinkSync } from "node:fs";
+import { join } from "node:path";
 import { readStore, writeStore } from "@/lib/persistence/json-store";
 import { readLocalReviews } from "@/lib/local-reviews-store";
 import type { LocalReview } from "@/lib/local-reviews-types";
@@ -46,6 +48,25 @@ const gbpReview = {
   reviewer: { displayName: "Pat" },
 };
 
+// Phase 7.7b Commit 2 (2026-04-25): json-store has an anti-race guard
+// that refuses to overwrite a non-empty `import-runs.json` with `[]`
+// (see src/lib/persistence/json-store.ts:105). Cross-test pollution
+// from other suites (e.g. local-presence.test.ts stamping `tenant-test`)
+// can therefore leak past the standard `writeStore([])` reset and trip
+// the new tenantizeRows validation in `syncImportRuns`. Force-delete the
+// file before each test so the guard's `existsSync` short-circuits and
+// the empty write succeeds.
+function forceClearImportRunsFile(): void {
+  const path = join(process.cwd(), ".data", "import-runs.json");
+  if (existsSync(path)) {
+    try {
+      unlinkSync(path);
+    } catch {
+      // Best-effort; the writeStore below will still attempt a clean overwrite.
+    }
+  }
+}
+
 describe("runGoogleReviewsSync", () => {
   beforeEach(async () => {
     vi.stubEnv("GOOGLE_CLIENT_ID", "test-client-id.apps.googleusercontent.com");
@@ -53,6 +74,7 @@ describe("runGoogleReviewsSync", () => {
     vi.unstubAllGlobals();
     _deleteStoreFile();
     _resetCache();
+    forceClearImportRunsFile();
     await writeStore("local-reviews", []);
     await writeStore("import-runs", []);
   });
@@ -62,6 +84,7 @@ describe("runGoogleReviewsSync", () => {
     vi.unstubAllGlobals();
     _deleteStoreFile();
     _resetCache();
+    forceClearImportRunsFile();
     await writeStore("local-reviews", []);
     await writeStore("import-runs", []);
   });

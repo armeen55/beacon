@@ -258,6 +258,7 @@ async function createChangelogEntriesForEdits(
   edits: ReadonlyArray<RecommendedEditRow>,
   shape: ReturnType<typeof mapRecToChangelogShape>,
   operatorTitle: string,
+  tenantId: string,
 ): Promise<string[]> {
   const tsp = now();
   const ids: string[] = [];
@@ -350,7 +351,7 @@ async function createChangelogEntriesForEdits(
   }
   await writeStore("imported-changes", changelogEntries);
   try {
-    await syncChangelogEntries(newEntries);
+    await syncChangelogEntries(newEntries, tenantId);
   } catch (e) {
     console.error(
       "[recommendations] per-edit changelog Supabase sync failed:",
@@ -394,10 +395,12 @@ export async function acceptRecommendation(
   // the fan-out must fire regardless of `shouldStampChangelog`'s
   // generic action-type gate. The gate still applies to the legacy
   // single-entry path below.
+  // Sprint 7 Phase 7.5b Commit 2 (2026-04-25) — tenant-bound read.
+  // Phase 7.7b Commit 2 (2026-04-25) — hoisted out of the try block so
+  // the per-edit fan-out below can thread it into syncChangelogEntries.
+  const tenantId = await currentTenantId();
   let editsForRec: RecommendedEditRow[] = [];
   try {
-    // Sprint 7 Phase 7.5b Commit 2 (2026-04-25) — tenant-bound read.
-    const tenantId = await currentTenantId();
     const allEdits = await getRepository().forTenant(tenantId).getRecommendedEdits();
     editsForRec = allEdits.filter((e) => e.rec_id === payload.stableKey);
   } catch (e) {
@@ -451,6 +454,7 @@ export async function acceptRecommendation(
         editsForRec,
         shape,
         operatorTitle,
+        tenantId,
       );
       changeId = changeIds[0];
       // Stamp hypothesis for each so /changes shows the rec-derived

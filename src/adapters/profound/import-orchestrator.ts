@@ -100,6 +100,16 @@ export type ProfoundImportResult = {
 export async function runProfoundImport(
   accountId: string
 ): Promise<ProfoundImportResult> {
+  // Phase 7.7b Commit 2 (2026-04-25): CLI-context tenantId resolution.
+  // Profound import orchestrator runs from a CLI script; require the env
+  // var explicitly per Phase 7.5d, no silent fallback.
+  const tenantId = process.env.BEACON_TENANT_ID;
+  if (!tenantId) {
+    throw new Error(
+      "[profound/import-orchestrator] runProfoundImport requires BEACON_TENANT_ID env var (CLI context)",
+    );
+  }
+
   const start = Date.now();
   const warnings: string[] = [];
   const errors: string[] = [];
@@ -331,7 +341,7 @@ export async function runProfoundImport(
     ownedDomain: siteDomain,
   });
   await writeStore("pages", pages);
-  await syncPages(pages);
+  await syncPages(pages, tenantId);
 
   const citationIndex = buildCitationEvidenceIndex({
     citations: allCitationsForIndex,

@@ -188,7 +188,8 @@ describe("Phase 6A.1.12 — accept action fan-out", () => {
     expect(ACTIONS_SOURCE).toMatch(
       /writeStore\(\s*["']imported-changes["']/,
     );
-    expect(ACTIONS_SOURCE).toMatch(/syncChangelogEntries\(newEntries\)/);
+    // Phase 7.7b Commit 2 (2026-04-25): syncChangelogEntries now requires tenantId.
+    expect(ACTIONS_SOURCE).toMatch(/syncChangelogEntries\(newEntries,\s*tenantId\)/);
   });
 
   it("returns changeIds (array) when fan-out fired; preserves changeId (string) for both paths", () => {
