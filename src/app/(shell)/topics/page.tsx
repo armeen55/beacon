@@ -11,7 +11,7 @@ import {
   type TrustSource,
 } from "@/domains/attribution/scorecard";
 import { detectOutcomeEvents, type OutcomeEvent } from "@/domains/attribution/events";
-import { discoverCandidates } from "@/domains/attribution/candidates";
+import { discoverCandidates, warmPageRegistry } from "@/domains/attribution/candidates";
 import { triageCandidates } from "@/domains/attribution/triage";
 import { partitionResultsByMode } from "@/domains/attribution/result-mode";
 import { TopicsClient, type TopicRow, type TopicEvent, type TopicChange } from "./topics-client";
@@ -58,6 +58,7 @@ export default async function TopicsPage() {
   // Sprint 7 Phase 7.5b Commit 5 (2026-04-25) — tenant-bound read.
   const repo = getRepository().forTenant(await currentTenantId());
   const topicSnapshots = await repo.getPageSnapshots();
+  await warmPageRegistry();
   const { attribution: attrResults } = partitionResultsByMode(results);
   const events = detectOutcomeEvents(attrResults);
   const rows = computeScorecard(

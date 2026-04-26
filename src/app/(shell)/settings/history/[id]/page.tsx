@@ -8,7 +8,7 @@ import { EntityLinkCard } from "@/components/data/entity-link-card";
 import { CandidateReview } from "@/components/data/candidate-review";
 import { results, changelogEntries, opportunities } from "@/lib/seed-data.server";
 import { getFullChainForResult } from "@/lib/lookups";
-import { discoverCandidates } from "@/domains/attribution/candidates";
+import { discoverCandidates, warmPageRegistry } from "@/domains/attribution/candidates";
 import { triageCandidates } from "@/domains/attribution/triage";
 import { partitionResultsByMode } from "@/domains/attribution/result-mode";
 import { detectOutcomeEvents } from "@/domains/attribution/events";
@@ -53,6 +53,7 @@ export default async function ResultDetailPage({
   const { id } = await params;
   const result = results.find((r) => r.id === id);
   if (!result) notFound();
+  await warmPageRegistry();
 
   const isInverted =
     result.metric_type === "visibility_rank" ||

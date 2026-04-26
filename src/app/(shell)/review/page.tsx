@@ -1,5 +1,5 @@
 import { results, changelogEntries, opportunities } from "@/lib/seed-data.server";
-import { discoverCandidates } from "@/domains/attribution/candidates";
+import { discoverCandidates, warmPageRegistry } from "@/domains/attribution/candidates";
 import { triageCandidates } from "@/domains/attribution/triage";
 import { partitionResultsByMode } from "@/domains/attribution/result-mode";
 import { detectOutcomeEvents } from "@/domains/attribution/events";
@@ -90,7 +90,8 @@ const DECISIONABILITY_ORDER: Record<Decisionability, number> = {
   ambiguous: 2,
 };
 
-export default function ReviewPage() {
+export default async function ReviewPage() {
+  await warmPageRegistry();
   const { attribution } = partitionResultsByMode(results);
   const events = detectOutcomeEvents(attribution);
   const resultMap = new Map(results.map((r) => [r.id, r]));
