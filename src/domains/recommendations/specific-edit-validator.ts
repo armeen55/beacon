@@ -158,6 +158,45 @@ const PROVIDER_NAMES: readonly SpecificEditProviderName[] = [
   "anthropic",
 ];
 
+// ---------------------------------------------------------------------------
+// Sprint 6A.2d (2026-04-26) — defense-in-depth length caps + LLM safety gates.
+//
+// The 6A.2b OpenAI provider schema already enforces these at the decoder
+// level via JSON-schema `maxLength`, but the validator runs on EVERY
+// edit (deterministic + LLM + operator_edited) and is the single
+// authoritative semantic check. Duplicating the caps here ensures:
+//   - operator_edited rows can't grow unbounded
+//   - a future provider that doesn't enforce JSON-schema lengths
+//     (e.g., a function-calling tool path) still gets rejected
+//   - test fixtures + CLI smokes can't sneak oversized rows past
+//     persistence
+// ---------------------------------------------------------------------------
+
+/** Operator scope from 6A.2 plan §4. */
+const MAX_PROPOSED_TEXT_LENGTH = 2_000;
+/** Captured page text — may be a long HTML excerpt; cap is generous
+ *  but bounded to prevent JSON ledger bloat. */
+const MAX_CURRENT_TEXT_LENGTH = 4_000;
+const MAX_WHY_LENGTH = 500;
+const MAX_EXPECTED_IMPACT_LENGTH = 200;
+const MAX_MEASUREMENT_PLAN_LENGTH = 300;
+const MAX_RISK_LENGTH = 200;
+/** displayLabel is short snapshot text; the schema already caps; this
+ *  enforces consistently across sources. */
+const MAX_DISPLAY_LABEL_LENGTH = 200;
+
+/**
+ * Sprint 6A.2d (2026-04-26) — gate that allows `confidence="low"` to
+ * pass validation for LLM-sourced edits. OFF by default. When unset,
+ * `low` from openai/anthropic rejects with a "low confidence requires
+ * env gate" reason; deterministic + operator_edited rows are NOT
+ * affected (operator_edited rows already passed once before the
+ * operator decided to act on them).
+ */
+function isLowConfidenceLLMGateOpen(): boolean {
+  return process.env.BEACON_LLM_LOW_CONF === "1";
+}
+
 export function validateSpecificEdit(
   edit: SpecificEdit,
   packet: SpecificEditEvidencePacket,
@@ -248,12 +287,19 @@ export function validateSpecificEdit(
       }
     }
 
-    // 3d. displayLabel required
+    // 3d. displayLabel required + capped (Sprint 6A.2d)
     if (typeof tel.displayLabel !== "string" || tel.displayLabel.length === 0) {
       return fail("targetElement.displayLabel", "displayLabel required");
     }
+    if (tel.displayLabel.length > MAX_DISPLAY_LABEL_LENGTH) {
+      return fail(
+        "targetElement.displayLabel",
+        `displayLabel exceeds ${MAX_DISPLAY_LABEL_LENGTH} chars (got ${tel.displayLabel.length})`,
+      );
+    }
 
-    // 3e. requiresCurrentText / requiresProposedText
+    // 3e. requiresCurrentText / requiresProposedText + length caps
+    // (Sprint 6A.2d defense-in-depth).
     if (spec.requiresCurrentText) {
       if (typeof tel.currentText !== "string" || tel.currentText.length === 0) {
         return fail(
@@ -273,6 +319,15 @@ export function validateSpecificEdit(
           "currentText must be string or null",
         );
       }
+    }
+    if (
+      typeof tel.currentText === "string" &&
+      tel.currentText.length > MAX_CURRENT_TEXT_LENGTH
+    ) {
+      return fail(
+        "targetElement.currentText",
+        `currentText exceeds ${MAX_CURRENT_TEXT_LENGTH} chars (got ${tel.currentText.length})`,
+      );
     }
     if (spec.requiresProposedText) {
       if (
@@ -295,11 +350,26 @@ export function validateSpecificEdit(
         );
       }
     }
+    if (
+      typeof tel.proposedText === "string" &&
+      tel.proposedText.length > MAX_PROPOSED_TEXT_LENGTH
+    ) {
+      return fail(
+        "targetElement.proposedText",
+        `proposedText exceeds ${MAX_PROPOSED_TEXT_LENGTH} chars (got ${tel.proposedText.length})`,
+      );
+    }
   }
 
   // ── 4. why ──────────────────────────────────────────────────────────
   if (typeof edit.why !== "string" || edit.why.length === 0) {
     return fail("why", "why required (non-empty string)");
+  }
+  if (edit.why.length > MAX_WHY_LENGTH) {
+    return fail(
+      "why",
+      `why exceeds ${MAX_WHY_LENGTH} chars (got ${edit.why.length})`,
+    );
   }
 
   // ── 5. evidence refs ────────────────────────────────────────────────
@@ -321,6 +391,23 @@ export function validateSpecificEdit(
     return fail("confidence", `invalid confidence "${edit.confidence}"`);
   }
 
+  // ── 6.5 LLM low-confidence gate (Sprint 6A.2d) ──────────────────────
+  // Reject `confidence="low"` from openai/anthropic unless the operator
+  // explicitly opens the env gate (`BEACON_LLM_LOW_CONF=1`). Deterministic
+  // and operator_edited rows are NOT affected — deterministic generators
+  // don't emit low-confidence by current design, and operator_edited
+  // rows already passed once before the operator chose to act.
+  if (
+    edit.confidence === "low" &&
+    (edit.source === "openai" || edit.source === "anthropic") &&
+    !isLowConfidenceLLMGateOpen()
+  ) {
+    return fail(
+      "confidence",
+      `LLM-sourced edit with confidence="low" rejected by default. Set BEACON_LLM_LOW_CONF=1 to allow.`,
+    );
+  }
+
   // ── 7. risks ────────────────────────────────────────────────────────
   if (!Array.isArray(edit.risks)) {
     return fail("risks", "risks must be an array");
@@ -329,9 +416,15 @@ export function validateSpecificEdit(
     if (typeof edit.risks[i] !== "string") {
       return fail(`risks[${i}]`, "risks entries must be strings");
     }
+    if (edit.risks[i].length > MAX_RISK_LENGTH) {
+      return fail(
+        `risks[${i}]`,
+        `risk entry exceeds ${MAX_RISK_LENGTH} chars (got ${edit.risks[i].length})`,
+      );
+    }
   }
 
-  // ── 8. expectedImpact / measurementPlan optionals ──────────────────
+  // ── 8. expectedImpact / measurementPlan optionals + length caps ────
   if (
     edit.expectedImpact !== null &&
     typeof edit.expectedImpact !== "string"
@@ -339,10 +432,28 @@ export function validateSpecificEdit(
     return fail("expectedImpact", "expectedImpact must be string or null");
   }
   if (
+    typeof edit.expectedImpact === "string" &&
+    edit.expectedImpact.length > MAX_EXPECTED_IMPACT_LENGTH
+  ) {
+    return fail(
+      "expectedImpact",
+      `expectedImpact exceeds ${MAX_EXPECTED_IMPACT_LENGTH} chars (got ${edit.expectedImpact.length})`,
+    );
+  }
+  if (
     edit.measurementPlan !== null &&
     typeof edit.measurementPlan !== "string"
   ) {
     return fail("measurementPlan", "measurementPlan must be string or null");
+  }
+  if (
+    typeof edit.measurementPlan === "string" &&
+    edit.measurementPlan.length > MAX_MEASUREMENT_PLAN_LENGTH
+  ) {
+    return fail(
+      "measurementPlan",
+      `measurementPlan exceeds ${MAX_MEASUREMENT_PLAN_LENGTH} chars (got ${edit.measurementPlan.length})`,
+    );
   }
 
   // ── 9. source / providerName / model / costUsd coherence ──────────
