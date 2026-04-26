@@ -61,15 +61,40 @@ export const currentTenant = cache(async (): Promise<BeaconTenant> => {
  * Returns the slug for the current tenant by resolving the ID through
  * the tenant store. Used by `.data/` pathing helpers (Phase 7.8 will
  * flip the default flat layout to per-tenant subdirs).
+ *
+ * Resolution order:
+ *   1. Tenant registry lookup (`.data/global/tenants.json`). Authoritative
+ *      when present — the registry is the only place slugs are persisted.
+ *   2. Env fallback `BEACON_TENANT_SLUG`, BUT ONLY when the resolved id
+ *      matches `BEACON_TENANT_ID`. This guards the Vercel-build /
+ *      Vercel-runtime path where `.data` is not on the lambda
+ *      filesystem (gitignored; not bundled). Without this fallback, every
+ *      tenant-aware route prerender threw at `getTenant(id) === null`.
+ *      The id-match check prevents a header-set tenant id from masquerading
+ *      under the env-set slug.
+ *   3. Throw — fail-loud with a message naming both env vars so the
+ *      misconfiguration surfaces immediately.
  */
 export const currentTenantSlug = cache(async (): Promise<string> => {
   const id = await currentTenantId();
   const tenant = await getTenant(id);
-  if (!tenant) {
-    throw new Error(
-      `currentTenantSlug: tenant ${id} not found in store. ` +
-        "Run scripts/onboard-tenant.ts (Phase 7.10) first.",
-    );
+  if (tenant) return tenant.slug;
+
+  // Env fallback — only when the resolved id matches BEACON_TENANT_ID and
+  // BEACON_TENANT_SLUG is set. Used during Vercel build/prerender (where
+  // headers aren't available and `.data` is gitignored) and as a runtime
+  // emergency override matching the BEACON_TENANT_ID env pattern above.
+  const envId = process.env.BEACON_TENANT_ID;
+  const envSlug = process.env.BEACON_TENANT_SLUG;
+  if (envId && envSlug && envId === id) {
+    return envSlug;
   }
-  return tenant.slug;
+
+  throw new Error(
+    `currentTenantSlug: tenant ${id} not found in store. ` +
+      "Set BEACON_TENANT_SLUG (alongside BEACON_TENANT_ID) for environments " +
+      "where the tenants registry isn't available (e.g. Vercel build/runtime " +
+      "where `.data/global/tenants.json` is gitignored), or run " +
+      "scripts/onboard-tenant.ts (Phase 7.10) to seed the registry.",
+  );
 });
