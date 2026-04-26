@@ -74,8 +74,19 @@ describe("Phase 7.8a — store classification (sanity)", () => {
     expect(dedup.size).toBe(all.length);
   });
 
-  it("TENANT_SCOPED_STORES has the expected breadth (>= 30)", () => {
-    expect(TENANT_SCOPED_STORES.size).toBeGreaterThanOrEqual(30);
+  it("TENANT_SCOPED_STORES has the expected breadth (>= 47 after Phase 7.8a.1)", () => {
+    // 38 inherited + 9 added in 7.8a.1.
+    expect(TENANT_SCOPED_STORES.size).toBeGreaterThanOrEqual(47);
+  });
+
+  it("SINGLETON_STORES has the expected breadth (>= 9 after Phase 7.8a.1)", () => {
+    // 2 inherited + 7 added in 7.8a.1.
+    expect(SINGLETON_STORES.size).toBeGreaterThanOrEqual(9);
+  });
+
+  it("GLOBAL_STORES has the expected breadth (>= 22 after Phase 7.8a.1)", () => {
+    // 16 inherited + 6 added in 7.8a.1.
+    expect(GLOBAL_STORES.size).toBeGreaterThanOrEqual(22);
   });
 
   it("GLOBAL_STORES includes the canonical globals", () => {
@@ -84,6 +95,46 @@ describe("Phase 7.8a — store classification (sanity)", () => {
     expect(GLOBAL_STORES.has("triage-rules")).toBe(true);
     expect(GLOBAL_STORES.has("scan-state")).toBe(true);
     expect(GLOBAL_STORES.has("tenants")).toBe(true);
+  });
+
+  it("Phase 7.8a.1 — newly classified stores land in the right Set", () => {
+    // Per-tenant array stores added in 7.8a.1.
+    for (const s of [
+      "change-events",
+      "classified-events",
+      "data-quality-flags",
+      "event-attributions",
+      "natural-control-results",
+      "page-element-inventory",
+      "recommended-edits",
+      "site-movement-events",
+      "url-change-outcomes",
+    ]) {
+      expect(TENANT_SCOPED_STORES.has(s)).toBe(true);
+    }
+    // Per-tenant singleton stores added in 7.8a.1.
+    for (const s of [
+      "change-outcomes-summary",
+      "natural-control-summary",
+      "robots-state",
+      "site-citation-timeline",
+      "taxonomy-distribution-report",
+      "url-daily-citations",
+      "url-watcher-state",
+    ]) {
+      expect(SINGLETON_STORES.has(s)).toBe(true);
+    }
+    // Global stores added in 7.8a.1.
+    for (const s of [
+      "adjudicator-cache",
+      "adjudicator-history",
+      "llm-budget",
+      "shared-brain",
+      "shared-brain-summary",
+      "url-change-patterns",
+    ]) {
+      expect(GLOBAL_STORES.has(s)).toBe(true);
+    }
   });
 });
 

@@ -57,6 +57,7 @@ import { join } from "node:path";
 // .data/*.json stores carry tenant_id.
 
 export const TENANT_SCOPED_STORES = new Set<string>([
+  // Inherited from scripts/backfill-tenant-id.ts (38 stores).
   "imported-results",
   "imported-changes",
   "imported-opportunities",
@@ -95,11 +96,32 @@ export const TENANT_SCOPED_STORES = new Set<string>([
   "source-pattern-evidence",
   "render-checks",
   "page-snapshot-diffs",
+  // Phase 7.8a.1 (2026-04-25) — classified from the live dry-run.
+  // 9 stores added; rationale recorded in docs/VERIFICATION_LOG.md.
+  "change-events", // per-tenant Phase 0 truth-layer events
+  "classified-events", // per-tenant taxonomy classification of historical changes
+  "data-quality-flags", // per-tenant data-quality flags for ingestion windows
+  "event-attributions", // per-tenant attribution verdicts on change-events
+  "natural-control-results", // per-tenant natural-control attribution per event
+  "page-element-inventory", // Sprint 6A.1 P6; rows already carry tenant_id
+  "recommended-edits", // Sprint 6A.1 P11; rows already carry tenant_id
+  "site-movement-events", // per-tenant Phase 0 movement events
+  "url-change-outcomes", // Tier A; rows already carry tenant_id
 ]);
 
 export const SINGLETON_STORES = new Set<string>([
   "answer-intelligence-index",
   "citation-evidence-index",
+  // Phase 7.8a.1 (2026-04-25) — per-tenant singletons added from
+  // the live dry-run. Each is a single object scoped to one tenant
+  // (or trivially scoped because the operator runs one site today).
+  "change-outcomes-summary", // aggregate of change-outcomes
+  "natural-control-summary", // aggregate of natural-control-results
+  "robots-state", // per-tenant parsed robots.txt for the tenant's domain
+  "site-citation-timeline", // per-tenant timeline; root object carries tenant_id
+  "taxonomy-distribution-report", // aggregate of classified-events
+  "url-daily-citations", // per-tenant daily citation series (single-entry)
+  "url-watcher-state", // per-tenant watcher throttle/phase state
 ]);
 
 export const GLOBAL_STORES = new Set<string>([
@@ -119,6 +141,14 @@ export const GLOBAL_STORES = new Set<string>([
   "prompt-library",
   "answer-texts",
   "cost-ledger",
+  // Phase 7.8a.1 (2026-04-25) — globals added from the live dry-run.
+  // Each is operator-shared / cross-tenant by design.
+  "adjudicator-cache", // LLM dedup cache, no tenant_id; operator-shared
+  "adjudicator-history", // LLM call audit log; operator-shared
+  "llm-budget", // operator-paid monthly LLM spend cap
+  "shared-brain", // explicit cross-tenant pattern aggregate
+  "shared-brain-summary", // aggregate of shared-brain
+  "url-change-patterns", // global learning aggregate (mirror of change-patterns)
 ]);
 
 // ── Types ───────────────────────────────────────────────────────────
