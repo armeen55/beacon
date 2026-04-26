@@ -7,6 +7,48 @@
 
 ---
 
+## 2026-04-26 — Sprint 7 Phase 7.8b-2-e — invariants + docs + baseline test fix
+
+Cleanup pass on the json-store async/routing migration that landed in 7.8b-2-c/d. Invariants pin the contract; one real bug surfaced in the shell-page audit; docs caught up; the long-standing `finding-actions.test.ts:213` baseline was identified as test drift (not a product issue) and corrected.
+
+### What changed
+
+- **New architectural invariants — [tests/architecture/json-store-routing-invariants.test.ts](tests/architecture/json-store-routing-invariants.test.ts) (6 cases, all green):**
+  1. *No un-awaited `readStore(...)`* — scans all of `src/` + `scripts/` (recursive, excluding `*.test.ts(x)`). The scan accepts `await readStore`, `return readStore`, `=> readStore`, `, readStore` / `[ readStore` (Promise.all literals); flags everything else. Allowlist documents 5 files where the substring is a definition / re-export / async-arrow auto-flatten and not a real call site.
+  2. *`json-store.ts` imports `resolveDataPath`* from `./resolve-data-path` — defends against silent rip-out of the routing layer.
+  3. *`json-store.ts` emits `[json-store] flat-fallback read`* warn log — defends against silent removal of the migration warning that's the only operator-facing signal that flat-fallback is still in play.
+  4. *Cache + writeLocks key by `resolved.cacheKey`* — every `cache.{get,set,has,delete}` and `writeLocks.{get,set,has,delete}` line in `json-store.ts` must contain `resolved.cacheKey`. Prevents reverting to bare-name keys (which was the cross-tenant pollution vector before 7.8b).
+  5. *Import-runs anti-race guard retained* — checks for `import-runs` + `anti-race` + `existsSync(` markers. Prevents accidental removal of the guard that refuses to overwrite a non-empty file with `[]`.
+
+- **Shell-page audit ([src/app/(shell)/](src/app/(shell)/))** — every `readStore` / `readDotDataJson` / `writeStore` call site correctly awaited inside async server components / server actions. Two non-issues confirmed: [today-data.ts:159 + 805](src/app/(shell)/today-data.ts) are comments only; [topics/page.tsx:515](src/app/(shell)/topics/page.tsx:515) is a server-action `onLaunchPackage` body that already awaits.
+
+- **Real bug surfaced + fixed** — [src/domains/competitors/co-mention.ts:147](src/domains/competitors/co-mention.ts:147). `getCachedCoMentionMatrix` was a sync helper calling `readStore<CoMentionMatrix>(STORE_NAME)` without await, then `Array.isArray(stored)` — which is always `false` on a Promise. The disk cache was silently broken: every cold-start re-fetched the matrix even when a persisted one existed. Helper is now `async`, returns `Promise<CoMentionMatrix | null>`, and its sole caller in [competitors/page.tsx:90](src/app/(shell)/competitors/page.tsx:90) awaits.
+
+- **[docs/architecture.md](docs/architecture.md) Persistence section** rewritten — describes:
+  - The four scopes (per-tenant / singleton / global / unknown) with example stores.
+  - Read-only flat-fallback contract + the warn log.
+  - `currentTenantSlug` resolution chain (header → env → throw).
+  - Resolved-cacheKey isolation (cross-tenant cache pollution structurally impossible).
+  - The 7.8b → 7.8c → 7.8d → 7.8e migration phasing.
+  - Pointer to the invariant test as the contract-lock.
+
+- **Baseline test fix — [src/app/(shell)/finding-actions.test.ts:213](src/app/(shell)/finding-actions.test.ts:213).** Investigated: production code [finding-actions.ts:210](src/app/(shell)/finding-actions.ts:210) intentionally uses `finding.detectedAt ?? now()` (Phase 3.5I-trust, 2026-04-22 — keeps /changes date-accurate against the HTML diff, not the operator click time). Test was expecting `mockedNow()` → drift, not a product bug. Test updated; production unchanged.
+
+### Verification
+
+- `npm run typecheck` — **clean**.
+- `npx vitest run tests/architecture/` — **83/83 pass** (6 new invariants + the prior architecture suite).
+- `npx vitest run tests/lib/persistence/json-store-routing.test.ts tests/tenants/isolation.test.ts` — **37/37 pass**.
+- `npx vitest run` (full suite) — **2323 / 2323 pass**. Zero failures. Was 2316/2317 going in (the +6 new invariants + recovery of `finding-actions.test.ts:213` accounts for the delta).
+
+### What's not done (intentional)
+
+- **No `--commit` migration run** — that's 7.8c. Routing layer is now contract-locked, so 7.8c is safe to start.
+- **No flat → `_legacy/` move + fail-loud-on-unknown switch** — 7.8d.
+- **No seed-data.server top-level await rewrite** — 7.8e.
+
+---
+
 ## 2026-04-26 — Sprint 7 Phase 7.8b-2-c/d — json-store tenant-aware routing + async cascade COMPLETE
 
 Phases 7.8b-2-b/c/d landed together as one batch on the operator's call (the helper change in 7.8b-2-b breaks typecheck until the cascade is complete; pushing a known-broken main checkpoint was rejected). Result: every `.data/*.json` read/write now routes through `.data/tenants/<slug>/` (per-tenant + singleton stores), `.data/global/` (cross-tenant aggregates), or the flat `.data/<name>.json` (unknowns; bridge for legacy stores until 7.8d). Reads fall back to flat when the routed file is absent (with a `[json-store] flat-fallback read` warn), writes never fall back. Cache keys are scoped per resolved location so cross-tenant cache pollution is structurally impossible.

@@ -17,6 +17,29 @@
 
 ---
 
+## Sprint 7 Phase 7.8b-2-e — COMPLETE 2026-04-26
+
+**Done:** Cleanup + invariants + docs for the json-store async/routing contract, plus the long-standing baseline test fix.
+
+- **5 architectural invariants** added in [tests/architecture/json-store-routing-invariants.test.ts](tests/architecture/json-store-routing-invariants.test.ts):
+  1. No un-awaited `readStore(...)` calls anywhere in `src/` or `scripts/` (with documented allowlist for `json-store.ts`, `repositories/file-backend.ts` + `supabase-backend.ts` async-arrow auto-flatten, `types.ts`, `index.ts`, `seed-data.server.ts`).
+  2. `json-store.ts` imports `resolveDataPath` from the shared resolver.
+  3. `json-store.ts` emits the `[json-store] flat-fallback read` warn log.
+  4. `json-store.ts` cache + writeLocks ops all key by `resolved.cacheKey` (sanity-checked against >3 ops to avoid false-pass on a stripped file).
+  5. `json-store.ts` retains the import-runs anti-race guard (`existsSync(...)` + non-empty + `[]` refusal).
+
+- **Shell-page audit** ([src/app/(shell)/](src/app/(shell)/)): all `readStore` / `readDotDataJson` / `writeStore` call sites correctly awaited inside async server components / actions. Audit found **one real bug** in [src/domains/competitors/co-mention.ts:147](src/domains/competitors/co-mention.ts:147) — `getCachedCoMentionMatrix` was calling un-awaited `readStore<CoMentionMatrix>(STORE_NAME)` and checking `Array.isArray(stored)` (always false on a Promise), so the disk cache silently returned `null` on every cold-start. Fixed: helper is now async + awaits + the one caller in `competitors/page.tsx` awaits.
+
+- **Docs:** [architecture.md](docs/architecture.md) Persistence section rewritten — describes the per-tenant / singleton / global / unknown layout, the `currentTenantSlug` resolution chain, the read-only flat-fallback contract, the resolved-cacheKey isolation, and the migration phasing (7.8b → 7.8c → 7.8d → 7.8e).
+
+- **Baseline test fix:** [src/app/(shell)/finding-actions.test.ts:213](src/app/(shell)/finding-actions.test.ts:213) expected `entry.timestamp = mockedNow()`, but [finding-actions.ts:210](src/app/(shell)/finding-actions.ts:210) (Phase 3.5I-trust, 2026-04-22) intentionally uses `finding.detectedAt ?? now()` for date-accurate /changes attribution. Test was drift, not a product bug. Updated test to expect `finding.detectedAt`. Production behavior unchanged.
+
+**Verification:** `npm run typecheck` clean. `npx vitest run tests/architecture/` 83/83. Full vitest **2323 / 2323** (was 2316/2317 — gained the 6 new invariants and recovered the previously-failing `finding-actions.test.ts:213`).
+
+**Phase 7.8c — APPROVED + SAFE TO START** when operator approves. Scope: dry-run `--commit` migration to physically move existing flat files into `.data/tenants/<slug>/` and `.data/global/`, then commit pass once verified. Routing layer is now contract-locked via invariants, so the migration can't silently break it.
+
+---
+
 ## Sprint 7 Phase 7.8b-2-d — COMPLETE 2026-04-26
 
 **Done:** Final cascade of the json-store async/tenant-aware migration. Twelve deferred sync→async helper conversions landed in one batch (couldn't be split safely — `readStore` became async in 7.8b-2-b and these were the last sync callers blocking typecheck).

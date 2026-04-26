@@ -210,7 +210,12 @@ describe("confirmFindingAsChange", () => {
     expect(mockChangelogEntries.length).toBe(1);
     const entry = mockChangelogEntries[0] as Record<string, unknown>;
     expect(entry.id).toBe("cl-test123");
-    expect(entry.timestamp).toBe("2026-04-13T10:00:00.000Z");
+    // Phase 3.5I-trust (2026-04-22): changelog timestamp + created_at +
+    // updated_at all use `finding.detectedAt` (when the page actually
+    // changed per HTML diff), NOT `now()` (when the operator clicked
+    // Confirm). Keeps /changes date-accurate for attribution. See
+    // src/app/(shell)/finding-actions.ts:210.
+    expect(entry.timestamp).toBe("2026-04-12T08:00:00Z");
     expect(entry.url).toBe("https://example.com/services/kitchen-remodel");
     expect(entry.asset_name).toBe("/services/kitchen-remodel");
     expect(entry.change_description).toBe("Title was changed");
@@ -218,8 +223,8 @@ describe("confirmFindingAsChange", () => {
     expect(entry.notes).toContain("Auto-detected by scan");
     expect(entry.notes).toContain('Previous: "Old Title"');
     expect(entry.notes).toContain('Current: "New Title"');
-    expect(entry.created_at).toBe("2026-04-13T10:00:00.000Z");
-    expect(entry.updated_at).toBe("2026-04-13T10:00:00.000Z");
+    expect(entry.created_at).toBe("2026-04-12T08:00:00Z");
+    expect(entry.updated_at).toBe("2026-04-12T08:00:00Z");
   });
 
   // -----------------------------------------------------------------------

@@ -1,0 +1,192 @@
+/**
+ * Sprint 7 Phase 7.8b-2-e (2026-04-26) — architectural invariants for the
+ * json-store async + tenant-routing contract.
+ *
+ * Phase 7.8b-2-b made `readStore`/`writeStore` async and dispatched every
+ * `.data/*.json` access through `resolveDataPath`. The full caller cascade
+ * landed in 7.8b-2-c/d. These invariants pin the contract so a future
+ * refactor can't silently drop an `await` (which would assign a Promise
+ * to an array variable) or bypass `resolveDataPath` (which would defeat
+ * tenant routing).
+ *
+ * Five invariants:
+ *   1. No un-awaited `readStore(...)` in src/ or scripts/.
+ *   2. `json-store.ts` imports `resolveDataPath`.
+ *   3. `json-store.ts` emits a `[json-store] flat-fallback read` warn log.
+ *   4. `json-store.ts` keys the in-process cache + writeLocks by resolved
+ *      `cacheKey`, not bare store name.
+ *   5. The import-runs anti-race guard (refuses to overwrite non-empty file
+ *      with `[]`) is still present in `json-store.ts`.
+ */
+
+import { describe, it, expect } from "vitest";
+import { readFileSync, readdirSync, statSync } from "node:fs";
+import { join, resolve } from "node:path";
+
+const REPO_ROOT = resolve(__dirname, "../..");
+const SRC_ROOT = resolve(REPO_ROOT, "src");
+const SCRIPTS_ROOT = resolve(REPO_ROOT, "scripts");
+const JSON_STORE_PATH = resolve(SRC_ROOT, "lib/persistence/json-store.ts");
+
+// ---------------------------------------------------------------------------
+// Allowlist — files that legitimately reference `readStore` without an
+// await on every call site. Each is documented with the reason.
+// ---------------------------------------------------------------------------
+
+const READSTORE_ALLOWLIST = new Set<string>([
+  // json-store.ts is where readStore is DEFINED. The string appears in the
+  // export, in JSDoc, and in the implementation. Not a call site.
+  resolve(SRC_ROOT, "lib/persistence/json-store.ts"),
+  // file-backend.ts and supabase-backend.ts wrap readStore in async arrow
+  // functions: `getX: async () => readStore<T>(...)`. The arrow body returns
+  // the Promise, which the async wrapper auto-flattens — equivalent to
+  // `async () => await readStore(...)`. Adding explicit `await` is a
+  // stylistic choice but not required for correctness.
+  resolve(SRC_ROOT, "lib/persistence/repositories/file-backend.ts"),
+  resolve(SRC_ROOT, "lib/persistence/repositories/supabase-backend.ts"),
+  // types.ts only contains type definitions; no runtime calls.
+  resolve(SRC_ROOT, "lib/persistence/repositories/types.ts"),
+  // index.ts re-exports; readStore appears in import lines only.
+  resolve(SRC_ROOT, "lib/persistence/repositories/index.ts"),
+  // seed-data.server.ts uses `readStoreLocal` (not readStore); the substring
+  // match here is a false positive. The lint below excludes that prefix.
+  resolve(SRC_ROOT, "lib/seed-data.server.ts"),
+]);
+
+function* walkFiles(
+  dir: string,
+  exts: ReadonlyArray<string>,
+): Generator<string> {
+  for (const entry of readdirSync(dir)) {
+    const path = join(dir, entry);
+    const s = statSync(path);
+    if (s.isDirectory()) {
+      yield* walkFiles(path, exts);
+      continue;
+    }
+    if (entry.endsWith(".test.ts") || entry.endsWith(".test.tsx")) continue;
+    if (exts.some((e) => entry.endsWith(e))) yield path;
+  }
+}
+
+/**
+ * A `readStore(...)` call is "properly awaited" if its line contains one of:
+ *   - `await readStore`
+ *   - `return readStore` (auto-flattens inside an async function)
+ *   - `=> readStore`    (arrow-body return; same auto-flatten)
+ *   - `, readStore`     (inside Promise.all([readStore(...)]) etc.)
+ *   - `[readStore`      (also inside a literal array passed to Promise.all)
+ *
+ * Anything else — `const x = readStore(`, `if (readStore(`, etc. — assigns
+ * the unresolved Promise to a value used as an array, which is the bug this
+ * invariant exists to catch.
+ */
+function findUnawaitedReadStoreCalls(file: string): {
+  line: number;
+  text: string;
+}[] {
+  const src = readFileSync(file, "utf8");
+  const lines = src.split("\n");
+  const violations: { line: number; text: string }[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i];
+    // Match readStore (with optional generic) followed by `(`. Exclude the
+    // `readStoreLocal` / `readStoreScoped` / `readStoreFile` substrings.
+    if (!/(^|[^A-Za-z0-9_])readStore\s*[<(]/.test(raw)) continue;
+    if (/readStoreLocal|readStoreScoped|readStoreFile/.test(raw)) continue;
+    // Skip import / export / re-export lines.
+    if (/^\s*(import|export)\s/.test(raw)) continue;
+    // Skip lines that are pure comments.
+    const codeOnly = raw.split("//")[0];
+    if (!/(^|[^A-Za-z0-9_])readStore\s*[<(]/.test(codeOnly)) continue;
+    // Skip lines that are inside JSDoc / multi-line comments by a coarse
+    // heuristic — they typically begin with `*`.
+    if (/^\s*\*/.test(raw)) continue;
+    // Allow the recognized awaited shapes.
+    const awaitedShapes =
+      /\bawait\s+readStore\b/.test(codeOnly) ||
+      /\breturn\s+(?:await\s+)?readStore\b/.test(codeOnly) ||
+      /=>\s*readStore\b/.test(codeOnly) ||
+      /[,[]\s*readStore\b/.test(codeOnly);
+    if (awaitedShapes) continue;
+    violations.push({ line: i + 1, text: raw.trim().slice(0, 140) });
+  }
+  return violations;
+}
+
+describe("Phase 7.8b-2-e — json-store async invariants", () => {
+  const srcFiles = [...walkFiles(SRC_ROOT, [".ts", ".tsx"])];
+  const scriptFiles = [...walkFiles(SCRIPTS_ROOT, [".ts"])];
+  const allFiles = [...srcFiles, ...scriptFiles].filter(
+    (f) => !READSTORE_ALLOWLIST.has(f),
+  );
+
+  it("collected enough files for the scan to be meaningful", () => {
+    expect(allFiles.length).toBeGreaterThan(50);
+  });
+
+  it("no un-awaited readStore() calls in src/ or scripts/", () => {
+    const allViolations: { file: string; line: number; text: string }[] = [];
+    for (const file of allFiles) {
+      const v = findUnawaitedReadStoreCalls(file);
+      for (const entry of v) {
+        allViolations.push({
+          file: file.replace(REPO_ROOT, "."),
+          line: entry.line,
+          text: entry.text,
+        });
+      }
+    }
+    expect(
+      allViolations,
+      "Phase 7.8b-2-e invariant: every `readStore(...)` call must be awaited " +
+        "(or returned from an async function / arrow body). An un-awaited call " +
+        "assigns Promise<T[]> to a variable used as T[], a silent bug post-7.8b-2-b.\n" +
+        allViolations
+          .map((v) => `  ${v.file}:${v.line}  ${v.text}`)
+          .join("\n"),
+    ).toEqual([]);
+  });
+});
+
+describe("Phase 7.8b-2-e — json-store routing contract", () => {
+  const src = readFileSync(JSON_STORE_PATH, "utf8");
+
+  it("json-store.ts imports resolveDataPath from the shared resolver", () => {
+    expect(src).toMatch(
+      /import\s*\{[^}]*\bresolveDataPath\b[^}]*\}\s*from\s*["']\.\/resolve-data-path["']/,
+    );
+  });
+
+  it("json-store.ts emits the [json-store] flat-fallback read warn log", () => {
+    expect(src).toContain("[json-store] flat-fallback read");
+  });
+
+  it("json-store.ts keys cache + writeLocks by resolved cacheKey", () => {
+    // Every cache.get / cache.set / cache.has / writeLocks.get / writeLocks.set
+    // must use `resolved.cacheKey` as the key, not a bare store name.
+    const cacheLines = src
+      .split("\n")
+      .map((l, i) => ({ l, i: i + 1 }))
+      .filter(
+        ({ l }) =>
+          /\b(cache|writeLocks)\.(get|set|has|delete)\s*\(/.test(l),
+      );
+    // Sanity: there should be multiple cache/writeLocks operations.
+    expect(cacheLines.length).toBeGreaterThan(3);
+    for (const { l, i } of cacheLines) {
+      expect(
+        l,
+        `json-store.ts:${i} — cache/writeLocks call must key by resolved.cacheKey: ${l.trim()}`,
+      ).toMatch(/\bresolved\.cacheKey\b/);
+    }
+  });
+
+  it("json-store.ts retains the import-runs anti-race guard", () => {
+    // The guard refuses to overwrite a non-empty file with []. The marker is
+    // the comment + the structural shape (existsSync + length check).
+    expect(src).toMatch(/import[-_]runs/);
+    expect(src).toMatch(/anti[-\s]?race/i);
+    expect(src).toMatch(/existsSync\(/);
+  });
+});

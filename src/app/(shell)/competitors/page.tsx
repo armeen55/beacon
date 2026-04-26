@@ -87,7 +87,7 @@ export default async function CompetitorsPage() {
 
   const { siteDomain } = getSiteConfig();
   const universeDomains = new Set(activeUniverse.map((e) => e.domain.replace(/^www\./, "").toLowerCase()));
-  let coMentionMatrix = getCachedCoMentionMatrix();
+  let coMentionMatrix = await getCachedCoMentionMatrix();
   if (!coMentionMatrix) {
     coMentionMatrix = await computeCoMentionMatrix(siteDomain, universeDomains);
     if (coMentionMatrix.entries.length > 0) {

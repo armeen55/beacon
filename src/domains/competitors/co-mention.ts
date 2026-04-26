@@ -144,9 +144,9 @@ export function getTopCoMentions(
 
 let _cachedMatrix: CoMentionMatrix | null = null;
 
-export function getCachedCoMentionMatrix(): CoMentionMatrix | null {
+export async function getCachedCoMentionMatrix(): Promise<CoMentionMatrix | null> {
   if (_cachedMatrix) return _cachedMatrix;
-  const stored = readStore<CoMentionMatrix>(STORE_NAME);
+  const stored = await readStore<CoMentionMatrix>(STORE_NAME);
   if (Array.isArray(stored) && stored.length > 0) {
     _cachedMatrix = stored[0] as unknown as CoMentionMatrix;
     return _cachedMatrix;
