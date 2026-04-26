@@ -1,6 +1,7 @@
 import { readStore } from "../json-store";
 import { readDotDataJson } from "../dotdata-json";
 import type { SeedDataRepository } from "./types";
+import { buildTenantRepo } from "./tenant-repo";
 import type { Result } from "@/domains/results/types";
 import type { ChangelogEntry } from "@/domains/changelog/types";
 import type { Opportunity } from "@/domains/opportunities/types";
@@ -174,4 +175,9 @@ export const fileBackend: SeedDataRepository = {
     readStore<TrackedEntity>("tracked-entities"),
   getTrackedPrompts: async () =>
     readStore<TrackedPrompt>("tracked-prompts"),
+
+  // Sprint 7 Phase 7.5a (2026-04-25) — tenant-bound facade.
+  forTenant(tenantId: string) {
+    return buildTenantRepo(fileBackend, tenantId);
+  },
 };

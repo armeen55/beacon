@@ -78,15 +78,23 @@ describe("Sprint 1 / Phase 1.6 — /changes/[id] fresh-read invariants", () => {
 
     // Default repo: every getX method returns []. Individual tests override
     // getChangelogEntries via the backing object below.
+    // Sprint 7 Phase 7.5b Commit 5 (2026-04-25) — `forTenant(tenantId)`
+    // returns the same proxy so overrides apply to both unscoped and
+    // tenant-scoped reads.
     const buildRepoStub = (
       overrides: Record<string, () => unknown> = {},
     ) => {
-      return new Proxy({} as Record<string, unknown>, {
-        get(_target, prop: string) {
-          if (prop in overrides) return overrides[prop];
-          return async () => [];
+      const repo: Record<string, unknown> = new Proxy(
+        {} as Record<string, unknown>,
+        {
+          get(_target, prop: string) {
+            if (prop === "forTenant") return () => repo;
+            if (prop in overrides) return overrides[prop];
+            return async () => [];
+          },
         },
-      });
+      );
+      return repo;
     };
 
     beforeEach(() => {
@@ -115,8 +123,10 @@ describe("Sprint 1 / Phase 1.6 — /changes/[id] fresh-read invariants", () => {
       vi.doMock("@/domains/pages/citation-evidence-store", () => ({
         citationEvidenceIndex: null,
       }));
+      // Sprint 7 Phase 7.5c/3 (2026-04-25) — page-store now exports a lazy
+      // async function instead of a module-level array.
       vi.doMock("@/domains/pages/page-store", () => ({
-        allPages: [],
+        getOwnedPages: async () => [],
       }));
       vi.doMock("@/domains/pages/issues", () => ({
         rolloutExecutions: [],

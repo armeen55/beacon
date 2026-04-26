@@ -90,8 +90,9 @@ describe("Phase 6A.1.12 — /recommendations page wiring", () => {
   });
 
   it("calls getRecommendedEdits via the repository, NOT a module-level array", () => {
+    // Sprint 7 Phase 7.5b Commit 2 (2026-04-25) — tenant-bound read.
     expect(PAGE_SOURCE).toMatch(
-      /getRepository\(\)\.getRecommendedEdits\(\)/,
+      /getRepository\(\)\.forTenant\([^)]+\)\.getRecommendedEdits\(/,
     );
     // Must NOT import recommended-edits-persistence's mutable in-memory
     // helper (readRecommendedEditsLocal) — that would be a module-level
@@ -100,8 +101,9 @@ describe("Phase 6A.1.12 — /recommendations page wiring", () => {
   });
 
   it("wraps the edits read in safeCall so a read failure gracefully degrades to empty edits", () => {
+    // Sprint 7 Phase 7.5b Commit 2 — same pattern, with `.forTenant(tenantId)`.
     expect(PAGE_SOURCE).toMatch(
-      /safeCall\(\s*\(\)\s*=>\s*getRepository\(\)\.getRecommendedEdits\(\)/,
+      /safeCall\(\s*\(\)\s*=>\s*getRepository\(\)\.forTenant\([^)]+\)\.getRecommendedEdits\(/,
     );
   });
 
@@ -159,8 +161,9 @@ describe("Phase 6A.1.12 — accept action fan-out", () => {
     expect(ACTIONS_SOURCE).toMatch(
       /from\s+["']@\/lib\/persistence\/repositories["']/,
     );
+    // Sprint 7 Phase 7.5b Commit 2 (2026-04-25) — tenant-bound read.
     expect(ACTIONS_SOURCE).toMatch(
-      /getRepository\(\)\.getRecommendedEdits\(\)/,
+      /getRepository\(\)\.forTenant\([^)]+\)\.getRecommendedEdits\(/,
     );
   });
 

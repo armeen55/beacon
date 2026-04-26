@@ -22,8 +22,9 @@ import type {
   EvidenceTier,
   SitemapReconciliation,
 } from "@/domains/pages/types";
-import { allPages } from "@/domains/pages/page-store";
+import { getOwnedPages } from "@/domains/pages/page-store";
 import { getRepository } from "@/lib/persistence/repositories";
+import { currentTenantId } from "@/lib/tenant-context";
 import { citationEvidenceIndex } from "@/domains/pages/citation-evidence-store";
 import { EvidenceFreshnessBanner } from "@/components/shell/evidence-freshness-banner";
 import { getPageSnapshotDiffs } from "@/domains/pages/page-snapshot-diff-store";
@@ -128,12 +129,14 @@ export default async function PagesPage() {
 
   const siteDomain = getSiteConfig().siteDomain;
   // ── Load data ──
-  const ownedPages = allPages.filter((p) => p.is_owned);
+  // Sprint 7 Phase 7.5c/3 (2026-04-25) — tenant-scoped page fetch.
+  const ownedPages = (await getOwnedPages()).filter((p) => p.is_owned);
 
   const citationIndex = citationEvidenceIndex;
 
   // ── Load page snapshots + diffs ──
-  const repo = getRepository();
+  // Sprint 7 Phase 7.5b Commit 5 (2026-04-25) — tenant-bound read.
+  const repo = getRepository().forTenant(await currentTenantId());
   const pageSnapshots = await repo.getPageSnapshots();
   const guardrailAlerts = await repo.getGuardrailAlerts();
   const pageDiffs = getPageSnapshotDiffs();

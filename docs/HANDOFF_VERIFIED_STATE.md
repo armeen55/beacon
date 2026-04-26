@@ -1,5 +1,7 @@
 # Beacon — Start Here
 
+> 🟢 **Sprint 7 active (2026-04-25):** Phase 7.0 → 7.1 → 7.1a → 7.2 → 7.3 (resolver) → 7.4 (middleware) → 7.5a (repository skeleton + index widens + `.data` stamping) → 7.5b/1A (imported-results backfill) → 7.5b/1B (recommendation_responses PK widen) → 7.5b/1C (Supabase pushdown filters) → 7.5b/2 → 7.5b/3 → 7.5b/4 → 7.5b/5 (Phase 7.5b ALL COMPLETE: shell render paths fully tenant-scoped + architectural invariant test) → 7.5c/1 → 7.5c/2 → 7.5c/3 → 7.5c/4 (Phase 7.5c ALL COMPLETE) → 7.5d/1 → 7.5d/2 → **7.5d/3** (invariant extended to scripts/** + 2 CLI lib files; 16 new assertions; zero allowlists — Tier C-only files pass naturally). **Phase 7.5d ALL COMPLETE; Phase 7.5 ALL COMPLETE.** 2152 passed / 4 baseline failed (all pre-existing, unrelated to multi-tenant). Active plan: `/Users/armeen/.claude/plans/13-commits-ahead-of-elegant-llama.md`. Latest verification: `docs/VERIFICATION_LOG.md` 2026-04-25 entry. Next: Phase 7.6 (or whatever operator scopes next) when approved.
+
 > ⚠️ **STALE — last updated 2026-04-17.** Most of the content below describes
 > pre-pivot (Profound-era) state. Since 2026-04-22 Beacon has shipped the
 > native-polling pipeline (Perplexity + OpenAI adapters, hosted `/api/poll/run`,

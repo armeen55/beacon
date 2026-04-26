@@ -211,9 +211,14 @@ describe("Phase 6A.1.6 — scan-owned-pages.ts CLI wiring", () => {
     expect(SCAN_CLI_SOURCE).toMatch(/page-element-inventory\.json/);
   });
 
-  it("threads tenantId from BEACON_TENANT_ID env var (no Ritz hardcode in the call site)", () => {
-    expect(SCAN_CLI_SOURCE).toMatch(/process\.env\.BEACON_TENANT_ID/);
+  it("threads tenantId from currentTenantId() resolver (no Ritz hardcode in the call site)", () => {
+    // Sprint 7 Phase 7.5d/2 (2026-04-25) — fail-loud resolver replaces the
+    // direct env-with-default. The resolver reads `BEACON_TENANT_ID` env
+    // internally; the script no longer references it directly.
+    expect(SCAN_CLI_SOURCE).toMatch(/await\s+currentTenantId\(\)/);
     expect(SCAN_CLI_SOURCE).toMatch(/tenantId:\s*tenantIdForInventory/);
+    // Forbidden: silent ritz fallback at the script level.
+    expect(SCAN_CLI_SOURCE).not.toMatch(/process\.env\.BEACON_TENANT_ID\s*\?\?\s*"tenant-ritz-founder"/);
   });
 
   it("threads city + service dictionaries from .data/business-config.json (not Ritz-hardcoded)", () => {

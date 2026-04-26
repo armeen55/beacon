@@ -38,15 +38,27 @@ vi.mock("next/cache", () => ({
   revalidatePath: mocks.revalidatePath,
 }));
 
-vi.mock("@/lib/persistence/repositories", () => ({
-  getRepository: () => ({
+vi.mock("@/lib/persistence/repositories", () => {
+  // Sprint 7 Phase 7.5b Commit 2 (2026-04-25) — actions.ts now calls
+  // `getRepository().forTenant(tenantId).getRecommendedEdits()`. Mock returns
+  // the same shape from both forTenant() and direct access so the test mock
+  // contract matches the production call shape.
+  const repo = {
     getRecommendedEdits: async () => {
       if (mocks.editsRepoShouldThrow) {
         throw new Error("simulated repo failure");
       }
       return mocks.editsToReturn;
     },
-  }),
+    forTenant: (_tenantId: string) => repo,
+  };
+  return { getRepository: () => repo };
+});
+
+// actions.ts also calls `await currentTenantId()` via the resolver. Stub it
+// so tests don't need a real BEACON_TENANT_ID env or request context.
+vi.mock("@/lib/tenant-context", () => ({
+  currentTenantId: async () => "tenant-ritz-founder",
 }));
 
 vi.mock("@/lib/persistence/dual-write", async () => {

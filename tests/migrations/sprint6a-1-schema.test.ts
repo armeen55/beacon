@@ -412,7 +412,8 @@ describeLive("Sprint 6A.1 Phase 1 — live Supabase schema", () => {
     ).toBe(true);
   });
 
-  it("page_element_inventory upsert on (source_snapshot_id, element_key) is idempotent", async () => {
+  // Sprint 7 Phase 7.5a (2026-04-25): unique widened to include tenant_id.
+  it("page_element_inventory upsert on (tenant_id, source_snapshot_id, element_key) is idempotent", async () => {
     const tenantId = `test-phase6a1-pei-${Date.now()}`;
     const snapId = `snap-test-${Date.now()}`;
     const base = {
@@ -433,7 +434,7 @@ describeLive("Sprint 6A.1 Phase 1 — live Supabase schema", () => {
         .from("page_element_inventory")
         .upsert(
           [{ ...base, id: `${tenantId}-1` } as never],
-          { onConflict: "source_snapshot_id,element_key" },
+          { onConflict: "tenant_id,source_snapshot_id,element_key" },
         );
       expect(e1).toBeNull();
 
@@ -450,7 +451,7 @@ describeLive("Sprint 6A.1 Phase 1 — live Supabase schema", () => {
               extractor_version: 2,
             } as never,
           ],
-          { onConflict: "source_snapshot_id,element_key" },
+          { onConflict: "tenant_id,source_snapshot_id,element_key" },
         );
       expect(e2).toBeNull();
 
@@ -470,7 +471,8 @@ describeLive("Sprint 6A.1 Phase 1 — live Supabase schema", () => {
     }
   });
 
-  it("recommended_edits upsert on (rec_id, action_type, target_element_key) is idempotent, including NULL element_key", async () => {
+  // Sprint 7 Phase 7.5a (2026-04-25): unique widened to include tenant_id.
+  it("recommended_edits upsert on (tenant_id, rec_id, action_type, target_element_key) is idempotent, including NULL element_key", async () => {
     const tenantId = `test-phase6a1-re-${Date.now()}`;
     try {
       // A: non-null element_key — upsert replaces existing
@@ -490,7 +492,7 @@ describeLive("Sprint 6A.1 Phase 1 — live Supabase schema", () => {
       const { error: a1 } = await admin
         .from("recommended_edits")
         .upsert([nonNullA as never], {
-          onConflict: "rec_id,action_type,target_element_key",
+          onConflict: "tenant_id,rec_id,action_type,target_element_key",
         });
       expect(a1).toBeNull();
 
@@ -498,7 +500,7 @@ describeLive("Sprint 6A.1 Phase 1 — live Supabase schema", () => {
         .from("recommended_edits")
         .upsert(
           [{ ...nonNullA, why: "updated-why", confidence: "high" } as never],
-          { onConflict: "rec_id,action_type,target_element_key" },
+          { onConflict: "tenant_id,rec_id,action_type,target_element_key" },
         );
       expect(a2).toBeNull();
 
@@ -519,7 +521,7 @@ describeLive("Sprint 6A.1 Phase 1 — live Supabase schema", () => {
       const { error: b1 } = await admin
         .from("recommended_edits")
         .upsert([nullB as never], {
-          onConflict: "rec_id,action_type,target_element_key",
+          onConflict: "tenant_id,rec_id,action_type,target_element_key",
         });
       expect(b1).toBeNull();
 
@@ -529,7 +531,7 @@ describeLive("Sprint 6A.1 Phase 1 — live Supabase schema", () => {
         .from("recommended_edits")
         .upsert(
           [{ ...nullB, why: "null-updated" } as never],
-          { onConflict: "rec_id,action_type,target_element_key" },
+          { onConflict: "tenant_id,rec_id,action_type,target_element_key" },
         );
       expect(b2).toBeNull();
 

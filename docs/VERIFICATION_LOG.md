@@ -7,6 +7,916 @@
 
 ---
 
+## 2026-04-25 — Sprint 7 Phase 7.5d/3 — architectural invariant extended to scripts (Phase 7.5d ALL COMPLETE)
+
+Test-only commit. The Phase 7.5b/5 architectural invariant — "no unscoped Tier A reads" — now also walks `scripts/**` plus 2 CLI library files (`src/adapters/perplexity/poll.ts`, `src/domains/observations/run-poll.ts`). 16 new assertions (one per Tier A method) over the script tree. Future drift in any CLI script that adds an unscoped Tier A read fails CI.
+
+### Files changed (1)
+
+| File | Change |
+|---|---|
+| [tests/architecture/no-unscoped-tier-a-reads.test.ts](tests/architecture/no-unscoped-tier-a-reads.test.ts) | Extracted scan logic into `scanForUnscopedTierA()` helper. Added second `describe` block walking `scripts/**` + 2 CLI lib files. Same 15 Tier A method list applies to both surfaces. Documented 4 known Tier C-only readers in a header comment (no actual allowlist needed — they call methods outside the Tier A list, so the scan naturally ignores them). |
+
+### Invariant behavior
+
+| Surface | Coverage | Allowlist |
+|---|---|---|
+| `src/app/(shell)/**` (shell pages + actions) | 15 Tier A methods × every TS/TSX file | none |
+| `scripts/**` (CLI scripts) + 2 CLI lib files | 15 Tier A methods × every TS file | none — Tier C-only files (poll-openai, poll-perplexity, adapters/perplexity/poll.ts, run-poll.ts) pass naturally because they don't call any Tier A method |
+
+If a future engineer adds, say, `getRecommendedEdits()` (Tier A) to `scripts/poll-openai.ts` without `.forTenant(...)`, the test fails with the file/line/code-snippet location.
+
+### Allowlist entries
+
+**Zero** broad file-level exemptions. Per the directive ("Tier C-only scripts can be allowlisted only for Tier C reads, not broad exemption if avoidable") — the cleanest implementation is no allowlist, since the Tier A scan naturally ignores Tier C method calls. The 4 listed Tier C-only files are documented in the test file's header comment for context, not allowlisted programmatically.
+
+### Verification
+
+| Check | Result |
+|---|---|
+| `npm run typecheck` | clean |
+| `npx vitest run tests/architecture/no-unscoped-tier-a-reads.test.ts` | **32/32** pass (16 shell + 16 scripts) |
+| `npx vitest run` (full suite) | **2152 passed / 4 failed** — baseline preserved (same 4 pre-existing date fixtures); +16 from new scripts invariants |
+
+### Remaining unscoped Tier A risks after Phase 7.5d
+
+| Surface | Status |
+|---|---|
+| `src/app/(shell)/**` | ✅ fully scoped (Phase 7.5b) + invariant catches drift |
+| `src/domains/**` (function-local Tier A reads) | ✅ converted (Phase 7.5c/1) |
+| `src/storage/canonical-store.ts` | ✅ Tier A scoped (Phase 7.5c/2) |
+| `src/domains/pages/page-store.ts` | ✅ replaced with lazy `getOwnedPages()` (Phase 7.5c/3) |
+| `src/app/(shell)/diagnostics/page.tsx` | ✅ module-level state lifted (Phase 7.5c/4) |
+| `scripts/**` + CLI lib files | ✅ Tier A scoped + fail-loud env (Phase 7.5d) + invariant catches drift |
+| **`src/lib/seed-data.server.ts`** | ⚠ deferred per directive — overlaps with Phase 7.8 `.data` partitioning (3 Tier A reads at module init: `getImportRuns`, `getResults`, `getChangelogEntries`) |
+| **`src/lib/data-adapters/profound-adapter.ts`** | ⚠ legacy — Profound import pipeline; sync `getAdapters()` singleton; documented partial fix |
+| **5 transitive `discoverCandidates` callers** without `warmPageRegistry()` | ⚠ degrade to "uncertain" evidence tier; bounded |
+| 14 Tier C files | OK — tables don't have `tenant_id` columns; not leak risks |
+
+### Phase 7.5 status: COMPLETE
+
+All 4 sub-phases done:
+- 7.5a — repository skeleton + index migrations + `.data` stamping
+- 7.5b — read-path conversions (shell render paths fully tenant-scoped)
+- 7.5c — domain-store function-local lifts + canonical-store + page-store + diagnostics finishing touch
+- 7.5d — CLI script conversions + architectural invariant extension
+
+The architectural invariant test ([tests/architecture/no-unscoped-tier-a-reads.test.ts](tests/architecture/no-unscoped-tier-a-reads.test.ts)) now covers every render path AND every CLI; future drift in either surface fails CI.
+
+### Phase 7.6 readiness
+
+YES (subject to operator definition of 7.6 scope). The 3 documented gaps are:
+1. **`seed-data.server.ts`** — Phase 7.8 will rewrite `.data/*.json` reads anyway; cleaner to lift in that phase.
+2. **`profound-adapter.ts`** — Profound is being phased out per the 2026-04-22 native-poll cutover; will go away naturally.
+3. **Transitive `discoverCandidates` evidence-tier degradation** — bounded; affects only `topics/page.tsx`, `review/page.tsx`, `settings/history/[id]/page.tsx`, and 3 sync helpers (`scorecard.ts`, `result-drivers.ts`, `action-clusters/compute.ts`). Each can be fixed by adding `await warmPageRegistry()` at the entry RSC page; cascade through 5 sites.
+
+---
+
+## 2026-04-25 — Sprint 7 Phase 7.5d/2 — fail-loud tenant resolver across remaining CLI/scripts
+
+Five CLI scripts converted from silent `?? "tenant-ritz-founder"` env fallback to the unified `currentTenantId()` resolver. Two listed scripts (`src/adapters/perplexity/poll.ts`, `src/domains/observations/run-poll.ts`) had no fallback to convert — both receive `tenantId` from callers as a function argument. Net: every CLI in the codebase now fails loud when tenant context is missing.
+
+### Files changed (5 production + 1 test)
+
+| File | Change |
+|---|---|
+| [scripts/poll-openai.ts](scripts/poll-openai.ts) | Module-level `const tenantId = getArg("--tenant") ?? process.env.BEACON_TENANT_ID ?? "tenant-ritz-founder"` → `getArg("--tenant") ?? (await currentTenantId())`. Added `currentTenantId` import. |
+| [scripts/poll-perplexity.ts](scripts/poll-perplexity.ts) | Same conversion pattern. |
+| [scripts/generate-specific-edits.ts](scripts/generate-specific-edits.ts) | Refactored `buildSmokePacket()` to take `tenantId: string` argument (instead of reading env inline). Caller resolves via `await currentTenantId()` at the top of the main flow. |
+| [scripts/scan-owned-pages.ts](scripts/scan-owned-pages.ts) | `const tenantIdForInventory = process.env.BEACON_TENANT_ID ?? "tenant-ritz-founder"` → `await currentTenantId()`. Added import. |
+| [scripts/run-orchestrated-scan.ts](scripts/run-orchestrated-scan.ts) | `const tenant = process.env.BEACON_TENANT_ID ?? "(default)"` → `await currentTenantId()`. Removed misleading "(default)" log fallback — now logs the actual resolved tenant or throws. Added import. |
+| [tests/sprint6a1-phase6-wiring.test.ts:214-217](tests/sprint6a1-phase6-wiring.test.ts:214) | Wiring invariant updated: regex now expects `await currentTenantId()` (the new resolver) instead of `process.env.BEACON_TENANT_ID` (the old direct env read). Plus a NEW assertion that the silent ritz fallback string is forbidden. |
+
+### Out of scope (no conversion needed)
+
+| File | Reason |
+|---|---|
+| [src/adapters/perplexity/poll.ts](src/adapters/perplexity/poll.ts) | `pollPerplexityForTenant(tenantId, opts)` — receives tenantId as required first arg from caller. No env fallback to convert. |
+| [src/domains/observations/run-poll.ts](src/domains/observations/run-poll.ts) | Receives tenantId from caller; only uses repo for Tier C `getTrackedEntities()`. No fallback to convert. |
+
+### Verification
+
+| Check | Result |
+|---|---|
+| `npm run typecheck` | clean |
+| `npx vitest run` (full suite) | **2136 passed / 4 failed** — baseline preserved exactly (same 4 pre-existing date fixtures) |
+| CLI smoke: `build-edits-for-queue.ts --list` | queue=19, byte-identical to pre-flight |
+| CLI smoke: `generate-specific-edits.ts --smoke` | tenant=tenant-ritz-founder, generated=0 accepted=0 (smoke baseline, no regression) |
+| Source audit: `grep "?? \"tenant-ritz-founder\""` in all 5 scripts | zero matches (only docstrings reference the example tenant id, which is documentation not behavior) |
+
+### Mid-flight regression caught + fixed
+
+After the 5 production conversions, vitest jumped to 5 fails (was 4 baseline). Triage:
+- 4 = pre-existing (3 local-presence + 1 finding-actions).
+- 1 new in [tests/sprint6a1-phase6-wiring.test.ts:214](tests/sprint6a1-phase6-wiring.test.ts:214) — old regex asserted `process.env.BEACON_TENANT_ID` literal in the script source. After conversion the script uses `await currentTenantId()` which threads env via the resolver. Updated the regex to expect the new pattern + added an explicit "no silent ritz fallback" assertion. Same root cause as Phase 7.5b/c regex updates.
+
+### Phase 7.5d/3 safety
+
+YES. 7.5d/2 was scoped to script env tightening only. Phase 7.5d/3 (extending the architectural invariant test [tests/architecture/no-unscoped-tier-a-reads.test.ts](tests/architecture/no-unscoped-tier-a-reads.test.ts) to also walk `scripts/**`) is test-only — no production code changes. Tier C-only scripts (`poll-openai`, `poll-perplexity`, `adapters/perplexity/poll.ts`, `run-poll.ts`) need an explicit allowlist; the lone Tier A script (`build-edits-for-queue.ts`, scoped in 7.5d/1) is already correct.
+
+---
+
+## 2026-04-25 — Sprint 7 Phase 7.5d/1 — build-edits-for-queue tenant-bound conversion
+
+The single Tier A leak in scripts: `getPageElementInventory()` in `loadInventory()` was reading cross-tenant rows. Now scoped via `forTenant(tenantId)`. Plus the silent `?? "tenant-ritz-founder"` env fallback replaced with the fail-loud `currentTenantId()` resolver.
+
+### Files changed (1)
+
+| File | Change |
+|---|---|
+| [scripts/build-edits-for-queue.ts](scripts/build-edits-for-queue.ts) | Added `currentTenantId` import. Modified `loadInventory()` signature to accept `tenantId: string`; line 153 `getRepository().getPageElementInventory()` → `getRepository().forTenant(tenantId).getPageElementInventory()`. In `main()`: replaced `const tenantId = process.env.BEACON_TENANT_ID ?? "tenant-ritz-founder"` with `const tenantId = await currentTenantId()` (fail-loud — throws if neither header nor env is set). Updated `loadInventory()` call site to pass `tenantId`. |
+
+### Pre-flight + post-change smoke (proof of zero behavior change)
+
+```
+$ npx tsx --require ./scripts/mock-server-only.cjs scripts/build-edits-for-queue.ts --list
+[build-edits] tenant=tenant-ritz-founder mode=LIST persist=DRY-RUN
+[build-edits] queue=19 watchlist=0
+  - create_cluster_page:geo:Los Altos :: ...
+  - ... (19 recs total) ...
+```
+
+Output is byte-identical pre/post change. Tenant resolved via `BEACON_TENANT_ID=tenant-ritz-founder` (set in `.env.local` since Phase 7.3); CLI runs unchanged from operator's perspective.
+
+### Fail-loud verification (intentional)
+
+If an operator runs `unset BEACON_TENANT_ID; npx tsx scripts/build-edits-for-queue.ts --list`, the resolver now throws:
+
+> `currentTenantId: no x-beacon-tenant header and no BEACON_TENANT_ID env var. In production this means middleware (Phase 7.4) didn't run. In dev/test set BEACON_TENANT_ID=tenant-ritz-founder.`
+
+Replaces the silent ritz fallback. CLI still works for operators who set the env (which is the common case via `.env.local`).
+
+### Verification
+
+| Check | Result |
+|---|---|
+| `npm run typecheck` | clean |
+| `npx vitest run` (full suite) | **2136 passed / 4 failed** — baseline preserved exactly (same 4 pre-existing date fixtures) |
+| Post-change CLI smoke (`--list`) | queue=19 watchlist=0; output byte-identical to pre-flight |
+
+### Phase 7.5d/2 safety
+
+YES. 7.5d/1 was scoped strictly to one CLI. Phase 7.5d/2 (env tightening across 4 Tier C scripts: `poll-openai`, `poll-perplexity`, `adapters/perplexity/poll.ts`, `domains/observations/run-poll.ts` + the 3 extra env-reading scripts the operator added: `generate-specific-edits`, `scan-owned-pages`, `run-orchestrated-scan`) is mechanical: replace each `?? "tenant-ritz-founder"` with `await currentTenantId()`. No `forTenant` calls (those scripts read Tier C only). Independent of build-edits.
+
+---
+
+## 2026-04-25 — Sprint 7 Phase 7.5c/4 — diagnostics finishing touch
+
+Closes the partial-fix accumulated across Phase 7.5b/5 (module-level `pageSnapshots`) and Phase 7.5c/3 (module-level `let allPages`). All module-level repo state in `src/app/(shell)/diagnostics/page.tsx` is now lifted into `DiagnosticsPage()`'s request scope; helpers receive data via a `ctx: DiagnosticsContext` prop.
+
+### Files changed (1 production + 1 new invariant test)
+
+| File | Change |
+|---|---|
+| [src/app/(shell)/diagnostics/page.tsx](src/app/(shell)/diagnostics/page.tsx) | **Removed** module-level `let allPages: PageEntity[] = []` + module-level `const repo = getRepository().forTenant(await currentTenantId())` + `const pageSnapshots = await repo.getPageSnapshots()`. **Added** `type DiagnosticsContext = { pages: PageEntity[]; pageSnapshots: PageSnapshot[] }`. Inside `DiagnosticsPage()`: resolve `tenantId`, fetch `pages` + `pageSnapshots` in parallel via `forTenant(tenantId)`, build `ctx` once, pass to 7 helper components. **Updated** 7 helper signatures (`{ ctx }: { ctx: DiagnosticsContext }`) + 7 JSX call sites + 11 internal references (`pageSnapshots` → `ctx.pageSnapshots`, `allPages` → `ctx.pages`). |
+| [tests/architecture/diagnostics-no-module-level-state.test.ts](tests/architecture/diagnostics-no-module-level-state.test.ts) | NEW — 5 invariants: (1) no module-level `getRepository()` call before `DiagnosticsPage`; (2) no module-level `pageSnapshots` declaration; (3) no module-level `allPages` declaration; (4) `DiagnosticsContext` type defined + all 7 helpers accept `ctx`; (5) `DiagnosticsPage()` calls `await currentTenantId()` + `getRepository().forTenant()`. |
+
+### What changed semantically
+
+Before: every `DiagnosticsPage` render reused module-level state cached at first import (env-tenant snapshot). Multi-tenant queries returned the wrong data; the partial fix in Phase 7.5b/5 worked for single-tenant production only.
+
+After: every render resolves its own tenant from `x-beacon-tenant` header (post-7.4) or `BEACON_TENANT_ID` env (CLI/test). `pages` and `pageSnapshots` are tenant-scoped Tier A reads. The architectural invariant catches drift.
+
+### Verification
+
+| Check | Result |
+|---|---|
+| `npm run typecheck` | clean |
+| `npx vitest run tests/architecture/diagnostics-no-module-level-state.test.ts` | **5/5** pass |
+| `npx vitest run` (full suite) | **2136 passed / 4 failed** — baseline preserved (same 4 pre-existing date fixtures); +5 from new diagnostics invariants |
+
+### Phase 7.5c summary (1 → 4 complete)
+
+Phase 7.5c spans 4 sub-commits, all complete:
+- **7.5c/1** — 3 function-local Tier A conversions in domain stores (`recommendation-response-store`, `findings-store`, `url-change-outcome`)
+- **7.5c/2** — `canonical-store.ts` mixed Promise.all blocks scoped (Tier A on `tenantRepo`, Tier C on plain `repo`)
+- **7.5c/3** — `page-store.ts` module-level lift (`allPages` → `getOwnedPages()`); 7 consumers cascaded; `candidates.ts` lazy-promise registry + `warmPageRegistry()`; 2 partial-fix sites (diagnostics module-level `let allPages`, `profound-adapter.ts` empty-array)
+- **7.5c/4** — diagnostics finishing touch (this commit) closes the 7.5c/3 partial fix
+
+After 7.5c, the only remaining unscoped Tier A reads in the codebase are:
+- `seed-data.server.ts` — module-level top-level await reads (deferred per directive — overlaps with Phase 7.8 `.data` partitioning)
+- `profound-adapter.ts` — legacy import pipeline (documented partial fix in 7.5c/3)
+- 5 transitive `discoverCandidates` callers without `warmPageRegistry()` — degrade to "uncertain" evidence tier; bounded regression
+- CLI scripts in `scripts/**` — Phase 7.5d
+- 14 Tier C files (no `tenant_id` column; not leak risks)
+
+### Phase 7.5d safety
+
+YES. Phase 7.5c is complete. Phase 7.5d (CLI script conversions: 5 files in `scripts/**` and `src/adapters/`) is independent of the rendering path. Each script already reads `BEACON_TENANT_ID` env; conversion is mechanical.
+
+---
+
+## 2026-04-25 — Sprint 7 Phase 7.5c/3 — page-store module-level lift
+
+The largest cascade of Sprint 7. `src/domains/pages/page-store.ts` no longer exports a top-level-await `allPages` array; it exports `getOwnedPages()`, a lazy tenant-scoped async function. All 7 listed consumers updated. The `candidates.ts` page registry refactored to a lazy-promise pattern with a new `warmPageRegistry()` warm-up call.
+
+### Files changed (8 production + 3 test mocks + 1 new invariant test)
+
+| File | Change |
+|---|---|
+| [src/domains/pages/page-store.ts](src/domains/pages/page-store.ts) | Replaced `export const allPages = await repo.getPages()` with `export async function getOwnedPages(): Promise<PageEntity[]>` (lazy + `forTenant(await currentTenantId()).getPages()`). |
+| [src/domains/attribution/candidates.ts](src/domains/attribution/candidates.ts) | Replaced `import { allPages }` with `import { getOwnedPages }`. Refactored module-level `_pageRegistry` from sync lazy-build to a promise-based async cache. New `export async function warmPageRegistry()` — callers must await once per request before invoking `discoverCandidates`. Sync `getPageRegistry()` returns an empty Map if not warmed (degrades gracefully — evidence-tier classification falls back to "uncertain" instead of crashing). |
+| [src/app/(shell)/pages/page.tsx](src/app/(shell)/pages/page.tsx) | `import { allPages }` → `import { getOwnedPages }`. `const ownedPages = (await getOwnedPages()).filter((p) => p.is_owned)`. |
+| [src/app/(shell)/changes/[id]/page.tsx](src/app/(shell)/changes/%5Bid%5D/page.tsx) | Same import swap. Local `const allPages = await getOwnedPages()` before the existing iteration loop. |
+| [src/app/(shell)/competitors/page.tsx](src/app/(shell)/competitors/page.tsx) | Same pattern. |
+| [src/app/(shell)/today-data.ts](src/app/(shell)/today-data.ts) | Import swap + `await warmPageRegistry()` (so transitive `discoverCandidates` calls in scorecard helpers see the registry). Replaced dynamic `await import("@/domains/pages/page-store")` for inventoryPages. Local `const allPages = await getOwnedPages()` references at lines 642, 783, 882, 1492 unchanged. |
+| [src/app/(shell)/diagnostics/page.tsx](src/app/(shell)/diagnostics/page.tsx) | Import swap. Module-level `let allPages: PageEntity[] = []` declared (mutable singleton, set per render by `DiagnosticsPage()`). Helper React components defined later in the file (`BeaconScoreSection`, `GeoCoverageSection`, `PulseBanner`) reference `allPages` from module scope unchanged. `DiagnosticsPage()` now sets `allPages = await getOwnedPages()` and `await warmPageRegistry()` near the top of the render. **Same partial-fix pattern as the existing module-level `pageSnapshots`** (Phase 7.5b/5) — a future Phase 7.5c finishing commit will lift both into function scope (8 nested consumers of `pageSnapshots` + 3 nested consumers of `allPages`). Single-tenant production stays correct; multi-tenant correctness for diagnostics defers. |
+| [src/lib/data-adapters/profound-adapter.ts](src/lib/data-adapters/profound-adapter.ts) | **PARTIAL FIX.** Replaced `import { allPages }` with a local `const allPages: PageEntity[] = []`. The Profound import pipeline (`getAdapters()` singleton) is sync; threading async page fetch through it would cascade widely, and Profound is legacy (Beacon pivoted to native polling per the 2026-04-22 v4 cutover). Geo coverage in the Profound pipeline degrades to empty until a follow-up wires `await getOwnedPages()` through. Documented inline. |
+| [tests/routes/recommendations-page-reads-fresh.test.ts](tests/routes/recommendations-page-reads-fresh.test.ts) + [tests/routes/changes-page-reads-fresh.test.ts](tests/routes/changes-page-reads-fresh.test.ts) + [tests/routes/changes-id-page-reads-fresh.test.ts](tests/routes/changes-id-page-reads-fresh.test.ts) | All 3 `vi.doMock("@/domains/pages/page-store")` blocks updated: `allPages: []` → `getOwnedPages: async () => []`. |
+| [tests/architecture/no-page-store-allpages.test.ts](tests/architecture/no-page-store-allpages.test.ts) | NEW — 3 invariants: (1) page-store.ts does NOT export `allPages` const/let/var; (2) page-store.ts uses `currentTenantId()` + `forTenant()`; (3) no file under `src/**` imports `allPages` from page-store. |
+
+### Deferred warming (documented partial fix)
+
+5 transitive callers of `discoverCandidates` outside the directive's 7-file scope:
+- `src/app/(shell)/topics/page.tsx`
+- `src/app/(shell)/review/page.tsx` (sync RSC — would also need `async` conversion)
+- `src/app/(shell)/settings/history/[id]/page.tsx`
+- `src/domains/attribution/scorecard.ts` (sync helper — called from many places)
+- `src/domains/attribution/diagnostics.ts` (sync helper — called from `diagnostics/page.tsx` which already warms)
+- Plus indirect via `result-drivers.ts`, `action-clusters/compute.ts`.
+
+These callers' `discoverCandidates` invocations now see an empty page registry until `warmPageRegistry()` is added. Evidence-tier classification degrades to "uncertain" but does not crash. Single-tenant production behavior was already approximate for these surfaces (the legacy `_pageRegistry` was lazy-built once per lambda from the env-tenant snapshot); the regression is bounded.
+
+### Verification
+
+| Check | Result |
+|---|---|
+| `npm run typecheck` | clean |
+| `npx vitest run tests/architecture/no-page-store-allpages.test.ts` | **3/3** pass |
+| `npx vitest run` (full suite) | **2131 passed / 4 failed** — baseline preserved (same 4 pre-existing date fixtures); +3 from new page-store invariants |
+
+### Phase 7.5c/4 safety
+
+YES. 7.5c/3 was scoped to page-store + its 7 listed consumers. Phase 7.5c/4 (diagnostics finishing touch — lift module-level `pageSnapshots` AND `allPages` into `DiagnosticsPage()` body, threading `pages` + `pageSnapshots` props through the 3 nested helper React components) closes the diagnostics partial-fix from 7.5b/5 + 7.5c/3. No middleware, schema, or .data changes.
+
+---
+
+## 2026-04-25 — Sprint 7 Phase 7.5c/2 — canonical-store function-local Tier A conversion
+
+Both async functions in [src/storage/canonical-store.ts](src/storage/canonical-store.ts) — `ensureCanonicalStoresSeeded` (line 72) and `loadFreshCanonicalData` (line 164) — now scope their Tier A reads to the resolved tenant. Tier C reads (`getTrackedEntities`, `getTrackedPrompts`) stay on the unscoped repo per Phase 7.5a Tier C audit (those tables don't have a `tenant_id` column).
+
+### Files changed (1 production + 1 test)
+
+| File | Change |
+|---|---|
+| [src/storage/canonical-store.ts](src/storage/canonical-store.ts) | Added `currentTenantId` import. Both Promise.all blocks resolve `const tenantId = await currentTenantId()` once, then use `tenantRepo` (= `repo.forTenant(tenantId)`) for Tier A methods (`getPromptAnswerObservations`, `getDailyMetricSnapshots`) and plain `repo` for Tier C methods (`getTrackedEntities`, `getTrackedPrompts`). |
+| [tests/routes/canonical-store-fresh.test.ts](tests/routes/canonical-store-fresh.test.ts) | Both `vi.doMock` blocks rewritten as self-referential `repo.forTenant() = repo`. Added `vi.doMock("@/lib/tenant-context")` returning `currentTenantId: async () => "tenant-ritz-founder"`. Added new `describe` block — 3 source-scan invariants: Tier A methods MUST go through `tenantRepo.forTenant(...)`; Tier A methods are NEVER called on plain `repo` or `getRepository()`; Tier C methods stay on plain `repo` (calling `.forTenant()` on Tier C tables would 500 the query at runtime since the column doesn't exist). |
+
+### Verification
+
+| Check | Result |
+|---|---|
+| `npm run typecheck` | clean |
+| `npx vitest run tests/routes/canonical-store-fresh.test.ts` | **11/11** pass (was 8/8 — added 3 new tier-scoping invariants) |
+| `npx vitest run` (full suite) | **2128 passed / 4 failed** — baseline preserved (same 4 pre-existing); +3 from new invariants |
+
+### Phase 7.5c/3 safety
+
+YES. 7.5c/2 was scoped strictly to `canonical-store.ts`. Phase 7.5c/3 (`page-store.ts` module-level lift — `allPages: PageEntity[] = await repo.getPages()` → `getOwnedPages(): Promise<PageEntity[]>`) is the largest cascade in 7.5c — 7 consumer files import `allPages` and need a one-line conversion to `await getOwnedPages()`. Independent of canonical-store.
+
+---
+
+## 2026-04-25 — Sprint 7 Phase 7.5c/1 — function-local Tier A conversions in domain stores
+
+3 function-local Tier A reads in `src/domains/**` converted to tenant-scoped form. All 3 are seeder/finder functions called once per request; resolving `tenantId` at the call site is the lightest change.
+
+### Files changed (3 production + 1 test)
+
+| File | Conversion |
+|---|---|
+| [src/domains/product/recommendation-response-store.ts](src/domains/product/recommendation-response-store.ts) | Added `currentTenantId` import. `ensureRecommendationResponsesSeeded` line 69: `getRepository().getRecommendationResponses()` → `getRepository().forTenant(await currentTenantId()).getRecommendationResponses()`. |
+| [src/domains/scanning/findings-store.ts](src/domains/scanning/findings-store.ts) | Added `currentTenantId` import. `updateFindingStatus` line 162: same conversion for `getScanFindings()`. |
+| [src/domains/attribution/url-change-outcome.ts](src/domains/attribution/url-change-outcome.ts) | Added `currentTenantId` import. `ensureUrlChangeOutcomesSeeded` line 110: same conversion for `getUrlChangeOutcomes()`. |
+| [tests/domains/scanning/findings-store-read-path.test.ts](tests/domains/scanning/findings-store-read-path.test.ts) | Mock for `@/lib/persistence/repositories` rewritten as self-referential `repo.forTenant() = repo`. Added `vi.mock` for `@/lib/tenant-context` returning `currentTenantId: async () => "tenant-ritz-founder"`. Same pattern as Phase 7.5b/2 + 7.5b/5 fixes. |
+
+### Verification
+
+| Check | Result |
+|---|---|
+| `npm run typecheck` | clean |
+| `npx vitest run` (full suite) | **2125 passed / 4 failed** — baseline preserved exactly (same 4 pre-existing date fixtures) |
+| Architectural invariant test ([no-unscoped-tier-a-reads.test.ts](tests/architecture/no-unscoped-tier-a-reads.test.ts)) | 16/16 still pass (this commit only changed `src/domains/**` files; the test scans `src/app/(shell)/**`) |
+
+### Phase 7.5c/2 safety
+
+YES. 7.5c/1 was scoped strictly to 3 function-local reads. 7.5c/2 (`canonical-store.ts` function-local lifts: `getPromptAnswerObservations` + `getDailyMetricSnapshots` at lines 81 + 165) is the same pattern in a different file. No cascade beyond the file itself.
+
+---
+
+## 2026-04-25 — Sprint 7 Phase 7.5b Commit 5 — remaining shell read-path conversions
+
+The final Commit of Phase 7.5b — every render path under `src/app/(shell)/**` now reads tenant-scoped data. Architectural invariant test added: every Tier A method call in shell files MUST go through `.forTenant(...)`. Phase 7.5b is COMPLETE.
+
+### Files changed (8 production + 7 tests + 1 new invariant test)
+
+**Production conversions (8 files, ~14 call sites):**
+
+| File | Conversion |
+|---|---|
+| [src/app/(shell)/changes/page.tsx](src/app/(shell)/changes/page.tsx) | Added `currentTenantId` import. `repository = getRepository().forTenant(await currentTenantId())` (line 97). |
+| [src/app/(shell)/changes/[id]/page.tsx](src/app/(shell)/changes/%5Bid%5D/page.tsx) | Added import. `tenantId` resolved once at line 121; both `repository` (line 121) and `repo` (line 180) use `forTenant(tenantId)`. |
+| [src/app/(shell)/changes/dedupe/page.tsx](src/app/(shell)/changes/dedupe/page.tsx) | Added import. Inline `getRepository().forTenant(await currentTenantId()).getChangelogEntries()`. |
+| [src/app/(shell)/pages/page.tsx](src/app/(shell)/pages/page.tsx) | Added import. `repo = getRepository().forTenant(await currentTenantId())` at line 136 — covers `getPageSnapshots`, `getGuardrailAlerts`, `getPendingScanFindings`. |
+| [src/app/(shell)/pages/verify-action.ts](src/app/(shell)/pages/verify-action.ts) | Already imported `currentTenantId` (Phase 7.3). Inline `forTenant(await currentTenantId()).getX()` at lines 91 + 111. |
+| [src/app/(shell)/topics/page.tsx](src/app/(shell)/topics/page.tsx) | Added import. `repo = getRepository().forTenant(await currentTenantId())` at line 57. |
+| [src/app/(shell)/diagnostics/page.tsx](src/app/(shell)/diagnostics/page.tsx) | **PARTIAL FIX.** Module-level `const repo = getRepository();` lifted to `getRepository().forTenant(await currentTenantId())` — uses env-resolved tenant at module init. Multi-tenant correctness requires lifting both reads into `DiagnosticsPage()`'s function scope (8 nested consumers of `pageSnapshots` would need thread-through); deferred to Phase 7.5c. Comment added explaining bounded blast radius (operator-only surface). |
+| [src/app/(shell)/finding-actions.ts](src/app/(shell)/finding-actions.ts) | Added import. Inline `forTenant(await currentTenantId()).getScanFindings()` at line 188 inside `confirmFindingAsChange`. |
+
+**Test fixes (mid-flight regressions, all from converting tenant-blind mocks):**
+
+| File | Fix |
+|---|---|
+| [src/app/(shell)/finding-actions.test.ts](src/app/(shell)/finding-actions.test.ts) | `makeFinding` had a duplicate `tenant_id: "tenant-test"` overriding my new default. Removed the duplicate; default is now `tenant-ritz-founder` to match vitest env. |
+| [tests/scanning/confirm-flow.test.ts](tests/scanning/confirm-flow.test.ts) | `makePendingFinding` had `tenant_id: "tenant-test"` — changed to `tenant-ritz-founder` so the post-Commit 5 filter doesn't strip it. |
+| [tests/routes/changes-page-reads-fresh.test.ts](tests/routes/changes-page-reads-fresh.test.ts) + [tests/routes/changes-id-page-reads-fresh.test.ts](tests/routes/changes-id-page-reads-fresh.test.ts) | `buildRepoStub` updated: self-referential proxy with `forTenant(tenantId) = repo`. Same pattern as Commit 2. |
+| [tests/app/changes/dedupe-read-path.test.tsx](tests/app/changes/dedupe-read-path.test.tsx) | `vi.mock` for repositories rewritten to self-referential `repo.forTenant() = repo`. Added `vi.mock` for `@/lib/tenant-context` returning `currentTenantId: async () => "tenant-ritz-founder"`. |
+| [tests/routes/verify-action-vercel-safe.test.ts](tests/routes/verify-action-vercel-safe.test.ts) | 2 source-scan regexes updated to require `.forTenant(...)` between `getRepository()` and the method. |
+
+**New architectural invariant test:**
+
+| File | Purpose |
+|---|---|
+| [tests/architecture/no-unscoped-tier-a-reads.test.ts](tests/architecture/no-unscoped-tier-a-reads.test.ts) | Walks `src/app/(shell)/**` (recursive); for each of the 15 Tier A methods, asserts NO file contains `getRepository().<method>(` (the unscoped form). One assertion per method = 15 + 1 sanity = 16 tests. Catches future drift at CI time. **This is the leak detector for the rest of Phase 7.5.** |
+
+### Verification
+
+| Check | Result |
+|---|---|
+| `npm run typecheck` | clean |
+| `npx vitest run tests/architecture/no-unscoped-tier-a-reads.test.ts` | **16/16** pass |
+| `npx vitest run` (full suite) | **2125 passed / 4 failed** — baseline preserved (same 4 pre-existing); +16 from architectural invariant |
+
+### Remaining unscoped call sites after 7.5b
+
+**5 files with direct `getRepository().getX()` calls (Phase 7.5c — domain stores):**
+- [src/domains/product/recommendation-response-store.ts](src/domains/product/recommendation-response-store.ts)
+- [src/domains/scanning/findings-store.ts](src/domains/scanning/findings-store.ts)
+- [src/domains/observations/run-poll.ts](src/domains/observations/run-poll.ts)
+- [src/domains/attribution/url-change-outcome.ts](src/domains/attribution/url-change-outcome.ts)
+- [src/domains/recommendations/load-queue.test.ts](src/domains/recommendations/load-queue.test.ts) — test file; intentionally references the call shape
+
+**14 files with module-level `const repo = getRepository()` (Phase 7.5c — module-level lifts):**
+- `src/domains/pages/{frontier-planner, frontier-compiler, page-store, issues, wave-planner, outcome-watch, competitor-evidence, asset-response}.ts`
+- `src/domains/{changelog/change-contract, observations/visibility-observation-explicit-store, competitors/universe-read, brief-generation/store, attribution/store, actions/store}.ts`
+
+**1 partial fix in shell (also Phase 7.5c lift target):**
+- [src/app/(shell)/diagnostics/page.tsx](src/app/(shell)/diagnostics/page.tsx) — module-level `forTenant(env-tenant)` works for single-tenant production today; multi-tenant correctness requires lifting `pageSnapshots` into `DiagnosticsPage()` and threading through 8 nested consumers.
+
+**Plus CLI scripts (Phase 7.5d):**
+- `scripts/poll-openai.ts`, `poll-perplexity.ts`, `build-edits-for-queue.ts`, `src/adapters/perplexity/poll.ts`, `src/domains/observations/run-poll.ts`.
+
+### Phase 7.5c safety
+
+YES. Phase 7.5b is complete. Every render path under `src/app/(shell)/**` is now tenant-scoped (architectural invariant proves it). Phase 7.5c (module-level domain-store lifts + the diagnostics finishing touch) is ergonomic refactoring with zero further schema changes — each file lifts `const repo = getRepository();` to a function-arg or function-local pattern. The architectural invariant in this commit will catch any regression in shell.
+
+---
+
+## 2026-04-25 — Sprint 7 Phase 7.5b Commit 4 — /today tenant-bound conversion
+
+The largest call-site surface in Sprint 7 — `today-data.ts` is the operator's daily-driver landing page builder. 5 call sites converted; `tenantId` resolved once at the top of `loadTodayPageData()` and threaded down. `change-outcomes` direct `readStore` replaced with the existing `getOutcomesForTenant` adapter; `change-patterns` stays direct (architecturally global per CX4 design).
+
+### Files changed (1 production + 1 test)
+
+| File | Change |
+|---|---|
+| [src/app/(shell)/today-data.ts](src/app/(shell)/today-data.ts) | Added imports for `currentTenantId` and `getOutcomesForTenant`. Resolved `tenantId` once after the seed `Promise.all` (line ~170). Converted 5 call sites: line 187 `getRecommendationResponses`, line 356 `repoForInventory.getPageSnapshots`, line 403-407 `repo.getPageSnapshots/getGuardrailAlerts/getScanFindings`. Line 790 `readStore<ChangeOutcome>("change-outcomes")` → `getOutcomesForTenant(tenantId)`. Line 789 `readStore<ChangePattern>("change-patterns")` and line 1626 `readStore<UrlChangePattern>("url-change-patterns")` (unused / `void`-marked) stay direct — global stores per CX4 architecture. |
+| [tests/routes/today-recommendation-responses-fresh.test.ts](tests/routes/today-recommendation-responses-fresh.test.ts) | Updated regex to require `.forTenant(...)`. Added new unscoped-form invariant covering all 4 Tier A reads on the /today path (`getRecommendationResponses`, `getPageSnapshots`, `getGuardrailAlerts`, `getScanFindings`). Catches future drift at CI time. |
+
+### Verification
+
+| Check | Result |
+|---|---|
+| `npm run typecheck` | clean |
+| `npx vitest run tests/routes/today-recommendation-responses-fresh.test.ts` | **14/14** pass (was 13/13 — added 1 unscoped-form invariant) |
+| `npx vitest run` (full suite) | **2109 passed / 4 failed** — baseline preserved (same 4 pre-existing); +1 from new unscoped-form invariant |
+| Source-scan: any `getRepository().getX(` remaining in today-data.ts? | none |
+
+### Decisions worth recording
+
+- **`change-outcomes` (file `.data/change-outcomes.json`, 388 ritz rows post-7.5a stamping)** is tenant-scoped data; the existing `getOutcomesForTenant` adapter in [src/lib/tenant-data.ts](src/lib/tenant-data.ts) does the right filter. Used here directly instead of adding a new `getChangeOutcomes` method to `TenantRepository` (less interface churn; same correctness).
+- **`change-patterns` (file `.data/change-patterns.json`)** is documented in [src/lib/tenant-data.ts:14-16](src/lib/tenant-data.ts:14) as "global/aggregate stores… have no tenant_id by design." Direct `readStore` is correct here.
+- **`url-change-patterns` (line 1626)** — currently `void`-marked unused (reserved for Phase 7 Part 3 composite ranking). Left as-is; will revisit when the read becomes load-bearing.
+
+### Phase 7.5b Commit 5 safety
+
+YES. Commit 4 was scoped strictly to today-data.ts. Commit 5 (`/changes` family + `/pages` family + `/topics` + `/diagnostics`) covers the remaining shell surfaces — 9+ call sites across 7 files. Each is independent of today-data; the conversion pattern is identical (`getRepository().forTenant(await currentTenantId()).getX()`).
+
+---
+
+## 2026-04-25 — Sprint 7 Phase 7.5b Commit 3 — loadLiveRecommendationQueue tenant-bound conversion
+
+Single-purpose commit: the orchestration the `/recommendations` page render and the queue-driven CLI both consume now passes `tenantId` down to `getPages` + `getPageSnapshots`. End-to-end tenant scoping on the orchestration layer.
+
+### Files changed (1 production + 1 test)
+
+| File | Change |
+|---|---|
+| [src/domains/recommendations/load-queue.ts:193,200](src/domains/recommendations/load-queue.ts:193) | Both `getRepository().getX()` → `getRepository().forTenant(tenantId).getX()` (`getPages` + `getPageSnapshots`). `tenantId` already in scope from `LoadLiveRecommendationQueueOptions` (Phase 7.3, required field). |
+| [src/domains/recommendations/load-queue.test.ts](src/domains/recommendations/load-queue.test.ts) | Added new source-scan invariant: the load-queue must use `.forTenant(...)` for both methods AND must NOT contain unscoped `getRepository().getPages(` / `.getPageSnapshots(`. Catches future drift. `LOAD_QUEUE_PATH` constant already existed at line 267. |
+
+### Verification
+
+| Check | Result |
+|---|---|
+| `npm run typecheck` | clean |
+| `npx vitest run src/domains/recommendations/load-queue.test.ts` | passes (existing invariants + the new one) |
+| `npx vitest run` (full suite) | **2108 passed / 4 failed** — baseline preserved (same 4 pre-existing); +1 from the new load-queue source-scan invariant |
+
+### Phase 7.5b Commit 4 safety
+
+YES. Commit 3 was orchestration-only — the queue loader already takes `tenantId` (Phase 7.3 made it required), so the wiring was a 2-line change inside the existing function. Commit 4 (`/today` data builder) is the next-largest surface: 3 call sites at [today-data.ts:187,356,403](src/app/(shell)/today-data.ts:187), one of them a module-level pattern (`const repo = getRepository()` at 403) that needs lifting to function-local. The `today-data.ts` module is consumed by `/today` server-rendered surface; tenantId resolves via `await currentTenantId()` at the entry function.
+
+---
+
+## 2026-04-25 — Sprint 7 Phase 7.5b Commit 2 — /recommendations tenant-bound read conversion
+
+First call-site conversion in Sprint 7. The /recommendations page render and Accept-action edit fan-out now go through `getRepository().forTenant(tenantId).getX()` — the Phase 7.5b/1C Supabase pushdown filters fire end-to-end on the most-trafficked Sprint 6A.1 surface.
+
+### Files changed (2 production + 4 tests)
+
+| File | Change |
+|---|---|
+| [src/app/(shell)/recommendations/page.tsx:77,91](src/app/(shell)/recommendations/page.tsx:77) | `getRepository().getRecommendationResponses()` → `getRepository().forTenant(tenantId).getRecommendationResponses()`. Same for `getRecommendedEdits` at line 91. `tenantId` already in scope from `await currentTenantId()` at line 57 (Phase 7.3). |
+| [src/app/(shell)/recommendations/actions.ts:398](src/app/(shell)/recommendations/actions.ts:398) | `getRepository().getRecommendedEdits()` → `forTenant(tenantId).getRecommendedEdits()` inside the `acceptRecommendation` server action. Added `import { currentTenantId } from "@/lib/tenant-context"` and `const tenantId = await currentTenantId()` inside the try block (so transient resolver failures degrade to the legacy single-changelog path, same as the existing repo-failure handler). |
+| [tests/routes/recommendations-page-reads-fresh.test.ts](tests/routes/recommendations-page-reads-fresh.test.ts) | Updated existing structural assertion to require `.forTenant(tenantId)`. Added new invariant: page must NOT contain unscoped `getRepository().getRecommendationResponses(` or `.getRecommendedEdits(` (catches future drift). Updated `buildRepoStub` to support `forTenant(tenantId)` returning the same proxy — both unscoped and tenant-scoped reads flow through one set of overrides. |
+| [tests/sprint6a1-phase12-wiring.test.ts](tests/sprint6a1-phase12-wiring.test.ts) | 3 source-scan regexes updated to require `.forTenant(...)` between `getRepository()` and the method call. |
+| [src/domains/recommendations/load-queue.test.ts](src/domains/recommendations/load-queue.test.ts) | 2 source-scan regexes updated for the same pattern. |
+| [src/app/(shell)/recommendations/accept-fanout.test.ts](src/app/(shell)/recommendations/accept-fanout.test.ts) | `vi.mock` for `@/lib/persistence/repositories` now returns a self-referential `repo` whose `forTenant()` returns the same object — production and test mock use the same call shape. Added `vi.mock` for `@/lib/tenant-context` returning `currentTenantId: async () => "tenant-ritz-founder"`. |
+
+### Verification
+
+| Check | Result |
+|---|---|
+| `npm run typecheck` | clean |
+| `npx vitest run tests/routes/recommendations-page-reads-fresh.test.ts` | 9/9 pass |
+| `npx vitest run tests/sprint6a1-phase12-wiring.test.ts` | 22/22 pass |
+| `npx vitest run src/app/(shell)/recommendations/accept-fanout.test.ts` | 14/14 pass |
+| `npx vitest run` (full suite) | **2107 passed / 4 failed** — baseline preserved (same 4 pre-existing); +1 from new unscoped-form invariant |
+
+### Phase 7.5b Commit 3 safety
+
+YES. Commit 2 was scoped strictly to `/recommendations` page + actions. Commit 3 (`loadLiveRecommendationQueue` orchestration: convert `getRepository().getPages()` and `getPageSnapshots()` at [load-queue.ts:193,200](src/domains/recommendations/load-queue.ts:193) to `forTenant`). The orchestration already takes `tenantId` (Phase 7.3); just thread it to two getter calls. Independent of any other surface.
+
+---
+
+## 2026-04-25 — Sprint 7 Phase 7.5b Commit 1C — Supabase TenantRepository pushdown filters
+
+Replaced the in-memory `buildTenantRepo` filter on the Supabase backend with explicit per-method `.eq("tenant_id", tenantId)` queries. Postgres now serves tenant-scoped reads using the indexes widened in Phase 7.5a + the PK widened in Commit 1B; cross-tenant rows are never fetched and discarded in JS. File backend is untouched — `buildTenantRepo` still wraps it (in-memory filter is correct + cheap on file).
+
+### Files changed
+
+| File | Change |
+|---|---|
+| [src/lib/persistence/repositories/supabase-backend.ts](src/lib/persistence/repositories/supabase-backend.ts) | Added `selectScoped<T>(table, tenantId)` and `queryAllPagedScoped<T>(table, tenantId)` helpers (siblings of existing `query` and `queryAllPaged`). Rewrote `forTenant(tenantId)` to return an explicit object literal where every Tier A method either (a) calls one of the scoped helpers or (b) carries `.eq("tenant_id", tenantId)` directly (page_snapshots, scan_findings, recommendation_responses — methods that need ordering/dedupe/row-mapping inline). Removed unused `buildTenantRepo` import. |
+| [tests/persistence/tenant-repository-pushdown.test.ts](tests/persistence/tenant-repository-pushdown.test.ts) | NEW — 18 tests: 1 static source-scan invariant + 15 nonexistent-tenant-returns-empty + 1 ritz-sanity + 1 cross-tenant rec_id collision. |
+
+### Methods converted (15)
+
+| Method | Pattern | Notes |
+|---|---|---|
+| `getImportRuns` | `selectScoped<ImportRun>("import_runs", tenantId)` | |
+| `getChangelogEntries` | `selectScoped<ChangelogEntry>("changelog_entries", tenantId)` | |
+| `getGuardrailAlerts` | `selectScoped<GuardrailAlert>("guardrail_alerts", tenantId)` | |
+| `getObservationRuns` | `selectScoped<ObservationRun>("observation_runs", tenantId)` | |
+| `getUrlChangeOutcomes` | `selectScoped<UrlChangeOutcome>("url_change_outcomes", tenantId)` | |
+| `getRecommendedEdits` | `selectScoped("recommended_edits", tenantId)` + cast | |
+| `getResults` | `queryAllPagedScoped<Result>("results", tenantId)` | paged (1719 rows) |
+| `getPages` | `queryAllPagedScoped<PageEntity>("pages", tenantId)` | paged (5929 rows) |
+| `getPageElementInventory` | `queryAllPagedScoped<...>("page_element_inventory", tenantId)` | paged (4312 rows) |
+| `getPromptAnswerObservations` | `queryAllPagedScoped<...>("prompt_answer_observations", tenantId)` | paged (11,996+ rows) |
+| `getDailyMetricSnapshots` | `queryAllPagedScoped<...>("daily_metric_snapshots", tenantId)` | paged (24,085+ rows) |
+| `getPageSnapshots` | inline `.select("*").eq("tenant_id", tenantId).order(...)` + dedupe | needs `fetched_at DESC` ordering + dedupe by `page_id` |
+| `getScanFindings` | inline `.select("*").eq("tenant_id", tenantId)` + `mapRowToEntity` | needs camelCase mapping |
+| `getPendingScanFindings` | inline + `.eq("status","pending").order(...)` + `mapRowToEntity` | adds status filter + priority sort |
+| `getRecommendationResponses` | inline + custom shape mapping | `rec_id → recId` etc. |
+
+### Verification
+
+| Check | Result |
+|---|---|
+| `npm run typecheck` | clean |
+| `npx vitest run tests/persistence/tenant-repository-pushdown.test.ts` | **18/18 pass** |
+| `npx vitest run` (full suite) | **2106 passed / 4 failed** — baseline preserved (same 4 pre-existing); +18 from new pushdown tests |
+| Static source-scan invariant | every `.select(` inside `forTenant` paired with `.eq("tenant_id", tenantId)` (or via scoped helper) |
+| Cross-tenant rec_id collision (live test) | inserts succeed under both tenants; reads return only caller's tenant — proves Phase 7.5a unique-index widen + Commit 1C pushdown work end-to-end |
+
+### Phase 7.5b Commit 2 safety
+
+YES. Commit 1C was Supabase-backend-only. Commit 2 (`/recommendations` conversion) is purely call-site: replace `getRepository().getRecommendationResponses()` and `getRepository().getRecommendedEdits()` with `getRepository().forTenant(tenantId).getX()`. The pushdown infra is now ready to receive those calls.
+
+---
+
+## 2026-04-25 — Sprint 7 Phase 7.5b Commit 1B — recommendation_responses PK widen
+
+Schema-only commit: widened the `recommendation_responses` primary key from `(rec_id)` to `(tenant_id, rec_id)` so cross-tenant `rec_id` collision becomes possible (e.g., both tenants accept `create_cluster_page:geo:Los Altos` without one INSERT failing). Necessary before any beta tester onboards.
+
+### Pre-flight (all gates passed)
+
+| Gate | Result |
+|---|---|
+| FK dependencies referencing `recommendation_responses` | **0 rows** — no other table references this PK |
+| Duplicate `(tenant_id, rec_id)` groups (`HAVING COUNT > 1`) | **0 rows** — no PK violation post-widen |
+| Current PK | `recommendation_responses_pkey UNIQUE (rec_id)` |
+| Other constraints (preserved through migration) | `recommendation_responses_tenant_id_nonempty_chk` (CHECK from Phase 7.2) |
+| Other indexes (preserved) | `idx_recommendation_responses_status (status)`, `idx_recommendation_responses_tenant (tenant_id)` |
+
+### Migration applied
+
+`sprint7_phase5b_1b_recommendation_responses_widen_pk`:
+```sql
+ALTER TABLE recommendation_responses DROP CONSTRAINT recommendation_responses_pkey;
+ALTER TABLE recommendation_responses ADD CONSTRAINT recommendation_responses_pkey
+  PRIMARY KEY (tenant_id, rec_id);
+```
+
+**Rollback SQL** (also embedded in the migration comment for audit trail):
+```sql
+ALTER TABLE recommendation_responses DROP CONSTRAINT recommendation_responses_pkey;
+ALTER TABLE recommendation_responses ADD CONSTRAINT recommendation_responses_pkey
+  PRIMARY KEY (rec_id);
+```
+(Reversibility verified by the duplicate check — no `(rec_id)` collisions exist today, so reverting is safe.)
+
+### Post-migration state
+
+| Check | Result |
+|---|---|
+| New PK | `PRIMARY KEY (tenant_id, rec_id)` ✓ |
+| Row count | 6 (unchanged from pre) |
+| Distinct tenants | 1 (`tenant-ritz-founder`) |
+| Distinct rec_ids | 6 (no duplicates) |
+
+No app code changes. No repository changes. No file changes.
+
+### Verification
+
+| Check | Result |
+|---|---|
+| `npm run typecheck` | clean |
+| `npx vitest run` | **2088 passed / 4 failed** — baseline preserved exactly |
+
+The `idx_recommendation_responses_tenant` standalone index on `(tenant_id)` becomes somewhat redundant with the new PK (whose leading column is also `tenant_id`), but it's still useful for `WHERE tenant_id = ?` lookups without `rec_id` predicate. Keeping it for now; review separately if Postgres index bloat becomes a concern (5 rows today, immaterial).
+
+### Phase 7.5b Commit 1C safety
+
+YES. Commit 1B was schema-only, no code change. Commit 1C (Supabase backend push-down filters) is purely TypeScript — replaces `buildTenantRepo`'s in-memory filter with per-method `.eq("tenant_id", tenantId)` queries plus a `selectScoped` / `queryAllPagedScoped` helper pair. The PK widen lets Postgres pick the tenant-scoped index when the upcoming push-down queries fire.
+
+---
+
+## 2026-04-25 — Sprint 7 Phase 7.5b Commit 1A — imported-results.json backfill
+
+Single-purpose commit: backfill `.data/imported-results.json` empty-string `tenant_id` to ritz, completing the file-backend tenant scoping. **`tests/tenants/isolation.test.ts` is now fully green (18/18). New baseline: 4 failed / 2088 passed.**
+
+### Files changed
+
+| File | Change |
+|---|---|
+| [scripts/stamp-data-files-sprint7-phase5a.ts](scripts/stamp-data-files-sprint7-phase5a.ts) | Added `imported-results.json` to `FILES` array. Existing classify/stamp logic already handled empty-string (`r.tenant_id === ""` branch) — extension was 1 line. |
+
+No app-code changes. No SQL migrations. No repository code changes.
+
+### Stamping result (pre / post)
+
+| File | Total | Pre ritz | Post ritz | Stamped |
+|---|---|---|---|---|
+| pages.json | 6471 | 6471 | 6471 | 0 (idempotent no-op from 7.5a) |
+| observation-runs.json | 50 | 47 | 50 | +3 (rows added since 7.5a stamping; idempotent caught them) |
+| change-outcomes.json | 388 | 388 | 388 | 0 (idempotent) |
+| **imported-results.json** | **1719** | **0** | **1719** | **+1719** |
+
+Same shape as Phase 7.2's Supabase `results` table backfill, applied to file. No data semantics change in single-tenant production — all rows already implicitly belonged to ritz.
+
+### Tests improved
+
+| Test | Pre 1A | Post 1A |
+|---|---|---|
+| `getResultsForTenant returns only founder data` | ❌ FAIL | ✅ PASS |
+| **`tests/tenants/isolation.test.ts` total** | **14/18** (3 flipped in 7.5a; 1 still red) | **18/18** all green |
+
+### Verification
+
+| Check | Result |
+|---|---|
+| `npm run typecheck` | clean |
+| `npx vitest run` | **2088 passed / 4 failed** — target hit exactly |
+| Remaining failures: 3 local-presence date fixtures + 1 finding-actions timestamp | All pre-existing, unrelated to multi-tenant |
+
+### Phase 7.5b Commit 1B safety
+
+YES. 1A was data-only (no code, no schema). 1B (recommendation_responses PK widen) is independent — pre-flight FK dep query first, then the migration. App code unaffected.
+
+---
+
+## 2026-04-25 — Sprint 7 Phase 7.5a — repository audit + interface skeleton + index migrations + .data stamping
+
+Foundation work for the tenant-bound repository, no app-code call sites converted yet. **Baseline improved from 8 failing to 5 failing** — 3 file-backed isolation tests flipped green via the `.data` stamping.
+
+### Method classification (from per-table audit)
+
+**Tier A — Supabase has `tenant_id` (filter via `.eq` in 7.5b):**
+`pages`, `page_snapshots`, `page_element_inventory`, `recommended_edits`, `recommendation_responses`, `changelog_entries`, `scan_findings`, `guardrail_alerts`, `observation_runs`, `results`, `import_runs`, `change_outcomes`, `daily_metric_snapshots`, `prompt_answer_observations`, `url_change_outcomes`. **15 methods.**
+
+**Tier C — global / no `tenant_id` column (read unscoped):**
+`opportunities`, `competitors`, `candidate_links`, `change_contracts`, `page_issues`, `tracked_entities`, `tracked_prompts`, `answer_intelligence_index`, `citation_evidence_index`. **9 methods.** Decision deferred — adding `tenant_id` to these is a separate phase decision (some are inherently global, e.g. `citation_evidence_index`; others may need scoping during multi-tenant onboarding but aren't blocking dry-run).
+
+**Tier D — file-only (no Supabase table):**
+~14 methods reading `.data/*.json` artifacts (`PageSnapshotDiff`, `RenderCheckResult`, `RolloutExecution`, etc.). Phase 7.8's `.data/` per-tenant migration will partition these by tenant.
+
+### Index changes applied (2)
+
+| Migration | Before | After |
+|---|---|---|
+| `sprint7_phase5a_recommended_edits_widen_unique` | `ux_re_rec_action_element` UNIQUE on `(rec_id, action_type, target_element_key) NULLS NOT DISTINCT` | `ux_re_tenant_rec_action_element` UNIQUE on `(tenant_id, rec_id, action_type, target_element_key) NULLS NOT DISTINCT` |
+| `sprint7_phase5a_page_element_inventory_widen_unique` | `ux_pei_snapshot_element_key` UNIQUE on `(source_snapshot_id, element_key)` | `ux_pei_tenant_snapshot_element_key` UNIQUE on `(tenant_id, source_snapshot_id, element_key)` |
+
+Pre-flight cross-tenant collision check returned 0 rows on both. Reversible (drop + recreate the original).
+
+**Deferred — `recommendation_responses` PK change:** today's PK is `(rec_id)` alone. Widening to `(tenant_id, rec_id)` is necessary before any beta tester onboards (their first rec_id collision with ritz would fail to insert), but the change requires an FK-dependency check that's safer in isolation. Plan: apply as a standalone migration in 7.5b's pre-flight.
+
+**Schema invariant test updates (2 occurrences):** [tests/migrations/sprint6a-1-schema.test.ts:436,453,493,501](tests/migrations/sprint6a-1-schema.test.ts:436) — `onConflict` keys updated to include `tenant_id`. Production write paths use `onConflict: "id"` (the row PK), unchanged by the widen — verified via grep on [src/lib/persistence/dual-write.ts](src/lib/persistence/dual-write.ts) (5 onConflict references, all `"id"` except `"observation_id"`).
+
+### `.data` stamping (idempotent + atomic)
+
+Script: [scripts/stamp-data-files-sprint7-phase5a.ts](scripts/stamp-data-files-sprint7-phase5a.ts) — reads file, classifies rows, writes temp + rename, verifies post-state.
+
+| File | Total | Pre stamp `tenant_id=ritz` | Post stamp `tenant_id=ritz` | Stamped |
+|---|---|---|---|---|
+| pages.json | 6471 | 0 | 6471 | +6471 |
+| observation-runs.json | 50 | 0 | 50 | +50 |
+| change-outcomes.json | 388 | 0 | 388 | +388 |
+| **TOTAL** | **6909** | **0** | **6909** | **+6909** |
+
+**Out of scope (per directive):** `imported-results.json` (1719 rows with empty-string `tenant_id` — Phase 7.2-shape backfill, not field-add stamping). This is why `getResultsForTenant` stays in the failing baseline.
+
+### Interface skeleton (non-breaking)
+
+| File | Change |
+|---|---|
+| [src/lib/persistence/repositories/types.ts](src/lib/persistence/repositories/types.ts) | Added `forTenant(tenantId): TenantRepository` to `SeedDataRepository`. Defined new `TenantRepository` interface with the 15 Tier A methods. |
+| [src/lib/persistence/repositories/tenant-repo.ts](src/lib/persistence/repositories/tenant-repo.ts) | NEW — `buildTenantRepo(base, tenantId)` helper. In-memory filter via `r.tenant_id === tenantId` for both backends in 7.5a. |
+| [src/lib/persistence/repositories/file-backend.ts](src/lib/persistence/repositories/file-backend.ts) | Added `forTenant` method delegating to `buildTenantRepo`. |
+| [src/lib/persistence/repositories/supabase-backend.ts](src/lib/persistence/repositories/supabase-backend.ts) | Same. Phase 7.5b will switch to push-down `.eq("tenant_id", tenantId)` for index-friendly Supabase queries. |
+
+Existing call sites all keep working — `getRepository().getX()` returns the same unscoped data as before. Type-segregation (forcing every shell read through `forTenant`) is deferred to a later commit after 7.5b/c convert call sites.
+
+### Tests improved
+
+| Test | Pre 7.5a | Post 7.5a |
+|---|---|---|
+| `getPagesForTenant returns only founder data` | ❌ FAIL | ✅ PASS |
+| `getOutcomesForTenant returns only founder data` | ❌ FAIL | ✅ PASS |
+| `getObservationRunsForTenant returns only founder data` | ❌ FAIL | ✅ PASS |
+| `getResultsForTenant returns only founder data` | ❌ FAIL | ❌ FAIL (out of scope — needs `imported-results.json` backfill) |
+
+### Verification
+
+| Check | Result |
+|---|---|
+| `npm run typecheck` | clean |
+| `npx vitest run` | **2087 passed / 5 failed** — baseline improved from 8 to 5 |
+| Cross-tenant rec_id/action/element collision check | 0 rows |
+| Cross-tenant snapshot_id/element_key collision check | 0 rows |
+
+### New baseline (5 failures)
+
+1. `tests/lib/local-presence.test.ts:108` — Google connector last_synced_at fixture (date-fixture, pre-existing, unrelated)
+2. `tests/lib/local-presence.test.ts:133` — Yelp/Google later sync fixture (date-fixture, pre-existing, unrelated)
+3. `tests/lib/local-presence.test.ts:157` — `lastSync.manual` test isolation leak (pre-existing, unrelated)
+4. `tests/tenants/isolation.test.ts:70` — `getResultsForTenant` (file-side empty-string backfill needed; out of 7.5a scope per directive)
+5. `src/app/(shell)/finding-actions.test.ts:207` — timestamp fixture mismatch (date-fixture, pre-existing, unrelated)
+
+### Phase 7.5b safety + plan
+
+**SAFE.** Interface is additive (no method removed). Index migrations are reversible. `.data` stamping is idempotent. Schema invariant tests updated.
+
+**Phase 7.5b — high-traffic read-path conversions (in this order):**
+
+1. **`/recommendations` page render** — [src/app/(shell)/recommendations/page.tsx:77,91](src/app/(shell)/recommendations/page.tsx:77) (`getRecommendationResponses`, `getRecommendedEdits`) and [src/app/(shell)/recommendations/actions.ts:398](src/app/(shell)/recommendations/actions.ts:398) (`getRecommendedEdits`).
+2. **`/recommendations` orchestration** — [src/domains/recommendations/load-queue.ts:193,200](src/domains/recommendations/load-queue.ts:193) (`getPages`, `getPageSnapshots`). The function already takes `tenantId`; just thread it through.
+3. **`/today` data builder** — [src/app/(shell)/today-data.ts:187,356,403](src/app/(shell)/today-data.ts:187) (`getRecommendationResponses` + repo for inventory).
+4. **`/changes` family** — [src/app/(shell)/changes/page.tsx:97](src/app/(shell)/changes/page.tsx:97), [src/app/(shell)/changes/dedupe/page.tsx:17](src/app/(shell)/changes/dedupe/page.tsx:17), [src/app/(shell)/changes/[id]/page.tsx:121,180](src/app/(shell)/changes/%5Bid%5D/page.tsx:121).
+5. **`/pages` family** — [src/app/(shell)/pages/page.tsx:136](src/app/(shell)/pages/page.tsx:136), [src/app/(shell)/pages/verify-action.ts:91,111](src/app/(shell)/pages/verify-action.ts:91).
+6. **Pre-flight migration:** widen `recommendation_responses` PK from `(rec_id)` to `(tenant_id, rec_id)` after FK-dependency check.
+7. **Switch Supabase backend's tenant-scoped methods to push-down filters** (`.eq("tenant_id", tenantId)` on each Tier A getter; new `queryAllPagedScoped` helper for paged reads).
+
+Pattern per call site:
+```ts
+const tenantId = await currentTenantId();
+const repo = getRepository().forTenant(tenantId);
+const x = await repo.getPages();  // filtered
+```
+
+Server actions follow the same pattern. Hardening test (deferred to a later 7.5 sub-phase): source-scan invariant asserting no `src/app/(shell)/...` file uses `getRepository().getPages|getX(`.
+
+---
+
+## 2026-04-25 — Sprint 7 Phase 7.4 — middleware tenant injection
+
+Extended [src/lib/auth/supabase-middleware.ts](src/lib/auth/supabase-middleware.ts) to look up `tenant_members` for every authenticated request and inject `x-beacon-tenant` into the forwarded request headers, completing the header-side of the Phase 7.3 resolver contract. Inbound `x-beacon-tenant` is stripped before any code reads request headers — clients cannot spoof tenant identity.
+
+### Middleware behavior (after Phase 7.4)
+
+| Branch | Behavior |
+|---|---|
+| `BEACON_AUTH_DISABLED=1` | Full bypass: `NextResponse.next({ request })`, no tenant lookup, no redirect. (Local dev / CLI escape hatch unchanged.) |
+| Public path (`/login`, `/auth/*`, `/_next/*`, `/favicon.ico`, exact `/api/poll/run`) | Pass through unchanged. `/api/poll/run` machine-auth allowlist preserved. |
+| Unauthenticated + private path | Redirect to `/login?next=<original-path>`. Phase 2 auth gate preserved. |
+| Authenticated + 1 tenant_members row | `requestHeaders.set("x-beacon-tenant", tenant_id)`; rebuild response with the new headers + preserved `Set-Cookie` headers via `response.headers.getSetCookie()` (raw header copy keeps `httpOnly`/`secure`/`sameSite` options). |
+| Authenticated + 0 tenant_members rows | Redirect to `/login?error=no_tenant`. Fail closed. |
+| Authenticated + 2+ tenant_members rows | Redirect to `/login?error=multiple_tenants`. Schema has no primary indicator yet (would need `is_primary` boolean + UNIQUE constraint); deferred until a real multi-tenancy customer needs it. |
+| Authenticated + transient query error or thrown exception | Fall through (no header injected, no redirect). RSC resolver uses `BEACON_TENANT_ID` env fallback. Supabase blip doesn't 500 every request. |
+| Inbound `x-beacon-tenant` header | Always stripped via `requestHeaders.delete(...)` before lookup. Strip-then-set discipline. |
+
+### Files changed
+
+| File | Change |
+|---|---|
+| [src/lib/auth/supabase-middleware.ts](src/lib/auth/supabase-middleware.ts) | Added strip + lookup + inject + rebuild-with-cookies. ~50 LOC. |
+| [tests/middleware/tenant-injection.test.ts](tests/middleware/tenant-injection.test.ts) | NEW — 9 tests. |
+
+### Tests added (9)
+
+1. Inbound `x-beacon-tenant` is stripped (smoke under `BEACON_AUTH_DISABLED=1`).
+2. Authenticated + 1 tenant → header injected, no redirect, status 200.
+3. Authenticated + 0 tenants → redirect to `/login?error=no_tenant`.
+4. Authenticated + 2+ tenants → redirect to `/login?error=multiple_tenants`.
+5. Unauthenticated + private path → redirect to `/login?next=...` (existing behavior).
+6. `/api/poll/run` allowlist preserved (no redirect even unauthenticated).
+7. `BEACON_AUTH_DISABLED=1` bypasses tenant logic entirely (no redirect, no injection).
+8. Transient `tenant_members` query error → fall through, no redirect, no header (resolver env fallback).
+9. Tenant query throws (edge-runtime fetch failure) → fall through.
+
+The "header takes precedence over env" assertion is already covered by Phase 7.3's `tests/lib/tenant-context.test.ts:60` (sets both, asserts header wins).
+
+### Verification
+
+| Check | Result |
+|---|---|
+| `npm run typecheck` | clean (no output, exit 0) |
+| `npx vitest run tests/middleware/tenant-injection.test.ts` | 9/9 pass |
+| `npx vitest run` (full suite) | **2084 passed / 8 failed** — baseline preserved (same 8 pre-existing); +9 middleware tests |
+
+### Phase 7.5 safety
+
+YES. Resolver contract is now end-to-end: middleware sets header → RSC reads header (via `currentTenantId()` from Phase 7.3). Phase 7.5 (tenant-bound repository — `getRepository().forTenant(tenantId)`) is the consumer of this contract; it can lift any read path to take an explicit tenant param without any new infrastructure work.
+
+---
+
+## 2026-04-25 — Sprint 7 Phase 7.3 — tenant resolver unification
+
+Rewrote `currentTenantId()` to async + `React.cache`-d + header-aware. Dropped silent default to ritz; resolver now throws when neither `x-beacon-tenant` header nor `BEACON_TENANT_ID` env is set. Removed duplicate `BEACON_TENANT` slug env var. Renamed `customerId` → `tenantId` through the adjudicator + evidence-packet path so the multi-tenant boundary is consistently named.
+
+### Files changed (10)
+
+| File | Change |
+|---|---|
+| [src/lib/tenant-context.ts](src/lib/tenant-context.ts) | Rewrite: `currentTenantId()` and `currentTenant()` are now `cache`-wrapped async functions. Added `currentTenantSlug()`. Resolver order: header → env → throw. |
+| [src/lib/tenant.ts](src/lib/tenant.ts) | Removed `getActiveTenantSlug()` + `BEACON_TENANT` env. `getDataDir(slug?)` keeps explicit-slug param; defaults to root `.data/` if no slug. |
+| [src/domains/recommendations/load-queue.ts](src/domains/recommendations/load-queue.ts) | `LoadLiveRecommendationQueueOptions.tenantId: string` now required (was `customerId?: string`). Dropped `?? "ritz"` default. |
+| [src/domains/recommendations/evidence-packet.ts](src/domains/recommendations/evidence-packet.ts) | `EvidencePacket.customerId` and `BuildEvidencePacketArgs.customerId` renamed to `tenantId` (cascades through `AdjudicateRecommendationArgs = Omit<BuildEvidencePacketArgs, "now">`). |
+| [src/app/(shell)/pages/verify-action.ts](src/app/(shell)/pages/verify-action.ts) | `currentTenantId()` → `await currentTenantId()`. |
+| [src/app/(shell)/settings/prompts/actions.ts](src/app/(shell)/settings/prompts/actions.ts) | Same. |
+| [src/app/(shell)/recommendations/page.tsx](src/app/(shell)/recommendations/page.tsx) | Imports `currentTenantId`; passes `{ tenantId }` to `loadLiveRecommendationQueue`. |
+| [scripts/build-edits-for-queue.ts](scripts/build-edits-for-queue.ts) | Passes `{ tenantId }` (already had the value via env). |
+| [tests/routes/canonical-store-fresh.test.ts](tests/routes/canonical-store-fresh.test.ts) | Source-scan regex relaxed: `/loadLiveRecommendationQueue\(\s*\)/` → `/loadLiveRecommendationQueue\(/` (now called with args). |
+| [tests/domains/recommendations/adjudicate.test.ts](tests/domains/recommendations/adjudicate.test.ts) + [adjudicate-cache-only.test.ts](tests/domains/recommendations/adjudicate-cache-only.test.ts) | 8 occurrences of `customerId: "ritz"` → `tenantId: "ritz"`. |
+| [vitest.config.ts](vitest.config.ts) | `env: { BEACON_TENANT_ID: "tenant-ritz-founder" }` block added. |
+| [tests/lib/tenant-context.test.ts](tests/lib/tenant-context.test.ts) | NEW — 4 tests (header / env / throw / cache-smoke). |
+| `.env.local` (gitignored) | Operator-managed; added `BEACON_TENANT_ID=tenant-ritz-founder`. |
+| [.env.example](.env.example) | Documents `BEACON_TENANT_ID` as REQUIRED for Sprint 7. |
+
+### Pre-flight env gate
+
+| Check | Result |
+|---|---|
+| Vercel production env: `BEACON_TENANT_ID=tenant-ritz-founder` | Operator-confirmed ("i added it so continue") |
+| Vercel preview env: same | Operator-confirmed |
+| `.env.local` has `BEACON_TENANT_ID` | Was missing pre-flight; added inline (gitignored) |
+| `vitest.config.ts` env block | Added |
+| `.env.example` documents requirement | Added |
+
+### Verification
+
+- `npm run typecheck`: clean (no output, exit 0).
+- `npx vitest run tests/lib/tenant-context.test.ts`: **4/4 pass** — header path, env fallback, throw path, cache smoke.
+- `npx vitest run` (full suite): **2075 passed / 8 failed** — baseline preserved (same 8 pre-existing); +4 from new tenant-context tests.
+
+### Phase 7.4 readiness
+
+YES — middleware can now plumb `request.headers.set("x-beacon-tenant", tenantId)` after `getUser()`, and the resolver's existing header-read path picks it up. Production keeps working until 7.4 ships via the env fallback (operator already set it in Vercel env).
+
+---
+
+## 2026-04-25 — Sprint 7 Phase 7.2 — legacy empty-string backfill + CHECK constraints
+
+Five Supabase migrations applied to project `jdegznovgysxyweknewh`. **2,227 rows backfilled. Zero deletes.** Plan deviation rationale below.
+
+### Deviation from plan: zero deletes (operator-approved)
+
+The original plan proposed `DELETE FROM recommendation_responses WHERE tenant_id = '' OR tenant_id IS NULL` for the 4 empty-string rows on the basis that "they predate any product semantics; never surfaced." Pre-flight contradicted that:
+
+| Row | responded_at | Status | Referencing data |
+|---|---|---|---|
+| `schema_missing_for_page_type-/available-homes-obs-1776550666639` | 2026-04-19 | accepted | 0 changelog refs |
+| `schema_missing_for_page_type-/available-homes-obs-1776707470145` | 2026-04-21 | accepted | 0 changelog refs |
+| `create_cluster_page:topic:Shield: Custom Home Builder Bay Area` | 2026-04-24 | dismissed | 0 changelog refs |
+| `create_cluster_page:geo:Los Altos` | 2026-04-25 19:37 | accepted | **5 changelog_entries** (P13b Accept fan-out, documented in handoff) |
+
+All 4 are recent product activity from this week, not pre-Sprint legacy. Los Altos in particular is the Phase 13b Accept verification — deletion would have orphaned 5 changelog entries with `source_rec_id = 'create_cluster_page:geo:Los Altos'`. Operator chose **Option A: backfill all 4 to ritz** (no deletes) preserving referential integrity.
+
+### Migrations applied
+
+| Migration | Rows updated | CHECK added |
+|---|---|---|
+| `sprint7_phase2_results_tenant_id_backfill` | 1719 (all rows) | `results_tenant_id_nonempty_chk` |
+| `sprint7_phase2_import_runs_tenant_id_backfill` | 4 (all rows) | `import_runs_tenant_id_nonempty_chk` |
+| `sprint7_phase2_changelog_entries_tenant_id_backfill` | 331 (5 ritz preserved) | `changelog_entries_tenant_id_nonempty_chk` |
+| `sprint7_phase2_scan_findings_tenant_id_backfill` | 169 (33 ritz preserved) | `scan_findings_tenant_id_nonempty_chk` |
+| `sprint7_phase2_recommendation_responses_tenant_id_backfill` | 4 (2 ritz preserved) | `recommendation_responses_tenant_id_nonempty_chk` |
+
+CHECK shape uniformly: `CHECK (tenant_id IS NOT NULL AND tenant_id <> '')`. Future writes that pass `''` or `NULL` fail with constraint violation — leak prevention.
+
+### Post-migration verification (Supabase)
+
+| Table | Total | bad (NULL/empty) | ritz |
+|---|---|---|---|
+| results | 1719 | 0 | 1719 |
+| import_runs | 4 | 0 | 4 |
+| changelog_entries | 336 | 0 | 336 |
+| scan_findings | 202 | 0 | 202 |
+| recommendation_responses | 6 | 0 | 6 |
+
+All 5 CHECK constraints visible in `pg_constraint`. No row leaked to a different tenant.
+
+### Test verification
+
+- `npm run typecheck`: clean (no output, exit 0).
+- `npx vitest run`: **2071 passed / 8 failed** — baseline preserved, no regression.
+
+### Phase 7.3 safety
+
+YES. Phase 7.2 is data + constraints only — no schema changes that ripple to application code. Phase 7.3 (resolver unification: rewrite `currentTenantId()` async + cached + header-aware, drop `BEACON_TENANT` slug env var) operates on TypeScript only and is independent.
+
+---
+
+## 2026-04-25 — Sprint 7 Phase 7.1a — typecheck hygiene
+
+Cleaned up 5 pre-existing typecheck errors in [tests/domains/product/recommendation-response-undo.test.ts](tests/domains/product/recommendation-response-undo.test.ts) (live in commit `ae21f99` from before this session; the handoff didn't flag them). All 5 are mock-typing artifacts — **no production code change needed; no real bug**.
+
+Two edits to the `vi.hoisted` block:
+1. Deleted dead `eqMock` (defined but never returned from `vi.hoisted` and never referenced; the chained `delete().eq()` mock at lines 30–36 builds its own inline). Its definition `vi.fn(() => ({ then: deleteMock, ...deleteMock() }))` triggered TS2783 "'then' is specified more than once" because spreading an awaited Promise re-introduces `then` on the object literal.
+2. Changed `upsertMock` and `deleteMock` from `vi.fn(async () => ({ error: null }))` (zero-arg signature) to `vi.fn(async (..._args: unknown[]) => ({ error: null }))`. The zero-arg inference made callers passing `(rows, opts)` and `(col, val)` fail with TS2554 "Expected 0 arguments, but got 2", and downstream made `mock.calls` typed as `[][]` so `call[0]` / `call[1]` failed with TS2493. Rest-arg signature fixes all four downstream errors at once.
+
+**Verification:**
+- `npm run typecheck`: **clean** (no output, exit 0).
+- `npx vitest run tests/domains/product/recommendation-response-undo.test.ts`: 7/7 pass — the Sprint 6A.1.16 test logic (Accept upserts / Defer upserts / Dismiss upserts as dismissed / Undo removes from memory / Undo issues Supabase DELETE / Undo handles cross-lambda case / Undo no-op when DUAL_WRITE off) still works as designed.
+- `npx vitest run` (full suite): **2071 passed / 8 failed** — baseline preserved, no regression.
+
+**Conclusion:** Mock typing only. Production code (`recommendation-response-store.ts`, `dual-write.ts`) unchanged. Phase 7.2 still safe.
+
+---
+
+## 2026-04-25 — Sprint 7 Phase 7.0 + 7.1 — baseline triage + schema gap fix
+
+### Phase 7.0 — Baseline failure triage (read-only)
+
+Ran full vitest suite at commit `ae21f99`. Confirmed 8 baseline failures, exactly matching the handoff:
+
+- **3 local-presence date fixtures** ([tests/lib/local-presence.test.ts:108, :133, :157](tests/lib/local-presence.test.ts:108)) — pre-existing, time-sensitive fixtures and test-isolation leak from real `.data/import-runs.json`. NOT tenant-related. Document as baseline.
+- **4 tenant-isolation tests** ([tests/tenants/isolation.test.ts:70, :94, :102, :110](tests/tenants/isolation.test.ts:70)) — `getResultsForTenant`, `getPagesForTenant`, `getOutcomesForTenant`, `getObservationRunsForTenant` all return length 0. Pre-existing per handoff. **DIAGNOSTIC — these prove Sprint 7's exact schema gaps.** Phase 7.0 surfaced one gap the audit had missed: `change_outcomes` had no `tenant_id` column at all (added to Phase 7.1 scope).
+- **1 finding-actions date fixture** ([src/app/(shell)/finding-actions.test.ts:207](src/app/(shell)/finding-actions.test.ts:207)) — pre-existing timestamp fixture mismatch. NOT tenant-related. Document as baseline.
+
+**Discovery (also pre-existing, not introduced):** 5 typecheck errors in [tests/domains/product/recommendation-response-undo.test.ts](tests/domains/product/recommendation-response-undo.test.ts) lines 26/29/32/124 — mock signature mismatches. Live in commit `ae21f99` from before this session. Not flagged by handoff but not Phase 7.x regression. Defer to a separate cleanup.
+
+### Phase 7.1 — Schema gap fix (production Supabase)
+
+Six migrations applied to project `jdegznovgysxyweknewh`:
+
+| Migration | Result |
+|---|---|
+| `sprint7_phase1_create_tenants_table` | New `tenants` table (17 columns, 6 CHECK constraints, mirrors `BeaconTenant` type). 1 row seeded: Ritz. |
+| `sprint7_phase1_create_tenant_members_table` | New `tenant_members(user_id UUID, tenant_id TEXT, role, created_at)` with FKs to `auth.users` + `tenants`. 1 row seeded: operator (`aminarmeen@gmail.com`) → ritz, `role=owner`. Auth.users had exactly 1 user → seed safe + unambiguous. |
+| `sprint7_phase1_pages_tenant_id` | ADD + backfill (5929 rows → ritz) + NOT NULL + 2 indexes (`tenant_id`, `(tenant_id, url)`). |
+| `sprint7_phase1_guardrail_alerts_tenant_id` | ADD + backfill (5 rows → ritz) + NOT NULL + index. |
+| `sprint7_phase1_observation_runs_tenant_id` | ADD + backfill (65 rows → ritz) + NOT NULL + composite index `(tenant_id, started_at DESC)`. |
+| `sprint7_phase1_change_outcomes_tenant_id` | ADD + backfill (20 rows → ritz) + NOT NULL + index. (Phase 7.0 discovery.) |
+
+**Post-migration verification (Supabase):**
+- All 4 data tables: `tenant_id IS NULL` count = **0**.
+- All 4 data tables: 100% rows = `tenant-ritz-founder`.
+- `tenants`: 1 row (Ritz). `tenant_members`: 1 row (operator → ritz).
+- All NOT NULL constraints in place.
+- 8 indexes created (data tables + `tenant_members` + `tenants` PK/UNIQUE).
+
+**Test verification:**
+- `npx vitest run`: **8 failed / 2071 passed** — exactly matches baseline. **No regression.**
+- The 4 tenant-isolation tests **did not flip** because [src/lib/tenant-data.ts:51-110](src/lib/tenant-data.ts:51) `getXForTenant` adapters read from `.data/*.json` files (file-backed, not Supabase-backed). Phase 7.1 only changed Supabase. The corresponding `.data/pages.json`, `.data/change-outcomes.json`, `.data/observation-runs.json` rows still lack `tenant_id`. To flip the tests, either the `.data` rows need stamping (file-level backfill, distinct from Phase 7.2's empty-string cleanup) or tests need to read Supabase.
+- `npm run typecheck`: 5 pre-existing errors (not introduced by Phase 7.1).
+
+**Phase 7.2 safety:** YES. Schema work is clean, FKs only on `tenant_members`, no app code touched, no read paths altered. Phase 7.2 (legacy empty-string backfill) operates only on rows + adds CHECK constraints — does not interact with the new columns.
+
+---
+
 ## 2026-04-25 — Sprint 6A.1.16 — cleanup before Sprint 7 (response-deletion + page_snapshots schema drift)
 
 Two surgical pre-Sprint-7 fixes. Both isolated, additive, fully tested.

@@ -19,7 +19,17 @@ import {
 } from "@/lib/seed-data.server";
 import { citationEvidenceIndex } from "@/domains/pages/citation-evidence-store";
 import { getPageSnapshots } from "@/domains/pages/snapshot-store";
-import { allPages } from "@/domains/pages/page-store";
+// Sprint 7 Phase 7.5c/3 (2026-04-25): page-store no longer exports a
+// module-level `allPages` const (multi-tenant correctness). The Profound
+// import pipeline (`getAdapters()` singleton at src/lib/data-adapters/index.ts)
+// is sync and threading async page fetch through it cascades widely. Since
+// Profound import is legacy (Beacon pivoted to native polling per the
+// 2026-04-22 phase v4 cutover) and getGeoCov is called inside the pipeline
+// only, we accept an empty page array here as a documented partial fix.
+// Multi-tenant geo coverage in the Profound pipeline degrades to empty
+// until a follow-up commit wires `await getOwnedPages()` through.
+import type { PageEntity } from "@/domains/pages/types";
+const allPages: PageEntity[] = [];
 import { getSiteConfig } from "@/lib/site-config";
 import { PLATFORM_LABELS, type Platform } from "@/lib/constants";
 import { computeGeoCoverage } from "@/domains/geo/coverage";

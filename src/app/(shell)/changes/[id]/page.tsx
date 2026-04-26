@@ -10,8 +10,9 @@ import { eventDecisions } from "@/domains/attribution/store";
 import { computeScorecard } from "@/domains/attribution/scorecard";
 import { enrichWithImpact, computeChangeImpact } from "@/domains/attribution/change-impact";
 import { getRepository } from "@/lib/persistence/repositories";
+import { currentTenantId } from "@/lib/tenant-context";
 import { citationEvidenceIndex } from "@/domains/pages/citation-evidence-store";
-import { allPages } from "@/domains/pages/page-store";
+import { getOwnedPages } from "@/domains/pages/page-store";
 import {
   rolloutExecutions,
   patternEvidence as persistedPatternEvidence,
@@ -118,7 +119,9 @@ export default async function ChangeDetailPage({
   // module-level arrays — they enrich the attribution/coverage display but
   // do not affect whether the target entry renders or what its core fields
   // say. Full mutable-array sweep is Sprint 4/5 scope.
-  const repository = getRepository();
+  // Sprint 7 Phase 7.5b Commit 5 (2026-04-25) — tenant-bound read.
+  const tenantId = await currentTenantId();
+  const repository = getRepository().forTenant(tenantId);
   let freshChangelogEntries: ChangelogEntry[];
   try {
     freshChangelogEntries = await repository.getChangelogEntries();
@@ -177,7 +180,9 @@ export default async function ChangeDetailPage({
     }
   }
 
-  const repo = getRepository();
+  // Sprint 7 Phase 7.5b Commit 5 (2026-04-25) — tenant-bound read; reuses
+  // tenantId resolved at the top of the page render.
+  const repo = getRepository().forTenant(tenantId);
   const pageSnapshots = await repo.getPageSnapshots();
   const patterns = minePatterns(
     pageSnapshots,
@@ -200,6 +205,8 @@ export default async function ChangeDetailPage({
     (r) => r.type === "strengthen" && r.sourceChangeId === id,
   );
 
+  // Sprint 7 Phase 7.5c/3 (2026-04-25) — tenant-scoped page fetch.
+  const allPages = await getOwnedPages();
   const urlToPageId = new Map<string, string>();
   for (const p of allPages) {
     urlToPageId.set(p.url.replace(/\/+$/, "").toLowerCase(), p.id);

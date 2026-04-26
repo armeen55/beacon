@@ -40,6 +40,7 @@ import {
   type LastScanResultPayload,
 } from "../src/domains/scanning/last-scan-result";
 import { writeIdleScanStateFromLastResult } from "../src/domains/scanning/scan-state";
+import { currentTenantId } from "../src/lib/tenant-context";
 
 const DATA_DIR = join(process.cwd(), ".data");
 
@@ -507,8 +508,8 @@ async function main() {
   // .data and are read directly from JSON (avoids dragging server-only
   // BusinessConfig + Supabase imports into the CLI subprocess).
   const allElementRows: PageElementInventoryRow[] = [];
-  const tenantIdForInventory =
-    process.env.BEACON_TENANT_ID ?? "tenant-ritz-founder";
+  // Sprint 7 Phase 7.5d/2 (2026-04-25) — fail-loud tenant resolution.
+  const tenantIdForInventory = await currentTenantId();
   const { cities: cityDictionary, services: serviceDictionary } =
     loadInventoryDictionaries();
 

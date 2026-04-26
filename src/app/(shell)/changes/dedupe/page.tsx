@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { PageHeader } from "@/components/data/page-header";
 import { getRepository } from "@/lib/persistence/repositories";
+import { currentTenantId } from "@/lib/tenant-context";
 import { findDuplicatePairs } from "@/domains/changelog/dedupe";
 import { DedupeReview, type SerializedPair } from "./dedupe-client";
 
@@ -14,7 +15,10 @@ import { DedupeReview, type SerializedPair } from "./dedupe-client";
 export const dynamic = "force-dynamic";
 
 export default async function DedupePage() {
-  const entries = await getRepository().getChangelogEntries();
+  // Sprint 7 Phase 7.5b Commit 5 (2026-04-25) — tenant-bound read.
+  const entries = await getRepository()
+    .forTenant(await currentTenantId())
+    .getChangelogEntries();
   const pairs = findDuplicatePairs(entries);
   const serialized: SerializedPair[] = pairs.map((p) => ({
     keeper: {

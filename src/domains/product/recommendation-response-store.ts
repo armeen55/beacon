@@ -14,6 +14,7 @@ import {
   syncRecommendationResponses,
 } from "@/lib/persistence/dual-write";
 import { getRepository } from "@/lib/persistence/repositories";
+import { currentTenantId } from "@/lib/tenant-context";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -66,7 +67,9 @@ export async function ensureRecommendationResponsesSeeded(): Promise<void> {
   }
   _dbSeedPromise = (async () => {
     try {
-      const rows = await getRepository().getRecommendationResponses();
+      // Sprint 7 Phase 7.5c/1 (2026-04-25) — tenant-bound read.
+      const tenantId = await currentTenantId();
+      const rows = await getRepository().forTenant(tenantId).getRecommendationResponses();
       // Keep the newest response per recId (by respondedAt) across the
       // module-init array and the DB rows. Prevents a cold lambda that
       // already did one write from wiping its own fresh state.

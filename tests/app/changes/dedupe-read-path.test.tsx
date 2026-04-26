@@ -65,10 +65,21 @@ vi.mock("@/lib/seed-data.server", () => ({
   hasActiveExperiment: () => true,
 }));
 
-vi.mock("@/lib/persistence/repositories", () => ({
-  getRepository: () => ({
+vi.mock("@/lib/persistence/repositories", () => {
+  // Sprint 7 Phase 7.5b Commit 5 (2026-04-25) — /changes/dedupe now reads
+  // via `getRepository().forTenant(tenantId).getChangelogEntries()`.
+  // Self-referential mock returns the same repo from `forTenant` so
+  // overrides apply to both call shapes.
+  const repo = {
     getChangelogEntries: async () => FRESH_REPO_ENTRIES,
-  }),
+    forTenant: (_tenantId: string) => repo,
+  };
+  return { getRepository: () => repo };
+});
+
+// Stub currentTenantId so /changes/dedupe doesn't need a real env or request.
+vi.mock("@/lib/tenant-context", () => ({
+  currentTenantId: async () => "tenant-ritz-founder",
 }));
 
 // Silence the logger / cache.

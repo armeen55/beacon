@@ -88,7 +88,10 @@ export async function verifyPageFix(url: string): Promise<VerifyResult> {
     // the repository instead. On local dev, keep the FS read.
     let prevAlerts: GuardrailAlert[] = [];
     if (IS_VERCEL) {
-      const allDbAlerts = await getRepository().getGuardrailAlerts();
+      // Sprint 7 Phase 7.5b Commit 5 (2026-04-25) — tenant-bound read.
+      const allDbAlerts = await getRepository()
+        .forTenant(await currentTenantId())
+        .getGuardrailAlerts();
       prevAlerts = allDbAlerts.filter(
         (a) => a.url.replace(/\/+$/, "").toLowerCase() === normUrl,
       );
@@ -108,7 +111,10 @@ export async function verifyPageFix(url: string): Promise<VerifyResult> {
     let prevSnapshot: PageSnapshot | null = null;
     let allSnapshots: PageSnapshot[] = [];
     if (IS_VERCEL) {
-      const allDbSnapshots = await getRepository().getPageSnapshots();
+      // Sprint 7 Phase 7.5b Commit 5 (2026-04-25) — tenant-bound read.
+      const allDbSnapshots = await getRepository()
+        .forTenant(await currentTenantId())
+        .getPageSnapshots();
       // Pick the most recent snapshot for this URL (repo returns all).
       const matches = allDbSnapshots
         .filter(
@@ -230,7 +236,7 @@ export async function verifyPageFix(url: string): Promise<VerifyResult> {
       await persistPageElements({
         snapshot: newSnapshot,
         html,
-        tenantId: currentTenantId(),
+        tenantId: await currentTenantId(),
         cityDictionary: cfg.locations,
         serviceDictionary: cfg.services,
       });

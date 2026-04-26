@@ -70,13 +70,22 @@ describe("Sprint 4 / Phase 4.9 — canonical-store fresh-per-render", () => {
         { id: "s-1", date: "2026-04-24" } as never,
       ]);
 
-      vi.doMock("@/lib/persistence/repositories", () => ({
-        getRepository: () => ({
+      // Sprint 7 Phase 7.5c/2 (2026-04-25) — `loadFreshCanonicalData` now
+      // calls Tier A reads via `getRepository().forTenant(tenantId).getX()`.
+      // Self-referential mock returns the same repo from `forTenant` so
+      // overrides apply to both call shapes.
+      vi.doMock("@/lib/persistence/repositories", () => {
+        const repo = {
           getTrackedPrompts,
           getPromptAnswerObservations,
           getTrackedEntities,
           getDailyMetricSnapshots,
-        }),
+          forTenant: (_tenantId: string) => repo,
+        };
+        return { getRepository: () => repo };
+      });
+      vi.doMock("@/lib/tenant-context", () => ({
+        currentTenantId: async () => "tenant-ritz-founder",
       }));
 
       const { loadFreshCanonicalData } = await import(
@@ -100,13 +109,22 @@ describe("Sprint 4 / Phase 4.9 — canonical-store fresh-per-render", () => {
       const getTrackedEntities = vi.fn(async () => []);
       const getDailyMetricSnapshots = vi.fn(async () => []);
 
-      vi.doMock("@/lib/persistence/repositories", () => ({
-        getRepository: () => ({
+      // Sprint 7 Phase 7.5c/2 (2026-04-25) — `loadFreshCanonicalData` now
+      // calls Tier A reads via `getRepository().forTenant(tenantId).getX()`.
+      // Self-referential mock returns the same repo from `forTenant` so
+      // overrides apply to both call shapes.
+      vi.doMock("@/lib/persistence/repositories", () => {
+        const repo = {
           getTrackedPrompts,
           getPromptAnswerObservations,
           getTrackedEntities,
           getDailyMetricSnapshots,
-        }),
+          forTenant: (_tenantId: string) => repo,
+        };
+        return { getRepository: () => repo };
+      });
+      vi.doMock("@/lib/tenant-context", () => ({
+        currentTenantId: async () => "tenant-ritz-founder",
       }));
 
       const { loadFreshCanonicalData } = await import(
@@ -123,6 +141,61 @@ describe("Sprint 4 / Phase 4.9 — canonical-store fresh-per-render", () => {
       expect(getPromptAnswerObservations).toHaveBeenCalledTimes(3);
       expect(getTrackedEntities).toHaveBeenCalledTimes(3);
       expect(getDailyMetricSnapshots).toHaveBeenCalledTimes(3);
+    });
+  });
+
+  describe("Sprint 7 Phase 7.5c/2 — canonical-store tenant-scoping invariants", () => {
+    const CANONICAL_STORE_PATH = resolve(
+      __dirname,
+      "../../src/storage/canonical-store.ts",
+    );
+    const CANONICAL_STORE_SOURCE = readFileSync(CANONICAL_STORE_PATH, "utf8");
+
+    it("Tier A reads (getPromptAnswerObservations + getDailyMetricSnapshots) go through .forTenant(...)", () => {
+      // The canonical-store.ts source must contain a `forTenant` chain that
+      // covers both Tier A methods. We don't anchor the exact line because
+      // the file has 2 functions doing this; we just assert the patterns
+      // exist somewhere in the file.
+      expect(CANONICAL_STORE_SOURCE).toMatch(
+        /tenantRepo\.getPromptAnswerObservations\(/,
+      );
+      expect(CANONICAL_STORE_SOURCE).toMatch(
+        /tenantRepo\.getDailyMetricSnapshots\(/,
+      );
+      // The construction must come from forTenant.
+      expect(CANONICAL_STORE_SOURCE).toMatch(
+        /const\s+tenantRepo\s*=\s*repo\.forTenant\(/,
+      );
+    });
+
+    it("Tier A reads are NEVER called on the unscoped repo (must go through tenantRepo)", () => {
+      // The unscoped form on Tier A methods is the leak path. Catches drift.
+      expect(CANONICAL_STORE_SOURCE).not.toMatch(
+        /\brepo\.getPromptAnswerObservations\(/,
+      );
+      expect(CANONICAL_STORE_SOURCE).not.toMatch(
+        /\brepo\.getDailyMetricSnapshots\(/,
+      );
+      expect(CANONICAL_STORE_SOURCE).not.toMatch(
+        /getRepository\(\)\.getPromptAnswerObservations\(/,
+      );
+      expect(CANONICAL_STORE_SOURCE).not.toMatch(
+        /getRepository\(\)\.getDailyMetricSnapshots\(/,
+      );
+    });
+
+    it("Tier C reads (getTrackedEntities + getTrackedPrompts) stay unscoped on the plain repo", () => {
+      // The Tier C tables don't have tenant_id columns (Phase 7.5a audit);
+      // calling .forTenant().getTrackedX() would fail at runtime. Assert
+      // they're called on the plain `repo`, not `tenantRepo`.
+      expect(CANONICAL_STORE_SOURCE).toMatch(/\brepo\.getTrackedEntities\(/);
+      expect(CANONICAL_STORE_SOURCE).toMatch(/\brepo\.getTrackedPrompts\(/);
+      expect(CANONICAL_STORE_SOURCE).not.toMatch(
+        /tenantRepo\.getTrackedEntities\(/,
+      );
+      expect(CANONICAL_STORE_SOURCE).not.toMatch(
+        /tenantRepo\.getTrackedPrompts\(/,
+      );
     });
   });
 
@@ -222,9 +295,9 @@ describe("Sprint 4 / Phase 4.9 — canonical-store fresh-per-render", () => {
       }
       // /recommendations: page must call loadLiveRecommendationQueue,
       // and load-queue.ts must call loadFreshCanonicalData.
-      expect(SRC.recommendations).toMatch(
-        /loadLiveRecommendationQueue\(\s*\)/,
-      );
+      // Sprint 7 Phase 7.3: page now passes `{ tenantId }`; relaxed
+      // from empty-parens to any call form.
+      expect(SRC.recommendations).toMatch(/loadLiveRecommendationQueue\(/);
       const loadQueueSrc = readFileSync(
         resolve(
           __dirname,

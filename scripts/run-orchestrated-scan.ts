@@ -49,6 +49,8 @@ import {
   syncPageSnapshots,
 } from "../src/lib/persistence/dual-write";
 
+import { currentTenantId } from "../src/lib/tenant-context";
+
 function loadEnvLocal(): void {
   const path = join(process.cwd(), ".env.local");
   if (!existsSync(path)) return;
@@ -114,7 +116,8 @@ async function main(): Promise<void> {
 
   const dualWrite = process.env.DUAL_WRITE === "true";
   const dataSource = process.env.DATA_SOURCE ?? "(unset)";
-  const tenant = process.env.BEACON_TENANT_ID ?? "(default)";
+  // Sprint 7 Phase 7.5d/2 (2026-04-25) — fail-loud tenant resolution.
+  const tenant = await currentTenantId();
 
   console.log(
     `[run-orchestrated-scan] tenant=${tenant} data_source=${dataSource} dual_write=${dualWrite} skip_scan=${skipScan}`,

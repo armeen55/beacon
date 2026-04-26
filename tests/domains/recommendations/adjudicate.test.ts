@@ -186,7 +186,7 @@ describe("adjudicateRecommendation", () => {
   it("calls the model, parses strict JSON, caches output, records spend", async () => {
     const candidate = mkResolvedCandidate({ stableKey: "k1" });
     const result = await adjudicateRecommendation({
-      customerId: "ritz",
+      tenantId: "ritz",
       candidate,
       matrixPrompts: [MATRIX_PROMPT],
       trackedPrompts: [TRACKED_PROMPT],
@@ -206,7 +206,7 @@ describe("adjudicateRecommendation", () => {
   it("returns cached output on repeated call with same packet (no network)", async () => {
     const candidate = mkResolvedCandidate({ stableKey: "k2" });
     const args = {
-      customerId: "ritz",
+      tenantId: "ritz",
       candidate,
       matrixPrompts: [MATRIX_PROMPT],
       trackedPrompts: [TRACKED_PROMPT],
@@ -243,7 +243,7 @@ describe("adjudicateRecommendation", () => {
 
     const candidate = mkResolvedCandidate({ stableKey: "k3" });
     const result = await adjudicateRecommendation({
-      customerId: "ritz",
+      tenantId: "ritz",
       candidate,
       matrixPrompts: [MATRIX_PROMPT],
       trackedPrompts: [TRACKED_PROMPT],
@@ -260,7 +260,7 @@ describe("adjudicateRecommendation", () => {
       new Response("rate limited", { status: 429 })) as unknown as typeof fetch;
     const candidate = mkResolvedCandidate({ stableKey: "k4" });
     const result = await adjudicateRecommendation({
-      customerId: "ritz",
+      tenantId: "ritz",
       candidate,
       matrixPrompts: [MATRIX_PROMPT],
       trackedPrompts: [TRACKED_PROMPT],
@@ -288,7 +288,7 @@ describe("adjudicateRecommendation", () => {
       )) as unknown as typeof fetch;
     const candidate = mkResolvedCandidate({ stableKey: "k5" });
     const result = await adjudicateRecommendation({
-      customerId: "ritz",
+      tenantId: "ritz",
       candidate,
       matrixPrompts: [MATRIX_PROMPT],
       trackedPrompts: [TRACKED_PROMPT],

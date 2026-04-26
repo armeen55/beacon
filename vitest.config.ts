@@ -13,5 +13,8 @@ export default defineConfig({
     /** Avoid dynamic-import timeouts when many heavy route modules load in parallel. */
     fileParallelism: false,
     testTimeout: 30_000,
+    env: {
+      BEACON_TENANT_ID: "tenant-ritz-founder",
+    },
   },
 });

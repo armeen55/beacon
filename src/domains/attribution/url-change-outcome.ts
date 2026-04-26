@@ -23,6 +23,7 @@ import "server-only";
 import { readStore, writeStore } from "@/lib/persistence/json-store";
 import { syncUrlChangeOutcomes } from "@/lib/persistence/dual-write";
 import { getRepository } from "@/lib/persistence/repositories";
+import { currentTenantId } from "@/lib/tenant-context";
 import { log } from "@/lib/logger";
 import type { ChangelogEntry } from "@/domains/changelog/types";
 import type { AssetType } from "@/lib/constants";
@@ -107,7 +108,9 @@ export async function ensureUrlChangeOutcomesSeeded(): Promise<void> {
   }
   _dbSeedPromise = (async () => {
     try {
-      const rows = await getRepository().getUrlChangeOutcomes();
+      // Sprint 7 Phase 7.5c/1 (2026-04-25) — tenant-bound read.
+      const tenantId = await currentTenantId();
+      const rows = await getRepository().forTenant(tenantId).getUrlChangeOutcomes();
       // Keep the newer `updated_at` per compound (change_id, url) key.
       const byKey = new Map<string, UrlChangeOutcome>();
       for (const o of urlChangeOutcomes) {

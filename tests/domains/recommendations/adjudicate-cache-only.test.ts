@@ -133,7 +133,7 @@ describe("adjudicateFromCacheOnly — never hits network", () => {
   it("returns skipped when no cache entry exists (no API call)", async () => {
     const candidate = mkResolvedCandidate("k1");
     const args = {
-      customerId: "ritz",
+      tenantId: "ritz",
       candidate,
       matrixPrompts: [MATRIX_PROMPT],
       trackedPrompts: [TRACKED_PROMPT],
@@ -148,7 +148,7 @@ describe("adjudicateFromCacheOnly — never hits network", () => {
   it("returns ok + cache_hit when a cache entry exists for the evidence packet", async () => {
     const candidate = mkResolvedCandidate("k2");
     const args = {
-      customerId: "ritz",
+      tenantId: "ritz",
       candidate,
       matrixPrompts: [MATRIX_PROMPT],
       trackedPrompts: [TRACKED_PROMPT],
@@ -200,7 +200,7 @@ describe("adjudicateFromCacheOnly — never hits network", () => {
       delete process.env.OPENAI_API_KEY;
       const candidate = mkResolvedCandidate("k3");
       const result = await adjudicateFromCacheOnly({
-        customerId: "ritz",
+        tenantId: "ritz",
         candidate,
         matrixPrompts: [MATRIX_PROMPT],
         trackedPrompts: [TRACKED_PROMPT],

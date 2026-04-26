@@ -75,11 +75,12 @@ describe("Sprint 4 / Phase 4.5 — verify-action hosted safety", () => {
     });
 
     it("verify-action.ts reads prev state from the repository when IS_VERCEL", () => {
+      // Sprint 7 Phase 7.5b Commit 5 (2026-04-25) — tenant-bound reads.
       expect(VERIFY_ACTION_SOURCE).toMatch(
-        /getRepository\(\)\.getGuardrailAlerts\(\)/,
+        /getRepository\([\s\S]*?\)[\s\S]*?\.forTenant\([^)]+\)[\s\S]*?\.getGuardrailAlerts\(/,
       );
       expect(VERIFY_ACTION_SOURCE).toMatch(
-        /getRepository\(\)\.getPageSnapshots\(\)/,
+        /getRepository\([\s\S]*?\)[\s\S]*?\.forTenant\([^)]+\)[\s\S]*?\.getPageSnapshots\(/,
       );
     });
 

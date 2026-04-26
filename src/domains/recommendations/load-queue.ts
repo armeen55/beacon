@@ -80,10 +80,11 @@ export type LiveRecommendationQueue = {
 };
 
 export type LoadLiveRecommendationQueueOptions = {
-  /** Used by the adjudicator cache-read step. Today the only value
-   *  in use is "ritz" (the founder tenant); Sprint 7 multi-tenant
-   *  will plumb this through `currentTenantId()`. */
-  customerId?: string;
+  /** Required tenant scope. Used by the adjudicator cache-read step
+   *  (key namespace) and threaded through to packet builders. Sprint 7
+   *  Phase 7.3 (2026-04-25): plumbed through from `currentTenantId()`;
+   *  callers must resolve and pass this explicitly. */
+  tenantId: string;
   /** Override the "now" used by `buildPromptDecisionMatrix`. Useful
    *  for deterministic tests; defaults to `new Date()`. */
   now?: Date;
@@ -110,9 +111,9 @@ async function safeCall<T>(
  * intermediate input the CLI needs to build packets.
  */
 export async function loadLiveRecommendationQueue(
-  opts: LoadLiveRecommendationQueueOptions = {},
+  opts: LoadLiveRecommendationQueueOptions,
 ): Promise<LiveRecommendationQueue> {
-  const customerId = opts.customerId ?? "ritz";
+  const { tenantId } = opts;
   const errors: string[] = [];
 
   const seedRes = await safeCall(
@@ -187,16 +188,18 @@ export async function loadLiveRecommendationQueue(
   // module uses top-level await which breaks `tsx → esbuild` CJS
   // transform that the CLI runs through. The repo call returns the
   // same data; both backends already cache appropriately.
+  // Sprint 7 Phase 7.5b Commit 3 (2026-04-25) — tenant-bound reads.
+  // `tenantId` is required by `LoadLiveRecommendationQueueOptions` (Phase 7.3).
   const pages = (
     await safeCall(
-      async () => getRepository().getPages(),
+      async () => getRepository().forTenant(tenantId).getPages(),
       [] as PageEntity[],
       "fetch pages",
     )
   ).value;
   const pageSnapshots = (
     await safeCall(
-      async () => getRepository().getPageSnapshots(),
+      async () => getRepository().forTenant(tenantId).getPageSnapshots(),
       [],
       "fetch page snapshots",
     )
@@ -234,7 +237,7 @@ export async function loadLiveRecommendationQueue(
     const result = await safeCall(
       () =>
         adjudicateFromCacheOnly({
-          customerId,
+          tenantId,
           candidate,
           matrixPrompts: matrix.prompts,
           trackedPrompts,

@@ -15,18 +15,46 @@ import { ATTRIBUTION_CONFIG } from "./config";
 import { classifyEvidenceTier } from "@/domains/pages/evidence-tier";
 import { normalizePageUrl } from "@/domains/pages/classify";
 import type { EvidenceTier, PageEntity } from "@/domains/pages/types";
-import { allPages } from "@/domains/pages/page-store";
+import { getOwnedPages } from "@/domains/pages/page-store";
 import { getSiteConfig } from "@/lib/site-config";
 
 // ── Page registry (loaded once for evidence tier verification) ──────
+//
+// Sprint 7 Phase 7.5c/3 (2026-04-25): the registry is now built from a
+// per-request fetch via `getOwnedPages()` instead of a module-level
+// top-level await on `allPages`. Multi-tenant correctness requires a
+// request context (header-resolved tenantId) that doesn't exist at
+// module init.
+//
+// Contract: `discoverCandidates` is sync and can't await. Callers that
+// want full evidence-tier classification MUST `await warmPageRegistry()`
+// once before calling `discoverCandidates`. Without warming,
+// `getPageRegistry()` returns an empty Map → evidence tier classification
+// degrades but doesn't crash.
+//
+// Phase 7.5c/3 wires warming into the two highest-traffic entry points
+// (diagnostics + today-data). Other discoverCandidates callers (topics,
+// review, settings/history, scorecard helpers) are deferred to a
+// follow-up — they will see degraded evidence tier until then.
 
 let _pageRegistry: Map<string, PageEntity> | null = null;
+let _pageRegistryPromise: Promise<Map<string, PageEntity>> | null = null;
+
+export async function warmPageRegistry(): Promise<void> {
+  if (_pageRegistry) return;
+  if (!_pageRegistryPromise) {
+    _pageRegistryPromise = (async () => {
+      const pages = await getOwnedPages();
+      const m = new Map(pages.map((p) => [p.url, p]));
+      _pageRegistry = m;
+      return m;
+    })();
+  }
+  await _pageRegistryPromise;
+}
 
 function getPageRegistry(): Map<string, PageEntity> {
-  if (!_pageRegistry) {
-    _pageRegistry = new Map(allPages.map((p) => [p.url, p]));
-  }
-  return _pageRegistry;
+  return _pageRegistry ?? new Map();
 }
 
 // ── Citation topic index (which pages are cited for which topics) ────

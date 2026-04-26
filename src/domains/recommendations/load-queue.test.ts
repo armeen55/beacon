@@ -292,8 +292,21 @@ describe("Phase 6A.1.14 — orchestration is shared between page + CLI", () => {
     // move them into load-queue.ts (different concerns: queue vs.
     // operator decoration).
     const src = readFileSync(PAGE_PATH, "utf8");
-    expect(src).toMatch(/getRepository\(\)\.getRecommendationResponses\(\)/);
-    expect(src).toMatch(/getRepository\(\)\.getRecommendedEdits\(\)/);
+    // Sprint 7 Phase 7.5b Commit 2 (2026-04-25) — tenant-bound reads.
+    expect(src).toMatch(/getRepository\(\)\.forTenant\([^)]+\)\.getRecommendationResponses\(/);
+    expect(src).toMatch(/getRepository\(\)\.forTenant\([^)]+\)\.getRecommendedEdits\(/);
+  });
+
+  it("loadLiveRecommendationQueue uses forTenant for getPages + getPageSnapshots", () => {
+    // Sprint 7 Phase 7.5b Commit 3 (2026-04-25) — tenant-bound orchestration
+    // reads. Must NOT call getRepository().getPages() / .getPageSnapshots()
+    // unscoped; the tenantId from LoadLiveRecommendationQueueOptions
+    // (Phase 7.3) flows into both reads.
+    const src = readFileSync(LOAD_QUEUE_PATH, "utf8");
+    expect(src).toMatch(/getRepository\(\)\.forTenant\([^)]+\)\.getPages\(/);
+    expect(src).toMatch(/getRepository\(\)\.forTenant\([^)]+\)\.getPageSnapshots\(/);
+    expect(src).not.toMatch(/getRepository\(\)\.getPages\(/);
+    expect(src).not.toMatch(/getRepository\(\)\.getPageSnapshots\(/);
   });
 
   it("CLI imports loadLiveRecommendationQueue + buildPacketForRec from the SAME module the page uses", () => {

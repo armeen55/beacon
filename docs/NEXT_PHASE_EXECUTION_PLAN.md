@@ -17,6 +17,172 @@
 
 ---
 
+## Sprint 7 Phase 7.5d/3 — COMPLETE 2026-04-25 (Phase 7.5d ALL COMPLETE; Phase 7.5 ALL COMPLETE)
+
+**Done:** Architectural invariant extended to `scripts/**` + 2 CLI library files. 16 new assertions (one per Tier A method); future drift fails CI. Zero broad file-level allowlists — Tier C-only readers pass naturally because they don't call any Tier A method. **2152 passed / 4 failed** — baseline preserved (+16 from new invariants).
+
+**Phase 7.5 is COMPLETE** (4 sub-phases × multiple commits each). Every render path AND every CLI is now tenant-scoped, with static drift detection.
+
+**Remaining documented gaps (deferred):** `seed-data.server.ts` (Phase 7.8), `profound-adapter.ts` (legacy / phased out), 5 transitive `discoverCandidates` callers (bounded evidence-tier degradation).
+
+**Phase 7.6 — APPROVED + SAFE TO PLAN** when operator approves.
+
+---
+
+## Sprint 7 Phase 7.5d/2 — COMPLETE 2026-04-25
+
+**Done:** 5 CLI scripts converted from silent `?? "tenant-ritz-founder"` env fallback to fail-loud `currentTenantId()` resolver: [poll-openai.ts](scripts/poll-openai.ts), [poll-perplexity.ts](scripts/poll-perplexity.ts), [generate-specific-edits.ts](scripts/generate-specific-edits.ts), [scan-owned-pages.ts](scripts/scan-owned-pages.ts), [run-orchestrated-scan.ts](scripts/run-orchestrated-scan.ts). Two listed scripts (poll.ts adapter + run-poll.ts) had no fallback to convert — both receive tenantId from callers. Wiring invariant test updated for the new pattern. Two CLI smokes byte-identical to pre-flight. **2136 passed / 4 failed** — baseline preserved exactly.
+
+**Phase 7.5d/3 (architectural invariant extension to `scripts/**`) — APPROVED + SAFE TO START** when operator approves. Test-only commit; no production code changes.
+
+---
+
+## Sprint 7 Phase 7.5d/1 — COMPLETE 2026-04-25
+
+**Done:** [scripts/build-edits-for-queue.ts](scripts/build-edits-for-queue.ts) Tier A `getPageElementInventory` read converted to `forTenant(tenantId)`. Fail-loud tenant resolution via `currentTenantId()` replaces the silent `?? "tenant-ritz-founder"` env fallback. Pre/post CLI smoke (`--list`) shows byte-identical output (queue=19). **2136 passed / 4 failed** — baseline preserved exactly.
+
+**Phase 7.5d/2 (env tightening across 7 remaining scripts) — APPROVED + SAFE TO START** when operator approves.
+
+---
+
+## Sprint 7 Phase 7.5c/4 — COMPLETE 2026-04-25 (Phase 7.5c ALL COMPLETE)
+
+**Done:** Diagnostics finishing touch. All module-level repo state in `src/app/(shell)/diagnostics/page.tsx` lifted into `DiagnosticsPage()`'s request scope. New `DiagnosticsContext` type + `ctx` prop threaded through 7 helper React components (11 internal references converted). 5 source-scan invariants in [tests/architecture/diagnostics-no-module-level-state.test.ts](tests/architecture/diagnostics-no-module-level-state.test.ts) prevent drift. **Phase 7.5c is COMPLETE: 4 sub-commits total. 2136 passed / 4 failed** — baseline preserved (+5 from new invariants).
+
+**Phase 7.5d (CLI script conversions) — APPROVED + SAFE TO START** when operator approves. 5 files: `scripts/poll-openai.ts`, `poll-perplexity.ts`, `build-edits-for-queue.ts`, `src/adapters/perplexity/poll.ts`, `src/domains/observations/run-poll.ts`.
+
+---
+
+## Sprint 7 Phase 7.5c/3 — COMPLETE 2026-04-25
+
+**Done:** Largest cascade of Sprint 7. `page-store.ts` lifted from module-level `await repo.getPages()` to lazy `getOwnedPages()` (tenant-scoped). All 7 listed consumers converted. `candidates.ts` page registry refactored to lazy-promise pattern with new `warmPageRegistry()` warm-up call. Diagnostics + today-data warm the registry transitively. `profound-adapter.ts` is a documented partial fix (legacy import pipeline; cascading async would explode scope). 5 transitive `discoverCandidates` callers see degraded evidence tier until follow-up. **2131 passed / 4 failed** — baseline preserved, +3 from new page-store invariants.
+
+**Phase 7.5c/4 (diagnostics finishing touch) — APPROVED + SAFE TO START** when operator approves. Lift module-level `pageSnapshots` (from 7.5b/5) AND `allPages` (from 7.5c/3) into `DiagnosticsPage()` body; thread props through 3+8 nested helper components.
+
+---
+
+## Sprint 7 Phase 7.5c/2 — COMPLETE 2026-04-25
+
+**Done:** [canonical-store.ts](src/storage/canonical-store.ts) Tier A reads converted in both async functions. Mixed Promise.all blocks resolve `tenantId` once; Tier A reads (`getPromptAnswerObservations` + `getDailyMetricSnapshots`) go through `tenantRepo` (= `repo.forTenant(tenantId)`); Tier C reads (`getTrackedEntities` + `getTrackedPrompts`) stay on plain `repo`. Test mocks updated for self-referential `forTenant`. New 3-test invariant block in canonical-store-fresh.test.ts asserts the tier split. **2128 passed / 4 failed** — baseline preserved exactly; +3 from new invariants.
+
+**Phase 7.5c/3 (`page-store.ts` module-level lift) — APPROVED + SAFE TO START** when operator approves. `allPages: PageEntity[]` → `getOwnedPages(): Promise<PageEntity[]>`; 7 consumer files cascade.
+
+---
+
+## Sprint 7 Phase 7.5c/1 — COMPLETE 2026-04-25
+
+**Done:** 3 function-local Tier A reads converted in `src/domains/**` stores: [recommendation-response-store.ts:69](src/domains/product/recommendation-response-store.ts:69) (`getRecommendationResponses`), [findings-store.ts:162](src/domains/scanning/findings-store.ts:162) (`getScanFindings`), [url-change-outcome.ts:110](src/domains/attribution/url-change-outcome.ts:110) (`getUrlChangeOutcomes`). Each adds `currentTenantId` import + resolves `tenantId` at the call site. 1 test file updated (mock pattern: self-referential `forTenant` + `currentTenantId` stub). **2125 passed / 4 failed** — baseline preserved exactly.
+
+**Phase 7.5c/2 (canonical-store.ts function-local lifts) — APPROVED + SAFE TO START** when operator approves.
+
+---
+
+## Sprint 7 Phase 7.5b Commit 5 — COMPLETE 2026-04-25 (Phase 7.5b ALL COMPLETE)
+
+**Done:** Remaining shell read-path conversions: `/changes` family, `/pages` family, `/topics`, `/diagnostics`, `finding-actions.ts`. ~14 call sites across 8 files. Plus new architectural invariant test in [tests/architecture/no-unscoped-tier-a-reads.test.ts](tests/architecture/no-unscoped-tier-a-reads.test.ts) — walks all `src/app/(shell)/**` files and asserts NO unscoped `getRepository().<TierA>(` call remains for any of the 15 Tier A methods. Diagnostics page received a partial fix (module-level forTenant with env-tenant); proper lift deferred to 7.5c. **Phase 7.5b is COMPLETE: 5 commits (1A, 1B, 1C, 2, 3, 4, 5) total. 2125 passed / 4 failed** (baseline preserved; +16 from architectural invariant test).
+
+**Phase 7.5c (module-level domain-store lifts) — APPROVED + SAFE TO START** when operator approves. Scope: ~14 files in `src/domains/**` with `const repo = getRepository();` at module level + the diagnostics finishing touch + 5 direct-call files in `src/domains/**`.
+
+---
+
+## Sprint 7 Phase 7.5b Commit 4 — COMPLETE 2026-04-25
+
+**Done:** /today data builder converted. [today-data.ts](src/app/(shell)/today-data.ts) resolves `tenantId` once via `await currentTenantId()` after the seed `Promise.all`, threads it into 5 Tier A getter call sites (`getRecommendationResponses` + 4 others on the inventory and main `repo` blocks). `change-outcomes` direct `readStore` replaced with `getOutcomesForTenant(tenantId)` adapter. `change-patterns` stays direct (global per architecture). Source-scan invariant added across 4 Tier A method names. **2109 passed / 4 failed** (baseline preserved; +1 from new invariant).
+
+**Phase 7.5b Commit 5 (`/changes` + `/pages` + `/topics` + `/diagnostics` conversion) — APPROVED + SAFE TO START** when operator approves.
+
+---
+
+## Sprint 7 Phase 7.5b Commit 3 — COMPLETE 2026-04-25
+
+**Done:** `loadLiveRecommendationQueue` orchestration uses `getRepository().forTenant(tenantId)` for `getPages` + `getPageSnapshots` at [load-queue.ts:193,200](src/domains/recommendations/load-queue.ts:193). `tenantId` already required in `LoadLiveRecommendationQueueOptions` (Phase 7.3). Source-scan invariant added to load-queue.test.ts. **2108 passed / 4 failed** (baseline preserved; +1 from the new invariant).
+
+**Phase 7.5b Commit 4 (`/today` data builder conversion) — APPROVED + SAFE TO START** when operator approves.
+
+---
+
+## Sprint 7 Phase 7.5b Commit 2 — COMPLETE 2026-04-25
+
+**Done:** /recommendations tenant-bound read conversion. Page render at [page.tsx:77,91](src/app/(shell)/recommendations/page.tsx:77) and Accept fan-out at [actions.ts:398](src/app/(shell)/recommendations/actions.ts:398) now use `getRepository().forTenant(tenantId).getX()` — the Supabase pushdown filters (Commit 1C) fire end-to-end on the most-trafficked Sprint 6A.1 surface. 4 test files updated to match: 1 relaxed regex + 1 new unscoped-form invariant on the fresh-read test, 5 source-scan regexes updated across 2 wiring tests, mock contracts updated in accept-fanout. **2107 passed / 4 failed** (baseline preserved; +1 from new invariant).
+
+**Phase 7.5b Commit 3 (loadLiveRecommendationQueue orchestration) — APPROVED + SAFE TO START** when operator approves. Function already takes `tenantId`; thread to 2 getter calls.
+
+---
+
+## Sprint 7 Phase 7.5b Commit 1C — COMPLETE 2026-04-25
+
+**Done:** Supabase backend's `forTenant(tenantId)` rewrites every Tier A method (15 total) to push `.eq("tenant_id", tenantId)` down to Postgres via `selectScoped<T>(table, tenantId)` and `queryAllPagedScoped<T>(table, tenantId)` helpers. Inline patterns where ordering/dedupe/mapping is needed (`page_snapshots`, `scan_findings`, `recommendation_responses`). Static source-scan invariant test asserts every `.select(` inside `forTenant` is paired with tenant scoping. Cross-tenant rec_id collision test proves Phase 7.5a's widened unique index + Commit 1C's pushdown work end-to-end. **2106 passed / 4 failed** (baseline preserved; +18 from new tests).
+
+**Phase 7.5b Commit 2 (`/recommendations` conversion) — APPROVED + SAFE TO START** when operator approves. Pushdown infra is in place; Commit 2 is purely call-site: 3 lines on the page + 1 line in actions.
+
+---
+
+## Sprint 7 Phase 7.5b Commit 1B — COMPLETE 2026-04-25
+
+**Done:** Widened `recommendation_responses` PK from `(rec_id)` to `(tenant_id, rec_id)`. Cross-tenant `rec_id` collision now allowed at the schema level (necessary before beta tester onboards). Pre-flight: 0 FK dependencies, 0 `(tenant_id, rec_id)` duplicates. Migration is reversible (rollback SQL in commit and `docs/VERIFICATION_LOG.md`). No app code changes. **Baseline preserved: 2088 passed / 4 failed.**
+
+**Phase 7.5b Commit 1C (Supabase backend push-down filters) — APPROVED + SAFE TO START** when operator approves. Replaces `buildTenantRepo`'s in-memory filter with per-method `.eq("tenant_id", tenantId)` queries; adds `selectScoped` / `queryAllPagedScoped` helpers; new pushdown tests.
+
+---
+
+## Sprint 7 Phase 7.5b Commit 1A — COMPLETE 2026-04-25
+
+**Done:** Backfilled `.data/imported-results.json` (1719 rows empty-string → ritz). Tenant-isolation suite (`tests/tenants/isolation.test.ts`) is now **fully green (18/18)**. New baseline: **2088 passed / 4 failed** (3 local-presence date fixtures + 1 finding-actions timestamp; all pre-existing, all unrelated to multi-tenant). One file-only change to [scripts/stamp-data-files-sprint7-phase5a.ts](scripts/stamp-data-files-sprint7-phase5a.ts).
+
+**Phase 7.5b Commit 1B (recommendation_responses PK widen) — APPROVED + SAFE TO START** when operator approves. Pre-flight: FK dep query.
+
+---
+
+## Sprint 7 Phase 7.5a — COMPLETE 2026-04-25
+
+**Done:** Repository audit + interface skeleton + 2 index migrations + `.data/*.json` stamping. Tier A/C/D method classification documented; new `TenantRepository` interface defined; `getRepository().forTenant(tenantId)` available on both backends (in-memory filter for 7.5a; Supabase push-down filter coming in 7.5b). 2 unique indexes widened to include `tenant_id` (`ux_re_tenant_rec_action_element`, `ux_pei_tenant_snapshot_element_key`). 3 `.data` files stamped (6,909 rows). **Baseline improved from 8 failing → 5 failing** — 3 file-backed isolation tests flipped green. No app-code call sites converted yet. Schema invariant tests updated to match widened constraint shape.
+
+**Phase 7.5b (high-traffic read-path conversions) — APPROVED + SAFE TO START.** Interface is additive, migrations reversible. Pre-flight: widen `recommendation_responses` PK to include tenant_id (after FK-dependency check). Then convert /recommendations → /today → /changes → /pages and switch Supabase backend to push-down filters.
+
+---
+
+## Sprint 7 Phase 7.4 — COMPLETE 2026-04-25
+
+**Done:** Middleware tenant injection. After Supabase auth succeeds, [src/lib/auth/supabase-middleware.ts](src/lib/auth/supabase-middleware.ts) strips inbound `x-beacon-tenant`, looks up `tenant_members` for the user, and injects the header into the forwarded request. Branches: 1 row → inject; 0 rows → redirect `/login?error=no_tenant`; 2+ rows → redirect `/login?error=multiple_tenants`; transient errors → fall through (resolver uses env fallback). `Set-Cookie` headers preserved via raw `getSetCookie()` copy when rebuilding response. 9 new tests cover all branches plus `BEACON_AUTH_DISABLED` bypass and `/api/poll/run` allowlist. 2084 passed / 8 failed (baseline preserved).
+
+**Phase 7.5 (tenant-bound repository) — APPROVED + SAFE TO START.** Resolver-to-middleware contract is now end-to-end; Phase 7.5 is purely the consumer side.
+
+---
+
+## Sprint 7 Phase 7.3 — COMPLETE 2026-04-25
+
+**Done:** Tenant resolver unified. `currentTenantId()` is now `async` + `React.cache`-d, reads `x-beacon-tenant` header → falls back to `BEACON_TENANT_ID` env → throws if neither. Silent default to ritz removed. Renamed `customerId` → `tenantId` through adjudicator + evidence-packet path. Two server-action call sites converted to `await`. `loadLiveRecommendationQueue` requires `tenantId`. New tests: 4 (header / env / throw / cache smoke). 2075 passed / 8 failed (baseline preserved).
+
+**Phase 7.4 (middleware tenant injection) — APPROVED + SAFE TO START.** The resolver reads the header today; middleware just needs to set it after `getUser()` succeeds.
+
+---
+
+## Sprint 7 Phase 7.2 — COMPLETE 2026-04-25
+
+**Done:** Backfilled 2,227 legacy empty-string `tenant_id` rows to `tenant-ritz-founder` across 5 tables (`results` 1719, `import_runs` 4, `changelog_entries` 331, `scan_findings` 169, `recommendation_responses` 4) and added 5 CHECK constraints preventing future empty/null writes. **Zero deletes** — pre-flight surfaced that all 4 candidates for deletion were recent product activity (this week), and Los Altos in particular has 5 referencing `changelog_entries` from Phase 13b. Operator approved backfill-all approach (`Option A` in pre-flight question). Baseline preserved at 2071 passing / 8 failing.
+
+**Phase 7.3 (resolver unification) is approved-as-safe** — schema work is finished; only TS code changes from here. Awaiting operator GO.
+
+---
+
+## Sprint 7 Phase 7.1a — COMPLETE 2026-04-25
+
+**Done:** Fixed 5 pre-existing typecheck errors in [tests/domains/product/recommendation-response-undo.test.ts](tests/domains/product/recommendation-response-undo.test.ts) (mock-typing only; no production code change). Deleted dead `eqMock` definition; switched `upsertMock`/`deleteMock` to rest-arg signature. `npm run typecheck` clean. 7/7 tests in the affected file still pass; full suite still 2071/8.
+
+---
+
+## Sprint 7 Phase 7.0 + 7.1 — COMPLETE 2026-04-25
+
+**Done:**
+- Phase 7.0 — Baseline failure triage (read-only). Confirmed 8 pre-existing failures (3 local-presence + 4 tenant-isolation + 1 finding-actions date). 4 tenant-isolation tests are diagnostic — they prove the exact schema gaps Sprint 7 closes. Discovered `change_outcomes` was also missing `tenant_id` (audit missed; added to Phase 7.1 scope).
+- Phase 7.1 — Schema gap fix on production Supabase. Created `tenants` + `tenant_members` tables (1 Ritz row + 1 operator member row). Added `tenant_id` (NOT NULL + indexed + backfilled to ritz) on `pages` (5929 rows), `guardrail_alerts` (5), `observation_runs` (65), `change_outcomes` (20). 8 indexes shipped. 6 migrations clean. 2071 tests passing (baseline preserved, no regression).
+
+**Active plan:** `/Users/armeen/.claude/plans/13-commits-ahead-of-elegant-llama.md`. Updated with Phase 7.0 discoveries and a "dangerous-until-7.11-gate" posture at the top.
+
+**Phase 7.2 (legacy empty-string backfill) is approved-as-safe** — schema work is clean. Awaiting operator GO.
+
+---
+
 ## Sprint 6A.1.16 (pre-Sprint-7 cleanup) COMPLETE 2026-04-25
 
 **Done:** Two isolated fixes shipped before Sprint 7. Part A — `recommendation_responses` Undo deletion path (new `deleteRecommendationResponseByRecId` dual-write helper + `deleteResponseByRecId` store helper, wired into `undoRecommendationResponse`; 7 new tests pass). Part B — production `page_snapshots` schema drift closed via additive migration `sprint6a116_page_snapshots_drift_columns` (8 columns added: `tenant_id`, `body_paragraph_sample`, `h3_list`, `card_texts`, `schema_entity_names`, `schema_validation_warnings`, `table_count`, `internal_links`). Snapshot dual-write now succeeds end-to-end. 2071 tests passing.

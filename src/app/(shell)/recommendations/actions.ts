@@ -15,6 +15,7 @@ import { writeStore } from "@/lib/persistence/json-store";
 import { syncChangelogEntries } from "@/lib/persistence/dual-write";
 import { changelogEntries } from "@/lib/seed-data.server";
 import { getRepository } from "@/lib/persistence/repositories";
+import { currentTenantId } from "@/lib/tenant-context";
 import type { ChangelogEntry } from "@/domains/changelog/types";
 import type {
   RecommendationCandidate,
@@ -395,7 +396,9 @@ export async function acceptRecommendation(
   // single-entry path below.
   let editsForRec: RecommendedEditRow[] = [];
   try {
-    const allEdits = await getRepository().getRecommendedEdits();
+    // Sprint 7 Phase 7.5b Commit 2 (2026-04-25) — tenant-bound read.
+    const tenantId = await currentTenantId();
+    const allEdits = await getRepository().forTenant(tenantId).getRecommendedEdits();
     editsForRec = allEdits.filter((e) => e.rec_id === payload.stableKey);
   } catch (e) {
     // Graceful degrade: if the repo read fails, log and fall back

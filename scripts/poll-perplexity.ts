@@ -50,6 +50,7 @@ import {
 } from "../src/lib/persistence/dual-write";
 import { getSupabaseAdmin } from "../src/lib/persistence/supabase";
 import { getRepository } from "../src/lib/persistence/repositories";
+import { currentTenantId } from "../src/lib/tenant-context";
 import { buildDailySnapshotsFromObservations } from "../src/domains/daily-metric-snapshots/build-from-observations";
 import type { PromptAnswerObservation } from "../src/domains/prompt-answer-observations/types";
 import type { ObservationRun } from "../src/domains/observations/types";
@@ -64,10 +65,10 @@ function getArg(flag: string): string | undefined {
   return kv ? kv.slice(flag.length + 1) : undefined;
 }
 
-const tenantId =
-  getArg("--tenant") ??
-  process.env.BEACON_TENANT_ID ??
-  "tenant-ritz-founder";
+// Sprint 7 Phase 7.5d/2 (2026-04-25) — fail-loud tenant resolution.
+// CLI flag `--tenant=<id>` wins; otherwise the unified resolver reads
+// BEACON_TENANT_ID env (or throws if unset). No silent ritz fallback.
+const tenantId = getArg("--tenant") ?? (await currentTenantId());
 const limitRaw = getArg("--limit");
 const limit = limitRaw ? Math.max(1, parseInt(limitRaw, 10)) : undefined;
 const isDryRun = args.includes("--dry-run");

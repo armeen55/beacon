@@ -25,6 +25,7 @@ import {
   syncTrackedEntities,
 } from "@/lib/persistence/dual-write";
 import { getRepository } from "@/lib/persistence/repositories";
+import { currentTenantId } from "@/lib/tenant-context";
 import type { TrackedPrompt } from "@/domains/tracked-prompts/types";
 import type { TrackedEntity } from "@/domains/tracked-entities/types";
 import type { ProfoundImportRun } from "@/domains/observation-runs/types";
@@ -78,10 +79,17 @@ export async function ensureCanonicalStoresSeeded(): Promise<void> {
   }
   _canonSeedPromise = (async () => {
     try {
+      // Sprint 7 Phase 7.5c/2 (2026-04-25) — Tier A reads
+      // (`getPromptAnswerObservations`, `getDailyMetricSnapshots`) go through
+      // `forTenant(tenantId)`. Tier C reads (`getTrackedEntities`,
+      // `getTrackedPrompts`) stay unscoped — those tables don't have a
+      // `tenant_id` column today (Phase 7.5a Tier C audit).
+      const tenantId = await currentTenantId();
       const repo = getRepository();
+      const tenantRepo = repo.forTenant(tenantId);
       const [obs, snaps, ents, prompts] = await Promise.all([
-        repo.getPromptAnswerObservations(),
-        repo.getDailyMetricSnapshots(),
+        tenantRepo.getPromptAnswerObservations(),
+        tenantRepo.getDailyMetricSnapshots(),
         repo.getTrackedEntities(),
         repo.getTrackedPrompts(),
       ]);
@@ -162,12 +170,19 @@ export type FreshCanonicalData = {
 };
 
 export async function loadFreshCanonicalData(): Promise<FreshCanonicalData> {
+  // Sprint 7 Phase 7.5c/2 (2026-04-25) — same tier split as
+  // `ensureCanonicalStoresSeeded`: Tier A reads scoped to tenant; Tier C
+  // (tracked_prompts, tracked_entities) stay unscoped. Note: this function
+  // is called from /today render and other tenant-scoped surfaces; tenantId
+  // resolves via header (post-7.4) or BEACON_TENANT_ID env (post-7.3).
+  const tenantId = await currentTenantId();
   const repo = getRepository();
+  const tenantRepo = repo.forTenant(tenantId);
   const [prompts, observations, entities, snapshots] = await Promise.all([
     repo.getTrackedPrompts(),
-    repo.getPromptAnswerObservations(),
+    tenantRepo.getPromptAnswerObservations(),
     repo.getTrackedEntities(),
-    repo.getDailyMetricSnapshots(),
+    tenantRepo.getDailyMetricSnapshots(),
   ]);
   return {
     trackedPrompts: prompts,

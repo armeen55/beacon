@@ -79,7 +79,11 @@ function makePendingFinding(overrides?: Partial<Finding>): Finding {
     citationCount: 0,
     isHomepage: false,
     contradictsChangelog: false,
-    tenant_id: "tenant-test",
+    // Sprint 7 Phase 7.5b Commit 5 (2026-04-25) — confirmFindingAsChange
+    // now reads via `getRepository().forTenant(tenantId).getScanFindings()`,
+    // and `vitest.config.ts` env sets BEACON_TENANT_ID=tenant-ritz-founder.
+    // The fixture must match for the filter to keep it.
+    tenant_id: "tenant-ritz-founder",
     ...overrides,
   };
 }

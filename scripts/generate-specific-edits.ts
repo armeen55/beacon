@@ -34,6 +34,7 @@ import {
   buildSpecificEditEvidencePacket,
   type SpecificEditEvidencePacket,
 } from "../src/domains/recommendations/specific-edit-evidence";
+import { currentTenantId } from "../src/lib/tenant-context";
 
 type CliFlags = {
   packetPath: string | null;
@@ -81,9 +82,9 @@ function printHelp(): void {
   );
 }
 
-function buildSmokePacket(): SpecificEditEvidencePacket {
+function buildSmokePacket(tenantId: string): SpecificEditEvidencePacket {
   return buildSpecificEditEvidencePacket({
-    tenantId: process.env.BEACON_TENANT_ID ?? "tenant-ritz-founder",
+    tenantId,
     recId: `smoke-${Date.now()}`,
     clusterLabel: null,
     clusterKind: null,
@@ -141,8 +142,10 @@ async function main(): Promise<void> {
     return;
   }
 
+  // Sprint 7 Phase 7.5d/2 (2026-04-25) — fail-loud tenant resolution.
+  const tenantId = await currentTenantId();
   const packet: SpecificEditEvidencePacket = flags.smoke
-    ? buildSmokePacket()
+    ? buildSmokePacket(tenantId)
     : loadPacketFromFile(flags.packetPath!);
 
   // Smoke runs are ALWAYS dry-run (forced safety). Other modes default

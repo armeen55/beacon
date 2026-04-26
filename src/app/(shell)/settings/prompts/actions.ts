@@ -102,7 +102,7 @@ export async function createPrompt(
       .from("tracked_prompts")
       .insert({
         id: promptId,
-        account_id: currentTenantId(),
+        account_id: await currentTenantId(),
         text,
         topic_id: topicId,
         location_scope: input.location_scope?.trim() || null,

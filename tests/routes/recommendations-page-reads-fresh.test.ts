@@ -57,9 +57,23 @@ describe("Sprint 4 / Phase 4.2 — /recommendations fresh-read invariants", () =
       }
     });
 
-    it("DOES call `getRepository().getRecommendationResponses()` for decoration", () => {
+    it("DOES call `getRepository().forTenant(tenantId).getRecommendationResponses()` for decoration", () => {
+      // Sprint 7 Phase 7.5b Commit 2 (2026-04-25) — tenant-bound read.
+      // The page must go through `.forTenant(tenantId)` so the Supabase
+      // backend's `selectScoped` pushdown filter fires.
       expect(PAGE_SOURCE).toMatch(
-        /getRepository\(\)\.getRecommendationResponses\(\)/,
+        /getRepository\(\)\.forTenant\([^)]+\)\.getRecommendationResponses\(/,
+      );
+    });
+
+    it("does NOT call unscoped `getRepository().getRecommendationResponses()` or `.getRecommendedEdits()`", () => {
+      // Sprint 7 Phase 7.5b Commit 2 — unscoped Tier A reads on the
+      // /recommendations render path are forbidden. Catches future drift.
+      expect(PAGE_SOURCE).not.toMatch(
+        /getRepository\(\)\.getRecommendationResponses\(/,
+      );
+      expect(PAGE_SOURCE).not.toMatch(
+        /getRepository\(\)\.getRecommendedEdits\(/,
       );
     });
 
@@ -90,12 +104,20 @@ describe("Sprint 4 / Phase 4.2 — /recommendations fresh-read invariants", () =
     const buildRepoStub = (
       overrides: Record<string, () => unknown> = {},
     ) => {
-      return new Proxy({} as Record<string, unknown>, {
-        get(_target, prop: string) {
-          if (prop in overrides) return overrides[prop];
-          return async () => [];
+      // Sprint 7 Phase 7.5b Commit 2 (2026-04-25) — `forTenant(tenantId)`
+      // returns the same proxy so overrides apply to both unscoped and
+      // tenant-scoped reads. The page now uses the tenant-scoped form.
+      const repo: Record<string, unknown> = new Proxy(
+        {} as Record<string, unknown>,
+        {
+          get(_target, prop: string) {
+            if (prop === "forTenant") return () => repo;
+            if (prop in overrides) return overrides[prop];
+            return async () => [];
+          },
         },
-      });
+      );
+      return repo;
     };
 
     beforeEach(() => {
@@ -145,8 +167,10 @@ describe("Sprint 4 / Phase 4.2 — /recommendations fresh-read invariants", () =
         }),
       }));
 
+      // Sprint 7 Phase 7.5c/3 (2026-04-25) — page-store now exports a lazy
+      // async function instead of a module-level array.
       vi.doMock("@/domains/pages/page-store", () => ({
-        allPages: [],
+        getOwnedPages: async () => [],
       }));
 
       // Mock RecommendationsClient so tests can see the decorated `queue`

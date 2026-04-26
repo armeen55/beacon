@@ -17,7 +17,7 @@ import { getCachedCoMentionMatrix, computeCoMentionMatrix, persistCoMentionMatri
 import { computeSourceTrustIndex } from "@/domains/competitors/source-trust";
 import { computeBattlecards } from "@/domains/competitors/battlecards";
 import { computeGeoCoverage } from "@/domains/geo/coverage";
-import { allPages } from "@/domains/pages/page-store";
+import { getOwnedPages } from "@/domains/pages/page-store";
 import { getActivePrompts } from "@/domains/prompts/prompt-library";
 import { getSiteConfig } from "@/lib/site-config";
 import { cn } from "@/lib/utils";
@@ -97,6 +97,8 @@ export default async function CompetitorsPage() {
 
   const trustIndex = computeSourceTrustIndex(siteDomain, universeDomains);
 
+  // Sprint 7 Phase 7.5c/3 (2026-04-25) — tenant-scoped page fetch.
+  const allPages = await getOwnedPages();
   const geoCoverage = computeGeoCoverage(
     allPages,
     citIndex?.by_page_and_topic ?? [],

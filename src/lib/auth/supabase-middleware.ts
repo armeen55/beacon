@@ -14,6 +14,17 @@ function requireEnv(name: string): string {
  * machine-auth API endpoints that protect themselves with their own bearer
  * tokens (see below).
  *
+ * Sprint 7 Phase 7.4 (2026-04-25): tenant injection.
+ *   - Strip any inbound `x-beacon-tenant` header (never trust client).
+ *   - After auth succeeds, look up `tenant_members` for the user.
+ *   - Exactly 1 tenant → inject `x-beacon-tenant`; resolver in RSC reads it.
+ *   - 0 tenants → redirect to /login?error=no_tenant (fail closed).
+ *   - 2+ tenants → redirect to /login?error=multiple_tenants. The current
+ *     `tenant_members` schema (Phase 7.1) has no primary indicator; until
+ *     a primary is added, multi-tenant memberships are unsupported.
+ *   - Transient DB errors fall through; the resolver uses BEACON_TENANT_ID
+ *     env fallback so a Supabase blip doesn't strand authenticated requests.
+ *
  * Machine-auth allowlist:
  * - /api/poll/run — Phase 5 Step 1. Hosted trigger for native polling.
  *   Handler at src/app/api/poll/run/route.ts requires
@@ -27,11 +38,18 @@ function requireEnv(name: string): string {
  * flag MUST be unset.
  */
 export async function updateSession(request: NextRequest): Promise<NextResponse> {
-  let response = NextResponse.next({ request });
-
   if (process.env.BEACON_AUTH_DISABLED === "1") {
-    return response;
+    return NextResponse.next({ request });
   }
+
+  // Sprint 7 Phase 7.4 — strip any inbound x-beacon-tenant before any code
+  // reads request headers. Mutating `requestHeaders` is the canonical Next
+  // way to forward modified request headers; direct `request.headers` set
+  // is unsupported.
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.delete("x-beacon-tenant");
+
+  let response = NextResponse.next({ request: { headers: requestHeaders } });
 
   const supabase = createServerClient(
     requireEnv("NEXT_PUBLIC_SUPABASE_URL"),
@@ -45,7 +63,7 @@ export async function updateSession(request: NextRequest): Promise<NextResponse>
           for (const { name, value } of toSet) {
             request.cookies.set(name, value);
           }
-          response = NextResponse.next({ request });
+          response = NextResponse.next({ request: { headers: requestHeaders } });
           for (const { name, value, options } of toSet) {
             response.cookies.set(name, value, options);
           }
@@ -75,6 +93,53 @@ export async function updateSession(request: NextRequest): Promise<NextResponse>
     redirectUrl.pathname = "/login";
     redirectUrl.searchParams.set("next", path);
     return NextResponse.redirect(redirectUrl);
+  }
+
+  // Sprint 7 Phase 7.4 — tenant injection (authenticated requests only).
+  // Public paths are never tenant-scoped (login / auth / static / machine
+  // endpoints). Errors fall through to the resolver's env fallback.
+  if (user) {
+    try {
+      const { data, error } = await supabase
+        .from("tenant_members")
+        .select("tenant_id")
+        .eq("user_id", user.id);
+
+      if (error) {
+        console.error("[mw-tenant] tenant_members query failed:", error.message);
+        // Fall through — resolver uses BEACON_TENANT_ID env fallback so a
+        // Supabase outage doesn't 500 every authenticated request.
+      } else if (!data || data.length === 0) {
+        console.warn("[mw-tenant] no tenant_members row for user:", user.id);
+        const url = request.nextUrl.clone();
+        url.pathname = "/login";
+        url.searchParams.set("error", "no_tenant");
+        return NextResponse.redirect(url);
+      } else if (data.length > 1) {
+        console.error("[mw-tenant] multiple tenant_members rows for user:", {
+          userId: user.id,
+          count: data.length,
+        });
+        const url = request.nextUrl.clone();
+        url.pathname = "/login";
+        url.searchParams.set("error", "multiple_tenants");
+        return NextResponse.redirect(url);
+      } else {
+        // Exactly one tenant — inject. Rebuild response so the modified
+        // headers propagate to RSC. Preserve any Set-Cookie headers the
+        // supabase auth flow set on the previous response (raw header copy
+        // preserves httpOnly / secure / sameSite options).
+        requestHeaders.set("x-beacon-tenant", data[0].tenant_id);
+        const setCookieHeaders = response.headers.getSetCookie();
+        response = NextResponse.next({ request: { headers: requestHeaders } });
+        for (const c of setCookieHeaders) {
+          response.headers.append("Set-Cookie", c);
+        }
+      }
+    } catch (e) {
+      console.error("[mw-tenant] tenant lookup threw:", e);
+      // Fall through — resolver uses env fallback.
+    }
   }
 
   return response;

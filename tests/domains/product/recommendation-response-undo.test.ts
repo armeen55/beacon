@@ -21,9 +21,8 @@ import {
 } from "@/domains/product/recommendation-response-store";
 
 const supabaseMocks = vi.hoisted(() => {
-  const upsertMock = vi.fn(async () => ({ error: null }));
-  const deleteMock = vi.fn(async () => ({ error: null }));
-  const eqMock = vi.fn(() => ({ then: deleteMock, ...deleteMock() }));
+  const upsertMock = vi.fn(async (..._args: unknown[]) => ({ error: null }));
+  const deleteMock = vi.fn(async (..._args: unknown[]) => ({ error: null }));
   // Build a minimal `from(table)` chain that the dual-write helpers use.
   const fromMock = vi.fn((table: string) => ({
     upsert: (rows: unknown, opts: unknown) => upsertMock(rows, opts),

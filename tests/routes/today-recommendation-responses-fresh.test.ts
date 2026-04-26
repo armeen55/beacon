@@ -75,10 +75,22 @@ describe("Sprint 4 / Phase 4.3 — Today fresh-read invariants", () => {
       expect(TODAY_DATA_SOURCE).toMatch(/\bisRecSuppressedFromMap\b/);
     });
 
-    it("DOES call `getRepository().getRecommendationResponses()` at render", () => {
+    it("DOES call `getRepository().forTenant(tenantId).getRecommendationResponses()` at render", () => {
+      // Sprint 7 Phase 7.5b Commit 4 (2026-04-25) — tenant-bound read.
       expect(TODAY_DATA_SOURCE).toMatch(
-        /getRepository\(\)\.getRecommendationResponses\(\)/,
+        /getRepository\(\)\.forTenant\([^)]+\)\.getRecommendationResponses\(/,
       );
+    });
+
+    it("does NOT call unscoped `getRepository().getRecommendationResponses()` (or other Tier A reads) on the today-data render path", () => {
+      // Sprint 7 Phase 7.5b Commit 4 — every Tier A read on the /today path
+      // must go through `.forTenant(tenantId)`. Catches future drift.
+      expect(TODAY_DATA_SOURCE).not.toMatch(
+        /getRepository\(\)\.getRecommendationResponses\(/,
+      );
+      expect(TODAY_DATA_SOURCE).not.toMatch(/getRepository\(\)\.getPageSnapshots\(/);
+      expect(TODAY_DATA_SOURCE).not.toMatch(/getRepository\(\)\.getGuardrailAlerts\(/);
+      expect(TODAY_DATA_SOURCE).not.toMatch(/getRepository\(\)\.getScanFindings\(/);
     });
 
     it("has NO residual references to the stale module array or stale readers", () => {

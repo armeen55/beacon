@@ -3,6 +3,7 @@ import "server-only";
 import { readStore, writeStore } from "@/lib/persistence/json-store";
 import { syncScanFindings } from "@/lib/persistence/dual-write";
 import { getRepository } from "@/lib/persistence/repositories";
+import { currentTenantId } from "@/lib/tenant-context";
 import type { Finding, FindingStatus, PromotionStatus } from "./types";
 import { FINDING_PRIORITY_ORDER } from "./types";
 import type { CitationEvidenceIndex } from "@/domains/pages/types";
@@ -159,7 +160,9 @@ export async function updateFindingStatus(
   // the cache after the mutation so a second call within the same
   // lambda (e.g. confirmFindingAsChange calling updateFindingStatus
   // twice) sees the mutation.
-  const repoFindings = await getRepository().getScanFindings();
+  // Sprint 7 Phase 7.5c/1 (2026-04-25) — tenant-bound read.
+  const tenantId = await currentTenantId();
+  const repoFindings = await getRepository().forTenant(tenantId).getScanFindings();
   const finding = repoFindings.find((f) => f.id === id);
   if (!finding) return null;
 

@@ -22,10 +22,21 @@ import type { Finding } from "@/domains/scanning/types";
 const REPO_FINDINGS: Finding[] = [];
 let SYNC_CALLS: Finding[][] = [];
 
-vi.mock("@/lib/persistence/repositories", () => ({
-  getRepository: () => ({
+// Sprint 7 Phase 7.5c/1 (2026-04-25) — `updateFindingStatus` now reads via
+// `getRepository().forTenant(tenantId).getScanFindings()`. Self-referential
+// mock returns the same repo from `forTenant` so this test's `REPO_FINDINGS`
+// array drives both call shapes.
+vi.mock("@/lib/persistence/repositories", () => {
+  const repo = {
     getScanFindings: async () => REPO_FINDINGS,
-  }),
+    forTenant: (_tenantId: string) => repo,
+  };
+  return { getRepository: () => repo };
+});
+
+// Stub currentTenantId so the test doesn't need a real env or request context.
+vi.mock("@/lib/tenant-context", () => ({
+  currentTenantId: async () => "tenant-ritz-founder",
 }));
 
 vi.mock("@/lib/persistence/dual-write", () => ({

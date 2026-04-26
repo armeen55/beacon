@@ -60,6 +60,12 @@ import { changelogEntries as mockChangelogEntries } from "@/lib/seed-data.server
 
 function makeFinding(overrides: Partial<Finding> = {}): Finding {
   return {
+    // Sprint 7 Phase 7.5b Commit 5 (2026-04-25) — confirmFindingAsChange
+    // now reads via `getRepository().forTenant(tenantId).getScanFindings()`,
+    // which strips rows whose tenant_id doesn't match. vitest.config.ts
+    // sets `BEACON_TENANT_ID=tenant-ritz-founder` so the resolver returns
+    // ritz; the fixture must match for the filter to keep it.
+    tenant_id: "tenant-ritz-founder",
     id: "f-001",
     type: "h1_changed",
     url: "https://example.com/services/kitchen-remodel",
@@ -82,7 +88,7 @@ function makeFinding(overrides: Partial<Finding> = {}): Finding {
     citationCount: 0,
     isHomepage: false,
     contradictsChangelog: false,
-    tenant_id: "tenant-test",
+    // (tenant_id set above to "tenant-ritz-founder" — Sprint 7 Phase 7.5b/5)
     ...overrides,
   };
 }

@@ -6,6 +6,7 @@ import "server-only";
 export const dynamic = "force-dynamic";
 
 import { PageHeader } from "@/components/data/page-header";
+import { currentTenantId } from "@/lib/tenant-context";
 import { loadLiveRecommendationQueue } from "@/domains/recommendations/load-queue";
 import type { prioritizeRecommendations } from "@/domains/recommendations/prioritize";
 import { getRepository } from "@/lib/persistence/repositories";
@@ -51,7 +52,10 @@ export default async function RecommendationsPage() {
   // Sprint 6A.1 Phase 14 (2026-04-24) — orchestration extracted to
   // `loadLiveRecommendationQueue` so the queue-driven CLI consumes the
   // same source. Page render behavior is byte-equivalent.
-  const live = await loadLiveRecommendationQueue();
+  // Sprint 7 Phase 7.3 (2026-04-25) — tenantId required; resolved via
+  // header (after Phase 7.4) or BEACON_TENANT_ID env var.
+  const tenantId = await currentTenantId();
+  const live = await loadLiveRecommendationQueue({ tenantId });
   const errors = [...live.errors];
 
   if (!live.matrix) {
@@ -69,8 +73,9 @@ export default async function RecommendationsPage() {
   const matrix = live.matrix;
   const { queue, watchlist } = live;
 
+  // Sprint 7 Phase 7.5b Commit 2 (2026-04-25) — tenant-bound read.
   const freshResponsesRes = await safeCall(
-    () => getRepository().getRecommendationResponses(),
+    () => getRepository().forTenant(tenantId).getRecommendationResponses(),
     [] as RecommendationResponse[],
     "fetch fresh recommendation responses",
   );
@@ -83,8 +88,9 @@ export default async function RecommendationsPage() {
   // request. Group by `rec_id` so each rec row gets its own edits slice.
   // Failure here gracefully degrades: edits are absent → UI falls back
   // to the existing single-changelog Accept behavior.
+  // Sprint 7 Phase 7.5b Commit 2 (2026-04-25) — tenant-bound read.
   const freshEditsRes = await safeCall(
-    () => getRepository().getRecommendedEdits(),
+    () => getRepository().forTenant(tenantId).getRecommendedEdits(),
     [] as RecommendedEditRow[],
     "fetch fresh recommended edits",
   );

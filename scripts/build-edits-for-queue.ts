@@ -48,6 +48,7 @@ import { runProviderAndPersist } from "../src/domains/recommendations/recommende
 import type { PrioritizedRecommendation } from "../src/domains/recommendations/prioritize";
 import type { PageElementInventoryRow } from "../src/domains/pages/extractors/persist";
 import { getRepository } from "../src/lib/persistence/repositories";
+import { currentTenantId } from "../src/lib/tenant-context";
 
 /** tsx doesn't auto-load .env.local the way Next.js does. */
 function loadEnvLocal(): void {
@@ -145,12 +146,13 @@ function reportListMode(live: LiveRecommendationQueue): void {
   }
 }
 
-async function loadInventory(): Promise<{
+async function loadInventory(tenantId: string): Promise<{
   rows: PageElementInventoryRow[];
   empty: boolean;
 }> {
   try {
-    const rows = await getRepository().getPageElementInventory();
+    // Sprint 7 Phase 7.5d/1 (2026-04-25) — tenant-bound read.
+    const rows = await getRepository().forTenant(tenantId).getPageElementInventory();
     return { rows, empty: rows.length === 0 };
   } catch (e) {
     console.warn(
@@ -296,8 +298,11 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const tenantId =
-    process.env.BEACON_TENANT_ID ?? "tenant-ritz-founder";
+  // Sprint 7 Phase 7.5d/1 (2026-04-25) — fail-loud tenant resolution.
+  // No silent ritz fallback; CLI must run with BEACON_TENANT_ID set
+  // (.env.local or shell env). The resolver throws a clear message
+  // if neither header (CLIs have none) nor env is available.
+  const tenantId = await currentTenantId();
   const dryRun = !flags.write;
 
   console.log(
@@ -306,7 +311,7 @@ async function main(): Promise<void> {
     } persist=${dryRun ? "DRY-RUN" : "WRITE"}`,
   );
 
-  const live = await loadLiveRecommendationQueue();
+  const live = await loadLiveRecommendationQueue({ tenantId });
   if (!live.matrix) {
     console.error(
       "[build-edits] decision matrix unavailable; cannot continue. Errors:",
@@ -321,7 +326,7 @@ async function main(): Promise<void> {
   }
 
   // Build mode (rec-id or all): load inventory once.
-  const { rows: inventory, empty: inventoryEmpty } = await loadInventory();
+  const { rows: inventory, empty: inventoryEmpty } = await loadInventory(tenantId);
   console.log(
     `[build-edits] page_element_inventory rows=${inventory.length}` +
       (inventoryEmpty

@@ -106,6 +106,46 @@ async function queryMapped<T>(table: string): Promise<T[]> {
   );
 }
 
+// Sprint 7 Phase 7.5b Commit 1C (2026-04-25) — tenant-scoped helpers.
+// Push the `tenant_id = ?` filter down to Postgres so the widened indexes
+// from Phase 7.5a (`ux_re_tenant_rec_action_element`,
+// `ux_pei_tenant_snapshot_element_key`) and the Phase 7.5b/1B PK on
+// `recommendation_responses (tenant_id, rec_id)` actually get used. Also
+// avoids fetching another tenant's rows just to filter them out in JS.
+async function selectScoped<T>(table: string, tenantId: string): Promise<T[]> {
+  const { data, error } = await getSupabaseAdmin()
+    .from(table)
+    .select("*")
+    .eq("tenant_id", tenantId);
+  if (error)
+    throw new Error(`Supabase query failed on ${table}: ${error.message}`);
+  return (data ?? []) as T[];
+}
+
+async function queryAllPagedScoped<T>(
+  table: string,
+  tenantId: string,
+): Promise<T[]> {
+  const sb = getSupabaseAdmin();
+  const PAGE = 1000;
+  const out: T[] = [];
+  let from = 0;
+  for (;;) {
+    const { data, error } = await sb
+      .from(table)
+      .select("*")
+      .eq("tenant_id", tenantId)
+      .range(from, from + PAGE - 1);
+    if (error)
+      throw new Error(`Supabase query failed on ${table}: ${error.message}`);
+    const rows = (data ?? []) as T[];
+    out.push(...rows);
+    if (rows.length < PAGE) break;
+    from += PAGE;
+  }
+  return out;
+}
+
 export const supabaseBackend: SeedDataRepository = {
   // Phase 1B
   getImportRuns: () => query<ImportRun>("import_runs"),
@@ -323,4 +363,122 @@ export const supabaseBackend: SeedDataRepository = {
     query<TrackedEntity>("tracked_entities"),
   getTrackedPrompts: async () =>
     query<TrackedPrompt>("tracked_prompts"),
+
+  // Sprint 7 Phase 7.5b Commit 1C (2026-04-25) — tenant-bound facade with
+  // push-down filters. Each method appends `.eq("tenant_id", tenantId)`
+  // (via selectScoped / queryAllPagedScoped) so Postgres can pick the
+  // tenant-prefixed indexes and we never fetch cross-tenant rows just to
+  // filter them out in JS. `buildTenantRepo` (in-memory filter) remains
+  // the file-backend pattern.
+  forTenant(tenantId: string) {
+    return {
+      // Plain selects (15 rows or fewer in single-tenant production today).
+      getImportRuns: () => selectScoped<ImportRun>("import_runs", tenantId),
+      getChangelogEntries: () =>
+        selectScoped<ChangelogEntry>("changelog_entries", tenantId),
+      getGuardrailAlerts: () =>
+        selectScoped<GuardrailAlert>("guardrail_alerts", tenantId),
+      getObservationRuns: () =>
+        selectScoped<ObservationRun>("observation_runs", tenantId),
+      getUrlChangeOutcomes: () =>
+        selectScoped<UrlChangeOutcome>("url_change_outcomes", tenantId),
+      getRecommendedEdits: async () =>
+        (await selectScoped(
+          "recommended_edits",
+          tenantId,
+        )) as unknown as RecommendedEditRow[],
+
+      // Paged reads — defeats PostgREST's default 1000-row cap and keeps
+      // the tenant filter in every page request.
+      getResults: () => queryAllPagedScoped<Result>("results", tenantId),
+      getPages: () => queryAllPagedScoped<PageEntity>("pages", tenantId),
+      getPageElementInventory: () =>
+        queryAllPagedScoped<PageElementInventoryRow>(
+          "page_element_inventory",
+          tenantId,
+        ),
+      getPromptAnswerObservations: () =>
+        queryAllPagedScoped<PromptAnswerObservation>(
+          "prompt_answer_observations",
+          tenantId,
+        ),
+      getDailyMetricSnapshots: () =>
+        queryAllPagedScoped<DailyMetricSnapshot>(
+          "daily_metric_snapshots",
+          tenantId,
+        ),
+
+      // page_snapshots: tenant-scoped + dedupe-by-page_id (latest first).
+      getPageSnapshots: async () => {
+        const { data, error } = await getSupabaseAdmin()
+          .from("page_snapshots")
+          .select("*")
+          .eq("tenant_id", tenantId)
+          .order("fetched_at", { ascending: false });
+        if (error)
+          throw new Error(
+            `Supabase query failed on page_snapshots: ${error.message}`,
+          );
+        const seen = new Set<string>();
+        const latest: PageSnapshot[] = [];
+        for (const row of (data ?? []) as PageSnapshot[]) {
+          if (!seen.has(row.page_id)) {
+            seen.add(row.page_id);
+            latest.push(row);
+          }
+        }
+        return latest;
+      },
+
+      // scan_findings: tenant-scoped + camelCase mapping.
+      getScanFindings: async () => {
+        const { data, error } = await getSupabaseAdmin()
+          .from("scan_findings")
+          .select("*")
+          .eq("tenant_id", tenantId);
+        if (error)
+          throw new Error(
+            `Supabase query failed on scan_findings: ${error.message}`,
+          );
+        return (data ?? []).map((row) =>
+          mapRowToEntity<Finding>(row as Record<string, unknown>),
+        );
+      },
+      getPendingScanFindings: async () => {
+        const { data, error } = await getSupabaseAdmin()
+          .from("scan_findings")
+          .select("*")
+          .eq("tenant_id", tenantId)
+          .eq("status", "pending")
+          .order("priority_score", { ascending: false });
+        if (error)
+          throw new Error(
+            `Supabase query failed on scan_findings: ${error.message}`,
+          );
+        return (data ?? []).map((row) =>
+          mapRowToEntity<Finding>(row as Record<string, unknown>),
+        );
+      },
+
+      // recommendation_responses: tenant-scoped + custom row → camelCase shape.
+      getRecommendationResponses: async () => {
+        const { data, error } = await getSupabaseAdmin()
+          .from("recommendation_responses")
+          .select("*")
+          .eq("tenant_id", tenantId);
+        if (error)
+          throw new Error(
+            `Supabase query failed on recommendation_responses: ${error.message}`,
+          );
+        return (data ?? []).map((row) => ({
+          recId: row.rec_id,
+          status: row.status,
+          respondedAt: row.responded_at,
+          deferUntil: row.defer_until,
+          targetPageUrl: row.target_page_url ?? null,
+          patternId: row.pattern_id ?? null,
+        })) as RecommendationResponse[];
+      },
+    };
+  },
 };

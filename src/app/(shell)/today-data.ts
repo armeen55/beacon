@@ -17,9 +17,12 @@ import { detectOutcomeEvents } from "@/domains/attribution/events";
 import { discoverCandidates } from "@/domains/attribution/candidates";
 import { triageCandidates } from "@/domains/attribution/triage";
 import { partitionResultsByMode } from "@/domains/attribution/result-mode";
-import { allPages } from "@/domains/pages/page-store";
+import { getOwnedPages } from "@/domains/pages/page-store";
+import { warmPageRegistry } from "@/domains/attribution/candidates";
 import { readStore } from "@/lib/persistence/json-store";
 import { getRepository } from "@/lib/persistence/repositories";
+import { currentTenantId } from "@/lib/tenant-context";
+import { getOutcomesForTenant } from "@/lib/tenant-data";
 import { citationEvidenceIndex } from "@/domains/pages/citation-evidence-store";
 import {
   pageIssues,
@@ -168,6 +171,18 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
     ensureCanonicalStoresSeeded(),
   ]);
 
+  // Sprint 7 Phase 7.5b Commit 4 (2026-04-25) — resolve tenant once and
+  // thread it into every Tier A repository read below. Header-injected by
+  // middleware (Phase 7.4) or env-fallback (Phase 7.3). Throws if neither
+  // is set — fail-loud posture.
+  const tenantId = await currentTenantId();
+
+  // Sprint 7 Phase 7.5c/3 (2026-04-25) — fetch tenant pages once and warm
+  // the candidates page registry so downstream evidence-tier classification
+  // sees the right data.
+  const allPages = await getOwnedPages();
+  await warmPageRegistry();
+
   // Phase 4.3 (Sprint 4, 2026-04-24): fetch recommendation responses FRESH
   // from the repository per render. The prior implementation read the
   // module-level response-store array + used the module-level suppression
@@ -184,7 +199,7 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
   let freshRecommendationResponses: RecommendationResponse[];
   try {
     freshRecommendationResponses =
-      await getRepository().getRecommendationResponses();
+      await getRepository().forTenant(tenantId).getRecommendationResponses();
   } catch (err) {
     console.error(
       "[today] fresh recommendation_responses read failed — continuing without response state",
@@ -350,10 +365,10 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
       // inventory fallback. Top Pick card gets a resolved URL either
       // from cluster observations or from the site inventory when AI
       // hasn't cited the page yet.
-      const { allPages: inventoryPages } = await import(
-        "@/domains/pages/page-store"
-      );
-      const repoForInventory = getRepository();
+      // Sprint 7 Phase 7.5c/3 (2026-04-25) — replaced dynamic import of
+      // module-level `allPages` with the lazy tenant-scoped function.
+      const inventoryPages = await getOwnedPages();
+      const repoForInventory = getRepository().forTenant(tenantId);
       const pageSnapshotsForInventory =
         await repoForInventory.getPageSnapshots();
       const pageInventoryForTopPick = buildPageInventory({
@@ -400,7 +415,7 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
   const lastCrawlRun = latestWebsiteCrawlRun();
   const scanOverdue = isScanOverdue(lastCrawlRun?.completed_at ?? null, scanSettings);
 
-  const repo = getRepository();
+  const repo = getRepository().forTenant(tenantId);
   const pageSnapshots = await repo.getPageSnapshots();
   const guardrailAlerts = await repo.getGuardrailAlerts();
 
@@ -786,8 +801,11 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
     meaningfulDecayCount,
   });
 
+  // change-patterns: GLOBAL store (cross-tenant aggregate by design) — direct
+  // readStore stays. change-outcomes: tenant-scoped (Phase 7.5a stamped the
+  // .data file); read via the tenant adapter so the filter fires.
   const changePatterns = readStore<import("@/domains/learning/change-patterns").ChangePattern>("change-patterns");
-  const changeOutcomes = readStore<import("@/domains/attribution/change-outcome").ChangeOutcome>("change-outcomes");
+  const changeOutcomes = getOutcomesForTenant(tenantId);
   // Phase 4 (2026-04-19): "active experiments" concept removed. Scanner watches
   // every URL change automatically via url-watcher; no opt-in required. The
   // gap-scanner still wants to avoid recommending on URLs where we're already

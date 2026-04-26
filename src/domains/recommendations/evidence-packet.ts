@@ -79,7 +79,7 @@ export type EvidencePacketAnswerExcerpt = {
 export type EvidencePacket = {
   schemaVersion: "v1";
   generatedAt: string;
-  customerId: string;
+  tenantId: string;
   candidate: {
     stableKey: string;
     deterministicAction: string;
@@ -142,7 +142,7 @@ const ALLOWED_MOTIVES = [
 // ---------------------------------------------------------------------------
 
 export type BuildEvidencePacketArgs = {
-  customerId: string;
+  tenantId: string;
   candidate: ResolvedRecommendationCandidate;
   matrixPrompts: ReadonlyArray<PromptOpportunity>;
   trackedPrompts: ReadonlyArray<TrackedPrompt>;
@@ -253,7 +253,7 @@ export function buildEvidencePacket(args: BuildEvidencePacketArgs): EvidencePack
   return {
     schemaVersion: "v1",
     generatedAt: now.toISOString(),
-    customerId: args.customerId,
+    tenantId: args.tenantId,
     candidate: {
       stableKey: args.candidate.stableKey,
       deterministicAction: args.candidate.resolution.action,

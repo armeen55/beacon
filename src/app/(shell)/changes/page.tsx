@@ -22,6 +22,7 @@ import { sampleQualityTierFromObservationCount } from "@/lib/sample-quality-tier
 // Legacy Z-score "watching" outcomes import removed in Phase 2C cleanup.
 import { findDuplicatePairs } from "@/domains/changelog/dedupe";
 import { getRepository } from "@/lib/persistence/repositories";
+import { currentTenantId } from "@/lib/tenant-context";
 import {
   buildUrlCitationHistory,
   getSeriesForUrl,
@@ -94,7 +95,8 @@ export default async function ChangeScorecardPage() {
   // appeared to succeed but /changes did not show the new scan_detection
   // entries. Honest error state below prevents a silent fallback to stale
   // cached data on repo failure.
-  const repository = getRepository();
+  // Sprint 7 Phase 7.5b Commit 5 (2026-04-25) — tenant-bound read.
+  const repository = getRepository().forTenant(await currentTenantId());
   let freshChangelogEntries: ChangelogEntry[];
   try {
     freshChangelogEntries = await repository.getChangelogEntries();

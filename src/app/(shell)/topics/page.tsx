@@ -17,6 +17,7 @@ import { partitionResultsByMode } from "@/domains/attribution/result-mode";
 import { TopicsClient, type TopicRow, type TopicEvent, type TopicChange } from "./topics-client";
 import type { CitationEvidenceIndex, PageSnapshot } from "@/domains/pages/types";
 import { getRepository } from "@/lib/persistence/repositories";
+import { currentTenantId } from "@/lib/tenant-context";
 import { citationEvidenceIndex } from "@/domains/pages/citation-evidence-store";
 import { minePatterns, generateBriefs } from "@/domains/pages/playbook";
 import { rolloutExecutions, patternEvidence } from "@/domains/pages/issues";
@@ -54,7 +55,8 @@ type NextMove =
   | "too_early";
 
 export default async function TopicsPage() {
-  const repo = getRepository();
+  // Sprint 7 Phase 7.5b Commit 5 (2026-04-25) — tenant-bound read.
+  const repo = getRepository().forTenant(await currentTenantId());
   const topicSnapshots = await repo.getPageSnapshots();
   const { attribution: attrResults } = partitionResultsByMode(results);
   const events = detectOutcomeEvents(attrResults);

@@ -138,4 +138,40 @@ export interface SeedDataRepository {
   getDailyMetricSnapshots(): Promise<DailyMetricSnapshot[]>;
   getTrackedEntities(): Promise<TrackedEntity[]>;
   getTrackedPrompts(): Promise<TrackedPrompt[]>;
+
+  // Sprint 7 Phase 7.5a (2026-04-25) — tenant-bound facade. Returns a
+  // `TenantRepository` whose every method filters rows down to one tenant.
+  // Phase 7.5b/c will convert call sites to `.forTenant(...).getX()`.
+  // Phase 7.8+ will move these methods OFF this base so unscoped reads
+  // become a compile error.
+  forTenant(tenantId: string): TenantRepository;
+}
+
+/**
+ * Sprint 7 Phase 7.5a — tenant-scoped read interface. Subset of
+ * `SeedDataRepository` containing only methods that read from
+ * tenant-scoped storage (Supabase tables with a `tenant_id` column or
+ * `.data/*.json` files whose rows carry a `tenant_id` field).
+ *
+ * Methods from `SeedDataRepository` that read GLOBAL stores
+ * (change-patterns, business-config, tenants registry, file-only
+ * artifacts like the citation evidence index) intentionally stay OFF
+ * this interface — global data crosses tenants by design.
+ */
+export interface TenantRepository {
+  getPages(): Promise<PageEntity[]>;
+  getPageSnapshots(): Promise<PageSnapshot[]>;
+  getPageElementInventory(): Promise<PageElementInventoryRow[]>;
+  getRecommendedEdits(): Promise<RecommendedEditRow[]>;
+  getRecommendationResponses(): Promise<RecommendationResponse[]>;
+  getChangelogEntries(): Promise<ChangelogEntry[]>;
+  getScanFindings(): Promise<Finding[]>;
+  getPendingScanFindings(): Promise<Finding[]>;
+  getGuardrailAlerts(): Promise<GuardrailAlert[]>;
+  getObservationRuns(): Promise<ObservationRun[]>;
+  getResults(): Promise<Result[]>;
+  getImportRuns(): Promise<ImportRun[]>;
+  getDailyMetricSnapshots(): Promise<DailyMetricSnapshot[]>;
+  getPromptAnswerObservations(): Promise<PromptAnswerObservation[]>;
+  getUrlChangeOutcomes(): Promise<UrlChangeOutcome[]>;
 }
