@@ -7,6 +7,110 @@
 
 ---
 
+## 2026-04-26 — Sprint 6A.2e — CLI `--provider` flag + dry-run operator smoke
+
+Sprint 6A.2e adds the operator-facing entry point for the OpenAI
+SpecificEditProvider (Sprint 6A.2b) wired through the orchestration
+layer (Sprint 6A.2c) and validator hardening (Sprint 6A.2d).
+
+### Files changed
+- `scripts/build-edits-for-queue.ts` — added `--provider=…` flag
+  (deterministic | openai), `--limit=N` cap, provider name + model +
+  cost in per-rec report, total cost in summary, pre-flight cost
+  warning for `--write` + `--provider=openai`. Vitest detection guard
+  on `main()` so test imports don't auto-run.
+- `tests/scripts/build-edits-for-queue-flags.test.ts` — 17 unit tests
+  for `parseFlags` + `resolveProviderFlag`.
+
+### CLI behavior locked
+
+| Flag | Result |
+|---|---|
+| (no `--provider`) | dispatches to `deterministicProvider` (default) |
+| `--provider=deterministic` | same as default; no API key needed |
+| `--provider=openai` (with `OPENAI_API_KEY`) | dispatches to `openaiProvider`; obeys budget gate |
+| `--provider=openai` (no `OPENAI_API_KEY`) | exit 1 with clear message naming the env var |
+| `--provider=anthropic` | exit 1 with "not supported in Sprint 6A.2" message |
+| `--provider=bogus` | exit 1 with allowed-values list |
+| `--limit=1` | caps `--all` to first N recs (handy with `--provider=openai`) |
+| `--limit=0` / `--limit=abc` | exit 1 with "must be a positive integer" |
+
+### Operator dry-run smoke — actually ran
+
+**Command:**
+```bash
+BEACON_TENANT_ID=tenant-ritz-founder \
+BEACON_TENANT_SLUG=ritz-builders \
+npx tsx --require ./scripts/mock-server-only.cjs \
+  scripts/build-edits-for-queue.ts \
+  --all --provider=openai --limit=1
+```
+
+**Target rec (rank-1 from live queue):** `create_cluster_page:topic:Whole Home Renovation Builders (Bay Area)` → `https://ritzbuilders.com/services/whole-home-remodel`. Packet built with 80 target page elements; provider=openai; persist=DRY-RUN.
+
+**Result:** **OpenAI API returned `insufficient_quota` (HTTP 429).** The provider's 6A.2b empty-bundle fallback caught the 4xx cleanly — no exception thrown, no rows persisted, history entry written with status `empty_or_error`, deterministic baseline unaffected.
+
+```text
+[build-edits] tenant=tenant-ritz-founder mode=ALL provider=openai persist=DRY-RUN limit=1
+[build-edits] page_element_inventory rows=4312
+[build-edits] --limit=1 applied (capped from 19 → 1)
+  rec=create_cluster_page:topic:Whole Home Renovation Builders (Bay Area)
+    packet_built=true
+    target_url=https://ritzbuilders.com/services/whole-home-remodel
+    target_element_count=80
+    provider=openai
+    generated=0 accepted=0 rejected=0
+    persisted=false
+[build-edits] summary: provider=openai recs=1 accepted=0 rejected=0 persisted_recs=0
+```
+
+History row in `.data/global/llm-history-specific-edits.json`:
+```json
+{
+  "timestamp": "2026-04-26T23:31:21.008Z",
+  "tenantId": "tenant-ritz-founder",
+  "recId": "create_cluster_page:topic:Whole Home Renovation Builders (Bay Area)",
+  "evidenceHash": "405b7aa0bd31b542",
+  "providerName": "openai",
+  "model": null,
+  "costUsd": 0,
+  "acceptedCount": 0,
+  "status": "empty_or_error"
+}
+```
+
+**What this proves:**
+1. The CLI flag dispatch works end-to-end on real production data.
+2. The packet builder produces a valid, fully-shaped 80-element packet against the live tenant inventory.
+3. The OpenAI provider's `fetch` reaches the real API.
+4. The 4xx empty-bundle fallback fires correctly — no crash, no half-persist, no thrown exception.
+5. The history append captures the failed attempt with full context for debugging.
+6. The deterministic baseline remains untouched (no rows written).
+
+**What this does NOT prove (deferred to a later run with valid quota):**
+1. Whether `gpt-5-mini` produces useful edits on this packet.
+2. Whether the strict-mode JSON schema returns parseable output.
+3. End-to-end live-call cost characteristics for one Ritz packet.
+
+**Operator next move (whenever quota is restored):**
+Re-run the same command. The provider call will hit `gpt-5-mini`; if successful the bundle's `recommendations[]` will populate, history status flips to `live_call`, costUsd > 0 gets logged. **Still dry-run** — no `--write` until 6A.2f.
+
+If the quota issue is permanent on this key, the operator should:
+- Top up the `OPENAI_API_KEY` account, OR
+- Swap to a different key in `.env.local` / Vercel env, OR
+- Stay on `--provider=deterministic` until 6A.2f.
+
+### Verification
+- `npm run typecheck` — clean
+- `npx vitest run` — **2456 / 2456 pass** (was 2439 entering 6A.2e; +17 new CLI flag tests)
+- `npm run build` — green
+- Vercel-equivalent build (`mv .data /tmp; BEACON_TENANT_ID=… BEACON_TENANT_SLUG=… npm run build`) — green; LLM never reached at build time
+
+### Anthropic
+Untouched. CLI flag rejects it with a Sprint 6A.2-references error before the orchestration's `resolveLLMProvider` can throw mid-run.
+
+---
+
 ## 2026-04-26 — Sprint 7 Phase 7.8e — module-level top-level await reads lifted to request-scope getters across 21 production files
 
 Phase 7.8e completes the multi-tenant hardening sprint by replacing every module-level top-level await read in `src/` with `cache(async () => ...)` getters. Conversion landed in seven sub-commits plus two deploy-fix commits along the way.
