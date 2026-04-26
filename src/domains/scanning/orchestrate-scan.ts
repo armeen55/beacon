@@ -5,7 +5,7 @@ import { promisify } from "node:util";
 
 import { log } from "@/lib/logger";
 import { currentTenantId } from "@/lib/tenant-context";
-import { changelogEntries } from "@/lib/seed-data.server";
+import { getChangelogEntries } from "@/lib/seed-data.server";
 import { getSiteConfig } from "@/lib/site-config";
 import { readDotDataJson } from "@/lib/persistence/dotdata-json";
 import type { CitationEvidenceIndex } from "@/domains/pages/types";
@@ -115,7 +115,7 @@ export async function regenerateScanFindings(opts: {
     previousSnapshots: opts.previousSnapshots,
     currentGuardrails: freshGuardrails,
     previousGuardrails: opts.previousGuardrails,
-    changelog: changelogEntries,
+    changelog: await getChangelogEntries(),
     scanRunId: opts.scanRunId,
     citationsByUrl: citLookup,
     homepageUrl,

@@ -4,9 +4,8 @@ import { AppHeader } from "@/components/shell/app-header";
 import { CommandPalette, type PaletteItem } from "@/components/shell/command-palette";
 import { DemoBannerGate } from "@/components/shell/demo-banner";
 import {
-  changelogEntries,
+  getChangelogEntries,
   hasActiveExperiment,
-  importRuns,
 } from "@/lib/seed-data.server";
 import { allNavItems } from "@/lib/navigation";
 import { getPendingFindings } from "@/domains/scanning/findings-store";
@@ -75,9 +74,10 @@ export default async function ShellLayout({
   if (changesBadge > 0) badges["/changes"] = changesBadge;
 
   // Sample / walkthrough data when no import runs exist (`import-runs` store empty).
-  const isDemoMode = !hasActiveExperiment();
+  const isDemoMode = !(await hasActiveExperiment());
 
   // ── Palette items ──
+  const changelogEntries = await getChangelogEntries();
   const uniqueTopics = [
     ...new Set(
       changelogEntries

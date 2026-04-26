@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { log } from "@/lib/logger";
-import { opportunities } from "@/lib/seed-data.server";
+import { getOpportunities } from "@/lib/seed-data.server";
 import { writeStore } from "@/lib/persistence/json-store";
 import { generateId, now } from "@/lib/actions";
 import type { Opportunity } from "@/domains/opportunities/types";
@@ -20,6 +20,7 @@ export async function promoteToOpportunity(
       confidence: candidate.confidence,
     },
   });
+  const opportunities = await getOpportunities();
   const exists = opportunities.some(
     (o) =>
       o.title.toLowerCase() === candidate.label.toLowerCase() ||

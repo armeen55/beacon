@@ -50,18 +50,24 @@ vi.mock("@/lib/persistence/json-store", () => ({
   readStore: vi.fn(() => []),
 }));
 
-// Seed data — use a stable reference the hoisted factory can capture
-vi.mock("@/lib/seed-data.server", () => {
+// Seed data — Phase 7.8e-1 (2026-04-26): exports are cached async getters.
+// Hoisted factory captures a stable array reference and exposes both the
+// new `getChangelogEntries()` getter and the legacy `changelogEntries`
+// alias so existing test assertions keep working.
+const mockSeedDataState = vi.hoisted(() => {
   const arr: unknown[] = [];
-  return { changelogEntries: arr };
+  return { arr };
 });
+vi.mock("@/lib/seed-data.server", () => ({
+  getChangelogEntries: vi.fn(async () => mockSeedDataState.arr),
+}));
 
 // Now import the module under test
 import {
   confirmFindingAsChange,
   resolveFinding,
 } from "./finding-actions";
-import { changelogEntries as mockChangelogEntries } from "@/lib/seed-data.server";
+const mockChangelogEntries = mockSeedDataState.arr;
 
 // ---------------------------------------------------------------------------
 // Test data factory

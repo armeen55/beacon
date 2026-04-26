@@ -13,7 +13,7 @@ import { updateChangelogHypothesis } from "@/domains/changelog/actions";
 import { generateId, now } from "@/lib/actions";
 import { writeStore } from "@/lib/persistence/json-store";
 import { syncChangelogEntries } from "@/lib/persistence/dual-write";
-import { changelogEntries } from "@/lib/seed-data.server";
+import { getChangelogEntries } from "@/lib/seed-data.server";
 import { getRepository } from "@/lib/persistence/repositories";
 import { currentTenantId } from "@/lib/tenant-context";
 import type { ChangelogEntry } from "@/domains/changelog/types";
@@ -346,6 +346,7 @@ async function createChangelogEntriesForEdits(
   }
 
   // Push all then persist once for efficiency.
+  const changelogEntries = await getChangelogEntries();
   for (const entry of newEntries) {
     changelogEntries.push(entry);
   }

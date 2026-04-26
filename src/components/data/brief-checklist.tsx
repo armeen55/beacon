@@ -5,7 +5,7 @@ import { ProgressBar } from "@/components/display/progress-bar";
 import type { ChecklistItem } from "@/domains/briefs/types";
 import type { ChecklistItemStatus } from "@/lib/constants";
 import { getBriefProgress } from "@/domains/briefs/utils";
-import { changelogEntries } from "@/lib/seed-data.server";
+import { getChangelogEntries } from "@/lib/seed-data.server";
 
 function ChecklistIcon({ status }: { status: ChecklistItemStatus }) {
   switch (status) {
@@ -28,13 +28,14 @@ function ChecklistIcon({ status }: { status: ChecklistItemStatus }) {
   }
 }
 
-export function BriefChecklist({
+export async function BriefChecklist({
   checklist,
 }: {
   checklist: ChecklistItem[];
 }) {
   const progress = getBriefProgress(checklist);
   const sorted = [...checklist].sort((a, b) => a.sort_order - b.sort_order);
+  const changelogEntries = await getChangelogEntries();
 
   return (
     <div className="space-y-3">

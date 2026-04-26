@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { log } from "@/lib/logger";
-import { opportunities } from "@/lib/seed-data.server";
+import { getOpportunities } from "@/lib/seed-data.server";
 import { now } from "@/lib/actions";
 import type { OpportunityStatus, CloseReason } from "@/lib/constants";
 
@@ -16,7 +16,7 @@ export async function updateOpportunityStatus(
     action,
     params: { opportunityId, newStatus },
   });
-  const opp = opportunities.find((o) => o.id === opportunityId);
+  const opp = (await getOpportunities()).find((o) => o.id === opportunityId);
   if (!opp) {
     log.error("Action failed", {
       action,
@@ -60,7 +60,7 @@ export async function captureOpportunity(
   const action = "captureOpportunity";
   const t0 = Date.now();
   log.info("Action started", { action, params: { opportunityId } });
-  const opp = opportunities.find((o) => o.id === opportunityId);
+  const opp = (await getOpportunities()).find((o) => o.id === opportunityId);
   if (!opp) {
     log.error("Action failed", {
       action,
@@ -91,7 +91,7 @@ export async function deferOpportunity(
   const action = "deferOpportunity";
   const t0 = Date.now();
   log.info("Action started", { action, params: { opportunityId } });
-  const opp = opportunities.find((o) => o.id === opportunityId);
+  const opp = (await getOpportunities()).find((o) => o.id === opportunityId);
   if (!opp) {
     log.error("Action failed", {
       action,
@@ -123,7 +123,7 @@ export async function closeOpportunity(
   const action = "closeOpportunity";
   const t0 = Date.now();
   log.info("Action started", { action, params: { opportunityId, reason } });
-  const opp = opportunities.find((o) => o.id === opportunityId);
+  const opp = (await getOpportunities()).find((o) => o.id === opportunityId);
   if (!opp) {
     log.error("Action failed", {
       action,

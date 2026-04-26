@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { log } from "@/lib/logger";
-import { results } from "@/lib/seed-data.server";
+import { getResults } from "@/lib/seed-data.server";
 import { generateId, now } from "@/lib/actions";
 import {
   candidateLinks,
@@ -21,7 +21,7 @@ export async function confirmCandidate(
   const action = "confirmCandidate";
   const t0 = Date.now();
   log.info("Action started", { action, params: { resultId, changeId } });
-  const result = results.find((r) => r.id === resultId);
+  const result = (await getResults()).find((r) => r.id === resultId);
   if (!result) {
     log.error("Action failed", {
       action,
@@ -212,7 +212,7 @@ export async function lockDecision(
   }
 
   if (causeType === "change" && primaryChangeId) {
-    const result = results.find((r) => r.id === resultId);
+    const result = (await getResults()).find((r) => r.id === resultId);
     if (result && !result.attributed_changelog_ids.includes(primaryChangeId)) {
       result.attributed_changelog_ids.push(primaryChangeId);
     }

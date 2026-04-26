@@ -2,7 +2,11 @@
 
 import { revalidatePath } from "next/cache";
 import { log } from "@/lib/logger";
-import { changelogEntries, briefs, opportunities } from "@/lib/seed-data.server";
+import {
+  getChangelogEntries,
+  getBriefs,
+  getOpportunities,
+} from "@/lib/seed-data.server";
 import { generateId, now } from "@/lib/actions";
 import { writeStore } from "@/lib/persistence/json-store";
 import { syncChangelogEntries } from "@/lib/persistence/dual-write";
@@ -75,6 +79,7 @@ export async function createChangelogEntry(
     tenant_id: "",
   };
 
+  const changelogEntries = await getChangelogEntries();
   changelogEntries.push(entry);
 
   // Persist to disk + Supabase (fixes data loss on restart)
@@ -90,7 +95,7 @@ export async function createChangelogEntry(
   // url-watcher \u2014 no separate tracking table needed.
 
   if (briefId) {
-    const brief = briefs.find((b) => b.id === briefId);
+    const brief = (await getBriefs()).find((b) => b.id === briefId);
     if (brief && !brief.linked_changelog_ids.includes(changeId)) {
       brief.linked_changelog_ids.push(changeId);
       brief.updated_at = timestamp;
@@ -98,7 +103,7 @@ export async function createChangelogEntry(
   }
 
   if (opportunityId) {
-    const opp = opportunities.find((o) => o.id === opportunityId);
+    const opp = (await getOpportunities()).find((o) => o.id === opportunityId);
     if (opp && !opp.linked_changelog_ids.includes(changeId)) {
       opp.linked_changelog_ids.push(changeId);
       opp.updated_at = timestamp;
@@ -145,6 +150,7 @@ export async function softDeleteChangelogEntry(
   const t0 = Date.now();
   log.info("Action started", { action, params: { id, reason } });
 
+  const changelogEntries = await getChangelogEntries();
   const entry = changelogEntries.find((c) => c.id === id);
   if (!entry) {
     log.error("Action failed", { action, durationMs: Date.now() - t0, error: "not found" });
@@ -180,6 +186,7 @@ export async function restoreChangelogEntry(
   const t0 = Date.now();
   log.info("Action started", { action, params: { id } });
 
+  const changelogEntries = await getChangelogEntries();
   const entry = changelogEntries.find((c) => c.id === id);
   if (!entry) return { success: false, error: "Entry not found." };
 
@@ -216,6 +223,7 @@ export async function markDedupeReviewedBulk(
   const idSet = new Set(ids);
   const timestamp = now();
   const touched: ChangelogEntry[] = [];
+  const changelogEntries = await getChangelogEntries();
   for (const e of changelogEntries) {
     if (!idSet.has(e.id)) continue;
     if (e.dedupe_reviewed) continue;
@@ -255,6 +263,7 @@ export async function updateChangelogHypothesis(
   const t0 = Date.now();
   log.info("Action started", { action, params: { id, source } });
 
+  const changelogEntries = await getChangelogEntries();
   const entry = changelogEntries.find((c) => c.id === id);
   if (!entry) return { success: false, error: "Entry not found." };
 

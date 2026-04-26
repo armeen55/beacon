@@ -6,7 +6,11 @@ import { ConfidenceBadge } from "@/components/display/confidence-badge";
 import { MatchFactors } from "@/components/display/match-factors";
 import { EntityLinkCard } from "@/components/data/entity-link-card";
 import { CandidateReview } from "@/components/data/candidate-review";
-import { results, changelogEntries, opportunities } from "@/lib/seed-data.server";
+import {
+  getResults,
+  getChangelogEntries,
+  getOpportunities,
+} from "@/lib/seed-data.server";
 import { getFullChainForResult } from "@/lib/lookups";
 import { discoverCandidates, warmPageRegistry } from "@/domains/attribution/candidates";
 import { triageCandidates } from "@/domains/attribution/triage";
@@ -51,6 +55,11 @@ export default async function ResultDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
+  const [results, changelogEntries, opportunities] = await Promise.all([
+    getResults(),
+    getChangelogEntries(),
+    getOpportunities(),
+  ]);
   const result = results.find((r) => r.id === id);
   if (!result) notFound();
   await warmPageRegistry();
@@ -59,7 +68,7 @@ export default async function ResultDetailPage({
     result.metric_type === "visibility_rank" ||
     result.metric_type === "average_position";
 
-  const chains = getFullChainForResult(result.id);
+  const chains = await getFullChainForResult(result.id);
   const primaryAttribution = chains.find(
     (c) => c.attribution?.role === "primary"
   );

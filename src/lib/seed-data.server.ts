@@ -12,9 +12,20 @@
  *
  * Only Server Components and Server Actions should import this module.
  * Client Components receive data as props from server parents.
+ *
+ * Sprint 7 Phase 7.8e-1 (2026-04-26) — request-scope lift. Module-level
+ * top-level `await repo.getX()` reads (which captured the env-resolved
+ * tenant once at module init and froze it) are replaced with cached
+ * async getters: `getResults`, `getChangelogEntries`, `getOpportunities`,
+ * `getCompetitors`, `getBriefs`, `getCompetitorSnapshots`, `getImportRuns`,
+ * and `hasActiveExperiment`. `React.cache` memoizes within one render
+ * tree; the process-level `_state` map preserves the mutate-array
+ * semantic that callers rely on across requests within the same lambda.
  */
 
 import "server-only";
+
+import { cache } from "react";
 
 import * as seed from "./seed-data";
 import { getRepository } from "./persistence/repositories";
@@ -25,51 +36,152 @@ import type { Opportunity } from "@/domains/opportunities/types";
 import type { Competitor } from "@/domains/competitors/types";
 import type { Brief } from "@/domains/briefs/types";
 import type { CompetitorSnapshot } from "@/domains/competitors/types";
+import type { ImportRun } from "./import/types";
 
-const repo = getRepository();
+// ---------------------------------------------------------------------------
+// Process-level mutable state.
+//
+// Until 7.8e-1, these were module-level `const X: T[] = await repo.getX()`
+// arrays. The refactor preserves the "mutate-once, share-across-requests"
+// semantic — first request through `ensureLoaded()` populates the arrays
+// from the repo (or seed data); subsequent requests in the same lambda
+// share the SAME array references. Mutations land in `_state` and persist
+// across requests within one lambda lifetime, identical to today's
+// behavior.
+//
+// What changed: tenant capture. Today's `repo.getX()` runs at module
+// init with whatever tenant `BEACON_TENANT_ID` resolved to. Post-7.8e-1
+// it runs at first-render time, where the tenant is correctly resolved
+// per-request via `currentTenantId`. Single-tenant production is
+// unaffected (env constant per process); multi-tenant is now structurally
+// correct.
+// ---------------------------------------------------------------------------
 
-const _importRuns = await repo.getImportRuns();
+type State = {
+  results: Result[] | null;
+  changelogEntries: ChangelogEntry[] | null;
+  opportunities: Opportunity[] | null;
+  competitors: Competitor[] | null;
+  briefs: Brief[] | null;
+  competitorSnapshots: CompetitorSnapshot[] | null;
+  importRuns: ImportRun[] | null;
+};
 
-/**
- * True when at least one import run has been recorded.
- * For file backend: reflects the cached readStore reference,
- * so runtime mutations (import pushes) are visible.
- */
-export function hasActiveExperiment(): boolean {
-  return _importRuns.length > 0;
+const _state: State = {
+  results: null,
+  changelogEntries: null,
+  opportunities: null,
+  competitors: null,
+  briefs: null,
+  competitorSnapshots: null,
+  importRuns: null,
+};
+
+async function loadFromRepoOrSeed(): Promise<void> {
+  if (_state.importRuns !== null) return;
+
+  const repo = getRepository();
+  const importRuns = await repo.getImportRuns();
+  _state.importRuns = importRuns;
+
+  if (importRuns.length > 0) {
+    const [res, changes, opps, comps] = await Promise.all([
+      repo.getResults(),
+      repo.getChangelogEntries(),
+      repo.getOpportunities(),
+      repo.getCompetitors(),
+    ]);
+    _state.results = res;
+    _state.changelogEntries = changes;
+    _state.opportunities = opps;
+    _state.competitors = comps;
+    _state.briefs = [];
+    _state.competitorSnapshots = [];
+  } else {
+    _state.results = [...seed.results];
+    _state.changelogEntries = [...seed.changelogEntries];
+    _state.opportunities = [...seed.opportunities];
+    _state.competitors = [...seed.competitors];
+    _state.briefs = [...seed.briefs];
+    _state.competitorSnapshots = [...seed.competitorSnapshots];
+  }
 }
 
-export { _importRuns as importRuns };
+/**
+ * `React.cache` ensures concurrent callers within one render tree share
+ * the same in-flight Promise; subsequent requests find `_state` already
+ * populated and return immediately.
+ */
+const ensureLoaded = cache(loadFromRepoOrSeed);
 
-// ── Mutable entity arrays ──
-// Hydrated at module load from `getRepository()` when an import experiment is active;
-// otherwise seeded from static `seed-data`. Import actions mutate these arrays in-process.
+// ---------------------------------------------------------------------------
+// Public getters.
+//
+// Each is wrapped in `React.cache` so a single render tree resolves
+// the array once. The returned reference IS the cached array — callers
+// may mutate via `.push(...)`, `.length = 0; .push(...rest)`, etc. and
+// those mutations persist for the lifetime of the lambda.
+// ---------------------------------------------------------------------------
 
-export const results: Result[] = [];
-export const changelogEntries: ChangelogEntry[] = [];
-export const opportunities: Opportunity[] = [];
-export const competitors: Competitor[] = [];
-export const briefs: Brief[] = [];
-export const competitorSnapshots: CompetitorSnapshot[] = [];
+export const getResults = cache(async (): Promise<Result[]> => {
+  await ensureLoaded();
+  return _state.results!;
+});
 
-// ── Populate based on experiment state ──
+export const getChangelogEntries = cache(
+  async (): Promise<ChangelogEntry[]> => {
+    await ensureLoaded();
+    return _state.changelogEntries!;
+  },
+);
 
-if (_importRuns.length > 0) {
-  const [res, changes, opps, comps] = await Promise.all([
-    repo.getResults(),
-    repo.getChangelogEntries(),
-    repo.getOpportunities(),
-    repo.getCompetitors(),
-  ]);
-  results.push(...res);
-  changelogEntries.push(...changes);
-  opportunities.push(...opps);
-  competitors.push(...comps);
-} else {
-  results.push(...seed.results);
-  changelogEntries.push(...seed.changelogEntries);
-  opportunities.push(...seed.opportunities);
-  competitors.push(...seed.competitors);
-  briefs.push(...seed.briefs);
-  competitorSnapshots.push(...seed.competitorSnapshots);
+export const getOpportunities = cache(async (): Promise<Opportunity[]> => {
+  await ensureLoaded();
+  return _state.opportunities!;
+});
+
+export const getCompetitors = cache(async (): Promise<Competitor[]> => {
+  await ensureLoaded();
+  return _state.competitors!;
+});
+
+export const getBriefs = cache(async (): Promise<Brief[]> => {
+  await ensureLoaded();
+  return _state.briefs!;
+});
+
+export const getCompetitorSnapshots = cache(
+  async (): Promise<CompetitorSnapshot[]> => {
+    await ensureLoaded();
+    return _state.competitorSnapshots!;
+  },
+);
+
+export const getImportRuns = cache(async (): Promise<ImportRun[]> => {
+  await ensureLoaded();
+  return _state.importRuns!;
+});
+
+/**
+ * True when at least one import run has been recorded. Reflects the
+ * cached array reference, so post-init mutations (operator imports a
+ * workbook within the lambda lifetime) are visible.
+ */
+export const hasActiveExperiment = cache(async (): Promise<boolean> => {
+  const runs = await getImportRuns();
+  return runs.length > 0;
+});
+
+/**
+ * Test-only reset. Clears the process-level state so the next caller
+ * re-runs `loadFromRepoOrSeed()`. Not exported in production paths.
+ */
+export function _resetSeedDataStateForTests(): void {
+  _state.results = null;
+  _state.changelogEntries = null;
+  _state.opportunities = null;
+  _state.competitors = null;
+  _state.briefs = null;
+  _state.competitorSnapshots = null;
+  _state.importRuns = null;
 }

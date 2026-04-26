@@ -23,7 +23,7 @@ import type { ImportRun } from "@/lib/import/types";
 
 import { normalizePlatform } from "@/lib/platform";
 import { writeStore } from "@/lib/persistence/json-store";
-import { importRuns } from "@/lib/seed-data.server";
+import { getImportRuns } from "@/lib/seed-data.server";
 import {
   syncChangelogEntries,
   syncImportRuns,
@@ -310,6 +310,7 @@ export async function writeLegacyBridge(opts: {
     tenant_id: "",
   };
 
+  const importRuns = await getImportRuns();
   importRuns.push(importRun);
   await writeStore("import-runs", importRuns);
 

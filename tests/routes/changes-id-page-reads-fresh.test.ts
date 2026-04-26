@@ -110,8 +110,8 @@ describe("Sprint 1 / Phase 1.6 — /changes/[id] fresh-read invariants", () => {
         },
       }));
       vi.doMock("@/lib/seed-data.server", () => ({
-        opportunities: [],
-        results: [],
+        getOpportunities: vi.fn(async () => []),
+        getResults: vi.fn(async () => []),
       }));
       vi.doMock("@/domains/attribution/store", () => ({
         eventDecisions: [],

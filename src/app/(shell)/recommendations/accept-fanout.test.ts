@@ -75,9 +75,9 @@ vi.mock("@/lib/persistence/json-store", () => ({
 }));
 
 vi.mock("@/lib/seed-data.server", () => ({
-  changelogEntries: mocks.changelogEntriesArr,
-  briefs: [],
-  opportunities: [],
+  getChangelogEntries: vi.fn(async () => mocks.changelogEntriesArr),
+  getBriefs: vi.fn(async () => []),
+  getOpportunities: vi.fn(async () => []),
 }));
 
 vi.mock("@/domains/product/recommendation-response-store", () => ({

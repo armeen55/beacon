@@ -11,12 +11,25 @@
 
 import "server-only";
 
-import {
-  results,
-  changelogEntries,
-  opportunities,
-  competitors,
-} from "@/lib/seed-data.server";
+// Phase 7.8e-1 (2026-04-26): seed-data.server module-level exports
+// became cached async getters. profound-adapter is the legacy DI
+// surface (phased-out 2026-04-22 per native-poll cutover); production
+// routes don't invoke `getAdapters()`. Threading async through this
+// sync DI shape for dead code is wasted churn. Stub each array with an
+// empty default — same rationale as the 7.8b-2-d entity-helper stubs
+// earlier in this file.
+import type { Result } from "@/domains/results/types";
+import type { ChangelogEntry } from "@/domains/changelog/types";
+import type { Opportunity } from "@/domains/opportunities/types";
+import type { Competitor } from "@/domains/competitors/types";
+const results: Result[] = [];
+const changelogEntries: ChangelogEntry[] = [];
+const opportunities: Opportunity[] = [];
+const competitors: Competitor[] = [];
+// Reference unused imports to silence the no-unused-vars lint without
+// changing the stub semantics above.
+void changelogEntries;
+void opportunities;
 import { citationEvidenceIndex } from "@/domains/pages/citation-evidence-store";
 import { getPageSnapshots } from "@/domains/pages/snapshot-store";
 // Sprint 7 Phase 7.5c/3 (2026-04-25): page-store no longer exports a

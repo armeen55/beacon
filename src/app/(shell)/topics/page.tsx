@@ -1,8 +1,8 @@
 import Link from "next/link";
 import {
-  results,
-  changelogEntries,
-  opportunities,
+  getResults,
+  getChangelogEntries,
+  getOpportunities,
 } from "@/lib/seed-data.server";
 import { eventDecisions } from "@/domains/attribution/store";
 import {
@@ -59,6 +59,11 @@ export default async function TopicsPage() {
   const repo = getRepository().forTenant(await currentTenantId());
   const topicSnapshots = await repo.getPageSnapshots();
   await warmPageRegistry();
+  const [results, changelogEntries, opportunities] = await Promise.all([
+    getResults(),
+    getChangelogEntries(),
+    getOpportunities(),
+  ]);
   const { attribution: attrResults } = partitionResultsByMode(results);
   const events = detectOutcomeEvents(attrResults);
   const rows = computeScorecard(

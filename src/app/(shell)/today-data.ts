@@ -4,10 +4,10 @@
  */
 
 import {
-  results,
-  changelogEntries,
-  opportunities,
-  competitors,
+  getResults,
+  getChangelogEntries,
+  getOpportunities,
+  getCompetitors,
   hasActiveExperiment,
 } from "@/lib/seed-data.server";
 import { eventDecisions } from "@/domains/attribution/store";
@@ -176,6 +176,16 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
   // middleware (Phase 7.4) or env-fallback (Phase 7.3). Throws if neither
   // is set — fail-loud posture.
   const tenantId = await currentTenantId();
+
+  // Sprint 7 Phase 7.8e-1 (2026-04-26) — seed-data exports are now cached
+  // async getters; resolve once at the top of the render so the body
+  // below can use the arrays as local consts.
+  const [results, changelogEntries, opportunities, competitors] = await Promise.all([
+    getResults(),
+    getChangelogEntries(),
+    getOpportunities(),
+    getCompetitors(),
+  ]);
 
   // Sprint 7 Phase 7.5c/3 (2026-04-25) — fetch tenant pages once and warm
   // the candidates page registry so downstream evidence-tier classification

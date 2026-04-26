@@ -1,9 +1,9 @@
 import {
-  opportunities,
-  briefs,
-  changelogEntries,
-  results,
-  competitors,
+  getOpportunities,
+  getBriefs,
+  getChangelogEntries,
+  getResults,
+  getCompetitors,
 } from "./seed-data.server";
 import type { Opportunity } from "@/domains/opportunities/types";
 import type { Brief } from "@/domains/briefs/types";
@@ -22,7 +22,8 @@ function dedupe<T extends { id: string }>(items: T[]): T[] {
 
 // ── Change → Results (reverse: which results attribute this change) ──
 
-export function getResultsForChange(changeId: string): Result[] {
+export async function getResultsForChange(changeId: string): Promise<Result[]> {
+  const results = await getResults();
   return results.filter((r) =>
     r.attributed_changelog_ids.includes(changeId)
   );
@@ -30,7 +31,13 @@ export function getResultsForChange(changeId: string): Result[] {
 
 // ── Result → Changes (via attributed_changelog_ids) ──
 
-export function getChangesForResult(resultId: string): ChangelogEntry[] {
+export async function getChangesForResult(
+  resultId: string,
+): Promise<ChangelogEntry[]> {
+  const [results, changelogEntries] = await Promise.all([
+    getResults(),
+    getChangelogEntries(),
+  ]);
   const result = results.find((r) => r.id === resultId);
   if (!result) return [];
   return changelogEntries.filter((c) =>
@@ -40,7 +47,13 @@ export function getChangesForResult(resultId: string): ChangelogEntry[] {
 
 // ── Change → Brief (direct FK) ──
 
-export function getBriefForChange(changeId: string): Brief | null {
+export async function getBriefForChange(
+  changeId: string,
+): Promise<Brief | null> {
+  const [changelogEntries, briefs] = await Promise.all([
+    getChangelogEntries(),
+    getBriefs(),
+  ]);
   const change = changelogEntries.find((c) => c.id === changeId);
   if (!change?.brief_id) return null;
   return briefs.find((b) => b.id === change.brief_id) ?? null;
@@ -48,7 +61,13 @@ export function getBriefForChange(changeId: string): Brief | null {
 
 // ── Change → Opportunity (direct FK) ──
 
-export function getOpportunityForChange(changeId: string): Opportunity | null {
+export async function getOpportunityForChange(
+  changeId: string,
+): Promise<Opportunity | null> {
+  const [changelogEntries, opportunities] = await Promise.all([
+    getChangelogEntries(),
+    getOpportunities(),
+  ]);
   const change = changelogEntries.find((c) => c.id === changeId);
   if (!change?.opportunity_id) return null;
   return opportunities.find((o) => o.id === change.opportunity_id) ?? null;
@@ -56,7 +75,13 @@ export function getOpportunityForChange(changeId: string): Opportunity | null {
 
 // ── Brief → Opportunities (via opportunity_ids) ──
 
-export function getOpportunityForBrief(briefId: string): Opportunity[] {
+export async function getOpportunityForBrief(
+  briefId: string,
+): Promise<Opportunity[]> {
+  const [briefs, opportunities] = await Promise.all([
+    getBriefs(),
+    getOpportunities(),
+  ]);
   const brief = briefs.find((b) => b.id === briefId);
   if (!brief) return [];
   return opportunities.filter((o) => brief.opportunity_ids.includes(o.id));
@@ -64,7 +89,13 @@ export function getOpportunityForBrief(briefId: string): Opportunity[] {
 
 // ── Opportunity → Briefs (linked_brief_ids + reverse lookup) ──
 
-export function getBriefsForOpportunity(opportunityId: string): Brief[] {
+export async function getBriefsForOpportunity(
+  opportunityId: string,
+): Promise<Brief[]> {
+  const [opportunities, briefs] = await Promise.all([
+    getOpportunities(),
+    getBriefs(),
+  ]);
   const opp = opportunities.find((o) => o.id === opportunityId);
   const fromDirect = opp?.linked_brief_ids
     ? briefs.filter((b) => opp.linked_brief_ids.includes(b.id))
@@ -77,9 +108,13 @@ export function getBriefsForOpportunity(opportunityId: string): Brief[] {
 
 // ── Opportunity → Changes (linked_changelog_ids + change.opportunity_id) ──
 
-export function getChangesForOpportunity(
+export async function getChangesForOpportunity(
   opportunityId: string
-): ChangelogEntry[] {
+): Promise<ChangelogEntry[]> {
+  const [opportunities, changelogEntries] = await Promise.all([
+    getOpportunities(),
+    getChangelogEntries(),
+  ]);
   const opp = opportunities.find((o) => o.id === opportunityId);
   const directIds = opp?.linked_changelog_ids ?? [];
   const fromDirect = changelogEntries.filter((c) => directIds.includes(c.id));
@@ -91,8 +126,13 @@ export function getChangesForOpportunity(
 
 // ── Opportunity → Results (through connected changes) ──
 
-export function getResultsForOpportunity(opportunityId: string): Result[] {
-  const changes = getChangesForOpportunity(opportunityId);
+export async function getResultsForOpportunity(
+  opportunityId: string,
+): Promise<Result[]> {
+  const [changes, results] = await Promise.all([
+    getChangesForOpportunity(opportunityId),
+    getResults(),
+  ]);
   const changeIds = new Set(changes.map((c) => c.id));
   return results.filter((r) =>
     r.attributed_changelog_ids.some((id) => changeIds.has(id))
@@ -101,7 +141,13 @@ export function getResultsForOpportunity(opportunityId: string): Result[] {
 
 // ── Brief → Changes (via linked_changelog_ids) ──
 
-export function getChangesForBrief(briefId: string): ChangelogEntry[] {
+export async function getChangesForBrief(
+  briefId: string,
+): Promise<ChangelogEntry[]> {
+  const [briefs, changelogEntries] = await Promise.all([
+    getBriefs(),
+    getChangelogEntries(),
+  ]);
   const brief = briefs.find((b) => b.id === briefId);
   if (!brief) return [];
   return changelogEntries.filter((c) =>
@@ -111,8 +157,11 @@ export function getChangesForBrief(briefId: string): ChangelogEntry[] {
 
 // ── Brief → Results (through connected changes) ──
 
-export function getResultsForBrief(briefId: string): Result[] {
-  const changes = getChangesForBrief(briefId);
+export async function getResultsForBrief(briefId: string): Promise<Result[]> {
+  const [changes, results] = await Promise.all([
+    getChangesForBrief(briefId),
+    getResults(),
+  ]);
   const changeIds = new Set(changes.map((c) => c.id));
   return results.filter((r) =>
     r.attributed_changelog_ids.some((id) => changeIds.has(id))
@@ -121,17 +170,22 @@ export function getResultsForBrief(briefId: string): Result[] {
 
 // ── Competitor → Opportunities (by competitor_ids array) ──
 
-export function getOpportunitiesForCompetitor(
+export async function getOpportunitiesForCompetitor(
   competitorId: string
-): Opportunity[] {
+): Promise<Opportunity[]> {
+  const opportunities = await getOpportunities();
   return opportunities.filter((o) => o.competitor_ids.includes(competitorId));
 }
 
 // ── Opportunity → Competitors (by competitor_ids array) ──
 
-export function getCompetitorsForOpportunity(
+export async function getCompetitorsForOpportunity(
   opportunityId: string
-): Competitor[] {
+): Promise<Competitor[]> {
+  const [opportunities, competitors] = await Promise.all([
+    getOpportunities(),
+    getCompetitors(),
+  ]);
   const opp = opportunities.find((o) => o.id === opportunityId);
   if (!opp || opp.competitor_ids.length === 0) return [];
   return competitors.filter((c) => opp.competitor_ids.includes(c.id));
@@ -139,9 +193,10 @@ export function getCompetitorsForOpportunity(
 
 // ── Opportunity → Related Opportunities ──
 
-export function getRelatedOpportunities(
+export async function getRelatedOpportunities(
   opportunityId: string
-): Opportunity[] {
+): Promise<Opportunity[]> {
+  const opportunities = await getOpportunities();
   const opp = opportunities.find((o) => o.id === opportunityId);
   if (!opp || opp.related_opportunity_ids.length === 0) return [];
   return opportunities.filter((o) =>
@@ -151,11 +206,15 @@ export function getRelatedOpportunities(
 
 // ── Single-entity lookups ──
 
-export function getChangeById(changeId: string): ChangelogEntry | null {
+export async function getChangeById(
+  changeId: string,
+): Promise<ChangelogEntry | null> {
+  const changelogEntries = await getChangelogEntries();
   return changelogEntries.find((c) => c.id === changeId) ?? null;
 }
 
-export function getBriefById(briefId: string): Brief | null {
+export async function getBriefById(briefId: string): Promise<Brief | null> {
+  const briefs = await getBriefs();
   return briefs.find((b) => b.id === briefId) ?? null;
 }
 
@@ -174,7 +233,15 @@ export type ChainLink = {
   attribution: Attribution | null;
 };
 
-export function getFullChainForResult(resultId: string): ChainLink[] {
+export async function getFullChainForResult(
+  resultId: string,
+): Promise<ChainLink[]> {
+  const [results, changelogEntries, opportunities, briefs] = await Promise.all([
+    getResults(),
+    getChangelogEntries(),
+    getOpportunities(),
+    getBriefs(),
+  ]);
   const result = results.find((r) => r.id === resultId);
   if (!result) return [];
 
@@ -210,7 +277,14 @@ export function getFullChainForResult(resultId: string): ChainLink[] {
 
 // ── Attribution lookups ──
 
-export function getAttributionsForResult(resultId: string): Attribution[] {
+export async function getAttributionsForResult(
+  resultId: string,
+): Promise<Attribution[]> {
+  const [changelogEntries, results, opportunities] = await Promise.all([
+    getChangelogEntries(),
+    getResults(),
+    getOpportunities(),
+  ]);
   return computeAttributionsForResult(
     resultId,
     changelogEntries,
@@ -219,7 +293,14 @@ export function getAttributionsForResult(resultId: string): Attribution[] {
   );
 }
 
-export function getChangeVerdictData(changeId: string): ChangeVerdictData {
+export async function getChangeVerdictData(
+  changeId: string,
+): Promise<ChangeVerdictData> {
+  const [changelogEntries, results, opportunities] = await Promise.all([
+    getChangelogEntries(),
+    getResults(),
+    getOpportunities(),
+  ]);
   const change = changelogEntries.find((c) => c.id === changeId);
   if (!change) {
     return { verdict: "pending", attributions: [], summary: "Change not found" };

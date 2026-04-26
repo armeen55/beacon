@@ -6,7 +6,7 @@
 
 import "server-only";
 
-import { results } from "@/lib/seed-data.server";
+import { getResults } from "@/lib/seed-data.server";
 import { citationEvidenceIndex } from "@/domains/pages/citation-evidence-store";
 import { stripSiteOrigin, getSiteConfig } from "@/lib/site-config";
 import { buildCompetitorRank } from "@/lib/performance-timeseries";
@@ -25,7 +25,7 @@ export async function runMilestoneSync(): Promise<{
   );
 
   const { newEvents } = await syncMilestonesFromWorkspace({
-    results,
+    results: await getResults(),
     citationIndex: citationEvidenceIndex,
     siteDomain,
     competitorRank,

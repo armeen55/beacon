@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { log } from "@/lib/logger";
-import { briefs, opportunities } from "@/lib/seed-data.server";
+import { getBriefs, getOpportunities } from "@/lib/seed-data.server";
 import { CHECKLIST_TEMPLATES } from "@/domains/briefs/checklist-templates";
 import { generateId, now } from "@/lib/actions";
 import type { BriefStatus, BriefType, Priority, EffortLevel, OutcomeVerdict } from "@/lib/constants";
@@ -83,10 +83,10 @@ export async function createBrief(
     updated_at: timestamp,
   };
 
-  briefs.push(brief);
+  (await getBriefs()).push(brief);
 
   if (opportunityId) {
-    const opp = opportunities.find((o) => o.id === opportunityId);
+    const opp = (await getOpportunities()).find((o) => o.id === opportunityId);
     if (opp && !opp.linked_brief_ids.includes(briefId)) {
       opp.linked_brief_ids.push(briefId);
       opp.updated_at = timestamp;
@@ -105,7 +105,7 @@ export async function updateBriefStatus(
   const action = "updateBriefStatus";
   const t0 = Date.now();
   log.info("Action started", { action, params: { briefId, newStatus } });
-  const brief = briefs.find((b) => b.id === briefId);
+  const brief = (await getBriefs()).find((b) => b.id === briefId);
   if (!brief) {
     log.error("Action failed", {
       action,
@@ -146,7 +146,7 @@ export async function toggleChecklistItem(
   const action = "toggleChecklistItem";
   const t0 = Date.now();
   log.info("Action started", { action, params: { briefId, itemId } });
-  const brief = briefs.find((b) => b.id === briefId);
+  const brief = (await getBriefs()).find((b) => b.id === briefId);
   if (!brief) {
     log.error("Action failed", {
       action,
@@ -190,7 +190,7 @@ export async function addChecklistItem(
     action,
     params: { briefId, labelLength: label.length },
   });
-  const brief = briefs.find((b) => b.id === briefId);
+  const brief = (await getBriefs()).find((b) => b.id === briefId);
   if (!brief) {
     log.error("Action failed", {
       action,
@@ -241,7 +241,7 @@ export async function judgeOutcome(
     action,
     params: { briefId, outcomeId, verdict },
   });
-  const brief = briefs.find((b) => b.id === briefId);
+  const brief = (await getBriefs()).find((b) => b.id === briefId);
   if (!brief) {
     log.error("Action failed", {
       action,

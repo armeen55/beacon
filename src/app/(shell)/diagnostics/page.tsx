@@ -10,11 +10,11 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
-  opportunities,
-  briefs,
-  changelogEntries,
-  results,
-  competitors,
+  getOpportunities,
+  getBriefs,
+  getChangelogEntries,
+  getResults,
+  getCompetitors,
 } from "@/lib/seed-data.server";
 import {
   computeDiagnostics,
@@ -192,6 +192,13 @@ type DiagnosticsContext = {
 };
 
 export default async function DiagnosticsPage() {
+  const [results, changelogEntries, opportunities, briefs, competitors] = await Promise.all([
+    getResults(),
+    getChangelogEntries(),
+    getOpportunities(),
+    getBriefs(),
+    getCompetitors(),
+  ]);
   const diag = computeDiagnostics(results, changelogEntries, opportunities, briefs, competitors);
   const cdiag = computeCandidateDiagnostics(results, changelogEntries, opportunities);
   const modelReport = computeModelReport(results, changelogEntries, opportunities, cdiag);
@@ -203,6 +210,7 @@ export default async function DiagnosticsPage() {
     eventDecisions
   );
   const driverCov = summarizeDriverCoverage(results, driverMap);
+  const isExperimentActive = await hasActiveExperiment();
 
   // Sprint 7 Phase 7.5c/4 (2026-04-25) — fetch tenant-scoped pages +
   // snapshots once at the top of the request, then thread to helpers via
@@ -490,7 +498,7 @@ export default async function DiagnosticsPage() {
       </div>
 
       {/* Cluster Intelligence */}
-      {hasActiveExperiment() && (() => {
+      {isExperimentActive && (() => {
         const { clusters } = computeActionClusters(results, changelogEntries, opportunities, candidateLinks);
         const cs = summarizeClusters(clusters);
         const statusOrder: ClusterStatus[] = ["working", "review_now", "fix_data", "investigate_external", "monitor_only", "low_signal"];
@@ -571,7 +579,7 @@ export default async function DiagnosticsPage() {
       })()}
 
       {/* Pattern Intelligence */}
-      {hasActiveExperiment() && (() => {
+      {isExperimentActive && (() => {
         const { patterns } = computePatterns(results, changelogEntries, opportunities, candidateLinks);
         const ps = summarizePatterns(patterns);
         if (patterns.length === 0) return null;
@@ -641,7 +649,7 @@ export default async function DiagnosticsPage() {
       })()}
 
       {/* Expansion Intelligence */}
-      {hasActiveExperiment() && (() => {
+      {isExperimentActive && (() => {
         const expCandidates = computeOpportunityCandidates(results, changelogEntries, opportunities, candidateLinks);
         const es = summarizeCandidates(expCandidates);
         if (expCandidates.length === 0) return null;

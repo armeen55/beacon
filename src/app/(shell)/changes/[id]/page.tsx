@@ -4,7 +4,7 @@ import { ChangeVerdictBadge } from "@/components/display/change-verdict-badge";
 import { ConfidenceBadge } from "@/components/display/confidence-badge";
 import { MatchFactors } from "@/components/display/match-factors";
 import { buildAttributionConfidenceBasis } from "@/lib/attribution-confidence-basis";
-import { results, opportunities } from "@/lib/seed-data.server";
+import { getResults, getOpportunities } from "@/lib/seed-data.server";
 import type { ChangelogEntry } from "@/domains/changelog/types";
 import { eventDecisions } from "@/domains/attribution/store";
 import { computeScorecard } from "@/domains/attribution/scorecard";
@@ -132,6 +132,10 @@ export default async function ChangeDetailPage({
   const entry = freshChangelogEntries.find((c) => c.id === id);
   if (!entry) notFound();
 
+  const [results, opportunities] = await Promise.all([
+    getResults(),
+    getOpportunities(),
+  ]);
   const allRows = computeScorecard(
     freshChangelogEntries,
     results,

@@ -7,7 +7,7 @@ import { getRepository } from "@/lib/persistence/repositories";
 import { currentTenantId } from "@/lib/tenant-context";
 import { updateScanSettings } from "@/domains/scanning/scan-settings";
 import type { ScanSettings, FindingStatus, PromotionStatus, FindingType } from "@/domains/scanning/types";
-import { changelogEntries } from "@/lib/seed-data.server";
+import { getChangelogEntries } from "@/lib/seed-data.server";
 import { generateId, now } from "@/lib/actions";
 import { writeStore } from "@/lib/persistence/json-store";
 import type { ChangelogEntry } from "@/domains/changelog/types";
@@ -282,6 +282,7 @@ export async function confirmFindingAsChange(
   }
 
   // 3. Persist: add to in-memory array + write to disk + Supabase
+  const changelogEntries = await getChangelogEntries();
   changelogEntries.push(entry);
   await writeStore("imported-changes", changelogEntries);
   await syncChangelogEntries([entry], tenantId);

@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { log } from "@/lib/logger";
-import { briefs } from "@/lib/seed-data.server";
+import { getBriefs } from "@/lib/seed-data.server";
 import { generateId, now } from "@/lib/actions";
 import { briefStates, persistBriefStates } from "./store";
 import type { ProposedBrief, ProposedBriefStatus } from "./types";
@@ -104,7 +104,7 @@ export async function acceptProposedBrief(
     source_system: "beacon-brief-gen",
   };
 
-  briefs.push(brief);
+  (await getBriefs()).push(brief);
 
   updateBriefState(proposed.id, "accepted", briefId);
   await persistBriefStates();

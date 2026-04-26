@@ -52,8 +52,8 @@ import { buildAnswerIntelligenceIndex } from "@/domains/answer-intelligence/buil
 import { writeStore, readStore } from "@/lib/persistence/json-store";
 import { getSiteConfig } from "@/lib/site-config";
 import {
-  results as moduleResults,
-  changelogEntries as moduleChangelog,
+  getResults,
+  getChangelogEntries,
 } from "@/lib/seed-data.server";
 import { refreshCitationEvidenceStore } from "@/domains/pages/citation-evidence-store";
 import { refreshAnswerIntelligenceStore } from "@/domains/answer-intelligence/store";
@@ -321,10 +321,12 @@ export async function runProfoundImport(
   // Refresh the module-level arrays so the UI immediately reflects bridged data.
   // Without this, seed-data.server.ts keeps the stale arrays from server startup.
   const freshResults = await readStore<import("@/domains/results/types").Result>("imported-results");
+  const moduleResults = await getResults();
   moduleResults.length = 0;
   moduleResults.push(...freshResults);
 
   const importedChanges = await readStore<ChangelogEntry>("imported-changes");
+  const moduleChangelog = await getChangelogEntries();
   moduleChangelog.length = 0;
   moduleChangelog.push(...importedChanges);
 

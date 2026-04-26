@@ -125,9 +125,9 @@ describe("Sprint 1 / Phase 1.3 — /changes fresh-read invariants", () => {
       vi.resetModules();
       vi.doMock("next/cache", () => ({ revalidatePath: vi.fn() }));
       vi.doMock("@/lib/seed-data.server", () => ({
-        opportunities: [],
-        results: [],
-        hasActiveExperiment: () => true,
+        getOpportunities: vi.fn(async () => []),
+        getResults: vi.fn(async () => []),
+        hasActiveExperiment: vi.fn(async () => true),
       }));
       vi.doMock("@/domains/attribution/store", () => ({
         eventDecisions: [],

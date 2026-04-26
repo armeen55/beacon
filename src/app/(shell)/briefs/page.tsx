@@ -1,9 +1,13 @@
 import Link from "next/link";
-import { briefs, hasActiveExperiment } from "@/lib/seed-data.server";
+import { getBriefs, hasActiveExperiment } from "@/lib/seed-data.server";
 import { BriefsClient } from "./briefs-client";
 
-export default function BriefsPage() {
-  if (hasActiveExperiment() && briefs.length === 0) {
+export default async function BriefsPage() {
+  const [isExperimentActive, briefs] = await Promise.all([
+    hasActiveExperiment(),
+    getBriefs(),
+  ]);
+  if (isExperimentActive && briefs.length === 0) {
     return (
       <div className="max-w-2xl mx-auto py-16 text-center">
         <h2 className="text-[16px] font-semibold mb-2">

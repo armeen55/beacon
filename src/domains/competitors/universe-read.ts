@@ -71,7 +71,7 @@ export async function loadCompetitorUniverseRuntime(): Promise<CompetitorUnivers
     }
   }
 
-  if (hasActiveExperiment()) {
+  if (await hasActiveExperiment()) {
     const emptyFp = computeCompetitorUniverseFingerprint([]);
     return buildRuntime("empty_import_mode", [], {
       universe_version: 0,

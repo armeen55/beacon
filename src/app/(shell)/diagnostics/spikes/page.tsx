@@ -13,7 +13,7 @@
 
 import { PageHeader } from "@/components/data/page-header";
 import { dailyMetricSnapshots } from "@/storage/canonical-store";
-import { changelogEntries } from "@/lib/seed-data.server";
+import { getChangelogEntries } from "@/lib/seed-data.server";
 import { readStore } from "@/lib/persistence/json-store";
 import { listWebsiteCrawlRuns } from "@/domains/observations/read";
 import {
@@ -43,7 +43,7 @@ export default async function SpikeForensicsPage() {
   for (const spike of spikes) {
     const report = analyzeVisibilityEvent({
       spike,
-      changelog: changelogEntries,
+      changelog: await getChangelogEntries(),
       outcomes,
       snapshots: dailyMetricSnapshots,
       patterns,

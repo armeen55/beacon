@@ -424,7 +424,12 @@ export async function refreshOutcomeObservation(
   const { computeScorecard } = await import("@/domains/attribution/scorecard");
   const { detectOutcomeEvents } = await import("@/domains/attribution/events");
   const { partitionResultsByMode } = await import("@/domains/attribution/result-mode");
-  const { results, changelogEntries, opportunities } = await import("@/lib/seed-data.server");
+  const { getResults, getChangelogEntries, getOpportunities } = await import("@/lib/seed-data.server");
+  const [results, changelogEntries, opportunities] = await Promise.all([
+    getResults(),
+    getChangelogEntries(),
+    getOpportunities(),
+  ]);
   const { eventDecisions } = await import("@/domains/attribution/store");
 
   const exec = rolloutExecutions.find((r) => r.issueId === issueId);

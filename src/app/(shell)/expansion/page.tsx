@@ -1,8 +1,8 @@
 import Link from "next/link";
 import {
-  results,
-  changelogEntries,
-  opportunities,
+  getResults,
+  getChangelogEntries,
+  getOpportunities,
   hasActiveExperiment,
 } from "@/lib/seed-data.server";
 import { candidateLinks } from "@/domains/attribution/store";
@@ -35,8 +35,8 @@ const MODEL_CONFIDENCE_LABEL: Record<string, string> = {
   low: "Model fit: weaker",
 };
 
-export default function ExpansionPage() {
-  const experimentActive = hasActiveExperiment();
+export default async function ExpansionPage() {
+  const experimentActive = await hasActiveExperiment();
 
   if (!experimentActive) {
     return (
@@ -78,6 +78,11 @@ export default function ExpansionPage() {
     );
   }
 
+  const [results, changelogEntries, opportunities] = await Promise.all([
+    getResults(),
+    getChangelogEntries(),
+    getOpportunities(),
+  ]);
   const allCandidates = computeOpportunityCandidates(
     results,
     changelogEntries,

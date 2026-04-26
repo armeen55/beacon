@@ -1,8 +1,8 @@
 import Link from "next/link";
 import {
-  results,
-  changelogEntries,
-  opportunities,
+  getResults,
+  getChangelogEntries,
+  getOpportunities,
   hasActiveExperiment,
 } from "@/lib/seed-data.server";
 import { candidateLinks } from "@/domains/attribution/store";
@@ -23,8 +23,8 @@ import {
 import type { ProposedBrief } from "@/domains/brief-generation/types";
 import { BriefAcceptReject } from "@/components/data/brief-controls";
 
-export default function ProposedBriefsPage() {
-  if (!hasActiveExperiment()) {
+export default async function ProposedBriefsPage() {
+  if (!(await hasActiveExperiment())) {
     return (
       <div className="rounded-md border border-border p-8 text-center">
         <p className="text-[14px] font-medium mb-1">No active experiment</p>
@@ -41,6 +41,11 @@ export default function ProposedBriefsPage() {
     );
   }
 
+  const [results, changelogEntries, opportunities] = await Promise.all([
+    getResults(),
+    getChangelogEntries(),
+    getOpportunities(),
+  ]);
   const { briefs } = computeProposedBriefs(
     results,
     changelogEntries,

@@ -1,8 +1,8 @@
 import Link from "next/link";
 import {
-  results,
-  changelogEntries,
-  opportunities,
+  getResults,
+  getChangelogEntries,
+  getOpportunities,
   hasActiveExperiment,
 } from "@/lib/seed-data.server";
 import { eventDecisions } from "@/domains/attribution/store";
@@ -89,7 +89,12 @@ type PageNextMove =
 
 export default async function PagesPage() {
   // Same signal as Today / shell demo mode (Phase 2A): no import runs ⇒ sample workspace, not operator Pages.
-  const isDemoMode = !hasActiveExperiment();
+  const isDemoMode = !(await hasActiveExperiment());
+  const [results, changelogEntries, opportunities] = await Promise.all([
+    getResults(),
+    getChangelogEntries(),
+    getOpportunities(),
+  ]);
   if (isDemoMode) {
     return (
       <div className="max-w-5xl">

@@ -3,8 +3,8 @@ import { PageHeader } from "@/components/data/page-header";
 import { EvidenceFreshnessBanner } from "@/components/shell/evidence-freshness-banner";
 import { citationEvidenceIndex } from "@/domains/pages/citation-evidence-store";
 import {
-  opportunities,
-  results,
+  getOpportunities,
+  getResults,
   hasActiveExperiment,
 } from "@/lib/seed-data.server";
 import type { ChangelogEntry } from "@/domains/changelog/types";
@@ -45,7 +45,7 @@ import { isEventTruthPreviewEnabled } from "@/lib/flags";
 export const dynamic = "force-dynamic";
 
 export default async function ChangeScorecardPage() {
-  if (!hasActiveExperiment()) {
+  if (!(await hasActiveExperiment())) {
     return (
       <div>
         <PageHeader
@@ -119,6 +119,10 @@ export default async function ChangeScorecardPage() {
   };
 
   // ── Legacy scorecard rows (still used for drill-down topic/platform breakdown) ──
+  const [results, opportunities] = await Promise.all([
+    getResults(),
+    getOpportunities(),
+  ]);
   const rawRows = computeScorecard(liveEntries, results, opportunities, eventDecisions);
   const rows = enrichWithImpact(rawRows);
 

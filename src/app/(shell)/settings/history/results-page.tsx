@@ -1,8 +1,8 @@
 import {
-  results,
-  changelogEntries,
-  opportunities,
-  competitors,
+  getResults,
+  getChangelogEntries,
+  getOpportunities,
+  getCompetitors,
 } from "@/lib/seed-data.server";
 import { eventDecisions } from "@/domains/attribution/store";
 import {
@@ -23,6 +23,12 @@ import { citationEvidenceIndex } from "@/domains/pages/citation-evidence-store";
 import type { PersistedIssue } from "@/domains/pages/issues";
 
 export default async function ResultsPage() {
+  const [results, changelogEntries, opportunities, competitors] = await Promise.all([
+    getResults(),
+    getChangelogEntries(),
+    getOpportunities(),
+    getCompetitors(),
+  ]);
   const driverMap = buildAttributionDriverMap(
     results,
     changelogEntries,

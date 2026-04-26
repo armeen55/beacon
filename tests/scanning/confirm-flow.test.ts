@@ -54,7 +54,7 @@ vi.mock("@/lib/persistence/json-store", () => ({
 }));
 
 vi.mock("@/lib/seed-data.server", () => ({
-  changelogEntries: mockChangelogEntries,
+  getChangelogEntries: vi.fn(async () => mockChangelogEntries),
 }));
 
 // ── Now import the functions under test ──

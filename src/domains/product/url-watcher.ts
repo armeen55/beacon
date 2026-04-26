@@ -37,7 +37,7 @@ import {
   writeFailedState,
   type UrlWatcherTrigger,
 } from "./url-watcher-state";
-import { changelogEntries } from "@/lib/seed-data.server";
+import { getChangelogEntries } from "@/lib/seed-data.server";
 import {
   materializeUrlOutcomes,
   urlChangeOutcomes,
@@ -109,7 +109,7 @@ export async function runUrlWatcher(
     // Idempotent — re-running updates existing records in place via
     // (change_id, url) upsert; no duplicates.
     const outcomesResult = await materializeUrlOutcomes({
-      changes: changelogEntries,
+      changes: await getChangelogEntries(),
       history,
       asOfDate: history.date_range.last ?? undefined,
     });

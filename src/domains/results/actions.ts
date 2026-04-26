@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { log } from "@/lib/logger";
-import { results } from "@/lib/seed-data.server";
+import { getResults } from "@/lib/seed-data.server";
 import { generateId, now } from "@/lib/actions";
 import { METRIC_DIRECTION } from "@/lib/constants";
 import type { Result } from "@/domains/results/types";
@@ -93,7 +93,7 @@ export async function createResult(
     tenant_id: "",
   };
 
-  results.push(result);
+  (await getResults()).push(result);
 
   revalidatePath("/", "layout");
   log.info("Action completed", { action, durationMs: Date.now() - t0 });

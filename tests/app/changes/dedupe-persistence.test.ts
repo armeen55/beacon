@@ -62,11 +62,9 @@ function mkEntry(overrides: Partial<ChangelogEntry>): ChangelogEntry {
 // ── Module mocks ──────────────────────────────────────────────────────
 
 vi.mock("@/lib/seed-data.server", () => ({
-  get changelogEntries() {
-    return mockChangelogEntries;
-  },
-  briefs: [],
-  opportunities: [],
+  getChangelogEntries: vi.fn(async () => mockChangelogEntries),
+  getBriefs: vi.fn(async () => []),
+  getOpportunities: vi.fn(async () => []),
 }));
 
 vi.mock("@/lib/persistence/json-store", () => ({

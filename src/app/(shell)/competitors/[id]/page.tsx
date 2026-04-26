@@ -10,7 +10,10 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { competitors, competitorSnapshots, opportunities } from "@/lib/seed-data.server";
+import {
+  getCompetitors,
+  getCompetitorSnapshots,
+} from "@/lib/seed-data.server";
 import { getOpportunitiesForCompetitor } from "@/lib/lookups";
 import { computeCompetitiveLandscape } from "@/domains/opportunities/competitive";
 import { PLATFORM_LABELS, OPPORTUNITY_STATUS_LABELS } from "@/lib/constants";
@@ -47,6 +50,10 @@ export default async function CompetitorDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
+  const [competitors, competitorSnapshots] = await Promise.all([
+    getCompetitors(),
+    getCompetitorSnapshots(),
+  ]);
   const competitor = competitors.find((c) => c.id === id);
   if (!competitor) notFound();
 
@@ -58,7 +65,7 @@ export default async function CompetitorDetailPage({
         new Date(a.snapshot_date).getTime()
     );
   const allTopics = [...new Set(snapshots.flatMap((s) => s.topics_present))];
-  const contestedOpportunities = getOpportunitiesForCompetitor(competitor.id);
+  const contestedOpportunities = await getOpportunitiesForCompetitor(competitor.id);
 
   const bestRank = snapshots.reduce<number | null>((best, s) => {
     if (s.visibility_rank == null) return best;

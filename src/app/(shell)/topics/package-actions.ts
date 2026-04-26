@@ -151,7 +151,12 @@ export async function refreshCompetitorEvidence(): Promise<{ success: boolean; t
   const { minePatterns, generateBriefs } = await import("@/domains/pages/playbook");
   const { rolloutExecutions, patternEvidence: pe } = await import("@/domains/pages/issues");
   const { rolloutWaves } = await import("@/domains/pages/wave-planner");
-  const { results, changelogEntries, opportunities } = await import("@/lib/seed-data.server");
+  const { getResults, getChangelogEntries, getOpportunities } = await import("@/lib/seed-data.server");
+  const [results, changelogEntries, opportunities] = await Promise.all([
+    getResults(),
+    getChangelogEntries(),
+    getOpportunities(),
+  ]);
   const { eventDecisions } = await import("@/domains/attribution/store");
   const { computeScorecard } = await import("@/domains/attribution/scorecard");
 

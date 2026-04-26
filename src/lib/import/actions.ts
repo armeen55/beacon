@@ -14,12 +14,12 @@ import {
 import { mapLocalReviewRow } from "./review-mapper";
 import { mergeUpsertLocalReviews } from "@/lib/local-reviews-store";
 import {
-  opportunities,
-  briefs,
-  changelogEntries,
-  results,
-  competitors,
-  importRuns,
+  getOpportunities,
+  getBriefs,
+  getChangelogEntries,
+  getResults,
+  getCompetitors,
+  getImportRuns as getImportRunsArray,
 } from "@/lib/seed-data.server";
 import { citationEvidenceIndex } from "@/domains/pages/citation-evidence-store";
 import type { ImportEntityType, ImportFormat, ImportRun, ImportResult, ImportPreview } from "./types";
@@ -46,7 +46,7 @@ import {
 import { runMilestoneSync } from "@/domains/milestones/post-import-sync";
 
 export async function getImportRuns(): Promise<ImportRun[]> {
-  return [...importRuns].reverse();
+  return [...(await getImportRunsArray())].reverse();
 }
 
 export async function getDataCoverage(): Promise<{
@@ -57,6 +57,11 @@ export async function getDataCoverage(): Promise<{
   platforms: string[];
   lastImportAt: string | null;
 }> {
+  const [results, importRuns, changelogEntries] = await Promise.all([
+    getResults(),
+    getImportRunsArray(),
+    getChangelogEntries(),
+  ]);
   const dates = results.map((r) => r.snapshot_date).filter(Boolean).sort();
   const platformSet = new Set<string>();
   for (const r of results) {
@@ -254,7 +259,7 @@ export async function executeImport(
       allWarnings.push(...result.warnings);
 
       if (result.entity) {
-        insertEntity(entityType, result.entity);
+        await insertEntity(entityType, result.entity);
         imported++;
       } else {
         skipped++;
@@ -310,6 +315,7 @@ export async function executeImport(
     warnings: allWarnings.slice(0, 50),
     tenant_id: "",
   };
+  const importRuns = await getImportRunsArray();
   importRuns.push(run);
   await writeStore("import-runs", importRuns);
   await syncImportRuns(importRuns, tenantId);
@@ -368,22 +374,30 @@ export async function clearEntityData(
   log.info("Action started", { action, params: { entityType } });
   let cleared = 0;
   switch (entityType) {
-    case "results":
+    case "results": {
+      const results = await getResults();
       cleared = results.length;
       results.length = 0;
       break;
-    case "changes":
+    }
+    case "changes": {
+      const changelogEntries = await getChangelogEntries();
       cleared = changelogEntries.length;
       changelogEntries.length = 0;
       break;
-    case "opportunities":
+    }
+    case "opportunities": {
+      const opportunities = await getOpportunities();
       cleared = opportunities.length;
       opportunities.length = 0;
       break;
-    case "competitors":
+    }
+    case "competitors": {
+      const competitors = await getCompetitors();
       cleared = competitors.length;
       competitors.length = 0;
       break;
+    }
     case "reviews": {
       const { readLocalReviews, writeLocalReviews } = await import("@/lib/local-reviews-store");
       cleared = (await readLocalReviews()).length;
@@ -409,6 +423,7 @@ export async function clearImportedData(
 
   switch (entityType) {
     case "results": {
+      const results = await getResults();
       const keep = results.filter((r) => !isImported(r));
       cleared = results.length - keep.length;
       results.length = 0;
@@ -416,6 +431,7 @@ export async function clearImportedData(
       break;
     }
     case "changes": {
+      const changelogEntries = await getChangelogEntries();
       const keep = changelogEntries.filter((c) => !isImported(c));
       cleared = changelogEntries.length - keep.length;
       changelogEntries.length = 0;
@@ -423,6 +439,7 @@ export async function clearImportedData(
       break;
     }
     case "opportunities": {
+      const opportunities = await getOpportunities();
       const keep = opportunities.filter((o) => !isImported(o));
       cleared = opportunities.length - keep.length;
       opportunities.length = 0;
@@ -430,6 +447,7 @@ export async function clearImportedData(
       break;
     }
     case "competitors": {
+      const competitors = await getCompetitors();
       const keep = competitors.filter((c) => !isImported(c));
       cleared = competitors.length - keep.length;
       competitors.length = 0;
@@ -470,8 +488,17 @@ export async function resetExperiment(
     params: { preserveTruthLabels: options.preserveTruthLabels ?? false },
   });
   const { candidateLinks, truthLabels, persistCandidateLinks, persistTruthLabels } = await import("@/domains/attribution/store");
-  const { actionStates, persistActionStates } = await import("@/domains/actions/store");
-  const { briefStates, persistBriefStates } = await import("@/domains/brief-generation/store");
+  const { actionStates, persistActionStates: _persistActionStates } = await import("@/domains/actions/store");
+  const { briefStates, persistBriefStates: _persistBriefStates } = await import("@/domains/brief-generation/store");
+
+  const [results, changelogEntries, opportunities, competitors, importRuns] =
+    await Promise.all([
+      getResults(),
+      getChangelogEntries(),
+      getOpportunities(),
+      getCompetitors(),
+      getImportRunsArray(),
+    ]);
 
   const cleared = {
     results: results.length,
@@ -535,20 +562,28 @@ function getMapper(entityType: ImportEntityType) {
   }
 }
 
-function insertEntity(entityType: ImportEntityType, entity: unknown) {
+async function insertEntity(entityType: ImportEntityType, entity: unknown) {
   switch (entityType) {
-    case "results":
+    case "results": {
+      const results = await getResults();
       results.push(entity as (typeof results)[number]);
       break;
-    case "changes":
+    }
+    case "changes": {
+      const changelogEntries = await getChangelogEntries();
       changelogEntries.push(entity as (typeof changelogEntries)[number]);
       break;
-    case "opportunities":
+    }
+    case "opportunities": {
+      const opportunities = await getOpportunities();
       opportunities.push(entity as (typeof opportunities)[number]);
       break;
-    case "competitors":
+    }
+    case "competitors": {
+      const competitors = await getCompetitors();
       competitors.push(entity as (typeof competitors)[number]);
       break;
+    }
     case "reviews":
       break;
   }
@@ -559,16 +594,16 @@ const isImported = (item: { source_system?: string }) => !!item.source_system;
 async function persistImportedEntities(entityType: ImportEntityType) {
   switch (entityType) {
     case "results":
-      await writeStore("imported-results", results.filter(isImported));
+      await writeStore("imported-results", (await getResults()).filter(isImported));
       break;
     case "changes":
-      await writeStore("imported-changes", changelogEntries.filter(isImported));
+      await writeStore("imported-changes", (await getChangelogEntries()).filter(isImported));
       break;
     case "opportunities":
-      await writeStore("imported-opportunities", opportunities.filter(isImported));
+      await writeStore("imported-opportunities", (await getOpportunities()).filter(isImported));
       break;
     case "competitors":
-      await writeStore("imported-competitors", competitors.filter(isImported));
+      await writeStore("imported-competitors", (await getCompetitors()).filter(isImported));
       break;
     case "reviews":
       break;
@@ -651,19 +686,22 @@ async function dualWriteImportedEntities(
 ) {
   switch (entityType) {
     case "results":
-      await syncResults(results.filter(isImported), tenantId);
+      await syncResults((await getResults()).filter(isImported), tenantId);
       break;
     case "changes":
-      await syncChangelogEntries(changelogEntries.filter(isImported), tenantId);
+      await syncChangelogEntries(
+        (await getChangelogEntries()).filter(isImported),
+        tenantId,
+      );
       break;
     case "opportunities":
       // Phase 7.7b Commit 2 — `syncOpportunities` not yet converted (Tier
       // classification pending; see plan §G). Stays unscoped for now.
-      await syncOpportunities(opportunities.filter(isImported));
+      await syncOpportunities((await getOpportunities()).filter(isImported));
       break;
     case "competitors":
       // Phase 7.7b Commit 2 — same as opportunities; unscoped pending audit.
-      await syncCompetitors(competitors.filter(isImported));
+      await syncCompetitors((await getCompetitors()).filter(isImported));
       break;
     case "reviews":
       break;
@@ -696,6 +734,7 @@ export async function refreshAttributionAction(): Promise<{
     type DMS = import("@/domains/daily-metric-snapshots/types").DailyMetricSnapshot;
 
     const snapshots = await readStoreLocal<DMS>("daily-metric-snapshots");
+    const changelogEntries = await getChangelogEntries();
     const outcomes = await materializePerChangeOutcomes(
       changelogEntries,
       snapshots,

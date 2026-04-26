@@ -187,6 +187,59 @@ describe("Phase 7.8b-2-e — json-store routing contract", () => {
   });
 });
 
+// ── Phase 7.8e-1: no module-level seed-data value imports ────────────
+
+describe("Phase 7.8e-1 — seed-data.server is request-scope only", () => {
+  it("no `import { results | changelogEntries | opportunities | competitors | briefs | competitorSnapshots | importRuns } from '@/lib/seed-data.server'` anywhere in src/", () => {
+    const srcFiles = [...walkFiles(SRC_ROOT, [".ts", ".tsx"])];
+    const offenders: { file: string; line: number; text: string }[] = [];
+    // Match `from "@/lib/seed-data.server"` and look at the preceding
+    // import-clause names. Forbidden names = the array exports that
+    // existed pre-7.8e-1.
+    const forbidden = new Set([
+      "results",
+      "changelogEntries",
+      "opportunities",
+      "competitors",
+      "briefs",
+      "competitorSnapshots",
+      "importRuns",
+    ]);
+    for (const file of srcFiles) {
+      // Skip seed-data.server.ts itself (defines the now-removed exports
+      // were here pre-refactor).
+      if (file === resolve(SRC_ROOT, "lib/seed-data.server.ts")) continue;
+      const src = readFileSync(file, "utf8");
+      // Find import statements that resolve to the seed-data module.
+      const importRe = /import\s*\{([^}]*)\}\s*from\s*["']@\/lib\/seed-data\.server["']/g;
+      let m: RegExpExecArray | null;
+      while ((m = importRe.exec(src)) !== null) {
+        const before = src.slice(0, m.index);
+        const lineNo = before.split("\n").length;
+        const names = m[1].split(",").map((n) => n.trim().split(/\s+as\s+/)[0]);
+        const bad = names.filter((n) => forbidden.has(n));
+        if (bad.length > 0) {
+          offenders.push({
+            file: file.replace(REPO_ROOT, "."),
+            line: lineNo,
+            text: `forbidden: ${bad.join(", ")}`,
+          });
+        }
+      }
+    }
+    expect(
+      offenders,
+      "Phase 7.8e-1 invariant: seed-data.server.ts no longer exports the " +
+        "module-level mutable arrays. Use the cached async getters " +
+        "(getResults, getChangelogEntries, getOpportunities, getCompetitors, " +
+        "getBriefs, getCompetitorSnapshots, getImportRuns) instead.\n" +
+        offenders
+          .map((o) => `  ${o.file}:${o.line}  ${o.text}`)
+          .join("\n"),
+    ).toEqual([]);
+  });
+});
+
 // ── Phase 7.8d-1: flat fallback removed; unknown throws ──────────────
 
 const DOTDATA_JSON_PATH = resolve(SRC_ROOT, "lib/persistence/dotdata-json.ts");

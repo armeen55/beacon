@@ -11,7 +11,7 @@ import { StallBanner } from "@/components/data/stall-banner";
 import { BriefRetrospective } from "@/components/data/brief-retrospective";
 import { BriefStatusSelect } from "@/components/forms/status-select";
 import { LogChangeButton } from "@/components/forms/log-change-sheet";
-import { briefs, changelogEntries } from "@/lib/seed-data.server";
+import { getBriefs, getChangelogEntries } from "@/lib/seed-data.server";
 import {
   getOpportunityForBrief,
   getChangesForBrief,
@@ -59,15 +59,17 @@ export default async function BriefDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
+  const briefs = await getBriefs();
   const brief = briefs.find((b) => b.id === id);
   if (!brief) notFound();
 
-  const sourceOpportunities = getOpportunityForBrief(brief.id);
-  const relatedChanges = getChangesForBrief(brief.id);
-  const relatedResults = getResultsForBrief(brief.id);
-  const relatedBriefs = brief.related_brief_ids
-    .map((rid) => getBriefById(rid))
-    .filter((b) => b !== null);
+  const [sourceOpportunities, relatedChanges, relatedResults, relatedBriefs, changelogEntries] = await Promise.all([
+    getOpportunityForBrief(brief.id),
+    getChangesForBrief(brief.id),
+    getResultsForBrief(brief.id),
+    Promise.all(brief.related_brief_ids.map((rid) => getBriefById(rid))).then((arr) => arr.filter((b): b is NonNullable<typeof b> => b !== null)),
+    getChangelogEntries(),
+  ]);
 
   const stall = getStallStatus(brief);
   const dueDelta = getDueDelta(brief.due_date);
@@ -83,7 +85,7 @@ export default async function BriefDetailPage({
   for (const item of brief.checklist) {
     if (item.linked_changelog_id) {
       const change = changelogEntries.find(
-        (c) => c.id === item.linked_changelog_id
+        (c) => c.id === item.linked_changelog_id,
       );
       if (change) changeNames[change.id] = change.asset_name;
     }

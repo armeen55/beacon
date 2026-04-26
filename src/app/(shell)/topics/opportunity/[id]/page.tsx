@@ -14,7 +14,11 @@ import {
   DeferOpportunityAction,
   CloseOpportunityAction,
 } from "@/components/forms/lifecycle-actions";
-import { opportunities, competitors, competitorSnapshots } from "@/lib/seed-data.server";
+import {
+  getOpportunities,
+  getCompetitors,
+  getCompetitorSnapshots,
+} from "@/lib/seed-data.server";
 import {
   getBriefsForOpportunity,
   getChangesForOpportunity,
@@ -68,13 +72,20 @@ export default async function OpportunityDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
+  const [opportunities, competitors, competitorSnapshots] = await Promise.all([
+    getOpportunities(),
+    getCompetitors(),
+    getCompetitorSnapshots(),
+  ]);
   const opp = opportunities.find((o) => o.id === id);
   if (!opp) notFound();
 
-  const linkedBriefs = getBriefsForOpportunity(opp.id);
-  const linkedChanges = getChangesForOpportunity(opp.id);
-  const linkedResults = getResultsForOpportunity(opp.id);
-  const relatedOpps = getRelatedOpportunities(opp.id);
+  const [linkedBriefs, linkedChanges, linkedResults, relatedOpps] = await Promise.all([
+    getBriefsForOpportunity(opp.id),
+    getChangesForOpportunity(opp.id),
+    getResultsForOpportunity(opp.id),
+    getRelatedOpportunities(opp.id),
+  ]);
 
   const score = computeOpportunityScore(opp, linkedBriefs, competitorSnapshots);
   const freshness = getFreshnessStatus(opp);

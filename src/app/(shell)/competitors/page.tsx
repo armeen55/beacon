@@ -2,7 +2,7 @@ import Link from "next/link";
 import { PageHeader } from "@/components/data/page-header";
 import { EvidenceFreshnessBanner } from "@/components/shell/evidence-freshness-banner";
 import { KpiCard } from "@/components/viz/kpi-card";
-import { competitors, results, hasActiveExperiment } from "@/lib/seed-data.server";
+import { getCompetitors, getResults, hasActiveExperiment } from "@/lib/seed-data.server";
 import { citationEvidenceIndex } from "@/domains/pages/citation-evidence-store";
 import { pageIssues } from "@/domains/pages/issues";
 import { computeMarketBenchmark, type MarketBenchmark } from "@/domains/pages/builder-benchmark";
@@ -48,7 +48,7 @@ import { answerIntelligenceIndex } from "@/domains/answer-intelligence/store";
 
 export default async function CompetitorsPage() {
   // Same signal as Today / Pages / Changes (Phase 2B): no import runs ⇒ sample workspace, not operator Market.
-  if (!hasActiveExperiment()) {
+  if (!(await hasActiveExperiment())) {
     return (
       <div className="max-w-4xl">
         <PageHeader
@@ -84,6 +84,8 @@ export default async function CompetitorsPage() {
   const universe = await loadCompetitorUniverseRuntime();
   const activeUniverse = universe.entries.filter((e) => e.status === "active");
   const citIndex = citationEvidenceIndex;
+  const [competitors, results] = await Promise.all([getCompetitors(), getResults()]);
+  void results; // some downstream JSX may use this; keep available
 
   const { siteDomain } = getSiteConfig();
   const universeDomains = new Set(activeUniverse.map((e) => e.domain.replace(/^www\./, "").toLowerCase()));
