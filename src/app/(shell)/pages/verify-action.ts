@@ -68,6 +68,11 @@ export async function verifyPageFix(url: string): Promise<VerifyResult> {
   const action = "verifyPageFix";
   const t0 = Date.now();
   log.info("Action started", { action, params: { urlLength: url.length } });
+  // Phase 7.7b Commit 3 (2026-04-25): hoist tenantId once for the whole
+  // action and thread to syncPageSnapshots / syncGuardrailAlertsForUrl
+  // / persistPageElements below. Earlier sites that called
+  // `await currentTenantId()` inline now reuse this local.
+  const tenantId = await currentTenantId();
   const base: VerifyResult = {
     success: false,
     url,
@@ -90,7 +95,7 @@ export async function verifyPageFix(url: string): Promise<VerifyResult> {
     if (IS_VERCEL) {
       // Sprint 7 Phase 7.5b Commit 5 (2026-04-25) — tenant-bound read.
       const allDbAlerts = await getRepository()
-        .forTenant(await currentTenantId())
+        .forTenant(tenantId)
         .getGuardrailAlerts();
       prevAlerts = allDbAlerts.filter(
         (a) => a.url.replace(/\/+$/, "").toLowerCase() === normUrl,
@@ -113,7 +118,7 @@ export async function verifyPageFix(url: string): Promise<VerifyResult> {
     if (IS_VERCEL) {
       // Sprint 7 Phase 7.5b Commit 5 (2026-04-25) — tenant-bound read.
       const allDbSnapshots = await getRepository()
-        .forTenant(await currentTenantId())
+        .forTenant(tenantId)
         .getPageSnapshots();
       // Pick the most recent snapshot for this URL (repo returns all).
       const matches = allDbSnapshots
@@ -225,7 +230,7 @@ export async function verifyPageFix(url: string): Promise<VerifyResult> {
       writeFileSync(snapTmp, JSON.stringify(updatedSnapshots, null, 2), "utf8");
       renameSync(snapTmp, snapPath);
     }
-    await syncPageSnapshots([newSnapshot]);
+    await syncPageSnapshots([newSnapshot], tenantId);
 
     // Sprint 6A.1 Phase 6 — extract + dual-write the inventory rows for
     // this snapshot. Runs AFTER `syncPageSnapshots` so the snapshot is
@@ -236,7 +241,7 @@ export async function verifyPageFix(url: string): Promise<VerifyResult> {
       await persistPageElements({
         snapshot: newSnapshot,
         html,
-        tenantId: await currentTenantId(),
+        tenantId,
         cityDictionary: cfg.locations,
         serviceDictionary: cfg.services,
       });
@@ -264,7 +269,7 @@ export async function verifyPageFix(url: string): Promise<VerifyResult> {
       writeFileSync(gTmp, JSON.stringify(updated, null, 2), "utf8");
       renameSync(gTmp, gPath);
     }
-    await syncGuardrailAlertsForUrl(url, newAlerts);
+    await syncGuardrailAlertsForUrl(url, newAlerts, tenantId);
 
     revalidatePath("/", "layout");
 

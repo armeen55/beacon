@@ -4,6 +4,7 @@ import { exec } from "node:child_process";
 import { promisify } from "node:util";
 
 import { log } from "@/lib/logger";
+import { currentTenantId } from "@/lib/tenant-context";
 import { changelogEntries } from "@/lib/seed-data.server";
 import { getSiteConfig } from "@/lib/site-config";
 import { readDotDataJson } from "@/lib/persistence/dotdata-json";
@@ -162,6 +163,11 @@ export async function runWebsiteScan(opts: {
   const { trigger } = opts;
   const runId = `scan-${Date.now()}`;
   const startedAt = Date.now();
+  // Phase 7.7b Commit 3 (2026-04-25): resolve tenantId once at the top
+  // and thread it into the dual-write block. Child-process env injection
+  // (Phase 7.7e) deferred — the spawned CLI still inherits BEACON_TENANT_ID
+  // implicitly from the parent process.
+  const tenantId = await currentTenantId();
 
   // ── Stale-running detection & duplicate guard ──
   const priorState = readScanState();
@@ -322,8 +328,8 @@ export async function runWebsiteScan(opts: {
       readDotDataJson<PageSnapshot[]>("page-snapshots") ?? [];
     const syncGuards =
       readDotDataJson<GuardrailAlert[]>("page-guardrails") ?? [];
-    await syncPageSnapshots(syncSnaps);
-    await syncGuardrailAlerts(syncGuards);
+    await syncPageSnapshots(syncSnaps, tenantId);
+    await syncGuardrailAlerts(syncGuards, tenantId);
     const syncRuns =
       readDotDataJson<import("@/domains/observations/types").ObservationRun[]>(
         "observation-runs",

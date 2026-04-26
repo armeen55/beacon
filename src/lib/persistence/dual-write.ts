@@ -525,14 +525,21 @@ export async function syncObservationRuns(
 
 export async function syncPageSnapshots(
   rows: PageSnapshot[],
+  tenantId: string,
 ): Promise<void> {
-  await dualWriteUpsert("page_snapshots", rows as unknown as AnyRow[], "id");
+  const stamped = tenantizeRows(rows, tenantId, "page_snapshots");
+  await dualWriteUpsert("page_snapshots", stamped as unknown as AnyRow[], "id");
 }
 
 export async function syncGuardrailAlerts(
   alerts: GuardrailAlert[],
+  tenantId: string,
 ): Promise<void> {
   if (!isDualWriteEnabled() || alerts.length === 0) return;
+
+  // Phase 7.7b Commit 3 (2026-04-25): validate cross-tenant mismatch on
+  // input alerts and stamp `tenant_id` onto the inserted DB rows.
+  const stamped = tenantizeRows(alerts, tenantId, "guardrail_alerts");
 
   const sb = getSupabaseAdmin();
   try {
@@ -549,7 +556,7 @@ export async function syncGuardrailAlerts(
       return;
     }
     // Insert fresh rows without 'id' — let Postgres auto-generate
-    const rows = alerts.map((a) => ({
+    const rows = stamped.map((a) => ({
       page_id: a.page_id,
       url: a.url,
       severity: a.severity,
@@ -557,6 +564,7 @@ export async function syncGuardrailAlerts(
       message: a.message,
       detail: a.detail,
       observation_run_id: a.observation_run_id ?? null,
+      tenant_id: a.tenant_id,
     }));
     for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
       const chunk = rows.slice(i, i + CHUNK_SIZE);
@@ -593,8 +601,16 @@ export async function syncGuardrailAlerts(
 export async function syncGuardrailAlertsForUrl(
   url: string,
   alerts: GuardrailAlert[],
+  tenantId: string,
 ): Promise<void> {
   if (!isDualWriteEnabled()) return;
+
+  // Phase 7.7b Commit 3 (2026-04-25): validate cross-tenant mismatch on
+  // input alerts and stamp `tenant_id` onto the inserted DB rows. Note:
+  // tenantizeRows accepts an empty alerts array, so the no-alerts /
+  // delete-only path still runs.
+  const stamped = tenantizeRows(alerts, tenantId, "guardrail_alerts");
+
   const sb = getSupabaseAdmin();
   try {
     const { error: delErr } = await sb
@@ -607,8 +623,8 @@ export async function syncGuardrailAlertsForUrl(
       );
       return;
     }
-    if (alerts.length === 0) return;
-    const rows = alerts.map((a) => ({
+    if (stamped.length === 0) return;
+    const rows = stamped.map((a) => ({
       page_id: a.page_id,
       url: a.url,
       severity: a.severity,
@@ -616,6 +632,7 @@ export async function syncGuardrailAlertsForUrl(
       message: a.message,
       detail: a.detail,
       observation_run_id: a.observation_run_id ?? null,
+      tenant_id: a.tenant_id,
     }));
     for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
       const chunk = rows.slice(i, i + CHUNK_SIZE);
@@ -670,9 +687,15 @@ function mapFindingToRow(f: Finding): AnyRow {
 
 export async function syncScanFindings(
   findings: Finding[],
+  tenantId: string,
 ): Promise<void> {
   if (!isDualWriteEnabled() || findings.length === 0) return;
-  const rows = findings.map(mapFindingToRow);
+  // Phase 7.7b Commit 3 (2026-04-25): validate cross-tenant mismatch and
+  // stamp tenant_id before mapping to DB rows. mapFindingToRow's
+  // `f.tenant_id ?? ""` fallback below now passes the resolved tenant
+  // through (no longer empty string for legacy callers).
+  const stamped = tenantizeRows(findings, tenantId, "scan_findings");
+  const rows = stamped.map(mapFindingToRow);
   await dualWriteUpsert("scan_findings", rows, "id");
 }
 

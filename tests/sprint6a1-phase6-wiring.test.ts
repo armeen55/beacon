@@ -165,8 +165,9 @@ describe("Phase 6A.1.6 — verify-action.ts wiring", () => {
   });
 
   it("calls persistPageElements AFTER syncPageSnapshots so snapshot is durable first", () => {
+    // Phase 7.7b Commit 3 (2026-04-25): syncPageSnapshots gained a tenantId 2nd arg.
     const syncIdx = VERIFY_ACTION_SOURCE.indexOf(
-      "syncPageSnapshots([newSnapshot])",
+      "syncPageSnapshots([newSnapshot], tenantId)",
     );
     const persistIdx = VERIFY_ACTION_SOURCE.indexOf("persistPageElements({");
     expect(syncIdx).toBeGreaterThan(0);

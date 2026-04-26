@@ -88,6 +88,8 @@ export function getSuppressedTypeKeys(): Set<string> {
 }
 
 export async function addFindings(newFindings: Finding[]): Promise<void> {
+  // Phase 7.7b Commit 3 (2026-04-25): server-context tenant resolution.
+  const tenantId = await currentTenantId();
   const existing = getFindings();
   const existingIds = new Set(existing.map((f) => f.id));
   const suppressed = getSuppressedTypeKeys();
@@ -137,7 +139,7 @@ export async function addFindings(newFindings: Finding[]): Promise<void> {
 
   pruneOldResolved(existing);
   await writeStore(STORE_NAME, existing);
-  await syncScanFindings(existing);
+  await syncScanFindings(existing, tenantId);
 }
 
 export async function updateFindingStatus(
@@ -190,7 +192,7 @@ export async function updateFindingStatus(
   await writeStore(STORE_NAME, repoFindings);
   // syncScanFindings upserts on `id`, so passing only the mutated row is
   // a single-row write to Supabase — cheaper than re-syncing the full set.
-  await syncScanFindings([finding]);
+  await syncScanFindings([finding], tenantId);
   return finding;
 }
 
@@ -211,6 +213,8 @@ export async function enrichFindingsWithSignalQuality(opts: {
 }): Promise<void> {
   const findings = getFindings();
   if (findings.length === 0) return;
+  // Phase 7.7b Commit 3 (2026-04-25): server-context tenant resolution.
+  const tenantId = await currentTenantId();
 
   const { citationIndex, snapshots } = opts;
 
@@ -294,7 +298,7 @@ export async function enrichFindingsWithSignalQuality(opts: {
 
   if (changed) {
     await writeStore(STORE_NAME, findings);
-    await syncScanFindings(findings);
+    await syncScanFindings(findings, tenantId);
   }
 }
 

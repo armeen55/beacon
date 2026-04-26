@@ -199,7 +199,7 @@ async function main(): Promise<void> {
   let inventoryOk = false;
 
   try {
-    await syncPageSnapshots(snapshots);
+    await syncPageSnapshots(snapshots, tenant);
     snapshotsOk = true;
   } catch (e) {
     console.error(
@@ -207,7 +207,7 @@ async function main(): Promise<void> {
     );
   }
   try {
-    await syncGuardrailAlerts(guardrails);
+    await syncGuardrailAlerts(guardrails, tenant);
     guardrailsOk = true;
   } catch (e) {
     console.error(

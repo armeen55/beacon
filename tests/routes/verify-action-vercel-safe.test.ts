@@ -54,15 +54,17 @@ describe("Sprint 4 / Phase 4.5 — verify-action hosted safety", () => {
       expect(fsWriteBlocks!.length).toBeGreaterThanOrEqual(2);
     });
 
-    it("verify-action.ts ALWAYS calls syncPageSnapshots([newSnapshot])", () => {
+    it("verify-action.ts ALWAYS calls syncPageSnapshots([newSnapshot], tenantId)", () => {
+      // Phase 7.7b Commit 3 (2026-04-25): syncPageSnapshots now requires tenantId.
       expect(VERIFY_ACTION_SOURCE).toMatch(
-        /syncPageSnapshots\(\s*\[\s*newSnapshot\s*\]\s*\)/,
+        /syncPageSnapshots\(\s*\[\s*newSnapshot\s*\]\s*,\s*tenantId\s*\)/,
       );
     });
 
-    it("verify-action.ts ALWAYS calls syncGuardrailAlertsForUrl(url, newAlerts)", () => {
+    it("verify-action.ts ALWAYS calls syncGuardrailAlertsForUrl(url, newAlerts, tenantId)", () => {
+      // Phase 7.7b Commit 3 (2026-04-25): syncGuardrailAlertsForUrl now requires tenantId.
       expect(VERIFY_ACTION_SOURCE).toMatch(
-        /syncGuardrailAlertsForUrl\(\s*url\s*,\s*newAlerts\s*\)/,
+        /syncGuardrailAlertsForUrl\(\s*url\s*,\s*newAlerts\s*,\s*tenantId\s*\)/,
       );
     });
 
@@ -238,9 +240,13 @@ describe("Sprint 4 / Phase 4.5 — verify-action hosted safety", () => {
       const { syncGuardrailAlertsForUrl } = await import(
         "@/lib/persistence/dual-write"
       );
+      // Phase 7.7b Commit 3 (2026-04-25): syncGuardrailAlertsForUrl now
+      // requires a tenantId 3rd arg. Match the fixture's tenant_id so
+      // tenantizeRows accepts the row.
       await syncGuardrailAlertsForUrl(
         "https://ritzbuilders.com/services",
         [mkAlert("https://ritzbuilders.com/services")],
+        "tenant-test",
       );
 
       // The delete must scope to the URL column — NOT a global
@@ -273,6 +279,7 @@ describe("Sprint 4 / Phase 4.5 — verify-action hosted safety", () => {
       await syncGuardrailAlertsForUrl(
         "https://ritzbuilders.com/faq",
         [],
+        "tenant-test",
       );
 
       expect(deleteMock).toHaveBeenCalled();
@@ -295,9 +302,11 @@ describe("Sprint 4 / Phase 4.5 — verify-action hosted safety", () => {
       const { syncGuardrailAlertsForUrl } = await import(
         "@/lib/persistence/dual-write"
       );
-      await syncGuardrailAlertsForUrl("https://ritzbuilders.com/faq", [
-        mkAlert("https://ritzbuilders.com/faq"),
-      ]);
+      await syncGuardrailAlertsForUrl(
+        "https://ritzbuilders.com/faq",
+        [mkAlert("https://ritzbuilders.com/faq")],
+        "tenant-test",
+      );
 
       expect(deleteMock).not.toHaveBeenCalled();
       expect(insertMock).not.toHaveBeenCalled();
@@ -337,17 +346,23 @@ describe("Sprint 4 / Phase 4.5 — verify-action hosted safety", () => {
       const { syncGuardrailAlerts } = await import(
         "@/lib/persistence/dual-write"
       );
-      await syncGuardrailAlerts([
-        {
-          page_id: "p-1",
-          url: "https://example.com/a",
-          severity: "regression",
-          category: "missing_faq" as never,
-          message: "m",
-          detail: "d",
-          observation_run_id: "obs-1",
-        } as never,
-      ]);
+      // Phase 7.7b Commit 3 (2026-04-25): syncGuardrailAlerts now requires
+      // a tenantId 2nd arg. The fixture row has no tenant_id field, so
+      // tenantizeRows stamps tenant-test onto it.
+      await syncGuardrailAlerts(
+        [
+          {
+            page_id: "p-1",
+            url: "https://example.com/a",
+            severity: "regression",
+            category: "missing_faq" as never,
+            message: "m",
+            detail: "d",
+            observation_run_id: "obs-1",
+          } as never,
+        ],
+        "tenant-test",
+      );
 
       // Global helper signature: delete().gte("id", 0) — a global wipe.
       // Phase 4.5 must NOT alter this. Both are necessary: global for
