@@ -38,6 +38,7 @@ import {
   writeDotDataJson,
 } from "@/lib/persistence/dotdata-json";
 import { syncRecommendedEdits } from "@/lib/persistence/dual-write";
+import { currentTenantId } from "@/lib/tenant-context";
 import type {
   ActionType,
 } from "./action-types";
@@ -217,6 +218,22 @@ export type RunProviderAndPersistResult = {
 export async function runProviderAndPersist(
   opts: RunProviderAndPersistOptions,
 ): Promise<RunProviderAndPersistResult> {
+  // Phase 7.7d (2026-04-25): assert the packet's tenantId matches the
+  // resolved request/CLI context. Without this, a packet built under
+  // tenant A could be passed into a server action that resolves to
+  // tenant B and write under the wrong tenant. Fails loud at the
+  // boundary so misconfigurations surface immediately rather than
+  // landing rows under the wrong tenant.
+  //
+  // CLI context: currentTenantId() falls through to BEACON_TENANT_ID
+  // env (Phase 7.5d fail-loud) — same fail-loud guarantee.
+  const ctxTenantId = await currentTenantId();
+  if (opts.packet.tenantId !== ctxTenantId) {
+    throw new Error(
+      `[runProviderAndPersist] tenant mismatch: packet.tenantId=${JSON.stringify(opts.packet.tenantId)} context=${ctxTenantId}`,
+    );
+  }
+
   const now = opts.now ?? new Date();
   const dryRun = opts.dryRun === true;
 
@@ -278,7 +295,7 @@ export async function runProviderAndPersist(
   ) {
     try {
       persistRecommendedEditsLocal(acceptedRows);
-      await syncRecommendedEdits(acceptedRows);
+      await syncRecommendedEdits(acceptedRows, ctxTenantId);
       persisted = true;
     } catch (err) {
       log.error("recommended_edits persistence failed", {

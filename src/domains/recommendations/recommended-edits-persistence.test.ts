@@ -66,6 +66,19 @@ vi.mock("@/lib/persistence/dual-write", async (importOriginal) => {
   };
 });
 
+// Phase 7.7d (2026-04-25): runProviderAndPersist now resolves
+// `currentTenantId()` and asserts `packet.tenantId === ctxTenantId`.
+// Tests use TENANT = "tenant-test-acme"; mock the resolver to match so
+// the existing happy-path tests keep working. Mismatch tests below set
+// the mock to a different value to exercise the throw.
+const tenantMocks = vi.hoisted(() => ({
+  currentTenantId: vi.fn(async () => "tenant-test-acme"),
+}));
+
+vi.mock("@/lib/tenant-context", () => ({
+  currentTenantId: tenantMocks.currentTenantId,
+}));
+
 // ── Fixture builders ───────────────────────────────────────────────────────
 
 const FROZEN_NOW = new Date("2026-04-24T12:00:00Z");
@@ -364,6 +377,7 @@ describe("Phase 6A.1.11 — runProviderAndPersist (orchestration)", () => {
     const persistedRows = (
       dualWriteMocks.syncRecommendedEdits.mock.calls[0] as unknown as [
         RecommendedEditRow[],
+        string,
       ]
     )[0];
     expect(persistedRows.length).toBe(result.acceptedCount);
@@ -444,6 +458,7 @@ describe("Phase 6A.1.11 — runProviderAndPersist (orchestration)", () => {
     const persistedRows = (
       dualWriteMocks.syncRecommendedEdits.mock.calls[0] as unknown as [
         RecommendedEditRow[],
+        string,
       ]
     )[0];
     expect(persistedRows).toHaveLength(1);
@@ -511,6 +526,7 @@ describe("Phase 6A.1.11 — runProviderAndPersist (orchestration)", () => {
     const persistedRows = (
       dualWriteMocks.syncRecommendedEdits.mock.calls[0] as unknown as [
         RecommendedEditRow[],
+        string,
       ]
     )[0];
     for (const row of persistedRows) {
@@ -586,6 +602,93 @@ describe("Phase 6A.1.11 — runProviderAndPersist (orchestration)", () => {
       now: FROZEN_NOW,
     });
     expect(JSON.stringify(packet)).toBe(before);
+  });
+});
+
+// ── Phase 7.7d — runProviderAndPersist tenant assertion ──────────────────
+
+describe("Phase 7.7d — runProviderAndPersist tenant assertion", () => {
+  beforeEach(() => {
+    dotDataMocks.read.mockReset();
+    dotDataMocks.write.mockReset();
+    dualWriteMocks.syncRecommendedEdits.mockReset();
+    dotDataMocks.read.mockReturnValue([]);
+    dualWriteMocks.syncRecommendedEdits.mockResolvedValue(undefined);
+    tenantMocks.currentTenantId.mockResolvedValue(TENANT);
+  });
+
+  afterEach(() => {
+    tenantMocks.currentTenantId.mockResolvedValue(TENANT);
+    vi.restoreAllMocks();
+  });
+
+  it("throws when packet.tenantId does not match the resolved context tenantId", async () => {
+    // Simulate a packet built under tenant-A passed into a server
+    // action that resolves to tenant-B (the leak vector).
+    tenantMocks.currentTenantId.mockResolvedValue("tenant-WRONG");
+    const packet = buildPacket();
+    expect(packet.tenantId).toBe(TENANT); // sanity — packet stays as test fixture
+    await expect(
+      runProviderAndPersist({
+        provider: deterministicProvider,
+        packet,
+        dryRun: false,
+        now: FROZEN_NOW,
+      }),
+    ).rejects.toThrow(/tenant mismatch/);
+    // Provider was not even called — the assertion fires at the
+    // function boundary, before any side effects.
+    expect(dualWriteMocks.syncRecommendedEdits).not.toHaveBeenCalled();
+    expect(dotDataMocks.write).not.toHaveBeenCalled();
+  });
+
+  it("error message identifies both packet and context tenants", async () => {
+    tenantMocks.currentTenantId.mockResolvedValue("tenant-other");
+    const packet = buildPacket();
+    await expect(
+      runProviderAndPersist({
+        provider: deterministicProvider,
+        packet,
+        dryRun: false,
+        now: FROZEN_NOW,
+      }),
+    ).rejects.toThrow(/tenant-test-acme.*tenant-other/);
+  });
+
+  it("matching tenant: persists rows AND threads ctxTenantId into syncRecommendedEdits", async () => {
+    tenantMocks.currentTenantId.mockResolvedValue(TENANT);
+    const packet = buildPacket();
+    const result = await runProviderAndPersist({
+      provider: deterministicProvider,
+      packet,
+      dryRun: false,
+      now: FROZEN_NOW,
+    });
+    expect(result.persisted).toBe(true);
+    expect(dualWriteMocks.syncRecommendedEdits).toHaveBeenCalledTimes(1);
+    // Phase 7.7d: helper now receives (rows, tenantId) — the second
+    // argument MUST be the context tenant, not a stamped row value.
+    const callArgs = dualWriteMocks.syncRecommendedEdits.mock
+      .calls[0] as unknown as [RecommendedEditRow[], string];
+    expect(callArgs[1]).toBe(TENANT);
+    // And the rows themselves still carry the packet's tenant_id —
+    // by Phase 7.7d the assertion guarantees they're the same value.
+    for (const row of callArgs[0]) {
+      expect(row.tenant_id).toBe(TENANT);
+    }
+  });
+
+  it("dry-run still asserts tenant — fails fast even before validation runs", async () => {
+    tenantMocks.currentTenantId.mockResolvedValue("tenant-other");
+    const packet = buildPacket();
+    await expect(
+      runProviderAndPersist({
+        provider: deterministicProvider,
+        packet,
+        dryRun: true,
+        now: FROZEN_NOW,
+      }),
+    ).rejects.toThrow(/tenant mismatch/);
   });
 });
 
@@ -687,7 +790,13 @@ describe("Phase 6A.1.11 — source-scan invariants", () => {
       "../../lib/persistence/dual-write.ts",
     );
     const src = readFileSync(dualWritePath, "utf8");
-    expect(src).toMatch(/dualWriteUpsert\(\s*["']recommended_edits["']/);
+    // Phase 7.7d (2026-04-25): syncRecommendedEdits routes through STRICT
+    // dualWriteUpsertScoped (not the unscoped dualWriteUpsert). Match
+    // either form — both still hit `recommended_edits` with the same
+    // compound onConflict key.
+    expect(src).toMatch(
+      /dualWriteUpsert(?:Scoped)?\(\s*["']recommended_edits["']/,
+    );
     expect(src).toMatch(
       /["']rec_id,action_type,target_element_key["']/,
     );

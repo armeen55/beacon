@@ -969,15 +969,25 @@ export async function syncUrlChangeOutcomes(
  *
  * Rows arrive already snake_cased + DB-shaped from
  * `mapSpecificEditToRow` — pass-through, no further mapping.
+ *
+ * Phase 7.7d (2026-04-25): tenant-bound via STRICT `dualWriteUpsertScoped`
+ * (not lenient `tenantizeRows`). The row source is already clean — every
+ * row carries `tenant_id` stamped from `packet.tenantId` at construction
+ * time, with no `""` legacy values to coerce. This helper is the first
+ * production caller of `dualWriteUpsertScoped`; the contract is "every
+ * row's `tenant_id` MUST equal `tenantId` — empty / null / undefined
+ * counts as mismatch and throws".
  */
 export async function syncRecommendedEdits(
   rows: import("@/domains/recommendations/recommended-edits-persistence").RecommendedEditRow[],
+  tenantId: string,
 ): Promise<void> {
   if (!isDualWriteEnabled() || rows.length === 0) return;
-  await dualWriteUpsert(
+  await dualWriteUpsertScoped(
     "recommended_edits",
-    rows as unknown as AnyRow[],
+    rows as unknown as Array<{ tenant_id?: string | null } & Record<string, unknown>>,
     "rec_id,action_type,target_element_key",
+    tenantId,
   );
 }
 

@@ -437,18 +437,30 @@ describe("Phase 7.7b Commit 6 — Tier A sync* helpers require tenantId", () => 
   }
 });
 
-describe("Phase 7.7b Commit 6 — deferred helpers retain pre-7.7b shape", () => {
-  it("syncRecommendedEdits stays unscoped (deferred to Phase 7.7d)", () => {
+describe("Phase 7.7d — syncRecommendedEdits is STRICT-tenant-scoped", () => {
+  it("signature requires tenantId: string", () => {
     const body = sliceHelperBody(DUAL_WRITE_SOURCE, "syncRecommendedEdits");
     expect(body).not.toBe("");
     const headerEnd = body.indexOf("Promise<void>");
     const header = body.slice(0, headerEnd);
-    // No tenantId param yet — Phase 7.7d adds it alongside the
-    // runProviderAndPersist tenant assertion.
-    expect(header).not.toMatch(/tenantId:\s*string/);
-    // No tenantizeRows call yet — its row source already stamps tenant
-    // via mapSpecificEditToRow({ tenantId: packet.tenantId }).
+    expect(header).toMatch(/tenantId:\s*string/);
+  });
+
+  it("body uses STRICT dualWriteUpsertScoped (NOT lenient tenantizeRows)", () => {
+    const body = sliceHelperBody(DUAL_WRITE_SOURCE, "syncRecommendedEdits");
+    // Strict path: this is the first production caller of
+    // dualWriteUpsertScoped. Lenient `tenantizeRows` is forbidden here
+    // because the row source (mapSpecificEditToRow) already stamps the
+    // resolved tenant — we don't want stamp-over to mask a real leak.
+    expect(body).toMatch(/dualWriteUpsertScoped\(/);
     expect(body).not.toMatch(/tenantizeRows\(/);
+  });
+
+  it("body still threads the canonical compound primary key", () => {
+    const body = sliceHelperBody(DUAL_WRITE_SOURCE, "syncRecommendedEdits");
+    expect(body).toMatch(
+      /["']rec_id,action_type,target_element_key["']/,
+    );
   });
 });
 
