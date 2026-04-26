@@ -7,6 +7,65 @@
 
 ---
 
+## 2026-04-25 — Sprint 7 Phase 7.7b — write-path tenant binding COMPLETE (lenient stamping, 6 commits)
+
+Phase 7.7b delivered the write-path counterpart to Phase 7.5's read-path tenant scoping. **No schema changes, no middleware changes, no `.data` changes, no row-creation cleanup.** Pure helper-signature + caller-threading work over 6 commits. The strict `dualWriteUpsertScoped` from 7.7a stays as the long-term contract; production wiring uses the transitional `tenantizeRows` because ~40 row-creation sites still emit `tenant_id: ""` literals (sweep deferred to 7.7b.1 / 7.8).
+
+### Commits (6)
+
+| # | Commit | Scope |
+|---|---|---|
+| 1 | `c7b139b` | Add `tenantizeRows<T>(rows, tenantId, context)` helper + 15 unit tests. No callers yet. |
+| 2 | `25cc8ed` | Convert 4 import-path helpers (`syncImportRuns`, `syncResults`, `syncChangelogEntries`, `syncPages`) + 7 production callers + 3 test files. Diagnosed + fixed connector-test pollution via [json-store.ts:105](src/lib/persistence/json-store.ts:105) anti-race guard (force-unlink `import-runs.json` before each connector test). |
+| 3 | `48a4286` | Convert 4 scan-path helpers (`syncPageSnapshots`, `syncGuardrailAlerts`, `syncGuardrailAlertsForUrl`, `syncScanFindings`) + 4 production callers + 2 test files. `syncGuardrailAlerts` and `syncGuardrailAlertsForUrl` now stamp `tenant_id` onto inserted DB rows (the inline mappers previously omitted the field). |
+| 4 | `2825cf9` | Convert 3 observation-path helpers (`syncObservationRuns`, `syncPromptAnswerObservations`, `syncDailyMetricSnapshots`) + 6 production callers + 1 test. `syncObservationRuns`'s explicit column-mapping now passes `tenant_id` through. Cascade: `orchestrate-scan.ts` and `run-orchestrated-scan.ts` each had one `syncObservationRuns` call from Commit 3 that this commit closed. |
+| 5 | `7c0125d` | Convert 4 tail helpers (`syncRecommendationResponses`, `syncUrlChangeOutcomes`, `syncPageElementInventory`, `syncChangeOutcomes`) + 8 production callers + 2 test files. `persistResponses(tenantId)` signature change. `mapRecommendationResponseToRow` now stamps `tenantId` directly (the type doesn't carry `tenant_id` natively). |
+| 6 | (this) | Per-helper sanity invariants in [tests/persistence/dual-write-tenant.test.ts](tests/persistence/dual-write-tenant.test.ts) + doc sync. 36 new tests (15 helpers × 2 invariants + 1 enumeration check + 2 deferred-helper checks + 3 runtime smokes). |
+
+### Helpers converted (15 = 14 from `TIER_A_METHODS` + `syncChangeOutcomes`)
+
+`syncImportRuns`, `syncResults`, `syncChangelogEntries`, `syncPages`, `syncDailyMetricSnapshots`, `syncPromptAnswerObservations`, `syncObservationRuns`, `syncPageSnapshots`, `syncGuardrailAlerts`, `syncGuardrailAlertsForUrl`, `syncScanFindings`, `syncRecommendationResponses`, `syncUrlChangeOutcomes`, `syncPageElementInventory`, `syncChangeOutcomes`.
+
+Each now: requires `tenantId: string` parameter; routes input through `tenantizeRows(rows, tenantId, "<context>")`; delegates to existing `dualWriteUpsert`. Lenient on empty/null/undefined `row.tenant_id` (coerces to `tenantId`); strict on non-empty mismatch (throws — the actual cross-tenant leak vector).
+
+### Caller-threading rules applied
+
+| Caller class | tenantId source |
+|---|---|
+| Server actions / RSC (request context) | `await currentTenantId()` once at top, threaded down |
+| CLI scripts (`scripts/**`) | `process.env.BEACON_TENANT_ID` fail-loud (Phase 7.5d pattern) |
+| Orchestrator (`orchestrate-scan.ts`) | `await currentTenantId()` at top of `runWebsiteScan`, threaded into the dual-write block. Child-process env injection deferred to 7.7e. |
+| DI shape (`run-poll.ts`) | `args.tenantId` already in `RunNativePollArgs` |
+| Profound CLI lib (`bridge.ts`, `import-orchestrator.ts`) | `process.env.BEACON_TENANT_ID` fail-loud at top of entry function |
+| Domain wrappers (`canonical-store.ts`, `recommendation-response-store.ts`) | Caller-provided param (`persistObservations(tenantId)`, `persistResponses(tenantId)`) |
+
+### Deferred per operator scope (still in pre-7.7b shape)
+
+| Helper / surface | Deferred to | Why |
+|---|---|---|
+| `syncRecommendedEdits` | Phase 7.7d | Bundled with `runProviderAndPersist` tenant assertion. Row source already stamps tenant via `mapSpecificEditToRow({ tenantId: packet.tenantId })`. |
+| `deleteRecommendationResponseByRecId` | Phase 7.7c | Cross-tenant rec_id collision protection. Single caller (`deleteResponseByRecId`) needs threading. |
+| `runProviderAndPersist` tenant assertion | Phase 7.7d | Validate `packet.tenantId === currentTenantId()` at function top. |
+| `runWebsiteScan` child-env injection | Phase 7.7e | Make `BEACON_TENANT_ID` explicit on the spawned CLI's env. Today inheritance is implicit but works. |
+
+The Commit 6 sanity invariant explicitly asserts that `syncRecommendedEdits` + `deleteRecommendationResponseByRecId` retain their pre-7.7b shapes — the test fails loud if a future commit silently graduates them.
+
+### Side-effect test improvement
+
+The connector-test pollution diagnosis in Commit 2 (force-unlink `import-runs.json` before each connector test) cleaned 3 of the 4 pre-existing baseline failures. Final baseline post-Phase 7.7b: **1 failure** (the documented `finding-actions.test.ts:213` timestamp fixture mismatch — pre-existing, unrelated to multi-tenant). Down from 4 baseline failures at Phase 7.5 close.
+
+### Verification (per commit + final)
+
+| Gate | Pre-7.7b | Post-Commit 1 | Post-Commit 2 | Post-Commit 3 | Post-Commit 4 | Post-Commit 5 | Post-Commit 6 |
+|---|---|---|---|---|---|---|---|
+| `npm run typecheck` | clean | clean | clean | clean | clean | clean | clean |
+| `npx vitest run` | 2152/4 | 2174/4 | 2192/1 | 2192/1 | 2192/1 | 2192/1 | **2228/1** |
+| `tests/architecture/` + `tests/tenants/isolation` + `tests/persistence/dual-write-tenant` | 80/80 | 95/95 | 95/95 | 95/95 | 95/95 | 95/95 | **131/131** |
+
+Active plan: `/Users/armeen/.claude/plans/starting-the-safe-save-sequence-sprightly-treasure.md`. Next: Phase 7.7c.
+
+---
+
 ## 2026-04-25 — Sprint 7 Phase 7.5d/3 — architectural invariant extended to scripts (Phase 7.5d ALL COMPLETE)
 
 Test-only commit. The Phase 7.5b/5 architectural invariant — "no unscoped Tier A reads" — now also walks `scripts/**` plus 2 CLI library files (`src/adapters/perplexity/poll.ts`, `src/domains/observations/run-poll.ts`). 16 new assertions (one per Tier A method) over the script tree. Future drift in any CLI script that adds an unscoped Tier A read fails CI.

@@ -17,6 +17,42 @@
 
 ---
 
+## Sprint 7 Phase 7.7b — COMPLETE 2026-04-25 (Phase 7.7b ALL 6 COMMITS COMPLETE)
+
+**Done:** Lenient-stamping write-path tenant binding across 6 commits. New `tenantizeRows<T>(rows, tenantId, context)` helper added in Commit 1; the 15 converted Tier A `sync*` helpers (14 from `TIER_A_METHODS` + `syncChangeOutcomes`) all gain a required `tenantId: string` parameter and route their input through `tenantizeRows` before delegating to `dualWriteUpsert`. Lenient-stamping pattern coerces the legacy `tenant_id: ""` row-creation sites silently and still throws loud on cross-tenant non-empty mismatches — the actual leak vector. Caller threading complete across server actions, CLI scripts, the orchestrator, the DI poll harness, and the canonical-store wrappers. Per-helper sanity invariants in [tests/persistence/dual-write-tenant.test.ts](tests/persistence/dual-write-tenant.test.ts) prevent silent regressions. **2228 passed / 1 failed** — baseline preserved exactly (sole remaining failure is the pre-existing `finding-actions.test.ts:213` timestamp fixture mismatch, unrelated to multi-tenant). Architecture + tenant-isolation + dual-write-tenant invariants 95/95 green.
+
+**Strict adoption deferred:** `dualWriteUpsertScoped` (built in 7.7a) stays in place as the long-term contract. The shift from lenient `tenantizeRows` to strict `dualWriteUpsertScoped` requires cleaning ~40 row-creation sites that still emit `tenant_id: ""` literals; that's a separate Phase 7.7b.1 / 7.8 sweep.
+
+**Deferred per operator scope:**
+- `syncRecommendedEdits` — Phase 7.7d alongside `runProviderAndPersist` tenant assertion (its row source is already tenant-stamped via `mapSpecificEditToRow`).
+- `deleteRecommendationResponseByRecId` — Phase 7.7c (cross-tenant rec_id collision protection).
+- `runWebsiteScan` child-process env injection — Phase 7.7e (today's implicit env inheritance still works).
+
+**Phase 7.7c — APPROVED + SAFE TO START** when operator approves.
+
+---
+
+## Sprint 7 Phase 7.7a — COMPLETE 2026-04-25
+
+**Done:** Tenant validation infrastructure added to [src/lib/persistence/dual-write.ts](src/lib/persistence/dual-write.ts):
+- `GLOBAL_TABLES: ReadonlySet<string>` — the 10 cross-tenant tables (registry + singletons + operator-shared config + global learning).
+- `assertRowsScopedToTenant(rows, tenantId, context)` — pure validator; throws on empty tenantId or non-empty cross-tenant mismatch.
+- `dualWriteUpsertScoped(table, rows, primaryKey, tenantId)` — strict variant of `dualWriteUpsert` that refuses GLOBAL_TABLES and validates rows. Reserved for the long-term contract.
+
+22 new tests in [tests/persistence/dual-write-tenant.test.ts](tests/persistence/dual-write-tenant.test.ts). No callers wired yet; that's 7.7b. **2174 passed / 4 failed** — improved from 2152/4 baseline (+22 from new file).
+
+**Phase 7.7b — APPROVED + SAFE TO START** when operator approves.
+
+---
+
+## Sprint 7 Mini-phase — COMPLETE 2026-04-25 (discoverCandidates warming cascade)
+
+**Done:** 3 RSC entry points (`/topics`, `/review`, `/settings/history/[id]`) now `await warmPageRegistry()` once at the top before any sync helper that calls `discoverCandidates`. `review/page.tsx` converted from sync to async. Attribution helpers (`scorecard.ts`, `result-drivers.ts`, `action-clusters/compute.ts`) untouched and remain sync — they see the warm registry transitively. Closes the documented evidence-tier degradation that fell out of Phase 7.5c/3. **2152 passed / 4 failed** — baseline preserved exactly; no new tests required (existing coverage suffices).
+
+**Phase 7.7a — APPROVED + SAFE TO START** when operator approves.
+
+---
+
 ## Sprint 7 Phase 7.5d/3 — COMPLETE 2026-04-25 (Phase 7.5d ALL COMPLETE; Phase 7.5 ALL COMPLETE)
 
 **Done:** Architectural invariant extended to `scripts/**` + 2 CLI library files. 16 new assertions (one per Tier A method); future drift fails CI. Zero broad file-level allowlists — Tier C-only readers pass naturally because they don't call any Tier A method. **2152 passed / 4 failed** — baseline preserved (+16 from new invariants).

@@ -9,12 +9,22 @@
  * Phase 7.7b Commit 1 (2026-04-25):
  *   - tenantizeRows  (lenient stamping helper for transitional callers)
  *
+ * Phase 7.7b Commit 6 (2026-04-25):
+ *   - Per-helper sanity invariants — every Tier A sync* helper has
+ *     `tenantId: string` in its signature and routes its rows through
+ *     tenantizeRows. Static + runtime spot-check.
+ *   - Deferred helper invariants — syncRecommendedEdits and
+ *     deleteRecommendationResponseByRecId retain their pre-7.7b
+ *     shapes so 7.7c / 7.7d / 7.7e can land cleanly.
+ *
  * These tests don't touch Supabase. The validation layer fires before
  * any I/O — that's the contract — so the assertions can be tested
  * standalone with `DUAL_WRITE` unset (the vitest default).
  */
 
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import {
   assertRowsScopedToTenant,
   dualWriteUpsertScoped,
@@ -351,5 +361,162 @@ describe("Phase 7.7b Commit 1 — tenantizeRows", () => {
       notes: "hello",
       nested: { a: 1, b: [2, 3] },
     });
+  });
+});
+
+// ── Phase 7.7b Commit 6 — Tier A wiring invariants ────────────────────
+
+const DUAL_WRITE_SOURCE = readFileSync(
+  resolve(__dirname, "../../src/lib/persistence/dual-write.ts"),
+  "utf8",
+);
+
+/**
+ * The 15 Tier A sync* helpers converted across Phase 7.7b commits 2–5.
+ * Each must:
+ *   (a) carry `tenantId: string` in its signature, AND
+ *   (b) route rows through `tenantizeRows(...)` in its body.
+ *
+ * `syncRecommendedEdits` is intentionally NOT in this list — it stays
+ * deferred until Phase 7.7d alongside `runProviderAndPersist`.
+ *
+ * If a future migration adds `tenant_id` to a previously Tier C table
+ * (and that table's sync* helper graduates to Tier A), append the
+ * helper name here so the invariant fails loud until the wiring lands.
+ */
+const TIER_A_SYNC_HELPERS = [
+  "syncImportRuns",
+  "syncResults",
+  "syncChangelogEntries",
+  "syncPages",
+  "syncDailyMetricSnapshots",
+  "syncPromptAnswerObservations",
+  "syncObservationRuns",
+  "syncPageSnapshots",
+  "syncGuardrailAlerts",
+  "syncGuardrailAlertsForUrl",
+  "syncScanFindings",
+  "syncRecommendationResponses",
+  "syncUrlChangeOutcomes",
+  "syncPageElementInventory",
+  "syncChangeOutcomes",
+] as const;
+
+/** Slice the function body from `export async function NAME(` up to the
+ *  next `\nexport ` (or end-of-file). Includes the signature line(s). */
+function sliceHelperBody(source: string, name: string): string {
+  const startIdx = source.indexOf(`export async function ${name}(`);
+  if (startIdx < 0) return "";
+  const nextExportIdx = source.indexOf("\nexport ", startIdx + 1);
+  return nextExportIdx > 0
+    ? source.slice(startIdx, nextExportIdx)
+    : source.slice(startIdx);
+}
+
+describe("Phase 7.7b Commit 6 — Tier A sync* helpers require tenantId", () => {
+  it("enumerates exactly 15 converted Tier A helpers", () => {
+    // Sanity: keep the list aligned with the operator's plan.
+    expect(TIER_A_SYNC_HELPERS.length).toBe(15);
+  });
+
+  for (const helper of TIER_A_SYNC_HELPERS) {
+    it(`${helper}: signature requires \`tenantId: string\``, () => {
+      const body = sliceHelperBody(DUAL_WRITE_SOURCE, helper);
+      expect(body, `${helper} not found in dual-write.ts`).not.toBe("");
+      // Header is everything before the body's opening brace.
+      const headerEnd = body.indexOf("Promise<void>");
+      expect(headerEnd).toBeGreaterThan(0);
+      const header = body.slice(0, headerEnd);
+      expect(header).toMatch(/tenantId:\s*string/);
+    });
+
+    it(`${helper}: body routes rows through tenantizeRows`, () => {
+      const body = sliceHelperBody(DUAL_WRITE_SOURCE, helper);
+      expect(body).toMatch(/tenantizeRows\(/);
+    });
+  }
+});
+
+describe("Phase 7.7b Commit 6 — deferred helpers retain pre-7.7b shape", () => {
+  it("syncRecommendedEdits stays unscoped (deferred to Phase 7.7d)", () => {
+    const body = sliceHelperBody(DUAL_WRITE_SOURCE, "syncRecommendedEdits");
+    expect(body).not.toBe("");
+    const headerEnd = body.indexOf("Promise<void>");
+    const header = body.slice(0, headerEnd);
+    // No tenantId param yet — Phase 7.7d adds it alongside the
+    // runProviderAndPersist tenant assertion.
+    expect(header).not.toMatch(/tenantId:\s*string/);
+    // No tenantizeRows call yet — its row source already stamps tenant
+    // via mapSpecificEditToRow({ tenantId: packet.tenantId }).
+    expect(body).not.toMatch(/tenantizeRows\(/);
+  });
+
+  it("deleteRecommendationResponseByRecId stays unscoped (deferred to Phase 7.7c)", () => {
+    const body = sliceHelperBody(
+      DUAL_WRITE_SOURCE,
+      "deleteRecommendationResponseByRecId",
+    );
+    expect(body).not.toBe("");
+    const headerEnd = body.indexOf("Promise<void>");
+    const header = body.slice(0, headerEnd);
+    // No tenantId param yet — Phase 7.7c adds it + threads through
+    // recommendation-response-store.deleteResponseByRecId.
+    expect(header).not.toMatch(/tenantId:\s*string/);
+  });
+});
+
+describe("Phase 7.7b Commit 6 — runtime smoke (representative)", () => {
+  // These tests exercise the runtime contract end-to-end on one
+  // representative Tier A helper. The full 15-helper coverage is
+  // proven by the static invariants above + the tenantizeRows tests
+  // (which is the validation layer every helper routes through).
+
+  it("syncResults rejects empty tenantId at runtime", async () => {
+    const { syncResults } = await import("@/lib/persistence/dual-write");
+    await expect(
+      syncResults(
+        [
+          {
+            id: "r1",
+            tenant_id: "",
+          } as unknown as Parameters<typeof syncResults>[0][number],
+        ],
+        "",
+      ),
+    ).rejects.toThrow(/tenantId must be a non-empty string/);
+  });
+
+  it("syncResults succeeds with valid tenantId when DUAL_WRITE is off (no-op via dualWriteUpsert)", async () => {
+    // Vitest default has DUAL_WRITE unset, so dualWriteUpsert no-ops
+    // after tenantizeRows accepts the input. Silent success.
+    const { syncResults } = await import("@/lib/persistence/dual-write");
+    await expect(
+      syncResults(
+        [
+          {
+            id: "r1",
+            tenant_id: TENANT,
+          } as unknown as Parameters<typeof syncResults>[0][number],
+        ],
+        TENANT,
+      ),
+    ).resolves.toBeUndefined();
+  });
+
+  it("syncResults rejects cross-tenant mismatch at runtime", async () => {
+    // The actual leak vector: a row pre-stamped with the wrong tenant
+    // must throw, not silently overwrite.
+    const { syncResults } = await import("@/lib/persistence/dual-write");
+    await expect(
+      syncResults(
+        [
+          {
+            id: "r1",
+            tenant_id: OTHER,
+          } as unknown as Parameters<typeof syncResults>[0][number],
+        ],
+        TENANT,
+      ),
+    ).rejects.toThrow(/tenant mismatch/);
   });
 });
