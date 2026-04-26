@@ -335,7 +335,7 @@ export async function runWebsiteScan(opts: {
         "observation-runs",
       ) ?? [];
     if (syncRuns.length > 0) {
-      await syncObservationRuns(syncRuns);
+      await syncObservationRuns(syncRuns, tenantId);
     }
 
     // Sprint 6A.1 Phase 6 — dual-write the inventory rows the CLI wrote

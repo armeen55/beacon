@@ -210,14 +210,14 @@ export async function persistObservationRuns(): Promise<void> {
   await writeStore("observation-runs", observationRuns);
 }
 
-export async function persistObservations(): Promise<void> {
+export async function persistObservations(tenantId: string): Promise<void> {
   await writeStore("prompt-answer-observations", promptAnswerObservations);
-  await syncPromptAnswerObservations(promptAnswerObservations);
+  await syncPromptAnswerObservations(promptAnswerObservations, tenantId);
 }
 
-export async function persistSnapshots(): Promise<void> {
+export async function persistSnapshots(tenantId: string): Promise<void> {
   await writeStore("daily-metric-snapshots", dailyMetricSnapshots);
-  await syncDailyMetricSnapshots(dailyMetricSnapshots);
+  await syncDailyMetricSnapshots(dailyMetricSnapshots, tenantId);
 }
 
 export async function persistOutcomeEvents(): Promise<void> {
@@ -256,12 +256,18 @@ export async function replaceObservationRuns(data: ProfoundImportRun[]): Promise
   await persistObservationRuns();
 }
 
-export async function replaceObservations(data: PromptAnswerObservation[]): Promise<void> {
+export async function replaceObservations(
+  data: PromptAnswerObservation[],
+  tenantId: string,
+): Promise<void> {
   replaceAll(promptAnswerObservations, data);
-  await persistObservations();
+  await persistObservations(tenantId);
 }
 
-export async function replaceSnapshots(data: DailyMetricSnapshot[]): Promise<void> {
+export async function replaceSnapshots(
+  data: DailyMetricSnapshot[],
+  tenantId: string,
+): Promise<void> {
   replaceAll(dailyMetricSnapshots, data);
-  await persistSnapshots();
+  await persistSnapshots(tenantId);
 }

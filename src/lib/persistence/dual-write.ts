@@ -470,20 +470,24 @@ export async function syncPageIssues(
 
 export async function syncDailyMetricSnapshots(
   rows: DailyMetricSnapshot[],
+  tenantId: string,
 ): Promise<void> {
+  const stamped = tenantizeRows(rows, tenantId, "daily_metric_snapshots");
   await dualWriteUpsert(
     "daily_metric_snapshots",
-    rows as unknown as AnyRow[],
+    stamped as unknown as AnyRow[],
     "id",
   );
 }
 
 export async function syncPromptAnswerObservations(
   rows: PromptAnswerObservation[],
+  tenantId: string,
 ): Promise<void> {
+  const stamped = tenantizeRows(rows, tenantId, "prompt_answer_observations");
   await dualWriteUpsert(
     "prompt_answer_observations",
-    rows as unknown as AnyRow[],
+    stamped as unknown as AnyRow[],
     "id",
   );
 }
@@ -492,11 +496,17 @@ export async function syncPromptAnswerObservations(
 
 export async function syncObservationRuns(
   runs: ObservationRun[],
+  tenantId: string,
 ): Promise<void> {
+  // Phase 7.7b Commit 4 (2026-04-25): validate cross-tenant mismatch on
+  // input runs and stamp tenant_id onto the inserted DB rows. The
+  // explicit column-mapping below previously dropped tenant_id entirely;
+  // the field is now passed through from the tenantized input.
+  const stamped = tenantizeRows(runs, tenantId, "observation_runs");
   // PK is run_id, NOT id.
   // Local file may contain mixed run types (website crawl + Profound import)
   // with extra fields not in the DB schema. Map explicitly to table columns.
-  const rows: AnyRow[] = runs
+  const rows: AnyRow[] = stamped
     .filter((r) => r.run_id && r.run_type)
     .map((r) => ({
       run_id: r.run_id,
@@ -519,6 +529,7 @@ export async function syncObservationRuns(
       competitor_universe_fingerprint: r.competitor_universe_fingerprint ?? null,
       competitor_universe_scope: r.competitor_universe_scope ?? null,
       competitor_universe_pin_status: r.competitor_universe_pin_status ?? null,
+      tenant_id: r.tenant_id,
     }));
   await dualWriteUpsert("observation_runs", rows, "run_id");
 }

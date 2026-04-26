@@ -256,8 +256,10 @@ export async function runNativePoll(
   const run = result.observationRun;
 
   // ── Sync raw artifacts ──────────────────────────────────────────────
-  await syncRuns([run]);
-  await syncObs(result.observations);
+  // Phase 7.7b Commit 4 (2026-04-25): tenant-bind the 3 Tier A writes.
+  // syncTexts hits the GLOBAL `answer_texts` table — no tenantId.
+  await syncRuns([run], tenantId);
+  await syncObs(result.observations, tenantId);
   await syncTexts(result.answerTexts);
 
   // ── Derive + sync daily snapshots ───────────────────────────────────
@@ -290,7 +292,7 @@ export async function runNativePoll(
     date,
     observationRunId: run.run_id,
   });
-  await syncSnaps(snapshots);
+  await syncSnaps(snapshots, tenantId);
 
   // ── Summarize ───────────────────────────────────────────────────────
   const status: NativePollStatus =

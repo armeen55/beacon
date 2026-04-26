@@ -229,7 +229,7 @@ export async function runProfoundImport(
     importRunId
   );
   await replaceObservationRuns(mergedRuns);
-  await replaceObservations(mergedObservations);
+  await replaceObservations(mergedObservations, tenantId);
   writeAnswerTexts(mergedAnswerTexts);
 
   // Phase 4: Citations — merge per date into shards
@@ -288,7 +288,7 @@ export async function runProfoundImport(
     ...derivedSnapshots,
     ...mergedBenchmark,
   ];
-  await replaceSnapshots(allSnapshots);
+  await replaceSnapshots(allSnapshots, tenantId);
 
   const entityCandidates =
     candidateLists.length > 0 ? mergeEntityCandidates(candidateLists) : [];

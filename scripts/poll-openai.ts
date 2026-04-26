@@ -224,9 +224,9 @@ async function main() {
 
   // Write
   console.log("Writing to Supabase...");
-  await syncObservationRuns([result.observationRun]);
+  await syncObservationRuns([result.observationRun], tenantId);
   console.log(`  ✓ observation_runs:           1 row (${result.observationRun.run_id})`);
-  await syncPromptAnswerObservations(result.observations);
+  await syncPromptAnswerObservations(result.observations, tenantId);
   console.log(`  ✓ prompt_answer_observations: ${result.observations.length} rows`);
   await syncAnswerTexts(result.answerTexts);
   console.log(`  ✓ answer_texts:               ${Object.keys(result.answerTexts).length} rows`);
@@ -269,7 +269,7 @@ async function deriveAndSyncSnapshots(input: {
     date,
     observationRunId: input.observationRun.run_id,
   });
-  await syncDailyMetricSnapshots(snapshots);
+  await syncDailyMetricSnapshots(snapshots, tenantId);
   return snapshots.length;
 }
 

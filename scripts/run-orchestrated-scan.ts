@@ -216,7 +216,7 @@ async function main(): Promise<void> {
   }
   try {
     if (observationRuns.length > 0) {
-      await syncObservationRuns(observationRuns);
+      await syncObservationRuns(observationRuns, tenant);
     }
     runsOk = true;
   } catch (e) {

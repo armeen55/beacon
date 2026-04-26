@@ -162,7 +162,11 @@ describe("runNativePoll", () => {
     expect(sync.syncPromptAnswerObservations).toHaveBeenCalledOnce();
     expect(sync.syncAnswerTexts).toHaveBeenCalledOnce();
     expect(sync.syncDailyMetricSnapshots).toHaveBeenCalledOnce();
-    expect(sync.syncDailyMetricSnapshots).toHaveBeenCalledWith(fakeSnapshots);
+    // Phase 7.7b Commit 4 (2026-04-25): syncDailyMetricSnapshots now requires tenantId.
+    expect(sync.syncDailyMetricSnapshots).toHaveBeenCalledWith(
+      fakeSnapshots,
+      "tenant-ritz-founder",
+    );
   });
 
   it("budget guard: skips the run when a recent completed run exists and force=false", async () => {
