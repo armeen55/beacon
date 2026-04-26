@@ -150,6 +150,9 @@ export const GLOBAL_STORES = new Set<string>([
   "adjudicator-cache", // LLM dedup cache, no tenant_id; operator-shared
   "adjudicator-history", // LLM call audit log; operator-shared
   "llm-budget", // operator-paid monthly LLM spend cap
+  "llm-history-specific-edits", // Sprint 6A.2c (2026-04-26) — Specific
+  // Edit LLM call audit log; operator-shared budget pot, same shape as
+  // adjudicator-history but for the SpecificEditProvider pipeline
   "shared-brain", // explicit cross-tenant pattern aggregate
   "shared-brain-summary", // aggregate of shared-brain
   "url-change-patterns", // global learning aggregate (mirror of change-patterns)

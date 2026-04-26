@@ -39,6 +39,7 @@ import {
 } from "@/lib/persistence/dotdata-json";
 import { syncRecommendedEdits } from "@/lib/persistence/dual-write";
 import { currentTenantId } from "@/lib/tenant-context";
+import { resolveLLMProvider } from "@/lib/llm/config";
 import type {
   ActionType,
 } from "./action-types";
@@ -50,6 +51,11 @@ import type {
   SpecificEditProvider,
   SpecificEditSource,
 } from "./specific-edit-provider";
+import { emptyBundleFor } from "./specific-edit-provider";
+import { deterministicProvider } from "./providers/deterministic";
+import { openaiProvider } from "./providers/openai";
+import { checkBudget, recordSpend } from "./adjudicator-budget";
+import { appendSpecificEditLLMHistory } from "./specific-edit-llm-history";
 import {
   validateSpecificEditBundle,
   type BundlePerEditResult,
@@ -173,14 +179,37 @@ export async function persistRecommendedEditsLocal(
 // ---------------------------------------------------------------------------
 
 export type RunProviderAndPersistOptions = {
-  provider: SpecificEditProvider;
+  /**
+   * Sprint 6A.2c (2026-04-26): now optional. When omitted the function
+   * resolves the active provider via `resolveLLMProvider()` reading
+   * `BEACON_LLM_PROVIDER` env (default = "deterministic"). Existing CLI
+   * callers continue to pass `deterministicProvider` explicitly; the
+   * new env-driven path is reachable through tests + the future server
+   * action surface in 6A.2e.
+   */
+  provider?: SpecificEditProvider;
   packet: SpecificEditEvidencePacket;
-  /** When true (default), skip both the local file write AND the
-   *  Supabase dual-write. The bundle is still generated + validated,
-   *  so callers can inspect the planned output without side effects. */
+  /** When true, skip both the local file write AND the Supabase
+   *  dual-write. The bundle is still generated + validated, so callers
+   *  can inspect the planned output without side effects. */
   dryRun?: boolean;
   now?: Date;
 };
+
+/**
+ * Resolve the active provider for one `runProviderAndPersist` call.
+ * Explicit `opts.provider` always wins; otherwise read env via
+ * `resolveLLMProvider()` and dispatch through the registry. Throws on
+ * invalid env (config gate inherits the 6A.2a fail-loud contract).
+ */
+function resolveProvider(
+  opts: RunProviderAndPersistOptions,
+): SpecificEditProvider {
+  if (opts.provider) return opts.provider;
+  const name = resolveLLMProvider();
+  if (name === "openai") return openaiProvider;
+  return deterministicProvider;
+}
 
 export type RunProviderAndPersistResult = {
   /** True only when bundle validation passed AND every accepted row
@@ -218,15 +247,11 @@ export type RunProviderAndPersistResult = {
 export async function runProviderAndPersist(
   opts: RunProviderAndPersistOptions,
 ): Promise<RunProviderAndPersistResult> {
-  // Phase 7.7d (2026-04-25): assert the packet's tenantId matches the
-  // resolved request/CLI context. Without this, a packet built under
-  // tenant A could be passed into a server action that resolves to
-  // tenant B and write under the wrong tenant. Fails loud at the
-  // boundary so misconfigurations surface immediately rather than
-  // landing rows under the wrong tenant.
-  //
-  // CLI context: currentTenantId() falls through to BEACON_TENANT_ID
-  // env (Phase 7.5d fail-loud) — same fail-loud guarantee.
+  // Phase 7.7d (2026-04-25): tenant mismatch is the FIRST gate. Earliest
+  // fail-loud — must run before provider resolution / budget gate /
+  // network call so a misconfigured packet never reaches the LLM.
+  // CLI context: currentTenantId() falls through to BEACON_TENANT_ID env
+  // (Phase 7.5d fail-loud).
   const ctxTenantId = await currentTenantId();
   if (opts.packet.tenantId !== ctxTenantId) {
     throw new Error(
@@ -237,7 +262,86 @@ export async function runProviderAndPersist(
   const now = opts.now ?? new Date();
   const dryRun = opts.dryRun === true;
 
-  const bundle = await opts.provider.generate(opts.packet);
+  // Sprint 6A.2c (2026-04-26): resolve the active provider via the
+  // 6A.2a config helper unless caller passed one explicitly. Throws on
+  // invalid BEACON_LLM_PROVIDER / missing OPENAI_API_KEY (fail-loud).
+  const provider = resolveProvider(opts);
+
+  // Sprint 6A.2c: pre-call budget gate for paid providers. Deterministic
+  // is free — skip the gate. OpenAI shares the existing `llm-budget.json`
+  // monthly cap with the page-intent adjudicator (Option A from the
+  // 6A.2 plan): one pot, one place to monitor. If the cap is reached,
+  // do NOT call the provider; record the budget-blocked event in
+  // history; return an empty no-persist result.
+  if (provider.name === "openai") {
+    const budget = await checkBudget({ now });
+    if (!budget.allowed) {
+      log.warn("[runProviderAndPersist] budget blocked", {
+        recId: opts.packet.recId,
+        tenantId: opts.packet.tenantId,
+        reason: budget.reason,
+      });
+      await appendSpecificEditLLMHistory({
+        timestamp: now.toISOString(),
+        tenantId: opts.packet.tenantId,
+        recId: opts.packet.recId,
+        evidenceHash: opts.packet.evidenceHash,
+        providerName: "openai",
+        model: null,
+        costUsd: 0,
+        acceptedCount: 0,
+        status: "budget_blocked",
+        errorMessage: budget.reason,
+      });
+      const emptyBundle = emptyBundleFor(opts.packet, "openai", now);
+      return {
+        ok: false,
+        bundle: emptyBundle,
+        bundleErrors: [],
+        totalGenerated: 0,
+        acceptedCount: 0,
+        rejectedCount: 0,
+        acceptedRows: [],
+        rejected: [],
+        persisted: false,
+      };
+    }
+  }
+
+  // Sprint 6A.2c: provider call wrapped in try/catch. Provider failures
+  // already return empty bundles in 6A.2b's openai implementation, but
+  // the wrapper here also handles unexpected throws (e.g., the anthropic
+  // stub if it's somehow reached) without crashing the pipeline. The
+  // caller still sees the empty bundle; the deterministic provider's
+  // output (run in a separate invocation) is the safety net.
+  let bundle: SpecificEditBundle;
+  try {
+    bundle = await provider.generate(opts.packet);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    log.warn("[runProviderAndPersist] provider threw; treating as empty", {
+      recId: opts.packet.recId,
+      tenantId: opts.packet.tenantId,
+      providerName: provider.name,
+      error: msg,
+    });
+    if (provider.name === "openai") {
+      await appendSpecificEditLLMHistory({
+        timestamp: now.toISOString(),
+        tenantId: opts.packet.tenantId,
+        recId: opts.packet.recId,
+        evidenceHash: opts.packet.evidenceHash,
+        providerName: "openai",
+        model: null,
+        costUsd: 0,
+        acceptedCount: 0,
+        status: "empty_or_error",
+        errorMessage: msg.slice(0, 500),
+      });
+    }
+    bundle = emptyBundleFor(opts.packet, provider.name, now);
+  }
+
   const validation = validateSpecificEditBundle(bundle, opts.packet);
 
   const acceptedEdits: SpecificEdit[] = validation.perEdit
@@ -306,6 +410,56 @@ export async function runProviderAndPersist(
       // Re-throw so callers can surface this — quietly degrading would
       // hide a real persistence break.
       throw err;
+    }
+  }
+
+  // Sprint 6A.2c (2026-04-26): post-call accounting for the OpenAI
+  // path. Three flavors:
+  //   - bundle has cost > 0 + recommendations: live_call. Record spend,
+  //     append history with the actual cost + accepted count.
+  //   - bundle has cost = 0 (provider returned empty after the call):
+  //     empty_or_error. Skip recordSpend (nothing to record); append a
+  //     history breadcrumb so the operator sees the failed attempt.
+  //   - dryRun=true with a paid bundle: still record the spend (the
+  //     network call DID happen — dryRun only governs row persistence,
+  //     not whether the provider was invoked).
+  // Deterministic provider produces totalCostUsd === 0 by design and
+  // doesn't need an entry here.
+  if (provider.name === "openai") {
+    if (bundle.totalCostUsd > 0) {
+      await recordSpend(bundle.totalCostUsd, { now });
+      await appendSpecificEditLLMHistory({
+        timestamp: now.toISOString(),
+        tenantId: opts.packet.tenantId,
+        recId: opts.packet.recId,
+        evidenceHash: opts.packet.evidenceHash,
+        providerName: "openai",
+        model:
+          bundle.recommendations.length > 0
+            ? (bundle.recommendations[0].model ?? null)
+            : null,
+        costUsd: bundle.totalCostUsd,
+        acceptedCount: validation.acceptedCount,
+        status: "live_call",
+      });
+    } else if (bundle.recommendations.length === 0) {
+      // Empty bundle with zero cost — provider returned []
+      // legitimately or short-circuited (network error, refusal, etc.)
+      // The 6A.2b provider's failure modes all land here. Add a
+      // breadcrumb unless we already wrote one in the catch block.
+      // Idempotent dedup isn't critical because runs are infrequent and
+      // entries roll off at the cap; an extra row is fine.
+      await appendSpecificEditLLMHistory({
+        timestamp: now.toISOString(),
+        tenantId: opts.packet.tenantId,
+        recId: opts.packet.recId,
+        evidenceHash: opts.packet.evidenceHash,
+        providerName: "openai",
+        model: null,
+        costUsd: 0,
+        acceptedCount: 0,
+        status: "empty_or_error",
+      });
     }
   }
 
