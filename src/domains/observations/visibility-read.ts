@@ -1,6 +1,6 @@
 import type { CitationEvidenceIndex } from "@/domains/pages/types";
 import { citationEvidenceIndex } from "@/domains/pages/citation-evidence-store";
-import { visibilityObservationRunsExplicit } from "./visibility-observation-explicit-store";
+import { getVisibilityObservationRunsExplicit } from "./visibility-observation-explicit-store";
 import {
   type VisibilityObservationRun,
   VISIBILITY_SEED_WALKTHROUGH_RUN_ID,
@@ -109,8 +109,8 @@ export function buildSeedWalkthroughVisibilityRun(): VisibilityObservationRun {
  * On-disk `visibility-observation-runs.json` wins on `run_id` collision; then
  * citation-index synthetic; then seed walkthrough stub.
  */
-export function listVisibilityObservationRuns(): VisibilityObservationRun[] {
-  const fromFile = visibilityObservationRunsExplicit.filter(
+export async function listVisibilityObservationRuns(): Promise<VisibilityObservationRun[]> {
+  const fromFile = (await getVisibilityObservationRunsExplicit()).filter(
     (r) => r?.run_id && r?.completed_at,
   );
   const sortedExplicit = [...fromFile].sort(
@@ -142,21 +142,21 @@ export function listVisibilityObservationRuns(): VisibilityObservationRun[] {
   );
 }
 
-export function getVisibilityObservationRun(
+export async function getVisibilityObservationRun(
   runId: string
-): VisibilityObservationRun | null {
-  return listVisibilityObservationRuns().find((r) => r.run_id === runId) ?? null;
+): Promise<VisibilityObservationRun | null> {
+  return (await listVisibilityObservationRuns()).find((r) => r.run_id === runId) ?? null;
 }
 
-export function latestVisibilityObservationRun(): VisibilityObservationRun | null {
-  const list = listVisibilityObservationRuns();
+export async function latestVisibilityObservationRun(): Promise<VisibilityObservationRun | null> {
+  const list = await listVisibilityObservationRuns();
   return list[0] ?? null;
 }
 
 /** Citation-index synthetic run (used for staleness vs crawl, not necessarily “latest” overall). */
-export function citationRollupVisibilityRun(): VisibilityObservationRun | null {
+export async function citationRollupVisibilityRun(): Promise<VisibilityObservationRun | null> {
   return (
-    listVisibilityObservationRuns().find(
+    (await listVisibilityObservationRuns()).find(
       (r) => r.run_type === "citation_sample_import"
     ) ?? null
   );

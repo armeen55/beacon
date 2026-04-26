@@ -4,6 +4,7 @@ import type { Opportunity } from "@/domains/opportunities/types";
 import type { CandidateLink } from "@/domains/attribution/types";
 import type { OpportunityCandidate } from "@/domains/opportunity-candidates/types";
 import type { ProposedBrief, PersistedBriefState } from "./types";
+import type { PersistedActionState } from "@/domains/actions/types";
 import { computeFullActionQueue } from "@/domains/actions/compute";
 import { computeOpportunityCandidates } from "@/domains/opportunity-candidates/compute";
 import { buildProposedBriefs } from "./builders";
@@ -13,7 +14,8 @@ export function computeProposedBriefs(
   changes: ChangelogEntry[],
   opportunities: Opportunity[],
   candidateLinks: CandidateLink[],
-  persistedStates: PersistedBriefState[]
+  persistedStates: PersistedBriefState[],
+  actionStates: PersistedActionState[]
 ): {
   briefs: ProposedBrief[];
   candidates: OpportunityCandidate[];
@@ -22,7 +24,8 @@ export function computeProposedBriefs(
     results,
     changes,
     opportunities,
-    candidateLinks
+    candidateLinks,
+    actionStates
   );
 
   const candidates = computeOpportunityCandidates(

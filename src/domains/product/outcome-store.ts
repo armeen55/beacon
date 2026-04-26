@@ -12,6 +12,8 @@
 
 import "server-only";
 
+import { cache } from "react";
+
 import { readStore, writeStore } from "@/lib/persistence/json-store";
 import type {
   OutcomeRecord,
@@ -21,17 +23,27 @@ import type {
 
 const STORE_NAME = "outcome-store";
 
-// Phase 7.8b-2-c: top-level await; same module-load-tenant-capture
-// caveat as canonical-store / seed-data.server. Phase 7.8e lifts to
-// request-scope.
-export const outcomeRecords: OutcomeRecord[] =
-  await readStore<OutcomeRecord>(STORE_NAME);
+// Sprint 7 Phase 7.8e-3 (2026-04-26): module-level top-level await replaced
+// with cached async getter. Mutators (`recordOutcome`, `resolveOutcome`,
+// `backfillFromExistingData`) are now async and read the cached array via
+// the getter before mutating; same shape as before, just one indirection.
+let _state: OutcomeRecord[] | null = null;
+
+const ensureLoaded = cache(async (): Promise<void> => {
+  if (_state !== null) return;
+  _state = await readStore<OutcomeRecord>(STORE_NAME);
+});
+
+export const getOutcomeRecords = cache(async (): Promise<OutcomeRecord[]> => {
+  await ensureLoaded();
+  return _state!;
+});
 
 export async function persistOutcomes(): Promise<void> {
-  await writeStore(STORE_NAME, outcomeRecords);
+  await writeStore(STORE_NAME, await getOutcomeRecords());
 }
 
-export function recordOutcome(opts: {
+export async function recordOutcome(opts: {
   action_type: OutcomeActionType;
   action_detail: string;
   rec_id?: string | null;
@@ -44,7 +56,7 @@ export function recordOutcome(opts: {
   confidence?: string | null;
   source_signal_tier?: "explicit" | "inferred";
   pattern_id?: string | null;
-}): OutcomeRecord {
+}): Promise<OutcomeRecord> {
   const id = `out-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
   const now = new Date().toISOString();
 
@@ -66,15 +78,16 @@ export function recordOutcome(opts: {
     pattern_id: opts.pattern_id ?? null,
   };
 
-  outcomeRecords.push(record);
+  (await getOutcomeRecords()).push(record);
   return record;
 }
 
-export function resolveOutcome(
+export async function resolveOutcome(
   outcomeId: string,
   verdict: string,
   citationDelta?: number | null,
-): void {
+): Promise<void> {
+  const outcomeRecords = await getOutcomeRecords();
   const record = outcomeRecords.find((r) => r.outcome_id === outcomeId);
   if (!record) return;
   record.resolved_at = new Date().toISOString();
@@ -84,21 +97,26 @@ export function resolveOutcome(
   }
 }
 
-export function getOutcomesByActionType(
+export async function getOutcomesByActionType(
   actionType: OutcomeActionType,
-): OutcomeRecord[] {
-  return outcomeRecords.filter((r) => r.action_type === actionType);
+): Promise<OutcomeRecord[]> {
+  return (await getOutcomeRecords()).filter((r) => r.action_type === actionType);
 }
 
-export function getOutcomesByPattern(patternId: string): OutcomeRecord[] {
-  return outcomeRecords.filter((r) => r.pattern_id === patternId);
+export async function getOutcomesByPattern(
+  patternId: string,
+): Promise<OutcomeRecord[]> {
+  return (await getOutcomeRecords()).filter((r) => r.pattern_id === patternId);
 }
 
-export function getOutcomesByPage(pageUrl: string): OutcomeRecord[] {
-  return outcomeRecords.filter((r) => r.target_page === pageUrl);
+export async function getOutcomesByPage(
+  pageUrl: string,
+): Promise<OutcomeRecord[]> {
+  return (await getOutcomeRecords()).filter((r) => r.target_page === pageUrl);
 }
 
-export function computeOutcomeSummary(): OutcomeSummary {
+export async function computeOutcomeSummary(): Promise<OutcomeSummary> {
+  const outcomeRecords = await getOutcomeRecords();
   const byActionType: Record<string, number> = {};
   const byVerdict: Record<string, number> = {};
   let positiveCount = 0;
@@ -151,7 +169,7 @@ export function computeOutcomeSummary(): OutcomeSummary {
  * Backfill outcome store from existing recommendation responses, experiments,
  * and scorecard verdicts. Idempotent — skips already-recorded outcomes.
  */
-export function backfillFromExistingData(opts: {
+export async function backfillFromExistingData(opts: {
   responses: Array<{
     recId: string;
     status: string;
@@ -173,10 +191,11 @@ export function backfillFromExistingData(opts: {
     topic?: string | null;
     url?: string | null;
   }>;
-}): { added: number; skipped: number } {
+}): Promise<{ added: number; skipped: number }> {
   let added = 0;
   let skipped = 0;
 
+  const outcomeRecords = await getOutcomeRecords();
   const existingRecIds = new Set(
     outcomeRecords
       .filter((r) => r.rec_id)
@@ -207,7 +226,7 @@ export function backfillFromExistingData(opts: {
       continue;
     }
 
-    recordOutcome({
+    await recordOutcome({
       action_type: actionType,
       action_detail: `Recommendation ${resp.status}`,
       rec_id: resp.recId,
@@ -234,7 +253,7 @@ export function backfillFromExistingData(opts: {
         ? exp.latestCitations - exp.baselineCitations
         : null;
 
-    recordOutcome({
+    await recordOutcome({
       action_type: actionType,
       action_detail: `Experiment ${exp.status}`,
       rec_id: exp.recId,
@@ -265,7 +284,7 @@ export function backfillFromExistingData(opts: {
       continue;
     }
 
-    recordOutcome({
+    await recordOutcome({
       action_type: actionType,
       action_detail: `Change verdict: ${sv.verdict} for ${sv.assetName}`,
       change_id: sv.changeId,
@@ -278,4 +297,8 @@ export function backfillFromExistingData(opts: {
   }
 
   return { added, skipped };
+}
+
+export function _resetOutcomeStoreForTests(): void {
+  _state = null;
 }

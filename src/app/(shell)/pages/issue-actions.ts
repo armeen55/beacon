@@ -3,11 +3,11 @@
 import { revalidatePath } from "next/cache";
 import { log } from "@/lib/logger";
 import {
-  pageIssues,
+  getPageIssues,
   persistPageIssues,
-  rolloutExecutions,
+  getRolloutExecutions,
   persistRolloutExecutions,
-  patternEvidence,
+  getPatternEvidence,
   persistPatternEvidence,
   issueIdFromBrief,
   type IssueStatus,
@@ -45,6 +45,11 @@ export async function updateIssueStatus(
   const t0 = Date.now();
   log.info("Action started", { action, params: { issueId, status } });
   const now = new Date().toISOString();
+  const [pageIssues, rolloutExecutions, patternEvidence] = await Promise.all([
+    getPageIssues(),
+    getRolloutExecutions(),
+    getPatternEvidence(),
+  ]);
   let issue = pageIssues.find((i) => i.issueId === issueId);
 
   if (!issue) {
@@ -131,6 +136,11 @@ export async function verifyAndUpdateIssue(
   }
 
   const now = new Date().toISOString();
+  const [pageIssues, rolloutExecutions, patternEvidence] = await Promise.all([
+    getPageIssues(),
+    getRolloutExecutions(),
+    getPatternEvidence(),
+  ]);
   let issue = pageIssues.find((i) => i.issueId === issueId);
 
   if (!issue) {
@@ -305,6 +315,11 @@ export async function convertBriefToIssue(
   const now = new Date().toISOString();
   const issueId = issueIdFromBrief(briefId, pageUrl);
 
+  const [pageIssues, rolloutExecutions, patternEvidence] = await Promise.all([
+    getPageIssues(),
+    getRolloutExecutions(),
+    getPatternEvidence(),
+  ]);
   let issue = pageIssues.find((i) => i.issueId === issueId);
   if (!issue) {
     issue = {
@@ -420,17 +435,21 @@ export async function refreshOutcomeObservation(
   const action = "refreshOutcomeObservation";
   const t0 = Date.now();
   log.info("Action started", { action, params: { issueId } });
-  const { generateOutcomeObservation, outcomeObservations, persistOutcomeObservations } = await import("@/domains/pages/outcome-watch");
+  const { generateOutcomeObservation, getOutcomeObservations, persistOutcomeObservations } = await import("@/domains/pages/outcome-watch");
   const { computeScorecard } = await import("@/domains/attribution/scorecard");
   const { detectOutcomeEvents } = await import("@/domains/attribution/events");
   const { partitionResultsByMode } = await import("@/domains/attribution/result-mode");
   const { getResults, getChangelogEntries, getOpportunities } = await import("@/lib/seed-data.server");
-  const [results, changelogEntries, opportunities] = await Promise.all([
+  const [results, changelogEntries, opportunities, outcomeObservations, eventDecisions, rolloutExecutions, patternEvidence, pageIssues] = await Promise.all([
     getResults(),
     getChangelogEntries(),
     getOpportunities(),
+    getOutcomeObservations(),
+    (await import("@/domains/attribution/store")).getEventDecisions(),
+    getRolloutExecutions(),
+    getPatternEvidence(),
+    getPageIssues(),
   ]);
-  const { eventDecisions } = await import("@/domains/attribution/store");
 
   const exec = rolloutExecutions.find((r) => r.issueId === issueId);
   if (!exec || !exec.verifiedAt) {

@@ -487,9 +487,13 @@ export async function resetExperiment(
     action,
     params: { preserveTruthLabels: options.preserveTruthLabels ?? false },
   });
-  const { candidateLinks, truthLabels, persistCandidateLinks, persistTruthLabels } = await import("@/domains/attribution/store");
-  const { actionStates, persistActionStates: _persistActionStates } = await import("@/domains/actions/store");
-  const { briefStates, persistBriefStates: _persistBriefStates } = await import("@/domains/brief-generation/store");
+  const { getCandidateLinks, getTruthLabels, persistCandidateLinks, persistTruthLabels } = await import("@/domains/attribution/store");
+  const { getActionStates, persistActionStates: _persistActionStates } = await import("@/domains/actions/store");
+  const { getBriefStates, persistBriefStates: _persistBriefStates } = await import("@/domains/brief-generation/store");
+  const candidateLinks = await getCandidateLinks();
+  const truthLabels = await getTruthLabels();
+  const actionStates = await getActionStates();
+  const briefStates = await getBriefStates();
 
   const [results, changelogEntries, opportunities, competitors, importRuns] =
     await Promise.all([

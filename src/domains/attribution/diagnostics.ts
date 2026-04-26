@@ -277,13 +277,15 @@ export type CandidateDiagnostics = {
 };
 
 import { discoverCandidates } from "./candidates";
-import { candidateLinks, truthLabels } from "./store";
+import { getCandidateLinks, getTruthLabels } from "./store";
 
-export function computeCandidateDiagnostics(
+export async function computeCandidateDiagnostics(
   allResults: Result[],
   allChanges: ChangelogEntry[],
   allOpportunities: Opportunity[]
-): CandidateDiagnostics {
+): Promise<CandidateDiagnostics> {
+  const candidateLinks = await getCandidateLinks();
+  const truthLabels = await getTruthLabels();
   let totalCandidates = 0;
   let resultsWithCandidates = 0;
   let resultsWithoutCandidates = 0;
@@ -412,14 +414,16 @@ export type ModelReport = {
   };
 };
 
-export function computeModelReport(
+export async function computeModelReport(
   allResults: Result[],
   allChanges: ChangelogEntry[],
   allOpportunities: Opportunity[],
   cdiag: CandidateDiagnostics
-): ModelReport {
+): Promise<ModelReport> {
   const weights = ATTRIBUTION_CONFIG.weights as Record<string, number>;
   const strengthVal = ATTRIBUTION_CONFIG.strengthValue as Record<string, number>;
+  const candidateLinks = await getCandidateLinks();
+  const truthLabels = await getTruthLabels();
 
   type FactorAcc = { strong: number; unknown: number; total_points: number; count: number };
   const confirmedAcc: Record<string, FactorAcc> = {};

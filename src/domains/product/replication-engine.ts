@@ -7,7 +7,10 @@ import type { ScorecardRowWithImpact } from "@/domains/attribution/change-impact
 import type { BeaconRecommendation } from "@/domains/product/recommendation-engine";
 import type { MinedPattern } from "@/domains/pages/playbook";
 import type { PersistedIssue, RolloutExecution } from "@/domains/pages/issues";
-import { isRecSuppressed } from "@/domains/product/recommendation-response-store";
+import {
+  isRecSuppressedFromMap,
+  type RecommendationResponse,
+} from "@/domains/product/recommendation-response-store";
 
 // Phase 4 (2026-04-19): removed dependency on experiment-store. "promising_experiment"
 // tier retained in the union for existing data/test compat but no code path produces it.
@@ -199,6 +202,8 @@ export type BuildReplicationCardsOpts = {
   pageIssues: PersistedIssue[];
   /** recIds already accepted into an experiment (still show in Changes, not duplicate queue) */
   activeExperimentRecIds?: Set<string>;
+  /** Map of recId → response for suppression check (defaults to empty). */
+  responsesByRecId?: Map<string, RecommendationResponse>;
 };
 
 const MAX_TARGETS_PER_CARD = 3;
@@ -211,6 +216,7 @@ const MAX_CARDS = 12;
 export function buildReplicationCards(opts: BuildReplicationCardsOpts): ReplicationCard[] {
   const { recommendations, impactRows, patterns, rolloutExecutions, pageIssues } = opts;
   const activeExp = opts.activeExperimentRecIds ?? new Set();
+  const responsesByRecId = opts.responsesByRecId ?? new Map();
 
   const rowByChange = new Map<string, ScorecardRowWithImpact>();
   for (const row of impactRows) {
@@ -219,7 +225,7 @@ export function buildReplicationCards(opts: BuildReplicationCardsOpts): Replicat
 
   const eligible = recommendations.filter(
     (r) =>
-      !isRecSuppressed(r.id) &&
+      !isRecSuppressedFromMap(r.id, responsesByRecId) &&
       (r.type === "replicate" || r.type === "cross_page_pattern") &&
       r.sourceChangeId &&
       r.targetPageUrl,

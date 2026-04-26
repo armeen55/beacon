@@ -3,9 +3,9 @@
 import { revalidatePath } from "next/cache";
 import { log } from "@/lib/logger";
 import {
-  attackPackages,
+  getAttackPackages,
   persistAttackPackages,
-  trackedMissingPages,
+  getTrackedMissingPages,
   persistTrackedMissingPages,
   generatePackageHandoff,
   type PackageStatus,
@@ -30,6 +30,10 @@ export async function launchAttackPackage(
   });
   const now = new Date().toISOString();
 
+  const [attackPackages, trackedMissingPages] = await Promise.all([
+    getAttackPackages(),
+    getTrackedMissingPages(),
+  ]);
   let persisted = attackPackages.find((p) => p.frontierAttackPackageId === pkg.frontierAttackPackageId);
   if (!persisted) {
     persisted = { ...pkg, status: "launched" as const, createdAt: now };
@@ -96,7 +100,7 @@ export async function updatePackageStatus(
   const action = "updatePackageStatus";
   const t0 = Date.now();
   log.info("Action started", { action, params: { packageId, status } });
-  const pkg = attackPackages.find((p) => p.frontierAttackPackageId === packageId);
+  const pkg = (await getAttackPackages()).find((p) => p.frontierAttackPackageId === packageId);
   if (!pkg) {
     log.error("Action failed", {
       action,
@@ -119,7 +123,7 @@ export async function updateMissingPageStatus(
   const action = "updateMissingPageStatus";
   const t0 = Date.now();
   log.info("Action started", { action, params: { planId, status } });
-  const plan = trackedMissingPages.find((p) => p.missingPagePlanId === planId);
+  const plan = (await getTrackedMissingPages()).find((p) => p.missingPagePlanId === planId);
   if (!plan) {
     log.error("Action failed", {
       action,
@@ -149,15 +153,19 @@ export async function refreshCompetitorEvidence(): Promise<{ success: boolean; t
   const { computeAllAssetResponses, persistComputedAssetResponses } = await import("@/domains/pages/asset-response");
   const { computeFrontiers } = await import("@/domains/pages/frontier-planner");
   const { minePatterns, generateBriefs } = await import("@/domains/pages/playbook");
-  const { rolloutExecutions, patternEvidence: pe } = await import("@/domains/pages/issues");
-  const { rolloutWaves } = await import("@/domains/pages/wave-planner");
+  const { getRolloutExecutions, getPatternEvidence } = await import("@/domains/pages/issues");
+  const { getRolloutWaves } = await import("@/domains/pages/wave-planner");
   const { getResults, getChangelogEntries, getOpportunities } = await import("@/lib/seed-data.server");
-  const [results, changelogEntries, opportunities] = await Promise.all([
+  const { getEventDecisions } = await import("@/domains/attribution/store");
+  const [results, changelogEntries, opportunities, rolloutExecutions, pe, rolloutWaves, eventDecisions] = await Promise.all([
     getResults(),
     getChangelogEntries(),
     getOpportunities(),
+    getRolloutExecutions(),
+    getPatternEvidence(),
+    getRolloutWaves(),
+    getEventDecisions(),
   ]);
-  const { eventDecisions } = await import("@/domains/attribution/store");
   const { computeScorecard } = await import("@/domains/attribution/scorecard");
 
   const ciPath = join(process.cwd(), ".data", "citation-evidence-index.json");
@@ -171,7 +179,7 @@ export async function refreshCompetitorEvidence(): Promise<{ success: boolean; t
   }
   const ci = JSON.parse(readFileSync(ciPath, "utf8"));
 
-  const summaries = computeCompetitorEvidence(ci);
+  const summaries = await computeCompetitorEvidence(ci);
   await persistComputedEvidence(summaries);
 
   let snaps: import("@/domains/pages/types").PageSnapshot[] = [];

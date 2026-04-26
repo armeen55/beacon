@@ -130,7 +130,7 @@ describe("Sprint 1 / Phase 1.3 — /changes fresh-read invariants", () => {
         hasActiveExperiment: vi.fn(async () => true),
       }));
       vi.doMock("@/domains/attribution/store", () => ({
-        eventDecisions: [],
+        getEventDecisions: vi.fn(async () => []),
       }));
       vi.doMock("@/domains/product/url-watcher", () => ({
         maybeRefreshUrlWatcher: vi.fn(async () => {}),

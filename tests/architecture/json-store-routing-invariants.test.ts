@@ -382,3 +382,62 @@ describe("Phase 7.8d-1 — flat fallback removed; unknown throws", () => {
     expect(dotdataJsonSrc).not.toMatch(/resolved\.flatPath/);
   });
 });
+
+// ── Phase 7.8e-3: Group 2/3 mutable-array stores must export async getters ──
+
+describe("Phase 7.8e-3 — mutable-array stores expose cached async getters", () => {
+  // For each store, the only export name in this list MUST NOT appear as
+  // a value-import binding in callers (we only allow type imports). The
+  // async getter is the contract.
+  const FORBIDDEN_VALUE_IMPORTS: Array<{ module: string; name: string }> = [
+    { module: "@/domains/attribution/store", name: "candidateLinks" },
+    { module: "@/domains/attribution/store", name: "truthLabels" },
+    { module: "@/domains/attribution/store", name: "eventDecisions" },
+    { module: "@/domains/attribution/url-change-outcome", name: "urlChangeOutcomes" },
+    { module: "@/domains/changelog/change-contract", name: "changeContracts" },
+    { module: "@/domains/pages/issues", name: "pageIssues" },
+    { module: "@/domains/pages/issues", name: "rolloutExecutions" },
+    { module: "@/domains/pages/issues", name: "patternEvidence" },
+    { module: "@/domains/pages/wave-planner", name: "rolloutWaves" },
+    { module: "@/domains/brief-generation/store", name: "briefStates" },
+    { module: "@/domains/actions/store", name: "actionStates" },
+    { module: "@/domains/observations/visibility-observation-explicit-store", name: "visibilityObservationRunsExplicit" },
+    { module: "@/domains/product/outcome-store", name: "outcomeRecords" },
+    { module: "@/domains/product/recommendation-response-store", name: "recommendationResponses" },
+    { module: "@/domains/answer-snapshots/store", name: "answerSnapshots" },
+  ];
+
+  function* walk(dir: string): Generator<string> {
+    for (const entry of readdirSync(dir)) {
+      const full = join(dir, entry);
+      const st = statSync(full);
+      if (st.isDirectory()) {
+        if (entry === "node_modules" || entry === ".next" || entry === "dist") continue;
+        yield* walk(full);
+      } else if (
+        entry.endsWith(".ts") ||
+        entry.endsWith(".tsx") ||
+        entry.endsWith(".mts")
+      ) {
+        yield full;
+      }
+    }
+  }
+
+  it("no production caller imports the legacy mutable-array names as values", () => {
+    const offenders: string[] = [];
+    for (const f of walk(SRC_ROOT)) {
+      const src = readFileSync(f, "utf8");
+      for (const { module, name } of FORBIDDEN_VALUE_IMPORTS) {
+        // import { name, ... } from "module" — but allow `import type {...}`.
+        const re = new RegExp(
+          String.raw`import\s*(?!type\s)\{[^}]*\b${name}\b[^}]*\}\s*from\s*["']${module.replace(/[/]/g, "\\/")}["']`,
+        );
+        if (re.test(src)) {
+          offenders.push(`${f.slice(REPO_ROOT.length + 1)}: imports ${name} from ${module}`);
+        }
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+});

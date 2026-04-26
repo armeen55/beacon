@@ -9,9 +9,9 @@ import {
  * Pick the visibility ObservationRun that best matches the current Sample history
  * grid: dominant stamped `visibility_observation_run_id`, else latest known run.
  */
-export function primaryVisibilityRunForResults(
+export async function primaryVisibilityRunForResults(
   sampleResults: Result[]
-): VisibilityObservationRun | null {
+): Promise<VisibilityObservationRun | null> {
   const counts = new Map<string, number>();
   for (const r of sampleResults) {
     const id = r.visibility_observation_run_id?.trim();
@@ -27,8 +27,8 @@ export function primaryVisibilityRunForResults(
     }
   }
   if (bestId) {
-    const resolved = getVisibilityObservationRun(bestId);
+    const resolved = await getVisibilityObservationRun(bestId);
     if (resolved) return resolved;
   }
-  return latestVisibilityObservationRun();
+  return await latestVisibilityObservationRun();
 }

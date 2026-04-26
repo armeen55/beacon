@@ -5,6 +5,8 @@
  * across scans. State persists in .data/page-issues.json.
  */
 
+import { cache } from "react";
+
 import { writeStore } from "@/lib/persistence/json-store";
 import { syncPageIssues } from "@/lib/persistence/dual-write";
 import { getRepository } from "@/lib/persistence/repositories";
@@ -94,16 +96,52 @@ export type PatternEvidenceRecord = {
   notes: string | null;
 };
 
-const repo = getRepository();
+type State = {
+  rolloutExecutions: RolloutExecution[] | null;
+  patternEvidence: PatternEvidenceRecord[] | null;
+  pageIssues: PersistedIssue[] | null;
+};
 
-export const rolloutExecutions: RolloutExecution[] =
-  await repo.getRolloutExecutions();
-export const patternEvidence: PatternEvidenceRecord[] =
-  await repo.getPatternEvidence();
-export const pageIssues: PersistedIssue[] = await repo.getPageIssues();
+const _state: State = {
+  rolloutExecutions: null,
+  patternEvidence: null,
+  pageIssues: null,
+};
+
+const ensureLoaded = cache(async (): Promise<void> => {
+  if (_state.rolloutExecutions !== null) return;
+  const repo = getRepository();
+  const [re, pe, pi] = await Promise.all([
+    repo.getRolloutExecutions(),
+    repo.getPatternEvidence(),
+    repo.getPageIssues(),
+  ]);
+  _state.rolloutExecutions = re;
+  _state.patternEvidence = pe;
+  _state.pageIssues = pi;
+});
+
+export const getRolloutExecutions = cache(
+  async (): Promise<RolloutExecution[]> => {
+    await ensureLoaded();
+    return _state.rolloutExecutions!;
+  },
+);
+
+export const getPatternEvidence = cache(
+  async (): Promise<PatternEvidenceRecord[]> => {
+    await ensureLoaded();
+    return _state.patternEvidence!;
+  },
+);
+
+export const getPageIssues = cache(async (): Promise<PersistedIssue[]> => {
+  await ensureLoaded();
+  return _state.pageIssues!;
+});
 
 export async function persistRolloutExecutions(): Promise<void> {
-  await writeStore("rollout-executions", rolloutExecutions);
+  await writeStore("rollout-executions", await getRolloutExecutions());
 }
 
 export function issueIdFromBrief(briefId: string, url: string): string {
@@ -117,10 +155,17 @@ export function issueIdFromAlert(category: string, url: string): string {
 }
 
 export async function persistPatternEvidence(): Promise<void> {
-  await writeStore("pattern-evidence", patternEvidence);
+  await writeStore("pattern-evidence", await getPatternEvidence());
 }
 
 export async function persistPageIssues(): Promise<void> {
+  const pageIssues = await getPageIssues();
   await writeStore("page-issues", pageIssues);
   await syncPageIssues(pageIssues);
+}
+
+export function _resetIssuesStateForTests(): void {
+  _state.rolloutExecutions = null;
+  _state.patternEvidence = null;
+  _state.pageIssues = null;
 }

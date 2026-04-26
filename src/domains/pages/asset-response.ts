@@ -6,6 +6,8 @@
  * with explicit asset-type mapping grounded in competitive evidence.
  */
 
+import { cache } from "react";
+
 import { writeStore } from "@/lib/persistence/json-store";
 import { getRepository } from "@/lib/persistence/repositories";
 import type { FrontierCompetitiveSummary, SourceType, ResponseType } from "./competitor-evidence";
@@ -46,26 +48,41 @@ export type AssetResponse = {
   notes: string | null;
 };
 
-const repo = getRepository();
+let _state: AssetResponse[] | null = null;
 
-export const assetResponses: AssetResponse[] = await repo.getAssetResponses();
+const ensureLoaded = cache(async (): Promise<void> => {
+  if (_state !== null) return;
+  _state = await getRepository().getAssetResponses();
+});
+
+export const getAssetResponses = cache(async (): Promise<AssetResponse[]> => {
+  await ensureLoaded();
+  return _state!;
+});
 
 export async function persistAssetResponses(): Promise<void> {
-  await writeStore("asset-responses", assetResponses);
+  await writeStore("asset-responses", await getAssetResponses());
 }
 
-export function getAssetResponse(topic: string): AssetResponse | null {
+export async function getAssetResponse(topic: string): Promise<AssetResponse | null> {
+  const assetResponses = await getAssetResponses();
   return assetResponses.find((a) => a.topic === topic) ?? null;
 }
 
-export function getAssetResponsesMap(): Map<string, AssetResponse> {
+export async function getAssetResponsesMap(): Promise<Map<string, AssetResponse>> {
+  const assetResponses = await getAssetResponses();
   return new Map(assetResponses.map((a) => [a.topic, a]));
 }
 
 export async function persistComputedAssetResponses(responses: AssetResponse[]): Promise<void> {
+  const assetResponses = await getAssetResponses();
   assetResponses.length = 0;
   assetResponses.push(...responses);
   await persistAssetResponses();
+}
+
+export function _resetAssetResponsesForTests(): void {
+  _state = null;
 }
 
 // ── Mapping Logic ──

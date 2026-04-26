@@ -40,7 +40,7 @@ import {
 import { getChangelogEntries } from "@/lib/seed-data.server";
 import {
   materializeUrlOutcomes,
-  urlChangeOutcomes,
+  getUrlChangeOutcomes,
 } from "@/domains/attribution/url-change-outcome";
 import { materializeUrlChangePatterns } from "@/domains/learning/change-patterns";
 
@@ -117,7 +117,7 @@ export async function runUrlWatcher(
     // 5. Rebuild the URL-level pattern brain from the updated outcome store.
     // Groups by (edit_type_token × asset_type) so G5 can look up
     // "how fast do similar changes typically land?" by pattern.
-    const urlPatterns = await materializeUrlChangePatterns(urlChangeOutcomes);
+    const urlPatterns = await materializeUrlChangePatterns(await getUrlChangeOutcomes());
 
     const durationMs = Date.now() - t0;
     const stats = {

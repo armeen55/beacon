@@ -5,6 +5,8 @@
  * identifies structural/citation gaps, and recommends move types.
  */
 
+import { cache } from "react";
+
 import { writeStore } from "@/lib/persistence/json-store";
 import { getRepository } from "@/lib/persistence/repositories";
 import type { CitationEvidenceIndex, TopicCitationSummary } from "./types";
@@ -61,13 +63,26 @@ export type FrontierOpportunity = {
   notes: string | null;
 };
 
-const repo = getRepository();
+let _state: FrontierOpportunity[] | null = null;
 
-export const frontierOpportunities: FrontierOpportunity[] =
-  await repo.getFrontierOpportunities();
+const ensureLoaded = cache(async (): Promise<void> => {
+  if (_state !== null) return;
+  _state = await getRepository().getFrontierOpportunities();
+});
+
+export const getFrontierOpportunities = cache(
+  async (): Promise<FrontierOpportunity[]> => {
+    await ensureLoaded();
+    return _state!;
+  },
+);
 
 export async function persistFrontierOpportunities(): Promise<void> {
-  await writeStore("frontier-opportunities", frontierOpportunities);
+  await writeStore("frontier-opportunities", await getFrontierOpportunities());
+}
+
+export function _resetFrontierOpportunitiesForTests(): void {
+  _state = null;
 }
 
 // ── Frontier Computation ──

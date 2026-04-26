@@ -4,7 +4,7 @@ import { EvidenceFreshnessBanner } from "@/components/shell/evidence-freshness-b
 import { KpiCard } from "@/components/viz/kpi-card";
 import { getCompetitors, getResults, hasActiveExperiment } from "@/lib/seed-data.server";
 import { citationEvidenceIndex } from "@/domains/pages/citation-evidence-store";
-import { pageIssues } from "@/domains/pages/issues";
+import { getPageIssues } from "@/domains/pages/issues";
 import { computeMarketBenchmark, type MarketBenchmark } from "@/domains/pages/builder-benchmark";
 import { loadCompetitorUniverseRuntime } from "@/domains/competitors/universe-read";
 import { normalizeCompetitorDomain } from "@/domains/competitors/universe-normalize";
@@ -131,7 +131,7 @@ export default async function CompetitorsPage() {
     : null;
 
   const benchmark: MarketBenchmark | null = citIndex
-    ? computeMarketBenchmark(citIndex, pageIssues)
+    ? computeMarketBenchmark(citIndex, await getPageIssues())
     : null;
 
   const discovery = discoverCompetitorUniverse({

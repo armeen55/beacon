@@ -10,7 +10,7 @@ import {
   getCompetitors,
   hasActiveExperiment,
 } from "@/lib/seed-data.server";
-import { eventDecisions } from "@/domains/attribution/store";
+import { getEventDecisions } from "@/domains/attribution/store";
 import { computeScorecard } from "@/domains/attribution/scorecard";
 import { enrichWithImpact } from "@/domains/attribution/change-impact";
 import { detectOutcomeEvents } from "@/domains/attribution/events";
@@ -25,14 +25,14 @@ import { currentTenantId } from "@/lib/tenant-context";
 import { getOutcomesForTenant } from "@/lib/tenant-data";
 import { citationEvidenceIndex } from "@/domains/pages/citation-evidence-store";
 import {
-  pageIssues,
-  rolloutExecutions,
-  patternEvidence as persistedPatternEvidence,
+  getPageIssues,
+  getRolloutExecutions,
+  getPatternEvidence,
 } from "@/domains/pages/issues";
 import { minePatterns, generateBriefs } from "@/domains/pages/playbook";
 import {
   planWaves,
-  rolloutWaves as persistedWaves,
+  getRolloutWaves,
   computeWaveProgress,
   deriveWaveStatus,
 } from "@/domains/pages/wave-planner";
@@ -127,7 +127,7 @@ import {
 // (often 2-of-3 cases). Being replaced by data-grounded keyword-gap scanner +
 // LLM-as-judge ablation (see docs/IDEAS_PARKING_LOT.md for ablation roadmap).
 import {
-  urlChangeOutcomes,
+  getUrlChangeOutcomes,
   ensureUrlChangeOutcomesSeeded,
 } from "@/domains/attribution/url-change-outcome";
 import type { UrlChangePattern } from "@/domains/learning/change-patterns";
@@ -179,12 +179,29 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
 
   // Sprint 7 Phase 7.8e-1 (2026-04-26) — seed-data exports are now cached
   // async getters; resolve once at the top of the render so the body
-  // below can use the arrays as local consts.
-  const [results, changelogEntries, opportunities, competitors] = await Promise.all([
+  // below can use the arrays as local consts. 7.8e-3 (2026-04-26) added
+  // the per-tenant arrays from issues / wave-planner / url-change-outcome
+  // here too.
+  const [
+    results,
+    changelogEntries,
+    opportunities,
+    competitors,
+    pageIssues,
+    rolloutExecutions,
+    persistedPatternEvidence,
+    persistedWaves,
+    urlChangeOutcomes,
+  ] = await Promise.all([
     getResults(),
     getChangelogEntries(),
     getOpportunities(),
     getCompetitors(),
+    getPageIssues(),
+    getRolloutExecutions(),
+    getPatternEvidence(),
+    getRolloutWaves(),
+    getUrlChangeOutcomes(),
   ]);
 
   // Sprint 7 Phase 7.5c/3 (2026-04-25) — fetch tenant pages once and warm
@@ -445,6 +462,7 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
 
   const { attribution: attrResults } = partitionResultsByMode(results);
   const events = detectOutcomeEvents(attrResults);
+  const eventDecisions = await getEventDecisions();
   const decidedEventIds = new Set(eventDecisions.map((d) => d.event_id));
   const scorecardRows = computeScorecard(
     changelogEntries,
@@ -821,8 +839,8 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
   // gap-scanner still wants to avoid recommending on URLs where we're already
   // watching \u2014 feed it the current watchlist from url-change-outcomes.
   const { getWatchingUrlOutcomes } = await import("@/domains/attribution/url-change-outcome");
-  const activeExperimentUrls = new Set(
-    getWatchingUrlOutcomes().map((o) => o.url.replace(/\/+$/, "").toLowerCase()),
+  const activeExperimentUrls = new Set<string>(
+    (await getWatchingUrlOutcomes()).map((o) => o.url.replace(/\/+$/, "").toLowerCase()),
   );
   // Build query keyword index from fan-out data — unlocks 5,289 real search
   // queries for keyword optimization recs AND morning brief step generation.
@@ -943,6 +961,9 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
       .filter((r) => r.status === "accepted")
       .map((r) => r.recId),
   );
+  const replicationResponsesByRecId = new Map(
+    freshRecommendationResponses.map((r) => [r.recId, r]),
+  );
   const replicationImpactCards = buildReplicationCards({
     recommendations,
     impactRows,
@@ -950,6 +971,7 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
     rolloutExecutions,
     pageIssues,
     activeExperimentRecIds: activeExperimentRecIdSet,
+    responsesByRecId: replicationResponsesByRecId,
   });
   const replicationExcludeRecIds = new Set(
     replicationImpactCards.flatMap((c) => c.targets.map((t) => t.recId)),
@@ -1417,7 +1439,7 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
     }));
 
   const citIdx = citationEvidenceIndex;
-  const primaryVis = primaryVisibilityRunForResults(results);
+  const primaryVis = await primaryVisibilityRunForResults(results);
   const competitorUniverse = await loadCompetitorUniverseRuntime();
   const competitorLine = buildTodayCompetitorLine({
     universe: competitorUniverse,

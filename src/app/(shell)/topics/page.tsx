@@ -4,7 +4,7 @@ import {
   getChangelogEntries,
   getOpportunities,
 } from "@/lib/seed-data.server";
-import { eventDecisions } from "@/domains/attribution/store";
+import { getEventDecisions } from "@/domains/attribution/store";
 import {
   computeScorecard,
   type ScorecardRow,
@@ -20,18 +20,17 @@ import { getRepository } from "@/lib/persistence/repositories";
 import { currentTenantId } from "@/lib/tenant-context";
 import { citationEvidenceIndex } from "@/domains/pages/citation-evidence-store";
 import { minePatterns, generateBriefs } from "@/domains/pages/playbook";
-import { rolloutExecutions, patternEvidence } from "@/domains/pages/issues";
-import { rolloutWaves } from "@/domains/pages/wave-planner";
+import { getRolloutExecutions, getPatternEvidence, getPageIssues } from "@/domains/pages/issues";
+import { getRolloutWaves } from "@/domains/pages/wave-planner";
 import { computeFrontiers, type FrontierOpportunity } from "@/domains/pages/frontier-planner";
 import {
-  compileFrontierAttack, attackPackages, trackedMissingPages,
+  compileFrontierAttack, getAttackPackages, getTrackedMissingPages,
   computePackageProgress, derivePackageStatus,
   type FrontierAttackPackage, type MissingPagePlan,
 } from "@/domains/pages/frontier-compiler";
 import { getCompetitorEvidence, SOURCE_TYPE_LABELS, type FrontierCompetitiveSummary } from "@/domains/pages/competitor-evidence";
 import { computeAllAssetResponses, getAssetResponsesMap, ASSET_TYPE_LABELS, CONFIDENCE_LABELS, type AssetResponse } from "@/domains/pages/asset-response";
 import { refreshCompetitorEvidence } from "./package-actions";
-import { pageIssues } from "@/domains/pages/issues";
 import { launchAttackPackage, updatePackageStatus, updateMissingPageStatus } from "./package-actions";
 import { getSiteConfig } from "@/lib/site-config";
 import { PageHeader } from "@/components/data/page-header";
@@ -59,10 +58,17 @@ export default async function TopicsPage() {
   const repo = getRepository().forTenant(await currentTenantId());
   const topicSnapshots = await repo.getPageSnapshots();
   await warmPageRegistry();
-  const [results, changelogEntries, opportunities] = await Promise.all([
+  const [results, changelogEntries, opportunities, eventDecisions, rolloutExecutions, patternEvidence, pageIssues, rolloutWaves, attackPackages, trackedMissingPages] = await Promise.all([
     getResults(),
     getChangelogEntries(),
     getOpportunities(),
+    getEventDecisions(),
+    getRolloutExecutions(),
+    getPatternEvidence(),
+    getPageIssues(),
+    getRolloutWaves(),
+    getAttackPackages(),
+    getTrackedMissingPages(),
   ]);
   const { attribution: attrResults } = partitionResultsByMode(results);
   const events = detectOutcomeEvents(attrResults);
@@ -327,10 +333,10 @@ export default async function TopicsPage() {
   const ownedBrandShort = getSiteConfig().ownedBrandShort;
 
   const latestCrawlRun = await latestWebsiteCrawlRun();
-  const primaryVisForGap = primaryVisibilityRunForResults(results);
+  const primaryVisForGap = await primaryVisibilityRunForResults(results);
   const citationLedgerForGap = citationEvidenceIndex;
   const { stale: visibilityStaleVsCrawl } = visibilitySampleStaleVsCrawl(
-    citationRollupVisibilityRun(),
+    await citationRollupVisibilityRun(),
     latestCrawlRun?.completed_at ?? null
   );
   const competitorRuntimeForGap = await loadCompetitorUniverseRuntime();
@@ -409,7 +415,7 @@ export default async function TopicsPage() {
         ownedBrandShort={ownedBrandShort}
         rows={topicRows}
         gapLedgerContext={gapLedgerContext}
-        frontiers={(() => {
+        frontiers={await (async () => {
         const ci = citationEvidenceIndex;
         const snaps = topicSnapshots;
         if (!ci) return [];
@@ -421,9 +427,9 @@ export default async function TopicsPage() {
         }
         const patterns = minePatterns(snaps, citMap, rows, rolloutExecutions, patternEvidence);
         const briefs = generateBriefs(snaps, citMap, patterns);
-        const compEvidence = getCompetitorEvidence(ci);
+        const compEvidence = await getCompetitorEvidence(ci);
         const frontiers0 = computeFrontiers(ci, snaps, briefs, rolloutWaves, patterns, compEvidence);
-        const persistedAR = getAssetResponsesMap();
+        const persistedAR = await getAssetResponsesMap();
         const arByTopic = persistedAR.size > 0
           ? persistedAR
           : new Map(computeAllAssetResponses(compEvidence, frontiers0).map(a => [a.topic, a]));
@@ -524,7 +530,8 @@ export default async function TopicsPage() {
         const citMap2 = new Map<string, number>();
         for (const r of ci2.by_page_and_topic) { if (r.is_owned) citMap2.set(r.page_url.replace(/\/+$/, "").toLowerCase(), (citMap2.get(r.page_url.replace(/\/+$/, "").toLowerCase()) ?? 0) + r.total_citations); }
         const { minePatterns: mp2, generateBriefs: gb2 } = await import("@/domains/pages/playbook");
-        const { rolloutExecutions: re2, patternEvidence: pe2 } = await import("@/domains/pages/issues");
+        const { getRolloutExecutions: gre2, getPatternEvidence: gpe2 } = await import("@/domains/pages/issues");
+        const [re2, pe2] = await Promise.all([gre2(), gpe2()]);
         const patterns2 = mp2(snaps2, citMap2, rows, re2, pe2);
         const briefs2 = gb2(snaps2, citMap2, patterns2);
         const frontiers2 = computeFrontiers(ci2, snaps2, briefs2, rolloutWaves, patterns2);

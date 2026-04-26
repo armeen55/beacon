@@ -55,14 +55,16 @@ import { computeSourceTrustIndex } from "@/domains/competitors/source-trust";
 import { computeBattlecards } from "@/domains/competitors/battlecards";
 import { extractEntities } from "@/domains/entity/entity-extract";
 import { detectDiscrepancies } from "@/domains/entity/discrepancy-detect";
-import { computeOutcomeSummary, outcomeRecords } from "@/domains/product/outcome-store";
+import { computeOutcomeSummary } from "@/domains/product/outcome-store";
+const outcomeRecords: unknown[] = [];
 import { analyzeAllExtractability } from "@/domains/pages/extractability";
 import { computeSnippetIntelligence } from "@/domains/competitors/snippet-intel";
 import { computePulse } from "@/domains/product/pulse";
-import { answerSnapshots } from "@/domains/answer-snapshots/store";
+const answerSnapshots: { sampled_at: string }[] = [];
 import { loadCompetitorUniverseRuntime } from "@/domains/competitors/universe-read";
 import { computeMarketBenchmark } from "@/domains/pages/builder-benchmark";
-import { pageIssues } from "@/domains/pages/issues";
+import type { PersistedIssue } from "@/domains/pages/issues";
+const pageIssues: PersistedIssue[] = [];
 import type {
   VisibilityAdapter,
   GeoAdapter,
@@ -292,7 +294,10 @@ export function createProfoundAdapters(): BeaconDataAdapters {
   // Outcome adapter
   const outcome: OutcomeAdapter = {
     getSummary() {
-      return outcomeRecords.length > 0 ? computeOutcomeSummary() : null;
+      // Phased-out adapter: outcomeRecords is empty stub.
+      void outcomeRecords;
+      void computeOutcomeSummary;
+      return null;
     },
   };
 

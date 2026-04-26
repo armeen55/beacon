@@ -1,12 +1,27 @@
+import { cache } from "react";
+
 import { writeStore } from "@/lib/persistence/json-store";
 import { getRepository } from "@/lib/persistence/repositories";
 import type { PersistedActionState } from "./types";
 
-const repo = getRepository();
+let _state: PersistedActionState[] | null = null;
 
-export const actionStates: PersistedActionState[] =
-  await repo.getActionStates();
+const ensureLoaded = cache(async (): Promise<void> => {
+  if (_state !== null) return;
+  _state = await getRepository().getActionStates();
+});
+
+export const getActionStates = cache(
+  async (): Promise<PersistedActionState[]> => {
+    await ensureLoaded();
+    return _state!;
+  },
+);
 
 export async function persistActionStates(): Promise<void> {
-  await writeStore("action-states", actionStates);
+  await writeStore("action-states", await getActionStates());
+}
+
+export function _resetActionStatesForTests(): void {
+  _state = null;
 }

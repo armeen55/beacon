@@ -20,6 +20,8 @@
 
 import "server-only";
 
+import { cache } from "react";
+
 import { readStore, writeStore } from "@/lib/persistence/json-store";
 import { syncUrlChangeOutcomes } from "@/lib/persistence/dual-write";
 import { getRepository } from "@/lib/persistence/repositories";
@@ -87,36 +89,27 @@ export type UrlChangeOutcome = {
   tenant_id: string;
 };
 
-// In-memory cache, loaded at module init, persisted after writes.
-// Phase 7.8b-2-c: top-level await; same module-load-tenant-capture
-// caveat as canonical-store / seed-data.server. Phase 7.8e lifts to
-// request-scope.
-export const urlChangeOutcomes: UrlChangeOutcome[] = await readStore<UrlChangeOutcome>(
-  "url-change-outcomes",
-);
+// In-memory cache, lazy-loaded on first getter call, persisted after writes.
+// Sprint 7 Phase 7.8e-3 (2026-04-26): the previous module-level top-level
+// `await readStore(...)` (with `ensureUrlChangeOutcomesSeeded()` running
+// the DB merge on Vercel) is replaced with a cached async getter. Phase
+// 3.5C DB-merge logic preserved verbatim — runs on first getter call when
+// DATA_SOURCE=supabase.
+let _state: UrlChangeOutcome[] | null = null;
 
-// Phase 3.5C (2026-04-22): on Vercel / `DATA_SOURCE=supabase`, `readStore`
-// returns [] because the JSON file doesn't exist on the read-only FS. Seed
-// from `url_change_outcomes` table on first call so `urlChangeOutcomes`,
-// `getWatchingUrlOutcomes()`, and `materializeUrlOutcomes()` see real data.
-let _dbSeeded = false;
-let _dbSeedPromise: Promise<void> | null = null;
+const ensureLoaded = cache(async (): Promise<void> => {
+  if (_state !== null) return;
+  _state = await readStore<UrlChangeOutcome>("url-change-outcomes");
 
-export async function ensureUrlChangeOutcomesSeeded(): Promise<void> {
-  if (_dbSeeded) return;
-  if (_dbSeedPromise) return _dbSeedPromise;
-  if (process.env.DATA_SOURCE !== "supabase") {
-    _dbSeeded = true;
-    return;
-  }
-  _dbSeedPromise = (async () => {
+  // Phase 3.5C (2026-04-22): on Vercel / DATA_SOURCE=supabase the disk read
+  // above returned [] because the JSON file doesn't exist on the read-only
+  // FS. Merge from `url_change_outcomes` table so getters see real data.
+  if (process.env.DATA_SOURCE === "supabase") {
     try {
-      // Sprint 7 Phase 7.5c/1 (2026-04-25) — tenant-bound read.
       const tenantId = await currentTenantId();
       const rows = await getRepository().forTenant(tenantId).getUrlChangeOutcomes();
-      // Keep the newer `updated_at` per compound (change_id, url) key.
       const byKey = new Map<string, UrlChangeOutcome>();
-      for (const o of urlChangeOutcomes) {
+      for (const o of _state) {
         byKey.set(`${o.change_id}::${o.url}`, o);
       }
       for (const o of rows) {
@@ -124,22 +117,35 @@ export async function ensureUrlChangeOutcomesSeeded(): Promise<void> {
         const cur = byKey.get(k);
         if (!cur || o.updated_at > cur.updated_at) byKey.set(k, o);
       }
-      urlChangeOutcomes.length = 0;
-      urlChangeOutcomes.push(...byKey.values());
+      _state.length = 0;
+      _state.push(...byKey.values());
     } catch (e) {
       console.error("[url-change-outcomes] DB seed failed:", e);
-    } finally {
-      _dbSeeded = true;
     }
-  })();
-  return _dbSeedPromise;
+  }
+});
+
+export const getUrlChangeOutcomes = cache(
+  async (): Promise<UrlChangeOutcome[]> => {
+    await ensureLoaded();
+    return _state!;
+  },
+);
+
+/**
+ * Backwards-compat shim. Pre-7.8e-3 callers chained
+ * `ensureUrlChangeOutcomesSeeded()` to force the DB merge. Post-7.8e-3
+ * the merge runs automatically on first getter call. Kept as a proxy
+ * so caller cascade stays minimal.
+ */
+export async function ensureUrlChangeOutcomesSeeded(): Promise<void> {
+  await ensureLoaded();
 }
 
-/** Resets the DB-seed cache. Call after a write that should be reflected on
+/** Resets the seed cache. Call after a write that should be reflected on
  *  the next read in this process. */
 export function invalidateUrlChangeOutcomesSeed(): void {
-  _dbSeeded = false;
-  _dbSeedPromise = null;
+  _state = null;
 }
 
 /**
@@ -160,7 +166,8 @@ const WATCHING_VERDICTS: ReadonlySet<VerdictLabel> = new Set([
  * Replaces the old `getActiveExperiments()` in UI surfaces after Phase 2
  * of the experiments\u2192verdicts convergence (2026-04-19).
  */
-export function getWatchingUrlOutcomes(): UrlChangeOutcome[] {
+export async function getWatchingUrlOutcomes(): Promise<UrlChangeOutcome[]> {
+  const urlChangeOutcomes = await getUrlChangeOutcomes();
   const latestByUrl = new Map<string, UrlChangeOutcome>();
   for (const o of urlChangeOutcomes) {
     if (!WATCHING_VERDICTS.has(o.verdict)) continue;
@@ -235,13 +242,14 @@ export function findLandingDay(
  *
  * Returns null when skipped; otherwise the up-to-date record (new or updated).
  */
-export function recordUrlOutcome(input: {
+export async function recordUrlOutcome(input: {
   change: ChangelogEntry;
   normalizedUrl: string;
   verdict: UrlVerdict;
   series: DailyPoint[];
   thresholds?: VerdictThresholds;
-}): UrlChangeOutcome | null {
+}): Promise<UrlChangeOutcome | null> {
+  const urlChangeOutcomes = await getUrlChangeOutcomes();
   const thresholds = input.thresholds ?? DEFAULT_THRESHOLDS;
   const v = input.verdict;
 
@@ -375,11 +383,12 @@ export async function materializeUrlOutcomes(input: {
   // Phase 3.5C: seed from Supabase before mutating so a cold Vercel lambda
   // doesn't overwrite 120 existing rows with only its new ones.
   await ensureUrlChangeOutcomesSeeded();
+  const urlChangeOutcomes = await getUrlChangeOutcomes();
   const t0 = Date.now();
   let processed = 0;
   let newlyRecorded = 0;
   let transitionsAdded = 0;
-  let transitionsBefore = urlChangeOutcomes.reduce(
+  const transitionsBefore = urlChangeOutcomes.reduce(
     (acc, o) => acc + o.transitions,
     0,
   );
@@ -398,7 +407,7 @@ export async function materializeUrlOutcomes(input: {
     if (!computed) continue;
     processed += 1;
 
-    const recorded = recordUrlOutcome({
+    const recorded = await recordUrlOutcome({
       change,
       normalizedUrl: computed.normalizedUrl,
       verdict: computed.verdict,

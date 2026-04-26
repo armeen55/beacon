@@ -4,7 +4,7 @@ import {
   getOpportunities,
   getCompetitors,
 } from "@/lib/seed-data.server";
-import { eventDecisions } from "@/domains/attribution/store";
+import { getEventDecisions } from "@/domains/attribution/store";
 import {
   buildAttributionDriverMap,
   type ResultDriverInfo,
@@ -23,11 +23,12 @@ import { citationEvidenceIndex } from "@/domains/pages/citation-evidence-store";
 import type { PersistedIssue } from "@/domains/pages/issues";
 
 export default async function ResultsPage() {
-  const [results, changelogEntries, opportunities, competitors] = await Promise.all([
+  const [results, changelogEntries, opportunities, competitors, eventDecisions] = await Promise.all([
     getResults(),
     getChangelogEntries(),
     getOpportunities(),
     getCompetitors(),
+    getEventDecisions(),
   ]);
   const driverMap = buildAttributionDriverMap(
     results,
@@ -42,8 +43,8 @@ export default async function ResultsPage() {
   }
 
   const crawl = await latestWebsiteCrawlRun();
-  const primaryVisibility = primaryVisibilityRunForResults(results);
-  const rollupForStale = citationRollupVisibilityRun();
+  const primaryVisibility = await primaryVisibilityRunForResults(results);
+  const rollupForStale = await citationRollupVisibilityRun();
   const { stale: visibilityStaleVsCrawl, note: staleNote } =
     visibilitySampleStaleVsCrawl(rollupForStale, crawl?.completed_at ?? null);
 

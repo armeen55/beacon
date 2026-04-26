@@ -90,7 +90,7 @@ export async function buildTodaySummary(opts: {
     };
 
   const vis = opts.primaryVisibilityRun;
-  const rollup = citationRollupVisibilityRun();
+  const rollup = await citationRollupVisibilityRun();
   const { stale, note } = visibilitySampleStaleVsCrawl(
     rollup,
     lastCrawl?.completed_at ?? null

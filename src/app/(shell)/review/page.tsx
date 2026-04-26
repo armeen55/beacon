@@ -9,7 +9,7 @@ import { partitionResultsByMode } from "@/domains/attribution/result-mode";
 import { detectOutcomeEvents } from "@/domains/attribution/events";
 import type { OutcomeEventType } from "@/domains/attribution/events";
 import { resolveEvents, computeEventIntelligence } from "@/domains/attribution/event-resolution";
-import { candidateLinks, eventDecisions } from "@/domains/attribution/store";
+import { getCandidateLinks, getEventDecisions } from "@/domains/attribution/store";
 import { buildJudgment } from "@/domains/attribution/judgment";
 import { PLATFORM_LABELS, METRIC_TYPE_LABELS } from "@/lib/constants";
 import {
@@ -96,10 +96,12 @@ const DECISIONABILITY_ORDER: Record<Decisionability, number> = {
 
 export default async function ReviewPage() {
   await warmPageRegistry();
-  const [results, changelogEntries, opportunities] = await Promise.all([
+  const [results, changelogEntries, opportunities, candidateLinks, eventDecisions] = await Promise.all([
     getResults(),
     getChangelogEntries(),
     getOpportunities(),
+    getCandidateLinks(),
+    getEventDecisions(),
   ]);
   const { attribution } = partitionResultsByMode(results);
   const events = detectOutcomeEvents(attribution);

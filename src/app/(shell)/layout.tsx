@@ -66,7 +66,7 @@ export default async function ShellLayout({
   const pagesBadge = pagesWithBugs.size;
   // Count distinct URLs with a live verdict \u2014 hurting, nothing_yet, too_early.
   // Settled wins ("helping") and dead ends ("not_enough_data") are excluded.
-  const changesBadge = getWatchingUrlOutcomes().length;
+  const changesBadge = (await getWatchingUrlOutcomes()).length;
 
   const badges: NavBadges = {};
   if (todayBadge > 0) badges["/"] = todayBadge;

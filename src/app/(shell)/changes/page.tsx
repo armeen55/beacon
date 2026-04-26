@@ -8,7 +8,7 @@ import {
   hasActiveExperiment,
 } from "@/lib/seed-data.server";
 import type { ChangelogEntry } from "@/domains/changelog/types";
-import { eventDecisions } from "@/domains/attribution/store";
+import { getEventDecisions } from "@/domains/attribution/store";
 import { computeScorecard } from "@/domains/attribution/scorecard";
 import { enrichWithImpact } from "@/domains/attribution/change-impact";
 import { ScorecardTable, type EnrichedChangeRow } from "./scorecard-client";
@@ -119,9 +119,10 @@ export default async function ChangeScorecardPage() {
   };
 
   // ── Legacy scorecard rows (still used for drill-down topic/platform breakdown) ──
-  const [results, opportunities] = await Promise.all([
+  const [results, opportunities, eventDecisions] = await Promise.all([
     getResults(),
     getOpportunities(),
+    getEventDecisions(),
   ]);
   const rawRows = computeScorecard(liveEntries, results, opportunities, eventDecisions);
   const rows = enrichWithImpact(rawRows);

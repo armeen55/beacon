@@ -14,7 +14,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
-  recommendationResponses,
+  getRecommendationResponses,
   recordResponse,
   persistResponses,
   deleteResponseByRecId,
@@ -70,9 +70,9 @@ vi.mock("@/lib/persistence/json-store", () => ({
 }));
 
 describe("Sprint 6A.1.16 — recommendation-response Undo deletion path", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     process.env.DUAL_WRITE = "true";
-    recommendationResponses.length = 0;
+    (await getRecommendationResponses()).length = 0;
     supabaseMocks.fromMock.mockClear();
     supabaseMocks.upsertMock.mockClear();
     supabaseMocks.upsertMock.mockResolvedValue({ error: null });
@@ -86,7 +86,7 @@ describe("Sprint 6A.1.16 — recommendation-response Undo deletion path", () => 
   });
 
   it("Accept upserts (legacy path preserved)", async () => {
-    recordResponse("rec-accept-1", "accepted", { targetPageUrl: "/a" });
+    await recordResponse("rec-accept-1", "accepted", { targetPageUrl: "/a" });
     await persistResponses("tenant-ritz-founder");
     expect(supabaseMocks.fromMock).toHaveBeenCalledWith("recommendation_responses");
     expect(supabaseMocks.upsertMock).toHaveBeenCalled();
@@ -94,19 +94,16 @@ describe("Sprint 6A.1.16 — recommendation-response Undo deletion path", () => 
   });
 
   it("Defer upserts (legacy path preserved)", async () => {
-    recordResponse("rec-defer-1", "deferred");
+    await recordResponse("rec-defer-1", "deferred");
     await persistResponses("tenant-ritz-founder");
     expect(supabaseMocks.upsertMock).toHaveBeenCalled();
     expect(supabaseMocks.deleteMock).not.toHaveBeenCalled();
   });
 
   it("Dismiss upserts AS dismissed (NOT deleted)", async () => {
-    recordResponse("rec-dismiss-1", "dismissed");
+    await recordResponse("rec-dismiss-1", "dismissed");
     await persistResponses("tenant-ritz-founder");
-    // Dismiss must persist as a row with status=dismissed so the rec
-    // is suppressed on subsequent renders. Deleting the row would
-    // make the rec re-appear in the queue.
-    const stored = recommendationResponses.find(
+    const stored = (await getRecommendationResponses()).find(
       (r) => r.recId === "rec-dismiss-1",
     );
     expect(stored?.status).toBe("dismissed");
@@ -115,14 +112,14 @@ describe("Sprint 6A.1.16 — recommendation-response Undo deletion path", () => 
   });
 
   it("Undo removes the row from in-memory state", async () => {
-    recordResponse("rec-undo-1", "accepted");
+    await recordResponse("rec-undo-1", "accepted");
     expect(
-      recommendationResponses.find((r) => r.recId === "rec-undo-1"),
+      (await getRecommendationResponses()).find((r) => r.recId === "rec-undo-1"),
     ).toBeDefined();
     const removed = await deleteResponseByRecId("rec-undo-1", "tenant-ritz-founder");
     expect(removed).toBe(true);
     expect(
-      recommendationResponses.find((r) => r.recId === "rec-undo-1"),
+      (await getRecommendationResponses()).find((r) => r.recId === "rec-undo-1"),
     ).toBeUndefined();
   });
 
@@ -130,7 +127,7 @@ describe("Sprint 6A.1.16 — recommendation-response Undo deletion path", () => 
     // Phase 7.7c (2026-04-25): the delete chain must carry both filters
     // so cross-tenant rec_id collisions never let one tenant's Undo
     // wipe another tenant's response.
-    recordResponse("rec-undo-2", "accepted");
+    await recordResponse("rec-undo-2", "accepted");
     supabaseMocks.deleteMock.mockClear();
     await deleteResponseByRecId("rec-undo-2", "tenant-ritz-founder");
     expect(supabaseMocks.deleteMock).toHaveBeenCalled();
@@ -175,7 +172,7 @@ describe("Sprint 6A.1.16 — recommendation-response Undo deletion path", () => 
     // still attempt the delete so the row doesn't outlive the
     // operator's intent.
     expect(
-      recommendationResponses.find((r) => r.recId === "rec-other-lambda"),
+      (await getRecommendationResponses()).find((r) => r.recId === "rec-other-lambda"),
     ).toBeUndefined();
     const removed = await deleteResponseByRecId(
       "rec-other-lambda",
@@ -187,12 +184,11 @@ describe("Sprint 6A.1.16 — recommendation-response Undo deletion path", () => 
 
   it("Undo is a no-op against Supabase when DUAL_WRITE is off", async () => {
     delete process.env.DUAL_WRITE;
-    recordResponse("rec-no-dualwrite", "accepted");
+    await recordResponse("rec-no-dualwrite", "accepted");
     supabaseMocks.deleteMock.mockClear();
     await deleteResponseByRecId("rec-no-dualwrite", "tenant-ritz-founder");
-    // In-memory removal still happens.
     expect(
-      recommendationResponses.find((r) => r.recId === "rec-no-dualwrite"),
+      (await getRecommendationResponses()).find((r) => r.recId === "rec-no-dualwrite"),
     ).toBeUndefined();
     // But Supabase delete was NOT called (dual-write gate).
     expect(supabaseMocks.deleteMock).not.toHaveBeenCalled();
@@ -204,7 +200,7 @@ describe("Sprint 6A.1.16 — recommendation-response Undo deletion path", () => 
     // deleteRecommendationResponseByRecId, AFTER the in-memory splice +
     // writeStore have already happened. That asymmetry is by design —
     // see the helper docstring's "best-effort" posture.
-    recordResponse("rec-empty-tenant", "accepted");
+    await recordResponse("rec-empty-tenant", "accepted");
     await expect(
       deleteResponseByRecId("rec-empty-tenant", ""),
     ).rejects.toThrow(/tenantId must be a non-empty string/);

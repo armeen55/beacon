@@ -114,7 +114,7 @@ describe("Sprint 1 / Phase 1.6 — /changes/[id] fresh-read invariants", () => {
         getResults: vi.fn(async () => []),
       }));
       vi.doMock("@/domains/attribution/store", () => ({
-        eventDecisions: [],
+        getEventDecisions: vi.fn(async () => []),
       }));
       vi.doMock("@/lib/persistence/json-store", () => ({
         readStore: () => [],
@@ -129,8 +129,8 @@ describe("Sprint 1 / Phase 1.6 — /changes/[id] fresh-read invariants", () => {
         getOwnedPages: async () => [],
       }));
       vi.doMock("@/domains/pages/issues", () => ({
-        rolloutExecutions: [],
-        patternEvidence: [],
+        getRolloutExecutions: vi.fn(async () => []),
+        getPatternEvidence: vi.fn(async () => []),
       }));
       vi.doMock("@/domains/pages/playbook", () => ({
         minePatterns: () => [],

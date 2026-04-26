@@ -10,7 +10,7 @@ import {
   EVIDENCE_TIER_BONUS,
   EVIDENCE_TIER_CAP,
 } from "./compute";
-import { candidateLinks } from "./store";
+import type { CandidateLink } from "@/domains/attribution/types";
 import { ATTRIBUTION_CONFIG } from "./config";
 import { classifyEvidenceTier } from "@/domains/pages/evidence-tier";
 import { normalizePageUrl } from "@/domains/pages/classify";
@@ -196,12 +196,13 @@ export function discoverCandidates(
   result: Result,
   allChanges: ChangelogEntry[],
   allOpportunities: Opportunity[],
-  options?: { maxDays?: number; minScore?: number; topK?: number }
+  options?: { maxDays?: number; minScore?: number; topK?: number; candidateLinks?: CandidateLink[] }
 ): CandidateResult[] {
   const { maxDays, minScore, topK } = ATTRIBUTION_CONFIG.discovery;
   const maxDaysResolved = options?.maxDays ?? maxDays;
   const minScoreResolved = options?.minScore ?? minScore;
   const topKResolved = options?.topK ?? topK;
+  const candidateLinks = options?.candidateLinks ?? [];
 
   const resultDate = new Date(result.snapshot_date).getTime();
 

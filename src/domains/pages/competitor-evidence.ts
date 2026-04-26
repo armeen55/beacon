@@ -4,6 +4,8 @@
  * dominating each topic in AI answer engines.
  */
 
+import { cache } from "react";
+
 import { writeStore } from "@/lib/persistence/json-store";
 import { getRepository } from "@/lib/persistence/repositories";
 import type { CitationEvidenceIndex, CitationPageRollup, TopicCitationSummary } from "./types";
@@ -86,17 +88,49 @@ export type SourcePatternEvidence = {
 
 // ── Persistence ──
 
-const repo = getRepository();
+type EvidenceState = {
+  competitorPages: CompetitorPageEvidence[] | null;
+  sourcePatterns: SourcePatternEvidence[] | null;
+};
 
-export const competitorPages: CompetitorPageEvidence[] =
-  await repo.getCompetitorPageEvidence();
+const _state: EvidenceState = {
+  competitorPages: null,
+  sourcePatterns: null,
+};
 
-export const sourcePatterns: SourcePatternEvidence[] =
-  await repo.getSourcePatternEvidence();
+const ensureLoaded = cache(async (): Promise<void> => {
+  if (_state.competitorPages !== null) return;
+  const repo = getRepository();
+  const [cp, sp] = await Promise.all([
+    repo.getCompetitorPageEvidence(),
+    repo.getSourcePatternEvidence(),
+  ]);
+  _state.competitorPages = cp;
+  _state.sourcePatterns = sp;
+});
+
+export const getCompetitorPages = cache(
+  async (): Promise<CompetitorPageEvidence[]> => {
+    await ensureLoaded();
+    return _state.competitorPages!;
+  },
+);
+
+export const getSourcePatterns = cache(
+  async (): Promise<SourcePatternEvidence[]> => {
+    await ensureLoaded();
+    return _state.sourcePatterns!;
+  },
+);
 
 export async function persistCompetitorEvidence(): Promise<void> {
-  await writeStore("competitor-page-evidence", competitorPages);
-  await writeStore("source-pattern-evidence", sourcePatterns);
+  await writeStore("competitor-page-evidence", await getCompetitorPages());
+  await writeStore("source-pattern-evidence", await getSourcePatterns());
+}
+
+export function _resetCompetitorEvidenceForTests(): void {
+  _state.competitorPages = null;
+  _state.sourcePatterns = null;
 }
 
 // ── Frontier competitive summary ──
@@ -125,10 +159,12 @@ export type FrontierCompetitiveSummary = {
 
 // ── Computation ──
 
-export function computeCompetitorEvidence(
+export async function computeCompetitorEvidence(
   citationIndex: CitationEvidenceIndex
-): Map<string, FrontierCompetitiveSummary> {
+): Promise<Map<string, FrontierCompetitiveSummary>> {
   const now = new Date().toISOString();
+  const competitorPages = await getCompetitorPages();
+  const sourcePatternsState = await getSourcePatterns();
   const results = new Map<string, FrontierCompetitiveSummary>();
   const brand = getSiteConfig().ownedBrandShort;
   const hasNoEquiv =
@@ -288,11 +324,7 @@ export function computeCompetitorEvidence(
       if (existing >= 0) competitorPages[existing] = cp;
       else competitorPages.push(cp);
     }
-    for (const sp of sourcePatterns) {
-      const existing = sourcePatterns.findIndex((e) => e.sourcePatternEvidenceId === sp.sourcePatternEvidenceId);
-      if (existing >= 0) { /* already in array from current iteration */ }
-      else { /* sourcePatterns is the local variable, persistence handled below */ }
-    }
+    void sourcePatternsState; // persistence for source-patterns happens via persistComputedEvidence below
   }
 
   return results;
@@ -307,6 +339,8 @@ export async function persistComputedEvidence(
     allPages.push(...s.topCompetitors);
     allPatterns.push(...s.sourcePatterns);
   }
+  const competitorPages = await getCompetitorPages();
+  const sourcePatterns = await getSourcePatterns();
   competitorPages.length = 0;
   competitorPages.push(...allPages);
   sourcePatterns.length = 0;
@@ -314,18 +348,21 @@ export async function persistComputedEvidence(
   await persistCompetitorEvidence();
 }
 
-export function getCompetitorEvidence(
+export async function getCompetitorEvidence(
   citationIndex: CitationEvidenceIndex
-): Map<string, FrontierCompetitiveSummary> {
+): Promise<Map<string, FrontierCompetitiveSummary>> {
+  const competitorPages = await getCompetitorPages();
   if (competitorPages.length > 0) {
     return rebuildSummariesFromStores(citationIndex);
   }
   return computeCompetitorEvidence(citationIndex);
 }
 
-function rebuildSummariesFromStores(
+async function rebuildSummariesFromStores(
   citationIndex: CitationEvidenceIndex
-): Map<string, FrontierCompetitiveSummary> {
+): Promise<Map<string, FrontierCompetitiveSummary>> {
+  const competitorPages = await getCompetitorPages();
+  const sourcePatterns = await getSourcePatterns();
   const results = new Map<string, FrontierCompetitiveSummary>();
   const brand = getSiteConfig().ownedBrandShort;
   const hasNoEquiv = brand === "You" ? "you have" : `${brand} has`;

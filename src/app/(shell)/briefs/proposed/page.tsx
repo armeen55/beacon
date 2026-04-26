@@ -5,8 +5,9 @@ import {
   getOpportunities,
   hasActiveExperiment,
 } from "@/lib/seed-data.server";
-import { candidateLinks } from "@/domains/attribution/store";
-import { briefStates } from "@/domains/brief-generation/store";
+import { getCandidateLinks } from "@/domains/attribution/store";
+import { getBriefStates } from "@/domains/brief-generation/store";
+import { getActionStates } from "@/domains/actions/store";
 import { computeProposedBriefs } from "@/domains/brief-generation/compute";
 import {
   readyToExecute,
@@ -41,17 +42,21 @@ export default async function ProposedBriefsPage() {
     );
   }
 
-  const [results, changelogEntries, opportunities] = await Promise.all([
+  const [results, changelogEntries, opportunities, candidateLinks, briefStates, actionStates] = await Promise.all([
     getResults(),
     getChangelogEntries(),
     getOpportunities(),
+    getCandidateLinks(),
+    getBriefStates(),
+    getActionStates(),
   ]);
   const { briefs } = computeProposedBriefs(
     results,
     changelogEntries,
     opportunities,
     candidateLinks,
-    briefStates
+    briefStates,
+    actionStates
   );
 
   const summary = summarizeBriefQueue(briefs);

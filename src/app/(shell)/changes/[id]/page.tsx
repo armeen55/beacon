@@ -6,7 +6,7 @@ import { MatchFactors } from "@/components/display/match-factors";
 import { buildAttributionConfidenceBasis } from "@/lib/attribution-confidence-basis";
 import { getResults, getOpportunities } from "@/lib/seed-data.server";
 import type { ChangelogEntry } from "@/domains/changelog/types";
-import { eventDecisions } from "@/domains/attribution/store";
+import { getEventDecisions } from "@/domains/attribution/store";
 import { computeScorecard } from "@/domains/attribution/scorecard";
 import { enrichWithImpact, computeChangeImpact } from "@/domains/attribution/change-impact";
 import { getRepository } from "@/lib/persistence/repositories";
@@ -14,8 +14,8 @@ import { currentTenantId } from "@/lib/tenant-context";
 import { citationEvidenceIndex } from "@/domains/pages/citation-evidence-store";
 import { getOwnedPages } from "@/domains/pages/page-store";
 import {
-  rolloutExecutions,
-  patternEvidence as persistedPatternEvidence,
+  getRolloutExecutions,
+  getPatternEvidence,
 } from "@/domains/pages/issues";
 import { minePatterns, generateBriefs } from "@/domains/pages/playbook";
 import { computeRecommendations } from "@/domains/product/recommendation-engine";
@@ -132,9 +132,12 @@ export default async function ChangeDetailPage({
   const entry = freshChangelogEntries.find((c) => c.id === id);
   if (!entry) notFound();
 
-  const [results, opportunities] = await Promise.all([
+  const [results, opportunities, eventDecisions, rolloutExecutions, persistedPatternEvidence] = await Promise.all([
     getResults(),
     getOpportunities(),
+    getEventDecisions(),
+    getRolloutExecutions(),
+    getPatternEvidence(),
   ]);
   const allRows = computeScorecard(
     freshChangelogEntries,

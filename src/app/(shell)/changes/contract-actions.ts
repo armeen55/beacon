@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { log } from "@/lib/logger";
 import {
-  changeContracts,
+  getChangeContracts,
   persistChangeContracts,
   validateContract,
   scoreAttributionReadiness,
@@ -369,7 +369,7 @@ export async function createChangeContract(
     tenant_id: "",
   };
 
-  changeContracts.push(contract);
+  (await getChangeContracts()).push(contract);
   await persistChangeContracts();
   revalidatePath("/", "layout");
 
@@ -395,7 +395,7 @@ export async function verifyChangeContract(
   const action = "verifyChangeContract";
   const t0 = Date.now();
   log.info("Action started", { action, params: { contractId } });
-  const contract = changeContracts.find((c) => c.contractId === contractId);
+  const contract = (await getChangeContracts()).find((c) => c.contractId === contractId);
   if (!contract) {
     log.error("Action failed", {
       action,

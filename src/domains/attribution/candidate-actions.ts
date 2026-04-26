@@ -5,9 +5,9 @@ import { log } from "@/lib/logger";
 import { getResults } from "@/lib/seed-data.server";
 import { generateId, now } from "@/lib/actions";
 import {
-  candidateLinks,
-  truthLabels,
-  eventDecisions,
+  getCandidateLinks,
+  getTruthLabels,
+  getEventDecisions,
   persistCandidateLinks,
   persistTruthLabels,
   persistEventDecisions,
@@ -35,6 +35,7 @@ export async function confirmCandidate(
     result.attributed_changelog_ids.push(changeId);
   }
 
+  const candidateLinks = await getCandidateLinks();
   const existing = candidateLinks.find(
     (cl) => cl.result_id === resultId && cl.change_id === changeId
   );
@@ -68,6 +69,7 @@ export async function rejectCandidate(
   const action = "rejectCandidate";
   const t0 = Date.now();
   log.info("Action started", { action, params: { resultId, changeId } });
+  const candidateLinks = await getCandidateLinks();
   const existing = candidateLinks.find(
     (cl) => cl.result_id === resultId && cl.change_id === changeId
   );
@@ -104,6 +106,7 @@ export async function rejectAllCandidates(
     action,
     params: { resultId, changeIdCount: changeIds.length },
   });
+  const candidateLinks = await getCandidateLinks();
   for (const changeId of changeIds) {
     const existing = candidateLinks.find(
       (cl) => cl.result_id === resultId && cl.change_id === changeId
@@ -140,6 +143,7 @@ export async function addTruthLabel(
   const action = "addTruthLabel";
   const t0 = Date.now();
   log.info("Action started", { action, params: { resultId, changeId, relation } });
+  const truthLabels = await getTruthLabels();
   const existing = truthLabels.find(
     (tl) => tl.result_id === resultId && tl.change_id === changeId
   );
@@ -185,6 +189,8 @@ export async function lockDecision(
       candidateCount: allCandidateChangeIds.length,
     },
   });
+  const eventDecisions = await getEventDecisions();
+  const candidateLinks = await getCandidateLinks();
   const existing = eventDecisions.find((d) => d.event_id === eventId);
 
   const rejectedIds = allCandidateChangeIds.filter((id) => id !== primaryChangeId);

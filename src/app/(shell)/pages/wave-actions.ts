@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { log } from "@/lib/logger";
 import {
-  rolloutWaves,
+  getRolloutWaves,
   persistRolloutWaves,
   generateWaveHandoff,
   type WaveStatus,
@@ -18,7 +18,7 @@ export async function updateWaveStatus(
   const action = "updateWaveStatus";
   const t0 = Date.now();
   log.info("Action started", { action, params: { waveId, status } });
-  const wave = rolloutWaves.find((w) => w.rolloutWaveId === waveId);
+  const wave = (await getRolloutWaves()).find((w) => w.rolloutWaveId === waveId);
   if (!wave) {
     log.error("Action failed", {
       action,
@@ -41,7 +41,7 @@ export async function adoptWave(
   const action = "adoptWave";
   const t0 = Date.now();
   log.info("Action started", { action, params: { waveId } });
-  const wave = rolloutWaves.find((w) => w.rolloutWaveId === waveId);
+  const wave = (await getRolloutWaves()).find((w) => w.rolloutWaveId === waveId);
   if (!wave) {
     log.error("Action failed", {
       action,
@@ -71,7 +71,7 @@ export async function handOffWave(
     action,
     params: { waveId, briefCount: briefs.length },
   });
-  const wave = rolloutWaves.find((w) => w.rolloutWaveId === waveId);
+  const wave = (await getRolloutWaves()).find((w) => w.rolloutWaveId === waveId);
   if (!wave) {
     log.error("Action failed", {
       action,

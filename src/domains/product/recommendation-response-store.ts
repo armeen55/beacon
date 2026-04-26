@@ -8,6 +8,8 @@
 
 import "server-only";
 
+import { cache } from "react";
+
 import { readStore, writeStore } from "@/lib/persistence/json-store";
 import {
   deleteRecommendationResponseByRecId,
@@ -46,61 +48,62 @@ export type RecommendationResponse = {
 const STORE_NAME = "recommendation-responses";
 const DEFER_DAYS = 7;
 
-// Phase 7.8b-2-c: top-level await; same module-load-tenant-capture
-// caveat as canonical-store / seed-data.server. Phase 7.8e lifts to
-// request-scope.
-export const recommendationResponses: RecommendationResponse[] =
-  await readStore<RecommendationResponse>(STORE_NAME);
+// Sprint 7 Phase 7.8e-3 (2026-04-26): module-level top-level await replaced
+// with cached async getter. Phase 3.5C DB-merge logic preserved verbatim —
+// runs on first getter call when DATA_SOURCE=supabase. Mutators
+// (`recordResponse`, `deleteResponseByRecId`) became async; helpers
+// (`getResponse`, `isRecSuppressed`) became async.
+let _state: RecommendationResponse[] | null = null;
 
-// Phase 3.5C (2026-04-22): on Vercel / `DATA_SOURCE=supabase`, the module-init
-// `readStore` above returns [] because `.data/*.json` doesn't exist on Vercel's
-// read-only FS. `ensureRecommendationResponsesSeeded()` merges DB state into
-// the module-level array on first call. Idempotent; callers that need fresh
-// data should await this once per request before using `recommendationResponses`,
-// `getResponse()`, or `isRecSuppressed()`.
-let _dbSeeded = false;
-let _dbSeedPromise: Promise<void> | null = null;
+const ensureLoaded = cache(async (): Promise<void> => {
+  if (_state !== null) return;
+  _state = await readStore<RecommendationResponse>(STORE_NAME);
 
-export async function ensureRecommendationResponsesSeeded(): Promise<void> {
-  if (_dbSeeded) return;
-  if (_dbSeedPromise) return _dbSeedPromise;
-  if (process.env.DATA_SOURCE !== "supabase") {
-    _dbSeeded = true;
-    return;
-  }
-  _dbSeedPromise = (async () => {
+  // Phase 3.5C (2026-04-22): on Vercel / DATA_SOURCE=supabase the disk read
+  // returned [] because the JSON file doesn't exist on the read-only FS.
+  // Merge from `recommendation_responses` table so getters see real data.
+  if (process.env.DATA_SOURCE === "supabase") {
     try {
-      // Sprint 7 Phase 7.5c/1 (2026-04-25) — tenant-bound read.
       const tenantId = await currentTenantId();
       const rows = await getRepository().forTenant(tenantId).getRecommendationResponses();
-      // Keep the newest response per recId (by respondedAt) across the
-      // module-init array and the DB rows. Prevents a cold lambda that
-      // already did one write from wiping its own fresh state.
       const byId = new Map<string, RecommendationResponse>();
-      for (const r of recommendationResponses) byId.set(r.recId, r);
+      for (const r of _state) byId.set(r.recId, r);
       for (const r of rows) {
         const cur = byId.get(r.recId);
         if (!cur || r.respondedAt > cur.respondedAt) byId.set(r.recId, r);
       }
-      recommendationResponses.length = 0;
-      recommendationResponses.push(...byId.values());
+      _state.length = 0;
+      _state.push(...byId.values());
     } catch (e) {
       console.error("[rec-responses] DB seed failed:", e);
-    } finally {
-      _dbSeeded = true;
     }
-  })();
-  return _dbSeedPromise;
+  }
+});
+
+export const getRecommendationResponses = cache(
+  async (): Promise<RecommendationResponse[]> => {
+    await ensureLoaded();
+    return _state!;
+  },
+);
+
+/**
+ * Backwards-compat shim. Pre-7.8e-3 callers chained
+ * `ensureRecommendationResponsesSeeded()` to force the DB merge. Post-7.8e-3
+ * the merge runs automatically on first getter call.
+ */
+export async function ensureRecommendationResponsesSeeded(): Promise<void> {
+  await ensureLoaded();
 }
 
-/** Resets the DB-seed cache. Call after a write that should be reflected on
+/** Resets the seed cache. Call after a write that should be reflected on
  *  the next read in this process. */
 export function invalidateRecommendationResponsesSeed(): void {
-  _dbSeeded = false;
-  _dbSeedPromise = null;
+  _state = null;
 }
 
 export async function persistResponses(tenantId: string): Promise<void> {
+  const recommendationResponses = await getRecommendationResponses();
   await writeStore(STORE_NAME, recommendationResponses);
   await syncRecommendationResponses(recommendationResponses, tenantId);
 }
@@ -113,15 +116,12 @@ export async function persistResponses(tenantId: string): Promise<void> {
  * from `persistResponses` (which is upsert-only and can't delete) so
  * Undo's intent — "this rec has no operator response" — survives across
  * Vercel lambdas.
- *
- * Returns true when an in-memory row was found + removed, false when
- * the recId wasn't present locally (still attempts the Supabase delete
- * for safety — a row could have been written by a different lambda).
  */
 export async function deleteResponseByRecId(
   recId: string,
   tenantId: string,
 ): Promise<boolean> {
+  const recommendationResponses = await getRecommendationResponses();
   const idx = recommendationResponses.findIndex((r) => r.recId === recId);
   let removed = false;
   if (idx >= 0) {
@@ -137,18 +137,18 @@ export async function deleteResponseByRecId(
 // Helpers
 // ---------------------------------------------------------------------------
 
-export function getResponse(
+export async function getResponse(
   recId: string,
-): RecommendationResponse | undefined {
-  return recommendationResponses.find((r) => r.recId === recId);
+): Promise<RecommendationResponse | undefined> {
+  return (await getRecommendationResponses()).find((r) => r.recId === recId);
 }
 
 /**
  * Returns true if this recommendation should be hidden from the operator
  * right now (dismissed, or deferred and not yet due).
  */
-export function isRecSuppressed(recId: string): boolean {
-  const resp = getResponse(recId);
+export async function isRecSuppressed(recId: string): Promise<boolean> {
+  const resp = await getResponse(recId);
   if (!resp) return false;
   if (resp.status === "dismissed") return true;
   if (resp.status === "deferred" && resp.deferUntil) {
@@ -160,13 +160,10 @@ export function isRecSuppressed(recId: string): boolean {
 /**
  * Phase 4.3 (Sprint 4, 2026-04-24) — pure fresh-map variants.
  *
- * The module-level `recommendationResponses` array suffers cross-lambda
- * staleness (a write on lambda B is invisible on lambda A whose
- * `_dbSeeded=true` is already cached). Render paths that need durable truth
- * must fetch `getRepository().getRecommendationResponses()` fresh per request
- * and use these pure helpers to decorate / suppress recs. Non-render
- * callers (replication-engine) continue to use the module-reading variants
- * above until Sprint 5's MEDIUM sweep.
+ * Render paths that need durable truth fetch
+ * `getRepository().getRecommendationResponses()` fresh per request and
+ * use these pure helpers to decorate / suppress recs. Non-render callers
+ * use the module-reading variants above.
  */
 export function getResponseFromMap(
   recId: string,
@@ -198,12 +195,13 @@ export function isRecSuppressedFromMap(
  * on that URL back to this acceptance. Non-blocking: callers that don't
  * know the context can omit it.
  */
-export function recordResponse(
+export async function recordResponse(
   recId: string,
   status: RecommendationResponseStatus,
   context?: { targetPageUrl?: string | null; patternId?: string | null },
-): void {
+): Promise<void> {
   const now = new Date().toISOString();
+  const recommendationResponses = await getRecommendationResponses();
   const existing = recommendationResponses.findIndex(
     (r) => r.recId === recId,
   );

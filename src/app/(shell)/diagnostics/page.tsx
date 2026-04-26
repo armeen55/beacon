@@ -26,7 +26,7 @@ import { detectOutcomeEvents } from "@/domains/attribution/events";
 import { discoverCandidates } from "@/domains/attribution/candidates";
 import { triageCandidates } from "@/domains/attribution/triage";
 import { resolveEvents, computeEventIntelligence } from "@/domains/attribution/event-resolution";
-import { candidateLinks, eventDecisions } from "@/domains/attribution/store";
+import { getCandidateLinks, getEventDecisions } from "@/domains/attribution/store";
 import {
   buildAttributionDriverMap,
   summarizeDriverCoverage,
@@ -62,7 +62,7 @@ import { citationEvidenceIndex } from "@/domains/pages/citation-evidence-store";
 import { extractEntities, summarizeEntities } from "@/domains/entity/entity-extract";
 import { detectDiscrepancies } from "@/domains/entity/discrepancy-detect";
 import type { DiscrepancySeverity } from "@/domains/entity/discrepancy-types";
-import { pageIssues } from "@/domains/pages/issues";
+import { getPageIssues } from "@/domains/pages/issues";
 import { computeGeoCoverage, summarizeGeoCoverage } from "@/domains/geo/coverage";
 import { getActivePrompts, promptLibrary } from "@/domains/prompts/prompt-library";
 import { computeJourneyCoverage } from "@/domains/prompts/journey-coverage";
@@ -87,11 +87,11 @@ import { computeSnippetIntelligence } from "@/domains/competitors/snippet-intel"
 import type { SnippetSignal } from "@/domains/competitors/snippet-types";
 import { assessAdversarialReadiness } from "@/domains/prompts/adversarial";
 import { assessWhatIfReadiness } from "@/domains/product/whatif-engine";
-import { outcomeRecords } from "@/domains/product/outcome-store";
+import { getOutcomeRecords } from "@/domains/product/outcome-store";
 import { assessFounderAuthority } from "@/domains/entity/founder-authority";
 import { assessConversionPathReadiness } from "@/domains/product/conversion-path";
 import { assessTrainingDataReadiness } from "@/domains/product/training-data";
-import { answerSnapshots } from "@/domains/answer-snapshots/store";
+import { getAnswerSnapshots } from "@/domains/answer-snapshots/store";
 import { computePulse } from "@/domains/product/pulse";
 import { generateVisibilityReport, serializeReport } from "@/domains/product/report-generator";
 import { computeOutcomeSummary } from "@/domains/product/outcome-store";
@@ -192,16 +192,21 @@ type DiagnosticsContext = {
 };
 
 export default async function DiagnosticsPage() {
-  const [results, changelogEntries, opportunities, briefs, competitors] = await Promise.all([
+  const [results, changelogEntries, opportunities, briefs, competitors, eventDecisions, candidateLinks, pageIssues, outcomeRecords, answerSnapshots] = await Promise.all([
     getResults(),
     getChangelogEntries(),
     getOpportunities(),
     getBriefs(),
     getCompetitors(),
+    getEventDecisions(),
+    getCandidateLinks(),
+    getPageIssues(),
+    getOutcomeRecords(),
+    getAnswerSnapshots(),
   ]);
   const diag = computeDiagnostics(results, changelogEntries, opportunities, briefs, competitors);
-  const cdiag = computeCandidateDiagnostics(results, changelogEntries, opportunities);
-  const modelReport = computeModelReport(results, changelogEntries, opportunities, cdiag);
+  const cdiag = await computeCandidateDiagnostics(results, changelogEntries, opportunities);
+  const modelReport = await computeModelReport(results, changelogEntries, opportunities, cdiag);
 
   const driverMap = buildAttributionDriverMap(
     results,
@@ -1360,6 +1365,7 @@ function JourneyCoverageSection() {
 async function BeaconScoreSection({ ctx }: { ctx: DiagnosticsContext }) {
   const { siteDomain } = getSiteConfig();
   const citIndex = citationEvidenceIndex;
+  const pageIssues = await getPageIssues();
   const benchmark = citIndex ? computeMarketBenchmark(citIndex, pageIssues) : null;
 
   const geoCoverage = computeGeoCoverage(ctx.pages, citIndex?.by_page_and_topic ?? [], getActivePrompts());
@@ -1787,6 +1793,7 @@ async function PulseBanner({ ctx }: { ctx: DiagnosticsContext }) {
   const decayAlerts = decayResults.filter((d) => d.status === "meaningful_decline" || d.status === "soft_decline");
   const entityIdx = await extractEntities(ctx.pageSnapshots);
   const discReport = await detectDiscrepancies(entityIdx);
+  const answerSnapshots = await getAnswerSnapshots();
   const geoCov = computeGeoCoverage(ctx.pages, citationEvidenceIndex?.by_page_and_topic ?? [], getActivePrompts());
   const journeyCov = computeJourneyCoverage(promptLibrary);
 
@@ -1858,6 +1865,10 @@ async function PulseBanner({ ctx }: { ctx: DiagnosticsContext }) {
 }
 
 async function AdvancedReadinessSection({ ctx }: { ctx: DiagnosticsContext }) {
+  const [answerSnapshots, outcomeRecords] = await Promise.all([
+    getAnswerSnapshots(),
+    getOutcomeRecords(),
+  ]);
   const adversarial = assessAdversarialReadiness(promptLibrary, answerSnapshots.some((s) => s.prompt_text.toLowerCase().includes("complaint") || s.prompt_text.toLowerCase().includes("scam")));
   const whatIf = assessWhatIfReadiness(outcomeRecords);
   const founder = await assessFounderAuthority();

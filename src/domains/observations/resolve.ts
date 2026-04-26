@@ -10,7 +10,7 @@ export type ResolvedObservation =
 export async function resolveObservationById(id: string): Promise<ResolvedObservation | null> {
   const website = await getObservationRun(id);
   if (website) return { kind: "website", run: website };
-  const visibility = getVisibilityObservationRun(id);
+  const visibility = await getVisibilityObservationRun(id);
   if (visibility) return { kind: "visibility", run: visibility };
   return null;
 }

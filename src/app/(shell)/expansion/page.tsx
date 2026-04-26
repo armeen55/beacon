@@ -5,7 +5,7 @@ import {
   getOpportunities,
   hasActiveExperiment,
 } from "@/lib/seed-data.server";
-import { candidateLinks } from "@/domains/attribution/store";
+import { getCandidateLinks } from "@/domains/attribution/store";
 import { computeOpportunityCandidates } from "@/domains/opportunity-candidates/compute";
 import {
   newCandidates,
@@ -87,7 +87,7 @@ export default async function ExpansionPage() {
     results,
     changelogEntries,
     opportunities,
-    candidateLinks
+    await getCandidateLinks()
   );
   const summary = summarizeCandidates(allCandidates);
   const fresh = newCandidates(allCandidates);

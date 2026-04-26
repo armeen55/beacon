@@ -5,7 +5,7 @@ import {
   getOpportunities,
   hasActiveExperiment,
 } from "@/lib/seed-data.server";
-import { eventDecisions } from "@/domains/attribution/store";
+import { getEventDecisions } from "@/domains/attribution/store";
 import {
   computeScorecard,
   type ScorecardRow,
@@ -42,9 +42,9 @@ import { computePageOpportunityScore } from "@/domains/pages/opportunity-score";
 import type { RenderCheckResult } from "@/domains/pages/render-check";
 import { generateFixBrief, type FixBrief } from "@/domains/pages/fix-briefs";
 import { minePatterns, generateBriefs, type PlaybookBrief } from "@/domains/pages/playbook";
-import { planWaves, rolloutWaves, computeWaveProgress, deriveWaveStatus, type RolloutWave, type WaveProgress } from "@/domains/pages/wave-planner";
+import { planWaves, getRolloutWaves, computeWaveProgress, deriveWaveStatus, type RolloutWave, type WaveProgress } from "@/domains/pages/wave-planner";
 import { updateWaveStatus, handOffWave } from "./wave-actions";
-import { pageIssues, issueIdFromAlert, issueIdFromBrief, rolloutExecutions, patternEvidence, type PersistedIssue } from "@/domains/pages/issues";
+import { getPageIssues, issueIdFromAlert, issueIdFromBrief, getRolloutExecutions, getPatternEvidence, type PersistedIssue } from "@/domains/pages/issues";
 import { getOutcomeWatchForIssue, type OutcomeWatchSummary } from "@/domains/pages/outcome-watch";
 import { triggerPageScan } from "./scan-action";
 import { verifyPageFix } from "./verify-action";
@@ -90,10 +90,15 @@ type PageNextMove =
 export default async function PagesPage() {
   // Same signal as Today / shell demo mode (Phase 2A): no import runs ⇒ sample workspace, not operator Pages.
   const isDemoMode = !(await hasActiveExperiment());
-  const [results, changelogEntries, opportunities] = await Promise.all([
+  const [results, changelogEntries, opportunities, eventDecisions, pageIssues, rolloutExecutions, patternEvidence, rolloutWaves] = await Promise.all([
     getResults(),
     getChangelogEntries(),
     getOpportunities(),
+    getEventDecisions(),
+    getPageIssues(),
+    getRolloutExecutions(),
+    getPatternEvidence(),
+    getRolloutWaves(),
   ]);
   if (isDemoMode) {
     return (
@@ -716,7 +721,7 @@ export default async function PagesPage() {
             !persisted?.verificationObservationRunId,
         };
       }),
-      playbookBriefs: (playbookByUrl.get(normPageUrl) ?? []).map((pb) => {
+      playbookBriefs: await Promise.all((playbookByUrl.get(normPageUrl) ?? []).map(async (pb) => {
         const rolloutIssueId = issueIdFromBrief(pb.id, pb.pageUrl);
         const rolloutIssue = pageIssues.find((i) => i.issueId === rolloutIssueId);
         const rolloutExec = rolloutExecutions.find((r) => r.briefId === pb.id && r.targetPage === pb.pageUrl);
@@ -749,8 +754,8 @@ export default async function PagesPage() {
           rolloutVerifiedAt: rolloutIssue?.verifiedAt ?? null,
           rolloutVerifyResult: rolloutIssue?.verifyResult ?? null,
           outcomeWatch: rolloutIssue?.issueId
-            ? (() => {
-                const ow = getOutcomeWatchForIssue(rolloutIssue.issueId);
+            ? await (async () => {
+                const ow = await getOutcomeWatchForIssue(rolloutIssue.issueId);
                 return ow ? {
                   daysSinceVerified: ow.daysSinceVerified,
                   citationDelta: ow.citationDelta,
@@ -761,7 +766,7 @@ export default async function PagesPage() {
               })()
             : null,
         };
-      }),
+      })),
       pendingFindingCount: findingCountByUrl.get(normPageUrl) ?? 0,
       waveId: pageToWaveId.get(normPageUrl) ?? null,
       waveName: (() => {

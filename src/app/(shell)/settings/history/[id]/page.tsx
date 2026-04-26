@@ -16,7 +16,7 @@ import { discoverCandidates, warmPageRegistry } from "@/domains/attribution/cand
 import { triageCandidates } from "@/domains/attribution/triage";
 import { partitionResultsByMode } from "@/domains/attribution/result-mode";
 import { detectOutcomeEvents } from "@/domains/attribution/events";
-import { truthLabels, eventDecisions } from "@/domains/attribution/store";
+import { getTruthLabels, getEventDecisions } from "@/domains/attribution/store";
 import {
   PLATFORM_LABELS,
   METRIC_TYPE_LABELS,
@@ -55,10 +55,12 @@ export default async function ResultDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const [results, changelogEntries, opportunities] = await Promise.all([
+  const [results, changelogEntries, opportunities, eventDecisions, truthLabels] = await Promise.all([
     getResults(),
     getChangelogEntries(),
     getOpportunities(),
+    getEventDecisions(),
+    getTruthLabels(),
   ]);
   const result = results.find((r) => r.id === id);
   if (!result) notFound();

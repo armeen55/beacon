@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { log } from "@/lib/logger";
 import { now } from "@/lib/actions";
-import { actionStates, persistActionStates } from "./store";
+import { getActionStates, persistActionStates } from "./store";
 import type { OperatorState } from "./types";
 
 export async function updateActionState(
@@ -15,6 +15,7 @@ export async function updateActionState(
   const action = "updateActionState";
   const t0 = Date.now();
   log.info("Action started", { action, params: { actionId, state } });
+  const actionStates = await getActionStates();
   const existing = actionStates.find((s) => s.actionId === actionId);
 
   if (existing) {

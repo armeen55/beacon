@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { log } from "@/lib/logger";
 import { getBriefs } from "@/lib/seed-data.server";
 import { generateId, now } from "@/lib/actions";
-import { briefStates, persistBriefStates } from "./store";
+import { getBriefStates, persistBriefStates } from "./store";
 import type { ProposedBrief, ProposedBriefStatus } from "./types";
 import type { Brief } from "@/domains/briefs/types";
 import type { BriefType } from "@/lib/constants";
@@ -30,6 +30,7 @@ export async function acceptProposedBrief(
     action,
     params: { proposedId: proposed.id, briefType: proposed.briefType },
   });
+  const briefStates = await getBriefStates();
   const existing = briefStates.find((s) => s.briefId === proposed.id);
   if (existing?.status === "accepted") {
     log.error("Action failed", {
@@ -106,7 +107,7 @@ export async function acceptProposedBrief(
 
   (await getBriefs()).push(brief);
 
-  updateBriefState(proposed.id, "accepted", briefId);
+  await updateBriefState(proposed.id, "accepted", briefId);
   await persistBriefStates();
 
   revalidatePath("/", "layout");
@@ -120,7 +121,7 @@ export async function rejectProposedBrief(
   const action = "rejectProposedBrief";
   const t0 = Date.now();
   log.info("Action started", { action, params: { briefId } });
-  updateBriefState(briefId, "rejected", null);
+  await updateBriefState(briefId, "rejected", null);
   await persistBriefStates();
   revalidatePath("/", "layout");
   log.info("Action completed", { action, durationMs: Date.now() - t0 });
@@ -133,18 +134,19 @@ export async function archiveProposedBrief(
   const action = "archiveProposedBrief";
   const t0 = Date.now();
   log.info("Action started", { action, params: { briefId } });
-  updateBriefState(briefId, "archived", null);
+  await updateBriefState(briefId, "archived", null);
   await persistBriefStates();
   revalidatePath("/", "layout");
   log.info("Action completed", { action, durationMs: Date.now() - t0 });
   return { success: true };
 }
 
-function updateBriefState(
+async function updateBriefState(
   briefId: string,
   status: ProposedBriefStatus,
   acceptedBriefId: string | null
 ) {
+  const briefStates = await getBriefStates();
   const existing = briefStates.findIndex((s) => s.briefId === briefId);
   const entry = {
     briefId,

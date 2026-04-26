@@ -6,6 +6,8 @@
  * whether changes actually shipped and helped.
  */
 
+import { cache } from "react";
+
 import { writeStore } from "@/lib/persistence/json-store";
 import { syncChangeContracts } from "@/lib/persistence/dual-write";
 import { getRepository } from "@/lib/persistence/repositories";
@@ -296,13 +298,28 @@ export function validateContract(contract: Partial<ChangeContract>): ValidationR
 
 // ── Persistence ──
 
-const repo = getRepository();
+let _changeContracts: ChangeContract[] | null = null;
 
-export const changeContracts: ChangeContract[] = await repo.getChangeContracts();
+const ensureChangeContractsLoaded = cache(async (): Promise<void> => {
+  if (_changeContracts !== null) return;
+  _changeContracts = await getRepository().getChangeContracts();
+});
+
+export const getChangeContracts = cache(
+  async (): Promise<ChangeContract[]> => {
+    await ensureChangeContractsLoaded();
+    return _changeContracts!;
+  },
+);
 
 export async function persistChangeContracts(): Promise<void> {
+  const changeContracts = await getChangeContracts();
   await writeStore("change-contracts", changeContracts);
   await syncChangeContracts(changeContracts);
+}
+
+export function _resetChangeContractsForTests(): void {
+  _changeContracts = null;
 }
 
 // ── Auto-parsing helpers ──

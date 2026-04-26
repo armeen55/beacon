@@ -5,8 +5,7 @@ import type { CandidateLink } from "@/domains/attribution/types";
 import { computeActionClusters } from "@/domains/action-clusters/compute";
 import { extractPatterns } from "@/domains/patterns/builders";
 import { buildActionQueue } from "./builders";
-import { actionStates } from "./store";
-import type { ActionItem } from "./types";
+import type { ActionItem, PersistedActionState } from "./types";
 import type { ActionCluster } from "@/domains/action-clusters/types";
 import type { ResolvedEvent } from "@/domains/attribution/event-resolution";
 import type { OutcomeEvent } from "@/domains/attribution/events";
@@ -20,7 +19,8 @@ export function computeFullActionQueue(
   results: Result[],
   changes: ChangelogEntry[],
   opportunities: Opportunity[],
-  candidateLinks: CandidateLink[]
+  candidateLinks: CandidateLink[],
+  actionStates: PersistedActionState[]
 ): {
   actions: ActionItem[];
   clusters: ActionCluster[];

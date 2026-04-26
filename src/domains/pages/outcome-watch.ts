@@ -6,6 +6,8 @@
  * and result movement using page path + topic overlap + timing windows.
  */
 
+import { cache } from "react";
+
 import { writeStore } from "@/lib/persistence/json-store";
 import { getRepository } from "@/lib/persistence/repositories";
 import type { PatternEvidenceRecord, RolloutExecution } from "./issues";
@@ -46,13 +48,26 @@ export type OutcomeObservation = {
   notes: string | null;
 };
 
-const repo = getRepository();
+let _state: OutcomeObservation[] | null = null;
 
-export const outcomeObservations: OutcomeObservation[] =
-  await repo.getOutcomeObservations();
+const ensureLoaded = cache(async (): Promise<void> => {
+  if (_state !== null) return;
+  _state = await getRepository().getOutcomeObservations();
+});
+
+export const getOutcomeObservations = cache(
+  async (): Promise<OutcomeObservation[]> => {
+    await ensureLoaded();
+    return _state!;
+  },
+);
 
 export async function persistOutcomeObservations(): Promise<void> {
-  await writeStore("outcome-observations", outcomeObservations);
+  await writeStore("outcome-observations", await getOutcomeObservations());
+}
+
+export function _resetOutcomeObservationsForTests(): void {
+  _state = null;
 }
 
 // ── Observation Generation ──
@@ -175,7 +190,8 @@ export type OutcomeWatchSummary = {
   observedAt: string | null;
 };
 
-export function getOutcomeWatchForIssue(issueId: string): OutcomeWatchSummary | null {
+export async function getOutcomeWatchForIssue(issueId: string): Promise<OutcomeWatchSummary | null> {
+  const outcomeObservations = await getOutcomeObservations();
   const obs = outcomeObservations
     .filter((o) => o.issueId === issueId)
     .sort((a, b) => b.observedAt.localeCompare(a.observedAt));

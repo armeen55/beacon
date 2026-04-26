@@ -5,6 +5,8 @@
  * waves, missing-page plans, and verification expectations.
  */
 
+import { cache } from "react";
+
 import { writeStore } from "@/lib/persistence/json-store";
 import { getRepository } from "@/lib/persistence/repositories";
 import type { FrontierOpportunity, RecommendedMoveType } from "./frontier-planner";
@@ -52,13 +54,36 @@ export type FrontierAttackPackage = {
   notes: string | null;
 };
 
-const repo = getRepository();
+type CompilerState = {
+  attackPackages: FrontierAttackPackage[] | null;
+  trackedMissingPages: TrackedMissingPage[] | null;
+};
 
-export const attackPackages: FrontierAttackPackage[] =
-  await repo.getFrontierAttackPackages();
+const _state: CompilerState = {
+  attackPackages: null,
+  trackedMissingPages: null,
+};
+
+const ensureLoaded = cache(async (): Promise<void> => {
+  if (_state.attackPackages !== null) return;
+  const repo = getRepository();
+  const [ap, tmp] = await Promise.all([
+    repo.getFrontierAttackPackages(),
+    repo.getTrackedMissingPages(),
+  ]);
+  _state.attackPackages = ap;
+  _state.trackedMissingPages = tmp;
+});
+
+export const getAttackPackages = cache(
+  async (): Promise<FrontierAttackPackage[]> => {
+    await ensureLoaded();
+    return _state.attackPackages!;
+  },
+);
 
 export async function persistAttackPackages(): Promise<void> {
-  await writeStore("frontier-attack-packages", attackPackages);
+  await writeStore("frontier-attack-packages", await getAttackPackages());
 }
 
 // ── Compiler ──
@@ -362,11 +387,20 @@ export type TrackedMissingPage = {
   notes: string | null;
 };
 
-export const trackedMissingPages: TrackedMissingPage[] =
-  await repo.getTrackedMissingPages();
+export const getTrackedMissingPages = cache(
+  async (): Promise<TrackedMissingPage[]> => {
+    await ensureLoaded();
+    return _state.trackedMissingPages!;
+  },
+);
 
 export async function persistTrackedMissingPages(): Promise<void> {
-  await writeStore("tracked-missing-pages", trackedMissingPages);
+  await writeStore("tracked-missing-pages", await getTrackedMissingPages());
+}
+
+export function _resetFrontierCompilerForTests(): void {
+  _state.attackPackages = null;
+  _state.trackedMissingPages = null;
 }
 
 // ── Package Progress ──
