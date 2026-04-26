@@ -108,6 +108,102 @@ export async function dualWriteUpsert(
   }
 }
 
+// ── Tenant scoping (Phase 7.7a, 2026-04-25) ──────────────────────────
+//
+// Sprint 7's read paths are tenant-scoped end-to-end (Phase 7.5). Write
+// paths still upsert mixed-tenant rows without validation: row mappers
+// stamp `tenant_id`, but the dual-write layer doesn't verify it matches
+// the caller's tenant. Phase 7.7a adds the validation infrastructure
+// ONLY — assertion + scoped-upsert wrapper + the explicit list of
+// cross-tenant tables. No caller uses these yet; that lands in 7.7b.
+
+/**
+ * Tables whose Supabase rows do NOT carry a `tenant_id` column.
+ * Writes to these MUST go through `dualWriteUpsert`. Writes to any
+ * other table MUST go through `dualWriteUpsertScoped`.
+ *
+ * Categories:
+ *   - registry:       `tenants`
+ *   - singletons:     `business_config`, `citation_evidence_index`,
+ *                     `answer_intelligence_index`
+ *   - operator-shared config: `tracked_prompts`, `tracked_entities`,
+ *                     `answer_texts`
+ *   - global learning: `change_patterns`, `triage_rules`,
+ *                     `confidence_calibration`
+ *
+ * Phase 7.8 consolidates this with `EXCLUDED_STORES` in
+ * `scripts/backfill-tenant-id.ts` (which lists the analogous `.data`
+ * file stores).
+ */
+export const GLOBAL_TABLES: ReadonlySet<string> = new Set([
+  "tenants",
+  "business_config",
+  "citation_evidence_index",
+  "answer_intelligence_index",
+  "tracked_prompts",
+  "tracked_entities",
+  "answer_texts",
+  "change_patterns",
+  "triage_rules",
+  "confidence_calibration",
+]);
+
+/**
+ * Throws if any row's `tenant_id` doesn't match `tenantId`. Pure / no
+ * I/O. Use as the first step of every tenant-scoped writer; failing
+ * fast on mismatch is the leak-prevention contract.
+ *
+ * Treats missing/null `tenant_id` as a mismatch — defense against
+ * row mappers that forgot to stamp the field. An empty `tenantId`
+ * argument is also rejected so callers can't "validate" with the wrong
+ * fail-open value.
+ */
+export function assertRowsScopedToTenant(
+  rows: ReadonlyArray<{ tenant_id?: string | null }>,
+  tenantId: string,
+  context: string,
+): void {
+  if (!tenantId) {
+    throw new Error(
+      `[dual-write/${context}] assertRowsScopedToTenant: tenantId must be a non-empty string`,
+    );
+  }
+  for (const row of rows) {
+    const rowTenant = row.tenant_id ?? "";
+    if (rowTenant !== tenantId) {
+      throw new Error(
+        `[dual-write/${context}] tenant mismatch: row.tenant_id=${JSON.stringify(rowTenant)} expected=${tenantId}`,
+      );
+    }
+  }
+}
+
+/**
+ * Tenant-scoped variant of `dualWriteUpsert`. Refuses to write to a
+ * table in `GLOBAL_TABLES`; refuses to write rows whose `tenant_id`
+ * doesn't match `tenantId`. Validation happens before any I/O so
+ * cross-tenant leaks fail loud at the call site.
+ *
+ * Phase 7.7a: helper exists; no caller uses it yet. Phase 7.7b threads
+ * `tenantId` through every Tier A `sync*` helper and converts them to
+ * call this helper instead of `dualWriteUpsert` directly.
+ */
+export async function dualWriteUpsertScoped(
+  table: string,
+  rows: ReadonlyArray<{ tenant_id?: string | null } & Record<string, unknown>>,
+  primaryKey: string,
+  tenantId: string,
+): Promise<void> {
+  if (rows.length === 0) return;
+  if (GLOBAL_TABLES.has(table)) {
+    throw new Error(
+      `[dual-write/${table}] is a global table — use dualWriteUpsert, not dualWriteUpsertScoped`,
+    );
+  }
+  assertRowsScopedToTenant(rows, tenantId, table);
+  await dualWriteUpsert(table, rows as Record<string, unknown>[], primaryKey);
+}
+
 export async function dualWriteTruncate(table: string): Promise<void> {
   if (!isDualWriteEnabled()) return;
 
