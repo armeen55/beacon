@@ -158,10 +158,6 @@ describe("Phase 7.8b-2-e — json-store routing contract", () => {
     );
   });
 
-  it("json-store.ts emits the [json-store] flat-fallback read warn log", () => {
-    expect(src).toContain("[json-store] flat-fallback read");
-  });
-
   it("json-store.ts keys cache + writeLocks by resolved cacheKey", () => {
     // Every cache.get / cache.set / cache.has / writeLocks.get / writeLocks.set
     // must use `resolved.cacheKey` as the key, not a bare store name.
@@ -188,5 +184,46 @@ describe("Phase 7.8b-2-e — json-store routing contract", () => {
     expect(src).toMatch(/import[-_]runs/);
     expect(src).toMatch(/anti[-\s]?race/i);
     expect(src).toMatch(/existsSync\(/);
+  });
+});
+
+// ── Phase 7.8d-1: flat fallback removed; unknown throws ──────────────
+
+const DOTDATA_JSON_PATH = resolve(SRC_ROOT, "lib/persistence/dotdata-json.ts");
+
+describe("Phase 7.8d-1 — flat fallback removed; unknown throws", () => {
+  const jsonStoreSrc = readFileSync(JSON_STORE_PATH, "utf8");
+  const dotdataJsonSrc = readFileSync(DOTDATA_JSON_PATH, "utf8");
+
+  it("json-store.ts does NOT log a flat-fallback warning", () => {
+    expect(jsonStoreSrc).not.toContain("[json-store] flat-fallback read");
+  });
+
+  it("dotdata-json.ts does NOT log a flat-fallback warning", () => {
+    expect(dotdataJsonSrc).not.toContain("[dotdata-json] flat-fallback read");
+  });
+
+  it("json-store.ts throws fail-loud on unknown scope", () => {
+    // Source must contain a throw whose message names the classification module.
+    expect(jsonStoreSrc).toMatch(
+      /scope === "unknown"[\s\S]{0,400}throw new Error[\s\S]{0,400}store-classification/,
+    );
+  });
+
+  it("dotdata-json.ts throws fail-loud on unknown scope", () => {
+    expect(dotdataJsonSrc).toMatch(
+      /scope === "unknown"[\s\S]{0,400}throw new Error[\s\S]{0,400}store-classification/,
+    );
+  });
+
+  it("json-store.ts has no read-side flat-fallback branch", () => {
+    // Heuristic: a flat-fallback branch checks `existsSync(resolved.flatPath)`
+    // outside the import-runs anti-race guard. After 7.8d-1, json-store.ts
+    // should never reference `resolved.flatPath` at all.
+    expect(jsonStoreSrc).not.toMatch(/resolved\.flatPath/);
+  });
+
+  it("dotdata-json.ts has no read-side flat-fallback branch", () => {
+    expect(dotdataJsonSrc).not.toMatch(/resolved\.flatPath/);
   });
 });

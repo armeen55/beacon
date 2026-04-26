@@ -107,7 +107,7 @@ describe("Phase 7.8b-2-b — readStore per-tenant routing", () => {
     // ritz-builders' subdir doesn't have the file.
 
     const result = await readStore<{ id: string }>("imported-changes");
-    // No flat fallback either — empty array.
+    // No fallback to flat — known store with no routed file returns empty.
     expect(result).toEqual([]);
   });
 
@@ -133,106 +133,92 @@ describe("Phase 7.8b-2-b — readStore per-tenant routing", () => {
   });
 });
 
-// ── Flat fallback ───────────────────────────────────────────────────
+// ── Phase 7.8d-1: no flat fallback, fail-loud on unknown ────────────
 
-describe("Phase 7.8b-2-b — flat-fallback read", () => {
-  it("falls back to .data/{name}.json when the per-tenant file is missing", async () => {
-    // `pages` is in TENANT_SCOPED_STORES.
+describe("Phase 7.8d-1 — flat fallback removed", () => {
+  it("does NOT fall back to flat for a per-tenant store when the routed file is missing", async () => {
+    // `pages` is in TENANT_SCOPED_STORES. A flat file exists, but with
+    // 7.8d-1 the routed read no longer consults it — returns empty.
     const flatPath = join(tmpRoot, ".data", "pages.json");
     writeFileSync(flatPath, JSON.stringify([{ id: "flat-row" }]));
 
     const result = await readStore<{ id: string }>("pages");
-    expect(result).toEqual([{ id: "flat-row" }]);
+    expect(result).toEqual([]);
   });
 
-  it("falls back to flat for a global store too", async () => {
+  it("does NOT fall back to flat for a global store when the routed file is missing", async () => {
     const flatPath = join(tmpRoot, ".data", "change-patterns.json");
     writeFileSync(flatPath, JSON.stringify([{ id: "flat-pattern" }]));
 
     const result = await readStore<{ id: string }>("change-patterns");
-    expect(result).toEqual([{ id: "flat-pattern" }]);
+    expect(result).toEqual([]);
   });
 
-  it("routed file wins over flat fallback when both exist", async () => {
-    const tenantPath = join(
-      tmpRoot,
-      ".data",
-      "tenants",
-      "ritz-builders",
-      "scan-findings.json",
-    );
-    const flatPath = join(tmpRoot, ".data", "scan-findings.json");
-    writeFileSync(tenantPath, JSON.stringify([{ id: "tenant-wins" }]));
-    writeFileSync(flatPath, JSON.stringify([{ id: "flat-loses" }]));
-
-    const result = await readStore<{ id: string }>("scan-findings");
-    expect(result).toEqual([{ id: "tenant-wins" }]);
-  });
-
-  it("returns empty array (or fallback) when both routed and flat are missing", async () => {
+  it("returns the caller's fallback when routed file is missing for a known store", async () => {
     const result = await readStore<{ id: string }>(
       "candidate-links",
-      [{ id: "fallback" }],
+      [{ id: "caller-default" }],
     );
-    expect(result).toEqual([{ id: "fallback" }]);
+    expect(result).toEqual([{ id: "caller-default" }]);
   });
 
-  it("flat-fallback caches under the resolved key — tenant A reading flat doesn't pollute tenant B", async () => {
-    // Use a unique store name so this test's cache state doesn't
-    // collide with sibling tests in the same file.
-    const flatPath = join(tmpRoot, ".data", "tracked-prompts.json");
-    writeFileSync(flatPath, JSON.stringify([{ id: "shared-flat-row" }]));
+  it("does NOT log a flat-fallback warning anywhere in the read path", async () => {
+    // Spy on console.warn — log.warn writes through it. With the
+    // fallback removed, no warn should fire on a missing routed file.
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const flatPath = join(tmpRoot, ".data", "page-snapshots.json");
+    writeFileSync(flatPath, JSON.stringify([{ id: "flat-row" }]));
 
-    // Tenant A reads — gets flat-fallback. (tracked-prompts is global per
-    // GLOBAL_STORES, but routed file isn't there yet.)
-    (currentTenantSlug as ReturnType<typeof vi.fn>).mockResolvedValue(
-      "ritz-builders",
+    await readStore<{ id: string }>("page-snapshots");
+
+    const fallbackWarns = warnSpy.mock.calls.filter((args) =>
+      args.some(
+        (a) => typeof a === "string" && a.includes("flat-fallback"),
+      ),
     );
-    const a = await readStore<{ id: string }>("tracked-prompts");
-    expect(a).toEqual([{ id: "shared-flat-row" }]);
+    expect(fallbackWarns).toEqual([]);
+    warnSpy.mockRestore();
+  });
+});
 
-    // tracked-prompts is global, so tenant context shouldn't matter at
-    // all — both tenants see the same cached value under
-    // `tracked-prompts::global`.
-    (currentTenantSlug as ReturnType<typeof vi.fn>).mockResolvedValue("acme");
-    const b = await readStore<{ id: string }>("tracked-prompts");
-    expect(b).toEqual(a);
+describe("Phase 7.8d-1 — unknown stores throw fail-loud", () => {
+  it("throws when reading an unclassified store name", async () => {
+    await expect(
+      readStore<{ id: string }>("brand-new-unclassified-store"),
+    ).rejects.toThrow(
+      /unknown store 'brand-new-unclassified-store'.*store-classification\.ts/,
+    );
   });
 
-  it("per-tenant flat fallback is cache-keyed per tenant — A's flat row not served to B", async () => {
-    // Both tenants would resolve `event-decisions` to a per-tenant
-    // path; both would fall back to the same flat file (because no
-    // tenant subdir has the file yet). The cache key is per-tenant,
-    // so even though the same flat file is read, each tenant's cache
-    // entry is independent.
-    //
-    // (Uses `event-decisions` instead of `imported-changes` because
-    // module-level cache state persists across tests in this file —
-    // an earlier test reads `imported-changes` for ritz-builders and
-    // populates an empty-array cache entry under that resolved key.)
-    const flatPath = join(tmpRoot, ".data", "event-decisions.json");
-    writeFileSync(flatPath, JSON.stringify([{ id: "shared-flat" }]));
-
-    // Tenant A reads, populates cache key `event-decisions::tenant:ritz-builders`.
-    (currentTenantSlug as ReturnType<typeof vi.fn>).mockResolvedValue(
-      "ritz-builders",
+  it("throw message names the three Sets the operator must update", async () => {
+    await expect(
+      readStore<{ id: string }>("another-mystery-store"),
+    ).rejects.toThrow(
+      /TENANT_SCOPED_STORES[\s\S]*SINGLETON_STORES[\s\S]*GLOBAL_STORES/,
     );
-    const a = await readStore<{ id: string }>("event-decisions");
-    expect(a).toEqual([{ id: "shared-flat" }]);
+  });
 
-    // Now tenant B's per-tenant subdir has its own data. The cache for
-    // tenant A is `event-decisions::tenant:ritz-builders`; tenant B's
-    // cache key is `event-decisions::tenant:acme` and is empty/cold.
-    mkdirSync(join(tmpRoot, ".data", "tenants", "acme"), { recursive: true });
+  it("known stores still read routed paths without throwing", async () => {
+    // Use store names not exercised by sibling tests in this file so the
+    // module-level cache stays cold for these reads.
+    mkdirSync(join(tmpRoot, ".data", "tenants", "ritz-builders"), {
+      recursive: true,
+    });
     writeFileSync(
-      join(tmpRoot, ".data", "tenants", "acme", "event-decisions.json"),
-      JSON.stringify([{ id: "acme-only" }]),
+      join(tmpRoot, ".data", "tenants", "ritz-builders", "page-issues.json"),
+      JSON.stringify([{ id: "tenant-issue" }]),
+    );
+    writeFileSync(
+      join(tmpRoot, ".data", "global", "confidence-calibration.json"),
+      JSON.stringify([{ id: "global-calibration" }]),
     );
 
-    (currentTenantSlug as ReturnType<typeof vi.fn>).mockResolvedValue("acme");
-    const b = await readStore<{ id: string }>("event-decisions");
-    // Tenant B sees its OWN data — not tenant A's cached flat row.
-    expect(b).toEqual([{ id: "acme-only" }]);
+    await expect(readStore<{ id: string }>("page-issues")).resolves.toEqual([
+      { id: "tenant-issue" },
+    ]);
+    await expect(
+      readStore<{ id: string }>("confidence-calibration"),
+    ).resolves.toEqual([{ id: "global-calibration" }]);
   });
 });
 
@@ -280,7 +266,7 @@ describe("Phase 7.8b-2-b — writeStore", () => {
     expect(existsSync(tenantPath)).toBe(false);
   });
 
-  it("writes do NOT fall back to flat — preexisting flat file untouched", async () => {
+  it("writes never touch flat — preexisting flat file untouched", async () => {
     const flatPath = join(tmpRoot, ".data", "scan-runs.json");
     writeFileSync(flatPath, JSON.stringify([{ id: "preexisting-flat" }]));
 
@@ -398,22 +384,17 @@ describe("Phase 7.8b-2-b — import-runs anti-race guard", () => {
   });
 });
 
-// ── Unknown stores ──────────────────────────────────────────────────
+// ── Phase 7.8d-1: writeStore throws on unknown ──────────────────────
 
-describe("Phase 7.8b-2-b — unknown stores keep using flat path", () => {
-  it("readStore reads .data/{name}.json directly for unknown stores", async () => {
-    const flatPath = join(tmpRoot, ".data", "brand-new-store.json");
-    writeFileSync(flatPath, JSON.stringify([{ x: 1 }]));
-
-    const result = await readStore<{ x: number }>("brand-new-store");
-    expect(result).toEqual([{ x: 1 }]);
-  });
-
-  it("writeStore writes .data/{name}.json for unknown stores", async () => {
-    await writeStore("brand-new-store", [{ x: 42 }]);
-
-    const flatPath = join(tmpRoot, ".data", "brand-new-store.json");
-    expect(existsSync(flatPath)).toBe(true);
-    expect(JSON.parse(readFileSync(flatPath, "utf8"))).toEqual([{ x: 42 }]);
+describe("Phase 7.8d-1 — writeStore throws on unknown", () => {
+  it("throws when writing an unclassified store name", async () => {
+    await expect(
+      writeStore("brand-new-unclassified-store", [{ x: 42 }]),
+    ).rejects.toThrow(
+      /unknown store 'brand-new-unclassified-store'.*store-classification\.ts/,
+    );
+    // Confirm no file landed at the (now-stale) flat path.
+    const flatPath = join(tmpRoot, ".data", "brand-new-unclassified-store.json");
+    expect(existsSync(flatPath)).toBe(false);
   });
 });

@@ -22,6 +22,15 @@ vi.mock("next/cache", () => ({
   revalidatePath: vi.fn(),
 }));
 
+// Phase 7.8d-1 (2026-04-26): readDotDataJson resolves the tenant slug
+// for per-tenant stores; without this mock the resolver would call
+// getTenant() and throw because `.data/tenants.json` isn't seeded in
+// the unit-test environment.
+vi.mock("@/lib/tenant-context", () => ({
+  currentTenantId: vi.fn(async () => "tenant-ritz-founder"),
+  currentTenantSlug: vi.fn(async () => "ritz-builders"),
+}));
+
 vi.mock("@/lib/persistence/dual-write", () => ({
   syncChangelogEntries: vi.fn().mockResolvedValue(undefined),
   syncScanFindings: vi.fn().mockResolvedValue(undefined),

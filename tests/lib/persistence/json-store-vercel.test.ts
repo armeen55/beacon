@@ -48,9 +48,14 @@ describe("json-store on VERCEL=1 — safe against missing .data", () => {
     isolatedCwd = null;
   });
 
+  // Phase 7.8d-1 (2026-04-26): use real classified store names — fail-loud
+  // on unknowns means generic names like `hosted-safe-cache-test` now throw.
+  // Global stores skip tenant resolution, which lets these tests run without
+  // seeding `.data/tenants.json` (the Vercel contract here is "no .data dir
+  // exists").
   it("readStore on VERCEL=1 with no .data dir returns [] and does NOT create .data", async () => {
     const { readStore } = await import("@/lib/persistence/json-store");
-    const result = await readStore<{ id: string }>("hosted-safe-cache-test");
+    const result = await readStore<{ id: string }>("change-patterns");
     expect(result).toEqual([]);
     expect(fs.existsSync(path.join(isolatedCwd!, ".data"))).toBe(false);
   });
@@ -58,7 +63,7 @@ describe("json-store on VERCEL=1 — safe against missing .data", () => {
   it("writeStore on VERCEL=1 does NOT create .data and does NOT throw", async () => {
     const { writeStore } = await import("@/lib/persistence/json-store");
     await expect(
-      writeStore("hosted-safe-cache-test", [{ id: "x" }]),
+      writeStore("change-patterns", [{ id: "x" }]),
     ).resolves.toBeUndefined();
     expect(fs.existsSync(path.join(isolatedCwd!, ".data"))).toBe(false);
   });
@@ -67,10 +72,10 @@ describe("json-store on VERCEL=1 — safe against missing .data", () => {
     const { readStore, writeStore } = await import(
       "@/lib/persistence/json-store"
     );
-    const before = await readStore<{ id: string }>("round-trip-test");
+    const before = await readStore<{ id: string }>("triage-rules");
     expect(before).toEqual([]);
-    await writeStore("round-trip-test", [{ id: "a" }, { id: "b" }]);
-    const after = await readStore<{ id: string }>("round-trip-test");
+    await writeStore("triage-rules", [{ id: "a" }, { id: "b" }]);
+    const after = await readStore<{ id: string }>("triage-rules");
     expect(after).toEqual([{ id: "a" }, { id: "b" }]);
     expect(fs.existsSync(path.join(isolatedCwd!, ".data"))).toBe(false);
   });
@@ -87,12 +92,14 @@ describe("adjudicator stores on VERCEL=1 with no .data — safe defaults", () =>
     process.chdir(isolatedCwd);
     // Phase 7.8b-2-d (2026-04-26): canonical-store / adjudicator-cache module
     // init now reads through the tenant-aware json-store router, which requires
-    // `.data/tenants.json` to exist for tenant resolution. Seed a minimal
-    // registry; the original "no .data created" contract continues to hold for
-    // the per-tenant subdirs checked in the assertions below.
-    fs.mkdirSync(path.join(isolatedCwd, ".data"), { recursive: true });
+    // `tenants` to be readable for tenant resolution. Phase 7.8d-1 (2026-04-26):
+    // `tenants` is classified as global, so seed the registry at
+    // `.data/global/tenants.json` (the routed path); the original "no
+    // per-tenant subdir created" contract continues to hold for the assertions
+    // below.
+    fs.mkdirSync(path.join(isolatedCwd, ".data", "global"), { recursive: true });
     fs.writeFileSync(
-      path.join(isolatedCwd, ".data", "tenants.json"),
+      path.join(isolatedCwd, ".data", "global", "tenants.json"),
       JSON.stringify(
         [
           {

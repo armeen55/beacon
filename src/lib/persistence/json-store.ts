@@ -13,24 +13,25 @@
  * - Serialized writes per resolved cache key (NOT bare store name) so two
  *   tenants writing to differently-routed files don't serialize on each other
  *
- * Sprint 7 Phase 7.8b-2-b (2026-04-25) — async + tenant-aware + flat
- * fallback. Routes per-tenant / singleton stores to
- * `.data/tenants/{slug}/{name}.json` and global stores to
- * `.data/global/{name}.json`. If the routed file is missing AND a flat
- * `.data/{name}.json` exists, reads return the flat copy with a `warn`
- * log so the operator sees when fallback fires (transitional state
- * between 7.8b runtime conversion and 7.8c migration `--commit`).
+ * Sprint 7 Phase 7.8b-2-b (2026-04-25) — async + tenant-aware. Routes
+ * per-tenant / singleton stores to `.data/tenants/{slug}/{name}.json`
+ * and global stores to `.data/global/{name}.json`.
+ *
+ * Sprint 7 Phase 7.8d-1 (2026-04-26) — flat fallback removed. Reads
+ * for known stores resolve to their routed path or fall back to the
+ * empty/default array; reads for **unknown** stores throw fail-loud
+ * with a message naming the classification module. The migration
+ * (7.8c) moved every flat file into the routed layout, and 7.8d-2
+ * relocates the flat originals to `.data/_legacy/`. Any new `.data`
+ * store added without a classification entry is a dev error and must
+ * surface immediately, not get hidden behind a silent flat path.
  *
  * Writes never fall back to flat — they always go to the routed path.
  *
  * Cache key contract (from resolveDataPath):
  *   - per-tenant + singleton: `${name}::tenant:${slug}`
  *   - global                : `${name}::global`
- *   - unknown               : `${name}::flat`
- *
- * Flat-fallback reads cache under the **resolved** key (per-tenant or
- * global), NEVER under a `${name}::flat` key. That's the invariant
- * that prevents tenant A's flat read from being served to tenant B.
+ *   - unknown               : never reached at runtime (throws above)
  */
 
 import "server-only";
@@ -42,8 +43,6 @@ import {
   writeFileSync,
   renameSync,
 } from "node:fs";
-
-import { log } from "@/lib/logger";
 
 import { resolveDataPath } from "./resolve-data-path";
 
@@ -79,14 +78,18 @@ const writeLocks = new Map<string, Promise<void>>();
  * Read a named store. Returns the cached array on subsequent calls
  * (cache key includes tenant scope, so different tenants don't share).
  *
- * If no routed file exists, falls back to the flat
- * `.data/{name}.json` (read-only, logged with `[json-store]
- * flat-fallback read`). The fallback's data is cached under the
- * **resolved** key, NOT under a `flat` key — preserves cross-tenant
- * isolation.
+ * Phase 7.8d-1: unknown-scope reads throw fail-loud. Known stores
+ * with no routed file yet return the caller's `fallback` (or `[]`).
  */
 export async function readStore<T>(name: string, fallback?: T[]): Promise<T[]> {
   const resolved = await resolveDataPath(name);
+
+  if (resolved.scope === "unknown") {
+    throw new Error(
+      `[json-store] unknown store '${name}'. Add it to TENANT_SCOPED_STORES, ` +
+        `SINGLETON_STORES, or GLOBAL_STORES in src/lib/persistence/store-classification.ts.`,
+    );
+  }
 
   if (cache.has(resolved.cacheKey)) {
     return cache.get(resolved.cacheKey) as T[];
@@ -94,7 +97,6 @@ export async function readStore<T>(name: string, fallback?: T[]): Promise<T[]> {
 
   ensureDataDir(resolved.routedDir);
 
-  // 1. Routed file wins.
   if (existsSync(resolved.routedPath)) {
     try {
       const raw = readFileSync(resolved.routedPath, "utf-8");
@@ -102,36 +104,11 @@ export async function readStore<T>(name: string, fallback?: T[]): Promise<T[]> {
       cache.set(resolved.cacheKey, data);
       return data;
     } catch {
-      // Corrupted routed file — fall through to flat fallback.
+      // Corrupted routed file — fall through to defaults.
     }
   }
 
-  // 2. Read-only flat fallback (Phase 7.8b transitional). Cached under
-  // the resolved key, NEVER under `${name}::flat`, so tenant isolation
-  // holds even when both tenants share the underlying flat file.
-  if (
-    resolved.scope !== "unknown" &&
-    resolved.routedPath !== resolved.flatPath &&
-    existsSync(resolved.flatPath)
-  ) {
-    try {
-      const raw = readFileSync(resolved.flatPath, "utf-8");
-      const data = JSON.parse(raw) as T[];
-      log.warn("[json-store] flat-fallback read", {
-        name,
-        scope: resolved.scope,
-        cacheKey: resolved.cacheKey,
-        routedPath: resolved.routedPath,
-        flatPath: resolved.flatPath,
-      });
-      cache.set(resolved.cacheKey, data);
-      return data;
-    } catch {
-      // Corrupted flat file — fall through to defaults.
-    }
-  }
-
-  // 3. Empty / fallback.
+  // Routed file missing or corrupted — return caller's fallback (or []).
   const initial = fallback ? [...fallback] : [];
   cache.set(resolved.cacheKey, initial);
   return initial as T[];
@@ -148,6 +125,12 @@ export async function readStore<T>(name: string, fallback?: T[]): Promise<T[]> {
  */
 export async function writeStore<T>(name: string, data: T[]): Promise<void> {
   const resolved = await resolveDataPath(name);
+  if (resolved.scope === "unknown") {
+    throw new Error(
+      `[json-store] unknown store '${name}'. Add it to TENANT_SCOPED_STORES, ` +
+        `SINGLETON_STORES, or GLOBAL_STORES in src/lib/persistence/store-classification.ts.`,
+    );
+  }
   const prev = writeLocks.get(resolved.cacheKey) ?? Promise.resolve();
   const next = prev.then(() => atomicWrite(resolved, data));
   writeLocks.set(resolved.cacheKey, next.catch(() => {}));

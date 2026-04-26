@@ -90,6 +90,14 @@ export const TENANT_SCOPED_STORES = new Set<string>([
   "recommended-edits", // Sprint 6A.1 P11; rows already carry tenant_id
   "site-movement-events", // per-tenant Phase 0 movement events
   "url-change-outcomes", // Tier A; rows already carry tenant_id
+  // Phase 7.8d-1 (2026-04-26) — flat-fallback removal exposed runtime
+  // calls to these stores. Classified now (no migration since flat
+  // files weren't on disk for any of them).
+  "outcome-events", // canonical-store array of per-tenant event detections
+  "rollout-waves", // operator-managed pattern rollouts; single-operator scoped
+  "candidate-causes", // canonical-store per-tenant cause-candidate array
+  "outcome-observations", // per-tenant outcome-watch row array
+  "visibility-observation-runs", // per-tenant visibility import runs (disk-backed)
 ]);
 
 export const SINGLETON_STORES = new Set<string>([
@@ -105,6 +113,8 @@ export const SINGLETON_STORES = new Set<string>([
   "taxonomy-distribution-report", // aggregate of classified-events
   "url-daily-citations", // per-tenant daily citation series (single-entry)
   "url-watcher-state", // per-tenant watcher throttle/phase state
+  // Phase 7.8d-1 (2026-04-26) — single object loaded by `loadLocalOperatorImport`.
+  "local-operator-surface", // operator-edited local-listings notes (optional)
 ]);
 
 export const GLOBAL_STORES = new Set<string>([
@@ -132,6 +142,9 @@ export const GLOBAL_STORES = new Set<string>([
   "shared-brain", // explicit cross-tenant pattern aggregate
   "shared-brain-summary", // aggregate of shared-brain
   "url-change-patterns", // global learning aggregate (mirror of change-patterns)
+  // Phase 7.8d-1 (2026-04-26) — explicit cross-tenant pattern store.
+  // Self-documented as global in src/domains/global-patterns/store.ts.
+  "global-patterns",
 ]);
 
 /**

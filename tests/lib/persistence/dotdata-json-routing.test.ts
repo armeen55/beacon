@@ -105,7 +105,7 @@ describe("Phase 7.8b-1 — readDotDataJson per-tenant routing", () => {
     // Ritz's per-tenant subdir is empty.
 
     const result = await readDotDataJson<{ id: string }[]>("page-snapshots");
-    // No flat fallback either — null.
+    // No fallback to flat — known store with no routed file returns null.
     expect(result).toBeNull();
   });
 });
@@ -149,45 +149,76 @@ describe("Phase 7.8b-1 — readDotDataJson global routing", () => {
   });
 });
 
-describe("Phase 7.8b-1 — flat-fallback read", () => {
-  it("falls back to .data/{name}.json when the per-tenant file is missing", async () => {
-    // No per-tenant file. Flat file present.
+describe("Phase 7.8d-1 — flat fallback removed", () => {
+  it("does NOT fall back to flat for a per-tenant store when the routed file is missing", async () => {
     const flatPath = join(tmpRoot, ".data", "page-snapshots.json");
     writeFileSync(flatPath, JSON.stringify([{ id: "flat-row" }]));
 
     const result = await readDotDataJson<{ id: string }[]>("page-snapshots");
-    expect(result).toEqual([{ id: "flat-row" }]);
+    expect(result).toBeNull();
   });
 
-  it("falls back to .data/{name}.json for global store too", async () => {
+  it("does NOT fall back to flat for a global store when the routed file is missing", async () => {
     const flatPath = join(tmpRoot, ".data", "business-config.json");
     writeFileSync(flatPath, JSON.stringify({ siteDomain: "flat.com" }));
 
     const result = await readDotDataJson<{ siteDomain: string }>(
       "business-config",
     );
-    expect(result).toEqual({ siteDomain: "flat.com" });
+    expect(result).toBeNull();
   });
 
-  it("routed file wins over flat fallback when both exist", async () => {
-    const tenantPath = join(
-      tmpRoot,
-      ".data",
-      "tenants",
-      "ritz-builders",
-      "page-snapshots.json",
-    );
-    const flatPath = join(tmpRoot, ".data", "page-snapshots.json");
-    writeFileSync(tenantPath, JSON.stringify([{ id: "tenant-wins" }]));
-    writeFileSync(flatPath, JSON.stringify([{ id: "flat-loses" }]));
-
-    const result = await readDotDataJson<{ id: string }[]>("page-snapshots");
-    expect(result).toEqual([{ id: "tenant-wins" }]);
-  });
-
-  it("returns null when both routed and flat are missing", async () => {
+  it("returns null when routed file is missing for a known store", async () => {
     const result = await readDotDataJson<{ id: string }[]>("page-snapshots");
     expect(result).toBeNull();
+  });
+
+  it("does NOT log a flat-fallback warning when a known routed file is missing", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const flatPath = join(tmpRoot, ".data", "page-snapshots.json");
+    writeFileSync(flatPath, JSON.stringify([{ id: "flat-row" }]));
+
+    await readDotDataJson<{ id: string }[]>("page-snapshots");
+
+    const fallbackWarns = warnSpy.mock.calls.filter((args) =>
+      args.some(
+        (a) => typeof a === "string" && a.includes("flat-fallback"),
+      ),
+    );
+    expect(fallbackWarns).toEqual([]);
+    warnSpy.mockRestore();
+  });
+});
+
+describe("Phase 7.8d-1 — unknown stores throw fail-loud", () => {
+  it("throws when reading an unclassified store name", async () => {
+    await expect(
+      readDotDataJson("brand-new-unclassified-blob"),
+    ).rejects.toThrow(
+      /unknown store 'brand-new-unclassified-blob'.*store-classification\.ts/,
+    );
+  });
+
+  it("throw message names the three Sets the operator must update", async () => {
+    await expect(
+      readDotDataJson("another-mystery-blob"),
+    ).rejects.toThrow(
+      /TENANT_SCOPED_STORES[\s\S]*SINGLETON_STORES[\s\S]*GLOBAL_STORES/,
+    );
+  });
+
+  it("known stores still read routed paths without throwing", async () => {
+    const globalPath = join(
+      tmpRoot,
+      ".data",
+      "global",
+      "business-config.json",
+    );
+    writeFileSync(globalPath, JSON.stringify({ siteDomain: "ritzbuilders.com" }));
+
+    await expect(
+      readDotDataJson<{ siteDomain: string }>("business-config"),
+    ).resolves.toEqual({ siteDomain: "ritzbuilders.com" });
   });
 });
 
@@ -279,22 +310,17 @@ describe("Phase 7.8b-1 — writeDotDataJson", () => {
   });
 });
 
-// ── Unknown stores ───────────────────────────────────────────────────
+// ── Phase 7.8d-1: writes throw on unknown ────────────────────────────
 
-describe("Phase 7.8b-1 — unknown stores keep using flat path", () => {
-  it("readDotDataJson reads from .data/{name}.json directly for unknown stores", async () => {
-    const flatPath = join(tmpRoot, ".data", "brand-new-store.json");
-    writeFileSync(flatPath, JSON.stringify({ x: 1 }));
-
-    const result = await readDotDataJson<{ x: number }>("brand-new-store");
-    expect(result).toEqual({ x: 1 });
-  });
-
-  it("writeDotDataJson writes to .data/{name}.json for unknown stores", async () => {
-    await writeDotDataJson("brand-new-store", { x: 42 });
-
-    const flatPath = join(tmpRoot, ".data", "brand-new-store.json");
-    expect(existsSync(flatPath)).toBe(true);
-    expect(JSON.parse(readFileSync(flatPath, "utf8"))).toEqual({ x: 42 });
+describe("Phase 7.8d-1 — writeDotDataJson throws on unknown", () => {
+  it("throws when writing an unclassified store name", async () => {
+    await expect(
+      writeDotDataJson("brand-new-unclassified-blob", { x: 42 }),
+    ).rejects.toThrow(
+      /unknown store 'brand-new-unclassified-blob'.*store-classification\.ts/,
+    );
+    // Confirm no file landed at the (now-stale) flat path.
+    const flatPath = join(tmpRoot, ".data", "brand-new-unclassified-blob.json");
+    expect(existsSync(flatPath)).toBe(false);
   });
 });

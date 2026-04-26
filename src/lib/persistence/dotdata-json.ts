@@ -1,15 +1,15 @@
 /**
  * Raw disk read for `.data/{name}.json` (no json-store cache).
  *
- * Sprint 7 Phase 7.8b-1 (2026-04-25) — async + tenant-aware + flat
- * fallback. Routes per-tenant / singleton stores to
- * `.data/tenants/{slug}/{name}.json` and global stores to
- * `.data/global/{name}.json`. If the routed file is missing AND a flat
- * `.data/{name}.json` exists, reads return the flat copy with a `warn`
- * log so the operator sees when fallback fires (transitional state
- * between 7.8a runtime conversion and 7.8c migration `--commit`).
+ * Sprint 7 Phase 7.8b-1 (2026-04-25) — async + tenant-aware. Routes
+ * per-tenant / singleton stores to `.data/tenants/{slug}/{name}.json`
+ * and global stores to `.data/global/{name}.json`.
  *
- * Writes never fall back to flat — they always go to the routed path.
+ * Sprint 7 Phase 7.8d-1 (2026-04-26) — flat fallback removed. Reads
+ * for known stores resolve to their routed path or return null when
+ * the file isn't on disk yet; reads for **unknown** stores throw
+ * fail-loud with a message naming the classification module. Writes
+ * never fall back to flat (they always go to the routed path).
  *
  * **Allowed call sites:** `file-backend` / `supabase-backend` (supplementary blobs),
  * plus the two documented exceptions: `universe-read.ts` when `DATA_SOURCE=file`
@@ -26,50 +26,31 @@ import {
   writeFileSync,
 } from "node:fs";
 
-import { log } from "@/lib/logger";
-
 import { resolveDataPath } from "./resolve-data-path";
 
 // Phase 7.8b-2-a (2026-04-25): path resolution moved to
 // `resolve-data-path.ts` so json-store (Phase 7.8b-2-b) reuses the
-// same dispatch. dotdata-json's behavior is byte-identical pre/post.
+// same dispatch.
 
 /**
- * Read `.data/{name}.json` from the per-tenant or global subdir if
- * available; fall back to flat `.data/{name}.json` (with a warn log)
- * during the Phase 7.8b → 7.8c transition. Returns null if neither
- * exists or the file is malformed.
+ * Read `.data/{name}.json` from the per-tenant or global subdir.
+ * Returns null when the routed file is missing or malformed for a
+ * known store. Throws fail-loud for unknown (unclassified) stores.
  */
 export async function readDotDataJson<T>(baseName: string): Promise<T | null> {
-  try {
-    const resolved = await resolveDataPath(baseName);
+  const resolved = await resolveDataPath(baseName);
 
+  if (resolved.scope === "unknown") {
+    throw new Error(
+      `[dotdata-json] unknown store '${baseName}'. Add it to TENANT_SCOPED_STORES, ` +
+        `SINGLETON_STORES, or GLOBAL_STORES in src/lib/persistence/store-classification.ts.`,
+    );
+  }
+
+  try {
     if (existsSync(resolved.routedPath)) {
       return JSON.parse(readFileSync(resolved.routedPath, "utf8")) as T;
     }
-
-    // Routed file missing — try the flat fallback.
-    if (
-      resolved.scope !== "unknown" &&
-      resolved.routedPath !== resolved.flatPath &&
-      existsSync(resolved.flatPath)
-    ) {
-      log.warn("[dotdata-json] flat-fallback read", {
-        baseName,
-        scope: resolved.scope,
-        routedPath: resolved.routedPath,
-        flatPath: resolved.flatPath,
-      });
-      return JSON.parse(readFileSync(resolved.flatPath, "utf8")) as T;
-    }
-
-    if (resolved.scope === "unknown" && existsSync(resolved.flatPath)) {
-      // Unknown stores already resolve to the flat path; this branch
-      // catches the case where resolveDataPath returned the flat path
-      // and we can read it directly.
-      return JSON.parse(readFileSync(resolved.flatPath, "utf8")) as T;
-    }
-
     return null;
   } catch {
     return null;
@@ -91,6 +72,12 @@ export async function writeDotDataJson<T>(
   if (process.env.VERCEL === "1") return;
 
   const resolved = await resolveDataPath(baseName);
+  if (resolved.scope === "unknown") {
+    throw new Error(
+      `[dotdata-json] unknown store '${baseName}'. Add it to TENANT_SCOPED_STORES, ` +
+        `SINGLETON_STORES, or GLOBAL_STORES in src/lib/persistence/store-classification.ts.`,
+    );
+  }
 
   if (!existsSync(resolved.routedDir)) {
     mkdirSync(resolved.routedDir, { recursive: true });
