@@ -115,7 +115,10 @@ export async function persistResponses(tenantId: string): Promise<void> {
  * the recId wasn't present locally (still attempts the Supabase delete
  * for safety — a row could have been written by a different lambda).
  */
-export async function deleteResponseByRecId(recId: string): Promise<boolean> {
+export async function deleteResponseByRecId(
+  recId: string,
+  tenantId: string,
+): Promise<boolean> {
   const idx = recommendationResponses.findIndex((r) => r.recId === recId);
   let removed = false;
   if (idx >= 0) {
@@ -123,7 +126,7 @@ export async function deleteResponseByRecId(recId: string): Promise<boolean> {
     removed = true;
   }
   await writeStore(STORE_NAME, recommendationResponses);
-  await deleteRecommendationResponseByRecId(recId);
+  await deleteRecommendationResponseByRecId(recId, tenantId);
   return removed;
 }
 

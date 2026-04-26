@@ -450,8 +450,10 @@ describe("Phase 7.7b Commit 6 — deferred helpers retain pre-7.7b shape", () =>
     // via mapSpecificEditToRow({ tenantId: packet.tenantId }).
     expect(body).not.toMatch(/tenantizeRows\(/);
   });
+});
 
-  it("deleteRecommendationResponseByRecId stays unscoped (deferred to Phase 7.7c)", () => {
+describe("Phase 7.7c — deleteRecommendationResponseByRecId is tenant-scoped", () => {
+  it("signature requires tenantId: string", () => {
     const body = sliceHelperBody(
       DUAL_WRITE_SOURCE,
       "deleteRecommendationResponseByRecId",
@@ -459,9 +461,27 @@ describe("Phase 7.7b Commit 6 — deferred helpers retain pre-7.7b shape", () =>
     expect(body).not.toBe("");
     const headerEnd = body.indexOf("Promise<void>");
     const header = body.slice(0, headerEnd);
-    // No tenantId param yet — Phase 7.7c adds it + threads through
-    // recommendation-response-store.deleteResponseByRecId.
-    expect(header).not.toMatch(/tenantId:\s*string/);
+    expect(header).toMatch(/tenantId:\s*string/);
+  });
+
+  it("body filters DELETE by both rec_id AND tenant_id", () => {
+    const body = sliceHelperBody(
+      DUAL_WRITE_SOURCE,
+      "deleteRecommendationResponseByRecId",
+    );
+    // Both filters must be present — together they prevent cross-tenant
+    // rec_id collisions from letting one tenant wipe another's row.
+    expect(body).toMatch(/\.eq\(\s*["']rec_id["']\s*,\s*recId\s*\)/);
+    expect(body).toMatch(/\.eq\(\s*["']tenant_id["']\s*,\s*tenantId\s*\)/);
+  });
+
+  it("body throws on empty tenantId (fail-loud guard)", () => {
+    const body = sliceHelperBody(
+      DUAL_WRITE_SOURCE,
+      "deleteRecommendationResponseByRecId",
+    );
+    expect(body).toMatch(/if\s*\(\s*!tenantId\s*\)/);
+    expect(body).toMatch(/tenantId must be a non-empty string/);
   });
 });
 

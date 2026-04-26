@@ -592,13 +592,19 @@ export async function undoRecommendationResponse(
   const t0 = Date.now();
   log.info("Action started", { action, params: { stableKey } });
 
+  // Phase 7.7c (2026-04-25): tenant-scoped Undo. Without this, a cross-
+  // tenant rec_id collision would let one tenant's Undo silently delete
+  // another tenant's response. `await currentTenantId()` here mirrors
+  // the resolution pattern used by accept/defer/dismiss.
+  const tenantId = await currentTenantId();
+
   await ensureRecommendationResponsesSeeded();
   // Sprint 6A.1.16 (2026-04-25): use the new deleteResponseByRecId
   // helper so the Supabase row is actually removed. The pre-fix path
   // spliced the in-memory array + called persistResponses (upsert-
   // only), which left a stale "accepted" / "dismissed" / "deferred"
   // row in production for any other lambda to read.
-  const removed = await deleteResponseByRecId(stableKey);
+  const removed = await deleteResponseByRecId(stableKey, tenantId);
   log.info("Action completed", {
     action,
     durationMs: Date.now() - t0,

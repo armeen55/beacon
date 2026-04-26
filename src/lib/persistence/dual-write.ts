@@ -900,6 +900,12 @@ export async function syncRecommendationResponses(
  * /recommendations page surfaces a stale "accepted" state on the next
  * cross-lambda render.
  *
+ * Phase 7.7c (2026-04-25): tenant-scoped. The DELETE now carries
+ * `.eq("tenant_id", tenantId)` so a cross-tenant `rec_id` collision
+ * — e.g. two tenants both producing
+ * `create_cluster_page:geo:Los Altos` — never lets one tenant's Undo
+ * remove another tenant's response.
+ *
  * Best-effort: errors logged, never thrown (matches the rest of this
  * module's posture). Caller has already removed the row from in-memory
  * state by the time this fires; if the Supabase delete fails, the
@@ -907,22 +913,29 @@ export async function syncRecommendationResponses(
  */
 export async function deleteRecommendationResponseByRecId(
   recId: string,
+  tenantId: string,
 ): Promise<void> {
   if (!isDualWriteEnabled()) return;
+  if (!tenantId) {
+    throw new Error(
+      "[dual-write/recommendation_responses] deleteRecommendationResponseByRecId: tenantId must be a non-empty string",
+    );
+  }
   try {
     const sb = getSupabaseAdmin();
     const { error } = await sb
       .from("recommendation_responses")
       .delete()
-      .eq("rec_id", recId);
+      .eq("rec_id", recId)
+      .eq("tenant_id", tenantId);
     if (error) {
       console.error(
-        `[dual-write] recommendation_responses delete (rec_id=${recId}) failed — ${error.message}`,
+        `[dual-write] recommendation_responses delete (rec_id=${recId}, tenant=${tenantId}) failed — ${error.message}`,
       );
     }
   } catch (e) {
     console.error(
-      `[dual-write] recommendation_responses delete (rec_id=${recId}) error — ${e instanceof Error ? e.message : e}`,
+      `[dual-write] recommendation_responses delete (rec_id=${recId}, tenant=${tenantId}) error — ${e instanceof Error ? e.message : e}`,
     );
   }
 }
