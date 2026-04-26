@@ -17,9 +17,9 @@ import {
   replaceObservationRuns,
   replaceObservations,
   replaceSnapshots,
-  trackedPrompts,
-  promptAnswerObservations,
-  dailyMetricSnapshots,
+  getTrackedPrompts,
+  getPromptAnswerObservations,
+  getDailyMetricSnapshots,
 } from "@/storage/canonical-store";
 import {
   writeAnswerTexts,
@@ -170,7 +170,7 @@ export async function runProfoundImport(
   await replaceTrackedEntities(entities);
 
   // Phase 2: Prompts — merge all prompt-shaped CSVs + existing store
-  let mergedPrompts = [...trackedPrompts];
+  let mergedPrompts = [...(await getTrackedPrompts())];
   for (const filePath of byKind.prompts) {
     const pr = parseProfoundPrompts(filePath, accountId);
     warnings.push(...pr.warnings);
@@ -208,7 +208,7 @@ export async function runProfoundImport(
   }
   const ownedBrandAliases = [...rawAliases];
 
-  let mergedObservations: PromptAnswerObservation[] = [...promptAnswerObservations];
+  let mergedObservations: PromptAnswerObservation[] = [...(await getPromptAnswerObservations())];
   const mergedAnswerTexts: Record<string, string> = { ...readAnswerTextsFromDisk() };
   for (const filePath of byKind.raw_executions) {
     const ex = parseProfoundExecutions(
@@ -271,7 +271,7 @@ export async function runProfoundImport(
     if (e.name) entityLookup.set(e.name, e.id);
   }
 
-  const existingBench = dailyMetricSnapshots.filter(
+  const existingBench = (await getDailyMetricSnapshots()).filter(
     (s) => s.source_type === "benchmark"
   );
   let mergedBenchmark: DailyMetricSnapshot[] = [...existingBench];

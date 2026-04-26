@@ -13,9 +13,25 @@
  * rows from scan/verify. This module only ever treats the file as `ProfoundImportRun[]`
  * (json-store parse). Website runs are read via `SeedDataRepository.getObservationRuns()`
  * (`file-backend` merges typed rows + `scan-runs.json`, skipping Profound-shaped objects).
+ *
+ * Sprint 7 Phase 7.8e-2 (2026-04-26) — request-scope lift. Module-level
+ * top-level `await readStore(...)` calls (which captured the env-resolved
+ * tenant once at module init and froze it) are replaced with cached async
+ * getters: `getTrackedPrompts`, `getTrackedEntities`, `getObservationRuns`,
+ * `getPromptAnswerObservations`, `getDailyMetricSnapshots`,
+ * `getOutcomeEvents`, `getCandidateCauses`, `getEventDecisions`.
+ *
+ * `React.cache` memoizes within one render tree; the process-level
+ * `_state` map preserves the mutate-array semantic that the
+ * import-orchestrator + persist helpers rely on across requests within
+ * one lambda. Initial population still does the Phase 3.5E DB-merge for
+ * Vercel-hosted callers (DATA_SOURCE=supabase) so non-render consumers
+ * see the same hydrated arrays they did pre-7.8e-2.
  */
 
 import "server-only";
+
+import { cache } from "react";
 
 import { readStore, writeStore } from "@/lib/persistence/json-store";
 import {
@@ -36,59 +52,80 @@ import type { CandidateCause } from "@/domains/candidate-causes/types";
 import type { EventDecision } from "@/domains/event-decisions/types";
 
 // ---------------------------------------------------------------------------
-// Hot stores — small, loaded at startup
-// ---------------------------------------------------------------------------
+// Process-level mutable state.
 //
-// Phase 7.8b-2-c (2026-04-25): top-level await because `readStore` is
-// async (Phase 7.8b-2-b). Same module-load-tenant-capture caveat as
-// `seed-data.server.ts` and the singleton stores in 7.8b-1 — captures
-// the env-resolved tenant once at module load. Phase 7.8e lifts these
-// to request-scope; until then, single-tenant production is unaffected
-// because BEACON_TENANT_ID is constant per process.
-
-export const trackedPrompts: TrackedPrompt[] = await readStore<TrackedPrompt>("tracked-prompts");
-export const trackedEntities: TrackedEntity[] = await readStore<TrackedEntity>("tracked-entities");
-export const observationRuns: ProfoundImportRun[] = await readStore<ProfoundImportRun>("observation-runs");
-export const promptAnswerObservations: PromptAnswerObservation[] =
-  await readStore<PromptAnswerObservation>("prompt-answer-observations");
-export const dailyMetricSnapshots: DailyMetricSnapshot[] =
-  await readStore<DailyMetricSnapshot>("daily-metric-snapshots");
-export const outcomeEvents: OutcomeEvent[] = await readStore<OutcomeEvent>("outcome-events");
-export const candidateCauses: CandidateCause[] = await readStore<CandidateCause>("candidate-causes");
-export const eventDecisions: EventDecision[] = await readStore<EventDecision>("event-decisions");
-
-// ---------------------------------------------------------------------------
-// Phase 3.5E (2026-04-22) — hosted hero-surface seeder.
-//
-// On Vercel, the module-init `readStore(...)` calls above return `[]` because
-// `.data/*.json` doesn't exist on the read-only FS. `ensureCanonicalStoresSeeded()`
-// merges Supabase state into the four module-level arrays that drive Today's
-// visibility score, rankings, competitor comparison, and entity universe.
-//
-// Idempotent — first call awaits the DB fetches, subsequent calls return
-// immediately. Same pattern as the 3.5C rec-response / url-outcome seeders.
-//
-// Scope is DELIBERATELY narrow: only the four stores that drive today's hero
-// path are seeded. `observationRuns`, `outcomeEvents`, `candidateCauses`, and
-// `eventDecisions` are left as module-init `readStore` reads (unused on the
-// hosted critical path today; revisit if that changes).
+// First request through `ensureLoaded()` populates each array by reading
+// from json-store (disk) and — when DATA_SOURCE=supabase — merging
+// Phase 3.5E hosted-hero data from the repository. Subsequent requests in
+// the same lambda share the SAME array references; mutations land in
+// `_state` and persist across requests, identical to today's behavior.
 // ---------------------------------------------------------------------------
 
-let _canonSeeded = false;
-let _canonSeedPromise: Promise<void> | null = null;
+type State = {
+  trackedPrompts: TrackedPrompt[] | null;
+  trackedEntities: TrackedEntity[] | null;
+  observationRuns: ProfoundImportRun[] | null;
+  promptAnswerObservations: PromptAnswerObservation[] | null;
+  dailyMetricSnapshots: DailyMetricSnapshot[] | null;
+  outcomeEvents: OutcomeEvent[] | null;
+  candidateCauses: CandidateCause[] | null;
+  eventDecisions: EventDecision[] | null;
+};
 
-export async function ensureCanonicalStoresSeeded(): Promise<void> {
-  if (_canonSeeded) return;
-  if (_canonSeedPromise) return _canonSeedPromise;
-  if (process.env.DATA_SOURCE !== "supabase") {
-    _canonSeeded = true;
-    return;
-  }
-  _canonSeedPromise = (async () => {
+const _state: State = {
+  trackedPrompts: null,
+  trackedEntities: null,
+  observationRuns: null,
+  promptAnswerObservations: null,
+  dailyMetricSnapshots: null,
+  outcomeEvents: null,
+  candidateCauses: null,
+  eventDecisions: null,
+};
+
+function mergeById<T extends { id: string }>(target: T[], incoming: T[]): void {
+  if (incoming.length === 0) return;
+  const byId = new Map<string, T>();
+  for (const t of target) byId.set(t.id, t);
+  for (const i of incoming) byId.set(i.id, i);
+  target.length = 0;
+  target.push(...byId.values());
+}
+
+async function loadFromDiskAndMerge(): Promise<void> {
+  if (_state.trackedPrompts !== null) return;
+
+  // Initial disk read for all 8 stores.
+  const [tp, te, or, pao, dms, oe, cc, ed] = await Promise.all([
+    readStore<TrackedPrompt>("tracked-prompts"),
+    readStore<TrackedEntity>("tracked-entities"),
+    readStore<ProfoundImportRun>("observation-runs"),
+    readStore<PromptAnswerObservation>("prompt-answer-observations"),
+    readStore<DailyMetricSnapshot>("daily-metric-snapshots"),
+    readStore<OutcomeEvent>("outcome-events"),
+    readStore<CandidateCause>("candidate-causes"),
+    readStore<EventDecision>("event-decisions"),
+  ]);
+  _state.trackedPrompts = tp;
+  _state.trackedEntities = te;
+  _state.observationRuns = or;
+  _state.promptAnswerObservations = pao;
+  _state.dailyMetricSnapshots = dms;
+  _state.outcomeEvents = oe;
+  _state.candidateCauses = cc;
+  _state.eventDecisions = ed;
+
+  // Phase 3.5E hosted-hero DB merge — preserved verbatim from the
+  // pre-7.8e-2 `ensureCanonicalStoresSeeded()`. On Vercel `.data/*.json`
+  // doesn't exist on the read-only FS, so the disk reads above all
+  // returned []; the merge below populates the four hero arrays from
+  // Supabase. Locally / dev this is additive and keeps in-memory state
+  // current with whatever the poll pipeline wrote.
+  if (process.env.DATA_SOURCE === "supabase") {
     try {
       // Sprint 7 Phase 7.5c/2 (2026-04-25) — Tier A reads
-      // (`getPromptAnswerObservations`, `getDailyMetricSnapshots`) go through
-      // `forTenant(tenantId)`. Tier C reads (`getTrackedEntities`,
+      // (`getPromptAnswerObservations`, `getDailyMetricSnapshots`) go
+      // through `forTenant(tenantId)`. Tier C reads (`getTrackedEntities`,
       // `getTrackedPrompts`) stay unscoped — those tables don't have a
       // `tenant_id` column today (Phase 7.5a Tier C audit).
       const tenantId = await currentTenantId();
@@ -100,74 +137,123 @@ export async function ensureCanonicalStoresSeeded(): Promise<void> {
         repo.getTrackedEntities(),
         repo.getTrackedPrompts(),
       ]);
-      // Merge semantics: DB is the source of truth on hosted. If the local
-      // array has anything (dev mode), prefer DB rows by id; otherwise replace.
-      // In practice on Vercel all four start empty, so this degenerates to a
-      // straight replace.
-      if (obs.length > 0) {
-        const byId = new Map<string, PromptAnswerObservation>();
-        for (const o of promptAnswerObservations) byId.set(o.id, o);
-        for (const o of obs) byId.set(o.id, o);
-        promptAnswerObservations.length = 0;
-        promptAnswerObservations.push(...byId.values());
-      }
-      if (snaps.length > 0) {
-        const byId = new Map<string, DailyMetricSnapshot>();
-        for (const s of dailyMetricSnapshots) byId.set(s.id, s);
-        for (const s of snaps) byId.set(s.id, s);
-        dailyMetricSnapshots.length = 0;
-        dailyMetricSnapshots.push(...byId.values());
-      }
-      if (ents.length > 0) {
-        const byId = new Map<string, TrackedEntity>();
-        for (const e of trackedEntities) byId.set(e.id, e);
-        for (const e of ents) byId.set(e.id, e);
-        trackedEntities.length = 0;
-        trackedEntities.push(...byId.values());
-      }
-      if (prompts.length > 0) {
-        const byId = new Map<string, TrackedPrompt>();
-        for (const p of trackedPrompts) byId.set(p.id, p);
-        for (const p of prompts) byId.set(p.id, p);
-        trackedPrompts.length = 0;
-        trackedPrompts.push(...byId.values());
-      }
+      mergeById(_state.promptAnswerObservations, obs);
+      mergeById(_state.dailyMetricSnapshots, snaps);
+      mergeById(_state.trackedEntities, ents);
+      mergeById(_state.trackedPrompts, prompts);
     } catch (e) {
       console.error("[canonical-store] DB seed failed:", e);
-    } finally {
-      _canonSeeded = true;
     }
-  })();
-  return _canonSeedPromise;
+  }
 }
 
-/** Reset the seed cache. Use after large mutations if freshness matters. */
+const ensureLoaded = cache(loadFromDiskAndMerge);
+
+// ---------------------------------------------------------------------------
+// Public getters.
+//
+// Each is wrapped in `React.cache` so a single render tree resolves the
+// array once. The returned reference IS the cached array — callers may
+// mutate via `.push(...)`, `.length = 0; .push(...rest)`, etc. and those
+// mutations persist for the lifetime of the lambda (same as today).
+// ---------------------------------------------------------------------------
+
+export const getTrackedPrompts = cache(async (): Promise<TrackedPrompt[]> => {
+  await ensureLoaded();
+  return _state.trackedPrompts!;
+});
+
+export const getTrackedEntities = cache(async (): Promise<TrackedEntity[]> => {
+  await ensureLoaded();
+  return _state.trackedEntities!;
+});
+
+export const getObservationRuns = cache(
+  async (): Promise<ProfoundImportRun[]> => {
+    await ensureLoaded();
+    return _state.observationRuns!;
+  },
+);
+
+export const getPromptAnswerObservations = cache(
+  async (): Promise<PromptAnswerObservation[]> => {
+    await ensureLoaded();
+    return _state.promptAnswerObservations!;
+  },
+);
+
+export const getDailyMetricSnapshots = cache(
+  async (): Promise<DailyMetricSnapshot[]> => {
+    await ensureLoaded();
+    return _state.dailyMetricSnapshots!;
+  },
+);
+
+export const getOutcomeEvents = cache(async (): Promise<OutcomeEvent[]> => {
+  await ensureLoaded();
+  return _state.outcomeEvents!;
+});
+
+export const getCandidateCauses = cache(
+  async (): Promise<CandidateCause[]> => {
+    await ensureLoaded();
+    return _state.candidateCauses!;
+  },
+);
+
+export const getEventDecisions = cache(async (): Promise<EventDecision[]> => {
+  await ensureLoaded();
+  return _state.eventDecisions!;
+});
+
+/**
+ * Backwards-compat shim. Pre-7.8e-2, callers chained
+ * `ensureCanonicalStoresSeeded()` to force the DB-merge before reading
+ * module-level arrays. Post-7.8e-2 the merge is automatic on first
+ * getter call, but render paths and tests still invoke this name —
+ * keep it as a thin proxy so caller cascade stays minimal.
+ */
+export async function ensureCanonicalStoresSeeded(): Promise<void> {
+  await ensureLoaded();
+}
+
+/**
+ * Test-only reset. Clears the process-level state so the next caller
+ * re-runs `loadFromDiskAndMerge()`.
+ */
+export function _resetCanonicalStoreStateForTests(): void {
+  _state.trackedPrompts = null;
+  _state.trackedEntities = null;
+  _state.observationRuns = null;
+  _state.promptAnswerObservations = null;
+  _state.dailyMetricSnapshots = null;
+  _state.outcomeEvents = null;
+  _state.candidateCauses = null;
+  _state.eventDecisions = null;
+}
+
+/**
+ * Test-only / dev hook. Pre-7.8e-2 this dropped the seed-once flag so
+ * the next request re-fetched from Supabase. Post-7.8e-2 the lazy
+ * getters serve cached state forever within one lambda; calling this
+ * forces the next getter call to re-run disk + DB merge.
+ */
 export function invalidateCanonicalStoresSeed(): void {
-  _canonSeeded = false;
-  _canonSeedPromise = null;
+  _resetCanonicalStoreStateForTests();
 }
 
 /**
  * Phase 4.9 (Sprint 4, 2026-04-24) — fresh canonical data per render.
  *
- * The module-level arrays above are seeded exactly once per Vercel lambda
- * behind `_canonSeeded`. After the 07:00 UTC poll writes fresh
- * observations + derived snapshots to Supabase, already-warm lambdas keep
- * serving their original seed forever until cold-recycled. This helper
- * bypasses the seed cache entirely — fetches all four canonical tables
- * fresh from the repository in parallel.
- *
- * Contract: render paths that show visibility/decision data to the
- * operator (Today, Recommendations, Prompts) must await this helper once
- * per request and pass the returned arrays to downstream pure functions.
- * Module-level arrays remain for non-render consumers (poll pipeline,
- * prompt-library, url-citation-history, import-orchestrator,
- * build-from-observations, orchestrate-scan) — those update their own
- * module state via `ensureCanonicalStoresSeeded()` or direct mutation.
+ * Bypasses the lazy-getter cache entirely. Render paths that show
+ * visibility/decision data (Today, Recommendations, Prompts) call this
+ * once per request and pass the returned arrays to downstream pure
+ * functions. Module-level getters remain for non-render consumers
+ * (poll pipeline, prompt-library, url-citation-history,
+ * import-orchestrator, build-from-observations, orchestrate-scan).
  *
  * On repo failure the helper throws. Callers wrap in `safeCall` /
- * try-catch and graceful-degrade to empty arrays with a banner; they
- * must NOT silently fall back to module-level stale state.
+ * try-catch and graceful-degrade to empty arrays with a banner.
  */
 export type FreshCanonicalData = {
   trackedPrompts: TrackedPrompt[];
@@ -178,10 +264,8 @@ export type FreshCanonicalData = {
 
 export async function loadFreshCanonicalData(): Promise<FreshCanonicalData> {
   // Sprint 7 Phase 7.5c/2 (2026-04-25) — same tier split as
-  // `ensureCanonicalStoresSeeded`: Tier A reads scoped to tenant; Tier C
-  // (tracked_prompts, tracked_entities) stay unscoped. Note: this function
-  // is called from /today render and other tenant-scoped surfaces; tenantId
-  // resolves via header (post-7.4) or BEACON_TENANT_ID env (post-7.3).
+  // `ensureLoaded`: Tier A reads scoped to tenant; Tier C
+  // (tracked_prompts, tracked_entities) stay unscoped.
   const tenantId = await currentTenantId();
   const repo = getRepository();
   const tenantRepo = repo.forTenant(tenantId);
@@ -200,47 +284,53 @@ export async function loadFreshCanonicalData(): Promise<FreshCanonicalData> {
 }
 
 // ---------------------------------------------------------------------------
-// Persistence helpers
+// Persistence helpers.
+// Each reads the cached array via the getter, then writes-back to disk +
+// dual-write target.
 // ---------------------------------------------------------------------------
 
 export async function persistTrackedPrompts(): Promise<void> {
+  const trackedPrompts = await getTrackedPrompts();
   await writeStore("tracked-prompts", trackedPrompts);
   await syncTrackedPrompts(trackedPrompts);
 }
 
 export async function persistTrackedEntities(): Promise<void> {
+  const trackedEntities = await getTrackedEntities();
   await writeStore("tracked-entities", trackedEntities);
   await syncTrackedEntities(trackedEntities);
 }
 
 export async function persistObservationRuns(): Promise<void> {
-  await writeStore("observation-runs", observationRuns);
+  await writeStore("observation-runs", await getObservationRuns());
 }
 
 export async function persistObservations(tenantId: string): Promise<void> {
+  const promptAnswerObservations = await getPromptAnswerObservations();
   await writeStore("prompt-answer-observations", promptAnswerObservations);
   await syncPromptAnswerObservations(promptAnswerObservations, tenantId);
 }
 
 export async function persistSnapshots(tenantId: string): Promise<void> {
+  const dailyMetricSnapshots = await getDailyMetricSnapshots();
   await writeStore("daily-metric-snapshots", dailyMetricSnapshots);
   await syncDailyMetricSnapshots(dailyMetricSnapshots, tenantId);
 }
 
 export async function persistOutcomeEvents(): Promise<void> {
-  await writeStore("outcome-events", outcomeEvents);
+  await writeStore("outcome-events", await getOutcomeEvents());
 }
 
 export async function persistCandidateCauses(): Promise<void> {
-  await writeStore("candidate-causes", candidateCauses);
+  await writeStore("candidate-causes", await getCandidateCauses());
 }
 
 export async function persistEventDecisions(): Promise<void> {
-  await writeStore("event-decisions", eventDecisions);
+  await writeStore("event-decisions", await getEventDecisions());
 }
 
 // ---------------------------------------------------------------------------
-// Bulk replace helpers (for import pipeline)
+// Bulk replace helpers (for import pipeline).
 // ---------------------------------------------------------------------------
 
 function replaceAll<T>(target: T[], source: T[]): void {
@@ -249,17 +339,17 @@ function replaceAll<T>(target: T[], source: T[]): void {
 }
 
 export async function replaceTrackedPrompts(data: TrackedPrompt[]): Promise<void> {
-  replaceAll(trackedPrompts, data);
+  replaceAll(await getTrackedPrompts(), data);
   await persistTrackedPrompts();
 }
 
 export async function replaceTrackedEntities(data: TrackedEntity[]): Promise<void> {
-  replaceAll(trackedEntities, data);
+  replaceAll(await getTrackedEntities(), data);
   await persistTrackedEntities();
 }
 
 export async function replaceObservationRuns(data: ProfoundImportRun[]): Promise<void> {
-  replaceAll(observationRuns, data);
+  replaceAll(await getObservationRuns(), data);
   await persistObservationRuns();
 }
 
@@ -267,7 +357,7 @@ export async function replaceObservations(
   data: PromptAnswerObservation[],
   tenantId: string,
 ): Promise<void> {
-  replaceAll(promptAnswerObservations, data);
+  replaceAll(await getPromptAnswerObservations(), data);
   await persistObservations(tenantId);
 }
 
@@ -275,6 +365,6 @@ export async function replaceSnapshots(
   data: DailyMetricSnapshot[],
   tenantId: string,
 ): Promise<void> {
-  replaceAll(dailyMetricSnapshots, data);
+  replaceAll(await getDailyMetricSnapshots(), data);
   await persistSnapshots(tenantId);
 }

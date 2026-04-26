@@ -57,7 +57,7 @@ async function main() {
   console.log(`  ${events.length} events`);
 
   console.log("Building URL citation history from Profound shards...");
-  const history = buildUrlCitationHistory({ ownedOnly: true });
+  const history = await buildUrlCitationHistory({ ownedOnly: true });
   console.log(`  ${history.distinct_urls} distinct URLs · ${history.date_range.first} → ${history.date_range.last}`);
 
   console.log("Running attribution engine...");

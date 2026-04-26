@@ -96,7 +96,7 @@ export async function runUrlWatcher(
 
   try {
     // 1. Rebuild URL citation history from existing citation shards (owned only).
-    const history: UrlCitationHistory = buildUrlCitationHistory({ ownedOnly: true });
+    const history: UrlCitationHistory = await buildUrlCitationHistory({ ownedOnly: true });
 
     // 2. Persist to disk + Supabase (dual-write when enabled).
     await persistUrlCitationHistory(history);

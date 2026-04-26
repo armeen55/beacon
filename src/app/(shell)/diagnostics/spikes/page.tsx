@@ -12,7 +12,7 @@
  */
 
 import { PageHeader } from "@/components/data/page-header";
-import { dailyMetricSnapshots } from "@/storage/canonical-store";
+import { getDailyMetricSnapshots } from "@/storage/canonical-store";
 import { getChangelogEntries } from "@/lib/seed-data.server";
 import { readStore } from "@/lib/persistence/json-store";
 import { listWebsiteCrawlRuns } from "@/domains/observations/read";
@@ -35,6 +35,7 @@ export default async function SpikeForensicsPage() {
   const outcomes = await readStore<ChangeOutcome>("change-outcomes");
   const patterns = await readStore<ChangePattern>("change-patterns");
   const observationRuns = await listWebsiteCrawlRuns();
+  const dailyMetricSnapshots = await getDailyMetricSnapshots();
 
   // Detect events across all three metrics via the new engine.
   const spikes = detectVisibilityEvents({ snapshots: dailyMetricSnapshots });

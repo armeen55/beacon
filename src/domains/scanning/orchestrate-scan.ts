@@ -305,7 +305,8 @@ export async function runWebsiteScan(opts: {
     try {
       const { enrichFindingsWithSignalQuality } = await import("./findings-store");
       const { readDotDataJson: readDotData } = await import("@/lib/persistence/dotdata-json");
-      const { dailyMetricSnapshots: dms } = await import("@/storage/canonical-store");
+      const { getDailyMetricSnapshots } = await import("@/storage/canonical-store");
+      const dms = await getDailyMetricSnapshots();
       await enrichFindingsWithSignalQuality({
         citationIndex: await readDotData<import("@/domains/pages/types").CitationEvidenceIndex>("citation-evidence-index"),
         snapshots: dms,

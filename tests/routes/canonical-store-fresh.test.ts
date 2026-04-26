@@ -312,21 +312,22 @@ describe("Sprint 4 / Phase 4.9 — canonical-store fresh-per-render", () => {
   });
 
   describe("non-render callers preserved", () => {
-    it("canonical-store.ts still exports module-level arrays for non-render consumers", () => {
-      // prompt-library, url-citation-history, poll pipeline, import-orchestrator,
-      // build-from-observations, and orchestrate-scan all read these.
-      // Phase 4.9 must NOT remove the exports — only render paths migrate.
+    it("canonical-store.ts exports cached async getters for non-render consumers", () => {
+      // Phase 7.8e-2 (2026-04-26): the module-level mutable-array exports
+      // were lifted to cached async getters. Non-render consumers
+      // (url-citation-history, import-orchestrator, scanning, etc.) now
+      // call `await getX()` instead of importing the array reference.
       expect(SRC.canonicalStore).toMatch(
-        /export\s+const\s+trackedPrompts\s*:\s*TrackedPrompt\[\]/,
+        /export\s+const\s+getTrackedPrompts\s*=\s*cache\(/,
       );
       expect(SRC.canonicalStore).toMatch(
-        /export\s+const\s+promptAnswerObservations\s*:/,
+        /export\s+const\s+getPromptAnswerObservations\s*=\s*cache\(/,
       );
       expect(SRC.canonicalStore).toMatch(
-        /export\s+const\s+trackedEntities\s*:/,
+        /export\s+const\s+getTrackedEntities\s*=\s*cache\(/,
       );
       expect(SRC.canonicalStore).toMatch(
-        /export\s+const\s+dailyMetricSnapshots\s*:/,
+        /export\s+const\s+getDailyMetricSnapshots\s*=\s*cache\(/,
       );
     });
 

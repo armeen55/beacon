@@ -107,7 +107,12 @@ function findUnawaitedReadStoreCalls(file: string): {
       /\bawait\s+readStore\b/.test(codeOnly) ||
       /\breturn\s+(?:await\s+)?readStore\b/.test(codeOnly) ||
       /=>\s*readStore\b/.test(codeOnly) ||
-      /[,[]\s*readStore\b/.test(codeOnly);
+      /[,[]\s*readStore\b/.test(codeOnly) ||
+      // Multi-line Promise.all([...]) literal: a line that starts with
+      // optional whitespace + readStore<T>(...) and ends with `,` is an
+      // array element passed into Promise.all (the surrounding `await
+      // Promise.all([` lives a few lines up).
+      /^\s*readStore\s*[<(][\s\S]*\),\s*$/.test(codeOnly);
     if (awaitedShapes) continue;
     violations.push({ line: i + 1, text: raw.trim().slice(0, 140) });
   }
@@ -184,6 +189,103 @@ describe("Phase 7.8b-2-e — json-store routing contract", () => {
     expect(src).toMatch(/import[-_]runs/);
     expect(src).toMatch(/anti[-\s]?race/i);
     expect(src).toMatch(/existsSync\(/);
+  });
+});
+
+// ── Phase 7.8e-2: no module-level canonical-store value imports ──────
+
+describe("Phase 7.8e-2 — canonical-store is request-scope only", () => {
+  it("canonical-store.ts has no module-level `await readStore` or `await repo.getX`", () => {
+    const src = readFileSync(
+      resolve(SRC_ROOT, "storage/canonical-store.ts"),
+      "utf8",
+    );
+    const lines = src.split("\n");
+    const offending: number[] = [];
+    for (let i = 0; i < lines.length; i++) {
+      const l = lines[i];
+      if (
+        /^export\s+const\s+\w+[^=]*=\s*await\s+(readStore|repo\.|getRepository)/.test(
+          l,
+        )
+      ) {
+        offending.push(i + 1);
+      }
+    }
+    expect(
+      offending,
+      "Phase 7.8e-2 invariant: canonical-store.ts must not perform " +
+        "module-level `await readStore(...)` or `await repo.getX()`. Use " +
+        "cached async getters (getTrackedPrompts, getTrackedEntities, etc.) " +
+        "instead.\n" +
+        offending.map((n) => `  line ${n}`).join("\n"),
+    ).toEqual([]);
+  });
+
+  it("canonical-store.ts exports the 8 cached async getters", () => {
+    const src = readFileSync(
+      resolve(SRC_ROOT, "storage/canonical-store.ts"),
+      "utf8",
+    );
+    for (const name of [
+      "getTrackedPrompts",
+      "getTrackedEntities",
+      "getObservationRuns",
+      "getPromptAnswerObservations",
+      "getDailyMetricSnapshots",
+      "getOutcomeEvents",
+      "getCandidateCauses",
+      "getEventDecisions",
+    ]) {
+      expect(
+        src,
+        `Phase 7.8e-2 invariant: canonical-store.ts must export \`${name}\``,
+      ).toMatch(new RegExp(`export\\s+const\\s+${name}\\s*=\\s*cache\\(`));
+    }
+  });
+
+  it("no callers `import { <module-level array> } from '@/storage/canonical-store'`", () => {
+    const srcFiles = [...walkFiles(SRC_ROOT, [".ts", ".tsx"])];
+    const offenders: { file: string; line: number; text: string }[] = [];
+    const forbidden = new Set([
+      "trackedPrompts",
+      "trackedEntities",
+      "observationRuns",
+      "promptAnswerObservations",
+      "dailyMetricSnapshots",
+      "outcomeEvents",
+      "candidateCauses",
+      "eventDecisions",
+    ]);
+    for (const file of srcFiles) {
+      if (file === resolve(SRC_ROOT, "storage/canonical-store.ts")) continue;
+      const src = readFileSync(file, "utf8");
+      const importRe = /import\s*\{([^}]*)\}\s*from\s*["']@\/storage\/canonical-store["']/g;
+      let m: RegExpExecArray | null;
+      while ((m = importRe.exec(src)) !== null) {
+        const before = src.slice(0, m.index);
+        const lineNo = before.split("\n").length;
+        const names = m[1]
+          .split(",")
+          .map((n) => n.trim().split(/\s+as\s+/)[0]);
+        const bad = names.filter((n) => forbidden.has(n));
+        if (bad.length > 0) {
+          offenders.push({
+            file: file.replace(REPO_ROOT, "."),
+            line: lineNo,
+            text: `forbidden: ${bad.join(", ")}`,
+          });
+        }
+      }
+    }
+    expect(
+      offenders,
+      "Phase 7.8e-2 invariant: canonical-store.ts no longer exports the " +
+        "module-level mutable arrays. Use the cached async getters instead.\n" +
+        offenders
+          .map((o) => `  ${o.file}:${o.line}  ${o.text}`)
+          .join("\n"),
+    ).toEqual([]);
   });
 });
 

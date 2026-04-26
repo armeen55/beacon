@@ -111,7 +111,7 @@ export default async function ChangeScorecardPage() {
   // The watcher above persisted the latest to disk if it ran this tick;
   // `buildUrlCitationHistory` itself is cheap enough (~100ms) to call on
   // every render. Watcher's real job is persistence + experiment metrics.
-  const urlHistory = buildUrlCitationHistory({ ownedOnly: true });
+  const urlHistory = await buildUrlCitationHistory({ ownedOnly: true });
   const today = new Date().toISOString().slice(0, 10);
   const historyRange = {
     first: urlHistory.date_range.first ?? today,

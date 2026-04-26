@@ -22,7 +22,7 @@ import {
   getCitationsForDate,
   getAllCitationDates,
 } from "@/lib/persistence/cold-store";
-import { promptAnswerObservations } from "@/storage/canonical-store";
+import { getPromptAnswerObservations } from "@/storage/canonical-store";
 import type { CitationObservation } from "@/domains/citation-observations/types";
 
 /**
@@ -128,10 +128,10 @@ export function normalizeUrl(u: string | null | undefined): string | null {
  * observations/day with ~10 citations each ≈ 100K iterations. Runs in well
  * under a second on a laptop.
  */
-export function buildUrlCitationHistory(opts?: {
+export async function buildUrlCitationHistory(opts?: {
   ownedOnly?: boolean;
   sinceDate?: string;
-}): UrlCitationHistory {
+}): Promise<UrlCitationHistory> {
   const ownedOnly = opts?.ownedOnly ?? true;
   const since = opts?.sinceDate ?? null;
 
@@ -139,6 +139,7 @@ export function buildUrlCitationHistory(opts?: {
   // output). Used by the Profound shard ingest path (native path uses
   // observation.platform directly — we're iterating observations, not
   // detached citation rows).
+  const promptAnswerObservations = await getPromptAnswerObservations();
   const paoPlatform = new Map<string, string>();
   for (const pao of promptAnswerObservations) {
     paoPlatform.set(pao.id, pao.platform);
