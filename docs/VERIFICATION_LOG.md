@@ -7,6 +7,68 @@
 
 ---
 
+## 2026-04-26 — Sprint 7 Phase 7.8d — flat fallback removed; routed dirs are sole truth; 72 flat originals moved to `.data/_legacy/`
+
+Three sub-commits this session: 7.8c (`--commit` migration; verified prior entry), 7.8d-1 (runtime fallback removal + fail-loud unknowns + 7 newly-classified stores), 7.8d-2 (flat file move to `_legacy/`), 7.8d-3 (this docs entry + commit).
+
+### What changed in 7.8d-1 (commit `c851964`)
+
+- [src/lib/persistence/json-store.ts](src/lib/persistence/json-store.ts) — removed flat-fallback branch + `[json-store] flat-fallback read` warn log; added throw on unknown scope for both `readStore` and `writeStore`; dropped now-unused `log` import. Routed reads/writes are the only successful path; misses for known stores return `[]`/caller-fallback.
+- [src/lib/persistence/dotdata-json.ts](src/lib/persistence/dotdata-json.ts) — same shape: removed flat-fallback branch + `[dotdata-json] flat-fallback read` warn log; added throw on unknown scope for both `readDotDataJson` and `writeDotDataJson`; dropped `log` import. Misses for known stores return `null`.
+- [src/lib/persistence/store-classification.ts](src/lib/persistence/store-classification.ts) — added 7 stores the fail-loud invariant exposed at runtime: `outcome-events`, `rollout-waves`, `candidate-causes`, `outcome-observations`, `visibility-observation-runs` (per-tenant arrays), `local-operator-surface` (singleton), `global-patterns` (cross-tenant). None had flat files on disk → classification is purely additive (no migration needed for them).
+- [tests/lib/persistence/json-store-routing.test.ts](tests/lib/persistence/json-store-routing.test.ts) and [dotdata-json-routing.test.ts](tests/lib/persistence/dotdata-json-routing.test.ts) — flat-fallback describe blocks replaced with `Phase 7.8d-1 — flat fallback removed` (no-fallback assertions + warn-spy proof) + `unknown stores throw fail-loud` (3 cases each: throw shape + classification-message presence + known-stores-still-work).
+- [tests/architecture/json-store-routing-invariants.test.ts](tests/architecture/json-store-routing-invariants.test.ts) — flipped: removed the "must emit `[json-store] flat-fallback read` warn log" assertion; added 6 new invariants pinning the absence of the warn log strings, presence of the throw on unknown, and absence of `resolved.flatPath` references in either helper.
+- [tests/lib/persistence/json-store-vercel.test.ts](tests/lib/persistence/json-store-vercel.test.ts) — store names retargeted to classified globals (`change-patterns`, `triage-rules`); tenants seed moved from `.data/tenants.json` (flat) to `.data/global/tenants.json` (routed) since `tenants` is now resolved through the global path.
+- [src/app/(shell)/finding-actions.test.ts](src/app/(shell)/finding-actions.test.ts) and [tests/scanning/confirm-flow.test.ts](tests/scanning/confirm-flow.test.ts) — added `vi.mock("@/lib/tenant-context", ...)` returning `currentTenantSlug: "ritz-builders"`. Without the flat fallback, `readDotDataJson("page-snapshots")` now triggers the full tenant-resolution chain in tests too.
+
+### What changed in 7.8d-2 (local-only)
+
+```bash
+mkdir -p .data/_legacy
+find .data -maxdepth 1 -type f -name '*.json' -exec mv {} .data/_legacy/ \;
+```
+
+72 flat `.data/*.json` files moved to `.data/_legacy/`:
+- 70 migrated stores (per-tenant + singleton + global, copied to routed in 7.8c).
+- 2 historical artifacts (`experiments.removed-phase4.json`, `imported-changes.backup.2026-04-16T17-13-41-166Z.json`) — never migrated; classified as unknown; would throw on read; moved with the rest to keep `.data/` root clean.
+
+`.data/` is gitignored, so the file move is local-only state; the docs entry below is the durable record.
+
+### State after 7.8d-2
+
+| Path | Files | Notes |
+|---|---|---|
+| `.data/*.json` (direct) | **0** | empty; routed-only contract |
+| `.data/_legacy/*.json` | **72** | rollback target |
+| `.data/tenants/ritz-builders/` | **55** | per-tenant + singleton routed truth |
+| `.data/global/` | **20** | cross-tenant aggregates + registry |
+| `.data/_pre-migration-hygiene/co-mention-matrix.flat.apr14.json` | **1** (273,429 bytes) | operator-created backup of the stale co-mention flat |
+
+Critical routed file checks (all pass): `daily-metric-snapshots.json` 15.9 MB, `prompt-answer-observations.json` 18.1 MB, `pages.json` 5.1 MB, `business-config.json` 502 bytes (real Ritz config), `co-mention-matrix.json` **352,765 bytes — Apr 26 / 13,946 answers, fresh routed copy preserved** (the whole reason 7.8c.1 hygiene removed the stale flat).
+
+### Verification
+
+- `npm run typecheck` — **clean**.
+- `npx vitest run tests/architecture/ tests/lib/persistence/json-store-routing.test.ts tests/lib/persistence/dotdata-json-routing.test.ts tests/tenants/isolation.test.ts` — **all green**.
+- `npx vitest run` (full) — **2330 / 2330 pass**, zero failures.
+- Manual smoke limitation: unauthenticated dev server redirects to `/login` (Supabase auth middleware at [src/lib/auth/supabase-middleware.ts](src/lib/auth/supabase-middleware.ts)). Setting `BEACON_AUTH_DISABLED=1` bypasses the gate but was not exercised end-to-end this session. Equivalent route-level coverage came from the in-suite RSC render tests ([tests/routes/today-smoke](tests/routes/today-smoke.test.ts), [changes-smoke](tests/routes/changes-smoke.test.ts), [recommendations-smoke](tests/routes/recommendations-smoke.test.ts), [pages-smoke](tests/routes/pages-smoke.test.ts), [market-smoke](tests/routes/market-smoke.test.ts), [canonical-store-fresh](tests/routes/canonical-store-fresh.test.ts)). Dev server boot was clean: zero errors, zero `flat-fallback` log strings, zero `unknown store` log strings.
+
+### Rollback
+
+```bash
+# Phase 7.8d-2 — restore flat originals as authoritative
+mv .data/_legacy/*.json .data/ && rmdir .data/_legacy
+
+# Combined with `git revert <7.8d-1 hash>` restores pre-7.8d runtime behavior.
+```
+
+### Out of scope (explicit deferrals)
+
+- `seed-data.server.ts` module-level top-level await — Phase 7.8e.
+- `backupImportedChangesOnce` in [src/domains/changelog/actions.ts:121](src/domains/changelog/actions.ts:121) hardcodes a flat `.data/imported-changes.backup.{stamp}.json` path via raw `fs.writeFile`. Bypasses json-store entirely; new backups will accumulate flat in `.data/` root again. Acceptable — this is a daily-once write, no read code consumes them outside the same function. Track for a separate cleanup when the changelog backup flow is tenantized.
+
+---
+
 ## 2026-04-26 — Sprint 7 Phase 7.8b-2-e — invariants + docs + baseline test fix
 
 Cleanup pass on the json-store async/routing migration that landed in 7.8b-2-c/d. Invariants pin the contract; one real bug surfaced in the shell-page audit; docs caught up; the long-standing `finding-actions.test.ts:213` baseline was identified as test drift (not a product issue) and corrected.

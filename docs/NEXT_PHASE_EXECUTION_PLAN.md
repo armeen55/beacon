@@ -17,6 +17,38 @@
 
 ---
 
+## Sprint 7 Phase 7.8d — COMPLETE 2026-04-26
+
+Phase 7.8d shipped in three sub-commits this session.
+
+**7.8c (`--commit` migration):** 70 flat `.data/*.json` files copied into `.data/tenants/ritz-builders/` (per-tenant + singleton) and `.data/global/` (cross-tenant aggregates). Row-count spot checks all match (`daily-metric-snapshots` 31,384 / `prompt-answer-observations` 14,096 / `pages` 6,471 / `page-element-inventory` 4,315 / `imported-results` 1,719). Mixed-tenant warnings: zero. Test pollution previously cleaned in 7.8c.1 (`brand-new-store`, routed `import-runs.json` with `tenant-test`); fresh routed `co-mention-matrix.json` (Apr 26 / 13,946 answers) preserved by removing the stale Apr-14 flat copy after backing it up to `.data/_pre-migration-hygiene/`.
+
+**7.8d-1 (runtime fallback removal):** [src/lib/persistence/json-store.ts](src/lib/persistence/json-store.ts) and [src/lib/persistence/dotdata-json.ts](src/lib/persistence/dotdata-json.ts) no longer read flat `.data/<name>.json` when the routed file is missing for a known store — they return `[]` / `null` instead. Reads and writes for **unknown** stores throw with a message naming `src/lib/persistence/store-classification.ts`. The fail-loud invariant exposed 7 production stores never classified: `outcome-events`, `rollout-waves`, `candidate-causes`, `outcome-observations`, `visibility-observation-runs` (per-tenant arrays), `local-operator-surface` (singleton), `global-patterns` (cross-tenant). All classified; none had flat files on disk so classification is purely additive. New invariants in [tests/architecture/json-store-routing-invariants.test.ts](tests/architecture/json-store-routing-invariants.test.ts) pin: no flat-fallback warn log, throw on unknown, no `resolved.flatPath` references in either helper, and the prior contract (cache key, import-runs guard).
+
+**7.8d-2 (file move):** `mkdir -p .data/_legacy && find .data -maxdepth 1 -type f -name '*.json' -exec mv {} .data/_legacy/ \;`. **72 flat `.data/*.json` files moved to `.data/_legacy/`** (the 70 migrated stores + 2 unknown historical files: `experiments.removed-phase4.json`, `imported-changes.backup.2026-04-16T17-13-41-166Z.json`). `.data/` root now has zero direct `.json` files. Routed dirs untouched. Co-mention fresh routed file preserved (verified at 352,765 bytes / Apr 26).
+
+**Verification:**
+- `npm run typecheck` — **clean**.
+- `npx vitest run` — **2330 / 2330 pass** (zero failures, was 2323/2323; gained the 7.8d-1 invariants and unknown-throws tests).
+- Manual smoke limitation: unauthenticated dev server redirects to `/login` (Supabase auth middleware), so direct route GETs were not exercised in the browser. Equivalent coverage from RSC route-render tests in vitest ([tests/routes/today-smoke](tests/routes/today-smoke.test.ts), [changes-smoke](tests/routes/changes-smoke.test.ts), [recommendations-smoke](tests/routes/recommendations-smoke.test.ts), [pages-smoke](tests/routes/pages-smoke.test.ts), [market-smoke](tests/routes/market-smoke.test.ts), [canonical-store-fresh](tests/routes/canonical-store-fresh.test.ts) — all RSC-render the actual page modules under the routed-only contract). Dev server boot logs were clean: zero errors, zero `flat-fallback` strings, zero `unknown store` strings.
+
+**Local state (gitignored — `.data/` not tracked):**
+- `.data/*.json` root: 0 files.
+- `.data/_legacy/`: 72 files (rollback target).
+- `.data/tenants/ritz-builders/`: 55 files.
+- `.data/global/`: 20 files.
+- `.data/_pre-migration-hygiene/co-mention-matrix.flat.apr14.json`: 273,429 bytes (operator-created backup; not in either layout).
+
+**Rollback (7.8d-2 file move):**
+```bash
+mv .data/_legacy/*.json .data/ && rmdir .data/_legacy
+```
+This re-exposes the flat originals. Combined with `git revert` of the 7.8d-1 commit, restores the pre-7.8d behavior end-to-end.
+
+**Phase 7.8e — APPROVED + SAFE TO START** when operator approves. Scope: lift the module-level top-level await in [src/lib/seed-data.server.ts](src/lib/seed-data.server.ts) to a request-scope helper. Phase 7.8b-2-c documented this caveat ("Phase 7.8e lifts to request-scope") in canonical-store / recommendation-response-store / outcome-store / similar.
+
+---
+
 ## Sprint 7 Phase 7.8b-2-e — COMPLETE 2026-04-26
 
 **Done:** Cleanup + invariants + docs for the json-store async/routing contract, plus the long-standing baseline test fix.

@@ -121,14 +121,21 @@ All route-critical data persists as JSON files under `.data/` via `src/lib/persi
 | **Per-tenant** (array stores carrying `tenant_id`) | `.data/tenants/<slug>/<name>.json` | `imported-changes`, `pages`, `page-snapshots`, `scan-findings`, `recommendation-responses`, `import-runs`, … |
 | **Singleton** (one row per tenant; no `tenant_id` column) | `.data/tenants/<slug>/<name>.json` | `business-config`, `connector-tokens`, `exit-gates`, `local-reviews`, `local-presence`, … |
 | **Global** (cross-tenant aggregates / shared registries / built indices) | `.data/global/<name>.json` | `tracked-prompts`, `tracked-entities`, `change-patterns`, `triage-rules`, `confidence-calibration`, `citation-evidence-index`, `answer-intelligence-index`, … |
-| **Tenant registry** | `.data/tenants.json` (flat — registry OF tenants, not data belonging to one) | `tenants` |
-| **Unknown** (legacy bridge — fail-loud in 7.8d) | `.data/<name>.json` | stores not yet classified |
+| **Tenant registry** | `.data/global/tenants.json` (the registry OF tenants, classified as global) | `tenants` |
+| **Unknown** (no classification) | throws fail-loud at the read/write boundary | — |
 
-Reads fall back to the legacy flat path with a `[json-store] flat-fallback read` warn log when the routed file is absent — keeps cold-start working during migration. Writes never fall back. The in-process cache and write-locks are keyed by resolved location (`<name>::tenant:<slug>`, `<name>::global`, `<name>::flat`), so cross-tenant cache pollution is structurally impossible. The tenant slug for per-tenant + singleton scopes is resolved through `currentTenantSlug()` in `src/lib/tenant-context.ts` (`x-beacon-tenant` request header → `BEACON_TENANT_ID` env var → throw).
+Phase 7.8d (2026-04-26) made the routed layout the sole runtime truth: there is **no flat fallback**. Reads for known stores resolve to their routed path or return `[]` / `null` when the file isn't on disk yet; reads/writes for unknown stores throw with a message naming `src/lib/persistence/store-classification.ts`. The pre-7.8d flat originals were moved to `.data/_legacy/` (local-only — `.data/` is gitignored) and remain available for emergency rollback (`mv .data/_legacy/*.json .data/ && rmdir .data/_legacy`). The in-process cache and write-locks are keyed by resolved location (`<name>::tenant:<slug>`, `<name>::global`), so cross-tenant cache pollution is structurally impossible. The tenant slug for per-tenant + singleton scopes is resolved through `currentTenantSlug()` in `src/lib/tenant-context.ts` (`x-beacon-tenant` request header → `BEACON_TENANT_ID` env var → throw).
 
-**Async surface:** Both `readStore` and `writeStore` are `async` (Sprint 7 Phase 7.8b-2-b). Every caller awaits. `tests/architecture/json-store-routing-invariants.test.ts` pins the contract — `await readStore(...)` is required, the cache must key by resolved cacheKey, and the import-runs anti-race guard (refuses to overwrite a non-empty file with `[]`) must remain in place.
+**Async surface:** Both `readStore` and `writeStore` are `async` (Sprint 7 Phase 7.8b-2-b). Every caller awaits. `tests/architecture/json-store-routing-invariants.test.ts` pins the contract — `await readStore(...)` is required, the cache must key by resolved cacheKey, the import-runs anti-race guard (refuses to overwrite a non-empty file with `[]`) must remain in place, the helpers must NOT log `[json-store] flat-fallback read` / `[dotdata-json] flat-fallback read` (7.8d-1 negation), and the helpers must NOT reference `resolved.flatPath` outside the resolver itself.
 
-**Migration phases:** 7.8a classified 100+ stores. 7.8b-1 routed `dotdata-json`. 7.8b-2-a/b/c/d routed `json-store` + cascaded the async signature through every caller. 7.8c will run `--commit` to physically move existing flat files into the routed layout. 7.8d will move flat-fallback files to `_legacy/` and flip unknown-scope to fail-loud. 7.8e will lift `seed-data.server.ts`'s top-level await to request-scope.
+**Migration phases:**
+- 7.8a / 7.8a.1 classified 100+ stores into per-tenant / singleton / global / unknown.
+- 7.8b-1 routed `dotdata-json`; 7.8b-2-a–d converted `readStore` / `writeStore` to async + tenant-aware and cascaded the async signature through every caller.
+- 7.8b-2-e added 6 architectural invariants pinning the contract.
+- 7.8c ran `--commit` to physically copy 70 flat files into `.data/tenants/<slug>/` + `.data/global/`.
+- 7.8c.1 cleaned test pollution and preserved a freshly-rebuilt routed `co-mention-matrix.json` against migration-overwrite.
+- **7.8d (this section's contract): COMPLETE.** Flat fallback removed; unknown stores throw; the 72 flat originals moved to `.data/_legacy/`; routed dirs are sole runtime truth.
+- 7.8e (next): lift `seed-data.server.ts`'s top-level await to request-scope.
 
 ### Optional: Supabase dual-write
 
