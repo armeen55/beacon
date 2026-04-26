@@ -98,6 +98,17 @@ export const TENANT_SCOPED_STORES = new Set<string>([
   "candidate-causes", // canonical-store per-tenant cause-candidate array
   "outcome-observations", // per-tenant outcome-watch row array
   "visibility-observation-runs", // per-tenant visibility import runs (disk-backed)
+  // Phase 7.8e-4b follow-up (2026-04-26) — production build prerender of
+  // `/settings/health` (which re-exports `/diagnostics`) failed on Vercel
+  // because these two stores were referenced by runtime code paths but
+  // missing from every classification Set. Pre-7.8d-1 the flat-fallback
+  // hid the misconfiguration; post-7.8d-1 it throws fail-loud. Both rows
+  // are conceptually per-tenant (answer-snapshots references per-tenant
+  // prompt_ids; frontier-opportunities is computed per-tenant from a
+  // tenant's pages and citations). Single-operator Ritz today, so any
+  // classification routes correctly; per-tenant matches future scaling.
+  "answer-snapshots",
+  "frontier-opportunities",
 ]);
 
 export const SINGLETON_STORES = new Set<string>([
