@@ -212,8 +212,16 @@ export async function runWebsiteScan(opts: {
   log.info("Scan step", { runId, step: "cli_spawn", cmd: SCAN_CLI_CMD });
 
   const scanDomain = resolveBeaconSiteDomainForScan();
+  // Phase 7.7e (2026-04-25): explicit BEACON_TENANT_ID injection.
+  // The spawned CLI (scripts/scan-owned-pages.ts) requires the env var
+  // (Phase 7.5d fail-loud). Until now we relied on implicit inheritance
+  // via `...process.env`; making it explicit hardens the contract so
+  // a future caller who runs `runWebsiteScan` from a context where
+  // process.env.BEACON_TENANT_ID is not set still propagates the
+  // resolved tenantId from currentTenantId() — header → env → throw.
   const execEnv: NodeJS.ProcessEnv = {
     ...process.env,
+    BEACON_TENANT_ID: tenantId,
     NODE_NO_WARNINGS: "1",
     NODE_TLS_REJECT_UNAUTHORIZED: "0",
   };
