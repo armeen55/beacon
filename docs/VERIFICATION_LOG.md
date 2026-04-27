@@ -7,6 +7,176 @@
 
 ---
 
+## 2026-04-27 — Recommendation Lifecycle OS — Phase 2 (pure match engine)
+
+Phase 2 ships the pure-function match engine that compares an accepted `recommended_edit` against a fresh `page_element_inventory` snapshot and emits a `MatchResult`. **Zero I/O. Zero DB. Zero scan triggers. Zero UI. Zero migrations. Zero provider calls.** Phase 3 will wire this engine into the scan dual-write block; until then the engine is consumed only by tests.
+
+### Files added (8)
+
+| File | Purpose |
+|---|---|
+| `src/domains/recommendations/match-engine/types.ts` | `MatchResult` / `MatchOutcome` / `MatchConfidence` / `MatchKind` unions, `MatchInputs`, `OtherUrlInventory`, `ACTION_THRESHOLDS` table per spec §3.2, `SUPPORTED_ACTION_TYPES` list |
+| `src/domains/recommendations/match-engine/normalize-text.ts` | Canonical `normalizeText()` per spec §3.3 — NFC + smart-quote folding + em/en/minus dash → hyphen-minus + NBSP/unicode-whitespace → space + whitespace collapse + trim + opt terminal-punct strip + opt lowercase. Plus `normalizeTextBoth()` convenience returning {exact, folded} together |
+| `src/domains/recommendations/match-engine/similarity.ts` | `tokenize()` (Unicode-aware), `jaccard()`, `levenshtein()` (two-row DP), `similarity()` = `max(tokenJaccard, 1 − lev/maxLen)` per spec §3.5 |
+| `src/domains/recommendations/match-engine/per-action-matchers.ts` | `matchSingleton()` (title/meta/h1) · `matchPositional()` (h2 + h2 wrong-page detection) · `matchSchemaType()` · `matchInternalLink()` (anchor + href dual-signal) · `pathMatches()` URL helper · shared `interpretBest()` thresholds-to-outcome translator |
+| `src/domains/recommendations/match-engine/faq-pair.ts` | `matchFaqPair({ questionEdit, answerEdit, currentInventory })` reconciles Q+A pairs → both verified_live, both partially_implemented (one matched + one missing), or both needs_review |
+| `src/domains/recommendations/match-engine/index.ts` | `matchAcceptedEdit(inputs): MatchResult` — orchestrator dispatching on `edit.action_type`. Re-exports for the (Phase 3) runner |
+| `src/domains/recommendations/match-engine/match-engine.test.ts` | 44 functional tests across normalizer / similarity / singletons / positional / wrong-page / faq-pair / schema / internal_link / unsupported / mutation invariance |
+| `tests/architecture/match-engine-purity.test.ts` | 23 invariants pinning the engine's purity contract (no `readDotDataJson`, `dualWrite*`, `getRepository`, `currentTenantId`, `next/cache`, `openai`, `anthropic`, `server-only`, `getSupabaseAdmin`, etc.; persistence module imports must be type-only) |
+
+### `MatchResult` type (locked)
+
+```ts
+type MatchOutcome =
+  | "verified_live" | "verified_live_modified"
+  | "needs_review" | "wrong_page"
+  | "partially_implemented" | "not_found";
+
+type MatchConfidence = "high" | "medium" | "low";
+
+type MatchKind =
+  | "exact" | "modified" | "key_only" | "text_only"
+  | "wrong_page" | "structural_partial" | "unsupported" | "none";
+
+type MatchResult = {
+  outcome: MatchOutcome;
+  confidence: MatchConfidence;
+  kind: MatchKind;
+  similarity?: number;        // [0,1], present when a candidate was scored
+  matchedElementKey?: string; // page_element_inventory.element_key
+  matchedElementText?: string;
+  matchedUrl?: string;        // only set when kind === "wrong_page"
+  reason?: string;            // operator-readable; never parsed downstream
+};
+```
+
+`not_found_after_7d` is intentionally NOT in this union — the pure engine has no clock. The (Phase 3) runner promotes `not_found` → `not_found_after_7d` by joining `accepted_at` against the current scan time.
+
+### Normalization behavior (locked, idempotent)
+
+`normalizeText(input, { lowercase?, stripTerminalPunctuation? })` runs 7 deterministic steps in fixed order:
+
+1. NFC unicode normalize
+2. Smart quotes (`U+2018`–`U+201F`) → straight
+3. Em / en / figure / minus dashes (`U+2013` `U+2014` `U+2015` `U+2212`) → ASCII hyphen-minus
+4. NBSP + unicode-whitespace classes (`U+00A0`, `U+2000`–`U+200A`, `U+202F`, `U+205F`, `U+3000`) → regular space
+5. All whitespace runs (incl. `\t` `\n` `\r`) → single space
+6. Trim leading/trailing
+7. (default ON) strip terminal `.!?` runs · (opt) lowercase
+
+Idempotent: `normalizeText(normalizeText(x)) === normalizeText(x)`. Zero throws.
+
+### Per-action matching behavior
+
+| `action_type` | Element source | HIGH-exact | HIGH-modified | MEDIUM | LOW |
+|---|---|---|---|---|---|
+| `edit_title` | `title` (singleton) | normalized text exact | sim ≥ 0.85 | sim ≥ 0.5 | sim < 0.5 |
+| `edit_meta` | `meta` (singleton) | exact | sim ≥ 0.85 | sim ≥ 0.5 | sim < 0.5 |
+| `change_h1` | `h1` (singleton) | exact | sim ≥ 0.85 | sim ≥ 0.5 | sim < 0.5 |
+| `add_h2_section` / `rewrite_h2` | `h2` (positional, max-score) | exact | sim ≥ 0.7 | sim ≥ 0.5 | sim < 0.5 |
+| `add_faq` (Q leg) / `rewrite_faq` (Q leg) | `faq_question` (positional) | exact | sim ≥ 0.85 | sim ≥ 0.7 | sim < 0.7 |
+| `add_faq` (A leg) / `rewrite_faq` (A leg) | `faq_answer` (positional) | exact | sim ≥ 0.85 | sim ≥ 0.7 | sim < 0.7 |
+| `add_internal_link` | `internal_link` (anchor + `metadata.href`) | anchor exact AND href exact | anchor exact OR href exact | anchor sim ≥ 0.5 (no href) | sim < 0.5 |
+| `add_schema` / `fix_schema` | `schema_type` (lookup by name) | type name exact OR suffix-match in `element_text` | n/a (binary present/absent) | n/a | not present |
+| Anything else (`split_page`, `watch`, `add_table`, etc.) | n/a | n/a | n/a | n/a | `not_found` + `kind: "unsupported"` |
+
+**Wrong-page detection** (positional matchers only): consulted ONLY when target URL produces `not_found`. Searches `otherUrlInventories[]` for an off-page candidate matching ≥ HIGH-modified threshold; if found, returns `wrong_page` with `matchedUrl`. Same-URL aliases (trailing-slash variants) are skipped via `pathMatches()`. On-target match — even MEDIUM — always wins over off-target match.
+
+**FAQ pair reconciliation** (`matchFaqPair`):
+- Both legs `verified_live*` → as-is per leg.
+- One leg live, other not → BOTH legs become `partially_implemented` with `kind: "structural_partial"`.
+- One leg `needs_review`, other `not_found` → BOTH go to `needs_review`.
+- `wrong_page` on either leg short-circuits — preserved as-is.
+- Both `not_found` → both stay `not_found`.
+
+### Confidence thresholds — design rationale
+
+The 0.85 modified threshold for singletons (title/meta/h1) is intentionally strict because there's only ONE element on the page — false-modified flips can't be averaged out across multiple candidates. The 0.7 modified threshold for `add_h2_section` / `rewrite_h2` is looser because positional matchers compute MAX similarity across N H2 candidates and select the best — the higher selection power tolerates a lower per-candidate threshold. The 0.85 modified + 0.7 medium pair for FAQ is even stricter because FAQ Qs and As are often paraphrased significantly during implementation; a 0.7 floor prevents needs_review noise on coincidental keyword overlap.
+
+### Tests added (67 total — 44 functional + 23 architecture)
+
+`match-engine.test.ts` (44):
+
+- **normalize-text (10):** NFC compose · smart double quote · smart single quote · em/en/minus dash · NBSP collapse · whitespace trim · terminal punct strip · stripTerminalPunctuation:false · lowercase opt · idempotent · normalizeTextBoth shape
+- **similarity (5):** tokenize splits + drops empties · jaccard identical/disjoint/empty · levenshtein known distances (kitten/sitting=3, flaw/lawn=2, empty=N) · similarity(x,x)=1 + both empty=1 · long-string fuzzy ≥ 0.85 for 1-char typo
+- **singletons (8):** title HIGH exact · title case-mismatch → modified at sim=1 · title smart-quote drift HIGH exact · title NBSP/double-space HIGH exact · title trailing-period HIGH exact · title medium → needs_review · title no-candidate → not_found · meta HIGH exact · h1 HIGH modified (preposition swap)
+- **add_h2_section (6):** HIGH exact among N · HIGH modified at one-word swap · MEDIUM at boundary · not_found · wrong_page on off-URL match · same-URL alias NOT flagged as wrong_page · on-target wins over off-target
+- **faq-pair (5):** both Q+A live · Q live A missing → both partial · A live Q missing → both partial · both missing → both not_found · both modified → both verified_live*
+- **schema + links + unsupported (5):** add_schema HIGH exact · add_schema not_found · add_internal_link HIGH exact (anchor+href) · add_internal_link HIGH modified (anchor only) · unsupported action_type
+- **purity (2):** does NOT mutate frozen inputs · deterministic identical inputs
+
+`match-engine-purity.test.ts` (23): 21 forbidden-import patterns (readDotDataJson, writeDotDataJson, readStore, writeStore, dualWrite\*, syncRecommendedEdits, syncChangelogEntries, @supabase, getSupabaseAdmin, getRepository, repositories, server-only, "use server", next/cache, openai, anthropic-ai, providers/, seed-data.server, currentTenantId, currentTenantSlug, @/lib/logger) + 2 source-discovery / persistence-type-only-import checks.
+
+### Architecture invariant result
+
+✅ 23/23 — all forbidden patterns absent across the 6 match-engine source files. Persistence-module imports are type-only. Engine has no logger import (callers log; engine returns `reason` strings).
+
+### Verification
+
+| Gate | Result |
+|---|---|
+| `npm run typecheck` | ✅ clean |
+| Targeted (`match-engine.test.ts` + `match-engine-purity.test.ts`) | ✅ 67/67 |
+| `npx vitest run tests/architecture/` | ✅ 118/118 (was 95 + 23 new) |
+| Full `npx vitest run` | ✅ **2749/2749** (was 2682 + 67 new) |
+| `rm -rf .next && npm run build` | ✅ green |
+| Vercel-equivalent build | ✅ green |
+| Operator data integrity post-restore | ✅ milestone-state value=321 (real, not stub); 11 recommended-edits rows intact |
+
+Used the safer Vercel-equivalent restore sequence this time: `mv .data /tmp/beacon-data-phase2 && BEACON_TENANT_ID=... npm run build && rm -rf .data && mv /tmp/beacon-data-phase2 .data`. The trick from the Phase 1 footgun: `rm -rf .data` **before** moving the backup back so the build's auto-recreated `.data/` stub doesn't catch the move.
+
+### Phase 1 caveat — explicit revisit before Phase 3 wiring
+
+The user flagged in Phase 1 approval: `markRecommendedEditsAccepted` is best-effort — failure does not fail Accept. This means a partial state is possible:
+
+- `recommendation_responses.status = 'accepted'` ✓
+- N `changelog_entries` rows created ✓
+- `recommended_edits.implementation_status` still `'recommended'` for the affected rows ✗
+
+Phase 3 will introduce a scan-side runner that filters `recommended_edits` by `implementation_status = 'accepted'` and runs the match engine against each. The orphaned-edit case would be silently invisible to the runner — the operator's Accept would never produce a verified-live signal because the row was never marked accepted to begin with.
+
+**Two viable fixes (decide before Phase 3 wiring):**
+
+1. **Transactional Accept** — wrap the changelog fan-out + `markRecommendedEditsAccepted` in a single transaction. If the lifecycle flip fails, the changelog entries are rolled back and Accept fails-loud. Pros: bulletproof consistency. Cons: requires a real transaction layer (file-store + Supabase straddle is non-trivial); a partial dual-write that succeeded locally but failed remotely would still need reconciliation.
+
+2. **Reconciliation pass in the match runner** — at the start of each scan, find `recommended_edits` whose `rec_id` matches an `accepted` row in `recommendation_responses` AND whose `implementation_status = 'recommended'`, and silently flip them to `accepted`. Pros: dead-simple, idempotent, repairs both past and future drift. Cons: lifecycle state becomes derived rather than authoritative.
+
+**Recommendation:** Phase 3 plan should adopt option 2 (reconciliation pass) — it's strictly safer (handles past drift too) and avoids the file-vs-Supabase transaction complexity. Lock this decision in the Phase 3 spec before any code lands.
+
+### Whether Phase 3 scan wiring is safe to start next
+
+**YES**, with the following pre-conditions:
+
+- The Phase 1 caveat (above) is closed — pick one of the two fixes; recommendation = option 2.
+- The Phase 3 plan documents the runner's exact behavior at the scan dual-write block (locked: which step in `orchestrate-scan.ts`, what happens on engine error, idempotency contract for re-runs).
+- A `BEACON_LIFECYCLE_ENABLED` env flag gates the runner so we can ship behind a flag and dogfeed before flipping on.
+- Phase 4 (verdict engine reads `live_at`) is NOT bundled into Phase 3 — keep the lifecycle flip and the attribution change separable.
+
+### Operator next action
+
+Sign off Phase 2 by adding to `.data/exit-gates.json`:
+
+```json
+"lifecycle_os_phase2": {
+  "status": "passed",
+  "notes": "Reviewed match engine purity + per-action behavior on <date>",
+  "recordedAt": "<ISO timestamp>"
+}
+```
+
+That gate authorizes Phase 3 (scan-side runner — first phase that mutates production lifecycle state on a real scan).
+
+### Phase 3 preview
+
+- **Scope:** Wire `matchAcceptedEdit` into `orchestrate-scan.ts` after `regenerateScanFindings`. Add a runner module `src/domains/recommendations/match-engine/run-against-scan.ts` that reads accepted `recommended_edits`, fetches latest `page_element_inventory` per target URL, calls the pure engine, and writes `implementation_status` + `live_at` + `live_*` columns. Behind `BEACON_LIFECYCLE_ENABLED=1` env flag — default OFF.
+- Reconciliation pre-pass per the Phase 1 caveat fix.
+- 7-day promotion: `accepted` rows with `created_at` ≥ 7 days old AND no match this scan → `not_found_after_7d`.
+- **Files added:** `src/domains/recommendations/match-engine/run-against-scan.ts` + tests. **Files modified:** `src/domains/scanning/orchestrate-scan.ts` (one new call), `src/lib/flags.ts` (new flag).
+- **Risk:** Medium. First phase that mutates production lifecycle state. Mitigation: env-flag gate + idempotent runner + reconciliation pass + dogfeed cycle before flip-on.
+- **Recommended capability:** Max (Opus). First production-mutating phase of the lifecycle OS — care matters.
+
+---
+
 ## 2026-04-27 — Recommendation Lifecycle OS — Phase 1 (lifecycle schema + accepted status)
 
 Phase 1 of the Recommendation Lifecycle OS shipped a small nullable lifecycle schema migration + the first state transition (`recommended` → `accepted`) on accept. **No match engine, no attribution change, no UI surface change, no scan trigger.** Phase 1 only ships the SHAPE that Phases 2–4 will populate.
