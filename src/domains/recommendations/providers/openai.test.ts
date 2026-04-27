@@ -404,6 +404,75 @@ describe("openai provider — failure modes return empty bundle (no throw)", () 
   });
 });
 
+// ── Sprint 6A.2f follow-up — system prompt content is pinned ────────────
+
+describe("openai provider — system prompt hardening (Sprint 6A.2f)", () => {
+  // Read the source file directly so the tests pin the prompt text
+  // without exporting it (keeping the public API surface minimal).
+  // If the prompt is restructured we want this test to fail loud so
+  // the operator re-reviews the safety contract.
+  const fs = require("node:fs") as typeof import("node:fs");
+  const path = require("node:path") as typeof import("node:path");
+  const PROVIDER_PATH = path.resolve(
+    __dirname,
+    "openai.ts",
+  );
+  const providerSrc = fs.readFileSync(PROVIDER_PATH, "utf8");
+
+  it("instructs the model to copy promptIds verbatim (full UUID)", () => {
+    expect(providerSrc).toMatch(/FULL UUID/);
+    expect(providerSrc).toMatch(/copied verbatim/);
+  });
+
+  it("explicitly forbids abbreviating / truncating promptIds", () => {
+    // The abbreviation guard wording — caught the live --write bug
+    // where the model truncated UUIDs to first-8-hex.
+    expect(providerSrc).toMatch(
+      /abbreviated.*truncated|first 8 hex|first 8 characters/i,
+    );
+  });
+
+  it("includes a good and bad UUID example", () => {
+    // Pin the example so future edits keep the demonstrate-by-contrast
+    // teaching moment in place.
+    expect(providerSrc).toMatch(/GOOD:\s*"promptId":"[0-9a-f]{8}-/);
+    expect(providerSrc).toMatch(/BAD\s*:\s*"promptId":"[0-9a-f]{8}"/);
+  });
+
+  it("requires proposedText to be final website-ready copy when possible", () => {
+    expect(providerSrc).toMatch(/final website-ready copy/);
+  });
+
+  it("forbids meta-instructional proposedText phrasings", () => {
+    // The exact phrases observed in the dry-run that the operator
+    // flagged as not-final-copy. Keeping them in the test pins the
+    // anti-pattern.
+    expect(providerSrc).toMatch(/this section should explain/);
+    expect(providerSrc).toMatch(/include a clear statement/);
+    expect(providerSrc).toMatch(/outline common scopes/);
+  });
+
+  it("distinguishes edit_title (HTML <title>) from change_h1 (visible H1)", () => {
+    // [\s\S] spans newlines (some TS targets reject the /s flag, see
+    // 6A.2a config-test fix for the same workaround).
+    expect(providerSrc).toMatch(/edit_title[\s\S]*<title>/);
+    expect(providerSrc).toMatch(/change_h1[\s\S]*visible on-page H1/);
+    // The mismatch warning the validator catches.
+    expect(providerSrc).toMatch(/element_type[\s\S]*actionType[\s\S]*mismatch/i);
+  });
+
+  it("preserves the prior 8 rules + adds rule 9, 10, 11", () => {
+    // Pre-existing rules — quick smoke that we didn't truncate them.
+    expect(providerSrc).toMatch(/HARD RULES:/);
+    expect(providerSrc).toMatch(/1\. actionType MUST be one of allowedActionTypes/);
+    expect(providerSrc).toMatch(/8\. \*\*targetElement is REQUIRED/);
+    // New rules from this fix.
+    expect(providerSrc).toMatch(/9\. \*\*evidence\[\]\.promptId MUST/);
+    expect(providerSrc).toMatch(/10\. \*\*edit_title vs change_h1/);
+    expect(providerSrc).toMatch(/11\. \*\*proposedText must be final/);
+  });
+});
+
 describe("estimateCost — public for budget gate in 6A.2c", () => {
   it("computes gpt-5-mini cost from input + output tokens", () => {
     // 1M in × $0.25 + 1M out × $2.0 = $0.25 + $2.00 = $2.25

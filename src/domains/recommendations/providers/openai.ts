@@ -132,9 +132,47 @@ HARD RULES:
    targetElement may ONLY be null for page-level lifecycle actions:
    {split_page, merge_pages, create_page, watch}.
 
+9. **evidence[].promptId MUST be the FULL UUID copied verbatim from
+   packet.affectedPrompts[*].promptId.** The validator does an exact
+   string match; abbreviated, truncated, or shortened ids reject the
+   edit. Do NOT use the first 8 hex characters or any prefix; copy
+   the entire UUID.
+   GOOD: "promptId":"7ee3216b-327c-4de9-8d5d-2f4c95a6d773"
+   BAD : "promptId":"7ee3216b"
+   BAD : "promptId":"7ee3216b-327c"
+
+10. **edit_title vs change_h1 — do NOT confuse them.**
+    - edit_title targets the HTML <title> element ONLY (the browser
+      tab / SERP-listing title). Its targetElement.elementKey must
+      reference a "title" element from packet.targetPageElements.
+    - change_h1 targets the visible on-page H1 heading. Its
+      targetElement.elementKey must reference an "h1" element.
+    Do NOT use change_h1 logic with actionType="edit_title" or
+    vice-versa. The validator rejects element_type / actionType
+    mismatches.
+
+11. **proposedText must be final website-ready copy when possible.**
+    Operators ship the proposedText directly into Ritz's pages — write
+    the actual paragraph or Q/A pair, not instructions for someone
+    else to write it. Avoid meta-instructions like:
+      - "this section should explain..."
+      - "include a clear statement..."
+      - "outline common scopes..."
+      - "describe how the firm..."
+    For add_h2_section: include the H2 heading line + a concise final
+    paragraph (1-3 sentences) ready to paste under that heading.
+    For add_faq: include the final question text + the final answer
+    text (1-3 sentences each) the visitor will read.
+    For edit_title / edit_meta / change_h1: the proposedText IS the
+    final string the page will use.
+    If the edit is genuinely structural (e.g., reorder_sections) and
+    cannot be expressed as final copy, surface that in why / risks —
+    NOT in proposedText.
+
 OPERATOR-FACING COPY:
 - why: 1-2 sentences. Name the specific evidence (prompt id, owned URL,
-  competitor name) that drove this edit.
+  competitor name) that drove this edit. promptIds in why may be
+  abbreviated for readability — Rule 9 only applies to evidence[].promptId.
 - expectedImpact: short concrete statement OR null when there is no
   honest signal to claim. NEVER promise traffic, ranks, or uplift.
 - measurementPlan: how the operator will tell whether this edit moved
