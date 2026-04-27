@@ -17,6 +17,85 @@
 
 ---
 
+## Sprint 6A.3 — COMPLETE 2026-04-26
+
+Phase 6A.3 added cost observability + runaway protection to the native polling pipeline across 5 sub-commits. **Zero quality reduction:** no model change, no output cap change, no prompt change, no cadence change, no batching/grouping/caching, full coverage preserved.
+
+**6A.3a (`d57d3ca`)** — pricing helper + provider usage capture. New `src/lib/cost/pricing.ts` with per-(provider,model) rate tables (verified 2026-04-26). OpenAI client counts `output[].type==="web_search_call"` items + reads `usage.{input_tokens,output_tokens}`. Perplexity client reads `usage.{prompt_tokens,completion_tokens}`. Conservative unknown-model fallback uses the most-expensive-in-family rates so a future model rename never silently bills $0.
+
+**6A.3b (`fb48e7f`)** — daily/monthly/per-run budget helpers. `src/lib/cost/budget.ts` daily cap default bumped $5 → $10. New `src/lib/cost/monthly.ts` with `checkMonthlyBudget({ tenantId?, now? })` — global default; per-tenant via opts. New `checkPerRunBudget(accumulatedUsd)` for mid-chunk runaway cap. `percent` field on every check for richer cron logging. Path resolution lifted to call-time so tmpdir-cwd tests are hermetic.
+
+**6A.3c (`ae17d52`)** — poll-loop wiring. `pollPerplexityForTenant` (the shared loop for both Perplexity and ChatGPT-via-OpenAI native polls) gained:
+- Pre-flight `checkTenantBudget` + `checkMonthlyBudget` BEFORE any provider call
+- Mid-run `checkPerRunBudget(runningCostUsd)` BEFORE each `client.sample()`
+- Post-call `estimatePromptCost` + `recordSpend` (wrapped in try/catch for read-only Vercel FS)
+- Result extended with `cost: { totalUsd, inputTokens, outputTokens, webSearchCalls, promptsCompleted, promptsSkippedBudget }`, `skipReason: "budget_blocked" | "per_run_blocked" | null`, `budgetReason: string | null`
+- `ObservationRun.status` enum unchanged (`"completed" | "partial" | "failed"`); `skipReason` distinguishes "partial because errors" from "partial because budget"
+
+**6A.3d (`4e8b578`)** — kill switch + dedupe + route response pin.
+- `BEACON_POLL_DISABLED` env (truthy: `1`/`true`/`yes`/`on`) → route returns 200 + `{ status: "disabled", reason }` without invoking `runNativePoll`. **Auth still enforced** — kill switch placed AFTER the bearer check.
+- Identical-text dedupe in the poll loop. Normalization: `text.trim().toLowerCase()` (exact, NOT fuzzy, NOT cross-day). First occurrence pays; subsequent matches skip the provider call, log `DEDUP_SKIPPED`, increment `promptsDeduped`.
+- Route response shape pinned by tests: `cost`, `skipReason`, `budgetReason`, and `cost.promptsDeduped` are all visible in the JSON payload.
+
+**6A.3e** — architecture invariants + docs sync.
+- New `tests/architecture/cost-controls.test.ts` (21 tests) pins:
+  - Poll adapter imports + calls `estimatePromptCost`, `checkTenantBudget`, `checkPerRunBudget`, `recordSpend`, `checkMonthlyBudget`
+  - Adapter contains `BUDGET_BLOCKED` / `PER_RUN_BLOCKED` / `DEDUP_SKIPPED` log markers + the dedupe normalization (`.trim().toLowerCase()`)
+  - Route checks `BEACON_POLL_DISABLED` BEFORE `runNativePoll`; auth check appears BEFORE the kill switch
+  - Only `src/lib/cost/budget.ts` writes `cost-ledger.json`; `monthly.ts` reads but doesn't write; no other source file mutates it
+  - Existing 6A.2d / 7.8e safety pins (openai provider Vitest+Vercel guards; `BEACON_TENANT_SLUG` fallback) remain in source
+
+### Operator-locked env vars (Sprint 6A.3 plan)
+
+| Env | Default | Purpose |
+|---|---|---|
+| `BEACON_DAILY_BUDGET_USD_PER_TENANT` | $10 | Daily per-tenant cap (`src/lib/cost/budget.ts`) |
+| `BEACON_DAILY_BUDGET_GLOBAL_USD` | $20 | Daily global cap (`src/lib/cost/budget.ts`, unchanged from prior) |
+| `BEACON_MONTHLY_BUDGET_USD` | $200 | Monthly cap (`src/lib/cost/monthly.ts`) |
+| `BEACON_PER_RUN_BUDGET_USD` | $5 | Per-chunk runaway cap (`src/lib/cost/budget.ts`) |
+| `BEACON_POLL_DISABLED` | unset | Kill switch (truthy: `1`/`true`/`yes`/`on` case-insensitive) |
+
+### What this phase explicitly did NOT do
+
+- ❌ No model change (gpt-4o + sonar unchanged)
+- ❌ No `max_output_tokens` reduction (Perplexity stays 2048; OpenAI uncapped as today)
+- ❌ No prompt-text change in either client
+- ❌ No system prompt added/modified
+- ❌ No cadence reduction (daily polls preserved)
+- ❌ No prompt tiering / batching / grouping / cross-day caching
+- ❌ No silent skips — every skip emits a structured warn line + counter
+
+### Vercel caveat
+
+`recordSpend` writes to `.data/cost-ledger.json` via `writeFileSync`. Vercel's serverless lambda has read-only FS — the write throws on hosted, caught by the try/catch wrapper, logs a non-fatal warn line.
+
+- **Local CLI runs:** ledger persists; pre-flight gates see accumulated spend across runs and gate correctly.
+- **Hosted Vercel runs:** ledger is non-persistent across requests; pre-flight gates always see "$0 spent" and never block. **Hosted budget enforcement is not durable yet.** OpenAI account-level quota remains the runaway-protection floor on Vercel.
+
+**Future phase candidate:** move polling cost ledger to Supabase (`cost_ledger_entries` table) for durable hosted state. Architecture is ready — `cost/budget.ts` only needs to swap its disk read/write for a Supabase upsert. Out of 6A.3 scope.
+
+### Verification
+
+- `npm run typecheck` — clean
+- `npx vitest run` — **2572 / 2572** (was 2456 entering 6A.3; +116 net new across pricing + budget + monthly + poll-cost + dedupe + route + architecture)
+- `npm run build` — green with `.data` present
+- Vercel-equivalent build (`mv .data /tmp; BEACON_TENANT_ID=tenant-ritz-founder BEACON_TENANT_SLUG=ritz-builders npm run build`) — green
+- Production `.data/cost-ledger.json` confirmed empty after full vitest run
+
+### Recommended next phase (operator decision)
+
+Three candidates:
+
+1. **Sprint 6A.2f — first live `--write` of LLM-generated edits.** Requires (a) restoring OpenAI quota / swapping to a funded key, (b) one successful `--limit=1 --provider=openai` dry-run that produces useful edits, (c) operator review. Highest-signal path if dogfeed quality holds.
+
+2. **Sprint 6A.4 — Supabase polling cost ledger.** Moves `cost_ledger_entries` to a durable backing store so hosted Vercel pre-flight gates actually enforce. Mostly mechanical: extend `cost/budget.ts` with a Supabase write path behind a `DATA_SOURCE=supabase` branch. Recommended only if hosted runaway is a concrete risk; OpenAI quota currently provides the floor.
+
+3. **Sprint 7.9 — multi-tenant onboarding flow.** Waits on a confirmed second tenant. Architecture is ready (Phase 7.8e-4 invariants + env-fallback); this is product surface, not infrastructure.
+
+**Recommended capability for the next step:** Max for 6A.2f (first-money-call pre-flight + verification log). Balanced for 6A.4 / 7.9 (mechanical from established patterns).
+
+---
+
 ## Sprint 7 Phase 7.8e — COMPLETE 2026-04-26
 
 Phase 7.8e shipped in seven sub-commits this session: **7.8e-1 → 7.8e-2 → 7.8e-3 → 7.8e-4a → 7.8e-4b → 7.8e-4c → 7.8e-4d**. Plus two deploy-fix commits along the way that surfaced as the cascade hit production prerender + Vercel runtime: store-classification gap (`answer-snapshots` + `frontier-opportunities`) and the `currentTenantSlug` env-fallback for environments where the gitignored `.data/global/tenants.json` isn't on disk.

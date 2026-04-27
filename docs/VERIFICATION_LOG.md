@@ -46,13 +46,31 @@ Phase 6A.3 added cost tracking + budget caps + a kill switch + identical-prompt 
 - **Conservative pricing fallback:** unknown models in `estimatePromptCost` fall back to the most-expensive-in-family rates so a future model rename never silently bills at $0.
 - **Hermetic test pattern:** every test that touches the cost ledger uses `mkdtempSync` + `process.chdir(tmpdir)`. Verified clean — `.data/cost-ledger.json` does not exist after a full vitest run. Path resolution in `cost/budget.ts` and `cost/monthly.ts` lifted from module-level `const` to call-time functions to support this.
 
-### Verification (cumulative across 6A.3a-d)
+### Verification (cumulative across 6A.3a-e)
 
 - `npm run typecheck` — clean
-- `npx vitest run` — **2551 / 2551 pass** (was 2456 entering 6A.3; +95 net new across pricing + budget + monthly + poll-cost + dedupe + route)
+- `npx vitest run` — **2572 / 2572 pass** (was 2456 entering 6A.3; +116 net new across pricing + budget + monthly + poll-cost + dedupe + route + architecture invariants)
 - `npm run build` — green with `.data` present
 - Vercel-equivalent build (`mv .data /tmp; BEACON_TENANT_ID=… BEACON_TENANT_SLUG=… npm run build`) — green; LLM never reached at build
 - Production `.data/cost-ledger.json` confirmed empty after full vitest run
+
+### 6A.3e — architecture invariants pinned
+
+`tests/architecture/cost-controls.test.ts` (21 tests) locks the wiring so a future refactor can't silently drop:
+- Poll adapter imports + calls `estimatePromptCost`, `checkTenantBudget`, `checkPerRunBudget`, `recordSpend`, `checkMonthlyBudget`
+- Adapter contains the `BUDGET_BLOCKED` / `PER_RUN_BLOCKED` / `DEDUP_SKIPPED` log markers + dedupe normalization
+- Route checks `BEACON_POLL_DISABLED` BEFORE `runNativePoll`; auth check appears BEFORE the kill switch (no auth bypass)
+- Only `src/lib/cost/budget.ts` writes `cost-ledger.json`; `monthly.ts` reads but doesn't write; no other source file mutates it
+- Existing 6A.2d (openai provider Vitest+Vercel guards) and 7.8e (`BEACON_TENANT_SLUG` env fallback) safety pins remain green
+
+### Sprint 6A.3 status: CLOSED
+
+All four operator priorities satisfied:
+- ✓ Same or better quality than Profound (no model/output/prompt/cadence change)
+- ✓ Maximum extraction (full schema-v2 extraction preserved)
+- ✓ Daily full-native continues (no scope reduction)
+- ✓ Cost is observable + capped without suppression (caps set high; never blocks normal operation)
+- ✓ No silent skips — every skip emits a structured log line + counter
 
 ---
 
