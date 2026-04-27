@@ -328,6 +328,15 @@ export function buildPacketForRec(
     primarySummaries,
     ownedPageInventory: context.pageInventory,
     pageElementInventory,
+    // Sprint 6A.2g.A (2026-04-26) — strict target alignment. The
+    // page-intent resolver runs before prioritization (load-queue step
+    // 6) and stamps `rec.resolution.targetUrl` on every queued rec.
+    // Threading it here forces `allowedTargetUrls` to anchor the LLM
+    // to the rec's resolved page (or `needs_new_page` for create/page-
+    // level recs). Falls back to `null` only if the resolver was
+    // skipped, preserving the legacy candidate-set behavior for
+    // graceful degradation.
+    singleTargetUrl: rec.resolution?.targetUrl ?? null,
     now,
   });
 }

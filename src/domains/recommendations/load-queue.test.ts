@@ -252,6 +252,55 @@ describe("Phase 6A.1.14 — buildPacketForRec", () => {
       "AcmeOrtho",
     );
   });
+
+  // Sprint 6A.2g.A (2026-04-26) — strict target alignment.
+  it("threads rec.resolution.targetUrl into allowedTargetUrls (strict anchor)", () => {
+    const ctx = makeContext();
+    const rec: typeof ctx.queue[0] = {
+      ...ctx.queue[0],
+      resolution: {
+        action: "strengthen_existing_page",
+        motive: "counter_competitor",
+        targetUrl: "https://example.com/services/braces",
+        confidence: "high",
+        confidenceReason: "test",
+        tier: "observation",
+        reasoning: "test",
+        cannibalization: null,
+        evidenceRefs: [],
+      },
+    };
+    const packet = buildPacketForRec({
+      rec,
+      context: ctx,
+      pageElementInventory: [],
+      tenantId: "tenant-test",
+    });
+    expect(packet.allowedTargetUrls).toEqual([
+      "https://example.com/services/braces",
+    ]);
+  });
+
+  it("legacy rec without resolution falls through to candidate-set + sentinel", () => {
+    const ctx = makeContext();
+    const rec = ctx.queue[0];
+    // The default fixture rec has no `resolution` field — backwards-compat
+    // path returns owned candidate URLs + the sentinel.
+    expect(rec.resolution).toBeUndefined();
+    const packet = buildPacketForRec({
+      rec,
+      context: ctx,
+      pageElementInventory: [],
+      tenantId: "tenant-test",
+    });
+    // The sentinel must be present under the legacy path.
+    expect(packet.allowedTargetUrls.length).toBeGreaterThanOrEqual(1);
+    expect(packet.allowedTargetUrls).toContain(
+      // NEEDS_NEW_PAGE constant — re-imported via the legacy path's
+      // string literal. Value mirrors `src/domains/recommendations/resolved-types.ts`.
+      "needs_new_page",
+    );
+  });
 });
 
 // ── 2. Source-scan invariants ─────────────────────────────────────────────

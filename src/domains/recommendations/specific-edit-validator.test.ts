@@ -132,6 +132,7 @@ function basePacketArgs(): BuildSpecificEditEvidencePacketArgs {
     promptOpportunities: [makeOpportunity(promptId)],
     trackedPrompts: [makePrompt(promptId, "What are the best teen braces?")],
     primarySummaries: [makeSummary(promptId)],
+    singleTargetUrl: null,
     ownedPageInventory: [makeInventoryEntry()],
     pageElementInventory: [
       makeElement({}),

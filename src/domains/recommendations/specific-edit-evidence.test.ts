@@ -141,6 +141,10 @@ function buildArgs(
     promptOpportunities: [makeOpportunity(promptId)],
     trackedPrompts: [makePrompt(promptId, "best orthodontist for teens braces")],
     primarySummaries: [makeSummary(promptId)],
+    // Sprint 6A.2g.A — default to legacy null path so existing assertions
+    // about candidate-set + sentinel keep firing. New target-alignment
+    // tests below override this explicitly.
+    singleTargetUrl: null,
     ownedPageInventory: [
       makeInventoryEntry("https://example.com/services/braces", {
         title: "Braces · Acme Orthodontics",
@@ -591,6 +595,121 @@ describe("Phase 6A.1.7 — allowedTargetUrls", () => {
   });
 });
 
+// ── Sprint 6A.2g.A — strict target alignment ───────────────────────────────
+
+describe("Sprint 6A.2g.A — buildAllowedTargetUrls strict target alignment", () => {
+  it("real singleTargetUrl + content actions → exactly [singleTargetUrl] (no sentinel)", () => {
+    const packet = buildSpecificEditEvidencePacket(
+      buildArgs({
+        singleTargetUrl: "https://example.com/services/braces",
+      }),
+    );
+    expect(packet.allowedTargetUrls).toEqual([
+      "https://example.com/services/braces",
+    ]);
+    expect(packet.allowedTargetUrls).not.toContain(NEEDS_NEW_PAGE);
+  });
+
+  it("real singleTargetUrl + content actions → list does NOT include sibling owned candidates", () => {
+    // The default fixture's cluster matcher would otherwise pull
+    // /services/invisalign as a candidate; under strict alignment the
+    // model must not see it.
+    const packet = buildSpecificEditEvidencePacket(
+      buildArgs({
+        singleTargetUrl: "https://example.com/services/braces",
+      }),
+    );
+    expect(packet.allowedTargetUrls).not.toContain(
+      "https://example.com/services/invisalign",
+    );
+  });
+
+  it("singleTargetUrl === NEEDS_NEW_PAGE → [NEEDS_NEW_PAGE] only", () => {
+    const packet = buildSpecificEditEvidencePacket(
+      buildArgs({ singleTargetUrl: NEEDS_NEW_PAGE }),
+    );
+    expect(packet.allowedTargetUrls).toEqual([NEEDS_NEW_PAGE]);
+  });
+
+  it("real singleTargetUrl + only page-level actions → [NEEDS_NEW_PAGE] only", () => {
+    const packet = buildSpecificEditEvidencePacket(
+      buildArgs({
+        singleTargetUrl: "https://example.com/services/braces",
+        // Page-level lifecycle actions only — every elementTypeDomain
+        // is empty per ACTION_TYPE_REGISTRY.
+        allowedActionTypes: ["split_page", "merge_pages", "create_page"],
+      }),
+    );
+    expect(packet.allowedTargetUrls).toEqual([NEEDS_NEW_PAGE]);
+  });
+
+  it("real singleTargetUrl + mixed page-level AND content actions → [singleTargetUrl] (one content action triggers anchor)", () => {
+    const packet = buildSpecificEditEvidencePacket(
+      buildArgs({
+        singleTargetUrl: "https://example.com/services/braces",
+        // create_page is page-level; edit_title is content-level. Mixed
+        // means at least one content action exists, so we anchor.
+        allowedActionTypes: ["create_page", "edit_title"],
+      }),
+    );
+    expect(packet.allowedTargetUrls).toEqual([
+      "https://example.com/services/braces",
+    ]);
+  });
+
+  it("legacy null singleTargetUrl path preserves the pre-6A.2g candidate-set + sentinel shape", () => {
+    // Default `buildArgs` already supplies `singleTargetUrl: null`.
+    const packet = buildSpecificEditEvidencePacket(buildArgs());
+    expect(packet.allowedTargetUrls).toContain(NEEDS_NEW_PAGE);
+    // At least one owned candidate URL ends up in the list (the default
+    // fixture matches /services/braces).
+    const ownedInList = packet.allowedTargetUrls.filter(
+      (u) => u !== NEEDS_NEW_PAGE,
+    );
+    expect(ownedInList.length).toBeGreaterThan(0);
+  });
+
+  it("evidenceHash differs between strict-anchor and legacy-null paths for the same fixture", () => {
+    const a = buildSpecificEditEvidencePacket(buildArgs());
+    const b = buildSpecificEditEvidencePacket(
+      buildArgs({
+        singleTargetUrl: "https://example.com/services/braces",
+      }),
+    );
+    expect(a.evidenceHash).not.toBe(b.evidenceHash);
+  });
+
+  it("evidenceHash is deterministic across two builds with identical strict-anchor args", () => {
+    const a = buildSpecificEditEvidencePacket(
+      buildArgs({
+        singleTargetUrl: "https://example.com/services/braces",
+      }),
+    );
+    const b = buildSpecificEditEvidencePacket(
+      buildArgs({
+        singleTargetUrl: "https://example.com/services/braces",
+      }),
+    );
+    expect(a.evidenceHash).toBe(b.evidenceHash);
+  });
+
+  it("strict-anchor list is length 1 when targetUrl is real (operator-locked invariant)", () => {
+    const packet = buildSpecificEditEvidencePacket(
+      buildArgs({
+        singleTargetUrl: "https://example.com/services/braces",
+      }),
+    );
+    expect(packet.allowedTargetUrls).toHaveLength(1);
+  });
+
+  it("strict-anchor list is length 1 when targetUrl is the sentinel (operator-locked invariant)", () => {
+    const packet = buildSpecificEditEvidencePacket(
+      buildArgs({ singleTargetUrl: NEEDS_NEW_PAGE }),
+    );
+    expect(packet.allowedTargetUrls).toHaveLength(1);
+  });
+});
+
 // ── allowedActionTypes ──────────────────────────────────────────────────────
 
 describe("Phase 6A.1.7 — allowedActionTypes", () => {
@@ -865,6 +984,7 @@ describe("Phase 6A.1.7 — empty-input resilience", () => {
       primarySummaries: [],
       ownedPageInventory: [],
       pageElementInventory: [],
+      singleTargetUrl: null,
       now: FROZEN_NOW,
     });
     expect(packet.affectedPrompts).toEqual([]);

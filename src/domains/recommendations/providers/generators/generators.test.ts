@@ -154,6 +154,7 @@ function basePacketArgs(): BuildSpecificEditEvidencePacketArgs {
       makePrompt(promptId, "What are the best teen braces options?"),
     ],
     primarySummaries: [makeSummary(promptId)],
+    singleTargetUrl: null,
     ownedPageInventory: [
       makeInventoryEntry(URL_BRACES, {
         title: "Braces · Acme",
@@ -595,6 +596,7 @@ describe("Phase 6A.1.9 — deterministic provider aggregation", () => {
       primarySummaries: [],
       ownedPageInventory: [],
       pageElementInventory: [],
+      singleTargetUrl: null,
       now: FROZEN_NOW,
     });
     const bundle = await deterministicProvider.generate(empty);

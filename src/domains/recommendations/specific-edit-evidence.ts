@@ -210,6 +210,17 @@ export type BuildSpecificEditEvidencePacketArgs = {
    *  snapshot per (url, element_key) and only includes elements whose
    *  url is in the candidate set. */
   pageElementInventory: ReadonlyArray<PageElementInventoryRow>;
+  /**
+   * Sprint 6A.2g.A (2026-04-26) — the rec's resolved target URL, if the
+   * caller has run the page-intent resolver. When non-null,
+   * `allowedTargetUrls` is constrained to anchor the LLM to this single
+   * URL (or just the `needs_new_page` sentinel for page-lifecycle /
+   * "create" recs). Pass `null` to preserve the pre-6A.2g
+   * candidate-set + sentinel behavior (test fixtures, callers without
+   * a resolution). The production caller `buildPacketForRec` sources
+   * this from `rec.resolution.targetUrl`.
+   */
+  singleTargetUrl: string | null;
   /** Optional historical action-type → outcome rates (Sprint 6A.2 will
    *  populate). Defaults to `[]`. */
   priorOutcomes?: ReadonlyArray<PriorOutcomeBlock>;
@@ -275,10 +286,6 @@ export function buildSpecificEditEvidencePacket(
     summaryById,
   );
 
-  const allowedTargetUrls = buildAllowedTargetUrls(
-    candidateUrlSet,
-  );
-
   const allowedActionTypes = (
     args.allowedActionTypes ?? defaultAllowedActionTypes()
   )
@@ -287,6 +294,15 @@ export function buildSpecificEditEvidencePacket(
     .filter((t, i, a) => a.indexOf(t) === i)
     .slice()
     .sort();
+
+  // Sprint 6A.2g.A (2026-04-26) — `allowedTargetUrls` consults
+  // `allowedActionTypes` so the page-level-only branch can fire. Order
+  // change: action-type resolution moved BEFORE target-URL resolution.
+  const allowedTargetUrls = buildAllowedTargetUrls(
+    candidateUrlSet,
+    args.singleTargetUrl,
+    allowedActionTypes,
+  );
 
   const priorOutcomes = (args.priorOutcomes ?? [])
     .slice()
@@ -492,10 +508,44 @@ function buildCompetitorAngles(
 
 function buildAllowedTargetUrls(
   candidateUrlSet: ReadonlySet<string>,
+  singleTargetUrl: string | null,
+  actionTypes: ReadonlyArray<ActionType>,
 ): string[] {
-  // Owned URLs only + the sentinel. Sentinel always present so generators
-  // can declare "this rec needs a brand-new page" even when an existing
-  // owned page is a candidate.
+  // Sprint 6A.2g.A (2026-04-26) — strict target alignment.
+  //
+  // The pre-6A.2g shape was `[...owned-candidates.sort(), NEEDS_NEW_PAGE]`,
+  // i.e. the LLM could pick any owned URL the cluster-matcher scored.
+  // Sprint 6A.2f shipped the first `--write` and the model picked
+  // `/custom-home-builder-bay-area` for a rec resolved to
+  // `/services/whole-home-remodel` because both pages cleared cluster
+  // scoring — the model had no way to know which one mattered. Operator
+  // declined the edits.
+  //
+  // Sprint 6A.2g.A constrains the enum once the page-intent resolver
+  // has decided. When the caller passes a real `singleTargetUrl`:
+  //   - All active action types are page-level (every elementTypeDomain
+  //     is empty — split / merge / create / watch): the action's
+  //     "target" is conceptually a new page, so [NEEDS_NEW_PAGE].
+  //   - `singleTargetUrl === NEEDS_NEW_PAGE`: the rec itself resolved
+  //     to "create a new page", so [NEEDS_NEW_PAGE].
+  //   - Otherwise (real URL + ≥1 content-level action): [singleTargetUrl]
+  //     ONLY. No sentinel escape — the model anchors to the rec's
+  //     resolved page or returns an empty bundle (Rule 5).
+  //
+  // When `singleTargetUrl === null` (legacy callers / test fixtures
+  // without a resolution), preserve the pre-6A.2g shape so existing
+  // tests + non-resolution-aware callers keep working.
+  if (singleTargetUrl !== null) {
+    const allPageLevel =
+      actionTypes.length > 0 &&
+      actionTypes.every(
+        (t) => ACTION_TYPE_REGISTRY[t].elementTypeDomain.length === 0,
+      );
+    if (singleTargetUrl === NEEDS_NEW_PAGE || allPageLevel) {
+      return [NEEDS_NEW_PAGE];
+    }
+    return [singleTargetUrl];
+  }
   const out = [...candidateUrlSet].sort();
   out.push(NEEDS_NEW_PAGE);
   return out;

@@ -51,6 +51,7 @@ function makePacket(
     primarySummaries: [],
     ownedPageInventory: [],
     pageElementInventory: [],
+    singleTargetUrl: null,
     now: FROZEN_NOW,
   });
   return { ...base, ...overrides };
