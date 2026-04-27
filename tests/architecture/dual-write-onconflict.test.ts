@@ -92,6 +92,24 @@ describe("dual-write onConflict invariants", () => {
     expect(body).toMatch(/["']source_snapshot_id,element_key["']/);
   });
 
+  it("syncObservationRuns dedupes by run_id before upsert (2026-04-27 fix)", () => {
+    // Postgres rejects upsert batches that touch the same row twice
+    // ("ON CONFLICT DO UPDATE command cannot affect row a second time").
+    // The local observation-runs.json can accumulate duplicate run_ids
+    // (test fixtures + verify-page-fix runs); the helper dedupes by
+    // run_id before calling dualWriteUpsert. Pin the dedup line here.
+    const fnStart = DUAL_WRITE_SRC.indexOf(
+      "export async function syncObservationRuns",
+    );
+    expect(fnStart).toBeGreaterThan(-1);
+    const fnEnd = DUAL_WRITE_SRC.indexOf("\n}\n", fnStart);
+    const body = DUAL_WRITE_SRC.slice(fnStart, fnEnd + 2);
+    expect(body).toMatch(/dedupedByRunId\s*=\s*new Map/);
+    expect(body).toMatch(
+      /dualWriteUpsert\(\s*["']observation_runs["'][^)]*dedupedRows[^)]*["']run_id["']/,
+    );
+  });
+
   it("syncChangelogEntries uses id (matches changelog_entries_pkey on id alone)", () => {
     const fnStart = DUAL_WRITE_SRC.indexOf(
       "export async function syncChangelogEntries",

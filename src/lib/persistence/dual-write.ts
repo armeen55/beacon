@@ -531,7 +531,32 @@ export async function syncObservationRuns(
       competitor_universe_pin_status: r.competitor_universe_pin_status ?? null,
       tenant_id: r.tenant_id,
     }));
-  await dualWriteUpsert("observation_runs", rows, "run_id");
+
+  // 2026-04-27 Accept-bug follow-up: dedupe by run_id before upsert.
+  //
+  // Postgres rejects an upsert batch that touches the same target row
+  // twice in one statement with:
+  //   "ON CONFLICT DO UPDATE command cannot affect row a second time"
+  //
+  // The local `.data/observation-runs.json` can accumulate duplicate
+  // run_id rows (test fixtures + verify-page-fix runs that re-use the
+  // same id for repeated invocations) and the orchestrator currently
+  // ships the entire array to this helper in one batch. Dedupe by
+  // keeping the LAST occurrence per run_id — matches the in-memory
+  // mutation order semantics the rest of dual-write uses.
+  //
+  // Pinned by tests/architecture/dual-write-onconflict.test.ts +
+  // a unit test in tests/persistence/dual-write-observation-runs-dedup.test.ts.
+  const dedupedByRunId = new Map<string, AnyRow>();
+  for (const row of rows) {
+    const key = row.run_id;
+    if (typeof key === "string" && key.length > 0) {
+      dedupedByRunId.set(key, row);
+    }
+  }
+  const dedupedRows = Array.from(dedupedByRunId.values());
+
+  await dualWriteUpsert("observation_runs", dedupedRows, "run_id");
 }
 
 export async function syncPageSnapshots(
