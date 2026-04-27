@@ -70,8 +70,22 @@ export type LifecycleUpdate = Partial<
 export type ComputeLifecycleUpdateInputs = {
   currentStatus: ImplementationStatus;
   match: MatchResult;
-  /** Milliseconds since the edit was accepted (per `computeAcceptedAtMs`). */
-  ageMs: number;
+  /**
+   * Milliseconds since the edit was accepted (per `computeAcceptedAtMs`).
+   *
+   * Phase 3.1 (2026-04-27): may be `null` when no stable accept-time
+   * source exists (no matching changelog, no accepted recommendation
+   * response, no `created_at` on the row). When `null`, the
+   * `not_found_after_7d` promotion is SKIPPED — the row stays
+   * `accepted` regardless of how long ago the runner first saw it.
+   * The caller (runner) emits a structured warning + counter when
+   * this happens so the operator can detect drift.
+   *
+   * `null` does NOT block any other transition — verified_live*,
+   * needs_review, wrong_page, partially_implemented promotions all
+   * still fire normally because they don't depend on age.
+   */
+  ageMs: number | null;
   /** ISO of the matching scan snapshot's `fetched_at`. Stamped onto
    *  `live_at` for verified outcomes. May be null when no snapshot
    *  exists for the target URL (engine returned `not_found` for a
@@ -173,6 +187,12 @@ export function computeLifecycleUpdate(
   // doesn't reset not_found_after_7d).
   if (matchOutcome === "not_found") {
     if (currentStatus === "accepted") {
+      // Phase 3.1: ageMs === null means no stable accept-time source.
+      // Skip the 7-day promotion entirely — the runner has emitted a
+      // structured warning so the drift is observable. Stay accepted
+      // until the next scan (which may pick up a stable source if the
+      // operator has since materialized one).
+      if (ageMs === null) return null;
       if (ageMs >= SEVEN_DAYS_MS) {
         return {
           implementation_status: "not_found_after_7d",

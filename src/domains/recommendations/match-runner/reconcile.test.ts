@@ -67,10 +67,15 @@ function makeChangelog(
   id: string,
   sourceRecId: string | undefined,
   timestamp: string,
+  opts: {
+    actionType?: string;
+    targetElementKey?: string;
+    tenantId?: string;
+  } = {},
 ): ChangelogEntry {
   return {
     id,
-    tenant_id: TENANT,
+    tenant_id: opts.tenantId ?? TENANT,
     timestamp,
     signal_type: "content",
     asset_type: "service_page",
@@ -87,6 +92,8 @@ function makeChangelog(
     created_at: timestamp,
     updated_at: timestamp,
     source_rec_id: sourceRecId,
+    action_type: opts.actionType ?? "edit_title",
+    target_element_key: opts.targetElementKey,
   };
 }
 
@@ -206,8 +213,13 @@ describe("computeReconciliationFlips", () => {
   });
 });
 
-describe("computeAcceptedAtMs", () => {
-  it("uses earliest changelog timestamp when present", () => {
+describe("computeAcceptedAtMs (Phase 3.1)", () => {
+  // Phase 3.1 baseline: makeEdit's default action_type is "edit_title",
+  // target_element_key is null. Changelog matches require action_type
+  // to align; target_element_key is only enforced when the edit has
+  // a non-null value.
+
+  it("uses earliest EXACT-matching changelog timestamp when present", () => {
     const edit = makeEdit("e1", "rec-A");
     const responses = [
       makeResponse("rec-A", "accepted", "2026-04-26T12:00:00Z"),
@@ -222,7 +234,61 @@ describe("computeAcceptedAtMs", () => {
     );
   });
 
-  it("falls back to recommendation_response.respondedAt when no changelog", () => {
+  it("EXACT match: changelog entry must share action_type", () => {
+    const edit = makeEdit("e1", "rec-A");
+    const changelog = [
+      // Same source_rec_id, but different action_type → not a match.
+      makeChangelog("cl1", "rec-A", "2026-04-20T00:00:00Z", {
+        actionType: "add_h2_section",
+      }),
+    ];
+    // Falls through to created_at fallback.
+    expect(computeAcceptedAtMs(edit, [], changelog)).toBe(
+      Date.parse("2026-04-27T00:00:00.000Z"),
+    );
+  });
+
+  it("EXACT match: changelog entry must share target_element_key when edit has one", () => {
+    const edit = makeEdit("e1", "rec-A");
+    edit.target_element_key = "h2[new]:foo";
+    const changelog = [
+      makeChangelog("cl1", "rec-A", "2026-04-20T00:00:00Z", {
+        actionType: "edit_title",
+        targetElementKey: "h2[new]:DIFFERENT",
+      }),
+    ];
+    expect(computeAcceptedAtMs(edit, [], changelog)).toBe(
+      Date.parse("2026-04-27T00:00:00.000Z"), // created_at fallback
+    );
+  });
+
+  it("EXACT match: target_element_key constraint waived when edit's key is null (page-level)", () => {
+    const edit = makeEdit("e1", "rec-A");
+    edit.target_element_key = null;
+    const changelog = [
+      makeChangelog("cl1", "rec-A", "2026-04-20T00:00:00Z", {
+        actionType: "edit_title",
+        targetElementKey: "anything",
+      }),
+    ];
+    expect(computeAcceptedAtMs(edit, [], changelog)).toBe(
+      Date.parse("2026-04-20T00:00:00Z"),
+    );
+  });
+
+  it("EXACT match: cross-tenant changelog rows are rejected", () => {
+    const edit = makeEdit("e1", "rec-A");
+    const changelog = [
+      makeChangelog("cl1", "rec-A", "2026-04-20T00:00:00Z", {
+        tenantId: "tenant-OTHER",
+      }),
+    ];
+    expect(computeAcceptedAtMs(edit, [], changelog)).toBe(
+      Date.parse("2026-04-27T00:00:00.000Z"),
+    );
+  });
+
+  it("falls back to recommendation_response.respondedAt when no changelog match", () => {
     const edit = makeEdit("e1", "rec-A");
     const responses = [
       makeResponse("rec-A", "accepted", "2026-04-26T12:00:00Z"),
@@ -232,25 +298,57 @@ describe("computeAcceptedAtMs", () => {
     );
   });
 
-  it("falls back to edit.updated_at as last resort", () => {
-    const edit = makeEdit(
-      "e1",
-      "rec-A",
-      "accepted",
-      "2026-04-20T00:00:00Z",
+  it("response fallback: ignores non-accepted statuses", () => {
+    const edit = makeEdit("e1", "rec-A");
+    const responses = [
+      makeResponse("rec-A", "deferred", "2026-04-26T12:00:00Z"),
+      makeResponse("rec-A", "dismissed", "2026-04-26T11:00:00Z"),
+    ];
+    // Falls through to created_at.
+    expect(computeAcceptedAtMs(edit, responses, [])).toBe(
+      Date.parse("2026-04-27T00:00:00.000Z"),
     );
+  });
+
+  it("falls back to edit.created_at when no changelog + no accepted response", () => {
+    // makeEdit's 4th arg sets BOTH created_at and updated_at to the
+    // same value. Phase 3.1 must use created_at, so the result equals
+    // that value.
+    const edit = makeEdit("e1", "rec-A", "accepted", "2026-04-20T00:00:00Z");
     expect(computeAcceptedAtMs(edit, [], [])).toBe(
       Date.parse("2026-04-20T00:00:00Z"),
     );
   });
 
-  it("ignores changelog entries whose source_rec_id doesn't match", () => {
+  it("Phase 3.1: returns NULL when no stable source AND no created_at", () => {
+    const edit = makeEdit("e1", "rec-A");
+    edit.created_at = "";
+    expect(computeAcceptedAtMs(edit, [], [])).toBeNull();
+  });
+
+  it("Phase 3.1: returns NULL when no stable source AND created_at is unparseable", () => {
+    const edit = makeEdit("e1", "rec-A");
+    edit.created_at = "not-a-real-date";
+    expect(computeAcceptedAtMs(edit, [], [])).toBeNull();
+  });
+
+  it("Phase 3.1: NEVER uses edit.updated_at — always returns null when other sources absent", () => {
+    const edit = makeEdit("e1", "rec-A");
+    edit.created_at = ""; // strip the only stable source
+    edit.updated_at = "2026-04-20T00:00:00Z"; // would have been the prior fallback
+    // Pre-Phase-3.1 behavior would have returned Date.parse(edit.updated_at).
+    // Phase 3.1: must return null because updated_at is no longer
+    // consulted.
+    expect(computeAcceptedAtMs(edit, [], [])).toBeNull();
+  });
+
+  it("Phase 3.1: ignores changelog entries with mismatched source_rec_id", () => {
     const edit = makeEdit("e1", "rec-A", "accepted", "2026-04-27T00:00:00Z");
     const changelog = [
       makeChangelog("cl1", "rec-OTHER", "2026-04-20T00:00:00Z"),
     ];
     expect(computeAcceptedAtMs(edit, [], changelog)).toBe(
-      Date.parse("2026-04-27T00:00:00Z"),
+      Date.parse("2026-04-27T00:00:00.000Z"),
     );
   });
 });

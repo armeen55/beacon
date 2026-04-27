@@ -64,6 +64,15 @@ export type RunLifecycleMatchResult = {
   updated: number;
   /** Count of `changelog_entries` rows that received a fresh `live_at` stamp. */
   liveAtStamped: number;
+  /**
+   * Phase 3.1 (2026-04-27): count of edits for which
+   * `computeAcceptedAtMs` returned `null` — no stable accept-time
+   * source available. The 7-day `not_found_after_7d` promotion was
+   * skipped for these edits; they remain `accepted` until the
+   * operator materializes a stable source (changelog entry,
+   * accepted recommendation_response, or `created_at`).
+   */
+  noStableAcceptTimestamp: number;
   /** Free-text error message if the runner threw. */
   error?: string;
 };
@@ -94,6 +103,7 @@ export async function runLifecycleMatchAgainstScan(opts: {
       evaluated: 0,
       updated: 0,
       liveAtStamped: 0,
+      noStableAcceptTimestamp: 0,
     };
   }
 
@@ -123,6 +133,7 @@ export async function runLifecycleMatchAgainstScan(opts: {
         evaluated: 0,
         updated: 0,
         liveAtStamped: 0,
+        noStableAcceptTimestamp: 0,
       };
     }
 
@@ -176,6 +187,7 @@ export async function runLifecycleMatchAgainstScan(opts: {
 
     const updatedRows: RecommendedEditRow[] = [];
     const liveAtUpdates: { changelogId: string; liveAt: string }[] = [];
+    let noStableAcceptTimestampCount = 0;
 
     for (const edit of candidates) {
       const targetUrl = edit.target_url;
@@ -190,7 +202,25 @@ export async function runLifecycleMatchAgainstScan(opts: {
         otherUrlInventories,
       });
 
-      const ageMs = now.getTime() - computeAcceptedAtMs(edit, responses, changelog);
+      // Phase 3.1: computeAcceptedAtMs returns null when no stable
+      // accept-time source exists (no exact-matching changelog, no
+      // accepted recommendation_response, no created_at). Pass null
+      // through to transitions — `not_found_after_7d` promotion is
+      // skipped in that case. Emit a structured per-edit warning so
+      // the operator can detect drift.
+      const acceptedAtMs = computeAcceptedAtMs(edit, responses, changelog);
+      const ageMs = acceptedAtMs === null ? null : now.getTime() - acceptedAtMs;
+      if (acceptedAtMs === null) {
+        noStableAcceptTimestampCount += 1;
+        log.warn("[match-runner] no stable accept-time — skipping 7-day promotion", {
+          tenantId: opts.tenantId,
+          editId: edit.id,
+          recId: edit.rec_id,
+          actionType: edit.action_type,
+          targetElementKey: edit.target_element_key,
+          currentStatus: editLifecycleStatus(edit),
+        });
+      }
       const targetSnap = latestSnapshotByUrl.get(targetUrl) ?? null;
 
       const update = computeLifecycleUpdate({
@@ -257,6 +287,7 @@ export async function runLifecycleMatchAgainstScan(opts: {
       evaluated: candidates.length,
       updated: updatedRows.length,
       liveAtStamped: liveAtStampedCount,
+      noStableAcceptTimestamp: noStableAcceptTimestampCount,
     });
 
     return {
@@ -265,6 +296,7 @@ export async function runLifecycleMatchAgainstScan(opts: {
       evaluated: candidates.length,
       updated: updatedRows.length,
       liveAtStamped: liveAtStampedCount,
+      noStableAcceptTimestamp: noStableAcceptTimestampCount,
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -279,6 +311,7 @@ export async function runLifecycleMatchAgainstScan(opts: {
       evaluated: 0,
       updated: 0,
       liveAtStamped: 0,
+      noStableAcceptTimestamp: 0,
       error: msg,
     };
   }

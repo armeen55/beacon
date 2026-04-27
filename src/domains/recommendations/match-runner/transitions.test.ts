@@ -270,6 +270,40 @@ describe("computeLifecycleUpdate — not_found + 7-day rule", () => {
       }),
     ).toBeNull();
   });
+
+  // Phase 3.1 (2026-04-27): ageMs === null path — no stable source.
+  it("Phase 3.1: ageMs=null + accepted + not_found → no-op (skip 7-day promotion)", () => {
+    expect(
+      computeLifecycleUpdate({
+        ...baseInputs,
+        ageMs: null,
+        currentStatus: "accepted",
+        match: notFoundMatch(),
+      }),
+    ).toBeNull();
+  });
+
+  it("Phase 3.1: ageMs=null does NOT block other transitions (verified_live still fires)", () => {
+    // Live promotions don't depend on age — null ageMs is fine.
+    const u = computeLifecycleUpdate({
+      ...baseInputs,
+      ageMs: null,
+      currentStatus: "accepted",
+      match: liveMatch(),
+    });
+    expect(u?.implementation_status).toBe("verified_live");
+  });
+
+  it("Phase 3.1: ageMs=null + needs_review + not_found → no-op (sticky regardless of age)", () => {
+    expect(
+      computeLifecycleUpdate({
+        ...baseInputs,
+        ageMs: null,
+        currentStatus: "needs_review",
+        match: notFoundMatch(),
+      }),
+    ).toBeNull();
+  });
 });
 
 describe("computeLifecycleUpdate — purity", () => {

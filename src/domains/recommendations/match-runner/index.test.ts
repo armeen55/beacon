@@ -485,7 +485,9 @@ describe("runLifecycleMatchAgainstScan — match → status update + live_at", (
     ).toBe(true);
   });
 
-  it("not_found at age 6d → stays accepted, no write", async () => {
+  it("not_found at age 6d → stays accepted, no write (age sourced from created_at)", async () => {
+    // Phase 3.1: age is computed from created_at (not updated_at).
+    // 6d age → no promotion.
     repoData.edits = [
       makeEdit({
         id: "e1",
@@ -493,7 +495,8 @@ describe("runLifecycleMatchAgainstScan — match → status update + live_at", (
         action_type: "edit_title",
         proposed_text: "Hello",
         implementation_status: "accepted",
-        updated_at: new Date(NOW.getTime() - 6 * 86400 * 1000).toISOString(),
+        created_at: new Date(NOW.getTime() - 6 * 86400 * 1000).toISOString(),
+        updated_at: NOW.toISOString(),
       }),
     ];
     repoData.pageSnapshots = [makeSnap(TARGET_URL, "snap-1", NOW.toISOString())];
@@ -508,7 +511,7 @@ describe("runLifecycleMatchAgainstScan — match → status update + live_at", (
     expect(persistMocks.persistLifecycleUpdates).not.toHaveBeenCalled();
   });
 
-  it("not_found at age 8d → flips to not_found_after_7d", async () => {
+  it("not_found at age 8d (created_at) → flips to not_found_after_7d", async () => {
     repoData.edits = [
       makeEdit({
         id: "e1",
@@ -516,7 +519,10 @@ describe("runLifecycleMatchAgainstScan — match → status update + live_at", (
         action_type: "edit_title",
         proposed_text: "Hello",
         implementation_status: "accepted",
-        updated_at: new Date(NOW.getTime() - 8 * 86400 * 1000).toISOString(),
+        created_at: new Date(NOW.getTime() - 8 * 86400 * 1000).toISOString(),
+        // updated_at deliberately set to NOW so we'd FAIL the test
+        // if Phase 3.1 had a regression and started using updated_at.
+        updated_at: NOW.toISOString(),
       }),
     ];
     repoData.pageSnapshots = [makeSnap(TARGET_URL, "snap-1", NOW.toISOString())];
@@ -531,6 +537,68 @@ describe("runLifecycleMatchAgainstScan — match → status update + live_at", (
     expect(
       persistMocks.persistLifecycleUpdates.mock.calls[0]![0][0]!.implementation_status,
     ).toBe("not_found_after_7d");
+  });
+
+  it("Phase 3.1: not_found + no stable accept-time → does NOT promote, increments noStableAcceptTimestamp", async () => {
+    // No matching changelog (different action_type), no accepted
+    // response, AND created_at stripped → null age. Runner must
+    // skip the 7-day promotion + emit a structured warning.
+    repoData.edits = [
+      makeEdit({
+        id: "e1",
+        rec_id: "rec-A",
+        action_type: "edit_title",
+        proposed_text: "Hello",
+        implementation_status: "accepted",
+        created_at: "", // strip the only stable source left
+        updated_at: new Date(
+          NOW.getTime() - 30 * 86400 * 1000,
+        ).toISOString(), // would have promoted under old logic
+      }),
+    ];
+    repoData.changelog = [
+      // Same source_rec_id but different action_type → not exact match.
+      makeChangelog({
+        id: "cl1",
+        source_rec_id: "rec-A",
+        timestamp: "2026-01-01T00:00:00.000Z",
+      }),
+    ];
+    // Override the changelog action_type to mismatch.
+    repoData.changelog[0]!.action_type = "add_h2_section";
+    repoData.pageSnapshots = [makeSnap(TARGET_URL, "snap-1", NOW.toISOString())];
+    repoData.inventory = [];
+    setRepoData();
+
+    const result = await runLifecycleMatchAgainstScan({
+      tenantId: TENANT,
+      now: NOW,
+    });
+    expect(result.updated).toBe(0);
+    expect(result.noStableAcceptTimestamp).toBe(1);
+    expect(persistMocks.persistLifecycleUpdates).not.toHaveBeenCalled();
+  });
+
+  it("Phase 3.1: noStableAcceptTimestamp=0 when stable source exists", async () => {
+    repoData.edits = [
+      makeEdit({
+        id: "e1",
+        rec_id: "rec-A",
+        action_type: "edit_title",
+        proposed_text: "Hello",
+        implementation_status: "accepted",
+        created_at: new Date(NOW.getTime() - 3 * 86400 * 1000).toISOString(),
+      }),
+    ];
+    repoData.pageSnapshots = [makeSnap(TARGET_URL, "snap-1", NOW.toISOString())];
+    repoData.inventory = [];
+    setRepoData();
+
+    const result = await runLifecycleMatchAgainstScan({
+      tenantId: TENANT,
+      now: NOW,
+    });
+    expect(result.noStableAcceptTimestamp).toBe(0);
   });
 
   it("idempotent: re-run on a verified_live row + still-matching inventory → no-op", async () => {

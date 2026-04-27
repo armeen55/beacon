@@ -7,6 +7,120 @@
 
 ---
 
+## 2026-04-27 — Recommendation Lifecycle OS — Phase 3.1 (accept-time fallback correction)
+
+Surgical correction to Phase 3. The Phase 3 closing report listed the accept-time fallback chain as `changelog → response → edit.updated_at`, but the operator (correctly) flagged that **`updated_at` is unsafe** — the runner mutates `updated_at` on every write-back, so using it as an age source would reset the 7-day clock on every scan and silently disable the `not_found_after_7d` promotion. Phase 3.1 closes that gap before Phase 3 is dogfeded.
+
+### Files changed
+
+| File | Change |
+|---|---|
+| `src/domains/recommendations/match-runner/reconcile.ts` | Rewrote `computeAcceptedAtMs` — return type `number → number \| null`; tightened changelog match to `tenant_id` + `source_rec_id` + `action_type` + `target_element_key` (waived when edit's key is null); response fallback only counts `status==='accepted'`; replaced `edit.updated_at` fallback with `edit.created_at`; returns `null` when no stable source exists |
+| `src/domains/recommendations/match-runner/transitions.ts` | `ageMs` parameter widened from `number → number \| null`; when `null`, the 7-day `not_found_after_7d` promotion is skipped (other transitions unaffected) |
+| `src/domains/recommendations/match-runner/index.ts` | Runner threads `ageMs: null` through the per-edit loop; emits structured `warn` log per edit when source returns null; new counter `noStableAcceptTimestamp` on `RunLifecycleMatchResult`; updated three return-shape sites (early exit, success, error) |
+| `src/domains/recommendations/match-runner/reconcile.test.ts` | +9 Phase 3.1 tests covering exact-match constraints + null-return paths + the explicit "NEVER uses edit.updated_at" assertion |
+| `src/domains/recommendations/match-runner/transitions.test.ts` | +3 Phase 3.1 tests: `ageMs=null` skips 7-day promotion, doesn't block live promotions, sticky on intermediate states |
+| `src/domains/recommendations/match-runner/index.test.ts` | Updated 2 existing tests to drive age via `created_at` (not `updated_at`); +2 new Phase 3.1 tests: `noStableAcceptTimestamp` counter increments correctly + zero when stable source exists |
+| `docs/HANDOFF_VERIFIED_STATE.md` | New top banner |
+| `docs/VERIFICATION_LOG.md` | This entry |
+
+### Exact fallback order (locked)
+
+```
+1. EXACT changelog_entries.timestamp match
+   - tenant_id  === edit.tenant_id  (defensive — repo already filters)
+   - source_rec_id === edit.rec_id
+   - action_type === edit.action_type
+   - target_element_key === edit.target_element_key
+       (waived when edit.target_element_key is null — page-level edit)
+   - tie-break: earliest timestamp
+   IF found → return that timestamp.
+
+2. recommendation_responses.respondedAt
+   - recId === edit.rec_id
+   - status === 'accepted'  (deferred / dismissed do NOT qualify)
+   IF found → return that timestamp.
+
+3. edit.created_at — IMMUTABLE fallback
+   - present + parseable
+   IF valid → return that timestamp.
+
+4. None of the above → return NULL
+   - runner increments noStableAcceptTimestamp counter
+   - runner emits per-edit `warn` log with editId/recId/actionType/
+     targetElementKey/currentStatus structured fields
+   - transitions.ts skips the 7-day not_found_after_7d promotion
+   - all OTHER transitions still fire normally
+```
+
+**`recommended_edit.updated_at` is NEVER consulted.** Confirmed by:
+
+- The new `Phase 3.1: NEVER uses edit.updated_at` test, which sets `created_at = ""` (strips source 3) AND sets `updated_at = "2026-04-20T00:00:00Z"`, then asserts the function returns `null`.
+- The updated runner integration test "not_found at age 8d (created_at) → flips" sets `updated_at = NOW.toISOString()` deliberately so the test would fail if the runner regressed back to `updated_at`. Currently passes — proving age is sourced from `created_at` only.
+- A code-level grep: only `created_at` appears as an age source in `reconcile.ts`; all `updated_at` references in `match-runner/` are write-side only (the runner sets `updated_at = now.toISOString()` when persisting changes).
+
+### Tests added/updated: 14
+
+`reconcile.test.ts` (+9):
+- exact match: action_type must align
+- exact match: target_element_key must align when edit has one
+- exact match: target_element_key constraint waived when edit's key is null
+- exact match: cross-tenant changelog rows are rejected
+- response fallback: ignores non-accepted statuses
+- created_at fallback works
+- returns NULL when no stable source AND no created_at
+- returns NULL when created_at is unparseable
+- **NEVER uses edit.updated_at — explicit assertion**
+
+`transitions.test.ts` (+3):
+- ageMs=null + accepted + not_found → no-op (skip 7-day promotion)
+- ageMs=null does NOT block other transitions (verified_live still fires)
+- ageMs=null + needs_review + not_found → no-op (sticky)
+
+`index.test.ts` (modified 2 + added 2):
+- Updated "not_found at age 6d" + "not_found at age 8d" tests to drive age via `created_at` (proving `updated_at` is ignored — both tests deliberately set `updated_at = NOW`)
+- New: `not_found + no stable source → does NOT promote, increments noStableAcceptTimestamp`
+- New: `noStableAcceptTimestamp=0 when stable source exists`
+
+### Confirmation: updated_at is not used
+
+✅ Confirmed three ways:
+1. Source code: `reconcile.ts` `computeAcceptedAtMs` references only `c.timestamp` (changelog) and `r.respondedAt` (response) and `edit.created_at` (fallback).
+2. Explicit unit test: "Phase 3.1: NEVER uses edit.updated_at" asserts null return when only `updated_at` is set.
+3. Integration tests: "not_found at age 6d/8d (created_at)" tests deliberately set `updated_at = NOW` (very recent); the test only passes because the runner uses `created_at` for age.
+
+### Verification
+
+| Gate | Result |
+|---|---|
+| `npm run typecheck` | ✅ clean |
+| Targeted (`match-runner/`) | ✅ 70/70 (was 57 + 13 new) |
+| `npx vitest run tests/architecture/` | ✅ 118/118 (no regression) |
+| Full `npx vitest run` | ✅ **2819/2819** (was 2806 + 13 new) |
+| `rm -rf .next && npm run build` | ✅ green |
+| Vercel-equivalent build | ✅ green (safe-restore sequence used) |
+| Operator data integrity post-restore | ✅ value=321 |
+
+### Is Phase 3 now safe to dogfood locally?
+
+**YES.** With Phase 3.1 landed, the 7-day promotion clock is now sourced from immutable timestamps only. The drift scenario the operator caught — a runner write-back resetting `updated_at` and effectively disabling promotion — cannot happen. The remaining safety belts (flag default OFF, double-catch, forward-only transitions, idempotent stamping) are unchanged from Phase 3.
+
+Recommended local dogfood sequence (unchanged from Phase 3):
+1. Sign Phase 3 + 3.1 together via `.data/exit-gates.json`.
+2. `BEACON_LIFECYCLE_ENABLED=1` in `.env.local`.
+3. Manual scan via Today "Scan now" or `npm run data:scan`.
+4. Inspect `recommended_edits` + `imported-changes.json` for lifecycle field population.
+5. Re-scan: confirm `verified_live*` counts only ever go up (no downgrades). Confirm `noStableAcceptTimestamp` is 0 (or matches a known-orphaned edit count).
+6. Only after local dogfeed succeeds → flip on Vercel.
+
+### Is Phase 4 safe to start next?
+
+**YES.** Phase 3.1 doesn't change Phase 4's pre-conditions. The verdict-engine change in Phase 4 is independent of the accept-time source: it switches the BASELINE-SPLIT timestamp from `entry.timestamp` to `entry.live_at ?? entry.timestamp`. Phase 3.1 only affects the ACCEPT-TIME age source for the lifecycle runner. Different concerns, different fields, different code paths.
+
+**Recommended capability for Phase 4: Balanced (Sonnet).** Same as before — small surface, clean foundations.
+
+---
+
 ## 2026-04-27 — Recommendation Lifecycle OS — Phase 3 (gated scan wiring + reconciliation)
 
 Phase 3 wires the pure match engine into the scan flow, behind the `BEACON_LIFECYCLE_ENABLED` flag (default OFF). This is the FIRST production-mutating phase of the Lifecycle OS — care matters; the flag default + reconciliation pre-pass + forward-only transitions are the three safety belts.

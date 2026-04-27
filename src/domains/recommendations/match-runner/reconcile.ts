@@ -73,27 +73,57 @@ export function computeReconciliationFlips(
 /**
  * Pure: derive the per-edit "accepted_at" timestamp from the most
  * stable available source. Used by the runner for the 7-day
- * `not_found_after_7d` promotion timer — `recommended_edits.updated_at`
- * is unsuitable because it advances every time the runner writes back.
+ * `not_found_after_7d` promotion timer.
  *
- * Source priority (most stable first):
- *   1. Earliest `changelog_entries.timestamp` where `source_rec_id`
- *      matches the edit's `rec_id`. Set at Accept time and never
- *      mutated by subsequent runner writes.
- *   2. `recommendation_responses.respondedAt` for the rec_id. Captures
- *      operator intent even if no changelog entry exists yet.
- *   3. `edit.updated_at` as a last resort. Only fires for edits the
- *      reconciler just flipped without either upstream source — should
- *      be rare since the reconciler requires either source to fire.
+ * Returns `null` when no stable source exists. The runner MUST treat
+ * `null` as "skip the 7-day promotion AND emit a structured warning"
+ * (Phase 3.1 contract — see `runLifecycleMatchAgainstScan`).
+ *
+ * Source priority — Phase 3.1 (2026-04-27) tightened from Phase 3:
+ *
+ *   1. EXACT matching `changelog_entries.timestamp`. Match requires:
+ *        - `c.tenant_id === edit.tenant_id` (defensive — repo already
+ *          filters per-tenant, but explicit guard hardens the contract)
+ *        - `c.source_rec_id === edit.rec_id`
+ *        - `c.action_type === edit.action_type`
+ *        - if `edit.target_element_key !== null`, then
+ *          `c.target_element_key === edit.target_element_key`
+ *      A multi-edit fan-out produces N changelog rows, one per
+ *      `(action_type, target_element_key)` tuple — picking the row
+ *      with the matching tuple keeps the timestamp accurate per leg.
+ *      Ties broken by earliest timestamp.
+ *
+ *   2. `recommendation_responses.respondedAt` where:
+ *        - `r.recId === edit.rec_id`
+ *        - `r.status === "accepted"`
+ *      Captures operator intent when the changelog is missing or out
+ *      of sync.
+ *
+ *   3. `edit.created_at` as a final fallback. **NEVER `updated_at`**
+ *      — the runner mutates `updated_at` on every write-back, so
+ *      using it as an age source would reset the 7-day clock on
+ *      every scan and effectively disable the promotion.
+ *
+ *   4. None → `null`. Caller skips the 7-day promotion entirely;
+ *      the row stays in its current state until a real accept-event
+ *      surfaces in one of the three sources above.
+ *
+ * Pure. No I/O. No mutation. Idempotent.
  */
 export function computeAcceptedAtMs(
   edit: RecommendedEditRow,
   responses: ReadonlyArray<RecommendationResponse>,
   changelog: ReadonlyArray<ChangelogEntry>,
-): number {
+): number | null {
+  // ── Source 1: EXACT changelog match ─────────────────────────────────
   let earliestChangelog: number | null = null;
   for (const c of changelog) {
+    if (c.tenant_id !== edit.tenant_id) continue;
     if (c.source_rec_id !== edit.rec_id) continue;
+    if (c.action_type !== edit.action_type) continue;
+    if (edit.target_element_key !== null) {
+      if (c.target_element_key !== edit.target_element_key) continue;
+    }
     const t = Date.parse(c.timestamp);
     if (Number.isNaN(t)) continue;
     if (earliestChangelog === null || t < earliestChangelog) {
@@ -102,12 +132,23 @@ export function computeAcceptedAtMs(
   }
   if (earliestChangelog !== null) return earliestChangelog;
 
+  // ── Source 2: recommendation_responses.respondedAt ──────────────────
   for (const r of responses) {
-    if (r.recId === edit.rec_id) {
-      const t = Date.parse(r.respondedAt);
-      if (!Number.isNaN(t)) return t;
-    }
+    if (r.recId !== edit.rec_id) continue;
+    if (r.status !== "accepted") continue;
+    const t = Date.parse(r.respondedAt);
+    if (!Number.isNaN(t)) return t;
   }
-  const fallback = Date.parse(edit.updated_at);
-  return Number.isNaN(fallback) ? 0 : fallback;
+
+  // ── Source 3: edit.created_at — IMMUTABLE fallback ──────────────────
+  // Phase 3.1: NEVER use updated_at. The runner mutates updated_at
+  // on every write-back; using it as an age source would reset the
+  // 7-day clock on every scan.
+  if (edit.created_at && edit.created_at.length > 0) {
+    const t = Date.parse(edit.created_at);
+    if (!Number.isNaN(t)) return t;
+  }
+
+  // ── Source 4: nothing stable — caller handles ───────────────────────
+  return null;
 }
