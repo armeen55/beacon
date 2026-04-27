@@ -34,7 +34,10 @@ import {
   ACTION_TYPE_REGISTRY,
   type ActionType,
 } from "@/domains/recommendations/action-types";
-import type { RecommendedEditRow } from "@/domains/recommendations/recommended-edits-persistence";
+import {
+  markRecommendedEditsAccepted,
+  type RecommendedEditRow,
+} from "@/domains/recommendations/recommended-edits-persistence";
 
 /**
  * Server actions for /recommendations (Phase v6 Commit 4, 2026-04-23).
@@ -474,6 +477,31 @@ export async function acceptRecommendation(
             error: err instanceof Error ? err.message : String(err),
           });
         }
+      }
+      // Lifecycle OS Phase 1 (2026-04-27): flip the per-edit
+      // implementation_status from `recommended` → `accepted`. Runs
+      // after the changelog fan-out so a fan-out failure (which
+      // returns early in the catch block below) cannot leave edits
+      // marked accepted without their corresponding changelog rows.
+      // Best-effort: a flip failure is logged but does not fail the
+      // action (the operator's intent is already captured in
+      // recommendation_responses + the changelog entries).
+      try {
+        const flipResult = await markRecommendedEditsAccepted({
+          editIds: editsForRec.map((e) => e.id),
+          tenantId,
+        });
+        log.info("acceptRecommendation: lifecycle flip", {
+          stableKey: payload.stableKey,
+          flipped: flipResult.flipped,
+          skipped: flipResult.skipped,
+        });
+      } catch (err) {
+        log.warn("acceptRecommendation: lifecycle flip failed", {
+          stableKey: payload.stableKey,
+          editCount: editsForRec.length,
+          error: err instanceof Error ? err.message : String(err),
+        });
       }
       revalidatePath("/recommendations");
       revalidatePath("/", "layout");

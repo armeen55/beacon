@@ -66,6 +66,41 @@ import {
 // DB row shape — snake_case mirror of the recommended_edits migration.
 // ---------------------------------------------------------------------------
 
+/**
+ * Recommendation Lifecycle OS — Phase 1 (2026-04-27).
+ *
+ * Per-edit lifecycle state. Locked in
+ * `docs/RECOMMENDATION_LIFECYCLE_OS_SPEC.md` §2.
+ *
+ * Phase 1 ships only the SHAPE (this union + the 7 new persistence
+ * columns) and the `recommended` → `accepted` transition. The remaining
+ * states (`verified_live` etc.) are populated by the match engine in
+ * Phase 3. UI surfacing is Phase 6. Until then, callers MUST treat
+ * undefined as `recommended` at the read boundary — legacy file rows
+ * predate this column.
+ */
+export type ImplementationStatus =
+  | "recommended"
+  | "accepted"
+  | "verified_live"
+  | "verified_live_modified"
+  | "needs_review"
+  | "wrong_page"
+  | "partially_implemented"
+  | "not_found_after_7d"
+  | "dismissed";
+
+/** Phase 1: confidence tier emitted by the (future Phase 2) match engine. */
+export type LiveMatchConfidence = "high" | "medium" | "low";
+
+/** Phase 1: kind of match emitted by the (future Phase 2) match engine. */
+export type LiveMatchKind =
+  | "exact"
+  | "modified"
+  | "key_only"
+  | "text_only"
+  | "wrong_page";
+
 export type RecommendedEditRow = {
   id: string;
   tenant_id: string;
@@ -92,7 +127,55 @@ export type RecommendedEditRow = {
   cost_usd: number | null;
   created_at: string;
   updated_at: string;
+
+  // ---------------------------------------------------------------------
+  // Recommendation Lifecycle OS — Phase 1 (2026-04-27).
+  //
+  // Optional. The DB has a column DEFAULT 'recommended' for
+  // implementation_status, so SELECTs always return a value; the field
+  // is optional in TS only because legacy `.data/recommended-edits.json`
+  // rows on disk predate the column. Read sites MUST treat undefined as
+  // `'recommended'` (use `editLifecycleStatus(row)` helper).
+  //
+  // The remaining live_* columns are populated by Phase 3's match
+  // engine; until then they stay null/undefined for every row.
+  // ---------------------------------------------------------------------
+
+  /** Per-edit lifecycle state. See `ImplementationStatus`. */
+  implementation_status?: ImplementationStatus;
+  /**
+   * ISO timestamp at which the match engine first observed this edit
+   * live on the page. Source: `page_snapshots.fetched_at` of the
+   * matching snapshot. Stays null until Phase 3.
+   */
+  live_at?: string | null;
+  /** `page_snapshots.id` of the snapshot that proved the edit live. */
+  live_snapshot_id?: string | null;
+  /** Confidence tier of the match (Phase 3 fills). */
+  live_match_confidence?: LiveMatchConfidence | null;
+  /** Match kind (exact / modified / key_only / text_only / wrong_page). */
+  live_match_kind?: LiveMatchKind | null;
+  /**
+   * `page_element_inventory.element_key` of the matching element. May
+   * differ from `target_element_key` when match was text-only.
+   */
+  live_element_key?: string | null;
+  /** Free-text reason if status is `not_found_after_7d`. */
+  not_found_reason?: string | null;
 };
+
+/**
+ * Read-side normalization: legacy file rows lack `implementation_status`.
+ * Treat undefined as `recommended` — matches the DB column DEFAULT.
+ *
+ * Pure helper. No I/O. Idempotent. Use anywhere a caller needs to
+ * branch on lifecycle state without writing the same fallback inline.
+ */
+export function editLifecycleStatus(
+  row: Pick<RecommendedEditRow, "implementation_status">,
+): ImplementationStatus {
+  return row.implementation_status ?? "recommended";
+}
 
 // ---------------------------------------------------------------------------
 // Mapping
@@ -142,7 +225,99 @@ export function mapSpecificEditToRow(
     cost_usd: edit.costUsd,
     created_at: nowIso,
     updated_at: nowIso,
+    // Lifecycle OS Phase 1: every newly-mapped edit starts in
+    // `recommended`. The DB column DEFAULT covers existing-row
+    // upserts; we set it explicitly here so the file-first store and
+    // any Supabase upsert from new code agree.
+    implementation_status: "recommended",
+    live_at: null,
+    live_snapshot_id: null,
+    live_match_confidence: null,
+    live_match_kind: null,
+    live_element_key: null,
+    not_found_reason: null,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Lifecycle OS Phase 1 — `recommended` → `accepted` transition.
+// ---------------------------------------------------------------------------
+
+/**
+ * Mark a set of `recommended_edits` rows as `accepted`. Called by the
+ * `acceptRecommendation` server action immediately after the per-edit
+ * changelog fan-out. Pure-ish: reads the local file, mutates matching
+ * rows in place (status + updated_at), writes the file back, then
+ * dual-writes the changed rows to Supabase.
+ *
+ * Hard rules (locked by tests):
+ *   - Idempotent: re-calling with the same ids on already-accepted rows
+ *     is a no-op (no file write, no dual-write).
+ *   - Forward-only: rows already in `verified_live` / `verified_live_modified`
+ *     / `dismissed` etc. are NOT downgraded to `accepted` — Phase 2's
+ *     state-machine guard bakes this into the transition table.
+ *     Phase 1's surface-level guard: only flips when current status is
+ *     `recommended` or undefined (legacy rows).
+ *   - Unknown ids are skipped silently. Returning a count of rows
+ *     actually flipped lets the caller log; throwing on unknown ids
+ *     would couple the server action to file-state assumptions.
+ *
+ * Returns the count of rows whose status actually changed.
+ */
+export async function markRecommendedEditsAccepted(args: {
+  editIds: ReadonlyArray<string>;
+  tenantId: string;
+  now?: Date;
+}): Promise<{ flipped: number; skipped: number }> {
+  if (args.editIds.length === 0) return { flipped: 0, skipped: 0 };
+  const nowIso = (args.now ?? new Date()).toISOString();
+  const idSet = new Set(args.editIds);
+
+  const all = await readRecommendedEditsLocal();
+  const flipped: RecommendedEditRow[] = [];
+  let skipped = 0;
+  const next: RecommendedEditRow[] = [];
+  for (const row of all) {
+    if (!idSet.has(row.id)) {
+      next.push(row);
+      continue;
+    }
+    const status = editLifecycleStatus(row);
+    if (status === "recommended") {
+      const updated: RecommendedEditRow = {
+        ...row,
+        implementation_status: "accepted",
+        updated_at: nowIso,
+      };
+      flipped.push(updated);
+      next.push(updated);
+    } else {
+      // Already accepted (or further along) — no-op for idempotency.
+      skipped += 1;
+      next.push(row);
+    }
+  }
+
+  if (flipped.length === 0) {
+    return { flipped: 0, skipped };
+  }
+
+  await writeDotDataJson(STORE, next);
+  try {
+    await syncRecommendedEdits(flipped, args.tenantId);
+  } catch (err) {
+    log.warn("markRecommendedEditsAccepted: dual-write failed", {
+      tenantId: args.tenantId,
+      flippedCount: flipped.length,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    // File-first contract: the local mutation already landed; the
+    // Supabase mirror catches up on the next successful sync. Match
+    // engine in Phase 3 reads from the file-first source via the
+    // repository, so attribution stays correct even on a transient
+    // dual-write failure.
+  }
+  return { flipped: flipped.length, skipped };
 }
 
 // ---------------------------------------------------------------------------

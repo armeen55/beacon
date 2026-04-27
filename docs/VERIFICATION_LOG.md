@@ -7,6 +7,204 @@
 
 ---
 
+## 2026-04-27 — Recommendation Lifecycle OS — Phase 1 (lifecycle schema + accepted status)
+
+Phase 1 of the Recommendation Lifecycle OS shipped a small nullable lifecycle schema migration + the first state transition (`recommended` → `accepted`) on accept. **No match engine, no attribution change, no UI surface change, no scan trigger.** Phase 1 only ships the SHAPE that Phases 2–4 will populate.
+
+### Wording correction
+
+The plan and Phase 0 spec described Phase 1 as "schema-free." The operator corrected this 2026-04-27: **Phase 1 IS a small schema migration** — adding nullable columns to `recommended_edits` and `changelog_entries` is a real DDL change, just a low-risk one. From this entry onward, the canonical phrasing is "small nullable lifecycle schema migration."
+
+### Migration
+
+| | |
+|---|---|
+| Name | `lifecycle_os_phase1_recommended_edits_columns` |
+| Applied via | Supabase MCP `apply_migration` |
+| Project | `jdegznovgysxyweknewh` (beacon, us-east-2) |
+| Tables | `recommended_edits` (+7 cols), `changelog_entries` (+1 col) |
+| Partial index | `idx_recommended_edits_impl_status_accepted` ON `(tenant_id, implementation_status) WHERE implementation_status = 'accepted'` |
+| Existing-row backfill | Postgres column DEFAULT — no app-level backfill |
+| Existing-row impact | All 8 `recommended_edits` rows moved to `implementation_status='recommended'` (identity-preserving — `'recommended'` IS the correct semantic value for never-accepted edits) |
+
+Exact columns (per spec §2 + §3):
+
+`recommended_edits`:
+- `implementation_status text DEFAULT 'recommended'` (nullable)
+- `live_at timestamptz` (nullable)
+- `live_snapshot_id text` (nullable)
+- `live_match_confidence text` (nullable)
+- `live_match_kind text` (nullable)
+- `live_element_key text` (nullable)
+- `not_found_reason text` (nullable)
+
+`changelog_entries`:
+- `live_at timestamptz` (nullable)
+
+### Files changed
+
+| File | Change |
+|---|---|
+| `src/domains/recommendations/recommended-edits-persistence.ts` | Extended `RecommendedEditRow` with 7 optional lifecycle fields; added `ImplementationStatus` / `LiveMatchConfidence` / `LiveMatchKind` unions; added `editLifecycleStatus()` read-side normalizer; added `markRecommendedEditsAccepted()` mutator; `mapSpecificEditToRow` now stamps `implementation_status: "recommended"` + null lifecycle fields on every new row |
+| `src/domains/changelog/types.ts` | Added optional `live_at?: string \| null` field on `ChangelogEntry` (Phase 4 will switch the verdict engine to read it) |
+| `src/app/(shell)/recommendations/actions.ts` | `acceptRecommendation` calls `markRecommendedEditsAccepted` after the per-edit changelog fan-out succeeds; failure to flip is logged but does not fail the action |
+| `src/domains/recommendations/recommended-edits-persistence.test.ts` | +9 new Phase 1 tests; typed the `dualWriteMocks.syncRecommendedEdits` mock signature so destructuring `mock.calls[i]` typechecks |
+| `docs/HANDOFF_VERIFIED_STATE.md` | New top banner |
+| `docs/VERIFICATION_LOG.md` | This entry |
+
+### `accepted`-status behavior (locked semantics)
+
+When `acceptRecommendation` fires the per-edit fan-out (which it does whenever the rec has typed `recommended_edits` rows):
+
+1. The N changelog entries are created (existing behavior — unchanged).
+2. Hypothesis stamp loop runs (existing behavior — unchanged).
+3. **NEW:** `markRecommendedEditsAccepted({ editIds: editsForRec.map(e => e.id), tenantId })` runs.
+   - Reads all rows from `.data/recommended-edits.json` (tenant-routed by Sprint 7.8c).
+   - For each row whose id is in `editIds` AND whose status is `'recommended'` (or undefined → normalized to `'recommended'`):
+     - Sets `implementation_status = 'accepted'`.
+     - Sets `updated_at = now`.
+   - File-first: write back the merged set via `writeDotDataJson`.
+   - Then `syncRecommendedEdits(flippedRows, tenantId)` mirrors the changes to Supabase.
+   - **Forward-only:** rows already in `verified_live` / `dismissed` / etc. are NOT downgraded.
+   - **Idempotent:** re-calling on already-accepted rows is a no-op (no file write, no dual-write).
+   - **Best-effort:** dual-write failures are logged but do not fail the action — the file-first contract preserves operator intent locally.
+4. Action continues: revalidatePath + return success.
+
+Legacy file rows that lack the `implementation_status` field are treated as `'recommended'` by `editLifecycleStatus()` and are eligible to flip on next Accept.
+
+### Tests added/updated
+
+9 new test cases inside `recommended-edits-persistence.test.ts` (`Lifecycle OS Phase 1 —` describes):
+
+- `mapSpecificEditToRow stamps implementation_status='recommended' + null live_* fields`
+- `editLifecycleStatus normalizes legacy rows (undefined) to 'recommended'`
+- `markRecommendedEditsAccepted: flips matching rows from 'recommended' → 'accepted', writes file, dual-writes`
+- `markRecommendedEditsAccepted: is idempotent — re-flipping already-accepted rows is a no-op`
+- `markRecommendedEditsAccepted: does NOT downgrade rows already in verified_live / dismissed (forward-only)`
+- `markRecommendedEditsAccepted: treats legacy rows (implementation_status undefined) as 'recommended' and flips them`
+- `markRecommendedEditsAccepted: skips unknown ids silently without throwing`
+- `markRecommendedEditsAccepted: empty input is a no-op (no read, no write, no dual-write)`
+- `markRecommendedEditsAccepted: preserves all non-lifecycle fields on flipped rows`
+- `markRecommendedEditsAccepted: survives a dual-write failure (file write still succeeds; warns)`
+
+(One mock-typing tweak: `dualWriteMocks.syncRecommendedEdits` declared as `vi.fn<(rows: unknown[], tenantId: string) => Promise<void>>()` so existing + new tests both stay typecheck-clean.)
+
+### Verification
+
+| Gate | Result |
+|---|---|
+| `npm run typecheck` | ✅ clean |
+| Targeted suite (`recommended-edits-persistence.test.ts`) | ✅ 33/33 (was 24 baseline + 9 Phase 1) |
+| `npx vitest run tests/architecture/` | ✅ 95/95 |
+| Full `npx vitest run` | ✅ 2682/2682 |
+| `rm -rf .next && npm run build` | ✅ green |
+| Vercel-equivalent build (`mv .data /tmp; BEACON_TENANT_ID=… BEACON_TENANT_SLUG=… npm run build`) | ✅ green |
+| Supabase column verification | ✅ 8 cols present, defaults correct, all 8 existing rows backfilled to `'recommended'` |
+| Existing local rows load (`recommended-edits.json` legacy rows) | ✅ 11 rows load; `implementation_status` field absent on disk; `editLifecycleStatus()` returns `'recommended'` |
+
+Note on the Vercel-equivalent build flow: the documented `mv .data /tmp; … ; mv /tmp/.data .data` pattern can collide with the build's auto-recreated `.data/` directory if naive. Restored cleanly by `rm -rf .data/global .data/tenants` (build stubs) → `mv backup/* .data/` → `rmdir backup`. Real operator data verified intact post-restore (milestone-state.json shows operator's `value: 520` not the stub's `500`). Future Phase 1 verification log entries should reference this safe-restore sequence.
+
+### Whether Phase 2 is safe to start
+
+**YES** — and especially safe because Phase 2 is pure-function design (no I/O, no DB, no scan, no UI). Phase 2 builds the match engine as `src/domains/recommendations/match-engine/{index,normalize-text,per-action-matchers,types}.ts` + heavy test coverage (~30 fixture-based tests). It consumes `RecommendedEditRow` (now with `implementation_status` available) and `PageElementInventoryRow`; it returns a `MatchResult` and writes nothing. No production behavior changes until Phase 3 wires it into the scan dual-write block.
+
+Risks: none meaningful. Schema is locked; the lifecycle field is consumable; the read-side normalizer makes legacy rows safe to read.
+
+### Operator next action
+
+Sign off Phase 1 by adding to `.data/exit-gates.json`:
+
+```json
+"lifecycle_os_phase1": {
+  "status": "passed",
+  "notes": "Reviewed Phase 1 changes on <date>",
+  "recordedAt": "<ISO timestamp>"
+}
+```
+
+That gate authorizes Phase 2 (pure match engine — no I/O, no production impact).
+
+### Phase 2 preview
+
+- **Scope:** pure-function match engine — `matchAcceptedEdit(edit, inventory, prevInventory) → MatchResult`. Per-action-type matchers per spec §3.2 (title/meta/h1/h2/faq/schema/internal-link). Canonical `normalizeText()` per spec §3.3.
+- **Files added:** `src/domains/recommendations/match-engine/{index,normalize-text,per-action-matchers,types,match-engine.test.ts}.ts`. New architecture invariant test pinning purity.
+- **Files modified:** none.
+- **Tests:** ~30 new fixture-based tests covering each action type, smart-quote normalization, partial-faq matching, wrong-page detection.
+- **Risk:** Low. Pure function, no I/O, no production calls. Worst case: tests fail and we revise the rubric.
+- **Rollback:** `git revert <hash>` removes new files. No DB or schema impact.
+- **Recommended capability:** Max (Opus). The match engine is the system's brain — bugs here cause silent miscategorization across every accepted edit. Worth maximum care.
+
+---
+
+## 2026-04-27 — Recommendation Lifecycle OS — Phase 0 (contract lock, doc-only)
+
+Phase 0 of the Recommendation Lifecycle OS shipped as a doc-only contract lock. **Zero code changed. Zero migrations applied. Zero scans, accepts, or provider calls run.** Phase 0's purpose is to lock the state machine, confidence rubric, and attribution rule so engine work in Phase 1+ has a stable target.
+
+### What changed
+
+| File | Type | Purpose |
+|---|---|---|
+| `docs/RECOMMENDATION_LIFECYCLE_OS_SPEC.md` | NEW | The locked contract — golden path, 9-state machine, per-action-type match contract, attribution rule, sign-off gate ladder |
+| `docs/HANDOFF_VERIFIED_STATE.md` | EDIT | Added top-of-file banner pointing at the new spec; no other content changed |
+| `docs/VERIFICATION_LOG.md` | APPEND | This entry |
+
+### Source
+
+- **Plan file:** `/Users/armeen/.claude/plans/you-are-taking-over-cryptic-brooks.md` — the full audit + 11-phase plan that the operator approved 2026-04-27.
+- **Audit basis:** Three parallel read-only Explore agents (recommendation lifecycle / scan system / attribution+UI). Findings preserved in plan file §2.
+
+### Decisions locked (canonical references in spec)
+
+1. **Golden path** (spec §1) = Hybrid Confidence model — HIGH auto, MEDIUM ask, LOW pending. Industry precedent: GSC "Validate Fix", GitHub deploy checks, Linear branch-auto-link, Semrush re-crawl resolution.
+2. **State machine** (spec §2) = 9 states on `recommended_edits`: `recommended` → `accepted` → {`verified_live`, `verified_live_modified`, `needs_review`, `wrong_page`, `partially_implemented`, `not_found_after_7d`, `dismissed`}. Forbidden transitions enumerated explicitly to prevent engine bugs.
+3. **Confidence rubric** (spec §3) = per-`action_type` table with thresholds; `normalizeText()` canonical (NFC, smart-quote folding, whitespace collapse, em/en dash normalization, punctuation strip).
+4. **Attribution rule** (spec §4) = baseline-split uses `live_at` (falling back to `timestamp` for legacy). New verdict label `not_implemented` for `not_found_after_7d` rows. Daily polling cadence stays unchanged — no ad-hoc per-edit polls.
+5. **Manual vs automated boundary** (spec §5) = website editing is operator-owned forever; scan + HIGH-confidence implementation confirmation + attribution are all automated.
+6. **Sign-off ladder** (spec §8) = `lifecycle_os_phase0` … `lifecycle_os_phase11` gates in `.data/exit-gates.json` (existing pattern from `daily_ritual` / `replication` / `local_layer` gates). Each gate authorizes only the immediately-next phase.
+
+### Audit-confirmed gaps that Phases 1–11 will close
+
+- `recommended_edits` has no status field (per audit of `recommended-edits-persistence.ts:69-95`). Phase 1 adds `implementation_status` + `live_at` + 5 sibling columns.
+- Scan never writes to `recommended_edits` (per grep of `src/domains/scanning/**`). Phase 3 wires the new match engine into the scan dual-write block.
+- `materializeUrlOutcomes()` walks every changelog entry against `entry.timestamp = acceptedAt` (per audit of `url-change-outcome.ts:375-448`). Phase 4 pivots to `live_at`.
+- No scheduled scan cron exists (`.github/workflows/` only has `daily-native-poll.yml`). Phase 5 adds `daily-scan.yml`.
+- No "pending implementation" UI surface today (search across `src/` returned zero matches for "pending implementation"). Phases 6–7 surface the lifecycle.
+
+### Verification
+
+Doc-only. Standard build/test gates not exercised this phase (no source code touched).
+
+- `git status` confirms only `docs/RECOMMENDATION_LIFECYCLE_OS_SPEC.md` (new) and `docs/HANDOFF_VERIFIED_STATE.md` + `docs/VERIFICATION_LOG.md` (edits).
+- No `.data/*.json` writes.
+- No Supabase calls.
+- No provider calls.
+- No scans.
+
+### Operator next action
+
+Sign off Phase 0 by adding to `.data/exit-gates.json`:
+
+```json
+"lifecycle_os_phase0": {
+  "status": "passed",
+  "notes": "Reviewed RECOMMENDATION_LIFECYCLE_OS_SPEC.md on <date>",
+  "recordedAt": "<ISO timestamp>"
+}
+```
+
+That single gate authorizes Phase 1 (schema-free `implementation_status` + `live_at` columns on `recommended_edits` and `changelog_entries`).
+
+### Phase 1 preview
+
+- **Scope:** add `implementation_status` (default `'recommended'`), `live_at`, `live_snapshot_id`, `live_match_confidence`, `live_match_kind`, `live_element_key`, `not_found_reason` columns to `recommended_edits`. Add `live_at` to `changelog_entries`. All nullable; no backfill of existing rows.
+- **Files touched:** `src/domains/recommendations/recommended-edits-persistence.ts` (extend type), `src/app/(shell)/recommendations/actions.ts:256-363` (stamp `accepted` on fan-out), `src/lib/persistence/dual-write.ts` (extend `syncRecommendedEdits`), one Supabase migration.
+- **Tests:** extend `recommended-edits-persistence.test.ts` (~4 new cases).
+- **Risk:** Low — new columns are nullable; existing rows untouched; rec lifecycle behavior unchanged at the engine layer (status is read but not yet acted on).
+- **Rollback:** `git revert <hash>` + SQL `ALTER TABLE recommended_edits DROP COLUMN ...; ALTER TABLE changelog_entries DROP COLUMN live_at;`. No data lost.
+- **Recommended capability:** Balanced (Sonnet) — schema + dual-write extension; well-trodden pattern from Sprint 6A.1 / Sprint 7.
+
+---
+
 ## 2026-04-26 — Sprint 6A.3 — native polling cost observability + runaway protection
 
 Phase 6A.3 added cost tracking + budget caps + a kill switch + identical-prompt dedupe to the native polling pipeline. **Polling quality is byte-identical.** No model change, no output cap change, no prompt change, no cadence change. Caps are runaway protection only — set high enough that normal full-native operation never trips them.

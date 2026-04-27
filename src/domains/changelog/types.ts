@@ -146,6 +146,21 @@ export type ChangelogEntry = {
    *  "title[0]:abc"), or `<type>[new]:<hash>` for additive edits. */
   target_element_key?: string;
 
+  // ---------------------------------------------------------------------
+  // Recommendation Lifecycle OS — Phase 1 (2026-04-27).
+  //
+  // ISO timestamp at which the (future Phase 3) match engine first
+  // confirmed the underlying edit is live on the page. Source:
+  // `page_snapshots.fetched_at` of the matching snapshot. Stays null
+  // until Phase 3 wires the match engine; Phase 4 flips the verdict
+  // engine to read `live_at ?? timestamp` for the baseline split.
+  //
+  // Optional. Legacy rows have this undefined; the verdict engine
+  // continues to use `timestamp` for them (backwards compatible).
+  // ---------------------------------------------------------------------
+
+  live_at?: string | null;
+
   /** Owning tenant. */
   tenant_id: string;
 };

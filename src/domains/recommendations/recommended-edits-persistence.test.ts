@@ -20,7 +20,9 @@ import type {
 } from "./specific-edit-provider";
 import { deterministicProvider } from "./providers/deterministic";
 import {
+  editLifecycleStatus,
   mapSpecificEditToRow,
+  markRecommendedEditsAccepted,
   persistRecommendedEditsLocal,
   readRecommendedEditsLocal,
   runProviderAndPersist,
@@ -55,7 +57,11 @@ vi.mock("@/lib/persistence/dotdata-json", () => ({
 }));
 
 const dualWriteMocks = vi.hoisted(() => ({
-  syncRecommendedEdits: vi.fn(async () => undefined),
+  // Typed signature so Phase 1 lifecycle tests can destructure
+  // `mock.calls[i]` without `as unknown as ...` gymnastics.
+  syncRecommendedEdits: vi.fn<
+    (rows: unknown[], tenantId: string) => Promise<void>
+  >(),
 }));
 
 vi.mock("@/lib/persistence/dual-write", async (importOriginal) => {
@@ -720,6 +726,237 @@ describe("Phase 6A.1.11 — persistRecommendedEditsLocal", () => {
   it("readRecommendedEditsLocal returns [] when the file is missing", async () => {
     dotDataMocks.read.mockResolvedValueOnce(null);
     expect(await readRecommendedEditsLocal()).toEqual([]);
+  });
+});
+
+// ── Lifecycle OS Phase 1 (2026-04-27) ────────────────────────────────────
+//
+// Tests for the per-edit `implementation_status` field + the
+// `recommended` → `accepted` transition wired by acceptRecommendation.
+// Match engine + verified_live transitions are Phase 2/3 — not tested
+// here.
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("Lifecycle OS Phase 1 — implementation_status defaults + helper", () => {
+  it("mapSpecificEditToRow stamps implementation_status='recommended' + null live_* fields", () => {
+    const packet = buildPacket();
+    const edit = validEditTitleFixture(packet);
+    const row = mapSpecificEditToRow({
+      edit,
+      recId: packet.recId,
+      tenantId: packet.tenantId,
+      evidenceHash: packet.evidenceHash,
+      now: FROZEN_NOW,
+    });
+    expect(row.implementation_status).toBe("recommended");
+    expect(row.live_at).toBeNull();
+    expect(row.live_snapshot_id).toBeNull();
+    expect(row.live_match_confidence).toBeNull();
+    expect(row.live_match_kind).toBeNull();
+    expect(row.live_element_key).toBeNull();
+    expect(row.not_found_reason).toBeNull();
+  });
+
+  it("editLifecycleStatus normalizes legacy rows (undefined) to 'recommended'", () => {
+    expect(editLifecycleStatus({ implementation_status: undefined })).toBe(
+      "recommended",
+    );
+    expect(editLifecycleStatus({ implementation_status: "accepted" })).toBe(
+      "accepted",
+    );
+    expect(
+      editLifecycleStatus({ implementation_status: "verified_live" }),
+    ).toBe("verified_live");
+  });
+});
+
+describe("Lifecycle OS Phase 1 — markRecommendedEditsAccepted", () => {
+  beforeEach(() => {
+    dotDataMocks.read.mockReset();
+    dotDataMocks.write.mockReset();
+    dualWriteMocks.syncRecommendedEdits.mockReset();
+    dualWriteMocks.syncRecommendedEdits.mockResolvedValue(undefined);
+  });
+
+  /**
+   * Build a fixture row. Defaults to `implementation_status: "recommended"`
+   * to mirror what mapSpecificEditToRow produces in production. Pass an
+   * explicit status (incl. `undefined`) to simulate legacy / advanced
+   * states.
+   */
+  function makeRow(
+    id: string,
+    statusOverride?: { status: RecommendedEditRow["implementation_status"] },
+  ): RecommendedEditRow {
+    const packet = buildPacket();
+    const base = mapSpecificEditToRow({
+      edit: validEditTitleFixture(packet),
+      recId: packet.recId,
+      tenantId: packet.tenantId,
+      evidenceHash: packet.evidenceHash,
+      now: FROZEN_NOW,
+    });
+    if (statusOverride === undefined) return { ...base, id };
+    return { ...base, id, implementation_status: statusOverride.status };
+  }
+
+  it("flips matching rows from 'recommended' → 'accepted', writes file, dual-writes", async () => {
+    const rows = [makeRow("e1"), makeRow("e2"), makeRow("e3")];
+    dotDataMocks.read.mockResolvedValueOnce(rows);
+
+    const result = await markRecommendedEditsAccepted({
+      editIds: ["e1", "e3"],
+      tenantId: TENANT,
+      now: FROZEN_NOW,
+    });
+
+    expect(result).toEqual({ flipped: 2, skipped: 0 });
+
+    // File write happened once with merged state.
+    expect(dotDataMocks.write).toHaveBeenCalledTimes(1);
+    const [, writtenRows] = dotDataMocks.write.mock.calls[0]!;
+    const written = writtenRows as RecommendedEditRow[];
+    expect(written.find((r) => r.id === "e1")?.implementation_status).toBe(
+      "accepted",
+    );
+    expect(written.find((r) => r.id === "e2")?.implementation_status).toBe(
+      "recommended",
+    );
+    expect(written.find((r) => r.id === "e3")?.implementation_status).toBe(
+      "accepted",
+    );
+
+    // Dual-write got only the changed rows.
+    expect(dualWriteMocks.syncRecommendedEdits).toHaveBeenCalledTimes(1);
+    const [flippedRows, tenantArg] =
+      dualWriteMocks.syncRecommendedEdits.mock.calls[0]!;
+    expect(tenantArg).toBe(TENANT);
+    const flipped = flippedRows as RecommendedEditRow[];
+    expect(flipped.map((r) => r.id).sort()).toEqual(["e1", "e3"]);
+    expect(flipped.every((r) => r.implementation_status === "accepted")).toBe(
+      true,
+    );
+    expect(flipped.every((r) => r.updated_at === FROZEN_NOW.toISOString())).toBe(
+      true,
+    );
+  });
+
+  it("is idempotent — re-flipping already-accepted rows is a no-op", async () => {
+    const rows = [
+      makeRow("e1", { status: "accepted" }),
+      makeRow("e2", { status: "accepted" }),
+    ];
+    dotDataMocks.read.mockResolvedValueOnce(rows);
+
+    const result = await markRecommendedEditsAccepted({
+      editIds: ["e1", "e2"],
+      tenantId: TENANT,
+      now: FROZEN_NOW,
+    });
+
+    expect(result).toEqual({ flipped: 0, skipped: 2 });
+    expect(dotDataMocks.write).not.toHaveBeenCalled();
+    expect(dualWriteMocks.syncRecommendedEdits).not.toHaveBeenCalled();
+  });
+
+  it("does NOT downgrade rows already in verified_live / dismissed (forward-only)", async () => {
+    const rows = [
+      makeRow("e1", { status: "verified_live" }),
+      makeRow("e2", { status: "dismissed" }),
+      makeRow("e3", { status: "needs_review" }),
+    ];
+    dotDataMocks.read.mockResolvedValueOnce(rows);
+
+    const result = await markRecommendedEditsAccepted({
+      editIds: ["e1", "e2", "e3"],
+      tenantId: TENANT,
+      now: FROZEN_NOW,
+    });
+
+    expect(result).toEqual({ flipped: 0, skipped: 3 });
+    expect(dotDataMocks.write).not.toHaveBeenCalled();
+    expect(dualWriteMocks.syncRecommendedEdits).not.toHaveBeenCalled();
+  });
+
+  it("treats legacy rows (implementation_status undefined) as 'recommended' and flips them", async () => {
+    const rows = [makeRow("e1", { status: undefined })];
+    dotDataMocks.read.mockResolvedValueOnce(rows);
+
+    const result = await markRecommendedEditsAccepted({
+      editIds: ["e1"],
+      tenantId: TENANT,
+      now: FROZEN_NOW,
+    });
+
+    expect(result.flipped).toBe(1);
+    expect(dualWriteMocks.syncRecommendedEdits).toHaveBeenCalledTimes(1);
+  });
+
+  it("skips unknown ids silently without throwing", async () => {
+    dotDataMocks.read.mockResolvedValueOnce([makeRow("e1")]);
+
+    const result = await markRecommendedEditsAccepted({
+      editIds: ["e1", "does-not-exist"],
+      tenantId: TENANT,
+      now: FROZEN_NOW,
+    });
+
+    expect(result).toEqual({ flipped: 1, skipped: 0 });
+  });
+
+  it("empty input is a no-op (no read, no write, no dual-write)", async () => {
+    const result = await markRecommendedEditsAccepted({
+      editIds: [],
+      tenantId: TENANT,
+      now: FROZEN_NOW,
+    });
+
+    expect(result).toEqual({ flipped: 0, skipped: 0 });
+    expect(dotDataMocks.read).not.toHaveBeenCalled();
+    expect(dotDataMocks.write).not.toHaveBeenCalled();
+    expect(dualWriteMocks.syncRecommendedEdits).not.toHaveBeenCalled();
+  });
+
+  it("preserves all non-lifecycle fields on flipped rows", async () => {
+    const original = makeRow("e1");
+    dotDataMocks.read.mockResolvedValueOnce([original]);
+
+    await markRecommendedEditsAccepted({
+      editIds: ["e1"],
+      tenantId: TENANT,
+      now: FROZEN_NOW,
+    });
+
+    const [flippedRows] =
+      dualWriteMocks.syncRecommendedEdits.mock.calls[0]!;
+    const flipped = (flippedRows as RecommendedEditRow[])[0]!;
+    expect(flipped.rec_id).toBe(original.rec_id);
+    expect(flipped.target_url).toBe(original.target_url);
+    expect(flipped.target_element_key).toBe(original.target_element_key);
+    expect(flipped.proposed_text).toBe(original.proposed_text);
+    expect(flipped.evidence).toEqual(original.evidence);
+    expect(flipped.created_at).toBe(original.created_at);
+    // Only these two changed:
+    expect(flipped.implementation_status).toBe("accepted");
+    expect(flipped.updated_at).toBe(FROZEN_NOW.toISOString());
+  });
+
+  it("survives a dual-write failure (file write still succeeds; warns)", async () => {
+    const rows = [makeRow("e1")];
+    dotDataMocks.read.mockResolvedValueOnce(rows);
+    dualWriteMocks.syncRecommendedEdits.mockRejectedValueOnce(
+      new Error("supabase unreachable"),
+    );
+
+    const result = await markRecommendedEditsAccepted({
+      editIds: ["e1"],
+      tenantId: TENANT,
+      now: FROZEN_NOW,
+    });
+
+    expect(result.flipped).toBe(1);
+    expect(dotDataMocks.write).toHaveBeenCalledTimes(1);
+    expect(dualWriteMocks.syncRecommendedEdits).toHaveBeenCalledTimes(1);
   });
 });
 
