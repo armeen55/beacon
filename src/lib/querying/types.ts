@@ -38,6 +38,31 @@ export type SamplingRunResult = {
   errors: number;
 };
 
+/**
+ * Sprint 6A.3a (2026-04-26) — optional usage metadata returned by every
+ * `QueryClient.sample()` implementation. The polling adapter uses this to
+ * estimate per-call cost via `src/lib/cost/pricing.ts`. Both fields are
+ * optional so older mocks / future provider clients that don't (or can't)
+ * surface usage continue to compile; the cost estimator returns `0` when
+ * `usage` is missing — conservative fallback that never crashes the loop.
+ *
+ * NO behavior change to any caller in 6A.3a. The pollPerplexityForTenant
+ * loop ignores `usage` until 6A.3c wires it into spend tracking.
+ */
+export type QueryUsage = {
+  /** Provider-reported input/prompt tokens. */
+  inputTokens: number;
+  /** Provider-reported output/completion tokens. */
+  outputTokens: number;
+  /**
+   * Number of `web_search_preview` (or equivalent) tool invocations the
+   * provider performed for this call. OpenAI Responses API only —
+   * undefined for Perplexity sonar (where search cost is bundled into
+   * the per-token pricing). Counted by inspecting `output[].type` items.
+   */
+  webSearchCalls?: number;
+};
+
 export interface QueryClient {
   platform: string;
   model: string;
@@ -45,6 +70,8 @@ export interface QueryClient {
     answer_text: string;
     citations: CitationRef[];
     model: string;
+    /** Optional. Populated by 6A.3a; absent on legacy mocks. */
+    usage?: QueryUsage;
   }>;
 }
 

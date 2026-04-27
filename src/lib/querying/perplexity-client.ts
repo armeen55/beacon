@@ -1,6 +1,6 @@
 import "server-only";
 
-import type { QueryClient, CitationRef } from "./types";
+import type { QueryClient, CitationRef, QueryUsage } from "./types";
 
 const PERPLEXITY_API_URL = "https://api.perplexity.ai/chat/completions";
 
@@ -27,6 +27,16 @@ type PerplexityResponse = {
     finish_reason: string;
   }>;
   citations?: string[];
+  /**
+   * Sprint 6A.3a (2026-04-26): Perplexity chat completions usage block.
+   * Optional — same tolerance as the OpenAI parser. Sonar bundles search
+   * cost into per-token pricing, so no separate web-search counter here.
+   */
+  usage?: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    total_tokens?: number;
+  };
 };
 
 function extractDomain(url: string): string {
@@ -103,10 +113,22 @@ export function createPerplexityClient(
       const answerText =
         data.choices?.[0]?.message?.content ?? "";
 
+      // Sprint 6A.3a — surface optional usage. Absent on legacy/mock
+      // responses; downstream estimator treats absence as "don't book."
+      const usage: QueryUsage | undefined = data.usage
+        ? {
+            inputTokens: data.usage.prompt_tokens ?? 0,
+            outputTokens: data.usage.completion_tokens ?? 0,
+            // Sonar bundles search cost into per-token pricing — no
+            // separate web-search counter for Perplexity.
+          }
+        : undefined;
+
       return {
         answer_text: answerText,
         citations: buildCitations(data.citations),
         model: data.model || model,
+        usage,
       };
     },
   };

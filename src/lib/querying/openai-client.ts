@@ -9,7 +9,7 @@ import "server-only";
  * special-casing.
  */
 
-import type { QueryClient, CitationRef } from "./types";
+import type { QueryClient, CitationRef, QueryUsage } from "./types";
 
 const OPENAI_RESPONSES_API = "https://api.openai.com/v1/responses";
 
@@ -58,17 +58,39 @@ type ResponsesApiResponse = {
   id?: string;
   model?: string;
   output?: ResponsesApiOutputItem[];
+  /**
+   * Sprint 6A.3a (2026-04-26): Responses API usage object. Optional
+   * because some response shapes / mock servers omit it; the parser
+   * tolerates absence and emits `usage = undefined` on the result.
+   */
+  usage?: {
+    input_tokens?: number;
+    output_tokens?: number;
+    total_tokens?: number;
+  };
 };
 
 /**
  * Extract answer text and citation refs from a Responses API response body.
  * Exported for unit testing — the network path is covered by integration at
  * the adapter/script level.
+ *
+ * Sprint 6A.3a (2026-04-26): also surfaces optional `usage` derived from
+ * the Responses API `usage` object plus a count of `web_search_call`
+ * items in `output[]`. When `data.usage` is missing entirely, `usage` on
+ * the return is `undefined` (not a zero-filled object) — downstream
+ * estimator treats absence as "don't track this call against the
+ * budget." See `src/lib/cost/pricing.ts` for the conservative fallback.
  */
 export function parseOpenAIResponse(
   data: ResponsesApiResponse,
   fallbackModel: string,
-): { answer_text: string; citations: CitationRef[]; model: string } {
+): {
+  answer_text: string;
+  citations: CitationRef[];
+  model: string;
+  usage?: QueryUsage;
+} {
   const outputs = data.output ?? [];
   const message = outputs.find(
     (o): o is Extract<ResponsesApiOutputItem, { type: "message" }> =>
@@ -91,10 +113,27 @@ export function parseOpenAIResponse(
     position: i + 1,
   }));
 
+  // Web-search invocations: count `web_search_call` items in output[].
+  // The Responses API emits one of these per tool invocation; the model
+  // may invoke 0, 1, or several per prompt. Counting from `output[]`
+  // matches what OpenAI bills the operator for.
+  const webSearchCalls = outputs.filter(
+    (o) => o.type === "web_search_call",
+  ).length;
+
+  const usage: QueryUsage | undefined = data.usage
+    ? {
+        inputTokens: data.usage.input_tokens ?? 0,
+        outputTokens: data.usage.output_tokens ?? 0,
+        webSearchCalls,
+      }
+    : undefined;
+
   return {
     answer_text: answerText,
     citations,
     model: data.model ?? fallbackModel,
+    usage,
   };
 }
 
