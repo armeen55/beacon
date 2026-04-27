@@ -889,7 +889,25 @@ export async function syncRecommendationResponses(
     "recommendation_responses",
   );
   const mapped = rows.map((r) => mapRecommendationResponseToRow(r, tenantId));
-  await dualWriteUpsert("recommendation_responses", mapped, "rec_id");
+  // 2026-04-27 Accept-bug fix — analogous to Sprint 6A.2f's fix on
+  // syncRecommendedEdits. The Phase 7.2 multi-tenant migration swapped
+  // the recommendation_responses PRIMARY KEY from `(rec_id)` to
+  // `(tenant_id, rec_id)` to allow two tenants to hold independent
+  // responses for the same rec_id (e.g. two tenants both producing
+  // `create_cluster_page:geo:Los Altos`). The dual-write spec was not
+  // updated alongside, so every Accept against the live tenant threw
+  // `there is no unique or exclusion constraint matching the ON CONFLICT
+  // specification` from PostgREST. Verified the production index via
+  //   SELECT indexdef FROM pg_indexes WHERE tablename='recommendation_responses'
+  //   → `recommendation_responses_pkey ON ... USING btree (tenant_id, rec_id)`
+  // before changing this string. Architecture invariant in
+  // tests/architecture/dual-write-onconflict.test.ts pins this against
+  // future regression.
+  await dualWriteUpsert(
+    "recommendation_responses",
+    mapped,
+    "tenant_id,rec_id",
+  );
 }
 
 /**
