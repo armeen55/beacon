@@ -474,6 +474,24 @@ describe("openai provider — system prompt hardening (Sprint 6A.2f)", () => {
     expect(providerSrc).toMatch(/11\. \*\*proposedText must be final/);
   });
 
+  // Sprint 6A.2g.B (2026-04-26) — competitor public-copy rule pin.
+  it("Sprint 6A.2g.B — Rule 12 competitor-names-are-evidence-not-copy", () => {
+    expect(providerSrc).toMatch(/12\. \*\*Competitor names are EVIDENCE, not public copy\.\*\*/);
+    // Operator-facing slots where competitor names ARE allowed.
+    expect(providerSrc).toMatch(/the "why" field \(operator-facing reasoning\)/);
+    expect(providerSrc).toMatch(/evidence refs \(type="competitor", competitorName\)/);
+    // Visitor-readable slots where competitor names are forbidden.
+    expect(providerSrc).toMatch(/NEVER include a competitor name/);
+    expect(providerSrc).toMatch(/proposedText \(the copy that ships to the live site\)/);
+    expect(providerSrc).toMatch(/targetElement\.displayLabel/);
+    // Pinned BAD/GOOD example demonstrating the differentiator-in-why
+    // pattern.
+    expect(providerSrc).toMatch(/BAD\s*:\s*proposedText\s*=\s*"Why teams choose us over De Mattei/);
+    expect(providerSrc).toMatch(/GOOD:\s*proposedText\s*=\s*"Why Bay Area homeowners choose/);
+    // Suffix-stripped variant guarantee.
+    expect(providerSrc).toMatch(/safe[\s\S]*suffix-stripped variants/);
+  });
+
   // Sprint 6A.2g.C (2026-04-26) — FAQ intent rewriting rule pin.
   it("Sprint 6A.2g.C — Rule 13 FAQ-must-not-lift-prompt-text + ends-in-?", () => {
     expect(providerSrc).toMatch(/13\. \*\*FAQ questions must NOT lift synthetic prompt text verbatim\.\*\*/);

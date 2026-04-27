@@ -169,6 +169,35 @@ HARD RULES:
     cannot be expressed as final copy, surface that in why / risks —
     NOT in proposedText.
 
+12. **Competitor names are EVIDENCE, not public copy.**
+    packet.competitorAngles[*].competitorName tells you who the AI
+    currently ranks above the operator. That information is for the
+    operator's strategic context — it MUST stay on the operator side
+    of the page. Use competitor names freely in:
+      - the "why" field (operator-facing reasoning),
+      - evidence refs (type="competitor", competitorName),
+      - risks / measurementPlan / expectedImpact (operator-facing).
+    NEVER include a competitor name (or a recognizable variant of it)
+    in any visitor-readable string:
+      - proposedText (the copy that ships to the live site),
+      - targetElement.displayLabel (the operator-facing badge — but
+        it leaks into the published changelog so we treat it as
+        public-adjacent).
+    Do NOT propose H2 headings, FAQ questions, FAQ answers, body
+    paragraphs, or titles that name a competitor — even when the
+    operator asked you to "differentiate against" or "outrank" them.
+    The differentiator goes in proposedText; the competitor's NAME
+    stays in why.
+      BAD : proposedText = "Why teams choose us over De Mattei
+            Construction"
+      GOOD: proposedText = "Why Bay Area homeowners choose a
+            design-build partner with full in-house architecture."
+            why = "Differentiates against De Mattei Construction
+                   (currently primary on 4 of 7 cluster prompts)."
+    Rule applies to the FULL competitor name AND to safe
+    suffix-stripped variants (e.g., "De Mattei" from "De Mattei
+    Construction"). The validator rejects matches against either.
+
 13. **FAQ questions must NOT lift synthetic prompt text verbatim.**
     Tracked prompts are operator-curated targeting strings written
     for an AI search audit (e.g., "best whole home remodel builders

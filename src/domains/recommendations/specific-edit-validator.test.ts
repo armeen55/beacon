@@ -12,6 +12,7 @@ import {
 import type { SpecificEdit, SpecificEditBundle } from "./specific-edit-provider";
 import { deterministicProvider } from "./providers/deterministic";
 import {
+  buildCompetitorAliases,
   isAdditiveElementKey,
   parseElementTypeFromKey,
   validateSerializable,
@@ -193,9 +194,15 @@ function validAddH2Fixture(): SpecificEdit {
       elementKey: "h2[new]:abc123def456",
       displayLabel: 'H2 heading (new): "Why teams choose us"',
       currentText: null,
-      proposedText: "Why teams choose us over AcmeOrtho",
+      // Sprint 6A.2g.B (2026-04-26) — proposedText must NOT name a
+      // competitor. The packet's primarySummaries include "AcmeOrtho",
+      // so any AcmeOrtho-bearing copy would fail the new gate.
+      // Differentiation goes in the why; the visible copy stays
+      // generic.
+      proposedText:
+        "Why teams choose a board-certified orthodontist for their teen.",
     },
-    why: "Top competitor not mentioned in any H2.",
+    why: "Top competitor (AcmeOrtho) primary on 3 of 5 prompts; no H2 differentiates.",
     evidence: [{ type: "competitor", competitorName: "AcmeOrtho" }],
     expectedImpact: null,
     difficulty: "low",
@@ -285,21 +292,37 @@ describe("Phase 6A.1.10 — validateSpecificEdit (positive)", () => {
     expect(validateSpecificEdit(edit, packet)).toEqual({ ok: true });
   });
 
-  it("accepts ALL non-FAQ outputs of the deterministic provider (Phase 9 generators are valid by construction)", async () => {
-    // Sprint 6A.2g.C (2026-04-26) — the deterministic FAQ generator
-    // emits proposedText that doesn't end in "?" (Phase 9 shape predates
-    // Rule 13). Until that generator is rewritten in a follow-up sprint,
-    // filter add_faq / rewrite_faq rows out of this assertion. The
-    // dedicated FAQ-rule tests cover the new contract; this test
-    // protects every other action type from regression.
-    const packet = buildPacket();
-    const bundle = await deterministicProvider.generate(packet);
-    expect(bundle.recommendations.length).toBeGreaterThan(0);
-    for (const edit of bundle.recommendations) {
-      if (edit.actionType === "add_faq" || edit.actionType === "rewrite_faq") {
-        continue;
+  it("accepts ALL non-FAQ outputs of the deterministic provider with Phase-6A.2g opt-outs set (Phase 9 generators predate Rules 12/13)", async () => {
+    // Sprint 6A.2g.B/C (2026-04-26) — the Phase 9 deterministic
+    // generators predate the new Rule 12 (no competitor names in copy)
+    // and Rule 13 (FAQ questions must end in "?"). Their outputs
+    // legitimately fail the new gates. Filter FAQ rows AND set the
+    // competitor-copy opt-out to assert that everything else (which
+    // wasn't in scope for either rule) still validates cleanly.
+    // Operator-approved scoping: the deterministic generator rewrite
+    // is a separate sprint; the new gates protect LLM provider
+    // outputs from day one.
+    const original = process.env.BEACON_ALLOW_COMPETITOR_COPY;
+    process.env.BEACON_ALLOW_COMPETITOR_COPY = "1";
+    try {
+      const packet = buildPacket();
+      const bundle = await deterministicProvider.generate(packet);
+      expect(bundle.recommendations.length).toBeGreaterThan(0);
+      for (const edit of bundle.recommendations) {
+        if (
+          edit.actionType === "add_faq" ||
+          edit.actionType === "rewrite_faq"
+        ) {
+          continue;
+        }
+        expect(validateSpecificEdit(edit, packet)).toEqual({ ok: true });
       }
-      expect(validateSpecificEdit(edit, packet)).toEqual({ ok: true });
+    } finally {
+      if (original === undefined) {
+        delete process.env.BEACON_ALLOW_COMPETITOR_COPY;
+      } else {
+        process.env.BEACON_ALLOW_COMPETITOR_COPY = original;
+      }
     }
   });
 
@@ -980,29 +1003,410 @@ describe("Sprint 6A.2g.C — FAQ intent rewriting (validateFaqIntentRewriting)",
   });
 });
 
+// ── Sprint 6A.2g.B — Competitor public-copy safety ──────────────────────
+
+describe("Sprint 6A.2g.B — buildCompetitorAliases (alias generation)", () => {
+  it("includes the full trimmed name first (always)", () => {
+    expect(buildCompetitorAliases("De Mattei Construction")).toEqual([
+      "De Mattei Construction",
+      "De Mattei",
+    ]);
+  });
+
+  it("strips closed-set suffixes iteratively", () => {
+    expect(buildCompetitorAliases("Acme Builders Inc")).toEqual([
+      "Acme Builders Inc",
+      "Acme Builders",
+      "Acme",
+    ]);
+  });
+
+  it("does NOT strip suffixes outside the closed set (e.g., 'Solutions')", () => {
+    expect(buildCompetitorAliases("Acme Solutions")).toEqual(["Acme Solutions"]);
+  });
+
+  it("does NOT split mid-name on closed-set words at non-trailing position", () => {
+    // "Pacific" isn't in the closed set; stripping stops.
+    expect(buildCompetitorAliases("Co Pacific")).toEqual(["Co Pacific"]);
+  });
+
+  it("skips suffix-stripped aliases shorter than 3 characters", () => {
+    // "X Co" → strip "Co" → "X" (1 char) → guard kicks in, only the
+    // full name is kept.
+    expect(buildCompetitorAliases("X Co")).toEqual(["X Co"]);
+  });
+
+  it("ALSO works with single-suffix LLC", () => {
+    expect(buildCompetitorAliases("ABC LLC")).toEqual(["ABC LLC", "ABC"]);
+  });
+
+  it("dedupes when iterative stripping produces a duplicate", () => {
+    // Defensive: shouldn't happen with current closed set, but the
+    // dedupe is part of the contract.
+    const a = buildCompetitorAliases("Foo Group");
+    expect(a).toEqual(["Foo Group", "Foo"]);
+  });
+
+  it("caps aliases at 5 per competitor", () => {
+    // No realistic competitor name produces 6+ aliases with the closed
+    // set, but the cap is contractual.
+    const a = buildCompetitorAliases("A Builders Construction Group LLC Co");
+    expect(a.length).toBeLessThanOrEqual(5);
+    expect(a[0]).toBe("A Builders Construction Group LLC Co");
+  });
+
+  it("returns empty when name is empty / whitespace / non-string", () => {
+    expect(buildCompetitorAliases("")).toEqual([]);
+    expect(buildCompetitorAliases("   ")).toEqual([]);
+    expect(
+      buildCompetitorAliases(null as unknown as string),
+    ).toEqual([]);
+  });
+
+  it("includes the full name even when it would be too short for a stripped alias", () => {
+    // 2-char full name — kept as the full alias regardless of length.
+    expect(buildCompetitorAliases("AB")).toEqual(["AB"]);
+  });
+
+  it("case-preserving on the full name (regex check is case-insensitive at match time)", () => {
+    expect(buildCompetitorAliases("de mattei construction")).toEqual([
+      "de mattei construction",
+      "de mattei",
+    ]);
+  });
+
+  it("trims trailing period on suffix (e.g., 'Inc.')", () => {
+    expect(buildCompetitorAliases("Acme Inc.")).toEqual(["Acme Inc.", "Acme"]);
+  });
+});
+
+/**
+ * Helper: build a packet whose competitorAngles contains the given
+ * competitor name(s). Builds on basePacketArgs which already populates
+ * "AcmeOrtho" via the primary summary. We can extend it.
+ */
+function buildPacketWithCompetitors(
+  competitorNames: string[],
+): SpecificEditEvidencePacket {
+  const promptId = "prompt-1";
+  return buildSpecificEditEvidencePacket({
+    ...basePacketArgs(),
+    primarySummaries: [
+      {
+        prompt_id: promptId,
+        totalAnswers: 5,
+        ritzPrimaryCount: 0,
+        ritzPrimaryShare: 0,
+        ritzState: "absent",
+        primaryCompetitors: competitorNames.map((name) => ({
+          name,
+          primaryCount: 3,
+          totalAnswers: 5,
+        })),
+        fragmented: false,
+      },
+    ],
+  });
+}
+
+function makeAddH2EditWithProposedText(
+  packet: SpecificEditEvidencePacket,
+  proposedText: string,
+  displayLabel = "H2 (new)",
+): SpecificEdit {
+  return {
+    actionType: "add_h2_section",
+    targetUrl: URL_BRACES,
+    targetElement: {
+      elementKey: "h2[new]:abc123def456",
+      displayLabel,
+      currentText: null,
+      proposedText,
+    },
+    why: "Operator-facing reasoning is fine to mention competitors.",
+    evidence: [
+      { type: "prompt", promptId: packet.affectedPrompts[0].promptId },
+    ],
+    expectedImpact: null,
+    difficulty: "low",
+    confidence: "medium",
+    measurementPlan: null,
+    risks: [],
+    source: "deterministic",
+    providerName: "deterministic",
+    model: null,
+    costUsd: null,
+  };
+}
+
+describe("Sprint 6A.2g.B — competitor public-copy validator", () => {
+  // Restore env after every test — opt-out gate is process-global.
+  const ORIGINAL = process.env.BEACON_ALLOW_COMPETITOR_COPY;
+  afterEach(() => {
+    if (ORIGINAL === undefined) {
+      delete process.env.BEACON_ALLOW_COMPETITOR_COPY;
+    } else {
+      process.env.BEACON_ALLOW_COMPETITOR_COPY = ORIGINAL;
+    }
+  });
+
+  it("REJECT — full competitor name appears in proposedText", () => {
+    const packet = buildPacketWithCompetitors(["De Mattei Construction"]);
+    const edit = makeAddH2EditWithProposedText(
+      packet,
+      "Why teams choose us over De Mattei Construction",
+    );
+    const r = validateSpecificEdit(edit, packet);
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.field).toBe("targetElement.proposedText");
+      expect(r.reason).toMatch(/De Mattei Construction/);
+      expect(r.reason).toMatch(/BEACON_ALLOW_COMPETITOR_COPY=1 to override/);
+    }
+  });
+
+  it("REJECT — suffix-stripped alias appears in proposedText (e.g., 'vs De Mattei' from 'De Mattei Construction')", () => {
+    const packet = buildPacketWithCompetitors(["De Mattei Construction"]);
+    const edit = makeAddH2EditWithProposedText(
+      packet,
+      "Why teams choose us vs De Mattei",
+    );
+    const r = validateSpecificEdit(edit, packet);
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.reason).toMatch(/De Mattei/);
+      expect(r.reason).toMatch(/matched alias "De Mattei"/);
+    }
+  });
+
+  it("REJECT — competitor alias appears in displayLabel", () => {
+    const packet = buildPacketWithCompetitors(["De Mattei Construction"]);
+    const edit = makeAddH2EditWithProposedText(
+      packet,
+      "Why teams choose a board-certified design-build partner.",
+      "vs De Mattei",
+    );
+    const r = validateSpecificEdit(edit, packet);
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.field).toBe("targetElement.displayLabel");
+      expect(r.reason).toMatch(/displayLabel contains competitor name/);
+    }
+  });
+
+  it("ACCEPT — proposedText with no competitor names passes", () => {
+    const packet = buildPacketWithCompetitors(["De Mattei Construction"]);
+    const edit = makeAddH2EditWithProposedText(
+      packet,
+      "Why Bay Area homeowners choose a design-build partner.",
+    );
+    expect(validateSpecificEdit(edit, packet)).toEqual({ ok: true });
+  });
+
+  it("REJECT — possessive form catches alias (e.g., 'De Mattei's pricing')", () => {
+    const packet = buildPacketWithCompetitors(["De Mattei Construction"]);
+    const edit = makeAddH2EditWithProposedText(
+      packet,
+      "We compete on transparency and timeline beyond De Mattei's pricing model.",
+    );
+    const r = validateSpecificEdit(edit, packet);
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.reason).toMatch(/De Mattei/);
+    }
+  });
+
+  it("ACCEPT — env opt-out BEACON_ALLOW_COMPETITOR_COPY=1 skips the rule entirely", () => {
+    process.env.BEACON_ALLOW_COMPETITOR_COPY = "1";
+    const packet = buildPacketWithCompetitors(["De Mattei Construction"]);
+    const edit = makeAddH2EditWithProposedText(
+      packet,
+      "Why teams choose us over De Mattei Construction",
+    );
+    expect(validateSpecificEdit(edit, packet)).toEqual({ ok: true });
+  });
+
+  it("WORD-BOUNDARY — alias 'Reno' does NOT match 'Renovation' (no false positive)", () => {
+    const packet = buildPacketWithCompetitors(["Reno"]);
+    const edit = makeAddH2EditWithProposedText(
+      packet,
+      "Renovation timelines for Bay Area projects.",
+    );
+    expect(validateSpecificEdit(edit, packet)).toEqual({ ok: true });
+  });
+
+  it("WORD-BOUNDARY — alias 'Reno' DOES match standalone 'Reno' (true positive)", () => {
+    const packet = buildPacketWithCompetitors(["Reno"]);
+    const edit = makeAddH2EditWithProposedText(
+      packet,
+      "We've completed projects in Reno before.",
+    );
+    const r = validateSpecificEdit(edit, packet);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toMatch(/Reno/);
+  });
+
+  it("CLOSED SUFFIX — competitor 'Acme Solutions' does NOT generate 'Acme' alias (Solutions not in closed set)", () => {
+    const packet = buildPacketWithCompetitors(["Acme Solutions"]);
+    // Bare "Acme" should NOT be rejected — the full name is the only
+    // alias, and the proposedText doesn't contain "Acme Solutions".
+    const edit = makeAddH2EditWithProposedText(
+      packet,
+      "Acme is a great word and Acme Anvils Inc is unrelated.",
+    );
+    expect(validateSpecificEdit(edit, packet)).toEqual({ ok: true });
+  });
+
+  it("CLOSED SUFFIX — competitor 'Acme Solutions' DOES match 'Acme Solutions' verbatim in copy", () => {
+    const packet = buildPacketWithCompetitors(["Acme Solutions"]);
+    const edit = makeAddH2EditWithProposedText(
+      packet,
+      "Choose us over Acme Solutions for design-build expertise.",
+    );
+    const r = validateSpecificEdit(edit, packet);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toMatch(/Acme Solutions/);
+  });
+
+  it("SHORT ALIAS GUARD — competitor 'X Co' generates only ['X Co'] (not 'X')", () => {
+    const packet = buildPacketWithCompetitors(["X Co"]);
+    // "X" alone must not match — the bare-X alias was suppressed by
+    // the MIN_COMPETITOR_ALIAS_LENGTH=3 guard.
+    const edit = makeAddH2EditWithProposedText(
+      packet,
+      "X marks the spot for our award-winning service.",
+    );
+    expect(validateSpecificEdit(edit, packet)).toEqual({ ok: true });
+  });
+
+  it("NO TOKEN-LEVEL SCAN — 'De' alone does NOT match 'De Mattei Construction'", () => {
+    // "De Mattei Construction" → aliases ["De Mattei Construction", "De Mattei"].
+    // Neither alias matches a bare "De" in copy — we don't decompose
+    // by tokens.
+    const packet = buildPacketWithCompetitors(["De Mattei Construction"]);
+    const edit = makeAddH2EditWithProposedText(
+      packet,
+      "De facto, we lead the market for design-build projects.",
+    );
+    expect(validateSpecificEdit(edit, packet)).toEqual({ ok: true });
+  });
+
+  it("CASE-INSENSITIVE — 'de mattei' lowercased in copy still matches alias 'De Mattei'", () => {
+    const packet = buildPacketWithCompetitors(["De Mattei Construction"]);
+    const edit = makeAddH2EditWithProposedText(
+      packet,
+      "Why teams choose us over de mattei",
+    );
+    const r = validateSpecificEdit(edit, packet);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toMatch(/De Mattei/);
+  });
+
+  it("MULTIPLE COMPETITORS — all aliases of all competitors are scanned", () => {
+    const packet = buildPacketWithCompetitors([
+      "De Mattei Construction",
+      "Supple Homes",
+    ]);
+    const edit = makeAddH2EditWithProposedText(
+      packet,
+      "Why teams choose us over Supple Homes.",
+    );
+    const r = validateSpecificEdit(edit, packet);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toMatch(/Supple Homes/);
+  });
+
+  it("WHY field with competitor names is allowed (rule does NOT scan why)", () => {
+    const packet = buildPacketWithCompetitors(["De Mattei Construction"]);
+    const edit = makeAddH2EditWithProposedText(
+      packet,
+      "Why we lead in design-build.",
+    );
+    // Override why to name the competitor explicitly.
+    edit.why =
+      "Differentiates against De Mattei Construction (3/5 prompts primary).";
+    expect(validateSpecificEdit(edit, packet)).toEqual({ ok: true });
+  });
+
+  it("EVIDENCE refs with competitor names are allowed (rule does NOT scan evidence)", () => {
+    const packet = buildPacketWithCompetitors(["De Mattei Construction"]);
+    const edit = makeAddH2EditWithProposedText(
+      packet,
+      "Why we lead in design-build.",
+    );
+    edit.evidence = [
+      { type: "competitor", competitorName: "De Mattei Construction" },
+    ];
+    expect(validateSpecificEdit(edit, packet)).toEqual({ ok: true });
+  });
+
+  it("PAGE-LEVEL action — null targetElement bypasses the rule (no copy to scan)", () => {
+    const packet = buildPacketWithCompetitors(["De Mattei Construction"]);
+    const widened: SpecificEditEvidencePacket = {
+      ...packet,
+      allowedActionTypes: [...packet.allowedActionTypes, "watch"],
+    };
+    const edit: SpecificEdit = {
+      actionType: "watch",
+      targetUrl: URL_BRACES,
+      targetElement: null,
+      why: "Watching De Mattei Construction trend.",
+      evidence: [{ type: "owned_page", url: URL_BRACES }],
+      expectedImpact: null,
+      difficulty: "low",
+      confidence: "medium",
+      measurementPlan: null,
+      risks: [],
+      source: "deterministic",
+      providerName: "deterministic",
+      model: null,
+      costUsd: null,
+    };
+    expect(validateSpecificEdit(edit, widened)).toEqual({ ok: true });
+  });
+
+  it("EMPTY competitorAngles — rule passes trivially", () => {
+    const packet = buildPacketWithCompetitors([]);
+    const edit = makeAddH2EditWithProposedText(
+      packet,
+      "Anything is fine here, even De Mattei Construction.",
+    );
+    // No competitor in packet → no aliases to match → ACCEPT.
+    expect(validateSpecificEdit(edit, packet)).toEqual({ ok: true });
+  });
+});
+
 // ── Bundle validator ───────────────────────────────────────────────────────
 
 describe("Phase 6A.1.10 — validateSpecificEditBundle", () => {
-  it("accepts a deterministic provider's bundle in full (excluding FAQ rows now gated by Sprint 6A.2g.C)", async () => {
-    // Sprint 6A.2g.C (2026-04-26) — until the deterministic FAQ
-    // generator is rewritten to emit question-form proposedText, its
-    // FAQ rows fail Rule 13 (no "?"). Strip them before bundle
-    // validation so this regression test still pins the
-    // non-FAQ-bundle contract. The FAQ rule's own tests cover the
-    // gate above.
-    const packet = buildPacket();
-    const bundle = await deterministicProvider.generate(packet);
-    const filteredBundle: typeof bundle = {
-      ...bundle,
-      recommendations: bundle.recommendations.filter(
-        (r) => r.actionType !== "add_faq" && r.actionType !== "rewrite_faq",
-      ),
-    };
-    const result = validateSpecificEditBundle(filteredBundle, packet);
-    expect(result.ok).toBe(true);
-    expect(result.bundleErrors).toEqual([]);
-    expect(result.rejectedCount).toBe(0);
-    expect(result.acceptedCount).toBe(filteredBundle.recommendations.length);
+  it("accepts a deterministic provider's bundle in full (FAQ rows filtered + competitor-copy opt-out set for Phase-9 H2 generator)", async () => {
+    // Sprint 6A.2g.B/C (2026-04-26) — see the Phase-9-predates-rules
+    // note on the analogous test above. This bundle-level test does
+    // the same filter + opt-out so the rest of the bundle still
+    // round-trips through validateSpecificEditBundle cleanly.
+    const original = process.env.BEACON_ALLOW_COMPETITOR_COPY;
+    process.env.BEACON_ALLOW_COMPETITOR_COPY = "1";
+    try {
+      const packet = buildPacket();
+      const bundle = await deterministicProvider.generate(packet);
+      const filteredBundle: typeof bundle = {
+        ...bundle,
+        recommendations: bundle.recommendations.filter(
+          (r) => r.actionType !== "add_faq" && r.actionType !== "rewrite_faq",
+        ),
+      };
+      const result = validateSpecificEditBundle(filteredBundle, packet);
+      expect(result.ok).toBe(true);
+      expect(result.bundleErrors).toEqual([]);
+      expect(result.rejectedCount).toBe(0);
+      expect(result.acceptedCount).toBe(filteredBundle.recommendations.length);
+    } finally {
+      if (original === undefined) {
+        delete process.env.BEACON_ALLOW_COMPETITOR_COPY;
+      } else {
+        process.env.BEACON_ALLOW_COMPETITOR_COPY = original;
+      }
+    }
   });
 
   it("accepts an empty-recommendations bundle", () => {
@@ -1061,24 +1465,45 @@ describe("Phase 6A.1.10 — validateSpecificEditBundle", () => {
   });
 
   it("aggregates rejected per-edit results into rejectedCount + accepts the rest", async () => {
-    const packet = buildPacket();
-    const bundle = await deterministicProvider.generate(packet);
-    expect(bundle.recommendations.length).toBeGreaterThan(0);
-    // Mutate one edit to be invalid.
-    const tampered: SpecificEditBundle = {
-      ...bundle,
-      recommendations: [
-        ...bundle.recommendations.slice(0, -1),
-        {
-          ...bundle.recommendations[bundle.recommendations.length - 1],
-          targetUrl: "https://hallucinated.example/oops",
-        },
-      ],
-    };
-    const result = validateSpecificEditBundle(tampered, packet);
-    expect(result.ok).toBe(false);
-    expect(result.rejectedCount).toBe(1);
-    expect(result.acceptedCount).toBe(bundle.recommendations.length - 1);
+    // Sprint 6A.2g.B/C (2026-04-26) — start from a deterministic bundle
+    // that's already filtered to non-FAQ rows + run with the
+    // competitor-copy opt-out set, so the natural-rejections from the
+    // Phase-9 generators don't mask the deliberate-tamper count.
+    const original = process.env.BEACON_ALLOW_COMPETITOR_COPY;
+    process.env.BEACON_ALLOW_COMPETITOR_COPY = "1";
+    try {
+      const packet = buildPacket();
+      const rawBundle = await deterministicProvider.generate(packet);
+      const bundle: SpecificEditBundle = {
+        ...rawBundle,
+        recommendations: rawBundle.recommendations.filter(
+          (r) =>
+            r.actionType !== "add_faq" && r.actionType !== "rewrite_faq",
+        ),
+      };
+      expect(bundle.recommendations.length).toBeGreaterThan(0);
+      // Mutate one edit to be invalid.
+      const tampered: SpecificEditBundle = {
+        ...bundle,
+        recommendations: [
+          ...bundle.recommendations.slice(0, -1),
+          {
+            ...bundle.recommendations[bundle.recommendations.length - 1],
+            targetUrl: "https://hallucinated.example/oops",
+          },
+        ],
+      };
+      const result = validateSpecificEditBundle(tampered, packet);
+      expect(result.ok).toBe(false);
+      expect(result.rejectedCount).toBe(1);
+      expect(result.acceptedCount).toBe(bundle.recommendations.length - 1);
+    } finally {
+      if (original === undefined) {
+        delete process.env.BEACON_ALLOW_COMPETITOR_COPY;
+      } else {
+        process.env.BEACON_ALLOW_COMPETITOR_COPY = original;
+      }
+    }
   });
 });
 

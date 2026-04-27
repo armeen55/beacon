@@ -527,6 +527,19 @@ export function validateSpecificEdit(
   const faqGate = validateFaqIntentRewriting(edit, packet);
   if (!faqGate.ok) return faqGate;
 
+  // ── 9.6 Competitor public-copy safety (Sprint 6A.2g.B) ─────────────
+  // Reject competitor names from packet.competitorAngles[*] that leak
+  // into visitor-readable copy: proposedText + targetElement.displayLabel.
+  // Aliases include the full name + safe suffix-stripped variants drawn
+  // from a CLOSED set (Construction, Builders, Builder, Inc, LLC, Co,
+  // Company, Group). No token-level scans, no fuzzy matching. The
+  // env opt-out BEACON_ALLOW_COMPETITOR_COPY=1 skips the rule entirely
+  // — operator escape hatch when a coincidental alias collision bites.
+  // Competitor names in why / evidence / measurementPlan are operator-
+  // facing context and remain explicitly allowed.
+  const competitorGate = validateCompetitorPublicCopy(edit, packet);
+  if (!competitorGate.ok) return competitorGate;
+
   // ── 10. JSON-serializability ───────────────────────────────────────
   const ser = validateSerializable(edit, "$");
   if (!ser.ok) return ser;
@@ -572,6 +585,165 @@ function normalizeFaqStem(s: string): string {
     // Collapse whitespace.
     .replace(/\s+/g, " ")
     .slice(0, FAQ_STEM_PREFIX_LENGTH);
+}
+
+// ---------------------------------------------------------------------------
+// Sprint 6A.2g.B — Competitor public-copy safety helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Sprint 6A.2g.B (2026-04-26) — gate that disables the competitor-
+ * public-copy check. OFF by default. Set BEACON_ALLOW_COMPETITOR_COPY=1
+ * when a coincidental alias collision rejects a legitimate edit (e.g.,
+ * a competitor named "Reno" colliding with the city "Reno" in copy).
+ */
+function isCompetitorCopyAllowed(): boolean {
+  return process.env.BEACON_ALLOW_COMPETITOR_COPY === "1";
+}
+
+/**
+ * Sprint 6A.2g.B — closed suffix set. Operator-locked. NOT extensible
+ * by config; the suffix list is intentionally narrow to avoid false
+ * positives from generic-noun company suffixes ("Solutions", "Partners",
+ * etc.). If a competitor name's trailing word is one of these, we
+ * strip it to produce a safe alias variant — e.g., "De Mattei
+ * Construction" → "De Mattei". If the trailing word is anything else,
+ * we do NOT generate a stripped alias (no token-level scans, no
+ * heuristic decomposition).
+ */
+const COMPETITOR_SUFFIX_SET = [
+  "Construction",
+  "Builders",
+  "Builder",
+  "Inc",
+  "LLC",
+  "Co",
+  "Company",
+  "Group",
+] as const;
+
+/** Cap aliases per competitor at 5 to bound false-positive surface. */
+const MAX_COMPETITOR_ALIASES = 5;
+
+/**
+ * Skip aliases shorter than 3 characters — common-English-word
+ * collisions ("Co", "On", "In", etc.) would dominate false positives.
+ * The full competitor name is always included regardless of length.
+ */
+const MIN_COMPETITOR_ALIAS_LENGTH = 3;
+
+function escapeRegexLiteral(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Sprint 6A.2g.B — build the safe alias set for one competitor name.
+ *
+ * The full trimmed name is ALWAYS the first alias regardless of length.
+ * Then iteratively strip a trailing closed-set suffix to produce
+ * progressively shorter variants. Stop when no closed-set suffix
+ * matches OR the cap is reached. Each generated variant must be ≥
+ * MIN_COMPETITOR_ALIAS_LENGTH chars; shorter variants are skipped (but
+ * we keep iterating in case further suffixes apply — though in
+ * practice short names have no further suffixes).
+ *
+ * Examples:
+ *   "De Mattei Construction" → ["De Mattei Construction", "De Mattei"]
+ *   "Acme Builders Inc"      → ["Acme Builders Inc", "Acme Builders", "Acme"]
+ *   "Acme Solutions"         → ["Acme Solutions"] — "Solutions" not in set
+ *   "Co Pacific"             → ["Co Pacific"] — "Pacific" not in set
+ *   "X Co"                   → ["X Co"] — "X" alone too short
+ *   "ABC LLC"                → ["ABC LLC", "ABC"]
+ */
+export function buildCompetitorAliases(competitorName: string): string[] {
+  if (typeof competitorName !== "string") return [];
+  const trimmed = competitorName.trim();
+  if (trimmed.length === 0) return [];
+
+  const out: string[] = [trimmed];
+  const seen = new Set<string>([trimmed.toLowerCase()]);
+
+  let current = trimmed;
+  while (out.length < MAX_COMPETITOR_ALIASES) {
+    let stripped: string | null = null;
+    for (const suffix of COMPETITOR_SUFFIX_SET) {
+      // Match trailing whitespace + suffix + optional period, end of string,
+      // case-insensitive. Word-boundary semantics come for free from
+      // requiring `\s+` before the suffix.
+      const re = new RegExp(`\\s+${escapeRegexLiteral(suffix)}\\.?$`, "i");
+      if (re.test(current)) {
+        stripped = current.replace(re, "").trim();
+        break;
+      }
+    }
+    if (stripped === null) break;
+    if (stripped.length < MIN_COMPETITOR_ALIAS_LENGTH) break;
+    const key = stripped.toLowerCase();
+    if (!seen.has(key)) {
+      out.push(stripped);
+      seen.add(key);
+    }
+    current = stripped;
+  }
+
+  return out;
+}
+
+function validateCompetitorPublicCopy(
+  edit: SpecificEdit,
+  packet: SpecificEditEvidencePacket,
+): ValidationResult {
+  if (isCompetitorCopyAllowed()) return OK;
+  if (edit.targetElement === null) return OK;
+  const tel = edit.targetElement;
+
+  // Build the full alias-set once per call. N is small (typically <10
+  // competitors per packet × ≤5 aliases each), so a flat scan is fine.
+  type AliasGroup = { competitorName: string; aliases: string[] };
+  const groups: AliasGroup[] = [];
+  for (const angle of packet.competitorAngles) {
+    if (typeof angle.competitorName !== "string") continue;
+    const aliases = buildCompetitorAliases(angle.competitorName);
+    if (aliases.length === 0) continue;
+    groups.push({ competitorName: angle.competitorName, aliases });
+  }
+  if (groups.length === 0) return OK;
+
+  function checkField(
+    fieldName: "targetElement.proposedText" | "targetElement.displayLabel",
+    value: unknown,
+  ): ValidationResult {
+    if (typeof value !== "string" || value.length === 0) return OK;
+    for (const group of groups) {
+      for (const alias of group.aliases) {
+        // Word-boundary anchored, case-insensitive, escaped literal.
+        // No token-level scan; no fuzzy match. The `\b` anchors mean
+        // "Reno" won't match "Renovation" (next char "v" is word-class
+        // → no boundary).
+        const re = new RegExp(`\\b${escapeRegexLiteral(alias)}\\b`, "i");
+        if (re.test(value)) {
+          return fail(
+            fieldName,
+            `${fieldName.split(".").pop()} contains competitor name "${group.competitorName}" (matched alias ${JSON.stringify(alias)}). Competitor names are evidence-only; keep them in why / evidence refs and out of visitor-readable copy. Set BEACON_ALLOW_COMPETITOR_COPY=1 to override.`,
+          );
+        }
+      }
+    }
+    return OK;
+  }
+
+  const proposedResult = checkField(
+    "targetElement.proposedText",
+    tel.proposedText,
+  );
+  if (!proposedResult.ok) return proposedResult;
+  const labelResult = checkField(
+    "targetElement.displayLabel",
+    tel.displayLabel,
+  );
+  if (!labelResult.ok) return labelResult;
+
+  return OK;
 }
 
 function validateFaqIntentRewriting(
