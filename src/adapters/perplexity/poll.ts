@@ -293,8 +293,28 @@ export async function pollPerplexityForTenant(
     }
     seenPromptText.set(normalizedText, prompt.id);
 
+    let result: Awaited<ReturnType<QueryClient["sample"]>>;
     try {
-      const result = await client.sample(prompt.text);
+      result = await client.sample(prompt.text);
+    } catch (e) {
+      // Sprint 6A.2g.D — failure path. The original adapter swallowed
+      // the error in `errorCount`; the operator never got the reason.
+      // Now we structured-log it (no observation persisted, no row in
+      // .data — failures stay invisible to downstream queries) AND
+      // continue the loop so a single sample failure doesn't kill the
+      // run. Cost recording is deliberately skipped here (we don't
+      // book spend the operator wasn't charged for; the conservative-
+      // fallback contract from 6A.3c is preserved).
+      const failureMsg = e instanceof Error ? e.message : String(e);
+      console.warn(
+        `[poll-${platform}] SAMPLE_FAILED runId=${runId} tenant=${tenantId} ` +
+          `promptId=${prompt.id} error=${JSON.stringify(failureMsg)}`,
+      );
+      errorCount += 1;
+      continue;
+    }
+
+    try {
       const observedAt = now().toISOString();
       const observationId = `obs-native-${runId}-${prompt.id}`;
 
@@ -374,6 +394,39 @@ export async function pollPerplexityForTenant(
       );
       const answerStructure = extractAnswerStructure(result.answer_text);
 
+      // Sprint 6A.3c — cost estimation BEFORE building the observation
+      // so `metadata.cost.usd` (6A.2g.D) can carry the rounded amount.
+      // Sample failure (caught above) intentionally skips this — we
+      // don't book spend the operator wasn't charged for. Missing usage
+      // from the provider response → estimate cost is 0; observation
+      // still persisted; loop continues (the conservative-fallback
+      // contract documented in src/lib/cost/pricing.ts).
+      const usage: QueryUsage | undefined = result.usage;
+      const promptCost = estimatePromptCost({
+        provider: pricingProvider,
+        model: result.model,
+        inputTokens: usage?.inputTokens,
+        outputTokens: usage?.outputTokens,
+        webSearchCalls: usage?.webSearchCalls,
+      });
+
+      // Sprint 6A.2g.D — extract durable signals into the observation
+      // metadata. Every field below ships from the OpenAI Responses API
+      // when present; Perplexity Sonar deliberately doesn't expose
+      // internal queries / system fingerprint / service tier so those
+      // remain undefined on the usage object — `blindSpot` carries the
+      // honest record of why.
+      const extractedSearchQueries: string[] =
+        usage?.webSearchQueries
+          ?.map((q) => q.query)
+          .filter((s): s is string => typeof s === "string" && s.length > 0) ??
+        [];
+      const extractedOpenPageUrls: string[] = usage?.openPageUrls ?? [];
+      const blindSpot =
+        platform === "perplexity"
+          ? "Sonar does not expose internal queries; search_queries empty by design."
+          : null;
+
       const obs: PromptAnswerObservation = {
         id: observationId,
         prompt_id: prompt.id,
@@ -396,6 +449,42 @@ export async function pollPerplexityForTenant(
           intent_type: prompt.intent_type ?? null,
           location_scope: prompt.location_scope ?? null,
           service_scope: prompt.service_scope ?? null,
+          // Sprint 6A.2g.D — per-observation cost (Q1 — duplicated from
+          // the run-level aggregate so analysts can slice cost by
+          // platform/prompt without rejoining observation_runs).
+          cost: {
+            usd: roundUsd(promptCost.totalUsd),
+            inputTokens: usage?.inputTokens ?? 0,
+            outputTokens: usage?.outputTokens ?? 0,
+            reasoningTokens: usage?.reasoningTokens ?? 0,
+            cachedTokens: usage?.cachedTokens ?? 0,
+            webSearchCalls: usage?.webSearchCalls ?? 0,
+          },
+          // What the AI actually did when answering this prompt.
+          extracted: {
+            searchQueries: extractedSearchQueries,
+            openPageUrls: extractedOpenPageUrls,
+            refusalText: usage?.refusalText ?? null,
+          },
+          // Provider state surfaced for forensic analysis + drift
+          // detection (system_fingerprint changes across model
+          // snapshots).
+          provider: {
+            systemFingerprint: usage?.systemFingerprint ?? null,
+            serviceTier: usage?.serviceTier ?? null,
+            finishReason: usage?.finishReason ?? null,
+          },
+          // Forensic verbatim — capped at 20 tool calls per Q2. Null
+          // when the provider doesn't surface tool calls (Perplexity).
+          providerRaw: usage?.providerRaw ?? null,
+          // Always null on the success path — observation only persists
+          // when the sample succeeds. Failure path (catch above) skips
+          // persistence entirely; the structured log records the cause.
+          failure: null,
+          // Honest blind spot for Perplexity Sonar (no internal queries
+          // exposed). Null for OpenAI — extracted.searchQueries carries
+          // the real signal.
+          blindSpot,
         },
         tenant_id: tenantId,
         mention_position: mentionPosition,
@@ -406,25 +495,14 @@ export async function pollPerplexityForTenant(
         citation_domain_classes: citationDomainClasses,
         answer_structure: answerStructure,
         citation_urls: citationUrls,
+        // Sprint 6A.2g.D — first-class column dual-populated from
+        // extracted queries. OpenAI provides; Perplexity stays empty
+        // (the blind spot above explains why).
+        search_queries: extractedSearchQueries,
       };
 
       observations.push(obs);
       answerTexts[observationId] = result.answer_text;
-
-      // Sprint 6A.3c — cost record for this successful sample. Sample
-      // failure (catch block below) intentionally skips this — we don't
-      // book spend the operator wasn't charged for. Missing usage from
-      // the provider response → estimate cost is 0; observation still
-      // persisted; loop continues (the conservative-fallback contract
-      // documented in src/lib/cost/pricing.ts).
-      const usage: QueryUsage | undefined = result.usage;
-      const promptCost = estimatePromptCost({
-        provider: pricingProvider,
-        model: result.model,
-        inputTokens: usage?.inputTokens,
-        outputTokens: usage?.outputTokens,
-        webSearchCalls: usage?.webSearchCalls,
-      });
       costUsage.totalUsd = roundUsd(costUsage.totalUsd + promptCost.totalUsd);
       costUsage.inputTokens += usage?.inputTokens ?? 0;
       costUsage.outputTokens += usage?.outputTokens ?? 0;

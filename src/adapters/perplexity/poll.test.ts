@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -529,5 +529,329 @@ describe("pollPerplexityForTenant", () => {
     });
 
     expect(result.observations[0].tracked_brand_mentioned).toBe(true);
+  });
+});
+
+// ─ Sprint 6A.2g.D — max-extraction metadata + dual-populate ──────────────
+
+/**
+ * Builds a QueryClient that returns ONE response with a fully-populated
+ * `usage` object — the OpenAI Responses API max-extraction shape from
+ * parseOpenAIResponse. Used to verify poll.ts threads every signal into
+ * observation.metadata.
+ */
+function makeOpenAIClientWithFullUsage(): QueryClient {
+  return {
+    platform: "chatgpt",
+    model: "gpt-5-mini",
+    async sample() {
+      return {
+        answer_text:
+          "Ritz Builders is a top whole-home remodel choice in the Bay Area.",
+        citations: [
+          {
+            url: "https://ritzbuilders.com/services/whole-home-remodel",
+            domain: "ritzbuilders.com",
+            title: null,
+            position: 1,
+          },
+        ],
+        model: "gpt-5-mini-2026",
+        usage: {
+          inputTokens: 1500,
+          outputTokens: 800,
+          webSearchCalls: 2,
+          webSearchQueries: [
+            {
+              id: "ws_1",
+              status: "completed",
+              actionType: "search",
+              query: "best whole home remodel builders bay area",
+            },
+            {
+              id: "ws_2",
+              status: "completed",
+              actionType: "open_page",
+              url: "https://ritzbuilders.com/services/whole-home-remodel",
+            },
+          ],
+          openPageUrls: [
+            "https://ritzbuilders.com/services/whole-home-remodel",
+          ],
+          systemFingerprint: "fp_abc123",
+          serviceTier: "scale",
+          reasoningTokens: 320,
+          cachedTokens: 1024,
+          refusalText: null,
+          finishReason: "stop",
+          providerRaw: {
+            toolCalls: [
+              { type: "web_search_call", id: "ws_1" },
+              { type: "web_search_call", id: "ws_2" },
+            ],
+            truncated: false,
+            responseId: "resp_max_extraction",
+          },
+        },
+      };
+    },
+  };
+}
+
+describe("pollPerplexityForTenant — Sprint 6A.2g.D max-extraction (OpenAI path)", () => {
+  it("populates metadata.cost / metadata.extracted / metadata.provider / metadata.providerRaw / metadata.failure / metadata.blindSpot for OpenAI", async () => {
+    const result = await pollPerplexityForTenant("tenant-ritz-founder", {
+      client: makeOpenAIClientWithFullUsage(),
+      platform: "chatgpt",
+      pollSource: "openai-native-poll",
+      parserVersion: "openai-native-v1",
+      trackedPrompts: [
+        makePrompt({
+          id: "p-openai",
+          platforms: ["chatgpt"],
+          text: "Best whole home remodel builders bay area",
+        }),
+      ],
+      trackedEntities: [OWNED],
+    });
+
+    expect(result.observations).toHaveLength(1);
+    const md = result.observations[0].metadata as Record<string, unknown>;
+
+    // cost block carries every per-observation field operator can slice by
+    const cost = md.cost as Record<string, unknown>;
+    expect(cost).toBeDefined();
+    expect(typeof cost.usd).toBe("number");
+    expect(cost.inputTokens).toBe(1500);
+    expect(cost.outputTokens).toBe(800);
+    expect(cost.reasoningTokens).toBe(320);
+    expect(cost.cachedTokens).toBe(1024);
+    expect(cost.webSearchCalls).toBe(2);
+
+    const extracted = md.extracted as Record<string, unknown>;
+    expect(extracted.searchQueries).toEqual([
+      "best whole home remodel builders bay area",
+    ]);
+    expect(extracted.openPageUrls).toEqual([
+      "https://ritzbuilders.com/services/whole-home-remodel",
+    ]);
+    expect(extracted.refusalText).toBeNull();
+
+    const provider = md.provider as Record<string, unknown>;
+    expect(provider.systemFingerprint).toBe("fp_abc123");
+    expect(provider.serviceTier).toBe("scale");
+    expect(provider.finishReason).toBe("stop");
+
+    const providerRaw = md.providerRaw as Record<string, unknown>;
+    expect(providerRaw).toBeDefined();
+    expect(providerRaw.responseId).toBe("resp_max_extraction");
+    expect(providerRaw.truncated).toBe(false);
+    expect(Array.isArray(providerRaw.toolCalls)).toBe(true);
+
+    expect(md.failure).toBeNull();
+    expect(md.blindSpot).toBeNull(); // OpenAI — no blind spot
+  });
+
+  it("dual-populates search_queries[] from extracted queries (OpenAI)", async () => {
+    const result = await pollPerplexityForTenant("tenant-ritz-founder", {
+      client: makeOpenAIClientWithFullUsage(),
+      platform: "chatgpt",
+      pollSource: "openai-native-poll",
+      parserVersion: "openai-native-v1",
+      trackedPrompts: [
+        makePrompt({
+          id: "p-openai-2",
+          platforms: ["chatgpt"],
+          text: "Best whole home remodel builders bay area v2",
+        }),
+      ],
+      trackedEntities: [OWNED],
+    });
+
+    expect(result.observations[0].search_queries).toEqual([
+      "best whole home remodel builders bay area",
+    ]);
+  });
+});
+
+describe("pollPerplexityForTenant — honest blind spot (Perplexity Sonar)", () => {
+  it("Perplexity row carries blindSpot text + empty search_queries (no OpenAI fields)", async () => {
+    const client = makeClient([
+      {
+        answer: "Sonar answer",
+        citations: [
+          { url: "https://example.com", domain: "example.com" },
+        ],
+      },
+    ]);
+    const result = await pollPerplexityForTenant("tenant-ritz-founder", {
+      client,
+      trackedPrompts: [makePrompt({ id: "p-perp" })],
+      trackedEntities: [OWNED],
+    });
+
+    expect(result.observations).toHaveLength(1);
+    const md = result.observations[0].metadata as Record<string, unknown>;
+    expect(md.blindSpot).toBe(
+      "Sonar does not expose internal queries; search_queries empty by design.",
+    );
+
+    const extracted = md.extracted as Record<string, unknown>;
+    expect(extracted.searchQueries).toEqual([]);
+    expect(extracted.openPageUrls).toEqual([]);
+
+    const provider = md.provider as Record<string, unknown>;
+    expect(provider.systemFingerprint).toBeNull();
+    expect(provider.serviceTier).toBeNull();
+    // finishReason MAY be present for Sonar via QueryUsage — but our test
+    // client doesn't surface it, so it's null.
+    expect(provider.finishReason).toBeNull();
+
+    expect(md.providerRaw).toBeNull();
+    expect(md.failure).toBeNull();
+
+    // First-class column also stays empty.
+    expect(result.observations[0].search_queries).toEqual([]);
+  });
+
+  it("OpenAI prompt that emits ZERO web_search_call items still persists empty arrays + provider metadata honestly", async () => {
+    // Operator nuance: do NOT hard-require search queries. When the model
+    // answers without invoking the tool, extracted.searchQueries === []
+    // and providerRaw.toolCalls === [], NOT undefined / null.
+    const noToolClient: QueryClient = {
+      platform: "chatgpt",
+      model: "gpt-5-mini",
+      async sample() {
+        return {
+          answer_text: "Quick answer with no search.",
+          citations: [],
+          model: "gpt-5-mini",
+          usage: {
+            inputTokens: 50,
+            outputTokens: 20,
+            webSearchCalls: 0,
+            webSearchQueries: [],
+            openPageUrls: [],
+            systemFingerprint: "fp_no_tools",
+            serviceTier: "default",
+            reasoningTokens: 0,
+            cachedTokens: 0,
+            refusalText: null,
+            finishReason: "stop",
+            providerRaw: {
+              toolCalls: [],
+              truncated: false,
+              responseId: "resp_no_tools",
+            },
+          },
+        };
+      },
+    };
+    const result = await pollPerplexityForTenant("tenant-ritz-founder", {
+      client: noToolClient,
+      platform: "chatgpt",
+      pollSource: "openai-native-poll",
+      trackedPrompts: [
+        makePrompt({
+          id: "p-no-tools",
+          platforms: ["chatgpt"],
+          text: "trivial prompt",
+        }),
+      ],
+      trackedEntities: [OWNED],
+    });
+
+    expect(result.observations).toHaveLength(1);
+    const md = result.observations[0].metadata as Record<string, unknown>;
+    const extracted = md.extracted as Record<string, unknown>;
+    expect(extracted.searchQueries).toEqual([]);
+    expect(extracted.openPageUrls).toEqual([]);
+
+    const provider = md.provider as Record<string, unknown>;
+    expect(provider.systemFingerprint).toBe("fp_no_tools");
+    expect(provider.serviceTier).toBe("default");
+    expect(provider.finishReason).toBe("stop");
+
+    expect(md.blindSpot).toBeNull(); // OpenAI — model just didn't search
+    expect(result.observations[0].search_queries).toEqual([]);
+  });
+
+  it("legacy mock returning no usage object → metadata fields default to null/0/[] without crashing", async () => {
+    // Backwards-compat — the original 6A.3a contract: usage may be
+    // omitted entirely. Polling adapter must not crash; metadata
+    // populates with conservative defaults.
+    const result = await pollPerplexityForTenant("tenant-ritz-founder", {
+      client: makeClient([
+        {
+          answer: "no usage object",
+          citations: [{ url: "https://x.com", domain: "x.com" }],
+        },
+      ]),
+      trackedPrompts: [makePrompt({ id: "p-no-usage" })],
+      trackedEntities: [OWNED],
+    });
+
+    const md = result.observations[0].metadata as Record<string, unknown>;
+    const cost = md.cost as Record<string, unknown>;
+    expect(cost.inputTokens).toBe(0);
+    expect(cost.outputTokens).toBe(0);
+    expect(cost.reasoningTokens).toBe(0);
+    expect(cost.cachedTokens).toBe(0);
+    expect(cost.webSearchCalls).toBe(0);
+
+    const extracted = md.extracted as Record<string, unknown>;
+    expect(extracted.searchQueries).toEqual([]);
+    expect(extracted.refusalText).toBeNull();
+
+    expect(md.providerRaw).toBeNull();
+    expect(result.observations[0].search_queries).toEqual([]);
+  });
+});
+
+describe("pollPerplexityForTenant — sample failure structured logging (6A.2g.D)", () => {
+  it("logs SAMPLE_FAILED with the error message + does not persist an observation for that prompt", async () => {
+    const flakyClient: QueryClient = {
+      platform: "perplexity",
+      model: "sonar",
+      async sample(prompt: string) {
+        if (prompt.includes("doom")) {
+          throw new Error("simulated provider 503");
+        }
+        return { answer_text: "ok", citations: [], model: "sonar" };
+      },
+    };
+
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const result = await pollPerplexityForTenant("tenant-ritz-founder", {
+        client: flakyClient,
+        trackedPrompts: [
+          makePrompt({ id: "p-ok-1", text: "ordinary prompt 1" }),
+          makePrompt({ id: "p-doom", text: "this one will doom" }),
+          makePrompt({ id: "p-ok-2", text: "ordinary prompt 2" }),
+        ],
+        trackedEntities: [OWNED],
+      });
+
+      // Two successful samples → two observations. The doomed prompt is
+      // SKIPPED (no observation, no metadata.failure record).
+      expect(result.observations).toHaveLength(2);
+      expect(result.observations.map((o) => o.prompt_id)).toEqual([
+        "p-ok-1",
+        "p-ok-2",
+      ]);
+      expect(result.errorCount).toBe(1);
+      expect(result.observationRun.status).toBe("partial");
+
+      // Structured warn line names the prompt + the error message.
+      const sampleFailedCalls = warnSpy.mock.calls.filter((args) =>
+        String(args[0] ?? "").includes("SAMPLE_FAILED"),
+      );
+      expect(sampleFailedCalls.length).toBeGreaterThan(0);
+      expect(String(sampleFailedCalls[0][0])).toContain("p-doom");
+      expect(String(sampleFailedCalls[0][0])).toContain("simulated provider 503");
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 });
