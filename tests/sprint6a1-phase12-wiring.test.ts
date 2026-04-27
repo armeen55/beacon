@@ -133,8 +133,11 @@ describe("Phase 6A.1.12 — recommendations-client UI", () => {
 
   it("renders a Specific edits section when editCount > 0", () => {
     expect(CLIENT_SOURCE).toMatch(/Specific edits/);
+    // Sprint 6A.2g.F (2026-04-26) — allow an optional `(` between `&&`
+    // and the JSX so the multi-line caller form (with the new
+    // `recommendationTargetUrl` prop) still matches.
     expect(CLIENT_SOURCE).toMatch(
-      /editCount\s*>\s*0\s*&&\s*<SpecificEditsSection/,
+      /editCount\s*>\s*0\s*&&\s*\(?\s*<SpecificEditsSection/,
     );
   });
 

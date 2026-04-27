@@ -474,7 +474,18 @@ function RecommendationRow({
         />
       )}
 
-      {editCount > 0 && <SpecificEditsSection edits={edits} />}
+      {editCount > 0 && (
+        <SpecificEditsSection
+          edits={edits}
+          // Sprint 6A.2g.F (2026-04-26) — pass the rec's resolved
+          // target URL so each edit can render a "Different page than
+          // rec target" warning when the LLM (or operator_edited row)
+          // anchored to a different URL. Phase A locked the strict-
+          // anchor contract for fresh OpenAI bundles; this surfaces
+          // any pre-Phase-A edits or future drift directly in the UI.
+          recommendationTargetUrl={resolution?.targetUrl ?? null}
+        />
+      )}
 
       {showFeedback && (
         <p
@@ -915,7 +926,38 @@ const ACTION_TYPE_BADGE: Record<string, string> = {
   watch: "Watch",
 };
 
-function SpecificEditsSection({ edits }: { edits: RecommendedEditRow[] }) {
+// Sprint 6A.2g.F (2026-04-26) — source badge color map. Different
+// hue per provider source so the operator can scan a long edit list
+// and tell at a glance which rows came from the LLM, the legacy
+// deterministic generator, or operator-touched provenance.
+const SOURCE_BADGE_CLASS: Record<string, string> = {
+  deterministic: "border-border/60 text-muted-foreground",
+  openai: "border-accent-secondary/40 text-accent-secondary",
+  anthropic: "border-accent-secondary/40 text-accent-secondary",
+  operator_edited: "border-status-info/40 text-status-info",
+};
+
+// Sprint 6A.2g.F (2026-04-26) — turn a recommended_edits.target_url
+// into a clickable link to the live site. Absolute URLs stay
+// absolute; relative URLs (the common shape after Phase A's strict-
+// anchor contract — e.g. "/services/whole-home-remodel") are
+// resolved against the operator's domain so the operator can
+// one-click open the page they're about to edit.
+function resolveEditTargetHref(targetUrl: string): string {
+  if (targetUrl.startsWith("http://") || targetUrl.startsWith("https://")) {
+    return targetUrl;
+  }
+  const path = targetUrl.startsWith("/") ? targetUrl : `/${targetUrl}`;
+  return `https://ritzbuilders.com${path}`;
+}
+
+function SpecificEditsSection({
+  edits,
+  recommendationTargetUrl,
+}: {
+  edits: RecommendedEditRow[];
+  recommendationTargetUrl: string | null;
+}) {
   if (edits.length === 0) return null;
   const count = edits.length;
   return (
@@ -925,72 +967,151 @@ function SpecificEditsSection({ edits }: { edits: RecommendedEditRow[] }) {
         <span className="text-muted-foreground/60 font-normal">— click to expand</span>
       </summary>
       <ul className="mt-2 space-y-2.5">
-        {edits.map((edit) => (
-          <li
-            key={edit.id}
-            className="rounded border border-border/40 bg-background px-2.5 py-2 text-[11px]"
-          >
-            <div className="flex items-baseline gap-1.5 flex-wrap">
-              <span className="text-[10px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded border border-accent-primary/40 bg-accent-primary/[0.06] text-accent-primary">
-                {ACTION_TYPE_BADGE[edit.action_type] ?? edit.action_type}
-              </span>
-              <span className="font-medium text-foreground/90">
-                {edit.display_label ?? edit.action_type}
-              </span>
-              <span
-                className={cn(
-                  "ml-auto text-[10px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded border",
-                  edit.confidence === "high"
-                    ? "border-status-success/40 text-status-success"
-                    : edit.confidence === "low"
-                      ? "border-status-warning/40 text-status-warning"
-                      : "border-border/60 text-muted-foreground",
-                )}
-              >
-                {edit.confidence}
-              </span>
-              <span className="text-[10px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded border border-border/60 text-muted-foreground">
-                {edit.difficulty}
-              </span>
-            </div>
-            {(edit.current_text || edit.proposed_text) && (
-              <div className="mt-1.5 space-y-1">
-                {edit.current_text && (
-                  <p className="text-muted-foreground line-through font-mono tabular-nums break-words">
-                    {edit.current_text}
-                  </p>
-                )}
-                {edit.proposed_text && (
-                  <p className="text-foreground font-mono tabular-nums whitespace-pre-wrap break-words">
-                    {edit.proposed_text}
-                  </p>
-                )}
+        {edits.map((edit) => {
+          // Sprint 6A.2g.F — different-target warning fires when:
+          //   (1) the rec has a resolved targetUrl,
+          //   (2) the edit has a non-empty target_url,
+          //   (3) the two differ,
+          //   (4) the edit isn't anchored to the needs_new_page sentinel
+          //       (which is a legitimate page-level outcome, not a drift).
+          const showDifferentTargetWarning =
+            recommendationTargetUrl !== null &&
+            typeof edit.target_url === "string" &&
+            edit.target_url.length > 0 &&
+            edit.target_url !== recommendationTargetUrl &&
+            edit.target_url !== NEEDS_NEW_PAGE;
+          const sourceClass =
+            SOURCE_BADGE_CLASS[edit.source] ??
+            "border-border/60 text-muted-foreground";
+          return (
+            <li
+              key={edit.id}
+              className="rounded border border-border/40 bg-background px-2.5 py-2 text-[11px]"
+            >
+              <div className="flex items-baseline gap-1.5 flex-wrap">
+                <span className="text-[10px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded border border-accent-primary/40 bg-accent-primary/[0.06] text-accent-primary">
+                  {ACTION_TYPE_BADGE[edit.action_type] ?? edit.action_type}
+                </span>
+                <span className="font-medium text-foreground/90">
+                  {edit.display_label ?? edit.action_type}
+                </span>
+                {/* Sprint 6A.2g.F — source provenance badge. */}
+                <span
+                  className={cn(
+                    "text-[10px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded border",
+                    sourceClass,
+                  )}
+                  title={`Source: ${edit.source}${edit.model ? ` · ${edit.model}` : ""}`}
+                >
+                  {edit.source}
+                </span>
+                <span
+                  className={cn(
+                    "ml-auto text-[10px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded border",
+                    edit.confidence === "high"
+                      ? "border-status-success/40 text-status-success"
+                      : edit.confidence === "low"
+                        ? "border-status-warning/40 text-status-warning"
+                        : "border-border/60 text-muted-foreground",
+                  )}
+                >
+                  {edit.confidence}
+                </span>
+                <span className="text-[10px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded border border-border/60 text-muted-foreground">
+                  {edit.difficulty}
+                </span>
               </div>
-            )}
-            <p className="mt-1.5 text-muted-foreground leading-relaxed">
-              <span className="font-medium text-foreground/80">Why: </span>
-              {edit.why}
-            </p>
-            {edit.evidence && edit.evidence.length > 0 && (
-              <p className="mt-1 text-[10px] text-muted-foreground/80 leading-relaxed">
-                Evidence:{" "}
-                {edit.evidence
-                  .map((ref) => {
-                    if (ref.type === "prompt") return `prompt:${ref.promptId}`;
-                    if (ref.type === "element") return `element:${ref.elementKey}`;
-                    if (ref.type === "owned_page") return `page:${ref.url}`;
-                    if (ref.type === "competitor")
-                      return `competitor:${ref.competitorName}`;
-                    if (ref.type === "prior_outcome")
-                      return `prior:${ref.actionType}`;
-                    return "";
-                  })
-                  .filter(Boolean)
-                  .join(" · ")}
+              {/* Sprint 6A.2g.F — target URL link + different-page warning. */}
+              {edit.target_url && (
+                <div className="mt-1 text-[10px] text-muted-foreground/80 leading-relaxed flex items-center gap-1.5 flex-wrap">
+                  <span className="font-medium text-foreground/70">Target:</span>
+                  {edit.target_url === NEEDS_NEW_PAGE ? (
+                    <span className="font-mono tabular-nums">
+                      {NEEDS_NEW_PAGE}
+                    </span>
+                  ) : (
+                    <a
+                      href={resolveEditTargetHref(edit.target_url)}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="font-mono tabular-nums underline decoration-dotted underline-offset-2 hover:text-foreground"
+                    >
+                      {shortUrl(resolveEditTargetHref(edit.target_url))}
+                    </a>
+                  )}
+                  {showDifferentTargetWarning && (
+                    <span className="text-[10px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded border border-status-warning/40 text-status-warning">
+                      ⚠ Different page than rec target
+                    </span>
+                  )}
+                </div>
+              )}
+              {(edit.current_text || edit.proposed_text) && (
+                <div className="mt-1.5 space-y-1">
+                  {edit.current_text && (
+                    <p className="text-muted-foreground line-through font-mono tabular-nums break-words">
+                      {edit.current_text}
+                    </p>
+                  )}
+                  {edit.proposed_text && (
+                    <p className="text-foreground font-mono tabular-nums whitespace-pre-wrap break-words">
+                      {edit.proposed_text}
+                    </p>
+                  )}
+                </div>
+              )}
+              <p className="mt-1.5 text-muted-foreground leading-relaxed">
+                <span className="font-medium text-foreground/80">Why: </span>
+                {edit.why}
               </p>
-            )}
-          </li>
-        ))}
+              {edit.evidence && edit.evidence.length > 0 && (
+                <p className="mt-1 text-[10px] text-muted-foreground/80 leading-relaxed">
+                  Evidence:{" "}
+                  {edit.evidence
+                    .map((ref) => {
+                      if (ref.type === "prompt") return `prompt:${ref.promptId}`;
+                      if (ref.type === "element") return `element:${ref.elementKey}`;
+                      if (ref.type === "owned_page") return `page:${ref.url}`;
+                      if (ref.type === "competitor")
+                        return `competitor:${ref.competitorName}`;
+                      if (ref.type === "prior_outcome")
+                        return `prior:${ref.actionType}`;
+                      return "";
+                    })
+                    .filter(Boolean)
+                    .join(" · ")}
+                </p>
+              )}
+              {/* Sprint 6A.2g.F — operator-facing context blocks. Only
+                  rendered when the underlying field is populated, so
+                  edit cards stay compact when the provider didn't
+                  supply impact / measurement / risks. */}
+              {edit.expected_impact && (
+                <p className="mt-1 text-[10px] text-muted-foreground/80 leading-relaxed">
+                  <span className="font-medium text-foreground/70">
+                    Expected impact:{" "}
+                  </span>
+                  {edit.expected_impact}
+                </p>
+              )}
+              {edit.measurement_plan && (
+                <p className="mt-1 text-[10px] text-muted-foreground/80 leading-relaxed">
+                  <span className="font-medium text-foreground/70">
+                    Measurement:{" "}
+                  </span>
+                  {edit.measurement_plan}
+                </p>
+              )}
+              {edit.risks && edit.risks.length > 0 && (
+                <ul className="mt-1 text-[10px] text-status-warning/90 leading-relaxed list-disc ml-4 space-y-0.5">
+                  {edit.risks.map((r, i) => (
+                    <li key={i}>{r}</li>
+                  ))}
+                </ul>
+              )}
+            </li>
+          );
+        })}
       </ul>
     </details>
   );
