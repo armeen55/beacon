@@ -5,6 +5,7 @@ import type { PageElementInventoryRow } from "@/domains/pages/extractors/persist
 import type { PromptOpportunity } from "@/domains/prompts/opportunity-classify";
 import type { PromptPrimarySummary } from "@/domains/prompts/competitor-primary";
 import type { TrackedPrompt } from "@/domains/tracked-prompts/types";
+import type { PromptAnswerObservation } from "@/domains/prompt-answer-observations/types";
 import type { PageInventoryEntry } from "./page-inventory";
 import {
   buildSpecificEditEvidencePacket,
@@ -145,6 +146,10 @@ function buildArgs(
     // about candidate-set + sentinel keep firing. New target-alignment
     // tests below override this explicitly.
     singleTargetUrl: null,
+    // Sprint 6A.2g.E — default to no observations so existing assertions
+    // about affectedPrompts continue to pass with empty actualSearchQueries
+    // / citedSourcePages / descriptorWindows. New tests override this.
+    observations: [],
     ownedPageInventory: [
       makeInventoryEntry("https://example.com/services/braces", {
         title: "Braces · Acme Orthodontics",
@@ -984,6 +989,7 @@ describe("Phase 6A.1.7 — empty-input resilience", () => {
       primarySummaries: [],
       ownedPageInventory: [],
       pageElementInventory: [],
+      observations: [],
       singleTargetUrl: null,
       now: FROZEN_NOW,
     });
@@ -1016,6 +1022,359 @@ describe("Phase 6A.1.7 — empty-input resilience", () => {
       buildArgs({ recId: "rec-7" }),
     );
     expect(packet.recId).toBe("rec-7");
+  });
+});
+
+// ── Sprint 6A.2g.E — affectedPrompts evidence enrichment ──────────────────
+
+function makeObservation(
+  promptId: string,
+  overrides: Partial<PromptAnswerObservation> = {},
+): PromptAnswerObservation {
+  return {
+    id: `obs-${promptId}-${Math.random().toString(36).slice(2, 8)}`,
+    prompt_id: promptId,
+    run_id: "run-test",
+    answer_hash: "deadbeefdeadbeef",
+    position: null,
+    tracked_brand_mentioned: false,
+    tracked_brand_cited: false,
+    citation_count: 0,
+    owned_citation_count: 0,
+    citation_domains: [],
+    citation_categories: {},
+    mentions: [],
+    observed_at: "2026-04-26T10:00:00Z",
+    platform: "chatgpt",
+    topic: "",
+    metadata: {},
+    tenant_id: "tenant-test-acme",
+    citation_urls: [],
+    descriptor_window: [],
+    ...overrides,
+  };
+}
+
+describe("Sprint 6A.2g.E — affectedPrompts evidence enrichment (actualSearchQueries / citedSourcePages / descriptorWindows)", () => {
+  const PROMPT = "prompt-1";
+
+  it("populates actualSearchQueries from observation.metadata.extracted.searchQueries", () => {
+    const packet = buildSpecificEditEvidencePacket(
+      buildArgs({
+        observations: [
+          makeObservation(PROMPT, {
+            metadata: {
+              extracted: {
+                searchQueries: ["query alpha", "query beta"],
+              },
+            },
+          }),
+        ],
+      }),
+    );
+    expect(packet.affectedPrompts[0].actualSearchQueries).toEqual([
+      "query alpha",
+      "query beta",
+    ]);
+  });
+
+  it("populates citedSourcePages from observation.citation_urls", () => {
+    const packet = buildSpecificEditEvidencePacket(
+      buildArgs({
+        observations: [
+          makeObservation(PROMPT, {
+            citation_urls: [
+              "https://example.com/a",
+              "https://example.com/b",
+            ],
+          }),
+        ],
+      }),
+    );
+    expect(packet.affectedPrompts[0].citedSourcePages).toEqual([
+      "https://example.com/a",
+      "https://example.com/b",
+    ]);
+  });
+
+  it("populates descriptorWindows from observation.descriptor_window", () => {
+    const packet = buildSpecificEditEvidencePacket(
+      buildArgs({
+        observations: [
+          makeObservation(PROMPT, {
+            descriptor_window: ["award-winning", "design-build"],
+          }),
+        ],
+      }),
+    );
+    expect(packet.affectedPrompts[0].descriptorWindows).toEqual([
+      "award-winning",
+      "design-build",
+    ]);
+  });
+
+  it("caps actualSearchQueries at 10 per prompt", () => {
+    const queries = Array.from({ length: 15 }, (_, i) => `q-${i}`);
+    const packet = buildSpecificEditEvidencePacket(
+      buildArgs({
+        observations: [
+          makeObservation(PROMPT, {
+            metadata: { extracted: { searchQueries: queries } },
+          }),
+        ],
+      }),
+    );
+    expect(packet.affectedPrompts[0].actualSearchQueries).toHaveLength(10);
+    expect(packet.affectedPrompts[0].actualSearchQueries).toEqual(
+      queries.slice(0, 10),
+    );
+  });
+
+  it("caps citedSourcePages at 10 per prompt", () => {
+    const urls = Array.from({ length: 15 }, (_, i) => `https://x.com/${i}`);
+    const packet = buildSpecificEditEvidencePacket(
+      buildArgs({
+        observations: [makeObservation(PROMPT, { citation_urls: urls })],
+      }),
+    );
+    expect(packet.affectedPrompts[0].citedSourcePages).toHaveLength(10);
+    expect(packet.affectedPrompts[0].citedSourcePages).toEqual(
+      urls.slice(0, 10),
+    );
+  });
+
+  it("caps descriptorWindows at 5 per prompt", () => {
+    const windows = Array.from({ length: 8 }, (_, i) => `desc-${i}`);
+    const packet = buildSpecificEditEvidencePacket(
+      buildArgs({
+        observations: [
+          makeObservation(PROMPT, { descriptor_window: windows }),
+        ],
+      }),
+    );
+    expect(packet.affectedPrompts[0].descriptorWindows).toHaveLength(5);
+    expect(packet.affectedPrompts[0].descriptorWindows).toEqual(
+      windows.slice(0, 5),
+    );
+  });
+
+  it("dedupes exact-string repeats across observations (first-seen wins)", () => {
+    const packet = buildSpecificEditEvidencePacket(
+      buildArgs({
+        observations: [
+          makeObservation(PROMPT, {
+            id: "obs-1",
+            observed_at: "2026-04-26T10:00:00Z",
+            metadata: { extracted: { searchQueries: ["alpha", "beta"] } },
+            citation_urls: ["https://x.com/p"],
+            descriptor_window: ["fast"],
+          }),
+          makeObservation(PROMPT, {
+            id: "obs-2",
+            observed_at: "2026-04-26T11:00:00Z",
+            metadata: {
+              extracted: { searchQueries: ["beta", "gamma"] }, // beta dup
+            },
+            citation_urls: ["https://x.com/p", "https://x.com/q"], // dup
+            descriptor_window: ["fast", "modern"], // dup
+          }),
+        ],
+      }),
+    );
+    expect(packet.affectedPrompts[0].actualSearchQueries).toEqual([
+      "alpha",
+      "beta",
+      "gamma",
+    ]);
+    expect(packet.affectedPrompts[0].citedSourcePages).toEqual([
+      "https://x.com/p",
+      "https://x.com/q",
+    ]);
+    expect(packet.affectedPrompts[0].descriptorWindows).toEqual([
+      "fast",
+      "modern",
+    ]);
+  });
+
+  it("pre-Phase-D observations (no metadata.extracted) → empty actualSearchQueries gracefully", () => {
+    const packet = buildSpecificEditEvidencePacket(
+      buildArgs({
+        observations: [
+          makeObservation(PROMPT, {
+            metadata: {
+              source_system: "beacon_native",
+              model: "gpt-4o",
+              // No `extracted` key — legacy shape from pre-Phase-D rows.
+            },
+            citation_urls: ["https://legacy.com/cited"],
+            descriptor_window: ["legacy"],
+          }),
+        ],
+      }),
+    );
+    // Phase-D-only field: empty.
+    expect(packet.affectedPrompts[0].actualSearchQueries).toEqual([]);
+    // citation_urls + descriptor_window predate Phase D and ARE populated
+    // on legacy rows by Schema v2.1 extraction — those still flow through.
+    expect(packet.affectedPrompts[0].citedSourcePages).toEqual([
+      "https://legacy.com/cited",
+    ]);
+    expect(packet.affectedPrompts[0].descriptorWindows).toEqual(["legacy"]);
+  });
+
+  it("malformed metadata.extracted (non-object) → empty actualSearchQueries gracefully (no crash)", () => {
+    const packet = buildSpecificEditEvidencePacket(
+      buildArgs({
+        observations: [
+          makeObservation(PROMPT, {
+            // Adversarial shape — extracted is a string, not an object.
+            metadata: { extracted: "garbage" as unknown as object },
+          }),
+        ],
+      }),
+    );
+    expect(packet.affectedPrompts[0].actualSearchQueries).toEqual([]);
+  });
+
+  it("non-string entries inside searchQueries are skipped (no crash, no fake values)", () => {
+    const packet = buildSpecificEditEvidencePacket(
+      buildArgs({
+        observations: [
+          makeObservation(PROMPT, {
+            metadata: {
+              extracted: {
+                searchQueries: [
+                  "valid",
+                  null as unknown as string,
+                  42 as unknown as string,
+                  "",
+                  "another valid",
+                ],
+              },
+            },
+          }),
+        ],
+      }),
+    );
+    expect(packet.affectedPrompts[0].actualSearchQueries).toEqual([
+      "valid",
+      "another valid",
+    ]);
+  });
+
+  it("empty observations → all 3 arrays empty, no crash", () => {
+    const packet = buildSpecificEditEvidencePacket(
+      buildArgs({ observations: [] }),
+    );
+    expect(packet.affectedPrompts[0].actualSearchQueries).toEqual([]);
+    expect(packet.affectedPrompts[0].citedSourcePages).toEqual([]);
+    expect(packet.affectedPrompts[0].descriptorWindows).toEqual([]);
+  });
+
+  it("ignores observations whose prompt_id doesn't match any affectedPromptIds", () => {
+    const packet = buildSpecificEditEvidencePacket(
+      buildArgs({
+        affectedPromptIds: ["prompt-1"],
+        observations: [
+          makeObservation("prompt-1", {
+            metadata: { extracted: { searchQueries: ["mine"] } },
+          }),
+          makeObservation("other-prompt", {
+            metadata: { extracted: { searchQueries: ["theirs"] } },
+          }),
+        ],
+      }),
+    );
+    expect(packet.affectedPrompts[0].actualSearchQueries).toEqual(["mine"]);
+  });
+
+  it("aggregates across multiple observations of the same prompt — order = (observed_at, id) ascending", () => {
+    const packet = buildSpecificEditEvidencePacket(
+      buildArgs({
+        observations: [
+          // Pass in reverse chronological order — builder must sort.
+          makeObservation(PROMPT, {
+            id: "obs-c",
+            observed_at: "2026-04-26T12:00:00Z",
+            metadata: { extracted: { searchQueries: ["latest"] } },
+          }),
+          makeObservation(PROMPT, {
+            id: "obs-b",
+            observed_at: "2026-04-26T11:00:00Z",
+            metadata: { extracted: { searchQueries: ["middle"] } },
+          }),
+          makeObservation(PROMPT, {
+            id: "obs-a",
+            observed_at: "2026-04-26T10:00:00Z",
+            metadata: { extracted: { searchQueries: ["earliest"] } },
+          }),
+        ],
+      }),
+    );
+    expect(packet.affectedPrompts[0].actualSearchQueries).toEqual([
+      "earliest",
+      "middle",
+      "latest",
+    ]);
+  });
+
+  it("evidenceHash is deterministic across two builds with identical observations", () => {
+    const args = buildArgs({
+      observations: [
+        makeObservation(PROMPT, {
+          id: "obs-stable",
+          observed_at: "2026-04-26T10:00:00Z",
+          metadata: { extracted: { searchQueries: ["a", "b"] } },
+          citation_urls: ["https://x.com"],
+          descriptor_window: ["d"],
+        }),
+      ],
+    });
+    const a = buildSpecificEditEvidencePacket(args);
+    const b = buildSpecificEditEvidencePacket(args);
+    expect(a.evidenceHash).toBe(b.evidenceHash);
+  });
+
+  it("evidenceHash is deterministic regardless of caller observation order (builder sorts internally)", () => {
+    const o1 = makeObservation(PROMPT, {
+      id: "obs-a",
+      observed_at: "2026-04-26T10:00:00Z",
+      metadata: { extracted: { searchQueries: ["a"] } },
+    });
+    const o2 = makeObservation(PROMPT, {
+      id: "obs-b",
+      observed_at: "2026-04-26T11:00:00Z",
+      metadata: { extracted: { searchQueries: ["b"] } },
+    });
+    const a = buildSpecificEditEvidencePacket(
+      buildArgs({ observations: [o1, o2] }),
+    );
+    const b = buildSpecificEditEvidencePacket(
+      buildArgs({ observations: [o2, o1] }),
+    );
+    expect(a.evidenceHash).toBe(b.evidenceHash);
+  });
+
+  it("evidenceHash changes when actualSearchQueries content changes", () => {
+    const a = buildSpecificEditEvidencePacket(
+      buildArgs({
+        observations: [
+          makeObservation(PROMPT, {
+            metadata: { extracted: { searchQueries: ["one"] } },
+          }),
+        ],
+      }),
+    );
+    const b = buildSpecificEditEvidencePacket(
+      buildArgs({
+        observations: [
+          makeObservation(PROMPT, {
+            metadata: { extracted: { searchQueries: ["different"] } },
+          }),
+        ],
+      }),
+    );
+    expect(a.evidenceHash).not.toBe(b.evidenceHash);
   });
 });
 

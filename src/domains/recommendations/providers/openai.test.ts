@@ -51,6 +51,7 @@ function makePacket(
     primarySummaries: [],
     ownedPageInventory: [],
     pageElementInventory: [],
+    observations: [],
     singleTargetUrl: null,
     now: FROZEN_NOW,
   });
@@ -471,6 +472,22 @@ describe("openai provider — system prompt hardening (Sprint 6A.2f)", () => {
     expect(providerSrc).toMatch(/9\. \*\*evidence\[\]\.promptId MUST/);
     expect(providerSrc).toMatch(/10\. \*\*edit_title vs change_h1/);
     expect(providerSrc).toMatch(/11\. \*\*proposedText must be final/);
+  });
+
+  // Sprint 6A.2g.E (2026-04-26) — evidence-priority rule pin.
+  it("Sprint 6A.2g.E — Rule 14 EVIDENCE PRIORITY ORDER + 4-level enumeration", () => {
+    expect(providerSrc).toMatch(/14\. \*\*EVIDENCE PRIORITY ORDER\.\*\*/);
+    expect(providerSrc).toMatch(/\(1\) packet\.affectedPrompts\[\*\]\.actualSearchQueries/);
+    expect(providerSrc).toMatch(/\(2\) packet\.affectedPrompts\[\*\]\.citedSourcePages/);
+    expect(providerSrc).toMatch(/\(3\) packet\.affectedPrompts\[\*\]\.descriptorWindows/);
+    expect(providerSrc).toMatch(/\(4\) packet\.affectedPrompts\[\*\]\.promptText/);
+    // The fallback wording is the operationally critical part — the model
+    // must NOT lift synthetic prompt text into copy when richer evidence
+    // is available.
+    expect(providerSrc).toMatch(/Fall back to this ONLY when/);
+    expect(providerSrc).toMatch(/NOT how a customer would[\s\S]*phrase/);
+    // The why-citation requirement.
+    expect(providerSrc).toMatch(/which level you drew evidence from/);
   });
 });
 

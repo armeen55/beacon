@@ -48,6 +48,7 @@ import type { ElementType } from "@/domains/pages/extractors/registry";
 import type { PromptOpportunity } from "@/domains/prompts/opportunity-classify";
 import type { PromptPrimarySummary } from "@/domains/prompts/competitor-primary";
 import type { TrackedPrompt } from "@/domains/tracked-prompts/types";
+import type { PromptAnswerObservation } from "@/domains/prompt-answer-observations/types";
 
 import {
   ACTION_TYPES,
@@ -83,6 +84,30 @@ export type AffectedPromptBlock = {
   topPrimaryCompetitor: { name: string; share: number } | null;
   /** Top descriptors AI used near the brand on this prompt (cap 6). */
   descriptorsNearBrand: string[];
+  /**
+   * Sprint 6A.2g.E (2026-04-26) — evidence-priority enrichment.
+   *
+   * actualSearchQueries: queries the AI actually emitted while answering
+   * THIS prompt (sourced from observation.metadata.extracted.searchQueries
+   * which Phase D populates for OpenAI native polls). Cap 10. Pre-Phase-D
+   * observations have no extraction → array stays []. Honest blind spot
+   * for Perplexity (Sonar doesn't expose internal queries).
+   *
+   * citedSourcePages: URLs the AI cited when answering THIS prompt
+   * (sourced from observation.citation_urls). Cap 10. These are the
+   * pages the operator must outrank for visibility.
+   *
+   * descriptorWindows: adjective windows around brand mentions (sourced
+   * from observation.descriptor_window — Schema v2.1 extraction). Cap 5.
+   * Useful for tone-mirroring in proposed copy.
+   *
+   * SYSTEM_PROMPT Rule 14 instructs the model to prefer these in
+   * priority order: actualSearchQueries > citedSourcePages >
+   * descriptorWindows > promptText.
+   */
+  actualSearchQueries: string[];
+  citedSourcePages: string[];
+  descriptorWindows: string[];
 };
 
 export type OwnedPageCandidateBlock = {
@@ -211,6 +236,17 @@ export type BuildSpecificEditEvidencePacketArgs = {
    *  url is in the candidate set. */
   pageElementInventory: ReadonlyArray<PageElementInventoryRow>;
   /**
+   * Sprint 6A.2g.E (2026-04-26) — the full set of `prompt_answer_observations`
+   * loaded by `LiveRecommendationQueue`. The builder filters to those
+   * matching `affectedPromptIds` and aggregates Phase D extraction
+   * (`metadata.extracted.searchQueries`), `citation_urls`, and
+   * `descriptor_window` into the new `AffectedPromptBlock` arrays. Pre-
+   * Phase-D observations (no `metadata.extracted` block) contribute
+   * nothing — the empty case is graceful by design. Pass `[]` when the
+   * caller hasn't loaded observations (test fixtures, legacy callers).
+   */
+  observations: ReadonlyArray<PromptAnswerObservation>;
+  /**
    * Sprint 6A.2g.A (2026-04-26) — the rec's resolved target URL, if the
    * caller has run the page-intent resolver. When non-null,
    * `allowedTargetUrls` is constrained to anchor the LLM to this single
@@ -238,6 +274,11 @@ const DEFAULT_MAX_CANDIDATE_PAGES = 8;
 const DEFAULT_MAX_TARGET_ELEMENTS = 80;
 const DEFAULT_MAX_DESCRIPTORS_PER_PROMPT = 6;
 const DEFAULT_MAX_H2S_PER_CANDIDATE = 8;
+// Sprint 6A.2g.E (2026-04-26) — caps locked by operator scope.
+// Per-prompt: 10 search queries, 10 cited URLs, 5 descriptor windows.
+const MAX_ACTUAL_SEARCH_QUERIES_PER_PROMPT = 10;
+const MAX_CITED_SOURCE_PAGES_PER_PROMPT = 10;
+const MAX_DESCRIPTOR_WINDOWS_PER_PROMPT = 5;
 
 export function buildSpecificEditEvidencePacket(
   args: BuildSpecificEditEvidencePacketArgs,
@@ -255,11 +296,33 @@ export function buildSpecificEditEvidencePacket(
     args.primarySummaries.map((s) => [s.prompt_id, s]),
   );
 
+  // Sprint 6A.2g.E (2026-04-26) — group observations by prompt_id so the
+  // affected-prompt block builder can aggregate Phase D extraction +
+  // citation URLs + descriptor windows per prompt without re-scanning
+  // the full observation list per affected prompt. Sort within each
+  // group by (observed_at, id) for hash determinism — observations may
+  // arrive in any order from the repository.
+  const observationsByPromptId = new Map<string, PromptAnswerObservation[]>();
+  for (const o of args.observations) {
+    const arr = observationsByPromptId.get(o.prompt_id);
+    if (arr) arr.push(o);
+    else observationsByPromptId.set(o.prompt_id, [o]);
+  }
+  for (const arr of observationsByPromptId.values()) {
+    arr.sort((a, b) => {
+      const at = a.observed_at ?? "";
+      const bt = b.observed_at ?? "";
+      if (at !== bt) return at.localeCompare(bt);
+      return (a.id ?? "").localeCompare(b.id ?? "");
+    });
+  }
+
   const affectedPrompts = buildAffectedPromptBlocks(
     args.affectedPromptIds,
     promptTextById,
     opportunityById,
     summaryById,
+    observationsByPromptId,
   );
 
   const ownedPageCandidates = buildOwnedPageCandidates(
@@ -342,11 +405,13 @@ function buildAffectedPromptBlocks(
   promptTextById: ReadonlyMap<string, string>,
   opportunityById: ReadonlyMap<string, PromptOpportunity>,
   summaryById: ReadonlyMap<string, PromptPrimarySummary>,
+  observationsByPromptId: ReadonlyMap<string, ReadonlyArray<PromptAnswerObservation>>,
 ): AffectedPromptBlock[] {
   const out: AffectedPromptBlock[] = [];
   for (const promptId of affectedPromptIds) {
     const op = opportunityById.get(promptId);
     const summary = summaryById.get(promptId);
+    const observations = observationsByPromptId.get(promptId) ?? [];
 
     const observationCount =
       op?.evidence.observationCount ?? summary?.totalAnswers ?? 0;
@@ -363,6 +428,29 @@ function buildAffectedPromptBlocks(
       }
     }
 
+    // Sprint 6A.2g.E (2026-04-26) — evidence-priority enrichment.
+    // Aggregate Phase D extraction + citation URLs + descriptor windows
+    // across this prompt's observations. Dedupe is exact-string (we
+    // preserve the verbatim form the AI emitted). Order is deterministic:
+    // observations are pre-sorted by (observed_at, id) at the call site,
+    // and within each observation the source array's order is preserved.
+    // First-seen wins.
+    const actualSearchQueries = collectFromObservations(
+      observations,
+      MAX_ACTUAL_SEARCH_QUERIES_PER_PROMPT,
+      (o) => extractSearchQueriesFromMetadata(o.metadata),
+    );
+    const citedSourcePages = collectFromObservations(
+      observations,
+      MAX_CITED_SOURCE_PAGES_PER_PROMPT,
+      (o) => o.citation_urls ?? null,
+    );
+    const descriptorWindows = collectFromObservations(
+      observations,
+      MAX_DESCRIPTOR_WINDOWS_PER_PROMPT,
+      (o) => o.descriptor_window ?? null,
+    );
+
     out.push({
       promptId,
       promptText: promptTextById.get(promptId) ?? promptId,
@@ -375,9 +463,58 @@ function buildAffectedPromptBlocks(
           0,
           DEFAULT_MAX_DESCRIPTORS_PER_PROMPT,
         ) ?? [],
+      actualSearchQueries,
+      citedSourcePages,
+      descriptorWindows,
     });
   }
   return out;
+}
+
+/**
+ * Sprint 6A.2g.E — generic helper. Iterate observations in caller order,
+ * pull each observation's contribution via `getContribution`, push
+ * non-empty + non-duplicate strings into an accumulator until the cap
+ * is reached. Pre-Phase-D observations whose contribution is null /
+ * undefined / non-array contribute nothing — graceful empty.
+ */
+function collectFromObservations(
+  observations: ReadonlyArray<PromptAnswerObservation>,
+  cap: number,
+  getContribution: (o: PromptAnswerObservation) => unknown,
+): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const o of observations) {
+    if (out.length >= cap) break;
+    const contribution = getContribution(o);
+    if (!Array.isArray(contribution)) continue;
+    for (const item of contribution) {
+      if (out.length >= cap) break;
+      if (typeof item !== "string" || item.length === 0) continue;
+      if (seen.has(item)) continue;
+      seen.add(item);
+      out.push(item);
+    }
+  }
+  return out;
+}
+
+/**
+ * Sprint 6A.2g.E — defensive accessor for Phase-D-era extracted search
+ * queries. Returns null when the observation predates Phase D (no
+ * `metadata.extracted` block) or when the field is the wrong shape.
+ * The polling adapter writes `metadata.extracted.searchQueries` as
+ * `string[]` for OpenAI native polls and `[]` (empty) for Perplexity
+ * (honest blind spot).
+ */
+function extractSearchQueriesFromMetadata(
+  metadata: unknown,
+): unknown {
+  if (!metadata || typeof metadata !== "object") return null;
+  const extracted = (metadata as Record<string, unknown>).extracted;
+  if (!extracted || typeof extracted !== "object") return null;
+  return (extracted as Record<string, unknown>).searchQueries;
 }
 
 function buildOwnedPageCandidates(

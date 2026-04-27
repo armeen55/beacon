@@ -53,6 +53,7 @@ function makePacket(
     primarySummaries: [],
     ownedPageInventory: [],
     pageElementInventory: [],
+    observations: [],
     singleTargetUrl: null,
     now: FROZEN_NOW,
   });

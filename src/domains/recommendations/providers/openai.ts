@@ -169,6 +169,31 @@ HARD RULES:
     cannot be expressed as final copy, surface that in why / risks —
     NOT in proposedText.
 
+14. **EVIDENCE PRIORITY ORDER.** When deciding what evidence drove an
+    edit and what copy to propose, prefer in this order:
+      (1) packet.affectedPrompts[*].actualSearchQueries — the queries
+          the AI actually emitted while answering this prompt. These
+          are how real users phrase the question. Mirror their
+          phrasing in proposedText where it fits naturally.
+      (2) packet.affectedPrompts[*].citedSourcePages — the URLs the
+          AI cited when answering. These are the sources the operator
+          must outrank. Reference what those pages cover (in the why)
+          and write proposedText that's strictly stronger on the
+          same intent.
+      (3) packet.affectedPrompts[*].descriptorWindows — adjective
+          windows that appeared near brand mentions in answers. Use
+          these to mirror tone and authority cues (e.g. "award-winning,"
+          "design-build," "Atherton") that already work in this market.
+      (4) packet.affectedPrompts[*].promptText — the synthetic prompt
+          text we asked the AI. Fall back to this ONLY when (1), (2),
+          and (3) are all empty for every affected prompt. The prompt
+          text is what we asked the AI; it is NOT how a customer would
+          phrase the question, and lifting it verbatim into copy makes
+          the page sound like a search engine, not a builder's site.
+    The "why" field MUST cite which level you drew evidence from
+    (e.g., "Drawn from actualSearchQueries on prompt
+    7ee3216b-...: 'best whole home remodel builders bay area'").
+
 OPERATOR-FACING COPY:
 - why: 1-2 sentences. Name the specific evidence (prompt id, owned URL,
   competitor name) that drove this edit. promptIds in why may be

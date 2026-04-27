@@ -155,6 +155,7 @@ function basePacketArgs(): BuildSpecificEditEvidencePacketArgs {
     ],
     primarySummaries: [makeSummary(promptId)],
     singleTargetUrl: null,
+    observations: [],
     ownedPageInventory: [
       makeInventoryEntry(URL_BRACES, {
         title: "Braces · Acme",
@@ -596,6 +597,7 @@ describe("Phase 6A.1.9 — deterministic provider aggregation", () => {
       primarySummaries: [],
       ownedPageInventory: [],
       pageElementInventory: [],
+      observations: [],
       singleTargetUrl: null,
       now: FROZEN_NOW,
     });

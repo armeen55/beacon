@@ -281,6 +281,68 @@ describe("Phase 6A.1.14 — buildPacketForRec", () => {
     ]);
   });
 
+  // Sprint 6A.2g.E (2026-04-26) — observations threading.
+  it("threads context.promptAnswerObservations through to packet.affectedPrompts evidence enrichment", async () => {
+    const ctx = makeContext({
+      promptAnswerObservations: [
+        {
+          id: "obs-thread-test",
+          prompt_id: "p-1",
+          run_id: "run-test",
+          answer_hash: "deadbeefdeadbeef",
+          position: null,
+          tracked_brand_mentioned: false,
+          tracked_brand_cited: false,
+          citation_count: 1,
+          owned_citation_count: 0,
+          citation_domains: ["example.com"],
+          citation_categories: {},
+          mentions: [],
+          observed_at: "2026-04-26T10:00:00Z",
+          platform: "chatgpt",
+          topic: "",
+          metadata: {
+            extracted: { searchQueries: ["threaded query"] },
+          },
+          tenant_id: "tenant-test",
+          citation_urls: ["https://example.com/cited"],
+          descriptor_window: ["threaded-desc"],
+        },
+      ],
+    });
+    const rec = ctx.queue[0];
+    const packet = buildPacketForRec({
+      rec,
+      context: ctx,
+      pageElementInventory: [],
+      tenantId: "tenant-test",
+    });
+    expect(packet.affectedPrompts).toHaveLength(1);
+    expect(packet.affectedPrompts[0].actualSearchQueries).toEqual([
+      "threaded query",
+    ]);
+    expect(packet.affectedPrompts[0].citedSourcePages).toEqual([
+      "https://example.com/cited",
+    ]);
+    expect(packet.affectedPrompts[0].descriptorWindows).toEqual([
+      "threaded-desc",
+    ]);
+  });
+
+  it("packet has empty enrichment arrays when context has no observations (legacy/pre-Phase-D)", () => {
+    const ctx = makeContext({ promptAnswerObservations: [] });
+    const rec = ctx.queue[0];
+    const packet = buildPacketForRec({
+      rec,
+      context: ctx,
+      pageElementInventory: [],
+      tenantId: "tenant-test",
+    });
+    expect(packet.affectedPrompts[0].actualSearchQueries).toEqual([]);
+    expect(packet.affectedPrompts[0].citedSourcePages).toEqual([]);
+    expect(packet.affectedPrompts[0].descriptorWindows).toEqual([]);
+  });
+
   it("legacy rec without resolution falls through to candidate-set + sentinel", () => {
     const ctx = makeContext();
     const rec = ctx.queue[0];

@@ -94,6 +94,7 @@ function buildSmokePacket(tenantId: string): SpecificEditEvidencePacket {
     primarySummaries: [],
     ownedPageInventory: [],
     pageElementInventory: [],
+    observations: [],
     singleTargetUrl: null,
   });
 }

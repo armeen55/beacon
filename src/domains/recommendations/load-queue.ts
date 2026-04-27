@@ -328,6 +328,17 @@ export function buildPacketForRec(
     primarySummaries,
     ownedPageInventory: context.pageInventory,
     pageElementInventory,
+    // Sprint 6A.2g.E (2026-04-26) — packet enrichment. Thread the full
+    // observation set already loaded by `loadLiveRecommendationQueue`
+    // so the packet builder can aggregate Phase D extraction (search
+    // queries the AI emitted), citation URLs (sources to outrank), and
+    // descriptor windows (tone-mirroring) per affected prompt. The
+    // builder filters by affectedPromptIds internally — passing the
+    // full set keeps `buildPacketForRec` pure of further repository
+    // reads. Pre-Phase-D observations contribute empty arrays (graceful
+    // — see Phase D.1 report; ~986 legacy native-poll rows lack the
+    // metadata.extracted block).
+    observations: context.promptAnswerObservations,
     // Sprint 6A.2g.A (2026-04-26) — strict target alignment. The
     // page-intent resolver runs before prioritization (load-queue step
     // 6) and stamps `rec.resolution.targetUrl` on every queued rec.
