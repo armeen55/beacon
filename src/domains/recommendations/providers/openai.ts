@@ -169,6 +169,33 @@ HARD RULES:
     cannot be expressed as final copy, surface that in why / risks —
     NOT in proposedText.
 
+13. **FAQ questions must NOT lift synthetic prompt text verbatim.**
+    Tracked prompts are operator-curated targeting strings written
+    for an AI search audit (e.g., "best whole home remodel builders
+    bay area"). They are NOT how a customer would actually ask the
+    question on a website. Rewrite into natural, customer-voice
+    phrasing that a real visitor would type or speak.
+      BAD : "best whole home remodel builders bay area"
+      GOOD: "Who are the best whole home remodel builders in the
+             Bay Area?"
+      BAD : "atherton kitchen remodel cost"
+      GOOD: "How much does a kitchen remodel cost in Atherton?"
+    For add_faq / rewrite_faq with a faq_question targetElement:
+      - proposedText MUST be a complete grammatical question.
+      - proposedText MUST end with "?".
+      - proposedText MUST be ≤ 200 characters.
+      - proposedText MUST cover the same intent as one of
+        packet.affectedPrompts[*].promptText, but in human-asked form.
+      - proposedText MUST NOT begin with the synthetic prompt text
+        verbatim — even if the synthetic prompt happens to read like
+        a question. The validator rejects FAQ rows whose normalized
+        proposedText starts with any affected prompt's normalized
+        first 50 characters.
+    For add_faq / rewrite_faq with a faq_answer targetElement, this
+    rule does NOT apply (answers don't end in "?"). Other action
+    types (edit_title, add_h2_section, etc.) are unaffected — only
+    FAQ-question copy is gated.
+
 14. **EVIDENCE PRIORITY ORDER.** When deciding what evidence drove an
     edit and what copy to propose, prefer in this order:
       (1) packet.affectedPrompts[*].actualSearchQueries — the queries

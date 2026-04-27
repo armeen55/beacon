@@ -364,6 +364,11 @@ describe("Phase 6A.1.11 — runProviderAndPersist (orchestration)", () => {
   });
 
   it("maps deterministic provider output to rows and dual-writes when not in dry-run", async () => {
+    // Sprint 6A.2g.C (2026-04-26) — the deterministic FAQ generator
+    // emits proposedText that doesn't end in "?" (Phase 9 shape predates
+    // Rule 13). Its FAQ rows now fail validation; non-FAQ rows still
+    // pass and persist. The orchestration must report partial accept
+    // and dual-write the accepted subset.
     const packet = buildPacket();
     const result = await runProviderAndPersist({
       provider: deterministicProvider,
@@ -371,10 +376,13 @@ describe("Phase 6A.1.11 — runProviderAndPersist (orchestration)", () => {
       dryRun: false,
       now: FROZEN_NOW,
     });
-    expect(result.ok).toBe(true);
     expect(result.totalGenerated).toBeGreaterThan(0);
-    expect(result.acceptedCount).toBe(result.totalGenerated);
-    expect(result.rejectedCount).toBe(0);
+    expect(result.acceptedCount).toBeGreaterThan(0);
+    expect(result.acceptedCount + result.rejectedCount).toBe(
+      result.totalGenerated,
+    );
+    // result.ok is true only when zero rows reject; the FAQ gate forces
+    // partial accept here. The accepted subset still persists.
     expect(result.persisted).toBe(true);
     expect(dualWriteMocks.syncRecommendedEdits).toHaveBeenCalledTimes(1);
     const persistedRows = (

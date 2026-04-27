@@ -474,6 +474,26 @@ describe("openai provider — system prompt hardening (Sprint 6A.2f)", () => {
     expect(providerSrc).toMatch(/11\. \*\*proposedText must be final/);
   });
 
+  // Sprint 6A.2g.C (2026-04-26) — FAQ intent rewriting rule pin.
+  it("Sprint 6A.2g.C — Rule 13 FAQ-must-not-lift-prompt-text + ends-in-?", () => {
+    expect(providerSrc).toMatch(/13\. \*\*FAQ questions must NOT lift synthetic prompt text verbatim\.\*\*/);
+    // Both BAD/GOOD examples are pinned so future edits can't lose the
+    // teach-by-contrast pair.
+    expect(providerSrc).toMatch(
+      /BAD\s*:\s*"best whole home remodel builders bay area"/,
+    );
+    expect(providerSrc).toMatch(
+      /GOOD:\s*"Who are the best whole home remodel builders[\s\S]*Bay Area\?"/,
+    );
+    // Required hygiene: question must end with ?, ≤200 chars, cover
+    // an affected prompt's intent, NOT lift the stem.
+    expect(providerSrc).toMatch(/proposedText MUST end with "\?"/);
+    expect(providerSrc).toMatch(/proposedText MUST be \u2264 200 characters/);
+    expect(providerSrc).toMatch(/MUST NOT begin with the synthetic prompt text/);
+    // faq_answer is explicitly carved out.
+    expect(providerSrc).toMatch(/faq_answer targetElement, this[\s\S]*rule does NOT apply/);
+  });
+
   // Sprint 6A.2g.E (2026-04-26) — evidence-priority rule pin.
   it("Sprint 6A.2g.E — Rule 14 EVIDENCE PRIORITY ORDER + 4-level enumeration", () => {
     expect(providerSrc).toMatch(/14\. \*\*EVIDENCE PRIORITY ORDER\.\*\*/);

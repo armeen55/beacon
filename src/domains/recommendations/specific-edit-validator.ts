@@ -513,9 +513,121 @@ export function validateSpecificEdit(
     }
   }
 
+  // ── 9.5 FAQ intent rewriting (Sprint 6A.2g.C) ──────────────────────
+  // For add_faq / rewrite_faq with a faq_question targetElement, reject
+  // proposedText that (a) doesn't end in "?" or (b) lifts the synthetic
+  // affected-prompt text verbatim. The model is instructed via Rule 13
+  // to rewrite into customer-voice phrasing; this layer catches it
+  // when the model ignores the rule.
+  //
+  // Other action types are unaffected. faq_answer elements are
+  // unaffected (answers don't end in "?"). The env opt-out
+  // BEACON_ALLOW_SYNTHETIC_FAQ_COPY=1 disables ONLY the verbatim-stem
+  // check — the "?" requirement always runs.
+  const faqGate = validateFaqIntentRewriting(edit, packet);
+  if (!faqGate.ok) return faqGate;
+
   // ── 10. JSON-serializability ───────────────────────────────────────
   const ser = validateSerializable(edit, "$");
   if (!ser.ok) return ser;
+
+  return OK;
+}
+
+// ---------------------------------------------------------------------------
+// Sprint 6A.2g.C — FAQ intent rewriting helper
+// ---------------------------------------------------------------------------
+
+/**
+ * Sprint 6A.2g.C (2026-04-26) — gate that allows FAQ-question
+ * proposedText to start with the synthetic affected-prompt stem. OFF
+ * by default. When the operator hits a false positive (e.g., the
+ * affected prompt is already a real customer question and the model
+ * legitimately mirrors it), set BEACON_ALLOW_SYNTHETIC_FAQ_COPY=1 to
+ * accept those rows. The "?" ending check always runs regardless.
+ */
+function isSyntheticFaqCopyAllowed(): boolean {
+  return process.env.BEACON_ALLOW_SYNTHETIC_FAQ_COPY === "1";
+}
+
+/**
+ * Sprint 6A.2g.C — first-50-char prefix used to detect "verbatim copy"
+ * of a synthetic prompt into FAQ proposedText. The choice of 50 chars
+ * + lowercase + punctuation-stripped + collapsed-whitespace is a
+ * deliberate compromise: long enough to catch real-world prompt-stem
+ * lifts, short enough to tolerate paraphrases that prepend a question
+ * word ("Who are the …", "How much does …"). Operator opts out via
+ * BEACON_ALLOW_SYNTHETIC_FAQ_COPY=1 when a coincidental prefix
+ * collision bites (rare in practice — the synthetic prompts in this
+ * tenant don't read like customer questions).
+ */
+const FAQ_STEM_PREFIX_LENGTH = 50;
+
+function normalizeFaqStem(s: string): string {
+  return s
+    .trim()
+    .toLowerCase()
+    // Strip non-alphanumeric except whitespace; punctuation noise.
+    .replace(/[^a-z0-9\s]/g, "")
+    // Collapse whitespace.
+    .replace(/\s+/g, " ")
+    .slice(0, FAQ_STEM_PREFIX_LENGTH);
+}
+
+function validateFaqIntentRewriting(
+  edit: SpecificEdit,
+  packet: SpecificEditEvidencePacket,
+): ValidationResult {
+  // Only fires for the two FAQ action types.
+  if (edit.actionType !== "add_faq" && edit.actionType !== "rewrite_faq") {
+    return OK;
+  }
+  // Page-level branch can't reach here (rule 3 already requires non-null
+  // targetElement for these content actions), but guard defensively.
+  if (edit.targetElement === null) return OK;
+  const tel = edit.targetElement;
+
+  // Only the question half of a FAQ pair is gated. faq_answer rows
+  // legitimately don't end in "?" and aren't lifting prompt stems.
+  const elementType = parseElementTypeFromKey(tel.elementKey);
+  if (elementType !== "faq_question") return OK;
+
+  // Rule 3 already required proposedText to be a non-empty string for
+  // requiresProposedText=true actions (both FAQ types qualify).
+  // Defensive: skip if absent.
+  if (typeof tel.proposedText !== "string" || tel.proposedText.length === 0) {
+    return OK;
+  }
+  const proposed = tel.proposedText.trim();
+
+  // (a) Must end with "?". Always enforced — the env opt-out does NOT
+  // skip this check. A FAQ "question" that doesn't end in a question
+  // mark isn't a question.
+  if (!proposed.endsWith("?")) {
+    return fail(
+      "targetElement.proposedText",
+      `add_faq / rewrite_faq question must end with "?" (got: ${JSON.stringify(proposed.slice(-20))})`,
+    );
+  }
+
+  // (b) Must NOT begin with the synthetic affected-prompt stem.
+  // Skip-if-opted-out so operator can ship rows the model legitimately
+  // mirrored from already-customer-voiced affected prompts.
+  if (isSyntheticFaqCopyAllowed()) return OK;
+
+  const proposedNorm = normalizeFaqStem(proposed);
+  if (proposedNorm.length === 0) return OK;
+
+  for (const affected of packet.affectedPrompts) {
+    const stemNorm = normalizeFaqStem(affected.promptText);
+    if (stemNorm.length === 0) continue;
+    if (proposedNorm.startsWith(stemNorm)) {
+      return fail(
+        "targetElement.proposedText",
+        `FAQ question lifts synthetic prompt text verbatim from prompt "${affected.promptId}" (matched normalized stem ${JSON.stringify(stemNorm)}). Rewrite into customer-voice phrasing or set BEACON_ALLOW_SYNTHETIC_FAQ_COPY=1 to override.`,
+      );
+    }
+  }
 
   return OK;
 }
