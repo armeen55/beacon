@@ -7,6 +7,139 @@
 
 ---
 
+## 2026-04-27 — Recommendation Lifecycle OS — Phase 4 (live_at attribution switch behind flag)
+
+Phase 4 ships the verdict-engine half of the Lifecycle OS — switches the URL verdict's baseline-split from `entry.timestamp` to `entry.live_at ?? entry.timestamp` and adds the new `not_implemented` verdict label. Both behind `BEACON_LIFECYCLE_VERDICT_ENABLED` (default OFF), independent from `BEACON_LIFECYCLE_ENABLED` so the lifecycle runner and the attribution change roll back independently.
+
+### Files changed (3 source + 1 test + 2 docs)
+
+| File | Type | Purpose |
+|---|---|---|
+| `src/lib/flags.ts` | EDIT | Added `isLifecycleVerdictEnabled()` |
+| `src/domains/attribution/url-verdict.ts` | EDIT | Extended `VerdictLabel` union with `"not_implemented"` + label/tone records + summary `case` (exhaustiveness) |
+| `src/domains/attribution/url-change-outcome.ts` | EDIT | Added `not_implemented` to `TERMINAL_VERDICTS`; new pure helpers `resolveChangeDate` + `lifecycleLookupKey`; new `ComputeVerdictOptions` type; `computeChangeVerdict` extended with optional 5th arg; `recordUrlOutcome` extended with optional `useLiveAt?` so landing-day stays in lock-step; `materializeUrlOutcomes` reads flag once + loads `recommended_edits` only when ON + builds lifecycle-status map keyed by `lifecycleLookupKey` + passes `forceVerdict: "not_implemented"` for `not_found_after_7d` matches |
+| `src/domains/attribution/url-change-outcome.phase4.test.ts` | NEW | 20 Phase 4 tests (4 pure-helper + 6 `computeChangeVerdict` options + 5 integration with mocks + 1 terminal-verdict regression + 4 lookupKey edges) |
+| `docs/HANDOFF_VERIFIED_STATE.md` | EDIT | New top banner |
+| `docs/VERIFICATION_LOG.md` | EDIT | This entry |
+
+### Exact flag behavior
+
+`BEACON_LIFECYCLE_VERDICT_ENABLED=1` enables; absent or any other value = OFF (default).
+
+- **OFF (default):**
+  - `materializeUrlOutcomes` does NOT call `getRecommendedEdits` (zero repo calls for the lifecycle map).
+  - `computeChangeVerdict` is invoked with `options=undefined` → byte-identical to pre-Phase-4: change date = `entry.timestamp.slice(0, 10)`.
+  - No `not_implemented` verdict ever emitted.
+  - No `live_at` ever read.
+  - `recordUrlOutcome` called with `useLiveAt: false` → `landing_day_n` resolved from `change.timestamp` (pre-Phase-4 behavior).
+- **ON:**
+  - `materializeUrlOutcomes` loads `recommended_edits` once for the tenant; builds `lifecycleStatusByKey: Map<string, ImplementationStatus>` keyed by `${rec_id}::${action_type}::${target_element_key ?? ""}`.
+  - For each changelog entry: `lifecycleLookupKey(change)` builds the same key (returns `null` for legacy/imported rows lacking `source_rec_id` or `action_type`); if the map entry is `"not_found_after_7d"`, `forceVerdict: "not_implemented"` is set.
+  - `computeChangeVerdict` is invoked with `{ useLiveAt: true, forceVerdict }`:
+    - `forceVerdict === "not_implemented"`: synthetic verdict returned without consulting series (high-confidence; no Z-score; mu_pre/post all 0).
+    - Otherwise: change date = `resolveChangeDate(change, true)` = `entry.live_at ?? entry.timestamp` (sliced to YYYY-MM-DD).
+  - `recordUrlOutcome` called with `useLiveAt: true` → `landing_day_n` resolved from same date as the verdict.
+
+### Exact `live_at` precedence behavior
+
+`resolveChangeDate(change, useLiveAt)`:
+- `useLiveAt === false` → returns `change.timestamp.slice(0, 10)` (pre-Phase-4 behavior).
+- `useLiveAt === true` AND `change.live_at` present + non-empty → returns `change.live_at.slice(0, 10)`.
+- `useLiveAt === true` AND `change.live_at` is `null` / `undefined` / empty string → falls back to `change.timestamp.slice(0, 10)`.
+
+Backwards compatible by construction: legacy entries without `live_at` keep current behavior even when the flag is ON.
+
+### Exact `not_implemented` behavior
+
+Synthetic verdict returned by `computeChangeVerdict` when `options.forceVerdict === "not_implemented"`:
+
+```ts
+{
+  verdict: "not_implemented",
+  z: null,
+  delta_pct: null,
+  delta_abs: null,
+  post_days: 0,
+  confidence: "high",  // lifecycle status itself is the authoritative signal
+  sustain: { up: 0, down: 0 },
+  explanation: {
+    summary: "Beacon scanned the page for 7+ days after Accept and never found the proposed change live. No attribution computed.",
+    math: { all-zeroes },
+  },
+}
+```
+
+Plus:
+- Result's `series` array is empty (no series consumption — short-circuit fires BEFORE the `getSeriesForUrl` lookup, so works even when URL has no citation history at all).
+- `recordUrlOutcome` persists it (added to `TERMINAL_VERDICTS`).
+- Distinct from `nothing_yet` (change happened, didn't move needle) and `too_early` (change happened, post-window too short) — clearly communicates "the change never happened."
+
+### Tests added: 20
+
+`url-change-outcome.phase4.test.ts`:
+
+**Pure helpers (8):**
+- `resolveChangeDate`: useLiveAt=false → timestamp · useLiveAt=true + live_at → live_at · useLiveAt=true + null live_at → timestamp · useLiveAt=true + empty string → timestamp.
+- `lifecycleLookupKey`: builds `rec::action::elementKey` · encodes null target_element_key as empty string · returns null for missing/empty source_rec_id (3 variants) · returns null for missing/empty action_type (2 variants).
+
+**`computeChangeVerdict` options (6):**
+- options omitted → uses timestamp (pre-Phase-4 regression check).
+- `{ useLiveAt: false }` → identical math to options omitted.
+- `{ useLiveAt: true }` with live_at → math differs from timestamp version (post_days OR mu_pre changed).
+- `{ useLiveAt: true }` + no live_at → identical math to options omitted.
+- `{ forceVerdict: "not_implemented" }` → synthetic verdict, empty series, null z/delta, mu_pre=mu_post=0, confidence=high.
+- `{ forceVerdict: "not_implemented" }` works even with empty citation history.
+
+**Integration with materializeUrlOutcomes (5):**
+- flag OFF → does NOT call `getRecommendedEdits` (zero repo calls).
+- flag ON + edits present → loads `getRecommendedEdits` once.
+- flag ON + changelog linked to `not_found_after_7d` edit → persisted as `not_implemented` verdict.
+- flag OFF + same not_found_after_7d setup → DOES NOT emit `not_implemented` (legacy behavior preserved).
+- flag ON + legacy changelog without source_rec_id → does NOT emit `not_implemented` (graceful fall-through).
+
+**Terminal verdict regression (1):**
+- `isTerminalVerdict("not_implemented")` returns true.
+
+### Verification
+
+| Gate | Result |
+|---|---|
+| `npm run typecheck` | ✅ clean |
+| Targeted (`url-change-outcome.phase4.test.ts` + existing url-verdict + url-change-outcome) | ✅ 52/52 |
+| `npx vitest run tests/architecture/` | ✅ 118/118 (no regression) |
+| Full `npx vitest run` | ✅ **2839/2839** (was 2819 + 20 new) |
+| `rm -rf .next && npm run build` | ✅ green |
+| Vercel-equivalent build | ✅ green (safe-restore sequence used) |
+| Operator data integrity post-restore | ✅ value=321 |
+
+### Whether Phase 5 (scheduled scan) is safe to start next
+
+**YES.** Phase 4 is fully gated and doesn't affect any pre-existing scan trigger or cron. Phase 5's scope (per source plan) is to add a daily Vercel cron + GitHub Actions workflow that calls `runWebsiteScan({ trigger: "cron" })` — which already exists in the orchestrator, just isn't currently triggered automatically. Phase 5 requires:
+- New `BEACON_SCAN_DISABLED` kill-switch (mirror of `BEACON_POLL_DISABLED`).
+- New `/api/cron/scan` route mirroring `/api/poll/run` auth + structure.
+- New `.github/workflows/daily-scan.yml`.
+- Cron-failure detection rules in a new doc.
+
+Risks: Medium — first auto-scheduled scan trigger. Mitigation: kill switch + hosted env-flag guarding the lifecycle runner (already in Phase 3) means a misbehaving auto-scan can't write bogus lifecycle state. Verdict engine doesn't fire on the cron unless someone reads `/changes` afterward.
+
+**Recommended capability for Phase 5: Balanced (Sonnet).** Mechanical cron setup mirroring `daily-native-poll.yml`. Reserve Opus Max for Phase 6 (UI surfacing — design judgment matters more there).
+
+### Operator next action
+
+Sign off Phase 4 by adding to `.data/exit-gates.json`:
+
+```json
+"lifecycle_os_phase4": {
+  "status": "passed",
+  "notes": "Reviewed verdict engine flag-gating + not_implemented label on <date>",
+  "recordedAt": "<ISO timestamp>"
+}
+```
+
+That gate authorizes Phase 5 (scheduled scan).
+
+---
+
 ## 2026-04-27 — Recommendation Lifecycle OS — Phase 3.1 (accept-time fallback correction)
 
 Surgical correction to Phase 3. The Phase 3 closing report listed the accept-time fallback chain as `changelog → response → edit.updated_at`, but the operator (correctly) flagged that **`updated_at` is unsafe** — the runner mutates `updated_at` on every write-back, so using it as an age source would reset the 7-day clock on every scan and silently disable the `not_found_after_7d` promotion. Phase 3.1 closes that gap before Phase 3 is dogfeded.

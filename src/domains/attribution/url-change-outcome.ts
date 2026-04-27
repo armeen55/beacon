@@ -26,6 +26,7 @@ import { readStore, writeStore } from "@/lib/persistence/json-store";
 import { syncUrlChangeOutcomes } from "@/lib/persistence/dual-write";
 import { getRepository } from "@/lib/persistence/repositories";
 import { currentTenantId } from "@/lib/tenant-context";
+import { isLifecycleVerdictEnabled } from "@/lib/flags";
 import { log } from "@/lib/logger";
 import type { ChangelogEntry } from "@/domains/changelog/types";
 import type { AssetType } from "@/lib/constants";
@@ -47,14 +48,49 @@ import {
 } from "@/domains/product/url-citation-history";
 
 /** Verdicts that represent a settled outcome worth remembering in the brain. */
-const TERMINAL_VERDICTS: ReadonlySet<VerdictLabel> = new Set([
+const TERMINAL_VERDICTS: ReadonlySet<VerdictLabel> = new Set<VerdictLabel>([
   "helping",
   "hurting",
   "nothing_yet",
+  // Phase 4 (2026-04-27): not_implemented is terminal — the operator
+  // would need to either (a) implement the edit (re-scan would
+  // promote to verified_live) or (b) dismiss it. Either path
+  // requires explicit action; the verdict engine does not change it
+  // on its own.
+  "not_implemented",
 ]);
 
 export function isTerminalVerdict(v: VerdictLabel): boolean {
   return TERMINAL_VERDICTS.has(v);
+}
+
+/**
+ * Phase 4 (2026-04-27): pure helper. Builds the join key used to look
+ * up a `recommended_edits` row from a `changelog_entries` row.
+ *
+ * Both sides of the join (changelog → recommended_edits) carry the
+ * same triple: `source_rec_id` / `action_type` / `target_element_key`.
+ * `target_element_key` may be null on page-level edits — we encode
+ * the null literally so two DIFFERENT page-level edits on the same
+ * rec don't collide (the `(rec_id, action_type, "")` tuple uniquely
+ * identifies the page-level row's recommended_edits id).
+ *
+ * Returns `null` when the changelog row lacks the required linkage
+ * fields (legacy rows, imported CSV rows, scan-confirmed rows). The
+ * caller skips the lifecycle short-circuit for null keys — those
+ * rows fall through to the standard Z-score path.
+ */
+export function lifecycleLookupKey(input: {
+  source_rec_id?: string | null;
+  action_type?: string | null;
+  target_element_key?: string | null;
+}): string | null {
+  const recId = input.source_rec_id;
+  const action = input.action_type;
+  if (!recId || recId.length === 0) return null;
+  if (!action || action.length === 0) return null;
+  const elementKey = input.target_element_key ?? "";
+  return `${recId}::${action}::${elementKey}`;
 }
 
 /** One brain-readable outcome per (change, URL). */
@@ -248,6 +284,13 @@ export async function recordUrlOutcome(input: {
   verdict: UrlVerdict;
   series: DailyPoint[];
   thresholds?: VerdictThresholds;
+  /**
+   * Phase 4 (2026-04-27): when true, landing-day resolution uses
+   * `change.live_at ?? change.timestamp` to keep the landing-day
+   * relative to the same baseline date the verdict engine used. When
+   * false / absent, uses `change.timestamp` (pre-Phase-4 behavior).
+   */
+  useLiveAt?: boolean;
 }): Promise<UrlChangeOutcome | null> {
   const urlChangeOutcomes = await getUrlChangeOutcomes();
   const thresholds = input.thresholds ?? DEFAULT_THRESHOLDS;
@@ -257,7 +300,12 @@ export async function recordUrlOutcome(input: {
 
   const landing =
     v.verdict === "helping" || v.verdict === "hurting"
-      ? findLandingDay(input.series, input.change.timestamp.slice(0, 10), v.verdict, thresholds)
+      ? findLandingDay(
+          input.series,
+          resolveChangeDate(input.change, input.useLiveAt === true),
+          v.verdict,
+          thresholds,
+        )
       : null;
 
   const nowISO = new Date().toISOString();
@@ -328,11 +376,86 @@ export async function recordUrlOutcome(input: {
  * (to enrich rows for display). Single source of truth for "how do we turn a
  * changelog entry + URL history into a verdict."
  */
+/**
+ * Phase 4 (2026-04-27) options for the verdict engine. Both fields
+ * default to off / null so legacy callers (and the entire flag-OFF
+ * code path) get byte-identical behavior.
+ */
+export type ComputeVerdictOptions = {
+  /**
+   * When true, baseline-split timestamp = `change.live_at ?? change.timestamp`.
+   * When false / absent, baseline-split timestamp = `change.timestamp`
+   * (pre-Phase-4 behavior).
+   */
+  useLiveAt?: boolean;
+  /**
+   * When set, short-circuits Z-score computation and returns a
+   * synthetic verdict with this label. v1 only supports
+   * `"not_implemented"` — for changelog entries linked to
+   * `recommended_edits` rows in `not_found_after_7d` lifecycle state.
+   */
+  forceVerdict?: "not_implemented";
+};
+
+/**
+ * Phase 4 (2026-04-27): pure helper resolving the baseline-split
+ * timestamp. Exported so the runner + UI can stay in lock-step with
+ * the verdict engine.
+ *
+ * Returns `change.timestamp.slice(0, 10)` when `useLiveAt` is false
+ * OR when the entry has no `live_at`. Backwards compatible by
+ * construction.
+ */
+export function resolveChangeDate(
+  change: ChangelogEntry,
+  useLiveAt: boolean,
+): string {
+  if (useLiveAt && change.live_at && change.live_at.length > 0) {
+    return change.live_at.slice(0, 10);
+  }
+  return change.timestamp.slice(0, 10);
+}
+
+/**
+ * Phase 4 (2026-04-27): synthetic verdict for the `not_implemented`
+ * label. No Z-score, no series consumption, zeroed math fields.
+ * Confidence is `"high"` because the lifecycle status itself is the
+ * authoritative signal (operator accepted; ≥7d passed; scan never
+ * found the change).
+ */
+function buildNotImplementedVerdict(): UrlVerdict {
+  return {
+    verdict: "not_implemented",
+    z: null,
+    delta_pct: null,
+    delta_abs: null,
+    post_days: 0,
+    confidence: "high",
+    sustain: { up: 0, down: 0 },
+    explanation: {
+      summary:
+        "Beacon scanned the page for 7+ days after Accept and never found the proposed change live. No attribution computed.",
+      math: {
+        baseline_days_used: 0,
+        mu_pre: 0,
+        sigma_pre_raw: 0,
+        sigma_pre_used: 0,
+        post_days_used: 0,
+        mu_post: 0,
+        z: 0,
+        sustain_up: 0,
+        sustain_down: 0,
+      },
+    },
+  };
+}
+
 export function computeChangeVerdict(
   change: ChangelogEntry,
   history: UrlCitationHistory,
   asOfDate?: string,
   thresholds?: VerdictThresholds,
+  options?: ComputeVerdictOptions,
 ): {
   normalizedUrl: string;
   series: DailyPoint[];
@@ -346,18 +469,34 @@ export function computeChangeVerdict(
   const normUrl = normalizeUrl(rawUrl);
   if (!normUrl) return null;
 
+  const useLiveAt = options?.useLiveAt === true;
+  const changeDate = resolveChangeDate(change, useLiveAt);
+
+  // Phase 4: not_implemented short-circuit. No history needed — the
+  // verdict is fully determined by the upstream lifecycle status.
+  // Caller is responsible for resolving the lifecycle status before
+  // calling (keeps this module decoupled from the recommendations
+  // domain — the engine never imports `RecommendedEditRow`).
+  if (options?.forceVerdict === "not_implemented") {
+    return {
+      normalizedUrl: normUrl,
+      series: [],
+      verdict: buildNotImplementedVerdict(),
+    };
+  }
+
   const seriesEntry: UrlCitationSeries | null = getSeriesForUrl(history, normUrl);
   if (!seriesEntry) return null;
 
   const range = {
-    first: history.date_range.first ?? change.timestamp.slice(0, 10),
+    first: history.date_range.first ?? changeDate,
     last: history.date_range.last ?? new Date().toISOString().slice(0, 10),
   };
   const dense = denseSeries(seriesEntry, range);
 
   const verdict = computeUrlVerdict({
     series: dense,
-    changeDate: change.timestamp.slice(0, 10),
+    changeDate,
     asOfDate: asOfDate ?? range.last,
     thresholds,
   });
@@ -396,13 +535,60 @@ export async function materializeUrlOutcomes(input: {
     urlChangeOutcomes.map((o) => `${o.change_id}::${o.url}`),
   );
 
+  // Phase 4 (2026-04-27): resolve the verdict flag once. When OFF,
+  // skip the recommended_edits load + lifecycle-status lookup
+  // entirely so flag-OFF runs are byte-identical to pre-Phase-4.
+  const useLifecycleVerdict = isLifecycleVerdictEnabled();
+  let lifecycleStatusByKey: Map<string, string> | null = null;
+  if (useLifecycleVerdict) {
+    try {
+      const repo = getRepository().forTenant(tenantId);
+      const allEdits = await repo.getRecommendedEdits();
+      lifecycleStatusByKey = new Map();
+      for (const e of allEdits) {
+        const status = e.implementation_status ?? "recommended";
+        const key = lifecycleLookupKey({
+          source_rec_id: e.rec_id,
+          action_type: e.action_type,
+          target_element_key: e.target_element_key,
+        });
+        if (key !== null) lifecycleStatusByKey.set(key, status);
+      }
+    } catch (err) {
+      log.warn("[verdict-engine] lifecycle status load failed; running without", {
+        tenantId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      // Fall through with null map — verdict engine still runs the
+      // standard Z-score path; just no `not_implemented` short-circuit.
+    }
+  }
+
   for (const change of input.changes) {
     if (change.archived) continue;
+
+    // Phase 4: resolve forceVerdict from the lifecycle map (only when
+    // flag is ON + map loaded + entry has the linkage fields).
+    let forceVerdict: ComputeVerdictOptions["forceVerdict"] | undefined;
+    if (useLifecycleVerdict && lifecycleStatusByKey) {
+      const key = lifecycleLookupKey({
+        source_rec_id: change.source_rec_id,
+        action_type: change.action_type,
+        target_element_key: change.target_element_key,
+      });
+      if (key !== null && lifecycleStatusByKey.get(key) === "not_found_after_7d") {
+        forceVerdict = "not_implemented";
+      }
+    }
+
     const computed = computeChangeVerdict(
       change,
       input.history,
       input.asOfDate,
       input.thresholds,
+      useLifecycleVerdict
+        ? { useLiveAt: true, forceVerdict }
+        : undefined,
     );
     if (!computed) continue;
     processed += 1;
@@ -413,6 +599,7 @@ export async function materializeUrlOutcomes(input: {
       verdict: computed.verdict,
       series: computed.series,
       thresholds: input.thresholds,
+      useLiveAt: useLifecycleVerdict,
     });
     if (!recorded) continue;
 

@@ -85,7 +85,21 @@ export type VerdictLabel =
    * we abstain. Full partial-overlap mixed-window math is deferred to a
    * later commit in this phase.
    */
-  | "not_enough_native_baseline";
+  | "not_enough_native_baseline"
+  /**
+   * Recommendation Lifecycle OS — Phase 4 (2026-04-27). Emitted ONLY
+   * when `BEACON_LIFECYCLE_VERDICT_ENABLED=1` AND the changelog entry
+   * is linked (via `source_rec_id` + `action_type` + `target_element_key`)
+   * to a `recommended_edits` row whose `implementation_status` is
+   * `"not_found_after_7d"`. The operator accepted the edit, ≥7 days
+   * passed, and no scan ever detected the proposed change on the
+   * target page. Z-score is NOT computed — the verdict is operationally
+   * "the change never happened, so there is nothing to attribute."
+   *
+   * Distinct from `nothing_yet` (change happened but moved no needle)
+   * and `too_early` (change happened but post-window too short).
+   */
+  | "not_implemented";
 
 /**
  * Optional per-day source tag. When every day in the baseline window carries
@@ -453,6 +467,12 @@ function buildSummary(args: {
     case "not_enough_native_baseline":
       // Generated inline at the guard site above (carries richer context).
       return `Mixed measurement sources — not enough native baseline to judge yet.`;
+    case "not_implemented":
+      // Phase 4: synthetic verdict — `buildNotImplementedVerdict` in
+      // url-change-outcome.ts hand-builds the explanation. This branch
+      // is for type exhaustiveness only and shouldn't be reached
+      // through `computeUrlVerdict`.
+      return `Beacon never detected this change live on the page.`;
   }
 }
 
@@ -467,6 +487,7 @@ export const VERDICT_LABEL: Record<VerdictLabel, string> = {
   too_early: "Too early",
   not_enough_data: "No baseline",
   not_enough_native_baseline: "No native baseline",
+  not_implemented: "Not implemented",
 };
 
 export const VERDICT_TONE: Record<VerdictLabel, "success" | "danger" | "muted" | "neutral"> = {
@@ -476,4 +497,5 @@ export const VERDICT_TONE: Record<VerdictLabel, "success" | "danger" | "muted" |
   too_early: "neutral",
   not_enough_data: "muted",
   not_enough_native_baseline: "neutral",
+  not_implemented: "muted",
 };
