@@ -86,6 +86,13 @@ export type PerplexityPollResult = {
     promptsCompleted: number;
     /** Number of prompts skipped due to a budget event in this run. */
     promptsSkippedBudget: number;
+    /**
+     * Sprint 6A.3d (2026-04-26) — number of prompts within this run
+     * whose normalized text duplicated an earlier prompt's text. Counted
+     * once per dupe (the FIRST occurrence is paid for; subsequent
+     * occurrences increment this counter without a provider call).
+     */
+    promptsDeduped: number;
   };
   /** Sprint 6A.3c — null when no budget event. */
   skipReason: "budget_blocked" | "per_run_blocked" | null;
@@ -183,6 +190,7 @@ export async function pollPerplexityForTenant(
   };
   let promptsCompleted = 0;
   let promptsSkippedBudget = 0;
+  let promptsDeduped = 0;
   let skipReason: "budget_blocked" | "per_run_blocked" | null = null;
   let budgetReason: string | null = null;
 
@@ -232,6 +240,16 @@ export async function pollPerplexityForTenant(
   // remaining prompts as "skipped due to budget" — never silent.
   let mid_run_blocked = false;
 
+  // Sprint 6A.3d (2026-04-26) — identical-text prompt dedupe within
+  // this single run. Normalization is exact: trim + lowercase. NOT
+  // fuzzy. NOT cross-day. The Map keys on normalized text and stores
+  // the FIRST prompt id that produced it so dedup-skipped log lines
+  // can name the original. Operator-approved tradeoff: identical
+  // prompt text = identical signal value, so paying twice in one run
+  // is waste. Distinct-but-similar prompts with even one character
+  // difference are NOT deduped — coverage preserved.
+  const seenPromptText = new Map<string, string>();
+
   // If pre-flight already blocked, skip the loop entirely (prompts.length
   // are all attributed as promptsSkippedBudget above). The for-of below
   // would no-op anyway because we never enter when skipReason is set,
@@ -258,6 +276,23 @@ export async function pollPerplexityForTenant(
       );
       break;
     }
+
+    // Sprint 6A.3d — identical-text dedupe. Skip provider call when
+    // normalized text already appeared this run; transparent via
+    // counter + log line.
+    const normalizedText = prompt.text.trim().toLowerCase();
+    const firstSeenId = seenPromptText.get(normalizedText);
+    if (firstSeenId !== undefined) {
+      promptsDeduped += 1;
+      console.warn(
+        `[poll-${platform}] DEDUP_SKIPPED runId=${runId} tenant=${tenantId} ` +
+          `promptId=${prompt.id} originalPromptId=${firstSeenId} ` +
+          `text=${JSON.stringify(prompt.text.slice(0, 80))}`,
+      );
+      continue;
+    }
+    seenPromptText.set(normalizedText, prompt.id);
+
     try {
       const result = await client.sample(prompt.text);
       const observedAt = now().toISOString();
@@ -437,10 +472,11 @@ export async function pollPerplexityForTenant(
               ? "partial"
               : "failed";
 
-  // Sprint 6A.3c — embed cost + budget context into scope_label so the
-  // poll-canary + cron logs surface it without needing a schema change.
+  // Sprint 6A.3c/d — embed cost + dedupe + budget context into scope_label
+  // so the poll-canary + cron logs surface it without needing a schema change.
   const baseScope = `Native ${platform} poll · chunk offset=${offset} limit=${opts.limit ?? "all"} · ${observations.length}/${prompts.length} prompts`;
   const costSuffix = ` · cost=$${costUsage.totalUsd.toFixed(4)}`;
+  const dedupSuffix = promptsDeduped > 0 ? ` · deduped=${promptsDeduped}` : "";
   const skipSuffix =
     skipReason === "budget_blocked"
       ? ` · BUDGET_BLOCKED reason=${JSON.stringify(budgetReason ?? "unknown")} skipped=${promptsSkippedBudget}`
@@ -455,7 +491,7 @@ export async function pollPerplexityForTenant(
     status,
     started_at: startedAt,
     completed_at: completedAt,
-    scope_label: baseScope + costSuffix + skipSuffix,
+    scope_label: baseScope + costSuffix + dedupSuffix + skipSuffix,
     parser_version: parserVersion,
     pages_scanned: 0,
     pages_changed: 0,
@@ -473,6 +509,7 @@ export async function pollPerplexityForTenant(
     console.log(
       `[poll-${platform}] runId=${runId} tenant=${tenantId} ` +
         `prompts=${observations.length}/${prompts.length} errored=${errorCount} ` +
+        `deduped=${promptsDeduped} ` +
         `cost=$${costUsage.totalUsd.toFixed(4)} ` +
         `tokens(in=${costUsage.inputTokens} out=${costUsage.outputTokens}) ` +
         `web_searches=${costUsage.webSearchCalls} status=${status}`,
@@ -491,6 +528,7 @@ export async function pollPerplexityForTenant(
       webSearchCalls: costUsage.webSearchCalls,
       promptsCompleted,
       promptsSkippedBudget,
+      promptsDeduped,
     },
     skipReason,
     budgetReason,

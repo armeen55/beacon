@@ -78,6 +78,7 @@ function makeAdapterResult(
       webSearchCalls: 0,
       promptsCompleted: obsCount,
       promptsSkippedBudget: 0,
+      promptsDeduped: 0,
     },
     skipReason: null,
     budgetReason: null,

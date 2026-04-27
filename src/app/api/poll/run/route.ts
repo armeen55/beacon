@@ -45,8 +45,23 @@ function isPlatform(v: unknown): v is NativePollPlatform {
   return v === "perplexity" || v === "openai";
 }
 
+/**
+ * Sprint 6A.3d (2026-04-26) — operator-set kill switch. Truthy values:
+ * "1" | "true" | "yes" | "on" (case-insensitive). Anything else
+ * (including "0", "false", "", or unset) leaves polling enabled.
+ *
+ * Place AFTER auth so unauthorized callers can't probe the kill state
+ * without credentials.
+ */
+function isPollDisabled(): boolean {
+  const raw = process.env.BEACON_POLL_DISABLED?.trim().toLowerCase();
+  if (!raw) return false;
+  return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
+}
+
 export async function POST(req: NextRequest) {
-  // ── Auth ──
+  // ── Auth ── (must run before kill switch so unauthorized requests
+  // never see operational status).
   const expectedSecret = process.env.CRON_SECRET;
   if (!expectedSecret) {
     return NextResponse.json(
@@ -57,6 +72,21 @@ export async function POST(req: NextRequest) {
   const auth = req.headers.get("authorization") ?? "";
   if (auth !== `Bearer ${expectedSecret}`) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  }
+
+  // ── Sprint 6A.3d kill switch ──
+  // 200 OK with status: disabled so cron `--fail-with-body` doesn't
+  // trip. The poll-canary at 07:45 UTC will still surface the absence
+  // of fresh observation_runs — that's the intended observable signal
+  // (deliberate operator pause vs. silent code failure).
+  if (isPollDisabled()) {
+    console.warn(
+      `[/api/poll/run] BEACON_POLL_DISABLED is set; returning status=disabled without invoking runNativePoll`,
+    );
+    return NextResponse.json({
+      status: "disabled",
+      reason: "BEACON_POLL_DISABLED env var is set",
+    });
   }
 
   // ── Body parsing ──

@@ -445,6 +445,119 @@ describe("pollPerplexityForTenant — result shape", () => {
   });
 });
 
+// ── Sprint 6A.3d — identical-text prompt dedupe ─────────────────────────
+
+describe("pollPerplexityForTenant — identical-text dedupe (Sprint 6A.3d)", () => {
+  it("exact duplicate text causes one provider call, not two", async () => {
+    const client = makeMockClient({});
+    const result = await pollPerplexityForTenant(TENANT, {
+      client,
+      now: () => FROZEN_NOW,
+      trackedPrompts: [
+        makePrompt("p1", "What are the best builders in Atherton?"),
+        makePrompt("p2", "What are the best builders in Atherton?"), // exact dupe
+      ],
+      trackedEntities: [makeOwnedEntity()],
+    });
+    expect(client.calls).toBe(1);
+    expect(result.cost.promptsCompleted).toBe(1);
+    expect(result.cost.promptsDeduped).toBe(1);
+    expect(result.observations).toHaveLength(1);
+  });
+
+  it("normalizes by trim + lowercase (case + leading/trailing whitespace ignored)", async () => {
+    const client = makeMockClient({});
+    const result = await pollPerplexityForTenant(TENANT, {
+      client,
+      now: () => FROZEN_NOW,
+      trackedPrompts: [
+        makePrompt("p1", "Best builders in Atherton?"),
+        makePrompt("p2", "  best BUILDERS in Atherton?  "),
+        makePrompt("p3", "BEST BUILDERS IN ATHERTON?"),
+      ],
+      trackedEntities: [makeOwnedEntity()],
+    });
+    expect(client.calls).toBe(1);
+    expect(result.cost.promptsCompleted).toBe(1);
+    expect(result.cost.promptsDeduped).toBe(2);
+  });
+
+  it("does NOT dedupe distinct-but-similar prompts (single character difference)", async () => {
+    const client = makeMockClient({});
+    const result = await pollPerplexityForTenant(TENANT, {
+      client,
+      now: () => FROZEN_NOW,
+      trackedPrompts: [
+        makePrompt("p1", "Best builders in Atherton?"),
+        makePrompt("p2", "Best builders in Atherton."),  // period instead of ?
+        makePrompt("p3", "Best builder in Atherton?"),    // singular
+      ],
+      trackedEntities: [makeOwnedEntity()],
+    });
+    expect(client.calls).toBe(3);
+    expect(result.cost.promptsCompleted).toBe(3);
+    expect(result.cost.promptsDeduped).toBe(0);
+  });
+
+  it("includes promptsDeduped in result.cost", async () => {
+    const client = makeMockClient({});
+    const result = await pollPerplexityForTenant(TENANT, {
+      client,
+      now: () => FROZEN_NOW,
+      trackedPrompts: [
+        makePrompt("p1", "Same prompt"),
+        makePrompt("p2", "Same prompt"),
+        makePrompt("p3", "Same prompt"),
+      ],
+      trackedEntities: [makeOwnedEntity()],
+    });
+    expect(result.cost.promptsDeduped).toBe(2);
+    expect(result.cost.promptsCompleted).toBe(1);
+  });
+
+  it("scope_label includes deduped marker when dedupes happen", async () => {
+    const client = makeMockClient({});
+    const result = await pollPerplexityForTenant(TENANT, {
+      client,
+      now: () => FROZEN_NOW,
+      trackedPrompts: [
+        makePrompt("p1", "Same prompt"),
+        makePrompt("p2", "Same prompt"),
+      ],
+      trackedEntities: [makeOwnedEntity()],
+    });
+    expect(result.observationRun.scope_label).toMatch(/deduped=1/);
+  });
+
+  it("dedupe + budget gate compose correctly (dedupe runs INSIDE the loop)", async () => {
+    // 4 prompts, 2 are dupes; per-run cap is set tight enough to halt
+    // mid-run AFTER the first unique prompt. Result: 1 completed, 1
+    // deduped (the second matching unique), and the rest skipped.
+    process.env.BEACON_PER_RUN_BUDGET_USD = "0.0001";
+    const client = makeMockClient({
+      inputTokens: 100,
+      outputTokens: 200,
+    });
+    const result = await pollPerplexityForTenant(TENANT, {
+      client,
+      now: () => FROZEN_NOW,
+      trackedPrompts: [
+        makePrompt("p1", "first prompt"),
+        makePrompt("p2", "second prompt"), // would be a real call but blocked
+        makePrompt("p3", "first prompt"),  // dedupe of p1
+        makePrompt("p4", "another"),
+      ],
+      trackedEntities: [makeOwnedEntity()],
+    });
+    // p1 fires + costs > cap → loop short-circuits BEFORE checking p2.
+    // dedupe is BELOW the per-run budget check in the loop, so p3/p4
+    // never reach dedupe inspection.
+    expect(client.calls).toBe(1);
+    expect(result.cost.promptsCompleted).toBe(1);
+    expect(result.skipReason).toBe("per_run_blocked");
+  });
+});
+
 // ── Backward compatibility: a normal full-native run is unchanged ──────
 
 describe("pollPerplexityForTenant — normal-run behavior preserved", () => {

@@ -7,6 +7,55 @@
 
 ---
 
+## 2026-04-26 — Sprint 6A.3 — native polling cost observability + runaway protection
+
+Phase 6A.3 added cost tracking + budget caps + a kill switch + identical-prompt dedupe to the native polling pipeline. **Polling quality is byte-identical.** No model change, no output cap change, no prompt change, no cadence change. Caps are runaway protection only — set high enough that normal full-native operation never trips them.
+
+### Sub-commits
+
+| Commit | Phase | Scope |
+|---|---|---|
+| `d57d3ca` | 6A.3a | `src/lib/cost/pricing.ts` + `QueryUsage` field; OpenAI client captures `output[].type==="web_search_call"` count + `usage` object; Perplexity client captures `usage` object |
+| `fb48e7f` | 6A.3b | `src/lib/cost/monthly.ts`; bumped daily cap default $5 → $10; new `BEACON_MONTHLY_BUDGET_USD` ($200); new `BEACON_PER_RUN_BUDGET_USD` ($5); `percent` field on every `BudgetCheck`; `checkPerRunBudget` helper |
+| `ae17d52` | 6A.3c | Wired pre-flight + mid-run budget gates + `recordSpend` into `pollPerplexityForTenant`; result extended with `cost` / `skipReason` / `budgetReason` |
+| `<6A.3d>` | 6A.3d | `BEACON_POLL_DISABLED` route kill switch; identical-text dedupe in poll loop; route response shape pinned by tests |
+
+### Operator-locked caps (Sprint 6A.3 plan)
+
+| Knob | Default | Env | Where |
+|---|---|---|---|
+| Daily per-tenant cap | $10 | `BEACON_DAILY_BUDGET_USD_PER_TENANT` | `src/lib/cost/budget.ts` |
+| Daily global cap | $20 | `BEACON_DAILY_BUDGET_GLOBAL_USD` | `src/lib/cost/budget.ts` (unchanged) |
+| Monthly cap | $200 | `BEACON_MONTHLY_BUDGET_USD` | `src/lib/cost/monthly.ts` |
+| Per-run (per-chunk) cap | $5 | `BEACON_PER_RUN_BUDGET_USD` | `src/lib/cost/budget.ts` |
+| Kill switch | unset | `BEACON_POLL_DISABLED` (truthy: `1`/`true`/`yes`/`on`) | `src/app/api/poll/run/route.ts` |
+
+### Vercel ledger caveat (operator-flagged for future work)
+
+`recordSpend` writes to `.data/cost-ledger.json` via `writeFileSync`. Vercel's serverless lambda has a read-only filesystem — the write throws on hosted, is caught by the polling adapter's try/catch wrapper, and logs a non-fatal `recordSpend failed` warn line. **Implication:**
+
+- **Local CLI runs:** ledger persists; pre-flight `checkTenantBudget` and `checkMonthlyBudget` see accumulated spend across runs and gate correctly.
+- **Hosted Vercel runs:** ledger is non-persistent across requests; pre-flight gates always see "0 spent" and never block. **Hosted budget enforcement is not durable yet.** The OpenAI account-level quota remains the runaway-protection floor on Vercel (proven by the Sprint 6A.2e dry-run smoke catching HTTP 429 cleanly).
+
+**Future phase:** move the polling cost ledger to Supabase (`cost_ledger_entries` table) so hosted budget gates have durable state. Out of 6A.3 scope; document and defer until quota-level protection is no longer sufficient. The architecture is ready — `cost/budget.ts` only needs to swap its disk read/write for a Supabase upsert.
+
+### Architecture choices documented
+
+- **Two separate cost ledgers:** `cost-ledger.json` for native polling (this phase) vs `llm-budget.json` for Sprint 6A.2 specific-edit / adjudicator. One budget cannot drain the other. Confirmed by separate module files + separate env-cap names.
+- **`skipReason` field instead of new status enum:** the `ObservationRun.status` domain type stays `"completed" | "partial" | "failed"`. The new `skipReason` field on the polling result distinguishes "partial because errors" from "partial because budget" without forcing a domain-type migration.
+- **Conservative pricing fallback:** unknown models in `estimatePromptCost` fall back to the most-expensive-in-family rates so a future model rename never silently bills at $0.
+- **Hermetic test pattern:** every test that touches the cost ledger uses `mkdtempSync` + `process.chdir(tmpdir)`. Verified clean — `.data/cost-ledger.json` does not exist after a full vitest run. Path resolution in `cost/budget.ts` and `cost/monthly.ts` lifted from module-level `const` to call-time functions to support this.
+
+### Verification (cumulative across 6A.3a-d)
+
+- `npm run typecheck` — clean
+- `npx vitest run` — **2551 / 2551 pass** (was 2456 entering 6A.3; +95 net new across pricing + budget + monthly + poll-cost + dedupe + route)
+- `npm run build` — green with `.data` present
+- Vercel-equivalent build (`mv .data /tmp; BEACON_TENANT_ID=… BEACON_TENANT_SLUG=… npm run build`) — green; LLM never reached at build
+- Production `.data/cost-ledger.json` confirmed empty after full vitest run
+
+---
+
 ## 2026-04-26 — Sprint 6A.2e — CLI `--provider` flag + dry-run operator smoke
 
 Sprint 6A.2e adds the operator-facing entry point for the OpenAI

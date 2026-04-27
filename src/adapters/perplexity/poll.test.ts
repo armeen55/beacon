@@ -64,10 +64,15 @@ function makeClient(
 }
 
 function makePrompt(overrides: Partial<TrackedPrompt> = {}): TrackedPrompt {
+  // Sprint 6A.3d (2026-04-26): default text now varies per id so tests
+  // that build N prompts with `id: \`p-${i}\`` don't trigger the new
+  // identical-text dedupe in pollPerplexityForTenant. Tests that need
+  // a specific text continue to override via `overrides.text`.
+  const id = overrides.id ?? "p-default";
   return {
-    id: "p-default",
+    id,
     account_id: "tenant-ritz-founder",
-    text: "default prompt",
+    text: `default prompt ${id}`,
     topic_id: null,
     location_scope: null,
     service_scope: null,
