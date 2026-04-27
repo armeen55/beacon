@@ -112,7 +112,7 @@ describe("Phase 6A.1.6 — syncPageElementInventory helper", () => {
     expect(upsertMock).not.toHaveBeenCalled();
   });
 
-  it("upserts to 'page_element_inventory' with onConflict 'source_snapshot_id,element_key' when on", async () => {
+  it("upserts to 'page_element_inventory' with onConflict 'tenant_id,source_snapshot_id,element_key' when on", async () => {
     process.env.DUAL_WRITE = "true";
     let lastTable = "";
     let lastOptions: { onConflict?: string } = {};
@@ -152,7 +152,15 @@ describe("Phase 6A.1.6 — syncPageElementInventory helper", () => {
     );
     expect(upsertMock).toHaveBeenCalledTimes(1);
     expect(lastTable).toBe("page_element_inventory");
-    expect(lastOptions.onConflict).toBe("source_snapshot_id,element_key");
+    // 2026-04-27 onConflict-audit fix: spec extended to include
+    // tenant_id (matches `ux_pei_tenant_snapshot_element_key` —
+    // the Phase 7.7d multi-tenant index). The PRIOR assertion
+    // pinned the buggy 2-column spec. See
+    // tests/architecture/dual-write-onconflict.test.ts for the
+    // full audit history.
+    expect(lastOptions.onConflict).toBe(
+      "tenant_id,source_snapshot_id,element_key",
+    );
   });
 });
 

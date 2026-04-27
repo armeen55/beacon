@@ -82,14 +82,49 @@ describe("dual-write onConflict invariants", () => {
     expect(body).toMatch(/["']change_id,url["']/);
   });
 
-  it("syncPageElementInventory uses source_snapshot_id,element_key (matches ux_pei_snapshot_element_key)", () => {
+  it("syncPageElementInventory uses tenant_id,source_snapshot_id,element_key (matches ux_pei_tenant_snapshot_element_key)", () => {
+    // 2026-04-27 audit fix. The PRIOR version of this test asserted the
+    // BUGGY value "source_snapshot_id,element_key" — locking the bug
+    // as truth. The actual production unique index is
+    // `ux_pei_tenant_snapshot_element_key ON (tenant_id,
+    //   source_snapshot_id, element_key)` — verified via:
+    //   SELECT indexdef FROM pg_indexes WHERE indexname='ux_pei_tenant_snapshot_element_key'
+    // Lesson: invariant tests must pin against operator-verified real
+    // indexes, not the code's current onConflict string.
     const fnStart = DUAL_WRITE_SRC.indexOf(
       "export async function syncPageElementInventory",
     );
     expect(fnStart).toBeGreaterThan(-1);
     const fnEnd = DUAL_WRITE_SRC.indexOf("\n}\n", fnStart);
     const body = DUAL_WRITE_SRC.slice(fnStart, fnEnd + 2);
-    expect(body).toMatch(/["']source_snapshot_id,element_key["']/);
+    expect(body).toMatch(
+      /["']tenant_id,source_snapshot_id,element_key["']/,
+    );
+    // Defense against silent regression to the old buggy spec.
+    expect(body).not.toMatch(
+      /dualWriteUpsert\(\s*["']page_element_inventory["'][^)]*,\s*["']source_snapshot_id,element_key["']\s*\)/,
+    );
+  });
+
+  it("syncPageElementInventory dedupes by (source_snapshot_id, element_key) before upsert (2026-04-27 fix)", () => {
+    // The JSON-LD extractor can emit two rows with the same
+    // `(source_snapshot_id, element_key)` when a JSON-LD block has
+    // duplicated child properties (e.g. two reviewRating.ratingValue
+    // entries on the same Review). Without dedup the upsert batch
+    // contains two rows targeting the same DB row →
+    //   "ON CONFLICT DO UPDATE command cannot affect row a second time"
+    // Pin the dedup-line presence here so a future refactor can't
+    // silently drop it.
+    const fnStart = DUAL_WRITE_SRC.indexOf(
+      "export async function syncPageElementInventory",
+    );
+    expect(fnStart).toBeGreaterThan(-1);
+    const fnEnd = DUAL_WRITE_SRC.indexOf("\n}\n", fnStart);
+    const body = DUAL_WRITE_SRC.slice(fnStart, fnEnd + 2);
+    expect(body).toMatch(/dedupedByKey\s*=\s*new Map/);
+    expect(body).toMatch(
+      /dualWriteUpsert\(\s*["']page_element_inventory["'][^)]*dedupedRows[^)]*["']tenant_id,source_snapshot_id,element_key["']/,
+    );
   });
 
   it("syncObservationRuns dedupes by run_id before upsert (2026-04-27 fix)", () => {
