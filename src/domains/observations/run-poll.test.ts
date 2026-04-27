@@ -69,6 +69,18 @@ function makeAdapterResult(
       status,
     }),
     errorCount,
+    // Sprint 6A.3c additive fields — tests in this file don't exercise
+    // budget paths but the result type now requires them.
+    cost: {
+      totalUsd: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+      webSearchCalls: 0,
+      promptsCompleted: obsCount,
+      promptsSkippedBudget: 0,
+    },
+    skipReason: null,
+    budgetReason: null,
   };
 }
 

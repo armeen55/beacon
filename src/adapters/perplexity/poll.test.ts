@@ -1,8 +1,36 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { pollPerplexityForTenant } from "./poll";
 import type { QueryClient } from "@/lib/querying/types";
 import type { TrackedPrompt } from "@/domains/tracked-prompts/types";
 import type { TrackedEntity } from "@/domains/tracked-entities/types";
+
+// Sprint 6A.3c (2026-04-26) — `pollPerplexityForTenant` now calls
+// `recordSpend` after each successful sample, which writes to
+// `.data/cost-ledger.json` resolved at call time from `process.cwd()`.
+// Without this hermetic chdir the existing tests would silently leak
+// rows into the project's real `.data/`. Each test runs in its own
+// tmpdir; the cwd is restored in afterEach. No behavior change to the
+// production polling code — the safety net is test-side only.
+const ORIGINAL_CWD = process.cwd();
+let workdir: string;
+
+beforeEach(() => {
+  workdir = mkdtempSync(join(tmpdir(), "beacon-poll-test-"));
+  process.chdir(workdir);
+});
+
+afterEach(() => {
+  process.chdir(ORIGINAL_CWD);
+  try {
+    rmSync(workdir, { recursive: true, force: true });
+  } catch {
+    // best-effort cleanup
+  }
+});
 
 /**
  * Helpers
