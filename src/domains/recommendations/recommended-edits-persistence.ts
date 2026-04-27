@@ -93,13 +93,26 @@ export type ImplementationStatus =
 /** Phase 1: confidence tier emitted by the (future Phase 2) match engine. */
 export type LiveMatchConfidence = "high" | "medium" | "low";
 
-/** Phase 1: kind of match emitted by the (future Phase 2) match engine. */
+/**
+ * Phase 1 (extended Phase 3, 2026-04-27): kind of match emitted by
+ * the match engine. `"structural_partial"` was added in Phase 3 to
+ * support FAQ Q+A pair reconciliation where one leg matched and the
+ * other did not. The DB column is `text NULL` so any string is
+ * accepted; widening the TS union keeps the persistence-layer type
+ * a faithful mirror of the engine's `MatchKind`.
+ *
+ * Engine-only kinds (`"none"`, `"unsupported"`) are intentionally
+ * NOT in this union — those are only emitted alongside
+ * `outcome: "not_found"`, where the runner does not stamp `live_*`
+ * fields at all.
+ */
 export type LiveMatchKind =
   | "exact"
   | "modified"
   | "key_only"
   | "text_only"
-  | "wrong_page";
+  | "wrong_page"
+  | "structural_partial";
 
 export type RecommendedEditRow = {
   id: string;

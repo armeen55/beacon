@@ -7,6 +7,131 @@
 
 ---
 
+## 2026-04-27 — Recommendation Lifecycle OS — Phase 3 (gated scan wiring + reconciliation)
+
+Phase 3 wires the pure match engine into the scan flow, behind the `BEACON_LIFECYCLE_ENABLED` flag (default OFF). This is the FIRST production-mutating phase of the Lifecycle OS — care matters; the flag default + reconciliation pre-pass + forward-only transitions are the three safety belts.
+
+### Files added (5 source + 4 tests + 2 docs edited)
+
+| File | Purpose |
+|---|---|
+| `src/lib/flags.ts` (EDIT) | Added `isLifecycleEnabled()` helper |
+| `src/domains/recommendations/match-runner/reconcile.ts` (NEW) | Pure: `computeReconciliationFlips()` + `computeAcceptedAtMs()` |
+| `src/domains/recommendations/match-runner/transitions.ts` (NEW) | Pure: `computeLifecycleUpdate()` — the state-transition function |
+| `src/domains/recommendations/match-runner/inventory-by-url.ts` (NEW) | Pure: `buildInventoryByUrl()` — groups inventory by URL keyed to latest snapshot |
+| `src/domains/recommendations/match-runner/persist.ts` (NEW) | I/O: `persistLifecycleUpdates()` + `persistChangelogLiveAt()` (file-first + best-effort dual-write) |
+| `src/domains/recommendations/match-runner/index.ts` (NEW) | `runLifecycleMatchAgainstScan()` orchestrator |
+| `src/domains/recommendations/match-runner/{reconcile,transitions,inventory-by-url,index}.test.ts` (NEW × 4) | 57 tests across pure helpers + integration |
+| `src/domains/scanning/orchestrate-scan.ts` (EDIT) | Single new hook: dynamic-import + call `runLifecycleMatchAgainstScan` after dual-write block |
+| `src/domains/recommendations/recommended-edits-persistence.ts` (EDIT) | Widened `LiveMatchKind` union to include `"structural_partial"` (FAQ pair partial-implementation case) |
+
+### Flag behavior
+
+`BEACON_LIFECYCLE_ENABLED=1` enables; absent or any other value = OFF (default).
+
+- **OFF (default):** scan orchestrator skips the runner entirely. Zero repo reads. Zero writes. Zero log lines from the runner. Behavior is byte-identical to pre-Phase-3.
+- **ON:** runner executes after the scan dual-write block. Wrapped in try/catch at the orchestrator boundary so a runner failure NEVER regresses scan completion. The runner itself catches all internal exceptions and returns `{ ranSuccessfully: false, skippedReason: "error", error }`.
+
+### Reconciliation behavior (Phase 1 caveat fix — Option 2)
+
+`computeReconciliationFlips({ edits, responses, changelog })` returns the IDs of `recommended_edits` rows that should be flipped from `recommended` → `accepted` because OTHER stores already hold accepted-evidence:
+
+- Source A: `recommendation_responses[i].status === "accepted"` AND `recommendation_responses[i].recId === edit.rec_id`
+- Source B: `changelog_entries[j].source_rec_id === edit.rec_id` (any non-empty value)
+
+Union semantics: either source triggers a flip. The actual write goes through Phase 1's `markRecommendedEditsAccepted` (idempotent, forward-only — already in production from 2026-04-27 morning). Reconciliation runs FIRST every time the runner fires; subsequent matching reads the post-reconciliation state.
+
+### Status update behavior (locked)
+
+The pure `computeLifecycleUpdate({ currentStatus, match, ageMs, scanFetchedAt, scanSnapshotId })` returns either `null` (no-op — runner skips the write) or a partial `LifecycleUpdate` describing the diff. Forward-only with two intentional bidirectional transitions (verified_live ↔ verified_live_modified). Specifically:
+
+- `dismissed` → never auto-mutated by the runner.
+- `recommended` → always no-op (reconciler must flip first).
+- `verified_live` + match `verified_live` → no-op (already at top).
+- `verified_live` + match `verified_live_modified` → flip (text drift detected).
+- `verified_live_modified` + match `verified_live` → flip (operator cleaned up).
+- `verified_live*` + ANY non-live match → no-op (NEVER auto-downgrade).
+- `accepted` + match live/intermediate → flip to match outcome.
+- `accepted` + match `not_found` AND age ≥ 7 days → `not_found_after_7d`.
+- `accepted` + match `not_found` AND age < 7 days → no-op (retry next scan).
+- `needs_review` / `wrong_page` / `partially_implemented` + match live → forward to verified_live*.
+- `needs_review` / etc. + same outcome → no-op.
+- `needs_review` / etc. + `not_found` → no-op (sticky intermediate; don't pull back to accepted).
+- `not_found_after_7d` + verified_live* → late-match promote.
+- `not_found_after_7d` + intermediate → forward.
+
+The runner sets `live_at = targetSnapshot.fetched_at` (NOT `Date.now()`) for determinism — replaying the same scan inputs produces the same `live_at`.
+
+### Changelog `live_at` stamping behavior
+
+When an edit transitions to `verified_live` or `verified_live_modified`, the runner finds matching `changelog_entries` (by `source_rec_id === edit.rec_id` AND optional `target_element_key` match for fan-out children) and stamps `live_at = targetSnapshot.fetched_at`. Idempotent — `persistChangelogLiveAt()` skips rows whose `live_at` is already set (preserves first-detection timestamp).
+
+**Phase 4 caveat:** the verdict engine does NOT yet consume `live_at`. Phase 4 will switch the baseline split to `entry.live_at ?? entry.timestamp` behind a SEPARATE flag. Until then, stamping is data collection only — no attribution-math change.
+
+### Tests added: 57
+
+`reconcile.test.ts` (12): flip-on-accepted-response · flip-on-changelog-source-rec-id · union semantics · skip non-recommended states · undefined status (legacy file rows) treated as recommended · ignore deferred/dismissed responses · ignore empty source_rec_id · idempotent on consistent set · input-mutation freeze · acceptedAt source-priority (changelog earliest > response > edit.updated_at fallback) · ignore unmatched changelog entries.
+
+`transitions.test.ts` (22): full state matrix — dismissed (×6 outcomes = no-op) · recommended (no-op) · accepted promotions (verified_live, modified, needs_review, wrong_page, partial) · 7-day rule (6d no-op, exactly 7d promote, 30d promote) · forward-only invariants (verified_live + needs_review/wrong_page/not_found = no-op) · bidirectional VL ↔ VLM · purity (mutation freeze + determinism + correct snapshot-time stamping).
+
+`inventory-by-url.test.ts` (5): keep-only-latest-snapshot per URL · latestSnapshotByUrl correctness · drop orphan rows · drop stale-snapshot rows · input-mutation freeze.
+
+`index.test.ts` (18): flag OFF byte-identical no-op · flag ON + no edits early-exit · reconciler flips on response · reconciler flips on changelog · reconciler skips when nothing to flip · accepted + exact H2 → verified_live + live_at + snapshot_id + changelog stamp · modified H2 → verified_live_modified · wrong-page → wrong_page (no live_at stamp) · FAQ Q+A both exact → both verified_live · not_found at 6d → no-op · not_found at 8d → not_found_after_7d · idempotent re-run on verified_live → no-op · higher confidence promotes needs_review → verified_live · NEVER downgrades verified_live → not_found · changelog already-stamped row not re-stamped · runner failure caught (does not throw upward).
+
+### Verification
+
+| Gate | Result |
+|---|---|
+| `npm run typecheck` | ✅ clean |
+| Targeted (`match-runner/`) | ✅ 57/57 |
+| `npx vitest run tests/architecture/` | ✅ 118/118 (no regression — match-runner is intentionally NOT covered by the match-engine purity invariant) |
+| Full `npx vitest run` | ✅ **2806/2806** (was 2749 + 57 new) |
+| `rm -rf .next && npm run build` | ✅ green |
+| Vercel-equivalent build | ✅ green (used safe restore: `mv .data /tmp/...; build; rm -rf .data; mv /tmp/... .data`) |
+| Operator data integrity post-restore | ✅ milestone-state value=321; recommended-edits 11 rows |
+
+### Operator dogfood instructions (do NOT run a production scan without explicit operator approval)
+
+1. Sign Phase 3 in `.data/exit-gates.json` under key `lifecycle_os_phase3`.
+2. Set `BEACON_LIFECYCLE_ENABLED=1` in `.env.local`.
+3. Run a manual scan locally: Today page "Scan now" button OR `npm run data:scan`.
+4. Inspect:
+   - `.data/tenants/ritz-builders/recommended-edits.json` → look for `implementation_status` flips on rows that should be live (verified by checking the page's element_text matches your accepted edit's `proposed_text`).
+   - `recommended_edits` table in Supabase → same fields, dual-written.
+   - `.data/tenants/ritz-builders/imported-changes.json` → look for `live_at` stamps on changelog entries with `source_rec_id` from accepted recs whose edits were verified.
+   - Server logs for `[match-runner]` lines: reconciled count, evaluated, updated, liveAtStamped, durationMs.
+5. Verify NO downgrade on a re-scan: run scan twice. Counts of `verified_live` should only ever go up, never down.
+6. Only after local dogfeed succeeds — flip on Vercel via Vercel env var UI. Roll back by deleting the env var (no code change required).
+
+### Whether Phase 4 is safe to start next
+
+**YES.** Phase 4 is contained, well-scoped, and inherits clean foundations:
+
+- Phase 1's `live_at` column on `changelog_entries` is shipped + nullable.
+- Phase 3 stamps `live_at` on entries via the runner (data is being collected even if no consumer reads it yet).
+- Phase 4 is a TWO-LINE change in `computeChangeVerdict` / `materializeUrlOutcomes` (`entry.live_at ?? entry.timestamp`) plus the new `not_implemented` verdict label + UI pill rendering.
+- Behind a SEPARATE flag (e.g. `BEACON_LIFECYCLE_VERDICT_ENABLED`) so the lifecycle flip and the attribution change can be rolled back independently.
+- Backwards compatible: legacy entries (no `live_at`) keep current behavior.
+- Risk: Low. Verdict engine has 25 existing unit tests; Phase 4 will add ~10 more covering the precedence rule + the `not_implemented` label.
+
+**Recommended capability for Phase 4: Balanced (Sonnet).** The change surface is small and the engine math is unchanged — only the date input and one new label. Reserve Opus Max for Phase 5 (cron + scheduler) or Phase 6 (UI surfacing) where design judgment matters more.
+
+### Operator next action
+
+Sign Phase 3 in `.data/exit-gates.json`:
+
+```json
+"lifecycle_os_phase3": {
+  "status": "passed",
+  "notes": "Reviewed runner + reconciler + state transitions on <date>",
+  "recordedAt": "<ISO timestamp>"
+}
+```
+
+That gate authorizes Phase 4 (verdict engine reads `live_at`).
+
+---
+
 ## 2026-04-27 — Recommendation Lifecycle OS — Phase 2 (pure match engine)
 
 Phase 2 ships the pure-function match engine that compares an accepted `recommended_edit` against a fresh `page_element_inventory` snapshot and emits a `MatchResult`. **Zero I/O. Zero DB. Zero scan triggers. Zero UI. Zero migrations. Zero provider calls.** Phase 3 will wire this engine into the scan dual-write block; until then the engine is consumed only by tests.

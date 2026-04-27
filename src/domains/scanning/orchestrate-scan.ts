@@ -376,6 +376,40 @@ export async function runWebsiteScan(opts: {
       observationRuns: syncRuns.length,
       pageElements: inventoryRowCount,
     });
+
+    // Recommendation Lifecycle OS — Phase 3 (2026-04-27).
+    // Gated by `BEACON_LIFECYCLE_ENABLED` (default OFF). When OFF
+    // the runner is a byte-identical no-op — no repo reads, no
+    // writes. When ON: reconciliation pre-pass + match engine + per-
+    // edit lifecycle status writes + opportunistic changelog
+    // `live_at` stamps. NEVER throws upward — all errors caught
+    // inside the runner. Best-effort: a runner failure must not
+    // regress scan completion.
+    try {
+      const { runLifecycleMatchAgainstScan } = await import(
+        "@/domains/recommendations/match-runner"
+      );
+      const lifecycleResult = await runLifecycleMatchAgainstScan({
+        tenantId,
+      });
+      if (lifecycleResult.ranSuccessfully) {
+        log.info("Scan step", {
+          runId,
+          step: "lifecycle_match_done",
+          reconciled: lifecycleResult.reconciled,
+          evaluated: lifecycleResult.evaluated,
+          updated: lifecycleResult.updated,
+          liveAtStamped: lifecycleResult.liveAtStamped,
+        });
+      }
+    } catch (e) {
+      // The runner itself catches; a throw here means dynamic-import
+      // failure or similar. Log loud, continue scan completion.
+      log.warn("Lifecycle match runner failed", {
+        runId,
+        error: e instanceof Error ? e.message : String(e),
+      });
+    }
   }
 
   writeLastScanResultFile(merged);

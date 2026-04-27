@@ -58,3 +58,27 @@ export function isSchemaAutoPromoteEnabled(): boolean {
 export function isFindingAutoLinkEnabled(): boolean {
   return process.env.BEACON_AUTO_LINK_FINDINGS === "1";
 }
+
+/**
+ * Recommendation Lifecycle OS — Phase 3 (2026-04-27).
+ *
+ * Gates the scan-side match runner. **OFF by default.** When OFF the
+ * scan orchestrator behaves byte-identically to pre-Phase-3 — no
+ * lifecycle reads, no reconciliation, no match engine call, no
+ * recommended_edits writes, no changelog `live_at` stamps.
+ *
+ * Flip `BEACON_LIFECYCLE_ENABLED=1` to enable. Recommended dogfeed
+ * sequence:
+ *   1. Verify pure match engine purity invariants (Phase 2) green.
+ *   2. Sign off Phase 3 in `.data/exit-gates.json`.
+ *   3. Set `BEACON_LIFECYCLE_ENABLED=1` locally; run a manual scan;
+ *      verify `recommended_edits` lifecycle fields populate correctly.
+ *   4. Only then enable on Vercel.
+ *
+ * Phase 4 (verdict engine reads `live_at`) ships behind a SEPARATE
+ * flag so the lifecycle flip and the attribution change can be
+ * rolled back independently.
+ */
+export function isLifecycleEnabled(): boolean {
+  return process.env.BEACON_LIFECYCLE_ENABLED === "1";
+}
