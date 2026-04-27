@@ -66,8 +66,27 @@ const COST_PER_MILLION = {
 
 const OPENAI_CHAT_API = "https://api.openai.com/v1/chat/completions";
 
-/** Default request timeout (ms). */
-const DEFAULT_TIMEOUT_MS = 30_000;
+/**
+ * Default request timeout (ms).
+ *
+ * Sprint 6A.2f pre-flight (2026-04-26) — bumped 30s → 120s. The
+ * specific-edit packet is large (~80 target elements + ~20 action-type
+ * enums + ~80 URL enums in the strict-mode schema) and the default
+ * model `gpt-5-mini` consumes reasoning tokens BEFORE producing
+ * structured output. Empirical: a single packet × gpt-5-mini frequently
+ * needs 60-90s end-to-end. The prior 30s ceiling caused silent
+ * empty-bundle returns (the dry-run smoke for rec
+ * create_cluster_page:topic:Whole Home Renovation Builders timed out
+ * 100% before producing any output, masquerading as quota / API errors).
+ *
+ * 120s fits comfortably under Vercel's 300s hosted-route maxDuration.
+ * Per-chunk worst case: 25 prompts × 120s = 50 min if every prompt
+ * times out — but specific-edit CLI runs --limit=1 in dogfood and the
+ * native polling path (where chunking matters) does NOT use this
+ * provider; native polling has its own 30s default per-prompt timeout
+ * via the perplexity / openai-client adapters, unchanged.
+ */
+const DEFAULT_TIMEOUT_MS = 120_000;
 
 const SYSTEM_PROMPT = `
 You are Beacon's Specific Edit Generator.
@@ -91,6 +110,27 @@ HARD RULES:
    pass review.
 7. proposedText / currentText must be plain strings or null. No
    markdown, no HTML — the persistence layer expects raw text.
+
+8. **targetElement is REQUIRED for content-edit actions.**
+   For actionType in {edit_title, edit_meta, change_h1, add_h2_section,
+   rewrite_h2, add_faq, rewrite_faq, add_table, edit_table_row,
+   add_answer_block, add_proof_section, add_comparison_section,
+   add_cost_section, add_timeline_section, add_internal_link,
+   add_schema, fix_schema, reorder_sections} you MUST populate
+   targetElement with:
+     - elementKey: pick from packet.targetPageElements.elementKey for
+       this targetUrl when modifying an existing element. For ADDITIVE
+       actions (add_h2_section, add_faq, add_*) where no existing
+       element matches, use the additive form
+       "<elementType>[new]:<short-hash>" — e.g. "h2[new]:newhash" or
+       "faq_question[new]:newhash". The hash can be any 8+ char string
+       (e.g. md5 prefix of the proposed text).
+     - displayLabel: short noun phrase ≤ 200 chars naming what's edited
+     - currentText: existing copy when modifying an element; null for
+       purely additive new elements
+     - proposedText: the new copy you're proposing (string, ≤ 2000 chars)
+   targetElement may ONLY be null for page-level lifecycle actions:
+   {split_page, merge_pages, create_page, watch}.
 
 OPERATOR-FACING COPY:
 - why: 1-2 sentences. Name the specific evidence (prompt id, owned URL,
@@ -195,8 +235,27 @@ export async function generateOpenAIBundle(
         schema,
       },
     },
-    max_completion_tokens: 4_000,
+    // Sprint 6A.2f pre-flight (2026-04-26) — bumped 4_000 → 16_000.
+    // gpt-5-family models consume `reasoning_tokens` against the same
+    // `completion_tokens` pool BEFORE emitting structured output. The
+    // dry-run smoke for the Whole Home Renovation packet hit
+    // `finish_reason="length"` with `reasoning_tokens=4000 / 4000`,
+    // producing zero JSON content. 16k gives the model 4-8k of
+    // reasoning headroom + 8-12k for the actual edit list.
+    //
+    // Worst-case cost: gpt-5-mini @ $2/M output × 16k = $0.032 per
+    // packet. Well under the $5 per-run cap. The validator + provider
+    // both cap recommendations.maxItems at 20, so the actual output is
+    // bounded regardless.
+    max_completion_tokens: 16_000,
   });
+
+  // Sprint 6A.2f pre-flight (2026-04-26) — diagnostic logging on empty-
+  // bundle returns so silent bails don't strand the operator. Each
+  // failure mode logs a structured `[openai-provider]` line naming the
+  // packet and the cause; production keeps returning the empty bundle
+  // either way. NO behavior change to callers.
+  const logPath = `recId=${packet.recId} tenant=${packet.tenantId}`;
 
   // ── 3. Network call ────────────────────────────────────────────────
   let response: Response;
@@ -210,12 +269,24 @@ export async function generateOpenAIBundle(
       body,
       signal: AbortSignal.timeout(timeoutMs),
     });
-  } catch {
-    // Timeout / network error / abort. Return empty bundle.
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(
+      `[openai-provider] empty-bundle: network/timeout ${logPath} error=${JSON.stringify(msg)}`,
+    );
     return emptyBundleFor(packet, "openai", now);
   }
 
   if (!response.ok) {
+    let bodyExcerpt = "";
+    try {
+      bodyExcerpt = (await response.text()).slice(0, 300);
+    } catch {
+      bodyExcerpt = "<failed to read body>";
+    }
+    console.warn(
+      `[openai-provider] empty-bundle: HTTP ${response.status} ${logPath} body=${JSON.stringify(bodyExcerpt)}`,
+    );
     return emptyBundleFor(packet, "openai", now);
   }
 
@@ -225,33 +296,61 @@ export async function generateOpenAIBundle(
       message?: { content?: string | null; refusal?: string | null };
       finish_reason?: string;
     }>;
-    usage?: { prompt_tokens?: number; completion_tokens?: number };
+    usage?: {
+      prompt_tokens?: number;
+      completion_tokens?: number;
+      completion_tokens_details?: { reasoning_tokens?: number };
+    };
   };
   let data: OpenAIChatResponse;
   try {
     data = (await response.json()) as OpenAIChatResponse;
-  } catch {
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(
+      `[openai-provider] empty-bundle: top-level JSON parse failed ${logPath} error=${JSON.stringify(msg)}`,
+    );
     return emptyBundleFor(packet, "openai", now);
   }
 
   const choice = data.choices?.[0];
   if (choice?.message?.refusal) {
+    console.warn(
+      `[openai-provider] empty-bundle: model refusal ${logPath} reason=${JSON.stringify(choice.message.refusal)}`,
+    );
     return emptyBundleFor(packet, "openai", now);
   }
   const content = choice?.message?.content;
   if (!content) {
+    const finishReason = choice?.finish_reason ?? "<unknown>";
+    const reasoningTokens =
+      data.usage?.completion_tokens_details?.reasoning_tokens ?? 0;
+    const completionTokens = data.usage?.completion_tokens ?? 0;
+    console.warn(
+      `[openai-provider] empty-bundle: empty content ${logPath} ` +
+        `finish_reason=${JSON.stringify(finishReason)} ` +
+        `completion_tokens=${completionTokens} reasoning_tokens=${reasoningTokens}`,
+    );
     return emptyBundleFor(packet, "openai", now);
   }
 
   let parsed: unknown;
   try {
     parsed = JSON.parse(content);
-  } catch {
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(
+      `[openai-provider] empty-bundle: content JSON parse failed ${logPath} ` +
+        `error=${JSON.stringify(msg)} contentExcerpt=${JSON.stringify(content.slice(0, 200))}`,
+    );
     return emptyBundleFor(packet, "openai", now);
   }
 
   const recommendations = extractRecommendations(parsed);
   if (!recommendations) {
+    console.warn(
+      `[openai-provider] empty-bundle: extractRecommendations rejected the parsed shape ${logPath}`,
+    );
     return emptyBundleFor(packet, "openai", now);
   }
 

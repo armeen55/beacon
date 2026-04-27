@@ -353,11 +353,38 @@ async function processRec(args: {
     if (result.rejected.length > 0) {
       for (const r of result.rejected) {
         if (!r.result.ok) {
+          // Sprint 6A.2f pre-flight (2026-04-26) — surface the model's
+          // actual output (why / proposedText) so the operator can
+          // judge usefulness alongside the validator's rejection
+          // reason. Truncated to 200 chars per field to keep the line
+          // log-readable.
+          const why = (r.edit.why ?? "").slice(0, 200);
+          const proposed = (r.edit.targetElement?.proposedText ?? "").slice(0, 200);
           report.errors.push(
-            `edit rejected: action=${r.edit.actionType} url=${r.edit.targetUrl} field=${r.result.field} reason=${r.result.reason}`,
+            `edit rejected: action=${r.edit.actionType} url=${r.edit.targetUrl} field=${r.result.field} reason=${r.result.reason}\n      why="${why}"\n      proposedText="${proposed}"`,
           );
         }
       }
+    }
+    // Sprint 6A.2f pre-flight — surface ACCEPTED edit content too
+    // (operator-review path for the dogfood smoke). Full proposedText
+    // up to 4000 chars (the validator's currentText cap; proposedText
+    // capped at 2000) so the operator can read the complete edit.
+    for (const row of result.acceptedRows) {
+      const why = (row.why ?? "").slice(0, 1000);
+      const proposed = (row.proposed_text ?? "").slice(0, 4000);
+      const current = (row.current_text ?? "").slice(0, 2000);
+      report.errors.push(
+        `edit accepted: action=${row.action_type} url=${row.target_url} confidence=${row.confidence} difficulty=${row.difficulty}` +
+          `\n      elementKey=${row.target_element_key ?? "<page-level>"}` +
+          `\n      displayLabel=${JSON.stringify(row.display_label ?? "")}` +
+          `\n      why=${JSON.stringify(why)}` +
+          (current ? `\n      currentText=${JSON.stringify(current)}` : "") +
+          `\n      proposedText=${JSON.stringify(proposed)}` +
+          `\n      expectedImpact=${JSON.stringify(row.expected_impact ?? "")}` +
+          `\n      measurementPlan=${JSON.stringify(row.measurement_plan ?? "")}` +
+          `\n      risks=${JSON.stringify(row.risks ?? [])}`,
+      );
     }
   } catch (e) {
     report.errors.push(
