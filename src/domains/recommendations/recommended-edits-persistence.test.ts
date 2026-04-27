@@ -798,8 +798,17 @@ describe("Phase 6A.1.11 — source-scan invariants", () => {
     expect(src).toMatch(
       /dualWriteUpsert(?:Scoped)?\(\s*["']recommended_edits["']/,
     );
+    // Sprint 6A.2f follow-up (2026-04-26): the onConflict spec was
+    // updated from `rec_id,action_type,target_element_key` to
+    // `tenant_id,rec_id,action_type,target_element_key` to match the
+    // production unique index `ux_re_tenant_rec_action_element` which
+    // includes tenant_id as the leading column. The first-3-cols spec
+    // had been silently wrong since the Phase 7.7d tenant-binding
+    // migration; surfaced when the first live LLM `--write` against
+    // Ritz threw "no unique or exclusion constraint matching the ON
+    // CONFLICT specification".
     expect(src).toMatch(
-      /["']rec_id,action_type,target_element_key["']/,
+      /["']tenant_id,rec_id,action_type,target_element_key["']/,
     );
   });
 });

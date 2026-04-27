@@ -961,11 +961,12 @@ export async function syncUrlChangeOutcomes(
 /**
  * Sprint 6A.1 Phase 11 (2026-04-24) — recommended_edits dual-write.
  *
- * Idempotent on `(rec_id, action_type, target_element_key)` matching
- * the migration's `ux_re_rec_action_element` unique index. The index
- * was created `NULLS NOT DISTINCT` so page-level lifecycle actions
- * (which write `target_element_key = NULL`) de-duplicate per
- * `(rec_id, action_type)` instead of accumulating duplicates.
+ * Idempotent on `(tenant_id, rec_id, action_type, target_element_key)`
+ * matching the production `ux_re_tenant_rec_action_element` unique
+ * index. The index is `NULLS NOT DISTINCT` so page-level lifecycle
+ * actions (which write `target_element_key = NULL`) de-duplicate per
+ * `(tenant_id, rec_id, action_type)` instead of accumulating
+ * duplicates.
  *
  * Rows arrive already snake_cased + DB-shaped from
  * `mapSpecificEditToRow` — pass-through, no further mapping.
@@ -977,6 +978,20 @@ export async function syncUrlChangeOutcomes(
  * production caller of `dualWriteUpsertScoped`; the contract is "every
  * row's `tenant_id` MUST equal `tenantId` — empty / null / undefined
  * counts as mismatch and throws".
+ *
+ * Sprint 6A.2f follow-up (2026-04-26): the `onConflict` column list
+ * fixed to `"tenant_id,rec_id,action_type,target_element_key"` (was
+ * missing `tenant_id`). The Phase 7.7d tenant-binding migration
+ * extended the unique index to include `tenant_id` as the leading
+ * column — `ux_re_rec_action_element` (3 cols) was renamed to
+ * `ux_re_tenant_rec_action_element` (4 cols) — but the dual-write
+ * spec wasn't updated alongside. Result: the first live LLM-sourced
+ * `--write` against the Ritz tenant threw
+ * `"there is no unique or exclusion constraint matching the ON CONFLICT
+ * specification"` on the Supabase side. Local file persistence
+ * succeeded (file-first contract), so the local UI saw the rows; the
+ * Supabase mirror was empty. Verified the production index via
+ * `\\d recommended_edits` before changing this string.
  */
 export async function syncRecommendedEdits(
   rows: import("@/domains/recommendations/recommended-edits-persistence").RecommendedEditRow[],
@@ -986,7 +1001,7 @@ export async function syncRecommendedEdits(
   await dualWriteUpsertScoped(
     "recommended_edits",
     rows as unknown as Array<{ tenant_id?: string | null } & Record<string, unknown>>,
-    "rec_id,action_type,target_element_key",
+    "tenant_id,rec_id,action_type,target_element_key",
     tenantId,
   );
 }

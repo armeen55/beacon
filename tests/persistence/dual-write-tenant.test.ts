@@ -457,9 +457,17 @@ describe("Phase 7.7d — syncRecommendedEdits is STRICT-tenant-scoped", () => {
   });
 
   it("body still threads the canonical compound primary key", () => {
+    // Sprint 6A.2f follow-up (2026-04-26): updated to include
+    // `tenant_id` as the leading column. The Phase 7.7d tenant-binding
+    // migration extended the unique index to
+    // `ux_re_tenant_rec_action_element` (4 cols, NULLS NOT DISTINCT)
+    // but the dual-write spec wasn't updated alongside until the first
+    // live LLM `--write` threw "no unique or exclusion constraint
+    // matching the ON CONFLICT specification". Production index state
+    // verified against pg_index before changing this string.
     const body = sliceHelperBody(DUAL_WRITE_SOURCE, "syncRecommendedEdits");
     expect(body).toMatch(
-      /["']rec_id,action_type,target_element_key["']/,
+      /["']tenant_id,rec_id,action_type,target_element_key["']/,
     );
   });
 });
