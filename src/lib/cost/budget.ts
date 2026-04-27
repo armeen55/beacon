@@ -1,18 +1,27 @@
 /**
- * Cost governance — per-tenant daily API budget caps.
+ * Cost governance — per-tenant daily API budget caps + per-run cap.
  *
- * Every CX2 platform adapter calls `recordSpend` after each API call.
+ * Every native polling loop calls `recordSpend` after each API call.
  * Before making an API call, the orchestrator calls `checkTenantBudget`
- * to decide whether the call is allowed. Budget exceeded → fail fast
- * with a clear error, never silently burn money.
+ * (daily) and `checkPerRunBudget` (per-chunk running tally) to decide
+ * whether the call is allowed. Monthly aggregation lives in
+ * `./monthly.ts` (separate helper, same ledger).
  *
  * Backed by `.data/cost-ledger.json` — an append-only log of spend
- * events. The ledger is the single source of truth for cost tracking.
- * CX2.9 (founder cost dashboard) reads from it.
+ * events. The ledger is the single source of truth for native polling
+ * cost tracking. **Separate from `llm-budget.json`** which is the
+ * Sprint 6A.2 specific-edit / adjudicator monthly cap. Two cost
+ * surfaces, two ledgers — one budget cannot drain the other.
  *
- * Budget caps read from env:
- *   BEACON_DAILY_BUDGET_USD_PER_TENANT (default $5)
- *   BEACON_DAILY_BUDGET_GLOBAL_USD (default $20)
+ * Budget caps read from env (defaults match Sprint 6A.3 plan):
+ *   BEACON_DAILY_BUDGET_USD_PER_TENANT (default $10)
+ *   BEACON_DAILY_BUDGET_GLOBAL_USD     (default $20)
+ *   BEACON_MONTHLY_BUDGET_USD          (default $200, see ./monthly.ts)
+ *   BEACON_PER_RUN_BUDGET_USD          (default $5, see checkPerRunBudget)
+ *
+ * Sprint 6A.3a/b status: helpers exist + tested. Polling-loop wiring
+ * lands in 6A.3c. Until then `checkTenantBudget` / `checkPerRunBudget`
+ * have zero callers in production code.
  */
 
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
@@ -35,6 +44,22 @@ export type BudgetCheck = {
   reason?: string;
   spent_usd: number;
   cap_usd: number;
+  /**
+   * Sprint 6A.3b (2026-04-26) — `Math.round((spent / cap) * 100)`. NOT
+   * clamped: `percent > 100` is informative when spend somehow exceeded
+   * the cap (e.g. concurrent writes). Logging code formats this as
+   * "28% of $10".
+   */
+  percent: number;
+};
+
+export type PerRunBudgetCheck = {
+  allowed: boolean;
+  reason?: string;
+  /** Estimated/accumulated spend for this single run. */
+  spent_usd: number;
+  cap_usd: number;
+  percent: number;
 };
 
 // ---------------------------------------------------------------------------
@@ -43,7 +68,10 @@ export type BudgetCheck = {
 
 function perTenantCapUsd(): number {
   const env = process.env.BEACON_DAILY_BUDGET_USD_PER_TENANT;
-  return env ? parseFloat(env) : 5.0;
+  // Sprint 6A.3b (2026-04-26) — bumped default $5 → $10. Operator-set
+  // value for full-native daily polling. Caps are runaway protection,
+  // not throttling — set high enough that normal operation never trips.
+  return env ? parseFloat(env) : 10.0;
 }
 
 function globalCapUsd(): number {
@@ -51,25 +79,47 @@ function globalCapUsd(): number {
   return env ? parseFloat(env) : 20.0;
 }
 
+/**
+ * Per-run (per-chunk) cap — ceiling on accumulated cost for a single
+ * `pollPerplexityForTenant` invocation. Pure config read; no ledger
+ * touch. Default $5 covers ~6.7x normal chunk spend at 25 prompts ×
+ * $0.03 = $0.75. Trip means something is genuinely wrong.
+ */
+export function perRunCapUsd(): number {
+  const env = process.env.BEACON_PER_RUN_BUDGET_USD;
+  return env ? parseFloat(env) : 5.0;
+}
+
 // ---------------------------------------------------------------------------
 // Ledger persistence
 // ---------------------------------------------------------------------------
 
-const DATA_DIR = join(process.cwd(), ".data");
-const LEDGER_PATH = join(DATA_DIR, "cost-ledger.json");
+// Sprint 6A.3b (2026-04-26) — paths computed at call time (not
+// module-load) so tests that `process.chdir(tmpdir)` in beforeEach are
+// hermetic. Module-level `join(process.cwd(), ...)` constants would
+// freeze the path to the runner's startup cwd, leaking writes into the
+// real `.data/`. (Discovered the hard way during 6A.3b test wiring.)
+function dataDir(): string {
+  return join(process.cwd(), ".data");
+}
+function ledgerPath(): string {
+  return join(dataDir(), "cost-ledger.json");
+}
 
 function ensureDataDir(): void {
   if (process.env.VERCEL === "1") return;
-  if (!existsSync(DATA_DIR)) {
-    mkdirSync(DATA_DIR, { recursive: true });
+  const dir = dataDir();
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true });
   }
 }
 
 function readLedger(): SpendEntry[] {
   ensureDataDir();
-  if (!existsSync(LEDGER_PATH)) return [];
+  const path = ledgerPath();
+  if (!existsSync(path)) return [];
   try {
-    return JSON.parse(readFileSync(LEDGER_PATH, "utf-8")) as SpendEntry[];
+    return JSON.parse(readFileSync(path, "utf-8")) as SpendEntry[];
   } catch {
     return [];
   }
@@ -77,7 +127,7 @@ function readLedger(): SpendEntry[] {
 
 function writeLedger(entries: SpendEntry[]): void {
   ensureDataDir();
-  writeFileSync(LEDGER_PATH, JSON.stringify(entries, null, 2), "utf-8");
+  writeFileSync(ledgerPath(), JSON.stringify(entries, null, 2), "utf-8");
 }
 
 // ---------------------------------------------------------------------------
@@ -115,6 +165,9 @@ function sumGlobalToday(entries: SpendEntry[], date: string): number {
  *
  * Call BEFORE making an API call. If `allowed` is false, skip the call
  * and surface the reason to the operator.
+ *
+ * Sprint 6A.3b (2026-04-26) — `percent` field added on every return for
+ * richer cron-log lines ("28% of $10").
  */
 export function checkTenantBudget(tenantId: string): BudgetCheck {
   const entries = readLedger();
@@ -128,6 +181,7 @@ export function checkTenantBudget(tenantId: string): BudgetCheck {
       reason: `Tenant ${tenantId} daily budget exhausted: $${tenantSpent.toFixed(2)} of $${tenantCap.toFixed(2)} used`,
       spent_usd: tenantSpent,
       cap_usd: tenantCap,
+      percent: percent(tenantSpent, tenantCap),
     };
   }
 
@@ -139,6 +193,7 @@ export function checkTenantBudget(tenantId: string): BudgetCheck {
       reason: `Global daily budget exhausted: $${globalSpent.toFixed(2)} of $${gCap.toFixed(2)} used`,
       spent_usd: globalSpent,
       cap_usd: gCap,
+      percent: percent(globalSpent, gCap),
     };
   }
 
@@ -146,7 +201,52 @@ export function checkTenantBudget(tenantId: string): BudgetCheck {
     allowed: true,
     spent_usd: tenantSpent,
     cap_usd: tenantCap,
+    percent: percent(tenantSpent, tenantCap),
   };
+}
+
+/**
+ * Sprint 6A.3b (2026-04-26) — per-run (per-chunk) budget guard. Pure
+ * config check, no ledger I/O. The poll loop calls this with its
+ * accumulated cost-so-far before each provider call; if the running
+ * tally exceeds `BEACON_PER_RUN_BUDGET_USD`, the loop halts and
+ * surfaces a `partial_budget_blocked` status.
+ *
+ * Caller-supplied `accumulatedUsd` is the source of truth for "this
+ * run" — the helper does not pull from the ledger, so a single chunk
+ * can't be incorrectly throttled by another tenant's spend.
+ */
+export function checkPerRunBudget(accumulatedUsd: number): PerRunBudgetCheck {
+  const cap = perRunCapUsd();
+  if (accumulatedUsd >= cap) {
+    return {
+      allowed: false,
+      reason: `Per-run budget exhausted: $${accumulatedUsd.toFixed(2)} of $${cap.toFixed(2)} used`,
+      spent_usd: accumulatedUsd,
+      cap_usd: cap,
+      percent: percent(accumulatedUsd, cap),
+    };
+  }
+  return {
+    allowed: true,
+    spent_usd: accumulatedUsd,
+    cap_usd: cap,
+    percent: percent(accumulatedUsd, cap),
+  };
+}
+
+/**
+ * Calculate spent / cap as a percent integer. NOT clamped — values
+ * over 100 are informative when spend exceeded the cap (concurrent
+ * writes, race condition, manual ledger edit). Caller can clamp for
+ * display.
+ *
+ * Cap of 0 is treated as 100% to avoid division-by-zero NaN, which
+ * would break log parsers.
+ */
+function percent(spentUsd: number, capUsd: number): number {
+  if (capUsd <= 0) return 100;
+  return Math.round((spentUsd / capUsd) * 100);
 }
 
 /**
