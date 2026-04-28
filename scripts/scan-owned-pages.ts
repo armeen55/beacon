@@ -30,7 +30,7 @@ import type { ObservationRun } from "../src/domains/observations/types";
 import { OBSERVATION_RUN_PARSER_VERSION } from "../src/domains/observations/types";
 import { checkTopPages, type RenderCheckResult } from "../src/domains/pages/render-check";
 import type { PageEntity, PageSnapshot, PageSnapshotDiff } from "../src/domains/pages/types";
-import { writeFileSync, renameSync, existsSync, readFileSync, copyFileSync } from "node:fs";
+import { writeFileSync, renameSync, existsSync, readFileSync, copyFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { getSiteConfig } from "../src/lib/site-config";
 import { observationUniverseFieldsForCli } from "../src/domains/competitors/universe-fields-cli";
@@ -42,7 +42,50 @@ import {
 import { writeIdleScanStateFromLastResult } from "../src/domains/scanning/scan-state";
 import { currentTenantId } from "../src/lib/tenant-context";
 
+// Root .data dir — only used for un-classified outputs / legacy fall-through.
 const DATA_DIR = join(process.cwd(), ".data");
+
+// 2026-04-28 tenant-routing fix.
+// Sprint 7.8c (2026-04-26) classified per-tenant scan stores
+// (page-snapshots, page-element-inventory, etc.) so the runtime reads
+// from `.data/tenants/{slug}/...`. The CLI was never updated alongside
+// and continued writing to the root `.data/...` paths, producing a
+// split-brain where the scan succeeded but the lifecycle runner read
+// the (stale) tenant file. This block resolves the tenant slug ONCE
+// at module load and exports per-classification dir helpers used by
+// every saveX/loadX function below.
+//
+// Fail-loud: tenant-scoped writes/reads REQUIRE BEACON_TENANT_SLUG.
+// We default-resolve here so the dir paths can be `const`s used
+// everywhere; if the env var is missing, the helper throws on first
+// access (not at module load — see `requireTenantDir`).
+const TENANT_SLUG = process.env.BEACON_TENANT_SLUG?.trim() || null;
+
+/** Resolve the per-tenant data directory. Throws fail-loud when
+ *  BEACON_TENANT_SLUG is not set — preferable to silently writing
+ *  tenant data to the wrong location (the bug Sprint 7.8c surfaced). */
+function requireTenantDir(): string {
+  if (!TENANT_SLUG) {
+    throw new Error(
+      "[scan] BEACON_TENANT_SLUG is required for tenant-scoped scan outputs. " +
+        "Per Sprint 7.8c (2026-04-26), page-snapshots / page-element-inventory / " +
+        "page-snapshot-diffs / scan-runs / observation-runs / page-guardrails / " +
+        "render-checks / page-snapshots-prev all live under .data/tenants/{slug}/. " +
+        "Set BEACON_TENANT_SLUG in .env.local or pass via env to the CLI.",
+    );
+  }
+  const dir = join(DATA_DIR, "tenants", TENANT_SLUG);
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+/** Resolve the cross-tenant global data directory.
+ *  business-config and citation-evidence-index examples live here. */
+function globalDir(): string {
+  const dir = join(DATA_DIR, "global");
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  return dir;
+}
 
 /** Keeps `.data/scan-state.json` aligned with the CLI outcome (Today polls this file). */
 function syncScanStateAfterResult(payload: LastScanResultPayload): void {
@@ -189,7 +232,11 @@ async function fetchPage(
 // ── Persistence ──
 
 function loadPreviousSnapshots(): PageSnapshot[] {
-  const path = join(DATA_DIR, "page-snapshots.json");
+  // Tenant-scoped per Sprint 7.8c. requireTenantDir throws if
+  // BEACON_TENANT_SLUG is missing — fail-loud is the right behavior
+  // because this path drives diff baseline; reading from the wrong
+  // location would produce nonsense diffs.
+  const path = join(requireTenantDir(), "page-snapshots.json");
   if (!existsSync(path)) return [];
   try {
     return JSON.parse(readFileSync(path, "utf8")) as PageSnapshot[];
@@ -199,7 +246,7 @@ function loadPreviousSnapshots(): PageSnapshot[] {
 }
 
 function saveSnapshots(snapshots: PageSnapshot[]): void {
-  const path = join(DATA_DIR, "page-snapshots.json");
+  const path = join(requireTenantDir(), "page-snapshots.json");
   const tmp = path + ".tmp";
   writeFileSync(tmp, JSON.stringify(snapshots, null, 2), "utf8");
   renameSync(tmp, path);
@@ -210,7 +257,7 @@ function saveSnapshots(snapshots: PageSnapshot[]): void {
  *  full-rewrite shape). orchestrate-scan reads this file after the CLI
  *  exits and dual-writes to Supabase. */
 function saveElementInventory(rows: PageElementInventoryRow[]): void {
-  const path = join(DATA_DIR, "page-element-inventory.json");
+  const path = join(requireTenantDir(), "page-element-inventory.json");
   const tmp = path + ".tmp";
   writeFileSync(tmp, JSON.stringify(rows, null, 2), "utf8");
   renameSync(tmp, path);
@@ -225,7 +272,12 @@ function loadInventoryDictionaries(): {
   services: string[];
 } {
   try {
-    const cfgPath = join(DATA_DIR, "business-config.json");
+    // business-config is GLOBAL per Sprint 7.8c — read from .data/global/.
+    // Fall back to the legacy root path so a partially-migrated repo
+    // still yields dictionaries.
+    const globalPath = join(globalDir(), "business-config.json");
+    const legacyPath = join(DATA_DIR, "business-config.json");
+    const cfgPath = existsSync(globalPath) ? globalPath : legacyPath;
     if (!existsSync(cfgPath)) return { cities: [], services: [] };
     const cfg = JSON.parse(readFileSync(cfgPath, "utf8")) as {
       locations?: unknown;
@@ -244,21 +296,21 @@ function loadInventoryDictionaries(): {
 }
 
 function saveDiffs(diffs: PageSnapshotDiff[]): void {
-  const path = join(DATA_DIR, "page-snapshot-diffs.json");
+  const path = join(requireTenantDir(), "page-snapshot-diffs.json");
   const tmp = path + ".tmp";
   writeFileSync(tmp, JSON.stringify(diffs, null, 2), "utf8");
   renameSync(tmp, path);
 }
 
 function saveGuardrails(alerts: GuardrailAlert[]): void {
-  const path = join(DATA_DIR, "page-guardrails.json");
+  const path = join(requireTenantDir(), "page-guardrails.json");
   const tmp = path + ".tmp";
   writeFileSync(tmp, JSON.stringify(alerts, null, 2), "utf8");
   renameSync(tmp, path);
 }
 
 function appendScanRun(meta: ScanRunMeta): void {
-  const path = join(DATA_DIR, "scan-runs.json");
+  const path = join(requireTenantDir(), "scan-runs.json");
   let runs: ScanRunMeta[] = [];
   if (existsSync(path)) {
     try { runs = JSON.parse(readFileSync(path, "utf8")) as ScanRunMeta[]; } catch {}
@@ -271,7 +323,7 @@ function appendScanRun(meta: ScanRunMeta): void {
 }
 
 function loadLastRunId(): string | null {
-  const obsPath = join(DATA_DIR, "observation-runs.json");
+  const obsPath = join(requireTenantDir(), "observation-runs.json");
   if (existsSync(obsPath)) {
     try {
       const list = JSON.parse(readFileSync(obsPath, "utf8")) as ObservationRun[];
@@ -281,7 +333,7 @@ function loadLastRunId(): string | null {
       }
     } catch {}
   }
-  const scanPath = join(DATA_DIR, "scan-runs.json");
+  const scanPath = join(requireTenantDir(), "scan-runs.json");
   if (existsSync(scanPath)) {
     try {
       const list = JSON.parse(readFileSync(scanPath, "utf8")) as ScanRunMeta[];
@@ -293,7 +345,7 @@ function loadLastRunId(): string | null {
 }
 
 function appendObservationRun(run: ObservationRun): void {
-  const path = join(DATA_DIR, "observation-runs.json");
+  const path = join(requireTenantDir(), "observation-runs.json");
   let runs: ObservationRun[] = [];
   if (existsSync(path)) {
     try { runs = JSON.parse(readFileSync(path, "utf8")) as ObservationRun[]; } catch {}
@@ -306,15 +358,16 @@ function appendObservationRun(run: ObservationRun): void {
 }
 
 function archivePreviousSnapshots(): void {
-  const current = join(DATA_DIR, "page-snapshots.json");
-  const prev = join(DATA_DIR, "page-snapshots-prev.json");
+  const current = join(requireTenantDir(), "page-snapshots.json");
+  const prev = join(requireTenantDir(), "page-snapshots-prev.json");
   if (existsSync(current)) {
     try { copyFileSync(current, prev); } catch {}
   }
 }
 
 function saveReconciliation(recon: SitemapReconciliation): void {
-  const path = join(DATA_DIR, "sitemap-reconciliation.json");
+  // sitemap-reconciliation is GLOBAL per Sprint 7.8c — write to .data/global/.
+  const path = join(globalDir(), "sitemap-reconciliation.json");
   const tmp = path + ".tmp";
   writeFileSync(tmp, JSON.stringify(recon, null, 2), "utf8");
   renameSync(tmp, path);
@@ -429,7 +482,7 @@ async function main() {
     sitemap_only: sitemapOnly,
   };
   saveReconciliation(reconciliation);
-  console.log(`\nWrote reconciliation to .data/sitemap-reconciliation.json`);
+  console.log(`\nWrote reconciliation to .data/global/sitemap-reconciliation.json`);
 
   // ── Step 4: Determine scan set ──
   let scanSet = canonical;
@@ -571,7 +624,11 @@ async function main() {
   // ── Step 6: Classify guardrails (load citation counts for context) ──
   let citationsByUrl = new Map<string, number>();
   try {
-    const ciPath = join(DATA_DIR, "citation-evidence-index.json");
+    // citation-evidence-index is per-tenant per Sprint 7.8c — read from
+    // .data/tenants/{slug}/. Fall back to legacy root for partial migrations.
+    const tenantPath = join(requireTenantDir(), "citation-evidence-index.json");
+    const legacyPath = join(DATA_DIR, "citation-evidence-index.json");
+    const ciPath = existsSync(tenantPath) ? tenantPath : legacyPath;
     if (existsSync(ciPath)) {
       const ci = JSON.parse(readFileSync(ciPath, "utf8"));
       for (const r of ci.by_page_and_topic ?? []) {
@@ -632,19 +689,19 @@ async function main() {
   // ── Step 7: Save ──
   archivePreviousSnapshots();
   saveSnapshots(newSnapshots);
-  console.log(`Wrote ${newSnapshots.length} snapshots to .data/page-snapshots.json`);
+  console.log(`Wrote ${newSnapshots.length} snapshots (tenant-routed)`);
 
   // Sprint 6A.1 Phase 6 — write the inventory rows accumulated in the
   // scan loop. orchestrate-scan reads this file after the CLI exits and
   // calls `syncPageElementInventory` to dual-write to Supabase.
   saveElementInventory(allElementRows);
   console.log(
-    `Wrote ${allElementRows.length} page-element-inventory rows to .data/page-element-inventory.json`,
+    `Wrote ${allElementRows.length} page-element-inventory rows (tenant-routed)`,
   );
 
   if (diffs.length > 0) {
     saveDiffs(diffs);
-    console.log(`Wrote ${diffs.length} diffs to .data/page-snapshot-diffs.json`);
+    console.log(`Wrote ${diffs.length} diffs (tenant-routed)`);
   }
 
   const alertsStamped: GuardrailAlert[] = allAlerts.map((a) => ({
@@ -652,14 +709,14 @@ async function main() {
     observation_run_id: observationRunId,
   }));
   saveGuardrails(alertsStamped);
-  console.log(`Wrote ${alertsStamped.length} guardrail alerts to .data/page-guardrails.json`);
+  console.log(`Wrote ${alertsStamped.length} guardrail alerts (tenant-routed)`);
 
   if (renderResults.length > 0) {
-    const renderPath = join(DATA_DIR, "render-checks.json");
+    const renderPath = join(requireTenantDir(), "render-checks.json");
     const renderTmp = renderPath + ".tmp";
     writeFileSync(renderTmp, JSON.stringify(renderResults, null, 2), "utf8");
     renameSync(renderTmp, renderPath);
-    console.log(`Wrote ${renderResults.length} render checks to .data/render-checks.json`);
+    console.log(`Wrote ${renderResults.length} render checks (tenant-routed)`);
   }
 
   const completedAt = new Date().toISOString();
