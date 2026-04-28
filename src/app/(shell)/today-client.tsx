@@ -23,6 +23,8 @@ import { EnrichmentBadges } from "@/components/today/enrichment-badges";
 import type { EnrichmentRollup } from "@/domains/prompt-answer-observations/enrichment-rollup";
 import { PromptsTeaser, type PromptsTeaserSummary } from "@/components/today/prompts-teaser";
 import { TopPickCard, type TopPickSummary } from "@/components/today/top-pick-card";
+import { TodayLifecycleStrip } from "@/components/today/lifecycle-strip";
+import { TodayImplementationQueue } from "@/components/today/implementation-queue";
 import { ActionCard, type ActionCardAction } from "@/components/today/action-card";
 import { MorningBrief } from "@/components/today/morning-brief";
 import type { MorningBriefData } from "@/domains/product/morning-brief";
@@ -170,6 +172,7 @@ export function TodayClient({
   enrichmentRollup = null,
   promptsTeaser = null,
   topPick = null,
+  lifecycleSummary = null,
 }: {
   isDemoMode?: boolean;
   scanPhaseFailed?: boolean;
@@ -237,6 +240,11 @@ export function TodayClient({
    *  recommendations queue, surfaced as a single opinionated card above
    *  the prompts teaser. Null when the queue is empty. */
   topPick?: TopPickSummary | null;
+  /** Phase 6A.7 (2026-04-28) — lifecycle counts + accepted-edit
+   *  implementation queue. Computed in today-data.ts from the same
+   *  recommended_edits read /changes uses, so the strip and the
+   *  /changes tab counts always reconcile. */
+  lifecycleSummary?: import("./today-data").TodayLifecycleSummary | null;
 }) {
   const [pending, startTransition] = useTransition();
   const [actionMsg, setActionMsg] = useState<string | null>(null);
@@ -418,6 +426,24 @@ export function TodayClient({
           review card right below it (anchor id="change-review-section").
           Phase 3.5F (2026-04-22): suppressed on Vercel until Phase 4
           ships a serverless-safe scan. Local dev keeps it. */}
+      {/* Phase 6A.7 (2026-04-28) — lifecycle status strip + accepted-
+          edit implementation queue. Anchors Today on lifecycle truth
+          (Live verified count is always shown, even when zero) so the
+          operator sees the same numbers /changes will show one click
+          away. Strip rendered first so the dense at-a-glance row sits
+          near the top of the page; the queue card lives just below
+          it because it's the action-card form of the "Pending impl"
+          chip. Both surfaces are read-only — Confirm/Dismiss for scan
+          findings stay in the collapsed ChangeReview accordion below. */}
+      {lifecycleSummary && (
+        <>
+          <TodayLifecycleStrip counts={lifecycleSummary.counts} />
+          <TodayImplementationQueue
+            queue={lifecycleSummary.queue}
+            totalPendingCount={lifecycleSummary.counts.pendingImplementation}
+          />
+        </>
+      )}
       {!hostedScanDisabled && (
         <TodayScanStrip
           shouldTriggerScan={shouldTriggerScan}

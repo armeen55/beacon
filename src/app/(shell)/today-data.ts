@@ -455,6 +455,12 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
   const pageSnapshots = await repo.getPageSnapshots();
   const guardrailAlerts = await repo.getGuardrailAlerts();
 
+  // Phase 6A.7 (2026-04-28) — lifecycle status strip + implementation queue.
+  // Reads recommended_edits from the same tenant-scoped repo as /changes
+  // (Phase 6A.2) so the counts on Today and the tabs on /changes always
+  // reconcile. Non-fatal: a Supabase blip degrades the strip to zeros.
+  const lifecycleSummary = await buildTodayLifecycleSummary(repo);
+
   const allScanFindings = await repo.getScanFindings();
   const pendingFindings = allScanFindings
     .filter((f) => f.status === "pending")
@@ -2194,8 +2200,110 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
     enrichmentRollup,
     promptsTeaser,
     topPick,
+    // Phase 6A.7 (2026-04-28) — lifecycle status strip + implementation
+    // queue. Reads recommended_edits via the same tenant-scoped repo
+    // /changes uses, so counts always reconcile.
+    lifecycleSummary,
   };
 }
+
+/**
+ * Phase 6A.7 (2026-04-28) — compute the Today lifecycle summary
+ * (status-strip counts + implementation queue) from
+ * `recommended_edits`. Non-fatal — any read failure returns the
+ * zero-shape summary so Today still renders.
+ */
+async function buildTodayLifecycleSummary(
+  repo: ReturnType<ReturnType<typeof getRepository>["forTenant"]>,
+): Promise<TodayLifecycleSummary> {
+  const empty: TodayLifecycleSummary = {
+    counts: {
+      liveVerified: 0,
+      pendingImplementation: 0,
+      needsReview: 0,
+      notFoundAfter7d: 0,
+    },
+    queue: [],
+  };
+  let edits;
+  try {
+    edits = await repo.getRecommendedEdits();
+  } catch (err) {
+    console.error("[today] recommended_edits read failed (non-fatal)", err);
+    return empty;
+  }
+  const counts = {
+    liveVerified: 0,
+    pendingImplementation: 0,
+    needsReview: 0,
+    notFoundAfter7d: 0,
+  };
+  const acceptedQueue: Array<{
+    id: string;
+    rec_id: string;
+    action_type: string;
+    target_url: string | null;
+    display_label: string | null;
+    proposed_text_preview: string | null;
+    updated_at: string;
+  }> = [];
+  for (const edit of edits) {
+    const status = edit.implementation_status;
+    if (status === "verified_live" || status === "verified_live_modified") {
+      counts.liveVerified += 1;
+    } else if (status === "accepted") {
+      counts.pendingImplementation += 1;
+      // Build the queue item lazily — only the top 5 (by updated_at desc)
+      // surface in the UI; we sort + slice after the loop.
+      acceptedQueue.push({
+        id: edit.id,
+        rec_id: edit.rec_id,
+        action_type: edit.action_type,
+        target_url: edit.target_url ?? null,
+        display_label: edit.display_label ?? null,
+        proposed_text_preview: edit.proposed_text
+          ? edit.proposed_text.slice(0, 140)
+          : null,
+        updated_at: edit.updated_at,
+      });
+    } else if (
+      status === "needs_review" ||
+      status === "partially_implemented" ||
+      status === "wrong_page"
+    ) {
+      counts.needsReview += 1;
+    } else if (status === "not_found_after_7d") {
+      counts.notFoundAfter7d += 1;
+    }
+    // dismissed / recommended / undefined intentionally not surfaced.
+  }
+  acceptedQueue.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+  return {
+    counts,
+    queue: acceptedQueue.slice(0, 5),
+  };
+}
+
+/**
+ * Phase 6A.7 — public shape consumed by TodayClient + tested directly.
+ */
+export type TodayLifecycleSummary = {
+  counts: {
+    liveVerified: number;
+    pendingImplementation: number;
+    needsReview: number;
+    notFoundAfter7d: number;
+  };
+  queue: Array<{
+    id: string;
+    rec_id: string;
+    action_type: string;
+    target_url: string | null;
+    display_label: string | null;
+    proposed_text_preview: string | null;
+    updated_at: string;
+  }>;
+};
 
 
 /**
