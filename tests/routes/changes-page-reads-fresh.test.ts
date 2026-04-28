@@ -159,6 +159,10 @@ describe("Sprint 1 / Phase 1.3 — /changes fresh-read invariants", () => {
       }));
       vi.doMock("@/lib/flags", () => ({
         isEventTruthPreviewEnabled: () => false,
+        // Phase 6A.6 (2026-04-28) — page now reads this flag to drive the
+        // attribution-copy resolver's verdict_off vs verdict_baked branches.
+        // Default OFF in tests matches production default.
+        isLifecycleVerdictEnabled: () => false,
       }));
       // Sprint 7 Phase 7.5c/3 (2026-04-25) — page-store now exports a lazy
       // async function instead of a module-level array.

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { cn } from "@/lib/utils";
+import { EVIDENCE_FRESHNESS_NULL_COPY } from "@/domains/attribution/lifecycle-attribution-copy";
 
 /**
  * Honesty banner shown on surfaces that still read from the frozen
@@ -47,8 +48,15 @@ export function EvidenceFreshnessBanner({
         )}
         role="status"
       >
-        {label} unavailable — no citation evidence has been built yet. Run an
-        import or wait for the first native-poll integration.
+        {/* Phase 6A.6 (2026-04-28) — pre-rename copy was "no citation
+            evidence has been built yet — Run an import or wait for the
+            first native-poll integration", which gaslighted operators
+            after the 2026-04-22 native-poll pivot (native polling DID
+            launch). New copy stays honest about the actual gap: the
+            index hasn't been rebuilt against native data yet, but
+            native polling itself is alive and writing observations. */}
+        {EVIDENCE_FRESHNESS_NULL_COPY.label(label)}{" "}
+        {EVIDENCE_FRESHNESS_NULL_COPY.detail}
       </div>
     );
   }

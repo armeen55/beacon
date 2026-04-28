@@ -46,6 +46,7 @@ import {
   type LifecycleTab,
   type LifecycleTabClass,
 } from "@/domains/attribution/lifecycle-classification";
+import { isLifecycleVerdictEnabled } from "@/lib/flags";
 import type {
   ImplementationStatus,
   RecommendedEditRow,
@@ -146,13 +147,21 @@ export default async function ChangeScorecardPage() {
   // the most-granular label (e.g. verified_live_modified vs
   // verified_live, not just live_verified). Falls through to the
   // classifier's tab class when there's no joined edit.
+  // Phase 6A.6 (2026-04-28) — also expose the edit's `live_at` so the
+  // attribution-copy resolver can run the bake-window check (verified_live
+  // < 7 days ago → "Too early"; ≥ 7 days → "Verdict tracking off" /
+  // "Verdict pending" depending on the verdict flag).
   const editStatusByChangelogId: Record<string, ImplementationStatus> = {};
+  const editLiveAtByChangelogId: Record<string, string> = {};
   for (const entry of liveEntries) {
     const joinKey = changelogJoinKey(entry);
     if (!joinKey) continue;
     const edit = editsByJoinKey.get(joinKey);
     if (edit?.implementation_status) {
       editStatusByChangelogId[entry.id] = edit.implementation_status;
+    }
+    if (edit?.live_at) {
+      editLiveAtByChangelogId[entry.id] = edit.live_at;
     }
   }
 
@@ -405,6 +414,8 @@ export default async function ChangeScorecardPage() {
         classByChangelogId={Object.fromEntries(classification.classOf)}
         tabCounts={lifecycleCounts}
         editStatusByChangelogId={editStatusByChangelogId}
+        editLiveAtByChangelogId={editLiveAtByChangelogId}
+        verdictFlagEnabled={isLifecycleVerdictEnabled()}
       />
 
       {/* Phase 2C cleanup — legacy "Currently being watched" strip removed.

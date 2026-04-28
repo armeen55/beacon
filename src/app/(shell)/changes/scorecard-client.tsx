@@ -18,6 +18,10 @@ import {
 } from "@/domains/attribution/lifecycle-classification";
 import { LifecycleStatusPill } from "@/components/display/lifecycle-status-pill";
 import type { ImplementationStatus } from "@/domains/recommendations/recommended-edits-persistence";
+import {
+  resolveAttributionCopy,
+  type AttributionCopyTone,
+} from "@/domains/attribution/lifecycle-attribution-copy";
 
 /**
  * A single row on the /changes page.
@@ -69,6 +73,27 @@ const PLATFORM_SHORT: Record<string, string> = {
 };
 
 /**
+ * Phase 6A.6 — map AttributionCopyTone to Tailwind palette classes.
+ * Kept tight here (no new component) because the resolver already
+ * owns the label/tooltip/tone decisions; this is just rendering glue.
+ */
+function attributionToneClass(tone: AttributionCopyTone): string {
+  switch (tone) {
+    case "success":
+      return "border-status-success/40 bg-status-success/[0.08] text-status-success";
+    case "warning":
+      return "border-status-warning/40 bg-status-warning/[0.08] text-status-warning";
+    case "accent":
+      return "border-accent-primary/40 bg-accent-primary/[0.06] text-accent-primary";
+    case "info":
+      return "border-border/60 bg-surface-inset/40 text-foreground/80";
+    case "muted":
+    default:
+      return "border-border/60 bg-surface-inset/60 text-muted-foreground";
+  }
+}
+
+/**
  * Phase 6A.2 (2026-04-28) — empty-state copy per lifecycle tab.
  * Honest about WHY the tab is empty so operators don't see a generic
  * "no rows" message and assume the system is broken.
@@ -98,6 +123,8 @@ export function ScorecardTable({
   classByChangelogId,
   tabCounts,
   editStatusByChangelogId,
+  editLiveAtByChangelogId,
+  verdictFlagEnabled = false,
 }: {
   rows: EnrichedChangeRow[];
   /** Reserved for future per-topic filter in drill-down. */
@@ -128,6 +155,20 @@ export function ScorecardTable({
    * etc. surface their distinct labels.
    */
   editStatusByChangelogId?: Record<string, ImplementationStatus>;
+  /**
+   * Phase 6A.6 (2026-04-28) — per-row linked edit `live_at` (ISO string)
+   * for the bake-window decision. Drives the "Too early — verdict
+   * pending" vs "Verdict tracking off" branches of the attribution-copy
+   * resolver.
+   */
+  editLiveAtByChangelogId?: Record<string, string>;
+  /**
+   * Phase 6A.6 (2026-04-28) — current `BEACON_LIFECYCLE_VERDICT_ENABLED`
+   * value resolved server-side once per render. Per-row resolver checks
+   * this to differentiate "Verdict tracking off" from "Verdict pending"
+   * post-bake.
+   */
+  verdictFlagEnabled?: boolean;
 }) {
   const [tab, setTab] = useState<LifecycleTab>(DEFAULT_LIFECYCLE_TAB);
 
@@ -222,6 +263,8 @@ export function ScorecardTable({
                 outcome={outcomesById?.[row.scorecard.change.id]}
                 lifecycleStatus={editStatusByChangelogId?.[row.scorecard.change.id]}
                 lifecycleClass={classByChangelogId?.[row.scorecard.change.id]}
+                editLiveAt={editLiveAtByChangelogId?.[row.scorecard.change.id]}
+                verdictFlagEnabled={verdictFlagEnabled}
               />
             ))}
           </tbody>
@@ -249,6 +292,8 @@ function ChangeRow({
   outcome,
   lifecycleStatus,
   lifecycleClass,
+  editLiveAt,
+  verdictFlagEnabled,
 }: {
   row: EnrichedChangeRow;
   outcome?: import("@/domains/attribution/change-outcome-store").StoredChangeOutcome;
@@ -256,6 +301,10 @@ function ChangeRow({
   lifecycleStatus?: ImplementationStatus;
   /** Phase 6A.3 (2026-04-28) — fallback class when no edit row joins. */
   lifecycleClass?: LifecycleTabClass;
+  /** Phase 6A.6 (2026-04-28) — linked edit live_at for bake-window check. */
+  editLiveAt?: string;
+  /** Phase 6A.6 (2026-04-28) — verdict-flag state for "tracking off" copy. */
+  verdictFlagEnabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const ch = row.scorecard.change;
@@ -337,11 +386,69 @@ function ChangeRow({
         </td>
         <td className="px-2.5 py-2 align-top whitespace-nowrap">
           {outcome ? (
-            <AttributionStatusPill status={outcome.status} confidence={outcome.confidence} compact />
+            // Phase 6A.6 — verified-live rows still in bake window MUST
+            // override a stale stored outcome (the outcome was computed
+            // from pre-pivot Profound data; the live_at says recompute
+            // is needed). Resolver returns the bake-window branch for
+            // those, so we use it rather than the raw outcome label.
+            (() => {
+              const copy = resolveAttributionCopy({
+                entry: ch,
+                edit: lifecycleStatus
+                  ? { implementation_status: lifecycleStatus, live_at: editLiveAt ?? null }
+                  : null,
+                cls: lifecycleClass ?? null,
+                outcome,
+                verdictFlagEnabled: verdictFlagEnabled ?? false,
+              });
+              if (
+                copy.branch === "verified_live_too_early" ||
+                copy.branch === "verified_live_verdict_off" ||
+                copy.branch === "verified_live_baked"
+              ) {
+                return (
+                  <span
+                    className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-semibold ${attributionToneClass(copy.tone)}`}
+                    title={copy.tooltip}
+                  >
+                    {copy.label}
+                  </span>
+                );
+              }
+              return (
+                <AttributionStatusPill
+                  status={outcome.status}
+                  confidence={outcome.confidence}
+                  compact
+                />
+              );
+            })()
           ) : row.hasUrl ? (
-            <span className="inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-semibold text-muted-foreground bg-surface-inset/60 border-border/60">
-              No data
-            </span>
+            // Phase 6A.6 (2026-04-28) — the per-row "No data" placeholder
+            // gave the H2 verified-live positive control the same generic
+            // pill as a 2-year-old Profound CSV import, undermining
+            // operator trust in the lifecycle OS. Resolver returns the
+            // most-specific honest copy for each backend state.
+            (() => {
+              const copy = resolveAttributionCopy({
+                entry: ch,
+                edit: lifecycleStatus
+                  ? { implementation_status: lifecycleStatus, live_at: editLiveAt ?? null }
+                  : null,
+                cls: lifecycleClass ?? null,
+                outcome: null,
+                verdictFlagEnabled: verdictFlagEnabled ?? false,
+              });
+              return (
+                <span
+                  className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-semibold ${attributionToneClass(copy.tone)}`}
+                  title={copy.tooltip}
+                  data-attribution-branch={copy.branch}
+                >
+                  {copy.label}
+                </span>
+              );
+            })()
           ) : (
             <span className="inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-semibold text-muted-foreground bg-surface-inset/60 border-border/60">
               Site-wide
