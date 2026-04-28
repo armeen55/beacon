@@ -1005,6 +1005,25 @@ function SpecificEditsSection({
                   status={edit.implementation_status}
                   compact
                 />
+                {/* Phase 6B.1 (2026-04-28) — needs-rewrite badge mirrors
+                    the /today implementation queue + Do-Next card. The
+                    deterministic FAQ generator emits a placeholder answer
+                    ("Draft answer (operator: rewrite)…") that the
+                    operator must replace before shipping. Surfacing the
+                    badge here means an operator working from
+                    /recommendations sees the warning before clicking
+                    Accept's downstream actions. */}
+                {edit.proposed_text?.includes(
+                  "Draft answer (operator: rewrite)",
+                ) && (
+                  <span
+                    className="inline-flex items-center rounded border border-status-warning/40 bg-status-warning/[0.08] px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-status-warning"
+                    title="The proposed text is a generator placeholder — rewrite it before shipping."
+                    data-recommendations-needs-rewrite="true"
+                  >
+                    needs rewrite
+                  </span>
+                )}
                 {/* Sprint 6A.2g.F — source provenance badge. */}
                 <span
                   className={cn(

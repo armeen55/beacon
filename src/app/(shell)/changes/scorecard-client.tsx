@@ -138,6 +138,7 @@ export function ScorecardTable({
   tabCounts,
   editStatusByChangelogId,
   editLiveAtByChangelogId,
+  editNeedsRewriteByChangelogId,
   verdictFlagEnabled = false,
 }: {
   rows: EnrichedChangeRow[];
@@ -176,6 +177,13 @@ export function ScorecardTable({
    * resolver.
    */
   editLiveAtByChangelogId?: Record<string, string>;
+  /**
+   * Phase 6B.1 (2026-04-28) — flag rows whose linked edit's
+   * `proposed_text` matches the generator placeholder pattern. The
+   * scorecard surfaces a "needs rewrite" badge so the operator
+   * sees the warning whether they're working from /today or /changes.
+   */
+  editNeedsRewriteByChangelogId?: Record<string, boolean>;
   /**
    * Phase 6A.6 (2026-04-28) — current `BEACON_LIFECYCLE_VERDICT_ENABLED`
    * value resolved server-side once per render. Per-row resolver checks
@@ -311,6 +319,7 @@ export function ScorecardTable({
                 lifecycleStatus={editStatusByChangelogId?.[row.scorecard.change.id]}
                 lifecycleClass={classByChangelogId?.[row.scorecard.change.id]}
                 editLiveAt={editLiveAtByChangelogId?.[row.scorecard.change.id]}
+                editNeedsRewrite={editNeedsRewriteByChangelogId?.[row.scorecard.change.id]}
                 verdictFlagEnabled={verdictFlagEnabled}
               />
             ))}
@@ -340,6 +349,7 @@ function ChangeRow({
   lifecycleStatus,
   lifecycleClass,
   editLiveAt,
+  editNeedsRewrite,
   verdictFlagEnabled,
 }: {
   row: EnrichedChangeRow;
@@ -350,6 +360,8 @@ function ChangeRow({
   lifecycleClass?: LifecycleTabClass;
   /** Phase 6A.6 (2026-04-28) — linked edit live_at for bake-window check. */
   editLiveAt?: string;
+  /** Phase 6B.1 (2026-04-28) — true when proposed_text is a generator placeholder. */
+  editNeedsRewrite?: boolean;
   /** Phase 6A.6 (2026-04-28) — verdict-flag state for "tracking off" copy. */
   verdictFlagEnabled?: boolean;
 }) {
@@ -414,9 +426,25 @@ function ChangeRow({
             onClick={(e) => e.stopPropagation()}
             className="hover:text-accent-primary transition-colors"
           >
-            <p className="font-medium text-[12px] leading-snug line-clamp-2">
-              {ch.asset_name}
-            </p>
+            <div className="flex items-start gap-1.5 flex-wrap">
+              <p className="font-medium text-[12px] leading-snug line-clamp-2 flex-1 min-w-0">
+                {ch.asset_name}
+              </p>
+              {/* Phase 6B.1 (2026-04-28) — needs-rewrite badge on
+                  /changes Pending rows. The /today queue + Do-Next card
+                  already surface this; mirroring it here so an operator
+                  working from /changes sees the same warning before
+                  shipping a placeholder FAQ. */}
+              {editNeedsRewrite && (
+                <span
+                  className="shrink-0 inline-flex items-center rounded border border-status-warning/40 bg-status-warning/[0.08] px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-status-warning"
+                  title="The proposed text is a generator placeholder — rewrite it before shipping."
+                  data-changes-needs-rewrite="true"
+                >
+                  needs rewrite
+                </span>
+              )}
+            </div>
             <p className="text-[10px] text-muted-foreground line-clamp-2 mt-0.5 leading-snug">
               {ch.change_description}
             </p>

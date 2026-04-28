@@ -48,6 +48,11 @@ import {
 } from "@/domains/attribution/lifecycle-classification";
 import { isLifecycleVerdictEnabled } from "@/lib/flags";
 import { TodayLifecycleStrip } from "@/components/today/lifecycle-strip";
+import {
+  computeLifecycleCounts,
+  editNeedsRewrite,
+} from "@/domains/attribution/lifecycle-counts";
+import { buildSyntheticChangelogRows } from "@/domains/attribution/synthesize-pending-changelog";
 import type {
   ImplementationStatus,
   RecommendedEditRow,
@@ -138,9 +143,36 @@ export default async function ChangeScorecardPage() {
     // edits are missing. Log so a Supabase outage is observable.
     console.error("[changes] recommended_edits read failed (non-fatal)", err);
   }
+  // Phase 6B.1 (2026-04-28) — canonical truth for lifecycle counts is
+  // `recommended_edits.implementation_status`, NOT joined changelog
+  // entries. Pre-6B.1 the classifier counted changelog rows joined to
+  // edits, which undercounted pending implementation when the
+  // accept-fanout never minted changelog rows (Los Altos: 5 accepted
+  // edits, 0 changelog rows → /changes Pending: 0, /today: 5).
+  //
+  // Fix: synthesize ChangelogEntry-shaped rows from each pending edit
+  // that lacks a real changelog row. The synthetic rows go through
+  // the same classifier + render path as real rows, so /changes
+  // Pending now reads off the canonical truth without any data
+  // mutation. Other tabs (Live verified, Imported legacy,
+  // Scan-confirmed) remain changelog-driven.
+  const lifecycleBuckets = computeLifecycleCounts(recommendedEdits);
+  const syntheticPendingRows = buildSyntheticChangelogRows({
+    changelogEntries: liveEntries,
+    // Synthesize for both pending AND needs-review edits so /changes
+    // tabs reflect canonical truth even when the historical accept
+    // fan-out skipped a row. Verified-live edits ALWAYS have a real
+    // changelog row (the runner stamps live_at), so no synthesis there.
+    editsToSynthesize: [
+      ...lifecycleBuckets.buckets.pendingEdits,
+      ...lifecycleBuckets.buckets.needsReviewEdits,
+    ],
+  });
+  const allRowsForClassifier = [...liveEntries, ...syntheticPendingRows];
+
   const editsByJoinKey = indexEditsByJoinKey(recommendedEdits);
   const classification = classifyAll({
-    entries: liveEntries,
+    entries: allRowsForClassifier,
     editsByJoinKey,
   });
   // Phase 6A.3 (2026-04-28) — additionally expose the per-row linked
@@ -152,9 +184,13 @@ export default async function ChangeScorecardPage() {
   // attribution-copy resolver can run the bake-window check (verified_live
   // < 7 days ago → "Too early"; ≥ 7 days → "Verdict tracking off" /
   // "Verdict pending" depending on the verdict flag).
+  // Phase 6B.1 (2026-04-28) — also expose `needsRewrite` so the
+  // scorecard can surface the "needs rewrite" badge on synthetic
+  // pending rows whose proposed_text is a generator placeholder.
   const editStatusByChangelogId: Record<string, ImplementationStatus> = {};
   const editLiveAtByChangelogId: Record<string, string> = {};
-  for (const entry of liveEntries) {
+  const editNeedsRewriteByChangelogId: Record<string, boolean> = {};
+  for (const entry of allRowsForClassifier) {
     const joinKey = changelogJoinKey(entry);
     if (!joinKey) continue;
     const edit = editsByJoinKey.get(joinKey);
@@ -163,6 +199,9 @@ export default async function ChangeScorecardPage() {
     }
     if (edit?.live_at) {
       editLiveAtByChangelogId[entry.id] = edit.live_at;
+    }
+    if (edit && editNeedsRewrite(edit)) {
+      editNeedsRewriteByChangelogId[entry.id] = true;
     }
   }
 
@@ -184,7 +223,12 @@ export default async function ChangeScorecardPage() {
     getEventDecisions(),
     getCitationEvidenceIndex(),
   ]);
-  const rawRows = computeScorecard(liveEntries, results, opportunities, eventDecisions);
+  // Phase 6B.1 (2026-04-28) — feed `allRowsForClassifier` (real
+  // changelog + synthetic pending rows) into the scorecard so synthetic
+  // rows surface in the rendered table. computeScorecard is pure: rows
+  // with no attribution events get empty arrays and zero counts, which
+  // is the right answer for an edit that hasn't shipped yet.
+  const rawRows = computeScorecard(allRowsForClassifier, results, opportunities, eventDecisions);
   const rows = enrichWithImpact(rawRows);
 
   // Newest-first default sort.
@@ -308,19 +352,18 @@ export default async function ChangeScorecardPage() {
   // below, so the headline number and the tab chip never disagree.
   const lifecycleCounts = classification.counts;
 
-  // Phase 6A.10 (2026-04-28) — strip parity. Reuse the same chip strip
-  // /today renders so the operator sees a consistent at-a-glance shape
-  // on both surfaces. The classifier doesn't track `not_found_after_7d`
-  // separately (it bins into `unclassified`), so derive that count from
-  // the loaded recommended_edits directly.
-  const notFoundAfter7dCount = recommendedEdits.filter(
-    (e) => e.implementation_status === "not_found_after_7d",
-  ).length;
+  // Phase 6B.1 (2026-04-28) — strip counts now read directly from the
+  // canonical `recommended_edits` buckets, NOT the classifier's
+  // changelog-driven counts. Pre-6B.1 the strip's `pendingImplementation`
+  // mirrored the classifier output (changelog rows linked to accepted
+  // edits), which undercounted when the accept fan-out missed rows.
+  // Reading from `lifecycleBuckets.counts` aligns the strip with /today
+  // and keeps both surfaces honest about edit-level lifecycle truth.
   const lifecycleStripCounts = {
-    liveVerified: lifecycleCounts.live_verified,
-    pendingImplementation: lifecycleCounts.pending_implementation,
-    needsReview: lifecycleCounts.needs_review,
-    notFoundAfter7d: notFoundAfter7dCount,
+    liveVerified: lifecycleBuckets.counts.liveVerified,
+    pendingImplementation: lifecycleBuckets.counts.pendingImplementation,
+    needsReview: lifecycleBuckets.counts.needsReview,
+    notFoundAfter7d: lifecycleBuckets.counts.notFoundAfter7d,
   };
 
   return (
@@ -438,6 +481,7 @@ export default async function ChangeScorecardPage() {
         tabCounts={lifecycleCounts}
         editStatusByChangelogId={editStatusByChangelogId}
         editLiveAtByChangelogId={editLiveAtByChangelogId}
+        editNeedsRewriteByChangelogId={editNeedsRewriteByChangelogId}
         verdictFlagEnabled={isLifecycleVerdictEnabled()}
       />
 

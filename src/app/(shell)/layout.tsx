@@ -56,6 +56,13 @@ export default async function ShellLayout({
   //   Changes — URLs currently being watched by the Z-score engine (verdict
   //             in {hurting, nothing_yet, too_early}). One row per URL.
   //             Replaces the legacy `experiment-store` read as of 2026-04-19.
+  //
+  //   NOTE (Phase 6B.1, 2026-04-28): the operator-honest count would be
+  //   lifecycle-actionable = `pendingImplementation + needsReview` from
+  //   recommended_edits. That change requires resolving the build-time
+  //   prerender behavior of /changes/truth (calling currentTenantId from
+  //   the shell layout fails build there). Tracked as a separate small
+  //   follow-up phase; the Pending tab + badges already match /today.
   const pendingFindings = await getPendingFindings();
   const todayBadge = pendingFindings.filter((f) =>
     CONTENT_CHANGE_TYPES.has(f.type),
@@ -66,8 +73,6 @@ export default async function ShellLayout({
       .map((f) => f.pagePath),
   );
   const pagesBadge = pagesWithBugs.size;
-  // Count distinct URLs with a live verdict \u2014 hurting, nothing_yet, too_early.
-  // Settled wins ("helping") and dead ends ("not_enough_data") are excluded.
   const changesBadge = (await getWatchingUrlOutcomes()).length;
 
   const badges: NavBadges = {};
