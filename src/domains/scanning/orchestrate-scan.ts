@@ -293,7 +293,14 @@ export async function runWebsiteScan(opts: {
 
   const merged: LastScanResultPayload = {
     ...payload,
-    trigger: payload.trigger ?? trigger,
+    // Phase 6D follow-up (2026-04-28): orchestrator wins over CLI-emitted
+    // trigger. The CLI hardcodes `trigger: "cli"` because it doesn't know
+    // who invoked it (every scan-owned-pages.ts call site sets "cli").
+    // Pre-fix `payload.trigger ?? trigger` always picked the CLI value,
+    // making cron-triggered runs incorrectly read trigger="cli" in the
+    // durable record. The orchestrator's `trigger` is the authoritative
+    // higher-level context, so it should always win.
+    trigger,
     finishedAt: payload.finishedAt,
   };
 
