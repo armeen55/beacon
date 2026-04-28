@@ -7,6 +7,89 @@
 
 ---
 
+## 2026-04-28 — Recommendation Lifecycle OS UI (Phases 6A.1 → 6A.10)
+
+Single sweep of phases that bring the lifecycle backend's truth to the operator's command-center UI. Audit + plan in `/Users/armeen/.claude/plans/use-opus-max-you-reflective-alpaca.md`. Each phase landed as a separate commit so rollback is per-phase.
+
+### Phase 6A.1 — Whole Home Remodel FAQ test pollution cleanup
+**Commit:** [55da7ef](https://github.com/armeen55/beacon/commit/55da7ef)
+- Idempotent script `scripts/archive-faq-test-pollution.ts` with preflight + dry-run + execute modes.
+- Mutated 4 rows total: 2 changelog (`cl-mogzw78n87lkhq`, `cl-mogzw78n5j9e7u`) → `archived=true, archived_reason="test_pollution:faq_never_implemented"`; 2 recommended_edits → `implementation_status="dismissed", not_found_reason=same`.
+- Preserved entirely: H2 changelog `cl-mogzw78nv8pu54`, H2 recommended_edits row, rec-level `recommendation_responses` row.
+- 9/9 postflight checks passed including SHA fingerprints on H2 (`a38ad225fade6111`) and rec response (`b339cad50e0c70cd`).
+- Supabase mirror verified via `execute_sql` for all 7 rows; H2 `live_at='2026-04-28 05:26:26.05+00'`, `live_match_confidence=high`, `live_match_kind=exact`, `live_element_key=h2[6]:070a58b1f3f4` unchanged.
+- Verification: typecheck clean · 2922/2923 vitest pass · build clean.
+
+### Phase 6A.2 — /changes loader quarantine + lifecycle tabs
+**Commit:** [8e35ce5](https://github.com/armeen55/beacon/commit/8e35ce5)
+- New pure classifier `src/domains/attribution/lifecycle-classification.ts` with 9 branches in priority order. Defense-in-depth: archived rows always classify as `unclassified`.
+- /changes default tab = `live_verified` (driven by URL `?tab=` since 6A.8). Tabs: live_verified / pending_implementation / needs_review / imported_legacy / scan_confirmed / all.
+- Page header copy: "Verified and tracked changes…".
+- 27 new classifier tests + smoke + reads-fresh test updates. Sum check on production data: `1 + 274 + 14 = 289` total non-archived rows.
+- Verification: typecheck clean · 2949/2950 vitest pass · build clean.
+
+### Phase 6A.3 — LifecycleStatusPill component
+**Commit:** [6f91ecd](https://github.com/armeen55/beacon/commit/6f91ecd)
+- New `src/components/display/lifecycle-status-pill.tsx`. Granular `status` (verified_live / accepted / dismissed / etc.) wins over class fallback. 12 distinct labels, compact + full modes, `data-lifecycle-key` E2E hook.
+- Rendered on every /changes row + every /recommendations specific edit.
+- Production-shape verification: H2 row `data-lifecycle-key="verified_live"` text `✓ Live`; FAQ Q + A `data-lifecycle-key="dismissed"` text `Dismissed`; 5 Los Altos accepted edits `data-lifecycle-key="accepted"` text `Pending`; 274 imported legacy `Legacy`; 14 scan-confirmed `Scan`.
+- 37 new pill tests. Verification: typecheck clean · 2985/2986 vitest pass · build clean.
+
+### Phase 6A.4 — Today scan-findings rename + collapse
+**Commit:** [da8b1b8](https://github.com/armeen55/beacon/commit/da8b1b8)
+- "N changes detected" → "Scan diffs to review (N)" inside `<details>` collapsed by default. "Confirm" button → "Confirm and add to changelog".
+- Anchor id `change-review-section` preserved (deep-linked from the scan-status banner).
+- Server actions `confirmFindingAsChange` + `resolveFinding` byte-identical.
+- 8 new ChangeReview tests. Browser-verified: `details.open === false` on first paint; renamed copy; archive button still mints scan_detection changelog rows when clicked.
+- Verification: typecheck clean · 2993/2994 vitest pass · build clean.
+
+### Phase 6A.6 — lifecycle-aware attribution copy
+**Commit:** [5376c3a](https://github.com/armeen55/beacon/commit/5376c3a)
+- New `src/domains/attribution/lifecycle-attribution-copy.ts` with 9-branch decision tree. Replaces the misleading "No data" pill with state-specific copy. Verified-live bake-window override on stale outcomes locked by tests.
+- Replacement copy on /changes scorecard + on `EvidenceFreshnessBanner` null-branch (the gaslight-y "wait for the first native-poll integration" copy retired).
+- Production verification: H2 row reads `Too early — verdict pending` (branch `verified_live_too_early`); 14 scan_confirmed rows read `Scan-confirmed — measuring`; "No data" string and pre-pivot banner copy absent from entire page DOM.
+- 23 new resolver tests. Verification: typecheck clean · 3016/3017 vitest pass · build clean.
+
+### Phase 6A.7 — Today lifecycle strip + implementation queue
+**Commit:** [62b2d5f](https://github.com/armeen55/beacon/commit/62b2d5f)
+- `TodayLifecycleStrip` (4-chip row, live_verified always shown) + `TodayImplementationQueue` (top accepted edits) added to /today.
+- `today-data.ts:buildTodayLifecycleSummary` reads recommended_edits from the same tenant-scoped repo /changes uses; strip and tab counts always reconcile.
+- Production data: 1 live verified · 5 pending implementation · 0 needs_review · 0 not_found_after_7d (Los Altos rec). Dismissed FAQ rows correctly excluded.
+- 12 new tests (5 strip + 7 queue). Verification: typecheck clean · 3028/3029 vitest pass · build clean.
+
+### Phase 6A.8 — Today command-center hierarchy restructure
+**Commit:** [cb83d05](https://github.com/armeen55/beacon/commit/cb83d05)
+- New 8-tier order locked by `tests/routes/today-section-order.test.ts`: alerts → Do Next card → lifecycle strip → impl queue → Decide tonight → wins / latest signal → metrics disclosure (closed by default, localStorage-persisted) → scan diffs (collapsed).
+- New components: `TodayDoNextCard` (deterministic priority: ship_pending > decide_recommendation > review_scan_diffs > calm), `TodayMetricsDisclosure` (collapsible wrapper).
+- Implementation queue capped to top 3 + needs-rewrite badge for FAQ placeholder rows.
+- Folded-in deep-link plumbing on /changes: `useSearchParams` + `router.replace`. Today's lifecycle-strip chips deep-link to `/changes?tab=…`.
+- 23 new tests. Browser-verified: `data-today-layout="phase-6a8"`; Do Next at top=479px (kind=ship_pending, headline = Los Altos H2); lifecycle strip 782px; queue 902px (3 rows, 2 needsRewrite); metrics disclosure 5100px (closed); scan diffs 5219px (collapsed). Verification: typecheck clean · 3051/3052 vitest pass · build clean.
+
+### Phase 6A.10 — strip parity + docs sync (this entry)
+**Commit:** TBD this commit
+- /changes renders the same `TodayLifecycleStrip` component that /today renders; chips deep-link to `/changes?tab=…` via the Phase 6A.8 plumbing. `notFoundAfter7d` count derived directly from `recommended_edits.implementation_status` (classifier bins it into `unclassified`).
+- HANDOFF_VERIFIED_STATE.md updated with a top-of-file 6A.1→6A.10 status banner and "next 3 actions".
+- VERIFICATION_LOG entry (this).
+
+### Total UI sweep (6A.1 → 6A.10) verification
+
+| Surface | Before | After |
+| --- | --- | --- |
+| `/changes` default tab | All 291 rows mixed | **Live verified** (1 row: H2) |
+| H2 row pills | "No data" | `✓ Live` + `Too early — verdict pending` |
+| FAQ test rows | Live in /changes default | Archived; absent from default and queue |
+| `/today` top section | Metrics-heavy (6 sections) | Critical alerts → Do Next → lifecycle strip |
+| Scan diffs | Always-open "N changes detected" | Collapsed `<details>` "Scan diffs to review (N)" |
+| Confirm button | "Confirm" | "Confirm and add to changelog" |
+| Verdict banner null copy | "no citation evidence has been built yet" | "index has not been rebuilt against native polling yet" |
+| Today metrics | Above the fold | Collapsed disclosure, localStorage-persisted |
+| Lifecycle pill | Not rendered | Per-row + per-edit on /changes + /recommendations |
+| Tab deep-links | Not supported | `?tab=…` URL state synced with chip clicks |
+
+No data mutation in any phase except 6A.1 (the surgical FAQ archive). No matcher behavior change. No flag flip. `BEACON_LIFECYCLE_VERDICT_ENABLED` stays OFF throughout.
+
+---
+
 ## 2026-04-27 — Accept ON CONFLICT bug fix (recommendation_responses dual-write)
 
 Operator-reported runtime bug. Surfaced when the operator clicked Accept on the Whole Home Remodel rec from local dev with `DATA_SOURCE=supabase DUAL_WRITE=true BEACON_LIFECYCLE_ENABLED=1 npm run dev`. Server-action terminal log:

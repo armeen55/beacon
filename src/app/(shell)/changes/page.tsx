@@ -47,6 +47,7 @@ import {
   type LifecycleTabClass,
 } from "@/domains/attribution/lifecycle-classification";
 import { isLifecycleVerdictEnabled } from "@/lib/flags";
+import { TodayLifecycleStrip } from "@/components/today/lifecycle-strip";
 import type {
   ImplementationStatus,
   RecommendedEditRow,
@@ -307,6 +308,21 @@ export default async function ChangeScorecardPage() {
   // below, so the headline number and the tab chip never disagree.
   const lifecycleCounts = classification.counts;
 
+  // Phase 6A.10 (2026-04-28) — strip parity. Reuse the same chip strip
+  // /today renders so the operator sees a consistent at-a-glance shape
+  // on both surfaces. The classifier doesn't track `not_found_after_7d`
+  // separately (it bins into `unclassified`), so derive that count from
+  // the loaded recommended_edits directly.
+  const notFoundAfter7dCount = recommendedEdits.filter(
+    (e) => e.implementation_status === "not_found_after_7d",
+  ).length;
+  const lifecycleStripCounts = {
+    liveVerified: lifecycleCounts.live_verified,
+    pendingImplementation: lifecycleCounts.pending_implementation,
+    needsReview: lifecycleCounts.needs_review,
+    notFoundAfter7d: notFoundAfter7dCount,
+  };
+
   return (
     <div>
       <PageHeader
@@ -325,53 +341,60 @@ export default async function ChangeScorecardPage() {
         className="mb-6"
       />
 
-      {/* At-a-glance — Phase 6A.2 lifecycle tab counts. Prominent
-          live_verified count anchors the page in lifecycle-OS truth. */}
-      <div className="mb-6 rounded-lg border border-border/60 bg-surface-raised/40 px-5 py-4">
-        <div className="flex flex-wrap items-baseline gap-x-6 gap-y-2 text-sm">
-          <span>
-            <span className="font-bold tabular-nums text-status-success">
-              {lifecycleCounts.live_verified}
-            </span>
-            <span className="text-muted-foreground ml-1.5">{LIFECYCLE_TAB_LABEL.live_verified.toLowerCase()}</span>
-          </span>
-          {lifecycleCounts.pending_implementation > 0 && (
-            <span className="text-status-warning/90 font-semibold tabular-nums">
-              {lifecycleCounts.pending_implementation} pending
-            </span>
-          )}
-          {lifecycleCounts.needs_review > 0 && (
-            <span className="text-status-warning font-semibold tabular-nums">
-              {lifecycleCounts.needs_review} need review
-            </span>
-          )}
-          {lifecycleCounts.imported_legacy > 0 && (
-            <span className="text-muted-foreground tabular-nums">
-              {lifecycleCounts.imported_legacy} imported legacy
-            </span>
-          )}
-          {lifecycleCounts.scan_confirmed > 0 && (
-            <span className="text-muted-foreground tabular-nums">
-              {lifecycleCounts.scan_confirmed} scan-confirmed
-            </span>
-          )}
-          {lifecycleCounts.unclassified > 0 && (
-            <span className="text-muted-foreground/70 tabular-nums">
-              {lifecycleCounts.unclassified} other
-            </span>
-          )}
-          {newestLabel && (
-            <span className="text-muted-foreground ml-auto">
-              Latest: <span className="font-medium text-foreground">{newestLabel}</span>
-            </span>
-          )}
-          {coverageWarning && (
-            <span className="text-[11px] text-status-warning/70">
-              · {coverageWarning.toLowerCase()}
-            </span>
-          )}
+      {/* Phase 6A.10 (2026-04-28) — lifecycle strip parity with /today.
+          Same TodayLifecycleStrip component, same chip→tab href map.
+          Clicking a chip on /changes reloads with `?tab=…`, which the
+          scorecard client picks up via useSearchParams (Phase 6A.8
+          deep-link plumbing) and switches the active tab. Strip sits
+          above the legacy at-a-glance row because chips are clickable
+          (active surface) while the row is passive context. */}
+      <TodayLifecycleStrip
+        counts={lifecycleStripCounts}
+        className="mb-3"
+      />
+
+      {/* Phase 6A.10 (2026-04-28) — slim at-a-glance: lifecycle counts
+          now live in the strip above; this row carries only recency +
+          coverage warnings + secondary class counts (imported_legacy,
+          scan_confirmed, other) the strip's 4 chips omit. The pre-6A.10
+          version duplicated lifecycle counts between the strip and this
+          row, which created visual clutter the user explicitly flagged. */}
+      {(newestLabel ||
+        coverageWarning ||
+        lifecycleCounts.imported_legacy > 0 ||
+        lifecycleCounts.scan_confirmed > 0 ||
+        lifecycleCounts.unclassified > 0) && (
+        <div className="mb-6 rounded-md border border-border/40 bg-surface-inset/20 px-4 py-2">
+          <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
+            {lifecycleCounts.imported_legacy > 0 && (
+              <span className="tabular-nums">
+                {lifecycleCounts.imported_legacy} imported legacy
+              </span>
+            )}
+            {lifecycleCounts.scan_confirmed > 0 && (
+              <span className="tabular-nums">
+                {lifecycleCounts.scan_confirmed} scan-confirmed
+              </span>
+            )}
+            {lifecycleCounts.unclassified > 0 && (
+              <span className="text-muted-foreground/70 tabular-nums">
+                {lifecycleCounts.unclassified} other
+              </span>
+            )}
+            {newestLabel && (
+              <span className="ml-auto">
+                Latest:{" "}
+                <span className="font-medium text-foreground">{newestLabel}</span>
+              </span>
+            )}
+            {coverageWarning && (
+              <span className="text-status-warning/70">
+                · {coverageWarning.toLowerCase()}
+              </span>
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Event-level truth preview (flag-gated) */}
       {truthPreviewEnabled && (

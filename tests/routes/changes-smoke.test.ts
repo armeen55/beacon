@@ -39,6 +39,11 @@ describe("Changes route smoke", () => {
     // Phase 6A.2 at-a-glance now leads with the live-verified count
     // and labels it "live verified" (lowercased from LIFECYCLE_TAB_LABEL).
     expect(html).toContain("live verified");
+    // Phase 6A.10 (2026-04-28) — /changes renders the lifecycle strip
+    // (same component as /today). Chips deep-link to /changes?tab=...
+    // via the Phase 6A.8 deep-link plumbing.
+    expect(html).toContain("data-today-lifecycle-strip");
+    expect(html).toContain('data-lifecycle-chip="liveVerified"');
     // No tab shell — the old "Outcomes / Attribution / Replicate" tab chrome is gone.
     expect(html).not.toContain(">Outcomes<");
     expect(html).not.toContain(">Attribution<");
