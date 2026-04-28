@@ -13,6 +13,7 @@
  * only by tests.
  */
 
+import { extractFirstNonEmptyLine } from "./normalize-text";
 import {
   matchInternalLink,
   matchPositional,
@@ -63,8 +64,24 @@ export function matchAcceptedEdit(inputs: MatchInputs): MatchResult {
 
     case "add_h2_section":
     case "rewrite_h2":
+      // 2026-04-27 H2 newline-split fix. Surfaced during the Phase 3/4
+      // safety gate: the deterministic generator's `proposed_text` for
+      // `add_h2_section` concatenates a heading + body paragraph
+      // separated by `\n`, but a live page implements them as
+      // `<h2>heading</h2>` followed by a separate `<p>paragraph</p>`.
+      // The H2 element extractor only captures the heading element's
+      // text. Without the transform, the matcher scored the heading
+      // against the full multi-line proposed_text and got similarity
+      // ~0.17 (false negative). With `extractFirstNonEmptyLine`, the
+      // matcher scores against the heading only — the H2 match works
+      // as the spec intends. Body paragraph verification stays out of
+      // scope (paragraph extractor deferred to Phase 6+ per spec
+      // §3.2). Pinned by tests/architecture/match-engine-purity.test.ts
+      // + the new extractFirstNonEmptyLine + h2 newline tests in
+      // match-engine.test.ts.
       return matchPositional(edit, inputs.currentInventory, "h2", {
         otherUrlInventories: inputs.otherUrlInventories,
+        proposedTextTransform: extractFirstNonEmptyLine,
       });
 
     case "add_faq":

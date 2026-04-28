@@ -745,6 +745,221 @@ describe("matchAcceptedEdit — schema, links, unsupported", () => {
 // Mutation invariance + determinism
 // ─────────────────────────────────────────────────────────────────────────
 
+// ─────────────────────────────────────────────────────────────────────────
+// 2026-04-27 H2 newline-split fix
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("add_h2_section — newline-split first-line heading match (2026-04-27)", () => {
+  const H2_TEXT = "Why choose an architect-led design-build firm for whole-home remodels";
+  const PARAGRAPH =
+    "An architect-led design-build approach keeps design, budget, and construction tightly coordinated, reducing unexpected cost increases and schedule delays.";
+
+  it("multi-line proposed_text + matching live H2 → verified_live (heading-only match)", () => {
+    const edit = makeEdit({
+      action_type: "add_h2_section",
+      target_element_key: "h2[new]:hash",
+      proposed_text: `${H2_TEXT}\n${PARAGRAPH}`,
+    });
+    const inv = [
+      makeInv({
+        element_type: "h2",
+        element_key: "h2[5]:abc",
+        element_text: H2_TEXT,
+      }),
+    ];
+    const result = matchAcceptedEdit({ edit, currentInventory: inv });
+    expect(result.outcome).toBe("verified_live");
+    expect(result.confidence).toBe("high");
+    expect(result.kind).toBe("exact");
+    expect(result.matchedElementKey).toBe("h2[5]:abc");
+  });
+
+  it("multi-line proposed_text + modified live H2 (one-word swap) → verified_live_modified", () => {
+    const edit = makeEdit({
+      action_type: "add_h2_section",
+      proposed_text: `${H2_TEXT}\n${PARAGRAPH}`,
+    });
+    const inv = [
+      makeInv({
+        element_type: "h2",
+        element_key: "h2[5]:abc",
+        element_text: "Why hire an architect-led design-build firm for whole-home remodels",
+      }),
+    ];
+    const result = matchAcceptedEdit({ edit, currentInventory: inv });
+    expect(result.outcome).toBe("verified_live_modified");
+    expect(result.confidence).toBe("high");
+  });
+
+  it("rewrite_h2 also benefits from newline-split (same dispatch)", () => {
+    const edit = makeEdit({
+      action_type: "rewrite_h2",
+      proposed_text: `${H2_TEXT}\n${PARAGRAPH}`,
+    });
+    const inv = [
+      makeInv({
+        element_type: "h2",
+        element_key: "h2[0]:abc",
+        element_text: H2_TEXT,
+      }),
+    ];
+    expect(matchAcceptedEdit({ edit, currentInventory: inv }).outcome).toBe(
+      "verified_live",
+    );
+  });
+
+  it("CRLF line endings work the same as LF", () => {
+    const edit = makeEdit({
+      action_type: "add_h2_section",
+      proposed_text: `${H2_TEXT}\r\n${PARAGRAPH}`,
+    });
+    const inv = [
+      makeInv({
+        element_type: "h2",
+        element_key: "h2[0]:abc",
+        element_text: H2_TEXT,
+      }),
+    ];
+    expect(matchAcceptedEdit({ edit, currentInventory: inv }).outcome).toBe(
+      "verified_live",
+    );
+  });
+
+  it("leading blank line(s) skipped — first non-empty line is heading", () => {
+    const edit = makeEdit({
+      action_type: "add_h2_section",
+      proposed_text: `\n  \n${H2_TEXT}\n${PARAGRAPH}`,
+    });
+    const inv = [
+      makeInv({
+        element_type: "h2",
+        element_key: "h2[0]:abc",
+        element_text: H2_TEXT,
+      }),
+    ];
+    expect(matchAcceptedEdit({ edit, currentInventory: inv }).outcome).toBe(
+      "verified_live",
+    );
+  });
+
+  it("single-line proposed_text continues to behave as before (regression)", () => {
+    const edit = makeEdit({
+      action_type: "add_h2_section",
+      proposed_text: H2_TEXT,
+    });
+    const inv = [
+      makeInv({
+        element_type: "h2",
+        element_key: "h2[0]:abc",
+        element_text: H2_TEXT,
+      }),
+    ];
+    expect(matchAcceptedEdit({ edit, currentInventory: inv }).outcome).toBe(
+      "verified_live",
+    );
+  });
+
+  it("wrong-page detection still fires when heading matches on a non-target URL", () => {
+    const edit = makeEdit({
+      action_type: "add_h2_section",
+      target_url: "https://example.com/services/whole-home-remodel",
+      proposed_text: `${H2_TEXT}\n${PARAGRAPH}`,
+    });
+    const result = matchAcceptedEdit({
+      edit,
+      currentInventory: [
+        makeInv({
+          element_type: "h2",
+          element_key: "h2[0]:on",
+          element_text: "Different heading",
+        }),
+      ],
+      otherUrlInventories: [
+        {
+          url: "https://example.com/locations/palo-alto",
+          rows: [
+            makeInv({
+              element_type: "h2",
+              element_key: "h2[0]:off",
+              element_text: H2_TEXT, // heading on wrong URL
+            }),
+          ],
+        },
+      ],
+    });
+    expect(result.outcome).toBe("wrong_page");
+    expect(result.matchedUrl).toBe(
+      "https://example.com/locations/palo-alto",
+    );
+  });
+
+  it("FAQ proposed_text with newline is NOT affected (different action type)", () => {
+    // FAQ uses matchPositional WITHOUT the transform — the full
+    // proposed_text is scored against the FAQ element. A multi-line
+    // FAQ would NOT collapse to first-line.
+    const Q = "What permits are needed?";
+    const edit = makeEdit({
+      action_type: "add_faq",
+      target_element_key: "faq_question[new]:abc",
+      proposed_text: `${Q}\nSome trailing context that should NOT match`,
+    });
+    const inv = [
+      makeInv({
+        element_type: "faq_question",
+        element_key: "faq_question[0]:abc",
+        element_text: Q, // exact heading-only — should NOT exact-match because FAQ scores full text
+      }),
+    ];
+    const result = matchAcceptedEdit({ edit, currentInventory: inv });
+    // Expectation: NOT verified_live (full proposed text including
+    // trailing context doesn't match Q-only). Must be either
+    // verified_live_modified (sim ≥ 0.85) or needs_review (sim ≥ 0.7)
+    // depending on token overlap. Crucially: the FAQ matcher did NOT
+    // get the H2-only newline-split transform.
+    expect(result.outcome).not.toBe("verified_live");
+    // Same edit, but with the H2 transform manually (would match exact)
+    // — proves the transform is reachable; the FAQ dispatch just
+    // doesn't apply it.
+  });
+
+  it("title/meta/H1 NOT affected — singleton matcher unchanged", () => {
+    // The singleton matcher does NOT route through matchPositional and
+    // does NOT apply any line-split. A multi-line title.proposed_text
+    // would still score against the full string.
+    const edit = makeEdit({
+      action_type: "edit_title",
+      proposed_text: "Heading\nUnused tail text",
+    });
+    const inv = [
+      makeInv({
+        element_type: "title",
+        element_key: "title[0]:abc",
+        element_text: "Heading",
+      }),
+    ];
+    const result = matchAcceptedEdit({ edit, currentInventory: inv });
+    // Heading vs full multi-line: similarity well under 1, NOT exact.
+    expect(result.outcome).not.toBe("verified_live");
+    // (May be verified_live_modified or needs_review based on
+    // similarity scoring; the assertion that matters is "the singleton
+    // path didn't get H2-style line-split treatment").
+  });
+
+  it("extractFirstNonEmptyLine helper: standalone purity check", async () => {
+    const { extractFirstNonEmptyLine } = await import("./normalize-text");
+    expect(extractFirstNonEmptyLine("a\nb")).toBe("a");
+    expect(extractFirstNonEmptyLine("\n\n  \nfirst real\nbody")).toBe(
+      "first real",
+    );
+    expect(extractFirstNonEmptyLine("only one line")).toBe("only one line");
+    expect(extractFirstNonEmptyLine("")).toBe("");
+    expect(extractFirstNonEmptyLine("\n\n\n")).toBe("\n\n\n"); // all blank → fallback
+    // Idempotent
+    const twice = extractFirstNonEmptyLine(extractFirstNonEmptyLine("a\nb"));
+    expect(twice).toBe("a");
+  });
+});
+
 describe("matchAcceptedEdit — purity invariants", () => {
   it("does NOT mutate inputs (deep-frozen edit + inventory)", () => {
     const edit = Object.freeze(

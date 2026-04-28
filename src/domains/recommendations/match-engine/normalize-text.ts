@@ -87,3 +87,30 @@ export function normalizeTextBoth(input: string): {
   const folded = exact.toLowerCase();
   return { exact, folded };
 }
+
+/**
+ * Recommendation Lifecycle OS — Phase 2 add-on (2026-04-27).
+ *
+ * Returns the FIRST non-empty line of `text` (after trimming each line
+ * individually). Used by the H2 matcher (`add_h2_section` /
+ * `rewrite_h2` dispatch in `index.ts`) when the generator's
+ * `proposed_text` shape concatenates a heading + body paragraph
+ * separated by `\n` — only the heading is the H2 candidate; the body
+ * is structural context the v1 element extractor doesn't yet handle
+ * (paragraph extractor deferred per spec §3.2).
+ *
+ * Falls back to the whole input string when every line is blank
+ * (defensive — never returns empty unless input was empty).
+ *
+ * Pure. No I/O. Idempotent — `extractFirstNonEmptyLine(extractFirstNonEmptyLine(x))
+ * === extractFirstNonEmptyLine(x)`.
+ */
+export function extractFirstNonEmptyLine(text: string): string {
+  if (text.length === 0) return text;
+  const lines = text.split(/\r?\n/);
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.length > 0) return trimmed;
+  }
+  return text;
+}

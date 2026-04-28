@@ -127,7 +127,28 @@ export function matchPositional(
   edit: RecommendedEditRow,
   currentInventory: ReadonlyArray<PageElementInventoryRow>,
   elementType: ElementType,
-  options?: { otherUrlInventories?: ReadonlyArray<OtherUrlInventory> },
+  options?: {
+    otherUrlInventories?: ReadonlyArray<OtherUrlInventory>;
+    /**
+     * Recommendation Lifecycle OS — Phase 2 add-on (2026-04-27).
+     *
+     * Optional pure transform applied to `edit.proposed_text` BEFORE
+     * scoring. Default = identity (no behavior change). Used ONLY by
+     * the H2 dispatch in `index.ts` to extract the first non-empty
+     * line as the heading candidate when the generator's
+     * `proposed_text` concatenates heading + body paragraph.
+     *
+     * Applies to BOTH the target-URL scoring AND the off-target
+     * wrong-page check (same `pExact`/`pFolded` derivation), so
+     * wrong-page detection works correctly with multi-line proposed
+     * text too.
+     *
+     * `edit.proposed_text` itself is never mutated — only the local
+     * scoring derivative changes. Surfaces / UI / reporting paths see
+     * the original full text unchanged.
+     */
+    proposedTextTransform?: (text: string) => string;
+  },
 ): MatchResult {
   const proposed = edit.proposed_text;
   if (proposed === null) {
@@ -138,7 +159,10 @@ export function matchPositional(
       reason: "edit has no proposed_text",
     };
   }
-  const { exact: pExact, folded: pFolded } = normalizeTextBoth(proposed);
+  const proposedForMatch = options?.proposedTextTransform
+    ? options.proposedTextTransform(proposed)
+    : proposed;
+  const { exact: pExact, folded: pFolded } = normalizeTextBoth(proposedForMatch);
   const candidates = filterByType(currentInventory, elementType);
   const scored: Scored[] = [];
   for (const row of candidates) {
