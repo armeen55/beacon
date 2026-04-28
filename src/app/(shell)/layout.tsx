@@ -43,8 +43,10 @@ export default async function ShellLayout({
   // Each badge is wired to something the operator can act on.
   //
   //   Today  — pending CONTENT_CHANGE findings waiting for confirm/dismiss.
-  //            Same filter as the "N changes detected" banner inside Today,
-  //            so the sidebar number matches what the operator sees on the page.
+  //            Same filter as the "Scan diffs to review (N)" accordion inside
+  //            Today (renamed from "N changes detected" in Phase 6A.4 to stop
+  //            implying raw scan diffs are tracked changes), so the sidebar
+  //            number matches what the operator sees on the page.
   //
   //   Pages  — URLs with one or more BUG_FINDING_TYPES (schema_invalid,
   //            faq_without_schema, robots_txt_blocked, deploy_mismatch).

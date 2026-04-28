@@ -65,6 +65,13 @@ function ChangeCard({
           </p>
         </div>
         <div className="flex gap-1.5 shrink-0">
+          {/* Phase 6A.4 (2026-04-28) — explicit "Confirm and add to
+              changelog" copy. Pre-rename the button just said "Confirm",
+              which made it ambiguous whether the operator was confirming
+              the diff was real (no side-effect) or confirming it as a
+              tracked change (side-effect: writes a changelog_entries
+              row with source_system="scan_detection"). Server action
+              behavior is unchanged. */}
           <button
             type="button"
             disabled={pending}
@@ -75,8 +82,9 @@ function ChangeCard({
               });
             }}
             className="text-xs px-2.5 py-1 rounded border border-status-success text-status-success hover:bg-status-success/10 transition-colors disabled:opacity-50"
+            title="Adds this diff to your changelog as a confirmed change. Once added, attribution starts tracking it."
           >
-            Confirm
+            Confirm and add to changelog
           </button>
           <button
             type="button"
@@ -139,35 +147,59 @@ export function ChangeReview({ findings, onConfirm, onDismiss }: ChangeReviewPro
   return (
     <div
       id="change-review-section"
-      className="rounded-lg border border-accent-primary/30 bg-accent-primary/5 p-4 space-y-3 scroll-mt-6"
+      className="rounded-lg border border-accent-primary/30 bg-accent-primary/5 p-4 scroll-mt-6"
     >
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-sm font-semibold">
-            {contentChanges.length} change{contentChanges.length !== 1 ? "s" : ""} detected
-          </h2>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            Review what changed since your last scan. Confirmed changes are tracked for attribution.
-          </p>
-        </div>
-        <Link
-          href="/pages"
-          className="text-xs text-accent-primary hover:underline shrink-0"
+      {/* Phase 6A.4 (2026-04-28) — collapsed-by-default accordion.
+          Pre-rename the section was always-open with the heading
+          "N changes detected" + the subtitle "Confirmed changes are
+          tracked for attribution", which conflated raw scan diffs
+          with operator-confirmed lifecycle changes. Now the heading
+          says these are scan diffs (not yet tracked), the subtitle
+          spells out the contract, and the cards stay tucked away
+          behind a one-click expand so they don't dominate the page.
+          Server actions for Confirm/Dismiss remain unchanged. */}
+      <details className="group">
+        <summary
+          className="flex items-start justify-between gap-3 cursor-pointer list-none select-none"
+          aria-label={`Scan diffs to review (${contentChanges.length})`}
         >
-          View all in Pages →
-        </Link>
-      </div>
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <span
+                aria-hidden
+                className="inline-block text-[10px] text-muted-foreground transition-transform group-open:rotate-90"
+              >
+                ▸
+              </span>
+              <h2 className="text-sm font-semibold">
+                Scan diffs to review ({contentChanges.length})
+              </h2>
+            </div>
+            <p className="text-xs text-muted-foreground mt-0.5 ml-4 leading-relaxed">
+              These are raw website differences found by Beacon&apos;s scanner.
+              They are not tracked changes unless you confirm one.
+            </p>
+          </div>
+          <Link
+            href="/pages"
+            className="text-xs text-accent-primary hover:underline shrink-0"
+            onClick={(e) => e.stopPropagation()}
+          >
+            View all in Pages →
+          </Link>
+        </summary>
 
-      <div className="space-y-2">
-        {contentChanges.map((f) => (
-          <ChangeCard
-            key={f.id}
-            finding={f}
-            onConfirm={onConfirm}
-            onDismiss={onDismiss}
-          />
-        ))}
-      </div>
+        <div className="space-y-2 mt-3">
+          {contentChanges.map((f) => (
+            <ChangeCard
+              key={f.id}
+              finding={f}
+              onConfirm={onConfirm}
+              onDismiss={onDismiss}
+            />
+          ))}
+        </div>
+      </details>
     </div>
   );
 }
