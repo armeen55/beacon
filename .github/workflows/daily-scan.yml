@@ -101,6 +101,14 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           DATA_SOURCE: supabase
           DUAL_WRITE: "true"
+          # Phase 6D (2026-04-28) — environment-aware scan source label.
+          # Hardcoded here (NOT a secret) so every hosted scan run writes
+          # `observation_runs.source = "github-actions-daily-scan"` and
+          # `last-scan-result.source = "github-actions-daily-scan"`,
+          # making hosted runs unambiguously distinguishable from local
+          # CLI runs which leave the env unset and fall back to the
+          # historical "scan-owned-pages.ts" literal.
+          BEACON_SCAN_SOURCE_LABEL: "github-actions-daily-scan"
           # Optional — operator may leave unset until lifecycle is dogfeded
           BEACON_LIFECYCLE_ENABLED: ${{ secrets.BEACON_LIFECYCLE_ENABLED }}
           BEACON_LIFECYCLE_VERDICT_ENABLED: ${{ secrets.BEACON_LIFECYCLE_VERDICT_ENABLED }}

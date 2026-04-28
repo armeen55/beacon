@@ -7,6 +7,7 @@ import { log } from "@/lib/logger";
 import { currentTenantId } from "@/lib/tenant-context";
 import { getChangelogEntries } from "@/lib/seed-data.server";
 import { getSiteConfig } from "@/lib/site-config";
+import { isLifecycleEnabled } from "@/lib/flags";
 import { readDotDataJson } from "@/lib/persistence/dotdata-json";
 import type { CitationEvidenceIndex } from "@/domains/pages/types";
 import type { GuardrailAlert } from "@/domains/pages/guardrails";
@@ -296,6 +297,11 @@ export async function runWebsiteScan(opts: {
     finishedAt: payload.finishedAt,
   };
 
+  // Phase 6D (2026-04-28) — declared at function scope so the augment
+  // block below can read it. Stays `undefined` for aborted/dryRun
+  // scans since the lifecycle runner never enters its critical block.
+  let lifecycleSummary: LastScanResultPayload["lifecycle"] | undefined;
+
   let findingsAdded = 0;
   if (merged.exit !== "aborted" && !merged.dryRun) {
     const scanRunId = merged.observationRunId ?? `scan-${Date.now()}`;
@@ -391,6 +397,16 @@ export async function runWebsiteScan(opts: {
     // `live_at` stamps. NEVER throws upward — all errors caught
     // inside the runner. Best-effort: a runner failure must not
     // regress scan completion.
+    //
+    // Phase 6D (2026-04-28): capture the runner result + gate state
+    // into `lifecycleSummary` so the durable last-scan-result record
+    // includes a full audit trail (enabled / runnerCalled / counts /
+    // skippedReason / error) without needing GH Actions log access.
+    const lifecycleEnabled = isLifecycleEnabled();
+    lifecycleSummary = {
+      enabled: lifecycleEnabled,
+      runnerCalled: false,
+    };
     try {
       const { runLifecycleMatchAgainstScan } = await import(
         "@/domains/recommendations/match-runner"
@@ -398,6 +414,18 @@ export async function runWebsiteScan(opts: {
       const lifecycleResult = await runLifecycleMatchAgainstScan({
         tenantId,
       });
+      lifecycleSummary = {
+        enabled: lifecycleEnabled,
+        runnerCalled: true,
+        ranSuccessfully: lifecycleResult.ranSuccessfully,
+        skippedReason: lifecycleResult.skippedReason,
+        reconciled: lifecycleResult.reconciled,
+        evaluated: lifecycleResult.evaluated,
+        updated: lifecycleResult.updated,
+        liveAtStamped: lifecycleResult.liveAtStamped,
+        noStableAcceptTimestamp: lifecycleResult.noStableAcceptTimestamp,
+        error: lifecycleResult.error,
+      };
       if (lifecycleResult.ranSuccessfully) {
         log.info("Scan step", {
           runId,
@@ -411,11 +439,26 @@ export async function runWebsiteScan(opts: {
     } catch (e) {
       // The runner itself catches; a throw here means dynamic-import
       // failure or similar. Log loud, continue scan completion.
+      const errMsg = e instanceof Error ? e.message : String(e);
+      lifecycleSummary = {
+        enabled: lifecycleEnabled,
+        runnerCalled: false,
+        error: errMsg,
+      };
       log.warn("Lifecycle match runner failed", {
         runId,
-        error: e instanceof Error ? e.message : String(e),
+        error: errMsg,
       });
     }
+  }
+
+  // Phase 6D (2026-04-28) — augment the durable scan record with
+  // execution-environment metadata + lifecycle summary. Additive;
+  // older readers ignore unknown fields.
+  merged.source = process.env.BEACON_SCAN_SOURCE_LABEL?.trim() || undefined;
+  merged.tenantId = tenantId;
+  if (lifecycleSummary) {
+    merged.lifecycle = lifecycleSummary;
   }
 
   await writeLastScanResultFile(merged);

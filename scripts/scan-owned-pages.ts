@@ -752,7 +752,13 @@ async function main() {
   const observationRun: ObservationRun = {
     ...scanRun,
     run_type: "website_crawl",
-    source: "scan-owned-pages.ts",
+    // Phase 6D (2026-04-28) — environment-aware source label.
+    // GH Actions workflow sets `BEACON_SCAN_SOURCE_LABEL=github-actions-daily-scan`
+    // (env inherits through `runWebsiteScan`'s `execAsync` to this CLI). Local
+    // CLI runs leave the env unset so they remain identifiable as
+    // `"scan-owned-pages.ts"`. This is the single divergence point between
+    // hosted vs local scans for `observation_runs.source`.
+    source: process.env.BEACON_SCAN_SOURCE_LABEL?.trim() || "scan-owned-pages.ts",
     status: errors.length > 0 && newSnapshots.length === 0 ? "failed" : errors.length > 0 ? "partial" : "completed",
     scope_label: `Sitemap canonical scan · ${newSnapshots.length} page(s) fetched${singleUrl ? " (single URL)" : ""}${limit !== Infinity ? ` · limit ${limit}` : ""}`,
     parser_version: OBSERVATION_RUN_PARSER_VERSION,

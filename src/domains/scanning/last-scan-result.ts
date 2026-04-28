@@ -16,6 +16,21 @@ export type LastScanResultPayload = {
    *  doesn't drift between the two files (the 2026-04-28 add of `cron`
    *  surfaced exactly this drift). */
   trigger?: import("./scan-state").ScanTrigger;
+  /**
+   * Phase 6D (2026-04-28) — execution-environment label.
+   * Sourced from `BEACON_SCAN_SOURCE_LABEL` env var (set by GH Actions
+   * workflow as `"github-actions-daily-scan"`; absent for local CLI/dev
+   * runs so they remain identifiable as such). Persisted alongside
+   * `trigger` so hosted vs local executions are distinguishable in the
+   * durable scan output without GH Actions log spelunking.
+   */
+  source?: string;
+  /**
+   * Phase 6D (2026-04-28) — owning tenant resolved by the orchestrator
+   * via `currentTenantId()`. Persisted so the durable record is tenant-
+   * attributable without re-resolving from process env later.
+   */
+  tenantId?: string;
   observationRunId: string | null;
   pagesScanned: number;
   pagesChanged: number;
@@ -26,6 +41,28 @@ export type LastScanResultPayload = {
   /** Top-level CLI or sitemap failure before a run id was minted. */
   cliError?: string;
   fetchErrors?: { url: string; error: string }[];
+  /**
+   * Phase 6D (2026-04-28) — durable Recommendation Lifecycle OS runner
+   * summary. Mirrors `RunLifecycleMatchResult` from the match-runner
+   * plus the gate state at orchestration time (`enabled`) and whether
+   * the runner was actually invoked vs. failed to load (`runnerCalled`).
+   * Lets us audit lifecycle behavior of any past scan from this single
+   * file without grepping GH Actions logs.
+   */
+  lifecycle?: {
+    /** `isLifecycleEnabled()` value at orchestration time. */
+    enabled: boolean;
+    /** True when `runLifecycleMatchAgainstScan` returned (success or skipped). False when the dynamic import / invocation threw. */
+    runnerCalled: boolean;
+    ranSuccessfully?: boolean;
+    skippedReason?: "flag_disabled" | "no_edits" | "error";
+    reconciled?: number;
+    evaluated?: number;
+    updated?: number;
+    liveAtStamped?: number;
+    noStableAcceptTimestamp?: number;
+    error?: string;
+  };
 };
 
 /**

@@ -89,6 +89,11 @@ async function main() {
 
   console.log("[scheduled-scan] starting runWebsiteScan({ trigger: 'cron' })");
   console.log("[scheduled-scan] env (operational):", {
+    // Phase 6D (2026-04-28) — log the source label so the GH Actions log
+    // makes it explicit which hosted scan path is firing. Local invocations
+    // (without the var set) will show "(unset)" and fall back to the CLI's
+    // historical "scan-owned-pages.ts" literal in observation_runs.source.
+    BEACON_SCAN_SOURCE_LABEL: env.BEACON_SCAN_SOURCE_LABEL ?? "(unset)",
     BEACON_LIFECYCLE_ENABLED: env.BEACON_LIFECYCLE_ENABLED ?? "(unset)",
     BEACON_LIFECYCLE_VERDICT_ENABLED: env.BEACON_LIFECYCLE_VERDICT_ENABLED ?? "(unset)",
     DATA_SOURCE: env.DATA_SOURCE ?? "(unset)",
@@ -117,6 +122,11 @@ async function main() {
   }
 
   const elapsedMs = Date.now() - startedAt;
+  // Phase 6D (2026-04-28) — surface the durable lifecycle summary that
+  // orchestrate-scan persisted into the last-scan-result payload. Means
+  // "did the runner run? what did it do?" is answerable from the GH
+  // Actions log alone, in addition to the durable file under
+  // .data/global/last-scan-result.json.
   console.log(
     `[scheduled-scan] completed (${elapsedMs}ms):`,
     JSON.stringify(
@@ -125,6 +135,10 @@ async function main() {
         phase: result.phase,
         pagesScanned: result.payload?.pagesScanned ?? 0,
         findingsAdded: result.findingsAdded,
+        source: result.payload?.source ?? null,
+        tenantId: result.payload?.tenantId ?? null,
+        trigger: result.payload?.trigger ?? null,
+        lifecycle: result.payload?.lifecycle ?? null,
         error: result.error ?? null,
       },
       null,
