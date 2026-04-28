@@ -39,13 +39,17 @@ import {
 import { extractEditTokens } from "@/domains/changelog/dedupe";
 import { isEventTruthPreviewEnabled } from "@/lib/flags";
 import {
+  changelogJoinKey,
   classifyAll,
   indexEditsByJoinKey,
   LIFECYCLE_TAB_LABEL,
   type LifecycleTab,
   type LifecycleTabClass,
 } from "@/domains/attribution/lifecycle-classification";
-import type { RecommendedEditRow } from "@/domains/recommendations/recommended-edits-persistence";
+import type {
+  ImplementationStatus,
+  RecommendedEditRow,
+} from "@/domains/recommendations/recommended-edits-persistence";
 
 // Phase 1.2 (Sprint 1, 2026-04-24): force dynamic render so every request
 // runs the single-fresh-repo-read pattern below. Prevents any accidental ISR
@@ -137,6 +141,20 @@ export default async function ChangeScorecardPage() {
     entries: liveEntries,
     editsByJoinKey,
   });
+  // Phase 6A.3 (2026-04-28) — additionally expose the per-row linked
+  // edit's implementation_status so the LifecycleStatusPill can render
+  // the most-granular label (e.g. verified_live_modified vs
+  // verified_live, not just live_verified). Falls through to the
+  // classifier's tab class when there's no joined edit.
+  const editStatusByChangelogId: Record<string, ImplementationStatus> = {};
+  for (const entry of liveEntries) {
+    const joinKey = changelogJoinKey(entry);
+    if (!joinKey) continue;
+    const edit = editsByJoinKey.get(joinKey);
+    if (edit?.implementation_status) {
+      editStatusByChangelogId[entry.id] = edit.implementation_status;
+    }
+  }
 
   // ── Build URL citation history once per page load ──
   // The watcher above persisted the latest to disk if it ran this tick;
@@ -386,6 +404,7 @@ export default async function ChangeScorecardPage() {
         outcomesById={outcomesById}
         classByChangelogId={Object.fromEntries(classification.classOf)}
         tabCounts={lifecycleCounts}
+        editStatusByChangelogId={editStatusByChangelogId}
       />
 
       {/* Phase 2C cleanup — legacy "Currently being watched" strip removed.

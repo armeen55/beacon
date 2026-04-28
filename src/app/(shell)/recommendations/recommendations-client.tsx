@@ -27,6 +27,7 @@ import { NEEDS_NEW_PAGE } from "@/domains/recommendations/resolved-types";
 import { buildResolvedRecommendationTitle } from "@/domains/recommendations/build-title";
 import type { SuggestedEdit } from "@/domains/recommendations/adjudicator-schema";
 import type { RecommendedEditRow } from "@/domains/recommendations/recommended-edits-persistence";
+import { LifecycleStatusPill } from "@/components/display/lifecycle-status-pill";
 
 type Props = {
   queue: RecommendationQueueRow[];
@@ -995,6 +996,15 @@ function SpecificEditsSection({
                 <span className="font-medium text-foreground/90">
                   {edit.display_label ?? edit.action_type}
                 </span>
+                {/* Phase 6A.3 (2026-04-28) — per-edit lifecycle pill.
+                    Surfaces verified_live / accepted / dismissed / etc.
+                    so operator sees the engine's view of this edit's
+                    journey at a glance. Compact mode keeps the row
+                    horizontal density. */}
+                <LifecycleStatusPill
+                  status={edit.implementation_status}
+                  compact
+                />
                 {/* Sprint 6A.2g.F — source provenance badge. */}
                 <span
                   className={cn(

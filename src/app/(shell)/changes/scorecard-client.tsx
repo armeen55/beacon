@@ -16,6 +16,8 @@ import {
   type LifecycleTab,
   type LifecycleTabClass,
 } from "@/domains/attribution/lifecycle-classification";
+import { LifecycleStatusPill } from "@/components/display/lifecycle-status-pill";
+import type { ImplementationStatus } from "@/domains/recommendations/recommended-edits-persistence";
 
 /**
  * A single row on the /changes page.
@@ -95,6 +97,7 @@ export function ScorecardTable({
   outcomesById,
   classByChangelogId,
   tabCounts,
+  editStatusByChangelogId,
 }: {
   rows: EnrichedChangeRow[];
   /** Reserved for future per-topic filter in drill-down. */
@@ -117,6 +120,14 @@ export function ScorecardTable({
   classByChangelogId?: Record<string, LifecycleTabClass>;
   /** Per-tab counts (including the synthetic `all` total). */
   tabCounts?: Record<LifecycleTab, number>;
+  /**
+   * Phase 6A.3 (2026-04-28) — granular per-edit `implementation_status`
+   * keyed by `change.id`, when the changelog row is joined to a
+   * `recommended_edits` row. Wins over the classifier class for the
+   * lifecycle pill so verified_live_modified / partially_implemented /
+   * etc. surface their distinct labels.
+   */
+  editStatusByChangelogId?: Record<string, ImplementationStatus>;
 }) {
   const [tab, setTab] = useState<LifecycleTab>(DEFAULT_LIFECYCLE_TAB);
 
@@ -209,6 +220,8 @@ export function ScorecardTable({
                 key={row.scorecard.change.id}
                 row={row}
                 outcome={outcomesById?.[row.scorecard.change.id]}
+                lifecycleStatus={editStatusByChangelogId?.[row.scorecard.change.id]}
+                lifecycleClass={classByChangelogId?.[row.scorecard.change.id]}
               />
             ))}
           </tbody>
@@ -234,9 +247,15 @@ export function ScorecardTable({
 function ChangeRow({
   row,
   outcome,
+  lifecycleStatus,
+  lifecycleClass,
 }: {
   row: EnrichedChangeRow;
   outcome?: import("@/domains/attribution/change-outcome-store").StoredChangeOutcome;
+  /** Phase 6A.3 (2026-04-28) — granular per-edit lifecycle status. */
+  lifecycleStatus?: ImplementationStatus;
+  /** Phase 6A.3 (2026-04-28) — fallback class when no edit row joins. */
+  lifecycleClass?: LifecycleTabClass;
 }) {
   const [open, setOpen] = useState(false);
   const ch = row.scorecard.change;
@@ -276,21 +295,21 @@ function ChangeRow({
       >
         <td className="px-2.5 py-2 text-muted-foreground tabular-nums whitespace-nowrap align-top text-[11px]">
           <span>{dateStr}</span>
-          {ch.source_system && (
-            <span
-              className={`block text-[8px] mt-0.5 ${
-                ch.source_system === "scan_detection" ||
-                ch.source_system === "scan_promoted"
-                  ? "text-amber-500"
-                  : "text-muted-foreground/50"
-              }`}
-            >
-              {ch.source_system === "scan_detection"
-                ? "scan · auto-caught"
-                : ch.source_system === "scan_promoted"
-                  ? "scan"
-                  : "imported"}
-            </span>
+          {/* Phase 6A.3 (2026-04-28) — replaces the previous tiny
+              source_system subtitle ("imported" / "scan · auto-caught")
+              with the LifecycleStatusPill. The pill carries strictly
+              more information: it includes lifecycle truth (Live ✓ /
+              Pending / Needs review / etc.) AND falls back to the
+              source class (Imported legacy / Scan-confirmed) so the
+              previous subtitle's surface area is fully covered. */}
+          {(lifecycleStatus || lifecycleClass) && (
+            <div className="mt-1">
+              <LifecycleStatusPill
+                status={lifecycleStatus}
+                cls={lifecycleClass}
+                compact
+              />
+            </div>
           )}
         </td>
         <td className="px-2.5 py-2 align-top max-w-[380px]">
