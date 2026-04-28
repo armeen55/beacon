@@ -13,8 +13,12 @@ export type LastScanResultPayload = {
   finishedAt: string;
   exit: ScanExitKind;
   /** Who invoked the scan (optional, set by orchestrator when known). */
-  /** Orchestrator sets today/pages/import; CLI-only runs use `cli`. */
-  trigger?: "today" | "pages" | "import" | "cli";
+  /** Orchestrator sets today/pages/import; CLI-only runs use `cli`;
+   *  Phase 5 scheduled scans (GH Actions + /api/cron/scan) use `cron`.
+   *  Imported from scan-state.ts as the canonical source so the union
+   *  doesn't drift between the two files (the 2026-04-28 add of `cron`
+   *  surfaced exactly this drift). */
+  trigger?: import("./scan-state").ScanTrigger;
   observationRunId: string | null;
   pagesScanned: number;
   pagesChanged: number;

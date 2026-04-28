@@ -5,7 +5,11 @@ import type { LastScanResultPayload, ScanExitKind } from "./last-scan-result";
 
 export type ScanPhase = "idle" | "running" | "success" | "partial" | "failed";
 
-export type ScanTrigger = "today" | "pages" | "import" | "cli";
+// Phase 5 (2026-04-28) — added "cron" for scheduled scans triggered by
+// .github/workflows/daily-scan.yml (via scripts/run-scheduled-scan.ts) AND
+// /api/cron/scan route. Distinct from "cli" so logs / scan-runs.json /
+// last-scan-result.json can attribute the trigger source clearly.
+export type ScanTrigger = "today" | "pages" | "import" | "cli" | "cron";
 
 export type ScanStateFile = {
   schemaVersion: 1;

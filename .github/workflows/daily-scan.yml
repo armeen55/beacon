@@ -1,0 +1,111 @@
+# ============================================================================
+#  Daily scheduled scan — Recommendation Lifecycle OS Phase 5 (2026-04-28)
+# ============================================================================
+#
+#  Why this workflow exists (read this before editing):
+#
+#  The scan path (`runWebsiteScan` → spawns `scripts/scan-owned-pages.ts` CLI
+#  → writes to `.data/tenants/{slug}/...` → dual-writes to Supabase →
+#  triggers Phase 3 lifecycle runner) requires:
+#    - Writable filesystem for the CLI subprocess (.data/...)
+#    - tsx (devDependency) available to spawn the CLI
+#    - npm install access to install the toolchain
+#
+#  Vercel's serverless lambda has read-only FS outside /tmp and may not have
+#  tsx in the production image. So scheduled scans CANNOT run on Vercel cron
+#  with the current architecture (same constraint that put the native poll
+#  on GH Actions per .github/workflows/daily-native-poll.yml).
+#
+#  GH Actions ubuntu-latest runner has full FS + can `npm install` + has tsx.
+#  The runner's local `.data` writes are ephemeral (job FS wiped at exit) but
+#  the orchestrator dual-writes everything that needs to persist to Supabase.
+#  Verified end-to-end by Steps 1–5 of the safety gate (2026-04-28).
+#
+#  Schedule: 04:00 UTC daily — runs ~3 hours BEFORE the native poll cron
+#  (07:00 UTC, see daily-native-poll.yml). This ordering ensures fresh
+#  inventory + lifecycle status are stamped before the poll captures the
+#  day's observations.
+#
+#  Required repo secrets (Settings → Secrets and variables → Actions):
+#    BEACON_TENANT_ID                 e.g. tenant-ritz-founder
+#    BEACON_TENANT_SLUG               e.g. ritz-builders
+#    NEXT_PUBLIC_SUPABASE_URL         Supabase project URL
+#    SUPABASE_SERVICE_ROLE_KEY        Supabase service-role key (write)
+#    BEACON_SITE_DOMAIN               e.g. ritzbuilders.com (fallback when
+#                                     business-config doesn't have it)
+#
+#  Optional repo secrets (lifecycle gating — operator decides when to flip):
+#    BEACON_LIFECYCLE_ENABLED         "1" enables Phase 3 runner inside scan
+#    BEACON_LIFECYCLE_VERDICT_ENABLED "1" enables Phase 4 live_at attribution
+#    BEACON_SCAN_DISABLED             truthy = pause scheduled scan
+#                                     ("1"/"true"/"yes"/"on" case-insensitive)
+#
+#  Ops workflow:
+#    - Scheduled daily at 04:00 UTC (~9 PM PT prev-day / 8 PM PT prev-day winter)
+#    - Failures → GitHub emails the repo owners + visible in the Actions tab
+#    - Manual fire: Actions → "Daily scheduled scan" → Run workflow
+#    - Pause: set BEACON_SCAN_DISABLED=1 in repo secrets — script exits 0 with
+#      structured warn line so the workflow is "successful" but no-op
+#
+#  Failure handling:
+#    See docs/SCAN_FAILURE_ALARM_RULES.md for what to do when this workflow
+#    fails (or its sibling poll-canary surfaces stale-poll signals).
+# ============================================================================
+
+name: Daily scheduled scan
+
+on:
+  schedule:
+    # 04:00 UTC = ~9 PM PT (PDT) / ~8 PM PT prev-day (PST). Off-peak on
+    # GitHub Actions and 3 hours before the 07:00 UTC native poll, so
+    # fresh inventory + lifecycle stamps land before the poll captures
+    # the day's observations.
+    - cron: "0 4 * * *"
+  # Manual trigger from the Actions tab — use after first deploy to verify
+  # end-to-end before relying on the schedule.
+  workflow_dispatch:
+
+# Prevent overlap if a previous day's scan is still running when the next
+# scheduled fire arrives. Cancel the older run; the orchestrator's stale-
+# scan-state guard would also recover this on the next manual trigger.
+concurrency:
+  group: daily-scheduled-scan
+  cancel-in-progress: true
+
+jobs:
+  scheduled-scan:
+    name: Run scheduled scan + lifecycle runner (when enabled)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20 # full scan typically ~30s + lifecycle runner ~3s; 20 min generous
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Run scheduled scan
+        # `--require ./scripts/mock-server-only.cjs` so server-only modules
+        # imported by orchestrate-scan don't crash in the CLI context (same
+        # pattern as `npm run data:scan` per package.json).
+        run: |
+          npx tsx --require ./scripts/mock-server-only.cjs --require ./scripts/apply-scan-site-domain.cjs scripts/run-scheduled-scan.ts
+        env:
+          # Required (fail-loud if unset)
+          BEACON_TENANT_ID: ${{ secrets.BEACON_TENANT_ID }}
+          BEACON_TENANT_SLUG: ${{ secrets.BEACON_TENANT_SLUG }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          DATA_SOURCE: supabase
+          DUAL_WRITE: "true"
+          # Optional — operator may leave unset until lifecycle is dogfeded
+          BEACON_LIFECYCLE_ENABLED: ${{ secrets.BEACON_LIFECYCLE_ENABLED }}
+          BEACON_LIFECYCLE_VERDICT_ENABLED: ${{ secrets.BEACON_LIFECYCLE_VERDICT_ENABLED }}
+          BEACON_SCAN_DISABLED: ${{ secrets.BEACON_SCAN_DISABLED }}
+          BEACON_SITE_DOMAIN: ${{ secrets.BEACON_SITE_DOMAIN }}
+          # Standard CI hygiene
+          NODE_NO_WARNINGS: "1"
+          NODE_TLS_REJECT_UNAUTHORIZED: "0"

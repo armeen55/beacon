@@ -109,3 +109,28 @@ export function isLifecycleEnabled(): boolean {
 export function isLifecycleVerdictEnabled(): boolean {
   return process.env.BEACON_LIFECYCLE_VERDICT_ENABLED === "1";
 }
+
+/**
+ * Recommendation Lifecycle OS — Phase 5 (2026-04-28).
+ *
+ * Operator-set kill switch for scheduled scans. Mirrors the
+ * `BEACON_POLL_DISABLED` shape introduced in Sprint 6A.3d.
+ *
+ * Truthy values: `"1"` | `"true"` | `"yes"` | `"on"` (case-insensitive).
+ * Anything else (including `"0"`, `"false"`, `""`, or unset) leaves
+ * scheduled scanning enabled.
+ *
+ * Checked by:
+ *   - `/api/cron/scan` route — returns `{status:"disabled"}` 200 OK
+ *     so cron `--fail-with-body` doesn't trip on a deliberate pause.
+ *   - `scripts/run-scheduled-scan.ts` — exits 0 with a structured warn
+ *     line so the GitHub Actions step doesn't surface as a failure.
+ *
+ * Auth always runs BEFORE the kill-switch check so unauthorized
+ * callers can't probe the operational state.
+ */
+export function isScanDisabled(): boolean {
+  const raw = process.env.BEACON_SCAN_DISABLED?.trim().toLowerCase();
+  if (!raw) return false;
+  return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
+}
