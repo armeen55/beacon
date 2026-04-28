@@ -28,14 +28,19 @@ export type TodayLifecycleStripProps = {
   className?: string;
 };
 
+export type LifecycleChipKey =
+  | "liveVerified"
+  | "pendingImplementation"
+  | "needsReview"
+  | "notFoundAfter7d";
+
 type ChipSpec = {
-  key:
-    | "liveVerified"
-    | "pendingImplementation"
-    | "needsReview"
-    | "notFoundAfter7d";
+  key: LifecycleChipKey;
   label: string;
-  href: string;
+  /** Phase 6A.8 — the /changes lifecycle tab this chip deep-links to.
+   *  notFoundAfter7d has no dedicated tab; use `all` so the operator
+   *  still lands on a useful view. */
+  tab: "live_verified" | "pending_implementation" | "needs_review" | "all";
   toneClass: string;
   /** Show even when count is 0. Live verified is always shown so the
    *  strip's anchor is the lifecycle-truth surface. */
@@ -46,7 +51,7 @@ const CHIPS: ChipSpec[] = [
   {
     key: "liveVerified",
     label: "Live verified",
-    href: "/changes",
+    tab: "live_verified",
     toneClass:
       "border-status-success/40 bg-status-success/[0.06] text-status-success hover:bg-status-success/[0.10]",
     alwaysVisible: true,
@@ -54,21 +59,21 @@ const CHIPS: ChipSpec[] = [
   {
     key: "pendingImplementation",
     label: "Pending implementation",
-    href: "/changes",
+    tab: "pending_implementation",
     toneClass:
       "border-status-warning/35 bg-status-warning/[0.05] text-status-warning hover:bg-status-warning/[0.08]",
   },
   {
     key: "needsReview",
     label: "Need review",
-    href: "/changes",
+    tab: "needs_review",
     toneClass:
       "border-status-warning/55 bg-status-warning/[0.08] text-status-warning hover:bg-status-warning/[0.12]",
   },
   {
     key: "notFoundAfter7d",
     label: "Not found after 7d",
-    href: "/changes",
+    tab: "all",
     toneClass:
       "border-border/60 bg-surface-inset/40 text-muted-foreground hover:bg-surface-inset/60",
   },
@@ -95,13 +100,16 @@ export function TodayLifecycleStrip({
       </span>
       {visible.map((chip) => {
         const value = counts[chip.key];
+        const href =
+          chip.tab === "live_verified" ? "/changes" : `/changes?tab=${chip.tab}`;
         return (
           <Link
             key={chip.key}
-            href={chip.href}
+            href={href}
             className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11px] font-semibold transition-colors ${chip.toneClass}`}
             data-lifecycle-chip={chip.key}
             data-lifecycle-count={value}
+            data-lifecycle-tab={chip.tab}
           >
             <span className="tabular-nums">{value}</span>
             <span>{chip.label.toLowerCase()}</span>

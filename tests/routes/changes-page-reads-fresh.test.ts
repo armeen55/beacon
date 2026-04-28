@@ -124,6 +124,21 @@ describe("Sprint 1 / Phase 1.3 — /changes fresh-read invariants", () => {
     beforeEach(() => {
       vi.resetModules();
       vi.doMock("next/cache", () => ({ revalidatePath: vi.fn() }));
+      // Phase 6A.8 (2026-04-28) — scorecard-client now uses
+      // next/navigation hooks (useRouter + useSearchParams) for tab
+      // deep-link support. Stub both for SSR smoke renders.
+      vi.doMock("next/navigation", () => ({
+        useRouter: () => ({
+          push: () => {},
+          replace: () => {},
+          refresh: () => {},
+          back: () => {},
+          forward: () => {},
+          prefetch: () => {},
+        }),
+        useSearchParams: () => new URLSearchParams(),
+        usePathname: () => "/changes",
+      }));
       vi.doMock("@/lib/seed-data.server", () => ({
         getOpportunities: vi.fn(async () => []),
         getResults: vi.fn(async () => []),

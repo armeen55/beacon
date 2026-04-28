@@ -6,6 +6,22 @@ vi.mock("next/cache", () => ({
   revalidatePath: vi.fn(),
 }));
 
+// Phase 6A.8 (2026-04-28) — scorecard-client now uses next/navigation
+// hooks (useRouter + useSearchParams) for tab deep-link support. The
+// SSR smoke test runs outside the App Router context, so stub both.
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({
+    push: () => {},
+    replace: () => {},
+    refresh: () => {},
+    back: () => {},
+    forward: () => {},
+    prefetch: () => {},
+  }),
+  useSearchParams: () => new URLSearchParams(),
+  usePathname: () => "/changes",
+}));
+
 describe("Changes route smoke", () => {
   it("ChangeScorecardPage RSC renders Phase 6A.2 lifecycle layout", async () => {
     const { default: ChangeScorecardPage } = await import(

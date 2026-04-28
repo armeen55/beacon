@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import type { ScorecardRowWithImpact } from "@/domains/attribution/change-impact";
 import type { UrlVerdict } from "@/domains/attribution/url-verdict";
 // Note: UrlVerdict type is retained on EnrichedChangeRow because the internal
@@ -71,6 +72,19 @@ const PLATFORM_SHORT: Record<string, string> = {
   google_aio: "AIO",
   perplexity: "Pplx",
 };
+
+/**
+ * Phase 6A.8 — parse + validate the `?tab=` query string. Defaults to
+ * `live_verified` (DEFAULT_LIFECYCLE_TAB) when missing/unknown so the
+ * deep-link contract degrades safely.
+ */
+function parseTabParam(raw: string | null | undefined): LifecycleTab {
+  if (!raw) return DEFAULT_LIFECYCLE_TAB;
+  if ((LIFECYCLE_TAB_ORDER as readonly string[]).includes(raw)) {
+    return raw as LifecycleTab;
+  }
+  return DEFAULT_LIFECYCLE_TAB;
+}
 
 /**
  * Phase 6A.6 — map AttributionCopyTone to Tailwind palette classes.
@@ -170,7 +184,40 @@ export function ScorecardTable({
    */
   verdictFlagEnabled?: boolean;
 }) {
-  const [tab, setTab] = useState<LifecycleTab>(DEFAULT_LIFECYCLE_TAB);
+  // Phase 6A.8 (2026-04-28) — tab deep-link support. Initialize from
+  // ?tab=... query param when valid, otherwise the default. Sync state
+  // changes back into the URL via router.replace so navigating from
+  // Today's lifecycle-strip chip lands on the right tab AND the operator
+  // can copy/share a /changes link with a specific tab open.
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const initialTab = parseTabParam(searchParams.get("tab"));
+  const [tab, setTab] = useState<LifecycleTab>(initialTab);
+
+  // When the URL query string changes (e.g. operator clicks a Today
+  // chip while already on /changes, Next.js routes to the same page
+  // with a new ?tab=...), reflect it in local state.
+  useEffect(() => {
+    const fromUrl = parseTabParam(searchParams.get("tab"));
+    if (fromUrl !== tab) setTab(fromUrl);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
+
+  // Push state→URL on user-driven tab changes. Use replace (not push)
+  // so the operator's back button doesn't get cluttered with every
+  // tab toggle. shallow=true would be ideal but Next.js App Router
+  // doesn't expose it; replace() is close enough for this use case.
+  const setTabAndUrl = (next: LifecycleTab) => {
+    setTab(next);
+    const params = new URLSearchParams(searchParams.toString());
+    if (next === DEFAULT_LIFECYCLE_TAB) {
+      params.delete("tab");
+    } else {
+      params.set("tab", next);
+    }
+    const qs = params.toString();
+    router.replace(qs ? `/changes?${qs}` : "/changes", { scroll: false });
+  };
 
   const lifecycleClassOf = (row: EnrichedChangeRow): LifecycleTabClass => {
     return classByChangelogId?.[row.scorecard.change.id] ?? "unclassified";
@@ -221,7 +268,7 @@ export function ScorecardTable({
             return (
               <button
                 key={key}
-                onClick={() => setTab(key)}
+                onClick={() => setTabAndUrl(key)}
                 className={`px-3 py-1.5 rounded-md text-[11px] font-medium transition-colors whitespace-nowrap ${
                   isActive
                     ? "bg-foreground text-background"

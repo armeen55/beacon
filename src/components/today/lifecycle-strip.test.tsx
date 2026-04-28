@@ -46,7 +46,7 @@ describe("TodayLifecycleStrip", () => {
     expect(html).toContain('data-lifecycle-count="4"');
   });
 
-  it("each chip is a link to /changes (the lifecycle truth surface)", () => {
+  it("each chip deep-links to a /changes lifecycle tab (Phase 6A.8)", () => {
     const html = renderToStaticMarkup(
       <TodayLifecycleStrip
         counts={{
@@ -57,10 +57,12 @@ describe("TodayLifecycleStrip", () => {
         }}
       />,
     );
-    // Count how many <a> tags target /changes — should match the
-    // 4 chips rendered.
-    const anchorCount = (html.match(/href="\/changes"/g) ?? []).length;
-    expect(anchorCount).toBeGreaterThanOrEqual(4);
+    // Phase 6A.8 — chips deep-link to /changes?tab=X (and live_verified
+    // uses the bare default URL since live_verified is the default tab).
+    expect(html).toMatch(/href="\/changes"/); // live_verified default
+    expect(html).toContain('href="/changes?tab=pending_implementation"');
+    expect(html).toContain('href="/changes?tab=needs_review"');
+    expect(html).toContain('href="/changes?tab=all"'); // notFoundAfter7d
   });
 
   it("renders production-shaped data: H2 verified, dismissed FAQs excluded", () => {

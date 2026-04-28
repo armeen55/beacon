@@ -29,6 +29,9 @@ export type TodayImplementationQueueProps = {
     display_label: string | null;
     proposed_text_preview: string | null;
     updated_at: string;
+    /** Phase 6A.8 — true when the proposed text is a generator placeholder
+     *  the operator must rewrite before the edit can ship. */
+    needsRewrite?: boolean;
   }>;
   /** Total pending count across all accepted edits — when > queue.length
    *  we render a "+N more" footer linking to the Pending tab. */
@@ -86,11 +89,23 @@ export function TodayImplementationQueue({
           <li
             key={item.id}
             className="flex items-baseline gap-3 px-4 py-2 text-[11px]"
+            data-queue-row-id={item.id}
+            data-queue-needs-rewrite={item.needsRewrite ? "true" : "false"}
           >
             <LifecycleStatusPill status="accepted" compact />
             <div className="min-w-0 flex-1">
-              <div className="truncate font-medium text-foreground/90">
-                {item.display_label ?? item.action_type}
+              <div className="flex items-baseline gap-1.5 truncate">
+                <span className="font-medium text-foreground/90 truncate">
+                  {item.display_label ?? item.action_type}
+                </span>
+                {item.needsRewrite && (
+                  <span
+                    className="shrink-0 inline-flex items-center rounded border border-status-warning/40 bg-status-warning/[0.08] px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-status-warning"
+                    title="The proposed text is a generator placeholder — rewrite it before shipping."
+                  >
+                    needs rewrite
+                  </span>
+                )}
               </div>
               {(item.target_url || item.proposed_text_preview) && (
                 <div className="text-[10px] text-muted-foreground/80 truncate mt-0.5">
@@ -104,7 +119,7 @@ export function TodayImplementationQueue({
       {overflow > 0 && (
         <div className="px-4 py-2 border-t border-border/40 text-right">
           <Link
-            href="/changes"
+            href="/changes?tab=pending_implementation"
             className="text-[10px] font-semibold text-accent-primary hover:underline"
           >
             +{overflow} more pending →

@@ -25,6 +25,8 @@ import { PromptsTeaser, type PromptsTeaserSummary } from "@/components/today/pro
 import { TopPickCard, type TopPickSummary } from "@/components/today/top-pick-card";
 import { TodayLifecycleStrip } from "@/components/today/lifecycle-strip";
 import { TodayImplementationQueue } from "@/components/today/implementation-queue";
+import { TodayDoNextCard } from "@/components/today/today-do-next-card";
+import { TodayMetricsDisclosure } from "@/components/today/today-metrics-disclosure";
 import { ActionCard, type ActionCardAction } from "@/components/today/action-card";
 import { MorningBrief } from "@/components/today/morning-brief";
 import type { MorningBriefData } from "@/domains/product/morning-brief";
@@ -358,91 +360,47 @@ export function TodayClient({
       : null;
 
   return (
-    <div className="space-y-5 max-w-5xl">
-      {/* Commit 1 (2026-04-24): native-poll health strip. First thing an operator
-          sees on /today — yesterday's per-platform chunk status + observation
-          counts. On 2026-04-23 ChatGPT's 4 chunks silently failed (OPENAI_API_KEY
-          missing from Vercel env); this block + the 10:45 UTC canary workflow
-          make that kind of failure visible instead of silent. */}
+    <div className="space-y-5 max-w-5xl" data-today-layout="phase-6a8">
+      {/* ─────────────────────────────────────────────────────────────────
+          Phase 6A.8 (2026-04-28) — Today command-center hierarchy.
+
+          Tier 0: Critical alerts (only when firing).
+          Tier 1: Do Next (single decision card).
+          Tier 2: Lifecycle strip.
+          Tier 3: Implementation queue (top 3).
+          Tier 4: Decide tonight (action queue).
+          Tier 5: Wins / latest signal.
+          Tier 6: Today's metrics (collapsible disclosure).
+          Tier 7: Scan diffs (collapsed accordion at the bottom).
+
+          Pre-6A.8 the metrics tier sat above the lifecycle layer, which
+          buried the operator's daily-decision surface under 6 sections
+          of analytics. The audit ahead of this phase classified every
+          section, the user approved the new order, and this block is
+          the result. No data layer changes — this is a pure layout
+          rewrite around already-loaded props.
+          ─────────────────────────────────────────────────────────── */}
+
+      {/* Tier 0 — critical alerts. Each renders only when its trigger
+          is firing, so a green system shows zero alerts. */}
       {pollHealth && <PollHealthBlock snapshot={pollHealth} />}
-
-      {/* Commit 7C (2026-04-24): today's AI-extracted brand-position signal
-          (primary-recommendation rate, avg citation rank, descriptor chips,
-          answer-structure mix). Renders null when no native observations
-          landed today or yesterday. */}
-      {enrichmentRollup && <EnrichmentBadges rollup={enrichmentRollup} />}
-
-      {/* Phase v6 Commit 5 (2026-04-23): top-ranked recommendation. Single
-          opinionated card linking into /recommendations. Renders above the
-          prompts teaser because "what should I do" beats "state of prompts"
-          at 8 AM. Null when the prioritized queue is empty. */}
-      {topPick && <TopPickCard pick={topPick} />}
-
-      {/* Phase v5 Commit 5 (2026-04-24): prompts decision teaser. Points into
-          /prompts with per-category counts + a one-line summary sentence.
-          Not a mini dashboard — reads category counts in <2 seconds then
-          links out. */}
-      {promptsTeaser && <PromptsTeaser summary={promptsTeaser} />}
-
-      {/* Phase 3.5F (2026-04-22): freshness banner. Renders only when the
-          most recent AI-answer observation is 3+ days old. Reads as "known
-          state" rather than "broken product". */}
       {todayFreshness && (
         <div
-          className="rounded-md border border-foreground/10 bg-surface-inset/30 px-4 py-2.5 text-[12px] text-muted-foreground"
+          className="rounded-md border border-status-warning/40 bg-status-warning/[0.04] px-4 py-2.5 text-[12px]"
           role="status"
+          data-today-alert="stale-data"
         >
-          Visibility data current through{" "}
-          <span className="font-medium text-foreground">
-            {todayFreshness.lastObservationDate}
+          <span className="font-semibold text-status-warning">
+            Visibility data is {todayFreshness.daysStale}d stale.
+          </span>{" "}
+          <span className="text-muted-foreground">
+            Last observation:{" "}
+            <span className="font-medium text-foreground">
+              {todayFreshness.lastObservationDate}
+            </span>
+            . Check poll health above.
           </span>
-          . The daily poll cron hasn&apos;t landed a newer observation — check
-          the poll-health strip at the top of Today if this persists.
         </div>
-      )}
-
-      {/* ── Row 1: Visibility Score dashboard (Day 6 visual rebuild) ──
-          Profound-style chart (left) + top-5 entity leaderboard (right).
-          Replaces the old 5,146-big-number + platform-distribution line.
-          Stacks vertically on narrow screens. */}
-      {visibilityData && (
-        <div className="grid grid-cols-1 lg:grid-cols-[3fr_2fr] gap-4">
-          <VisibilityScoreChart
-            brandName={visibilityData.brandName}
-            brandSeriesByMetric={visibilityData.brandSeriesByMetric}
-            brandSeriesByPlatform={visibilityData.brandSeriesByPlatform ?? {}}
-            competitorSeriesByMetric={visibilityData.competitorSeriesByMetric}
-            events={visibilityData.chartEvents ?? []}
-          />
-          <VisibilityLeaderboard
-            entities={visibilityData.leaderboardByMetric.composite}
-          />
-        </div>
-      )}
-
-      {/* ── Scan banner + pending-changes review ──
-          Sits between the dashboard above and the action cards below.
-          The banner's "Review changes" button scrolls to the inline
-          review card right below it (anchor id="change-review-section").
-          Phase 3.5F (2026-04-22): suppressed on Vercel until Phase 4
-          ships a serverless-safe scan. Local dev keeps it. */}
-      {/* Phase 6A.7 (2026-04-28) — lifecycle status strip + accepted-
-          edit implementation queue. Anchors Today on lifecycle truth
-          (Live verified count is always shown, even when zero) so the
-          operator sees the same numbers /changes will show one click
-          away. Strip rendered first so the dense at-a-glance row sits
-          near the top of the page; the queue card lives just below
-          it because it's the action-card form of the "Pending impl"
-          chip. Both surfaces are read-only — Confirm/Dismiss for scan
-          findings stay in the collapsed ChangeReview accordion below. */}
-      {lifecycleSummary && (
-        <>
-          <TodayLifecycleStrip counts={lifecycleSummary.counts} />
-          <TodayImplementationQueue
-            queue={lifecycleSummary.queue}
-            totalPendingCount={lifecycleSummary.counts.pendingImplementation}
-          />
-        </>
       )}
       {!hostedScanDisabled && (
         <TodayScanStrip
@@ -450,24 +408,24 @@ export function TodayClient({
           pendingChangesCount={pendingContentChanges}
         />
       )}
-      {onConfirmFinding && onDismissFinding && pendingFindings.length > 0 && (
-        <ChangeReview
-          findings={pendingFindings}
-          onConfirm={onConfirmFinding}
-          onDismiss={onDismissFinding}
-        />
+      {lifecycleSummary && lifecycleSummary.counts.needsReview > 0 && (
+        <Link
+          href="/changes?tab=needs_review"
+          className="block rounded-md border border-status-warning/50 bg-status-warning/[0.06] px-4 py-2.5 text-[12px] hover:bg-status-warning/[0.10] transition-colors"
+          data-today-alert="needs-review"
+        >
+          <span className="font-semibold text-status-warning">
+            {lifecycleSummary.counts.needsReview} edit
+            {lifecycleSummary.counts.needsReview === 1 ? "" : "s"} need review
+          </span>{" "}
+          <span className="text-muted-foreground">
+            — the match engine returned an ambiguous verdict. Open Needs review →
+          </span>
+        </Link>
       )}
 
-      {/* Removed 2026-04-17 (Day 3 trust cleanup): platform-reliance warning AND
-          FAQ schema coverage warning. Both were insight-without-action ("analytics
-          theater"). Schema parity already surfaces via the pattern brain's
-          schema-parity ActionCards when it detects a page that should have the
-          schema. Raw coverage numbers without a "do this now" don't belong on
-          Today — they live on /pages if someone wants to audit systematically. */}
-
-      {/* Since-last-visit delta (client-side, localStorage). Renders only when
-         something has actually changed since the user's last open \u2014 so it's
-         never wallpaper. Added 2026-04-19 ("Today UX pass"). */}
+      {/* Since-last-visit delta — surfaces above Do Next when the
+          operator has new wins/hurts since their last visit. */}
       <SinceLastVisit
         currentCardIds={[
           ...(primaryAction ? [primaryAction.id] : []),
@@ -476,14 +434,34 @@ export function TodayClient({
         ].filter((id) => id.startsWith("hurt-") || id.startsWith("win-"))}
       />
 
-      {/* ── Row 2: Primary action stack (brain-driven) ──
-         Prefer brain actions (url-brain-recommender). Fall back to legacy
-         MorningBrief primaryBriefItem ONLY if brain produced zero actions
-         (rare — exploratory fallback guarantees ≥1 when citations exist).
+      {/* Tier 1 — Do Next (single card, deterministic priority).
+          ship_pending > decide_recommendation > review_scan_diffs > calm.
+          Logic locked in src/components/today/today-do-next-card.tsx. */}
+      <TodayDoNextCard
+        pendingQueue={lifecycleSummary?.queue ?? []}
+        pendingCount={lifecycleSummary?.counts.pendingImplementation ?? 0}
+        topPick={topPick ?? null}
+        findingsCriticalCount={findingsData.criticalCount}
+        findingsImportantCount={findingsData.importantCount}
+        findingsTotalCount={findingsData.totalCount}
+      />
 
-         Phase 3B (2026-04-20): section gets an explicit "Decide tonight"
-         heading so the partition from the measured-wins stripe below reads
-         as a clear two-section layout. */}
+      {/* Tier 2 — lifecycle strip (chips deep-link to /changes?tab=…). */}
+      {lifecycleSummary && (
+        <TodayLifecycleStrip counts={lifecycleSummary.counts} />
+      )}
+
+      {/* Tier 3 — implementation queue (top 3, capped server-side). */}
+      {lifecycleSummary && (
+        <TodayImplementationQueue
+          queue={lifecycleSummary.queue}
+          totalPendingCount={lifecycleSummary.counts.pendingImplementation}
+        />
+      )}
+
+      {/* Tier 4 — Decide tonight action queue. Stays after the lifecycle
+          layer because pending implementation is operationally heavier
+          than evaluating new recommendations. */}
       {primaryAction && (
         <div className="flex items-center justify-between -mb-1">
           <h3 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
@@ -522,12 +500,9 @@ export function TodayClient({
         )
       )}
 
-      {/* ── Wins to learn from (Phase 3B, 2026-04-20) ──
-         helping_verdict cards live here, visibly secondary to the action
-         queue above. Their purpose is memory, not decision — replicate-this-
-         win framing, not "BIGGEST WIN" urgency. */}
+      {/* Tier 5 — wins / latest signal (learning section, lower priority). */}
       {measuredWins && measuredWins.length > 0 && (
-        <section className="space-y-2">
+        <section className="space-y-2" data-today-section="wins">
           <div className="flex items-center justify-between">
             <h3 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
               Wins to learn from
@@ -552,28 +527,57 @@ export function TodayClient({
           </div>
         </section>
       )}
-
-      {/* ── Row 3: Proof — system intelligence validation ── */}
       {proofLine && (
         <a
           href="/changes"
           className="flex items-center gap-2.5 rounded-lg border border-border/50 bg-surface-inset/20 px-4 py-2.5 hover:bg-surface-inset/40 transition-colors group"
+          data-today-section="latest-signal"
         >
           <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${proofLine.dot}`} />
-          <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/70 shrink-0">Latest signal</span>
+          <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/70 shrink-0">
+            Latest signal
+          </span>
           <span className="text-xs text-foreground/90 flex-1">{proofLine.text}</span>
-          <span className="text-[10px] text-muted-foreground/50 group-hover:text-muted-foreground shrink-0">→</span>
+          <span className="text-[10px] text-muted-foreground/50 group-hover:text-muted-foreground shrink-0">
+            →
+          </span>
         </a>
       )}
 
-      {/* Drawer + nested Scoreboard/MorningBrief/competitor sections all
-          removed 2026-04-18 (Phase 7 cleanup).
-            \u2014 Scoreboard KPI cards: redundant with chart + leaderboard above
-            \u2014 Secondary MorningBrief blocks: source of the duplicate
-              "No actions to recommend right now" empty-state bug
-            \u2014 Memory/competitor reused MorningBrief renders: same bug cause
-          Today's shape is now: chart/leaderboard \u2192 scan + change review
-          \u2192 action cards \u2192 latest-signal proof line. That's it. */}
+      {/* Tier 6 — collapsible metrics disclosure. Defaults closed; state
+          persists per browser via localStorage. */}
+      {(enrichmentRollup ||
+        promptsTeaser ||
+        visibilityData) && (
+        <TodayMetricsDisclosure>
+          {enrichmentRollup && <EnrichmentBadges rollup={enrichmentRollup} />}
+          {promptsTeaser && <PromptsTeaser summary={promptsTeaser} />}
+          {visibilityData && (
+            <div className="grid grid-cols-1 lg:grid-cols-[3fr_2fr] gap-4">
+              <VisibilityScoreChart
+                brandName={visibilityData.brandName}
+                brandSeriesByMetric={visibilityData.brandSeriesByMetric}
+                brandSeriesByPlatform={visibilityData.brandSeriesByPlatform ?? {}}
+                competitorSeriesByMetric={visibilityData.competitorSeriesByMetric}
+                events={visibilityData.chartEvents ?? []}
+              />
+              <VisibilityLeaderboard
+                entities={visibilityData.leaderboardByMetric.composite}
+              />
+            </div>
+          )}
+        </TodayMetricsDisclosure>
+      )}
+
+      {/* Tier 7 — scan diffs (collapsed accordion). Phase 6A.4 contract:
+          <details> without `open` attr; sticky once user expands. */}
+      {onConfirmFinding && onDismissFinding && pendingFindings.length > 0 && (
+        <ChangeReview
+          findings={pendingFindings}
+          onConfirm={onConfirmFinding}
+          onDismiss={onDismissFinding}
+        />
+      )}
     </div>
   );
 }

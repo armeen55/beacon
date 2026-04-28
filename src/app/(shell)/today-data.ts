@@ -2238,23 +2238,13 @@ async function buildTodayLifecycleSummary(
     needsReview: 0,
     notFoundAfter7d: 0,
   };
-  const acceptedQueue: Array<{
-    id: string;
-    rec_id: string;
-    action_type: string;
-    target_url: string | null;
-    display_label: string | null;
-    proposed_text_preview: string | null;
-    updated_at: string;
-  }> = [];
+  const acceptedQueue: TodayLifecycleQueueItem[] = [];
   for (const edit of edits) {
     const status = edit.implementation_status;
     if (status === "verified_live" || status === "verified_live_modified") {
       counts.liveVerified += 1;
     } else if (status === "accepted") {
       counts.pendingImplementation += 1;
-      // Build the queue item lazily — only the top 5 (by updated_at desc)
-      // surface in the UI; we sort + slice after the loop.
       acceptedQueue.push({
         id: edit.id,
         rec_id: edit.rec_id,
@@ -2265,6 +2255,13 @@ async function buildTodayLifecycleSummary(
           ? edit.proposed_text.slice(0, 140)
           : null,
         updated_at: edit.updated_at,
+        // Phase 6A.8 (2026-04-28) — flag rows whose generator emitted a
+        // placeholder answer ("Draft answer (operator: rewrite)…"). UI
+        // surfaces a "needs rewrite" badge so the operator knows the FAQ
+        // can't ship as-is.
+        needsRewrite: edit.proposed_text
+          ? edit.proposed_text.includes("Draft answer (operator: rewrite)")
+          : false,
       });
     } else if (
       status === "needs_review" ||
@@ -2280,13 +2277,30 @@ async function buildTodayLifecycleSummary(
   acceptedQueue.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
   return {
     counts,
-    queue: acceptedQueue.slice(0, 5),
+    // Phase 6A.8 (2026-04-28) — UI shows top 3; the implementation-queue
+    // card renders a "+N more pending" deep-link to /changes when more
+    // exist. Capped here (rather than in the component) so /today's
+    // server payload stays small.
+    queue: acceptedQueue.slice(0, 3),
   };
 }
 
 /**
  * Phase 6A.7 — public shape consumed by TodayClient + tested directly.
  */
+export type TodayLifecycleQueueItem = {
+  id: string;
+  rec_id: string;
+  action_type: string;
+  target_url: string | null;
+  display_label: string | null;
+  proposed_text_preview: string | null;
+  updated_at: string;
+  /** Phase 6A.8 — true when the proposed_text is a generator placeholder
+   *  the operator must rewrite before shipping. */
+  needsRewrite: boolean;
+};
+
 export type TodayLifecycleSummary = {
   counts: {
     liveVerified: number;
@@ -2294,15 +2308,7 @@ export type TodayLifecycleSummary = {
     needsReview: number;
     notFoundAfter7d: number;
   };
-  queue: Array<{
-    id: string;
-    rec_id: string;
-    action_type: string;
-    target_url: string | null;
-    display_label: string | null;
-    proposed_text_preview: string | null;
-    updated_at: string;
-  }>;
+  queue: TodayLifecycleQueueItem[];
 };
 
 
