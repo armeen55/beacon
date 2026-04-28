@@ -1,7 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
-
-import { readDotDataJson } from "@/lib/persistence/dotdata-json";
+import { readDotDataJson, writeDotDataJson } from "@/lib/persistence/dotdata-json";
 
 export const LAST_SCAN_RESULT_BASENAME = "last-scan-result";
 
@@ -31,19 +28,30 @@ export type LastScanResultPayload = {
   fetchErrors?: { url: string; error: string }[];
 };
 
-const DATA_DIR = join(process.cwd(), ".data");
-
-function ensureDataDir() {
-  if (process.env.VERCEL === "1") return;
-  if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true });
-}
-
-export function writeLastScanResultFile(payload: LastScanResultPayload): void {
-  ensureDataDir();
-  const path = join(DATA_DIR, `${LAST_SCAN_RESULT_BASENAME}.json`);
-  const tmp = path + ".tmp";
-  writeFileSync(tmp, JSON.stringify(payload, null, 2), "utf8");
-  renameSync(tmp, path);
+/**
+ * Phase 5 hosted-cron fix (2026-04-28).
+ *
+ * `writeLastScanResultFile` previously wrote directly to root
+ * `.data/last-scan-result.json` via `writeFileSync`. The reader
+ * (`readLastScanResult`) used `readDotDataJson` which routes via
+ * `store-classification` — and `last-scan-result` is GLOBAL-classified,
+ * so reads route to `.data/global/last-scan-result.json`.
+ *
+ * **Split-brain.** Local FS happened to have files in BOTH locations
+ * from prior runs, masking the bug. The first GH Actions hosted scan
+ * surfaced it cleanly: CLI wrote root, orchestrator read global → null
+ * → "last-scan-result.json missing or invalid after CLI" → workflow
+ * failure.
+ *
+ * Fix: writer now uses `writeDotDataJson` (auto-routes via the same
+ * classification as the reader). Both writer + reader land on
+ * `.data/global/last-scan-result.json`. Sync→async migration; all 9
+ * call sites updated to await.
+ */
+export async function writeLastScanResultFile(
+  payload: LastScanResultPayload,
+): Promise<void> {
+  await writeDotDataJson(LAST_SCAN_RESULT_BASENAME, payload);
 }
 
 export async function readLastScanResult(): Promise<LastScanResultPayload | null> {

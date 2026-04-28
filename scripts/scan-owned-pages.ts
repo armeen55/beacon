@@ -405,7 +405,7 @@ async function main() {
       guardrailAlertCount: 0,
       cliError: `${formatErrorWithCause(e)} (sitemap: ${SITEMAP_URL})`,
     };
-    writeLastScanResultFile(failPayload);
+    await writeLastScanResultFile(failPayload);
     syncScanStateAfterResult(failPayload);
     throw e;
   }
@@ -502,7 +502,7 @@ async function main() {
         guardrailAlertCount: 0,
         abortedReason: `No canonical page matches URL: ${singleUrl}`,
       };
-      writeLastScanResultFile(abortedPayload);
+      await writeLastScanResultFile(abortedPayload);
       syncScanStateAfterResult(abortedPayload);
       return;
     }
@@ -531,7 +531,7 @@ async function main() {
       guardrailAlertCount: 0,
       dryRun: true,
     };
-    writeLastScanResultFile(dryPayload);
+    await writeLastScanResultFile(dryPayload);
     syncScanStateAfterResult(dryPayload);
     return;
   }
@@ -865,13 +865,13 @@ async function main() {
     guardrailAlertCount: alertsStamped.length,
     fetchErrors: errors.length > 0 ? errors : undefined,
   };
-  writeLastScanResultFile(finalPayload);
+  await writeLastScanResultFile(finalPayload);
   syncScanStateAfterResult(finalPayload);
 
   console.log("\n=== Done ===");
 }
 
-main().catch((e) => {
+main().catch(async (e) => {
   console.error(e);
   try {
     const crashPayload: LastScanResultPayload = {
@@ -886,7 +886,7 @@ main().catch((e) => {
       guardrailAlertCount: 0,
       cliError: formatErrorWithCause(e),
     };
-    writeLastScanResultFile(crashPayload);
+    await writeLastScanResultFile(crashPayload);
     syncScanStateAfterResult(crashPayload);
   } catch {
     /* ignore secondary write failure */

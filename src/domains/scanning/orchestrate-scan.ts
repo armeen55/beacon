@@ -131,7 +131,13 @@ export async function regenerateScanFindings(opts: {
 
 /** Coarse operator vs pipeline signal for logs (import post-step = auto). */
 function scanLogTrigger(entry: ScanTrigger): "manual" | "auto" {
-  return entry === "import" ? "auto" : "manual";
+  // Phase 5 (2026-04-28): "cron" is automation, not a click-driven
+  // operator action. Mapping it to "manual" was misleading in
+  // production logs (Daily scheduled scan #1 logged trigger="manual"
+  // even though scripts/run-scheduled-scan.ts called runWebsiteScan
+  // with trigger:"cron"). Operator-driven triggers (today/pages/cli)
+  // remain "manual"; cron + import are automation.
+  return entry === "import" || entry === "cron" ? "auto" : "manual";
 }
 
 function defaultFailedPayload(
@@ -247,7 +253,7 @@ export async function runWebsiteScan(opts: {
       error: msg.slice(0, 500),
     });
     const payload = defaultFailedPayload(msg, trigger);
-    writeLastScanResultFile(payload);
+    await writeLastScanResultFile(payload);
     writeIdleScanStateFromLastResult(trigger, payload);
     return {
       ok: false,
@@ -273,7 +279,7 @@ export async function runWebsiteScan(opts: {
       "Scan finished but last-scan-result.json is missing or invalid",
       trigger,
     );
-    writeLastScanResultFile(fallback);
+    await writeLastScanResultFile(fallback);
     writeIdleScanStateFromLastResult(trigger, fallback);
     return {
       ok: false,
@@ -412,7 +418,7 @@ export async function runWebsiteScan(opts: {
     }
   }
 
-  writeLastScanResultFile(merged);
+  await writeLastScanResultFile(merged);
   writeIdleScanStateFromLastResult(trigger, merged);
 
   const ok =
