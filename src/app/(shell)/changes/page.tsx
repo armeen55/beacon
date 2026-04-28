@@ -38,6 +38,14 @@ import {
 } from "@/domains/learning/change-patterns";
 import { extractEditTokens } from "@/domains/changelog/dedupe";
 import { isEventTruthPreviewEnabled } from "@/lib/flags";
+import {
+  classifyAll,
+  indexEditsByJoinKey,
+  LIFECYCLE_TAB_LABEL,
+  type LifecycleTab,
+  type LifecycleTabClass,
+} from "@/domains/attribution/lifecycle-classification";
+import type { RecommendedEditRow } from "@/domains/recommendations/recommended-edits-persistence";
 
 // Phase 1.2 (Sprint 1, 2026-04-24): force dynamic render so every request
 // runs the single-fresh-repo-read pattern below. Prevents any accidental ISR
@@ -104,8 +112,31 @@ export default async function ChangeScorecardPage() {
     return <ChangesReadError error={error} />;
   }
 
-  // Hide archived (dedupe-retired) entries from the main list.
+  // Hide archived (dedupe-retired + Phase 6A.1 test-pollution-archived)
+  // entries from the main list. The lifecycle classifier (Phase 6A.2)
+  // ALSO defends against archived rows reaching it, but filtering here
+  // first keeps the classifier inputs clean.
   const liveEntries = freshChangelogEntries.filter((c) => !c.archived);
+
+  // Phase 6A.2 (2026-04-28) — load recommended_edits + classify each
+  // changelog row by lifecycle tab. This drives /changes's default view:
+  // "Live verified" (i.e. lifecycle OS truth) instead of an undifferentiated
+  // 291-row mix of imported legacy + scan diffs + pending impl + lifecycle
+  // truth. The classifier itself is a pure module — see
+  // src/domains/attribution/lifecycle-classification.ts.
+  let recommendedEdits: RecommendedEditRow[] = [];
+  try {
+    recommendedEdits = await repository.getRecommendedEdits();
+  } catch (err) {
+    // Non-fatal: classifier degrades to source_system-only rules when
+    // edits are missing. Log so a Supabase outage is observable.
+    console.error("[changes] recommended_edits read failed (non-fatal)", err);
+  }
+  const editsByJoinKey = indexEditsByJoinKey(recommendedEdits);
+  const classification = classifyAll({
+    entries: liveEntries,
+    editsByJoinKey,
+  });
 
   // ── Build URL citation history once per page load ──
   // The watcher above persisted the latest to disk if it ran this tick;
@@ -240,21 +271,20 @@ export default async function ChangeScorecardPage() {
     outcomesById = {};
   }
 
-  // Phase 2C cleanup — at-a-glance counts now derived from the attribution
-  // store (computed / weak_estimate / no_controls). Legacy verdict counts
-  // (helping / hurting / too_early) retired.
-  const countsByStatus = {
-    computed: Object.values(outcomesById).filter((o) => o.status === "computed").length,
-    weak_estimate: Object.values(outcomesById).filter((o) => o.status === "weak_estimate").length,
-    no_controls: Object.values(outcomesById).filter((o) => o.status === "no_controls").length,
-    unsupported_scope: Object.values(outcomesById).filter((o) => o.status === "unsupported_scope").length,
-  };
+  // Phase 6A.2 (2026-04-28) — at-a-glance now reflects lifecycle truth
+  // (Live verified / Pending / Needs review / Imported legacy /
+  // Scan-confirmed / Other). The pre-6A.2 counts derived from the
+  // attribution-outcome store were Z-score-status counters that did not
+  // distinguish lifecycle-OS rows from imported legacy. Tab counts come
+  // from the same `classification` used to drive the filter chips
+  // below, so the headline number and the tab chip never disagree.
+  const lifecycleCounts = classification.counts;
 
   return (
     <div>
       <PageHeader
         title="Changes"
-        description="Every change you've made. Newest first. Each row shows its attribution status and confidence."
+        description="Verified and tracked changes Beacon has confirmed live, plus everything pending or imported. Filter by tab for the truth class you need."
       />
 
       {/* Commit 2 (2026-04-24): evidence-freshness honesty banner. Z-score
@@ -268,36 +298,44 @@ export default async function ChangeScorecardPage() {
         className="mb-6"
       />
 
-      {/* At-a-glance */}
+      {/* At-a-glance — Phase 6A.2 lifecycle tab counts. Prominent
+          live_verified count anchors the page in lifecycle-OS truth. */}
       <div className="mb-6 rounded-lg border border-border/60 bg-surface-raised/40 px-5 py-4">
         <div className="flex flex-wrap items-baseline gap-x-6 gap-y-2 text-sm">
           <span>
-            <span className="font-bold tabular-nums">{enriched.length}</span>
-            <span className="text-muted-foreground ml-1.5">changes tracked</span>
+            <span className="font-bold tabular-nums text-status-success">
+              {lifecycleCounts.live_verified}
+            </span>
+            <span className="text-muted-foreground ml-1.5">{LIFECYCLE_TAB_LABEL.live_verified.toLowerCase()}</span>
           </span>
-          {newestLabel && (
-            <span className="text-muted-foreground">
-              Latest: <span className="font-medium text-foreground">{newestLabel}</span>
-            </span>
-          )}
-          {countsByStatus.computed > 0 && (
-            <span className="text-accent-primary font-semibold tabular-nums">
-              {countsByStatus.computed} computed
-            </span>
-          )}
-          {countsByStatus.weak_estimate > 0 && (
+          {lifecycleCounts.pending_implementation > 0 && (
             <span className="text-status-warning/90 font-semibold tabular-nums">
-              {countsByStatus.weak_estimate} weak
+              {lifecycleCounts.pending_implementation} pending
             </span>
           )}
-          {countsByStatus.no_controls > 0 && (
-            <span className="text-status-warning/90 font-semibold tabular-nums">
-              {countsByStatus.no_controls} no controls
+          {lifecycleCounts.needs_review > 0 && (
+            <span className="text-status-warning font-semibold tabular-nums">
+              {lifecycleCounts.needs_review} need review
             </span>
           )}
-          {countsByStatus.unsupported_scope > 0 && (
+          {lifecycleCounts.imported_legacy > 0 && (
             <span className="text-muted-foreground tabular-nums">
-              {countsByStatus.unsupported_scope} unsupported
+              {lifecycleCounts.imported_legacy} imported legacy
+            </span>
+          )}
+          {lifecycleCounts.scan_confirmed > 0 && (
+            <span className="text-muted-foreground tabular-nums">
+              {lifecycleCounts.scan_confirmed} scan-confirmed
+            </span>
+          )}
+          {lifecycleCounts.unclassified > 0 && (
+            <span className="text-muted-foreground/70 tabular-nums">
+              {lifecycleCounts.unclassified} other
+            </span>
+          )}
+          {newestLabel && (
+            <span className="text-muted-foreground ml-auto">
+              Latest: <span className="font-medium text-foreground">{newestLabel}</span>
             </span>
           )}
           {coverageWarning && (
@@ -346,6 +384,8 @@ export default async function ChangeScorecardPage() {
         allPlatforms={allPlatforms}
         coverageState={coverageState}
         outcomesById={outcomesById}
+        classByChangelogId={Object.fromEntries(classification.classOf)}
+        tabCounts={lifecycleCounts}
       />
 
       {/* Phase 2C cleanup — legacy "Currently being watched" strip removed.

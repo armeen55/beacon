@@ -9,6 +9,13 @@ import type { UrlVerdict } from "@/domains/attribution/url-verdict";
 // math. The primary drilldown at /changes/[id] is the source of truth for
 // attribution status.
 import { AttributionStatusPill } from "./attribution-status-pill";
+import {
+  DEFAULT_LIFECYCLE_TAB,
+  LIFECYCLE_TAB_LABEL,
+  LIFECYCLE_TAB_ORDER,
+  type LifecycleTab,
+  type LifecycleTabClass,
+} from "@/domains/attribution/lifecycle-classification";
 
 /**
  * A single row on the /changes page.
@@ -53,41 +60,31 @@ export type ReadyOnPrediction = {
   narrative: string;
 };
 
-// Phase 2C cleanup — status-based filter (replaces legacy helping/hurting model).
-// "other" bundles the remaining rare statuses so operators have a catch-all without
-// a chip explosion. Changes with no stored outcome fall under "no_data".
-type StatusFilter =
-  | "all"
-  | "computed"
-  | "weak_estimate"
-  | "no_controls"
-  | "unsupported_scope"
-  | "insufficient_baseline"
-  | "other"
-  | "no_data";
-
-const STATUS_FILTER_LABEL: Record<StatusFilter, string> = {
-  all: "All",
-  computed: "Computed",
-  weak_estimate: "Weak estimate",
-  no_controls: "No controls",
-  unsupported_scope: "Unsupported",
-  insufficient_baseline: "No baseline",
-  other: "Other",
-  no_data: "No data",
-};
-
-const OTHER_STATUSES = new Set([
-  "insufficient_post_data",
-  "zero_signal",
-  "ineligible_layer",
-  "ineligible_event",
-]);
-
 const PLATFORM_SHORT: Record<string, string> = {
   chatgpt: "GPT",
   google_aio: "AIO",
   perplexity: "Pplx",
+};
+
+/**
+ * Phase 6A.2 (2026-04-28) — empty-state copy per lifecycle tab.
+ * Honest about WHY the tab is empty so operators don't see a generic
+ * "no rows" message and assume the system is broken.
+ */
+const EMPTY_TAB_COPY: Record<LifecycleTab, string> = {
+  live_verified:
+    "No verified-live rows yet. Once Beacon recommends an edit, you accept it, and the next scan finds it on the page, the row will land here with a Live ✓ marker.",
+  pending_implementation:
+    "Nothing waiting on you. Accepted edits live here until the scan confirms them on the page.",
+  needs_review:
+    "No edits need triage. The scan returns this status when a match is ambiguous (partial match, wrong page, or multiple candidates).",
+  imported_legacy:
+    "No imported legacy rows visible. Pre-pivot Profound CSV / PDF rebuild rows would appear here.",
+  scan_confirmed:
+    "No scan-confirmed rows. Confirmed scan-finding diffs (from /today) land here with their original detection date.",
+  unclassified:
+    "No other rows. Dismissed edits, not-found-after-7d, and pre-source-system legacy rows fall through to this tab.",
+  all: "No rows. The changelog is empty.",
 };
 
 export function ScorecardTable({
@@ -96,6 +93,8 @@ export function ScorecardTable({
   allPlatforms: _allPlatforms,
   coverageState,
   outcomesById,
+  classByChangelogId,
+  tabCounts,
 }: {
   rows: EnrichedChangeRow[];
   /** Reserved for future per-topic filter in drill-down. */
@@ -105,82 +104,87 @@ export function ScorecardTable({
   coverageState?: import("@/lib/coverage-state").CoverageState;
   /**
    * Phase 2C — stored attribution outcomes keyed by change_id. When present,
-   * each row renders the new attribution status pill (computed / weak_estimate /
-   * no_controls / unsupported_scope / ...) in place of the legacy verdict pill.
+   * each row renders the attribution status pill (computed / weak_estimate /
+   * no_controls / unsupported_scope / ...) inside the row.
    */
   outcomesById?: Record<string, import("@/domains/attribution/change-outcome-store").StoredChangeOutcome>;
+  /**
+   * Phase 6A.2 (2026-04-28) — per-row lifecycle classification keyed by
+   * `change.id`. Drives the lifecycle tabs that replace the legacy
+   * Z-score-status filter chips. Computed by the server-side classifier
+   * in `src/domains/attribution/lifecycle-classification.ts`.
+   */
+  classByChangelogId?: Record<string, LifecycleTabClass>;
+  /** Per-tab counts (including the synthetic `all` total). */
+  tabCounts?: Record<LifecycleTab, number>;
 }) {
-  const [filter, setFilter] = useState<StatusFilter>("all");
+  const [tab, setTab] = useState<LifecycleTab>(DEFAULT_LIFECYCLE_TAB);
 
-  const statusOf = (row: EnrichedChangeRow): StatusFilter => {
-    const outcome = outcomesById?.[row.scorecard.change.id];
-    if (!outcome) return "no_data";
-    const s = outcome.status;
-    if (s === "computed" || s === "weak_estimate" || s === "no_controls" || s === "unsupported_scope" || s === "insufficient_baseline") {
-      return s;
-    }
-    if (OTHER_STATUSES.has(s)) return "other";
-    return "no_data";
+  const lifecycleClassOf = (row: EnrichedChangeRow): LifecycleTabClass => {
+    return classByChangelogId?.[row.scorecard.change.id] ?? "unclassified";
   };
 
   const filtered = useMemo(() => {
-    if (filter === "all") return rows;
-    return rows.filter((r) => statusOf(r) === filter);
-    // statusOf depends on outcomesById — include in deps
+    if (tab === "all") return rows;
+    return rows.filter((r) => lifecycleClassOf(r) === tab);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows, filter, outcomesById]);
+  }, [rows, tab, classByChangelogId]);
 
-  const counts = useMemo(() => {
-    const c: Record<StatusFilter, number> = {
+  const counts = useMemo<Record<LifecycleTab, number>>(() => {
+    if (tabCounts) return tabCounts;
+    // Fallback: derive from rows when the parent didn't pass counts. Keeps
+    // the component usable in isolation (storybook / tests) but production
+    // always passes pre-computed counts from the server-side classifier.
+    const c: Record<LifecycleTab, number> = {
       all: rows.length,
-      computed: 0,
-      weak_estimate: 0,
-      no_controls: 0,
-      unsupported_scope: 0,
-      insufficient_baseline: 0,
-      other: 0,
-      no_data: 0,
+      live_verified: 0,
+      pending_implementation: 0,
+      needs_review: 0,
+      imported_legacy: 0,
+      scan_confirmed: 0,
+      unclassified: 0,
     };
     for (const r of rows) {
-      c[statusOf(r)] += 1;
+      const cls = lifecycleClassOf(r);
+      c[cls] += 1;
     }
     return c;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows, outcomesById]);
-
-  const filterOptions: StatusFilter[] = [
-    "all",
-    "computed",
-    "weak_estimate",
-    "no_controls",
-    "unsupported_scope",
-    "insufficient_baseline",
-    "other",
-    "no_data",
-  ];
+  }, [rows, tabCounts, classByChangelogId]);
 
   return (
     <div>
-      {/* Attribution status filter chips */}
+      {/* Phase 6A.2 lifecycle tabs. Default = live_verified so operators
+          land on lifecycle truth, not the 291-row legacy mix. */}
       <div className="flex items-center gap-1 mb-4 border-b border-border/40 pb-2 overflow-x-auto">
-        {filterOptions
-          .filter((key) => key === "all" || counts[key] > 0)
-          .map((key) => (
-            <button
-              key={key}
-              onClick={() => setFilter(key)}
-              className={`px-3 py-1.5 rounded-md text-[11px] font-medium transition-colors whitespace-nowrap ${
-                filter === key
-                  ? "bg-foreground text-background"
-                  : "text-muted-foreground hover:text-foreground hover:bg-surface-inset/50"
-              }`}
-            >
-              {STATUS_FILTER_LABEL[key]}
-              <span className="ml-1.5 text-[10px] opacity-60 tabular-nums">
-                {counts[key]}
-              </span>
-            </button>
-          ))}
+        {LIFECYCLE_TAB_ORDER
+          // Hide a tab when it has zero rows, EXCEPT live_verified and
+          // all — live_verified must always be visible (operator
+          // expectation that lifecycle truth has a permanent home), and
+          // all is the catch-all.
+          .filter((key) => key === "live_verified" || key === "all" || counts[key] > 0)
+          .map((key) => {
+            const isActive = tab === key;
+            const isEmphasized = key === "live_verified";
+            return (
+              <button
+                key={key}
+                onClick={() => setTab(key)}
+                className={`px-3 py-1.5 rounded-md text-[11px] font-medium transition-colors whitespace-nowrap ${
+                  isActive
+                    ? "bg-foreground text-background"
+                    : isEmphasized
+                      ? "text-status-success hover:bg-status-success/10"
+                      : "text-muted-foreground hover:text-foreground hover:bg-surface-inset/50"
+                }`}
+              >
+                {LIFECYCLE_TAB_LABEL[key]}
+                <span className="ml-1.5 text-[10px] opacity-60 tabular-nums">
+                  {counts[key]}
+                </span>
+              </button>
+            );
+          })}
         <span className="ml-auto text-[11px] text-muted-foreground tabular-nums">
           {filtered.length}/{rows.length}
         </span>
@@ -212,8 +216,8 @@ export function ScorecardTable({
       </div>
 
       {filtered.length === 0 && (
-        <div className="text-center py-8 text-[13px] text-muted-foreground">
-          No changes match this filter.
+        <div className="text-center py-8 px-6 text-[13px] text-muted-foreground max-w-2xl mx-auto leading-relaxed">
+          {EMPTY_TAB_COPY[tab]}
         </div>
       )}
 
