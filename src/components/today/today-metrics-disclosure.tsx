@@ -74,10 +74,10 @@ export function TodayMetricsDisclosure({
             ▸
           </span>
           <span className="text-[12px] font-semibold text-foreground">
-            Today&apos;s metrics
+            Topic + prompt depth
           </span>
           <span className="text-[10px] text-muted-foreground/70">
-            visibility · prompts · descriptors · competitor leaderboard
+            descriptors · answer shape · prompt decisions
           </span>
         </div>
         <span className="text-[10px] text-muted-foreground/50">

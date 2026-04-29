@@ -16,16 +16,20 @@ describe("TodayMetricsDisclosure SSR contract", () => {
     expect(html).not.toContain("visibility chart");
   });
 
-  it("the disclosure heading is operator-friendly", () => {
+  it("the disclosure heading is operator-friendly (Phase 6B.2 — visibility moved to headline tier)", () => {
     const html = renderToStaticMarkup(
       <TodayMetricsDisclosure>
         <div />
       </TodayMetricsDisclosure>,
     );
-    expect(html).toContain("Today");
-    expect(html).toContain("metrics");
-    expect(html).toContain("visibility");
-    expect(html).toContain("competitor");
+    expect(html).toContain("Topic");
+    expect(html).toContain("prompt");
+    expect(html).toContain("descriptors");
+    // Visibility chart + competitor leaderboard are now top-level on
+    // /today; the disclosure no longer carries them, and the subtitle
+    // shouldn't claim they're inside.
+    expect(html).not.toContain("visibility ·");
+    expect(html).not.toContain("competitor leaderboard");
   });
 
   it("renders an aria-expanded button on the toggle", () => {

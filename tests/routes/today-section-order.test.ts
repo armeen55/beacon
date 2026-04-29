@@ -31,6 +31,7 @@ const EXPECTED_ORDER: Array<{ tier: string; marker: string }> = [
   { tier: "0c alert: scan banner", marker: "<TodayScanStrip" },
   { tier: "0d alert: needs review", marker: 'data-today-alert="needs-review"' },
   { tier: "1 since-last-visit", marker: "<SinceLastVisit" },
+  { tier: "1.5 visibility headline", marker: 'data-today-section="visibility-headline"' },
   { tier: "2 do-next card", marker: "<TodayDoNextCard" },
   { tier: "3 lifecycle strip", marker: "<TodayLifecycleStrip" },
   { tier: "4 implementation queue", marker: "<TodayImplementationQueue" },

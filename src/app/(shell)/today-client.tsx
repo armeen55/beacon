@@ -434,6 +434,34 @@ export function TodayClient({
         ].filter((id) => id.startsWith("hurt-") || id.startsWith("win-"))}
       />
 
+      {/* Tier 1.5 — Visibility headline (Phase 6B.2, 2026-04-29).
+          The visibility chart + competitor leaderboard answer the
+          single question Beacon exists to answer: "is AI mentioning me
+          more or less, and how do I rank against the field." Pre-6B.2
+          this lived inside the collapsed metrics disclosure (Tier 6),
+          which buried the product's purpose under a click. Now it
+          sits between alerts and the Do Next card so the operator
+          sees orientation BEFORE action. The disclosure below still
+          carries enrichment + prompts depth for operators who want
+          to drill in. */}
+      {visibilityData && (
+        <section
+          className="grid grid-cols-1 lg:grid-cols-[3fr_2fr] gap-4"
+          data-today-section="visibility-headline"
+        >
+          <VisibilityScoreChart
+            brandName={visibilityData.brandName}
+            brandSeriesByMetric={visibilityData.brandSeriesByMetric}
+            brandSeriesByPlatform={visibilityData.brandSeriesByPlatform ?? {}}
+            competitorSeriesByMetric={visibilityData.competitorSeriesByMetric}
+            events={visibilityData.chartEvents ?? []}
+          />
+          <VisibilityLeaderboard
+            entities={visibilityData.leaderboardByMetric.composite}
+          />
+        </section>
+      )}
+
       {/* Tier 1 — Do Next (single card, deterministic priority).
           ship_pending > decide_recommendation > review_scan_diffs > calm.
           Logic locked in src/components/today/today-do-next-card.tsx. */}
@@ -545,27 +573,15 @@ export function TodayClient({
       )}
 
       {/* Tier 6 — collapsible metrics disclosure. Defaults closed; state
-          persists per browser via localStorage. */}
-      {(enrichmentRollup ||
-        promptsTeaser ||
-        visibilityData) && (
+          persists per browser via localStorage. Phase 6B.2 (2026-04-29):
+          visibility chart + leaderboard surfaced above (Tier 1.5 — the
+          headline answer to "is AI mentioning me more or less"). What
+          remains here is secondary metric depth: enrichment-rollup
+          descriptors + per-platform prompts teaser. */}
+      {(enrichmentRollup || promptsTeaser) && (
         <TodayMetricsDisclosure>
           {enrichmentRollup && <EnrichmentBadges rollup={enrichmentRollup} />}
           {promptsTeaser && <PromptsTeaser summary={promptsTeaser} />}
-          {visibilityData && (
-            <div className="grid grid-cols-1 lg:grid-cols-[3fr_2fr] gap-4">
-              <VisibilityScoreChart
-                brandName={visibilityData.brandName}
-                brandSeriesByMetric={visibilityData.brandSeriesByMetric}
-                brandSeriesByPlatform={visibilityData.brandSeriesByPlatform ?? {}}
-                competitorSeriesByMetric={visibilityData.competitorSeriesByMetric}
-                events={visibilityData.chartEvents ?? []}
-              />
-              <VisibilityLeaderboard
-                entities={visibilityData.leaderboardByMetric.composite}
-              />
-            </div>
-          )}
         </TodayMetricsDisclosure>
       )}
 
