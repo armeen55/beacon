@@ -23,6 +23,7 @@ import {
   resolveAttributionCopy,
   type AttributionCopyTone,
 } from "@/domains/attribution/lifecycle-attribution-copy";
+import { LIFECYCLE_PENDING_SOURCE_SYSTEM } from "@/domains/attribution/synthesize-pending-changelog";
 
 /**
  * A single row on the /changes page.
@@ -421,8 +422,19 @@ function ChangeRow({
           )}
         </td>
         <td className="px-2.5 py-2 align-top max-w-[380px]">
+          {/* Phase 6B.1 follow-up (2026-04-28) — synthetic pending rows
+              don't have a real /changes/[id] detail page (they're built
+              from recommended_edits at render time). Linking to
+              /changes/[id] would 404. Route synthetic rows to
+              /recommendations so the operator can decide on the edit
+              there; real changelog rows continue to deep-link to the
+              detail page. */}
           <Link
-            href={`/changes/${ch.id}`}
+            href={
+              ch.source_system === LIFECYCLE_PENDING_SOURCE_SYSTEM
+                ? "/recommendations"
+                : `/changes/${ch.id}`
+            }
             onClick={(e) => e.stopPropagation()}
             className="hover:text-accent-primary transition-colors"
           >
