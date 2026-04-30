@@ -129,6 +129,54 @@ const EMPTY_TAB_COPY: Record<LifecycleTab, string> = {
   all: "No rows. The changelog is empty.",
 };
 
+function csvEscape(value: string | number | null | undefined): string {
+  const s = String(value ?? "");
+  if (s.includes('"') || s.includes(",") || s.includes("\n")) {
+    return `"${s.replace(/"/g, '""')}"`;
+  }
+  return s;
+}
+
+function exportRowsAsCSV(rows: EnrichedChangeRow[], tab: LifecycleTab): void {
+  const headers = [
+    "Date",
+    "Page",
+    "URL",
+    "Description",
+    "Signal Type",
+    "Topic",
+    "City",
+    "AI Mentions Linked",
+    "Verdict",
+  ];
+
+  const dataRows = rows.map((row) => {
+    const change = row.scorecard.change;
+    const date = change.timestamp ? change.timestamp.slice(0, 10) : "";
+    return [
+      csvEscape(date),
+      csvEscape(change.asset_name),
+      csvEscape(change.url),
+      csvEscape(change.change_description),
+      csvEscape(change.signal_type),
+      csvEscape(change.topic_targeted),
+      csvEscape(change.city_targeted),
+      csvEscape(row.scorecard.totalEventsLinked),
+      csvEscape(row.scorecard.verdictSummary),
+    ].join(",");
+  });
+
+  const csv = [headers.join(","), ...dataRows].join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const today = new Date().toISOString().slice(0, 10);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `beacon-changes-${tab}-${today}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 export function ScorecardTable({
   rows,
   allTopics: _allTopics,
@@ -296,6 +344,12 @@ export function ScorecardTable({
         <span className="ml-auto text-[11px] text-muted-foreground tabular-nums">
           {filtered.length}/{rows.length}
         </span>
+        <button
+          onClick={() => exportRowsAsCSV(filtered, tab)}
+          className="ml-2 px-2.5 py-1 rounded-md text-[11px] font-medium border border-border/60 text-muted-foreground hover:text-foreground hover:border-border transition-colors whitespace-nowrap"
+        >
+          Export CSV
+        </button>
       </div>
 
       <div className="border border-border/70 rounded-lg overflow-hidden">
