@@ -113,6 +113,14 @@ export default async function RecommendationsPage() {
     edits: editsByRecId.get(rec.stableKey) ?? [],
   }));
 
+  // Step 1.1 (master plan) — build the prompt-text lookup the client uses
+  // to render evidence chips. Replaces the raw UUID leak in the prior
+  // `prompt:${ref.promptId}` chip.
+  const promptTextById: Record<string, string> = {};
+  for (const p of live.trackedPrompts) {
+    promptTextById[p.id] = p.text;
+  }
+
   return (
     <div className="max-w-4xl">
       <PageHeader
@@ -131,6 +139,7 @@ export default async function RecommendationsPage() {
         queue={decorated}
         watchlist={watchDecorated}
         matrixDate={matrix.date}
+        promptTextById={promptTextById}
       />
     </div>
   );

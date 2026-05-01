@@ -28,14 +28,23 @@ import { buildResolvedRecommendationTitle } from "@/domains/recommendations/buil
 import type { SuggestedEdit } from "@/domains/recommendations/adjudicator-schema";
 import type { RecommendedEditRow } from "@/domains/recommendations/recommended-edits-persistence";
 import { LifecycleStatusPill } from "@/components/display/lifecycle-status-pill";
+import { summarizeEvidenceRefs } from "@/domains/recommendations/evidence-summary";
 
 type Props = {
   queue: RecommendationQueueRow[];
   watchlist: RecommendationWatchRow[];
   matrixDate: string;
+  /** Step 1.1 (master plan) — lookup so evidence chips render a prompt
+   *  text snippet instead of leaking the raw UUID into operator copy. */
+  promptTextById: Record<string, string>;
 };
 
-export function RecommendationsClient({ queue, watchlist, matrixDate }: Props) {
+export function RecommendationsClient({
+  queue,
+  watchlist,
+  matrixDate,
+  promptTextById,
+}: Props) {
   const [showDismissed, setShowDismissed] = useState(false);
   const [feedback, setFeedback] = useState<{
     stableKey: string;
@@ -113,6 +122,7 @@ export function RecommendationsClient({ queue, watchlist, matrixDate }: Props) {
                 rows={group.rows}
                 feedback={feedback}
                 setFeedback={setFeedback}
+                promptTextById={promptTextById}
               />
             ))}
         </div>
@@ -157,6 +167,7 @@ function QueueSection({
   rows,
   feedback,
   setFeedback,
+  promptTextById,
 }: {
   tier: PrioritizedRecommendationTier;
   label: string;
@@ -169,6 +180,7 @@ function QueueSection({
   setFeedback: (
     f: { stableKey: string; message: string; isError: boolean } | null,
   ) => void;
+  promptTextById: Record<string, string>;
 }) {
   const meta = TIER_META[tier];
   return (
@@ -200,6 +212,7 @@ function QueueSection({
             row={row}
             feedback={feedback}
             setFeedback={setFeedback}
+            promptTextById={promptTextById}
           />
         ))}
       </ul>
@@ -263,6 +276,7 @@ function RecommendationRow({
   row,
   feedback,
   setFeedback,
+  promptTextById,
 }: {
   row: RecommendationQueueRow;
   feedback: {
@@ -273,6 +287,7 @@ function RecommendationRow({
   setFeedback: (
     f: { stableKey: string; message: string; isError: boolean } | null,
   ) => void;
+  promptTextById: Record<string, string>;
 }) {
   const { rec, response, edits } = row;
   const editCount = edits.length;
@@ -485,6 +500,7 @@ function RecommendationRow({
           // anchor contract for fresh OpenAI bundles; this surfaces
           // any pre-Phase-A edits or future drift directly in the UI.
           recommendationTargetUrl={resolution?.targetUrl ?? null}
+          promptTextById={promptTextById}
         />
       )}
 
@@ -955,9 +971,11 @@ function resolveEditTargetHref(targetUrl: string): string {
 function SpecificEditsSection({
   edits,
   recommendationTargetUrl,
+  promptTextById,
 }: {
   edits: RecommendedEditRow[];
   recommendationTargetUrl: string | null;
+  promptTextById: Record<string, string>;
 }) {
   if (edits.length === 0) return null;
   const count = edits.length;
@@ -1093,24 +1111,18 @@ function SpecificEditsSection({
                 <span className="font-medium text-foreground/80">Why: </span>
                 {edit.why}
               </p>
-              {edit.evidence && edit.evidence.length > 0 && (
-                <p className="mt-1 text-[10px] text-muted-foreground/80 leading-relaxed">
-                  Evidence:{" "}
-                  {edit.evidence
-                    .map((ref) => {
-                      if (ref.type === "prompt") return `prompt:${ref.promptId}`;
-                      if (ref.type === "element") return `element:${ref.elementKey}`;
-                      if (ref.type === "owned_page") return `page:${ref.url}`;
-                      if (ref.type === "competitor")
-                        return `competitor:${ref.competitorName}`;
-                      if (ref.type === "prior_outcome")
-                        return `prior:${ref.actionType}`;
-                      return "";
-                    })
-                    .filter(Boolean)
-                    .join(" · ")}
-                </p>
-              )}
+              {edit.evidence && edit.evidence.length > 0 && (() => {
+                const summary = summarizeEvidenceRefs(
+                  edit.evidence,
+                  promptTextById,
+                );
+                if (!summary) return null;
+                return (
+                  <p className="mt-1 text-[10px] text-muted-foreground/80 leading-relaxed">
+                    Evidence: {summary}
+                  </p>
+                );
+              })()}
               {/* Sprint 6A.2g.F — operator-facing context blocks. Only
                   rendered when the underlying field is populated, so
                   edit cards stay compact when the provider didn't

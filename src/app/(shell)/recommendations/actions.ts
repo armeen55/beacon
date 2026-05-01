@@ -29,6 +29,7 @@ import { NEEDS_NEW_PAGE } from "@/domains/recommendations/resolved-types";
 import type { PageBrief, SuggestedEdit } from "@/domains/recommendations/adjudicator-schema";
 import { buildResolvedRecommendationTitle } from "@/domains/recommendations/build-title";
 import { sanitizeOperatorCopy } from "@/domains/recommendations/copy-sanitize";
+import { summarizeEvidenceRefs } from "@/domains/recommendations/evidence-summary";
 import type { SignalType, AssetType } from "@/lib/constants";
 import {
   ACTION_TYPE_REGISTRY,
@@ -267,6 +268,26 @@ async function createChangelogEntriesForEdits(
   const ids: string[] = [];
   const newEntries: ChangelogEntry[] = [];
 
+  // Step 1.1 (master plan) — fetch prompt text once per Accept so the
+  // evidence summary in changelog notes renders a snippet instead of
+  // a raw promptId UUID. Best-effort: an empty map causes prompt refs
+  // to be dropped from the summary, never to leak as UUIDs.
+  // tracked-prompts is a global store, not tenant-scoped.
+  let promptTextById: Record<string, string> = {};
+  try {
+    const tp = await getRepository().getTrackedPrompts();
+    for (const p of tp) promptTextById[p.id] = p.text;
+  } catch (e) {
+    log.warn(
+      "[recommendations.actions] failed to load tracked prompts for evidence summary",
+      {
+        tenantId,
+        error: e instanceof Error ? e.message : String(e),
+      },
+    );
+    promptTextById = {};
+  }
+
   for (const edit of edits) {
     const editId = generateId("cl");
     ids.push(editId);
@@ -293,19 +314,10 @@ async function createChangelogEntriesForEdits(
       noteParts.push(`Proposed:\n${sanitizeOperatorCopy(edit.proposed_text)}`);
     }
     if (edit.evidence && edit.evidence.length > 0) {
-      const evidenceSummary = edit.evidence
-        .map((ref) => {
-          if (ref.type === "prompt") return `prompt:${ref.promptId}`;
-          if (ref.type === "element") return `element:${ref.elementKey}`;
-          if (ref.type === "owned_page") return `page:${ref.url}`;
-          if (ref.type === "competitor")
-            return `competitor:${ref.competitorName}`;
-          if (ref.type === "prior_outcome")
-            return `prior:${ref.actionType}`;
-          return "";
-        })
-        .filter(Boolean)
-        .join(" · ");
+      const evidenceSummary = summarizeEvidenceRefs(
+        edit.evidence,
+        promptTextById,
+      );
       if (evidenceSummary) noteParts.push(`Evidence: ${evidenceSummary}`);
     }
     if (edit.measurement_plan) {

@@ -43,6 +43,9 @@ vi.mock("@/lib/persistence/repositories", () => {
   // `getRepository().forTenant(tenantId).getRecommendedEdits()`. Mock returns
   // the same shape from both forTenant() and direct access so the test mock
   // contract matches the production call shape.
+  // Step 1.1 (master plan) — actions.ts also calls
+  // `getRepository().getTrackedPrompts()` to render evidence chips with
+  // prompt-text snippets instead of leaking promptId UUIDs.
   const repo = {
     getRecommendedEdits: async () => {
       if (mocks.editsRepoShouldThrow) {
@@ -50,6 +53,22 @@ vi.mock("@/lib/persistence/repositories", () => {
       }
       return mocks.editsToReturn;
     },
+    getTrackedPrompts: async () => [
+      {
+        id: "p-1",
+        account_id: "acct-test",
+        text: "best teen orthodontist near me",
+        topic_id: null,
+        location_scope: null,
+        service_scope: null,
+        intent_type: null,
+        platforms: [],
+        tags: [],
+        is_active: true,
+        created_at: "2026-04-01T00:00:00Z",
+        updated_at: "2026-04-01T00:00:00Z",
+      },
+    ],
     forTenant: (_tenantId: string) => repo,
   };
   return { getRepository: () => repo };
