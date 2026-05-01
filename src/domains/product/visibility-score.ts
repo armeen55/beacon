@@ -51,11 +51,34 @@ export type EntityVisibility = {
   rank: number;
   /** Current-window average score. 0..100. */
   score: number;
-  /** Delta vs previous window in percentage points (absolute, not relative). */
-  delta: number;
-  /** Total mentions across the window (for tooltip / transparency). */
+  /**
+   * Δ in percentage points vs the previous equal-length window
+   * (current avg − previous avg). Null when the previous window has
+   * insufficient samples to make an honest comparison — Step 1.3
+   * (master plan) replaces the prior fake-0 fallback.
+   */
+  delta: number | null;
+  /** Window length used for the delta comparison, in calendar days. */
+  deltaWindowDays: number;
+  /** Sampled-day count in the current window — for honest tooltips. */
+  currentSampledDays: number;
+  /** Sampled-day count in the previous window — null delta when this is too low. */
+  previousSampledDays: number;
+  /** Total mentions across the current window (transparency). */
   mentionCount: number;
 };
+
+/**
+ * Minimum sampled-day count required in the PREVIOUS window before we'll
+ * report a delta. Below this we return `delta: null` so the UI can render
+ * a "—" / "limited data" treatment instead of pretending we know.
+ *
+ * Threshold chosen at ⌈windowDays / 3⌉ with a hard floor of 2: a 7d window
+ * requires 3 prior sampled days, 14d requires 5, 30d requires 10, 60d 20.
+ */
+function minSampledDaysForDelta(windowDays: number): number {
+  return Math.max(2, Math.ceil(windowDays / 3));
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -294,20 +317,27 @@ export function computeVisibilityTimeSeriesByPlatform(opts: {
 // ---------------------------------------------------------------------------
 
 /**
- * Build the top-N entity leaderboard across the current window, with delta
- * vs a previous window of equal length.
+ * Build the top-N entity leaderboard across the current window, with the
+ * delta column reading "current avg − previous-equal-length-window avg".
  *
- * Always includes the tracked brand, even if it would rank below the top-N.
+ * Step 1.3 (master plan) — `windowDays` is the single knob the caller
+ * twists. The function derives both windows from `windowEndDate` so the
+ * delta semantics ALWAYS read "vs. previous {windowDays} days":
+ *
+ *   current  = [windowEndDate − windowDays + 1, windowEndDate]
+ *   previous = [windowEndDate − 2·windowDays + 1, windowEndDate − windowDays]
+ *
+ * Always includes the tracked brand even if it would rank below the top-N.
+ *
+ * Tests: see `visibility-score-delta.test.ts`.
  */
 export function computeLeaderboard(opts: {
   observations: PromptAnswerObservation[];
   brandAliases: string[];
-  /** Current window (inclusive). */
-  startDate: string;
-  endDate: string;
-  /** Previous window (inclusive) — typically the same duration immediately before. */
-  prevStartDate: string;
-  prevEndDate: string;
+  /** Inclusive end of the current window — usually today's UTC date. */
+  windowEndDate: string;
+  /** Length of the current AND previous windows in calendar days. */
+  windowDays: number;
   metric: VisibilityMetric;
   limit?: number;
 }): EntityVisibility[] {
@@ -315,30 +345,38 @@ export function computeLeaderboard(opts: {
   const brandSlugs = new Set(opts.brandAliases.map(slugifyEntity));
   const brandDisplay = opts.brandAliases[0] ?? "You";
 
-  // Aggregate per entity across the current window.
+  // Derive windows from the single (windowEndDate, windowDays) knob.
+  const startDate = subtractDays(opts.windowEndDate, opts.windowDays - 1);
+  const endDate = opts.windowEndDate;
+  const prevEndDate = subtractDays(opts.windowEndDate, opts.windowDays);
+  const prevStartDate = subtractDays(opts.windowEndDate, 2 * opts.windowDays - 1);
+
   const current = aggregateWindow(
     opts.observations,
-    opts.startDate,
-    opts.endDate,
+    startDate,
+    endDate,
     brandSlugs,
     brandDisplay,
     opts.metric,
   );
   const previous = aggregateWindow(
     opts.observations,
-    opts.prevStartDate,
-    opts.prevEndDate,
+    prevStartDate,
+    prevEndDate,
     brandSlugs,
     brandDisplay,
     opts.metric,
   );
 
-  const previousBySlug = new Map(previous.map((e) => [e.slug, e]));
+  const previousBySlug = new Map(previous.entities.map((e) => [e.slug, e]));
+  const minPrev = minSampledDaysForDelta(opts.windowDays);
+  const previousIsHonest = previous.sampledDays >= minPrev;
 
-  // Combine — current score + delta vs previous.
-  const combined: EntityVisibility[] = current.map((c, i) => {
+  // Combine — current score + delta vs previous. Null delta when the
+  // previous window is too sparse to compare honestly.
+  const combined: EntityVisibility[] = current.entities.map((c, i) => {
     const prev = previousBySlug.get(c.slug);
-    const delta = prev ? c.score - prev.score : c.score;
+    const delta = previousIsHonest && prev ? c.score - prev.score : null;
     return {
       name: c.name,
       slug: c.slug,
@@ -346,6 +384,9 @@ export function computeLeaderboard(opts: {
       rank: i + 1,
       score: c.score,
       delta,
+      deltaWindowDays: opts.windowDays,
+      currentSampledDays: current.sampledDays,
+      previousSampledDays: previous.sampledDays,
       mentionCount: c.mentionCount,
     };
   });
@@ -360,7 +401,6 @@ export function computeLeaderboard(opts: {
   if (!brandInTopN) {
     const brand = combined.find((e) => e.isOwned);
     if (brand) {
-      // Update rank to reflect position in the full combined list.
       const brandRank = combined.findIndex((e) => e.slug === brand.slug) + 1;
       topN.push({ ...brand, rank: brandRank });
     }
@@ -376,6 +416,13 @@ export function computeLeaderboard(opts: {
   return withDisplayRank;
 }
 
+/** Subtract N calendar days from a YYYY-MM-DD string. UTC-safe. */
+function subtractDays(date: string, n: number): string {
+  const d = new Date(date + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() - n);
+  return d.toISOString().slice(0, 10);
+}
+
 // ---------------------------------------------------------------------------
 // Internals
 // ---------------------------------------------------------------------------
@@ -388,6 +435,17 @@ type AggregatedEntity = {
   mentionCount: number;
 };
 
+/**
+ * Result of an aggregation pass. `sampledDays` is the count of distinct
+ * dates inside [startDate, endDate] with at least one observation —
+ * `computeLeaderboard` reads this to decide whether the previous window
+ * is dense enough to support an honest delta.
+ */
+type AggregateWindowResult = {
+  entities: AggregatedEntity[];
+  sampledDays: number;
+};
+
 function aggregateWindow(
   observations: PromptAnswerObservation[],
   startDate: string,
@@ -395,7 +453,7 @@ function aggregateWindow(
   brandSlugs: Set<string>,
   brandDisplay: string,
   metric: VisibilityMetric,
-): AggregatedEntity[] {
+): AggregateWindowResult {
   // Counts per entity.
   const mentionsByEntity = new Map<string, { name: string; count: number }>();
   // Brand gets special handling via tracked_brand_mentioned flag.
@@ -403,11 +461,13 @@ function aggregateWindow(
   let brandCited = 0;
   let brandCitationWeightSum = 0;
   let totalInWindow = 0;
+  const sampledDateSet = new Set<string>();
 
   for (const obs of observations) {
     const d = dateOnly(obs.observed_at);
     if (d < startDate || d > endDate) continue;
     totalInWindow++;
+    sampledDateSet.add(d);
 
     // Brand (the tracked tenant).
     if (mentionsBrand(obs, brandSlugs)) brandMentioned++;
@@ -462,7 +522,7 @@ function aggregateWindow(
     });
   }
 
-  return out;
+  return { entities: out, sampledDays: sampledDateSet.size };
 }
 
 // ---------------------------------------------------------------------------

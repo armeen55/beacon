@@ -31,17 +31,30 @@ export function VisibilityLeaderboard({
 }: VisibilityLeaderboardProps) {
   const brandRow = entities.find((e) => e.isOwned);
   const brandRank = brandRow?.rank ?? null;
+  const windowDays = entities[0]?.deltaWindowDays ?? null;
+  const previousSampledDays = entities[0]?.previousSampledDays ?? 0;
+  const currentSampledDays = entities[0]?.currentSampledDays ?? 0;
+  const deltaLabelSuffix = windowDays
+    ? `vs. previous ${windowDays} days`
+    : null;
 
   // 2026-04-19: "Share-capture signal" banner. Fires when the tracked brand's
   // delta is positive while at least one of the top-3 competitors' delta is
   // negative. Tells the operator "you gained while they lost" \u2014 the actual
   // causal story that our attribution engine can't yet claim from raw data.
+  // Step 1.3 (master plan) \u2014 gracefully skip when delta is null (limited data).
   const competitorRows = entities.filter((e) => !e.isOwned).slice(0, 5);
   const losingCompetitors = competitorRows
-    .filter((c) => c.delta < -0.5)
+    .filter(
+      (c): c is EntityVisibility & { delta: number } =>
+        c.delta !== null && c.delta < -0.5,
+    )
     .sort((a, b) => a.delta - b.delta);
   const shareCapture =
-    brandRow && brandRow.delta > 0.5 && losingCompetitors.length > 0
+    brandRow &&
+    brandRow.delta !== null &&
+    brandRow.delta > 0.5 &&
+    losingCompetitors.length > 0
       ? {
           brandGain: brandRow.delta,
           topLoser: losingCompetitors[0],
@@ -89,24 +102,48 @@ export function VisibilityLeaderboard({
       )}
 
       {/* Rank callout */}
-      <div className="flex items-baseline gap-2 mb-4">
-        <span className="text-3xl font-bold tabular-nums">
-          {brandRank !== null ? `#${brandRank}` : "—"}
-        </span>
-        {brandRow && (
-          <span
-            className={cn(
-              "text-sm font-semibold tabular-nums",
-              brandRow.delta > 0
-                ? "text-status-success"
-                : brandRow.delta < 0
-                  ? "text-status-danger"
-                  : "text-muted-foreground",
-            )}
-          >
-            {brandRow.delta > 0 ? "+" : ""}
-            {brandRow.delta.toFixed(1)}%
+      <div className="flex flex-col gap-1 mb-4">
+        <div className="flex items-baseline gap-2">
+          <span className="text-3xl font-bold tabular-nums">
+            {brandRank !== null ? `#${brandRank}` : "—"}
           </span>
+          {brandRow && brandRow.delta !== null ? (
+            <span
+              className={cn(
+                "text-sm font-semibold tabular-nums",
+                brandRow.delta > 0
+                  ? "text-status-success"
+                  : brandRow.delta < 0
+                    ? "text-status-danger"
+                    : "text-muted-foreground",
+              )}
+              title={deltaLabelSuffix ?? undefined}
+            >
+              {brandRow.delta > 0 ? "+" : ""}
+              {brandRow.delta.toFixed(1)} pt
+            </span>
+          ) : (
+            <span
+              className="text-sm font-medium text-muted-foreground"
+              title={
+                windowDays
+                  ? `Only ${previousSampledDays} sampled day${previousSampledDays === 1 ? "" : "s"} in the previous ${windowDays}-day window — too few to compare honestly.`
+                  : undefined
+              }
+            >
+              —
+            </span>
+          )}
+        </div>
+        {deltaLabelSuffix && (
+          <p className="text-[10px] text-muted-foreground/70">
+            {deltaLabelSuffix} · {currentSampledDays} sampled day
+            {currentSampledDays === 1 ? "" : "s"} in this {windowDays}-day window
+            {brandRow?.delta === null && previousSampledDays > 0 && (
+              <> · only {previousSampledDays} prior sampled day
+              {previousSampledDays === 1 ? "" : "s"}</>
+            )}
+          </p>
         )}
       </div>
 
@@ -182,19 +219,29 @@ function LeaderboardRow({ entity }: { entity: EntityVisibility }) {
         <span className="text-[12px] font-semibold tabular-nums text-foreground">
           {entity.score.toFixed(1)}%
         </span>
-        <span
-          className={cn(
-            "text-[10px] font-medium tabular-nums w-14 text-right",
-            entity.delta > 0
-              ? "text-status-success"
-              : entity.delta < 0
-                ? "text-status-danger"
-                : "text-muted-foreground/60",
-          )}
-        >
-          {entity.delta > 0 ? "+" : ""}
-          {entity.delta.toFixed(1)}%
-        </span>
+        {entity.delta !== null ? (
+          <span
+            className={cn(
+              "text-[10px] font-medium tabular-nums w-14 text-right",
+              entity.delta > 0
+                ? "text-status-success"
+                : entity.delta < 0
+                  ? "text-status-danger"
+                  : "text-muted-foreground/60",
+            )}
+            title={`vs. previous ${entity.deltaWindowDays} days`}
+          >
+            {entity.delta > 0 ? "+" : ""}
+            {entity.delta.toFixed(1)} pt
+          </span>
+        ) : (
+          <span
+            className="text-[10px] font-medium tabular-nums w-14 text-right text-muted-foreground/40"
+            title={`Only ${entity.previousSampledDays} sampled day${entity.previousSampledDays === 1 ? "" : "s"} in the previous ${entity.deltaWindowDays}-day window — too few to compare.`}
+          >
+            —
+          </span>
+        )}
       </div>
     </div>
   );

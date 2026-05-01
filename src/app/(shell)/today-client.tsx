@@ -201,6 +201,14 @@ export function TodayClient({
     brandSeriesByMetric: Record<VisibilityMetric, VisibilityPoint[]>;
     brandSeriesByPlatform?: Record<string, VisibilityPoint[]>;
     leaderboardByMetric: Record<VisibilityMetric, EntityVisibility[]>;
+    /** Step 1.3 (master plan) — leaderboard slices per chart-toggle window
+     *  so the delta column re-binds when the operator switches 7d/14d/30d/60d. */
+    leaderboardByMetricAndWindow?: Record<
+      VisibilityMetric,
+      Record<number, EntityVisibility[]>
+    >;
+    /** Anchor for the chart's calendar-date filter (today's UTC date). */
+    chartEndDate?: string;
     competitorSeriesByMetric: Record<
       VisibilityMetric,
       Array<{ name: string; points: VisibilityPoint[] }>
@@ -250,6 +258,11 @@ export function TodayClient({
 }) {
   const [pending, startTransition] = useTransition();
   const [actionMsg, setActionMsg] = useState<string | null>(null);
+
+  // Step 1.3 (master plan) — chart's selected window is hoisted here so the
+  // leaderboard's delta column tracks the same toggle. Keep the default at
+  // 14d to match the prior single-leaderboard behaviour.
+  const [visibilityWindow, setVisibilityWindow] = useState<number>(14);
 
   const crawl = summary.crawl;
   const run = crawl.activeObservationRun;
@@ -455,9 +468,16 @@ export function TodayClient({
             brandSeriesByPlatform={visibilityData.brandSeriesByPlatform ?? {}}
             competitorSeriesByMetric={visibilityData.competitorSeriesByMetric}
             events={visibilityData.chartEvents ?? []}
+            timeRange={visibilityWindow}
+            onTimeRangeChange={setVisibilityWindow}
+            chartEndDate={visibilityData.chartEndDate ?? null}
           />
           <VisibilityLeaderboard
-            entities={visibilityData.leaderboardByMetric.composite}
+            entities={
+              visibilityData.leaderboardByMetricAndWindow?.composite[
+                visibilityWindow
+              ] ?? visibilityData.leaderboardByMetric.composite
+            }
           />
         </section>
       )}

@@ -44,12 +44,11 @@ export type VisibilityChartEvent = {
 export type VisibilityChartProps = {
   /** Tenant brand name for the headline label. */
   brandName: string;
-  /** Full 60-day time series for brand, per metric. Sliced client-side to
-   *  the selected time range. */
+  /** Full 60-day time series for brand, per metric. Filtered client-side
+   *  to the selected calendar-date window (Step 1.3 \u2014 master plan). */
   brandSeriesByMetric: Record<VisibilityMetric, VisibilityPoint[]>;
   /** Full 60-day time series broken down by platform. Each platform's points
-   *  only include dates where that platform was actually sampled \u2014 matches
-   *  Profound's per-platform visibility view. Optional for backwards compat. */
+   *  only include dates where that platform was actually sampled. */
   brandSeriesByPlatform?: Record<string, VisibilityPoint[]>;
   /** Top competitor series for "Compare competitors" toggle. */
   competitorSeriesByMetric: Record<
@@ -58,6 +57,17 @@ export type VisibilityChartProps = {
   >;
   /** Optional dated annotations \u2014 e.g. hurting verdicts. */
   events?: VisibilityChartEvent[];
+  /** Step 1.3 (master plan) \u2014 selected window in calendar days (7/14/30/60).
+   *  Lifted to `today-client.tsx` so the leaderboard delta tracks the same
+   *  toggle. Falls back to the local-state default for non-Today consumers. */
+  timeRange?: number;
+  onTimeRangeChange?: (days: number) => void;
+  /** Anchor (YYYY-MM-DD UTC) for the calendar-date filter. The chart now
+   *  shows points from `chartEndDate \u2212 timeRange + 1` through `chartEndDate`
+   *  rather than the last N points \u2014 which under sparse sampling silently
+   *  expanded the visible window beyond the toggle label. Pass null to fall
+   *  back to the latest sampled point. */
+  chartEndDate?: string | null;
 };
 
 const METRICS: VisibilityMetric[] = [
@@ -80,31 +90,64 @@ export function VisibilityScoreChart({
   brandSeriesByPlatform = {},
   competitorSeriesByMetric,
   events = [],
+  timeRange: timeRangeProp,
+  onTimeRangeChange,
+  chartEndDate,
 }: VisibilityChartProps) {
   const [metric, setMetric] = useState<VisibilityMetric>("composite");
-  const [timeRange, setTimeRange] = useState<number>(14);
+  // Step 1.3 (master plan) — accept timeRange as a controlled prop when the
+  // parent (today-client.tsx) needs to keep the leaderboard's delta column
+  // in sync. Falls back to local state for non-Today consumers.
+  const [localTimeRange, setLocalTimeRange] = useState<number>(14);
+  const timeRange = timeRangeProp ?? localTimeRange;
+  const setTimeRange = onTimeRangeChange ?? setLocalTimeRange;
   const [showCompetitors, setShowCompetitors] = useState(false);
   const [showPlatforms, setShowPlatforms] = useState(false);
 
   const fullBrandPoints = brandSeriesByMetric[metric];
   const fullCompetitorSeries = competitorSeriesByMetric[metric];
 
-  // Slice the full 60d series to the selected time range. The series has
-  // already skipped zero-sample dates, so we take the last N actual points
-  // (not last N calendar days) to avoid gaps.
+  // Step 1.3 — derive the calendar-date cutoff from `chartEndDate` so the
+  // window matches the toggle label even when sampling is sparse. Falls
+  // back to the latest sampled point when the parent doesn't supply an
+  // anchor (preserves prior behaviour for non-Today callers).
+  const cutoffDate = useMemo(() => {
+    const anchor =
+      chartEndDate ??
+      fullBrandPoints[fullBrandPoints.length - 1]?.date ??
+      null;
+    if (!anchor) return null;
+    const d = new Date(anchor + "T00:00:00Z");
+    d.setUTCDate(d.getUTCDate() - (timeRange - 1));
+    return d.toISOString().slice(0, 10);
+  }, [chartEndDate, fullBrandPoints, timeRange]);
+
+  // Filter to the selected calendar-date window (replaces the prior
+  // `slice(-timeRange)` last-N-points approach — Step 1.3).
   const brandPoints = useMemo(
-    () => fullBrandPoints.slice(-timeRange),
-    [fullBrandPoints, timeRange],
+    () =>
+      cutoffDate === null
+        ? fullBrandPoints
+        : fullBrandPoints.filter((p) => p.date >= cutoffDate),
+    [fullBrandPoints, cutoffDate],
   );
 
   const competitorSeries = useMemo(
     () =>
       fullCompetitorSeries.map((c) => ({
         ...c,
-        points: c.points.slice(-timeRange),
+        points:
+          cutoffDate === null
+            ? c.points
+            : c.points.filter((p) => p.date >= cutoffDate),
       })),
-    [fullCompetitorSeries, timeRange],
+    [fullCompetitorSeries, cutoffDate],
   );
+
+  // Sample-count strip: how many sampled days actually live inside the
+  // toggle's calendar-day window? Renders below the headline so a 7d toggle
+  // showing only 4 dots is honest about it instead of silently lying.
+  const sampledDayCount = brandPoints.length;
 
   // Headline: latest non-empty score vs first non-empty score in the visible range.
   const headline = useMemo(() => {
@@ -143,7 +186,11 @@ export function VisibilityScoreChart({
       for (const [platform, points] of Object.entries(brandSeriesByPlatform)) {
         if (points.length === 0) continue;
         const aligned: number[] = new Array(brandPoints.length).fill(NaN);
-        for (const p of points.slice(-timeRange)) {
+        const filteredPlatformPoints =
+          cutoffDate === null
+            ? points
+            : points.filter((p) => p.date >= cutoffDate);
+        for (const p of filteredPlatformPoints) {
           const idx = dateIdx.get(p.date);
           if (idx !== undefined) aligned[idx] = p.score;
         }
@@ -175,7 +222,7 @@ export function VisibilityScoreChart({
       });
     }
     return s;
-  }, [brandName, brandPoints, competitorSeries, showCompetitors, showPlatforms, brandSeriesByPlatform, timeRange]);
+  }, [brandName, brandPoints, competitorSeries, showCompetitors, showPlatforms, brandSeriesByPlatform, cutoffDate]);
 
   const labels = brandPoints.map((p) => {
     // Format as "Apr 17" from "2026-04-17".
@@ -219,26 +266,41 @@ export function VisibilityScoreChart({
         </div>
       </div>
 
-      {/* Headline score + delta */}
-      <div className="flex items-baseline gap-2 mb-3">
-        <span className="text-3xl font-bold tabular-nums">
-          {headline.hasData ? `${headline.score.toFixed(1)}%` : "—"}
-        </span>
-        {headline.hasData && (
-          <span
-            className={cn(
-              "text-sm font-semibold tabular-nums",
-              headline.delta > 0
-                ? "text-status-success"
-                : headline.delta < 0
-                  ? "text-status-danger"
-                  : "text-muted-foreground",
-            )}
-          >
-            {headline.delta > 0 ? "+" : ""}
-            {headline.delta.toFixed(1)}%
+      {/* Headline score + delta. Step 1.3 (master plan) — this delta is
+          latest minus earliest INSIDE the visible window. Distinct from the
+          leaderboard's "vs. previous N days" delta. Labelled "within this
+          window" so the two never get confused. */}
+      <div className="flex flex-col gap-1 mb-3">
+        <div className="flex items-baseline gap-2">
+          <span className="text-3xl font-bold tabular-nums">
+            {headline.hasData ? `${headline.score.toFixed(1)}%` : "—"}
           </span>
-        )}
+          {headline.hasData && (
+            <span
+              className={cn(
+                "text-sm font-semibold tabular-nums",
+                headline.delta > 0
+                  ? "text-status-success"
+                  : headline.delta < 0
+                    ? "text-status-danger"
+                    : "text-muted-foreground",
+              )}
+              title="Change from earliest to latest sample in the visible window."
+            >
+              {headline.delta > 0 ? "+" : ""}
+              {headline.delta.toFixed(1)} pt
+            </span>
+          )}
+          {headline.hasData && (
+            <span className="text-[10px] text-muted-foreground/70 self-center">
+              within this window
+            </span>
+          )}
+        </div>
+        <p className="text-[10px] text-muted-foreground/70">
+          {sampledDayCount} sampled day
+          {sampledDayCount === 1 ? "" : "s"} in this {timeRange}-day window
+        </p>
       </div>
 
       {/* Chart */}

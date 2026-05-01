@@ -2031,10 +2031,6 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
   };
   const chartEndDate = isoDay(today);
   const chartStartDate = daysAgo(59); // inclusive \u2192 60 days
-  const leaderEndDate = isoDay(today);
-  const leaderStartDate = daysAgo(13);
-  const leaderPrevEndDate = daysAgo(14);
-  const leaderPrevStartDate = daysAgo(27);
 
   const METRICS: VisibilityMetric[] = ["composite", "mention_rate", "citation_rate"];
 
@@ -2051,7 +2047,6 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
   }
 
   // 2026-04-19: per-platform breakdown for the chart's "by platform" view.
-  // Matches Profound's per-platform visibility column.
   const brandSeriesByPlatform = computeVisibilityTimeSeriesByPlatform({
     observations: promptAnswerObservations,
     brandAliases,
@@ -2059,19 +2054,35 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
     endDate: chartEndDate,
   });
 
-  // Leaderboard: 14d window with 14d previous for delta.
+  // Step 1.3 (master plan) \u2014 leaderboard precomputed for every chart-toggle
+  // window (7/14/30/60). Each entry's delta reads "vs. previous N days":
+  // current avg minus previous-equal-length-window avg. computeLeaderboard
+  // returns null delta when the previous window is too sparse.
+  const LEADERBOARD_WINDOWS: ReadonlyArray<number> = [7, 14, 30, 60];
+  const leaderboardByMetricAndWindow = {} as Record<
+    VisibilityMetric,
+    Record<number, EntityVisibility[]>
+  >;
+  for (const m of METRICS) {
+    leaderboardByMetricAndWindow[m] = {} as Record<number, EntityVisibility[]>;
+    for (const windowDays of LEADERBOARD_WINDOWS) {
+      leaderboardByMetricAndWindow[m][windowDays] = computeLeaderboard({
+        observations: promptAnswerObservations,
+        brandAliases,
+        windowEndDate: chartEndDate,
+        windowDays,
+        metric: m,
+        limit: 5,
+      });
+    }
+  }
+  // Backwards-compat alias \u2014 historically callers consumed a single
+  // 14-day leaderboard from `leaderboardByMetric.<metric>`. Keep the
+  // shape so non-/today consumers (chart event overlay below, etc.)
+  // don't churn.
   const leaderboardByMetric = {} as Record<VisibilityMetric, EntityVisibility[]>;
   for (const m of METRICS) {
-    leaderboardByMetric[m] = computeLeaderboard({
-      observations: promptAnswerObservations,
-      brandAliases,
-      startDate: leaderStartDate,
-      endDate: leaderEndDate,
-      prevStartDate: leaderPrevStartDate,
-      prevEndDate: leaderPrevEndDate,
-      metric: m,
-      limit: 5,
-    });
+    leaderboardByMetric[m] = leaderboardByMetricAndWindow[m][14];
   }
 
   // Top competitors from the composite leaderboard (top 4 non-owned), with
@@ -2150,6 +2161,13 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
     brandSeriesByMetric,
     brandSeriesByPlatform,
     leaderboardByMetric,
+    /** Step 1.3 (master plan) — leaderboard slices for every chart-toggle
+     *  window. Today's UI swaps in the entry matching the chart's selected
+     *  timeRange so the delta column always reads against the same window. */
+    leaderboardByMetricAndWindow,
+    /** Anchor for the chart's calendar-date filter (replaces last-N-points
+     *  slicing). Always today's UTC date. */
+    chartEndDate,
     competitorSeriesByMetric,
     chartEvents,
   };
