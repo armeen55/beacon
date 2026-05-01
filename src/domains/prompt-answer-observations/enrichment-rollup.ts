@@ -11,6 +11,8 @@
  */
 
 import type { PromptAnswerObservation } from "./types";
+import type { TrackedEntity } from "@/domains/tracked-entities/types";
+import { makeCompetitorRankingFilter } from "@/domains/recommendations/entity-pollution-filter";
 
 export type PlatformEnrichmentRollup = {
   platform: string;
@@ -162,6 +164,31 @@ export function buildEnrichmentRollup(
 }
 
 // ---------------------------------------------------------------------------
+// W2 Step 2.2b — sample-status thresholds (shared across rollups)
+// ---------------------------------------------------------------------------
+
+/**
+ * Classifies a sample-count integer for UI render decisions. The v2
+ * layout doesn't HIDE thin data — it just softens the copy ("a few
+ * observations so far" vs "based on N answers"). The operator can
+ * still see what AI said; the UI just stops promising precision it
+ * doesn't have.
+ */
+export type SampleStatus = "empty" | "thin" | "enough";
+
+/** Threshold for "thin" → "enough" classification. Tuned at 10 obs:
+ *  with daily polling, that's roughly half a day on one platform — the
+ *  point at which descriptor-cloud / format-mix distributions stop
+ *  being noisy. */
+const SAMPLE_ENOUGH_MIN = 10;
+
+function classifySample(observationCount: number): SampleStatus {
+  if (observationCount <= 0) return "empty";
+  if (observationCount < SAMPLE_ENOUGH_MIN) return "thin";
+  return "enough";
+}
+
+// ---------------------------------------------------------------------------
 // W2 Step 2.2 — windowed rollups for "How AI Described You" v2
 // ---------------------------------------------------------------------------
 
@@ -210,6 +237,13 @@ export type EnrichmentWindowRollup = {
   priorSampledDays: number;
   /** Top descriptors with rank-delta-vs-prior-window. Length ≤ maxDescriptors. */
   topDescriptorsWithDelta: DescriptorWithDelta[];
+  /**
+   * W2 Step 2.2b — observation-count classification ("empty" / "thin" /
+   * "enough") so the UI can soften copy when the descriptor cloud is
+   * built from a small sample. Counted from observations whose
+   * `descriptor_window` had ≥1 token (i.e. brand was actually mentioned).
+   */
+  sampleStatus: SampleStatus;
 };
 
 export type BuildEnrichmentWindowRollupInput = {
@@ -287,6 +321,7 @@ export function buildEnrichmentWindowRollup(
     currentSampledDays: countSampledDays(currentObs),
     priorSampledDays: countSampledDays(priorObs),
     topDescriptorsWithDelta,
+    sampleStatus: classifySample(currentWindow.observationsWithDescriptors),
   };
 }
 
@@ -362,6 +397,14 @@ export type CompetitorEnrichmentRollup = {
    * the UI can render a precise empty-state message.
    */
   emptyStateReason: CompetitorEnrichmentEmptyReason | null;
+  /**
+   * W2 Step 2.2b — observation-count classification. Counted from
+   * `observationsWithDescriptors` (rows that actually contributed
+   * competitor descriptor tokens). "empty" lines up with
+   * `emptyStateReason !== null`; "thin" / "enough" let the UI soften
+   * "based on N answers" copy.
+   */
+  sampleStatus: SampleStatus;
 };
 
 export type BuildCompetitorEnrichmentRollupInput = {
@@ -502,6 +545,7 @@ export function buildCompetitorEnrichmentRollup(
     topDescriptors,
     topDescriptorsWithDelta,
     emptyStateReason,
+    sampleStatus: classifySample(observationsWithDescriptors),
   };
 }
 
@@ -520,6 +564,12 @@ export type PlatformPrimaryRateSparkline = {
   platform: string;
   /** Length === windowDays. Days with zero observations get a null primaryRate. */
   points: PlatformPrimaryRatePoint[];
+  /** W2 Step 2.2b — total observations across the sparkline window for
+   *  this platform. */
+  totalObservations: number;
+  /** W2 Step 2.2b — sample-status classification across the window so
+   *  the UI can label thin per-platform sparklines softly. */
+  sampleStatus: SampleStatus;
 };
 
 export type BuildPlatformPrimaryRateSparklinesInput = {
@@ -591,18 +641,261 @@ export function buildPlatformPrimaryRateSparklines(
   const out: PlatformPrimaryRateSparkline[] = [];
   for (const platform of [...wantPlatforms].sort()) {
     const dayMap = buckets.get(platform) ?? new Map();
+    let totalObservations = 0;
     const points: PlatformPrimaryRatePoint[] = dateAxis.map((date) => {
       const day = dayMap.get(date);
       if (!day || day.obs === 0) {
         return { date, observations: 0, primaryRate: null };
       }
+      totalObservations += day.obs;
       return {
         date,
         observations: day.obs,
         primaryRate: Math.round((day.primary / day.obs) * 100) / 100,
       };
     });
-    out.push({ platform, points });
+    out.push({
+      platform,
+      points,
+      totalObservations,
+      sampleStatus: classifySample(totalObservations),
+    });
   }
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// W2 Step 2.2b — format-wins rollup (per-platform answer-structure mix)
+// ---------------------------------------------------------------------------
+
+/** One bucket of the per-platform answer-structure breakdown. */
+export type StructureBucket = {
+  /** Internal enum key (e.g. "ranked_list"). UI maps via STRUCTURE_LABEL. */
+  structure: string;
+  /** Number of observations whose answer_structure equals this value. */
+  count: number;
+  /** count / sampleCount, rounded to 2 decimals. */
+  pct: number;
+};
+
+/**
+ * One platform's answer-structure mix. The v2 layout's "What format wins"
+ * section renders one of these per platform — telling the operator which
+ * answer shape AI prefers when answering on this platform so the
+ * operator's content can match it.
+ */
+export type FormatWinsRollup = {
+  platform: string;
+  windowEndDate: string;
+  windowDays: number;
+  /** # observations on this platform that carried `answer_structure`. */
+  sampleCount: number;
+  /** "empty" / "thin" / "enough" — see classifySample. */
+  sampleStatus: SampleStatus;
+  /** Top structure key (e.g. "ranked_list"). Null when sampleCount === 0. */
+  dominantStructure: string | null;
+  /** Top structure's pct (0..1). Null when sampleCount === 0. */
+  dominantPct: number | null;
+  /** Full distribution sorted by count desc. */
+  structures: StructureBucket[];
+};
+
+export type BuildFormatWinsRollupInput = {
+  observations: ReadonlyArray<PromptAnswerObservation>;
+  endDate: string;
+  windowDays?: number; // default 7
+  /** When supplied, only return rollups for these platform labels. */
+  platforms?: ReadonlyArray<string>;
+};
+
+/**
+ * Per-platform answer-structure breakdown over a calendar-day window.
+ * Only counts observations whose `answer_structure` field is non-null —
+ * pre-Schema-v2 legacy rows contribute nothing (they show as `empty` /
+ * 0 sampleCount on their platform if they have no current Schema-v2
+ * peers; otherwise they're invisible).
+ */
+export function buildFormatWinsRollup(
+  input: BuildFormatWinsRollupInput,
+): FormatWinsRollup[] {
+  const windowDays = input.windowDays ?? 7;
+  const startDate = subtractDaysIso(input.endDate, windowDays - 1);
+
+  // Bucket by platform → structure → count.
+  const byPlatform = new Map<string, Map<string, number>>();
+  for (const o of input.observations) {
+    if (!inWindow(o, startDate, input.endDate)) continue;
+    const platform = o.platform ?? "unknown";
+    const structure = o.answer_structure;
+    if (!structure) continue;
+    let s = byPlatform.get(platform);
+    if (!s) {
+      s = new Map();
+      byPlatform.set(platform, s);
+    }
+    s.set(structure, (s.get(structure) ?? 0) + 1);
+  }
+
+  // Determine which platforms to emit. When the caller supplies a list,
+  // emit one rollup per requested platform even if it has zero matching
+  // observations — UI may want to show "no data yet" for known-existent
+  // platforms.
+  const wantPlatforms = input.platforms
+    ? new Set(input.platforms)
+    : new Set(byPlatform.keys());
+
+  const out: FormatWinsRollup[] = [];
+  for (const platform of [...wantPlatforms].sort()) {
+    const struct = byPlatform.get(platform) ?? new Map();
+    const sampleCount = [...struct.values()].reduce((a, b) => a + b, 0);
+    const buckets: StructureBucket[] = [...struct.entries()]
+      .map(([structure, count]) => ({
+        structure,
+        count,
+        pct:
+          sampleCount > 0
+            ? Math.round((count / sampleCount) * 100) / 100
+            : 0,
+      }))
+      .sort(
+        (a, b) =>
+          b.count - a.count || a.structure.localeCompare(b.structure),
+      );
+    out.push({
+      platform,
+      windowEndDate: input.endDate,
+      windowDays,
+      sampleCount,
+      sampleStatus: classifySample(sampleCount),
+      dominantStructure: buckets[0]?.structure ?? null,
+      dominantPct: buckets[0]?.pct ?? null,
+      structures: buckets,
+    });
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// W2 Step 2.2b — competitor dropdown helper (default selection)
+// ---------------------------------------------------------------------------
+
+/** One entry in the v2 layout's "compare to competitor" dropdown. */
+export type CompetitorDropdownEntry = {
+  /** Canonical competitor name (matches `competitor_descriptor_windows` keys). */
+  name: string;
+  /** # observations in window where competitor_co_mentions includes this name. */
+  comentionCount: number;
+  /** # observations whose competitor_descriptor_windows[name] is non-empty. */
+  observationsWithDescriptors: number;
+  /** observationsWithDescriptors > 0. */
+  hasDescriptorData: boolean;
+  /** True on exactly one entry (the chosen default). */
+  isDefault: boolean;
+};
+
+export type BuildCompetitorDropdownInput = {
+  observations: ReadonlyArray<PromptAnswerObservation>;
+  /** Tracked-entity registry — required so directories + generic nouns
+   *  can be filtered out via shared entity-pollution logic. */
+  trackedEntities: ReadonlyArray<TrackedEntity>;
+  endDate: string;
+  windowDays?: number; // default 7
+  /** Cap on entries returned. Defaults to 10. */
+  limit?: number;
+};
+
+/**
+ * Builds the dropdown / comparison-target selection for the v2 layout's
+ * right column ("Who AI thinks they are"). Filters through the shared
+ * entity-pollution-filter so directories (Houzz, Yelp, Angi) and generic
+ * nouns ("General Contractors") are EXCLUDED — they cannot be defaulted
+ * to or selected as a comparison target.
+ *
+ * Sort order:
+ *   1. Competitors WITH descriptor data first (so the default lands on
+ *      something the v2 right column can actually render).
+ *   2. Then by `observationsWithDescriptors` desc.
+ *   3. Then by `comentionCount` desc.
+ *   4. Then alphabetical by name.
+ *
+ * Default = first entry (single competitor flagged `isDefault: true`).
+ *
+ * If no real competitor has descriptor data yet (e.g. window straddles
+ * the Step 2.1 ship date), the default falls back to the strongest real
+ * competitor by `comentionCount`. The UI then renders the
+ * `no_descriptor_field_yet` empty state for that competitor's column —
+ * never fabricates descriptors.
+ */
+export function buildCompetitorDropdown(
+  input: BuildCompetitorDropdownInput,
+): CompetitorDropdownEntry[] {
+  const windowDays = input.windowDays ?? 7;
+  const limit = input.limit ?? 10;
+  const startDate = subtractDaysIso(input.endDate, windowDays - 1);
+
+  const comentionCounts = new Map<string, number>();
+  const descriptorCounts = new Map<string, number>();
+
+  for (const o of input.observations) {
+    if (!inWindow(o, startDate, input.endDate)) continue;
+
+    // Count co-mentions (broader signal — present even on legacy rows
+    // without competitor_descriptor_windows).
+    for (const name of o.competitor_co_mentions ?? []) {
+      comentionCounts.set(name, (comentionCounts.get(name) ?? 0) + 1);
+    }
+
+    // Count descriptor-bearing observations per competitor.
+    const cdw = o.competitor_descriptor_windows;
+    if (cdw && typeof cdw === "object") {
+      for (const [name, tokens] of Object.entries(cdw)) {
+        if (!tokens || tokens.length === 0) continue;
+        descriptorCounts.set(name, (descriptorCounts.get(name) ?? 0) + 1);
+      }
+    }
+  }
+
+  // Filter through entity-pollution-filter — directories + generic nouns
+  // get dropped. Brand entries (the operator's own brand) are also
+  // filtered, since they can never be a "compare to" target.
+  const isCompetitorRankable = makeCompetitorRankingFilter(
+    input.trackedEntities,
+  );
+
+  // Union of names from co-mentions + descriptors so a competitor that
+  // shows up only via one signal still surfaces.
+  const allNames = new Set<string>([
+    ...comentionCounts.keys(),
+    ...descriptorCounts.keys(),
+  ]);
+
+  const entries: CompetitorDropdownEntry[] = [];
+  for (const name of allNames) {
+    if (!isCompetitorRankable(name)) continue;
+    const descCount = descriptorCounts.get(name) ?? 0;
+    entries.push({
+      name,
+      comentionCount: comentionCounts.get(name) ?? 0,
+      observationsWithDescriptors: descCount,
+      hasDescriptorData: descCount > 0,
+      isDefault: false,
+    });
+  }
+
+  entries.sort((a, b) => {
+    if (a.hasDescriptorData !== b.hasDescriptorData) {
+      return a.hasDescriptorData ? -1 : 1;
+    }
+    if (a.observationsWithDescriptors !== b.observationsWithDescriptors) {
+      return b.observationsWithDescriptors - a.observationsWithDescriptors;
+    }
+    if (a.comentionCount !== b.comentionCount) {
+      return b.comentionCount - a.comentionCount;
+    }
+    return a.name.localeCompare(b.name);
+  });
+
+  if (entries.length > 0) entries[0].isDefault = true;
+
+  return entries.slice(0, limit);
 }
