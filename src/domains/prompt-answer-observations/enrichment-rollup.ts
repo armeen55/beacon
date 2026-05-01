@@ -160,3 +160,449 @@ export function buildEnrichmentRollup(
     observationsWithDescriptors: obsWithDescriptors,
   };
 }
+
+// ---------------------------------------------------------------------------
+// W2 Step 2.2 — windowed rollups for "How AI Described You" v2
+// ---------------------------------------------------------------------------
+
+/** UTC-safe `subtractDays`. Returns YYYY-MM-DD. */
+function subtractDaysIso(date: string, n: number): string {
+  const d = new Date(date + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() - n);
+  return d.toISOString().slice(0, 10);
+}
+
+/** True when the observation's observed_at date falls inside [startDate, endDate] inclusive. */
+function inWindow(o: PromptAnswerObservation, startDate: string, endDate: string): boolean {
+  const obsDate =
+    typeof o.observed_at === "string" ? o.observed_at.slice(0, 10) : null;
+  if (!obsDate) return false;
+  return obsDate >= startDate && obsDate <= endDate;
+}
+
+/**
+ * Per-descriptor entry with rank delta vs the prior equal-length window.
+ * `delta = priorRank - rankThisWindow` (positive = moved up the leaderboard).
+ * `rankPriorWindow` and `delta` are null when the descriptor wasn't in the
+ * prior window's top-N or the prior window has no observations.
+ */
+export type DescriptorWithDelta = {
+  word: string;
+  count: number;
+  rankThisWindow: number;
+  rankPriorWindow: number | null;
+  delta: number | null;
+};
+
+/**
+ * Rolls up a descriptor cloud across a calendar-day window AND adds prior-
+ * window rank deltas so the v2 UI can render "↑3 / ↓2 / —" arrows next to
+ * each descriptor. Uses `descriptor_window` (the BRAND'S tokens). For the
+ * competitor column, see `buildCompetitorEnrichmentRollup`.
+ */
+export type EnrichmentWindowRollup = {
+  windowEndDate: string;
+  windowDays: number;
+  currentWindow: EnrichmentRollup;
+  /** Sampled-day count in the current window. */
+  currentSampledDays: number;
+  /** Sampled-day count in the prior equal-length window. */
+  priorSampledDays: number;
+  /** Top descriptors with rank-delta-vs-prior-window. Length ≤ maxDescriptors. */
+  topDescriptorsWithDelta: DescriptorWithDelta[];
+};
+
+export type BuildEnrichmentWindowRollupInput = {
+  observations: ReadonlyArray<PromptAnswerObservation>;
+  /** End of the current window (inclusive), YYYY-MM-DD. */
+  endDate: string;
+  windowDays?: number; // default 7
+  maxDescriptors?: number; // default 5
+};
+
+export function buildEnrichmentWindowRollup(
+  input: BuildEnrichmentWindowRollupInput,
+): EnrichmentWindowRollup {
+  const windowDays = input.windowDays ?? 7;
+  const maxDescriptors = input.maxDescriptors ?? 5;
+
+  const startDate = subtractDaysIso(input.endDate, windowDays - 1);
+  const priorEndDate = subtractDaysIso(input.endDate, windowDays);
+  const priorStartDate = subtractDaysIso(input.endDate, 2 * windowDays - 1);
+
+  // Build a single-day rollup wrapper isn't sufficient — we need the whole
+  // window. Re-roll inline so we can also count sampled days + reuse the
+  // same descriptor-frequency logic for both windows.
+  const currentObs = input.observations.filter((o) =>
+    inWindow(o, startDate, input.endDate),
+  );
+  const priorObs = input.observations.filter((o) =>
+    inWindow(o, priorStartDate, priorEndDate),
+  );
+
+  // Reuse buildEnrichmentRollup for the current-window summary (per-platform
+  // primary rate, answer structures, etc.). Pass each-day-as-unit by setting
+  // `date` to a sentinel that matches all current-window obs — actually
+  // buildEnrichmentRollup filters by single date, so we wrap it differently:
+  // we build the rollup from the pre-filtered current-window obs and pass
+  // them through, treating endDate as the "as-of" stamp for the result.
+  const currentWindow = buildEnrichmentRollup({
+    observations: currentObs.map((o) => ({
+      ...o,
+      // Force observed_at into the endDate stamp so the rollup's
+      // single-date filter accepts every current-window observation.
+      // Pure transform; original observation array is not mutated.
+      observed_at: input.endDate + "T00:00:00.000Z",
+    })),
+    date: input.endDate,
+    maxDescriptors,
+  });
+
+  // Compute prior-window descriptor frequencies so we can attach rank deltas.
+  const priorDescriptorCounts = countDescriptorWindow(priorObs);
+  const priorRanks = new Map<string, number>();
+  [...priorDescriptorCounts.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .forEach(([word], i) => priorRanks.set(word, i + 1));
+
+  const topDescriptorsWithDelta: DescriptorWithDelta[] =
+    currentWindow.topDescriptors.map((d, i) => {
+      const rankThisWindow = i + 1;
+      const rankPriorWindow = priorRanks.get(d.word) ?? null;
+      const delta =
+        rankPriorWindow !== null ? rankPriorWindow - rankThisWindow : null;
+      return {
+        word: d.word,
+        count: d.count,
+        rankThisWindow,
+        rankPriorWindow,
+        delta,
+      };
+    });
+
+  return {
+    windowEndDate: input.endDate,
+    windowDays,
+    currentWindow,
+    currentSampledDays: countSampledDays(currentObs),
+    priorSampledDays: countSampledDays(priorObs),
+    topDescriptorsWithDelta,
+  };
+}
+
+/** Aggregate `descriptor_window` tokens across observations. Pure helper. */
+function countDescriptorWindow(
+  observations: ReadonlyArray<PromptAnswerObservation>,
+): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const o of observations) {
+    const tokens = o.descriptor_window ?? [];
+    const seen = new Set<string>();
+    for (const t of tokens) {
+      if (!t || seen.has(t)) continue;
+      seen.add(t);
+      counts.set(t, (counts.get(t) ?? 0) + 1);
+    }
+  }
+  return counts;
+}
+
+/** Distinct YYYY-MM-DD date count across observations. */
+function countSampledDays(
+  observations: ReadonlyArray<PromptAnswerObservation>,
+): number {
+  const days = new Set<string>();
+  for (const o of observations) {
+    if (typeof o.observed_at === "string") days.add(o.observed_at.slice(0, 10));
+  }
+  return days.size;
+}
+
+// ---------------------------------------------------------------------------
+// Competitor descriptor rollup (W2 Step 2.2)
+// ---------------------------------------------------------------------------
+
+/**
+ * Why a competitor rollup may have no descriptors. The v2 UI renders an
+ * explicit empty state rather than fabricating descriptors from the brand's
+ * `descriptor_window`.
+ *
+ * - `no_observations_in_window`: zero observations in the date window.
+ * - `no_descriptor_field_yet`: observations exist but NONE carry the
+ *   `competitor_descriptor_windows` field (legacy native rows + un-backfilled
+ *   historical_recovered rows). Will resolve as new polls accumulate or
+ *   after W4 unified extraction.
+ * - `competitor_not_mentioned`: at least one observation has the field, but
+ *   no observation in the window has the requested competitor as a key.
+ *   The competitor genuinely didn't show up in AI answers during this
+ *   window.
+ */
+export type CompetitorEnrichmentEmptyReason =
+  | "no_observations_in_window"
+  | "no_descriptor_field_yet"
+  | "competitor_not_mentioned";
+
+export type CompetitorEnrichmentRollup = {
+  competitorName: string;
+  windowEndDate: string;
+  windowDays: number;
+  totalObservations: number;
+  /** # of observations in window that mentioned this competitor (via any signal). */
+  observationsMentioningCompetitor: number;
+  /** # of observations whose `competitor_descriptor_windows[competitorName]` is non-empty. */
+  observationsWithDescriptors: number;
+  /** # of observations whose `competitor_descriptor_windows` field is present at all
+   *  (regardless of whether THIS competitor is keyed in it). Distinguishes
+   *  "missing field on legacy rows" from "competitor genuinely absent". */
+  observationsWithFieldAvailable: number;
+  topDescriptors: Array<{ word: string; count: number }>;
+  topDescriptorsWithDelta: DescriptorWithDelta[];
+  /**
+   * Null when descriptors were recovered. Otherwise carries the reason so
+   * the UI can render a precise empty-state message.
+   */
+  emptyStateReason: CompetitorEnrichmentEmptyReason | null;
+};
+
+export type BuildCompetitorEnrichmentRollupInput = {
+  observations: ReadonlyArray<PromptAnswerObservation>;
+  /** Canonical competitor name (matches the key inside `competitor_descriptor_windows`). */
+  competitorName: string;
+  endDate: string;
+  windowDays?: number; // default 7
+  maxDescriptors?: number; // default 5
+};
+
+export function buildCompetitorEnrichmentRollup(
+  input: BuildCompetitorEnrichmentRollupInput,
+): CompetitorEnrichmentRollup {
+  const windowDays = input.windowDays ?? 7;
+  const maxDescriptors = input.maxDescriptors ?? 5;
+
+  const startDate = subtractDaysIso(input.endDate, windowDays - 1);
+  const priorEndDate = subtractDaysIso(input.endDate, windowDays);
+  const priorStartDate = subtractDaysIso(input.endDate, 2 * windowDays - 1);
+
+  const currentObs = input.observations.filter((o) =>
+    inWindow(o, startDate, input.endDate),
+  );
+  const priorObs = input.observations.filter((o) =>
+    inWindow(o, priorStartDate, priorEndDate),
+  );
+
+  // Count signal-presence regimes — distinguishes legacy rows
+  // (no field at all) from rows that have the field but no entry for THIS
+  // competitor.
+  let observationsWithFieldAvailable = 0;
+  let observationsWithDescriptors = 0;
+  let observationsMentioningCompetitor = 0;
+  const currentDescriptorCounts = new Map<string, number>();
+
+  for (const o of currentObs) {
+    const fieldPresent =
+      o.competitor_descriptor_windows !== null &&
+      o.competitor_descriptor_windows !== undefined;
+    if (fieldPresent) observationsWithFieldAvailable += 1;
+
+    // Cross-signal mention check — uses competitor_co_mentions when present
+    // (broader signal that doesn't depend on competitor_descriptor_windows
+    // being populated). Lets us distinguish "competitor shows up in answers
+    // but pre-Step-2.1 rows lack descriptors" from "competitor is absent".
+    if (
+      o.competitor_co_mentions &&
+      o.competitor_co_mentions.includes(input.competitorName)
+    ) {
+      observationsMentioningCompetitor += 1;
+    }
+
+    if (!fieldPresent) continue;
+    const tokens =
+      o.competitor_descriptor_windows![input.competitorName] ?? null;
+    if (!tokens || tokens.length === 0) continue;
+    observationsWithDescriptors += 1;
+
+    // Dedupe within one observation — a single answer that repeats a token
+    // shouldn't get counted twice in the descriptor cloud.
+    const seen = new Set<string>();
+    for (const token of tokens) {
+      if (!token || seen.has(token)) continue;
+      seen.add(token);
+      currentDescriptorCounts.set(
+        token,
+        (currentDescriptorCounts.get(token) ?? 0) + 1,
+      );
+    }
+  }
+
+  // Compute prior window's per-competitor descriptor counts for delta math.
+  const priorDescriptorCounts = new Map<string, number>();
+  for (const o of priorObs) {
+    if (
+      o.competitor_descriptor_windows === null ||
+      o.competitor_descriptor_windows === undefined
+    )
+      continue;
+    const tokens = o.competitor_descriptor_windows[input.competitorName];
+    if (!tokens || tokens.length === 0) continue;
+    const seen = new Set<string>();
+    for (const t of tokens) {
+      if (!t || seen.has(t)) continue;
+      seen.add(t);
+      priorDescriptorCounts.set(t, (priorDescriptorCounts.get(t) ?? 0) + 1);
+    }
+  }
+  const priorRanks = new Map<string, number>();
+  [...priorDescriptorCounts.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .forEach(([word], i) => priorRanks.set(word, i + 1));
+
+  const topDescriptors = [...currentDescriptorCounts.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, maxDescriptors)
+    .map(([word, count]) => ({ word, count }));
+
+  const topDescriptorsWithDelta: DescriptorWithDelta[] = topDescriptors.map(
+    (d, i) => {
+      const rankThisWindow = i + 1;
+      const rankPriorWindow = priorRanks.get(d.word) ?? null;
+      const delta =
+        rankPriorWindow !== null ? rankPriorWindow - rankThisWindow : null;
+      return {
+        word: d.word,
+        count: d.count,
+        rankThisWindow,
+        rankPriorWindow,
+        delta,
+      };
+    },
+  );
+
+  // Empty-state reason — strict precedence so the UI can render a precise
+  // explanation. NEVER falls back to fabricating descriptors from the
+  // brand's descriptor_window.
+  let emptyStateReason: CompetitorEnrichmentEmptyReason | null = null;
+  if (topDescriptors.length === 0) {
+    if (currentObs.length === 0) {
+      emptyStateReason = "no_observations_in_window";
+    } else if (observationsWithFieldAvailable === 0) {
+      emptyStateReason = "no_descriptor_field_yet";
+    } else {
+      emptyStateReason = "competitor_not_mentioned";
+    }
+  }
+
+  return {
+    competitorName: input.competitorName,
+    windowEndDate: input.endDate,
+    windowDays,
+    totalObservations: currentObs.length,
+    observationsMentioningCompetitor,
+    observationsWithDescriptors,
+    observationsWithFieldAvailable,
+    topDescriptors,
+    topDescriptorsWithDelta,
+    emptyStateReason,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Per-platform primary-rate sparkline (W2 Step 2.2)
+// ---------------------------------------------------------------------------
+
+export type PlatformPrimaryRatePoint = {
+  date: string; // YYYY-MM-DD
+  observations: number;
+  /** primaryCount / observations on this platform-day. Null when 0 obs. */
+  primaryRate: number | null;
+};
+
+export type PlatformPrimaryRateSparkline = {
+  platform: string;
+  /** Length === windowDays. Days with zero observations get a null primaryRate. */
+  points: PlatformPrimaryRatePoint[];
+};
+
+export type BuildPlatformPrimaryRateSparklinesInput = {
+  observations: ReadonlyArray<PromptAnswerObservation>;
+  /** End of the sparkline window (inclusive), YYYY-MM-DD. */
+  endDate: string;
+  windowDays?: number; // default 14
+  /** When supplied, only emit sparklines for these platform labels. */
+  platforms?: ReadonlyArray<string>;
+};
+
+/**
+ * Per-platform daily primary-recommendation rate over a calendar-day
+ * window. Pure aggregator over `primary_recommendation` field. Returns
+ * empty array when no observations carry the field at all (legacy rows
+ * pre-Schema-v2). UI can render a "no sparkline data yet" treatment in
+ * that case rather than a flat-line chart.
+ *
+ * Days with zero observations on a platform get `primaryRate: null` so
+ * the chart can render a gap instead of a misleading 0%.
+ */
+export function buildPlatformPrimaryRateSparklines(
+  input: BuildPlatformPrimaryRateSparklinesInput,
+): PlatformPrimaryRateSparkline[] {
+  const windowDays = input.windowDays ?? 14;
+  const startDate = subtractDaysIso(input.endDate, windowDays - 1);
+
+  // Platform discovery + per-(platform, date) bucket.
+  const buckets = new Map<
+    string,
+    Map<string, { obs: number; primary: number }>
+  >();
+  let anyPrimaryFieldSeen = false;
+  for (const o of input.observations) {
+    if (!inWindow(o, startDate, input.endDate)) continue;
+    const platform = o.platform ?? "unknown";
+    const date = o.observed_at?.slice(0, 10);
+    if (!date) continue;
+    let dayMap = buckets.get(platform);
+    if (!dayMap) {
+      dayMap = new Map();
+      buckets.set(platform, dayMap);
+    }
+    let day = dayMap.get(date);
+    if (!day) {
+      day = { obs: 0, primary: 0 };
+      dayMap.set(date, day);
+    }
+    day.obs += 1;
+    if (typeof o.primary_recommendation === "boolean")
+      anyPrimaryFieldSeen = true;
+    if (o.primary_recommendation === true) day.primary += 1;
+  }
+
+  // No `primary_recommendation` in any observation → return empty so the UI
+  // can render an explicit empty state instead of all-null sparklines.
+  if (!anyPrimaryFieldSeen) return [];
+
+  // Build the date axis in chronological order so the UI renders left→right.
+  const dateAxis: string[] = [];
+  for (let i = windowDays - 1; i >= 0; i--) {
+    dateAxis.push(subtractDaysIso(input.endDate, i));
+  }
+
+  const wantPlatforms = input.platforms
+    ? new Set(input.platforms)
+    : new Set(buckets.keys());
+
+  const out: PlatformPrimaryRateSparkline[] = [];
+  for (const platform of [...wantPlatforms].sort()) {
+    const dayMap = buckets.get(platform) ?? new Map();
+    const points: PlatformPrimaryRatePoint[] = dateAxis.map((date) => {
+      const day = dayMap.get(date);
+      if (!day || day.obs === 0) {
+        return { date, observations: 0, primaryRate: null };
+      }
+      return {
+        date,
+        observations: day.obs,
+        primaryRate: Math.round((day.primary / day.obs) * 100) / 100,
+      };
+    });
+    out.push({ platform, points });
+  }
+  return out;
+}
