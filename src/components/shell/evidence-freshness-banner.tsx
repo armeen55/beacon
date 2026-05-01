@@ -3,24 +3,18 @@ import { cn } from "@/lib/utils";
 import { EVIDENCE_FRESHNESS_NULL_COPY } from "@/domains/attribution/lifecycle-attribution-copy";
 
 /**
- * Honesty banner shown on surfaces that still read from the frozen
- * `citation_evidence_index` (built at the last Profound import).
+ * Freshness banner for surfaces that read from `citation_evidence_index`
+ * (the per-page citation rollup feeding /pages, /competitors, /topics, /changes).
  *
- * Background: Beacon pivoted on 2026-04-22 from Profound CSV imports to
- * native Perplexity + OpenAI polling. Native observations write to
- * `prompt_answer_observations` and `daily_metric_snapshots` (source_type='derived'),
- * but the `citation_evidence_index` feeding /pages, /competitors, /topics,
- * and /changes has NOT been rebuilt from native data yet. It's frozen at
- * the built_at of the last Profound import (~2026-04-15).
+ * Behavior depends on the index's `built_at`:
+ *   - Fresh (< 36 hours old): green "Live native data — last rebuilt {date}"
+ *   - Stale (≥ 36 hours): amber warning showing the cutoff date so the
+ *     operator knows rankings are not current
+ *   - Missing (null): muted explanation that the rebuild hasn't run yet
  *
- * This banner tells the operator the date cutoff plainly so the rankings
- * and per-URL counts on these surfaces read as "known Profound-era snapshot"
- * rather than "live current state". The native-integration rebuild ships
- * in a later commit of this phase.
- *
- * Commit 2 (2026-04-24) — truth-surface sweep.
- * Copy refreshed 2026-04-23 (Phase A fix-first) to describe the index as
- * a pre-pivot snapshot, not a "not yet integrated" deferred promise.
+ * Phase v4 Commit 7B (2026-04-30) — the index now rebuilds nightly from
+ * native Perplexity + ChatGPT polling via the daily-native-poll workflow.
+ * Stale states should only appear after a cron failure.
  */
 
 export type EvidenceFreshnessBannerProps = {
@@ -62,7 +56,8 @@ export function EvidenceFreshnessBanner({
   }
 
   const builtDate = new Date(builtAt);
-  const ageDays = Math.floor((Date.now() - builtDate.getTime()) / 86_400_000);
+  const ageHours = Math.floor((Date.now() - builtDate.getTime()) / 3_600_000);
+  const ageDays = Math.floor(ageHours / 24);
   const builtLabel = builtDate.toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
@@ -70,7 +65,39 @@ export function EvidenceFreshnessBanner({
     timeZone: "UTC",
   });
 
+  // Phase v4 Commit 7B (2026-04-30): the index rebuilds nightly via the
+  // daily-native-poll workflow. Anything < 36h old reflects current native
+  // polling data and should read green; older means a cron failure or
+  // missed run, surface in amber.
+  const isFresh = ageHours < 36;
   const isStale = ageDays >= 3;
+
+  if (isFresh) {
+    return (
+      <div
+        className={cn(
+          "rounded-md border border-status-success/35 bg-status-success/[0.04] px-4 py-2.5 text-[12px] leading-relaxed text-foreground",
+          className,
+        )}
+        role="status"
+      >
+        <span className="font-medium text-status-success">
+          {label} reflect live native data
+        </span>{" "}
+        — last rebuilt{" "}
+        <span className="tabular-nums">{builtLabel}</span>
+        {ageHours > 0 && <> ({ageHours}h ago)</>}
+        . Daily native Perplexity and ChatGPT polls feed this directly.{" "}
+        <Link
+          href={methodologyHref}
+          className="underline underline-offset-2 hover:text-status-success"
+        >
+          How this works
+        </Link>
+        .
+      </div>
+    );
+  }
 
   return (
     <div
@@ -93,9 +120,7 @@ export function EvidenceFreshnessBanner({
         <span className="tabular-nums">{builtLabel}</span>
         {ageDays > 0 && <> ({ageDays}d ago)</>}
       </span>
-      {" "}— a pre-pivot Profound-era snapshot. Daily native Perplexity and
-      ChatGPT polls are writing richer per-observation signal, and the next
-      rebuild will fold that into this index.{" "}
+      {" "}— an older snapshot. Tonight's native poll will rebuild it.{" "}
       <Link
         href={methodologyHref}
         className="underline underline-offset-2 hover:text-foreground"

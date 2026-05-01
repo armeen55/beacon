@@ -179,3 +179,30 @@ jobs:
         env:
           BEACON_URL: ${{ secrets.BEACON_URL }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
+
+  # --------------------------------------------------------------------------
+  # Phase v4 Commit 7B (2026-04-30) — Rebuild citation_evidence_index from
+  # native observations after both polls complete. /pages, /competitors,
+  # /topics read this index; without this step they keep showing the
+  # 2026-04-15-frozen Profound import. The endpoint reads observations from
+  # Supabase, builds the index in-process, and upserts id='current'. Idempotent
+  # — running multiple times on the same data converges to the same state.
+  # `if: always()` so a partial poll still refreshes whatever native data we
+  # got that day rather than staying stale because one chunk timed out.
+  # --------------------------------------------------------------------------
+  rebuild-citation-evidence-index:
+    name: Rebuild citation_evidence_index (native)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [poll-perplexity, poll-openai]
+    if: always()
+    steps:
+      - name: Trigger rebuild
+        run: |
+          curl -sS -X POST "$BEACON_URL/api/cron/rebuild-citation-evidence-index" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            -H "Content-Type: application/json" \
+            --max-time 90 --fail-with-body
+        env:
+          BEACON_URL: ${{ secrets.BEACON_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}

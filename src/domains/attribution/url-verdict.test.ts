@@ -363,8 +363,10 @@ describe("computeUrlVerdict — mixed-source abstain guard", () => {
     expect(r.z).toBeNull();
     expect(r.delta_pct).toBeNull();
     expect(r.delta_abs).toBeNull();
-    expect(r.explanation.summary).toMatch(/Profound benchmark/);
-    expect(r.explanation.summary).toMatch(/native polling/);
+    // Phase v4 Commit 7A (2026-04-30): summary now reflects the drop-benchmark
+    // partial-overlap algorithm rather than the Commit 2 pure-split copy.
+    expect(r.explanation.summary).toMatch(/pre-cutover/);
+    expect(r.explanation.summary).toMatch(/native day/);
   });
 
   it("computes normally when baseline and post are both benchmark-tagged (pure same-source)", () => {
@@ -458,7 +460,11 @@ describe("computeUrlVerdict — mixed-source abstain guard", () => {
     expect(r.verdict).toBe("helping");
   });
 
-  it("disables the guard when baseline window has mixed sources (only pure-split abstains)", () => {
+  it("partial-overlap baseline (mixed benchmark+derived) + all-derived post → drops benchmark, computes Z normally", () => {
+    // Phase v4 Commit 7A (2026-04-30) — replaces Commit 2's pure-split-only
+    // guard with drop-benchmark on any mix. The 7 derived baseline days
+    // remaining after the filter pass meets baselineMinDays (3), so the
+    // engine falls through to the standard Z-score path.
     const baselineMixed: DailyPoint[] = [
       ...tagSeries(series("2026-04-08", [5, 5, 5, 5, 5, 5, 5]), "benchmark"),
       ...tagSeries(series("2026-04-15", [5, 5, 5, 5, 5, 5, 5]), "derived"),
@@ -475,8 +481,156 @@ describe("computeUrlVerdict — mixed-source abstain guard", () => {
       asOfDate: "2026-05-06",
     });
 
-    // Baseline is mixed internally → not a "pure" split → guard does not fire.
-    // Full partial-overlap math is deferred to a later commit (Commit 7).
+    // 7 derived baseline days remain after dropping 7 benchmark; native post
+    // is 5/day → 10/day. Z-score should fire helping.
+    expect(r.verdict).toBe("helping");
+    expect(r.z).not.toBeNull();
+    expect(r.explanation.math.baseline_days_used).toBe(7);
+  });
+});
+
+describe("computeUrlVerdict — Phase v4 Commit 7A partial-overlap math (2026-04-30)", () => {
+  it("abstains when filtered baseline (after dropping benchmark) is below baselineMinDays", () => {
+    // 12 benchmark + 2 derived baseline; post all derived. After drop only
+    // 2 derived baseline days remain — below the default minDays=3 floor.
+    const baselineMostlyBenchmark: DailyPoint[] = [
+      ...tagSeries(series("2026-04-08", [5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5]), "benchmark"),
+      ...tagSeries(series("2026-04-20", [5, 5]), "derived"),
+    ];
+    const afterChange = tagSeries(
+      series("2026-04-23", [10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10]),
+      "derived",
+    );
+    const s = [
+      ...baselineMostlyBenchmark,
+      { date: "2026-04-22", count: 0, source_type: "derived" as const },
+      ...afterChange,
+    ];
+
+    const r = computeUrlVerdict({
+      series: s,
+      changeDate: "2026-04-22",
+      asOfDate: "2026-05-06",
+    });
+
+    expect(r.verdict).toBe("not_enough_native_baseline");
+    expect(r.z).toBeNull();
+    expect(r.explanation.summary).toMatch(/Dropped 12 pre-cutover/);
+    expect(r.explanation.summary).toMatch(/2 native day/);
+    expect(r.explanation.math.baseline_days_used).toBe(2);
+  });
+
+  it("post window with mixed benchmark+derived also drops benchmark days", () => {
+    // 14 derived baseline; post = 1 benchmark + 13 derived.
+    // After drop: 14 baseline + 13 derived post; should compute normally.
+    const baseline = tagSeries(
+      series("2026-04-08", [5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5]),
+      "derived",
+    );
+    const postMixed: DailyPoint[] = [
+      { date: "2026-04-23", count: 100, source_type: "benchmark" }, // outlier — should be dropped
+      ...tagSeries(series("2026-04-24", [10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10]), "derived"),
+    ];
+    const s = [
+      ...baseline,
+      { date: "2026-04-22", count: 0, source_type: "derived" as const },
+      ...postMixed,
+    ];
+
+    const r = computeUrlVerdict({
+      series: s,
+      changeDate: "2026-04-22",
+      asOfDate: "2026-05-06",
+    });
+
+    // 1 benchmark dropped from post; 13 derived days remain. Z computed on
+    // 14 baseline (5/day) vs 13 post (10/day) — strong helping signal.
+    expect(r.verdict).toBe("helping");
+    expect(r.explanation.math.post_days_used).toBe(13);
+  });
+
+  it("pure-split (no overlap) still abstains because filtered baseline is empty", () => {
+    // Identical to Commit 2's headline pure-split case — preserves the
+    // abstain semantics now produced via the drop-benchmark path.
+    const baseline = tagSeries(
+      series("2026-04-08", [5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5]),
+      "benchmark",
+    );
+    const afterChange = tagSeries(
+      series("2026-04-23", [10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10]),
+      "derived",
+    );
+    const s = [
+      ...baseline,
+      { date: "2026-04-22", count: 0, source_type: "derived" as const },
+      ...afterChange,
+    ];
+
+    const r = computeUrlVerdict({
+      series: s,
+      changeDate: "2026-04-22",
+      asOfDate: "2026-05-06",
+    });
+
+    expect(r.verdict).toBe("not_enough_native_baseline");
+    expect(r.explanation.math.baseline_days_used).toBe(0);
+    expect(r.explanation.summary).toMatch(/Dropped 14 pre-cutover/);
+  });
+
+  it("filtered baseline at exactly baselineMinDays (3) → falls through, computes Z at low confidence", () => {
+    // 11 benchmark + 3 derived baseline; post all derived. After drop the
+    // baseline has exactly minDays=3 — should fall through to compute Z.
+    const baselineEdge: DailyPoint[] = [
+      ...tagSeries(series("2026-04-08", [5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5]), "benchmark"),
+      ...tagSeries(series("2026-04-19", [5, 5, 5]), "derived"),
+    ];
+    const afterChange = tagSeries(
+      series("2026-04-23", [10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10]),
+      "derived",
+    );
+    const s = [
+      ...baselineEdge,
+      { date: "2026-04-22", count: 0, source_type: "derived" as const },
+      ...afterChange,
+    ];
+
+    const r = computeUrlVerdict({
+      series: s,
+      changeDate: "2026-04-22",
+      asOfDate: "2026-05-06",
+    });
+
+    // 3 days >= minDays → fall through to Z. Baseline confidence will be
+    // downgraded since 3 < baselineConfidentDays (7), but verdict still computes.
     expect(r.verdict).not.toBe("not_enough_native_baseline");
+    expect(r.verdict).not.toBe("not_enough_data");
+    expect(r.explanation.math.baseline_days_used).toBe(3);
+  });
+
+  it("legacy pure-benchmark series (both sides) still computes normally — Profound-only data unchanged", () => {
+    // Smoke test: pre-2026-04-22 changes never need to drop anything.
+    const baseline = tagSeries(
+      series("2026-03-01", [5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5]),
+      "benchmark",
+    );
+    const afterChange = tagSeries(
+      series("2026-03-16", [10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10]),
+      "benchmark",
+    );
+    const s = [
+      ...baseline,
+      { date: "2026-03-15", count: 0, source_type: "benchmark" as const },
+      ...afterChange,
+    ];
+
+    const r = computeUrlVerdict({
+      series: s,
+      changeDate: "2026-03-15",
+      asOfDate: "2026-03-29",
+    });
+
+    expect(r.verdict).toBe("helping");
+    expect(r.z).not.toBeNull();
+    expect(r.explanation.math.baseline_days_used).toBe(14);
   });
 });

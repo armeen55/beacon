@@ -12,7 +12,7 @@ export default function MethodologyPage() {
       {/* ── Section 1: How Beacon works ── */}
       <section id="overview" className="mb-12">
         <p className="text-sm text-muted-foreground leading-relaxed">
-          Beacon imports visibility observations from external tools (like Profound), crawls your
+          Beacon polls Perplexity and ChatGPT daily for how often AI recommends you, crawls your
           public site HTML, and compares the two over time. From those inputs it computes five things:
         </p>
         <ol className="mt-3 space-y-2 text-sm text-muted-foreground leading-relaxed list-decimal pl-5">

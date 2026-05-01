@@ -298,12 +298,14 @@ describe("denseSeries — regime tagging across the boundary (invariants 3+4)", 
     });
   });
 
-  it("downstream: the pure-split abstain fires correctly when a mixed-boundary series is fed to the verdict engine", async () => {
+  it("downstream: the mixed-source filter abstains correctly when a pure-split series is fed to the verdict engine", async () => {
     // End-to-end contract: a change date of 2026-04-21 with a pre-window
     // (all benchmark) and a post-window (all derived) → the verdict engine
-    // returns `not_enough_native_baseline` rather than a silently wrong
-    // Z-score. This test guarantees denseSeries + computeUrlVerdict work
-    // together per the boundary design.
+    // drops benchmark days from the baseline (Phase v4 Commit 7A,
+    // 2026-04-30), finds 0 native days remaining, and returns
+    // `not_enough_native_baseline` rather than a silently wrong Z-score.
+    // This test guarantees denseSeries + computeUrlVerdict work together
+    // per the boundary design.
     const { computeUrlVerdict } = await import("@/domains/attribution/url-verdict");
     const denseOut = denseSeries(
       series([
@@ -323,10 +325,11 @@ describe("denseSeries — regime tagging across the boundary (invariants 3+4)", 
       asOfDate: "2026-04-24",
     });
     // Baseline window = Apr 7..20 (benchmark), post window = Apr 22..24 (derived).
-    // Pure-split → abstain.
+    // Pure-split → drop benchmark from baseline → 0 native baseline days
+    // remain → abstain via the new partial-overlap path.
     expect(verdict.verdict).toBe("not_enough_native_baseline");
     expect(verdict.z).toBeNull();
-    expect(verdict.explanation.summary).toMatch(/Profound benchmark/);
-    expect(verdict.explanation.summary).toMatch(/native polling/);
+    expect(verdict.explanation.summary).toMatch(/pre-cutover/);
+    expect(verdict.explanation.summary).toMatch(/native day/);
   });
 });

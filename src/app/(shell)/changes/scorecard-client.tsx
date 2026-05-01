@@ -121,7 +121,7 @@ const EMPTY_TAB_COPY: Record<LifecycleTab, string> = {
   needs_review:
     "No edits need triage. The scan returns this status when a match is ambiguous (partial match, wrong page, or multiple candidates).",
   imported_legacy:
-    "No imported legacy rows visible. Pre-pivot Profound CSV / PDF rebuild rows would appear here.",
+    "No imported legacy rows visible. Pre-pivot CSV / PDF rebuild rows would appear here.",
   scan_confirmed:
     "No scan-confirmed rows. Confirmed scan-finding diffs (from /today) land here with their original detection date.",
   unclassified:
@@ -669,7 +669,7 @@ function ExpandPanel({ row }: { row: EnrichedChangeRow }) {
             ) : !v ? (
               <p className="text-[12px] text-muted-foreground italic">
                 No citation data found for this URL yet. Either the page
-                isn&apos;t cited anywhere in your Profound prompts, or the URL
+                isn&apos;t cited anywhere in your tracked prompts, or the URL
                 doesn&apos;t match any indexed page.
               </p>
             ) : (

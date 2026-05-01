@@ -53,12 +53,29 @@ function flatHistory(args: {
   preCounts: number[];
   postCounts: number[];
 }): UrlCitationHistory {
-  const daily: { date: string; count: number; by_platform: Record<string, number> }[] = [];
+  // Phase v4 Commit 7A (2026-04-30): tag every entry as `derived` so the new
+  // mixed-source filter in computeUrlVerdict treats this as a clean native
+  // series. denseSeries prefers entry.source_type over its date-based
+  // fallback, which would otherwise tag pre-2026-04-22 dates as benchmark
+  // and trigger the partial-overlap abstain on these synthetic fixtures.
+  const daily: {
+    date: string;
+    count: number;
+    by_platform: Record<string, number>;
+    source_type: "benchmark" | "derived";
+  }[] = [];
   const t0 = new Date(args.start + "T00:00:00Z").getTime();
   const all = [...args.preCounts, ...args.postCounts];
   for (let i = 0; i < all.length; i++) {
     const iso = new Date(t0 + i * 86400000).toISOString().slice(0, 10);
-    if (all[i]! > 0) daily.push({ date: iso, count: all[i]!, by_platform: {} });
+    if (all[i]! > 0) {
+      daily.push({
+        date: iso,
+        count: all[i]!,
+        by_platform: {},
+        source_type: "derived",
+      });
+    }
   }
   // Normalized URL key per url-citation-history.ts (strips scheme/host).
   const norm = args.url

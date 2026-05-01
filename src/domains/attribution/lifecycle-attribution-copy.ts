@@ -102,7 +102,7 @@ const COPY_BY_BRANCH: Record<
   verified_live_verdict_off: {
     label: "Verdict tracking off",
     tooltip:
-      "Live verification is on, but live_at-based attribution verdicts are still gated off. Flip BEACON_LIFECYCLE_VERDICT_ENABLED when the post-window is ready.",
+      "Live verification is on, but date-aware attribution verdicts are paused at the admin level. Will resume once the post-change observation window is long enough.",
     tone: "muted",
   },
   verified_live_baked: {
@@ -118,7 +118,7 @@ const COPY_BY_BRANCH: Record<
     tone: "warning",
   },
   not_implemented: {
-    label: "Not implemented",
+    label: "Not shipped",
     tooltip:
       "Beacon did not find this accepted edit on the page after the waiting period.",
     tone: "muted",
@@ -292,7 +292,7 @@ export function resolveAttributionCopy(
  */
 export const EVIDENCE_FRESHNESS_NULL_COPY = {
   label: (surface: string) =>
-    `${surface} use the citation-evidence index, which has not been rebuilt against native polling yet.`,
+    `${surface} use the citation-evidence index, which has not been rebuilt yet today.`,
   detail:
-    "Per-row verdicts read the pre-pivot Profound-era snapshot until the next rebuild folds in the daily native Perplexity + ChatGPT polls.",
+    "Per-row verdicts read the most recent index snapshot. Once the next nightly rebuild runs, this surface will reflect today's native Perplexity + ChatGPT data.",
 } as const;

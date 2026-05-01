@@ -1,12 +1,19 @@
 # Beacon Execution Plan
 
-> ⚠️ **STALE — last updated 2026-04-16.** The "/changes Phase 2" next-step
-> below is superseded. Native polling shipped 2026-04-22 and the active phase
-> is now "Replace Profound in 2 weeks while compounding the moat" (v4).
+> ✅ **Phase v4 Commits 1–7 LANDED (2026-04-30).** "Replace Profound in 2 weeks
+> while compounding the moat" is complete. Profound's 2026-05-10 expiry is now
+> a non-event for daily operation.
 >
-> - **Active plan:** `/Users/armeen/.claude/plans/you-are-taking-over-floofy-giraffe.md`
-> - **Latest verification:** `docs/VERIFICATION_LOG.md` — 2026-04-24 entry covers Phase v4 Commits 1–4 (poll-health canary, truth-surface sweep, schema v2 migration, extraction v1 + backfill)
-> - **Remaining commits in this phase:** Commit 5 (Today KPI flip to derived), Commit 6 (extraction v2 — descriptor_window / co-mentions / domain classes / answer structure), Commit 7 (full mixed-source Z-score math + enrichment badges + copy audit)
+> - **Source plan:** `/Users/armeen/.claude/plans/you-are-taking-over-floofy-giraffe.md` (Commits 1–4) + `/Users/armeen/.claude/plans/you-are-working-on-purring-shell.md` (finishing pass for Commits 5–7).
+> - **Latest verification:** `docs/VERIFICATION_LOG.md` 2026-04-30 entry — KPI flip + schema v2 verified live; citation_evidence_index rebuilt from native (Supabase + on-disk both at `built_at=2026-04-30T21:13:52.951Z`); mixed-source partial-overlap math replacing the Commit 2 abstain in `url-verdict.ts`; copy audit on 6 surfaces.
+> - **Remaining cutover work:** none. Profound import code (`src/adapters/profound/bridge.ts` + `src/app/(shell)/settings/import/import-page.tsx`) deletion deferred until ≥2026-05-10 in case operator pulls one final historical CSV.
+>
+> **What's next (per `HANDOFF_VERIFIED_STATE.md`):**
+>
+> 1. Watch tomorrow's 07:00 UTC `daily-native-poll.yml` run — verify new `rebuild-citation-evidence-index` GH Actions job fires post-poll and `built_at` updates < 60 min later.
+> 2. Vercel preview spot-check on /pages, /competitors, /topics — top-3 should reflect native rankings, not last week's Profound-era frozen data.
+> 3. After H2's 7-day bake window (earliest 2026-05-05), decide on flipping `BEACON_LIFECYCLE_VERDICT_ENABLED=1`.
+> 4. After 2026-05-10: delete Profound adapter + import UI. Sprint 7.9 multi-tenant onboarding waits on a confirmed second tenant. Phase 6B one-click triage UX waits on a real ambiguous match in production.
 
 > **PURPOSE:** The only active execution plan. What to do, in what order, with what acceptance criteria.
 > This file answers: "What do I work on next?"

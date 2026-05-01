@@ -216,7 +216,7 @@ export function computeUrlVerdict(input: ComputeVerdictInput): UrlVerdict {
   // --- Baseline window: [change − target .. change − 1], inclusive
   const baselineStart = shiftIsoDate(change, -t.baselineTargetDays);
   const baselineEnd = shiftIsoDate(change, -1);
-  const baselinePoints = series.filter(
+  let baselinePoints = series.filter(
     (p) => p.date >= baselineStart && p.date <= baselineEnd,
   );
 
@@ -224,10 +224,97 @@ export function computeUrlVerdict(input: ComputeVerdictInput): UrlVerdict {
   const postStart = shiftIsoDate(change, 1);
   const postMaxEnd = shiftIsoDate(change, t.postWindowMaxDays);
   const postEnd = asOfDate < postMaxEnd ? asOfDate : postMaxEnd;
-  const postPoints =
+  let postPoints =
     postStart > postEnd
       ? []
       : series.filter((p) => p.date >= postStart && p.date <= postEnd);
+
+  // ── Mixed-source handling (Phase v4 Commit 7A, 2026-04-30) ─────────
+  // Replaces Commit 2's pure-split abstain. When baseline and post
+  // windows mix Profound benchmark + native derived points (whether
+  // pure-split or partial overlap), drop benchmark points from both
+  // sides and run the normal Z-score on the derived-only series.
+  // Profound stopped 2026-04-15 and native started 2026-04-22 with no
+  // parallel-system overlap, so there's no calibration ratio we could
+  // use to scale benchmark counts into derived units — drop is the
+  // only honest move. Abstain (`not_enough_native_baseline`) only when
+  // the filtered baseline is too thin to compute a verdict from.
+  let benchmarkBaselineDropped = 0;
+  let benchmarkPostDropped = 0;
+  {
+    const allBaselineTagged =
+      baselinePoints.length > 0 &&
+      baselinePoints.every((p) => p.source_type !== undefined);
+    const allPostTagged =
+      postPoints.length > 0 &&
+      postPoints.every((p) => p.source_type !== undefined);
+    // Back-compat: only run mix detection when BOTH windows are fully tagged.
+    // If any point is untagged, fall through to the legacy Z-score path so
+    // pre-source_type callers behave as before.
+    if (allBaselineTagged && allPostTagged) {
+      const baselineSources = new Set(
+        baselinePoints
+          .map((p) => p.source_type)
+          .filter((s): s is DailyPointSource => s !== undefined),
+      );
+      const postSources = new Set(
+        postPoints
+          .map((p) => p.source_type)
+          .filter((s): s is DailyPointSource => s !== undefined),
+      );
+      const baselineMixed = baselineSources.size > 1;
+      const postMixed = postSources.size > 1;
+      const splitAcross =
+        baselineSources.size === 1 &&
+        postSources.size === 1 &&
+        [...baselineSources][0] !== [...postSources][0];
+      if (baselineMixed || postMixed || splitAcross) {
+        const filteredBaseline = baselinePoints.filter(
+          (p) => p.source_type !== "benchmark",
+        );
+        const filteredPost = postPoints.filter(
+          (p) => p.source_type !== "benchmark",
+        );
+        benchmarkBaselineDropped =
+          baselinePoints.length - filteredBaseline.length;
+        benchmarkPostDropped = postPoints.length - filteredPost.length;
+
+        if (filteredBaseline.length < t.baselineMinDays) {
+          const muPreLocal = mean(filteredBaseline.map((p) => p.count));
+          const muPostLocal = mean(filteredPost.map((p) => p.count));
+          return {
+            verdict: "not_enough_native_baseline",
+            z: null,
+            delta_pct: null,
+            delta_abs: null,
+            post_days: filteredPost.length,
+            confidence: "low",
+            sustain: { up: 0, down: 0 },
+            explanation: {
+              summary:
+                `Dropped ${benchmarkBaselineDropped} pre-cutover day(s) from baseline; ` +
+                `only ${filteredBaseline.length} native day(s) remain (need ≥ ${t.baselineMinDays}). ` +
+                `Not enough native baseline to judge yet.`,
+              math: {
+                baseline_days_used: filteredBaseline.length,
+                mu_pre: round(muPreLocal, 2),
+                sigma_pre_raw: 0,
+                sigma_pre_used: t.poissonSigmaFloor,
+                post_days_used: filteredPost.length,
+                mu_post: round(muPostLocal, 2),
+                z: 0,
+                sustain_up: 0,
+                sustain_down: 0,
+              },
+            },
+          };
+        }
+
+        baselinePoints = filteredBaseline;
+        postPoints = filteredPost;
+      }
+    }
+  }
 
   const baselineCounts = baselinePoints.map((p) => p.count);
   const postCounts = postPoints.map((p) => p.count);
@@ -245,55 +332,6 @@ export function computeUrlVerdict(input: ComputeVerdictInput): UrlVerdict {
   for (const p of sustainWindow) {
     if (p.count > muPre) sustainUp += 1;
     else if (p.count < muPre) sustainDown += 1;
-  }
-
-  // --- Pure-split mixed-source abstain (Commit 2, 2026-04-24)
-  // When every day in the baseline window carries one source_type and every
-  // day in the post-change window carries a DIFFERENT source_type, the Z-
-  // score is comparing measurement systems (Profound benchmark vs native
-  // polling), not a real change. Abstain with explanation instead of
-  // reporting a nonsense verdict. When the tag is absent on any point,
-  // the guard does not fire — back-compat for callers that don't yet tag
-  // their series.
-  const baselineSource = uniformSourceType(baselinePoints);
-  const postSource = uniformSourceType(postPoints);
-  if (
-    baselineSource !== null &&
-    postSource !== null &&
-    baselineSource !== postSource &&
-    baselinePoints.length > 0 &&
-    postPoints.length > 0
-  ) {
-    const muPreLocal = mean(baselineCounts);
-    const sigmaPreRawLocal = stddev(baselineCounts, muPreLocal);
-    const sigmaPreUsedLocal = Math.max(
-      sigmaPreRawLocal,
-      t.poissonSigmaFloor,
-    );
-    const muPostLocal = mean(postCounts);
-    return {
-      verdict: "not_enough_native_baseline",
-      z: null,
-      delta_pct: null,
-      delta_abs: null,
-      post_days: postCounts.length,
-      confidence: "low",
-      sustain: { up: sustainUp, down: sustainDown },
-      explanation: {
-        summary: `Mixed measurement sources: baseline ${baselinePoints.length}d from ${sourceLabel(baselineSource)}, post-change ${postPoints.length}d from ${sourceLabel(postSource)}. Z-score across different systems is not comparable — not enough native baseline to judge yet.`,
-        math: {
-          baseline_days_used: baselineCounts.length,
-          mu_pre: muPreLocal,
-          sigma_pre_raw: sigmaPreRawLocal,
-          sigma_pre_used: sigmaPreUsedLocal,
-          post_days_used: postCounts.length,
-          mu_post: muPostLocal,
-          z: 0,
-          sustain_up: sustainUp,
-          sustain_down: sustainDown,
-        },
-      },
-    };
   }
 
   // --- Not-enough-data short-circuit
@@ -407,24 +445,6 @@ function round(n: number, digits: number): number {
   return Math.round(n * f) / f;
 }
 
-/** Returns the single source_type if every point in the window carries the
- *  same (non-null) tag; returns null when any point is untagged or when the
- *  window is empty or mixed. Used by the pure-split abstain guard. */
-function uniformSourceType(points: DailyPoint[]): DailyPointSource | null {
-  if (points.length === 0) return null;
-  let found: DailyPointSource | null = null;
-  for (const p of points) {
-    if (!p.source_type) return null; // untagged → guard disabled
-    if (found === null) found = p.source_type;
-    else if (found !== p.source_type) return null; // mixed within window
-  }
-  return found;
-}
-
-function sourceLabel(source: DailyPointSource): string {
-  return source === "benchmark" ? "Profound benchmark" : "native polling";
-}
-
 function buildSummary(args: {
   verdict: VerdictLabel;
   muPre: number;
@@ -465,8 +485,10 @@ function buildSummary(args: {
     case "not_enough_data":
       return `Not enough baseline data before the change to judge.`;
     case "not_enough_native_baseline":
-      // Generated inline at the guard site above (carries richer context).
-      return `Mixed measurement sources — not enough native baseline to judge yet.`;
+      // Generated inline at the mixed-source filter above (carries richer
+      // context including how many pre-cutover days were dropped). This
+      // branch is for type exhaustiveness only.
+      return `Not enough native data yet to judge.`;
     case "not_implemented":
       // Phase 4: synthetic verdict — `buildNotImplementedVerdict` in
       // url-change-outcome.ts hand-builds the explanation. This branch
@@ -486,7 +508,7 @@ export const VERDICT_LABEL: Record<VerdictLabel, string> = {
   nothing_yet: "Nothing yet",
   too_early: "Too early",
   not_enough_data: "No baseline",
-  not_enough_native_baseline: "No native baseline",
+  not_enough_native_baseline: "Not enough native data yet",
   not_implemented: "Not implemented",
 };
 

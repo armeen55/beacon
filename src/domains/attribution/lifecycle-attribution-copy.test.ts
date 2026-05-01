@@ -126,7 +126,9 @@ describe("Rule 2: verified_live past bake window AND verdict flag OFF → verdic
     });
     expect(c.branch).toBe("verified_live_verdict_off");
     expect(c.label).toBe("Verdict tracking off");
-    expect(c.tooltip).toContain("BEACON_LIFECYCLE_VERDICT_ENABLED");
+    // Phase v4 Commit 7D (2026-04-30): tooltip no longer leaks the env var
+    // name; reads as operator-language ("paused at the admin level").
+    expect(c.tooltip).toContain("paused at the admin level");
   });
 });
 
@@ -159,7 +161,7 @@ describe("Rule 4: accepted with no live_at → pending_implementation", () => {
 });
 
 describe("Rule 5: not_found_after_7d → not_implemented", () => {
-  it("returns 'Not implemented' for edits in not_found_after_7d", () => {
+  it("returns 'Not shipped' for edits in not_found_after_7d", () => {
     const c = resolveAttributionCopy({
       entry: entryStub({ live_at: null }),
       edit: editStub({ implementation_status: "not_found_after_7d", live_at: null }),
@@ -167,7 +169,10 @@ describe("Rule 5: not_found_after_7d → not_implemented", () => {
       now: NOW,
     });
     expect(c.branch).toBe("not_implemented");
-    expect(c.label).toBe("Not implemented");
+    // Phase v4 Commit 7D (2026-04-30): label renamed from "Not implemented"
+    // to "Not shipped" — operator-friendlier framing of "you accepted it but
+    // it's not on the page". Branch identifier is unchanged for stable refs.
+    expect(c.label).toBe("Not shipped");
   });
 });
 

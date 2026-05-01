@@ -7,6 +7,109 @@
 
 ---
 
+## 2026-04-30 — Phase v4 Commits 5–7 (Replace Profound — finishing pass)
+
+Single sweep that finishes the "Replace Profound in 2 weeks" plan (`/Users/armeen/.claude/plans/you-are-taking-over-floofy-giraffe.md`) and unblocks 4 daily-use surfaces that were silently rendering 2026-04-15-frozen Profound data. Audit + plan in `/Users/armeen/.claude/plans/you-are-working-on-purring-shell.md`.
+
+### Pre-flight verification (Commits 5 + 6 — already merged in passing, never validated)
+
+- **Commit 5 — Today KPI flip:** Confirmed `daily_metric_snapshots source_type='derived' scope_type='platform'` rows flowing daily. 4 days verified (Apr 27–30) for both ChatGPT and Perplexity (44–68 mention/citation counts per platform/day). `today-data.ts:1292–1319` correctly threads `derivedKpiAsOfDate` + `derivedKpiIsFallback` into the scoreboard. Activation status: live; no code changes needed.
+- **Commit 6 — Schema v2 + extraction backfill:** All 4 v2 columns exist (`descriptor_window` text[], `competitor_co_mentions` text[], `citation_domain_classes` text[], `answer_structure` text). 1761/1761 (100%) of post-Apr-22 observations carry all four; v1 fields populated on 1072 (`mention_position`), 1091 (`citation_rank`), 1761 (`primary_recommendation`). Last 6 days (Apr 25–30) at 100% coverage on every poll. Backfill ran cleanly; no rerun required.
+
+### Commit 7B — Rebuild `citation_evidence_index` from native polling
+
+The single biggest "silent lie" remaining: Supabase's `citation_evidence_index` row had `built_at='2026-04-15 05:05:27.56+00'` (15 days stale, 105,927 Profound citations across 12 topics / 5,893 pages). The on-disk file at `.data/tenants/ritz-builders/citation-evidence-index.json` was at `built_at=2026-04-20T17:55:15Z` — also stale. /pages, /competitors, /topics, /changes all read this index.
+
+**Wired the existing `scripts/rebuild-citation-evidence-index-native.ts` for nightly execution + dual-write parity:**
+
+1. Script now writes to BOTH `.data/tenants/{slug}/citation-evidence-index.json` (via `writeDotDataJson("citation-evidence-index", index)` — no-ops on Vercel's read-only FS) AND Supabase (`upsert id='current'`). Local dev + hosted now share the same fresh data after a rebuild.
+2. New hosted endpoint `POST /api/cron/rebuild-citation-evidence-index` (`src/app/api/cron/rebuild-citation-evidence-index/route.ts`). Auth: `Authorization: Bearer $CRON_SECRET`. Reads observations + tracked_entities directly from Supabase, runs `buildNativeCitationEvidenceIndex`, upserts. `maxDuration=60`, `runtime=nodejs`. ~3KB endpoint.
+3. New job `rebuild-citation-evidence-index` added to `.github/workflows/daily-native-poll.yml` with `needs: [poll-perplexity, poll-openai]` + `if: always()` so a partial poll still triggers the rebuild against whatever native data we got.
+
+**Ran the rebuild manually (`BEACON_TENANT_ID=tenant-ritz-founder BEACON_TENANT_SLUG=ritz-builders npx tsx --require ./scripts/mock-server-only.cjs scripts/rebuild-citation-evidence-index-native.ts`).** Results (Apr 30 21:13 UTC):
+
+| Field | Pre-rebuild | Post-rebuild |
+|---|---|---|
+| `built_at` | `2026-04-15 05:05:27.56+00` (15d stale) | `2026-04-30T21:13:52.951Z` |
+| `total_citations_processed` | 105,927 (Profound) | 7,960 (native) |
+| `topic_count` | 12 | 12 |
+| `page_topic_rows` | 9,291 | 1,191 |
+| `pages` | 5,893 | 769 |
+
+Top 5 topics by total citations after rebuild: Los Altos Construction (946 · 118 owned, 736 comp, 92 dir), Cupertino Construction (928 · 123/707/98), Menlo Park Construction (904 · 100/694/110), Atherton Construction (881 · 122/743/16), Shield: Custom Home Builder Bay Area (806 · 89/659/58).
+
+Both Supabase + on-disk file confirmed at 2026-04-30 built_at. /pages, /competitors, /topics now reflect native polling data; the EvidenceFreshnessBanner (Commit 7D below) flips to green for the fresh state.
+
+### Commit 7A — Full mixed-source Z-score math (partial-overlap windows)
+
+Replaced Commit 2's pure-split abstain in `src/domains/attribution/url-verdict.ts` with a drop-benchmark partial-overlap filter. The old guard fired only when baseline was 100% one source and post 100% the other; partial-overlap (e.g. baseline mixing benchmark + derived days, post all derived) silently fell through to a Z-score that compared measurement systems.
+
+**Algorithm** (lines 232–314 of `url-verdict.ts`): when both baseline + post windows are fully tagged AND the union of source_types > 1 OR they differ across windows, drop every `source_type='benchmark'` point from both windows. If the filtered baseline is below `baselineMinDays` (3), abstain with `not_enough_native_baseline` and a structured explanation that names how many pre-cutover days got dropped. Otherwise replace the working windows with the filtered versions and fall through to the standard Z-score path. Back-compat preserved by requiring BOTH windows fully tagged (untagged callers skip the filter entirely).
+
+Why drop instead of regime-shift scaling: Profound stopped 2026-04-15 and native started 2026-04-22 with no parallel-system overlap days, so there's no calibration ratio to scale benchmark counts into derived units. Drop is the only honest move. Documented in source comment at the filter site.
+
+**Code shrink:** removed orphaned `uniformSourceType()` and `sourceLabel()` helpers (no external callers). Verdict label `"No native baseline"` renamed to `"Not enough native data yet"` (operator-friendlier).
+
+**Tests:** added 5 new partial-overlap cases in `src/domains/attribution/url-verdict.test.ts`:
+1. Filtered baseline below `baselineMinDays` (12 benchmark + 2 derived) → abstains with explicit "Dropped 12 pre-cutover" copy
+2. Mixed post window (1 benchmark outlier + 13 derived) → drops benchmark, computes on 13 derived
+3. Pure-split (no overlap) still abstains because filtered baseline is empty
+4. Filtered baseline at exactly `baselineMinDays` (3 derived after dropping 11 benchmark) → falls through, computes Z at low confidence
+5. Pure-benchmark legacy data (both sides) → unchanged, computes normally
+
+Existing pure-split test updated: assertion regex changed from `/Profound benchmark/` to `/pre-cutover/` + `/native day/` to match new copy. Mixed-baseline test (Commit 2's `disables guard` case) now asserts `verdict='helping'` (the drop-benchmark path computes the Z directly). Downstream integration test in `src/domains/product/url-citation-history.test.ts` updated to match new copy.
+
+`src/domains/attribution/url-change-outcome.phase4.test.ts` `flatHistory` helper now stamps every entry with `source_type: "derived"` so the synthetic fixtures stay in a clean native regime regardless of the dates used.
+
+### Commit 7D — Copy audit
+
+Killed user-visible Profound/Phase/Tier/BEACON_* jargon on 6 audited routes:
+
+- `src/domains/attribution/lifecycle-attribution-copy.ts:103–107` (`verified_live_verdict_off`): tooltip dropped `BEACON_LIFECYCLE_VERDICT_ENABLED` env var name; now reads "paused at the admin level".
+- `src/domains/attribution/lifecycle-attribution-copy.ts:120–125` (`not_implemented`): label `"Not implemented"` → `"Not shipped"`.
+- `src/domains/attribution/lifecycle-attribution-copy.ts:293–298` (`EVIDENCE_FRESHNESS_NULL_COPY`): `"pre-pivot Profound-era snapshot"` → `"most recent index snapshot"`.
+- `src/components/shell/evidence-freshness-banner.tsx`: split into 3 branches — null builtAt (muted), fresh < 36h (green "reflects live native data — last rebuilt {date}"), stale ≥ 36h (amber "older snapshot. Tonight's native poll will rebuild it"). All four "Profound" mentions in the visible copy gone.
+- `src/app/(shell)/changes/scorecard-client.tsx:124`: `"Pre-pivot Profound CSV / PDF rebuild rows"` → `"Pre-pivot CSV / PDF rebuild rows"`.
+- `src/app/(shell)/changes/scorecard-client.tsx:672`: `"in your Profound prompts"` → `"in your tracked prompts"`.
+- `src/app/(shell)/settings/methodology/page.tsx:14–17`: replaced "imports visibility observations from external tools (like Profound)" with "polls Perplexity and ChatGPT daily for how often AI recommends you". Reflects the post-pivot reality.
+
+Test fixes: `lifecycle-attribution-copy.test.ts` Rule 2 now asserts `tooltip.toContain("paused at the admin level")` and Rule 5 now expects label `"Not shipped"`.
+
+### What was checked and intentionally left alone
+
+- "Profound" code comments in `today-data.ts:331,1288,2004,2054`, `visibility-score-chart.tsx:16,52,130`, `visibility-leaderboard.tsx:7`, `today-pick-card.tsx:7`, `prompts-teaser.tsx:9`, `changes/page.tsx:252,378,380`, `scorecard-client.tsx:237,532,570`, `cron/scan/route.ts:57`. Comments only — never user-visible.
+- `import-page.tsx`: `importProfoundData` import + state name + button click handler refs — runtime-only function/variable identifiers, not user-visible. Variable rename deferred until full Profound adapter deletion (post-2026-05-10).
+- "Phase v4/v5/v6" / "Sprint" / "Tier" strings in code comments and var names — internal phase markers, never rendered.
+
+### Verification
+
+| Gate | Result |
+|---|---|
+| `npm run typecheck` | clean |
+| `npm run test` (vitest) | full suite pass minus the 1 pre-existing tenant-isolation failure (3080/3081) |
+| `npm run build` | clean |
+| Browser smoke (manual, /today) | KPI tiles render "As of Apr 30 (today)" badge from derived snapshots; enrichment badges show 200 Apr 30 obs across 2 platforms |
+| Supabase `citation_evidence_index` row | built_at = `2026-04-30 21:13:52.951+00`, 7,960 native citations, 12 topics, 1,191 page×topic rows, 769 pages |
+| `.data/tenants/ritz-builders/citation-evidence-index.json` | matching built_at + counts; tenant_id field intentionally dropped (vestigial — type schema doesn't include it) |
+| GitHub Actions workflow | `daily-native-poll.yml` now has 3 jobs (`poll-perplexity`, `poll-openai`, `rebuild-citation-evidence-index`); rebuild job depends on both polls + uses `if: always()` so partial polls still refresh the index |
+
+### Operator next actions
+
+1. **Wait for tomorrow's daily-native-poll cron run (07:00 UTC).** Verify the new `rebuild-citation-evidence-index` job runs after both poll jobs and that `citation_evidence_index.built_at` updates within 60 minutes of the polls finishing. If it fails, the GitHub Actions email arrives within 45 minutes.
+2. **Browser-spot-check /pages, /competitors, /topics on the Vercel preview** after this lands. Top-3 competitors / topics should differ from last week (when the index was Profound-era frozen). Specifically: native top topics are LA/Cupertino/Menlo/Atherton/Shield; Profound's frozen rankings would have very different distributions across 5,893 pages vs 769.
+3. **Decide on flipping `BEACON_LIFECYCLE_VERDICT_ENABLED=1`** when the H2's bake window elapses (≥7 days from `live_at=2026-04-28`). Earliest date: 2026-05-05. The "Verdict tracking off" pill copy already explains the flag-off state.
+4. **Profound import code remains in place until 2026-05-10.** `src/adapters/profound/bridge.ts` + `src/app/(shell)/settings/import/import-page.tsx` un-touched; the operator may still pull historical CSVs once before expiry.
+
+### What this phase deliberately did NOT do
+
+- Profound import code deletion (waits until 2026-05-10)
+- Multi-tenant onboarding (Sprint 7.9 — needs a confirmed second tenant)
+- Recommendation Lifecycle OS Phase 6B one-click triage UX (waits on a real ambiguous match)
+- AIO/Gemini/Claude polling adapters (out of scope)
+- Daily-cron polling cost ledger move to Supabase (out of scope)
+
+---
+
 ## 2026-04-28 — Recommendation Lifecycle OS UI (Phases 6A.1 → 6A.10)
 
 Single sweep of phases that bring the lifecycle backend's truth to the operator's command-center UI. Audit + plan in `/Users/armeen/.claude/plans/use-opus-max-you-reflective-alpaca.md`. Each phase landed as a separate commit so rollback is per-phase.

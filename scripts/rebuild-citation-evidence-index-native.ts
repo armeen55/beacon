@@ -1,5 +1,5 @@
 /**
- * rebuild-citation-evidence-index-native — Commit 7B (2026-04-24).
+ * rebuild-citation-evidence-index-native — Commit 7B (2026-04-24, refreshed 2026-04-30).
  *
  * Rebuilds the `citation_evidence_index` row (id='current') from native
  * `prompt_answer_observations` with non-null `citation_urls`. Overwrites
@@ -9,6 +9,12 @@
  * Banner Commit 2 added) all read `id='current'`. After this script runs,
  * those surfaces show current native-era rankings with a fresh built_at
  * timestamp; the banner's "9d ago" warning collapses.
+ *
+ * 2026-04-30 update: also writes the local-disk `.data/tenants/{slug}/citation-evidence-index.json`
+ * via writeDotDataJson so DATA_SOURCE=file dev/test runs see the same
+ * fresh data the hosted (DATA_SOURCE=supabase) deploy reads. Without
+ * this, local /pages, /competitors, /topics keep reading the stale Apr-20
+ * file even after Supabase is refreshed.
  *
  * INVARIANT (per Commit 7 design note): one observation → at most 1 count
  * per (page_url, topic) key. Enforced inside buildNativeCitationEvidenceIndex;
@@ -21,6 +27,7 @@
  * Env required:
  *   NEXT_PUBLIC_SUPABASE_URL
  *   SUPABASE_SERVICE_ROLE_KEY
+ *   BEACON_TENANT_ID, BEACON_TENANT_SLUG (for routed disk path)
  *
  * Exit codes:
  *   0 — success
@@ -45,6 +52,7 @@ if (existsSync(envPath)) {
 }
 
 import { getSupabaseAdmin } from "../src/lib/persistence/supabase";
+import { writeDotDataJson } from "../src/lib/persistence/dotdata-json";
 import { buildNativeCitationEvidenceIndex } from "../src/domains/pages/citation-index";
 import { NATIVE_REGIME_START } from "../src/domains/product/url-citation-history";
 import type { TrackedEntity } from "../src/domains/tracked-entities/types";
@@ -93,6 +101,11 @@ async function fetchTrackedEntities(): Promise<TrackedEntity[]> {
 async function writeIndex(
   index: Awaited<ReturnType<typeof buildNativeCitationEvidenceIndex>>,
 ): Promise<void> {
+  // 1. Local disk write — DATA_SOURCE=file readers (local dev, tests) see fresh data.
+  //    No-ops on Vercel (read-only FS); hosted relies on the Supabase write below.
+  await writeDotDataJson("citation-evidence-index", index);
+
+  // 2. Supabase write — DATA_SOURCE=supabase readers (hosted Vercel deploy) see fresh data.
   const sb = getSupabaseAdmin();
   const row = {
     id: "current",
