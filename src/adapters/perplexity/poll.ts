@@ -52,6 +52,15 @@ import {
   classifyCitationDomains,
   extractAnswerStructure,
 } from "@/domains/prompt-answer-observations/extraction";
+// Step 1.5 (master plan) — classify failures so the loop only retries
+// transient kinds (network blip, timeout, 5xx) and surfaces the rest
+// as systemic problems. Rate-limit / auth / invalid-request / parse
+// errors are intentionally non-retryable per operator brief.
+import {
+  classifyPollError,
+  dominantFailureKind,
+  type PollErrorKind,
+} from "./poll-error-classifier";
 
 // Default platform constants for Perplexity. Callers targeting other platforms
 // (e.g. ChatGPT adapter in src/adapters/openai/poll.ts) override these via opts
@@ -98,6 +107,28 @@ export type PerplexityPollResult = {
   skipReason: "budget_blocked" | "per_run_blocked" | null;
   /** Sprint 6A.3c — operator-facing message when `skipReason` is non-null. */
   budgetReason: string | null;
+  /**
+   * Step 1.5 (master plan) — observability fields. Surfaced into the
+   * API route response + chunk summary log so an operator scanning a
+   * cron output can see in one glance whether the chunk's losses were
+   * a budget block, a transient network blip, or a systemic auth bug.
+   */
+  reliability: {
+    /** Number of per-prompt retries the loop attempted (max 1 per prompt). */
+    retryCount: number;
+    /** Failure kind histogram. Empty when zero failures. */
+    failureCountsByKind: Record<PollErrorKind, number>;
+    /** Most common failure kind in this run (or null when no failures). */
+    dominantFailureType: PollErrorKind | null;
+    /**
+     * Costs that the provider may have billed despite the observation
+     * not being persisted (e.g. post-sample parse failure where the
+     * answer text was received but extraction broke). Tracked separately
+     * from `cost.totalUsd` so the operator can reconcile against the
+     * provider dashboard without double-counting.
+     */
+    estimatedUnconfirmedCostUsd: number;
+  };
 };
 
 export type PerplexityPollOptions = {
@@ -191,6 +222,24 @@ export async function pollPerplexityForTenant(
   let promptsCompleted = 0;
   let promptsSkippedBudget = 0;
   let promptsDeduped = 0;
+
+  // Step 1.5 (master plan) — reliability accumulators.  We track each
+  // failure by kind so the chunk summary can name the dominant cause
+  // instead of just an opaque errorCount.  retryCount is per-attempt
+  // (max one retry per prompt).  estimatedUnconfirmedCostUsd holds
+  // billed-but-not-persisted spend from post-sample parse failures.
+  let retryCount = 0;
+  let estimatedUnconfirmedCostUsd = 0;
+  const failureCountsByKind: Record<PollErrorKind, number> = {
+    transient_network: 0,
+    timeout: 0,
+    server_5xx: 0,
+    rate_limit: 0,
+    auth: 0,
+    invalid_request: 0,
+    parse_error: 0,
+    unknown: 0,
+  };
   let skipReason: "budget_blocked" | "per_run_blocked" | null = null;
   let budgetReason: string | null = null;
 
@@ -293,25 +342,61 @@ export async function pollPerplexityForTenant(
     }
     seenPromptText.set(normalizedText, prompt.id);
 
+    // Step 1.5 (master plan) — pre-call cost log. Surfaces accumulating
+    // spend BEFORE the next provider call so a cron tail can see exactly
+    // when a budget cap is about to bite.
+    console.log(
+      `[poll-${platform}] PRE_CALL runId=${runId} tenant=${tenantId} ` +
+        `promptId=${prompt.id} accCost=$${costUsage.totalUsd.toFixed(4)} ` +
+        `completed=${promptsCompleted}/${prompts.length}`,
+    );
+
     let result: Awaited<ReturnType<QueryClient["sample"]>>;
     try {
       result = await client.sample(prompt.text);
     } catch (e) {
-      // Sprint 6A.2g.D — failure path. The original adapter swallowed
-      // the error in `errorCount`; the operator never got the reason.
-      // Now we structured-log it (no observation persisted, no row in
-      // .data — failures stay invisible to downstream queries) AND
-      // continue the loop so a single sample failure doesn't kill the
-      // run. Cost recording is deliberately skipped here (we don't
-      // book spend the operator wasn't charged for; the conservative-
-      // fallback contract from 6A.3c is preserved).
-      const failureMsg = e instanceof Error ? e.message : String(e);
-      console.warn(
-        `[poll-${platform}] SAMPLE_FAILED runId=${runId} tenant=${tenantId} ` +
-          `promptId=${prompt.id} error=${JSON.stringify(failureMsg)}`,
-      );
-      errorCount += 1;
-      continue;
+      const cls = classifyPollError(e);
+      const message = e instanceof Error ? e.message : String(e);
+      // Step 1.5 — single retry, ONLY for retryable kinds (transient_network,
+      // timeout, server_5xx). Other kinds (auth, rate_limit, invalid_request,
+      // parse_error) fail fast — operator brief explicitly forbids retrying
+      // those.
+      if (cls.retryable) {
+        // Increment retryCount on ATTEMPT so the chunk summary surfaces
+        // "we tried" even when the second attempt also fails.
+        retryCount += 1;
+        console.warn(
+          `[poll-${platform}] SAMPLE_RETRY runId=${runId} tenant=${tenantId} ` +
+            `promptId=${prompt.id} kind=${cls.kind} reason=${JSON.stringify(cls.reason)} ` +
+            `attempt=2`,
+        );
+        // Short backoff — 1s. Inside the chunk's 320s ceiling so a
+        // retry never exhausts the workflow timeout.
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        try {
+          result = await client.sample(prompt.text);
+        } catch (e2) {
+          const cls2 = classifyPollError(e2);
+          const message2 = e2 instanceof Error ? e2.message : String(e2);
+          failureCountsByKind[cls2.kind] += 1;
+          console.warn(
+            `[poll-${platform}] SAMPLE_FAILED runId=${runId} tenant=${tenantId} ` +
+              `promptId=${prompt.id} kind=${cls2.kind} reason=${JSON.stringify(cls2.reason)} ` +
+              `error=${JSON.stringify(message2)} retried=true`,
+          );
+          errorCount += 1;
+          continue;
+        }
+      } else {
+        failureCountsByKind[cls.kind] += 1;
+        console.warn(
+          `[poll-${platform}] SAMPLE_FAILED runId=${runId} tenant=${tenantId} ` +
+            `promptId=${prompt.id} kind=${cls.kind} reason=${JSON.stringify(cls.reason)} ` +
+            `error=${JSON.stringify(message)} retryable=false`,
+        );
+        errorCount += 1;
+        continue;
+      }
     }
 
     try {
@@ -527,7 +612,38 @@ export async function pollPerplexityForTenant(
             `error=${JSON.stringify(msg)}`,
         );
       }
-    } catch {
+    } catch (e) {
+      // Step 1.5 (master plan) — post-sample failures are EXTRACTION /
+      // PARSE errors: the provider already returned (`result` exists, may
+      // have been billed), but persistence broke. Surface explicitly +
+      // attribute the cost as estimated_unconfirmed so the operator can
+      // reconcile against the provider dashboard without double-counting
+      // the confirmed ledger.
+      const cls = classifyPollError(e);
+      const message = e instanceof Error ? e.message : String(e);
+      failureCountsByKind[cls.kind] += 1;
+      // We have a result handle — try to estimate the cost the provider
+      // booked for it.  If usage is missing, estimate is 0 (conservative).
+      try {
+        const usage: QueryUsage | undefined = result?.usage;
+        const billedEstimate = estimatePromptCost({
+          provider: pricingProvider,
+          model: result?.model ?? "",
+          inputTokens: usage?.inputTokens,
+          outputTokens: usage?.outputTokens,
+          webSearchCalls: usage?.webSearchCalls,
+        });
+        estimatedUnconfirmedCostUsd = roundUsd(
+          estimatedUnconfirmedCostUsd + billedEstimate.totalUsd,
+        );
+      } catch {
+        // estimate failed — leave the unconfirmed total untouched
+      }
+      console.warn(
+        `[poll-${platform}] PERSIST_FAILED runId=${runId} tenant=${tenantId} ` +
+          `promptId=${prompt.id} kind=${cls.kind} reason=${JSON.stringify(cls.reason)} ` +
+          `error=${JSON.stringify(message)} estimatedUnconfirmedUsd=$${estimatedUnconfirmedCostUsd.toFixed(4)}`,
+      );
       errorCount += 1;
     }
   }
@@ -594,6 +710,36 @@ export async function pollPerplexityForTenant(
     );
   }
 
+  // Step 1.5 (master plan) — structured chunk summary line. One JSON
+  // object per chunk so an operator (or grep|jq) sees every field the
+  // brief asked for in one glance:
+  //   prompts_attempted / prompts_completed / retry_count / error_count
+  //   skipped_budget_count / estimated_cost_usd / confirmed_cost_usd
+  //   estimated_unconfirmed_cost_usd / dominant_failure_type / status
+  const dominantFailureType = dominantFailureKind(failureCountsByKind);
+  const chunkSummary = {
+    tag: "CHUNK_SUMMARY",
+    runId,
+    tenantId,
+    platform,
+    status,
+    skipReason,
+    prompts_attempted: prompts.length,
+    prompts_completed: promptsCompleted,
+    retry_count: retryCount,
+    error_count: errorCount,
+    skipped_budget_count: promptsSkippedBudget,
+    deduped_count: promptsDeduped,
+    confirmed_cost_usd: costUsage.totalUsd,
+    estimated_cost_usd: roundUsd(
+      costUsage.totalUsd + estimatedUnconfirmedCostUsd,
+    ),
+    estimated_unconfirmed_cost_usd: estimatedUnconfirmedCostUsd,
+    dominant_failure_type: dominantFailureType,
+    failure_counts_by_kind: failureCountsByKind,
+  };
+  console.log(`[poll-${platform}] ${JSON.stringify(chunkSummary)}`);
+
   return {
     observations,
     answerTexts,
@@ -610,6 +756,12 @@ export async function pollPerplexityForTenant(
     },
     skipReason,
     budgetReason,
+    reliability: {
+      retryCount,
+      failureCountsByKind,
+      dominantFailureType,
+      estimatedUnconfirmedCostUsd,
+    },
   };
 }
 

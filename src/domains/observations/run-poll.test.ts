@@ -82,6 +82,24 @@ function makeAdapterResult(
     },
     skipReason: null,
     budgetReason: null,
+    // Step 1.5 (master plan) — reliability accumulators added to the
+    // adapter result. Tests in this file don't exercise the retry path
+    // but the type now requires the field.
+    reliability: {
+      retryCount: 0,
+      failureCountsByKind: {
+        transient_network: 0,
+        timeout: 0,
+        server_5xx: 0,
+        rate_limit: 0,
+        auth: 0,
+        invalid_request: 0,
+        parse_error: 0,
+        unknown: 0,
+      },
+      dominantFailureType: null,
+      estimatedUnconfirmedCostUsd: 0,
+    },
   };
 }
 

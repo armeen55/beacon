@@ -192,8 +192,10 @@ describe("checkTenantBudget — empty ledger", () => {
 // ── checkPerRunBudget ────────────────────────────────────────────────────
 
 describe("checkPerRunBudget — per-chunk runaway protection", () => {
-  it("default cap is $5", () => {
-    expect(perRunCapUsd()).toBe(5);
+  // Step 1.5 (master plan) — default raised $5 → $8 in budget.ts.
+  // Tests below pin the new default; env override path unchanged.
+  it("default cap is $8", () => {
+    expect(perRunCapUsd()).toBe(8);
   });
 
   it("env BEACON_PER_RUN_BUDGET_USD overrides default", () => {
@@ -205,25 +207,25 @@ describe("checkPerRunBudget — per-chunk runaway protection", () => {
     const r = checkPerRunBudget(0);
     expect(r.allowed).toBe(true);
     expect(r.spent_usd).toBe(0);
-    expect(r.cap_usd).toBe(5);
+    expect(r.cap_usd).toBe(8);
     expect(r.percent).toBe(0);
   });
 
-  it("allows accumulated $4.99 (under cap)", () => {
-    const r = checkPerRunBudget(4.99);
+  it("allows accumulated $7.99 (under cap)", () => {
+    const r = checkPerRunBudget(7.99);
     expect(r.allowed).toBe(true);
     expect(r.percent).toBe(100); // rounds up but allowed
   });
 
-  it("blocks at exactly the cap ($5)", () => {
-    const r = checkPerRunBudget(5);
+  it("blocks at exactly the cap ($8)", () => {
+    const r = checkPerRunBudget(8);
     expect(r.allowed).toBe(false);
     expect(r.reason).toMatch(/Per-run budget exhausted/);
     expect(r.percent).toBe(100);
   });
 
   it("blocks above the cap with informative percent", () => {
-    const r = checkPerRunBudget(7.5);
+    const r = checkPerRunBudget(12);
     expect(r.allowed).toBe(false);
     expect(r.percent).toBe(150);
   });

@@ -82,12 +82,20 @@ function globalCapUsd(): number {
 /**
  * Per-run (per-chunk) cap — ceiling on accumulated cost for a single
  * `pollPerplexityForTenant` invocation. Pure config read; no ledger
- * touch. Default $5 covers ~6.7x normal chunk spend at 25 prompts ×
- * $0.03 = $0.75. Trip means something is genuinely wrong.
+ * touch.
+ *
+ * Step 1.5 (master plan) — bumped default $5 → $8. Realistic ChatGPT
+ * (gpt-4o + web_search) chunks at 25 prompts have come in around
+ * $0.04–$0.10 per prompt depending on web-search count, putting a full
+ * chunk near $1–$2.50.  The $5 cap was too tight under transient-cost
+ * spikes (e.g., a prompt that triggered 3 web_search_call rounds), and
+ * the daily / monthly caps ($10/tenant/day, $200/month) still bound
+ * total spend. If you've also set BEACON_PER_RUN_BUDGET_USD as a
+ * Vercel env var, update it to "8" — env wins over this default.
  */
 export function perRunCapUsd(): number {
   const env = process.env.BEACON_PER_RUN_BUDGET_USD;
-  return env ? parseFloat(env) : 5.0;
+  return env ? parseFloat(env) : 8.0;
 }
 
 // ---------------------------------------------------------------------------
