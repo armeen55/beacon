@@ -267,6 +267,82 @@ export function extractCompetitorCoMentions(
   return out;
 }
 
+/**
+ * W2 Step 2.1 (master plan, 2026-05-01) — descriptor windows around each
+ * competitor mention.
+ *
+ * Powers the right column of "How AI described you" v2 ("Who AI thinks
+ * THEY are") so the comparison view can render real competitor descriptors
+ * — not just descriptors that happen to fall near the operator's brand.
+ *
+ * Returns a `Record<competitorName, string[]>` keyed by canonical
+ * competitor name (entity name, not alias). Each value is up to `max`
+ * adjective/noun-like tokens drawn from a ±`windowWords`-word window
+ * around the competitor's first-appearance position in `answerText`.
+ *
+ * Pure / deterministic / no LLM. Reuses `extractDescriptorWindow` per
+ * competitor so descriptor semantics stay consistent with the brand
+ * column — same stopwords, same window size, same dedupe rules.
+ *
+ * Design choices:
+ *   - Skips owned brand variants automatically (caller should pass
+ *     `ownedNameVariants` so any owned-brand tokens get dropped from
+ *     each competitor's window).
+ *   - Skips a competitor's OWN name tokens from its own descriptor
+ *     window — competitor descriptors should describe the competitor,
+ *     not echo their name back at the operator.
+ *   - Empty answer text → `{}`.
+ *   - Competitors not in `entities` registry → silently skipped (caller
+ *     decides which competitors are tracked).
+ */
+export function extractCompetitorDescriptorWindows(
+  answerText: string,
+  entities: EntityForOrdering[],
+  ownedNameVariants: string[],
+  options?: { windowWords?: number; max?: number },
+): Record<string, string[]> {
+  if (!answerText || entities.length === 0) return {};
+  const lower = answerText.toLowerCase();
+  const ownedSet = new Set(
+    ownedNameVariants
+      .filter((v) => v && v.length > 0)
+      .map((v) => v.toLowerCase()),
+  );
+
+  const out: Record<string, string[]> = {};
+  for (const entity of entities) {
+    if (!entity.name) continue;
+    if (ownedSet.has(entity.name.toLowerCase())) continue;
+
+    // Find earliest position of this competitor (name OR alias).
+    const variants: string[] = [entity.name];
+    if (entity.aliases) {
+      for (const a of entity.aliases) if (a) variants.push(a);
+    }
+    let earliest: number | null = null;
+    for (const variant of variants) {
+      const idx = lower.indexOf(variant.toLowerCase());
+      if (idx < 0) continue;
+      if (earliest === null || idx < earliest) earliest = idx;
+    }
+    if (earliest === null) continue;
+
+    // Combine owned brand variants + this competitor's own variants
+    // into the "drop these tokens" set so the window is "words near
+    // competitor, not competitor itself, not the owned brand".
+    const dropFromWindow: string[] = [...ownedNameVariants, ...variants];
+
+    const window = extractDescriptorWindow(
+      answerText,
+      earliest,
+      dropFromWindow,
+      options,
+    );
+    if (window.length > 0) out[entity.name] = window;
+  }
+  return out;
+}
+
 // Domain classification heuristic. Seeded with the minimum set that covers
 // the Bay-Area-custom-home-builder tenant; operator can expand via a
 // follow-up if a real citation comes in that we miscategorize. Matches run

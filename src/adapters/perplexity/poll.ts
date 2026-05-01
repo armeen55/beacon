@@ -49,6 +49,7 @@ import {
   extractPrimaryRecommendation,
   extractDescriptorWindow,
   extractCompetitorCoMentions,
+  extractCompetitorDescriptorWindows,
   classifyCitationDomains,
   extractAnswerStructure,
 } from "@/domains/prompt-answer-observations/extraction";
@@ -466,6 +467,16 @@ export async function pollPerplexityForTenant(
         entitiesInOrder,
         ownedEntityNames,
       );
+      // W2 Step 2.1 (master plan, 2026-05-01) — per-competitor descriptor
+      // windows, powering the "Who AI thinks they are" column in the
+      // How AI Described You v2 layout. Same window/stopword rules as
+      // the brand's descriptor_window so the comparison view stays
+      // visually + semantically consistent across columns.
+      const competitorDescriptorWindows = extractCompetitorDescriptorWindows(
+        result.answer_text,
+        activeEntities,
+        ownedNameVariants,
+      );
       const competitorDomains = new Set<string>(
         activeEntities
           .filter((e) => !e.is_owned)
@@ -577,6 +588,7 @@ export async function pollPerplexityForTenant(
         primary_recommendation: primaryRecommendation,
         descriptor_window: descriptorWindow,
         competitor_co_mentions: competitorCoMentions,
+        competitor_descriptor_windows: competitorDescriptorWindows,
         citation_domain_classes: citationDomainClasses,
         answer_structure: answerStructure,
         citation_urls: citationUrls,

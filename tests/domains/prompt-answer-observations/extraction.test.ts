@@ -7,6 +7,7 @@ import {
   extractPrimaryRecommendation,
   extractDescriptorWindow,
   extractCompetitorCoMentions,
+  extractCompetitorDescriptorWindows,
   classifyCitationDomains,
   extractAnswerStructure,
 } from "@/domains/prompt-answer-observations/extraction";
@@ -480,5 +481,166 @@ describe("extractAnswerStructure", () => {
     const out = extractAnswerStructure(text);
     expect(out).not.toBe("ranked_list");
     expect(out).not.toBe("mixed");
+  });
+});
+
+describe("extractCompetitorDescriptorWindows — W2 Step 2.1", () => {
+  const RITZ = {
+    name: "Ritz Builders",
+    aliases: ["Ritz"],
+  };
+  const DEMATTEI = { name: "De Mattei Construction", aliases: ["De Mattei"] };
+  const KASTEN = { name: "Kasten Builders", aliases: ["Kasten"] };
+  const ENTITIES = [RITZ, DEMATTEI, KASTEN];
+  const OWNED_VARIANTS = ["Ritz Builders", "Ritz"];
+
+  it("returns {} when answer text is empty", () => {
+    expect(
+      extractCompetitorDescriptorWindows("", ENTITIES, OWNED_VARIANTS),
+    ).toEqual({});
+  });
+
+  it("returns {} when no entities are supplied", () => {
+    expect(
+      extractCompetitorDescriptorWindows(
+        "De Mattei is the luxury choice.",
+        [],
+        OWNED_VARIANTS,
+      ),
+    ).toEqual({});
+  });
+
+  it("skips owned brand variants — never returns descriptors for the operator's brand", () => {
+    const text = "Ritz Builders is an award-winning luxury custom home firm.";
+    const out = extractCompetitorDescriptorWindows(
+      text,
+      ENTITIES,
+      OWNED_VARIANTS,
+    );
+    expect(out).not.toHaveProperty("Ritz Builders");
+    // Neither competitor is in this text either.
+    expect(out).toEqual({});
+  });
+
+  it("captures descriptors near a single competitor mention", () => {
+    // Descriptors before + after — within the ±5 word default window
+    // around the competitor's first token (index of "De").
+    const text =
+      "Top luxury award-winning custom builder De Mattei Construction works in Atherton.";
+    const out = extractCompetitorDescriptorWindows(
+      text,
+      ENTITIES,
+      OWNED_VARIANTS,
+    );
+    expect(Object.keys(out)).toEqual(["De Mattei Construction"]);
+    expect(out["De Mattei Construction"]).toContain("luxury");
+    expect(out["De Mattei Construction"]).toContain("award-winning");
+    expect(out["De Mattei Construction"]).toContain("custom");
+    expect(out["De Mattei Construction"]).not.toContain("mattei");
+    expect(out["De Mattei Construction"]).not.toContain("construction");
+  });
+
+  it("returns separate windows for multiple competitors", () => {
+    const text =
+      "De Mattei specializes in luxury homes. Kasten Builders focuses on contemporary architect-led projects.";
+    const out = extractCompetitorDescriptorWindows(
+      text,
+      ENTITIES,
+      OWNED_VARIANTS,
+    );
+    expect(Object.keys(out).sort()).toEqual([
+      "De Mattei Construction",
+      "Kasten Builders",
+    ]);
+    expect(out["De Mattei Construction"]).toContain("luxury");
+    expect(out["Kasten Builders"]).toContain("contemporary");
+    expect(out["Kasten Builders"]).toContain("architect-led");
+  });
+
+  it("matches via aliases (canonical name keyed)", () => {
+    // "De Mattei" alias appears, not the full canonical name. Descriptors
+    // sit before + after the alias mention, within the default ±5 word window.
+    const text =
+      "Top architect-led luxury boutique builder De Mattei serves Atherton clients.";
+    const out = extractCompetitorDescriptorWindows(
+      text,
+      ENTITIES,
+      OWNED_VARIANTS,
+    );
+    expect(Object.keys(out)).toContain("De Mattei Construction");
+    expect(out["De Mattei Construction"]).toContain("architect-led");
+  });
+
+  it("excludes operator brand tokens from competitor windows", () => {
+    // Brand and competitor close enough that the operator brand sits
+    // INSIDE the competitor's ±5-word window — we explicitly drop those
+    // so the right column in the comparison view never echoes the
+    // operator's brand tokens back as competitor descriptors.
+    const text =
+      "Ritz Builders rivals luxury custom-home firm De Mattei Construction in Atherton's high-end market.";
+    const out = extractCompetitorDescriptorWindows(
+      text,
+      ENTITIES,
+      OWNED_VARIANTS,
+    );
+    const dematteiWindow = out["De Mattei Construction"] ?? [];
+    // Brand tokens should never appear in a competitor's descriptor window.
+    expect(dematteiWindow).not.toContain("ritz");
+    expect(dematteiWindow).not.toContain("builders");
+    // Substantive descriptors should land (within ±5 word window).
+    expect(dematteiWindow).toContain("luxury");
+    expect(dematteiWindow).toContain("custom-home");
+  });
+
+  it("silently skips competitors with no occurrence in the text", () => {
+    const text = "De Mattei is well-regarded for luxury work.";
+    const out = extractCompetitorDescriptorWindows(
+      text,
+      ENTITIES,
+      OWNED_VARIANTS,
+    );
+    expect(out).toHaveProperty("De Mattei Construction");
+    expect(out).not.toHaveProperty("Kasten Builders");
+  });
+
+  it("uses earliest-position mention when a competitor appears multiple times", () => {
+    const text =
+      "Kasten Builders is contemporary and modernist. " +
+      "Later, Kasten is also used in boutique projects.";
+    const out = extractCompetitorDescriptorWindows(
+      text,
+      ENTITIES,
+      OWNED_VARIANTS,
+    );
+    // Window centers on first mention — should include "contemporary".
+    expect(out["Kasten Builders"]).toContain("contemporary");
+  });
+
+  it("respects custom windowWords + max options", () => {
+    // Descriptors before the mention so a small windowWords still has
+    // material left after stopword + alias filtering.
+    const text =
+      "Top luxury award-winning De Mattei Construction firm trusted by clients.";
+    const out = extractCompetitorDescriptorWindows(
+      text,
+      ENTITIES,
+      OWNED_VARIANTS,
+      { windowWords: 3, max: 4 },
+    );
+    expect(out["De Mattei Construction"]).toBeDefined();
+    expect(out["De Mattei Construction"]!.length).toBeLessThanOrEqual(4);
+  });
+
+  it("never returns the same descriptor token twice in a single window", () => {
+    const text =
+      "De Mattei is luxury, and yes really very luxury, the absolute luxury choice.";
+    const out = extractCompetitorDescriptorWindows(
+      text,
+      ENTITIES,
+      OWNED_VARIANTS,
+    );
+    const window = out["De Mattei Construction"] ?? [];
+    const dedup = new Set(window);
+    expect(window.length).toBe(dedup.size);
   });
 });

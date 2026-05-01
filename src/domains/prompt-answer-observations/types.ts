@@ -79,6 +79,21 @@ export type PromptAnswerObservation = {
    */
   competitor_co_mentions?: string[] | null;
   /**
+   * W2 Step 2.1 (master plan, 2026-05-01) — descriptor windows AROUND
+   * each competitor mention. Keyed by canonical competitor name (entity
+   * name, not alias). Each value is up to 10 adjective/noun-like tokens
+   * in a ±5-word window around the competitor's first-appearance
+   * position. Powers the right column of "How AI described you" v2 so
+   * the comparison view shows real competitor descriptors, not just
+   * descriptors that happen to fall near the brand.
+   *
+   * `null` on rows from before this field shipped (existing native
+   * observations + W4 historical_recovered rows that haven't been
+   * re-extracted yet). Empty `{}` when answer text exists but no
+   * competitors appeared.
+   */
+  competitor_descriptor_windows?: Record<string, string[]> | null;
+  /**
    * Per-citation class, parallel to `citation_domains` (same length, same
    * index). Values from CitationDomainClass. Empty when the answer has no
    * citations.
