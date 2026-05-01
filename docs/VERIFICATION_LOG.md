@@ -7,6 +7,55 @@
 
 ---
 
+## 2026-05-01 — Week 1 (Trust + Polish): 5 logical commits + execution-contract docs sync
+
+Master plan kickoff (`/Users/armeen/.claude/plans/beacon-master-sorted-creek.md`) — Week 1 of the operator-reordered roadmap (W1 trust → W2 wedge UX → W3 recs v2 → W4 backfill → W5 sellable). Pushed `5d32f5f..5cfd9e7` to `origin/main`.
+
+### Commits
+
+| SHA | Step | Headline |
+|---|---|---|
+| `333d74e` | 1.1 | Kill prompt UUID leaks in evidence chips |
+| `a9f6da4` | 1.2 | Operator jargon sweep (Decide tonight / Heuristic / Profound-style) |
+| `ec8b140` | 1.3 | VSR delta math + calendar-window chart filter |
+| `d57327d` | 1.4 | Entity pollution filter (Houzz / General Contractors / directories) |
+| `9b98d15` | 1.5 | Poll chunk failure resilience |
+| `5cfd9e7` | docs | CLAUDE.md execution-contract override |
+
+### What changed (one paragraph per step)
+
+**1.1 — UUID hygiene.** New `src/domains/recommendations/evidence-summary.ts` helper renders prompt evidence as a snippet of the prompt text (50-char cap with ellipsis) instead of leaking `prompt:7ee3216b-...` UUIDs. Threaded `promptTextById` through `recommendations-client.tsx` (page → QueueSection → RecommendationRow → SpecificEditsSection) and `actions.ts` (server-fetched once per Accept for changelog notes). Unknown UUIDs silently dropped. 10 new unit tests; 1 mock fix in `accept-fanout.test.ts`.
+
+**1.2 — Jargon sweep.** "Decide tonight" header on /today → "Action queue". `EVIDENCE_BASIS_LABEL.heuristic` value → "Pattern-based" (internal enum key preserved so DB rows untouched). "Profound-style" stripped from Today chart components + `VISIBILITY_METRIC_DESCRIPTIONS.composite` tooltip. New architecture invariant `tests/architecture/no-operator-jargon.test.ts` — scoped to `src/app` + `src/components`, comment-aware (strips block + line + JSDoc before matching), self-test included. Domain modules + methodology + import-page references intentionally untouched per operator scope.
+
+**1.3 — VSR delta math + calendar-window chart.** `EntityVisibility.delta` now `number | null` plus `deltaWindowDays`, `currentSampledDays`, `previousSampledDays`. `computeLeaderboard()` takes `windowDays` + `windowEndDate`, derives both windows internally; previous-window samples below `⌈N/3⌉` (floor 2) → `delta: null` (never faked 0). Server precomputes leaderboard for every chart-toggle window (7/14/30/60). `timeRange` lifted to `today-client.tsx`. Chart switches from `slice(-N)` to calendar-date filter; "K sampled days in this N-day window" strip honest about sparse sampling. Headline delta relabelled "X.X pt within this window" so it never blurs with leaderboard's "vs. previous N days". 5 new tests in `visibility-score-delta.test.ts`.
+
+**1.4 — Entity pollution filter.** New `src/domains/recommendations/entity-pollution-filter.ts` with `isDirectoryEntity()` + metadata-first `shouldExcludeFromCompetitorRanking()`. Houzz / Yelp / Angi / BuildZoom / Thumbtack / BBB / generalcontractors.org excluded from competitor leaderboard AND from rec engine `competitorAngles` aggregation. Real builders survive (De Mattei, Kasten, Supple); "Bay Builders" with metadata kept; "General Contractors" by name only excluded. `dir-generalcontractors-org` entity row NOT deleted from `tracked-entities.json` because `pages.json` + 10+ citation cold-store shards reference it; the directory filter handles it operationally via two independent paths (entity_type=`directory_source` AND domain blocklist). 24 new tests across filter unit + leaderboard integration.
+
+**1.5 — Poll chunk failure resilience.** New classifier `src/adapters/perplexity/poll-error-classifier.ts` (8 kinds: transient_network, timeout, server_5xx, rate_limit, auth, invalid_request, parse_error, unknown). Per-prompt single retry on 1s backoff for retryable kinds only; auth/rate_limit/invalid_request/parse_error fail fast. New `PerplexityPollResult.reliability` block (`retryCount`, `failureCountsByKind`, `dominantFailureType`, `estimatedUnconfirmedCostUsd`). Structured `CHUNK_SUMMARY` JSON line per run with every operator-required field. Silent post-sample try/catch replaced with classified `PERSIST_FAILED` log + `estimated_unconfirmed_cost` accumulator (post-sample failures may have been billed by provider). **`BEACON_PER_RUN_BUDGET_USD` default `$5 → $8`** in `src/lib/cost/budget.ts` (env override unchanged); operator must verify Vercel env var manually. 49 new tests (16 classifier + 8 resilience-integration).
+
+**Docs — Execution contract.** `CLAUDE.md` updated with the operator-locked execution-contract override: accepted-plan = full landing-strip (edits + tests + commits + push + deploy + verify). Pause unchanged for destructive / data-deletion / hosted-env / paid-API / irreversible-migration. Truth-up immediately on environment limits.
+
+### Verification
+
+- `npm run typecheck` clean
+- `npm run test` — **3143 / 3147**. The 4 failures are pre-existing and verified independently against the `5d32f5f` baseline:
+  - 3 × `tests/routes/prompts-smoke*.test.tsx` — fixture time drift (test observations dated Apr 17-21 are now > 7 days from "now"; "Too early to judge" branch fires correctly).
+  - 1 × `tests/tenants/isolation.test.ts` — pre-existing per the 2026-04-28 handoff ("3052/3053 baseline, 1 known tenant-isolation failure").
+- `npm run build` clean
+- Hosted probe (`https://beacon-bice.vercel.app/login`): HTTP 200 in ~870ms; `/api/poll/run` 401 with bad bearer (auth-gate intact).
+- **Could not verify from this environment:** Vercel deploy SHA matches `5cfd9e7`; `BEACON_PER_RUN_BUDGET_USD` value on hosted; Week-1 fixes visually in browser (auth-gated). Operator dashboard check needed.
+
+### Backfill methodology preflight (in flight)
+
+Operator approved Method 1 (aggressive deterministic re-extraction) philosophically but blocked execution until 6 issues resolved: (1) reconcile 498K-vs-14K row count discrepancy, (2) recover historical entity-registry from git, (3) preflight reports (no mutation) for inventory + field recovery + prompt match + entity drift + truncation + 20 sample observation JSONs, (4) confirm W2/W3 schema compatibility, (5) strengthen acceptance criteria, (6) terminology lockdown ("native-shaped recovered observations", never "fake native"; `historical_recovered` is NOT `native_live`).
+
+Verified raw CSV line counts: `profound_raw_data_with_citations(march5th-april21st).csv` = **498,676 lines** (incl header) → ~498,675 data rows. Earlier "14,096" likely = distinct (prompt × date × platform) tuples. Preflight agent running to confirm + sample + git-archaeology entity-seed.ts history.
+
+Backfill execution remains scheduled for W4. W2 (How AI Described You v2) + W3 (Recommendation Engine v2) can proceed in parallel with the schema-compatible model already in place.
+
+---
+
 ## 2026-04-30 — Phase v4 Commits 5–7 (Replace Profound — finishing pass)
 
 Single sweep that finishes the "Replace Profound in 2 weeks" plan (`/Users/armeen/.claude/plans/you-are-taking-over-floofy-giraffe.md`) and unblocks 4 daily-use surfaces that were silently rendering 2026-04-15-frozen Profound data. Audit + plan in `/Users/armeen/.claude/plans/you-are-working-on-purring-shell.md`.

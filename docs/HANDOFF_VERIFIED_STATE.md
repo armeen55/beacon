@@ -1,5 +1,31 @@
 # Beacon — Start Here
 
+> 🟢 **Week 1 (Trust + Polish) LANDED (2026-05-01):** 5 logical commits + 1 docs-contract commit, pushed `5d32f5f..5cfd9e7`. Founder-felt UI bugs across /today + /recommendations now fixed; new architecture invariants prevent regression. Roadmap reordered last turn — W1 trust → W2 wedge UX → W3 recs v2 → W4 backfill → W5 sellable.
+>
+> - **Step 1.1 (`333d74e`)** — UUID hygiene. New `src/domains/recommendations/evidence-summary.ts` (helper + 10 unit tests). `prompt:7ee3216b-...` chips on /recommendations + /changes detail now render `prompt: "<text snippet>"`. Two leak sites killed: `recommendations-client.tsx:1101` and `actions.ts:298`. `promptTextById` threaded from page server → client.
+> - **Step 1.2 (`a9f6da4`)** — Operator jargon sweep, scoped to `src/app` + `src/components`. "Decide tonight" → "Action queue"; `EVIDENCE_BASIS_LABEL.heuristic` value → "Pattern-based" (internal enum key preserved); "Profound-style" stripped from Today chart components + composite tooltip. New invariant `tests/architecture/no-operator-jargon.test.ts` walks scoped roots, strips comments before matching, fails on banned strings. Domain modules + methodology copy + import-page references intentionally untouched.
+> - **Step 1.3 (`ec8b140`)** — VSR delta math + calendar-window chart. `EntityVisibility.delta` now `number | null` with sample-day counts; `computeLeaderboard()` takes `windowDays` + `windowEndDate`, derives both windows internally; previous-window samples below `⌈N/3⌉` (floor 2) → `delta: null` (never faked 0). Server precomputes leaderboard for every chart-toggle window (7/14/30/60). `timeRange` lifted to `today-client.tsx`; chart switches from `slice(-N)` to calendar-date filter; "K sampled days in this N-day window" strip honest about sparse sampling. Headline delta relabelled "X.X pt within this window" so it never blurs with leaderboard's "vs. previous N days".
+> - **Step 1.4 (`d57327d`)** — Entity pollution filter. New `src/domains/recommendations/entity-pollution-filter.ts` with `isDirectoryEntity()` + metadata-first `shouldExcludeFromCompetitorRanking()`. Houzz / Yelp / Angi / BuildZoom / Thumbtack / BBB / generalcontractors.org excluded from competitor ranking AND from rec engine `competitorAngles` aggregation. Real builders (De Mattei, Kasten, Supple) survive; "Bay Builders" with metadata kept; "General Contractors" by name only excluded. `dir-generalcontractors-org` row NOT deleted from `tracked-entities.json` because pages.json + 10+ citation cold-store shards reference it; the directory filter handles it operationally.
+> - **Step 1.5 (`9b98d15`)** — Poll chunk failure resilience. New `poll-error-classifier.ts` (8 kinds, retryable only on `transient_network` / `timeout` / `server_5xx`). Per-prompt single retry on 1s backoff, NO retry on auth / rate_limit / invalid_request / parse_error. New `PerplexityPollResult.reliability` block (`retryCount`, `failureCountsByKind`, `dominantFailureType`, `estimatedUnconfirmedCostUsd`). Structured `CHUNK_SUMMARY` JSON line per run. Silent post-sample try/catch replaced with classified `PERSIST_FAILED` log + `estimated_unconfirmed_cost` accumulator. **`BEACON_PER_RUN_BUDGET_USD` default $5 → $8** in code (env override unchanged); operator must verify Vercel env var manually. Tests: 49 (16 classifier + 8 integration cases covering every operator-brief scenario).
+> - **Docs (`5cfd9e7`)** — `CLAUDE.md` execution-contract override: accepted-plan = full landing-strip (edits + tests + commits + push + deploy + verify). Pause unchanged for destructive / data-deletion / hosted-env / paid-API / irreversible-migration.
+>
+> **Verification (2026-05-01):**
+> - `npm run typecheck` clean · `npm run test` **3143 / 3147** (4 pre-existing failures verified against `5d32f5f` baseline: 3 prompts-smoke fixture time-drift + 1 tenant-isolation) · `npm run build` clean.
+> - `https://beacon-bice.vercel.app/login` HTTP 200; `/api/poll/run` 401 with bad bearer.
+> - **Vercel deploy SHA + `BEACON_PER_RUN_BUDGET_USD` env var unverifiable from this environment** — no Vercel CLI / API token. Operator must check the dashboard.
+>
+> **Backfill methodology accepted in principle (Method 1: aggressive deterministic re-extraction); preflight blockers landed 2026-05-01 evening:**
+> 1. Reconcile 498K-vs-14K row count discrepancy (498,676 lines is the truthful raw CSV count; 14K likely = distinct prompt-date-platform tuples).
+> 2. Recover historical entity-registry from git history before accepting `medium_entity_drift`.
+> 3. Run preflight stage (no mutation) producing inventory + field recovery + prompt match + entity drift + truncation reports + 20 sample observation JSONs.
+> 4. Decide observation model: row-level (~498K) vs cell-deduped (~14K) vs cell-merged (~14K with unioned signals).
+> Preflight agent currently running. Backfill execution remains W4. Provenance terminology locked: `native_live` / `historical_recovered` / `historical_imported`. Never "fake native"; always "native-shaped recovered observations".
+>
+> **Next 3 actions:**
+> 1. **Operator: verify Vercel deployment of `5cfd9e7` is "Ready" + check `BEACON_PER_RUN_BUDGET_USD` env var** (decision yes/no on the $8 bump).
+> 2. **Read the preflight report** when it lands (`/tmp/beacon-preflight-2026-05-01.md`); approve or amend Method 1 against the verified data shape; greenlight Week 2 kickoff.
+> 3. **Watch tomorrow's 07:00 UTC poll for `CHUNK_SUMMARY` log evidence** that Step 1.5 deployed and is logging the new structured summary.
+
 > 🟢 **Phase v4 Commits 5–7 LANDED (2026-04-30) — "Replace Profound" finishing pass:** Closed the last open work in `/Users/armeen/.claude/plans/you-are-taking-over-floofy-giraffe.md` so Profound's 2026-05-10 expiry is a non-event for daily operation. Source plan: `/Users/armeen/.claude/plans/you-are-working-on-purring-shell.md`. Full detail in `docs/VERIFICATION_LOG.md` 2026-04-30 entry.
 >
 > - **Commit 5 (Today KPI flip)** — verified live. Derived snapshots flowing daily; today scoreboard reads `daily_metric_snapshots source_type='derived' scope_type='platform'` with "As of Apr 30 (today)" / "(yesterday)" fallback badge. No code changes needed — already shipped, validation only.
