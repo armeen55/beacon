@@ -2073,6 +2073,9 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
         windowDays,
         metric: m,
         limit: 5,
+        // Step 1.4 (master plan) — filter directories + generic-noun
+        // mentions out of competitor rows. Brand + real builders stay.
+        trackedEntities,
       });
     }
   }

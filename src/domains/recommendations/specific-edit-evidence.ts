@@ -48,7 +48,9 @@ import type { ElementType } from "@/domains/pages/extractors/registry";
 import type { PromptOpportunity } from "@/domains/prompts/opportunity-classify";
 import type { PromptPrimarySummary } from "@/domains/prompts/competitor-primary";
 import type { TrackedPrompt } from "@/domains/tracked-prompts/types";
+import type { TrackedEntity } from "@/domains/tracked-entities/types";
 import type { PromptAnswerObservation } from "@/domains/prompt-answer-observations/types";
+import { makeCompetitorRankingFilter } from "./entity-pollution-filter";
 
 import {
   ACTION_TYPES,
@@ -247,6 +249,13 @@ export type BuildSpecificEditEvidencePacketArgs = {
    */
   observations: ReadonlyArray<PromptAnswerObservation>;
   /**
+   * Step 1.4 (master plan) — when supplied, directories ("Houzz") and
+   * generic-noun mentions ("General Contractors") are filtered out of the
+   * `competitorAngles` block so the LLM doesn't get instructed to counter
+   * them. Optional for backwards compatibility; pass `[]` to disable.
+   */
+  trackedEntities?: ReadonlyArray<TrackedEntity>;
+  /**
    * Sprint 6A.2g.A (2026-04-26) — the rec's resolved target URL, if the
    * caller has run the page-intent resolver. When non-null,
    * `allowedTargetUrls` is constrained to anchor the LLM to this single
@@ -344,9 +353,16 @@ export function buildSpecificEditEvidencePacket(
     args.maxTargetElements ?? DEFAULT_MAX_TARGET_ELEMENTS,
   );
 
+  // Step 1.4 (master plan) — exclude directories + generic-noun mentions
+  // from the competitor angles block. Filter is shared with the /today
+  // leaderboard so the two surfaces agree on "who counts as a competitor".
+  const competitorRankingFilter = makeCompetitorRankingFilter(
+    args.trackedEntities ?? [],
+  );
   const competitorAngles = buildCompetitorAngles(
     args.affectedPromptIds,
     summaryById,
+    competitorRankingFilter,
   );
 
   const allowedActionTypes = (
@@ -601,6 +617,14 @@ function buildTargetPageElements(
 function buildCompetitorAngles(
   affectedPromptIds: ReadonlyArray<string>,
   summaryById: ReadonlyMap<string, PromptPrimarySummary>,
+  /**
+   * Step 1.4 (master plan) — predicate returns `true` for names that
+   * should rank as competitors in the recommendation evidence packet.
+   * Directories ("Houzz") and generic nouns ("General Contractors") are
+   * filtered out so the LLM doesn't get instructed to counter them.
+   * Optional: when undefined, every name is allowed (legacy behaviour).
+   */
+  shouldRankAsCompetitor?: (name: string) => boolean,
 ): CompetitorAngleBlock[] {
   const totalAffected = affectedPromptIds.length;
   if (totalAffected === 0) return [];
@@ -613,6 +637,7 @@ function buildCompetitorAngles(
     if (!summary) continue;
     for (const c of summary.primaryCompetitors) {
       if (c.primaryCount <= 0) continue;
+      if (shouldRankAsCompetitor && !shouldRankAsCompetitor(c.name)) continue;
       const acc = counts.get(c.name) ?? {
         promptsWherePrimary: 0,
         totalPrimaryObservations: 0,

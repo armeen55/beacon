@@ -339,6 +339,10 @@ export function buildPacketForRec(
     // — see Phase D.1 report; ~986 legacy native-poll rows lack the
     // metadata.extracted block).
     observations: context.promptAnswerObservations,
+    // Step 1.4 (master plan) — thread the tracked-entity registry so the
+    // packet's `competitorAngles` block excludes directories + generic
+    // nouns, matching the /today leaderboard's filter.
+    trackedEntities: context.trackedEntities,
     // Sprint 6A.2g.A (2026-04-26) — strict target alignment. The
     // page-intent resolver runs before prioritization (load-queue step
     // 6) and stamps `rec.resolution.targetUrl` on every queued rec.

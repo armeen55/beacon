@@ -17,6 +17,8 @@
  */
 
 import type { PromptAnswerObservation } from "@/domains/prompt-answer-observations/types";
+import type { TrackedEntity } from "@/domains/tracked-entities/types";
+import { makeCompetitorRankingFilter } from "@/domains/recommendations/entity-pollution-filter";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -340,6 +342,14 @@ export function computeLeaderboard(opts: {
   windowDays: number;
   metric: VisibilityMetric;
   limit?: number;
+  /**
+   * Step 1.4 (master plan) — when supplied, directories
+   * (Houzz/Yelp/Angi/etc.) and obvious generic-noun mentions are
+   * excluded from competitor rows. Brand row + real builders unaffected.
+   * Falls back to a name-only generic-noun filter when omitted, so
+   * non-Today callers stay safe.
+   */
+  trackedEntities?: ReadonlyArray<TrackedEntity>;
 }): EntityVisibility[] {
   const limit = opts.limit ?? 5;
   const brandSlugs = new Set(opts.brandAliases.map(slugifyEntity));
@@ -351,6 +361,12 @@ export function computeLeaderboard(opts: {
   const prevEndDate = subtractDays(opts.windowEndDate, opts.windowDays);
   const prevStartDate = subtractDays(opts.windowEndDate, 2 * opts.windowDays - 1);
 
+  // Build the filter once per call so both windows agree on which
+  // mentions count as competitors.
+  const competitorRankingFilter = makeCompetitorRankingFilter(
+    opts.trackedEntities ?? [],
+  );
+
   const current = aggregateWindow(
     opts.observations,
     startDate,
@@ -358,6 +374,7 @@ export function computeLeaderboard(opts: {
     brandSlugs,
     brandDisplay,
     opts.metric,
+    competitorRankingFilter,
   );
   const previous = aggregateWindow(
     opts.observations,
@@ -366,6 +383,7 @@ export function computeLeaderboard(opts: {
     brandSlugs,
     brandDisplay,
     opts.metric,
+    competitorRankingFilter,
   );
 
   const previousBySlug = new Map(previous.entities.map((e) => [e.slug, e]));
@@ -453,6 +471,13 @@ function aggregateWindow(
   brandSlugs: Set<string>,
   brandDisplay: string,
   metric: VisibilityMetric,
+  /**
+   * Step 1.4 (master plan) — predicate returns `true` for entities that
+   * SHOULD rank as competitors. Pre-built once per `computeLeaderboard`
+   * call from the supplied tracked-entity registry. When undefined,
+   * every mention is allowed (legacy behaviour for non-Today callers).
+   */
+  shouldRankAsCompetitor?: (name: string) => boolean,
 ): AggregateWindowResult {
   // Counts per entity.
   const mentionsByEntity = new Map<string, { name: string; count: number }>();
@@ -479,6 +504,10 @@ function aggregateWindow(
     for (const name of obs.mentions ?? []) {
       const slug = slugifyEntity(name);
       if (brandSlugs.has(slug)) continue; // Don't double-count the brand.
+      // Step 1.4 — exclude directories + generic-noun mentions from
+      // competitor rows when the caller supplied a filter. Brand row is
+      // unaffected (handled above via brandSlugs short-circuit).
+      if (shouldRankAsCompetitor && !shouldRankAsCompetitor(name)) continue;
       const existing = mentionsByEntity.get(slug);
       if (existing) {
         existing.count++;
