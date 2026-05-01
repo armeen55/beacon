@@ -21,6 +21,37 @@ This file is the **portable** project contract (use here, in Claude Code, or any
 
 ---
 
+## Execution contract (Beacon override of base CLAUDE Code rules)
+
+When the operator (Armeen) **accepts an execution plan** for a step or phase, that
+acceptance authorizes the full landing-strip — not just local edits. Concretely,
+"accepted execution plan" means I am authorized to:
+
+- edit files
+- run tests
+- create logical commits (one per coherent step)
+- push to `origin/main` (or the agreed branch)
+- let Vercel auto-deploy
+- verify hosted production / preview rendering
+
+Rule: do NOT stop after local tests pass and call the work "done" if the product is
+not deployed. Continuous execution through deploy is the contract.
+
+**Always pause** before:
+- destructive operations (file deletion, branch deletion, `rm -rf`, force-push, `git reset --hard`)
+- data deletion in `.data/` or Supabase
+- modifying hosted environment variables (Vercel, Supabase config)
+- irreversible migrations (schema changes that drop data)
+- paid API runs that would exceed an agreed budget
+
+After every commit/push/deploy, **report exactly** what was committed (per-step summary),
+what was pushed (commit SHAs), what deployed (Vercel build status), and what was verified
+(hosted smoke results). Truth-up immediately if any step couldn't run from this environment
+(e.g., Vercel CLI unavailable, hosted env vars unreadable) — never imply work is deployed
+when it's not.
+
+---
+
 ## Documentation sync (mandatory)
 
 After **any** task that changes behavior or plans, update if impacted:
