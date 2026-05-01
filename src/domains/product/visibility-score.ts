@@ -33,7 +33,7 @@ export const VISIBILITY_METRIC_LABELS: Record<VisibilityMetric, string> = {
 export const VISIBILITY_METRIC_DESCRIPTIONS: Record<VisibilityMetric, string> = {
   mention_rate: "% of AI answers that mention your brand by name",
   citation_rate: "% of AI answers that link your site",
-  composite: "Overall visibility \u2014 average of per-platform cite rates on days that platform was sampled (Profound-style)",
+  composite: "Overall visibility \u2014 average of per-platform cite rates on days that platform was sampled",
 };
 
 /** One day on the chart. */

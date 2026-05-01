@@ -40,7 +40,7 @@ export const GAP_EVIDENCE_LABELS: Record<
   inferred_draft_idea: {
     short: "Inferred draft",
     description:
-      "Heuristic from imported shifts or scorecard — weaker than a scanner-observed gap.",
+      "Pattern-based from imported shifts or scorecard — weaker than a scanner-observed gap.",
   },
 };
 

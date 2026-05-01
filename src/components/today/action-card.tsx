@@ -167,7 +167,7 @@ export function ActionCard({
               EVIDENCE_BASIS_PILL[action.evidenceBasis] ?? EVIDENCE_BASIS_PILL.heuristic,
             )}
           >
-            {EVIDENCE_BASIS_LABEL[action.evidenceBasis] ?? "Heuristic"}
+            {EVIDENCE_BASIS_LABEL[action.evidenceBasis] ?? "Pattern-based"}
           </span>
         )}
       </div>

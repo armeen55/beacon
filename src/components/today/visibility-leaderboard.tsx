@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils";
 import type { EntityVisibility } from "@/domains/product/visibility-score";
 
 /**
- * Profound-style Visibility Score Rank leaderboard.
+ * Visibility Score Rank leaderboard.
  *
  * Right-hand panel companion to `VisibilityScoreChart`. Shows:
  *   - "#N" rank callout for the tenant brand

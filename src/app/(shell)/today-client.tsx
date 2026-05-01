@@ -368,7 +368,7 @@ export function TodayClient({
           Tier 1: Do Next (single decision card).
           Tier 2: Lifecycle strip.
           Tier 3: Implementation queue (top 3).
-          Tier 4: Decide tonight (action queue).
+          Tier 4: Action queue.
           Tier 5: Wins / latest signal.
           Tier 6: Today's metrics (collapsible disclosure).
           Tier 7: Scan diffs (collapsed accordion at the bottom).
@@ -487,13 +487,13 @@ export function TodayClient({
         />
       )}
 
-      {/* Tier 4 — Decide tonight action queue. Stays after the lifecycle
-          layer because pending implementation is operationally heavier
-          than evaluating new recommendations. */}
+      {/* Tier 4 — Action queue. Stays after the lifecycle layer because
+          pending implementation is operationally heavier than evaluating
+          new recommendations. */}
       {primaryAction && (
         <div className="flex items-center justify-between -mb-1">
           <h3 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
-            Decide tonight
+            Action queue
           </h3>
           <span className="text-[10px] text-muted-foreground/40">
             {[primaryAction, secondaryAction, ...moreActions].filter(Boolean).length} to review

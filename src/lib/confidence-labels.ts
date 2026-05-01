@@ -86,14 +86,17 @@ export const EVIDENCE_TIER_LABEL: Record<string, string> = {
 
 /** Operator-facing label for each evidenceBasis tier on Today action cards. */
 export const EVIDENCE_BASIS_LABEL: Record<string, string> = {
-  heuristic: "Heuristic",
+  // Step 1.2 (master plan) — internal enum key stays "heuristic" so data
+  // layer / DB rows aren't disturbed; user-visible value reads "Pattern-based"
+  // because this is an evidence/confidence context.
+  heuristic: "Pattern-based",
   tenant_history: "Measured on your site",
   current_dataset: "Early signal",
   shared_pattern: "Cross-site pattern",
 };
 
 export function evidenceBasisLabel(basis: string): string {
-  return EVIDENCE_BASIS_LABEL[basis] ?? "Heuristic";
+  return EVIDENCE_BASIS_LABEL[basis] ?? "Pattern-based";
 }
 
 // ---------------------------------------------------------------------------

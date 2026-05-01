@@ -13,7 +13,7 @@ import {
 } from "@/domains/product/visibility-score";
 
 /**
- * Profound-style Visibility Score chart for Today.
+ * Visibility Score chart for Today.
  *
  * Left-hand dashboard panel:
  *   - Big headline score + trend delta
