@@ -1428,3 +1428,578 @@ describe("Phase 6A.1.7 — packet builder never runs on render", () => {
     expect(offenders).toEqual([]);
   });
 });
+
+// ── W3 Step 3.2 — Recommendation Engine v2 evidence packet foundation ─────
+
+describe("W3 Step 3.2 — aiSearchSignal aggregation", () => {
+  const PROMPT_A = "prompt-a";
+  const PROMPT_B = "prompt-b";
+
+  function buildSearchSignalArgs(
+    overrides: Partial<BuildSpecificEditEvidencePacketArgs> = {},
+  ): BuildSpecificEditEvidencePacketArgs {
+    return buildArgs({
+      affectedPromptIds: [PROMPT_A, PROMPT_B],
+      promptOpportunities: [makeOpportunity(PROMPT_A), makeOpportunity(PROMPT_B)],
+      trackedPrompts: [
+        makePrompt(PROMPT_A, "best teen braces atherton"),
+        makePrompt(PROMPT_B, "kitchen remodel cost atherton"),
+      ],
+      primarySummaries: [makeSummary(PROMPT_A), makeSummary(PROMPT_B)],
+      ...overrides,
+    });
+  }
+
+  it("dedupes and counts top search queries across prompts + platforms", () => {
+    const packet = buildSpecificEditEvidencePacket(
+      buildSearchSignalArgs({
+        observations: [
+          makeObservation(PROMPT_A, {
+            platform: "chatgpt",
+            search_queries: ["kitchen remodel atherton", "luxury renovation"],
+          }),
+          makeObservation(PROMPT_A, {
+            platform: "chatgpt",
+            search_queries: ["kitchen remodel atherton"], // dup +1
+          }),
+          makeObservation(PROMPT_B, {
+            platform: "perplexity",
+            search_queries: ["kitchen remodel atherton"], // shared across prompts
+          }),
+        ],
+      }),
+    );
+
+    const sig = packet.aiSearchSignal;
+    expect(sig.topSearchQueries.length).toBe(2);
+    const top = sig.topSearchQueries[0];
+    expect(top.query).toBe("kitchen remodel atherton");
+    expect(top.count).toBe(3);
+    expect(top.promptIds).toEqual([PROMPT_A, PROMPT_B].sort());
+    expect(top.platforms).toEqual(["chatgpt", "perplexity"].sort());
+
+    const second = sig.topSearchQueries[1];
+    expect(second.query).toBe("luxury renovation");
+    expect(second.count).toBe(1);
+    expect(second.promptIds).toEqual([PROMPT_A]);
+  });
+
+  it("dedupes and counts top descriptors near brand", () => {
+    const packet = buildSpecificEditEvidencePacket(
+      buildSearchSignalArgs({
+        observations: [
+          makeObservation(PROMPT_A, {
+            descriptor_window: ["luxury", "award-winning", "atherton"],
+          }),
+          makeObservation(PROMPT_B, {
+            descriptor_window: ["luxury", "design-build"],
+          }),
+        ],
+      }),
+    );
+
+    const descriptors = packet.aiSearchSignal.topDescriptors;
+    expect(descriptors[0].word).toBe("luxury"); // count 2 wins
+    expect(descriptors[0].count).toBe(2);
+    expect(descriptors[0].promptIds).toEqual([PROMPT_A, PROMPT_B].sort());
+
+    // Lowercased
+    const words = descriptors.map((d) => d.word);
+    for (const w of words) {
+      expect(w).toBe(w.toLowerCase());
+    }
+  });
+
+  it("excludes Houzz/Yelp/Angi/BuildZoom from competitor co-mentions when listed in trackedEntities", () => {
+    const packet = buildSpecificEditEvidencePacket(
+      buildSearchSignalArgs({
+        trackedEntities: [
+          {
+            id: "ent-houzz",
+            name: "Houzz",
+            entity_type: "directory_source",
+            domain: "houzz.com",
+            aliases: [],
+            url: null,
+            location_scope: null,
+            service_scope: null,
+            is_owned: false,
+            is_active: true,
+            metadata: {},
+            created_at: "2026-04-01T00:00:00Z",
+            updated_at: "2026-04-24T00:00:00Z",
+            account_id: "acc-test",
+          },
+          {
+            id: "ent-yelp",
+            name: "Yelp",
+            entity_type: "directory_source",
+            domain: "yelp.com",
+            aliases: [],
+            url: null,
+            location_scope: null,
+            service_scope: null,
+            is_owned: false,
+            is_active: true,
+            metadata: {},
+            created_at: "2026-04-01T00:00:00Z",
+            updated_at: "2026-04-24T00:00:00Z",
+            account_id: "acc-test",
+          },
+          {
+            id: "ent-buildzoom",
+            name: "BuildZoom",
+            entity_type: "directory_source",
+            domain: "buildzoom.com",
+            aliases: [],
+            url: null,
+            location_scope: null,
+            service_scope: null,
+            is_owned: false,
+            is_active: true,
+            metadata: {},
+            created_at: "2026-04-01T00:00:00Z",
+            updated_at: "2026-04-24T00:00:00Z",
+            account_id: "acc-test",
+          },
+          {
+            id: "ent-de-mattei",
+            name: "De Mattei Construction",
+            entity_type: "competitor",
+            domain: "demattei.com",
+            aliases: ["De Mattei"],
+            url: null,
+            location_scope: null,
+            service_scope: null,
+            is_owned: false,
+            is_active: true,
+            metadata: {},
+            created_at: "2026-04-01T00:00:00Z",
+            updated_at: "2026-04-24T00:00:00Z",
+            account_id: "acc-test",
+          },
+        ],
+        observations: [
+          makeObservation(PROMPT_A, {
+            competitor_co_mentions: [
+              "Houzz",
+              "Yelp",
+              "BuildZoom",
+              "De Mattei Construction",
+              "General Contractors", // generic-noun fallback
+            ],
+          }),
+        ],
+      }),
+    );
+
+    const names = packet.aiSearchSignal.topCompetitorCoMentions.map(
+      (c) => c.competitorName,
+    );
+    expect(names).toEqual(["De Mattei Construction"]);
+    expect(names).not.toContain("Houzz");
+    expect(names).not.toContain("Yelp");
+    expect(names).not.toContain("BuildZoom");
+    expect(names).not.toContain("General Contractors");
+  });
+
+  it("retains real competitors with valid metadata (Bay Builders kept even if name reads generic)", () => {
+    const packet = buildSpecificEditEvidencePacket(
+      buildSearchSignalArgs({
+        trackedEntities: [
+          {
+            id: "ent-bay-builders",
+            name: "Bay Builders",
+            entity_type: "competitor",
+            domain: "baybuilders.example",
+            aliases: [],
+            url: null,
+            location_scope: null,
+            service_scope: null,
+            is_owned: false,
+            is_active: true,
+            metadata: {},
+            created_at: "2026-04-01T00:00:00Z",
+            updated_at: "2026-04-24T00:00:00Z",
+            account_id: "acc-test",
+          },
+        ],
+        observations: [
+          makeObservation(PROMPT_A, {
+            competitor_co_mentions: ["Bay Builders"],
+          }),
+        ],
+      }),
+    );
+    const names = packet.aiSearchSignal.topCompetitorCoMentions.map(
+      (c) => c.competitorName,
+    );
+    expect(names).toEqual(["Bay Builders"]);
+  });
+
+  it("returns empty arrays when observations have no signal (better empty than fake)", () => {
+    const packet = buildSpecificEditEvidencePacket(
+      buildSearchSignalArgs({
+        observations: [
+          makeObservation(PROMPT_A, {
+            search_queries: [],
+            descriptor_window: [],
+            competitor_co_mentions: [],
+          }),
+        ],
+      }),
+    );
+    expect(packet.aiSearchSignal.topSearchQueries).toEqual([]);
+    expect(packet.aiSearchSignal.topDescriptors).toEqual([]);
+    expect(packet.aiSearchSignal.topCompetitorCoMentions).toEqual([]);
+  });
+
+  it("returns empty arrays when no observations are passed at all", () => {
+    const packet = buildSpecificEditEvidencePacket(
+      buildSearchSignalArgs({ observations: [] }),
+    );
+    expect(packet.aiSearchSignal.topSearchQueries).toEqual([]);
+    expect(packet.aiSearchSignal.topDescriptors).toEqual([]);
+    expect(packet.aiSearchSignal.topCompetitorCoMentions).toEqual([]);
+    // Caps are still reported so consumers can read them defensively.
+    expect(packet.aiSearchSignal.caps.maxSearchQueries).toBeGreaterThan(0);
+    expect(packet.aiSearchSignal.caps.maxDescriptors).toBeGreaterThan(0);
+    expect(packet.aiSearchSignal.caps.maxCompetitorCoMentions).toBeGreaterThan(0);
+  });
+
+  it("ignores non-string entries in source arrays (defensive)", () => {
+    const packet = buildSpecificEditEvidencePacket(
+      buildSearchSignalArgs({
+        observations: [
+          makeObservation(PROMPT_A, {
+            // Cast through unknown so the test can simulate a bad
+            // upstream row without a wider type widening.
+            search_queries: [
+              "valid query",
+              null as unknown as string,
+              123 as unknown as string,
+              "",
+              "  ",
+            ],
+            descriptor_window: ["good", null as unknown as string],
+          }),
+        ],
+      }),
+    );
+    expect(
+      packet.aiSearchSignal.topSearchQueries.map((q) => q.query),
+    ).toEqual(["valid query"]);
+    expect(packet.aiSearchSignal.topDescriptors.map((d) => d.word)).toEqual([
+      "good",
+    ]);
+  });
+});
+
+describe("W3 Step 3.2 — competitorPageBlueprints", () => {
+  const PROMPT = "prompt-a";
+
+  function buildBlueprintArgs(
+    overrides: Partial<BuildSpecificEditEvidencePacketArgs> = {},
+  ): BuildSpecificEditEvidencePacketArgs {
+    return buildArgs({
+      affectedPromptIds: [PROMPT],
+      promptOpportunities: [makeOpportunity(PROMPT)],
+      trackedPrompts: [makePrompt(PROMPT, "best builders atherton")],
+      primarySummaries: [makeSummary(PROMPT)],
+      ...overrides,
+    });
+  }
+
+  it("aggregates citation_urls with class=competitor across observations", () => {
+    const packet = buildSpecificEditEvidencePacket(
+      buildBlueprintArgs({
+        observations: [
+          makeObservation(PROMPT, {
+            citation_urls: [
+              "https://demattei.com/services",
+              "https://kasten.example/about",
+            ],
+            citation_domain_classes: ["competitor", "competitor"],
+          }),
+          makeObservation(PROMPT, {
+            citation_urls: ["https://demattei.com/services"], // +1
+            citation_domain_classes: ["competitor"],
+          }),
+        ],
+      }),
+    );
+
+    expect(packet.competitorPageBlueprints).toHaveLength(2);
+    const top = packet.competitorPageBlueprints[0];
+    expect(top.url).toBe("https://demattei.com/services");
+    expect(top.citationCount).toBe(2);
+    expect(top.domain).toBe("demattei.com");
+    expect(top.promptsCitedOn).toEqual([PROMPT]);
+  });
+
+  it("excludes citations with class=owned/directory/news/etc.", () => {
+    const packet = buildSpecificEditEvidencePacket(
+      buildBlueprintArgs({
+        observations: [
+          makeObservation(PROMPT, {
+            citation_urls: [
+              "https://example.com/services/braces", // owned
+              "https://houzz.com/profile/foo", // directory
+              "https://example-news.example/article", // news
+              "https://demattei.com/services", // competitor — keep
+            ],
+            citation_domain_classes: [
+              "owned",
+              "directory",
+              "news",
+              "competitor",
+            ],
+          }),
+        ],
+      }),
+    );
+
+    const urls = packet.competitorPageBlueprints.map((b) => b.url);
+    expect(urls).toEqual(["https://demattei.com/services"]);
+  });
+
+  it("excludes blocklisted directory domains (Houzz/Yelp/Angi/BuildZoom) even when class is missing", () => {
+    const packet = buildSpecificEditEvidencePacket(
+      buildBlueprintArgs({
+        observations: [
+          makeObservation(PROMPT, {
+            citation_urls: [
+              "https://houzz.com/profile/foo",
+              "https://yelp.com/biz/bar",
+              "https://angi.com/listing/baz",
+              "https://buildzoom.com/contractor/qux",
+              "https://demattei.com/services",
+            ],
+            // class array intentionally omitted — fall back to domain
+            // blocklist.
+            citation_domain_classes: null,
+          }),
+        ],
+      }),
+    );
+    const urls = packet.competitorPageBlueprints.map((b) => b.url);
+    expect(urls).toEqual(["https://demattei.com/services"]);
+  });
+
+  it("excludes owned-domain URLs (no self-blueprinting) when class array is missing", () => {
+    const packet = buildSpecificEditEvidencePacket(
+      buildBlueprintArgs({
+        observations: [
+          makeObservation(PROMPT, {
+            citation_urls: [
+              "https://example.com/services/braces", // owned
+              "https://demattei.com/services", // competitor
+            ],
+            citation_domain_classes: null,
+          }),
+        ],
+      }),
+    );
+    const urls = packet.competitorPageBlueprints.map((b) => b.url);
+    expect(urls).toEqual(["https://demattei.com/services"]);
+  });
+
+  it("caps the blueprint list to 5 entries even with many distinct competitor URLs", () => {
+    const observations = [
+      makeObservation(PROMPT, {
+        citation_urls: [
+          "https://a1.example/p",
+          "https://a2.example/p",
+          "https://a3.example/p",
+          "https://a4.example/p",
+          "https://a5.example/p",
+          "https://a6.example/p",
+          "https://a7.example/p",
+        ],
+        citation_domain_classes: [
+          "competitor",
+          "competitor",
+          "competitor",
+          "competitor",
+          "competitor",
+          "competitor",
+          "competitor",
+        ],
+      }),
+    ];
+    const packet = buildSpecificEditEvidencePacket(
+      buildBlueprintArgs({ observations }),
+    );
+    expect(packet.competitorPageBlueprints).toHaveLength(5);
+  });
+
+  it("enriches with pageTitle from CompetitorPageEvidence when supplied", () => {
+    const packet = buildSpecificEditEvidencePacket(
+      buildBlueprintArgs({
+        observations: [
+          makeObservation(PROMPT, {
+            citation_urls: ["https://demattei.com/services"],
+            citation_domain_classes: ["competitor"],
+          }),
+        ],
+        competitorPages: [
+          {
+            competitorEvidenceId: "cpe-1",
+            frontierKey: "fk",
+            topic: "Atherton Construction",
+            domain: "demattei.com",
+            pageUrl: "https://demattei.com/services",
+            pageTitle: "Custom Home Services — De Mattei",
+            sourceType: "competitor_service_page",
+            sourceTypeInferred: false,
+            citationCount: 12,
+            evidenceType: "primary_competitor",
+            observedAt: "2026-04-30T00:00:00Z",
+            structuralSignals: "",
+            contentSignals: "",
+            comparisonSignals: "",
+            notes: null,
+          } as Parameters<typeof buildSpecificEditEvidencePacket>[0]["competitorPages"] extends ReadonlyArray<infer T> ? T : never,
+        ],
+      }),
+    );
+    const top = packet.competitorPageBlueprints[0];
+    expect(top.pageTitle).toBe("Custom Home Services — De Mattei");
+    expect(top.topic).toBe("Atherton Construction");
+  });
+
+  it("leaves h1 / topH2s / faqQuestions / metaDescription as null/empty (never invented)", () => {
+    const packet = buildSpecificEditEvidencePacket(
+      buildBlueprintArgs({
+        observations: [
+          makeObservation(PROMPT, {
+            citation_urls: ["https://demattei.com/services"],
+            citation_domain_classes: ["competitor"],
+          }),
+        ],
+      }),
+    );
+    const top = packet.competitorPageBlueprints[0];
+    expect(top.h1).toBeNull();
+    expect(top.topH2s).toEqual([]);
+    expect(top.faqQuestions).toEqual([]);
+    expect(top.metaDescription).toBeNull();
+  });
+
+  it("returns [] when no observations cite any competitor URLs", () => {
+    const packet = buildSpecificEditEvidencePacket(
+      buildBlueprintArgs({
+        observations: [
+          makeObservation(PROMPT, { citation_urls: [] }),
+        ],
+      }),
+    );
+    expect(packet.competitorPageBlueprints).toEqual([]);
+  });
+
+  it("returns [] when no observations are passed at all", () => {
+    const packet = buildSpecificEditEvidencePacket(
+      buildBlueprintArgs({ observations: [] }),
+    );
+    expect(packet.competitorPageBlueprints).toEqual([]);
+  });
+});
+
+describe("W3 Step 3.2 — crossTenantPatterns stub", () => {
+  it("returns [] for any packet (single-tenant single-user, today)", () => {
+    const packet = buildSpecificEditEvidencePacket(buildArgs());
+    expect(packet.crossTenantPatterns).toEqual([]);
+  });
+
+  it("is stable across runs (still empty even with rich observations)", () => {
+    const packet = buildSpecificEditEvidencePacket(
+      buildArgs({
+        observations: [
+          makeObservation("prompt-1", {
+            search_queries: ["x"],
+            descriptor_window: ["y"],
+            competitor_co_mentions: ["Z"],
+          }),
+        ],
+      }),
+    );
+    expect(packet.crossTenantPatterns).toEqual([]);
+  });
+});
+
+describe("W3 Step 3.2 — evidenceHash propagation", () => {
+  it("flips when aiSearchSignal contents change", () => {
+    const a = buildSpecificEditEvidencePacket(
+      buildArgs({
+        observations: [
+          makeObservation("prompt-1", {
+            search_queries: ["alpha"],
+          }),
+        ],
+      }),
+    );
+    const b = buildSpecificEditEvidencePacket(
+      buildArgs({
+        observations: [
+          makeObservation("prompt-1", {
+            search_queries: ["beta"], // different query
+          }),
+        ],
+      }),
+    );
+    expect(a.evidenceHash).not.toBe(b.evidenceHash);
+  });
+
+  it("flips when competitorPageBlueprints contents change", () => {
+    const a = buildSpecificEditEvidencePacket(
+      buildArgs({
+        observations: [
+          makeObservation("prompt-1", {
+            citation_urls: ["https://demattei.com/services"],
+            citation_domain_classes: ["competitor"],
+          }),
+        ],
+      }),
+    );
+    const b = buildSpecificEditEvidencePacket(
+      buildArgs({
+        observations: [
+          makeObservation("prompt-1", {
+            citation_urls: ["https://kasten.example/about"], // different URL
+            citation_domain_classes: ["competitor"],
+          }),
+        ],
+      }),
+    );
+    expect(a.evidenceHash).not.toBe(b.evidenceHash);
+  });
+
+  it("is stable across re-runs with the same inputs (deterministic ordering)", () => {
+    const args = buildArgs({
+      observations: [
+        makeObservation("prompt-1", {
+          search_queries: ["gamma", "alpha", "beta"],
+          descriptor_window: ["luxury", "atherton"],
+          citation_urls: [
+            "https://demattei.com/services",
+            "https://kasten.example/about",
+          ],
+          citation_domain_classes: ["competitor", "competitor"],
+        }),
+      ],
+    });
+    const a = buildSpecificEditEvidencePacket(args);
+    const b = buildSpecificEditEvidencePacket(args);
+    expect(a.evidenceHash).toBe(b.evidenceHash);
+  });
+
+  it("packet always carries the new fields (never undefined)", () => {
+    const packet = buildSpecificEditEvidencePacket(buildArgs());
+    expect(packet.aiSearchSignal).toBeDefined();
+    expect(packet.aiSearchSignal.topSearchQueries).toEqual([]);
+    expect(packet.aiSearchSignal.topDescriptors).toEqual([]);
+    expect(packet.aiSearchSignal.topCompetitorCoMentions).toEqual([]);
+    expect(packet.competitorPageBlueprints).toEqual([]);
+    expect(packet.crossTenantPatterns).toEqual([]);
+  });
+});

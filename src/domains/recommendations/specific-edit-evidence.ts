@@ -50,7 +50,12 @@ import type { PromptPrimarySummary } from "@/domains/prompts/competitor-primary"
 import type { TrackedPrompt } from "@/domains/tracked-prompts/types";
 import type { TrackedEntity } from "@/domains/tracked-entities/types";
 import type { PromptAnswerObservation } from "@/domains/prompt-answer-observations/types";
-import { makeCompetitorRankingFilter } from "./entity-pollution-filter";
+import type { CitationEvidenceIndex } from "@/domains/pages/types";
+import type { CompetitorPageEvidence } from "@/domains/pages/competitor-evidence";
+import {
+  DIRECTORY_DOMAINS_FOR_FILTER,
+  makeCompetitorRankingFilter,
+} from "./entity-pollution-filter";
 
 import {
   ACTION_TYPES,
@@ -63,6 +68,10 @@ import {
 } from "./page-inventory";
 import { canonicalStringify } from "./evidence-packet";
 import { NEEDS_NEW_PAGE } from "./resolved-types";
+import {
+  getCrossTenantPatterns,
+  type CrossTenantPattern,
+} from "./cross-tenant-brain";
 
 // ---------------------------------------------------------------------------
 // Types — every field designed to round-trip through JSON.stringify cleanly.
@@ -155,6 +164,145 @@ export type CompetitorAngleBlock = {
   totalPrimaryObservations: number;
 };
 
+// ---------------------------------------------------------------------------
+// W3 Step 3.2 (2026-05-01) — Recommendation Engine v2 evidence packet
+// foundation.
+//
+// Three new blocks land here:
+//   - aiSearchSignal: what AI actually emits while answering the
+//     affected prompts (verbatim search queries, descriptors near
+//     brand, real-competitor co-mentions).
+//   - competitorPageBlueprints: top competitor pages cited on
+//     affected-prompt observations + structural data when known.
+//   - crossTenantPatterns: stub today; locked contract for later.
+//
+// These blocks are the foundation for W3 Step 3.4's LLM grounding
+// (the SYSTEM_PROMPT v2 will instruct the model to mirror real
+// search-query phrasing, counter real competitor pages, and respect
+// cross-tenant patterns once they exist). Step 3.2 ships the packet
+// shape only — no LLM call, no UI consumer.
+// ---------------------------------------------------------------------------
+
+/**
+ * One aggregated row per distinct AI-emitted search query across the
+ * affected prompts. Source: `observations[i].search_queries`. Pre-
+ * Phase-D Perplexity rows have no search queries (Sonar doesn't
+ * expose them); they contribute nothing — graceful empty.
+ */
+export type AiSearchQueryAggregate = {
+  /** Verbatim query string the AI emitted. */
+  query: string;
+  /** How many observations across affected prompts emitted this exact
+   *  query. */
+  count: number;
+  /** Unique affected-prompt ids whose observations emitted this query. */
+  promptIds: string[];
+  /** Unique platforms that emitted this query (e.g. ["chatgpt"]).
+   *  Honest blind spot for Perplexity (Sonar doesn't expose). */
+  platforms: string[];
+};
+
+/**
+ * One aggregated row per distinct descriptor AI used near the brand
+ * across affected-prompt observations. Source:
+ * `observations[i].descriptor_window` — Schema v2.1 deterministic
+ * extraction of the ±5-word window around the first brand mention.
+ */
+export type AiDescriptorAggregate = {
+  /** The descriptor word/phrase, lowercased. */
+  word: string;
+  /** Total occurrences across observations of affected prompts. */
+  count: number;
+  /** Unique affected-prompt ids whose observations carry this descriptor. */
+  promptIds: string[];
+};
+
+/**
+ * One aggregated row per real competitor co-mentioned in affected-
+ * prompt observations. Source: `observations[i].competitor_co_mentions`.
+ * Filtered through `entity-pollution-filter` so directories ("Houzz")
+ * and generic-noun mentions ("General Contractors") don't ride along.
+ */
+export type AiCompetitorCoMentionAggregate = {
+  /** Canonical competitor name (already filtered to "real competitor"). */
+  competitorName: string;
+  /** Total co-mention occurrences across observations. */
+  count: number;
+  /** Unique affected-prompt ids where this competitor co-appeared
+   *  with the brand. */
+  promptIds: string[];
+};
+
+/**
+ * The W3 Step 3.2 search-signal block. Fed into the W3 Step 3.4
+ * LLM SYSTEM_PROMPT as the FIRST source ("AI consistently asks
+ * '<query>' on this cluster — mirror that phrasing in the FAQ").
+ *
+ * Empty arrays when no signal exists (pre-Phase-D rows / no
+ * descriptor windows / all competitors filtered as directories).
+ * Better empty than fake: callers must abstain when this signal is
+ * thin, never invent.
+ */
+export type AiSearchSignalBlock = {
+  /** Top distinct search queries by `count` desc, ties broken by
+   *  query asc for hash determinism. Capped to AI_SEARCH_SIGNAL_TOP_N. */
+  topSearchQueries: AiSearchQueryAggregate[];
+  /** Top distinct descriptors by `count` desc, ties broken by word
+   *  asc. Capped. */
+  topDescriptors: AiDescriptorAggregate[];
+  /** Top real-competitor co-mentions by `count` desc, ties broken by
+   *  name asc. Filtered through the entity-pollution-filter. Capped. */
+  topCompetitorCoMentions: AiCompetitorCoMentionAggregate[];
+  /** Caps used during aggregation — for transparency / future audit. */
+  caps: {
+    maxSearchQueries: number;
+    maxDescriptors: number;
+    maxCompetitorCoMentions: number;
+  };
+};
+
+/**
+ * One competitor page worth countering on the affected prompts.
+ * Source: aggregate `observations[i].citation_urls` paired with
+ * `observations[i].citation_domain_classes` (where parallel index
+ * carries class === "competitor"). Enriched with title /
+ * structural data from `CompetitorPageEvidence` when a row exists.
+ *
+ * Hard rules:
+ *   - `url` is verbatim from the citation (no normalization beyond
+ *     basic trim). The LLM uses it for "outrank this exact URL"
+ *     grounding, not for crawling.
+ *   - `domain` is the lowercased apex; never tenant-owned.
+ *   - `pageTitle` / `h1` / `topH2s` / `faqQuestions` /
+ *     `metaDescription` are nullable — present when we've crawled
+ *     the page (today: only `pageTitle` from
+ *     `CompetitorPageEvidence`); the rest stay null/empty until a
+ *     future scraper lands. Never invented.
+ */
+export type CompetitorPageBlueprint = {
+  url: string;
+  domain: string;
+  /** Topic from the citation index ("Atherton Construction") if known. */
+  topic: string | null;
+  /** Times this URL was cited across observations of affected prompts. */
+  citationCount: number;
+  /** Unique affected-prompt ids whose observations cite this URL. */
+  promptsCitedOn: string[];
+  /** Operator-readable page title from `CompetitorPageEvidence` when
+   *  the producer has captured it. Null when unknown. */
+  pageTitle: string | null;
+  /** Future-proof structural data. All optional / nullable today —
+   *  never invented. */
+  h1: string | null;
+  topH2s: string[];
+  faqQuestions: string[];
+  metaDescription: string | null;
+};
+
+// Re-export so callers can import the cross-tenant pattern type from
+// the same module they import the packet from.
+export type { CrossTenantPattern };
+
 /**
  * Per-tenant historical signal: "for this action_type on this tenant,
  * how often did past edits move citations". Phase 6A.1.7 ships an
@@ -201,6 +349,17 @@ export type SpecificEditEvidencePacket = {
   /** ActionTypes a generator (deterministic or LLM) may emit for this
    *  packet. Defaults to v1 active set; callers can widen for 6A.2. */
   allowedActionTypes: ActionType[];
+  /**
+   * W3 Step 3.2 (2026-05-01) — Recommendation Engine v2 evidence
+   * foundation. Always populated (empty arrays, never null) so the
+   * evidenceHash is deterministic regardless of whether a producer
+   * has data yet.
+   */
+  aiSearchSignal: AiSearchSignalBlock;
+  competitorPageBlueprints: CompetitorPageBlueprint[];
+  /** Cross-tenant patterns. Stub returns []; locked contract for
+   *  W3 Step 3.4+ when a real producer activates. */
+  crossTenantPatterns: CrossTenantPattern[];
   /** Stable sha256 prefix of the packet contents (sans this field).
    *  Same inputs → same hash → cache hit; meaningful evidence change →
    *  fresh hash → cache miss → re-generate. */
@@ -276,6 +435,20 @@ export type BuildSpecificEditEvidencePacketArgs = {
   /** Cap on element rows per packet. Defaults to 80 (10 candidate pages
    *  × 8 elements average). Generators don't need every list/H3/anchor. */
   maxTargetElements?: number;
+  /**
+   * W3 Step 3.2 (2026-05-01) — citation evidence index for competitor
+   * page blueprint topic enrichment. Optional; pass `null` when the
+   * caller hasn't loaded it (test fixtures). Empty / null index =>
+   * blueprints still emit (driven by observation citation_urls), just
+   * without `topic`.
+   */
+  citationEvidenceIndex?: CitationEvidenceIndex | null;
+  /**
+   * W3 Step 3.2 — competitor-page evidence rows for blueprint title
+   * enrichment. Optional; empty array disables enrichment. Producer:
+   * `src/domains/pages/competitor-evidence.ts`.
+   */
+  competitorPages?: ReadonlyArray<CompetitorPageEvidence>;
   now?: Date;
 };
 
@@ -288,6 +461,15 @@ const DEFAULT_MAX_H2S_PER_CANDIDATE = 8;
 const MAX_ACTUAL_SEARCH_QUERIES_PER_PROMPT = 10;
 const MAX_CITED_SOURCE_PAGES_PER_PROMPT = 10;
 const MAX_DESCRIPTOR_WINDOWS_PER_PROMPT = 5;
+
+// W3 Step 3.2 (2026-05-01) — packet-wide aiSearchSignal caps. The
+// per-prompt evidence-priority caps above run BEFORE these; this
+// block is the cross-prompt aggregate after dedupe + count.
+const DEFAULT_MAX_AI_SEARCH_QUERIES = 10;
+const DEFAULT_MAX_AI_DESCRIPTORS = 12;
+const DEFAULT_MAX_AI_COMPETITOR_CO_MENTIONS = 8;
+// Cap on competitor-page blueprints. Operator scope: 5.
+const DEFAULT_MAX_COMPETITOR_PAGE_BLUEPRINTS = 5;
 
 export function buildSpecificEditEvidencePacket(
   args: BuildSpecificEditEvidencePacketArgs,
@@ -365,6 +547,31 @@ export function buildSpecificEditEvidencePacket(
     competitorRankingFilter,
   );
 
+  // W3 Step 3.2 (2026-05-01) — Recommendation Engine v2 evidence
+  // foundation. All three blocks land here. Always populated (empty
+  // arrays for the missing-data case) so evidenceHash is deterministic.
+  const aiSearchSignal = buildAiSearchSignal({
+    affectedPromptIds: args.affectedPromptIds,
+    observationsByPromptId,
+    competitorRankingFilter,
+  });
+
+  const ownedDomains = collectOwnedDomains(args.ownedPageInventory);
+  const competitorPageBlueprints = buildCompetitorPageBlueprints({
+    affectedPromptIds: args.affectedPromptIds,
+    observationsByPromptId,
+    citationEvidenceIndex: args.citationEvidenceIndex ?? null,
+    competitorPages: args.competitorPages ?? [],
+    ownedDomains,
+  });
+
+  const crossTenantPatterns = getCrossTenantPatterns({
+    tenantId: args.tenantId,
+    actionTypes: args.allowedActionTypes ?? defaultAllowedActionTypes(),
+    clusterKind: args.clusterKind,
+    clusterLabel: args.clusterLabel,
+  });
+
   const allowedActionTypes = (
     args.allowedActionTypes ?? defaultAllowedActionTypes()
   )
@@ -405,6 +612,13 @@ export function buildSpecificEditEvidencePacket(
     priorOutcomes,
     allowedTargetUrls,
     allowedActionTypes: [...allowedActionTypes],
+    // W3 Step 3.2 (2026-05-01) — three new blocks. evidenceHash is
+    // computed AFTER they're populated, so any change to the
+    // aggregated search signal / blueprints / cross-tenant pattern
+    // contents flips the hash and invalidates downstream caches.
+    aiSearchSignal,
+    competitorPageBlueprints,
+    crossTenantPatterns,
   };
 
   const evidenceHash = computeEvidenceHash(withoutHash);
@@ -666,6 +880,301 @@ function buildCompetitorAngles(
       a.competitorName.localeCompare(b.competitorName),
   );
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// W3 Step 3.2 (2026-05-01) — aiSearchSignal + competitorPageBlueprints.
+// Both pure aggregators over already-grouped observations. No I/O, no LLM,
+// no entity-registry mutation. Block-builder hard rules:
+//   - Empty input -> empty output, never null / undefined / fake data.
+//   - Stable ordering (count desc, ties broken alphabetically) so
+//     evidenceHash is deterministic.
+//   - Caps applied AFTER sort so the "top N" set is the highest-count N.
+//   - Filters route directories + generic-noun mentions through
+//     entity-pollution-filter; "real competitor" predicate is the
+//     same one used by competitorAngles + the /today leaderboard.
+// ---------------------------------------------------------------------------
+
+type BuildAiSearchSignalArgs = {
+  affectedPromptIds: ReadonlyArray<string>;
+  observationsByPromptId: ReadonlyMap<
+    string,
+    ReadonlyArray<PromptAnswerObservation>
+  >;
+  /** Returns true for "rank as competitor" — see makeCompetitorRankingFilter. */
+  competitorRankingFilter: (name: string) => boolean;
+};
+
+function buildAiSearchSignal(
+  args: BuildAiSearchSignalArgs,
+): AiSearchSignalBlock {
+  const queries = new Map<
+    string,
+    { count: number; promptIds: Set<string>; platforms: Set<string> }
+  >();
+  const descriptors = new Map<
+    string,
+    { count: number; promptIds: Set<string> }
+  >();
+  const competitors = new Map<
+    string,
+    { count: number; promptIds: Set<string> }
+  >();
+
+  for (const promptId of args.affectedPromptIds) {
+    const observations = args.observationsByPromptId.get(promptId) ?? [];
+    for (const o of observations) {
+      // Search queries — verbatim AI-emitted strings. Empty for AIO
+      // (Google AI Overviews never expose) and Perplexity Sonar.
+      if (Array.isArray(o.search_queries)) {
+        for (const raw of o.search_queries) {
+          if (typeof raw !== "string") continue;
+          const q = raw.trim();
+          if (q.length === 0) continue;
+          const acc = queries.get(q) ?? {
+            count: 0,
+            promptIds: new Set<string>(),
+            platforms: new Set<string>(),
+          };
+          acc.count += 1;
+          acc.promptIds.add(promptId);
+          if (typeof o.platform === "string" && o.platform.length > 0) {
+            acc.platforms.add(o.platform);
+          }
+          queries.set(q, acc);
+        }
+      }
+
+      // Descriptor windows — Schema v2.1 deterministic extraction.
+      // Lowercased to match observation extractor convention.
+      if (Array.isArray(o.descriptor_window)) {
+        for (const raw of o.descriptor_window) {
+          if (typeof raw !== "string") continue;
+          const d = raw.trim().toLowerCase();
+          if (d.length === 0) continue;
+          const acc = descriptors.get(d) ?? {
+            count: 0,
+            promptIds: new Set<string>(),
+          };
+          acc.count += 1;
+          acc.promptIds.add(promptId);
+          descriptors.set(d, acc);
+        }
+      }
+
+      // Competitor co-mentions — already canonical entity names per
+      // Schema v2.1 extractor; filter through entity-pollution-filter
+      // to drop directories / generic nouns.
+      if (Array.isArray(o.competitor_co_mentions)) {
+        for (const raw of o.competitor_co_mentions) {
+          if (typeof raw !== "string") continue;
+          const name = raw.trim();
+          if (name.length === 0) continue;
+          if (!args.competitorRankingFilter(name)) continue;
+          const acc = competitors.get(name) ?? {
+            count: 0,
+            promptIds: new Set<string>(),
+          };
+          acc.count += 1;
+          acc.promptIds.add(promptId);
+          competitors.set(name, acc);
+        }
+      }
+    }
+  }
+
+  const topSearchQueries: AiSearchQueryAggregate[] = [...queries.entries()]
+    .map(([query, acc]) => ({
+      query,
+      count: acc.count,
+      promptIds: [...acc.promptIds].sort(),
+      platforms: [...acc.platforms].sort(),
+    }))
+    .sort(
+      (a, b) =>
+        b.count - a.count || a.query.localeCompare(b.query),
+    )
+    .slice(0, DEFAULT_MAX_AI_SEARCH_QUERIES);
+
+  const topDescriptors: AiDescriptorAggregate[] = [...descriptors.entries()]
+    .map(([word, acc]) => ({
+      word,
+      count: acc.count,
+      promptIds: [...acc.promptIds].sort(),
+    }))
+    .sort(
+      (a, b) => b.count - a.count || a.word.localeCompare(b.word),
+    )
+    .slice(0, DEFAULT_MAX_AI_DESCRIPTORS);
+
+  const topCompetitorCoMentions: AiCompetitorCoMentionAggregate[] = [
+    ...competitors.entries(),
+  ]
+    .map(([competitorName, acc]) => ({
+      competitorName,
+      count: acc.count,
+      promptIds: [...acc.promptIds].sort(),
+    }))
+    .sort(
+      (a, b) =>
+        b.count - a.count ||
+        a.competitorName.localeCompare(b.competitorName),
+    )
+    .slice(0, DEFAULT_MAX_AI_COMPETITOR_CO_MENTIONS);
+
+  return {
+    topSearchQueries,
+    topDescriptors,
+    topCompetitorCoMentions,
+    caps: {
+      maxSearchQueries: DEFAULT_MAX_AI_SEARCH_QUERIES,
+      maxDescriptors: DEFAULT_MAX_AI_DESCRIPTORS,
+      maxCompetitorCoMentions: DEFAULT_MAX_AI_COMPETITOR_CO_MENTIONS,
+    },
+  };
+}
+
+type BuildCompetitorPageBlueprintsArgs = {
+  affectedPromptIds: ReadonlyArray<string>;
+  observationsByPromptId: ReadonlyMap<
+    string,
+    ReadonlyArray<PromptAnswerObservation>
+  >;
+  citationEvidenceIndex: CitationEvidenceIndex | null;
+  competitorPages: ReadonlyArray<CompetitorPageEvidence>;
+  /** Lowercased domain set (stripped of "www.") sourced from owned page
+   *  inventory. Citations whose domain matches are dropped (we never
+   *  blueprint owned pages). */
+  ownedDomains: ReadonlySet<string>;
+};
+
+function buildCompetitorPageBlueprints(
+  args: BuildCompetitorPageBlueprintsArgs,
+): CompetitorPageBlueprint[] {
+  // Aggregate citation_urls across observations of affected prompts.
+  // Use citation_domain_classes (parallel array) to filter to
+  // class === "competitor" — this is the cleanest signal we have for
+  // "is this a real competitor page" without re-running domain
+  // classification here. Pre-Commit-7 rows have null citation_urls;
+  // they contribute nothing — graceful empty.
+  type Acc = {
+    url: string;
+    domain: string;
+    citationCount: number;
+    promptIds: Set<string>;
+  };
+  const byUrl = new Map<string, Acc>();
+
+  for (const promptId of args.affectedPromptIds) {
+    const observations = args.observationsByPromptId.get(promptId) ?? [];
+    for (const o of observations) {
+      const urls = Array.isArray(o.citation_urls) ? o.citation_urls : null;
+      const classes = Array.isArray(o.citation_domain_classes)
+        ? o.citation_domain_classes
+        : null;
+      if (!urls) continue;
+      for (let i = 0; i < urls.length; i++) {
+        const rawUrl = urls[i];
+        if (typeof rawUrl !== "string") continue;
+        const url = rawUrl.trim();
+        if (url.length === 0) continue;
+
+        // Class-based filter when available — only "competitor"
+        // entries are blueprints. When class array is missing or
+        // shorter, fall back to domain-based exclusion (drop
+        // owned + directory).
+        const klass = classes?.[i];
+        if (typeof klass === "string") {
+          if (klass !== "competitor") continue;
+        }
+
+        const domain = extractDomain(url);
+        if (!domain) continue;
+        if (args.ownedDomains.has(domain)) continue;
+        if (DIRECTORY_DOMAINS_FOR_FILTER.has(domain)) continue;
+
+        const acc = byUrl.get(url) ?? {
+          url,
+          domain,
+          citationCount: 0,
+          promptIds: new Set<string>(),
+        };
+        acc.citationCount += 1;
+        acc.promptIds.add(promptId);
+        byUrl.set(url, acc);
+      }
+    }
+  }
+
+  if (byUrl.size === 0) return [];
+
+  // Enrichment lookups built once.
+  const titleByUrl = new Map<string, string>();
+  const topicByUrl = new Map<string, string>();
+  for (const cp of args.competitorPages) {
+    if (cp.pageTitle && !titleByUrl.has(cp.pageUrl)) {
+      titleByUrl.set(cp.pageUrl, cp.pageTitle);
+    }
+    if (cp.topic && !topicByUrl.has(cp.pageUrl)) {
+      topicByUrl.set(cp.pageUrl, cp.topic);
+    }
+  }
+  if (args.citationEvidenceIndex) {
+    for (const rollup of args.citationEvidenceIndex.by_page_and_topic) {
+      // Citation index is keyed by page URL; first row wins (it's
+      // the dominant topic).
+      if (!topicByUrl.has(rollup.page_url) && rollup.topic) {
+        topicByUrl.set(rollup.page_url, rollup.topic);
+      }
+    }
+  }
+
+  const blueprints: CompetitorPageBlueprint[] = [...byUrl.values()]
+    .map((acc) => ({
+      url: acc.url,
+      domain: acc.domain,
+      topic: topicByUrl.get(acc.url) ?? null,
+      citationCount: acc.citationCount,
+      promptsCitedOn: [...acc.promptIds].sort(),
+      pageTitle: titleByUrl.get(acc.url) ?? null,
+      // Future-proof structural fields. Producer doesn't capture
+      // these yet; never invented.
+      h1: null,
+      topH2s: [],
+      faqQuestions: [],
+      metaDescription: null,
+    }))
+    .sort(
+      (a, b) =>
+        b.citationCount - a.citationCount ||
+        b.promptsCitedOn.length - a.promptsCitedOn.length ||
+        a.url.localeCompare(b.url),
+    )
+    .slice(0, DEFAULT_MAX_COMPETITOR_PAGE_BLUEPRINTS);
+
+  return blueprints;
+}
+
+function collectOwnedDomains(
+  ownedPageInventory: ReadonlyArray<PageInventoryEntry>,
+): Set<string> {
+  const out = new Set<string>();
+  for (const entry of ownedPageInventory) {
+    const domain = extractDomain(entry.url);
+    if (domain) out.add(domain);
+  }
+  return out;
+}
+
+function extractDomain(url: string): string | null {
+  try {
+    const u = new URL(url);
+    return u.hostname.toLowerCase().replace(/^www\./, "");
+  } catch {
+    // Relative URL ("/services/foo") — operator-locked to owned site so
+    // it COULD be owned; treat as null and let the caller decide.
+    return null;
+  }
 }
 
 function buildAllowedTargetUrls(
