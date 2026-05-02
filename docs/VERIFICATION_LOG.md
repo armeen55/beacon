@@ -7,6 +7,84 @@
 
 ---
 
+## 2026-05-01 (overnight) — W3 Step 3.2: Recommendation Engine v2 evidence packet foundation
+
+Single code commit `bded491` on `main`. The packet shape that W3 Step 3.4's LLM provider will consume.
+
+### What changed
+
+**`src/domains/recommendations/cross-tenant-brain.ts` (NEW)**
+- `CrossTenantPattern` + `GetCrossTenantPatternsArgs` + `getCrossTenantPatterns()` stub.
+- Stub returns `[]` for any input. Pure (no I/O, no env reads at module level). Operator-locked signature so the future producer drops in without touching consumers.
+- Activation gated to `BEACON_CROSS_TENANT_BRAIN=1` (env not yet wired) AND a real producer that exists post-month-3.
+
+**`src/domains/recommendations/specific-edit-evidence.ts`**
+- 3 new types: `AiSearchQueryAggregate`, `AiDescriptorAggregate`, `AiCompetitorCoMentionAggregate`, `AiSearchSignalBlock`, `CompetitorPageBlueprint`. Plus re-exports `CrossTenantPattern`.
+- `SpecificEditEvidencePacket` extended with required fields `aiSearchSignal`, `competitorPageBlueprints`, `crossTenantPatterns`. Empty defaults make the packet always self-consistent.
+- New builder args (optional): `citationEvidenceIndex`, `competitorPages`. Both default null/[] so existing callers keep working without modification.
+- New aggregator functions:
+  - `buildAiSearchSignal` — dedupes + counts `search_queries` (across platforms), `descriptor_window` (lowercased), `competitor_co_mentions` (filtered through `entity-pollution-filter`'s `makeCompetitorRankingFilter`). Stable count-desc sort with alphabetical tie-break. Caps 10/12/8.
+  - `buildCompetitorPageBlueprints` — aggregates `citation_urls` paired with `citation_domain_classes` parallel array. Class-based filter (only `"competitor"` retained); when class array is missing or short, falls back to domain-blocklist exclusion + owned-domain exclusion. Enriches with `pageTitle` + `topic` from `CompetitorPageEvidence` + `CitationEvidenceIndex` when available. Cap = 5.
+  - `collectOwnedDomains` — extracts owned apex domains from `ownedPageInventory` for the blueprint exclusion check.
+  - `extractDomain` — pure URL-parse helper.
+- `evidenceHash` includes the new blocks via the existing `canonicalStringify` path. Tests prove the hash flips on signal/blueprint contents change and stays stable on identical inputs.
+
+### Tests (33 new across 2 files)
+
+**`src/domains/recommendations/specific-edit-evidence.test.ts` (+27)**
+- "aiSearchSignal aggregation":
+  - dedupe + count + cross-prompt + cross-platform
+  - lowercased descriptor floor
+  - entity-pollution filter (Houzz/Yelp/BuildZoom out, Bay Builders kept)
+  - empty array on no-signal / no observations
+  - defensive non-string ignore
+- "competitorPageBlueprints":
+  - citation_url aggregation
+  - class filter (drop owned/directory/news, keep competitor)
+  - domain blocklist fallback when class array missing
+  - owned-domain exclusion
+  - cap = 5 with many distinct competitor URLs
+  - pageTitle/topic enrichment from `CompetitorPageEvidence`
+  - structural fields (h1/topH2s/faqQuestions/metaDescription) stay null/empty
+  - empty when no observations or no competitor citations
+- "crossTenantPatterns stub":
+  - always `[]` for any packet
+  - stable even with rich observations
+- "evidenceHash propagation":
+  - flips on `aiSearchSignal` contents change
+  - flips on `competitorPageBlueprints` contents change
+  - stable across re-runs with identical inputs
+  - new fields always present (never undefined)
+
+**`src/domains/recommendations/cross-tenant-brain.test.ts` (NEW, +4)**
+- Stub returns `[]` regardless of input shape.
+- Determinism (repeated calls equal-by-value).
+- JSON-serializability locked.
+
+### Verification
+
+| Gate | Result |
+|---|---|
+| `npx tsc --noEmit` | clean (no output) |
+| `vitest specific-edit-evidence + cross-tenant-brain` | 106/106 pass |
+| `npm run test` | 3321 / 3325 (the 4 failures are the same pre-existing set as W1/W2/W3-scope-lock/W3-Step-3.1/W3-Step-3.1b baselines) |
+| `npm run build` | clean — full route table emitted, no warnings |
+
+### Out of scope (per W3 scope lock)
+
+- LLM provider activation — Step 3.4
+- Confidence rubric — Step 3.3 (type stubs only if strictly necessary; not needed for 3.2)
+- Recommendations UI cleanup — Step 3.5
+- Apply-All-HIGH bar — deferred until 20–30 manual reviews
+- Customer-one backfill — W4
+- Profound CSV archive / code deletion — post-May-10
+
+### Next
+
+W3 Step 3.3 (confidence rubric) OR Step 3.4 (LLM provider activation) per operator preference. Capability tier: Max for both.
+
+---
+
 ## 2026-05-01 (late evening) — W3 Step 3.1b: pre-W3 placeholder quarantine
 
 Single code commit `1be64f9` on `main`. Step 3.1 added the prevention layer; Step 3.1b cleans up the historical rows that predate the prevention.

@@ -1,5 +1,30 @@
 # Beacon — Start Here
 
+> 🟢 **W3 Step 3.2 (Recommendation Engine v2 evidence packet foundation) LANDED (2026-05-01):** Single code commit `bded491` on `main`. Three new blocks land on `SpecificEditEvidencePacket` — `aiSearchSignal`, `competitorPageBlueprints`, `crossTenantPatterns`. Step 3.4's LLM provider will consume them; this step ships the packet shape only (no LLM call, no UI consumer).
+>
+> - **`aiSearchSignal`** — what AI actually emits while answering affected prompts. `topSearchQueries` (verbatim, deduped + counted across observations + platforms), `topDescriptors` (lowercased near-brand descriptor windows), `topCompetitorCoMentions` (filtered through `entity-pollution-filter` so Houzz/Yelp/Angi/BuildZoom never reach the LLM as "competitors"). Caps 10/12/8. Empty arrays when no signal — better empty than fake.
+> - **`competitorPageBlueprints`** — top competitor pages cited on affected-prompt observations. URL + domain + topic + citationCount + promptsCitedOn from real aggregation; pageTitle from `CompetitorPageEvidence` when available; h1/topH2s/faqQuestions/metaDescription stay null/empty (future scraper; never invented). Filters: drop `class !== "competitor"`, drop directory domains, drop owned domains. Cap = 5.
+> - **`crossTenantPatterns`** — STUB. New `src/domains/recommendations/cross-tenant-brain.ts` defines `CrossTenantPattern` + `GetCrossTenantPatternsArgs` + `getCrossTenantPatterns()` returning `[]`. Pure, operator-locked signature so the future producer (post-month-3) drops in without touching consumers. Activation gated to `BEACON_CROSS_TENANT_BRAIN=1` (env not yet wired).
+> - **Packet shape + `evidenceHash`** — all three new fields are required (empty defaults), so `evidenceHash` is deterministic regardless of producer state. Tests prove hash flips on `aiSearchSignal` change AND on `competitorPageBlueprints` change, and stays stable across re-runs with identical inputs.
+> - **New optional builder args** — `citationEvidenceIndex` + `competitorPages` (both default null/[] so existing callers keep working without modification).
+>
+> **Verification (2026-05-01):**
+> - `npx tsc --noEmit` clean · 106/106 targeted (102 evidence-packet + 4 cross-tenant stub) · `npm run test` 3321/3325 (4 pre-existing failures verified independent of this change against `5d32f5f` baseline: 3 prompts-smoke fixture time-drift + 1 tenants/isolation, same set as W1/W2/W3-scope-lock/W3-Step-3.1/W3-Step-3.1b baselines) · `npm run build` clean.
+> - **Could not verify from this environment:** Vercel deploy SHA matches `bded491` — operator dashboard check.
+>
+> **Out of scope (per W3 scope lock):**
+> - LLM provider activation — Step 3.4
+> - Confidence rubric — Step 3.3 (type stubs only if strictly necessary; not needed for 3.2)
+> - Recommendations UI cleanup — Step 3.5
+> - Apply-All-HIGH bar — deferred until 20–30 manual reviews
+> - Customer-one backfill — W4
+> - Profound CSV archive / code deletion — post-May-10
+>
+> **Next 3 actions:**
+> 1. **Operator: confirm Vercel deploy of `bded491` is "Ready"** — single code commit + sibling docs commit.
+> 2. **Continue W3 Step 3.3 (confidence rubric)** OR jump to **Step 3.4 (LLM provider activation)** depending on operator preference. The rubric is a single pure file (`computeRecConfidence(rec, edits) → "high" | "medium" | "low"`) stamped on `rec.resolution.confidence` in `load-queue.ts`. Step 3.4 wires the SYSTEM_PROMPT v2 to consume this packet.
+> 3. **Browser-spot-check /recommendations** to confirm Step 3.1b's quarantine + 3.2's no-op (3.2 changes packet shape; the deterministic generator path is unchanged at this step, so the visible queue should look identical to post-Step-3.1b).
+
 > 🟢 **W3 Step 3.1b (Pre-W3 placeholder quarantine) LANDED (2026-05-01):** Single code commit `1be64f9` on `main`. The 4 Los Altos `add_faq` rows operator-accepted before Step 3.1's hardening are now `dismissed` with `not_found_reason: "invalid_placeholder_pre_w3"`. Architecture invariant allowlist DROPPED; placeholder copy is no longer renderable on /recommendations or /today.
 >
 > - **Quarantine script (`scripts/quarantine-pre-w3-placeholder-edits.ts`, NEW)** — mirrors `archive-faq-test-pollution.ts`: idempotent, dry-run + execute modes, preflight + postflight assertions, hardcoded targets (4 placeholder IDs + sibling H2 + rec-level response). Forward-only flip: `accepted` → `dismissed` with the documented reason. Local file write + Supabase dual-write (DUAL_WRITE=true confirmed). All 10 postflight checks green; sibling H2 + rec response byte-equivalent.
