@@ -270,13 +270,15 @@ describe("computeRecConfidence — MEDIUM path (HIGH blockers)", () => {
   });
 
   it("MEDIUM: no grounded packet signal (fields omitted entirely)", () => {
-    const args: ComputeRecConfidenceArgs = {
-      ...highArgs(),
-    };
-    delete (args as Partial<ComputeRecConfidenceArgs>).hasAiSearchSignal;
-    delete (args as Partial<ComputeRecConfidenceArgs>)
-      .hasCompetitorPageBlueprints;
-    const verdict = computeRecConfidence(args);
+    // Cast through a mutable writable view so we can simulate a
+    // caller that didn't pass the optional flags at all (delete
+    // works at runtime; the readonly modifier is a TS-only guard).
+    const args: Record<string, unknown> = { ...highArgs() };
+    delete args.hasAiSearchSignal;
+    delete args.hasCompetitorPageBlueprints;
+    const verdict = computeRecConfidence(
+      args as unknown as ComputeRecConfidenceArgs,
+    );
     expect(verdict.confidence).toBe("medium");
     expect(verdict.reasons).toContain("no_grounded_packet_signal");
   });

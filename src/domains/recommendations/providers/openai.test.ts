@@ -555,3 +555,138 @@ describe("estimateCost — public for budget gate in 6A.2c", () => {
     expect(decimals.length).toBeLessThanOrEqual(6);
   });
 });
+
+// ── W3 Step 3.4 — SYSTEM_PROMPT v2 sections ────────────────────────────
+
+describe("W3 Step 3.4 — SYSTEM_PROMPT v2 references the new evidence packet sections", () => {
+  /**
+   * The W3 Step 3.2 packet ships three new aggregated blocks
+   * (aiSearchSignal / competitorPageBlueprints / crossTenantPatterns)
+   * AND the operator's 7 grounding rules. The LLM MUST be told to
+   * use them or it falls back to the synthetic prompt text and
+   * generic advice. These tests inspect the system message the
+   * provider sends to OpenAI and pin every operator-locked section
+   * by phrase. If the prompt drifts away from the contract, the
+   * test fails — preventing silent regression of the trust contract.
+   */
+
+  function getSystemMessage(args: { allowedActionTypes?: string[] } = {}): string {
+    const fetchImpl = vi.fn(async () =>
+      makeChatResponse({ content: { recommendations: [] } }),
+    );
+    const packet = args.allowedActionTypes
+      ? makePacket({
+          allowedActionTypes: args.allowedActionTypes as Parameters<
+            typeof makePacket
+          >[0]["allowedActionTypes"],
+        })
+      : makePacket();
+    // Fire-and-forget; we don't await the bundle, just need the call args.
+    void generateOpenAIBundle(packet, { fetchImpl, now: FROZEN_NOW });
+    // Wait one microtask for the fetchImpl to be invoked.
+    return (async () => {
+      await new Promise((r) => setImmediate(r));
+      const init = fetchImpl.mock.calls[0]?.[1] as RequestInit | undefined;
+      if (!init) return "";
+      const body = JSON.parse(init.body as string);
+      const sysMsg = body.messages?.find(
+        (m: { role: string; content: string }) => m.role === "system",
+      );
+      return sysMsg?.content ?? "";
+    })() as unknown as string;
+  }
+
+  // The async helper above resolves to a string; for readability we
+  // unwrap inline in each test.
+  async function readSystemPrompt(): Promise<string> {
+    const fetchImpl = vi.fn(async () =>
+      makeChatResponse({ content: { recommendations: [] } }),
+    );
+    await generateOpenAIBundle(makePacket(), {
+      fetchImpl,
+      now: FROZEN_NOW,
+    });
+    const [, init] = fetchImpl.mock.calls[0] as unknown as [
+      string,
+      RequestInit,
+    ];
+    const body = JSON.parse(init.body as string);
+    const sysMsg = body.messages.find(
+      (m: { role: string; content: string }) => m.role === "system",
+    );
+    return sysMsg.content as string;
+  }
+
+  // Silence the no-unused-var warning for the helper variant we
+  // don't end up using in assertions (kept around for future tests
+  // that need synchronous access).
+  void getSystemMessage;
+
+  it("references packet.aiSearchSignal.topSearchQueries", async () => {
+    const prompt = await readSystemPrompt();
+    expect(prompt).toMatch(/aiSearchSignal\.topSearchQueries/);
+    expect(prompt).toMatch(/MIRROR these phrasings/i);
+  });
+
+  it("references packet.aiSearchSignal.topDescriptors", async () => {
+    const prompt = await readSystemPrompt();
+    expect(prompt).toMatch(/aiSearchSignal\.topDescriptors/);
+    expect(prompt).toMatch(/ECHO these descriptors/i);
+  });
+
+  it("references packet.aiSearchSignal.topCompetitorCoMentions and treats names as evidence-only", async () => {
+    const prompt = await readSystemPrompt();
+    expect(prompt).toMatch(/aiSearchSignal\.topCompetitorCoMentions/);
+    // Word "evidence-only" may wrap across a line break — collapse
+    // whitespace before testing the phrase intent.
+    const collapsed = prompt.replace(/\s+/g, " ");
+    expect(collapsed).toMatch(/evidence-?\s*only/i);
+  });
+
+  it("references packet.competitorPageBlueprints with a structure-not-name instruction", async () => {
+    const prompt = await readSystemPrompt();
+    expect(prompt).toMatch(/competitorPageBlueprints/);
+    expect(prompt).toMatch(/STRUCTURE \/ ANGLE/);
+    // Apostrophe + line wrap in "competitor's name" — collapse
+    // whitespace and use a flexible apostrophe match.
+    const collapsed = prompt.replace(/\s+/g, " ");
+    expect(collapsed).toMatch(/Do NOT mention the competitor.s name/);
+  });
+
+  it("references packet.crossTenantPatterns and notes the empty-stub state", async () => {
+    const prompt = await readSystemPrompt();
+    expect(prompt).toMatch(/crossTenantPatterns/);
+    expect(prompt).toMatch(/EMPTY by design/);
+  });
+
+  it("instructs the model to abstain on thin evidence rather than emit generic copy", async () => {
+    const prompt = await readSystemPrompt();
+    expect(prompt).toMatch(/RETURN \[\] FOR THIS PACKET/);
+    expect(prompt).toMatch(/Better empty than generic/i);
+  });
+
+  it("instructs the model to never emit placeholder copy (matches the W3 Step 3.1 phrase set)", async () => {
+    const prompt = await readSystemPrompt();
+    expect(prompt).toMatch(/Draft answer/);
+    expect(prompt).toMatch(/\bTBD\b/);
+    expect(prompt).toMatch(/operator: rewrite/);
+    expect(prompt).toMatch(/rewrite below/);
+    expect(prompt).toMatch(/\[insert/);
+    expect(prompt).toMatch(/\bplaceholder\b/);
+    expect(prompt).toMatch(/\bTODO:/);
+  });
+
+  it("preserves Rule 12 (no competitor names in public copy)", async () => {
+    const prompt = await readSystemPrompt();
+    expect(prompt).toMatch(/Competitor names are EVIDENCE/i);
+    expect(prompt).toMatch(/NEVER include a competitor name/);
+  });
+
+  it("preserves Rule 14 evidence priority order (per-prompt arrays still drive copy choice)", async () => {
+    const prompt = await readSystemPrompt();
+    expect(prompt).toMatch(/EVIDENCE PRIORITY ORDER/);
+    expect(prompt).toMatch(/actualSearchQueries/);
+    expect(prompt).toMatch(/citedSourcePages/);
+    expect(prompt).toMatch(/descriptorWindows/);
+  });
+});

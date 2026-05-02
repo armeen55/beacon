@@ -1166,6 +1166,125 @@ function collectOwnedDomains(
   return out;
 }
 
+// ---------------------------------------------------------------------------
+// W3 Step 3.4 (2026-05-02) — packet-signal derivation for confidence rubric.
+//
+// Closes the loop between Step 3.2 (evidence packet foundation) and
+// Step 3.3 (confidence rubric): the load-queue stamps `engineConfidence`
+// per rec, and `hasAiSearchSignal` / `hasCompetitorPageBlueprints` should
+// reflect the REAL packet, not hardcoded `false`.
+//
+// `hasAiSearchSignalForRec` + `hasCompetitorPageBlueprintsForRec` are
+// thin pure helpers that run the same aggregations as the full packet
+// builder but return only booleans. They avoid loading the
+// `pageElementInventory` / `citationEvidenceIndex` / `competitorPages`
+// the page-render path doesn't already have. The cost stays bounded:
+// O(observations of affected prompts) per rec.
+//
+// Once Step 3.4's LLM provider activates and `runProviderAndPersist`
+// runs at queue load time, callers can pass the FULL packet's blocks
+// (`packet.aiSearchSignal.topSearchQueries.length > 0`, etc.) — these
+// helpers exist so we don't have to build the full packet just for the
+// confidence stamp.
+// ---------------------------------------------------------------------------
+
+/**
+ * Return true when at least one observation across the affected prompts
+ * carries a real AI search signal — verbatim search query, descriptor
+ * window, or competitor co-mention (filtered through the entity-
+ * pollution-filter so directories don't count). Mirrors
+ * `buildAiSearchSignal`'s decision to drop empties / non-strings /
+ * polluted entities.
+ *
+ * Pure. Empty observations / empty affected prompts → `false`.
+ */
+export function hasAiSearchSignalForRec(args: {
+  affectedPromptIds: ReadonlyArray<string>;
+  observations: ReadonlyArray<PromptAnswerObservation>;
+  trackedEntities?: ReadonlyArray<TrackedEntity>;
+}): boolean {
+  if (args.affectedPromptIds.length === 0) return false;
+  if (args.observations.length === 0) return false;
+
+  const affectedSet = new Set(args.affectedPromptIds);
+  const competitorRankingFilter = makeCompetitorRankingFilter(
+    args.trackedEntities ?? [],
+  );
+
+  for (const o of args.observations) {
+    if (!affectedSet.has(o.prompt_id)) continue;
+
+    if (Array.isArray(o.search_queries)) {
+      for (const raw of o.search_queries) {
+        if (typeof raw === "string" && raw.trim().length > 0) return true;
+      }
+    }
+    if (Array.isArray(o.descriptor_window)) {
+      for (const raw of o.descriptor_window) {
+        if (typeof raw === "string" && raw.trim().length > 0) return true;
+      }
+    }
+    if (Array.isArray(o.competitor_co_mentions)) {
+      for (const raw of o.competitor_co_mentions) {
+        if (typeof raw !== "string") continue;
+        const name = raw.trim();
+        if (name.length === 0) continue;
+        if (!competitorRankingFilter(name)) continue;
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+/**
+ * Return true when at least one observation across the affected prompts
+ * cites a competitor URL that would survive `buildCompetitorPageBlueprints`
+ * filtering — class === "competitor" (preferred) or, when the class
+ * array is missing, a non-owned non-directory domain.
+ *
+ * Pure. Mirrors the same drop rules the full builder applies.
+ */
+export function hasCompetitorPageBlueprintsForRec(args: {
+  affectedPromptIds: ReadonlyArray<string>;
+  observations: ReadonlyArray<PromptAnswerObservation>;
+  ownedPageInventory: ReadonlyArray<PageInventoryEntry>;
+}): boolean {
+  if (args.affectedPromptIds.length === 0) return false;
+  if (args.observations.length === 0) return false;
+
+  const affectedSet = new Set(args.affectedPromptIds);
+  const ownedDomains = collectOwnedDomains(args.ownedPageInventory);
+
+  for (const o of args.observations) {
+    if (!affectedSet.has(o.prompt_id)) continue;
+    const urls = Array.isArray(o.citation_urls) ? o.citation_urls : null;
+    const classes = Array.isArray(o.citation_domain_classes)
+      ? o.citation_domain_classes
+      : null;
+    if (!urls) continue;
+    for (let i = 0; i < urls.length; i++) {
+      const rawUrl = urls[i];
+      if (typeof rawUrl !== "string") continue;
+      const url = rawUrl.trim();
+      if (url.length === 0) continue;
+
+      const klass = classes?.[i];
+      if (typeof klass === "string") {
+        if (klass !== "competitor") continue;
+      }
+
+      const domain = extractDomain(url);
+      if (!domain) continue;
+      if (ownedDomains.has(domain)) continue;
+      if (DIRECTORY_DOMAINS_FOR_FILTER.has(domain)) continue;
+
+      return true;
+    }
+  }
+  return false;
+}
+
 function extractDomain(url: string): string | null {
   try {
     const u = new URL(url);

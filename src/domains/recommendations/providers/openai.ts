@@ -250,6 +250,86 @@ HARD RULES:
     (e.g., "Drawn from actualSearchQueries on prompt
     7ee3216b-...: 'best whole home remodel builders bay area'").
 
+15. **PACKET-LEVEL AGGREGATED SIGNALS (W3 Step 3.2 evidence
+    foundation).** In addition to the per-prompt arrays above, the
+    packet carries three rolled-up blocks that represent what the
+    answer engines do across ALL affected prompts. Use them when
+    they have content; abstain when they don't.
+
+      packet.aiSearchSignal.topSearchQueries[]
+        Verbatim queries the AI emits while answering the affected
+        prompts, deduped + counted across observations + platforms.
+        When non-empty: MIRROR these phrasings naturally in FAQ
+        questions, H2 headings, and meta titles. Do NOT lift them
+        verbatim into FAQ questions (Rule 13 still applies — write
+        in customer voice). Use them to learn HOW visitors phrase
+        the same intent.
+
+      packet.aiSearchSignal.topDescriptors[]
+        Lowercased descriptor windows AI uses near brand mentions,
+        deduped + counted. When non-empty: ECHO these descriptors
+        in proposedText where they fit the brand's voice. They are
+        the tone the AI already associates with the operator —
+        leaning into them reinforces the existing positioning
+        instead of fighting it.
+
+      packet.aiSearchSignal.topCompetitorCoMentions[]
+        Real competitors AI co-mentions with the brand (filtered
+        through the entity-pollution-filter; directories like
+        Houzz/Yelp/BuildZoom never appear here). Treat the SAME way
+        as packet.competitorAngles[*]: their NAMES are evidence-
+        only (Rule 12), not public copy.
+
+      packet.competitorPageBlueprints[]
+        Top competitor pages cited on the affected prompts. Each
+        row carries url + domain + topic + citationCount +
+        promptsCitedOn + (when crawled) pageTitle / h1 / topH2s /
+        faqQuestions / metaDescription. When non-empty: LEARN the
+        STRUCTURE / ANGLE these pages take — what sections they
+        cover, what intents they answer — and propose proposedText
+        that's strictly stronger on the SAME intent. Do NOT mention
+        the competitor's name (Rule 12). Reference them in the
+        "why" field by domain or by displayLabel.
+
+      packet.crossTenantPatterns[]
+        Anonymized helping-rate signals aggregated across tenants
+        (e.g., "edit_type:add_h2_section had 73% helping rate on 41
+        cross-tenant ships"). Today this array is EMPTY by design —
+        the producer activates post-month-3 behind
+        BEACON_CROSS_TENANT_BRAIN=1. When the array is non-empty,
+        prefer patterns with sampleSize >= 5 and helpingRate >= 0.6
+        when choosing actionType. When empty (today): make
+        decisions from the per-rec packet evidence above.
+
+16. **GROUNDED COPY, NEVER GENERIC ADVICE.** If, after consulting
+    Rules 14 + 15, you cannot write specific final copy that
+    references the operator's domain, services, or geography in a
+    way a real visitor would read, RETURN [] FOR THIS PACKET. Do
+    NOT emit:
+      - "We deliver high-quality custom homes" (no specificity)
+      - "Our team is experienced in this area" (no proof, no
+        details)
+      - "Learn more about our services" (CTA placeholder, not copy)
+      - any sentence that would make sense for a different builder
+        in a different city
+    Better empty than generic. The deterministic generators already
+    abstain when evidence is thin (W3 Step 3.1); the LLM provider
+    must follow the same contract.
+
+17. **NO PLACEHOLDER COPY.** proposedText / displayLabel must NEVER
+    contain any of these literal phrases (case-insensitive):
+      - "Draft answer"
+      - "TBD"
+      - "operator: rewrite" / "(operator: rewrite)"
+      - "rewrite below"
+      - "[insert ...]"
+      - "placeholder"
+      - "TODO:"
+    These are the patterns operators have flagged as trust-killing.
+    The validator rejects every match and the rec lands in LOW
+    engineConfidence. If you don't have content, return [] —
+    placeholder copy is strictly worse than no copy.
+
 OPERATOR-FACING COPY:
 - why: 1-2 sentences. Name the specific evidence (prompt id, owned URL,
   competitor name) that drove this edit. promptIds in why may be

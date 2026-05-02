@@ -41,6 +41,8 @@ import { resolvePageIntent } from "./resolve-page-intent";
 import type { PageEntity } from "@/domains/pages/types";
 import {
   buildSpecificEditEvidencePacket,
+  hasAiSearchSignalForRec,
+  hasCompetitorPageBlueprintsForRec,
   type SpecificEditEvidencePacket,
 } from "./specific-edit-evidence";
 import type { ResolvedRecommendationCandidate } from "./resolved-types";
@@ -322,26 +324,37 @@ export async function loadLiveRecommendationQueue(
 
   const decoratedQueue: LiveRecQueueItem[] = prioritized.queue.map((rec) => {
     const edits = editsByRecId.get(rec.stableKey) ?? [];
+    const affectedPromptIds = rec.affectedPromptIds ?? [];
+    // W3 Step 3.4 (2026-05-02) — close the loop. Real packet signals
+    // derived from the same observations the LLM provider will
+    // receive when it activates. Cheap (per-rec scan over already-
+    // loaded observations of affected prompts; no extra I/O). HIGH
+    // is now reachable when the rec has multi-prompt validation +
+    // grounded packet evidence + every other dimension passes.
+    const hasAiSearchSignal = hasAiSearchSignalForRec({
+      affectedPromptIds,
+      observations: promptAnswerObservations,
+      trackedEntities,
+    });
+    const hasCompetitorPageBlueprints = hasCompetitorPageBlueprintsForRec({
+      affectedPromptIds,
+      observations: promptAnswerObservations,
+      ownedPageInventory: pageInventory,
+    });
     const engineConfidence = computeRecConfidence({
       // Defensive reads: synthetic test fixtures occasionally omit
       // these fields. Pre-W3 page-render tests want to exercise the
       // UI layer without filling the full RecommendationCandidate
       // shape; treat missing values as zero/empty so the stamp never
       // crashes the page render.
-      affectedPromptCount: rec.affectedPromptIds?.length ?? 0,
+      affectedPromptCount: affectedPromptIds.length,
       resolverTier: rec.resolution?.tier ?? "deterministic_only",
       resolutionConfidence: rec.resolution?.confidence ?? "low",
       needsHumanReview: rec.resolution?.needsHumanReview ?? false,
       evidenceRefCount: rec.resolution?.evidenceRefs?.length ?? 0,
       edits,
-      // W3 Step 3.3: packet signals are caller-supplied (pass through
-      // false at the load-queue layer; Step 3.4 will plumb in real
-      // values from the per-rec evidence packet). HIGH is intentionally
-      // unreachable here today — that's the point: the trust label
-      // earns its weight when the LLM provider activates with real
-      // packet signals.
-      hasAiSearchSignal: false,
-      hasCompetitorPageBlueprints: false,
+      hasAiSearchSignal,
+      hasCompetitorPageBlueprints,
       competitorNames,
     });
     return { ...rec, engineConfidence };
