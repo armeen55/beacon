@@ -7,6 +7,59 @@
 
 ---
 
+## 2026-05-01 (PM) — W2 Step 2.4: Operator Mark-shipped + day-3 stale tint
+
+Single code commit `260b313` on `main`. Closes the operator-felt gap where shipping a change at 11pm meant waiting until tomorrow's 07:00 UTC scan to start the verdict bake-window clock; adds a day-3 yellow tint that warns when accepted edits sit unconfirmed.
+
+### What changed
+
+**Persistence (`src/domains/recommendations/recommended-edits-persistence.ts`)**
+- Extends `LiveMatchKind` union with `"operator_override"`. Comment pins the semantics: never emitted by the match engine; only stamped by the new helper. The next scan can fill in `live_snapshot_id` + `live_element_key` without overwriting status (forward-only contract preserved).
+- New `markRecommendedEditsAsShipped({ editIds, tenantId, now? })` flips rows in `recommended` or `accepted` → `verified_live`. Stamps `live_at = nowIso`, `live_match_kind = "operator_override"`, `live_match_confidence = "high"`, `updated_at = nowIso`. Forward-only: rows already past `verified_live` (verified_live_modified, partially_implemented, not_found_after_7d, dismissed, needs_review, wrong_page) are no-op. Idempotent. Empty input is no-op. Dual-write follows the same file-first-then-Supabase contract as `markRecommendedEditsAccepted`.
+
+**Server actions**
+- `src/app/(shell)/recommendations/actions.ts` adds `markRecommendationShipped({ stableKey })` — reads the rec's edits, filters to eligible (`recommended | accepted`), batches through the persistence helper, revalidates `/recommendations` + `/changes` + layout. Returns `flipped`/`skipped` so the client renders accurate feedback.
+- `src/app/(shell)/changes/actions.ts` (NEW) adds `markChangelogEditShipped({ changelogId })` — re-resolves the `(source_rec_id, action_type, target_element_key)` triple server-side via `changelogJoinKey` + `indexEditsByJoinKey`. Rejects rows without an edit linkage with honest copy. Re-resolving server-side instead of trusting a client-supplied edit id keeps the lifecycle invariant honest even when the UI is stale.
+
+**/recommendations rec card (`recommendations-client.tsx`)**
+- `eligibleEditCount` filter inlines the `editLifecycleStatus` helper (`status ?? "recommended"`) to keep the file client-safe. The helper module is `server-only`; importing it crashed the production build (real `npm run build` failure caught mid-implementation, fixed by inlining the one-liner).
+- `acceptedAgeDays` derived from the existing `response.respondedAt` field (no new data path).
+- `isStalePending = accepted && eligibleEditCount > 0 && age ≥ 3 days`. Card border + bg flip yellow with an "Nd pending" pill next to "✓ Accepted" and a tooltip.
+- "Mark shipped" button renders only when accepted && eligible > 0. Title attribute spells out the persistence semantics. Once every linked edit reaches `verified_live` the button vanishes.
+
+**/changes scorecard row (`scorecard-client.tsx`)**
+- `canMarkShipped = lifecycleStatus ∈ {recommended, accepted}` (uses existing `editStatusByChangelogId` map; no new prop).
+- `ageDays` from `changelog.timestamp` (accept-at proxy because per-edit fan-out fires at accept time).
+- Stale-pending tints the `<tr>` warning-yellow + "Nd pending" pill below the existing `LifecycleStatusPill`.
+- "Mark shipped" button below the pill with `stopPropagation` so pressing it doesn't also toggle the row's expand panel. Inline feedback (success or error) without navigating away.
+
+### What did NOT change (intentional)
+
+- Profound CSV archive — May 10 expiry hasn't passed; operator may still pull one final historical CSV.
+- Profound adapter code — `src/adapters/profound/`, `src/lib/import/`, settings/import Profound section all untouched. Deletion deferred until after May 10 cutover per operator direction.
+
+### Verification
+
+| Gate | Result |
+|---|---|
+| `npx tsc --noEmit` | clean (no output) |
+| `vitest src/domains/recommendations/recommended-edits-persistence.test.ts` | 43/43 pass (10 new + 33 existing) |
+| `vitest tests/architecture/` | 157/157 pass |
+| `vitest tests/routes/changes-smoke.test.ts` | 1/1 pass |
+| `npm run test` | 3234 / 3238 (the 4 failures are the same pre-existing set baselined against `5d32f5f`: 3 prompts-smoke fixture time-drift + 1 tenants/isolation; verified independent of this change) |
+| `npm run build` | clean — full route table emitted, no warnings |
+
+**Build regression caught + fixed mid-implementation:** the first `npm run build` failed with `the chunking context (unknown) does not support external modules (request: node:fs)` because `recommendations-client.tsx` ("use client") imported `editLifecycleStatus` from the persistence module which has `import "server-only"` at the top. The fix was to inline the one-line helper (`row.implementation_status ?? "recommended"`) instead of importing it. The persistence-only `RecommendedEditRow` type import remained — types erase at build time and don't trigger the chunker.
+
+### Next
+
+W2 Step 2.4 closes the polish list inside W2. Master plan §9 next-targets:
+1. Operator confirms Vercel deploy of `260b313` is Ready.
+2. Browser-spot-check the new Mark-shipped buttons against the Los Altos accepted rec (6 days old as of today; should render with yellow tint and "6d pending" pill).
+3. Continue to W3 (Recommendation Engine v2 query fan-out) or W2 Step 2.5 (Sprint 6A.2 LLM provider activation deferred from W2).
+
+---
+
 ## 2026-05-01 — Week 1 (Trust + Polish): 5 logical commits + execution-contract docs sync
 
 Master plan kickoff (`/Users/armeen/.claude/plans/beacon-master-sorted-creek.md`) — Week 1 of the operator-reordered roadmap (W1 trust → W2 wedge UX → W3 recs v2 → W4 backfill → W5 sellable). Pushed `5d32f5f..5cfd9e7` to `origin/main`.
