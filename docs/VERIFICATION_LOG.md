@@ -7,6 +7,69 @@
 
 ---
 
+## 2026-05-01 (evening) — W3 Step 3.1: placeholder kill + FAQ structural-quality gate
+
+Single code commit `dd59d6a` on `main`. Closes the gap where the deterministic FAQ generator emitted "Draft answer (operator: rewrite)" by default and the validator was happy to wave it through. Beacon now refuses placeholder copy at three layers.
+
+### What changed
+
+**Helper module (NEW): `src/domains/recommendations/placeholder-detection.ts`**
+- `PLACEHOLDER_PATTERNS` — 8 case-insensitive regexes for operator-locked phrases: `draft_answer`, `tbd`, `operator_rewrite`, `operator_parenthetical`, `rewrite_below`, `insert_bracket`, `placeholder_word`, `todo_marker`. Word-boundary anchors so "operator" or "draft" in legitimate copy don't false-match.
+- `looksLikePlaceholder(text)` / `detectPlaceholder(text)` — phrase detection with diagnostic detail.
+- `evaluateFaqAnswer({question, answer})` — structural-quality verdict for FAQ bodies. Discriminated union with reasons: `too_short` (<25 words), `repeats_question` (≥80% content-word overlap with question), `no_specific_content` (<5 distinct words after stopwords + question + filler), `placeholder_phrase`.
+- `parseFaqProposedText` — extracts Q + A halves from the `Q: ...\n\nA: ...` shape.
+- `tokenizeContentWords` — shared lowercase + non-alnum-strip + ≥2-char + stopword-filtered tokenizer. Stopword set extended with prepositions (`about`, `into`, `onto`, `upon`, `across`, `through`, `during`, `before`, `after`, `above`, `below`, `between`, `under`, `over`) so "Learn about X..." fluff doesn't hide.
+
+**Validator (`specific-edit-validator.ts`)**
+- New rule 9.55 (`validateNoPlaceholder`) wired between rule 9.5 (FAQ-intent-rewriting) and rule 9.6 (competitor-public-copy). Two passes: phrase scan on proposedText AND displayLabel; structural scan via `evaluateFaqAnswer` on parsed Q+A bodies for `add_faq` / `rewrite_faq`. **No env opt-out.**
+- Existing rule 9.5 (FAQ "?" check) extended to recognize the Q+A shape — when `parseFaqProposedText` returns a pair, the "?" + verbatim-stem checks run against the QUESTION half. Without this fix, the deterministic generator's full Q+A output would always fail rule 9.5 (the answer half ends with a period), forcing existing tests to filter FAQ rows. Now the full gate runs.
+
+**Generator (`providers/generators/add-faq.ts`)**
+- `composeAnswerSeed` returns `string | null`:
+  - **Branch A (≥2 descriptors):** real grounded body naming the descriptors AI uses, anchored on cluster context when present. Validates via `evaluateFaqAnswer`; falls through on fail.
+  - **Branch B (1 descriptor + cluster label):** narrower body anchored on both. Validates; falls through on fail.
+  - **Branch C (otherwise):** null. Outer loop rolls back the dedupe entry, emits no edit for this `(prompt × candidate)` pair.
+- Risk copy updated: "Auto-generated answer body is a seed — operator must rewrite with brand-specific facts" → "Deterministic seed answer cites real descriptors AI uses near your brand; operator should still review for brand voice before publishing." No more apologetic placeholder framing.
+
+**Architecture invariant: `tests/architecture/no-placeholder-recommended-edits.test.ts` (NEW)**
+- Scans every `.data/tenants/*/recommended-edits.json`. Three checks:
+  1. Active (non-dismissed) rows do not contain placeholder phrases in `proposed_text` or `display_label`.
+  2. Active FAQ rows pass `evaluateFaqAnswer` (when their proposed_text parses as Q+A).
+  3. `KNOWN_PRE_W3_PLACEHOLDER_IDS` only references rows that actually exist (no stale allowlist entries).
+- Allowlist: 4 Los Altos `add_faq` rows operator-accepted before the validator hardening (`d1b049c63d8a` / `f2dcb7022c42` / `93a207d063c1` / `ff677f6f3ded`). Documented as pre-W3; will be replaced by Step 3.4's LLM regeneration. The test's failure message explicitly forbids growing the allowlist.
+
+### Tests (43 new)
+
+| File | Added | Total |
+|---|---|---|
+| `placeholder-detection.test.ts` (NEW) | 32 | 32 |
+| `specific-edit-validator.test.ts` | 11 | 103 |
+| `providers/generators/generators.test.ts` | 6 | 40 |
+| `tests/architecture/no-placeholder-recommended-edits.test.ts` (NEW) | 3 | 3 |
+
+### Verification
+
+| Gate | Result |
+|---|---|
+| `npx tsc --noEmit` | clean (no output) |
+| Targeted vitest (placeholder-detection / validator / generators / architecture) | 178/178 pass |
+| `npm run test` | 3289 / 3293 (the 4 failures are the same pre-existing set baselined against `5d32f5f`: 3 `tests/routes/prompts-smoke*.test.tsx` fixture time-drift + 1 `tests/tenants/isolation.test.ts`) |
+| `npm run build` | clean — full route table emitted, no warnings |
+
+### What this step did NOT do (operator-locked out-of-scope)
+
+- **LLM provider activation** — Step 3.4. The OpenAI provider stub still throws `not_implemented`; placeholder kill protects the deterministic path AND any future LLM output that tries to leak placeholder copy.
+- **Recommendations UI cleanup** — Step 3.5. The simple-card + confidence-pill + evidence-expand UX waits.
+- **Apply-All-HIGH bar** — deferred until founder reviews 20–30 generated recs.
+- **Customer-one backfill mutation** — still W4.
+- **Profound archive / code deletion** — still post-May-10.
+
+### Next
+
+Step 3.2 — evidence packet extension (`aiSearchSignal`, `competitorPageBlueprints`, `crossTenantPatterns` stub). Foundation for Step 3.4 LLM activation. Capability tier: Max.
+
+---
+
 ## 2026-05-01 (PM, late) — W3 scope locked (founder-revised, no Apply-All-HIGH yet)
 
 Founder amended the W3 scope before any W3 code lands. Updated docs only — no code changes.

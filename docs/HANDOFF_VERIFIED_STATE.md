@@ -1,5 +1,28 @@
 # Beacon — Start Here
 
+> 🟢 **W3 Step 3.1 (Placeholder kill + FAQ structural-quality gate) LANDED (2026-05-01):** Single code commit `dd59d6a` on `main`. Beacon now refuses to put placeholder copy in the recommendation queue at three layers — helper, validator, and the deterministic FAQ generator's abstain path.
+>
+> - **Helper (`src/domains/recommendations/placeholder-detection.ts`, NEW)** — `PLACEHOLDER_PATTERNS` covers 8 operator-locked phrases (Draft answer / TBD / operator: rewrite / (operator: ...) / rewrite below / [insert ...] / placeholder / TODO:) with word-boundary anchors so legitimate copy ("our crane operator drafts each plan") never false-matches. `evaluateFaqAnswer({question, answer})` returns a discriminated verdict with reasons `too_short` (<25 words), `repeats_question` (≥80% content-word overlap), `no_specific_content` (<5 distinct words after stopwords + question + GENERIC_FILLER), or `placeholder_phrase`. `parseFaqProposedText` extracts Q + A halves from the deterministic generator's `Q: ... \n\nA: ...` shape.
+> - **Validator (`specific-edit-validator.ts`)** — New rule 9.55 (`validateNoPlaceholder`) wired between FAQ-intent-rewriting (9.5) and competitor-public-copy (9.6). Two passes: phrase scan against proposedText AND displayLabel; structural scan against parsed Q+A bodies for FAQ action types. **No env opt-out** — placeholder copy must never reach the queue. Existing rule 9.5 ("?" check) extended to recognize the Q+A shape so the deterministic generator's full output runs the gate (was previously filtered out).
+> - **Generator (`add-faq.ts`)** — `composeAnswerSeed` now returns `string | null`. Three branches: (A) ≥2 descriptors → real grounded body referencing actual descriptors AI uses; (B) 1 descriptor + cluster label → narrower body anchored on both; (C) abstain. Branches A and B validate via `evaluateFaqAnswer` before returning, falling through on fail. Outer loop sees null, rolls back the dedupe entry, emits no edit. Apologetic risk copy ("operator must rewrite") replaced with grounded framing.
+> - **Architecture invariant** — `tests/architecture/no-placeholder-recommended-edits.test.ts` scans every tenant's `recommended-edits.json` for placeholder phrases AND for FAQ structural failures. The 4 Los Altos add_faq rows operator-accepted before the hardening are allowlisted by id (`KNOWN_PRE_W3_PLACEHOLDER_IDS`); the test refuses to grow the list. Stale-allowlist guard ensures entries are removed when the underlying rows get regenerated.
+>
+> **Verification (2026-05-01):**
+> - `npx tsc --noEmit` clean · placeholder-detection 32/32 · validator 103/103 (11 new) · generators 40/40 (6 new) · architecture invariant 3/3 · `npm run test` 3289/3293 (the 4 failures are the same pre-existing set as W1/W2/W3-scope-lock baselines: 3 prompts-smoke fixture time-drift + 1 tenants/isolation) · `npm run build` clean.
+> - **Could not verify from this environment:** Vercel deploy SHA matches `dd59d6a` — operator dashboard check.
+>
+> **Out of scope (per W3 scope lock):**
+> - LLM provider activation (Sprint 6A.2) — Step 3.4
+> - Recommendations UI cleanup — Step 3.5
+> - Apply-All-HIGH bar — deferred
+> - Customer-one backfill — W4
+> - Profound CSV archive / code deletion — post-May-10
+>
+> **Next 3 actions:**
+> 1. **Operator: confirm Vercel deploy of `dd59d6a` is "Ready"** — Step 3.1 is a single code commit + sibling docs commit.
+> 2. **Continue W3 Step 3.2 (evidence packet extension).** Adds `aiSearchSignal` (top search queries + top descriptors + top competitor co-mentions filtered through entity-pollution-filter), `competitorPageBlueprints` (top-cited competitor pages joined to `page_element_inventory`), and `crossTenantPatterns` (stub returning `[]`). Foundation for Step 3.4 LLM activation.
+> 3. **Watch the next regeneration cycle** for the 4 known-bad Los Altos FAQ rows. They stay `accepted` until Step 3.4's LLM provider replaces them with grounded copy; the architecture invariant's allowlist will shrink to zero at that point.
+
 > 🟡 **W3 SCOPE LOCKED (2026-05-01) — founder-revised before any W3 code lands:**
 >
 > **In scope:**
