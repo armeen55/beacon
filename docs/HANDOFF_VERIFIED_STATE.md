@@ -1,5 +1,26 @@
 # Beacon — Start Here
 
+> 🟡 **W3 SCOPE LOCKED (2026-05-01) — founder-revised before any W3 code lands:**
+>
+> **In scope:**
+> 1. **Recommendation Engine v2 evidence packet.** Extend `SpecificEditEvidencePacket` with `aiSearchSignal` (top search queries, top descriptors, top competitor co-mentions filtered through entity-pollution-filter), `competitorPageBlueprints` (top-cited competitor pages joined to `page_element_inventory`), and `crossTenantPatterns` (stub returning `[]` — no real cross-tenant logic yet).
+> 2. **Placeholder kill.** Validator rejects `Draft answer / TBD / [insert / rewrite below / (operator: rewrite)` patterns. Deterministic generators abstain when no `aiSearchSignal.topSearchQueries` AND no `competitorPageBlueprints` AND no descriptors-near-brand. Better empty than bad.
+> 3. **LLM provider activation (Sprint 6A.2 deferred from W2).** OpenAI provider uses the evidence packet. Grounded edits only. No competitor-name leakage into Ritz copy. No generic SEO fluff. Budget-gated through existing `adjudicator-budget.ts` ($200/mo cap).
+> 4. **Confidence rubric.** New `src/domains/recommendations/confidence.ts` with `computeRecConfidence(rec, edits)` → `"high" | "medium" | "low"`. **HIGH means "likely safe to ship manually," NOT "auto-apply."** Stamped on `rec.resolution.confidence` in `load-queue.ts`.
+> 5. **Recommendations UI cleanup.** Simple card default. Evidence expansion. Confidence pill. (UUIDs + jargon already killed in W1.) **No Apply-All-HIGH bar.**
+> 6. **Tests / gates.** New architecture invariants: 0 placeholder rendered edits; 0 UUIDs (existing); Houzz/directories excluded from competitor instructions (existing); thin-evidence abstain; cost cap enforced. **Sample 10 generated recs on Ritz prod data and report quality honestly** — this is the W3 gate.
+>
+> **Explicitly out of scope for W3:**
+> - **Apply-All-HIGH bar.** Deferred until the founder has personally inspected 20–30 generated recommendations and trusts the HIGH label. Until then, the only acceptance path is per-rec Accept (existing `acceptRecommendation`).
+> - **`acceptAllHighConfidence` / `undoAcceptAllHighConfidence` server actions.** Not built.
+> - **Customer-one backfill mutation.** Backfill execution remains W4. W3 ships against current native-only data (since 2026-04-22) plus the schema-compatible model already in place.
+> - **Profound CSV archive + Profound code deletion.** Both deferred until after May 10 expiry.
+> - **`llm-budget-tiers.ts`.** Tier-aware caps deferred — single-tenant single-pricing for now; existing `adjudicator-budget.ts` is enough.
+>
+> **Master plan file** (`~/.claude/plans/beacon-master-sorted-creek.md`) §3.2, §5.6, §5.7, §9 W3 row, §10 file summary, §13 risk register, §14 success criteria all updated to reflect this amendment. Plan-file edits paired with the doc commit below so any context-reset agent reads the same scope.
+>
+> **Capability tier for W3:** **Max** — touches the wedge data path (LLM-grounded copy, validator semantics, evidence-packet shape that the brain learns from), and the confidence rubric is the trust contract for every future batch UX.
+
 > 🟢 **W2 Step 2.4 (Operator Mark-shipped + day-3 stale tint) LANDED (2026-05-01):** Single commit `260b313` on `main`. Adds the manual override that lets an operator start the verdict bake-window clock from /recommendations or /changes without waiting for tomorrow's 07:00 UTC scan, plus a day-3 yellow tint that warns when accepted edits sit unconfirmed.
 >
 > - **Persistence (`src/domains/recommendations/recommended-edits-persistence.ts`)** — `LiveMatchKind` extended with `"operator_override"` (never emitted by the match engine; only stamped by the new helper). New `markRecommendedEditsAsShipped({ editIds, tenantId, now? })` flips `recommended` or `accepted` → `verified_live` with `live_at = nowIso`, `live_match_kind = "operator_override"`, `live_match_confidence = "high"`. Forward-only at the persistence layer: rows already past `verified_live` are no-op. Idempotent. Dual-write follows the same file-first-then-Supabase contract as `markRecommendedEditsAccepted`. 10 new unit tests cover every transition path (recommended→shipped, accepted→shipped, all 7 forward-state no-ops, legacy undefined, unknown ids, empty input, field preservation, idempotency, dual-write failure, mixed-id batching).

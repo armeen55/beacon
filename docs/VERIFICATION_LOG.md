@@ -7,6 +7,41 @@
 
 ---
 
+## 2026-05-01 (PM, late) — W3 scope locked (founder-revised, no Apply-All-HIGH yet)
+
+Founder amended the W3 scope before any W3 code lands. Updated docs only — no code changes.
+
+### What changed
+
+**In W3:** Recommendation Engine v2 evidence packet (aiSearchSignal + competitor page blueprints + cross-tenant brain stub), placeholder kill (validator + abstain), LLM provider activation grounded in the packet, confidence rubric (HIGH/MEDIUM/LOW where **HIGH = "likely safe to ship manually," NOT "auto-apply"**), simple-card UI cleanup with confidence pill + evidence expansion, architecture invariants for 0 placeholder + 0 UUID + thin-evidence abstain + directories-excluded + cost cap, **and a manual sample-10 quality report on Ritz prod data as the W3 gate.**
+
+**OUT of W3 (operator-decided):**
+- **Apply-All-HIGH bar** — deferred until the founder has personally inspected 20–30 generated recommendations and trusts the HIGH label. HIGH is a manual-ship safety claim, never a batch trigger.
+- **`acceptAllHighConfidence` / `undoAcceptAllHighConfidence` server actions** — not built.
+- **Customer-one backfill mutation** — W4 still owns the backfill.
+- **Profound CSV archive + Profound code deletion** — both wait until after the May 10 expiry.
+- **`llm-budget-tiers.ts`** — single-tenant single-pricing for now; existing `adjudicator-budget.ts` $200/mo cap is enough.
+
+### Files touched (docs only)
+
+- `~/.claude/plans/beacon-master-sorted-creek.md` (master plan, outside repo): TL;DR roadmap §0 W3 line, §3.2 deferred-bar block, §5.6 file lists, §5.7 acceptance criteria, §9 W3 Friday row, §10 file summary commentary, §13 risk register Apply-All-HIGH row struck, §14 success criterion 8 reworded.
+- `docs/HANDOFF_VERIFIED_STATE.md`: 🟡 W3 scope lock block prepended above the W2 Step 2.4 green block. In-scope / out-of-scope explicit. Capability tier locked to Max.
+- `docs/VERIFICATION_LOG.md`: this entry.
+
+### Why a docs-only commit
+
+Per CLAUDE.md execution-contract, accepted-plan = full landing-strip. The scope amendment isn't a step plan — it's a re-contract for the W3 deliverable. Locking it in `docs/HANDOFF_VERIFIED_STATE.md` AND the master plan file ensures any context-reset / offshore-dev / future-agent reads the revised scope first. No code lands until this commit is in.
+
+### Verification
+
+No build, no tests, no hosted smoke — docs-only.
+
+### Next
+
+W3 Step 3.1 (placeholder kill — fastest, highest-leverage, lowest risk: validator + helper + generator abstain) is the proposed entry point. Operator confirmation in chat before code lands.
+
+---
+
 ## 2026-05-01 (PM) — W2 Step 2.4: Operator Mark-shipped + day-3 stale tint
 
 Single code commit `260b313` on `main`. Closes the operator-felt gap where shipping a change at 11pm meant waiting until tomorrow's 07:00 UTC scan to start the verdict bake-window clock; adds a day-3 yellow tint that warns when accepted edits sit unconfirmed.
