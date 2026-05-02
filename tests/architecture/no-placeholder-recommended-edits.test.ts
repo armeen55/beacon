@@ -27,34 +27,32 @@ import {
  * the product less." The validator rejects these on regenerate; this
  * invariant keeps the data store honest as a regression guard.
  *
- * Pre-W3 placeholder rows DO exist in the canonical .data store
- * (operator-accepted before the validator was hardened). Those rows
- * are allowlisted by id below and remain `accepted` until the next
- * regeneration cycle (W3 Step 3.4 LLM activation) replaces them with
- * grounded copy. This test FAILS the moment any NEW placeholder row
- * sneaks past the validator.
+ * W3 Step 3.1b (2026-05-01) — allowlist DROPPED. The 4 Los Altos
+ * placeholder rows that previously gated this invariant were
+ * quarantined via `scripts/quarantine-pre-w3-placeholder-edits.ts`:
+ * status flipped `accepted` → `dismissed` with
+ * not_found_reason = "invalid_placeholder_pre_w3". Dismissed rows are
+ * filtered by `isActive` here and don't render in the queue. Active
+ * placeholder copy must be ZERO from this point forward.
  */
 
 const ROOT = path.resolve(__dirname, "..", "..");
 const TENANTS_ROOT = path.join(ROOT, ".data", "tenants");
 
 /**
- * Pre-W3 placeholder rows that predate the validator hardening. These
- * rows are operator-accepted and will be replaced when the W3 Step 3.4
- * LLM provider regenerates the queue. They are allowlisted here so
- * the invariant blocks NEW placeholder regressions without forcing a
- * mid-step data mutation.
- *
- * If you find yourself adding to this list, STOP — your validator or
- * generator change is likely missing a placeholder gate. The whole
- * point of W3 Step 3.1 is that this list shrinks, never grows.
+ * The 4 originally-allowlisted placeholder ids — kept as a documented
+ * regression target, not as an exemption. The "quarantined IDs are
+ * dismissed" test below verifies they're still in the documented
+ * post-quarantine state. There is intentionally NO active-row
+ * allowlist; new placeholder rows must be impossible.
  */
-const KNOWN_PRE_W3_PLACEHOLDER_IDS: ReadonlyArray<string> = [
+const QUARANTINED_PRE_W3_IDS: ReadonlyArray<string> = [
   "create_cluster_page:geo:Los Altos__add_faq__faq_question[new]:d1b049c63d8a",
   "create_cluster_page:geo:Los Altos__add_faq__faq_question[new]:f2dcb7022c42",
   "create_cluster_page:geo:Los Altos__add_faq__faq_question[new]:93a207d063c1",
   "create_cluster_page:geo:Los Altos__add_faq__faq_question[new]:ff677f6f3ded",
 ];
+const QUARANTINE_REASON = "invalid_placeholder_pre_w3";
 
 type RecommendedEditRow = {
   id: string;
@@ -63,6 +61,7 @@ type RecommendedEditRow = {
   proposed_text: string | null;
   display_label: string | null;
   implementation_status?: string;
+  not_found_reason?: string | null;
 };
 
 function listTenantStores(): Array<{ tenantSlug: string; filePath: string }> {
@@ -120,7 +119,6 @@ describe("Architecture: recommended_edits — placeholder + structural quality",
       const rows = loadRows(filePath);
       for (const row of rows) {
         if (!isActive(row)) continue;
-        if (KNOWN_PRE_W3_PLACEHOLDER_IDS.includes(row.id)) continue;
 
         for (const [field, value] of [
           ["proposed_text", row.proposed_text],
@@ -148,7 +146,7 @@ describe("Architecture: recommended_edits — placeholder + structural quality",
         )
         .join("\n");
       throw new Error(
-        `Found ${violations.length} active recommended_edits row(s) with placeholder phrases:\n${msg}\n\nFix: regenerate via the validator-hardened pipeline (W3 Step 3.4 LLM provider) OR mark the row dismissed. Adding to KNOWN_PRE_W3_PLACEHOLDER_IDS is NOT allowed — that list only documents rows that predate the hardening.`,
+        `Found ${violations.length} active recommended_edits row(s) with placeholder phrases:\n${msg}\n\nFix: regenerate via the validator-hardened pipeline (W3 Step 3.4 LLM provider) OR run scripts/quarantine-pre-w3-placeholder-edits.ts to dismiss. There is no allowlist; placeholder copy in the active queue is never acceptable.`,
       );
     }
   });
@@ -171,7 +169,6 @@ describe("Architecture: recommended_edits — placeholder + structural quality",
       const rows = loadRows(filePath);
       for (const row of rows) {
         if (!isActive(row)) continue;
-        if (KNOWN_PRE_W3_PLACEHOLDER_IDS.includes(row.id)) continue;
         if (row.action_type !== "add_faq" && row.action_type !== "rewrite_faq") {
           continue;
         }
@@ -197,29 +194,73 @@ describe("Architecture: recommended_edits — placeholder + structural quality",
         )
         .join("\n");
       throw new Error(
-        `Found ${violations.length} active FAQ recommended_edits row(s) failing structural quality:\n${msg}\n\nFix: regenerate via the validator-hardened pipeline OR dismiss.`,
+        `Found ${violations.length} active FAQ recommended_edits row(s) failing structural quality:\n${msg}\n\nFix: regenerate via the validator-hardened pipeline OR run scripts/quarantine-pre-w3-placeholder-edits.ts.`,
       );
     }
   });
 
-  it("KNOWN_PRE_W3_PLACEHOLDER_IDS only references rows that actually exist (no stale allowlist entries)", () => {
+  it("W3 Step 3.1b — quarantined placeholder rows are dismissed with the documented reason", () => {
+    // Forward-only contract: once `scripts/quarantine-pre-w3-
+    // placeholder-edits.ts` runs, the 4 originally-allowlisted IDs
+    // must stay in `dismissed` status with not_found_reason =
+    // "invalid_placeholder_pre_w3". Any drift (status reverts to
+    // accepted, reason cleared, etc.) means a code path mutated the
+    // rows in a way the lifecycle's forward-only contract should
+    // have blocked.
     const stores = listTenantStores();
     if (stores.length === 0) return;
 
-    const allIdsInData = new Set<string>();
+    // Find the rows in whichever tenant carries them.
+    const found = new Map<string, RecommendedEditRow>();
     for (const { filePath } of stores) {
       for (const row of loadRows(filePath)) {
-        allIdsInData.add(row.id);
+        if (QUARANTINED_PRE_W3_IDS.includes(row.id)) {
+          found.set(row.id, row);
+        }
       }
     }
 
-    const stale = KNOWN_PRE_W3_PLACEHOLDER_IDS.filter(
-      (id) => !allIdsInData.has(id),
-    );
-    if (stale.length > 0) {
+    // Every quarantined id must (a) exist and (b) be dismissed with
+    // the documented reason.
+    const issues: string[] = [];
+    for (const id of QUARANTINED_PRE_W3_IDS) {
+      const row = found.get(id);
+      if (!row) {
+        issues.push(`${id} not found in any tenant store`);
+        continue;
+      }
+      if (row.implementation_status !== "dismissed") {
+        issues.push(
+          `${id} status=${row.implementation_status ?? "(undef)"} (expected "dismissed")`,
+        );
+      }
+      if (row.not_found_reason !== QUARANTINE_REASON) {
+        issues.push(
+          `${id} not_found_reason=${row.not_found_reason ?? "(null)"} (expected ${QUARANTINE_REASON})`,
+        );
+      }
+    }
+
+    if (issues.length > 0) {
       throw new Error(
-        `KNOWN_PRE_W3_PLACEHOLDER_IDS references ${stale.length} row(s) that no longer exist in the canonical store:\n${stale.map((s) => `  - ${s}`).join("\n")}\n\nRemove these from the allowlist — they were already cleaned up.`,
+        `Pre-W3 placeholder quarantine drift detected:\n${issues.map((i) => `  - ${i}`).join("\n")}\n\nThe 4 placeholder rows must remain dismissed forever. Fix: re-run scripts/quarantine-pre-w3-placeholder-edits.ts --execute.`,
       );
+    }
+  });
+
+  it("W3 Step 3.1b — quarantined rows do not pass the `isActive` filter (cannot render in the queue)", () => {
+    // Behavioral check on isActive: dismissed rows are filtered
+    // before the placeholder + structural scans run. Future code
+    // paths that surface "all" rows (e.g., admin views) must rely
+    // on the same filter to avoid leaking placeholder copy.
+    const stores = listTenantStores();
+    if (stores.length === 0) return;
+
+    for (const { filePath } of stores) {
+      for (const row of loadRows(filePath)) {
+        if (!QUARANTINED_PRE_W3_IDS.includes(row.id)) continue;
+        expect(isActive(row)).toBe(false);
+      }
     }
   });
 });

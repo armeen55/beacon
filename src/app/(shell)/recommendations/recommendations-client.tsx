@@ -290,7 +290,20 @@ function RecommendationRow({
   ) => void;
   promptTextById: Record<string, string>;
 }) {
-  const { rec, response, edits } = row;
+  const { rec, response, edits: allEdits } = row;
+  // W3 Step 3.1b (2026-05-01) — filter dismissed + not_found_after_7d
+  // edits from the rendered queue. Dismissed rows include the
+  // pre-W3 placeholder rows quarantined by
+  // scripts/quarantine-pre-w3-placeholder-edits.ts; their proposed_text
+  // still contains the original placeholder copy and the operator
+  // must never see it again. not_found_after_7d is similarly
+  // unactionable. The lifecycle classifier on /changes already
+  // treats both as `unclassified` (not surfaced); this brings
+  // /recommendations into parity.
+  const edits = allEdits.filter((e) => {
+    const s = e.implementation_status ?? "recommended";
+    return s !== "dismissed" && s !== "not_found_after_7d";
+  });
   const editCount = edits.length;
   // W2 Step 2.4 (2026-05-01) — operator-override eligibility + staleness.
   // Eligible edits = those still pre-verified (recommended | accepted).

@@ -125,10 +125,19 @@ describe("Phase 6A.1.12 — recommendations-client UI", () => {
   });
 
   it("destructures edits from the row + computes editCount", () => {
+    // W3 Step 3.1b (2026-05-01) — the destructure now renames `edits`
+    // to `allEdits` so the dismissed-filter result can take the
+    // `edits` name in the rest of the component. The wiring contract
+    // — rec card has access to its edits + editCount comes from the
+    // (filtered) array length — is unchanged.
     expect(CLIENT_SOURCE).toMatch(
-      /const\s*\{\s*rec,\s*response,\s*edits\s*\}\s*=\s*row/,
+      /const\s*\{\s*rec,\s*response,\s*edits\s*:\s*allEdits\s*\}\s*=\s*row/,
     );
     expect(CLIENT_SOURCE).toMatch(/editCount\s*=\s*edits\.length/);
+    // Confirm the dismissed/not_found_after_7d filter is in place.
+    expect(CLIENT_SOURCE).toMatch(
+      /allEdits\.filter\(\(e\)\s*=>\s*\{[\s\S]*?s\s*!==\s*"dismissed"\s*&&\s*s\s*!==\s*"not_found_after_7d"/,
+    );
   });
 
   it("renders a Specific edits section when editCount > 0", () => {
