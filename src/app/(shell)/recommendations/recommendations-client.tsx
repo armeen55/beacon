@@ -243,13 +243,26 @@ const ACTION_LABEL: Record<RecommendationAction, string> = {
   watch: "Watch",
 };
 
+/**
+ * W3 Step 3.5b.D (2026-05-02) — motive copy humanized.
+ *
+ * Operator browser audit (2026-05-02) flagged the previous values
+ * ("Capture absent cluster", "Counter competitor") as internal jargon.
+ * Replaced with operator-readable "what Beacon noticed" sentences.
+ * Internal motive enum keys stay unchanged so logs / DB / changelog
+ * notes don't drift.
+ */
 const MOTIVE_LABEL: Record<RecommendationMotive, string> = {
-  counter_competitor: "Counter competitor",
-  capture_absent_cluster: "Capture absent cluster",
-  improve_close_prompt: "Close the gap",
-  defend_winning_cluster: "Defend winning cluster",
-  resolve_cannibalization: "Resolve cannibalization",
-  improve_citation_depth: "Improve citation depth",
+  counter_competitor: "A competitor is currently winning this answer.",
+  capture_absent_cluster: "AI is not citing Ritz for this topic yet.",
+  improve_close_prompt:
+    "Ritz is close, but the page needs more coverage.",
+  defend_winning_cluster:
+    "Ritz is currently the primary answer — keep it that way.",
+  resolve_cannibalization:
+    "Multiple Ritz pages compete for the same answer.",
+  improve_citation_depth:
+    "Ritz is cited but ranks low — strengthen the page.",
 };
 
 const TIER_BADGE: Record<ResolverTier, { label: string | null; className: string } | null> = {
@@ -264,6 +277,26 @@ const TIER_BADGE: Record<ResolverTier, { label: string | null; className: string
   },
   deterministic_only: null,
 };
+
+/**
+ * W3 Step 3.5b.E (2026-05-02) — strip bracketed diagnostic suffixes
+ * from operator-facing copy. Resolver helpers like
+ * `confidenceReason` sometimes append `[reason1; reason2; ...]`
+ * scoring detail (e.g., "[1/1 label tokens match page; all label
+ * tokens appear in URL path; geo cluster → location-route page]").
+ * That detail is useful in evidence expansion, NOT on the default
+ * rec card.
+ *
+ * Pure. Removes ALL bracketed segments. If the bracket is the whole
+ * string, returns the trimmed remainder (which may be empty) so the
+ * caller can branch on render.
+ */
+function stripBracketedDiagnostics(text: string): string {
+  return text
+    .replace(/\s*\[[^\]]*\]\s*\.?/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
 function shortUrl(url: string): string {
   try {
@@ -517,13 +550,23 @@ function RecommendationRow({
 
       {confidenceReason && (
         <p className="mt-0.5 text-[11px] text-muted-foreground/80 leading-relaxed">
-          {confidenceReason}
+          {/* W3 Step 3.5b.E (2026-05-02) — strip bracketed diagnostic
+              detail (e.g. "[1/1 label tokens match page; all label
+              tokens appear in URL path]") from the default card.
+              Operators don't read scoring strings; the prose summary
+              is what matters. Full text remains in evidence
+              expansion paths. */}
+          {stripBracketedDiagnostics(confidenceReason)}
         </p>
       )}
 
       {motiveLabel && (
         <p className="mt-1 text-[11px]">
-          <span className="text-muted-foreground">Motive:</span>{" "}
+          {/* W3 Step 3.5b.D (2026-05-02) — operator-revised label.
+              Was "Motive: Capture absent cluster" — internal jargon.
+              Now reads "Why this matters: AI is not citing Ritz for
+              this topic yet." MOTIVE_LABEL strings updated to match. */}
+          <span className="text-muted-foreground">Why this matters:</span>{" "}
           <span className="font-medium text-foreground/90">{motiveLabel}</span>
         </p>
       )}
@@ -937,7 +980,18 @@ function EvidenceChips({
     });
   }
 
-  chips.push({ label: `${rec.effort} effort`, tone: "neutral" });
+  // W3 Step 3.5b.C (2026-05-02) — operator-readable effort label so
+  // the chip never leaks raw "low" / "medium" / "high" tokens.
+  // Internal enum stays on rec.effort; only the visible chip changes.
+  const effortLabel: Record<string, string> = {
+    low: "Quick win",
+    medium: "Medium effort",
+    high: "Heavy lift",
+  };
+  chips.push({
+    label: effortLabel[rec.effort] ?? `${rec.effort} effort`,
+    tone: "neutral",
+  });
 
   if (chips.length === 0) return null;
 
@@ -1080,6 +1134,16 @@ const EDIT_CONFIDENCE_LABEL: Record<string, string> = {
   low: "Weak signal",
 };
 
+// W3 Step 3.5b.C (2026-05-02) — humanize per-edit difficulty enum.
+// Operator audit caught "low" rendering raw alongside other badges
+// ("AI-generated · Review · low"). Internal enum stays low/medium/
+// high; visible badge says "Easy" / "Medium" / "Hard".
+const EDIT_DIFFICULTY_LABEL: Record<string, string> = {
+  low: "Easy",
+  medium: "Medium",
+  high: "Hard",
+};
+
 // Sprint 6A.2g.F (2026-04-26) — source badge color map. Different
 // hue per provider source so the operator can scan a long edit list
 // and tell at a glance which rows came from the LLM, the legacy
@@ -1211,8 +1275,16 @@ function SpecificEditsSection({
                 >
                   {EDIT_CONFIDENCE_LABEL[edit.confidence] ?? edit.confidence}
                 </span>
-                <span className="text-[10px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded border border-border/60 text-muted-foreground">
-                  {edit.difficulty}
+                {/* W3 Step 3.5b.C (2026-05-02) — humanized difficulty
+                    badge so the row never shows raw "low" / "medium" /
+                    "high" tokens. Internal enum still passes through
+                    `data-edit-difficulty` for tests + diagnostics. */}
+                <span
+                  className="text-[10px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded border border-border/60 text-muted-foreground"
+                  title={`Per-edit difficulty: ${edit.difficulty}`}
+                  data-edit-difficulty={edit.difficulty}
+                >
+                  {EDIT_DIFFICULTY_LABEL[edit.difficulty] ?? edit.difficulty}
                 </span>
               </div>
               {/* Sprint 6A.2g.F — target URL link + different-page warning. */}

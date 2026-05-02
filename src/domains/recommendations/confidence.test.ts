@@ -183,12 +183,18 @@ describe("computeRecConfidence — LOW gates", () => {
     expect(verdict.reasons).toEqual(["competitor_name_leak_in_copy"]);
   });
 
-  it("LOW: tier === 'deterministic_only'", () => {
+  // W3 Step 3.5b.B (2026-05-02) — operator-revised: deterministic-only
+  // tier BLOCKS Strong but does NOT force Weak signal when other
+  // dimensions are reasonable. The operator's browser audit flagged
+  // "every card says Weak signal" as a trust-killer. Deterministic-
+  // only is a HIGH blocker, MEDIUM verdict.
+  it("MEDIUM (not LOW): tier === 'deterministic_only' with otherwise reasonable evidence", () => {
     const verdict = computeRecConfidence(
       highArgs({ resolverTier: "deterministic_only" }),
     );
-    expect(verdict.confidence).toBe("low");
-    expect(verdict.reasons).toEqual(["tier_deterministic_only"]);
+    expect(verdict.confidence).toBe("medium");
+    expect(verdict.reasons).toContain("tier_not_adjudicated_or_inventory");
+    expect(verdict.reasons).not.toContain("tier_deterministic_only");
   });
 
   it("LOW: resolutionConfidence === 'low'", () => {
@@ -242,7 +248,7 @@ describe("computeRecConfidence — MEDIUM path (HIGH blockers)", () => {
       highArgs({ resolverTier: "observation" }),
     );
     expect(verdict.confidence).toBe("medium");
-    expect(verdict.reasons).toContain("tier_observation_only");
+    expect(verdict.reasons).toContain("tier_not_adjudicated_or_inventory");
   });
 
   it("MEDIUM: any edit at confidence 'medium'", () => {
@@ -370,5 +376,134 @@ describe("computeRecConfidence — Apply-All-HIGH is NOT a thing", () => {
     // that returns HIGH from a single positive signal, you've
     // weakened the rubric and this assertion forces the conversation.
     expect(verdict.reasons.length).toBeGreaterThanOrEqual(5);
+  });
+});
+
+// ── W3 Step 3.5b.B — Weak signal isn't the default ──────────────────────
+
+describe("W3 Step 3.5b.B — confidence semantics revision", () => {
+  /**
+   * Operator's browser audit (2026-05-02) flagged: "every card shows
+   * Weak signal — the product looks like it does not trust itself."
+   * Root cause: `tier_deterministic_only` was a hard LOW gate, so any
+   * rec without a real resolver tier landed in Weak signal even when
+   * it had real evidence. This describe block locks the new
+   * semantics:
+   *   - deterministic-only with real evidence → MEDIUM (Review)
+   *   - genuinely thin (single prompt + no evidence + no refs) → LOW
+   */
+
+  it("LOW: single prompt + no packet signal + zero evidence refs (truly thin)", () => {
+    const verdict = computeRecConfidence(
+      highArgs({
+        affectedPromptCount: 1,
+        evidenceRefCount: 0,
+        hasAiSearchSignal: false,
+        hasCompetitorPageBlueprints: false,
+      }),
+    );
+    expect(verdict.confidence).toBe("low");
+    expect(verdict.reasons).toEqual(["single_prompt_no_evidence"]);
+  });
+
+  it("MEDIUM (not LOW): single prompt with packet signal — has real grounding", () => {
+    const verdict = computeRecConfidence(
+      highArgs({
+        affectedPromptCount: 1,
+        evidenceRefCount: 0,
+        hasAiSearchSignal: true,
+      }),
+    );
+    expect(verdict.confidence).toBe("medium");
+  });
+
+  it("MEDIUM (not LOW): single prompt with evidence refs — has structured grounding", () => {
+    const verdict = computeRecConfidence(
+      highArgs({
+        affectedPromptCount: 1,
+        evidenceRefCount: 2,
+        hasAiSearchSignal: false,
+        hasCompetitorPageBlueprints: false,
+      }),
+    );
+    expect(verdict.confidence).toBe("medium");
+  });
+
+  it("MEDIUM (not LOW): deterministic-only tier with multi-prompt + evidence", () => {
+    const verdict = computeRecConfidence(
+      highArgs({
+        resolverTier: "deterministic_only",
+        affectedPromptCount: 3,
+        evidenceRefCount: 4,
+      }),
+    );
+    expect(verdict.confidence).toBe("medium");
+    expect(verdict.reasons).toContain("tier_not_adjudicated_or_inventory");
+  });
+
+  it("MEDIUM is the catch-all — most well-formed but non-Strong recs land here", () => {
+    // Realistic Ritz queue shape: deterministic-only resolver +
+    // multi-prompt + decent evidence + no LLM packet signal yet.
+    // Under pre-Step-3.5b semantics this would have been LOW
+    // (deterministic_only forced LOW). Now it should be MEDIUM.
+    const verdict = computeRecConfidence({
+      affectedPromptCount: 3,
+      resolverTier: "deterministic_only",
+      resolutionConfidence: "medium",
+      needsHumanReview: false,
+      evidenceRefCount: 3,
+      edits: [
+        {
+          proposed_text:
+            "Comprehensive section explaining design-build approach with ten years of project examples in the Bay Area.",
+          confidence: "medium",
+          target_element_key: "h2[new]:abc",
+        },
+      ],
+      hasAiSearchSignal: false,
+      hasCompetitorPageBlueprints: false,
+      competitorNames: [],
+    });
+    expect(verdict.confidence).toBe("medium");
+  });
+
+  it("INVARIANT: a queue of well-formed recs does not become all LOW", () => {
+    // Simulates 5 different rec shapes typical of the post-Step-3.4
+    // Ritz queue. Most should land in MEDIUM. ZERO should land in
+    // LOW just because deterministic-only fired. The operator
+    // requirement (post-3.5b) is: "Most of the current queue should
+    // probably be Review, not Weak signal."
+    const queue = [
+      // a) deterministic-only multi-prompt rec
+      highArgs({
+        resolverTier: "deterministic_only",
+        resolutionConfidence: "medium",
+        affectedPromptCount: 3,
+      }),
+      // b) inventory tier with real grounding
+      highArgs({
+        resolverTier: "inventory",
+        resolutionConfidence: "medium",
+      }),
+      // c) observation tier multi-prompt
+      highArgs({
+        resolverTier: "observation",
+        resolutionConfidence: "medium",
+        affectedPromptCount: 4,
+      }),
+      // d) deterministic-only single prompt but with packet signal
+      highArgs({
+        resolverTier: "deterministic_only",
+        resolutionConfidence: "medium",
+        affectedPromptCount: 1,
+        hasAiSearchSignal: true,
+      }),
+      // e) HIGH-eligible rec (all 6 dimensions pass)
+      highArgs(),
+    ];
+
+    const verdicts = queue.map((args) => computeRecConfidence(args));
+    const lowCount = verdicts.filter((v) => v.confidence === "low").length;
+    expect(lowCount).toBe(0);
   });
 });

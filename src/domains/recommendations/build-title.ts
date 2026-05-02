@@ -118,10 +118,73 @@ export function buildResolvedRecommendationTitle(rec: BuildTitleInput): string {
 
     case "create_new_page":
     default:
-      return truncatedLabel
-        ? `Create a ${truncatedLabel} page`
-        : "Create a new page";
+      if (!truncatedLabel) return "Create a new page";
+      // W3 Step 3.5b.F (2026-05-02) — prompt-shaped labels produce
+      // ungrammatical titles when inlined (operator browser audit
+      // 2026-05-02 flagged "Create a If I buy a property…"). Detect
+      // sentence-shaped labels and use a quoted/wrapped form so the
+      // grammar reads naturally.
+      if (looksLikePromptText(truncatedLabel)) {
+        return `Create a page for "${truncatedLabel}"`;
+      }
+      return `Create a ${truncatedLabel} page`;
   }
+}
+
+/**
+ * W3 Step 3.5b.F — heuristic that flags labels which read like a
+ * customer-asked sentence (e.g., "If I buy a property…") rather than
+ * a category noun phrase (e.g., "Atherton kitchen remodel"). Inlining
+ * a sentence into "Create a {label} page" produces broken grammar;
+ * the title builder uses a wrapped form when this returns true.
+ *
+ * Triggers (any one fires):
+ *   - starts with a prompt-starter word (If / When / How / Who / What
+ *     / Why / Which / Should / Can / Do / Does / Are / Is / Will /
+ *     Would / Could)
+ *   - contains a first-person / second-person pronoun as a separate
+ *     word (I / me / my / you / your)
+ *   - contains a "?"
+ *   - is longer than 50 characters (heuristic for "this is a
+ *     sentence, not a phrase")
+ *
+ * Pure. Case-insensitive. Exported for tests; used only by this
+ * module.
+ */
+export function looksLikePromptText(label: string): boolean {
+  const trimmed = label.trim();
+  if (trimmed.length === 0) return false;
+  if (trimmed.length > 50) return true;
+  if (trimmed.includes("?")) return true;
+  // First-person / second-person pronoun as a standalone word.
+  if (/\b(?:i|me|my|you|your)\b/i.test(trimmed)) return true;
+  // Prompt-starter words (case-insensitive, must be the first
+  // alphabetic token).
+  const firstWord = trimmed
+    .split(/\s+/)[0]
+    ?.toLowerCase()
+    .replace(/[^a-z]/g, "");
+  if (!firstWord) return false;
+  const STARTERS = new Set([
+    "if",
+    "when",
+    "where",
+    "how",
+    "why",
+    "who",
+    "what",
+    "which",
+    "should",
+    "can",
+    "do",
+    "does",
+    "are",
+    "is",
+    "will",
+    "would",
+    "could",
+  ]);
+  return STARTERS.has(firstWord);
 }
 
 function shortUrlPath(url: string): string {

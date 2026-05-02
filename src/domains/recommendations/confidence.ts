@@ -76,8 +76,8 @@ export type ConfidenceReasonCode =
   | "edit_low_confidence"
   | "edit_placeholder_text"
   | "competitor_name_leak_in_copy"
-  | "tier_deterministic_only"
   | "resolution_low_confidence"
+  | "single_prompt_no_evidence"
   // ── HIGH positives ──
   | "multi_prompt_signal"
   | "adjudicated_or_inventory_tier"
@@ -88,7 +88,7 @@ export type ConfidenceReasonCode =
   | "sufficient_evidence_refs"
   // ── HIGH blockers (accumulated when condition fails) ──
   | "single_prompt_signal"
-  | "tier_observation_only"
+  | "tier_not_adjudicated_or_inventory"
   | "edit_medium_or_lower_confidence"
   | "no_grounded_packet_signal"
   | "resolution_medium_confidence"
@@ -203,6 +203,22 @@ export function computeRecConfidence(
   args: ComputeRecConfidenceArgs,
 ): RecConfidenceVerdict {
   // ── LOW gates (early returns; first match wins) ──
+  //
+  // W3 Step 3.5b.B (2026-05-02) — operator-revised: LOW is reserved
+  // for genuinely thin or risky rows. `tier_deterministic_only` was
+  // a LOW gate in the original rubric; the operator's browser audit
+  // flagged that as "every card says Weak signal, the product looks
+  // like it does not trust itself." Deterministic-only now BLOCKS
+  // Strong (handled in the HIGH evaluation below) but does NOT force
+  // Weak signal when other evidence is real.
+  //
+  // The remaining LOW gates pin truly-unsafe rows:
+  //   - 0 prompts / 0 edits / needsHumanReview
+  //   - any edit with a placeholder / competitor-name leak
+  //   - any edit at confidence "low"
+  //   - resolution_low_confidence
+  //   - "single prompt + zero grounded evidence" combined check
+  //     (operator scope: "one prompt only with little evidence")
 
   if (args.affectedPromptCount === 0) {
     return { confidence: "low", reasons: ["no_affected_prompts"] };
@@ -232,13 +248,30 @@ export function computeRecConfidence(
       };
     }
   }
-  if (args.resolverTier === "deterministic_only") {
-    return { confidence: "low", reasons: ["tier_deterministic_only"] };
-  }
   if (args.resolutionConfidence === "low") {
     return {
       confidence: "low",
       reasons: ["resolution_low_confidence"],
+    };
+  }
+
+  // W3 Step 3.5b.B — combined LOW gate for "truly thin" recs.
+  // Single-prompt AND zero packet evidence AND zero structured
+  // evidence refs = no real signal to act on. This catches early-
+  // stage recs that have a prompt but nothing to back the action.
+  // Multi-prompt OR any packet signal OR ≥1 evidence ref = MEDIUM
+  // (Review).
+  const hasAnyGroundedSignal =
+    args.hasAiSearchSignal === true ||
+    args.hasCompetitorPageBlueprints === true;
+  if (
+    args.affectedPromptCount === 1 &&
+    !hasAnyGroundedSignal &&
+    args.evidenceRefCount === 0
+  ) {
+    return {
+      confidence: "low",
+      reasons: ["single_prompt_no_evidence"],
     };
   }
 
@@ -254,15 +287,18 @@ export function computeRecConfidence(
     blockers.push("single_prompt_signal");
   }
 
-  // 2. Real resolver tier (already past deterministic_only LOW gate;
-  //    "observation" still blocks HIGH — it's a soft inventory match).
+  // 2. Real resolver tier. W3 Step 3.5b.B (2026-05-02) — both
+  //    `observation` AND `deterministic_only` block HIGH (Strong is
+  //    hard to earn) but neither forces LOW (Review is the catch-
+  //    all). Only `adjudicated` or `inventory` open the door to
+  //    Strong.
   if (
     args.resolverTier === "adjudicated" ||
     args.resolverTier === "inventory"
   ) {
     positives.push("adjudicated_or_inventory_tier");
   } else {
-    blockers.push("tier_observation_only");
+    blockers.push("tier_not_adjudicated_or_inventory");
   }
 
   // 3. Every edit at confidence "high".
