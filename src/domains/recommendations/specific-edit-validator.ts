@@ -64,6 +64,11 @@ import type {
   SpecificEditSource,
 } from "./specific-edit-provider";
 import { NEEDS_NEW_PAGE } from "./resolved-types";
+import {
+  detectPlaceholder,
+  evaluateFaqAnswer,
+  parseFaqProposedText,
+} from "./placeholder-detection";
 
 // ---------------------------------------------------------------------------
 // Result types
@@ -527,6 +532,25 @@ export function validateSpecificEdit(
   const faqGate = validateFaqIntentRewriting(edit, packet);
   if (!faqGate.ok) return faqGate;
 
+  // ── 9.55 Placeholder + FAQ structural quality (W3 Step 3.1) ────────
+  // Reject:
+  //   - any proposedText / displayLabel matching a placeholder phrase
+  //     (Draft answer / TBD / operator: rewrite / [insert / placeholder
+  //     / TODO: / rewrite below). The deterministic generators no
+  //     longer emit these, but the LLM provider in 3.4 might; this
+  //     layer is the catch-all.
+  //   - add_faq edits whose Q+A body is structurally useless
+  //     (under MIN_FAQ_ANSWER_WORDS, mostly repeats the question, or
+  //     has no specific content beyond generic filler).
+  //
+  // Locked by tests in
+  // src/domains/recommendations/placeholder-detection.test.ts and
+  // specific-edit-validator-llm-hardening.test.ts (extended at this
+  // step). NEVER bypass with an env flag — placeholder copy in the
+  // queue erodes operator trust faster than any false positive.
+  const placeholderGate = validateNoPlaceholder(edit);
+  if (!placeholderGate.ok) return placeholderGate;
+
   // ── 9.6 Competitor public-copy safety (Sprint 6A.2g.B) ─────────────
   // Reject competitor names from packet.competitorAngles[*] that leak
   // into visitor-readable copy: proposedText + targetElement.displayLabel.
@@ -585,6 +609,75 @@ function normalizeFaqStem(s: string): string {
     // Collapse whitespace.
     .replace(/\s+/g, " ")
     .slice(0, FAQ_STEM_PREFIX_LENGTH);
+}
+
+// ---------------------------------------------------------------------------
+// W3 Step 3.1 — placeholder + FAQ structural-quality gate
+// ---------------------------------------------------------------------------
+
+/**
+ * Reject edits whose copy reads like a generator placeholder, OR whose
+ * FAQ Q+A body is structurally useless.
+ *
+ * Phrase rejection runs against:
+ *   - targetElement.proposedText
+ *   - targetElement.displayLabel
+ *   - targetElement.currentText is intentionally NOT scanned —
+ *     currentText comes from the page crawler reflecting whatever the
+ *     site already says. We're not validating the live site; we're
+ *     validating what we'd RECOMMEND.
+ *
+ * Structural rejection (FAQ Q+A) runs only on add_faq + rewrite_faq
+ * edits whose proposedText parses as `Q: ... \n\nA: ...`. Edits whose
+ * proposedText doesn't match the deterministic-generator format skip
+ * the structural test (the LLM provider in W3 Step 3.4 may emit
+ * different shapes; for those, the existing rule 9.5 + the phrase
+ * rejection already catch the worst failures).
+ *
+ * No env opt-out — placeholder copy must never reach the queue.
+ */
+function validateNoPlaceholder(edit: SpecificEdit): ValidationResult {
+  if (edit.targetElement === null) return OK;
+  const tel = edit.targetElement;
+
+  // 1. Phrase scan — proposedText.
+  if (typeof tel.proposedText === "string" && tel.proposedText.length > 0) {
+    const hit = detectPlaceholder(tel.proposedText);
+    if (hit.matched) {
+      return fail(
+        "targetElement.proposedText",
+        `proposedText matches placeholder pattern (${hit.patternId}): ${hit.description}. Generators must emit grounded copy or abstain ([]).`,
+      );
+    }
+  }
+
+  // 2. Phrase scan — displayLabel.
+  if (typeof tel.displayLabel === "string" && tel.displayLabel.length > 0) {
+    const hit = detectPlaceholder(tel.displayLabel);
+    if (hit.matched) {
+      return fail(
+        "targetElement.displayLabel",
+        `displayLabel matches placeholder pattern (${hit.patternId}): ${hit.description}.`,
+      );
+    }
+  }
+
+  // 3. Structural scan — only FAQ action types with parseable Q+A
+  // proposedText.
+  if (edit.actionType === "add_faq" || edit.actionType === "rewrite_faq") {
+    const parsed = parseFaqProposedText(tel.proposedText);
+    if (parsed) {
+      const verdict = evaluateFaqAnswer(parsed);
+      if (!verdict.ok) {
+        return fail(
+          "targetElement.proposedText",
+          `FAQ answer structurally insufficient (${verdict.reason}): ${verdict.detail}. Generator should abstain when evidence is too thin.`,
+        );
+      }
+    }
+  }
+
+  return OK;
 }
 
 // ---------------------------------------------------------------------------
@@ -770,15 +863,24 @@ function validateFaqIntentRewriting(
   if (typeof tel.proposedText !== "string" || tel.proposedText.length === 0) {
     return OK;
   }
-  const proposed = tel.proposedText.trim();
+  const fullProposed = tel.proposedText.trim();
+
+  // W3 Step 3.1 (2026-05-01) — recognize the deterministic generator's
+  // Q+A shape. When proposedText parses as `Q: <question>\n\nA:
+  // <answer>`, the "?" + verbatim-stem checks run against the QUESTION
+  // half, not the full text. Otherwise (LLM may emit just the question
+  // string, no "A:" prefix), the checks run against the full text as
+  // before. Pre-W3 callers continue to work unchanged.
+  const parsed = parseFaqProposedText(fullProposed);
+  const questionForGate = parsed ? parsed.question.trim() : fullProposed;
 
   // (a) Must end with "?". Always enforced — the env opt-out does NOT
   // skip this check. A FAQ "question" that doesn't end in a question
   // mark isn't a question.
-  if (!proposed.endsWith("?")) {
+  if (!questionForGate.endsWith("?")) {
     return fail(
       "targetElement.proposedText",
-      `add_faq / rewrite_faq question must end with "?" (got: ${JSON.stringify(proposed.slice(-20))})`,
+      `add_faq / rewrite_faq question must end with "?" (got: ${JSON.stringify(questionForGate.slice(-20))})`,
     );
   }
 
@@ -787,7 +889,7 @@ function validateFaqIntentRewriting(
   // mirrored from already-customer-voiced affected prompts.
   if (isSyntheticFaqCopyAllowed()) return OK;
 
-  const proposedNorm = normalizeFaqStem(proposed);
+  const proposedNorm = normalizeFaqStem(questionForGate);
   if (proposedNorm.length === 0) return OK;
 
   for (const affected of packet.affectedPrompts) {

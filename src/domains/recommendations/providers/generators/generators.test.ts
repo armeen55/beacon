@@ -431,6 +431,169 @@ describe("Phase 6A.1.9 — add_faq generator", () => {
   });
 });
 
+// ── W3 Step 3.1 — better empty than bad (abstain when evidence is thin) ───
+
+describe("W3 Step 3.1 — add_faq abstains when evidence is too thin", () => {
+  it("ABSTAIN — no descriptors AND no clusterLabel: returns []", () => {
+    // Strip descriptors from the opportunity (so the packet builder
+    // doesn't seed descriptorsNearBrand) AND null out clusterLabel.
+    const packet = buildPacket({
+      clusterLabel: null,
+      promptOpportunities: [
+        makeOpportunity("prompt-1", {
+          evidence: {
+            observationCount: 5,
+            primaryCount: 0,
+            citedCount: 1,
+            mentionedCount: 1,
+            absentCount: 4,
+            avgCitationRank: null,
+            dominantCompetitors: [],
+            answerStructureDistribution: {},
+            topDescriptors: [],
+            byPlatform: [],
+            lookbackDays: 7,
+          },
+        }),
+      ],
+    });
+    const edits = generateAddFaq(packet);
+    expect(edits).toEqual([]);
+  });
+
+  it("ABSTAIN — single descriptor AND no clusterLabel: returns []", () => {
+    // Branch B requires BOTH descriptor + cluster label. Without
+    // cluster, single descriptor isn't enough specific content.
+    const packet = buildPacket({
+      clusterLabel: null,
+      promptOpportunities: [
+        makeOpportunity("prompt-1", {
+          evidence: {
+            observationCount: 5,
+            primaryCount: 0,
+            citedCount: 1,
+            mentionedCount: 1,
+            absentCount: 4,
+            avgCitationRank: null,
+            dominantCompetitors: [],
+            answerStructureDistribution: {},
+            topDescriptors: ["board-certified"],
+            byPlatform: [],
+            lookbackDays: 7,
+          },
+        }),
+      ],
+    });
+    expect(generateAddFaq(packet)).toEqual([]);
+  });
+
+  it("EMIT — multiple descriptors carry the answer (real grounded copy)", () => {
+    const packet = buildPacket();
+    const edits = generateAddFaq(packet);
+    expect(edits).toHaveLength(1);
+    const e = edits[0];
+    // Output must NOT contain any placeholder phrase.
+    expect(e.targetElement?.proposedText).not.toMatch(/draft answer/i);
+    expect(e.targetElement?.proposedText).not.toMatch(/operator\s*:\s*rewrite/i);
+    expect(e.targetElement?.proposedText).not.toMatch(/\[insert\b/i);
+    expect(e.targetElement?.proposedText).not.toMatch(/\bTBD\b/i);
+    expect(e.targetElement?.proposedText).not.toMatch(/\bplaceholder\b/i);
+    expect(e.targetElement?.proposedText).not.toMatch(/\bTODO\s*:/i);
+    expect(e.targetElement?.proposedText).not.toMatch(/rewrite below/i);
+    // The seed answer should reference at least one descriptor by name
+    // (the basePacketArgs seeds "board-certified", "ages 7+", "Invisalign").
+    const proposed = e.targetElement?.proposedText ?? "";
+    const referencesDescriptor =
+      /board.certified/i.test(proposed) ||
+      /ages\s*7/i.test(proposed) ||
+      /invisalign/i.test(proposed);
+    expect(referencesDescriptor).toBe(true);
+  });
+
+  it("EMIT — single descriptor + clusterLabel composes a usable answer (Branch B)", () => {
+    const packet = buildPacket({
+      promptOpportunities: [
+        makeOpportunity("prompt-1", {
+          evidence: {
+            observationCount: 5,
+            primaryCount: 0,
+            citedCount: 1,
+            mentionedCount: 1,
+            absentCount: 4,
+            avgCitationRank: null,
+            dominantCompetitors: [],
+            answerStructureDistribution: {},
+            topDescriptors: ["board-certified"],
+            byPlatform: [],
+            lookbackDays: 7,
+          },
+        }),
+      ],
+    });
+    const edits = generateAddFaq(packet);
+    expect(edits).toHaveLength(1);
+    const proposed = edits[0].targetElement?.proposedText ?? "";
+    expect(proposed).toMatch(/board.certified/i);
+    expect(proposed).toMatch(/teen braces/i); // cluster label
+  });
+
+  it("ABSTAIN — composed answer fails the structural test: returns []", () => {
+    // Engineered case: descriptors collide with question tokens so
+    // every "specific" content word in the composed answer is also
+    // in the question. Branch A's evaluateFaqAnswer should reject;
+    // Branch B requires single descriptor + cluster but has 2
+    // descriptors so doesn't fire; falls through to abstain.
+    //
+    // Use a question that exhausts the descriptor vocabulary AND a
+    // cluster label that's only one token (so few specific words
+    // survive).
+    const packet = buildPacket({
+      clusterLabel: "x",
+      promptOpportunities: [
+        makeOpportunity("prompt-1", {
+          evidence: {
+            observationCount: 5,
+            primaryCount: 0,
+            citedCount: 1,
+            mentionedCount: 1,
+            absentCount: 4,
+            avgCitationRank: null,
+            dominantCompetitors: [],
+            answerStructureDistribution: {},
+            topDescriptors: ["a", "b"],
+            byPlatform: [],
+            lookbackDays: 7,
+          },
+        }),
+      ],
+    });
+    // Single-letter descriptors get tokenized away (length filter ≥2).
+    // The composed answer ends up with no specific content beyond
+    // filler. Generator abstains.
+    expect(generateAddFaq(packet)).toEqual([]);
+  });
+
+  it("REGRESSION — emitted FAQ proposedText never contains placeholder phrases on the basePacketArgs fixture", () => {
+    // Cross-generator invariant for the W3 placeholder kill.
+    const packet = buildPacket();
+    const allEdits = [
+      ...generateEditTitle(packet),
+      ...generateAddH2Section(packet),
+      ...generateAddFaq(packet),
+    ];
+    for (const e of allEdits) {
+      const txt = e.targetElement?.proposedText ?? "";
+      expect(txt).not.toMatch(/draft answer/i);
+      expect(txt).not.toMatch(/operator\s*:\s*rewrite/i);
+      expect(txt).not.toMatch(/\[insert\b/i);
+      expect(txt).not.toMatch(/\bTBD\b/i);
+      expect(txt).not.toMatch(/\bplaceholder\b/i);
+      expect(txt).not.toMatch(/\bTODO\s*:/i);
+      expect(txt).not.toMatch(/rewrite below/i);
+    }
+  });
+});
+
 // ── Cross-generator invariants ────────────────────────────────────────────
 
 describe("Phase 6A.1.9 — cross-generator invariants", () => {

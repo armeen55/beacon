@@ -1530,3 +1530,286 @@ describe("Phase 6A.1.10 — validator never mutates inputs", () => {
     expect(JSON.stringify(packet)).toBe(beforePacket);
   });
 });
+
+// ── W3 Step 3.1 — placeholder + FAQ structural-quality gate ────────────────
+
+describe("W3 Step 3.1 — validateNoPlaceholder (phrase rejection)", () => {
+  it("REJECT — proposedText contains 'Draft answer'", () => {
+    const packet = buildPacket();
+    const edit = validEditTitleFixture(packet, {
+      targetElement: {
+        elementKey: "title[0]:hash-title",
+        displayLabel: "Title tag",
+        currentText: "Braces · Acme",
+        proposedText: "Draft answer (operator: rewrite)",
+      },
+    });
+    const r = validateSpecificEdit(edit, packet);
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.field).toBe("targetElement.proposedText");
+      expect(r.reason).toMatch(/placeholder pattern/);
+      expect(r.reason).toMatch(/draft_answer/);
+    }
+  });
+
+  it("REJECT — proposedText contains '[insert ...]'", () => {
+    const packet = buildPacket();
+    const edit = validEditTitleFixture(packet, {
+      targetElement: {
+        elementKey: "title[0]:hash-title",
+        displayLabel: "Title tag",
+        currentText: "Braces · Acme",
+        proposedText: "Pricing is [insert price] per square foot",
+      },
+    });
+    const r = validateSpecificEdit(edit, packet);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toMatch(/insert_bracket/);
+  });
+
+  it("REJECT — proposedText contains 'TBD'", () => {
+    const packet = buildPacket();
+    const edit = validEditTitleFixture(packet, {
+      targetElement: {
+        elementKey: "title[0]:hash-title",
+        displayLabel: "Title tag",
+        currentText: "Braces · Acme",
+        proposedText: "Pricing TBD for new patients",
+      },
+    });
+    const r = validateSpecificEdit(edit, packet);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toMatch(/tbd/);
+  });
+
+  it("REJECT — proposedText contains 'rewrite below'", () => {
+    const packet = buildPacket();
+    const edit = validEditTitleFixture(packet, {
+      targetElement: {
+        elementKey: "title[0]:hash-title",
+        displayLabel: "Title tag",
+        currentText: "Braces · Acme",
+        proposedText: "Stub copy. Rewrite below.",
+      },
+    });
+    const r = validateSpecificEdit(edit, packet);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toMatch(/rewrite_below/);
+  });
+
+  it("REJECT — proposedText contains 'placeholder'", () => {
+    const packet = buildPacket();
+    const edit = validEditTitleFixture(packet, {
+      targetElement: {
+        elementKey: "title[0]:hash-title",
+        displayLabel: "Title tag",
+        currentText: "Braces · Acme",
+        proposedText: "This is just a placeholder for now",
+      },
+    });
+    const r = validateSpecificEdit(edit, packet);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toMatch(/placeholder_word/);
+  });
+
+  it("REJECT — proposedText contains 'TODO:'", () => {
+    const packet = buildPacket();
+    const edit = validEditTitleFixture(packet, {
+      targetElement: {
+        elementKey: "title[0]:hash-title",
+        displayLabel: "Title tag",
+        currentText: "Braces · Acme",
+        proposedText: "TODO: write the real title",
+      },
+    });
+    const r = validateSpecificEdit(edit, packet);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toMatch(/todo_marker/);
+  });
+
+  it("REJECT — displayLabel contains 'Draft answer'", () => {
+    const packet = buildPacket();
+    const edit = validEditTitleFixture(packet, {
+      targetElement: {
+        elementKey: "title[0]:hash-title",
+        displayLabel: "Draft answer label",
+        currentText: "Braces · Acme",
+        proposedText: "Teen Braces · Acme",
+      },
+    });
+    const r = validateSpecificEdit(edit, packet);
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.field).toBe("targetElement.displayLabel");
+      expect(r.reason).toMatch(/placeholder pattern/);
+    }
+  });
+
+  it("ACCEPT — clean copy with no placeholder phrases", () => {
+    const packet = buildPacket();
+    const edit = validEditTitleFixture(packet);
+    expect(validateSpecificEdit(edit, packet)).toEqual({ ok: true });
+  });
+
+  it("ACCEPT — copy contains placeholder-adjacent words but no exact phrase", () => {
+    const packet = buildPacket();
+    // "operator" and "draft" appear separately, not as the placeholder phrases.
+    const edit = validEditTitleFixture(packet, {
+      targetElement: {
+        elementKey: "title[0]:hash-title",
+        displayLabel: "Title tag",
+        currentText: "Braces · Acme",
+        proposedText: "Our crane operator drafts each plan carefully · Acme",
+      },
+    });
+    expect(validateSpecificEdit(edit, packet)).toEqual({ ok: true });
+  });
+});
+
+describe("W3 Step 3.1 — validateNoPlaceholder (FAQ structural quality)", () => {
+  // FAQ Q+A rejection runs through the parseFaqProposedText shape. The
+  // existing 6A.2g.C gate already enforces "?" + non-verbatim-stem on
+  // the question half. The structural test fires on the answer half.
+
+  it("REJECT — FAQ answer is too short (<25 words)", () => {
+    const packet = buildPacket();
+    const edit: SpecificEdit = {
+      actionType: "add_faq",
+      targetUrl: URL_BRACES,
+      targetElement: {
+        elementKey: "faq_question[new]:abc123def456",
+        displayLabel: "FAQ question (new)",
+        currentText: null,
+        proposedText:
+          "Q: How much does treatment cost in Atherton?\n\nA: Costs vary by complexity.",
+      },
+      why: "No FAQ section addresses cost intent.",
+      evidence: [
+        { type: "prompt", promptId: packet.affectedPrompts[0].promptId },
+      ],
+      expectedImpact: null,
+      difficulty: "low",
+      confidence: "medium",
+      measurementPlan: null,
+      risks: [],
+      source: "deterministic",
+      providerName: "deterministic",
+      model: null,
+      costUsd: null,
+    };
+    const r = validateSpecificEdit(edit, packet);
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.field).toBe("targetElement.proposedText");
+      expect(r.reason).toMatch(/structurally insufficient/);
+      expect(r.reason).toMatch(/too_short/);
+    }
+  });
+
+  it("REJECT — FAQ answer mostly repeats the question", () => {
+    const packet = buildPacket();
+    const edit: SpecificEdit = {
+      actionType: "add_faq",
+      targetUrl: URL_BRACES,
+      targetElement: {
+        elementKey: "faq_question[new]:abc123def456",
+        displayLabel: "FAQ question (new)",
+        currentText: null,
+        proposedText:
+          "Q: best custom home builders in Atherton?\n\nA: Learn about the best custom home builders in Atherton and how to choose the right one to handle your custom home build in Atherton properly.",
+      },
+      why: "No FAQ section addresses cost intent.",
+      evidence: [
+        { type: "prompt", promptId: packet.affectedPrompts[0].promptId },
+      ],
+      expectedImpact: null,
+      difficulty: "low",
+      confidence: "medium",
+      measurementPlan: null,
+      risks: [],
+      source: "deterministic",
+      providerName: "deterministic",
+      model: null,
+      costUsd: null,
+    };
+    const r = validateSpecificEdit(edit, packet);
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.reason).toMatch(/structurally insufficient/);
+      // Either repeats_question OR no_specific_content branch — both honest.
+      expect(r.reason).toMatch(/(repeats_question|no_specific_content)/);
+    }
+  });
+
+  it("ACCEPT — FAQ answer has specific content beyond question + filler", () => {
+    const packet = buildPacket();
+    const edit: SpecificEdit = {
+      actionType: "add_faq",
+      targetUrl: URL_BRACES,
+      targetElement: {
+        elementKey: "faq_question[new]:abc123def456",
+        displayLabel: "FAQ question (new)",
+        currentText: null,
+        proposedText:
+          "Q: How long does treatment typically take?\n\nA: A typical full-gut kitchen remodel in Atherton takes twelve to sixteen weeks once permits clear: roughly three weeks for demolition and rough framing, four for cabinet and millwork installation, and five for finishes plus appliance commissioning.",
+      },
+      why: "No FAQ addresses timeline intent.",
+      evidence: [
+        { type: "prompt", promptId: packet.affectedPrompts[0].promptId },
+      ],
+      expectedImpact: null,
+      difficulty: "low",
+      confidence: "medium",
+      measurementPlan: null,
+      risks: [],
+      source: "deterministic",
+      providerName: "deterministic",
+      model: null,
+      costUsd: null,
+    };
+    expect(validateSpecificEdit(edit, packet)).toEqual({ ok: true });
+  });
+
+  it("UNAFFECTED — non-FAQ edits don't go through the structural test", () => {
+    // edit_title proposedText is intentionally short; the structural
+    // FAQ rule should NOT fire on titles.
+    const packet = buildPacket();
+    const edit = validEditTitleFixture(packet);
+    expect(validateSpecificEdit(edit, packet)).toEqual({ ok: true });
+  });
+
+  it("UNAFFECTED — FAQ proposedText that doesn't match Q:/A: shape skips structural test", () => {
+    // If an LLM emits FAQ copy in a different shape (no "Q:" prefix),
+    // the structural test silently passes. The phrase rejection still
+    // runs; the existing 6A.2g.C ? + verbatim-stem rules still run.
+    const packet = buildPacket();
+    const edit: SpecificEdit = {
+      actionType: "add_faq",
+      targetUrl: URL_BRACES,
+      targetElement: {
+        elementKey: "faq_question[new]:abc123def456",
+        displayLabel: "FAQ question (new)",
+        currentText: null,
+        // Just the question, no "A:" half. The 6A.2g.C rule already
+        // enforces "?" so this passes; structural test sees no Q+A
+        // shape and skips.
+        proposedText: "Which option is best for my situation?",
+      },
+      why: "No FAQ addresses this intent.",
+      evidence: [
+        { type: "prompt", promptId: packet.affectedPrompts[0].promptId },
+      ],
+      expectedImpact: null,
+      difficulty: "low",
+      confidence: "medium",
+      measurementPlan: null,
+      risks: [],
+      source: "deterministic",
+      providerName: "deterministic",
+      model: null,
+      costUsd: null,
+    };
+    expect(validateSpecificEdit(edit, packet)).toEqual({ ok: true });
+  });
+});

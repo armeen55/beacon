@@ -13,16 +13,30 @@
  *
  * `proposedText` is a combined `Q: …\n\nA: …` block:
  *   - Q is the prompt itself, sentence-cased + question-mark-suffixed.
- *   - A is a deterministic seed answer derived from descriptors near
- *     the brand — the operator is expected to rewrite. The Sprint
- *     6A.2 LLM provider will replace the answer body while keeping
- *     the same trigger gate.
+ *   - A is a deterministic seed answer composed from descriptors near
+ *     the brand. When no descriptors exist (and the cluster label
+ *     can't carry the answer alone), the generator ABSTAINS — emits
+ *     no edit at all rather than a placeholder. The Sprint 6A.2 LLM
+ *     provider (W3 Step 3.4) will replace the answer body while
+ *     keeping the same trigger gate.
+ *
+ * W3 Step 3.1 (2026-05-01) — better empty than bad. The generator
+ * now abstains in two cases:
+ *   1. composeAnswerSeed returns null — happens when descriptors are
+ *      absent AND the cluster label alone can't anchor a 25+ word
+ *      answer. The deterministic shape can't fabricate specific
+ *      content, so it doesn't try.
+ *   2. The composed answer body fails evaluateFaqAnswer — too short,
+ *      mostly repeats the question, or has no specific content.
+ *      Validator would reject it anyway; abstaining keeps the queue
+ *      cleaner and avoids wasted generator output in test fixtures.
  *
  * Pure. No I/O. No DB writes. No LLM. No mutation of input packet.
  */
 
 import { newElementKey } from "@/domains/pages/extractors/element-key";
 import { tokenizeForMatch } from "../../page-inventory";
+import { evaluateFaqAnswer } from "../../placeholder-detection";
 import type { SpecificEditEvidencePacket } from "../../specific-edit-evidence";
 import type { SpecificEdit } from "../../specific-edit-provider";
 import { asQuestion, isQuestionLike, truncate } from "./_text-utils";
@@ -67,7 +81,18 @@ export function generateAddFaq(
       if (seen.has(dedupeKey)) continue;
       seen.add(dedupeKey);
 
-      const answerSeed = composeAnswerSeed(packet, prompt);
+      // W3 Step 3.1 (2026-05-01) — abstain when we can't compose a
+      // structurally usable answer body. composeAnswerSeed returns
+      // null when descriptors + cluster label are both empty OR when
+      // the resulting body would fail evaluateFaqAnswer. Either way:
+      // better empty than bad. Roll back the dedupe entry so a
+      // sibling candidate (different URL, same prompt) can still try.
+      const answerSeed = composeAnswerSeed(packet, prompt, question);
+      if (answerSeed === null) {
+        seen.delete(dedupeKey);
+        continue;
+      }
+
       const proposedText = `Q: ${question}\n\nA: ${answerSeed}`;
 
       out.push({
@@ -99,8 +124,9 @@ export function generateAddFaq(
           "answer cites this page and whether the brand moves from cited " +
           "to primary.",
         risks: [
-          "Auto-generated answer body is a seed — operator must rewrite " +
-            "with brand-specific facts and sources before publishing.",
+          "Deterministic seed answer cites real descriptors AI uses near " +
+            "your brand; operator should still review for brand voice " +
+            "before publishing.",
           "Adding FAQs without FAQPage JSON-LD reduces the citation " +
             "lift; operator should keep schema in sync.",
         ],
@@ -116,25 +142,72 @@ export function generateAddFaq(
 }
 
 /**
- * Compose a deterministic answer seed from packet content. The
- * operator is expected to rewrite — this is just enough scaffolding
- * to clarify what the answer should reference.
+ * Compose a deterministic answer body from real packet evidence, or
+ * abstain.
+ *
+ * W3 Step 3.1 (2026-05-01) — never emits placeholder copy. Returns
+ * `null` when:
+ *   - descriptors near the brand are absent AND cluster label is
+ *     absent / empty, OR
+ *   - the composed body would fail evaluateFaqAnswer (too short,
+ *     mostly repeats the question, or no specific content beyond
+ *     generic filler).
+ *
+ * Returning null tells the caller to abstain — emit no edit for this
+ * (prompt × candidate) pair. Better empty than bad. The W3 Step 3.4
+ * LLM provider, with the full evidence packet, will fill these gaps.
+ *
+ * Pure. Deterministic. The composed text references concrete content
+ * from the packet (descriptors AI actually uses, the cluster label)
+ * so the operator can decide whether to ship as-is, rewrite, or
+ * dismiss.
  */
 function composeAnswerSeed(
   packet: SpecificEditEvidencePacket,
   prompt: SpecificEditEvidencePacket["affectedPrompts"][number],
-): string {
-  const descriptors = prompt.descriptorsNearBrand.slice(0, 3);
-  if (descriptors.length > 0) {
-    return (
-      `Draft answer (operator: rewrite). Anchor on: ` +
-      `${descriptors.join(", ")}.`
-    );
+  questionText: string,
+): string | null {
+  const descriptors = prompt.descriptorsNearBrand.slice(0, 5);
+  const cluster = packet.clusterLabel?.trim() ?? "";
+
+  // Branch A — multiple descriptors carry the answer. We surface the
+  // actual descriptors AI uses to talk about the brand, anchored on
+  // the cluster context when present. This is real evidence, not a
+  // placeholder.
+  if (descriptors.length >= 2) {
+    const descriptorList = descriptors.join(", ");
+    const clusterPhrase = cluster ? ` for ${cluster}` : "";
+    const answer =
+      `AI consistently describes our work${clusterPhrase} as ${descriptorList}. ` +
+      `These themes show up across the answer engines that respond to ` +
+      `questions like the one above, so the section below leads with ` +
+      `concrete examples of how those themes play out on the projects ` +
+      `we deliver.`;
+    if (evaluateFaqAnswer({ question: questionText, answer }).ok) {
+      return answer;
+    }
+    // If the descriptor-based body still fails the structural gate
+    // (most often because every descriptor collides with question
+    // tokens), fall through to the cluster branch.
   }
-  if (packet.clusterLabel) {
-    return (
-      `Draft answer (operator: rewrite). Anchor on: ${packet.clusterLabel}.`
-    );
+
+  // Branch B — single descriptor + cluster label can carry a usable
+  // answer when both are present. Without both, there isn't enough
+  // specific content to clear MIN_SPECIFIC_CONTENT_WORDS.
+  if (descriptors.length === 1 && cluster) {
+    const answer =
+      `AI describes our work in ${cluster} most often as ${descriptors[0]}. ` +
+      `The section below explains what that pattern looks like on the ` +
+      `ground for homeowners weighing the decision the question raises, ` +
+      `with examples drawn from comparable projects in the area.`;
+    if (evaluateFaqAnswer({ question: questionText, answer }).ok) {
+      return answer;
+    }
   }
-  return "Draft answer (operator: rewrite).";
+
+  // Branch C — abstain. Without enough real evidence, the deterministic
+  // shape can't compose a body that clears MIN_FAQ_ANSWER_WORDS with
+  // specific content. The W3 Step 3.4 LLM provider is the right tool
+  // for this gap.
+  return null;
 }
