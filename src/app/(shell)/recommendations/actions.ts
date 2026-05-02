@@ -36,7 +36,9 @@ import {
   type ActionType,
 } from "@/domains/recommendations/action-types";
 import {
+  editLifecycleStatus,
   markRecommendedEditsAccepted,
+  markRecommendedEditsAsShipped,
   type RecommendedEditRow,
 } from "@/domains/recommendations/recommended-edits-persistence";
 
@@ -624,6 +626,116 @@ export async function dismissRecommendation(
   revalidatePath("/recommendations");
   log.info("Action completed", { action, durationMs: Date.now() - t0 });
   return { success: true };
+}
+
+/**
+ * W2 Step 2.4 (2026-05-01) — operator-driven "Mark shipped" affordance.
+ *
+ * Flips every linked `recommended_edits` row for this rec into
+ * `verified_live` with `live_at = now`, `live_match_kind = "operator_override"`,
+ * `live_match_confidence = "high"`. Lets operators start the bake-window
+ * clock immediately when they ship at 11pm without waiting for the
+ * 07:00 UTC scan to confirm.
+ *
+ * Forward-only at the persistence layer: rows already past `verified_live`
+ * (verified_live_modified, partially_implemented, not_found_after_7d,
+ * dismissed, needs_review, wrong_page) are silently skipped. Idempotent.
+ *
+ * Returns `flipped` count so the client can show "Marked N edits live"
+ * even when some were already verified.
+ */
+export async function markRecommendationShipped(args: {
+  stableKey: string;
+}): Promise<RecommendationActionResponse & { flipped?: number; skipped?: number }> {
+  const action = "markRecommendationShipped";
+  const t0 = Date.now();
+  log.info("Action started", { action, params: { stableKey: args.stableKey } });
+
+  const tenantId = await currentTenantId();
+
+  // Read every edit linked to this rec. Filter to those eligible for the
+  // operator override (recommended | accepted) — the persistence helper
+  // rejects forward-state edits anyway, but pre-filtering keeps the log
+  // lines accurate and avoids passing already-verified ids through.
+  let editsForRec: RecommendedEditRow[] = [];
+  try {
+    const allEdits = await getRepository().forTenant(tenantId).getRecommendedEdits();
+    editsForRec = allEdits.filter((e) => e.rec_id === args.stableKey);
+  } catch (err) {
+    log.error("markRecommendationShipped: edits read failed", {
+      stableKey: args.stableKey,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return {
+      success: false,
+      error: `Failed to read recommended edits: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    };
+  }
+
+  if (editsForRec.length === 0) {
+    log.info("markRecommendationShipped: no edits found for rec", {
+      stableKey: args.stableKey,
+    });
+    return {
+      success: false,
+      error: "No tracked edits exist for this recommendation yet.",
+    };
+  }
+
+  const eligible = editsForRec.filter((e) => {
+    const status = editLifecycleStatus(e);
+    return status === "recommended" || status === "accepted";
+  });
+
+  if (eligible.length === 0) {
+    log.info("markRecommendationShipped: all edits already past verified_live", {
+      stableKey: args.stableKey,
+      editCount: editsForRec.length,
+    });
+    return {
+      success: true,
+      flipped: 0,
+      skipped: editsForRec.length,
+    };
+  }
+
+  try {
+    const result = await markRecommendedEditsAsShipped({
+      editIds: eligible.map((e) => e.id),
+      tenantId,
+    });
+    log.info("Action completed", {
+      action,
+      durationMs: Date.now() - t0,
+      params: {
+        stableKey: args.stableKey,
+        flipped: result.flipped,
+        skipped: result.skipped,
+      },
+    });
+    revalidatePath("/recommendations");
+    revalidatePath("/changes");
+    revalidatePath("/", "layout");
+    return {
+      success: true,
+      flipped: result.flipped,
+      skipped: result.skipped,
+    };
+  } catch (err) {
+    log.error("markRecommendationShipped: persistence flip failed", {
+      stableKey: args.stableKey,
+      editCount: eligible.length,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return {
+      success: false,
+      error: `Failed to mark recommendation shipped: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    };
+  }
 }
 
 export async function undoRecommendationResponse(

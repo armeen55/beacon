@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useTransition } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { ScorecardRowWithImpact } from "@/domains/attribution/change-impact";
 import type { UrlVerdict } from "@/domains/attribution/url-verdict";
+import { markChangelogEditShipped } from "./actions";
 // Note: UrlVerdict type is retained on EnrichedChangeRow because the internal
 // row-expand panel ("Explain this verdict") still renders the legacy Z-score
 // math. The primary drilldown at /changes/[id] is the source of truth for
@@ -421,11 +422,60 @@ function ChangeRow({
   verdictFlagEnabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const [pending, startTransition] = useTransition();
+  const [shipFeedback, setShipFeedback] = useState<{
+    message: string;
+    isError: boolean;
+  } | null>(null);
   const ch = row.scorecard.change;
   const dateStr = new Date(ch.timestamp).toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
   });
+
+  // W2 Step 2.4 (2026-05-01) — operator-override eligibility + day-3 stale tint.
+  // Eligible = linked edit is in `recommended` or `accepted` (pre-verified).
+  // Stale-pending = pre-verified for ≥3 days (changelog timestamp is the
+  // accept-at proxy because per-edit fan-out fires at accept time).
+  const STALE_PENDING_DAYS = 3;
+  const canMarkShipped =
+    lifecycleStatus === "recommended" || lifecycleStatus === "accepted";
+  const ageDays = Math.floor(
+    (Date.now() - new Date(ch.timestamp).getTime()) / 86_400_000,
+  );
+  const isStalePending = canMarkShipped && ageDays >= STALE_PENDING_DAYS;
+
+  function handleMarkShipped(e: React.MouseEvent) {
+    // The whole row is clickable to toggle expand — stop propagation so
+    // pressing Mark shipped doesn't also open the panel.
+    e.stopPropagation();
+    setShipFeedback(null);
+    startTransition(async () => {
+      try {
+        const res = await markChangelogEditShipped({ changelogId: ch.id });
+        if (res.success) {
+          const flipped = res.flipped ?? 0;
+          setShipFeedback({
+            message:
+              flipped > 0
+                ? "Marked live — verdict clock started."
+                : "Already live — no change.",
+            isError: false,
+          });
+        } else {
+          setShipFeedback({
+            message: res.error ?? "Failed to mark shipped.",
+            isError: true,
+          });
+        }
+      } catch (err) {
+        setShipFeedback({
+          message: `Unexpected error: ${err instanceof Error ? err.message : String(err)}`,
+          isError: true,
+        });
+      }
+    });
+  }
 
   // Phase 2C: read delta from the new store when status === "computed"; for
   // weak_estimate / no_controls, show the RAW treated delta explicitly labeled
@@ -453,8 +503,14 @@ function ChangeRow({
       <tr
         className={`border-b border-border hover:bg-surface-inset/50 transition-colors cursor-pointer ${
           open ? "bg-surface-inset/30" : ""
-        }`}
+        } ${isStalePending ? "bg-status-warning/[0.04]" : ""}`}
         onClick={() => setOpen((v) => !v)}
+        data-stale-pending={isStalePending ? "true" : undefined}
+        title={
+          isStalePending
+            ? `Accepted ${ageDays} day${ageDays === 1 ? "" : "s"} ago — scan hasn't confirmed it on the page yet.`
+            : undefined
+        }
       >
         <td className="px-2.5 py-2 text-muted-foreground tabular-nums whitespace-nowrap align-top text-[11px]">
           <span>{dateStr}</span>
@@ -472,6 +528,42 @@ function ChangeRow({
                 cls={lifecycleClass}
                 compact
               />
+            </div>
+          )}
+          {isStalePending && (
+            <div className="mt-1">
+              <span
+                className="inline-block text-[9px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded border border-status-warning/40 bg-status-warning/[0.08] text-status-warning"
+                title={`Accepted ${ageDays} day${ageDays === 1 ? "" : "s"} ago — scan hasn't confirmed it on the page yet.`}
+              >
+                {ageDays}d pending
+              </span>
+            </div>
+          )}
+          {/* W2 Step 2.4 (2026-05-01) — operator-override Mark shipped.
+              Renders only when the linked edit is still pre-verified.
+              Stops row-click propagation so pressing the button doesn't
+              also toggle the expand panel. */}
+          {canMarkShipped && (
+            <div className="mt-1.5">
+              <button
+                type="button"
+                disabled={pending}
+                onClick={handleMarkShipped}
+                className="text-[10px] font-medium px-1.5 py-0.5 rounded border border-accent-primary/40 bg-accent-primary/[0.06] text-accent-primary hover:bg-accent-primary/[0.12] transition-colors disabled:opacity-50"
+                title="Stamps live_at = now and live_match_kind = operator_override. Use when you've already shipped the change and want the verdict math to start before tomorrow's scan."
+              >
+                Mark shipped
+              </button>
+              {shipFeedback && (
+                <p
+                  className={`mt-1 text-[9px] ${
+                    shipFeedback.isError ? "text-status-danger" : "text-status-success"
+                  }`}
+                >
+                  {shipFeedback.message}
+                </p>
+              )}
             </div>
           )}
         </td>

@@ -105,6 +105,14 @@ export type LiveMatchConfidence = "high" | "medium" | "low";
  * NOT in this union — those are only emitted alongside
  * `outcome: "not_found"`, where the runner does not stamp `live_*`
  * fields at all.
+ *
+ * W2 Step 2.4 (2026-05-01): added `"operator_override"` to support
+ * the explicit "Mark shipped" affordance on /recommendations and
+ * /changes. The match engine never emits this value — it's stamped
+ * exclusively by `markRecommendedEditsAsShipped`. When a later scan
+ * finds the edit live with a real match kind, the row is allowed to
+ * stay `verified_live` and the kind may be upgraded; downgrades are
+ * blocked by the lifecycle's forward-only contract.
  */
 export type LiveMatchKind =
   | "exact"
@@ -112,7 +120,8 @@ export type LiveMatchKind =
   | "key_only"
   | "text_only"
   | "wrong_page"
-  | "structural_partial";
+  | "structural_partial"
+  | "operator_override";
 
 export type RecommendedEditRow = {
   id: string;
@@ -329,6 +338,99 @@ export async function markRecommendedEditsAccepted(args: {
     // engine in Phase 3 reads from the file-first source via the
     // repository, so attribution stays correct even on a transient
     // dual-write failure.
+  }
+  return { flipped: flipped.length, skipped };
+}
+
+// ---------------------------------------------------------------------------
+// W2 Step 2.4 (2026-05-01) — operator-driven `verified_live` transition.
+//
+// The match engine flips edits to `verified_live` after a scan confirms
+// the edit on-page (Phase 3). But operators frequently ship an edit at
+// 11pm and want the verdict clock started before tomorrow's 07:00 UTC
+// scan. The "Mark shipped" affordance on /recommendations + /changes
+// gives them a one-click manual override.
+//
+// State machine: `recommended` OR `accepted` → `verified_live`.
+// Stamps:
+//   - `live_at = nowIso` so bake-window math anchors immediately.
+//   - `live_match_kind = "operator_override"` to distinguish from
+//     scan-confirmed kinds (`exact` / `modified` / etc.). The match
+//     engine treats `operator_override` as "trust the operator;
+//     don't downgrade or unset on a future scan that finds the edit
+//     under a different kind". A scan that finds NOTHING on the page
+//     still cannot move us to `not_found_after_7d` because the
+//     forward-only contract keeps `verified_live` terminal — the
+//     operator owns the truth here.
+//   - `live_match_confidence = "high"` — operator assertion is the
+//     highest-confidence signal we have (modulo the operator being
+//     wrong, which is recoverable via dismiss).
+//
+// Forward-only: rows already past `verified_live` (verified_live_modified,
+// partially_implemented, not_found_after_7d, dismissed, needs_review,
+// wrong_page) are no-op. Idempotent. Unknown ids are skipped silently.
+// ---------------------------------------------------------------------------
+
+export async function markRecommendedEditsAsShipped(args: {
+  editIds: ReadonlyArray<string>;
+  tenantId: string;
+  now?: Date;
+}): Promise<{ flipped: number; skipped: number }> {
+  if (args.editIds.length === 0) return { flipped: 0, skipped: 0 };
+  const nowIso = (args.now ?? new Date()).toISOString();
+  const idSet = new Set(args.editIds);
+
+  const all = await readRecommendedEditsLocal();
+  const flipped: RecommendedEditRow[] = [];
+  let skipped = 0;
+  const next: RecommendedEditRow[] = [];
+  for (const row of all) {
+    if (!idSet.has(row.id)) {
+      next.push(row);
+      continue;
+    }
+    const status = editLifecycleStatus(row);
+    if (status === "recommended" || status === "accepted") {
+      const updated: RecommendedEditRow = {
+        ...row,
+        implementation_status: "verified_live",
+        live_at: nowIso,
+        live_match_kind: "operator_override",
+        live_match_confidence: "high",
+        // The match engine populates live_snapshot_id + live_element_key
+        // when it finds the edit live on the page. Operator override has
+        // no scan to point at, so we leave those null. The next
+        // successful scan will fill them in (forward-only on the rest of
+        // the lifecycle keeps `verified_live` stable while the engine
+        // lands the snapshot reference).
+        live_snapshot_id: row.live_snapshot_id ?? null,
+        live_element_key: row.live_element_key ?? null,
+        not_found_reason: null,
+        updated_at: nowIso,
+      };
+      flipped.push(updated);
+      next.push(updated);
+    } else {
+      // Already verified_live (or further along) — no-op for idempotency.
+      skipped += 1;
+      next.push(row);
+    }
+  }
+
+  if (flipped.length === 0) {
+    return { flipped: 0, skipped };
+  }
+
+  await writeDotDataJson(STORE, next);
+  try {
+    await syncRecommendedEdits(flipped, args.tenantId);
+  } catch (err) {
+    log.warn("markRecommendedEditsAsShipped: dual-write failed", {
+      tenantId: args.tenantId,
+      flippedCount: flipped.length,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    // File-first contract: same semantics as markRecommendedEditsAccepted.
   }
   return { flipped: flipped.length, skipped };
 }

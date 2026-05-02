@@ -7,6 +7,7 @@ import {
   acceptRecommendation,
   deferRecommendation,
   dismissRecommendation,
+  markRecommendationShipped,
   undoRecommendationResponse,
   type RecommendationActionPayload,
   type RecommendationActionResponse,
@@ -291,6 +292,16 @@ function RecommendationRow({
 }) {
   const { rec, response, edits } = row;
   const editCount = edits.length;
+  // W2 Step 2.4 (2026-05-01) — operator-override eligibility + staleness.
+  // Eligible edits = those still pre-verified (recommended | accepted).
+  // The Mark-shipped button only renders when at least one eligible edit
+  // exists; otherwise the rec is already past the override.
+  // editLifecycleStatus is inlined to keep this file client-safe (the
+  // helper module is `server-only`).
+  const eligibleEditCount = edits.filter((e) => {
+    const s = e.implementation_status ?? "recommended";
+    return s === "recommended" || s === "accepted";
+  }).length;
   const [pending, startTransition] = useTransition();
 
   const showFeedback = feedback && feedback.stableKey === rec.stableKey;
@@ -333,6 +344,22 @@ function RecommendationRow({
   const accepted = response?.status === "accepted";
   const dismissed = response?.status === "dismissed";
   const deferred = response?.status === "deferred";
+
+  // W2 Step 2.4 (2026-05-01) — day-3 stale tint.
+  // If operator accepted ≥3 days ago and at least one edit is still
+  // pre-verified, surface a warning tint + tooltip so the rec doesn't
+  // sit idle forever. The 3-day threshold matches the lifecycle spec
+  // (RECOMMENDATION_LIFECYCLE_OS_SPEC.md §6 — pre-day-7 escalation).
+  const STALE_PENDING_DAYS = 3;
+  const acceptedAt =
+    response?.status === "accepted" && response.respondedAt
+      ? new Date(response.respondedAt)
+      : null;
+  const acceptedAgeDays = acceptedAt
+    ? Math.floor((Date.now() - acceptedAt.getTime()) / 86_400_000)
+    : 0;
+  const isStalePending =
+    accepted && eligibleEditCount > 0 && acceptedAgeDays >= STALE_PENDING_DAYS;
 
   // v7 Commit 4: prefer resolved fields when the resolver attached them.
   // Falls back to the candidate's generator-stage labels for safety.
@@ -400,13 +427,21 @@ function RecommendationRow({
       className={cn(
         "rounded-md border bg-background px-3 py-2.5",
         accepted
-          ? "border-status-success/40"
+          ? isStalePending
+            ? "border-status-warning/50 bg-status-warning/[0.03]"
+            : "border-status-success/40"
           : dismissed
             ? "border-border/30 opacity-60"
             : deferred
               ? "border-border/50 opacity-80"
               : "border-border/50",
       )}
+      data-stale-pending={isStalePending ? "true" : undefined}
+      title={
+        isStalePending
+          ? `Accepted ${acceptedAgeDays} day${acceptedAgeDays === 1 ? "" : "s"} ago — still tracking. Click "Mark shipped" if it's already live.`
+          : undefined
+      }
     >
       <div className="flex items-baseline gap-2 flex-wrap">
         <span
@@ -521,6 +556,37 @@ function RecommendationRow({
             <span className="text-[11px] text-status-success font-medium">
               ✓ Accepted
             </span>
+            {isStalePending && (
+              <span
+                className="text-[10px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded border border-status-warning/40 bg-status-warning/[0.08] text-status-warning"
+                title={`Accepted ${acceptedAgeDays} day${acceptedAgeDays === 1 ? "" : "s"} ago — scan hasn't confirmed it on the page yet.`}
+              >
+                {acceptedAgeDays}d pending
+              </span>
+            )}
+            {/* W2 Step 2.4 (2026-05-01) — operator-override Mark shipped.
+                Only renders when at least one linked edit is still
+                pre-verified; once every edit has reached verified_live
+                the button vanishes (the rec is already done from the
+                lifecycle's perspective). */}
+            {eligibleEditCount > 0 && (
+              <button
+                type="button"
+                disabled={pending}
+                onClick={() =>
+                  handle(
+                    () => markRecommendationShipped({ stableKey: rec.stableKey }),
+                    eligibleEditCount === 1
+                      ? "Marked live — verdict clock started."
+                      : `Marked ${eligibleEditCount} edits live — verdict clock started.`,
+                  )
+                }
+                className="text-[11px] font-medium px-2 py-1 rounded border border-accent-primary/50 bg-accent-primary/[0.06] text-accent-primary hover:bg-accent-primary/[0.12] transition-colors disabled:opacity-50"
+                title="Stamps live_at = now and live_match_kind = operator_override. Use when you've already shipped the change and want the verdict math to start before tomorrow's scan."
+              >
+                Mark {eligibleEditCount === 1 ? "" : `${eligibleEditCount} `}shipped
+              </button>
+            )}
             <button
               type="button"
               disabled={pending}

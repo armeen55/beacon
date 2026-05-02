@@ -23,6 +23,7 @@ import {
   editLifecycleStatus,
   mapSpecificEditToRow,
   markRecommendedEditsAccepted,
+  markRecommendedEditsAsShipped,
   persistRecommendedEditsLocal,
   readRecommendedEditsLocal,
   runProviderAndPersist,
@@ -957,6 +958,220 @@ describe("Lifecycle OS Phase 1 — markRecommendedEditsAccepted", () => {
     expect(result.flipped).toBe(1);
     expect(dotDataMocks.write).toHaveBeenCalledTimes(1);
     expect(dualWriteMocks.syncRecommendedEdits).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ── W2 Step 2.4 — markRecommendedEditsAsShipped ────────────────────────────
+
+describe("W2 Step 2.4 — markRecommendedEditsAsShipped", () => {
+  beforeEach(() => {
+    dotDataMocks.read.mockReset();
+    dotDataMocks.write.mockReset();
+    dualWriteMocks.syncRecommendedEdits.mockReset();
+    dualWriteMocks.syncRecommendedEdits.mockResolvedValue(undefined);
+  });
+
+  function makeRow(
+    id: string,
+    statusOverride?: { status: RecommendedEditRow["implementation_status"] },
+  ): RecommendedEditRow {
+    const packet = buildPacket();
+    const base = mapSpecificEditToRow({
+      edit: validEditTitleFixture(packet),
+      recId: packet.recId,
+      tenantId: packet.tenantId,
+      evidenceHash: packet.evidenceHash,
+      now: FROZEN_NOW,
+    });
+    if (statusOverride === undefined) return { ...base, id };
+    return { ...base, id, implementation_status: statusOverride.status };
+  }
+
+  it("flips 'recommended' → 'verified_live' with operator_override stamp", async () => {
+    const rows = [makeRow("e1", { status: "recommended" })];
+    dotDataMocks.read.mockResolvedValueOnce(rows);
+
+    const result = await markRecommendedEditsAsShipped({
+      editIds: ["e1"],
+      tenantId: TENANT,
+      now: FROZEN_NOW,
+    });
+
+    expect(result).toEqual({ flipped: 1, skipped: 0 });
+
+    const [flippedRows] = dualWriteMocks.syncRecommendedEdits.mock.calls[0]!;
+    const flipped = (flippedRows as RecommendedEditRow[])[0]!;
+    expect(flipped.implementation_status).toBe("verified_live");
+    expect(flipped.live_at).toBe(FROZEN_NOW.toISOString());
+    expect(flipped.live_match_kind).toBe("operator_override");
+    expect(flipped.live_match_confidence).toBe("high");
+    expect(flipped.updated_at).toBe(FROZEN_NOW.toISOString());
+  });
+
+  it("flips 'accepted' → 'verified_live' (the canonical operator path)", async () => {
+    const rows = [makeRow("e1", { status: "accepted" })];
+    dotDataMocks.read.mockResolvedValueOnce(rows);
+
+    const result = await markRecommendedEditsAsShipped({
+      editIds: ["e1"],
+      tenantId: TENANT,
+      now: FROZEN_NOW,
+    });
+
+    expect(result).toEqual({ flipped: 1, skipped: 0 });
+    const [flippedRows] = dualWriteMocks.syncRecommendedEdits.mock.calls[0]!;
+    const flipped = (flippedRows as RecommendedEditRow[])[0]!;
+    expect(flipped.implementation_status).toBe("verified_live");
+    expect(flipped.live_match_kind).toBe("operator_override");
+  });
+
+  it("does NOT downgrade rows already past verified_live (forward-only)", async () => {
+    const rows = [
+      makeRow("e1", { status: "verified_live" }),
+      makeRow("e2", { status: "verified_live_modified" }),
+      makeRow("e3", { status: "partially_implemented" }),
+      makeRow("e4", { status: "needs_review" }),
+      makeRow("e5", { status: "wrong_page" }),
+      makeRow("e6", { status: "not_found_after_7d" }),
+      makeRow("e7", { status: "dismissed" }),
+    ];
+    dotDataMocks.read.mockResolvedValueOnce(rows);
+
+    const result = await markRecommendedEditsAsShipped({
+      editIds: ["e1", "e2", "e3", "e4", "e5", "e6", "e7"],
+      tenantId: TENANT,
+      now: FROZEN_NOW,
+    });
+
+    expect(result).toEqual({ flipped: 0, skipped: 7 });
+    expect(dotDataMocks.write).not.toHaveBeenCalled();
+    expect(dualWriteMocks.syncRecommendedEdits).not.toHaveBeenCalled();
+  });
+
+  it("treats legacy rows (implementation_status undefined) as 'recommended' and flips them", async () => {
+    const rows = [makeRow("e1", { status: undefined })];
+    dotDataMocks.read.mockResolvedValueOnce(rows);
+
+    const result = await markRecommendedEditsAsShipped({
+      editIds: ["e1"],
+      tenantId: TENANT,
+      now: FROZEN_NOW,
+    });
+
+    expect(result.flipped).toBe(1);
+    const [flippedRows] = dualWriteMocks.syncRecommendedEdits.mock.calls[0]!;
+    const flipped = (flippedRows as RecommendedEditRow[])[0]!;
+    expect(flipped.implementation_status).toBe("verified_live");
+  });
+
+  it("skips unknown ids silently without throwing", async () => {
+    dotDataMocks.read.mockResolvedValueOnce([
+      makeRow("e1", { status: "accepted" }),
+    ]);
+
+    const result = await markRecommendedEditsAsShipped({
+      editIds: ["e1", "does-not-exist"],
+      tenantId: TENANT,
+      now: FROZEN_NOW,
+    });
+
+    expect(result).toEqual({ flipped: 1, skipped: 0 });
+  });
+
+  it("empty input is a no-op (no read, no write, no dual-write)", async () => {
+    const result = await markRecommendedEditsAsShipped({
+      editIds: [],
+      tenantId: TENANT,
+      now: FROZEN_NOW,
+    });
+
+    expect(result).toEqual({ flipped: 0, skipped: 0 });
+    expect(dotDataMocks.read).not.toHaveBeenCalled();
+    expect(dotDataMocks.write).not.toHaveBeenCalled();
+    expect(dualWriteMocks.syncRecommendedEdits).not.toHaveBeenCalled();
+  });
+
+  it("preserves all non-lifecycle fields on flipped rows", async () => {
+    const original = makeRow("e1", { status: "accepted" });
+    dotDataMocks.read.mockResolvedValueOnce([original]);
+
+    await markRecommendedEditsAsShipped({
+      editIds: ["e1"],
+      tenantId: TENANT,
+      now: FROZEN_NOW,
+    });
+
+    const [flippedRows] = dualWriteMocks.syncRecommendedEdits.mock.calls[0]!;
+    const flipped = (flippedRows as RecommendedEditRow[])[0]!;
+    expect(flipped.rec_id).toBe(original.rec_id);
+    expect(flipped.target_url).toBe(original.target_url);
+    expect(flipped.target_element_key).toBe(original.target_element_key);
+    expect(flipped.proposed_text).toBe(original.proposed_text);
+    expect(flipped.evidence).toEqual(original.evidence);
+    expect(flipped.created_at).toBe(original.created_at);
+    expect(flipped.confidence).toBe(original.confidence);
+    expect(flipped.difficulty).toBe(original.difficulty);
+  });
+
+  it("is idempotent — re-shipping already-verified rows is a no-op", async () => {
+    const rows = [makeRow("e1", { status: "verified_live" })];
+    dotDataMocks.read.mockResolvedValueOnce(rows);
+
+    const result = await markRecommendedEditsAsShipped({
+      editIds: ["e1"],
+      tenantId: TENANT,
+      now: FROZEN_NOW,
+    });
+
+    expect(result).toEqual({ flipped: 0, skipped: 1 });
+    expect(dotDataMocks.write).not.toHaveBeenCalled();
+  });
+
+  it("survives a dual-write failure (file write still succeeds)", async () => {
+    const rows = [makeRow("e1", { status: "accepted" })];
+    dotDataMocks.read.mockResolvedValueOnce(rows);
+    dualWriteMocks.syncRecommendedEdits.mockRejectedValueOnce(
+      new Error("supabase unreachable"),
+    );
+
+    const result = await markRecommendedEditsAsShipped({
+      editIds: ["e1"],
+      tenantId: TENANT,
+      now: FROZEN_NOW,
+    });
+
+    expect(result.flipped).toBe(1);
+    expect(dotDataMocks.write).toHaveBeenCalledTimes(1);
+    expect(dualWriteMocks.syncRecommendedEdits).toHaveBeenCalledTimes(1);
+  });
+
+  it("only flips matching ids, leaves others untouched", async () => {
+    const rows = [
+      makeRow("e1", { status: "accepted" }),
+      makeRow("e2", { status: "accepted" }),
+      makeRow("e3", { status: "accepted" }),
+    ];
+    dotDataMocks.read.mockResolvedValueOnce(rows);
+
+    const result = await markRecommendedEditsAsShipped({
+      editIds: ["e1", "e3"],
+      tenantId: TENANT,
+      now: FROZEN_NOW,
+    });
+
+    expect(result).toEqual({ flipped: 2, skipped: 0 });
+
+    const [, writtenRows] = dotDataMocks.write.mock.calls[0]!;
+    const written = writtenRows as RecommendedEditRow[];
+    expect(written.find((r) => r.id === "e1")?.implementation_status).toBe(
+      "verified_live",
+    );
+    expect(written.find((r) => r.id === "e2")?.implementation_status).toBe(
+      "accepted",
+    );
+    expect(written.find((r) => r.id === "e3")?.implementation_status).toBe(
+      "verified_live",
+    );
   });
 });
 
