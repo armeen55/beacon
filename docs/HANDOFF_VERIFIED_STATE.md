@@ -1,5 +1,32 @@
 # Beacon — Start Here
 
+> 🟢 **W3 Step 3.5 (Recommendations UI cleanup with engineConfidence pill) LANDED (2026-05-02):** Single code commit `4d9fa1a` on `main`. Renders the trust label that Step 3.3's rubric stamps and Step 3.4 fed real packet signals into. No new LLM runs, no paid calls, no regeneration, no Apply-All-HIGH.
+>
+> - **`RecConfidencePill` (NEW, `src/components/display/rec-confidence-pill.tsx`)** — operator-locked labels: `high` → **"Strong"**, `medium` → **"Review"**, `low` → **"Weak signal"**. Internal enum stays high/medium/low; `data-rec-confidence` attribute carries it. Tooltip surfaces the trust contract per tier ("Strong: likely safe to ship after a brief review. Manual ship only — never auto-apply.") plus diagnostic reason codes from `engineConfidence.reasons`.
+> - **Pill rendered on every rec card** in `recommendations-client.tsx` between the action label and tier badge.
+> - **Humanized labels replace raw enum tokens** — `humanizeActionType()` (Title-Case fallback for unmapped action_types), `EDIT_SOURCE_LABEL` (`openai`/`anthropic` → "AI-generated", `deterministic` → "Deterministic"), `EDIT_CONFIDENCE_LABEL` (`high`/`medium`/`low` → "Strong"/"Review"/"Weak signal"). `data-source` / `data-edit-confidence` attributes carry the raw internal enum.
+> - **Empty-state for filtered edits** — when `allEdits.length > 0` but the Step-3.1b-quarantine filter leaves `editCount === 0`, the rec card shows: *"{N} specific edits on this rec — all dismissed or no longer actionable. Re-run the generator to produce fresh edits, or accept the rec to track the change at the rec level only."* With `data-recommendations-edits-empty="true"` for tests.
+> - **Apply-All-HIGH stays explicitly OUT.** Architecture invariant `tests/architecture/recommendations-ui-cleanup.test.ts` BLOCKS reintroduction: no `acceptAllHighConfidence` / `HighConfidenceApplyBar` / "Apply all HIGH" copy / "auto-apply" / "one-click" / "instantly ship" anywhere in the client source.
+>
+> **Tests (25 new across 2 files):**
+> - `rec-confidence-pill.test.tsx` (15) — label renders, no-auto invariant (visible label scan, tooltip stripped — tooltip CAN say "never auto-apply" since that's the trust copy), tooltip body, internal enum doesn't leak, exported map covers every value.
+> - `recommendations-ui-cleanup.test.ts` (10) — pill imported + rendered, no auto-apply phrasing, no Apply-All-HIGH bar/action, humanizers wired, empty-state branch present, every existing action (Accept/Defer/Dismiss/Mark-shipped/Undo) still bound.
+>
+> **Verification (2026-05-02):**
+> - `npx tsc --noEmit` clean · 25/25 new tests pass · `npm run test` 3396/3400 (4 pre-existing failures verified independent of this change against `5d32f5f` baseline: 3 prompts-smoke fixture time-drift + 1 tenants/isolation, same set as W1/W2/W3 baselines) · `npm run build` clean.
+> - **Could not verify from this environment:** Vercel deploy SHA matches `4d9fa1a` — operator dashboard check.
+>
+> **Out of scope (per Step 3.5 + W3 §1.5):**
+> - Apply-All-HIGH bar / batch-accept UX — operator-locked OUT, architecture invariant blocks reintroduction
+> - LIVE paid generation across the queue — first paid run is post-Step-3.6, operator-approved
+> - Customer-one backfill — W4
+> - Profound CSV archive / code deletion — post-May-10
+>
+> **Next 3 actions:**
+> 1. **Operator: confirm Vercel deploy of `4d9fa1a` is "Ready"** + **browser-spot-check /recommendations** for the new "Strong" / "Review" / "Weak signal" pills + verify no "openai" / "low" / "add_h2_section" raw enum tokens in any rec card.
+> 2. **Continue W3 Step 3.6 (sample-10 quality report).** The W3 finale: pick 10 recs across the queue, run `runProviderAndPersist({ packet, dryRun: true })` against the live OpenAI provider, score each generated edit honestly (ship-as-is / minor-edit / no / placeholder). Operator-locked gate before any broader regeneration.
+> 3. **(Optional, ad-hoc) operator-gated one-rec dry-run** if you want a smaller paid probe before the broader Step 3.6 sample.
+
 > 🟢 **W3 Step 3.4 (LLM provider activation + confidence loop closure) LANDED (2026-05-02):** Single code commit `37ef437` on `main`. Architecture-only — turns on the LLM grounding path so the W3 Step 3.2 evidence packet can produce real edits, but takes ZERO live paid runs. Validators + confidence rubric prevent bad output from reaching the product. Live regeneration is operator-gated, post-3.6.
 >
 > - **Loop closed: packet signals → confidence.** `hasAiSearchSignalForRec` + `hasCompetitorPageBlueprintsForRec` (NEW pure helpers in `specific-edit-evidence.ts`) derive real signals from observations; `load-queue.ts` replaces the hardcoded `false`s with these. **HIGH is now reachable** when a rec has real packet evidence + every other dimension passes. Both helpers run in O(observations of affected prompts) per rec — no extra I/O.

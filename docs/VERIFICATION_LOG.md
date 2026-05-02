@@ -7,6 +7,78 @@
 
 ---
 
+## 2026-05-02 (evening) — W3 Step 3.5: Recommendations UI cleanup with engineConfidence pill
+
+Single code commit `4d9fa1a` on `main`. Renders the trust label that Step 3.3's rubric stamps and Step 3.4 fed real packet signals into. No new LLM runs, no paid calls, no regeneration, no Apply-All-HIGH.
+
+### What changed
+
+**`src/components/display/rec-confidence-pill.tsx` (NEW)**
+- `RecConfidencePill` component. Operator-locked labels: `high` → **"Strong"**, `medium` → **"Review"**, `low` → **"Weak signal"**. Internal enum stays high/medium/low; `data-rec-confidence` attribute carries it for tests + diagnostics.
+- Tooltip body per tier — surfaces the trust contract directly so operators don't have to read the rubric file:
+  - **Strong**: "likely safe to ship after a brief review. Manual ship only — never auto-apply."
+  - **Review**: "useful, but inspect evidence + copy before shipping."
+  - **Weak signal**: "thin or invalid evidence. Operator judgment required."
+- Plus diagnostic reason codes from `engineConfidence.reasons` (kept machine-readable; renaming to prose would force renames every time a rubric rule shifts).
+- `showTooltip=false` omits the title attribute entirely.
+
+**`src/app/(shell)/recommendations/recommendations-client.tsx`**
+- Imports `RecConfidencePill` and renders it on every rec card header (between action label and tier badge).
+- `humanizeActionType()` — Title-Case snake_case fallback when `ACTION_TYPE_BADGE` doesn't have a mapping. Defense-in-depth so raw enums never leak.
+- `EDIT_SOURCE_LABEL` — `openai`/`anthropic` → "AI-generated", `deterministic` → "Deterministic", `operator_edited` → "Operator-edited". Replaces raw enum tokens.
+- `EDIT_CONFIDENCE_LABEL` — `high` / `medium` / `low` → "Strong" / "Review" / "Weak signal". Per-edit confidence stays a diagnostic badge but with humanized text.
+- `data-source` / `data-edit-confidence` attributes carry raw internal enums for tests + diagnostic tools.
+- **Empty-state branch** — when `allEdits.length > 0` but the Step-3.1b-quarantine filter leaves `editCount === 0`, the rec card shows: *"{N} specific edits on this rec — all dismissed or no longer actionable. Re-run the generator to produce fresh edits, or accept the rec to track the change at the rec level only."* With `data-recommendations-edits-empty="true"` for tests.
+
+**Apply-All-HIGH stays operator-locked OUT.** The architecture invariant added in this commit (`tests/architecture/recommendations-ui-cleanup.test.ts`) BLOCKS reintroduction: no `acceptAllHighConfidence` / `HighConfidenceApplyBar` / "Apply all HIGH" copy / "auto-apply" / "one-click" / "instantly ship" anywhere in the client source.
+
+### Tests (25 new across 2 files)
+
+**`src/components/display/rec-confidence-pill.test.tsx` (15)**
+- Renders "Strong" for HIGH; visible label (tooltip stripped) never says "auto" / "auto-apply".
+- Renders "Review" for MEDIUM; "Weak signal" for LOW.
+- Visible-label invariant across all three tiers: never "auto-apply" / "automatic" / "instantly" / "one-click".
+- Internal enum (`data-rec-confidence`) doesn't leak into rendered body text.
+- Tooltip surfaces operator trust copy ("likely safe to ship after a brief review", "Manual ship only", "never auto-apply") + reason codes.
+- Tooltip omits "(reasons:" section when reasons array empty.
+- `showTooltip=false` omits the title attribute entirely.
+- `REC_CONFIDENCE_LABEL` exported map covers every value; no label uses "auto" phrasing.
+
+**`tests/architecture/recommendations-ui-cleanup.test.ts` (10)**
+- Confidence pill imported and rendered on rec card body.
+- HIGH copy never implies auto-apply; no "Apply All HIGH" / `acceptAllHighConfidence` / `HighConfidenceApplyBar` in client (W3 §1.5 lock).
+- `edit.action_type` goes through `humanizeActionType` (the old `?? edit.action_type` fallthrough is forbidden).
+- `edit.source` goes through `EDIT_SOURCE_LABEL`; `edit.confidence` goes through `EDIT_CONFIDENCE_LABEL`.
+- `EDIT_CONFIDENCE_LABEL` maps to operator-friendly text; `EDIT_SOURCE_LABEL` maps `openai` → "AI-generated".
+- Empty-state branch has the documented data-attribute + copy.
+- Existing actions still wired: `acceptRecommendation` / `deferRecommendation` / `dismissRecommendation` / `markRecommendationShipped` / `undoRecommendationResponse`.
+
+### Pre-existing fix
+
+- `openai.test.ts`: dropped an unused `getSystemMessage` helper that the typechecker flagged after Step 3.4. Behavior unchanged; only the unused helper went.
+
+### Verification
+
+| Gate | Result |
+|---|---|
+| `npx tsc --noEmit` | clean (no output) |
+| `vitest src/components/display/rec-confidence-pill.test.tsx + tests/architecture/recommendations-ui-cleanup.test.ts` | 25/25 pass |
+| `npm run test` | 3396 / 3400 (the 4 failures are the same pre-existing set verified independent of this change against `5d32f5f` baseline: 3 prompts-smoke fixture time-drift + 1 tenants/isolation, same set as W1/W2/W3 baselines) |
+| `npm run build` | clean — full route table emitted, no warnings |
+
+### Out of scope (per Step 3.5 + W3 §1.5)
+
+- **Apply-All-HIGH bar / batch-accept UX** — operator-locked OUT. The architecture invariant in this commit BLOCKS reintroduction.
+- **LIVE paid generation** — first paid run is post-Step-3.6, operator-approved.
+- Customer-one backfill — W4
+- Profound CSV archive / code deletion — post-May-10
+
+### Next
+
+W3 Step 3.6 — sample-10 quality report. The W3 finale: pick 10 recs across the queue, run `runProviderAndPersist({ packet, dryRun: true })` against the live OpenAI provider, score each generated edit honestly (ship-as-is / minor-edit / no / placeholder). Operator-locked gate before any broader regeneration. Capability tier: Max (decision quality).
+
+---
+
 ## 2026-05-02 (later) — W3 Step 3.4: LLM provider activation + confidence loop closure
 
 Single code commit `37ef437` on `main`. Architecture-only step. Turns on the LLM grounding path so the W3 Step 3.2 evidence packet can produce real edits, but takes ZERO live paid runs. Validators + confidence rubric prevent bad output from reaching the product. Live regeneration is operator-gated, post-3.6.
