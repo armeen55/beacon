@@ -1,5 +1,29 @@
 # Beacon — Start Here
 
+> 🟢 **W3 Step 3.1b (Pre-W3 placeholder quarantine) LANDED (2026-05-01):** Single code commit `1be64f9` on `main`. The 4 Los Altos `add_faq` rows operator-accepted before Step 3.1's hardening are now `dismissed` with `not_found_reason: "invalid_placeholder_pre_w3"`. Architecture invariant allowlist DROPPED; placeholder copy is no longer renderable on /recommendations or /today.
+>
+> - **Quarantine script (`scripts/quarantine-pre-w3-placeholder-edits.ts`, NEW)** — mirrors `archive-faq-test-pollution.ts`: idempotent, dry-run + execute modes, preflight + postflight assertions, hardcoded targets (4 placeholder IDs + sibling H2 + rec-level response). Forward-only flip: `accepted` → `dismissed` with the documented reason. Local file write + Supabase dual-write (DUAL_WRITE=true confirmed). All 10 postflight checks green; sibling H2 + rec response byte-equivalent.
+> - **UI filter (`recommendations-client.tsx`)** — rec card now filters `dismissed | not_found_after_7d` before rendering `SpecificEditsSection`. Without this, a dismissed placeholder row would still appear in the expanded edits list with a "Dismissed" pill but the original placeholder text still on screen. The lifecycle classifier on /changes already drops both to `unclassified`; this brings /recommendations into parity. Destructure renamed `edits` → `allEdits` so the filtered array takes the `edits` name; editCount + eligibleEditCount + the consumer all read the filtered array.
+> - **Architecture invariant (`tests/architecture/no-placeholder-recommended-edits.test.ts`)** — `KNOWN_PRE_W3_PLACEHOLDER_IDS` allowlist DROPPED. Replaced with `QUARANTINED_PRE_W3_IDS` (same 4 IDs, but as a regression target, not an exemption). Two new tests pin the post-Step-3.1b state: "quarantined rows are dismissed with the documented reason" + "quarantined rows do not pass `isActive` filter."
+> - **Regression test (`tests/app/recommendations/pre-w3-quarantine-non-renderable.test.ts`, NEW)** — 5 focused tests covering: (1) 4 IDs dismissed with reason, (2) /recommendations rec card filter blocks them, (3) /today implementation-queue source predicate blocks them, (4) original `proposed_text` preserved (history not deleted), (5) architecture invariant active-row scan finds zero violations.
+> - **Wiring test (`tests/sprint6a1-phase12-wiring.test.ts`)** — Phase 6A.1.12 destructure-pattern regex updated for the new `edits: allEdits` shape; behavior contract unchanged.
+>
+> **Verification (2026-05-01):**
+> - `npx tsc --noEmit` clean · 184/184 targeted tests pass + 22/22 wiring · `npm run test` 3295/3299 (4 pre-existing failures verified independent of this change against `5d32f5f` baseline: 3 prompts-smoke fixture time-drift + 1 tenants/isolation, same set as W1 + W2 + W3-scope-lock + W3 Step 3.1 baselines) · `npm run build` clean.
+> - **Could not verify from this environment:** Vercel deploy SHA matches `1be64f9` — operator dashboard check.
+>
+> **Acceptance (per operator scope):**
+> 1. ✅ `.data/tenants/*/recommended-edits.json` has zero active/renderable placeholder edits.
+> 2. ✅ Architecture invariant has no permanent allowlist (replaced with explicit `QUARANTINED_PRE_W3_IDS` regression target).
+> 3. ✅ Old placeholder rows are filtered AND marked invalid; they do not render as a usable recommendation.
+> 4. ✅ No new placeholder rows can be added (Step 3.1's validator + generator gates).
+> 5. ✅ History preserved: dismissed rows still carry their original proposed_text in the data store.
+>
+> **Next 3 actions:**
+> 1. **Operator: confirm Vercel deploy of `1be64f9` is "Ready"** — single code commit + sibling docs commit.
+> 2. **Browser-spot-check /recommendations** for the Los Altos rec — should show 1 H2 edit only (the sibling), not 5 (4 dismissed FAQs hidden by the new filter).
+> 3. **Continue W3 Step 3.2 (evidence packet extension).** Foundation for Step 3.4 LLM activation: `aiSearchSignal` + `competitorPageBlueprints` + cross-tenant brain stub.
+
 > 🟢 **W3 Step 3.1 (Placeholder kill + FAQ structural-quality gate) LANDED (2026-05-01):** Single code commit `dd59d6a` on `main`. Beacon now refuses to put placeholder copy in the recommendation queue at three layers — helper, validator, and the deterministic FAQ generator's abstain path.
 >
 > - **Helper (`src/domains/recommendations/placeholder-detection.ts`, NEW)** — `PLACEHOLDER_PATTERNS` covers 8 operator-locked phrases (Draft answer / TBD / operator: rewrite / (operator: ...) / rewrite below / [insert ...] / placeholder / TODO:) with word-boundary anchors so legitimate copy ("our crane operator drafts each plan") never false-matches. `evaluateFaqAnswer({question, answer})` returns a discriminated verdict with reasons `too_short` (<25 words), `repeats_question` (≥80% content-word overlap), `no_specific_content` (<5 distinct words after stopwords + question + GENERIC_FILLER), or `placeholder_phrase`. `parseFaqProposedText` extracts Q + A halves from the deterministic generator's `Q: ... \n\nA: ...` shape.

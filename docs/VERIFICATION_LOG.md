@@ -7,6 +7,80 @@
 
 ---
 
+## 2026-05-01 (late evening) — W3 Step 3.1b: pre-W3 placeholder quarantine
+
+Single code commit `1be64f9` on `main`. Step 3.1 added the prevention layer; Step 3.1b cleans up the historical rows that predate the prevention.
+
+### Why this step exists
+
+Step 3.1's architecture invariant carried a 4-ID allowlist for placeholder rows operator-accepted before the validator hardening (Los Altos `add_faq` rows whose `proposed_text` reads `Q: ...\n\nA: Draft answer (operator: rewrite). Anchor on: <descriptors>`). Even with the validator + generator hardened, these rows still surfaced as `accepted` in /recommendations + /today, putting placeholder copy in front of the operator. Operator-visible trust damage we couldn't carry into the W3 evidence-packet work.
+
+### What changed
+
+**Quarantine script: `scripts/quarantine-pre-w3-placeholder-edits.ts` (NEW)**
+- Mirrors `scripts/archive-faq-test-pollution.ts` (the proven 6A.1 pattern operator already approved): idempotent, `--dry-run` (default) + `--execute` modes, preflight + postflight assertions, hardcoded targets.
+- Targets: 4 placeholder IDs + sibling H2 (`create_cluster_page:geo:Los Altos__add_h2_section__h2[new]:c75a1120a6aa`) + rec-level response (`create_cluster_page:geo:Los Altos`). Sibling + response preserved byte-for-byte (deep fingerprint captured pre + verified post).
+- Forward-only flip per row: `implementation_status: accepted` → `dismissed`, `not_found_reason: null` → `"invalid_placeholder_pre_w3"`, `updated_at` → now.
+- Local file write (`persistRecommendedEditsLocal`) + Supabase dual-write (`syncRecommendedEdits`).
+- Best-effort changelog archive: 0 local matches present (the rec was Accept-d in production where Vercel's read-only FS no-ops the file write; production Supabase may have entries that surface as `unclassified` on /changes default tabs).
+- Executed locally (2026-05-01) with `BEACON_TENANT_ID=tenant-ritz-founder DUAL_WRITE=true`. All 10 postflight checks green.
+
+**UI filter: `recommendations-client.tsx`**
+- Rec card now filters `dismissed | not_found_after_7d` edits before rendering `SpecificEditsSection`. Without this, dismissed rows still appeared in the rec's expanded edits list with a "Dismissed" pill but the original placeholder text still on screen.
+- Destructure renamed `edits` → `allEdits` so the filtered array takes the `edits` name; `editCount` + `eligibleEditCount` + the consumer all read the filtered array.
+
+**Architecture invariant: `tests/architecture/no-placeholder-recommended-edits.test.ts`**
+- `KNOWN_PRE_W3_PLACEHOLDER_IDS` allowlist DROPPED. Active-row placeholder + structural scans now run without exemption.
+- Replaced with `QUARANTINED_PRE_W3_IDS` constant (same 4 IDs as a regression target, not an exemption).
+- New "quarantined rows are dismissed with the documented reason" test pins the post-Step-3.1b state.
+- New "quarantined rows do not pass `isActive` filter" test behavioral-verifies the dismissed → non-rendering path.
+- Removed the "stale allowlist entries" check (now redundant — there's no allowlist).
+
+**Regression test: `tests/app/recommendations/pre-w3-quarantine-non-renderable.test.ts` (NEW)**
+- 5 focused tests covering the operator's regression-test acceptance criteria:
+  1. The 4 quarantined rows are `dismissed` with `not_found_reason: "invalid_placeholder_pre_w3"`.
+  2. The /recommendations rec card filter (`s !== "dismissed" && s !== "not_found_after_7d"`) drops every quarantined row.
+  3. The /today implementation-queue source predicate (accepted-only, no live_at) drops every quarantined row.
+  4. The original `proposed_text` is preserved (history not deleted — operator constraint).
+  5. The architecture-invariant active-row placeholder scan finds zero violations (cross-link).
+
+**Wiring test: `tests/sprint6a1-phase12-wiring.test.ts`**
+- Phase 6A.1.12 "destructures edits" assertion's regex updated for the new `edits: allEdits` destructure pattern + a new pin on the dismissed-filter call. Behavior contract (rec card has access to its edits; editCount comes from the filtered length) unchanged.
+
+### Acceptance (per operator scope)
+
+| Criterion | Result |
+|---|---|
+| `.data/tenants/*/recommended-edits.json` has zero active/renderable placeholder edits | ✅ |
+| Architecture invariant has no permanent allowlist | ✅ (replaced with `QUARANTINED_PRE_W3_IDS` regression target) |
+| Old placeholder rows are filtered AND marked invalid | ✅ |
+| Old placeholder rows do not render as usable recommendations | ✅ (UI filter + lifecycle classifier + queue predicate) |
+| No new placeholder rows can be added | ✅ (W3 Step 3.1's validator + generator gates) |
+| History preserved | ✅ (dismissed rows still carry their original `proposed_text`) |
+
+### Verification
+
+| Gate | Result |
+|---|---|
+| `npx tsc --noEmit` | clean (no output) |
+| Targeted vitest (placeholder-detection / validator / generators / architecture / regression / wiring) | 184/184 + 22/22 wiring |
+| `npm run test` | 3295 / 3299 (the 4 failures are the same pre-existing set as W1/W2/W3-scope-lock/W3-Step-3.1 baselines) |
+| `npm run build` | clean — full route table emitted, no warnings |
+
+### Out of scope (operator-locked)
+
+- LLM provider activation — Step 3.4
+- Recommendations UI cleanup — Step 3.5
+- Apply-All-HIGH bar — deferred until founder reviews 20–30 recs
+- Customer-one backfill — W4
+- Profound CSV archive / code deletion — post-May-10
+
+### Next
+
+W3 Step 3.2 — evidence packet extension (`aiSearchSignal` + `competitorPageBlueprints` + cross-tenant brain stub). Capability tier: Max.
+
+---
+
 ## 2026-05-01 (evening) — W3 Step 3.1: placeholder kill + FAQ structural-quality gate
 
 Single code commit `dd59d6a` on `main`. Closes the gap where the deterministic FAQ generator emitted "Draft answer (operator: rewrite)" by default and the validator was happy to wave it through. Beacon now refuses placeholder copy at three layers.
