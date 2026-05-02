@@ -7,7 +7,10 @@ export const dynamic = "force-dynamic";
 
 import { PageHeader } from "@/components/data/page-header";
 import { currentTenantId } from "@/lib/tenant-context";
-import { loadLiveRecommendationQueue } from "@/domains/recommendations/load-queue";
+import {
+  loadLiveRecommendationQueue,
+  type LiveRecQueueItem,
+} from "@/domains/recommendations/load-queue";
 import type { prioritizeRecommendations } from "@/domains/recommendations/prioritize";
 import { getRepository } from "@/lib/persistence/repositories";
 import type { RecommendationResponse } from "@/domains/product/recommendation-response-store";
@@ -85,18 +88,16 @@ export default async function RecommendationsPage() {
   );
 
   // Sprint 6A.1 Phase 12 (2026-04-24): fresh-read recommended_edits per
-  // request. Group by `rec_id` so each rec row gets its own edits slice.
+  // request, grouped by rec_id so each rec row gets its own edits slice.
   // Failure here gracefully degrades: edits are absent → UI falls back
   // to the existing single-changelog Accept behavior.
-  // Sprint 7 Phase 7.5b Commit 2 (2026-04-25) — tenant-bound read.
-  const freshEditsRes = await safeCall(
-    () => getRepository().forTenant(tenantId).getRecommendedEdits(),
-    [] as RecommendedEditRow[],
-    "fetch fresh recommended edits",
-  );
-  if (freshEditsRes.error) errors.push(freshEditsRes.error);
+  //
+  // W3 Step 3.3 (2026-05-01): the loader (`loadLiveRecommendationQueue`)
+  // already fresh-reads recommended_edits to compute engineConfidence,
+  // so consume those rows directly instead of double-fetching. Errors
+  // bubble through `live.errors`.
   const editsByRecId = new Map<string, RecommendedEditRow[]>();
-  for (const row of freshEditsRes.value) {
+  for (const row of live.recommendedEdits) {
     const list = editsByRecId.get(row.rec_id);
     if (list) list.push(row);
     else editsByRecId.set(row.rec_id, [row]);
@@ -174,7 +175,13 @@ function ErrorFallback({ errors }: { errors: string[] }) {
 }
 
 export type RecommendationQueueRow = {
-  rec: ReturnType<typeof prioritizeRecommendations>["queue"][number];
+  /** W3 Step 3.3 (2026-05-01): the prioritized rec is now a
+   *  `LiveRecQueueItem` — same shape as `PrioritizedRecommendation`
+   *  plus a required `engineConfidence: RecConfidenceVerdict`. The UI
+   *  doesn't render the verdict yet (W3 Step 3.5 ships the pill);
+   *  the field is exposed here so consumers can read it as soon as
+   *  it lands. */
+  rec: LiveRecQueueItem;
   response: RecommendationResponse | null;
   /** Sprint 6A.1 Phase 12 — typed edits from `recommended_edits`,
    *  fresh-read per request. Empty array when the rec has none — the

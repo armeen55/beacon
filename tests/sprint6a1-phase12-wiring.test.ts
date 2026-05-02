@@ -22,6 +22,12 @@ const PAGE_PATH = resolve(
 );
 const PAGE_SOURCE = readFileSync(PAGE_PATH, "utf8");
 
+const LOAD_QUEUE_PATH = resolve(
+  __dirname,
+  "../src/domains/recommendations/load-queue.ts",
+);
+const LOAD_QUEUE_SOURCE = readFileSync(LOAD_QUEUE_PATH, "utf8");
+
 const CLIENT_PATH = resolve(
   __dirname,
   "../src/app/(shell)/recommendations/recommendations-client.tsx",
@@ -91,18 +97,27 @@ describe("Phase 6A.1.12 — /recommendations page wiring", () => {
 
   it("calls getRecommendedEdits via the repository, NOT a module-level array", () => {
     // Sprint 7 Phase 7.5b Commit 2 (2026-04-25) — tenant-bound read.
-    expect(PAGE_SOURCE).toMatch(
+    // W3 Step 3.3 (2026-05-01) — read MOVED into the loader so
+    // engineConfidence can be stamped server-side once. Page.tsx
+    // consumes via `live.recommendedEdits` instead of re-fetching.
+    // The repository read invariant still holds; it's just relocated.
+    expect(LOAD_QUEUE_SOURCE).toMatch(
+      /getRepository\(\)\.forTenant\([^)]+\)\.getRecommendedEdits\(/,
+    );
+    // Page.tsx must NOT re-fetch edits — single source of truth.
+    expect(PAGE_SOURCE).not.toMatch(
       /getRepository\(\)\.forTenant\([^)]+\)\.getRecommendedEdits\(/,
     );
     // Must NOT import recommended-edits-persistence's mutable in-memory
     // helper (readRecommendedEditsLocal) — that would be a module-level
     // cache read, the same bug class Sprint 1 fixed for /changes.
     expect(PAGE_SOURCE).not.toMatch(/readRecommendedEditsLocal/);
+    expect(LOAD_QUEUE_SOURCE).not.toMatch(/readRecommendedEditsLocal/);
   });
 
   it("wraps the edits read in safeCall so a read failure gracefully degrades to empty edits", () => {
-    // Sprint 7 Phase 7.5b Commit 2 — same pattern, with `.forTenant(tenantId)`.
-    expect(PAGE_SOURCE).toMatch(
+    // W3 Step 3.3 (2026-05-01) — assertion now applies to the loader.
+    expect(LOAD_QUEUE_SOURCE).toMatch(
       /safeCall\(\s*\(\)\s*=>\s*getRepository\(\)\.forTenant\([^)]+\)\.getRecommendedEdits\(/,
     );
   });

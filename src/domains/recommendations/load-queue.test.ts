@@ -6,11 +6,11 @@ import type { PromptOpportunity } from "@/domains/prompts/opportunity-classify";
 import type { PromptPrimarySummary } from "@/domains/prompts/competitor-primary";
 import type { TrackedPrompt } from "@/domains/tracked-prompts/types";
 import type { TrackedEntity } from "@/domains/tracked-entities/types";
-import type { PrioritizedRecommendation } from "./prioritize";
 import type { PageInventoryEntry } from "./page-inventory";
 import {
   buildPacketForRec,
   type LiveRecommendationQueue,
+  type LiveRecQueueItem,
 } from "./load-queue";
 import type { PageElementInventoryRow } from "@/domains/pages/extractors/persist";
 
@@ -112,7 +112,7 @@ function makePageInventoryEntry(): PageInventoryEntry {
   };
 }
 
-function makeRec(): PrioritizedRecommendation {
+function makeRec(): LiveRecQueueItem {
   return {
     stableKey: "rec-test-1",
     type: "strengthen_page_copy",
@@ -138,6 +138,10 @@ function makeRec(): PrioritizedRecommendation {
     tier: "now",
     rank: 1,
     reasoning: "test reasoning",
+    // W3 Step 3.3 (2026-05-01) — fixture stamps a baseline LOW
+    // engineConfidence so the type satisfies LiveRecQueueItem. Real
+    // verdicts are computed inside loadLiveRecommendationQueue.
+    engineConfidence: { confidence: "low", reasons: ["no_edits"] },
   };
 }
 
@@ -153,6 +157,7 @@ function makeContext(
     trackedEntities: [] as TrackedEntity[],
     promptAnswerObservations: [],
     pageInventory: [makePageInventoryEntry()],
+    recommendedEdits: [],
     errors: [],
     ...overrides,
   };
@@ -398,14 +403,28 @@ describe("Phase 6A.1.14 — orchestration is shared between page + CLI", () => {
     expect(src).not.toMatch(/prioritizeRecommendations\(/);
   });
 
-  it("page.tsx still does its own fresh-read of recommendation_responses + recommended_edits", () => {
-    // Phase 12 wired these reads at the page layer; Phase 14 must NOT
-    // move them into load-queue.ts (different concerns: queue vs.
-    // operator decoration).
-    const src = readFileSync(PAGE_PATH, "utf8");
+  it("page.tsx still does its own fresh-read of recommendation_responses; recommended_edits now flow through the loader", () => {
+    // Phase 12 wired both reads at the page layer.
+    // W3 Step 3.3 (2026-05-01) MOVED recommended_edits into the loader
+    // so the engine-confidence verdict can be stamped on every queue
+    // item server-side. recommendation_responses stay at page level
+    // (different concern: operator-decision state, not engine state).
+    const pageSrc = readFileSync(PAGE_PATH, "utf8");
+    const loaderSrc = readFileSync(LOAD_QUEUE_PATH, "utf8");
     // Sprint 7 Phase 7.5b Commit 2 (2026-04-25) — tenant-bound reads.
-    expect(src).toMatch(/getRepository\(\)\.forTenant\([^)]+\)\.getRecommendationResponses\(/);
-    expect(src).toMatch(/getRepository\(\)\.forTenant\([^)]+\)\.getRecommendedEdits\(/);
+    expect(pageSrc).toMatch(
+      /getRepository\(\)\.forTenant\([^)]+\)\.getRecommendationResponses\(/,
+    );
+    // Edits now read in the loader; page.tsx must NOT re-fetch them
+    // (single source of truth for engineConfidence input).
+    expect(pageSrc).not.toMatch(
+      /getRepository\(\)\.forTenant\([^)]+\)\.getRecommendedEdits\(/,
+    );
+    expect(loaderSrc).toMatch(
+      /getRepository\(\)\.forTenant\([^)]+\)\.getRecommendedEdits\(/,
+    );
+    // Page.tsx consumes the loader's recommendedEdits field instead.
+    expect(pageSrc).toMatch(/live\.recommendedEdits/);
   });
 
   it("loadLiveRecommendationQueue uses forTenant for getPages + getPageSnapshots", () => {

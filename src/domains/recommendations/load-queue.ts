@@ -55,6 +55,22 @@ import type { PromptAnswerObservation } from "@/domains/prompt-answer-observatio
 import type { TrackedPrompt } from "@/domains/tracked-prompts/types";
 import type { TrackedEntity } from "@/domains/tracked-entities/types";
 import type { PageElementInventoryRow } from "@/domains/pages/extractors/persist";
+import {
+  computeRecConfidence,
+  type RecConfidenceVerdict,
+} from "./confidence";
+import type { RecommendedEditRow } from "./recommended-edits-persistence";
+
+/**
+ * W3 Step 3.3 (2026-05-01) — `PrioritizedRecommendation` decorated with
+ * the engine confidence verdict. The pipeline stamps it once per rec
+ * so every consumer (page render, CLI, future Step 3.4 LLM activator)
+ * reads the same trust label. Field is required (never undefined) so
+ * UI / log surfaces don't have to defensively branch.
+ */
+export type LiveRecQueueItem = PrioritizedRecommendation & {
+  engineConfidence: RecConfidenceVerdict;
+};
 
 /**
  * Output of `loadLiveRecommendationQueue`. Shape mirrors what the
@@ -62,7 +78,7 @@ import type { PageElementInventoryRow } from "@/domains/pages/extractors/persist
  * the CLI uses to build SpecificEditEvidencePackets.
  */
 export type LiveRecommendationQueue = {
-  queue: PrioritizedRecommendation[];
+  queue: LiveRecQueueItem[];
   /** Watchlist items are the unprioritized winning-cluster `watch` recs
    *  — `prioritizeRecommendations` never adds rank/score/tier to them. */
   watchlist: RecommendationCandidate[];
@@ -73,6 +89,13 @@ export type LiveRecommendationQueue = {
   trackedEntities: TrackedEntity[];
   promptAnswerObservations: PromptAnswerObservation[];
   pageInventory: PageInventoryEntry[];
+  /**
+   * W3 Step 3.3 (2026-05-01) — recommended_edits rows fresh-read by
+   * the loader so the page render and the engineConfidence stamp
+   * see the same set. Page consumers can use this directly instead
+   * of re-fetching.
+   */
+  recommendedEdits: RecommendedEditRow[];
   /** Per-step error strings collected via `safeCall`. Empty when
    *  everything succeeded. The page surfaces these in a banner; the
    *  CLI prints them to stderr. */
@@ -166,6 +189,7 @@ export async function loadLiveRecommendationQueue(
       trackedEntities,
       promptAnswerObservations,
       pageInventory: [],
+      recommendedEdits: [],
       errors,
     };
   }
@@ -268,14 +292,70 @@ export async function loadLiveRecommendationQueue(
     )
   ).value;
 
+  // W3 Step 3.3 (2026-05-01) — fresh-read recommended_edits for the
+  // engine-confidence stamp. Same source the page render fetches; we
+  // load it here so the rec carries its trust label and the page
+  // doesn't double-fetch. Failure here gracefully degrades — recs get
+  // engineConfidence = "low" with reason "no_edits".
+  const editsRes = await safeCall(
+    () => getRepository().forTenant(tenantId).getRecommendedEdits(),
+    [] as RecommendedEditRow[],
+    "fetch recommended_edits",
+  );
+  if (editsRes.error) errors.push(editsRes.error);
+  const recommendedEdits = editsRes.value;
+  const editsByRecId = new Map<string, RecommendedEditRow[]>();
+  for (const row of recommendedEdits) {
+    const list = editsByRecId.get(row.rec_id);
+    if (list) list.push(row);
+    else editsByRecId.set(row.rec_id, [row]);
+  }
+
+  // Competitor name list for the leakage guard. Sourced from active
+  // competitor entities; directories + brand entities are excluded.
+  // Empty list disables the check (defensive — the validator already
+  // ran the same check at write time; this is defense-in-depth).
+  const competitorNames = trackedEntities
+    .filter((e) => e.entity_type === "competitor" && e.is_active)
+    .map((e) => e.name)
+    .filter((n) => n.length >= 3);
+
+  const decoratedQueue: LiveRecQueueItem[] = prioritized.queue.map((rec) => {
+    const edits = editsByRecId.get(rec.stableKey) ?? [];
+    const engineConfidence = computeRecConfidence({
+      // Defensive reads: synthetic test fixtures occasionally omit
+      // these fields. Pre-W3 page-render tests want to exercise the
+      // UI layer without filling the full RecommendationCandidate
+      // shape; treat missing values as zero/empty so the stamp never
+      // crashes the page render.
+      affectedPromptCount: rec.affectedPromptIds?.length ?? 0,
+      resolverTier: rec.resolution?.tier ?? "deterministic_only",
+      resolutionConfidence: rec.resolution?.confidence ?? "low",
+      needsHumanReview: rec.resolution?.needsHumanReview ?? false,
+      evidenceRefCount: rec.resolution?.evidenceRefs?.length ?? 0,
+      edits,
+      // W3 Step 3.3: packet signals are caller-supplied (pass through
+      // false at the load-queue layer; Step 3.4 will plumb in real
+      // values from the per-rec evidence packet). HIGH is intentionally
+      // unreachable here today — that's the point: the trust label
+      // earns its weight when the LLM provider activates with real
+      // packet signals.
+      hasAiSearchSignal: false,
+      hasCompetitorPageBlueprints: false,
+      competitorNames,
+    });
+    return { ...rec, engineConfidence };
+  });
+
   return {
-    queue: prioritized.queue,
+    queue: decoratedQueue,
     watchlist: prioritized.watchlist,
     matrix,
     trackedPrompts,
     trackedEntities,
     promptAnswerObservations,
     pageInventory,
+    recommendedEdits,
     errors,
   };
 }
