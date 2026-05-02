@@ -570,34 +570,6 @@ describe("W3 Step 3.4 — SYSTEM_PROMPT v2 references the new evidence packet se
    * test fails — preventing silent regression of the trust contract.
    */
 
-  function getSystemMessage(args: { allowedActionTypes?: string[] } = {}): string {
-    const fetchImpl = vi.fn(async () =>
-      makeChatResponse({ content: { recommendations: [] } }),
-    );
-    const packet = args.allowedActionTypes
-      ? makePacket({
-          allowedActionTypes: args.allowedActionTypes as Parameters<
-            typeof makePacket
-          >[0]["allowedActionTypes"],
-        })
-      : makePacket();
-    // Fire-and-forget; we don't await the bundle, just need the call args.
-    void generateOpenAIBundle(packet, { fetchImpl, now: FROZEN_NOW });
-    // Wait one microtask for the fetchImpl to be invoked.
-    return (async () => {
-      await new Promise((r) => setImmediate(r));
-      const init = fetchImpl.mock.calls[0]?.[1] as RequestInit | undefined;
-      if (!init) return "";
-      const body = JSON.parse(init.body as string);
-      const sysMsg = body.messages?.find(
-        (m: { role: string; content: string }) => m.role === "system",
-      );
-      return sysMsg?.content ?? "";
-    })() as unknown as string;
-  }
-
-  // The async helper above resolves to a string; for readability we
-  // unwrap inline in each test.
   async function readSystemPrompt(): Promise<string> {
     const fetchImpl = vi.fn(async () =>
       makeChatResponse({ content: { recommendations: [] } }),
@@ -616,11 +588,6 @@ describe("W3 Step 3.4 — SYSTEM_PROMPT v2 references the new evidence packet se
     );
     return sysMsg.content as string;
   }
-
-  // Silence the no-unused-var warning for the helper variant we
-  // don't end up using in assertions (kept around for future tests
-  // that need synchronous access).
-  void getSystemMessage;
 
   it("references packet.aiSearchSignal.topSearchQueries", async () => {
     const prompt = await readSystemPrompt();

@@ -29,6 +29,7 @@ import { buildResolvedRecommendationTitle } from "@/domains/recommendations/buil
 import type { SuggestedEdit } from "@/domains/recommendations/adjudicator-schema";
 import type { RecommendedEditRow } from "@/domains/recommendations/recommended-edits-persistence";
 import { LifecycleStatusPill } from "@/components/display/lifecycle-status-pill";
+import { RecConfidencePill } from "@/components/display/rec-confidence-pill";
 import { summarizeEvidenceRefs } from "@/domains/recommendations/evidence-summary";
 
 type Props = {
@@ -465,6 +466,12 @@ function RecommendationRow({
         >
           {actionLabel}
         </span>
+        {/* W3 Step 3.5 (2026-05-02) — engine confidence pill.
+            Operator-facing label maps high/medium/low → Strong /
+            Review / Weak signal. The label NEVER implies auto-apply
+            (W3 §1.5 + Step 3.3 rubric). Internal enum stays
+            high/medium/low; only the visible text differs. */}
+        <RecConfidencePill verdict={rec.engineConfidence} />
         {tierBadge && tierBadge.label && (
           <span
             className={cn(
@@ -550,6 +557,22 @@ function RecommendationRow({
           recommendationTargetUrl={resolution?.targetUrl ?? null}
           promptTextById={promptTextById}
         />
+      )}
+      {/* W3 Step 3.5 (2026-05-02) — empty-state when ALL edits were
+          filtered out (e.g., the W3 Step 3.1b quarantine left the
+          rec with N edits in `allEdits` but zero renderable). Tells
+          the operator the rec has history but no actionable edits
+          right now, instead of just dropping the section silently. */}
+      {editCount === 0 && allEdits.length > 0 && (
+        <div
+          className="mt-2 rounded border border-border/40 bg-surface-inset/30 px-2.5 py-1.5 text-[11px] text-muted-foreground leading-relaxed"
+          data-recommendations-edits-empty="true"
+        >
+          {allEdits.length} specific edit{allEdits.length === 1 ? "" : "s"}{" "}
+          on this rec — all dismissed or no longer actionable. Re-run the
+          generator to produce fresh edits, or accept the rec to track
+          the change at the rec level only.
+        </div>
       )}
 
       {showFeedback && (
@@ -1022,6 +1045,41 @@ const ACTION_TYPE_BADGE: Record<string, string> = {
   watch: "Watch",
 };
 
+// W3 Step 3.5 (2026-05-02) — humanize an action_type token when the
+// registry adds a new action ahead of the badge map. Falls through to
+// `Add H2 Section` style instead of leaking `add_h2_section` to the
+// operator. Pure, defensive — the curated map above stays the
+// preferred path for tone control.
+function humanizeActionType(actionType: string): string {
+  const mapped = ACTION_TYPE_BADGE[actionType];
+  if (mapped) return mapped;
+  return actionType
+    .split("_")
+    .map((w) => (w.length === 0 ? w : w[0].toUpperCase() + w.slice(1)))
+    .join(" ");
+}
+
+// W3 Step 3.5 (2026-05-02) — operator-facing edit-source labels.
+// Replaces raw enum tokens ("openai" / "deterministic") in the
+// edit row's source badge with concise operator language.
+const EDIT_SOURCE_LABEL: Record<string, string> = {
+  deterministic: "Deterministic",
+  openai: "AI-generated",
+  anthropic: "AI-generated",
+  operator_edited: "Operator-edited",
+};
+
+// W3 Step 3.5 (2026-05-02) — humanize per-edit confidence enum so it
+// reads as natural copy, not a raw token. Per-edit `confidence` is a
+// diagnostic signal; the rec-level `RecConfidencePill` is the trust
+// label operators consume. Both stay aligned: HIGH = strong, MEDIUM
+// = review-worthy, LOW = weak signal.
+const EDIT_CONFIDENCE_LABEL: Record<string, string> = {
+  high: "Strong",
+  medium: "Review",
+  low: "Weak signal",
+};
+
 // Sprint 6A.2g.F (2026-04-26) — source badge color map. Different
 // hue per provider source so the operator can scan a long edit list
 // and tell at a glance which rows came from the LLM, the legacy
@@ -1088,10 +1146,10 @@ function SpecificEditsSection({
             >
               <div className="flex items-baseline gap-1.5 flex-wrap">
                 <span className="text-[10px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded border border-accent-primary/40 bg-accent-primary/[0.06] text-accent-primary">
-                  {ACTION_TYPE_BADGE[edit.action_type] ?? edit.action_type}
+                  {humanizeActionType(edit.action_type)}
                 </span>
                 <span className="font-medium text-foreground/90">
-                  {edit.display_label ?? edit.action_type}
+                  {edit.display_label ?? humanizeActionType(edit.action_type)}
                 </span>
                 {/* Phase 6A.3 (2026-04-28) — per-edit lifecycle pill.
                     Surfaces verified_live / accepted / dismissed / etc.
@@ -1121,16 +1179,24 @@ function SpecificEditsSection({
                     needs rewrite
                   </span>
                 )}
-                {/* Sprint 6A.2g.F — source provenance badge. */}
+                {/* Sprint 6A.2g.F — source provenance badge.
+                    W3 Step 3.5 (2026-05-02) — render humanized label
+                    (e.g., "AI-generated") instead of the raw enum
+                    token "openai". Internal value still passes
+                    through `data-source` for tests + diagnostics. */}
                 <span
                   className={cn(
                     "text-[10px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded border",
                     sourceClass,
                   )}
                   title={`Source: ${edit.source}${edit.model ? ` · ${edit.model}` : ""}`}
+                  data-source={edit.source}
                 >
-                  {edit.source}
+                  {EDIT_SOURCE_LABEL[edit.source] ?? edit.source}
                 </span>
+                {/* W3 Step 3.5 (2026-05-02) — humanized per-edit
+                    confidence label so the row never shows raw
+                    "low" / "medium" / "high" tokens to operators. */}
                 <span
                   className={cn(
                     "ml-auto text-[10px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded border",
@@ -1140,8 +1206,10 @@ function SpecificEditsSection({
                         ? "border-status-warning/40 text-status-warning"
                         : "border-border/60 text-muted-foreground",
                   )}
+                  title={`Per-edit confidence: ${edit.confidence}`}
+                  data-edit-confidence={edit.confidence}
                 >
-                  {edit.confidence}
+                  {EDIT_CONFIDENCE_LABEL[edit.confidence] ?? edit.confidence}
                 </span>
                 <span className="text-[10px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded border border-border/60 text-muted-foreground">
                   {edit.difficulty}
