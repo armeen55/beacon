@@ -1,5 +1,35 @@
 # Beacon — Start Here
 
+> 🟢 **W3 Step 3.5b (Product cleanup after Step 3.5 browser audit) LANDED (2026-05-02):** Single code commit `9b05327` on `main`. Operator's browser audit caught six product issues source-scan tests missed; this commit fixes all six without paid runs / regeneration / Apply-All-HIGH / backfill.
+>
+> - **A. Competitor-name leak quarantined** — `scripts/quarantine-competitor-public-copy-pre-w3.ts` (NEW, idempotent). Forward-only flips the operator-flagged H2 row (`create_cluster_page:geo:Los Altos__add_h2_section__h2[new]:c75a1120a6aa`, "Why teams choose us over De Mattei Construction") from `accepted` → `dismissed` with `not_found_reason: "invalid_competitor_public_copy_pre_w3"`. Local + Supabase dual-write executed; postflight green. Sister "Bay" matches were false positives (geographic Bay Area refs, not Bay Builders competitor); not quarantined.
+> - **B. Confidence semantics revised** — `tier_deterministic_only` LOW gate REMOVED. Was forcing every deterministic-only rec into Weak signal regardless of evidence. Now deterministic-only BLOCKS Strong but does NOT force Weak signal. New combined LOW gate `single_prompt_no_evidence` fires only when affectedPromptCount === 1 AND no packet signal AND zero structured evidence refs (genuinely thin). HIGH-blocker code renamed `tier_observation_only` → `tier_not_adjudicated_or_inventory` to reflect that both observation AND deterministic_only block Strong.
+> - **C. Raw enum labels removed from rendered UI** — new `EDIT_DIFFICULTY_LABEL` (low→Easy / medium→Medium / high→Hard); EvidenceChips effort chip humanized (low→"Quick win" / medium→"Medium effort" / high→"Heavy lift"). Internal enums stay in `data-*` attributes. **Rendered-output tests** (not just source-scan) pin the contract.
+> - **D. Motive jargon replaced** — `MOTIVE_LABEL` values rewritten as operator-readable sentences (e.g., `capture_absent_cluster` → "AI is not citing Ritz for this topic yet.", `counter_competitor` → "A competitor is currently winning this answer."). Label "Motive:" replaced with "Why this matters:".
+> - **E. Bracketed diagnostic scoring stripped from default card** — new `stripBracketedDiagnostics()` helper drops `[reason1; reason2; …]` suffixes from `confidenceReason` on the default card body. Full text preserved in the underlying field for evidence expansion.
+> - **F. Prompt-shaped titles fixed** — new `looksLikePromptText()` helper in `build-title.ts`. When the cluster label reads like a customer-asked sentence (starts with prompt-starter, has pronoun, has `?`, or > 50 chars), the create-page title wraps as `Create a page for "{label}"` instead of the broken-grammar form `Create a {label} page`.
+>
+> **Tests (33 new across 3 files):**
+> - `confidence.test.ts` (+10) — deterministic-only doesn't force LOW; new combined LOW gate; "INVARIANT: queue of 5 well-formed rec shapes → 0 LOW".
+> - `build-title.test.ts` (NEW, 16) — `looksLikePromptText` triggers + non-triggers; "Create a If I..." regression fixed; LLM operatorTitle still wins.
+> - `tests/app/recommendations/render-output-cleanup.test.tsx` (NEW, 7) — rendered HTML asserts: "Why this matters" replaces "Motive:", humanized motive copy lands, no bracketed diagnostics, no raw "low" body text, "Easy" + "AI-generated" + "Review" labels, queue not all Weak signal, prompt-shaped title grammar correct.
+>
+> **Verification (2026-05-02):**
+> - `npx tsc --noEmit` clean · 56/56 targeted (build-title + confidence + render-output) · `npm run test` 3424/3428 (4 pre-existing failures verified independent against `5d32f5f` baseline) · `npm run build` clean.
+> - **Could not verify from this environment:** Vercel deploy SHA matches `9b05327` — operator dashboard check + browser-spot-check.
+>
+> **Out of scope (per Step 3.5b + W3 §1.5):**
+> - LIVE paid generation — first paid run is post-Step-3.6, operator-approved
+> - Apply-All-HIGH bar — operator-locked OUT
+> - Customer-one backfill — W4
+> - Profound CSV archive / code deletion — post-May-10
+> - Broad UI redesign outside /recommendations
+>
+> **Next 3 actions:**
+> 1. **Operator: re-audit /recommendations in browser** after Vercel deploys `9b05327`. Verify: De Mattei H2 gone; mix of Strong/Review/Weak signal pills (not all Weak); no bracketed scoring; no "Motive: Capture absent cluster"; no raw "low" / "medium" / "high"; no "Create a If I..." titles.
+> 2. **If browser audit passes, proceed to W3 Step 3.6 (sample-10 quality report).**
+> 3. **(Optional, ad-hoc) one-rec dry-run probe** — single packet at `--dry-run`, ~$0.03, no .data writes — if you want a smaller paid sample before broader Step 3.6.
+
 > 🟢 **W3 Step 3.5 (Recommendations UI cleanup with engineConfidence pill) LANDED (2026-05-02):** Single code commit `4d9fa1a` on `main`. Renders the trust label that Step 3.3's rubric stamps and Step 3.4 fed real packet signals into. No new LLM runs, no paid calls, no regeneration, no Apply-All-HIGH.
 >
 > - **`RecConfidencePill` (NEW, `src/components/display/rec-confidence-pill.tsx`)** — operator-locked labels: `high` → **"Strong"**, `medium` → **"Review"**, `low` → **"Weak signal"**. Internal enum stays high/medium/low; `data-rec-confidence` attribute carries it. Tooltip surfaces the trust contract per tier ("Strong: likely safe to ship after a brief review. Manual ship only — never auto-apply.") plus diagnostic reason codes from `engineConfidence.reasons`.

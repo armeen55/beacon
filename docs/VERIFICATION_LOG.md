@@ -7,6 +7,83 @@
 
 ---
 
+## 2026-05-02 (later evening) — W3 Step 3.5b: Product cleanup after browser audit
+
+Single code commit `9b05327` on `main`. Operator's browser audit on Step 3.5 caught six product issues source-scan tests missed; Step 3.5 code passed but product/UI acceptance failed. This step fixes all six without paid runs / regeneration / Apply-All-HIGH / backfill.
+
+### Issues caught by operator browser audit (2026-05-02)
+
+1. Every card showed "Weak signal" — product looks like it doesn't trust itself.
+2. Competitor-name H2 ("Why teams choose us over De Mattei Construction") still rendered as actionable.
+3. Raw "low" leaked beside humanized "Review" in edit row.
+4. "Motive: Capture absent cluster" / "Motive: Counter competitor" internal jargon rendered as-is.
+5. Bracketed token-scoring (`[1/1 label tokens match page; ...]`) appeared in default card body.
+6. Prompt-shaped cluster labels produced ungrammatical titles ("Create a If I buy a property...").
+
+### What changed
+
+**A. Quarantine competitor-name public-copy leak**
+- `scripts/quarantine-competitor-public-copy-pre-w3.ts` (NEW) — idempotent, dry-run + execute, postflight verification. Targets ONE id (`create_cluster_page:geo:Los Altos__add_h2_section__h2[new]:c75a1120a6aa`, "Why teams choose us over De Mattei Construction").
+- Forward-only flip: `accepted` → `dismissed` with `not_found_reason: "invalid_competitor_public_copy_pre_w3"`. Local + Supabase dual-write executed; postflight green.
+- Sister "Bay" matches in unrelated rows were false positives (geographic Bay Area refs, not Bay Builders competitor); script does not touch them.
+
+**B. Confidence semantics — `tier_deterministic_only` LOW gate REMOVED**
+- `src/domains/recommendations/confidence.ts`: removed the early-return that forced every deterministic-only rec into Weak signal. Operator audit verbatim: *"every card says Weak signal — the product looks like it does not trust itself."*
+- Renamed HIGH-blocker code `tier_observation_only` → `tier_not_adjudicated_or_inventory` (now fires for both observation AND deterministic_only — the union the rubric intends).
+- Added new combined LOW gate `single_prompt_no_evidence`: fires only when `affectedPromptCount === 1 AND no packet signal AND zero structured evidence refs`. Genuinely thin recs are still LOW; deterministic-only with multi-prompt + evidence becomes MEDIUM (Review).
+
+**C/D/E. recommendations-client.tsx UI cleanup**
+- `MOTIVE_LABEL` values rewritten as operator-readable sentences ("AI is not citing Ritz for this topic yet.", "A competitor is currently winning this answer.", etc.). Label "Motive:" replaced with "Why this matters:".
+- New `EDIT_DIFFICULTY_LABEL`: low → "Easy", medium → "Medium", high → "Hard". `data-edit-difficulty` carries internal enum.
+- `EvidenceChips` effort chip humanized: low → "Quick win", medium → "Medium effort", high → "Heavy lift".
+- New `stripBracketedDiagnostics()` helper drops `[reason1; reason2; …]` suffixes from `confidenceReason` on the default card. Full text preserved in the underlying field for future evidence-expansion paths.
+
+**F. Prompt-shaped rec titles**
+- `src/domains/recommendations/build-title.ts`: new `looksLikePromptText()` helper. Flags labels that read like a customer-asked sentence (prompt-starter words / pronouns / `?` / >50 chars).
+- `create_new_page` title now wraps as `Create a page for "{label}"` instead of the broken-grammar form `Create a {label} page` when the label is prompt-shaped.
+- LLM `operatorTitle` still wins for adjudicated recs.
+
+### Tests (33 new across 3 files)
+
+**`confidence.test.ts` (+10)** — deterministic-only doesn't force LOW; new combined LOW gate; "INVARIANT: queue of 5 well-formed rec shapes → 0 LOW"; updated existing tests for renamed reason code.
+
+**`build-title.test.ts` (NEW, 16)** — `looksLikePromptText` triggers (prompt-starter / pronoun / question mark / >50 char) + non-triggers (category nouns); "Create a If I..." regression fixed; LLM `operatorTitle` wins.
+
+**`tests/app/recommendations/render-output-cleanup.test.tsx` (NEW, 7)** — rendered HTML asserts (not source-scan):
+- "Why this matters" replaces "Motive:".
+- Humanized motive copy lands; `capture_absent_cluster` never visible.
+- Bracketed diagnostic strings stripped from default card.
+- No raw "low" / "medium" / "high" in body text (data-* allowed).
+- Difficulty badge shows "Easy" / `data-edit-difficulty="low"`.
+- Source badge shows "AI-generated" / `data-source="openai"`.
+- engineConfidence pill renders "Review" for medium.
+- `rec.type` ("create_cluster_page") not in body text.
+- Queue with reasonable evidence not all "Weak signal".
+- Prompt-shaped title produces correct grammar.
+
+### Verification
+
+| Gate | Result |
+|---|---|
+| `npx tsc --noEmit` | clean (no output) |
+| `vitest` targeted (build-title + confidence + render-output-cleanup) | 56/56 pass |
+| `npm run test` | 3424 / 3428 (the 4 failures are the same pre-existing set verified independent against `5d32f5f` baseline) |
+| `npm run build` | clean — full route table emitted, no warnings |
+
+### Out of scope (per Step 3.5b + W3 §1.5)
+
+- LIVE paid generation — first paid run is post-Step-3.6, operator-approved
+- Apply-All-HIGH bar — operator-locked OUT
+- Customer-one backfill — W4
+- Profound CSV archive / code deletion — post-May-10
+- Broad UI redesign outside /recommendations
+
+### Next
+
+Operator browser re-audit of /recommendations on Vercel preview. If acceptance passes, proceed to W3 Step 3.6 (sample-10 quality report).
+
+---
+
 ## 2026-05-02 (evening) — W3 Step 3.5: Recommendations UI cleanup with engineConfidence pill
 
 Single code commit `4d9fa1a` on `main`. Renders the trust label that Step 3.3's rubric stamps and Step 3.4 fed real packet signals into. No new LLM runs, no paid calls, no regeneration, no Apply-All-HIGH.
