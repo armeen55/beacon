@@ -7,6 +7,95 @@
 
 ---
 
+## 2026-05-02 — W3 Step 3.3: confidence rubric (the trust contract)
+
+Single code commit `ab3b11a` on `main`. Defines HIGH / MEDIUM / LOW BEFORE the LLM provider activates in Step 3.4. Founder direction: "confidence is the trust contract; the LLM provider should not activate first and then have confidence slapped on after."
+
+### What changed
+
+**`src/domains/recommendations/confidence.ts` (NEW)**
+- `RecConfidence = "high" | "medium" | "low"`
+- `ConfidenceReasonCode` (22 stable codes split: LOW gates / HIGH positives / HIGH blockers)
+- `RecConfidenceVerdict = { confidence, reasons }`
+- `ComputeRecConfidenceArgs` (rec inputs + edits + optional packet signals + optional competitor names)
+- `HIGH_MIN_AFFECTED_PROMPTS = 2` (operator-locked)
+- `HIGH_MIN_EVIDENCE_REFS = 2` (operator-locked)
+- `computeRecConfidence(args): RecConfidenceVerdict` — pure, deterministic
+- Imports `looksLikePlaceholder` from Step 3.1's `placeholder-detection` for defense-in-depth.
+
+**Rubric semantics (operator-locked)**
+- HIGH = likely safe to manually ship after a brief operator review. NOT auto-apply. Hard to earn on purpose. Targeted distribution at first: 5–15% of recs.
+- MEDIUM = useful, but the operator should inspect evidence + copy before shipping. Targeted: 50–70%.
+- LOW = weak / thin / invalid signal or needs human judgment. Targeted: 20–40%.
+
+**Hard rules**
+- LOW gates short-circuit. First match wins, returned alone.
+- HIGH requires ALL six dimensions to pass:
+  1. `affectedPromptCount >= 2`
+  2. `resolverTier ∈ {adjudicated, inventory}`
+  3. every edit at confidence `"high"`
+  4. packet has `aiSearchSignal` OR `competitorPageBlueprints`
+  5. `resolutionConfidence === "high"` (medium is a blocker)
+  6. `evidenceRefCount >= 2`
+  Any blocker forces MEDIUM (after LOW gates pass).
+- Pure / deterministic. Same inputs → same output.
+- Stable diagnostic codes so logs + debug surfaces can pin against them without forcing copy changes through this layer.
+
+**LOW gates** (early returns):
+`no_affected_prompts` / `needs_human_review` / `no_edits` / `edit_low_confidence` / `edit_placeholder_text` (via Step 3.1's `looksLikePlaceholder`) / `competitor_name_leak_in_copy` (defense-in-depth — validator already runs the same check at write time; short names < 3 chars skipped to avoid noise) / `tier_deterministic_only` / `resolution_low_confidence`.
+
+**Loader integration (`load-queue.ts`)**
+- New `LiveRecQueueItem = PrioritizedRecommendation & { engineConfidence: RecConfidenceVerdict }`. Required field (never undefined).
+- `LiveRecommendationQueue.queue` is now `LiveRecQueueItem[]`.
+- `LiveRecommendationQueue.recommendedEdits: RecommendedEditRow[]` (new required field) so page consumers read directly without re-fetching.
+- `loadLiveRecommendationQueue` fresh-reads `recommended_edits` via the repository (relocated from `page.tsx`) and stamps `engineConfidence` on every queue item before returning.
+- Defensive reads (`rec.affectedPromptIds?.length ?? 0`, `rec.resolution?.tier ?? "deterministic_only"`, etc.) so synthetic test fixtures that omit fields don't crash the page render.
+- `hasAiSearchSignal` / `hasCompetitorPageBlueprints` pass through `false` at this layer — HIGH is intentionally unreachable today. Step 3.4 will plumb in real packet signals so the trust label earns its weight when the LLM provider activates.
+- `competitorNames` sourced from active `TrackedEntity` rows where `entity_type === "competitor"`.
+
+**Page integration (`page.tsx`)**
+- Uses `live.recommendedEdits` instead of re-fetching (single source of truth).
+- `RecommendationQueueRow.rec` is now `LiveRecQueueItem`. Pre-Step-3.5 the UI doesn't render the verdict; the field is exposed so the upcoming UI cleanup reads it without a second wiring pass.
+
+**Wiring tests updated**
+- `tests/sprint6a1-phase12-wiring.test.ts` Phase-6A.1.12 invariant pinning `getRecommendedEdits` at `page.tsx` updated to assert the relocated read in the LOADER instead. Page.tsx is now asserted to NOT re-fetch.
+- `src/domains/recommendations/load-queue.test.ts` Phase 14 invariant updated to reflect the W3 Step 3.3 split: `page.tsx` still reads `recommendation_responses` (operator-decision state) but `recommended_edits` flow through the loader (engine-decision state).
+
+**`confidence.test.ts` (NEW, 28 tests)**
+- HIGH path: full conditions + each grounding-only path (search-signal-only, blueprints-only) + inventory tier
+- LOW gates (one test per gate; 9 cases including short-name false-positive defense)
+- LOW gate priority (`needs_human_review` fires before edit checks)
+- MEDIUM path (one test per blocker; 7 cases)
+- Multi-blocker stacking (positives + blockers reported together)
+- Determinism (same inputs → same verdict; verdict is JSON-serializable; reasons array never empty)
+- **Apply-All-HIGH guardrail**: HIGH means manually-ship-safe, never auto-apply. Documentation-as-code with a 5+ reason floor that forces the conversation if a future change ever weakens the rubric to a single positive signal.
+
+### Verification
+
+| Gate | Result |
+|---|---|
+| `npx tsc --noEmit` | clean (no output) |
+| `vitest src/domains/recommendations/confidence.test.ts` | 28/28 pass |
+| `vitest src/domains/recommendations/` | 677/677 pass (was 649 + 28 new + 0 regressions) |
+| `vitest tests/sprint6a1-phase12-wiring.test.ts` | 22/22 pass |
+| `vitest tests/routes/recommendations-page-reads-fresh.test.ts` | 9/9 pass (defensive reads kept all 4 fresh-read cases working) |
+| `npm run test` | 3349 / 3353 (the 4 failures are the same pre-existing set as W1/W2/W3-scope-lock/W3-Step-3.1/W3-Step-3.1b/W3-Step-3.2 baselines) |
+| `npm run build` | clean — full route table emitted, no warnings |
+
+### Out of scope (operator-locked W3 §1.5)
+
+- **Apply-All-HIGH bar / batch-accept UX.** Rubric explicitly documents that HIGH is NEVER an auto-apply trigger. Deferred until founder personally inspects 20–30 generated recs.
+- LLM provider activation — Step 3.4 (next)
+- Recommendations UI cleanup — Step 3.5
+- Customer-one backfill — W4
+- Profound CSV archive / code deletion — post-May-10
+
+### Next
+
+W3 Step 3.4 — LLM provider activation. Wires the SYSTEM_PROMPT v2 to consume the Step 3.2 evidence packet. `hasAiSearchSignal` / `hasCompetitorPageBlueprints` flip to `true` once a per-rec packet is built; the rubric then gets the inputs it needs to actually award HIGH. Capability tier: Max.
+
+---
+
 ## 2026-05-01 (overnight) — W3 Step 3.2: Recommendation Engine v2 evidence packet foundation
 
 Single code commit `bded491` on `main`. The packet shape that W3 Step 3.4's LLM provider will consume.

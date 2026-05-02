@@ -1,5 +1,31 @@
 # Beacon — Start Here
 
+> 🟢 **W3 Step 3.3 (Confidence rubric — the trust contract) LANDED (2026-05-02):** Single code commit `ab3b11a` on `main`. Defines HIGH / MEDIUM / LOW BEFORE the LLM provider activates in Step 3.4. Founder direction: "confidence is the trust contract; the LLM provider should not activate first and then have confidence slapped on after."
+>
+> - **`src/domains/recommendations/confidence.ts` (NEW)** — `RecConfidence = "high" | "medium" | "low"` + 22 stable `ConfidenceReasonCode`s + `computeRecConfidence(args)`. Pure / deterministic. Imports `looksLikePlaceholder` from Step 3.1 for defense-in-depth.
+> - **HIGH is hard to earn on purpose** (operator-locked). Requires ALL six dimensions to pass: ≥2 affected prompts, resolverTier in {adjudicated, inventory}, every edit at "high", packet has aiSearchSignal OR competitorPageBlueprints, resolutionConfidence === "high", evidenceRefCount ≥ 2. Any blocker forces MEDIUM (after LOW gates pass). Targeted distribution: HIGH 5–15% / MEDIUM 50–70% / LOW 20–40%.
+> - **LOW gates short-circuit** (first match wins): no_affected_prompts / needs_human_review / no_edits / edit_low_confidence / edit_placeholder_text (defense-in-depth via Step 3.1's `looksLikePlaceholder`) / competitor_name_leak_in_copy / tier_deterministic_only / resolution_low_confidence.
+> - **Apply-All-HIGH explicitly OUT.** The rubric file documents that HIGH means "likely safe to ship MANUALLY," never "auto-apply." Test `Apply-All-HIGH guardrail` enforces a 5+ reason floor for HIGH so any future weakening of the rubric to a single positive signal forces a conversation.
+> - **Loader integration (`load-queue.ts`)** — new `LiveRecQueueItem = PrioritizedRecommendation & { engineConfidence: RecConfidenceVerdict }`. Loader fresh-reads `recommended_edits` (moved from page.tsx) and stamps engineConfidence on every queue item. `LiveRecommendationQueue.recommendedEdits` exposes the rows so page.tsx consumes via `live.recommendedEdits` instead of re-fetching. `hasAiSearchSignal` / `hasCompetitorPageBlueprints` pass through `false` at this layer — HIGH is intentionally unreachable today; Step 3.4 plumbs in real packet signals so the trust label earns its weight when the LLM provider activates.
+> - **Page integration (`page.tsx`)** — `RecommendationQueueRow.rec` is now `LiveRecQueueItem`. UI doesn't render the verdict yet (Step 3.5); the field is exposed so the upcoming UI cleanup reads it without a second wiring pass.
+> - **Wiring tests updated** — `tests/sprint6a1-phase12-wiring.test.ts` and `load-queue.test.ts` updated to assert the relocated edits-read in the LOADER (single source of truth for engineConfidence input) and that page.tsx no longer re-fetches.
+>
+> **Verification (2026-05-02):**
+> - `npx tsc --noEmit` clean · 28/28 confidence tests · 22/22 wiring · 9/9 reads-fresh · `npm run test` 3349/3353 (4 pre-existing failures verified independent of this change against `5d32f5f` baseline: 3 prompts-smoke fixture time-drift + 1 tenants/isolation) · `npm run build` clean.
+> - **Could not verify from this environment:** Vercel deploy SHA matches `ab3b11a` — operator dashboard check.
+>
+> **Out of scope (per W3 §1.5):**
+> - Apply-All-HIGH bar — deferred until founder reviews 20–30 generated recs
+> - LLM provider activation — Step 3.4 (next)
+> - Recommendations UI cleanup — Step 3.5
+> - Customer-one backfill — W4
+> - Profound CSV archive / code deletion — post-May-10
+>
+> **Next 3 actions:**
+> 1. **Operator: confirm Vercel deploy of `ab3b11a` is "Ready"**.
+> 2. **Continue W3 Step 3.4 (LLM provider activation).** Wires the SYSTEM_PROMPT v2 to consume the Step 3.2 evidence packet (`aiSearchSignal` + `competitorPageBlueprints` + cross-tenant brain stub). With Step 3.3 in place, the producing LLM's edits get stamped with the trust label as they flow through `load-queue.ts`. Anti-leak guards (no competitor names in Ritz copy) live in the validator + the rubric's competitor-name-leak LOW gate.
+> 3. **Browser-spot-check /recommendations** — page should look identical to post-Step-3.2; engineConfidence is stamped server-side but the UI doesn't render the pill yet (Step 3.5).
+
 > 🟢 **W3 Step 3.2 (Recommendation Engine v2 evidence packet foundation) LANDED (2026-05-01):** Single code commit `bded491` on `main`. Three new blocks land on `SpecificEditEvidencePacket` — `aiSearchSignal`, `competitorPageBlueprints`, `crossTenantPatterns`. Step 3.4's LLM provider will consume them; this step ships the packet shape only (no LLM call, no UI consumer).
 >
 > - **`aiSearchSignal`** — what AI actually emits while answering affected prompts. `topSearchQueries` (verbatim, deduped + counted across observations + platforms), `topDescriptors` (lowercased near-brand descriptor windows), `topCompetitorCoMentions` (filtered through `entity-pollution-filter` so Houzz/Yelp/Angi/BuildZoom never reach the LLM as "competitors"). Caps 10/12/8. Empty arrays when no signal — better empty than fake.
