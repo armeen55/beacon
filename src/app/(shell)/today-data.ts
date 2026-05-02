@@ -76,7 +76,14 @@ import {
 } from "@/domains/daily-metric-snapshots/today-kpis";
 import {
   buildEnrichmentRollup,
+  buildEnrichmentWindowRollup,
+  buildCompetitorEnrichmentRollup,
+  buildCompetitorDropdown,
+  buildPlatformPrimaryRateSparklines,
+  buildFormatWinsRollup,
   type EnrichmentRollup,
+  type CompetitorEnrichmentRollup,
+  type EnrichmentV2Data,
 } from "@/domains/prompt-answer-observations/enrichment-rollup";
 import { buildPromptDecisionMatrix } from "@/domains/prompts/decision-matrix";
 import { generateRecommendations } from "@/domains/recommendations/generate";
@@ -367,6 +374,76 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
   } catch (err) {
     console.error("Today enrichment rollup failed:", err);
     enrichmentRollup = null;
+  }
+
+  // W2 Step 2.3 (master plan, 2026-05-01) — "How AI described you THIS WEEK"
+  // v2 bundle. Six rollups fed into one component. All pure aggregators
+  // over the already-loaded `promptAnswerObservations` array; no extra
+  // Supabase reads. Each step is independently try/catched so a single
+  // rollup failure can't black out the whole section. The brand display
+  // name (`brandAliases[0]`) is set further down — capture it inline so
+  // the bundle is self-contained.
+  let enrichmentV2: EnrichmentV2Data | null = null;
+  try {
+    const v2EndDate = todayISOUtc();
+    const v2WindowDays = 7;
+    const v2BrandAliases = [
+      getBusinessConfig().name,
+      getBusinessConfig().name.split(" ")[0],
+    ].filter((a, i, arr) => a && arr.indexOf(a) === i);
+    const v2BrandName = v2BrandAliases[0] ?? "You";
+
+    const brandV2Rollup = buildEnrichmentWindowRollup({
+      observations: promptAnswerObservations,
+      endDate: v2EndDate,
+      windowDays: v2WindowDays,
+      maxDescriptors: 5,
+    });
+
+    const competitorOptions = buildCompetitorDropdown({
+      observations: promptAnswerObservations,
+      trackedEntities,
+      endDate: v2EndDate,
+      windowDays: v2WindowDays,
+      limit: 8,
+    });
+
+    const competitorRollups: Record<string, CompetitorEnrichmentRollup> = {};
+    for (const opt of competitorOptions) {
+      competitorRollups[opt.name] = buildCompetitorEnrichmentRollup({
+        observations: promptAnswerObservations,
+        competitorName: opt.name,
+        endDate: v2EndDate,
+        windowDays: v2WindowDays,
+        maxDescriptors: 5,
+      });
+    }
+
+    const sparklines = buildPlatformPrimaryRateSparklines({
+      observations: promptAnswerObservations,
+      endDate: v2EndDate,
+      windowDays: 14,
+    });
+
+    const formatWins = buildFormatWinsRollup({
+      observations: promptAnswerObservations,
+      endDate: v2EndDate,
+      windowDays: v2WindowDays,
+    });
+
+    enrichmentV2 = {
+      brandName: v2BrandName,
+      windowEndDate: v2EndDate,
+      windowDays: v2WindowDays,
+      brand: brandV2Rollup,
+      competitorOptions,
+      competitorRollups,
+      sparklines,
+      formatWins,
+    };
+  } catch (err) {
+    console.error("Today enrichment-v2 bundle failed:", err);
+    enrichmentV2 = null;
   }
 
   // Phase v5 Commit 5 (2026-04-24): prompts decision teaser — tiny card that
@@ -2219,6 +2296,11 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
       : null,
     pollHealth,
     enrichmentRollup,
+    /** W2 Step 2.3 (master plan) — full v2 bundle for "How AI Described
+     *  You This Week". Null on bundle-build failure (each rollup wrapped
+     *  in try/catch so a single rollup error degrades to null v2 + the
+     *  legacy enrichmentRollup keeps rendering). */
+    enrichmentV2,
     promptsTeaser,
     topPick,
     // Phase 6A.7 (2026-04-28) — lifecycle status strip + implementation

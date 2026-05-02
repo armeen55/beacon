@@ -899,3 +899,33 @@ export function buildCompetitorDropdown(
 
   return entries.slice(0, limit);
 }
+
+// ---------------------------------------------------------------------------
+// W2 Step 2.3 (master plan) — bundle type for the v2 layout
+// ---------------------------------------------------------------------------
+
+/**
+ * The complete data contract the v2 "How AI described you this week"
+ * component consumes. Server (today-data.ts) precomputes the bundle;
+ * client (enrichment-v2.tsx) renders it. Keeping the type in the data
+ * layer keeps the component file purely presentational + lets server
+ * + client agree on the shape without importing across the boundary.
+ */
+export type EnrichmentV2Data = {
+  /** Operator brand display name. */
+  brandName: string;
+  /** Window anchor (UTC date). */
+  windowEndDate: string;
+  /** Window length in calendar days. */
+  windowDays: number;
+  /** Brand descriptor rollup with prior-window deltas. */
+  brand: EnrichmentWindowRollup;
+  /** Filtered competitor selector options + isDefault flag. */
+  competitorOptions: CompetitorDropdownEntry[];
+  /** Per-competitor rollups, keyed by canonical competitor name. */
+  competitorRollups: Record<string, CompetitorEnrichmentRollup>;
+  /** Per-platform primary-rate daily sparklines. */
+  sparklines: PlatformPrimaryRateSparkline[];
+  /** Per-platform answer-shape mix. */
+  formatWins: FormatWinsRollup[];
+};

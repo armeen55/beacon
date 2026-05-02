@@ -20,7 +20,11 @@ import { SinceLastVisit } from "@/components/today/since-last-visit";
 import { PollHealthBlock } from "@/components/today/poll-health-block";
 import type { PollHealthSnapshot } from "@/domains/observations/poll-health";
 import { EnrichmentBadges } from "@/components/today/enrichment-badges";
-import type { EnrichmentRollup } from "@/domains/prompt-answer-observations/enrichment-rollup";
+import { EnrichmentV2 } from "@/components/today/enrichment-v2";
+import type {
+  EnrichmentRollup,
+  EnrichmentV2Data,
+} from "@/domains/prompt-answer-observations/enrichment-rollup";
 import { PromptsTeaser, type PromptsTeaserSummary } from "@/components/today/prompts-teaser";
 import { TopPickCard, type TopPickSummary } from "@/components/today/top-pick-card";
 import { TodayLifecycleStrip } from "@/components/today/lifecycle-strip";
@@ -172,6 +176,7 @@ export function TodayClient({
   urlVerdictProof = null,
   pollHealth = null,
   enrichmentRollup = null,
+  enrichmentV2 = null,
   promptsTeaser = null,
   topPick = null,
   lifecycleSummary = null,
@@ -240,8 +245,16 @@ export function TodayClient({
   /** Commit 7C (2026-04-24): schema v2+v2.1 extraction rolled up as
    *  per-platform primary-recommendation rate, avg citation rank,
    *  descriptor chip cloud, answer-structure mix. Null when today (and
-   *  yesterday) has no native observations yet. */
+   *  yesterday) has no native observations yet.
+   *  Superseded by `enrichmentV2` for the v2 layout (Step 2.3); kept as
+   *  a fallback for any future surface that still wants the single-day
+   *  rollup. */
   enrichmentRollup?: EnrichmentRollup | null;
+  /** W2 Step 2.3 (master plan, 2026-05-01): full bundle for the 4-section
+   *  "How AI described you this week" v2 layout. Built server-side from
+   *  pure rollup helpers in enrichment-rollup.ts. Null on bundle-build
+   *  failure — UI degrades to legacy enrichmentRollup. */
+  enrichmentV2?: EnrichmentV2Data | null;
   /** Phase v5 Commit 5 (2026-04-24): per-category prompt-decision summary
    *  pointing into /prompts. Small teaser card, not a mini dashboard.
    *  Null when no active prompts. */
@@ -598,9 +611,16 @@ export function TodayClient({
           headline answer to "is AI mentioning me more or less"). What
           remains here is secondary metric depth: enrichment-rollup
           descriptors + per-platform prompts teaser. */}
-      {(enrichmentRollup || promptsTeaser) && (
+      {(enrichmentV2 || enrichmentRollup || promptsTeaser) && (
         <TodayMetricsDisclosure>
-          {enrichmentRollup && <EnrichmentBadges rollup={enrichmentRollup} />}
+          {/* W2 Step 2.3: prefer v2 bundle (4-section layout). Falls back
+              to the legacy single-day badges when the v2 bundle build
+              failed for some reason — UX never goes blank. */}
+          {enrichmentV2 ? (
+            <EnrichmentV2 data={enrichmentV2} />
+          ) : (
+            enrichmentRollup && <EnrichmentBadges rollup={enrichmentRollup} />
+          )}
           {promptsTeaser && <PromptsTeaser summary={promptsTeaser} />}
         </TodayMetricsDisclosure>
       )}
