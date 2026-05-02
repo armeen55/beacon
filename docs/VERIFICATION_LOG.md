@@ -7,6 +7,74 @@
 
 ---
 
+## 2026-05-02 (later) — W3 Step 3.4: LLM provider activation + confidence loop closure
+
+Single code commit `37ef437` on `main`. Architecture-only step. Turns on the LLM grounding path so the W3 Step 3.2 evidence packet can produce real edits, but takes ZERO live paid runs. Validators + confidence rubric prevent bad output from reaching the product. Live regeneration is operator-gated, post-3.6.
+
+### What changed
+
+**Three layers**
+
+1. **Loop closure** — packet signals feed confidence
+   - `src/domains/recommendations/specific-edit-evidence.ts` — new public helpers `hasAiSearchSignalForRec` + `hasCompetitorPageBlueprintsForRec`. Pure, O(observations of affected prompts) per rec. Mirror the same drop rules as the full builders (entity-pollution-filter for co-mentions, class+domain blocklist for citations).
+   - `src/domains/recommendations/load-queue.ts` — `decoratedQueue` now derives both flags from already-loaded `promptAnswerObservations` + `trackedEntities` + `pageInventory`. Replaces the hardcoded `false`s. **HIGH is now reachable** when a rec has real packet evidence + every other dimension passes.
+
+2. **SYSTEM_PROMPT v2** — instruct the LLM to use the new packet sources
+   - `src/domains/recommendations/providers/openai.ts` — three new rules added (every existing rule preserved verbatim):
+     - **Rule 15 — packet-level aggregated signals.** `aiSearchSignal.topSearchQueries` (mirror phrasings naturally, never lift verbatim — Rule 13 still applies). `aiSearchSignal.topDescriptors` (echo descriptors AI already associates with the brand). `aiSearchSignal.topCompetitorCoMentions` (treat names as evidence-only — Rule 12). `competitorPageBlueprints` (learn STRUCTURE / ANGLE, NOT names; counter the page's intent with stronger copy). `crossTenantPatterns` (today empty by design; locked contract for the future producer behind `BEACON_CROSS_TENANT_BRAIN=1`).
+     - **Rule 16 — grounded copy, never generic advice.** RETURN [] FOR THIS PACKET when the model can't write specific final copy that references the operator's domain, services, or geography. Operator-locked banned patterns: "We deliver high-quality custom homes", "Our team is experienced in this area", "Learn more about our services", any sentence that fits any builder in any city. Better empty than generic.
+     - **Rule 17 — no placeholder copy.** Model MUST NEVER emit "Draft answer" / TBD / operator: rewrite / rewrite below / [insert / placeholder / TODO:. The W3 Step 3.1 validator rejects every match and the rec lands in LOW engineConfidence. Strictly worse than empty.
+
+3. **Provider activation safety verified, not weakened**
+   - Vitest safety gate: openai provider refuses to run without an explicit fetchImpl when `VITEST=true`.
+   - Vercel build guard: refuses to call OpenAI during a Vercel build unless `BEACON_LLM_BUILD_OK=1`.
+   - Config gate: throws when `OPENAI_API_KEY` is missing.
+   - Budget gate: `runProviderAndPersist` consults `checkBudget` BEFORE every paid call; budget-blocked → empty no-persist result, history line written, no provider invocation.
+   - Failure modes: 5xx / 4xx / network / timeout / malformed JSON / model refusal / missing content all return an empty bundle, never a placeholder. The deterministic provider fallback path is unchanged.
+   - Validator bundle: `validateSpecificEditBundle` runs every edit through `validateSpecificEdit` which (since Step 3.1) catches placeholder copy + competitor-leak + structurally-thin FAQ bodies. Failed edits drop; only validated rows persist. **Better empty than bad.**
+
+**NO live paid run was taken.** Tests verify the wiring; operator approves the first paid generation post-3.6.
+
+### Tests (23 new across 2 new files + 2 modified files)
+
+`src/domains/recommendations/w3-step-3.4-loop-closure.test.ts` (NEW, 13):
+- `hasAiSearchSignalForRec`: search_queries / descriptor_window / real-competitor co-mention each trigger true; directory-only co-mention triggers false; empty / thin evidence triggers false.
+- `hasCompetitorPageBlueprintsForRec`: competitor-class citation triggers true; directory + owned domain (class array missing) drop; non-competitor class drops.
+- Loop closure: HIGH reachable when `hasAiSearchSignal=true` OR `hasCompetitorPageBlueprints=true` (with other HIGH conditions met); HIGH unreachable when both false (loop NOT closed).
+- Packet builder + helpers agree: real observations → non-empty packet block AND helper returns true; no observations → empty packet block AND helper returns false.
+
+`src/domains/recommendations/providers/openai.test.ts` (+9 SYSTEM_PROMPT verification):
+- Pins every operator-locked phrase: aiSearchSignal section names + MIRROR/ECHO directives; competitorPageBlueprints + STRUCTURE/ANGLE + "Do NOT mention the competitor's name"; crossTenantPatterns + EMPTY by design; "RETURN [] FOR THIS PACKET" + "Better empty than generic"; placeholder phrase set (W3 Step 3.1 mirror); Rule 12 (no competitor names in public copy); Rule 14 evidence priority order.
+- Whitespace-flexible matchers so the line-wrapped prompt content matches without hardcoding line breaks.
+
+`src/domains/recommendations/confidence.test.ts` (+1 fix):
+- Test for "fields omitted entirely" cast to a mutable view so `delete` works under the new readonly type modifiers.
+
+### Verification
+
+| Gate | Result |
+|---|---|
+| `npx tsc --noEmit` | clean (no output) |
+| `vitest src/domains/recommendations/` | 671/671 pass (was 649; +22 new) |
+| `npm run test` | 3371 / 3375 (the 4 failures are the same pre-existing set as W1/W2/W3-scope-lock/W3-Step-3.1/W3-Step-3.1b/W3-Step-3.2/W3-Step-3.3 baselines) |
+| `npm run build` | clean — full route table emitted, no warnings |
+
+### Operator-locked out-of-scope
+
+- **LIVE paid generation across the queue** — tests use mocks; first paid runs are post-Step-3.6, operator-approved per packet
+- **Apply-All-HIGH bar** — rubric explicitly forbids; deferred until founder reviews 20–30 generated recs
+- Recommendations UI cleanup — Step 3.5
+- Customer-one backfill — W4
+- Profound CSV archive / code deletion — post-May-10
+
+### Next
+
+W3 Step 3.5 — Recommendations UI cleanup. Renders the `engineConfidence` pill (now real, since Step 3.4 closed the loop), simple-card default, evidence expansion. Operator scope explicitly forbids Apply-All-HIGH UI. Capability tier: Balanced.
+
+Optional operator-gated probe: one-rec dry-run sample. Pick a single rec with real packet signals; run `runProviderAndPersist({ packet, dryRun: true })` against the live OpenAI provider; inspect the bundle WITHOUT persisting. Confirms the SYSTEM_PROMPT v2 produces grounded edits before Step 3.6's broader sample-10 quality report.
+
+---
+
 ## 2026-05-02 — W3 Step 3.3: confidence rubric (the trust contract)
 
 Single code commit `ab3b11a` on `main`. Defines HIGH / MEDIUM / LOW BEFORE the LLM provider activates in Step 3.4. Founder direction: "confidence is the trust contract; the LLM provider should not activate first and then have confidence slapped on after."

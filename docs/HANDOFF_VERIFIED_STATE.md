@@ -1,5 +1,33 @@
 # Beacon — Start Here
 
+> 🟢 **W3 Step 3.4 (LLM provider activation + confidence loop closure) LANDED (2026-05-02):** Single code commit `37ef437` on `main`. Architecture-only — turns on the LLM grounding path so the W3 Step 3.2 evidence packet can produce real edits, but takes ZERO live paid runs. Validators + confidence rubric prevent bad output from reaching the product. Live regeneration is operator-gated, post-3.6.
+>
+> - **Loop closed: packet signals → confidence.** `hasAiSearchSignalForRec` + `hasCompetitorPageBlueprintsForRec` (NEW pure helpers in `specific-edit-evidence.ts`) derive real signals from observations; `load-queue.ts` replaces the hardcoded `false`s with these. **HIGH is now reachable** when a rec has real packet evidence + every other dimension passes. Both helpers run in O(observations of affected prompts) per rec — no extra I/O.
+> - **SYSTEM_PROMPT v2** in `openai.ts` carries three new operator-locked rules: **Rule 15** (consume `aiSearchSignal.topSearchQueries` / `topDescriptors` / `topCompetitorCoMentions` / `competitorPageBlueprints` / `crossTenantPatterns` per the operator's grounding contract); **Rule 16** ("RETURN [] FOR THIS PACKET" when can't write specific copy — better empty than generic); **Rule 17** (operator-locked placeholder phrase ban). Existing Rules 1–14 preserved verbatim (Rule 12 no-competitor-names, Rule 13 FAQ customer-voice, Rule 14 evidence priority).
+> - **Provider activation safety verified** — every gate already exists: Vitest safety, Vercel build guard, OPENAI_API_KEY config gate, budget gate before paid call (`runProviderAndPersist` → `checkBudget` → empty no-persist result if blocked), every failure mode returns an empty bundle never a placeholder, deterministic fallback path unchanged. `validateSpecificEditBundle` runs every edit through Step 3.1's placeholder + competitor-leak + structural-quality gates; failed edits drop, only validated rows persist.
+> - **NO live paid run.** Tests use mocks. The LLM provider activation in this step means SYSTEM_PROMPT v2 + loop closure + verification. First live generation comes post-Step-3.6 with operator approval per packet/rec.
+>
+> **Tests (23 new across 2 new files + 2 modified files):**
+> - `w3-step-3.4-loop-closure.test.ts` (NEW, 13) — packet helpers + HIGH-reachability + builder/helper agreement.
+> - `openai.test.ts` (+9 SYSTEM_PROMPT verification) — pins every operator-locked phrase: aiSearchSignal sections, competitorPageBlueprints structure-not-name instruction, crossTenantPatterns empty-stub note, Better-empty-than-generic, placeholder phrase set, Rule 12, Rule 14.
+> - `confidence.test.ts` (+1 fix) — readonly-modifier compatibility.
+>
+> **Verification (2026-05-02):**
+> - `npx tsc --noEmit` clean · 671/671 across `src/domains/recommendations/` (was 649; +22) · `npm run test` 3371/3375 (4 pre-existing failures verified independent of this change against `5d32f5f` baseline) · `npm run build` clean.
+> - **Could not verify from this environment:** Vercel deploy SHA matches `37ef437` — operator dashboard check.
+>
+> **Out of scope (per W3 §1.5 + Step 3.4 scope):**
+> - **LIVE paid generation across the queue** — tests use mocks; first paid runs are post-Step-3.6, operator-approved per packet
+> - Apply-All-HIGH bar — deferred until founder reviews 20–30 generated recs
+> - Recommendations UI cleanup — Step 3.5
+> - Customer-one backfill — W4
+> - Profound CSV archive / code deletion — post-May-10
+>
+> **Next 3 actions:**
+> 1. **Operator: confirm Vercel deploy of `37ef437` is "Ready".**
+> 2. **Continue W3 Step 3.5 (Recommendations UI cleanup).** Renders the `engineConfidence` pill (now real, since Step 3.4 closed the loop), simple-card default, evidence expansion. Operator scope explicitly forbids Apply-All-HIGH UI.
+> 3. **(Optional, operator-gated) one-rec dry-run sample.** Pick a single rec with real packet signals; run `runProviderAndPersist({ packet, dryRun: true })` against the live OpenAI provider; inspect the bundle WITHOUT persisting. Confirms the SYSTEM_PROMPT v2 produces grounded edits before Step 3.6's broader sample-10 quality report.
+
 > 🟢 **W3 Step 3.3 (Confidence rubric — the trust contract) LANDED (2026-05-02):** Single code commit `ab3b11a` on `main`. Defines HIGH / MEDIUM / LOW BEFORE the LLM provider activates in Step 3.4. Founder direction: "confidence is the trust contract; the LLM provider should not activate first and then have confidence slapped on after."
 >
 > - **`src/domains/recommendations/confidence.ts` (NEW)** — `RecConfidence = "high" | "medium" | "low"` + 22 stable `ConfidenceReasonCode`s + `computeRecConfidence(args)`. Pure / deterministic. Imports `looksLikePlaceholder` from Step 3.1 for defense-in-depth.
