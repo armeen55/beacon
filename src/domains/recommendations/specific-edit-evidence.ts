@@ -72,6 +72,10 @@ import {
   getCrossTenantPatterns,
   type CrossTenantPattern,
 } from "./cross-tenant-brain";
+import {
+  getBrandAssertions,
+  type BrandAssertion,
+} from "./brand-assertions";
 
 // ---------------------------------------------------------------------------
 // Types — every field designed to round-trip through JSON.stringify cleanly.
@@ -302,6 +306,7 @@ export type CompetitorPageBlueprint = {
 // Re-export so callers can import the cross-tenant pattern type from
 // the same module they import the packet from.
 export type { CrossTenantPattern };
+export type { BrandAssertion };
 
 /**
  * Per-tenant historical signal: "for this action_type on this tenant,
@@ -360,6 +365,17 @@ export type SpecificEditEvidencePacket = {
   /** Cross-tenant patterns. Stub returns []; locked contract for
    *  W3 Step 3.4+ when a real producer activates. */
   crossTenantPatterns: CrossTenantPattern[];
+  /**
+   * W3 Step 3.7 (2026-05-03) — operator-curated brand assertions for
+   * the tenant. The LLM provider injects these into the SYSTEM_PROMPT
+   * as the ALLOWED public-copy claims; the validator's brand-claim
+   * grounder uses the categories to unlock otherwise-forbidden
+   * claim patterns. Always present (empty array when the tenant has
+   * none) so the hash stays deterministic.
+   *
+   * Source: `getBrandAssertions(tenantId)` in `brand-assertions.ts`.
+   */
+  brandAssertions: BrandAssertion[];
   /** Stable sha256 prefix of the packet contents (sans this field).
    *  Same inputs → same hash → cache hit; meaningful evidence change →
    *  fresh hash → cache miss → re-generate. */
@@ -619,6 +635,12 @@ export function buildSpecificEditEvidencePacket(
     aiSearchSignal,
     competitorPageBlueprints,
     crossTenantPatterns,
+    // W3 Step 3.7 (2026-05-03) — operator-curated brand assertions.
+    // Sourced via `getBrandAssertions(tenantId)` so the LLM provider's
+    // SYSTEM_PROMPT can inject the allowed-claims block + the
+    // validator can unlock category-gated forbidden patterns.
+    // Empty array for tenants without a curated list.
+    brandAssertions: [...getBrandAssertions(args.tenantId)],
   };
 
   const evidenceHash = computeEvidenceHash(withoutHash);

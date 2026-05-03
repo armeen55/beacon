@@ -1271,10 +1271,12 @@ describe("Sprint 6A.2g.B — competitor public-copy validator", () => {
   it("SHORT ALIAS GUARD — competitor 'X Co' generates only ['X Co'] (not 'X')", () => {
     const packet = buildPacketWithCompetitors(["X Co"]);
     // "X" alone must not match — the bare-X alias was suppressed by
-    // the MIN_COMPETITOR_ALIAS_LENGTH=3 guard.
+    // the MIN_COMPETITOR_ALIAS_LENGTH=3 guard. proposedText
+    // intentionally avoids brand-claim regex hits (W3 §3.7) so the
+    // competitor-alias check is the only thing under test.
     const edit = makeAddH2EditWithProposedText(
       packet,
-      "X marks the spot for our award-winning service.",
+      "X marks the spot in our design-build process.",
     );
     expect(validateSpecificEdit(edit, packet)).toEqual({ ok: true });
   });

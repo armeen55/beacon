@@ -56,6 +56,7 @@ import {
   type ActionType,
 } from "./action-types";
 import type { SpecificEditEvidencePacket } from "./specific-edit-evidence";
+import { findUnsupportedBrandClaims } from "./brand-assertions";
 import type {
   SpecificEdit,
   SpecificEditBundle,
@@ -564,10 +565,80 @@ export function validateSpecificEdit(
   const competitorGate = validateCompetitorPublicCopy(edit, packet);
   if (!competitorGate.ok) return competitorGate;
 
+  // ── 9.7 Brand-claim grounding (W3 Step 3.7) ────────────────────────
+  // Reject public copy that asserts third-party recognition (frequently
+  // recommended, most trusted, top-rated, leading, award-winning, etc.)
+  // when the tenant's `brandAssertions` doesn't authorize the category.
+  // Operator-locked at W3 §3.7 launch — the LLM has no source for these
+  // claims, and the W3 §3.6 sample-quality report flagged unsupported
+  // social-proof claims as the dominant minor-edit defect.
+  //
+  // Scans `proposedText` + `displayLabel` ONLY. `why` /
+  // `expectedImpact` / `measurementPlan` / `risks` are operator-facing
+  // and may freely reference any context. `currentText` reflects the
+  // live site (Beacon isn't validating what's already there).
+  //
+  // Locked by `specific-edit-validator-brand-claims.test.ts`. Env
+  // opt-out: `BEACON_ALLOW_UNSUPPORTED_BRAND_CLAIMS=1` skips the rule
+  // so the operator can ship a copy revision they manually approved.
+  if (process.env.BEACON_ALLOW_UNSUPPORTED_BRAND_CLAIMS !== "1") {
+    const brandGate = validateBrandClaimGrounding(edit, packet);
+    if (!brandGate.ok) return brandGate;
+  }
+
   // ── 10. JSON-serializability ───────────────────────────────────────
   const ser = validateSerializable(edit, "$");
   if (!ser.ok) return ser;
 
+  return OK;
+}
+
+/**
+ * W3 Step 3.7 (2026-05-03) — public-copy brand-claim grounding.
+ *
+ * Scans `targetElement.proposedText` + `targetElement.displayLabel`
+ * for forbidden-claim patterns. Each pattern declares an
+ * `unlockedBy` category; if the packet's `brandAssertions` carries
+ * an assertion of that category, the pattern is unlocked. Patterns
+ * with `unlockedBy: null` (guarantee_outcome) stay permanently
+ * locked regardless of operator assertions.
+ *
+ * Operator-facing fields (`why`, `expectedImpact`, `measurementPlan`,
+ * `risks`) are NOT scanned — they live on the operator side of the
+ * page and may freely reference brand context, evidence, and rec
+ * reasoning. `currentText` reflects what's already on the live site
+ * and is similarly skipped.
+ *
+ * Pure / deterministic. Returns the FIRST match (validator
+ * convention) so the failure reason names a single, actionable
+ * pattern.
+ */
+function validateBrandClaimGrounding(
+  edit: SpecificEdit,
+  packet: SpecificEditEvidencePacket,
+): ValidationResult {
+  const tel = edit.targetElement;
+  if (!tel) return OK;
+  const fields: Array<{ value: string | null | undefined; path: string }> = [
+    {
+      value: tel.proposedText,
+      path: "targetElement.proposedText",
+    },
+    {
+      value: tel.displayLabel,
+      path: "targetElement.displayLabel",
+    },
+  ];
+  for (const f of fields) {
+    if (typeof f.value !== "string" || f.value.length === 0) continue;
+    const matches = findUnsupportedBrandClaims(f.value, packet.brandAssertions);
+    if (matches.length === 0) continue;
+    const first = matches[0];
+    return fail(
+      f.path,
+      `unsupported brand claim '${first.matchedText}' (pattern: ${first.patternId}) — ${first.description}`,
+    );
+  }
   return OK;
 }
 

@@ -330,6 +330,73 @@ HARD RULES:
     engineConfidence. If you don't have content, return [] —
     placeholder copy is strictly worse than no copy.
 
+18. **BRAND-CLAIM GROUNDING (W3 §3.7) — MUST READ BEFORE WRITING ANY
+    PUBLIC COPY.** Beacon-generated public copy (proposedText +
+    displayLabel) MAY ONLY make brand claims that are EXPLICITLY
+    listed in packet.brandAssertions. The packet ships an array
+    like:
+      packet.brandAssertions = [
+        { id: "ritz_positioning_design_build",
+          phrase: "architect-led design-build",
+          category: "process" },
+        { id: "ritz_geo_silicon_valley",
+          phrase: "Silicon Valley luxury custom homes",
+          category: "service_area" },
+        ...
+      ]
+
+    Allowed: positioning + service_area + service_offering + process +
+    factual phrasings drawn from packet.brandAssertions OR derived
+    directly from packet evidence (descriptors, citation pages, etc).
+
+    FORBIDDEN unsupported public-copy claims (case-insensitive):
+      - "frequently / commonly / often recommended"
+      - "most trusted" / "trusted by homeowners / clients / architects"
+      - "#1" / "top-rated"
+      - "the best builder/firm/company/contractor/architect/partner"
+      - "leading builder/firm/company/contractor/architect/partner"
+      - "award-winning"
+      - "X years in business" / "X years of experience"
+      - "since 19YY / since 20YY" founding-year claim
+      - "X% client satisfaction"
+      - "X+ projects/homes/builds/remodels completed/delivered/built"
+      - guarantees of outcome / delivery / completion
+        (e.g. "Ritz guarantees on-time delivery") — PERMANENTLY LOCKED;
+        no operator assertion can unlock this.
+
+    Each forbidden pattern has an "unlockedBy" category:
+      popularity     → unlocks frequently/commonly/often recommended
+      trust          → unlocks most trusted / trusted by …
+      ranking_first  → unlocks #1 / top-rated / "the best/leading X"
+      award          → unlocks award-winning
+      tenure         → unlocks "X years in business" / "since YYYY"
+      client_outcome → unlocks % satisfaction / project counts
+    A pattern is unlocked ONLY when an assertion of the matching
+    category exists in packet.brandAssertions. Otherwise the
+    validator rejects the edit.
+
+    GROUNDED PHRASING examples (always allowed):
+      "Ritz emphasizes architect-led design-build…"
+      "Architect-led design-build keeps design, budget, and
+       construction tightly coordinated…"
+      "Ritz's whole-home remodel page can highlight in-house
+       architecture and permitting support…"
+      "The section should explain how feasibility and permitting
+       work in a design-build process…"
+
+    UNGROUNDED PHRASING (always rejected unless category-unlocked):
+      "Ritz Builders is frequently recommended for whole-home
+       remodels."  — popularity claim, no source.
+      "Ritz is the leading design-build firm in the Bay Area."
+       — ranking_first claim, no source.
+      "Award-winning architect-led firm." — award claim, no source.
+
+    The packet's brandAssertions list is the OPERATOR'S authorized
+    public-copy vocabulary. Treat it as the only social-proof source.
+    If you want to make a popularity / award / superlative claim
+    that's not in brandAssertions, REWRITE the sentence to a
+    process-focused or service-focused statement instead.
+
 OPERATOR-FACING COPY:
 - why: 1-2 sentences. Name the specific evidence (prompt id, owned URL,
   competitor name) that drove this edit. promptIds in why may be
