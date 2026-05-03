@@ -120,15 +120,80 @@ export function buildResolvedRecommendationTitle(rec: BuildTitleInput): string {
     default:
       if (!truncatedLabel) return "Create a new page";
       // W3 Step 3.5b.F (2026-05-02) — prompt-shaped labels produce
-      // ungrammatical titles when inlined (operator browser audit
-      // 2026-05-02 flagged "Create a If I buy a property…"). Detect
-      // sentence-shaped labels and use a quoted/wrapped form so the
-      // grammar reads naturally.
+      // ungrammatical titles when inlined.
+      // W3 Step 3.5c (2026-05-02, operator browser audit re-failed)
+      // — even the wrapped form `Create a page for "<label>"`
+      // exposes raw prompt copy in the title. Operator scope locked
+      // a deterministic-cleanup-first / scenario-fallback contract:
+      //   1. Try to extract a clean noun phrase
+      //      (deterministic stripping of prompt-starter prefixes).
+      //   2. If that produces a usable phrase, render
+      //      `Create a page for {phrase}`.
+      //   3. Otherwise fall back to a scenario-class heading
+      //      (`Create a page for this {kind} scenario`) — never
+      //      raw prompt quotes in titles.
       if (looksLikePromptText(truncatedLabel)) {
-        return `Create a page for "${truncatedLabel}"`;
+        const scenarioLabel = describeScenario(truncatedLabel);
+        return `Create a page for ${scenarioLabel}`;
       }
       return `Create a ${truncatedLabel} page`;
   }
+}
+
+/**
+ * W3 Step 3.5c (2026-05-02) — derive a clean operator-readable
+ * scenario phrase from a prompt-shaped cluster label. Returns:
+ *   - "this buying scenario" when label hints at purchase intent
+ *   - "this remodeling scenario" when label hints at remodel intent
+ *   - "this rebuild scenario" when label hints at teardown / build
+ *   - "this comparison scenario" when label compares options
+ *   - "this cost question" when label asks about price / budget
+ *   - "this decision scenario" as the operator-scope-locked
+ *     general fallback.
+ *
+ * Pure / deterministic. Case-insensitive matching. Operator scope:
+ * "If impossible, fall back to 'Create a page for this buying
+ * scenario,' not raw prompt quotes."
+ */
+export function describeScenario(label: string): string {
+  const lower = label.toLowerCase();
+
+  // Cost / pricing intent
+  if (
+    /\b(cost|price|pricing|budget|how much|expensive|afford)/.test(lower)
+  ) {
+    return "this cost question";
+  }
+  // Comparison intent
+  if (
+    /\bvs\b|\bversus\b|\bbetter (?:to|than)\b|\bor (?:should|do|is)\b|\bcompare\b|\bvs\.\s/.test(
+      lower,
+    )
+  ) {
+    return "this comparison scenario";
+  }
+  // Rebuild / teardown / build intent
+  if (
+    /\b(rebuild|tear ?down|teardown|build (?:a|new)|new construction|ground ?up)/.test(
+      lower,
+    )
+  ) {
+    return "this rebuild scenario";
+  }
+  // Remodel / renovate intent
+  if (/\b(remodel|renovate|renovation|remodeling)/.test(lower)) {
+    return "this remodeling scenario";
+  }
+  // Purchase intent
+  if (
+    /\b(buy|buying|bought|purchase|purchasing|acquire|acquired|acquiring)\b/.test(
+      lower,
+    )
+  ) {
+    return "this buying scenario";
+  }
+  // Generic fallback per operator scope.
+  return "this decision scenario";
 }
 
 /**

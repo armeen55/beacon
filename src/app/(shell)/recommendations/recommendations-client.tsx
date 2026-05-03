@@ -31,6 +31,12 @@ import type { RecommendedEditRow } from "@/domains/recommendations/recommended-e
 import { LifecycleStatusPill } from "@/components/display/lifecycle-status-pill";
 import { RecConfidencePill } from "@/components/display/rec-confidence-pill";
 import { summarizeEvidenceRefs } from "@/domains/recommendations/evidence-summary";
+import { shouldExcludeFromCompetitorRanking } from "@/domains/recommendations/entity-pollution-filter";
+import {
+  classifyRecDisplayState,
+  REC_DISPLAY_STATE_LABEL,
+  type RecDisplayState,
+} from "@/domains/recommendations/display-state";
 
 type Props = {
   queue: RecommendationQueueRow[];
@@ -298,6 +304,44 @@ function stripBracketedDiagnostics(text: string): string {
     .trim();
 }
 
+/**
+ * W3 Step 3.5c (2026-05-02) — defensive scrubber that removes raw
+ * prompt-id references (UUIDs or 8+ hex prefixes) from operator-
+ * facing text. Operator browser audit (2026-05-02) caught
+ * "prompt 319557d1" in a default-card Why field — likely from a
+ * resolver / LLM-edit text that snuck a partial prompt id past the
+ * UUID-rendering helpers.
+ *
+ * Patterns scrubbed (case-insensitive):
+ *   - `prompt 319557d1` / `prompt: 319557d1` (8+ hex prefix)
+ *   - `prompt 319557d1-aaaa-bbbb-cccc-dddddddddddd` (full UUID)
+ *
+ * Replacement: "an affected prompt" — preserves grammar without
+ * leaking ids. Pure / deterministic.
+ */
+function scrubRawPromptIds(text: string): string {
+  if (typeof text !== "string" || text.length === 0) return text;
+  // Full UUID v4-style: 8-4-4-4-12 hex with optional `prompt[:\s]+`
+  // prefix.
+  let out = text.replace(
+    /\bprompt\s*:?\s*[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\b/gi,
+    "an affected prompt",
+  );
+  // Bare UUID without the "prompt" prefix.
+  out = out.replace(
+    /\b[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\b/gi,
+    "an affected prompt",
+  );
+  // 8+ hex prefix with explicit "prompt" prefix (e.g., "prompt
+  // 319557d1"). Word-boundary anchored to avoid matching real words
+  // like "prompted".
+  out = out.replace(
+    /\bprompt\s*:?\s*[a-f0-9]{8,}\b/gi,
+    "an affected prompt",
+  );
+  return out;
+}
+
 function shortUrl(url: string): string {
   try {
     const u = new URL(url);
@@ -349,6 +393,24 @@ function RecommendationRow({
     const s = e.implementation_status ?? "recommended";
     return s === "recommended" || s === "accepted";
   }).length;
+
+  // W3 Step 3.5c (2026-05-02) — display-state classifier drives the
+  // chip + action surface. accepted_tracking suppresses the
+  // Accept/Defer/Dismiss row; needs_fresh_edit shows the empty-edits
+  // hint; manual_review surfaces the operator-judgment surface.
+  const displayState = classifyRecDisplayState({
+    resolvedAction: rec.resolution?.action ?? null,
+    needsHumanReview: rec.resolution?.needsHumanReview ?? false,
+    response: response
+      ? { status: response.status, deferUntil: response.deferUntil }
+      : null,
+    allEdits: allEdits.map((e) => ({
+      implementation_status: e.implementation_status,
+    })),
+    renderableEdits: edits.map((e) => ({
+      implementation_status: e.implementation_status,
+    })),
+  });
   const [pending, startTransition] = useTransition();
 
   const showFeedback = feedback && feedback.stableKey === rec.stableKey;
@@ -505,21 +567,11 @@ function RecommendationRow({
             (W3 §1.5 + Step 3.3 rubric). Internal enum stays
             high/medium/low; only the visible text differs. */}
         <RecConfidencePill verdict={rec.engineConfidence} />
-        {tierBadge && tierBadge.label && (
-          <span
-            className={cn(
-              "text-[10px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded border",
-              tierBadge.className,
-            )}
-            title={
-              resolution?.tier === "adjudicated"
-                ? "Reviewed by GPT-5-mini adjudicator"
-                : "Matched against site inventory"
-            }
-          >
-            {tierBadge.label}
-          </span>
-        )}
+        {/* W3 Step 3.5c (2026-05-02) — `tierBadge` ("Site match" /
+            "AI-reviewed") DROPPED from default header. Operator
+            browser audit flagged these as internal jargon. The
+            resolver tier still drives engineConfidence under the
+            hood; it just doesn't render as a badge. */}
         {needsHumanReview && (
           <span className="text-[10px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded border border-status-warning/40 bg-status-warning/[0.06] text-status-warning">
             Needs review
@@ -545,18 +597,21 @@ function RecommendationRow({
       )}
 
       <p className="mt-1 text-[12px] text-muted-foreground leading-relaxed">
-        {reasoning}
+        {/* W3 Step 3.5c (2026-05-02) — scrub raw prompt-id refs from
+            operator copy. Defense-in-depth against any resolver /
+            generator path that slips a UUID-shaped string into Why /
+            reasoning. */}
+        {scrubRawPromptIds(reasoning)}
       </p>
 
       {confidenceReason && (
         <p className="mt-0.5 text-[11px] text-muted-foreground/80 leading-relaxed">
-          {/* W3 Step 3.5b.E (2026-05-02) — strip bracketed diagnostic
-              detail (e.g. "[1/1 label tokens match page; all label
-              tokens appear in URL path]") from the default card.
-              Operators don't read scoring strings; the prose summary
-              is what matters. Full text remains in evidence
-              expansion paths. */}
-          {stripBracketedDiagnostics(confidenceReason)}
+          {/* W3 Step 3.5b.E + 3.5c (2026-05-02) — strip bracketed
+              diagnostic detail AND raw prompt-id references from the
+              default card. Both are debug content the operator
+              shouldn't read by default. Full text remains in
+              evidence expansion. */}
+          {scrubRawPromptIds(stripBracketedDiagnostics(confidenceReason))}
         </p>
       )}
 
@@ -571,7 +626,7 @@ function RecommendationRow({
         </p>
       )}
 
-      <EvidenceChips rec={rec} />
+      <EvidenceChips rec={rec} displayState={displayState} />
 
       {(specificRecommendation ||
         suggestedEdits.length > 0 ||
@@ -945,21 +1000,64 @@ function AdjudicatorDetails({
 
 /* ─────────────────────────────────────────────────────────────────── */
 
+/**
+ * W3 Step 3.5c (2026-05-02) — operator-readable evidence chips.
+ *
+ * Replaces the prior chip set ("3 prompts", "{Competitor} primary ·
+ * {N}%", "3 fragmented") with operator language. Operator browser
+ * audit (2026-05-02) flagged the prior chips as internal jargon
+ * AND surfaced "General Contractors primary · 100%" — a generic
+ * noun masquerading as a real competitor.
+ *
+ * New chip set:
+ *   - "Has target page" / "Needs new page" — does the rec resolve
+ *     to an existing owned page or call for a fresh page
+ *   - First REAL competitor (filtered through entity-pollution-filter
+ *     so generic nouns + directories never appear) — only shown when
+ *     they're clearly winning the cluster (≥50% primary share)
+ *   - Effort chip ("Quick win" / "Medium effort" / "Heavy lift") —
+ *     humanized; raw enum stays in data-attribute
+ *   - Display-state chip (Tracking / Needs fresh edit / Needs your
+ *     judgment / Backlog) when the state is non-actionable
+ *
+ * Dropped from default card:
+ *   - Raw "{N} prompts" (moved to evidence-preview line)
+ *   - "{N} fragmented" (internal cluster jargon)
+ *   - "{Generic name} primary" entries (entity-pollution-filter)
+ */
 function EvidenceChips({
   rec,
+  displayState,
 }: {
   rec: RecommendationQueueRow["rec"];
+  displayState: RecDisplayState;
 }) {
-  const chips: Array<{ label: string; tone?: "bad" | "neutral" }> = [];
+  const chips: Array<{ label: string; tone?: "bad" | "neutral" | "info" }> = [];
 
-  if (rec.evidence.promptCount > 1) {
+  // Display-state chip ("Tracking" / "Needs fresh edit" / etc.) when
+  // the rec is in a state operators should read at-a-glance.
+  // `actionable_edit` is the default and doesn't need a chip.
+  if (
+    displayState !== "actionable_edit" &&
+    displayState !== "suppressed"
+  ) {
     chips.push({
-      label: `${rec.evidence.promptCount} prompts`,
-      tone: "neutral",
+      label: REC_DISPLAY_STATE_LABEL[displayState],
+      tone: "info",
     });
   }
 
-  const topCompetitor = rec.evidence.primaryCompetitors[0];
+  // Real top competitor — entity-pollution-filter drops generic
+  // nouns (General Contractors, Local Contractors, Architects,
+  // Home Builders, etc.) and directory_source entries. The filter's
+  // no-entity fallback path catches the operator-flagged "General
+  // Contractors primary · 100%" leak.
+  const topCompetitor = rec.evidence.primaryCompetitors.find((c) => {
+    if (!c || typeof c.name !== "string" || c.name.trim().length === 0) {
+      return false;
+    }
+    return !shouldExcludeFromCompetitorRanking(c.name);
+  });
   if (topCompetitor && topCompetitor.totalAffectedPrompts > 0) {
     const pct = Math.round(
       (topCompetitor.promptsWherePrimary / topCompetitor.totalAffectedPrompts) *
@@ -967,17 +1065,10 @@ function EvidenceChips({
     );
     if (pct >= 50) {
       chips.push({
-        label: `${topCompetitor.name} primary · ${pct}%`,
+        label: `${topCompetitor.name} winning · ${pct}%`,
         tone: "bad",
       });
     }
-  }
-
-  if (rec.evidence.fragmentedPromptCount > 0 && !topCompetitor) {
-    chips.push({
-      label: `${rec.evidence.fragmentedPromptCount} fragmented`,
-      tone: "neutral",
-    });
   }
 
   // W3 Step 3.5b.C (2026-05-02) — operator-readable effort label so
@@ -1004,7 +1095,9 @@ function EvidenceChips({
             "text-[10px] px-1.5 py-0.5 rounded border",
             c.tone === "bad"
               ? "border-status-danger/30 bg-status-danger/[0.05] text-status-danger"
-              : "border-border/50 bg-surface-inset/30 text-muted-foreground",
+              : c.tone === "info"
+                ? "border-accent-primary/40 bg-accent-primary/[0.06] text-accent-primary"
+                : "border-border/50 bg-surface-inset/30 text-muted-foreground",
           )}
         >
           {c.label}
@@ -1328,7 +1421,10 @@ function SpecificEditsSection({
               )}
               <p className="mt-1.5 text-muted-foreground leading-relaxed">
                 <span className="font-medium text-foreground/80">Why: </span>
-                {edit.why}
+                {/* W3 Step 3.5c (2026-05-02) — scrub raw prompt-id
+                    refs from per-edit why copy. Operator audit caught
+                    "prompt 319557d1" leaking into this surface. */}
+                {scrubRawPromptIds(edit.why)}
               </p>
               {edit.evidence && edit.evidence.length > 0 && (() => {
                 const summary = summarizeEvidenceRefs(

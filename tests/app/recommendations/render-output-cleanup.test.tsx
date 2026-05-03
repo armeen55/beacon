@@ -281,11 +281,253 @@ describe("W3 Step 3.5b — rendered-output cleanup", () => {
         } as unknown as RecommendationQueueRow["rec"]["resolution"],
       }),
     ]);
-    // Wrapped form ships. renderToStaticMarkup encodes `"` → `&quot;`,
-    // so check for the encoded form OR (after a tag-strip pass) the
-    // raw form.
-    expect(html).toMatch(/Create a page for &quot;If I buy a property/);
-    // Broken-grammar form does NOT ship.
+    // W3 Step 3.5c (2026-05-02) — operator browser re-audit failed
+    // the wrapped-quote form. Now: scenario-class fallback. "If I
+    // buy a property…" hits the buying-intent branch → "this
+    // buying scenario".
+    expect(html).toContain("Create a page for this buying scenario");
+    // Raw prompt quote no longer in the title.
+    expect(html).not.toMatch(/Create a page for &quot;If I buy/);
+    // Broken-grammar form still does NOT ship.
     expect(html).not.toMatch(/Create a If I/);
+  });
+});
+
+// ── W3 Step 3.5c — operator product acceptance contracts ────────────────
+
+describe("W3 Step 3.5c — product cleanup acceptance", () => {
+  it("ACCEPTANCE: 'General Contractors primary' is NOT visible (entity-pollution-filter on EvidenceChips)", () => {
+    const html = renderQueue([
+      makeRow({
+        evidence: {
+          promptCount: 4,
+          observationCount: 12,
+          categoryBreakdown: {},
+          dominantCompetitors: [],
+          descriptorsNearBrand: [],
+          maxSignalStrength: 70,
+          primaryCompetitors: [
+            // Generic noun should be filtered out.
+            {
+              name: "General Contractors",
+              promptsWherePrimary: 4,
+              totalAffectedPrompts: 4,
+            },
+            // Real competitor sneaks in second; should NOT auto-promote
+            // (the chip only renders the FIRST eligible competitor with
+            // ≥50% primary share).
+            {
+              name: "De Mattei Construction",
+              promptsWherePrimary: 2,
+              totalAffectedPrompts: 4,
+            },
+          ],
+          brandPrimaryPromptCount: 0,
+          fragmentedPromptCount: 0,
+        },
+      }),
+    ]);
+    // Generic noun must NOT appear as competitor copy.
+    expect(html).not.toMatch(/General Contractors\s+winning/);
+    expect(html).not.toMatch(/General Contractors\s+primary/);
+    // The real competitor passes the filter.
+    expect(html).toContain("De Mattei Construction winning");
+  });
+
+  it("ACCEPTANCE: 'Architects' / 'Home Builders' / 'Local Contractors' all filtered", () => {
+    const html = renderQueue([
+      makeRow({
+        evidence: {
+          promptCount: 3,
+          observationCount: 8,
+          categoryBreakdown: {},
+          dominantCompetitors: [],
+          descriptorsNearBrand: [],
+          maxSignalStrength: 70,
+          primaryCompetitors: [
+            {
+              name: "Architects",
+              promptsWherePrimary: 3,
+              totalAffectedPrompts: 3,
+            },
+          ],
+          brandPrimaryPromptCount: 0,
+          fragmentedPromptCount: 0,
+        },
+      }),
+    ]);
+    expect(html).not.toMatch(/Architects\s+winning/);
+    expect(html).not.toMatch(/Architects\s+primary/);
+  });
+
+  it("ACCEPTANCE: 'fragmented' chip is NOT in default card", () => {
+    const html = renderQueue([
+      makeRow({
+        evidence: {
+          promptCount: 3,
+          observationCount: 8,
+          categoryBreakdown: {},
+          dominantCompetitors: [],
+          descriptorsNearBrand: [],
+          maxSignalStrength: 70,
+          primaryCompetitors: [],
+          brandPrimaryPromptCount: 0,
+          // Set high to force the old "{N} fragmented" chip path.
+          fragmentedPromptCount: 4,
+        },
+      }),
+    ]);
+    expect(html).not.toMatch(/\bfragmented\b/);
+  });
+
+  it("ACCEPTANCE: 'Site match' / 'AI-reviewed' tier badges are NOT in default header", () => {
+    const html = renderQueue([
+      makeRow({
+        resolution: {
+          action: "create_new_page",
+          motive: "capture_absent_cluster",
+          targetUrl: "needs_new_page",
+          confidence: "medium",
+          confidenceReason: "test",
+          tier: "inventory", // would normally render "Site match" badge
+          reasoning: "test",
+          cannibalization: null,
+          evidenceRefs: [],
+          proposedSlug: null,
+        } as unknown as RecommendationQueueRow["rec"]["resolution"],
+      }),
+    ]);
+    expect(html).not.toContain("Site match");
+    expect(html).not.toContain("AI-reviewed");
+  });
+
+  it("ACCEPTANCE: raw prompt-id references scrubbed from operator copy", () => {
+    const html = renderQueue([
+      makeRow({
+        reasoning:
+          "AI fragmented this cluster across prompt 319557d1; Ritz absent.",
+        resolution: {
+          action: "create_new_page",
+          motive: "capture_absent_cluster",
+          targetUrl: "needs_new_page",
+          confidence: "medium",
+          confidenceReason:
+            "Drawn from prompt 319557d1abc and prompt: aabbccdd11223344.",
+          tier: "inventory",
+          reasoning: "test",
+          cannibalization: null,
+          evidenceRefs: [],
+          proposedSlug: null,
+        } as unknown as RecommendationQueueRow["rec"]["resolution"],
+      }),
+    ]);
+    // No bare 8+ hex prompt-id refs in any operator-visible copy.
+    expect(html).not.toMatch(/prompt\s+319557d1/i);
+    expect(html).not.toMatch(/prompt:\s*aabbccdd/i);
+    // Replacement copy reads naturally.
+    expect(html).toContain("an affected prompt");
+  });
+
+  it("ACCEPTANCE: full UUID prompt refs scrubbed (via resolution.reasoning)", () => {
+    // resolution.reasoning is the field rendered as the visible
+    // "reasoning" paragraph (line ~399 in client). Set the UUID
+    // there so the scrubber's path is exercised.
+    const html = renderQueue([
+      makeRow({
+        resolution: {
+          action: "create_new_page",
+          motive: "capture_absent_cluster",
+          targetUrl: "needs_new_page",
+          confidence: "medium",
+          confidenceReason: "test",
+          tier: "inventory",
+          reasoning:
+            "Cluster spans prompt 319557d1-aaaa-bbbb-cccc-dddddddddddd.",
+          cannibalization: null,
+          evidenceRefs: [],
+          proposedSlug: null,
+        } as unknown as RecommendationQueueRow["rec"]["resolution"],
+      }),
+    ]);
+    expect(html).not.toMatch(/319557d1-aaaa-bbbb-cccc-dddddddddddd/);
+    expect(html).toContain("an affected prompt");
+  });
+
+  it("ACCEPTANCE: accepted_tracking rec hides Accept/Defer/Dismiss surface", () => {
+    const html = renderQueue([
+      makeRow({}, { responseStatus: "accepted" }),
+    ]);
+    // Accept button must NOT render for an accepted rec.
+    expect(html).not.toMatch(/>Accept(?:\s+—)?</);
+    // The "✓ Accepted" status shows.
+    expect(html).toContain("✓ Accepted");
+    // The display-state chip reflects "Tracking".
+    expect(html).toContain("Tracking");
+  });
+
+  it("ACCEPTANCE: 'needs_fresh_edit' rec carries the chip + empty-state hint", () => {
+    const html = renderQueue([
+      makeRow(
+        {},
+        {
+          // All edits dismissed → renderable empty, allEdits non-empty.
+          edits: [
+            {
+              id: "x",
+              tenant_id: "tenant-test",
+              rec_id: "rec-fixture-1",
+              action_type: "add_h2_section",
+              target_url: "https://example.com/services/braces",
+              target_element_key: "h2[new]:abc",
+              display_label: "x",
+              current_text: null,
+              proposed_text: "x",
+              why: "x",
+              evidence: [],
+              expected_impact: null,
+              difficulty: "low",
+              confidence: "high",
+              measurement_plan: null,
+              risks: [],
+              source: "openai",
+              provider_name: "openai",
+              evidence_hash: "x",
+              model: "gpt-5-mini",
+              cost_usd: 0,
+              created_at: "2026-05-01T00:00:00Z",
+              updated_at: "2026-05-01T00:00:00Z",
+              implementation_status: "dismissed",
+              live_at: null,
+              live_snapshot_id: null,
+              live_match_confidence: null,
+              live_match_kind: null,
+              live_element_key: null,
+              not_found_reason: null,
+            },
+          ],
+        },
+      ),
+    ]);
+    expect(html).toContain("Needs fresh edit");
+    // Empty-state hint is the existing data-attribute from Step 3.5.
+    expect(html).toContain('data-recommendations-edits-empty="true"');
+  });
+
+  it("ACCEPTANCE: queue with reasonable evidence is NOT mostly Weak signal", () => {
+    // 5 well-formed recs with medium engineConfidence — none should
+    // render as Weak signal.
+    const queue = [
+      makeRow({ stableKey: "r1" }),
+      makeRow({ stableKey: "r2" }),
+      makeRow({ stableKey: "r3" }),
+      makeRow({ stableKey: "r4" }),
+      makeRow({ stableKey: "r5" }),
+    ];
+    const html = renderQueue(queue);
+    const weakCount = (html.match(/>Weak signal</g) ?? []).length;
+    const reviewCount = (html.match(/>Review</g) ?? []).length;
+    // Review dominates; Weak signal is exceptional, not the norm.
+    expect(weakCount).toBe(0);
+    expect(reviewCount).toBeGreaterThanOrEqual(5);
   });
 });

@@ -195,13 +195,22 @@ describe("buildResolvedRecommendationTitle — no raw generator title leak", () 
     expect(title).not.toMatch(/Shield:/i);
   });
 
-  it("truncates extremely long labels so operator-facing titles stay readable", () => {
+  it("extremely long labels never produce overflowing titles (W3 Step 3.5c — scenario fallback)", () => {
+    // W3 Step 3.5c (2026-05-02) — operator browser audit failed
+    // the prior "truncate label + ellipsis" behavior because raw
+    // prompt-quote chunks still leaked into titles. The new
+    // contract: any label > 50 chars triggers prompt-shape detection
+    // and falls back to a scenario-class phrase (no ellipsis
+    // needed; the phrase is intentionally short and operator-
+    // readable).
     const longLabel = "A".repeat(200);
     const title = buildResolvedRecommendationTitle({
       clusterLabel: longLabel,
       resolution: resolutionWith({ action: "create_new_page" }),
     });
     expect(title.length).toBeLessThan(longLabel.length + 20);
-    expect(title).toMatch(/…/);
+    // Scenario-class fallback ships; raw long-label fragments do not.
+    expect(title).toContain("Create a page for");
+    expect(title).not.toContain("AAAAAA");
   });
 });

@@ -64,50 +64,71 @@ describe("buildResolvedRecommendationTitle — Create page action", () => {
     expect(title).toBe("Create a Atherton kitchen remodel page");
   });
 
-  it("prompt-shaped label → wrapped form: 'Create a page for \"{label}\"'", () => {
+  // W3 Step 3.5c (2026-05-02) — operator browser re-audit failed
+  // the wrapped-quote form `Create a page for "<label>"` because it
+  // still exposes raw prompt copy in the title. Operator scope:
+  // deterministic-cleanup-first; fall back to a scenario-class
+  // heading like "this buying scenario" — never raw prompt quotes.
+  it("prompt-shaped buying label → 'Create a page for this buying scenario'", () => {
     const title = buildResolvedRecommendationTitle({
       clusterLabel: "If I buy a property with an older house",
     });
-    expect(title).toBe(
-      'Create a page for "If I buy a property with an older house"',
-    );
-    // Must NOT produce the broken grammar form.
-    expect(title).not.toBe(
-      "Create a If I buy a property with an older house page",
-    );
+    expect(title).toBe("Create a page for this buying scenario");
+    // Must NOT produce the broken grammar form OR the raw-quote form.
+    expect(title).not.toMatch(/Create a If I/);
+    expect(title).not.toContain('"If I buy');
   });
 
-  it("very long category label → truncated AND wrapped", () => {
+  it("very long category label → scenario-fallback (still no raw quote)", () => {
     const title = buildResolvedRecommendationTitle({
       clusterLabel:
         "Best builders for high-end whole home remodels in the Bay Area peninsula",
     });
-    // 73 chars; truncated at 67 + "…"; treated as prompt-shaped.
-    expect(title.startsWith('Create a page for "')).toBe(true);
-    expect(title).toContain("…");
+    expect(title.startsWith("Create a page for ")).toBe(true);
+    // No raw prompt quote in the title.
+    expect(title).not.toContain('"');
+    // The label hints at remodeling.
+    expect(title).toContain("remodeling scenario");
   });
 
-  it("question-shaped label → wrapped form", () => {
+  it("cost-question label → 'this cost question'", () => {
     const title = buildResolvedRecommendationTitle({
       clusterLabel: "How much does a kitchen remodel cost?",
     });
-    expect(title.startsWith('Create a page for "')).toBe(true);
-    expect(title.endsWith('"')).toBe(true);
+    expect(title).toBe("Create a page for this cost question");
+    expect(title).not.toContain('"');
   });
 
-  it("first-person-pronoun label → wrapped form", () => {
+  it("comparison label → 'this comparison scenario'", () => {
+    const title = buildResolvedRecommendationTitle({
+      clusterLabel:
+        "For a custom home in Atherton, is it better to design-build or hire architect",
+    });
+    expect(title).toBe("Create a page for this comparison scenario");
+  });
+
+  it("rebuild label → 'this rebuild scenario'", () => {
+    const title = buildResolvedRecommendationTitle({
+      clusterLabel: "I bought a steep lot to tear down and build new",
+    });
+    expect(title).toBe("Create a page for this rebuild scenario");
+  });
+
+  it("first-person-pronoun label without intent hint → generic decision fallback", () => {
     const title = buildResolvedRecommendationTitle({
       clusterLabel: "Help me find a contractor",
     });
-    expect(title).toBe('Create a page for "Help me find a contractor"');
+    expect(title).toBe("Create a page for this decision scenario");
+    expect(title).not.toContain('"');
   });
 
-  it("operator audit regression — 'Create a If I…' bug fixed", () => {
+  it("operator audit regression — 'Create a If I…' bug stays fixed", () => {
     const title = buildResolvedRecommendationTitle({
       clusterLabel: "If I buy a property",
     });
     expect(title).not.toMatch(/Create a If I/);
-    expect(title).toMatch(/Create a page for "If I buy a property"/);
+    // Buying intent → buying scenario fallback.
+    expect(title).toBe("Create a page for this buying scenario");
   });
 
   it("LLM operatorTitle still wins over the prompt-shape detection", () => {
