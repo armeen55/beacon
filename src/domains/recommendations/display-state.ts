@@ -175,3 +175,140 @@ export function effectiveTierForDisplay(args: {
   }
   return args.originalTier;
 }
+
+// ---------------------------------------------------------------------------
+// W3 Step 3.5d (2026-05-02) — Lane model.
+//
+// Operator browser audit (2026-05-02 third pass) failed Step 3.5c
+// product acceptance. The page was still rendered as
+// "NOW · 5 / THIS WEEK · 5 / LATER · 5" — a priority gradient that
+// mixes ready-to-ship recs, needs-decision recs, accepted/tracking
+// items, and backlog into one undifferentiated stack. Operator scope
+// reset: replace tiers with LANES, where each lane has distinct
+// semantics + distinct action surface.
+//
+// Five lanes. One display state per rec → one lane.
+//   ready_to_ship    ← actionable_edit
+//   needs_decision   ← manual_review
+//   needs_fresh_edit ← needs_fresh_edit
+//   tracking         ← accepted_tracking
+//   backlog          ← backlog
+//   (suppressed states do not render in any lane)
+// ---------------------------------------------------------------------------
+
+export type RecLane =
+  | "ready_to_ship"
+  | "needs_decision"
+  | "needs_fresh_edit"
+  | "tracking"
+  | "backlog";
+
+/**
+ * Display-state → lane mapping. The classifier guarantees each rec
+ * has exactly one display state, so each rec maps to exactly one
+ * lane (or `null` when suppressed).
+ */
+export function laneForDisplayState(
+  state: RecDisplayState,
+): RecLane | null {
+  switch (state) {
+    case "actionable_edit":
+      return "ready_to_ship";
+    case "manual_review":
+      return "needs_decision";
+    case "needs_fresh_edit":
+      return "needs_fresh_edit";
+    case "accepted_tracking":
+      return "tracking";
+    case "backlog":
+      return "backlog";
+    case "suppressed":
+      return null;
+  }
+}
+
+/**
+ * Operator-facing lane labels. Use these as section headings; the
+ * rec card itself stamps the lane name as a small badge.
+ */
+export const REC_LANE_LABEL: Record<RecLane, string> = {
+  ready_to_ship: "Ready to ship",
+  needs_decision: "Needs decision",
+  needs_fresh_edit: "Needs fresh edit",
+  tracking: "Tracking",
+  backlog: "Backlog",
+};
+
+/**
+ * One-line operator copy explaining what each lane is for. Sits
+ * under the section heading so a non-technical operator can tell
+ * lanes apart at a glance.
+ */
+export const REC_LANE_LEAD: Record<RecLane, string> = {
+  ready_to_ship:
+    "Beacon has an exact edit. Accept to track whether shipping it moves AI visibility.",
+  needs_decision:
+    "Beacon found an opportunity but can't pick the direction. You decide.",
+  needs_fresh_edit:
+    "Real opportunity, but the previous edits were dismissed. Regenerate when you're ready.",
+  tracking:
+    "Already accepted. Beacon is watching whether the change moved citations.",
+  backlog: "Lower-priority opportunities. Promote any of these into the queue.",
+};
+
+/**
+ * Action-button surface per lane. Each rec card consults this map
+ * to render the right buttons. The current state of the rec
+ * (response.status, eligibleEditCount) further refines which
+ * buttons are enabled.
+ */
+export type LaneAction =
+  | "accept_and_track"
+  | "choose_direction"
+  | "regenerate_later"
+  | "promote"
+  | "mark_shipped"
+  | "view_evidence"
+  | "defer"
+  | "dismiss"
+  | "undo";
+
+export const REC_LANE_BUTTONS: Record<RecLane, ReadonlyArray<LaneAction>> = {
+  ready_to_ship: ["accept_and_track", "defer", "dismiss"],
+  needs_decision: ["choose_direction", "defer", "dismiss"],
+  needs_fresh_edit: ["regenerate_later", "dismiss"],
+  tracking: ["mark_shipped", "undo"],
+  backlog: ["promote", "defer", "dismiss"],
+};
+
+/**
+ * Operator-facing button copy. Internal `LaneAction` enum stays
+ * stable so logs / analytics can reference it.
+ */
+export const LANE_ACTION_LABEL: Record<LaneAction, string> = {
+  accept_and_track: "Accept + Track",
+  choose_direction: "Choose direction",
+  regenerate_later: "Regenerate later",
+  promote: "Promote",
+  mark_shipped: "Mark shipped",
+  view_evidence: "View evidence",
+  defer: "Defer",
+  dismiss: "Dismiss",
+  undo: "Undo",
+};
+
+/**
+ * Tone for the lane badge in the rec card header. Drives color
+ * palette so the operator can scan the page and tell "what kind of
+ * action is this?" by hue alone.
+ */
+export const REC_LANE_TONE: Record<
+  RecLane,
+  "success" | "warning" | "muted" | "info"
+> = {
+  ready_to_ship: "success",
+  needs_decision: "warning",
+  needs_fresh_edit: "warning",
+  tracking: "info",
+  backlog: "muted",
+};

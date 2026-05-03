@@ -1,6 +1,62 @@
 # Beacon — Start Here
 
-> 🟢 **W3 Step 3.5c (Triage UX reset after Step 3.5b browser re-audit) LANDED (2026-05-02):** Single code commit `7199094` on `main`. Operator browser re-audit on Step 3.5b still failed product acceptance — the page improved but stayed an evidence/debug feed. This commit closes the gap on six remaining issues. No paid runs / regeneration / Apply-All-HIGH / backfill / Profound archive.
+> 🟢 **W3 Step 3.5d (Recommendations decision-queue reset) LANDED (2026-05-03):** Single code commit on `main`. Operator browser re-audit on Step 3.5c failed product acceptance for the third time — "the page is still an internal evidence/debug feed pretending to be a task queue." The fix is a product-architecture rewrite, not another label patch. Tier-based grouping (NOW · 5 / THIS WEEK · 5 / LATER · 5) replaced with five semantic LANES, and every rec card now follows ONE deterministic formula. No paid runs / regeneration / Apply-All-HIGH / backfill / Profound archive.
+>
+> **Five lanes — each rec gets exactly one (operator scope: "what kind of action this is, and what to do with it"):**
+> 1. **Ready to ship** — actionable_edit. Buttons: Accept + Track / Defer / Dismiss.
+> 2. **Needs decision** — manual_review. Buttons: "You decide the direction" + Defer / Dismiss.
+> 3. **Needs fresh edit** — edits dismissed/quarantined. Buttons: "Regenerate when you're ready" + Dismiss.
+> 4. **Tracking** — accepted_tracking. Buttons: ✓ Tracking + Mark shipped + Undo. NO Accept/Defer/Dismiss.
+> 5. **Backlog** — collapsed by default. Buttons: Promote / Defer / Dismiss.
+>
+> **Default card formula (every card, every lane):**
+> ```
+> [Lane badge] [Confidence pill] [Title]
+> Target: /target-url
+> Recommended move: <one sentence>
+> Why now:          <one sentence>
+> Evidence:         <one sentence>
+> [Effort chip]
+> [Lane-specific action buttons]
+> ▸ Show evidence + diagnostics  (expansion drawer)
+> ```
+>
+> ALL diagnostic content (resolver reasoning, confidenceReason, motive, AdjudicatorDetails, SpecificEditsSection, edit-empty-state) lives behind the expansion `<details>`. Default card never shows debug paragraphs.
+>
+> **What changed:**
+> - **Lane model (extended `display-state.ts`)** — `RecLane` type, `laneForDisplayState(state)` mapping, `REC_LANE_LABEL` / `REC_LANE_LEAD` / `REC_LANE_TONE` / `REC_LANE_BUTTONS` operator copy + button-rule contract.
+> - **Title humanizer (NEW `recommendation-title-humanizer.ts`)** — domain-specific topic-tag patterns (vacant-lot custom home, design-build vs architect, completed-plans handoff, steep-lot feasibility, older-home rebuild, modernizing older homes, structural remodel, cost planning, permitting, kitchen/bath remodel, renovation, custom home) + Bay Area geo extraction (Atherton, Palo Alto, etc.) + URL → page-name composer. Action-aware composer ("Create an Atherton older-home rebuild page" / "Add a kitchen remodel section to the Whole Home Remodel page"). LLM `operatorTitle` still wins.
+> - **Evidence preview composer (NEW `recommendation-evidence-preview.ts`)** — single-sentence facts: "Ritz is close: owned page cited 39%, needs more topical coverage." / "Owned page cited 12%; Greenberg winning across 4 prompts." / "No owned page cited across 60 observations; De Mattei winning." / "Ritz cited 6%; Greenberg winning across 6 prompts." Generic competitors (General Contractors / Architects / Houzz) filtered through `entity-pollution-filter`. Recommended-move composer also action-aware.
+> - **Rec card body refactored** — `actionLabel` / `motiveLabel` / `tierBadge` / chip-strip removed from default card; lane badge replaces all three. `EvidenceChips` component deleted entirely. `ACTION_LABEL` / `TIER_BADGE` / `REC_TYPE_LABEL` constants removed. `buildResolvedRecommendationTitle` import removed (humanizer replaces it). Internal taxonomy preserved on `data-rec-*` attributes for tests + diagnostics.
+> - **Lane-aware action buttons** — each rec card consults `lane` to pick the right surface. Tracking lane shows Mark shipped + Undo only; needs-decision shows decision affordance; needs-fresh-edit shows regenerate hint + dismiss; backlog shows Promote.
+>
+> **Tests (3 new files + 4 updated):**
+> - `recommendation-title-humanizer.test.ts` (NEW, 35) — operator-locked phrase patterns, geo extraction, URL → page-name, humanizer composer per action.
+> - `recommendation-evidence-preview.test.ts` (NEW, 16) — share ≥30% / 5–29% / 0% / fallback paths; generic-competitor filtering; recommended-move per action; "no internal motive jargon" guard.
+> - `confidence-distribution.test.ts` (NEW, 5) — Ritz-shaped queue is NOT majority Weak signal; deterministic-only with real signal lands MEDIUM; multi-prompt adjudicated lands HIGH; thin recs land LOW; needs_human_review forces LOW.
+> - `tests/architecture/recommendations-step-3.5d-lane-queue.test.ts` (NEW, 35) — lane-model imports, card formula, lane-specific button surfaces, expansion drawer wraps all diagnostics, pre-3.5d patterns are gone, internal taxonomy on data-* attributes, header copy reset.
+> - `tests/architecture/recommendations-ui-cleanup.test.ts` (1 updated) — empty-state regex made whitespace-flexible.
+> - `tests/sprint6a1-phase12-wiring.test.ts` (1 updated) — Accept-button copy regex updated to "Accept + Track ({editCount} edit{s})".
+> - `tests/app/recommendations/render-output-cleanup.test.tsx` (3 updated) — bracketed-diagnostic test scopes assertion to default-card portion (slice at expansion `<details>`); prompt-shaped title test pins new humanizer output ("Create an older-home rebuild page"); accepted_tracking test pins "✓ Tracking" copy (was "✓ Accepted").
+>
+> **Verification (2026-05-03):**
+> - `npx tsc --noEmit` clean · 91/91 targeted (humanizer + evidence-preview + confidence-distribution + step-3.5d-lane-queue + render-output-cleanup + sprint6a1) · `npm run test` 3561/3565 (4 pre-existing failures: prompts/[id] drilldown smoke × 1, prompts route smoke × 2, tenant isolation × 1 — verified independent against `8b12b3d` baseline) · `npm run build` clean (Vercel-equivalent read-only-FS).
+> - **Could not verify from this environment:** Vercel deploy SHA matches the new commit — operator dashboard check + browser re-audit needed.
+>
+> **Out of scope (per Step 3.5d + W3 §1.5):**
+> - LIVE paid generation — first paid run is post-Step-3.6, operator-approved
+> - Step 3.6 sample-10 quality report — gated on this re-audit passing
+> - Apply-All-HIGH bar — operator-locked OUT
+> - Customer-one backfill — W4
+> - Profound CSV archive / code deletion — post-May-10
+> - Broad UI redesign outside /recommendations
+>
+> **Next 3 actions:**
+> 1. **Operator: re-audit /recommendations in browser** after Vercel deploys this commit. Verify: lanes render in order (Ready to ship / Needs decision / Needs fresh edit / Tracking / Backlog); each card shows lane badge + confidence + title + Target + Recommended move + Why now + Evidence + effort chip + lane-specific buttons; backlog collapsed by default; "If I buy a property" cluster shows "Create an older-home rebuild page" title; tracking-lane recs show Mark shipped + Undo (no Accept); no "General Contractors winning"; no UUIDs; no bracket diagnostics in default cards.
+> 2. **If browser re-audit passes, proceed to W3 Step 3.6 (sample-10 quality report).**
+> 3. **(Optional)** one-rec dry-run probe before Step 3.6 if you want a smaller paid sample first.
+
+> 🟡 **W3 Step 3.5c (Triage UX reset after Step 3.5b browser re-audit) LANDED (2026-05-02):** Single code commit `7199094` on `main`. Operator browser re-audit on Step 3.5b still failed product acceptance — the page improved but stayed an evidence/debug feed. This commit closes the gap on six remaining issues. No paid runs / regeneration / Apply-All-HIGH / backfill / Profound archive.
 >
 > - **Display-state classifier (NEW)** — `src/domains/recommendations/display-state.ts`. Six states (`actionable_edit` / `manual_review` / `needs_fresh_edit` / `accepted_tracking` / `backlog` / `suppressed`) drive the rec card's chip + action surface. Operator-readable labels ("Ready to ship" / "Needs your judgment" / "Needs fresh edit" / "Tracking" / "Backlog" / "Hidden"). `effectiveTierForDisplay` enforces the rule that `needs_fresh_edit` cannot appear in NOW.
 > - **Generic competitor pollution filter on EvidenceChips** — `shouldExcludeFromCompetitorRanking()` (no-entity fallback path) drops "General Contractors" / "Local Contractors" / "Architects" / "Home Builders" / "Custom Home Builders" / "Bay Area Builders" before they can land in chips. Chip text renamed `{name} primary · {pct}%` → `{name} winning · {pct}%` for natural operator language.

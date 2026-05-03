@@ -121,7 +121,10 @@ describe("W3 Step 3.5 — empty state when all specific edits are filtered/quara
       /editCount\s*===\s*0\s*&&\s*allEdits\.length\s*>\s*0/,
     );
     expect(CLIENT_SRC).toMatch(/data-recommendations-edits-empty="true"/);
-    expect(CLIENT_SRC).toMatch(/all dismissed or no longer actionable/i);
+    // Whitespace-insensitive — JSX may line-wrap "all dismissed\n  or no
+    // longer actionable" across multiple lines. The operator-facing
+    // copy is what matters; JSX formatting is incidental.
+    expect(CLIENT_SRC).toMatch(/all dismissed\s+or no longer actionable/i);
   });
 });
 

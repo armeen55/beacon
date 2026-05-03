@@ -17,15 +17,12 @@ import type {
   RecommendationWatchRow,
 } from "./page";
 import type { RecommendationType } from "@/domains/recommendations/generate";
-import type { PrioritizedRecommendationTier } from "@/domains/recommendations/prioritize";
 import type {
   PageIntentResolution,
   RecommendationAction,
   RecommendationMotive,
-  ResolverTier,
 } from "@/domains/recommendations/resolved-types";
 import { NEEDS_NEW_PAGE } from "@/domains/recommendations/resolved-types";
-import { buildResolvedRecommendationTitle } from "@/domains/recommendations/build-title";
 import type { SuggestedEdit } from "@/domains/recommendations/adjudicator-schema";
 import type { RecommendedEditRow } from "@/domains/recommendations/recommended-edits-persistence";
 import { LifecycleStatusPill } from "@/components/display/lifecycle-status-pill";
@@ -34,9 +31,21 @@ import { summarizeEvidenceRefs } from "@/domains/recommendations/evidence-summar
 import { shouldExcludeFromCompetitorRanking } from "@/domains/recommendations/entity-pollution-filter";
 import {
   classifyRecDisplayState,
-  REC_DISPLAY_STATE_LABEL,
-  type RecDisplayState,
+  laneForDisplayState,
+  REC_LANE_LABEL,
+  REC_LANE_LEAD,
+  REC_LANE_TONE,
+  type RecLane,
 } from "@/domains/recommendations/display-state";
+import {
+  humanizeRecTitle,
+  pageNameFromUrl,
+  extractTopicTag,
+} from "@/domains/recommendations/recommendation-title-humanizer";
+import {
+  composeEvidencePreview,
+  composeRecommendedMove,
+} from "@/domains/recommendations/recommendation-evidence-preview";
 
 type Props = {
   queue: RecommendationQueueRow[];
@@ -47,71 +56,119 @@ type Props = {
   promptTextById: Record<string, string>;
 };
 
+/**
+ * W3 Step 3.5d (2026-05-02) — lane-based decision queue.
+ *
+ * Operator scope (browser audit, third pass): replace the priority
+ * gradient (NOW · 5 / THIS WEEK · 5 / LATER · 5) with semantic lanes
+ * that tell the operator "what kind of action this is, and what to do
+ * with it." Five lanes:
+ *   1. Ready to ship — has exact usable edits, Accept+Track surface
+ *   2. Needs decision — operator chooses direction, no fake edit
+ *   3. Needs fresh edit — opportunity exists but edits dismissed
+ *   4. Tracking — already accepted; no Accept/Defer/Dismiss
+ *   5. Backlog — collapsed by default
+ *
+ * One display state per rec (`classifyRecDisplayState`) → one lane
+ * (`laneForDisplayState`). The page sums lane counts into a summary
+ * strip operators read in 5 seconds.
+ */
 export function RecommendationsClient({
   queue,
   watchlist,
   matrixDate,
   promptTextById,
 }: Props) {
-  const [showDismissed, setShowDismissed] = useState(false);
+  const [showBacklog, setShowBacklog] = useState(false);
+  const [showSuppressed, setShowSuppressed] = useState(false);
   const [feedback, setFeedback] = useState<{
     stableKey: string;
     message: string;
     isError: boolean;
   } | null>(null);
 
-  // Hide dismissed + currently-deferred items by default. Operator can
-  // toggle the "show all" switch to review past decisions.
-  const visibleQueue = showDismissed
-    ? queue
-    : queue.filter(
-        (r) =>
-          !r.response ||
-          r.response.status === "accepted" ||
-          (r.response.status === "deferred" &&
-            r.response.deferUntil &&
-            new Date(r.response.deferUntil).getTime() <= Date.now()),
-      );
+  // Classify every rec into a display state + lane. Reuses the same
+  // classifier the rec card renders against, so lane assignment and
+  // card behavior stay in lock-step.
+  type ClassifiedRow = {
+    row: RecommendationQueueRow;
+    lane: RecLane | null;
+  };
+  const classified: ClassifiedRow[] = queue.map((row) => {
+    const renderable = row.edits.filter((e) => {
+      const s = e.implementation_status ?? "recommended";
+      return s !== "dismissed" && s !== "not_found_after_7d";
+    });
+    const state = classifyRecDisplayState({
+      resolvedAction: row.rec.resolution?.action ?? null,
+      needsHumanReview: row.rec.resolution?.needsHumanReview ?? false,
+      response: row.response
+        ? {
+            status: row.response.status,
+            deferUntil: row.response.deferUntil,
+          }
+        : null,
+      allEdits: row.edits.map((e) => ({
+        implementation_status: e.implementation_status,
+      })),
+      renderableEdits: renderable.map((e) => ({
+        implementation_status: e.implementation_status,
+      })),
+    });
+    return { row, lane: laneForDisplayState(state) };
+  });
 
-  const groups: Array<{
-    tier: PrioritizedRecommendationTier;
-    label: string;
-    rows: RecommendationQueueRow[];
-  }> = [
-    {
-      tier: "now",
-      label: "Now",
-      rows: visibleQueue.filter((r) => r.rec.tier === "now"),
-    },
-    {
-      tier: "this_week",
-      label: "This week",
-      rows: visibleQueue.filter((r) => r.rec.tier === "this_week"),
-    },
-    {
-      tier: "later",
-      label: "Later",
-      rows: visibleQueue.filter((r) => r.rec.tier === "later"),
-    },
-  ];
+  const inLane = (lane: RecLane): RecommendationQueueRow[] =>
+    classified.filter((c) => c.lane === lane).map((c) => c.row);
 
-  const hiddenCount = queue.length - visibleQueue.length;
+  const lanes: ReadonlyArray<{ lane: RecLane; rows: RecommendationQueueRow[] }> =
+    [
+      { lane: "ready_to_ship", rows: inLane("ready_to_ship") },
+      { lane: "needs_decision", rows: inLane("needs_decision") },
+      { lane: "needs_fresh_edit", rows: inLane("needs_fresh_edit") },
+      { lane: "tracking", rows: inLane("tracking") },
+      { lane: "backlog", rows: inLane("backlog") },
+    ];
+  const suppressedCount = classified.filter((c) => c.lane === null).length;
+
+  const summaryParts = lanes
+    .filter((l) => l.rows.length > 0)
+    .map(
+      (l) =>
+        `${l.rows.length} ${REC_LANE_LABEL[l.lane].toLowerCase()}`,
+    );
+  const summary =
+    summaryParts.length > 0
+      ? summaryParts.join(" · ")
+      : "No active recommendations right now.";
 
   return (
     <>
-      <div className="mb-5 flex items-baseline justify-between gap-3 flex-wrap">
-        <p className="text-[12px] text-muted-foreground">
-          Regenerated {matrixDate}. Queue is ranked; watchlist is passive.
+      <div className="mb-4">
+        <p className="text-[12px] text-muted-foreground leading-relaxed">
+          Accept an action to track whether it moves AI visibility.
+          Open evidence when you want the why.
         </p>
-        {hiddenCount > 0 && (
+        <div className="mt-3 flex items-baseline justify-between gap-3 flex-wrap">
+          <p
+            className="text-[13px] font-medium text-foreground"
+            data-recommendations-summary="true"
+          >
+            {summary}
+          </p>
+          <p className="text-[11px] text-muted-foreground">
+            Last refresh: {matrixDate}
+          </p>
+        </div>
+        {suppressedCount > 0 && (
           <button
             type="button"
-            onClick={() => setShowDismissed((v) => !v)}
-            className="text-[11px] text-muted-foreground hover:text-foreground underline underline-offset-2"
+            onClick={() => setShowSuppressed((v) => !v)}
+            className="mt-2 text-[11px] text-muted-foreground hover:text-foreground underline underline-offset-2"
           >
-            {showDismissed
-              ? `Hide dismissed / deferred (${hiddenCount})`
-              : `Show all (${hiddenCount} hidden)`}
+            {showSuppressed
+              ? `Hide dismissed / deferred (${suppressedCount})`
+              : `Show ${suppressedCount} dismissed / deferred`}
           </button>
         )}
       </div>
@@ -119,66 +176,84 @@ export function RecommendationsClient({
       {queue.length === 0 ? (
         <EmptyQueue />
       ) : (
-        <div className="space-y-6">
-          {groups
-            .filter((g) => g.rows.length > 0)
-            .map((group) => (
-              <QueueSection
-                key={group.tier}
-                tier={group.tier}
-                label={group.label}
-                rows={group.rows}
+        <div className="space-y-8">
+          {lanes
+            .filter((l) => l.rows.length > 0 && l.lane !== "backlog")
+            .map((l) => (
+              <LaneSection
+                key={l.lane}
+                lane={l.lane}
+                rows={l.rows}
                 feedback={feedback}
                 setFeedback={setFeedback}
                 promptTextById={promptTextById}
               />
             ))}
+          {/* Backlog is collapsed by default — operator scope. */}
+          {inLane("backlog").length > 0 && (
+            <BacklogSection
+              rows={inLane("backlog")}
+              expanded={showBacklog}
+              onToggle={() => setShowBacklog((v) => !v)}
+              feedback={feedback}
+              setFeedback={setFeedback}
+              promptTextById={promptTextById}
+            />
+          )}
         </div>
       )}
 
-      {watchlist.length > 0 && (
-        <WatchSection rows={watchlist} />
-      )}
+      {watchlist.length > 0 && <WatchSection rows={watchlist} />}
     </>
   );
 }
 
 /* ─────────────────────────────────────────────────────────────────── */
 
-const TIER_META: Record<
-  PrioritizedRecommendationTier,
-  { accent: string; bg: string; dot: string; lead: string }
+/**
+ * W3 Step 3.5d (2026-05-02) — lane-specific styling. Replaces the
+ * pre-3.5d TIER_META gradient (red/yellow/grey by priority) with a
+ * tone palette per lane semantic (success/warning/info/muted).
+ */
+const LANE_META: Record<
+  RecLane,
+  { accent: string; bg: string; dot: string }
 > = {
-  now: {
-    accent: "text-status-danger",
-    bg: "border-status-danger/30 bg-status-danger/[0.03]",
-    dot: "bg-status-danger",
-    lead: "Top-priority work. Accept one a day and Beacon will start watching whether it moved the needle.",
+  ready_to_ship: {
+    accent: "text-status-success",
+    bg: "border-status-success/30 bg-status-success/[0.03]",
+    dot: "bg-status-success",
   },
-  this_week: {
+  needs_decision: {
     accent: "text-status-warning",
     bg: "border-status-warning/30 bg-status-warning/[0.03]",
     dot: "bg-status-warning",
-    lead: "Next wave. Defer to push a row out a week; dismiss if it isn't for you.",
   },
-  later: {
+  needs_fresh_edit: {
+    accent: "text-status-warning",
+    bg: "border-status-warning/30 bg-status-warning/[0.03]",
+    dot: "bg-status-warning",
+  },
+  tracking: {
+    accent: "text-accent-primary",
+    bg: "border-accent-primary/30 bg-accent-primary/[0.03]",
+    dot: "bg-accent-primary",
+  },
+  backlog: {
     accent: "text-muted-foreground",
     bg: "border-border/50 bg-surface-inset/20",
     dot: "bg-muted-foreground/60",
-    lead: "Backlog. Lower signal or higher effort — revisit if top-priority work thins out.",
   },
 };
 
-function QueueSection({
-  tier,
-  label,
+function LaneSection({
+  lane,
   rows,
   feedback,
   setFeedback,
   promptTextById,
 }: {
-  tier: PrioritizedRecommendationTier;
-  label: string;
+  lane: RecLane;
   rows: RecommendationQueueRow[];
   feedback: {
     stableKey: string;
@@ -190,34 +265,36 @@ function QueueSection({
   ) => void;
   promptTextById: Record<string, string>;
 }) {
-  const meta = TIER_META[tier];
+  const meta = LANE_META[lane];
   return (
     <section
       className={cn("rounded-lg border px-5 py-4", meta.bg)}
-      aria-labelledby={`rec-tier-${tier}-heading`}
+      aria-labelledby={`rec-lane-${lane}-heading`}
+      data-rec-lane={lane}
     >
       <header className="mb-3 flex items-center justify-between gap-3 flex-wrap">
         <div className="flex items-center gap-2">
           <span className={cn("h-2 w-2 rounded-full shrink-0", meta.dot)} />
           <h2
-            id={`rec-tier-${tier}-heading`}
+            id={`rec-lane-${lane}-heading`}
             className={cn(
               "text-[13px] font-bold tracking-tight",
               meta.accent,
             )}
           >
-            {label.toUpperCase()} · {rows.length}
+            {REC_LANE_LABEL[lane].toUpperCase()} · {rows.length}
           </h2>
         </div>
       </header>
       <p className="mb-3 text-[11px] text-muted-foreground leading-relaxed">
-        {meta.lead}
+        {REC_LANE_LEAD[lane]}
       </p>
-      <ul className="space-y-2">
+      <ul className="space-y-3">
         {rows.map((row) => (
           <RecommendationRow
             key={row.rec.stableKey}
             row={row}
+            lane={lane}
             feedback={feedback}
             setFeedback={setFeedback}
             promptTextById={promptTextById}
@@ -228,26 +305,84 @@ function QueueSection({
   );
 }
 
+/**
+ * W3 Step 3.5d (2026-05-02) — backlog is collapsed by default
+ * (operator scope: "Backlog collapsed by default or below the
+ * fold"). When expanded, it renders the same LaneSection layout.
+ */
+function BacklogSection({
+  rows,
+  expanded,
+  onToggle,
+  feedback,
+  setFeedback,
+  promptTextById,
+}: {
+  rows: RecommendationQueueRow[];
+  expanded: boolean;
+  onToggle: () => void;
+  feedback: {
+    stableKey: string;
+    message: string;
+    isError: boolean;
+  } | null;
+  setFeedback: (
+    f: { stableKey: string; message: string; isError: boolean } | null,
+  ) => void;
+  promptTextById: Record<string, string>;
+}) {
+  const meta = LANE_META.backlog;
+  return (
+    <section
+      className={cn("rounded-lg border px-5 py-3", meta.bg)}
+      aria-labelledby="rec-lane-backlog-heading"
+      data-rec-lane="backlog"
+    >
+      <button
+        type="button"
+        onClick={onToggle}
+        className="w-full flex items-center justify-between gap-3 flex-wrap text-left"
+      >
+        <div className="flex items-center gap-2">
+          <span className={cn("h-2 w-2 rounded-full shrink-0", meta.dot)} />
+          <h2
+            id="rec-lane-backlog-heading"
+            className={cn(
+              "text-[13px] font-bold tracking-tight",
+              meta.accent,
+            )}
+          >
+            {REC_LANE_LABEL.backlog.toUpperCase()} · {rows.length}
+          </h2>
+        </div>
+        <span className="text-[11px] text-muted-foreground select-none">
+          {expanded ? "Hide" : "Show"}
+        </span>
+      </button>
+      {expanded && (
+        <>
+          <p className="mt-2 mb-3 text-[11px] text-muted-foreground leading-relaxed">
+            {REC_LANE_LEAD.backlog}
+          </p>
+          <ul className="space-y-3">
+            {rows.map((row) => (
+              <RecommendationRow
+                key={row.rec.stableKey}
+                row={row}
+                lane="backlog"
+                feedback={feedback}
+                setFeedback={setFeedback}
+                promptTextById={promptTextById}
+              />
+            ))}
+          </ul>
+        </>
+      )}
+    </section>
+  );
+}
+
 /* ─────────────────────────────────────────────────────────────────── */
-
-const REC_TYPE_LABEL: Record<RecommendationType, string> = {
-  create_cluster_page: "Create page",
-  create_single: "Create page",
-  target_competitors: "Target",
-  strengthen_page_copy: "Strengthen",
-  watch_winning_cluster: "Watch",
-};
-
-const ACTION_LABEL: Record<RecommendationAction, string> = {
-  strengthen_existing_page: "Strengthen",
-  expand_existing_page: "Expand",
-  add_section_or_faq: "Add section",
-  create_new_page: "Create page",
-  merge_or_dedupe: "Merge",
-  split_or_separate_page: "Split",
-  needs_review: "Review",
-  watch: "Watch",
-};
 
 /**
  * W3 Step 3.5b.D (2026-05-02) — motive copy humanized.
@@ -257,6 +392,11 @@ const ACTION_LABEL: Record<RecommendationAction, string> = {
  * Replaced with operator-readable "what Beacon noticed" sentences.
  * Internal motive enum keys stay unchanged so logs / DB / changelog
  * notes don't drift.
+ *
+ * W3 Step 3.5d (2026-05-02) — motive label is no longer rendered on
+ * the default card; the lane badge replaces it. The map stays alive
+ * because the expansion drawer surfaces it as "Why this matters" for
+ * power users.
  */
 const MOTIVE_LABEL: Record<RecommendationMotive, string> = {
   counter_competitor: "A competitor is currently winning this answer.",
@@ -271,18 +411,10 @@ const MOTIVE_LABEL: Record<RecommendationMotive, string> = {
     "Ritz is cited but ranks low — strengthen the page.",
 };
 
-const TIER_BADGE: Record<ResolverTier, { label: string | null; className: string } | null> = {
-  observation: null,
-  inventory: {
-    label: "Site match",
-    className: "border-accent-primary/40 bg-accent-primary/[0.06] text-accent-primary",
-  },
-  adjudicated: {
-    label: "AI-reviewed",
-    className: "border-status-success/40 bg-status-success/[0.06] text-status-success",
-  },
-  deterministic_only: null,
-};
+/* W3 Step 3.5d (2026-05-02) — `REC_TYPE_LABEL`, `ACTION_LABEL`, and
+ * `TIER_BADGE` removed. The lane badge in the rec card header
+ * replaced all three; internal taxonomy is preserved on `data-rec-*`
+ * attributes for tests + diagnostics. */
 
 /**
  * W3 Step 3.5b.E (2026-05-02) — strip bracketed diagnostic suffixes
@@ -353,11 +485,13 @@ function shortUrl(url: string): string {
 
 function RecommendationRow({
   row,
+  lane,
   feedback,
   setFeedback,
   promptTextById,
 }: {
   row: RecommendationQueueRow;
+  lane: RecLane;
   feedback: {
     stableKey: string;
     message: string;
@@ -475,24 +609,61 @@ function RecommendationRow({
   const resolution = rec.resolution;
   const action: RecommendationAction =
     resolution?.action ?? actionFromCandidateType(rec.type);
-  const actionLabel = ACTION_LABEL[action];
-  const motive = resolution?.motive ?? null;
-  const motiveLabel = motive ? MOTIVE_LABEL[motive] : null;
-  const tierBadge = resolution ? TIER_BADGE[resolution.tier] : null;
+  // W3 Step 3.5d (2026-05-02) — operator browser audits flagged
+  // ACTION_LABEL ("Strengthen" / "Expand") + MOTIVE_LABEL +
+  // TIER_BADGE ("Site match" / "AI-reviewed") as internal jargon
+  // visible in the default card. The lane badge replaces all three
+  // — operators read "READY TO SHIP" / "NEEDS DECISION" / "TRACKING"
+  // / "BACKLOG" / "NEEDS FRESH EDIT" instead. Internal labels stay
+  // available in the expansion drawer for power users + diagnostics.
   const resolvedUrl =
     resolution && resolution.targetUrl !== NEEDS_NEW_PAGE
       ? resolution.targetUrl
       : null;
-  // Phase 1 (2026-04-24): title ALWAYS goes through the shared builder.
-  // Never fall back to rec.title — the raw generator title carries
-  // Shield:/Internal: prefixes and contradicts Strengthen/Expand/Merge
-  // badges when the resolver flipped the action.
-  const title = buildResolvedRecommendationTitle({
+  // W3 Step 3.5d (2026-05-02) — title goes through the new domain-
+  // specific humanizer. LLM operatorTitle still wins (the humanizer
+  // short-circuits there). Falls back to deterministic topic + geo
+  // detection so titles like "Create an Atherton older-home rebuild
+  // page" ship without LLM cost on the page render path.
+  const title = humanizeRecTitle({
     clusterLabel: rec.clusterLabel,
     promptTextFallback: rec.title,
-    resolution,
+    resolution: resolution ?? null,
   });
-  const reasoning = resolution?.reasoning ?? rec.reasoning;
+  const labelSource =
+    rec.clusterLabel ?? rec.title ?? "";
+  const topicTag = extractTopicTag(labelSource);
+  const pageName = pageNameFromUrl(resolvedUrl);
+  // W3 Step 3.5d (2026-05-02) — recommended-move + evidence-preview
+  // sentences replace the old reasoning + confidenceReason +
+  // motiveLabel triplet on the default card. Each is one sentence.
+  const recommendedMove = composeRecommendedMove({
+    action,
+    topic: topicTag,
+    pageName,
+    resolution: resolution ?? null,
+  });
+  // Why-now copy comes from resolution.reasoning (the resolver-
+  // emitted prose), scrubbed for raw prompt-ids + bracketed
+  // diagnostics. Falls back to rec.reasoning when resolution is null.
+  const whyNowRaw = resolution?.reasoning ?? rec.reasoning;
+  const whyNow = scrubRawPromptIds(stripBracketedDiagnostics(whyNowRaw));
+  const evidencePreview = composeEvidencePreview({
+    affectedPromptCount: rec.evidence.promptCount,
+    observationCount: rec.evidence.observationCount,
+    brandPrimaryShare:
+      rec.evidence.brandPrimaryPromptCount > 0 &&
+      rec.evidence.promptCount > 0
+        ? rec.evidence.brandPrimaryPromptCount / rec.evidence.promptCount
+        : null,
+    primaryCompetitors: rec.evidence.primaryCompetitors,
+    resolvedAction: action,
+    resolvedTargetUrl: resolution?.targetUrl ?? null,
+    hasResolvedTarget: resolvedUrl !== null,
+  });
+  // Diagnostic content moved entirely behind expansion (operator
+  // scope: default card never shows debug paragraphs). These feed
+  // the expansion drawer below.
   const specificRecommendation = resolution?.specificRecommendation ?? null;
   const confidenceReason = resolution?.confidenceReason ?? null;
   const suggestedEdits = resolution?.suggestedEdits ?? [];
@@ -500,6 +671,21 @@ function RecommendationRow({
   const risks = resolution?.risks ?? [];
   const cannibalization = resolution?.cannibalization ?? null;
   const needsHumanReview = resolution?.needsHumanReview ?? false;
+  // W3 Step 3.5d (2026-05-02) — motive copy is no longer on the
+  // default card (operator: "internal jargon"). Kept as a local for
+  // the expansion drawer so power users still see *why* Beacon
+  // surfaced the rec.
+  const motive = resolution?.motive ?? null;
+  const motiveLabel = motive ? MOTIVE_LABEL[motive] : null;
+  // Lane badge tone palette (mirror LANE_META).
+  const laneBadgeClass =
+    REC_LANE_TONE[lane] === "success"
+      ? "border-status-success/40 bg-status-success/[0.08] text-status-success"
+      : REC_LANE_TONE[lane] === "warning"
+        ? "border-status-warning/40 bg-status-warning/[0.08] text-status-warning"
+        : REC_LANE_TONE[lane] === "info"
+          ? "border-accent-primary/40 bg-accent-primary/[0.06] text-accent-primary"
+          : "border-border/60 bg-surface-inset/40 text-muted-foreground";
 
   // Phase 1 (2026-04-24): payload ships the already-resolved title so the
   // server action writes it directly to the changelog. Never ship the raw
@@ -530,11 +716,50 @@ function RecommendationRow({
       : undefined,
   };
 
+  // W3 Step 3.5d (2026-05-02) — operator-readable effort label.
+  // Replaces the prior raw enum chip ("low" / "medium" / "high").
+  // Internal enum stays on rec.effort for tests + diagnostics.
+  const effortLabel =
+    rec.effort === "low"
+      ? "Quick win"
+      : rec.effort === "high"
+        ? "Heavy lift"
+        : rec.effort === "medium"
+          ? "Medium effort"
+          : `${rec.effort} effort`;
+
+  // Real top competitor for the diagnostic chip-row inside expansion
+  // — the entity-pollution-filter drops generic nouns + directories.
+  // Surfaced ONLY in the expansion drawer; the default card's evidence
+  // line is the operator-facing surface.
+  const topCompetitor = rec.evidence.primaryCompetitors.find((c) => {
+    if (!c || typeof c.name !== "string" || c.name.trim().length === 0) {
+      return false;
+    }
+    return !shouldExcludeFromCompetitorRanking(c.name);
+  });
+
+  // Whether the expansion drawer has any content worth showing. When
+  // every diagnostic field is empty there's no point rendering the
+  // "Show evidence" toggle — keep the card terminal.
+  const hasExpansionContent =
+    (whyNowRaw.length > 0 && whyNowRaw !== whyNow) ||
+    !!confidenceReason ||
+    !!motiveLabel ||
+    !!specificRecommendation ||
+    suggestedEdits.length > 0 ||
+    !!pageBrief ||
+    risks.length > 0 ||
+    (cannibalization !== null && cannibalization.length > 0) ||
+    edits.length > 0 ||
+    allEdits.length > 0 ||
+    !!topCompetitor;
+
   return (
     <li
       id={`rec-${encodeURIComponent(rec.stableKey)}`}
       className={cn(
-        "rounded-md border bg-background px-3 py-2.5",
+        "rounded-md border bg-background px-3.5 py-3",
         accepted
           ? isStalePending
             ? "border-status-warning/50 bg-status-warning/[0.03]"
@@ -546,133 +771,120 @@ function RecommendationRow({
               : "border-border/50",
       )}
       data-stale-pending={isStalePending ? "true" : undefined}
+      data-rec-display-state={displayState}
+      data-rec-lane={lane}
+      data-rec-action={action}
+      data-rec-tier={resolution?.tier ?? "deterministic_only"}
+      data-rec-engine-confidence={rec.engineConfidence}
+      data-rec-effort={rec.effort}
       title={
         isStalePending
           ? `Accepted ${acceptedAgeDays} day${acceptedAgeDays === 1 ? "" : "s"} ago — still tracking. Click "Mark shipped" if it's already live.`
           : undefined
       }
     >
+      {/* Header: Lane badge + Confidence pill + status chips + Title.
+          Operator scope (W3 §3.5d): the lane badge replaces the prior
+          ACTION_LABEL ("Strengthen" / "Expand"), MOTIVE_LABEL prose,
+          and TIER_BADGE ("Site match" / "AI-reviewed"). All three were
+          internal jargon; the lane name (READY TO SHIP / NEEDS DECISION
+          / TRACKING / BACKLOG / NEEDS FRESH EDIT) tells the operator
+          what to DO with the rec at a glance. Internal taxonomy is
+          preserved on `data-rec-*` attributes for tests + diagnostics. */}
       <div className="flex items-baseline gap-2 flex-wrap">
         <span
           className={cn(
-            "text-[10px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded border",
-            "border-border/60 bg-surface-inset/40 text-muted-foreground",
+            "text-[10px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded border whitespace-nowrap",
+            laneBadgeClass,
           )}
+          data-rec-lane-badge={lane}
         >
-          {actionLabel}
+          {REC_LANE_LABEL[lane]}
         </span>
-        {/* W3 Step 3.5 (2026-05-02) — engine confidence pill.
-            Operator-facing label maps high/medium/low → Strong /
-            Review / Weak signal. The label NEVER implies auto-apply
-            (W3 §1.5 + Step 3.3 rubric). Internal enum stays
-            high/medium/low; only the visible text differs. */}
         <RecConfidencePill verdict={rec.engineConfidence} />
-        {/* W3 Step 3.5c (2026-05-02) — `tierBadge` ("Site match" /
-            "AI-reviewed") DROPPED from default header. Operator
-            browser audit flagged these as internal jargon. The
-            resolver tier still drives engineConfidence under the
-            hood; it just doesn't render as a badge. */}
         {needsHumanReview && (
           <span className="text-[10px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded border border-status-warning/40 bg-status-warning/[0.06] text-status-warning">
-            Needs review
+            Needs your judgment
           </span>
         )}
-        <h3 className="text-[13px] font-medium text-foreground leading-snug flex-1">
+        {isStalePending && (
+          <span
+            className="text-[10px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded border border-status-warning/40 bg-status-warning/[0.08] text-status-warning"
+            title={`Accepted ${acceptedAgeDays} day${acceptedAgeDays === 1 ? "" : "s"} ago — scan hasn't confirmed it on the page yet.`}
+          >
+            {acceptedAgeDays}d pending
+          </span>
+        )}
+        <h3 className="text-[13px] font-semibold text-foreground leading-snug flex-1 min-w-[200px]">
           {title}
         </h3>
       </div>
 
+      {/* Target URL — operator can click to inspect the page in
+          context. New-tab so triage isn't disrupted. */}
       {resolvedUrl && (
-        <p className="mt-1 text-[11px]">
-          <span className="text-muted-foreground">→</span>{" "}
+        <p className="mt-1.5 text-[11px]">
+          <span className="text-muted-foreground">Target:</span>{" "}
           <a
             href={resolvedUrl}
             target="_blank"
             rel="noopener noreferrer"
             className="text-accent-primary hover:underline font-mono tabular-nums"
+            data-recommendations-target-url="true"
           >
             {shortUrl(resolvedUrl)}
           </a>
         </p>
       )}
 
-      <p className="mt-1 text-[12px] text-muted-foreground leading-relaxed">
-        {/* W3 Step 3.5c (2026-05-02) — scrub raw prompt-id refs from
-            operator copy. Defense-in-depth against any resolver /
-            generator path that slips a UUID-shaped string into Why /
-            reasoning. */}
-        {scrubRawPromptIds(reasoning)}
+      {/* Recommended move — single sentence describing what Beacon
+          wants the operator to do. Composed deterministically by
+          `composeRecommendedMove` from action + topic + page name. */}
+      <p
+        className="mt-2 text-[12px] text-foreground leading-relaxed"
+        data-recommendations-recommended-move="true"
+      >
+        <span className="text-muted-foreground font-medium">
+          Recommended move:
+        </span>{" "}
+        {recommendedMove}
       </p>
 
-      {confidenceReason && (
-        <p className="mt-0.5 text-[11px] text-muted-foreground/80 leading-relaxed">
-          {/* W3 Step 3.5b.E + 3.5c (2026-05-02) — strip bracketed
-              diagnostic detail AND raw prompt-id references from the
-              default card. Both are debug content the operator
-              shouldn't read by default. Full text remains in
-              evidence expansion. */}
-          {scrubRawPromptIds(stripBracketedDiagnostics(confidenceReason))}
-        </p>
-      )}
-
-      {motiveLabel && (
-        <p className="mt-1 text-[11px]">
-          {/* W3 Step 3.5b.D (2026-05-02) — operator-revised label.
-              Was "Motive: Capture absent cluster" — internal jargon.
-              Now reads "Why this matters: AI is not citing Ritz for
-              this topic yet." MOTIVE_LABEL strings updated to match. */}
-          <span className="text-muted-foreground">Why this matters:</span>{" "}
-          <span className="font-medium text-foreground/90">{motiveLabel}</span>
-        </p>
-      )}
-
-      <EvidenceChips rec={rec} displayState={displayState} />
-
-      {(specificRecommendation ||
-        suggestedEdits.length > 0 ||
-        pageBrief ||
-        risks.length > 0 ||
-        (cannibalization && cannibalization.length > 0)) && (
-        <AdjudicatorDetails
-          stableKey={rec.stableKey}
-          specificRecommendation={specificRecommendation}
-          suggestedEdits={suggestedEdits}
-          pageBrief={pageBrief ?? null}
-          risks={risks}
-          cannibalization={cannibalization}
-        />
-      )}
-
-      {editCount > 0 && (
-        <SpecificEditsSection
-          edits={edits}
-          // Sprint 6A.2g.F (2026-04-26) — pass the rec's resolved
-          // target URL so each edit can render a "Different page than
-          // rec target" warning when the LLM (or operator_edited row)
-          // anchored to a different URL. Phase A locked the strict-
-          // anchor contract for fresh OpenAI bundles; this surfaces
-          // any pre-Phase-A edits or future drift directly in the UI.
-          recommendationTargetUrl={resolution?.targetUrl ?? null}
-          promptTextById={promptTextById}
-        />
-      )}
-      {/* W3 Step 3.5 (2026-05-02) — empty-state when ALL edits were
-          filtered out (e.g., the W3 Step 3.1b quarantine left the
-          rec with N edits in `allEdits` but zero renderable). Tells
-          the operator the rec has history but no actionable edits
-          right now, instead of just dropping the section silently. */}
-      {editCount === 0 && allEdits.length > 0 && (
-        <div
-          className="mt-2 rounded border border-border/40 bg-surface-inset/30 px-2.5 py-1.5 text-[11px] text-muted-foreground leading-relaxed"
-          data-recommendations-edits-empty="true"
+      {/* Why now — strongest metric/evidence sentence. Derived from
+          the resolver's reasoning, with diagnostic brackets + raw
+          prompt-ids scrubbed before render. Empty when the resolver
+          didn't emit reasoning. */}
+      {whyNow.length > 0 && (
+        <p
+          className="mt-1 text-[12px] text-muted-foreground leading-relaxed"
+          data-recommendations-why-now="true"
         >
-          {allEdits.length} specific edit{allEdits.length === 1 ? "" : "s"}{" "}
-          on this rec — all dismissed or no longer actionable. Re-run the
-          generator to produce fresh edits, or accept the rec to track
-          the change at the rec level only.
-        </div>
+          <span className="font-medium">Why now:</span> {whyNow}
+        </p>
       )}
 
+      {/* Evidence preview — single-sentence facts (Ritz cited X%;
+          competitor winning; etc). `composeEvidencePreview` filters
+          generic competitors so "General Contractors winning" never
+          surfaces here. */}
+      <p
+        className="mt-1 text-[11px] text-muted-foreground/90 leading-relaxed"
+        data-recommendations-evidence-preview="true"
+      >
+        <span className="font-medium">Evidence:</span> {evidencePreview}
+      </p>
+
+      {/* Effort chip — single compact fact alongside evidence. */}
+      <div className="mt-1.5 flex flex-wrap gap-1">
+        <span
+          className="text-[10px] px-1.5 py-0.5 rounded border border-border/50 bg-surface-inset/30 text-muted-foreground"
+          data-rec-effort-chip={rec.effort}
+        >
+          {effortLabel}
+        </span>
+      </div>
+
+      {/* Inline feedback (success/error). */}
       {showFeedback && (
         <p
           className={cn(
@@ -684,58 +896,15 @@ function RecommendationRow({
         </p>
       )}
 
-      <div className="mt-2 flex items-center gap-2 flex-wrap">
-        {accepted ? (
-          <>
-            <span className="text-[11px] text-status-success font-medium">
-              ✓ Accepted
-            </span>
-            {isStalePending && (
-              <span
-                className="text-[10px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded border border-status-warning/40 bg-status-warning/[0.08] text-status-warning"
-                title={`Accepted ${acceptedAgeDays} day${acceptedAgeDays === 1 ? "" : "s"} ago — scan hasn't confirmed it on the page yet.`}
-              >
-                {acceptedAgeDays}d pending
-              </span>
-            )}
-            {/* W2 Step 2.4 (2026-05-01) — operator-override Mark shipped.
-                Only renders when at least one linked edit is still
-                pre-verified; once every edit has reached verified_live
-                the button vanishes (the rec is already done from the
-                lifecycle's perspective). */}
-            {eligibleEditCount > 0 && (
-              <button
-                type="button"
-                disabled={pending}
-                onClick={() =>
-                  handle(
-                    () => markRecommendationShipped({ stableKey: rec.stableKey }),
-                    eligibleEditCount === 1
-                      ? "Marked live — verdict clock started."
-                      : `Marked ${eligibleEditCount} edits live — verdict clock started.`,
-                  )
-                }
-                className="text-[11px] font-medium px-2 py-1 rounded border border-accent-primary/50 bg-accent-primary/[0.06] text-accent-primary hover:bg-accent-primary/[0.12] transition-colors disabled:opacity-50"
-                title="Stamps live_at = now and live_match_kind = operator_override. Use when you've already shipped the change and want the verdict math to start before tomorrow's scan."
-              >
-                Mark {eligibleEditCount === 1 ? "" : `${eligibleEditCount} `}shipped
-              </button>
-            )}
-            <button
-              type="button"
-              disabled={pending}
-              onClick={() =>
-                handle(
-                  () => undoRecommendationResponse(rec.stableKey),
-                  "Acceptance undone.",
-                )
-              }
-              className="text-[11px] text-muted-foreground hover:text-foreground underline underline-offset-2 disabled:opacity-50"
-            >
-              Undo
-            </button>
-          </>
-        ) : dismissed ? (
+      {/* Lane-aware action buttons. Each lane shows a different button
+          surface (REC_LANE_BUTTONS contract). When the rec already
+          carries a non-suppressed response (e.g., deferred-expired),
+          the post-decision UI takes precedence over the lane buttons. */}
+      <div
+        className="mt-3 flex items-center gap-2 flex-wrap"
+        data-rec-button-row={lane}
+      >
+        {dismissed ? (
           <>
             <span className="text-[11px] text-muted-foreground">Dismissed</span>
             <button
@@ -752,7 +921,7 @@ function RecommendationRow({
               Undo
             </button>
           </>
-        ) : deferred ? (
+        ) : deferred && lane !== "tracking" ? (
           <>
             <span className="text-[11px] text-muted-foreground">
               Deferred until{" "}
@@ -777,25 +946,57 @@ function RecommendationRow({
               Undo
             </button>
           </>
-        ) : (
+        ) : lane === "tracking" ? (
           <>
+            <span className="text-[11px] text-status-success font-medium">
+              ✓ Tracking
+            </span>
+            {/* W2 Step 2.4 (2026-05-01) — operator-override Mark
+                shipped. Only renders when at least one linked edit is
+                still pre-verified; once every edit has reached
+                verified_live the button vanishes (the rec is already
+                done from the lifecycle's perspective). */}
+            {eligibleEditCount > 0 && (
+              <button
+                type="button"
+                disabled={pending}
+                onClick={() =>
+                  handle(
+                    () =>
+                      markRecommendationShipped({ stableKey: rec.stableKey }),
+                    eligibleEditCount === 1
+                      ? "Marked live — verdict clock started."
+                      : `Marked ${eligibleEditCount} edits live — verdict clock started.`,
+                  )
+                }
+                className="text-[11px] font-medium px-2 py-1 rounded border border-accent-primary/50 bg-accent-primary/[0.06] text-accent-primary hover:bg-accent-primary/[0.12] transition-colors disabled:opacity-50"
+                title="Stamps live_at = now and live_match_kind = operator_override. Use when you've already shipped the change and want the verdict math to start before tomorrow's scan."
+                data-rec-action-button="mark_shipped"
+              >
+                Mark {eligibleEditCount === 1 ? "" : `${eligibleEditCount} `}
+                shipped
+              </button>
+            )}
             <button
               type="button"
               disabled={pending}
               onClick={() =>
                 handle(
-                  () => acceptRecommendation(payload),
-                  editCount > 0
-                    ? `Accepted — ${editCount} edit${editCount === 1 ? "" : "s"} tracked.`
-                    : "Accepted — Beacon will watch for results.",
+                  () => undoRecommendationResponse(rec.stableKey),
+                  "Acceptance undone.",
                 )
               }
-              className="text-[11px] font-medium px-2 py-1 rounded border border-status-success/50 bg-status-success/[0.05] text-status-success hover:bg-status-success/[0.1] transition-colors disabled:opacity-50"
+              className="text-[11px] text-muted-foreground hover:text-foreground underline underline-offset-2 disabled:opacity-50"
+              data-rec-action-button="undo"
             >
-              {editCount > 0
-                ? `Accept — track ${editCount} edit${editCount === 1 ? "" : "s"}`
-                : "Accept"}
+              Undo
             </button>
+          </>
+        ) : lane === "needs_decision" ? (
+          <>
+            <span className="text-[11px] text-status-warning font-medium">
+              You decide the direction
+            </span>
             <button
               type="button"
               disabled={pending}
@@ -806,6 +1007,7 @@ function RecommendationRow({
                 )
               }
               className="text-[11px] px-2 py-1 rounded border border-border/60 bg-background hover:bg-surface-inset/40 transition-colors disabled:opacity-50"
+              data-rec-action-button="defer"
             >
               Defer
             </button>
@@ -819,12 +1021,232 @@ function RecommendationRow({
                 )
               }
               className="text-[11px] px-2 py-1 rounded border border-border/60 bg-background hover:bg-surface-inset/40 transition-colors disabled:opacity-50"
+              data-rec-action-button="dismiss"
+            >
+              Dismiss
+            </button>
+          </>
+        ) : lane === "needs_fresh_edit" ? (
+          <>
+            <span className="text-[11px] text-muted-foreground">
+              Regenerate when you're ready
+            </span>
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() =>
+                handle(
+                  () => dismissRecommendation(rec.stableKey),
+                  "Dismissed.",
+                )
+              }
+              className="text-[11px] px-2 py-1 rounded border border-border/60 bg-background hover:bg-surface-inset/40 transition-colors disabled:opacity-50"
+              data-rec-action-button="dismiss"
+            >
+              Dismiss
+            </button>
+          </>
+        ) : lane === "backlog" ? (
+          <>
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() =>
+                handle(
+                  () => acceptRecommendation(payload),
+                  editCount > 0
+                    ? `Promoted — ${editCount} edit${editCount === 1 ? "" : "s"} tracked.`
+                    : "Promoted — Beacon will watch for results.",
+                )
+              }
+              className="text-[11px] font-medium px-2 py-1 rounded border border-accent-primary/50 bg-accent-primary/[0.05] text-accent-primary hover:bg-accent-primary/[0.1] transition-colors disabled:opacity-50"
+              data-rec-action-button="promote"
+            >
+              Promote
+            </button>
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() =>
+                handle(
+                  () => deferRecommendation(rec.stableKey),
+                  "Deferred 7 days.",
+                )
+              }
+              className="text-[11px] px-2 py-1 rounded border border-border/60 bg-background hover:bg-surface-inset/40 transition-colors disabled:opacity-50"
+              data-rec-action-button="defer"
+            >
+              Defer
+            </button>
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() =>
+                handle(
+                  () => dismissRecommendation(rec.stableKey),
+                  "Dismissed.",
+                )
+              }
+              className="text-[11px] px-2 py-1 rounded border border-border/60 bg-background hover:bg-surface-inset/40 transition-colors disabled:opacity-50"
+              data-rec-action-button="dismiss"
+            >
+              Dismiss
+            </button>
+          </>
+        ) : (
+          // ready_to_ship — default lane.
+          <>
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() =>
+                handle(
+                  () => acceptRecommendation(payload),
+                  editCount > 0
+                    ? `Accepted — ${editCount} edit${editCount === 1 ? "" : "s"} tracked.`
+                    : "Accepted — Beacon will watch for results.",
+                )
+              }
+              className="text-[11px] font-medium px-2 py-1 rounded border border-status-success/50 bg-status-success/[0.05] text-status-success hover:bg-status-success/[0.1] transition-colors disabled:opacity-50"
+              data-rec-action-button="accept_and_track"
+            >
+              {editCount > 0
+                ? `Accept + Track (${editCount} edit${editCount === 1 ? "" : "s"})`
+                : "Accept + Track"}
+            </button>
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() =>
+                handle(
+                  () => deferRecommendation(rec.stableKey),
+                  "Deferred 7 days.",
+                )
+              }
+              className="text-[11px] px-2 py-1 rounded border border-border/60 bg-background hover:bg-surface-inset/40 transition-colors disabled:opacity-50"
+              data-rec-action-button="defer"
+            >
+              Defer
+            </button>
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() =>
+                handle(
+                  () => dismissRecommendation(rec.stableKey),
+                  "Dismissed.",
+                )
+              }
+              className="text-[11px] px-2 py-1 rounded border border-border/60 bg-background hover:bg-surface-inset/40 transition-colors disabled:opacity-50"
+              data-rec-action-button="dismiss"
             >
               Dismiss
             </button>
           </>
         )}
       </div>
+
+      {/* Expansion drawer — every diagnostic stays here. Operator
+          scope (W3 §3.5d): default card never shows debug paragraphs;
+          power users + diagnostics open this drawer for the resolver's
+          full reasoning, motive, page brief, suggested edits, risks,
+          cannibalization, and per-edit detail. */}
+      {hasExpansionContent && (
+        <details
+          className="mt-2.5 rounded border border-border/40 bg-surface-inset/15 group"
+          data-rec-expansion="true"
+        >
+          <summary className="cursor-pointer px-2.5 py-1.5 text-[11px] text-muted-foreground hover:text-foreground select-none list-none flex items-center gap-1.5">
+            <span className="group-open:hidden">▸ Show evidence + diagnostics</span>
+            <span className="hidden group-open:inline">▾ Hide details</span>
+          </summary>
+          <div className="px-2.5 pb-2.5 pt-1 space-y-3 text-[11px]">
+            {whyNowRaw.length > 0 && whyNowRaw !== whyNow && (
+              <div>
+                <p className="text-[10px] uppercase tracking-wider font-semibold text-muted-foreground mb-0.5">
+                  Full reasoning
+                </p>
+                <p className="text-foreground/85 leading-relaxed">
+                  {scrubRawPromptIds(whyNowRaw)}
+                </p>
+              </div>
+            )}
+            {confidenceReason && (
+              <div>
+                <p className="text-[10px] uppercase tracking-wider font-semibold text-muted-foreground mb-0.5">
+                  Confidence reason
+                </p>
+                <p className="text-foreground/85 leading-relaxed">
+                  {scrubRawPromptIds(confidenceReason)}
+                </p>
+              </div>
+            )}
+            {motiveLabel && (
+              <div>
+                <p className="text-[10px] uppercase tracking-wider font-semibold text-muted-foreground mb-0.5">
+                  Why this matters
+                </p>
+                <p className="text-foreground/85 leading-relaxed">
+                  {motiveLabel}
+                </p>
+              </div>
+            )}
+            {topCompetitor &&
+              topCompetitor.totalAffectedPrompts > 0 &&
+              (() => {
+                const pct = Math.round(
+                  (topCompetitor.promptsWherePrimary /
+                    topCompetitor.totalAffectedPrompts) *
+                    100,
+                );
+                return (
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wider font-semibold text-muted-foreground mb-0.5">
+                      Top competitor
+                    </p>
+                    <p className="text-foreground/85 leading-relaxed">
+                      {topCompetitor.name} primary in {pct}% of affected
+                      prompts
+                    </p>
+                  </div>
+                );
+              })()}
+            {(specificRecommendation ||
+              suggestedEdits.length > 0 ||
+              pageBrief ||
+              risks.length > 0 ||
+              (cannibalization && cannibalization.length > 0)) && (
+              <AdjudicatorDetails
+                stableKey={rec.stableKey}
+                specificRecommendation={specificRecommendation}
+                suggestedEdits={suggestedEdits}
+                pageBrief={pageBrief ?? null}
+                risks={risks}
+                cannibalization={cannibalization}
+              />
+            )}
+            {editCount > 0 && (
+              <SpecificEditsSection
+                edits={edits}
+                recommendationTargetUrl={resolution?.targetUrl ?? null}
+                promptTextById={promptTextById}
+              />
+            )}
+            {editCount === 0 && allEdits.length > 0 && (
+              <div
+                className="rounded border border-border/40 bg-surface-inset/30 px-2.5 py-1.5 text-foreground/80 leading-relaxed"
+                data-recommendations-edits-empty="true"
+              >
+                {allEdits.length} specific edit
+                {allEdits.length === 1 ? "" : "s"} on this rec — all dismissed
+                or no longer actionable. Re-run the generator to produce fresh
+                edits, or accept the rec to track the change at the rec level
+                only.
+              </div>
+            )}
+          </div>
+        </details>
+      )}
     </li>
   );
 }
@@ -1000,112 +1422,18 @@ function AdjudicatorDetails({
 
 /* ─────────────────────────────────────────────────────────────────── */
 
-/**
- * W3 Step 3.5c (2026-05-02) — operator-readable evidence chips.
+/* W3 Step 3.5d (2026-05-02) — `EvidenceChips` removed.
  *
- * Replaces the prior chip set ("3 prompts", "{Competitor} primary ·
- * {N}%", "3 fragmented") with operator language. Operator browser
- * audit (2026-05-02) flagged the prior chips as internal jargon
- * AND surfaced "General Contractors primary · 100%" — a generic
- * noun masquerading as a real competitor.
+ * The 3.5c chip strip ("Tracking" / "Needs fresh edit" / "{Competitor}
+ * winning · {pct}%" / "Quick win") collapsed three concerns into one
+ * row:
+ *   1. lane / display state (now the lane badge in the card header)
+ *   2. competitor evidence (now inside `composeEvidencePreview` and
+ *      surfaced in the expansion drawer's "Top competitor" block)
+ *   3. effort (kept as a single chip in the default card body)
  *
- * New chip set:
- *   - "Has target page" / "Needs new page" — does the rec resolve
- *     to an existing owned page or call for a fresh page
- *   - First REAL competitor (filtered through entity-pollution-filter
- *     so generic nouns + directories never appear) — only shown when
- *     they're clearly winning the cluster (≥50% primary share)
- *   - Effort chip ("Quick win" / "Medium effort" / "Heavy lift") —
- *     humanized; raw enum stays in data-attribute
- *   - Display-state chip (Tracking / Needs fresh edit / Needs your
- *     judgment / Backlog) when the state is non-actionable
- *
- * Dropped from default card:
- *   - Raw "{N} prompts" (moved to evidence-preview line)
- *   - "{N} fragmented" (internal cluster jargon)
- *   - "{Generic name} primary" entries (entity-pollution-filter)
- */
-function EvidenceChips({
-  rec,
-  displayState,
-}: {
-  rec: RecommendationQueueRow["rec"];
-  displayState: RecDisplayState;
-}) {
-  const chips: Array<{ label: string; tone?: "bad" | "neutral" | "info" }> = [];
-
-  // Display-state chip ("Tracking" / "Needs fresh edit" / etc.) when
-  // the rec is in a state operators should read at-a-glance.
-  // `actionable_edit` is the default and doesn't need a chip.
-  if (
-    displayState !== "actionable_edit" &&
-    displayState !== "suppressed"
-  ) {
-    chips.push({
-      label: REC_DISPLAY_STATE_LABEL[displayState],
-      tone: "info",
-    });
-  }
-
-  // Real top competitor — entity-pollution-filter drops generic
-  // nouns (General Contractors, Local Contractors, Architects,
-  // Home Builders, etc.) and directory_source entries. The filter's
-  // no-entity fallback path catches the operator-flagged "General
-  // Contractors primary · 100%" leak.
-  const topCompetitor = rec.evidence.primaryCompetitors.find((c) => {
-    if (!c || typeof c.name !== "string" || c.name.trim().length === 0) {
-      return false;
-    }
-    return !shouldExcludeFromCompetitorRanking(c.name);
-  });
-  if (topCompetitor && topCompetitor.totalAffectedPrompts > 0) {
-    const pct = Math.round(
-      (topCompetitor.promptsWherePrimary / topCompetitor.totalAffectedPrompts) *
-        100,
-    );
-    if (pct >= 50) {
-      chips.push({
-        label: `${topCompetitor.name} winning · ${pct}%`,
-        tone: "bad",
-      });
-    }
-  }
-
-  // W3 Step 3.5b.C (2026-05-02) — operator-readable effort label so
-  // the chip never leaks raw "low" / "medium" / "high" tokens.
-  // Internal enum stays on rec.effort; only the visible chip changes.
-  const effortLabel: Record<string, string> = {
-    low: "Quick win",
-    medium: "Medium effort",
-    high: "Heavy lift",
-  };
-  chips.push({
-    label: effortLabel[rec.effort] ?? `${rec.effort} effort`,
-    tone: "neutral",
-  });
-
-  if (chips.length === 0) return null;
-
-  return (
-    <ul className="mt-1.5 flex flex-wrap gap-1">
-      {chips.map((c) => (
-        <li
-          key={c.label}
-          className={cn(
-            "text-[10px] px-1.5 py-0.5 rounded border",
-            c.tone === "bad"
-              ? "border-status-danger/30 bg-status-danger/[0.05] text-status-danger"
-              : c.tone === "info"
-                ? "border-accent-primary/40 bg-accent-primary/[0.06] text-accent-primary"
-                : "border-border/50 bg-surface-inset/30 text-muted-foreground",
-          )}
-        >
-          {c.label}
-        </li>
-      ))}
-    </ul>
-  );
-}
+ * The lane-aware card directly renders each concern in the right
+ * place, so a shared chip component is no longer needed. */
 
 /* ─────────────────────────────────────────────────────────────────── */
 

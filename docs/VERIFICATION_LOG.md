@@ -7,6 +7,80 @@
 
 ---
 
+## 2026-05-03 — W3 Step 3.5d: Recommendations decision-queue reset (lane model)
+
+Single code commit on `main`. Operator's browser re-audit on Step 3.5c still failed product acceptance for the third time — "the page is still an internal evidence/debug feed pretending to be a task queue." The fix is a product-architecture rewrite, not another label patch. No paid runs / regeneration / Apply-All-HIGH / backfill / Profound archive.
+
+### What changed
+
+**Five lanes (operator-locked semantic grouping):**
+- `ready_to_ship` ← actionable_edit. Surface: Accept + Track / Defer / Dismiss.
+- `needs_decision` ← manual_review. Surface: "You decide the direction" + Defer / Dismiss.
+- `needs_fresh_edit` ← needs_fresh_edit. Surface: "Regenerate when you're ready" + Dismiss.
+- `tracking` ← accepted_tracking. Surface: ✓ Tracking + Mark shipped + Undo. NO Accept/Defer/Dismiss.
+- `backlog` ← backlog. Collapsed by default. Surface: Promote / Defer / Dismiss.
+
+**Default card formula (every card, every lane):**
+```
+[Lane badge] [Confidence pill] [Title]
+Target: /target-url
+Recommended move: <one sentence>
+Why now:          <one sentence>
+Evidence:         <one sentence>
+[Effort chip]
+[Lane-specific action buttons]
+▸ Show evidence + diagnostics  (expansion drawer)
+```
+
+ALL diagnostic content (resolver reasoning, confidenceReason, motive, AdjudicatorDetails, SpecificEditsSection, edit-empty-state, top competitor) lives behind the expansion `<details>`. Default card never shows debug paragraphs.
+
+**`src/domains/recommendations/display-state.ts` (extended):**
+- `RecLane` type, `laneForDisplayState(state)` mapping (suppressed → null).
+- `REC_LANE_LABEL` / `REC_LANE_LEAD` / `REC_LANE_TONE` / `REC_LANE_BUTTONS` button-rule contract / `LANE_ACTION_LABEL`.
+- All pre-3.5d display-state exports preserved.
+
+**`src/domains/recommendations/recommendation-title-humanizer.ts` (NEW):**
+- 13 operator-locked topic-tag patterns: design_build_vs_architect, completed_plans_handoff, vacant_lot_custom_home, steep_lot_feasibility, older_home_rebuild, modernizing_older_homes, structural_remodel, cost_planning, permitting, kitchen_remodel, bathroom_remodel, renovation, custom_home — priority-sorted; first match wins.
+- `extractTopicTag(label)` / `extractGeoTag(label)` (Bay Area cities) / `pageNameFromUrl(url)` / `humanizeRecTitle(args)` action-aware composer.
+
+**`src/domains/recommendations/recommendation-evidence-preview.ts` (NEW):**
+- `composeEvidencePreview(input)` → single-sentence facts (share ≥ 30% / 5–29% / 0% / generic competitor-dominant). Generic competitors filtered through `shouldExcludeFromCompetitorRanking`.
+- `composeRecommendedMove(args)` → action-aware single sentence per RecommendationAction (8 actions covered).
+
+**`src/app/(shell)/recommendations/recommendations-client.tsx` (rewritten):**
+- Page header copy reset; summary strip aggregates lane counts.
+- `RecommendationsClient` classifies every rec into a display state + lane in one pass; renders 5 LaneSections + 1 BacklogSection (collapsed by default).
+- `RecommendationRow` body rewritten to follow the formula above.
+- `EvidenceChips` deleted entirely. `ACTION_LABEL` / `TIER_BADGE` / `REC_TYPE_LABEL` constants removed. `buildResolvedRecommendationTitle` + `ResolverTier` + `PrioritizedRecommendationTier` imports removed.
+- Internal taxonomy preserved on `data-rec-display-state` / `data-rec-lane` / `data-rec-action` / `data-rec-tier` / `data-rec-engine-confidence` / `data-rec-effort` for tests + diagnostics.
+
+### Tests
+
+**3 new test files + 4 updated assertions:**
+
+- `recommendation-title-humanizer.test.ts` (NEW, 35).
+- `recommendation-evidence-preview.test.ts` (NEW, 16).
+- `confidence-distribution.test.ts` (NEW, 5) — pins "rendered queue is NOT majority Weak signal."
+- `tests/architecture/recommendations-step-3.5d-lane-queue.test.ts` (NEW, 35).
+- `tests/architecture/recommendations-ui-cleanup.test.ts` — empty-state regex whitespace-flexible.
+- `tests/sprint6a1-phase12-wiring.test.ts` — Accept-button copy updated to "Accept + Track ({editCount} edit{s})".
+- `tests/app/recommendations/render-output-cleanup.test.tsx` — bracketed-diagnostic test scopes assertion to default-card portion (slice at expansion `<details>`); prompt-shaped title pins new humanizer output ("Create an older-home rebuild page"); accepted_tracking test pins "✓ Tracking" copy.
+
+### Verification
+
+- `npx tsc --noEmit` — clean.
+- 91 / 91 targeted (humanizer + evidence-preview + confidence-distribution + step-3.5d-lane-queue + render-output-cleanup + sprint6a1) — pass.
+- `npm run test` — 3561 / 3565 pass. 4 pre-existing failures (verified independent against `8b12b3d` baseline): `tests/routes/prompt-drilldown-smoke.test.tsx` × 1, `tests/routes/prompts-smoke.test.tsx` × 2, `tests/tenants/isolation.test.ts` × 1.
+- `BEACON_TENANT_ID=tenant-ritz-founder BEACON_TENANT_SLUG=ritz-builders npm run build` — clean (Vercel-equivalent read-only-FS).
+
+**Could not verify from this environment:** Vercel deploy SHA matches the new commit — operator dashboard check + browser re-audit needed.
+
+### Out of scope (per Step 3.5d + W3 §1.5)
+
+LIVE paid generation; Step 3.6 sample-10 report; Apply-All-HIGH; customer-one backfill; Profound archive/delete; broad UI redesign outside /recommendations.
+
+---
+
 ## 2026-05-02 (overnight) — W3 Step 3.5c: Triage UX reset after browser re-audit
 
 Single code commit `7199094` on `main`. Operator's browser re-audit on Step 3.5b still failed product acceptance ("the page is improved, but it is still an internal evidence/debug feed, not a premium operator decision queue"). This commit closes the gap on six remaining issues. No paid runs / regeneration / Apply-All-HIGH / backfill / Profound archive.

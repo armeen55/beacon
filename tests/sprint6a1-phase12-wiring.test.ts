@@ -166,7 +166,14 @@ describe("Phase 6A.1.12 — recommendations-client UI", () => {
   });
 
   it("Accept button copy reflects the edit count", () => {
-    expect(CLIENT_SOURCE).toMatch(/Accept — track \$\{editCount\} edit/);
+    // W3 Step 3.5d (2026-05-02) — the ready_to_ship lane button copy
+    // changed from "Accept — track {editCount} edit" to
+    // "Accept + Track ({editCount} edit{s})" per the lane-aware
+    // decision-queue model. The contract is unchanged: the count IS
+    // surfaced when there are linked edits. Pin the new copy.
+    expect(CLIENT_SOURCE).toMatch(
+      /Accept \+ Track \(\$\{editCount\} edit/,
+    );
   });
 
   it("Specific edits section displays action_type, display_label, current/proposed text, why, evidence, confidence, difficulty", () => {

@@ -184,12 +184,20 @@ describe("W3 Step 3.5b — rendered-output cleanup", () => {
 
   it("default card does NOT show bracketed diagnostic scoring strings", () => {
     const html = renderQueue([makeRow()]);
-    // The fixture's confidenceReason carries the bracketed diagnostic
-    // suffix; the helper strips it. The visible body should retain
-    // the prose part.
+    // W3 Step 3.5d (2026-05-02) — confidenceReason moved into the
+    // expansion drawer entirely. Default card no longer renders it.
+    // To test "default card has no bracketed diagnostic," slice the
+    // HTML at the expansion <details> boundary and assert against
+    // the pre-expansion portion only. The full text (with brackets)
+    // still lives inside the drawer for power users.
+    const expansionStart = html.indexOf('data-rec-expansion="true"');
+    expect(expansionStart).toBeGreaterThan(0);
+    const defaultCardHtml = html.slice(0, expansionStart);
+    // The default card must not carry the bracketed diagnostic.
+    expect(defaultCardHtml).not.toMatch(/\[1\/1 label tokens match/);
+    expect(defaultCardHtml).not.toMatch(/\[[^\]]*label tokens[^\]]*\]/);
+    // The full rendered HTML still includes the prose (in the drawer).
     expect(html).toContain("AI cites De Mattei on 4 of 7 observations");
-    expect(html).not.toMatch(/\[1\/1 label tokens match/);
-    expect(html).not.toMatch(/\[[^\]]*label tokens[^\]]*\]/);
   });
 
   it("default card does NOT render raw 'low' / 'medium' / 'high' badge text", () => {
@@ -281,13 +289,18 @@ describe("W3 Step 3.5b — rendered-output cleanup", () => {
         } as unknown as RecommendationQueueRow["rec"]["resolution"],
       }),
     ]);
-    // W3 Step 3.5c (2026-05-02) — operator browser re-audit failed
-    // the wrapped-quote form. Now: scenario-class fallback. "If I
-    // buy a property…" hits the buying-intent branch → "this
-    // buying scenario".
-    expect(html).toContain("Create a page for this buying scenario");
+    // W3 Step 3.5d (2026-05-02) — operator browser re-audit again
+    // failed the scenario-class form ("this buying scenario" / "this
+    // rebuild scenario"). Replaced by a domain-specific topic-tag
+    // humanizer (`extractTopicTag`) so the title surfaces concrete
+    // operator language. "If I buy a property with an older house"
+    // hits the older_home_rebuild trigger → "Create an older-home
+    // rebuild page" (no geo because the cluster carries no city).
+    expect(html).toContain("Create an older-home rebuild page");
     // Raw prompt quote no longer in the title.
     expect(html).not.toMatch(/Create a page for &quot;If I buy/);
+    // Pre-3.5d scenario-class fallback no longer surfaces.
+    expect(html).not.toContain("Create a page for this buying scenario");
     // Broken-grammar form still does NOT ship.
     expect(html).not.toMatch(/Create a If I/);
   });
@@ -459,9 +472,16 @@ describe("W3 Step 3.5c — product cleanup acceptance", () => {
     ]);
     // Accept button must NOT render for an accepted rec.
     expect(html).not.toMatch(/>Accept(?:\s+—)?</);
-    // The "✓ Accepted" status shows.
-    expect(html).toContain("✓ Accepted");
-    // The display-state chip reflects "Tracking".
+    expect(html).not.toMatch(/>Accept \+ Track/);
+    // W3 Step 3.5d (2026-05-02) — the "✓ Accepted" status copy
+    // changed to "✓ Tracking" because the rec sits in the Tracking
+    // lane and "Tracking" is more semantically accurate ("Beacon is
+    // watching this") than "Accepted" (a past event). The contract
+    // is unchanged: a status sentence is shown alongside Mark
+    // shipped + Undo.
+    expect(html).toContain("✓ Tracking");
+    // The lane label (rendered both as the section heading and the
+    // card's lane badge) confirms the rec landed in Tracking.
     expect(html).toContain("Tracking");
   });
 
