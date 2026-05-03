@@ -1,6 +1,35 @@
 # Beacon — Start Here
 
-> 🟢 **W3 Step 3.5f (Ranked-action-table row polish) LANDED (2026-05-03):** Operator browser re-audit on Step 3.5e accepted the table SHAPE but failed row CONTENT — generic titles ("Create a page for this scenario"), duplicate `H2 "H2: …"` quote prefixes, low-priority top rows, "Defer" as the primary action for Needs review, "Create page" pill wrapping into two lines, repetitive evidence copy, tracking rows above open work, and no visible Details affordance. This commit addresses every operator-locked rule.
+> 🟢 **W3 Step 3.6 (Sample-quality report on the production rec corpus) LANDED (2026-05-03):** Read every one of the 11 specific edits in `.data/tenants/ritz-builders/recommended-edits.json`, scored each against the operator-locked rubric (ship-as-is / minor-edit / no / placeholder). No paid runs. No regeneration. Results in `docs/W3_STEP_3.6_SAMPLE_QUALITY_REPORT.md`.
+>
+> **Distribution:** 1 ship-as-is (the operator already shipped it 2026-04-28) · 4 minor-edit (all LLM-sourced, all need brand-claim verification) · 5 placeholder (4 deterministic FAQs + 1 LLM Q-without-answer) · 1 no (deterministic competitor-name leak, quarantined by Step 3.5b.A's validator).
+>
+> **Source breakdown:**
+> - **deterministic — 5 edits, all unshippable.** 4/5 are placeholder ("A: Draft answer (operator: rewrite). Anchor on: …"). 1/5 named a specific competitor in public copy. The deterministic FAQ generator was a placeholder factory; W3 Step 3.4's LLM activation replaces it.
+> - **openai (gpt-5-mini) — 6 edits.** 1 ship-as-is (already shipped) + 4 minor-edit + 1 placeholder (FAQ Q without paired A). Every LLM body uses plausible brand voice; no competitor names; no raw prompt-id leaks; topical accuracy holds. Three minor-edits share the same defect: unsupported claims like "Ritz is frequently/commonly/often recommended" — the LLM has no source for these so it pattern-matches to generic builder-website copy.
+>
+> **Decision:** **CONDITIONAL GO for the first paid LIVE run.**
+> - ✅ Quality bar met when the LLM is the source.
+> - ✅ Validator + entity-pollution filter + scrubber stack holding.
+> - ⚠️ Must-fix before paid run: brand-claim grounding (plumb operator-curated `brand_assertions` through the openai SYSTEM_PROMPT so the LLM uses ONLY operator-supplied facts when claiming recognition; otherwise rewrite to a process-focused sentence).
+> - ⚠️ Should-fix before scaling FAQ output: FAQ pairing (Q+A as one row, not two).
+> - ❌ Apply-All-HIGH stays operator-locked OUT.
+>
+> **Next 3 actions:**
+> 1. **Plumb `brand_assertions`** through `specific-edit-evidence.ts` (packet) + `openai.ts` (SYSTEM_PROMPT v2). Operator supplies a list of concrete, verifiable facts. LLM uses only these for third-party-recognition claims.
+> 2. **First paid LIVE run** on a single fresh cluster (5–10 edits) with brand-claim grounding plumbed. Operator inspects manually. If ≥80% ship-as-is or minor-edit + ≤10% placeholder, proceed to broader generation.
+> 3. **(Optional)** FAQ Q+A pairing fix (lower priority — operator can manually pair Q+A rows today).
+
+> 🟢 **W3 Step 3.5g (Action-table polish: Type=Page, View on shipped, helper copy, chevron-only Details) LANDED (2026-05-03):** Operator browser audit on Step 3.5f accepted the row-content direction; small surfaces still needed polish:
+> - **Type column** renders "Page" for create_page rows (was "—" placeholder).
+> - **Shipped rows** render an actionable View button (was inert "✓ Shipped" text).
+> - **Evidence** appends "while competitors appear" when Ritz absent + dominant competitor present (entity-pollution-filtered).
+> - **Subtle helper copy** under toolbar: "Accepting a task starts tracking its impact on AI visibility."
+> - **Details affordance** is chevron-only — visible "Details" text dropped from the row + column header to avoid duplicate-feeling Action + Details labels.
+>
+> **Tests (1 new file + 4 updated):** `tests/architecture/recommendations-step-3.5g-polish.test.ts` (NEW, 9) · render-output-cleanup.tsx (3 updated + 4 new acceptance) · step-3.5f-row-polish (1 updated). 202/202 targeted pass.
+
+> 🟡 **W3 Step 3.5f (Ranked-action-table row polish) LANDED (2026-05-03):** Operator browser re-audit on Step 3.5e accepted the table SHAPE but failed row CONTENT — generic titles ("Create a page for this scenario"), duplicate `H2 "H2: …"` quote prefixes, low-priority top rows, "Defer" as the primary action for Needs review, "Create page" pill wrapping into two lines, repetitive evidence copy, tracking rows above open work, and no visible Details affordance. This commit addresses every operator-locked rule.
 >
 > **Concrete row content (operator-locked):**
 > - **Title humanizer extended:** new topic patterns (`whole_home_renovation`, `luxury_custom_home`, plus refined matches), `extractTopicFromPrompts(prompts)` so geo-only clusters ("Atherton") recover topic from affected prompts ("design-build vs architect", "vacant-lot custom home"), `cleanDisplayLabel` strips `H2:`, `H2 heading (new):`, `New FAQ:`, `FAQ answer:`, `Title:`, `Meta:` prefixes plus matched outer quotes, `sanitizeClusterLabel` strips `Shield:` namespace + `(Bay Area)` suffix + trailing `Builders` noise, `composeFromClusterLabel` falls back to the cluster phrase verbatim instead of "this scenario".

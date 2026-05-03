@@ -7,6 +7,67 @@
 
 ---
 
+## 2026-05-03 (late evening) — W3 Step 3.6: Sample-quality report
+
+Read every one of the 11 specific edits in `.data/tenants/ritz-builders/recommended-edits.json` and scored each against the operator-locked rubric (ship-as-is / minor-edit / no / placeholder). No paid runs. No regeneration. No code changes.
+
+### Output
+
+`docs/W3_STEP_3.6_SAMPLE_QUALITY_REPORT.md` — per-edit verdicts + source breakdown + must-fix gaps + go/no-go decision.
+
+### Distribution
+
+| Verdict | Count | Source |
+|---|---:|---|
+| ship-as-is | 1 | LLM (operator shipped 2026-04-28) |
+| minor-edit | 4 | LLM (need brand-claim verification) |
+| placeholder | 5 | 4 deterministic FAQs + 1 LLM Q-without-answer |
+| no | 1 | deterministic competitor-name leak (quarantined by Step 3.5b.A) |
+
+### Source quality
+
+- Every deterministic edit is unshippable (placeholder or competitor-leak).
+- Every LLM edit is at worst minor-edit, at best ship-as-is.
+- The W3 Step 3.4 LLM activation moved the engine from "placeholder factory" to "near-shippable copy that needs operator brand verification."
+
+### Must-fix before first paid run (decision)
+
+1. **Brand-claim grounding** — three minor-edit rows share an unsupported "Ritz is **frequently/commonly/often** recommended" sentence. Plumb operator-curated `brand_assertions` through the openai SYSTEM_PROMPT so the LLM uses ONLY operator-supplied facts when claiming recognition.
+2. **FAQ pairing** — schema currently splits Q+A into two `recommended_edits` rows; operator dismissed both halves. Persistence should emit one row per FAQ (Q+A pair), or the UI accept-as-pair.
+
+### Decision
+
+**CONDITIONAL GO for the first paid LIVE run** on a single fresh cluster (5-10 edits max) once brand-claim grounding is plumbed. Operator inspects manually. If ≥80% ship-as-is or minor-edit + ≤10% placeholder, proceed to broader generation.
+
+Apply-All-HIGH stays operator-locked OUT until the operator personally inspects 20–30 fresh recs (operator-locked W3 §1.5).
+
+---
+
+## 2026-05-03 (evening) — W3 Step 3.5g: Action-table row-polish
+
+Operator browser audit on Step 3.5f accepted the row-content direction. Five small surfaces still needed polish:
+
+1. **Type column** showed "—" for create_page rows; operator scope: "Page-creation rows must show Type = Page". `TypePill`'s 3.5f short-circuit (renders "—") was removed; `COMPACT_LABEL` map now includes `create_page → "Page"`. `whitespace-nowrap` keeps the column single-line.
+2. **Shipped rows** rendered inert "✓ Shipped" text; operator scope: shipped should be actionable. `RowActionButton`'s `case "shipped"` branch returns a `<button>View</button>` wired to `onOpenDetails`. `data-rec-action-button="view_result"`.
+3. **Evidence** — `composeRowEvidenceSummary` now reads `rec.evidence.dominantCompetitors`, filters generic nouns through `shouldExcludeFromCompetitorRanking`, and appends ` while competitors appear` to the absence sentence when at least one real competitor is present. Generic nouns (General Contractors, Architects, …) never trigger the suffix.
+4. **Helper copy** — subtle line under the toolbar: `Accepting a task starts tracking its impact on AI visibility.` (`data-recommendations-helper="true"`).
+5. **Details affordance** — chevron-only. Visible "Details" text dropped from the row button + column header (sr-only span for accessibility). Operator scope: avoid duplicate-feeling Action + Details labels.
+
+### Tests
+
+- `tests/architecture/recommendations-step-3.5g-polish.test.ts` (NEW, 9) — Type-pill maps create_page → "Page" + no "—" short-circuit; shipped branch returns a View button; evidence carries the "while competitors appear" tail gated on entity-pollution filter; helper copy + chevron-only Details.
+- `tests/app/recommendations/render-output-cleanup.test.tsx` (3 updated + 4 new acceptance) — Type="Page" rendered output, helper copy present, chevron-only Details, "while competitors appear" fires on real competitors and skips on generic nouns.
+- `tests/architecture/recommendations-step-3.5f-row-polish.test.ts` (1 updated) — pin replaced with `create_page: "Page"` assertion.
+
+### Verification
+
+- `npx tsc --noEmit` clean.
+- 202/202 targeted (9 test files) pass.
+- `npm run test` 3597/3601 (4 pre-existing failures: prompts × 3 + tenant isolation × 1).
+- `BEACON_TENANT_ID=… npm run build` clean.
+
+---
+
 ## 2026-05-03 (evening) — W3 Step 3.5f: Ranked-action-table row polish
 
 Single code commit on `main`. Operator browser re-audit on Step 3.5e accepted the table SHAPE but failed row CONTENT — generic titles ("Create a page for this scenario"), duplicate `H2 "H2: …"` quote prefixes, low-priority top rows, "Defer" as the primary action for Needs review, "Create page" pill wrapping into two lines, repetitive evidence copy, tracking rows above open work, and no visible Details affordance.
