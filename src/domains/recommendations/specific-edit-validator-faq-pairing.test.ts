@@ -299,6 +299,10 @@ describe("W3 §3.8 — bundle-level FAQ pairing", () => {
   });
 
   it("REJECTS duplicate questions (two faq_question rows with the same hash)", () => {
+    // Both Q rows must individually pass per-edit checks (end with
+    // "?", ≤ 200 chars, no answer body) so the bundle-level
+    // duplicate-detection actually runs on them. Use two different
+    // valid questions sharing the same hash.
     const packet = makePacket();
     const bundle = makeBundle(
       [
@@ -308,7 +312,8 @@ describe("W3 §3.8 — bundle-level FAQ pairing", () => {
         }),
         makeFaqQuestionEdit({
           hash: "dup01",
-          proposedText: VALID_QUESTION + " (variant)",
+          proposedText:
+            "Which builders specialize in architect-designed custom homes in Palo Alto?",
         }),
         makeFaqAnswerEdit({
           hash: "dup01",
@@ -350,6 +355,44 @@ describe("W3 §3.8 — bundle-level FAQ pairing", () => {
     expect(result.perEdit[0].result.ok).toBe(true);
     expect(result.perEdit[1].result.ok).toBe(true);
     expect(result.perEdit[2].result.ok).toBe(false);
+  });
+
+  it("per-edit-failed Q leaves matching A effectively orphaned (Cupertino regression)", () => {
+    // Operator-caught (W3 §3.8.6 Cupertino dry-run): when a FAQ
+    // question hits the brand-claim gate (e.g. "the best builders"),
+    // the matching answer would otherwise pass per-edit validation
+    // but is effectively orphaned at persist time. The pairing check
+    // must skip per-edit-failed rows during bucketing so the answer
+    // is correctly flagged as orphan.
+    const packet = makePacket();
+    const bundle = makeBundle(
+      [
+        makeFaqQuestionEdit({
+          hash: "cupbest01",
+          // "the best builders" trips the §3.7 brand-claim gate.
+          proposedText:
+            "Who are the best builders in Cupertino for modernizing an older home without changing the footprint?",
+        }),
+        makeFaqAnswerEdit({
+          hash: "cupbest01",
+          // Otherwise-clean answer.
+          proposedText: VALID_ANSWER,
+        }),
+      ],
+      packet,
+    );
+    const result = validateSpecificEditBundle(bundle, packet);
+    expect(result.ok).toBe(false);
+    // Q row fails per-edit on the brand-claim gate.
+    expect(result.perEdit[0].result.ok).toBe(false);
+    // A row also fails — pairing's per-edit skip flagged it as
+    // effective orphan.
+    expect(result.perEdit[1].result.ok).toBe(false);
+    if (!result.perEdit[1].result.ok) {
+      expect(result.perEdit[1].result.reason).toMatch(
+        /unpaired FAQ answer/,
+      );
+    }
   });
 
   it("non-FAQ edits are unaffected by pairing checks", () => {

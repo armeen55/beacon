@@ -7,6 +7,64 @@
 
 ---
 
+## 2026-05-03 (predawn) — W3 Step 3.9: Narrow paid runs (Palo Alto persist + Cupertino + Luxury)
+
+Operator approved persisting Palo Alto with `--write` and running two more narrow dry-runs to broaden the inspection sample. Three runs total surfaced three real validator gaps that were fixed mid-run; no unsafe data reached disk.
+
+### Runs
+
+| Cluster | Mode | Generated | Accepted | Rejected | Cost | Disposition |
+|---|---|---:|---:|---:|---:|---|
+| Palo Alto (`create_cluster_page:geo:Palo Alto`) | `--write` | 3 | 3 | 0 | $0.013672 | Persisted |
+| Cupertino (`create_single:prompt:7130b218…`) | DRY-RUN | 3 | 2 | 1 (H2 evidence ref hallucination) | $0.014794 | Pending operator approval |
+| Luxury Home Builder Bay Area (`create_cluster_page:topic:Shield: Luxury Home Builder Bay Area`) | DRY-RUN | 3 | 3 | 0 | $0.014569 | Pending operator approval |
+
+Final state: 14 rows in `.data/tenants/ritz-builders/recommended-edits.json` (11 prior + 3 fresh Palo Alto). Pending operator approval to persist: 5 (2 Cupertino + 3 Luxury).
+
+### Validator gaps caught + fixed
+
+**1. Alias floor 3 → 4 (`MIN_COMPETITOR_ALIAS_LENGTH`).** First Luxury run rejected ALL THREE generated edits because the bare-"Bay" alias of competitor "Bay Builders" matched every "Bay Area" mention in legitimate geo copy. Raised the floor from 3 to 4 chars. Full competitor names still match when actually present in copy; only the suffix-stripped 3-char derivatives are suppressed. Same fix suppresses "ICB" from "ICB Builders" and any other 3-letter abbreviation collisions.
+
+**2. FAQ pairing per-edit aware (`checkFaqPairing` accepts `perEditOk`).** First Cupertino run rejected its FAQ question (for "the best builders" superlative) but accepted the matching answer. The original Step 3.8 pairing logic ran on the input bundle, not the post-validation set, so the answer's effective-orphan status went undetected. On a `--write` run, the answer would have persisted alone. Fix: pairing now skips per-edit-failed rows during bucketing; a failed question correctly leaves its matching answer flagged as orphan.
+
+**3. `best_in_market` adjective gap.** Second Luxury run accepted a FAQ question "Who are the best luxury home builders in the Bay Area?" because the original regex required strict adjacency between "the best" and the noun. With "luxury home" sitting between "best" and "builders", the pattern didn't fire. Regex now allows 0-3 modifier words between "best" and the noun + standardizes on plurals (`builders?`, `firms?`, etc.). Same gap fix applied to `leading_brand`.
+
+### Tests (5 new + 5 updated, 22 new + invariant cases)
+
+- `brand-assertions.test.ts` (+4) — `'the best luxury home builders'` rejected (adjective gap), `'leading luxury home builders'` rejected, `'best for whole-home remodels'` ALLOWED (no `the` prefix, no banned noun).
+- `specific-edit-validator.test.ts` (+2 new + 2 updated) — `'Bay Builders' competitor does NOT trip on 'Bay Area' copy`, `'Bay Builders' STILL matches the full name in copy`. Updated 2 alias-builder tests that pinned 3-char outputs.
+- `specific-edit-validator-faq-pairing.test.ts` (+1) — `per-edit-failed Q leaves matching A effectively orphaned (Cupertino regression)`.
+- `recommendations-step-3.7-brand-grounding.test.ts` (1 updated) — `checkFaqPairing` call regex now matches the per-edit-aware shape.
+
+### Aggregate verification matrix
+
+Across all three runs the operator-locked rules held:
+- Zero brand-claim leaks (after §3 fix).
+- Zero em dashes.
+- Zero bare "Ritz" (full "Ritz Builders" first mention everywhere).
+- Zero competitor public-copy leaks (after §1 fix).
+- Zero raw prompt-id refs.
+- Zero placeholders.
+- Every FAQ Q paired with its A (after §2 fix).
+- Every accepted edit reads as a concrete operator task with specific scope grounded in packet evidence.
+
+### Verification
+
+- `npx tsc --noEmit` clean.
+- 239/239 targeted (validator + brand + arch + faq-pairing + brand-claims) pass.
+- `npm run test` 3733/3737 (4 pre-existing baseline failures verified independent against `8b12b3d`).
+- `BEACON_TENANT_ID=tenant-ritz-founder BEACON_TENANT_SLUG=ritz-builders npm run build` clean.
+
+### Total spend
+
+$0.083620 USD across 6 paid generations (3 final-clean + 3 false-positive runs that surfaced the validator gaps). 3 edits persisted; 5 pending operator approval.
+
+### Out of scope
+
+Apply-All-HIGH; broad regeneration; customer-one backfill; Profound archive/delete; broad UI redesign outside /recommendations.
+
+---
+
 ## 2026-05-03 (very late overnight) — W3 Step 3.8: FAQ Q+A pairing fix + dry-run verification
 
 The W3 §3.7 paid run on Palo Alto flagged one residual defect: the LLM bundled FAQ question + answer body into ONE `faq_question[new]` proposedText. Step 3.8 closes the gap. Two commits + one report.

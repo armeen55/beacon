@@ -1,6 +1,31 @@
 # Beacon — Start Here
 
-> 🟢 **W3 Step 3.8 (FAQ Q+A pairing fix) LANDED (2026-05-03):** Two commits: `c261e35` (validator + Rule 13 paired contract + tests) + the doc that grades the dry-run on Palo Alto. The W3 §3.7 paid run flagged one residual defect — the LLM bundled FAQ question + answer body into a single `faq_question[new]` proposedText. Step 3.8 closes it with three layered enforcement points:
+> 🟢 **W3 Step 3.9 (Narrow paid runs: Palo Alto persist + Cupertino + Luxury) LANDED (2026-05-03):** Operator approved the persist + two more dry-runs to broaden the inspection sample. Three runs total surfaced + fixed three real validator gaps without any unsafe data reaching disk. Final state: 3 Palo Alto edits persisted; 5 Cupertino + Luxury edits clean and pending operator approval to persist.
+>
+> **Distribution across all three runs:**
+> - **Palo Alto (`--write`):** 3 generated · 3 ship-as-is · 0 rejected · $0.013672 USD · persisted to `.data/tenants/ritz-builders/recommended-edits.json`. (1 H2 + 1 FAQ pair, gold-standard voice).
+> - **Cupertino (DRY-RUN):** 3 generated · 2 ship-as-is (FAQ pair) · 1 rejected (H2 — LLM hallucinated competitor "TerraRevo" in evidence refs) · $0.014794 USD. Clean public copy on accepted rows.
+> - **Luxury Home Builder Bay Area (DRY-RUN):** 3 generated · 3 ship-as-is (1 H2 + 1 FAQ pair) · 0 rejected · $0.014569 USD. Final run after two validator fixes.
+>
+> **Three validator gaps caught + fixed mid-run:**
+> 1. **Alias floor 3 → 4** (`MIN_COMPETITOR_ALIAS_LENGTH`) — bare-"Bay" alias of competitor "Bay Builders" was matching every "Bay Area" mention in legitimate geo copy. Floor raised; same fix suppresses 3-letter abbreviations like "ICB" from "ICB Builders". Full names still match when actually present.
+> 2. **FAQ pairing per-edit aware** (`checkFaqPairing` accepts `perEditOk` flags) — a per-edit-failed FAQ question used to leave its matching answer effectively orphaned at persist time. Pairing now skips per-edit-failed rows during bucketing so the answer is correctly flagged as orphan. Cupertino run #1 hit this.
+> 3. **`best_in_market` regex adjective gap** — "the best luxury home builders" slipped through the original strict-adjacency pattern. Regex now allows up to 3 modifier words between "best" and the noun. Same fix applied to `leading_brand`. Plurals (`builders?`, `firms?`, etc.) standardized.
+>
+> **Tests (5 new + 5 updated, 22 new + invariant cases):** `brand-assertions.test.ts` (+4 — adjective-gap regression cases on best/leading + the legitimate "best for X" allow-through), `specific-edit-validator.test.ts` (+2 — Bay-Builders short-alias guard + full-name still matches; updated 2 alias-builder tests for the new floor), `specific-edit-validator-faq-pairing.test.ts` (+1 — Cupertino regression: per-edit-failed Q leaves matching A as effective orphan), `recommendations-step-3.7-brand-grounding.test.ts` (1 updated — `checkFaqPairing` call regex now matches the per-edit-aware shape).
+>
+> **Verification (2026-05-03):** `npx tsc --noEmit` clean · 239/239 targeted (validator + brand + arch + faq-pairing + brand-claims) · `npm run test` 3733/3737 (4 baseline failures verified independent against `8b12b3d`) · `BEACON_TENANT_ID=… npm run build` clean.
+>
+> **Decision:** narrow paid runs are now safe to use one cluster at a time. Apply-All-HIGH stays operator-locked OUT.
+>
+> **Persisted state of `.data/tenants/ritz-builders/recommended-edits.json`:** 14 rows (11 prior + 3 fresh Palo Alto). Pending operator approval: 5 more (2 Cupertino FAQ pair + 3 Luxury). Per-edit grading + verification matrix in `docs/W3_STEP_3.9_NARROW_PAID_RUNS_REPORT.md`.
+>
+> **Next 3 actions:**
+> 1. **Operator reviews Cupertino + Luxury** in `docs/W3_STEP_3.9_NARROW_PAID_RUNS_REPORT.md`. If approved, persist with `--write`.
+> 2. **(Optional) Run paid generation on the next 1-2 fresh clusters** (Whole Home Renovation Builders, location-specific strengthen rows for Palo Alto / Menlo Park) to broaden the inspection sample.
+> 3. **Apply-All-HIGH** stays operator-locked OUT until the operator personally approves it after a wider inspection sample.
+
+> 🟡 **W3 Step 3.8 (FAQ Q+A pairing fix) LANDED (2026-05-03):** Two commits: `c261e35` (validator + Rule 13 paired contract + tests) + the doc that grades the dry-run on Palo Alto. The W3 §3.7 paid run flagged one residual defect — the LLM bundled FAQ question + answer body into a single `faq_question[new]` proposedText. Step 3.8 closes it with three layered enforcement points:
 >
 > - **Per-edit FAQ shape gate** — `validateFaqRowShape` rejects newline-bundled answers + `Q: \n A:` deterministic-shape bundling on `faq_question[new]:<hash>` rows. Rejects bare-question shapes + under-30-word stubs on `faq_answer[new]:<hash>` rows. Wired BEFORE `validateFaqIntentRewriting` so the operator-actionable error fires before the generic "must end with ?" reason.
 > - **Bundle-level pairing** — `checkFaqPairing` groups every FAQ edit by element-key hash suffix; rejects orphan questions / orphan answers / duplicate Q's / duplicate A's. Failures land in `bundleErrors` AND overwrite the orphan's per-edit result so the operator sees WHICH row failed pairing. The persist layer (`runProviderAndPersist`) refuses to persist when bundleErrors is non-empty — orphans never reach disk.

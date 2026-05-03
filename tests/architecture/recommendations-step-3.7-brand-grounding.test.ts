@@ -301,7 +301,12 @@ describe("W3 §3.8 — validator wires FAQ row-shape + bundle-pairing", () => {
   });
 
   it("validateSpecificEditBundle aggregates FAQ pairing failures into bundleErrors", () => {
-    expect(VALIDATOR_SRC).toMatch(/checkFaqPairing\(bundle\.recommendations\)/);
+    // W3 §3.8.6: pairing now also takes per-edit ok flags so a
+    // per-edit-failed Q can flag its matching A as effectively
+    // orphaned (Cupertino regression).
+    expect(VALIDATOR_SRC).toMatch(
+      /checkFaqPairing\([\s\S]*?bundle\.recommendations[\s\S]*?perEditMutable\.map/,
+    );
     expect(VALIDATOR_SRC).toMatch(/bundleErrors\.push/);
   });
 

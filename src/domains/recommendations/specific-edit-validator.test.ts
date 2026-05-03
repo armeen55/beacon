@@ -1040,14 +1040,24 @@ describe("Sprint 6A.2g.B — buildCompetitorAliases (alias generation)", () => {
   });
 
   it("ALSO works with single-suffix LLC", () => {
-    expect(buildCompetitorAliases("ABC LLC")).toEqual(["ABC LLC", "ABC"]);
+    // W3 §3.8.6: alias floor raised 3 → 4. Stripped "ABC" (3 chars)
+    // no longer makes the cut; only the full name remains.
+    expect(buildCompetitorAliases("ABC LLC")).toEqual(["ABC LLC"]);
   });
 
-  it("dedupes when iterative stripping produces a duplicate", () => {
-    // Defensive: shouldn't happen with current closed set, but the
-    // dedupe is part of the contract.
+  it("ALSO works with longer base names: 'ABCD LLC' produces ['ABCD LLC', 'ABCD']", () => {
+    // The stripped 4-char alias passes the new floor.
+    expect(buildCompetitorAliases("ABCD LLC")).toEqual(["ABCD LLC", "ABCD"]);
+  });
+
+  it("dedupes when iterative stripping produces a duplicate (4+ char floor)", () => {
+    // W3 §3.8.6: 'Foo' (3 chars) is now below the alias floor; only
+    // the full name remains. Use a 4-char base to verify dedupe still
+    // works on longer names.
     const a = buildCompetitorAliases("Foo Group");
-    expect(a).toEqual(["Foo Group", "Foo"]);
+    expect(a).toEqual(["Foo Group"]);
+    const b = buildCompetitorAliases("Quux Group");
+    expect(b).toEqual(["Quux Group", "Quux"]);
   });
 
   it("caps aliases at 5 per competitor", () => {
@@ -1274,14 +1284,43 @@ describe("Sprint 6A.2g.B — competitor public-copy validator", () => {
   it("SHORT ALIAS GUARD — competitor 'X Co' generates only ['X Co'] (not 'X')", () => {
     const packet = buildPacketWithCompetitors(["X Co"]);
     // "X" alone must not match — the bare-X alias was suppressed by
-    // the MIN_COMPETITOR_ALIAS_LENGTH=3 guard. proposedText
-    // intentionally avoids brand-claim regex hits (W3 §3.7) so the
-    // competitor-alias check is the only thing under test.
+    // the MIN_COMPETITOR_ALIAS_LENGTH guard (raised 3 → 4 in W3
+    // §3.8.6 to suppress short-fragment false positives like
+    // "Bay Builders" → "Bay" matching "Bay Area" geo copy).
+    // proposedText intentionally avoids brand-claim regex hits so
+    // the competitor-alias check is the only thing under test.
     const edit = makeAddH2EditWithProposedText(
       packet,
       "X marks the spot in our design-build process.",
     );
     expect(validateSpecificEdit(edit, packet)).toEqual({ ok: true });
+  });
+
+  it("SHORT ALIAS GUARD — 'Bay Builders' competitor does NOT trip on 'Bay Area' copy (W3 §3.8.6)", () => {
+    // Operator-caught regression on the Luxury Home Builder Bay Area
+    // dry-run: bare-"Bay" alias of "Bay Builders" matched every
+    // "Bay Area" mention in legitimate geo copy. Raising the alias
+    // floor from 3 → 4 chars suppresses bare "Bay". The full name
+    // "Bay Builders" still matches when actually present in copy.
+    const packet = buildPacketWithCompetitors(["Bay Builders"]);
+    const edit = makeAddH2EditWithProposedText(
+      packet,
+      "Ritz Builders emphasizes an architect-led design-build approach for luxury custom homes in the Bay Area. Our team coordinates architecture, engineering, and permitting from concept through construction.",
+    );
+    expect(validateSpecificEdit(edit, packet)).toEqual({ ok: true });
+  });
+
+  it("SHORT ALIAS GUARD — 'Bay Builders' STILL matches the full name in copy", () => {
+    // The floor only suppresses the suffix-stripped derivative.
+    // Full-name mentions still trip the gate as before.
+    const packet = buildPacketWithCompetitors(["Bay Builders"]);
+    const edit = makeAddH2EditWithProposedText(
+      packet,
+      "Ritz Builders emphasizes design-build, unlike Bay Builders.",
+    );
+    const r = validateSpecificEdit(edit, packet);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toMatch(/Bay Builders/);
   });
 
   it("NO TOKEN-LEVEL SCAN — 'De' alone does NOT match 'De Mattei Construction'", () => {

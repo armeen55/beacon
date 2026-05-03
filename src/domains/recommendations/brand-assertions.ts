@@ -262,21 +262,28 @@ export const FORBIDDEN_CLAIM_PATTERNS: ReadonlyArray<ForbiddenClaimPattern> = [
   {
     id: "best_in_market",
     // Anchor on subject + context so this only fires when "best"
-    // describes the brand — not when the LLM legitimately writes
-    // "best for whole-home remodels" inside a user-voice FAQ
-    // question (which shouldn't be banned). Match phrases like:
-    //   "Ritz is the best ..."
+    // describes the brand or category — not when the LLM legitimately
+    // writes "best for whole-home remodels" inside a user-voice FAQ
+    // question. Allows up to 3 modifier words between "the best"
+    // and the noun (W3 §3.8.6 — Luxury Home Builder run flagged
+    // "the best luxury home builders" slipping through the
+    // single-adjective regex).
+    //   "Ritz is the best builder ..."
     //   "the best builder in ..."
-    //   "Ritz Builders is the best ..."
+    //   "the best luxury home builders ..."
+    //   "the best architect-led design-build firm ..."
     pattern:
-      /\bthe\s+best\s+(?:builder|firm|company|contractor|architect|design[-\s]?build|partner)/i,
+      /\bthe\s+best\s+(?:[\w-]+\s+){0,3}(?:builders?|firms?|companies|company|contractors?|architects?|design[-\s]?build(?:ers?)?|partners?)\b/i,
     unlockedBy: "ranking_first",
     description:
       "subject-of-sentence 'best builder/firm/etc.' superlative with no operator-supplied source",
   },
   {
     id: "leading_brand",
-    pattern: /\bleading\s+(?:builder|firm|company|contractor|architect|design[-\s]?build|partner)/i,
+    // Same 0-3 modifier-word gap as best_in_market so phrases like
+    // "leading luxury home builders in the Bay Area" still trip.
+    pattern:
+      /\bleading\s+(?:[\w-]+\s+){0,3}(?:builders?|firms?|companies|company|contractors?|architects?|design[-\s]?build(?:ers?)?|partners?)\b/i,
     unlockedBy: "ranking_first",
     description:
       "'leading builder/firm/etc.' superlative with no operator-supplied source",

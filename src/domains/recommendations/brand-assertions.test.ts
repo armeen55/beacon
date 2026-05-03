@@ -192,6 +192,41 @@ describe("findUnsupportedBrandClaims — flags forbidden claims when no matching
     ).toBe("best_in_market");
   });
 
+  it("flags 'the best luxury home builders' (W3 §3.8.6 — adjective gap)", () => {
+    // Operator-caught: Luxury Home Builder Bay Area dry-run emitted
+    // a FAQ question "Who are the best luxury home builders in the
+    // Bay Area?" — the original regex required "the best <noun>"
+    // adjacency and missed adjective gaps. Pattern now allows up
+    // to 3 modifier words between "best" and the noun.
+    expect(
+      findUnsupportedBrandClaims(
+        "Who are the best luxury home builders in the Bay Area?",
+        NO_ASSERTIONS,
+      )[0]?.patternId,
+    ).toBe("best_in_market");
+  });
+
+  it("flags 'leading luxury home builders' (adjective-gap regression)", () => {
+    expect(
+      findUnsupportedBrandClaims(
+        "We are the leading luxury home builders in Silicon Valley.",
+        NO_ASSERTIONS,
+      )[0]?.patternId,
+    ).toBe("leading_brand");
+  });
+
+  it("ALLOWS 'best for whole-home remodels' (no 'the' prefix, no banned noun)", () => {
+    // The regex requires "the best" + modifier words + builder/firm/
+    // etc. "best for whole-home remodels" doesn't match because
+    // there's no "the" prefix and no builder/firm/etc. noun follows.
+    expect(
+      findUnsupportedBrandClaims(
+        "Choose the construction approach that's best for whole-home remodels.",
+        NO_ASSERTIONS,
+      ),
+    ).toEqual([]);
+  });
+
   it("flags 'leading builder'", () => {
     expect(
       findUnsupportedBrandClaims(

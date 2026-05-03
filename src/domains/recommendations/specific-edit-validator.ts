@@ -997,11 +997,24 @@ const COMPETITOR_SUFFIX_SET = [
 const MAX_COMPETITOR_ALIASES = 5;
 
 /**
- * Skip aliases shorter than 3 characters — common-English-word
- * collisions ("Co", "On", "In", etc.) would dominate false positives.
- * The full competitor name is always included regardless of length.
+ * Skip aliases shorter than 4 characters.
+ *
+ * Common-English-word collisions ("Co", "On", "In", "Bay", "ICB",
+ * etc.) would dominate false positives. The W3 §3.8.6 Luxury Home
+ * Builder Bay Area dry-run caught the bare-"Bay" alias of competitor
+ * "Bay Builders" matching every "Bay Area" mention in legitimate
+ * geo copy — three of three generated edits rejected as false
+ * positives. Raising the floor from 3 → 4 chars keeps every real
+ * competitor's full + meaningful suffix-stripped names ("Bay
+ * Builders", "Kasten Builders" → "Kasten", "Greenberg Construction"
+ * → "Greenberg") while suppressing 3-char fragments that collide
+ * with everyday geo / English words.
+ *
+ * The full competitor name is ALWAYS included regardless of length —
+ * a competitor literally named "Bay" would still match its full
+ * name. Only the suffix-stripped derivative is suppressed.
  */
-const MIN_COMPETITOR_ALIAS_LENGTH = 3;
+const MIN_COMPETITOR_ALIAS_LENGTH = 4;
 
 function escapeRegexLiteral(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -1382,7 +1395,19 @@ export function validateSpecificEditBundle(
   // Group every FAQ edit by its element-key hash suffix; reject any
   // unpaired question or answer row. Operator-locked: FAQ edits must
   // ship as paired rows, never alone.
-  const pairingFailures = checkFaqPairing(bundle.recommendations);
+  //
+  // Pairing runs on the EFFECTIVE accepted set: a per-edit-failed
+  // question leaves its matching answer effectively orphaned at
+  // persist time, so the answer must fail too. This guard prevents
+  // a half-pair from reaching disk on `--write` runs (operator-
+  // caught Cupertino case: model proposed a "the best builders"
+  // FAQ question that hit the brand-claim gate; the answer was
+  // otherwise clean and would have persisted as an orphan without
+  // this fix).
+  const pairingFailures = checkFaqPairing(
+    bundle.recommendations,
+    perEditMutable.map((p) => p.result.ok),
+  );
   for (const pf of pairingFailures) {
     bundleErrors.push(
       fail(
@@ -1442,6 +1467,17 @@ type FaqPairingFailure = {
 
 function checkFaqPairing(
   edits: ReadonlyArray<SpecificEdit>,
+  /**
+   * Optional per-edit pass/fail flags (length = edits.length). When
+   * supplied, edits whose flag is `false` are SKIPPED during
+   * bucketing — i.e., a per-edit-failed question leaves its bucket
+   * empty so the matching answer (if otherwise OK) is correctly
+   * flagged as orphan. Without this guard, a `--write` run could
+   * persist a half-pair when one row of the pair failed the
+   * brand-claim / em-dash / synthetic-stem / placeholder /
+   * competitor gates.
+   */
+  perEditOk?: ReadonlyArray<boolean>,
 ): FaqPairingFailure[] {
   const failures: FaqPairingFailure[] = [];
   // Build per-hash buckets of question + answer indices.
@@ -1458,6 +1494,12 @@ function checkFaqPairing(
     if (elementType !== "faq_question" && elementType !== "faq_answer") {
       continue;
     }
+    // Skip per-edit-failed rows so the EFFECTIVE bundle drives
+    // pairing. Without this skip, a failed question would still
+    // fill its bucket and the matching (otherwise-OK) answer would
+    // pass the pairing check — only to be persisted as an orphan
+    // because the question never makes it into `acceptedRows`.
+    if (perEditOk && perEditOk[i] === false) continue;
     const hash = extractElementKeyHashSuffix(tel.elementKey);
     if (hash === null) continue; // can't pair without a hash; skip.
     const bucket =
