@@ -1,6 +1,33 @@
 # Beacon — Start Here
 
-> 🟢 **W3 Step 3.7 (Brand-claim grounding + first paid LIVE run) LANDED (2026-05-03):** Two commits: `2b99413` (the grounding layer) + the doc that grades the first paid LIVE run on a fresh cluster.
+> 🟢 **W3 Step 3.7s (Public-copy style correction) LANDED (2026-05-03):** The Step 3.7 paid run on Palo Alto produced grounded copy, but the operator caught two style defects: it used "Ritz" (short form) instead of "Ritz Builders", and dropped two em dashes into the body. Step 3.7s adds a permanent style layer enforcing the operator-locked voice + punctuation rules.
+>
+> **Two new validator gates (layered after the brand-claim grounder):**
+> - **No em dashes** — generated public copy MUST NOT contain `—` (em dash) or free-standing `–` (en dash) used as sentence punctuation. Digit-bounded ranges like `10–15 weeks` and `2024–2025` stay allowed. Validator returns `em dash banned in public copy ('—' near "<context>") — replace with period / comma / colon / parentheses`. Env opt-out: `BEACON_ALLOW_EM_DASH=1`.
+> - **Full entity name on first mention** — every standalone generated section uses the full entity name ("Ritz Builders") on the first brand mention. Bare "Ritz" alone is NEVER allowed. After the first full mention, the model may transition to first-person plural ("our team", "we", "our process") for natural website tone. Per-tenant style registered via `getBrandNameStyle(tenantId)` in `brand-assertions.ts`. Env opt-out: `BEACON_ALLOW_SHORT_BRAND_NAME=1`.
+>
+> **SYSTEM_PROMPT Rule 19 (PUBLIC-COPY VOICE + STYLE):** five sub-rules walk the model through the new contract:
+> - 19a — NO EM DASHES, with BAD/GOOD rewrite examples.
+> - 19b — FULL ENTITY NAME ON FIRST MENTION, with the "Ritz Builders … Our team coordinates …" gold pattern + explicit BAD examples (bare "Ritz" / second-instance "Ritz").
+> - 19c — H2 STYLE (topic-first, no brand-stuffing). "Architect-designed custom homes in Palo Alto" GOOD; "Why Ritz Builders is frequently recommended for Palo Alto custom homes" BAD.
+> - 19d — PUBLIC BODY STYLE (self-contained, answer-engine-friendly chunks; first sentence makes sense quoted alone; no keyword stuffing; no fake social proof unless packet-grounded).
+> - 19e — GOLD-STANDARD EXAMPLE — verbatim operator-approved Palo Alto H2 + body that the model should mirror.
+>
+> **Tests (3 files extended, 39 new cases):**
+> - `brand-assertions.test.ts` (+16) — getBrandNameStyle / findEmDashes / findIncompleteBrandMentions detectors, digit-bounded en dash allowance, word-boundary anchors, second-instance bare-short rejection.
+> - `specific-edit-validator-brand-claims.test.ts` (+11) — validator integration: em dash + en dash + digit-range allowance, gold-standard Palo Alto H2 passes, packet user-prompt text containing "Ritz" never trips the gate, env opt-outs work.
+> - `tests/architecture/recommendations-step-3.7-brand-grounding.test.ts` (+12) — source-scan: brand-assertions exports the new helpers, validator wires `validateNoEmDashes` + `validateBrandNameFirstMention` after `validateBrandClaimGrounding`, env opt-outs wired, SYSTEM_PROMPT Rule 19 + 19a/b/c/d/e blocks present + carry the gold-standard Palo Alto example.
+>
+> **Verification (2026-05-03):** `npx tsc --noEmit` clean · 310/310 targeted (extended 3.7s + adjacent) pass · `npm run test` 3702/3706 (4 baseline failures verified independent against `8b12b3d`) · `BEACON_TENANT_ID=… npm run build` clean.
+>
+> **Net effect on the model:** the style layer is the difference between the Step 3.7 output ("Ritz emphasizes … complex builds — for example …") and the operator's preferred shape ("Ritz Builders emphasizes … For complex Palo Alto sites, including … our integrated process …"). Both layers (Step 3.7 grounding + Step 3.7s style) now apply. The next paid run on a fresh cluster will surface output that mirrors the gold-standard example.
+>
+> **Next 3 actions:**
+> 1. **(Optional) Re-run paid generation on Palo Alto** with the style layer armed to verify the model produces the operator's preferred Palo Alto H2 verbatim.
+> 2. **(Optional) Run the same paid generation on the next 1–2 fresh clusters** (Cupertino, Luxury Home Builder Bay Area, Whole Home Renovation Builders) to broaden the inspection sample toward the 20–30-rec threshold for Apply-All-HIGH.
+> 3. **(Optional) Step 3.8 — FAQ Q+A pairing fix** (the residual defect from Step 3.7's first paid run — model bundled Q+A into one proposedText). SYSTEM_PROMPT Rule 13 update to emit Q + A as two linked edits.
+
+> 🟡 **W3 Step 3.7 (Brand-claim grounding + first paid LIVE run) LANDED (2026-05-03):** Two commits: `2b99413` (the grounding layer) + the doc that grades the first paid LIVE run on a fresh cluster.
 >
 > **The W3 §3.6 minor-edit defect is closed.** Three of four LLM minor-edit rows in the §3.6 sample shipped unsupported social-proof claims ("Ritz is **frequently/commonly/often** recommended"). The W3 §3.7 grounding layer routed every public-copy field through:
 > - **`brand-assertions.ts`** — operator-curated allowed phrases per tenant (10-row Ritz list: architect-led design-build, Bay Area / Silicon Valley luxury custom homes, custom homes, remodels, whole-home remodels, teardown / rebuild, in-house architecture, concept-to-completion, premium / luxury positioning) + 13 forbidden-claim regex patterns with `unlockedBy` categories (popularity / trust / ranking_first / award / tenure / client_outcome). `guarantee_outcome` permanently locked.

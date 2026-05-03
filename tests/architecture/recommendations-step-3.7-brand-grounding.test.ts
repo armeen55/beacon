@@ -128,8 +128,11 @@ describe("W3 Step 3.7 — evidence-packet builder includes brandAssertions", () 
 
 describe("W3 Step 3.7 — validator wires validateBrandClaimGrounding", () => {
   it("imports findUnsupportedBrandClaims from brand-assertions", () => {
+    // The import group can carry multiple symbols (Step 3.7s adds
+    // findEmDashes / findIncompleteBrandMentions / getBrandNameStyle
+    // into the same import block). Match a multi-symbol shape.
     expect(VALIDATOR_SRC).toMatch(
-      /import\s*\{\s*findUnsupportedBrandClaims\s*\}\s*from\s*"\.\/brand-assertions"/,
+      /import\s*\{[^}]*findUnsupportedBrandClaims[^}]*\}\s*from\s*"\.\/brand-assertions"/,
     );
   });
 
@@ -172,5 +175,86 @@ describe("W3 Step 3.7 — brand-assertions module exposes the canonical surface"
 
   it("FORBIDDEN_CLAIM_PATTERNS is exported", () => {
     expect(BRAND_SRC).toMatch(/export const FORBIDDEN_CLAIM_PATTERNS/);
+  });
+});
+
+// ── 6. W3 §3.7s — public-copy style rules (em dash + brand-name-first) ─
+
+describe("W3 §3.7s — public-copy style helpers + validator", () => {
+  it("brand-assertions exports getBrandNameStyle + findEmDashes + findIncompleteBrandMentions", () => {
+    expect(BRAND_SRC).toMatch(/export function getBrandNameStyle/);
+    expect(BRAND_SRC).toMatch(/export function findEmDashes/);
+    expect(BRAND_SRC).toMatch(/export function findIncompleteBrandMentions/);
+  });
+
+  it("brand-assertions registers Ritz Builders style (fullName + bannedShortForms: ['Ritz'])", () => {
+    expect(BRAND_SRC).toMatch(/fullName:\s*"Ritz Builders"/);
+    expect(BRAND_SRC).toMatch(/bannedShortForms:\s*\[\s*"Ritz"\s*\]/);
+  });
+
+  it("validator imports the new helpers from brand-assertions", () => {
+    expect(VALIDATOR_SRC).toMatch(/findEmDashes/);
+    expect(VALIDATOR_SRC).toMatch(/findIncompleteBrandMentions/);
+    expect(VALIDATOR_SRC).toMatch(/getBrandNameStyle/);
+  });
+
+  it("validator wires validateNoEmDashes after validateBrandClaimGrounding", () => {
+    const brandIdx = VALIDATOR_SRC.indexOf("validateBrandClaimGrounding(edit, packet)");
+    const dashIdx = VALIDATOR_SRC.indexOf("validateNoEmDashes(edit)");
+    expect(brandIdx).toBeGreaterThan(0);
+    expect(dashIdx).toBeGreaterThan(0);
+    expect(dashIdx).toBeGreaterThan(brandIdx);
+  });
+
+  it("validator wires validateBrandNameFirstMention after validateNoEmDashes", () => {
+    const dashIdx = VALIDATOR_SRC.indexOf("validateNoEmDashes(edit)");
+    const nameIdx = VALIDATOR_SRC.indexOf("validateBrandNameFirstMention(edit, packet)");
+    expect(dashIdx).toBeGreaterThan(0);
+    expect(nameIdx).toBeGreaterThan(0);
+    expect(nameIdx).toBeGreaterThan(dashIdx);
+  });
+
+  it("BEACON_ALLOW_EM_DASH + BEACON_ALLOW_SHORT_BRAND_NAME env opt-outs are wired", () => {
+    expect(VALIDATOR_SRC).toMatch(/BEACON_ALLOW_EM_DASH\s*!==\s*"1"/);
+    expect(VALIDATOR_SRC).toMatch(/BEACON_ALLOW_SHORT_BRAND_NAME\s*!==\s*"1"/);
+  });
+});
+
+describe("W3 §3.7s — SYSTEM_PROMPT carries Rule 19 (voice + style)", () => {
+  it("Rule 19 PUBLIC-COPY VOICE + STYLE block is present", () => {
+    expect(OPENAI_SRC).toMatch(/19\.\s*\*\*PUBLIC-COPY VOICE \+ STYLE/);
+  });
+
+  it("Rule 19a NO EM DASHES is present", () => {
+    expect(OPENAI_SRC).toMatch(/19a\.\s*NO EM DASHES/);
+  });
+
+  it("Rule 19b FULL ENTITY NAME ON FIRST MENTION is present", () => {
+    expect(OPENAI_SRC).toMatch(/19b\.\s*FULL ENTITY NAME/);
+    expect(OPENAI_SRC).toMatch(/Ritz Builders/);
+    expect(OPENAI_SRC).toMatch(/our team/);
+    expect(OPENAI_SRC).toMatch(/our process/);
+  });
+
+  it("Rule 19c H2 STYLE is present (topic-first)", () => {
+    expect(OPENAI_SRC).toMatch(/19c\.\s*H2 STYLE/);
+    expect(OPENAI_SRC).toMatch(/topic[-\s]first/i);
+  });
+
+  it("Rule 19d PUBLIC BODY STYLE is present (self-contained chunks)", () => {
+    expect(OPENAI_SRC).toMatch(/19d\.\s*PUBLIC BODY STYLE/);
+    expect(OPENAI_SRC).toMatch(/answer[-\s]engine/i);
+  });
+
+  it("Rule 19e GOLD-STANDARD EXAMPLE includes the operator-approved Palo Alto H2", () => {
+    expect(OPENAI_SRC).toMatch(/19e\.\s*GOLD-STANDARD EXAMPLE/);
+    expect(OPENAI_SRC).toMatch(/Architect-designed custom homes in Palo Alto/);
+    // The example body is line-wrapped inside the SYSTEM_PROMPT
+    // template literal — match the key phrase across optional
+    // whitespace.
+    expect(OPENAI_SRC).toMatch(
+      /Ritz Builders emphasizes an architect-led\s+design-build approach/,
+    );
+    expect(OPENAI_SRC).toMatch(/our integrated process/);
   });
 });

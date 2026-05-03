@@ -56,7 +56,12 @@ import {
   type ActionType,
 } from "./action-types";
 import type { SpecificEditEvidencePacket } from "./specific-edit-evidence";
-import { findUnsupportedBrandClaims } from "./brand-assertions";
+import {
+  findEmDashes,
+  findIncompleteBrandMentions,
+  findUnsupportedBrandClaims,
+  getBrandNameStyle,
+} from "./brand-assertions";
 import type {
   SpecificEdit,
   SpecificEditBundle,
@@ -586,6 +591,31 @@ export function validateSpecificEdit(
     if (!brandGate.ok) return brandGate;
   }
 
+  // ── 9.8 Public-copy style (W3 Step 3.7s) ───────────────────────────
+  // Operator-locked style rules layered on top of brand-claim
+  // grounding:
+  //   - No em dashes (— or free-standing –) in body / heading copy.
+  //     Periods, commas, colons, parentheses replace them.
+  //   - First mention of the brand uses the FULL entity name
+  //     ("Ritz Builders"), not the short form alone ("Ritz"). After
+  //     first mention, the model may transition to first-person
+  //     plural ("our team" / "we") for natural website tone, but
+  //     bare "Ritz" is never allowed.
+  // Operator opt-out:
+  //   - BEACON_ALLOW_EM_DASH=1 — em dash gate stays armed by default.
+  //   - BEACON_ALLOW_SHORT_BRAND_NAME=1 — brand-name-first gate stays
+  //     armed by default.
+  //
+  // Locked by `specific-edit-validator-brand-claims.test.ts`.
+  if (process.env.BEACON_ALLOW_EM_DASH !== "1") {
+    const dashGate = validateNoEmDashes(edit);
+    if (!dashGate.ok) return dashGate;
+  }
+  if (process.env.BEACON_ALLOW_SHORT_BRAND_NAME !== "1") {
+    const nameGate = validateBrandNameFirstMention(edit, packet);
+    if (!nameGate.ok) return nameGate;
+  }
+
   // ── 10. JSON-serializability ───────────────────────────────────────
   const ser = validateSerializable(edit, "$");
   if (!ser.ok) return ser;
@@ -637,6 +667,83 @@ function validateBrandClaimGrounding(
     return fail(
       f.path,
       `unsupported brand claim '${first.matchedText}' (pattern: ${first.patternId}) — ${first.description}`,
+    );
+  }
+  return OK;
+}
+
+/**
+ * W3 Step 3.7s (2026-05-03) — public-copy em dash ban.
+ *
+ * Operator-locked style: generated public copy MUST NOT contain em
+ * dashes (`—`) or free-standing en dashes (`–` not bracketed by
+ * digits). Rationale: em-dash-heavy prose reads cheap on a builder's
+ * website and is the visible LLM tell. Periods, commas, colons,
+ * parentheses replace it.
+ *
+ * Scans `targetElement.proposedText` + `targetElement.displayLabel`
+ * only. Operator-facing fields (`why` / `risks` etc.) may use
+ * em dashes freely.
+ *
+ * Pure / deterministic. Returns the first match (validator
+ * convention).
+ */
+function validateNoEmDashes(edit: SpecificEdit): ValidationResult {
+  const tel = edit.targetElement;
+  if (!tel) return OK;
+  const fields: Array<{ value: string | null | undefined; path: string }> = [
+    { value: tel.proposedText, path: "targetElement.proposedText" },
+    { value: tel.displayLabel, path: "targetElement.displayLabel" },
+  ];
+  for (const f of fields) {
+    if (typeof f.value !== "string" || f.value.length === 0) continue;
+    const matches = findEmDashes(f.value);
+    if (matches.length === 0) continue;
+    const first = matches[0];
+    return fail(
+      f.path,
+      `em dash banned in public copy ('${first.char}' near "${first.contextText}") — replace with period / comma / colon / parentheses`,
+    );
+  }
+  return OK;
+}
+
+/**
+ * W3 Step 3.7s (2026-05-03) — brand-name first-mention rule.
+ *
+ * Operator-locked style: every standalone generated section must use
+ * the FULL entity name ("Ritz Builders") for any brand mention. The
+ * short form ("Ritz") alone is never allowed unless explicitly
+ * authorized by the tenant config. After the first mention the model
+ * may transition to first-person plural ("our team", "we") — that's
+ * natural website tone — but bare "Ritz" remains banned.
+ *
+ * Scans `targetElement.proposedText` + `targetElement.displayLabel`.
+ * Operator-facing fields skipped. Tracked-prompt text in the packet
+ * (e.g., "best builders in Ritz" coming from a user prompt) NEVER
+ * trips this rule because the validator only sees the LLM's edit
+ * fields.
+ */
+function validateBrandNameFirstMention(
+  edit: SpecificEdit,
+  packet: SpecificEditEvidencePacket,
+): ValidationResult {
+  const style = getBrandNameStyle(packet.tenantId);
+  if (style === null) return OK;
+  const tel = edit.targetElement;
+  if (!tel) return OK;
+  const fields: Array<{ value: string | null | undefined; path: string }> = [
+    { value: tel.proposedText, path: "targetElement.proposedText" },
+    { value: tel.displayLabel, path: "targetElement.displayLabel" },
+  ];
+  for (const f of fields) {
+    if (typeof f.value !== "string" || f.value.length === 0) continue;
+    const matches = findIncompleteBrandMentions(f.value, style);
+    if (matches.length === 0) continue;
+    const first = matches[0];
+    return fail(
+      f.path,
+      `brand short form '${first.shortForm}' alone is not allowed in public copy (use the full entity name '${first.fullName}', or first-person plural like 'our team' / 'we' after the first full mention) — context: "${first.contextText}"`,
     );
   }
   return OK;

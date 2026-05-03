@@ -373,3 +373,213 @@ describe("validateBrandClaimGrounding — BEACON_ALLOW_UNSUPPORTED_BRAND_CLAIMS=
     expect(result.ok).toBe(false);
   });
 });
+
+// ── W3 Step 3.7s — em dash + brand-name style ─────────────────────────
+
+describe("W3 §3.7s — public-copy style (em dash + brand-name first mention)", () => {
+  it("rejects an em dash (—) in proposedText", () => {
+    const edit = makeH2Edit(
+      "Ritz Builders emphasizes architect-led design-build — for example, basement scopes.",
+    );
+    const result = validateSpecificEdit(
+      edit,
+      makePacket({
+        tenantId: "ritz-builders",
+        brandAssertions: [RITZ_PROCESS_ASSERTION],
+      }),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.field).toBe("targetElement.proposedText");
+      expect(result.reason).toMatch(/em dash banned/);
+    }
+  });
+
+  it("rejects a free-standing en dash (–) in proposedText", () => {
+    const edit = makeH2Edit(
+      "Ritz Builders emphasizes architect-led design-build – this saves time.",
+    );
+    const result = validateSpecificEdit(
+      edit,
+      makePacket({
+        tenantId: "ritz-builders",
+        brandAssertions: [RITZ_PROCESS_ASSERTION],
+      }),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toMatch(/em dash banned/);
+    }
+  });
+
+  it("ALLOWS digit-bounded en dash ranges (10–15 weeks, 2024–2025)", () => {
+    const edit = makeH2Edit(
+      "Ritz Builders emphasizes architect-led design-build. Project timelines run 10–15 weeks.",
+    );
+    const result = validateSpecificEdit(
+      edit,
+      makePacket({
+        tenantId: "ritz-builders",
+        brandAssertions: [RITZ_PROCESS_ASSERTION],
+      }),
+    );
+    expect(result.ok).toBe(true);
+  });
+
+  it("rejects bare 'Ritz' in proposedText for tenant 'ritz-builders'", () => {
+    const edit = makeH2Edit(
+      "Ritz emphasizes architect-led design-build for whole-home remodels.",
+    );
+    const result = validateSpecificEdit(
+      edit,
+      makePacket({
+        tenantId: "ritz-builders",
+        brandAssertions: [RITZ_PROCESS_ASSERTION],
+      }),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.field).toBe("targetElement.proposedText");
+      expect(result.reason).toMatch(/brand short form 'Ritz' alone/);
+    }
+  });
+
+  it("ALLOWS 'Ritz Builders' as the first mention (gold-standard pattern)", () => {
+    const edit = makeH2Edit(
+      "Ritz Builders emphasizes an architect-led design-build approach for custom homes in Palo Alto, coordinating architectural design, engineering, permitting strategy, and construction planning from the earliest stages.",
+    );
+    const result = validateSpecificEdit(
+      edit,
+      makePacket({
+        tenantId: "ritz-builders",
+        brandAssertions: [RITZ_PROCESS_ASSERTION],
+      }),
+    );
+    expect(result.ok).toBe(true);
+  });
+
+  it("ALLOWS 'Ritz Builders … Our team …' transition pattern", () => {
+    const edit = makeH2Edit(
+      "Ritz Builders emphasizes an architect-led design-build approach for custom homes in Palo Alto. Our team coordinates architectural design, engineering, permitting strategy, and construction planning from concept through completion.",
+    );
+    const result = validateSpecificEdit(
+      edit,
+      makePacket({
+        tenantId: "ritz-builders",
+        brandAssertions: [RITZ_PROCESS_ASSERTION],
+      }),
+    );
+    expect(result.ok).toBe(true);
+  });
+
+  it("rejects a SECOND bare 'Ritz' even when first mention used the full name", () => {
+    const edit = makeH2Edit(
+      "Ritz Builders emphasizes architect-led design-build. Ritz also coordinates city permitting reviews.",
+    );
+    const result = validateSpecificEdit(
+      edit,
+      makePacket({
+        tenantId: "ritz-builders",
+        brandAssertions: [RITZ_PROCESS_ASSERTION],
+      }),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toMatch(/brand short form 'Ritz' alone/);
+    }
+  });
+
+  it("ALLOWS the gold-standard Palo Alto H2 (operator-approved shape)", () => {
+    // Operator-locked example from the W3 §3.7s brief — full entity
+    // name first mention, transition to "our integrated process",
+    // specific scope examples grounded in evidence, no em dashes,
+    // no popularity claims.
+    const proposedText =
+      "Architect-designed custom homes in Palo Alto\n\n" +
+      "Ritz Builders emphasizes an architect-led design-build approach for custom homes in Palo Alto, coordinating architectural design, engineering, permitting strategy, and construction planning from the earliest stages. " +
+      "For complex Palo Alto sites, including deep foundations, basement scopes, strict city review, and feasibility constraints, our integrated process helps align the design vision with buildability before construction begins.";
+    const edit = makeH2Edit(proposedText, "Architect-designed custom homes (Palo Alto)");
+    const result = validateSpecificEdit(
+      edit,
+      makePacket({
+        tenantId: "ritz-builders",
+        brandAssertions: [RITZ_PROCESS_ASSERTION],
+      }),
+    );
+    expect(result.ok).toBe(true);
+  });
+
+  it("packet.affectedPrompts text containing 'Ritz' alone does NOT cause rejection (only Beacon-generated copy is scanned)", () => {
+    // Tracked-prompt copy (which Beacon's tenant config could write
+    // freely) is allowed to mention 'Ritz' alone — that's user input,
+    // not generated public copy. The validator only scans
+    // proposedText + displayLabel.
+    const edit = makeH2Edit(
+      "Ritz Builders emphasizes an architect-led design-build approach for custom homes in Palo Alto. Our team handles permitting and engineering.",
+    );
+    const result = validateSpecificEdit(
+      edit,
+      makePacket({
+        tenantId: "ritz-builders",
+        brandAssertions: [RITZ_PROCESS_ASSERTION],
+        affectedPrompts: [
+          {
+            promptId: "11111111-2222-3333-4444-555555555555",
+            promptText: "is Ritz the best builder in Palo Alto?",
+            category: "absent",
+            observationCount: 6,
+            brandPrimaryShare: 0,
+            topPrimaryCompetitor: null,
+            descriptorsNearBrand: [],
+            actualSearchQueries: [],
+            citedSourcePages: [],
+            descriptorWindows: [],
+          },
+        ],
+      }),
+    );
+    expect(result.ok).toBe(true);
+  });
+
+  it("BEACON_ALLOW_EM_DASH=1 opts out of the em-dash gate", () => {
+    const original = process.env.BEACON_ALLOW_EM_DASH;
+    process.env.BEACON_ALLOW_EM_DASH = "1";
+    try {
+      const edit = makeH2Edit(
+        "Ritz Builders emphasizes architect-led design-build — and our team coordinates permitting.",
+      );
+      const result = validateSpecificEdit(
+        edit,
+        makePacket({
+          tenantId: "ritz-builders",
+          brandAssertions: [RITZ_PROCESS_ASSERTION],
+        }),
+      );
+      expect(result.ok).toBe(true);
+    } finally {
+      if (original === undefined) delete process.env.BEACON_ALLOW_EM_DASH;
+      else process.env.BEACON_ALLOW_EM_DASH = original;
+    }
+  });
+
+  it("BEACON_ALLOW_SHORT_BRAND_NAME=1 opts out of the brand-name-first gate", () => {
+    const original = process.env.BEACON_ALLOW_SHORT_BRAND_NAME;
+    process.env.BEACON_ALLOW_SHORT_BRAND_NAME = "1";
+    try {
+      const edit = makeH2Edit(
+        "Ritz emphasizes an architect-led design-build approach.",
+      );
+      const result = validateSpecificEdit(
+        edit,
+        makePacket({
+          tenantId: "ritz-builders",
+          brandAssertions: [RITZ_PROCESS_ASSERTION],
+        }),
+      );
+      expect(result.ok).toBe(true);
+    } finally {
+      if (original === undefined) delete process.env.BEACON_ALLOW_SHORT_BRAND_NAME;
+      else process.env.BEACON_ALLOW_SHORT_BRAND_NAME = original;
+    }
+  });
+});

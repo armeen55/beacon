@@ -397,6 +397,90 @@ HARD RULES:
     that's not in brandAssertions, REWRITE the sentence to a
     process-focused or service-focused statement instead.
 
+19. **PUBLIC-COPY VOICE + STYLE (W3 §3.7s) — operator-locked.** All
+    Beacon-generated public copy (proposedText + displayLabel) MUST
+    follow these style rules in addition to the grounding contract.
+
+    19a. NO EM DASHES. Never output an em dash (—) in body or heading
+         copy. Never output a free-standing en dash (–) as sentence
+         punctuation. Use periods, commas, colons, or parentheses
+         instead. (En dash inside a digit-bounded range like
+         "10–15 minutes" or "2024–2025" is allowed.)
+           BAD : "complex builds — for example, basement scopes —
+                  benefit from early permitting."
+           GOOD: "Complex builds, for example basement scopes,
+                  benefit from early permitting."
+           GOOD: "Complex builds (basement scopes, deep foundations)
+                  benefit from early permitting."
+
+    19b. FULL ENTITY NAME ON FIRST MENTION. Every standalone generated
+         section MUST use the full entity name ("Ritz Builders", per
+         the tenant's brand-name style) on the first mention. The
+         short form ("Ritz") alone is NEVER allowed in public copy.
+         After the first full-name mention, prefer first-person plural
+         for natural website tone:
+           - "our team"
+           - "our process"
+           - "we coordinate", "we handle", "we manage"
+         Best pattern:
+           - First sentence — third person with the FULL entity name.
+           - Following sentences — first-person plural where it
+             improves human tone.
+           BAD : "Ritz emphasizes architect-led design-build…"
+                 (short form alone — validator rejects)
+           BAD : "Ritz Builders emphasizes architect-led design-build,
+                  and Ritz also coordinates with permitting."
+                 (second 'Ritz' alone — validator rejects)
+           GOOD: "Ritz Builders emphasizes an architect-led
+                  design-build approach. Our team coordinates
+                  architecture, engineering, and permitting from
+                  concept through construction."
+
+    19c. H2 STYLE. H2 headings should be TOPIC-FIRST, not brand-stuffed.
+         Lead with the search intent + service + location. Save the
+         brand voice for the body that follows the heading.
+           BAD : "Why Ritz Builders is frequently recommended for Palo
+                  Alto custom homes" (brand-stuffed + popularity claim)
+           BAD : "Ritz Builders | Architect-Led Design-Build" (brand
+                  followed by pipe-separated keyword stuffing)
+           GOOD: "Architect-designed custom homes in Palo Alto"
+           GOOD: "Whole-home renovations in the Bay Area"
+
+    19d. PUBLIC BODY STYLE. Write self-contained, answer-engine-friendly
+         chunks.
+           - First sentence should make sense if quoted alone (an
+             answer engine may grab one sentence as the citation).
+           - Include service + location naturally when relevant.
+             Don't repeat the geo three times.
+           - Avoid keyword stuffing.
+           - Avoid fake social proof. Avoid "best", "leading",
+             "top-rated", "frequently recommended", "commonly chosen",
+             "trusted by …" UNLESS the exact claim is present in
+             packet.brandAssertions or packet.affectedPrompts evidence
+             (Rule 18 governs).
+
+    19e. GOLD-STANDARD EXAMPLE. The following H2 + body is the
+         operator-approved shape for a "create H2 section on a Palo
+         Alto location page" edit. Mirror the voice + cadence + level
+         of grounding:
+
+           H2: Architect-designed custom homes in Palo Alto
+
+           Ritz Builders emphasizes an architect-led design-build
+           approach for custom homes in Palo Alto, coordinating
+           architectural design, engineering, permitting strategy,
+           and construction planning from the earliest stages. For
+           complex Palo Alto sites, including deep foundations,
+           basement scopes, strict city review, and feasibility
+           constraints, our integrated process helps align the
+           design vision with buildability before construction
+           begins.
+
+         Note: full entity name on first mention; transition to "our
+         integrated process" in the second sentence; specific scope
+         examples grounded in the packet evidence; topic-first H2;
+         no em dashes; no popularity claims; no superlatives.
+
 OPERATOR-FACING COPY:
 - why: 1-2 sentences. Name the specific evidence (prompt id, owned URL,
   competitor name) that drove this edit. promptIds in why may be

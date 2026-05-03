@@ -20,10 +20,13 @@
 import { describe, expect, it } from "vitest";
 import {
   FORBIDDEN_CLAIM_PATTERNS,
+  findEmDashes,
+  findIncompleteBrandMentions,
   findUnsupportedBrandClaims,
   formatBrandAssertionsForPrompt,
   formatForbiddenClaimsForPrompt,
   getBrandAssertions,
+  getBrandNameStyle,
   type BrandAssertion,
 } from "./brand-assertions";
 
@@ -378,5 +381,144 @@ describe("formatForbiddenClaimsForPrompt", () => {
     expect(out).toMatch(/award/);
     expect(out).toMatch(/superlative/);
     expect(out).toMatch(/guarantee/);
+  });
+});
+
+// ── W3 Step 3.7s — getBrandNameStyle ────────────────────────────────────
+
+describe("W3 §3.7s — getBrandNameStyle", () => {
+  it("returns Ritz Builders style for tenant 'ritz-builders'", () => {
+    const style = getBrandNameStyle("ritz-builders");
+    expect(style).not.toBeNull();
+    expect(style?.fullName).toBe("Ritz Builders");
+    expect(style?.bannedShortForms).toEqual(["Ritz"]);
+  });
+
+  it("returns null for unknown tenants (gate stays inert)", () => {
+    expect(getBrandNameStyle("unknown")).toBeNull();
+    expect(getBrandNameStyle("")).toBeNull();
+  });
+});
+
+// ── W3 Step 3.7s — findEmDashes ────────────────────────────────────────
+
+describe("W3 §3.7s — findEmDashes", () => {
+  it("flags every em dash (U+2014) in body copy", () => {
+    const text =
+      "complex builds — for example, basement scopes — benefit from early permitting.";
+    const out = findEmDashes(text);
+    expect(out.length).toBe(2);
+    expect(out[0].char).toBe("—");
+  });
+
+  it("flags free-standing en dashes (U+2013) used as sentence punctuation", () => {
+    const text = "Ritz Builders emphasizes an architect-led approach – this works.";
+    const out = findEmDashes(text);
+    expect(out.length).toBe(1);
+    expect(out[0].char).toBe("–");
+  });
+
+  it("ALLOWS en dash inside a digit-bounded range (years / minutes / etc.)", () => {
+    expect(
+      findEmDashes("Project timelines run 10–15 weeks for typical scope."),
+    ).toEqual([]);
+    expect(findEmDashes("2024–2025 strategy")).toEqual([]);
+  });
+
+  it("returns empty for clean body copy", () => {
+    const text =
+      "Ritz Builders emphasizes an architect-led design-build approach. Our team coordinates architecture, engineering, and permitting.";
+    expect(findEmDashes(text)).toEqual([]);
+  });
+
+  it("returns empty for empty / null text", () => {
+    expect(findEmDashes("")).toEqual([]);
+    expect(findEmDashes(null)).toEqual([]);
+    expect(findEmDashes(undefined)).toEqual([]);
+  });
+
+  it("matches are sorted by index (FIRST offense surfaces first)", () => {
+    const text = "x — y – z — w"; // 4 dash characters at increasing offsets.
+    const out = findEmDashes(text);
+    expect(out.length).toBeGreaterThanOrEqual(3);
+    for (let i = 1; i < out.length; i += 1) {
+      expect(out[i].index).toBeGreaterThan(out[i - 1].index);
+    }
+  });
+});
+
+// ── W3 Step 3.7s — findIncompleteBrandMentions ─────────────────────────
+
+describe("W3 §3.7s — findIncompleteBrandMentions", () => {
+  const RITZ_STYLE = getBrandNameStyle("ritz-builders");
+
+  it("flags bare 'Ritz' that is NOT followed by ' Builders'", () => {
+    const out = findIncompleteBrandMentions(
+      "Ritz emphasizes an architect-led approach.",
+      RITZ_STYLE,
+    );
+    expect(out.length).toBe(1);
+    expect(out[0].shortForm).toBe("Ritz");
+    expect(out[0].fullName).toBe("Ritz Builders");
+  });
+
+  it("ALLOWS 'Ritz Builders' (full name)", () => {
+    expect(
+      findIncompleteBrandMentions(
+        "Ritz Builders emphasizes an architect-led approach.",
+        RITZ_STYLE,
+      ),
+    ).toEqual([]);
+  });
+
+  it("ALLOWS first-person plural after a full mention", () => {
+    expect(
+      findIncompleteBrandMentions(
+        "Ritz Builders emphasizes architect-led design-build. Our team coordinates engineering, permitting, and construction.",
+        RITZ_STYLE,
+      ),
+    ).toEqual([]);
+  });
+
+  it("flags a SECOND bare 'Ritz' even after a full first mention", () => {
+    // Operator-locked: bare 'Ritz' is never allowed in generated
+    // public copy. The model must use 'Ritz Builders' or transition
+    // to 'we' / 'our team' / 'our process'.
+    const out = findIncompleteBrandMentions(
+      "Ritz Builders emphasizes architect-led design-build. Ritz also coordinates city permitting.",
+      RITZ_STYLE,
+    );
+    expect(out.length).toBe(1);
+    expect(out[0].index).toBeGreaterThan(15); // the SECOND occurrence
+  });
+
+  it("ALLOWS multiple 'Ritz Builders' mentions (every one followed by ' Builders')", () => {
+    expect(
+      findIncompleteBrandMentions(
+        "Ritz Builders' approach. Ritz Builders also coordinates trades.",
+        RITZ_STYLE,
+      ),
+    ).toEqual([]);
+  });
+
+  it("does NOT match a longer word that contains 'Ritz' as a prefix (word-boundary anchored)", () => {
+    expect(
+      findIncompleteBrandMentions(
+        "Ritzy and posh markets are well served by Ritz Builders.",
+        RITZ_STYLE,
+      ),
+    ).toEqual([]);
+  });
+
+  it("returns empty when style is null (unknown tenant)", () => {
+    expect(
+      findIncompleteBrandMentions("Ritz emphasizes …", null),
+    ).toEqual([]);
+  });
+
+  it("returns empty for empty / null text", () => {
+    expect(findIncompleteBrandMentions("", RITZ_STYLE)).toEqual([]);
+    expect(findIncompleteBrandMentions(null, RITZ_STYLE)).toEqual([]);
+    expect(findIncompleteBrandMentions(undefined, RITZ_STYLE)).toEqual([]);
   });
 });

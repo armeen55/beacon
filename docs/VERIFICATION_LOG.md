@@ -7,6 +7,60 @@
 
 ---
 
+## 2026-05-03 (late overnight) — W3 Step 3.7s: Public-copy style correction
+
+The Step 3.7 paid run on Palo Alto produced grounded copy but failed two style rules the operator added permanently to Beacon's voice contract:
+- The body used bare "Ritz" instead of "Ritz Builders" on first mention.
+- The body contained two em dashes used as sentence punctuation.
+
+This commit adds the style layer that prevents both defects going forward.
+
+### What changed
+
+**`src/domains/recommendations/brand-assertions.ts`:**
+- `BrandNameStyle` type — `{ fullName, bannedShortForms }`.
+- `getBrandNameStyle(tenantId)` — Ritz Builders style registered (`fullName: "Ritz Builders"`, `bannedShortForms: ["Ritz"]`); returns null for unknown tenants.
+- `findEmDashes(text)` — detects em dashes (`—`, U+2014) anywhere + free-standing en dashes (`–`, U+2013) NOT bracketed by digits. Returns sorted matches with index + 30-char context.
+- `findIncompleteBrandMentions(text, style)` — word-boundary-anchored regex `\bRitz\b(?!\s+Builders\b)` flags every bare "Ritz" not followed by " Builders". `style === null` → no matches (gate inert for unknown tenants).
+
+**`src/domains/recommendations/specific-edit-validator.ts`:**
+- New `validateNoEmDashes(edit)` scans `proposedText` + `displayLabel` only. Surfaces matched character + context in fail reason. `BEACON_ALLOW_EM_DASH=1` env opt-out.
+- New `validateBrandNameFirstMention(edit, packet)` looks up the per-tenant style and rejects bare-short-form matches. `BEACON_ALLOW_SHORT_BRAND_NAME=1` env opt-out.
+- Both gates wired in order: `validateBrandClaimGrounding` → `validateNoEmDashes` → `validateBrandNameFirstMention` → JSON-serializability.
+
+**`src/domains/recommendations/providers/openai.ts` SYSTEM_PROMPT:**
+- New Rule 19 (PUBLIC-COPY VOICE + STYLE) with 5 sub-rules:
+  - 19a NO EM DASHES — BAD/GOOD rewrites.
+  - 19b FULL ENTITY NAME ON FIRST MENTION — gold pattern (`Ritz Builders emphasizes … Our team coordinates …`) + explicit BAD examples for bare "Ritz" / second-instance "Ritz".
+  - 19c H2 STYLE — topic-first, not brand-stuffed. "Architect-designed custom homes in Palo Alto" GOOD; "Why Ritz Builders is frequently recommended for Palo Alto custom homes" BAD.
+  - 19d PUBLIC BODY STYLE — self-contained answer-engine chunks; first sentence stands alone; no keyword stuffing; no fake social proof.
+  - 19e GOLD-STANDARD EXAMPLE — operator-approved Palo Alto H2 + body verbatim, with annotation pointing to the voice + cadence + grounding cues.
+
+### Tests
+
+**3 files extended (39 new cases):**
+
+- `brand-assertions.test.ts` (+16) — `getBrandNameStyle` shape, `findEmDashes` matches em + en dash but allows digit-bounded ranges, sort order by index, `findIncompleteBrandMentions` flags bare-short and allows full name + word-boundary anchored ("Ritzy" doesn't match), null-style returns empty.
+- `specific-edit-validator-brand-claims.test.ts` (+11) — em dash rejection (em + en + digit-range allow), gold-standard Palo Alto H2 passes, "Ritz Builders … Our team …" transition pattern allowed, second bare "Ritz" rejected even after a full first mention, packet user-prompt text containing "Ritz" never trips gate, both env opt-outs honored.
+- `tests/architecture/recommendations-step-3.7-brand-grounding.test.ts` (+12) — source-scan: brand-assertions exports new helpers, validator imports + wires order correctly, env opt-outs present, SYSTEM_PROMPT Rule 19 + 19a/b/c/d/e blocks present, gold-standard example carries the operator-approved Palo Alto copy.
+
+### Verification
+
+- `npx tsc --noEmit` clean.
+- 310/310 targeted (extended 3.7s + adjacent) pass.
+- `npm run test` 3702/3706 (4 pre-existing baseline failures verified independent against `8b12b3d`).
+- `BEACON_TENANT_ID=tenant-ritz-founder BEACON_TENANT_SLUG=ritz-builders npm run build` clean.
+
+### Net effect on output
+
+The style layer is the difference between Step 3.7's first paid-run output ("Ritz emphasizes … complex builds — for example …") and the operator's preferred shape ("Ritz Builders emphasizes … For complex Palo Alto sites, including … our integrated process …"). Both layers (3.7 grounding + 3.7s style) now apply at validate time. The next paid run on a fresh cluster will produce output mirroring the gold-standard Palo Alto example.
+
+### Out of scope
+
+Apply-All-HIGH; broad regeneration; customer-one backfill; Profound archive/delete; broad UI redesign outside /recommendations.
+
+---
+
 ## 2026-05-03 (overnight) — W3 Step 3.7: Brand-claim grounding + first paid LIVE run
 
 Closes the W3 §3.6 minor-edit defect class (unsupported "Ritz is frequently/commonly/often recommended" / "leading firm" / "award-winning" copy). Two commits + one report.

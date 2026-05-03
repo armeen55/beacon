@@ -422,3 +422,181 @@ export function formatForbiddenClaimsForPrompt(): string {
     "\n",
   );
 }
+
+// ---------------------------------------------------------------------------
+// W3 Step 3.7s (2026-05-03) — brand-name + style helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Operator-locked style rules for one tenant's generated public copy.
+ *
+ * Drives two validators that sit alongside `findUnsupportedBrandClaims`:
+ *   - `findIncompleteBrandMentions` — flags bare short forms ("Ritz")
+ *     that don't belong to the full entity ("Ritz Builders").
+ *   - `findEmDashes` — flags em / en dash use as sentence punctuation
+ *     (digit-bounded ranges like "10–15 minutes" stay allowed).
+ *
+ * Operator scope (W3 §3.7s):
+ *   - First mention of the brand in any generated section MUST be the
+ *     full entity name ("Ritz Builders"). Subsequent sentences may
+ *     transition to first-person plural ("our team", "we", "our
+ *     process") for natural website tone.
+ *   - "Ritz" alone is NEVER allowed in generated public copy. The
+ *     model must either spell out "Ritz Builders" or use the
+ *     first-person plural form.
+ *   - Em dashes (— and free-standing –) are banned in body copy and
+ *     headings. Periods, commas, colons, parentheses replace them.
+ */
+export type BrandNameStyle = {
+  /** Full operator-locked entity name (e.g., "Ritz Builders"). */
+  readonly fullName: string;
+  /**
+   * Short forms that are NOT allowed in generated public copy unless
+   * they appear immediately followed by the rest of `fullName` (so
+   * "Ritz" matches "Ritz Builders" and is allowed; "Ritz" alone is
+   * rejected).
+   */
+  readonly bannedShortForms: ReadonlyArray<string>;
+};
+
+/** Per-tenant style registry. Adds-only — keys match `BeaconTenant.slug`. */
+const TENANT_NAME_STYLES: Record<string, BrandNameStyle> = {
+  "ritz-builders": {
+    fullName: "Ritz Builders",
+    bannedShortForms: ["Ritz"],
+  },
+};
+
+/**
+ * Get the operator-locked brand-name style for a tenant. Returns
+ * `null` for unknown tenants — callers MUST treat null as "no style
+ * gate active" and skip the brand-name-first check (the safe default
+ * for tenants not yet curated).
+ */
+export function getBrandNameStyle(tenantId: string): BrandNameStyle | null {
+  if (typeof tenantId !== "string" || tenantId.length === 0) return null;
+  return TENANT_NAME_STYLES[tenantId] ?? null;
+}
+
+// ── Em-dash detector ───────────────────────────────────────────────────
+
+/**
+ * Em-dash and en-dash usage that the operator-locked style rule bans
+ * (W3 §3.7s).
+ *
+ * Returns one entry per match. Each entry carries the matched
+ * substring + the offending character. A digit-bounded en dash
+ * ("2024–2025", "10–15 minutes") is NOT a match — those are
+ * legitimate ranges. An em dash (`—`) is ALWAYS a match (no
+ * legitimate use in generated public copy).
+ *
+ * Pure / deterministic. Pattern compiled once.
+ */
+const EM_DASH_REGEX = /—/gu; // U+2014 — always banned in public copy.
+const EN_DASH_NON_RANGE_REGEX = /(?<![0-9])–(?![0-9])/gu; // U+2013 unless digit range.
+
+export type EmDashMatch = {
+  readonly char: "—" | "–";
+  readonly index: number;
+  readonly contextText: string;
+};
+
+export function findEmDashes(
+  text: string | null | undefined,
+): EmDashMatch[] {
+  if (typeof text !== "string" || text.length === 0) return [];
+  const matches: EmDashMatch[] = [];
+  for (const m of text.matchAll(EM_DASH_REGEX)) {
+    matches.push({
+      char: "—",
+      index: m.index ?? 0,
+      contextText: extractContext(text, m.index ?? 0, 30),
+    });
+  }
+  for (const m of text.matchAll(EN_DASH_NON_RANGE_REGEX)) {
+    matches.push({
+      char: "–",
+      index: m.index ?? 0,
+      contextText: extractContext(text, m.index ?? 0, 30),
+    });
+  }
+  // Sort by index so the FIRST offense is reported first (validator
+  // convention).
+  matches.sort((a, b) => a.index - b.index);
+  return matches;
+}
+
+function extractContext(text: string, idx: number, halfWidth: number): string {
+  const start = Math.max(0, idx - halfWidth);
+  const end = Math.min(text.length, idx + halfWidth);
+  return text.slice(start, end).trim();
+}
+
+// ── Brand-name first-mention detector ──────────────────────────────────
+
+/**
+ * One match where a banned short form appears in the text without
+ * the rest of the full entity name following.
+ *
+ * Example: text "Ritz emphasizes design-build" with style
+ * `{ fullName: "Ritz Builders", bannedShortForms: ["Ritz"] }`
+ * returns one match — "Ritz" without " Builders" after it.
+ *
+ * Text "Ritz Builders' approach … Ritz Builders also coordinates"
+ * returns NO matches — every "Ritz" is followed by " Builders".
+ */
+export type IncompleteBrandMatch = {
+  readonly shortForm: string;
+  readonly fullName: string;
+  readonly index: number;
+  readonly contextText: string;
+};
+
+export function findIncompleteBrandMentions(
+  text: string | null | undefined,
+  style: BrandNameStyle | null,
+): IncompleteBrandMatch[] {
+  if (
+    style === null ||
+    typeof text !== "string" ||
+    text.length === 0 ||
+    style.bannedShortForms.length === 0
+  ) {
+    return [];
+  }
+  const matches: IncompleteBrandMatch[] = [];
+  for (const shortForm of style.bannedShortForms) {
+    if (
+      typeof shortForm !== "string" ||
+      shortForm.trim().length === 0 ||
+      shortForm === style.fullName
+    ) {
+      continue;
+    }
+    // The full name must START with the short form to support the
+    // "lookahead" — operator scope is "Ritz Builders" extends "Ritz".
+    if (!style.fullName.startsWith(shortForm)) continue;
+    const tail = style.fullName.slice(shortForm.length); // " Builders"
+    if (tail.length === 0) continue;
+    // Build a regex that matches the short form NOT followed by the
+    // tail. Word-boundary anchored so partial-word matches are
+    // ignored ("Ritzy" wouldn't match).
+    const escapedShort = escapeRegex(shortForm);
+    const escapedTail = escapeRegex(tail);
+    const re = new RegExp(`\\b${escapedShort}\\b(?!${escapedTail}\\b)`, "g");
+    for (const m of text.matchAll(re)) {
+      matches.push({
+        shortForm,
+        fullName: style.fullName,
+        index: m.index ?? 0,
+        contextText: extractContext(text, m.index ?? 0, 30),
+      });
+    }
+  }
+  matches.sort((a, b) => a.index - b.index);
+  return matches;
+}
+
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
