@@ -7,6 +7,82 @@
 
 ---
 
+## 2026-05-03 (very late overnight) — W3 Step 3.8: FAQ Q+A pairing fix + dry-run verification
+
+The W3 §3.7 paid run on Palo Alto flagged one residual defect: the LLM bundled FAQ question + answer body into ONE `faq_question[new]` proposedText. Step 3.8 closes the gap. Two commits + one report.
+
+### Commits
+
+- `c261e35` — feat(recs): FAQ Q+A pairing fix (W3 Step 3.8)
+- `<this commit>` — docs(recs): W3 Step 3.8 dry-run verification report (Palo Alto, FAQ pairing passes) + HANDOFF/VERIFICATION_LOG sync
+
+### What changed
+
+**`src/domains/recommendations/specific-edit-validator.ts`:**
+- New per-edit `validateFaqRowShape(edit)` rejects newline-bundled answer bodies and `Q: \n A:` deterministic-shape bundling on `faq_question[new]:<hash>` rows; rejects bare-question shapes + under-30-word stubs on `faq_answer[new]:<hash>` rows.
+- Wired BEFORE `validateFaqIntentRewriting` so bundled rows surface the operator-actionable "FAQ question row contains an answer body" reason instead of the generic "must end with ?" message.
+- New bundle-level `checkFaqPairing(edits)` groups every FAQ edit by hash suffix (`extractElementKeyHashSuffix`); rejects orphan questions, orphan answers, duplicate questions, and duplicate answers.
+- `validateSpecificEditBundle` aggregates pairing failures into `bundleErrors` AND overwrites the orphan's per-edit result so callers see WHICH row failed.
+
+**`src/domains/recommendations/providers/openai.ts` SYSTEM_PROMPT Rule 13:**
+- Added W3 §3.8 PAIRED FAQ OUTPUT block listing the shared-hash contract (`faq_question[new]:<hash>` + `faq_answer[new]:<hash>`).
+- BAD example shows the bundled shape that triggered the §3.7 rejection.
+- GOOD example shows the paired shape with separate question + answer rows.
+- Cross-references Rule 18 (brand-claim grounding) + Rule 19 (voice + style) so the answer body is still gated by the full public-copy stack.
+- Pre-existing `faq_answer targetElement, this rule does NOT apply` carve-out preserved (Rule 13 "?" check doesn't fire on answer rows).
+
+### Tests
+
+**1 new file + 2 updated (38 new + 12 invariant cases):**
+
+- `specific-edit-validator-faq-pairing.test.ts` (NEW, 16) — per-edit shape gates: bundled Q+A rejected with operator-actionable reason, paired shape passes, bare-question answer rejected, under-30-word answer rejected. Bundle pairing: paired bundle passes, orphan Q rejected with hash + "unpaired FAQ question" reason, orphan A rejected with the parallel reason, duplicates rejected, mixed bundle isolates the failure to the unpaired row, non-FAQ edits unaffected. Brand-grounding gates still active on answer body: bare "Ritz" rejected, em dash rejected, "frequently recommended" rejected, gold "Ritz Builders … Our team …" pattern accepted.
+- `recommendations-step-3.7-brand-grounding.test.ts` (+12) — source-scan invariants: SYSTEM_PROMPT Rule 13 carries PAIRED FAQ OUTPUT block + faq_question/answer hash-pairing shape + BAD/GOOD examples + cross-reference to Rule 18/19. Validator wires `validateFaqRowShape` BEFORE `validateFaqIntentRewriting`. Bundle validator aggregates pairing failures + overwrites per-edit results. `checkFaqPairing` + `validateFaqRowShape` are defined.
+- `specific-edit-validator.test.ts` (4 updated) — pre-existing structural-quality + faq_answer-bypass tests reworked to use the new paired shape and expect the new W3 §3.8 rejection reasons; "UNAFFECTED faq_answer" fixture expanded to 30+ words so the new word-floor doesn't fire on it.
+
+### Dry-run verification
+
+**Target:** `create_cluster_page:geo:Palo Alto` (queue rank #2, fresh cluster after §3.7's dry-run).
+
+```
+BEACON_TENANT_ID=tenant-ritz-founder BEACON_TENANT_SLUG=ritz-builders \
+  npx tsx --require ./scripts/mock-server-only.cjs \
+  scripts/build-edits-for-queue.ts \
+  --rec-id="create_cluster_page:geo:Palo Alto" \
+  --provider=openai
+```
+
+DRY-RUN. No `--write`, no persist.
+
+**Result:** 5 edits generated · 5 ship-as-is · 0 rejected · cost $0.015969 USD.
+- 1 H2 with the gold-standard "Ritz Builders emphasizes … our integrated process …" voice.
+- 2 FAQ pairs (4 rows) sharing hashes `pa01ab2c3d4` + `pa02ab2c3d5`. Each pair: clean question + 51-word substantive answer grounded in packet evidence (geotechnical investigations, dewatering strategy, strict city review).
+- Zero brand-claim leaks · zero em dashes · zero bare "Ritz" · zero placeholder · zero competitor leaks · zero wrong-page anchors.
+
+Full per-edit grading + verification matrix in `docs/W3_STEP_3.8_FAQ_PAIRING_REPORT.md`.
+
+### Verification
+
+- `npx tsc --noEmit` clean.
+- 232/232 targeted (faq-pairing + adjacent validator + arch + brand-claims + brand-assertions) pass.
+- 46/46 openai source-scan tests pass (Rule 13 paired contract + faq_answer carve-out).
+- `npm run test` 3726/3730 (4 pre-existing baseline failures verified independent against `8b12b3d`).
+- `BEACON_TENANT_ID=tenant-ritz-founder BEACON_TENANT_SLUG=ritz-builders npm run build` clean.
+
+### Decision
+
+**GO for narrowly-scoped paid runs going forward.** The gate stack is now production-ready:
+- Step 3.7 (brand-claim grounding) — closed in §3.7.
+- Step 3.7s (public-copy style: em dashes + brand-name-first) — closed in §3.7s.
+- Step 3.8 (FAQ Q+A pairing) — closed in this run.
+
+The `--write` flag will now persist clean rows when the operator approves a specific cluster's output. Apply-All-HIGH stays operator-locked OUT until the operator personally inspects ≥ 20–30 generated recs across multiple clusters (W3 §1.5).
+
+### Out of scope (per Step 3.8 + W3 §1.5)
+
+Apply-All-HIGH; broad regeneration; customer-one backfill; Profound archive/delete; broad UI redesign outside /recommendations.
+
+---
+
 ## 2026-05-03 (late overnight) — W3 Step 3.7s: Public-copy style correction
 
 The Step 3.7 paid run on Palo Alto produced grounded copy but failed two style rules the operator added permanently to Beacon's voice contract:

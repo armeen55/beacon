@@ -1,6 +1,34 @@
 # Beacon — Start Here
 
-> 🟢 **W3 Step 3.7s (Public-copy style correction) LANDED (2026-05-03):** The Step 3.7 paid run on Palo Alto produced grounded copy, but the operator caught two style defects: it used "Ritz" (short form) instead of "Ritz Builders", and dropped two em dashes into the body. Step 3.7s adds a permanent style layer enforcing the operator-locked voice + punctuation rules.
+> 🟢 **W3 Step 3.8 (FAQ Q+A pairing fix) LANDED (2026-05-03):** Two commits: `c261e35` (validator + Rule 13 paired contract + tests) + the doc that grades the dry-run on Palo Alto. The W3 §3.7 paid run flagged one residual defect — the LLM bundled FAQ question + answer body into a single `faq_question[new]` proposedText. Step 3.8 closes it with three layered enforcement points:
+>
+> - **Per-edit FAQ shape gate** — `validateFaqRowShape` rejects newline-bundled answers + `Q: \n A:` deterministic-shape bundling on `faq_question[new]:<hash>` rows. Rejects bare-question shapes + under-30-word stubs on `faq_answer[new]:<hash>` rows. Wired BEFORE `validateFaqIntentRewriting` so the operator-actionable error fires before the generic "must end with ?" reason.
+> - **Bundle-level pairing** — `checkFaqPairing` groups every FAQ edit by element-key hash suffix; rejects orphan questions / orphan answers / duplicate Q's / duplicate A's. Failures land in `bundleErrors` AND overwrite the orphan's per-edit result so the operator sees WHICH row failed pairing. The persist layer (`runProviderAndPersist`) refuses to persist when bundleErrors is non-empty — orphans never reach disk.
+> - **SYSTEM_PROMPT Rule 13** extended with the paired-output contract: question row carries `faq_question[new]:<hash>` with question-only text, answer row carries `faq_answer[new]:<hash>` with answer-only body (40–120 words preferred), both share the same hash suffix. BAD (bundled) + GOOD (paired) examples included. Cross-references Rule 18 + Rule 19 so the answer body still goes through the brand-grounding + voice/style stack.
+>
+> **Dry-run verification on the Palo Alto cluster:** 5 edits generated · 5 ship-as-is · 0 rejected · cost $0.015969 USD.
+> - 1 H2 with the gold-standard "Ritz Builders emphasizes … our integrated process …" voice.
+> - 2 FAQ pairs (4 rows) sharing hashes `pa01ab2c3d4` + `pa02ab2c3d5`. Each pair: clean question + 51-word substantive answer.
+> - Zero brand-claim leaks · zero em dashes · zero bare "Ritz" · zero placeholder · zero competitor leaks · zero wrong-page anchors.
+>
+> Per-edit grading + verification matrix (every operator-locked rule × this run): `docs/W3_STEP_3.8_FAQ_PAIRING_REPORT.md`.
+>
+> **Tests (1 new file + 4 updated, 38 new + 12 invariant cases):**
+> - `specific-edit-validator-faq-pairing.test.ts` (NEW, 16) — per-edit shape (bundled rejected, paired passes, bare-question answer rejected, < 30-word answer rejected); bundle pairing (paired bundle passes, orphan Q rejected, orphan A rejected, duplicates rejected, mixed bundle isolates failure); brand gates still active on answer body (bare "Ritz", em dash, "frequently recommended" all rejected).
+> - `recommendations-step-3.7-brand-grounding.test.ts` (+12) — source-scan: SYSTEM_PROMPT Rule 13 PAIRED FAQ OUTPUT block + faq_question/answer hash-pairing shape + BAD/GOOD examples + cross-reference to Rule 18/19; validator wires `validateFaqRowShape` BEFORE `validateFaqIntentRewriting`; bundle validator aggregates pairing failures + overwrites per-edit results.
+> - `specific-edit-validator.test.ts` (4 updated) — pre-existing structural-quality + faq_answer-bypass tests reworked to use the new paired shape and expect the new W3 §3.8 rejection reasons; "UNAFFECTED faq_answer" fixture expanded to 30+ words.
+> - `openai.test.ts` source-scan stays green — Rule 13's faq_answer carve-out preserved + W3 §3.8 paired contract added.
+>
+> **Verification (2026-05-03):** `npx tsc --noEmit` clean · 232/232 targeted (faq-pairing + adjacent + arch) · 46/46 openai source-scan · `npm run test` 3726/3730 (4 pre-existing baseline failures verified independent against `8b12b3d`) · `BEACON_TENANT_ID=… npm run build` clean.
+>
+> **Decision: GO for narrowly-scoped paid runs going forward** with `--write` enabled when the operator approves a specific cluster's output. The gate stack (3.7 grounding + 3.7s style + 3.8 pairing) is now production-ready for one cluster at a time. Apply-All-HIGH stays operator-locked OUT.
+>
+> **Next 3 actions:**
+> 1. **(Optional) Operator persists the Palo Alto run** with `--write` if the per-edit grading in `docs/W3_STEP_3.8_FAQ_PAIRING_REPORT.md` looks shippable.
+> 2. **(Optional) Run paid generation on the next 1–2 fresh clusters** (Cupertino, Luxury Home Builder Bay Area, Whole Home Renovation Builders) to broaden the operator-inspection sample toward the 20–30-rec threshold for any future Apply-All-HIGH conversation.
+> 3. **(Optional) Operator tightens the BrandAssertion list** if any factual claim from the Palo Alto run needs source verification or rewrite.
+
+> 🟡 **W3 Step 3.7s (Public-copy style correction) LANDED (2026-05-03):** The Step 3.7 paid run on Palo Alto produced grounded copy, but the operator caught two style defects: it used "Ritz" (short form) instead of "Ritz Builders", and dropped two em dashes into the body. Step 3.7s adds a permanent style layer enforcing the operator-locked voice + punctuation rules.
 >
 > **Two new validator gates (layered after the brand-claim grounder):**
 > - **No em dashes** — generated public copy MUST NOT contain `—` (em dash) or free-standing `–` (en dash) used as sentence punctuation. Digit-bounded ranges like `10–15 weeks` and `2024–2025` stay allowed. Validator returns `em dash banned in public copy ('—' near "<context>") — replace with period / comma / colon / parentheses`. Env opt-out: `BEACON_ALLOW_EM_DASH=1`.
