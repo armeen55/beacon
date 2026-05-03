@@ -535,6 +535,12 @@ export function validateSpecificEdit(
   // unaffected (answers don't end in "?"). The env opt-out
   // BEACON_ALLOW_SYNTHETIC_FAQ_COPY=1 disables ONLY the verbatim-stem
   // check — the "?" requirement always runs.
+  //
+  // W3 §3.8 — run the row-shape gate FIRST so a bundled Q+A row
+  // gets the operator-actionable "contains an answer body" error
+  // instead of the generic "must end with ?" reason.
+  const faqShapePreCheck = validateFaqRowShape(edit);
+  if (!faqShapePreCheck.ok) return faqShapePreCheck;
   const faqGate = validateFaqIntentRewriting(edit, packet);
   if (!faqGate.ok) return faqGate;
 
@@ -746,6 +752,100 @@ function validateBrandNameFirstMention(
       `brand short form '${first.shortForm}' alone is not allowed in public copy (use the full entity name '${first.fullName}', or first-person plural like 'our team' / 'we' after the first full mention) — context: "${first.contextText}"`,
     );
   }
+  return OK;
+}
+
+/**
+ * W3 Step 3.8 (2026-05-03) — per-edit FAQ shape integrity.
+ *
+ * Operator-locked: FAQ edits must ship as PAIRED rows (one
+ * `faq_question[new]:<hash>` + one `faq_answer[new]:<hash>` with the
+ * same hash suffix). The Step 3.7 paid run revealed the model
+ * bundling Q+A into a single faq_question row's proposedText — that
+ * row reads `Who … in Palo Alto?\nRitz Builders offers …`. Step 3.8
+ * rejects bundled rows here; `validateSpecificEditBundle` enforces
+ * the cross-row pairing.
+ *
+ * Question rows (`faq_question[new]:<hash>`):
+ *   - proposedText ≤ 200 chars (already enforced upstream).
+ *   - proposedText must end with "?" (already enforced by
+ *     validateFaqIntentRewriting).
+ *   - proposedText must NOT contain an embedded answer body —
+ *     reject any line break followed by ≥ 6 alphanumeric chars
+ *     of body text (the operator-caught failure mode).
+ *
+ * Answer rows (`faq_answer[new]:<hash>`):
+ *   - Word count ≥ 30 (operator preferred 40-120; 30 is the hard
+ *     floor — answers below 30 words rarely satisfy the question).
+ *   - proposedText must NOT be a bare question (ending with "?"
+ *     and ≤ 200 chars with no body content).
+ *
+ * Returns OK for non-FAQ action types. The "Q:"-prefixed
+ * deterministic shape (Q: …\n\nA: …) is intentionally NOT scanned
+ * here — `validateNoPlaceholder` already handles it via
+ * `parseFaqProposedText`.
+ *
+ * Pure / deterministic. No env opt-out — operator scope is "FAQ
+ * pairing is non-negotiable."
+ */
+function validateFaqRowShape(edit: SpecificEdit): ValidationResult {
+  if (edit.actionType !== "add_faq" && edit.actionType !== "rewrite_faq") {
+    return OK;
+  }
+  const tel = edit.targetElement;
+  if (!tel) return OK;
+  const proposed =
+    typeof tel.proposedText === "string" ? tel.proposedText.trim() : "";
+  if (proposed.length === 0) return OK;
+  const elementType = parseElementTypeFromKey(tel.elementKey);
+
+  if (elementType === "faq_question") {
+    // Reject explicit `Q: …\n\nA: …` bundling on faq_question rows
+    // (operator-locked: question rows must be question-only text).
+    if (/^Q\s*:\s*[\s\S]*?\n\s*A\s*:/.test(proposed)) {
+      return fail(
+        "targetElement.proposedText",
+        "FAQ question row uses Q: / A: bundled format — emit the question and answer as TWO separate edits with shared hash suffix (faq_question[new]:<hash> + faq_answer[new]:<hash>).",
+      );
+    }
+    // Reject any newline in a question row. Legitimate questions are
+    // a single grammatical sentence ending in "?". A newline almost
+    // always signals an answer body bundled into the question's
+    // proposedText (the operator-caught Step 3.7 failure mode).
+    if (/\n/.test(proposed)) {
+      return fail(
+        "targetElement.proposedText",
+        "FAQ question row contains an answer body (newline detected) — emit the question and answer as TWO separate edits with shared hash suffix (faq_question[new]:<hash> + faq_answer[new]:<hash>).",
+      );
+    }
+    return OK;
+  }
+
+  if (elementType === "faq_answer") {
+    // Reject bare-question answers (operator-locked: the answer row
+    // must contain answer copy, not the question copy).
+    const looksLikeQuestion =
+      proposed.endsWith("?") && proposed.length <= 200;
+    if (looksLikeQuestion) {
+      return fail(
+        "targetElement.proposedText",
+        "FAQ answer row contains question text instead of an answer — the answer row must hold the answer body (40-120 words preferred).",
+      );
+    }
+    // Reject bare-stub answers (< 30 words). Operator preference is
+    // 40-120; 30 is the hard floor.
+    const wordCount = proposed.split(/\s+/).filter(Boolean).length;
+    if (wordCount < 30) {
+      return fail(
+        "targetElement.proposedText",
+        `FAQ answer row is too short (${wordCount} words) — operator preference is 40-120 words. Generator should abstain or expand the answer with packet evidence.`,
+      );
+    }
+    return OK;
+  }
+
+  // Other element types (e.g., faq[new] without question/answer
+  // suffix) skip this gate.
   return OK;
 }
 
@@ -1271,13 +1371,41 @@ export function validateSpecificEditBundle(
     );
   }
 
-  const perEdit: BundlePerEditResult[] = bundle.recommendations.map(
+  const perEditMutable: BundlePerEditResult[] = bundle.recommendations.map(
     (edit) => ({
       edit,
       result: validateSpecificEdit(edit, packet),
     }),
   );
 
+  // ── W3 Step 3.8 — bundle-level FAQ Q+A pairing ──────────────────────
+  // Group every FAQ edit by its element-key hash suffix; reject any
+  // unpaired question or answer row. Operator-locked: FAQ edits must
+  // ship as paired rows, never alone.
+  const pairingFailures = checkFaqPairing(bundle.recommendations);
+  for (const pf of pairingFailures) {
+    bundleErrors.push(
+      fail(
+        `recommendations[${pf.editIndex}].targetElement.elementKey`,
+        pf.reason,
+      ),
+    );
+    // Also overwrite the per-edit result so the operator sees which
+    // specific row was orphaned (instead of just a bundle-level
+    // banner).
+    const existing = perEditMutable[pf.editIndex];
+    if (existing && existing.result.ok) {
+      perEditMutable[pf.editIndex] = {
+        edit: existing.edit,
+        result: fail(
+          `targetElement.elementKey`,
+          pf.reason,
+        ),
+      };
+    }
+  }
+
+  const perEdit: readonly BundlePerEditResult[] = perEditMutable;
   const acceptedCount = perEdit.filter((p) => p.result.ok).length;
   const rejectedCount = perEdit.length - acceptedCount;
 
@@ -1288,4 +1416,116 @@ export function validateSpecificEditBundle(
     acceptedCount,
     rejectedCount,
   };
+}
+
+/**
+ * W3 Step 3.8 (2026-05-03) — bundle-level FAQ pairing check.
+ *
+ * For every `faq_question[new]:<hash>` row there must be exactly one
+ * `faq_answer[new]:<hash>` row with the same hash suffix in the
+ * bundle (and vice versa). Returns a list of `{ editIndex, reason }`
+ * for every orphan + every duplicate.
+ *
+ * The "shared hash suffix" is the trailing `:<hash>` of an additive
+ * element key (e.g., `faq_question[new]:abcd1234` and
+ * `faq_answer[new]:abcd1234` share hash `abcd1234`). Non-additive
+ * element keys (e.g., `faq_question:existing-id`) match by their
+ * full elementKey suffix.
+ *
+ * Pure / deterministic. Returns empty array when the bundle has no
+ * FAQ rows.
+ */
+type FaqPairingFailure = {
+  readonly editIndex: number;
+  readonly reason: string;
+};
+
+function checkFaqPairing(
+  edits: ReadonlyArray<SpecificEdit>,
+): FaqPairingFailure[] {
+  const failures: FaqPairingFailure[] = [];
+  // Build per-hash buckets of question + answer indices.
+  const questionsByHash = new Map<string, number[]>();
+  const answersByHash = new Map<string, number[]>();
+  for (let i = 0; i < edits.length; i += 1) {
+    const edit = edits[i];
+    if (edit.actionType !== "add_faq" && edit.actionType !== "rewrite_faq") {
+      continue;
+    }
+    const tel = edit.targetElement;
+    if (!tel) continue;
+    const elementType = parseElementTypeFromKey(tel.elementKey);
+    if (elementType !== "faq_question" && elementType !== "faq_answer") {
+      continue;
+    }
+    const hash = extractElementKeyHashSuffix(tel.elementKey);
+    if (hash === null) continue; // can't pair without a hash; skip.
+    const bucket =
+      elementType === "faq_question" ? questionsByHash : answersByHash;
+    const list = bucket.get(hash);
+    if (list) list.push(i);
+    else bucket.set(hash, [i]);
+  }
+  // Detect orphan + duplicate questions.
+  for (const [hash, qIndices] of questionsByHash) {
+    const aIndices = answersByHash.get(hash) ?? [];
+    if (qIndices.length > 1) {
+      for (const idx of qIndices.slice(1)) {
+        failures.push({
+          editIndex: idx,
+          reason: `duplicate FAQ question with hash suffix '${hash}' — only one faq_question[new]:${hash} row may appear per bundle (paired with one faq_answer[new]:${hash}).`,
+        });
+      }
+    }
+    if (aIndices.length === 0) {
+      for (const idx of qIndices) {
+        failures.push({
+          editIndex: idx,
+          reason: `unpaired FAQ question (faq_question[new]:${hash}) — every FAQ question must ship with a matching faq_answer[new]:${hash} answer row in the same bundle.`,
+        });
+      }
+    }
+  }
+  // Detect orphan + duplicate answers.
+  for (const [hash, aIndices] of answersByHash) {
+    const qIndices = questionsByHash.get(hash) ?? [];
+    if (aIndices.length > 1) {
+      for (const idx of aIndices.slice(1)) {
+        failures.push({
+          editIndex: idx,
+          reason: `duplicate FAQ answer with hash suffix '${hash}' — only one faq_answer[new]:${hash} row may appear per bundle.`,
+        });
+      }
+    }
+    if (qIndices.length === 0) {
+      for (const idx of aIndices) {
+        failures.push({
+          editIndex: idx,
+          reason: `unpaired FAQ answer (faq_answer[new]:${hash}) — every FAQ answer must ship with a matching faq_question[new]:${hash} question row in the same bundle.`,
+        });
+      }
+    }
+  }
+  // Sort by editIndex so the FIRST orphan in document order surfaces
+  // first (operator scans top-to-bottom).
+  failures.sort((a, b) => a.editIndex - b.editIndex);
+  return failures;
+}
+
+/**
+ * Extract the hash suffix from a `<type>[new]:<hash>` element key.
+ * Returns null when the key isn't additive or has no `:hash` suffix.
+ */
+function extractElementKeyHashSuffix(elementKey: string): string | null {
+  if (typeof elementKey !== "string") return null;
+  // additive shape: `faq_question[new]:abc123`
+  const additiveMatch = elementKey.match(/\[new\]:(.+)$/);
+  if (additiveMatch && additiveMatch[1].length > 0) return additiveMatch[1];
+  // existing-element shape: `faq_question:existing-id` — match
+  // anything after the first colon.
+  const colonIdx = elementKey.indexOf(":");
+  if (colonIdx > 0 && colonIdx < elementKey.length - 1) {
+    return elementKey.slice(colonIdx + 1);
+  }
+  return null;
 }

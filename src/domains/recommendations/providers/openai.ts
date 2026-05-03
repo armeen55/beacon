@@ -225,6 +225,62 @@ HARD RULES:
     types (edit_title, add_h2_section, etc.) are unaffected — only
     FAQ-question copy is gated.
 
+    **W3 §3.8 PAIRED FAQ OUTPUT (operator-locked).** FAQ edits MUST
+    ship as TWO paired rows, never one bundled string. Beacon's
+    persistence layer expects:
+      - ONE row with elementKey "faq_question[new]:<hash>", whose
+        proposedText holds the question ONLY (≤ 200 chars, ends "?").
+      - ONE row with elementKey "faq_answer[new]:<hash>", whose
+        proposedText holds the answer ONLY (40-120 words preferred,
+        ≥ 30 words minimum).
+      - Both rows share the SAME hash suffix so the persistence
+        layer can re-pair them at write time. Use any 8+ char string
+        you generate (md5 prefix of the question, etc.).
+    Operator-caught failure mode (Step 3.7 paid run): the model
+    bundled the question + answer body into ONE faq_question row's
+    proposedText. The validator now rejects that. Always emit BOTH
+    rows.
+
+      BAD (bundled — REJECTED by validator):
+        {
+          actionType: "add_faq",
+          targetElement: {
+            elementKey: "faq_question[new]:abc12345",
+            proposedText: "Who are the best builders for architect-
+              designed custom homes in Palo Alto?\nRitz Builders
+              offers architect-led design-build services …"
+          }
+        }
+
+      GOOD (paired — passes):
+        {
+          actionType: "add_faq",
+          targetElement: {
+            elementKey: "faq_question[new]:abc12345",
+            proposedText: "Who are the best builders for architect-
+              designed custom homes in Palo Alto?"
+          }
+        }
+        {
+          actionType: "add_faq",
+          targetElement: {
+            elementKey: "faq_answer[new]:abc12345",
+            proposedText: "Ritz Builders emphasizes an architect-led
+              design-build approach for custom homes in Palo Alto,
+              coordinating architecture, engineering, permitting,
+              and construction. Our team handles complex Palo Alto
+              sites including deep foundations, basement scopes, and
+              strict city review so design intent stays buildable
+              from feasibility through completion."
+          }
+        }
+
+    The answer row is governed by ALL the public-copy gates
+    (Rule 18 brand-claim grounding, Rule 19 voice + style, no
+    em dashes, full entity name first mention, no unsupported
+    superlatives). Apply those rules to the answer body the
+    same way you would to any H2 / proposedText.
+
 14. **EVIDENCE PRIORITY ORDER.** When deciding what evidence drove an
     edit and what copy to propose, prefer in this order:
       (1) packet.affectedPrompts[*].actualSearchQueries — the queries

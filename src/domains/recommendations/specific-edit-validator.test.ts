@@ -887,17 +887,20 @@ describe("Sprint 6A.2g.C — FAQ intent rewriting (validateFaqIntentRewriting)",
     if (!r.ok) expect(r.reason).toMatch(/must end with "\?"/);
   });
 
-  it("UNAFFECTED — faq_answer element bypasses the rule (answers don't end in '?')", () => {
+  it("UNAFFECTED — faq_answer element bypasses the FAQ-question rule (answers don't end in '?')", () => {
+    // W3 §3.8 (2026-05-03): faq_answer rows now have their own
+    // word-floor gate (≥ 30 words). Provide a substantive 30+ word
+    // answer so the new gate doesn't fire — the test's intent is to
+    // verify the FAQ-question rule (must end with "?") doesn't fire
+    // on answer rows, not to exercise the answer-length floor.
     const packet = buildPacket();
     const edit = validAddFaqQuestionFixture(packet, {
       targetElement: {
         elementKey: "faq_answer[new]:abc123def456",
         displayLabel: "FAQ answer (new)",
         currentText: null,
-        // Lifted stem, no question mark — but this is the answer half,
-        // so the rule must NOT fire.
         proposedText:
-          "What are the best teen braces depends on alignment goals, treatment timeline, and budget.",
+          "Choosing the best teen braces depends on alignment goals, treatment timeline, and household budget. Most families balance aesthetics, comfort, and total cost across at least three options including traditional metal, ceramic, and clear-aligner systems before making a final selection with their orthodontist.",
       },
     });
     expect(validateSpecificEdit(edit, packet)).toEqual({ ok: true });
@@ -1670,11 +1673,16 @@ describe("W3 Step 3.1 — validateNoPlaceholder (phrase rejection)", () => {
 });
 
 describe("W3 Step 3.1 — validateNoPlaceholder (FAQ structural quality)", () => {
-  // FAQ Q+A rejection runs through the parseFaqProposedText shape. The
-  // existing 6A.2g.C gate already enforces "?" + non-verbatim-stem on
-  // the question half. The structural test fires on the answer half.
+  // W3 §3.8 (2026-05-03): bundled `Q: …\n\nA: …` proposedText on a
+  // faq_question[new] row is now operator-locked OUT — the new gate
+  // rejects bundled rows BEFORE the structural-quality (parseFaqProposedText)
+  // gate can run. The tests below were rewritten to use the modern
+  // PAIRED FAQ shape: faq_question[new] holds question-only text,
+  // faq_answer[new] holds answer-only text. The new W3 §3.8 gate's
+  // word-floor / question-shape checks substitute for the old
+  // structural-quality reasons (too_short / repeats_question).
 
-  it("REJECT — FAQ answer is too short (<25 words)", () => {
+  it("REJECT — bundled `Q: … \\n A: …` on a faq_question row (W3 §3.8)", () => {
     const packet = buildPacket();
     const edit: SpecificEdit = {
       actionType: "add_faq",
@@ -1704,22 +1712,25 @@ describe("W3 Step 3.1 — validateNoPlaceholder (FAQ structural quality)", () =>
     expect(r.ok).toBe(false);
     if (!r.ok) {
       expect(r.field).toBe("targetElement.proposedText");
-      expect(r.reason).toMatch(/structurally insufficient/);
-      expect(r.reason).toMatch(/too_short/);
+      // W3 §3.8 rejects the bundled shape with a clear actionable
+      // reason; the structural-quality check no longer runs on
+      // bundled rows.
+      expect(r.reason).toMatch(
+        /(Q:\s*\/\s*A:\s*bundled format|contains an answer body)/,
+      );
     }
   });
 
-  it("REJECT — FAQ answer mostly repeats the question", () => {
+  it("REJECT — FAQ answer row under 30 words is too short (W3 §3.8)", () => {
     const packet = buildPacket();
     const edit: SpecificEdit = {
       actionType: "add_faq",
       targetUrl: URL_BRACES,
       targetElement: {
-        elementKey: "faq_question[new]:abc123def456",
-        displayLabel: "FAQ question (new)",
+        elementKey: "faq_answer[new]:abc123def456",
+        displayLabel: "FAQ answer (new)",
         currentText: null,
-        proposedText:
-          "Q: best custom home builders in Atherton?\n\nA: Learn about the best custom home builders in Atherton and how to choose the right one to handle your custom home build in Atherton properly.",
+        proposedText: "Costs vary by complexity and timeline.",
       },
       why: "No FAQ section addresses cost intent.",
       evidence: [
@@ -1738,23 +1749,27 @@ describe("W3 Step 3.1 — validateNoPlaceholder (FAQ structural quality)", () =>
     const r = validateSpecificEdit(edit, packet);
     expect(r.ok).toBe(false);
     if (!r.ok) {
-      expect(r.reason).toMatch(/structurally insufficient/);
-      // Either repeats_question OR no_specific_content branch — both honest.
-      expect(r.reason).toMatch(/(repeats_question|no_specific_content)/);
+      expect(r.field).toBe("targetElement.proposedText");
+      expect(r.reason).toMatch(/too short/);
     }
   });
 
-  it("ACCEPT — FAQ answer has specific content beyond question + filler", () => {
+  it("ACCEPT — paired FAQ answer with specific 30+ word content passes (W3 §3.8)", () => {
     const packet = buildPacket();
     const edit: SpecificEdit = {
       actionType: "add_faq",
       targetUrl: URL_BRACES,
       targetElement: {
-        elementKey: "faq_question[new]:abc123def456",
-        displayLabel: "FAQ question (new)",
+        elementKey: "faq_answer[new]:abc123def456",
+        displayLabel: "FAQ answer (new)",
         currentText: null,
+        // 50+ word substantive answer that is NOT a bare question
+        // and meets the W3 §3.8 word floor. Brand-name + voice rules
+        // are preserved (uses third-person service-focused phrasing,
+        // avoids "Ritz Builders" so the brand-name-first gate stays
+        // inert under this fixture's tenant config).
         proposedText:
-          "Q: How long does treatment typically take?\n\nA: A typical full-gut kitchen remodel in Atherton takes twelve to sixteen weeks once permits clear: roughly three weeks for demolition and rough framing, four for cabinet and millwork installation, and five for finishes plus appliance commissioning.",
+          "A typical full-gut kitchen remodel in Atherton takes twelve to sixteen weeks once permits clear: roughly three weeks for demolition and rough framing, four for cabinet and millwork installation, and five for finishes plus appliance commissioning. The schedule shifts when permits or supplier lead times slip.",
       },
       why: "No FAQ addresses timeline intent.",
       evidence: [

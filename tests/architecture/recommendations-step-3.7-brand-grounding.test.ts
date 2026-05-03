@@ -258,3 +258,56 @@ describe("W3 §3.7s — SYSTEM_PROMPT carries Rule 19 (voice + style)", () => {
     expect(OPENAI_SRC).toMatch(/our integrated process/);
   });
 });
+
+// ── 7. W3 §3.8 — FAQ Q+A pairing contract ───────────────────────────────
+
+describe("W3 §3.8 — SYSTEM_PROMPT carries the paired FAQ output contract", () => {
+  it("Rule 13 names the W3 §3.8 PAIRED FAQ OUTPUT contract", () => {
+    expect(OPENAI_SRC).toMatch(/PAIRED FAQ OUTPUT/);
+  });
+
+  it("describes the faq_question[new] / faq_answer[new] hash-pairing shape", () => {
+    expect(OPENAI_SRC).toMatch(/faq_question\[new\]:<hash>/);
+    expect(OPENAI_SRC).toMatch(/faq_answer\[new\]:<hash>/);
+    expect(OPENAI_SRC).toMatch(/SAME hash suffix/);
+  });
+
+  it("includes BAD (bundled) and GOOD (paired) examples", () => {
+    expect(OPENAI_SRC).toMatch(/BAD \(bundled\s*[—-]+\s*REJECTED/);
+    expect(OPENAI_SRC).toMatch(/GOOD \(paired\s*[—-]+\s*passes\)/);
+  });
+
+  it("notes that the answer body is governed by Rule 18 + Rule 19 gates", () => {
+    expect(OPENAI_SRC).toMatch(
+      /Rule 18 brand-claim grounding[\s\S]+Rule 19 voice \+ style/,
+    );
+  });
+});
+
+describe("W3 §3.8 — validator wires FAQ row-shape + bundle-pairing", () => {
+  it("imports parseElementTypeFromKey + checkFaqPairing helper exists", () => {
+    expect(VALIDATOR_SRC).toMatch(/function checkFaqPairing/);
+    expect(VALIDATOR_SRC).toMatch(/function validateFaqRowShape/);
+  });
+
+  it("validateFaqRowShape runs BEFORE validateFaqIntentRewriting (so bundled Q+A gets the actionable error)", () => {
+    const shapeIdx = VALIDATOR_SRC.indexOf("validateFaqRowShape(edit)");
+    const intentIdx = VALIDATOR_SRC.indexOf(
+      "validateFaqIntentRewriting(edit, packet)",
+    );
+    expect(shapeIdx).toBeGreaterThan(0);
+    expect(intentIdx).toBeGreaterThan(0);
+    expect(shapeIdx).toBeLessThan(intentIdx);
+  });
+
+  it("validateSpecificEditBundle aggregates FAQ pairing failures into bundleErrors", () => {
+    expect(VALIDATOR_SRC).toMatch(/checkFaqPairing\(bundle\.recommendations\)/);
+    expect(VALIDATOR_SRC).toMatch(/bundleErrors\.push/);
+  });
+
+  it("validateSpecificEditBundle overwrites the orphan per-edit result so callers see WHICH row was orphaned", () => {
+    expect(VALIDATOR_SRC).toMatch(
+      /perEditMutable\[pf\.editIndex\]\s*=\s*\{[\s\S]*?result:\s*fail/,
+    );
+  });
+});
