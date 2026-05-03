@@ -1,6 +1,44 @@
 # Beacon — Start Here
 
-> 🟢 **W3 Step 3.5e (Recommendations as a HubSpot-style ranked action TABLE) LANDED (2026-05-03):** Single code commit on `main`. Operator browser re-audit on Step 3.5d (lane model) failed product acceptance — "stop the card/lane approach. The page should not look like a dashboard of cards. It should look like a clean work queue." The fix is the next product-architecture rewrite: lanes/cards out, ranked action table in.
+> 🟢 **W3 Step 3.5f (Ranked-action-table row polish) LANDED (2026-05-03):** Operator browser re-audit on Step 3.5e accepted the table SHAPE but failed row CONTENT — generic titles ("Create a page for this scenario"), duplicate `H2 "H2: …"` quote prefixes, low-priority top rows, "Defer" as the primary action for Needs review, "Create page" pill wrapping into two lines, repetitive evidence copy, tracking rows above open work, and no visible Details affordance. This commit addresses every operator-locked rule.
+>
+> **Concrete row content (operator-locked):**
+> - **Title humanizer extended:** new topic patterns (`whole_home_renovation`, `luxury_custom_home`, plus refined matches), `extractTopicFromPrompts(prompts)` so geo-only clusters ("Atherton") recover topic from affected prompts ("design-build vs architect", "vacant-lot custom home"), `cleanDisplayLabel` strips `H2:`, `H2 heading (new):`, `New FAQ:`, `FAQ answer:`, `Title:`, `Meta:` prefixes plus matched outer quotes, `sanitizeClusterLabel` strips `Shield:` namespace + `(Bay Area)` suffix + trailing `Builders` noise, `composeFromClusterLabel` falls back to the cluster phrase verbatim instead of "this scenario".
+> - **Decision-style topics get a "decision page" suffix.** "Create an Atherton older-home rebuild **decision** page", "Create a Cupertino design-build vs architect **decision** page", "Create a completed-plans handoff **decision** page".
+> - **Edit titles use curly quotes consistently:** `Add an "Architect-led design-build advantage" H2 to the Whole Home Remodel page` (was duplicating `H2 "H2: …"`).
+> - **Decision rows name the actual decision:** "Decide whether to split the Los Altos page into a dedicated kitchen remodel page", "Decide direction for Atherton older-home rebuild", "Regenerate edits for Cupertino custom home". Never "this opportunity" / "this scenario" / "this recommendation" fallbacks.
+> - **Priority recomputation** blends 5 signals (severity + observation count + brand citation share + needsHumanReview + engineConfidence + hasExactEdit). High floors: severity=high + obs≥10 → High; severity=high + exact edit + non-low confidence → High. Medium floors: needsHumanReview → Medium minimum; brand_share=0 + obs≥10 → Medium minimum; multi-prompt + exact edit + non-low confidence → Medium. Low only when genuinely thin (obs<3, or single-prompt+obs<5).
+> - **Evidence summary leads with `{N} AI answers; {topic-specific gap}.`** Rows now distinguish themselves: "12 AI answers; Ritz not cited for Atherton design-build vs architect comparisons.", "33 AI answers; Greenberg winning Whole Home Remodel page queries.", "8 AI answers; Schema missing on the Available Homes page."
+> - **Sort buckets put open work first:** new / needs_review / needs_fresh_edit (bucket 0) → accepted (1) → measuring (2) → shipped (3) → deferred / dismissed (4). Tracking rows never outrank open work by default.
+> - **Action button mapping per status:** Accept (new+exact) · Review (new+review_decision · needs_review) · Regenerate (new+regenerate · needs_fresh_edit) · Mark shipped (accepted) · View (measuring · accepted-without-edits) · ✓ Shipped (shipped) · Promote (deferred) · Restore (dismissed). **Defer is no longer a primary row button** — it lives only as a drawer-secondary footer button.
+> - **Type pill compact:** create_page rows render `—` (the row title already says "Create"), other types use compact labels (`H2`, `Title`, `Meta`, `Schema`, `FAQ`, `Section`, `Copy`, `Links`, `Technical`, `Review`, `Regenerate`) with `whitespace-nowrap` so the column never wraps. Type-filter dropdown uses "Page" instead of "Create page".
+> - **Visible Details affordance** — every row carries a Details button (with chevron) in the rightmost column, not just hidden row-click behavior.
+> - **Drawer footer carries Defer + Dismiss as secondary actions** (`data-rec-drawer-secondary-actions="true"`), hidden once the row reaches a terminal state.
+>
+> **Tests (1 new file + 3 updated):**
+> - `tests/architecture/recommendations-step-3.5f-row-polish.test.ts` (NEW, 28) — humanizer + builder + client-UI invariants per Step 3.5f rule.
+> - `tests/app/recommendations/render-output-cleanup.test.tsx` (+10 acceptance tests) — operator-locked: no scenario/opportunity fallback, no duplicate H2 prefix, "homepage page" never renders, Type column compact, needs_review primary button is Review (not Defer), top-5 rows not all Low, evidence specificity, sort order (open work above tracking).
+> - `src/domains/recommendations/recommendation-title-humanizer.test.ts` (5 updated + 2 new) — decision-page suffix; new "Decide direction for {topic}" copy; "this opportunity" / "this scenario" never emitted.
+> - `tests/sprint6a1-phase12-wiring.test.ts` (1 updated) — `buildRecommendationActionRows` now invoked with `{ queue, promptTextById }`.
+>
+> **Verification (2026-05-03):**
+> - `npx tsc --noEmit` clean · 189/189 targeted (humanizer + evidence-preview + confidence-distribution + step-3.5e action-table + step-3.5f row-polish + render-output-cleanup + ui-cleanup + sprint6a1) pass · `npm run test` 3584/3588 (4 pre-existing failures: prompts/[id] drilldown smoke × 1, prompts route smoke × 2, tenant isolation × 1 — verified independent against `8b12b3d` baseline) · `BEACON_TENANT_ID=… npm run build` clean (Vercel-equivalent read-only-FS).
+> - **Could not verify from this environment:** Vercel deploy SHA matches the new commit — operator dashboard check + browser re-audit needed.
+>
+> **Out of scope (per Step 3.5f + W3 §1.5):**
+> - LIVE paid generation — first paid run is post-Step-3.6, operator-approved
+> - Step 3.6 sample-10 quality report — gated on this re-audit passing
+> - Apply-All-HIGH / bulk-accept UX — operator-locked OUT
+> - Customer-one backfill — W4
+> - Profound CSV archive / code deletion — post-May-10
+> - Broad UI redesign outside /recommendations
+>
+> **Next 3 actions:**
+> 1. **Operator: re-audit /recommendations in browser** after Vercel deploys this commit. Verify: row titles read as concrete tasks ("Add an 'Architect-led design-build advantage' H2 to the Whole Home Remodel page" / "Create an Atherton older-home rebuild decision page"); needs_review rows show Review (not Defer) as primary; dismissed rows show Restore; deferred rows show Promote; tracking rows sit BELOW open work; Type column never wraps "Create page"; visible Details chevron on every row; "Weak signal" / "homepage page" / "this opportunity" / "this scenario" never appear; evidence rows distinguish each other with topic-specific copy.
+> 2. **If browser re-audit passes, proceed to W3 Step 3.6 (sample-10 quality report).**
+> 3. **(Optional)** one-rec dry-run probe before Step 3.6 if you want a smaller paid sample first.
+
+> 🟡 **W3 Step 3.5e (Recommendations as a HubSpot-style ranked action TABLE) LANDED (2026-05-03):** Single code commit on `main`. Operator browser re-audit on Step 3.5d (lane model) failed product acceptance — "stop the card/lane approach. The page should not look like a dashboard of cards. It should look like a clean work queue." The fix is the next product-architecture rewrite: lanes/cards out, ranked action table in.
 >
 > **Page shape:** PageHeader subcopy ("Beacon turns AI visibility gaps into concrete website tasks…") + toolbar (search + Type filter + Status filter + summary line "N actions · M new · K tracking" + last-refreshed) + one `<table>` with columns **# · Recommended action · Target · Type · Priority · Status · Evidence · Action**. Click a row → inline drawer below with Exact recommended change (before/after copy or page brief) · Why Beacon recommends it · Evidence (affected prompts / observations / top competitor / refs) · Measurement plan · Risks · Overlapping pages · collapsed Debug block (raw IDs, evidence hash, resolver tier, full reasoning).
 >

@@ -210,7 +210,10 @@ describe("humanizeRecTitle — operator-readable titles", () => {
     ).toBe("Build Atherton vacant-lot showcase page");
   });
 
-  it("create_new_page + Atherton + older-home rebuild → 'Create an Atherton older-home rebuild page'", () => {
+  it("create_new_page + Atherton + older-home rebuild → 'Create an Atherton older-home rebuild decision page'", () => {
+    // W3 §3.5f — decision-style topics (rebuild / handoff / feasibility
+    // / vs) take a "decision page" suffix so the title reads as a
+    // real operator decision instead of a generic services page.
     const resolution: Partial<PageIntentResolution> = {
       action: "create_new_page",
       targetUrl: NEEDS_NEW_PAGE,
@@ -220,7 +223,7 @@ describe("humanizeRecTitle — operator-readable titles", () => {
         clusterLabel: "Atherton older home rebuild",
         resolution: resolution as PageIntentResolution,
       }),
-    ).toBe("Create an Atherton older-home rebuild page");
+    ).toBe("Create an Atherton older-home rebuild decision page");
   });
 
   it("create_new_page + topic only (no geo) uses 'a/an' correctly", () => {
@@ -233,10 +236,12 @@ describe("humanizeRecTitle — operator-readable titles", () => {
         clusterLabel: "completed plans",
         resolution: resolution as PageIntentResolution,
       }),
-    ).toBe("Create a completed-plans handoff page");
+    ).toBe("Create a completed-plans handoff decision page");
   });
 
-  it("create_new_page with geo only → 'Create a {Geo} services page'", () => {
+  it("create_new_page with geo only → 'Create a dedicated {Geo} page'", () => {
+    // W3 §3.5f — operator scope: "Create a {Geo} services page" was
+    // generic. Replaced with "Create a dedicated {Geo} page".
     const resolution: Partial<PageIntentResolution> = {
       action: "create_new_page",
       targetUrl: NEEDS_NEW_PAGE,
@@ -246,7 +251,7 @@ describe("humanizeRecTitle — operator-readable titles", () => {
         clusterLabel: "Atherton",
         resolution: resolution as PageIntentResolution,
       }),
-    ).toBe("Create a Atherton services page");
+    ).toBe("Create a dedicated Atherton page");
   });
 
   it("expand_existing_page → 'Add a {topic} section to the {page} page'", () => {
@@ -277,7 +282,7 @@ describe("humanizeRecTitle — operator-readable titles", () => {
     );
   });
 
-  it("merge_or_dedupe with target URL → 'Merge owned pages into the {page}'", () => {
+  it("merge_or_dedupe with target URL → 'Merge overlapping pages into the {page} page'", () => {
     const resolution: Partial<PageIntentResolution> = {
       action: "merge_or_dedupe",
       targetUrl: "https://example.com/services/kitchen-remodel",
@@ -287,10 +292,14 @@ describe("humanizeRecTitle — operator-readable titles", () => {
         clusterLabel: "kitchen remodel",
         resolution: resolution as PageIntentResolution,
       }),
-    ).toBe("Merge owned pages into the Kitchen Remodel");
+    ).toBe("Merge overlapping pages into the Kitchen Remodel page");
   });
 
-  it("split_or_separate_page → 'Split the {page} into a dedicated {topic} page'", () => {
+  it("split_or_separate_page → 'Decide whether to split the {page} page into a dedicated {topic} page'", () => {
+    // W3 §3.5f — split rows now read as a real operator decision
+    // ("Decide whether to split …") rather than the prior
+    // declarative "Split the …" form, which sounded like Beacon
+    // had already made the call.
     const resolution: Partial<PageIntentResolution> = {
       action: "split_or_separate_page",
       targetUrl: "https://example.com/services/remodel",
@@ -300,7 +309,9 @@ describe("humanizeRecTitle — operator-readable titles", () => {
         clusterLabel: "kitchen remodel",
         resolution: resolution as PageIntentResolution,
       }),
-    ).toBe("Split the Remodel into a dedicated kitchen remodel page");
+    ).toBe(
+      "Decide whether to split the Remodel page into a dedicated kitchen remodel page",
+    );
   });
 
   it("watch action → 'Watch the {topic} cluster'", () => {
@@ -315,7 +326,11 @@ describe("humanizeRecTitle — operator-readable titles", () => {
     ).toBe("Watch the structural remodel cluster");
   });
 
-  it("needs_review action → 'Review the {topic} opportunity'", () => {
+  it("needs_review action → 'Decide direction for {topic}' (no 'this opportunity' fallback)", () => {
+    // W3 §3.5f — operator-locked: review rows must NEVER read as
+    // "Review/Pick a direction for this opportunity" (too vague).
+    // Composer now produces "Decide direction for {topic}" or
+    // "Decide direction for {Geo} {topic}" when both are known.
     const resolution: Partial<PageIntentResolution> = {
       action: "needs_review",
     };
@@ -324,16 +339,39 @@ describe("humanizeRecTitle — operator-readable titles", () => {
         clusterLabel: "older home rebuild",
         resolution: resolution as PageIntentResolution,
       }),
-    ).toBe("Review the older-home rebuild opportunity");
+    ).toBe("Decide direction for older-home rebuild");
+  });
+
+  it("needs_review action with geo + topic → 'Decide direction for {Geo} {topic}'", () => {
+    const resolution: Partial<PageIntentResolution> = {
+      action: "needs_review",
+    };
+    expect(
+      humanizeRecTitle({
+        clusterLabel: "Atherton older home rebuild",
+        resolution: resolution as PageIntentResolution,
+      }),
+    ).toBe("Decide direction for Atherton older-home rebuild");
   });
 
   it("falls back to operator-readable copy when no topic + no geo + no resolution", () => {
+    // W3 §3.5f — when even the cluster-phrase fallback has nothing
+    // useful (a 4-word obscure label sanitizes to itself), the
+    // composer takes the cluster phrase verbatim instead of the
+    // pre-3.5f generic "this scenario" string. Operator scope:
+    // never "this scenario" / "this opportunity" copy.
     expect(
       humanizeRecTitle({
         clusterLabel: "obscure phrase that matches nothing",
         resolution: null,
       }),
-    ).toBe("Create a page for this scenario");
+    ).toBe("Create a obscure phrase that matches nothing page");
+  });
+
+  it("when cluster label is fully empty, falls back to the operator-grounded review copy (NEVER 'this scenario')", () => {
+    expect(
+      humanizeRecTitle({ clusterLabel: null, resolution: null }),
+    ).toBe("Review this page opportunity");
   });
 
   it("returns the LLM operatorTitle even when its action mismatches the cluster", () => {
@@ -359,7 +397,7 @@ describe("humanizeRecTitle — operator-readable titles", () => {
       resolution: null,
     });
     expect(result).not.toMatch(/If I buy/i);
-    // It SHOULD detect the older-home rebuild topic.
-    expect(result).toBe("Create an older-home rebuild page");
+    // W3 §3.5f — older-home rebuild gets the "decision page" suffix.
+    expect(result).toBe("Create an older-home rebuild decision page");
   });
 });

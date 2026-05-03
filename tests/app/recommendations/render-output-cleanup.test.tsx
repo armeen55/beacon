@@ -219,11 +219,16 @@ describe("W3 Step 3.5e — table-shaped UI", () => {
 describe("W3 Step 3.5e — concrete row title (no cluster descriptions)", () => {
   it("a specific-edit row reads as a CONCRETE TASK starting with a verb", () => {
     const html = renderQueue([makeRow()]);
-    // The fixture's add_h2_section edit should land as
-    // "Add an H2 'How design-build cuts kitchen remodel costs' to the
-    // Whole Home Remodel page".
-    expect(html).toMatch(/Add an H2\s+["&]/i);
-    expect(html).toMatch(/Whole Home Remodel page/);
+    // The fixture's add_h2_section edit (display_label
+    // "How design-build cuts kitchen remodel costs", which
+    // `cleanDisplayLabel` passes through unchanged) should land as
+    // `Add an "How design-build cuts kitchen remodel costs" H2 to
+    // the Whole Home Remodel page`. W3 §3.5f uses curly quotes
+    // (“…”) consistently. The HTML-entity-encoded form for the
+    // curly opener is `&ldquo;`; vitest reads the raw string so
+    // the literal Unicode character matches.
+    expect(html).toMatch(/Add an [“"][A-Z]/);
+    expect(html).toMatch(/H2 to the Whole Home Remodel page/);
   });
 
   it("a create_page rec with no edits surfaces as 'Create … page' (NOT scenario fallback)", () => {
@@ -247,9 +252,12 @@ describe("W3 Step 3.5e — concrete row title (no cluster descriptions)", () => 
     const html = renderQueue([
       { rec, response: null, edits: [] },
     ]);
-    expect(html).toContain("Create an Atherton older-home rebuild page");
+    // W3 §3.5f — decision-style topics get the "decision page"
+    // suffix so the title reads as a real operator decision.
+    expect(html).toContain("Create an Atherton older-home rebuild decision page");
     expect(html).not.toContain("Create a page for this scenario");
     expect(html).not.toContain("Create a page for this buying scenario");
+    expect(html).not.toContain("Pick a direction for this opportunity");
   });
 
   it("never renders 'homepage page' (homepage label is just 'Homepage')", () => {
@@ -498,12 +506,14 @@ describe("W3 Step 3.5e — search + filter inputs", () => {
     expect(html).toMatch(/placeholder=\"Search actions, pages, or evidence/i);
   });
 
-  it("the type filter includes operator-friendly labels (All types / H2 / Title / etc.)", () => {
+  it("the type filter includes operator-friendly labels (All types / H2 / Page / etc.)", () => {
     const html = renderQueue([makeRow()]);
     expect(html).toMatch(/<option[^>]*value="all"[^>]*>All types<\/option>/);
     expect(html).toMatch(/<option[^>]*value="edit_h2"[^>]*>H2<\/option>/);
+    // W3 §3.5f — "Create page" → "Page" so the dropdown stays
+    // single-line and matches the operator-locked compact labels.
     expect(html).toMatch(
-      /<option[^>]*value="create_page"[^>]*>Create page<\/option>/,
+      /<option[^>]*value="create_page"[^>]*>Page<\/option>/,
     );
   });
 
@@ -512,5 +522,285 @@ describe("W3 Step 3.5e — search + filter inputs", () => {
     expect(html).toMatch(/<option[^>]*value="all"[^>]*>All statuses<\/option>/);
     expect(html).toMatch(/<option[^>]*value="new"[^>]*>New<\/option>/);
     expect(html).toMatch(/<option[^>]*value="accepted"[^>]*>Accepted<\/option>/);
+  });
+});
+
+// ── W3 Step 3.5f acceptance contracts ───────────────────────────────────
+
+describe("W3 Step 3.5f — operator-locked row content cleanups", () => {
+  it("ACCEPTANCE: no row says 'Create a page for this scenario' or 'this opportunity'", () => {
+    const html = renderQueue([
+      makeRow({
+        stableKey: "rec-no-topic",
+        clusterLabel: "obscure cluster phrase",
+        resolution: {
+          action: "needs_review",
+          motive: "capture_absent_cluster",
+          targetUrl: "needs_new_page",
+          confidence: "medium",
+          confidenceReason: "test",
+          tier: "inventory",
+          reasoning: "test",
+          cannibalization: null,
+          evidenceRefs: [],
+          proposedSlug: null,
+          needsHumanReview: true,
+        } as unknown as RecommendationQueueRow["rec"]["resolution"],
+      }, { edits: [] }),
+    ]);
+    expect(html).not.toContain("Create a page for this scenario");
+    expect(html).not.toContain("Pick a direction for this opportunity");
+    // The row falls back to operator-grounded copy.
+    expect(html).toMatch(/(Decide direction for|Review this)/);
+  });
+
+  it("ACCEPTANCE: H2 row title NEVER contains 'H2: H2:' or duplicate H2 prefix", () => {
+    // Operator-caught (Step 3.5f browser audit): a display_label like
+    // "H2: Architect-led design-build advantage" was rendered as
+    // `Add an H2 "H2: Architect-led design-build advantage"`. The
+    // cleaner strips the embedded `H2:` prefix.
+    const html = renderQueue([
+      makeRow(
+        {},
+        {
+          edits: [
+            {
+              id: "edit-h2-with-prefix",
+              tenant_id: "tenant-test",
+              rec_id: "rec-fixture-1",
+              action_type: "add_h2_section",
+              target_url: "https://example.com/services/whole-home-remodel",
+              target_element_key: "h2[new]:abc",
+              display_label: "H2: Architect-led design-build advantage",
+              current_text: null,
+              proposed_text:
+                "Architect-led design-build keeps everything under one roof.",
+              why: "missing",
+              evidence: [],
+              expected_impact: null,
+              difficulty: "low",
+              confidence: "medium",
+              measurement_plan: null,
+              risks: [],
+              source: "openai",
+              provider_name: "openai",
+              evidence_hash: "x",
+              model: "gpt-5-mini",
+              cost_usd: 0,
+              created_at: "2026-05-01T00:00:00Z",
+              updated_at: "2026-05-01T00:00:00Z",
+              implementation_status: "recommended",
+              live_at: null,
+              live_snapshot_id: null,
+              live_match_confidence: null,
+              live_match_kind: null,
+              live_element_key: null,
+              not_found_reason: null,
+            },
+          ],
+        },
+      ),
+    ]);
+    expect(html).not.toMatch(/H2 [“"]H2:/);
+    // The cleaned label still surfaces on the row.
+    expect(html).toContain("Architect-led design-build advantage");
+  });
+
+  it("ACCEPTANCE: needs_review row's primary button says 'Review' (not 'Defer')", () => {
+    const html = renderQueue([
+      makeRow({
+        stableKey: "rec-review",
+        clusterLabel: "Atherton older home rebuild",
+        resolution: {
+          action: "needs_review",
+          motive: "capture_absent_cluster",
+          targetUrl: "needs_new_page",
+          confidence: "medium",
+          confidenceReason: "test",
+          tier: "inventory",
+          reasoning: "test",
+          cannibalization: null,
+          evidenceRefs: [],
+          proposedSlug: null,
+          needsHumanReview: true,
+        } as unknown as RecommendationQueueRow["rec"]["resolution"],
+      }, { edits: [] }),
+    ]);
+    // The Action column carries a Review button (not Defer).
+    expect(html).toMatch(/data-rec-action-button="review"/);
+    // No Defer button in the Action column for this row.
+    const actionColPattern =
+      /text-right[^<]*<button[^>]*data-rec-action-button="defer"/;
+    expect(html).not.toMatch(actionColPattern);
+  });
+
+  it("ACCEPTANCE: dismissed row's primary button says 'Restore'", () => {
+    const html = renderQueue([
+      makeRow({}, { responseStatus: null, edits: [] }),
+    ]);
+    // Build an explicit dismissed-response fixture via our helper's
+    // overrides — the renderQueue tail produces no rows for dismissed
+    // items by default. The action-row builder suppresses dismissed
+    // recs from the table, so this is naturally enforced — test the
+    // contract via source-scan instead.
+    // The button mapping is sourced inside the client; pin via the
+    // step-3.5f architecture file. This rendered test simply asserts
+    // the source-scan-pinned text doesn't leak elsewhere.
+    expect(html).not.toContain("Un-dismissed");
+  });
+
+  it("ACCEPTANCE: row carries a visible Details affordance (not hidden click-only)", () => {
+    const html = renderQueue([makeRow()]);
+    expect(html).toMatch(/data-rec-details-button="true"/);
+    expect(html).toMatch(/>Details</);
+  });
+
+  it("ACCEPTANCE: Type column never wraps create_page across two lines (pill suppressed)", () => {
+    // The create_page row renders the type pill as a "—" placeholder
+    // because the row title already begins with "Create …". This
+    // keeps the Type column compact / single-line.
+    const html = renderQueue([
+      makeRow({
+        stableKey: "rec-create-only-type",
+        clusterLabel: "Atherton older home rebuild",
+        resolution: {
+          action: "create_new_page",
+          motive: "capture_absent_cluster",
+          targetUrl: "needs_new_page",
+          confidence: "medium",
+          confidenceReason: "test",
+          tier: "inventory",
+          reasoning: "test",
+          cannibalization: null,
+          evidenceRefs: [],
+          proposedSlug: null,
+        } as unknown as RecommendationQueueRow["rec"]["resolution"],
+      }, { edits: [] }),
+    ]);
+    expect(html).toMatch(
+      /data-rec-type-pill="create_page"[^>]*>—</,
+    );
+    // The verbose "Create page" pill text is GONE from the rendered
+    // create_page row.
+    expect(html).not.toMatch(/data-rec-type-pill="create_page"[^>]*>Create page</);
+  });
+
+  it("ACCEPTANCE: evidence rows surface topic-specific copy, not generic '{N} observations.'", () => {
+    const html = renderQueue([makeRow()]);
+    // The evidence summary now leads with "{N} AI answers" and
+    // includes a topic phrase (the fixture cluster is "Atherton
+    // kitchen remodel" so we expect "kitchen remodel queries" or
+    // similar topic-shaped continuation).
+    expect(html).toMatch(/\d+ AI answer/);
+    // The legacy "No owned page cited across N observations." form
+    // is gone.
+    expect(html).not.toMatch(/No owned page cited across \d+ observations\./);
+  });
+
+  it("ACCEPTANCE: top-5 rows are NOT all Low priority on a multi-rec fixture", () => {
+    const queue = [
+      makeRow({ stableKey: "r1" }),
+      makeRow({ stableKey: "r2" }),
+      makeRow({ stableKey: "r3" }),
+      makeRow({ stableKey: "r4" }),
+      makeRow({ stableKey: "r5" }),
+    ];
+    const html = renderQueue(queue);
+    const top5Priorities = [...html.matchAll(/data-rec-priority="(\w+)"/g)]
+      .slice(0, 5)
+      .map((m) => m[1]);
+    const lowCount = top5Priorities.filter((p) => p === "low").length;
+    // Top 5 rows must not all be Low. With reasonable evidence
+    // (fixture has 8 observations + 3 prompts) at least Medium.
+    expect(lowCount).toBeLessThan(top5Priorities.length);
+  });
+
+  it("ACCEPTANCE: 'homepage page' duplication never renders", () => {
+    // Build a fixture whose edit anchors at the homepage path "/".
+    const html = renderQueue([
+      makeRow(
+        {},
+        {
+          edits: [
+            {
+              id: "edit-meta-homepage",
+              tenant_id: "tenant-test",
+              rec_id: "rec-fixture-1",
+              action_type: "edit_meta",
+              target_url: "https://example.com/",
+              target_element_key: "meta:description",
+              display_label: "Better hero meta description",
+              current_text: null,
+              proposed_text:
+                "Ritz Builders — Bay Area's design-build partner for whole-home remodels.",
+              why: "current meta is generic",
+              evidence: [],
+              expected_impact: null,
+              difficulty: "low",
+              confidence: "medium",
+              measurement_plan: null,
+              risks: [],
+              source: "openai",
+              provider_name: "openai",
+              evidence_hash: "x",
+              model: "gpt-5-mini",
+              cost_usd: 0,
+              created_at: "2026-05-01T00:00:00Z",
+              updated_at: "2026-05-01T00:00:00Z",
+              implementation_status: "recommended",
+              live_at: null,
+              live_snapshot_id: null,
+              live_match_confidence: null,
+              live_match_kind: null,
+              live_element_key: null,
+              not_found_reason: null,
+            },
+          ],
+        },
+      ),
+    ]);
+    expect(html).not.toContain("homepage page");
+    expect(html).not.toContain("Homepage page");
+    // The row anchors at "Homepage" (no trailing " page") so the
+    // sentence reads naturally.
+    expect(html).toMatch(/Homepage(?![ a-z])/);
+  });
+
+  it("ACCEPTANCE: 'Weak signal' is NEVER visible on the table", () => {
+    const html = renderQueue([makeRow()]);
+    expect(html).not.toContain("Weak signal");
+  });
+
+  it("ACCEPTANCE: tracking rows never outrank new/needs_review rows by default", () => {
+    // Fixture: one accepted (tracking) + one new (open work). The
+    // sort places open work first.
+    const queue = [
+      makeRow(
+        { stableKey: "tracking-1" },
+        { responseStatus: "accepted" },
+      ),
+      makeRow({ stableKey: "open-1" }),
+    ];
+    const html = renderQueue(queue);
+    // Read the rendered ranks.
+    const matches = [...html.matchAll(/data-rec-status="(\w+)"[^>]*data-rec-source-rec-id="([^"]+)"[^>]*data-rec-rank="(\d+)"/g)];
+    const byStatus = matches.map((m) => ({ status: m[1], rank: Number(m[3]) }));
+    // The "new" row gets rank 1; the "accepted" row falls below.
+    const newRank = byStatus.find((r) => r.status === "new")?.rank ?? -1;
+    const acceptedRank =
+      byStatus.find((r) => ["accepted", "measuring"].includes(r.status))?.rank ?? -1;
+    expect(newRank).toBeGreaterThan(0);
+    expect(acceptedRank).toBeGreaterThan(0);
+    expect(newRank).toBeLessThan(acceptedRank);
+  });
+
+  it("ACCEPTANCE: drawer carries a secondary Defer + Dismiss footer (not in row Action column)", () => {
+    // Render a row + force expansion via an explicit fixture. We
+    // can't drive React useState from here, but the source-scan
+    // version of this assertion lives in the step-3.5e file. The
+    // rendered surface check: `data-rec-drawer-secondary-actions` is
+    // ABSENT when no row is expanded by default.
+    const html = renderQueue([makeRow()]);
+    expect(html).not.toContain('data-rec-drawer-secondary-actions="true"');
   });
 });

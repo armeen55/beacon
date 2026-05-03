@@ -47,9 +47,13 @@ import {
   composeRecommendedMove,
 } from "./recommendation-evidence-preview";
 import {
+  cleanDisplayLabel,
+  extractGeoTag,
+  extractTopicFromPrompts,
   extractTopicTag,
   humanizeRecTitle,
   pageNameFromUrl,
+  sanitizeClusterLabel,
 } from "./recommendation-title-humanizer";
 import { titleCase } from "./providers/generators/_text-utils";
 
@@ -296,16 +300,15 @@ export function targetLabelForUrl(url: string | null): string {
 }
 
 /**
- * Compose a per-row title for a specific edit. Operator scope: must
- * read as a concrete task ("Add an architect-led design-build H2 to
- * the Whole Home Remodel page" / "Rewrite the Luxury Home Builder
- * meta description"), never as a cluster description.
+ * Compose a per-row title for a specific edit. Operator scope (W3
+ * §3.5f): must read as a concrete task with NO duplicate type
+ * prefixes ("Add an H2 'H2: …'" was the operator-caught bug). Uses
+ * `cleanDisplayLabel` to strip taxonomy prefixes like `H2:`, `New
+ * FAQ:`, `H2 heading (new):`, `Title:`, `Meta:`, etc., plus matched
+ * outer quotes. Re-quotes consistently with curly quotes (`"…"`).
  *
  * Priority:
- *   1. Edit's `display_label` if the persistence layer carries one
- *      (the LLM provider emits operator-facing labels). Combined with
- *      a verb prefix per action type so the row reads as a verb, not
- *      a fragment.
+ *   1. Edit's `display_label` when present — cleaned + re-quoted.
  *   2. Action-aware fallback ("Add an H2 to the {page} page",
  *      "Rewrite the {page} meta description", etc.).
  */
@@ -314,39 +317,42 @@ export function composeEditRowTitle(args: {
   readonly targetLabel: string;
   readonly topicTag: string | null;
 }): string {
-  const label = (args.edit.display_label ?? "").trim();
+  const label = cleanDisplayLabel(args.edit.display_label);
   const targetLabel = args.targetLabel;
   const at = args.edit.action_type;
+  const q = (s: string) => `“${truncate(s, 70)}”`; // curly quotes
 
-  // Action-specific verb composition.
+  // Action-specific verb composition. Each branch reads as one
+  // imperative ending at the target page — operator can scan the
+  // table column quickly.
   switch (at) {
     case "edit_title":
       return label
-        ? `Rewrite the ${targetLabel} title to "${truncate(label, 60)}"`
+        ? `Rewrite the ${targetLabel} title to ${q(label)}`
         : `Rewrite the ${targetLabel} title`;
     case "edit_meta":
       return label
-        ? `Rewrite the ${targetLabel} meta description: "${truncate(label, 60)}"`
+        ? `Rewrite the ${targetLabel} meta description: ${q(label)}`
         : `Rewrite the ${targetLabel} meta description`;
     case "change_h1":
       return label
-        ? `Change the H1 on the ${targetLabel} to "${truncate(label, 60)}"`
+        ? `Change the H1 on the ${targetLabel} to ${q(label)}`
         : `Change the H1 on the ${targetLabel}`;
     case "add_h2_section":
       return label
-        ? `Add an H2 "${truncate(label, 60)}" to the ${targetLabel}`
+        ? `Add an ${q(label)} H2 to the ${targetLabel}`
         : `Add a new H2 section to the ${targetLabel}`;
     case "rewrite_h2":
       return label
-        ? `Rewrite the H2 "${truncate(label, 60)}" on the ${targetLabel}`
+        ? `Rewrite the ${q(label)} H2 on the ${targetLabel}`
         : `Rewrite an H2 on the ${targetLabel}`;
     case "add_faq":
       return label
-        ? `Add an FAQ "${truncate(label, 60)}" to the ${targetLabel}`
+        ? `Add an FAQ ${q(label)} to the ${targetLabel}`
         : `Add an FAQ entry to the ${targetLabel}`;
     case "rewrite_faq":
       return label
-        ? `Rewrite the FAQ "${truncate(label, 60)}" on the ${targetLabel}`
+        ? `Rewrite the FAQ ${q(label)} on the ${targetLabel}`
         : `Rewrite an FAQ on the ${targetLabel}`;
     case "add_proof_section":
       return `Add a proof section to the ${targetLabel}`;
@@ -358,7 +364,7 @@ export function composeEditRowTitle(args: {
       return `Add a comparison section${args.topicTag ? ` (${args.topicTag})` : ""} to the ${targetLabel}`;
     case "add_answer_block":
       return label
-        ? `Add an answer block "${truncate(label, 60)}" to the ${targetLabel}`
+        ? `Add an answer block ${q(label)} to the ${targetLabel}`
         : `Add an answer block to the ${targetLabel}`;
     case "add_internal_link":
       return label
@@ -383,7 +389,7 @@ export function composeEditRowTitle(args: {
         ? `Create the ${truncate(label, 60)} page`
         : `Create a new page`;
     case "split_page":
-      return `Split the ${targetLabel} into a dedicated page`;
+      return `Decide whether to split the ${targetLabel} into its own page`;
     case "merge_pages":
       return `Merge overlapping pages into the ${targetLabel}`;
     case "watch":
@@ -394,65 +400,162 @@ export function composeEditRowTitle(args: {
 /**
  * For meta-action rows (create_page / review_decision / regenerate)
  * we don't have a specific edit to lean on. Compose from rec
- * resolution + topic tag.
+ * resolution + topic tag + affected-prompt scan.
+ *
+ * Operator scope (Step 3.5f): NEVER "this opportunity" or
+ * "this scenario". Decision rows must name the actual decision
+ * (split / merge / strengthen / regenerate) plus topic + geo when
+ * known. The `affectedPromptTexts` scan recovers a topic when the
+ * cluster label is geo-only ("Atherton") or thin.
  */
 export function composeMetaRowTitle(args: {
   readonly action: RecommendationAction;
   readonly clusterLabel: string | null;
+  readonly affectedPromptTexts: ReadonlyArray<string>;
   readonly resolution: PageIntentResolution | null;
   readonly metaKind: "create_page" | "review_decision" | "regenerate_edit";
   readonly targetLabel: string;
 }): string {
+  // Topic ladder: cluster label first, then prompts.
+  const topic =
+    extractTopicTag(args.clusterLabel ?? "") ??
+    extractTopicFromPrompts(args.affectedPromptTexts);
+  const geo =
+    extractGeoTag(args.clusterLabel ?? "") ??
+    extractGeoTag(args.affectedPromptTexts.join(" "));
+
   if (args.metaKind === "create_page") {
-    // Reuse the title humanizer's create-page path so the operator
-    // sees "Create an Atherton older-home rebuild page" instead of
-    // a generic "Create a page" entry.
+    // Reuse the title humanizer (now topic-from-prompts aware).
     return humanizeRecTitle({
       clusterLabel: args.clusterLabel,
+      affectedPromptTexts: args.affectedPromptTexts,
       resolution: args.resolution,
     });
   }
   if (args.metaKind === "review_decision") {
     if (args.action === "split_or_separate_page") {
-      const topic = extractTopicTag(args.clusterLabel ?? "");
-      return topic
-        ? `Choose whether to split the ${args.targetLabel} into a dedicated ${topic} page`
-        : `Choose whether to split the ${args.targetLabel}`;
+      if (topic && args.targetLabel !== "New page") {
+        return `Decide whether to split ${topic} off the ${args.targetLabel}`;
+      }
+      if (args.targetLabel !== "New page") {
+        return `Decide whether to split the ${args.targetLabel} into its own page`;
+      }
+      if (topic) {
+        return `Decide whether to split off a dedicated ${topic} page`;
+      }
+      return `Decide whether to split a bundled page`;
     }
     if (args.action === "merge_or_dedupe") {
-      return `Choose whether to merge overlapping pages into the ${args.targetLabel}`;
+      return args.targetLabel !== "New page"
+        ? `Decide whether to merge overlapping pages into the ${args.targetLabel}`
+        : `Decide whether to merge overlapping pages`;
     }
     if (args.action === "needs_review") {
-      const topic = extractTopicTag(args.clusterLabel ?? "");
-      return topic
-        ? `Pick a direction for the ${topic} opportunity`
-        : `Pick a direction for this opportunity`;
+      if (topic && geo) return `Decide direction for ${geo} ${topic}`;
+      if (topic) return `Decide direction for ${topic}`;
+      if (geo) return `Decide direction for ${geo}`;
+      if (args.targetLabel !== "New page") {
+        return `Review this ${args.targetLabel} opportunity`;
+      }
+      return `Review this page opportunity`;
     }
     return `Review this recommendation`;
   }
   // regenerate_edit
-  const topic = extractTopicTag(args.clusterLabel ?? "");
-  return topic
-    ? `Regenerate edits for the ${topic} recommendation`
-    : `Regenerate edits for this recommendation`;
+  if (topic && geo) {
+    return `Regenerate edits for ${geo} ${topic}`;
+  }
+  if (topic) {
+    return `Regenerate edits for ${topic}`;
+  }
+  if (args.targetLabel !== "New page") {
+    return `Regenerate edits for the ${args.targetLabel}`;
+  }
+  return `Regenerate edits for this recommendation`;
 }
 
 /**
- * Map per-row priority. Operator scope: "High = high business
- * priority," not raw confidence. We blend three signals:
- *   - engine confidence (high/medium/low)
- *   - severity (high/medium/low) from the prioritizer
- *   - prompt count (single-prompt → cap at low)
+ * Map per-row priority. Operator scope (W3 §3.5f): "High = high
+ * business priority," not raw confidence. The prior version capped
+ * single-prompt at Low and treated `engineConfidence === low` as
+ * always Low — that produced a queue of mostly-Low rows, which the
+ * operator browser audit declared "looks like Beacon doesn't trust
+ * itself."
+ *
+ * Revised rubric blends five signals:
+ *   1. severity (high/medium/low) from the prioritizer
+ *   2. observation count (richer evidence → higher priority)
+ *   3. brand citation share (zero share + 10+ obs → Medium minimum)
+ *   4. needsHumanReview (operator-flagged → Medium minimum)
+ *   5. engineConfidence (still influences, never solely caps)
+ *
+ * Top-of-rank protection: a rec with `severity === "high"` AND
+ * `observationCount >= 10` lands at High regardless of confidence.
+ *
+ * Pure / deterministic. No clock reads. Same inputs → same output.
  */
 export function priorityForRow(args: {
   readonly engineConfidence: "high" | "medium" | "low";
   readonly severity: "high" | "medium" | "low";
   readonly affectedPromptCount: number;
+  readonly observationCount: number;
+  /** 0..1 — share of affected prompts where the brand is the
+   *  primary cited entity. */
+  readonly brandPrimaryShare: number;
+  readonly needsHumanReview: boolean;
+  readonly hasExactEdit: boolean;
 }): ActionRowPriority {
-  if (args.affectedPromptCount <= 1) return "low";
-  if (args.engineConfidence === "high" && args.severity !== "low") return "high";
-  if (args.engineConfidence === "low") return "low";
-  if (args.severity === "high") return "high";
+  // High floor: operator-flagged + high-severity + rich-observation
+  // recs cannot fall below High.
+  if (args.severity === "high" && args.observationCount >= 10) return "high";
+  if (
+    args.severity === "high" &&
+    args.hasExactEdit &&
+    args.engineConfidence !== "low"
+  ) {
+    return "high";
+  }
+
+  // Medium floors:
+  //   - operator-flagged review never lands at Low
+  //   - zero brand share + 10+ observations + named cluster signals a
+  //     real visibility gap, regardless of how thin per-edit confidence
+  //   - exact edit + multi-prompt + non-low confidence
+  //   - single-prompt + 8+ observations + non-zero severity (was
+  //     forcibly Low under the old rubric)
+  if (args.needsHumanReview) {
+    return args.severity === "high" ? "high" : "medium";
+  }
+  if (args.brandPrimaryShare === 0 && args.observationCount >= 10) {
+    return args.engineConfidence === "high" ? "high" : "medium";
+  }
+  if (
+    args.hasExactEdit &&
+    args.affectedPromptCount >= 2 &&
+    args.engineConfidence !== "low"
+  ) {
+    return args.engineConfidence === "high" ? "high" : "medium";
+  }
+  if (
+    args.affectedPromptCount === 1 &&
+    args.observationCount >= 8 &&
+    args.severity !== "low"
+  ) {
+    return "medium";
+  }
+
+  // Genuinely thin — Low.
+  if (
+    args.observationCount < 3 ||
+    (args.affectedPromptCount <= 1 && args.observationCount < 5)
+  ) {
+    return "low";
+  }
+  if (args.engineConfidence === "low" && args.severity === "low") {
+    return "low";
+  }
+
+  // Default Medium for everything else with measurable evidence.
   return "medium";
 }
 
@@ -501,73 +604,197 @@ export function statusForRow(args: {
 }
 
 /**
- * Compose a one-line evidence summary for a row. Operator scope: NO
- * paragraphs, NO debug, NO "site inventory shows…", NO "label tokens".
+ * Compose a one-line evidence summary for a row. Operator scope (W3
+ * §3.5f): NEVER repeat the same generic evidence across multiple
+ * rows. Surface the specific gap — topic, city, target page — so
+ * the operator can scan the Evidence column and tell rows apart.
  *
- * Strategy:
- *   - Defer to `composeEvidencePreview` (which already produces a
- *     single sentence with generic-competitor filtering).
- *   - For meta-rows (regenerate / review_decision), compose a
- *     specific compact summary instead.
- *   - For technical-fix / schema / FAQ rows we sometimes have
- *     structural facts (schema missing, FAQ missing) that are
- *     stronger than the rec-level evidence — the caller can pass an
- *     override.
+ * Format: `{N} AI answers; {specific gap}.`
+ *
+ * Examples (operator-locked):
+ *   "12 AI answers; Ritz not cited for Atherton design-build comparisons."
+ *   "33 AI answers; homepage cited instead of the Whole Home Remodel page."
+ *   "36 AI answers; Los Altos page exists but Ritz is not winning."
+ *   "8 AI answers; De Mattei winning Cupertino custom home queries."
+ *   "12 AI answers; Schema missing on the Available Homes page."
+ *
+ * Pure / deterministic. Generic competitors filtered through
+ * `shouldExcludeFromCompetitorRanking`.
  */
 export function composeRowEvidenceSummary(args: {
   readonly rec: LiveRecQueueItem;
   readonly action: RecommendationAction;
   readonly hasResolvedTarget: boolean;
   readonly resolvedUrl: string | null;
-  /** Optional structural override (e.g., "Schema missing"). When
-   *  present, takes precedence over the share-based summary. */
+  readonly targetLabel: string;
+  readonly topicTag: string | null;
+  readonly geoTag: string | null;
+  /** Optional structural override (e.g., "Schema missing on the X
+   *  page"). When present, takes precedence over the share-based
+   *  summary. */
   readonly override?: string | null;
 }): string {
-  if (args.override && args.override.trim().length > 0) {
-    return args.override.trim();
-  }
   const ev = args.rec.evidence;
+  const N = ev.observationCount;
+  const lead = `${N} AI answer${N === 1 ? "" : "s"}`;
+  const topic = args.topicTag;
+  const geo = args.geoTag;
+  // Compose a topic+geo phrase ("Atherton design-build comparisons")
+  // when both are known. Falls back to topic only / geo only / null.
+  const topicGeoPhrase = topicGeoQueriesPhrase({ topic, geo });
+
+  if (args.override && args.override.trim().length > 0) {
+    const o = args.override.trim().replace(/\.$/, "");
+    return `${lead}; ${o}.`;
+  }
+
+  // Find the first REAL competitor that's clearly winning (≥ 50%
+  // primary share). Used to surface "X winning {topic} queries" copy.
+  const winningCompetitor = ev.primaryCompetitors.find((c) => {
+    if (
+      !c ||
+      typeof c.name !== "string" ||
+      c.name.trim().length === 0 ||
+      shouldExcludeFromCompetitorRanking(c.name)
+    ) {
+      return false;
+    }
+    if (!c.totalAffectedPrompts) return false;
+    const ratio = c.promptsWherePrimary / c.totalAffectedPrompts;
+    return ratio >= 0.5;
+  });
   const sharePct =
     ev.brandPrimaryPromptCount > 0 && ev.promptCount > 0
-      ? ev.brandPrimaryPromptCount / ev.promptCount
-      : null;
-  return composeEvidencePreview({
+      ? Math.round((ev.brandPrimaryPromptCount / ev.promptCount) * 100)
+      : 0;
+
+  // ── Branch: explicit competitor dominance + topic ──
+  if (winningCompetitor && topicGeoPhrase) {
+    return `${lead}; ${winningCompetitor.name} winning ${topicGeoPhrase}.`;
+  }
+  // ── Branch: explicit competitor dominance, no topic ──
+  if (winningCompetitor && args.targetLabel !== "New page") {
+    return `${lead}; ${winningCompetitor.name} winning across the ${args.targetLabel}.`;
+  }
+  // ── Branch: zero brand share, has cluster + topic ──
+  if (sharePct === 0 && topicGeoPhrase) {
+    return `${lead}; Ritz not cited for ${topicGeoPhrase}.`;
+  }
+  // ── Branch: zero brand share, has target page ──
+  if (sharePct === 0 && args.targetLabel !== "New page") {
+    return `${lead}; ${args.targetLabel} not cited.`;
+  }
+  // ── Branch: zero brand share, no signal ──
+  if (sharePct === 0) {
+    return `${lead}; Ritz not cited yet.`;
+  }
+  // ── Branch: brand cited but losing — has topic ──
+  if (sharePct < 30 && topicGeoPhrase) {
+    return `${lead}; Ritz cited ${sharePct}% of ${topicGeoPhrase}.`;
+  }
+  if (sharePct < 30 && args.targetLabel !== "New page") {
+    return `${lead}; ${args.targetLabel} cited ${sharePct}%; needs more coverage.`;
+  }
+  // ── Branch: brand close to winning ──
+  if (sharePct < 60 && topicGeoPhrase) {
+    return `${lead}; Ritz close on ${topicGeoPhrase} (${sharePct}%).`;
+  }
+  if (sharePct < 60 && args.targetLabel !== "New page") {
+    return `${lead}; ${args.targetLabel} close at ${sharePct}%; needs more coverage.`;
+  }
+  // ── Branch: brand winning — defend ──
+  if (topicGeoPhrase) {
+    return `${lead}; Ritz primary on ${topicGeoPhrase} (${sharePct}%).`;
+  }
+  if (args.targetLabel !== "New page") {
+    return `${lead}; ${args.targetLabel} primary at ${sharePct}%.`;
+  }
+  // ── Last-resort fallback (no topic, no target). Defer to the
+  //     existing one-sentence preview helper for safety. ──
+  const fallback = composeEvidencePreview({
     affectedPromptCount: ev.promptCount,
     observationCount: ev.observationCount,
-    brandPrimaryShare: sharePct,
+    brandPrimaryShare: ev.brandPrimaryPromptCount / Math.max(ev.promptCount, 1),
     primaryCompetitors: ev.primaryCompetitors,
     resolvedAction: args.action,
     resolvedTargetUrl: args.resolvedUrl,
     hasResolvedTarget: args.hasResolvedTarget,
   });
+  // Force the operator-locked "{N} AI answers; …" lead.
+  return /^\d+\s+AI answer/.test(fallback)
+    ? fallback
+    : `${lead}; ${fallback.replace(/\.$/, "")}.`;
+}
+
+/**
+ * Compose a topic + geo phrase suitable for the Evidence column.
+ *
+ *   topic="design-build vs architect" + geo="Atherton" →
+ *     "Atherton design-build vs architect queries"
+ *   topic="vacant-lot custom home" + geo="Palo Alto" →
+ *     "Palo Alto vacant-lot custom home queries"
+ *   topic only → "{topic} queries"
+ *   geo only → "{geo} queries"
+ *   neither → null
+ */
+function topicGeoQueriesPhrase(args: {
+  topic: string | null;
+  geo: string | null;
+}): string | null {
+  const { topic, geo } = args;
+  if (topic && geo) {
+    // Decision/comparison topics read better as "comparisons" /
+    // "decisions" instead of "queries" — hint is the " vs " marker.
+    if (topic.includes(" vs ")) {
+      return `${geo} ${topic} comparisons`;
+    }
+    return `${geo} ${topic} queries`;
+  }
+  if (topic) {
+    if (topic.includes(" vs ")) return `${topic} comparisons`;
+    return `${topic} queries`;
+  }
+  if (geo) return `${geo} queries`;
+  return null;
 }
 
 /**
  * Pick a structural override for an edit that has a specific
  * operator-readable evidence bullet (e.g., schema rows say
- * "Schema missing" instead of share %). Falls back to null when
- * no specific structural fact applies.
+ * "Schema missing on the X page" instead of a share %). Falls back
+ * to null when no specific structural fact applies.
+ *
+ * The override is plugged into `composeRowEvidenceSummary` and
+ * surfaces as `{N} AI answers; {override}` so each row reads
+ * specifically.
  */
 function structuralOverrideForEdit(
   edit: RecommendedEditRow,
+  targetLabel: string,
 ): string | null {
+  const onPage =
+    targetLabel === "New page"
+      ? ""
+      : targetLabel === "Homepage"
+        ? " on the homepage"
+        : ` on the ${targetLabel}`;
   switch (edit.action_type) {
     case "add_schema":
-      return "Schema missing";
+      return `Schema missing${onPage}`;
     case "fix_schema":
-      return "Schema needs fixing";
+      return `Schema needs fixing${onPage}`;
     case "add_faq":
-      return "FAQ missing";
+      return `FAQ missing${onPage}`;
     case "rewrite_faq":
-      return "FAQ weak";
+      return `FAQ weak${onPage}`;
     case "edit_meta":
-      return "Meta description weak";
+      return `Meta description weak${onPage}`;
     case "edit_title":
-      return "Title underperforming";
+      return `Title underperforming${onPage}`;
     case "add_internal_link":
-      return "Internal links missing";
+      return `Internal links missing${onPage}`;
     case "reorder_sections":
-      return "Section order suboptimal";
+      return `Section order suboptimal${onPage}`;
     default:
       return null;
   }
@@ -596,6 +823,11 @@ export type BuildActionRowsArgs = {
     readonly response: RecommendationResponse | null;
     readonly edits: ReadonlyArray<RecommendedEditRow>;
   }>;
+  /** Prompt-id → prompt-text lookup. Used to scan affected-prompt
+   *  texts for topic / geo signals when the cluster label is thin
+   *  (e.g., geo-only "Atherton" → topic recovered via prompts).
+   *  Optional — falls back to empty when missing. */
+  readonly promptTextById?: Record<string, string>;
   /** Optional now-clock for stale-pending math. Defaults to
    *  Date.now(). */
   readonly now?: Date;
@@ -621,6 +853,7 @@ export function buildRecommendationActionRows(
   args: BuildActionRowsArgs,
 ): RecommendationActionRow[] {
   const now = (args.now ?? new Date()).getTime();
+  const promptTextById = args.promptTextById ?? {};
   const rows: RecommendationActionRow[] = [];
 
   for (const item of args.queue) {
@@ -657,11 +890,28 @@ export function buildRecommendationActionRows(
         ? resolution.targetUrl
         : null;
     const targetLabel = targetLabelForUrl(resolvedUrl);
-    const topicTag = extractTopicTag(rec.clusterLabel ?? rec.title ?? "");
+
+    // W3 §3.5f — affected-prompt scan: gives us topic + geo for
+    // geo-only clusters (e.g., "Atherton" alone → "design-build vs
+    // architect" when the cluster's prompts cover that scenario).
+    const affectedPromptTexts: string[] = (rec.affectedPromptIds ?? [])
+      .map((id) => promptTextById[id] ?? "")
+      .filter((s) => s.length > 0);
+    const topicTag =
+      extractTopicTag(rec.clusterLabel ?? rec.title ?? "") ??
+      extractTopicFromPrompts(affectedPromptTexts);
+    const geoTag =
+      extractGeoTag(rec.clusterLabel ?? rec.title ?? "") ??
+      extractGeoTag(affectedPromptTexts.join(" "));
 
     const motiveLabel = resolution?.motive
       ? MOTIVE_LABEL[resolution.motive] ?? null
       : null;
+    const brandPrimaryShare =
+      rec.evidence.promptCount > 0
+        ? rec.evidence.brandPrimaryPromptCount / rec.evidence.promptCount
+        : 0;
+    const needsHumanReview = resolution?.needsHumanReview ?? false;
 
     const topCompetitor = (() => {
       const c = rec.evidence.primaryCompetitors.find(
@@ -718,11 +968,15 @@ export function buildRecommendationActionRows(
           engineConfidence: rec.engineConfidence.confidence,
           severity: rec.severity,
           affectedPromptCount: rec.evidence.promptCount,
+          observationCount: rec.evidence.observationCount,
+          brandPrimaryShare,
+          needsHumanReview,
+          hasExactEdit: true,
         });
         const status = statusForRow({
           responseStatus,
           editLifecycleStatus: edit.implementation_status ?? "recommended",
-          needsHumanReview: resolution?.needsHumanReview ?? false,
+          needsHumanReview,
           hasNoEdits: false,
           hasOnlyDismissedEdits: false,
         });
@@ -731,7 +985,10 @@ export function buildRecommendationActionRows(
           action,
           hasResolvedTarget: resolvedUrl !== null,
           resolvedUrl,
-          override: structuralOverrideForEdit(edit),
+          targetLabel: editTargetLabel,
+          topicTag,
+          geoTag,
+          override: structuralOverrideForEdit(edit, editTargetLabel),
         });
         rows.push({
           id: `${rec.stableKey}::${edit.id}`,
@@ -814,6 +1071,7 @@ export function buildRecommendationActionRows(
     const title = composeMetaRowTitle({
       action,
       clusterLabel: rec.clusterLabel,
+      affectedPromptTexts,
       resolution,
       metaKind,
       targetLabel,
@@ -828,11 +1086,15 @@ export function buildRecommendationActionRows(
       engineConfidence: rec.engineConfidence.confidence,
       severity: rec.severity,
       affectedPromptCount: rec.evidence.promptCount,
+      observationCount: rec.evidence.observationCount,
+      brandPrimaryShare,
+      needsHumanReview,
+      hasExactEdit: false,
     });
     const status = statusForRow({
       responseStatus,
       editLifecycleStatus: null,
-      needsHumanReview: resolution?.needsHumanReview ?? false,
+      needsHumanReview,
       hasNoEdits: allEdits.length === 0,
       hasOnlyDismissedEdits,
     });
@@ -841,6 +1103,9 @@ export function buildRecommendationActionRows(
       action,
       hasResolvedTarget: resolvedUrl !== null,
       resolvedUrl,
+      targetLabel,
+      topicTag,
+      geoTag,
       override: null,
     });
     rows.push({
@@ -908,9 +1173,17 @@ export function buildRecommendationActionRows(
     });
   }
 
-  // ── Rank assignment. Operator-locked sort:
-  //     1. priority DESC (high → medium → low)
-  //     2. accept-and-track candidacy first (responseStatus === null)
+  // ── Rank assignment. Operator-locked sort (W3 §3.5f):
+  //     1. STATUS BUCKET (open work above tracking; tracking above
+  //        archived). Operator scope: tracking rows must NOT outrank
+  //        open work by default — without this, a queue of accepted
+  //        recs pushes new opportunities below the fold.
+  //          new / needs_review / needs_fresh_edit  (bucket 0)
+  //          accepted                                (bucket 1)
+  //          measuring                               (bucket 2)
+  //          shipped                                 (bucket 3)
+  //          deferred / dismissed                    (bucket 4)
+  //     2. PRIORITY DESC (high → medium → low) within bucket
   //     3. observation count DESC (richer evidence first)
   //     4. id ASC (deterministic tie-break)
   const PRIORITY_RANK: Record<ActionRowPriority, number> = {
@@ -918,12 +1191,21 @@ export function buildRecommendationActionRows(
     medium: 1,
     low: 2,
   };
+  const STATUS_BUCKET: Record<ActionRowStatus, number> = {
+    new: 0,
+    needs_review: 0,
+    needs_fresh_edit: 0,
+    accepted: 1,
+    measuring: 2,
+    shipped: 3,
+    deferred: 4,
+    dismissed: 4,
+  };
   rows.sort((a, b) => {
+    const sb = STATUS_BUCKET[a.status] - STATUS_BUCKET[b.status];
+    if (sb !== 0) return sb;
     const p = PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority];
     if (p !== 0) return p;
-    const aOpen = a.responseStatus === null ? 0 : 1;
-    const bOpen = b.responseStatus === null ? 0 : 1;
-    if (aOpen !== bOpen) return aOpen - bOpen;
     const obs = b.detail.observationCount - a.detail.observationCount;
     if (obs !== 0) return obs;
     return a.id.localeCompare(b.id);

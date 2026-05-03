@@ -174,6 +174,19 @@ const TOPIC_TAGS: ReadonlyArray<TopicTag> = [
     priority: 6,
     triggers: [/\bbath(?:room)? (?:remodel|renovation|reno)\b/i],
   },
+  // Whole-home renovation specific (Beacon-tracked cluster name) —
+  // priority 6 so it beats the generic "renovation" tag without
+  // racing the more-specific structural / kitchen / bathroom paths.
+  {
+    id: "whole_home_renovation",
+    topic: "whole-home renovation",
+    priority: 6,
+    triggers: [
+      /\bwhole[-\s]?home (?:renovation|remodel)\b/i,
+      /\bwhole[-\s]?house (?:renovation|remodel)\b/i,
+      /\bcomplete whole[-\s]?home/i,
+    ],
+  },
   // Generic remodel / renovation
   {
     id: "renovation",
@@ -181,13 +194,27 @@ const TOPIC_TAGS: ReadonlyArray<TopicTag> = [
     priority: 7,
     triggers: [/\brenovat(?:e|ion|ing)\b/i, /\bremodel(?:ing)?\b/i],
   },
+  // Luxury / high-end (cluster topic seen in production) — priority 7
+  // so a label like "Custom Home Builder Bay Area" maps via the
+  // higher-priority custom_home pattern, but luxury labels get a
+  // friendlier topic phrase.
+  {
+    id: "luxury_custom_home",
+    topic: "luxury custom home",
+    priority: 7,
+    triggers: [
+      /\bluxury (?:custom )?(?:home|house|build)/i,
+      /\bhigh[-\s]?end (?:custom )?(?:home|house|build)/i,
+      /\$\d+M\+/,
+    ],
+  },
   // Generic custom home
   {
     id: "custom_home",
     topic: "custom home",
     priority: 8,
     triggers: [
-      /\bcustom (?:home|house)\b/i,
+      /\bcustom (?:home|house|home builder)\b/i,
       /\bnew construction\b/i,
       /\bground[-\s]?up build/i,
     ],
@@ -220,10 +247,13 @@ export function extractTopicTag(label: string): string | null {
  * first city matched in the label wins.
  */
 const BAY_AREA_CITIES: ReadonlyArray<string> = [
+  // City name sort matters: longer, more-specific names FIRST so
+  // "Los Altos Hills" beats "Los Altos" and "Bay Area" never beats
+  // a real city.
+  "Los Altos Hills",
   "Atherton",
   "Palo Alto",
   "Los Altos",
-  "Los Altos Hills",
   "Menlo Park",
   "Woodside",
   "Portola Valley",
@@ -238,6 +268,10 @@ const BAY_AREA_CITIES: ReadonlyArray<string> = [
   "Redwood City",
   "San Mateo",
   "Sunnyvale",
+  // Bay-Area-wide marker — used as a fallback when no individual
+  // city is mentioned. Lower than every named city so a phrase like
+  // "Atherton custom home Bay Area" still surfaces "Atherton".
+  "Bay Area",
 ];
 
 /**
@@ -295,12 +329,145 @@ export function pageNameFromUrl(url: string | null): string {
   return titleCase(phrase);
 }
 
+// ── Topic-from-prompts (used when cluster label is geo-only or thin) ────
+
+/**
+ * Scan a list of prompt texts for the highest-priority topic. Returns
+ * the operator-readable topic phrase, or null when no pattern matches
+ * any prompt.
+ *
+ * This is the bridge that turns geo-only clusters ("Atherton") into
+ * concrete titles when the prompt set covers a coherent scenario
+ * ("design-build vs architect", "vacant-lot custom home", etc.).
+ *
+ * Pure / deterministic. Order doesn't depend on input order — we
+ * always sort topic tags by priority ASC and return the first hit.
+ */
+export function extractTopicFromPrompts(
+  prompts: ReadonlyArray<string>,
+): string | null {
+  if (!Array.isArray(prompts) || prompts.length === 0) return null;
+  const sorted = [...TOPIC_TAGS].sort((a, b) => a.priority - b.priority);
+  for (const tag of sorted) {
+    for (const re of tag.triggers) {
+      for (const text of prompts) {
+        if (typeof text === "string" && re.test(text)) return tag.topic;
+      }
+    }
+  }
+  return null;
+}
+
+// ── Cluster-label sanitizer (Beacon-tracked label noise → clean phrase) ──
+
+/**
+ * Beacon's cluster-builder occasionally emits labels like
+ * "Shield: Custom Home Builder Bay Area" or
+ * "Whole Home Renovation Builders (Bay Area)". The colon-prefixed
+ * "Shield:" is an internal namespacing marker; the trailing
+ * "(Bay Area)" / "Builders" / "Bay Area" suffixes carry duplicated
+ * geo / category info that the title composer doesn't need.
+ *
+ * Returns a clean phrase suitable for a title. May still return an
+ * empty string if everything was sanitized away.
+ */
+export function sanitizeClusterLabel(label: string): string {
+  if (typeof label !== "string") return "";
+  let s = label.trim();
+  // Strip leading "Shield:" / "Brand:" / "Topic:" namespace prefix.
+  s = s.replace(/^\s*(?:Shield|Topic|Brand|Category):\s+/i, "");
+  // Drop parenthetical suffix "(Bay Area)" / "(Region)" / etc.
+  s = s.replace(/\s*\([^)]*\)\s*$/g, "");
+  // Drop trailing geographic suffix.
+  s = s.replace(/\s+Bay Area$/i, "");
+  // Drop trailing "Builders" / "Builder" / "Companies" — those are
+  // category nouns embedded in a label, not part of the topic.
+  s = s.replace(/\s+(Builders?|Companies|Contractors?|Firms?)$/i, "");
+  return s.trim();
+}
+
+// ── Display-label cleaner (strip H2:/FAQ:/Title:/Meta: prefixes) ────────
+
+/**
+ * Strip leading taxonomy prefixes from an edit's `display_label` so
+ * the row title doesn't render `Add an H2 "H2: …"` (the operator-
+ * caught duplicate). Also strips matched outer quotes (curly or
+ * straight) so the caller can re-quote consistently.
+ *
+ * Examples (operator-locked):
+ *   `H2: Architect-led design-build advantage` →
+ *     `Architect-led design-build advantage`
+ *   `H2 heading (new): "Why teams choose us over De Mattei"` →
+ *     `Why teams choose us over De Mattei`
+ *   `New FAQ: "I own a vacant lot in Los Altos…"` →
+ *     `I own a vacant lot in Los Altos…`
+ *   `FAQ answer: Architect-led firm benefits` →
+ *     `Architect-led firm benefits`
+ *   `Architect-recommended builders for whole-home renovations` →
+ *     `Architect-recommended builders for whole-home renovations` (unchanged)
+ *
+ * Returns an empty string when the cleaner removed everything.
+ */
+export function cleanDisplayLabel(
+  label: string | null | undefined,
+): string {
+  if (typeof label !== "string") return "";
+  let s = label.trim();
+  if (s.length === 0) return "";
+  // Strip a typed prefix like `H2:`, `FAQ:`, `Title:`, `Meta:`,
+  // optionally with a parenthetical qualifier (`H2 heading (new):`,
+  // `New FAQ:`, `FAQ answer:`, `FAQ question:`).
+  const PREFIX_RE =
+    /^(?:new\s+)?(?:h[1-6]|h[1-6]\s+heading|title|meta|meta\s+description|faq(?:\s+(?:question|answer))?|schema|section|copy)(?:\s*\([^)]*\))?\s*:\s*/i;
+  for (let i = 0; i < 3; i += 1) {
+    // Apply twice in case the label nests prefixes (e.g.,
+    // "New FAQ: H2: …" — defensive).
+    const stripped = s.replace(PREFIX_RE, "");
+    if (stripped === s) break;
+    s = stripped;
+  }
+  // Strip a single layer of matched outer quotes.
+  s = stripOuterQuotes(s).trim();
+  // Drop trailing ellipsis / horizontal-ellipsis the persistence
+  // layer adds when truncating long labels — they're noise in titles.
+  s = s.replace(/\s*[…\.]{1,3}$/g, "").trim();
+  return s;
+}
+
+/**
+ * Strip ONE layer of matched outer quotes from a string. Handles
+ * straight (`"…"`), curly (`"…"`), and single quotes (`'…'`). Returns
+ * the original string when there's no matched pair.
+ */
+function stripOuterQuotes(s: string): string {
+  const trimmed = s.trim();
+  if (trimmed.length < 2) return trimmed;
+  const first = trimmed.charAt(0);
+  const last = trimmed.charAt(trimmed.length - 1);
+  const PAIRS: Array<[string, string]> = [
+    ['"', '"'],
+    ["“", "”"], // smart double quotes
+    ["'", "'"],
+    ["‘", "’"], // smart single quotes
+  ];
+  for (const [open, close] of PAIRS) {
+    if (first === open && last === close) {
+      return trimmed.slice(1, -1).trim();
+    }
+  }
+  return trimmed;
+}
+
 // ── Title composer ─────────────────────────────────────────────────────
 
 export type HumanizeRecTitleArgs = {
   readonly clusterLabel: string | null;
-  /** Promtp text fallback when clusterLabel is null/empty. */
+  /** Prompt text fallback when clusterLabel is null/empty. */
   readonly promptTextFallback?: string | null;
+  /** Optional list of prompt texts on the affected cluster. When
+   *  cluster label + fallback don't yield a topic tag, we scan these
+   *  for the highest-priority topic. */
+  readonly affectedPromptTexts?: ReadonlyArray<string>;
   readonly resolution?: PageIntentResolution | null;
 };
 
@@ -340,8 +507,18 @@ export function humanizeRecTitle(args: HumanizeRecTitleArgs): string {
     resolution?.action ?? "create_new_page";
   const labelSource =
     (args.clusterLabel ?? args.promptTextFallback ?? "").trim();
-  const topic = extractTopicTag(labelSource);
-  const geo = extractGeoTag(labelSource);
+  // Topic ladder:
+  //   1. Topic in cluster label / prompt fallback (high-priority match).
+  //   2. Topic in any affected prompt (W3 §3.5f — geo-only clusters
+  //      like "Atherton" yield "design-build vs architect" once we
+  //      look at the prompts that fall under them).
+  const topic =
+    extractTopicTag(labelSource) ??
+    extractTopicFromPrompts(args.affectedPromptTexts ?? []);
+  const geo =
+    extractGeoTag(labelSource) ??
+    extractGeoTag((args.affectedPromptTexts ?? []).join(" "));
+  const sanitizedLabel = sanitizeClusterLabel(args.clusterLabel ?? "");
 
   const targetUrl =
     resolution?.targetUrl && resolution.targetUrl !== NEEDS_NEW_PAGE
@@ -352,69 +529,116 @@ export function humanizeRecTitle(args: HumanizeRecTitleArgs): string {
   // Compose by action.
   switch (action) {
     case "create_new_page":
-      return composeCreatePageTitle(geo, topic);
+      return composeCreatePageTitle({
+        geo,
+        topic,
+        clusterPhrase: sanitizedLabel,
+      });
     case "expand_existing_page":
     case "add_section_or_faq":
-      return composeAddSectionTitle(topic, pageName);
+      return composeAddSectionTitle({ topic, pageName, geo });
     case "strengthen_existing_page":
-      return composeStrengthenTitle(topic, pageName);
+      return composeStrengthenTitle({ topic, pageName });
     case "merge_or_dedupe":
       return targetUrl
-        ? `Merge owned pages into the ${pageName}`
+        ? `Merge overlapping pages into the ${pageName} page`
         : "Merge overlapping owned pages";
     case "split_or_separate_page":
+      // Use a "decision" verb so review-style copy reads as a real
+      // operator decision, not a vague opportunity. The decision-row
+      // composer in the action-rows builder layers more context.
       return targetUrl
-        ? `Split the ${pageName} into a dedicated ${topic ?? "scenario"} page`
-        : `Split a bundled page into a dedicated ${topic ?? "scenario"} page`;
+        ? topic
+          ? `Decide whether to split the ${pageName} page into a dedicated ${topic} page`
+          : `Decide whether to split the ${pageName} page`
+        : topic
+          ? `Decide whether to split off a dedicated ${topic} page`
+          : `Decide whether to split a bundled page`;
     case "watch":
       return topic
         ? `Watch the ${topic} cluster`
         : "Watch a winning cluster";
     case "needs_review":
-      return topic
-        ? `Review the ${topic} opportunity`
-        : "Review a recommendation";
+      // Operator-locked (Step 3.5f): never "this opportunity" /
+      // "this scenario". Prefer topic + geo + page.
+      if (topic && geo) return `Decide direction for ${geo} ${topic}`;
+      if (topic) return `Decide direction for ${topic}`;
+      if (targetUrl) return `Review this ${pageName} page opportunity`;
+      return "Review this page opportunity";
     default:
-      return composeCreatePageTitle(geo, topic);
+      return composeCreatePageTitle({
+        geo,
+        topic,
+        clusterPhrase: sanitizedLabel,
+      });
   }
 }
 
-function composeCreatePageTitle(
-  geo: string | null,
-  topic: string | null,
-): string {
+function composeCreatePageTitle(args: {
+  readonly geo: string | null;
+  readonly topic: string | null;
+  readonly clusterPhrase: string;
+}): string {
+  const { geo, topic } = args;
+  // Decision-style topics ("design-build vs architect", "older-home
+  // rebuild", "completed-plans handoff") read better with a "decision
+  // page" suffix.
+  const isDecisionTopic =
+    topic !== null &&
+    (topic.includes(" vs ") ||
+      topic.endsWith(" rebuild") ||
+      topic.endsWith(" handoff") ||
+      topic.endsWith(" feasibility"));
+  const suffix = isDecisionTopic ? "decision page" : "page";
+
   if (geo && topic) {
-    // "Create an Atherton older-home rebuild page"
-    return `Create ${articleFor(geo)} ${geo} ${topic} page`;
+    // "Create an Atherton design-build vs architect decision page"
+    // "Create an Atherton older-home rebuild decision page"
+    return `Create ${articleFor(geo)} ${geo} ${topic} ${suffix}`;
   }
   if (topic) {
-    return `Create ${articleFor(topic)} ${topic} page`;
+    return `Create ${articleFor(topic)} ${topic} ${suffix}`;
   }
   if (geo) {
-    return `Create a ${geo} services page`;
+    return `Create a dedicated ${geo} page`;
+  }
+  // No topic, no geo, but we DO have a cluster phrase — use it
+  // verbatim instead of falling to the generic "this scenario" copy.
+  if (args.clusterPhrase.length > 0) {
+    return `Create a ${args.clusterPhrase} page`;
   }
   // Last-resort fallback per operator scope: don't quote raw prompt.
-  return "Create a page for this scenario";
+  // Operator browser audit (Step 3.5f) flagged "this scenario" as
+  // generic. Use a slightly more grounded phrasing.
+  return "Review this page opportunity";
 }
 
-function composeAddSectionTitle(
-  topic: string | null,
-  pageName: string,
-): string {
-  if (topic) {
-    return `Add a ${topic} section to the ${pageName} page`;
+function composeAddSectionTitle(args: {
+  readonly topic: string | null;
+  readonly pageName: string;
+  readonly geo: string | null;
+}): string {
+  const pageLabel =
+    args.pageName === "homepage" ? "homepage" : `${args.pageName} page`;
+  if (args.topic) {
+    return `Add a ${args.topic} section to the ${pageLabel}`;
   }
-  return `Add a new section to the ${pageName} page`;
+  if (args.geo) {
+    return `Add a ${args.geo} services section to the ${pageLabel}`;
+  }
+  return `Review which section to add to the ${pageLabel}`;
 }
 
-function composeStrengthenTitle(
-  topic: string | null,
-  pageName: string,
-): string {
-  if (topic) {
-    return `Strengthen the ${pageName} page for ${topic} searches`;
+function composeStrengthenTitle(args: {
+  readonly topic: string | null;
+  readonly pageName: string;
+}): string {
+  const pageLabel =
+    args.pageName === "homepage" ? "homepage" : `${args.pageName} page`;
+  if (args.topic) {
+    return `Strengthen the ${pageLabel} for ${args.topic} searches`;
   }
-  return `Strengthen the ${pageName} page`;
+  return `Strengthen the ${pageLabel}`;
 }
 
 /**

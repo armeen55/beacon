@@ -158,8 +158,11 @@ describe("Phase 6A.1.12 — recommendations-client UI (post-Step-3.5e action tab
   });
 
   it("invokes buildRecommendationActionRows with the queue prop", () => {
+    // W3 §3.5f — the call now also threads `promptTextById` so the
+    // builder can scan affected-prompt texts for topic / geo
+    // signals when the cluster label is thin.
     expect(CLIENT_SOURCE).toMatch(
-      /buildRecommendationActionRows\(\s*\{\s*queue\s*\}/,
+      /buildRecommendationActionRows\(\s*\{\s*queue\s*,\s*promptTextById\s*\}/,
     );
   });
 

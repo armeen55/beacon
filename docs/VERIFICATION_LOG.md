@@ -7,6 +7,69 @@
 
 ---
 
+## 2026-05-03 (evening) — W3 Step 3.5f: Ranked-action-table row polish
+
+Single code commit on `main`. Operator browser re-audit on Step 3.5e accepted the table SHAPE but failed row CONTENT — generic titles ("Create a page for this scenario"), duplicate `H2 "H2: …"` quote prefixes, low-priority top rows, "Defer" as the primary action for Needs review, "Create page" pill wrapping into two lines, repetitive evidence copy, tracking rows above open work, and no visible Details affordance.
+
+### What changed
+
+**`src/domains/recommendations/recommendation-title-humanizer.ts`:**
+- New topic patterns: `whole_home_renovation` (priority 6), `luxury_custom_home` (priority 7).
+- Extended `custom_home` triggers to match "custom home builder" cluster phrases.
+- Bay Area cities sorted longest-first so "Los Altos Hills" beats "Los Altos" and "Bay Area" never beats a real city name.
+- `extractTopicFromPrompts(prompts)` (NEW export) scans an array of prompt texts for the highest-priority topic — bridges geo-only clusters ("Atherton") to concrete topics ("design-build vs architect", "vacant-lot custom home").
+- `sanitizeClusterLabel(label)` (NEW export) strips `Shield:` / `Topic:` / `Brand:` / `Category:` namespace prefix + parenthetical suffix `(Bay Area)` + trailing geographic suffix + trailing category nouns (`Builders`, `Companies`, `Contractors`, `Firms`).
+- `cleanDisplayLabel(label)` (NEW export) strips taxonomy prefixes — `H2:`, `H2 heading (new):`, `New FAQ:`, `FAQ:`, `FAQ answer:`, `FAQ question:`, `Title:`, `Meta:`, `Schema:`, `Section:`, `Copy:` — plus matched outer quotes (straight + curly + single + smart-single). Also strips trailing ellipsis.
+- `humanizeRecTitle` rewritten:
+  - Topic ladder: cluster label → affected-prompt scan.
+  - Decision-style topics ("X vs Y", "X rebuild", "X handoff", "X feasibility") get a "decision page" suffix.
+  - `composeCreatePageTitle` falls back to the sanitized cluster phrase verbatim ("Create a Whole Home Renovation page") instead of the pre-3.5f generic "Create a page for this scenario" string.
+  - Decision-action verbs: "Decide whether to split the {page} page into a dedicated {topic} page", "Decide direction for {Geo} {topic}", "Regenerate edits for {Geo} {topic}".
+  - Last-resort fallback is "Review this page opportunity" (operator-locked: NEVER "this opportunity" / "this scenario" copy).
+
+**`src/domains/recommendations/recommendation-action-rows.ts`:**
+- `BuildActionRowsArgs` accepts `promptTextById` so geo-only clusters can recover topic via `extractTopicFromPrompts`.
+- `composeEditRowTitle` uses `cleanDisplayLabel` + curly quotes (`"…"`) consistently. Output reads `Add an "Architect-led design-build advantage" H2 to the Whole Home Remodel page` (no duplicate `H2 "H2: …"` prefix).
+- `composeMetaRowTitle` accepts `affectedPromptTexts` and topic-from-prompts threading. Decision rows produce concrete copy: "Decide whether to split kitchen remodel off the Los Altos page", "Decide direction for Atherton older-home rebuild", "Regenerate edits for Cupertino custom home".
+- `priorityForRow` blends 5 signals (severity, observation count, brand citation share, needsHumanReview, engineConfidence, hasExactEdit). High floors: severity=high+obs≥10 → High; severity=high+exact edit+non-low confidence → High. Medium floors: needsHumanReview → Medium minimum; brand_share=0+obs≥10 → Medium minimum; multi-prompt+exact edit+non-low confidence → Medium. Low only when genuinely thin (obs<3 or single-prompt+obs<5).
+- `composeRowEvidenceSummary` produces `{N} AI answer(s); {topic-specific gap}.` Examples: "12 AI answers; Ritz not cited for Atherton design-build vs architect comparisons.", "33 AI answers; Greenberg winning Whole Home Remodel page queries.", "8 AI answers; Schema missing on the Available Homes page."
+- `structuralOverrideForEdit` now accepts the targetLabel so the override embeds the page name ("Schema missing on the Available Homes page" instead of bare "Schema missing").
+- Sort buckets: `STATUS_BUCKET` puts open work first (new / needs_review / needs_fresh_edit → 0), then accepted (1), measuring (2), shipped (3), deferred / dismissed (4). Within bucket: priority DESC → observation count DESC → id ASC.
+
+**`src/app/(shell)/recommendations/recommendations-client.tsx`:**
+- Builder call now passes `{ queue, promptTextById }`.
+- `RowActionButton` mapping: Accept (new+exact) · Review (new+review_decision · needs_review) · Regenerate (new+regenerate · needs_fresh_edit) · Mark shipped (accepted+edits) · View (measuring · accepted-without-edits) · ✓ Shipped (shipped) · Promote (deferred) · Restore (dismissed). Defer is no longer a primary row button.
+- `RowActionButton` accepts `onOpenDetails` prop so Review / Regenerate / View buttons toggle the drawer.
+- `TypePill` short-circuits for `actionType === "create_page"` and renders `—` (the row title already says "Create"); other types render compact label with `whitespace-nowrap`.
+- Type-filter dropdown surfaces "Page" instead of "Create page".
+- Visible Details column with chevron + `data-rec-details-button="true"` on every row.
+- `RowDrawer` accepts pending + handle props and renders a secondary-action footer (`data-rec-drawer-secondary-actions="true"`) with Defer 7 days + Dismiss buttons. Hidden once the row is terminal.
+- Table colSpan updated 8 → 9 to accommodate the new Details column.
+
+### Tests
+
+**1 new file + 4 updated test files:**
+
+- `tests/architecture/recommendations-step-3.5f-row-polish.test.ts` (NEW, 28) — operator-locked source-scan invariants: humanizer extensions present, action-row builder threads new helpers, priorityForRow signature, status-bucket sort order, Type pill polish, action-button mapping per status (Defer NEVER as primary), drawer secondary actions, visible Details affordance.
+- `tests/app/recommendations/render-output-cleanup.test.tsx` (+10 new acceptance tests) — rendered-output: no scenario/opportunity fallback, no duplicate H2 prefix, "homepage page" never renders, Type column compact (`—` placeholder for create_page rows), needs_review primary button is Review (not Defer), top-5 rows not all Low, evidence specificity, sort order (open work above tracking), drawer carries secondary footer hidden by default.
+- `src/domains/recommendations/recommendation-title-humanizer.test.ts` (5 updated + 2 new) — decision-page suffix on rebuild/handoff/feasibility/vs topics; "Create a dedicated {Geo} page" replaces "Create a {Geo} services page"; "Decide direction for {topic}" replaces "Review the {topic} opportunity"; "this opportunity" / "this scenario" never emitted by the humanizer; cluster-phrase fallback when no topic + no geo.
+- `tests/sprint6a1-phase12-wiring.test.ts` (1 updated) — `buildRecommendationActionRows` regex now expects `{ queue, promptTextById }`.
+
+### Verification
+
+- `npx tsc --noEmit` — clean.
+- 189/189 targeted (humanizer + evidence-preview + confidence-distribution + step-3.5e action-table + step-3.5f row-polish + render-output-cleanup + ui-cleanup + sprint6a1) — pass.
+- `npm run test` — 3584/3588 pass. 4 pre-existing failures (verified independent against `8b12b3d` baseline): `tests/routes/prompt-drilldown-smoke.test.tsx` × 1, `tests/routes/prompts-smoke.test.tsx` × 2, `tests/tenants/isolation.test.ts` × 1.
+- `BEACON_TENANT_ID=tenant-ritz-founder BEACON_TENANT_SLUG=ritz-builders npm run build` — clean (Vercel-equivalent read-only-FS).
+
+**Could not verify from this environment:** Vercel deploy SHA matches the new commit — operator dashboard check + browser re-audit needed.
+
+### Out of scope (per Step 3.5f + W3 §1.5)
+
+LIVE paid generation; Step 3.6 sample-10 report; Apply-All-HIGH / bulk-accept; customer-one backfill; Profound archive/delete; broad UI redesign outside /recommendations.
+
+---
+
 ## 2026-05-03 (afternoon) — W3 Step 3.5e: Recommendations as a HubSpot-style ranked action TABLE
 
 Single code commit on `main`. Operator browser re-audit on Step 3.5d (lane-card model) failed product acceptance: "stop the card/lane approach. The page should not look like a dashboard of cards. It should look like a clean work queue." The fix is the next product-architecture rewrite: lanes/cards out, ranked action table in.

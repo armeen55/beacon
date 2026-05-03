@@ -72,8 +72,8 @@ export function RecommendationsClient({
   promptTextById,
 }: Props) {
   const allRows = useMemo(
-    () => buildRecommendationActionRows({ queue }),
-    [queue],
+    () => buildRecommendationActionRows({ queue, promptTextById }),
+    [queue, promptTextById],
   );
 
   const [search, setSearch] = useState("");
@@ -166,7 +166,9 @@ const TYPE_FILTER_OPTIONS: Array<{
   label: string;
 }> = [
   { value: "all", label: "All types" },
-  { value: "create_page", label: "Create page" },
+  // W3 §3.5f — compact labels. "Page" replaces "Create page" so the
+  // dropdown stays single-line and the pill column doesn't overflow.
+  { value: "create_page", label: "Page" },
   { value: "edit_h2", label: "H2" },
   { value: "edit_title", label: "Title" },
   { value: "edit_meta", label: "Meta" },
@@ -304,11 +306,12 @@ function ActionTable({
             <th className="px-2 py-1.5 w-8 text-right">#</th>
             <th className="px-2 py-1.5">Recommended action</th>
             <th className="px-2 py-1.5 hidden md:table-cell">Target</th>
-            <th className="px-2 py-1.5 w-[72px]">Type</th>
+            <th className="px-2 py-1.5 w-[68px]">Type</th>
             <th className="px-2 py-1.5 w-[72px]">Priority</th>
             <th className="px-2 py-1.5 w-[110px]">Status</th>
             <th className="px-2 py-1.5 hidden lg:table-cell">Evidence</th>
-            <th className="px-2 py-1.5 w-[110px] text-right">Action</th>
+            <th className="px-2 py-1.5 w-[120px] text-right">Action</th>
+            <th className="px-2 py-1.5 w-[64px] text-right">Details</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-border/40">
@@ -461,17 +464,43 @@ function ActionRow({
             pending={pending}
             handle={handle}
             recPayload={recPayload}
+            onOpenDetails={onToggleExpand}
           />
+        </td>
+        <td className="px-2 py-2 align-top text-right">
+          {/* Visible Details affordance — operator scope (W3 §3.5f):
+              row click is no longer the only way to drill in. */}
+          <button
+            type="button"
+            onClick={onToggleExpand}
+            className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+            data-rec-details-button="true"
+            aria-expanded={expanded}
+            aria-label={expanded ? "Hide details" : "Show details"}
+          >
+            <span>Details</span>
+            <span
+              className={cn(
+                "inline-block transition-transform",
+                expanded && "rotate-90",
+              )}
+              aria-hidden="true"
+            >
+              ▸
+            </span>
+          </button>
         </td>
       </tr>
       {expanded && (
         <tr className="bg-surface-inset/20">
-          <td colSpan={8} className="px-3 py-3" data-rec-row-drawer="true">
+          <td colSpan={9} className="px-3 py-3" data-rec-row-drawer="true">
             <RowDrawer
               row={row}
               promptTextById={promptTextById}
               showFeedback={showFeedback}
               feedback={feedback}
+              pending={pending}
+              handle={handle}
             />
           </td>
         </tr>
@@ -483,12 +512,44 @@ function ActionRow({
 /* ── Pills (type / priority / status) ───────────────────────────────── */
 
 function TypePill({ actionType }: { actionType: ActionRowType }) {
+  // W3 §3.5f — operator scope: drop the pill on create_page rows
+  // because the row title already starts with "Create …" and the
+  // pill (visually wider than other types) was wrapping into two
+  // lines. Stamp the data attribute so tests + diagnostics can
+  // still see the action type.
+  if (actionType === "create_page") {
+    return (
+      <span
+        className="text-[10px] text-muted-foreground/60"
+        data-rec-type-pill={actionType}
+      >
+        —
+      </span>
+    );
+  }
+  // W3 §3.5f — operator-locked compact labels per type. "Create page"
+  // is intentionally unused here; the create_page branch above
+  // suppresses the pill entirely.
+  const COMPACT_LABEL: Record<ActionRowType, string> = {
+    create_page: "Page",
+    edit_h2: "H2",
+    edit_title: "Title",
+    edit_meta: "Meta",
+    add_schema: "Schema",
+    add_faq: "FAQ",
+    add_section: "Section",
+    improve_copy: "Copy",
+    add_internal_links: "Links",
+    technical_fix: "Technical",
+    review_decision: "Review",
+    regenerate_edit: "Regenerate",
+  };
   return (
     <span
-      className="inline-block rounded border border-accent-primary/30 bg-accent-primary/[0.05] text-accent-primary text-[10px] font-medium px-1.5 py-0.5"
+      className="inline-block whitespace-nowrap rounded border border-accent-primary/30 bg-accent-primary/[0.05] text-accent-primary text-[10px] font-medium px-1.5 py-0.5"
       data-rec-type-pill={actionType}
     >
-      {ACTION_ROW_TYPE_LABEL[actionType]}
+      {COMPACT_LABEL[actionType]}
     </span>
   );
 }
@@ -569,6 +630,7 @@ function RowActionButton({
   pending,
   handle,
   recPayload,
+  onOpenDetails,
 }: {
   row: RecommendationActionRow;
   pending: boolean;
@@ -577,52 +639,70 @@ function RowActionButton({
     successMsg: string,
   ) => void;
   recPayload: RecommendationActionPayload;
+  onOpenDetails: () => void;
 }) {
   const editCount = row.eligibleEditCount;
+  const PRIMARY_BTN =
+    "text-[11px] font-medium px-2 py-1 rounded border whitespace-nowrap transition-colors disabled:opacity-50";
 
-  // Already-decided rows show Undo only.
-  if (row.responseStatus === "dismissed") {
-    return (
-      <button
-        type="button"
-        disabled={pending}
-        onClick={() =>
-          handle(
-            () => undoRecommendationResponse(row.sourceRecommendationId),
-            "Un-dismissed.",
-          )
-        }
-        className="text-[11px] text-muted-foreground hover:text-foreground underline underline-offset-2 disabled:opacity-50"
-        data-rec-action-button="undo"
-      >
-        Undo
-      </button>
-    );
-  }
-  if (row.responseStatus === "deferred") {
-    return (
-      <button
-        type="button"
-        disabled={pending}
-        onClick={() =>
-          handle(
-            () => undoRecommendationResponse(row.sourceRecommendationId),
-            "Un-deferred.",
-          )
-        }
-        className="text-[11px] text-muted-foreground hover:text-foreground underline underline-offset-2 disabled:opacity-50"
-        data-rec-action-button="undo"
-      >
-        Undo
-      </button>
-    );
-  }
+  // ── Operator-locked button mapping (W3 §3.5f) ──────────────────────
+  // status === "new" + hasExactEdit          → Accept
+  // status === "new" + !hasExactEdit (page)  → Accept
+  // status === "new" + !hasExactEdit (review) → Review (open drawer)
+  // status === "new" + !hasExactEdit (regen) → Regenerate (open drawer)
+  // status === "needs_review"                → Review (open drawer)
+  // status === "needs_fresh_edit"            → Regenerate (open drawer)
+  // status === "accepted"                    → Mark shipped
+  // status === "measuring"                   → View
+  // status === "shipped"                     → ✓ Shipped (no button)
+  // status === "deferred"                    → Promote (un-defer)
+  // status === "dismissed"                   → Restore (un-dismiss)
+  //
+  // Defer is no longer the primary affordance for ANY state. It lives
+  // as a secondary action inside the drawer (Step 3.5f follow-up).
 
-  // Status-driven primary action.
   switch (row.status) {
+    case "dismissed":
+      return (
+        <button
+          type="button"
+          disabled={pending}
+          onClick={() =>
+            handle(
+              () => undoRecommendationResponse(row.sourceRecommendationId),
+              "Restored.",
+            )
+          }
+          className={cn(
+            PRIMARY_BTN,
+            "border-border/60 bg-background hover:bg-surface-inset/40",
+          )}
+          data-rec-action-button="restore"
+        >
+          Restore
+        </button>
+      );
+    case "deferred":
+      return (
+        <button
+          type="button"
+          disabled={pending}
+          onClick={() =>
+            handle(
+              () => undoRecommendationResponse(row.sourceRecommendationId),
+              "Promoted.",
+            )
+          }
+          className={cn(
+            PRIMARY_BTN,
+            "border-accent-primary/50 bg-accent-primary/[0.05] text-accent-primary hover:bg-accent-primary/[0.10]",
+          )}
+          data-rec-action-button="promote"
+        >
+          Promote
+        </button>
+      );
     case "accepted":
-    case "measuring":
-      // Shipped affordance — the operator can mark live early.
       if (editCount > 0) {
         return (
           <button
@@ -639,7 +719,10 @@ function RowActionButton({
                   : `Marked ${editCount} edits live — verdict clock started.`,
               )
             }
-            className="text-[11px] font-medium px-2 py-1 rounded border border-accent-primary/50 bg-accent-primary/[0.06] text-accent-primary hover:bg-accent-primary/[0.12] transition-colors disabled:opacity-50"
+            className={cn(
+              PRIMARY_BTN,
+              "border-accent-primary/50 bg-accent-primary/[0.06] text-accent-primary hover:bg-accent-primary/[0.12]",
+            )}
             data-rec-action-button="mark_shipped"
           >
             Mark shipped
@@ -647,17 +730,36 @@ function RowActionButton({
         );
       }
       return (
-        <span
-          className="text-[11px] text-status-info"
+        <button
+          type="button"
+          onClick={onOpenDetails}
+          className={cn(
+            PRIMARY_BTN,
+            "border-border/60 bg-background hover:bg-surface-inset/40",
+          )}
           data-rec-action-button="view_result"
         >
-          Tracking
-        </span>
+          View
+        </button>
+      );
+    case "measuring":
+      return (
+        <button
+          type="button"
+          onClick={onOpenDetails}
+          className={cn(
+            PRIMARY_BTN,
+            "border-status-info/50 bg-status-info/[0.05] text-status-info hover:bg-status-info/[0.10]",
+          )}
+          data-rec-action-button="view_result"
+        >
+          View
+        </button>
       );
     case "shipped":
       return (
         <span
-          className="text-[11px] text-status-success font-medium"
+          className="text-[11px] text-status-success font-medium whitespace-nowrap"
           data-rec-action-button="view_result"
         >
           ✓ Shipped
@@ -667,38 +769,66 @@ function RowActionButton({
       return (
         <button
           type="button"
-          disabled={pending}
-          onClick={() =>
-            handle(
-              () => dismissRecommendation(row.sourceRecommendationId),
-              "Dismissed.",
-            )
-          }
-          className="text-[11px] px-2 py-1 rounded border border-border/60 bg-background hover:bg-surface-inset/40 transition-colors disabled:opacity-50"
-          data-rec-action-button="dismiss"
+          onClick={onOpenDetails}
+          className={cn(
+            PRIMARY_BTN,
+            "border-status-warning/50 bg-status-warning/[0.06] text-status-warning hover:bg-status-warning/[0.12]",
+          )}
+          data-rec-action-button="regenerate"
         >
-          Dismiss
+          Regenerate
         </button>
       );
     case "needs_review":
       return (
         <button
           type="button"
-          disabled={pending}
-          onClick={() =>
-            handle(
-              () => deferRecommendation(row.sourceRecommendationId),
-              "Deferred 7 days.",
-            )
-          }
-          className="text-[11px] px-2 py-1 rounded border border-border/60 bg-background hover:bg-surface-inset/40 transition-colors disabled:opacity-50"
-          data-rec-action-button="defer"
+          onClick={onOpenDetails}
+          className={cn(
+            PRIMARY_BTN,
+            "border-status-warning/50 bg-status-warning/[0.06] text-status-warning hover:bg-status-warning/[0.12]",
+          )}
+          data-rec-action-button="review"
         >
-          Defer
+          Review
         </button>
       );
     case "new":
-    default:
+    default: {
+      // Non-actionable new rows (review_decision / regenerate_edit
+      // without exact edits) open the drawer so the operator can
+      // pick a direction. Accept-button only fires when there's
+      // something concrete to ship.
+      if (!row.hasExactEdit && row.actionType === "review_decision") {
+        return (
+          <button
+            type="button"
+            onClick={onOpenDetails}
+            className={cn(
+              PRIMARY_BTN,
+              "border-status-warning/50 bg-status-warning/[0.06] text-status-warning hover:bg-status-warning/[0.12]",
+            )}
+            data-rec-action-button="review"
+          >
+            Review
+          </button>
+        );
+      }
+      if (!row.hasExactEdit && row.actionType === "regenerate_edit") {
+        return (
+          <button
+            type="button"
+            onClick={onOpenDetails}
+            className={cn(
+              PRIMARY_BTN,
+              "border-status-warning/50 bg-status-warning/[0.06] text-status-warning hover:bg-status-warning/[0.12]",
+            )}
+            data-rec-action-button="regenerate"
+          >
+            Regenerate
+          </button>
+        );
+      }
       return (
         <button
           type="button"
@@ -711,12 +841,16 @@ function RowActionButton({
                 : "Accepted.",
             )
           }
-          className="text-[11px] font-medium px-2 py-1 rounded border border-status-success/50 bg-status-success/[0.05] text-status-success hover:bg-status-success/[0.10] transition-colors disabled:opacity-50"
+          className={cn(
+            PRIMARY_BTN,
+            "border-status-success/50 bg-status-success/[0.05] text-status-success hover:bg-status-success/[0.10]",
+          )}
           data-rec-action-button="accept"
         >
           Accept
         </button>
       );
+    }
   }
 }
 
@@ -727,6 +861,8 @@ function RowDrawer({
   promptTextById,
   showFeedback,
   feedback,
+  pending,
+  handle,
 }: {
   row: RecommendationActionRow;
   promptTextById: Record<string, string>;
@@ -736,10 +872,22 @@ function RowDrawer({
     message: string;
     isError: boolean;
   } | null;
+  pending: boolean;
+  handle: (
+    action: () => Promise<RecommendationActionResponse>,
+    successMsg: string,
+  ) => void;
 }) {
   const d = row.detail;
   const hasExactCopy =
     typeof d.proposedText === "string" && d.proposedText.trim().length > 0;
+  // Operator scope (W3 §3.5f): Defer + Dismiss are SECONDARY actions
+  // and live at the bottom of the drawer, not in the row's Action
+  // column. Hidden when the row already carries a terminal response.
+  const showSecondaryActions =
+    row.responseStatus !== "dismissed" &&
+    row.responseStatus !== "deferred" &&
+    row.status !== "shipped";
   return (
     <div className="space-y-3 text-[12px]">
       {showFeedback && feedback && (
@@ -933,6 +1081,48 @@ function RowDrawer({
           )}
         </ul>
       </details>
+
+      {/* Secondary actions (operator scope: Defer / Dismiss live
+          here, NEVER as the row's primary button). Hidden when the
+          row is already terminal. */}
+      {showSecondaryActions && (
+        <div
+          className="flex items-center gap-2 pt-2 border-t border-border/30"
+          data-rec-drawer-secondary-actions="true"
+        >
+          <span className="text-[10px] uppercase tracking-wider text-muted-foreground/70">
+            Secondary
+          </span>
+          <button
+            type="button"
+            disabled={pending}
+            onClick={() =>
+              handle(
+                () => deferRecommendation(row.sourceRecommendationId),
+                "Deferred 7 days.",
+              )
+            }
+            className="text-[11px] px-2 py-1 rounded border border-border/60 bg-background hover:bg-surface-inset/40 transition-colors disabled:opacity-50"
+            data-rec-action-button="defer"
+          >
+            Defer 7 days
+          </button>
+          <button
+            type="button"
+            disabled={pending}
+            onClick={() =>
+              handle(
+                () => dismissRecommendation(row.sourceRecommendationId),
+                "Dismissed.",
+              )
+            }
+            className="text-[11px] px-2 py-1 rounded border border-border/60 bg-background hover:bg-surface-inset/40 transition-colors disabled:opacity-50"
+            data-rec-action-button="dismiss"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
     </div>
   );
 }
