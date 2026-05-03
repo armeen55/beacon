@@ -1,6 +1,33 @@
 # Beacon — Start Here
 
-> 🟢 **W3 Step 3.6 (Sample-quality report on the production rec corpus) LANDED (2026-05-03):** Read every one of the 11 specific edits in `.data/tenants/ritz-builders/recommended-edits.json`, scored each against the operator-locked rubric (ship-as-is / minor-edit / no / placeholder). No paid runs. No regeneration. Results in `docs/W3_STEP_3.6_SAMPLE_QUALITY_REPORT.md`.
+> 🟢 **W3 Step 3.7 (Brand-claim grounding + first paid LIVE run) LANDED (2026-05-03):** Two commits: `2b99413` (the grounding layer) + the doc that grades the first paid LIVE run on a fresh cluster.
+>
+> **The W3 §3.6 minor-edit defect is closed.** Three of four LLM minor-edit rows in the §3.6 sample shipped unsupported social-proof claims ("Ritz is **frequently/commonly/often** recommended"). The W3 §3.7 grounding layer routed every public-copy field through:
+> - **`brand-assertions.ts`** — operator-curated allowed phrases per tenant (10-row Ritz list: architect-led design-build, Bay Area / Silicon Valley luxury custom homes, custom homes, remodels, whole-home remodels, teardown / rebuild, in-house architecture, concept-to-completion, premium / luxury positioning) + 13 forbidden-claim regex patterns with `unlockedBy` categories (popularity / trust / ranking_first / award / tenure / client_outcome). `guarantee_outcome` permanently locked.
+> - **Evidence packet** — `brandAssertions` field threaded into `SpecificEditEvidencePacket`; `evidenceHash` flips when the assertion list changes.
+> - **OpenAI SYSTEM_PROMPT Rule 18** — BRAND-CLAIM GROUNDING block lists allowed claims, forbidden claims, the unlocked-by category map, GROUNDED phrasing examples ("Ritz emphasizes…", "Ritz's page can highlight…", "The section should explain…") and explicit UNGROUNDED examples.
+> - **Validator** — `validateBrandClaimGrounding` scans `proposedText` + `displayLabel` only (not `why` / `risks` / `measurementPlan` / `currentText` / packet text). Each match returns `unsupported brand claim` with the pattern id surfaced. `BEACON_ALLOW_UNSUPPORTED_BRAND_CLAIMS=1` env opt-out for operator-approved overrides.
+>
+> **First paid LIVE run (DRY-RUN mode) on a fresh cluster: PASSED.** Target: `create_cluster_page:geo:Palo Alto` (queue rank #2, target `https://ritzbuilders.com/locations/palo-alto`, no prior edits). 2 edits generated, 1 ship-as-is + 1 rejected (FAQ-shape defect, NOT brand-claim). **Zero brand-claim leaks.** Cost: $0.012162 USD total. The model defaulted to "Ritz **emphasizes** an architect-led design-build approach…" — the canonical grounded phrasing example from Rule 18 — instead of the §3.6 unsupported-recognition sentence shape.
+>
+> Full per-edit grading + verification matrix in `docs/W3_STEP_3.7_FIRST_PAID_RUN_REPORT.md`.
+>
+> **Tests (3 new files, 66 cases):**
+> - `brand-assertions.test.ts` (34) — list shape, retrieval per tenant, forbidden-pattern coverage, unlocking, permanently-locked guarantee, multi-pattern matches, format helpers.
+> - `specific-edit-validator-brand-claims.test.ts` (15) — each forbidden pattern rejected w/o assertion, allowed w/ matching-category assertion, public-copy scope (operator-facing fields never trip), env opt-out works.
+> - `tests/architecture/recommendations-step-3.7-brand-grounding.test.ts` (17) — SYSTEM_PROMPT Rule 18 + canonical claim lists; OpenAI provider stringifies packet (carries brandAssertions); evidence packet builder threads brandAssertions into the hash; validator imports + wires `validateBrandClaimGrounding` after `validateCompetitorPublicCopy`.
+>
+> **Verification (2026-05-03):**
+> - `npx tsc --noEmit` clean · 271/271 targeted (3.7 + adjacent validator + evidence) · `npm run test` 3663/3667 (4 baseline failures verified independent against `8b12b3d`) · `BEACON_TENANT_ID=… npm run build` clean.
+>
+> **Decision: GO for narrowly-scoped paid runs going forward** (one cluster at a time, dry-run mode, operator-approved). Apply-All-HIGH stays operator-locked OUT until 20–30 fresh recs are operator-inspected (W3 §1.5).
+>
+> **Next 3 actions:**
+> 1. **Operator: review the Palo Alto H2 in `docs/W3_STEP_3.7_FIRST_PAID_RUN_REPORT.md`.** If you approve, persist via `--write` flag re-run.
+> 2. **(Optional) Step 3.8 — FAQ Q+A pairing fix.** SYSTEM_PROMPT Rule 13 update so the model emits Q + A as two linked edits with a shared hash suffix. The W3 §3.6 + §3.7 reports both flag this as the next residual defect.
+> 3. **(Optional) Run the same paid generation on the next 1–2 fresh clusters** (`Cupertino`, `Luxury Home Builder Bay Area`, `Whole Home Renovation Builders` again) to broaden the operator-inspection sample toward the 20–30-rec threshold for Apply-All-HIGH.
+
+> 🟡 **W3 Step 3.6 (Sample-quality report on the production rec corpus) LANDED (2026-05-03):** Read every one of the 11 specific edits in `.data/tenants/ritz-builders/recommended-edits.json`, scored each against the operator-locked rubric (ship-as-is / minor-edit / no / placeholder). No paid runs. No regeneration. Results in `docs/W3_STEP_3.6_SAMPLE_QUALITY_REPORT.md`.
 >
 > **Distribution:** 1 ship-as-is (the operator already shipped it 2026-04-28) · 4 minor-edit (all LLM-sourced, all need brand-claim verification) · 5 placeholder (4 deterministic FAQs + 1 LLM Q-without-answer) · 1 no (deterministic competitor-name leak, quarantined by Step 3.5b.A's validator).
 >

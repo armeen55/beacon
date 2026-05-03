@@ -7,6 +7,82 @@
 
 ---
 
+## 2026-05-03 (overnight) — W3 Step 3.7: Brand-claim grounding + first paid LIVE run
+
+Closes the W3 §3.6 minor-edit defect class (unsupported "Ritz is frequently/commonly/often recommended" / "leading firm" / "award-winning" copy). Two commits + one report.
+
+### Commits
+
+- `2b99413` — feat(recs): brand-claim grounding layer (W3 Step 3.7)
+- `<this commit>` — docs(recs): first paid LIVE run report (Palo Alto cluster) + HANDOFF/VERIFICATION_LOG sync
+
+### Grounding layer
+
+**`src/domains/recommendations/brand-assertions.ts` (NEW):**
+- `BrandAssertion` type with `id` / `phrase` / `category` (positioning, service_area, service_offering, process, factual, award, popularity, ranking_first, trust, tenure, client_outcome) / `supportedBy?`.
+- `getBrandAssertions(tenantId)` returns a curated list (Ritz Builders gets 10 rows: architect-led design-build, Bay Area / Silicon Valley luxury custom homes, custom homes, remodels, whole-home remodels, teardown / rebuild, in-house architecture coordination, concept-to-completion, premium / luxury positioning).
+- `FORBIDDEN_CLAIM_PATTERNS` — 13 regex patterns with `unlockedBy` categories. `guarantee_outcome` permanently locked (`unlockedBy: null`).
+- `findUnsupportedBrandClaims(text, assertions)` returns matches.
+- `formatBrandAssertionsForPrompt` + `formatForbiddenClaimsForPrompt` for prompt injection.
+
+**`src/domains/recommendations/specific-edit-evidence.ts`:**
+- `SpecificEditEvidencePacket` carries `brandAssertions: BrandAssertion[]`.
+- Builder sources via `getBrandAssertions(args.tenantId)`; field included in canonical-stringify input → `evidenceHash` flips when list changes.
+
+**`src/domains/recommendations/specific-edit-validator.ts`:**
+- New `validateBrandClaimGrounding(edit, packet)` scans `targetElement.proposedText` + `targetElement.displayLabel`. Operator-facing fields (`why` / `risks` / `measurementPlan` / `currentText`) skipped. Each match returns `unsupported brand claim … (pattern: <id>)`. Wired after `validateCompetitorPublicCopy` in `validateSpecificEdit`.
+- `BEACON_ALLOW_UNSUPPORTED_BRAND_CLAIMS=1` env opt-out for operator overrides.
+
+**`src/domains/recommendations/providers/openai.ts`:**
+- SYSTEM_PROMPT Rule 18 (BRAND-CLAIM GROUNDING) added: lists allowed `packet.brandAssertions`, the canonical forbidden-claim list (verbatim from operator brief), `unlockedBy` category map, GROUNDED phrasing examples, UNGROUNDED rejected examples.
+
+### Tests (3 new + 1 updated)
+
+- `brand-assertions.test.ts` (NEW, 34) — list shape, per-tenant retrieval, every forbidden-pattern rejection, assertion-unlocked allowance, permanently-locked guarantee_outcome, multi-pattern matches, format-helper output.
+- `specific-edit-validator-brand-claims.test.ts` (NEW, 15) — validator wired: each forbidden pattern rejected w/o assertion, allowed w/ matching-category assertion, public-copy scope only, env opt-out works.
+- `tests/architecture/recommendations-step-3.7-brand-grounding.test.ts` (NEW, 17) — source-scan: SYSTEM_PROMPT Rule 18 + canonical claim lists; OpenAI provider stringifies packet (carries brandAssertions); evidence packet builder threads brandAssertions into the hash; validator imports + wires `validateBrandClaimGrounding`.
+- `specific-edit-validator.test.ts` (1 updated) — pre-existing SHORT-ALIAS-GUARD test reworded to drop a coincidental "award-winning" phrase that now trips the new gate.
+
+### First paid LIVE run
+
+**Target:** `create_cluster_page:geo:Palo Alto` (queue rank #2). Fresh cluster — no existing edits.
+
+```
+BEACON_TENANT_ID=tenant-ritz-founder BEACON_TENANT_SLUG=ritz-builders \
+  npx tsx --require ./scripts/mock-server-only.cjs \
+  scripts/build-edits-for-queue.ts \
+  --rec-id="create_cluster_page:geo:Palo Alto" \
+  --provider=openai
+```
+
+DRY-RUN. No `--write` flag, no persist.
+
+**Result:** 2 edits generated · 1 ship-as-is · 1 rejected (FAQ-shape defect, not brand-claim) · 0 brand-claim leaks · 0 placeholders · 0 competitor leaks · cost $0.012162 USD.
+
+The accepted H2 reads:
+> "Architect-designed custom homes in Palo Alto. Ritz **emphasizes** an architect-led design-build approach in Palo Alto that keeps architectural design, engineering, and city permitting coordinated from concept through construction…"
+
+The model defaulted to "Ritz **emphasizes**" — the canonical grounded phrasing example from Rule 18 — instead of the W3 §3.6 unsupported-recognition shape ("Ritz is frequently recommended"). The rejection was a Rule 13 FAQ-shape defect (model bundled Q + A into one proposedText), unrelated to brand-grounding.
+
+Full per-edit grading + verification matrix in `docs/W3_STEP_3.7_FIRST_PAID_RUN_REPORT.md`.
+
+### Verification
+
+- `npx tsc --noEmit` clean.
+- 271/271 targeted (3.7 + adjacent validator + evidence) pass.
+- `npm run test` 3663/3667 (4 pre-existing baseline failures verified independent against `8b12b3d`).
+- `BEACON_TENANT_ID=tenant-ritz-founder BEACON_TENANT_SLUG=ritz-builders npm run build` clean.
+
+### Decision
+
+**GO for narrowly-scoped paid runs going forward** (one cluster at a time, dry-run mode, operator-approved). Apply-All-HIGH stays operator-locked OUT until 20–30 fresh recs are operator-inspected (W3 §1.5).
+
+### Out of scope (per Step 3.7 + W3 §1.5)
+
+Apply-All-HIGH; broad regeneration; customer-one backfill; Profound archive/delete; broad UI redesign outside /recommendations.
+
+---
+
 ## 2026-05-03 (late evening) — W3 Step 3.6: Sample-quality report
 
 Read every one of the 11 specific edits in `.data/tenants/ritz-builders/recommended-edits.json` and scored each against the operator-locked rubric (ship-as-is / minor-edit / no / placeholder). No paid runs. No regeneration. No code changes.
