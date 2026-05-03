@@ -268,6 +268,15 @@ function Toolbar({
         </p>
         <p>Last refreshed: {matrixDate}</p>
       </div>
+      {/* W3 §3.5g — subtle helper line. Tells the operator what an
+          accept does in one sentence so the Action column buttons
+          read intuitively. */}
+      <p
+        className="text-[11px] text-muted-foreground/80 leading-relaxed"
+        data-recommendations-helper="true"
+      >
+        Accepting a task starts tracking its impact on AI visibility.
+      </p>
     </div>
   );
 }
@@ -311,7 +320,12 @@ function ActionTable({
             <th className="px-2 py-1.5 w-[110px]">Status</th>
             <th className="px-2 py-1.5 hidden lg:table-cell">Evidence</th>
             <th className="px-2 py-1.5 w-[120px] text-right">Action</th>
-            <th className="px-2 py-1.5 w-[64px] text-right">Details</th>
+            <th
+              className="px-2 py-1.5 w-[40px] text-right"
+              aria-label="Details"
+            >
+              <span className="sr-only">Details</span>
+            </th>
           </tr>
         </thead>
         <tbody className="divide-y divide-border/40">
@@ -468,17 +482,23 @@ function ActionRow({
           />
         </td>
         <td className="px-2 py-2 align-top text-right">
-          {/* Visible Details affordance — operator scope (W3 §3.5f):
-              row click is no longer the only way to drill in. */}
+          {/* Visible Details affordance (W3 §3.5g): chevron only.
+              Operator scope: avoid duplicate-feeling Action +
+              Details labels. The Action column carries the verb
+              (Accept / Review / View / etc.); the chevron is a
+              visually secondary "open drawer" tap target. */}
           <button
             type="button"
             onClick={onToggleExpand}
-            className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+            className={cn(
+              "inline-flex items-center justify-center w-6 h-6 rounded text-[12px] text-muted-foreground/70 hover:text-foreground hover:bg-surface-inset/50 transition-colors",
+              expanded && "text-foreground bg-surface-inset/40",
+            )}
             data-rec-details-button="true"
             aria-expanded={expanded}
             aria-label={expanded ? "Hide details" : "Show details"}
+            title={expanded ? "Hide details" : "Show details"}
           >
-            <span>Details</span>
             <span
               className={cn(
                 "inline-block transition-transform",
@@ -512,24 +532,11 @@ function ActionRow({
 /* ── Pills (type / priority / status) ───────────────────────────────── */
 
 function TypePill({ actionType }: { actionType: ActionRowType }) {
-  // W3 §3.5f — operator scope: drop the pill on create_page rows
-  // because the row title already starts with "Create …" and the
-  // pill (visually wider than other types) was wrapping into two
-  // lines. Stamp the data attribute so tests + diagnostics can
-  // still see the action type.
-  if (actionType === "create_page") {
-    return (
-      <span
-        className="text-[10px] text-muted-foreground/60"
-        data-rec-type-pill={actionType}
-      >
-        —
-      </span>
-    );
-  }
-  // W3 §3.5f — operator-locked compact labels per type. "Create page"
-  // is intentionally unused here; the create_page branch above
-  // suppresses the pill entirely.
+  // W3 §3.5g — operator-locked compact labels per type. The 3.5f
+  // version replaced create_page with a "—" placeholder; operator
+  // browser audit flagged that as confusing ("Page-creation rows
+  // show Type = blank/dash"). Restored to "Page" — short, single-
+  // line, never wraps thanks to whitespace-nowrap.
   const COMPACT_LABEL: Record<ActionRowType, string> = {
     create_page: "Page",
     edit_h2: "H2",
@@ -757,13 +764,22 @@ function RowActionButton({
         </button>
       );
     case "shipped":
+      // W3 §3.5g — operator scope: shipped rows render an actionable
+      // View button (opens the drawer) instead of inert "✓ Shipped"
+      // text, so the operator can review impact without scrolling.
+      // The Status pill already says "Shipped" — no redundant copy.
       return (
-        <span
-          className="text-[11px] text-status-success font-medium whitespace-nowrap"
+        <button
+          type="button"
+          onClick={onOpenDetails}
+          className={cn(
+            PRIMARY_BTN,
+            "border-status-success/50 bg-status-success/[0.05] text-status-success hover:bg-status-success/[0.10]",
+          )}
           data-rec-action-button="view_result"
         >
-          ✓ Shipped
-        </span>
+          View
+        </button>
       );
     case "needs_fresh_edit":
       return (

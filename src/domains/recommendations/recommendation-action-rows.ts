@@ -667,6 +667,16 @@ export function composeRowEvidenceSummary(args: {
     ev.brandPrimaryPromptCount > 0 && ev.promptCount > 0
       ? Math.round((ev.brandPrimaryPromptCount / ev.promptCount) * 100)
       : 0;
+  // W3 §3.5g — does at least one REAL competitor (filtered through
+  // the entity-pollution filter) appear in any AI answer for this
+  // cluster? Drives the "while competitors appear" suffix when Ritz
+  // is absent.
+  const realCompetitorPresent = ev.dominantCompetitors.some(
+    (name) =>
+      typeof name === "string" &&
+      name.trim().length > 0 &&
+      !shouldExcludeFromCompetitorRanking(name),
+  );
 
   // ── Branch: explicit competitor dominance + topic ──
   if (winningCompetitor && topicGeoPhrase) {
@@ -678,15 +688,18 @@ export function composeRowEvidenceSummary(args: {
   }
   // ── Branch: zero brand share, has cluster + topic ──
   if (sharePct === 0 && topicGeoPhrase) {
-    return `${lead}; Ritz not cited for ${topicGeoPhrase}.`;
+    const tail = realCompetitorPresent ? " while competitors appear" : "";
+    return `${lead}; Ritz not cited for ${topicGeoPhrase}${tail}.`;
   }
   // ── Branch: zero brand share, has target page ──
   if (sharePct === 0 && args.targetLabel !== "New page") {
-    return `${lead}; ${args.targetLabel} not cited.`;
+    const tail = realCompetitorPresent ? " while competitors appear" : "";
+    return `${lead}; ${args.targetLabel} not cited${tail}.`;
   }
   // ── Branch: zero brand share, no signal ──
   if (sharePct === 0) {
-    return `${lead}; Ritz not cited yet.`;
+    const tail = realCompetitorPresent ? " while competitors appear" : "";
+    return `${lead}; Ritz not cited yet${tail}.`;
   }
   // ── Branch: brand cited but losing — has topic ──
   if (sharePct < 30 && topicGeoPhrase) {

@@ -204,12 +204,13 @@ describe("W3 Step 3.5f — client action-button mapping per status", () => {
 // ── Client UI: type pill on create_page rows ──────────────────────────
 
 describe("W3 Step 3.5f — Type column polish", () => {
-  it("create_page rows render a placeholder ('—'), NOT a 'Create page' pill", () => {
-    // The TypePill function short-circuits for actionType ===
-    // "create_page" and renders "—" so the column stays compact.
-    expect(CLIENT_SRC).toMatch(
-      /actionType\s*===\s*"create_page"[\s\S]*?\n\s*—\s*\n/,
-    );
+  it("create_page rows render the compact 'Page' pill (W3 §3.5g — restored from '—')", () => {
+    // Operator scope (Step 3.5g): the 3.5f "—" placeholder confused
+    // the operator browser audit ("Page-creation rows show Type =
+    // blank/dash"). The COMPACT_LABEL map now includes
+    // create_page → "Page". whitespace-nowrap keeps the column
+    // single-line.
+    expect(CLIENT_SRC).toMatch(/create_page:\s*"Page"/);
   });
 
   it("Type pill uses whitespace-nowrap so single-line labels never wrap", () => {

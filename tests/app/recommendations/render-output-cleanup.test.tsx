@@ -655,10 +655,10 @@ describe("W3 Step 3.5f — operator-locked row content cleanups", () => {
     expect(html).toMatch(/>Details</);
   });
 
-  it("ACCEPTANCE: Type column never wraps create_page across two lines (pill suppressed)", () => {
-    // The create_page row renders the type pill as a "—" placeholder
-    // because the row title already begins with "Create …". This
-    // keeps the Type column compact / single-line.
+  it("ACCEPTANCE: create_page rows render Type = 'Page' (W3 §3.5g — never '—' / never 'Create page')", () => {
+    // W3 §3.5g (operator browser audit): the 3.5f "—" placeholder
+    // looked like a blank/missing value. Restored to "Page" — short,
+    // never wraps thanks to whitespace-nowrap, never "Create page".
     const html = renderQueue([
       makeRow({
         stableKey: "rec-create-only-type",
@@ -678,11 +678,15 @@ describe("W3 Step 3.5f — operator-locked row content cleanups", () => {
       }, { edits: [] }),
     ]);
     expect(html).toMatch(
+      /data-rec-type-pill="create_page"[^>]*>Page</,
+    );
+    expect(html).not.toMatch(
       /data-rec-type-pill="create_page"[^>]*>—</,
     );
-    // The verbose "Create page" pill text is GONE from the rendered
-    // create_page row.
-    expect(html).not.toMatch(/data-rec-type-pill="create_page"[^>]*>Create page</);
+    // The verbose "Create page" pill text is still GONE.
+    expect(html).not.toMatch(
+      /data-rec-type-pill="create_page"[^>]*>Create page</,
+    );
   });
 
   it("ACCEPTANCE: evidence rows surface topic-specific copy, not generic '{N} observations.'", () => {
@@ -802,5 +806,73 @@ describe("W3 Step 3.5f — operator-locked row content cleanups", () => {
     // ABSENT when no row is expanded by default.
     const html = renderQueue([makeRow()]);
     expect(html).not.toContain('data-rec-drawer-secondary-actions="true"');
+  });
+});
+
+// ── W3 Step 3.5g polish acceptance ───────────────────────────────────────
+
+describe("W3 Step 3.5g — operator polish acceptance", () => {
+  it("ACCEPTANCE: helper copy 'Accepting a task starts tracking…' renders under the toolbar", () => {
+    const html = renderQueue([makeRow()]);
+    expect(html).toMatch(/data-recommendations-helper="true"/);
+    expect(html).toContain(
+      "Accepting a task starts tracking its impact on AI visibility.",
+    );
+  });
+
+  it("ACCEPTANCE: Details affordance is chevron-only (no 'Details' label text)", () => {
+    const html = renderQueue([makeRow()]);
+    // The button must still exist and be discoverable …
+    expect(html).toMatch(/data-rec-details-button="true"/);
+    // … but the visible "Details" text label is gone — chevron only.
+    expect(html).not.toMatch(/data-rec-details-button="true"[^>]*>[\s\S]{0,80}>Details</);
+    // The header column also drops the "Details" text (sr-only span
+    // for accessibility instead).
+    expect(html).toMatch(/sr-only/);
+  });
+
+  it("ACCEPTANCE: evidence appends 'while competitors appear' when Ritz absent + competitor present", () => {
+    const html = renderQueue([
+      makeRow({
+        clusterLabel: "Atherton older home rebuild",
+        evidence: {
+          promptCount: 4,
+          observationCount: 12,
+          categoryBreakdown: {},
+          dominantCompetitors: ["De Mattei Construction"],
+          descriptorsNearBrand: [],
+          maxSignalStrength: 70,
+          primaryCompetitors: [],
+          brandPrimaryPromptCount: 0,
+          fragmentedPromptCount: 0,
+        },
+      }),
+    ]);
+    // Evidence reads "{N} AI answers; Ritz not cited for Atherton
+    // older-home rebuild queries while competitors appear."
+    expect(html).toMatch(/Ritz not cited for[^.]+while competitors appear/);
+  });
+
+  it("ACCEPTANCE: evidence does NOT append 'while competitors appear' when no real competitor is present", () => {
+    const html = renderQueue([
+      makeRow({
+        clusterLabel: "Atherton older home rebuild",
+        evidence: {
+          promptCount: 4,
+          observationCount: 12,
+          categoryBreakdown: {},
+          // Generic-noun competitor — entity-pollution-filter excludes
+          // it, so the suffix should NOT fire.
+          dominantCompetitors: ["General Contractors"],
+          descriptorsNearBrand: [],
+          maxSignalStrength: 70,
+          primaryCompetitors: [],
+          brandPrimaryPromptCount: 0,
+          fragmentedPromptCount: 0,
+        },
+      }),
+    ]);
+    expect(html).toContain("Ritz not cited for");
+    expect(html).not.toContain("while competitors appear");
   });
 });
