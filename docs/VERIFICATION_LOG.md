@@ -7,6 +7,93 @@
 
 ---
 
+## 2026-05-02 (overnight) — W3 Step 3.5c: Triage UX reset after browser re-audit
+
+Single code commit `7199094` on `main`. Operator's browser re-audit on Step 3.5b still failed product acceptance ("the page is improved, but it is still an internal evidence/debug feed, not a premium operator decision queue"). This commit closes the gap on six remaining issues. No paid runs / regeneration / Apply-All-HIGH / backfill / Profound archive.
+
+### Issues closed (operator browser re-audit verbatim)
+
+1. "General Contractors primary · 100%" still appears as competitor.
+2. "prompt 319557d1" still appears in public-facing Why copy.
+3. Cards with all specific edits dismissed still appear in NOW.
+4. Too many cards still say Weak signal.
+5. "3 fragmented," "Site match," and similar internal labels still show.
+6. Prompt-shaped titles still ugly: `Create a page for "If I buy..."`.
+7. Default cards still mix action / evidence / lifecycle / debug.
+
+### What changed
+
+**`src/domains/recommendations/display-state.ts` (NEW)**
+- Six display states: `actionable_edit` / `manual_review` / `needs_fresh_edit` / `accepted_tracking` / `backlog` / `suppressed`.
+- `classifyRecDisplayState(args)` — pure / deterministic.
+- `effectiveTierForDisplay(args)` — `needs_fresh_edit` cannot appear in NOW (operator-locked).
+- `REC_DISPLAY_STATE_LABEL` — operator-readable labels per state.
+
+**`src/domains/recommendations/display-state.test.ts` (NEW, 15 tests)** — suppression rules / manual_review triggers / edit-driven classification / tier downgrade / label invariants.
+
+**`src/app/(shell)/recommendations/recommendations-client.tsx`**
+- `EvidenceChips` now takes `displayState` prop and renders a state chip ("Tracking" / "Needs fresh edit" / "Needs your judgment" / "Backlog") when state != actionable_edit. The "actionable_edit" default has no chip — clean.
+- Top-competitor selection passes through `shouldExcludeFromCompetitorRanking()`. Generic nouns (General Contractors, Architects, Home Builders, etc.) no longer surface as "primary competitor".
+- Chip text renamed `{name} primary · {pct}%` → `{name} winning · {pct}%`.
+- "{N} fragmented" chip DROPPED entirely.
+- "{N} prompts" chip DROPPED in favor of cleaner state + competitor + effort trio.
+- "Site match" / "AI-reviewed" tier badges DROPPED from default header.
+- New `scrubRawPromptIds(text)` defense-in-depth helper. Wired into reasoning, confidenceReason, edit.why renders.
+
+**`src/domains/recommendations/build-title.ts`**
+- Step 3.5b.F's wrapped-quote form replaced with scenario-class fallback.
+- New `describeScenario(label)` helper:
+  - cost / pricing intent → "this cost question"
+  - comparison intent → "this comparison scenario"
+  - rebuild intent → "this rebuild scenario"
+  - remodel intent → "this remodeling scenario"
+  - buying intent → "this buying scenario"
+  - fallback → "this decision scenario"
+- Title now reads e.g. `Create a page for this buying scenario`. No raw prompt copy in titles. LLM `operatorTitle` still wins.
+
+### Tests (35 new across 4 files)
+
+| File | Added | Notes |
+|---|---|---|
+| `display-state.test.ts` (NEW) | 15 | suppression / manual_review / edit-driven / tier downgrade / labels |
+| `build-title.test.ts` (existing) | 5 updated + 2 new | scenario fallbacks per intent |
+| `tests/domains/recommendations/build-title.test.ts` | 1 updated | long-label assertion swapped to scenario fallback |
+| `tests/app/recommendations/render-output-cleanup.test.tsx` | 10 | rendered-output acceptance contracts |
+
+The 10 render-output acceptance tests pin every operator-flagged issue:
+- "General Contractors primary" not visible (filter); real competitor (De Mattei) renders as "winning".
+- Architects / Home Builders / Local Contractors all filtered.
+- "fragmented" chip absent.
+- "Site match" / "AI-reviewed" tier badges absent.
+- Raw prompt-id refs scrubbed (8+ hex prefix + full UUID).
+- `accepted_tracking` rec hides Accept/Defer/Dismiss surface; shows "Tracking" chip.
+- `needs_fresh_edit` shows chip + empty-state.
+- Queue with reasonable evidence is not mostly Weak signal (5 recs → 0 Weak signal).
+
+### Verification
+
+| Gate | Result |
+|---|---|
+| `npx tsc --noEmit` | clean (no output) |
+| `vitest` targeted (display-state + build-title × 2 + render-output) | 67/67 pass |
+| `npm run test` | 3448 / 3454 (4 pre-existing failures verified independent against `5d32f5f` baseline; one pre-existing test in `tests/domains/recommendations/build-title.test.ts` was updated to reflect the new scenario fallback contract) |
+| `npm run build` | clean — full route table emitted |
+
+### Out of scope (per Step 3.5c + W3 §1.5)
+
+- LIVE paid generation — first paid run is post-Step-3.6
+- Step 3.6 sample-10 quality report — gated on browser re-audit passing
+- Apply-All-HIGH bar — operator-locked OUT
+- Customer-one backfill — W4
+- Profound CSV archive / code deletion — post-May-10
+- Broad UI redesign outside /recommendations
+
+### Next
+
+Operator browser re-audit on Vercel preview. If acceptance passes, proceed to W3 Step 3.6.
+
+---
+
 ## 2026-05-02 (later evening) — W3 Step 3.5b: Product cleanup after browser audit
 
 Single code commit `9b05327` on `main`. Operator's browser audit on Step 3.5 caught six product issues source-scan tests missed; Step 3.5 code passed but product/UI acceptance failed. This step fixes all six without paid runs / regeneration / Apply-All-HIGH / backfill.

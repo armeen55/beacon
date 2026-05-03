@@ -1,5 +1,37 @@
 # Beacon — Start Here
 
+> 🟢 **W3 Step 3.5c (Triage UX reset after Step 3.5b browser re-audit) LANDED (2026-05-02):** Single code commit `7199094` on `main`. Operator browser re-audit on Step 3.5b still failed product acceptance — the page improved but stayed an evidence/debug feed. This commit closes the gap on six remaining issues. No paid runs / regeneration / Apply-All-HIGH / backfill / Profound archive.
+>
+> - **Display-state classifier (NEW)** — `src/domains/recommendations/display-state.ts`. Six states (`actionable_edit` / `manual_review` / `needs_fresh_edit` / `accepted_tracking` / `backlog` / `suppressed`) drive the rec card's chip + action surface. Operator-readable labels ("Ready to ship" / "Needs your judgment" / "Needs fresh edit" / "Tracking" / "Backlog" / "Hidden"). `effectiveTierForDisplay` enforces the rule that `needs_fresh_edit` cannot appear in NOW.
+> - **Generic competitor pollution filter on EvidenceChips** — `shouldExcludeFromCompetitorRanking()` (no-entity fallback path) drops "General Contractors" / "Local Contractors" / "Architects" / "Home Builders" / "Custom Home Builders" / "Bay Area Builders" before they can land in chips. Chip text renamed `{name} primary · {pct}%` → `{name} winning · {pct}%` for natural operator language.
+> - **Raw prompt-id scrubber** — new `scrubRawPromptIds(text)` defense-in-depth helper. Patterns scrubbed: `prompt {full UUID}`, `prompt {8+ hex prefix}`, bare full UUID. Replaced with "an affected prompt". Wired into reasoning, confidenceReason, edit.why renders.
+> - **"Site match" / "AI-reviewed" tier badges DROPPED** from default header. Resolver tier still drives engineConfidence under the hood; no longer surfaces as a chip.
+> - **Display-state chip + drop "fragmented" / "{N} prompts"** — operator chips ("Tracking" / "Needs fresh edit" / etc.) replace internal cluster jargon.
+> - **Title humanization — scenario fallback** — Step 3.5b.F's wrapped-quote form replaced with a scenario-class fallback (`Create a page for this buying scenario` / `this remodeling scenario` / `this rebuild scenario` / `this comparison scenario` / `this cost question` / `this decision scenario`). No raw prompt copy in titles.
+>
+> **Tests (35 new across 4 files):**
+> - `display-state.test.ts` (NEW, 15) — six-state classifier; tier-downgrade rule; operator-label invariants.
+> - `build-title.test.ts` (5 updated + 2 new) — scenario-class fallbacks per intent (cost / comparison / rebuild / remodel / buying / decision).
+> - `tests/domains/recommendations/build-title.test.ts` (1 updated) — long-label assertion swapped from ellipsis to scenario-fallback.
+> - `tests/app/recommendations/render-output-cleanup.test.tsx` (+10) — General Contractors filtered; Architects/Home Builders/Local Contractors filtered; no "fragmented" chip; no "Site match" / "AI-reviewed" badges; raw prompt-ids scrubbed (8+ hex prefix + full UUID); accepted_tracking hides action surface; needs_fresh_edit shows chip + empty-state; queue not mostly Weak signal.
+>
+> **Verification (2026-05-02):**
+> - `npx tsc --noEmit` clean · 67/67 targeted (display-state + build-title × 2 + render-output-cleanup) · `npm run test` 3448/3454 (4 pre-existing failures verified independent against `5d32f5f` baseline) · `npm run build` clean.
+> - **Could not verify from this environment:** Vercel deploy SHA matches `7199094` — operator dashboard check + browser re-audit needed.
+>
+> **Out of scope (per Step 3.5c + W3 §1.5):**
+> - LIVE paid generation — first paid run is post-Step-3.6, operator-approved
+> - Step 3.6 sample-10 quality report — gated on this re-audit passing
+> - Apply-All-HIGH bar — operator-locked OUT
+> - Customer-one backfill — W4
+> - Profound CSV archive / code deletion — post-May-10
+> - Broad UI redesign outside /recommendations
+>
+> **Next 3 actions:**
+> 1. **Operator: re-audit /recommendations in browser** after Vercel deploys `7199094`. Verify: no "General Contractors winning"; no "prompt 319557d1" anywhere; no "Site match" badges; no "fragmented" chips; accepted recs show "Tracking" chip + no Accept buttons; "If I buy a property" cluster shows "Create a page for this buying scenario" title; mix of Strong / Review / Weak signal pills.
+> 2. **If browser re-audit passes, proceed to W3 Step 3.6 (sample-10 quality report).**
+> 3. **(Optional)** one-rec dry-run probe before Step 3.6 if you want a smaller paid sample first.
+
 > 🟢 **W3 Step 3.5b (Product cleanup after Step 3.5 browser audit) LANDED (2026-05-02):** Single code commit `9b05327` on `main`. Operator's browser audit caught six product issues source-scan tests missed; this commit fixes all six without paid runs / regeneration / Apply-All-HIGH / backfill.
 >
 > - **A. Competitor-name leak quarantined** — `scripts/quarantine-competitor-public-copy-pre-w3.ts` (NEW, idempotent). Forward-only flips the operator-flagged H2 row (`create_cluster_page:geo:Los Altos__add_h2_section__h2[new]:c75a1120a6aa`, "Why teams choose us over De Mattei Construction") from `accepted` → `dismissed` with `not_found_reason: "invalid_competitor_public_copy_pre_w3"`. Local + Supabase dual-write executed; postflight green. Sister "Bay" matches were false positives (geographic Bay Area refs, not Bay Builders competitor); not quarantined.
