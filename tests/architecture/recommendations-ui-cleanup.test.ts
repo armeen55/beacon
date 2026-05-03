@@ -1,20 +1,22 @@
 /**
- * W3 Step 3.5 (2026-05-02) — recommendations-client UI invariants.
+ * Recommendations-client UI invariants — preserves the source-scan
+ * contracts that survive across UI redesigns.
  *
- * Source-scan tests that lock the operator-facing render contracts
- * established in Step 3.5 against silent regression. Each test reads
- * the client source verbatim and pins a specific JSX pattern. A
- * reorder is fine; a removal isn't.
+ * After Step 3.5e (2026-05-03) the page is a HubSpot-style RANKED
+ * ACTION TABLE. Pre-3.5e patterns (Confidence pill on every card,
+ * SpecificEditsSection, EvidenceChips strip, lane sections) are
+ * gone — those contracts moved to the action-row builder layer or
+ * the table-specific test in
+ * `tests/architecture/recommendations-step-3.5e-action-table.test.ts`.
  *
- * Operator scope (Step 3.5):
- *   - Confidence pill rendered on every rec card
- *   - HIGH copy never implies auto-apply
- *   - No raw enum tokens as operator-visible badges (action_type,
- *     edit.source, edit.confidence)
- *   - Empty-state when all specific edits are filtered/quarantined
- *   - Existing actions (Accept / Defer / Dismiss / Mark shipped /
- *     Undo) still wired
- *   - No Apply-All-HIGH bar
+ * The contracts that DO survive every redesign:
+ *   - HIGH copy never implies auto-apply.
+ *   - No Apply-All-HIGH bar / action / button.
+ *   - Server actions (Accept / Defer / Dismiss / Mark shipped /
+ *     Undo) are still wired to row buttons.
+ *   - The rendered client source carries no obvious enum-leak
+ *     patterns ("create_cluster_page" / "add_h2_section" as visible
+ *     text, raw "low" / "medium" / "high" outside data-* attributes).
  */
 
 import fs from "node:fs";
@@ -33,36 +35,15 @@ const CLIENT_PATH = path.resolve(
 );
 const CLIENT_SRC = fs.readFileSync(CLIENT_PATH, "utf-8");
 
-// ── Confidence pill wiring ───────────────────────────────────────────────
-
-describe("W3 Step 3.5 — confidence pill is rendered on every rec card", () => {
-  it("imports the RecConfidencePill component", () => {
-    expect(CLIENT_SRC).toMatch(
-      /import\s*\{[^}]*RecConfidencePill[^}]*\}\s*from\s*["']@\/components\/display\/rec-confidence-pill["']/,
-    );
-  });
-
-  it("renders <RecConfidencePill verdict=...> in the rec card body", () => {
-    expect(CLIENT_SRC).toMatch(
-      /<RecConfidencePill\s+verdict=\{rec\.engineConfidence\}/,
-    );
-  });
-});
+function strippedClient(): string {
+  return CLIENT_SRC
+    .replace(/\/\*[\s\S]*?\*\//g, " ")
+    .replace(/\/\/[^\n]*/g, " ");
+}
 
 // ── No auto-apply phrasing in user-visible copy ──────────────────────────
 
-describe("W3 Step 3.5 — HIGH copy never implies auto-apply", () => {
-  /**
-   * Strip JS comments so phrases like "auto-applied" appearing in
-   * doc-strings can stay (operator scope is about what the OPERATOR
-   * sees on screen, not internal docstrings). Match what's left.
-   */
-  function strippedClient(): string {
-    return CLIENT_SRC
-      .replace(/\/\*[\s\S]*?\*\//g, " ")
-      .replace(/\/\/[^\n]*/g, " ");
-  }
-
+describe("recommendations-client — HIGH copy never implies auto-apply", () => {
   it("the rendered client source contains no 'auto-apply' or 'one-click' phrasing", () => {
     const stripped = strippedClient();
     expect(stripped).not.toMatch(/auto[\s-]?apply/i);
@@ -80,77 +61,54 @@ describe("W3 Step 3.5 — HIGH copy never implies auto-apply", () => {
   });
 });
 
-// ── Humanized labels: no raw enum tokens visible ─────────────────────────
+// ── Existing server actions still wired ─────────────────────────────────
 
-describe("W3 Step 3.5 — humanized labels replace raw enum tokens", () => {
-  it("edit.action_type goes through humanizeActionType, not the raw token", () => {
-    // The fix replaced `ACTION_TYPE_BADGE[edit.action_type] ?? edit.action_type`
-    // with `humanizeActionType(edit.action_type)`. Pin the new shape.
-    expect(CLIENT_SRC).toMatch(/humanizeActionType\(edit\.action_type\)/);
-    // The old fallthrough pattern must not be reintroduced.
-    expect(CLIENT_SRC).not.toMatch(
-      /ACTION_TYPE_BADGE\[edit\.action_type\]\s*\?\?\s*edit\.action_type/,
-    );
-  });
-
-  it("edit.source goes through EDIT_SOURCE_LABEL", () => {
-    expect(CLIENT_SRC).toMatch(/EDIT_SOURCE_LABEL\[edit\.source\]/);
-  });
-
-  it("edit.confidence goes through EDIT_CONFIDENCE_LABEL", () => {
-    expect(CLIENT_SRC).toMatch(/EDIT_CONFIDENCE_LABEL\[edit\.confidence\]/);
-  });
-
-  it("EDIT_CONFIDENCE_LABEL maps high/medium/low to operator-friendly text", () => {
-    expect(CLIENT_SRC).toMatch(/high:\s*"Strong"/);
-    expect(CLIENT_SRC).toMatch(/medium:\s*"Review"/);
-    expect(CLIENT_SRC).toMatch(/low:\s*"Weak signal"/);
-  });
-
-  it("EDIT_SOURCE_LABEL maps openai → 'AI-generated' (no raw enum tokens)", () => {
-    expect(CLIENT_SRC).toMatch(/openai:\s*"AI-generated"/);
-    expect(CLIENT_SRC).toMatch(/deterministic:\s*"Deterministic"/);
-  });
-});
-
-// ── Empty state for all-filtered edits ───────────────────────────────────
-
-describe("W3 Step 3.5 — empty state when all specific edits are filtered/quarantined", () => {
-  it("rec card shows an empty-state hint when allEdits.length > 0 but editCount === 0", () => {
-    expect(CLIENT_SRC).toMatch(
-      /editCount\s*===\s*0\s*&&\s*allEdits\.length\s*>\s*0/,
-    );
-    expect(CLIENT_SRC).toMatch(/data-recommendations-edits-empty="true"/);
-    // Whitespace-insensitive — JSX may line-wrap "all dismissed\n  or no
-    // longer actionable" across multiple lines. The operator-facing
-    // copy is what matters; JSX formatting is incidental.
-    expect(CLIENT_SRC).toMatch(/all dismissed\s+or no longer actionable/i);
-  });
-});
-
-// ── Existing actions still wired ─────────────────────────────────────────
-
-describe("W3 Step 3.5 — existing actions still wired (no UI regression)", () => {
-  it("Accept action still bound to the Accept button click handler", () => {
-    expect(CLIENT_SRC).toMatch(/acceptRecommendation\(payload\)/);
-    expect(CLIENT_SRC).toMatch(/Accept\b/);
+describe("recommendations-client — server actions still wired (no UI regression)", () => {
+  it("Accept action still bound somewhere in the client", () => {
+    expect(CLIENT_SRC).toMatch(/acceptRecommendation\(/);
   });
 
   it("Defer action still bound", () => {
-    expect(CLIENT_SRC).toMatch(/deferRecommendation\(rec\.stableKey\)/);
+    expect(CLIENT_SRC).toMatch(/deferRecommendation\(/);
   });
 
   it("Dismiss action still bound", () => {
-    expect(CLIENT_SRC).toMatch(/dismissRecommendation\(rec\.stableKey\)/);
+    expect(CLIENT_SRC).toMatch(/dismissRecommendation\(/);
   });
 
   it("Mark-shipped action still bound (W2 Step 2.4)", () => {
-    expect(CLIENT_SRC).toMatch(
-      /markRecommendationShipped\(\{\s*stableKey:\s*rec\.stableKey/,
-    );
+    expect(CLIENT_SRC).toMatch(/markRecommendationShipped\(/);
   });
 
   it("Undo action still bound", () => {
-    expect(CLIENT_SRC).toMatch(/undoRecommendationResponse\(rec\.stableKey\)/);
+    expect(CLIENT_SRC).toMatch(/undoRecommendationResponse\(/);
+  });
+});
+
+// ── No raw enum leakage as visible JSX text ────────────────────────────
+
+describe("recommendations-client — no raw enum leakage in visible JSX", () => {
+  it("never renders rec.type tokens (create_cluster_page / target_competitors / etc.) as visible text", () => {
+    // These appear in the JSX text — pin them with the JSX text
+    // boundary `>...<`.
+    expect(CLIENT_SRC).not.toMatch(/>\s*create_cluster_page\s*</);
+    expect(CLIENT_SRC).not.toMatch(/>\s*target_competitors\s*</);
+    expect(CLIENT_SRC).not.toMatch(/>\s*strengthen_page_copy\s*</);
+  });
+
+  it("never renders edit.action_type tokens as visible text", () => {
+    expect(CLIENT_SRC).not.toMatch(/>\s*add_h2_section\s*</);
+    expect(CLIENT_SRC).not.toMatch(/>\s*edit_meta\s*</);
+    expect(CLIENT_SRC).not.toMatch(/>\s*add_faq\s*</);
+  });
+
+  it("never renders raw 'low' / 'medium' / 'high' tokens as bare visible JSX text", () => {
+    // These tokens are allowed in `data-*="low"` attributes (for tests
+    // + diagnostics); banned only as bare visible text. Pattern:
+    // `>low<` / `>medium<` / `>high<` with no surrounding word
+    // characters.
+    expect(CLIENT_SRC).not.toMatch(/>\s*low\s*</);
+    expect(CLIENT_SRC).not.toMatch(/>\s*medium\s*</);
+    expect(CLIENT_SRC).not.toMatch(/>\s*high\s*</);
   });
 });

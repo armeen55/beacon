@@ -7,7 +7,71 @@
 
 ---
 
-## 2026-05-03 — W3 Step 3.5d: Recommendations decision-queue reset (lane model)
+## 2026-05-03 (afternoon) — W3 Step 3.5e: Recommendations as a HubSpot-style ranked action TABLE
+
+Single code commit on `main`. Operator browser re-audit on Step 3.5d (lane-card model) failed product acceptance: "stop the card/lane approach. The page should not look like a dashboard of cards. It should look like a clean work queue." The fix is the next product-architecture rewrite: lanes/cards out, ranked action table in.
+
+### What changed
+
+**Page shape (Operator-locked):**
+- PageHeader subcopy reads "Beacon turns AI visibility gaps into concrete website tasks. Review the top actions, accept them, or mark them as shipped."
+- Toolbar: search + Type filter (12 options) + Status filter (8 options) + summary line ("N actions · M new · K tracking [· J need review]") + last-refreshed.
+- One `<table>` with 8 columns: **# · Recommended action · Target · Type · Priority · Status · Evidence · Action**.
+- Click a row → inline drawer below (`<tr><td colspan=8>`) with: Exact recommended change (before/after copy or page brief) · Why Beacon recommends it · Evidence · Measurement plan · Risks · Overlapping pages · collapsed Debug `<details>` (raw IDs, evidence hash, resolver tier, full reasoning).
+- Shell width widened from `max-w-4xl` → `max-w-5xl` so the table fits without horizontal scroll.
+
+**`src/domains/recommendations/recommendation-action-rows.ts` (NEW):**
+- `RecommendationActionRow` type with operator-facing fields (id, rank, title, targetLabel, targetUrl, actionType, priority, status, evidenceSummary, sourceRecommendationId, sourceEditId, hasExactEdit, responseStatus, acceptedAgeDays, deferUntil, eligibleEditCount, detail).
+- `ACTION_ROW_TYPE_LABEL` (12 row types), `ACTION_ROW_PRIORITY_LABEL` (high/medium/low), `ACTION_ROW_STATUS_LABEL` (8 statuses).
+- `buildRecommendationActionRows({queue})` flattens the rec queue → flat ranked rows. One renderable specific edit → one row; rec with `create_new_page` action and zero edits → one create_page row; rec with `split_or_separate_page` / `merge_or_dedupe` / `needs_review` and zero edits → one review_decision row; rec with all-dismissed edits → one regenerate_edit row; otherwise suppressed. Sort: priority DESC → open-vs-decided → observation count DESC → id ASC.
+- `composeEditRowTitle` covers every ActionType with verb-first copy ("Add an H2 …", "Rewrite the … title", "Add … schema to the …").
+- `composeMetaRowTitle` covers create_page / review_decision / regenerate_edit titles.
+- `targetLabelForUrl` returns "Homepage" / "{Page Name} page" / "New page" — never "homepage page".
+- `priorityForRow` blends engineConfidence + severity + affectedPromptCount; single-prompt caps at low.
+- `statusForRow` reads response.status + edit lifecycle + needsHumanReview → New / Accepted / Measuring / Shipped / Needs review / Needs fresh edit / Deferred / Dismissed.
+- Generic-competitor filter (`shouldExcludeFromCompetitorRanking`) preserved everywhere — no "General Contractors winning" / "Architects winning" leaks into the evidence column.
+
+**`src/app/(shell)/recommendations/recommendations-client.tsx` (rewritten):**
+- Pre-3.5e lane sections (LaneSection / BacklogSection / RecLane / lane badges / RecConfidencePill / EvidenceChips) deleted entirely.
+- Toolbar / Table / ActionRow / TypePill / PriorityPill / StatusPill / TargetLink / RowActionButton / RowDrawer / DrawerSection / WatchSection / EmptyTable components.
+- Internal taxonomy lives on `data-rec-*` attributes (`data-rec-row-id` / `data-rec-action-row-type` / `data-rec-priority` / `data-rec-status` / `data-rec-source-rec-id` / `data-rec-source-edit-id` / `data-rec-rank` / `data-rec-type-pill` / `data-rec-priority-pill` / `data-rec-status-pill` / `data-rec-action-button` / `data-rec-debug-block` / `data-recommendations-action-table` / `data-recommendations-search` / `data-recommendations-type-filter` / `data-recommendations-status-filter` / `data-recommendations-summary` / `data-recommendations-evidence-summary` / `data-rec-row-toggle` / `data-rec-row-drawer`). Operator never sees raw enum tokens.
+- Server actions (acceptRecommendation / deferRecommendation / dismissRecommendation / markRecommendationShipped / undoRecommendationResponse) still wired to row buttons via the action-row's `sourceRecommendationId`.
+
+### Tests
+
+**1 new file + 5 updated + 1 deleted:**
+- `tests/architecture/recommendations-step-3.5e-action-table.test.ts` (NEW, 25) — table-shape source-scan invariants.
+- `tests/app/recommendations/render-output-cleanup.test.tsx` (rewritten, 25) — render-side acceptance: table shape, concrete row titles, no `homepage page`, pills carry humanized text + data-* enum, `Weak signal` never visible, accepted state hides Accept button + shows Mark-shipped, generic-competitor filter, no bracketed diagnostics by default, no `Site match` / `AI-reviewed`, confidence-distribution invariant on a 5-rec fixture.
+- `tests/architecture/recommendations-ui-cleanup.test.ts` (rewritten) — pruned to redesign-survivable contracts: HIGH copy never auto-apply; no Apply-All-HIGH; server actions still wired; no raw enum leakage as visible JSX text.
+- `tests/sprint6a1-phase12-wiring.test.ts` (UI block rewritten) — replaced obsolete SpecificEditsSection / `destructure edits` / Accept-button-copy assertions with table-model wiring (client imports + invokes `buildRecommendationActionRows`; server actions still bound).
+- `tests/architecture/recommendations-step-3.5d-lane-queue.test.ts` (DELETED) — obsolete with the lane model gone.
+- `tests/routes/recommendations-smoke.test.ts` (1 line updated) — shell width regex now matches `max-w-(?:4xl|5xl)`.
+
+**Pure-helper tests (unchanged from 3.5d, still green):** recommendation-title-humanizer.test.ts (35), recommendation-evidence-preview.test.ts (16), confidence-distribution.test.ts (5).
+
+### Verification
+
+- `npx tsc --noEmit` — clean.
+- 80/80 targeted (action-table source scan + render-output + ui-cleanup + sprint6a1 client UI + smoke) — pass.
+- 67/67 pure-helper (humanizer + evidence-preview + confidence-distribution) — pass.
+- `npm run test` — 3542/3546. 4 pre-existing failures (verified independent against `8b12b3d` baseline): `tests/routes/prompt-drilldown-smoke.test.tsx` × 1, `tests/routes/prompts-smoke.test.tsx` × 2, `tests/tenants/isolation.test.ts` × 1.
+- `BEACON_TENANT_ID=tenant-ritz-founder BEACON_TENANT_SLUG=ritz-builders npm run build` — clean (Vercel-equivalent read-only-FS).
+
+**Could not verify from this environment:** Vercel deploy SHA matches the new commit — operator dashboard check + browser re-audit needed.
+
+### Out of scope (per Step 3.5e + W3 §1.5)
+
+LIVE paid generation; Step 3.6 sample-10 report; Apply-All-HIGH / bulk-accept UX; customer-one backfill; Profound archive/delete; broad UI redesign outside /recommendations.
+
+---
+
+## 2026-05-03 (morning) — W3 Step 3.5d: Recommendations decision-queue lane model (SUPERSEDED)
+
+Five-lane card layout (`ready_to_ship` / `needs_decision` / `needs_fresh_edit` / `tracking` / `backlog`) with lane-aware buttons + expansion drawer per card. Operator browser audit declared the card model wrong: "stop the card/lane approach. The page should not look like a dashboard of cards. It should look like a clean work queue." Replaced by Step 3.5e's HubSpot-style ranked action table later the same day. Pure helpers from 3.5d (`recommendation-title-humanizer.ts`, `recommendation-evidence-preview.ts`, `display-state.ts`) all kept; the client-side lane UI is gone.
+
+---
+
+## 2026-05-03 (early) — W3 Step 3.5d: Recommendations decision-queue reset (lane model)
 
 Single code commit on `main`. Operator's browser re-audit on Step 3.5c still failed product acceptance for the third time — "the page is still an internal evidence/debug feed pretending to be a task queue." The fix is a product-architecture rewrite, not another label patch. No paid runs / regeneration / Apply-All-HIGH / backfill / Profound archive.
 

@@ -134,57 +134,41 @@ describe("Phase 6A.1.12 — /recommendations page wiring", () => {
 
 // ── 3. recommendations-client UI ──────────────────────────────────────────
 
-describe("Phase 6A.1.12 — recommendations-client UI", () => {
-  it("imports RecommendedEditRow", () => {
-    expect(CLIENT_SOURCE).toMatch(/RecommendedEditRow/);
-  });
+describe("Phase 6A.1.12 — recommendations-client UI (post-Step-3.5e action table)", () => {
+  // After W3 Step 3.5e (2026-05-03) the page is a HubSpot-style
+  // ranked action table. The pre-3.5e wiring assertions
+  // ("destructure edits from row" / "Specific edits section") no
+  // longer apply — that work moved into the pure
+  // `buildRecommendationActionRows` builder, which the client
+  // imports + invokes once per render.
+  //
+  // What the contract still pins:
+  //   - The client consumes recommended-edit rows via the action-row
+  //     builder (same upstream data; new shape).
+  //   - The accept / defer / dismiss / mark-shipped / undo server
+  //     actions are still wired into row buttons.
+  //
+  // The detailed table contract lives in
+  // `tests/architecture/recommendations-step-3.5e-action-table.test.ts`.
 
-  it("destructures edits from the row + computes editCount", () => {
-    // W3 Step 3.1b (2026-05-01) — the destructure now renames `edits`
-    // to `allEdits` so the dismissed-filter result can take the
-    // `edits` name in the rest of the component. The wiring contract
-    // — rec card has access to its edits + editCount comes from the
-    // (filtered) array length — is unchanged.
+  it("imports buildRecommendationActionRows from the recommendations domain", () => {
     expect(CLIENT_SOURCE).toMatch(
-      /const\s*\{\s*rec,\s*response,\s*edits\s*:\s*allEdits\s*\}\s*=\s*row/,
-    );
-    expect(CLIENT_SOURCE).toMatch(/editCount\s*=\s*edits\.length/);
-    // Confirm the dismissed/not_found_after_7d filter is in place.
-    expect(CLIENT_SOURCE).toMatch(
-      /allEdits\.filter\(\(e\)\s*=>\s*\{[\s\S]*?s\s*!==\s*"dismissed"\s*&&\s*s\s*!==\s*"not_found_after_7d"/,
-    );
-  });
-
-  it("renders a Specific edits section when editCount > 0", () => {
-    expect(CLIENT_SOURCE).toMatch(/Specific edits/);
-    // Sprint 6A.2g.F (2026-04-26) — allow an optional `(` between `&&`
-    // and the JSX so the multi-line caller form (with the new
-    // `recommendationTargetUrl` prop) still matches.
-    expect(CLIENT_SOURCE).toMatch(
-      /editCount\s*>\s*0\s*&&\s*\(?\s*<SpecificEditsSection/,
+      /import\s*\{[^}]*buildRecommendationActionRows[^}]*\}\s*from\s*["']@\/domains\/recommendations\/recommendation-action-rows["']/,
     );
   });
 
-  it("Accept button copy reflects the edit count", () => {
-    // W3 Step 3.5d (2026-05-02) — the ready_to_ship lane button copy
-    // changed from "Accept — track {editCount} edit" to
-    // "Accept + Track ({editCount} edit{s})" per the lane-aware
-    // decision-queue model. The contract is unchanged: the count IS
-    // surfaced when there are linked edits. Pin the new copy.
+  it("invokes buildRecommendationActionRows with the queue prop", () => {
     expect(CLIENT_SOURCE).toMatch(
-      /Accept \+ Track \(\$\{editCount\} edit/,
+      /buildRecommendationActionRows\(\s*\{\s*queue\s*\}/,
     );
   });
 
-  it("Specific edits section displays action_type, display_label, current/proposed text, why, evidence, confidence, difficulty", () => {
-    expect(CLIENT_SOURCE).toMatch(/edit\.action_type/);
-    expect(CLIENT_SOURCE).toMatch(/edit\.display_label/);
-    expect(CLIENT_SOURCE).toMatch(/edit\.current_text/);
-    expect(CLIENT_SOURCE).toMatch(/edit\.proposed_text/);
-    expect(CLIENT_SOURCE).toMatch(/edit\.why/);
-    expect(CLIENT_SOURCE).toMatch(/edit\.evidence/);
-    expect(CLIENT_SOURCE).toMatch(/edit\.confidence/);
-    expect(CLIENT_SOURCE).toMatch(/edit\.difficulty/);
+  it("Accept / Defer / Dismiss / Mark-shipped / Undo server actions still wired into row buttons", () => {
+    expect(CLIENT_SOURCE).toMatch(/acceptRecommendation\(/);
+    expect(CLIENT_SOURCE).toMatch(/deferRecommendation\(/);
+    expect(CLIENT_SOURCE).toMatch(/dismissRecommendation\(/);
+    expect(CLIENT_SOURCE).toMatch(/markRecommendationShipped\(/);
+    expect(CLIENT_SOURCE).toMatch(/undoRecommendationResponse\(/);
   });
 });
 

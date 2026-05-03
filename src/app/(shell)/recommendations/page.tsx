@@ -123,10 +123,10 @@ export default async function RecommendationsPage() {
   }
 
   return (
-    <div className="max-w-4xl">
+    <div className="max-w-5xl">
       <PageHeader
         title="Recommendations"
-        description="What to do this week. Ranked by severity, cluster size, and who actually owns the prompt. Accept to start a tracked experiment."
+        description="Beacon turns AI visibility gaps into concrete website tasks. Review the top actions, accept them, or mark them as shipped."
       />
       {errors.length > 0 && (
         <div

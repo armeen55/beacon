@@ -1,60 +1,54 @@
 # Beacon — Start Here
 
-> 🟢 **W3 Step 3.5d (Recommendations decision-queue reset) LANDED (2026-05-03):** Single code commit on `main`. Operator browser re-audit on Step 3.5c failed product acceptance for the third time — "the page is still an internal evidence/debug feed pretending to be a task queue." The fix is a product-architecture rewrite, not another label patch. Tier-based grouping (NOW · 5 / THIS WEEK · 5 / LATER · 5) replaced with five semantic LANES, and every rec card now follows ONE deterministic formula. No paid runs / regeneration / Apply-All-HIGH / backfill / Profound archive.
+> 🟢 **W3 Step 3.5e (Recommendations as a HubSpot-style ranked action TABLE) LANDED (2026-05-03):** Single code commit on `main`. Operator browser re-audit on Step 3.5d (lane model) failed product acceptance — "stop the card/lane approach. The page should not look like a dashboard of cards. It should look like a clean work queue." The fix is the next product-architecture rewrite: lanes/cards out, ranked action table in.
 >
-> **Five lanes — each rec gets exactly one (operator scope: "what kind of action this is, and what to do with it"):**
-> 1. **Ready to ship** — actionable_edit. Buttons: Accept + Track / Defer / Dismiss.
-> 2. **Needs decision** — manual_review. Buttons: "You decide the direction" + Defer / Dismiss.
-> 3. **Needs fresh edit** — edits dismissed/quarantined. Buttons: "Regenerate when you're ready" + Dismiss.
-> 4. **Tracking** — accepted_tracking. Buttons: ✓ Tracking + Mark shipped + Undo. NO Accept/Defer/Dismiss.
-> 5. **Backlog** — collapsed by default. Buttons: Promote / Defer / Dismiss.
+> **Page shape:** PageHeader subcopy ("Beacon turns AI visibility gaps into concrete website tasks…") + toolbar (search + Type filter + Status filter + summary line "N actions · M new · K tracking" + last-refreshed) + one `<table>` with columns **# · Recommended action · Target · Type · Priority · Status · Evidence · Action**. Click a row → inline drawer below with Exact recommended change (before/after copy or page brief) · Why Beacon recommends it · Evidence (affected prompts / observations / top competitor / refs) · Measurement plan · Risks · Overlapping pages · collapsed Debug block (raw IDs, evidence hash, resolver tier, full reasoning).
 >
-> **Default card formula (every card, every lane):**
-> ```
-> [Lane badge] [Confidence pill] [Title]
-> Target: /target-url
-> Recommended move: <one sentence>
-> Why now:          <one sentence>
-> Evidence:         <one sentence>
-> [Effort chip]
-> [Lane-specific action buttons]
-> ▸ Show evidence + diagnostics  (expansion drawer)
-> ```
+> **Action-row model (NEW `recommendation-action-rows.ts`):** flattens the rec queue + linked specific edits into one ranked table row per concrete website task. One rec with 3 usable edits → 3 rows ("Add an H2 …", "Add an FAQ …", "Add a section …"). Row title is action-aware (`composeEditRowTitle` covers every ActionType). Type column shows operator-readable label (Create page / H2 / Title / Meta / Schema / FAQ / Section / Copy / Links / Technical / Review / Regenerate). Priority is `high` / `medium` / `low` ("Weak signal" never appears — operator scope: use Low instead). Status maps from edit lifecycle + rec response → New / Accepted / Measuring / Shipped / Needs review / Needs fresh edit / Deferred / Dismissed.
 >
-> ALL diagnostic content (resolver reasoning, confidenceReason, motive, AdjudicatorDetails, SpecificEditsSection, edit-empty-state) lives behind the expansion `<details>`. Default card never shows debug paragraphs.
+> **Generic-competitor filter** (entity-pollution-filter) preserved everywhere: "General Contractors winning" / "Architects winning" never reach the evidence column. Real competitors (De Mattei Construction, etc.) still surface.
+>
+> **Internal taxonomy** lives on `data-rec-*` attributes (`data-rec-row-id`, `data-rec-action-row-type`, `data-rec-priority`, `data-rec-status`, `data-rec-source-rec-id`, `data-rec-source-edit-id`, `data-rec-rank`, `data-rec-type-pill`, `data-rec-priority-pill`, `data-rec-status-pill`, `data-rec-action-button`, `data-rec-debug-block`) for tests + diagnostics. Operator never sees raw enum tokens.
+>
+> No paid runs / regeneration / Apply-All-HIGH / backfill / Profound archive.
 >
 > **What changed:**
-> - **Lane model (extended `display-state.ts`)** — `RecLane` type, `laneForDisplayState(state)` mapping, `REC_LANE_LABEL` / `REC_LANE_LEAD` / `REC_LANE_TONE` / `REC_LANE_BUTTONS` operator copy + button-rule contract.
-> - **Title humanizer (NEW `recommendation-title-humanizer.ts`)** — domain-specific topic-tag patterns (vacant-lot custom home, design-build vs architect, completed-plans handoff, steep-lot feasibility, older-home rebuild, modernizing older homes, structural remodel, cost planning, permitting, kitchen/bath remodel, renovation, custom home) + Bay Area geo extraction (Atherton, Palo Alto, etc.) + URL → page-name composer. Action-aware composer ("Create an Atherton older-home rebuild page" / "Add a kitchen remodel section to the Whole Home Remodel page"). LLM `operatorTitle` still wins.
-> - **Evidence preview composer (NEW `recommendation-evidence-preview.ts`)** — single-sentence facts: "Ritz is close: owned page cited 39%, needs more topical coverage." / "Owned page cited 12%; Greenberg winning across 4 prompts." / "No owned page cited across 60 observations; De Mattei winning." / "Ritz cited 6%; Greenberg winning across 6 prompts." Generic competitors (General Contractors / Architects / Houzz) filtered through `entity-pollution-filter`. Recommended-move composer also action-aware.
-> - **Rec card body refactored** — `actionLabel` / `motiveLabel` / `tierBadge` / chip-strip removed from default card; lane badge replaces all three. `EvidenceChips` component deleted entirely. `ACTION_LABEL` / `TIER_BADGE` / `REC_TYPE_LABEL` constants removed. `buildResolvedRecommendationTitle` import removed (humanizer replaces it). Internal taxonomy preserved on `data-rec-*` attributes for tests + diagnostics.
-> - **Lane-aware action buttons** — each rec card consults `lane` to pick the right surface. Tracking lane shows Mark shipped + Undo only; needs-decision shows decision affordance; needs-fresh-edit shows regenerate hint + dismiss; backlog shows Promote.
+> - **Action-row model + builder (NEW `recommendation-action-rows.ts`)** — `RecommendationActionRow` type with id / rank / title / targetLabel / targetUrl / actionType / priority / status / evidenceSummary / sourceRecommendationId / sourceEditId / hasExactEdit / detail (drawer payload). `buildRecommendationActionRows({queue})` flattens recs → actions: one renderable specific edit → one row; rec with `create_new_page` action and zero edits → one create_page row; rec with `split_or_separate_page` / `merge_or_dedupe` / `needs_review` and zero edits → one review_decision row; rec with all-dismissed edits → one regenerate_edit row; otherwise suppressed. Sort: priority DESC → open-vs-decided → observation count DESC → id ASC. Pure / deterministic.
+> - **Title composer covers every ActionType** — `composeEditRowTitle` emits action-aware verbs ("Add an H2 …", "Rewrite the … title", "Add … schema to the …", "Add an FAQ …"). `composeMetaRowTitle` covers create_page (delegates to `humanizeRecTitle`), review_decision ("Choose whether to split the …", "Pick a direction for the … opportunity"), regenerate_edit ("Regenerate edits for the … recommendation").
+> - **Target labels** — `targetLabelForUrl` returns "Homepage" (path `/`), "{Page Name} page" (e.g., "Whole Home Remodel page"), or "New page" (NEEDS_NEW_PAGE sentinel). Never "homepage page" duplication. Edits prefer their own anchor URL over the rec's resolution when both exist.
+> - **Status / Priority mapping** — `statusForRow` reads response.status + edit lifecycle + needsHumanReview to land on New / Accepted / Measuring / Shipped / Needs review / Needs fresh edit / Deferred / Dismissed. `priorityForRow` blends engineConfidence + severity + affectedPromptCount → high / medium / low (single-prompt caps at low).
+> - **Client rewritten as a table** (`recommendations-client.tsx`) — pre-3.5e lane sections (LaneSection / BacklogSection / RecLane / lane badges) deleted entirely. Toolbar (search + type filter + status filter + summary), `<table>` with the 8 operator columns, per-row Type/Priority/Status pills, lane-aware Action button (Accept / Mark shipped / Undo / Dismiss / Defer / "Tracking" / "✓ Shipped"), and inline drawer (`<tr><td colspan=8>`) with Exact change / Why / Evidence / Measurement plan / Risks / Overlapping pages / Debug (collapsed `<details>`).
+> - **Drawer evidence** — affected prompt count, observation count, top REAL competitor (via `shouldExcludeFromCompetitorRanking`), evidence-ref dropdown (with prompt-text snippet for `prompt` refs), full reasoning + confidenceReason (scrubbed for brackets + UUIDs) lives in the Debug `<details>`.
+> - **Page header** — subcopy now reads "Beacon turns AI visibility gaps into concrete website tasks. Review the top actions, accept them, or mark them as shipped." Shell width widened from `max-w-4xl` → `max-w-5xl` so the table fits without horizontal scroll.
 >
-> **Tests (3 new files + 4 updated):**
-> - `recommendation-title-humanizer.test.ts` (NEW, 35) — operator-locked phrase patterns, geo extraction, URL → page-name, humanizer composer per action.
-> - `recommendation-evidence-preview.test.ts` (NEW, 16) — share ≥30% / 5–29% / 0% / fallback paths; generic-competitor filtering; recommended-move per action; "no internal motive jargon" guard.
-> - `confidence-distribution.test.ts` (NEW, 5) — Ritz-shaped queue is NOT majority Weak signal; deterministic-only with real signal lands MEDIUM; multi-prompt adjudicated lands HIGH; thin recs land LOW; needs_human_review forces LOW.
-> - `tests/architecture/recommendations-step-3.5d-lane-queue.test.ts` (NEW, 35) — lane-model imports, card formula, lane-specific button surfaces, expansion drawer wraps all diagnostics, pre-3.5d patterns are gone, internal taxonomy on data-* attributes, header copy reset.
-> - `tests/architecture/recommendations-ui-cleanup.test.ts` (1 updated) — empty-state regex made whitespace-flexible.
-> - `tests/sprint6a1-phase12-wiring.test.ts` (1 updated) — Accept-button copy regex updated to "Accept + Track ({editCount} edit{s})".
-> - `tests/app/recommendations/render-output-cleanup.test.tsx` (3 updated) — bracketed-diagnostic test scopes assertion to default-card portion (slice at expansion `<details>`); prompt-shaped title test pins new humanizer output ("Create an older-home rebuild page"); accepted_tracking test pins "✓ Tracking" copy (was "✓ Accepted").
+> **Tests (1 new file + 5 updated):**
+> - `tests/architecture/recommendations-step-3.5e-action-table.test.ts` (NEW, 25) — table-shape source-scan invariants: lane patterns gone, table + columns + toolbar + summary + drawer + debug-block all wired with the right `data-rec-*` attributes.
+> - `tests/app/recommendations/render-output-cleanup.test.tsx` (rewritten, 25) — render-side acceptance: table shape, concrete row titles, no `homepage page`, pills carry humanized text + data-* enum, `Weak signal` never visible, accepted state hides Accept button + shows Mark-shipped, generic-competitor filter, no bracketed diagnostics by default, no `Site match` / `AI-reviewed`, confidence-distribution invariant on a 5-rec fixture.
+> - `tests/architecture/recommendations-ui-cleanup.test.ts` (rewritten) — pruned to the contracts that survive every redesign: HIGH copy never auto-apply; no Apply-All-HIGH; server actions still wired; no raw enum leakage as visible JSX text.
+> - `tests/sprint6a1-phase12-wiring.test.ts` (UI block rewritten) — pre-3.5e SpecificEditsSection / `destructure edits` / Accept-button-copy assertions deleted (those moved into the action-row builder layer); replaced with the table-model wiring (client imports + invokes `buildRecommendationActionRows`; server actions still bound).
+> - `tests/architecture/recommendations-step-3.5d-lane-queue.test.ts` (DELETED) — obsolete with the lane model gone.
+> - `tests/routes/recommendations-smoke.test.ts` (1 line updated) — shell width regex now matches `max-w-(?:4xl|5xl)`.
+>
+> **Pure-helper tests (unchanged from 3.5d, still green):** recommendation-title-humanizer.test.ts (35), recommendation-evidence-preview.test.ts (16), confidence-distribution.test.ts (5).
 >
 > **Verification (2026-05-03):**
-> - `npx tsc --noEmit` clean · 91/91 targeted (humanizer + evidence-preview + confidence-distribution + step-3.5d-lane-queue + render-output-cleanup + sprint6a1) · `npm run test` 3561/3565 (4 pre-existing failures: prompts/[id] drilldown smoke × 1, prompts route smoke × 2, tenant isolation × 1 — verified independent against `8b12b3d` baseline) · `npm run build` clean (Vercel-equivalent read-only-FS).
+> - `npx tsc --noEmit` clean · targeted tests 80/80 (action-table source scan + render-output + ui-cleanup + sprint6a1 client UI + smoke) and 67/67 (humanizer + evidence-preview + confidence-distribution) · `npm run test` 3542/3546 (4 pre-existing failures: prompts/[id] drilldown smoke × 1, prompts route smoke × 2, tenant isolation × 1 — verified independent against `8b12b3d` baseline) · `BEACON_TENANT_ID=… npm run build` clean (Vercel-equivalent read-only-FS).
 > - **Could not verify from this environment:** Vercel deploy SHA matches the new commit — operator dashboard check + browser re-audit needed.
 >
-> **Out of scope (per Step 3.5d + W3 §1.5):**
+> **Out of scope (per Step 3.5e + W3 §1.5):**
 > - LIVE paid generation — first paid run is post-Step-3.6, operator-approved
 > - Step 3.6 sample-10 quality report — gated on this re-audit passing
-> - Apply-All-HIGH bar — operator-locked OUT
+> - Apply-All-HIGH / bulk-accept UX — operator-locked OUT
 > - Customer-one backfill — W4
 > - Profound CSV archive / code deletion — post-May-10
 > - Broad UI redesign outside /recommendations
 >
 > **Next 3 actions:**
-> 1. **Operator: re-audit /recommendations in browser** after Vercel deploys this commit. Verify: lanes render in order (Ready to ship / Needs decision / Needs fresh edit / Tracking / Backlog); each card shows lane badge + confidence + title + Target + Recommended move + Why now + Evidence + effort chip + lane-specific buttons; backlog collapsed by default; "If I buy a property" cluster shows "Create an older-home rebuild page" title; tracking-lane recs show Mark shipped + Undo (no Accept); no "General Contractors winning"; no UUIDs; no bracket diagnostics in default cards.
+> 1. **Operator: re-audit /recommendations in browser** after Vercel deploys this commit. Verify: page is a clean ranked table (no card stack); 8 columns visible; first 8–12 rows scannable above the fold; each row title is a concrete task ("Add an H2 …", "Create a … page", "Rewrite the … meta description"); search + filters work; clicking a row opens an inline drawer with exact change + why + evidence + measurement plan + collapsed Debug; no "Weak signal" / "homepage page" / "General Contractors winning" / raw UUIDs / `[label tokens]` brackets in the default table.
 > 2. **If browser re-audit passes, proceed to W3 Step 3.6 (sample-10 quality report).**
 > 3. **(Optional)** one-rec dry-run probe before Step 3.6 if you want a smaller paid sample first.
+
+> 🟡 **W3 Step 3.5d (Recommendations decision-queue lane model) LANDED (2026-05-03 morning), SUPERSEDED BY 3.5e (2026-05-03 afternoon):** Five-lane card layout (`ready_to_ship` / `needs_decision` / `needs_fresh_edit` / `tracking` / `backlog`) with lane-aware buttons + expansion drawer per card. Operator browser audit declared the card model wrong: "stop the card/lane approach. The page should not look like a dashboard of cards. It should look like a clean work queue." Replaced by Step 3.5e's HubSpot-style ranked action table. Pure helpers from 3.5d (`recommendation-title-humanizer.ts`, `recommendation-evidence-preview.ts`, `display-state.ts`) all kept; the client-side lane UI is gone.
 
 > 🟡 **W3 Step 3.5c (Triage UX reset after Step 3.5b browser re-audit) LANDED (2026-05-02):** Single code commit `7199094` on `main`. Operator browser re-audit on Step 3.5b still failed product acceptance — the page improved but stayed an evidence/debug feed. This commit closes the gap on six remaining issues. No paid runs / regeneration / Apply-All-HIGH / backfill / Profound archive.
 >

@@ -36,8 +36,11 @@ describe("/recommendations route smoke", () => {
       const tree = await RecommendationsPage();
       const html = renderToStaticMarkup(tree as ReactElement);
 
-      // Route wrapper class from page.tsx — not copy-dependent.
-      expect(html).toContain("max-w-4xl");
+      // Route wrapper class from page.tsx — pinned at the same
+      // shell-width-or-wider that the table layout requires. W3 Step
+      // 3.5e (2026-05-03) widened to max-w-5xl so the action table
+      // fits without horizontal scroll.
+      expect(html).toMatch(/max-w-(?:4xl|5xl)/);
       // PageHeader renders "Recommendations".
       expect(html).toContain("Recommendations");
       // Client stub reached (i.e. server load path didn't throw).
