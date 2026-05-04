@@ -617,6 +617,31 @@ export function validateSpecificEdit(
     const dashGate = validateNoEmDashes(edit);
     if (!dashGate.ok) return dashGate;
   }
+
+  // ── 9.85 Public-copy leading-superlative ban (W3 Step 3.12) ────────
+  // Operator-locked guardrail (2026-05-03): generated public copy
+  // (proposedText + displayLabel) MUST NOT start with a self-claim
+  // superlative like "Best …", "Top …", "Leading …", "Premier …",
+  // "#1 …" — even when the AI fanout query the rec was grounded in
+  // contains "best …".  Raw fanout keywords carry comparison intent;
+  // public Ritz copy must transform that into a buyer-decision angle
+  // ("How to choose …" / "What to look for …") rather than parrot a
+  // self-award framing.
+  //
+  // Why a NEW rule on top of `validateBrandClaimGrounding`: the
+  // brand-claim grounder catches subject-of-sentence superlatives
+  // ("the best luxury home builders") via the `best_in_market`
+  // pattern, but the W3 §3.10 paid run produced an H2 starting with
+  // bare "Best luxury custom home builders in the Bay Area" — no
+  // definite article, no "is/are" verb — that slipped through. The
+  // §3.11 fanout audit caught it; this gate locks the catch.
+  //
+  // Operator opt-out: BEACON_ALLOW_LEADING_SUPERLATIVE=1.
+  if (process.env.BEACON_ALLOW_LEADING_SUPERLATIVE !== "1") {
+    const leadGate = validateNoLeadingSuperlativePublicCopy(edit);
+    if (!leadGate.ok) return leadGate;
+  }
+
   if (process.env.BEACON_ALLOW_SHORT_BRAND_NAME !== "1") {
     const nameGate = validateBrandNameFirstMention(edit, packet);
     if (!nameGate.ok) return nameGate;
@@ -712,6 +737,79 @@ function validateNoEmDashes(edit: SpecificEdit): ValidationResult {
     );
   }
   return OK;
+}
+
+/**
+ * W3 Step 3.12 (2026-05-03) — public-copy leading-superlative ban.
+ *
+ * Reject any generated public copy whose `proposedText` or
+ * `displayLabel` STARTS with a self-claim superlative — "Best ...",
+ * "Top ...", "Leading ...", "Premier ...", "#1 ...", "Top-rated ...",
+ * "Highest-rated ...", "Most-trusted ..." — regardless of whether the
+ * trailing words match a brand-claim pattern.
+ *
+ * Locked by §3.11 query-fanout audit: raw fanout queries MAY contain
+ * "best" (real comparison-stage buyer demand), but public Ritz copy
+ * must transform that into a buyer-decision angle. The §3.10 paid run
+ * emitted `H2: "Best luxury custom home builders in the Bay Area"` —
+ * the brand-claim grounder's `best_in_market` regex (subject of
+ * sentence pattern) didn't catch it because there was no article or
+ * verb. This gate fires on the leading-token shape.
+ *
+ * Pure / deterministic. Returns the first match (validator
+ * convention) so the failure reason names a single, actionable
+ * pattern.
+ */
+function validateNoLeadingSuperlativePublicCopy(
+  edit: SpecificEdit,
+): ValidationResult {
+  const tel = edit.targetElement;
+  if (!tel) return OK;
+  const fields: Array<{ value: string | null | undefined; path: string }> = [
+    { value: tel.proposedText, path: "targetElement.proposedText" },
+    { value: tel.displayLabel, path: "targetElement.displayLabel" },
+  ];
+  for (const f of fields) {
+    if (typeof f.value !== "string" || f.value.length === 0) continue;
+    const hit = findLeadingSuperlative(f.value);
+    if (!hit) continue;
+    return fail(
+      f.path,
+      `public copy may not start with self-claim superlative '${hit.matched}' — even when the AI fanout query contains '${hit.matched.toLowerCase()}', generated H2 / heading / FAQ copy must transform comparison-stage demand into a buyer-decision angle (e.g., "How to choose …", "What to look for in …", "Questions to ask …")`,
+    );
+  }
+  return OK;
+}
+
+/**
+ * Inspect the FIRST non-whitespace word of a public-copy string. If
+ * it matches a banned self-claim superlative, return `{ matched }`;
+ * otherwise return null. Case-insensitive on the leading match (so
+ * "Best", "BEST", "best" all fire); the matched text preserves the
+ * original case for the error message.
+ *
+ * "Top-rated" / "Highest-rated" / "Most-trusted" treated as single
+ * tokens (hyphenated). "#1" matches the literal start-of-string
+ * pattern.
+ */
+function findLeadingSuperlative(
+  text: string,
+): { matched: string } | null {
+  // Strip leading whitespace + leading newlines so we look at the
+  // actual first word (multi-line bodies often start with the heading
+  // line followed by blank lines + the body paragraph; we want the
+  // very first visible token).
+  const trimmed = text.replace(/^\s+/, "");
+  if (trimmed.length === 0) return null;
+  // Pattern: one banned superlative as a leading token, followed by a
+  // word boundary (whitespace, end-of-string, or punctuation).  The
+  // alternation is sorted longest-first so "Top-rated" wins over
+  // "Top".
+  const re =
+    /^(Highest-rated|Most-trusted|Top-rated|Top\b|Best\b|Leading\b|Premier\b|#1\b)/i;
+  const m = trimmed.match(re);
+  if (!m) return null;
+  return { matched: m[0] };
 }
 
 /**

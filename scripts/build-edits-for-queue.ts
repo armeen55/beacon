@@ -51,12 +51,20 @@
  *     scripts/build-edits-for-queue.ts --rec-id=<stableKey> --write
  */
 
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { mkdirSync } from "node:fs";
 
 import { deterministicProvider } from "../src/domains/recommendations/providers/deterministic";
 import { openaiProvider } from "../src/domains/recommendations/providers/openai";
-import type { SpecificEditProvider } from "../src/domains/recommendations/specific-edit-provider";
+import {
+  looksLikeSpecificEditBundle,
+  staticBundleProvider,
+} from "../src/domains/recommendations/providers/static-bundle";
+import type {
+  SpecificEditBundle,
+  SpecificEditProvider,
+} from "../src/domains/recommendations/specific-edit-provider";
 import {
   buildPacketForRec,
   loadLiveRecommendationQueue,
@@ -103,6 +111,39 @@ type CliFlags = {
   providerRaw: string | null;
   /** Sprint 6A.2e: cap for --all targets. `null` means "no cap". */
   limit: number | null;
+  /**
+   * W3 §3.10 (2026-05-03) — capture the LLM bundle to disk after
+   * the provider call, BEFORE persistence. Lets the operator review
+   * the exact bytes once and persist the SAME bytes later via
+   * `--from-bundle=<path>` without a second model call. Path is
+   * created if its parent directory doesn't exist.
+   */
+  saveBundle: string | null;
+  /**
+   * W3 §3.10 (2026-05-03) — load a previously-captured bundle from
+   * disk and persist it WITHOUT calling the LLM. The saved
+   * `tenantId` / `recId` / `evidenceHash` must match the current
+   * packet (the static-bundle provider throws on mismatch). All
+   * validator gates still run against the loaded bundle.
+   *
+   * Mutually exclusive with --provider; the bundle's own
+   * `providerName` drives telemetry.
+   */
+  fromBundle: string | null;
+  /**
+   * W3 §3.12 (2026-05-03) — graft the bundle's recId in memory so a
+   * saved bundle can replay against a re-clustered queue rec. Only
+   * valid alongside `--from-bundle`; cannot be combined with
+   * `--rec-id` (it serves the same role for the from-bundle path).
+   *
+   * The on-disk file is NEVER mutated — the override is a CLI-time
+   * graft, and the change is logged loudly so the audit trail still
+   * shows the original bundle.recId. Tenant + evidenceHash still
+   * have to be reasonable (warn on tenant mismatch; evidenceHash
+   * drift is expected because the packet rebuilt against a
+   * different rec scope is genuinely a different packet).
+   */
+  recIdOverride: string | null;
 };
 
 function parseFlags(argv: string[]): CliFlags {
@@ -114,16 +155,25 @@ function parseFlags(argv: string[]): CliFlags {
     help: false,
     providerRaw: null,
     limit: null,
+    saveBundle: null,
+    fromBundle: null,
+    recIdOverride: null,
   };
   for (const arg of argv) {
     if (arg === "--list") flags.list = true;
     else if (arg === "--all") flags.all = true;
     else if (arg === "--write") flags.write = true;
     else if (arg === "--help" || arg === "-h") flags.help = true;
-    else if (arg.startsWith("--rec-id=")) {
+    else if (arg.startsWith("--rec-id-override=")) {
+      flags.recIdOverride = arg.slice("--rec-id-override=".length).trim();
+    } else if (arg.startsWith("--rec-id=")) {
       flags.recId = arg.slice("--rec-id=".length);
     } else if (arg.startsWith("--provider=")) {
       flags.providerRaw = arg.slice("--provider=".length).trim();
+    } else if (arg.startsWith("--save-bundle=")) {
+      flags.saveBundle = arg.slice("--save-bundle=".length).trim();
+    } else if (arg.startsWith("--from-bundle=")) {
+      flags.fromBundle = arg.slice("--from-bundle=".length).trim();
     } else if (arg.startsWith("--limit=")) {
       const raw = arg.slice("--limit=".length).trim();
       const n = Number.parseInt(raw, 10);
@@ -207,6 +257,25 @@ function printHelp(): void {
       "  --provider=openai        Paid. Calls OpenAI SpecificEditProvider.",
       "                           Requires OPENAI_API_KEY. Obeys monthly budget cap.",
       "",
+      "Save / replay (W3 §3.10 — operator review-and-persist path):",
+      "  --save-bundle=<path>     After the provider call, write the LLM bundle",
+      "                           to <path> (JSON). Lets you review exact copy",
+      "                           once and persist the SAME bytes later.",
+      "  --from-bundle=<path>     Replay a saved bundle: persist the EXACT bytes",
+      "                           with no second model call. Mutually exclusive",
+      "                           with --provider / --save-bundle. The bundle's",
+      "                           tenantId/recId/evidenceHash must match the",
+      "                           current packet (fail-loud on drift).",
+      "  --rec-id-override=<key>  (--from-bundle only) Replay the saved bundle",
+      "                           against a DIFFERENT live-queue rec. Use when",
+      "                           the queue churned between save and replay",
+      "                           (e.g. a single-prompt rec was promoted to a",
+      "                           cluster page). The on-disk JSON is NOT",
+      "                           mutated; the bundle's recId is grafted in",
+      "                           memory + a loud warning is logged. Cannot be",
+      "                           combined with --rec-id (the override IS the",
+      "                           lookup key for the from-bundle path).",
+      "",
       "Other:",
       "  --limit=N                Cap how many recs to process under --all.",
       "  --write                  Actually persist (otherwise dry-run).",
@@ -215,6 +284,15 @@ function printHelp(): void {
       "Default mode is DRY-RUN. Pass --write to persist.",
       "Idempotent: re-runs replace existing rows by",
       "(rec_id, action_type, target_element_key).",
+      "",
+      "Two-step review-and-persist flow (W3 §3.10):",
+      "  1) Dry-run + save:",
+      "     scripts/build-edits-for-queue.ts \\",
+      "       --rec-id=<id> --provider=openai --save-bundle=/tmp/<id>.json",
+      "  2) Review the saved JSON (or the stdout dump). When approved, replay:",
+      "     scripts/build-edits-for-queue.ts \\",
+      "       --rec-id=<id> --from-bundle=/tmp/<id>.json --write",
+      "  Step 2 makes ZERO model calls; the operator-reviewed bytes ship verbatim.",
     ].join("\n"),
   );
 }
@@ -284,8 +362,21 @@ async function processRec(args: {
   tenantId: string;
   dryRun: boolean;
   provider: SpecificEditProvider;
+  /** W3 §3.10 — when set, after the provider call, write the
+   *  generated bundle to this path so the operator can review +
+   *  later persist it via --from-bundle. */
+  saveBundle: string | null;
 }): Promise<RecReport> {
-  const { rec, live, inventory, inventoryEmpty, tenantId, dryRun, provider } = args;
+  const {
+    rec,
+    live,
+    inventory,
+    inventoryEmpty,
+    tenantId,
+    dryRun,
+    provider,
+    saveBundle,
+  } = args;
   const report: RecReport = {
     stableKey: rec.stableKey,
     packetBuilt: false,
@@ -337,6 +428,31 @@ async function processRec(args: {
     report.persisted = result.persisted;
     report.providerName = result.bundle.providerName;
     report.costUsd = result.bundle.totalCostUsd;
+    // W3 §3.10 — capture the LLM bundle to disk for later
+    // persistence via --from-bundle. We save the FULL bundle (incl.
+    // rejected edits) so the operator's review file is complete;
+    // validation re-runs at persist time and re-rejects the bad
+    // ones, leaving only the same accepted set.
+    if (saveBundle) {
+      try {
+        const dir = dirname(saveBundle);
+        if (dir && dir !== "." && !existsSync(dir)) {
+          mkdirSync(dir, { recursive: true });
+        }
+        writeFileSync(
+          saveBundle,
+          JSON.stringify(result.bundle, null, 2),
+          "utf8",
+        );
+        console.log(
+          `[build-edits] saved bundle (${result.bundle.recommendations.length} edits, $${result.bundle.totalCostUsd.toFixed(6)}) to ${saveBundle}`,
+        );
+      } catch (err) {
+        report.errors.push(
+          `--save-bundle write failed for ${saveBundle}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
     // Pull model from the first accepted edit when present (LLM only;
     // deterministic edits carry model=null).
     const firstWithModel = result.acceptedRows.find((r) => r.model);
@@ -428,19 +544,43 @@ async function main(): Promise<void> {
   loadEnvLocal();
   const flags = parseFlags(process.argv.slice(2));
 
-  const modeCount = [flags.list, flags.recId !== null, flags.all].filter(
-    Boolean,
-  ).length;
+  // W3 §3.12 — `--rec-id-override` is a from-bundle-only single-rec
+  // mode. It SUBSTITUTES for `--rec-id`, so guard against pairing the
+  // two before the modeCount check (otherwise the operator could
+  // accidentally pass both and the second silently wins).
+  if (flags.recIdOverride !== null && !flags.fromBundle) {
+    console.error(
+      "[build-edits] --rec-id-override requires --from-bundle (it grafts the saved bundle's recId in memory so it can replay against a re-clustered queue rec).",
+    );
+    process.exit(1);
+  }
+  if (flags.recIdOverride !== null && flags.recId !== null) {
+    console.error(
+      "[build-edits] --rec-id-override and --rec-id are mutually exclusive. The override IS the queue-lookup key for the from-bundle path.",
+    );
+    process.exit(1);
+  }
+
+  const modeCount = [
+    flags.list,
+    flags.recId !== null,
+    flags.all,
+    flags.recIdOverride !== null,
+  ].filter(Boolean).length;
   if (flags.help || modeCount === 0) {
     printHelp();
     if (!flags.help) {
-      console.error("\n[build-edits] No mode provided. Pass one of --list / --rec-id=<...> / --all.");
+      console.error(
+        "\n[build-edits] No mode provided. Pass one of --list / --rec-id=<...> / --all / (--from-bundle=<...> --rec-id-override=<...>).",
+      );
       process.exit(1);
     }
     return;
   }
   if (modeCount > 1) {
-    console.error("[build-edits] Pass only ONE mode flag (--list / --rec-id / --all).");
+    console.error(
+      "[build-edits] Pass only ONE mode flag (--list / --rec-id / --all / --rec-id-override).",
+    );
     process.exit(1);
   }
   if (flags.limit !== null && flags.limit < 1) {
@@ -450,14 +590,107 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  // Sprint 6A.2e — resolve --provider. Validates OPENAI_API_KEY presence
-  // for the openai path and rejects anthropic with a clear message.
-  const providerResolution = resolveProviderFlag(flags.providerRaw);
-  if (providerResolution.kind === "error") {
-    console.error(`[build-edits] ${providerResolution.message}`);
+  // W3 §3.10 — --from-bundle is mutually exclusive with --provider.
+  // The bundle's own providerName drives telemetry; passing
+  // --provider alongside would be ambiguous.
+  if (flags.fromBundle && flags.providerRaw) {
+    console.error(
+      "[build-edits] --from-bundle and --provider are mutually exclusive. The bundle's saved providerName is authoritative.",
+    );
     process.exit(1);
   }
-  const { name: providerName, provider } = providerResolution;
+  if (flags.fromBundle && flags.saveBundle) {
+    console.error(
+      "[build-edits] --from-bundle and --save-bundle are mutually exclusive. --from-bundle replays a saved bundle; there's nothing new to save.",
+    );
+    process.exit(1);
+  }
+
+  let providerName: "deterministic" | "openai";
+  let provider: SpecificEditProvider;
+  let staticBundle: SpecificEditBundle | null = null;
+  if (flags.fromBundle) {
+    // W3 §3.10 — replay path: load the saved bundle from disk and
+    // wrap it in a static provider. Validation + persistence layers
+    // run normally so brand-claim grounding, em dashes, FAQ pairing,
+    // competitor leak checks all apply at persist time.
+    if (!existsSync(flags.fromBundle)) {
+      console.error(
+        `[build-edits] --from-bundle path does not exist: ${flags.fromBundle}`,
+      );
+      process.exit(1);
+    }
+    let raw: string;
+    try {
+      raw = readFileSync(flags.fromBundle, "utf8");
+    } catch (err) {
+      console.error(
+        `[build-edits] --from-bundle read failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      process.exit(1);
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch (err) {
+      console.error(
+        `[build-edits] --from-bundle: file is not valid JSON: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      process.exit(1);
+    }
+    if (!looksLikeSpecificEditBundle(parsed)) {
+      console.error(
+        `[build-edits] --from-bundle: file does not look like a SpecificEditBundle (schemaVersion / tenantId / recId / evidenceHash / providerName / recommendations / totalCostUsd required).`,
+      );
+      process.exit(1);
+    }
+    staticBundle = parsed;
+    // W3 §3.12 — when --rec-id-override is set, graft the bundle's
+    // recId in memory BEFORE wrapping in the static provider. The
+    // provider's tenantId/recId/evidenceHash assertion runs against
+    // the LIVE packet built from the override rec; tenantId still
+    // has to match (we don't graft it; that's an actual mistake), and
+    // evidenceHash will not match (different rec scope = different
+    // packet by definition). The on-disk JSON file stays unchanged.
+    if (flags.recIdOverride !== null) {
+      const originalRecId = staticBundle.recId;
+      console.warn(
+        `[build-edits] --rec-id-override: grafting bundle.recId from ${JSON.stringify(originalRecId)} to ${JSON.stringify(flags.recIdOverride)} IN MEMORY ONLY (the saved bundle file at ${flags.fromBundle} is NOT modified).`,
+      );
+      // Graft recId in memory; tenantId stays as the saved bundle's
+      // tenantId (a tenant mismatch IS an actual mistake — don't
+      // graft it). evidenceHash difference is opted into via the
+      // provider's `allowEvidenceHashDrift` option below.
+      staticBundle = {
+        ...staticBundle,
+        recId: flags.recIdOverride,
+      };
+    }
+    // W3 §3.12 — under --rec-id-override the saved bundle was
+    // generated for a different rec scope, so its evidenceHash will
+    // not match the live packet's hash. Opt the static provider into
+    // hash drift; tenantId + recId equality still enforced.
+    provider = staticBundleProvider(staticBundle, {
+      allowEvidenceHashDrift: flags.recIdOverride !== null,
+    });
+    // The bundle's providerName drives telemetry. Cast back to the
+    // CLI's narrow union (deterministic / openai); if the saved
+    // bundle was produced by some other provider, fall back to
+    // labeling it as deterministic in the summary line (the
+    // persistence layer's history records the real source).
+    providerName =
+      staticBundle.providerName === "openai" ? "openai" : "deterministic";
+  } else {
+    // Sprint 6A.2e — resolve --provider. Validates OPENAI_API_KEY
+    // presence for the openai path and rejects anthropic.
+    const providerResolution = resolveProviderFlag(flags.providerRaw);
+    if (providerResolution.kind === "error") {
+      console.error(`[build-edits] ${providerResolution.message}`);
+      process.exit(1);
+    }
+    providerName = providerResolution.name;
+    provider = providerResolution.provider;
+  }
 
   // Sprint 7 Phase 7.5d/1 (2026-04-25) — fail-loud tenant resolution.
   // No silent ritz fallback; CLI must run with BEACON_TENANT_ID set
@@ -466,17 +699,35 @@ async function main(): Promise<void> {
   const tenantId = await currentTenantId();
   const dryRun = !flags.write;
 
+  const sourceLabel = staticBundle
+    ? `from-bundle:${flags.fromBundle}`
+    : `provider=${providerName}`;
+  const modeLabel = flags.list
+    ? "LIST"
+    : flags.recIdOverride
+      ? `REC-OVERRIDE(${flags.recIdOverride})`
+      : flags.recId
+        ? `REC(${flags.recId})`
+        : "ALL";
   console.log(
-    `[build-edits] tenant=${tenantId} mode=${
-      flags.list ? "LIST" : flags.recId ? `REC(${flags.recId})` : "ALL"
-    } provider=${providerName} persist=${dryRun ? "DRY-RUN" : "WRITE"}` +
+    `[build-edits] tenant=${tenantId} mode=${modeLabel} ${sourceLabel} persist=${dryRun ? "DRY-RUN" : "WRITE"}` +
       (flags.limit ? ` limit=${flags.limit}` : ""),
   );
 
   // Pre-flight cost reminder when the LLM path is engaged.
-  if (providerName === "openai" && !dryRun) {
+  if (providerName === "openai" && !dryRun && !staticBundle) {
     console.log(
       "[build-edits] WARNING: --provider=openai with --write will spend real money via OpenAI.",
+    );
+  }
+  if (staticBundle && !dryRun) {
+    console.log(
+      `[build-edits] --from-bundle replay: persisting ${staticBundle.recommendations.length} edits from ${flags.fromBundle} (no model call, $0 spend; bundle's saved totalCostUsd=$${staticBundle.totalCostUsd.toFixed(6)} reflects the original run).`,
+    );
+  }
+  if (flags.saveBundle) {
+    console.log(
+      `[build-edits] --save-bundle: will write the LLM bundle to ${flags.saveBundle} after generation.`,
     );
   }
 
@@ -503,13 +754,23 @@ async function main(): Promise<void> {
         : ""),
   );
 
-  const baseTargets: PrioritizedRecommendation[] = flags.recId
-    ? live.queue.filter((r) => r.stableKey === flags.recId)
+  // W3 §3.12 — `--rec-id-override` substitutes for `--rec-id` in the
+  // from-bundle path so the saved bundle can replay against a re-
+  // clustered queue rec. Effective lookup key: override if set,
+  // otherwise --rec-id. (Both can't be set; guarded earlier.)
+  const lookupKey = flags.recIdOverride ?? flags.recId;
+  const baseTargets: PrioritizedRecommendation[] = lookupKey
+    ? live.queue.filter((r) => r.stableKey === lookupKey)
     : live.queue;
-  if (flags.recId && baseTargets.length === 0) {
+  if (lookupKey && baseTargets.length === 0) {
     console.error(
-      `[build-edits] No live queue rec matches stableKey "${flags.recId}".`,
+      `[build-edits] No live queue rec matches stableKey ${JSON.stringify(lookupKey)}.`,
     );
+    if (flags.recIdOverride) {
+      console.error(
+        `[build-edits] (--rec-id-override was passed; the override key must match a CURRENT queue rec, not the bundle's original recId.)`,
+      );
+    }
     console.error(
       `[build-edits] Run with --list to see what's in the queue today.`,
     );
@@ -539,6 +800,7 @@ async function main(): Promise<void> {
       tenantId,
       dryRun,
       provider,
+      saveBundle: flags.saveBundle,
     });
     printRecReport(report);
     totalAccepted += report.accepted;

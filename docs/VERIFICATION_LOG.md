@@ -7,6 +7,78 @@
 
 ---
 
+## 2026-05-03 (evening) — W3 Step 3.10–3.13: Static-bundle replay + query-fanout audit + leading-superlative guardrail + Cupertino & Luxury persisted
+
+Operator caught a real defect on the §3.9 review: `--write` was calling OpenAI fresh on every invocation, so the bytes that landed on disk were not byte-identical to the dry-run report the operator approved. This step ships a five-piece review-and-replay pipeline that persists EXACT operator-approved bytes with zero new model spend, plus a public-copy guardrail uncovered during the §3.10 paid run (the LLM emitted an H2 starting with bare "Best ..." that slipped past the existing `best_in_market` regex because there was no definite article or verb).
+
+### What changed
+
+**5 files added · 2 files modified · 4 test files (3 new, 1 extended) · 64 new test cases**
+
+- **`src/domains/recommendations/providers/static-bundle.ts`** (NEW) — `staticBundleProvider(bundle, options)` returns a saved bundle verbatim, asserting `tenantId` / `recId` / `evidenceHash` match the live packet (the operator-mistake guard). `looksLikeSpecificEditBundle` type guard for unsafe JSON. The provider's `name` mirrors the bundle's original `providerName` so telemetry preserves true provenance ("openai" / "deterministic"), not a synthetic "static" marker. `STATIC_BUNDLE_PROVIDER_TAG = "static"` exported as a diagnostic constant. New W3 §3.12 `allowEvidenceHashDrift` option relaxes only the hash check while keeping tenantId+recId enforced (used by `--rec-id-override`); the returned bundle's `evidenceHash` is grafted to the live packet's hash so downstream cache + telemetry use the current packet's identity.
+
+- **`scripts/build-edits-for-queue.ts`** (modified) — three new flags:
+  - `--save-bundle=<path>` writes the LLM bundle to disk after generation, before persistence. Operator reviews exact bytes once; persists later.
+  - `--from-bundle=<path>` replays a saved bundle through the static provider. NO model call, $0 spend on this invocation. Mutually exclusive with `--provider` and `--save-bundle`.
+  - `--rec-id-override=<key>` (W3 §3.12) — when the queue churns between save and replay (e.g. `create_single` → `create_cluster_page` cluster promotion), grafts `bundle.recId` in memory + opts the static provider into `allowEvidenceHashDrift`. The on-disk JSON is NEVER mutated. tenantId + recId equality still enforced. Mutually exclusive with `--rec-id`. Loud warning logs the original recId for audit trail.
+
+- **`src/domains/recommendations/query-fanout-audit.ts`** (NEW) — pure compute, deterministic, no I/O. `buildQueryFanoutAudit(packet, edit)` returns:
+  - `rawQueries[]` — verbatim AI-emitted queries from `packet.aiSearchSignal.topSearchQueries`
+  - `queryFanoutCoverage` — "rich" (≥3) / "partial" (1–2) / "none"
+  - `promptSnippets[]` — affected-prompt text snippets (capped + trimmed)
+  - `normalizedIntent` — one-line buyer-intent summary, superlatives stripped
+  - `recommendedSafeAngle` — public-safe phrasing recommendation
+  - `evidenceSourcesUsed[]` — packet blocks contributing evidence (stable order)
+  - `transformedTerms[]` — for each forbidden raw query, a buyer-decision rewrite (e.g., "best luxury home builders Bay Area" → "How to choose a luxury home builder in the Bay Area")
+  - `confidence` — "fanout-backed" / "prompt-backed only" / "competitor-page-backed" / "thin evidence"
+  - `unsafePhrasings[]` — forbidden patterns detected inside the proposed text itself (catches what the validator's `best_in_market` regex misses)
+  - `transformForbiddenQueryToBuyerAngle()` + `detectUnsafePhrasings()` exported for direct use
+
+- **`scripts/audit-saved-bundle.ts`** (NEW) — runner. Loads a saved bundle, rebuilds the live packet via `buildPacketForRec` (deterministic, no LLM), and prints `buildQueryFanoutAudit(packet, edit)` per edit. Supports `--bundle=<path>`, `--rec-id-override=<key>` (queue-churn case), and `--json`.
+
+- **`src/domains/recommendations/specific-edit-validator.ts`** (modified) — new `validateNoLeadingSuperlativePublicCopy` gate wired into `validateSpecificEdit` step §9.85 (after em-dash gate, before brand-name-first gate). Rejects generated `proposedText` and `displayLabel` whose first non-whitespace word is `Best` / `Top` / `Top-rated` / `Leading` / `Premier` / `#1` / `Highest-rated` / `Most-trusted` (case-insensitive), regardless of the trailing words. Fail-loud reason names the matched modifier and walks the operator to the buyer-decision rewrite. Env opt-out: `BEACON_ALLOW_LEADING_SUPERLATIVE=1`.
+
+### Two persistences this session, $0 model spend
+
+| Cluster | rec_id | Edits persisted | Source attribution | Saved-bundle telemetry |
+|---|---|---:|---|---:|
+| Cupertino | `create_cluster_page:geo:Cupertino` | 1 H2 + 2 FAQ (paired hash `cupertino01`) | `source=openai` (queue churn promoted `create_single` → `create_cluster_page`; saved bytes are the original LLM output, persisted via `--rec-id-override`) | $0.011674 (telemetry only — this run made $0 in model calls) |
+| Luxury Home Builder Bay Area | `create_cluster_page:topic:Shield: Luxury Home Builder Bay Area` | 1 H2 + 2 FAQ (paired hash `faqlux01ab23cd45`) | `source=operator_edited` (the §3.10 H2 + FAQ Q failed the new leading-superlative + `best_in_market` gates; operator hand-edited bytes to a buyer-decision angle) | $0.013929 (telemetry only — this run made $0 in model calls) |
+
+**Operator checklist verification on the 6 newly-persisted rows:**
+- zero raw UUIDs in public text
+- zero em dashes (— or –)
+- zero bare "Ritz" alone (full "Ritz Builders" first mention everywhere)
+- zero leading-superlative public H2s
+- zero unsupported brand claims (best builder, top-rated, leading, frequently recommended, award-winning, most trusted, most popular, premier, #1, highest-rated)
+- FAQ Q+A pairs share their hash on both clusters (`cupertino01` and `faqlux01ab23cd45`)
+- all rows under their cluster `rec_id`
+- provenance truthful: `provider_name=openai`, `model=gpt-5-mini`, `source=openai` (Cupertino) / `source=operator_edited` (Luxury), `implementation_status=recommended`
+
+### Tests (4 files, 64 new cases)
+
+- **`src/domains/recommendations/providers/static-bundle.test.ts`** (17, +5 from §3.10 baseline) — pin verbatim return, tenantId/recId/evidenceHash mismatch errors, structural type guard, `STATIC_BUNDLE_PROVIDER_TAG`. **W3 §3.12 additions**: `allowEvidenceHashDrift=true` relaxes the hash check while still enforcing tenantId + recId; grafts the live packet's hash onto the returned bundle; the original on-disk bundle reference is never mutated; default (no options) preserves the §3.10 strict-equality contract; pre-graft + drift-allow combined drives the `--rec-id-override` flow cleanly.
+- **`src/domains/recommendations/query-fanout-audit.test.ts`** (NEW, 27) — `transformForbiddenQueryToBuyerAngle` ("best luxury home builders" → "How to choose a luxury home builder", geos lift to "in {Geo}", cities don't take "the" article, year tokens stripped, articles stripped, returns null on buyer-neutral input); `detectUnsafePhrasings` (leading Best/Top/Leading/Premier on heading text, inline award-winning/top-rated/most-trusted/most-popular/frequently-recommended, subject-of-sentence "best builder/firm/etc.", de-dupes hits, returns empty on safe copy); `buildQueryFanoutAudit` end-to-end (rich/partial/none coverage, fanout-backed / prompt-backed-only / competitor-page-backed / thin-evidence confidence, evidence sources stable order, `recommendedSafeAngle` echoes first transformed term or mirrors top fanout, page-level edits handled cleanly, unsafe public-copy flagged independently of coverage tier).
+- **`src/domains/recommendations/specific-edit-validator-leading-superlative.test.ts`** (NEW, 14) — pin operator-locked rule 1 (raw fanout MAY contain "best ..."; `why` field may quote raw fanout verbatim — only public-copy fields are scanned), rule 2 (`Best …` / `Top …` / `Leading …` / `Premier …` / `Top-rated …` / `#1 …` rejected on proposedText AND displayLabel; case-insensitive), rule 3 (buyer-decision angles pass: "How to choose …", "What to look for …", "Questions to ask …", "Working with …", "Modernizing older Cupertino homes …" — the persisted Cupertino bytes), rule 4 (`BEACON_ALLOW_LEADING_SUPERLATIVE=1` opts out).
+- **Existing `src/domains/recommendations/providers/static-bundle.test.ts`** baseline preserved (12 §3.10 cases unchanged).
+
+### Verification
+
+- `npx tsc --noEmit` clean.
+- 1209/1209 on `src/domains/recommendations` + `tests/architecture` (recs + arch surface area my changes touched).
+- `npm run test` 3795/3801 (6 baseline failures all OUTSIDE the recs/arch surface area: 3 UI smoke tests with time-drift on `.data` observation dates from 2026-04-23 expiring the 7-day "live" window, 1 tenant-isolation regression, 2 auto-link-via-changelog regressions — all 6 fail identically when my code changes are stashed, confirming they're pre-existing on `2628e67`).
+- `BEACON_TENANT_ID=tenant-ritz-founder BEACON_TENANT_SLUG=ritz-builders npm run build` clean (Vercel-equivalent build).
+
+### Persisted state of `.data/tenants/ritz-builders/recommended-edits.json`
+
+20 rows total (14 prior — Palo Alto + others — + 3 fresh Cupertino + 3 fresh Luxury). $0 net model spend this session.
+
+### Out of scope (operator-locked)
+
+Apply-All-HIGH; broad regeneration; customer-one backfill; Profound archive/delete; broad UI redesign outside `/recommendations`.
+
+---
+
 ## 2026-05-03 (predawn) — W3 Step 3.9: Narrow paid runs (Palo Alto persist + Cupertino + Luxury)
 
 Operator approved persisting Palo Alto with `--write` and running two more narrow dry-runs to broaden the inspection sample. Three runs total surfaced three real validator gaps that were fixed mid-run; no unsafe data reached disk.
