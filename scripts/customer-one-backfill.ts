@@ -5127,12 +5127,74 @@ async function checkPublishReadinessCore(
     }
   }
 
+  // ── Operator-strengthened (2026-05-04, post Stage 7 --write failure) ──
+  //
+  // Stricter check: every column present in the staged publish payload
+  // must exist on the target Supabase table. Any extra column on a
+  // staged row that is NOT on the target is a publish blocker — the
+  // next --write attempt would fail loud at PGRST204 on batch 0.
+  //
+  // Implementation:
+  //   • Read staged row[*] keys from the same files Stage 7 publishes
+  //     from (`.data/_staging/w4-extracted-observations.json` for
+  //     `prompt_answer_observations`; `w4-rederived-snapshots.json`
+  //     for `daily_metric_snapshots`).
+  //   • Walk EVERY row (not just row[0]) — staged rows may be
+  //     heterogeneous; some carry optional fields, others don't.
+  //   • Compute (stagedKeys \ targetColumns); a non-empty diff means
+  //     the publish would fail.
+  //
+  // Files-only read; no Supabase write paths invoked here.
+  const stagedFileFor: Record<string, string> = {
+    prompt_answer_observations: "w4-extracted-observations.json",
+    daily_metric_snapshots: "w4-rederived-snapshots.json",
+  };
+  const stagedExtraByTable: Record<string, string[]> = {};
+  const cwd = process.cwd();
+  const stagingDir = join(cwd, ".data", "_staging");
+  for (const table of Object.keys(stagedFileFor)) {
+    const obs = observed[table];
+    if (!obs?.exists) continue;
+    const path = join(stagingDir, stagedFileFor[table]);
+    if (!existsSync(path)) {
+      // Staged file missing — Stage 6b's artifacts_present check
+      // already flags this; don't double-block here.
+      continue;
+    }
+    let rows: Array<Record<string, unknown>> = [];
+    try {
+      rows = JSON.parse(readFileSync(path, "utf-8"));
+      if (!Array.isArray(rows)) rows = [];
+    } catch {
+      // Parse failure — artifacts_present check already covers this.
+      continue;
+    }
+    const stagedKeys = new Set<string>();
+    for (const row of rows) {
+      if (row && typeof row === "object") {
+        for (const k of Object.keys(row)) stagedKeys.add(k);
+      }
+    }
+    const targetSet = new Set(obs.columns);
+    const extras: string[] = [];
+    for (const k of stagedKeys) {
+      if (!targetSet.has(k)) extras.push(k);
+    }
+    extras.sort();
+    if (extras.length > 0) {
+      stagedExtraByTable[table] = extras;
+      blockers.push(
+        `${table}: staged rows carry ${extras.length} column(s) NOT on the target table: ${extras.join(", ")}. The next --write would fail loud at PGRST204 on batch 0. Migrate the schema OR strip the extra column(s) before publish.`,
+      );
+    }
+  }
+
   return {
     name: "publish_readiness_core",
     status: blockers.length === 0 ? (warnings.length === 0 ? "pass" : "warn") : "fail",
     summary:
       blockers.length === 0
-        ? "Core publish targets ready: prompt_answer_observations + daily_metric_snapshots schemas verified."
+        ? "Core publish targets ready: prompt_answer_observations + daily_metric_snapshots schemas verified (staged keys ⊆ target columns)."
         : "Core publish targets NOT ready (see blockers).",
     details: {
       tablesObserved: Object.fromEntries(
@@ -5141,6 +5203,7 @@ async function checkPublishReadinessCore(
           { exists: v.exists, columnCount: v.columns.length },
         ]),
       ),
+      stagedExtraByTable,
       conflictTargets: {
         prompt_answer_observations: "id (UNIQUE)",
         daily_metric_snapshots: "id (UNIQUE)",
@@ -5740,6 +5803,18 @@ async function validateCorePublishPreconditions(args: {
   }
 
   // ── 6. publish target columns exist (probe Supabase) ─────────────
+  //
+  // Operator-strengthened (2026-05-04, post Stage 7 --write failure):
+  // the original check verified only the REQUIRED core columns. That
+  // missed `competitor_descriptor_windows` on staged W4 rows — Supabase
+  // rejected batch 0 of the publish at PGRST204 ("column not in schema
+  // cache"). The strengthened check now performs a STRICT SUBSET test:
+  // every column present in the staged publish payload must exist in
+  // the target Supabase table. Any extra column on a staged row that
+  // is NOT on the target table is a publish blocker.
+  //
+  // The check still runs the original required-columns assertion so
+  // back-compat with empty staged tables is preserved.
   {
     let blockers: string[] = [];
     const required: Record<string, ReadonlyArray<string>> = {
@@ -5760,6 +5835,7 @@ async function validateCorePublishPreconditions(args: {
       ],
     };
     let observed: Record<string, ReadonlyArray<string>> = {};
+    let stagedExtraByTable: Record<string, string[]> = {};
     try {
       const { getSupabaseAdmin } = await import(
         "../src/lib/persistence/supabase"
@@ -5781,6 +5857,31 @@ async function validateCorePublishPreconditions(args: {
             blockers.push(`${table} missing required column: ${c}`);
           }
         }
+
+        // Strict subset check: gather ALL keys present on ANY staged
+        // row, compare against the target's column set. (Use ALL rows
+        // not just row[0] because staged rows may be heterogeneous —
+        // some carry optional fields, others don't.)
+        const stagedRows: Array<Record<string, unknown>> =
+          table === "prompt_answer_observations"
+            ? (staged.extracted as Array<Record<string, unknown>>)
+            : (staged.rederive as Array<Record<string, unknown>>);
+        const stagedKeys = new Set<string>();
+        for (const row of stagedRows) {
+          for (const k of Object.keys(row)) stagedKeys.add(k);
+        }
+        const targetSet = new Set(observed[table]);
+        const extras: string[] = [];
+        for (const k of stagedKeys) {
+          if (!targetSet.has(k)) extras.push(k);
+        }
+        extras.sort();
+        if (extras.length > 0) {
+          stagedExtraByTable[table] = extras;
+          blockers.push(
+            `${table} staged rows carry ${extras.length} column(s) the target table does NOT have: ${extras.join(", ")}. The next --write attempt would fail loud at the FIRST batch (PGRST204) — fix the schema OR strip the extra column from staging before publish.`,
+          );
+        }
       }
     } catch (err) {
       blockers.push(
@@ -5792,11 +5893,14 @@ async function validateCorePublishPreconditions(args: {
       pass: blockers.length === 0,
       summary:
         blockers.length === 0
-          ? "Publish target columns verified for both observations + snapshots."
-          : "Publish target columns FAILED probe.",
-      details: { observedColumnsCount: Object.fromEntries(
-        Object.entries(observed).map(([k, v]) => [k, v.length]),
-      ) },
+          ? "Publish target columns verified for both observations + snapshots (staged keys ⊆ target columns)."
+          : "Publish target columns FAILED — schema gap would block batch 0.",
+      details: {
+        observedColumnsCount: Object.fromEntries(
+          Object.entries(observed).map(([k, v]) => [k, v.length]),
+        ),
+        stagedExtraByTable,
+      },
       blockers,
     });
   }

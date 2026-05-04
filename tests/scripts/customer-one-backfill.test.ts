@@ -2512,3 +2512,199 @@ describe("Stage 7 — operator-mandated test invariants (10)", () => {
     expect(body).toMatch(/Stage 5 changelog relabel publish is deferred/);
   });
 });
+
+// ──────────────────────────────────────────────────────────────────────
+// W4 STAGE 7 — STRENGTHENED PRECONDITION (post --write failure)
+// ──────────────────────────────────────────────────────────────────────
+//
+// Operator-mandated (2026-05-04, post Stage 7 --write failure on
+// `competitor_descriptor_windows` column missing): the publish-readiness
+// preconditions must catch staged-vs-target schema drift BEFORE the
+// orchestrator attempts batch 0. The strict-subset check fires in BOTH
+// surfaces:
+//
+//   • Stage 6b verify  →  `checkPublishReadinessCore` adds blockers
+//     when staged file row keys are NOT a subset of target columns.
+//   • Stage 7 preview  →  `validateCorePublishPreconditions`'s
+//     `publish_target_columns_exist` precondition does the same check
+//     against the in-memory staged payload it'll publish from.
+//
+// These tests pin the strict-subset contract on the source.
+
+describe("Stage 7 strengthened — staged keys must be subset of target columns (Stage 7 preview)", () => {
+  // The relevant code lives inside validateCorePublishPreconditions's
+  // precondition #6 ("publish target columns exist").
+  const validatorBody = (): string => {
+    const start = SCRIPT_SRC.indexOf(
+      "async function validateCorePublishPreconditions(",
+    );
+    const end = SCRIPT_SRC.indexOf(
+      "// ── Stage 7 — preview + manifest builders",
+      start,
+    );
+    return SCRIPT_SRC.slice(start, end);
+  };
+
+  it("Stage 7 publish_target_columns_exist computes (stagedKeys \\ targetColumns) and pushes a blocker for any extra", () => {
+    const b = validatorBody();
+    // The strict-subset section is operator-anchored.
+    expect(b).toMatch(/Strict subset check: gather ALL keys/);
+    // It walks staged.extracted (obs) and staged.rederive (snaps).
+    expect(b).toMatch(/staged\.extracted/);
+    expect(b).toMatch(/staged\.rederive/);
+    // It emits a structured blocker per table on mismatch.
+    expect(b).toMatch(/staged rows carry \$\{extras\.length\} column\(s\)/);
+    expect(b).toMatch(/PGRST204/);
+    expect(b).toMatch(
+      /(?:fix|migrate) the schema OR strip the extra column from staging/i,
+    );
+  });
+
+  it("Stage 7 strict-subset check stamps stagedExtraByTable into the precondition details", () => {
+    const b = validatorBody();
+    expect(b).toMatch(/stagedExtraByTable/);
+    expect(b).toMatch(/details:\s*\{[\s\S]*?stagedExtraByTable/);
+  });
+
+  it("Stage 7 strict-subset check walks ALL staged rows (heterogeneous keys), not just row[0]", () => {
+    const b = validatorBody();
+    expect(b).toMatch(/for \(const row of stagedRows\)/);
+    expect(b).toMatch(/stagedKeys = new Set<string>\(\)/);
+  });
+
+  it("Stage 7 strict-subset blocker happens BEFORE any upsert (precondition aggregator gate)", () => {
+    // Aggregator: `allPass = checks.every(c => c.pass)`.
+    // The orchestrator's --write path early-outs on `!allPass` BEFORE
+    // any sb.from(...).upsert(...) call (already pinned by an earlier
+    // Stage 7 test). The strict-subset blocker simply contributes to
+    // the `pass: false` verdict on publish_target_columns_exist.
+    const b = validatorBody();
+    expect(b).toMatch(/allPass\s*=\s*checks\.every\(\(?c\)?\s*=>\s*c\.pass\)/);
+    // The check name stays the same — the contract on the field is
+    // unchanged for downstream consumers.
+    expect(b).toMatch(/name:\s*"publish_target_columns_exist"/);
+  });
+});
+
+describe("Stage 6b strengthened — strict-subset check mirrored into publish_readiness_core", () => {
+  const coreCheckBody = (): string => {
+    const start = SCRIPT_SRC.indexOf("async function checkPublishReadinessCore(");
+    // Bound by the next top-level function declaration (Stage 5 sibling).
+    const end = SCRIPT_SRC.indexOf("\nasync function checkPublishReadinessStage5(", start);
+    return SCRIPT_SRC.slice(start, end >= 0 ? end : start + 6000);
+  };
+
+  it("checkPublishReadinessCore reads staged files (extracted + rederive) and pushes a blocker on extra column", () => {
+    const b = coreCheckBody();
+    // Reads from the same Stage 7 staging files.
+    expect(b).toMatch(/w4-extracted-observations\.json/);
+    expect(b).toMatch(/w4-rederived-snapshots\.json/);
+    // Computes (stagedKeys \ targetColumns) and pushes a structured
+    // blocker.
+    expect(b).toMatch(/stagedExtraByTable/);
+    expect(b).toMatch(/PGRST204/);
+    expect(b).toMatch(
+      /staged rows carry \$\{extras\.length\} column\(s\) NOT on the target table/,
+    );
+  });
+
+  it("checkPublishReadinessCore strict-subset check walks ALL rows (heterogeneous staged keys)", () => {
+    const b = coreCheckBody();
+    expect(b).toMatch(/for \(const row of rows\)/);
+    expect(b).toMatch(/Object\.keys\(row\)/);
+  });
+
+  it("checkPublishReadinessCore strict-subset still stamps scope: 'core' (gate for core publish)", () => {
+    const b = coreCheckBody();
+    expect(b).toMatch(/scope:\s*"core"/);
+  });
+
+  it("checkPublishReadinessCore reads ONLY from .data/_staging — no Supabase write paths", () => {
+    const b = coreCheckBody();
+    // No upsert/insert/update/delete on Supabase from this check.
+    expect(b).not.toMatch(/\.upsert\(/);
+    expect(b).not.toMatch(/\.insert\(/);
+    expect(b).not.toMatch(/\.update\(/);
+    expect(b).not.toMatch(/\.delete\(/);
+    // ProbePublishTables uses .select() — the read-only verb.
+    expect(b).toMatch(/probePublishTables/);
+  });
+});
+
+describe("Stage 6b/7 strengthened — operator-mandated test invariants", () => {
+  it("1. target-column check FAILS when staged payload includes a column missing in Supabase target", () => {
+    // Pinned via the strict-subset blocker text in BOTH surfaces.
+    const stage6b = SCRIPT_SRC.indexOf("async function checkPublishReadinessCore(");
+    const stage6bEnd = SCRIPT_SRC.indexOf(
+      "\nasync function checkPublishReadinessStage5(",
+      stage6b,
+    );
+    const stage7 = SCRIPT_SRC.indexOf("async function validateCorePublishPreconditions(");
+    const stage7End = SCRIPT_SRC.indexOf(
+      "// ── Stage 7 — preview + manifest builders",
+      stage7,
+    );
+    const a = SCRIPT_SRC.slice(stage6b, stage6bEnd);
+    const b = SCRIPT_SRC.slice(stage7, stage7End);
+    // Both surfaces push a blocker for extras.
+    expect(a).toMatch(/extras\.length/);
+    expect(b).toMatch(/extras\.length/);
+  });
+
+  it("2. target-column check PASSES after schema includes the column (subset emptied)", () => {
+    // The precondition's pass branch fires when extras.length === 0
+    // (no entries pushed into stagedExtraByTable).
+    const start = SCRIPT_SRC.indexOf("async function checkPublishReadinessCore(");
+    const end = SCRIPT_SRC.indexOf("\nasync function checkPublishReadinessStage5(", start);
+    const body = SCRIPT_SRC.slice(start, end);
+    // Pass summary mentions "staged keys ⊆ target columns".
+    expect(body).toMatch(/staged keys.*target columns/);
+  });
+
+  it("3. publish preconditions catch staged extra columns BEFORE batch 0 (--write path)", () => {
+    // The orchestrator's --write path short-circuits on !allPass
+    // BEFORE any upsertInBatches call. Both fences pinned earlier.
+    const start = SCRIPT_SRC.indexOf("async function runCorePublish(");
+    const end = SCRIPT_SRC.indexOf("// ── Stage 7 — printer ───────", start);
+    const body = SCRIPT_SRC.slice(start, end);
+    // !allPass returns "failed_preconditions" before any upsert call.
+    const earlyOut = body.lastIndexOf("if (!allPass)");
+    const firstUpsert = body.indexOf("upsertInBatches(");
+    expect(earlyOut).toBeGreaterThan(0);
+    expect(firstUpsert).toBeGreaterThan(earlyOut);
+  });
+
+  it("4. NO writes happen if schema mismatch exists (ZERO Supabase mutation when extras detected)", () => {
+    // The dry-run path writes ONLY preview + manifest (verified by
+    // existing Stage 7 source-scan tests). The --write path requires
+    // allPass=true. Both gates are intact — confirmed by checking
+    // that the dry-run early-return precedes every upsert call AND
+    // the !allPass early-return also precedes every upsert call.
+    const start = SCRIPT_SRC.indexOf("async function runCorePublish(");
+    const end = SCRIPT_SRC.indexOf("// ── Stage 7 — printer ───────", start);
+    const body = SCRIPT_SRC.slice(start, end);
+    // Dry-run early-return.
+    expect(body).toMatch(/if \(args\.dryRun\)/);
+    // !allPass short-circuit.
+    expect(body).toMatch(/if \(!allPass\)/);
+    // Both must precede the FIRST upsert.
+    const dryRunIdx = body.indexOf("if (args.dryRun)");
+    const allPassIdx = body.lastIndexOf("if (!allPass)");
+    const firstUpsertIdx = body.indexOf("upsertInBatches(");
+    expect(dryRunIdx).toBeLessThan(firstUpsertIdx);
+    expect(allPassIdx).toBeLessThan(firstUpsertIdx);
+  });
+
+  it("(extra) the strict-subset check explicitly mentions PGRST204 (Supabase schema-cache error code)", () => {
+    // Operator-known failure mode — naming it in the blocker message
+    // makes diagnosis instant.
+    const stage6b = SCRIPT_SRC.indexOf("async function checkPublishReadinessCore(");
+    const stage6bEnd = SCRIPT_SRC.indexOf("\nasync function checkPublishReadinessStage5(", stage6b);
+    const a = SCRIPT_SRC.slice(stage6b, stage6bEnd);
+    expect(a).toMatch(/PGRST204/);
+    const stage7 = SCRIPT_SRC.indexOf("async function validateCorePublishPreconditions(");
+    const stage7End = SCRIPT_SRC.indexOf("// ── Stage 7 — preview + manifest builders", stage7);
+    const b = SCRIPT_SRC.slice(stage7, stage7End);
+    expect(b).toMatch(/PGRST204/);
+  });
+});

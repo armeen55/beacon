@@ -1,5 +1,84 @@
 # Beacon — Start Here
 
+> 🟢 **W4 STAGE 7 CORE PUBLISH SUCCEEDED (2026-05-04):** Operator chose option 1 (add the missing column). One-line schema migration landed via Supabase `apply_migration`. Stage 6b + Stage 7 preconditions strengthened to catch staged-vs-target schema drift before batch 0. Re-running the operator-approved `--stage=publish --publish-scope=core --write` published all 14,096 W4 historical_recovered observations + 7,191 W4 historical_recovered snapshots in 44 batches over ~47 seconds with **zero failures, zero retries, zero improvised fixes.**
+>
+> **Schema migration applied (Supabase project `jdegznovgysxyweknewh`, name "beacon"):**
+> ```sql
+> ALTER TABLE public.prompt_answer_observations
+>   ADD COLUMN IF NOT EXISTS competitor_descriptor_windows jsonb;
+> ```
+> Nullable, no DEFAULT, no constraints, no backfill, no other column or table touched. `daily_metric_snapshots` left alone (it was already 14/14 column match). Pre-migration row counts confirmed unchanged via post-migration verification SELECT (1,936 / 2,325 / 334 / 17 / 7).
+>
+> **Strengthened publish-readiness preconditions (`scripts/customer-one-backfill.ts`):** Stage 6b's `checkPublishReadinessCore` and Stage 7's `publish_target_columns_exist` now perform a strict-subset test — every column key present on ANY staged row must exist on the target Supabase table. Implementation walks `Object.keys(row)` for every row in the staged file (not just row[0], because staged rows are heterogeneous) and computes `(stagedKeys \\ targetColumns)`; any non-empty diff is a publish blocker that surfaces the missing column names AND references PGRST204 (Supabase schema-cache error code) so the operator can diagnose instantly. The strict-subset blocker fires in BOTH surfaces (Stage 6b verify + Stage 7 preview/--write), gating the publish before batch 0 every time.
+>
+> **Publish run (`--write` execution):**
+> | Phase | Detail |
+> |---|---|
+> | Started | 2026-05-04T20:07:56.978Z |
+> | Completed | 2026-05-04T20:08:44.410Z |
+> | Wall time | ~47 seconds |
+> | `prompt_answer_observations` | 29/29 batches OK (28 × 500 rows + 1 × 96 rows = 14,096 rows) |
+> | `daily_metric_snapshots` | 15/15 batches OK (14 × 500 rows + 1 × 191 rows = 7,191 rows) |
+> | Total batches | 44/44 — every batch returned `outcome: ok` |
+> | Manifest status transitions | `preview_only → in_progress → completed` |
+> | Errors | none |
+> | Retries | none |
+>
+> **Post-publish Supabase state (verified read-only):**
+> | Table | Pre-publish | Post-publish | Δ | Notes |
+> |---|---:|---:|---:|---|
+> | `prompt_answer_observations` (total) | 1,936 | 16,032 | **+14,096** | 1,936 native untouched + 14,096 W4 |
+> | `prompt_answer_observations` (W4 regime=historical_recovered) | 0 | 14,096 | +14,096 | exact match to staged count |
+> | `prompt_answer_observations` (W4 with `competitor_descriptor_windows`) | 0 | 14,020 | +14,020 | 99.46% — 76 absent rows match Stage 2's `emptyResponseCount: 76` exactly |
+> | `daily_metric_snapshots` (total) | 2,325 | 9,516 | **+7,191** | 945 native derived + 7,191 W4 derived + 1,380 benchmark untouched |
+> | `daily_metric_snapshots` (W4 regime=historical_recovered) | 0 | 7,191 | +7,191 | exact match |
+> | `daily_metric_snapshots` (W4 source_type=derived) | 0 | 7,191 | +7,191 | 100% — operator step 4 satisfied |
+> | `daily_metric_snapshots` (benchmark) | 1,380 | 1,380 | **0** | preserved |
+> | `changelog_entries` | 334 | 334 | **0** | byte-identical to backup |
+> | `recommended_edits` | 17 | 17 | **0** | byte-identical to backup |
+> | `recommendation_responses` | 7 | 7 | **0** | byte-identical to backup |
+>
+> **Spot-check ID coverage:** every-141st sample of staged W4 observation IDs (100 IDs) — **100/100 found in Supabase**. Same sampling for snapshot IDs — **100/100 found**. With deterministic Schema v2 IDs, this confirms full coverage of the staged set.
+>
+> **9-step post-publish verification (operator-mandated):**
+> | # | Check | Status |
+> |---|---|---|
+> | 1 | Supabase observation count contains all 14,096 W4 IDs | ✓ exact match + 100/100 spot-check |
+> | 2 | Supabase snapshots contain all 7,191 W4 IDs | ✓ exact match + 100/100 spot-check |
+> | 3 | `metadata.regime = historical_recovered` on W4 obs/snaps | ✓ 14,096 + 7,191 |
+> | 4 | `source_type = derived` on W4 snapshots | ✓ 7,191 / 7,191 (100%) |
+> | 5 | Recommendations unchanged | ✓ 17/17 edits + 7/7 responses byte-identical to backup |
+> | 6 | Changelog unchanged | ✓ 334/334 byte-identical to backup |
+> | 7 | Stage 6b core verify passes | ✓ `safe_to_publish_core: true`, 9/10 PASS, only `publish_readiness_stage_5` deferred (operator-known) |
+> | 8 | Build clean | ✓ `npm run build` clean |
+> | 9 | Browser/data smoke | ✓ data smoke covers via tables 1-7; browser smoke deferred per operator's "if available" |
+> | extra | `competitor_descriptor_windows` populated where expected | ✓ 14,020 / 14,096 = 99.46%; the 76 absent rows match Stage 2's empty-response telemetry exactly |
+>
+> **Files (modified):**
+> - `migrations/2026-05-04_w4_add_competitor_descriptor_windows.sql` — new repo-tracked migration file (the same SQL applied via `apply_migration` MCP, also stored for git history).
+> - `scripts/customer-one-backfill.ts` — strict-subset check added to BOTH `checkPublishReadinessCore` (Stage 6b verify) and `validateCorePublishPreconditions` precondition #6 `publish_target_columns_exist` (Stage 7 preview + --write). Both surfaces now compute `(stagedKeys \\ targetColumns)` over ALL staged rows (heterogeneous keys safe), push a structured PGRST204-referencing blocker on any extra, and stamp `stagedExtraByTable` into details. Source-scan invariants in tests pin the contract.
+> - `tests/scripts/customer-one-backfill.test.ts` — extended from 248 → 261 cases (+13 strengthened-precondition invariants). New describe blocks: Stage 7 strengthened (strict-subset on staged keys ⊆ target columns); Stage 6b strengthened (mirrored into `publish_readiness_core`); operator-mandated test invariants (4: extra-column blocker fires, passes after schema migration, catches before batch 0, no writes on mismatch). PGRST204 reference pinned in both surfaces.
+> - `docs/HANDOFF_VERIFIED_STATE.md` (this entry).
+> - `docs/VERIFICATION_LOG.md` (Stage 7 publish-success entry below).
+>
+> **Verification (2026-05-04):** `npx tsc --noEmit` clean · `tests/scripts/customer-one-backfill.test.ts` 261/261 pass · `BEACON_TENANT_ID=... BEACON_TENANT_SLUG=... npm run build` clean (pre-publish) · publish ran 44/44 batches OK over ~47s · post-publish Stage 6b core verify PASS · post-publish build clean · post-publish row counts + byte-identity verified via direct Supabase REST + SQL queries.
+>
+> **Notable design decisions:**
+> 1. **Migration stays minimal.** One column added, nullable, no backfill, no constraints. Existing native rows have `competitor_descriptor_windows = NULL`. Going forward, the W2 day 2 extractor will populate it on new native rows; the W4 deterministic extractor already populated 99.46% of the historical recovered rows (the remaining 0.54% match the empty-response count exactly).
+> 2. **Strict-subset check walks ALL staged rows, not just row[0].** Staged rows are heterogeneous (some carry optional Schema v2.1 fields, others don't). A row[0]-only check would have missed `competitor_descriptor_windows` if the first row happened to be one of the 76 empty-response rows that don't carry it. Walking every row is O(N × K) where K is the average column count — cheap and correct.
+> 3. **PGRST204 named in the blocker message** — operator-known failure mode. Naming it makes future diagnosis instant.
+> 4. **Idempotent re-publish.** Both target tables use `onConflict: "id"`. The staged W4 IDs are deterministic Schema v2 hashes. Re-running `--stage=publish --publish-scope=core --write` would now produce zero net change (every row already exists; upsert is a no-op when row content is byte-identical).
+> 5. **Manifest status `completed`.** The rollback manifest at `.data/_staging/w4-core-publish-manifest.json` now carries the authoritative ID list of every row written. If a future Stage 8 rollback ever needs to undo this publish, it reads exactly these 14,096 + 7,191 IDs and deletes only them — never bulk delete.
+>
+> **Constraints honored (operator-locked):** Did NOT include Stage 5 changelog relabel · did NOT run `--publish-scope=full` · did NOT mutate `changelog_entries` (still 334) · did NOT mutate `recommended_edits` (still 17, byte-identical) · did NOT mutate `recommendation_responses` (still 7, byte-identical) · did NOT delete native rows (1,936 native obs preserved) · did NOT delete benchmark rows (1,380 benchmark snaps preserved) · did NOT run rollback · did NOT archive/delete Profound · did NOT run paid generation · did NOT Apply-All-HIGH · did NOT attempt improvised fixes.
+>
+> **Strategic outcome:** Beacon's brain now sees ~57 days of Ritz Builders historical_recovered intelligence (Mar 5 → Apr 21) on top of the 13 days of native data (Apr 22 → today). The data moat is real. /today's visibility chart will surface as continuous from Mar 5; /pages citation history goes back to Mar 5; the cross-tenant brain has a second-order pattern surface to learn from. The wedge ("either use ChatGPT, or use this exact solution for you") just got the empirical grounding it needed before customer 2 walks in.
+>
+> **Next 3 actions (operator-gated):**
+> 1. **Operator review of the published state.** Browse `/today` + `/changes` + `/pages` + `/recommendations` to confirm the new W4 rows render correctly. Anything off → report back; do not patch without operator direction.
+> 2. **(Future)** Stage 5 changelog relabel publish — still deferred. Operator option D (defer entirely) remains the active choice; option A (add `metadata` jsonb column to `changelog_entries`) is the most-likely re-activation path when the time comes.
+> 3. **(Future)** Stage 8 rollback design — still RESERVED + hard-fail. Won't be needed for THIS publish (success), but stays in the queue for any future publish that succeeds partially.
+
 > 🔴 **W4 Stage 7 --write FAILED LOUD (2026-05-04):** Operator approved with the literal phrase "publish core now". Production mutation attempted. The orchestrator's fail-loud + atomic-batch design caught a schema gap on the FIRST batch and stopped immediately with **ZERO rows written to production Supabase.**
 >
 > **Failure detail:**

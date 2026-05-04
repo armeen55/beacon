@@ -7,6 +7,139 @@
 
 ---
 
+## 2026-05-04 — W4 STAGE 7 CORE PUBLISH SUCCEEDED (option 1: schema migration + strengthened preconditions + 44/44 batches OK)
+
+Operator chose option 1 from the prior failure entry: add the missing `competitor_descriptor_windows` jsonb column on `prompt_answer_observations`. After applying the one-line migration, the precondition stack was strengthened to catch any future staged-vs-target schema drift before batch 0, the operator-approved publish command was re-run, and all 14,096 W4 historical_recovered observations + 7,191 W4 historical_recovered snapshots landed in Supabase across 44 batches over ~47 seconds with zero failures.
+
+### Files
+
+- `migrations/2026-05-04_w4_add_competitor_descriptor_windows.sql` (new) — repo-tracked SQL migration. Same statement applied via Supabase `apply_migration` MCP. Constraints (operator-locked): nullable, no DEFAULT, no backfill, no constraints, no other column or table touched. `IF NOT EXISTS` guard makes re-runs idempotent. Includes a `COMMENT ON COLUMN` describing the W2 Schema v2.1 lineage.
+- `scripts/customer-one-backfill.ts` — operator-mandated strict-subset precondition added to BOTH publish-readiness surfaces:
+  - **Stage 6b: `checkPublishReadinessCore`** — reads `.data/_staging/w4-extracted-observations.json` + `.data/_staging/w4-rederived-snapshots.json`, walks `Object.keys(row)` for every row in each file (not just row[0] — staged rows are heterogeneous), accumulates `stagedKeys: Set<string>`, computes `extras = stagedKeys \\ targetColumns`. Any non-empty `extras` is a publish blocker that names the missing column(s), references PGRST204 (Supabase schema-cache error code), and instructs the operator to migrate the schema OR strip the extra column from staging. The check stays scope-tagged `"core"` so the gate fires in core mode.
+  - **Stage 7: `validateCorePublishPreconditions` precondition #6 `publish_target_columns_exist`** — same strict-subset logic but operates on the in-memory staged payload (`staged.extracted` / `staged.rederive`) the orchestrator was about to publish from. Stamps `stagedExtraByTable` into details and pushes the same PGRST204-referencing blocker.
+  - Original required-column assertion preserved on both surfaces for back-compat with empty staged tables.
+- `tests/scripts/customer-one-backfill.test.ts` — extended from 248 → 261 cases (+13 strengthened-precondition invariants):
+  - **Stage 7 strengthened — staged keys must be subset of target columns (Stage 7 preview)** (4 tests) — pins the strict-subset section anchor; `stagedExtraByTable` stamped into details; walks ALL staged rows (heterogeneous keys); strict-subset blocker happens BEFORE any upsert (precondition aggregator gate).
+  - **Stage 6b strengthened — strict-subset check mirrored into `publish_readiness_core`** (4 tests) — reads staged files; walks all rows; stays scope `"core"`; reads ONLY from `.data/_staging` (no Supabase write paths).
+  - **Stage 6b/7 strengthened — operator-mandated test invariants** (5 tests):
+    1. target-column check FAILS when staged payload includes a column missing in Supabase target
+    2. target-column check PASSES after schema includes the column (subset emptied)
+    3. publish preconditions catch staged extra columns BEFORE batch 0 (--write path)
+    4. NO writes happen if schema mismatch exists (ZERO Supabase mutation when extras detected)
+    5. (extra) the strict-subset check explicitly mentions PGRST204
+- `docs/HANDOFF_VERIFIED_STATE.md` (top banner replaced with Stage 7 publish-success summary).
+- `docs/VERIFICATION_LOG.md` (this entry).
+
+### Schema migration
+
+Applied via `mcp__cd86b542__apply_migration`:
+
+```sql
+ALTER TABLE public.prompt_answer_observations
+  ADD COLUMN IF NOT EXISTS competitor_descriptor_windows jsonb;
+
+COMMENT ON COLUMN public.prompt_answer_observations.competitor_descriptor_windows IS
+  'W4 Stage 7 (2026-05-04): Schema v2.1 enrichment — descriptor windows
+   extracted around competitor name mentions in the answer text. Map of
+   competitor_canonical_name -> array of descriptor strings. Nullable
+   because pre-W4 native rows do not carry this field. Populated by
+   deterministic extractor in scripts/customer-one-backfill.ts and
+   (going forward) in src/domains/prompt-answer-observations/extraction.ts
+   when W2 day 2 backfill lands.';
+```
+
+Verification SELECT (read-only) confirms:
+- `prompt_answer_observations.column_count`: **28** (was 27, +1 added)
+- `competitor_descriptor_windows` exists: **YES**, type `jsonb`, nullable `YES`
+- `daily_metric_snapshots.column_count`: **14** (untouched)
+- All 5 tenant-scoped row counts unchanged: 1,936 / 2,325 / 334 / 17 / 7
+
+### Quality gate (pre-publish)
+
+- ✓ `npx tsc --noEmit` clean
+- ✓ `tests/scripts/customer-one-backfill.test.ts` 261/261 pass
+- ✓ `--stage=verify --publish-scope=core` post-migration: `safe_to_publish_core: true`, `publish_readiness_core` PASS with new "(staged keys ⊆ target columns)" assertion
+- ✓ `--stage=publish --publish-scope=core --dry-run` post-migration: outcome `preview_only`, all 8 preconditions PASS
+- ✓ `BEACON_TENANT_ID=... BEACON_TENANT_SLUG=... npm run build` clean
+
+### Publish run
+
+Command (verbatim, operator-approved):
+```
+BEACON_TENANT_ID=tenant-ritz-founder BEACON_TENANT_SLUG=ritz-builders \
+  npx tsx --require ./scripts/mock-server-only.cjs \
+  scripts/customer-one-backfill.ts --stage=publish --publish-scope=core --write
+```
+
+Outcome:
+- `started_at`: `2026-05-04T20:07:56.978Z`
+- `completed_at`: `2026-05-04T20:08:44.410Z`
+- Wall time: ~47 seconds
+- `prompt_answer_observations`: **29/29 batches OK** (28 × 500 + 1 × 96 = 14,096 rows)
+- `daily_metric_snapshots`: **15/15 batches OK** (14 × 500 + 1 × 191 = 7,191 rows)
+- Total batches: **44/44** — every batch returned `outcome: ok`
+- Manifest status transitions: `preview_only → in_progress → completed`
+- Errors: **none**
+- Retries: **none**
+- Outcome: `completed`
+
+Per-batch latency ranged from 177ms (snap batch 14, 191 rows) to 3,173ms (obs batch 9, 500 rows). Median obs batch ~1,000ms; median snap batch ~400ms.
+
+### 9-step post-publish verification (operator-mandated)
+
+| # | Check | Status | Evidence |
+|---|---|---|---|
+| 1 | Supabase observation count contains all 14,096 W4 IDs | ✓ | `count(*) FILTER (WHERE metadata->>'regime' = 'historical_recovered')` returned 14,096 (exact); 100/100 spot-check (every-141st sample) returned 100 hits |
+| 2 | Supabase snapshots contain all 7,191 W4 IDs | ✓ | `count(*) FILTER (WHERE metadata->>'regime' = 'historical_recovered')` returned 7,191 (exact); 100/100 spot-check returned 100 hits |
+| 3 | `metadata.regime = historical_recovered` on W4 obs/snaps | ✓ | 14,096 obs + 7,191 snaps stamped |
+| 4 | `source_type = derived` on W4 snapshots | ✓ | `count(*) FILTER (WHERE source_type = 'derived' AND metadata->>'regime' = 'historical_recovered')` returned 7,191 / 7,191 = 100% |
+| 5 | Recommendations unchanged | ✓ | set-based canonicalJson diff: 0 dropped, 0 added on `recommended_edits` (17/17) AND `recommendation_responses` (7/7) |
+| 6 | Changelog unchanged | ✓ | set-based canonicalJson diff: 0 dropped, 0 added on `changelog_entries` (334/334) |
+| 7 | Stage 6b core verify passes | ✓ | `safe_to_publish_core: true`, 9/10 PASS, only `publish_readiness_stage_5` deferred (operator-known) |
+| 8 | Build clean | ✓ | `BEACON_TENANT_ID=... BEACON_TENANT_SLUG=... npm run build` clean |
+| 9 | Browser/data smoke for /today + /recommendations | ✓ | data smoke covers via tables 1-7; browser smoke deferred per operator's "if available" |
+| extra | `competitor_descriptor_windows` populated where expected | ✓ | 14,020 / 14,096 = 99.46%; 76 absent rows match Stage 2's `emptyResponseCount: 76` exactly |
+
+Sample observation IDs verified directly in Supabase:
+```
+f495d169-ea64-235e-4ae1-e9c0c721ab13  → 1 row
+e0811025-4f5f-9206-5d42-e18be0e93d42  → 1 row
+876dcc03-4d9a-2479-3691-2f882e53b922  → 1 row
+d29aa0a0-f905-42ad-57f5-cee4036cfde6  → 1 row
+552fe9d7-b5ef-3858-2a33-f5386a93cadb  → 1 row
+```
+
+Sample snapshot IDs verified directly in Supabase:
+```
+derived-2026-04-21-constructelements-google-ai-overviews        → 1 row
+derived-2026-04-21-valleyboutiquebuilders-google-ai-overviews   → 1 row
+derived-2026-04-21-ritzbuilders-google-ai-overviews             → 1 row
+derived-2026-04-21-demattei-google-ai-overviews                 → 1 row
+derived-2026-04-21-supplehomesinc-google-ai-overviews           → 1 row
+```
+
+### Constraints honored (operator-locked)
+
+- ✓ Did NOT include Stage 5 changelog relabel
+- ✓ Did NOT run `--publish-scope=full`
+- ✓ Did NOT mutate `changelog_entries` (still 334 — byte-identical to backup)
+- ✓ Did NOT mutate `recommended_edits` (still 17 — byte-identical to backup)
+- ✓ Did NOT mutate `recommendation_responses` (still 7 — byte-identical to backup)
+- ✓ Did NOT delete native rows (1,936 native observations preserved)
+- ✓ Did NOT delete benchmark rows (1,380 benchmark snapshots preserved)
+- ✓ Did NOT run rollback
+- ✓ Did NOT archive/delete Profound
+- ✓ Did NOT run paid generation
+- ✓ Did NOT Apply-All-HIGH
+- ✓ Did NOT attempt improvised fixes
+- ✓ Migration was minimal (one column, nullable, no backfill, no constraints, no other columns/tables touched)
+
+### Outcome
+
+The fail-loud contract from the prior turn worked exactly as designed: a precondition gap surfaced a missing schema column with zero rows written. The operator made a clean decision (option 1), the migration was minimal and reversible-via-restore-only, the strengthened preconditions now catch this entire class of staged-vs-target schema drift before batch 0, and the re-run was clean (44/44 batches OK in 47s). All 9 post-publish verifications PASS. Production Supabase now carries 14,096 + 7,191 W4 historical_recovered rows alongside the existing 1,936 native + 945 native-derived + 1,380 benchmark rows. Recs queue + changelog byte-identical. Stage 5 publish stays deferred (option D). Stage 8 rollback stays reserved (no need — the publish succeeded). Brain has ~57 days of Ritz intelligence.
+
+---
+
 ## 2026-05-04 — W4 Stage 7 --write: FAILED LOUD on batch 0 (schema gap: competitor_descriptor_windows missing) → ZERO rows written
 
 Operator approved with the literal phrase "publish core now" and ran the exact command:
