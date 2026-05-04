@@ -141,11 +141,10 @@ describe("validateStage", () => {
     expect(v.isReserved).toBe(false);
   });
 
-  it("rejects reserved stages with isReserved=true (rederive / publish / rollback / verify / copy-orphan / relabel)", () => {
-    // W4 Stage 2 (2026-05-04): extract-observations is IMPLEMENTED;
-    // it's no longer in the reserved set.
+  it("rejects reserved stages with isReserved=true (publish / rollback / verify / copy-orphan / relabel)", () => {
+    // W4 Stage 3 (2026-05-04): rederive-snapshots is now IMPLEMENTED;
+    // remaining reserved set narrowed.
     const RESERVED: Stage[] = [
-      "rederive-snapshots",
       "copy-orphan-benchmarks",
       "relabel-changelog",
       "verify",
@@ -165,13 +164,16 @@ describe("validateStage", () => {
     expect(validateStage("publish").isReserved).toBe(true);
   });
 
-  it("rederive-snapshots NOT implemented today (W4 Stage 3+)", () => {
-    expect(IMPLEMENTED_STAGES.has("rederive-snapshots")).toBe(false);
-  });
-
   it("extract-observations IS implemented as of W4 Stage 2 (2026-05-04)", () => {
     expect(IMPLEMENTED_STAGES.has("extract-observations")).toBe(true);
     const v = validateStage("extract-observations");
+    expect(v.ok).toBe(true);
+    expect(v.isReserved).toBe(false);
+  });
+
+  it("rederive-snapshots IS implemented as of W4 Stage 3 (2026-05-04)", () => {
+    expect(IMPLEMENTED_STAGES.has("rederive-snapshots")).toBe(true);
+    const v = validateStage("rederive-snapshots");
     expect(v.ok).toBe(true);
     expect(v.isReserved).toBe(false);
   });
@@ -436,11 +438,12 @@ describe("publish stage is hard-blocked + warned (source-scan)", () => {
     expect(v.isReserved).toBe(true);
   });
 
-  it("IMPLEMENTED_STAGES carries preflight + backup + extract-observations as of W4 Stage 2", () => {
+  it("IMPLEMENTED_STAGES carries preflight + backup + extract-observations + rederive-snapshots as of W4 Stage 3", () => {
     expect([...IMPLEMENTED_STAGES].sort()).toEqual([
       "backup",
       "extract-observations",
       "preflight",
+      "rederive-snapshots",
     ]);
   });
 });
@@ -685,5 +688,110 @@ describe("Stage 2 — runExtractObservations is staging-only (source-scan)", () 
     expect(body).toMatch(/empty_response_kept_for_citations/);
     // Text-derived extractors are gated behind hasResponse.
     expect(body).toMatch(/if\s*\(\s*hasResponse\s*\)/);
+  });
+});
+
+// ── 14. Stage 3 — rederive-snapshots invariants ────────────────────────
+
+describe("Stage 3 — runRederiveSnapshots is staging-only (source-scan)", () => {
+  function runRederiveBody(): string {
+    const start = SCRIPT_SRC.indexOf("async function runRederiveSnapshots(");
+    const end = SCRIPT_SRC.indexOf("function extractSourceCsvHashFromStaged(");
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    return SCRIPT_SRC.slice(start, end);
+  }
+
+  it("never calls .insert/.update/.delete/.upsert on Supabase", () => {
+    const body = runRederiveBody();
+    expect(body).not.toMatch(/\.insert\(/);
+    expect(body).not.toMatch(/\.update\(/);
+    expect(body).not.toMatch(/\.delete\(/);
+    expect(body).not.toMatch(/\.upsert\(/);
+    // Reads against tracked_entities ARE allowed (registry is read-
+    // only for Stage 3).
+    expect(body).toMatch(/\.from\(\s*"tracked_entities"\s*\)/);
+    expect(body).toMatch(/\.select\(/);
+  });
+
+  it("hard-fails when Stage 2 staging file is missing", () => {
+    const body = runRederiveBody();
+    expect(body).toMatch(/Stage 2 output missing/);
+    expect(body).toMatch(/!existsSync\(stagedObsPath\)/);
+  });
+
+  it("does NOT read from .data/tenants/<slug>/prompt-answer-observations.json", () => {
+    const body = runRederiveBody();
+    expect(body).not.toMatch(/prompt-answer-observations\.json/);
+    expect(body).not.toMatch(/tenants\/ritz-builders\/prompt-answer/);
+  });
+
+  it("does NOT WRITE to recommended_edits / recommendation_responses (read-only sanity check only)", () => {
+    const body = runRederiveBody();
+    // The ONLY occurrences of these filenames in the body are in
+    // read-only count helpers — never a writeFileSync.
+    const writeMatches = [...body.matchAll(/writeFileSync\(\s*([^,]+),/g)].map((m) => m[1]);
+    for (const w of writeMatches) {
+      expect(w).not.toMatch(/recommended-edits/);
+      expect(w).not.toMatch(/recommendation-responses/);
+    }
+  });
+
+  it("every writeFileSync target lands under stagingDir", () => {
+    const body = runRederiveBody();
+    const writes = [...body.matchAll(/writeFileSync\(\s*([^,]+),/g)].map(
+      (m) => m[1],
+    );
+    expect(writes.length).toBeGreaterThan(0);
+    for (const w of writes) {
+      expect(/stagingDir|outPath|join\(\s*stagingDir/.test(w)).toBe(true);
+    }
+  });
+
+  it("calls buildDailySnapshotsFromObservations from src/domains/daily-metric-snapshots/build-from-observations", () => {
+    const body = runRederiveBody();
+    expect(body).toMatch(/buildDailySnapshotsFromObservations/);
+    expect(body).toMatch(
+      /domains\/daily-metric-snapshots\/build-from-observations/,
+    );
+  });
+
+  it("stamps W4 provenance (provenance + regime + extraction_run_id + source_csv_hash) on every row", () => {
+    const body = runRederiveBody();
+    expect(body).toMatch(/provenance:\s*"rederived_from_historical_recovered"/);
+    expect(body).toMatch(/regime:\s*"historical_recovered"/);
+    expect(body).toMatch(/extraction_run_id:/);
+    expect(body).toMatch(/source_csv_hash:/);
+  });
+
+  it("validates source_type === 'derived' on every row + reports invalid count", () => {
+    const body = runRederiveBody();
+    expect(body).toMatch(/source_type !==\s*"derived"/);
+    expect(body).toMatch(/invalidSourceType/);
+  });
+
+  it("detects duplicate snapshot IDs + surfaces them in the report", () => {
+    const body = runRederiveBody();
+    expect(body).toMatch(/duplicateIds/);
+    expect(body).toMatch(/duplicate snapshot IDs/i);
+  });
+
+  it("derives extraction_run_id deterministically from staged source_csv_hash", () => {
+    const body = runRederiveBody();
+    expect(body).toMatch(/w4-rederive-/);
+    expect(body).toMatch(/sourceCsvHash/);
+  });
+
+  it("groups observations by (date, platform) tuple before invoking the builder", () => {
+    const body = runRederiveBody();
+    expect(body).toMatch(/byTuple\.set/);
+    expect(body).toMatch(/observed_at/);
+  });
+});
+
+describe("Stage 3 — emptyRederiveReport handles all error paths", () => {
+  it("function exists + returns the same shape as the success path", () => {
+    expect(SCRIPT_SRC).toMatch(/function emptyRederiveReport/);
+    expect(SCRIPT_SRC).toMatch(/RederiveSnapshotsReport/);
   });
 });

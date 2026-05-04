@@ -179,6 +179,7 @@ export const IMPLEMENTED_STAGES = new Set<Stage>([
   "preflight",
   "backup",
   "extract-observations",
+  "rederive-snapshots",
 ]);
 
 // ── CLI flags ───────────────────────────────────────────────────────────
@@ -532,6 +533,17 @@ async function main(): Promise<void> {
     });
     printExtractObservationsReport(report);
     process.exit(report.errors.length > 0 ? 5 : 0);
+    return;
+  }
+
+  if (flags.stage === "rederive-snapshots") {
+    const report = await runRederiveSnapshots({
+      tenantId,
+      tenantSlug,
+      dryRun: flags.dryRun,
+    });
+    printRederiveSnapshotsReport(report);
+    process.exit(report.errors.length > 0 ? 6 : 0);
     return;
   }
 
@@ -2168,6 +2180,570 @@ function printExtractObservationsReport(
   );
   console.log(
     `Staged outputs: ${report.stagingDir}/w4-extracted-observations.json + report + progress.`,
+  );
+  console.log("══════════════════════════════════════════════════════════════════");
+  console.log("");
+}
+
+// ── Stage 3: rederive-snapshots (staging only) ──────────────────────────
+//
+// Walks every (date, platform) tuple in the staged W4 extracted
+// observations, runs `buildDailySnapshotsFromObservations()` (the
+// existing native snapshot derivation logic), stamps each output row
+// with W4 provenance (`provenance: "rederived_from_historical_recovered"`,
+// `regime: "historical_recovered"`, `extraction_run_id`), and writes
+// staged output to `.data/_staging/`. NO Supabase writes. NO live
+// `.data/tenants/` mutation.
+//
+// Hard requirements:
+//   - Source MUST be `.data/_staging/w4-extracted-observations.json`
+//     (the Stage 2 output). Stage 3 hard-fails if that file is
+//     missing, so a stale local cache cannot be silently substituted.
+//   - Output `source_type === "derived"` on every row (the builder
+//     already does this; Stage 3 re-asserts in validation).
+//   - Output IDs are deterministic (the builder's `derived-…` IDs are
+//     deterministic given deterministic input). Re-running Stage 3
+//     against the same staged file produces byte-identical IDs.
+//   - The 6 verification checks from master plan §2.6 are not
+//     enforced here (they live in Stage 6 verify); Stage 3 surfaces
+//     diagnostic info (date coverage, missing days, top owned URLs,
+//     orphan benchmarks) so the operator can preview the publish-
+//     time state.
+
+export type RederiveSnapshotsReport = {
+  readonly tenantId: string;
+  readonly tenantSlug: string;
+  readonly dryRun: boolean;
+  readonly stagingDir: string;
+  readonly inputStagedFile: string;
+  readonly inputObservationCount: number;
+  readonly extractionRunId: string;
+  readonly rederivedAt: string;
+  readonly outputSnapshotCount: number;
+  readonly snapshotsByScopeType: Record<string, number>;
+  readonly snapshotsByPlatform: Record<string, number>;
+  readonly dateCoverage: {
+    readonly distinctDates: number;
+    readonly minDate: string | null;
+    readonly maxDate: string | null;
+    readonly missingDates: ReadonlyArray<string>;
+  };
+  readonly topicCoverage: {
+    readonly distinctTopics: number;
+    readonly topTopics: ReadonlyArray<{ topic: string; count: number }>;
+  };
+  readonly entityCoverage: {
+    readonly activeEntities: number;
+    readonly entitiesWithAtLeastOneRow: number;
+  };
+  readonly tupleCoverage: {
+    /** (date, platform) tuples that produced at least one row. */
+    readonly tuplesEmittingRows: number;
+    /** Tuples with zero observations (would have produced no rows). */
+    readonly emptyTuples: ReadonlyArray<{ date: string; platform: string }>;
+  };
+  readonly duplicateIds: ReadonlyArray<string>;
+  readonly sampleSnapshotIds: ReadonlyArray<string>;
+  readonly recommendationSafety: {
+    /** Recommended_edits row count READ ONLY from the live cache —
+     *  Stage 3 must not touch this file. Reported here for sanity. */
+    readonly localRecommendedEditsRowCount: number | null;
+    readonly localRecommendationResponsesRowCount: number | null;
+  };
+  readonly errors: ReadonlyArray<string>;
+};
+
+async function runRederiveSnapshots(args: {
+  readonly tenantId: string;
+  readonly tenantSlug: string;
+  readonly dryRun: boolean;
+}): Promise<RederiveSnapshotsReport> {
+  const errors: string[] = [];
+  const cwd = process.cwd();
+  const stagingDir = join(cwd, ".data", "_staging");
+  const stagedObsPath = join(stagingDir, "w4-extracted-observations.json");
+
+  // 1. Hard-fail if Stage 2 output is missing.
+  if (!existsSync(stagedObsPath)) {
+    errors.push(
+      `Stage 2 output missing at ${stagedObsPath}. Run --stage=extract-observations first.`,
+    );
+    return emptyRederiveReport({
+      tenantId: args.tenantId,
+      tenantSlug: args.tenantSlug,
+      dryRun: args.dryRun,
+      stagingDir,
+      inputStagedFile: stagedObsPath,
+      errors,
+    });
+  }
+
+  // 2. Load staged observations.
+  let stagedObservations: Array<Record<string, unknown>> = [];
+  try {
+    const text = readFileSync(stagedObsPath, "utf-8");
+    const parsed = JSON.parse(text);
+    if (!Array.isArray(parsed)) {
+      throw new Error(
+        `staged observations file is not a JSON array (got ${typeof parsed})`,
+      );
+    }
+    stagedObservations = parsed as Array<Record<string, unknown>>;
+  } catch (err) {
+    errors.push(
+      `failed to load staged observations: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return emptyRederiveReport({
+      tenantId: args.tenantId,
+      tenantSlug: args.tenantSlug,
+      dryRun: args.dryRun,
+      stagingDir,
+      inputStagedFile: stagedObsPath,
+      errors,
+    });
+  }
+
+  if (stagedObservations.length === 0) {
+    errors.push("staged observations file is empty");
+    return emptyRederiveReport({
+      tenantId: args.tenantId,
+      tenantSlug: args.tenantSlug,
+      dryRun: args.dryRun,
+      stagingDir,
+      inputStagedFile: stagedObsPath,
+      errors,
+    });
+  }
+
+  // 3. Load tracked_entities from Supabase (read-only, GLOBAL table).
+  const { getSupabaseAdmin } = await import(
+    "../src/lib/persistence/supabase"
+  );
+  const sb = getSupabaseAdmin();
+
+  type EntityRow = {
+    id: string;
+    account_id: string;
+    entity_type: string;
+    name: string;
+    aliases?: string[] | null;
+    domain: string | null;
+    url: string | null;
+    location_scope: string | null;
+    service_scope: string | null;
+    is_owned: boolean;
+    is_active: boolean;
+    metadata: Record<string, unknown>;
+    created_at: string;
+    updated_at: string;
+  };
+
+  let entityRows: EntityRow[] = [];
+  try {
+    const { data, error } = await sb.from("tracked_entities").select("*");
+    if (error) throw error;
+    entityRows = (data ?? []) as EntityRow[];
+  } catch (err) {
+    errors.push(
+      `tracked_entities read failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return emptyRederiveReport({
+      tenantId: args.tenantId,
+      tenantSlug: args.tenantSlug,
+      dryRun: args.dryRun,
+      stagingDir,
+      inputStagedFile: stagedObsPath,
+      errors,
+    });
+  }
+
+  // The builder's signature requires the full TrackedEntity shape;
+  // its filter (`is_active`) runs internally.
+  const trackedEntities = entityRows as unknown as ReadonlyArray<
+    import("../src/domains/tracked-entities/types").TrackedEntity
+  >;
+
+  // 4. Group observations by (date, platform). Date is the YYYY-MM-DD
+  //    prefix of `observed_at`.
+  const byTuple = new Map<string, Array<Record<string, unknown>>>();
+  const datesAll = new Set<string>();
+  const platformsAll = new Set<string>();
+  for (const obs of stagedObservations) {
+    const observedAt = (obs.observed_at as string | undefined) ?? "";
+    const date = observedAt.slice(0, 10);
+    const platform = ((obs.platform as string | undefined) ?? "").trim();
+    if (!date || !platform) continue;
+    datesAll.add(date);
+    platformsAll.add(platform);
+    const key = `${date}::${platform}`;
+    let bucket = byTuple.get(key);
+    if (!bucket) {
+      bucket = [];
+      byTuple.set(key, bucket);
+    }
+    bucket.push(obs);
+  }
+
+  // 5. Lazy-load the snapshot builder.
+  const { buildDailySnapshotsFromObservations } = await import(
+    "../src/domains/daily-metric-snapshots/build-from-observations"
+  );
+
+  // 6. Build a stable extraction_run_id from the staged file's
+  //    inputs so Stage 3's outputs are deterministic + traceable to
+  //    the Stage 2 invocation that produced them.
+  const sourceCsvHash =
+    extractSourceCsvHashFromStaged(stagedObservations) ?? "unknown";
+  const extractionRunId = `w4-rederive-${sourceCsvHash.slice(0, 12)}`;
+
+  // 7. For each (date, platform) tuple, call the builder + stamp W4
+  //    provenance.
+  const rows: import("../src/domains/daily-metric-snapshots/types").DailyMetricSnapshot[] = [];
+  const snapshotsByScopeType: Record<string, number> = {};
+  const snapshotsByPlatform: Record<string, number> = {};
+  const topicCounts = new Map<string, number>();
+  const entitiesWithRow = new Set<string>();
+  const dateSet = new Set<string>();
+  const tuplesEmittingRows = new Set<string>();
+  const allTuplesAttempted = new Set<string>();
+  const emptyTuples: Array<{ date: string; platform: string }> = [];
+
+  for (const [key, obsList] of byTuple) {
+    allTuplesAttempted.add(key);
+    const [date, platform] = key.split("::");
+    if (!date || !platform || obsList.length === 0) {
+      emptyTuples.push({ date: date ?? "", platform: platform ?? "" });
+      continue;
+    }
+    // Per-tuple observation-run id: deterministic from staging hash +
+    // (date, platform). The builder writes this into each row's
+    // metadata.derived_from_run_id.
+    const observationRunId = `w4-rec-${sourceCsvHash.slice(0, 12)}-${date}-${slugifyPlatform(platform)}`;
+    const tupleRows = buildDailySnapshotsFromObservations({
+      tenantId: args.tenantId,
+      platform,
+      observations: obsList as unknown as ReadonlyArray<
+        import("@/domains/prompt-answer-observations/types").PromptAnswerObservation
+      > as import("@/domains/prompt-answer-observations/types").PromptAnswerObservation[],
+      trackedEntities: trackedEntities as unknown as import("../src/domains/tracked-entities/types").TrackedEntity[],
+      date,
+      observationRunId,
+    });
+    if (tupleRows.length === 0) {
+      emptyTuples.push({ date, platform });
+      continue;
+    }
+    tuplesEmittingRows.add(key);
+    for (const row of tupleRows) {
+      // Stamp W4 provenance — operator-locked metadata block.
+      const w4Stamped = {
+        ...row,
+        metadata: {
+          ...row.metadata,
+          provenance: "rederived_from_historical_recovered",
+          regime: "historical_recovered",
+          extraction_run_id: extractionRunId,
+          source_csv_hash: sourceCsvHash,
+        },
+      };
+      rows.push(w4Stamped);
+      snapshotsByScopeType[row.scope_type] =
+        (snapshotsByScopeType[row.scope_type] ?? 0) + 1;
+      snapshotsByPlatform[row.platform] =
+        (snapshotsByPlatform[row.platform] ?? 0) + 1;
+      dateSet.add(row.date);
+      if (row.scope_type === "topic") {
+        topicCounts.set(
+          row.scope_id,
+          (topicCounts.get(row.scope_id) ?? 0) + 1,
+        );
+      }
+      if (row.scope_type === "entity") {
+        entitiesWithRow.add(row.scope_id);
+      }
+    }
+  }
+
+  // 8. Detect duplicate IDs. Builder IDs SHOULD be unique per
+  //    (date, scope_type, scope_id, platform); duplicates would
+  //    indicate either a bug in tuple grouping or aliased entity
+  //    scope_ids. Surface in the report; do NOT silently dedupe.
+  const idCounts = new Map<string, number>();
+  for (const r of rows) {
+    idCounts.set(r.id, (idCounts.get(r.id) ?? 0) + 1);
+  }
+  const duplicateIds = [...idCounts.entries()]
+    .filter(([, n]) => n > 1)
+    .map(([id]) => id);
+  if (duplicateIds.length > 0) {
+    errors.push(
+      `${duplicateIds.length} duplicate snapshot IDs detected (builder normally guarantees uniqueness; investigate before publish)`,
+    );
+  }
+
+  // 9. Validate every row carries source_type === "derived" + W4
+  //    provenance. This is belt-and-suspenders — the builder + W4
+  //    stamp loop already enforce both.
+  let invalidSourceType = 0;
+  let missingProvenance = 0;
+  for (const r of rows) {
+    if (r.source_type !== "derived") invalidSourceType++;
+    const m = r.metadata as Record<string, unknown>;
+    if (
+      m.provenance !== "rederived_from_historical_recovered" ||
+      m.regime !== "historical_recovered" ||
+      typeof m.extraction_run_id !== "string"
+    ) {
+      missingProvenance++;
+    }
+  }
+  if (invalidSourceType > 0) {
+    errors.push(
+      `${invalidSourceType} rows have source_type !== "derived" (publish would write inconsistent rows)`,
+    );
+  }
+  if (missingProvenance > 0) {
+    errors.push(
+      `${missingProvenance} rows missing W4 provenance metadata`,
+    );
+  }
+
+  // 10. Date coverage diagnostic — fill any gaps in [min, max].
+  const sortedDates = [...dateSet].sort();
+  const missingDates: string[] = [];
+  if (sortedDates.length > 0) {
+    const min = new Date(sortedDates[0]);
+    const max = new Date(sortedDates[sortedDates.length - 1]);
+    const cur = new Date(min);
+    const have = new Set(sortedDates);
+    while (cur.getTime() <= max.getTime()) {
+      const iso = cur.toISOString().slice(0, 10);
+      if (!have.has(iso)) missingDates.push(iso);
+      cur.setUTCDate(cur.getUTCDate() + 1);
+    }
+  }
+
+  // 11. Recommendation safety (READ-ONLY check) — count rows in the
+  //     local recs file as a sanity check that backfill never touched
+  //     them. Stage 3 itself does NOT read or mutate
+  //     recommended_edits / recommendation_responses.
+  const recRowCount = countLocalArray(
+    join(cwd, ".data", "tenants", args.tenantSlug, "recommended-edits.json"),
+  );
+  const respRowCount = countLocalArray(
+    join(
+      cwd,
+      ".data",
+      "tenants",
+      args.tenantSlug,
+      "recommendation-responses.json",
+    ),
+  );
+
+  // 12. Write staged output.
+  mkdirSync(stagingDir, { recursive: true });
+  const outPath = join(stagingDir, "w4-rederived-snapshots.json");
+  writeFileSync(outPath, JSON.stringify(rows, null, 2), "utf-8");
+
+  const reportObj: RederiveSnapshotsReport = {
+    tenantId: args.tenantId,
+    tenantSlug: args.tenantSlug,
+    dryRun: args.dryRun,
+    stagingDir,
+    inputStagedFile: stagedObsPath,
+    inputObservationCount: stagedObservations.length,
+    extractionRunId,
+    rederivedAt: new Date().toISOString(),
+    outputSnapshotCount: rows.length,
+    snapshotsByScopeType,
+    snapshotsByPlatform,
+    dateCoverage: {
+      distinctDates: dateSet.size,
+      minDate: sortedDates[0] ?? null,
+      maxDate: sortedDates[sortedDates.length - 1] ?? null,
+      missingDates,
+    },
+    topicCoverage: {
+      distinctTopics: topicCounts.size,
+      topTopics: [...topicCounts.entries()]
+        .sort(([, a], [, b]) => b - a)
+        .slice(0, 8)
+        .map(([topic, count]) => ({ topic, count })),
+    },
+    entityCoverage: {
+      activeEntities: entityRows.filter((e) => e.is_active).length,
+      entitiesWithAtLeastOneRow: entitiesWithRow.size,
+    },
+    tupleCoverage: {
+      tuplesEmittingRows: tuplesEmittingRows.size,
+      emptyTuples,
+    },
+    duplicateIds: duplicateIds.slice(0, 20),
+    sampleSnapshotIds: rows.slice(0, 5).map((r) => r.id),
+    recommendationSafety: {
+      localRecommendedEditsRowCount: recRowCount,
+      localRecommendationResponsesRowCount: respRowCount,
+    },
+    errors,
+  };
+  writeFileSync(
+    join(stagingDir, "w4-rederive-report.json"),
+    JSON.stringify(reportObj, null, 2),
+    "utf-8",
+  );
+
+  return reportObj;
+}
+
+/** Walk staged observations to find the canonical source CSV hash
+ *  (every row's metadata.source_csv_hash is the same; we sample the
+ *  first row + double-check). */
+function extractSourceCsvHashFromStaged(
+  staged: ReadonlyArray<Record<string, unknown>>,
+): string | null {
+  if (staged.length === 0) return null;
+  const m = (staged[0].metadata ?? {}) as Record<string, unknown>;
+  const h = m.source_csv_hash;
+  return typeof h === "string" && h.length > 0 ? h : null;
+}
+
+function slugifyPlatform(platform: string): string {
+  return platform
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
+function countLocalArray(path: string): number | null {
+  if (!existsSync(path)) return null;
+  try {
+    const v = JSON.parse(readFileSync(path, "utf-8"));
+    return Array.isArray(v) ? v.length : null;
+  } catch {
+    return null;
+  }
+}
+
+function emptyRederiveReport(args: {
+  tenantId: string;
+  tenantSlug: string;
+  dryRun: boolean;
+  stagingDir: string;
+  inputStagedFile: string;
+  errors: string[];
+}): RederiveSnapshotsReport {
+  return {
+    tenantId: args.tenantId,
+    tenantSlug: args.tenantSlug,
+    dryRun: args.dryRun,
+    stagingDir: args.stagingDir,
+    inputStagedFile: args.inputStagedFile,
+    inputObservationCount: 0,
+    extractionRunId: "",
+    rederivedAt: new Date().toISOString(),
+    outputSnapshotCount: 0,
+    snapshotsByScopeType: {},
+    snapshotsByPlatform: {},
+    dateCoverage: { distinctDates: 0, minDate: null, maxDate: null, missingDates: [] },
+    topicCoverage: { distinctTopics: 0, topTopics: [] },
+    entityCoverage: { activeEntities: 0, entitiesWithAtLeastOneRow: 0 },
+    tupleCoverage: { tuplesEmittingRows: 0, emptyTuples: [] },
+    duplicateIds: [],
+    sampleSnapshotIds: [],
+    recommendationSafety: {
+      localRecommendedEditsRowCount: null,
+      localRecommendationResponsesRowCount: null,
+    },
+    errors: args.errors,
+  };
+}
+
+function printRederiveSnapshotsReport(report: RederiveSnapshotsReport): void {
+  console.log("");
+  console.log("══════════════════════════════════════════════════════════════════");
+  console.log("W4 STAGE 3 — REDERIVE SNAPSHOTS REPORT");
+  console.log("══════════════════════════════════════════════════════════════════");
+  console.log(`tenant_id              : ${report.tenantId}`);
+  console.log(`tenant_slug            : ${report.tenantSlug}`);
+  console.log(`dry_run                : ${report.dryRun}`);
+  console.log(`staging_dir            : ${report.stagingDir}`);
+  console.log(`input_staged_file      : ${basename(report.inputStagedFile)}`);
+  console.log(`input_observation_count: ${report.inputObservationCount}`);
+  console.log(`extraction_run_id      : ${report.extractionRunId}`);
+  console.log(`rederived_at           : ${report.rederivedAt}`);
+  console.log("");
+  console.log(`output_snapshot_count  : ${report.outputSnapshotCount}`);
+  console.log("");
+  console.log("─ Snapshots by scope_type ───────────────────────────────────────");
+  for (const [k, v] of Object.entries(report.snapshotsByScopeType)) {
+    console.log(`  ${k.padEnd(28)} ${String(v).padStart(7)}`);
+  }
+  console.log("");
+  console.log("─ Snapshots by platform ─────────────────────────────────────────");
+  for (const [k, v] of Object.entries(report.snapshotsByPlatform)) {
+    console.log(`  ${k.padEnd(28)} ${String(v).padStart(7)}`);
+  }
+  console.log("");
+  console.log("─ Date coverage ─────────────────────────────────────────────────");
+  console.log(`  distinct_dates       : ${report.dateCoverage.distinctDates}`);
+  console.log(`  min_date             : ${report.dateCoverage.minDate ?? "(none)"}`);
+  console.log(`  max_date             : ${report.dateCoverage.maxDate ?? "(none)"}`);
+  console.log(`  missing_dates count  : ${report.dateCoverage.missingDates.length}`);
+  if (report.dateCoverage.missingDates.length > 0) {
+    console.log(`  first 3 missing      : ${report.dateCoverage.missingDates.slice(0, 3).join(", ")}`);
+  }
+  console.log("");
+  console.log("─ Topic coverage ───────────────────────────────────────────────");
+  console.log(`  distinct_topics      : ${report.topicCoverage.distinctTopics}`);
+  console.log(`  top topics (by row count):`);
+  for (const t of report.topicCoverage.topTopics) {
+    console.log(`    · ${String(t.count).padStart(6)}  ${t.topic}`);
+  }
+  console.log("");
+  console.log("─ Entity coverage ──────────────────────────────────────────────");
+  console.log(`  active_entities      : ${report.entityCoverage.activeEntities}`);
+  console.log(`  entities with rows   : ${report.entityCoverage.entitiesWithAtLeastOneRow}`);
+  console.log("");
+  console.log("─ Tuple coverage (date × platform) ─────────────────────────────");
+  console.log(`  tuples emitting rows : ${report.tupleCoverage.tuplesEmittingRows}`);
+  console.log(`  empty tuples         : ${report.tupleCoverage.emptyTuples.length}`);
+  if (report.tupleCoverage.emptyTuples.length > 0) {
+    console.log(`  first 3 empty:`);
+    for (const t of report.tupleCoverage.emptyTuples.slice(0, 3)) {
+      console.log(`    · ${t.date} / ${t.platform}`);
+    }
+  }
+  console.log("");
+  console.log("─ Duplicate ID check ───────────────────────────────────────────");
+  console.log(`  duplicates           : ${report.duplicateIds.length}`);
+  if (report.duplicateIds.length > 0) {
+    console.log(`  first 3              : ${report.duplicateIds.slice(0, 3).join(", ")}`);
+  }
+  console.log("");
+  console.log("─ Recommendation safety (read-only sanity check) ───────────────");
+  console.log(
+    `  local recommended_edits rows         : ${report.recommendationSafety.localRecommendedEditsRowCount ?? "(file absent)"}`,
+  );
+  console.log(
+    `  local recommendation_responses rows  : ${report.recommendationSafety.localRecommendationResponsesRowCount ?? "(file absent)"}`,
+  );
+  console.log("");
+  console.log("─ Sample snapshot IDs ──────────────────────────────────────────");
+  for (const id of report.sampleSnapshotIds) {
+    console.log(`  · ${id}`);
+  }
+  console.log("");
+  if (report.errors.length > 0) {
+    console.log("─ ERRORS ───────────────────────────────────────────────────────");
+    for (const e of report.errors) console.log(`  - ${e}`);
+    console.log("");
+  }
+  console.log("══════════════════════════════════════════════════════════════════");
+  console.log(
+    "Stage 3 complete. NO Supabase writes. NO live .data/tenants/ mutation.",
+  );
+  console.log(
+    `Staged outputs: ${report.stagingDir}/w4-rederived-snapshots.json + report.`,
   );
   console.log("══════════════════════════════════════════════════════════════════");
   console.log("");

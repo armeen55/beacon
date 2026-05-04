@@ -7,6 +7,97 @@
 
 ---
 
+## 2026-05-04 — W4 Stage 3: rederive-snapshots dry-run
+
+Operator approved Stage 3 design + dry-run after Stage 2 acceptance. Stage 3 reads the staged Stage 2 observations, walks every `(date, platform)` tuple, runs the canonical `buildDailySnapshotsFromObservations()`, stamps W4 provenance metadata on every output row, and writes the staged result to `.data/_staging/`. NO Supabase writes. NO live `.data/tenants/` mutation. Recommendation queue untouched.
+
+### Files
+
+**`scripts/customer-one-backfill.ts`** (modified)
+- `rederive-snapshots` added to `IMPLEMENTED_STAGES` (now contains `["preflight", "backup", "extract-observations", "rederive-snapshots"]`).
+- New `runRederiveSnapshots(args)` orchestration:
+  - Hard-fails if `.data/_staging/w4-extracted-observations.json` is missing — operator-locked: "Do not use stale local tenant observation cache as source."
+  - Loads the staged observations + reads `tracked_entities` from Supabase (read-only).
+  - Groups observations by `(date, platform)` tuple.
+  - Calls `buildDailySnapshotsFromObservations()` per tuple — reuses the canonical native-derivation builder, no parallel implementation.
+  - Stamps `metadata.provenance: "rederived_from_historical_recovered"` + `metadata.regime: "historical_recovered"` + `metadata.extraction_run_id: "w4-rederive-<csvHashPrefix>"` + `metadata.source_csv_hash` on every row.
+  - In-memory validation: `source_type === "derived"`, full provenance metadata, duplicate ID detection, date gap detection.
+  - Read-only safety probe: counts local `recommended-edits.json` + `recommendation-responses.json` rows so the operator can see at-a-glance that backfill never touched them. Source-scan invariant proves no `writeFileSync` targets recs files.
+  - Writes `.data/_staging/w4-rederived-snapshots.json` + `.data/_staging/w4-rederive-report.json`.
+- New helpers: `extractSourceCsvHashFromStaged`, `slugifyPlatform`, `countLocalArray`, `emptyRederiveReport`, `printRederiveSnapshotsReport`.
+
+**`tests/scripts/customer-one-backfill.test.ts`** (extended 62 → 74)
+- Pin `IMPLEMENTED_STAGES` now contains `["backup", "extract-observations", "preflight", "rederive-snapshots"]`.
+- `validateStage("rederive-snapshots").ok === true`; reserved set narrowed to copy-orphan-benchmarks / relabel-changelog / verify / publish / rollback.
+- New W4.3 source-scan invariants on `runRederiveSnapshots`:
+  - Zero `.insert/.update/.delete/.upsert` calls (Supabase read-only).
+  - Hard-fails when Stage 2 staging file is missing (`expect /Stage 2 output missing/` + `expect /!existsSync\(stagedObsPath\)/`).
+  - Does NOT read from `.data/tenants/<slug>/prompt-answer-observations.json` (operator-locked).
+  - Does NOT WRITE to `recommended-edits` or `recommendation-responses`.
+  - Every `writeFileSync` target lands under `stagingDir`.
+  - Calls `buildDailySnapshotsFromObservations` from the canonical builder.
+  - Stamps W4 provenance fields on every row.
+  - Validates `source_type === "derived"`.
+  - Detects duplicate snapshot IDs.
+  - Derives `extraction_run_id` deterministically from staged `source_csv_hash`.
+  - Groups observations by `(date, platform)` tuple before invoking the builder.
+
+### Stage 3 dry-run result (2026-05-04 09:47 UTC)
+
+| Counter | Value | Notes |
+|---|---:|---|
+| input_observation_count | 14,096 | matches Stage 2 |
+| output_snapshot_count | 7,191 | new staged rows |
+| snapshots by scope_type | entity 5,328 · topic 1,719 · platform 144 | math: 144 platform = 48 dates × 3 platforms ✓ |
+| snapshots by platform | Perplexity 2,400 · ChatGPT 2,400 · AIO 2,391 | proportional |
+| distinct_dates | 48 (Mar 5 → Apr 21) | continuous |
+| missing_dates count | 0 | zero gaps |
+| distinct_topics | 12 | full topic coverage |
+| active_entities | 37 / 37 with rows | all entities derived |
+| tuples_emitting_rows | 144 / 144 | every (date, platform) tuple emitted rows |
+| empty_tuples | 0 | no orphans this stage |
+| duplicate_ids | 0 | builder uniqueness preserved |
+| rows with `source_type === "derived"` | 7,191 / 7,191 | ✓ |
+| rows with W4 provenance | 7,191 / 7,191 | ✓ |
+| local recommended_edits row count (read-only check) | 20 (untouched) | recs queue safe |
+| local recommendation_responses row count (read-only check) | 7 (untouched) | recs queue safe |
+| re-run determinism (run1 == run2 IDs) | 0 mismatches | ✓ idempotent |
+
+### Sample staged snapshot
+
+Ritz brand, 2026-04-21, Google AI Overviews:
+- `id: derived-2026-04-21-ritzbuilders-google-ai-overviews`
+- `scope_type: entity` · `scope_id: ritzbuilders`
+- `source_type: derived` · `visibility_score: 79` · `mention_count: 79` · `citation_count: 82`
+- `metadata.derived_from_run_id: w4-rec-be9258c6f2aa-2026-04-21-google-ai-overviews`
+- `metadata.entity_id: own-ritzbuilders-com` · `metadata.is_owned: true`
+- `metadata.provenance: rederived_from_historical_recovered`
+- `metadata.regime: historical_recovered`
+- `metadata.extraction_run_id: w4-rederive-be9258c6f2aa`
+- `metadata.source_csv_hash: be9258c6f2aa80e729d10039d8bb89b1385fe0095216513e4abf639c97097e19`
+
+### Verification
+
+- `npx tsc --noEmit` clean.
+- `tests/scripts/customer-one-backfill.test.ts` 74/74 pass.
+- `npm run test` 3945/3951 (6 pre-existing baseline failures all OUTSIDE this surface; net change vs W4 Stage 2: +12 passes, ±0 failures).
+- `BEACON_TENANT_ID=tenant-ritz-founder BEACON_TENANT_SLUG=ritz-builders npm run build` clean.
+- Stage 3 dry-run completed in seconds.
+- Re-run determinism: 0 ID mismatches across 7,191 rows.
+
+### Notable design decisions
+
+1. **Hard-fail when Stage 2 output is missing.** Per operator-locked rule "Do not use stale local tenant observation cache as source." If the staged `w4-extracted-observations.json` doesn't exist at the canonical path, Stage 3 exits non-zero with a clear "Run --stage=extract-observations first" message. No silent substitution.
+2. **Reuses canonical `buildDailySnapshotsFromObservations` builder.** Operator scope: "Use existing native snapshot derivation logic where possible." Stage 3 imports the live builder directly and only adds W4 provenance metadata on top. No cosmetic-retag, no parallel implementation.
+3. **Recommendation queue is read-only sanity-checked.** The report includes the local recs row counts (20 / 7) so the operator can see at-a-glance that backfill never touched them. The body source-scan invariant proves no `writeFileSync` targets recs files.
+4. **Deterministic IDs end-to-end.** Stage 3's snapshot IDs come from the builder's `derived-{date}-{scope-id-slug}-{platform-slug}` convention. Re-running Stages 2+3 produces byte-identical output.
+
+### Out of scope (operator-locked)
+
+No Supabase writes · No publish · No copy-orphan-benchmarks · No relabel-changelog · No rollback execution · No recommendation queue mutation · No Profound archive/delete · No paid generation · No Apply-All-HIGH · `runRederiveSnapshots` does NOT read the stale `.data/tenants/<slug>/prompt-answer-observations.json` cache.
+
+---
+
 ## 2026-05-04 (late evening) — W4 Stage 2: extract-observations dry-run
 
 Operator approved Stage 2 design + dry-run after Stage 0+1 acceptance. Stage 2 streams the 14,096-row Profound CSV, runs every Schema v2/v2.1 extractor against each row, stamps `historical_recovered` provenance, and writes the staged result to `.data/_staging/`. NO Supabase writes. NO live `.data/tenants/` mutation. Re-run determinism verified.
