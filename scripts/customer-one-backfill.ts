@@ -195,6 +195,14 @@ export type CliFlags = {
   dryRun: boolean;
   /** Allow overwriting an existing same-day backup directory. */
   forceOverwrite: boolean;
+  /**
+   * W4 Stage 6b (2026-05-04, operator scope): publish-scope verb for
+   * the verify stage. "full" (default) treats the changelog metadata
+   * column missing as a publish blocker; "core" treats it as a
+   * deferred-stage-5 warning so the core observations + snapshots
+   * publish path can proceed without waiting for a schema migration.
+   */
+  publishScope: "full" | "core";
   help: boolean;
 };
 
@@ -203,6 +211,7 @@ export function parseFlags(argv: ReadonlyArray<string>): CliFlags {
     stage: null,
     dryRun: true,
     forceOverwrite: false,
+    publishScope: "full",
     help: false,
   };
   for (const arg of argv) {
@@ -213,6 +222,11 @@ export function parseFlags(argv: ReadonlyArray<string>): CliFlags {
     else if (arg.startsWith("--stage=")) {
       const v = arg.slice("--stage=".length).trim();
       flags.stage = v as Stage;
+    } else if (arg.startsWith("--publish-scope=")) {
+      const v = arg.slice("--publish-scope=".length).trim();
+      if (v === "full" || v === "core") flags.publishScope = v;
+      // Unknown values silently fall through to the default `full`.
+      // The runVerify path also re-asserts the value.
     }
   }
   return flags;
@@ -577,11 +591,18 @@ async function main(): Promise<void> {
       tenantId,
       tenantSlug,
       dryRun: flags.dryRun,
+      publishScope: flags.publishScope,
     });
     printVerifyReport(report);
     // Exit non-zero when not safe to publish so CI / operator
-    // tooling can gate downstream actions.
-    process.exit(report.safeToPublish ? 0 : 9);
+    // tooling can gate downstream actions. In core mode the gate
+    // is `safeToPublishCore` (relabel can be deferred); in full
+    // mode the gate is `safeToPublish` (every check must pass).
+    const gate =
+      flags.publishScope === "core"
+        ? report.safeToPublishCore
+        : report.safeToPublish;
+    process.exit(gate ? 0 : 9);
     return;
   }
 
@@ -3897,6 +3918,17 @@ function printRelabelChangelogReport(report: RelabelChangelogReport): void {
 
 export type CheckStatus = "pass" | "warn" | "fail";
 
+/**
+ * W4 Stage 6b — every check is tagged either "core" (must pass for
+ * the core observations + snapshots publish path) or "stage_5" (only
+ * blocks Stage 5 changelog relabel publish). In core mode, the
+ * aggregator ignores `stage_5` failures when computing
+ * `safeToPublishCore`; the operator can defer the relabel publish
+ * indefinitely without blocking the historical-recovered + rederived-
+ * snapshots publish.
+ */
+export type CheckScope = "core" | "stage_5";
+
 export type CheckResult = {
   readonly name: string;
   readonly status: CheckStatus;
@@ -3904,6 +3936,8 @@ export type CheckResult = {
   readonly details: Record<string, unknown>;
   readonly blockers: ReadonlyArray<string>;
   readonly warnings: ReadonlyArray<string>;
+  /** "core" by default; "stage_5" for relabel-related checks. */
+  readonly scope: CheckScope;
 };
 
 export type VerifyReport = {
@@ -3912,8 +3946,18 @@ export type VerifyReport = {
   readonly dryRun: boolean;
   readonly stagingDir: string;
   readonly verifiedAt: string;
+  readonly publishScope: "full" | "core";
   readonly checks: ReadonlyArray<CheckResult>;
+  /** All checks pass (full W4 including changelog relabel). */
   readonly safeToPublish: boolean;
+  /** Core checks pass — Stage 5 relabel-related fails are tolerated
+   *  as "deferred". Stage 7 core publish reads this verdict. */
+  readonly safeToPublishCore: boolean;
+  /** True iff Stage 5 relabel publish is deferred (any stage_5
+   *  check failed). */
+  readonly deferredStage5Relabel: boolean;
+  /** Operator-facing reason string when Stage 5 publish is deferred. */
+  readonly deferredReason: string | null;
   readonly blockers: ReadonlyArray<string>;
   readonly warnings: ReadonlyArray<string>;
   readonly errors: ReadonlyArray<string>;
@@ -3966,7 +4010,11 @@ async function runVerify(args: {
   readonly tenantId: string;
   readonly tenantSlug: string;
   readonly dryRun: boolean;
+  /** "full" gates publish on every check; "core" tolerates stage_5
+   *  failures (relabel deferred). Default "full". */
+  readonly publishScope?: "full" | "core";
 }): Promise<VerifyReport> {
+  const publishScope = args.publishScope ?? "full";
   const errors: string[] = [];
   const cwd = process.cwd();
   const stagingDir = join(cwd, ".data", "_staging");
@@ -3990,7 +4038,7 @@ async function runVerify(args: {
   const checks: CheckResult[] = [];
 
   // Run each check independently so a failure on one doesn't abort
-  // the others. The aggregator cares about pass/fail status only.
+  // the others. The aggregator cares about pass/fail status + scope.
   checks.push(await checkArtifactsPresent(stagingDir, staged));
   checks.push(checkObservations(staged));
   checks.push(checkSnapshots(staged));
@@ -3999,9 +4047,18 @@ async function runVerify(args: {
   checks.push(await checkRecommendationByteIdentity(args.tenantId, staged));
   checks.push(checkUiSurfaceSimulation(staged));
   checks.push(checkCausalGuardrail(staged));
-  checks.push(await checkPublishReadiness(args.tenantId));
+  // W4 Stage 6b — split the publish-readiness check into core
+  // (observations + snapshots schema) and stage_5 (changelog
+  // metadata jsonb column). Core path can publish without the
+  // metadata column; stage_5 blocker stays surfaced as a deferred
+  // warning when running in --publish-scope=core mode.
+  checks.push(await checkPublishReadinessCore(args.tenantId));
+  checks.push(await checkPublishReadinessStage5(args.tenantId));
 
-  // Aggregate.
+  // Aggregate. The two verdicts:
+  //   safeToPublish      — every check passes (gate for full W4)
+  //   safeToPublishCore  — every CORE-scope check passes (gate for
+  //                        the deferred-relabel publish path)
   const allBlockers: string[] = [];
   const allWarnings: string[] = [];
   for (const c of checks) {
@@ -4009,6 +4066,19 @@ async function runVerify(args: {
     for (const w of c.warnings) allWarnings.push(`[${c.name}] ${w}`);
   }
   const safeToPublish = !checks.some((c) => c.status === "fail");
+  const safeToPublishCore = !checks.some(
+    (c) => c.status === "fail" && c.scope === "core",
+  );
+  const stage5Failures = checks.filter(
+    (c) => c.status === "fail" && c.scope === "stage_5",
+  );
+  const deferredStage5Relabel = stage5Failures.length > 0;
+  const deferredReason =
+    deferredStage5Relabel
+      ? stage5Failures
+          .flatMap((c) => c.blockers.map((b) => `[${c.name}] ${b}`))
+          .join("; ")
+      : null;
 
   const report: VerifyReport = {
     tenantId: args.tenantId,
@@ -4016,18 +4086,28 @@ async function runVerify(args: {
     dryRun: args.dryRun,
     stagingDir,
     verifiedAt: new Date().toISOString(),
+    publishScope,
     checks,
     safeToPublish,
+    safeToPublishCore,
+    deferredStage5Relabel,
+    deferredReason,
     blockers: allBlockers,
     warnings: allWarnings,
     errors,
   };
 
   // Write the report (the only side effect). NEVER touches Supabase
-  // or live `.data/tenants/`.
+  // or live `.data/tenants/`. The filename depends on scope so
+  // the operator's review surface is unambiguous about which gate
+  // produced the verdict.
   mkdirSync(stagingDir, { recursive: true });
+  const reportFilename =
+    publishScope === "core"
+      ? "w4-verify-core-report.json"
+      : "w4-verify-report.json";
   writeFileSync(
-    join(stagingDir, "w4-verify-report.json"),
+    join(stagingDir, reportFilename),
     JSON.stringify(report, null, 2),
     "utf-8",
   );
@@ -4107,6 +4187,7 @@ async function checkArtifactsPresent(
     details: { loaded },
     blockers,
     warnings: [],
+    scope: "core",
   };
 }
 
@@ -4243,6 +4324,7 @@ function checkObservations(
     },
     blockers,
     warnings,
+    scope: "core",
   };
 }
 
@@ -4375,6 +4457,7 @@ function checkSnapshots(
     },
     blockers,
     warnings,
+    scope: "core",
   };
 }
 
@@ -4458,6 +4541,7 @@ function checkOrphanBenchmarks(staged: {
     },
     blockers,
     warnings,
+    scope: "core",
   };
 }
 
@@ -4476,6 +4560,8 @@ function checkRelabelChangelog(staged: {
       "Stage 5 staged file or report missing.",
       [],
       ["staged relabel proposals or report not loaded"],
+      // W4 Stage 6b — stage_5-scoped so core mode can defer.
+      "stage_5",
     );
   }
   const proposals = staged.relabel;
@@ -4550,6 +4636,10 @@ function checkRelabelChangelog(staged: {
     },
     blockers,
     warnings,
+    // W4 Stage 6b — relabel-related checks are stage_5-scoped so
+    // core mode can defer Stage 5 publish without blocking
+    // observations + snapshots publish.
+    scope: "stage_5",
   };
 }
 
@@ -4580,6 +4670,10 @@ async function checkRecommendationByteIdentity(
       "Stage 1 backup directory not found — cannot prove byte-identity.",
       [],
       ["Stage 1 backup missing"],
+      // W4 Stage 6b — recs byte-identity is a CORE-publish gate; recs
+      // queue must be byte-identical to backup whether or not Stage 5
+      // relabel publishes.
+      "core",
     );
   }
 
@@ -4603,6 +4697,7 @@ async function checkRecommendationByteIdentity(
       [
         `backup recs read failed: ${err instanceof Error ? err.message : String(err)}`,
       ],
+      "core",
     );
   }
 
@@ -4634,6 +4729,7 @@ async function checkRecommendationByteIdentity(
       [
         `Supabase recs read failed: ${err instanceof Error ? err.message : String(err)}`,
       ],
+      "core",
     );
   }
 
@@ -4703,6 +4799,10 @@ async function checkRecommendationByteIdentity(
     },
     blockers,
     warnings,
+    // W4 Stage 6b — recs byte-identity gates the core publish: the
+    // recommendation queue must remain byte-for-byte unchanged
+    // regardless of Stage 5 relabel state.
+    scope: "core",
   };
 }
 
@@ -4721,6 +4821,8 @@ function checkUiSurfaceSimulation(staged: {
       "Required staged files missing.",
       [],
       ["staged rederive or relabel not loaded"],
+      // W4 Stage 6b — UI surface health is part of CORE publish.
+      "core",
     );
   }
   // 1. /today visibility chart continuous Mar 5 → Apr 21 (the staged
@@ -4788,6 +4890,12 @@ function checkUiSurfaceSimulation(staged: {
     warnings: [
       "Browser-render smoke test deferred to post-publish per Stage 6 spec.",
     ],
+    // W4 Stage 6b — UI-surface signals (chart continuity + page citation
+    // history) are core-publish gates. The "filterable by
+    // pre_launch_history" sub-check operates on STAGED relabel proposals
+    // (not the live changelog metadata column), so it remains valid
+    // regardless of Stage 5 publish state.
+    scope: "core",
   };
 }
 
@@ -4806,6 +4914,8 @@ function checkCausalGuardrail(staged: {
       "Required staged files missing.",
       [],
       ["staged extracted/rederive/orphans not loaded"],
+      // W4 Stage 6b — causal/verdict math integrity gates the core publish.
+      "core",
     );
   }
   // historical_recovered rows are USABLE for product intelligence;
@@ -4857,27 +4967,49 @@ function checkCausalGuardrail(staged: {
     },
     blockers,
     warnings,
+    // W4 Stage 6b — guardrail integrity protects the verdict engine and
+    // is part of the CORE publish gate.
+    scope: "core",
   };
 }
 
-// ── Check 9: Supabase publish readiness ───────────────────────────────
+// ── Check 9 (W4 Stage 6b): Supabase publish readiness ────────────────
+//
+// Stage 6b splits the original publish_readiness check into two
+// scope-tagged checks so core publish (Stages 2/3/4) can proceed even
+// while Stage 5 changelog relabel is deferred.
+//
+// Both checks share a small probe helper (`probePublishTables`) which
+// reads one sample row from each target table to harvest column names.
+// `checkPublishReadinessCore` fails iff observations or snapshots are
+// missing or lack required columns. `checkPublishReadinessStage5`
+// fails iff `changelog_entries.metadata` jsonb column is missing —
+// which is the operator-known schema gap (option D defer).
+//
+// Outcome:
+//   • Core mode (`--publish-scope=core`)  →  passes when only the
+//     metadata column is missing. Stage 5 staged file is preserved
+//     and reported as `deferred`.
+//   • Full mode (default `--publish-scope=full`) →  still fails on
+//     missing metadata column, so the original Stage 6 publish gate
+//     is unchanged.
 
-async function checkPublishReadiness(tenantId: string): Promise<CheckResult> {
+type PublishProbe = Readonly<{
+  observed: Record<string, { exists: boolean; columns: string[] }>;
+  blockers: string[];
+}>;
+
+async function probePublishTables(
+  tenantId: string,
+  tables: ReadonlyArray<string>,
+): Promise<PublishProbe> {
+  const observed: Record<string, { exists: boolean; columns: string[] }> = {};
   const blockers: string[] = [];
-  const warnings: string[] = [];
-  // Verify tables exist by HEAD count. Verify required columns exist
-  // by inspecting one sample row's keys.
   const { getSupabaseAdmin } = await import(
     "../src/lib/persistence/supabase"
   );
   const sb = getSupabaseAdmin();
-
-  const observed: Record<string, { exists: boolean; columns: string[] }> = {};
-  for (const table of [
-    "prompt_answer_observations",
-    "daily_metric_snapshots",
-    "changelog_entries",
-  ] as const) {
+  for (const table of tables) {
     try {
       const { data, error } = await sb
         .from(table)
@@ -4897,8 +5029,22 @@ async function checkPublishReadiness(tenantId: string): Promise<CheckResult> {
       );
     }
   }
+  return { observed, blockers };
+}
 
-  // Required columns per table.
+async function checkPublishReadinessCore(
+  tenantId: string,
+): Promise<CheckResult> {
+  const blockers: string[] = [];
+  const warnings: string[] = [];
+  // Core targets are the two tables Stages 2/3/4 publish into. Stage
+  // 5 changelog relabel is intentionally not probed here.
+  const { observed, blockers: probeBlockers } = await probePublishTables(
+    tenantId,
+    ["prompt_answer_observations", "daily_metric_snapshots"],
+  );
+  blockers.push(...probeBlockers);
+
   const required: Record<string, ReadonlyArray<string>> = {
     prompt_answer_observations: ["id", "tenant_id", "observed_at", "platform"],
     daily_metric_snapshots: [
@@ -4909,12 +5055,6 @@ async function checkPublishReadiness(tenantId: string): Promise<CheckResult> {
       "scope_id",
       "platform",
       "source_type",
-    ],
-    changelog_entries: [
-      "id",
-      "tenant_id",
-      "source_system",
-      "import_batch_id",
     ],
   };
   for (const [t, cols] of Object.entries(required)) {
@@ -4927,11 +5067,65 @@ async function checkPublishReadiness(tenantId: string): Promise<CheckResult> {
     }
   }
 
-  // CRITICAL OPERATOR-LOCKED CHECK: changelog_entries must carry a
-  // `metadata` jsonb column for Stage 7 to land the W4 relabel
-  // safely. Stage 5 discovered the column is missing today — this
-  // is a real publish blocker.
-  const changelogCols = observed.changelog_entries?.columns ?? [];
+  return {
+    name: "publish_readiness_core",
+    status: blockers.length === 0 ? (warnings.length === 0 ? "pass" : "warn") : "fail",
+    summary:
+      blockers.length === 0
+        ? "Core publish targets ready: prompt_answer_observations + daily_metric_snapshots schemas verified."
+        : "Core publish targets NOT ready (see blockers).",
+    details: {
+      tablesObserved: Object.fromEntries(
+        Object.entries(observed).map(([t, v]) => [
+          t,
+          { exists: v.exists, columnCount: v.columns.length },
+        ]),
+      ),
+      conflictTargets: {
+        prompt_answer_observations: "id (UNIQUE)",
+        daily_metric_snapshots: "id (UNIQUE)",
+      },
+    },
+    blockers,
+    warnings,
+    // W4 Stage 6b — core publish gate.
+    scope: "core",
+  };
+}
+
+async function checkPublishReadinessStage5(
+  tenantId: string,
+): Promise<CheckResult> {
+  const blockers: string[] = [];
+  const warnings: string[] = [];
+  // Stage 5's only target is changelog_entries. Probe the table and
+  // check for the operator-known schema gap.
+  const { observed, blockers: probeBlockers } = await probePublishTables(
+    tenantId,
+    ["changelog_entries"],
+  );
+  blockers.push(...probeBlockers);
+
+  const required: ReadonlyArray<string> = [
+    "id",
+    "tenant_id",
+    "source_system",
+    "import_batch_id",
+  ];
+  const obs = observed.changelog_entries;
+  if (obs?.exists) {
+    for (const c of required) {
+      if (!obs.columns.includes(c)) {
+        blockers.push(`changelog_entries missing required column: ${c}`);
+      }
+    }
+  }
+
+  // Operator-locked: `metadata` jsonb column must exist for Stage 5
+  // to land safely. Today (2026-05-04) it is known to be missing, so
+  // this check is expected to fail and the Stage 6b core path defers
+  // it cleanly.
+  const changelogCols = obs?.columns ?? [];
   const hasMetadata = changelogCols.includes("metadata");
   if (!hasMetadata) {
     blockers.push(
@@ -4940,11 +5134,11 @@ async function checkPublishReadiness(tenantId: string): Promise<CheckResult> {
   }
 
   return {
-    name: "publish_readiness",
+    name: "publish_readiness_stage_5",
     status: blockers.length === 0 ? (warnings.length === 0 ? "pass" : "warn") : "fail",
     summary: hasMetadata
-      ? "All target tables exist + required columns present + changelog metadata column ready."
-      : "Target tables exist but changelog_entries.metadata column missing (BLOCKER).",
+      ? "Stage 5 publish target ready: changelog_entries schema + metadata column verified."
+      : "Stage 5 publish target NOT ready: changelog_entries.metadata column missing (deferred).",
     details: {
       tablesObserved: Object.fromEntries(
         Object.entries(observed).map(([t, v]) => [
@@ -4954,13 +5148,13 @@ async function checkPublishReadiness(tenantId: string): Promise<CheckResult> {
       ),
       changelogHasMetadata: hasMetadata,
       conflictTargets: {
-        prompt_answer_observations: "id (UNIQUE)",
-        daily_metric_snapshots: "id (UNIQUE)",
         changelog_entries: "id (UNIQUE)",
       },
     },
     blockers,
     warnings,
+    // W4 Stage 6b — stage_5-scoped so core publish path can defer.
+    scope: "stage_5",
   };
 }
 
@@ -4972,6 +5166,7 @@ function failCheck(
   summary: string,
   warnings: string[],
   blockers: string[],
+  scope: CheckScope = "core",
 ): CheckResult {
   return {
     name,
@@ -4980,6 +5175,7 @@ function failCheck(
     details: {},
     blockers,
     warnings,
+    scope,
   };
 }
 
@@ -5004,10 +5200,24 @@ function canonicalJson(v: unknown): string {
 }
 
 function printVerifyReport(report: VerifyReport): void {
+  // W4 Stage 6b — the report header reflects the active publish scope.
+  // In core mode the gate is `safeToPublishCore` (Stage 5 relabel can
+  // be deferred); in full mode the gate is `safeToPublish` (every
+  // check must pass). Both verdicts are always reported so the
+  // operator can read either gate without re-running the script.
+  const scopeLabel = report.publishScope === "core" ? "CORE" : "FULL";
+  const headerGate =
+    report.publishScope === "core"
+      ? report.safeToPublishCore
+      : report.safeToPublish;
+  const reportFilename =
+    report.publishScope === "core"
+      ? "w4-verify-core-report.json"
+      : "w4-verify-report.json";
   console.log("");
   console.log("══════════════════════════════════════════════════════════════════");
   console.log(
-    `W4 STAGE 6 — VERIFICATION REPORT  ${report.safeToPublish ? "✓ SAFE_TO_PUBLISH" : "✗ NOT SAFE TO PUBLISH"}`,
+    `W4 STAGE 6 — VERIFICATION REPORT  [scope=${scopeLabel}]  ${headerGate ? "✓ SAFE_TO_PUBLISH" : "✗ NOT SAFE TO PUBLISH"}`,
   );
   console.log("══════════════════════════════════════════════════════════════════");
   console.log(`tenant_id     : ${report.tenantId}`);
@@ -5015,13 +5225,17 @@ function printVerifyReport(report: VerifyReport): void {
   console.log(`dry_run       : ${report.dryRun}`);
   console.log(`staging_dir   : ${report.stagingDir}`);
   console.log(`verified_at   : ${report.verifiedAt}`);
+  console.log(`publish_scope : ${report.publishScope}`);
   console.log("");
   console.log("─ Per-check results ─────────────────────────────────────────────");
   for (const c of report.checks) {
     const tag =
       c.status === "pass" ? "✓ PASS" :
       c.status === "warn" ? "⚠ WARN" : "✗ FAIL";
-    console.log(`  ${tag.padEnd(6)} ${c.name.padEnd(28)} ${c.summary}`);
+    const scopeTag = c.scope === "stage_5" ? " [stage_5]" : "";
+    console.log(
+      `  ${tag.padEnd(6)} ${c.name.padEnd(28)}${scopeTag} ${c.summary}`,
+    );
     for (const w of c.warnings) console.log(`         · WARN: ${w}`);
     for (const b of c.blockers) console.log(`         · FAIL: ${b}`);
   }
@@ -5036,16 +5250,35 @@ function printVerifyReport(report: VerifyReport): void {
     for (const w of report.warnings) console.log(`  · ${w}`);
     console.log("");
   }
+  // Both verdicts always shown.
   console.log(
-    `safe_to_publish : ${report.safeToPublish ? "true (all checks pass)" : "false (see blockers)"}`,
+    `safe_to_publish       : ${report.safeToPublish ? "true (all checks pass)" : "false (see blockers)"}`,
   );
+  console.log(
+    `safe_to_publish_core  : ${report.safeToPublishCore ? "true (core checks pass — Stage 5 may be deferred)" : "false (core checks have blockers)"}`,
+  );
+  if (report.deferredStage5Relabel) {
+    console.log(
+      `deferred_stage_5_relabel : true`,
+    );
+    console.log(
+      `deferred_reason          : ${report.deferredReason ?? "(unspecified)"}`,
+    );
+  } else {
+    console.log("deferred_stage_5_relabel : false");
+  }
   console.log("══════════════════════════════════════════════════════════════════");
   console.log(
     "Stage 6 complete. NO Supabase writes. NO live .data/tenants/ mutation.",
   );
   console.log(
-    `Staged outputs: ${report.stagingDir}/w4-verify-report.json.`,
+    `Staged outputs: ${report.stagingDir}/${reportFilename}.`,
   );
+  if (report.publishScope === "core" && report.deferredStage5Relabel) {
+    console.log(
+      "Stage 5 staged proposals preserved at .data/_staging/w4-relabel-changelog.json (deferred — not deleted).",
+    );
+  }
   console.log("══════════════════════════════════════════════════════════════════");
   console.log("");
 }

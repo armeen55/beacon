@@ -7,6 +7,91 @@
 
 ---
 
+## 2026-05-04 — W4 Stage 6b: scope-aware verify (--publish-scope=core|full → safe_to_publish_core: true, safe_to_publish: false)
+
+Operator chose option D (defer Stage 5 publish entirely) and approved Stage 6b: split the publish-readiness check into core (observations + snapshots) and stage_5 (changelog metadata jsonb column), tag every check with `scope: "core" | "stage_5"`, and gate publish on the active `--publish-scope` mode. Core mode lets Stages 2/3/4 (observations + snapshots + orphan-benchmarks NO-OP) publish without waiting for the changelog metadata column. Stage 5 staged proposals stay preserved on disk; the metadata-column failure is reported as `deferredStage5Relabel: true` rather than blocking core publish. Full mode (default) preserves Stage 6 behaviour exactly — back-compat verified.
+
+### Files
+- `scripts/customer-one-backfill.ts` (~5,200 lines after Stage 6b)
+  - **CLI:** new `--publish-scope=core|full` flag (default `full`); typed `CliFlags.publishScope: "full" | "core"`; `parseFlags` recognises `core` / `full` and falls back to default on anything else.
+  - **Types:** new `CheckScope = "core" | "stage_5"`; `CheckResult` now carries `readonly scope: CheckScope`. `VerifyReport` extended with `publishScope` / `safeToPublishCore` / `deferredStage5Relabel` / `deferredReason`.
+  - **Helper:** `failCheck(name, summary, warnings, blockers, scope = "core")` — backwards-compatible signature; existing call sites that omit scope default to core.
+  - **Probe:** new `probePublishTables(tenantId, tables[])` shared by both publish-readiness checks (one Supabase read per table, harvest column names).
+  - **Split:** `checkPublishReadinessCore(tenantId)` (scope: core) verifies `prompt_answer_observations` + `daily_metric_snapshots` exist and carry their required columns. `checkPublishReadinessStage5(tenantId)` (scope: stage_5) verifies `changelog_entries` schema + the `metadata` jsonb column existence — this is where the operator-known schema gap surfaces.
+  - **Per-check tags:** every check now returns a scope. core: artifacts_present, observations, snapshots, orphan_benchmarks, recs_byte_identity, ui_surface, causal_guardrail, publish_readiness_core. stage_5: relabel_changelog, publish_readiness_stage_5.
+  - **Aggregator:** `runVerify` accepts `publishScope`, runs all 10 checks (independent invocations preserved), computes `safeToPublish = !checks.some(c => c.status === "fail")` AND `safeToPublishCore = !checks.some(c => c.status === "fail" && c.scope === "core")`. Stage_5 failures captured into `deferredStage5Relabel: boolean` + `deferredReason: string | null`.
+  - **Output:** filename branches on scope — `w4-verify-core-report.json` (core) vs `w4-verify-report.json` (full). Both include the full check list, both verdicts, and the deferred fields.
+  - **Printer:** `printVerifyReport` shows `[scope=CORE]` / `[scope=FULL]` in the header; per-check rows include `[stage_5]` tag where applicable; bottom panel prints BOTH verdicts plus `deferred_stage_5_relabel` + `deferred_reason`; closing message references the scope-correct filename and notes that Stage 5 staged proposals stay preserved on disk in core+deferred mode.
+  - **Exit code:** `main()` gates on `flags.publishScope === "core" ? report.safeToPublishCore : report.safeToPublish`. Failed gate still exits 9 (matches Stage 6).
+- `tests/scripts/customer-one-backfill.test.ts` (192 cases — was 154, +38 Stage 6b invariants)
+  - Existing "Check 9 — publish readiness" tests retargeted at the section header so they continue to assert the same messaging on the now-split functions.
+  - New describe blocks (38 tests):
+    - **CliFlags carries publishScope** — type definition, parseFlags default, parseFlags recognises `--publish-scope=core|full`.
+    - **CheckResult carries scope tag** — CheckScope type covers exactly `"core" | "stage_5"`; CheckResult has `readonly scope: CheckScope`; failCheck accepts scope arg defaulting to "core".
+    - **Per-check scope tags** (10 tests, one per check) — checkArtifactsPresent / checkObservations / checkSnapshots / checkOrphanBenchmarks / checkRecommendationByteIdentity / checkUiSurfaceSimulation / checkCausalGuardrail / checkPublishReadinessCore all return `scope: "core"`; checkRelabelChangelog + checkPublishReadinessStage5 return `scope: "stage_5"`. Negative invariants too: checkRelabelChangelog must NOT silently fall into core scope; checkPublishReadinessCore must NOT block on the changelog metadata column; checkPublishReadinessStage5 owns the metadata-column blocker AND the four operator-decision options.
+    - **runVerify aggregates BOTH verdicts** — threads publishScope (default "full"); invokes BOTH split publish-readiness functions; computes safeToPublish over every check; computes safeToPublishCore over core-scope checks only; captures stage_5 failures into deferredStage5Relabel + deferredReason; emits BOTH verdicts onto the VerifyReport; writes a different filename in core mode.
+    - **VerifyReport type carries new fields** — publishScope / safeToPublish / safeToPublishCore / deferredStage5Relabel / deferredReason all declared.
+    - **main() exit code respects --publish-scope** — threads flags.publishScope into runVerify; uses safeToPublishCore as gate when scope=core; preserves exit code 9 on failed gate.
+    - **printVerifyReport surfaces both verdicts** — prints safe_to_publish AND safe_to_publish_core; prints deferred_stage_5_relabel + deferred_reason; prints active publish_scope label; references the scope-aware filename; notes Stage 5 staged proposals stay preserved when deferred.
+    - **Full mode behaviour is unchanged (back-compat)** — Stage 5 metadata-column blocker still surfaces under default --publish-scope=full; relabel_changelog + publish_readiness_stage_5 blockers BOTH fail full mode (aggregator unfiltered).
+    - **Core mode skips Stage 5 publish gate** — safeToPublishCore filters by scope==='core'; Stage 5 staged file is preserved (source-scan: never `unlinkSync`/`rmSync` against `w4-relabel-changelog.json`); core report writes to `w4-verify-core-report.json`.
+- `docs/HANDOFF_VERIFIED_STATE.md` — top banner replaced with Stage 6b summary (10 checks, both verdicts, deferred fields, files modified, verification, design decisions, next 3 actions). Stage 6 banner kept underneath as history.
+
+### Sample Stage 6b core report (verbatim from console)
+```
+══════════════════════════════════════════════════════════════════
+W4 STAGE 6 — VERIFICATION REPORT  [scope=CORE]  ✓ SAFE_TO_PUBLISH
+══════════════════════════════════════════════════════════════════
+tenant_id     : tenant-ritz-founder
+tenant_slug   : ritz-builders
+dry_run       : true
+staging_dir   : /Users/armeen/beacon/.data/_staging
+verified_at   : 2026-05-04T18:05:42.448Z
+publish_scope : core
+
+─ Per-check results ─────────────────────────────────────────────
+  ✓ PASS artifacts_present            All 8 staged artifacts present + parse cleanly.
+  ✓ PASS observations                 14096 staged observations · 48 dates · 14096 unique IDs · 100/100 prompt match · 4496 AIO blindSpot.
+  ✓ PASS snapshots                    7191 snapshots · 48 dates · 144 tuples · 0 duplicate IDs · 144 Ritz entity rows.
+  ✓ PASS orphan_benchmarks            NO-OP — 0 twins emitted (1359 dormant scopes skipped per chart-gap criterion).
+  ✓ PASS relabel_changelog            [stage_5] 317 proposals · 232 pdf + 85 csv · top-level preserved on all · display_group ok on all.
+  ✓ PASS recs_byte_identity           recommended_edits 17/17 match · responses 7/7 match.
+  ✓ PASS ui_surface                   chart continuity verified across 3 platforms · 317/317 relabel proposals filterable · 13946 obs with citations.
+         · WARN: Browser-render smoke test deferred to post-publish per Stage 6 spec.
+  ✓ PASS causal_guardrail             14096 historical_recovered (usable for product intel) · 0 benchmark-fallback (causal-excluded: 0) · 0 regime conflicts.
+  ✓ PASS publish_readiness_core       Core publish targets ready: prompt_answer_observations + daily_metric_snapshots schemas verified.
+  ✗ FAIL publish_readiness_stage_5    [stage_5] Stage 5 publish target NOT ready: changelog_entries.metadata column missing (deferred).
+
+safe_to_publish       : false (see blockers)
+safe_to_publish_core  : true (core checks pass — Stage 5 may be deferred)
+deferred_stage_5_relabel : true
+deferred_reason          : [publish_readiness_stage_5] changelog_entries.metadata jsonb column does NOT exist — Stage 5 W4 relabel cannot publish without a schema migration. Operator must choose: (a) add metadata jsonb column, (b) overwrite top-level import_batch_id (loses audit trail), (c) use a separate label table, or (d) defer Stage 5 publish entirely.
+══════════════════════════════════════════════════════════════════
+Stage 6 complete. NO Supabase writes. NO live .data/tenants/ mutation.
+Staged outputs: /Users/armeen/beacon/.data/_staging/w4-verify-core-report.json.
+Stage 5 staged proposals preserved at .data/_staging/w4-relabel-changelog.json (deferred — not deleted).
+══════════════════════════════════════════════════════════════════
+```
+
+### Verification
+
+- ✓ `npx tsc --noEmit` clean
+- ✓ `npx vitest run tests/scripts/customer-one-backfill.test.ts` — 192/192 pass (was 154/154 at Stage 6 — +38 invariants from Stage 6b)
+- ✓ `npm run test` — 4063/4069 (6 pre-existing baseline failures all OUTSIDE this surface; same 6 reproduced on stashed working tree, net change vs Stage 6: +38 passes, ±0 failures)
+- ✓ `BEACON_TENANT_ID=tenant-ritz-founder BEACON_TENANT_SLUG=ritz-builders npm run build` clean
+- ✓ Stage 6b core dry-run: `safe_to_publish_core: true`, 9 PASS / 1 deferred (stage_5), wrote `.data/_staging/w4-verify-core-report.json` (7,447 bytes)
+- ✓ Stage 6 full dry-run (back-compat): `safe_to_publish: false` preserved; same metadata-column blocker still surfaces under default scope; wrote `.data/_staging/w4-verify-report.json`
+
+### Constraints honored (operator-locked)
+
+- No publish (Stage 7 still reserved + hard-fail) · No Supabase writes anywhere · No schema migration · No rollback execution · No recommendation queue mutation · No Profound archive/delete · No paid generation · No Apply-All-HIGH
+
+### Outcome
+
+Stage 6b is the gate working as designed: it lets the operator publish the W4 core (observations + snapshots) without entangling that decision with the Stage 5 schema choice. Stage 5 staged proposals (317) sit preserved on disk and can resume publish later when the operator picks a schema path. Awaiting operator approval to design Stage 7 core-publish path (gated on `safe_to_publish_core: true`).
+
+---
+
 ## 2026-05-04 — W4 Stage 6: verify dry-run (8/9 PASS, 1 BLOCKER → safe_to_publish: false)
 
 Operator approved Stage 6 design + dry-run after Stage 5 acceptance. Stage 6 runs 9 structured checks against the Stage 2–5 staged artifacts + the Stage 1 backup + Supabase (read-only), aggregates pass/warn/fail into a `safe_to_publish: boolean` verdict, and writes `.data/_staging/w4-verify-report.json`. NO Supabase writes. NO live `.data/tenants/` mutation. Recs queue untouched.

@@ -1317,7 +1317,7 @@ describe("Stage 6 — runVerify is staging-only (source-scan)", () => {
     );
   });
 
-  it("runs all 9 checks via independent invocations", () => {
+  it("runs all 10 checks via independent invocations (Stage 6b split publish-readiness into core + stage_5)", () => {
     const b = bodyOf();
     expect(b).toMatch(/checkArtifactsPresent/);
     expect(b).toMatch(/checkObservations/);
@@ -1327,7 +1327,8 @@ describe("Stage 6 — runVerify is staging-only (source-scan)", () => {
     expect(b).toMatch(/checkRecommendationByteIdentity/);
     expect(b).toMatch(/checkUiSurfaceSimulation/);
     expect(b).toMatch(/checkCausalGuardrail/);
-    expect(b).toMatch(/checkPublishReadiness/);
+    expect(b).toMatch(/checkPublishReadinessCore/);
+    expect(b).toMatch(/checkPublishReadinessStage5/);
   });
 });
 
@@ -1534,7 +1535,13 @@ describe("Stage 6 — Check 8: causal guardrail", () => {
 
 describe("Stage 6 — Check 9: publish readiness (the changelog metadata BLOCKER)", () => {
   it("hard-blocks publish when changelog_entries.metadata jsonb column is missing", () => {
-    const start = SCRIPT_SRC.indexOf("async function checkPublishReadiness(");
+    // W4 Stage 6b — checkPublishReadiness was split into Core + Stage5;
+    // the messaging assertions now live on the Stage5 function and
+    // the table+column assertions span both functions, so we read
+    // the whole publish-readiness section as the search body.
+    const start = SCRIPT_SRC.indexOf(
+      "// ── Check 9 (W4 Stage 6b): Supabase publish readiness",
+    );
     const end = SCRIPT_SRC.indexOf("// ── Tiny helpers");
     const body = SCRIPT_SRC.slice(start, end);
     expect(body).toMatch(/changelog_entries\.metadata jsonb column does NOT exist/);
@@ -1548,7 +1555,13 @@ describe("Stage 6 — Check 9: publish readiness (the changelog metadata BLOCKER
   });
 
   it("verifies all 3 target tables exist + required columns present", () => {
-    const start = SCRIPT_SRC.indexOf("async function checkPublishReadiness(");
+    // W4 Stage 6b — checkPublishReadiness was split into Core + Stage5;
+    // the messaging assertions now live on the Stage5 function and
+    // the table+column assertions span both functions, so we read
+    // the whole publish-readiness section as the search body.
+    const start = SCRIPT_SRC.indexOf(
+      "// ── Check 9 (W4 Stage 6b): Supabase publish readiness",
+    );
     const end = SCRIPT_SRC.indexOf("// ── Tiny helpers");
     const body = SCRIPT_SRC.slice(start, end);
     expect(body).toMatch(/prompt_answer_observations/);
@@ -1558,7 +1571,13 @@ describe("Stage 6 — Check 9: publish readiness (the changelog metadata BLOCKER
   });
 
   it("documents upsert conflict targets in details", () => {
-    const start = SCRIPT_SRC.indexOf("async function checkPublishReadiness(");
+    // W4 Stage 6b — checkPublishReadiness was split into Core + Stage5;
+    // the messaging assertions now live on the Stage5 function and
+    // the table+column assertions span both functions, so we read
+    // the whole publish-readiness section as the search body.
+    const start = SCRIPT_SRC.indexOf(
+      "// ── Check 9 (W4 Stage 6b): Supabase publish readiness",
+    );
     const end = SCRIPT_SRC.indexOf("// ── Tiny helpers");
     const body = SCRIPT_SRC.slice(start, end);
     expect(body).toMatch(/conflictTargets/);
@@ -1569,5 +1588,359 @@ describe("Stage 6 — Check 9: publish readiness (the changelog metadata BLOCKER
 describe("Stage 6 — canonicalJson helper", () => {
   it("is referenced from runVerify file", () => {
     expect(SCRIPT_SRC).toMatch(/function canonicalJson/);
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// W4 STAGE 6B — scope-aware verify (defer Stage 5 publish cleanly)
+// ──────────────────────────────────────────────────────────────────────
+//
+// Stage 6 discovered that `changelog_entries.metadata` jsonb column
+// is missing in production and BLOCKED publish. The operator chose
+// option D (defer Stage 5 publish entirely) and approved Stage 6b:
+// add a `--publish-scope=core|full` flag so core publish (Stages
+// 2/3/4) can proceed without waiting for the metadata column. Stage
+// 5 staged proposals stay preserved on disk for later.
+//
+// These tests pin the scope-aware contract on the source.
+
+describe("Stage 6b — CliFlags carries publishScope (default 'full')", () => {
+  it("CliFlags type includes publishScope: 'full' | 'core'", () => {
+    expect(SCRIPT_SRC).toMatch(/publishScope:\s*"full"\s*\|\s*"core"/);
+  });
+
+  it("parseFlags defaults publishScope to 'full' (back-compat)", () => {
+    const start = SCRIPT_SRC.indexOf("export function parseFlags(");
+    const end = SCRIPT_SRC.indexOf("\n}", start);
+    const body = SCRIPT_SRC.slice(start, end);
+    expect(body).toMatch(/publishScope:\s*"full"/);
+  });
+
+  it("parseFlags recognises --publish-scope=core|full", () => {
+    const start = SCRIPT_SRC.indexOf("export function parseFlags(");
+    const end = SCRIPT_SRC.indexOf("\n}", start);
+    const body = SCRIPT_SRC.slice(start, end);
+    expect(body).toMatch(/--publish-scope=/);
+    // Both literal values must be accepted; everything else falls
+    // back to the default.
+    expect(body).toMatch(
+      /v\s*===\s*"full"\s*\|\|\s*v\s*===\s*"core"/,
+    );
+  });
+});
+
+describe("Stage 6b — CheckResult carries scope tag", () => {
+  it("CheckScope type covers exactly 'core' and 'stage_5'", () => {
+    expect(SCRIPT_SRC).toMatch(
+      /export type CheckScope\s*=\s*"core"\s*\|\s*"stage_5"/,
+    );
+  });
+
+  it("CheckResult type has a readonly scope field of type CheckScope", () => {
+    const start = SCRIPT_SRC.indexOf("export type CheckResult");
+    const end = SCRIPT_SRC.indexOf("};", start);
+    const body = SCRIPT_SRC.slice(start, end);
+    expect(body).toMatch(/readonly scope:\s*CheckScope/);
+  });
+
+  it("failCheck helper accepts a scope arg (defaults to 'core')", () => {
+    const start = SCRIPT_SRC.indexOf("function failCheck(");
+    const end = SCRIPT_SRC.indexOf("\n}", start);
+    const body = SCRIPT_SRC.slice(start, end);
+    expect(body).toMatch(/scope:\s*CheckScope\s*=\s*"core"/);
+    // The returned object must include the scope field.
+    expect(body).toMatch(/scope,/);
+  });
+});
+
+describe("Stage 6b — per-check scope tags", () => {
+  // Helper: pull the body of a check function so assertions don't
+  // accidentally match unrelated source. We bound by the next
+  // `function ` / `async function ` declaration (whichever comes
+  // first) — tighter than section comments because some checks
+  // share a section header.
+  const bodyOf = (name: string): string => {
+    const start = SCRIPT_SRC.indexOf(`function ${name}(`);
+    if (start < 0) return "";
+    const candidates = [
+      SCRIPT_SRC.indexOf("\nasync function ", start + 1),
+      SCRIPT_SRC.indexOf("\nfunction ", start + 1),
+    ].filter((i) => i > 0);
+    const end = candidates.length > 0 ? Math.min(...candidates) : -1;
+    return SCRIPT_SRC.slice(start, end > 0 ? end : start + 6000);
+  };
+
+  it("checkArtifactsPresent returns scope: 'core'", () => {
+    const b = bodyOf("checkArtifactsPresent");
+    expect(b).toMatch(/scope:\s*"core"/);
+  });
+
+  it("checkObservations returns scope: 'core'", () => {
+    const b = bodyOf("checkObservations");
+    expect(b).toMatch(/scope:\s*"core"/);
+  });
+
+  it("checkSnapshots returns scope: 'core'", () => {
+    const b = bodyOf("checkSnapshots");
+    expect(b).toMatch(/scope:\s*"core"/);
+  });
+
+  it("checkOrphanBenchmarks returns scope: 'core'", () => {
+    const b = bodyOf("checkOrphanBenchmarks");
+    expect(b).toMatch(/scope:\s*"core"/);
+  });
+
+  it("checkRelabelChangelog returns scope: 'stage_5' (the deferred path)", () => {
+    const b = bodyOf("checkRelabelChangelog");
+    expect(b).toMatch(/scope:\s*"stage_5"/);
+    // It must NOT silently fall into core scope.
+    expect(b).not.toMatch(/scope:\s*"core"/);
+  });
+
+  it("checkRecommendationByteIdentity returns scope: 'core' (recs queue is core gate)", () => {
+    const b = bodyOf("checkRecommendationByteIdentity");
+    expect(b).toMatch(/scope:\s*"core"/);
+  });
+
+  it("checkUiSurfaceSimulation returns scope: 'core'", () => {
+    const b = bodyOf("checkUiSurfaceSimulation");
+    expect(b).toMatch(/scope:\s*"core"/);
+  });
+
+  it("checkCausalGuardrail returns scope: 'core' (verdict math integrity)", () => {
+    const b = bodyOf("checkCausalGuardrail");
+    expect(b).toMatch(/scope:\s*"core"/);
+  });
+
+  it("checkPublishReadinessCore returns scope: 'core'", () => {
+    const b = bodyOf("checkPublishReadinessCore");
+    expect(b).toMatch(/scope:\s*"core"/);
+    // Core readiness ONLY probes observations + snapshots.
+    expect(b).toMatch(/prompt_answer_observations/);
+    expect(b).toMatch(/daily_metric_snapshots/);
+    // It must NOT block on changelog_entries — that's the Stage 5 gate.
+    expect(b).not.toMatch(/changelog_entries\.metadata jsonb column does NOT exist/);
+  });
+
+  it("checkPublishReadinessStage5 returns scope: 'stage_5' AND owns the metadata-column blocker", () => {
+    const b = bodyOf("checkPublishReadinessStage5");
+    expect(b).toMatch(/scope:\s*"stage_5"/);
+    expect(b).toMatch(/changelog_entries\.metadata jsonb column does NOT exist/);
+    expect(b).toMatch(
+      /defer Stage 5 publish entirely/,
+    );
+    // It must NOT silently fall into core scope.
+    expect(b).not.toMatch(/scope:\s*"core"/);
+  });
+});
+
+describe("Stage 6b — runVerify aggregates BOTH verdicts", () => {
+  const runVerifyBody = (): string => {
+    const start = SCRIPT_SRC.indexOf("async function runVerify(");
+    const end = SCRIPT_SRC.indexOf("// ── Check 1:", start);
+    return SCRIPT_SRC.slice(start, end);
+  };
+
+  it("threads publishScope through and defaults it to 'full'", () => {
+    const b = runVerifyBody();
+    expect(b).toMatch(/readonly publishScope\?:\s*"full"\s*\|\s*"core"/);
+    expect(b).toMatch(
+      /const publishScope\s*=\s*args\.publishScope\s*\?\?\s*"full"/,
+    );
+  });
+
+  it("invokes BOTH split publish-readiness checks (core + stage_5)", () => {
+    const b = runVerifyBody();
+    expect(b).toMatch(/checkPublishReadinessCore\(args\.tenantId\)/);
+    expect(b).toMatch(/checkPublishReadinessStage5\(args\.tenantId\)/);
+  });
+
+  it("computes safeToPublish (full) over every check", () => {
+    const b = runVerifyBody();
+    expect(b).toMatch(
+      /safeToPublish\s*=\s*!checks\.some\(\s*\(c\)\s*=>\s*c\.status\s*===\s*"fail"\)/,
+    );
+  });
+
+  it("computes safeToPublishCore over CORE-scope checks only", () => {
+    const b = runVerifyBody();
+    expect(b).toMatch(
+      /safeToPublishCore\s*=\s*!checks\.some\(\s*[\s\S]*?c\.status\s*===\s*"fail"\s*&&\s*c\.scope\s*===\s*"core"/,
+    );
+  });
+
+  it("captures Stage 5 failures into deferredStage5Relabel + deferredReason", () => {
+    const b = runVerifyBody();
+    expect(b).toMatch(
+      /stage5Failures\s*=\s*checks\.filter\([\s\S]*?c\.scope\s*===\s*"stage_5"/,
+    );
+    expect(b).toMatch(/deferredStage5Relabel\s*=\s*stage5Failures\.length\s*>\s*0/);
+    expect(b).toMatch(/deferredReason/);
+  });
+
+  it("writes a different filename in core mode (w4-verify-core-report.json)", () => {
+    const b = runVerifyBody();
+    expect(b).toMatch(/w4-verify-core-report\.json/);
+    expect(b).toMatch(/w4-verify-report\.json/);
+  });
+
+  it("emits BOTH verdicts AND the deferred fields onto the VerifyReport", () => {
+    const b = runVerifyBody();
+    expect(b).toMatch(/safeToPublish,/);
+    expect(b).toMatch(/safeToPublishCore,/);
+    expect(b).toMatch(/deferredStage5Relabel,/);
+    expect(b).toMatch(/deferredReason,/);
+    expect(b).toMatch(/publishScope,/);
+  });
+});
+
+describe("Stage 6b — VerifyReport type carries the new fields", () => {
+  const reportType = (): string => {
+    const start = SCRIPT_SRC.indexOf("export type VerifyReport");
+    const end = SCRIPT_SRC.indexOf("};", start);
+    return SCRIPT_SRC.slice(start, end);
+  };
+
+  it("includes publishScope, safeToPublish, safeToPublishCore", () => {
+    const t = reportType();
+    expect(t).toMatch(/readonly publishScope:\s*"full"\s*\|\s*"core"/);
+    expect(t).toMatch(/readonly safeToPublish:\s*boolean/);
+    expect(t).toMatch(/readonly safeToPublishCore:\s*boolean/);
+  });
+
+  it("includes deferredStage5Relabel + deferredReason", () => {
+    const t = reportType();
+    expect(t).toMatch(/readonly deferredStage5Relabel:\s*boolean/);
+    expect(t).toMatch(/readonly deferredReason:\s*string\s*\|\s*null/);
+  });
+});
+
+describe("Stage 6b — main() exit code respects --publish-scope", () => {
+  // The main() flow gates process.exit on the active scope's verdict.
+  // In core mode the gate is `safeToPublishCore`; otherwise it stays
+  // `safeToPublish`. The exit code stays 9 on a failed gate (matches
+  // Stage 6 behaviour).
+  const mainBody = (): string => {
+    // Find the verify branch inside main().
+    const start = SCRIPT_SRC.indexOf('flags.stage === "verify"');
+    if (start < 0) return "";
+    const end = SCRIPT_SRC.indexOf("} else if", start);
+    return SCRIPT_SRC.slice(start, end >= 0 ? end : start + 4000);
+  };
+
+  it("threads flags.publishScope into runVerify", () => {
+    const b = mainBody();
+    expect(b).toMatch(/publishScope:\s*flags\.publishScope/);
+  });
+
+  it("uses safeToPublishCore as the gate when scope=core", () => {
+    const b = mainBody();
+    expect(b).toMatch(
+      /flags\.publishScope\s*===\s*"core"\s*\?\s*report\.safeToPublishCore/,
+    );
+    expect(b).toMatch(/:\s*report\.safeToPublish/);
+  });
+
+  it("preserves existing exit code 9 on a failed gate", () => {
+    const b = mainBody();
+    expect(b).toMatch(/process\.exit\(\s*gate\s*\?\s*0\s*:\s*9\s*\)/);
+  });
+});
+
+describe("Stage 6b — printVerifyReport surfaces both verdicts", () => {
+  const printerBody = (): string => {
+    const start = SCRIPT_SRC.indexOf("function printVerifyReport(");
+    const end = SCRIPT_SRC.indexOf("\n}", start);
+    return SCRIPT_SRC.slice(start, end);
+  };
+
+  it("prints safe_to_publish AND safe_to_publish_core", () => {
+    const b = printerBody();
+    expect(b).toMatch(/safe_to_publish\s*:/);
+    expect(b).toMatch(/safe_to_publish_core/);
+  });
+
+  it("prints deferred_stage_5_relabel + deferred_reason when applicable", () => {
+    const b = printerBody();
+    expect(b).toMatch(/deferred_stage_5_relabel/);
+    expect(b).toMatch(/deferred_reason/);
+  });
+
+  it("prints the active publish_scope label", () => {
+    const b = printerBody();
+    expect(b).toMatch(/publish_scope/);
+    expect(b).toMatch(/scope=\$\{scopeLabel\}/);
+  });
+
+  it("references the scope-aware report filename in the closing message", () => {
+    const b = printerBody();
+    expect(b).toMatch(/w4-verify-core-report\.json/);
+    expect(b).toMatch(/w4-verify-report\.json/);
+  });
+
+  it("notes that Stage 5 staged proposals stay preserved when deferred", () => {
+    const b = printerBody();
+    expect(b).toMatch(
+      /Stage 5 staged proposals preserved at \.data\/_staging\/w4-relabel-changelog\.json/,
+    );
+  });
+});
+
+describe("Stage 6b — full mode behaviour is unchanged (back-compat)", () => {
+  it("Stage 5 metadata-column blocker still surfaces under --publish-scope=full (default)", () => {
+    // The Stage 5 publish-readiness check OWNS the metadata-column
+    // blocker. It runs unconditionally inside runVerify, so full
+    // mode (which gates on safeToPublish) still fails when the
+    // column is missing.
+    const start = SCRIPT_SRC.indexOf("function checkPublishReadinessStage5(");
+    const end = SCRIPT_SRC.indexOf("\n}", start);
+    const body = SCRIPT_SRC.slice(start, end);
+    expect(body).toMatch(
+      /changelog_entries\.metadata jsonb column does NOT exist/,
+    );
+  });
+
+  it("relabel_changelog blockers + publish_readiness_stage_5 blockers BOTH fail full mode", () => {
+    // Both stage_5-scoped checks contribute to safeToPublish (full).
+    // The aggregator is `!checks.some(c => c.status === "fail")`,
+    // which doesn't filter by scope.
+    const start = SCRIPT_SRC.indexOf("async function runVerify(");
+    const end = SCRIPT_SRC.indexOf("// ── Check 1:", start);
+    const body = SCRIPT_SRC.slice(start, end);
+    expect(body).toMatch(
+      /safeToPublish\s*=\s*!checks\.some\(\s*\(c\)\s*=>\s*c\.status\s*===\s*"fail"\)/,
+    );
+  });
+});
+
+describe("Stage 6b — core mode skips the Stage 5 publish gate", () => {
+  it("safeToPublishCore filters checks by scope==='core'", () => {
+    const start = SCRIPT_SRC.indexOf("async function runVerify(");
+    const end = SCRIPT_SRC.indexOf("// ── Check 1:", start);
+    const body = SCRIPT_SRC.slice(start, end);
+    expect(body).toMatch(
+      /safeToPublishCore\s*=\s*!checks\.some\(\s*[\s\S]*?c\.scope\s*===\s*"core"/,
+    );
+  });
+
+  it("Stage 5 staged file is preserved (never deleted)", () => {
+    // The orchestrator never references unlinkSync / rmSync against
+    // w4-relabel-changelog.json. (Smoke test: grep the source.)
+    expect(SCRIPT_SRC).not.toMatch(
+      /unlinkSync\([^\)]*w4-relabel-changelog\.json/,
+    );
+    expect(SCRIPT_SRC).not.toMatch(
+      /rmSync\([^\)]*w4-relabel-changelog\.json/,
+    );
+  });
+
+  it("core report writes to w4-verify-core-report.json (not w4-verify-report.json)", () => {
+    // Verified inside runVerify (filename branches on publishScope).
+    const start = SCRIPT_SRC.indexOf("async function runVerify(");
+    const end = SCRIPT_SRC.indexOf("// ── Check 1:", start);
+    const body = SCRIPT_SRC.slice(start, end);
+    expect(body).toMatch(
+      /publishScope\s*===\s*"core"\s*\?\s*"w4-verify-core-report\.json"\s*:\s*"w4-verify-report\.json"/,
+    );
   });
 });
