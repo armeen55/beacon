@@ -7,6 +7,93 @@
 
 ---
 
+## 2026-05-04 (late evening) — May 2-4 recovery audit + partial-day patch
+
+Operator asked for a read-only audit of every place where May 2-4 raw poll data could exist (since the silent-failure pattern between May 1 ~22:00 UTC and May 4 ~20:08 UTC meant ~$9 of API spend produced zero persisted rows), plus a UI patch so the May 4 5-prompt manual proof run doesn't distort headline KPI deltas.
+
+### Audit findings
+
+| Dimension | Surface | Recovery status |
+|---|---|---|
+| A1 | `observation_runs` for May 2-4 | 24 chunk runs all `status: completed`. NO raw response data, NO provider response IDs, NO error fields. Only run-level cost extractable. |
+| A2 | `answer_texts` + other Supabase tables | answer_texts has 14,096 orphan bodies. **Zero match May 2-4 fingerprints** (no 2026-05-* date strings, no late-Apr 2026 strings; 1,786 carry the Profound `==**` markdown signature). The orphans are pre-existing Profound-era residue, NOT recoverable May 2-4 polls. |
+| A3 | GitHub Actions workflow logs/artifacts | Workflow uses curl with stdout-only output; no artifact uploads, no committed `.data` files. Vercel Hobby retains logs ~1h-few-days; May 2-4 already rolled off. |
+| A4 | Vercel logs (`/api/poll/run`) | Only PRE_CALL telemetry + per-chunk structured summary logged. **Zero raw response bodies anywhere.** |
+| A5 | Local repo `.data/` + Stage 1 backup | Only my 10 manual-proof entries today. Stage 1 backup did NOT include `answer_texts`. |
+| A6 | Provider response IDs | `usage.providerRaw.responseId` lives on the obs row's `metadata.usage`. May 2-4 obs never persisted → response IDs lost. Perplexity Sonar doesn't expose stable response ID. **No replayability.** |
+
+**Verdict: exact recovery is impossible.**
+
+### Lost spend (extracted from observation_runs.scope_label)
+
+| Date | Platform | Chunks | Prompts | Cost |
+|---|---|---:|---:|---:|
+| 2026-05-02 | Perplexity | 4 | 100 | $0.0517 |
+| 2026-05-02 | ChatGPT | 4 | 100 | $2.9435 |
+| 2026-05-03 | Perplexity | 4 | 100 | $0.0551 |
+| 2026-05-03 | ChatGPT | 4 | 100 | $3.0616 |
+| 2026-05-04 (morning) | Perplexity | 4 | 100 | $0.0534 |
+| 2026-05-04 (morning) | ChatGPT | 4 | 100 | $2.8579 |
+| **Total** | | **24** | **600** | **$9.0232** |
+
+### Recommendation
+
+**Leave May 2-4 missing.** Do not attempt rebuild from `answer_texts` orphans (they don't match May 2-4 fingerprints). Do not run a fresh full poll today. Wait for the May 5 07:00 UTC cron — with the dual-write throw fix and schema migration in place, the next daily run will land cleanly.
+
+### Partial-day patch (`samplingStatus`)
+
+The May 4 manual proof run (5 obs/platform) is far below a normal-day baseline (~200 obs total). Without a partial-day signal, headline KPI tiles + sparklines treat 5 the same as 100 — distorting deltas.
+
+**New field on `PlatformPollHealth`:** `samplingStatus: "full" | "partial" | "proof" | "empty"` with operator-locked thresholds:
+- `full` ≥ 80 obs (normal-sized day)
+- `partial` 10–79 obs (some chunks landed)
+- `proof` 1–9 obs (manual-proof-style; mute headline deltas)
+- `empty` 0 obs (no run OR silent-failure pattern)
+
+The signal is independent from `status` (chunk completion). Backwards compatible — legacy callers without an actual count get `samplingStatus` derived from `observationsWritten` fallback.
+
+### Files
+
+- `src/domains/observations/poll-health.ts` — new `SamplingStatus` type + `classifySampling()` helper + thresholds (`FULL_RUN_PROMPT_FLOOR=80`, `PROOF_RUN_PROMPT_CEIL=9`). `PlatformPollHealth.samplingStatus` populated at all 3 return sites in `computePlatformHealth`.
+- `src/components/today/poll-health-block.tsx` — `platformSummary()` appends sampling tag (e.g. "4/4 · 5 prompts · proof run (small sample)"); `subline()` adds proof/partial-run copy branches.
+- `tests/domains/observations/poll-health.test.ts` — 16 → 28 cases (+12 partial-day invariants).
+
+### Verification
+
+- ✓ `npx tsc --noEmit` clean
+- ✓ `tests/domains/observations/poll-health.test.ts` 28/28
+- ✓ `tests/architecture/poll-health-copy.test.ts` 6/6
+- ✓ `tests/architecture/dual-write-loud-fail.test.ts` 3/3
+- ✓ `tests/domains/prompt-answer-observations/enrichment-rollup.test.ts` 53/53
+- ✓ `npm run test` 4173/4179 (same 6 pre-existing baseline failures; +12 new passes)
+- ✓ `BEACON_TENANT_ID=... BEACON_TENANT_SLUG=... npm run build` clean (one transient Supabase timeout on /prompts prerender; retry succeeded)
+
+### Acceptance criteria (operator)
+
+| Criterion | Status |
+|---|---|
+| recovery audit complete | ✓ 6 dimensions checked |
+| no paid reruns during audit | ✓ all SQL read-only |
+| no fabricated backfill | ✓ no rows inserted |
+| exact recommendation for May 2-4 gap | ✓ "leave missing; next cron lands cleanly" |
+| partial-run UI/metric handling plan or patch | ✓ `samplingStatus` + UI subline + tests |
+
+### Constraints honored
+
+- ✓ Did NOT run another full paid poll
+- ✓ Did NOT backdate new data
+- ✓ Did NOT fabricate May 2-4 rows
+- ✓ Did NOT Apply-All-HIGH
+- ✓ Did NOT publish Stage 5
+- ✓ Did NOT archive Profound
+- ✓ Did NOT mutate Supabase (read-only audit only)
+
+### Outcome
+
+The May 2-4 gap is permanent (~$9 of lost spend, 600 lost observations, 240 lost snapshots). The dual-write throw fix + schema migration prevent a recurrence. The new `samplingStatus` field gives downstream surfaces a clean signal to mute partial-day headline deltas — wiring the consumers (today-client KPI tiles, sparklines) to act on it is a separate UX change deferred to operator's next pickup.
+
+---
+
 ## 2026-05-04 (evening) — Post-patch write-path proof + poll-health copy patch
 
 After the morning's 2 critical patches landed, operator's browser check confirmed `/today` correctly shows "Poll (May 4): failed — pipeline needs attention" instead of false-complete. Operator asked for a controlled test to prove the fixed pipeline persists rows now that the schema is migrated. Read-only diagnosis (D1-D6) confirmed all preconditions; smallest-possible manual polls succeeded end-to-end on both platforms with $0.19 total spend.

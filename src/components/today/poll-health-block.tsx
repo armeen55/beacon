@@ -118,7 +118,27 @@ function platformSummary(p: PlatformPollHealth): string {
   }
   const chunkBit = `${p.completedChunks}/${p.expectedChunks}`;
   const obsBit = `${p.observationsWritten} prompts`;
-  return `${chunkBit} · ${obsBit}`;
+  // Partial-day patch (2026-05-04): when sample size is small, append
+  // a clear sampling-status tag so the operator doesn't treat a
+  // proof-sized run (5 prompts) as a full daily run (100 prompts).
+  // "full" is the default and gets no annotation.
+  const samplingBit = samplingStatusTag(p.samplingStatus);
+  return samplingBit
+    ? `${chunkBit} · ${obsBit} · ${samplingBit}`
+    : `${chunkBit} · ${obsBit}`;
+}
+
+function samplingStatusTag(s: PlatformPollHealth["samplingStatus"]): string {
+  switch (s) {
+    case "empty":
+      return "no data";
+    case "proof":
+      return "proof run (small sample)";
+    case "partial":
+      return "partial day";
+    case "full":
+      return "";
+  }
 }
 
 function statusGlyph(status: PlatformPollHealth["status"]): string {
@@ -213,6 +233,25 @@ function subline(snap: PollHealthSnapshot): string {
   }
   if (pending.length === 1) {
     return `${PLATFORM_LABELS[pending[0].platform]} has no run yet today.`;
+  }
+  // Partial-day patch (2026-05-04): when run completed cleanly but the
+  // sample is small (e.g., a manual proof run), surface that so /today
+  // doesn't display a 5-obs day as if it were a full 100-obs day.
+  const proofPlatforms = snap.platforms.filter(
+    (p) => p.status === "ok" && p.samplingStatus === "proof",
+  );
+  const partialPlatforms = snap.platforms.filter(
+    (p) => p.status === "ok" && p.samplingStatus === "partial",
+  );
+  if (proofPlatforms.length > 0) {
+    const names = proofPlatforms.map((p) => PLATFORM_LABELS[p.platform]).join(" + ");
+    return `${names} ran a proof-sized sample (small). Headline deltas use larger windows; sparkline may dip on this day.`;
+  }
+  if (partialPlatforms.length > 0) {
+    const names = partialPlatforms
+      .map((p) => PLATFORM_LABELS[p.platform])
+      .join(" + ");
+    return `${names} landed a partial day (some chunks missed). Today's count is below the normal 80-prompt floor.`;
   }
   return "";
 }

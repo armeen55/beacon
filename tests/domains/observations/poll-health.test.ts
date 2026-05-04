@@ -3,6 +3,9 @@ import { describe, it, expect } from "vitest";
 import {
   computePollHealthFromRuns,
   todayISOUtc,
+  classifySampling,
+  FULL_RUN_PROMPT_FLOOR,
+  PROOF_RUN_PROMPT_CEIL,
 } from "@/domains/observations/poll-health";
 import type { ObservationRun } from "@/domains/observations/types";
 
@@ -340,5 +343,168 @@ describe("Bug-1 — persistence cross-check downgrades silent-failure 'ok' to 'f
     const perplexity = snap.platforms.find((p) => p.platform === "perplexity")!;
     expect(chatgpt.status).toBe("failed");
     expect(perplexity.status).toBe("ok");
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// Partial-day patch (2026-05-04, post-W4 audit) — samplingStatus signal
+// ──────────────────────────────────────────────────────────────────────
+//
+// Operator-reported (post-write-proof): May 4 has only a 5-prompt manual
+// proof run. Without a partial-day signal, /today's headline KPIs +
+// sparklines treat 5 obs the same as 100, distorting deltas.
+//
+// The new field `samplingStatus: "full" | "partial" | "proof" | "empty"`
+// surfaces sample size class on every PlatformPollHealth so downstream
+// surfaces (KPI tiles, sparklines, copy) can mute or warn.
+//
+// Operator-locked thresholds:
+//   ≥ 80 obs       → "full"
+//   10–79 obs      → "partial"
+//   1–9 obs        → "proof"
+//   0 obs          → "empty"
+
+describe("Partial-day — classifySampling thresholds (operator-locked)", () => {
+  it("0 observations → 'empty'", () => {
+    expect(classifySampling(0)).toBe("empty");
+  });
+
+  it("1–9 observations → 'proof' (manual-proof-style runs)", () => {
+    expect(classifySampling(1)).toBe("proof");
+    expect(classifySampling(5)).toBe("proof"); // operator's exact case
+    expect(classifySampling(PROOF_RUN_PROMPT_CEIL)).toBe("proof");
+  });
+
+  it("10–79 observations → 'partial' (some chunks missed)", () => {
+    expect(classifySampling(PROOF_RUN_PROMPT_CEIL + 1)).toBe("partial");
+    expect(classifySampling(50)).toBe("partial");
+    expect(classifySampling(FULL_RUN_PROMPT_FLOOR - 1)).toBe("partial");
+  });
+
+  it("≥ 80 observations → 'full' (normal-sized day)", () => {
+    expect(classifySampling(FULL_RUN_PROMPT_FLOOR)).toBe("full");
+    expect(classifySampling(100)).toBe("full");
+    expect(classifySampling(150)).toBe("full");
+  });
+
+  it("operator-locked thresholds match the master plan (80/9)", () => {
+    expect(FULL_RUN_PROMPT_FLOOR).toBe(80);
+    expect(PROOF_RUN_PROMPT_CEIL).toBe(9);
+  });
+});
+
+describe("Partial-day — samplingStatus on PlatformPollHealth", () => {
+  const date = "2026-05-04";
+  const t = (hour: number, minute = 0): string =>
+    new Date(Date.UTC(2026, 4, 4, hour, minute, 0)).toISOString();
+
+  it("operator's exact May 4 case: 1 manual chunk of 5 prompts → samplingStatus='proof'", () => {
+    // The May 4 manual proof: 1 chunk, 5 prompts persisted.
+    const runs = [
+      chunkRun("perplexity-native-poll", 0, "completed", 5, t(20, 59)),
+    ];
+    const snap = computePollHealthFromRuns(date, runs, {
+      chatgpt: 0,
+      perplexity: 5, // truthful DB count
+    });
+    const perp = snap.platforms.find((p) => p.platform === "perplexity")!;
+    expect(perp.samplingStatus).toBe("proof");
+    expect(perp.observationsWritten).toBe(5);
+    // Status is "partial" — only 1 of 4 expected chunks completed.
+    // samplingStatus is an INDEPENDENT axis from run-level pass/fail
+    // and surfaces the sample SIZE separately from chunk completeness.
+    expect(perp.status).toBe("partial");
+  });
+
+  it("100-obs full daily run → samplingStatus='full'", () => {
+    const runs = [
+      chunkRun("perplexity-native-poll", 0, "completed", 25, t(10, 0)),
+      chunkRun("perplexity-native-poll", 25, "completed", 25, t(10, 4)),
+      chunkRun("perplexity-native-poll", 50, "completed", 25, t(10, 8)),
+      chunkRun("perplexity-native-poll", 75, "completed", 25, t(10, 12)),
+    ];
+    const snap = computePollHealthFromRuns(date, runs, {
+      chatgpt: 0,
+      perplexity: 100,
+    });
+    const perp = snap.platforms.find((p) => p.platform === "perplexity")!;
+    expect(perp.samplingStatus).toBe("full");
+  });
+
+  it("50-obs partial day (e.g. 2 chunks landed) → samplingStatus='partial'", () => {
+    const runs = [
+      chunkRun("perplexity-native-poll", 0, "completed", 25, t(10, 0)),
+      chunkRun("perplexity-native-poll", 25, "completed", 25, t(10, 4)),
+      chunkRun("perplexity-native-poll", 50, "failed", 0, t(10, 8)),
+      chunkRun("perplexity-native-poll", 75, "failed", 0, t(10, 12)),
+    ];
+    const snap = computePollHealthFromRuns(date, runs, {
+      chatgpt: 0,
+      perplexity: 50,
+    });
+    const perp = snap.platforms.find((p) => p.platform === "perplexity")!;
+    expect(perp.samplingStatus).toBe("partial");
+  });
+
+  it("0 obs (silent-failure pre-fix May 2-4 pattern) → samplingStatus='empty' AND status='failed'", () => {
+    const runs = [
+      chunkRun("perplexity-native-poll", 0, "completed", 25, t(10, 0)),
+      chunkRun("perplexity-native-poll", 25, "completed", 25, t(10, 4)),
+      chunkRun("perplexity-native-poll", 50, "completed", 25, t(10, 8)),
+      chunkRun("perplexity-native-poll", 75, "completed", 25, t(10, 12)),
+    ];
+    const snap = computePollHealthFromRuns(date, runs, {
+      chatgpt: 0,
+      perplexity: 0, // silent failure: chunks reported "completed" but DB has zero
+    });
+    const perp = snap.platforms.find((p) => p.platform === "perplexity")!;
+    expect(perp.samplingStatus).toBe("empty");
+    expect(perp.status).toBe("failed");
+  });
+
+  it("zero runs (cron not yet fired) → samplingStatus='empty' AND status='pending'", () => {
+    const snap = computePollHealthFromRuns(date, [], {
+      chatgpt: 0,
+      perplexity: 0,
+    });
+    for (const p of snap.platforms) {
+      expect(p.samplingStatus).toBe("empty");
+      expect(p.status).toBe("pending");
+    }
+  });
+
+  it("legacy callers (no actual count provided) get samplingStatus computed from scope_label totals", () => {
+    // Backwards compatibility: when actualCount isn't supplied,
+    // observationsWritten falls back to scope_label parsing.
+    // samplingStatus is then derived from that fallback. A normal
+    // 4-chunk completed run reports 100 → "full".
+    const runs = [
+      chunkRun("perplexity-native-poll", 0, "completed", 25, t(10, 0)),
+      chunkRun("perplexity-native-poll", 25, "completed", 25, t(10, 4)),
+      chunkRun("perplexity-native-poll", 50, "completed", 25, t(10, 8)),
+      chunkRun("perplexity-native-poll", 75, "completed", 25, t(10, 12)),
+    ];
+    const snap = computePollHealthFromRuns(date, runs);
+    const perp = snap.platforms.find((p) => p.platform === "perplexity")!;
+    expect(perp.observationsWritten).toBe(100);
+    expect(perp.samplingStatus).toBe("full");
+  });
+
+  it("mixed: chatgpt full, perplexity proof (asymmetric — operator's actual May 4 state)", () => {
+    // Operator's actual May 4 state: a perplexity proof run (5) and a
+    // chatgpt proof run (5) are the only writes — the rest of the day
+    // was silent-failure obs that didn't land.
+    const runs = [
+      chunkRun("perplexity-native-poll", 0, "completed", 5, t(20, 59)),
+      chunkRun("openai-native-poll", 0, "completed", 5, t(21, 0)),
+    ];
+    const snap = computePollHealthFromRuns(date, runs, {
+      chatgpt: 5,
+      perplexity: 5,
+    });
+    const chatgpt = snap.platforms.find((p) => p.platform === "chatgpt")!;
+    const perp = snap.platforms.find((p) => p.platform === "perplexity")!;
+    expect(chatgpt.samplingStatus).toBe("proof");
+    expect(perp.samplingStatus).toBe("proof");
   });
 });

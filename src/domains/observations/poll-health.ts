@@ -29,6 +29,31 @@ const EXPECTED_CHUNKS = 4;
 export type PollPlatform = "perplexity" | "chatgpt";
 export type PollHealthStatus = "ok" | "partial" | "failed" | "pending";
 
+/**
+ * Partial-day patch (2026-05-04, post-W4 audit): describes the SHAPE
+ * of a day's sample, independent of run-level pass/fail.
+ *
+ *   "full"    → ≥ 80 observations persisted (a normal-sized daily run).
+ *   "partial" → 10–79 observations persisted (some chunks landed but
+ *               not enough to power headline deltas confidently).
+ *   "proof"   → 1–9 observations persisted (a manual-proof-style run;
+ *               these days should NOT distort headline KPI deltas as
+ *               if they were full days).
+ *   "empty"   → 0 observations persisted on this platform today.
+ *
+ * The thresholds are operator-locked at 80 / 10 / 1; downstream
+ * surfaces (KPI tiles, sparklines) read this field to mute or warn
+ * on small-sample days. Backwards compatibility: when the cross-check
+ * isn't supplied to `computePollHealthFromRuns` (legacy callers), the
+ * field is always `"full"` for runs with completedChunks > 0 and
+ * `"empty"` otherwise — no behavioral change.
+ */
+export type SamplingStatus = "full" | "partial" | "proof" | "empty";
+
+/** Operator-locked thresholds. */
+export const FULL_RUN_PROMPT_FLOOR = 80;
+export const PROOF_RUN_PROMPT_CEIL = 9;
+
 export type PlatformPollHealth = {
   platform: PollPlatform;
   /** Chunk target (typically 4). Falls back to 1 for legacy whole-mode runs. */
@@ -38,6 +63,12 @@ export type PlatformPollHealth = {
   /** Sum of successful prompt counts across completed chunks. */
   observationsWritten: number;
   status: PollHealthStatus;
+  /**
+   * Partial-day classifier. Use this to gate headline KPI deltas /
+   * sparkline rendering. Defaults to "full" when no cross-check is
+   * provided (legacy back-compat).
+   */
+  samplingStatus: SamplingStatus;
   latestRun?: {
     runId: string;
     startedAt: string;
@@ -199,6 +230,7 @@ function computePlatformHealth(
       failedChunks: 0,
       observationsWritten: 0,
       status: "pending",
+      samplingStatus: "empty",
     };
   }
 
@@ -241,6 +273,7 @@ function computePlatformHealth(
       failedChunks: latest.status === "failed" ? 1 : 0,
       observationsWritten,
       status: finalStatus,
+      samplingStatus: classifySampling(observationsWritten),
       latestRun: {
         runId: latest.run_id,
         startedAt: latest.started_at,
@@ -323,6 +356,7 @@ function computePlatformHealth(
     failedChunks,
     observationsWritten,
     status: finalStatus,
+    samplingStatus: classifySampling(observationsWritten),
     latestRun: {
       runId: latest.run_id,
       startedAt: latest.started_at,
@@ -331,6 +365,19 @@ function computePlatformHealth(
       runStatus: latest.status,
     },
   };
+}
+
+/**
+ * Partial-day classifier (2026-05-04). Operator-locked thresholds at
+ * 80 / 10 / 1 reflect the production daily-poll target (100 prompts
+ * per platform per day). Days that fall below the floor should not
+ * drive headline KPI deltas as if they were full days.
+ */
+export function classifySampling(observationsWritten: number): SamplingStatus {
+  if (observationsWritten <= 0) return "empty";
+  if (observationsWritten <= PROOF_RUN_PROMPT_CEIL) return "proof";
+  if (observationsWritten < FULL_RUN_PROMPT_FLOOR) return "partial";
+  return "full";
 }
 
 /**

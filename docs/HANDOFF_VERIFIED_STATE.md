@@ -1,5 +1,112 @@
 # Beacon — Start Here
 
+> 🟡 **MAY 2-4 RECOVERY AUDIT + PARTIAL-DAY PATCH (2026-05-04, late evening):** Operator asked for a read-only audit of every possible location where May 2-4 raw poll data could exist, plus a UI patch so the May 4 5-prompt manual proof doesn't distort headline KPI deltas. Audit complete; recovery NOT feasible; partial-day signal landed on PlatformPollHealth.
+>
+> ## Recovery audit (read-only, 6 dimensions)
+>
+> | # | Surface | Finding |
+> |---|---|---|
+> | A1 | `observation_runs` for May 2-4 | 24 chunk runs (8/day × 3 days), all `status: completed`, scope_label carries cost only. **NO raw response data:** `counts: null`, `sample_result_row_count: null`, no error fields, no provider response IDs, no embedded JSON. Run-level cost extraction by chunk: May 2 $2.9952 + May 3 $3.1167 + May 4-morning $2.9113 = **~$9.02 lost spend across 24 chunks.** |
+> | A2 | Other Supabase tables (`answer_texts`, public schema) | `answer_texts` has 16,042 rows total; 1,946 match ritz-founder pao (1,936 native + 10 manual proof from earlier today); **14,096 are orphan (no matching pao row).** **But:** of those 14,096, ZERO bodies mention 2026-04-* or 2026-05-* dates, 1,786 carry the Profound `==**` markdown signature, and the orphan IDs do NOT match any W4 published observation IDs. The orphans are pre-existing Profound-era residue, NOT recoverable May 2-4 polls. **No staging/import/raw-result tables exist that hold native poll outputs.** |
+> | A3 | GitHub Actions workflow logs / artifacts | `.github/workflows/daily-native-poll.yml` uses curl to POST `/api/poll/run`; logs are stdout-only, no artifact uploads, no `.data` files committed. Vercel Hobby retains logs ~1h-few-days; May 2-4 logs already rolled off. The operator could check the Actions UI for the May 2/3/4 runs but they only contain stdout summaries (status JSON), not response bodies. |
+> | A4 | Vercel logs path | `/api/poll/run` and the shared poll-adapter only `console.log` PRE_CALL telemetry (runId, tenantId, promptId, accumulated cost) + per-chunk structured summary. **Zero raw response bodies in logs anywhere.** |
+> | A5 | Local repo `.data/` + backups | `.data/cost-ledger.json` only has 10 entries from today's manual proof (no May 2-4 — those ran on Vercel where the cost-ledger is read-only). `.data/observation-runs.json` has 0 May 2-4 entries (local json-store is stale post-Supabase-migration). Stage 1 backup did NOT include `answer_texts`. **No recoverable artifacts on disk.** |
+> | A6 | Provider response IDs | OpenAI client captures `usage.providerRaw.responseId` and stores it in the OBSERVATION's `metadata.usage.providerRaw`. Since May 2-4 observations never persisted, the response IDs are LOST. Perplexity Sonar doesn't expose a stable response ID through our client. **No replayability via OpenAI Responses API.** |
+>
+> ### Recovery verdict: **exact recovery is impossible**
+>
+> | Question | Answer |
+> |---|---|
+> | Are May 2-4 raw answers recoverable? | **NO.** No raw bodies persisted anywhere queryable, no provider response IDs to replay, no artifacts in repo, Vercel logs rolled off. |
+> | If partial, which platform/date/chunks? | All 3 days × 2 platforms × 4 chunks (24 chunks total) are completely unrecoverable. |
+> | API spend lost | **~$9.02** (May 2 $2.9952 + May 3 $3.1167 + May 4-morning $2.9113), extracted from `observation_runs.scope_label` cost suffixes. |
+> | Useful data lost by date/platform | Each lost day = 100 prompts × 2 platforms = 200 observations + ~80 derived snapshots. 3 days = 600 obs + ~240 snapshots. |
+> | Recommendation | **Leave May 2-4 missing.** Do NOT attempt rebuild from `answer_texts` — orphans don't match May 2-4 fingerprints. Do NOT run a fresh full poll today (next May 5 cron at 07:00 UTC will land cleanly with the dual-write throw fix + schema migration in place). |
+>
+> ### What we know about the lost days (reconstructable from `observation_runs`)
+>
+> | Date | Platform | Chunks | Total prompts attempted | Cost |
+> |---|---|---:|---:|---:|
+> | 2026-05-02 | Perplexity | 4 | 100 | $0.0517 |
+> | 2026-05-02 | ChatGPT | 4 | 100 | $2.9435 |
+> | 2026-05-03 | Perplexity | 4 | 100 | $0.0551 |
+> | 2026-05-03 | ChatGPT | 4 | 100 | $3.0616 |
+> | 2026-05-04 (morning) | Perplexity | 4 | 100 | $0.0534 |
+> | 2026-05-04 (morning) | ChatGPT | 4 | 100 | $2.8579 |
+> | **Total** | | **24** | **600** | **$9.0232** |
+>
+> All 24 chunks reported `status: completed` and "25/25 prompts" in scope_label. Zero rows landed because the dual-write upsert silently rejected each batch on PGRST204 ("competitor_descriptor_windows column not in schema cache"). `observation_runs` retains the cost data for audit; everything else is gone.
+>
+> ## Partial-day patch (P-PARTIAL)
+>
+> May 4's only persisted data today is the manual write-proof (5 obs × 2 platforms = 10 obs), which is far below a normal-day baseline (~200 obs). Without a partial-day signal, /today's headline tiles + sparklines treat 5 the same as 100 — distorting deltas.
+>
+> **New field on `PlatformPollHealth`:** `samplingStatus: "full" | "partial" | "proof" | "empty"` — operator-locked thresholds:
+>
+> | Bucket | Threshold | Meaning |
+> |---|---|---|
+> | `full` | ≥ 80 obs | Normal-sized daily run (close to the 100-prompt target) |
+> | `partial` | 10–79 obs | Some chunks landed but not enough for confident headline deltas |
+> | `proof` | 1–9 obs | Manual-proof-style run; mute headline-delta contribution |
+> | `empty` | 0 obs | Nothing persisted (either no run OR silent-failure pattern) |
+>
+> The signal is computed independently from `status` (which captures chunk completion), so consumers can decide separately whether to trust the verdict (status) and whether to trust the volume (samplingStatus). Pure compute, fully tested.
+>
+> **UI surfacing in `poll-health-block.tsx`:**
+> - `platformSummary()` now appends a sampling tag: e.g., `4/4 · 5 prompts · proof run (small sample)`. "full" gets no tag.
+> - `subline()` adds two new copy branches:
+>   - **Proof-run:** "Perplexity + ChatGPT ran a proof-sized sample (small). Headline deltas use larger windows; sparkline may dip on this day."
+>   - **Partial-day:** "Perplexity landed a partial day (some chunks missed). Today's count is below the normal 80-prompt floor."
+>
+> ## Files (modified, this turn)
+>
+> - `src/domains/observations/poll-health.ts` — new `SamplingStatus` type; new exported `classifySampling()` helper + `FULL_RUN_PROMPT_FLOOR` (80) + `PROOF_RUN_PROMPT_CEIL` (9) constants; `PlatformPollHealth.samplingStatus` field added at all 3 return sites in `computePlatformHealth` (zero-runs / whole-mode / chunk-mode).
+> - `src/components/today/poll-health-block.tsx` — `platformSummary()` appends `samplingStatusTag`; `subline()` adds proof/partial-run copy branches.
+> - `tests/domains/observations/poll-health.test.ts` — extended from 16 → 28 cases (+12 partial-day invariants). New describe blocks: classifySampling thresholds (5 tests), samplingStatus on PlatformPollHealth (7 tests covering operator's exact May 4 case + full/partial/empty/proof + legacy callers + asymmetric platforms).
+> - `docs/HANDOFF_VERIFIED_STATE.md` (this entry).
+> - `docs/VERIFICATION_LOG.md` (audit + patch entry).
+>
+> ## Verification
+>
+> - ✓ `npx tsc --noEmit` clean
+> - ✓ `tests/domains/observations/poll-health.test.ts` 28/28 pass (was 16; +12 partial-day tests)
+> - ✓ `tests/architecture/poll-health-copy.test.ts` 6/6 pass
+> - ✓ `tests/architecture/dual-write-loud-fail.test.ts` 3/3 pass
+> - ✓ `tests/domains/prompt-answer-observations/enrichment-rollup.test.ts` 53/53 pass
+> - ✓ `npm run test` 4173/4179 (same 6 pre-existing baseline failures all OUTSIDE this surface; +12 new passes)
+> - ✓ `BEACON_TENANT_ID=... BEACON_TENANT_SLUG=... npm run build` clean (one transient Supabase timeout on /prompts prerender on first attempt; retry succeeded — unrelated to patches)
+>
+> ## Acceptance criteria — all met
+>
+> | Criterion | Status |
+> |---|---|
+> | recovery audit complete | ✓ 6 dimensions checked, every surface accounted for |
+> | no paid reruns during audit | ✓ all SQL was read-only `SELECT`; no API calls |
+> | no fabricated backfill | ✓ NO observation rows inserted; orphan answer_texts left untouched |
+> | exact recommendation for May 2-4 gap | ✓ "Leave missing; next cron at May 5 07:00 UTC will land cleanly" |
+> | partial-run UI/metric handling plan or patch | ✓ `samplingStatus` field + UI subline + tests |
+>
+> ## Constraints honored
+>
+> - ✓ Did NOT run another full paid poll
+> - ✓ Did NOT backdate new data
+> - ✓ Did NOT fabricate May 2-4 rows
+> - ✓ Did NOT Apply-All-HIGH
+> - ✓ Did NOT publish Stage 5
+> - ✓ Did NOT archive Profound
+> - ✓ Did NOT mutate Supabase data anywhere (read-only audit; orphan answer_texts stayed untouched)
+> - ✓ All audit queries were `SELECT` only
+>
+> ## Follow-up signal (deferred — operator-gated)
+>
+> The `samplingStatus` field is now available on `PlatformPollHealth`. Consumers (KPI tiles in /today's hero card, the sparkline/chart components) can read it to mute or warn on small-sample days. Wiring the consumers to actually de-bias headline deltas + chart visuals is a separate change with broader UX scope; flagging here for operator's next-phase pickup.
+>
+> ## Next 3 actions (operator-gated)
+>
+> 1. **Wait for May 5 07:00 UTC cron** — should land cleanly (schema column exists; dual-write throws on failure; persistence cross-check surfaces truth in /today). If it lands clean, May 5 will be the first full daily run since May 1 and the chart will resume normal motion.
+> 2. **Consume `samplingStatus`** in headline KPI tile rendering (today-client.tsx and/or the daily snapshot read path) — mute Δ display when `samplingStatus !== "full"` for the latest day. Operator-gated: this is a UX change with broader scope than this turn.
+> 3. **(Future)** Pick up the medium bugs from earlier (3: descriptor "warming up" copy; 4: descriptor stopwords; 5: entity-pollution filter on /prompts) per scope-priority order.
+
 > 🟢 **POST-PATCH WRITE-PATH PROOF (2026-05-04, evening):** After landing the 2 critical patches earlier today, operator's browser check confirmed the `/today` UI now correctly says "Poll (May 4): failed — pipeline needs attention" instead of the old false-complete state. Daily-poll workflow on GitHub Actions still showed green though, so the operator asked for a controlled test to prove the fixed pipeline actually persists rows now that the schema is migrated. **Smallest possible manual polls (5 prompts each platform, $0.19 total) succeeded end-to-end.**
 >
 > ## Read-only diagnosis (D1-D6)
