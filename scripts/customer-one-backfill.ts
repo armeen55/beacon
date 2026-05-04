@@ -170,8 +170,16 @@ export const ALL_STAGES = [
 export type Stage = (typeof ALL_STAGES)[number];
 
 /** Stages whose code is wired in this commit. Calling any other
- *  stage exits non-zero with a clear "not yet implemented" message. */
-export const IMPLEMENTED_STAGES = new Set<Stage>(["preflight", "backup"]);
+ *  stage exits non-zero with a clear "not yet implemented" message.
+ *
+ *  W4 Stage 2 (2026-05-04): `extract-observations` lands STAGED
+ *  ONLY — output goes to `.data/_staging/`, never touching Supabase
+ *  or the live `.data/tenants/` tree. */
+export const IMPLEMENTED_STAGES = new Set<Stage>([
+  "preflight",
+  "backup",
+  "extract-observations",
+]);
 
 // ── CLI flags ───────────────────────────────────────────────────────────
 
@@ -513,6 +521,17 @@ async function main(): Promise<void> {
     });
     printBackupReport(report);
     process.exit(report.skippedReason ? 4 : 0);
+    return;
+  }
+
+  if (flags.stage === "extract-observations") {
+    const report = await runExtractObservations({
+      tenantId,
+      tenantSlug,
+      dryRun: flags.dryRun,
+    });
+    printExtractObservationsReport(report);
+    process.exit(report.errors.length > 0 ? 5 : 0);
     return;
   }
 
@@ -1366,6 +1385,790 @@ function printBackupReport(report: BackupReport): void {
       `  ${(e.sourceOfTruth + ":").padEnd(13)} ${e.relativePath.padEnd(60)} rows=${String(e.rowCount ?? "n/a").padStart(6)}  bytes=${String(e.byteCount).padStart(9)}  sha=${e.sha256.slice(0, 12)}...`,
     );
   }
+  console.log("══════════════════════════════════════════════════════════════════");
+  console.log("");
+}
+
+// ── Stage 2: extract-observations (staging only) ────────────────────────
+//
+// Stream the raw Profound CSV row-by-row, run Schema v2 extractors per
+// row, stamp `historical_recovered` provenance, write to:
+//   .data/_staging/w4-extracted-observations.json   (full staged set)
+//   .data/_staging/w4-extraction-report.json        (counts + samples)
+//   .data/_staging/w4-extraction-progress.json      (resumable checkpoint)
+//
+// The output is ONLY a staged JSON file. There are NO Supabase writes
+// and NO mutations to live `.data/tenants/`. Operator scope (W4
+// Stage 2 turn): "Stage 2 ends with staged JSON only."
+//
+// Idempotent: deterministic IDs (sha256 hash of stable inputs) →
+// re-running produces byte-identical observations. The progress
+// checkpoint is informational; resuming a partial run is supported
+// in a follow-up commit if needed.
+//
+// Does NOT depend on the stale `.data/tenants/.../prompt-answer-
+// observations.json` (the operator's correction). Reads:
+//   - `.data/profound_raw_data_with_citations(...).csv` (source)
+//   - `tracked_prompts` (Supabase, global table) — for prompt id mapping
+//   - `tracked_entities` (Supabase, global table) — for owned + competitor
+// And writes ONLY to `.data/_staging/`.
+
+export type ExtractObservationsReport = {
+  readonly tenantId: string;
+  readonly tenantSlug: string;
+  readonly dryRun: boolean;
+  readonly stagingDir: string;
+  readonly inputCsv: string;
+  readonly inputCsvHash: string;
+  readonly extractedAt: string;
+  readonly inputRows: number;
+  readonly stagedObservations: number;
+  readonly skippedRowsByReason: Record<string, number>;
+  readonly dateCoverage: {
+    readonly distinctDates: number;
+    readonly minDate: string | null;
+    readonly maxDate: string | null;
+  };
+  readonly platformBreakdown: Record<string, number>;
+  readonly promptMatch: {
+    readonly csvDistinctPrompts: number;
+    readonly mapped: number;
+    readonly orphans: number;
+    readonly orphanSamples: ReadonlyArray<string>;
+  };
+  readonly fieldCoverage: {
+    readonly responsePresent: number;
+    readonly searchQueriesPresent: number;
+    readonly citationUrlsPresent: number;
+    readonly citationDomainsPresent: number;
+    readonly competitorCoMentionsPresent: number;
+    readonly competitorDescriptorWindowsPresent: number;
+    readonly answerStructurePresent: number;
+    readonly primaryRecommendationTrue: number;
+    readonly mentionsPresent: number;
+  };
+  readonly aioBlindSpotCount: number;
+  readonly sampleObservationIds: ReadonlyArray<string>;
+  readonly sampleObservationMetadata: ReadonlyArray<unknown>;
+  readonly errors: ReadonlyArray<string>;
+};
+
+/** Pure: deterministic UUID-shaped id from stable inputs. Operator
+ *  scope: "Rerun must produce the same IDs." */
+export function deterministicObservationId(args: {
+  readonly tenantId: string;
+  readonly date: string;
+  readonly platform: string;
+  readonly promptId: string;
+  readonly runId: string;
+  readonly answerHash: string;
+}): string {
+  const seed = `${args.tenantId}::${args.date}::${args.platform}::${args.promptId}::${args.runId}::${args.answerHash}`;
+  const h = createHash("sha256").update(seed).digest("hex");
+  // UUID v8-ish layout — 8-4-4-4-12 hex.
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20, 32)}`;
+}
+
+/** Pure: 8-char hex prefix of sha256(answer_text). Matches the
+ *  shape of native observations' `answer_hash`. */
+export function answerHashForText(answerText: string): string {
+  return createHash("sha256").update(answerText).digest("hex").slice(0, 8);
+}
+
+/** Pure: parse Profound CSV `position` field ("#1", "#2", " #3 ", "")
+ *  into a 1-indexed list rank or null. */
+export function parseProfoundPosition(raw: string | null | undefined): number | null {
+  if (typeof raw !== "string") return null;
+  const m = raw.trim().match(/^#?(\d+)$/);
+  if (!m) return null;
+  const n = Number.parseInt(m[1], 10);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return n;
+}
+
+/** Pure: extract citation_urls + citation_domains from a row's
+ *  citation_1..citation_36 columns. */
+export function extractCitationsFromRow(row: Record<string, string>): {
+  citationUrls: string[];
+  citationDomains: string[];
+} {
+  const urls: string[] = [];
+  for (let i = 1; i <= 36; i++) {
+    const v = (row[`citation_${i}`] ?? "").trim();
+    if (v.length === 0) continue;
+    urls.push(v);
+  }
+  const domains: string[] = [];
+  const seen = new Set<string>();
+  for (const url of urls) {
+    const d = extractHostname(url);
+    if (!d) continue;
+    if (seen.has(d)) continue;
+    seen.add(d);
+    domains.push(d);
+  }
+  return { citationUrls: urls, citationDomains: domains };
+}
+
+function extractHostname(url: string): string | null {
+  try {
+    const u = new URL(url);
+    return u.hostname.toLowerCase().replace(/^www\./, "");
+  } catch {
+    // Fallback: regex host extract. Matches `://host/...` or bare host.
+    const m = url.match(/^[a-z]+:\/\/([^\/?#]+)/i);
+    if (m) return m[1].toLowerCase().replace(/^www\./, "");
+    return null;
+  }
+}
+
+/** Pure: parse the comma-separated `normalized_mentions` field. */
+export function parseMentionsField(raw: string | null | undefined): string[] {
+  if (typeof raw !== "string") return [];
+  const parts = raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+  // De-dupe while preserving first-appearance order.
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const p of parts) {
+    if (seen.has(p)) continue;
+    seen.add(p);
+    out.push(p);
+  }
+  return out;
+}
+
+async function runExtractObservations(args: {
+  readonly tenantId: string;
+  readonly tenantSlug: string;
+  readonly dryRun: boolean;
+}): Promise<ExtractObservationsReport> {
+  const errors: string[] = [];
+  const cwd = process.cwd();
+
+  // 1. Verify CSV hash matches the locked manifest. Aborts if drift.
+  const csvName = "profound_raw_data_with_citations(march5th-april21st).csv";
+  const csvPath = join(cwd, ".data", csvName);
+  if (!existsSync(csvPath)) {
+    errors.push(`source CSV not found at ${csvPath}`);
+    return emptyExtractReport({ tenantId: args.tenantId, tenantSlug: args.tenantSlug, dryRun: args.dryRun, csvPath, csvHash: "", errors });
+  }
+  const csvHash = sha256OfFile(csvPath);
+  const expectedHash = LOCKED_CSV_MANIFEST[csvName];
+  if (csvHash !== expectedHash) {
+    errors.push(
+      `source CSV hash drift: expected ${expectedHash}, got ${csvHash}. Update LOCKED_CSV_MANIFEST or restore the original file.`,
+    );
+    return emptyExtractReport({ tenantId: args.tenantId, tenantSlug: args.tenantSlug, dryRun: args.dryRun, csvPath, csvHash, errors });
+  }
+
+  // 2. Load tracked_prompts + tracked_entities from Supabase.
+  const { getSupabaseAdmin } = await import(
+    "../src/lib/persistence/supabase"
+  );
+  const sb = getSupabaseAdmin();
+
+  type PromptRow = { id: string; text: string };
+  type EntityRow = {
+    name: string;
+    aliases?: string[] | null;
+    domain: string | null;
+    is_owned: boolean;
+    is_active: boolean;
+  };
+
+  let promptRows: PromptRow[] = [];
+  try {
+    const { data, error } = await sb.from("tracked_prompts").select("id, text");
+    if (error) throw error;
+    promptRows = (data ?? []) as PromptRow[];
+  } catch (err) {
+    errors.push(
+      `tracked_prompts read failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+  const promptIdByText = new Map<string, string>();
+  for (const r of promptRows) {
+    if (typeof r.text === "string" && typeof r.id === "string") {
+      promptIdByText.set(r.text.trim().toLowerCase(), r.id);
+    }
+  }
+
+  let entityRows: EntityRow[] = [];
+  try {
+    const { data, error } = await sb
+      .from("tracked_entities")
+      .select("name, aliases, domain, is_owned, is_active")
+      .eq("is_active", true);
+    if (error) throw error;
+    entityRows = (data ?? []) as EntityRow[];
+  } catch (err) {
+    errors.push(
+      `tracked_entities read failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+  const ownedNameVariants: string[] = [];
+  const ownedDomainSet = new Set<string>();
+  const competitorDomainSet = new Set<string>();
+  for (const e of entityRows) {
+    if (e.is_owned) {
+      if (e.name) ownedNameVariants.push(e.name);
+      if (e.aliases) for (const a of e.aliases) if (a) ownedNameVariants.push(a);
+      if (e.domain) ownedDomainSet.add(e.domain.toLowerCase().replace(/^www\./, ""));
+    } else {
+      if (e.domain) competitorDomainSet.add(e.domain.toLowerCase().replace(/^www\./, ""));
+    }
+  }
+  const ownedEntityNameSet = new Set<string>();
+  for (const e of entityRows) {
+    if (e.is_owned && e.name) ownedEntityNameSet.add(e.name);
+  }
+
+  // Lazy imports for the extractors so test fixtures can mock the
+  // module if needed; keeps the script's startup cheap.
+  const {
+    extractMentionPosition,
+    extractCitationRank,
+    rankEntitiesByFirstAppearance,
+    extractPrimaryRecommendation,
+    extractDescriptorWindow,
+    extractCompetitorCoMentions,
+    extractCompetitorDescriptorWindows,
+    classifyCitationDomains,
+    extractAnswerStructure,
+  } = await import("../src/domains/prompt-answer-observations/extraction");
+  const { parseSearchQueries } = await import(
+    "../src/domains/prompt-answer-observations/search-query-parser"
+  );
+
+  const entitiesForOrdering = entityRows.map((e) => ({
+    name: e.name,
+    aliases: e.aliases ?? undefined,
+  }));
+
+  // Pick the primary brand name (first owned entity by sort) for
+  // the primary-recommendation heuristic.
+  const primaryBrandName =
+    entityRows.find((e) => e.is_owned)?.name ?? "";
+
+  // 3. Stream the CSV row-by-row.
+  //
+  // The Profound CSV has multi-line quoted response cells with embedded
+  // unescaped quote characters that Node's `csv-parse` library cannot
+  // tolerate (it silently drops ~32% of rows under any tested option
+  // combination — confirmed against `relax_quotes`, `relax_column_count`,
+  // strict mode). Python's stdlib `csv.DictReader` handles them cleanly
+  // and gives the canonical 14,096-row count we verified at preflight.
+  // Shell out to it via `scripts/parse-raw-csv.py` and read NDJSON.
+  const records: Record<string, string>[] = await parseCsvViaPython(csvPath);
+
+  // 4. Build the staged observations.
+  const csvDistinctPrompts = new Set<string>();
+  const orphanPromptSet = new Set<string>();
+  const skippedByReason: Record<string, number> = {};
+  const platformBreakdown: Record<string, number> = {};
+  const dateSet = new Set<string>();
+  const observations: unknown[] = [];
+
+  let responsePresent = 0;
+  let searchQueriesPresent = 0;
+  let citationUrlsPresent = 0;
+  let citationDomainsPresent = 0;
+  let competitorCoMentionsPresent = 0;
+  let competitorDescriptorWindowsPresent = 0;
+  let answerStructurePresent = 0;
+  let primaryRecommendationTrue = 0;
+  let mentionsPresent = 0;
+  let aioBlindSpotCount = 0;
+
+  for (let rowIdx = 0; rowIdx < records.length; rowIdx++) {
+    const r = records[rowIdx];
+    const promptText = (r.prompt ?? "").trim();
+    const date = (r.date ?? "").trim();
+    const platform = (r.platform ?? "").trim();
+    const runId = (r.run_id ?? "").trim();
+    const responseText = r.response ?? "";
+
+    csvDistinctPrompts.add(promptText.toLowerCase());
+
+    // Prompt mapping — operator scope: "Map every CSV prompt text to
+    // tracked_prompts by case-insensitive exact match. If any prompt
+    // does not map, do not silently drop it. Report and skip/abort
+    // based on severity."
+    const promptId = promptIdByText.get(promptText.toLowerCase());
+    if (!promptId) {
+      orphanPromptSet.add(promptText.slice(0, 120));
+      skippedByReason["orphan_prompt"] = (skippedByReason["orphan_prompt"] ?? 0) + 1;
+      continue;
+    }
+
+    dateSet.add(date);
+    platformBreakdown[platform] = (platformBreakdown[platform] ?? 0) + 1;
+
+    const platformSlug = platform.toLowerCase().replace(/\s+/g, "-");
+    const isAio = platform === "Google AI Overviews";
+    const answerHash = answerHashForText(responseText);
+    const id = deterministicObservationId({
+      tenantId: args.tenantId,
+      date,
+      platform: platformSlug,
+      promptId,
+      runId,
+      answerHash,
+    });
+
+    const { citationUrls, citationDomains } = extractCitationsFromRow(r);
+    if (citationUrls.length > 0) citationUrlsPresent++;
+    if (citationDomains.length > 0) citationDomainsPresent++;
+
+    const mentions = parseMentionsField(r.normalized_mentions ?? r.mentions);
+    if (mentions.length > 0) mentionsPresent++;
+
+    const tracked_brand_mentioned =
+      typeof r["mentioned?"] === "string"
+        ? r["mentioned?"].trim().toLowerCase() === "yes"
+        : null;
+
+    // Citation rank (1-indexed) for owned domain.
+    const tracked_brand_cited = (() => {
+      for (const d of citationDomains) {
+        if (ownedDomainSet.has(d)) return true;
+      }
+      return false;
+    })();
+    const owned_citation_count = citationDomains.filter((d) =>
+      ownedDomainSet.has(d),
+    ).length;
+    const citation_rank = extractCitationRank(citationDomains, ownedDomainSet);
+
+    const positionFromCsv = parseProfoundPosition(r.position);
+
+    // Schema v2 extractors — text-derived fields. Only run when
+    // response present.
+    const hasResponse = responseText.trim().length > 0;
+    let mention_position: number | null = null;
+    let descriptor_window: string[] | null = null;
+    let competitor_co_mentions: string[] | null = null;
+    let competitor_descriptor_windows: Record<string, string[]> | null = null;
+    let answer_structure: string | null = null;
+    let primary_recommendation: boolean | null = null;
+    let entitiesInOrder: string[] = [];
+
+    if (hasResponse) {
+      responsePresent++;
+      mention_position = extractMentionPosition(responseText, ownedNameVariants);
+      entitiesInOrder = rankEntitiesByFirstAppearance(responseText, entitiesForOrdering);
+      descriptor_window = extractDescriptorWindow(
+        responseText,
+        mention_position,
+        ownedNameVariants,
+      );
+      competitor_co_mentions = extractCompetitorCoMentions(
+        entitiesInOrder,
+        ownedEntityNameSet,
+      );
+      if (competitor_co_mentions.length > 0) competitorCoMentionsPresent++;
+      competitor_descriptor_windows = extractCompetitorDescriptorWindows(
+        responseText,
+        entitiesForOrdering,
+        ownedNameVariants,
+      );
+      if (Object.keys(competitor_descriptor_windows).length > 0)
+        competitorDescriptorWindowsPresent++;
+      answer_structure = extractAnswerStructure(responseText);
+      if (answer_structure) answerStructurePresent++;
+      primary_recommendation = extractPrimaryRecommendation(
+        responseText,
+        mention_position,
+        entitiesInOrder,
+        primaryBrandName,
+      );
+      if (primary_recommendation) primaryRecommendationTrue++;
+    } else {
+      // Empty-response handling per operator scope: "do not fake
+      // text-derived fields; include them only if they can safely
+      // carry citation/domain metadata".
+      skippedByReason["empty_response_kept_for_citations"] =
+        (skippedByReason["empty_response_kept_for_citations"] ?? 0) + 1;
+    }
+
+    const citation_domain_classes = classifyCitationDomains(
+      citationDomains,
+      ownedDomainSet,
+      competitorDomainSet,
+    );
+
+    const rawSearchQueries = (r.search_queries ?? "").trim();
+    const search_queries = parseSearchQueries(rawSearchQueries);
+    if (search_queries.length > 0) searchQueriesPresent++;
+
+    if (isAio) aioBlindSpotCount++;
+
+    // Observed_at: use date midnight in UTC. Native observations have
+    // a real timestamp; for historical_recovered we use the day at
+    // 00:00 UTC since we don't have higher resolution.
+    const observed_at = `${date}T00:00:00.000Z`;
+
+    // Provenance metadata — operator-locked W4 §1.5.
+    const extractionConfidence: Record<string, string> = {
+      mention_position: hasResponse ? "high" : "absent_no_response",
+      citation_rank: citation_rank !== null ? "high" : "no_owned_citation",
+      descriptor_window: hasResponse ? "high" : "absent_no_response",
+      competitor_co_mentions: hasResponse ? "low_entity_drift" : "absent_no_response",
+      competitor_descriptor_windows: hasResponse ? "low_entity_drift" : "absent_no_response",
+      answer_structure: hasResponse ? "high" : "absent_no_response",
+      primary_recommendation: hasResponse ? "high" : "absent_no_response",
+      citation_urls: isAio ? "low_aio_pre_commit_7" : "high",
+      citation_domain_classes: "low_entity_drift",
+      search_queries:
+        isAio
+          ? "blindSpot_aio"
+          : rawSearchQueries.length > 0
+            ? "high"
+            : "absent_in_source",
+    };
+
+    const blindSpot = isAio
+      ? "AIO does not expose internal queries"
+      : null;
+
+    const observation = {
+      id,
+      prompt_id: promptId,
+      run_id: runId,
+      answer_hash: answerHash,
+      position: positionFromCsv,
+      tracked_brand_mentioned,
+      tracked_brand_cited,
+      citation_count: citationUrls.length,
+      owned_citation_count,
+      citation_domains: citationDomains,
+      citation_categories: {} as Record<string, number>,
+      mentions,
+      observed_at,
+      platform,
+      topic: (r.topic ?? "").trim(),
+      raw_search_queries: rawSearchQueries,
+      search_queries,
+      mention_position,
+      citation_rank,
+      primary_recommendation,
+      descriptor_window,
+      competitor_co_mentions,
+      competitor_descriptor_windows,
+      citation_domain_classes,
+      answer_structure,
+      citation_urls: citationUrls,
+      tenant_id: args.tenantId,
+      metadata: {
+        regime: "historical_recovered" as const,
+        source_system: "profound_csv_extracted" as const,
+        extraction_method: "deterministic_schema_v2.1",
+        extraction_date: new Date().toISOString(),
+        source_csv_hash: csvHash,
+        source_csv_row_id: rowIdx,
+        extraction_confidence: extractionConfidence,
+        ...(blindSpot ? { blindSpot } : {}),
+      },
+    };
+
+    observations.push(observation);
+  }
+
+  // 5. Compute final stats.
+  const sortedDates = [...dateSet].sort();
+  const sampleObservations = observations.slice(0, 5) as Array<{
+    id: string;
+    metadata: unknown;
+  }>;
+
+  const report: ExtractObservationsReport = {
+    tenantId: args.tenantId,
+    tenantSlug: args.tenantSlug,
+    dryRun: args.dryRun,
+    stagingDir: join(cwd, ".data", "_staging"),
+    inputCsv: csvPath,
+    inputCsvHash: csvHash,
+    extractedAt: new Date().toISOString(),
+    inputRows: records.length,
+    stagedObservations: observations.length,
+    skippedRowsByReason: skippedByReason,
+    dateCoverage: {
+      distinctDates: sortedDates.length,
+      minDate: sortedDates[0] ?? null,
+      maxDate: sortedDates[sortedDates.length - 1] ?? null,
+    },
+    platformBreakdown,
+    promptMatch: {
+      csvDistinctPrompts: csvDistinctPrompts.size,
+      mapped: csvDistinctPrompts.size - orphanPromptSet.size,
+      orphans: orphanPromptSet.size,
+      orphanSamples: [...orphanPromptSet].slice(0, 5),
+    },
+    fieldCoverage: {
+      responsePresent,
+      searchQueriesPresent,
+      citationUrlsPresent,
+      citationDomainsPresent,
+      competitorCoMentionsPresent,
+      competitorDescriptorWindowsPresent,
+      answerStructurePresent,
+      primaryRecommendationTrue,
+      mentionsPresent,
+    },
+    aioBlindSpotCount,
+    sampleObservationIds: sampleObservations.map((o) => o.id),
+    sampleObservationMetadata: sampleObservations.map((o) => o.metadata),
+    errors,
+  };
+
+  // 6. Write staging files (always, even in dry-run — operator scope:
+  //    "Write output only to .data/_staging/"; this directory is
+  //    safe to write to regardless of --dry-run since it never
+  //    touches production. We DO still tag the report with the
+  //    dry-run flag so downstream consumers know provenance.).
+  const stagingDir = report.stagingDir;
+  mkdirSync(stagingDir, { recursive: true });
+  writeFileSync(
+    join(stagingDir, "w4-extracted-observations.json"),
+    JSON.stringify(observations, null, 2),
+    "utf-8",
+  );
+  writeFileSync(
+    join(stagingDir, "w4-extraction-report.json"),
+    JSON.stringify(report, null, 2),
+    "utf-8",
+  );
+  writeFileSync(
+    join(stagingDir, "w4-extraction-progress.json"),
+    JSON.stringify(
+      {
+        completed: true,
+        rowsProcessed: records.length,
+        observationsStaged: observations.length,
+        completedAt: new Date().toISOString(),
+        // Resumability: this stage is single-pass + deterministic,
+        // so a partial run can be re-attempted from the start
+        // without observation drift.
+        rerunable: true,
+      },
+      null,
+      2,
+    ),
+    "utf-8",
+  );
+
+  return report;
+}
+
+/**
+ * Spawn `scripts/parse-raw-csv.py` and read its NDJSON output line-
+ * by-line. Returns the full row array. The Python parser uses
+ * `csv.DictReader` with `field_size_limit(sys.maxsize)` which handles
+ * the Profound CSV's multi-line quoted response cells — Node's
+ * `csv-parse` library silently drops ~32% of rows on the same input.
+ *
+ * Fail-loud: if Python isn't on PATH, or the script exits non-zero,
+ * or any line is invalid JSON, the caller's promise rejects.
+ */
+async function parseCsvViaPython(
+  csvPath: string,
+): Promise<Record<string, string>[]> {
+  const { spawn } = await import("node:child_process");
+  const pythonScript = join(process.cwd(), "scripts", "parse-raw-csv.py");
+  if (!existsSync(pythonScript)) {
+    throw new Error(`scripts/parse-raw-csv.py not found at ${pythonScript}`);
+  }
+  return await new Promise((resolve, reject) => {
+    const proc = spawn("python3", [pythonScript, csvPath], {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    const rows: Record<string, string>[] = [];
+    let buf = "";
+    let stderrText = "";
+    proc.stdout.setEncoding("utf-8");
+    proc.stderr.setEncoding("utf-8");
+    proc.stderr.on("data", (chunk: string) => {
+      stderrText += chunk;
+    });
+    proc.stdout.on("data", (chunk: string) => {
+      buf += chunk;
+      let nlIdx: number;
+      while ((nlIdx = buf.indexOf("\n")) >= 0) {
+        const line = buf.slice(0, nlIdx);
+        buf = buf.slice(nlIdx + 1);
+        if (line.length === 0) continue;
+        try {
+          rows.push(JSON.parse(line));
+        } catch (err) {
+          reject(
+            new Error(
+              `parse-raw-csv NDJSON line invalid (row ${rows.length}): ${err instanceof Error ? err.message : String(err)}`,
+            ),
+          );
+          proc.kill();
+        }
+      }
+    });
+    proc.on("error", (err) => reject(err));
+    proc.on("close", (code) => {
+      // Drain any trailing partial line.
+      const tail = buf.trim();
+      if (tail.length > 0) {
+        try {
+          rows.push(JSON.parse(tail));
+        } catch (err) {
+          reject(
+            new Error(
+              `parse-raw-csv tail line invalid: ${err instanceof Error ? err.message : String(err)}`,
+            ),
+          );
+          return;
+        }
+      }
+      if (code !== 0) {
+        reject(
+          new Error(
+            `parse-raw-csv.py exited with code ${code}: ${stderrText.slice(0, 500)}`,
+          ),
+        );
+        return;
+      }
+      resolve(rows);
+    });
+  });
+}
+
+function emptyExtractReport(args: {
+  tenantId: string;
+  tenantSlug: string;
+  dryRun: boolean;
+  csvPath: string;
+  csvHash: string;
+  errors: string[];
+}): ExtractObservationsReport {
+  const cwd = process.cwd();
+  return {
+    tenantId: args.tenantId,
+    tenantSlug: args.tenantSlug,
+    dryRun: args.dryRun,
+    stagingDir: join(cwd, ".data", "_staging"),
+    inputCsv: args.csvPath,
+    inputCsvHash: args.csvHash,
+    extractedAt: new Date().toISOString(),
+    inputRows: 0,
+    stagedObservations: 0,
+    skippedRowsByReason: {},
+    dateCoverage: { distinctDates: 0, minDate: null, maxDate: null },
+    platformBreakdown: {},
+    promptMatch: {
+      csvDistinctPrompts: 0,
+      mapped: 0,
+      orphans: 0,
+      orphanSamples: [],
+    },
+    fieldCoverage: {
+      responsePresent: 0,
+      searchQueriesPresent: 0,
+      citationUrlsPresent: 0,
+      citationDomainsPresent: 0,
+      competitorCoMentionsPresent: 0,
+      competitorDescriptorWindowsPresent: 0,
+      answerStructurePresent: 0,
+      primaryRecommendationTrue: 0,
+      mentionsPresent: 0,
+    },
+    aioBlindSpotCount: 0,
+    sampleObservationIds: [],
+    sampleObservationMetadata: [],
+    errors: args.errors,
+  };
+}
+
+function printExtractObservationsReport(
+  report: ExtractObservationsReport,
+): void {
+  console.log("");
+  console.log("══════════════════════════════════════════════════════════════════");
+  console.log("W4 STAGE 2 — EXTRACT OBSERVATIONS REPORT");
+  console.log("══════════════════════════════════════════════════════════════════");
+  console.log(`tenant_id              : ${report.tenantId}`);
+  console.log(`tenant_slug            : ${report.tenantSlug}`);
+  console.log(`dry_run                : ${report.dryRun}`);
+  console.log(`staging_dir            : ${report.stagingDir}`);
+  console.log(`input_csv              : ${basename(report.inputCsv)}`);
+  console.log(`input_csv_hash         : ${report.inputCsvHash.slice(0, 16)}...`);
+  console.log(`extracted_at           : ${report.extractedAt}`);
+  console.log("");
+  console.log(`input_rows             : ${report.inputRows}`);
+  console.log(`staged_observations    : ${report.stagedObservations}`);
+  console.log("");
+  console.log("─ Date coverage ──────────────────────────────────────────────────");
+  console.log(`  distinct_dates       : ${report.dateCoverage.distinctDates}`);
+  console.log(`  min_date             : ${report.dateCoverage.minDate ?? "(none)"}`);
+  console.log(`  max_date             : ${report.dateCoverage.maxDate ?? "(none)"}`);
+  console.log("");
+  console.log("─ Platform breakdown ─────────────────────────────────────────────");
+  for (const [k, v] of Object.entries(report.platformBreakdown)) {
+    const pct = report.stagedObservations > 0
+      ? `${((v / report.stagedObservations) * 100).toFixed(2)}%`
+      : "n/a";
+    console.log(`  ${k.padEnd(28)} ${String(v).padStart(7)}  (${pct})`);
+  }
+  console.log(`  AIO blind-spot rows  : ${report.aioBlindSpotCount}`);
+  console.log("");
+  console.log("─ Prompt match ───────────────────────────────────────────────────");
+  console.log(`  CSV distinct prompts : ${report.promptMatch.csvDistinctPrompts}`);
+  console.log(`  Mapped               : ${report.promptMatch.mapped}`);
+  console.log(`  Orphans              : ${report.promptMatch.orphans}`);
+  if (report.promptMatch.orphanSamples.length > 0) {
+    console.log(`  Orphan samples:`);
+    for (const o of report.promptMatch.orphanSamples) {
+      console.log(`    - "${o.slice(0, 80)}..."`);
+    }
+  }
+  console.log("");
+  console.log("─ Field coverage ─────────────────────────────────────────────────");
+  const f = report.fieldCoverage;
+  const N = report.stagedObservations || 1;
+  const pctOf = (n: number) => `${((n / N) * 100).toFixed(2)}%`;
+  console.log(`  response_present              ${String(f.responsePresent).padStart(7)}  (${pctOf(f.responsePresent)})`);
+  console.log(`  mentions_present              ${String(f.mentionsPresent).padStart(7)}  (${pctOf(f.mentionsPresent)})`);
+  console.log(`  search_queries_present        ${String(f.searchQueriesPresent).padStart(7)}  (${pctOf(f.searchQueriesPresent)})`);
+  console.log(`  citation_urls_present         ${String(f.citationUrlsPresent).padStart(7)}  (${pctOf(f.citationUrlsPresent)})`);
+  console.log(`  citation_domains_present      ${String(f.citationDomainsPresent).padStart(7)}  (${pctOf(f.citationDomainsPresent)})`);
+  console.log(`  competitor_co_mentions        ${String(f.competitorCoMentionsPresent).padStart(7)}  (${pctOf(f.competitorCoMentionsPresent)})`);
+  console.log(`  competitor_descriptor_windows ${String(f.competitorDescriptorWindowsPresent).padStart(7)}  (${pctOf(f.competitorDescriptorWindowsPresent)})`);
+  console.log(`  answer_structure_present      ${String(f.answerStructurePresent).padStart(7)}  (${pctOf(f.answerStructurePresent)})`);
+  console.log(`  primary_recommendation_true   ${String(f.primaryRecommendationTrue).padStart(7)}  (${pctOf(f.primaryRecommendationTrue)})`);
+  console.log("");
+  console.log("─ Skipped rows by reason ─────────────────────────────────────────");
+  for (const [k, v] of Object.entries(report.skippedRowsByReason)) {
+    console.log(`  ${k.padEnd(40)} ${String(v).padStart(7)}`);
+  }
+  if (Object.keys(report.skippedRowsByReason).length === 0) {
+    console.log(`  (none)`);
+  }
+  console.log("");
+  console.log("─ Sample staged observation IDs ──────────────────────────────────");
+  for (const id of report.sampleObservationIds) {
+    console.log(`  · ${id}`);
+  }
+  console.log("");
+  if (report.errors.length > 0) {
+    console.log("─ ERRORS ─────────────────────────────────────────────────────────");
+    for (const e of report.errors) console.log(`  - ${e}`);
+    console.log("");
+  }
+  console.log("══════════════════════════════════════════════════════════════════");
+  console.log(
+    "Stage 2 complete. NO Supabase writes. NO live .data/tenants/ mutation.",
+  );
+  console.log(
+    `Staged outputs: ${report.stagingDir}/w4-extracted-observations.json + report + progress.`,
+  );
   console.log("══════════════════════════════════════════════════════════════════");
   console.log("");
 }

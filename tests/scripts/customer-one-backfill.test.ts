@@ -25,9 +25,14 @@ import {
   IMPLEMENTED_STAGES,
   LOCKED_CSV_MANIFEST,
   SUPABASE_TABLES_TO_BACKUP,
+  answerHashForText,
   backupDirFor,
   dateStringFor,
+  deterministicObservationId,
+  extractCitationsFromRow,
   parseFlags,
+  parseMentionsField,
+  parseProfoundPosition,
   sha256OfBuffer,
   shouldBlockSameDayBackup,
   summarizeManifest,
@@ -136,9 +141,10 @@ describe("validateStage", () => {
     expect(v.isReserved).toBe(false);
   });
 
-  it("rejects reserved stages with isReserved=true (extract / rederive / publish / rollback / verify / copy-orphan / relabel)", () => {
+  it("rejects reserved stages with isReserved=true (rederive / publish / rollback / verify / copy-orphan / relabel)", () => {
+    // W4 Stage 2 (2026-05-04): extract-observations is IMPLEMENTED;
+    // it's no longer in the reserved set.
     const RESERVED: Stage[] = [
-      "extract-observations",
       "rederive-snapshots",
       "copy-orphan-benchmarks",
       "relabel-changelog",
@@ -159,9 +165,15 @@ describe("validateStage", () => {
     expect(validateStage("publish").isReserved).toBe(true);
   });
 
-  it("extract-observations + rederive-snapshots NOT implemented today", () => {
-    expect(IMPLEMENTED_STAGES.has("extract-observations")).toBe(false);
+  it("rederive-snapshots NOT implemented today (W4 Stage 3+)", () => {
     expect(IMPLEMENTED_STAGES.has("rederive-snapshots")).toBe(false);
+  });
+
+  it("extract-observations IS implemented as of W4 Stage 2 (2026-05-04)", () => {
+    expect(IMPLEMENTED_STAGES.has("extract-observations")).toBe(true);
+    const v = validateStage("extract-observations");
+    expect(v.ok).toBe(true);
+    expect(v.isReserved).toBe(false);
   });
 });
 
@@ -424,7 +436,254 @@ describe("publish stage is hard-blocked + warned (source-scan)", () => {
     expect(v.isReserved).toBe(true);
   });
 
-  it("IMPLEMENTED_STAGES carries ONLY preflight + backup today", () => {
-    expect([...IMPLEMENTED_STAGES].sort()).toEqual(["backup", "preflight"]);
+  it("IMPLEMENTED_STAGES carries preflight + backup + extract-observations as of W4 Stage 2", () => {
+    expect([...IMPLEMENTED_STAGES].sort()).toEqual([
+      "backup",
+      "extract-observations",
+      "preflight",
+    ]);
+  });
+});
+
+// ── 12. Stage 2 — extract-observations pure helpers + invariants ───────
+
+describe("Stage 2 — deterministicObservationId", () => {
+  it("same inputs → same id (deterministic, idempotent rerun)", () => {
+    const args = {
+      tenantId: "tenant-ritz-founder",
+      date: "2026-04-21",
+      platform: "google-ai-overviews",
+      promptId: "b741f295-2535-4027-95d6-8edbed7ee4e9",
+      runId: "5d8b044b-e1db-4a7e-ab44-239347dbc2a7",
+      answerHash: "a58ddc90",
+    };
+    const a = deterministicObservationId(args);
+    const b = deterministicObservationId(args);
+    expect(a).toBe(b);
+  });
+
+  it("different inputs → different ids (sensitive to every field)", () => {
+    const base = {
+      tenantId: "tenant-x",
+      date: "2026-04-21",
+      platform: "chatgpt",
+      promptId: "p1",
+      runId: "r1",
+      answerHash: "h1",
+    };
+    const ids = [
+      deterministicObservationId(base),
+      deterministicObservationId({ ...base, tenantId: "tenant-y" }),
+      deterministicObservationId({ ...base, date: "2026-04-22" }),
+      deterministicObservationId({ ...base, platform: "perplexity" }),
+      deterministicObservationId({ ...base, promptId: "p2" }),
+      deterministicObservationId({ ...base, runId: "r2" }),
+      deterministicObservationId({ ...base, answerHash: "h2" }),
+    ];
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it("returns a UUID-shaped 36-char string", () => {
+    const id = deterministicObservationId({
+      tenantId: "t",
+      date: "2026-01-01",
+      platform: "p",
+      promptId: "pp",
+      runId: "rr",
+      answerHash: "hh",
+    });
+    expect(id).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+    );
+  });
+});
+
+describe("Stage 2 — answerHashForText", () => {
+  it("returns 8 hex chars", () => {
+    expect(answerHashForText("hello world")).toMatch(/^[0-9a-f]{8}$/);
+  });
+
+  it("is deterministic", () => {
+    expect(answerHashForText("response text")).toBe(answerHashForText("response text"));
+  });
+
+  it("different text → different hash", () => {
+    expect(answerHashForText("a")).not.toBe(answerHashForText("b"));
+  });
+
+  it("empty text returns a stable empty-text hash", () => {
+    const e = answerHashForText("");
+    expect(e).toMatch(/^[0-9a-f]{8}$/);
+    expect(e).toBe(answerHashForText(""));
+  });
+});
+
+describe("Stage 2 — parseProfoundPosition", () => {
+  it("'#1' → 1, '#10' → 10", () => {
+    expect(parseProfoundPosition("#1")).toBe(1);
+    expect(parseProfoundPosition("#10")).toBe(10);
+  });
+
+  it("bare digits parse", () => {
+    expect(parseProfoundPosition("3")).toBe(3);
+  });
+
+  it("whitespace tolerated", () => {
+    expect(parseProfoundPosition(" #2 ")).toBe(2);
+  });
+
+  it("invalid → null", () => {
+    expect(parseProfoundPosition("")).toBeNull();
+    expect(parseProfoundPosition(null)).toBeNull();
+    expect(parseProfoundPosition(undefined)).toBeNull();
+    expect(parseProfoundPosition("none")).toBeNull();
+    expect(parseProfoundPosition("0")).toBeNull();
+    expect(parseProfoundPosition("-1")).toBeNull();
+  });
+});
+
+describe("Stage 2 — extractCitationsFromRow", () => {
+  it("collects citation_1..citation_36 URLs + dedupes domains", () => {
+    const row: Record<string, string> = {
+      citation_1: "https://www.example.com/foo",
+      citation_2: "https://example.com/bar?q=1",
+      citation_3: "https://other.com/baz",
+      citation_4: "",
+    };
+    for (let i = 5; i <= 36; i++) row[`citation_${i}`] = "";
+    const out = extractCitationsFromRow(row);
+    expect(out.citationUrls).toEqual([
+      "https://www.example.com/foo",
+      "https://example.com/bar?q=1",
+      "https://other.com/baz",
+    ]);
+    // www. stripped + dedupe.
+    expect(out.citationDomains).toEqual(["example.com", "other.com"]);
+  });
+
+  it("handles all-empty rows", () => {
+    const row: Record<string, string> = {};
+    for (let i = 1; i <= 36; i++) row[`citation_${i}`] = "";
+    const out = extractCitationsFromRow(row);
+    expect(out.citationUrls).toEqual([]);
+    expect(out.citationDomains).toEqual([]);
+  });
+
+  it("malformed URLs fall back to regex host extract", () => {
+    const row: Record<string, string> = {};
+    for (let i = 1; i <= 36; i++) row[`citation_${i}`] = "";
+    row.citation_1 = "https://valid.com/path";
+    row.citation_2 = "not-a-url-at-all";
+    const out = extractCitationsFromRow(row);
+    expect(out.citationDomains).toContain("valid.com");
+    // Bare strings without protocol get URL() reject + null host →
+    // not pushed.
+    expect(out.citationDomains.length).toBe(1);
+  });
+});
+
+describe("Stage 2 — parseMentionsField", () => {
+  it("comma-splits + trims + dedupes preserving order", () => {
+    expect(
+      parseMentionsField("Ritz Builders, JPM Construction, Ritz Builders, Sigura"),
+    ).toEqual(["Ritz Builders", "JPM Construction", "Sigura"]);
+  });
+
+  it("empty / null → []", () => {
+    expect(parseMentionsField(null)).toEqual([]);
+    expect(parseMentionsField(undefined)).toEqual([]);
+    expect(parseMentionsField("")).toEqual([]);
+    expect(parseMentionsField("   ")).toEqual([]);
+  });
+
+  it("single value parses", () => {
+    expect(parseMentionsField("Ritz Builders")).toEqual(["Ritz Builders"]);
+  });
+});
+
+// ── 13. Stage 2 source-scan invariants ────────────────────────────────
+
+describe("Stage 2 — runExtractObservations is staging-only (source-scan)", () => {
+  it("never calls .insert/.update/.delete/.upsert on Supabase", () => {
+    const start = SCRIPT_SRC.indexOf("async function runExtractObservations(");
+    const end = SCRIPT_SRC.indexOf("function emptyExtractReport(");
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    const body = SCRIPT_SRC.slice(start, end);
+    expect(body).not.toMatch(/\.insert\(/);
+    expect(body).not.toMatch(/\.update\(/);
+    expect(body).not.toMatch(/\.delete\(/);
+    expect(body).not.toMatch(/\.upsert\(/);
+    // Supabase reads ARE allowed.
+    expect(body).toMatch(/\.select\(/);
+  });
+
+  it("every writeFileSync target inside runExtractObservations lands under stagingDir", () => {
+    const start = SCRIPT_SRC.indexOf("async function runExtractObservations(");
+    const end = SCRIPT_SRC.indexOf("function emptyExtractReport(");
+    const body = SCRIPT_SRC.slice(start, end);
+    const writes = [...body.matchAll(/writeFileSync\(\s*([^,]+),/g)].map(
+      (m) => m[1],
+    );
+    expect(writes.length).toBeGreaterThan(0);
+    for (const w of writes) {
+      // Each writeFileSync uses a path derived from `stagingDir`.
+      expect(/stagingDir|join\(\s*stagingDir/.test(w)).toBe(true);
+    }
+  });
+
+  it("does NOT read from `.data/tenants/<slug>/prompt-answer-observations.json` (operator scope: avoid stale cache)", () => {
+    const start = SCRIPT_SRC.indexOf("async function runExtractObservations(");
+    const end = SCRIPT_SRC.indexOf("function emptyExtractReport(");
+    const body = SCRIPT_SRC.slice(start, end);
+    expect(body).not.toMatch(/prompt-answer-observations\.json/);
+    expect(body).not.toMatch(/tenants\/ritz-builders\/prompt-answer/);
+  });
+
+  it("stamps regime / source_system / extraction_method / source_csv_hash / source_csv_row_id / extraction_confidence", () => {
+    const start = SCRIPT_SRC.indexOf("async function runExtractObservations(");
+    const end = SCRIPT_SRC.indexOf("function emptyExtractReport(");
+    const body = SCRIPT_SRC.slice(start, end);
+    expect(body).toMatch(/regime:\s*"historical_recovered"/);
+    expect(body).toMatch(/source_system:\s*"profound_csv_extracted"/);
+    expect(body).toMatch(/extraction_method:/);
+    expect(body).toMatch(/source_csv_hash/);
+    expect(body).toMatch(/source_csv_row_id/);
+    expect(body).toMatch(/extraction_confidence/);
+  });
+
+  it("stamps blindSpot for Google AI Overviews rows", () => {
+    const start = SCRIPT_SRC.indexOf("async function runExtractObservations(");
+    const end = SCRIPT_SRC.indexOf("function emptyExtractReport(");
+    const body = SCRIPT_SRC.slice(start, end);
+    expect(body).toMatch(/AIO does not expose internal queries/);
+  });
+
+  it("counts AIO blind-spot rows in the report", () => {
+    expect(SCRIPT_SRC).toMatch(/aioBlindSpotCount/);
+  });
+
+  it("treats CSV hash drift as a hard error (no extraction proceeds)", () => {
+    const start = SCRIPT_SRC.indexOf("async function runExtractObservations(");
+    const end = SCRIPT_SRC.indexOf("function emptyExtractReport(");
+    const body = SCRIPT_SRC.slice(start, end);
+    expect(body).toMatch(/source CSV hash drift/);
+  });
+
+  it("reports prompt-mapping orphans by collecting them in skippedRowsByReason + orphanSamples", () => {
+    const start = SCRIPT_SRC.indexOf("async function runExtractObservations(");
+    const end = SCRIPT_SRC.indexOf("function emptyExtractReport(");
+    const body = SCRIPT_SRC.slice(start, end);
+    expect(body).toMatch(/orphan_prompt/);
+    expect(body).toMatch(/orphanPromptSet/);
+  });
+
+  it("handles empty-response rows explicitly (skippedRowsByReason key)", () => {
+    const start = SCRIPT_SRC.indexOf("async function runExtractObservations(");
+    const end = SCRIPT_SRC.indexOf("function emptyExtractReport(");
+    const body = SCRIPT_SRC.slice(start, end);
+    expect(body).toMatch(/empty_response_kept_for_citations/);
+    // Text-derived extractors are gated behind hasResponse.
+    expect(body).toMatch(/if\s*\(\s*hasResponse\s*\)/);
   });
 });

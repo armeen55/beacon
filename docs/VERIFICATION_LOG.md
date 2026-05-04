@@ -7,6 +7,92 @@
 
 ---
 
+## 2026-05-04 (late evening) — W4 Stage 2: extract-observations dry-run
+
+Operator approved Stage 2 design + dry-run after Stage 0+1 acceptance. Stage 2 streams the 14,096-row Profound CSV, runs every Schema v2/v2.1 extractor against each row, stamps `historical_recovered` provenance, and writes the staged result to `.data/_staging/`. NO Supabase writes. NO live `.data/tenants/` mutation. Re-run determinism verified.
+
+### Files
+
+**`scripts/customer-one-backfill.ts`** (modified, ~1300 lines)
+- `extract-observations` added to `IMPLEMENTED_STAGES`.
+- New helpers (all pure):
+  - `deterministicObservationId(args)` — sha256 of (tenantId, date, platform, promptId, runId, answerHash) → UUID-shape. Idempotent across reruns.
+  - `answerHashForText(text)` — 8-char hex prefix of sha256(text). Matches native `answer_hash` shape.
+  - `parseProfoundPosition(raw)` — `"#1"` / `"#10"` / whitespace → number; invalid → null.
+  - `extractCitationsFromRow(row)` — collects `citation_1..citation_36` URLs + dedupes domains (strips `www.`).
+  - `parseMentionsField(raw)` — comma-splits + trims + dedupes preserving first-appearance order.
+  - `parseCsvViaPython(csvPath)` — spawns `scripts/parse-raw-csv.py`, reads NDJSON, fail-loud.
+- `runExtractObservations` orchestration:
+  - Hash-checks the source CSV against `LOCKED_CSV_MANIFEST`. Hash drift → hard error, no extraction.
+  - Loads `tracked_prompts` + `tracked_entities` from Supabase (read-only; `is_active=true` for entities).
+  - Spawns Python parser for streaming CSV parse (Node's `csv-parse` silently drops 32% of rows on Profound's quote anomalies — confirmed).
+  - For every row: looks up `prompt_id` via case-insensitive exact match; computes deterministic id; runs all Schema v2 extractors when `response` text is present; stamps `historical_recovered` provenance + extraction_confidence map.
+  - Empty-response rows (76) kept for citation metadata; text-derived fields stay null with `extraction_confidence: 'absent_no_response'`.
+  - AIO rows (4,496) carry `metadata.blindSpot: "AIO does not expose internal queries"` + `extraction_confidence.search_queries: 'blindSpot_aio'` + `extraction_confidence.citation_urls: 'low_aio_pre_commit_7'`.
+  - Writes:
+    - `.data/_staging/w4-extracted-observations.json` (full 14,096-row staged set; ~32 MB)
+    - `.data/_staging/w4-extraction-report.json` (counts + samples + provenance)
+    - `.data/_staging/w4-extraction-progress.json` (resumable checkpoint marker)
+
+**`tests/scripts/customer-one-backfill.test.ts`** (extended 35 → 62)
+- Pin `IMPLEMENTED_STAGES` now contains `["backup", "extract-observations", "preflight"]`.
+- `validateStage("extract-observations").ok === true`; rederive / publish / etc. remain reserved.
+- Stage 2 pure helpers individually unit-tested.
+- Source-scan invariants:
+  - `runExtractObservations` body contains zero `.insert/.update/.delete/.upsert` calls (Supabase read-only).
+  - Every `writeFileSync` target lands under `stagingDir`.
+  - Does NOT read from `.data/tenants/<slug>/prompt-answer-observations.json` (operator-locked: avoid stale cache).
+  - Stamps full provenance metadata (regime / source_system / extraction_method / source_csv_hash / source_csv_row_id / extraction_confidence).
+  - Stamps `blindSpot` for AIO rows.
+  - Treats CSV hash drift as a hard error.
+  - Reports prompt-mapping orphans + empty-response rows in `skippedRowsByReason`.
+
+### Stage 2 dry-run result (2026-05-04 22:39 UTC)
+
+| Counter | Value | Match expected |
+|---|---:|---|
+| input_rows | **14,096** | ✓ |
+| staged_observations | **14,096** | ✓ |
+| distinct_dates | 48 (Mar 5 → Apr 21) | ✓ |
+| Perplexity | 4,800 (34.05%) | ✓ |
+| ChatGPT | 4,800 (34.05%) | ✓ |
+| Google AI Overviews | 4,496 (31.90%) | ✓ |
+| AIO blind-spot rows | 4,496 (all stamped `metadata.blindSpot`) | ✓ |
+| Prompt match | 100/100 case-insensitive exact | ✓ |
+| response_present | 14,020 (99.46%) | ✓ |
+| mentions_present | 11,828 (83.91%) | ~83.96% (rounding) |
+| search_queries_present | 7,991 (56.69%) | ✓ |
+| citation_urls_present | 13,946 (98.94%) | ✓ |
+| competitor_co_mentions_present | 11,826 (83.90%) | new — first time backfilled |
+| competitor_descriptor_windows_present | 11,826 (83.90%) | new — W2 §2.1 first backfill |
+| answer_structure_present | 14,020 (99.46%) | ✓ |
+| primary_recommendation_true | 2,956 (20.97%) | new — ~21% lead-with-brand |
+| empty_response_kept_for_citations | 76 | ✓ |
+| rows with full provenance metadata | 14,096 / 14,096 | ✓ |
+| unique deterministic IDs | 14,096 / 14,096 | ✓ no collisions |
+| run1 IDs == run2 IDs at same row index | **0 mismatches** | ✓ idempotent |
+
+### Verification
+
+- `npx tsc --noEmit` clean.
+- `tests/scripts/customer-one-backfill.test.ts` 62/62 pass.
+- `npm run test` 3933/3939 (6 pre-existing baseline failures all OUTSIDE this surface — same UI smoke time-drift / tenant-isolation / auto-link-via-changelog tests confirmed since W3 §3.11; net change vs Stage 0+1: +27 passes, ±0 failures).
+- `BEACON_TENANT_ID=tenant-ritz-founder BEACON_TENANT_SLUG=ritz-builders npm run build` clean.
+- Stage 2 dry-run completed in ~3 minutes against the 64-MB CSV.
+- Re-run determinism: 0 ID mismatches across 14,096 rows (verified by snapshot + diff).
+
+### Notable design decisions
+
+1. **Python via spawn for CSV parsing.** Profound's CSV has multi-line quoted response cells with embedded unescaped quotes that Node's `csv-parse` library silently drops ~32% of rows on (confirmed against `relax_quotes`, `relax_column_count`, strict mode). Python's stdlib `csv.DictReader` with `field_size_limit(sys.maxsize)` handles them cleanly and returns the canonical 14,096-row count. The orchestrator spawns `scripts/parse-raw-csv.py` and reads NDJSON; fail-loud on non-zero exit or invalid JSON.
+2. **Empty-response rows kept for citation metadata.** 76 rows with empty `response` would otherwise lose their citation URLs. Stage 2 does NOT run text-derived extractors on these rows (descriptor_window / mention_position / answer_structure / primary_recommendation null with `extraction_confidence: 'absent_no_response'`); citations + provenance are still recorded.
+3. **Deterministic ID format:** `sha256(tenantId::date::platform-slug::promptId::runId::answerHash).slice(0,32)` formatted as UUID. Re-running Stage 2 against the same CSV produces byte-identical IDs. When publish lands, Supabase `INSERT ... ON CONFLICT (id) DO NOTHING` makes Stage 2 idempotent end-to-end.
+
+### Out of scope (operator-locked)
+
+No Supabase writes · No publish · No rederive snapshots · No copy-orphan benchmarks · No relabel changelog · No rollback execution · No recommendation queue mutation · No Profound archive/delete · No paid generation · No Apply-All-HIGH · `runExtractObservations` does NOT read the stale `.data/tenants/<slug>/prompt-answer-observations.json` cache (operator's correction).
+
+---
+
 ## 2026-05-04 (evening) — W4 Stage 0 + Stage 1: customer-one historical backfill scaffold + first backup
 
 Operator approved running Stage 0 preflight + Stage 1 backup against the customer-one historical backfill scope. Stages 2–8 (extract / rederive / copy-orphan / relabel / verify / publish / rollback) are reserved + hard-fail today, awaiting separate operator approval.

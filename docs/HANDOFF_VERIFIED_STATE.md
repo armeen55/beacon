@@ -1,5 +1,48 @@
 # Beacon — Start Here
 
+> 🟡 **W4 Stage 2 (extract-observations dry-run) LANDED (2026-05-04):** Operator approved Stage 2 design + dry-run. Stage 2 streams the 14,096-row Profound CSV, runs every Schema v2/v2.1 extractor against each row, stamps `historical_recovered` provenance, and writes the staged result to `.data/_staging/`. **NO Supabase writes. NO live `.data/tenants/` mutation.** Stages 3–8 (rederive / copy-orphan / relabel / verify / publish / rollback) remain reserved + hard-fail.
+>
+> **Stage 2 dry-run result (clean):**
+>
+> | Metric | Value | Match expected |
+> |---|---:|---|
+> | `input_rows` | **14,096** | ✓ exact |
+> | `staged_observations` | **14,096** | ✓ exact (no rows dropped) |
+> | distinct_dates | 48 (Mar 5 → Apr 21) | ✓ exact |
+> | Perplexity / ChatGPT / AIO | 4,800 / 4,800 / 4,496 | ✓ exact |
+> | AIO blind-spot rows | **4,496** (all stamped `metadata.blindSpot: "AIO does not expose internal queries"`) | ✓ |
+> | Prompt match | **100/100** (case-insensitive exact, all CSV prompts mapped to `tracked_prompts.id`) | ✓ |
+> | response_present | 14,020 (99.46%) | ✓ exact |
+> | mentions_present | 11,828 (83.91%) | ~83.96% expected |
+> | search_queries_present | 7,991 (56.69%) | ✓ exact |
+> | citation_urls_present | 13,946 (98.94%) | ✓ exact |
+> | competitor_co_mentions_present | 11,826 (83.90%) | new — first time backfilled |
+> | competitor_descriptor_windows_present | 11,826 (83.90%) | new — first time backfilled (W2 §2.1) |
+> | answer_structure_present | 14,020 (99.46%) | ✓ |
+> | primary_recommendation_true | 2,956 (20.97%) | new — ~21% of answers lead with the brand |
+> | empty_response_kept_for_citations | 76 | ✓ exact (preflight identified 76 empty-response rows) |
+> | rows with full provenance metadata | 14,096 / 14,096 | ✓ |
+> | unique deterministic IDs | 14,096 / 14,096 | ✓ no collisions |
+> | re-run determinism (run1 IDs == run2 IDs at same index) | **0 mismatches** | ✓ idempotent |
+>
+> **Files (modified):**
+> - `scripts/customer-one-backfill.ts` — `extract-observations` stage added to `IMPLEMENTED_STAGES`. New helpers: `deterministicObservationId(args)` (sha256 of tenantId + date + platform + promptId + runId + answerHash → UUID-shape) · `answerHashForText(text)` (8-char hex prefix) · `parseProfoundPosition(raw)` (parses `#1`/`#10`/whitespace) · `extractCitationsFromRow(row)` (collects citation_1..36, dedupes domains, strips `www.`) · `parseMentionsField(raw)` (comma-splits, trims, dedupes preserving order). New `runExtractObservations` orchestration: hash-check the source CSV against the locked manifest, load `tracked_prompts` + `tracked_entities` from Supabase (read-only), spawn `scripts/parse-raw-csv.py` for streaming CSV parse (Node's `csv-parse` silently drops 32% of rows on Profound's quote anomalies — confirmed against `relax_quotes` / `relax_column_count` / strict modes; Python's stdlib `csv.DictReader` handles them cleanly), run all Schema v2 extractors per row, stamp `historical_recovered` provenance, write to `.data/_staging/w4-extracted-observations.json` + `w4-extraction-report.json` + `w4-extraction-progress.json`. **All output paths under `.data/_staging/`. Zero Supabase writes. Zero live `.data/tenants/` mutation.**
+> - `tests/scripts/customer-one-backfill.test.ts` — extended from 35 → 62 cases. New W4.2 tests: `deterministicObservationId` (idempotent, sensitive to every input field, returns valid UUID shape) · `answerHashForText` (8 hex chars, deterministic, distinct on different text) · `parseProfoundPosition` (`#1` → 1, whitespace tolerated, invalid → null) · `extractCitationsFromRow` (collects + dedupes, handles all-empty rows, regex fallback for malformed URLs) · `parseMentionsField` (comma-split + trim + dedupe preserving order). Source-scan invariants: `runExtractObservations` body contains zero `.insert/.update/.delete/.upsert` calls (Supabase read-only); every `writeFileSync` target lands under `stagingDir`; does NOT read from `.data/tenants/<slug>/prompt-answer-observations.json` (operator-locked: avoid stale cache); stamps full provenance metadata (regime / source_system / extraction_method / source_csv_hash / source_csv_row_id / extraction_confidence); stamps `blindSpot` for AIO rows; treats CSV hash drift as a hard error; reports prompt-mapping orphans + empty-response rows in `skippedRowsByReason`. `IMPLEMENTED_STAGES` now contains `["backup", "extract-observations", "preflight"]`.
+>
+> **Verification (2026-05-04):** `npx tsc --noEmit` clean · `tests/scripts/customer-one-backfill.test.ts` 62/62 pass · `npm run test` 3933/3939 (same 6 pre-existing baseline failures as W4 Stage 0+1; net change vs Stage 0+1: +27 passes, ±0 failures) · `BEACON_TENANT_ID=tenant-ritz-founder BEACON_TENANT_SLUG=ritz-builders npm run build` clean · Stage 2 dry-run completed in ~3 minutes against the live 64-MB CSV · Re-run determinism: 0 ID mismatches across 14,096 rows.
+>
+> **Notable design decisions:**
+> 1. **Python parser via spawn** instead of Node's `csv-parse` library. Profound's CSV has multi-line quoted response cells with embedded unescaped quotes; Node's parser silently drops ~4,500 rows under any tested option combination. Python's `csv.DictReader` with `field_size_limit(sys.maxsize)` returns the canonical 14,096 rows. The orchestrator spawns `scripts/parse-raw-csv.py` and reads NDJSON; fail-loud on non-zero exit or invalid JSON.
+> 2. **Empty-response rows kept for citation metadata.** 76 rows with empty `response` text would otherwise lose their citation URLs. Operator scope: "do not fake text-derived fields; include them only if they can safely carry citation/domain metadata." Stage 2 does NOT run text-derived extractors on these rows (descriptor_window / mention_position / answer_structure / primary_recommendation are null with `extraction_confidence: 'absent_no_response'`); citations + provenance are still recorded.
+> 3. **Deterministic ID format:** `sha256(tenantId::date::platform-slug::promptId::runId::answerHash).slice(0,32)` formatted as UUID. Re-running Stage 2 against the same CSV produces byte-identical IDs (verified across two runs, 0 mismatches). When publish lands, Supabase `INSERT ... ON CONFLICT (id) DO NOTHING` makes Stage 2 idempotent end-to-end.
+>
+> **Constraints honored (operator-locked):** No Supabase writes · No publish · No rederive snapshots · No copy-orphan benchmarks · No relabel changelog · No rollback execution · No recommendation queue mutation · No Profound archive/delete · No paid generation · No Apply-All-HIGH · `runExtractObservations` does NOT read the stale `.data/tenants/<slug>/prompt-answer-observations.json` cache (operator's correction).
+>
+> **Next 3 actions (operator-gated):**
+> 1. **Operator review of Stage 2 staging output** — read `.data/_staging/w4-extraction-report.json` (full structured report) and spot-check a handful of `.data/_staging/w4-extracted-observations.json` rows. The 5 sample IDs are in the report's `sampleObservationIds`.
+> 2. **Operator approval to design Stage 3 (rederive-snapshots)** — pure compute, $0 LLM cost. Walks every `(date, scope_type, scope_id, platform)` tuple where extracted observations now exist, recomputes via `buildFromObservations()` in `src/domains/daily-metric-snapshots/build-from-observations.ts`, writes to `.data/_staging/w4-rederived-snapshots.json` (staged-only).
+> 3. **(Future)** Stage 4 copy-orphan-benchmarks + Stage 5 relabel-changelog + Stage 6 verify (the 6-check harness from master plan §2.6) — gated by Stage 3 design approval. Publish (Stage 7) requires Stage 6 green AND explicit operator approval; no path to publish without both.
+
 > 🟡 **W4 Stage 0 + Stage 1 LANDED (2026-05-04):** Customer-one historical backfill orchestrator scaffolded. Stage 0 preflight + Stage 1 backup wired and run cleanly; stages 2–8 (extract / rederive / copy-orphan / relabel / verify / publish / rollback) are reserved and hard-fail with "not yet implemented; awaiting operator approval" messages. **No production mutation.** `--dry-run` is the default; `--write` is required to actually export.
 >
 > **What landed:**
