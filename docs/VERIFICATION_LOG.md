@@ -7,6 +7,113 @@
 
 ---
 
+## 2026-05-04 — W4 Stage 7: core publish design + dry-run preview (8/8 preconditions PASS, outcome `preview_only`, ZERO Supabase writes)
+
+Operator approved Stage 7 design + dry-run preview after Stage 6b acceptance. `--stage=publish --publish-scope=core --dry-run` (default) is wired to produce a preview JSON + rollback manifest skeleton without ever calling Supabase upsert/insert/update/delete. Real production mutation requires `--write` AND a passing Stage 6b core report AND the operator's literal "publish core now" approval. `--publish-scope=full` stays RESERVED until the Stage 5 schema path lands. `--stage=rollback` stays RESERVED + hard-fail until Stage 8.
+
+### Files
+- `scripts/customer-one-backfill.ts` (~5,800 lines after Stage 7)
+  - **Stage promotion:** `publish` moved from `RESERVED` to `IMPLEMENTED_STAGES` (now 8 stages: preflight / backup / extract-observations / rederive-snapshots / copy-orphan-benchmarks / relabel-changelog / verify / publish). `rollback` stays RESERVED.
+  - **Constants (operator-locked):** `CORE_PUBLISH_TABLES = ["prompt_answer_observations","daily_metric_snapshots"]`. `CORE_PUBLISH_FORBIDDEN_TABLES = ["changelog_entries","recommended_edits","recommendation_responses","tracked_entities","tracked_prompts","answer_texts","business_config","citation_evidence_index","answer_intelligence_index"]`. `PUBLISH_BATCH_SIZE = 500` (matches dual-write CHUNK_SIZE). `PUBLISH_CONFLICT_TARGETS = { prompt_answer_observations: "id", daily_metric_snapshots: "id" }`.
+  - **Types:** `PublishOutcome` (`"preview_only" | "completed" | "failed_preconditions" | "failed_during_write" | "aborted_full_scope_reserved"`), `PublishPrecondition`, `PublishBatchLog`, `PublishReport`.
+  - **Preconditions:** `validateCorePublishPreconditions(args)` runs all 8 operator-mandated gates: (1) Stage 1 backup manifest verifies (SHA-256 per entry, with csv-source entries re-hashing the source CSV in `.data/` since the manifest stores the underlying CSV hash and `relativePath` is a sidecar text file), (2) Stage 6b core report exists, (3) `safeToPublishCore === true`, (4) recs byte-identical to backup (set-based canonicalJson diff — handles tables with any PK shape including `recommendation_responses` whose PK is `rec_id` not `id`), (5) staged files parse + counts match Stage 2/3/4 dry-run truth (14,096 / 7,191 / 0), (6) publish target columns exist (Supabase probe), (7) conflict-key strategy uses `id` on both tables, (8) Stage 5 relabel fenced out (`changelog_entries` ∈ `CORE_PUBLISH_FORBIDDEN_TABLES`, intersection with `CORE_PUBLISH_TABLES` empty).
+  - **Builders:** `buildCorePublishPreview()` produces the operator-spec preview JSON (publish_id, publish_scope, preview_only:true, preconditions, tables_to_write, tables_to_skip_in_core_mode, row_counts per table including explicit zeros for changelog/recs/responses/orphans, estimated_batches, batch_size, conflict_key, sample 5 obs IDs + 5 snap IDs, destructive_operations: "none", supabase_transaction_support caveat, rollback_plan with safety constraints, operator_gate reminder, coreReportRef). `buildCorePublishManifest()` produces the rollback skeleton with the FULL id list (14,096 + 7,191), batch sizes, status enum, and 4 operator-locked rollback constraints.
+  - **Orchestrator:** `runCorePublish(args)` validates preconditions, writes preview + manifest skeleton (always — even on failure, so the operator can SEE which precondition failed), then branches on `args.dryRun`. Dry-run path returns `outcome: "preview_only"` (allPass) or `"failed_preconditions"` (any blocker). The `--write` path is DESIGNED in code: short-circuits on `!allPass`; transitions manifest status `preview_only → in_progress → completed/failed`; upserts via `upsertInBatches(table, rows)` helper using `onConflict: target` from `PUBLISH_CONFLICT_TARGETS[table]`; emits a structured `PublishBatchLog` per batch (table / batchIndex / rowsInBatch / outcome / durationMs / errorMessage); fails loud on Supabase error; never deletes; never touches changelog/recs.
+  - **Printer:** `printCorePublishReport()` shows preconditions per row with `✓ PASS` / `✗ FAIL`; preview row counts + batch counts per table; sample 5 IDs each; outcome-specific footer. Filename branches by outcome.
+  - **CLI dispatch:** `main()` dispatches `--stage=publish` to the orchestrator. Rejects `--publish-scope=full` with a clear deferred-Stage-5 message. Threads `flags.dryRun` through. Exit codes: 0 (preview_only or completed), 11 (failed_preconditions), 12 (failed_during_write), 13 (aborted_full_scope).
+  - **Giant-red-box warning** rescoped from "publish reserved" to "publish + --write — production mutation about to run" — only fires when `flags.dryRun === false`. Reminds operator the literal phrase "publish core now" must have been approved.
+- `tests/scripts/customer-one-backfill.test.ts` (248 cases — was 192, +56 Stage 7 invariants)
+  - Existing reserved-set test narrowed from `["publish","rollback"]` to `["rollback"]`.
+  - Existing `IMPLEMENTED_STAGES` sort test bumped from 7 to 8 entries (publish included).
+  - Existing publish-stage source-scan test rewritten: warning gates on `flags.dryRun === false`; `validateStage("publish").ok === true`; `IMPLEMENTED_STAGES` carries `publish`.
+  - Existing Stage 6 source-scan boundary updated from `// ── Tiny helpers` to `// W4 STAGE 7 — CORE PUBLISH` to bound the source slice past the new module.
+  - 56 new tests across 9 describe blocks:
+    - **Stage 7 — core publish constants are operator-locked** (4 tests) — `CORE_PUBLISH_TABLES` literal exact, `CORE_PUBLISH_FORBIDDEN_TABLES` includes Stage 5 + recs + globals, `PUBLISH_BATCH_SIZE = 500`, `PUBLISH_CONFLICT_TARGETS` uses `id`.
+    - **Stage 7 — runCorePublish dry-run is the default + writes ONLY preview files** (5 tests) — only writeFileSync targets are previewPath + manifestPath; filenames; outcome enum; dry-run early-return precedes every upsert.
+    - **Stage 7 — write path safety fences** (7 tests) — only CORE_PUBLISH_TABLES upserted; no `.delete()`; changelog/recs/responses NEVER mutated; `allPass` short-circuits; per-batch logging; manifest status transitions; `onConflict: target` pattern.
+    - **Stage 7 — preview JSON shape** (8 tests) — preview_only:true; row_counts for every table the operator wants reported; estimated_batches per table; sample 5 IDs each; destructive_operations: "none"; transaction limits documented; rollback_plan with safety constraints; conflict_key spec.
+    - **Stage 7 — manifest JSON shape** (3 tests) — captures EVERY id; rollback_constraints; status enum.
+    - **Stage 7 — preconditions enforce the 8 operator-mandated gates** (9 tests) — one test per precondition + aggregator-correctness pin.
+    - **Stage 7 — printCorePublishReport** (3 tests) — header changes by outcome; per-table preview row count + batch count; dry-run footer reminds operator no Supabase writes.
+    - **Stage 7 — main() dispatches publish correctly** (4 tests) — full-scope rejected, runCorePublish called, dryRun threaded, exit codes 0/11/12.
+    - **Stage 7 — operator-mandated test invariants (10)** — the literal list from the brief: dry-run writes only preview file; dry-run does NOT call Supabase write paths; write path BLOCKED unless `--write` AND `allPass`; core publish EXCLUDES changelog_entries; core publish EXCLUDES recommended_edits + recommendation_responses; missing Stage 6b core-safe report BLOCKS publish; unsafe Stage 6b report BLOCKS publish; staged row count drift BLOCKS publish; idempotent key strategy pinned; rollback manifest plan includes ONLY W4 core IDs; (extra) publish-scope=full remains BLOCKED.
+
+### Sample Stage 7 dry-run output (verbatim from console)
+```
+══════════════════════════════════════════════════════════════════
+W4 STAGE 7 — CORE PUBLISH REPORT  ✓ PREVIEW ONLY (dry-run)
+══════════════════════════════════════════════════════════════════
+publish_id     : w4-core-publish-2026-05-04T18:30:01.511Z
+publish_scope  : core
+tenant_id      : tenant-ritz-founder
+tenant_slug    : ritz-builders
+dry_run        : true
+started_at     : 2026-05-04T18:30:01.511Z
+completed_at   : 2026-05-04T18:30:06.230Z
+
+─ Preconditions ─────────────────────────────────────────────────
+  ✓ PASS stage_1_backup_manifest_verifies         Stage 1 backup manifest verified (66 entries SHA-256 match).
+  ✓ PASS stage_6b_core_report_exists              Stage 6b core report present at .data/_staging/w4-verify-core-report.json.
+  ✓ PASS safe_to_publish_core_true                safe_to_publish_core: true — core publish gate is GREEN.
+  ✓ PASS recs_byte_identity_with_backup           recs byte-identical to backup (17/17 edits + 7/7 responses).
+  ✓ PASS staged_inputs_parse_and_count_match_reports Staged inputs match reports: 14096 obs · 7191 snapshots · 0 orphans (NO-OP).
+  ✓ PASS publish_target_columns_exist             Publish target columns verified for both observations + snapshots.
+  ✓ PASS conflict_keys_strategy_confirmed         Both tables use onConflict: 'id' (deterministic Schema v2 hashes — idempotent by construction).
+  ✓ PASS stage_5_relabel_excluded_from_core       Stage 5 changelog relabel is fenced out of core publish (changelog_entries in FORBIDDEN list).
+
+─ Preview (what --write WOULD do) ───────────────────────────────
+  prompt_answer_observations  → upsert 14096 rows in 29 batches
+  daily_metric_snapshots      → upsert 7191 rows in 15 batches
+  changelog_entries           → 0 (Stage 5 fenced out)
+  recommended_edits           → 0 (out of core scope)
+  recommendation_responses    → 0 (out of core scope)
+  orphan_benchmark_twins      → 0 (Stage 4 NO-OP)
+  destructive_operations      → none (upsert only)
+  batch_size                  → 500
+  conflict_key                → onConflict: "id" on both tables (idempotent)
+
+  sample observation IDs (5):
+    · f495d169-ea64-235e-4ae1-e9c0c721ab13
+    · e0811025-4f5f-9206-5d42-e18be0e93d42
+    · 876dcc03-4d9a-2479-3691-2f882e53b922
+    · d29aa0a0-f905-42ad-57f5-cee4036cfde6
+    · 552fe9d7-b5ef-3858-2a33-f5386a93cadb
+  sample snapshot IDs (5):
+    · derived-2026-04-21-constructelements-google-ai-overviews
+    · derived-2026-04-21-valleyboutiquebuilders-google-ai-overviews
+    · derived-2026-04-21-ritzbuilders-google-ai-overviews
+    · derived-2026-04-21-demattei-google-ai-overviews
+    · derived-2026-04-21-supplehomesinc-google-ai-overviews
+
+Stage 7 dry-run complete. NO Supabase writes. NO production mutation.
+Run again with `--write` after operator approves to mutate Supabase.
+Preview JSON  : /Users/armeen/beacon/.data/_staging/w4-core-publish-preview.json
+Manifest JSON : /Users/armeen/beacon/.data/_staging/w4-core-publish-manifest.json
+══════════════════════════════════════════════════════════════════
+```
+
+### Verification
+
+- ✓ `npx tsc --noEmit` clean
+- ✓ `npx vitest run tests/scripts/customer-one-backfill.test.ts` — 248/248 pass (was 192/192 at Stage 6b — +56 invariants from Stage 7)
+- ✓ `npm run test` — 4119/4125 (6 pre-existing baseline failures all OUTSIDE this surface; same 6 reproduced on stashed working tree, net change vs Stage 6b: +56 passes, ±0 failures)
+- ✓ `BEACON_TENANT_ID=tenant-ritz-founder BEACON_TENANT_SLUG=ritz-builders npm run build` clean
+- ✓ Stage 7 dry-run: `outcome: preview_only`, all 8 preconditions PASS, wrote `.data/_staging/w4-core-publish-preview.json` (full preview JSON) + `.data/_staging/w4-core-publish-manifest.json` (rollback skeleton with 14,096 + 7,191 IDs)
+
+### Constraints honored (operator-locked)
+
+- No production writes (dry-run path never calls upsert/insert/update/delete) · No publish executed today · No Supabase writes anywhere · No schema migration · No rollback execution · No recommendation queue mutation (recs are READ-ONLY for byte identity) · No Profound archive/delete · No paid generation · No Apply-All-HIGH · No `--publish-scope=full` (Stage 5 still deferred)
+
+### Latent bug fixed during Stage 7
+
+Stage 6's recs byte-identity check used an id-keyed map; `recommendation_responses` has no `.id` column (PK is `rec_id`), so all 7 rows collapsed to key `""` and the check silently reported `1/1 match` instead of `7/7 match`. Stage 7's set-based `canonicalJson` diff handles any table shape and reports correctly. The set-based diff also catches BOTH row-count drift AND row-content drift in one pass: missing-from-current and added-to-current are reported separately.
+
+### Outcome
+
+Stage 7 is the gate working as designed: it lets the operator inspect EXACTLY what `--write` would do (row counts, batch counts, sample IDs, conflict-key strategy, rollback plan) before running it. Awaiting operator's explicit "publish core now" approval to actually mutate Supabase. Until then, dry-run is the only path that runs, and every safety fence is source-scan-pinned.
+
+---
+
 ## 2026-05-04 — W4 Stage 6b: scope-aware verify (--publish-scope=core|full → safe_to_publish_core: true, safe_to_publish: false)
 
 Operator chose option D (defer Stage 5 publish entirely) and approved Stage 6b: split the publish-readiness check into core (observations + snapshots) and stage_5 (changelog metadata jsonb column), tag every check with `scope: "core" | "stage_5"`, and gate publish on the active `--publish-scope` mode. Core mode lets Stages 2/3/4 (observations + snapshots + orphan-benchmarks NO-OP) publish without waiting for the changelog metadata column. Stage 5 staged proposals stay preserved on disk; the metadata-column failure is reported as `deferredStage5Relabel: true` rather than blocking core publish. Full mode (default) preserves Stage 6 behaviour exactly — back-compat verified.

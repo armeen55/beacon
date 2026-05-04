@@ -144,10 +144,10 @@ describe("validateStage", () => {
     expect(v.isReserved).toBe(false);
   });
 
-  it("rejects reserved stages with isReserved=true (publish / rollback)", () => {
-    // W4 Stage 6 (2026-05-04): verify is now IMPLEMENTED;
-    // reserved set narrowed to 2.
-    const RESERVED: Stage[] = ["publish", "rollback"];
+  it("rejects reserved stages with isReserved=true (rollback only — Stage 7 promoted publish)", () => {
+    // W4 Stage 7 (2026-05-04): publish is now IMPLEMENTED in dry-run
+    // preview mode; reserved set narrowed to 1.
+    const RESERVED: Stage[] = ["rollback"];
     for (const s of RESERVED) {
       const v = validateStage(s);
       expect(v.ok).toBe(false);
@@ -156,9 +156,16 @@ describe("validateStage", () => {
     }
   });
 
-  it("publish is RESERVED and not implemented today", () => {
-    expect(IMPLEMENTED_STAGES.has("publish")).toBe(false);
-    expect(validateStage("publish").isReserved).toBe(true);
+  it("publish IS implemented as of W4 Stage 7 (2026-05-04, dry-run preview only)", () => {
+    expect(IMPLEMENTED_STAGES.has("publish")).toBe(true);
+    const v = validateStage("publish");
+    expect(v.ok).toBe(true);
+    expect(v.isReserved).toBe(false);
+  });
+
+  it("rollback STAYS RESERVED until Stage 8 lands", () => {
+    expect(IMPLEMENTED_STAGES.has("rollback")).toBe(false);
+    expect(validateStage("rollback").isReserved).toBe(true);
   });
 
   it("extract-observations IS implemented as of W4 Stage 2 (2026-05-04)", () => {
@@ -442,26 +449,39 @@ describe("Stage 1 backup writes ONLY to the backup directory (source-scan)", () 
   });
 });
 
-// ── 10. publish stage prints a giant warning + is gated as "not implemented" ───
+// ── 10. Stage 7 — publish is now implemented (dry-run preview only by default) ─
 
-describe("publish stage is hard-blocked + warned (source-scan)", () => {
-  it("the orchestrator's main() prints a giant warning when --stage=publish is passed", () => {
-    expect(SCRIPT_SRC).toMatch(/W4 PUBLISH STAGE/);
-    expect(SCRIPT_SRC).toMatch(/NOT YET IMPLEMENTED/);
+describe("publish stage prints a giant warning ONLY when --write is passed", () => {
+  it("the giant warning fires on --stage=publish + --write (production mutation banner)", () => {
+    expect(SCRIPT_SRC).toMatch(/W4 PUBLISH STAGE \+ --write/);
+    expect(SCRIPT_SRC).toMatch(/PRODUCTION MUTATION ABOUT TO RUN/);
+    expect(SCRIPT_SRC).toMatch(/'publish core now'/);
   });
 
-  it("validateStage('publish').isReserved is true (re-pin the implementation contract)", () => {
+  it("the giant warning is gated on flags.dryRun === false (NOT on stage alone)", () => {
+    // Verify the gate: the warning lives inside an `if (... && flags.dryRun === false)` block.
+    const start = SCRIPT_SRC.indexOf("PRODUCTION MUTATION ABOUT TO RUN");
+    expect(start).toBeGreaterThan(0);
+    // The block above the warning must reference both stage === publish AND dryRun === false.
+    const before = SCRIPT_SRC.slice(Math.max(0, start - 800), start);
+    expect(before).toMatch(
+      /flags\.stage\s*===\s*"publish"\s*&&\s*flags\.dryRun\s*===\s*false/,
+    );
+  });
+
+  it("validateStage('publish').ok is true (Stage 7 promoted publish out of reserved)", () => {
     const v = validateStage("publish" as Stage);
-    expect(v.ok).toBe(false);
-    expect(v.isReserved).toBe(true);
+    expect(v.ok).toBe(true);
+    expect(v.isReserved).toBe(false);
   });
 
-  it("IMPLEMENTED_STAGES carries the W4 Stage 6 set", () => {
+  it("IMPLEMENTED_STAGES carries the W4 Stage 7 set (publish in, rollback still reserved)", () => {
     expect([...IMPLEMENTED_STAGES].sort()).toEqual([
       "backup",
       "copy-orphan-benchmarks",
       "extract-observations",
       "preflight",
+      "publish",
       "rederive-snapshots",
       "relabel-changelog",
       "verify",
@@ -1272,7 +1292,9 @@ describe("Stage 6 — runVerify is staging-only (source-scan)", () => {
   it("never calls .insert/.update/.delete/.upsert on Supabase (across the entire verify flow)", () => {
     const allVerifySource = SCRIPT_SRC.slice(
       SCRIPT_SRC.indexOf("// ── Stage 6: verify"),
-      SCRIPT_SRC.indexOf("// ── Tiny helpers"),
+      // W4 Stage 7 (2026-05-04): Stage 7 publish module sits between
+      // Stage 6 verify and the tiny helpers, so the boundary moved.
+      SCRIPT_SRC.indexOf("// W4 STAGE 7 — CORE PUBLISH"),
     );
     expect(allVerifySource).not.toMatch(/\.insert\(/);
     expect(allVerifySource).not.toMatch(/\.update\(/);
@@ -1286,7 +1308,9 @@ describe("Stage 6 — runVerify is staging-only (source-scan)", () => {
   it("does NOT WRITE to recommended-edits or recommendation-responses files", () => {
     const verifySrc = SCRIPT_SRC.slice(
       SCRIPT_SRC.indexOf("// ── Stage 6: verify"),
-      SCRIPT_SRC.indexOf("// ── Tiny helpers"),
+      // W4 Stage 7 (2026-05-04): Stage 7 publish module sits between
+      // Stage 6 verify and the tiny helpers, so the boundary moved.
+      SCRIPT_SRC.indexOf("// W4 STAGE 7 — CORE PUBLISH"),
     );
     const writes = [...verifySrc.matchAll(/writeFileSync\(\s*([^,]+),/g)].map(
       (m) => m[1],
@@ -1297,17 +1321,24 @@ describe("Stage 6 — runVerify is staging-only (source-scan)", () => {
     }
   });
 
-  it("the only writeFileSync target is the verify report under stagingDir", () => {
+  it("the only writeFileSync target in Stage 6 verify scope is the verify report under stagingDir", () => {
     const verifySrc = SCRIPT_SRC.slice(
       SCRIPT_SRC.indexOf("// ── Stage 6: verify"),
-      SCRIPT_SRC.indexOf("// ── Tiny helpers"),
+      // W4 Stage 7 (2026-05-04): Stage 7 publish module sits between
+      // Stage 6 verify and the tiny helpers, so the boundary moved.
+      SCRIPT_SRC.indexOf("// W4 STAGE 7 — CORE PUBLISH"),
     );
     const writes = [...verifySrc.matchAll(/writeFileSync\(\s*([^,]+),/g)].map(
       (m) => m[1],
     );
+    // The verify scope writes the verify report (under stagingDir,
+    // filename branched on publishScope) and nothing else. Both
+    // matched arguments are the same `join(stagingDir, reportFilename)`
+    // expression source-scan-wise.
     expect(writes.length).toBe(1);
     expect(writes[0]).toMatch(/stagingDir/);
     expect(verifySrc).toMatch(/w4-verify-report\.json/);
+    expect(verifySrc).toMatch(/w4-verify-core-report\.json/);
   });
 
   it("aggregates checks into safeToPublish=false when ANY check fails", () => {
@@ -1942,5 +1973,542 @@ describe("Stage 6b — core mode skips the Stage 5 publish gate", () => {
     expect(body).toMatch(
       /publishScope\s*===\s*"core"\s*\?\s*"w4-verify-core-report\.json"\s*:\s*"w4-verify-report\.json"/,
     );
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// W4 STAGE 7 — CORE PUBLISH (dry-run preview only by default)
+// ──────────────────────────────────────────────────────────────────────
+//
+// Operator contract (2026-05-04, locked):
+//   --stage=publish --publish-scope=core --dry-run (default)
+//     → produces preview JSON + rollback manifest skeleton.
+//     → ZERO Supabase writes. ZERO production mutation.
+//   --stage=publish --publish-scope=core --write
+//     → upserts staged observations + snapshots; only after the
+//       operator says "publish core now".
+//   --stage=publish --publish-scope=full
+//     → RESERVED. Stage 5 changelog relabel publish is deferred until
+//       a schema path is chosen.
+//
+// These tests pin the design contract on the source. They do NOT
+// invoke runCorePublish (Supabase calls); they read the source bytes
+// to prove the safety fences and shape are in place.
+
+describe("Stage 7 — core publish constants are operator-locked", () => {
+  it("CORE_PUBLISH_TABLES contains exactly the two write targets", () => {
+    expect(SCRIPT_SRC).toMatch(
+      /export const CORE_PUBLISH_TABLES = \[\s*"prompt_answer_observations",\s*"daily_metric_snapshots",?\s*\] as const;/,
+    );
+  });
+
+  it("CORE_PUBLISH_FORBIDDEN_TABLES fences out Stage 5 + recs + global registries", () => {
+    const start = SCRIPT_SRC.indexOf("export const CORE_PUBLISH_FORBIDDEN_TABLES");
+    const end = SCRIPT_SRC.indexOf("] as const;", start) + "] as const;".length;
+    const body = SCRIPT_SRC.slice(start, end);
+    // Stage 5 fence
+    expect(body).toMatch(/"changelog_entries"/);
+    // Recs queue must never be touched in core mode
+    expect(body).toMatch(/"recommended_edits"/);
+    expect(body).toMatch(/"recommendation_responses"/);
+    // Global registries
+    expect(body).toMatch(/"tracked_entities"/);
+    expect(body).toMatch(/"tracked_prompts"/);
+  });
+
+  it("PUBLISH_BATCH_SIZE is 500 (matches dual-write CHUNK_SIZE)", () => {
+    expect(SCRIPT_SRC).toMatch(/export const PUBLISH_BATCH_SIZE = 500;/);
+  });
+
+  it("PUBLISH_CONFLICT_TARGETS uses 'id' for both tables (idempotent)", () => {
+    const start = SCRIPT_SRC.indexOf("export const PUBLISH_CONFLICT_TARGETS");
+    const end = SCRIPT_SRC.indexOf("};", start);
+    const body = SCRIPT_SRC.slice(start, end);
+    expect(body).toMatch(/prompt_answer_observations:\s*"id"/);
+    expect(body).toMatch(/daily_metric_snapshots:\s*"id"/);
+  });
+});
+
+describe("Stage 7 — runCorePublish dry-run is the default + writes ONLY preview files", () => {
+  const orchestratorBody = (): string => {
+    const start = SCRIPT_SRC.indexOf("async function runCorePublish(");
+    const end = SCRIPT_SRC.indexOf(
+      "// ── Stage 7 — printer ───────",
+      start,
+    );
+    return SCRIPT_SRC.slice(start, end);
+  };
+
+  it("the only writeFileSync targets in dry-run path are preview + manifest under stagingDir", () => {
+    const body = orchestratorBody();
+    const writes = [...body.matchAll(/writeFileSync\(\s*([A-Za-z_]+)/g)].map(
+      (m) => m[1],
+    );
+    // Dry-run path writes: previewPath, manifestPath. No more.
+    expect(writes.length).toBeGreaterThan(0);
+    for (const w of writes) {
+      expect(["previewPath", "manifestPath"]).toContain(w);
+    }
+  });
+
+  it("preview filename is w4-core-publish-preview.json", () => {
+    expect(SCRIPT_SRC).toMatch(/w4-core-publish-preview\.json/);
+  });
+
+  it("manifest filename is w4-core-publish-manifest.json", () => {
+    expect(SCRIPT_SRC).toMatch(/w4-core-publish-manifest\.json/);
+  });
+
+  it("dry-run path returns outcome 'preview_only' on success and 'failed_preconditions' on failure", () => {
+    const body = orchestratorBody();
+    expect(body).toMatch(
+      /outcome:\s*allPass\s*\?\s*"preview_only"\s*:\s*"failed_preconditions"/,
+    );
+  });
+
+  it("dry-run path is gated by `if (args.dryRun)` returning before --write logic runs", () => {
+    const body = orchestratorBody();
+    // The dry-run early-return must precede any sb.from(...).upsert(...) call.
+    const earlyReturn = body.indexOf("if (args.dryRun)");
+    const upsertCall = body.indexOf("upsert(");
+    expect(earlyReturn).toBeGreaterThan(0);
+    expect(upsertCall).toBeGreaterThan(earlyReturn);
+  });
+});
+
+describe("Stage 7 — write path safety fences (source-scan)", () => {
+  const orchestratorBody = (): string => {
+    const start = SCRIPT_SRC.indexOf("async function runCorePublish(");
+    const end = SCRIPT_SRC.indexOf(
+      "// ── Stage 7 — printer ───────",
+      start,
+    );
+    return SCRIPT_SRC.slice(start, end);
+  };
+
+  it("write path only invokes upsert against tables in CORE_PUBLISH_TABLES (no changelog/recs)", () => {
+    const body = orchestratorBody();
+    // Find each `upsertInBatches(` call and capture the literal table arg.
+    const calls = [...body.matchAll(/upsertInBatches\(\s*"([^"]+)"/g)].map(
+      (m) => m[1],
+    );
+    expect(calls.length).toBeGreaterThan(0);
+    for (const c of calls) {
+      expect(["prompt_answer_observations", "daily_metric_snapshots"]).toContain(c);
+    }
+  });
+
+  it("write path does NOT call .delete() on any table (upsert only)", () => {
+    const body = orchestratorBody();
+    expect(body).not.toMatch(/\.delete\(\)/);
+  });
+
+  it("write path NEVER references changelog_entries / recommended_edits / recommendation_responses for mutation", () => {
+    const body = orchestratorBody();
+    // The body MAY mention these in comments, but should not have a
+    // .from("table").upsert / .insert / .update / .delete call against them.
+    for (const t of [
+      "changelog_entries",
+      "recommended_edits",
+      "recommendation_responses",
+    ]) {
+      const escaped = t.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&");
+      const mutPattern = new RegExp(
+        `\\.from\\(\\s*"${escaped}"\\s*\\)\\s*\\.\\s*(upsert|insert|update|delete)`,
+      );
+      expect(body).not.toMatch(mutPattern);
+    }
+  });
+
+  it("write path is gated by `allPass` — failed preconditions short-circuit before any upsert", () => {
+    const body = orchestratorBody();
+    // The first reference to upsertInBatches must be preceded by a
+    // `if (!allPass) { return ... }` early-out.
+    const earlyOut = body.lastIndexOf("if (!allPass)");
+    const firstUpsert = body.indexOf("upsertInBatches(");
+    expect(earlyOut).toBeGreaterThan(0);
+    expect(firstUpsert).toBeGreaterThan(earlyOut);
+  });
+
+  it("write path emits a structured PublishBatchLog per batch (fail-loud)", () => {
+    const body = orchestratorBody();
+    expect(body).toMatch(/batchLog\.push\(/);
+    // PublishBatchLog has at least table + batchIndex + outcome + durationMs + errorMessage.
+    expect(body).toMatch(/outcome:\s*"failed"/);
+    expect(body).toMatch(/outcome:\s*"ok"/);
+  });
+
+  it("manifest is updated to in_progress before mutation and to completed/failed after", () => {
+    const body = orchestratorBody();
+    expect(body).toMatch(/status:\s*"in_progress"/);
+    expect(body).toMatch(/status:\s*"completed"/);
+    expect(body).toMatch(/status:\s*"failed"/);
+  });
+
+  it("uses onConflict: target (proven dual-write pattern) on every upsert", () => {
+    const body = orchestratorBody();
+    // upsertInBatches is the only mutation surface. It uses
+    //   .upsert(chunk, { onConflict: target })
+    // where target = PUBLISH_CONFLICT_TARGETS[table].
+    expect(body).toMatch(/onConflict:\s*target/);
+    expect(body).toMatch(/PUBLISH_CONFLICT_TARGETS\[table\]/);
+  });
+});
+
+describe("Stage 7 — preview JSON shape (operator-spec)", () => {
+  const previewBuilder = (): string => {
+    const start = SCRIPT_SRC.indexOf("function buildCorePublishPreview(");
+    const end = SCRIPT_SRC.indexOf("\n}\n", start) + 1;
+    return SCRIPT_SRC.slice(start, end);
+  };
+
+  it("preview includes preview_only: true (dry-run flag)", () => {
+    expect(previewBuilder()).toMatch(/preview_only:\s*true/);
+  });
+
+  it("preview includes row_counts for every table the operator wants reported", () => {
+    const b = previewBuilder();
+    expect(b).toMatch(/prompt_answer_observations:\s*\{\s*to_upsert:/);
+    expect(b).toMatch(/daily_metric_snapshots:\s*\{\s*to_upsert:/);
+    // Operator wants explicit zeros for the tables we're NOT touching.
+    expect(b).toMatch(
+      /changelog_entries:\s*\{\s*to_insert:\s*0,\s*to_update:\s*0,\s*to_delete:\s*0\s*\}/,
+    );
+    expect(b).toMatch(/recommended_edits:\s*\{\s*to_mutate:\s*0\s*\}/);
+    expect(b).toMatch(/recommendation_responses:\s*\{\s*to_mutate:\s*0\s*\}/);
+    expect(b).toMatch(/orphan_benchmark_twins:\s*\{\s*to_emit:\s*0\s*\}/);
+  });
+
+  it("preview includes estimated_batches per table", () => {
+    const b = previewBuilder();
+    expect(b).toMatch(/estimated_batches:/);
+    expect(b).toMatch(/obsBatches/);
+    expect(b).toMatch(/snapBatches/);
+  });
+
+  it("preview includes 5 sample observation IDs and 5 sample snapshot IDs", () => {
+    const b = previewBuilder();
+    expect(b).toMatch(/sample_observation_ids:\s*observationIds\.slice\(0,\s*5\)/);
+    expect(b).toMatch(/sample_snapshot_ids:\s*snapshotIds\.slice\(0,\s*5\)/);
+  });
+
+  it("preview includes destructive_operations: 'none'", () => {
+    expect(previewBuilder()).toMatch(/destructive_operations:\s*"none"/);
+  });
+
+  it("preview documents Supabase transaction limits clearly", () => {
+    expect(previewBuilder()).toMatch(
+      /Supabase JS client does NOT support multi-batch transactions/,
+    );
+  });
+
+  it("preview includes rollback_plan with safety constraints", () => {
+    const b = previewBuilder();
+    expect(b).toMatch(/rollback_plan:/);
+    expect(b).toMatch(/manifest_path:/);
+    expect(b).toMatch(/safety_constraints:/);
+    expect(b).toMatch(/never deletes native Apr 22\+ rows/);
+    expect(b).toMatch(/never touches recommendations/);
+    expect(b).toMatch(/never touches changelog/);
+  });
+
+  it("preview includes the conflict_key spec for both tables", () => {
+    const b = previewBuilder();
+    expect(b).toMatch(/conflict_key:/);
+    expect(b).toMatch(/onConflict:\s*'id'/);
+  });
+});
+
+describe("Stage 7 — manifest JSON shape (rollback skeleton)", () => {
+  const manifestBuilder = (): string => {
+    const start = SCRIPT_SRC.indexOf("function buildCorePublishManifest(");
+    const end = SCRIPT_SRC.indexOf("\n}\n", start) + 1;
+    return SCRIPT_SRC.slice(start, end);
+  };
+
+  it("manifest captures EVERY id we'll touch (no sampling)", () => {
+    const b = manifestBuilder();
+    expect(b).toMatch(/ids:\s*\[\.\.\.args\.observationIds\]/);
+    expect(b).toMatch(/ids:\s*\[\.\.\.args\.snapshotIds\]/);
+  });
+
+  it("manifest carries rollback_constraints (operator-locked safety)", () => {
+    const b = manifestBuilder();
+    expect(b).toMatch(/rollback_constraints:/);
+    expect(b).toMatch(/never bulk delete/);
+    expect(b).toMatch(/never delete native Apr 22\+ rows/);
+    expect(b).toMatch(/never touch recommended_edits/);
+    expect(b).toMatch(/never touch changelog_entries/);
+  });
+
+  it("manifest status starts as one of: preview_only / in_progress / completed / failed", () => {
+    const b = manifestBuilder();
+    expect(b).toMatch(
+      /status:\s*"preview_only"\s*\|\s*"in_progress"\s*\|\s*"completed"\s*\|\s*"failed"/,
+    );
+  });
+});
+
+describe("Stage 7 — preconditions enforce the 8 operator-mandated gates", () => {
+  const validatorBody = (): string => {
+    const start = SCRIPT_SRC.indexOf("async function validateCorePublishPreconditions(");
+    const end = SCRIPT_SRC.indexOf(
+      "// ── Stage 7 — preview + manifest builders ──",
+      start,
+    );
+    return SCRIPT_SRC.slice(start, end);
+  };
+
+  it("1. checks Stage 1 backup manifest verifies (SHA-256 per entry)", () => {
+    const b = validatorBody();
+    expect(b).toMatch(/stage_1_backup_manifest_verifies/);
+    expect(b).toMatch(/createHash\(\s*"sha256"\s*\)/);
+    expect(b).toMatch(/sha256 mismatch/);
+  });
+
+  it("2. checks Stage 6b core report exists at .data/_staging/w4-verify-core-report.json", () => {
+    const b = validatorBody();
+    expect(b).toMatch(/stage_6b_core_report_exists/);
+    expect(b).toMatch(/w4-verify-core-report\.json/);
+  });
+
+  it("3. checks safe_to_publish_core === true on the parsed core report", () => {
+    const b = validatorBody();
+    expect(b).toMatch(/safe_to_publish_core_true/);
+    expect(b).toMatch(/safeToPublishCore\s*===\s*true/);
+  });
+
+  it("4. checks current production recs byte-identical to backup (set-based canonicalJson diff)", () => {
+    const b = validatorBody();
+    expect(b).toMatch(/recs_byte_identity_with_backup/);
+    expect(b).toMatch(/canonicalJson/);
+    // The set-based diff catches both row-count drift AND row-content drift.
+    expect(b).toMatch(
+      /MISSING from current Supabase|backup row count drift|count drift/,
+    );
+    expect(b).toMatch(
+      /NOT in Stage 1 backup \(post-backup mutation\)/,
+    );
+  });
+
+  it("5. checks staged files parse + row counts match Stage 2/3/4 dry-run truth", () => {
+    const b = validatorBody();
+    expect(b).toMatch(/staged_inputs_parse_and_count_match_reports/);
+    expect(b).toMatch(/VERIFY_EXPECTED\.observations\.total/);
+    expect(b).toMatch(/VERIFY_EXPECTED\.snapshots\.total/);
+    expect(b).toMatch(/orphans\.length\s*!==\s*0/);
+  });
+
+  it("6. checks publish target columns exist via Supabase probe", () => {
+    const b = validatorBody();
+    expect(b).toMatch(/publish_target_columns_exist/);
+    expect(b).toMatch(/missing required column/);
+  });
+
+  it("7. checks conflict-key strategy uses 'id' on both tables", () => {
+    const b = validatorBody();
+    expect(b).toMatch(/conflict_keys_strategy_confirmed/);
+    expect(b).toMatch(/PUBLISH_CONFLICT_TARGETS/);
+  });
+
+  it("8. checks Stage 5 relabel is fenced out of core publish", () => {
+    const b = validatorBody();
+    expect(b).toMatch(/stage_5_relabel_excluded_from_core/);
+    expect(b).toMatch(/CORE_PUBLISH_FORBIDDEN_TABLES/);
+    expect(b).toMatch(/Stage 5 fence/);
+  });
+
+  it("aggregator computes allPass = checks.every(c => c.pass)", () => {
+    const b = validatorBody();
+    expect(b).toMatch(/allPass\s*=\s*checks\.every\(\(?c\)?\s*=>\s*c\.pass\)/);
+  });
+});
+
+describe("Stage 7 — printCorePublishReport shows the operator the right thing", () => {
+  const printerBody = (): string => {
+    const start = SCRIPT_SRC.indexOf("function printCorePublishReport(");
+    const end = SCRIPT_SRC.indexOf("\n}\n", start) + 1;
+    return SCRIPT_SRC.slice(start, end);
+  };
+
+  it("header changes by outcome (preview_only / completed / failed_preconditions / failed_during_write)", () => {
+    const b = printerBody();
+    expect(b).toMatch(/PREVIEW ONLY \(dry-run\)/);
+    expect(b).toMatch(/COMPLETED \(write\)/);
+    expect(b).toMatch(/FAILED PRECONDITIONS/);
+    expect(b).toMatch(/FAILED DURING WRITE/);
+  });
+
+  it("prints a per-table preview row count + batch count", () => {
+    const b = printerBody();
+    expect(b).toMatch(/prompt_answer_observations\s*→ upsert/);
+    expect(b).toMatch(/daily_metric_snapshots\s*→ upsert/);
+    expect(b).toMatch(/Stage 5 fenced out/);
+    expect(b).toMatch(/out of core scope/);
+    expect(b).toMatch(/Stage 4 NO-OP/);
+  });
+
+  it("dry-run footer reminds the operator no Supabase writes happened", () => {
+    const b = printerBody();
+    expect(b).toMatch(/NO Supabase writes\. NO production mutation\./);
+  });
+});
+
+describe("Stage 7 — main() dispatches publish correctly", () => {
+  const mainPublishBody = (): string => {
+    const start = SCRIPT_SRC.indexOf('flags.stage === "publish"');
+    // Use the second occurrence — first is the warning gate, second is the dispatch.
+    const second = SCRIPT_SRC.indexOf('flags.stage === "publish"', start + 1);
+    const dispatchStart = second > 0 ? second : start;
+    const end = SCRIPT_SRC.indexOf("// Should not reach here", dispatchStart);
+    return SCRIPT_SRC.slice(dispatchStart, end);
+  };
+
+  it("rejects --publish-scope=full with a clear deferred-Stage-5 message", () => {
+    const b = mainPublishBody();
+    expect(b).toMatch(/--publish-scope=full is RESERVED/);
+    expect(b).toMatch(/Stage 5 changelog relabel publish is deferred/);
+  });
+
+  it("calls runCorePublish for --publish-scope=core (full path is short-circuited)", () => {
+    const b = mainPublishBody();
+    expect(b).toMatch(/runCorePublish\(/);
+  });
+
+  it("threads dryRun through to the orchestrator (default true → preview_only)", () => {
+    const b = mainPublishBody();
+    expect(b).toMatch(/dryRun:\s*flags\.dryRun/);
+  });
+
+  it("exits 0 on preview_only or completed; 11 on failed_preconditions; 12 on failed_during_write", () => {
+    const b = mainPublishBody();
+    expect(b).toMatch(/process\.exit\(0\)/);
+    expect(b).toMatch(/process\.exit\(11\)/);
+    expect(b).toMatch(/process\.exit\(12\)/);
+  });
+});
+
+describe("Stage 7 — operator-mandated test invariants (10)", () => {
+  // These ten are the literal list from the operator brief. Each
+  // pins an operator-level acceptance criterion.
+
+  it("1. publish dry-run writes ONLY the preview file (and the manifest skeleton — both under stagingDir)", () => {
+    const start = SCRIPT_SRC.indexOf("async function runCorePublish(");
+    const end = SCRIPT_SRC.indexOf("if (args.dryRun)", start);
+    const body = SCRIPT_SRC.slice(start, end);
+    const writes = [...body.matchAll(/writeFileSync\(\s*([A-Za-z_]+)/g)].map(
+      (m) => m[1],
+    );
+    for (const w of writes) {
+      expect(["previewPath", "manifestPath"]).toContain(w);
+    }
+  });
+
+  it("2. publish dry-run does NOT call Supabase write paths (no .upsert/.insert/.update/.delete before the dry-run early-return)", () => {
+    const start = SCRIPT_SRC.indexOf("async function runCorePublish(");
+    const end = SCRIPT_SRC.indexOf("if (args.dryRun)", start);
+    const body = SCRIPT_SRC.slice(start, end);
+    expect(body).not.toMatch(/\.upsert\(/);
+    expect(body).not.toMatch(/\.insert\(/);
+    expect(body).not.toMatch(/\.update\(/);
+    expect(body).not.toMatch(/\.delete\(/);
+  });
+
+  it("3. publish write path is BLOCKED unless --write (dryRun=false) AND allPass", () => {
+    const start = SCRIPT_SRC.indexOf("async function runCorePublish(");
+    const end = SCRIPT_SRC.indexOf(
+      "// ── Stage 7 — printer ───────",
+      start,
+    );
+    const body = SCRIPT_SRC.slice(start, end);
+    // Two-layer fence:
+    //   layer 1 — dry-run early return
+    expect(body).toMatch(/if \(args\.dryRun\)/);
+    //   layer 2 — !allPass short-circuits before any upsert
+    expect(body).toMatch(/if \(!allPass\)/);
+  });
+
+  it("4. core publish EXCLUDES changelog_entries (Stage 5 fence)", () => {
+    expect(SCRIPT_SRC).toMatch(
+      /CORE_PUBLISH_FORBIDDEN_TABLES[\s\S]*?"changelog_entries"/,
+    );
+  });
+
+  it("5. core publish EXCLUDES recommended_edits + recommendation_responses", () => {
+    expect(SCRIPT_SRC).toMatch(
+      /CORE_PUBLISH_FORBIDDEN_TABLES[\s\S]*?"recommended_edits"[\s\S]*?"recommendation_responses"/,
+    );
+  });
+
+  it("6. missing Stage 6b core-safe report BLOCKS publish (precondition 2)", () => {
+    const start = SCRIPT_SRC.indexOf(
+      "async function validateCorePublishPreconditions(",
+    );
+    const end = SCRIPT_SRC.indexOf(
+      "// ── Stage 7 — preview + manifest builders",
+      start,
+    );
+    const body = SCRIPT_SRC.slice(start, end);
+    expect(body).toMatch(/stage_6b_core_report_exists/);
+    expect(body).toMatch(/w4-verify-core-report\.json missing/);
+  });
+
+  it("7. unsafe Stage 6b report (safeToPublishCore !== true) BLOCKS publish (precondition 3)", () => {
+    const start = SCRIPT_SRC.indexOf(
+      "async function validateCorePublishPreconditions(",
+    );
+    const end = SCRIPT_SRC.indexOf(
+      "// ── Stage 7 — preview + manifest builders",
+      start,
+    );
+    const body = SCRIPT_SRC.slice(start, end);
+    expect(body).toMatch(/safe_to_publish_core_true/);
+    expect(body).toMatch(/safeToPublishCore\s*===\s*true/);
+  });
+
+  it("8. staged row count drift BLOCKS publish (precondition 5)", () => {
+    const start = SCRIPT_SRC.indexOf(
+      "async function validateCorePublishPreconditions(",
+    );
+    const end = SCRIPT_SRC.indexOf(
+      "// ── Stage 7 — preview + manifest builders",
+      start,
+    );
+    const body = SCRIPT_SRC.slice(start, end);
+    expect(body).toMatch(/count drift: expected/);
+    expect(body).toMatch(/14096/);
+    expect(body).toMatch(/7191/);
+  });
+
+  it("9. idempotent key strategy is pinned (onConflict: 'id' on both tables)", () => {
+    const start = SCRIPT_SRC.indexOf("export const PUBLISH_CONFLICT_TARGETS");
+    const end = SCRIPT_SRC.indexOf("};", start);
+    const body = SCRIPT_SRC.slice(start, end);
+    expect(body).toMatch(/prompt_answer_observations:\s*"id"/);
+    expect(body).toMatch(/daily_metric_snapshots:\s*"id"/);
+  });
+
+  it("10. rollback manifest plan includes ONLY W4 core IDs (no broader DELETE WHERE)", () => {
+    const manifestStart = SCRIPT_SRC.indexOf("function buildCorePublishManifest(");
+    const manifestEnd = SCRIPT_SRC.indexOf("\n}\n", manifestStart) + 1;
+    const body = SCRIPT_SRC.slice(manifestStart, manifestEnd);
+    expect(body).toMatch(/ids:\s*\[\.\.\.args\.observationIds\]/);
+    expect(body).toMatch(/ids:\s*\[\.\.\.args\.snapshotIds\]/);
+    expect(body).toMatch(/never bulk delete/);
+    // The rollback plan inside the preview also mentions the constraint.
+    const previewStart = SCRIPT_SRC.indexOf("function buildCorePublishPreview(");
+    const previewEnd = SCRIPT_SRC.indexOf("\n}\n", previewStart) + 1;
+    const previewBody = SCRIPT_SRC.slice(previewStart, previewEnd);
+    expect(previewBody).toMatch(/manifest is the authoritative list/);
+  });
+
+  it("(extra) publish-scope=full remains BLOCKED until Stage 5 schema path exists", () => {
+    const start = SCRIPT_SRC.indexOf('flags.stage === "publish"');
+    const second = SCRIPT_SRC.indexOf('flags.stage === "publish"', start + 1);
+    const dispatchStart = second > 0 ? second : start;
+    const end = SCRIPT_SRC.indexOf("// Should not reach here", dispatchStart);
+    const body = SCRIPT_SRC.slice(dispatchStart, end);
+    expect(body).toMatch(/--publish-scope=full is RESERVED/);
+    expect(body).toMatch(/Stage 5 changelog relabel publish is deferred/);
   });
 });

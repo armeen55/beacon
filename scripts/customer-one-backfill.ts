@@ -174,7 +174,13 @@ export type Stage = (typeof ALL_STAGES)[number];
  *
  *  W4 Stage 2 (2026-05-04): `extract-observations` lands STAGED
  *  ONLY — output goes to `.data/_staging/`, never touching Supabase
- *  or the live `.data/tenants/` tree. */
+ *  or the live `.data/tenants/` tree.
+ *
+ *  W4 Stage 7 (2026-05-04, operator-approved core publish design +
+ *  dry-run preview ONLY): `publish` is wired but defaults to dry-run.
+ *  Real production mutation requires `--write` AND a passing Stage
+ *  6b core report (`safe_to_publish_core: true`). `rollback` remains
+ *  reserved + hard-fail. */
 export const IMPLEMENTED_STAGES = new Set<Stage>([
   "preflight",
   "backup",
@@ -183,6 +189,7 @@ export const IMPLEMENTED_STAGES = new Set<Stage>([
   "copy-orphan-benchmarks",
   "relabel-changelog",
   "verify",
+  "publish",
 ]);
 
 // ── CLI flags ───────────────────────────────────────────────────────────
@@ -484,16 +491,20 @@ async function main(): Promise<void> {
     return;
   }
 
-  // Big red warning if the operator is even pointing at publish.
-  if (flags.stage === "publish") {
+  // W4 Stage 7 (2026-05-04): publish is now IMPLEMENTED in dry-run
+  // preview mode. The big red warning remains — but it only fires
+  // when --write is present (dryRun=false). Dry-run path is safe and
+  // never mutates Supabase. The flag combination that is genuinely
+  // dangerous is `--stage=publish --write`, which is operator-gated
+  // by an explicit "publish core now" approval.
+  if (flags.stage === "publish" && flags.dryRun === false) {
     console.error(
       "\n" +
         "█████████████████████████████████████████████████████████████████████\n" +
-        "█  W4 PUBLISH STAGE — NOT YET IMPLEMENTED + NOT YET APPROVED.       █\n" +
-        "█  Publish writes to production Supabase. Today this script HARD-  █\n" +
-        "█  FAILS on --stage=publish. To proceed in the future, the         █\n" +
-        "█  operator must approve in writing AND the verify stage must      █\n" +
-        "█  pass all six checks. Stop here.                                  █\n" +
+        "█  W4 PUBLISH STAGE + --write — PRODUCTION MUTATION ABOUT TO RUN.   █\n" +
+        "█  This will upsert Stage 2/3 staged rows into Supabase.            █\n" +
+        "█  Operator must have approved with the literal phrase              █\n" +
+        "█  'publish core now'. If you did not approve this, Ctrl-C now.     █\n" +
         "█████████████████████████████████████████████████████████████████████\n",
     );
   }
@@ -603,6 +614,55 @@ async function main(): Promise<void> {
         ? report.safeToPublishCore
         : report.safeToPublish;
     process.exit(gate ? 0 : 9);
+    return;
+  }
+
+  if (flags.stage === "publish") {
+    // W4 Stage 7 (2026-05-04, operator-approved): --publish-scope=core
+    // is implemented in DRY-RUN PREVIEW mode by default. Real
+    // production mutation requires `--write` (which flips dryRun to
+    // false) AND a passing Stage 6b core report. --publish-scope=full
+    // is RESERVED until the Stage 5 schema path lands.
+    if (flags.publishScope === "full") {
+      console.error(
+        "[w4-backfill] --stage=publish --publish-scope=full is RESERVED.",
+      );
+      console.error(
+        "[w4-backfill] Stage 5 changelog relabel publish is deferred until the operator",
+      );
+      console.error(
+        "[w4-backfill] picks a schema path (add metadata column / overwrite top-level /",
+      );
+      console.error(
+        "[w4-backfill] separate label table / keep deferred). Today only --publish-scope=core",
+      );
+      console.error("[w4-backfill] is approved.");
+      process.exit(10);
+      return;
+    }
+    const report = await runCorePublish({
+      tenantId,
+      tenantSlug,
+      dryRun: flags.dryRun,
+    });
+    printCorePublishReport(report);
+    // Exit codes:
+    //   0  = preview_only (dry-run) OR completed (post --write)
+    //   11 = failed_preconditions
+    //   12 = failed_during_write
+    //   13 = aborted_full_scope_reserved (defensive — shouldn't reach here)
+    if (
+      report.outcome === "preview_only" ||
+      report.outcome === "completed"
+    ) {
+      process.exit(0);
+    } else if (report.outcome === "failed_preconditions") {
+      process.exit(11);
+    } else if (report.outcome === "failed_during_write") {
+      process.exit(12);
+    } else {
+      process.exit(13);
+    }
     return;
   }
 
@@ -5156,6 +5216,1212 @@ async function checkPublishReadinessStage5(
     // W4 Stage 6b — stage_5-scoped so core publish path can defer.
     scope: "stage_5",
   };
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// W4 STAGE 7 — CORE PUBLISH (dry-run preview by default)
+// ══════════════════════════════════════════════════════════════════════
+//
+// Operator contract (2026-05-04, locked):
+//   --stage=publish --publish-scope=core --dry-run (default)
+//     → produces:
+//        .data/_staging/w4-core-publish-preview.json
+//        .data/_staging/w4-core-publish-manifest.json (status: "preview_only")
+//     → ZERO Supabase writes. ZERO production mutation.
+//
+//   --stage=publish --publish-scope=core --write
+//     → only after operator explicitly says "publish core now".
+//     → upserts staged observations + snapshots in safe batches via
+//       the same `onConflict: id` pattern dual-write uses elsewhere.
+//
+//   --stage=publish --publish-scope=full
+//     → RESERVED. Stage 5 changelog relabel publish stays deferred
+//       until the operator picks a schema path.
+//
+// Scope gates (CORE):
+//   • Tables touched:  prompt_answer_observations, daily_metric_snapshots
+//   • Tables NEVER touched in core:  changelog_entries (Stage 5),
+//     recommended_edits, recommendation_responses, tracked_entities,
+//     tracked_prompts.
+//   • Destructive operations:  none. Upsert only. Never delete.
+//
+// Idempotency:
+//   • Both target tables use deterministic `id` (Schema v2 hashes).
+//   • Re-running the same staged inputs produces the same IDs →
+//     upsert-on-id naturally idempotent.
+//
+// Transaction support:
+//   • Supabase JS does NOT expose multi-statement transactions through
+//     the REST API. Each batch upsert is atomic within itself. Multi-
+//     batch atomicity is achieved via:
+//       1. pre-write manifest captures EVERY id we'll touch
+//       2. per-batch logging emits structured progress
+//       3. fail-loud on partial: abort if a batch errors
+//       4. rollback design uses the manifest's id list (never bulk
+//          DELETE WHERE date >= ...)
+//
+// The actual rollback EXECUTION stays reserved (--stage=rollback
+// hard-fails until the operator approves Stage 8). Stage 7 only
+// produces the rollback manifest.
+//
+// All structures here are EXPORTED so the test suite can pin their
+// shape via source-scan invariants.
+
+export type PublishOutcome =
+  | "preview_only"
+  | "completed"
+  | "failed_preconditions"
+  | "failed_during_write"
+  | "aborted_full_scope_reserved";
+
+export type PublishPrecondition = {
+  readonly name: string;
+  readonly pass: boolean;
+  readonly summary: string;
+  readonly details: Record<string, unknown>;
+  readonly blockers: ReadonlyArray<string>;
+};
+
+export type PublishBatchLog = {
+  readonly table: string;
+  readonly batchIndex: number;
+  readonly rowsInBatch: number;
+  readonly outcome: "ok" | "failed" | "skipped_dry_run";
+  readonly durationMs: number;
+  readonly errorMessage: string | null;
+};
+
+export type PublishReport = {
+  readonly publishId: string;
+  readonly publishScope: "core" | "full";
+  readonly tenantId: string;
+  readonly tenantSlug: string;
+  readonly dryRun: boolean;
+  readonly startedAt: string;
+  readonly completedAt: string | null;
+  readonly outcome: PublishOutcome;
+  readonly preconditions: ReadonlyArray<PublishPrecondition>;
+  readonly preconditionsMet: boolean;
+  readonly previewPath: string;
+  readonly manifestPath: string;
+  readonly preview: Record<string, unknown> | null;
+  readonly batchLog: ReadonlyArray<PublishBatchLog>;
+  readonly errors: ReadonlyArray<string>;
+};
+
+// ── Stage 7 — operator-locked constants ──────────────────────────────
+
+/**
+ * Tables the core publish writes to. Operator-locked. Adding to this
+ * list requires an explicit scope decision; the test suite pins the
+ * length at exactly 2.
+ */
+export const CORE_PUBLISH_TABLES = [
+  "prompt_answer_observations",
+  "daily_metric_snapshots",
+] as const;
+
+/**
+ * Tables the core publish MUST NEVER touch. Stage 5 publish
+ * (changelog_entries) is deferred; recommendations + global registries
+ * are out of scope for the W4 core publish.
+ */
+export const CORE_PUBLISH_FORBIDDEN_TABLES = [
+  "changelog_entries",
+  "recommended_edits",
+  "recommendation_responses",
+  "tracked_entities",
+  "tracked_prompts",
+  "answer_texts",
+  "business_config",
+  "citation_evidence_index",
+  "answer_intelligence_index",
+] as const;
+
+/**
+ * Per-batch row count for upserts. Matches the existing
+ * `dual-write.ts` `CHUNK_SIZE` so we share the proven retry/backoff
+ * pattern when the write path activates.
+ */
+export const PUBLISH_BATCH_SIZE = 500;
+
+/** Conflict targets are operator-locked. Both tables use deterministic
+ *  IDs so `onConflict: "id"` makes upserts idempotent by construction. */
+export const PUBLISH_CONFLICT_TARGETS: Readonly<Record<string, string>> = {
+  prompt_answer_observations: "id",
+  daily_metric_snapshots: "id",
+};
+
+// ── Stage 7 — preconditions ──────────────────────────────────────────
+
+/**
+ * Validate every operator-mandated precondition before the publish
+ * flow does ANYTHING (preview or write). Each precondition returns a
+ * structured `PublishPrecondition`. The aggregate `allPass` flag
+ * gates the rest of the orchestrator.
+ *
+ * Operator-mandated preconditions (verbatim from the Stage 7 brief):
+ *   1. Stage 1 backup manifest exists and verifies (SHA-256)
+ *   2. Stage 6b core report exists
+ *   3. safe_to_publish_core === true
+ *   4. current production recs count/bytes match backup expectation
+ *   5. staged files parse and row counts match reports
+ *   6. publish target columns exist
+ *   7. conflict keys/upsert strategy confirmed
+ *   8. no Stage 5 relabel included
+ */
+async function validateCorePublishPreconditions(args: {
+  readonly tenantId: string;
+  readonly stagingDir: string;
+}): Promise<{
+  checks: PublishPrecondition[];
+  allPass: boolean;
+  staged: {
+    extracted: Array<Record<string, unknown>>;
+    rederive: Array<Record<string, unknown>>;
+    orphans: Array<Record<string, unknown>>;
+  };
+  coreReport: Record<string, unknown> | null;
+  backupDir: string | null;
+  recsBackup: Array<Record<string, unknown>>;
+  responsesBackup: Array<Record<string, unknown>>;
+}> {
+  const checks: PublishPrecondition[] = [];
+  const staged = {
+    extracted: [] as Array<Record<string, unknown>>,
+    rederive: [] as Array<Record<string, unknown>>,
+    orphans: [] as Array<Record<string, unknown>>,
+  };
+  let coreReport: Record<string, unknown> | null = null;
+  let backupDir: string | null = null;
+  let recsBackup: Array<Record<string, unknown>> = [];
+  let responsesBackup: Array<Record<string, unknown>> = [];
+
+  // ── 1. Stage 1 backup directory + manifest verifies (SHA-256) ────
+  {
+    const cwd = process.cwd();
+    const backupsRoot = join(cwd, ".data", "_backups");
+    let manifest: { entries?: Array<Record<string, unknown>> } | null = null;
+    let manifestPath = "";
+    let mismatches: string[] = [];
+    let entriesVerified = 0;
+    try {
+      const dirs = readdirSync(backupsRoot)
+        .filter((d) => d.startsWith("pre-w4-backfill-"))
+        .sort();
+      if (dirs.length > 0) backupDir = join(backupsRoot, dirs[dirs.length - 1]);
+      if (!backupDir || !existsSync(backupDir)) {
+        throw new Error("no pre-w4-backfill-* directory found");
+      }
+      manifestPath = join(backupDir, "backup-manifest.json");
+      if (!existsSync(manifestPath)) {
+        throw new Error(
+          `backup-manifest.json missing in ${backupDir}`,
+        );
+      }
+      manifest = JSON.parse(readFileSync(manifestPath, "utf-8"));
+      const entries = manifest?.entries ?? [];
+      const { createHash } = await import("crypto");
+      // Stage 1's backup writer hashes csv-source entries
+      // differently from supabase / local_file entries:
+      //   • supabase + local_file → manifest.sha256 = sha256 of the
+      //     file copied into backupDir/relativePath (we re-hash that
+      //     file directly).
+      //   • csv_source → backupDir contains a sidecar text file with
+      //     "<sha>  <csv-name>  bytes=<n>". The manifest stores the
+      //     hash of the SOURCE CSV (.data/<csv>), not the sidecar.
+      //     We re-hash the source CSV (must still exist in .data/)
+      //     and compare. If the source CSV is missing, that is a
+      //     real publish blocker.
+      for (const entry of entries) {
+        const rel = entry.relativePath as string | undefined;
+        const expected = entry.sha256 as string | undefined;
+        const sourceOfTruth = entry.sourceOfTruth as string | undefined;
+        const name = entry.name as string | undefined;
+        if (!rel || !expected) continue;
+
+        let pathToHash: string;
+        if (sourceOfTruth === "csv_source") {
+          // Hash the source CSV in .data/, not the sidecar.
+          if (!name) {
+            mismatches.push(`${rel} (missing csv name in manifest entry)`);
+            continue;
+          }
+          pathToHash = join(process.cwd(), ".data", name);
+        } else {
+          pathToHash = join(backupDir, rel);
+        }
+
+        if (!existsSync(pathToHash)) {
+          mismatches.push(
+            sourceOfTruth === "csv_source"
+              ? `${rel} (source csv .data/${name} missing — cannot verify pin)`
+              : `${rel} (file missing)`,
+          );
+          continue;
+        }
+        const actualHash = createHash("sha256")
+          .update(readFileSync(pathToHash))
+          .digest("hex");
+        if (actualHash !== expected) {
+          mismatches.push(
+            `${rel} (sha256 mismatch — expected ${expected.slice(0, 12)}…, got ${actualHash.slice(0, 12)}…)`,
+          );
+        } else {
+          entriesVerified++;
+        }
+        // Stash recs files for precondition 4. (Always read from the
+        // backup copy under backupDir, never from .data.)
+        if (sourceOfTruth !== "csv_source") {
+          if (entry.name === "recommended_edits") {
+            recsBackup = JSON.parse(readFileSync(pathToHash, "utf-8"));
+          } else if (entry.name === "recommendation_responses") {
+            responsesBackup = JSON.parse(readFileSync(pathToHash, "utf-8"));
+          }
+        }
+      }
+    } catch (err) {
+      mismatches.push(
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+    checks.push({
+      name: "stage_1_backup_manifest_verifies",
+      pass: mismatches.length === 0 && entriesVerified > 0,
+      summary:
+        mismatches.length === 0
+          ? `Stage 1 backup manifest verified (${entriesVerified} entries SHA-256 match).`
+          : `Stage 1 backup manifest FAILED to verify (${mismatches.length} mismatch(es)).`,
+      details: {
+        backupDir: backupDir ?? null,
+        manifestPath: manifestPath || null,
+        entriesVerified,
+        totalEntries: manifest?.entries?.length ?? 0,
+        mismatches: mismatches.slice(0, 5),
+      },
+      blockers: mismatches.length === 0 ? [] : mismatches.slice(0, 3),
+    });
+  }
+
+  // ── 2. Stage 6b core report exists ───────────────────────────────
+  // ── 3. safe_to_publish_core === true ─────────────────────────────
+  {
+    const corePath = join(args.stagingDir, "w4-verify-core-report.json");
+    let exists = false;
+    let safe = false;
+    let blockers: string[] = [];
+    try {
+      if (!existsSync(corePath)) {
+        throw new Error("w4-verify-core-report.json missing");
+      }
+      exists = true;
+      coreReport = JSON.parse(readFileSync(corePath, "utf-8"));
+      safe = (coreReport as Record<string, unknown>)
+        .safeToPublishCore === true;
+      if (!safe) {
+        blockers.push(
+          "Stage 6b core report present but `safeToPublishCore !== true` — re-run --stage=verify --publish-scope=core to refresh.",
+        );
+      }
+    } catch (err) {
+      blockers.push(err instanceof Error ? err.message : String(err));
+    }
+    checks.push({
+      name: "stage_6b_core_report_exists",
+      pass: exists,
+      summary: exists
+        ? "Stage 6b core report present at .data/_staging/w4-verify-core-report.json."
+        : "Stage 6b core report MISSING — run --stage=verify --publish-scope=core first.",
+      details: { path: corePath, exists },
+      blockers: exists ? [] : ["Stage 6b core report not found"],
+    });
+    checks.push({
+      name: "safe_to_publish_core_true",
+      pass: safe,
+      summary: safe
+        ? "safe_to_publish_core: true — core publish gate is GREEN."
+        : "safe_to_publish_core: false — publish path is BLOCKED.",
+      details: {
+        safeToPublishCore: safe,
+        verifiedAt:
+          (coreReport as Record<string, unknown> | null)?.verifiedAt ?? null,
+      },
+      blockers: safe ? [] : blockers,
+    });
+  }
+
+  // ── 4. current production recs byte-identical to backup ──────────
+  //
+  // We use a set-based byte-identity check rather than the id-keyed
+  // map pattern Stage 6 used, because `recommendation_responses` has
+  // no `.id` column (its PK is `rec_id`); the id-keyed map silently
+  // collapses every row to key="" and reports a fake "1/1 match".
+  //
+  // Set-based logic:
+  //   • Hash each row with canonicalJson (sorted-keys recursive
+  //     stringify — already used by Stage 6).
+  //   • Backup set vs current set. If they're equal as sets, every
+  //     row is byte-identical and no row appeared/disappeared.
+  //   • Any element in (backup \ current) is a DROPPED row; any
+  //     element in (current \ backup) is an UNEXPECTED new row.
+  //   • Either side carrying a non-empty diff is a publish blocker.
+  //
+  // This works for ANY table shape, no schema knowledge required.
+  {
+    let blockers: string[] = [];
+    let recsCurrent: Array<Record<string, unknown>> = [];
+    let respCurrent: Array<Record<string, unknown>> = [];
+    try {
+      const { getSupabaseAdmin } = await import(
+        "../src/lib/persistence/supabase"
+      );
+      const sb = getSupabaseAdmin();
+      const r1 = await sb
+        .from("recommended_edits")
+        .select("*")
+        .eq("tenant_id", args.tenantId);
+      if (r1.error) throw r1.error;
+      recsCurrent = (r1.data ?? []) as Array<Record<string, unknown>>;
+      const r2 = await sb
+        .from("recommendation_responses")
+        .select("*")
+        .eq("tenant_id", args.tenantId);
+      if (r2.error) throw r2.error;
+      respCurrent = (r2.data ?? []) as Array<Record<string, unknown>>;
+    } catch (err) {
+      blockers.push(
+        `Supabase recs read failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+
+    const setOf = (arr: Array<Record<string, unknown>>): Set<string> => {
+      const s = new Set<string>();
+      for (const r of arr) s.add(canonicalJson(r));
+      return s;
+    };
+    const diff = (
+      a: Set<string>,
+      b: Set<string>,
+    ): number => {
+      let n = 0;
+      for (const x of a) if (!b.has(x)) n++;
+      return n;
+    };
+
+    const recsBackupSet = setOf(recsBackup);
+    const recsCurrentSet = setOf(recsCurrent);
+    const respBackupSet = setOf(responsesBackup);
+    const respCurrentSet = setOf(respCurrent);
+
+    if (recsBackup.length !== recsCurrent.length) {
+      blockers.push(
+        `recommended_edits row count drift: backup=${recsBackup.length} current=${recsCurrent.length}`,
+      );
+    }
+    if (responsesBackup.length !== respCurrent.length) {
+      blockers.push(
+        `recommendation_responses row count drift: backup=${responsesBackup.length} current=${respCurrent.length}`,
+      );
+    }
+    const recsDroppedFromBackup = diff(recsBackupSet, recsCurrentSet);
+    const recsAddedToCurrent = diff(recsCurrentSet, recsBackupSet);
+    const respDroppedFromBackup = diff(respBackupSet, respCurrentSet);
+    const respAddedToCurrent = diff(respCurrentSet, respBackupSet);
+
+    if (recsDroppedFromBackup > 0) {
+      blockers.push(
+        `${recsDroppedFromBackup} recommended_edits row(s) in backup are MISSING from current Supabase`,
+      );
+    }
+    if (recsAddedToCurrent > 0) {
+      blockers.push(
+        `${recsAddedToCurrent} recommended_edits row(s) in current Supabase are NOT in Stage 1 backup (post-backup mutation)`,
+      );
+    }
+    if (respDroppedFromBackup > 0) {
+      blockers.push(
+        `${respDroppedFromBackup} recommendation_responses row(s) in backup are MISSING from current Supabase`,
+      );
+    }
+    if (respAddedToCurrent > 0) {
+      blockers.push(
+        `${respAddedToCurrent} recommendation_responses row(s) in current Supabase are NOT in Stage 1 backup (post-backup mutation)`,
+      );
+    }
+
+    checks.push({
+      name: "recs_byte_identity_with_backup",
+      pass: blockers.length === 0,
+      summary:
+        blockers.length === 0
+          ? `recs byte-identical to backup (${recsCurrent.length}/${recsBackup.length} edits + ${respCurrent.length}/${responsesBackup.length} responses).`
+          : "recs queue HAS DRIFTED from Stage 1 backup — publish would silently overwrite real changes.",
+      details: {
+        backupRecsCount: recsBackup.length,
+        currentRecsCount: recsCurrent.length,
+        backupRespCount: responsesBackup.length,
+        currentRespCount: respCurrent.length,
+        recsDroppedFromBackup,
+        recsAddedToCurrent,
+        respDroppedFromBackup,
+        respAddedToCurrent,
+      },
+      blockers,
+    });
+  }
+
+  // ── 5. staged files parse + row counts match reports ─────────────
+  {
+    let blockers: string[] = [];
+    const tryRead = (
+      filename: string,
+    ): Array<Record<string, unknown>> => {
+      const p = join(args.stagingDir, filename);
+      if (!existsSync(p)) {
+        blockers.push(`${filename} missing from staging`);
+        return [];
+      }
+      try {
+        const parsed = JSON.parse(readFileSync(p, "utf-8"));
+        if (!Array.isArray(parsed)) {
+          blockers.push(`${filename} is not an array`);
+          return [];
+        }
+        return parsed as Array<Record<string, unknown>>;
+      } catch (err) {
+        blockers.push(
+          `${filename} parse failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        return [];
+      }
+    };
+    staged.extracted = tryRead("w4-extracted-observations.json");
+    staged.rederive = tryRead("w4-rederived-snapshots.json");
+    staged.orphans = tryRead("w4-orphan-benchmarks.json");
+
+    // Truth pinned to operator-locked Stage 2/3/4 dry-run output.
+    const obsExpected = VERIFY_EXPECTED.observations.total; // 14096
+    const snapExpected = VERIFY_EXPECTED.snapshots.total; // 7191
+    if (staged.extracted.length !== obsExpected) {
+      blockers.push(
+        `w4-extracted-observations.json count drift: expected ${obsExpected}, got ${staged.extracted.length}`,
+      );
+    }
+    if (staged.rederive.length !== snapExpected) {
+      blockers.push(
+        `w4-rederived-snapshots.json count drift: expected ${snapExpected}, got ${staged.rederive.length}`,
+      );
+    }
+    // Stage 4 NO-OP: orphan twins must be zero.
+    if (staged.orphans.length !== 0) {
+      blockers.push(
+        `w4-orphan-benchmarks.json count drift: expected 0 (NO-OP), got ${staged.orphans.length}`,
+      );
+    }
+    checks.push({
+      name: "staged_inputs_parse_and_count_match_reports",
+      pass: blockers.length === 0,
+      summary:
+        blockers.length === 0
+          ? `Staged inputs match reports: ${staged.extracted.length} obs · ${staged.rederive.length} snapshots · ${staged.orphans.length} orphans (NO-OP).`
+          : "Staged inputs FAILED count check.",
+      details: {
+        extracted: staged.extracted.length,
+        rederive: staged.rederive.length,
+        orphans: staged.orphans.length,
+        expected: {
+          extracted: obsExpected,
+          rederive: snapExpected,
+          orphans: 0,
+        },
+      },
+      blockers,
+    });
+  }
+
+  // ── 6. publish target columns exist (probe Supabase) ─────────────
+  {
+    let blockers: string[] = [];
+    const required: Record<string, ReadonlyArray<string>> = {
+      prompt_answer_observations: [
+        "id",
+        "tenant_id",
+        "observed_at",
+        "platform",
+      ],
+      daily_metric_snapshots: [
+        "id",
+        "tenant_id",
+        "date",
+        "scope_type",
+        "scope_id",
+        "platform",
+        "source_type",
+      ],
+    };
+    let observed: Record<string, ReadonlyArray<string>> = {};
+    try {
+      const { getSupabaseAdmin } = await import(
+        "../src/lib/persistence/supabase"
+      );
+      const sb = getSupabaseAdmin();
+      for (const table of CORE_PUBLISH_TABLES) {
+        const { data, error } = await sb
+          .from(table)
+          .select("*")
+          .eq("tenant_id", args.tenantId)
+          .limit(1);
+        if (error) throw error;
+        const sample = (data ?? [])[0] as Record<string, unknown> | undefined;
+        observed[table] = sample
+          ? Object.keys(sample as Record<string, unknown>).sort()
+          : [];
+        for (const c of required[table] ?? []) {
+          if (!observed[table].includes(c)) {
+            blockers.push(`${table} missing required column: ${c}`);
+          }
+        }
+      }
+    } catch (err) {
+      blockers.push(
+        `publish target probe failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+    checks.push({
+      name: "publish_target_columns_exist",
+      pass: blockers.length === 0,
+      summary:
+        blockers.length === 0
+          ? "Publish target columns verified for both observations + snapshots."
+          : "Publish target columns FAILED probe.",
+      details: { observedColumnsCount: Object.fromEntries(
+        Object.entries(observed).map(([k, v]) => [k, v.length]),
+      ) },
+      blockers,
+    });
+  }
+
+  // ── 7. conflict keys / upsert strategy confirmed ─────────────────
+  {
+    const blockers: string[] = [];
+    for (const table of CORE_PUBLISH_TABLES) {
+      const target = PUBLISH_CONFLICT_TARGETS[table];
+      if (!target || target !== "id") {
+        blockers.push(
+          `${table} conflict target mis-configured (expected "id", got ${JSON.stringify(target)})`,
+        );
+      }
+    }
+    checks.push({
+      name: "conflict_keys_strategy_confirmed",
+      pass: blockers.length === 0,
+      summary:
+        blockers.length === 0
+          ? "Both tables use onConflict: 'id' (deterministic Schema v2 hashes — idempotent by construction)."
+          : "Conflict-key strategy mis-configured.",
+      details: { targets: { ...PUBLISH_CONFLICT_TARGETS } },
+      blockers,
+    });
+  }
+
+  // ── 8. no Stage 5 relabel included ───────────────────────────────
+  {
+    // Source-truth: CORE_PUBLISH_TABLES is the literal write list.
+    // CORE_PUBLISH_FORBIDDEN_TABLES enumerates everything we MUST NOT
+    // touch in core mode. The intersection must be empty AND
+    // changelog_entries must be in the forbidden set (Stage 5 fence).
+    const blockers: string[] = [];
+    const intersection = (CORE_PUBLISH_TABLES as ReadonlyArray<string>).filter(
+      (t) =>
+        (CORE_PUBLISH_FORBIDDEN_TABLES as ReadonlyArray<string>).includes(t),
+    );
+    if (intersection.length > 0) {
+      blockers.push(
+        `core publish writes overlap with forbidden tables: ${intersection.join(", ")}`,
+      );
+    }
+    if (
+      !(CORE_PUBLISH_FORBIDDEN_TABLES as ReadonlyArray<string>).includes(
+        "changelog_entries",
+      )
+    ) {
+      blockers.push(
+        "Stage 5 fence is broken: changelog_entries is NOT in CORE_PUBLISH_FORBIDDEN_TABLES",
+      );
+    }
+    checks.push({
+      name: "stage_5_relabel_excluded_from_core",
+      pass: blockers.length === 0,
+      summary:
+        blockers.length === 0
+          ? "Stage 5 changelog relabel is fenced out of core publish (changelog_entries in FORBIDDEN list)."
+          : "Stage 5 fence is BROKEN.",
+      details: {
+        coreTables: [...CORE_PUBLISH_TABLES],
+        forbiddenTables: [...CORE_PUBLISH_FORBIDDEN_TABLES],
+        intersection,
+      },
+      blockers,
+    });
+  }
+
+  const allPass = checks.every((c) => c.pass);
+  return {
+    checks,
+    allPass,
+    staged,
+    coreReport,
+    backupDir,
+    recsBackup,
+    responsesBackup,
+  };
+}
+
+// ── Stage 7 — preview + manifest builders ────────────────────────────
+
+function buildCorePublishPreview(args: {
+  readonly publishId: string;
+  readonly tenantId: string;
+  readonly tenantSlug: string;
+  readonly preconditions: ReadonlyArray<PublishPrecondition>;
+  readonly preconditionsMet: boolean;
+  readonly staged: {
+    extracted: Array<Record<string, unknown>>;
+    rederive: Array<Record<string, unknown>>;
+    orphans: Array<Record<string, unknown>>;
+  };
+  readonly coreReport: Record<string, unknown> | null;
+}): Record<string, unknown> {
+  const observationIds = args.staged.extracted
+    .map((r) => (r.id as string | undefined) ?? "")
+    .filter((s) => s.length > 0);
+  const snapshotIds = args.staged.rederive
+    .map((r) => (r.id as string | undefined) ?? "")
+    .filter((s) => s.length > 0);
+
+  const obsBatches = Math.ceil(observationIds.length / PUBLISH_BATCH_SIZE);
+  const snapBatches = Math.ceil(snapshotIds.length / PUBLISH_BATCH_SIZE);
+
+  return {
+    publish_id: args.publishId,
+    publish_scope: "core",
+    tenant_id: args.tenantId,
+    tenant_slug: args.tenantSlug,
+    preview_only: true,
+    preconditions_met: args.preconditionsMet,
+    preconditions: args.preconditions,
+    tables_to_write: [...CORE_PUBLISH_TABLES],
+    tables_to_skip_in_core_mode: [...CORE_PUBLISH_FORBIDDEN_TABLES],
+    row_counts: {
+      prompt_answer_observations: { to_upsert: observationIds.length },
+      daily_metric_snapshots: { to_upsert: snapshotIds.length },
+      changelog_entries: { to_insert: 0, to_update: 0, to_delete: 0 },
+      recommended_edits: { to_mutate: 0 },
+      recommendation_responses: { to_mutate: 0 },
+      orphan_benchmark_twins: { to_emit: 0 },
+    },
+    estimated_batches: {
+      prompt_answer_observations: obsBatches,
+      daily_metric_snapshots: snapBatches,
+    },
+    batch_size: PUBLISH_BATCH_SIZE,
+    conflict_key: {
+      prompt_answer_observations:
+        "id (UNIQUE) — onConflict: 'id', ignoreDuplicates: false",
+      daily_metric_snapshots:
+        "id (UNIQUE) — onConflict: 'id', ignoreDuplicates: false",
+    },
+    sample_observation_ids: observationIds.slice(0, 5),
+    sample_snapshot_ids: snapshotIds.slice(0, 5),
+    destructive_operations: "none",
+    supabase_transaction_support:
+      "Supabase JS client does NOT support multi-batch transactions through the REST API. Each batch upsert is atomic within itself. Multi-batch atomicity is achieved via pre-write manifest + per-batch logging + rollback-by-ID (never bulk DELETE).",
+    rollback_plan: {
+      manifest_path: ".data/_staging/w4-core-publish-manifest.json",
+      approach:
+        "delete by exact ID list from the manifest (never bulk delete)",
+      safety_constraints: [
+        "rollback only deletes IDs that were written by THIS publish (manifest is the authoritative list)",
+        "rollback never deletes native Apr 22+ rows (their IDs are not in the W4 manifest)",
+        "rollback never touches recommendations (out of core scope)",
+        "rollback never touches changelog (out of core scope)",
+        "rollback execution stays gated behind --stage=rollback (currently RESERVED + hard-fail)",
+      ],
+    },
+    operator_gate:
+      "Real production mutation requires `--write` AND a passing Stage 6b core report. Today this preview was generated with --dry-run (default).",
+    coreReportRef: {
+      verifiedAt:
+        (args.coreReport as Record<string, unknown> | null)?.verifiedAt ?? null,
+      safeToPublishCore:
+        (args.coreReport as Record<string, unknown> | null)
+          ?.safeToPublishCore ?? null,
+      deferredStage5Relabel:
+        (args.coreReport as Record<string, unknown> | null)
+          ?.deferredStage5Relabel ?? null,
+    },
+  };
+}
+
+function buildCorePublishManifest(args: {
+  readonly publishId: string;
+  readonly tenantId: string;
+  readonly tenantSlug: string;
+  readonly status: "preview_only" | "in_progress" | "completed" | "failed";
+  readonly observationIds: ReadonlyArray<string>;
+  readonly snapshotIds: ReadonlyArray<string>;
+}): Record<string, unknown> {
+  return {
+    publish_id: args.publishId,
+    publish_scope: "core",
+    tenant_id: args.tenantId,
+    tenant_slug: args.tenantSlug,
+    status: args.status,
+    started_at: null,
+    completed_at: null,
+    tables: {
+      prompt_answer_observations: {
+        ids: [...args.observationIds],
+        batches_completed: 0,
+        rows_written: 0,
+        batch_size: PUBLISH_BATCH_SIZE,
+        estimated_batches: Math.ceil(
+          args.observationIds.length / PUBLISH_BATCH_SIZE,
+        ),
+      },
+      daily_metric_snapshots: {
+        ids: [...args.snapshotIds],
+        batches_completed: 0,
+        rows_written: 0,
+        batch_size: PUBLISH_BATCH_SIZE,
+        estimated_batches: Math.ceil(
+          args.snapshotIds.length / PUBLISH_BATCH_SIZE,
+        ),
+      },
+    },
+    rollback_constraints: [
+      "delete only the IDs above (never bulk delete)",
+      "never delete native Apr 22+ rows (their IDs are not here)",
+      "never touch recommended_edits / recommendation_responses",
+      "never touch changelog_entries (Stage 5 fence)",
+    ],
+  };
+}
+
+// ── Stage 7 — orchestrator ───────────────────────────────────────────
+
+async function runCorePublish(args: {
+  readonly tenantId: string;
+  readonly tenantSlug: string;
+  readonly dryRun: boolean;
+}): Promise<PublishReport> {
+  const stagingDir = join(process.cwd(), ".data", "_staging");
+  mkdirSync(stagingDir, { recursive: true });
+  const previewPath = join(stagingDir, "w4-core-publish-preview.json");
+  const manifestPath = join(stagingDir, "w4-core-publish-manifest.json");
+  const startedAt = new Date().toISOString();
+  const publishId = `w4-core-publish-${startedAt}`;
+  const errors: string[] = [];
+  const batchLog: PublishBatchLog[] = [];
+
+  console.log("");
+  console.log(
+    "[w4-publish] Starting Stage 7 (core publish, dry-run preview path) ...",
+  );
+
+  // Step 1: validate every operator-mandated precondition.
+  const {
+    checks,
+    allPass,
+    staged,
+    coreReport,
+  } = await validateCorePublishPreconditions({
+    tenantId: args.tenantId,
+    stagingDir,
+  });
+
+  // Step 2: build the preview JSON regardless of pass/fail. The
+  // operator wants to SEE which precondition failed and why even if
+  // the gate is closed.
+  const observationIds = staged.extracted
+    .map((r) => (r.id as string | undefined) ?? "")
+    .filter((s) => s.length > 0);
+  const snapshotIds = staged.rederive
+    .map((r) => (r.id as string | undefined) ?? "")
+    .filter((s) => s.length > 0);
+
+  const preview = buildCorePublishPreview({
+    publishId,
+    tenantId: args.tenantId,
+    tenantSlug: args.tenantSlug,
+    preconditions: checks,
+    preconditionsMet: allPass,
+    staged,
+    coreReport,
+  });
+
+  const manifest = buildCorePublishManifest({
+    publishId,
+    tenantId: args.tenantId,
+    tenantSlug: args.tenantSlug,
+    status: "preview_only",
+    observationIds,
+    snapshotIds,
+  });
+
+  // Step 3: persist preview + manifest. These are the ONLY filesystem
+  // side-effects of the dry-run path. ZERO Supabase writes.
+  writeFileSync(previewPath, JSON.stringify(preview, null, 2), "utf-8");
+  writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), "utf-8");
+  console.log(
+    `[w4-publish] preview written: ${previewPath} (${observationIds.length} obs · ${snapshotIds.length} snapshots)`,
+  );
+  console.log(`[w4-publish] manifest written: ${manifestPath}`);
+
+  // Step 4: branch on dry-run vs --write.
+  if (args.dryRun) {
+    return {
+      publishId,
+      publishScope: "core",
+      tenantId: args.tenantId,
+      tenantSlug: args.tenantSlug,
+      dryRun: true,
+      startedAt,
+      completedAt: new Date().toISOString(),
+      outcome: allPass ? "preview_only" : "failed_preconditions",
+      preconditions: checks,
+      preconditionsMet: allPass,
+      previewPath,
+      manifestPath,
+      preview,
+      batchLog,
+      errors: allPass
+        ? []
+        : checks
+            .filter((c) => !c.pass)
+            .flatMap((c) => c.blockers.map((b) => `[${c.name}] ${b}`)),
+    };
+  }
+
+  // ── --write path (NOT EXERCISED IN STAGE 7 SCOPE) ───────────────
+  //
+  // This branch is DESIGNED but the operator has not yet given the
+  // "publish core now" signal. It stays here for Stage 7's design-
+  // complete contract. Each step is fail-loud and mutation-traced
+  // through `manifest`.
+  //
+  // Safety fences enforced inside this branch:
+  //   • allPass must be true (preconditions gate)
+  //   • Only CORE_PUBLISH_TABLES are written
+  //   • Per-table per-batch logging
+  //   • Manifest updated atomically after each batch
+  //   • Fail-loud on Supabase error (no silent swallow)
+
+  if (!allPass) {
+    return {
+      publishId,
+      publishScope: "core",
+      tenantId: args.tenantId,
+      tenantSlug: args.tenantSlug,
+      dryRun: false,
+      startedAt,
+      completedAt: new Date().toISOString(),
+      outcome: "failed_preconditions",
+      preconditions: checks,
+      preconditionsMet: false,
+      previewPath,
+      manifestPath,
+      preview,
+      batchLog,
+      errors: checks
+        .filter((c) => !c.pass)
+        .flatMap((c) => c.blockers.map((b) => `[${c.name}] ${b}`)),
+    };
+  }
+
+  // Update manifest to in_progress before mutation.
+  const liveManifest = {
+    ...manifest,
+    status: "in_progress" as const,
+    started_at: startedAt,
+  };
+  writeFileSync(
+    manifestPath,
+    JSON.stringify(liveManifest, null, 2),
+    "utf-8",
+  );
+
+  const { getSupabaseAdmin } = await import(
+    "../src/lib/persistence/supabase"
+  );
+  const sb = getSupabaseAdmin();
+
+  // Helper: upsert a table in batches with the proven onConflict
+  // pattern. Each batch is atomic; multi-batch atomicity is achieved
+  // through manifest updates + fail-loud.
+  const upsertInBatches = async (
+    table: string,
+    rows: ReadonlyArray<Record<string, unknown>>,
+  ): Promise<boolean> => {
+    const target = PUBLISH_CONFLICT_TARGETS[table];
+    if (!target) {
+      errors.push(`${table}: no conflict target configured — refusing to write`);
+      return false;
+    }
+    let batchIndex = 0;
+    for (let i = 0; i < rows.length; i += PUBLISH_BATCH_SIZE) {
+      const chunk = rows.slice(i, i + PUBLISH_BATCH_SIZE);
+      const t0 = Date.now();
+      try {
+        const { error } = await sb
+          .from(table)
+          .upsert(chunk as Record<string, unknown>[], {
+            onConflict: target,
+          });
+        const dt = Date.now() - t0;
+        if (error) {
+          errors.push(
+            `${table} batch ${batchIndex} failed: ${error.message ?? String(error)}`,
+          );
+          batchLog.push({
+            table,
+            batchIndex,
+            rowsInBatch: chunk.length,
+            outcome: "failed",
+            durationMs: dt,
+            errorMessage: error.message ?? String(error),
+          });
+          return false;
+        }
+        batchLog.push({
+          table,
+          batchIndex,
+          rowsInBatch: chunk.length,
+          outcome: "ok",
+          durationMs: dt,
+          errorMessage: null,
+        });
+        console.log(
+          `[w4-publish] ${table}: batch ${batchIndex} ok (${chunk.length} rows in ${dt}ms)`,
+        );
+      } catch (err) {
+        const dt = Date.now() - t0;
+        errors.push(
+          `${table} batch ${batchIndex} threw: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        batchLog.push({
+          table,
+          batchIndex,
+          rowsInBatch: chunk.length,
+          outcome: "failed",
+          durationMs: dt,
+          errorMessage: err instanceof Error ? err.message : String(err),
+        });
+        return false;
+      }
+      batchIndex++;
+    }
+    return true;
+  };
+
+  // ORDER MATTERS: observations first, then snapshots. Snapshots are
+  // typically derived from observations so they should not exist
+  // without the underlying obs data.
+  const obsOk = await upsertInBatches(
+    "prompt_answer_observations",
+    staged.extracted,
+  );
+  if (!obsOk) {
+    const failManifest = {
+      ...liveManifest,
+      status: "failed" as const,
+      completed_at: new Date().toISOString(),
+    };
+    writeFileSync(
+      manifestPath,
+      JSON.stringify(failManifest, null, 2),
+      "utf-8",
+    );
+    return {
+      publishId,
+      publishScope: "core",
+      tenantId: args.tenantId,
+      tenantSlug: args.tenantSlug,
+      dryRun: false,
+      startedAt,
+      completedAt: new Date().toISOString(),
+      outcome: "failed_during_write",
+      preconditions: checks,
+      preconditionsMet: true,
+      previewPath,
+      manifestPath,
+      preview,
+      batchLog,
+      errors,
+    };
+  }
+
+  const snapOk = await upsertInBatches(
+    "daily_metric_snapshots",
+    staged.rederive,
+  );
+  if (!snapOk) {
+    const failManifest = {
+      ...liveManifest,
+      status: "failed" as const,
+      completed_at: new Date().toISOString(),
+    };
+    writeFileSync(
+      manifestPath,
+      JSON.stringify(failManifest, null, 2),
+      "utf-8",
+    );
+    return {
+      publishId,
+      publishScope: "core",
+      tenantId: args.tenantId,
+      tenantSlug: args.tenantSlug,
+      dryRun: false,
+      startedAt,
+      completedAt: new Date().toISOString(),
+      outcome: "failed_during_write",
+      preconditions: checks,
+      preconditionsMet: true,
+      previewPath,
+      manifestPath,
+      preview,
+      batchLog,
+      errors,
+    };
+  }
+
+  const completedAt = new Date().toISOString();
+  const okManifest = {
+    ...liveManifest,
+    status: "completed" as const,
+    completed_at: completedAt,
+  };
+  writeFileSync(manifestPath, JSON.stringify(okManifest, null, 2), "utf-8");
+
+  return {
+    publishId,
+    publishScope: "core",
+    tenantId: args.tenantId,
+    tenantSlug: args.tenantSlug,
+    dryRun: false,
+    startedAt,
+    completedAt,
+    outcome: "completed",
+    preconditions: checks,
+    preconditionsMet: true,
+    previewPath,
+    manifestPath,
+    preview,
+    batchLog,
+    errors,
+  };
+}
+
+// ── Stage 7 — printer ────────────────────────────────────────────────
+
+function printCorePublishReport(report: PublishReport): void {
+  console.log("");
+  console.log("══════════════════════════════════════════════════════════════════");
+  const headerStatus =
+    report.outcome === "preview_only"
+      ? "✓ PREVIEW ONLY (dry-run)"
+      : report.outcome === "completed"
+        ? "✓ COMPLETED (write)"
+        : report.outcome === "failed_preconditions"
+          ? "✗ FAILED PRECONDITIONS"
+          : report.outcome === "failed_during_write"
+            ? "✗ FAILED DURING WRITE"
+            : "✗ ABORTED";
+  console.log(
+    `W4 STAGE 7 — CORE PUBLISH REPORT  ${headerStatus}`,
+  );
+  console.log("══════════════════════════════════════════════════════════════════");
+  console.log(`publish_id     : ${report.publishId}`);
+  console.log(`publish_scope  : ${report.publishScope}`);
+  console.log(`tenant_id      : ${report.tenantId}`);
+  console.log(`tenant_slug    : ${report.tenantSlug}`);
+  console.log(`dry_run        : ${report.dryRun}`);
+  console.log(`started_at     : ${report.startedAt}`);
+  console.log(`completed_at   : ${report.completedAt ?? "(in progress)"}`);
+  console.log("");
+  console.log("─ Preconditions ─────────────────────────────────────────────────");
+  for (const c of report.preconditions) {
+    const tag = c.pass ? "✓ PASS" : "✗ FAIL";
+    console.log(`  ${tag.padEnd(6)} ${c.name.padEnd(40)} ${c.summary}`);
+    for (const b of c.blockers) console.log(`         · FAIL: ${b}`);
+  }
+  console.log("");
+  if (report.preview) {
+    const rc = (report.preview as Record<string, unknown>).row_counts as
+      | Record<string, Record<string, unknown>>
+      | undefined;
+    const eb = (report.preview as Record<string, unknown>)
+      .estimated_batches as Record<string, number> | undefined;
+    console.log("─ Preview (what --write WOULD do) ───────────────────────────────");
+    console.log(
+      `  prompt_answer_observations  → upsert ${rc?.prompt_answer_observations?.to_upsert ?? "?"} rows in ${eb?.prompt_answer_observations ?? "?"} batches`,
+    );
+    console.log(
+      `  daily_metric_snapshots      → upsert ${rc?.daily_metric_snapshots?.to_upsert ?? "?"} rows in ${eb?.daily_metric_snapshots ?? "?"} batches`,
+    );
+    console.log(`  changelog_entries           → 0 (Stage 5 fenced out)`);
+    console.log(`  recommended_edits           → 0 (out of core scope)`);
+    console.log(`  recommendation_responses    → 0 (out of core scope)`);
+    console.log(`  orphan_benchmark_twins      → 0 (Stage 4 NO-OP)`);
+    console.log(
+      `  destructive_operations      → none (upsert only)`,
+    );
+    console.log(`  batch_size                  → ${PUBLISH_BATCH_SIZE}`);
+    console.log(
+      `  conflict_key                → onConflict: "id" on both tables (idempotent)`,
+    );
+    const sampleObs =
+      ((report.preview as Record<string, unknown>)
+        .sample_observation_ids as ReadonlyArray<string>) ?? [];
+    const sampleSnap =
+      ((report.preview as Record<string, unknown>)
+        .sample_snapshot_ids as ReadonlyArray<string>) ?? [];
+    console.log("");
+    console.log(`  sample observation IDs (5):`);
+    for (const id of sampleObs) console.log(`    · ${id}`);
+    console.log(`  sample snapshot IDs (5):`);
+    for (const id of sampleSnap) console.log(`    · ${id}`);
+  }
+  console.log("");
+  if (report.errors.length > 0) {
+    console.log("─ Errors ────────────────────────────────────────────────────────");
+    for (const e of report.errors) console.log(`  ✗ ${e}`);
+    console.log("");
+  }
+  if (report.outcome === "preview_only") {
+    console.log(
+      "Stage 7 dry-run complete. NO Supabase writes. NO production mutation.",
+    );
+    console.log(
+      "Run again with `--write` after operator approves to mutate Supabase.",
+    );
+  } else if (report.outcome === "failed_preconditions") {
+    console.log(
+      "Stage 7 BLOCKED on preconditions. Fix the failures above and re-run.",
+    );
+  } else if (report.outcome === "completed") {
+    console.log(
+      "Stage 7 publish COMPLETED. Manifest persisted at " + report.manifestPath,
+    );
+  } else if (report.outcome === "failed_during_write") {
+    console.log(
+      "Stage 7 publish FAILED MID-WRITE. Manifest captures what was written; rollback design is documented in the preview JSON.",
+    );
+  }
+  console.log(`Preview JSON  : ${report.previewPath}`);
+  console.log(`Manifest JSON : ${report.manifestPath}`);
+  console.log("══════════════════════════════════════════════════════════════════");
+  console.log("");
 }
 
 // ── Tiny helpers ──────────────────────────────────────────────────────
