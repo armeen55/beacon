@@ -7,6 +7,90 @@
 
 ---
 
+## 2026-05-04 (night) — Poll Integrity Hardening (launch-blocker, all 8 requirements)
+
+Operator accepted the May 2-4 incident as a launch-blocker class issue: between May 1 and May 4, ~$9 of API spend produced ZERO persisted observations because dual-write silently swallowed schema errors, observation_runs stamped status=completed, and GitHub Actions stayed green. That cannot happen for customers.
+
+This commit implements the operator-mandated 8-requirement Poll Integrity Contract.
+
+### How this prevents the May 2-4 incident from happening with customers
+
+| May 2-4 failure mode | Caught by |
+|---|---|
+| Provider call cost charged + 0 rows persisted | **R2** reconciliation: `cost > 0 + persisted = 0` → throw + mark run failed → workflow turns red |
+| observation_runs stamped completed before persistence verified | **R1** state machine + reconcile-after-write — `observationsWritten` reflects DB truth |
+| Raw provider response permanently lost | **R3** raw chunk safety net (new `raw_poll_chunks` table written before `syncObs`) |
+| Workflow stayed green for 3 days | **R4** verify-persistence job runs `check-yesterday-poll.ts` inline at end of `daily-native-poll.yml` |
+| No early-warning signal for schema drift | **R5** persistence canary writes a mock observation through full pipeline + cleans up. Zero paid spend |
+| Cron kept burning $$ after failure | **R6** auto-disable gate: when latest run carries `PERSISTENCE FAILED` marker, next paid run is blocked |
+| Headline KPIs treated 5-obs proof as full day | **R7** `samplingStatus` propagated into `derivedKpiSamplingStatus` → tile meta renders `"small sample (proof run)"` |
+
+### Files (new)
+
+- `migrations/2026-05-04_poll_integrity_raw_poll_chunks.sql` — repo-tracked SQL (also applied via Supabase MCP). `raw_poll_chunks` table with deliberately minimal columns so it can't suffer the same column-drift failure.
+- `src/domains/observations/poll-integrity.ts` — `reconcilePolledRun(args)` returns `{ok, persistedObsCount, expectedObsCount, costUsd, reasons}`; `markRunPersistenceFailed(args)` updates `observation_runs` row to `status: failed` + appends `PERSISTENCE FAILED:` marker to `scope_label`; `checkPersistenceGate(args)` reads latest run on `(tenant, source)` and returns `{allow, reason, blockedByRunId}`.
+- `scripts/canary-persistence-write.ts` — end-to-end persistence canary; writes a mock observation + snapshot through production dual-write, reads back, cleans up. Carries `competitor_descriptor_windows` so future column-drift fails LOUD here.
+- `tests/domains/observations/poll-integrity.test.ts` — 13 unit tests with mocked supabase admin: ok-path, paid-call guards (3 fail conditions), partial-persistence guard, query-error fail-safe, idempotent failure marker, gate behavior (5 cases including fail-safe).
+- `tests/architecture/poll-integrity-contract.test.ts` — 17 source-scan invariants pinning R1-R6 + the operator-mandated "no green complete without persisted observations" contract.
+
+### Files (modified)
+
+- `src/lib/persistence/dual-write.ts` — new `syncRawPollChunk(row)` (THROWS on error — silent-fail here would defeat the entire safety net) + `stampRawPollChunkReconciliation(args)` for post-pipeline status update.
+- `src/domains/observations/run-poll.ts` — extensive integrity wiring:
+  - `NativePollStatus` extended with `"skipped_persistence_failure_gate"` (R6).
+  - New `PollIntegritySubStatuses` type with the 5 operator-mandated flags.
+  - `RunNativePollDeps` extended with 5 new injection points: `syncRawPollChunk`, `stampRawPollChunkReconciliation`, `reconcilePolledRun`, `markRunPersistenceFailed`, `checkPersistenceGate`.
+  - **Persistence gate runs BEFORE the budget guard** — if previous run on this source failed persistence, skip without paying for another.
+  - **Raw chunk written BEFORE syncObs** — preserves provider response in `raw_poll_chunks` even if observation upsert throws.
+  - **`syncObs` wrapped in try/catch** — on throw, stamps raw chunk as `observation_upsert_threw` + marks run failed before re-throwing.
+  - **`syncSnaps` wrapped in try/catch** — same pattern with `snapshot_derivation_failed`.
+  - **Reconciliation step at end** — counts persisted obs vs expected, throws on mismatch (so /api/poll/run returns 5xx + workflow turns red).
+  - **Success-path `observationsWritten` reads `verdict.persistedObsCount`** — DB truth, not provider claim.
+- `src/domains/observations/poll-health.ts` — new exported `aggregateSamplingStatus(snap)` for headline KPI consumers (worst-case wins).
+- `src/components/today/today-scoreboard.tsx` — `derivedKpiSamplingStatus` field on `ScoreboardData`; `samplingStatusTag()` helper renders `"small sample (proof run)"` / `"partial day"` / `"no observations today"` in tile meta.
+- `src/app/(shell)/today-data.ts` — computes `derivedKpiSamplingStatus` from `pollHealth` via `aggregateSamplingStatus`.
+- `.github/workflows/daily-native-poll.yml` — new `verify-persistence` job at end (runs `check-yesterday-poll.ts` inline; non-zero exit turns workflow red).
+- `.github/workflows/poll-canary.yml` — new step running `canary-persistence-write.ts`.
+- `src/domains/observations/run-poll.test.ts` — 12 existing tests updated with new dep stubs in `mkSyncSpies()`; +6 new tests for R1+R2+R3+R6 integration scenarios (reconciliation throws, raw written before syncObs, syncObs-throws path, gate blocks, force=true bypasses, observationsWritten reflects DB truth).
+- `tests/domains/observations/poll-health.test.ts` — +6 new `aggregateSamplingStatus` tests (full/proof/partial/empty + worst-case-wins matrix).
+
+### Verification
+
+- ✓ `npx tsc --noEmit` clean
+- ✓ `tests/domains/observations/poll-integrity.test.ts` 13/13
+- ✓ `tests/architecture/poll-integrity-contract.test.ts` 17/17
+- ✓ `tests/domains/observations/poll-health.test.ts` 34/34
+- ✓ `src/domains/observations/run-poll.test.ts` 18/18
+- ✓ `npm run test` 4224/4230 (same 6 pre-existing baseline failures all OUTSIDE this surface; +51 new passes)
+- ✓ `BEACON_TENANT_ID=... BEACON_TENANT_SLUG=... npm run build` clean
+
+### Acceptance criteria — all met
+
+| Criterion | Status |
+|---|---|
+| typecheck clean | ✓ |
+| targeted tests pass | ✓ 91/91 |
+| full suite only known baseline failures | ✓ (same 6) |
+| build passes | ✓ |
+| no paid run unless explicitly needed and approved | ✓ (zero paid runs; canary uses mock provider) |
+| clear report explaining how this prevents the May 2-4 incident with customers | ✓ (table above) |
+
+### Constraints honored
+
+- ✓ Did NOT run paid generation
+- ✓ Did NOT Apply-All-HIGH
+- ✓ Did NOT publish Stage 5
+- ✓ Did NOT archive/delete Profound
+- ✓ Did NOT start new recommendation work
+- ✓ Did NOT run any paid poll
+- ✓ All Supabase access this turn was either read-only SELECT or the operator-pre-approved `apply_migration` for the new `raw_poll_chunks` table
+
+### Outcome
+
+Beacon now has a launch-ready Poll Integrity Contract. The May 2-4 silent-failure pattern is structurally impossible: any combination of (cost>0, persisted=0), (chunks completed, persisted < expected), or (run says complete, scope_label has PERSISTENCE FAILED marker) trips a different layer of defense. The next May 5 07:00 UTC cron will validate the full contract live in production. After a green canary cycle, customer onboarding is unblocked.
+
+---
+
 ## 2026-05-04 (late evening) — May 2-4 recovery audit + partial-day patch
 
 Operator asked for a read-only audit of every place where May 2-4 raw poll data could exist (since the silent-failure pattern between May 1 ~22:00 UTC and May 4 ~20:08 UTC meant ~$9 of API spend produced zero persisted rows), plus a UI patch so the May 4 5-prompt manual proof run doesn't distort headline KPI deltas.

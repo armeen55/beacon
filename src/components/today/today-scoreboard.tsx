@@ -2,6 +2,7 @@
 
 import { KpiCard } from "@/components/viz/kpi-card";
 import { HealthStrip, type HealthStripProps } from "./health-strip";
+import type { SamplingStatus } from "@/domains/observations/poll-health";
 
 export type ScoreboardData = {
   totalCitations: number;
@@ -26,6 +27,16 @@ export type ScoreboardData = {
   derivedKpiAsOfDate?: string | null;
   /** True when derivedKpiAsOfDate fell back to yesterday's row. */
   derivedKpiIsFallback?: boolean;
+  /**
+   * Poll Integrity Hardening (2026-05-04, Operator R7).
+   * Sampling status of the as-of-date sample, aggregated across both
+   * platforms (worst-case wins). When "proof" or "partial", the headline
+   * tile renders a small-sample tag in meta and the week-over-week pill
+   * stays suppressed (consistent with derivedKpiAsOfDate's existing
+   * single-day semantics). "full" gets no tag. Null when there is no
+   * poll-health signal yet.
+   */
+  derivedKpiSamplingStatus?: SamplingStatus | null;
 };
 
 /** "2026-04-23" → "Apr 23". Used by the derivedKpiAsOfDate meta line. */
@@ -38,6 +49,22 @@ function formatShortDate(iso: string): string {
     day: "numeric",
     timeZone: "UTC",
   });
+}
+
+/** Operator R7: short tag describing as-of-date sample size. */
+function samplingStatusTag(status: SamplingStatus | null): string {
+  switch (status) {
+    case "proof":
+      return "small sample (proof run)";
+    case "partial":
+      return "partial day (below 80-prompt floor)";
+    case "empty":
+      return "no observations today";
+    case "full":
+    case null:
+    case undefined:
+      return "";
+  }
 }
 
 /** Compact platform breakdown as text, not a chart */
@@ -82,8 +109,16 @@ export function TodayScoreboard({
   // conflict with the single-day tile value.
   const asOfDate = scoreboard.derivedKpiAsOfDate ?? null;
   const asOfIsFallback = scoreboard.derivedKpiIsFallback ?? false;
+  // Poll Integrity Hardening (2026-05-04, Operator R7): if the as-of-date
+  // is sampled below the full-day threshold, append a sampling tag to
+  // the tile's meta line so the operator doesn't read a 5-obs day as a
+  // full 100-obs day. Week-over-week pills are already suppressed when
+  // asOfDate is non-null, so charts/headlines don't overstate confidence.
+  const samplingTag = samplingStatusTag(
+    scoreboard.derivedKpiSamplingStatus ?? null,
+  );
   const asOfLabel = asOfDate
-    ? `As of ${formatShortDate(asOfDate)}${asOfIsFallback ? " (yesterday)" : " (today)"}`
+    ? `As of ${formatShortDate(asOfDate)}${asOfIsFallback ? " (yesterday)" : " (today)"}${samplingTag ? ` · ${samplingTag}` : ""}`
     : null;
 
   return (

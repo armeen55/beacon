@@ -129,6 +129,33 @@ function mkSyncSpies() {
     syncPromptAnswerObservations: vi.fn(async () => undefined),
     syncAnswerTexts: vi.fn(async () => undefined),
     syncDailyMetricSnapshots: vi.fn(async () => undefined),
+    // Poll Integrity Hardening (2026-05-04): the orchestrator now
+    // wraps each pipeline step with sub-status helpers + a
+    // reconciliation step + a persistence-failure gate. Each test
+    // stubs these so the existing tests keep passing without
+    // hitting Supabase. The reconciliation stub returns ok:true with
+    // expectedObsCount as the persisted count — that's the happy-path
+    // shape every existing test expects.
+    syncRawPollChunk: vi.fn(async () => undefined),
+    stampRawPollChunkReconciliation: vi.fn(async () => undefined),
+    reconcilePolledRun: vi.fn(
+      async (args: {
+        expectedObsCount: number;
+        costUsd: number;
+      }) => ({
+        ok: true,
+        persistedObsCount: args.expectedObsCount,
+        expectedObsCount: args.expectedObsCount,
+        costUsd: args.costUsd,
+        reasons: [] as string[],
+      }),
+    ),
+    markRunPersistenceFailed: vi.fn(async () => undefined),
+    checkPersistenceGate: vi.fn(async () => ({
+      allow: true,
+      reason: "",
+      blockedByRunId: null,
+    })),
   };
 }
 
@@ -584,5 +611,182 @@ describe("runNativePoll", () => {
       promptsPolled: 100,
     });
     expect(hasRecent).not.toHaveBeenCalled();
+  });
+
+  // ────────────────────────────────────────────────────────────────────
+  // Poll Integrity Hardening (2026-05-04, post May 2-4 incident)
+  // ────────────────────────────────────────────────────────────────────
+
+  it("R1+R2: throws when reconcilePolledRun reports persistence mismatch + marks the run failed", async () => {
+    const sync = mkSyncSpies();
+    sync.reconcilePolledRun = vi.fn(async () => ({
+      ok: false,
+      persistedObsCount: 0,
+      expectedObsCount: 100,
+      costUsd: 0.6,
+      reasons: [
+        "Paid call cost $0.6 but ZERO observations persisted (silent-write-failure pattern)",
+      ],
+    }));
+    const adapterSpy = vi.fn(async (platform: string, _tenantId: string) =>
+      makeAdapterResult(platform, 100, "completed", 0),
+    );
+    await expect(
+      runNativePoll(
+        { tenantId: "tenant-ritz-founder", platform: "perplexity" },
+        {
+          runAdapter: adapterSpy,
+          hasRecentCompletedRun: async () => false,
+          ...sync,
+          buildDailySnapshotsFromObservations: () => [],
+          getTrackedEntities: async () => trackedEntities(),
+        },
+      ),
+    ).rejects.toThrow(/PERSISTENCE RECONCILIATION FAILED/);
+    // markRunPersistenceFailed must be called BEFORE the throw so the
+    // run row reflects truth.
+    expect(sync.markRunPersistenceFailed).toHaveBeenCalledTimes(1);
+    expect(sync.stampRawPollChunkReconciliation).toHaveBeenCalled();
+  });
+
+  it("R3: writes raw chunk row BEFORE syncObs (preserves provider response on failure)", async () => {
+    const sync = mkSyncSpies();
+    const callOrder: string[] = [];
+    sync.syncRawPollChunk = vi.fn(async () => {
+      callOrder.push("raw");
+      return undefined;
+    });
+    sync.syncPromptAnswerObservations = vi.fn(async () => {
+      callOrder.push("obs");
+      return undefined;
+    });
+    const adapterSpy = vi.fn(async (platform: string, _tenantId: string) =>
+      makeAdapterResult(platform, 100, "completed", 0),
+    );
+    await runNativePoll(
+      { tenantId: "tenant-ritz-founder", platform: "perplexity" },
+      {
+        runAdapter: adapterSpy,
+        hasRecentCompletedRun: async () => false,
+        ...sync,
+        buildDailySnapshotsFromObservations: () => [],
+        getTrackedEntities: async () => trackedEntities(),
+      },
+    );
+    expect(callOrder.indexOf("raw")).toBeLessThan(callOrder.indexOf("obs"));
+  });
+
+  it("R3: stamps reconciliation as 'observation_upsert_threw' when syncObs throws", async () => {
+    const sync = mkSyncSpies();
+    sync.syncPromptAnswerObservations = vi.fn(async () => {
+      throw new Error("PGRST204: column not in schema cache");
+    });
+    const adapterSpy = vi.fn(async (platform: string, _tenantId: string) =>
+      makeAdapterResult(platform, 100, "completed", 0),
+    );
+    await expect(
+      runNativePoll(
+        { tenantId: "tenant-ritz-founder", platform: "perplexity" },
+        {
+          runAdapter: adapterSpy,
+          hasRecentCompletedRun: async () => false,
+          ...sync,
+          buildDailySnapshotsFromObservations: () => [],
+          getTrackedEntities: async () => trackedEntities(),
+        },
+      ),
+    ).rejects.toThrow(/PGRST204/);
+    // Raw chunk written first, then stamped with the failure reason.
+    expect(sync.syncRawPollChunk).toHaveBeenCalled();
+    expect(sync.stampRawPollChunkReconciliation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reconciliationStatus: "observation_upsert_threw",
+        observationsPersistedCount: 0,
+      }),
+    );
+    // Run row also marked failed.
+    expect(sync.markRunPersistenceFailed).toHaveBeenCalled();
+  });
+
+  it("R6: gate blocks the next paid run when checkPersistenceGate returns allow:false", async () => {
+    const sync = mkSyncSpies();
+    sync.checkPersistenceGate = vi.fn(async () => ({
+      allow: false,
+      reason: "Last openai-native-poll run failed persistence",
+      blockedByRunId: "r-bad-1",
+    }));
+    const adapterSpy = vi.fn(async (platform: string, _tenantId: string) =>
+      makeAdapterResult(platform, 100, "completed", 0),
+    );
+    const result = await runNativePoll(
+      { tenantId: "tenant-ritz-founder", platform: "openai" },
+      {
+        runAdapter: adapterSpy,
+        hasRecentCompletedRun: async () => false,
+        ...sync,
+        buildDailySnapshotsFromObservations: () => [],
+        getTrackedEntities: async () => trackedEntities(),
+      },
+    );
+    // Gate-blocked: paid call NEVER happens.
+    expect(adapterSpy).not.toHaveBeenCalled();
+    expect(result.status).toBe("skipped_persistence_failure_gate");
+    expect(result.observationsWritten).toBe(0);
+    expect(result.note).toMatch(/failed persistence/);
+  });
+
+  it("R6: force=true bypasses the persistence gate (operator manual override)", async () => {
+    const sync = mkSyncSpies();
+    sync.checkPersistenceGate = vi.fn(async () => ({
+      allow: false,
+      reason: "blocked",
+      blockedByRunId: "r-bad-1",
+    }));
+    const adapterSpy = vi.fn(async (platform: string, _tenantId: string) =>
+      makeAdapterResult(platform, 100, "completed", 0),
+    );
+    const result = await runNativePoll(
+      { tenantId: "tenant-ritz-founder", platform: "openai", force: true },
+      {
+        runAdapter: adapterSpy,
+        hasRecentCompletedRun: async () => false,
+        ...sync,
+        buildDailySnapshotsFromObservations: () => [],
+        getTrackedEntities: async () => trackedEntities(),
+      },
+    );
+    // force=true bypasses the gate; adapter runs.
+    expect(adapterSpy).toHaveBeenCalled();
+    expect(result.status).toBe("completed");
+  });
+
+  it("R1+R2: success-path observationsWritten reflects DB truth (verdict.persistedObsCount), not provider claim", async () => {
+    const sync = mkSyncSpies();
+    // Adapter says 100 obs but reconciliation only verifies 80 persisted.
+    // The summary should report 80 (DB truth).
+    sync.reconcilePolledRun = vi.fn(async () => ({
+      ok: true, // we treat as ok for this contract test (operator
+      // could also configure stricter rules; here we test that
+      // the field is sourced from verdict, not from result).
+      persistedObsCount: 80,
+      expectedObsCount: 100,
+      costUsd: 0.6,
+      reasons: [],
+    }));
+    const adapterSpy = vi.fn(async (platform: string, _tenantId: string) =>
+      makeAdapterResult(platform, 100, "completed", 0),
+    );
+    const result = await runNativePoll(
+      { tenantId: "tenant-ritz-founder", platform: "perplexity" },
+      {
+        runAdapter: adapterSpy,
+        hasRecentCompletedRun: async () => false,
+        ...sync,
+        buildDailySnapshotsFromObservations: () => [],
+        getTrackedEntities: async () => trackedEntities(),
+      },
+    );
+    expect(result.observationsWritten).toBe(80);
+    expect(result.chunk.promptsPolled).toBe(80);
   });
 });

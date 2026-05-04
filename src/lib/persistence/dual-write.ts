@@ -501,6 +501,102 @@ export async function syncPromptAnswerObservations(
   );
 }
 
+// ── Poll Integrity Hardening (2026-05-04, post May 2-4 incident) ──
+//
+// Raw provider response store written BEFORE observation upsert. Preserves
+// data even if the transform/upsert step fails (the May 2-4 silent-failure
+// pattern). Throws on any error — silent-fail here would defeat the entire
+// purpose of the safety net.
+
+export type RawPollChunkRow = {
+  run_id: string;
+  tenant_id: string;
+  platform: string;
+  source: string;
+  chunk_offset: number;
+  chunk_limit: number | null;
+  prompt_count: number;
+  prompt_ids: string[];
+  raw_response: unknown;
+  cost_usd: number | null;
+};
+
+/**
+ * Upsert a raw poll chunk row. Schema-stable: only minimal fields the
+ * `raw_poll_chunks` table accepts. THROWS on any error (no silent-
+ * swallow) so the orchestrator can fail loud BEFORE running the
+ * transform/upsert step. PK is `run_id` so re-runs are idempotent.
+ */
+export async function syncRawPollChunk(
+  row: RawPollChunkRow,
+): Promise<void> {
+  if (!isDualWriteEnabled()) return;
+  if (!row.run_id || !row.tenant_id) {
+    throw new Error(
+      "[syncRawPollChunk] run_id and tenant_id are required",
+    );
+  }
+  const sb = getSupabaseAdmin();
+  const { error } = await sb
+    .from("raw_poll_chunks")
+    .upsert(
+      {
+        run_id: row.run_id,
+        tenant_id: row.tenant_id,
+        platform: row.platform,
+        source: row.source,
+        chunk_offset: row.chunk_offset,
+        chunk_limit: row.chunk_limit,
+        prompt_count: row.prompt_count,
+        prompt_ids: row.prompt_ids,
+        raw_response: row.raw_response,
+        cost_usd: row.cost_usd,
+        // observations_persisted_count + reconciliation_status are
+        // stamped post-pipeline by `stampRawPollChunkReconciliation`.
+        observations_persisted_count: null,
+        reconciliation_status: "pending",
+      },
+      { onConflict: "run_id" },
+    );
+  if (error) {
+    throw new Error(
+      `[syncRawPollChunk] upsert failed for run_id=${row.run_id}: ${error.message ?? String(error)}`,
+    );
+  }
+}
+
+/**
+ * Stamp the post-pipeline reconciliation result on a raw chunk row. Called
+ * after observation upsert + snapshot derivation either succeed or fail.
+ * Updates `observations_persisted_count` + `reconciliation_status`.
+ *
+ * Throws on error (no silent-fail).
+ */
+export async function stampRawPollChunkReconciliation(args: {
+  runId: string;
+  observationsPersistedCount: number;
+  reconciliationStatus:
+    | "verified_complete"
+    | "persistence_mismatch"
+    | "observation_upsert_threw"
+    | "snapshot_derivation_failed";
+}): Promise<void> {
+  if (!isDualWriteEnabled()) return;
+  const sb = getSupabaseAdmin();
+  const { error } = await sb
+    .from("raw_poll_chunks")
+    .update({
+      observations_persisted_count: args.observationsPersistedCount,
+      reconciliation_status: args.reconciliationStatus,
+    })
+    .eq("run_id", args.runId);
+  if (error) {
+    throw new Error(
+      `[stampRawPollChunkReconciliation] update failed for run_id=${args.runId}: ${error.message ?? String(error)}`,
+    );
+  }
+}
+
 // ── Scan output sync (Phases 2 & 4) ──
 
 export async function syncObservationRuns(

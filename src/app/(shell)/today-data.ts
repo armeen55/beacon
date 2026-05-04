@@ -67,6 +67,7 @@ import {
 } from "@/domains/observations/read";
 import {
   fetchPollHealthForDate,
+  aggregateSamplingStatus,
   todayISOUtc,
   type PollHealthSnapshot,
 } from "@/domains/observations/poll-health";
@@ -1397,6 +1398,17 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
     derivedKpiAsOfDate: useDerivedKpis ? todayKpis!.date : null,
     /** True when derived KPIs fell back to yesterday's row (e.g. pre-cron). */
     derivedKpiIsFallback: useDerivedKpis ? todayKpis!.isFallback : false,
+    /**
+     * Poll Integrity Hardening (2026-05-04, Operator R7). Aggregated
+     * sampling status across both platforms for the as-of-date — when
+     * "proof" or "partial", the headline tile renders a small-sample
+     * tag so a 5-obs proof run doesn't read as a full 100-obs day.
+     * Worst-case wins (a single proof platform downgrades the headline).
+     */
+    derivedKpiSamplingStatus:
+      useDerivedKpis && pollHealth
+        ? aggregateSamplingStatus(pollHealth)
+        : null,
   };
 
   // FAQ schema coverage metric

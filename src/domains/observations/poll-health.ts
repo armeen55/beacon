@@ -381,6 +381,27 @@ export function classifySampling(observationsWritten: number): SamplingStatus {
 }
 
 /**
+ * Operator R7 (Poll Integrity Hardening, 2026-05-04). Aggregate the
+ * per-platform sampling status into a single headline-level status
+ * for /today's KPI tiles. WORST-CASE WINS so a single proof-run
+ * platform downgrades the headline — better to over-warn than to
+ * silently render a 5-obs day as if it were full.
+ *
+ * Order (worst → best): empty > proof > partial > full.
+ */
+export function aggregateSamplingStatus(
+  snap: PollHealthSnapshot,
+): SamplingStatus {
+  const order: SamplingStatus[] = ["empty", "proof", "partial", "full"];
+  let worstIndex = order.length - 1; // start at "full"
+  for (const p of snap.platforms) {
+    const idx = order.indexOf(p.samplingStatus);
+    if (idx >= 0 && idx < worstIndex) worstIndex = idx;
+  }
+  return order[worstIndex];
+}
+
+/**
  * Bug-1 helper (2026-05-04): if the run-level summary said "ok" with
  * non-zero `reportedFromScope` (per scope_label parsing) but Supabase
  * actually has 0 rows persisted for the day, the upsert silently

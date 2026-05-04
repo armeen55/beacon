@@ -206,3 +206,51 @@ jobs:
         env:
           BEACON_URL: ${{ secrets.BEACON_URL }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
+
+  # --------------------------------------------------------------------------
+  # Poll Integrity Hardening (2026-05-04, post May 2-4 incident) — verify
+  # that persistence actually happened today.
+  #
+  # Why this job exists: between May 1 and May 4, daily polls cost ~$9 in
+  # API spend but persisted ZERO observations because `dual-write` silently
+  # swallowed PGRST204 column-drift errors. The workflow stayed green and
+  # nobody noticed for three days.
+  #
+  # Operator R4 contract: the scheduled workflow must exit non-zero if:
+  #   • expected prompts > 0 and persisted observations = 0
+  #   • snapshots failed to derive
+  #   • raw chunk save failed
+  #   • Supabase write failed
+  #
+  # Implementation: re-runs `check-yesterday-poll.ts` (the same canary
+  # script that runs at 07:45 UTC) inline at the end of the daily poll.
+  # The canary now reads from `prompt_answer_observations` and downgrades
+  # any "ok"-with-zero-persisted to "failed" (Bug-1 cross-check). When
+  # the canary exits non-zero, this job fails RED and the operator gets
+  # GitHub's failure email within minutes — not 45 min later via the
+  # separate canary workflow.
+  #
+  # `if: always()` so partial chunk failures don't skip the verify step.
+  # The verify step itself decides whether the day landed enough data.
+  # --------------------------------------------------------------------------
+  verify-persistence:
+    name: Verify persistence (Operator R4 contract)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [poll-perplexity, poll-openai, rebuild-citation-evidence-index]
+    if: always()
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Verify today's polls actually persisted to Supabase
+        run: npx tsx --require ./scripts/mock-server-only.cjs scripts/check-yesterday-poll.ts
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

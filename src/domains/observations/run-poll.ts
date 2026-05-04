@@ -35,12 +35,21 @@ import {
   syncAnswerTexts as realSyncTexts,
   syncObservationRuns as realSyncRuns,
   syncDailyMetricSnapshots as realSyncSnaps,
+  syncRawPollChunk as realSyncRawChunk,
+  stampRawPollChunkReconciliation as realStampRawRecon,
+  type RawPollChunkRow,
 } from "@/lib/persistence/dual-write";
 import { buildDailySnapshotsFromObservations as realBuildSnaps } from "@/domains/daily-metric-snapshots/build-from-observations";
 import { getRepository } from "@/lib/persistence/repositories";
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import type { TrackedEntity } from "@/domains/tracked-entities/types";
 import type { PromptAnswerObservation } from "@/domains/prompt-answer-observations/types";
+// Poll Integrity Hardening (2026-05-04, post May 2-4 incident):
+import {
+  reconcilePolledRun as realReconcile,
+  markRunPersistenceFailed as realMarkFailed,
+  checkPersistenceGate as realCheckGate,
+} from "./poll-integrity";
 
 export type NativePollPlatform = "perplexity" | "openai";
 
@@ -49,7 +58,37 @@ export type NativePollStatus =
   | "partial"
   | "failed"
   | "skipped_already_ran_today"
-  | "skipped_chunk_recently_ran";
+  | "skipped_chunk_recently_ran"
+  // Poll Integrity Hardening (2026-05-04, post May 2-4 incident):
+  // Operator R6 — auto-disable paid polling when the prior run on
+  // this source failed persistence. The next paid run is BLOCKED
+  // until a successful canary clears the gate or the operator
+  // manually acknowledges the failure.
+  | "skipped_persistence_failure_gate";
+
+/**
+ * Poll Integrity Hardening (2026-05-04). Sub-status flags stamped on
+ * the observation_run row via the `counts` jsonb column. Each flag
+ * reflects a step in the pipeline that must succeed before the run
+ * is considered `verified_complete`.
+ *
+ * Operator R1 contract (verbatim):
+ *   "Do not mark a poll run completed until:
+ *     • provider call completed
+ *     • raw chunk saved or intentionally skipped with reason
+ *     • observations persisted
+ *     • snapshots derived
+ *     • persisted row count verified"
+ */
+export type PollIntegritySubStatuses = {
+  provider_completed: boolean;
+  raw_saved: boolean;
+  observations_persisted: boolean;
+  snapshots_derived: boolean;
+  verified_complete: boolean;
+  /** Optional short reason when any of the booleans above is false. */
+  failure_reason?: string;
+};
 
 export type NativePollResult = {
   status: NativePollStatus;
@@ -132,6 +171,14 @@ export type RunNativePollDeps = {
     platform: string; // lowercase observation-level label
     date: string; // YYYY-MM-DD (UTC)
   }) => Promise<PromptAnswerObservation[]>;
+  // Poll Integrity Hardening (2026-05-04, post May 2-4 incident).
+  // All injectable for tests so the contract can be exercised without
+  // hitting Supabase.
+  syncRawPollChunk?: typeof realSyncRawChunk;
+  stampRawPollChunkReconciliation?: typeof realStampRawRecon;
+  reconcilePolledRun?: typeof realReconcile;
+  markRunPersistenceFailed?: typeof realMarkFailed;
+  checkPersistenceGate?: typeof realCheckGate;
 };
 
 // ── Platform-specific metadata ───────────────────────────────────────
@@ -191,10 +238,45 @@ export async function runNativePoll(
     (async () => getRepository().getTrackedEntities());
   const getDayObs =
     deps.getObservationsForDay ?? defaultGetObservationsForDay;
+  // Poll Integrity Hardening (2026-05-04).
+  const syncRawChunk = deps.syncRawPollChunk ?? realSyncRawChunk;
+  const stampRawRecon =
+    deps.stampRawPollChunkReconciliation ?? realStampRawRecon;
+  const reconcile = deps.reconcilePolledRun ?? realReconcile;
+  const markFailed = deps.markRunPersistenceFailed ?? realMarkFailed;
+  const checkGate = deps.checkPersistenceGate ?? realCheckGate;
 
   const isChunked = args.offset !== undefined || args.limit !== undefined;
   const chunkOffset = args.offset ?? 0;
   const chunkLimit = args.limit ?? null;
+
+  // ── Persistence-failure gate (Operator R6) ──────────────────────────
+  // Auto-disable paid polling if the latest run on this (tenant,
+  // source) failed for persistence reasons. Cleared by a successful
+  // canary OR by the operator manually editing the failed run row.
+  // Honors `force=true` for legitimate manual override. The previous
+  // 20h budget guard + 15min chunk-dedupe both run AFTER this gate.
+  if (!force) {
+    const gate = await checkGate({ tenantId, source });
+    if (!gate.allow) {
+      return {
+        status: "skipped_persistence_failure_gate",
+        runId: null,
+        platform,
+        chunk: {
+          offset: chunkOffset,
+          limit: chunkLimit,
+          promptsPolled: 0,
+        },
+        observationsWritten: 0,
+        snapshotsWritten: 0,
+        errorCount: 0,
+        costEstimateUsd: 0,
+        completedAt: null,
+        note: gate.reason,
+      };
+    }
+  }
 
   // ── Budget guard ────────────────────────────────────────────────────
   // Two separate guards with different time windows:
@@ -255,11 +337,78 @@ export async function runNativePoll(
   });
   const run = result.observationRun;
 
+  // ── Poll Integrity Hardening: raw chunk safety net (Operator R3) ────
+  // Write the raw provider response to `raw_poll_chunks` BEFORE we
+  // run the transform/upsert step. If observation upsert fails (the
+  // May 2-4 silent-failure pattern), the raw response is preserved
+  // here and a recovery script can reconstruct observations later.
+  // Schema-stable: the raw chunk table has minimal, fixed columns so
+  // it cannot suffer the same column-drift failure that caused the
+  // May 2-4 incident.
+  const rawChunkRow: RawPollChunkRow = {
+    run_id: run.run_id,
+    tenant_id: tenantId,
+    platform: OBSERVATION_PLATFORM_LABEL[platform],
+    source,
+    chunk_offset: chunkOffset,
+    chunk_limit: chunkLimit,
+    prompt_count: result.observations.length,
+    prompt_ids: result.observations.map((o) => o.prompt_id),
+    raw_response: {
+      // Capture the bare-minimum needed to replay/reconstruct.
+      observation_count: result.observations.length,
+      answer_text_count: Object.keys(result.answerTexts ?? {}).length,
+      answer_texts: result.answerTexts ?? {},
+      run_status: run.status,
+      scope_label: run.scope_label,
+    } as Record<string, unknown>,
+    cost_usd: Number(
+      (result.observations.length * costRate).toFixed(4),
+    ),
+  };
+  await syncRawChunk(rawChunkRow);
+
   // ── Sync raw artifacts ──────────────────────────────────────────────
   // Phase 7.7b Commit 4 (2026-04-25): tenant-bind the 3 Tier A writes.
   // syncTexts hits the GLOBAL `answer_texts` table — no tenantId.
+  //
+  // Order matters: syncRuns writes the run row first (so reconciliation
+  // can update it later if obs/snaps fail). syncObs is the most-likely
+  // failure point — if it throws (Bug-1 fix: dual-write throws on
+  // persistent error), we'll catch below, mark the run failed, and
+  // re-throw so the API endpoint returns 5xx.
   await syncRuns([run], tenantId);
-  await syncObs(result.observations, tenantId);
+  try {
+    await syncObs(result.observations, tenantId);
+  } catch (obsErr) {
+    // Stamp the raw chunk + run row as failed BEFORE re-throwing so
+    // /today and the canary can show truthful state. Surface the
+    // original error to the caller.
+    const message =
+      obsErr instanceof Error ? obsErr.message : String(obsErr);
+    try {
+      await stampRawRecon({
+        runId: run.run_id,
+        observationsPersistedCount: 0,
+        reconciliationStatus: "observation_upsert_threw",
+      });
+    } catch {
+      /* best-effort */
+    }
+    try {
+      await markFailed({
+        tenantId,
+        runId: run.run_id,
+        reasons: [`syncObs threw: ${message}`],
+        persistedObsCount: 0,
+        expectedObsCount: result.observations.length,
+        costUsd: rawChunkRow.cost_usd ?? 0,
+      });
+    } catch {
+      /* best-effort */
+    }
+    throw obsErr;
+  }
   await syncTexts(result.answerTexts);
 
   // ── Derive + sync daily snapshots ───────────────────────────────────
@@ -284,15 +433,91 @@ export async function runNativePoll(
       })
     : result.observations;
 
-  const snapshots = buildSnaps({
+  let snapshots;
+  try {
+    snapshots = buildSnaps({
+      tenantId,
+      platform: platformLabel,
+      observations: observationsForDerivation,
+      trackedEntities: entities,
+      date,
+      observationRunId: run.run_id,
+    });
+    await syncSnaps(snapshots, tenantId);
+  } catch (snapErr) {
+    const message =
+      snapErr instanceof Error ? snapErr.message : String(snapErr);
+    try {
+      await stampRawRecon({
+        runId: run.run_id,
+        observationsPersistedCount: result.observations.length,
+        reconciliationStatus: "snapshot_derivation_failed",
+      });
+    } catch {
+      /* best-effort */
+    }
+    try {
+      await markFailed({
+        tenantId,
+        runId: run.run_id,
+        reasons: [`snapshot derivation/upsert threw: ${message}`],
+        persistedObsCount: result.observations.length,
+        expectedObsCount: result.observations.length,
+        costUsd: rawChunkRow.cost_usd ?? 0,
+      });
+    } catch {
+      /* best-effort */
+    }
+    throw snapErr;
+  }
+
+  // ── Poll Integrity Hardening: reconciliation (Operator R1 + R2) ─────
+  // Read truth from Supabase: count actual persisted obs for this run.
+  // Compare to expected. Throw on mismatch so /api/poll/run returns
+  // 5xx and the GitHub Actions workflow turns red. This is the LAST
+  // gate before we report `status: completed` — the operator's
+  // contract requires `verified_complete` AFTER persisted-row count
+  // verification.
+  const expectedObsCount = result.observations.length;
+  const verdict = await reconcile({
     tenantId,
-    platform: platformLabel,
-    observations: observationsForDerivation,
-    trackedEntities: entities,
-    date,
-    observationRunId: run.run_id,
+    runId: run.run_id,
+    expectedObsCount,
+    costUsd: rawChunkRow.cost_usd ?? 0,
   });
-  await syncSnaps(snapshots, tenantId);
+  if (!verdict.ok) {
+    try {
+      await stampRawRecon({
+        runId: run.run_id,
+        observationsPersistedCount: verdict.persistedObsCount,
+        reconciliationStatus: "persistence_mismatch",
+      });
+    } catch {
+      /* best-effort */
+    }
+    await markFailed({
+      tenantId,
+      runId: run.run_id,
+      reasons: [...verdict.reasons],
+      persistedObsCount: verdict.persistedObsCount,
+      expectedObsCount,
+      costUsd: rawChunkRow.cost_usd ?? 0,
+    });
+    throw new Error(
+      `[run-poll] PERSISTENCE RECONCILIATION FAILED for run=${run.run_id}: ${verdict.reasons.join("; ")}`,
+    );
+  }
+
+  // Reconciliation passed — stamp the raw chunk row + return success.
+  try {
+    await stampRawRecon({
+      runId: run.run_id,
+      observationsPersistedCount: verdict.persistedObsCount,
+      reconciliationStatus: "verified_complete",
+    });
+  } catch {
+    /* best-effort — reconciliation already passed */
+  }
 
   // ── Summarize ───────────────────────────────────────────────────────
   const status: NativePollStatus =
@@ -309,13 +534,14 @@ export async function runNativePoll(
     chunk: {
       offset: chunkOffset,
       limit: chunkLimit,
-      promptsPolled: result.observations.length,
+      // Truth: reconciled persisted-obs count, NOT what the adapter said.
+      promptsPolled: verdict.persistedObsCount,
     },
-    observationsWritten: result.observations.length,
+    observationsWritten: verdict.persistedObsCount,
     snapshotsWritten: snapshots.length,
     errorCount: result.errorCount,
     costEstimateUsd: Number(
-      (result.observations.length * costRate).toFixed(4),
+      (verdict.persistedObsCount * costRate).toFixed(4),
     ),
     completedAt: run.completed_at,
   };

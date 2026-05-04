@@ -4,8 +4,10 @@ import {
   computePollHealthFromRuns,
   todayISOUtc,
   classifySampling,
+  aggregateSamplingStatus,
   FULL_RUN_PROMPT_FLOOR,
   PROOF_RUN_PROMPT_CEIL,
+  type PollHealthSnapshot,
 } from "@/domains/observations/poll-health";
 import type { ObservationRun } from "@/domains/observations/types";
 
@@ -506,5 +508,66 @@ describe("Partial-day — samplingStatus on PlatformPollHealth", () => {
     const perp = snap.platforms.find((p) => p.platform === "perplexity")!;
     expect(chatgpt.samplingStatus).toBe("proof");
     expect(perp.samplingStatus).toBe("proof");
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// Operator R7 — aggregateSamplingStatus for headline KPI tile
+// ──────────────────────────────────────────────────────────────────────
+//
+// Worst-case wins (over-warning is safer than silently rendering a
+// 5-obs day as a full day in headline KPI tiles).
+// Order: empty > proof > partial > full
+
+function snap(
+  perp: PollHealthSnapshot["platforms"][number]["samplingStatus"],
+  cgpt: PollHealthSnapshot["platforms"][number]["samplingStatus"],
+): PollHealthSnapshot {
+  return {
+    date: "2026-05-04",
+    platforms: [
+      {
+        platform: "perplexity",
+        expectedChunks: 4,
+        completedChunks: 1,
+        failedChunks: 0,
+        observationsWritten: 5,
+        status: "ok",
+        samplingStatus: perp,
+      },
+      {
+        platform: "chatgpt",
+        expectedChunks: 4,
+        completedChunks: 1,
+        failedChunks: 0,
+        observationsWritten: 5,
+        status: "ok",
+        samplingStatus: cgpt,
+      },
+    ],
+  };
+}
+
+describe("aggregateSamplingStatus (Operator R7 — worst-case wins)", () => {
+  it("both 'full' → 'full'", () => {
+    expect(aggregateSamplingStatus(snap("full", "full"))).toBe("full");
+  });
+  it("one 'proof' + one 'full' → 'proof' (the operator's exact May 4 case)", () => {
+    expect(aggregateSamplingStatus(snap("proof", "full"))).toBe("proof");
+    expect(aggregateSamplingStatus(snap("full", "proof"))).toBe("proof");
+  });
+  it("one 'partial' + one 'full' → 'partial'", () => {
+    expect(aggregateSamplingStatus(snap("partial", "full"))).toBe("partial");
+  });
+  it("'empty' beats everything (silent-failure pattern)", () => {
+    expect(aggregateSamplingStatus(snap("empty", "full"))).toBe("empty");
+    expect(aggregateSamplingStatus(snap("empty", "proof"))).toBe("empty");
+    expect(aggregateSamplingStatus(snap("empty", "partial"))).toBe("empty");
+  });
+  it("both 'proof' → 'proof'", () => {
+    expect(aggregateSamplingStatus(snap("proof", "proof"))).toBe("proof");
+  });
+  it("'partial' + 'proof' → 'proof' (proof is worse than partial)", () => {
+    expect(aggregateSamplingStatus(snap("partial", "proof"))).toBe("proof");
   });
 });

@@ -74,3 +74,16 @@ jobs:
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+      # Poll Integrity Hardening (2026-05-04, post May 2-4 incident).
+      # Operator R5 contract — verify the FULL persistence pipeline
+      # works end-to-end via a mock-provider write/read/cleanup cycle.
+      # Catches silent column drift BEFORE it can swallow paid polling.
+      # No paid API calls; ZERO marginal cost.
+      - name: Run persistence-write canary
+        run: npx tsx --require ./scripts/mock-server-only.cjs scripts/canary-persistence-write.ts
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          DUAL_WRITE: "true"
+          BEACON_TENANT_ID: tenant-ritz-founder
