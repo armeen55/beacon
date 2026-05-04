@@ -1,5 +1,52 @@
 # Beacon — Start Here
 
+> 🟢 **W3 Step 3.11 (Action Type Planner v0) LANDED (2026-05-04):** H2 + FAQ proved the safe-generation loop end-to-end (query fanout → evidence packet → LLM → validators → exact bundle replay → ranked action table). H2 / FAQ are not the whole product — Beacon must recommend the RIGHT website task type per cluster: create page, rewrite title, rewrite meta, rewrite H1, add H2 / section, improve copy, add FAQ, add schema, add internal links, add comparison table, technical fix, review decision. Step 3.11 ships the PLANNER (decision layer) only — not all the generators yet.
+>
+> **What landed:**
+>
+> 1. **`src/domains/recommendations/action-type-planner.ts`** (NEW) — `buildRecommendedActionPlan(input): ActionPlan[]` is a pure deterministic helper that walks 12 operator-locked rules in priority order and emits the highest-priority plan that fires. Every plan carries:
+>    - `actionType` — one of 12 `PlanActionType` values
+>    - `targetUrl` / `targetPageLabel` — null+`New page` for `create_page`, otherwise the resolved owned URL + operator-friendly label
+>    - `proposedElementType` — the `ElementType` the generator should produce (h1 / h2 / title / meta / faq_question / table / schema_type / internal_link / answer_block) or null for page-level / review actions
+>    - `evidenceReason` — one-line operator-readable evidence summary
+>    - `audit` — full per-plan structured audit: `rawFanoutTriggers[]` (verbatim AI-emitted queries), `normalizedIntent` (superlatives stripped), `pageFactsUsed[]` (which `PageFactsForPlanner` fields contributed), `whyThisActionType` (one paragraph), `whyNotOtherTypes[]` (every NON-chosen plan + a rejection reason), `confidence` (fanout-backed / prompt-backed / site-inventory-backed / thin)
+>    - `riskLevel` — low / medium / high
+>    - `canGenerateNow` — `true` only for `add_h2_section` + `add_faq` in v0; everything else is `false` (operator-handoff task)
+>    - `recommendedGenerator` — concrete existing `ActionType` the generator emits (1:1 mapping today; 1:N possible later)
+>
+> 2. **Priority-ordered rule walk** (operator-locked):
+>    1. `technical_fix` — page-level defects (noindex / canonical mismatch / invalid schema / blocked or stale crawl) outrank everything else.
+>    2. `create_page` — no owned page covers the cluster.
+>    3. `add_internal_links` — homepage over-cited while target page exists.
+>    4. `rewrite_h1` — H1 missing / generic / not anchored to cluster.
+>    5. `rewrite_title` — title generic / weak / missing geo+service.
+>    6. `rewrite_meta_description` — meta missing / weak / overlong.
+>    7. `add_comparison_table` — comparison-stage demand (operator-explicit: lands BEFORE `add_h2_section` so a "best luxury home builders" fanout doesn't degrade into a self-claim H2).
+>    8. `add_faq` — question-shaped fanout / prompts.
+>    9. `add_schema` — ONLY when visible content supports it (FAQPage requires visible FAQ; BreadcrumbList requires hierarchy; Service / WebPage requires service content). Never recommended for hidden / unsupported content.
+>    10. `add_h2_section` — page broadly matches the cluster but missing one important subtopic.
+>    11. `improve_body_copy` — page exists but body is too thin to win the cluster prompts.
+>    12. `review_decision` — terminal fallback when nothing else fires.
+>
+> 3. **Action-table model extended** — `ActionRowType` gained `edit_h1` (was folded into "H2") + `add_comparison_table` (was folded into "Copy"). 13 visible task-type labels now: Page · Title · Meta · H1 · H2 · Section · Copy · FAQ · Schema · Links · Table · Technical · Review (+ Regenerate meta-action). `actionRowTypeForEdit` mapping updated: `change_h1` → `edit_h1`; `add_table` / `add_comparison_section` → `add_comparison_table`. Persisted H2/FAQ rows render unchanged (defensive: same `add_h2_section` / `add_faq` ActionType → same row type / label).
+>
+> 4. **Tests (1 new file, 37 cases · 0 regressions to recs+arch):**
+>    - `action-type-planner.test.ts` (NEW, 37) — pin all 13 operator-locked scenarios: "best luxury home builders" → `add_comparison_table` (NOT self-claim H2) · weak title → `rewrite_title` · weak meta → `rewrite_meta_description` · missing H1 → `rewrite_h1` (highest of the three) · no owned page → `create_page` · question-shaped fanout → `add_faq` · comparison fanout → `add_comparison_table` · homepage over-cited → `add_internal_links` · visible FAQ → `add_schema` (FAQPage unlocked) · absent visible FAQ → `add_schema` blocked · noindex / invalidSchema / crawlBlocked → `technical_fix` · audit explains why this + why NOT all 11 others · `whyNotOtherTypes` covers every non-chosen plan with a rejection reason · `confidence` falls to "thin" with no evidence · `rawFanoutTriggers` carries verbatim queries (including "best …" — operator-locked rule that raw fanout MAY contain forbidden modifiers but PUBLIC copy must transform them) · ACTION_ROW_TYPE_LABEL covers all 13 required labels · `planLabelFor` mirrors them · `canGenerateNow` true ONLY for the 2 wired safe generators · `proposedElementType` correct for every plan · heuristic helpers (`fanoutHasForbiddenSuperlative` / `fanoutLooksComparison` / `fanoutHasQuestionShape` / `titleIsWeak` / `metaIsWeak` / `h1IsWeak` / `pageHasTechnicalIssue` / `ownedPageBestMatch` / `normalizedIntentFromSignal` / `schemaIsRecommendable`) all individually unit-tested.
+>    - Pre-existing test updated (`render-output-cleanup.test.tsx`) — pinned the OLD `Add an "..." H2` pattern from §3.5e; updated to the §3.15 `Add "..." H2` shape with regression-prevention assertion. (Carried over from §3.15.)
+>
+> 5. **Constraints honored** — No paid generation. No broad regeneration. No Apply-All-HIGH. No backfill. No Profound archive/delete. No cards/lanes redesign. Persisted H2/FAQ rows are not mutated. Exact bundle replay (W3 §3.10) intact.
+>
+> **Verification (2026-05-04):** `npx tsc --noEmit` clean · 1285/1285 on `src/domains/recommendations` + `tests/architecture` (recs + arch surface area) · `npm run test` 3871/3877 (6 pre-existing baseline failures all OUTSIDE this surface — same UI smoke time-drift + tenant-isolation + auto-link-via-changelog tests confirmed in §3.13/§3.15; net change vs §3.15: +37 passes, ±0 net failures) · `BEACON_TENANT_ID=… BEACON_TENANT_SLUG=… npm run build` clean.
+>
+> **What this enables:** Beacon can now CHOOSE the right task type for each cluster — title / meta / H1 / schema / link / table / review — not only H2/FAQ. The planner is wired into the rule layer; the next phase activates the per-type generators behind feature-flagged validators (Title / Meta / H1 / Internal Links / Schema / Comparison Table). v0 ships the safe set (H2 + FAQ) and surfaces every other plan as a clearly-marked operator-handoff task in the existing ranked action table.
+>
+> **Browser spot-check (post-§3.15 deploy)** confirmed by operator on the table screenshot: 9 rows (down from 12), 3 FAQ pairs each grouped to one row, real question text in titles, `Add "..." H2` not `Add an "..."`, no `(new)` / `(question)` / `(answer)` noise tags, types correct (H2/FAQ/Page/Review), no raw IDs / em dashes / bare "Ritz" / leading "Best …".
+>
+> **Next 3 actions (operator-locked):**
+> 1. **W4 historical backfill** — operator's announced next phase (per the §3.11 spec: "After Step 3.11 passes, pause. Then we resume W4 historical backfill.").
+> 2. **(Optional) Activate one new generator behind a flag** — e.g., the `rewrite_title` or `add_internal_links` generator, gated by an env flag and validated through the same `--save-bundle` / `--from-bundle` review-and-replay pipeline §3.10 ships.
+> 3. **(Optional) Surface the planner's audit + canGenerateNow on the existing action table** — when a row's underlying plan has `canGenerateNow: false`, render a "Queue this for the operator" badge instead of the Accept button.
+
 > 🟢 **W3 Step 3.15 (Action-table polish: FAQ Q+A grouping + title cleaning) LANDED (2026-05-04):** Operator browser-spot-check after the §3.13 persists revealed three small UI defects in the ranked action table (the table itself was accepted; this is polish, not a redesign):
 >
 > 1. Each FAQ Q+A pair was rendering as TWO duplicate rows (the question and the answer each on its own line) — wrong for the operator who thinks of an FAQ as one shipment.

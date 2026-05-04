@@ -7,6 +7,94 @@
 
 ---
 
+## 2026-05-04 (afternoon) — W3 Step 3.11: Action Type Planner v0
+
+H2 + FAQ proved the safe-generation loop end-to-end. Step 3.11 builds the PLANNER layer that decides which of 12 task types Beacon should recommend per cluster — not just H2/FAQ. The planner is the decision layer; only `add_h2_section` + `add_faq` remain wired to safe generators today, and every other plan surfaces as a clearly-marked operator-handoff task in the existing ranked action table.
+
+### Files
+
+**`src/domains/recommendations/action-type-planner.ts`** (NEW, ~660 lines)
+- `PlanActionType` enum: 12 operator-locked task types.
+- `PageFactsForPlanner` type: page facts the planner consults (title / h1 / meta / h2s / visibleFaqExists / breadcrumbHierarchyExists / servicePageContentExists / hasSchemaOnPage / noindexed / canonicalMismatch / invalidSchema / crawlStale / crawlBlocked / homepageOverCitedForCluster).
+- `ActionPlan` shape: `actionType` · `targetUrl` · `targetPageLabel` · `proposedElementType` · `evidenceReason` · `audit` · `riskLevel` · `canGenerateNow` · `recommendedGenerator`.
+- `PlanAudit` shape: `rawFanoutTriggers` · `normalizedIntent` · `pageFactsUsed` · `whyThisActionType` · `whyNotOtherTypes[]` (covers every non-chosen plan with a rejection reason) · `confidence` (fanout-backed / prompt-backed / site-inventory-backed / thin).
+- `buildRecommendedActionPlan(input): ActionPlan[]` — pure deterministic helper that walks 12 rules in priority order and emits the highest-priority plan that fires (v0: at most one plan per call).
+- Heuristic helpers exported: `fanoutLooksComparison` · `fanoutHasQuestionShape` · `fanoutHasForbiddenSuperlative` · `normalizedIntentFromSignal` · `ownedPageBestMatch` · `titleIsWeak` · `metaIsWeak` · `h1IsWeak` · `bodyCopyIsThin` · `pageHasTechnicalIssue` · `schemaIsRecommendable` · `planLabelFor` · `PLAN_ACTION_TYPES_FOR_TABLE`.
+
+**`src/domains/recommendations/recommendation-action-rows.ts`** (modified)
+- `ActionRowType` extended with `edit_h1` (was folded into "H2" prior) + `add_comparison_table` (was folded into "Copy" prior). Persisted H2/FAQ rows render unchanged.
+- `ACTION_ROW_TYPE_LABEL` updated: `create_page: "Page"` (was "Create page"; aligns with operator-locked taxonomy) + new H1 / Table labels.
+- `actionRowTypeForEdit` mapping updated:
+  - `change_h1` → `edit_h1` (was `edit_h2`).
+  - `add_table` / `add_comparison_section` → `add_comparison_table` (were `improve_copy` / `add_section` respectively).
+  - All other mappings preserved.
+
+**`src/app/(shell)/recommendations/recommendations-client.tsx`** (modified)
+- `TYPE_FILTER_OPTIONS` dropdown: H1 + Table options added so the operator can filter on the new task types.
+- `TypePill.COMPACT_LABEL`: H1 + Table labels added.
+
+### Priority-ordered rule walk
+
+Operator-locked. First match wins; the runner-up rules surface in `whyNotOtherTypes`:
+1. `technical_fix` — page-level defects outrank content recs.
+2. `create_page` — no owned page covers the cluster.
+3. `add_internal_links` — homepage over-cited while target page exists.
+4. `rewrite_h1` — H1 missing / generic / unanchored.
+5. `rewrite_title` — title generic / weak / missing geo+service.
+6. `rewrite_meta_description` — meta missing / weak.
+7. `add_comparison_table` — comparison-stage demand (lands BEFORE `add_h2_section` so a "best luxury home builders" fanout doesn't degrade).
+8. `add_faq` — question-shaped fanout / prompts.
+9. `add_schema` — only when visible content supports it (FAQPage requires visible FAQ; BreadcrumbList requires hierarchy; Service / WebPage requires service content).
+10. `add_h2_section` — page broadly matches but missing one subtopic.
+11. `improve_body_copy` — page exists but body too thin.
+12. `review_decision` — terminal fallback.
+
+### Tests (1 new file, 37 cases)
+
+**`src/domains/recommendations/action-type-planner.test.ts`** (NEW, 37):
+- "best luxury home builders" fanout → `add_comparison_table`, NEVER self-claim H2 (operator's #1 acceptance criterion).
+- existing page with weak title → `rewrite_title`.
+- existing page with weak meta → `rewrite_meta_description`.
+- existing page with missing H1 → `rewrite_h1` (wins over title + meta).
+- no owned page → `create_page` with `targetUrl: null` + label "New page".
+- question-shaped fanout ("how do I find a luxury home builder?") → `add_faq`.
+- comparison fanout ("design-build vs architect") → `add_comparison_table`.
+- homepage over-cited (explicit flag OR pageFacts field) → `add_internal_links`.
+- visible FAQ exists → `schemaIsRecommendable: true` (FAQPage unlocked).
+- absent visible FAQ + no breadcrumbs + no service content → `schemaIsRecommendable: false`.
+- schema already on page → `schemaIsRecommendable: false` (don't propose duplicate).
+- technical defect (noindex / invalidSchema / crawlBlocked) → `technical_fix`.
+- audit explains `whyThisActionType` + covers every NON-chosen plan in `whyNotOtherTypes`.
+- audit `confidence` reflects evidence: fanout queries → "fanout-backed"; no fanout, no prompts, no facts → "thin".
+- audit `rawFanoutTriggers` carries verbatim queries including "best …" (operator-locked: raw fanout MAY contain forbidden modifiers, but public copy MUST transform them).
+- ACTION_ROW_TYPE_LABEL covers all 13 required operator labels.
+- `planLabelFor` mirrors operator-readable labels for each PlanActionType.
+- ActionRowType includes `edit_h1` + `add_comparison_table`.
+- H2 / FAQ are NOT always selected: homepage-over-cited beats both; technical defect beats both; weak title beats `add_h2_section` even with healthy H2s.
+- `canGenerateNow: true` ONLY for `add_h2_section` + `add_faq` in v0; everything else `false`.
+- `recommendedGenerator` maps to a concrete existing `ActionType` for every plan.
+- `riskLevel` populated for every plan (technical_fix → high; H2/FAQ → low; rewrites → medium).
+- `proposedElementType` correct: title → "title", meta → "meta", h1 → "h1", h2 → "h2", faq → "faq_question", table → "table", schema → "schema_type", links → "internal_link"; null for create_page / technical_fix / review_decision.
+- All heuristic helpers individually unit-tested.
+
+### Verification
+
+- `npx tsc --noEmit` clean.
+- 1285/1285 on `src/domains/recommendations` + `tests/architecture` (recs + arch surface area).
+- `npm run test` 3871/3877 (6 pre-existing baseline failures all OUTSIDE this surface — same UI smoke time-drift, tenant-isolation, auto-link-via-changelog tests confirmed in §3.13/§3.15; net change vs §3.15: +37 passes, ±0 net failures).
+- `BEACON_TENANT_ID=tenant-ritz-founder BEACON_TENANT_SLUG=ritz-builders npm run build` clean.
+- Browser spot-check on the §3.15 deploy: operator confirmed 9 rows (collapsed from 12), FAQ pairs grouped, clean titles, types correct, no leaks.
+
+### Net effect
+
+Beacon's recommendation engine can now CHOOSE the right task type for each cluster — title / meta / H1 / schema / link / table / review — not only H2/FAQ. The planner walks operator-locked rules in priority order, surfaces a complete per-plan audit ("why this / why not all 11 others"), and stamps `canGenerateNow` based on which safe generators are wired today. The action-table model renders all 13 task types cleanly. The two wired generators (H2 + FAQ) keep their existing safe-replay path; the other 10 plans surface in the queue as operator-handoff tasks ready to be activated one at a time behind feature flags.
+
+### Out of scope (operator-locked)
+
+No paid generations · No broad regeneration · No Apply-All-HIGH · No backfill yet · No Profound archive/delete · No cards/lanes redesign · No mutation of persisted H2/FAQ rows · Exact bundle replay (W3 §3.10) intact.
+
+---
+
 ## 2026-05-04 — W3 Step 3.15: Action-table polish — FAQ Q+A grouping + title cleaning + drawer Q+A side-by-side
 
 Post-§3.13 browser spot-check uncovered three small UI/model defects in the ranked action table. Operator scope: "Do not redesign. Do not go back to cards. Do not start a big new architecture pass. Do one small Step 3.10 UI/model polish pass." This step is exactly that scope — no new endpoints, no new schemas, no new model spend.

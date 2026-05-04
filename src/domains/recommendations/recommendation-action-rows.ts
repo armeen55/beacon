@@ -66,6 +66,7 @@ import { titleCase } from "./providers/generators/_text-utils";
  */
 export type ActionRowType =
   | "create_page"
+  | "edit_h1"
   | "edit_h2"
   | "edit_title"
   | "edit_meta"
@@ -74,13 +75,23 @@ export type ActionRowType =
   | "add_section"
   | "improve_copy"
   | "add_internal_links"
+  | "add_comparison_table"
   | "technical_fix"
   | "review_decision"
   | "regenerate_edit";
 
-/** Operator-readable label for a row's Type column. */
+/**
+ * Operator-readable label for a row's Type column.
+ * W3 §3.11 (2026-05-04) — operator-locked taxonomy: 13 visible task
+ * types + Regenerate meta-action. New since §3.5g: `edit_h1` (was
+ * folded into "H2"), `add_comparison_table` (was folded into "Copy").
+ */
 export const ACTION_ROW_TYPE_LABEL: Record<ActionRowType, string> = {
-  create_page: "Create page",
+  // W3 §3.11 (2026-05-04, operator-locked): "Page" replaces the
+  // verbose "Create page" so this canonical label matches the
+  // table's compact pill + the operator's planner taxonomy.
+  create_page: "Page",
+  edit_h1: "H1",
   edit_h2: "H2",
   edit_title: "Title",
   edit_meta: "Meta",
@@ -89,6 +100,7 @@ export const ACTION_ROW_TYPE_LABEL: Record<ActionRowType, string> = {
   add_section: "Section",
   improve_copy: "Copy",
   add_internal_links: "Links",
+  add_comparison_table: "Table",
   technical_fix: "Technical",
   review_decision: "Review",
   regenerate_edit: "Regenerate",
@@ -258,6 +270,9 @@ export function actionRowTypeForEdit(actionType: ActionType): ActionRowType {
     case "edit_meta":
       return "edit_meta";
     case "change_h1":
+      // W3 §3.11 (2026-05-04): H1 surfaces as its own column; was
+      // folded into "H2" prior to the planner landing.
+      return "edit_h1";
     case "add_h2_section":
     case "rewrite_h2":
       return "edit_h2";
@@ -272,10 +287,14 @@ export function actionRowTypeForEdit(actionType: ActionType): ActionRowType {
     case "add_proof_section":
     case "add_cost_section":
     case "add_timeline_section":
-    case "add_comparison_section":
     case "add_answer_block":
       return "add_section";
+    case "add_comparison_section":
     case "add_table":
+      // W3 §3.11 (2026-05-04): comparison-stage demand surfaces as
+      // its own "Table" column so the operator can pick it as a
+      // distinct task from generic "Copy".
+      return "add_comparison_table";
     case "edit_table_row":
       return "improve_copy";
     case "reorder_sections":

@@ -168,15 +168,19 @@ const TYPE_FILTER_OPTIONS: Array<{
   { value: "all", label: "All types" },
   // W3 §3.5f — compact labels. "Page" replaces "Create page" so the
   // dropdown stays single-line and the pill column doesn't overflow.
+  // W3 §3.11 (2026-05-04) — operator-locked taxonomy adds H1 +
+  // Table as their own filterable types (planner v0).
   { value: "create_page", label: "Page" },
-  { value: "edit_h2", label: "H2" },
   { value: "edit_title", label: "Title" },
   { value: "edit_meta", label: "Meta" },
-  { value: "add_schema", label: "Schema" },
-  { value: "add_faq", label: "FAQ" },
+  { value: "edit_h1", label: "H1" },
+  { value: "edit_h2", label: "H2" },
   { value: "add_section", label: "Section" },
   { value: "improve_copy", label: "Copy" },
+  { value: "add_faq", label: "FAQ" },
+  { value: "add_schema", label: "Schema" },
   { value: "add_internal_links", label: "Links" },
+  { value: "add_comparison_table", label: "Table" },
   { value: "technical_fix", label: "Technical" },
   { value: "review_decision", label: "Review" },
   { value: "regenerate_edit", label: "Regenerate" },
@@ -537,8 +541,11 @@ function TypePill({ actionType }: { actionType: ActionRowType }) {
   // browser audit flagged that as confusing ("Page-creation rows
   // show Type = blank/dash"). Restored to "Page" — short, single-
   // line, never wraps thanks to whitespace-nowrap.
+  // W3 §3.11 (2026-05-04) — H1 + Table land as distinct labels per
+  // operator-locked planner taxonomy.
   const COMPACT_LABEL: Record<ActionRowType, string> = {
     create_page: "Page",
+    edit_h1: "H1",
     edit_h2: "H2",
     edit_title: "Title",
     edit_meta: "Meta",
@@ -547,6 +554,7 @@ function TypePill({ actionType }: { actionType: ActionRowType }) {
     add_section: "Section",
     improve_copy: "Copy",
     add_internal_links: "Links",
+    add_comparison_table: "Table",
     technical_fix: "Technical",
     review_decision: "Review",
     regenerate_edit: "Regenerate",
