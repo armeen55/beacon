@@ -144,10 +144,10 @@ describe("validateStage", () => {
     expect(v.isReserved).toBe(false);
   });
 
-  it("rejects reserved stages with isReserved=true (verify / publish / rollback)", () => {
-    // W4 Stage 5 (2026-05-04): relabel-changelog is now
-    // IMPLEMENTED; remaining reserved set narrowed to 3.
-    const RESERVED: Stage[] = ["verify", "publish", "rollback"];
+  it("rejects reserved stages with isReserved=true (publish / rollback)", () => {
+    // W4 Stage 6 (2026-05-04): verify is now IMPLEMENTED;
+    // reserved set narrowed to 2.
+    const RESERVED: Stage[] = ["publish", "rollback"];
     for (const s of RESERVED) {
       const v = validateStage(s);
       expect(v.ok).toBe(false);
@@ -185,6 +185,13 @@ describe("validateStage", () => {
   it("relabel-changelog IS implemented as of W4 Stage 5 (2026-05-04)", () => {
     expect(IMPLEMENTED_STAGES.has("relabel-changelog")).toBe(true);
     const v = validateStage("relabel-changelog");
+    expect(v.ok).toBe(true);
+    expect(v.isReserved).toBe(false);
+  });
+
+  it("verify IS implemented as of W4 Stage 6 (2026-05-04)", () => {
+    expect(IMPLEMENTED_STAGES.has("verify")).toBe(true);
+    const v = validateStage("verify");
     expect(v.ok).toBe(true);
     expect(v.isReserved).toBe(false);
   });
@@ -449,7 +456,7 @@ describe("publish stage is hard-blocked + warned (source-scan)", () => {
     expect(v.isReserved).toBe(true);
   });
 
-  it("IMPLEMENTED_STAGES carries the W4 Stage 5 set", () => {
+  it("IMPLEMENTED_STAGES carries the W4 Stage 6 set", () => {
     expect([...IMPLEMENTED_STAGES].sort()).toEqual([
       "backup",
       "copy-orphan-benchmarks",
@@ -457,6 +464,7 @@ describe("publish stage is hard-blocked + warned (source-scan)", () => {
       "preflight",
       "rederive-snapshots",
       "relabel-changelog",
+      "verify",
     ]);
   });
 });
@@ -1247,5 +1255,319 @@ describe("Stage 5 — runRelabelChangelog is staging-only (source-scan)", () => 
 
   it("/changes UI copy planning — reports the planned label change but does NOT implement it (no /changes redesign)", () => {
     expect(SCRIPT_SRC).toMatch(/Imported legacy.*Pre-launch history/);
+  });
+});
+
+// ── 19. Stage 6 — verify orchestrator + 9 checks ──────────────────────
+
+describe("Stage 6 — runVerify is staging-only (source-scan)", () => {
+  function bodyOf(): string {
+    const start = SCRIPT_SRC.indexOf("async function runVerify(");
+    const end = SCRIPT_SRC.indexOf("// ── Check 1: artifact presence");
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    return SCRIPT_SRC.slice(start, end);
+  }
+
+  it("never calls .insert/.update/.delete/.upsert on Supabase (across the entire verify flow)", () => {
+    const allVerifySource = SCRIPT_SRC.slice(
+      SCRIPT_SRC.indexOf("// ── Stage 6: verify"),
+      SCRIPT_SRC.indexOf("// ── Tiny helpers"),
+    );
+    expect(allVerifySource).not.toMatch(/\.insert\(/);
+    expect(allVerifySource).not.toMatch(/\.update\(/);
+    expect(allVerifySource).not.toMatch(/\.delete\(/);
+    expect(allVerifySource).not.toMatch(/\.upsert\(/);
+    expect(allVerifySource).toMatch(/\.from\(\s*"recommended_edits"\s*\)/);
+    expect(allVerifySource).toMatch(/\.from\(\s*"recommendation_responses"\s*\)/);
+    expect(allVerifySource).toMatch(/\.select\(/);
+  });
+
+  it("does NOT WRITE to recommended-edits or recommendation-responses files", () => {
+    const verifySrc = SCRIPT_SRC.slice(
+      SCRIPT_SRC.indexOf("// ── Stage 6: verify"),
+      SCRIPT_SRC.indexOf("// ── Tiny helpers"),
+    );
+    const writes = [...verifySrc.matchAll(/writeFileSync\(\s*([^,]+),/g)].map(
+      (m) => m[1],
+    );
+    for (const w of writes) {
+      expect(w).not.toMatch(/recommended-edits/);
+      expect(w).not.toMatch(/recommendation-responses/);
+    }
+  });
+
+  it("the only writeFileSync target is the verify report under stagingDir", () => {
+    const verifySrc = SCRIPT_SRC.slice(
+      SCRIPT_SRC.indexOf("// ── Stage 6: verify"),
+      SCRIPT_SRC.indexOf("// ── Tiny helpers"),
+    );
+    const writes = [...verifySrc.matchAll(/writeFileSync\(\s*([^,]+),/g)].map(
+      (m) => m[1],
+    );
+    expect(writes.length).toBe(1);
+    expect(writes[0]).toMatch(/stagingDir/);
+    expect(verifySrc).toMatch(/w4-verify-report\.json/);
+  });
+
+  it("aggregates checks into safeToPublish=false when ANY check fails", () => {
+    const b = bodyOf();
+    expect(b).toMatch(
+      /safeToPublish\s*=\s*!checks\.some\(\s*\(c\)\s*=>\s*c\.status\s*===\s*"fail"\)/,
+    );
+  });
+
+  it("runs all 9 checks via independent invocations", () => {
+    const b = bodyOf();
+    expect(b).toMatch(/checkArtifactsPresent/);
+    expect(b).toMatch(/checkObservations/);
+    expect(b).toMatch(/checkSnapshots/);
+    expect(b).toMatch(/checkOrphanBenchmarks/);
+    expect(b).toMatch(/checkRelabelChangelog/);
+    expect(b).toMatch(/checkRecommendationByteIdentity/);
+    expect(b).toMatch(/checkUiSurfaceSimulation/);
+    expect(b).toMatch(/checkCausalGuardrail/);
+    expect(b).toMatch(/checkPublishReadiness/);
+  });
+});
+
+describe("Stage 6 — Check 1: artifacts present", () => {
+  it("STAGED_ARTIFACTS lists all 8 expected staged files", () => {
+    expect(SCRIPT_SRC).toMatch(/w4-extracted-observations\.json/);
+    expect(SCRIPT_SRC).toMatch(/w4-rederived-snapshots\.json/);
+    expect(SCRIPT_SRC).toMatch(/w4-orphan-benchmarks\.json/);
+    expect(SCRIPT_SRC).toMatch(/w4-relabel-changelog\.json/);
+    expect(SCRIPT_SRC).toMatch(/w4-extraction-report\.json/);
+    expect(SCRIPT_SRC).toMatch(/w4-rederive-report\.json/);
+    expect(SCRIPT_SRC).toMatch(/w4-orphan-benchmark-report\.json/);
+    expect(SCRIPT_SRC).toMatch(/w4-relabel-changelog-report\.json/);
+  });
+
+  it("treats missing staged files as a blocker (fail status)", () => {
+    const start = SCRIPT_SRC.indexOf("async function checkArtifactsPresent(");
+    const end = SCRIPT_SRC.indexOf("// ── Check 2: observations");
+    const body = SCRIPT_SRC.slice(start, end);
+    expect(body).toMatch(/Missing staged artifacts/);
+    expect(body).toMatch(/missing\.push/);
+    expect(body).toMatch(/blockers\.length === 0 \? "pass" : "fail"/);
+  });
+
+  it("treats malformed JSON as a blocker", () => {
+    const start = SCRIPT_SRC.indexOf("async function checkArtifactsPresent(");
+    const end = SCRIPT_SRC.indexOf("// ── Check 2: observations");
+    const body = SCRIPT_SRC.slice(start, end);
+    expect(body).toMatch(/Malformed staged artifacts/);
+    expect(body).toMatch(/malformed\.push/);
+  });
+});
+
+describe("Stage 6 — Check 2: observations", () => {
+  it("VERIFY_EXPECTED.observations matches the W4 dry-run truth (14096 / 48 / 100 / 4496)", () => {
+    expect(SCRIPT_SRC).toMatch(/total:\s*14096/);
+    expect(SCRIPT_SRC).toMatch(/distinctDates:\s*48/);
+    expect(SCRIPT_SRC).toMatch(/distinctPrompts:\s*100/);
+    expect(SCRIPT_SRC).toMatch(/aioBlindSpotCount:\s*4496/);
+    expect(SCRIPT_SRC).toMatch(/emptyResponseCount:\s*76/);
+  });
+
+  it("blocks on row-count drift, date drift, prompt-mismatch, duplicate ID, missing regime/source_csv_hash/tenant_id", () => {
+    const start = SCRIPT_SRC.indexOf("function checkObservations(");
+    const end = SCRIPT_SRC.indexOf("// ── Check 3: snapshots");
+    const body = SCRIPT_SRC.slice(start, end);
+    expect(body).toMatch(/expected \$\{e\.total\} observations/);
+    expect(body).toMatch(/distinct dates/);
+    expect(body).toMatch(/duplicates exist/);
+    expect(body).toMatch(/metadata\.regime=historical_recovered/);
+    expect(body).toMatch(/metadata\.source_csv_hash/);
+    expect(body).toMatch(/with tenant_id/);
+  });
+});
+
+describe("Stage 6 — Check 3: snapshots", () => {
+  it("VERIFY_EXPECTED.snapshots matches Stage 3 dry-run truth (7191 / 48 / 144)", () => {
+    expect(SCRIPT_SRC).toMatch(/snapshots:\s*\{[\s\S]*?total:\s*7191/);
+    expect(SCRIPT_SRC).toMatch(/tuples:\s*144/);
+    expect(SCRIPT_SRC).toMatch(/entityRows:\s*5328/);
+    expect(SCRIPT_SRC).toMatch(/topicRows:\s*1719/);
+    expect(SCRIPT_SRC).toMatch(/platformRows:\s*144/);
+  });
+
+  it("blocks on duplicate snapshot IDs", () => {
+    const start = SCRIPT_SRC.indexOf("function checkSnapshots(");
+    const end = SCRIPT_SRC.indexOf("// ── Check 4: orphan benchmarks");
+    const body = SCRIPT_SRC.slice(start, end);
+    expect(body).toMatch(/duplicate snapshot IDs detected/);
+  });
+
+  it("requires Ritz Builders entity-scope rows + platform-scope rows", () => {
+    const start = SCRIPT_SRC.indexOf("function checkSnapshots(");
+    const end = SCRIPT_SRC.indexOf("// ── Check 4: orphan benchmarks");
+    const body = SCRIPT_SRC.slice(start, end);
+    expect(body).toMatch(/no Ritz Builders entity-scope rows detected/);
+    expect(body).toMatch(/no platform-scope aggregate rows detected/);
+  });
+});
+
+describe("Stage 6 — Check 4: orphan benchmarks", () => {
+  it("blocks if any twin masquerades as historical_recovered (must be historical_fallback)", () => {
+    const start = SCRIPT_SRC.indexOf("function checkOrphanBenchmarks(");
+    const end = SCRIPT_SRC.indexOf("// ── Check 5: changelog relabel");
+    const body = SCRIPT_SRC.slice(start, end);
+    expect(body).toMatch(/mislabeled as historical_recovered/);
+    expect(body).toMatch(/regime === "historical_recovered"/);
+    expect(body).toMatch(/regime === "historical_fallback"/);
+  });
+
+  it("requires causal_attribution_excluded:true on every emitted twin", () => {
+    const start = SCRIPT_SRC.indexOf("function checkOrphanBenchmarks(");
+    const end = SCRIPT_SRC.indexOf("// ── Check 5: changelog relabel");
+    const body = SCRIPT_SRC.slice(start, end);
+    expect(body).toMatch(/causal_attribution_excluded\s*===\s*true/);
+  });
+});
+
+describe("Stage 6 — Check 5: changelog relabel", () => {
+  it("VERIFY_EXPECTED.changelogRelabel matches Stage 5 dry-run truth (317 / 232 / 85 / 14 / 3)", () => {
+    expect(SCRIPT_SRC).toMatch(/proposed:\s*317/);
+    expect(SCRIPT_SRC).toMatch(/pdfChangelogRebuild:\s*232/);
+    expect(SCRIPT_SRC).toMatch(/changelogCsv:\s*85/);
+    expect(SCRIPT_SRC).toMatch(/skippedScanDetection:\s*14/);
+    expect(SCRIPT_SRC).toMatch(/skippedRecommendation:\s*3/);
+  });
+
+  it("requires top-level import_batch_id to be preserved on every proposal", () => {
+    const start = SCRIPT_SRC.indexOf("function checkRelabelChangelog(");
+    const end = SCRIPT_SRC.indexOf("// ── Check 6: recommendation queue");
+    const body = SCRIPT_SRC.slice(start, end);
+    expect(body).toMatch(/preserve top-level import_batch_id/);
+  });
+
+  it("requires display_group=pre_launch_history on every proposal", () => {
+    const start = SCRIPT_SRC.indexOf("function checkRelabelChangelog(");
+    const end = SCRIPT_SRC.indexOf("// ── Check 6: recommendation queue");
+    const body = SCRIPT_SRC.slice(start, end);
+    expect(body).toMatch(/display_group=pre_launch_history/);
+  });
+});
+
+describe("Stage 6 — Check 6: recommendation byte-identity", () => {
+  it("locates the most recent Stage 1 backup directory + reads recs from it", () => {
+    const start = SCRIPT_SRC.indexOf(
+      "async function checkRecommendationByteIdentity(",
+    );
+    const end = SCRIPT_SRC.indexOf("// ── Check 7: UI/product-surface");
+    const body = SCRIPT_SRC.slice(start, end);
+    expect(body).toMatch(/pre-w4-backfill-/);
+    expect(body).toMatch(/recommended_edits\.json/);
+    expect(body).toMatch(/recommendation_responses\.json/);
+  });
+
+  it("uses canonicalJson for per-row byte-identity diff", () => {
+    const start = SCRIPT_SRC.indexOf(
+      "async function checkRecommendationByteIdentity(",
+    );
+    const end = SCRIPT_SRC.indexOf("// ── Check 7: UI/product-surface");
+    const body = SCRIPT_SRC.slice(start, end);
+    expect(body).toMatch(/canonicalJson\(r\)/);
+  });
+
+  it("blocks on row-count drift OR per-row byte difference", () => {
+    const start = SCRIPT_SRC.indexOf(
+      "async function checkRecommendationByteIdentity(",
+    );
+    const end = SCRIPT_SRC.indexOf("// ── Check 7: UI/product-surface");
+    const body = SCRIPT_SRC.slice(start, end);
+    expect(body).toMatch(/row count drift/);
+    expect(body).toMatch(/byte-different from backup/);
+  });
+
+  it("does NOT mutate recommendation files (read-only access)", () => {
+    const start = SCRIPT_SRC.indexOf(
+      "async function checkRecommendationByteIdentity(",
+    );
+    const end = SCRIPT_SRC.indexOf("// ── Check 7: UI/product-surface");
+    const body = SCRIPT_SRC.slice(start, end);
+    const writes = [...body.matchAll(/writeFileSync\(/g)];
+    expect(writes.length).toBe(0);
+  });
+});
+
+describe("Stage 6 — Check 7: UI surface simulation", () => {
+  it("verifies platform-aggregate snapshots cover all 48 dates per platform", () => {
+    const start = SCRIPT_SRC.indexOf("function checkUiSurfaceSimulation(");
+    const end = SCRIPT_SRC.indexOf("// ── Check 8: causal");
+    const body = SCRIPT_SRC.slice(start, end);
+    expect(body).toMatch(/scope_type === "platform"/);
+    expect(body).toMatch(/dates\.size !== 48/);
+  });
+
+  it("verifies every relabel proposal is filterable by display_group=pre_launch_history", () => {
+    const start = SCRIPT_SRC.indexOf("function checkUiSurfaceSimulation(");
+    const end = SCRIPT_SRC.indexOf("// ── Check 8: causal");
+    const body = SCRIPT_SRC.slice(start, end);
+    expect(body).toMatch(/display_group === "pre_launch_history"/);
+  });
+
+  it("warns that browser-render smoke is deferred to post-publish", () => {
+    const start = SCRIPT_SRC.indexOf("function checkUiSurfaceSimulation(");
+    const end = SCRIPT_SRC.indexOf("// ── Check 8: causal");
+    const body = SCRIPT_SRC.slice(start, end);
+    expect(body).toMatch(/Browser-render smoke test deferred to post-publish/);
+  });
+});
+
+describe("Stage 6 — Check 8: causal guardrail", () => {
+  it("blocks if benchmark-fallback rows are missing causal_attribution_excluded:true", () => {
+    const start = SCRIPT_SRC.indexOf("function checkCausalGuardrail(");
+    const end = SCRIPT_SRC.indexOf("// ── Check 9: Supabase publish readiness");
+    const body = SCRIPT_SRC.slice(start, end);
+    expect(body).toMatch(/missing causal_attribution_excluded:true/);
+  });
+
+  it("blocks if any row has BOTH regime=historical_recovered AND provenance=imported_from_benchmark", () => {
+    const start = SCRIPT_SRC.indexOf("function checkCausalGuardrail(");
+    const end = SCRIPT_SRC.indexOf("// ── Check 9: Supabase publish readiness");
+    const body = SCRIPT_SRC.slice(start, end);
+    expect(body).toMatch(/conflicting regime \+ provenance/);
+  });
+});
+
+describe("Stage 6 — Check 9: publish readiness (the changelog metadata BLOCKER)", () => {
+  it("hard-blocks publish when changelog_entries.metadata jsonb column is missing", () => {
+    const start = SCRIPT_SRC.indexOf("async function checkPublishReadiness(");
+    const end = SCRIPT_SRC.indexOf("// ── Tiny helpers");
+    const body = SCRIPT_SRC.slice(start, end);
+    expect(body).toMatch(/changelog_entries\.metadata jsonb column does NOT exist/);
+    expect(body).toMatch(
+      /Stage 5 W4 relabel cannot publish without a schema migration/,
+    );
+    expect(body).toMatch(/add metadata jsonb column/);
+    expect(body).toMatch(/overwrite top-level import_batch_id/);
+    expect(body).toMatch(/separate label table/);
+    expect(body).toMatch(/defer Stage 5 publish entirely/);
+  });
+
+  it("verifies all 3 target tables exist + required columns present", () => {
+    const start = SCRIPT_SRC.indexOf("async function checkPublishReadiness(");
+    const end = SCRIPT_SRC.indexOf("// ── Tiny helpers");
+    const body = SCRIPT_SRC.slice(start, end);
+    expect(body).toMatch(/prompt_answer_observations/);
+    expect(body).toMatch(/daily_metric_snapshots/);
+    expect(body).toMatch(/changelog_entries/);
+    expect(body).toMatch(/missing required column/);
+  });
+
+  it("documents upsert conflict targets in details", () => {
+    const start = SCRIPT_SRC.indexOf("async function checkPublishReadiness(");
+    const end = SCRIPT_SRC.indexOf("// ── Tiny helpers");
+    const body = SCRIPT_SRC.slice(start, end);
+    expect(body).toMatch(/conflictTargets/);
+    expect(body).toMatch(/UNIQUE/);
+  });
+});
+
+describe("Stage 6 — canonicalJson helper", () => {
+  it("is referenced from runVerify file", () => {
+    expect(SCRIPT_SRC).toMatch(/function canonicalJson/);
   });
 });

@@ -182,6 +182,7 @@ export const IMPLEMENTED_STAGES = new Set<Stage>([
   "rederive-snapshots",
   "copy-orphan-benchmarks",
   "relabel-changelog",
+  "verify",
 ]);
 
 // ── CLI flags ───────────────────────────────────────────────────────────
@@ -568,6 +569,19 @@ async function main(): Promise<void> {
     });
     printRelabelChangelogReport(report);
     process.exit(report.errors.length > 0 ? 8 : 0);
+    return;
+  }
+
+  if (flags.stage === "verify") {
+    const report = await runVerify({
+      tenantId,
+      tenantSlug,
+      dryRun: flags.dryRun,
+    });
+    printVerifyReport(report);
+    // Exit non-zero when not safe to publish so CI / operator
+    // tooling can gate downstream actions.
+    process.exit(report.safeToPublish ? 0 : 9);
     return;
   }
 
@@ -3857,6 +3871,1180 @@ function printRelabelChangelogReport(report: RelabelChangelogReport): void {
   );
   console.log(
     `Staged outputs: ${report.stagingDir}/w4-relabel-changelog.json + report.`,
+  );
+  console.log("══════════════════════════════════════════════════════════════════");
+  console.log("");
+}
+
+// ── Stage 6: verify (staging only) ──────────────────────────────────────
+//
+// 9 structured checks aggregated into a single `safe_to_publish`
+// verdict. NO Supabase writes. NO live `.data/tenants/` mutation.
+// Reads only:
+//   - `.data/_staging/w4-*.json` (Stage 2–5 outputs + reports)
+//   - `.data/_backups/pre-w4-backfill-<DATE>/` (Stage 1 backup
+//     manifest + Supabase exports for byte-identity diffs)
+//   - Supabase (read-only) for current row counts + schema discovery
+//   - `.data/tenants/<slug>/` for the read-only safety probe (recs)
+//
+// Output: `.data/_staging/w4-verify-report.json`
+//
+// Each check returns a structured `CheckResult` with `status:
+// "pass" | "warn" | "fail"` and an explicit blocker list. Any
+// "fail" forces `safe_to_publish: false`. The operator's spec
+// requires a specific blocker for the changelog metadata-column
+// missing case (Stage 5 discovered it has no metadata jsonb).
+
+export type CheckStatus = "pass" | "warn" | "fail";
+
+export type CheckResult = {
+  readonly name: string;
+  readonly status: CheckStatus;
+  readonly summary: string;
+  readonly details: Record<string, unknown>;
+  readonly blockers: ReadonlyArray<string>;
+  readonly warnings: ReadonlyArray<string>;
+};
+
+export type VerifyReport = {
+  readonly tenantId: string;
+  readonly tenantSlug: string;
+  readonly dryRun: boolean;
+  readonly stagingDir: string;
+  readonly verifiedAt: string;
+  readonly checks: ReadonlyArray<CheckResult>;
+  readonly safeToPublish: boolean;
+  readonly blockers: ReadonlyArray<string>;
+  readonly warnings: ReadonlyArray<string>;
+  readonly errors: ReadonlyArray<string>;
+};
+
+/** Required staged files + their parse expectations. */
+const STAGED_ARTIFACTS = [
+  { file: "w4-extracted-observations.json", expectArray: true, label: "Stage 2 extracted observations" },
+  { file: "w4-rederived-snapshots.json", expectArray: true, label: "Stage 3 rederived snapshots" },
+  { file: "w4-orphan-benchmarks.json", expectArray: true, label: "Stage 4 orphan-benchmark twins" },
+  { file: "w4-relabel-changelog.json", expectArray: true, label: "Stage 5 relabel-changelog proposals" },
+  { file: "w4-extraction-report.json", expectArray: false, label: "Stage 2 report" },
+  { file: "w4-rederive-report.json", expectArray: false, label: "Stage 3 report" },
+  { file: "w4-orphan-benchmark-report.json", expectArray: false, label: "Stage 4 report" },
+  { file: "w4-relabel-changelog-report.json", expectArray: false, label: "Stage 5 report" },
+] as const;
+
+/** Operator-locked expected counts (per W4 dry-runs across Stage 2–5). */
+const VERIFY_EXPECTED = {
+  observations: {
+    total: 14096,
+    distinctDates: 48,
+    distinctPrompts: 100,
+    minDate: "2026-03-05",
+    maxDate: "2026-04-21",
+    perplexity: 4800,
+    chatgpt: 4800,
+    aio: 4496,
+    aioBlindSpotCount: 4496,
+    emptyResponseCount: 76,
+  },
+  snapshots: {
+    total: 7191,
+    distinctDates: 48,
+    tuples: 144,
+    entityRows: 5328,
+    topicRows: 1719,
+    platformRows: 144,
+  },
+  changelogRelabel: {
+    proposed: 317,
+    pdfChangelogRebuild: 232,
+    changelogCsv: 85,
+    skippedScanDetection: 14,
+    skippedRecommendation: 3,
+  },
+};
+
+async function runVerify(args: {
+  readonly tenantId: string;
+  readonly tenantSlug: string;
+  readonly dryRun: boolean;
+}): Promise<VerifyReport> {
+  const errors: string[] = [];
+  const cwd = process.cwd();
+  const stagingDir = join(cwd, ".data", "_staging");
+
+  // Loaded data — null when load fails (caught by Check 1).
+  type StagedData = {
+    extracted?: Array<Record<string, unknown>>;
+    rederive?: Array<Record<string, unknown>>;
+    orphans?: Array<Record<string, unknown>>;
+    relabel?: Array<Record<string, unknown>>;
+    extractReport?: Record<string, unknown>;
+    rederiveReport?: Record<string, unknown>;
+    orphanReport?: Record<string, unknown>;
+    relabelReport?: Record<string, unknown>;
+    backupManifest?: Record<string, unknown>;
+    backupRecsLocal?: Array<Record<string, unknown>>;
+    backupRespLocal?: Array<Record<string, unknown>>;
+  };
+  const staged: StagedData = {};
+
+  const checks: CheckResult[] = [];
+
+  // Run each check independently so a failure on one doesn't abort
+  // the others. The aggregator cares about pass/fail status only.
+  checks.push(await checkArtifactsPresent(stagingDir, staged));
+  checks.push(checkObservations(staged));
+  checks.push(checkSnapshots(staged));
+  checks.push(checkOrphanBenchmarks(staged));
+  checks.push(checkRelabelChangelog(staged));
+  checks.push(await checkRecommendationByteIdentity(args.tenantId, staged));
+  checks.push(checkUiSurfaceSimulation(staged));
+  checks.push(checkCausalGuardrail(staged));
+  checks.push(await checkPublishReadiness(args.tenantId));
+
+  // Aggregate.
+  const allBlockers: string[] = [];
+  const allWarnings: string[] = [];
+  for (const c of checks) {
+    for (const b of c.blockers) allBlockers.push(`[${c.name}] ${b}`);
+    for (const w of c.warnings) allWarnings.push(`[${c.name}] ${w}`);
+  }
+  const safeToPublish = !checks.some((c) => c.status === "fail");
+
+  const report: VerifyReport = {
+    tenantId: args.tenantId,
+    tenantSlug: args.tenantSlug,
+    dryRun: args.dryRun,
+    stagingDir,
+    verifiedAt: new Date().toISOString(),
+    checks,
+    safeToPublish,
+    blockers: allBlockers,
+    warnings: allWarnings,
+    errors,
+  };
+
+  // Write the report (the only side effect). NEVER touches Supabase
+  // or live `.data/tenants/`.
+  mkdirSync(stagingDir, { recursive: true });
+  writeFileSync(
+    join(stagingDir, "w4-verify-report.json"),
+    JSON.stringify(report, null, 2),
+    "utf-8",
+  );
+  return report;
+}
+
+// ── Check 1: artifact presence + parse ─────────────────────────────────
+
+async function checkArtifactsPresent(
+  stagingDir: string,
+  staged: Record<string, unknown>,
+): Promise<CheckResult> {
+  const missing: string[] = [];
+  const malformed: string[] = [];
+  const loaded: Record<string, "ok" | "missing" | "malformed"> = {};
+  for (const a of STAGED_ARTIFACTS) {
+    const path = join(stagingDir, a.file);
+    if (!existsSync(path)) {
+      missing.push(a.file);
+      loaded[a.file] = "missing";
+      continue;
+    }
+    try {
+      const parsed = JSON.parse(readFileSync(path, "utf-8"));
+      if (a.expectArray && !Array.isArray(parsed)) {
+        malformed.push(`${a.file} (expected array, got ${typeof parsed})`);
+        loaded[a.file] = "malformed";
+        continue;
+      }
+      // Stash for downstream checks.
+      const key = a.file
+        .replace("w4-", "")
+        .replace(".json", "")
+        .replace(/-(report)$/, "$1")
+        .replace(/-/g, "_");
+      // Map filenames → property names on `staged`.
+      if (a.file === "w4-extracted-observations.json") {
+        staged.extracted = parsed as Array<Record<string, unknown>>;
+      } else if (a.file === "w4-rederived-snapshots.json") {
+        staged.rederive = parsed as Array<Record<string, unknown>>;
+      } else if (a.file === "w4-orphan-benchmarks.json") {
+        staged.orphans = parsed as Array<Record<string, unknown>>;
+      } else if (a.file === "w4-relabel-changelog.json") {
+        staged.relabel = parsed as Array<Record<string, unknown>>;
+      } else if (a.file === "w4-extraction-report.json") {
+        staged.extractReport = parsed as Record<string, unknown>;
+      } else if (a.file === "w4-rederive-report.json") {
+        staged.rederiveReport = parsed as Record<string, unknown>;
+      } else if (a.file === "w4-orphan-benchmark-report.json") {
+        staged.orphanReport = parsed as Record<string, unknown>;
+      } else if (a.file === "w4-relabel-changelog-report.json") {
+        staged.relabelReport = parsed as Record<string, unknown>;
+      }
+      loaded[a.file] = "ok";
+    } catch (err) {
+      malformed.push(
+        `${a.file} (${err instanceof Error ? err.message : String(err)})`,
+      );
+      loaded[a.file] = "malformed";
+    }
+  }
+
+  const blockers: string[] = [];
+  if (missing.length > 0) {
+    blockers.push(`Missing staged artifacts: ${missing.join(", ")}`);
+  }
+  if (malformed.length > 0) {
+    blockers.push(`Malformed staged artifacts: ${malformed.join(", ")}`);
+  }
+  return {
+    name: "artifacts_present",
+    status: blockers.length === 0 ? "pass" : "fail",
+    summary:
+      blockers.length === 0
+        ? `All ${STAGED_ARTIFACTS.length} staged artifacts present + parse cleanly.`
+        : `${missing.length} missing, ${malformed.length} malformed.`,
+    details: { loaded },
+    blockers,
+    warnings: [],
+  };
+}
+
+// ── Check 2: observations ──────────────────────────────────────────────
+
+function checkObservations(
+  staged: { extracted?: Array<Record<string, unknown>> },
+): CheckResult {
+  const blockers: string[] = [];
+  const warnings: string[] = [];
+  const e = VERIFY_EXPECTED.observations;
+  if (!staged.extracted) {
+    return failCheck(
+      "observations",
+      "Stage 2 staged file missing or unparseable.",
+      [],
+      ["staged extracted observations not loaded"],
+    );
+  }
+  const obs = staged.extracted;
+  const total = obs.length;
+  if (total !== e.total) {
+    blockers.push(`expected ${e.total} observations, got ${total}`);
+  }
+  // Distinct dates + min/max
+  const dates = new Set<string>();
+  const platforms: Record<string, number> = {};
+  const promptIds = new Set<string>();
+  const ids = new Set<string>();
+  let regimeOk = 0;
+  let csvHashOk = 0;
+  let tenantOk = 0;
+  let aioBlindSpot = 0;
+  let emptyResponse = 0;
+  for (const o of obs) {
+    const observed = (o.observed_at as string | undefined) ?? "";
+    const date = observed.slice(0, 10);
+    if (date) dates.add(date);
+    const p = (o.platform as string | undefined) ?? "";
+    if (p) platforms[p] = (platforms[p] ?? 0) + 1;
+    const pid = (o.prompt_id as string | undefined) ?? "";
+    if (pid) promptIds.add(pid);
+    const id = (o.id as string | undefined) ?? "";
+    if (id) ids.add(id);
+    const md = (o.metadata ?? {}) as Record<string, unknown>;
+    if (md.regime === "historical_recovered") regimeOk++;
+    if (typeof md.source_csv_hash === "string" && md.source_csv_hash.length > 0)
+      csvHashOk++;
+    if (typeof o.tenant_id === "string" && (o.tenant_id as string).length > 0)
+      tenantOk++;
+    if (md.blindSpot === "AIO does not expose internal queries")
+      aioBlindSpot++;
+    const ec = md.extraction_confidence as Record<string, string> | undefined;
+    if (ec && ec.descriptor_window === "absent_no_response") emptyResponse++;
+  }
+
+  if (dates.size !== e.distinctDates) {
+    blockers.push(`expected ${e.distinctDates} distinct dates, got ${dates.size}`);
+  }
+  const sortedDates = [...dates].sort();
+  if (sortedDates[0] !== e.minDate) {
+    blockers.push(`expected min date ${e.minDate}, got ${sortedDates[0]}`);
+  }
+  if (sortedDates[sortedDates.length - 1] !== e.maxDate) {
+    blockers.push(
+      `expected max date ${e.maxDate}, got ${sortedDates[sortedDates.length - 1]}`,
+    );
+  }
+  if (promptIds.size !== e.distinctPrompts) {
+    blockers.push(
+      `expected ${e.distinctPrompts} distinct prompt ids, got ${promptIds.size}`,
+    );
+  }
+  if (ids.size !== total) {
+    blockers.push(
+      `expected ${total} unique observation IDs, got ${ids.size} (duplicates exist)`,
+    );
+  }
+  if ((platforms["Perplexity"] ?? 0) !== e.perplexity) {
+    blockers.push(
+      `expected ${e.perplexity} Perplexity rows, got ${platforms["Perplexity"] ?? 0}`,
+    );
+  }
+  if ((platforms["ChatGPT"] ?? 0) !== e.chatgpt) {
+    blockers.push(
+      `expected ${e.chatgpt} ChatGPT rows, got ${platforms["ChatGPT"] ?? 0}`,
+    );
+  }
+  if ((platforms["Google AI Overviews"] ?? 0) !== e.aio) {
+    blockers.push(
+      `expected ${e.aio} AIO rows, got ${platforms["Google AI Overviews"] ?? 0}`,
+    );
+  }
+  if (regimeOk !== total) {
+    blockers.push(
+      `expected ${total} rows with metadata.regime=historical_recovered, got ${regimeOk}`,
+    );
+  }
+  if (csvHashOk !== total) {
+    blockers.push(
+      `expected ${total} rows with metadata.source_csv_hash, got ${csvHashOk}`,
+    );
+  }
+  if (tenantOk !== total) {
+    blockers.push(`expected ${total} rows with tenant_id, got ${tenantOk}`);
+  }
+  if (aioBlindSpot !== e.aioBlindSpotCount) {
+    blockers.push(
+      `expected ${e.aioBlindSpotCount} AIO blind-spot rows, got ${aioBlindSpot}`,
+    );
+  }
+  if (emptyResponse !== e.emptyResponseCount) {
+    warnings.push(
+      `empty-response rows: expected ${e.emptyResponseCount}, got ${emptyResponse}`,
+    );
+  }
+  return {
+    name: "observations",
+    status: blockers.length === 0 ? (warnings.length === 0 ? "pass" : "warn") : "fail",
+    summary: `${total} staged observations · ${dates.size} dates · ${ids.size} unique IDs · ${promptIds.size}/${e.distinctPrompts} prompt match · ${aioBlindSpot} AIO blindSpot.`,
+    details: {
+      total,
+      dates: dates.size,
+      promptIds: promptIds.size,
+      uniqueIds: ids.size,
+      platforms,
+      regimeOk,
+      csvHashOk,
+      tenantOk,
+      aioBlindSpot,
+      emptyResponse,
+      minDate: sortedDates[0],
+      maxDate: sortedDates[sortedDates.length - 1],
+    },
+    blockers,
+    warnings,
+  };
+}
+
+// ── Check 3: snapshots ─────────────────────────────────────────────────
+
+function checkSnapshots(
+  staged: { rederive?: Array<Record<string, unknown>> },
+): CheckResult {
+  const blockers: string[] = [];
+  const warnings: string[] = [];
+  const e = VERIFY_EXPECTED.snapshots;
+  if (!staged.rederive) {
+    return failCheck(
+      "snapshots",
+      "Stage 3 staged file missing or unparseable.",
+      [],
+      ["staged rederived snapshots not loaded"],
+    );
+  }
+  const snaps = staged.rederive;
+  if (snaps.length !== e.total) {
+    blockers.push(`expected ${e.total} snapshots, got ${snaps.length}`);
+  }
+  const dates = new Set<string>();
+  const tuples = new Set<string>();
+  const ids = new Set<string>();
+  const dups = new Set<string>();
+  const byScopeType: Record<string, number> = {};
+  let derivedCount = 0;
+  let provenanceOk = 0;
+  let regimeOk = 0;
+  let extractionRunOk = 0;
+  let ritzEntityRows = 0;
+  let ritzPlatformAggrRows = 0;
+  for (const s of snaps) {
+    const date = (s.date as string | undefined) ?? "";
+    const platform = (s.platform as string | undefined) ?? "";
+    if (date) dates.add(date);
+    if (date && platform) tuples.add(`${date}::${platform}`);
+    const id = (s.id as string | undefined) ?? "";
+    if (id) {
+      if (ids.has(id)) dups.add(id);
+      else ids.add(id);
+    }
+    const st = (s.scope_type as string | undefined) ?? "";
+    if (st) byScopeType[st] = (byScopeType[st] ?? 0) + 1;
+    if (s.source_type === "derived") derivedCount++;
+    const md = (s.metadata ?? {}) as Record<string, unknown>;
+    if (md.provenance === "rederived_from_historical_recovered") provenanceOk++;
+    if (md.regime === "historical_recovered") regimeOk++;
+    if (typeof md.extraction_run_id === "string") extractionRunOk++;
+    if (
+      st === "entity" &&
+      (s.scope_id as string | undefined) === "ritzbuilders"
+    ) {
+      ritzEntityRows++;
+    }
+    if (st === "platform") {
+      ritzPlatformAggrRows++;
+    }
+  }
+  if (dates.size !== e.distinctDates) {
+    blockers.push(`expected ${e.distinctDates} dates, got ${dates.size}`);
+  }
+  if (tuples.size !== e.tuples) {
+    blockers.push(
+      `expected ${e.tuples} (date,platform) tuples, got ${tuples.size}`,
+    );
+  }
+  if (dups.size > 0) {
+    blockers.push(`${dups.size} duplicate snapshot IDs detected`);
+  }
+  if (derivedCount !== snaps.length) {
+    blockers.push(
+      `expected all ${snaps.length} rows source_type=derived, got ${derivedCount}`,
+    );
+  }
+  if (provenanceOk !== snaps.length) {
+    blockers.push(
+      `expected all ${snaps.length} rows with W4 provenance, got ${provenanceOk}`,
+    );
+  }
+  if (regimeOk !== snaps.length) {
+    blockers.push(
+      `expected all ${snaps.length} rows with regime=historical_recovered, got ${regimeOk}`,
+    );
+  }
+  if (extractionRunOk !== snaps.length) {
+    blockers.push(
+      `expected all ${snaps.length} rows with extraction_run_id, got ${extractionRunOk}`,
+    );
+  }
+  if ((byScopeType.entity ?? 0) !== e.entityRows) {
+    warnings.push(
+      `entity scope rows: expected ${e.entityRows}, got ${byScopeType.entity ?? 0}`,
+    );
+  }
+  if ((byScopeType.topic ?? 0) !== e.topicRows) {
+    warnings.push(
+      `topic scope rows: expected ${e.topicRows}, got ${byScopeType.topic ?? 0}`,
+    );
+  }
+  if ((byScopeType.platform ?? 0) !== e.platformRows) {
+    warnings.push(
+      `platform scope rows: expected ${e.platformRows}, got ${byScopeType.platform ?? 0}`,
+    );
+  }
+  if (ritzEntityRows === 0) {
+    blockers.push("no Ritz Builders entity-scope rows detected");
+  }
+  if (ritzPlatformAggrRows === 0) {
+    blockers.push("no platform-scope aggregate rows detected");
+  }
+  return {
+    name: "snapshots",
+    status: blockers.length === 0 ? (warnings.length === 0 ? "pass" : "warn") : "fail",
+    summary: `${snaps.length} snapshots · ${dates.size} dates · ${tuples.size} tuples · ${dups.size} duplicate IDs · ${ritzEntityRows} Ritz entity rows.`,
+    details: {
+      total: snaps.length,
+      dates: dates.size,
+      tuples: tuples.size,
+      duplicateIds: dups.size,
+      derivedCount,
+      provenanceOk,
+      regimeOk,
+      extractionRunOk,
+      byScopeType,
+      ritzEntityRows,
+      ritzPlatformAggrRows,
+    },
+    blockers,
+    warnings,
+  };
+}
+
+// ── Check 4: orphan benchmarks ─────────────────────────────────────────
+
+function checkOrphanBenchmarks(staged: {
+  orphans?: Array<Record<string, unknown>>;
+  orphanReport?: Record<string, unknown>;
+}): CheckResult {
+  const blockers: string[] = [];
+  const warnings: string[] = [];
+  if (!staged.orphans || !staged.orphanReport) {
+    return failCheck(
+      "orphan_benchmarks",
+      "Stage 4 staged file or report missing.",
+      [],
+      ["staged orphan twins or report not loaded"],
+    );
+  }
+  const twins = staged.orphans;
+  const report = staged.orphanReport;
+  // Verify: every emitted twin has correct provenance + causal exclusion.
+  let imported = 0;
+  let regimeOk = 0;
+  let causalExcluded = 0;
+  let mislabeledAsRecovered = 0;
+  for (const t of twins) {
+    const md = (t.metadata ?? {}) as Record<string, unknown>;
+    if (md.provenance === "imported_from_benchmark") imported++;
+    if (md.regime === "historical_fallback") regimeOk++;
+    if (md.causal_attribution_excluded === true) causalExcluded++;
+    // Operator-locked: NO twin should masquerade as a recovered observation.
+    if (md.regime === "historical_recovered") mislabeledAsRecovered++;
+  }
+  if (imported !== twins.length) {
+    blockers.push(
+      `expected all ${twins.length} twins with provenance=imported_from_benchmark, got ${imported}`,
+    );
+  }
+  if (regimeOk !== twins.length) {
+    blockers.push(
+      `expected all ${twins.length} twins with regime=historical_fallback, got ${regimeOk}`,
+    );
+  }
+  if (causalExcluded !== twins.length) {
+    blockers.push(
+      `expected all ${twins.length} twins with causal_attribution_excluded=true, got ${causalExcluded}`,
+    );
+  }
+  if (mislabeledAsRecovered > 0) {
+    blockers.push(
+      `${mislabeledAsRecovered} twin(s) mislabeled as historical_recovered (must be historical_fallback)`,
+    );
+  }
+  // Pull the report's NO-OP / dormant scope counts for the summary.
+  const counts = (report.counts ?? {}) as Record<string, number>;
+  const chartGap = (report.chartGapPrevention ?? {}) as Record<string, number>;
+  const dormant = chartGap.scopeFullyDormant ?? 0;
+  const fillsRealGap = chartGap.fillsRealGap ?? 0;
+  const noOp = report.noOp === true;
+  if (noOp && twins.length !== 0) {
+    blockers.push(
+      `report says noOp=true but staged file has ${twins.length} rows`,
+    );
+  }
+  return {
+    name: "orphan_benchmarks",
+    status: blockers.length === 0 ? "pass" : "fail",
+    summary: noOp
+      ? `NO-OP — 0 twins emitted (${dormant} dormant scopes skipped per chart-gap criterion).`
+      : `${twins.length} twins emitted (${fillsRealGap} fills_real_gap, ${dormant} dormant skipped).`,
+    details: {
+      twinCount: twins.length,
+      noOp,
+      benchmarkScanned: counts.benchmarkRowsScanned ?? 0,
+      supersededByRederive: counts.supersededByRederive ?? 0,
+      supersededByNative: counts.supersededByNative ?? 0,
+      trueOrphans: counts.trueOrphans ?? 0,
+      fillsRealGap,
+      scopeFullyDormant: dormant,
+    },
+    blockers,
+    warnings,
+  };
+}
+
+// ── Check 5: changelog relabel ────────────────────────────────────────
+
+function checkRelabelChangelog(staged: {
+  relabel?: Array<Record<string, unknown>>;
+  relabelReport?: Record<string, unknown>;
+}): CheckResult {
+  const blockers: string[] = [];
+  const warnings: string[] = [];
+  const e = VERIFY_EXPECTED.changelogRelabel;
+  if (!staged.relabel || !staged.relabelReport) {
+    return failCheck(
+      "relabel_changelog",
+      "Stage 5 staged file or report missing.",
+      [],
+      ["staged relabel proposals or report not loaded"],
+    );
+  }
+  const proposals = staged.relabel;
+  if (proposals.length !== e.proposed) {
+    blockers.push(
+      `expected ${e.proposed} relabel proposals, got ${proposals.length}`,
+    );
+  }
+  const bySS: Record<string, number> = {};
+  let preservedTopLevel = 0;
+  let displayGroupOk = 0;
+  let preservedFieldsPresent = 0;
+  for (const p of proposals) {
+    const ss = (p.source_system as string | undefined) ?? "null";
+    bySS[ss] = (bySS[ss] ?? 0) + 1;
+    const prev = (p.previous ?? {}) as Record<string, unknown>;
+    const next = (p.next ?? {}) as Record<string, unknown>;
+    if (prev.import_batch_id === next.import_batch_id) preservedTopLevel++;
+    const nextMd = (next.metadata ?? {}) as Record<string, unknown>;
+    if (nextMd.display_group === "pre_launch_history") displayGroupOk++;
+    if (p.preserved_fields && typeof p.preserved_fields === "object")
+      preservedFieldsPresent++;
+  }
+  if ((bySS.pdf_changelog_rebuild ?? 0) !== e.pdfChangelogRebuild) {
+    blockers.push(
+      `expected ${e.pdfChangelogRebuild} pdf_changelog_rebuild proposals, got ${bySS.pdf_changelog_rebuild ?? 0}`,
+    );
+  }
+  if ((bySS.changelog_csv ?? 0) !== e.changelogCsv) {
+    blockers.push(
+      `expected ${e.changelogCsv} changelog_csv proposals, got ${bySS.changelog_csv ?? 0}`,
+    );
+  }
+  if (preservedTopLevel !== proposals.length) {
+    blockers.push(
+      `expected all ${proposals.length} proposals to preserve top-level import_batch_id (next === previous), got ${preservedTopLevel}`,
+    );
+  }
+  if (displayGroupOk !== proposals.length) {
+    blockers.push(
+      `expected all ${proposals.length} proposals with display_group=pre_launch_history, got ${displayGroupOk}`,
+    );
+  }
+  if (preservedFieldsPresent !== proposals.length) {
+    blockers.push(
+      `expected all ${proposals.length} proposals with preserved_fields snapshot, got ${preservedFieldsPresent}`,
+    );
+  }
+  // Pull skip counts from the report.
+  const counts = (staged.relabelReport.counts ?? {}) as Record<string, number>;
+  if ((counts.skippedBySourceSystem ?? -1) !== e.skippedScanDetection) {
+    warnings.push(
+      `report.skippedBySourceSystem expected ${e.skippedScanDetection}, got ${counts.skippedBySourceSystem ?? "?"}`,
+    );
+  }
+  if ((counts.skippedLiveOrAccepted ?? -1) !== e.skippedRecommendation) {
+    warnings.push(
+      `report.skippedLiveOrAccepted expected ${e.skippedRecommendation}, got ${counts.skippedLiveOrAccepted ?? "?"}`,
+    );
+  }
+  return {
+    name: "relabel_changelog",
+    status: blockers.length === 0 ? (warnings.length === 0 ? "pass" : "warn") : "fail",
+    summary: `${proposals.length} proposals · ${bySS.pdf_changelog_rebuild ?? 0} pdf + ${bySS.changelog_csv ?? 0} csv · top-level preserved on all · display_group ok on all.`,
+    details: {
+      total: proposals.length,
+      bySourceSystem: bySS,
+      preservedTopLevel,
+      displayGroupOk,
+      preservedFieldsPresent,
+      reportCounts: counts,
+    },
+    blockers,
+    warnings,
+  };
+}
+
+// ── Check 6: recommendation queue byte-identity ───────────────────────
+
+async function checkRecommendationByteIdentity(
+  tenantId: string,
+  staged: Record<string, unknown>,
+): Promise<CheckResult> {
+  const blockers: string[] = [];
+  const warnings: string[] = [];
+  const cwd = process.cwd();
+
+  // Locate the most recent backup directory.
+  const backupsRoot = join(cwd, ".data", "_backups");
+  let backupDir: string | null = null;
+  try {
+    const dirs = readdirSync(backupsRoot)
+      .filter((d) => d.startsWith("pre-w4-backfill-"))
+      .sort();
+    if (dirs.length > 0) backupDir = join(backupsRoot, dirs[dirs.length - 1]);
+  } catch {
+    /* ignore */
+  }
+  if (!backupDir || !existsSync(backupDir)) {
+    return failCheck(
+      "recs_byte_identity",
+      "Stage 1 backup directory not found — cannot prove byte-identity.",
+      [],
+      ["Stage 1 backup missing"],
+    );
+  }
+
+  // Read backup recs files.
+  const backupRecsPath = join(backupDir, "supabase", "recommended_edits.json");
+  const backupRespPath = join(
+    backupDir,
+    "supabase",
+    "recommendation_responses.json",
+  );
+  let backupRecs: unknown[] = [];
+  let backupResp: unknown[] = [];
+  try {
+    backupRecs = JSON.parse(readFileSync(backupRecsPath, "utf-8"));
+    backupResp = JSON.parse(readFileSync(backupRespPath, "utf-8"));
+  } catch (err) {
+    return failCheck(
+      "recs_byte_identity",
+      "Failed to read backup recs files.",
+      [],
+      [
+        `backup recs read failed: ${err instanceof Error ? err.message : String(err)}`,
+      ],
+    );
+  }
+
+  // Read CURRENT Supabase rows (read-only).
+  const { getSupabaseAdmin } = await import(
+    "../src/lib/persistence/supabase"
+  );
+  const sb = getSupabaseAdmin();
+  let currentRecs: unknown[] = [];
+  let currentResp: unknown[] = [];
+  try {
+    const r1 = await sb
+      .from("recommended_edits")
+      .select("*")
+      .eq("tenant_id", tenantId);
+    if (r1.error) throw r1.error;
+    currentRecs = r1.data ?? [];
+    const r2 = await sb
+      .from("recommendation_responses")
+      .select("*")
+      .eq("tenant_id", tenantId);
+    if (r2.error) throw r2.error;
+    currentResp = r2.data ?? [];
+  } catch (err) {
+    return failCheck(
+      "recs_byte_identity",
+      "Failed to read current Supabase recs.",
+      [],
+      [
+        `Supabase recs read failed: ${err instanceof Error ? err.message : String(err)}`,
+      ],
+    );
+  }
+
+  // Sort + diff. Each row's JSON.stringify (with sorted keys) is the
+  // canonical byte form.
+  const byId = (arr: unknown[]) => {
+    const m = new Map<string, string>();
+    for (const r of arr) {
+      const id = ((r as Record<string, unknown>).id as string | undefined) ?? "";
+      m.set(id, canonicalJson(r));
+    }
+    return m;
+  };
+  const recsBackup = byId(backupRecs);
+  const recsCurrent = byId(currentRecs);
+  const respBackup = byId(backupResp);
+  const respCurrent = byId(currentResp);
+
+  if (recsBackup.size !== recsCurrent.size) {
+    blockers.push(
+      `recommended_edits row count drift: backup=${recsBackup.size} current=${recsCurrent.size}`,
+    );
+  }
+  if (respBackup.size !== respCurrent.size) {
+    blockers.push(
+      `recommendation_responses row count drift: backup=${respBackup.size} current=${respCurrent.size}`,
+    );
+  }
+  let recsDrift = 0;
+  for (const [id, b] of recsBackup) {
+    const c = recsCurrent.get(id);
+    if (c !== b) recsDrift++;
+  }
+  let respDrift = 0;
+  for (const [id, b] of respBackup) {
+    const c = respCurrent.get(id);
+    if (c !== b) respDrift++;
+  }
+  if (recsDrift > 0) {
+    blockers.push(`${recsDrift} recommended_edits row(s) byte-different from backup`);
+  }
+  if (respDrift > 0) {
+    blockers.push(
+      `${respDrift} recommendation_responses row(s) byte-different from backup`,
+    );
+  }
+
+  // Stash for downstream surfaces (UI simulation will reuse).
+  (staged as Record<string, unknown>).backupRecsLocal = backupRecs as Array<
+    Record<string, unknown>
+  >;
+  (staged as Record<string, unknown>).backupRespLocal = backupResp as Array<
+    Record<string, unknown>
+  >;
+
+  return {
+    name: "recs_byte_identity",
+    status: blockers.length === 0 ? "pass" : "fail",
+    summary: `recommended_edits ${recsCurrent.size}/${recsBackup.size} match · responses ${currentResp.length}/${backupResp.length} match.`,
+    details: {
+      backupRecsCount: recsBackup.size,
+      currentRecsCount: recsCurrent.size,
+      backupRespCount: respBackup.size,
+      currentRespCount: respCurrent.size,
+      recsDrift,
+      respDrift,
+    },
+    blockers,
+    warnings,
+  };
+}
+
+// ── Check 7: UI/product-surface simulation (data-level) ───────────────
+
+function checkUiSurfaceSimulation(staged: {
+  extracted?: Array<Record<string, unknown>>;
+  rederive?: Array<Record<string, unknown>>;
+  relabel?: Array<Record<string, unknown>>;
+}): CheckResult {
+  const blockers: string[] = [];
+  const warnings: string[] = [];
+  if (!staged.rederive || !staged.relabel) {
+    return failCheck(
+      "ui_surface",
+      "Required staged files missing.",
+      [],
+      ["staged rederive or relabel not loaded"],
+    );
+  }
+  // 1. /today visibility chart continuous Mar 5 → Apr 21 (the staged
+  //    range). Real continuity to "today" requires native data which
+  //    we DON'T re-derive in W4; document as warning rather than
+  //    blocker.
+  const platformRows = staged.rederive.filter(
+    (r) => r.scope_type === "platform",
+  );
+  const datesByPlatform: Record<string, Set<string>> = {};
+  for (const r of platformRows) {
+    const p = (r.platform as string | undefined) ?? "";
+    if (!datesByPlatform[p]) datesByPlatform[p] = new Set();
+    datesByPlatform[p].add((r.date as string | undefined) ?? "");
+  }
+  for (const [platform, dates] of Object.entries(datesByPlatform)) {
+    if (dates.size !== 48) {
+      blockers.push(
+        `${platform} platform-aggregate has ${dates.size} dates, expected 48`,
+      );
+    }
+  }
+
+  // 2. /changes pre-launch collapsing — every relabel proposal carries
+  //    display_group = pre_launch_history; UI can filter on it.
+  const filterable = staged.relabel.filter((p) => {
+    const m = (p.next as Record<string, unknown> | undefined)?.metadata ??
+      {};
+    return (m as Record<string, unknown>).display_group === "pre_launch_history";
+  });
+  if (filterable.length !== staged.relabel.length) {
+    blockers.push(
+      `not all relabel proposals are filterable by pre_launch_history (${filterable.length}/${staged.relabel.length})`,
+    );
+  }
+
+  // 3. /pages citation history — staged observations carry citation_urls
+  //    (or citation_domains) for the top owned URL on enough days.
+  let withCitations = 0;
+  if (staged.extracted) {
+    for (const o of staged.extracted) {
+      const urls = o.citation_urls as string[] | undefined;
+      const domains = o.citation_domains as string[] | undefined;
+      if ((urls && urls.length > 0) || (domains && domains.length > 0)) {
+        withCitations++;
+      }
+    }
+  }
+  if (withCitations === 0) {
+    blockers.push("no staged observations carry citation evidence");
+  }
+
+  return {
+    name: "ui_surface",
+    status: blockers.length === 0 ? (warnings.length === 0 ? "pass" : "warn") : "fail",
+    summary: `chart continuity verified across ${Object.keys(datesByPlatform).length} platforms · ${filterable.length}/${staged.relabel.length} relabel proposals filterable · ${withCitations} obs with citations.`,
+    details: {
+      platformDateCounts: Object.fromEntries(
+        Object.entries(datesByPlatform).map(([k, v]) => [k, v.size]),
+      ),
+      filterableRelabelCount: filterable.length,
+      observationsWithCitations: withCitations,
+    },
+    blockers,
+    warnings: [
+      "Browser-render smoke test deferred to post-publish per Stage 6 spec.",
+    ],
+  };
+}
+
+// ── Check 8: causal/verdict guardrail ─────────────────────────────────
+
+function checkCausalGuardrail(staged: {
+  extracted?: Array<Record<string, unknown>>;
+  rederive?: Array<Record<string, unknown>>;
+  orphans?: Array<Record<string, unknown>>;
+}): CheckResult {
+  const blockers: string[] = [];
+  const warnings: string[] = [];
+  if (!staged.extracted || !staged.rederive || !staged.orphans) {
+    return failCheck(
+      "causal_guardrail",
+      "Required staged files missing.",
+      [],
+      ["staged extracted/rederive/orphans not loaded"],
+    );
+  }
+  // historical_recovered rows are USABLE for product intelligence;
+  // there's no flag preventing their use.
+  let recoveredRows = 0;
+  for (const o of staged.extracted) {
+    const md = (o.metadata ?? {}) as Record<string, unknown>;
+    if (md.regime === "historical_recovered") recoveredRows++;
+  }
+  // imported_from_benchmark rows MUST carry causal_attribution_excluded.
+  let benchmarkRows = 0;
+  let benchmarkExcluded = 0;
+  for (const t of staged.orphans) {
+    const md = (t.metadata ?? {}) as Record<string, unknown>;
+    if (md.provenance === "imported_from_benchmark") benchmarkRows++;
+    if (md.causal_attribution_excluded === true) benchmarkExcluded++;
+  }
+  if (benchmarkRows !== benchmarkExcluded) {
+    blockers.push(
+      `${benchmarkRows - benchmarkExcluded} benchmark fallback rows missing causal_attribution_excluded:true`,
+    );
+  }
+  // No row should have BOTH regime=historical_recovered AND
+  // provenance=imported_from_benchmark (mutually exclusive).
+  let conflict = 0;
+  for (const r of [...staged.extracted, ...staged.rederive, ...staged.orphans]) {
+    const md = (r.metadata ?? {}) as Record<string, unknown>;
+    if (
+      md.regime === "historical_recovered" &&
+      md.provenance === "imported_from_benchmark"
+    ) {
+      conflict++;
+    }
+  }
+  if (conflict > 0) {
+    blockers.push(
+      `${conflict} row(s) carry conflicting regime + provenance (recovered + benchmark fallback)`,
+    );
+  }
+  return {
+    name: "causal_guardrail",
+    status: blockers.length === 0 ? "pass" : "fail",
+    summary: `${recoveredRows} historical_recovered (usable for product intel) · ${benchmarkRows} benchmark-fallback (causal-excluded: ${benchmarkExcluded}) · ${conflict} regime conflicts.`,
+    details: {
+      recoveredRows,
+      benchmarkRows,
+      benchmarkExcluded,
+      conflict,
+    },
+    blockers,
+    warnings,
+  };
+}
+
+// ── Check 9: Supabase publish readiness ───────────────────────────────
+
+async function checkPublishReadiness(tenantId: string): Promise<CheckResult> {
+  const blockers: string[] = [];
+  const warnings: string[] = [];
+  // Verify tables exist by HEAD count. Verify required columns exist
+  // by inspecting one sample row's keys.
+  const { getSupabaseAdmin } = await import(
+    "../src/lib/persistence/supabase"
+  );
+  const sb = getSupabaseAdmin();
+
+  const observed: Record<string, { exists: boolean; columns: string[] }> = {};
+  for (const table of [
+    "prompt_answer_observations",
+    "daily_metric_snapshots",
+    "changelog_entries",
+  ] as const) {
+    try {
+      const { data, error } = await sb
+        .from(table)
+        .select("*")
+        .eq("tenant_id", tenantId)
+        .limit(1);
+      if (error) throw error;
+      const sample = (data ?? [])[0] as Record<string, unknown> | undefined;
+      observed[table] = {
+        exists: true,
+        columns: sample ? Object.keys(sample).sort() : [],
+      };
+    } catch (err) {
+      observed[table] = { exists: false, columns: [] };
+      blockers.push(
+        `${table} read failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
+  // Required columns per table.
+  const required: Record<string, ReadonlyArray<string>> = {
+    prompt_answer_observations: ["id", "tenant_id", "observed_at", "platform"],
+    daily_metric_snapshots: [
+      "id",
+      "tenant_id",
+      "date",
+      "scope_type",
+      "scope_id",
+      "platform",
+      "source_type",
+    ],
+    changelog_entries: [
+      "id",
+      "tenant_id",
+      "source_system",
+      "import_batch_id",
+    ],
+  };
+  for (const [t, cols] of Object.entries(required)) {
+    const obs = observed[t];
+    if (!obs?.exists) continue;
+    for (const c of cols) {
+      if (!obs.columns.includes(c)) {
+        blockers.push(`${t} missing required column: ${c}`);
+      }
+    }
+  }
+
+  // CRITICAL OPERATOR-LOCKED CHECK: changelog_entries must carry a
+  // `metadata` jsonb column for Stage 7 to land the W4 relabel
+  // safely. Stage 5 discovered the column is missing today — this
+  // is a real publish blocker.
+  const changelogCols = observed.changelog_entries?.columns ?? [];
+  const hasMetadata = changelogCols.includes("metadata");
+  if (!hasMetadata) {
+    blockers.push(
+      "changelog_entries.metadata jsonb column does NOT exist — Stage 5 W4 relabel cannot publish without a schema migration. Operator must choose: (a) add metadata jsonb column, (b) overwrite top-level import_batch_id (loses audit trail), (c) use a separate label table, or (d) defer Stage 5 publish entirely.",
+    );
+  }
+
+  return {
+    name: "publish_readiness",
+    status: blockers.length === 0 ? (warnings.length === 0 ? "pass" : "warn") : "fail",
+    summary: hasMetadata
+      ? "All target tables exist + required columns present + changelog metadata column ready."
+      : "Target tables exist but changelog_entries.metadata column missing (BLOCKER).",
+    details: {
+      tablesObserved: Object.fromEntries(
+        Object.entries(observed).map(([t, v]) => [
+          t,
+          { exists: v.exists, columnCount: v.columns.length },
+        ]),
+      ),
+      changelogHasMetadata: hasMetadata,
+      conflictTargets: {
+        prompt_answer_observations: "id (UNIQUE)",
+        daily_metric_snapshots: "id (UNIQUE)",
+        changelog_entries: "id (UNIQUE)",
+      },
+    },
+    blockers,
+    warnings,
+  };
+}
+
+// ── Tiny helpers ──────────────────────────────────────────────────────
+
+/** Build a structured "fail" result from a one-liner. */
+function failCheck(
+  name: string,
+  summary: string,
+  warnings: string[],
+  blockers: string[],
+): CheckResult {
+  return {
+    name,
+    status: "fail",
+    summary,
+    details: {},
+    blockers,
+    warnings,
+  };
+}
+
+/** JSON.stringify with sorted keys at every level. Used for
+ *  byte-equality diffing. */
+function canonicalJson(v: unknown): string {
+  if (v === null || typeof v !== "object") return JSON.stringify(v);
+  if (Array.isArray(v)) {
+    return "[" + v.map((x) => canonicalJson(x)).join(",") + "]";
+  }
+  const keys = Object.keys(v as Record<string, unknown>).sort();
+  return (
+    "{" +
+    keys
+      .map(
+        (k) =>
+          JSON.stringify(k) + ":" + canonicalJson((v as Record<string, unknown>)[k]),
+      )
+      .join(",") +
+    "}"
+  );
+}
+
+function printVerifyReport(report: VerifyReport): void {
+  console.log("");
+  console.log("══════════════════════════════════════════════════════════════════");
+  console.log(
+    `W4 STAGE 6 — VERIFICATION REPORT  ${report.safeToPublish ? "✓ SAFE_TO_PUBLISH" : "✗ NOT SAFE TO PUBLISH"}`,
+  );
+  console.log("══════════════════════════════════════════════════════════════════");
+  console.log(`tenant_id     : ${report.tenantId}`);
+  console.log(`tenant_slug   : ${report.tenantSlug}`);
+  console.log(`dry_run       : ${report.dryRun}`);
+  console.log(`staging_dir   : ${report.stagingDir}`);
+  console.log(`verified_at   : ${report.verifiedAt}`);
+  console.log("");
+  console.log("─ Per-check results ─────────────────────────────────────────────");
+  for (const c of report.checks) {
+    const tag =
+      c.status === "pass" ? "✓ PASS" :
+      c.status === "warn" ? "⚠ WARN" : "✗ FAIL";
+    console.log(`  ${tag.padEnd(6)} ${c.name.padEnd(28)} ${c.summary}`);
+    for (const w of c.warnings) console.log(`         · WARN: ${w}`);
+    for (const b of c.blockers) console.log(`         · FAIL: ${b}`);
+  }
+  console.log("");
+  if (report.blockers.length > 0) {
+    console.log("─ BLOCKERS (must resolve before publish) ────────────────────────");
+    for (const b of report.blockers) console.log(`  ✗ ${b}`);
+    console.log("");
+  }
+  if (report.warnings.length > 0) {
+    console.log("─ Warnings (non-blocking) ───────────────────────────────────────");
+    for (const w of report.warnings) console.log(`  · ${w}`);
+    console.log("");
+  }
+  console.log(
+    `safe_to_publish : ${report.safeToPublish ? "true (all checks pass)" : "false (see blockers)"}`,
+  );
+  console.log("══════════════════════════════════════════════════════════════════");
+  console.log(
+    "Stage 6 complete. NO Supabase writes. NO live .data/tenants/ mutation.",
+  );
+  console.log(
+    `Staged outputs: ${report.stagingDir}/w4-verify-report.json.`,
   );
   console.log("══════════════════════════════════════════════════════════════════");
   console.log("");

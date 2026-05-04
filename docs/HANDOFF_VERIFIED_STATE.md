@@ -1,5 +1,43 @@
 # Beacon — Start Here
 
+> 🟡 **W4 Stage 6 (verify dry-run) LANDED (2026-05-04):** Operator approved Stage 6 design + dry-run after Stage 5 acceptance. Stage 6 runs 9 structured checks against the Stage 2–5 staged artifacts + the Stage 1 backup + Supabase (read-only), aggregates pass/warn/fail into a `safe_to_publish: boolean` verdict, and writes `.data/_staging/w4-verify-report.json`. **NO Supabase writes. NO live `.data/tenants/` mutation. Recommendation queue untouched.** `/changes` UI not modified. Stage 7 publish + Stage 8 rollback remain reserved + hard-fail.
+>
+> **Stage 6 dry-run result — 8/9 checks PASS, 1 BLOCKER, `safe_to_publish: false`:**
+>
+> | Check | Status | Summary |
+> |---|---|---|
+> | 1. artifacts_present | ✓ PASS | All 8 staged artifacts present + parse cleanly |
+> | 2. observations | ✓ PASS | 14,096 obs · 48 dates · 14,096 unique IDs · 100/100 prompt match · 4,496 AIO blindSpot |
+> | 3. snapshots | ✓ PASS | 7,191 snapshots · 48 dates · 144 tuples · 0 duplicate IDs · 144 Ritz entity rows |
+> | 4. orphan_benchmarks | ✓ PASS | NO-OP (0 twins emitted, 1,359 dormant skipped per chart-gap criterion) |
+> | 5. relabel_changelog | ✓ PASS | 317 proposals · 232 pdf + 85 csv · top-level import_batch_id preserved on every proposal · display_group=pre_launch_history on every |
+> | 6. recs_byte_identity | ✓ PASS | recommended_edits 17/17 byte-identical to Stage 1 backup · responses 7/7 |
+> | 7. ui_surface | ✓ PASS (warn) | chart continuity 48/48 dates per platform · 317/317 relabel proposals filterable · 13,946 obs with citations · browser-smoke deferred to post-publish |
+> | 8. causal_guardrail | ✓ PASS | 14,096 historical_recovered (usable for product intel) · 0 benchmark-fallback rows · 0 regime conflicts |
+> | 9. **publish_readiness** | **✗ FAIL** | **`changelog_entries.metadata` jsonb column does NOT exist — Stage 5 W4 relabel cannot publish without a schema migration.** Operator must choose: (a) add metadata jsonb column, (b) overwrite top-level import_batch_id (loses audit trail), (c) use a separate label table, or (d) defer Stage 5 publish entirely. |
+>
+> **The blocker is the gate working correctly.** Stage 5 discovered + reported the missing column; Stage 6 surfaces it as a publish-blocking failure with the four operator-decision options. `safe_to_publish: false` until the operator picks a schema path.
+>
+> **Files (modified):**
+> - `scripts/customer-one-backfill.ts` — `verify` added to `IMPLEMENTED_STAGES` (now 7 stages: preflight / backup / extract-observations / rederive-snapshots / copy-orphan-benchmarks / relabel-changelog / verify). Reserved set narrowed to 2: publish · rollback. New types: `CheckStatus` ("pass" | "warn" | "fail"), `CheckResult`, `VerifyReport`. New constants: `STAGED_ARTIFACTS` (8 staged files + reports the harness loads) + `VERIFY_EXPECTED` (operator-locked truth from W4 Stage 2–5 dry-runs: 14,096 obs / 48 dates / 100 prompts / 4,496 AIO blindSpot / 7,191 snapshots / 317 relabel proposals). New `runVerify` orchestrator + 9 `check*()` functions, each returning a structured `CheckResult` with `blockers[]` + `warnings[]`. Aggregator: `safeToPublish = !checks.some(c => c.status === "fail")`. New `canonicalJson(v)` helper for byte-identity diffing in Check 6. Output: `.data/_staging/w4-verify-report.json`.
+> - `tests/scripts/customer-one-backfill.test.ts` — extended from 122 → 154 cases. Pin `IMPLEMENTED_STAGES` now contains 7 stages. `validateStage("verify").ok === true`; reserved set narrowed to 2. New W4.6 source-scan invariants on `runVerify` + each of the 9 check functions: zero `.insert/.update/.delete/.upsert` calls (Supabase reads-only); does NOT WRITE to recs files; the only writeFileSync target is the verify report under stagingDir; runs all 9 checks via independent invocations; aggregates into safeToPublish=false when ANY check fails; STAGED_ARTIFACTS lists all 8 expected files; missing/malformed files are blockers; VERIFY_EXPECTED matches the W4 dry-run truth; per-check failure reasons explicitly named (row-count drift, date drift, duplicate IDs, missing regime/source_csv_hash/tenant_id, twin masquerading as recovered, missing causal_attribution_excluded, regime conflicts, missing changelog metadata column with the four operator-decision options surfaced); read-only verbs throughout; canonicalJson exists.
+>
+> **Verification (2026-05-04):** `npx tsc --noEmit` clean · `tests/scripts/customer-one-backfill.test.ts` 154/154 pass · `npm run test` 4025/4031 (6 pre-existing baseline failures all OUTSIDE this surface; net change vs Stage 5: +32 passes, ±0 failures) · `BEACON_TENANT_ID=tenant-ritz-founder BEACON_TENANT_SLUG=ritz-builders npm run build` clean · Stage 6 dry-run completed in seconds.
+>
+> **Notable design decisions:**
+> 1. **Pass/warn/fail status with explicit blocker list.** Each check returns a structured `CheckResult`. Warnings are non-blocking; only `"fail"` status forces `safe_to_publish: false`. The aggregator iterates blockers across all checks so the publish gate is auditable.
+> 2. **Browser-render smoke deferred to post-publish.** Stage 6 implements a data-level UI-surface verifier (chart continuity, filterable relabel metadata, citation evidence presence) but does NOT spin up the actual `/today` / `/changes` / `/pages` Next.js pages. The operator's spec explicitly allows this deferral; full browser smoke runs after publish lands.
+> 3. **The publish_readiness blocker is the gate working correctly.** `changelog_entries.metadata` column missing is exactly the issue Stage 5 surfaced. Stage 6 turns it into a hard publish-block with four operator-decision options. `safe_to_publish: false` until the operator picks a schema path.
+> 4. **Byte-identity check uses canonicalJson** (sorted-keys recursive JSON.stringify). Compares Stage 1 backup recs vs current Supabase rows. Today: 17/17 + 7/7 match → recs queue is unchanged since backup, exactly as required.
+> 5. **No Supabase writes anywhere.** Every check that reads from Supabase (Check 6 byte-identity, Check 9 publish-readiness) uses `.select()` only. Source-scan invariants prove zero `.insert/.update/.delete/.upsert` across the full Stage 6 source.
+>
+> **Constraints honored (operator-locked):** No publish · No Supabase writes · No rollback execution · No recommendation queue mutation · No Profound archive/delete · No paid generation · No Apply-All-HIGH.
+>
+> **Next 3 actions (operator-gated):**
+> 1. **Operator review of `safe_to_publish: false` verdict** — read `.data/_staging/w4-verify-report.json`. The blocker is documented; pick the schema path: (a) add `metadata` jsonb column to `changelog_entries`, (b) overwrite top-level `import_batch_id` (loses audit trail), (c) use a separate label table, or (d) defer Stage 5 publish entirely.
+> 2. **Operator approval to design Stage 7 (publish)** — gated by Stage 6 green AND explicit operator approval. Publish is the only stage that mutates production. Should NOT be designed until the schema decision lands.
+> 3. **(Future)** Stage 8 rollback — gated by Stage 7 ready. Reverses Stage 7's writes via the SHA-verified Stage 1 backup.
+
 > 🟡 **W4 Stage 5 (relabel-changelog dry-run) LANDED (2026-05-04):** Operator approved Stage 5 design + dry-run after Stage 4 acceptance. Stage 5 reads `changelog_entries` from production Supabase (read-only), identifies legacy-import rows, skips live/verified/operator-accepted rows, and writes a staged metadata-only relabel proposal to `.data/_staging/`. **NO Supabase writes. NO live `.data/tenants/` mutation. Recommendation queue untouched.** `/changes` UI is NOT modified by Stage 5. Stages 6–8 (verify / publish / rollback) remain reserved + hard-fail.
 >
 > **Stage 5 dry-run result (clean):**
