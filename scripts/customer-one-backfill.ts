@@ -180,6 +180,7 @@ export const IMPLEMENTED_STAGES = new Set<Stage>([
   "backup",
   "extract-observations",
   "rederive-snapshots",
+  "copy-orphan-benchmarks",
 ]);
 
 // ── CLI flags ───────────────────────────────────────────────────────────
@@ -544,6 +545,17 @@ async function main(): Promise<void> {
     });
     printRederiveSnapshotsReport(report);
     process.exit(report.errors.length > 0 ? 6 : 0);
+    return;
+  }
+
+  if (flags.stage === "copy-orphan-benchmarks") {
+    const report = await runCopyOrphanBenchmarks({
+      tenantId,
+      tenantSlug,
+      dryRun: flags.dryRun,
+    });
+    printCopyOrphanBenchmarksReport(report);
+    process.exit(report.errors.length > 0 ? 7 : 0);
     return;
   }
 
@@ -2744,6 +2756,602 @@ function printRederiveSnapshotsReport(report: RederiveSnapshotsReport): void {
   );
   console.log(
     `Staged outputs: ${report.stagingDir}/w4-rederived-snapshots.json + report.`,
+  );
+  console.log("══════════════════════════════════════════════════════════════════");
+  console.log("");
+}
+
+// ── Stage 4: copy-orphan-benchmarks (staging only) ──────────────────────
+//
+// Diff production benchmark rows against Stage 3's recovered-derived
+// snapshots + production native-derived snapshots. Copy ONLY the true
+// orphans into staged derived twins with `provenance:
+// "imported_from_benchmark"` + `regime: "historical_fallback"` (NOT
+// `historical_recovered` — these are not recovered observations,
+// they're snapshot-fallback rows for chart continuity).
+//
+// Hard requirements:
+//   - Source MUST be `.data/_staging/w4-rederived-snapshots.json` +
+//     a fresh Supabase read of `daily_metric_snapshots`. Stage 4
+//     hard-fails if Stage 3 staging is missing.
+//   - Do NOT blindly copy. A benchmark row is orphaned only when:
+//       (a) no recovered-derived snapshot in Stage 3 covers the same
+//           (date, scope_type, normalized scope_id, platform) tuple,
+//           AND
+//       (b) no native-derived snapshot in Supabase covers the same
+//           tuple,
+//       AND
+//       (c) removing/ignoring it would create a chart/history gap
+//           (i.e., other days carry coverage for that scope, so the
+//           benchmark day is a real visible gap rather than an
+//           inactive scope).
+//   - Output `source_type === "derived"`. Provenance metadata
+//     identifies the row as a benchmark-fallback so causal /
+//     verdict math can guard against using these for attribution.
+//   - Numeric values are byte/numeric identical to the original
+//     benchmark row. The transformation is metadata-only.
+//
+// Output: `.data/_staging/w4-orphan-benchmarks.json` +
+//         `.data/_staging/w4-orphan-benchmark-report.json`
+
+export type OrphanBenchmarkReport = {
+  readonly tenantId: string;
+  readonly tenantSlug: string;
+  readonly dryRun: boolean;
+  readonly stagingDir: string;
+  readonly inputRederivedFile: string;
+  readonly extractionRunId: string;
+  readonly diffedAt: string;
+  readonly counts: {
+    readonly benchmarkRowsScanned: number;
+    readonly supersededByRederive: number;
+    readonly supersededByNative: number;
+    readonly trueOrphans: number;
+    readonly stagedDerivedTwins: number;
+  };
+  readonly orphansByDate: Record<string, number>;
+  readonly orphansByPlatform: Record<string, number>;
+  readonly orphansByScopeType: Record<string, number>;
+  readonly orphansByReason: Record<string, number>;
+  readonly chartGapPrevention: {
+    /** True orphans where the same scope IS covered on at least one
+     *  other day → benchmark fills a real visible gap. */
+    readonly fillsRealGap: number;
+    /** True orphans where the scope has zero coverage anywhere →
+     *  inactive entity / dormant scope; including the benchmark
+     *  doesn't fill a chart gap. */
+    readonly scopeFullyDormant: number;
+  };
+  readonly normalizationMismatches: ReadonlyArray<{
+    readonly benchmarkScopeId: string;
+    readonly closestRederiveScopeId: string;
+    readonly date: string;
+    readonly platform: string;
+  }>;
+  readonly sampleOrphans: ReadonlyArray<unknown>;
+  readonly recommendationSafety: {
+    readonly localRecommendedEditsRowCount: number | null;
+    readonly localRecommendationResponsesRowCount: number | null;
+  };
+  readonly noOp: boolean;
+  readonly errors: ReadonlyArray<string>;
+};
+
+/** Pure: collapse a scope_id to a canonical alphanumeric form so
+ *  benchmark naming (`mvs-construction`) and rederive naming
+ *  (`ritzbuilders`, `mvsconstruction`) match. */
+export function canonicalScopeKey(scopeId: string | null | undefined): string {
+  if (typeof scopeId !== "string") return "";
+  return scopeId.toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+/** Pure: build the (date, scope_type, normalized scope_id, platform-slug)
+ *  match key. */
+export function snapshotMatchKey(args: {
+  readonly date: string;
+  readonly scopeType: string;
+  readonly scopeId: string;
+  readonly platform: string;
+}): string {
+  return `${args.date}::${args.scopeType.toLowerCase()}::${canonicalScopeKey(args.scopeId)}::${args.platform.toLowerCase().replace(/\s+/g, "-")}`;
+}
+
+async function runCopyOrphanBenchmarks(args: {
+  readonly tenantId: string;
+  readonly tenantSlug: string;
+  readonly dryRun: boolean;
+}): Promise<OrphanBenchmarkReport> {
+  const errors: string[] = [];
+  const cwd = process.cwd();
+  const stagingDir = join(cwd, ".data", "_staging");
+  const stagedRederivedPath = join(stagingDir, "w4-rederived-snapshots.json");
+
+  // 1. Hard-fail if Stage 3 output is missing.
+  if (!existsSync(stagedRederivedPath)) {
+    errors.push(
+      `Stage 3 output missing at ${stagedRederivedPath}. Run --stage=rederive-snapshots first.`,
+    );
+    return emptyOrphanBenchmarkReport({
+      tenantId: args.tenantId,
+      tenantSlug: args.tenantSlug,
+      dryRun: args.dryRun,
+      stagingDir,
+      inputRederivedFile: stagedRederivedPath,
+      errors,
+    });
+  }
+
+  // 2. Load Stage 3 rederived snapshots.
+  let rederivedSnapshots: Array<Record<string, unknown>> = [];
+  try {
+    const text = readFileSync(stagedRederivedPath, "utf-8");
+    const parsed = JSON.parse(text);
+    if (!Array.isArray(parsed)) {
+      throw new Error(
+        `staged rederive file is not a JSON array (got ${typeof parsed})`,
+      );
+    }
+    rederivedSnapshots = parsed as Array<Record<string, unknown>>;
+  } catch (err) {
+    errors.push(
+      `failed to load staged rederive: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return emptyOrphanBenchmarkReport({
+      tenantId: args.tenantId,
+      tenantSlug: args.tenantSlug,
+      dryRun: args.dryRun,
+      stagingDir,
+      inputRederivedFile: stagedRederivedPath,
+      errors,
+    });
+  }
+  if (rederivedSnapshots.length === 0) {
+    errors.push("staged rederive file is empty");
+  }
+
+  // Pull the staged extraction_run_id so Stage 4 outputs share lineage
+  // with Stage 3.
+  const stage3RunId =
+    typeof (rederivedSnapshots[0]?.metadata as Record<string, unknown> | undefined)
+      ?.extraction_run_id === "string"
+      ? ((rederivedSnapshots[0].metadata as Record<string, unknown>)
+          .extraction_run_id as string)
+      : "w4-rederive-unknown";
+
+  // 3. Load production daily_metric_snapshots from Supabase (read-only).
+  const { getSupabaseAdmin } = await import(
+    "../src/lib/persistence/supabase"
+  );
+  const sb = getSupabaseAdmin();
+  type SnapshotRow = {
+    id: string;
+    date: string;
+    scope_type: string;
+    scope_id: string;
+    platform: string;
+    source_type: string;
+    visibility_score: number | null;
+    mention_count: number;
+    citation_count: number;
+    share_of_voice: number | null;
+    avg_position: number | null;
+    total_possible: number | null;
+    metadata: Record<string, unknown>;
+    tenant_id: string;
+  };
+
+  let supabaseSnapshots: SnapshotRow[] = [];
+  try {
+    // Paginate to handle 1,380+ rows.
+    const PAGE = 1000;
+    let from = 0;
+    while (true) {
+      const { data, error } = await sb
+        .from("daily_metric_snapshots")
+        .select("*")
+        .eq("tenant_id", args.tenantId)
+        .range(from, from + PAGE - 1);
+      if (error) throw error;
+      if (!data || data.length === 0) break;
+      supabaseSnapshots.push(...(data as SnapshotRow[]));
+      if (data.length < PAGE) break;
+      from += PAGE;
+    }
+  } catch (err) {
+    errors.push(
+      `daily_metric_snapshots read failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return emptyOrphanBenchmarkReport({
+      tenantId: args.tenantId,
+      tenantSlug: args.tenantSlug,
+      dryRun: args.dryRun,
+      stagingDir,
+      inputRederivedFile: stagedRederivedPath,
+      errors,
+    });
+  }
+
+  const benchmarkRows = supabaseSnapshots.filter(
+    (r) => r.source_type === "benchmark",
+  );
+  const nativeDerivedRows = supabaseSnapshots.filter(
+    (r) => r.source_type === "derived",
+  );
+
+  // 4. Build coverage key sets.
+  const rederiveKeys = new Set<string>();
+  for (const r of rederivedSnapshots) {
+    const date = r.date as string;
+    const scopeType = r.scope_type as string;
+    const scopeId = r.scope_id as string;
+    const platform = r.platform as string;
+    if (date && scopeType && typeof scopeId === "string" && platform) {
+      rederiveKeys.add(
+        snapshotMatchKey({ date, scopeType, scopeId, platform }),
+      );
+    }
+  }
+  const nativeKeys = new Set<string>();
+  for (const r of nativeDerivedRows) {
+    nativeKeys.add(
+      snapshotMatchKey({
+        date: r.date,
+        scopeType: r.scope_type,
+        scopeId: r.scope_id,
+        platform: r.platform,
+      }),
+    );
+  }
+
+  // 5. Build per-(scope-canonical) "any coverage on any day?" map for
+  //    the chart-gap-prevention check.
+  const scopeAnyCoverage = new Set<string>();
+  for (const r of rederivedSnapshots) {
+    const c = canonicalScopeKey(r.scope_id as string);
+    if (c) scopeAnyCoverage.add(`${(r.scope_type as string).toLowerCase()}::${c}`);
+  }
+  for (const r of nativeDerivedRows) {
+    const c = canonicalScopeKey(r.scope_id);
+    if (c) scopeAnyCoverage.add(`${r.scope_type.toLowerCase()}::${c}`);
+  }
+
+  // 6. Diff each benchmark row.
+  const orphansByDate: Record<string, number> = {};
+  const orphansByPlatform: Record<string, number> = {};
+  const orphansByScopeType: Record<string, number> = {};
+  const orphansByReason: Record<string, number> = {};
+  const normalizationMismatches: Array<{
+    benchmarkScopeId: string;
+    closestRederiveScopeId: string;
+    date: string;
+    platform: string;
+  }> = [];
+  let supersededByRederive = 0;
+  let supersededByNative = 0;
+  let trueOrphans = 0;
+  let fillsRealGap = 0;
+  let scopeFullyDormant = 0;
+
+  const stagedTwins: Array<Record<string, unknown>> = [];
+
+  for (const bench of benchmarkRows) {
+    const key = snapshotMatchKey({
+      date: bench.date,
+      scopeType: bench.scope_type,
+      scopeId: bench.scope_id,
+      platform: bench.platform,
+    });
+    if (rederiveKeys.has(key)) {
+      supersededByRederive++;
+      continue;
+    }
+    if (nativeKeys.has(key)) {
+      supersededByNative++;
+      continue;
+    }
+
+    // True orphan. Categorize chart-gap prevention.
+    const scopeCanonKey = `${bench.scope_type.toLowerCase()}::${canonicalScopeKey(bench.scope_id)}`;
+    const hasCoverage = scopeAnyCoverage.has(scopeCanonKey);
+    const reason = hasCoverage
+      ? "scope_covered_other_days_only"
+      : "scope_fully_dormant";
+    if (hasCoverage) fillsRealGap++;
+    else scopeFullyDormant++;
+
+    trueOrphans++;
+    orphansByDate[bench.date] = (orphansByDate[bench.date] ?? 0) + 1;
+    orphansByPlatform[bench.platform] =
+      (orphansByPlatform[bench.platform] ?? 0) + 1;
+    orphansByScopeType[bench.scope_type] =
+      (orphansByScopeType[bench.scope_type] ?? 0) + 1;
+    orphansByReason[reason] = (orphansByReason[reason] ?? 0) + 1;
+
+    // Operator-locked rule (W4 Stage 4 spec, 2026-05-04):
+    // "removing/ignoring it would create a chart/history gap" is the
+    // THIRD criterion for an orphan. A `scope_fully_dormant` row has
+    // zero coverage on any day for that scope → removing it does
+    // NOT create a visible gap. Skip derived-twin emission. The
+    // report still surfaces these in `orphansByReason` so the
+    // operator can audit the entities Profound tracked but Beacon's
+    // current registry doesn't.
+    if (!hasCoverage) {
+      continue;
+    }
+
+    // Look for a normalization mismatch: a rederive row exists for
+    // the SAME canonical key on the same date+platform, but with a
+    // different scope_id formatting. If the canonical-key match is
+    // found this would already supersede; this is for the diagnostic
+    // case where canonical match exists but raw scope_ids differ —
+    // we surface as a sanity check.
+    const platSlug = bench.platform.toLowerCase().replace(/\s+/g, "-");
+    const benchCanon = canonicalScopeKey(bench.scope_id);
+    const closestMatch = rederivedSnapshots.find((rs) => {
+      return (
+        rs.date === bench.date &&
+        (rs.platform as string).toLowerCase().replace(/\s+/g, "-") === platSlug &&
+        canonicalScopeKey(rs.scope_id as string) === benchCanon &&
+        rs.scope_id !== bench.scope_id
+      );
+    });
+    if (closestMatch) {
+      normalizationMismatches.push({
+        benchmarkScopeId: bench.scope_id,
+        closestRederiveScopeId: closestMatch.scope_id as string,
+        date: bench.date,
+        platform: bench.platform,
+      });
+    }
+
+    // Build the staged derived twin. Numeric values are byte-for-byte
+    // identical to the benchmark; only id + source_type + metadata
+    // are transformed.
+    const twin = {
+      id: `derived-fallback-${bench.id}`,
+      date: bench.date,
+      scope_type: bench.scope_type,
+      scope_id: bench.scope_id,
+      platform: bench.platform,
+      source_type: "derived" as const,
+      visibility_score: bench.visibility_score,
+      mention_count: bench.mention_count,
+      citation_count: bench.citation_count,
+      share_of_voice: bench.share_of_voice,
+      avg_position: bench.avg_position,
+      total_possible: bench.total_possible,
+      metadata: {
+        // Preserve the original benchmark metadata for audit.
+        ...(bench.metadata ?? {}),
+        provenance: "imported_from_benchmark",
+        regime: "historical_fallback",
+        original_source_type: "benchmark",
+        benchmark_snapshot_id: bench.id,
+        import_reason: reason,
+        extraction_run_id: stage3RunId,
+        // Causal-attribution guardrail — `regime: "historical_fallback"`
+        // is the documented signal that verdict math should EXCLUDE
+        // this row from baselines + post-windows. The
+        // MEASUREMENT_QUALITY_BOUNDARY constant remains the runtime
+        // gate; this metadata is the audit trail.
+        causal_attribution_excluded: true,
+      },
+      tenant_id: bench.tenant_id,
+    };
+    stagedTwins.push(twin);
+  }
+
+  // 7. Recommendation safety (READ-ONLY check).
+  const recRowCount = countLocalArray(
+    join(cwd, ".data", "tenants", args.tenantSlug, "recommended-edits.json"),
+  );
+  const respRowCount = countLocalArray(
+    join(
+      cwd,
+      ".data",
+      "tenants",
+      args.tenantSlug,
+      "recommendation-responses.json",
+    ),
+  );
+
+  // 8. Write staged outputs.
+  mkdirSync(stagingDir, { recursive: true });
+  writeFileSync(
+    join(stagingDir, "w4-orphan-benchmarks.json"),
+    JSON.stringify(stagedTwins, null, 2),
+    "utf-8",
+  );
+
+  const sampleOrphans = stagedTwins.slice(0, 5);
+
+  const reportObj: OrphanBenchmarkReport = {
+    tenantId: args.tenantId,
+    tenantSlug: args.tenantSlug,
+    dryRun: args.dryRun,
+    stagingDir,
+    inputRederivedFile: stagedRederivedPath,
+    extractionRunId: stage3RunId,
+    diffedAt: new Date().toISOString(),
+    counts: {
+      benchmarkRowsScanned: benchmarkRows.length,
+      supersededByRederive,
+      supersededByNative,
+      trueOrphans,
+      stagedDerivedTwins: stagedTwins.length,
+    },
+    orphansByDate,
+    orphansByPlatform,
+    orphansByScopeType,
+    orphansByReason,
+    chartGapPrevention: { fillsRealGap, scopeFullyDormant },
+    normalizationMismatches: normalizationMismatches.slice(0, 10),
+    sampleOrphans,
+    recommendationSafety: {
+      localRecommendedEditsRowCount: recRowCount,
+      localRecommendationResponsesRowCount: respRowCount,
+    },
+    noOp: stagedTwins.length === 0,
+    errors,
+  };
+  writeFileSync(
+    join(stagingDir, "w4-orphan-benchmark-report.json"),
+    JSON.stringify(reportObj, null, 2),
+    "utf-8",
+  );
+
+  return reportObj;
+}
+
+function emptyOrphanBenchmarkReport(args: {
+  tenantId: string;
+  tenantSlug: string;
+  dryRun: boolean;
+  stagingDir: string;
+  inputRederivedFile: string;
+  errors: string[];
+}): OrphanBenchmarkReport {
+  return {
+    tenantId: args.tenantId,
+    tenantSlug: args.tenantSlug,
+    dryRun: args.dryRun,
+    stagingDir: args.stagingDir,
+    inputRederivedFile: args.inputRederivedFile,
+    extractionRunId: "",
+    diffedAt: new Date().toISOString(),
+    counts: {
+      benchmarkRowsScanned: 0,
+      supersededByRederive: 0,
+      supersededByNative: 0,
+      trueOrphans: 0,
+      stagedDerivedTwins: 0,
+    },
+    orphansByDate: {},
+    orphansByPlatform: {},
+    orphansByScopeType: {},
+    orphansByReason: {},
+    chartGapPrevention: { fillsRealGap: 0, scopeFullyDormant: 0 },
+    normalizationMismatches: [],
+    sampleOrphans: [],
+    recommendationSafety: {
+      localRecommendedEditsRowCount: null,
+      localRecommendationResponsesRowCount: null,
+    },
+    noOp: true,
+    errors: args.errors,
+  };
+}
+
+function printCopyOrphanBenchmarksReport(report: OrphanBenchmarkReport): void {
+  console.log("");
+  console.log("══════════════════════════════════════════════════════════════════");
+  console.log("W4 STAGE 4 — ORPHAN BENCHMARK DIFF REPORT");
+  console.log("══════════════════════════════════════════════════════════════════");
+  console.log(`tenant_id              : ${report.tenantId}`);
+  console.log(`tenant_slug            : ${report.tenantSlug}`);
+  console.log(`dry_run                : ${report.dryRun}`);
+  console.log(`staging_dir            : ${report.stagingDir}`);
+  console.log(`input_rederived_file   : ${basename(report.inputRederivedFile)}`);
+  console.log(`extraction_run_id      : ${report.extractionRunId}`);
+  console.log(`diffed_at              : ${report.diffedAt}`);
+  console.log("");
+  console.log("─ Counts ────────────────────────────────────────────────────────");
+  console.log(`  benchmark rows scanned       : ${report.counts.benchmarkRowsScanned}`);
+  console.log(`  superseded by Stage 3 rederive: ${report.counts.supersededByRederive}`);
+  console.log(`  superseded by native-derived  : ${report.counts.supersededByNative}`);
+  console.log(`  TRUE ORPHANS                  : ${report.counts.trueOrphans}`);
+  console.log(`  staged derived twins          : ${report.counts.stagedDerivedTwins}`);
+  if (report.noOp) {
+    const dormant = report.chartGapPrevention.scopeFullyDormant;
+    const superseded =
+      report.counts.supersededByRederive + report.counts.supersededByNative;
+    console.log("");
+    console.log("  NO-OP: zero derived twins emitted.");
+    console.log(
+      `  ${superseded} benchmark row(s) superseded by recovered/native coverage,`,
+    );
+    console.log(
+      `  ${dormant} dropped (scope dormant — no chart gap to fill).`,
+    );
+    console.log("  Stage 4 wrote an empty staged file + a full diagnostic report.");
+  }
+  console.log("");
+  console.log("─ Orphans by date (Apr 7-14 expected) ───────────────────────────");
+  if (Object.keys(report.orphansByDate).length === 0) {
+    console.log("  (none)");
+  } else {
+    for (const [k, v] of Object.entries(report.orphansByDate)) {
+      console.log(`  ${k.padEnd(28)} ${String(v).padStart(7)}`);
+    }
+  }
+  console.log("");
+  console.log("─ Orphans by platform ───────────────────────────────────────────");
+  if (Object.keys(report.orphansByPlatform).length === 0) {
+    console.log("  (none)");
+  } else {
+    for (const [k, v] of Object.entries(report.orphansByPlatform)) {
+      console.log(`  ${k.padEnd(28)} ${String(v).padStart(7)}`);
+    }
+  }
+  console.log("");
+  console.log("─ Orphans by scope_type ─────────────────────────────────────────");
+  if (Object.keys(report.orphansByScopeType).length === 0) {
+    console.log("  (none)");
+  } else {
+    for (const [k, v] of Object.entries(report.orphansByScopeType)) {
+      console.log(`  ${k.padEnd(28)} ${String(v).padStart(7)}`);
+    }
+  }
+  console.log("");
+  console.log("─ Orphans by reason ─────────────────────────────────────────────");
+  if (Object.keys(report.orphansByReason).length === 0) {
+    console.log("  (none)");
+  } else {
+    for (const [k, v] of Object.entries(report.orphansByReason)) {
+      console.log(`  ${k.padEnd(36)} ${String(v).padStart(7)}`);
+    }
+  }
+  console.log("");
+  console.log("─ Chart-gap prevention ──────────────────────────────────────────");
+  console.log(`  fills a real gap (scope covered other days)  : ${report.chartGapPrevention.fillsRealGap}`);
+  console.log(`  scope fully dormant (no coverage anywhere)   : ${report.chartGapPrevention.scopeFullyDormant}`);
+  console.log("");
+  if (report.normalizationMismatches.length > 0) {
+    console.log("─ Slug/casing mismatches detected (informational) ───────────────");
+    for (const m of report.normalizationMismatches.slice(0, 5)) {
+      console.log(
+        `  · ${m.date} / ${m.platform} :: bench='${m.benchmarkScopeId}' vs rederive='${m.closestRederiveScopeId}' (canonical match)`,
+      );
+    }
+    console.log("");
+  }
+  console.log("─ Recommendation safety (read-only sanity check) ───────────────");
+  console.log(
+    `  local recommended_edits rows         : ${report.recommendationSafety.localRecommendedEditsRowCount ?? "(file absent)"}`,
+  );
+  console.log(
+    `  local recommendation_responses rows  : ${report.recommendationSafety.localRecommendationResponsesRowCount ?? "(file absent)"}`,
+  );
+  console.log("");
+  if (report.sampleOrphans.length > 0) {
+    console.log("─ Sample orphan derived twins (first 5) ─────────────────────────");
+    for (const o of report.sampleOrphans.slice(0, 5)) {
+      const r = o as Record<string, unknown>;
+      console.log(`  · ${r.id} (${r.date} / ${r.platform} / ${r.scope_id})`);
+    }
+    console.log("");
+  }
+  if (report.errors.length > 0) {
+    console.log("─ ERRORS ────────────────────────────────────────────────────────");
+    for (const e of report.errors) console.log(`  - ${e}`);
+    console.log("");
+  }
+  console.log("══════════════════════════════════════════════════════════════════");
+  console.log(
+    "Stage 4 complete. NO Supabase writes. NO live .data/tenants/ mutation.",
+  );
+  console.log(
+    `Staged outputs: ${report.stagingDir}/w4-orphan-benchmarks.json + report.`,
   );
   console.log("══════════════════════════════════════════════════════════════════");
   console.log("");

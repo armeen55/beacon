@@ -7,6 +7,98 @@
 
 ---
 
+## 2026-05-04 — W4 Stage 4: copy-orphan-benchmarks dry-run (NO-OP per operator's chart-gap criterion)
+
+Operator approved Stage 4 design + dry-run after Stage 3 acceptance. Stage 4 diffs production benchmark rows against Stage 3's recovered-derived snapshots and any production native-derived snapshots, then emits derived twins ONLY for benchmarks that satisfy all three operator-locked criteria. Today's run: zero derived twins emitted because all 1,359 candidate orphans fail the chart-gap criterion. NO Supabase writes. NO live `.data/tenants/` mutation. Recommendation queue untouched.
+
+### Files
+
+**`scripts/customer-one-backfill.ts`** (modified)
+- `copy-orphan-benchmarks` added to `IMPLEMENTED_STAGES` (now contains 5 stages: preflight / backup / extract-observations / rederive-snapshots / copy-orphan-benchmarks). Reserved set narrowed to: relabel-changelog · verify · publish · rollback.
+- New pure helpers (unit-tested):
+  - `canonicalScopeKey(scopeId)` — collapses `mvs-construction` / `mvsconstruction` / `MVS Construction` to the same key. Bridges the slug/casing differences between Profound's benchmark naming and the canonical builder's `entityToScopeId` output.
+  - `snapshotMatchKey({date, scopeType, scopeId, platform})` — full canonical match key for diffing benchmark vs rederive vs native-derived rows.
+- New `runCopyOrphanBenchmarks` orchestration:
+  - Hard-fails if `.data/_staging/w4-rederived-snapshots.json` is missing.
+  - Loads Stage 3 staged rederived snapshots + reads `daily_metric_snapshots` from Supabase (read-only, paginated).
+  - Builds rederive + native-derived key sets.
+  - Builds per-scope "any coverage on any day" map for the chart-gap check.
+  - For each benchmark row: compute match key; categorize into superseded-by-rederive / superseded-by-native / true-orphan; further categorize true orphans by chart-gap prevention (`fills_real_gap` vs `scope_fully_dormant`); emit derived twin ONLY for `fills_real_gap` cases (operator-locked: dormant scopes don't create chart gaps, are not copied).
+  - Read-only count of `recommended_edits` + `recommendation_responses` as a backfill-safety probe.
+  - Writes `.data/_staging/w4-orphan-benchmarks.json` + `.data/_staging/w4-orphan-benchmark-report.json`.
+- Derived twin shape:
+  - `id`: `derived-fallback-<original-benchmark-id>` (collision-free with builder's `derived-*` IDs).
+  - `source_type`: `"derived"`.
+  - Numeric values (`visibility_score`, `mention_count`, `citation_count`, `share_of_voice`, `avg_position`, `total_possible`) byte-for-byte identical to the benchmark.
+  - `metadata.provenance: "imported_from_benchmark"`.
+  - `metadata.regime: "historical_fallback"` (NOT `historical_recovered` — these are not recovered observations).
+  - `metadata.original_source_type: "benchmark"`.
+  - `metadata.benchmark_snapshot_id: <orig>`.
+  - `metadata.import_reason: <fills_real_gap | scope_fully_dormant>`.
+  - `metadata.extraction_run_id`: inherited from Stage 3 staging file.
+  - `metadata.causal_attribution_excluded: true` — verdict-math guardrail.
+
+**`tests/scripts/customer-one-backfill.test.ts`** (extended 74 → 98)
+- Pin `IMPLEMENTED_STAGES` now contains 5 stages.
+- `validateStage("copy-orphan-benchmarks").ok === true`; reserved set narrowed.
+- New W4.4 unit tests:
+  - `canonicalScopeKey` — collapses non-alphanumeric to nothing; benchmark + rederive forms produce identical keys; null/undefined handled; Unicode noise stripped.
+  - `snapshotMatchKey` — composes (date, scope_type, normalized scope_id, platform-slug); benchmark + rederive forms collide on the same key; different platform produces different key; scope_type lowercased.
+- New W4.4 source-scan invariants on `runCopyOrphanBenchmarks`:
+  - Zero `.insert/.update/.delete/.upsert` calls.
+  - Hard-fails when Stage 3 staging file is missing.
+  - Does NOT read `.data/tenants/<slug>/prompt-answer-observations.json`.
+  - Does NOT WRITE to `recommended-edits` or `recommendation-responses`.
+  - Every `writeFileSync` target lands under `stagingDir`.
+  - Rejects superseded benchmark rows (rederive + native key match).
+  - Emits true-orphan twins with full provenance metadata (provenance + regime + original_source_type + benchmark_snapshot_id + import_reason + causal_attribution_excluded).
+  - Preserves numeric values byte-for-byte.
+  - `source_type: "derived"` (not `benchmark_archived`).
+  - Twin id is `derived-fallback-*` prefixed.
+  - Chart-gap categorization splits orphans into `fillsRealGap` vs `scopeFullyDormant`.
+  - Dormant scopes (no coverage anywhere) are NOT emitted as derived twins.
+  - Normalization mismatches surface for diagnostic.
+  - Inherits Stage 3's `extraction_run_id`.
+
+### Stage 4 dry-run result (2026-05-04 10:11 UTC)
+
+| Counter | Value | Notes |
+|---|---:|---|
+| benchmark rows scanned | 1,380 | from production Supabase (Apr 7 → Apr 14) |
+| superseded by Stage 3 rederive | 21 | (date, scope, platform) tuple covered by rederive |
+| superseded by native-derived | 0 | benchmarks pre-Apr-22; no overlap with native (Apr 22 → May 1) |
+| true orphans | 1,359 | no rederive AND no native coverage |
+| of those: `fills_a_real_gap` | 0 | scope has coverage on other days |
+| of those: `scope_fully_dormant` | 1,359 | entities Profound tracked but Beacon registry doesn't |
+| **staged derived twins emitted** | **0** | per operator's chart-gap criterion |
+| local recommended_edits row count (read-only) | 20 (untouched) | ✓ |
+| local recommendation_responses row count (read-only) | 7 (untouched) | ✓ |
+
+### Why zero twins emitted
+
+Operator-locked spec criterion (c): "removing/ignoring it would create a chart/history gap." All 1,359 candidate orphans fail this — they're entities Profound tracked competitively but Beacon's current `tracked_entities` registry doesn't include. Removing them does NOT create a visible chart gap because there was never a chart for those scopes. Stage 4 correctly drops them; the diagnostic report still surfaces the breakdown so the operator can audit whether any should be added to the registry (a decision INDEPENDENT of W4 backfill).
+
+### Verification
+
+- `npx tsc --noEmit` clean.
+- `tests/scripts/customer-one-backfill.test.ts` 98/98 pass.
+- `npm run test` 3969/3975 (6 pre-existing baseline failures all OUTSIDE this surface; net change vs W4 Stage 3: +24 passes, ±0 failures).
+- `BEACON_TENANT_ID=tenant-ritz-founder BEACON_TENANT_SLUG=ritz-builders npm run build` clean.
+- Stage 4 dry-run completed in seconds.
+
+### Notable design decisions
+
+1. **Strict chart-gap criterion.** Per operator-locked spec: "removing/ignoring it would create a chart/history gap." Stage 4 categorizes every true orphan into `fills_real_gap` vs `scope_fully_dormant`. Only `fills_real_gap` rows become derived twins. Dormant-scope branch reports the count but skips emission.
+2. **Different regime from Stage 2/3.** Recovered observations + rederived snapshots carry `regime: "historical_recovered"`. Stage 4's derived twins carry `regime: "historical_fallback"` — they're snapshot-fallback rows for chart continuity, NOT recovered observations. The verdict-math layer reads this regime field to exclude these rows from causal attribution baselines.
+3. **Canonical scope key.** Profound's benchmark uses `mvs-construction` (slug of entity name); the canonical builder uses `mvsconstruction` (entity.id stripped of prefix + TLD). `canonicalScopeKey()` helper collapses both forms so the diff doesn't produce false orphans.
+4. **Numeric byte-for-byte preservation.** Derived twins copy every numeric field directly from the benchmark — no recomputation.
+
+### Out of scope (operator-locked)
+
+No Supabase writes · No publish · No relabel-changelog · No rollback execution · No recommendation queue mutation · No Profound archive/delete · No paid generation · No Apply-All-HIGH · `runCopyOrphanBenchmarks` does NOT read the stale `.data/tenants/<slug>/prompt-answer-observations.json` cache.
+
+---
+
 ## 2026-05-04 — W4 Stage 3: rederive-snapshots dry-run
 
 Operator approved Stage 3 design + dry-run after Stage 2 acceptance. Stage 3 reads the staged Stage 2 observations, walks every `(date, platform)` tuple, runs the canonical `buildDailySnapshotsFromObservations()`, stamps W4 provenance metadata on every output row, and writes the staged result to `.data/_staging/`. NO Supabase writes. NO live `.data/tenants/` mutation. Recommendation queue untouched.

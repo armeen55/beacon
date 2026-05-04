@@ -27,6 +27,7 @@ import {
   SUPABASE_TABLES_TO_BACKUP,
   answerHashForText,
   backupDirFor,
+  canonicalScopeKey,
   dateStringFor,
   deterministicObservationId,
   extractCitationsFromRow,
@@ -35,6 +36,7 @@ import {
   parseProfoundPosition,
   sha256OfBuffer,
   shouldBlockSameDayBackup,
+  snapshotMatchKey,
   summarizeManifest,
   validateStage,
   type BackupManifestEntry,
@@ -141,11 +143,10 @@ describe("validateStage", () => {
     expect(v.isReserved).toBe(false);
   });
 
-  it("rejects reserved stages with isReserved=true (publish / rollback / verify / copy-orphan / relabel)", () => {
-    // W4 Stage 3 (2026-05-04): rederive-snapshots is now IMPLEMENTED;
-    // remaining reserved set narrowed.
+  it("rejects reserved stages with isReserved=true (relabel / verify / publish / rollback)", () => {
+    // W4 Stage 4 (2026-05-04): copy-orphan-benchmarks is now
+    // IMPLEMENTED; remaining reserved set narrowed.
     const RESERVED: Stage[] = [
-      "copy-orphan-benchmarks",
       "relabel-changelog",
       "verify",
       "publish",
@@ -174,6 +175,13 @@ describe("validateStage", () => {
   it("rederive-snapshots IS implemented as of W4 Stage 3 (2026-05-04)", () => {
     expect(IMPLEMENTED_STAGES.has("rederive-snapshots")).toBe(true);
     const v = validateStage("rederive-snapshots");
+    expect(v.ok).toBe(true);
+    expect(v.isReserved).toBe(false);
+  });
+
+  it("copy-orphan-benchmarks IS implemented as of W4 Stage 4 (2026-05-04)", () => {
+    expect(IMPLEMENTED_STAGES.has("copy-orphan-benchmarks")).toBe(true);
+    const v = validateStage("copy-orphan-benchmarks");
     expect(v.ok).toBe(true);
     expect(v.isReserved).toBe(false);
   });
@@ -438,9 +446,10 @@ describe("publish stage is hard-blocked + warned (source-scan)", () => {
     expect(v.isReserved).toBe(true);
   });
 
-  it("IMPLEMENTED_STAGES carries preflight + backup + extract-observations + rederive-snapshots as of W4 Stage 3", () => {
+  it("IMPLEMENTED_STAGES carries the W4 Stage 4 set", () => {
     expect([...IMPLEMENTED_STAGES].sort()).toEqual([
       "backup",
+      "copy-orphan-benchmarks",
       "extract-observations",
       "preflight",
       "rederive-snapshots",
@@ -793,5 +802,223 @@ describe("Stage 3 — emptyRederiveReport handles all error paths", () => {
   it("function exists + returns the same shape as the success path", () => {
     expect(SCRIPT_SRC).toMatch(/function emptyRederiveReport/);
     expect(SCRIPT_SRC).toMatch(/RederiveSnapshotsReport/);
+  });
+});
+
+// ── 15. Stage 4 — copy-orphan-benchmarks pure helpers ─────────────────
+
+describe("Stage 4 — canonicalScopeKey", () => {
+  it("collapses non-alphanumeric into nothing (lowercase)", () => {
+    expect(canonicalScopeKey("MVS Construction")).toBe("mvsconstruction");
+    expect(canonicalScopeKey("mvs-construction")).toBe("mvsconstruction");
+    expect(canonicalScopeKey("Ritz Builders")).toBe("ritzbuilders");
+    expect(canonicalScopeKey("ritzbuilders")).toBe("ritzbuilders");
+  });
+
+  it("benchmark slug + rederive slug for same entity collapse to same key", () => {
+    // Operator-locked: this is the WHOLE point — diff benchmark vs
+    // rederive scope_ids without false orphans.
+    expect(canonicalScopeKey("mvs-construction")).toBe(
+      canonicalScopeKey("mvsconstruction"),
+    );
+    expect(canonicalScopeKey("Ritz Builders")).toBe(
+      canonicalScopeKey("ritzbuilders"),
+    );
+  });
+
+  it("handles null / undefined / non-string", () => {
+    expect(canonicalScopeKey(null)).toBe("");
+    expect(canonicalScopeKey(undefined)).toBe("");
+    expect(canonicalScopeKey(42 as unknown as string)).toBe("");
+  });
+
+  it("strips Unicode noise to alphanumeric ASCII only", () => {
+    expect(canonicalScopeKey("Acme — Co.")).toBe("acmeco");
+    expect(canonicalScopeKey("co. & sons")).toBe("cosons");
+  });
+});
+
+describe("Stage 4 — snapshotMatchKey", () => {
+  it("composes (date, scope_type, normalized scope_id, platform-slug)", () => {
+    const k = snapshotMatchKey({
+      date: "2026-04-07",
+      scopeType: "entity",
+      scopeId: "MVS Construction",
+      platform: "Google AI Overviews",
+    });
+    expect(k).toBe(
+      "2026-04-07::entity::mvsconstruction::google-ai-overviews",
+    );
+  });
+
+  it("benchmark and rederive forms produce the SAME key for the same entity", () => {
+    const benchKey = snapshotMatchKey({
+      date: "2026-04-07",
+      scopeType: "entity",
+      scopeId: "ritz-builders",
+      platform: "ChatGPT",
+    });
+    const rederiveKey = snapshotMatchKey({
+      date: "2026-04-07",
+      scopeType: "entity",
+      scopeId: "ritzbuilders",
+      platform: "ChatGPT",
+    });
+    expect(benchKey).toBe(rederiveKey);
+  });
+
+  it("different platform produces different key", () => {
+    const a = snapshotMatchKey({
+      date: "2026-04-07",
+      scopeType: "entity",
+      scopeId: "ritzbuilders",
+      platform: "ChatGPT",
+    });
+    const b = snapshotMatchKey({
+      date: "2026-04-07",
+      scopeType: "entity",
+      scopeId: "ritzbuilders",
+      platform: "Perplexity",
+    });
+    expect(a).not.toBe(b);
+  });
+
+  it("scope_type lowercased, even if input uppercase", () => {
+    const a = snapshotMatchKey({
+      date: "2026-04-07",
+      scopeType: "ENTITY",
+      scopeId: "x",
+      platform: "p",
+    });
+    expect(a).toMatch(/::entity::/);
+  });
+});
+
+// ── 16. Stage 4 — runCopyOrphanBenchmarks invariants (source-scan) ────
+
+describe("Stage 4 — runCopyOrphanBenchmarks is staging-only (source-scan)", () => {
+  function body(): string {
+    const start = SCRIPT_SRC.indexOf("async function runCopyOrphanBenchmarks(");
+    const end = SCRIPT_SRC.indexOf("function emptyOrphanBenchmarkReport(");
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    return SCRIPT_SRC.slice(start, end);
+  }
+
+  it("never calls .insert/.update/.delete/.upsert on Supabase", () => {
+    const b = body();
+    expect(b).not.toMatch(/\.insert\(/);
+    expect(b).not.toMatch(/\.update\(/);
+    expect(b).not.toMatch(/\.delete\(/);
+    expect(b).not.toMatch(/\.upsert\(/);
+    // Reads ARE allowed.
+    expect(b).toMatch(/\.from\(\s*"daily_metric_snapshots"\s*\)/);
+    expect(b).toMatch(/\.select\(/);
+  });
+
+  it("hard-fails when Stage 3 staging file is missing", () => {
+    const b = body();
+    expect(b).toMatch(/Stage 3 output missing/);
+    expect(b).toMatch(/!existsSync\(stagedRederivedPath\)/);
+  });
+
+  it("does NOT read .data/tenants/<slug>/prompt-answer-observations.json", () => {
+    const b = body();
+    expect(b).not.toMatch(/prompt-answer-observations\.json/);
+  });
+
+  it("does NOT WRITE to recommended-edits or recommendation-responses", () => {
+    const b = body();
+    const writes = [...b.matchAll(/writeFileSync\(\s*([^,]+),/g)].map(
+      (m) => m[1],
+    );
+    for (const w of writes) {
+      expect(w).not.toMatch(/recommended-edits/);
+      expect(w).not.toMatch(/recommendation-responses/);
+    }
+  });
+
+  it("every writeFileSync target lands under stagingDir", () => {
+    const b = body();
+    const writes = [...b.matchAll(/writeFileSync\(\s*([^,]+),/g)].map(
+      (m) => m[1],
+    );
+    expect(writes.length).toBeGreaterThan(0);
+    for (const w of writes) {
+      expect(/stagingDir|join\(\s*stagingDir/.test(w)).toBe(true);
+    }
+  });
+
+  it("rejects superseded benchmark rows (does not copy when rederive or native key matches)", () => {
+    const b = body();
+    expect(b).toMatch(/supersededByRederive\+\+/);
+    expect(b).toMatch(/supersededByNative\+\+/);
+    expect(b).toMatch(/rederiveKeys\.has\(key\)/);
+    expect(b).toMatch(/nativeKeys\.has\(key\)/);
+  });
+
+  it("true orphans become derived twins with provenance + regime imported_from_benchmark / historical_fallback", () => {
+    const b = body();
+    expect(b).toMatch(/provenance:\s*"imported_from_benchmark"/);
+    expect(b).toMatch(/regime:\s*"historical_fallback"/);
+    expect(b).toMatch(/original_source_type:\s*"benchmark"/);
+    expect(b).toMatch(/benchmark_snapshot_id:/);
+    expect(b).toMatch(/import_reason:/);
+    // Causal-attribution guardrail metadata.
+    expect(b).toMatch(/causal_attribution_excluded:\s*true/);
+  });
+
+  it("derived twins preserve numeric values byte-for-byte from the benchmark row", () => {
+    const b = body();
+    // The twin construction copies each numeric field directly.
+    expect(b).toMatch(/visibility_score:\s*bench\.visibility_score/);
+    expect(b).toMatch(/mention_count:\s*bench\.mention_count/);
+    expect(b).toMatch(/citation_count:\s*bench\.citation_count/);
+    expect(b).toMatch(/share_of_voice:\s*bench\.share_of_voice/);
+    expect(b).toMatch(/avg_position:\s*bench\.avg_position/);
+    expect(b).toMatch(/total_possible:\s*bench\.total_possible/);
+  });
+
+  it("twin source_type is 'derived' (NOT 'benchmark_archived' or some new enum)", () => {
+    const b = body();
+    expect(b).toMatch(/source_type:\s*"derived"\s+as\s+const/);
+  });
+
+  it("twin id is derived-fallback-* prefixed (collision-free with builder's derived-* IDs)", () => {
+    const b = body();
+    expect(b).toMatch(/derived-fallback-/);
+  });
+
+  it("zero-orphan path produces empty staged file + noOp:true in report", () => {
+    const b = body();
+    expect(b).toMatch(/noOp:\s*stagedTwins\.length === 0/);
+  });
+
+  it("dormant scopes (no coverage on any day) are NOT emitted as derived twins (chart-gap criterion)", () => {
+    const b = body();
+    // The continue happens inside the `if (!hasCoverage)` branch
+    // BEFORE the twin-construction block.
+    expect(b).toMatch(/if\s*\(\s*!hasCoverage\s*\)\s*{\s*continue/);
+    // The reason categorization still runs (so the report shows the
+    // scope_fully_dormant count) but the row is not staged.
+    expect(b).toMatch(/scope_fully_dormant/);
+  });
+
+  it("chart-gap categorization splits orphans into fillsRealGap vs scopeFullyDormant", () => {
+    const b = body();
+    expect(b).toMatch(/fillsRealGap/);
+    expect(b).toMatch(/scopeFullyDormant/);
+    expect(b).toMatch(/scopeAnyCoverage/);
+  });
+
+  it("normalization mismatches surface for diagnostic (slug/casing differences)", () => {
+    const b = body();
+    expect(b).toMatch(/normalizationMismatches/);
+  });
+
+  it("inherits Stage 3's extraction_run_id for lineage continuity", () => {
+    const b = body();
+    expect(b).toMatch(/stage3RunId/);
+    expect(b).toMatch(/extraction_run_id/);
   });
 });
