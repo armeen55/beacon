@@ -7,6 +7,102 @@
 
 ---
 
+## 2026-05-04 — W4 Stage 5: relabel-changelog dry-run (317 proposals)
+
+Operator approved Stage 5 design + dry-run after Stage 4 acceptance. Stage 5 reads `changelog_entries` from production Supabase (read-only), identifies legacy-import rows, skips live/verified/operator-accepted rows, and writes a staged metadata-only relabel proposal. NO Supabase writes. NO live `.data/tenants/` mutation. Recs queue untouched. `/changes` UI not modified.
+
+### Files
+
+**`scripts/customer-one-backfill.ts`** (modified)
+- `relabel-changelog` added to `IMPLEMENTED_STAGES` (now 6 stages: preflight / backup / extract-observations / rederive-snapshots / copy-orphan-benchmarks / relabel-changelog). Reserved set narrowed to 3: verify · publish · rollback.
+- New constants:
+  - `W4_RELABEL_BATCH_ID = "march-import-2026-04"` (master plan §2.5)
+  - `W4_RELABEL_DISPLAY_GROUP = "pre_launch_history"`
+  - `W4_RELABEL_TARGETS = Set(["pdf_changelog_rebuild", "import", "changelog_csv"])`
+- New pure helper `classifyChangelogRowForRelabel(row)` returns either `{relabel: true}` or `{relabel: false, reason}` with hard-coded priority order:
+  1. `scan_detection` → `scan_detection_is_live_scanner` (live scanner output, never relabel)
+  2. `hypothesis_source === "recommendation"` → `operator_accepted_recommendation`
+  3. `live_at != null` → `live_at_is_set`
+  4. `metadata.import_batch_id === W4_RELABEL_BATCH_ID` → `already_w4_labeled`
+  5. `source_system NOT in W4_RELABEL_TARGETS` → `source_system_null` or `source_system_not_in_targets:<name>`
+  6. Default → `relabel: true`
+- New `runRelabelChangelog(args)`:
+  - Reads `changelog_entries` from Supabase (paginated, read-only).
+  - Inherits Stage 3's `extraction_run_id` from the staged rederive file (lineage continuity); falls back to `w4-relabel-unknown` if Stage 3 staging is missing (informational only — Stage 5 does not hard-fail on missing Stage 3).
+  - Classifies each row + emits proposals with `previous` / `next` metadata diff + `preserved_fields` snapshot.
+  - Counts skipped reasons separately so the report breaks them down.
+  - Writes `.data/_staging/w4-relabel-changelog.json` + `.data/_staging/w4-relabel-changelog-report.json`.
+
+**Critical preservation rules**
+- Proposal's `next.import_batch_id` is byte-identical to `previous.import_batch_id` (the existing top-level column is preserved verbatim — the W4 label lives in `metadata.import_batch_id` only). Original auto-generated import-run ids are preserved as the audit trail.
+- The 9 preserved data fields (`timestamp` / `url` / `asset_name` / `change_description` / `created_at` / `archived` / `live_at` / `hypothesis_source` / `source_rec_id`) are snapshot in the proposal so Stage 7 (publish) can re-assert byte equality before applying any change.
+- The metadata change is additive: `next.metadata = { ...(previous ?? {}), import_batch_id, display_group, w4_extraction_run_id }`.
+
+**Schema decision deferred to Stage 7.** `changelog_entries` does NOT carry a `metadata` jsonb column today (verified against the Stage 1 backup). The staged proposal describes the conceptual W4 metadata target; Stage 7 will decide the schema path (add the column / overwrite an existing field / use a separate label table). The staging file makes the operator's intent explicit so the schema decision is auditable.
+
+**`tests/scripts/customer-one-backfill.test.ts`** (extended 98 → 122)
+- Pin `IMPLEMENTED_STAGES` now contains 6 stages.
+- `validateStage("relabel-changelog").ok === true`; reserved set narrowed to 3.
+- 11 unit tests for `classifyChangelogRowForRelabel` (each target accepted; each skip reason fires; priority order enforced).
+- 12 source-scan invariants on `runRelabelChangelog`:
+  - Zero `.insert/.update/.delete/.upsert` calls.
+  - Never writes to recs files.
+  - Every `writeFileSync` lands under `stagingDir`.
+  - Preserves all 9 data fields verbatim.
+  - Does NOT modify the top-level `import_batch_id` column.
+  - Metadata change is additive (spreads previous metadata into next).
+  - W4 batch id constant exactly `"march-import-2026-04"`.
+  - Display group constant `"pre_launch_history"`.
+  - Inherits Stage 3's `extraction_run_id`.
+  - `noOp:true` when zero proposals.
+  - Counts skipped reasons separately.
+  - `/changes` UI copy planning announced but NOT implemented.
+
+### Stage 5 dry-run result (2026-05-04 10:28 UTC)
+
+| Counter | Value | Notes |
+|---|---:|---|
+| total_rows_scanned | 334 | from production Supabase |
+| proposed_relabel | 317 | 232 `pdf_changelog_rebuild` + 85 `changelog_csv` |
+| skipped_by_source_system | 14 | `scan_detection` (live scanner output) |
+| skipped_already_labeled | 0 | (no rows yet have W4 label) |
+| skipped_live_or_accepted | 3 | `hypothesis_source = recommendation` |
+| skipped_dangerous | 0 | (null source_system + unfamiliar) |
+| local recommended_edits row count | 20 (untouched) | ✓ |
+| local recommendation_responses row count | 7 (untouched) | ✓ |
+
+Math reconciles: 317 proposed + 14 + 3 = 334 ✓.
+
+### Sample proposal (`cl-real-2`, pdf_changelog_rebuild)
+
+- `previous.import_batch_id`: `import-1776222344423` (preserved verbatim)
+- `previous.metadata`: null
+- `next.import_batch_id`: `import-1776222344423` (UNCHANGED)
+- `next.metadata`: `{ import_batch_id: "march-import-2026-04", display_group: "pre_launch_history", w4_extraction_run_id: "w4-rederive-be9258c6f2aa" }`
+- `preserved_fields`: timestamp / url / asset_name / change_description / created_at / archived / live_at / hypothesis_source / source_rec_id all snapshot
+
+### Verification
+
+- `npx tsc --noEmit` clean.
+- `tests/scripts/customer-one-backfill.test.ts` 122/122 pass.
+- `npm run test` 3993/3999 (6 pre-existing baseline failures all OUTSIDE this surface; net change vs W4 Stage 4: +24 passes, ±0 failures).
+- `BEACON_TENANT_ID=tenant-ritz-founder BEACON_TENANT_SLUG=ritz-builders npm run build` clean.
+- Stage 5 dry-run completed in seconds.
+- 317 proposals validated: 0 top-level `import_batch_id` mutations; 0 missing W4 metadata fields.
+
+### Notable design decisions
+
+1. **Targets include `changelog_csv`** (85 rows) per operator scope: "OR equivalent legacy import markers." `changelog_csv` IS another legacy CSV import path. The report breaks down proposals by `source_system` so the operator can audit and decide before Stage 7.
+2. **Priority order for skip reasons** is hard-coded: scan_detection → recommendation → live_at_set → already_w4_labeled → target check. Ensures a row with both `hypothesis_source=recommendation` AND `live_at` set reports the operator-acceptance reason (more semantically meaningful).
+3. **Top-level `import_batch_id` column is NEVER changed.** The original auto-generated import-run id is preserved as the audit trail; the W4 label lives in `metadata.import_batch_id` only. Purely additive.
+4. **Schema decision deferred to Stage 7.** Staging file makes the operator's intent explicit; publish picks the schema path.
+
+### Out of scope (operator-locked)
+
+No Supabase writes · No publish · No rollback execution · No recommendation queue mutation · No Profound archive/delete · No paid generation · No Apply-All-HIGH · No `/changes` UI redesign · No mutation of any preserved data field.
+
+---
+
 ## 2026-05-04 — W4 Stage 4: copy-orphan-benchmarks dry-run (NO-OP per operator's chart-gap criterion)
 
 Operator approved Stage 4 design + dry-run after Stage 3 acceptance. Stage 4 diffs production benchmark rows against Stage 3's recovered-derived snapshots and any production native-derived snapshots, then emits derived twins ONLY for benchmarks that satisfy all three operator-locked criteria. Today's run: zero derived twins emitted because all 1,359 candidate orphans fail the chart-gap criterion. NO Supabase writes. NO live `.data/tenants/` mutation. Recommendation queue untouched.

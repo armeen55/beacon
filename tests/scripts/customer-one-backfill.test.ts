@@ -28,6 +28,7 @@ import {
   answerHashForText,
   backupDirFor,
   canonicalScopeKey,
+  classifyChangelogRowForRelabel,
   dateStringFor,
   deterministicObservationId,
   extractCitationsFromRow,
@@ -143,15 +144,10 @@ describe("validateStage", () => {
     expect(v.isReserved).toBe(false);
   });
 
-  it("rejects reserved stages with isReserved=true (relabel / verify / publish / rollback)", () => {
-    // W4 Stage 4 (2026-05-04): copy-orphan-benchmarks is now
-    // IMPLEMENTED; remaining reserved set narrowed.
-    const RESERVED: Stage[] = [
-      "relabel-changelog",
-      "verify",
-      "publish",
-      "rollback",
-    ];
+  it("rejects reserved stages with isReserved=true (verify / publish / rollback)", () => {
+    // W4 Stage 5 (2026-05-04): relabel-changelog is now
+    // IMPLEMENTED; remaining reserved set narrowed to 3.
+    const RESERVED: Stage[] = ["verify", "publish", "rollback"];
     for (const s of RESERVED) {
       const v = validateStage(s);
       expect(v.ok).toBe(false);
@@ -182,6 +178,13 @@ describe("validateStage", () => {
   it("copy-orphan-benchmarks IS implemented as of W4 Stage 4 (2026-05-04)", () => {
     expect(IMPLEMENTED_STAGES.has("copy-orphan-benchmarks")).toBe(true);
     const v = validateStage("copy-orphan-benchmarks");
+    expect(v.ok).toBe(true);
+    expect(v.isReserved).toBe(false);
+  });
+
+  it("relabel-changelog IS implemented as of W4 Stage 5 (2026-05-04)", () => {
+    expect(IMPLEMENTED_STAGES.has("relabel-changelog")).toBe(true);
+    const v = validateStage("relabel-changelog");
     expect(v.ok).toBe(true);
     expect(v.isReserved).toBe(false);
   });
@@ -446,13 +449,14 @@ describe("publish stage is hard-blocked + warned (source-scan)", () => {
     expect(v.isReserved).toBe(true);
   });
 
-  it("IMPLEMENTED_STAGES carries the W4 Stage 4 set", () => {
+  it("IMPLEMENTED_STAGES carries the W4 Stage 5 set", () => {
     expect([...IMPLEMENTED_STAGES].sort()).toEqual([
       "backup",
       "copy-orphan-benchmarks",
       "extract-observations",
       "preflight",
       "rederive-snapshots",
+      "relabel-changelog",
     ]);
   });
 });
@@ -1020,5 +1024,228 @@ describe("Stage 4 — runCopyOrphanBenchmarks is staging-only (source-scan)", ()
     const b = body();
     expect(b).toMatch(/stage3RunId/);
     expect(b).toMatch(/extraction_run_id/);
+  });
+});
+
+// ── 17. Stage 5 — classifyChangelogRowForRelabel pure helper ──────────
+
+describe("Stage 5 — classifyChangelogRowForRelabel", () => {
+  function row(overrides: {
+    source_system?: string | null;
+    hypothesis_source?: string | null;
+    live_at?: string | null;
+    metadata?: Record<string, unknown> | null;
+    import_batch_id?: string | null;
+  }) {
+    return {
+      source_system: null as string | null,
+      hypothesis_source: null as string | null,
+      live_at: null as string | null,
+      metadata: null as Record<string, unknown> | null,
+      import_batch_id: null as string | null,
+      ...overrides,
+    };
+  }
+
+  it("pdf_changelog_rebuild → relabel:true", () => {
+    const v = classifyChangelogRowForRelabel(
+      row({ source_system: "pdf_changelog_rebuild" }),
+    );
+    expect(v.relabel).toBe(true);
+  });
+
+  it("import → relabel:true (master plan §2.5 named target)", () => {
+    const v = classifyChangelogRowForRelabel(row({ source_system: "import" }));
+    expect(v.relabel).toBe(true);
+  });
+
+  it("changelog_csv → relabel:true (operator: equivalent legacy import marker)", () => {
+    const v = classifyChangelogRowForRelabel(
+      row({ source_system: "changelog_csv" }),
+    );
+    expect(v.relabel).toBe(true);
+  });
+
+  it("scan_detection → SKIP (live scanner output)", () => {
+    const v = classifyChangelogRowForRelabel(
+      row({ source_system: "scan_detection" }),
+    );
+    expect(v.relabel).toBe(false);
+    if (v.relabel) return;
+    expect(v.reason).toBe("scan_detection_is_live_scanner");
+  });
+
+  it("hypothesis_source = recommendation → SKIP (operator-accepted)", () => {
+    const v = classifyChangelogRowForRelabel(
+      row({
+        source_system: "pdf_changelog_rebuild",
+        hypothesis_source: "recommendation",
+      }),
+    );
+    expect(v.relabel).toBe(false);
+    if (v.relabel) return;
+    expect(v.reason).toBe("operator_accepted_recommendation");
+  });
+
+  it("live_at != null → SKIP (proven live)", () => {
+    const v = classifyChangelogRowForRelabel(
+      row({
+        source_system: "pdf_changelog_rebuild",
+        live_at: "2026-04-25T00:00:00Z",
+      }),
+    );
+    expect(v.relabel).toBe(false);
+    if (v.relabel) return;
+    expect(v.reason).toBe("live_at_is_set");
+  });
+
+  it("already W4-labeled → SKIP (idempotent)", () => {
+    const v = classifyChangelogRowForRelabel(
+      row({
+        source_system: "pdf_changelog_rebuild",
+        metadata: { import_batch_id: "march-import-2026-04" },
+      }),
+    );
+    expect(v.relabel).toBe(false);
+    if (v.relabel) return;
+    expect(v.reason).toBe("already_w4_labeled");
+  });
+
+  it("null source_system → SKIP (defensive)", () => {
+    const v = classifyChangelogRowForRelabel(row({ source_system: null }));
+    expect(v.relabel).toBe(false);
+    if (v.relabel) return;
+    expect(v.reason).toBe("source_system_null");
+  });
+
+  it("unfamiliar source_system → SKIP (defensive)", () => {
+    const v = classifyChangelogRowForRelabel(
+      row({ source_system: "unknown_provider" }),
+    );
+    expect(v.relabel).toBe(false);
+    if (v.relabel) return;
+    expect(v.reason).toMatch(/source_system_not_in_targets:unknown_provider/);
+  });
+
+  it("priority order — scan_detection wins even when other flags would normally relabel", () => {
+    const v = classifyChangelogRowForRelabel(
+      row({ source_system: "scan_detection" }),
+    );
+    expect(v.relabel).toBe(false);
+    if (v.relabel) return;
+    expect(v.reason).toBe("scan_detection_is_live_scanner");
+  });
+
+  it("priority order — operator-accepted beats live_at_set check (both flags set)", () => {
+    const v = classifyChangelogRowForRelabel(
+      row({
+        source_system: "pdf_changelog_rebuild",
+        hypothesis_source: "recommendation",
+        live_at: "2026-04-25T00:00:00Z",
+      }),
+    );
+    expect(v.relabel).toBe(false);
+    if (v.relabel) return;
+    expect(v.reason).toBe("operator_accepted_recommendation");
+  });
+});
+
+// ── 18. Stage 5 — runRelabelChangelog source-scan invariants ──────────
+
+describe("Stage 5 — runRelabelChangelog is staging-only (source-scan)", () => {
+  function bodyOf(): string {
+    const start = SCRIPT_SRC.indexOf("async function runRelabelChangelog(");
+    const end = SCRIPT_SRC.indexOf("function emptyRelabelReport(");
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    return SCRIPT_SRC.slice(start, end);
+  }
+
+  it("never calls .insert/.update/.delete/.upsert on Supabase", () => {
+    const b = bodyOf();
+    expect(b).not.toMatch(/\.insert\(/);
+    expect(b).not.toMatch(/\.update\(/);
+    expect(b).not.toMatch(/\.delete\(/);
+    expect(b).not.toMatch(/\.upsert\(/);
+    expect(b).toMatch(/\.from\(\s*"changelog_entries"\s*\)/);
+    expect(b).toMatch(/\.select\(/);
+  });
+
+  it("does NOT WRITE to recommended-edits or recommendation-responses", () => {
+    const b = bodyOf();
+    const writes = [...b.matchAll(/writeFileSync\(\s*([^,]+),/g)].map(
+      (m) => m[1],
+    );
+    for (const w of writes) {
+      expect(w).not.toMatch(/recommended-edits/);
+      expect(w).not.toMatch(/recommendation-responses/);
+    }
+  });
+
+  it("every writeFileSync target lands under stagingDir", () => {
+    const b = bodyOf();
+    const writes = [...b.matchAll(/writeFileSync\(\s*([^,]+),/g)].map(
+      (m) => m[1],
+    );
+    expect(writes.length).toBeGreaterThan(0);
+    for (const w of writes) {
+      expect(/stagingDir|join\(\s*stagingDir/.test(w)).toBe(true);
+    }
+  });
+
+  it("preserves all data fields — proposal carries preserved_fields snapshot", () => {
+    const b = bodyOf();
+    expect(b).toMatch(/preserved_fields:/);
+    expect(b).toMatch(/timestamp:\s*row\.timestamp/);
+    expect(b).toMatch(/url:\s*row\.url/);
+    expect(b).toMatch(/asset_name:\s*row\.asset_name/);
+    expect(b).toMatch(/change_description:\s*row\.change_description/);
+    expect(b).toMatch(/created_at:\s*row\.created_at/);
+    expect(b).toMatch(/live_at:\s*row\.live_at/);
+    expect(b).toMatch(/hypothesis_source:\s*row\.hypothesis_source/);
+    expect(b).toMatch(/source_rec_id:\s*row\.source_rec_id/);
+  });
+
+  it("does NOT modify the top-level import_batch_id column (preserves audit trail)", () => {
+    const b = bodyOf();
+    expect(b).toMatch(/import_batch_id:\s*row\.import_batch_id/);
+  });
+
+  it("metadata change is additive (spreads previous metadata into next)", () => {
+    const b = bodyOf();
+    expect(b).toMatch(/\.\.\.\(previousMetadata\s*\?\?\s*\{\}\)/);
+    expect(b).toMatch(/import_batch_id:\s*W4_RELABEL_BATCH_ID/);
+    expect(b).toMatch(/display_group:\s*W4_RELABEL_DISPLAY_GROUP/);
+  });
+
+  it("W4 batch id constant is exactly march-import-2026-04 (master plan §2.5)", () => {
+    expect(SCRIPT_SRC).toMatch(/W4_RELABEL_BATCH_ID\s*=\s*"march-import-2026-04"/);
+  });
+
+  it("display group constant is pre_launch_history", () => {
+    expect(SCRIPT_SRC).toMatch(/W4_RELABEL_DISPLAY_GROUP\s*=\s*"pre_launch_history"/);
+  });
+
+  it("inherits Stage 3's extraction_run_id (lineage continuity)", () => {
+    const b = bodyOf();
+    expect(b).toMatch(/extraction_run_id/);
+    expect(b).toMatch(/w4-rederived-snapshots\.json/);
+  });
+
+  it("noOp:true when zero proposals", () => {
+    const b = bodyOf();
+    expect(b).toMatch(/noOp:\s*proposals\.length === 0/);
+  });
+
+  it("counts skipped reasons separately for the report", () => {
+    const b = bodyOf();
+    expect(b).toMatch(/skippedBySourceSystem/);
+    expect(b).toMatch(/skippedAlreadyLabeled/);
+    expect(b).toMatch(/skippedLiveOrAccepted/);
+    expect(b).toMatch(/skippedDangerous/);
+  });
+
+  it("/changes UI copy planning — reports the planned label change but does NOT implement it (no /changes redesign)", () => {
+    expect(SCRIPT_SRC).toMatch(/Imported legacy.*Pre-launch history/);
   });
 });

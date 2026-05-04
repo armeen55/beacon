@@ -1,5 +1,61 @@
 # Beacon — Start Here
 
+> 🟡 **W4 Stage 5 (relabel-changelog dry-run) LANDED (2026-05-04):** Operator approved Stage 5 design + dry-run after Stage 4 acceptance. Stage 5 reads `changelog_entries` from production Supabase (read-only), identifies legacy-import rows, skips live/verified/operator-accepted rows, and writes a staged metadata-only relabel proposal to `.data/_staging/`. **NO Supabase writes. NO live `.data/tenants/` mutation. Recommendation queue untouched.** `/changes` UI is NOT modified by Stage 5. Stages 6–8 (verify / publish / rollback) remain reserved + hard-fail.
+>
+> **Stage 5 dry-run result (clean):**
+>
+> | Metric | Value | Notes |
+> |---|---:|---|
+> | total_rows_scanned | 334 | from production Supabase `changelog_entries` |
+> | proposed_relabel | **317** | 232 `pdf_changelog_rebuild` + 85 `changelog_csv` |
+> | skipped_by_source_system | 14 | `scan_detection` (live scanner output — never relabel) |
+> | skipped_already_labeled | 0 | (no rows yet have `march-import-2026-04` label) |
+> | skipped_live_or_accepted | 3 | `hypothesis_source = recommendation` (operator-accepted via recs queue) |
+> | skipped_dangerous | 0 | (null source_system + unfamiliar source_system) |
+> | local recommended_edits row count (read-only) | 20 (untouched) | ✓ |
+> | local recommendation_responses row count (read-only) | 7 (untouched) | ✓ |
+>
+> Math reconciles: 317 proposed + 14 + 3 skipped = 334 ✓.
+>
+> **Sample proposal** (cl-real-2, `pdf_changelog_rebuild` row):
+> ```
+> id: cl-real-2
+> source_system: pdf_changelog_rebuild
+> previous.import_batch_id: import-1776222344423            ← preserved verbatim
+> previous.metadata: null
+> next.import_batch_id: import-1776222344423                ← UNCHANGED
+> next.metadata: {
+>   import_batch_id: "march-import-2026-04",                ← W4 label
+>   display_group: "pre_launch_history",                    ← W4 group
+>   w4_extraction_run_id: "w4-rederive-be9258c6f2aa"        ← lineage to Stage 3
+> }
+> preserved_fields: {
+>   timestamp / url / asset_name / change_description /
+>   created_at / archived / live_at / hypothesis_source /
+>   source_rec_id                                           ← all snapshot for byte-equality check at publish
+> }
+> ```
+>
+> **Files (modified):**
+> - `scripts/customer-one-backfill.ts` — `relabel-changelog` added to `IMPLEMENTED_STAGES` (now 6 stages). Reserved set narrowed to 3 (verify / publish / rollback). New constants `W4_RELABEL_BATCH_ID = "march-import-2026-04"` + `W4_RELABEL_DISPLAY_GROUP = "pre_launch_history"` + `W4_RELABEL_TARGETS` set (`pdf_changelog_rebuild` / `import` / `changelog_csv`). New pure helper `classifyChangelogRowForRelabel(row)` returns either `{relabel: true}` or `{relabel: false, reason}` with priority order: `scan_detection` → `recommendation` → `live_at_set` → `already_w4_labeled` → `target check`. New `runRelabelChangelog(args)` orchestration: reads `changelog_entries` from Supabase (paginated, read-only); inherits Stage 3's `extraction_run_id` from the staged rederive file (lineage continuity); classifies each row; emits proposals with `previous` / `next` metadata diff + `preserved_fields` snapshot for byte-equality check at publish; counts skipped reasons separately; writes `.data/_staging/w4-relabel-changelog.json` + `.data/_staging/w4-relabel-changelog-report.json`.
+> - **Critical preservation rule:** The proposal's `next.import_batch_id` is byte-identical to `previous.import_batch_id` (the existing top-level column is preserved verbatim — the W4 label lives in `metadata.import_batch_id` only). The 9 preserved data fields (`timestamp` / `url` / `asset_name` / `change_description` / `created_at` / `archived` / `live_at` / `hypothesis_source` / `source_rec_id`) are snapshot in the proposal so Stage 7 (publish) can re-assert byte equality before applying any change.
+> - `tests/scripts/customer-one-backfill.test.ts` — extended from 98 → 122 cases. Pin `IMPLEMENTED_STAGES` now contains 6 stages; reserved set is just `verify`/`publish`/`rollback`. New W4.5 unit tests for `classifyChangelogRowForRelabel` (11 cases covering each target/skip path + priority order). New W4.5 source-scan invariants on `runRelabelChangelog` (12 cases): zero `.insert/.update/.delete/.upsert` calls; never writes to recs files; every `writeFileSync` lands under `stagingDir`; preserves all 9 data fields verbatim; does NOT modify the top-level `import_batch_id` column; metadata change is additive (spreads previous metadata into next); W4 batch id constant is exactly `"march-import-2026-04"` per master plan §2.5; display group constant is `"pre_launch_history"`; inherits Stage 3's `extraction_run_id`; `noOp:true` when zero proposals; counts skipped reasons separately; `/changes` UI copy planning announced but NOT implemented (no `/changes` redesign).
+>
+> **Verification (2026-05-04):** `npx tsc --noEmit` clean · `tests/scripts/customer-one-backfill.test.ts` 122/122 pass · `npm run test` 3993/3999 (6 pre-existing baseline failures all OUTSIDE this surface; net change vs Stage 4: +24 passes, ±0 failures) · `BEACON_TENANT_ID=tenant-ritz-founder BEACON_TENANT_SLUG=ritz-builders npm run build` clean · Stage 5 dry-run completed in seconds.
+>
+> **Notable design decisions:**
+> 1. **Targets include `changelog_csv`** (85 rows) per operator scope: "OR equivalent legacy import markers." `changelog_csv` IS another legacy CSV import path; including it brings the relabel coverage to 317/317 of the importable rows. The report breaks down proposals by `source_system` so the operator can audit.
+> 2. **Priority order for skip reasons** is hard-coded: `scan_detection` → `recommendation` → `live_at_set` → `already_w4_labeled` → `target check`. This ensures a row with both `hypothesis_source=recommendation` AND `live_at` set reports the operator-acceptance reason (more semantically meaningful) over the live-flag reason.
+> 3. **Top-level `import_batch_id` column is NEVER changed.** The original auto-generated import-run id (e.g., `import-1776222344423`) is preserved as the audit trail for which Profound import populated the row. The W4 label lives in `metadata.import_batch_id` so it's purely additive.
+> 4. **Schema decision is deferred to Stage 7 (publish).** `changelog_entries` does NOT carry a `metadata` jsonb column today (verified against the Stage 1 backup). Stage 5's staged proposal describes the conceptual W4 metadata target; Stage 7 will decide the schema path (add the column / overwrite an existing field / use a separate label table). The staging file makes the operator's intent explicit so the schema decision is auditable.
+>
+> **Constraints honored (operator-locked):** No Supabase writes · No publish · No rollback execution · No recommendation queue mutation · No Profound archive/delete · No paid generation · No Apply-All-HIGH · No `/changes` UI redesign · No mutation of any preserved data field.
+>
+> **Next 3 actions (operator-gated):**
+> 1. **Operator review of Stage 5 staging output** — read `.data/_staging/w4-relabel-changelog-report.json` (full structured report). 5 sample proposals are in the report's `sampleProposals`. Decide whether `changelog_csv` (85 rows) should remain a target or be reclassified back to "skip" before Stage 7 publish.
+> 2. **Operator approval to design Stage 6 (verify)** — the 6-check verification harness from master plan §2.6: (1) `/today` renders with continuous chart; (2) `/changes` default tab unchanged + Pre-launch history collapsed; (3) `/pages` citation history continuous; (4) `/recommendations` queue byte-identical; (5) Z-score verdict math computes or abstains correctly with new regimes; (6) all architecture invariants pass. Stage 6 BLOCKS publish until all six are green.
+> 3. **(Future)** Stage 7 publish + Stage 8 rollback — gated by Stage 6 green AND explicit operator approval. Publish remains the only stage that mutates production.
+
 > 🟡 **W4 Stage 4 (copy-orphan-benchmarks dry-run) LANDED (2026-05-04):** Operator approved Stage 4 design + dry-run after Stage 3 acceptance. Stage 4 diffs production benchmark rows against Stage 3's recovered-derived snapshots (and any production native-derived snapshots), then emits derived twins ONLY for benchmarks that satisfy all three operator-locked criteria. **NO Supabase writes. NO live `.data/tenants/` mutation. Recommendation queue untouched.** Stages 5–8 (relabel-changelog / verify / publish / rollback) remain reserved + hard-fail.
 >
 > **Stage 4 dry-run result — `NO-OP` (zero derived twins emitted):**

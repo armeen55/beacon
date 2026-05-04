@@ -181,6 +181,7 @@ export const IMPLEMENTED_STAGES = new Set<Stage>([
   "extract-observations",
   "rederive-snapshots",
   "copy-orphan-benchmarks",
+  "relabel-changelog",
 ]);
 
 // ── CLI flags ───────────────────────────────────────────────────────────
@@ -556,6 +557,17 @@ async function main(): Promise<void> {
     });
     printCopyOrphanBenchmarksReport(report);
     process.exit(report.errors.length > 0 ? 7 : 0);
+    return;
+  }
+
+  if (flags.stage === "relabel-changelog") {
+    const report = await runRelabelChangelog({
+      tenantId,
+      tenantSlug,
+      dryRun: flags.dryRun,
+    });
+    printRelabelChangelogReport(report);
+    process.exit(report.errors.length > 0 ? 8 : 0);
     return;
   }
 
@@ -3352,6 +3364,499 @@ function printCopyOrphanBenchmarksReport(report: OrphanBenchmarkReport): void {
   );
   console.log(
     `Staged outputs: ${report.stagingDir}/w4-orphan-benchmarks.json + report.`,
+  );
+  console.log("══════════════════════════════════════════════════════════════════");
+  console.log("");
+}
+
+// ── Stage 5: relabel-changelog (staging only) ──────────────────────────
+//
+// Stage purpose (operator scope):
+//
+//   "Label pre-launch imported changelog rows so /changes can collapse
+//    them under 'Pre-launch history' instead of polluting the default
+//    operator view."
+//
+// Stage 5 reads `changelog_entries` from production Supabase
+// (read-only, paginated), identifies rows that match the legacy-import
+// criteria, skips rows that look live / verified / user-accepted, and
+// writes a staged JSON proposal describing the conceptual metadata
+// label changes. NO Supabase writes. NO live `.data/tenants/`
+// mutation. NO recommendation queue mutation.
+//
+// Key schema observation (verified against the Stage 1 backup):
+// `changelog_entries` does NOT carry a `metadata` jsonb column today.
+// `import_batch_id` is a top-level column already populated with
+// auto-generated values (e.g., `import-1776222344423`). The staged
+// proposal preserves the existing top-level value AND describes the
+// conceptual W4 metadata target — Stage 7 (publish) decides the
+// schema path: add a `metadata` jsonb column, or overwrite the
+// top-level column, or use a different field. The staging file
+// makes the operator's intent explicit so the schema decision is
+// auditable.
+//
+// Inclusion criteria (TARGETS):
+//   - source_system === "pdf_changelog_rebuild" (master plan §2.5)
+//   - source_system === "import"                (master plan §2.5)
+//   - source_system === "changelog_csv"         (operator scope:
+//                                                "or equivalent
+//                                                legacy import
+//                                                markers")
+//
+// Exclusion criteria (NEVER relabel):
+//   - source_system === "scan_detection"       — live scanner output
+//   - hypothesis_source === "recommendation"   — operator-accepted
+//                                                via recs queue
+//   - live_at !== null                          — proven live by
+//                                                scanner
+//   - W4 import_batch_id already set            — already labeled
+//   - source_system is null or unfamiliar      — defensive skip; the
+//                                                operator can review
+//                                                the report and
+//                                                decide
+//
+// Output: `.data/_staging/w4-relabel-changelog.json` (proposals) +
+//         `.data/_staging/w4-relabel-changelog-report.json` (counts).
+
+const W4_RELABEL_TARGETS: ReadonlySet<string> = new Set([
+  "pdf_changelog_rebuild",
+  "import",
+  "changelog_csv",
+]);
+
+const W4_RELABEL_BATCH_ID = "march-import-2026-04";
+const W4_RELABEL_DISPLAY_GROUP = "pre_launch_history";
+
+export type RelabelChangelogProposal = {
+  readonly id: string;
+  readonly source_system: string | null;
+  readonly previous: {
+    readonly import_batch_id: string | null;
+    readonly metadata: Record<string, unknown> | null;
+  };
+  readonly next: {
+    readonly import_batch_id: string | null;
+    readonly metadata: Record<string, unknown>;
+  };
+  readonly proposed_import_batch_id: string;
+  readonly proposed_display_group: string;
+  /** Snapshot of the data fields the relabel must NOT change. Stage
+   *  7 (publish) re-asserts byte equality against this snapshot. */
+  readonly preserved_fields: {
+    readonly timestamp: string;
+    readonly url: string | null;
+    readonly asset_name: string | null;
+    readonly change_description: string | null;
+    readonly created_at: string;
+    readonly archived: boolean;
+    readonly live_at: string | null;
+    readonly hypothesis_source: string | null;
+    readonly source_rec_id: string | null;
+  };
+};
+
+export type RelabelChangelogReport = {
+  readonly tenantId: string;
+  readonly tenantSlug: string;
+  readonly dryRun: boolean;
+  readonly stagingDir: string;
+  readonly extractionRunId: string;
+  readonly relabeledAt: string;
+  readonly counts: {
+    readonly totalRowsScanned: number;
+    readonly proposedRelabel: number;
+    readonly skippedBySourceSystem: number;
+    readonly skippedAlreadyLabeled: number;
+    readonly skippedLiveOrAccepted: number;
+    readonly skippedDangerous: number;
+  };
+  readonly proposalsBySourceSystem: Record<string, number>;
+  readonly skippedBySourceSystem: Record<string, number>;
+  readonly skippedReasonBreakdown: Record<string, number>;
+  readonly sampleProposals: ReadonlyArray<RelabelChangelogProposal>;
+  readonly recommendationSafety: {
+    readonly localRecommendedEditsRowCount: number | null;
+    readonly localRecommendationResponsesRowCount: number | null;
+  };
+  readonly noOp: boolean;
+  readonly errors: ReadonlyArray<string>;
+};
+
+/** Pure: decide whether a changelog row is a relabel candidate.
+ *  Returns either `{ relabel: true }` or `{ relabel: false, reason }`. */
+export function classifyChangelogRowForRelabel(row: {
+  readonly source_system: string | null;
+  readonly hypothesis_source: string | null;
+  readonly live_at: string | null;
+  readonly metadata?: Record<string, unknown> | null;
+  readonly import_batch_id?: string | null;
+}): { relabel: true } | { relabel: false; reason: string } {
+  const ss = row.source_system ?? "";
+
+  // Never relabel scanner-emitted rows — those are live observations.
+  if (ss === "scan_detection") {
+    return { relabel: false, reason: "scan_detection_is_live_scanner" };
+  }
+
+  // Operator-accepted via recs queue.
+  if (row.hypothesis_source === "recommendation") {
+    return { relabel: false, reason: "operator_accepted_recommendation" };
+  }
+
+  // Proven live by scanner.
+  if (row.live_at != null) {
+    return { relabel: false, reason: "live_at_is_set" };
+  }
+
+  // Already W4-labeled — skip (idempotent).
+  const md = row.metadata ?? {};
+  if (md.import_batch_id === W4_RELABEL_BATCH_ID) {
+    return { relabel: false, reason: "already_w4_labeled" };
+  }
+
+  // Target inclusion check.
+  if (!W4_RELABEL_TARGETS.has(ss)) {
+    return {
+      relabel: false,
+      reason:
+        ss.length === 0
+          ? "source_system_null"
+          : `source_system_not_in_targets:${ss}`,
+    };
+  }
+
+  return { relabel: true };
+}
+
+async function runRelabelChangelog(args: {
+  readonly tenantId: string;
+  readonly tenantSlug: string;
+  readonly dryRun: boolean;
+}): Promise<RelabelChangelogReport> {
+  const errors: string[] = [];
+  const cwd = process.cwd();
+  const stagingDir = join(cwd, ".data", "_staging");
+
+  // Pull the Stage 3/4 extraction_run_id (lineage continuity).
+  const stage3Path = join(stagingDir, "w4-rederived-snapshots.json");
+  let extractionRunId = "w4-relabel-unknown";
+  if (existsSync(stage3Path)) {
+    try {
+      const text = readFileSync(stage3Path, "utf-8");
+      const parsed = JSON.parse(text);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        const m = (parsed[0]?.metadata ?? {}) as Record<string, unknown>;
+        if (typeof m.extraction_run_id === "string") {
+          extractionRunId = m.extraction_run_id;
+        }
+      }
+    } catch {
+      // Soft fall-through; extraction_run_id is informational only.
+    }
+  }
+
+  // 1. Read changelog_entries from Supabase (paginated, read-only).
+  const { getSupabaseAdmin } = await import(
+    "../src/lib/persistence/supabase"
+  );
+  const sb = getSupabaseAdmin();
+  type ChangelogRow = {
+    id: string;
+    timestamp: string;
+    signal_type: string | null;
+    asset_type: string | null;
+    url: string | null;
+    asset_name: string | null;
+    change_description: string | null;
+    notes: string | null;
+    created_at: string;
+    updated_at: string;
+    source_system: string | null;
+    import_batch_id: string | null;
+    tenant_id: string;
+    archived: boolean | null;
+    archived_reason: string | null;
+    archived_at: string | null;
+    hypothesis_source: string | null;
+    source_rec_id: string | null;
+    live_at: string | null;
+    metadata?: Record<string, unknown> | null;
+  };
+
+  let allRows: ChangelogRow[] = [];
+  try {
+    const PAGE = 1000;
+    let from = 0;
+    while (true) {
+      const { data, error } = await sb
+        .from("changelog_entries")
+        .select("*")
+        .eq("tenant_id", args.tenantId)
+        .range(from, from + PAGE - 1);
+      if (error) throw error;
+      if (!data || data.length === 0) break;
+      allRows.push(...(data as ChangelogRow[]));
+      if (data.length < PAGE) break;
+      from += PAGE;
+    }
+  } catch (err) {
+    errors.push(
+      `changelog_entries read failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return emptyRelabelReport({
+      tenantId: args.tenantId,
+      tenantSlug: args.tenantSlug,
+      dryRun: args.dryRun,
+      stagingDir,
+      extractionRunId,
+      errors,
+    });
+  }
+
+  // 2. Classify each row.
+  const proposals: RelabelChangelogProposal[] = [];
+  const proposalsBySS: Record<string, number> = {};
+  const skippedBySS: Record<string, number> = {};
+  const skippedReasonBreakdown: Record<string, number> = {};
+  let skippedBySourceSystem = 0;
+  let skippedAlreadyLabeled = 0;
+  let skippedLiveOrAccepted = 0;
+  let skippedDangerous = 0;
+
+  for (const row of allRows) {
+    const verdict = classifyChangelogRowForRelabel(row);
+    if (verdict.relabel === false) {
+      skippedReasonBreakdown[verdict.reason] =
+        (skippedReasonBreakdown[verdict.reason] ?? 0) + 1;
+      const ss = row.source_system ?? "null";
+      skippedBySS[ss] = (skippedBySS[ss] ?? 0) + 1;
+      if (verdict.reason === "scan_detection_is_live_scanner") {
+        skippedBySourceSystem++;
+      } else if (verdict.reason === "already_w4_labeled") {
+        skippedAlreadyLabeled++;
+      } else if (
+        verdict.reason === "operator_accepted_recommendation" ||
+        verdict.reason === "live_at_is_set"
+      ) {
+        skippedLiveOrAccepted++;
+      } else if (
+        verdict.reason === "source_system_null" ||
+        verdict.reason.startsWith("source_system_not_in_targets")
+      ) {
+        skippedDangerous++;
+      } else {
+        skippedDangerous++;
+      }
+      continue;
+    }
+
+    const ss = row.source_system ?? "null";
+    proposalsBySS[ss] = (proposalsBySS[ss] ?? 0) + 1;
+
+    const previousMetadata = (row.metadata ?? null) as
+      | Record<string, unknown>
+      | null;
+
+    proposals.push({
+      id: row.id,
+      source_system: row.source_system,
+      previous: {
+        import_batch_id: row.import_batch_id,
+        metadata: previousMetadata,
+      },
+      next: {
+        // Operator scope: do NOT change the existing top-level
+        // import_batch_id column (preserves the original auto-gen
+        // run id for audit). The W4 label lives in metadata.
+        import_batch_id: row.import_batch_id,
+        metadata: {
+          ...(previousMetadata ?? {}),
+          import_batch_id: W4_RELABEL_BATCH_ID,
+          display_group: W4_RELABEL_DISPLAY_GROUP,
+          w4_extraction_run_id: extractionRunId,
+        },
+      },
+      proposed_import_batch_id: W4_RELABEL_BATCH_ID,
+      proposed_display_group: W4_RELABEL_DISPLAY_GROUP,
+      preserved_fields: {
+        timestamp: row.timestamp,
+        url: row.url,
+        asset_name: row.asset_name,
+        change_description: row.change_description,
+        created_at: row.created_at,
+        archived: row.archived ?? false,
+        live_at: row.live_at,
+        hypothesis_source: row.hypothesis_source,
+        source_rec_id: row.source_rec_id,
+      },
+    });
+  }
+
+  // 3. Recommendation safety (READ-ONLY check).
+  const recRowCount = countLocalArray(
+    join(cwd, ".data", "tenants", args.tenantSlug, "recommended-edits.json"),
+  );
+  const respRowCount = countLocalArray(
+    join(
+      cwd,
+      ".data",
+      "tenants",
+      args.tenantSlug,
+      "recommendation-responses.json",
+    ),
+  );
+
+  // 4. Write staged outputs.
+  mkdirSync(stagingDir, { recursive: true });
+  writeFileSync(
+    join(stagingDir, "w4-relabel-changelog.json"),
+    JSON.stringify(proposals, null, 2),
+    "utf-8",
+  );
+
+  const reportObj: RelabelChangelogReport = {
+    tenantId: args.tenantId,
+    tenantSlug: args.tenantSlug,
+    dryRun: args.dryRun,
+    stagingDir,
+    extractionRunId,
+    relabeledAt: new Date().toISOString(),
+    counts: {
+      totalRowsScanned: allRows.length,
+      proposedRelabel: proposals.length,
+      skippedBySourceSystem,
+      skippedAlreadyLabeled,
+      skippedLiveOrAccepted,
+      skippedDangerous,
+    },
+    proposalsBySourceSystem: proposalsBySS,
+    skippedBySourceSystem: skippedBySS,
+    skippedReasonBreakdown,
+    sampleProposals: proposals.slice(0, 5),
+    recommendationSafety: {
+      localRecommendedEditsRowCount: recRowCount,
+      localRecommendationResponsesRowCount: respRowCount,
+    },
+    noOp: proposals.length === 0,
+    errors,
+  };
+  writeFileSync(
+    join(stagingDir, "w4-relabel-changelog-report.json"),
+    JSON.stringify(reportObj, null, 2),
+    "utf-8",
+  );
+
+  return reportObj;
+}
+
+function emptyRelabelReport(args: {
+  tenantId: string;
+  tenantSlug: string;
+  dryRun: boolean;
+  stagingDir: string;
+  extractionRunId: string;
+  errors: string[];
+}): RelabelChangelogReport {
+  return {
+    tenantId: args.tenantId,
+    tenantSlug: args.tenantSlug,
+    dryRun: args.dryRun,
+    stagingDir: args.stagingDir,
+    extractionRunId: args.extractionRunId,
+    relabeledAt: new Date().toISOString(),
+    counts: {
+      totalRowsScanned: 0,
+      proposedRelabel: 0,
+      skippedBySourceSystem: 0,
+      skippedAlreadyLabeled: 0,
+      skippedLiveOrAccepted: 0,
+      skippedDangerous: 0,
+    },
+    proposalsBySourceSystem: {},
+    skippedBySourceSystem: {},
+    skippedReasonBreakdown: {},
+    sampleProposals: [],
+    recommendationSafety: {
+      localRecommendedEditsRowCount: null,
+      localRecommendationResponsesRowCount: null,
+    },
+    noOp: true,
+    errors: args.errors,
+  };
+}
+
+function printRelabelChangelogReport(report: RelabelChangelogReport): void {
+  console.log("");
+  console.log("══════════════════════════════════════════════════════════════════");
+  console.log("W4 STAGE 5 — RELABEL CHANGELOG REPORT");
+  console.log("══════════════════════════════════════════════════════════════════");
+  console.log(`tenant_id              : ${report.tenantId}`);
+  console.log(`tenant_slug            : ${report.tenantSlug}`);
+  console.log(`dry_run                : ${report.dryRun}`);
+  console.log(`staging_dir            : ${report.stagingDir}`);
+  console.log(`extraction_run_id      : ${report.extractionRunId}`);
+  console.log(`relabeled_at           : ${report.relabeledAt}`);
+  console.log("");
+  console.log("─ Counts ────────────────────────────────────────────────────────");
+  console.log(`  total_rows_scanned       : ${report.counts.totalRowsScanned}`);
+  console.log(`  proposed_relabel         : ${report.counts.proposedRelabel}`);
+  console.log(`  skipped_by_source_system : ${report.counts.skippedBySourceSystem}  (live scanner)`);
+  console.log(`  skipped_already_labeled  : ${report.counts.skippedAlreadyLabeled}`);
+  console.log(`  skipped_live_or_accepted : ${report.counts.skippedLiveOrAccepted}  (live_at != null OR hypothesis_source = recommendation)`);
+  console.log(`  skipped_dangerous        : ${report.counts.skippedDangerous}  (null source_system OR unfamiliar)`);
+  console.log("");
+  console.log("─ Proposals by source_system ────────────────────────────────────");
+  for (const [k, v] of Object.entries(report.proposalsBySourceSystem)) {
+    console.log(`  ${k.padEnd(28)} ${String(v).padStart(7)}`);
+  }
+  if (Object.keys(report.proposalsBySourceSystem).length === 0) {
+    console.log("  (none)");
+  }
+  console.log("");
+  console.log("─ Skipped by source_system ──────────────────────────────────────");
+  for (const [k, v] of Object.entries(report.skippedBySourceSystem)) {
+    console.log(`  ${k.padEnd(28)} ${String(v).padStart(7)}`);
+  }
+  console.log("");
+  console.log("─ Skipped by reason ─────────────────────────────────────────────");
+  for (const [k, v] of Object.entries(report.skippedReasonBreakdown)) {
+    console.log(`  ${k.padEnd(40)} ${String(v).padStart(7)}`);
+  }
+  console.log("");
+  console.log("─ UI copy planning ──────────────────────────────────────────────");
+  console.log(`  proposed import_batch_id : ${W4_RELABEL_BATCH_ID}`);
+  console.log(`  proposed display group   : ${W4_RELABEL_DISPLAY_GROUP}`);
+  console.log(`  /changes label change    : "Imported legacy" → "Pre-launch history"`);
+  console.log(`  (staging only — /changes UI copy + tab order are NOT modified by Stage 5)`);
+  console.log("");
+  console.log("─ Recommendation safety (read-only sanity check) ───────────────");
+  console.log(
+    `  local recommended_edits rows         : ${report.recommendationSafety.localRecommendedEditsRowCount ?? "(file absent)"}`,
+  );
+  console.log(
+    `  local recommendation_responses rows  : ${report.recommendationSafety.localRecommendationResponsesRowCount ?? "(file absent)"}`,
+  );
+  console.log("");
+  if (report.sampleProposals.length > 0) {
+    console.log("─ Sample relabel proposals (first 5) ────────────────────────────");
+    for (const p of report.sampleProposals) {
+      console.log(
+        `  · ${p.id} (source=${p.source_system}) → next.metadata.import_batch_id=${p.next.metadata.import_batch_id}`,
+      );
+    }
+    console.log("");
+  }
+  if (report.errors.length > 0) {
+    console.log("─ ERRORS ────────────────────────────────────────────────────────");
+    for (const e of report.errors) console.log(`  - ${e}`);
+    console.log("");
+  }
+  console.log("══════════════════════════════════════════════════════════════════");
+  console.log(
+    "Stage 5 complete. NO Supabase writes. NO live .data/tenants/ mutation.",
+  );
+  console.log(
+    `Staged outputs: ${report.stagingDir}/w4-relabel-changelog.json + report.`,
   );
   console.log("══════════════════════════════════════════════════════════════════");
   console.log("");
