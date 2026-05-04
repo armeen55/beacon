@@ -165,11 +165,42 @@ function subline(snap: PollHealthSnapshot): string {
   const partial = snap.platforms.filter((p) => p.status === "partial");
   const pending = snap.platforms.filter((p) => p.status === "pending");
 
+  // Bug-1 fix (2026-05-04): "failed" can mean two distinct things now —
+  //   (a) API call failure (key wrong, rate-limited, network) →
+  //       chunks themselves report run.status="failed".
+  //   (b) Persistence failure (chunks reported "completed" + scope_label
+  //       carried prompt counts, but Supabase rejected the rows and
+  //       zero landed). Detected by the cross-check in poll-health.ts:
+  //       completedChunks === expectedChunks AND failedChunks === 0
+  //       AND observationsWritten === 0.
+  // The copy now points at both surfaces (API + persistence + schema)
+  // and references CI logs in addition to GitHub Actions.
+  function isPersistenceFailure(p: PlatformPollHealth): boolean {
+    return (
+      p.status === "failed" &&
+      p.failedChunks === 0 &&
+      p.completedChunks > 0 &&
+      p.observationsWritten === 0
+    );
+  }
+
   if (failing.length === 2) {
-    return "Both platforms failed — check API keys and GitHub Actions logs.";
+    const allPersistence = failing.every(isPersistenceFailure);
+    if (allPersistence) {
+      return "Poll ran but no observations were saved on either platform. Check persistence (Supabase schema, dual-write logs) and GitHub Actions logs.";
+    }
+    const anyPersistence = failing.some(isPersistenceFailure);
+    if (anyPersistence) {
+      return "Both platforms failed — at least one was a persistence failure (chunks completed but no rows landed). Check persistence, schema, API keys, and GitHub Actions logs.";
+    }
+    return "Both platforms failed — check API keys, persistence, and GitHub Actions logs.";
   }
   if (failing.length === 1) {
-    return `${PLATFORM_LABELS[failing[0].platform]} failed all chunks — likely an API key or rate-limit issue.`;
+    const f = failing[0];
+    if (isPersistenceFailure(f)) {
+      return `${PLATFORM_LABELS[f.platform]} ran but no observations were saved. Check persistence (Supabase schema, dual-write logs) and GitHub Actions logs.`;
+    }
+    return `${PLATFORM_LABELS[f.platform]} failed all chunks — likely an API key, rate-limit, or persistence issue. Check API keys, persistence, and GitHub Actions logs.`;
   }
   if (partial.length > 0) {
     const names = partial

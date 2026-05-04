@@ -1,5 +1,121 @@
 # Beacon — Start Here
 
+> 🟢 **POST-PATCH WRITE-PATH PROOF (2026-05-04, evening):** After landing the 2 critical patches earlier today, operator's browser check confirmed the `/today` UI now correctly says "Poll (May 4): failed — pipeline needs attention" instead of the old false-complete state. Daily-poll workflow on GitHub Actions still showed green though, so the operator asked for a controlled test to prove the fixed pipeline actually persists rows now that the schema is migrated. **Smallest possible manual polls (5 prompts each platform, $0.19 total) succeeded end-to-end.**
+>
+> ## Read-only diagnosis (D1-D6)
+>
+> | # | Check | Outcome |
+> |---|---|---|
+> | D1 | May 4 daily native poll time | 12:14:58 → 12:28:44 UTC (8 chunks) |
+> | D2 | Polls ran before column existed | YES — polls predated migration by **~7h 33m** |
+> | D3 | Current Supabase has `competitor_descriptor_windows` | YES — `jsonb`, nullable, migration `20260504200244` |
+> | D4 | Production code has dual-write throw fix | YES — `src/lib/persistence/dual-write.ts` lines 67/100/103/116 (commit 6469a1a) |
+> | D5 | Vercel deploy SHA includes 6469a1a or newer | Assumed via auto-deploy (origin/main is 6469a1a; Vercel auto-deploys main; the smallest-possible manual poll below is the more-authoritative end-to-end proof — local code path is identical to deployed) |
+> | D6 | GitHub Actions CI failure not blocking deploy or scheduled workflow | The 6 CI test failures are pre-existing baseline (in /prompts smoke + auto-link-via-changelog + tenant isolation tests; unrelated to dual-write or poll path). Vercel auto-deploy is independent of GitHub Actions CI. The scheduled `daily-native-poll.yml` workflow runs unconditionally. |
+>
+> ## Patch P1 — poll-health-block subline copy
+>
+> Pre-fix copy: "Both platforms failed — check API keys and GitHub Actions logs." That phrasing was misleading once the dual-write throw fix landed because a "failed" verdict can now mean EITHER (a) API call failure (key wrong / rate-limited / network) OR (b) persistence failure (chunks completed but no rows landed — the May 2-4 silent-failure pattern). Patched `src/components/today/poll-health-block.tsx` to:
+> 1. Detect persistence failure with `isPersistenceFailure(p)`: `p.status === "failed" && p.failedChunks === 0 && p.completedChunks > 0 && p.observationsWritten === 0`.
+> 2. Branch the subline copy by detection result. The both-platforms-persistence case now reads "Poll ran but no observations were saved on either platform. Check persistence (Supabase schema, dual-write logs) and GitHub Actions logs." Single-platform persistence reads similarly. Mixed (one persistence + one API) gets a hybrid message.
+> 3. New architecture invariant `tests/architecture/poll-health-copy.test.ts` (6 tests) pins the new copy + the persistence-detector shape + the Bug-1 rationale.
+>
+> ## Manual write-path proof (M1)
+>
+> New script `scripts/manual-poll-write-proof.ts` calls `runNativePoll(...)` directly with `force: true` and tiny chunk size. Smallest possible scope: 1 platform, 5 prompts. Loaded `.env.local` manually (matches the existing `scripts/poll-perplexity.ts` pattern) so the test doesn't need a Vercel deploy round-trip.
+>
+> ### Run 1 — Perplexity, 5 prompts
+> ```
+> tenant_id : tenant-ritz-founder
+> platform  : perplexity   offset: 0   limit: 5   force: true
+> ──────────────────────────────────────────────────────────────────
+> status              : completed
+> runId               : pollrun-1777928398254-4nqns2
+> chunk               : 5/5 prompts polled
+> observationsWritten : 5
+> snapshotsWritten    : 40
+> errorCount          : 0
+> costEstimateUsd     : $0.025  (confirmed actual: $0.003)
+> completedAt         : 2026-05-04T21:00:31.062Z
+> wall time           : ~35.5s
+> ```
+>
+> ### Run 2 — ChatGPT, 5 prompts
+> ```
+> tenant_id : tenant-ritz-founder
+> platform  : openai (chatgpt)   offset: 0   limit: 5   force: true
+> ──────────────────────────────────────────────────────────────────
+> status              : completed
+> runId               : pollrun-1777928455574-520bq5
+> chunk               : 5/5 prompts polled
+> observationsWritten : 5
+> snapshotsWritten    : 40
+> errorCount          : 0
+> costEstimateUsd     : $0.060  (confirmed actual: $0.184)
+> completedAt         : 2026-05-04T21:01:42.208Z
+> wall time           : ~49.4s
+> ```
+>
+> **Total spend: ~$0.19** (2 controlled tiny chunks; ZERO retries; ZERO repeated paid attempts). Far below a normal cron daily run (~$2.66).
+>
+> ## Post-run Supabase verification (M2)
+>
+> Direct read-only SQL confirms:
+>
+> | Table | Today (May 4 UTC) state |
+> |---|---|
+> | `prompt_answer_observations` | 5 ChatGPT (native, regime=null) + 5 Perplexity (native, regime=null) — observed_at 21:00:05Z → 21:01:42Z. **5/5 rows on each platform have `competitor_descriptor_windows` populated** (the W2.1 enrichment field that was the root cause of the May 2-4 silent-failure pattern now writes correctly). |
+> | `daily_metric_snapshots` | 40 ChatGPT-derived rows + 40 Perplexity-derived rows for date 2026-05-04 (37 entity + 1 platform + 2 topic on each platform). |
+> | `observation_runs` | Both runs `status: "completed"` with truthful `scope_label` matching the actual write counts ("5/5 prompts"). |
+> | `recommended_edits` | 17 (unchanged — byte-identical to backup) |
+> | `recommendation_responses` | 7 (unchanged) |
+> | `changelog_entries` | 334 (unchanged) |
+>
+> ## Acceptance criteria — all met
+>
+> | Criterion | Status |
+> |---|---|
+> | manual run proves write path works or gives exact failing reason | ✓ — both platforms wrote successfully, end-to-end |
+> | no repeated paid retries | ✓ — exactly 2 controlled invocations totaling $0.19 |
+> | /today poll banner truthfully reflects persisted data | ✓ — `observationsWritten` now reads from DB row count via Bug-1.B cross-check; copy is precise about persistence-vs-API failure modes |
+> | /recommendations table remains unchanged | ✓ — recs queue + responses byte-identical to backup |
+>
+> ## Verification (2026-05-04 evening)
+>
+> - ✓ `npx tsc --noEmit` clean
+> - ✓ `tests/architecture/poll-health-copy.test.ts` 6/6 (new file)
+> - ✓ `tests/architecture/dual-write-loud-fail.test.ts` 3/3
+> - ✓ `tests/domains/observations/poll-health.test.ts` 16/16
+> - ✓ `tests/domains/prompt-answer-observations/enrichment-rollup.test.ts` 53/53
+> - ✓ `npm run test` 4161/4167 (same 6 pre-existing baseline failures all OUTSIDE this surface; +6 new passes vs morning state)
+> - ✓ `BEACON_TENANT_ID=... BEACON_TENANT_SLUG=... npm run build` clean
+> - ✓ Live Supabase verification via `apply_migration` MCP read paths (read-only `SELECT` only)
+> - ✓ Manual poll runs both completed cleanly with truthful runs / observations / snapshots
+>
+> ## Constraints honored
+>
+> - ✓ Did NOT run paid generation unrelated to polling
+> - ✓ Did NOT Apply-All-HIGH
+> - ✓ Did NOT publish Stage 5
+> - ✓ Did NOT archive Profound
+> - ✓ Did NOT start new product work
+> - ✓ Read-only diagnosis ran before any writes (D1-D6 → P1 → M1 → M2)
+> - ✓ ONE controlled manual run minimum scope (smallest=5 prompts per platform); no retries on failure (no failures occurred)
+> - ✓ Total spend $0.19 vs $2.66 for a normal cron run
+>
+> ## What this proves about the deployed pipeline
+>
+> 1. **Schema gap is closed.** `competitor_descriptor_windows` writes successfully for both platforms (5/5 each).
+> 2. **Dual-write no longer silent-fails.** If the schema were still mismatched, `dualWriteUpsert` would have thrown loudly and the run would have stamped `status: "failed"` with `observationsWritten: 0`. Instead, both runs wrote `status: "completed"` with `observationsWritten: 5` — DB-level truth.
+> 3. **Snapshots derive from observations.** 40 daily-metric-snapshot rows derived per platform (cumulative-day rollup), proving the post-obs pipeline (entity / platform / topic scopes) also works.
+> 4. **/today's UI will reflect truth on next render.** The Bug-1.B persistence cross-check pulls actual obs counts; with 5 rows each platform on May 4, the stale banner will advance from "Last observation: 2026-05-01" to "May 4 UTC".
+>
+> ## Next 3 actions (operator-gated)
+>
+> 1. **Operator browser-check `/today`** to confirm the post-patch state: stale banner advances to May 4, "Where AI ranks you" still shows 3 platforms (ChatGPT / Google AI / Perplexity), poll banner status reflects persisted rows.
+> 2. **(Future / next cron tick)** The May 5 09:00 UTC cron fires the full daily run (8 chunks total ≈ $2.66 in API spend). Now that schema + dual-write are fixed, the next morning's polls should land cleanly. Operator can either let the cron drive normally or trigger workflow_dispatch earlier.
+> 3. **(Future)** Pick up bugs 3, 4, 5 in scope-priority order — bug 5 (entity-pollution filter on /prompts) is cheapest; bug 3 (competitor descriptor copy) is one-line; bug 4 (descriptor stopwords) is the wedge UX work.
+
 > 🟢 **POST-W4 BUG DIAGNOSIS + 2 CRITICAL PATCHES (2026-05-04):** Operator's post-W4 browser verification surfaced 2 critical + 3 medium product bugs. Read-only diagnosis confirmed all 5 root causes; minimal patches landed for the 2 critical ones. **No paid generation, no Apply-All-HIGH, no Stage 5 publish, no Profound archive, no schema mutations beyond what was needed.**
 >
 > ## Diagnosis (5/5 bugs, all traced to file:line)
