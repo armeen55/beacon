@@ -1,5 +1,43 @@
 # Beacon — Start Here
 
+> 🟡 **W4 Stage 0 + Stage 1 LANDED (2026-05-04):** Customer-one historical backfill orchestrator scaffolded. Stage 0 preflight + Stage 1 backup wired and run cleanly; stages 2–8 (extract / rederive / copy-orphan / relabel / verify / publish / rollback) are reserved and hard-fail with "not yet implemented; awaiting operator approval" messages. **No production mutation.** `--dry-run` is the default; `--write` is required to actually export.
+>
+> **What landed:**
+>
+> 1. **`scripts/customer-one-backfill.ts`** (NEW, ~735 lines) — staged orchestrator with 9 stages enumerated. Today's commit implements stages 0 + 1 only. The `IMPLEMENTED_STAGES` set carries `["preflight", "backup"]`; every other stage routes through `validateStage` → `isReserved: true` → exit 2 with operator-actionable message. Unknown stages rejected with the valid-stages list. Same-day backup directory is blocked unless `--force-overwrite`. `--stage=publish` triggers a giant red warning before the unimplemented-stage gate fires (defense in depth). `LOCKED_CSV_MANIFEST` pins SHA-256 of the four canonical Profound CSVs at the moment W4 preflight ran (preflight aborts if any source file drifts).
+>
+> 2. **`tests/scripts/customer-one-backfill.test.ts`** (NEW, 35 cases) — operator-locked safety contracts: hash determinism (sha256 fixture matches the known `'hello world'` hash) · stage parsing rejects null / unknown / reserved · `IMPLEMENTED_STAGES` carries ONLY preflight + backup · `validateStage('publish').isReserved === true` · `shouldBlockSameDayBackup` covers all four cases · manifest summary aggregates correctly · `backupDirFor` is deterministic · `dateStringFor` returns YYYY-MM-DD · LOCKED_CSV_MANIFEST has all 4 CSVs with 64-char hex hashes · SUPABASE_TABLES_TO_BACKUP carries every table the operator's spec listed · ALL_STAGES enumerates all 9 stages · **source-scan invariants:** `runPreflight` body never calls `.insert/.update/.delete/.upsert` (read-only) · `runBackup` body never calls those either (Supabase read-only on backup too) · every `writeFileSync` target inside `runBackup` lands under `backupDir` · publish stage prints the giant warning.
+>
+> 3. **Stage 0 preflight executed clean** (read-only against live Supabase):
+>    - Supabase reachable ✓
+>    - `prompt_answer_observations`: **1,936 rows** (Apr 22 → May 1; native polling output only)
+>    - Schema-v2 coverage: 100% have `descriptor_window` / `source_system` / `competitor_co_mentions` / `answer_structure` · 78.31% have `citation_urls` (older Pre-Commit-7 native polls null) · 0% have `competitor_descriptor_windows` (W2 §2.1 field never landed in Supabase — pure backfill candidate) · 0% have `metadata.regime` (expected — that field exists for `historical_recovered` provenance only)
+>    - `daily_metric_snapshots`: 2,325 rows (1,380 benchmark + 945 derived; Apr 7 → May 1)
+>    - `recommended_edits`: 17 · `recommendation_responses`: 7 · `tracked_prompts`: 100 · `tracked_entities`: 40 · `changelog_entries`: 334
+>    - All 4 CSV hashes match the locked manifest ✓
+>    - **tracked_prompts ↔ CSV mapping: 100/100 case-insensitive exact match ✓**
+>    - `.data/_backups/` writable ✓
+>
+> 4. **Stage 1 backup executed clean** (`--write` flag set, single invocation): wrote 66 entries to `.data/_backups/pre-w4-backfill-2026-05-04/` totaling 65,728 rows / ~205 MB. Layout:
+>    - `supabase/` — 7 table exports (the source of truth)
+>    - `local/tenants/ritz-builders/` — 55 .data files (local cache snapshot)
+>    - `csv-source/` — 4 SHA-256 pin files for the Profound CSVs (NOT the 140 MB of CSV bytes; only the manifest entry)
+>    - `backup-manifest.json` (28 KB structured) + `backup-manifest.txt` (10 KB human-readable). Each entry carries `name` / `sourceOfTruth` / `rowCount` / `byteCount` / `sha256` / `timestamp` / `tenantId` / `tenantSlug` / `relativePath` per operator spec. Manifest also pins `scriptSha` (sha256 of the orchestrator source itself) so future restores correlate against `git log -- scripts/customer-one-backfill.ts`.
+>
+> 5. **Notable production-state findings** the prior preflight (2026-05-01) did not surface, now confirmed:
+>    - **The 14,096 historical Profound rows currently live ONLY in `.data/tenants/ritz-builders/prompt-answer-observations.json`** (local cache from a prior import run). Supabase production carries only the 1,936 native-poll observations (Apr 22 → May 1). Stage 2 (extract-observations) will need to push fresh `historical_recovered` rows INTO Supabase, not just rewrite local cache. The local 14K rows are pre-Schema-v2 (no `regime` / `source_system` / `extracted` metadata; no `descriptor_window` / `competitor_co_mentions` / `competitor_descriptor_windows` / `citation_urls` / `answer_structure` / `mention_position` / `citation_rank` / `primary_recommendation`) — they're the EXPECTED pre-W4 shape that W4 enriches.
+>    - `.data/tenants/ritz-builders/daily-metric-snapshots.json` shows 31,384 rows but Supabase has only 2,325. The local cache is stale (Apr 26 timestamp) and includes a snapshot regime the production DB never received.
+>    - `tracked_prompts` + `tracked_entities` are operator-shared GLOBAL tables (no `tenant_id` column per `dual-write.ts` `GLOBAL_TABLES`). The preflight accordingly reads them without tenant filter; the backup exports them in full as global registry snapshots.
+>
+> **Verification (2026-05-04):** `npx tsc --noEmit` clean · `tests/scripts/customer-one-backfill.test.ts` 35/35 pass · `npm run test` 3906/3912 (6 pre-existing baseline failures all OUTSIDE this surface — same UI smoke time-drift + tenant-isolation + auto-link-via-changelog tests confirmed in §3.11; net change: +35 passes, ±0 failures) · `BEACON_TENANT_ID=tenant-ritz-founder BEACON_TENANT_SLUG=ritz-builders npm run build` clean · Stage 0 report green · Stage 1 manifest written with 66 entries, all sha256 hashes verified, no Supabase mutations.
+>
+> **Constraints honored (operator-locked):** No production mutation. No Supabase writes (only reads + backup exports). No Profound code archive/delete. No paid generations. No Apply-All-HIGH. No `.data` cache mutation outside `.data/_backups/`. No execution of stages 2–8 (all hard-fail today).
+>
+> **Next 3 actions (operator-gated):**
+> 1. **Operator review of Stage 1 backup manifest** — read `.data/_backups/pre-w4-backfill-2026-05-04/backup-manifest.txt`, confirm 7 Supabase tables + 55 local files + 4 CSV pins are present, validate the rollback inputs are complete + recoverable.
+> 2. **Operator approval to design + run Stage 2 (extract-observations)** — pure compute, $0 LLM cost, deterministic. Streams the 14,096 raw CSV rows through Schema v2 extractors + stamps `historical_recovered` provenance, writes to `.data/_staging/w4-extracted-observations.json` (NEVER directly to Supabase or live `.data/tenants/`). Stage 2 stays staged-only until Stage 6 verification harness greenlights publish.
+> 3. **(Decision)** When publish lands, push fresh `historical_recovered` observations INTO Supabase (the source of truth) — the local `.data/tenants/ritz-builders/prompt-answer-observations.json` is stale cache and should be regenerated as part of publish, not used as input.
+
 > 🟢 **W3 Step 3.11 (Action Type Planner v0) LANDED (2026-05-04):** H2 + FAQ proved the safe-generation loop end-to-end (query fanout → evidence packet → LLM → validators → exact bundle replay → ranked action table). H2 / FAQ are not the whole product — Beacon must recommend the RIGHT website task type per cluster: create page, rewrite title, rewrite meta, rewrite H1, add H2 / section, improve copy, add FAQ, add schema, add internal links, add comparison table, technical fix, review decision. Step 3.11 ships the PLANNER (decision layer) only — not all the generators yet.
 >
 > **What landed:**

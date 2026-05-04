@@ -7,6 +7,95 @@
 
 ---
 
+## 2026-05-04 (evening) — W4 Stage 0 + Stage 1: customer-one historical backfill scaffold + first backup
+
+Operator approved running Stage 0 preflight + Stage 1 backup against the customer-one historical backfill scope. Stages 2–8 (extract / rederive / copy-orphan / relabel / verify / publish / rollback) are reserved + hard-fail today, awaiting separate operator approval.
+
+### Files
+
+**`scripts/customer-one-backfill.ts`** (NEW, ~735 lines) — staged orchestrator:
+- 9 stages enumerated; today's commit implements `preflight` + `backup` only.
+- `IMPLEMENTED_STAGES` set + `validateStage()` gate route every reserved stage to a non-zero exit with operator-actionable message.
+- Default mode is `--dry-run`; `--write` required to actually export.
+- Same-day backup directory blocked unless `--force-overwrite`.
+- `--stage=publish` triggers a giant red warning before the unimplemented-stage gate fires.
+- `LOCKED_CSV_MANIFEST` pins SHA-256 of the four canonical Profound CSVs at the moment W4 preflight ran (preflight aborts if any source file drifts).
+- `SUPABASE_TENANT_SCOPED_TABLES` vs `SUPABASE_GLOBAL_TABLES_TO_BACKUP` correctly model the tenant-scoping (operator-shared `tracked_prompts` + `tracked_entities` are global per `dual-write.ts` `GLOBAL_TABLES`).
+- Manifest entry shape per operator spec: name / sourceOfTruth / rowCount / byteCount / sha256 / timestamp / tenantId / tenantSlug / relativePath. Plus `scriptSha` pin so future restores correlate against `git log`.
+
+**`tests/scripts/customer-one-backfill.test.ts`** (NEW, 35 cases):
+- Hash function deterministic (`sha256OfBuffer` matches known sha256 of `"hello world"`; sensitive to one-char changes; identical for Buffer / Uint8Array / string of equal bytes).
+- Stage parsing: defaults to dry-run + null stage; `--stage=preflight` / `--stage=backup` / `--write` / `--force-overwrite` / `--help` parse correctly.
+- `validateStage`: accepts `preflight` + `backup`; rejects null with clear message; rejects unknown; rejects all 7 reserved stages with `isReserved: true`.
+- `IMPLEMENTED_STAGES` is exactly `["backup", "preflight"]`; `publish` / `extract-observations` / `rederive-snapshots` are reserved.
+- `shouldBlockSameDayBackup`: blocks when dir exists AND no `--force-overwrite`; allows when dir exists with override; allows when dir doesn't exist regardless.
+- `summarizeManifest` aggregates totalBytes / totalRows / per-source-of-truth counts; null rowCount entries excluded from totalRows.
+- `backupDirFor` produces deterministic `.data/_backups/pre-w4-backfill-YYYY-MM-DD` path; `dateStringFor` returns YYYY-MM-DD.
+- `LOCKED_CSV_MANIFEST` carries all 4 expected CSVs with 64-char hex hashes.
+- `SUPABASE_TABLES_TO_BACKUP` carries every table the operator's spec listed.
+- `ALL_STAGES` enumerates exactly the 9 W4 stages.
+- Source-scan invariants:
+  - `runPreflight` body never calls `.insert/.update/.delete/.upsert` (read-only).
+  - `runBackup` body never calls those either (Supabase read-only on backup too).
+  - Every `writeFileSync` target inside `runBackup` lands under `backupDir`.
+  - `mkdirSync` calls inside `runBackup` only create backup-scoped subdirectories.
+  - publish stage's giant warning is in the source.
+
+### Stage 0 preflight result (read-only)
+
+| Counter | Value |
+|---|---:|
+| Supabase reachable | yes |
+| `prompt_answer_observations` rows | 1,936 |
+| `prompt_answer_observations.observed_at` range | 2026-04-22 → 2026-05-01 |
+| Schema-v2 — withRegime | 0 (0.00%) — expected |
+| Schema-v2 — withSourceSystem | 1,936 (100%) |
+| Schema-v2 — withDescriptorWindow | 1,936 (100%) |
+| Schema-v2 — withCitationUrls | 1,516 (78.31%) |
+| Schema-v2 — withCompetitorCoMentions | 1,936 (100%) |
+| Schema-v2 — withCompetitorDescriptorWindows | 0 (0.00%) — W2 §2.1 not yet backfilled |
+| Schema-v2 — withAnswerStructure | 1,936 (100%) |
+| `daily_metric_snapshots` rows | 2,325 (1,380 benchmark + 945 derived) |
+| `daily_metric_snapshots.date` range | 2026-04-07 → 2026-05-01 |
+| `recommended_edits` rows | 17 |
+| `recommendation_responses` rows | 7 |
+| `tracked_prompts` rows | 100 |
+| `tracked_entities` rows | 40 |
+| `changelog_entries` rows | 334 |
+| CSV hash manifest match | 4/4 ✓ |
+| tracked_prompts ↔ CSV mapping | 100/100 case-insensitive exact ✓ |
+| `.data/_backups/` writable | ✓ |
+
+### Stage 1 backup result (`--write`)
+
+- Backup directory: `.data/_backups/pre-w4-backfill-2026-05-04/`
+- 66 manifest entries / 65,728 rows / 205 MB
+- `supabase/` 7 table exports · `local/tenants/ritz-builders/` 55 .data files · `csv-source/` 4 CSV SHA pins
+- `backup-manifest.json` (structured, 28 KB) + `backup-manifest.txt` (human-readable, 10 KB)
+- Script SHA pin for orchestrator provenance: `9bc193ed9fc78bb0...`
+
+### Production-state findings (notable, not blocking)
+
+- **Supabase has only 1,936 native observations**, all post-NATIVE_REGIME_START (Apr 22 → May 1). The 14,096 historical Profound rows currently live ONLY in `.data/tenants/ritz-builders/prompt-answer-observations.json` (local cache from a prior import run). Stage 2 will need to extract `historical_recovered` rows from the raw CSV and push them INTO Supabase; the local cache is pre-Schema-v2 (no `regime` / `source_system` / `extracted` metadata; no Schema v2/v2.1 fields) and should be regenerated as a publish artifact, not used as input.
+- `.data/tenants/ritz-builders/daily-metric-snapshots.json` shows 31,384 rows but Supabase has only 2,325. The local cache is stale (Apr 26 timestamp) and reflects a snapshot regime the production DB never received.
+- `tracked_prompts` + `tracked_entities` are operator-shared GLOBAL tables (per `dual-write.ts` `GLOBAL_TABLES`). The preflight reads them without tenant filter; backup exports them in full as global registry snapshots.
+
+### Verification
+
+- `npx tsc --noEmit` clean.
+- `tests/scripts/customer-one-backfill.test.ts` 35/35 pass.
+- `npm run test` 3906/3912 (6 pre-existing baseline failures all OUTSIDE this surface — same UI smoke time-drift + tenant-isolation + auto-link-via-changelog tests confirmed in §3.11; net change: +35 passes, ±0 failures).
+- `npm run build` clean.
+- Stage 0 preflight green; Stage 1 backup written with all 66 manifest entries verified.
+- Same-day overwrite block verified by re-invoking `--stage=backup --write`: skipped with operator-actionable message naming the existing dir.
+- Stages 2–8 hard-fail verified: each calls `validateStage` → `isReserved: true` → exit 2 with operator-actionable message.
+
+### Out of scope (operator-locked)
+
+No production mutation · No Supabase writes (reads + backup exports only) · No Profound code archive/delete · No paid generations · No Apply-All-HIGH · No `.data` cache mutation outside `.data/_backups/` · No Stage 2+ execution.
+
+---
+
 ## 2026-05-04 (afternoon) — W3 Step 3.11: Action Type Planner v0
 
 H2 + FAQ proved the safe-generation loop end-to-end. Step 3.11 builds the PLANNER layer that decides which of 12 task types Beacon should recommend per cluster — not just H2/FAQ. The planner is the decision layer; only `add_h2_section` + `add_faq` remain wired to safe generators today, and every other plan surfaces as a clearly-marked operator-handoff task in the existing ranked action table.
