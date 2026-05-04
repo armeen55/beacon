@@ -89,22 +89,31 @@ export async function dualWriteUpsert(
             lastErr instanceof Error ? lastErr.message : String(lastErr)
           }`,
         );
-        // When Supabase is the canonical read source, a silent write failure
-        // causes data loss on restart. Surface the error so callers can handle it.
-        if (process.env.DATA_SOURCE === "supabase") {
-          throw new Error(
-            `[dual-write] ${table}: ${lastErr instanceof Error ? lastErr.message : String(lastErr)}`,
-          );
-        }
+        // Bug-1 fix (2026-05-04): Supabase is now THE source of truth (W4
+        // core publish landed; CLAUDE.md's "Optimize for premium internal
+        // app" + the Supabase migration handoff). A persistent write
+        // failure that's silently swallowed causes data loss on restart
+        // AND produces the false-completed-poll signature that
+        // surfaced on May 2-4 (observation_runs stamped completed,
+        // observations rows never landed). Always throw.
+        //
+        // The previous `process.env.DATA_SOURCE === "supabase"` gate was
+        // a transitional safety net during the json-store → Supabase
+        // migration. That migration is done.
+        throw new Error(
+          `[dual-write] ${table}: ${lastErr instanceof Error ? lastErr.message : String(lastErr)}`,
+        );
       }
     }
   } catch (e) {
     console.error(
       `[dual-write] ${table}: unexpected error — ${e instanceof Error ? e.message : e}`,
     );
-    if (process.env.DATA_SOURCE === "supabase") {
-      throw e;
-    }
+    // Bug-1 fix (2026-05-04): see comment above. Always re-throw so the
+    // caller (and the cron handler / poll-health pipeline) can mark the
+    // run as failed instead of swallowing the error and showing a false
+    // "complete" status.
+    throw e;
   }
 }
 

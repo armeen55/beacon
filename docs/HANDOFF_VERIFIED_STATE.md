@@ -1,5 +1,102 @@
 # Beacon — Start Here
 
+> 🟢 **POST-W4 BUG DIAGNOSIS + 2 CRITICAL PATCHES (2026-05-04):** Operator's post-W4 browser verification surfaced 2 critical + 3 medium product bugs. Read-only diagnosis confirmed all 5 root causes; minimal patches landed for the 2 critical ones. **No paid generation, no Apply-All-HIGH, no Stage 5 publish, no Profound archive, no schema mutations beyond what was needed.**
+>
+> ## Diagnosis (5/5 bugs, all traced to file:line)
+>
+> ### Critical bug 1 — /today shows poll complete but observation data is 3d stale
+>
+> **Symptom (operator-observed):** `/today` says "Poll (May 4): complete · ChatGPT 4/4 · 100 prompts · Perplexity 4/4 · 100 prompts" while ALSO saying "Visibility data is 3d stale" and "Last observation: 2026-05-01."
+>
+> **Read-only Supabase diagnosis (post-W4 publish, pre-fix):**
+> - `prompt_answer_observations` for tenant-ritz-founder: 100 / 100 / 75 / 100 obs on Apr 30 chatgpt / Apr 30 perplexity / **May 1 chatgpt** / **May 1 perplexity**. **ZERO observations on May 2, May 3, May 4.**
+> - `daily_metric_snapshots` for tenant-ritz-founder: derived rows on Apr 30 + May 1 only. **ZERO snapshots on May 2-4.**
+> - `observation_runs` for tenant-ritz-founder: 4 chatgpt + 4 perplexity chunks per day on May 2, May 3, May 4 — every chunk `status: "completed"`, `scope_label` reports "25/25 prompts", $$ logged in cost ledger.
+>
+> **The stale banner ("Last observation: 2026-05-01") is CORRECT.** The poll-banner ("complete · 4/4 · 100 prompts") is wrong: it parsed the scope_label totals and reported them as the prompts count, but no rows actually persisted.
+>
+> **Root cause traced:** Commit `951ac51` (2026-05-01 14:56:14 -0700, Pacific = ~22:00 UTC) added `competitor_descriptor_windows` to the shared poll-adapter (`src/adapters/perplexity/poll.ts:591`; OpenAI's adapter is a thin wrapper over Perplexity's at `src/adapters/openai/poll.ts:24`). The W4 Stage 7 schema migration that added the matching column to production Supabase didn't land until **2026-05-04 ~20:08 UTC** — three days later. For the 3 days in between, every native poll's first batch was rejected by Supabase with PGRST204 ("column not in schema cache"). `dualWriteUpsert` (`src/lib/persistence/dual-write.ts:86-108`) logged the error to console.error but did NOT throw — the throw was gated behind `process.env.DATA_SOURCE === "supabase"`, which the cron environment didn't set. Each chunk's `observation_runs` row had been written via `syncRuns(...)` BEFORE `syncObs(...)` was invoked, so the runs stamped as `status: "completed"` even though zero rows persisted.
+>
+> ### Critical bug 2 — duplicate platform rows in /today's "Where AI ranks you"
+>
+> **Symptom:** ChatGPT appears twice (39% + 56%); Perplexity appears twice (42% + 39%); Google AI Overviews appears once (66%).
+>
+> **Root cause traced:** The W4 publish wrote 14,096 historical_recovered observations using capitalized platform labels (`"ChatGPT"`, `"Perplexity"`, `"Google AI Overviews"`) sourced from the OBSERVATION_PLATFORM_LABEL display map. Native polls (Apr 22+) write lowercase (`"chatgpt"`, `"perplexity"`). The enrichment rollups (`src/domains/prompt-answer-observations/enrichment-rollup.ts:87, 645, 766`) keyed Map buckets directly on `o.platform ?? "unknown"` — so `"chatgpt"` and `"ChatGPT"` ended up in two separate buckets, each rendering its own platform row. Confirmed via `SELECT platform, regime, count(*)`: 4,800 W4 ChatGPT (capitalized) + 833 native chatgpt (lowercase) + 4,800 W4 Perplexity + 1,103 native perplexity + 4,496 W4 Google AI Overviews.
+>
+> ### Medium bug 3 — competitor descriptor "warming up" copy
+>
+> **Diagnosis (no fix this turn):** `today-data.ts:389` sets `v2WindowDays = 7`. The competitor descriptor rollup operates on the last 7 days of observations only. W4's `competitor_descriptor_windows` data sits on rows from Mar 5-Apr 21 (historical_recovered) which fall OUTSIDE the 7-day window. Native rows from Apr 27-May 4 (the in-window range) don't carry `competitor_descriptor_windows` because (a) the column was missing on Supabase until May 4 ~20:08 UTC AND (b) the silent-fail bug 1 dropped May 2-4 polls entirely. **Behavior is intentional ("last 7 days only") but the copy is misleading.** Operator scoped patches to bugs 1+2 only; the copy fix is documented as a follow-up.
+>
+> ### Medium bug 4 — low-quality "How AI thinks you are" descriptors
+>
+> **Diagnosis (no fix this turn):** `src/domains/prompt-answer-observations/extraction.ts:159` defines `DESCRIPTOR_STOPWORDS` — generic English connectors + URL-noise. Domain-specific words like `custom`, `home`, `builder` are NOT stopwords; they appear because they're literally in the brand's descriptor windows ("custom home builder in Atherton" → 3 candidate descriptors). The fix needs a domain-vocabulary stopwords list AND/OR phrase extraction (so "custom home builder" becomes ONE token instead of three). Operator scoped this as no-rewrite-yet; documented as a follow-up.
+>
+> ### Medium bug 5 — General Contractors pollution on /prompts
+>
+> **Diagnosis (no fix this turn):** The entity-pollution-filter helpers (`src/domains/recommendations/entity-pollution-filter.ts` — `makeCompetitorRankingFilter`, `shouldExcludeFromCompetitorRanking`) are wired into `enrichment-rollup` and the recommendation engine, but are NOT used anywhere under `src/app/(shell)/prompts/` or `src/domains/prompts/`. Confirmed via grep. /prompts surfaces show raw competitor lists including directory entities like "General Contractors". Operator scoped this as note-only; documented as a follow-up.
+>
+> ### Medium product gap — /pages route not accessible
+>
+> **Diagnosis (no fix this turn):** Per the master plan §3.7, /pages was hidden from nav (Phase 3.5F decision 2026-04-17). It still routes when typed manually. Operator notes this as a post-W4 product gap because page/URL citation history is one of the main W4 benefits. Documented for the next phase.
+>
+> ## Patches applied (critical bugs only)
+>
+> ### Patch B1.A — `src/lib/persistence/dual-write.ts`: always throw on persistent error
+>
+> Dropped both `if (process.env.DATA_SOURCE === "supabase")` conditionals around the chunk-level `throw new Error(...)` and the outer-catch `throw e`. Inline rationale references Bug-1 + 2026-05-04 + the silent-failure pattern so future maintainers see WHY the gate was removed before reintroducing it. Architecture invariant `tests/architecture/dual-write-loud-fail.test.ts` (3 tests) pins:
+> 1. The `process.env.DATA_SOURCE === "supabase"` conditional is gone.
+> 2. The throw is retained (per-chunk + outer-catch re-throw).
+> 3. The Bug-1 + 2026-05-04 + silent-failure rationale is in the source.
+>
+> ### Patch B1.B — `src/domains/observations/poll-health.ts`: cross-check DB persistence
+>
+> `fetchPollHealthForDate(dateISO, tenantId?)` now also queries `prompt_answer_observations` for the day, scoped by tenant, counts rows per canonical platform via the new `canonicalizePollPlatform()` helper, and passes the actual counts as a third arg to `computePollHealthFromRuns`. `computePlatformHealth` accepts `actualObservationsPersisted: number | null`:
+> - **Legacy callers** (no third arg / null) → preserve old scope_label-derived behavior (every existing test still passes; +0 changes to legacy fixtures).
+> - **New callers** with actual count → `observationsWritten` reflects DB truth, NOT scope_label parsing. Status downgrades from `ok` → `failed` when `reportedFromScope > 0 && actualPersisted === 0` (the silent-failure signature). Partial shortfalls (e.g. 75/100 from one truncated chunk) keep the run-level status — that's a different fault class.
+> - The `today-data.ts` caller now passes `tenantId` so /today shows reality.
+> - 7 new tests in `tests/domains/observations/poll-health.test.ts` covering legacy fallback / silent-failure downgrade / partial / no-spurious-downgrade / cross-platform isolation / both whole-mode + chunk-mode paths.
+>
+> ### Patch B2 — `src/domains/prompt-answer-observations/enrichment-rollup.ts`: canonicalize platform
+>
+> New exported helper `canonicalizePlatform(raw)` maps `"chatgpt"`/`"ChatGPT"`/`"openai"`/`"OpenAI"` → `"chatgpt"`, `"perplexity"`/`"Perplexity"` → `"perplexity"`, `"Google AI Overviews"` (and 5 other variants) → `"google_aio"`, `"claude"` → `"claude"`. Returns lowercased input as fallback for unknown new platforms; `null/undefined` → `"unknown"`. Applied at all 3 platform-bucket-keying sites (lines 87, 645, 766). The display path (`platformLabel(...)` from `src/lib/structure-labels.ts`) already keys on lowercase forms so no UI map changes were needed. 14 new tests in `tests/domains/prompt-answer-observations/enrichment-rollup.test.ts` covering: helper behavior across all variants; native+W4 rows collapse for chatgpt; same for perplexity; Google AI Overviews stays as one row even alongside chatgpt+perplexity; sparkline section produces 3 rows not 5 (the operator's exact symptom); format-wins section also collapses.
+>
+> ## Operator-acceptance criteria — all met
+>
+> | Criterion | Status |
+> |---|---|
+> | /today stale banner agrees with actual latest observation/snapshot state | ✓ — banner reflects DB truth via persistence cross-check |
+> | If May 4 poll completed, May 4 data appears OR poll banner no longer falsely implies it | ✓ — silent-failure downgrade flips status from "ok" to "failed" when `persisted === 0` despite chunks reporting "complete" |
+> | "Where AI ranks you" shows each platform once | ✓ — canonical bucket keys; tests pin the operator's exact 5-row→3-row symptom |
+> | No "historical_recovered" debug language appears in main UI | ✓ — patches don't introduce any debug labels; all canonicalization is internal |
+> | /recommendations remains unchanged and clean | ✓ — full-suite shows recs tests still passing |
+>
+> ## Verification (2026-05-04)
+>
+> - ✓ `npx tsc --noEmit` clean
+> - ✓ `tests/domains/observations/poll-health.test.ts` 16/16 (was 9/9 + 7 new)
+> - ✓ `tests/architecture/dual-write-loud-fail.test.ts` 3/3 (new file)
+> - ✓ `tests/domains/prompt-answer-observations/enrichment-rollup.test.ts` 53/53 (was 39 + 14 new)
+> - ✓ `npm run test` 4155/4161 (6 pre-existing baseline failures all OUTSIDE this surface; +36 new passes vs Stage 7 success state)
+> - ✓ `BEACON_TENANT_ID=... BEACON_TENANT_SLUG=... npm run build` clean
+> - ✓ Read-only Supabase diagnosis confirmed root causes via direct SQL queries before patching (zero mutations during diagnosis)
+>
+> ## Constraints honored
+>
+> - ✓ Did NOT run paid generation
+> - ✓ Did NOT Apply-All-HIGH
+> - ✓ Did NOT publish Stage 5 relabel (still deferred per operator option D)
+> - ✓ Did NOT archive/delete Profound
+> - ✓ Did NOT start new action-type generator work
+> - ✓ Did NOT touch /recommendations rendering
+> - ✓ Did NOT mutate Supabase data (only read-only diagnosis SQL + the pre-existing W4 publish)
+> - ✓ Did NOT patch bugs 3, 4, 5 (operator scoped patches to critical only)
+>
+> ## Next 3 actions (operator-gated)
+>
+> 1. **Operator review of /today** — verify the stale banner now agrees with row-level truth and "Where AI ranks you" shows 3 rows (ChatGPT / Google AI / Perplexity) not 5. Browser smoke; nothing else changed.
+> 2. **(Future)** Re-run May 2-4 native polls (or wait for the May 5 cron at 09:00-12:00 UTC). Now that the schema column exists AND dual-write throws on failure, future polls either persist cleanly or fail loud.
+> 3. **(Future)** Pick up bugs 3, 4, 5 in scope-priority order — bug 5 (entity-pollution filter on /prompts) is the cheapest; bug 3 (competitor descriptor copy) is one-line; bug 4 (descriptor stopwords) is the wedge UX work that needs operator sequencing per the master plan.
+
 > 🟢 **W4 STAGE 7 CORE PUBLISH SUCCEEDED (2026-05-04):** Operator chose option 1 (add the missing column). One-line schema migration landed via Supabase `apply_migration`. Stage 6b + Stage 7 preconditions strengthened to catch staged-vs-target schema drift before batch 0. Re-running the operator-approved `--stage=publish --publish-scope=core --write` published all 14,096 W4 historical_recovered observations + 7,191 W4 historical_recovered snapshots in 44 batches over ~47 seconds with **zero failures, zero retries, zero improvised fixes.**
 >
 > **Schema migration applied (Supabase project `jdegznovgysxyweknewh`, name "beacon"):**

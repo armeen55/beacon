@@ -14,6 +14,42 @@ import type { PromptAnswerObservation } from "./types";
 import type { TrackedEntity } from "@/domains/tracked-entities/types";
 import { makeCompetitorRankingFilter } from "@/domains/recommendations/entity-pollution-filter";
 
+/**
+ * Bug-2 fix (2026-05-04): canonicalize platform values before using
+ * them as Map keys.
+ *
+ * Native polls (Apr 22+) store `o.platform` lowercase ("chatgpt",
+ * "perplexity"). W4 historical_recovered observations (Mar 5–Apr 21)
+ * carry the capitalized display variant ("ChatGPT", "Perplexity",
+ * "Google AI Overviews"). Without canonicalization, the rollup keys
+ * "chatgpt" and "ChatGPT" into separate buckets — surfacing as
+ * duplicate rows in /today's "Where AI ranks you", "What format
+ * wins", and per-platform enrichment.
+ *
+ * The returned key matches the lowercase forms in
+ * `src/lib/structure-labels.ts::PLATFORM_LABEL` so the UI label
+ * lookup keeps working without changes.
+ */
+export function canonicalizePlatform(
+  raw: string | null | undefined,
+): string {
+  if (!raw) return "unknown";
+  const lower = raw.trim().toLowerCase();
+  if (lower === "chatgpt" || lower === "openai") return "chatgpt";
+  if (lower === "perplexity") return "perplexity";
+  if (
+    lower === "google ai overviews" ||
+    lower === "google-ai-overviews" ||
+    lower === "google_ai_overviews" ||
+    lower === "google_aio" ||
+    lower === "aio"
+  ) {
+    return "google_aio";
+  }
+  if (lower === "claude") return "claude";
+  return lower; // fallback: whatever the data contains, lowercased
+}
+
 export type PlatformEnrichmentRollup = {
   platform: string;
   observations: number;
@@ -84,7 +120,8 @@ export function buildEnrichmentRollup(
     }
   >();
   for (const o of relevant) {
-    const key = o.platform ?? "unknown";
+    // Bug-2 fix: canonicalize so "chatgpt" + "ChatGPT" share one bucket.
+    const key = canonicalizePlatform(o.platform);
     let entry = byPlatformMap.get(key);
     if (!entry) {
       entry = {
@@ -605,7 +642,8 @@ export function buildPlatformPrimaryRateSparklines(
   let anyPrimaryFieldSeen = false;
   for (const o of input.observations) {
     if (!inWindow(o, startDate, input.endDate)) continue;
-    const platform = o.platform ?? "unknown";
+    // Bug-2 fix: canonicalize so "chatgpt"/"ChatGPT" share one sparkline.
+    const platform = canonicalizePlatform(o.platform);
     const date = o.observed_at?.slice(0, 10);
     if (!date) continue;
     let dayMap = buckets.get(platform);
@@ -725,7 +763,8 @@ export function buildFormatWinsRollup(
   const byPlatform = new Map<string, Map<string, number>>();
   for (const o of input.observations) {
     if (!inWindow(o, startDate, input.endDate)) continue;
-    const platform = o.platform ?? "unknown";
+    // Bug-2 fix: canonicalize so "chatgpt"/"ChatGPT" share one row.
+    const platform = canonicalizePlatform(o.platform);
     const structure = o.answer_structure;
     if (!structure) continue;
     let s = byPlatform.get(platform);

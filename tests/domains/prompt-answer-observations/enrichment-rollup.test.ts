@@ -7,6 +7,7 @@ import {
   buildPlatformPrimaryRateSparklines,
   buildFormatWinsRollup,
   buildCompetitorDropdown,
+  canonicalizePlatform,
 } from "@/domains/prompt-answer-observations/enrichment-rollup";
 import type { TrackedEntity } from "@/domains/tracked-entities/types";
 
@@ -1206,5 +1207,249 @@ describe("all rollup helpers honor the same windowDays + endDate window", () => 
       "legacy",
     );
     expect(competitor.topDescriptors.map((d) => d.word)).not.toContain("legacy");
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// Bug-2 fix (2026-05-04): canonicalizePlatform — collapse platform-name
+// case variants into one bucket so /today's "Where AI ranks you" + "What
+// format wins" don't render duplicate rows for ChatGPT and Perplexity.
+// ──────────────────────────────────────────────────────────────────────
+//
+// Operator-reported (post-W4 publish):
+//   "Where AI ranks you" showed:
+//     ChatGPT Primary 39%
+//     Google AI Overviews Primary 66%
+//     Perplexity Primary 42%
+//     ChatGPT Primary 56%      ← duplicate
+//     Perplexity Primary 39%   ← duplicate
+//
+// Root cause: the rollup used `o.platform ?? "unknown"` directly as the
+// bucket key. Native polls (Apr 22+) wrote `"chatgpt"` (lowercase); the
+// W4 publish wrote `"ChatGPT"` (capitalized). Two distinct buckets →
+// two rendered rows.
+//
+// Fix: canonicalize before bucket-keying. The `PLATFORM_LABEL` map in
+// `src/lib/structure-labels.ts` already keys on lowercase forms, so the
+// UI display continues to work.
+
+describe("Bug-2 — canonicalizePlatform", () => {
+  it("maps both 'chatgpt' and 'ChatGPT' (and 'openai' / 'OpenAI') to 'chatgpt'", () => {
+    expect(canonicalizePlatform("chatgpt")).toBe("chatgpt");
+    expect(canonicalizePlatform("ChatGPT")).toBe("chatgpt");
+    expect(canonicalizePlatform("CHATGPT")).toBe("chatgpt");
+    expect(canonicalizePlatform("openai")).toBe("chatgpt");
+    expect(canonicalizePlatform("OpenAI")).toBe("chatgpt");
+  });
+
+  it("maps 'perplexity' / 'Perplexity' to 'perplexity'", () => {
+    expect(canonicalizePlatform("perplexity")).toBe("perplexity");
+    expect(canonicalizePlatform("Perplexity")).toBe("perplexity");
+    expect(canonicalizePlatform("PERPLEXITY")).toBe("perplexity");
+  });
+
+  it("maps W4 'Google AI Overviews' display variant to canonical 'google_aio'", () => {
+    expect(canonicalizePlatform("Google AI Overviews")).toBe("google_aio");
+    expect(canonicalizePlatform("google ai overviews")).toBe("google_aio");
+    expect(canonicalizePlatform("google-ai-overviews")).toBe("google_aio");
+    expect(canonicalizePlatform("google_ai_overviews")).toBe("google_aio");
+    expect(canonicalizePlatform("google_aio")).toBe("google_aio");
+    expect(canonicalizePlatform("aio")).toBe("google_aio");
+  });
+
+  it("maps 'claude' to 'claude'", () => {
+    expect(canonicalizePlatform("Claude")).toBe("claude");
+    expect(canonicalizePlatform("claude")).toBe("claude");
+  });
+
+  it("returns 'unknown' for null/undefined", () => {
+    expect(canonicalizePlatform(null)).toBe("unknown");
+    expect(canonicalizePlatform(undefined)).toBe("unknown");
+  });
+
+  it("falls back to lowercased input for unknown new platforms", () => {
+    expect(canonicalizePlatform("Gemini")).toBe("gemini");
+    expect(canonicalizePlatform("CoPilot")).toBe("copilot");
+  });
+
+  it("trims whitespace before mapping", () => {
+    expect(canonicalizePlatform("  ChatGPT  ")).toBe("chatgpt");
+  });
+});
+
+describe("Bug-2 — buildEnrichmentRollup collapses case variants into one platform bucket", () => {
+  it("'chatgpt' (native) + 'ChatGPT' (W4 historical) bucket as ONE platform", () => {
+    const observations: PromptAnswerObservation[] = [
+      // 2 native lowercase rows
+      obs({
+        id: "o1",
+        platform: "chatgpt",
+        observed_at: "2026-05-01T10:00:00Z",
+        primary_recommendation: true,
+      }),
+      obs({
+        id: "o2",
+        platform: "chatgpt",
+        observed_at: "2026-05-01T10:01:00Z",
+        primary_recommendation: false,
+      }),
+      // 1 W4 capitalized row
+      obs({
+        id: "o3",
+        platform: "ChatGPT",
+        observed_at: "2026-05-01T10:02:00Z",
+        primary_recommendation: true,
+      }),
+    ];
+    const rollup = buildEnrichmentRollup({ observations, date: "2026-05-01" });
+    // Should be ONE bucket with platform = "chatgpt" (canonical form),
+    // observations = 3, primaryCount = 2, primaryRate = 0.67.
+    expect(rollup.byPlatform).toHaveLength(1);
+    expect(rollup.byPlatform[0].platform).toBe("chatgpt");
+    expect(rollup.byPlatform[0].observations).toBe(3);
+    expect(rollup.byPlatform[0].primaryCount).toBe(2);
+  });
+
+  it("native + W4 perplexity ALSO collapses (parity with chatgpt)", () => {
+    const observations: PromptAnswerObservation[] = [
+      obs({
+        id: "p1",
+        platform: "perplexity",
+        observed_at: "2026-05-01T10:00:00Z",
+      }),
+      obs({
+        id: "p2",
+        platform: "Perplexity",
+        observed_at: "2026-05-01T10:01:00Z",
+      }),
+    ];
+    const rollup = buildEnrichmentRollup({ observations, date: "2026-05-01" });
+    expect(rollup.byPlatform).toHaveLength(1);
+    expect(rollup.byPlatform[0].platform).toBe("perplexity");
+    expect(rollup.byPlatform[0].observations).toBe(2);
+  });
+
+  it("Google AI Overviews stays as ONE row even alongside ChatGPT + Perplexity", () => {
+    const observations: PromptAnswerObservation[] = [
+      obs({ id: "c1", platform: "chatgpt", observed_at: "2026-05-01T10:00:00Z" }),
+      obs({ id: "c2", platform: "ChatGPT", observed_at: "2026-05-01T10:01:00Z" }),
+      obs({ id: "p1", platform: "perplexity", observed_at: "2026-05-01T10:02:00Z" }),
+      obs({ id: "p2", platform: "Perplexity", observed_at: "2026-05-01T10:03:00Z" }),
+      obs({
+        id: "g1",
+        platform: "Google AI Overviews",
+        observed_at: "2026-05-01T10:04:00Z",
+      }),
+    ];
+    const rollup = buildEnrichmentRollup({ observations, date: "2026-05-01" });
+    const platforms = rollup.byPlatform.map((p) => p.platform).sort();
+    // Exactly 3 canonical platforms.
+    expect(platforms).toEqual(["chatgpt", "google_aio", "perplexity"]);
+  });
+});
+
+describe("Bug-2 — buildPlatformPrimaryRateSparklines collapses case variants", () => {
+  it("'chatgpt' + 'ChatGPT' across days share one sparkline", () => {
+    const observations: PromptAnswerObservation[] = [
+      obs({
+        id: "n1",
+        platform: "chatgpt",
+        observed_at: "2026-04-30T10:00:00Z",
+        primary_recommendation: true,
+      }),
+      obs({
+        id: "n2",
+        platform: "ChatGPT",
+        observed_at: "2026-04-29T10:00:00Z",
+        primary_recommendation: false,
+      }),
+    ];
+    const sparklines = buildPlatformPrimaryRateSparklines({
+      observations,
+      endDate: "2026-04-30",
+      windowDays: 7,
+    });
+    expect(sparklines.length).toBe(1);
+    expect(sparklines[0].platform).toBe("chatgpt");
+    // Both observations contributed → totalObservations === 2
+    expect(sparklines[0].totalObservations).toBe(2);
+  });
+
+  it("operator's exact symptom: 5 observations across 3 platforms (2 case variants on each of chatgpt + perplexity) → 3 rows not 5", () => {
+    const observations: PromptAnswerObservation[] = [
+      obs({
+        id: "a",
+        platform: "chatgpt",
+        observed_at: "2026-04-30T10:00:00Z",
+        primary_recommendation: true,
+      }),
+      obs({
+        id: "b",
+        platform: "ChatGPT",
+        observed_at: "2026-04-30T10:01:00Z",
+        primary_recommendation: true,
+      }),
+      obs({
+        id: "c",
+        platform: "perplexity",
+        observed_at: "2026-04-30T10:02:00Z",
+        primary_recommendation: true,
+      }),
+      obs({
+        id: "d",
+        platform: "Perplexity",
+        observed_at: "2026-04-30T10:03:00Z",
+        primary_recommendation: false,
+      }),
+      obs({
+        id: "e",
+        platform: "Google AI Overviews",
+        observed_at: "2026-04-30T10:04:00Z",
+        primary_recommendation: true,
+      }),
+    ];
+    const sparklines = buildPlatformPrimaryRateSparklines({
+      observations,
+      endDate: "2026-04-30",
+      windowDays: 14,
+    });
+    const platforms = sparklines.map((s) => s.platform).sort();
+    expect(platforms).toEqual(["chatgpt", "google_aio", "perplexity"]);
+  });
+});
+
+describe("Bug-2 — buildFormatWinsRollup collapses case variants", () => {
+  it("'chatgpt' + 'ChatGPT' answer_structures bucket together", () => {
+    const observations: PromptAnswerObservation[] = [
+      obs({
+        id: "f1",
+        platform: "chatgpt",
+        observed_at: "2026-04-30T10:00:00Z",
+        answer_structure: "ranked_list",
+      }),
+      obs({
+        id: "f2",
+        platform: "ChatGPT",
+        observed_at: "2026-04-29T10:00:00Z",
+        answer_structure: "ranked_list",
+      }),
+      obs({
+        id: "f3",
+        platform: "ChatGPT",
+        observed_at: "2026-04-28T10:00:00Z",
+        answer_structure: "narrative",
+      }),
+    ];
+    const rollups = buildFormatWinsRollup({
+      observations,
+      endDate: "2026-04-30",
+      windowDays: 7,
+    });
+    expect(rollups.length).toBe(1);
+    expect(rollups[0].platform).toBe("chatgpt");
+    // Total observations carrying answer_structure = 3, ranked_list = 2 (66%),
+    // narrative = 1 (33%).
+    expect(rollups[0].sampleCount).toBe(3);
+    expect(rollups[0].dominantStructure).toBe("ranked_list");
   });
 });

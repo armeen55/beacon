@@ -200,3 +200,145 @@ describe("todayISOUtc", () => {
     );
   });
 });
+
+// ──────────────────────────────────────────────────────────────────────
+// Bug-1 fix (2026-05-04): persistence cross-check
+// ──────────────────────────────────────────────────────────────────────
+//
+// Operator-reported (post-W4 publish):
+//   /today says "Poll (May 4): complete · 4/4 · 100 prompts"
+//   but also "Visibility data is 3d stale · Last observation: 2026-05-01"
+//
+// Root cause: between May 1 ~22:00 UTC and May 4 ~20:08 UTC, the shared
+// poll-adapter wrote `competitor_descriptor_windows` into every observation.
+// The target Supabase table didn't have that column. dual-write.ts
+// silently swallowed the PGRST204 error (because DATA_SOURCE wasn't set
+// to "supabase"), so observation_runs stamped as `completed` with
+// "25/25 prompts" in scope_label even though ZERO rows persisted.
+//
+// The fix has two parts:
+//   1. dual-write.ts now always throws on persistent error (covered in
+//      tests/persistence/dual-write-tenant.test.ts).
+//   2. poll-health.ts cross-checks the actual `prompt_answer_observations`
+//      row count for the day-platform-tenant. When the chunk total said
+//      `ok` with non-zero scope_label totals but DB has zero, downgrade
+//      to "failed". (Pinned below.)
+
+describe("Bug-1 — persistence cross-check downgrades silent-failure 'ok' to 'failed'", () => {
+  const date = "2026-05-02";
+  const t = (hour: number, minute = 0): string =>
+    new Date(Date.UTC(2026, 4, 2, hour, minute, 0)).toISOString();
+
+  function fourCompletedChatGptChunks(): ObservationRun[] {
+    return [
+      chunkRun("openai-native-poll", 0, "completed", 25, t(10, 12)),
+      chunkRun("openai-native-poll", 25, "completed", 25, t(10, 16)),
+      chunkRun("openai-native-poll", 50, "completed", 25, t(10, 20)),
+      chunkRun("openai-native-poll", 75, "completed", 25, t(10, 24)),
+    ];
+  }
+
+  it("legacy callers (no actual count) keep scope_label totals + status", () => {
+    const runs = fourCompletedChatGptChunks();
+    const snap = computePollHealthFromRuns(date, runs);
+    const chatgpt = snap.platforms.find((p) => p.platform === "chatgpt")!;
+    expect(chatgpt.status).toBe("ok");
+    expect(chatgpt.observationsWritten).toBe(100);
+  });
+
+  it("when DB persistence === 0 despite 'ok' chunks, status downgrades to 'failed' AND observationsWritten reflects DB truth", () => {
+    const runs = fourCompletedChatGptChunks();
+    const snap = computePollHealthFromRuns(date, runs, {
+      chatgpt: 0,
+      perplexity: 0,
+    });
+    const chatgpt = snap.platforms.find((p) => p.platform === "chatgpt")!;
+    // The May 2-4 silent-failure signature.
+    expect(chatgpt.status).toBe("failed");
+    expect(chatgpt.observationsWritten).toBe(0);
+    // Chunk counts still reflect what the runs reported (informational).
+    expect(chatgpt.completedChunks).toBe(4);
+    expect(chatgpt.failedChunks).toBe(0);
+  });
+
+  it("when DB persistence equals scope_label totals, status stays 'ok' (no false downgrade)", () => {
+    const runs = fourCompletedChatGptChunks();
+    const snap = computePollHealthFromRuns(date, runs, {
+      chatgpt: 100,
+      perplexity: 0,
+    });
+    const chatgpt = snap.platforms.find((p) => p.platform === "chatgpt")!;
+    expect(chatgpt.status).toBe("ok");
+    expect(chatgpt.observationsWritten).toBe(100);
+  });
+
+  it("when DB persistence is partial (e.g. one chunk truncated), keep run-level status but report DB count", () => {
+    // Operator-known: May 1 ChatGPT had 75/100 obs landed (one chunk
+    // truncated). The chunk reports "ok" because all 4 ran; the
+    // downgrade logic only fires for FULL silence (persisted === 0
+    // with reported > 0). Partial shortfalls remain "ok" with the
+    // DB count surfaced as truth.
+    const runs = fourCompletedChatGptChunks();
+    const snap = computePollHealthFromRuns(date, runs, {
+      chatgpt: 75,
+      perplexity: 0,
+    });
+    const chatgpt = snap.platforms.find((p) => p.platform === "chatgpt")!;
+    expect(chatgpt.status).toBe("ok");
+    expect(chatgpt.observationsWritten).toBe(75);
+  });
+
+  it("legacy whole-mode runs ALSO downgrade when persistence is missing", () => {
+    const runs: ObservationRun[] = [
+      makeRun({
+        source: "perplexity-native-poll",
+        status: "completed",
+        scope_label: "Native perplexity poll · 100/100 prompts",
+        started_at: t(10, 0),
+      }),
+    ];
+    // Legacy call path: no third arg → preserves old behavior.
+    const legacy = computePollHealthFromRuns(date, runs);
+    const legacyPerp = legacy.platforms.find((p) => p.platform === "perplexity")!;
+    expect(legacyPerp.status).toBe("ok");
+    expect(legacyPerp.observationsWritten).toBe(100);
+
+    // New call path with actual=0 → downgrade.
+    const truth = computePollHealthFromRuns(date, runs, {
+      chatgpt: 0,
+      perplexity: 0,
+    });
+    const truthPerp = truth.platforms.find((p) => p.platform === "perplexity")!;
+    expect(truthPerp.status).toBe("failed");
+    expect(truthPerp.observationsWritten).toBe(0);
+  });
+
+  it("zero runs + zero persistence stays 'pending' (no spurious downgrade)", () => {
+    const snap = computePollHealthFromRuns(date, [], {
+      chatgpt: 0,
+      perplexity: 0,
+    });
+    for (const p of snap.platforms) {
+      expect(p.status).toBe("pending");
+      expect(p.observationsWritten).toBe(0);
+    }
+  });
+
+  it("partial-persistence on one platform doesn't bleed into the other platform's status", () => {
+    const runs = [
+      ...fourCompletedChatGptChunks(),
+      chunkRun("perplexity-native-poll", 0, "completed", 25, t(10, 14)),
+      chunkRun("perplexity-native-poll", 25, "completed", 25, t(10, 18)),
+      chunkRun("perplexity-native-poll", 50, "completed", 25, t(10, 22)),
+      chunkRun("perplexity-native-poll", 75, "completed", 25, t(10, 26)),
+    ];
+    const snap = computePollHealthFromRuns(date, runs, {
+      chatgpt: 0, // silently failed
+      perplexity: 100, // persisted cleanly
+    });
+    const chatgpt = snap.platforms.find((p) => p.platform === "chatgpt")!;
+    const perplexity = snap.platforms.find((p) => p.platform === "perplexity")!;
+    expect(chatgpt.status).toBe("failed");
+    expect(perplexity.status).toBe("ok");
+  });
+});

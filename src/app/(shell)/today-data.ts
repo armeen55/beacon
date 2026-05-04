@@ -327,7 +327,11 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
   // channel; this block is the passive-observation one.
   let pollHealth: PollHealthSnapshot | null = null;
   try {
-    pollHealth = await fetchPollHealthForDate(todayISOUtc());
+    // Bug-1 fix (2026-05-04): pass tenantId so poll-health can
+    // cross-check actual prompt_answer_observations row counts against
+    // the scope_label parsed from observation_runs. Catches the silent
+    // dual-write failure pattern that surfaced May 2-4.
+    pollHealth = await fetchPollHealthForDate(todayISOUtc(), tenantId);
   } catch (err) {
     console.error("Today poll-health fetch failed:", err);
     pollHealth = null;

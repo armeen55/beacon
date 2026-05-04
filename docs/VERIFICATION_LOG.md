@@ -7,6 +7,98 @@
 
 ---
 
+## 2026-05-04 — Post-W4 bug diagnosis + 2 critical patches (silent dual-write failure + duplicate platform rows)
+
+Operator's post-W4 browser verification flagged 2 critical + 3 medium product bugs. Read-only diagnosis traced all 5 to file:line + root cause. Minimal patches applied for the 2 critical bugs only; bugs 3, 4, 5 documented for follow-up. No paid generation, no Apply-All-HIGH, no Stage 5 publish, no Profound archive, no schema mutations beyond what was already needed.
+
+### Critical bug 1 — /today says poll complete + 4/4 chunks but data is 3d stale
+
+Read-only Supabase diagnosis (post-W4 publish):
+- `prompt_answer_observations` for tenant-ritz-founder: ZERO obs on May 2, May 3, May 4 (despite `observation_runs` showing 4 chatgpt + 4 perplexity chunks per day, all `status: completed`, all "25/25 prompts" in scope_label, all $$ logged).
+- `daily_metric_snapshots`: ZERO snaps on May 2-4 (consequence of zero obs).
+- Stale banner ("Last observation: 2026-05-01") was CORRECT. Poll banner was WRONG.
+
+Root cause traced:
+- Commit `951ac51` (2026-05-01 ~22:00 UTC) added `competitor_descriptor_windows` to the shared poll-adapter (`src/adapters/perplexity/poll.ts:591`; OpenAI's adapter is a thin wrapper).
+- The W4 Stage 7 schema migration that added the matching column to Supabase didn't land until 2026-05-04 ~20:08 UTC — three days later.
+- Every native poll's first batch from May 2 morning until May 4 ~20:08 UTC was rejected with PGRST204 ("column not in schema cache").
+- `dualWriteUpsert` (`src/lib/persistence/dual-write.ts:86-108`) logged the error to console.error but did NOT throw — the throw was gated behind `process.env.DATA_SOURCE === "supabase"`, which the cron environment didn't set.
+- Each chunk's `observation_runs` row had been written via `syncRuns(...)` BEFORE `syncObs(...)` was invoked, so the runs stamped `status: "completed"` even though zero rows persisted.
+
+### Critical bug 2 — duplicate platform rows in "Where AI ranks you"
+
+Read-only diagnosis: distinct platform values + counts on `prompt_answer_observations`:
+
+| platform | regime | rows | dates |
+|---|---|---:|---|
+| `chatgpt` (lowercase) | null (native) | 833 | Apr 23 - May 1 |
+| `ChatGPT` (capitalized) | historical_recovered | 4,800 | Mar 5 - Apr 21 |
+| `Google AI Overviews` | historical_recovered | 4,496 | Mar 5 - Apr 21 |
+| `perplexity` (lowercase) | null (native) | 1,103 | Apr 22 - May 1 |
+| `Perplexity` (capitalized) | historical_recovered | 4,800 | Mar 5 - Apr 21 |
+
+W4 publish wrote capitalized labels (sourced from OBSERVATION_PLATFORM_LABEL display map); native polls write lowercase. The enrichment rollups (`src/domains/prompt-answer-observations/enrichment-rollup.ts:87, 645, 766`) keyed Map buckets directly on `o.platform ?? "unknown"`, so case variants ended up in separate buckets — exactly the operator's symptom of 5 rows instead of 3.
+
+### Medium bug 3 — competitor descriptor "warming up" copy
+
+Diagnosis only (no fix this turn): `today-data.ts:389` sets `v2WindowDays = 7`. The competitor descriptor rollup operates on the last 7 days of observations only; W4's `competitor_descriptor_windows` data lives on rows from Mar 5-Apr 21 which fall OUTSIDE the 7-day window. Behavior is intentional ("last 7 days only") but the copy is misleading.
+
+### Medium bug 4 — low-quality "How AI thinks you are" descriptors
+
+Diagnosis only: `src/domains/prompt-answer-observations/extraction.ts:159` defines `DESCRIPTOR_STOPWORDS` as generic English connectors + URL-noise. Domain-specific words like `custom`/`home`/`builder` aren't stopwords; they appear because they're literally in the brand's descriptor windows. Fix needs domain-vocabulary stopwords AND/OR phrase extraction. Operator scoped no-rewrite-yet.
+
+### Medium bug 5 — General Contractors pollution on /prompts
+
+Diagnosis only: entity-pollution-filter helpers (`makeCompetitorRankingFilter`, `shouldExcludeFromCompetitorRanking`) are wired into `enrichment-rollup` and the recommendation engine, but NOT used anywhere under `src/app/(shell)/prompts/` or `src/domains/prompts/`. /prompts surfaces show raw competitor lists including directory entities like "General Contractors". Documented as follow-up.
+
+### Files (modified, patches B1.A + B1.B + B2)
+
+- `src/lib/persistence/dual-write.ts` — dropped both `if (process.env.DATA_SOURCE === "supabase")` conditionals around chunk-level `throw` and outer-catch `throw e`. Inline rationale references Bug-1 + 2026-05-04 + the silent-failure pattern.
+- `src/domains/observations/poll-health.ts` — `fetchPollHealthForDate(dateISO, tenantId?)` now also queries `prompt_answer_observations` row counts per canonical platform and passes them as a third arg to `computePollHealthFromRuns`. New `canonicalizePollPlatform()` helper. `computePlatformHealth` accepts `actualObservationsPersisted: number | null`: legacy callers preserve old behavior; new callers get DB truth as `observationsWritten` AND a downgrade-to-failed when `reportedFromScope > 0 && actualPersisted === 0`. New helper `downgradeIfPersistenceMissing()`.
+- `src/app/(shell)/today-data.ts` — passes `tenantId` through to `fetchPollHealthForDate`.
+- `src/domains/prompt-answer-observations/enrichment-rollup.ts` — new exported `canonicalizePlatform(raw)` helper. Applied at 3 bucket-keying sites: `buildEnrichmentRollup` (line 87), `buildPlatformPrimaryRateSparklines` (line 645), `buildFormatWinsRollup` (line 766). Mappings: `chatgpt` / `ChatGPT` / `openai` / `OpenAI` → `"chatgpt"`; `perplexity` / `Perplexity` → `"perplexity"`; 6 variants of "Google AI Overviews" → `"google_aio"`; `claude` → `"claude"`; null/undefined → `"unknown"`; unknown platforms fall back to lowercased input.
+- `tests/domains/observations/poll-health.test.ts` — extended from 9 to 16 cases (+7 Bug-1 invariants).
+- `tests/architecture/dual-write-loud-fail.test.ts` — new architecture invariant (3 tests). Pins: no `DATA_SOURCE` conditional gate; throws retained; rationale references Bug-1 / 2026-05-04 / silent-fail.
+- `tests/domains/prompt-answer-observations/enrichment-rollup.test.ts` — extended from 39 to 53 cases (+14 Bug-2 invariants).
+- `docs/HANDOFF_VERIFIED_STATE.md` — top banner replaced with diagnosis + patches summary; W4 Stage 7 success entry kept underneath.
+- `docs/VERIFICATION_LOG.md` — this entry.
+
+### Verification
+
+- ✓ `npx tsc --noEmit` clean
+- ✓ `tests/domains/observations/poll-health.test.ts` 16/16 pass
+- ✓ `tests/architecture/dual-write-loud-fail.test.ts` 3/3 pass (new file)
+- ✓ `tests/domains/prompt-answer-observations/enrichment-rollup.test.ts` 53/53 pass
+- ✓ `npm run test` 4155/4161 (same 6 pre-existing baseline failures all OUTSIDE this surface; +36 new passes vs Stage 7 success state)
+- ✓ `BEACON_TENANT_ID=... BEACON_TENANT_SLUG=... npm run build` clean
+
+### Acceptance criteria (operator)
+
+| Criterion | Status |
+|---|---|
+| /today stale banner agrees with actual latest observation/snapshot state | ✓ |
+| If May 4 poll completed, May 4 data appears OR poll banner no longer falsely implies it | ✓ |
+| "Where AI ranks you" shows each platform once | ✓ |
+| No "historical_recovered" debug language appears in main UI | ✓ |
+| /recommendations remains unchanged and clean | ✓ |
+
+### Constraints honored
+
+- ✓ Did NOT run paid generation
+- ✓ Did NOT Apply-All-HIGH
+- ✓ Did NOT publish Stage 5 relabel
+- ✓ Did NOT archive/delete Profound
+- ✓ Did NOT start new action-type generator work
+- ✓ Did NOT touch /recommendations rendering
+- ✓ Did NOT mutate Supabase data during diagnosis (read-only SQL only)
+- ✓ Did NOT patch bugs 3, 4, 5 (scoped to critical bugs only)
+
+### Outcome
+
+Future native polls now either persist cleanly or fail loud — the silent-failure pattern that produced May 2-4's empty days is structurally fixed by the dual-write throw + persistence cross-check. /today's UI will reflect database truth instead of API claims. The case-variant duplication in "Where AI ranks you" / "What format wins" / per-platform enrichment is gone — operator's exact 5-row→3-row symptom is pinned by tests. Bugs 3-5 documented for the next phase.
+
+---
+
 ## 2026-05-04 — W4 STAGE 7 CORE PUBLISH SUCCEEDED (option 1: schema migration + strengthened preconditions + 44/44 batches OK)
 
 Operator chose option 1 from the prior failure entry: add the missing `competitor_descriptor_windows` jsonb column on `prompt_answer_observations`. After applying the one-line migration, the precondition stack was strengthened to catch any future staged-vs-target schema drift before batch 0, the operator-approved publish command was re-run, and all 14,096 W4 historical_recovered observations + 7,191 W4 historical_recovered snapshots landed in Supabase across 44 batches over ~47 seconds with zero failures.

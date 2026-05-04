@@ -56,10 +56,20 @@ export type PollHealthSnapshot = {
 /**
  * Pure compute — takes the observation_runs for a given day and reduces them
  * into a per-platform health summary. Testable without a DB.
+ *
+ * Bug-1 fix (2026-05-04): the `actualObservationsByPlatform` parameter
+ * carries the count of rows actually persisted to
+ * `prompt_answer_observations` for the given date+platform+tenant. If the
+ * scope_label parsed from `observation_runs` reports "25/25 prompts"
+ * (per-chunk, summed across 4 chunks = 100) but only 0 rows actually
+ * landed in Supabase (silent dual-write failure pre-2026-05-04 dual-write
+ * fix), the platform's status is downgraded from `ok` to `failed` and
+ * `observationsWritten` reflects DB truth, not poll-API truth.
  */
 export function computePollHealthFromRuns(
   dateISO: string,
   runs: ObservationRun[],
+  actualObservationsByPlatform?: Partial<Record<PollPlatform, number>>,
 ): PollHealthSnapshot {
   return {
     date: dateISO,
@@ -67,6 +77,9 @@ export function computePollHealthFromRuns(
       computePlatformHealth(
         platform,
         runs.filter((r) => r.source === source),
+        actualObservationsByPlatform
+          ? (actualObservationsByPlatform[platform] ?? 0)
+          : null,
       ),
     ),
   };
@@ -75,14 +88,22 @@ export function computePollHealthFromRuns(
 /**
  * Fetch observation_runs for the given UTC date and compute the per-platform
  * health. Thin wrapper over Supabase + `computePollHealthFromRuns`.
+ *
+ * Bug-1 fix (2026-05-04): also fetches the actual count of
+ * `prompt_answer_observations` rows that landed for the given date,
+ * scoped by tenant. Cross-checking the run-level scope_label string
+ * against DB truth catches the silent-failure pattern where chunks
+ * report "completed" but rows didn't persist (e.g., schema gap).
  */
 export async function fetchPollHealthForDate(
   dateISO: string,
+  tenantId?: string,
 ): Promise<PollHealthSnapshot> {
   const dayStart = `${dateISO}T00:00:00.000Z`;
   const dayEnd = `${dateISO}T23:59:59.999Z`;
+  const sb = getSupabaseAdmin();
 
-  const { data, error } = await getSupabaseAdmin()
+  let runsQuery = sb
     .from("observation_runs")
     .select("*")
     .in(
@@ -92,13 +113,61 @@ export async function fetchPollHealthForDate(
     .gte("started_at", dayStart)
     .lte("started_at", dayEnd)
     .order("started_at", { ascending: false });
+  if (tenantId) runsQuery = runsQuery.eq("tenant_id", tenantId);
+  const { data, error } = await runsQuery;
 
   if (error) {
     throw new Error(`poll-health query failed: ${error.message}`);
   }
 
+  // Cross-check: count actual observations persisted for the day, per
+  // platform. We canonicalize the platform value because native polls
+  // write lowercase ("chatgpt") while historical_recovered W4 rows
+  // carry capitalized labels ("ChatGPT") — the same canonicalization
+  // applied in enrichment-rollup keeps both surfaces consistent.
+  const actual: Record<PollPlatform, number> = {
+    perplexity: 0,
+    chatgpt: 0,
+  } as Record<PollPlatform, number>;
+  let obsQuery = sb
+    .from("prompt_answer_observations")
+    .select("platform")
+    .gte("observed_at", dayStart)
+    .lte("observed_at", dayEnd);
+  if (tenantId) obsQuery = obsQuery.eq("tenant_id", tenantId);
+  const { data: obsRows, error: obsErr } = await obsQuery;
+  if (obsErr) {
+    throw new Error(`poll-health obs-count query failed: ${obsErr.message}`);
+  }
+  for (const row of (obsRows ?? []) as Array<{ platform: string | null }>) {
+    const canon = canonicalizePollPlatform(row.platform);
+    if (canon === "chatgpt" || canon === "perplexity") {
+      actual[canon] = (actual[canon] ?? 0) + 1;
+    }
+  }
+
   const runs = (data ?? []) as ObservationRun[];
-  return computePollHealthFromRuns(dateISO, runs);
+  return computePollHealthFromRuns(dateISO, runs, actual);
+}
+
+/**
+ * Canonicalize a raw platform string to one of the poll-platform keys.
+ * Used to cross-check observation counts when rows may carry mixed
+ * cases (lowercase from native polls; capitalized from W4
+ * historical_recovered backfill).
+ *
+ * Returns "unknown" for anything we don't recognize so we can ignore
+ * it in the count cross-check (e.g. "Google AI Overviews", which is a
+ * historical-only platform never polled natively).
+ */
+export function canonicalizePollPlatform(
+  raw: string | null | undefined,
+): PollPlatform | "unknown" {
+  if (!raw) return "unknown";
+  const lower = raw.trim().toLowerCase();
+  if (lower === "chatgpt" || lower === "openai") return "chatgpt";
+  if (lower === "perplexity") return "perplexity";
+  return "unknown";
 }
 
 /** YYYY-MM-DD in UTC from an optional injected clock. */
@@ -109,6 +178,18 @@ export function todayISOUtc(now: Date = new Date()): string {
 function computePlatformHealth(
   platform: PollPlatform,
   runs: ObservationRun[],
+  /**
+   * Bug-1 fix (2026-05-04). When provided, this is the actual count of
+   * `prompt_answer_observations` rows that landed in Supabase for the
+   * given date+platform+tenant. We use it to:
+   *   1. Override `observationsWritten` (DB truth, not poll-API claim).
+   *   2. Downgrade status from "ok" → "failed" when chunks reported
+   *      "completed" yet zero rows persisted (silent dual-write).
+   *
+   * `null` preserves legacy behavior — no override, no downgrade.
+   * Existing tests that don't supply this arg are unaffected.
+   */
+  actualObservationsPersisted: number | null,
 ): PlatformPollHealth {
   if (runs.length === 0) {
     return {
@@ -136,15 +217,30 @@ function computePlatformHealth(
   if (chunks.length === 0) {
     // Legacy whole-mode path (e.g. local CLI runs or pre-chunk-era rows).
     const latest = wholes[0];
-    const observations = parseObsCountFromScopeLabel(latest.scope_label);
-    const status: PollHealthStatus = mapRunStatusToHealthStatus(latest.status);
+    const reportedObs = parseObsCountFromScopeLabel(latest.scope_label);
+    const baseStatus: PollHealthStatus = mapRunStatusToHealthStatus(latest.status);
+    const reportedWritten = latest.status === "completed" ? reportedObs : 0;
+    // When persistence is unknown (legacy callers), fall back to scope_label.
+    // When persistence IS known, prefer DB truth + apply silent-fail downgrade.
+    const observationsWritten =
+      actualObservationsPersisted !== null
+        ? actualObservationsPersisted
+        : reportedWritten;
+    const finalStatus =
+      actualObservationsPersisted !== null
+        ? downgradeIfPersistenceMissing(
+            baseStatus,
+            reportedWritten,
+            actualObservationsPersisted,
+          )
+        : baseStatus;
     return {
       platform,
       expectedChunks: 1,
       completedChunks: latest.status === "completed" ? 1 : 0,
       failedChunks: latest.status === "failed" ? 1 : 0,
-      observationsWritten: latest.status === "completed" ? observations : 0,
-      status,
+      observationsWritten,
+      status: finalStatus,
       latestRun: {
         runId: latest.run_id,
         startedAt: latest.started_at,
@@ -184,16 +280,40 @@ function computePlatformHealth(
   const failedChunks = uniqueChunks.filter(
     (r) => r.status === "failed",
   ).length;
-  const observationsWritten = uniqueChunks
+  const reportedFromScope = uniqueChunks
     .filter((r) => r.status === "completed")
     .reduce((sum, r) => sum + parseObsCountFromScopeLabel(r.scope_label), 0);
 
-  const status: PollHealthStatus =
+  const baseStatus: PollHealthStatus =
     completedChunks >= EXPECTED_CHUNKS
       ? "ok"
       : completedChunks > 0
         ? "partial"
         : "failed";
+
+  // Bug-1 fix (2026-05-04): cross-check chunk-level scope_label totals
+  // against actual rows that landed in `prompt_answer_observations`.
+  // Pre-2026-05-04, the dual-write path could silently swallow Supabase
+  // schema-cache errors (PGRST204) — the runs would stamp as
+  // `completed` with "25/25 prompts" in scope_label even though zero
+  // rows persisted. Surface the truth: report the DB count and
+  // downgrade status from "ok" → "failed" when persistence is fully
+  // missing despite "completed" runs.
+  //
+  // When persistence is unknown (legacy callers — no third arg), fall
+  // back to scope_label totals + don't downgrade.
+  const observationsWritten =
+    actualObservationsPersisted !== null
+      ? actualObservationsPersisted
+      : reportedFromScope;
+  const finalStatus =
+    actualObservationsPersisted !== null
+      ? downgradeIfPersistenceMissing(
+          baseStatus,
+          reportedFromScope,
+          actualObservationsPersisted,
+        )
+      : baseStatus;
 
   const latest = uniqueChunks[0];
   return {
@@ -202,7 +322,7 @@ function computePlatformHealth(
     completedChunks,
     failedChunks,
     observationsWritten,
-    status,
+    status: finalStatus,
     latestRun: {
       runId: latest.run_id,
       startedAt: latest.started_at,
@@ -211,6 +331,31 @@ function computePlatformHealth(
       runStatus: latest.status,
     },
   };
+}
+
+/**
+ * Bug-1 helper (2026-05-04): if the run-level summary said "ok" with
+ * non-zero `reportedFromScope` (per scope_label parsing) but Supabase
+ * actually has 0 rows persisted for the day, the upsert silently
+ * failed. Surface this as "failed" so /today's banner reflects truth.
+ *
+ * For partial-persistence (DB has fewer than expected, but > 0), we
+ * keep the run-level status. The chunk count is more authoritative
+ * than guessing at row-level shortfall thresholds.
+ */
+function downgradeIfPersistenceMissing(
+  baseStatus: PollHealthStatus,
+  reportedFromScope: number,
+  actualPersisted: number,
+): PollHealthStatus {
+  if (
+    baseStatus === "ok" &&
+    reportedFromScope > 0 &&
+    actualPersisted === 0
+  ) {
+    return "failed";
+  }
+  return baseStatus;
 }
 
 function mapRunStatusToHealthStatus(
