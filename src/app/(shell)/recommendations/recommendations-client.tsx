@@ -897,6 +897,13 @@ function RowDrawer({
   const d = row.detail;
   const hasExactCopy =
     typeof d.proposedText === "string" && d.proposedText.trim().length > 0;
+  // W3 §3.15 (2026-05-04): grouped FAQ Q+A rows carry the answer
+  // text on `faqAnswerText`; render it alongside the question so the
+  // drawer shows the full ship-as-is content.
+  const isGroupedFaq =
+    row.actionType === "add_faq" &&
+    typeof d.faqAnswerText === "string" &&
+    d.faqAnswerText.trim().length > 0;
   // Operator scope (W3 §3.5f): Defer + Dismiss are SECONDARY actions
   // and live at the bottom of the drawer, not in the row's Action
   // column. Hidden when the row already carries a terminal response.
@@ -930,12 +937,48 @@ function RowDrawer({
               </pre>
             </div>
           )}
-          <p className="text-[10px] uppercase tracking-wider font-semibold text-muted-foreground mb-1">
-            Proposed
-          </p>
-          <pre className="rounded border border-status-success/30 bg-status-success/[0.04] px-2.5 py-2 text-[11px] whitespace-pre-wrap break-words font-mono text-foreground">
-            {d.proposedText}
-          </pre>
+          {/*
+            W3 §3.15 (2026-05-04) — grouped FAQ Q+A rows render the
+            question + answer side-by-side. Non-FAQ rows render the
+            single proposedText as "Proposed".
+          */}
+          {isGroupedFaq ? (
+            <>
+              <p
+                className="text-[10px] uppercase tracking-wider font-semibold text-muted-foreground mb-1"
+                data-rec-faq-question-label="true"
+              >
+                Question
+              </p>
+              <pre
+                className="rounded border border-status-success/30 bg-status-success/[0.04] px-2.5 py-2 text-[11px] whitespace-pre-wrap break-words font-mono text-foreground mb-3"
+                data-rec-faq-question="true"
+              >
+                {d.proposedText}
+              </pre>
+              <p
+                className="text-[10px] uppercase tracking-wider font-semibold text-muted-foreground mb-1"
+                data-rec-faq-answer-label="true"
+              >
+                Answer
+              </p>
+              <pre
+                className="rounded border border-status-success/30 bg-status-success/[0.04] px-2.5 py-2 text-[11px] whitespace-pre-wrap break-words font-mono text-foreground"
+                data-rec-faq-answer="true"
+              >
+                {d.faqAnswerText}
+              </pre>
+            </>
+          ) : (
+            <>
+              <p className="text-[10px] uppercase tracking-wider font-semibold text-muted-foreground mb-1">
+                Proposed
+              </p>
+              <pre className="rounded border border-status-success/30 bg-status-success/[0.04] px-2.5 py-2 text-[11px] whitespace-pre-wrap break-words font-mono text-foreground">
+                {d.proposedText}
+              </pre>
+            </>
+          )}
         </DrawerSection>
       )}
 

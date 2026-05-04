@@ -173,10 +173,24 @@ export type ActionRowDetail = {
   readonly affectedPromptCount: number;
   /** Observation count (denormalized from rec.evidence). */
   readonly observationCount: number;
+  /**
+   * W3 §3.15 (2026-05-04) — for grouped FAQ Q+A rows, the answer's
+   * full proposedText so the drawer can render question + answer
+   * side-by-side. Null for non-FAQ rows and for orphan/legacy FAQ
+   * rows that don't have a paired answer.
+   */
+  readonly faqAnswerText: string | null;
   /** Diagnostic block — internal taxonomy + IDs. Collapsed by default. */
   readonly debug: {
     readonly recommendationId: string;
     readonly editId: string | null;
+    /**
+     * W3 §3.15 (2026-05-04) — when this row groups a FAQ Q+A pair,
+     * the answer edit's id (the `editId` field above carries the
+     * QUESTION's id, since that's the primary key for accept/dismiss
+     * routing). Null for non-paired rows.
+     */
+    readonly pairedAnswerEditId: string | null;
     readonly resolverTier: ResolverTier | null;
     readonly resolutionAction: RecommendationAction | null;
     readonly motive: RecommendationMotive | null;
@@ -339,16 +353,24 @@ export function composeEditRowTitle(args: {
         ? `Change the H1 on the ${targetLabel} to ${q(label)}`
         : `Change the H1 on the ${targetLabel}`;
     case "add_h2_section":
+      // W3 §3.15 (2026-05-04, operator scope): "Add "..." H2", not
+      // "Add an "..."". Drop the dangling article so the title reads
+      // as one imperative ending at the target page.
       return label
-        ? `Add an ${q(label)} H2 to the ${targetLabel}`
+        ? `Add ${q(label)} H2 to the ${targetLabel}`
         : `Add a new H2 section to the ${targetLabel}`;
     case "rewrite_h2":
       return label
         ? `Rewrite the ${q(label)} H2 on the ${targetLabel}`
         : `Rewrite an H2 on the ${targetLabel}`;
     case "add_faq":
+      // Standalone (un-paired) add_faq edits aren't surfaced as main
+      // rows by `buildRecommendationActionRows` — paired Q+A rows are
+      // grouped into one `Add FAQ: "{question}" …` row via
+      // `composeFaqPairRowTitle`. This branch stays as a defensive
+      // fallback for legacy data.
       return label
-        ? `Add an FAQ ${q(label)} to the ${targetLabel}`
+        ? `Add FAQ ${q(label)} to the ${targetLabel}`
         : `Add an FAQ entry to the ${targetLabel}`;
     case "rewrite_faq":
       return label
@@ -395,6 +417,139 @@ export function composeEditRowTitle(args: {
     case "watch":
       return `Watch the ${targetLabel} cluster`;
   }
+}
+
+// ── W3 §3.15 — FAQ Q+A pair grouping ──────────────────────────────────
+
+/**
+ * Extract the hash suffix from a `<type>[new]:<hash>` element key —
+ * the same shape `validateSpecificEditBundle.checkFaqPairing` uses
+ * for FAQ Q+A pairing. Returns null when the key is not additive or
+ * has no `:hash` suffix.
+ *
+ * Pure, exported so the action-row builder + tests can dedupe FAQ
+ * pairs by the same identity the validator uses.
+ */
+export function extractElementKeyHashSuffix(
+  elementKey: string | null | undefined,
+): string | null {
+  if (typeof elementKey !== "string") return null;
+  const additive = elementKey.match(/\[new\]:(.+)$/);
+  if (additive && additive[1].length > 0) return additive[1];
+  const colonIdx = elementKey.indexOf(":");
+  if (colonIdx > 0 && colonIdx < elementKey.length - 1) {
+    return elementKey.slice(colonIdx + 1);
+  }
+  return null;
+}
+
+/**
+ * Compose the row title for a grouped FAQ Q+A pair. Operator scope
+ * (W3 §3.15, 2026-05-04): the title uses the actual question text
+ * (from the question row's `proposedText`), NOT the displayLabel
+ * which often carries `(new)` / `(question)` qualifiers.
+ *
+ *   Add FAQ: "{question text}" to the {targetLabel}
+ *
+ * The question text is curly-quoted and capped at 100 chars (the FAQ
+ * column needs to stay scannable). Falls back to a generic phrasing
+ * when the question text is missing — defensive only; the validator
+ * already enforces non-empty FAQ question text at persist time.
+ */
+export function composeFaqPairRowTitle(args: {
+  readonly questionText: string | null;
+  readonly targetLabel: string;
+}): string {
+  const q = (s: string) => `“${truncate(s, 100)}”`;
+  const text = (args.questionText ?? "").trim();
+  if (text.length === 0) {
+    return `Add FAQ to the ${args.targetLabel}`;
+  }
+  return `Add FAQ: ${q(text)} to the ${args.targetLabel}`;
+}
+
+/**
+ * Split a rec's renderable edits into:
+ *   - `faqPairs[]`        — matched (faq_question[new]:<hash>,
+ *                            faq_answer[new]:<hash>) tuples
+ *   - `nonFaqEdits[]`     — every non-FAQ edit (existing one-row-per-
+ *                            edit behavior)
+ *   - `orphanFaqEdits[]`  — FAQ rows whose pair isn't present.
+ *                            Operator scope (W3 §3.15): "unpaired FAQ
+ *                            question/answer does not render as
+ *                            active main-row task" — these are
+ *                            suppressed from the table. Caller may
+ *                            consult the array for diagnostics.
+ *
+ * Pure / deterministic. The validator's bundle-pairing gate already
+ * blocks orphans at persist time, so production data will rarely
+ * surface orphans. This helper is defensive against legacy bundles
+ * + unit-test fixtures.
+ */
+export function partitionEditsForFaqPairing(
+  edits: ReadonlyArray<RecommendedEditRow>,
+): {
+  faqPairs: ReadonlyArray<{
+    hash: string;
+    question: RecommendedEditRow;
+    answer: RecommendedEditRow;
+  }>;
+  nonFaqEdits: ReadonlyArray<RecommendedEditRow>;
+  orphanFaqEdits: ReadonlyArray<RecommendedEditRow>;
+} {
+  const questions = new Map<string, RecommendedEditRow>();
+  const answers = new Map<string, RecommendedEditRow>();
+  const nonFaqEdits: RecommendedEditRow[] = [];
+
+  for (const edit of edits) {
+    const key = edit.target_element_key ?? "";
+    const isFaqQuestion = key.startsWith("faq_question[new]:");
+    const isFaqAnswer = key.startsWith("faq_answer[new]:");
+    if (!isFaqQuestion && !isFaqAnswer) {
+      nonFaqEdits.push(edit);
+      continue;
+    }
+    const hash = extractElementKeyHashSuffix(key);
+    if (!hash) {
+      // Malformed FAQ key — treat as orphan.
+      nonFaqEdits.push(edit);
+      continue;
+    }
+    if (isFaqQuestion) {
+      // First-write wins on duplicate hashes (the validator rejects
+      // duplicates upstream; this is defensive).
+      if (!questions.has(hash)) questions.set(hash, edit);
+      else nonFaqEdits.push(edit);
+    } else {
+      if (!answers.has(hash)) answers.set(hash, edit);
+      else nonFaqEdits.push(edit);
+    }
+  }
+
+  const faqPairs: Array<{
+    hash: string;
+    question: RecommendedEditRow;
+    answer: RecommendedEditRow;
+  }> = [];
+  const orphanFaqEdits: RecommendedEditRow[] = [];
+  // Stable iteration order: by hash ascending so tests + UI rendering
+  // are deterministic across rec rebuilds.
+  const allHashes = [
+    ...new Set([...questions.keys(), ...answers.keys()]),
+  ].sort();
+  for (const hash of allHashes) {
+    const q = questions.get(hash);
+    const a = answers.get(hash);
+    if (q && a) {
+      faqPairs.push({ hash, question: q, answer: a });
+    } else if (q) {
+      orphanFaqEdits.push(q);
+    } else if (a) {
+      orphanFaqEdits.push(a);
+    }
+  }
+
+  return { faqPairs, nonFaqEdits, orphanFaqEdits };
 }
 
 /**
@@ -953,9 +1108,137 @@ export function buildRecommendationActionRows(
       return s === "recommended" || s === "accepted";
     }).length;
 
-    // ── Path A: renderable specific edits → one row per edit. ──
+    // ── Path A: renderable specific edits → group FAQ Q+A pairs into
+    // one row, then emit one row per non-FAQ edit. Orphan FAQ rows
+    // (question without answer or vice-versa) are suppressed per
+    // operator scope W3 §3.15. Non-empty `nonFaqEdits` OR `faqPairs`
+    // means we emit at least one row and skip the meta-path below.
     if (renderable.length > 0) {
-      for (const edit of renderable) {
+      const { faqPairs, nonFaqEdits } = partitionEditsForFaqPairing(renderable);
+
+      // ── Path A.1: one grouped row per matched FAQ Q+A pair. ──
+      for (const pair of faqPairs) {
+        const { question, answer, hash } = pair;
+        const editAnchorUrl =
+          typeof question.target_url === "string" &&
+          question.target_url.length > 0 &&
+          question.target_url !== NEEDS_NEW_PAGE
+            ? question.target_url
+            : null;
+        const editTargetLabel = editAnchorUrl
+          ? targetLabelForUrl(editAnchorUrl)
+          : targetLabel;
+        // Use the question row's actual proposedText as the title —
+        // operator scope W3 §3.15 explicitly bans the displayLabel
+        // ("FAQ question: What to look for in a luxury home builder
+        // (new)") from leaking into the table title.
+        const title = composeFaqPairRowTitle({
+          questionText: question.proposed_text,
+          targetLabel: editTargetLabel,
+        });
+        const priority = priorityForRow({
+          engineConfidence: rec.engineConfidence.confidence,
+          severity: rec.severity,
+          affectedPromptCount: rec.evidence.promptCount,
+          observationCount: rec.evidence.observationCount,
+          brandPrimaryShare,
+          needsHumanReview,
+          hasExactEdit: true,
+        });
+        // Status is keyed off the question row's lifecycle (the
+        // primary side of the pair). The validator-pairing guarantee
+        // means both rows ship together, so any divergence between
+        // the two is an operator-fixable persistence drift, not a
+        // model defect.
+        const status = statusForRow({
+          responseStatus,
+          editLifecycleStatus:
+            question.implementation_status ?? "recommended",
+          needsHumanReview,
+          hasNoEdits: false,
+          hasOnlyDismissedEdits: false,
+        });
+        const evidenceSummary = composeRowEvidenceSummary({
+          rec,
+          action,
+          hasResolvedTarget: resolvedUrl !== null,
+          resolvedUrl,
+          targetLabel: editTargetLabel,
+          topicTag,
+          geoTag,
+          override: structuralOverrideForEdit(question, editTargetLabel),
+        });
+        // Union evidence refs + risks from both rows so the drawer
+        // shows the full audit trail; first-seen wins on duplicate
+        // refs.
+        const evidenceRefsSeen = new Set<string>();
+        const evidenceRefs: SpecificEditEvidenceRef[] = [];
+        for (const ref of [...question.evidence, ...answer.evidence]) {
+          const key = JSON.stringify(ref);
+          if (evidenceRefsSeen.has(key)) continue;
+          evidenceRefsSeen.add(key);
+          evidenceRefs.push(ref);
+        }
+        const risks = [
+          ...(question.risks ?? []),
+          ...(answer.risks ?? []),
+        ].filter((r, i, a) => a.indexOf(r) === i); // de-dupe
+        rows.push({
+          id: `${rec.stableKey}::faq-pair::${hash}`,
+          rank: 0, // assigned after sort
+          title,
+          targetLabel: editTargetLabel,
+          targetUrl: editAnchorUrl ?? resolvedUrl,
+          actionType: "add_faq",
+          priority,
+          status,
+          evidenceSummary,
+          sourceRecommendationId: rec.stableKey,
+          // Primary edit id is the QUESTION's — the rec-level accept
+          // / dismiss / ship dispatch is keyed by stableKey anyway,
+          // but tests + drawers that index by editId resolve to the
+          // question row.
+          sourceEditId: question.id,
+          hasExactEdit: true,
+          responseStatus,
+          acceptedAgeDays,
+          deferUntil: response?.deferUntil ?? null,
+          eligibleEditCount,
+          detail: {
+            currentText: null, // FAQ pairs are additive
+            proposedText: question.proposed_text, // question text
+            faqAnswerText: answer.proposed_text, // W3 §3.15
+            why: question.why ?? answer.why ?? resolution?.reasoning ?? null,
+            measurementPlan:
+              question.measurement_plan ?? answer.measurement_plan,
+            evidenceRefs,
+            fullReasoning: resolution?.reasoning ?? null,
+            confidenceReason: resolution?.confidenceReason ?? null,
+            motiveLabel,
+            pageBrief: resolution?.pageBrief ?? null,
+            suggestedEdits: resolution?.suggestedEdits ?? [],
+            risks,
+            cannibalization: resolution?.cannibalization ?? null,
+            topCompetitor,
+            affectedPromptCount: rec.evidence.promptCount,
+            observationCount: rec.evidence.observationCount,
+            debug: {
+              recommendationId: rec.stableKey,
+              editId: question.id,
+              pairedAnswerEditId: answer.id,
+              resolverTier: resolution?.tier ?? null,
+              resolutionAction: resolution?.action ?? null,
+              motive: resolution?.motive ?? null,
+              engineConfidence: rec.engineConfidence,
+              evidenceHash: question.evidence_hash ?? answer.evidence_hash ?? null,
+              editLifecycleStatus: question.implementation_status ?? null,
+            },
+          },
+        });
+      }
+
+      // ── Path A.2: one row per non-FAQ edit (existing behavior). ──
+      for (const edit of nonFaqEdits) {
         const rowType = actionRowTypeForEdit(edit.action_type);
         // Prefer the edit's anchor URL over the rec's resolution
         // when both exist — edits often anchor more specifically than
@@ -1023,6 +1306,7 @@ export function buildRecommendationActionRows(
           detail: {
             currentText: edit.current_text,
             proposedText: edit.proposed_text,
+            faqAnswerText: null,
             why: edit.why ?? resolution?.reasoning ?? null,
             measurementPlan: edit.measurement_plan,
             evidenceRefs: edit.evidence,
@@ -1039,6 +1323,7 @@ export function buildRecommendationActionRows(
             debug: {
               recommendationId: rec.stableKey,
               editId: edit.id,
+              pairedAnswerEditId: null,
               resolverTier: resolution?.tier ?? null,
               resolutionAction: resolution?.action ?? null,
               motive: resolution?.motive ?? null,
@@ -1049,7 +1334,15 @@ export function buildRecommendationActionRows(
           },
         });
       }
-      continue;
+
+      // If we emitted ANY row from this rec (paired or non-FAQ), skip
+      // the meta-path. Orphan FAQ rows alone don't qualify — but the
+      // rec falls through to meta-path detection only when there were
+      // genuinely no shippable edits to surface, not just FAQ orphans
+      // (which is a persistence drift the validator already prevents).
+      if (faqPairs.length > 0 || nonFaqEdits.length > 0) {
+        continue;
+      }
     }
 
     // ── Path B: meta-action rows (no renderable edits). ──
@@ -1141,6 +1434,7 @@ export function buildRecommendationActionRows(
       detail: {
         currentText: null,
         proposedText: null,
+        faqAnswerText: null,
         why:
           metaKind === "regenerate_edit"
             ? "Beacon's prior edits were dismissed. Run the generator again to produce fresh copy you can ship."
@@ -1175,6 +1469,7 @@ export function buildRecommendationActionRows(
         debug: {
           recommendationId: rec.stableKey,
           editId: null,
+          pairedAnswerEditId: null,
           resolverTier: resolution?.tier ?? null,
           resolutionAction: resolution?.action ?? null,
           motive: resolution?.motive ?? null,

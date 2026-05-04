@@ -222,12 +222,13 @@ describe("W3 Step 3.5e — concrete row title (no cluster descriptions)", () => 
     // The fixture's add_h2_section edit (display_label
     // "How design-build cuts kitchen remodel costs", which
     // `cleanDisplayLabel` passes through unchanged) should land as
-    // `Add an "How design-build cuts kitchen remodel costs" H2 to
+    // `Add "How design-build cuts kitchen remodel costs" H2 to
     // the Whole Home Remodel page`. W3 §3.5f uses curly quotes
-    // (“…”) consistently. The HTML-entity-encoded form for the
-    // curly opener is `&ldquo;`; vitest reads the raw string so
-    // the literal Unicode character matches.
-    expect(html).toMatch(/Add an [“"][A-Z]/);
+    // (“…”) consistently. W3 §3.15 (operator scope, 2026-05-04)
+    // dropped the dangling article — the title is now `Add "..." H2`,
+    // not `Add an "..." H2`.
+    expect(html).toMatch(/Add [“"][A-Z]/);
+    expect(html).not.toMatch(/Add an [“"][A-Z]/);
     expect(html).toMatch(/H2 to the Whole Home Remodel page/);
   });
 

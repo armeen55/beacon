@@ -431,6 +431,27 @@ export function cleanDisplayLabel(
   // Drop trailing ellipsis / horizontal-ellipsis the persistence
   // layer adds when truncating long labels — they're noise in titles.
   s = s.replace(/\s*[…\.]{1,3}$/g, "").trim();
+  // W3 §3.15 (operator scope, 2026-05-04): strip trailing noise
+  // qualifiers the persistence layer or the LLM adds — `(new)`,
+  // `(new H2)`, `(new FAQ)`, `(question)`, `(answer)`. ONLY these
+  // exact tokens are removed; legitimate parentheticals like
+  // `(no footprint increase)` are preserved.
+  const NOISE_TAGS = new Set([
+    "new",
+    "new h2",
+    "new h3",
+    "new faq",
+    "new section",
+    "question",
+    "answer",
+  ]);
+  for (let i = 0; i < 3; i += 1) {
+    const m = s.match(/\s*\(([^()]*)\)\s*$/);
+    if (!m) break;
+    const inner = m[1].trim().toLowerCase();
+    if (!NOISE_TAGS.has(inner)) break;
+    s = s.slice(0, m.index ?? s.length).trim();
+  }
   return s;
 }
 

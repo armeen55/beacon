@@ -7,6 +7,69 @@
 
 ---
 
+## 2026-05-04 — W3 Step 3.15: Action-table polish — FAQ Q+A grouping + title cleaning + drawer Q+A side-by-side
+
+Post-§3.13 browser spot-check uncovered three small UI/model defects in the ranked action table. Operator scope: "Do not redesign. Do not go back to cards. Do not start a big new architecture pass. Do one small Step 3.10 UI/model polish pass." This step is exactly that scope — no new endpoints, no new schemas, no new model spend.
+
+### Defects + fixes
+
+| Defect | Where | Fix |
+|---|---|---|
+| Each FAQ Q+A pair renders as TWO duplicate rows | `buildRecommendationActionRows` emitted one row per renderable edit | New `partitionEditsForFaqPairing` helper splits edits into matched FAQ pairs / non-FAQ / orphans; emits ONE grouped row per pair, suppresses orphans from the main table |
+| FAQ row titles leak displayLabel noise (`(new)`, `(question)`, `(answer)`) | The title used `cleanDisplayLabel(edit.display_label)` directly | Grouped FAQ rows use `composeFaqPairRowTitle({questionText: question.proposed_text, ...})` — the actual question text, curly-quoted; `cleanDisplayLabel` extended to strip trailing noise parentheticals |
+| H2 row titles read `Add an "..."` | `composeEditRowTitle` `add_h2_section` branch | Drop the dangling article: `Add "..." H2 to the {target} page` |
+| Drawer rendered only one "Proposed" block for FAQ pairs | `RowDrawer` had a single `proposedText` render path | New `isGroupedFaq` branch renders Question + Answer as two separate `<pre>` blocks with `data-rec-faq-*` attrs |
+
+### Changes
+
+**`src/domains/recommendations/recommendation-action-rows.ts`:**
+- Added `faqAnswerText: string | null` to `ActionRowDetail`.
+- Added `pairedAnswerEditId: string | null` to `ActionRowDetail.debug`.
+- New exported `extractElementKeyHashSuffix(elementKey)` — same shape as the validator's pairing extractor.
+- New exported `composeFaqPairRowTitle({questionText, targetLabel})` — `Add FAQ: "{question}" to the {targetLabel}`, curly-quoted, capped at 100 chars; falls back to `Add FAQ to the {targetLabel}` when question text is empty.
+- New exported `partitionEditsForFaqPairing(edits)` — returns `{faqPairs, nonFaqEdits, orphanFaqEdits}`. First-write wins on duplicate hashes (defensive against validator gap); duplicates land in `nonFaqEdits` so they still surface as separate rows but without phantom grouping. Stable hash-asc iteration order.
+- `buildRecommendationActionRows` Path A rewritten as Path A.1 (one grouped row per matched pair) + Path A.2 (one row per non-FAQ edit). Orphans skipped per operator scope. Meta-path skip condition extended: rec falls through only when neither pairs nor non-FAQ edits emitted.
+- `composeEditRowTitle` `add_h2_section` branch: `Add ${q(label)} H2 to the ${targetLabel}` (no `an`).
+
+**`src/domains/recommendations/recommendation-title-humanizer.ts`:**
+- `cleanDisplayLabel` extended with a trailing-noise-tag stripper. `NOISE_TAGS` set: `new`, `new h2`, `new h3`, `new faq`, `new section`, `question`, `answer`. Case-insensitive. Up to 3 chained passes (defensive against `Working H2 (new) (question)`). Legitimate parentheticals (`(no footprint increase)`, `(Atherton design-build comparisons)`) are preserved — the stripper ONLY fires when the inside word matches the noise set.
+
+**`src/app/(shell)/recommendations/recommendations-client.tsx`:**
+- `RowDrawer` derives `isGroupedFaq = row.actionType === "add_faq" && d.faqAnswerText && d.faqAnswerText.trim().length > 0`.
+- "Exact recommended change" section: when `isGroupedFaq`, renders Question + Answer as two `<pre>` blocks with labels and `data-rec-faq-question` / `data-rec-faq-answer` attrs. Non-FAQ rows keep the legacy single "Proposed" block.
+
+### Tests (2 new files, 39 cases · 1 pre-existing test updated)
+
+- `recommendation-action-rows-faq-grouping.test.ts` (NEW, 26) — operator-locked rules pinned: matched FAQ pair → one row · grouped title uses actual question text · title ends with `to the {target} page` · drawer carries answer on `faqAnswerText` · non-FAQ rows have `faqAnswerText: null` · orphan FAQ Q / FAQ A alone → no main row · two pairs different hashes → two rows · FAQ pair + H2 same rec → 2 rows · `Add "..." H2` not `Add an "..." H2` · trailing `(new)` stripped · leading `H2:` stripped · `cleanDisplayLabel` strips noise tags case-insensitive · preserves legitimate parentheticals · chained noise stripping · `partitionEditsForFaqPairing` defensive duplicate handling · `extractElementKeyHashSuffix` handles malformed input · `composeFaqPairRowTitle` truncates very long questions.
+- `tests/architecture/recommendations-step-3.15-faq-grouping.test.ts` (NEW, 13) — source-scan invariants: builder exports the helpers; `ActionRowDetail` carries `faqAnswerText`; debug carries `pairedAnswerEditId`; grouped-row id pattern `faq-pair::${hash}`; `composeEditRowTitle` drops dangling `an` on `add_h2_section`; `cleanDisplayLabel` declares the noise-tag set; drawer derives `isGroupedFaq` from `row.actionType === "add_faq"` + `d.faqAnswerText`; Question + Answer labels + pre blocks render with `data-rec-faq-*` attrs.
+- `tests/app/recommendations/render-output-cleanup.test.tsx` (1 updated) — the W3 §3.5e "concrete row title" test pinned the OLD `Add an "..." H2` pattern; updated to the new `Add "..." H2` shape with a `not.toMatch(/Add an [“"][A-Z]/)` regression-prevention assertion.
+
+### Verification
+
+- `npx tsc --noEmit` clean.
+- 1248/1248 on `src/domains/recommendations` + `tests/architecture` (recs + arch surface area).
+- `npm run test` 3834/3840 (6 pre-existing baseline failures all OUTSIDE this surface — same UI smoke time-drift, tenant-isolation, and auto-link-via-changelog tests confirmed in the §3.13 entry; net change vs §3.13: +98 passes (3795 → 3834), ±0 net failures).
+- `BEACON_TENANT_ID=tenant-ritz-founder BEACON_TENANT_SLUG=ritz-builders npm run build` clean.
+
+### Net effect on the operator UI
+
+The 12 visible rows after §3.13 collapse to ~9 in /recommendations:
+- Palo Alto FAQ pair: 2 rows → 1 grouped row.
+- Cupertino FAQ pair: 2 rows → 1 grouped row.
+- Luxury FAQ pair: 2 rows → 1 grouped row.
+
+Titles now read:
+- `Add FAQ: "What should I look for in a luxury home builder in the Bay Area?" to the Luxury Home Builder Bay Area page` (Luxury pair)
+- `Add FAQ: "Who can modernize an older home in Cupertino without expanding the footprint?" to the Cupertino Custom Home Builder page` (Cupertino pair)
+- `Add "How to choose a luxury custom home builder" H2 to the Luxury Home Builder Bay Area page` (Luxury H2)
+- `Add "Modernizing older Cupertino homes without expanding the footprint" H2 to the Cupertino Custom Home Builder page` (Cupertino H2)
+
+### Out of scope (operator-locked)
+
+No paid generations · No Apply-All-HIGH · No backfill yet · No Profound archive/delete · No card layout · No new architecture.
+
+---
+
 ## 2026-05-03 (evening) — W3 Step 3.10–3.13: Static-bundle replay + query-fanout audit + leading-superlative guardrail + Cupertino & Luxury persisted
 
 Operator caught a real defect on the §3.9 review: `--write` was calling OpenAI fresh on every invocation, so the bytes that landed on disk were not byte-identical to the dry-run report the operator approved. This step ships a five-piece review-and-replay pipeline that persists EXACT operator-approved bytes with zero new model spend, plus a public-copy guardrail uncovered during the §3.10 paid run (the LLM emitted an H2 starting with bare "Best ..." that slipped past the existing `best_in_market` regex because there was no definite article or verb).
