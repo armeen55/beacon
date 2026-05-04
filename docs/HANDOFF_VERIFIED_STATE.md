@@ -1,5 +1,61 @@
 # Beacon — Start Here
 
+> 🔴 **W4 Stage 7 --write FAILED LOUD (2026-05-04):** Operator approved with the literal phrase "publish core now". Production mutation attempted. The orchestrator's fail-loud + atomic-batch design caught a schema gap on the FIRST batch and stopped immediately with **ZERO rows written to production Supabase.**
+>
+> **Failure detail:**
+> ```
+> ✗ FAIL prompt_answer_observations batch 0 failed:
+>   Could not find the 'competitor_descriptor_windows' column of
+>   'prompt_answer_observations' in the schema cache
+> ```
+>
+> **Manifest:** `status: "failed"`, `batches_completed: 0/29` (observations), `0/15` (snapshots), `rows_written: 0` on both tables. `started_at` + `completed_at` stamped. Manifest path: `.data/_staging/w4-core-publish-manifest.json`.
+>
+> **Production Supabase byte-identical to pre-publish backup:**
+> | Table | Backup | Now | Delta |
+> |---|---:|---:|---:|
+> | prompt_answer_observations | 1,936 | 1,936 | 0 |
+> | daily_metric_snapshots | 2,325 | 2,325 | 0 |
+> | changelog_entries | 334 | 334 | 0 |
+> | recommended_edits | 17 | 17 | 0 |
+> | recommendation_responses | 7 | 7 | 0 |
+>
+> Spot-check: 5/5 sample W4 observation IDs and 5/5 sample W4 snapshot IDs return 0 rows from Supabase. The error happens at Supabase's schema-validation layer BEFORE any row in the batch is written; the upsert is rejected atomically. **Rollback is unnecessary** — there is nothing to roll back. (`--stage=rollback` remains RESERVED + hard-fail until Stage 8.)
+>
+> **Schema gap precisely characterized (read-only column-set diff):**
+> - `prompt_answer_observations`: prod has 27 columns, staged W4 rows have 28. **Missing in prod: `competitor_descriptor_windows`** (a W2 Schema v2.1 enrichment field per master plan §4.7).
+> - `daily_metric_snapshots`: 14/14 columns match. **No gap.** Snapshots would have published cleanly if observations had succeeded.
+>
+> **Why the precondition didn't catch this:** Stage 6b's `publish_readiness_core` and Stage 7's `publish_target_columns_exist` only verify the REQUIRED core columns (`id`, `tenant_id`, `observed_at`, `platform` for obs; equivalent for snapshots). They do not enumerate every Schema v2.1 enrichment field present on staged rows. This is a precondition gap — Stage 6b green-lit a publish that should have been blocked. Per operator's "do not attempt improvised fixes" rule, this gap is documented but NOT patched in this commit.
+>
+> **System still in known-good state (verified post-failure):**
+> - ✓ Stage 6b core verify still passes (`safe_to_publish_core: true`)
+> - ✓ `npm run build` clean
+> - ✓ Recs queue unchanged (17/17 + 7/7 byte-identical to backup)
+> - ✓ Changelog unchanged (334 rows, no W4 relabel attempted)
+> - ✓ All other Supabase tables byte-identical to Stage 1 backup
+>
+> **No improvised fixes were attempted:** orchestrator stopped on first batch failure as designed; no retry, no schema migration, no recovery hack. Operator's `--stage=rollback` not invoked (operator did not say "rollback").
+>
+> **Files (only docs changed by this attempt):**
+> - `.data/_staging/w4-core-publish-manifest.json` (status flipped preview_only → failed; gitignored — not committed; preserved on disk for audit)
+> - `.data/_staging/w4-core-publish-preview.json` (timestamps refreshed; gitignored)
+> - `docs/HANDOFF_VERIFIED_STATE.md` (this entry)
+> - `docs/VERIFICATION_LOG.md` (Stage 7 --write failure entry below)
+>
+> **Constraints honored (operator-locked):** Did NOT include Stage 5 changelog relabel · did NOT run `--publish-scope=full` · did NOT mutate `changelog_entries` · did NOT mutate `recommended_edits` · did NOT mutate `recommendation_responses` · did NOT delete native rows · did NOT delete benchmark rows · did NOT run rollback · did NOT archive/delete Profound · did NOT run paid generation · did NOT Apply-All-HIGH · did NOT attempt improvised fixes.
+>
+> **Operator-decision options to unblock the publish (no recommendation by Claude — operator picks):**
+> 1. **Add `competitor_descriptor_windows jsonb` column to production `prompt_answer_observations`** (one-line schema migration). After migration, re-run `--stage=publish --publish-scope=core --write` — the staged rows would publish cleanly. Risk: schema migration needs careful timing if any active session is reading the table.
+> 2. **Strip `competitor_descriptor_windows` from staged observations before publish.** Edit `.data/_staging/w4-extracted-observations.json` to drop that field on every row, re-run Stage 6b verify (would still pass), re-run publish `--write`. Risk: loses W2 enrichment data on the historical rows.
+> 3. **Defer W4 observations publish entirely** until the W2 day 2 schema-add lands per the master plan (§4.7 + W2 backfill spec). Risk: keeps the brain on 9 days of native data instead of ~57 days for now.
+> 4. **Move `competitor_descriptor_windows` to a separate sidecar table** keyed by observation_id. Risk: dual-write complexity, query joins.
+>
+> **Next 3 actions (operator-gated):**
+> 1. **Operator decision** — which schema path? (Options 1-4 above.)
+> 2. **(Future)** When schema path lands, re-run Stage 7 `--write`. The orchestrator is idempotent; same staged inputs + onConflict:id = same outcome (no duplicate rows on retry).
+> 3. **(Future)** Stage 8 rollback design — still RESERVED. Won't be needed for THIS publish (zero rows landed) but stays in the queue for any future publish that succeeds partially.
+
 > 🟢 **W4 Stage 7 (core publish — DRY-RUN PREVIEW) LANDED (2026-05-04):** Operator approved Stage 7 design + dry-run preview after Stage 6b acceptance. `--stage=publish --publish-scope=core` is now wired in DEFAULT-DRY-RUN mode. Real production mutation requires `--write` AND a passing Stage 6b core report AND the operator's literal "publish core now" approval. `--publish-scope=full` stays RESERVED until the Stage 5 schema path lands. `--stage=rollback` stays RESERVED + hard-fail until Stage 8.
 >
 > **Stage 7 dry-run result — 8/8 preconditions PASS, outcome `preview_only`:**

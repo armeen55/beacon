@@ -7,6 +7,138 @@
 
 ---
 
+## 2026-05-04 — W4 Stage 7 --write: FAILED LOUD on batch 0 (schema gap: competitor_descriptor_windows missing) → ZERO rows written
+
+Operator approved with the literal phrase "publish core now" and ran the exact command:
+
+```
+BEACON_TENANT_ID=tenant-ritz-founder BEACON_TENANT_SLUG=ritz-builders \
+  npx tsx --require ./scripts/mock-server-only.cjs \
+  scripts/customer-one-backfill.ts --stage=publish --publish-scope=core --write
+```
+
+The orchestrator's fail-loud + per-batch-atomic design caught a Supabase schema gap on the first batch and stopped immediately. **No improvised fixes were attempted.** Production Supabase is byte-identical to the Stage 1 backup.
+
+### What happened
+
+1. Giant red banner printed (production-mutation warning fired correctly because `flags.dryRun === false`).
+2. All 8 preconditions PASSED (same as Stage 7 dry-run preview):
+   - Stage 1 backup manifest verified (66 entries SHA-256 match)
+   - Stage 6b core report present + `safeToPublishCore: true`
+   - Recs byte-identical to backup (17/17 edits + 7/7 responses)
+   - Staged inputs match reports (14,096 obs · 7,191 snapshots · 0 orphans)
+   - Publish target columns verified for both observations + snapshots
+   - `onConflict: "id"` strategy confirmed
+   - Stage 5 fence intact
+3. Manifest transitioned `preview_only → in_progress` with `started_at` stamped.
+4. `upsertInBatches("prompt_answer_observations", ...)` invoked. **Batch 0 (rows 0-499)** sent to Supabase.
+5. Supabase responded with PostgREST error PGRST204:
+   ```
+   Could not find the 'competitor_descriptor_windows' column of
+   'prompt_answer_observations' in the schema cache
+   ```
+6. The `error` branch fired:
+   - `errors.push("prompt_answer_observations batch 0 failed: ...")`
+   - `batchLog.push({ outcome: "failed", durationMs: ~3000 })`
+   - `upsertInBatches` returned `false`
+   - Orchestrator wrote `manifest.status = "failed"`, `completed_at` stamped
+   - Returned `outcome: "failed_during_write"`
+   - `main()` exited with code 12
+7. **Snapshots batch was NEVER attempted** (orchestrator short-circuits on observations failure).
+
+### What was written
+
+| Target | Batches attempted | Batches succeeded | Rows written |
+|---|---:|---:|---:|
+| `prompt_answer_observations` | 1 (failed) | 0 | 0 |
+| `daily_metric_snapshots` | 0 | 0 | 0 |
+| `changelog_entries` | — | — | 0 (out of scope) |
+| `recommended_edits` | — | — | 0 (out of scope) |
+| `recommendation_responses` | — | — | 0 (out of scope) |
+
+**Total rows written to Supabase: 0.** The Supabase upsert is atomic at the batch level — when the row JSON contains a column that doesn't exist on the target table, PostgREST rejects the entire batch upfront. No partial row landed.
+
+### Production Supabase verification (post-failure, read-only)
+
+Direct REST queries against production Supabase confirm zero W4 rows landed:
+
+| Table | Pre-publish (Stage 1 backup) | Post-attempt | Delta |
+|---|---:|---:|---:|
+| `prompt_answer_observations` | 1,936 | 1,936 | **0** |
+| `daily_metric_snapshots` | 2,325 | 2,325 | **0** |
+| `changelog_entries` | 334 | 334 | **0** |
+| `recommended_edits` | 17 | 17 | **0** |
+| `recommendation_responses` | 7 | 7 | **0** |
+
+Spot-check via `?id=eq.<W4_id>`: 5/5 sample W4 observation IDs returned 0 rows; 5/5 sample W4 snapshot IDs returned 0 rows. Production Supabase is byte-identical to the pre-publish backup.
+
+### Schema gap precisely characterized
+
+Read-only column-set diff between staged W4 row[0] keys and current production sample row[0] keys:
+
+| Table | Prod columns | Staged columns | Common | Missing in prod | Extra in prod |
+|---|---:|---:|---:|---|---|
+| `prompt_answer_observations` | 27 | 28 | 27 | **`competitor_descriptor_windows`** | (none) |
+| `daily_metric_snapshots` | 14 | 14 | 14 | (none) | (none) |
+
+Only ONE column is missing on ONE table. Snapshots would have published cleanly. The missing column is `competitor_descriptor_windows` — a W2 Schema v2.1 enrichment field added by Phase v4 Commit 6 in the deterministic extractor but never migrated to production Supabase. Per master plan §4.7, this column is part of the W2 day 2 schema work that is still ahead of W4 on the roadmap.
+
+### Why the precondition didn't catch this
+
+Stage 6b's `publish_readiness_core` check and Stage 7's `publish_target_columns_exist` precondition both verify the **required** core columns:
+
+```
+prompt_answer_observations: ["id", "tenant_id", "observed_at", "platform"]
+daily_metric_snapshots: ["id", "tenant_id", "date", "scope_type",
+                         "scope_id", "platform", "source_type"]
+```
+
+These are the columns the SQL writes to and reads from in the read paths. They do NOT enumerate every Schema v2.1 enrichment field that the deterministic extractor adds to staged rows. The publish-time gap is real: a column the staged rows carry but the target table does not have. **This is a precondition gap.** Stage 6b green-lit a publish that should have been blocked.
+
+Per operator rule "do not attempt improvised fixes", this gap is **documented but NOT patched in this commit**. A future operator-approved Stage 6c could add a precondition that does a full column-set diff against the staged row[0] keys (similar to the read-only diff that produced the table above).
+
+### System health verification (post-failure)
+
+To confirm no regression caused by the failed write attempt:
+
+- ✓ `--stage=verify --dry-run --publish-scope=core` re-run: `safe_to_publish_core: true`, all 8 core checks PASS (identical verdict to pre-publish dry-run)
+- ✓ `BEACON_TENANT_ID=... BEACON_TENANT_SLUG=... npm run build` clean
+- ✓ `tests/scripts/customer-one-backfill.test.ts` 248/248 still pass (no test code changes since Stage 7 commit `b788770`)
+- ✓ Recs queue unchanged (Supabase 17/17 + 7/7 byte-identical to Stage 1 backup)
+- ✓ Changelog unchanged (Supabase 334 rows; no W4 relabel attempted by --publish-scope=core)
+- ✓ All other Supabase tables byte-identical to Stage 1 backup
+
+### Constraints honored (operator-locked)
+
+- ✓ Did NOT include Stage 5 changelog relabel
+- ✓ Did NOT run `--publish-scope=full`
+- ✓ Did NOT mutate `changelog_entries`
+- ✓ Did NOT mutate `recommended_edits`
+- ✓ Did NOT mutate `recommendation_responses`
+- ✓ Did NOT delete native rows
+- ✓ Did NOT delete benchmark rows
+- ✓ Stopped immediately on batch 0 failure (no retry, no improvised fix)
+- ✓ Manifest captured the partial-write state (`status: failed`, both tables `batches_completed: 0`)
+- ✓ Did NOT run rollback (operator did not say "rollback")
+- ✓ Did NOT archive/delete Profound
+- ✓ Did NOT run paid generation
+- ✓ Did NOT Apply-All-HIGH
+
+### Outcome
+
+The fail-loud mechanism worked **exactly as designed**. The orchestrator stopped at the first sign of a schema mismatch, captured the partial-write state in the manifest, and exited cleanly with `outcome: "failed_during_write"` and exit code 12. Production Supabase is unchanged. Recs queue is unchanged. Changelog is unchanged. The operator now has a precise diagnosis (one missing column on one table) and four operator-decision options to unblock (see HANDOFF top banner).
+
+### Operator-decision options (no recommendation — operator picks)
+
+1. **Add `competitor_descriptor_windows jsonb` column to production `prompt_answer_observations`.** One-line schema migration. After migration, re-run the same publish command — staged rows publish cleanly (orchestrator is idempotent on `id`).
+2. **Strip `competitor_descriptor_windows` from staged observations before publish.** Edit `.data/_staging/w4-extracted-observations.json` to drop that field. Re-run Stage 6b verify (would still pass), then publish `--write`. Loses W2 enrichment on historical rows.
+3. **Defer W4 observations publish until W2 schema-add lands.** Keeps brain on 9 days of native data temporarily.
+4. **Move `competitor_descriptor_windows` to a separate sidecar table.** Bigger architectural change.
+
+Awaiting operator direction.
+
+---
+
 ## 2026-05-04 — W4 Stage 7: core publish design + dry-run preview (8/8 preconditions PASS, outcome `preview_only`, ZERO Supabase writes)
 
 Operator approved Stage 7 design + dry-run preview after Stage 6b acceptance. `--stage=publish --publish-scope=core --dry-run` (default) is wired to produce a preview JSON + rollback manifest skeleton without ever calling Supabase upsert/insert/update/delete. Real production mutation requires `--write` AND a passing Stage 6b core report AND the operator's literal "publish core now" approval. `--publish-scope=full` stays RESERVED until the Stage 5 schema path lands. `--stage=rollback` stays RESERVED + hard-fail until Stage 8.
