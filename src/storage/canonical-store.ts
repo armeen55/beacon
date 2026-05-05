@@ -262,18 +262,47 @@ export type FreshCanonicalData = {
   dailyMetricSnapshots: DailyMetricSnapshot[];
 };
 
-export async function loadFreshCanonicalData(): Promise<FreshCanonicalData> {
+/**
+ * E3 (operator audit, 2026-05-05) — optional date-window for the two
+ * heaviest reads. /today + /prompts only need 30-90 days of recent
+ * observations + snapshots (descriptor rollup window is 7 days, the
+ * visibility chart shows 14-90 days). Loading the full ~14k-row
+ * observation table on every render is the dominant Supabase egress
+ * cost. Passing `observationsSince` cuts the wire payload by 60-90%.
+ *
+ * Default behavior (no options) loads full history — scripts +
+ * non-render consumers (URL watcher, materializer, citation index
+ * rebuild) keep working unchanged.
+ */
+export type FreshCanonicalDataOptions = {
+  /** ISO date string. When set, prompt_answer_observations are filtered
+   *  at the DB with `observed_at >= since`. */
+  observationsSince?: string;
+  /** ISO date string. When set, daily_metric_snapshots are filtered at
+   *  the DB with `for_date >= since`. */
+  snapshotsSince?: string;
+};
+
+export async function loadFreshCanonicalData(
+  options?: FreshCanonicalDataOptions,
+): Promise<FreshCanonicalData> {
   // Sprint 7 Phase 7.5c/2 (2026-04-25) — same tier split as
   // `ensureLoaded`: Tier A reads scoped to tenant; Tier C
   // (tracked_prompts, tracked_entities) stay unscoped.
   const tenantId = await currentTenantId();
   const repo = getRepository();
   const tenantRepo = repo.forTenant(tenantId);
+  const observationsOpt = options?.observationsSince
+    ? { since: options.observationsSince }
+    : undefined;
+  const snapshotsOpt = options?.snapshotsSince
+    ? { since: options.snapshotsSince }
+    : undefined;
   const [prompts, observations, entities, snapshots] = await Promise.all([
     repo.getTrackedPrompts(),
-    tenantRepo.getPromptAnswerObservations(),
+    tenantRepo.getPromptAnswerObservations(observationsOpt),
     repo.getTrackedEntities(),
-    tenantRepo.getDailyMetricSnapshots(),
+    tenantRepo.getDailyMetricSnapshots(snapshotsOpt),
   ]);
   return {
     trackedPrompts: prompts,

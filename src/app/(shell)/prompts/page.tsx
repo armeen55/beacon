@@ -36,11 +36,18 @@ export default async function PromptsPage() {
   // Module-level arrays are seeded once per Vercel lambda; after the
   // 07:00 UTC poll writes fresh observations to Supabase, already-warm
   // lambdas served yesterday's prompt-decision matrix until cold-recycled.
+  //
+  // E3 (operator audit, 2026-05-05) — bound the observation read to
+  // 60 days. /prompts' decision matrix uses observations to score
+  // current-window mention/citation status — it doesn't need historical
+  // backfill rows. Cuts Supabase egress per /prompts render by ~80%.
+  const observationsSince = new Date(Date.now() - 60 * 86_400_000)
+    .toISOString();
   const {
     trackedPrompts,
     promptAnswerObservations,
     trackedEntities,
-  } = await loadFreshCanonicalData();
+  } = await loadFreshCanonicalData({ observationsSince });
   const promptTextById = new Map(
     trackedPrompts.map((p) => [p.id, p.text]),
   );

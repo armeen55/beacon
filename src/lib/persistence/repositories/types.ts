@@ -158,6 +158,24 @@ export interface SeedDataRepository {
  * artifacts like the citation evidence index) intentionally stay OFF
  * this interface — global data crosses tenants by design.
  */
+/**
+ * E3 (operator audit, 2026-05-05) — optional date-window for the two
+ * heaviest tenant reads. Callers that only need recent data (e.g.,
+ * /today's enrichment rollup operates on the last 7-30 days) can pass
+ * a `since` ISO date and avoid pulling the full ~14k-row history.
+ *
+ * Default behavior unchanged: omitting the option pulls all rows
+ * for backwards compatibility. Scripts (verify-daily-poll, materialize,
+ * citation-rebuild) that genuinely need full history don't have to
+ * change anything.
+ */
+export type WindowedReadOptions = {
+  /** ISO date string (YYYY-MM-DD or full ISO timestamp). Filters the
+   *  read at the database with `<column> >= since` so the rows never
+   *  cross the wire. */
+  since?: string;
+};
+
 export interface TenantRepository {
   getPages(): Promise<PageEntity[]>;
   getPageSnapshots(): Promise<PageSnapshot[]>;
@@ -171,7 +189,13 @@ export interface TenantRepository {
   getObservationRuns(): Promise<ObservationRun[]>;
   getResults(): Promise<Result[]>;
   getImportRuns(): Promise<ImportRun[]>;
-  getDailyMetricSnapshots(): Promise<DailyMetricSnapshot[]>;
-  getPromptAnswerObservations(): Promise<PromptAnswerObservation[]>;
+  /** E3 — accepts optional `{ since }` date window. Default: full history. */
+  getDailyMetricSnapshots(
+    options?: WindowedReadOptions,
+  ): Promise<DailyMetricSnapshot[]>;
+  /** E3 — accepts optional `{ since }` date window. Default: full history. */
+  getPromptAnswerObservations(
+    options?: WindowedReadOptions,
+  ): Promise<PromptAnswerObservation[]>;
   getUrlChangeOutcomes(): Promise<UrlChangeOutcome[]>;
 }

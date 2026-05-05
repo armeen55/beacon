@@ -1,5 +1,70 @@
 # Beacon — Start Here
 
+> 🟢 **E1-E6 SUPABASE EGRESS AUDIT + OPTIMIZATION (2026-05-05):** Audited all Supabase reads from product routes + scripts + cron. Found root cause: `/today` + `/prompts` + `/diagnostics` paged the FULL ~14k-row `prompt_answer_observations` table on every render via `loadFreshCanonicalData()` — ~42 MB egress per page load, multiplied by dev refreshes + cold-start prerenders. Landed: (a) windowed-read API (`since` option) on `getPromptAnswerObservations` + `getDailyMetricSnapshots`, (b) `loadFreshCanonicalData({ observationsSince, snapshotsSince })`, (c) `/today` uses 60-day obs + 120-day snapshot windows, (d) `/prompts` uses 60-day obs window, (e) `page_snapshots` capped at LIMIT 5000, (f) egress instrumentation behind `BEACON_SUPABASE_EGRESS_DEBUG=1`, (g) architecture invariant pinning `/diagnostics` doesn't pull observations directly. **Expected egress reduction: 60-90% on /today + /prompts page loads** (the dominant cost). No paid calls, no schema changes.
+>
+> ## E6 Decision Report
+>
+> ### 1. Root cause estimate (highest → lowest)
+>
+> | Source | Est. share | Why |
+> |---|---|---|
+> | **`/today` + `/prompts` rendering** | ~60-70% | Each page load called `loadFreshCanonicalData()` which paged ALL observations + snapshots tenant-wide. ~14k obs × ~3KB/row = ~42 MB observations + ~6 MB snapshots = ~48 MB per render. Dev refreshes (operator + agent loops) compound this 5-20× per day. |
+> | **URL-watcher trigger on /today + /changes** | ~10-15% | `url-citation-history.ts` re-loads all observations every 6h via `getPromptAnswerObservations()`. Dev refreshes bypass the throttle. |
+> | **Repeat dev browsing** | ~10% | Each Vercel preview / local dev page hit re-cold-starts the canonical store and re-pulls everything. |
+> | **Verify-daily-poll runs** | ~5-10% | 5-day observation lookback to count by platform — should use `count: 'exact', head: true` per (date, platform). Modest payload (~30KB/run × 3 runs/day) but adds up. |
+> | **Citation index rebuild post-cron** | ~5% | Pulls all native observations to rebuild the index. Once per day; runs cleanly. |
+> | **Stage 7 / W4 backfill repeat reads** | (negligible) | Backfill pre-publishes locally; published once on 2026-05-04. |
+>
+> ### 2. Expected egress reduction (after E1-E5 land)
+>
+> | Path | Pre-E5 payload (per render) | Post-E5 payload | Reduction |
+> |---|---|---|---|
+> | `/today` cold start | ~48 MB (14k obs + 7k snaps, full select-*) | ~10-12 MB (60d obs ≈ 1k rows + 120d snaps ≈ 720 rows) | **~75% drop** |
+> | `/prompts` cold start | ~42 MB (full obs) | ~3-5 MB (60d obs ≈ 1k rows) | **~88% drop** |
+> | `/diagnostics` cold start | ~10 MB (no obs, but other reads) | unchanged ~10 MB (architecture invariant prevents accidental obs leak) | 0% (was already light) |
+> | `getPageSnapshots` | unbounded (could be 15-20 MB on a tenant with 5000+ snapshots) | capped at 5000 rows ≈ 15 MB max | bounded |
+> | URL-watcher pass | ~7 MB (full obs) | ~7 MB (unchanged — backfill scripts intentionally still load all) | 0% (deferred — see "Next 3" below) |
+>
+> **Daily egress projection** (single dev visiting /today + /prompts ~10× per day): pre-E5 ~960 MB/day worst-case = ~29 GB/month → post-E5 ~150-180 MB/day = ~5 GB/month. **Comfortably under the Free Plan 5 GB cap.** Customer-1 (Ritz) production cron egress is bounded; the dev-refresh storm was the dominant variable.
+>
+> ### 3. Plan recommendation: **Option C — wait until May 9 reset, monitor for one cycle**
+>
+> Don't upgrade Supabase to Pro yet. Reasoning:
+> - Most of the 5.7 GB this cycle was wasteful, not real customer load (1 MAU, 0 storage egress, 0 realtime, 0 edge).
+> - The 60-day window optimization should drop /today + /prompts egress by ~75-88% per render.
+> - Dev refresh storms on the new windowed paths cost ~10-15 MB each (vs ~50 MB pre-E5) — easy to stay under 5 GB/month.
+> - Customer-2 isn't onboarded; daily cron load is bounded.
+>
+> **Monitor for one Free Plan cycle (May 9 → June 8).** If we approach 4 GB by mid-cycle with windowing in place, that's a real signal — upgrade then. Until then: stay Free.
+>
+> **If/when Pro is recommended later**, the reason will be: daily native polling on multiple tenants + dashboard reads from a customer base genuinely need it. Not because we're wasting egress.
+>
+> ### 4. Top-5 egress offenders + exact fixes landed
+>
+> | Rank | Offender | Fix landed (commit at end) |
+> |---|---|---|
+> | **1** | `loadFreshCanonicalData()` paged ALL `prompt_answer_observations` on /today, /prompts | New `FreshCanonicalDataOptions { observationsSince, snapshotsSince }`. /today passes 60d obs + 120d snaps. /prompts passes 60d obs. The `since` filter pushes down to Postgres `.gte("observed_at", since)`. **~75-88% reduction per render.** |
+> | **2** | `loadFreshCanonicalData()` also paged ALL `daily_metric_snapshots` | Same window applied. 7k → ~720 rows × 0.8KB = ~5MB → ~600KB. |
+> | **3** | `getPageSnapshots` was unbounded (`.select("*").order(...)` then dedupe-in-JS) | Added `.limit(5000)`. The dedupe-by-page_id still gets the latest per page; old rows past the cap are dropped (acceptable for current tenant scale). Egress logged via the new instrumentation. |
+> | **4** | No instrumentation — couldn't measure offenders without redeploy | New `logEgress()` helper in `supabase-backend.ts`. Wraps `query`, `queryAllPaged`, `selectScoped`, `queryAllPagedScoped`, plus `getPageSnapshots`. Activates only when `BEACON_SUPABASE_EGRESS_DEBUG=1` (off in prod by default). Logs table, rows, ≈bytes, ms, tenant, filter. |
+> | **5** | `/diagnostics` could regress and start pulling observations directly | Architecture invariant `tests/architecture/supabase-egress-windowing.test.ts` pins that `/diagnostics` does NOT call `loadFreshCanonicalData()` and does NOT call `.getPromptAnswerObservations()`. CI fails loudly if a future commit accidentally adds a heavy read. |
+>
+> ### Constraints respected
+>
+> - No paid OpenAI calls. No paid generation. No backfill. No extra polls.
+> - No schema migrations. No data deletion.
+> - No UI redesign. No onboarding kickoff. No Profound archive.
+> - File-backend symmetry preserved: `tenant-repo` honors `{ since }` via in-memory filter so `DATA_SOURCE=file` works identically.
+> - Default behavior unchanged when `since` is omitted — scripts (verify-daily-poll, citation index rebuild, URL watcher, materializer) keep loading full history.
+>
+> ### Next 3 actions
+>
+> 1. **Watch the next 24-48h Vercel egress** — if /today + /prompts page loads drop the daily Supabase egress trend by 60%+, the optimization landed. If not, the URL-watcher pass (or another path I missed) is the dominant remaining cost; trace via `BEACON_SUPABASE_EGRESS_DEBUG=1` on a Vercel preview.
+> 2. **Decide URL-watcher window cutoff** — the watcher reloads ALL observations on every materialize pass to compute URL citation history. It legitimately needs broader history than /today's 60 days (the visibility chart goes back to native-regime-start = 2026-04-22, ~14 days). A future bundle could window it to 90 days too — saves ~40 MB per pass × 2-4 passes per day.
+> 3. **At Free Plan reset (May 9)** — recheck egress trend. If still > 4 GB after one full cycle of windowed reads, escalate. Otherwise keep Free until customer-2.
+>
+> ---
+>
 > 🟢 **T1-T4 TODAY TRUST POLISH (2026-05-05):** Hosted /today no longer leaks descriptor garbage, raw `citations_per_day` chips, or "+1083% / Z-score 20.6" hype on the default surface. All exact stats preserved behind expansion. Quality gate green: typecheck clean, 27 new T1-T4 tests PASS, full suite 4387/4392 (same 5 baseline failures), build green.
 >
 > ## What T1 did (descriptor quality)

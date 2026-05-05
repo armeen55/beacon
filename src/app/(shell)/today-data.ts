@@ -278,8 +278,32 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
   let dailyMetricSnapshots: Awaited<
     ReturnType<typeof loadFreshCanonicalData>
   >["dailyMetricSnapshots"] = [];
+  // E3 (operator audit, 2026-05-05) — bound canonical reads by date.
+  //
+  // /today renders need:
+  //   • Today's per-platform rollup (1 day of observations)
+  //   • 7-day descriptor cloud + prior-7d-window deltas (14 days of obs)
+  //   • Visibility chart (90 days of snapshots is the max range the
+  //     chart toggle exposes; older data is /diagnostics territory)
+  //
+  // We were pulling the FULL ~14k-row observation table on every render
+  // of /today, /prompts, and /diagnostics — a tens-of-MB Supabase egress
+  // cost per page load (the dominant 5.7 GB/month bill driver). The
+  // window below caps the read at 60 days for observations and 120 days
+  // for snapshots — comfortably wider than every consumer in this file
+  // needs, with margin for cron-lag / TZ slop / future timeRange chart
+  // expansions.
+  const NOW_MS = Date.now();
+  const observationsSince = new Date(NOW_MS - 60 * 86_400_000)
+    .toISOString();
+  const snapshotsSince = new Date(NOW_MS - 120 * 86_400_000)
+    .toISOString()
+    .slice(0, 10); // for_date is YYYY-MM-DD, not full ISO
   try {
-    const fresh = await loadFreshCanonicalData();
+    const fresh = await loadFreshCanonicalData({
+      observationsSince,
+      snapshotsSince,
+    });
     trackedPrompts = fresh.trackedPrompts;
     promptAnswerObservations = fresh.promptAnswerObservations;
     trackedEntities = fresh.trackedEntities;

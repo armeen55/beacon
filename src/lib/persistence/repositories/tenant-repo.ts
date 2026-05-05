@@ -60,10 +60,38 @@ export function buildTenantRepo(
     getResults: async () => filterByTenantId(await base.getResults(), tenantId),
     getImportRuns: async () =>
       filterByTenantId(await base.getImportRuns(), tenantId),
-    getDailyMetricSnapshots: async () =>
-      filterByTenantId(await base.getDailyMetricSnapshots(), tenantId),
-    getPromptAnswerObservations: async () =>
-      filterByTenantId(await base.getPromptAnswerObservations(), tenantId),
+    // E3 (operator audit, 2026-05-05) — accept optional `{ since }` window.
+    // The file-backend reads everything off disk anyway (no Postgres
+    // egress), but threading the option keeps the API symmetric with
+    // the Supabase backend so callers don't branch on DATA_SOURCE.
+    // Filtering happens in-memory after the disk read.
+    getDailyMetricSnapshots: async (options) => {
+      const all = filterByTenantId(
+        await base.getDailyMetricSnapshots(),
+        tenantId,
+      );
+      if (!options?.since) return all;
+      const since = options.since;
+      return all.filter((row) => {
+        // The DailyMetricSnapshot type uses `date` (YYYY-MM-DD), not
+        // `for_date`. Filter is lex-safe against ISO timestamps too
+        // because YYYY-MM-DD is a prefix of YYYY-MM-DDTHH:mm:ssZ.
+        const d = (row as { date?: string }).date;
+        return typeof d === "string" && d >= since;
+      });
+    },
+    getPromptAnswerObservations: async (options) => {
+      const all = filterByTenantId(
+        await base.getPromptAnswerObservations(),
+        tenantId,
+      );
+      if (!options?.since) return all;
+      const since = options.since;
+      return all.filter((row) => {
+        const o = (row as { observed_at?: string }).observed_at;
+        return typeof o === "string" && o >= since;
+      });
+    },
     getUrlChangeOutcomes: async () =>
       filterByTenantId(await base.getUrlChangeOutcomes(), tenantId),
   };

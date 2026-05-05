@@ -59,13 +59,55 @@ import type { TrackedEntity } from "@/domains/tracked-entities/types";
 import type { TrackedPrompt } from "@/domains/tracked-prompts/types";
 import { mapRowToEntity } from "./key-mapper";
 
+/**
+ * E2 (operator audit, 2026-05-05) — egress observability.
+ *
+ * Wrap every Supabase read with a tiny logger that, when
+ * `BEACON_SUPABASE_EGRESS_DEBUG=1`, emits a structured trace per call
+ * with table, row count, approximate JSON byte size, duration, and
+ * tenant scope. The flag is OFF by default so production logs aren't
+ * spammed. Operator runs `BEACON_SUPABASE_EGRESS_DEBUG=1 npm run dev`
+ * (or sets the var on Vercel preview) when investigating egress.
+ *
+ * Approximate JSON byte size = `JSON.stringify(data ?? []).length`.
+ * It's not exact wire bytes (PostgREST adds modest framing overhead)
+ * but is close enough to spot the heavy offenders.
+ *
+ * Pure observability. No behavior change.
+ */
+function logEgress(opts: {
+  table: string;
+  rows: number;
+  data: unknown;
+  durationMs: number;
+  tenantId?: string | null;
+  filter?: string | null;
+}): void {
+  if (process.env.BEACON_SUPABASE_EGRESS_DEBUG !== "1") return;
+  let approxBytes = 0;
+  try {
+    approxBytes = JSON.stringify(opts.data ?? []).length;
+  } catch {
+    approxBytes = -1;
+  }
+  // Simple console line — keeps the logger dependency-free and avoids
+  // triggering the structured-logger code path during cold-start tests.
+  // eslint-disable-next-line no-console
+  console.log(
+    `[supabase-egress] table=${opts.table} rows=${opts.rows} bytes≈${approxBytes} ms=${opts.durationMs}${opts.tenantId ? ` tenant=${opts.tenantId}` : ""}${opts.filter ? ` filter=${opts.filter}` : ""}`,
+  );
+}
+
 async function query<T>(table: string): Promise<T[]> {
+  const t0 = Date.now();
   const { data, error } = await getSupabaseAdmin()
     .from(table)
     .select("*");
   if (error)
     throw new Error(`Supabase query failed on ${table}: ${error.message}`);
-  return (data ?? []) as T[];
+  const rows = (data ?? []) as T[];
+  logEgress({ table, rows: rows.length, data: rows, durationMs: Date.now() - t0 });
+  return rows;
 }
 
 /**
@@ -80,6 +122,7 @@ async function queryAllPaged<T>(table: string): Promise<T[]> {
   const PAGE = 1000;
   const out: T[] = [];
   let from = 0;
+  const t0 = Date.now();
   for (;;) {
     const { data, error } = await sb
       .from(table)
@@ -92,6 +135,7 @@ async function queryAllPaged<T>(table: string): Promise<T[]> {
     if (rows.length < PAGE) break;
     from += PAGE;
   }
+  logEgress({ table: `${table}[paged]`, rows: out.length, data: out, durationMs: Date.now() - t0 });
   return out;
 }
 
@@ -113,29 +157,58 @@ async function queryMapped<T>(table: string): Promise<T[]> {
 // `recommendation_responses (tenant_id, rec_id)` actually get used. Also
 // avoids fetching another tenant's rows just to filter them out in JS.
 async function selectScoped<T>(table: string, tenantId: string): Promise<T[]> {
+  const t0 = Date.now();
   const { data, error } = await getSupabaseAdmin()
     .from(table)
     .select("*")
     .eq("tenant_id", tenantId);
   if (error)
     throw new Error(`Supabase query failed on ${table}: ${error.message}`);
-  return (data ?? []) as T[];
+  const rows = (data ?? []) as T[];
+  logEgress({ table, rows: rows.length, data: rows, durationMs: Date.now() - t0, tenantId });
+  return rows;
 }
 
+/**
+ * E3 (operator audit, 2026-05-05) — windowed paginated reads.
+ *
+ * Adds an OPTIONAL date-window filter (`since` ISO string) and column
+ * projection (`columns`) so callers that only need recent rows or a
+ * subset of columns can avoid pulling the entire table.
+ *
+ * Default behavior unchanged: `since` undefined + `columns` undefined →
+ * `select("*")` over all rows for the tenant. Existing scripts /
+ * migration helpers keep their full-history reads.
+ *
+ * `since` filters on `observed_at` (observations) or `for_date`
+ * (snapshots) — the column name varies by table, so the caller passes
+ * the column name explicitly to avoid coupling.
+ */
 async function queryAllPagedScoped<T>(
   table: string,
   tenantId: string,
+  options?: {
+    since?: string;
+    sinceColumn?: string;
+    columns?: string;
+  },
 ): Promise<T[]> {
   const sb = getSupabaseAdmin();
   const PAGE = 1000;
   const out: T[] = [];
   let from = 0;
+  const t0 = Date.now();
+  const columns = options?.columns ?? "*";
   for (;;) {
-    const { data, error } = await sb
+    let query = sb
       .from(table)
-      .select("*")
+      .select(columns)
       .eq("tenant_id", tenantId)
       .range(from, from + PAGE - 1);
+    if (options?.since && options?.sinceColumn) {
+      query = query.gte(options.sinceColumn, options.since);
+    }
+    const { data, error } = await query;
     if (error)
       throw new Error(`Supabase query failed on ${table}: ${error.message}`);
     const rows = (data ?? []) as T[];
@@ -143,6 +216,18 @@ async function queryAllPagedScoped<T>(
     if (rows.length < PAGE) break;
     from += PAGE;
   }
+  const filterDesc =
+    options?.since && options?.sinceColumn
+      ? `${options.sinceColumn}>=${options.since}`
+      : null;
+  logEgress({
+    table: `${table}[scoped-paged]`,
+    rows: out.length,
+    data: out,
+    durationMs: Date.now() - t0,
+    tenantId,
+    filter: filterDesc,
+  });
   return out;
 }
 
@@ -397,24 +482,52 @@ export const supabaseBackend: SeedDataRepository = {
           "page_element_inventory",
           tenantId,
         ),
-      getPromptAnswerObservations: () =>
+      // E3 (operator audit, 2026-05-05) — accept optional `{ since }`
+      // window. Without it, behavior is unchanged (full history).
+      // /today + /prompts pass a 60-90-day window to avoid pulling
+      // the entire 14k-row observation table on every render.
+      getPromptAnswerObservations: (options) =>
         queryAllPagedScoped<PromptAnswerObservation>(
           "prompt_answer_observations",
           tenantId,
+          options?.since
+            ? { since: options.since, sinceColumn: "observed_at" }
+            : undefined,
         ),
-      getDailyMetricSnapshots: () =>
+      getDailyMetricSnapshots: (options) =>
         queryAllPagedScoped<DailyMetricSnapshot>(
           "daily_metric_snapshots",
           tenantId,
+          options?.since
+            ? { since: options.since, sinceColumn: "date" }
+            : undefined,
         ),
 
       // page_snapshots: tenant-scoped + dedupe-by-page_id (latest first).
+      //
+      // E3 (operator audit, 2026-05-05) — bounded read.
+      //
+      // Pre-E3 the query was unbounded with no row cap, then deduped
+      // in JS. For a tenant with ~50 pages multiplied by ~100
+      // snapshots each, that is 5000 rows times ~3KB equals 15MB
+      // pulled across the wire every time, only to discard 4950 rows
+      // after the dedupe.
+      //
+      // Post-E3 the query caps at LIMIT 5000 (covers ~50 pages times
+      // ~100 historical snapshots each, comfortable for current
+      // single-tenant Ritz scale). Order DESC plus dedupe-by-page_id
+      // still surfaces the LATEST snapshot per page. If a tenant
+      // grows past this bound, the dedupe will silently miss the
+      // oldest snapshots — revisit once production scale demands a
+      // server-side DISTINCT-ON (page_id) RPC.
       getPageSnapshots: async () => {
+        const t0 = Date.now();
         const { data, error } = await getSupabaseAdmin()
           .from("page_snapshots")
           .select("*")
           .eq("tenant_id", tenantId)
-          .order("fetched_at", { ascending: false });
+          .order("fetched_at", { ascending: false })
+          .limit(5000);
         if (error)
           throw new Error(
             `Supabase query failed on page_snapshots: ${error.message}`,
@@ -427,6 +540,14 @@ export const supabaseBackend: SeedDataRepository = {
             latest.push(row);
           }
         }
+        logEgress({
+          table: "page_snapshots[capped+dedup]",
+          rows: latest.length,
+          data: data ?? [],
+          durationMs: Date.now() - t0,
+          tenantId,
+          filter: "limit=5000 dedup_by=page_id",
+        });
         return latest;
       },
 

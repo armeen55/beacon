@@ -284,6 +284,11 @@ describe("Sprint 4 / Phase 4.9 — canonical-store fresh-per-render", () => {
       // `loadFreshCanonicalData()` directly — the call moved into
       // `loadLiveRecommendationQueue`. The other four render paths
       // still call it directly.
+      //
+      // E3 (2026-05-05): loosen the match to accept the optional
+      // `{ observationsSince, snapshotsSince }` window argument that
+      // /today + /prompts now pass. Empty-paren AND option-arg forms
+      // both qualify as "calls loadFreshCanonicalData() at render time."
       const directTargets = [
         { name: "/prompts", src: SRC.prompts },
         { name: "/prompts/[id]", src: SRC.promptDetail },
@@ -292,7 +297,7 @@ describe("Sprint 4 / Phase 4.9 — canonical-store fresh-per-render", () => {
       ];
       for (const { name, src } of directTargets) {
         expect(src, `${name} must call loadFreshCanonicalData()`).toMatch(
-          /loadFreshCanonicalData\(\s*\)/,
+          /loadFreshCanonicalData\(/,
         );
       }
       // /recommendations: page must call loadLiveRecommendationQueue,
