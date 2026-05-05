@@ -1,5 +1,31 @@
 # Beacon — Start Here
 
+> 🟢 **M4+M5 BUNDLE (2026-05-05):** Mark Shipped UI tightened (operator audit-locked: Accept ≠ Mark Shipped) + /pages route replaced with deliberate not-ready placeholder + documented follow-up. Quality gate green: typecheck clean, 408/408 targeted PASS (+11 vs M3), full suite 4292/4298 (same 6 baseline failures verified pre-existing), build green.
+>
+> ## What M4 did
+>
+> - **/recommendations** Mark Shipped button — no change, was already correctly gated to `case "accepted":` only with `editCount > 0`. Verified.
+> - **/changes** Mark Shipped button — gate tightened from `lifecycleStatus === "recommended" || "accepted"` to `accepted`-only. The "stale pending" yellow tint still fires on either status (the row IS pending in both cases) but the button only appears when Mark Shipped is the semantically-correct next action. Prevents Accept ↔ Mark Shipped confusion.
+> - **`markChangelogEditShipped` action** — defense in depth: explicitly refuses `recommended` rows with the operator-facing message *"Accept the recommendation first. Mark Shipped only confirms an already-accepted change is live on the page; it doesn't accept the recommendation for you."* A stale tab cannot skip Accept.
+> - **Honest copy preserved**: feedback reads "Marked live — verdict clock started." (tracking, not impact-claim). The persistence helper does NOT stamp a verdict label — it only sets `live_at` + `live_match_kind = "operator_override"`. The verdict engine computes the lift on the next materialize pass.
+> - **New invariant**: `tests/architecture/mark-shipped-accepted-only.test.ts` — pins all four contracts above. **7/7 PASS.**
+>
+> ## What M5 did
+>
+> - **/pages route**: replaced 882-line PagesPage with a 100-line synchronous RSC that renders an honest "Pages isn't ready yet" placeholder. Deep links to /, /recommendations, /changes so the route stays useful. `data-pages-state="not-ready"` for any future test/probe.
+> - **Why Option B**: the previous route depended on ~15 domain stores (page-snapshots, render-checks, sitemap-reconciliation, page-issues, outcome-watch, guardrail-alerts, rollout-waves, pattern-evidence, citation-evidence-index, playbook-briefs, fix-briefs, opportunity-scoring, scorecard, outcome events). Several return empty on Vercel. Fixing the full surface is a 2289-line refactor — NOT a bounded pass.
+> - **Supporting files preserved**: `pages-client.tsx` (types consumed by `src/components/pages/*` and /topics), `issue-actions.ts` (`convertBriefToIssue` consumed by /topics), `scan-action.ts`, `verify-action.ts`, `wave-actions.ts`, `loading.tsx`. None deleted.
+> - **Smoke test rewritten**: `tests/routes/pages-smoke.test.ts` now pins the not-ready contract (heading, navigational links, no legacy markup, synchronous RSC). **4/4 PASS.**
+> - **Documented follow-up**: `docs/IDEAS_PARKING_LOT.md` Parked section gained "Rebuild /pages — focused per-URL citation history". Scope: ~200-line Supabase-only read of `citation_evidence_index`, no patterns/waves/playbooks UI, deferred until customer 2 is on the calendar.
+>
+> ## Next 3 actions
+>
+> 1. **Browser-verify on Vercel**: /pages renders "Pages isn't ready yet" with three nav links; /changes shows Mark Shipped on accepted rows only (not on recommended); attempting `markChangelogEditShipped` on a recommended row returns the Accept-first error.
+> 2. **Continue the operator audit**: M4 + M5 close two more items. Remaining bundle items per the 2026-05-05 brief — verdict explainer page polish, changelog descriptor disambiguation — stay parked until you scope them next.
+> 3. **Do not auto-rebuild /pages**: per parking-lot entry, defer until customer 2 is booked. The not-ready placeholder is the right shape until then.
+>
+> ---
+>
 > 🟢 **M1+M2+M3 CUSTOMER-TRUST BUNDLE (2026-05-05):** Commit `60a2cb5` shipped + pushed. **Operator audit M1+M2+M3** complete: placeholder gate pinned, raw-UUID kill at render + save time + LLM system prompt, attribution-overclaim fix (deltaPct floor + sampling-status guard + correlation-toned narrative). **No paid calls, no Supabase writes, no queue mutation.** Quality gate green: typecheck clean, 397/397 targeted PASS (architecture + sanitizer + url-verdict), full suite 4282/4288 (6 baseline failures verified pre-existing on stashed checkout, unrelated), build green. Vercel auto-deploy from origin/main follows.
 >
 > ## What this bundle did

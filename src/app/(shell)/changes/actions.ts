@@ -100,7 +100,25 @@ export async function markChangelogEditShipped(args: {
   }
 
   const status = editLifecycleStatus(edit);
-  if (status !== "recommended" && status !== "accepted") {
+  // M4 (operator audit, 2026-05-05) — refuse `recommended`. The UI
+  // already hides the button on recommended rows, but a stale tab or
+  // direct API call must not be allowed to skip the Accept step. Mark
+  // Shipped is "operator confirms a previously-accepted edit is live
+  // on the page"; acceptance happens on /recommendations and is a
+  // separate operator decision.
+  if (status === "recommended") {
+    log.info("markChangelogEditShipped: refused — edit not yet accepted", {
+      changelogId: args.changelogId,
+      editId: edit.id,
+      status,
+    });
+    return {
+      success: false,
+      error:
+        "Accept the recommendation first. Mark Shipped only confirms an already-accepted change is live on the page; it doesn't accept the recommendation for you.",
+    };
+  }
+  if (status !== "accepted") {
     log.info("markChangelogEditShipped: edit already past verified_live", {
       changelogId: args.changelogId,
       editId: edit.id,

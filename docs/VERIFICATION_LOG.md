@@ -7,6 +7,50 @@
 
 ---
 
+## 2026-05-05 — M4+M5 bundle (Mark Shipped semantics + /pages not-ready)
+
+Bounded pass closing two more items from the operator audit. No paid calls, no Supabase writes, no queue mutation.
+
+### M4 — Mark Shipped UI (Accept ≠ Mark Shipped)
+
+- **/recommendations** Action column already gated Mark Shipped on `case "accepted"` with `editCount > 0`. Verified via `tests/architecture/mark-shipped-accepted-only.test.ts`. No change to the file.
+- **/changes** scorecard-client.tsx: tightened the Mark Shipped gate from `(recommended || accepted)` to `accepted`-only. The "stale pending" yellow tint still fires on either status (`isPendingForStaleness` retains the broader check) but the button only renders when Mark Shipped is the semantically-correct next action.
+- **`markChangelogEditShipped` action**: refuses `recommended` rows explicitly with the message *"Accept the recommendation first. Mark Shipped only confirms an already-accepted change is live on the page; it doesn't accept the recommendation for you."* Defense in depth: a stale UI / direct API caller cannot skip Accept.
+- **Honest copy**: feedback reads "Marked live — verdict clock started." (tracking, not impact-claim). `markRecommendedEditsAsShipped` only sets `implementation_status: "verified_live"`, `live_at`, and `live_match_kind: "operator_override"` — it does NOT stamp any verdict label (helping/hurting/landing_z). The verdict engine computes those on the next materialize pass.
+- **New `tests/architecture/mark-shipped-accepted-only.test.ts`**: 7 invariants pin all four contracts above (gate text, button-inside-guard ordering, action refusal of `recommended`, post-flip copy bans of impact-claim phrases, persistence helper does not stamp verdict labels). **7/7 PASS.**
+
+### M5 — /pages Option B (deliberate not-ready)
+
+- **Audit finding**: previous `/pages` route was 882 lines reading from ~15 domain stores (page-snapshots, page-snapshot-diffs, render-checks, sitemap-reconciliation, page-issues, outcome-watch, guardrail-alerts, rollout-waves, pattern-evidence, citation-evidence-index, playbook-briefs, fix-briefs, opportunity-scoring, scorecard, outcome events). Several return empty on Vercel; the route was hidden from nav since 2026-04-22 (Phase 3.5F) but stayed routable as a half-broken surface. **2289 lines total** across page.tsx + 6 supporting files.
+- **Decision: Option B (deliberate not-ready)**. Per operator: *"I prefer Option A only if it is small. If it is more than a bounded pass, choose Option B now and create a documented follow-up."* 882 + 2289 lines + 15-store fan-out is not a bounded pass.
+- **Implementation**: page.tsx replaced with a ~100-line synchronous RSC. Renders "Pages isn't ready yet" + an honest explanation + deep links to /, /recommendations, /changes so the route stays useful when reached directly. `data-pages-state="not-ready"` attribute available for tests / probes.
+- **Supporting files preserved** (and documented why):
+  - `pages-client.tsx` — exports types consumed by `src/components/pages/*` (PageRow, PageSummary, etc.) and a few read sites in /topics. Deleting would force a cross-domain refactor.
+  - `issue-actions.ts` — exports `convertBriefToIssue` consumed by `src/app/(shell)/topics/package-actions.ts`. Removing would break /topics.
+  - `scan-action.ts`, `verify-action.ts`, `wave-actions.ts`, `loading.tsx` — currently unreferenced from outside this folder, but kept as dead-code-with-comment so the eventual rebuild doesn't have to re-derive them.
+- **`tests/routes/pages-smoke.test.ts` rewritten**: 4 invariants pin the not-ready contract (heading "Pages" + "isn't ready yet" copy; navigational links to /, /recommendations, /changes; no legacy markup ("Health, citations…", import empty-state); synchronous RSC — no async I/O). **4/4 PASS.**
+- **Documented follow-up**: `docs/IDEAS_PARKING_LOT.md` Parked section gained "Rebuild /pages — focused per-URL citation history". Scope: ~200-line Supabase-only read of `citation_evidence_index`, no patterns/waves/playbooks UI, no schema changes. Deferred until customer 2 is on the calendar (per master-plan §3.7).
+
+### Quality gate
+
+- `npm run typecheck` — clean (3 pre-existing baseline errors only, unrelated to M4/M5).
+- Targeted (architecture + routes/pages-smoke + sanitizer + url-verdict): **408/408 PASS** (+11 vs M3 — 7 M4 + 4 M5).
+- `npm run test` (full suite): **4292/4298 PASS** (+10). Same 6 baseline failures verified pre-existing on stashed checkout (auto-link-via-changelog × 2, prompts-smoke × 2, prompt-drilldown-smoke, tenants/isolation), unrelated to M4/M5.
+- `npm run build` — green.
+
+### Files touched
+
+```
+M  docs/IDEAS_PARKING_LOT.md                                   (Rebuild /pages parking-lot entry)
+M  src/app/(shell)/changes/actions.ts                          (refuse `recommended` in markChangelogEditShipped)
+M  src/app/(shell)/changes/scorecard-client.tsx                (gate Mark Shipped to `accepted` only)
+M  src/app/(shell)/pages/page.tsx                              (replaced 882-line route with ~100-line not-ready placeholder)
+M  tests/routes/pages-smoke.test.ts                            (rewritten for not-ready contract)
+A  tests/architecture/mark-shipped-accepted-only.test.ts       (7 M4 invariants)
+```
+
+---
+
 ## 2026-05-05 — M1+M2+M3 customer-trust bundle
 
 Operator brief (post-audit): kill the placeholder leak, kill UUID leaks in operator-visible copy, fix attribution overclaiming. No paid calls, no Supabase writes, no queue mutation. Commit `60a2cb5` shipped.

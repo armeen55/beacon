@@ -105,7 +105,17 @@ Reopen any idea at any time. Mark updates with dates.
 
 ## Parked (captured, no action)
 
-*None yet. Add ideas here as they arrive.*
+### Rebuild /pages — focused per-URL citation history
+
+**Added:** 2026-05-05 · **Status:** parked
+
+- **The idea:** Rebuild the `/pages` route as a small, Supabase-only per-URL citation-history view. ~1 page worth of data per URL: citation count over time (pulled from the citation evidence index), last crawl timestamp, list of currently-open recommendations on that page, link back to /recommendations and /changes filtered to the URL.
+- **Source:** M5 of the operator's 2026-05-05 brutal full-system audit. Quote: "Current /pages is hidden from nav but routable and half-broken … fix /pages to read Supabase and show basic URL/page citation history."
+- **Why it's interesting:** /pages is the natural drill-down from /today's leaderboard and /recommendations' target-URL chips. When customer 2 lands and asks "what's the citation history on `/services/whole-home-remodel`?" the answer should be one click, not three.
+- **Why it's hard / risky:** The previous /pages route was 882 lines reading from ~15 domain stores (page-snapshots, page-snapshot-diffs, render-checks, sitemap-reconciliation, page-issues, outcome-watch, guardrail-alerts, rollout-waves, pattern-evidence, citation-evidence-index, playbook-briefs, fix-briefs, opportunity-scoring, scorecard, outcome events). Several stores return empty on Vercel. Fixing the full surface is a 2289-line refactor. The cheap rebuild is "throw all that away, read citation evidence index from Supabase, render ~200 lines."
+- **Claude's take:** YES — but bounded. Scope: read-only per-URL citation history from `citation_evidence_index` (Supabase), no patterns/waves/playbooks/issues UI, no `page-store.ts` or `page-snapshot-diff-store.ts` reads, no schema changes. ~200 lines, ~1 day. **Defer until customer 2 is on the calendar** (per master-plan §3.7 — /pages stays hidden through W4). At that point: 1 dev-day, plus a smoke test that verifies the route renders empty-state gracefully when the citation evidence index is missing.
+- **Updates:**
+  - 2026-05-05: Captured. The current /pages is now a deliberate not-ready placeholder (M5 Option B). Supporting files preserved (`pages-client.tsx`, `issue-actions.ts` are imported by other components / routes).
 
 ---
 

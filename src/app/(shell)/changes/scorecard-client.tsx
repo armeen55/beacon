@@ -438,12 +438,23 @@ function ChangeRow({
   // Stale-pending = pre-verified for ≥3 days (changelog timestamp is the
   // accept-at proxy because per-edit fan-out fires at accept time).
   const STALE_PENDING_DAYS = 3;
-  const canMarkShipped =
+  // M4 (operator audit, 2026-05-05) — Mark Shipped is restricted to
+  // `accepted` rows ONLY. Showing it on `recommended` rows conflates
+  // Accept with Mark Shipped: a single click would silently skip the
+  // Accept step and stamp the row `verified_live`, making the operator
+  // unable to triage the queue properly. Acceptance happens on
+  // /recommendations; /changes only confirms shipment for rows the
+  // operator has already accepted. The "stale pending" tint still
+  // fires on either status — the row IS pending in both cases — but
+  // the button itself appears only when Mark Shipped is the
+  // semantically-correct next action.
+  const canMarkShipped = lifecycleStatus === "accepted";
+  const isPendingForStaleness =
     lifecycleStatus === "recommended" || lifecycleStatus === "accepted";
   const ageDays = Math.floor(
     (Date.now() - new Date(ch.timestamp).getTime()) / 86_400_000,
   );
-  const isStalePending = canMarkShipped && ageDays >= STALE_PENDING_DAYS;
+  const isStalePending = isPendingForStaleness && ageDays >= STALE_PENDING_DAYS;
 
   function handleMarkShipped(e: React.MouseEvent) {
     // The whole row is clickable to toggle expand — stop propagation so
