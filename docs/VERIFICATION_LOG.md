@@ -7,6 +7,68 @@
 
 ---
 
+## 2026-05-05 — S1+S3+S4 trust/infrastructure bundle
+
+Operator scoped three trust/infra items: pin the measurement quality boundary (S1), fix the long-standing tenant-isolation baseline failure (S3), wire the samplingStatus guard into URL-level attribution end-to-end (S4). No paid polling, no paid generation, no schema changes.
+
+### S1 — measurement quality boundary pin
+
+- **Audit**: `NATIVE_REGIME_START = "2026-04-22"` is the single canonical export from `src/domains/product/url-citation-history.ts`. Used in 27+ call sites across `url-citation-history.ts`, `evidence-packet.ts`, `url-verdict.ts` (via `source_type` tagging), `resolve-page-intent.ts`. No duplicate hardcoded `2026-04-22` literals exist anywhere in `src/`.
+- **No rename**: operator brief said "Rename only if safe. Do not do broad refactors." 27+ call sites + 6 domains is not a bounded pass. The constant stays under its current name; the value is what's pinned.
+- **`tests/architecture/measurement-quality-boundary-pin.test.ts`** (new, 5/5 PASS):
+  - Pins `NATIVE_REGIME_START === "2026-04-22"`.
+  - Pins canonical-file uniqueness: exactly one `export const NATIVE_REGIME_START = "2026-04-22"` declaration in `url-citation-history.ts`.
+  - Pins single-canonical-source: no other src/** non-test file declares the date as a string literal (architecture-test files allow it as a fixture value).
+  - Pins `denseSeries` regime tagging: pre-boundary points → `source_type="benchmark"`, on-or-after → `source_type="derived"`.
+  - Pins pure-split mixed-source abstain: a benchmark-baseline / derived-post window returns verdict `not_enough_native_baseline` (the load-bearing attribution guard).
+
+### S3 — tenant-isolation baseline failure FIXED
+
+- **Root cause** (full audit): `.data/observation-runs.json` had 50 rows with no `tenant_id` field. They predate the multi-tenant migration that backfilled every other store. `filterByTenant` did strict `=== tenantId`, so all 50 untagged rows were filtered out — `getObservationRunsForTenant("tenant-ritz-founder")` returned 0 results, failing the test `> getObservationRunsForTenant returns only founder data`.
+- **Fix**: read-time normalization in `src/lib/tenant-data.ts`. New `getFounderTenantIdForLegacyFallback()` resolves the founder via `tenants.find(t => t.role === "founder")` — dynamic, not hard-coded `tenant-ritz-founder`. Cached per process. New `filterByTenantWithLegacyFounderFallback` interprets untagged rows as belonging to the founder when the founder is the asker, and returns shallow copies with `tenant_id` stamped on (so consumers see the canonical type shape). Tagged rows continue to use strict equality (no behavior change for normal data).
+- **Cross-tenant safety verified**: queries for any non-founder tenant still return 0 untagged rows (legacy fallback only matches founder queries). `tests/tenants/isolation.test.ts > tenant data isolation — no cross-tenant leaks` still passes.
+- **No on-disk mutation**: `.data/observation-runs.json` untouched. The fix is read-path only — forward-compatible (when new rows write `tenant_id` properly, the legacy branch becomes a no-op for them).
+- **Result**: 18/18 tenant-isolation tests PASS. Full beacon suite **6 → 5 baseline failures**.
+
+### S4 — samplingStatus guard wired into URL-level attribution
+
+- **Gap**: M3 added `sampling_status` field on `DailyPoint` + a guard in `computeUrlVerdict` that demotes `helping`/`hurting` → `nothing_yet` when the post-window contains any `proof` day or no `full` days. The guard was a no-op because no caller populated the tag.
+- **Wire-up** in `src/domains/attribution/url-change-outcome.ts`:
+  - New pure helper `buildSamplingStatusByDate(observations)` — groups `prompt_answer_observations` by ISO date, counts per date, classifies via `classifySampling()` (full ≥ 80, partial 10–79, proof 1–9, empty 0). Returns `Map<string, DailyPointSamplingStatus>`.
+  - New pure helper `stampSamplingStatus(series, map)` — shallow-copy stamper; untagged dates pass through (back-compat).
+  - `ComputeVerdictOptions` extended with optional `samplingStatusByDate`.
+  - `computeChangeVerdict` calls `stampSamplingStatus` after `denseSeries` returns when the option is provided.
+  - `materializeUrlOutcomes` builds the map once per pass from `getPromptAnswerObservations()` and threads it on every `computeChangeVerdict` call. Failure to load observations is non-fatal: warns + falls back to empty map (no-op guard).
+- **`src/domains/attribution/url-change-outcome.s4-sampling.test.ts`** (new, 13/13 PASS):
+  - `buildSamplingStatusByDate` correctly classifies each threshold boundary; ignores malformed `observed_at`; returns empty map on empty input.
+  - `stampSamplingStatus` stamps tags on matching dates only; never mutates source; returns shallow copy on undefined/empty map.
+  - End-to-end via `computeChangeVerdict`:
+    - Baseline (no sampling map) → strong post-window stays `helping`.
+    - Proof day in post-window → demoted `nothing_yet`.
+    - Partial-only post-window → demoted (no full days).
+    - Full-only post-window → keeps `helping` (the operator's normal daily-poll case).
+    - Historical-recovered FULL samples (pre-boundary dates) → still produce measured wins (guard is status-based, not date-based — the recovered W4 backfill rows tagged `full` look identical to native `full` for verdict purposes).
+    - Returned series carries the stamped `sampling_status` (shape contract).
+
+### Quality gate
+
+- `npm run typecheck` — clean (3 pre-existing baseline errors only, unrelated).
+- Targeted (S1 + S3 + S4 + url-verdict): **72/72 PASS.**
+- `npm run test` (full suite): **4311/4316 PASS.** Down from 6 → **5 baseline failures** (tenant-isolation no longer in the list). Remaining 5 are unrelated to this work (auto-link-via-changelog × 2, prompts-smoke × 2, prompt-drilldown-smoke).
+- `npm run build` — green.
+- Commit `<pending>` pushed to `origin/main`.
+
+### Files touched
+
+```
+M  src/domains/attribution/url-change-outcome.ts                    (S4 — buildSamplingStatusByDate, stampSamplingStatus, threading)
+M  src/lib/tenant-data.ts                                            (S3 — legacy-untagged tenant resolver)
+A  src/domains/attribution/url-change-outcome.s4-sampling.test.ts   (13 S4 tests)
+A  tests/architecture/measurement-quality-boundary-pin.test.ts      (5 S1 invariants)
+```
+
+---
+
 ## 2026-05-05 — M4+M5 bundle (Mark Shipped semantics + /pages not-ready)
 
 Bounded pass closing two more items from the operator audit. No paid calls, no Supabase writes, no queue mutation.

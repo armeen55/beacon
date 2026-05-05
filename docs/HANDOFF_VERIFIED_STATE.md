@@ -1,5 +1,49 @@
 # Beacon — Start Here
 
+> 🟢 **S1+S3+S4 TRUST/INFRA BUNDLE (2026-05-05):** Measurement quality boundary pinned + tenant-isolation baseline failure fixed + samplingStatus guard fully wired into URL-level attribution. **Full suite improved 6 → 5 baseline failures (tenant-isolation now passes).** typecheck clean, 72/72 targeted PASS (S1 + S3 + S4 + url-verdict), full suite 4311/4316 (+29 passing vs M5), build green.
+>
+> ## What S1 did (pin measurement quality boundary)
+>
+> - **Single canonical constant**: `NATIVE_REGIME_START = "2026-04-22"` exported from `src/domains/product/url-citation-history.ts`. Audited the entire `src/` tree: only one declaration, and the architecture invariant blocks any future literal duplicate.
+> - **Architecture invariant** `tests/architecture/measurement-quality-boundary-pin.test.ts` pins three contracts: (1) the canonical export exists with value `2026-04-22`; (2) the canonical file declares it exactly once; (3) no other src/** file (excluding test fixtures) declares a `2026-04-22` date literal.
+> - **Mixed-source attribution test** in the same invariant: `denseSeries` correctly tags pre-boundary points as `benchmark` and post-boundary points as `derived`; pure-split benchmark→derived windows abstain with `not_enough_native_baseline` (the load-bearing guard). 5/5 PASS.
+> - **No rename**: operator brief said "Rename only if safe. Do not do broad refactors." `MEASUREMENT_QUALITY_BOUNDARY` rename would touch 27+ call sites across 6 domains — left for a dedicated pass.
+>
+> ## What S3 did (fix tenant-isolation baseline failure)
+>
+> - **Root cause**: `.data/observation-runs.json` had 50 rows with no `tenant_id` field — they predate the multi-tenant migration that backfilled every other store. `filterByTenant` strict-equals on `tenant_id`, so all 50 rows got filtered out, returning 0 for any tenant query (including `tenant-ritz-founder`).
+> - **Fix path**: read-time normalization in `src/lib/tenant-data.ts`. New `getFounderTenantIdForLegacyFallback()` resolves the founder tenant once (cached per process) by `role === "founder"` from the tenant store. New `filterByTenantWithLegacyFounderFallback` interprets untagged rows as belonging to the founder, returns shallow copies with the canonical `tenant_id` stamped on. **No on-disk mutation. No Ritz-specific assumption** (resolves dynamically from the tenant registry).
+> - **Cross-tenant safety**: queries for any non-founder tenant still return 0 untagged rows (the legacy fallback only matches the founder query).
+> - **Result**: full tenant-isolation suite now 18/18 PASS (was 17/18). Full beacon suite 5 baseline failures (down from 6).
+>
+> ## What S4 did (samplingStatus guard in attribution)
+>
+> - **Wire-up**: M3 added the guard in `computeUrlVerdict` (demote helping/hurting → nothing_yet when post-window has any proof day OR no full days), but the guard was a no-op because no caller populated `sampling_status` on `DailyPoint`. S4 fills the gap.
+> - **New helpers** in `src/domains/attribution/url-change-outcome.ts`:
+>   - `buildSamplingStatusByDate(observations)` — counts `prompt_answer_observations` per ISO date and classifies each via `classifySampling()` (full ≥ 80, partial 10–79, proof 1–9, empty 0).
+>   - `stampSamplingStatus(series, map)` — pure shallow-copy stamper. Untagged dates left as-is (back-compat).
+> - **`computeChangeVerdict`** accepts new optional `samplingStatusByDate` in `ComputeVerdictOptions`. Stamps the dense series after `denseSeries` returns; engine guard fires.
+> - **`materializeUrlOutcomes`** builds the map once per pass from `getPromptAnswerObservations()`. Failure to load is non-fatal — falls back to empty map (untagged points; no-op guard) with a `log.warn`.
+> - **13 new tests** in `src/domains/attribution/url-change-outcome.s4-sampling.test.ts`:
+>   - Threshold classification (full / partial / proof / empty boundary cases).
+>   - Untagged-date and empty-input pass-through.
+>   - End-to-end: proof day in post-window demotes; partial-only post demotes; full-only post keeps helping; historical_recovered FULL samples (pre-boundary dates) still produce wins (status-based not date-based); back-compat (no map → engine unchanged).
+>   - Stamped-tag shape check on returned series.
+>
+> ## Constraints respected
+>
+> - No paid polling, no paid generation, no Apply-All-HIGH, no Stage 5 publish, no Profound archive/delete, no OpenAI provider activation, no multi-tenant migration kickoff, no /pages rebuild.
+> - No on-disk data mutation in S3 (read-time normalization only).
+> - No schema changes anywhere.
+>
+> ## Next 3 actions
+>
+> 1. **Browser-verify on Vercel**: full suite passes are deployed; tenant-isolation no longer in the baseline failure list. /today + /changes win cards still render correctly under the new sampling guard (proof days will not produce measured wins; full-day daily-poll wins still surface).
+> 2. **Monitor next cron pass**: when tomorrow's 07:00 UTC cron lands, the URL-level verdict materializer will use the new sampling map. The May 4 5-prompt proof day will not promote any URL to `helping`. Expect zero false-positive measured-win cards from that proof.
+> 3. **Optional follow-up — backfill observation-runs `tenant_id` on disk**: the current S3 fix is read-path only. A one-time `scripts/backfill-observation-runs-tenant-id.ts` could stamp `tenant_id: tenant-ritz-founder` on the 50 untagged rows. Not required (read-time fix is correct + forward-compatible), but cleans up the data shape if desired. Operator-gated; do not run without explicit go-ahead.
+>
+> ---
+>
 > 🟢 **M4+M5 BUNDLE (2026-05-05):** Mark Shipped UI tightened (operator audit-locked: Accept ≠ Mark Shipped) + /pages route replaced with deliberate not-ready placeholder + documented follow-up. Quality gate green: typecheck clean, 408/408 targeted PASS (+11 vs M3), full suite 4292/4298 (same 6 baseline failures verified pre-existing), build green.
 >
 > ## What M4 did

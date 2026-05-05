@@ -38,6 +38,7 @@ import {
   type VerdictThresholds,
   DEFAULT_THRESHOLDS,
   type DailyPoint,
+  type DailyPointSamplingStatus,
 } from "./url-verdict";
 import {
   denseSeries,
@@ -46,6 +47,71 @@ import {
   type UrlCitationHistory,
   type UrlCitationSeries,
 } from "@/domains/product/url-citation-history";
+import {
+  classifySampling,
+  type SamplingStatus,
+} from "@/domains/observations/poll-health";
+import { getPromptAnswerObservations } from "@/storage/canonical-store";
+import type { PromptAnswerObservation } from "@/domains/prompt-answer-observations/types";
+
+// ---------------------------------------------------------------------------
+// S4 (operator audit, 2026-05-05) — sampling-status attribution wire-up
+// ---------------------------------------------------------------------------
+
+/**
+ * Per-date sampling-status index. Built from `prompt_answer_observations`
+ * once per materialize pass and stamped onto each `DailyPoint` in the
+ * dense series so the verdict engine's M3 sampling-status guard can
+ * actually fire (the guard is a no-op when no point carries the tag).
+ *
+ * Operator-locked rule (M3 + S4): "Proof / partial days should not
+ * create or upgrade measured-win cards." A 5-prompt manual-proof
+ * recovery run on day N must not turn a `nothing_yet` URL into
+ * `helping` just because day N's two-cite count is +∞ over the
+ * baseline.
+ *
+ * Pure. Deterministic. Empty input → empty map. Date keys are ISO
+ * `YYYY-MM-DD` slices of `observed_at`.
+ */
+export function buildSamplingStatusByDate(
+  observations: ReadonlyArray<PromptAnswerObservation>,
+): Map<string, DailyPointSamplingStatus> {
+  const countByDate = new Map<string, number>();
+  for (const o of observations) {
+    if (typeof o.observed_at !== "string" || o.observed_at.length < 10) continue;
+    const date = o.observed_at.slice(0, 10);
+    countByDate.set(date, (countByDate.get(date) ?? 0) + 1);
+  }
+  const out = new Map<string, DailyPointSamplingStatus>();
+  for (const [date, count] of countByDate) {
+    const status: SamplingStatus = classifySampling(count);
+    // SamplingStatus and DailyPointSamplingStatus are the same string
+    // union; the cast is a structural identity, not a re-mapping.
+    out.set(date, status as DailyPointSamplingStatus);
+  }
+  return out;
+}
+
+/**
+ * Stamp `sampling_status` onto each point in a dense series whose date
+ * appears in the supplied map. Returns a NEW array — never mutates the
+ * caller's series. Untagged dates are left as-is (back-compat).
+ *
+ * Pure. Used by `computeChangeVerdict` after `denseSeries` returns.
+ */
+export function stampSamplingStatus(
+  series: ReadonlyArray<DailyPoint>,
+  samplingStatusByDate: ReadonlyMap<string, DailyPointSamplingStatus> | undefined,
+): DailyPoint[] {
+  if (!samplingStatusByDate || samplingStatusByDate.size === 0) {
+    return [...series];
+  }
+  return series.map((p) => {
+    const tag = samplingStatusByDate.get(p.date);
+    if (!tag) return p;
+    return { ...p, sampling_status: tag };
+  });
+}
 
 /** Verdicts that represent a settled outcome worth remembering in the brain. */
 const TERMINAL_VERDICTS: ReadonlySet<VerdictLabel> = new Set<VerdictLabel>([
@@ -395,6 +461,17 @@ export type ComputeVerdictOptions = {
    * `recommended_edits` rows in `not_found_after_7d` lifecycle state.
    */
   forceVerdict?: "not_implemented";
+  /**
+   * S4 (operator audit, 2026-05-05) — per-date sampling status. When
+   * supplied, each point in the dense series is stamped with the
+   * matching status before the verdict engine runs. The engine's M3
+   * sampling-status guard then demotes `helping`/`hurting` to
+   * `nothing_yet` when the post-window contains any `proof` day or
+   * has zero `full` days. Without this map the guard is a no-op
+   * (back-compat), so calling code that doesn't care about sampling
+   * keeps the original Z-score-only behavior.
+   */
+  samplingStatusByDate?: ReadonlyMap<string, DailyPointSamplingStatus>;
 };
 
 /**
@@ -492,7 +569,14 @@ export function computeChangeVerdict(
     first: history.date_range.first ?? changeDate,
     last: history.date_range.last ?? new Date().toISOString().slice(0, 10),
   };
-  const dense = denseSeries(seriesEntry, range);
+  const denseRaw = denseSeries(seriesEntry, range);
+
+  // S4 (operator audit, 2026-05-05) — stamp the per-date sampling
+  // status before the verdict engine sees the points. When the option
+  // is undefined, this is a no-op (back-compat). When present, the
+  // engine's M3 guard demotes `helping`/`hurting` → `nothing_yet` if
+  // the post-window includes any proof day OR no full days.
+  const dense = stampSamplingStatus(denseRaw, options?.samplingStatusByDate);
 
   const verdict = computeUrlVerdict({
     series: dense,
@@ -564,6 +648,26 @@ export async function materializeUrlOutcomes(input: {
     }
   }
 
+  // S4 (operator audit, 2026-05-05) — build sampling-status-by-date once
+  // per pass from prompt_answer_observations counts. Stamped onto each
+  // dense-series point so the verdict engine's M3 guard can demote
+  // helping/hurting verdicts whose post-window includes proof/partial
+  // days. Failure to load observations is non-fatal: we fall back to
+  // an empty map (untagged points; guard is a no-op).
+  let samplingStatusByDate: Map<string, DailyPointSamplingStatus> = new Map();
+  try {
+    const observations = await getPromptAnswerObservations();
+    samplingStatusByDate = buildSamplingStatusByDate(observations);
+  } catch (err) {
+    log.warn(
+      "[verdict-engine] sampling-status load failed; running without S4 guard",
+      {
+        tenantId,
+        error: err instanceof Error ? err.message : String(err),
+      },
+    );
+  }
+
   for (const change of input.changes) {
     if (change.archived) continue;
 
@@ -581,14 +685,19 @@ export async function materializeUrlOutcomes(input: {
       }
     }
 
+    // S4: pass the sampling-status map on every call. When the
+    // lifecycle short-circuit is forced, the engine returns the
+    // synthetic verdict early and the map is unused — fine.
+    const verdictOptions: ComputeVerdictOptions = useLifecycleVerdict
+      ? { useLiveAt: true, forceVerdict, samplingStatusByDate }
+      : { samplingStatusByDate };
+
     const computed = computeChangeVerdict(
       change,
       input.history,
       input.asOfDate,
       input.thresholds,
-      useLifecycleVerdict
-        ? { useLiveAt: true, forceVerdict }
-        : undefined,
+      verdictOptions,
     );
     if (!computed) continue;
     processed += 1;
