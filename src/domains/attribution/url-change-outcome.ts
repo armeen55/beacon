@@ -702,6 +702,28 @@ export async function materializeUrlOutcomes(input: {
     if (!computed) continue;
     processed += 1;
 
+    // D4 (operator audit, 2026-05-05) — observability log when the M3
+    // sampling-status guard demoted a helping/hurting verdict to
+    // nothing_yet. Operator's brief: "Add a structured log when
+    // sampling-status guard demotes or blocks a verdict." Emitted at
+    // `warn` level so it surfaces in dashboards by default — a demotion
+    // is operationally interesting (a measured-win was suppressed
+    // because the post-window contained proof/partial data). No
+    // behavior change; the demotion already happened in
+    // `computeUrlVerdict`.
+    if (computed.verdict.sampling_guard_demoted) {
+      const demotion = computed.verdict.sampling_guard_demoted;
+      log.warn("[verdict-engine] sampling-status guard demoted verdict", {
+        tenantId,
+        changeId: change.id,
+        url: computed.normalizedUrl,
+        windowAsOf: input.asOfDate ?? null,
+        originalVerdict: demotion.from,
+        demotedVerdict: demotion.to,
+        reason: demotion.reason,
+      });
+    }
+
     const recorded = await recordUrlOutcome({
       change,
       normalizedUrl: computed.normalizedUrl,

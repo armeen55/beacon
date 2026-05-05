@@ -456,6 +456,31 @@ function ChangeRow({
   );
   const isStalePending = isPendingForStaleness && ageDays >= STALE_PENDING_DAYS;
 
+  // D5 (operator audit, 2026-05-05) — disambiguate stale-pending tooltip
+  // + pill copy by lifecycle state. Pre-D5 the row tooltip ALWAYS read
+  // "Accepted N days ago — scan hasn't confirmed it on the page yet."
+  // even when the row was in `recommended` (NOT YET accepted). That
+  // conflated the two states and looked broken: yellow tint + Mark
+  // Shipped hidden + tooltip implying acceptance had happened.
+  //
+  // Post-D5:
+  //   • `accepted` stale rows keep the original "Accepted Nd ago" copy +
+  //     show Mark Shipped (the operator can confirm shipment now).
+  //   • `recommended` stale rows say "Pending Nd — accept first, then
+  //     mark shipped after implementation" so the operator understands
+  //     the next step (go to /recommendations to accept).
+  //
+  // The yellow tint stays on both — both states ARE genuinely pending
+  // and the visual cue is correct. The clarity fix is in the COPY.
+  const stalePillLabel =
+    lifecycleStatus === "accepted"
+      ? `${ageDays}d pending`
+      : `${ageDays}d — accept first`;
+  const staleTooltip =
+    lifecycleStatus === "accepted"
+      ? `Accepted ${ageDays} day${ageDays === 1 ? "" : "s"} ago — scan hasn't confirmed it on the page yet. Mark shipped to start the verdict clock now.`
+      : `Pending for ${ageDays} day${ageDays === 1 ? "" : "s"}. Accept this recommendation first (open /recommendations), then mark shipped once it's live on the page.`;
+
   function handleMarkShipped(e: React.MouseEvent) {
     // The whole row is clickable to toggle expand — stop propagation so
     // pressing Mark shipped doesn't also open the panel.
@@ -517,11 +542,10 @@ function ChangeRow({
         } ${isStalePending ? "bg-status-warning/[0.04]" : ""}`}
         onClick={() => setOpen((v) => !v)}
         data-stale-pending={isStalePending ? "true" : undefined}
-        title={
-          isStalePending
-            ? `Accepted ${ageDays} day${ageDays === 1 ? "" : "s"} ago — scan hasn't confirmed it on the page yet.`
-            : undefined
+        data-stale-pending-state={
+          isStalePending ? lifecycleStatus ?? null : undefined
         }
+        title={isStalePending ? staleTooltip : undefined}
       >
         <td className="px-2.5 py-2 text-muted-foreground tabular-nums whitespace-nowrap align-top text-[11px]">
           <span>{dateStr}</span>
@@ -545,9 +569,10 @@ function ChangeRow({
             <div className="mt-1">
               <span
                 className="inline-block text-[9px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded border border-status-warning/40 bg-status-warning/[0.08] text-status-warning"
-                title={`Accepted ${ageDays} day${ageDays === 1 ? "" : "s"} ago — scan hasn't confirmed it on the page yet.`}
+                title={staleTooltip}
+                data-stale-pill-state={lifecycleStatus ?? "unknown"}
               >
-                {ageDays}d pending
+                {stalePillLabel}
               </span>
             </div>
           )}

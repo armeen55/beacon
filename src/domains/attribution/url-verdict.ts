@@ -146,6 +146,22 @@ export type VerdictExplanation = {
   };
 };
 
+/**
+ * D4 (operator audit, 2026-05-05) — observability metadata. When the M3
+ * sampling-status guard fires (demoting helping/hurting → nothing_yet
+ * because the post-window contains a proof day or has zero full days),
+ * the materialize pass logs a structured warning. The verdict engine
+ * itself stays pure (no I/O) — it just stamps this field so the caller
+ * has enough context to emit the log.
+ *
+ * Absent (undefined) when the guard didn't fire — the common case.
+ */
+export type SamplingGuardDemotion = {
+  from: "helping" | "hurting";
+  to: "nothing_yet";
+  reason: "proof_day_in_post_window" | "no_full_days_in_post_window";
+};
+
 export type UrlVerdict = {
   verdict: VerdictLabel;
   /** Signed Z-score, null when verdict=not_enough_data. */
@@ -161,6 +177,12 @@ export type UrlVerdict = {
   /** Days in last 7 above/below pre-mean (directional sustain support). */
   sustain: { up: number; down: number };
   explanation: VerdictExplanation;
+  /**
+   * D4 (operator audit, 2026-05-05) — set when the sampling-status guard
+   * demoted helping/hurting → nothing_yet. The materializer logs a
+   * structured warning when this is present. Pure compute (no I/O).
+   */
+  sampling_guard_demoted?: SamplingGuardDemotion;
 };
 
 /**
@@ -441,7 +463,13 @@ export function computeUrlVerdict(input: ComputeVerdictInput): UrlVerdict {
   //
   // Operator-locked rule: "proof/partial days should not create or
   // upgrade measured-win cards."
+  //
+  // D4 (2026-05-05): when the guard fires, capture the demotion in
+  // `samplingGuardDemotion` so the materializer can emit a structured
+  // observability log (tenant + change + reason + before/after).
+  let samplingGuardDemotion: SamplingGuardDemotion | undefined;
   if (verdict === "helping" || verdict === "hurting") {
+    const originalVerdict = verdict;
     const taggedPost = postPoints.filter(
       (p) => typeof p.sampling_status === "string",
     );
@@ -453,6 +481,13 @@ export function computeUrlVerdict(input: ComputeVerdictInput): UrlVerdict {
         (p) => p.sampling_status === "full",
       );
       if (hasProofDay || !hasFullDay) {
+        samplingGuardDemotion = {
+          from: originalVerdict,
+          to: "nothing_yet",
+          reason: hasProofDay
+            ? "proof_day_in_post_window"
+            : "no_full_days_in_post_window",
+        };
         verdict = "nothing_yet";
       }
     }
@@ -513,6 +548,7 @@ export function computeUrlVerdict(input: ComputeVerdictInput): UrlVerdict {
         sustain_down: sustainDown,
       },
     },
+    sampling_guard_demoted: samplingGuardDemotion,
   };
 }
 

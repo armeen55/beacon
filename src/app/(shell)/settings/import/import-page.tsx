@@ -103,16 +103,12 @@ export default function ImportPage() {
   return (
     <div className="max-w-3xl">
       <PageHeader
-        title="Import"
-        description="Place historical citation CSVs on the server under .data/ and run the batch importer. Native polls run automatically on their daily schedule and feed the same stores — this page is for backfilling or replacing legacy exports."
+        title="Import historical answer data"
+        description="Beacon collects new AI-answer data automatically every day. This page is only needed if you have a backlog of historical AI-answer exports you want to load into your account."
       />
 
       <p className="text-sm text-muted-foreground mb-6">
-        After a successful batch, check{" "}
-        <Link href="/settings/history" className="text-accent-primary font-medium hover:underline">
-          History
-        </Link>{" "}
-        and open Today. The xlsx workbook path has been removed — CSV batch only.
+        Most accounts never need to use this page. New AI-answer data lands automatically after each daily poll. If you have a historical export you'd like to bring in, contact support or enable advanced mode below.
       </p>
 
       {/* ── 1. Coverage strip ── */}
@@ -160,26 +156,58 @@ export default function ImportPage() {
         </div>
       )}
 
-      {/* ── 2. Canonical Profound batch (server .data/) ── */}
-      <div className="rounded-lg border-2 border-border/70 bg-surface-raised/30 p-6 mb-6 space-y-4">
+      {/* ── 2. Customer-safe default surface ── */}
+      <div className="rounded-lg border border-border/60 bg-surface-raised/30 p-6 mb-6 space-y-3">
         <div className="flex items-center gap-2">
-          <Upload className="h-5 w-5 text-accent-primary" />
-          <h2 className="text-[15px] font-semibold">Batch import — historical citation CSVs</h2>
+          <Upload className="h-5 w-5 text-muted-foreground" />
+          <h2 className="text-[15px] font-semibold">Bring in historical AI-answer data</h2>
         </div>
         <p className="text-[12px] text-muted-foreground leading-relaxed">
-          Place any <code className="text-[11px] bg-muted px-1 rounded">*.csv</code> with the expected headers in{" "}
-          <code className="text-[11px] bg-muted px-1 rounded">.data/</code> (top level). The importer{" "}
-          <span className="font-medium text-foreground">detects file type from CSV headers</span> — filenames are irrelevant.
-          Multiple files of the same type are <span className="font-medium text-foreground">merged</span> (stable keys: prompt id, observation{" "}
-          <code className="text-[10px]">run_id</code>, citation run+URL per date, benchmark snapshot id). Newer files win on duplicate keys (mtime order).
+          For most accounts there's nothing to do here. Beacon's daily poll picks up new AI-answer data automatically. If you have a legacy export you want to backfill, the legacy importer is below in advanced mode — or reach out to support and we'll help.
+        </p>
+      </div>
+
+      {/* ── 3. Legacy / advanced importer (collapsed by default) ──
+          D2 (operator audit, 2026-05-05) — the Profound batch importer
+          and other internal tooling now live below the disclosure. The
+          default page no longer mentions Profound, `.data/`, or
+          internal copy ("bridged results", etc.). Operators with a
+          legacy export can still reach the controls; new customers
+          never see the internal scaffolding. */}
+      <div className="border-t border-border/60 pt-6 mt-2">
+        <button
+          type="button"
+          onClick={() => setAdvancedOpen((v) => !v)}
+          className="flex items-center gap-2 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors w-full text-left"
+        >
+          <span className={cn("transition-transform text-[9px] text-muted-foreground/50", advancedOpen ? "rotate-90" : "")}>
+            ▶
+          </span>
+          Advanced — legacy import paths (CSV batch, manual paste, reset, import log)
+        </button>
+        {!advancedOpen && (
+          <p className="text-[11px] text-muted-foreground/80 mt-2 leading-relaxed">
+            For historical-CSV batch loads, manual entity paste, data reset, and the import-run log.
+          </p>
+        )}
+      </div>
+
+      {advancedOpen && (
+      <div className="rounded-lg border-2 border-border/70 bg-surface-raised/30 p-6 mt-6 mb-6 space-y-4">
+        <div className="flex items-center gap-2">
+          <Upload className="h-5 w-5 text-accent-primary" />
+          <h2 className="text-[15px] font-semibold">Legacy CSV batch import</h2>
+        </div>
+        <p className="text-[12px] text-muted-foreground leading-relaxed">
+          Internal tooling — drop CSV exports on the server filesystem and the importer detects file type from headers. Multiple files of the same type are merged. Newer files win on duplicate keys (mtime order).
         </p>
         <ul className="text-[11px] text-muted-foreground space-y-1 list-disc pl-5 leading-relaxed">
-          <li>Required kinds: <span className="font-mono text-foreground/90">prompts</span> (id, prompt, topic), <span className="font-mono text-foreground/90">raw executions</span> (run_id, date, platform, prompt, response…), <span className="font-mono text-foreground/90">citations</span> (run_id, date, url, hostname…).</li>
-          <li>Optional: benchmark/summarized export, changelog (Review bridge).</li>
+          <li>Required kinds: <span className="font-mono text-foreground/90">prompts</span>, <span className="font-mono text-foreground/90">raw executions</span>, <span className="font-mono text-foreground/90">citations</span>.</li>
+          <li>Optional: benchmark/summarized export, changelog.</li>
           <li>Unrecognized CSVs are skipped; check import result warnings for <span className="font-medium text-foreground">Unclassified CSV</span>.</li>
         </ul>
         <div className="rounded-md border border-border/50 bg-surface-inset/20 px-3 py-2 text-[11px] text-muted-foreground leading-relaxed">
-          <span className="font-medium text-foreground">Merge semantics:</span> existing prompts, observations, answer texts, citation shards (per date), and benchmark snapshots are <span className="font-medium text-foreground">unioned</span> with new data; derived metric snapshots are recomputed from the merged observation set. You can add a partial-week export without deleting older canonical files.
+          <span className="font-medium text-foreground">Merge semantics:</span> existing prompts, observations, answer texts, citation shards (per date), and benchmark snapshots are <span className="font-medium text-foreground">unioned</span> with new data; derived metric snapshots are recomputed from the merged observation set. You can add a partial export without deleting older canonical files.
         </div>
         <Button
           type="button"
@@ -307,26 +335,10 @@ export default function ImportPage() {
           </div>
         )}
       </div>
+      )}
 
-      {/* ── 3. Advanced (collapsed) ── */}
-      <div className="border-t border-border/60 pt-6 mt-8">
-        <button
-          type="button"
-          onClick={() => setAdvancedOpen((v) => !v)}
-          className="flex items-center gap-2 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors w-full text-left"
-        >
-          <span className={cn("transition-transform text-[9px] text-muted-foreground/50", advancedOpen ? "rotate-90" : "")}>
-            ▶
-          </span>
-          Advanced paths (CSV, manual paste, reset, import log)
-        </button>
-
-        {advancedOpen && (
-          <div className="space-y-8 mt-6">
-            <p className="text-[12px] text-muted-foreground">
-              The historical-CSV batch import lives in the main section above. Advanced is for manual entity paste, reset, and the import log table.
-            </p>
-
+      {advancedOpen && (
+        <div className="space-y-8 mt-6">
             {/* Manual Import */}
             <div className="space-y-4">
               <div>
@@ -523,9 +535,8 @@ export default function ImportPage() {
                 <p className="text-[13px] text-muted-foreground">No imports yet.</p>
               )}
             </div>
-          </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }

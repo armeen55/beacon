@@ -121,6 +121,22 @@ export function TodayScoreboard({
     ? `As of ${formatShortDate(asOfDate)}${asOfIsFallback ? " (yesterday)" : " (today)"}${samplingTag ? ` · ${samplingTag}` : ""}`
     : null;
 
+  // D3 (operator audit, 2026-05-05) — first-run guidance copy. When a
+  // tenant has zero observations on disk yet (no asOfDate, no week-over-
+  // week, no cumulative result count), tiles previously read "no data
+  // yet" / "vs last week" with no explanation. A first-time operator
+  // needs to know data lands AFTER the daily poll runs — not because
+  // the product is broken. Copy is generic-safe (no specific time
+  // claims unless the app actually knows them).
+  const isFirstRunNoData =
+    scoreboard.totalCitations === 0 &&
+    scoreboard.resultCount === 0 &&
+    asOfDate === null;
+  const firstRunCitationsMeta =
+    "Beacon starts collecting AI answers after the next scheduled poll.";
+  const firstRunPagesMeta =
+    "Most accounts show their first full daily sample after the next run.";
+
   return (
     <div className="space-y-5">
       {/* KPI cards */}
@@ -135,11 +151,13 @@ export function TodayScoreboard({
               ? `${asOfLabel}${platMeta ? ` · ${platMeta}` : ""}`
               : wowCit !== null
                 ? `vs last week${platMeta ? ` · ${platMeta}` : ""}`
-                : platMeta
-                  ? platMeta
-                  : scoreboard.dateRange
-                    ? `through ${scoreboard.dateRange.to}`
-                    : undefined
+                : isFirstRunNoData
+                  ? firstRunCitationsMeta
+                  : platMeta
+                    ? platMeta
+                    : scoreboard.dateRange
+                      ? `through ${scoreboard.dateRange.to}`
+                      : undefined
           }
         />
         {mentionRatePct !== null && (
@@ -160,7 +178,13 @@ export function TodayScoreboard({
         <KpiCard
           label="Your pages AI sends people to"
           value={scoreboard.citedPageCount}
-          meta={scoreboard.citedPageCount > 0 ? "pages where AI links directly to you" : "no data yet"}
+          meta={
+            scoreboard.citedPageCount > 0
+              ? "pages where AI links directly to you"
+              : isFirstRunNoData
+                ? firstRunPagesMeta
+                : "no citations yet on this window"
+          }
         />
       </div>
 

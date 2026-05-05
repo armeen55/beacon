@@ -1,5 +1,59 @@
 # Beacon — Start Here
 
+> 🟢 **D1-D5 DEMO-HARDENING BUNDLE (2026-05-05):** business-config Ritz fallback removed (customer-2 footgun closed); /settings/import Profound batch importer hidden behind Advanced disclosure (no internal `.data/` copy in default surface); first-run KPI guidance copy on /today (no more bare "no data yet"); samplingStatus guard observability log wired (proof/partial-day demotions logged at warn); /changes stale-pending tooltip + pill disambiguated by lifecycle state (recommended rows guide operator to "accept first" instead of falsely claiming "Accepted Nd ago"). **Quality gate green: typecheck clean, 95/95 targeted PASS, full suite 4357/4362 (5 baseline failures unchanged), build green.**
+>
+> ## What D1 did (business-config Ritz fallback)
+>
+> - **`src/lib/business-config.ts`** — `DEFAULT_CONFIG` (Ritz Builders / ritzbuilders.com / Bay Area locations / design-build themes) replaced with `PLACEHOLDER_CONFIG` (empty brand fields, generic English defaults, `__placeholder: true`).
+> - **Resolution order**: `BEACON_BUSINESS_CONFIG_JSON` env var → `.data/business-config.json` (legacy save target) → `.data/global/business-config.json` (canonical store-classification path) → `PLACEHOLDER_CONFIG`.
+> - **Ritz preserved**: full Ritz config (with stripWords, urlPatterns, industryThemes, faqTemplates) promoted to `.data/global/business-config.json`. Local Ritz dev keeps domain knowledge.
+> - **Vercel deployment note**: `.data/` is gitignored; for Ritz on Vercel to keep its domain knowledge after this change, set `BEACON_BUSINESS_CONFIG_JSON` env var with the full config payload. **Until that env var is set on Vercel, Ritz on the hosted app falls to the neutral placeholder.** Operator action recommended.
+> - **`isPlaceholderConfig(cfg)` helper** exported for consumer code that wants to branch on "configuration needed" state.
+> - **13 tests** in `src/lib/business-config.test.ts`: Ritz file paths still load, env var precedence, placeholder neutrality, no Ritz strings in placeholder serialization, no Ritz literals in source.
+>
+> ## What D2 did (Profound importer)
+>
+> - **`src/app/(shell)/settings/import/import-page.tsx`** — page header retitled to "Import historical answer data" / "Beacon collects new AI-answer data automatically every day."
+> - Default surface now shows a customer-safe "Bring in historical AI-answer data" card. NO Profound, `.data/`, "bridged results", or internal-tooling copy in the default view.
+> - Profound batch importer + manual paste + reset + import log moved INTO an "Advanced — legacy import paths" disclosure (collapsed by default). Profound code path preserved (importProfoundData still callable when expanded).
+> - **6 tests** in `tests/architecture/settings-import-customer-safe-default.test.ts`: default surface has no "Profound" / `.data/` / internal copy; advanced disclosure trigger is present; Profound button still reachable behind the disclosure.
+>
+> ## What D3 did (empty-state copy)
+>
+> - **`src/components/today/today-scoreboard.tsx`** — first-run KPI tile guidance.
+> - When `totalCitations === 0 && resultCount === 0 && asOfDate === null` (true first-run state), the tiles render: "Beacon starts collecting AI answers after the next scheduled poll." (citations) and "Most accounts show their first full daily sample after the next run." (pages).
+> - Generic-safe — does NOT promise a specific time (e.g., "10 UTC tomorrow") because the app doesn't know each tenant's actual cron schedule from render.
+> - Bare "no data yet" string removed; populated tenants with empty windowed counts get "no citations yet on this window".
+> - **6 tests** in `tests/architecture/today-empty-state-copy.test.ts`: copy strings present, gated to empty state, no overpromised timing claims, legacy "no data yet" literal removed.
+>
+> ## What D4 did (sampling-guard observability)
+>
+> - **`src/domains/attribution/url-verdict.ts`** — `UrlVerdict.sampling_guard_demoted` field added. When the M3+S4 sampling guard demotes a `helping`/`hurting` verdict to `nothing_yet`, the field captures `{from, to, reason}` (reason: `proof_day_in_post_window` | `no_full_days_in_post_window`).
+> - **`src/domains/attribution/url-change-outcome.ts`** — `materializeUrlOutcomes` reads the field after each verdict and emits `log.warn("[verdict-engine] sampling-status guard demoted verdict", {tenantId, changeId, url, windowAsOf, originalVerdict, demotedVerdict, reason})`. Operator dashboards now surface every demotion.
+> - Pure-compute layer (the verdict engine) stays pure; only the materializer (which has tenant context + logger access) emits I/O.
+> - **10 tests**: 5 in `src/domains/attribution/url-verdict.s4-observability.test.ts` (engine sets metadata correctly per scenario) + 5 in `tests/architecture/sampling-guard-observability-log.test.ts` (materializer log shape: required fields, gated on demotion branch, warn level).
+>
+> ## What D5 did (/changes stale-pending affordance)
+>
+> - **`src/app/(shell)/changes/scorecard-client.tsx`** — stale-pending tooltip + pill copy disambiguated by lifecycle state.
+> - **`accepted` stale row**: tooltip "Accepted Nd ago — scan hasn't confirmed it on the page yet. Mark shipped to start the verdict clock now." Pill: "Nd pending". Mark Shipped button visible (M4 gate preserved).
+> - **`recommended` stale row**: tooltip "Pending for Nd. Accept this recommendation first (open /recommendations), then mark shipped once it's live on the page." Pill: "Nd — accept first". Mark Shipped button still hidden.
+> - Yellow tint stays on BOTH states (the row IS pending in both cases). D5 fixes copy, not visual.
+> - `data-stale-pending-state` and `data-stale-pill-state` attributes expose the lifecycle for tests / debugging.
+> - **11 tests** in `tests/architecture/changes-stale-pending-affordance.test.ts`: state-aware copy, M4 gate preserved, yellow tint unchanged on both states.
+>
+> ## Constraints respected
+>
+> - No paid polling, no paid generation, no Apply-All-HIGH, no Stage 5 publish, no Profound archive/delete, no OpenAI provider activation, no multi-tenant migration kickoff, no /pages rebuild, no schema changes anywhere.
+>
+> ## Next 3 actions
+>
+> 1. **Set `BEACON_BUSINESS_CONFIG_JSON` on Vercel** for Ritz tenant — paste the contents of `.data/global/business-config.json` as the env var value. Without this, Ritz on hosted falls to the neutral placeholder (visible Ritz-flavored brand copy disappears from /today / /recommendations / /settings/connectors).
+> 2. **Browser-verify on Vercel after env var lands**: /settings/import default surface shows "Import historical answer data" with no Profound copy; /today empty-state tiles show first-run guidance for an unconfigured tenant; /changes stale rows show appropriate lifecycle-aware copy.
+> 3. **Watch the next URL-watcher cron run** for `[verdict-engine] sampling-status guard demoted verdict` log entries — this proves the May 4 proof day is being correctly demoted in production rather than only in tests.
+>
+> ---
+>
 > 🟢 **S1+S3+S4 TRUST/INFRA BUNDLE (2026-05-05):** Measurement quality boundary pinned + tenant-isolation baseline failure fixed + samplingStatus guard fully wired into URL-level attribution. **Full suite improved 6 → 5 baseline failures (tenant-isolation now passes).** typecheck clean, 72/72 targeted PASS (S1 + S3 + S4 + url-verdict), full suite 4311/4316 (+29 passing vs M5), build green.
 >
 > ## What S1 did (pin measurement quality boundary)

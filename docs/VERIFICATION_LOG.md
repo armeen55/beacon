@@ -7,6 +7,102 @@
 
 ---
 
+## 2026-05-05 — D1-D5 demo-hardening / customer-2 footgun removal
+
+Operator-scoped demo-hardening bundle: removed the highest-risk customer-2 embarrassment surfaces while the engine is green. No paid calls, no schema changes, no scope expansion.
+
+### Morning post-cron verification (precondition)
+
+Both pre-cron + post-cron verifiers ran GREEN:
+- 2026-05-05: perplexity 100 (full) + chatgpt 100 (full) = 200 obs, samplingStatus=full both.
+- 8 raw_poll_chunks reconciled (4×4 verified_complete 25/25). Snapshots derived 50+50.
+- /today FRESH; recs/changelog stable (17/7/334).
+- Test suite 4311/4316 PASS — 5 baseline failures (matched yesterday's S1+S3+S4 baseline).
+- Cron proved the integrity contract end-to-end after May 2-4 silent-failure remediation + S4 sampling-status wire-up landed.
+
+### D1 — business-config Ritz fallback
+
+- **Problem**: `business-config.ts` `DEFAULT_CONFIG` was a Ritz-flavored hardcode (name, domain, locations, services, themes). Customer-2 with no tenant config file silently rendered Ritz brand on /today / /recommendations / /settings/connectors.
+- **Fix**: replaced `DEFAULT_CONFIG` with `PLACEHOLDER_CONFIG` (empty brand fields, generic universal defaults, `__placeholder: true`). Resolution order: `BEACON_BUSINESS_CONFIG_JSON` env var > `.data/business-config.json` > `.data/global/business-config.json` > placeholder. Added `isPlaceholderConfig()` predicate.
+- **Ritz preserved**: full Ritz config (with stripWords, urlPatterns, industryThemes, faqTemplates) promoted to `.data/global/business-config.json` (canonical store-classification path). Local Ritz dev keeps domain knowledge.
+- **Vercel parity**: `.data/` is gitignored. For Ritz on Vercel, operator must set `BEACON_BUSINESS_CONFIG_JSON` env var with the full config payload. Until set, Ritz on hosted falls to placeholder. Documented in HANDOFF.
+- **Tests** (`src/lib/business-config.test.ts`): 13 PASS. Pin: Ritz file paths still load; env var precedence; placeholder neutrality (no Ritz strings); placeholder structure complete; source-level guard against Ritz literals returning to fallback.
+
+### D2 — /settings/import customer-safe default
+
+- **Problem**: page header read "Place historical citation CSVs on the server under .data/ and run the batch importer". Default visible card showed `.data/` filesystem references and "Bridged results" / internal copy. SMB demo lands here looking confused.
+- **Fix** (`src/app/(shell)/settings/import/import-page.tsx`): page header retitled to "Import historical answer data" with customer-safe lead copy. Profound batch importer + manual paste + reset + import log moved INTO an "Advanced — legacy import paths" disclosure (collapsed by default). Default surface shows a generic "Bring in historical AI-answer data" card with no Profound / `.data/` / "bridged" copy. Profound code path preserved (`importProfoundData` button + state still reachable when Advanced is expanded).
+- **Tests** (`tests/architecture/settings-import-customer-safe-default.test.ts`): 6 PASS. Pin: default surface has no Profound / `.data/` / internal copy; Advanced disclosure trigger is present; "Run batch import" button still source-reachable behind the disclosure.
+
+### D3 — empty-state KPI guidance
+
+- **Problem**: `/today` KPI tiles rendered "no data yet" with no explanation. First-time operator sees stark empty state and assumes the product is broken.
+- **Fix** (`src/components/today/today-scoreboard.tsx`): when `totalCitations === 0 && resultCount === 0 && asOfDate === null` (true first-run state), tiles render "Beacon starts collecting AI answers after the next scheduled poll." (citations) + "Most accounts show their first full daily sample after the next run." (pages). Generic-safe — no specific time claims (the render path doesn't know each tenant's exact cron schedule). Bare "no data yet" string removed; populated tenants with empty windowed counts get "no citations yet on this window".
+- **Tests** (`tests/architecture/today-empty-state-copy.test.ts`): 6 PASS. Pin: first-run copy strings present; gated to empty state via `isFirstRunNoData` ternary; no overpromised timing claims; legacy "no data yet" literal removed.
+
+### D4 — sampling-guard observability log
+
+- **Problem**: M3+S4 sampling-status guard demotes proof/partial-day verdicts but the demotion was silent. No production log proved the guard was firing.
+- **Fix** (`src/domains/attribution/url-verdict.ts` + `url-change-outcome.ts`):
+  - Added `UrlVerdict.sampling_guard_demoted: { from, to, reason } | undefined` — set by `computeUrlVerdict` when the guard fires. `reason` is `"proof_day_in_post_window"` or `"no_full_days_in_post_window"`. Pure compute layer stays pure (no I/O).
+  - `materializeUrlOutcomes` reads the field after each verdict and emits `log.warn("[verdict-engine] sampling-status guard demoted verdict", {tenantId, changeId, url, windowAsOf, originalVerdict, demotedVerdict, reason})`.
+  - No behavior change — the demotion already happened in M3+S4. D4 only adds the structured trace.
+- **Tests**: 5 in `src/domains/attribution/url-verdict.s4-observability.test.ts` (engine-side metadata: proof-day → reason, partial-only → reason, clean helping → undefined, untagged → undefined, nothing_yet → undefined). 5 in `tests/architecture/sampling-guard-observability-log.test.ts` (materializer log shape: required fields, gated on demotion branch, warn level, type definition presence).
+
+### D5 — /changes stale-pending affordance
+
+- **Problem**: a /changes row in `recommended` lifecycle for ≥3 days got the yellow stale tint + a tooltip reading "Accepted N days ago — scan hasn't confirmed it" — even though the row was NOT yet accepted. Mark Shipped button (M4 gate) was hidden, so operator saw yellow + no button + misleading "Accepted" copy = "looks broken".
+- **Fix** (`src/app/(shell)/changes/scorecard-client.tsx`): `staleTooltip` and `stalePillLabel` now branch on `lifecycleStatus === "accepted"`:
+  - Accepted stale: pill "Nd pending"; tooltip "Accepted Nd ago — scan hasn't confirmed it on the page yet. Mark shipped to start the verdict clock now."
+  - Recommended stale: pill "Nd — accept first"; tooltip "Pending for Nd. Accept this recommendation first (open /recommendations), then mark shipped once it's live on the page."
+  - Yellow tint unchanged on both states (the row IS pending in both — D5 fixes copy, not visual).
+  - M4 gate `canMarkShipped = lifecycleStatus === "accepted"` preserved verbatim.
+- New attributes `data-stale-pending-state` (on row) + `data-stale-pill-state` (on pill) carry the lifecycle for tests / debugging.
+- **Tests** (`tests/architecture/changes-stale-pending-affordance.test.ts`): 11 PASS.
+
+### Quality gate
+
+- `npm run typecheck` — clean (3 pre-existing baseline errors only).
+- Targeted (D1 + D2 + D3 + D4 + D5 + adjacent url-verdict): **95/95 PASS.**
+- `npm run test` (full suite): **4357/4362 PASS** (+46 tests vs S1+S3+S4 baseline). 5 baseline failures unchanged (prompts × 3 + auto-link × 2).
+- `npm run build` — green.
+- Hosted smoke: not performed (Vercel URL not at hand). Local-verified bundle pushed; operator can visually verify on next deploy.
+
+### Files touched
+
+```
+M  src/app/(shell)/changes/scorecard-client.tsx                 (D5 — state-aware tooltip + pill)
+M  src/app/(shell)/settings/import/import-page.tsx              (D2 — customer-safe default + Advanced disclosure)
+M  src/components/today/today-scoreboard.tsx                    (D3 — first-run KPI guidance)
+M  src/domains/attribution/url-change-outcome.ts                (D4 — log.warn on sampling-guard demotion)
+M  src/domains/attribution/url-verdict.ts                       (D4 — sampling_guard_demoted metadata)
+M  src/lib/business-config.ts                                   (D1 — placeholder + env-var resolution)
+A  src/domains/attribution/url-verdict.s4-observability.test.ts (5 D4 engine tests)
+A  src/lib/business-config.test.ts                              (13 D1 tests)
+A  tests/architecture/changes-stale-pending-affordance.test.ts  (11 D5 tests)
+A  tests/architecture/sampling-guard-observability-log.test.ts  (5 D4 architecture tests)
+A  tests/architecture/settings-import-customer-safe-default.test.ts (6 D2 tests)
+A  tests/architecture/today-empty-state-copy.test.ts            (6 D3 tests)
+.data/global/business-config.json                               (gitignored — full Ritz config promoted from code)
+```
+
+### Copy changes (operator audit summary)
+
+| Surface | Before | After |
+|---|---|---|
+| /settings/import header title | "Import" | "Import historical answer data" |
+| /settings/import header description | "Place historical citation CSVs on the server under .data/ and run the batch importer." | "Beacon collects new AI-answer data automatically every day. This page is only needed if you have a backlog of historical AI-answer exports you want to load into your account." |
+| /settings/import lead paragraph | "After a successful batch, check History and open Today. The xlsx workbook path has been removed — CSV batch only." | "Most accounts never need to use this page. New AI-answer data lands automatically after each daily poll. If you have a historical export you'd like to bring in, contact support or enable advanced mode below." |
+| /settings/import default card | "Batch import — historical citation CSVs" with `.data/` filesystem refs and "Bridged results" copy | "Bring in historical AI-answer data" with customer-safe explainer (no Profound / `.data/`) |
+| /settings/import advanced disclosure label | "Advanced paths (CSV, manual paste, reset, import log)" | "Advanced — legacy import paths (CSV batch, manual paste, reset, import log)" |
+| /today third KPI tile (empty state) | "no data yet" | First-run: "Most accounts show their first full daily sample after the next run." Otherwise: "no citations yet on this window." |
+| /today first KPI tile (first-run no-data) | "vs last week" or date range | "Beacon starts collecting AI answers after the next scheduled poll." |
+| /changes recommended stale pill | "Nd pending" | "Nd — accept first" |
+| /changes recommended stale tooltip | "Accepted Nd ago — scan hasn't confirmed it on the page yet." | "Pending for Nd. Accept this recommendation first (open /recommendations), then mark shipped once it's live on the page." |
+| /changes accepted stale tooltip | "Accepted Nd ago — scan hasn't confirmed it on the page yet." | "Accepted Nd ago — scan hasn't confirmed it on the page yet. Mark shipped to start the verdict clock now." |
+
+---
+
 ## 2026-05-05 — S1+S3+S4 trust/infrastructure bundle
 
 Operator scoped three trust/infra items: pin the measurement quality boundary (S1), fix the long-standing tenant-isolation baseline failure (S3), wire the samplingStatus guard into URL-level attribution end-to-end (S4). No paid polling, no paid generation, no schema changes.
