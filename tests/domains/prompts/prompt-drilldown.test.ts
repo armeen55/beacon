@@ -385,4 +385,117 @@ describe("buildPromptDrilldown", () => {
     expect(early.category).toBe("early");
     expect(early.decisionSentence).toMatch(/Check back/);
   });
+
+  // ── Task 3 (2026-05-04, post-W4) — entity-pollution-filter on /prompts ──
+  //
+  // Operator-reported (post-W4 browser verification): /prompts showed
+  // "General Contractors" as a competitor on prompts where it was
+  // co-mentioned. That's a DIRECTORY/GENERIC-NOUN, not a real builder.
+  //
+  // Apply the same `entity-pollution-filter` already used in the
+  // recommendation engine + visibility leaderboard. Real builders
+  // (CRC, De Mattei, Kasten, Greenberg, Bay Builders) stay; generic
+  // nouns (General Contractors, Local Contractors) and directories
+  // (Houzz, Yelp, Angi) drop.
+
+  it("Task 3: 'General Contractors' is dropped as a competitor on the prompt drilldown", () => {
+    const prompt = mkPrompt("p-pollution", "Best builder in Palo Alto?");
+    const observations: PromptAnswerObservation[] = [
+      mkObs({
+        id: "o-1",
+        prompt_id: "p-pollution",
+        platform: "perplexity",
+        observed_at: NOW.toISOString(),
+        // Mix: 2 real builders + 1 generic-noun pollution.
+        competitor_co_mentions: [
+          "CRC Builders",
+          "Homestead",
+          "General Contractors",
+        ],
+      }),
+      mkObs({
+        id: "o-2",
+        prompt_id: "p-pollution",
+        platform: "chatgpt",
+        observed_at: NOW.toISOString(),
+        competitor_co_mentions: ["CRC Builders", "General Contractors"],
+      }),
+    ];
+    const out = buildPromptDrilldown({
+      prompt,
+      observations,
+      activeEntities: ENTITIES,
+      now: NOW,
+    });
+    const names = out.competitors.map((c) => c.name);
+    // Pollution dropped.
+    expect(names).not.toContain("General Contractors");
+    // Real builders stay.
+    expect(names).toContain("CRC Builders");
+    expect(names).toContain("Homestead");
+  });
+
+  it("Task 3: directory entities (Houzz / Yelp / Angi) are also dropped from prompt competitors", () => {
+    const prompt = mkPrompt("p-dir", "Top builder Atherton?");
+    const HOUZZ = mkEntity({
+      id: "e-houzz",
+      name: "Houzz",
+      domain: "houzz.com",
+      entity_type: "directory_source",
+    });
+    const YELP = mkEntity({
+      id: "e-yelp",
+      name: "Yelp",
+      domain: "yelp.com",
+      entity_type: "directory_source",
+    });
+    const observations: PromptAnswerObservation[] = [
+      mkObs({
+        id: "o-1",
+        prompt_id: "p-dir",
+        platform: "perplexity",
+        observed_at: NOW.toISOString(),
+        competitor_co_mentions: ["CRC Builders", "Houzz", "Yelp"],
+      }),
+    ];
+    const out = buildPromptDrilldown({
+      prompt,
+      observations,
+      activeEntities: [...ENTITIES, HOUZZ, YELP],
+      now: NOW,
+    });
+    const names = out.competitors.map((c) => c.name);
+    expect(names).not.toContain("Houzz");
+    expect(names).not.toContain("Yelp");
+    expect(names).toContain("CRC Builders");
+  });
+
+  it("Task 3: real builders with generic-sounding parts are NOT dropped (only pure-generic nouns)", () => {
+    // The pollution filter targets generic-noun-only entities like
+    // "General Contractors". An entity with proper-noun tokens like
+    // "Bay Builders" or "Greenberg" stays.
+    const prompt = mkPrompt("p-real", "Best Bay Area builder?");
+    const BAY_BUILDERS = mkEntity({
+      id: "e-bb",
+      name: "Bay Builders",
+    });
+    const observations: PromptAnswerObservation[] = [
+      mkObs({
+        id: "o-1",
+        prompt_id: "p-real",
+        platform: "perplexity",
+        observed_at: NOW.toISOString(),
+        competitor_co_mentions: ["Bay Builders", "CRC Builders"],
+      }),
+    ];
+    const out = buildPromptDrilldown({
+      prompt,
+      observations,
+      activeEntities: [...ENTITIES, BAY_BUILDERS],
+      now: NOW,
+    });
+    const names = out.competitors.map((c) => c.name);
+    expect(names).toContain("Bay Builders");
+    expect(names).toContain("CRC Builders");
+  });
 });

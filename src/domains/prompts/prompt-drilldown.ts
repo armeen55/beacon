@@ -23,6 +23,9 @@ import {
   summarizePromptPrimary,
   type PromptPrimarySummary,
 } from "./competitor-primary";
+// Task 3 (2026-05-04, post-W4 verification): shared pollution filter
+// dropped directories + generic-noun mentions from competitor lists.
+import { makeCompetitorRankingFilter } from "@/domains/recommendations/entity-pollution-filter";
 
 /** A competitor appearing on this prompt's observations. */
 export type PromptCompetitorRow = {
@@ -125,6 +128,14 @@ export function buildPromptDrilldown(
   const decisionSentence = `${classification.reasoning} ${LIKELY_ACTION_BY_CATEGORY[classification.category]}`;
 
   // Top competitors on this prompt by co-mention appearance frequency.
+  //
+  // Task 3 (2026-05-04, post-W4 verification): apply the shared
+  // `entity-pollution-filter` so directories (Houzz/Yelp/Angi) and
+  // generic-noun mentions ("General Contractors", "Local Contractors")
+  // do NOT surface as "competitors" on the prompts page. Same
+  // contract used by the recommendation engine + visibility leaderboard.
+  // Real builders (De Mattei, Kasten, CRC, Greenberg, Bay Builders)
+  // are unaffected.
   const relevant = args.observations.filter(
     (o) => o.prompt_id === args.prompt.id,
   );
@@ -134,11 +145,17 @@ export function buildPromptDrilldown(
       .map((e) => e.name)
       .filter((n): n is string => Boolean(n)),
   );
+  const competitorRankingFilter = makeCompetitorRankingFilter(
+    args.activeEntities,
+  );
   const competitorFreq = new Map<string, number>();
   for (const o of relevant) {
     const seenInObs = new Set<string>();
     for (const name of o.competitor_co_mentions ?? []) {
       if (!name || ownedNames.has(name) || seenInObs.has(name)) continue;
+      // Pollution filter: directories + generic-noun entities are
+      // dropped so "General Contractors" never appears as a competitor.
+      if (!competitorRankingFilter(name)) continue;
       seenInObs.add(name);
       competitorFreq.set(name, (competitorFreq.get(name) ?? 0) + 1);
     }

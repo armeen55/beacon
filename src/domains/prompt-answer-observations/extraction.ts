@@ -173,6 +173,35 @@ const DESCRIPTOR_STOPWORDS: ReadonlySet<string> = new Set([
   "http", "https", "www", "com", "org", "net", "io", "co",
   "utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term",
   "url", "href", "link", "ref",
+  // ── Domain stopwords (Task 2, 2026-05-04, post May 2-4 ─────────────
+  //
+  // Operator-reported (post-W4 browser verification): "How AI thinks
+  // you are" was returning generic single-word descriptors that don't
+  // tell the operator anything Ritz-specific:
+  //
+  //   custom · home · builder · closed
+  //
+  // The first three are unavoidable nouns in the AI's description of
+  // a custom-home builder; "closed" is likely from "closed today" or
+  // "closed-form" hits — temporal/state noise.
+  //
+  // These tokens are SUPPRESSED when they appear ALONE in a descriptor
+  // window. Multi-word forms ("custom homes", "high-end residential")
+  // come through the bigram path (when that ships) untouched — this
+  // single-word filter only kills the generic-noun pollution.
+  //
+  // Industry-noun stopwords (kept domain-specific to home-building so
+  // we don't over-block adjectives like "luxury" or "award-winning"):
+  "custom", "home", "homes", "builder", "builders", "building",
+  "buildings", "house", "houses", "residence", "residences",
+  "company", "companies", "firm", "firms",
+  "contractor", "contractors", "contracting",
+  "general", "professional", "professionals", "services", "service",
+  "work", "works", "project", "projects",
+  "team", "teams", "staff",
+  // Temporal / state noise (sources of "closed", "open", "now"):
+  "closed", "open", "opened", "now", "today", "yesterday", "tomorrow",
+  "current", "currently", "recent", "recently", "available",
 ]);
 
 /**

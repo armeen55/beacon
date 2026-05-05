@@ -7,6 +7,146 @@
 
 ---
 
+## 2026-05-05 (predawn UTC) — Pre-cron readiness + 4 UX cleanups
+
+Operator scoped 4 small tasks pre-cron: pre-cron verifier (R0), wire samplingStatus into headline KPI logic (R1), descriptor stopwords cleanup (R2), prompts pollution cleanup (R3), post-cron verifier (R4). All read-only or surgical patches; no paid runs.
+
+### Task 0 — Pre-cron readiness (read-only verifier)
+
+New `scripts/verify-daily-poll.ts` (430 lines, read-only) with two modes:
+- `--mode=pre` (default) — answers all operator questions about gate state, latest runs, raw_poll_chunks reachability, schema cache, today's persisted state, recs/changelog stability.
+- `--mode=post --date=YYYY-MM-DD` — answers post-cron questions: latest obs date, last-5-day buckets, raw_poll_chunks reconciliation status, samplingStatus per platform, /today freshness verdict.
+
+Wired as `npm run verify:daily-poll`.
+
+Pre-cron run output (verbatim):
+
+```
+══════════════════════════════════════════════════════════════════
+PRE-CRON READINESS — 2026-05-05 (UTC) · tenant=tenant-ritz-founder
+══════════════════════════════════════════════════════════════════
+
+─ Persistence gate (Operator R6) ────────────────────────────────
+  ✓ ALLOW  perplexity-native-poll       (no PERSISTENCE FAILED marker on latest run)
+  ✓ ALLOW  openai-native-poll           (no PERSISTENCE FAILED marker on latest run)
+
+─ Latest run per platform ───────────────────────────────────────
+  ✓ completed  perplexity-native-poll    pollrun-1777928398254-4nqns2 (344 min ago)
+  ✓ completed  openai-native-poll        pollrun-1777928455574-520bq5 (343 min ago)
+
+─ raw_poll_chunks safety net (R3) ───────────────────────────────
+  ✓ OK     raw_poll_chunks table exists + accepts SELECT
+
+─ Schema cache (May 2-4 root cause) ─────────────────────────────
+  ✓ OK     prompt_answer_observations.competitor_descriptor_windows column accepts SELECT
+
+─ Today's persisted rows (proof-run state) ──────────────────────
+  · no observations today yet
+  · daily_metric_snapshots for 2026-05-05: 0 rows
+
+─ Recs / changelog (must be untouched) ──────────────────────────
+  · recommended_edits            17
+  · recommendation_responses     7
+  · changelog_entries            334
+
+✓ READY for next paid cron.
+```
+
+No gate-logic patch needed — `checkPersistenceGate` already returns `allow:true` for both platforms because the latest run on each source is a successful proof from 21:00 UTC May 4, no `PERSISTENCE FAILED` marker.
+
+### Task 1 — samplingStatus into /today headline (tests pinned)
+
+The R7 wiring landed in the prior turn. This turn pinned the contract on the source via 14 architecture invariants in `tests/architecture/today-headline-sampling.test.ts`:
+- `ScoreboardData.derivedKpiSamplingStatus: SamplingStatus | null` declared
+- `samplingStatusTag()` mappings: proof → "small sample (proof run)" / partial → "partial day (below 80-prompt floor)" / empty → "no observations today" / full → "" (no tag)
+- Week-over-week pills suppressed when `asOfDate` set: `delta={asOfDate ? null : wowCit}` and `delta={asOfDate ? null : wowMen}`
+- `aggregateSamplingStatus(snap)` ordering pinned: `["empty", "proof", "partial", "full"]` (worst-case wins)
+
+Result for May 4 case: tile meta reads `As of May 4 (today) · small sample (proof run) · perplexity 5 · chatgpt 5`. WoW pill suppressed.
+
+### Task 2 — Descriptor stopwords expanded
+
+`DESCRIPTOR_STOPWORDS` in `src/domains/prompt-answer-observations/extraction.ts` extended with:
+
+**Industry nouns:** custom, home, homes, builder, builders, building, buildings, house, houses, residence, residences, company, companies, firm, firms, contractor, contractors, contracting, general, professional, professionals, services, service, work, works, project, projects, team, teams, staff
+
+**Temporal/state noise:** closed, open, opened, now, today, yesterday, tomorrow, current, currently, recent, recently, available
+
+Operator-reported bad set (`custom · home · builder · closed`) all suppressed. Meaningful adjectives still pass (luxury, trusted, award-winning, modern, bespoke, sustainable, designs, renovations).
+
+5 existing extraction tests updated to reflect new contract:
+- "returns adjectives/nouns near the brand mention" — replaced custom/home/builder with bespoke/sustainable
+- "caps at max descriptors" — swapped custom for bespoke
+- "dedupes repeated tokens" — swapped custom for bespoke
+- "skips pure-numeric tokens" — swapped projects for renovations
+- "filters URL-ish noise" — pinned that builder is now stopworded
+
+4 new tests added: operator's exact bad set, meaningful adjectives still pass, industry-noun coverage, temporal/state noise coverage. Total: 63/63 extraction tests pass.
+
+### Task 3 — /prompts pollution filter
+
+`src/domains/prompts/prompt-drilldown.ts` now imports `makeCompetitorRankingFilter` from `entity-pollution-filter` and applies it before the per-prompt competitor frequency aggregation. Same shared helper used by recommendation engine + visibility leaderboard.
+
+3 new tests in `prompt-drilldown.test.ts`:
+- "General Contractors" is dropped from the competitor list
+- Directory entities (Houzz / Yelp by `entity_type: "directory_source"`) are dropped
+- Real builders (CRC, Bay Builders, Homestead) preserved
+
+Total: 11/11 prompt-drilldown tests pass.
+
+### Task 4 — Post-cron verifier
+
+Same script as Task 0, --mode=post. Reports last-5-day buckets, reconciliation status from raw_poll_chunks, samplingStatus per platform, /today freshness, recs/changelog stability.
+
+### Files
+
+**New:**
+- `scripts/verify-daily-poll.ts` — read-only pre/post-cron verifier
+- `tests/architecture/today-headline-sampling.test.ts` — 14 invariants pinning Task 1
+
+**Modified:**
+- `src/domains/prompt-answer-observations/extraction.ts` — DESCRIPTOR_STOPWORDS expanded
+- `src/domains/prompts/prompt-drilldown.ts` — imports + applies entity-pollution-filter
+- `package.json` — `verify:daily-poll` script
+- `tests/domains/prompt-answer-observations/extraction.test.ts` — 5 updates + 4 new tests
+- `tests/domains/prompts/prompt-drilldown.test.ts` — 3 new tests
+- `src/domains/observations/run-poll.test.ts` — checkPersistenceGate mock retyped
+
+### Verification
+
+- ✓ `npx tsc --noEmit` clean
+- ✓ `tests/architecture/today-headline-sampling.test.ts` 14/14
+- ✓ `tests/domains/prompt-answer-observations/extraction.test.ts` 63/63
+- ✓ `tests/domains/prompts/prompt-drilldown.test.ts` 11/11
+- ✓ `npm run test` 4245/4251 (same 6 pre-existing baseline failures all OUTSIDE this surface; +21 new passes)
+- ✓ `BEACON_TENANT_ID=... BEACON_TENANT_SLUG=... npm run build` clean
+- ✓ `npm run verify:daily-poll` reports READY for cron
+
+### Acceptance — all met
+
+- ✓ typecheck clean
+- ✓ targeted tests pass (88 total across the 4 affected files)
+- ✓ full suite only known baseline failures
+- ✓ build passes
+- ✓ no paid calls (zero)
+- ✓ no Supabase writes (read-only)
+
+### Constraints honored
+
+- ✓ Did NOT run a full paid poll
+- ✓ Did NOT run paid generation
+- ✓ Did NOT Apply-All-HIGH
+- ✓ Did NOT publish Stage 5 relabel
+- ✓ Did NOT archive/delete Profound
+- ✓ Did NOT start a giant new generator/action-type build
+- ✓ Did NOT backdate or fabricate May 2-4 data
+
+### Outcome
+
+Pre-cron state confirmed READY. /today's headline tile no longer treats a 5-obs proof day as a full daily sample. Descriptor pollution (custom/home/builder/closed) suppressed. /prompts no longer surfaces "General Contractors" as a competitor. Post-cron verifier ready to validate tomorrow's run. Tomorrow's 07:00 UTC cron is the next production validation.
+
+---
+
 ## 2026-05-04 (night) — Poll Integrity Hardening (launch-blocker, all 8 requirements)
 
 Operator accepted the May 2-4 incident as a launch-blocker class issue: between May 1 and May 4, ~$9 of API spend produced ZERO persisted observations because dual-write silently swallowed schema errors, observation_runs stamped status=completed, and GitHub Actions stayed green. That cannot happen for customers.

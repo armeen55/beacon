@@ -268,15 +268,18 @@ describe("extractDescriptorWindow", () => {
 
   it("returns adjectives/nouns near the brand mention", () => {
     const text =
-      "The luxury custom home builder Ritz Builders handles award-winning modern projects.";
+      "The luxury custom home builder Ritz Builders handles award-winning modern bespoke designs.";
     const pos = text.indexOf("Ritz Builders");
     const out = extractDescriptorWindow(text, pos, ["Ritz Builders"]);
     expect(out).toContain("luxury");
-    expect(out).toContain("custom");
-    expect(out).toContain("home");
-    expect(out).toContain("builder");
+    // Task 2 (2026-05-04): "custom", "home", "builder" are now domain
+    // stopwords. Operator-specified bad set from /today screenshot.
+    expect(out).not.toContain("custom");
+    expect(out).not.toContain("home");
+    expect(out).not.toContain("builder");
     expect(out).toContain("award-winning");
     expect(out).toContain("modern");
+    expect(out).toContain("bespoke");
   });
 
   it("drops the brand's own words from the window", () => {
@@ -300,9 +303,10 @@ describe("extractDescriptorWindow", () => {
   });
 
   it("caps at `max` descriptors in order of appearance", () => {
-    // Include 15 unique non-stopword nouns, all valid; expect first 10 only.
+    // Task 2 (2026-05-04): "custom" replaced by "bespoke" — both are
+    // valid descriptors but "custom" is now a domain stopword.
     const text =
-      "modern luxury custom affordable sustainable trusted prestigious elite premium traditional contemporary craftsmanship Ritz Builders";
+      "modern luxury bespoke affordable sustainable trusted prestigious elite premium traditional contemporary craftsmanship Ritz Builders";
     const pos = text.indexOf("Ritz Builders");
     const out = extractDescriptorWindow(text, pos, ["Ritz Builders"], {
       windowWords: 20,
@@ -312,45 +316,131 @@ describe("extractDescriptorWindow", () => {
     // Should include at least some of the preceding descriptors.
     expect(out).toContain("modern");
     expect(out).toContain("luxury");
-    expect(out).toContain("custom");
+    expect(out).toContain("bespoke");
   });
 
   it("dedupes repeated tokens within the window", () => {
+    // Task 2 (2026-05-04): swapped "custom" for "bespoke" since "custom"
+    // is now a domain stopword. Test still pins dedupe behavior on real
+    // descriptors.
     const text =
-      "luxury luxury custom custom Ritz Builders builds luxury custom homes.";
+      "luxury luxury bespoke bespoke Ritz Builders builds luxury bespoke homes.";
     const pos = text.indexOf("Ritz Builders");
     const out = extractDescriptorWindow(text, pos, ["Ritz Builders"]);
     const luxuryCount = out.filter((w) => w === "luxury").length;
-    const customCount = out.filter((w) => w === "custom").length;
+    const bespokeCount = out.filter((w) => w === "bespoke").length;
     expect(luxuryCount).toBe(1);
-    expect(customCount).toBe(1);
+    expect(bespokeCount).toBe(1);
   });
 
   it("skips pure-numeric tokens", () => {
+    // Task 2 (2026-05-04): "projects" is now a domain stopword. Use
+    // a non-stopword noun ("renovations") to assert the numeric-skip
+    // behavior independent of stopword filtering.
     const text =
-      "With 20 years and 300 projects, Ritz Builders leads the market.";
+      "With 20 years and 300 renovations, Ritz Builders leads the market.";
     const pos = text.indexOf("Ritz Builders");
     const out = extractDescriptorWindow(text, pos, ["Ritz Builders"]);
     expect(out).not.toContain("20");
     expect(out).not.toContain("300");
     expect(out).toContain("years");
-    expect(out).toContain("projects");
+    expect(out).toContain("renovations");
   });
 
   it("filters URL-ish noise tokens from the window", () => {
     // Matches a real 2026-04-24 live-data pattern: brand citation
     // followed by inline URL splits into junk tokens.
     const text =
-      "Visit trusted builder Ritz Builders https://ritzbuilders.com?utm_source=chatgpt for modern projects.";
+      "Visit trusted builder Ritz Builders https://ritzbuilders.com?utm_source=chatgpt for modern, sustainable designs.";
     const pos = text.indexOf("Ritz Builders");
     const out = extractDescriptorWindow(text, pos, ["Ritz Builders"]);
     expect(out).not.toContain("https");
     expect(out).not.toContain("com");
     expect(out).not.toContain("utm_source");
     expect(out).toContain("trusted");
-    expect(out).toContain("builder");
+    // "builder" is now a domain stopword (Task 2, 2026-05-04) since it's
+    // a generic noun that doesn't tell the operator anything about how
+    // AI positions Ritz. "trusted" / "modern" / "sustainable" come through.
+    expect(out).not.toContain("builder");
     expect(out).toContain("modern");
-    expect(out).toContain("projects");
+    expect(out).toContain("sustainable");
+    expect(out).toContain("designs");
+  });
+
+  // ── Task 2 (2026-05-04) — domain stopwords ─────────────────────────
+  //
+  // Operator-reported bad set (verbatim from /today screenshot):
+  //   custom · home · builder · closed
+  //
+  // These are generic single-word nouns that pollute "How AI thinks you
+  // are" without telling the operator anything about how AI positions
+  // Ritz. They're suppressed from descriptor windows. Meaningful
+  // adjectives (luxury, award-winning, trusted, modern) still pass.
+
+  it("Task 2: operator's exact bad set is suppressed (custom / home / builder / closed)", () => {
+    const text =
+      "Ritz Builders is a custom home builder; their offices are closed for tours.";
+    const pos = text.indexOf("Ritz Builders");
+    const out = extractDescriptorWindow(text, pos, ["Ritz Builders"]);
+    // Each of these would have polluted the screenshot. Pin them all.
+    expect(out).not.toContain("custom");
+    expect(out).not.toContain("home");
+    expect(out).not.toContain("homes");
+    expect(out).not.toContain("builder");
+    expect(out).not.toContain("builders");
+    expect(out).not.toContain("closed");
+  });
+
+  it("Task 2: meaningful adjectives still pass (luxury / award-winning / trusted)", () => {
+    const text =
+      "Highly trusted luxury award-winning Ritz Builders specializes in modern bespoke residences.";
+    const pos = text.indexOf("Ritz Builders");
+    const out = extractDescriptorWindow(text, pos, ["Ritz Builders"]);
+    expect(out).toContain("trusted");
+    expect(out).toContain("luxury");
+    // "award-winning" is hyphenated → may pass through as one token;
+    // we don't strictly assert which form survives — just that some
+    // award/winning hint is preserved.
+    expect(
+      out.includes("award-winning") ||
+        out.includes("award") ||
+        out.includes("winning"),
+    ).toBe(true);
+    expect(out).toContain("modern");
+    expect(out).toContain("bespoke");
+  });
+
+  it("Task 2: industry-noun stopwords cover the common pollution surface", () => {
+    const text =
+      "professional contractors at general company services with team for project work near house.";
+    // Use brand at pos 0 (no brand actually in text — the function
+    // operates on token windows around the position passed in).
+    const pos = 0;
+    const out = extractDescriptorWindow(text, pos, ["Brand"]);
+    // None of these generic nouns should pass.
+    for (const generic of [
+      "professional",
+      "contractors",
+      "general",
+      "company",
+      "services",
+      "team",
+      "project",
+      "work",
+      "house",
+    ]) {
+      expect(out).not.toContain(generic);
+    }
+  });
+
+  it("Task 2: temporal / state stopwords (closed / open / now / today) are suppressed", () => {
+    const text =
+      "Ritz Builders is currently open today and now accepting new clients; offices were closed yesterday.";
+    const pos = text.indexOf("Ritz Builders");
+    const out = extractDescriptorWindow(text, pos, ["Ritz Builders"]);
+    for (const stateNoise of ["closed", "open", "now", "today", "currently"]) {
+      expect(out).not.toContain(stateNoise);
+    }
   });
 });
 
@@ -525,8 +615,10 @@ describe("extractCompetitorDescriptorWindows — W2 Step 2.1", () => {
   it("captures descriptors near a single competitor mention", () => {
     // Descriptors before + after — within the ±5 word default window
     // around the competitor's first token (index of "De").
+    // Task 2 (2026-05-04): swapped "custom builder" for "bespoke
+    // residential" since "custom" + "builder" are now domain stopwords.
     const text =
-      "Top luxury award-winning custom builder De Mattei Construction works in Atherton.";
+      "Top luxury award-winning bespoke residential De Mattei Construction works in Atherton.";
     const out = extractCompetitorDescriptorWindows(
       text,
       ENTITIES,
@@ -535,7 +627,8 @@ describe("extractCompetitorDescriptorWindows — W2 Step 2.1", () => {
     expect(Object.keys(out)).toEqual(["De Mattei Construction"]);
     expect(out["De Mattei Construction"]).toContain("luxury");
     expect(out["De Mattei Construction"]).toContain("award-winning");
-    expect(out["De Mattei Construction"]).toContain("custom");
+    expect(out["De Mattei Construction"]).toContain("bespoke");
+    expect(out["De Mattei Construction"]).toContain("residential");
     expect(out["De Mattei Construction"]).not.toContain("mattei");
     expect(out["De Mattei Construction"]).not.toContain("construction");
   });

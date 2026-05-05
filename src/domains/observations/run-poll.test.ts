@@ -151,11 +151,17 @@ function mkSyncSpies() {
       }),
     ),
     markRunPersistenceFailed: vi.fn(async () => undefined),
-    checkPersistenceGate: vi.fn(async () => ({
-      allow: true,
-      reason: "",
-      blockedByRunId: null,
-    })),
+    checkPersistenceGate: vi.fn(
+      async (): Promise<{
+        allow: boolean;
+        reason: string;
+        blockedByRunId: string | null;
+      }> => ({
+        allow: true,
+        reason: "",
+        blockedByRunId: null,
+      }),
+    ),
   };
 }
 

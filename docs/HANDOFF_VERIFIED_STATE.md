@@ -1,5 +1,133 @@
 # Beacon — Start Here
 
+> 🟢 **PRE-CRON READINESS + UX CLEANUPS (2026-05-05 UTC, predawn):** Operator scoped 4 small tasks to make tomorrow's cron validation safer + stop /today overreacting to the 5-prompt proof. All pre-cron, read-only-where-it-matters, no paid runs. Pre-cron verifier reports READY for the 07:00 UTC cron. Three UX cleanups landed (samplingStatus wired into headline KPI tile, descriptor stopwords expanded to suppress "custom/home/builder/closed" pollution, /prompts now applies the entity-pollution-filter so "General Contractors" never appears as a competitor).
+>
+> ## Task 0 — Pre-cron readiness (read-only)
+>
+> New script `scripts/verify-daily-poll.ts` (also wired as `npm run verify:daily-poll`). Pre-cron run output:
+>
+> | Check | Result |
+> |---|---|
+> | Persistence gate (Operator R6) — perplexity-native-poll | ✓ ALLOW (latest run is 21:00Z proof, no PERSISTENCE FAILED marker) |
+> | Persistence gate — openai-native-poll | ✓ ALLOW (latest run is 21:01Z proof) |
+> | Latest run per platform | ✓ Both completed, 5/5 prompts each |
+> | `raw_poll_chunks` table exists + accepts SELECT | ✓ |
+> | `prompt_answer_observations.competitor_descriptor_windows` | ✓ accepts SELECT |
+> | Today's persisted rows | (none yet — fresh UTC day) |
+> | Recs / changelog row counts | ✓ 17 / 7 / 334 (byte-stable to backup) |
+>
+> **VERDICT: READY for next paid cron.** Persistence gate ALLOWS, schema cache OK, recs/changelog stable. Tomorrow's 07:00 UTC cron will run cleanly through the full integrity contract.
+>
+> ## Task 1 — `samplingStatus` wired into headline KPI logic (tests pinned)
+>
+> The R7 wiring already shipped (R7 in the prior turn). This turn pinned the contract on the source via 14 architecture invariants in `tests/architecture/today-headline-sampling.test.ts`:
+>
+> 1. `ScoreboardData.derivedKpiSamplingStatus: SamplingStatus | null` declared
+> 2. `today-scoreboard.tsx` imports `SamplingStatus` from `poll-health`
+> 3. `samplingStatusTag()` maps `proof → "small sample (proof run)"`, `partial → "partial day (below 80-prompt floor)"`, `empty → "no observations today"`, `full → ""` (no tag)
+> 4. Tile meta string composition appends the tag onto `asOfLabel`
+> 5. Week-over-week delta pill suppressed when `asOfDate` is set (existing behavior preserved): `delta={asOfDate ? null : wowCit}` and same for `wowMen`
+> 6. `today-data.ts` imports `aggregateSamplingStatus` and feeds the field
+> 7. `aggregateSamplingStatus(snap)` exported from poll-health.ts
+> 8. Worst-case-wins ordering pinned: `["empty", "proof", "partial", "full"]`
+>
+> Result for the operator's exact May 4 case: tile meta reads `As of May 4 (today) · small sample (proof run) · perplexity 5 · chatgpt 5`. Week-over-week delta pill is suppressed (no misleading `−95%` next to the count). Chart still shows the proof day point so it's not hidden — just not driving the headline delta.
+>
+> ## Task 2 — Descriptor quality cleanup (`DESCRIPTOR_STOPWORDS` expanded)
+>
+> Operator's exact bad set (from /today screenshot): `custom · home · builder · closed`. All four are now suppressed at extraction time. Expanded `DESCRIPTOR_STOPWORDS` in `src/domains/prompt-answer-observations/extraction.ts` with three categories:
+>
+> - **Industry nouns:** `custom · home · homes · builder · builders · building · buildings · house · houses · residence · residences · company · companies · firm · firms · contractor · contractors · contracting · general · professional · professionals · services · service · work · works · project · projects · team · teams · staff`
+> - **Temporal/state noise:** `closed · open · opened · now · today · yesterday · tomorrow · current · currently · recent · recently · available`
+> - (Existing English connectors + URL-noise stopwords preserved.)
+>
+> Tests pin the operator's exact bad set + the meaningful adjectives that still pass (`luxury · trusted · award-winning · modern · bespoke · sustainable · designs · renovations`). 5 existing tests updated to reflect the new suppression contract.
+>
+> Note: bigram support ("Bay Area", "Palo Alto", "high-end residential") would require extending the tokenizer beyond single words. That's a follow-up — for now, removing the polluting single-word generics is the highest-impact patch.
+>
+> ## Task 3 — /prompts competitor pollution cleanup
+>
+> Pre-fix: /prompts could show `"General Contractors"` (a generic-noun directory entity, not a real builder) in the per-prompt competitor list. Post-fix: `prompt-drilldown.ts` now passes `competitor_co_mentions` through `makeCompetitorRankingFilter(activeEntities)` — the same shared helper used by the recommendation engine + visibility leaderboard.
+>
+> Tests pin the contract:
+> - `"General Contractors"` is dropped from the competitor list
+> - Directory entities (Houzz / Yelp / Angi by `entity_type: "directory_source"`) are dropped
+> - Real builders (CRC Builders, Bay Builders, Homestead) are unaffected — proper-noun-bearing entities pass even when their name contains generic-sounding parts
+>
+> ## Task 4 — Post-cron verifier (same script)
+>
+> `npm run verify:daily-poll -- --mode=post` reports:
+> - Latest observation date + per-(date, platform) row counts (last 5 days)
+> - Snapshots by date / platform (last 5 days)
+> - `raw_poll_chunks` rows by run / platform with reconciliation status
+> - Latest `observation_runs` status per platform
+> - `samplingStatus` per platform via `classifySampling`
+> - Whether persisted rows match the full-day target (100/platform)
+> - Whether /today should be stale or fresh
+> - Whether recs / changelog counts changed (must stay byte-stable)
+>
+> Exit codes: 0 GREEN / 1 failures / 2 query error.
+>
+> ## Files (modified)
+>
+> ### New
+> - `scripts/verify-daily-poll.ts` — read-only pre/post-cron verifier (~430 lines)
+> - `tests/architecture/today-headline-sampling.test.ts` — 14 invariants pinning Task 1
+>
+> ### Modified
+> - `src/domains/prompt-answer-observations/extraction.ts` — `DESCRIPTOR_STOPWORDS` expanded (~40 new tokens across industry + temporal categories)
+> - `src/domains/prompts/prompt-drilldown.ts` — imports `makeCompetitorRankingFilter` and applies it before the competitor frequency aggregation
+> - `package.json` — `verify:daily-poll` npm script
+> - `tests/domains/prompt-answer-observations/extraction.test.ts` — 5 existing tests updated to reflect new stopword contract; 4 new tests for Task 2 (operator's exact bad set, meaningful adjectives still pass, industry-noun coverage, temporal/state noise)
+> - `tests/domains/prompts/prompt-drilldown.test.ts` — 3 new tests for Task 3 (General Contractors dropped, directory entities dropped, real builders preserved)
+> - `src/domains/observations/run-poll.test.ts` — `checkPersistenceGate` mock retyped to widen blockedByRunId from null to `string | null`
+> - `docs/HANDOFF_VERIFIED_STATE.md` (this entry)
+> - `docs/VERIFICATION_LOG.md`
+>
+> ## Verification
+>
+> - ✓ `npx tsc --noEmit` clean
+> - ✓ `tests/architecture/today-headline-sampling.test.ts` 14/14
+> - ✓ `tests/domains/prompt-answer-observations/extraction.test.ts` 63/63
+> - ✓ `tests/domains/prompts/prompt-drilldown.test.ts` 11/11 (8 prior + 3 new)
+> - ✓ `npm run test` 4245/4251 (same 6 pre-existing baseline failures all OUTSIDE this surface; +21 new passes vs prior state)
+> - ✓ `BEACON_TENANT_ID=... BEACON_TENANT_SLUG=... npm run build` clean
+> - ✓ `npm run verify:daily-poll` runs clean and reports READY (gate ALLOWS both platforms)
+>
+> ## Acceptance — all met
+>
+> | Task | Acceptance | Status |
+> |---|---|---|
+> | Task 0 | Read-only verifier answers all listed questions | ✓ |
+> | Task 0 | Gate logic patched if blocking incorrectly | ✓ no patch needed (gate already correct) |
+> | Task 1 | 5-prompt proof day does not create misleading headline delta | ✓ wow-pill suppressed when asOfDate set |
+> | Task 1 | UI copy says small sample / proof run | ✓ samplingStatusTag in tile meta |
+> | Task 1 | Tests pin 5-prompt proof behavior | ✓ 14 architecture invariants |
+> | Task 2 | Generic single tokens suppressed | ✓ custom/home/builder/closed + 30 more |
+> | Task 2 | Meaningful descriptors still pass | ✓ luxury/trusted/award-winning/modern/bespoke |
+> | Task 2 | Tests include operator's exact bad set | ✓ |
+> | Task 3 | "General Contractors" does not appear | ✓ via entity-pollution-filter |
+> | Task 3 | Real builders still appear | ✓ CRC/Bay/Homestead preserved |
+> | Task 3 | Tests cover prompt summary filtering | ✓ 3 new tests |
+> | Task 4 | Read-only post-cron verifier | ✓ same script, --mode=post |
+>
+> ## Constraints honored
+>
+> - ✓ Did NOT run a full paid poll
+> - ✓ Did NOT run paid generation
+> - ✓ Did NOT Apply-All-HIGH
+> - ✓ Did NOT publish Stage 5 relabel
+> - ✓ Did NOT archive/delete Profound
+> - ✓ Did NOT start a giant new generator/action-type build
+> - ✓ Did NOT backdate or fabricate May 2-4 data
+> - ✓ All Supabase access read-only SELECT (one diagnostic query at start; verifier itself is read-only)
+>
+> ## Next 3 actions (operator-gated)
+>
+> 1. **Wait for May 5 07:00 UTC cron.** ~3 hours from now. The full integrity contract runs live for the first time. Verify-persistence job at end + canary at 07:45 UTC defense in depth.
+> 2. **Run `npm run verify:daily-poll -- --mode=post`** once cron completes. Expect: 100 obs/platform, full-day samplingStatus, recs/changelog unchanged, /today fresh.
+> 3. **(Future)** Pick up bigram descriptor support (Task 2 follow-up: "Bay Area", "Palo Alto", "high-end residential" as multi-word descriptors), or sales/onboarding setup, depending on operator priority.
+
 > 🟢 **POLL INTEGRITY HARDENING — LAUNCH-BLOCKER CLOSED (2026-05-04, night):** Operator accepted the May 2-4 incident as launch-blocker class. Implemented the 8-requirement Poll Integrity Contract before any customer can use Beacon. The same silent-failure pattern that lost ~$9 + 600 observations CANNOT recur for customers — every step of the pipeline is now monitored, auditable, fail-loud, and reconciled against database truth.
 >
 > ## How this contract prevents the May 2-4 incident

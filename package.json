@@ -17,6 +17,7 @@
     "data:poll-openai": "npx tsx --require ./scripts/mock-server-only.cjs scripts/poll-openai.ts",
     "data:backfill-db": "npx tsx scripts/backfill-to-supabase.ts",
     "data:parity": "npx tsx scripts/compare-parity.ts",
+    "verify:daily-poll": "npx tsx --require ./scripts/mock-server-only.cjs scripts/verify-daily-poll.ts",
     "test": "vitest run"
   },
   "dependencies": {
