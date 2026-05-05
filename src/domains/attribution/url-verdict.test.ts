@@ -634,3 +634,169 @@ describe("computeUrlVerdict — Phase v4 Commit 7A partial-overlap math (2026-04
     expect(r.explanation.math.baseline_days_used).toBe(14);
   });
 });
+
+// ---------------------------------------------------------------------------
+// M3 (operator audit, 2026-05-05) — attribution-overclaim guards
+// ---------------------------------------------------------------------------
+
+describe("M3 — denominator floor on delta_pct", () => {
+  it("returns delta_pct = null when baseline mean is below the floor (0.5/day → null)", () => {
+    // Baseline averages 0.5 cite/day; post averages 6 cite/day. Without
+    // the floor, delta_pct would compute to (6 − 0.5) / 0.5 = 1100% —
+    // an obvious overclaim from a sub-1/day baseline.
+    const s = series("2026-03-01", [
+      // 14 baseline days alternating 0/1 → mean = 0.5
+      0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1,
+      0, // change day
+      6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, // 14d post @ 6/day
+    ]);
+    const r = computeUrlVerdict({
+      series: s,
+      changeDate: "2026-03-15",
+      asOfDate: "2026-03-29",
+    });
+    expect(r.delta_pct).toBeNull();
+    // Absolute delta still reports honestly.
+    expect(r.delta_abs).not.toBeNull();
+    expect(r.delta_abs!).toBeCloseTo(5.5, 1);
+    // Z-score remains visible — confidence layer is unaffected.
+    expect(r.z).not.toBeNull();
+    expect(Math.abs(r.z!)).toBeGreaterThan(0);
+  });
+
+  it("returns delta_pct as a normal ratio when baseline meets the floor (5/day → +100%)", () => {
+    const s = series("2026-03-01", [
+      5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5,
+      0,
+      10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10,
+    ]);
+    const r = computeUrlVerdict({
+      series: s,
+      changeDate: "2026-03-15",
+      asOfDate: "2026-03-29",
+    });
+    expect(r.delta_pct).not.toBeNull();
+    expect(r.delta_pct!).toBeCloseTo(1.0, 5); // exactly +100%
+  });
+
+  it("explicit deltaPctMinBaseline override flips the gate", () => {
+    // Baseline 0.5/day, but caller raises the floor to 0.25 — guard clears.
+    const s = series("2026-03-01", [
+      0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1,
+      0,
+      6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6,
+    ]);
+    const r = computeUrlVerdict({
+      series: s,
+      changeDate: "2026-03-15",
+      asOfDate: "2026-03-29",
+      thresholds: { deltaPctMinBaseline: 0.25 },
+    });
+    expect(r.delta_pct).not.toBeNull();
+  });
+});
+
+describe("M3 — sampling-status attribution guard", () => {
+  function seriesWithSampling(
+    start: string,
+    points: Array<{ count: number; sampling_status?: DailyPoint["sampling_status"] }>,
+  ): DailyPoint[] {
+    const out: DailyPoint[] = [];
+    const t0 = new Date(start + "T00:00:00Z").getTime();
+    for (let i = 0; i < points.length; i++) {
+      const iso = new Date(t0 + i * 86_400_000).toISOString().slice(0, 10);
+      out.push({ date: iso, count: points[i].count, sampling_status: points[i].sampling_status });
+    }
+    return out;
+  }
+
+  it("demotes helping → nothing_yet when post-window contains a `proof` day", () => {
+    // Strong helping signal: 14 baseline @ 5, 14 post @ 20. Z is huge.
+    // But the LAST post-day is a proof-status sample (manual 5-prompt
+    // recovery run) — the verdict must demote to nothing_yet.
+    const points: Array<{ count: number; sampling_status?: DailyPoint["sampling_status"] }> = [
+      ...Array.from({ length: 14 }, () => ({ count: 5, sampling_status: "full" as const })),
+      { count: 0, sampling_status: "full" }, // change day
+      ...Array.from({ length: 13 }, () => ({ count: 20, sampling_status: "full" as const })),
+      { count: 1, sampling_status: "proof" as const }, // proof day in post-window
+    ];
+    const s = seriesWithSampling("2026-03-01", points);
+    const r = computeUrlVerdict({
+      series: s,
+      changeDate: "2026-03-15",
+      asOfDate: "2026-03-29",
+    });
+    expect(r.verdict).toBe("nothing_yet");
+  });
+
+  it("demotes helping → nothing_yet when post-window has zero `full` days", () => {
+    // Every post-window day is `partial` — none reaches full sample
+    // size, so the verdict is too thin to publish a measured win.
+    const points: Array<{ count: number; sampling_status?: DailyPoint["sampling_status"] }> = [
+      ...Array.from({ length: 14 }, () => ({ count: 5, sampling_status: "full" as const })),
+      { count: 0, sampling_status: "full" },
+      ...Array.from({ length: 14 }, () => ({ count: 20, sampling_status: "partial" as const })),
+    ];
+    const s = seriesWithSampling("2026-03-01", points);
+    const r = computeUrlVerdict({
+      series: s,
+      changeDate: "2026-03-15",
+      asOfDate: "2026-03-29",
+    });
+    expect(r.verdict).toBe("nothing_yet");
+  });
+
+  it("KEEPS helping when post-window has at least one `full` day and no `proof` day", () => {
+    // One partial day, but the rest are full and there's no proof day.
+    const points: Array<{ count: number; sampling_status?: DailyPoint["sampling_status"] }> = [
+      ...Array.from({ length: 14 }, () => ({ count: 5, sampling_status: "full" as const })),
+      { count: 0, sampling_status: "full" },
+      ...Array.from({ length: 13 }, () => ({ count: 20, sampling_status: "full" as const })),
+      { count: 18, sampling_status: "partial" as const }, // partial, not proof
+    ];
+    const s = seriesWithSampling("2026-03-01", points);
+    const r = computeUrlVerdict({
+      series: s,
+      changeDate: "2026-03-15",
+      asOfDate: "2026-03-29",
+    });
+    expect(r.verdict).toBe("helping");
+  });
+
+  it("guard is a no-op when no point carries sampling_status (back-compat)", () => {
+    const s = series("2026-03-01", [
+      5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5,
+      0,
+      20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20,
+    ]);
+    const r = computeUrlVerdict({
+      series: s,
+      changeDate: "2026-03-15",
+      asOfDate: "2026-03-29",
+    });
+    // No sampling_status anywhere → guard never fires → original
+    // helping verdict survives.
+    expect(r.verdict).toBe("helping");
+  });
+
+  it("a single proof-day post-window cannot create a measured win", () => {
+    // Operator's canonical M3.3 case: pretend the day-after-change is
+    // the May-4 5-prompt manual proof. With only one post-window day
+    // and that day being `proof`, no measured win is possible.
+    const points: Array<{ count: number; sampling_status?: DailyPoint["sampling_status"] }> = [
+      ...Array.from({ length: 14 }, () => ({ count: 5, sampling_status: "full" as const })),
+      { count: 0, sampling_status: "full" },
+      { count: 25, sampling_status: "proof" as const },
+    ];
+    const s = seriesWithSampling("2026-03-01", points);
+    const r = computeUrlVerdict({
+      series: s,
+      changeDate: "2026-03-15",
+      asOfDate: "2026-03-16",
+    });
+    // Even if z would have suggested helping, the proof-day guard
+    // forces nothing_yet (or too_early on N=1).
+    expect(["nothing_yet", "too_early"]).toContain(r.verdict);
+    expect(r.verdict).not.toBe("helping");
+  });
+});

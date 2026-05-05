@@ -61,6 +61,10 @@ import {
   type BundlePerEditResult,
   type ValidationFail,
 } from "./specific-edit-validator";
+import {
+  sanitizeOperatorEvidenceText,
+  type PromptTextLookup,
+} from "./copy-sanitize";
 
 // ---------------------------------------------------------------------------
 // DB row shape — snake_case mirror of the recommended_edits migration.
@@ -209,6 +213,19 @@ export type MapSpecificEditToRowArgs = {
   tenantId: string;
   evidenceHash: string;
   now: Date;
+  /**
+   * M2 (operator audit, 2026-05-05) — defense-in-depth save-time
+   * sanitization. When supplied, raw prompt UUIDs in `why`,
+   * `expectedImpact`, `measurementPlan`, and `displayLabel` are replaced
+   * with a quoted prompt-text snippet (when the mapping covers the
+   * UUID) or with the neutral fallback "prompt evidence" (when it
+   * doesn't). The internal `evidence` array keeps raw IDs — only
+   * operator-VISIBLE columns are sanitized.
+   *
+   * Generators today don't emit UUIDs into these strings, but a future
+   * provider regression must not be able to leak UUIDs into the DB.
+   */
+  promptTextById?: PromptTextLookup;
 };
 
 /**
@@ -219,10 +236,27 @@ export type MapSpecificEditToRowArgs = {
 export function mapSpecificEditToRow(
   args: MapSpecificEditToRowArgs,
 ): RecommendedEditRow {
-  const { edit, recId, tenantId, evidenceHash, now } = args;
+  const { edit, recId, tenantId, evidenceHash, now, promptTextById } = args;
   const elementKey = edit.targetElement?.elementKey ?? null;
   const id = `${recId}__${edit.actionType}__${elementKey ?? "null"}`;
   const nowIso = now.toISOString();
+  // M2 (operator audit, 2026-05-05): scrub UUIDs from operator-visible
+  // copy at save time. No-op when promptTextById is undefined or when
+  // the source string contains no UUID-shaped substring.
+  const why = (sanitizeOperatorEvidenceText(edit.why, promptTextById) ??
+    edit.why) as string;
+  const expectedImpact = sanitizeOperatorEvidenceText(
+    edit.expectedImpact,
+    promptTextById,
+  ) as string | null;
+  const measurementPlan = sanitizeOperatorEvidenceText(
+    edit.measurementPlan,
+    promptTextById,
+  ) as string | null;
+  const displayLabel = sanitizeOperatorEvidenceText(
+    edit.targetElement?.displayLabel ?? null,
+    promptTextById,
+  ) as string | null;
   return {
     id,
     tenant_id: tenantId,
@@ -230,15 +264,15 @@ export function mapSpecificEditToRow(
     action_type: edit.actionType,
     target_url: edit.targetUrl,
     target_element_key: elementKey,
-    display_label: edit.targetElement?.displayLabel ?? null,
+    display_label: displayLabel,
     current_text: edit.targetElement?.currentText ?? null,
     proposed_text: edit.targetElement?.proposedText ?? null,
-    why: edit.why,
+    why,
     evidence: edit.evidence,
-    expected_impact: edit.expectedImpact,
+    expected_impact: expectedImpact,
     difficulty: edit.difficulty,
     confidence: edit.confidence,
-    measurement_plan: edit.measurementPlan,
+    measurement_plan: measurementPlan,
     risks: edit.risks,
     source: edit.source,
     provider_name: edit.providerName,
@@ -641,6 +675,19 @@ export async function runProviderAndPersist(
     (p) => !p.result.ok,
   );
 
+  // M2 (operator audit, 2026-05-05): Build a prompt-text lookup from
+  // the packet's affectedPrompts so that any UUID that leaked through
+  // a provider into operator-visible copy ({why, expectedImpact,
+  // measurementPlan, displayLabel}) is replaced with a quoted prompt-
+  // text snippet at SAVE time. The internal `evidence` arrays + debug
+  // diagnostics keep raw IDs.
+  const promptTextById = new Map<string, string>();
+  for (const p of opts.packet.affectedPrompts) {
+    if (typeof p.promptId === "string" && typeof p.promptText === "string") {
+      promptTextById.set(p.promptId, p.promptText);
+    }
+  }
+
   const allRows = acceptedEdits.map((edit) =>
     mapSpecificEditToRow({
       edit,
@@ -648,6 +695,7 @@ export async function runProviderAndPersist(
       tenantId: opts.packet.tenantId,
       evidenceHash: opts.packet.evidenceHash,
       now,
+      promptTextById,
     }),
   );
 

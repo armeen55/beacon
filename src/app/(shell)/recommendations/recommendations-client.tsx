@@ -26,6 +26,7 @@ import {
   type ActionRowPriority,
   type RecommendationActionRow,
 } from "@/domains/recommendations/recommendation-action-rows";
+import { sanitizeOperatorEvidenceText } from "@/domains/recommendations/copy-sanitize";
 
 type Props = {
   queue: RecommendationQueueRow[];
@@ -1028,7 +1029,10 @@ function RowDrawer({
       {d.why && d.why.trim().length > 0 && (
         <DrawerSection title="Why Beacon recommends it">
           <p className="text-foreground/90 leading-relaxed">
-            {scrubRawPromptIds(stripBracketedDiagnostics(d.why))}
+            {sanitizeOperatorEvidenceText(
+              stripBracketedDiagnostics(d.why),
+              promptTextById,
+            )}
           </p>
         </DrawerSection>
       )}
@@ -1138,12 +1142,20 @@ function RowDrawer({
           )}
           {d.fullReasoning && d.fullReasoning !== d.why && (
             <li className="whitespace-pre-wrap">
-              full_reasoning: {scrubRawPromptIds(d.fullReasoning)}
+              full_reasoning:{" "}
+              {sanitizeOperatorEvidenceText(
+                d.fullReasoning,
+                promptTextById,
+              )}
             </li>
           )}
           {d.confidenceReason && (
             <li className="whitespace-pre-wrap">
-              confidence_reason: {scrubRawPromptIds(d.confidenceReason)}
+              confidence_reason:{" "}
+              {sanitizeOperatorEvidenceText(
+                d.confidenceReason,
+                promptTextById,
+              )}
             </li>
           )}
         </ul>
@@ -1330,22 +1342,10 @@ function stripBracketedDiagnostics(text: string): string {
     .trim();
 }
 
-/**
- * Defense-in-depth scrubber for raw prompt-ids in operator copy.
- */
-function scrubRawPromptIds(text: string | null | undefined): string {
-  if (typeof text !== "string" || text.length === 0) return text ?? "";
-  let out = text.replace(
-    /\bprompt\s*:?\s*[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\b/gi,
-    "an affected prompt",
-  );
-  out = out.replace(
-    /\b[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\b/gi,
-    "an affected prompt",
-  );
-  out = out.replace(
-    /\bprompt\s*:?\s*[a-f0-9]{8,}\b/gi,
-    "an affected prompt",
-  );
-  return out;
-}
+// M2 (operator audit, 2026-05-05): The legacy local `scrubRawPromptIds`
+// helper was replaced with the shared `sanitizeOperatorEvidenceText`
+// from `@/domains/recommendations/copy-sanitize`. The shared sanitizer
+// substitutes a prompt-text snippet when the mapping is available
+// (e.g., `prompt: "best whole home remodel builders bay area"`) instead
+// of the previous always-generic "an affected prompt" fallback. The
+// raw-UUID pattern + same callers stay; only the substitution improves.

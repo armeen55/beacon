@@ -1958,10 +1958,19 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
 
   // Build the winning-URL list from url-change-outcomes. One row per URL; take
   // the most recent `helping` verdict for each URL, rank by |delta_pct|.
+  //
+  // M3 (operator audit, 2026-05-05): keep `delta_pct` as a NULLABLE field
+  // — when the URL's pre-change baseline is below the floor (default
+  // 1.0 cite/day), `url-verdict` returns `delta_pct = null` and the
+  // renderer must show the absolute delta instead. Replacing null with
+  // `0` would make the lift invisible; we plumb null through.
   type HelpingRow = {
     url: string;
     changeId: string;
-    deltaPct: number;
+    /** Null when baseline is below the M3 denominator floor. */
+    deltaPct: number | null;
+    /** Always present — falls back from delta_pct when relative-% is suppressed. */
+    deltaAbs: number;
     landingZ: number;
     confidence: "low" | "medium" | "high";
     baselineDaysUsed: number;
@@ -1978,7 +1987,8 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
       helpingByUrl.set(o.url, {
         url: o.url,
         changeId: o.change_id,
-        deltaPct: o.delta_pct ?? 0,
+        deltaPct: o.delta_pct, // null when baseline below floor (M3)
+        deltaAbs: o.delta_abs ?? 0,
         landingZ: o.landing_z ?? 0,
         confidence: (o.confidence as "low" | "medium" | "high") ?? "low",
         baselineDaysUsed: o.baseline_days_used,
@@ -1995,8 +2005,11 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
     const latest = latestVerdictByUrl.get(h.url);
     return latest?.verdict === "helping";
   });
-  // Rank by delta magnitude (biggest effect first).
-  visibleHelping.sort((a, b) => Math.abs(b.deltaPct) - Math.abs(a.deltaPct));
+  // Rank by Z-score magnitude (biggest signal-strength first). Z is the
+  // primary attribution signal (M3 — operator audit, 2026-05-05); we no
+  // longer rank by relative %, which can be null below the baseline
+  // floor and is a noisy proxy on its own.
+  visibleHelping.sort((a, b) => Math.abs(b.landingZ) - Math.abs(a.landingZ));
 
   const winningActions: import("@/components/today/action-card").ActionCardAction[] = [];
   // Take at most the top 2 winning URLs.
@@ -2013,20 +2026,30 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
     const changeDesc = change?.change_description?.trim()
       ?? change?.asset_name?.trim()
       ?? null;
-    const deltaPctAbs = Math.abs(h.deltaPct * 100);
-    const pctStr = h.deltaPct > 0
-      ? `up ${deltaPctAbs.toFixed(0)}%`
-      : `${deltaPctAbs.toFixed(0)}% shift`;
+    // M3 (operator audit, 2026-05-05): reframe as correlation, not
+    // causation. Headline becomes "Citation lift detected after the X
+    // change" instead of "X is winning after your change". Body
+    // leads with absolute counts (delta_abs is the signed daily
+    // change, e.g., "rose by ~6.5 citations/day"); relative-% is
+    // secondary and only appears when the baseline-floor guard in
+    // url-verdict cleared it (`h.deltaPct !== null`). Z-score stays
+    // primary as the signal-strength readout.
+    const absDeltaPerDay = Math.abs(h.deltaAbs);
+    const direction = h.deltaAbs >= 0 ? "rose" : "fell";
+    const pctStr =
+      h.deltaPct !== null
+        ? ` (${h.deltaPct > 0 ? "+" : ""}${(h.deltaPct * 100).toFixed(0)}%)`
+        : "";
     const landedSuffix = h.landingDayN !== null && h.landingDayN > 0
       ? ` (landed ${h.landingDayN}d after change)`
       : "";
     const headline = changeDate
-      ? `${h.url} is winning after your ${changeDate} change`
-      : `${h.url} is winning (URL-level Z-score)`;
+      ? `Citation lift detected on ${h.url} after the ${changeDate} change`
+      : `Citation lift detected on ${h.url} (URL-level Z-score)`;
     const rationaleLead = changeDesc && changeDate
-      ? `On ${changeDate}, ${changeDesc}. Since then, this page's citations are ${pctStr}`
-      : `Since your latest change, this page's citations are ${pctStr}`;
-    const rationale = `${rationaleLead} (Z-score ${h.landingZ.toFixed(1)}, ${h.confidence} confidence${landedSuffix}). Attribution is URL-level \u2014 this page's own citations rose, not a topic-wide trend.`;
+      ? `On ${changeDate}, ${changeDesc}. In the post-change window, citations on this page ${direction} by ~${absDeltaPerDay.toFixed(1)}/day${pctStr}`
+      : `In the post-change window, citations on this page ${direction} by ~${absDeltaPerDay.toFixed(1)}/day${pctStr}`;
+    const rationale = `${rationaleLead}. Z-score ${h.landingZ.toFixed(1)} (${h.confidence} confidence${landedSuffix}). URL-level correlation \u2014 this page's own citations moved \u2014 not proof of causation, and not a topic-wide trend.`;
     winningActions.push({
       id: winCardId,
       headline,
@@ -2245,7 +2268,10 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
     chartEvents.push({
       date,
       tone: "success",
-      label: `${url} \u2014 winning after change on ${date}`,
+      // M3 (operator audit, 2026-05-05): chart-event label says
+      // "citation lift" instead of "winning" \u2014 correlation-tone copy
+      // matching the action-card headline above.
+      label: `${url} \u2014 citation lift detected after change on ${date}`,
     });
   }
   // 2026-04-20: removed MemoryInsight-derived bestImproving green dot \u2014 the
@@ -2295,11 +2321,27 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
     // the topic-level MemoryInsight source that was producing false causal
     // claims. Null when no URL is currently in `helping` state with rising
     // citations.
+    //
+    // M3 (operator audit, 2026-05-05): when `deltaPct` is null
+    // (baseline below denominator floor), report zero relative-% and
+    // a non-percent label so the renderer doesn't fabricate "+1100%".
+    // Renderers that need a deltaLabel should check for the `/day`
+    // suffix to know the absolute fallback was used.
     urlVerdictProof: topHelpingUrls[0]
       ? (() => {
           const h = topHelpingUrls[0];
           const change = changeByIdForHurt.get(h.changeId);
           const changeDate = change?.timestamp ? fmtDate(change.timestamp) : null;
+          if (h.deltaPct === null) {
+            const absLabel = `${h.deltaAbs > 0 ? "+" : ""}${h.deltaAbs.toFixed(1)}/day`;
+            return {
+              changeId: h.changeId,
+              pagePath: h.url,
+              changeDate: changeDate ?? null,
+              citationDeltaPct: 0,
+              deltaLabel: absLabel,
+            };
+          }
           const deltaPctAbs = Math.abs(h.deltaPct * 100);
           return {
             changeId: h.changeId,

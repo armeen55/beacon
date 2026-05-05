@@ -57,6 +57,20 @@ export type VerdictThresholds = {
   sustainLastNDays: number;
   poissonSigmaFloor: number;
   nothingYetMinDays: number;
+  /**
+   * M3 (operator audit, 2026-05-05) — denominator floor for relative-%
+   * lift reporting. When the pre-change mean (`μ_pre`) is below this
+   * floor, the relative-% lift is too noisy to publish (a baseline of
+   * 0.5 citations/day going to 6/day would otherwise read as +1100%,
+   * which overclaims causality). When `μ_pre < deltaPctMinBaseline`,
+   * `delta_pct` is returned as `null`; renderers should show the
+   * absolute delta ("citations rose from 0.5/day to 6/day") instead.
+   *
+   * Z-score and confidence tier remain unaffected — they already
+   * floor σ_pre at `poissonSigmaFloor` so the math stays well-defined
+   * for low-count series.
+   */
+  deltaPctMinBaseline: number;
 };
 
 export const DEFAULT_THRESHOLDS: VerdictThresholds = {
@@ -69,6 +83,10 @@ export const DEFAULT_THRESHOLDS: VerdictThresholds = {
   sustainLastNDays: 7,
   poissonSigmaFloor: 1.0,
   nothingYetMinDays: 14,
+  // M3 floor: anything under 1 citation/day pre-change is too thin to
+  // trust as a denominator for relative %. Match the Poisson sigma
+  // floor (1.0) — both express the "low-count series" regime.
+  deltaPctMinBaseline: 1.0,
 };
 
 export type VerdictLabel =
@@ -145,6 +163,22 @@ export type UrlVerdict = {
   explanation: VerdictExplanation;
 };
 
+/**
+ * M3 (operator audit, 2026-05-05) — sampling-status tag for the
+ * attribution guard. Mirrors the runtime values produced by
+ * `classifySampling` in `src/domains/observations/poll-health.ts`:
+ *
+ *   "full"    ≥ 80 observations on this day (a normal-sized run)
+ *   "partial" 10–79 observations
+ *   "proof"   1–9 observations (manual-proof-style run)
+ *   "empty"   0 observations
+ *
+ * String-typed (not the imported `SamplingStatus`) so this domain stays
+ * decoupled from the observations domain. When omitted, the guard
+ * never fires (back-compat).
+ */
+export type DailyPointSamplingStatus = "full" | "partial" | "proof" | "empty";
+
 export type DailyPoint = {
   date: string;
   count: number;
@@ -155,6 +189,14 @@ export type DailyPoint = {
    * polling) should tag every point.
    */
   source_type?: DailyPointSource;
+  /**
+   * M3 (operator audit, 2026-05-05): sampling status for THIS day. The
+   * verdict engine uses this to demote `helping` / `hurting` verdicts
+   * when the post-window contains any `proof` day or no `full` days,
+   * preventing a 5-prompt manual-proof run from creating a measured-win
+   * card. When omitted on every point, the guard is a no-op (back-compat).
+   */
+  sampling_status?: DailyPointSamplingStatus;
 };
 
 export type ComputeVerdictInput = {
@@ -369,7 +411,14 @@ export function computeUrlVerdict(input: ComputeVerdictInput): UrlVerdict {
   }
 
   const deltaAbs = muPost - muPre;
-  const deltaPct = muPre > 0 ? deltaAbs / muPre : deltaAbs;
+  // M3 (operator audit, 2026-05-05): apply baseline-floor guard. Below
+  // the floor (default: 1.0 citations/day) the relative-% reading is
+  // too noisy to publish — a 0.5/day → 6/day jump would read as
+  // +1100% and overclaim causality. The renderer falls back to the
+  // absolute delta ("rose from 0.5/day to 6/day"). Z-score and
+  // confidence tier are unaffected.
+  const deltaPctSafe =
+    muPre >= t.deltaPctMinBaseline ? deltaAbs / muPre : null;
 
   let verdict: VerdictLabel;
   if (z >= t.zBar && sustainUp >= t.sustainMin) {
@@ -380,6 +429,33 @@ export function computeUrlVerdict(input: ComputeVerdictInput): UrlVerdict {
     verdict = "nothing_yet";
   } else {
     verdict = "too_early";
+  }
+
+  // M3 (operator audit, 2026-05-05) — sampling-status attribution
+  // guard. If ANY day in the post-change window is a `proof` day
+  // (1–9 observations) OR the post-window contains zero `full` days
+  // (≥80 observations), demote `helping`/`hurting` to `nothing_yet`.
+  // This prevents a 5-prompt manual-proof run (e.g. May 4 incident
+  // recovery) from creating a measured-win card. Back-compat: if no
+  // post-window point carries `sampling_status`, the guard is a no-op.
+  //
+  // Operator-locked rule: "proof/partial days should not create or
+  // upgrade measured-win cards."
+  if (verdict === "helping" || verdict === "hurting") {
+    const taggedPost = postPoints.filter(
+      (p) => typeof p.sampling_status === "string",
+    );
+    if (taggedPost.length > 0) {
+      const hasProofDay = taggedPost.some(
+        (p) => p.sampling_status === "proof",
+      );
+      const hasFullDay = taggedPost.some(
+        (p) => p.sampling_status === "full",
+      );
+      if (hasProofDay || !hasFullDay) {
+        verdict = "nothing_yet";
+      }
+    }
   }
 
   const confidence: "high" | "medium" | "low" = (() => {
@@ -418,7 +494,7 @@ export function computeUrlVerdict(input: ComputeVerdictInput): UrlVerdict {
   return {
     verdict,
     z: N > 0 ? z : null,
-    delta_pct: N > 0 ? deltaPct : null,
+    delta_pct: N > 0 ? deltaPctSafe : null,
     delta_abs: N > 0 ? deltaAbs : null,
     post_days: N,
     confidence,

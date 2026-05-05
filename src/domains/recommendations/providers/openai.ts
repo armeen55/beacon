@@ -302,9 +302,13 @@ HARD RULES:
           text is what we asked the AI; it is NOT how a customer would
           phrase the question, and lifting it verbatim into copy makes
           the page sound like a search engine, not a builder's site.
-    The "why" field MUST cite which level you drew evidence from
-    (e.g., "Drawn from actualSearchQueries on prompt
-    7ee3216b-...: 'best whole home remodel builders bay area'").
+    The "why" field MUST cite which level you drew evidence from.
+    NEVER quote raw prompt UUIDs in the "why" — the operator-facing
+    text is sanitized at render time and any UUID becomes a generic
+    "prompt evidence" placeholder. Reference the prompt by a short
+    text snippet from packet.affectedPrompts[*].promptText instead.
+    Example: 'Drawn from actualSearchQueries on the "best whole home
+    remodel builders bay area" prompt'.
 
 15. **PACKET-LEVEL AGGREGATED SIGNALS (W3 Step 3.2 evidence
     foundation).** In addition to the per-prompt arrays above, the

@@ -53,6 +53,21 @@ const BANNED: ReadonlyArray<Banned> = [
     reason:
       "vendor reference must not leak to operator UI surfaces (src/app, src/components)",
   },
+  // M3 (operator audit, 2026-05-05) — attribution-overclaim bans.
+  // The win-card narrative was reframed from "X is winning after your
+  // change" to "Citation lift detected after the X change" so the copy
+  // stays correlation-toned (URL-level correlation, not proof of
+  // causation). These literals must not return to UI surfaces.
+  {
+    needle: "is winning after",
+    reason:
+      "M3: causal overclaim — use 'Citation lift detected after the X change' (URL-level correlation, not proof of causation)",
+  },
+  {
+    needle: "winning after your",
+    reason:
+      "M3: causal overclaim — operator-facing copy must not assert causation. Reframe as 'Citation lift detected after the … change'",
+  },
 ];
 
 function listSourceFiles(root: string): string[] {
@@ -186,5 +201,39 @@ describe("no-operator-jargon — Step 1.2 invariant", () => {
     } finally {
       fs.unlinkSync(tmp);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// M3 (operator audit, 2026-05-05) — positive-presence narrative invariant.
+//
+// The win-card narrative in src/app/(shell)/today-data.ts must lead with
+// correlation-toned copy, not causal-toned copy. Pin the specific phrases
+// the operator audit asked for so a future refactor can't quietly revert
+// to "winning after your change". This is the inverse of the BANNED list:
+// the file MUST contain these strings.
+// ---------------------------------------------------------------------------
+
+describe("M3 — today-data narrative includes correlation phrasing", () => {
+  it("today-data.ts contains 'Citation lift detected' and 'URL-level correlation'", () => {
+    const todayDataPath = path.join(
+      ROOT,
+      "src",
+      "app",
+      "(shell)",
+      "today-data.ts",
+    );
+    if (!fs.existsSync(todayDataPath)) {
+      throw new Error(`today-data.ts not found at ${todayDataPath}`);
+    }
+    const src = fs.readFileSync(todayDataPath, "utf8");
+    expect(
+      src.includes("Citation lift detected"),
+      "today-data.ts must use 'Citation lift detected' headline phrasing (M3 — replaces 'is winning after your change')",
+    ).toBe(true);
+    expect(
+      src.includes("URL-level correlation"),
+      "today-data.ts must use 'URL-level correlation — … not proof of causation' qualifier (M3)",
+    ).toBe(true);
   });
 });
