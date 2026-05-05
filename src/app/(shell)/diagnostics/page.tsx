@@ -76,7 +76,7 @@ import {
   summarizeDecay,
 } from "@/domains/attribution/citation-decay";
 import { getSiteConfig } from "@/lib/site-config";
-import { getBusinessConfig } from "@/lib/business-config";
+import { getBusinessConfig, isPlaceholderConfig } from "@/lib/business-config";
 import {
   computeLocalOperatorSurface,
   loadLocalOperatorImport,
@@ -278,12 +278,49 @@ export default async function DiagnosticsPage() {
       .length,
   });
 
+  // D6 (operator audit follow-up, 2026-05-05) — placeholder-config
+  // diagnostic. /diagnostics is an admin / operator surface (hidden
+  // from main nav, gated by tenant context); a clearly-labeled banner
+  // here is the right place to show "configuration not loaded" state.
+  // This is NOT a customer-facing scary warning — it's an internal
+  // operator signal to set BEACON_BUSINESS_CONFIG_JSON or place a
+  // tenant config file. The same state also fires a one-time
+  // log.warn from getBusinessConfig() so server logs carry the trace.
+  const businessConfig = getBusinessConfig();
+  const isOnPlaceholderConfig = isPlaceholderConfig(businessConfig);
+
   return (
     <div className="max-w-4xl space-y-8">
       <PageHeader
         title="Diagnostics"
         description="System specialist view: how attribution data is shaped, linked, and scored in this workspace. Technical and honest — for operators who need depth without leaving Beacon."
       />
+
+      {isOnPlaceholderConfig && (
+        <div
+          className="rounded-md border border-status-warning/40 bg-status-warning/[0.06] px-4 py-3 -mt-2"
+          data-diagnostic="placeholder-config"
+        >
+          <p className="text-[13px] font-semibold text-status-warning">
+            Configuration not loaded — running on neutral placeholder.
+          </p>
+          <p className="mt-1 text-[12px] text-muted-foreground leading-relaxed">
+            The app resolved to an empty placeholder config because no
+            tenant config was found. Set the{" "}
+            <code className="font-mono text-[11px] bg-muted px-1 py-0.5 rounded">
+              BEACON_BUSINESS_CONFIG_JSON
+            </code>{" "}
+            environment variable on Vercel (Production + Preview) with
+            the full JSON payload, or place a tenant config file at{" "}
+            <code className="font-mono text-[11px] bg-muted px-1 py-0.5 rounded">
+              .data/global/business-config.json
+            </code>{" "}
+            for local development. Until then, brand-shaped surfaces
+            (name, domain, locations, services, competitors) render
+            empty across the app.
+          </p>
+        </div>
+      )}
 
       <div className="-mt-2 mb-6">
         <LocalOperatorPanel surface={localDiagSurface} variant="health" />

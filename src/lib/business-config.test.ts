@@ -24,7 +24,7 @@
  *     so downstream consumers don't crash.
  */
 
-import { describe, expect, it, beforeEach, afterEach } from "vitest";
+import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 import { existsSync, readFileSync, writeFileSync, unlinkSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 
@@ -34,6 +34,7 @@ import {
   __resetBusinessConfigCacheForTests,
   type BusinessConfig,
 } from "./business-config";
+import { log } from "@/lib/logger";
 
 const REPO_ROOT = process.cwd();
 const TOP_LEVEL_PATH = join(REPO_ROOT, ".data", "business-config.json");
@@ -211,6 +212,62 @@ describe("D1 — placeholder config when no source provides values", () => {
     expect(Array.isArray(cfg.serviceTerms)).toBe(true);
     expect(Array.isArray(cfg.directoryDomains)).toBe(true);
     expect(typeof cfg.scanSettings).toBe("object");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 5. One-time log.warn when placeholder kicks in (operator audit follow-up)
+// ---------------------------------------------------------------------------
+
+describe("D1 + diagnostic — placeholder fallback emits a structured log.warn (once per process)", () => {
+  beforeEach(() => {
+    if (existsSync(TOP_LEVEL_PATH)) unlinkSync(TOP_LEVEL_PATH);
+    if (existsSync(GLOBAL_PATH)) unlinkSync(GLOBAL_PATH);
+    delete process.env.BEACON_BUSINESS_CONFIG_JSON;
+    __resetBusinessConfigCacheForTests();
+  });
+
+  it("placeholder fallback fires log.warn with the operator-locked message + structured fields", () => {
+    const warnSpy = vi.spyOn(log, "warn").mockImplementation(() => {});
+    const cfg = getBusinessConfig();
+    expect(isPlaceholderConfig(cfg)).toBe(true);
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    const [msg, payload] = warnSpy.mock.calls[0] as [string, Record<string, unknown>];
+    expect(msg).toContain("[business-config]");
+    expect(msg).toContain("placeholder");
+    expect(msg).toContain("BEACON_BUSINESS_CONFIG_JSON");
+    // Structured fields the operator needs to debug the state.
+    expect(payload.envVarSet).toBe(false);
+    expect(payload.topLevelFileExists).toBe(false);
+    expect(payload.globalFileExists).toBe(false);
+    expect(payload.runningOn).toBe(typeof process.env.VERCEL === "string" && process.env.VERCEL === "1" ? "vercel" : "local");
+    warnSpy.mockRestore();
+  });
+
+  it("placeholder fallback does NOT fire log.warn a second time within the same process", () => {
+    const warnSpy = vi.spyOn(log, "warn").mockImplementation(() => {});
+    getBusinessConfig(); // 1st call — fires the warning
+    getBusinessConfig(); // 2nd call (cached) — no re-fire
+    getBusinessConfig(); // 3rd call (cached) — no re-fire
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    warnSpy.mockRestore();
+  });
+
+  it("real-config path does NOT fire the placeholder log.warn", () => {
+    process.env.BEACON_BUSINESS_CONFIG_JSON = JSON.stringify({
+      name: "Acme Co",
+      domain: "acme.com",
+    });
+    __resetBusinessConfigCacheForTests();
+    const warnSpy = vi.spyOn(log, "warn").mockImplementation(() => {});
+    const cfg = getBusinessConfig();
+    expect(isPlaceholderConfig(cfg)).toBe(false);
+    // No placeholder-related warning when env var is set.
+    const placeholderCalls = warnSpy.mock.calls.filter(
+      ([m]) => typeof m === "string" && m.includes("[business-config]"),
+    );
+    expect(placeholderCalls.length).toBe(0);
+    warnSpy.mockRestore();
   });
 });
 

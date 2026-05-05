@@ -4,6 +4,7 @@ import { readFileSync, existsSync, writeFileSync, mkdirSync } from "fs";
 import path from "path";
 import { syncBusinessConfig } from "@/lib/persistence/dual-write";
 import { EVENT_PRIORS_V1 as EVENT_PRIORS_V1_SOURCE } from "@/lib/event-priors";
+import { log } from "@/lib/logger";
 
 /** Re-export for backwards compatibility with code that imports from business-config. */
 export const EVENT_PRIORS_V1 = EVENT_PRIORS_V1_SOURCE;
@@ -230,6 +231,13 @@ function readConfigFromFiles(): Partial<BusinessConfig> | null {
 }
 
 let _cached: BusinessConfig | null = null;
+/**
+ * Process-level "already warned" flag for the placeholder log.
+ * Without this, every server-component render that calls
+ * `getBusinessConfig()` would re-emit the warning, flooding the
+ * production log with noise. Reset by `__resetBusinessConfigCacheForTests`.
+ */
+let _placeholderWarnedThisProcess = false;
 
 /**
  * Resolve the active business config. Priority order:
@@ -241,6 +249,15 @@ let _cached: BusinessConfig | null = null;
  * For sources 1–3, missing fields are filled in from the placeholder
  * (so the type stays complete). For source 4, the placeholder is
  * returned verbatim with `__placeholder: true`.
+ *
+ * Operator audit (2026-05-05) — when the resolution falls through to
+ * the neutral placeholder, the function emits a one-time `log.warn`
+ * so production dashboards surface the "configuration needed" state.
+ * The warning fires AT MOST ONCE per process; consumer code can
+ * branch on `isPlaceholderConfig(cfg)` for UI affordances. Customer-
+ * facing surfaces should NOT show a scary warning — only admin /
+ * diagnostic surfaces (e.g., `/diagnostics`) should expose this state
+ * to the operator.
  */
 export function getBusinessConfig(): BusinessConfig {
   if (_cached) return _cached;
@@ -258,6 +275,18 @@ export function getBusinessConfig(): BusinessConfig {
   }
 
   _cached = PLACEHOLDER_CONFIG;
+  if (!_placeholderWarnedThisProcess) {
+    _placeholderWarnedThisProcess = true;
+    log.warn(
+      "[business-config] no tenant config found — running on neutral placeholder. Set BEACON_BUSINESS_CONFIG_JSON env var or place a .data/global/business-config.json to load real tenant config.",
+      {
+        envVarSet: typeof process.env.BEACON_BUSINESS_CONFIG_JSON === "string",
+        topLevelFileExists: existsSync(TOP_LEVEL_CONFIG_PATH),
+        globalFileExists: existsSync(GLOBAL_CONFIG_PATH),
+        runningOn: process.env.VERCEL === "1" ? "vercel" : "local",
+      },
+    );
+  }
   return _cached;
 }
 
@@ -292,11 +321,14 @@ export function saveBusinessConfig(patch: Partial<BusinessConfig>): BusinessConf
 
 /**
  * Test-only — reset the in-memory cache so a fresh getBusinessConfig()
- * call re-runs the full resolution chain. Production code does NOT use
- * this; the cache is intentional (config is read once per process).
+ * call re-runs the full resolution chain. Also resets the
+ * "already warned" flag so the placeholder log can fire again per test.
+ * Production code does NOT use this; the cache is intentional (config
+ * is read once per process).
  */
 export function __resetBusinessConfigCacheForTests(): void {
   _cached = null;
+  _placeholderWarnedThisProcess = false;
 }
 
 export function getLocationRegex(config?: BusinessConfig): RegExp {
