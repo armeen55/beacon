@@ -15,6 +15,38 @@ const EVIDENCE_BASIS_PILL: Record<string, string> = {
   shared_pattern: "bg-foreground/10 text-foreground",
 };
 
+/**
+ * T2 (operator audit, 2026-05-05) — translate internal `expectedMetric`
+ * snake_case keys to operator-readable copy. Returns null when the value
+ * looks like a raw identifier we don't have a mapping for; the caller
+ * drops the chip entirely rather than leaking "citations_per_day" /
+ * "primary_rate" / "mention_rate" to the customer-facing card.
+ *
+ * Pure / deterministic. Empty / non-string input returns null.
+ */
+function friendlyExpectedMetric(metric: string | null | undefined): string | null {
+  if (typeof metric !== "string") return null;
+  const trimmed = metric.trim();
+  if (trimmed.length === 0) return null;
+  const lower = trimmed.toLowerCase();
+  // Known internal metric keys → operator copy.
+  const map: Record<string, string> = {
+    citations_per_day: "Expected: more AI citations",
+    citations: "Expected: more AI citations",
+    primary_rate: "Expected: higher primary-recommendation rate",
+    mention_rate: "Expected: more brand mentions",
+    cited_pages: "Expected: more pages cited",
+  };
+  if (map[lower]) return map[lower];
+  // Anything that still looks like a raw snake_case / lower-case-with-
+  // underscores identifier is filtered. Operator-friendly free-text
+  // metrics (with spaces, capital letters, or descriptive phrases like
+  // "+5 citations / week") pass through unchanged.
+  const looksRawIdentifier = /^[a-z][a-z0-9_]*$/.test(trimmed) && trimmed.includes("_");
+  if (looksRawIdentifier) return null;
+  return trimmed;
+}
+
 export type ActionCardAction = {
   id: string;
   headline: string;
@@ -160,7 +192,14 @@ export function ActionCard({
             {bs.label}
           </span>
         </span>
-        {action.evidenceBasis && (
+        {/* T2 (operator audit, 2026-05-05) — hide the badge when the
+            evidence basis is `heuristic`. Heuristic recs come from a
+            static rule, not from per-tenant evidence — labeling them
+            with anything ("Pattern-based" / "Evidence-based") leaks
+            internal taxonomy. The other tiers (tenant_history /
+            current_dataset / shared_pattern) DO carry real evidence
+            and keep their badge. */}
+        {action.evidenceBasis && action.evidenceBasis !== "heuristic" && (
           <span
             className={cn(
               "inline-flex items-center rounded-full px-2 py-0.5 text-[9px] font-medium tracking-wide",
@@ -193,11 +232,21 @@ export function ActionCard({
               Worked on {action.priorSuccess.pagePath}: +{Math.round(action.priorSuccess.citationDelta)}%
             </span>
           )}
-          {action.expectedMetric && !action.priorSuccess && (
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-accent-primary/10 text-[10px] font-medium text-accent-primary">
-              {action.expectedMetric}
-            </span>
-          )}
+          {action.expectedMetric && !action.priorSuccess && (() => {
+            // T2 (operator audit, 2026-05-05) — translate internal
+            // snake_case metric keys to operator-readable copy. If the
+            // mapping is missing AND the value still looks like a raw
+            // identifier (lowercase + underscores, no spaces), drop
+            // the chip entirely rather than leaking
+            // "citations_per_day" / "primary_rate" to the operator.
+            const friendly = friendlyExpectedMetric(action.expectedMetric);
+            if (friendly === null) return null;
+            return (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-accent-primary/10 text-[10px] font-medium text-accent-primary">
+                {friendly}
+              </span>
+            );
+          })()}
           {action.engineTiming && action.engineTiming.length > 0 && (() => {
             const sorted = [...action.engineTiming].sort((a, b) => a.medianDays - b.medianDays);
             const allSame = sorted.every(t => t.medianDays === sorted[0].medianDays);

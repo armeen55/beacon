@@ -155,8 +155,14 @@ export function extractPrimaryRecommendation(
  *  small — if a word is functional plumbing ("the", "and"), it's in here.
  *  URL-ish tokens were added after live-data spot-check (2026-04-24): raw
  *  URL fragments near brand citations pollute the window with tokens like
- *  "https", "com", "utm_source". These carry no positioning signal. */
-const DESCRIPTOR_STOPWORDS: ReadonlySet<string> = new Set([
+ *  "https", "com", "utm_source". These carry no positioning signal.
+ *
+ *  Exported as DESCRIPTOR_QUALITY_STOPWORDS so the rollup layer can apply
+ *  the SAME filter at render time (T1, 2026-05-05). Pre-W4 observations
+ *  carry descriptor_window tokens that were extracted before recent
+ *  stopword additions; the rollup must filter them OUT at read time so
+ *  /today never shows "custom · home · builder · closed · area" again. */
+export const DESCRIPTOR_QUALITY_STOPWORDS: ReadonlySet<string> = new Set([
   "the", "a", "an", "and", "or", "but", "of", "in", "on", "at", "to", "for",
   "from", "with", "by", "is", "are", "was", "were", "be", "been", "being",
   "as", "than", "that", "which", "who", "when", "where", "why", "how",
@@ -202,7 +208,32 @@ const DESCRIPTOR_STOPWORDS: ReadonlySet<string> = new Set([
   // Temporal / state noise (sources of "closed", "open", "now"):
   "closed", "open", "opened", "now", "today", "yesterday", "tomorrow",
   "current", "currently", "recent", "recently", "available",
+  // ── T1 additions (operator audit, 2026-05-05) ─────────────────────
+  //
+  // Operator's explicit list — keep this set in step with the brief.
+  // Hosted /today still showed "area · bay · inc · include · local
+  // · best · top" pollution because pre-W4 observations carried these
+  // tokens from a time when the stopword list was smaller. The rollup
+  // layer also applies this filter, but we keep them here too for any
+  // new extraction that runs.
+  //
+  // NOTE: do NOT add adjacent words speculatively (e.g. "premier",
+  // "leading", "first") — those CAN be operator-positive descriptors
+  // ("premier custom builder") and should not be silently filtered.
+  // Only the operator-listed set is hard-blocked here.
+  "area", "bay",
+  "inc", "incorporated", "llc", "ltd", "corp", "corporation",
+  "include", "includes", "including", "etc",
+  "best", "top",
+  "local",
 ]);
+
+/**
+ * Backwards-compat alias — older code paths in this file refer to the
+ * `DESCRIPTOR_STOPWORDS` name. Keep the alias so the extraction-time
+ * filter still works after the rename.
+ */
+const DESCRIPTOR_STOPWORDS = DESCRIPTOR_QUALITY_STOPWORDS;
 
 /**
  * Up to `max` adjective/noun-like tokens in a ±`windowWords`-word window

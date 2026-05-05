@@ -357,12 +357,18 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
   // extraction-v1/v2 badges. Reads from the already-seeded
   // promptAnswerObservations canonical store (no extra Supabase round-trip).
   // Renders nothing when rollup is null or totalObservations=0.
+  //
+  // T1 (operator audit, 2026-05-05) — pass tenant `stripWords` through
+  // so the runtime descriptor-quality filter knows about Bay-Area cities
+  // and brand parts on top of the global stopword list.
+  const tenantStripWordsForRollups = getBusinessConfig().stripWords ?? [];
   let enrichmentRollup: EnrichmentRollup | null = null;
   try {
     // Phase 4.9: using fresh `promptAnswerObservations` from outer scope.
     enrichmentRollup = buildEnrichmentRollup({
       observations: promptAnswerObservations,
       date: todayISOUtc(),
+      tenantStripWords: tenantStripWordsForRollups,
     });
     if (enrichmentRollup.totalObservations === 0) {
       // Fall back to yesterday (mirrors today-kpis fallback behavior) so
@@ -373,6 +379,7 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
       const fallback = buildEnrichmentRollup({
         observations: promptAnswerObservations,
         date: yesterdayISO,
+        tenantStripWords: tenantStripWordsForRollups,
       });
       if (fallback.totalObservations > 0) enrichmentRollup = fallback;
     }
@@ -398,11 +405,13 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
     ].filter((a, i, arr) => a && arr.indexOf(a) === i);
     const v2BrandName = v2BrandAliases[0] ?? "You";
 
+    // T1 — pass tenant stripWords to v2 rollups too.
     const brandV2Rollup = buildEnrichmentWindowRollup({
       observations: promptAnswerObservations,
       endDate: v2EndDate,
       windowDays: v2WindowDays,
       maxDescriptors: 5,
+      tenantStripWords: tenantStripWordsForRollups,
     });
 
     const competitorOptions = buildCompetitorDropdown({
@@ -421,6 +430,7 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
         endDate: v2EndDate,
         windowDays: v2WindowDays,
         maxDescriptors: 5,
+        tenantStripWords: tenantStripWordsForRollups,
       });
     }
 
@@ -2034,22 +2044,48 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
     // secondary and only appears when the baseline-floor guard in
     // url-verdict cleared it (`h.deltaPct !== null`). Z-score stays
     // primary as the signal-strength readout.
-    const absDeltaPerDay = Math.abs(h.deltaAbs);
-    const direction = h.deltaAbs >= 0 ? "rose" : "fell";
-    const pctStr =
-      h.deltaPct !== null
-        ? ` (${h.deltaPct > 0 ? "+" : ""}${(h.deltaPct * 100).toFixed(0)}%)`
-        : "";
-    const landedSuffix = h.landingDayN !== null && h.landingDayN > 0
-      ? ` (landed ${h.landingDayN}d after change)`
-      : "";
     const headline = changeDate
       ? `Citation lift detected on ${h.url} after the ${changeDate} change`
       : `Citation lift detected on ${h.url} (URL-level Z-score)`;
-    const rationaleLead = changeDesc && changeDate
-      ? `On ${changeDate}, ${changeDesc}. In the post-change window, citations on this page ${direction} by ~${absDeltaPerDay.toFixed(1)}/day${pctStr}`
-      : `In the post-change window, citations on this page ${direction} by ~${absDeltaPerDay.toFixed(1)}/day${pctStr}`;
-    const rationale = `${rationaleLead}. Z-score ${h.landingZ.toFixed(1)} (${h.confidence} confidence${landedSuffix}). URL-level correlation \u2014 this page's own citations moved \u2014 not proof of causation, and not a topic-wide trend.`;
+    // T3 (operator audit, 2026-05-05) — default rationale is now two
+    // short calm sentences with NO numbers + NO Z-score. Stats live in
+    // lineageBullets (under "Why we suggest this" expansion). Operator
+    // brief: pre-T3 default read "+1083%" / "Z-score 20.6" / "high
+    // confidence" — too aggressive. Post-T3: "Citations increased
+    // after this change. URL-level signal detected; not proof of
+    // causation."
+    const absDeltaPerDay = Math.abs(h.deltaAbs);
+    const directionDefault = h.deltaAbs >= 0 ? "increased" : "decreased";
+    const directionVerb = h.deltaAbs >= 0 ? "rose" : "fell";
+    const rationale = `Citations ${directionDefault} after this change. URL-level signal detected; not proof of causation.`;
+
+    // T3 — methodology / stats lineage. When the relative-% is extreme
+    // (>= 300%) we OMIT the percent line and lead with absolute /day
+    // ("rose by ~10.8 citations/day") — operator brief.
+    const isExtremePct =
+      h.deltaPct !== null && Math.abs(h.deltaPct) >= 3.0;
+    const absDeltaBullet = `In the post-change window, citations ${directionVerb} by ~${absDeltaPerDay.toFixed(1)}/day.`;
+    const pctBullet =
+      h.deltaPct !== null && !isExtremePct
+        ? `Relative shift: ${h.deltaPct > 0 ? "+" : ""}${(h.deltaPct * 100).toFixed(0)}%.`
+        : null;
+    const zBullet = `Z-score ${h.landingZ.toFixed(1)} (${h.confidence} confidence).`;
+    const landedBullet =
+      h.landingDayN !== null && h.landingDayN > 0
+        ? `Landed ${h.landingDayN}d after change.`
+        : null;
+    const windowBullet = `Window: ${h.baselineDaysUsed}d baseline post-change ${h.postDaysUsed}d.`;
+    const methodologyBullet =
+      "URL-level correlation - this page's own citations moved - not proof of causation, and not a topic-wide trend.";
+    const lineageBullets: string[] = [
+      ...(changeDesc && changeDate ? [`Change on ${changeDate}: ${changeDesc}`] : []),
+      absDeltaBullet,
+      ...(pctBullet ? [pctBullet] : []),
+      zBullet,
+      ...(landedBullet ? [landedBullet] : []),
+      windowBullet,
+      methodologyBullet,
+    ];
     winningActions.push({
       id: winCardId,
       headline,
@@ -2066,8 +2102,10 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
       targetPagePath: h.url,
       baselineCitations: citMap.get(h.url.replace(/\/+$/, "").toLowerCase()) ?? null,
       sourceChangeId: h.changeId,
-      // Phase 2 (2026-04-20): URL-level verdict → measured on this tenant.
+      // Phase 2 (2026-04-20): URL-level verdict measured on this tenant.
       evidenceBasis: "tenant_history" as const,
+      // T3 (2026-05-05) — exact stats live here, not in default rationale.
+      lineageBullets,
     });
   }
 

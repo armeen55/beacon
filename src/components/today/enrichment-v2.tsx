@@ -223,6 +223,15 @@ function CompetitorEmptyState({
 // Shared descriptor list (used by both brand + competitor sections)
 // ---------------------------------------------------------------------------
 
+/**
+ * T1 (operator audit, 2026-05-05) — minimum useful descriptor count.
+ * Mirrors `MIN_USEFUL_DESCRIPTORS` from enrichment-rollup.ts. Below
+ * this threshold the descriptor cloud renders the "not enough
+ * distinctive description signal yet" empty state instead of showing
+ * 1-2 cherry-picked tokens that look thin / noisy.
+ */
+const MIN_USEFUL_DESCRIPTORS = 3;
+
 function DescriptorList({
   descriptors,
   sampleStatus,
@@ -232,10 +241,27 @@ function DescriptorList({
 }) {
   if (descriptors.length === 0) {
     return (
-      <p className="text-[11px] text-muted-foreground/80 leading-relaxed">
+      <p
+        className="text-[11px] text-muted-foreground/80 leading-relaxed"
+        data-descriptor-empty="empty"
+      >
         {sampleStatus === "empty"
           ? "AI hasn't described you on this prompt set yet."
-          : "Not enough descriptor signal yet."}
+          : "Not enough distinctive description signal yet."}
+      </p>
+    );
+  }
+  // T1 — fewer than MIN_USEFUL_DESCRIPTORS surviving the quality filter
+  // means the cloud is too thin to show. Operator brief: "If fewer than
+  // 3 useful descriptors remain, show: 'Not enough distinctive
+  // description signal yet.'"
+  if (descriptors.length < MIN_USEFUL_DESCRIPTORS) {
+    return (
+      <p
+        className="text-[11px] text-muted-foreground/80 leading-relaxed"
+        data-descriptor-empty="thin"
+      >
+        Not enough distinctive description signal yet.
       </p>
     );
   }

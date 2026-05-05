@@ -80,9 +80,14 @@ function competitorRollup(
     observationsMentioningCompetitor: 12,
     observationsWithDescriptors: 10,
     observationsWithFieldAvailable: 18,
+    // T1 (operator audit, 2026-05-05) — bumped fixture from 2 to 3
+    // descriptors so the test continues to render the cloud after the
+    // MIN_USEFUL_DESCRIPTORS=3 threshold landed. The third descriptor
+    // ("modern") is meaningful + non-stopword.
     topDescriptors: [
       { word: "design-build", count: 5 },
       { word: "sustainable", count: 4 },
+      { word: "modern", count: 3 },
     ],
     topDescriptorsWithDelta: [
       {
@@ -98,6 +103,13 @@ function competitorRollup(
         rankThisWindow: 2,
         rankPriorWindow: null,
         delta: null,
+      },
+      {
+        word: "modern",
+        count: 3,
+        rankThisWindow: 3,
+        rankPriorWindow: 4,
+        delta: 1,
       },
     ],
     emptyStateReason: null,

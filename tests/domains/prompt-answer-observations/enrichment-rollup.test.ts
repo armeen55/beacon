@@ -125,8 +125,12 @@ describe("buildEnrichmentRollup", () => {
       obs({
         id: "a1",
         platform: "perplexity",
+        // T1 (2026-05-05) — replaced "custom" placeholder with "trusted"
+        // (a meaningful descriptor that is not a T1 stopword). The
+        // dedup-within-obs invariant is the contract the test pins; the
+        // word choice is incidental.
         observed_at: `${DATE}T10:00:00Z`,
-        descriptor_window: ["luxury", "custom", "luxury", "award-winning"],
+        descriptor_window: ["luxury", "trusted", "luxury", "award-winning"],
       }),
       obs({
         id: "a2",
@@ -141,8 +145,8 @@ describe("buildEnrichmentRollup", () => {
     // twice within obs a1).
     const luxury = out.topDescriptors.find((d) => d.word === "luxury");
     expect(luxury?.count).toBe(2);
-    const custom = out.topDescriptors.find((d) => d.word === "custom");
-    expect(custom?.count).toBe(1);
+    const trusted = out.topDescriptors.find((d) => d.word === "trusted");
+    expect(trusted?.count).toBe(1);
     const modern = out.topDescriptors.find((d) => d.word === "modern");
     expect(modern?.count).toBe(1);
     const awardWinning = out.topDescriptors.find(

@@ -1,5 +1,53 @@
 # Beacon — Start Here
 
+> 🟢 **T1-T4 TODAY TRUST POLISH (2026-05-05):** Hosted /today no longer leaks descriptor garbage, raw `citations_per_day` chips, or "+1083% / Z-score 20.6" hype on the default surface. All exact stats preserved behind expansion. Quality gate green: typecheck clean, 27 new T1-T4 tests PASS, full suite 4387/4392 (same 5 baseline failures), build green.
+>
+> ## What T1 did (descriptor quality)
+>
+> - **Rollup-time filter** in `enrichment-rollup.ts`: `buildEnrichmentRollup`, `buildEnrichmentWindowRollup`, `buildCompetitorEnrichmentRollup` all accept a new `tenantStripWords` option and apply the SAME filter. Hard global stopwords (`DESCRIPTOR_QUALITY_STOPWORDS`, exported from `extraction.ts`) plus tenant-config `stripWords` form the reject set.
+> - **Operator's exact pollution list** filtered: `custom · home · homes · builder · builders · construction · area · bay · inc · include · closed · company · service · services · contractor · contractors · local · best · top` — all dropped. "premier", "leading", "first" intentionally NOT added (they can be operator-positive descriptors).
+> - **today-data.ts** passes `getBusinessConfig().stripWords` through to all three rollup builders so the Bay-Area cities + Ritz-brand parts are also dropped.
+> - **`MIN_USEFUL_DESCRIPTORS=3`** export — when fewer than 3 useful descriptors survive, the descriptor list renders "Not enough distinctive description signal yet." (per operator brief).
+> - **11 quality tests** in `enrichment-rollup-t1-quality.test.ts` pin: stopwords always dropped, case-insensitive, tenant stripWords additive, meaningful descriptors survive, competitor rollup uses same filter, prior-window count uses same filter (no false ↑ delta on filtered tokens).
+>
+> ## What T2 did (action-card copy)
+>
+> - **`action-card.tsx`**:
+>   - Hides the evidenceBasis badge when basis === "heuristic" (the lowest-evidence tier; "Pattern-based" leaked internal taxonomy).
+>   - New `friendlyExpectedMetric()` helper — translates `citations_per_day`, `primary_rate`, `mention_rate`, `cited_pages` to operator-readable copy ("Expected: more AI citations" etc.). Unknown raw snake_case identifiers drop the chip entirely; non-snake_case free text passes through.
+> - **`today-action-queue.tsx`**: findings strip default text simplified to `{N} page issue(s) — {M} urgent`. The `typeBreakdownLabel` ("533 schema missing for page type · 103 invalid schema · 67 other") is now ONLY surfaced via the link's `title` tooltip + still available on /pages — no longer the default body copy.
+> - **8 architecture tests** pin: heuristic badge gated, friendlyExpectedMetric helper present + maps citations_per_day, no `{action.expectedMetric}` direct render, findings-strip default has no breakdown.
+>
+> ## What T3 did (win-card calmer copy)
+>
+> - **`today-data.ts` win-card composer**:
+>   - Default `rationale` reframed to two short calm sentences: **"Citations increased after this change. URL-level signal detected; not proof of causation."** No numbers, no Z-score, no confidence label.
+>   - Exact stats moved into `lineageBullets` (rendered in expansion behind "Why we suggest this"):
+>     - Change description (when known)
+>     - Absolute /day delta ("rose by ~10.8/day")
+>     - Relative shift % — but ONLY when not extreme (`|deltaPct| < 300%`). At ≥300% the percent line is omitted entirely.
+>     - Z-score with confidence ("Z-score 3.2 (high confidence)")
+>     - Landing day delta (when known)
+>     - Window summary
+>     - Methodology disclaimer ("URL-level correlation — not proof of causation, …")
+> - **8 architecture tests** pin: default rationale has no Z-score / no relative %, lineageBullets contains all stats, isExtremePct gate at 3.0, pctBullet conditional on `!isExtremePct`.
+>
+> ## What T4 did
+>
+> No /today restructure. Diagnostics still on /diagnostics + /pages. Internal labels (samplingStatus enums, internal verdict tier names, full evidence packets) reachable via expansion + drill-downs. **/today now shows operator-safe copy by default** with the rich technical detail one click away — no data deleted, just moved.
+>
+> ## Constraints respected
+>
+> - No paid polling, no paid generation, no Apply-All-HIGH, no OpenAI dry-run, no Stage 5 publish, no Profound archive/delete, no /pages rebuild, no onboarding kickoff, no schema changes, no scope expansion.
+>
+> ## Next 3 actions
+>
+> 1. **Browser-verify on hosted /today** after Vercel auto-deploy: descriptor cloud should show only meaningful tokens (luxury / award-winning / design-build / sustainable / modern); empty / thin clouds show "Not enough distinctive description signal yet."; no `citations_per_day` chip; win-card default reads "Citations increased after this change. URL-level signal detected; not proof of causation." Stats appear under "Why we suggest this".
+> 2. **Spot-check /pages tooltip**: hover the findings strip "{N} page issues — {M} urgent" link and confirm the breakdown ("533 schema missing for page type · …") still surfaces in the tooltip.
+> 3. **Watch for the next URL-watcher cron run** to log a sampling-guard demotion (D4) if any May 4 proof-day verdicts existed; otherwise the next /today cycle should show the new calm win-card copy on any newly-detected helping verdicts.
+>
+> ---
+>
 > 🟢 **D1-D5 DEMO-HARDENING BUNDLE (2026-05-05):** business-config Ritz fallback removed (customer-2 footgun closed); /settings/import Profound batch importer hidden behind Advanced disclosure (no internal `.data/` copy in default surface); first-run KPI guidance copy on /today (no more bare "no data yet"); samplingStatus guard observability log wired (proof/partial-day demotions logged at warn); /changes stale-pending tooltip + pill disambiguated by lifecycle state (recommended rows guide operator to "accept first" instead of falsely claiming "Accepted Nd ago"). **Quality gate green: typecheck clean, 95/95 targeted PASS, full suite 4357/4362 (5 baseline failures unchanged), build green.**
 >
 > ## What D1 did (business-config Ritz fallback)

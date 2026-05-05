@@ -13,6 +13,40 @@
 import type { PromptAnswerObservation } from "./types";
 import type { TrackedEntity } from "@/domains/tracked-entities/types";
 import { makeCompetitorRankingFilter } from "@/domains/recommendations/entity-pollution-filter";
+import { DESCRIPTOR_QUALITY_STOPWORDS } from "./extraction";
+
+/**
+ * T1 (operator audit, 2026-05-05) — runtime descriptor quality filter.
+ *
+ * Builds a Set of stopwords combining the hard-global filter (industry
+ * nouns, URL noise, temporal, generic-quality words) with the tenant's
+ * business-config `stripWords` (city names, brand parts). Used by every
+ * rollup that emits operator-visible descriptors so legacy
+ * `descriptor_window` tokens never resurface as top-of-cloud filler.
+ *
+ * Pure / deterministic. Lowercase + trim normalization on input.
+ */
+function buildDescriptorRejectSet(
+  tenantStripWords: ReadonlyArray<string> | undefined,
+): Set<string> {
+  const out = new Set<string>(DESCRIPTOR_QUALITY_STOPWORDS);
+  if (tenantStripWords) {
+    for (const w of tenantStripWords) {
+      if (typeof w !== "string") continue;
+      const norm = w.trim().toLowerCase();
+      if (norm.length > 0) out.add(norm);
+    }
+  }
+  return out;
+}
+
+/**
+ * T1 — minimum descriptor count threshold below which the rollup is
+ * considered too thin to render. Operator brief: "If fewer than 3
+ * useful descriptors remain, show: 'Not enough distinctive description
+ * signal yet.'" Exported so the UI can branch on the same threshold.
+ */
+export const MIN_USEFUL_DESCRIPTORS = 3;
 
 /**
  * Bug-2 fix (2026-05-04): canonicalize platform values before using
@@ -97,12 +131,35 @@ export type BuildEnrichmentRollupInput = {
   date: string;
   /** Max entries in `topDescriptors`. Defaults to 12. */
   maxDescriptors?: number;
+  /**
+   * T1 (operator audit, 2026-05-05) — runtime descriptor quality filter.
+   *
+   * Pre-W4 observations carry `descriptor_window` tokens that were
+   * extracted before the latest stopword additions (custom/home/
+   * builder/closed/area/etc.). Re-extracting every observation is
+   * expensive; instead we apply the SAME stopword filter at rollup
+   * time so /today renders clean even on legacy data.
+   *
+   * The filter is the union of:
+   *   • The hard-global `DESCRIPTOR_QUALITY_STOPWORDS` set (industry-
+   *     noun, temporal, URL-noise, generic-quality) — applied
+   *     unconditionally.
+   *   • The tenant's business-config `stripWords` (Bay-Area cities,
+   *     brand parts) — passed in via `tenantStripWords`.
+   *
+   * When undefined or empty, only the global stopword set fires. In
+   * tests, callers often pass `[]` to verify the global path works.
+   */
+  tenantStripWords?: ReadonlyArray<string>;
 };
 
 export function buildEnrichmentRollup(
   input: BuildEnrichmentRollupInput,
 ): EnrichmentRollup {
   const maxDescriptors = input.maxDescriptors ?? 12;
+  // T1 — runtime stopword filter. Even if extraction-time filtering
+  // missed a token (legacy obs), it gets dropped here.
+  const rejectSet = buildDescriptorRejectSet(input.tenantStripWords);
 
   // Filter to the target date.
   const relevant = input.observations.filter((o) =>
@@ -157,7 +214,10 @@ export function buildEnrichmentRollup(
     }))
     .sort((a, b) => a.platform.localeCompare(b.platform));
 
-  // Aggregate descriptors across all observations.
+  // Aggregate descriptors across all observations. T1 — apply the
+  // runtime quality filter (`rejectSet`) per token. Tokens that match
+  // are dropped silently; the observation still counts as
+  // "had descriptors" for sample-size accounting.
   const descriptorCounts = new Map<string, number>();
   let obsWithDescriptors = 0;
   for (const o of relevant) {
@@ -169,6 +229,8 @@ export function buildEnrichmentRollup(
     for (const token of tokens) {
       if (!token || seen.has(token)) continue;
       seen.add(token);
+      const lower = token.toLowerCase();
+      if (rejectSet.has(lower)) continue;
       descriptorCounts.set(token, (descriptorCounts.get(token) ?? 0) + 1);
     }
   }
@@ -289,6 +351,13 @@ export type BuildEnrichmentWindowRollupInput = {
   endDate: string;
   windowDays?: number; // default 7
   maxDescriptors?: number; // default 5
+  /**
+   * T1 (operator audit, 2026-05-05) — tenant-config stripWords passed
+   * through to the inner `buildEnrichmentRollup` calls so the brand
+   * window AND the prior-window rank deltas use the SAME quality
+   * filter. See `BuildEnrichmentRollupInput.tenantStripWords`.
+   */
+  tenantStripWords?: ReadonlyArray<string>;
 };
 
 export function buildEnrichmentWindowRollup(
@@ -296,6 +365,8 @@ export function buildEnrichmentWindowRollup(
 ): EnrichmentWindowRollup {
   const windowDays = input.windowDays ?? 7;
   const maxDescriptors = input.maxDescriptors ?? 5;
+  const tenantStripWords = input.tenantStripWords;
+  const rejectSet = buildDescriptorRejectSet(tenantStripWords);
 
   const startDate = subtractDaysIso(input.endDate, windowDays - 1);
   const priorEndDate = subtractDaysIso(input.endDate, windowDays);
@@ -327,10 +398,14 @@ export function buildEnrichmentWindowRollup(
     })),
     date: input.endDate,
     maxDescriptors,
+    tenantStripWords,
   });
 
-  // Compute prior-window descriptor frequencies so we can attach rank deltas.
-  const priorDescriptorCounts = countDescriptorWindow(priorObs);
+  // Compute prior-window descriptor frequencies so we can attach rank
+  // deltas. T1 — apply the SAME reject set so a token that's filtered
+  // out of the current window doesn't inflate the prior-window rank
+  // (which would surface as a misleading "↑" arrow).
+  const priorDescriptorCounts = countDescriptorWindow(priorObs, rejectSet);
   const priorRanks = new Map<string, number>();
   [...priorDescriptorCounts.entries()]
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
@@ -362,9 +437,12 @@ export function buildEnrichmentWindowRollup(
   };
 }
 
-/** Aggregate `descriptor_window` tokens across observations. Pure helper. */
+/** Aggregate `descriptor_window` tokens across observations. Pure helper.
+ *  T1 (2026-05-05): accepts an optional reject set so the prior-window
+ *  count uses the SAME quality filter as the current-window count. */
 function countDescriptorWindow(
   observations: ReadonlyArray<PromptAnswerObservation>,
+  rejectSet?: ReadonlySet<string>,
 ): Map<string, number> {
   const counts = new Map<string, number>();
   for (const o of observations) {
@@ -373,6 +451,7 @@ function countDescriptorWindow(
     for (const t of tokens) {
       if (!t || seen.has(t)) continue;
       seen.add(t);
+      if (rejectSet && rejectSet.has(t.toLowerCase())) continue;
       counts.set(t, (counts.get(t) ?? 0) + 1);
     }
   }
@@ -451,6 +530,14 @@ export type BuildCompetitorEnrichmentRollupInput = {
   endDate: string;
   windowDays?: number; // default 7
   maxDescriptors?: number; // default 5
+  /**
+   * T1 (operator audit, 2026-05-05) — same quality filter the brand
+   * window applies. Competitor descriptors are sampled from the SAME
+   * AI-answer text and suffer the same generic-noun pollution
+   * (custom/home/builder/area/etc.). Filter must mirror the brand's
+   * to keep the side-by-side compare honest.
+   */
+  tenantStripWords?: ReadonlyArray<string>;
 };
 
 export function buildCompetitorEnrichmentRollup(
@@ -458,6 +545,7 @@ export function buildCompetitorEnrichmentRollup(
 ): CompetitorEnrichmentRollup {
   const windowDays = input.windowDays ?? 7;
   const maxDescriptors = input.maxDescriptors ?? 5;
+  const rejectSet = buildDescriptorRejectSet(input.tenantStripWords);
 
   const startDate = subtractDaysIso(input.endDate, windowDays - 1);
   const priorEndDate = subtractDaysIso(input.endDate, windowDays);
@@ -503,10 +591,12 @@ export function buildCompetitorEnrichmentRollup(
 
     // Dedupe within one observation — a single answer that repeats a token
     // shouldn't get counted twice in the descriptor cloud.
+    // T1 — apply the runtime quality filter (rejectSet).
     const seen = new Set<string>();
     for (const token of tokens) {
       if (!token || seen.has(token)) continue;
       seen.add(token);
+      if (rejectSet.has(token.toLowerCase())) continue;
       currentDescriptorCounts.set(
         token,
         (currentDescriptorCounts.get(token) ?? 0) + 1,
@@ -515,6 +605,7 @@ export function buildCompetitorEnrichmentRollup(
   }
 
   // Compute prior window's per-competitor descriptor counts for delta math.
+  // T1 — same rejectSet so prior-window ranks stay consistent.
   const priorDescriptorCounts = new Map<string, number>();
   for (const o of priorObs) {
     if (
@@ -528,6 +619,7 @@ export function buildCompetitorEnrichmentRollup(
     for (const t of tokens) {
       if (!t || seen.has(t)) continue;
       seen.add(t);
+      if (rejectSet.has(t.toLowerCase())) continue;
       priorDescriptorCounts.set(t, (priorDescriptorCounts.get(t) ?? 0) + 1);
     }
   }

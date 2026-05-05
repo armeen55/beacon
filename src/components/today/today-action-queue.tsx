@@ -104,7 +104,15 @@ export function TodayActionQueue({
         </div>
       )}
 
-      {/* Findings strip */}
+      {/* Findings strip — T2 (operator audit, 2026-05-05): default copy
+          is now a short summary ("N page issues — N urgent") with the
+          full type breakdown moved BEHIND the link. Pre-T2 the strip
+          rendered "533 schema missing for page type · 103 invalid
+          schema · 67 other" inline, which read like internal
+          diagnostics on the operator's first glance. The breakdown
+          still flows through `findings.typeBreakdownLabel` and is
+          available on /pages (and as the link's `title` tooltip on
+          hover for operators who want a quick peek). */}
       {findings.totalCount > 0 && (
         <Link
           href="/pages"
@@ -114,9 +122,12 @@ export function TodayActionQueue({
               ? "border-status-danger/30 bg-status-danger/[0.03]"
               : "border-border/50",
           )}
+          title={findings.typeBreakdownLabel ?? undefined}
+          data-findings-strip="true"
         >
           <span className="text-foreground font-medium">
-            {findings.typeBreakdownLabel ?? `${findings.totalCount} page issue${findings.totalCount !== 1 ? "s" : ""}`}
+            {findings.totalCount} page issue
+            {findings.totalCount !== 1 ? "s" : ""}
             {findings.criticalCount > 0 && (
               <span className="text-status-danger ml-1.5">
                 \u00b7 {findings.criticalCount} urgent
