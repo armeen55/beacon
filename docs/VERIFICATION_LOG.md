@@ -7,6 +7,67 @@
 
 ---
 
+## 2026-05-05 — M1+M2+M3 customer-trust bundle
+
+Operator brief (post-audit): kill the placeholder leak, kill UUID leaks in operator-visible copy, fix attribution overclaiming. No paid calls, no Supabase writes, no queue mutation. Commit `60a2cb5` shipped.
+
+### M1 — placeholder gate
+
+- W3 Step 3.1 abstain logic in `add-faq.ts` already prevents new "Draft answer" emission. Audit found this regressed only on legacy dismissed rows, not active queue.
+- New `tests/architecture/no-placeholder-in-active-recs.test.ts`: pins zero forbidden literals (`Draft answer`, `operator: rewrite`, `Anchor on:`) in deterministic generator string literals AND zero placeholder phrases in active recs (status `recommended` / `accepted` / `verified_live`). Dismissed rows exempt. **8/8 PASS.**
+
+### M2 — raw-UUID kill in operator-visible copy
+
+- `copy-sanitize.ts` extended with `sanitizeOperatorEvidenceText` (Map-or-Record lookup, prompt-text snippet substitution ≤50 chars, "prompt evidence" fallback for unknown UUIDs), `sanitizeOperatorCopyFields`, `containsUuid`, `PromptTextLookup` type.
+- **Render-time fix**: `recommendations-client.tsx` drawer Why + Debug `full_reasoning` + Debug `confidence_reason` now use the shared sanitizer (with prompt-snippet substitution) instead of the legacy `scrubRawPromptIds` (which always emitted "an affected prompt").
+- **Save-time fix (defense in depth)**: `mapSpecificEditToRow` now sanitizes `why` / `expected_impact` / `measurement_plan` / `display_label` using a Map built from packet `affectedPrompts`. Internal `evidence` arrays keep raw IDs for audit.
+- **OpenAI SYSTEM_PROMPT update**: removed the "(e.g., 'prompt 7ee3216b-...')" example that was instructing the LLM to cite raw UUIDs. Now references prompts by short text snippets.
+- Tests:
+  - `src/domains/recommendations/copy-sanitize.test.ts` — 18/18 PASS (Map + Record + null/empty + idempotent + multi-UUID + sanitizeOperatorCopyFields).
+  - `tests/architecture/no-uuid-in-active-recs.test.ts` — blocks UUIDs in 5 ship-as-is/attribution fields (`display_label`, `proposed_text`, `current_text`, `expected_impact`, `measurement_plan`); informational counter on legacy `why` UUIDs (sanitized at render). **2/2 PASS.**
+
+### M3 — attribution overclaiming
+
+- `url-verdict.ts`:
+  - **deltaPct denominator floor** (`deltaPctMinBaseline`, default 1.0 cite/day). When μ_pre below floor, `delta_pct = null` and renderer falls back to absolute "/day" delta. Z-score and confidence tier unaffected.
+  - **samplingStatus attribution guard**: optional `sampling_status` field on `DailyPoint`. If post-window contains any `proof` day OR has zero `full` days, demote `helping`/`hurting` → `nothing_yet`. Back-compat: no-op when no point carries the tag. Prevents 5-prompt manual-proof runs (e.g., May 4 incident recovery) from creating measured-win cards.
+- `today-data.ts`:
+  - **Reframe headline**: "X is winning after your … change" → "Citation lift detected on X after the … change".
+  - **Reframe body**: leads with absolute /day delta (`rose by ~6.5/day`); relative-% appears only as a parenthetical when the floor cleared.
+  - **Closes with**: "URL-level correlation — this page's own citations moved — not proof of causation, and not a topic-wide trend."
+  - **Ranking**: sort by |Z|, not |deltaPct| (handles null relative-% naturally).
+  - `urlVerdictProof` renderer: when `deltaPct=null`, emit `+N.N/day` label instead of fabricating a percent.
+- `tests/architecture/no-operator-jargon.test.ts` extended:
+  - Bans `is winning after` and `winning after your` from `src/app` + `src/components`.
+  - Positive-presence test pins `Citation lift detected` + `URL-level correlation` in `today-data.ts`.
+- 7 new url-verdict tests cover the floor + sampling-guard cases (baseline 0.5/day → null relative-%, proof-day → demoted, all-partial → demoted, full-only → kept, untagged → no-op back-compat, single-proof-day post → cannot create win, explicit floor override).
+
+### Quality gate
+
+- `npm run typecheck` — clean (3 pre-existing baseline errors in `tests/domains/prompts/prompt-drilldown.test.ts`, unrelated to M1+M2+M3).
+- Targeted (architecture invariants + sanitizer + url-verdict): **397/397 PASS.**
+- `npm run test` (full suite): **4282/4288 PASS.** 6 baseline failures verified pre-existing on stashed checkout (auto-link-via-changelog × 2, prompts-smoke, prompt-drilldown-smoke, tenants/isolation), unrelated to M1+M2+M3.
+- `npm run build` — green (transient Supabase prerender timeout cleared on retry).
+- Commit `60a2cb5` pushed to `origin/main`. Vercel auto-deploy follows.
+
+### Files touched
+
+```
+M  src/app/(shell)/recommendations/recommendations-client.tsx  (drawer copy → shared sanitizer)
+M  src/app/(shell)/today-data.ts                               (M3 narrative reframe)
+M  src/domains/attribution/url-verdict.ts                      (M3 floor + sampling guard)
+M  src/domains/attribution/url-verdict.test.ts                 (+7 M3 tests)
+M  src/domains/recommendations/copy-sanitize.ts                (+sanitizer + types)
+M  src/domains/recommendations/providers/openai.ts             (system prompt UUID example removed)
+M  src/domains/recommendations/recommended-edits-persistence.ts (save-time sanitizer)
+M  tests/architecture/no-operator-jargon.test.ts               (M3 ban + positive-presence)
+A  src/domains/recommendations/copy-sanitize.test.ts           (18 tests)
+A  tests/architecture/no-placeholder-in-active-recs.test.ts    (8 tests)
+A  tests/architecture/no-uuid-in-active-recs.test.ts           (2 tests)
+```
+
+---
+
 ## 2026-05-05 (predawn UTC) — Pre-cron readiness + 4 UX cleanups
 
 Operator scoped 4 small tasks pre-cron: pre-cron verifier (R0), wire samplingStatus into headline KPI logic (R1), descriptor stopwords cleanup (R2), prompts pollution cleanup (R3), post-cron verifier (R4). All read-only or surgical patches; no paid runs.

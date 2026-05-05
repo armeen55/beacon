@@ -1,5 +1,30 @@
 # Beacon — Start Here
 
+> 🟢 **M1+M2+M3 CUSTOMER-TRUST BUNDLE (2026-05-05):** Commit `60a2cb5` shipped + pushed. **Operator audit M1+M2+M3** complete: placeholder gate pinned, raw-UUID kill at render + save time + LLM system prompt, attribution-overclaim fix (deltaPct floor + sampling-status guard + correlation-toned narrative). **No paid calls, no Supabase writes, no queue mutation.** Quality gate green: typecheck clean, 397/397 targeted PASS (architecture + sanitizer + url-verdict), full suite 4282/4288 (6 baseline failures verified pre-existing on stashed checkout, unrelated), build green. Vercel auto-deploy from origin/main follows.
+>
+> ## What this bundle did
+>
+> | Track | Outcome |
+> |---|---|
+> | M1 — placeholder gate | Architecture invariant pins zero "Draft answer" / "operator: rewrite" / "Anchor on:" in deterministic generator string literals + zero placeholder phrases in active recs (recommended/accepted/verified_live). Dismissed legacy rows exempt per operator constraint. **8/8 tests PASS.** |
+> | M2 — UUID kill | New shared `sanitizeOperatorEvidenceText` (Map-or-Record lookup, prompt-text snippet substitution ≤50 chars, "prompt evidence" fallback). Wired at render time (drawer Why + Debug rows in recommendations-client.tsx) + at save time (`mapSpecificEditToRow` on why/expected_impact/measurement_plan/display_label). OpenAI SYSTEM_PROMPT cleaned of UUID-citing example. New invariant blocks UUIDs in 5 ship-as-is/attribution fields. **18 sanitizer tests + 2 architecture invariants PASS.** |
+> | M3 — attribution honesty | `deltaPctMinBaseline=1.0` floor in url-verdict (a 0.5/day → 6/day jump no longer fabricates `+1100%` — renderer falls back to "/day" delta). `samplingStatus` guard demotes helping/hurting → nothing_yet when post-window contains any proof day or no full days (back-compat: no-op when untagged). today-data narrative: "Citation lift detected on X after the … change" replaces "X is winning after your change"; closes with "URL-level correlation — not proof of causation". Z primary, %-secondary. Jargon invariant bans the legacy phrasing + positive-presence test pins the new phrasing. **7 url-verdict tests + jargon invariants PASS.** |
+>
+> ## What was deliberately NOT done (operator constraint)
+>
+> - No production queue mutation: legacy `why` UUIDs in `.data/tenants/ritz-builders/recommended-edits.json` (8 rows) are sanitized at render via the new sanitizer, NOT rewritten on disk. Counter-test caps at 10 to detect future leaks.
+> - No paid calls (no provider regenerate / re-poll).
+> - No Supabase writes from this work (typecheck/build read-only).
+> - No new product features (e.g., no Apply-All-HIGH bar — operator deferred).
+>
+> ## Next 3 actions (operator's call)
+>
+> 1. **Browser-verify the rendered output** on a fresh Vercel deploy: open /recommendations drawer → Why text shows `prompt: "<snippet>"` (not UUID); open /today → win-card headline reads "Citation lift detected on X after the …" (not "is winning after your change"); the May 4 5-prompt proof day cannot generate a measured-win card.
+> 2. **Decide on legacy `why` UUID one-time clean-up.** Currently 8 rows on Ritz tenant carry UUID-bearing `why`. The render-time sanitizer scrubs them, so the operator never sees them. If a one-time `scripts/sanitize-recommended-edits.ts` cleanup pass is desired, it can be authored separately — it's a queue mutation, so it stays gated behind explicit operator authorization.
+> 3. **Continue per master plan.** This commit closes the operator audit's first customer-trust bundle (M1+M2+M3 of 6+). Remaining audit items: M4 (operator-evidence trust pills), M5 (verdict explainer page polish), M6 (changelog descriptor disambiguation) — none of which are blockers; they're follow-ups when the operator wants to keep going.
+>
+> ---
+>
 > 🟢 **PRE-CRON READINESS + UX CLEANUPS (2026-05-05 UTC, predawn):** Operator scoped 4 small tasks to make tomorrow's cron validation safer + stop /today overreacting to the 5-prompt proof. All pre-cron, read-only-where-it-matters, no paid runs. Pre-cron verifier reports READY for the 07:00 UTC cron. Three UX cleanups landed (samplingStatus wired into headline KPI tile, descriptor stopwords expanded to suppress "custom/home/builder/closed" pollution, /prompts now applies the entity-pollution-filter so "General Contractors" never appears as a competitor).
 >
 > ## Task 0 — Pre-cron readiness (read-only)
