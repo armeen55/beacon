@@ -60,34 +60,35 @@ describe("poll-health-block subline — Bug-1 distinguishes persistence-failure"
     expect(occurrences).toBe(0);
   });
 
-  it("explicitly distinguishes persistence failure from API failure", () => {
-    // Bug-1 SHAPE: separate copy for persistence-failure branch.
-    // Round 1 customer-readiness: "persistence" stays, but the
-    // vendor names ("Supabase schema", "dual-write logs") are gone.
-    expect(SRC).toMatch(/persistence/i);
-    expect(SRC).toMatch(/persistence and daily-poll logs|persistence,\s*API keys,\s*and scheduled-job logs/);
-    // Operator-locked phrasing: when chunks succeeded but no rows
-    // landed, copy says "Poll ran but no observations were saved."
-    expect(SRC).toMatch(
-      /Poll ran but no observations were saved/i,
-    );
+  it("Phase C #8 (2026-05-06) — failure subline uses customer-friendly reassurance, no on-call runbook copy", () => {
+    // 2026-05-06 Phase C #8 supersedes the Round 1 + Bug-1 internal
+    // distinction. Per operator brief: "Failure copy should not read
+    // like on-call infrastructure instructions." Customer copy now:
+    //   - "AI tracking didn't run today" / "didn't fully complete"
+    //   - "Beacon is still using the valid responses that landed"
+    // The Bug-1 SHAPE (isPersistenceFailure helper) is preserved on
+    // the data side; just no longer surfaced as customer copy.
+    expect(SRC).toMatch(/AI tracking didn't run/i);
+    expect(SRC).toMatch(/still using the valid responses/i);
+    // The distinction helper still exists (covered by isPersistenceFailure
+    // detector test below); customer-facing copy intentionally NO LONGER
+    // splits persistence vs API in the rendered subline.
   });
 
-  it("references the operator-known schema/persistence failure mode in the copy", () => {
-    // For the both-platforms-persistence-failure branch.
-    expect(SRC).toMatch(
-      /Poll ran but no observations were saved on either platform/,
-    );
+  it("Phase C #8 — no 'Poll ran but no observations were saved' line in customer copy", () => {
+    // The Bug-1 / Round-1 copy explicitly said "Poll ran but no
+    // observations were saved on either platform" — that's still
+    // operator runbook copy. Phase C #8 replaced it with the
+    // customer-friendly form. Pin the absence.
+    expect(SRC).not.toMatch(/Poll ran but no observations were saved/i);
   });
 
-  it("Round 1 — uses operator-readable 'scheduled-job logs' instead of 'GitHub Actions logs'", () => {
-    // The Bug-1 copy named the CI provider explicitly. Round 1
-    // customer-readiness audit replaced that with "scheduled-job
-    // logs" so the operator copy doesn't expose internal vendor
-    // choices. The old phrase MUST be gone.
+  it("no vendor / infra leaks: 'GitHub Actions logs' / 'Supabase schema' / 'dual-write logs' all gone", () => {
+    // These three vendor leaks were the original Bug-1 / Round 1 fix
+    // targets. They must remain absent.
     expect(/GitHub Actions logs/.test(SRC)).toBe(false);
-    // The new phrase MUST be present.
-    expect(SRC).toMatch(/scheduled-job logs/);
+    expect(/Supabase schema/.test(SRC)).toBe(false);
+    expect(/dual-write logs/.test(SRC)).toBe(false);
   });
 
   it("the persistence-failure detector uses the right shape (chunks completed + zero rows)", () => {

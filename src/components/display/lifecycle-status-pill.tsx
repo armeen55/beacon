@@ -100,12 +100,12 @@ const STYLES: Record<LifecycleStatusPillKey, StyleSpec> = {
     hollow: true,
   },
   imported_legacy: {
-    label: "Imported legacy",
-    compactLabel: "Legacy",
+    label: "Pre-launch",
+    compactLabel: "Pre-launch",
     className: "border-border/50 bg-surface-inset/40 text-muted-foreground",
   },
   scan_confirmed: {
-    label: "Scan-confirmed",
+    label: "Detected by scan",
     compactLabel: "Scan",
     className: "border-amber-500/40 bg-amber-500/[0.06] text-amber-600 dark:text-amber-400",
   },

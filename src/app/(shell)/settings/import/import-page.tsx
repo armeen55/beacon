@@ -67,7 +67,11 @@ export default function ImportPage() {
   // Advanced: Manual
   const [entityType, setEntityType] = useState<ImportEntityType>("results");
   const [format, setFormat] = useState<ImportFormat>("csv");
-  const [source, setSource] = useState("profound");
+  // 2026-05-06 demo-path fix: empty default (was "profound"). The Source
+  // field is operator-set; pre-filling a vendor name leaks the
+  // historical Profound dependency to any non-Ritz tenant who opens
+  // the advanced importer.
+  const [source, setSource] = useState("");
   const [rawData, setRawData] = useState("");
   const [preview, setPreview] = useState<ImportPreview | null>(null);
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
@@ -355,7 +359,7 @@ export default function ImportPage() {
                 </div>
                 <div>
                   <label className="block text-[11px] font-medium text-muted-foreground mb-1">Source</label>
-                  <input value={source} onChange={(e) => setSource(e.target.value)} placeholder="e.g. profound" className="w-full rounded-md border border-border bg-surface-raised px-3 py-1.5 text-[13px] focus:outline-none focus:ring-1 focus:ring-accent-primary" />
+                  <input value={source} onChange={(e) => setSource(e.target.value)} placeholder="e.g. csv" className="w-full rounded-md border border-border bg-surface-raised px-3 py-1.5 text-[13px] focus:outline-none focus:ring-1 focus:ring-accent-primary" />
                 </div>
                 <div>
                   <label className="block text-[11px] font-medium text-muted-foreground mb-1">Format</label>

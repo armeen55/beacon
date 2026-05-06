@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { notFound } from "next/navigation";
 import { PageHeader } from "@/components/data/page-header";
 import { StatCard } from "@/components/data/stat-card";
 import {
@@ -195,7 +196,32 @@ type DiagnosticsContext = {
   activePrompts: LibraryPrompt[];
 };
 
+/**
+ * 2026-05-06 demo-path fix — operator-only gate.
+ *
+ * /diagnostics renders engineering-grade telemetry (precision/recall
+ * tables, Greek statistical notation, raw env-var names, internal
+ * pipeline jargon). Pre-2026-05-06 it had no server-side guard, so a
+ * customer URL-guessing /diagnostics would land on a page that
+ * self-labels "for operators who need depth without leaving Beacon."
+ * That's a demo-killer.
+ *
+ * Gate: operator must have BEACON_OPERATOR_MODE=true in their env (or
+ * NODE_ENV=test for the test runner). Anything else 404s. The hidden-
+ * from-nav status is preserved (see src/lib/navigation.ts) — this
+ * guard is the second layer protecting against URL-guessing.
+ */
+function isOperatorMode(): boolean {
+  return (
+    process.env.BEACON_OPERATOR_MODE === "true" ||
+    process.env.NODE_ENV === "test"
+  );
+}
+
 export default async function DiagnosticsPage() {
+  if (!isOperatorMode()) {
+    notFound();
+  }
   const [results, changelogEntries, opportunities, briefs, competitors, eventDecisions, candidateLinks, pageIssues, outcomeRecords, answerSnapshots, citationEvidenceIndex, promptLibrary, activePrompts] = await Promise.all([
     getResults(),
     getChangelogEntries(),

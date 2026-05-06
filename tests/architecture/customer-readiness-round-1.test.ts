@@ -155,15 +155,27 @@ describe("Round 1 Fix 2 — /today Poll Health infra-leak rewrite", () => {
     ).toBe(false);
   });
 
-  it("uses 'scheduled-job logs' or 'daily-poll logs' instead", () => {
-    const usesNew =
+  it("operator-readable 'scheduled-job logs'/'daily-poll logs' phrases (R1) OR Phase-C-8 customer-friendly form (no log references at all)", () => {
+    // 2026-05-06 Phase C #8 superseded Round 1 here: customer-facing
+    // failure copy no longer references logs at all (per operator
+    // brief: "Failure copy should not read like on-call infrastructure
+    // instructions"). The Round-1-era 'scheduled-job logs' phrase is
+    // an acceptable intermediate; Phase C #8's no-log copy is the
+    // strictly-better successor. This invariant accepts either form so
+    // future bundles can move further toward customer-friendly without
+    // a hard regression.
+    const usesR1 =
       /scheduled-job logs/.test(POLL_HEALTH_CODE) ||
       /daily-poll logs/.test(POLL_HEALTH_CODE);
+    const usesPhaseC8 =
+      /still using the valid responses/.test(POLL_HEALTH_CODE) &&
+      /AI tracking didn't run/i.test(POLL_HEALTH_CODE);
     expect(
-      usesNew,
-      "poll-health-block.tsx error copy must use the operator-readable " +
-        "phrases 'scheduled-job logs' or 'daily-poll logs' to replace the " +
-        "old infra-named ones.",
+      usesR1 || usesPhaseC8,
+      "poll-health-block.tsx must use either the R1 phrases " +
+        "('scheduled-job logs' / 'daily-poll logs') OR the Phase C #8 " +
+        "customer-friendly copy ('AI tracking didn't run' + 'still using " +
+        "the valid responses'). Both pass the no-vendor-leak contract.",
     ).toBe(true);
   });
 });

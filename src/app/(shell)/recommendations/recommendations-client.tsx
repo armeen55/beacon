@@ -3,6 +3,27 @@
 import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
+
+/**
+ * Demo-path fix (2026-05-06): the recommendations drawer historically
+ * rendered a "Debug details" block listing raw DB-shape strings
+ * (rec_id, edit_id, resolver_tier, evidence_hash, engine_confidence,
+ * etc.) plus row-level UUID data-attributes (`data-rec-source-rec-id`).
+ * Those leak schema vocabulary + UUIDs into customer-visible HTML even
+ * when the `<details>` is collapsed (DOM is still inspectable).
+ *
+ * Gating contract:
+ *   - Production / customer mode (NODE_ENV=production, no operator
+ *     env): debug block hidden; UUID data-attrs stripped.
+ *   - Operator mode (`NEXT_PUBLIC_OPERATOR_MODE=true`): full debug
+ *     surface restored — operator can still inspect the queue.
+ *   - Test environment (NODE_ENV=test): debug surface restored so
+ *     existing snapshot/assertion tests continue to work without
+ *     env plumbing.
+ */
+const OPERATOR_MODE_DEBUG: boolean =
+  process.env.NEXT_PUBLIC_OPERATOR_MODE === "true" ||
+  process.env.NODE_ENV === "test";
 import {
   acceptRecommendation,
   deferRecommendation,
@@ -436,8 +457,16 @@ function ActionRow({
         data-rec-action-row-type={row.actionType}
         data-rec-priority={row.priority}
         data-rec-status={row.status}
-        data-rec-source-rec-id={row.sourceRecommendationId}
-        data-rec-source-edit-id={row.sourceEditId ?? ""}
+        // 2026-05-06 demo-path fix: source-rec-id + source-edit-id are
+        // UUIDs; in customer mode they leak as `data-rec-source-rec-id="<uuid>"`
+        // attributes inspectable via DevTools / view-source. Strip them in
+        // customer mode; keep in operator mode + tests.
+        {...(OPERATOR_MODE_DEBUG
+          ? {
+              "data-rec-source-rec-id": row.sourceRecommendationId,
+              "data-rec-source-edit-id": row.sourceEditId ?? "",
+            }
+          : {})}
         data-rec-rank={row.rank}
       >
         <td className="px-2 py-2 text-right text-muted-foreground tabular-nums align-top">
@@ -1211,55 +1240,64 @@ function RowDrawer({
         </DrawerSection>
       )}
 
-      {/* Section: Debug (collapsed by default) */}
-      <details
-        className="rounded border border-border/40 bg-surface-inset/30 px-2.5 py-1.5"
-        data-rec-debug-block="true"
-      >
-        <summary className="cursor-pointer text-[11px] text-muted-foreground hover:text-foreground select-none">
-          Debug details
-        </summary>
-        <ul className="mt-2 space-y-0.5 text-[11px] font-mono text-muted-foreground">
-          <li>rec_id: {d.debug.recommendationId}</li>
-          {d.debug.editId && <li>edit_id: {d.debug.editId}</li>}
-          {d.debug.resolverTier && <li>resolver_tier: {d.debug.resolverTier}</li>}
-          {d.debug.resolutionAction && (
-            <li>resolution_action: {d.debug.resolutionAction}</li>
-          )}
-          {d.debug.motive && <li>motive: {d.debug.motive}</li>}
-          {d.motiveLabel && <li>motive (text): {d.motiveLabel}</li>}
-          <li>
-            engine_confidence: {d.debug.engineConfidence.confidence}
-            {d.debug.engineConfidence.reasons.length > 0
-              ? ` (${d.debug.engineConfidence.reasons.join(", ")})`
-              : ""}
-          </li>
-          {d.debug.evidenceHash && (
-            <li>evidence_hash: {d.debug.evidenceHash}</li>
-          )}
-          {d.debug.editLifecycleStatus && (
-            <li>edit_lifecycle: {d.debug.editLifecycleStatus}</li>
-          )}
-          {d.fullReasoning && d.fullReasoning !== d.why && (
-            <li className="whitespace-pre-wrap">
-              full_reasoning:{" "}
-              {sanitizeOperatorEvidenceText(
-                d.fullReasoning,
-                promptTextById,
-              )}
+      {/* Section: Debug (operator-mode only).
+          2026-05-06 demo-path fix: previously a collapsed <details>
+          block always rendered raw DB-shape strings (rec_id, edit_id,
+          resolver_tier, motive, engine_confidence, evidence_hash,
+          edit_lifecycle, full_reasoning, confidence_reason). The
+          collapse only hid the values visually — they were still in
+          the DOM and inspectable. Gated behind OPERATOR_MODE_DEBUG so
+          customer mode renders nothing here. */}
+      {OPERATOR_MODE_DEBUG && (
+        <details
+          className="rounded border border-border/40 bg-surface-inset/30 px-2.5 py-1.5"
+          data-rec-debug-block="true"
+        >
+          <summary className="cursor-pointer text-[11px] text-muted-foreground hover:text-foreground select-none">
+            Debug details
+          </summary>
+          <ul className="mt-2 space-y-0.5 text-[11px] font-mono text-muted-foreground">
+            <li>rec_id: {d.debug.recommendationId}</li>
+            {d.debug.editId && <li>edit_id: {d.debug.editId}</li>}
+            {d.debug.resolverTier && <li>resolver_tier: {d.debug.resolverTier}</li>}
+            {d.debug.resolutionAction && (
+              <li>resolution_action: {d.debug.resolutionAction}</li>
+            )}
+            {d.debug.motive && <li>motive: {d.debug.motive}</li>}
+            {d.motiveLabel && <li>motive (text): {d.motiveLabel}</li>}
+            <li>
+              engine_confidence: {d.debug.engineConfidence.confidence}
+              {d.debug.engineConfidence.reasons.length > 0
+                ? ` (${d.debug.engineConfidence.reasons.join(", ")})`
+                : ""}
             </li>
-          )}
-          {d.confidenceReason && (
-            <li className="whitespace-pre-wrap">
-              confidence_reason:{" "}
-              {sanitizeOperatorEvidenceText(
-                d.confidenceReason,
-                promptTextById,
-              )}
-            </li>
-          )}
-        </ul>
-      </details>
+            {d.debug.evidenceHash && (
+              <li>evidence_hash: {d.debug.evidenceHash}</li>
+            )}
+            {d.debug.editLifecycleStatus && (
+              <li>edit_lifecycle: {d.debug.editLifecycleStatus}</li>
+            )}
+            {d.fullReasoning && d.fullReasoning !== d.why && (
+              <li className="whitespace-pre-wrap">
+                full_reasoning:{" "}
+                {sanitizeOperatorEvidenceText(
+                  d.fullReasoning,
+                  promptTextById,
+                )}
+              </li>
+            )}
+            {d.confidenceReason && (
+              <li className="whitespace-pre-wrap">
+                confidence_reason:{" "}
+                {sanitizeOperatorEvidenceText(
+                  d.confidenceReason,
+                  promptTextById,
+                )}
+              </li>
+            )}
+          </ul>
+        </details>
+      )}
 
       {/* Secondary actions (operator scope: Defer / Dismiss live
           here, NEVER as the row's primary button). Hidden when the

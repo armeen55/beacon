@@ -244,6 +244,40 @@ function ScopePill({ scope }: { scope: ChangeEvent["scope"] }) {
   );
 }
 
+/**
+ * 2026-05-06 demo-path fix — verdict label map.
+ *
+ * Pre-fix the pill rendered `verdict.replace(/_/g, " ")`, surfacing
+ * raw enum values like `verified_live_too_early`, `verdict_off`,
+ * `not_found_after_7d` to a customer-visible drawer. Map below
+ * humanizes every known verdict value into operator-friendly copy.
+ * Unknown values fall back to the underscore-stripped form (still
+ * better than nothing) so a future verdict added to the union doesn't
+ * crash the UI; an architecture invariant pins that the rendered
+ * output never contains any of the raw underscore-shaped enum strings.
+ */
+const VERDICT_LABEL: Record<string, string> = {
+  helping: "Helping",
+  hurting: "Hurting",
+  degrading: "Degrading",
+  promising: "Promising",
+  landed_fast: "Landed fast",
+  landed_normal: "Landed",
+  landed_slow: "Landed slowly",
+  never_landed: "Not yet live",
+  attributed_high: "Strong impact",
+  attributed_medium: "Moderate impact",
+  attributed_low: "Weak impact",
+  verified_live_too_early: "Too early to tell",
+  verified_live_baked: "Confirmed live",
+  verdict_off: "Verdict revised",
+  not_found_after_7d: "Not yet live (after 7 days)",
+};
+
+function humanizeVerdict(v: string): string {
+  return VERDICT_LABEL[v] ?? v.replace(/_/g, " ");
+}
+
 function VerdictPill({ verdict, isNew }: { verdict: string; isNew: boolean }) {
   const tone = verdictTone(verdict);
   return (
@@ -254,10 +288,28 @@ function VerdictPill({ verdict, isNew }: { verdict: string; isNew: boolean }) {
         !isNew && "opacity-85",
       )}
     >
-      {verdict.replace(/_/g, " ")}
+      {humanizeVerdict(verdict)}
     </span>
   );
 }
+
+/**
+ * 2026-05-06 demo-path fix — confidence-source label map + plain-English tooltip.
+ * Pre-fix the pill rendered `seed_prior` as `SEED PRIOR` (Tailwind `uppercase`)
+ * with tooltip referencing "v1 static edit-type heuristic" — internal
+ * versioning + dev jargon. Map + tooltip humanized below.
+ */
+const CONFIDENCE_SOURCE_LABEL: Record<"measured" | "seed_prior" | "inference", string> = {
+  measured: "Measured",
+  seed_prior: "Default estimate",
+  inference: "Inferred",
+};
+const CONFIDENCE_SOURCE_TOOLTIP: Record<"measured" | "seed_prior" | "inference", string> = {
+  measured: "Based on observed post-change citation data for this URL.",
+  seed_prior:
+    "Default estimate based on edit type. Beacon will refine this as your history grows.",
+  inference: "Inferred from page-level alignment without direct measurement.",
+};
 
 function ConfidenceSourcePill({ source }: { source: "measured" | "seed_prior" | "inference" }) {
   const map: Record<typeof source, string> = {
@@ -268,18 +320,12 @@ function ConfidenceSourcePill({ source }: { source: "measured" | "seed_prior" | 
   return (
     <span
       className={cn(
-        "text-[9px] uppercase tracking-wider px-1 py-0.5 rounded border",
+        "text-[9px] tracking-wider px-1 py-0.5 rounded border",
         map[source],
       )}
-      title={
-        source === "measured"
-          ? "Derived from observed post-change citation data."
-          : source === "seed_prior"
-            ? "Derived from v1 static edit-type heuristic — not yet learned from this account's history."
-            : "Derived from alignment/scope rules without direct measurement."
-      }
+      title={CONFIDENCE_SOURCE_TOOLTIP[source]}
     >
-      {source.replace(/_/g, " ")}
+      {CONFIDENCE_SOURCE_LABEL[source]}
     </span>
   );
 }

@@ -103,23 +103,30 @@ describe("LifecycleStatusPill rendering", () => {
   });
 
   it("imported_legacy via class fallback shows full label", () => {
+    // 2026-05-06 demo-path fix: rendered label is "Pre-launch" (was
+    // "Imported legacy"). The schema-internal key remains
+    // imported_legacy on the data attribute for backwards-compat.
     const html = renderToStaticMarkup(<LifecycleStatusPill cls="imported_legacy" />);
-    expect(html).toContain("Imported legacy");
+    expect(html).toContain("Pre-launch");
+    expect(html).not.toContain("Imported legacy");
     expect(html).toContain('data-lifecycle-key="imported_legacy"');
   });
 
-  it("imported_legacy via class fallback compact shows 'Legacy'", () => {
+  it("imported_legacy via class fallback compact shows 'Pre-launch'", () => {
+    // 2026-05-06: full and compact labels both rendered as "Pre-launch"
+    // (compact label is identical to full label here; was "Legacy").
     const html = renderToStaticMarkup(
       <LifecycleStatusPill cls="imported_legacy" compact />,
     );
-    // Visible text = short form. Full label "Imported legacy" lives in
-    // the title attribute — intentional for hover context.
-    expect(html).toContain(">Legacy<");
+    expect(html).toContain(">Pre-launch<");
+    expect(html).not.toContain(">Legacy<");
   });
 
   it("scan_confirmed via class fallback uses amber palette", () => {
+    // 2026-05-06: rendered label is "Detected by scan" (was "Scan-confirmed").
     const html = renderToStaticMarkup(<LifecycleStatusPill cls="scan_confirmed" />);
-    expect(html).toContain("Scan-confirmed");
+    expect(html).toContain("Detected by scan");
+    expect(html).not.toContain("Scan-confirmed");
     expect(html).toContain("amber");
   });
 

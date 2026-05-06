@@ -3,6 +3,7 @@ import "server-only";
 import Link from "next/link";
 import { PageHeader } from "@/components/data/page-header";
 import { cn } from "@/lib/utils";
+import { prettifySlug } from "./[id]/page";
 import {
   ensureCanonicalStoresSeeded,
   loadFreshCanonicalData,
@@ -80,7 +81,7 @@ export default async function PromptsPage() {
       ) : !hasAnyNativeObservations ? (
         <EmptyState
           title="Too early to judge"
-          body={`${totalPrompts} prompts active but no native observations in the last 7 days. The next poll cron fires at 10:00 UTC.`}
+          body={`${totalPrompts} prompts active but no native observations in the last 7 days. The next poll cron fires at 07:00 UTC.`}
         />
       ) : (
         <>
@@ -318,12 +319,13 @@ function PromptRow({
           <ul className="mt-1.5 flex flex-wrap gap-1">
             {hasRankedListMiss && (
               <li className="text-[10px] px-1.5 py-0.5 rounded border border-border/50 bg-surface-inset/30 text-muted-foreground">
-                ranked list miss
+                Not on the list
               </li>
             )}
             {clusterTags.map((t) => {
               const [type, ...rest] = t.split(":");
-              const label = rest.join(":");
+              const rawLabel = rest.join(":");
+              const label = prettifySlug(rawLabel) ?? rawLabel;
               const kind = type === "geo_cluster" ? "geo" : "topic";
               return (
                 <li

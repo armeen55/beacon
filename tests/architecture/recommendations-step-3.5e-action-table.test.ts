@@ -106,7 +106,15 @@ describe("W3 Step 3.5e — table structure", () => {
     expect(CLIENT_SRC).toMatch(/data-rec-action-row-type=\{row\.actionType\}/);
     expect(CLIENT_SRC).toMatch(/data-rec-priority=\{row\.priority\}/);
     expect(CLIENT_SRC).toMatch(/data-rec-status=\{row\.status\}/);
-    expect(CLIENT_SRC).toMatch(/data-rec-source-rec-id=\{row\.sourceRecommendationId\}/);
+    // 2026-05-06 demo-path fix: data-rec-source-rec-id /
+    // data-rec-source-edit-id are conditionally included (operator
+    // mode + tests only) since the values are UUIDs that leak via
+    // view-source / DevTools when shipped to customers. The pin
+    // here matches the conditional-spread shape, not the prior
+    // unconditional `attr={value}` form.
+    expect(CLIENT_SRC).toMatch(
+      /OPERATOR_MODE_DEBUG[\s\S]{0,200}"data-rec-source-rec-id":\s*row\.sourceRecommendationId/,
+    );
     expect(CLIENT_SRC).toMatch(/data-rec-rank=\{row\.rank\}/);
   });
 

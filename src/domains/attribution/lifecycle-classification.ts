@@ -225,8 +225,8 @@ export const LIFECYCLE_TAB_LABEL: Record<LifecycleTab, string> = {
   live_verified: "Live verified",
   pending_implementation: "Pending implementation",
   needs_review: "Needs review",
-  imported_legacy: "Imported legacy",
-  scan_confirmed: "Scan-confirmed",
+  imported_legacy: "Pre-launch history",
+  scan_confirmed: "Detected by scan",
   unclassified: "Other",
   all: "All",
 };

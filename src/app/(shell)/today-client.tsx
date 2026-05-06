@@ -407,6 +407,34 @@ export function TodayClient({
           rewrite around already-loaded props.
           ─────────────────────────────────────────────────────────── */}
 
+      {/* 2026-05-06 demo-path fix — first-run welcome card.
+          A brand-new tenant (zero observations, no Do-Next, no shipped
+          edits) historically saw an alerts strip + an empty queue tile
+          and almost nothing else — looked broken. Show a single
+          oriented welcome card that explains what to do and when the
+          first reading lands. */}
+      {!pollHealth &&
+        !primaryAction &&
+        (!lifecycleSummary ||
+          (lifecycleSummary.counts.liveVerified === 0 &&
+            lifecycleSummary.counts.pendingImplementation === 0)) && (
+          <div
+            className="rounded-md border border-status-info/40 bg-status-info/[0.04] px-4 py-3.5"
+            role="status"
+            data-today-first-run="true"
+          >
+            <p className="text-[13px] font-semibold text-foreground">
+              Welcome to Beacon.
+            </p>
+            <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">
+              Your first AI-visibility reading lands after the next
+              scheduled poll (07:00 UTC daily). Add prompts in
+              Settings → Prompts to expand the daily sample, then check
+              back here tomorrow morning.
+            </p>
+          </div>
+        )}
+
       {/* Tier 0 — critical alerts. Each renders only when its trigger
           is firing, so a green system shows zero alerts. */}
       {pollHealth && <PollHealthBlock snapshot={pollHealth} />}
@@ -679,8 +707,12 @@ type UrlVerdictProof = {
   deltaLabel: string;
 };
 function formatUrlVerdictProof(p: UrlVerdictProof): { text: string; dot: string } {
+  // 2026-05-06 demo-path fix: previous copy ended with "(URL-level Z-score)".
+  // A small-business owner does not know what a Z-score is. Customer-friendly
+  // suffix is "(measured per page)" — the underlying engine still uses the
+  // Z-score model, but the surface is honest without the statistics jargon.
   const text = p.changeDate
-    ? `${p.pagePath} is up ${p.deltaLabel} after your ${p.changeDate} change (URL-level Z-score)`
-    : `${p.pagePath} is up ${p.deltaLabel} (URL-level Z-score)`;
+    ? `${p.pagePath} is up ${p.deltaLabel} after your ${p.changeDate} change (measured per page)`
+    : `${p.pagePath} is up ${p.deltaLabel} (measured per page)`;
   return { text, dot: "bg-status-success" };
 }

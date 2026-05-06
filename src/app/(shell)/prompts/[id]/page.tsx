@@ -225,7 +225,11 @@ function SoWhatBlock({
         )}
         {clusterTags.map((t) => {
           const [type, ...rest] = t.split(":");
-          const label = rest.join(":");
+          const rawLabel = rest.join(":");
+          // 2026-05-06 demo-path fix — humanize cluster slug labels
+          // (e.g. "bay_area_ca" → "Bay Area, CA"). Earlier this rendered
+          // raw underscore-shaped tokens.
+          const label = prettifySlug(rawLabel) ?? rawLabel;
           const kind = type === "geo_cluster" ? "geo cluster" : "topic cluster";
           return (
             <li

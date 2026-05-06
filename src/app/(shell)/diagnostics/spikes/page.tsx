@@ -11,6 +11,7 @@
  * real tenant data. Not customer-facing (customer shell is at /audit).
  */
 
+import { notFound } from "next/navigation";
 import { PageHeader } from "@/components/data/page-header";
 import { getDailyMetricSnapshots } from "@/storage/canonical-store";
 import { getChangelogEntries } from "@/lib/seed-data.server";
@@ -30,7 +31,21 @@ import type { ChangePattern } from "@/domains/learning/change-patterns";
 
 export const dynamic = "force-dynamic";
 
+/**
+ * 2026-05-06 demo-path fix — same operator-only gate as /diagnostics.
+ * URL-guessable in production; mirrors the parent guard rule.
+ */
+function isOperatorMode(): boolean {
+  return (
+    process.env.BEACON_OPERATOR_MODE === "true" ||
+    process.env.NODE_ENV === "test"
+  );
+}
+
 export default async function SpikeForensicsPage() {
+  if (!isOperatorMode()) {
+    notFound();
+  }
   // Load upstream primitives once for all events.
   const outcomes = await readStore<ChangeOutcome>("change-outcomes");
   const patterns = await readStore<ChangePattern>("change-patterns");

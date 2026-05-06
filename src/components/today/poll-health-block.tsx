@@ -208,32 +208,25 @@ function subline(snap: PollHealthSnapshot): string {
     );
   }
 
+  // 2026-05-06 demo-path fix — failure / partial / pending sublines
+  // are now customer-facing copy instead of on-call runbook copy.
+  // Operator detail (specific cause + which logs to check) remains
+  // available via the existing "Show details" expansion below.
   if (failing.length === 2) {
-    const allPersistence = failing.every(isPersistenceFailure);
-    if (allPersistence) {
-      return "Poll ran but no observations were saved on either platform. Check persistence and daily-poll logs (scheduled-job logs).";
-    }
-    const anyPersistence = failing.some(isPersistenceFailure);
-    if (anyPersistence) {
-      return "Both platforms failed — at least one was a persistence failure (chunks completed but no rows landed). Check persistence, API keys, and scheduled-job logs.";
-    }
-    return "Both platforms failed — check API keys, persistence, and scheduled-job logs.";
+    return "AI tracking didn't run today on either platform. Beacon is investigating; come back tomorrow morning for a fresh reading.";
   }
   if (failing.length === 1) {
     const f = failing[0];
-    if (isPersistenceFailure(f)) {
-      return `${PLATFORM_LABELS[f.platform]} ran but no observations were saved. Check persistence and daily-poll logs (scheduled-job logs).`;
-    }
-    return `${PLATFORM_LABELS[f.platform]} failed all chunks — likely an API key, rate-limit, or persistence issue. Check API keys, persistence, and scheduled-job logs.`;
+    return `${PLATFORM_LABELS[f.platform]} didn't run today. Beacon is still using the valid responses that landed; the next scheduled poll is at 07:00 UTC tomorrow.`;
   }
   if (partial.length > 0) {
     const names = partial
       .map((p) => PLATFORM_LABELS[p.platform])
       .join(" and ");
-    return `${names} completed some chunks but not all — pipeline may need a manual retry.`;
+    return `${names} didn't fully complete today. Beacon is still using the valid responses that landed.`;
   }
   if (pending.length === 2) {
-    return "Cron has not run yet today. Next run fires at 10:00 UTC.";
+    return "AI tracking has not run yet today. The next scheduled poll fires at 07:00 UTC.";
   }
   if (pending.length === 1) {
     return `${PLATFORM_LABELS[pending[0].platform]} has no run yet today.`;

@@ -411,12 +411,12 @@ export default async function ChangeScorecardPage() {
           <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
             {lifecycleCounts.imported_legacy > 0 && (
               <span className="tabular-nums">
-                {lifecycleCounts.imported_legacy} imported legacy
+                {lifecycleCounts.imported_legacy} pre-launch
               </span>
             )}
             {lifecycleCounts.scan_confirmed > 0 && (
               <span className="tabular-nums">
-                {lifecycleCounts.scan_confirmed} scan-confirmed
+                {lifecycleCounts.scan_confirmed} detected by scan
               </span>
             )}
             {lifecycleCounts.unclassified > 0 && (

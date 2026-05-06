@@ -124,10 +124,10 @@ const EMPTY_TAB_COPY: Record<LifecycleTab, string> = {
   imported_legacy:
     "Imported historical changes appear here. Most accounts have nothing in this tab.",
   scan_confirmed:
-    "No scan-confirmed rows. Confirmed scan-finding diffs (from /today) land here with their original detection date.",
+    "No scan-detected rows yet. When a daily scan finds a change on your site, it lands here with the original detection date.",
   unclassified:
-    "No other rows. Dismissed edits, not-found-after-7d, and pre-source-system legacy rows fall through to this tab.",
-  all: "No rows. The changelog is empty.",
+    "No other rows. Dismissed edits and miscellaneous entries land here.",
+  all: "No changes yet. Beacon logs every accepted recommendation here once the next scan confirms it on your site. Accept your first recommendation in /recommendations to get started →",
 };
 
 function csvEscape(value: string | number | null | undefined): string {
@@ -807,12 +807,12 @@ function ExpandPanel({ row }: { row: EnrichedChangeRow }) {
                 </p>
                 <div className="rounded-md border border-border/60 bg-background/50 px-3 py-2 text-[11px] font-mono leading-relaxed">
                   <MathRow
-                    label="μ_pre (baseline mean)"
+                    label="Before change (per day)"
                     value={`${v.explanation.math.mu_pre}/day`}
                     note={`${v.explanation.math.baseline_days_used}d window`}
                   />
                   <MathRow
-                    label="σ_pre (baseline noise)"
+                    label="Normal range"
                     value={`${v.explanation.math.sigma_pre_used.toFixed(2)}`}
                     note={
                       v.explanation.math.sigma_pre_raw < 1
@@ -821,17 +821,17 @@ function ExpandPanel({ row }: { row: EnrichedChangeRow }) {
                     }
                   />
                   <MathRow
-                    label="μ_post (after change)"
+                    label="After change (per day)"
                     value={`${v.explanation.math.mu_post}/day`}
                     note={`${v.explanation.math.post_days_used}d window`}
                   />
                   <MathRow
-                    label="z-score"
+                    label="Change strength"
                     value={`${v.explanation.math.z > 0 ? "+" : ""}${v.explanation.math.z.toFixed(2)}`}
                     note={
                       Math.abs(v.explanation.math.z) >= 2
-                        ? "≥ ±2 significance"
-                        : "below ±2 bar"
+                        ? "Strong signal"
+                        : "Weak signal"
                     }
                   />
                   <MathRow

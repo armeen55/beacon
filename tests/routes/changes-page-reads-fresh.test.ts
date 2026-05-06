@@ -208,9 +208,11 @@ describe("Sprint 1 / Phase 1.3 — /changes fresh-read invariants", () => {
       // driven, not the legacy "changes tracked" total. Both mock entries
       // carry source_system="scan_detection", so the classifier puts them
       // both in the scan_confirmed bucket. Count of 2 must appear next to
-      // the scan-confirmed label, proving the page actually consumed the
+      // the rendered label, proving the page actually consumed the
       // repo read.
-      expect(html).toMatch(/2\s*scan-confirmed/);
+      // 2026-05-06 demo-path fix: rendered label changed from
+      // "scan-confirmed" → "detected by scan" (customer-friendly copy).
+      expect(html).toMatch(/2\s*detected by scan/);
       // The at-a-glance strip leads with the "live verified" headline,
       // independent of how many rows are in any tab.
       expect(html).toContain("live verified");
