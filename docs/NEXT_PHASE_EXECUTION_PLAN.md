@@ -1,5 +1,13 @@
 # Beacon Execution Plan
 
+> 🟢 **LLM-DRYRUN-2 LANDED (2026-05-05).** Validator + SYSTEM_PROMPT tightening complete; harness reusable. Awaiting operator A/B/C/D decision on small live regen.
+>
+> **Top of stack — operator decision pending:**
+> 1. Read `docs/LLM_DRYRUN_2_REPORT.md` § "Decision: Go / No-Go for small live regeneration."
+> 2. Pick A (GO with current SYSTEM_PROMPT), B (tighten rule 16.A wording first — RECOMMENDED), C (defer until 100% abstention), or D (alternative).
+> 3. If A or B: authorize a 5–10-candidate live regen on `tenant-ritz-founder` to observe persistence behavior. Cost ceiling $1.
+> 4. Independent of A/B/C/D: validator gate (`validateNoUuidInOperatorCopy`) is now permanent — any future LLM regression that re-introduces UUID leaks in `why` fails save-time validation, not just render-time sanitize. The architecture invariant `tests/architecture/no-uuid-in-active-recs.test.ts` (LLM-DryRun-2 cutover ceiling = 9) catches any new LLM row above the baseline.
+
 > ✅ **Phase v4 Commits 1–7 LANDED (2026-04-30).** "Replace Profound in 2 weeks
 > while compounding the moat" is complete. Profound's 2026-05-10 expiry is now
 > a non-event for daily operation.

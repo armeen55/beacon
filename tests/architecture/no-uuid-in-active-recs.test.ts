@@ -153,6 +153,15 @@ describe("Architecture — no UUID in ship-as-is fields of active recs", () => {
  * As of M2 cutover (2026-05-05): expected count is up to ~10 on the
  * Ritz tenant. Anything higher means a NEW leak landed and the runtime
  * sanitizer / save-time sanitizer must be re-checked.
+ *
+ * LLM-DryRun-2 cutover (2026-05-05): the validator now rejects edits
+ * whose `why` contains a UUID before they ever land in the file. The
+ * separate `LLM-DryRun-2 — no LLM-source UUID-in-why row` invariant
+ * below pins this forward contract: any active row with
+ * `source: "openai"` (or any future LLM provider) must have a clean
+ * why. Pre-LLM-DryRun-2 rows source-tagged `deterministic` /
+ * `operator_edited` / `historical_recovered` keep their cap-of-10
+ * legacy ceiling.
  */
 describe("Diagnostic — legacy UUID leaks in `why` (sanitized at render)", () => {
   const tenantDirs = (() => {
@@ -200,6 +209,95 @@ describe("Diagnostic — legacy UUID leaks in `why` (sanitized at render)", () =
           `into \`why\` — re-check the deterministic generators and the ` +
           `OpenAI provider system prompt.`,
       ).toBeLessThanOrEqual(10);
+    });
+  }
+});
+
+/**
+ * LLM-DryRun-2 cutover invariant (operator audit, 2026-05-05).
+ *
+ * After LLM-DryRun-2, the validator rejects edits with raw prompt
+ * UUIDs in `why` / `expectedImpact` / `measurementPlan` (see
+ * `validateNoUuidInOperatorCopy` in specific-edit-validator.ts). This
+ * means NO new LLM-sourced edit should ever reach the persisted store
+ * with a UUID-bearing why.
+ *
+ * Pre-cutover legacy rows: per operator constraint "no recommendation
+ * queue mutation," we DO NOT rewrite the existing
+ * `.data/tenants/<slug>/recommended-edits.json` rows that pre-date this
+ * validator gate. The Ritz tenant has 9 pre-cutover LLM-sourced rows
+ * with UUIDs in `why` from earlier dogfood runs — those stay,
+ * sanitized at render via the M2 sanitizer.
+ *
+ * The forward contract this invariant pins: the LLM-sourced UUID-
+ * in-why count MUST NOT grow above the pre-cutover baseline (9 on the
+ * Ritz tenant). Any NEW LLM-sourced row with a UUID in `why` would
+ * push the count above the ceiling and fail this test loud — that's
+ * the signal of a validator regression.
+ */
+describe("Architecture — LLM-DryRun-2: no NEW LLM-source UUID-in-why row", () => {
+  const tenantDirs = (() => {
+    if (!existsSync(TENANTS_DIR)) return [];
+    return readdirSync(TENANTS_DIR, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => join(TENANTS_DIR, entry.name));
+  })();
+
+  if (tenantDirs.length === 0) {
+    it("no tenant directories — skipping LLM-source UUID-in-why audit", () => {
+      expect(tenantDirs.length).toBe(0);
+    });
+    return;
+  }
+
+  // LLM source values — extend if a future provider lands.
+  const LLM_SOURCES = new Set(["openai", "anthropic"]);
+
+  // LLM-DryRun-2 cutover baseline: pre-validator-gate, the Ritz tenant
+  // had 9 LLM-sourced rows with UUID-bearing `why` from earlier
+  // dogfood runs. New rows after the cutover MUST NOT push the count
+  // higher — the new validator gate (validateNoUuidInOperatorCopy)
+  // rejects them at validation time.
+  const PRE_CUTOVER_LLM_UUID_IN_WHY_CEILING = 9;
+
+  for (const tenantDir of tenantDirs) {
+    const editsPath = join(tenantDir, "recommended-edits.json");
+    if (!existsSync(editsPath)) continue;
+    const tenantSlug = tenantDir.split("/").pop() ?? "(unknown)";
+
+    it(`${tenantSlug} LLM-source UUID-in-why count stays at-or-below the LLM-DryRun-2 cutover ceiling`, () => {
+      let edits: Array<Record<string, unknown>> = [];
+      try {
+        edits = JSON.parse(readFileSync(editsPath, "utf-8"));
+      } catch {
+        return;
+      }
+      let leakCount = 0;
+      const samples: Array<{ id: string; whyExcerpt: string }> = [];
+      for (const edit of edits) {
+        const source = edit.source as string | undefined;
+        if (!source || !LLM_SOURCES.has(source)) continue;
+        const why = edit.why;
+        if (typeof why !== "string" || why.length === 0) continue;
+        if (containsUuid(why)) {
+          leakCount += 1;
+          if (samples.length < 3) {
+            samples.push({
+              id: String(edit.id ?? "(unknown)"),
+              whyExcerpt: why.slice(0, 120),
+            });
+          }
+        }
+      }
+      expect(
+        leakCount,
+        `${tenantSlug}: LLM-source UUID-in-why count ${leakCount} exceeds the ` +
+          `LLM-DryRun-2 cutover ceiling (${PRE_CUTOVER_LLM_UUID_IN_WHY_CEILING}). ` +
+          `The validator should have rejected new LLM rows with UUIDs in \`why\`. ` +
+          `Re-check validateNoUuidInOperatorCopy in specific-edit-validator.ts ` +
+          `and the OpenAI SYSTEM_PROMPT good/bad UUID example. ` +
+          `Sample violations: ${JSON.stringify(samples, null, 2)}`,
+      ).toBeLessThanOrEqual(PRE_CUTOVER_LLM_UUID_IN_WHY_CEILING);
     });
   }
 });

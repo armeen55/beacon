@@ -7,6 +7,71 @@
 
 ---
 
+## 2026-05-05 — LLM-DryRun-2 (validator + SYSTEM_PROMPT tightening + harness reusable)
+
+Operator-scoped LLM-DryRun-2 follow-up to close the three DryRun-1 failure modes (UUID leaks in `why` text, fabricated timeline "12 to 18 months", failure-to-abstain on a thin packet). No paid live regen. Dry-run only. No queue mutation.
+
+### What changed (code)
+
+- **`src/domains/recommendations/specific-edit-validator.ts`** — added `validateNoUuidInOperatorCopy(edit)` helper, wired into `validateSpecificEdit` after the existing placeholder gate. Uses the shared `containsUuid()` predicate from `copy-sanitize.ts`. Any edit whose `why` / `expectedImpact` / `measurementPlan` contains a UUID-shaped substring (RFC 4122 8-4-4-4-12 hex with hyphens, case-insensitive) is rejected with field + reason. Internal `evidence: [{ type: "prompt", promptId: UUID }]` is intentionally untouched — that's the canonical home for raw IDs.
+- **`src/domains/recommendations/providers/openai.ts`** SYSTEM_PROMPT v2:
+  - Replaced the legacy "do not include UUID" line with explicit GOOD shape (`why: "Drawn from … on the 'best whole home remodel builders bay area' prompt"`) and BAD shape (`why: "… on prompt 7ee3216b-327c-4de9-8d5d-2f4c95a6d773"`); fields named: `why`, `expectedImpact`, `measurementPlan`. `evidence[].promptId` named as the canonical home.
+  - Added rule 16.A — STRUCTURAL ABSTENTION ON THIN EVIDENCE — three triggers: (a) `affectedPrompts.length === 1` AND `aiSearchSignal.topSearchQueries` empty AND `brandAssertions` empty; (b) `resolution.confidence === "low"` AND `brandAssertions` empty; (c) `competitorPageBlueprints` + `aiSearchSignal.topSearchQueries` + `brandAssertions` ALL empty. Empty recommendations is a CORRECT answer; generic copy on a thin packet is a FAILURE.
+  - Added rule 16.B — NO FABRICATED NUMBERS, TIMELINES, COSTS, GUARANTEES — concrete forbidden examples: specific durations ("12 to 18 months"), per-square-foot costs, "$X starting at", guarantees ("on time", "guaranteed"). Hedges prescribed: "varies by site complexity, scope, and permitting", "permitting timelines vary by jurisdiction and project". Any number must be present VERBATIM in `brandAssertions` to be used.
+- **Harness rename** — `scripts/llm-dryrun-1.ts` → `scripts/llm-specific-edit-dryrun.ts`. Made reusable across future iterations. Output path defaults to `tmp/llm-specific-edit-dryrun-output.json`; overridable via `BEACON_DRYRUN_OUTPUT` env var. Log tag updated. Docstring expanded with the no-persistence invariant reference.
+- **`.gitignore`** — added `tmp/` so dry-run outputs never accidentally commit.
+
+### What changed (tests)
+
+- **NEW `src/domains/recommendations/specific-edit-validator.dryrun2.test.ts`** — 8 tests, 8 PASS. Validator rejects raw UUID in `why`, mid-sentence UUID, truncated `UUID...` form, UUID in `expectedImpact`, UUID in `measurementPlan`. Allows UUID in `evidence[].promptId` (canonical home). Allows clean snippet citation. Allows truncated-but-not-UUID hex strings.
+- **NEW `tests/architecture/openai-system-prompt-dryrun2.test.ts`** — 9 invariants, 9 PASS. Pins SYSTEM_PROMPT lexically: GOOD example, BAD example, NEVER-include-UUID rule, named fields (`why`/`expectedImpact`/`measurementPlan`), `evidence[].promptId` canonical home, STRUCTURAL ABSTENTION rule + three triggers, "CORRECT answer for thin packets" framing, NO FABRICATED NUMBERS rule + "12 to 18 months" + "per square foot" forbidden examples + brandAssertions VERBATIM requirement + "varies by site complexity" + "permitting timelines vary by jurisdiction" hedges.
+- **NEW `tests/architecture/llm-dryrun-harness-no-persistence.test.ts`** — 5 invariants, 5 PASS. Pins the harness source: imports `openaiProvider.generate()` only; references zero forbidden persistence APIs (`runProviderAndPersist`, `persistRecommendedEditsLocal`, `markRecommendedEditsAccepted`, `markRecommendedEditsAsShipped`, `syncRecommendedEdits`, `syncRecommendationResponses`, `deleteRecommendationResponseByRecId`, `dualWriteUpsert`, `dualWriteUpsertScoped`, `dualWriteTruncate`); writes to exactly one path (the structured report under tmp/); declares its dry-run posture in the docstring; references the invariant test by path. Strips block + line comments before the identifier check so the docstring's intentional mentions don't trip the gate.
+- **`tests/architecture/no-uuid-in-active-recs.test.ts`** — added LLM-DryRun-2 cutover invariant. Ritz tenant has 9 pre-cutover LLM-sourced rows with UUID-bearing `why` from earlier dogfood; per operator constraint "no recommendation queue mutation" we DO NOT rewrite them. The new ceiling-based assertion: the `source: "openai"`/`source: "anthropic"` UUID-in-`why` count MUST stay at-or-below 9. Any new LLM row above the ceiling fails the build. Pre-existing diagnostic legacy ceiling (10 across all sources) preserved.
+
+### Re-run dry-run results — DryRun-1 vs DryRun-2
+
+```
+                                  DryRun-1   DryRun-2   Δ
+Total cost                        $0.0607    $0.0632    +$0.0025 (≈flat)
+Samples                           5/5        5/5        —
+Total edits emitted               17         19         +2
+Validator accepted                12/17      17/19      +5
+Validator rejected                5/17       2/19       -3 (em-dash gate, displayLabels only)
+Bundle errors                     1          0          -1
+UUID leaks in operator copy       7          0          -7 ✅
+Fabricated numbers / timelines    1          0          -1 ✅
+Placeholder leaks                 0          0          —
+Competitor names in proposedText  0          0          —
+Abstention on low-conf-no-brand   0/2        0/2        unchanged ❌
+Process exit code                 2          0          -2 ✅
+```
+
+**5 of 6 operator success criteria PASS.** The one remaining gap is BEHAVIOR, not OUTPUT: rule 16.A trigger 2 (low confidence + brand assertions empty) is in the SYSTEM_PROMPT but the model interpreted it as advisory when other signals (`aiSearchSignal.topSearchQueries`, `competitorPageBlueprints`) are strong. Samples 4 (Los Altos) and 5 (Menlo Park weak-evidence) generated 4 and 3 edits respectively where strict abstention would return `[]`. **Output of those samples is content-safe** — no leaks, no fabrication, hedged language, validator-accepted — just over-spec on quantity. Full per-sample scoring + decision matrix in `docs/LLM_DRYRUN_2_REPORT.md`.
+
+### Quality gates
+
+- typecheck — 3 errors, all pre-existing on main (`tests/domains/prompts/prompt-drilldown.test.ts` `BuildPromptDrilldownArgs.now`); none in DryRun-2 files. Verified by stash test.
+- targeted vitest — 149/149 PASS across `specific-edit-validator.dryrun2.test.ts` (8) + `openai-system-prompt-dryrun2.test.ts` (9) + `llm-dryrun-harness-no-persistence.test.ts` (5) + `no-uuid-in-active-recs.test.ts` (3) + `copy-sanitize.test.ts` (existing) + `specific-edit-validator.test.ts` (existing).
+- full suite — 4429/4434 PASS, 5 baseline failures (`prompts-smoke.test.tsx` ×2, `prompt-drilldown-smoke.test.tsx` ×1, `auto-link-via-changelog.test.ts` ×2). Verified pre-existing on main via stash test (5 fail, unchanged).
+- build — green (Vercel-equivalent local). One Supabase-timeout flake on first attempt (pre-existing prerender-time query); resolved on rerun. Not introduced by this bundle (none of the touched files are in the `next build` path).
+
+### Cost ledger
+
+LLM-DryRun-2 spend: **$0.0632 USD** at gpt-5-mini, single tenant `tenant-ritz-founder`, 5 packets. Comfortably inside the $3 cap (used 2.1%).
+
+### Decision pending (operator)
+
+| Option | Recommendation | Note |
+|---|---|---|
+| A — GO with current SYSTEM_PROMPT | Acceptable | Output safety is high; abstention behavior is over-eager but content-safe. |
+| B — GO after one more 16.A wording tightening | **Recommended** | Add "MUST" + "even if other signals are strong" to rule 16.A trigger 2; re-run 2 abstention samples. |
+| C — NO-GO until abstention is 100% honored | Strict | Block live regen entirely. |
+| D — NO-GO, alternative approach | Out of scope | Output is too good and cost too low to justify. |
+
+Awaiting operator A/B/C/D call before any small live regen.
+
+---
+
 ## 2026-05-05 — D1-D5 demo-hardening / customer-2 footgun removal
 
 Operator-scoped demo-hardening bundle: removed the highest-risk customer-2 embarrassment surfaces while the engine is green. No paid calls, no schema changes, no scope expansion.

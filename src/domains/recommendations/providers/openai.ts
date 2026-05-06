@@ -303,12 +303,32 @@ HARD RULES:
           phrase the question, and lifting it verbatim into copy makes
           the page sound like a search engine, not a builder's site.
     The "why" field MUST cite which level you drew evidence from.
-    NEVER quote raw prompt UUIDs in the "why" — the operator-facing
-    text is sanitized at render time and any UUID becomes a generic
-    "prompt evidence" placeholder. Reference the prompt by a short
-    text snippet from packet.affectedPrompts[*].promptText instead.
-    Example: 'Drawn from actualSearchQueries on the "best whole home
-    remodel builders bay area" prompt'.
+
+    **HARD RULE — NEVER include raw prompt UUIDs or prompt IDs in
+    "why", "expectedImpact", or "measurementPlan".** These fields are
+    persisted to the operator-visible recommended_edits table. The
+    render-time sanitizer scrubs UUIDs at draw time, BUT the
+    persisted DB rows would still carry the raw IDs — and the
+    validator now rejects bundles whose why/expectedImpact/measurementPlan
+    contains a UUID-shaped substring. evidence[].promptId is the
+    canonical place for raw IDs; reference prompts in "why" by short
+    text snippet only.
+
+    GOOD (use this shape):
+      "why": "Drawn from actualSearchQueries on the 'best whole home
+       remodel builders bay area' prompt; competitor pages cite the
+       same intent."
+      "evidence": [{ "type": "prompt", "promptId":
+       "7ee3216b-327c-4de9-8d5d-2f4c95a6d773" }]
+
+    BAD (validator will REJECT the bundle):
+      "why": "Drawn from actualSearchQueries on prompt
+       7ee3216b-327c-4de9-8d5d-2f4c95a6d773"
+      "why": "see prompt 7ee3216b-327c"
+      "why": "for prompt 7ee3216b-..."
+
+    The full UUID still goes on evidence[].promptId verbatim (Rule 9).
+    Only why/expectedImpact/measurementPlan must be UUID-free.
 
 15. **PACKET-LEVEL AGGREGATED SIGNALS (W3 Step 3.2 evidence
     foundation).** In addition to the per-prompt arrays above, the
@@ -375,6 +395,60 @@ HARD RULES:
     Better empty than generic. The deterministic generators already
     abstain when evidence is thin (W3 Step 3.1); the LLM provider
     must follow the same contract.
+
+16.A **STRUCTURAL ABSTENTION ON THIN EVIDENCE.** Return an empty
+    recommendations array BEFORE writing any edits when ANY of these
+    are true:
+
+      • affectedPrompts.length === 1 AND aiSearchSignal.topSearchQueries
+        is empty AND brandAssertions is empty.
+      • The packet's resolution.confidence === "low" AND brandAssertions
+        is empty.
+      • competitorPageBlueprints, aiSearchSignal.topSearchQueries, AND
+        brandAssertions are ALL empty.
+
+    A single-prompt low-confidence packet with no aggregated signals
+    is NOT enough to ship multiple page edits — even if you can
+    write coherent sentences. The system flag for "operator can ship
+    this manually" is HIGH confidence, which requires multiple
+    affected prompts AND adjudicated tier AND non-empty aggregated
+    signals. Do not invent volume to justify the recommendation.
+
+    Empty recommendations [] is a CORRECT answer for thin packets.
+    Generating generic copy on a thin packet is a FAILURE.
+
+16.B **NO FABRICATED NUMBERS, TIMELINES, COSTS, GUARANTEES.**
+    proposedText and displayLabel must NEVER include:
+
+      • Specific durations (months, weeks, days, hours, "in 90
+        days", "12 to 18 months", "within a year")
+      • Specific costs ("$X", "$X per square foot", "starting at
+        $Y", "average build cost")
+      • Specific counts ("over 200 homes", "50+ projects",
+        "thousands of clients")
+      • Guarantees ("on time", "under budget", "guaranteed in",
+        "delivered in")
+      • Awards / certifications you cannot verify in the packet
+        ("award-winning", "AIA-certified", "BBB A+ rated")
+      • Specific permitting / process times ("typical permit takes",
+        "design phase 90 days")
+
+    UNLESS the EXACT phrase appears verbatim in
+    packet.brandAssertions (the operator-curated source of truth).
+    If the operator has not authorized the number, hedge:
+
+      Instead of: "12 to 18 months for construction"
+      Write:      "varies by site complexity, scope, and permitting"
+
+      Instead of: "$500 per square foot"
+      Write:      "depends on site conditions, finish level, and scope"
+
+      Instead of: "Permitting typically takes 6 months"
+      Write:      "permitting timelines vary by jurisdiction and project"
+
+    This rule is enforced at validation by phrase scan against
+    brandAssertions. A sentence with a number that the brand-claim
+    grounder doesn't recognize will be rejected.
 
 17. **NO PLACEHOLDER COPY.** proposedText / displayLabel must NEVER
     contain any of these literal phrases (case-insensitive):

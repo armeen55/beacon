@@ -75,6 +75,7 @@ import {
   evaluateFaqAnswer,
   parseFaqProposedText,
 } from "./placeholder-detection";
+import { containsUuid } from "./copy-sanitize";
 
 // ---------------------------------------------------------------------------
 // Result types
@@ -562,6 +563,27 @@ export function validateSpecificEdit(
   // queue erodes operator trust faster than any false positive.
   const placeholderGate = validateNoPlaceholder(edit);
   if (!placeholderGate.ok) return placeholderGate;
+
+  // ── 9.5b LLM-DryRun-2 (operator audit, 2026-05-05): no raw prompt
+  // UUIDs in operator-visible `why`. The render-time sanitizer
+  // (`sanitizeOperatorEvidenceText`) scrubs UUIDs at draw-time, but
+  // the persisted `recommended_edits.why` column would still carry
+  // raw `b741f295-...` strings if the LLM emitted them. After
+  // LLM-DryRun-1 found 7 such leaks across 2 of 5 samples, the
+  // SYSTEM_PROMPT was tightened (good/bad examples + structural rule
+  // "evidence[].promptId must use the full UUID; why must reference
+  // prompt text snippets, not IDs"). This validator gate enforces the
+  // same contract at validation time: a future SYSTEM_PROMPT regression
+  // (or a different LLM provider) will fail the bundle rather than
+  // persist UUID-bearing rows.
+  //
+  // `expectedImpact` and `measurementPlan` are also operator-visible
+  // copy fields and get the same treatment.
+  //
+  // `evidence: [{type:"prompt", promptId: <UUID>}]` is the canonical
+  // place for raw IDs and is intentionally NOT scanned here.
+  const uuidGate = validateNoUuidInOperatorCopy(edit);
+  if (!uuidGate.ok) return uuidGate;
 
   // ── 9.6 Competitor public-copy safety (Sprint 6A.2g.B) ─────────────
   // Reject competitor names from packet.competitorAngles[*] that leak
@@ -1053,6 +1075,54 @@ function validateNoPlaceholder(edit: SpecificEdit): ValidationResult {
     }
   }
 
+  return OK;
+}
+
+/**
+ * LLM-DryRun-2 rule (operator audit, 2026-05-05) — reject raw prompt
+ * UUIDs in the operator-visible attribution / methodology copy fields.
+ *
+ * Scans `why`, `expectedImpact`, `measurementPlan`. The internal
+ * `evidence: [{ type:"prompt", promptId: <UUID> }]` arrays are the
+ * canonical place for raw IDs — they're not scanned here.
+ *
+ * Why it matters: the M2 render-time sanitizer scrubs UUIDs out of
+ * `why` when /recommendations renders the drawer, but the persisted
+ * row in Supabase + `.data/recommended-edits.json` still carries the
+ * raw UUID. Any future read path that doesn't go through the sanitizer
+ * (an export, a CSV download, a debug API call, an admin tool) would
+ * leak the ID. Reject at validation time so new rows never carry the
+ * leak, and pin via architecture invariant on the persisted store.
+ *
+ * Pure / deterministic. Uses the existing `containsUuid` predicate
+ * (Schema-v4 RFC 4122 8-4-4-4-12 hex pattern, case-insensitive,
+ * accepts trailing `...` truncation).
+ */
+function validateNoUuidInOperatorCopy(edit: SpecificEdit): ValidationResult {
+  if (typeof edit.why === "string" && containsUuid(edit.why)) {
+    return fail(
+      "why",
+      `raw prompt UUID detected in why text — cite prompts by short text snippet (e.g. "the 'best whole home remodel builders bay area' prompt"), not by ID. The internal evidence[] array is the canonical place for raw IDs.`,
+    );
+  }
+  if (
+    typeof edit.expectedImpact === "string" &&
+    containsUuid(edit.expectedImpact)
+  ) {
+    return fail(
+      "expectedImpact",
+      "raw prompt UUID detected in expectedImpact — operator-visible copy must reference prompts by snippet, not ID.",
+    );
+  }
+  if (
+    typeof edit.measurementPlan === "string" &&
+    containsUuid(edit.measurementPlan)
+  ) {
+    return fail(
+      "measurementPlan",
+      "raw prompt UUID detected in measurementPlan — operator-visible copy must reference prompts by snippet, not ID.",
+    );
+  }
   return OK;
 }
 
