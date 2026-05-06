@@ -607,13 +607,25 @@ function PriorityPill({ priority }: { priority: ActionRowPriority }) {
   );
 }
 
+/**
+ * Round 2 customer-readiness (2026-05-06) — `needs_fresh_edit` now has
+ * its own distinct shade so an operator scanning the queue can tell
+ * "Beacon wants you to read this" (`needs_review` — warning amber)
+ * from "regenerate this rec; the prior edits were dismissed"
+ * (`needs_fresh_edit` — info blue with dashed border). Round 1 audit
+ * #10 flagged that both rendered as identical orange and the operator
+ * couldn't distinguish them at a glance. The dashed border is the
+ * "needs action from generator" cue (matches the `Regenerate` button
+ * affordance in `recommendation-action-rows.ts`).
+ */
 const STATUS_PILL_CLASS: Record<ActionRowStatus, string> = {
   new: "border-accent-primary/40 bg-accent-primary/[0.06] text-accent-primary",
   accepted: "border-status-success/40 bg-status-success/[0.06] text-status-success",
   shipped: "border-status-success/40 bg-status-success/[0.10] text-status-success",
   measuring: "border-status-info/40 bg-status-info/[0.06] text-status-info",
   needs_review: "border-status-warning/40 bg-status-warning/[0.06] text-status-warning",
-  needs_fresh_edit: "border-status-warning/40 bg-status-warning/[0.06] text-status-warning",
+  needs_fresh_edit:
+    "border-dashed border-status-info/50 bg-status-info/[0.04] text-status-info",
   deferred: "border-border/60 text-muted-foreground",
   dismissed: "border-border/60 text-muted-foreground",
 };
@@ -1398,7 +1410,7 @@ function EmptyTable({ hasAnyRows }: { hasAnyRows: boolean }) {
             >
               /prompts
             </Link>{" "}
-            for raw decision signals.
+            to see today&apos;s prompt-by-prompt observations.
           </p>
         </>
       )}

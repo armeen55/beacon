@@ -7,6 +7,105 @@
 
 ---
 
+## 2026-05-06 — Morning verification + Customer-Readiness Round 2
+
+Operator brief: morning verification first; if GREEN, proceed only to Round 2 paper-cuts (no LLM work). Verified GREEN; landed Round 2.
+
+### Morning verification — GREEN
+
+| Surface | Result |
+|---|---|
+| Daily-poll post-mode | 199 obs landed for 2026-05-06 (Perplexity 100 full + ChatGPT 99 full) |
+| raw_poll_chunks | 10 × verified_complete |
+| observation_runs | 2 × completed |
+| /today freshness | FRESH (latest = 2026-05-06) |
+| recommended_edits / responses / changelog | 28 / 7 / 334 unchanged |
+| Ledger SHA | `d36eed8c…` (unchanged from Round 1) |
+| May 2026 history | 21 live_call entries / $0.268231 (matches ledger) |
+| Round 1 invariants targeted re-run | 32/32 PASS — deployed code carries new copy by source-text construction |
+| Hosted HTTP probe | `/login` 200, `/` 307 → `/login?next=%2F` (auth-protected) |
+| Local main vs origin/main | clean (commit `e454bfe` deployed) |
+| Chrome MCP visual smoke | unavailable; source-text invariants stand in |
+
+### Queue overnight delta
+
+Total: **13 → 14** candidates. Most-notable shifts:
+- LR-1's `target_competitors:prompt:e17d29c3-…` (was `create_new_page`) is GONE in that form. Same prompt now resolves as `create_single:prompt:e17d29c3-…` action=`expand_existing_page`.
+- Cupertino: medium/observation → medium/INVENTORY (likely because LR-2 already touched it via partial bundle).
+- New low-conf row added (`strengthen_page_copy:prompt:2c0cf77b-…`).
+
+Eligible-for-LR-N (medium+ conf, observation+ tier, not in LR-1) is still **3 candidates** — same SIZE as yesterday but membership shifted: Cupertino dropped out, e17d29c3 (re-resolved) entered. LR-3 still waiting; queue refresh hasn't produced enough genuinely-new prompts.
+
+### What changed (code)
+
+- **`src/app/(shell)/prompts/[id]/page.tsx`** Round 2 Fix 1 — added `prettifySlug()` helper:
+  - Turns slug-shaped keys into operator-readable display strings ("cupertino_ca" → "Cupertino, CA"; "kitchen-remodel" → "Kitchen Remodel"; "luxury_home_builder" → "Luxury Home Builder").
+  - Recognizes US-state suffixes via `KNOWN_US_STATES` Set (50 states).
+  - Returns null for UUID-shaped values (RFC-4122 8-4-4-4-12 hex regex) — caller renders nothing.
+  - Both `topicId` and `locationScope` tags double-gated: render only when `prettifySlug()` returns a non-null value.
+- **`src/app/(shell)/recommendations/recommendations-client.tsx`** Round 2 Fix 2 — empty-state copy:
+  - `"check /prompts for raw decision signals."` → `"check /prompts to see today's prompt-by-prompt observations."`
+- **`src/app/(shell)/recommendations/recommendations-client.tsx`** Round 2 Fix 3 — status pill color differentiation:
+  - `needs_fresh_edit` styling: `"border-status-warning/40 bg-status-warning/[0.06] text-status-warning"` → `"border-dashed border-status-info/50 bg-status-info/[0.04] text-status-info"`
+  - `needs_review` keeps the warning-amber "Beacon wants you to read this" cue.
+  - `needs_fresh_edit` now reads as "regenerate; the prior edits were dismissed" via dashed-border + info-blue.
+
+### What changed (tests)
+
+- **NEW `tests/architecture/customer-readiness-round-2.test.ts`** — 12 invariants, 12 PASS:
+  - Fix 1 (6 tests): prettifySlug declared + UUID early-return + KNOWN_US_STATES + topicId render gate + locationScope render gate + tag spans render the prettified value (not raw).
+  - Fix 2 (2 tests): old "raw decision signals" GONE; new "prompt-by-prompt observations" present.
+  - Fix 3 (3 tests): needs_review keeps warning styling; needs_fresh_edit uses dashed-border + status-info; the two pill class strings are NOT identical (regression catcher).
+  - Cross-fix (1 test): all 8 Round 1 forbidden phrases stay gone after Round 2 lands.
+
+### Verification — ledger NOT clobbered
+
+| State | SHA-256 of `.data/global/llm-budget.json` |
+|---|---|
+| Pre-bundle | `d36eed8ca157cb4c65ee01a2c51a2fef3fb21a0dfdbb036753d6d7c570927dbd` |
+| Post-targeted-tests | `d36eed8ca157cb4c65ee01a2c51a2fef3fb21a0dfdbb036753d6d7c570927dbd` ✅ |
+| Post-full-suite (4536/4541) | `d36eed8ca157cb4c65ee01a2c51a2fef3fb21a0dfdbb036753d6d7c570927dbd` ✅ |
+
+### Quality gates
+
+- typecheck: clean (3 pre-existing prompt-drilldown errors unrelated).
+- targeted vitest: **38/38 PASS** (26 Round 1 + 12 Round 2).
+- full suite: **4536/4541** (5 pre-existing baseline failures unchanged; **+12 new passing tests** vs Round 1 baseline of 4524).
+- build: EXIT_CODE=0 green.
+- ledger byte-equality: ✅ pre/post-suite identical.
+
+### Architecture invariant inventory after Round 2
+
+| Bundle | New | Cumulative |
+|---|---|---|
+| LLM cycle (DryRun-2/3/3.5 + LR-N + budget hermetic) | 94 | 94 |
+| Customer-Readiness Round 1 | 26 | 120 |
+| **Customer-Readiness Round 2 (this bundle)** | **12** | **132** |
+
+### Operator brief acceptance
+
+| Required | Status |
+|---|---|
+| Morning verification GREEN before any feature work | ✅ |
+| Daily-poll fresh + persistence + observation_runs all clean | ✅ |
+| LR-3 still waiting (queue regrowth incomplete) | ✅ acknowledged + reasoned |
+| No customer-facing route regressed | ✅ all 32 Round 1 invariants still pass |
+| Round 2 only: friendly slugs + raw decision signals + status colors | ✅ exactly those 3 fixes |
+| Tier 1A comment sweep / onboarding / schema/technical untouched | ✅ explicit hard pause respected |
+| typecheck clean / targeted pass / full suite baseline / build green | ✅ |
+| Ledger byte-identical | ✅ |
+
+### Next-bundle recommendation
+
+Round 2 closes the audit. Remaining audit items (if operator wants Round 3 later):
+- `enrichment-v2.tsx:248–250` empty-state copy parity (same-word "yet" used for two distinct states).
+- `enrichment-v2.tsx:403` "Primary X%" → "ranked #1 X% of the time" (less API-jargon).
+- `today-client.tsx:66–67, 93` "Tier 1A" docstring sweep (low priority — JSDoc only, not user-visible).
+
+Otherwise: wait for queue refresh before LR-3, or pivot to other priorities (Profound May 10 expiry / customer-2 onboarding scaffold / `/today` findings polish).
+
+---
+
 ## 2026-05-06 — Customer-Readiness Round 1 (6 paper-cut fixes)
 
 Operator-approved 6-fix bundle from the customer-readiness audit. Test-only LLM safety net continues to hold (ledger byte-identical before/after full suite). Pure copy + small UI additions; no LLM calls, no queue mutation, no SYSTEM_PROMPT changes, no persistence logic touched.

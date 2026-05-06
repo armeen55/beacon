@@ -209,18 +209,18 @@ function SoWhatBlock({
         {drilldown.promptText}
       </p>
       <ul className="mt-2 flex flex-wrap gap-1">
-        {drilldown.topicId && (
+        {drilldown.topicId && prettifySlug(drilldown.topicId) && (
           <li className="text-[10px] px-1.5 py-0.5 rounded border border-border/50 bg-background text-muted-foreground">
             <span className="font-medium text-foreground/80">topic</span>
             <span className="mx-0.5">·</span>
-            <span>{drilldown.topicId}</span>
+            <span>{prettifySlug(drilldown.topicId)}</span>
           </li>
         )}
-        {drilldown.locationScope && (
+        {drilldown.locationScope && prettifySlug(drilldown.locationScope) && (
           <li className="text-[10px] px-1.5 py-0.5 rounded border border-border/50 bg-background text-muted-foreground">
             <span className="font-medium text-foreground/80">geo</span>
             <span className="mx-0.5">·</span>
-            <span>{drilldown.locationScope}</span>
+            <span>{prettifySlug(drilldown.locationScope)}</span>
           </li>
         )}
         {clusterTags.map((t) => {
@@ -244,6 +244,116 @@ function SoWhatBlock({
 }
 
 /* ────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * Round 2 customer-readiness (2026-05-06) — friendly-slug helper.
+ *
+ * Round 1 audit found the prompt-drilldown header rendered raw
+ * `topicId` and `locationScope` values (e.g., `"cupertino_ca"` slug
+ * or a UUID-shaped key) when the operator was thinking in
+ * human-readable cluster labels. This helper turns slug-shaped keys
+ * into operator-readable display strings:
+ *
+ *   "cupertino_ca"           → "Cupertino, CA"
+ *   "palo_alto_ca"           → "Palo Alto, CA"
+ *   "luxury_home_builder"    → "Luxury Home Builder"
+ *   "kitchen-remodel"        → "Kitchen Remodel"
+ *
+ * For UUID-shaped strings (8-4-4-4-12 hex with hyphens, RFC-4122),
+ * returns null — the caller renders nothing rather than show a raw
+ * UUID. Same posture as the rec-drawer UUID sanitizer.
+ *
+ * No external dependencies; pure string transform.
+ */
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const US_STATE_SUFFIX = /\b([A-Za-z]{2})$/;
+const KNOWN_US_STATES = new Set([
+  "ca",
+  "ny",
+  "tx",
+  "wa",
+  "or",
+  "az",
+  "nv",
+  "fl",
+  "co",
+  "ma",
+  "il",
+  "ga",
+  "nj",
+  "pa",
+  "va",
+  "nc",
+  "mi",
+  "oh",
+  "wi",
+  "mn",
+  "mo",
+  "tn",
+  "in",
+  "ky",
+  "al",
+  "sc",
+  "md",
+  "ct",
+  "ut",
+  "ar",
+  "ms",
+  "la",
+  "ia",
+  "ks",
+  "nm",
+  "ne",
+  "wv",
+  "ms",
+  "id",
+  "hi",
+  "nh",
+  "me",
+  "ri",
+  "mt",
+  "de",
+  "sd",
+  "nd",
+  "ak",
+  "vt",
+  "wy",
+]);
+
+function titleCaseToken(token: string): string {
+  if (token.length === 0) return token;
+  return token.charAt(0).toUpperCase() + token.slice(1).toLowerCase();
+}
+
+export function prettifySlug(raw: string | null | undefined): string | null {
+  if (typeof raw !== "string") return null;
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) return null;
+  // Bare UUIDs are operator-noise — don't render.
+  if (UUID_RE.test(trimmed)) return null;
+
+  // Split on - or _ ; reject if there's nothing word-like.
+  const tokens = trimmed.split(/[-_]+/).filter((t) => t.length > 0);
+  if (tokens.length === 0) return null;
+
+  // Detect trailing US state (2-letter): show as ", CA" suffix
+  // instead of " ca" to avoid "Cupertino Ca" awkwardness.
+  const last = tokens[tokens.length - 1].toLowerCase();
+  if (
+    tokens.length >= 2 &&
+    US_STATE_SUFFIX.test(last) &&
+    KNOWN_US_STATES.has(last)
+  ) {
+    const head = tokens
+      .slice(0, -1)
+      .map(titleCaseToken)
+      .join(" ");
+    return `${head}, ${last.toUpperCase()}`;
+  }
+
+  return tokens.map(titleCaseToken).join(" ");
+}
 
 const PLATFORM_LABEL: Record<string, string> = {
   perplexity: "Perplexity",

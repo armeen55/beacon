@@ -1,6 +1,6 @@
 # Beacon Execution Plan
 
-> 🟢 **CUSTOMER-READINESS ROUND 1 LANDED (2026-05-06).** 6 paper-cut fixes shipped: Mark Shipped tooltip + poll-health infra-leak + AI source pill + confidence pill + sampling taxonomy + Imported legacy empty state. 26 new architecture invariants pin every fix. Ledger byte-identical (SHA `d36eed8c…`) after full suite. Hosted Beacon now safer to demo to a first-time customer. Total architecture invariants: **120**.
+> 🟢 **MORNING VERIFICATION GREEN + ROUND 2 PAPER-CUTS LANDED (2026-05-06).** Daily-poll post-mode GREEN (199 obs, /today FRESH). Round 2 shipped 3 fixes: `prettifySlug()` for /prompts/[id] (UUIDs render nothing, slugs become "Cupertino, CA"), /recommendations empty-state copy ("raw decision signals" → "today's prompt-by-prompt observations"), /recommendations status pill differentiation (needs_fresh_edit now dashed border + status-info blue, distinct from needs_review warning-amber). 12 new architecture invariants. Ledger byte-identical (SHA `d36eed8c…`) after another full `npm run test`. **Total architecture invariants: 132.**
 >
 > **Top of stack — when ready, in any order:**
 > 1. **Customer-Readiness Round 2 (queued, optional).** From the audit: prompt drilldown friendly slugs (issue #8), Tier 1A comment sweep (issue #9), status pill color differentiation (issue #10), `/recommendations` empty-state copy ("raw decision signals"), `enrichment-v2.tsx` empty-state copy parity. All copy/small-render. Defer until operator wants to round 2.
