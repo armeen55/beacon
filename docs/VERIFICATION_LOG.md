@@ -7,6 +7,78 @@
 
 ---
 
+## 2026-05-05 — Test isolation fix (real LLM budget ledger protected)
+
+LR-2 verification (earlier today) surfaced that `tests/domains/recommendations/adjudicate.test.ts:cleanupTestStores` was writing `[]` to the REAL `.data/global/llm-budget.json`. Every `npm run test` clobbered the operator's monthly LLM budget ledger. Fix scope: test isolation only. No production code changes. No OpenAI calls. No queue mutation.
+
+### What changed (code)
+
+- **`tests/domains/recommendations/adjudicate.test.ts`** — added file-level `beforeEach`/`afterEach` hooks that `mkdtempSync` a tmpdir and `process.chdir` into it (then restore + `rmSync` in afterEach). Replaced the module-level `DATA_DIR` const with a lazy `dataDir()` function so `process.cwd()` is read at call time, AFTER the chdir. Same pattern as `src/adapters/perplexity/poll.test.ts`.
+- **`tests/domains/recommendations/adjudicate-cache-only.test.ts`** — applied the identical fix.
+- **NEW `tests/architecture/llm-budget-test-isolation.test.ts`** — 7 invariants, 7 PASS:
+  - Walks every `*.test.ts(x)` file under `tests/` + `src/`. Detects calls to `writeStore(...)` against the four global stores at risk: `llm-budget`, `adjudicator-cache`, `adjudicator-history`, `llm-history-specific-edits`.
+  - For each such file, asserts hermetic isolation: either (a) `mkdtempSync(...)` + `process.chdir(...)` markers, or (b) `vi.mock("@/lib/persistence/json-store"|"@/domains/recommendations/adjudicator-budget", ...)`. A regression that re-introduces real-cwd writes fails the build before the next live-regen can lose budget accounting.
+  - Plus dedicated pins on the two fixed files: `mkdtempSync` + `process.chdir(workdir)` + `process.chdir(ORIGINAL_CWD)`, lazy `dataDir()` function, NO module-level `const DATA_DIR = path.resolve(process.cwd(), ".data")` capture.
+- **`.data/global/llm-budget.json`** — restored to the operator-authorized LR-1 + LR-2 baseline: `{ monthKey: "2026-05", spendUsd: 0.065741, calls: 6, capUsd: 10 }`. (Honest note below about what's NOT in the restoration.)
+
+### Audit of all tests touching global stores
+
+Files writing to global stores (via `writeStore(...)` against a literal name OR a loop that includes the name):
+
+| File | State | Hermetic? |
+|---|---|---|
+| `tests/domains/recommendations/adjudicate.test.ts` | **fixed in this bundle** | YES (mkdtempSync + chdir) |
+| `tests/domains/recommendations/adjudicate-cache-only.test.ts` | **fixed in this bundle** | YES (mkdtempSync + chdir) |
+| `tests/lib/persistence/json-store-vercel.test.ts` | already hermetic | YES (mkdtempSync + chdir) |
+| `tests/scripts/migrate-flat-to-tenant-data.test.ts` | already hermetic | YES (mkdtempSync per-test) |
+| `src/domains/recommendations/run-provider-and-persist-llm.test.ts` | mocks the persistence module entirely | YES (vi.mock) |
+
+No other test files touch these stores. The architecture invariant catches regressions across all 5 candidates.
+
+### Verification — ledger NOT clobbered by full suite
+
+Pre-test ledger:
+```json
+[ { "monthKey": "2026-05", "spendUsd": 0.065741, "calls": 6, "capUsd": 10, "updatedAt": "2026-05-06T03:42:00.000Z" } ]
+```
+
+Ran `npm run test` (4470/4475 PASS, 5 baseline failures unchanged — same `prompts-smoke.test.tsx` ×2, `prompt-drilldown-smoke.test.tsx` ×1, `auto-link-via-changelog.test.ts` ×2 from prior bundles).
+
+Post-test ledger: **byte-identical to pre-test.** ✅
+
+### Restoration scope (honest disclosure)
+
+The operator brief authorized restoring the ledger to the LR-1 + LR-2 combined baseline ($0.065741 / 6 calls). I wrote that exactly.
+
+The LLM history file (`.data/global/llm-history-specific-edits.json`) shows **21 live_call entries** for May 2026, totaling **$0.268231 / 21 calls**. The 6 LR-1+LR-2 entries are a subset; the other 15 entries (~$0.20) are pre-LR-1 dogfood runs that were ALSO clobbered by earlier `npm run test` invocations.
+
+I did NOT extend the restoration to the 21-call history total because:
+1. The operator brief explicitly named the LR-1 + LR-2 numbers, not the broader history total.
+2. Some pre-LR-1 entries may have had `costUsd: 0` (empty/error path); `recordSpend` is only called when `bundle.totalCostUsd > 0`. So the calls/spend in history won't match calls/spend in the ledger one-to-one.
+
+If the operator wants the full May reconstruction (e.g. `spendUsd: 0.268231 / calls: ~18` after dropping zero-cost rows), that's a one-line follow-up.
+
+### Quality gates
+
+- typecheck: clean (3 pre-existing prompt-drilldown errors).
+- targeted vitest: 18/18 PASS for the 2 fixed test files; 7/7 PASS for the new architecture invariant.
+- full suite: 4470/4475 (5 pre-existing failures unchanged; +12 new passing tests vs LR-2 baseline of 4463/4468 from new architecture invariant + dynamic per-file invariants).
+- build: EXIT_CODE=0 green (one Supabase prerender flake, retried successfully — same pattern seen in prior bundles).
+- ledger byte-equality: ✅ verified before/after full suite.
+
+### Why this matters for live regeneration
+
+Before this fix, the operator's monthly LLM budget ($10/month cap) was effectively a per-burst cap — every test run reset it to `[]`. An operator running tests between live-regen runs could exceed the intended monthly cap without any signal.
+
+After this fix:
+- Tests CANNOT clobber the ledger. The full suite runs in tmpdir-isolated cwds.
+- Future LR-N runs accumulate correctly across the month.
+- The architecture invariant catches any future test regression before it hits production.
+
+LR-3 is now safe to consider whenever the queue regrows (current queue exhausted by LR-1 + LR-2's combined runs; new candidates emerge daily as the cron refreshes).
+
+---
+
 ## 2026-05-05 — LLM-LiveRegen-2 (second persistence round-trip; 3 candidates, $0.0357, 4 rows persisted)
 
 Operator approved a second small live regeneration after LLM-DryRun-3.5 verified the Rule 16.A scope fix. Slate: 1 location expansion (Cupertino) + 2 single-prompt MEDIUM-confidence candidates (strengthen_page_copy, create_single) — the single-prompt MEDIUM candidates exercise the DryRun-3.5 SINGLE-PROMPT CAUTION code path in live persistence.

@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { promises as fs } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { adjudicateFromCacheOnly } from "@/domains/recommendations/adjudicate";
@@ -13,7 +15,31 @@ import type { TrackedPrompt } from "@/domains/tracked-prompts/types";
 import type { PromptOpportunity } from "@/domains/prompts/opportunity-classify";
 import { writeStore } from "@/lib/persistence/json-store";
 
-const DATA_DIR = path.resolve(process.cwd(), ".data");
+// LLM-LiveRegen-2 fix (operator audit, 2026-05-05) — see the matching
+// docstring in `adjudicate.test.ts`. Each test runs in its own
+// mkdtemp'd cwd so json-store + fs.unlink resolve under tmpdir, never
+// the project's real `.data/global/llm-budget.json`. Pinned by
+// `tests/architecture/llm-budget-test-isolation.test.ts`.
+const ORIGINAL_CWD = process.cwd();
+let workdir: string;
+
+beforeEach(() => {
+  workdir = mkdtempSync(path.join(tmpdir(), "beacon-adjudicate-cache-test-"));
+  process.chdir(workdir);
+});
+
+afterEach(() => {
+  process.chdir(ORIGINAL_CWD);
+  try {
+    rmSync(workdir, { recursive: true, force: true });
+  } catch {
+    // best-effort cleanup
+  }
+});
+
+function dataDir(): string {
+  return path.resolve(process.cwd(), ".data");
+}
 
 async function cleanupTestStores() {
   const stores = [
@@ -23,7 +49,7 @@ async function cleanupTestStores() {
   ];
   for (const s of stores) {
     try {
-      await fs.unlink(path.join(DATA_DIR, `${s}.json`));
+      await fs.unlink(path.join(dataDir(), `${s}.json`));
     } catch {
       /* ignore */
     }

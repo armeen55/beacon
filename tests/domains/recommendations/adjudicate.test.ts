@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { promises as fs } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 
 import {
@@ -15,7 +17,41 @@ import type { TrackedPrompt } from "@/domains/tracked-prompts/types";
 import type { PromptOpportunity } from "@/domains/prompts/opportunity-classify";
 import { writeStore } from "@/lib/persistence/json-store";
 
-const DATA_DIR = path.resolve(process.cwd(), ".data");
+// LLM-LiveRegen-2 fix (operator audit, 2026-05-05) — `cleanupTestStores`
+// previously wrote `[]` to `<repo>/.data/global/llm-budget.json` because
+// it resolved DATA_DIR against the process's REAL cwd at module import.
+// During LiveRegen-1 → LiveRegen-2, every `npm run test` therefore
+// silently clobbered the operator's monthly LLM budget ledger. Mirror
+// the hermetic pattern used by `src/adapters/perplexity/poll.test.ts`:
+// each test runs in its own mkdtemp'd cwd so json-store + the explicit
+// fs.unlink BOTH resolve under tmpdir/.data/, never the project's real
+// store. Production code is untouched. Pinned by
+// `tests/architecture/llm-budget-test-isolation.test.ts`.
+const ORIGINAL_CWD = process.cwd();
+let workdir: string;
+
+beforeEach(() => {
+  workdir = mkdtempSync(path.join(tmpdir(), "beacon-adjudicate-test-"));
+  process.chdir(workdir);
+});
+
+afterEach(() => {
+  process.chdir(ORIGINAL_CWD);
+  try {
+    rmSync(workdir, { recursive: true, force: true });
+  } catch {
+    // best-effort cleanup
+  }
+});
+
+/**
+ * Resolve DATA_DIR LAZILY from `process.cwd()` at call time so the
+ * hermetic chdir above takes effect. The previous module-scope const
+ * captured the project root forever and bypassed the chdir.
+ */
+function dataDir(): string {
+  return path.resolve(process.cwd(), ".data");
+}
 
 async function cleanupTestStores() {
   const stores = [
@@ -25,13 +61,14 @@ async function cleanupTestStores() {
   ];
   for (const s of stores) {
     try {
-      await fs.unlink(path.join(DATA_DIR, `${s}.json`));
+      await fs.unlink(path.join(dataDir(), `${s}.json`));
     } catch {
       /* ignore */
     }
     // json-store caches the file contents in-process; writing empty array
     // clears both the cached array and the on-disk file so the next test
-    // starts from a clean readStore.
+    // starts from a clean readStore. Resolves under the tmpdir cwd, not
+    // the project's real .data/.
     await writeStore(s, []);
   }
 }
