@@ -7,6 +7,87 @@
 
 ---
 
+## 2026-05-05 — LLM-LiveRegen-2 (second persistence round-trip; 3 candidates, $0.0357, 4 rows persisted)
+
+Operator approved a second small live regeneration after LLM-DryRun-3.5 verified the Rule 16.A scope fix. Slate: 1 location expansion (Cupertino) + 2 single-prompt MEDIUM-confidence candidates (strengthen_page_copy, create_single) — the single-prompt MEDIUM candidates exercise the DryRun-3.5 SINGLE-PROMPT CAUTION code path in live persistence.
+
+### What changed (code)
+
+- **NEW `scripts/llm-live-regen-2-discover.ts`** — read-only discovery script. Lists the entire live recommendation queue with confidence/tier/action/affectedPrompts/clusterKind/clusterLabel. Filters out LR-1 candidates and abstention candidates to surface the eligible slate. Used as the audit trail for "why these 3 candidates."
+- **NEW `scripts/llm-live-regen-2.ts`** — sibling of `llm-live-regen-1.ts`. Same hard scope ($1 cap, tenant-locked, candidate-pinned, persistence ONLY through `runProviderAndPersist`, halt-on-guardrail-trip semantics). Pinned candidates: `create_cluster_page:geo:Cupertino`, `strengthen_page_copy:prompt:328d13f0-…`, `create_single:prompt:39d566dc-…`.
+
+### Slate selection (from discovery)
+
+13 candidates in queue → 3 already touched by LR-1 → 6 LOW-confidence inventory (would abstain) → 1 medium-conf INVENTORY-tier (outside operator's "observation+ tier" criterion) → **3 remain eligible** = the slate above.
+
+Operator brief asked for "1 location + 1 page-create + 1 FAQ-heavy + 1 schema/technical": only Location ✓ available. No `create_new_page` candidates left after LR-1 took Bay Area teardown. No `add_schema` action types in this tenant's queue. Reported honestly upfront.
+
+### Run results
+
+| Candidate | Bundle | Accepted | Rejected | bundleErrors | Persisted | Cost | Guardrail |
+|---|---|---|---|---|---|---|---|
+| Cupertino (3 prompts) | 5 emitted | 2 | 3 (FAQ-pairing + 2 competitor-ref) | **1** | **NO** ✗ | $0.0122 | 0 |
+| strengthen_page (1 prompt) | 3 emitted | 1 | 2 (FAQ-pairing + competitor-ref) | **1** | **NO** ✗ | $0.0114 | 0 |
+| create_single (1 prompt) | 4 emitted | 4 | 0 | 0 | **YES** ✓, 4 rows | $0.0121 | 0 |
+
+Total: $0.0357 / $1 cap. **Actually persisted: 4 rows** (only candidate 3's clean bundle). 0 guardrail flags. Exit code 0.
+
+The bundleError gate (`runProviderAndPersist:733-737` — "if validation.bundleErrors.length === 0 && acceptedRows.length > 0") fired on candidates 1 and 2 and correctly aborted persistence. Both candidates' `acceptedRows` (2 + 1) were never written to .data or Supabase. **Verified via direct Supabase query**: 0 strengthen_page rows; 3 Cupertino rows were created 2026-05-04 (yesterday's dogfood, different element keys) — NOT from LR-2.
+
+### DryRun-3.5 fix verified in live persistence
+
+The 2 single-prompt MEDIUM candidates (strengthen_page + create_single) GENERATED (instead of abstaining as they would have under the LR-1 over-broad rule). Live confirmation that the DryRun-3.5 SINGLE-PROMPT CAUTION wording lands as expected.
+
+### Persistence verification
+
+- `.data/tenants/ritz-builders/recommended-edits.json`: 27 → 31 rows (+4); 19 → 23 openai-source (+4). Per-row scan of 4 new rows: **0 UUID hits, 0 placeholder hits, 0 fabricated-number hits in proposed_text/display_label/expected_impact, 0 competitor-name hits in public copy, 0 duplicate IDs.**
+- Supabase `recommended_edits`: 4 LR-2 rows landed (`create_single:prompt:39d566dc-…`), 0 duplicates, IDs match local exactly. Total tenant rows now 28 (24 + 4).
+- `.data/global/llm-history-specific-edits.json`: 3 `live_call` breadcrumbs appended (one per candidate; `acceptedCount` field is the validator's count, not the persisted count — Cupertino's 2 + strengthen_page's 1 are accepted-but-not-persisted because of bundleError).
+
+### **FINDING: Pre-existing test-isolation bug clobbered the budget ledger**
+
+`.data/global/llm-budget.json` after LR-2:
+```json
+{ "monthKey": "2026-05", "spendUsd": 0.035666, "calls": 3, "capUsd": 10, "updatedAt": "2026-05-06T02:58:20.695Z" }
+```
+
+This records ONLY LR-2's 3 calls. LR-1's $0.030075 + 3 calls is GONE. Root cause traced to `tests/domains/recommendations/adjudicate.test.ts:cleanupTestStores` (around line 38–58):
+
+```ts
+async function cleanupTestStores() {
+  const stores = ["adjudicator-cache", "adjudicator-history", "llm-budget"];
+  for (const s of stores) {
+    try {
+      await fs.unlink(path.join(DATA_DIR, `${s}.json`));
+    } catch { /* ignore */ }
+    await writeStore(s, []);  // ← writes to REAL .data/, not a tmpdir
+  }
+}
+```
+
+`DATA_DIR = path.resolve(process.cwd(), ".data")` — no hermetic chdir. Every `npm run test` run between LR-1 and LR-2 clobbered the file. Sibling tests (e.g. `src/adapters/perplexity/poll.test.ts`) DO use hermetic chdir (`workdir = await mkdtempPrefix; chdir(workdir); afterEach restores`). adjudicate.test.ts predates that pattern.
+
+**This is a pre-existing test bug, NOT a LR-2 regression.** LR-2's persistence-path code did exactly what it should have: read state from disk, accumulate spend, write back. The bug is upstream — the test reset the disk file before LR-2 ran.
+
+**Operational impact:** The $10/month cap is effectively a per-burst cap when tests reset the ledger. An operator could exceed the intended monthly cap across many bursts. Recommended follow-up bundle: hermetic-isolate `cleanupTestStores` (chdir to mkdtemp + afterEach restore, mirroring the perplexity poll pattern). Per the operator brief "do not fix forward silently," I'm flagging this here, NOT silently fixing in this bundle.
+
+### Quality gates
+
+- typecheck: clean (3 pre-existing prompt-drilldown errors).
+- targeted vitest: **69/69 PASS** across DryRun-2/3/3.5 + cutover ceiling + packet-resolution + harness no-persistence + recommendations route smoke.
+- full suite: 4463/4468 (5 pre-existing failures unchanged).
+- build: EXIT_CODE=0 green.
+
+### Cost ledger
+
+LR-2 spend (per the file, as observed): **$0.035666 / 3 calls.** Actual cumulative across all LLM runs (DryRun-1+2+3+3.5 + LR-1 + LR-2) ignoring the test-clobber: **$0.1963**.
+
+### Operator decision pending
+
+Recommended next step: a small bundle to hermetic-isolate `adjudicate.test.ts:cleanupTestStores`. Then if accurate monthly budget tracking matters going forward, ship it before any LR-3. Otherwise the LR-2 results stand — persistence + validator + bundleError-gate all worked correctly.
+
+---
+
 ## 2026-05-05 — LLM-DryRun-3.5 (Rule 16.A scope fix — single-prompt is CAUTION, not hard-trigger)
 
 Operator brief: LiveRegen-1 showed Rule 16.A trigger 1 was over-broad. Drop the single-prompt-only hard trigger; keep low-conf+brand-empty as primary; keep all-three-empty as fallback. Add SINGLE-PROMPT CAUTION (medium/high single-prompt MAY generate while grounding every edit in topSearchQueries OR blueprints). No persistence. No queue mutation.

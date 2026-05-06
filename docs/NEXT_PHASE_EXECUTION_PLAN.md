@@ -1,11 +1,12 @@
 # Beacon Execution Plan
 
-> 🟢 **LLM-DRYRUN-3.5 LANDED (2026-05-05).** Rule 16.A scope fix verified — Bay Area teardown packet (medium, 1 prompt, brand-empty) generates 4 ship-as-is edits at $0.0120 / $1 cap. NEGATIVE invariant pins that single-prompt-only-as-hard-abstain stays gone. Low-confidence abstention preserved (Los Altos + Menlo Park still abstain).
+> 🟡 **LLM-LIVEREGEN-2 LANDED (2026-05-05).** Second persistence round-trip: 3 candidates, $0.0357 / $1 cap, 4 rows persisted (only candidate 3's clean bundle; 2 of 3 bundles correctly rejected on bundleError). DryRun-3.5 SINGLE-PROMPT CAUTION fix verified in live persistence. Pre-existing test-isolation bug surfaced (adjudicate.test.ts:cleanupTestStores clobbers .data/global/llm-budget.json) — NOT a LR-2 regression.
 >
-> **Top of stack — operator approved, ready to execute:**
-> 1. **LLM-LiveRegen-2** — 5–10 candidates, $1 cap, mixed slot types, avoid LiveRegen-1's 3 (Palo Alto / Bay Area / Atherton). Pre-flight should surface a candidate slate with: 1 location expansion (NOT Palo Alto / Atherton), 1 page-create (NOT Bay Area teardown), 1 FAQ-heavy, 1 technical/schema if the queue surfaces one (`add_schema` / `fix_schema` action types). Persist only validator-accepted edits via `runProviderAndPersist`. Halt on guardrail-trip.
-> 2. After LiveRegen-2: optional architecture invariant `tests/architecture/llm-live-regen-allowlist.test.ts` pinning the live-regen harness's safety properties (tenant-locked, candidate-count cap, $1 cap, persistence ONLY through `runProviderAndPersist`, pre-flight assertion no low-conf/inventory/weak candidate enters the loop).
-> 3. Independent of decisions: all 59 LLM-DryRun-2/3/3.5 architecture invariants run on every PR. UUID leaks in `why`, removed abstention rule wording, removed packet `resolution` block, harness drift to a persistence API, regression of the cutover ceiling at 9, OR a regression of the single-prompt-only-as-hard-trigger rule all fail the build before reaching production.
+> **Top of stack — operator decision pending:**
+> 1. **Test-isolation fix (HIGHEST PRIORITY).** Recommended small bundle: hermetic-isolate `tests/domains/recommendations/adjudicate.test.ts:cleanupTestStores` so it doesn't write `[]` to the real `.data/global/llm-budget.json`. Pattern: chdir to mkdtemp + afterEach restore (mirror `src/adapters/perplexity/poll.test.ts`). Required before LR-3 if accurate monthly budget tracking matters.
+> 2. **LLM-LiveRegen-3 (optional).** The current queue has only 3 medium-conf observation-tier candidates not in LR-1 (used in LR-2). New candidates will populate as the daily cron runs and entity registry / search signals refresh. No-op until the queue regrows.
+> 3. **Optional architecture invariant** `tests/architecture/llm-live-regen-allowlist.test.ts` pinning the live-regen harness's safety properties (tenant-locked, candidate-count cap, $1 cap, persistence ONLY through `runProviderAndPersist`, pre-flight assertion no low-conf/inventory/weak candidate enters the loop). Defer until LR-3 is being planned.
+> 4. Independent of decisions: all 59 LLM-DryRun-2/3/3.5 architecture invariants run on every PR. The `bundleError` gate in `runProviderAndPersist` proven correct in production (LR-2 surfaced 2 bundleErrors and persistence aborted cleanly).
 
 > ✅ **Phase v4 Commits 1–7 LANDED (2026-04-30).** "Replace Profound in 2 weeks
 > while compounding the moat" is complete. Profound's 2026-05-10 expiry is now
