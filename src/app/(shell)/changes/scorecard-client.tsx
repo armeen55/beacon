@@ -122,7 +122,7 @@ const EMPTY_TAB_COPY: Record<LifecycleTab, string> = {
   needs_review:
     "No edits need triage. The scan returns this status when a match is ambiguous (partial match, wrong page, or multiple candidates).",
   imported_legacy:
-    "No imported legacy rows visible. Pre-pivot CSV / PDF rebuild rows would appear here.",
+    "Imported historical changes appear here. Most accounts have nothing in this tab.",
   scan_confirmed:
     "No scan-confirmed rows. Confirmed scan-finding diffs (from /today) land here with their original detection date.",
   unclassified:
@@ -587,7 +587,7 @@ function ChangeRow({
                 disabled={pending}
                 onClick={handleMarkShipped}
                 className="text-[10px] font-medium px-1.5 py-0.5 rounded border border-accent-primary/40 bg-accent-primary/[0.06] text-accent-primary hover:bg-accent-primary/[0.12] transition-colors disabled:opacity-50"
-                title="Stamps live_at = now and live_match_kind = operator_override. Use when you've already shipped the change and want the verdict math to start before tomorrow's scan."
+                title="Confirm this change is live on your site. Beacon will start tracking its impact now instead of waiting for the next scan."
               >
                 Mark shipped
               </button>

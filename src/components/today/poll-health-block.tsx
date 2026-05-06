@@ -133,7 +133,11 @@ function samplingStatusTag(s: PlatformPollHealth["samplingStatus"]): string {
     case "empty":
       return "no data";
     case "proof":
-      return "proof run (small sample)";
+      // Round 1 (2026-05-05) — sampling-taxonomy unification: "proof
+      // run" / "proof-sized sample" → "verification sample". Same
+      // operator-meaning ("manual small-batch run, not a full daily
+      // poll"); friendlier vocabulary.
+      return "verification sample";
     case "partial":
       return "partial day";
     case "full":
@@ -207,20 +211,20 @@ function subline(snap: PollHealthSnapshot): string {
   if (failing.length === 2) {
     const allPersistence = failing.every(isPersistenceFailure);
     if (allPersistence) {
-      return "Poll ran but no observations were saved on either platform. Check persistence (Supabase schema, dual-write logs) and GitHub Actions logs.";
+      return "Poll ran but no observations were saved on either platform. Check persistence and daily-poll logs (scheduled-job logs).";
     }
     const anyPersistence = failing.some(isPersistenceFailure);
     if (anyPersistence) {
-      return "Both platforms failed — at least one was a persistence failure (chunks completed but no rows landed). Check persistence, schema, API keys, and GitHub Actions logs.";
+      return "Both platforms failed — at least one was a persistence failure (chunks completed but no rows landed). Check persistence, API keys, and scheduled-job logs.";
     }
-    return "Both platforms failed — check API keys, persistence, and GitHub Actions logs.";
+    return "Both platforms failed — check API keys, persistence, and scheduled-job logs.";
   }
   if (failing.length === 1) {
     const f = failing[0];
     if (isPersistenceFailure(f)) {
-      return `${PLATFORM_LABELS[f.platform]} ran but no observations were saved. Check persistence (Supabase schema, dual-write logs) and GitHub Actions logs.`;
+      return `${PLATFORM_LABELS[f.platform]} ran but no observations were saved. Check persistence and daily-poll logs (scheduled-job logs).`;
     }
-    return `${PLATFORM_LABELS[f.platform]} failed all chunks — likely an API key, rate-limit, or persistence issue. Check API keys, persistence, and GitHub Actions logs.`;
+    return `${PLATFORM_LABELS[f.platform]} failed all chunks — likely an API key, rate-limit, or persistence issue. Check API keys, persistence, and scheduled-job logs.`;
   }
   if (partial.length > 0) {
     const names = partial
@@ -245,7 +249,8 @@ function subline(snap: PollHealthSnapshot): string {
   );
   if (proofPlatforms.length > 0) {
     const names = proofPlatforms.map((p) => PLATFORM_LABELS[p.platform]).join(" + ");
-    return `${names} ran a proof-sized sample (small). Headline deltas use larger windows; sparkline may dip on this day.`;
+    // Round 1 (2026-05-05) — sampling-taxonomy unification.
+    return `${names} ran a verification sample (small). Headline deltas use larger windows; sparkline may dip on this day.`;
   }
   if (partialPlatforms.length > 0) {
     const names = partialPlatforms

@@ -239,6 +239,26 @@ export type RecommendationActionRow = {
   /** Specific-edit `id` when this row maps to one. Null for meta-
    *  action rows (create_page / review_decision / regenerate_edit). */
   readonly sourceEditId: string | null;
+  /**
+   * Round 1 customer-readiness (2026-05-05) — edit provider source so
+   * the operator can see which rows came from the OpenAI specific-edit
+   * provider vs the deterministic generators. Surfaces as a small
+   * "AI" pill on the row. Null when no specific edit anchored this row
+   * (meta-action rows: create_page / review_decision / regenerate_edit).
+   * Values mirror `RecommendedEditRow.source` ("openai", "deterministic",
+   * "anthropic", "operator_edited", "historical_recovered").
+   */
+  readonly editSource: string | null;
+  /**
+   * Round 1 customer-readiness (2026-05-05) — engine confidence verdict
+   * promoted from `detail.debug.engineConfidence.confidence` to a
+   * top-level field so the rec table can render a "High/Medium/Low
+   * confidence" pill on the row without requiring the operator to
+   * expand the Debug block. The full reason (`engineConfidence.reasons`)
+   * stays in the drawer's Debug section per Round 1 brief
+   * ("Keep `confidenceReason` in details/debug").
+   */
+  readonly engineConfidence: "high" | "medium" | "low" | null;
   /** Whether this row was generated from an exact specific edit (vs
    *  a meta-action like Choose direction). Drives default-state copy. */
   readonly hasExactEdit: boolean;
@@ -1218,6 +1238,12 @@ export function buildRecommendationActionRows(
           // but tests + drawers that index by editId resolve to the
           // question row.
           sourceEditId: question.id,
+          // Round 1 (2026-05-05) — surface edit provider + engine
+          // confidence on the row. The FAQ pair groups question +
+          // answer; we report the question's source (canonical
+          // primary) but they should match for any sane bundle.
+          editSource: question.source ?? null,
+          engineConfidence: rec.engineConfidence?.confidence ?? null,
           hasExactEdit: true,
           responseStatus,
           acceptedAgeDays,
@@ -1317,6 +1343,9 @@ export function buildRecommendationActionRows(
           evidenceSummary,
           sourceRecommendationId: rec.stableKey,
           sourceEditId: edit.id,
+          // Round 1 (2026-05-05) — see FAQ-pair path above.
+          editSource: edit.source ?? null,
+          engineConfidence: rec.engineConfidence?.confidence ?? null,
           hasExactEdit: true,
           responseStatus,
           acceptedAgeDays,
@@ -1445,6 +1474,11 @@ export function buildRecommendationActionRows(
       evidenceSummary,
       sourceRecommendationId: rec.stableKey,
       sourceEditId: null,
+      // Round 1 (2026-05-05) — meta-action rows have no anchoring
+      // specific edit, so no provider attribution. The engine
+      // confidence still carries (it's a rec-level property).
+      editSource: null,
+      engineConfidence: rec.engineConfidence?.confidence ?? null,
       hasExactEdit: false,
       responseStatus,
       acceptedAgeDays,

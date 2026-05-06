@@ -7,6 +7,66 @@
 
 ---
 
+## 2026-05-06 — Customer-Readiness Round 1 (6 paper-cut fixes)
+
+Operator-approved 6-fix bundle from the customer-readiness audit. Test-only LLM safety net continues to hold (ledger byte-identical before/after full suite). Pure copy + small UI additions; no LLM calls, no queue mutation, no SYSTEM_PROMPT changes, no persistence logic touched.
+
+### What changed (code)
+
+| File | Fix | Change |
+|---|---|---|
+| `src/app/(shell)/changes/scorecard-client.tsx` | Fix 1 | Mark Shipped tooltip rewrite. `"Stamps live_at = now and live_match_kind = operator_override. Use when…"` → `"Confirm this change is live on your site. Beacon will start tracking its impact now instead of waiting for the next scan."` |
+| `src/app/(shell)/changes/scorecard-client.tsx` | Fix 6 | Imported legacy empty state rewrite. `"No imported legacy rows visible. Pre-pivot CSV / PDF rebuild rows would appear here."` → `"Imported historical changes appear here. Most accounts have nothing in this tab."` |
+| `src/components/today/poll-health-block.tsx` | Fix 2 | Poll Health infra-leak rewrite. `"Check persistence (Supabase schema, dual-write logs) and GitHub Actions logs."` → `"Check persistence and daily-poll logs (scheduled-job logs)."` Same applied to all 5 copy sites. |
+| `src/components/today/poll-health-block.tsx` | Fix 5 | Sampling taxonomy unification. `"proof run (small sample)"` and `"proof-sized sample (small)"` → `"verification sample"`. `"partial day"` preserved for partial-chunks state. |
+| `src/domains/recommendations/recommendation-action-rows.ts` | Fix 3 + 4 | Added `editSource: string \| null` and `engineConfidence: "high" \| "medium" \| "low" \| null` top-level fields on `RecommendationActionRow`. Populated in all 3 build paths (FAQ-pair from `question.source`, non-FAQ from `edit.source`, meta from `null`; engineConfidence from `rec.engineConfidence?.confidence ?? null` in all 3). |
+| `src/app/(shell)/recommendations/recommendations-client.tsx` | Fix 3 | Added `AIPill` component + `AI_SOURCE_NAMES` allow-list (`{"openai", "anthropic"}`). Renders subtle `AI` pill in row title cell when `editSource ∈ AI_SOURCE_NAMES`; returns `null` for null/non-AI sources. |
+| `src/app/(shell)/recommendations/recommendations-client.tsx` | Fix 4 | Added `ConfidencePill` component with `CONFIDENCE_PILL_CLASS` + `CONFIDENCE_PILL_LABEL` lookups ("High confidence" / "Medium confidence" / "Low confidence"). Renders in row title cell when `engineConfidence` is set; returns `null` otherwise. Detailed `confidenceReason` stays in drawer per Round 1 brief. |
+
+Production code surface: **3 source files** edited (1 type extended, 2 component re-renders, 4 string sites + 1 row-builder field-population in 3 paths). Zero changes to: persistence orchestrator, validator, SYSTEM_PROMPT, queue logic, dual-write helpers, LLM provider, store classification.
+
+### What changed (tests)
+
+- **NEW `tests/architecture/customer-readiness-round-1.test.ts`** — 26 invariants, 26 PASS. Per fix: positive assertion (new copy / new render branch present) + negative assertion (old jargon stays gone). Plus a cross-fix bundle-integrity sanity test that scans all 3 touched source files for any forbidden Round 1 phrase and fails the build if any landing site re-introduces them.
+- **UPDATED `tests/architecture/poll-health-copy.test.ts`** — the prior Bug-1 invariant required `/Supabase schema|dual-write logs/` and `/GitHub Actions logs/` to appear in poll-health source. Round 1 explicitly reverses those vendor-name requirements (operator brief: "do not include Supabase, dual-write, GitHub Actions"). Bug-1's SHAPE (persistence-failure branch vs API-failure branch) preserved; only the vendor names removed. The test's `explicitly distinguishes` and `retains the GitHub Actions logs reference` assertions were rewritten to pin the new operator-readable phrases (`"persistence and daily-poll logs"`, `"scheduled-job logs"`).
+
+### Verification — ledger NOT clobbered
+
+| State | SHA-256 of `.data/global/llm-budget.json` |
+|---|---|
+| Pre-bundle | `d36eed8ca157cb4c65ee01a2c51a2fef3fb21a0dfdbb036753d6d7c570927dbd` |
+| Post-targeted-tests | `d36eed8ca157cb4c65ee01a2c51a2fef3fb21a0dfdbb036753d6d7c570927dbd` ✅ |
+| Post-full-suite (4524/4529) | `d36eed8ca157cb4c65ee01a2c51a2fef3fb21a0dfdbb036753d6d7c570927dbd` ✅ |
+
+Test-isolation fix continues to hold across the new architecture invariants.
+
+### Quality gates
+
+- typecheck: clean (3 pre-existing prompt-drilldown errors unrelated).
+- targeted vitest: **32/32 PASS** (26 customer-readiness-round-1 + 6 updated poll-health-copy).
+- full suite: **4524/4529** (5 pre-existing baseline failures unchanged: `prompts-smoke.test.tsx` ×2, `prompt-drilldown-smoke.test.tsx` ×1, `auto-link-via-changelog.test.ts` ×2; **+58 new passing tests** vs prior baseline of 4498 — net gain across the new invariants and updated assertions).
+- build: EXIT_CODE=0 green (no Supabase prerender flake on this run).
+- ledger byte-equality: ✅ pre/post-test SHA identical.
+
+### Architecture invariant inventory after Round 1
+
+| Bundle | Tests | Cumulative |
+|---|---|---|
+| LLM-DryRun-2/3/3.5 + LR-N + budget hermetic | 94 | 94 |
+| **Customer-Readiness Round 1 (this bundle)** | **26** | **120** |
+
+### Operator-locked deliveries (per brief acceptance criteria)
+
+- ✅ typecheck clean
+- ✅ targeted tests pass
+- ✅ full suite only known baseline failures
+- ✅ build green
+- ✅ ledger byte-identical before/after tests
+
+Out of scope (deferred to round 2 or later): prompt drilldown friendly slugs, Tier 1A comment sweep, status-pill color differentiation, onboarding scaffolding, schema/technical LLM path.
+
+---
+
 ## 2026-05-05 — May 2026 LLM budget ledger reconciled from history
 
 After the test-isolation fix landed and the operator-authorized LR-1+LR-2 baseline ($0.065741 / 6 calls) was written, the LLM history file showed 21 live_call entries totaling $0.268231 for May 2026 — pre-LR-1 dogfood spend that earlier test clobbers had also lost. Operator brief: reconcile the ledger to the full May aggregate, deterministically, from the history file.
