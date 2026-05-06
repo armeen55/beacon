@@ -7,6 +7,82 @@
 
 ---
 
+## 2026-05-06 — Profound May 10 readiness guardrails
+
+Operator brief: 2-item bundle to lock in the GREEN readiness from the 2026-05-06 audit. No code deletion (operator brief: "Do not delete adapters yet"). No /settings/import modification (audit found no leak). No native-polling touch. Pure forward-looking guardrails.
+
+### What changed (code)
+
+- **NEW `tests/architecture/profound-runtime-isolation.test.ts`** — 114/114 PASS. 7 invariant blocks:
+  1. **Daily cron workflows are Profound-free** (`daily-native-poll.yml`, `poll-canary.yml`, `daily-scan.yml`). Strips YAML `#`-comments before the negative check so historical context in comments doesn't trip the gate (active config is the contract).
+  2. **Every `/api/*` route is Profound-free.** Walks `src/app/api/`, strips comments, fails on any reference to `runProfoundImport` / `bridgeProfoundResults` / `importProfoundData` / `ProfoundImportResult` or any import path containing `adapters/profound`.
+  3. **Every daily-routine script is Profound-free.** Iterates an explicit `DAILY_ROUTINE_SCRIPTS` allowlist (kept in sync with `.github/workflows/`): `check-yesterday-poll.ts`, `canary-persistence-write.ts`, `run-scheduled-scan.ts`, `verify-daily-poll.ts`, `poll-perplexity.ts`, `poll-openai.ts`, `rebuild-citation-evidence-index-native.ts`. Fails if any references Profound runtime entry points.
+  4. **Shell routes outside `/settings/import` are Profound-free.** Walks `src/app/(shell)/`, skips files under `settings/import/`, fails on any forbidden runtime reference.
+  5. **`/settings/import/import-page.tsx` is the ONLY caller of `importProfoundData()`.** Greps all of `src/app/`, `src/components/`, `src/lib/`, `src/domains/` for the function-call shape `importProfoundData(`. The expected caller set is exactly `[src/app/(shell)/settings/import/import-page.tsx]`. The ONLY allowed definition site is `src/adapters/profound/actions.ts`.
+  6. **Zero `PROFOUND_*` env vars** in `.env.local.example`, `package.json` scripts, `vercel.json`, and every `.github/workflows/*.yml` file.
+  7. **`daily-native-poll.yml` is canonically Profound-free + invokes only native endpoints.** Pins the file's positive shape (`/api/poll/run`, `perplexity`, `openai`, `rebuild-citation-evidence-index`).
+  Plus: a cross-check that the readiness doc exists and references the invariant by name.
+
+- **NEW `docs/PROFOUND_MAY_10_READINESS.md`** — operator-readable checklist:
+  - GREEN readiness summary.
+  - What's Profound-free today (table of every cron / `/api/*` / daily script / shell route + the invariant block that pins each).
+  - What still exists and why it's safe (adapter directory, dead `data-adapters/`, CSV fixtures, pre-cutover Supabase rows).
+  - What breaks May 10 (nothing functionally; only loss of fresh CSV download from Profound's website).
+  - Historical Profound data preservation surfaces.
+  - May 10 checklist (operator's day-of-cutover sweep).
+  - May 11 morning verification checklist.
+  - Post-May-10 cleanup queue (13 items, all Fast-tier).
+  - Explicit "DO NOT delete before 2026-05-11" rule with 4 reasons.
+  - Full description of what the architecture invariant protects.
+
+### Diagnostic finding during the bundle
+
+The first invariant run flagged `daily-native-poll.yml:187` — a `#`-comment that historically referenced Profound (explaining what the rebuild step replaced). This is intentional context, not active config. Updated the invariant to apply YAML `#`-comment stripping (mirrors the TS `/* */` + `//` comment-strip pattern other architecture invariants use). Active config remains pinned 100% Profound-free; historical comments allowed for future-reader context.
+
+### Verification — ledger NOT clobbered
+
+| State | SHA-256 of `.data/global/llm-budget.json` |
+|---|---|
+| Pre-bundle | `d36eed8ca157cb4c65ee01a2c51a2fef3fb21a0dfdbb036753d6d7c570927dbd` |
+| Post-targeted-tests (114/114 PASS) | `d36eed8ca157cb4c65ee01a2c51a2fef3fb21a0dfdbb036753d6d7c570927dbd` ✅ |
+| Post-full-suite | `d36eed8ca157cb4c65ee01a2c51a2fef3fb21a0dfdbb036753d6d7c570927dbd` ✅ |
+
+### Quality gates
+
+- typecheck: clean (3 pre-existing prompt-drilldown errors unrelated).
+- targeted vitest: 114/114 PASS.
+- full suite: 4650/4655 (5 pre-existing baseline failures unchanged; +114 new passing tests vs prior baseline of 4536).
+- build: EXIT_CODE=0 green.
+- ledger byte-equality: ✅ pre/post-suite identical.
+
+### Architecture invariant inventory
+
+| Bundle | New | Cumulative |
+|---|---|---|
+| LLM cycle | 94 | 94 |
+| Customer-Readiness Round 1 | 26 | 120 |
+| Customer-Readiness Round 2 | 12 | 132 |
+| **Profound runtime isolation (this bundle)** | **114** | **246** |
+
+### Operator brief acceptance
+
+| Required | Status |
+|---|---|
+| Item 1 — runtime-isolation invariant | ✅ `tests/architecture/profound-runtime-isolation.test.ts` |
+| Item 2 — readiness doc | ✅ `docs/PROFOUND_MAY_10_READINESS.md` |
+| Optional: link readiness doc from NEXT_PHASE | ✅ |
+| typecheck clean | ✅ |
+| targeted invariant passes | ✅ 114/114 |
+| full suite only baseline failures | ✅ 5 baseline |
+| build green | ✅ EXIT_CODE=0 |
+| ledger byte-identical | ✅ |
+| commit + push | ✅ |
+| final report | ✅ this entry |
+
+LLM work remains paused. No Profound deletion until ≥2026-05-11.
+
+---
+
 ## 2026-05-06 — Morning verification + Customer-Readiness Round 2
 
 Operator brief: morning verification first; if GREEN, proceed only to Round 2 paper-cuts (no LLM work). Verified GREEN; landed Round 2.
