@@ -425,7 +425,7 @@ describe("buildPromptDrilldown", () => {
       prompt,
       observations,
       activeEntities: ENTITIES,
-      now: NOW,
+      classifyOptions: { now: NOW },
     });
     const names = out.competitors.map((c) => c.name);
     // Pollution dropped.
@@ -462,7 +462,7 @@ describe("buildPromptDrilldown", () => {
       prompt,
       observations,
       activeEntities: [...ENTITIES, HOUZZ, YELP],
-      now: NOW,
+      classifyOptions: { now: NOW },
     });
     const names = out.competitors.map((c) => c.name);
     expect(names).not.toContain("Houzz");
@@ -492,7 +492,7 @@ describe("buildPromptDrilldown", () => {
       prompt,
       observations,
       activeEntities: [...ENTITIES, BAY_BUILDERS],
-      now: NOW,
+      classifyOptions: { now: NOW },
     });
     const names = out.competitors.map((c) => c.name);
     expect(names).toContain("Bay Builders");
