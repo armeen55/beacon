@@ -7,6 +7,91 @@
 
 ---
 
+## 2026-05-06 — RLS deny-all migration + leaked-password protection decision
+
+Operator-approved bundle (preflight + apply + verification + leaked-password follow-up). Closed customer-2 onboarding's top blocker (direct anon-key/PostgREST exposure to 36 public tables) and recorded the decision to defer the only remaining Security Advisor WARN.
+
+### Migration applied
+
+- **Name:** `rls_deny_all_with_tenant_members_self_read`
+- **Method:** `apply_migration` (recorded in Supabase migration history, not ad-hoc `execute_sql`).
+- **Project:** `jdegznovgysxyweknewh` (Beacon, us-east-2, Postgres 17).
+- **Scope:** 36 tables in `public` schema. No DDL on `auth`, `storage`, `realtime`, `vault`, `supabase_migrations`. No data touched. No columns altered. No drops.
+
+### What changed (DB)
+
+For each of the 35 non-`tenant_members` tables (alphabetical):
+`answer_intelligence_index`, `answer_texts`, `attribution_decisions`, `business_config`, `candidate_links`, `change_contracts`, `change_outcomes`, `change_patterns`, `changelog_entries`, `citation_evidence_index`, `competitor_config`, `competitors`, `confidence_calibration`, `daily_metric_snapshots`, `guardrail_alerts`, `import_runs`, `llm_rejections`, `observation_runs`, `opportunities`, `page_element_inventory`, `page_issues`, `page_snapshots`, `page_visibility`, `pages`, `prompt_answer_observations`, `raw_poll_chunks`, `recommendation_responses`, `recommended_edits`, `results`, `scan_findings`, `tenants`, `tracked_entities`, `tracked_prompts`, `triage_rules`, `url_change_outcomes`:
+- `ALTER TABLE public.<t> ENABLE ROW LEVEL SECURITY;`
+- `CREATE POLICY deny_anon ON public.<t> AS PERMISSIVE FOR ALL TO anon USING (false) WITH CHECK (false);`
+- `CREATE POLICY deny_authenticated ON public.<t> AS PERMISSIVE FOR ALL TO authenticated USING (false) WITH CHECK (false);`
+
+For `tenant_members` (the auth-middleware carve-out — `src/lib/auth/supabase-middleware.ts:103–106` queries it via the anon-key cookie-bound client on every authenticated request to inject the tenant header):
+- `ALTER TABLE public.tenant_members ENABLE ROW LEVEL SECURITY;`
+- `CREATE POLICY deny_anon ON public.tenant_members AS PERMISSIVE FOR ALL TO anon USING (false) WITH CHECK (false);`
+- `CREATE POLICY members_self_read ON public.tenant_members AS PERMISSIVE FOR SELECT TO authenticated USING (user_id = auth.uid());`
+  No INSERT / UPDATE / DELETE policy for `authenticated` — those default-deny because no permissive policy covers them.
+
+`service_role` (verified via `pg_roles`: `rolbypassrls=true`) bypasses all policies. All Beacon `getSupabaseAdmin()` paths unaffected.
+
+### Preflight that gated the apply
+
+- Catalogued every Supabase client construction in `src/`. 11 files use `.from(...)`. 10 use `getSupabaseAdmin()` (service-role). The single exception is the auth middleware's `tenant_members` query (anon-key cookie-bound `createServerClient`); the carve-out above matches its query shape exactly.
+- Confirmed `getSupabaseServerClient()` (`src/lib/auth/supabase-server.ts`) is auth-only across all 4 callers (`/auth/callback`, `/auth/signout`, `/login/page`, `/login/actions` — all `auth.*` calls, no `.from()`).
+- All 5 Supabase-using scripts (`bootstrap-from-supabase`, `backfill-operator-loop-stores`, `diag-auto-link-fixture`, `verify-auto-link-flip`, `diag-poll-health`) use `SUPABASE_SERVICE_ROLE_KEY`, not the anon key.
+- Confirmed the 36 tables match the Security Advisor list exactly via direct `pg_tables` query; zero existing `pg_policies` rows in `public` (clean slate, no residue to merge with).
+- Confirmed `service_role` and `postgres` have `BYPASSRLS=true`; `anon` and `authenticated` do not.
+
+### Verification (post-apply)
+
+- **DB state:** `pg_tables` shows 36 `public` tables `rowsecurity=true`, 0 `false`. `pg_policies` shows 72 rows (36 `deny_anon` + 35 `deny_authenticated` + 1 `members_self_read`). Matches the design exactly.
+- **Security Advisor re-run:** 0 `rls_disabled_in_public` (was 36). 1 WARN remains (`auth_leaked_password_protection` — see decision below).
+- **Anon REST read probes** via `curl` with `apikey: $NEXT_PUBLIC_SUPABASE_ANON_KEY`:
+  - `GET /rest/v1/tracked_prompts?select=id,text&limit=3` → `[]` (HTTP 200, RLS filtered all rows). ✓
+  - `GET /rest/v1/recommended_edits?select=id&limit=3` → `[]` (HTTP 200, RLS filtered). ✓
+  - `GET /rest/v1/tenant_members?select=user_id,tenant_id&limit=3` → `[]` (HTTP 200, anon deny-all). ✓
+- **Anon REST write probes:**
+  - `POST /rest/v1/recommended_edits` with a legitimate-looking insert payload → `HTTP 401`, body `{"code":"42501","message":"new row violates row-level security policy for table \"recommended_edits\""}`. ✓
+  - `POST /rest/v1/tenant_members` (hostile membership-grant attempt: arbitrary `user_id` + `hostile-tenant` + `role=owner`) → `HTTP 401`, body `{"code":"42501","message":"new row violates row-level security policy for table \"tenant_members\""}`. ✓ Privilege-escalation vector closed.
+- **Service-role bypass:** `npx tsx … check-yesterday-poll.ts 2026-05-06` returns the same output as pre-migration (Perplexity ok 4/4 100, ChatGPT partial 3/4 99 — pre-existing YELLOW from earlier YELLOW investigation, unaffected by RLS). Repository facade probe via service-role: `tenantRepo.getTrackedPrompts()=100`, `getTrackedEntities()=40`, `getRecommendedEdits()=28`, `getChangelogEntries()=334`, `getPromptAnswerObservations({since:"2026-05-06"})=199`. All numbers match expected production state.
+- **Quality gate:** `npm run typecheck` clean (0 errors); targeted `tests/middleware tests/tenants tests/architecture/canonical-store-tenant-isolation.test.ts tests/persistence/tenant-isolation-behavioral.test.ts tests/persistence/tenant-repository-pushdown.test.ts tests/persistence/dual-write-tenant.test.ts tests/lib/tenant-context-slug-fallback.test.ts tests/lib/tenant-context.test.ts` 150/150 PASS in 8.61s; full suite 4669/4674 (5 baseline failures unchanged from pre-migration); `npm run build` ✓ Compiled in 6.0s, ✓ 26/26 static pages.
+- **Hosted smoke (operator-driven):** sign-in to beacon-bice.vercel.app does NOT redirect to `/login?error=no_tenant`. Shell loads normally. The `tenant_members` self-read carve-out is verified end-to-end on Vercel.
+- **Ledger byte-equality:** `.data/global/llm-budget.json` SHA `d36eed8ca157cb4c65ee01a2c51a2fef3fb21a0dfdbb036753d6d7c570927dbd` — byte-identical to pre-apply. Zero LLM spend on this work.
+
+### Leaked-password protection — DEFERRED, not enabled
+
+The single remaining Security Advisor warning, `auth_leaked_password_protection`, is **acknowledged and intentionally deferred**. Reasoning (verified, not assumed):
+
+- Per Supabase docs (`/docs/guides/auth/password-security`), the feature only fires on password-based flows: `signInWithPassword` (login) and password creation/update flows. It does not affect magic-link / OTP / session-refresh.
+- Beacon's auth surface is 100% magic-link / OTP. `grep` of `src/` for `signInWithPassword|signUp|updateUser.*password|passwordless|signInWithOtp`: only one production hit, `src/app/login/actions.ts:24` (`supabase.auth.signInWithOtp(...)`). No password-based call exists.
+- Existing sessions are unaffected (the protection runs at password-set/use time, not session-refresh).
+- The toggle requires **Supabase Pro Plan**. Beacon org's plan (verified via `get_organization`): `"plan": "free"`. The dashboard toggle is not actionable until upgrade.
+- Cost-benefit today: enable risk = 0 (no password code path to break); disable risk = 0 (no passwords to protect).
+
+**Trigger to revisit:** the moment Beacon adds a password-based sign-up or sign-in surface (e.g., as part of customer-2 onboarding). Precondition added to `NEXT_PHASE_EXECUTION_PLAN.md` Phase 7.9.
+
+### Rollback plan (recorded for future reference; not exercised)
+
+Plan A (full undo): a single `DO $$` block that loops the 36 tables, drops the three policies (`deny_anon`, `deny_authenticated`, `members_self_read`), then `ALTER TABLE … DISABLE ROW LEVEL SECURITY`. Wrapped in `BEGIN…COMMIT`. Idempotent.
+
+Plan B (single-table): same shape, scoped to one table.
+
+Plan C (emergency): set `BEACON_AUTH_DISABLED=1` in Vercel env and redeploy — the middleware's existing `if (process.env.BEACON_AUTH_DISABLED === "1")` early-return ([supabase-middleware.ts:41–43](../src/lib/auth/supabase-middleware.ts)) bypasses the `tenant_members` query entirely. The shell becomes unauthenticated (the original single-user-internal posture).
+
+None exercised — every verification step passed.
+
+### Acceptance
+
+Customer-2 onboarding's top DB-side blocker is closed. The customer-2 onboarding scaffold (Phase 7.9) is unblocked from a security perspective. Two preconditions remain before any non-operator user signs up:
+1. If password-based sign-up is offered, upgrade Supabase to Pro and enable leaked-password protection (this entry's deferred WARN).
+2. Layer per-tenant policies on top of the deny-all defaults for tables a multi-tenant UI would expose. Deferred per operator brief; will land alongside the second-tenant onboarding flow.
+
+### Bonus: CI typecheck unbroken (commit b20813e, same day)
+
+3-line fix to `tests/domains/prompts/prompt-drilldown.test.ts`: the 3 Task 3 entity-pollution tests passed `now: NOW` as a top-level field of `BuildPromptDrilldownArgs` (which has no `now` field) instead of `classifyOptions: { now: NOW }`. CI typecheck has been failing on every commit since `a84a1e0` (2026-05-04 19:57 PT). Vitest's transform silently tolerated the excess property, so tests passed at runtime; `tsc --noEmit` did not. Move into `classifyOptions` is structurally correct (matches the test author's clear intent for lookback-clock injection) and changes no assertion semantics — the 3 affected tests assert only on `out.competitors`, which is computed from observations + activeEntities and never consults `now`. Typecheck now reports 0 errors. Test stage still emails on the 5 pre-existing test failures (separate bundle).
+
+---
+
 ## 2026-05-06 — Customer-2 isolation fix: tracked_prompts + tracked_entities tenant-scoped
 
 Operator brief (split bundle, item 1 of 4): canonical `loadFreshCanonicalData()` was reading `tracked_prompts` and `tracked_entities` via the BASE `SeedDataRepository.getTrackedPrompts()` / `.getTrackedEntities()` methods — the unscoped global reads. Both stores are TENANT_SCOPED in `store-classification.ts`, but the canonical fresh-load path was returning ALL rows across tenants. With customer-2 onboarding imminent, that would have silently mixed Ritz's prompts + competitors into customer-2's /today leaderboard.
