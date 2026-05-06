@@ -333,6 +333,15 @@ export function prettifySlug(raw: string | null | undefined): string | null {
   // Bare UUIDs are operator-noise — don't render.
   if (UUID_RE.test(trimmed)) return null;
 
+  // If the input already contains a space, treat it as already-prettified
+  // human-readable text (e.g. tracked-prompts.json topic_ids like
+  // "Already Have Architectural Plans (Bay Area)") and return verbatim.
+  // Slugs always use `-` or `_` separators, never spaces, so this is a
+  // safe early-exit. Without this guard, single-token title-cased input
+  // gets sentence-cased by titleCaseToken (only the first char stays
+  // uppercase) — the live bug surfaced by prompt-drilldown-smoke.
+  if (/\s/.test(trimmed)) return trimmed;
+
   // Split on - or _ ; reject if there's nothing word-like.
   const tokens = trimmed.split(/[-_]+/).filter((t) => t.length > 0);
   if (tokens.length === 0) return null;

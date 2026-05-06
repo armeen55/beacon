@@ -10,9 +10,16 @@ vi.mock("next/navigation", () => ({
 // Seed canonical-store with deterministic fixture data so the route
 // render is fully offline. Covers: empty, all-early, mixed-category.
 vi.mock("@/storage/canonical-store", async () => {
-  const now = new Date("2026-04-24T12:00:00Z");
+  // Relative dates keep the fixture observations inside the classifier's
+  // default 7-day lookback window regardless of when the test runs.
+  // Hardcoded April-23/-24 strings drift outside the window after a few
+  // weeks and the page short-circuits to the "Too early to judge" empty
+  // state — see Beacon CI red 2026-05-06.
+  const now = new Date();
   const todayIso = now.toISOString().slice(0, 10);
-  const yesterdayIso = "2026-04-23";
+  const yesterdayIso = new Date(now.getTime() - 24 * 60 * 60 * 1000)
+    .toISOString()
+    .slice(0, 10);
 
   const trackedPrompts = [
     {

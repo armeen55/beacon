@@ -124,13 +124,19 @@ vi.mock("@/storage/canonical-store", async () => {
     tenant_id: "t",
   } as const;
 
+  // Relative observation dates keep the fixtures inside the classifier's
+  // default 7-day lookback window regardless of when the test runs. The
+  // hour offsets (14h / 13h / 12h) preserve the original chronological
+  // ordering so the "Raw evidence — last 3" sort is stable.
+  const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const yesterdayDay = yesterday.toISOString().slice(0, 10);
   const promptAnswerObservations = [
     {
       ...baseObs,
       id: "obs-outranked-0",
       prompt_id: "p-outranked",
       platform: "perplexity",
-      observed_at: "2026-04-23T14:00:00Z",
+      observed_at: `${yesterdayDay}T14:00:00Z`,
       primary_recommendation: false,
       citation_rank: null,
       competitor_co_mentions: ["CRC Builders", "Homestead"],
@@ -141,7 +147,7 @@ vi.mock("@/storage/canonical-store", async () => {
       id: "obs-outranked-1",
       prompt_id: "p-outranked",
       platform: "chatgpt",
-      observed_at: "2026-04-23T13:00:00Z",
+      observed_at: `${yesterdayDay}T13:00:00Z`,
       primary_recommendation: false,
       citation_rank: null,
       competitor_co_mentions: ["CRC Builders", "Homestead"],
@@ -152,7 +158,7 @@ vi.mock("@/storage/canonical-store", async () => {
       id: "obs-outranked-2",
       prompt_id: "p-outranked",
       platform: "chatgpt",
-      observed_at: "2026-04-23T12:00:00Z",
+      observed_at: `${yesterdayDay}T12:00:00Z`,
       primary_recommendation: false,
       citation_rank: null,
       competitor_co_mentions: ["CRC Builders"],

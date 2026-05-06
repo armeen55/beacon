@@ -133,7 +133,13 @@ describe("Phase Auto-Link v2 — match-through-changelog", () => {
       h2_list: ["New Heading"],
       fetched_at: "2026-04-22T12:00:00Z",
     });
-    const rec = changelog({ id: "cl-rec-1" });
+    // Relative timestamp keeps the changelog inside the 14-day
+    // REC_LINK_WINDOW_MS regardless of when the test runs (matches the
+    // pattern used by the "multiple eligible changelogs" test below).
+    const rec = changelog({
+      id: "cl-rec-1",
+      timestamp: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
+    });
 
     const findings = generateFindings({
       currentSnapshots: [curr],
@@ -385,6 +391,9 @@ describe("Phase Auto-Link v2 — match-through-changelog", () => {
       signal_type: "technical",
       change_description: "Add section to /services/whole-home-remodel",
       source_rec_id: "rec-add-section",
+      // Keep within the 14-day REC_LINK_WINDOW_MS regardless of when the
+      // test runs (same pattern as the happy-path test above).
+      timestamp: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
     });
 
     const findings = generateFindings({
