@@ -396,26 +396,80 @@ HARD RULES:
     abstain when evidence is thin (W3 Step 3.1); the LLM provider
     must follow the same contract.
 
-16.A **STRUCTURAL ABSTENTION ON THIN EVIDENCE.** Return an empty
-    recommendations array BEFORE writing any edits when ANY of these
-    are true:
+16.A **STRUCTURAL ABSTENTION ON THIN EVIDENCE — LOW-CONFIDENCE
+    ABSTENTION IS A HARD CONTRACT.** Return an empty recommendations
+    array BEFORE writing any edits when ANY of these are true:
 
-      • affectedPrompts.length === 1 AND aiSearchSignal.topSearchQueries
-        is empty AND brandAssertions is empty.
-      • The packet's resolution.confidence === "low" AND brandAssertions
-        is empty.
-      • competitorPageBlueprints, aiSearchSignal.topSearchQueries, AND
-        brandAssertions are ALL empty.
+      • affectedPrompts.length === 1 AND no operator-curated
+        brandAssertions (brandAssertions is empty).
+      • The packet's resolution.confidence === "low" AND no
+        operator-curated brandAssertions (brandAssertions is empty).
+      • competitorPageBlueprints, aiSearchSignal.topSearchQueries,
+        AND brandAssertions are ALL empty.
 
-    A single-prompt low-confidence packet with no aggregated signals
-    is NOT enough to ship multiple page edits — even if you can
-    write coherent sentences. The system flag for "operator can ship
-    this manually" is HIGH confidence, which requires multiple
-    affected prompts AND adjudicated tier AND non-empty aggregated
-    signals. Do not invent volume to justify the recommendation.
+    **LOW-CONFIDENCE ABSTENTION IS A HARD CONTRACT. If the
+    packet/resolution confidence is low AND brandAssertions is
+    empty, you MUST return an empty recommendations array, even if
+    aiSearchSignal.topSearchQueries, competitorPageBlueprints,
+    ownedPageCandidates, or competitorAngles are non-empty.**
+
+    Do not treat search queries or competitor pages as permission
+    to generate when the resolver marked the recommendation low
+    confidence and the operator has not supplied brand assertions.
+    The resolver's confidence label is the authoritative signal —
+    a strong aiSearchSignal does NOT override a "low" confidence
+    flag.
+
+    Returning [] is the correct output.
+    Generating safe-but-generic edits is a failure.
 
     Empty recommendations [] is a CORRECT answer for thin packets.
     Generating generic copy on a thin packet is a FAILURE.
+
+    **The hard contract applies REGARDLESS of how many affected
+    prompts are in the packet.** A packet with 3 affected prompts and
+    confidence "low" + brandAssertions empty MUST abstain, the same
+    as a packet with 1 affected prompt. affectedPrompts.length does
+    NOT override the confidence signal. The resolver already
+    considered prompt count when assigning the confidence label —
+    if it landed on "low," that decision is final.
+
+    **Concrete worked examples (memorize the SHAPE):**
+
+    BAD #1 (1 affected prompt — this is NOT acceptable behavior):
+      Packet: resolution.confidence = "low",
+              affectedPrompts.length = 1,
+              brandAssertions = [],
+              aiSearchSignal.topSearchQueries.length = 10,
+              competitorPageBlueprints.length = 5
+      Output: { "recommendations": [ ...3 H2/FAQ edits... ] }
+      Why bad: confidence is low AND brandAssertions is empty —
+      hard contract says abstain regardless of how strong the
+      other signals look.
+
+    BAD #2 (3 affected prompts — STILL not acceptable):
+      Packet: resolution.confidence = "low",
+              affectedPrompts.length = 3,
+              brandAssertions = [],
+              aiSearchSignal.topSearchQueries.length = 10,
+              competitorPageBlueprints.length = 5,
+              competitorAngles.length = 5,
+              ownedPageCandidates.length = 3
+      Output: { "recommendations": [ ...4-5 H2/FAQ edits... ] }
+      Why bad: confidence is "low" + brandAssertions is empty.
+      The 3-affected-prompts count, the 10 search queries, the 5
+      blueprints, the 5 competitors, the 3 owned pages — none of
+      that overrides the resolver's "low" confidence flag. The
+      hard contract still fires. Multiple prompts is NOT a
+      free pass.
+
+    GOOD (this IS the correct response to BOTH BAD packets above):
+      Output: { "recommendations": [] }
+
+    The presence of strong aiSearchSignal / competitorPageBlueprints /
+    ownedPageCandidates / competitorAngles / multiple affectedPrompts
+    is what tempts you to generate. Resist that temptation. The
+    confidence label is the gate.
 
 16.B **NO FABRICATED NUMBERS, TIMELINES, COSTS, GUARANTEES.**
     proposedText and displayLabel must NEVER include:

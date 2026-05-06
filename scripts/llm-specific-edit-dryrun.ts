@@ -66,10 +66,34 @@ import type {
 import type { ResolvedRecommendationCandidate } from "@/domains/recommendations/resolved-types";
 import type { SpecificEditEvidencePacket } from "@/domains/recommendations/specific-edit-evidence";
 
-const BUDGET_CAP_USD = 3.0;
+// Default budget cap; can be tightened (never widened) via
+// BEACON_DRYRUN_BUDGET_CAP_USD env var. LLM-DryRun-3 (2026-05-05) runs
+// at $1 per operator brief; the default $3 is for full 5-slot runs.
+const DEFAULT_BUDGET_CAP_USD = 3.0;
+const BUDGET_CAP_USD = (() => {
+  const raw = process.env.BEACON_DRYRUN_BUDGET_CAP_USD?.trim();
+  if (!raw) return DEFAULT_BUDGET_CAP_USD;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_BUDGET_CAP_USD;
+  // Never allow a wider cap than the default — the env var is a
+  // tightener, not a bypass.
+  return Math.min(parsed, DEFAULT_BUDGET_CAP_USD);
+})();
 const RESULTS_OUTPUT_PATH =
   process.env.BEACON_DRYRUN_OUTPUT?.trim() ||
   join(process.cwd(), "tmp", "llm-specific-edit-dryrun-output.json");
+// Optional slot filter: comma-separated list of slot names. When set,
+// only those slots are picked. Used by LLM-DryRun-3 to re-run just the
+// two abstention candidates (`location_geo,weak_evidence`).
+const SLOT_FILTER: ReadonlySet<string> | null = (() => {
+  const raw = process.env.BEACON_DRYRUN_ONLY_SLOTS?.trim();
+  if (!raw) return null;
+  const tokens = raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+  return tokens.length > 0 ? new Set(tokens) : null;
+})();
 
 type SlotName =
   | "create_page"
@@ -239,6 +263,16 @@ function pickFiveSlots(
       why: `affectedPromptIds=${weakCandidate.affectedPromptIds.length}, tier=${weakCandidate.resolution.tier}, confidence=${weakCandidate.resolution.confidence}`,
     });
     pickedKeys.add(weakCandidate.stableKey);
+  }
+
+  // Apply slot filter (BEACON_DRYRUN_ONLY_SLOTS) AFTER full picking so
+  // each slot still selects against the same candidate pool it would
+  // have otherwise — the picks are identical, we just emit a subset.
+  // This matters for reproducibility: re-running DryRun-3 on slots 4+5
+  // must select the EXACT same Los Altos + Menlo Park candidates that
+  // DryRun-2 picked, even though slots 1-3 are skipped.
+  if (SLOT_FILTER) {
+    return picks.filter((p) => SLOT_FILTER.has(p.slot));
   }
 
   return picks;

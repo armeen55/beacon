@@ -7,6 +7,73 @@
 
 ---
 
+## 2026-05-05 — LLM-DryRun-3 (strict abstention hardened — operator Option B)
+
+Operator chose Option B from the DryRun-2 decision matrix: tighten Rule 16.A to a hard contract before any live regen. No paid live regeneration. Dry-run only. No persistence. No queue mutation.
+
+### What changed (code)
+
+- **`src/domains/recommendations/providers/openai.ts`** — Rule 16.A rewritten as a hard contract per the operator-locked text: "LOW-CONFIDENCE ABSTENTION IS A HARD CONTRACT. If the packet/resolution confidence is low AND brandAssertions is empty, you MUST return an empty recommendations array, even if aiSearchSignal.topSearchQueries, competitorPageBlueprints, ownedPageCandidates, or competitorAngles are non-empty." Added the "safe-but-generic edits is a failure" closer, the explicit "REGARDLESS of how many affected prompts" qualifier, and concrete BAD #1 (1-prompt) + BAD #2 (3-prompt, matching Los Altos shape) + GOOD examples that show `{ "recommendations": [] }` as the literal correct output.
+- **`src/domains/recommendations/specific-edit-evidence.ts`** — added top-level `resolution?: { confidence: "high" | "medium" | "low"; tier: ResolverTier; action: RecommendationAction } | null` block to `SpecificEditEvidencePacket`. Builder `buildSpecificEditEvidencePacket` threads it through `withoutHash` so the field lands in `evidenceHash` (cache invalidates correctly when resolver flips). Optional + nullable so legacy test fixtures and callers without a resolver continue to typecheck.
+- **`src/domains/recommendations/load-queue.ts`** — `buildPacketForRec` sources `resolution: rec.resolution ? { confidence, tier, action } : null` into the builder args. Production path always sets it (or explicit null when the candidate has no resolution attached).
+- **No SYSTEM_PROMPT side change** — the existing wording references `resolution.confidence === "low"`, which now exactly matches the JSON-stringified user-message field.
+- **`scripts/llm-specific-edit-dryrun.ts`** — added `BEACON_DRYRUN_ONLY_SLOTS` (comma-separated slot filter, applied AFTER full picking so re-runs reproduce the exact same Los Altos + Menlo Park candidates DryRun-2 selected) and `BEACON_DRYRUN_BUDGET_CAP_USD` (tightener-only env var, clamped to ≤ default $3).
+
+### Why a packet-schema change qualified as a safety-issue escalation
+
+The operator brief said: *"No product-code changes beyond SYSTEM_PROMPT/test wording unless a safety issue appears."* Initial attempts to satisfy the brief by SYSTEM_PROMPT-only wording failed twice on the Los Altos candidate (DryRun-3 attempt #1: 5 edits; attempt #2: 8 edits) despite identical confidence=low + brandAssertions=empty conditions to Menlo Park (which DID abstain). Diagnosis: trigger 2 references `resolution.confidence`, but the packet didn't carry that field. Menlo Park abstained via trigger 1 (`affectedPrompts.length === 1` is packet-data-evaluable). Los Altos's only path was trigger 2, which was structurally unenforceable. **The success criterion ("low-confidence/no-brandAssertions samples return [\]") could not be met by prompt-only changes — the rule needed data the packet didn't carry.** Surfacing the resolver context closed the gap with the smallest possible product-code change (one new optional field on a packet type, one wire in the builder, no provider-side change because `JSON.stringify(packet)` already serializes the full payload).
+
+### What changed (tests)
+
+- **NEW `tests/architecture/openai-system-prompt-dryrun3.test.ts`** — 16 invariants, 16 PASS. Pins SYSTEM_PROMPT lexically: "LOW-CONFIDENCE ABSTENTION IS A HARD CONTRACT", "MUST return an empty recommendations array", "even if aiSearchSignal.topSearchQueries", "even if … competitorPageBlueprints", "ownedPageCandidates", "competitorAngles", confidence-low + brandAssertions-empty conjunction, "operator-curated" brandAssertions qualifier, "safe-but-generic edits is a failure", BAD with `affectedPrompts.length = 3`, "Multiple prompts is NOT a free pass", REGARDLESS-of-affectedPrompts qualifier, GOOD with literal `{ "recommendations": [] }`, plus retention of DryRun-2's STRUCTURAL ABSTENTION header + "CORRECT answer for thin packets" + the three triggers.
+- **NEW `tests/architecture/packet-carries-resolver-confidence.test.ts`** — 6 invariants, 6 PASS. Pins the packet TYPE declares resolution.{confidence,tier,action}; `buildSpecificEditEvidencePacket` includes the resolution block in `withoutHash` (so the hash captures it); `buildPacketForRec` threads `confidence` + `tier` + `action` from `rec.resolution`; falls back to null when no resolver attached; the OpenAI provider's user-message construction calls `JSON.stringify(packet, null, 2)` (full packet, no projection).
+- All DryRun-2 invariants (8 validator + 9 SYSTEM_PROMPT + 5 harness no-persistence + 3 cutover ceiling = 25) re-verified PASS unchanged.
+
+### Re-run dry-run results (after final fix)
+
+| Sample | resolution.confidence | affectedPrompts | brandAssertions | aiSignals | blueprints | Bundle output | Cost | Validator |
+|---|---|---|---|---|---|---|---|---|
+| location_geo (Los Altos) | **low** | 3 | 0 | 10 | 5 | **`{ "recommendations": [] }`** ✅ | $0.0034 | 0/0/0 |
+| weak_evidence (Menlo Park) | **low** | 1 | 0 | 10 | 5 | **`{ "recommendations": [] }`** ✅ | $0.0032 | 0/0/0 |
+
+Total cost: **$0.0066** ($1.00 cap, 0.66% used). Process exit code: 0. Guardrail flags: 0.
+
+**Reversal vs DryRun-2:** Los Altos went from generating 4 edits (DryRun-2) → 5 (DryRun-3 attempt #1, prompt-only wording) → 8 (DryRun-3 attempt #2, multi-prompt BAD example added) → **`[]` (DryRun-3 final, after exposing `resolution.confidence` to the packet)**. The fix that worked was exposing the data the rule needed, not adding more prompt language.
+
+### Operator success-criteria scorecard
+
+| Criterion | Result |
+|---|---|
+| Low-confidence/no-brandAssertions samples return [] | ✅ Both samples |
+| 0 UUID leaks | ✅ |
+| 0 fabricated numbers/timelines/costs | ✅ |
+| 0 placeholders | ✅ |
+| 0 competitor names in public copy | ✅ |
+| build/test clean | ✅ |
+
+**6 of 6 PASS.**
+
+### Quality gates
+
+- typecheck — 3 errors, all pre-existing on main (`tests/domains/prompts/prompt-drilldown.test.ts` `BuildPromptDrilldownArgs.now`); none in DryRun-3 files. Verified by stash test.
+- targeted vitest — 273/273 PASS across 8 test files (`specific-edit-validator.dryrun2.test.ts` ×8, `openai-system-prompt-dryrun2.test.ts` ×9, `openai-system-prompt-dryrun3.test.ts` ×16, `llm-dryrun-harness-no-persistence.test.ts` ×5, `no-uuid-in-active-recs.test.ts` ×3, `specific-edit-validator.test.ts` ×N, `specific-edit-evidence.test.ts` ×N, `copy-sanitize.test.ts` ×N, `packet-carries-resolver-confidence.test.ts` ×6).
+- full suite — 4451/4456 PASS, 5 baseline failures (`prompts-smoke.test.tsx` ×2, `prompt-drilldown-smoke.test.tsx` ×1, `auto-link-via-changelog.test.ts` ×2). Verified pre-existing on main (DryRun-2 baseline was 4429/4434; +22 new passing tests from DryRun-3 invariants + packet-schema test fixture surface).
+- build — green (Vercel-equivalent local, EXIT_CODE=0).
+
+### Cost ledger
+
+LLM-DryRun-3 spend: **$0.0066 USD** (gpt-5-mini, single tenant `tenant-ritz-founder`, 2 abstention samples). Cumulative DryRun-1 + DryRun-2 + DryRun-3 spend: **$0.1305** — well inside even the strictest operator-supplied budget cap.
+
+### Operator decision pending
+
+Recommended: GO for $1-cap 5–10-candidate live regeneration on `tenant-ritz-founder` with persistence observed carefully. Validator + architecture invariants now form a complete safety net at save-time + at SYSTEM_PROMPT level + at packet-data level.
+
+If operator wants one more dry-run iteration (DryRun-4 across all 5 slots) to verify the strict abstention doesn't accidentally suppress the 3 medium-confidence packets that should generate, expected cost ≈ $0.07. Optional.
+
+If operator wants to defer live regen entirely: validator + architecture invariants stand alone. Any future drift caught by CI before it touches a queue.
+
+---
+
 ## 2026-05-05 — LLM-DryRun-2 (validator + SYSTEM_PROMPT tightening + harness reusable)
 
 Operator-scoped LLM-DryRun-2 follow-up to close the three DryRun-1 failure modes (UUID leaks in `why` text, fabricated timeline "12 to 18 months", failure-to-abstain on a thin packet). No paid live regen. Dry-run only. No queue mutation.

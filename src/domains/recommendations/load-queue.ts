@@ -445,6 +445,21 @@ export function buildPacketForRec(
     // skipped, preserving the legacy candidate-set behavior for
     // graceful degradation.
     singleTargetUrl: rec.resolution?.targetUrl ?? null,
+    // LLM-DryRun-3 (2026-05-05) — surface the FULL resolver context
+    // (confidence + tier + action) so the LLM's structural-abstention
+    // rule (Rule 16.A trigger 2) can actually fire. Before this, the
+    // model could see brandAssertions empty but had no way to evaluate
+    // `confidence === "low"` for multi-prompt packets — the rule was
+    // structurally unenforceable in that branch. With this in place
+    // the JSON-stringified user message carries a literal
+    // `"resolution": { "confidence": "low", ... }` block.
+    resolution: rec.resolution
+      ? {
+          confidence: rec.resolution.confidence,
+          tier: rec.resolution.tier,
+          action: rec.resolution.action,
+        }
+      : null,
     now,
   });
 }

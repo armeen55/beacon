@@ -67,7 +67,11 @@ import {
   type PageInventoryEntry,
 } from "./page-inventory";
 import { canonicalStringify } from "./evidence-packet";
-import { NEEDS_NEW_PAGE } from "./resolved-types";
+import {
+  NEEDS_NEW_PAGE,
+  type ResolverTier,
+  type RecommendationAction,
+} from "./resolved-types";
 import {
   getCrossTenantPatterns,
   type CrossTenantPattern,
@@ -342,6 +346,36 @@ export type SpecificEditEvidencePacket = {
   clusterLabel: string | null;
   /** "geo" / "topic" / null. Drives generator heuristics. */
   clusterKind: SpecificEditClusterKind | null;
+  /**
+   * LLM-DryRun-3 (operator audit, 2026-05-05) — resolver context block.
+   *
+   * The page-intent resolver runs upstream of the packet builder and
+   * stamps `confidence`, `tier`, and `action` on every queued rec. Prior
+   * to LLM-DryRun-3 these fields lived only on the candidate
+   * (`rec.resolution.*`) and were NOT serialized into the user message,
+   * which meant the SYSTEM_PROMPT's structural-abstention rule
+   * (Rule 16.A trigger 2: "resolution.confidence === 'low' AND
+   * brandAssertions empty") was structurally unenforceable for any
+   * multi-prompt low-confidence packet — the model could see
+   * `brandAssertions` but had no way to read `confidence`.
+   *
+   * Surfacing the resolver context here closes that gap. The model
+   * now sees a literal `"resolution": { "confidence": "low", ... }`
+   * block in the JSON-stringified packet and the rule's trigger 2
+   * becomes evaluable from packet data alone.
+   *
+   * Optional + nullable so legacy test fixtures and callers without a
+   * resolver can omit the field entirely. The production path
+   * `buildPacketForRec` ALWAYS sets it (or explicit null when the
+   * candidate has no resolution attached). SYSTEM_PROMPT trigger 2
+   * only fires when this block is non-null AND its `confidence` is
+   * `"low"`.
+   */
+  resolution?: {
+    confidence: "high" | "medium" | "low";
+    tier: ResolverTier;
+    action: RecommendationAction;
+  } | null;
   affectedPrompts: AffectedPromptBlock[];
   ownedPageCandidates: OwnedPageCandidateBlock[];
   targetPageElements: TargetPageElementBlock[];
@@ -441,6 +475,20 @@ export type BuildSpecificEditEvidencePacketArgs = {
    * this from `rec.resolution.targetUrl`.
    */
   singleTargetUrl: string | null;
+  /**
+   * LLM-DryRun-3 (2026-05-05) — full resolver context block (confidence
+   * + tier + action). The production caller `buildPacketForRec`
+   * sources this from `rec.resolution`. Optional + nullable so test
+   * fixtures and legacy callers without a resolver can pass `null` /
+   * omit. Lands on `packet.resolution` so the SYSTEM_PROMPT's
+   * structural-abstention rule has the data it needs to fire on
+   * multi-prompt low-confidence packets.
+   */
+  resolution?: {
+    confidence: "high" | "medium" | "low";
+    tier: ResolverTier;
+    action: RecommendationAction;
+  } | null;
   /** Optional historical action-type → outcome rates (Sprint 6A.2 will
    *  populate). Defaults to `[]`. */
   priorOutcomes?: ReadonlyArray<PriorOutcomeBlock>;
@@ -621,6 +669,10 @@ export function buildSpecificEditEvidencePacket(
     clusterId: args.clusterId ?? null,
     clusterLabel: args.clusterLabel,
     clusterKind: args.clusterKind,
+    // LLM-DryRun-3 (2026-05-05) — surface resolver context so the
+    // SYSTEM_PROMPT structural-abstention rule has the data it needs
+    // to fire. See packet-type docstring for context.
+    resolution: args.resolution ?? null,
     affectedPrompts,
     ownedPageCandidates,
     targetPageElements,
