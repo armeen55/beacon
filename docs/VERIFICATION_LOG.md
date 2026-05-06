@@ -7,6 +7,83 @@
 
 ---
 
+## 2026-05-05 — LLM-DryRun-3.5 (Rule 16.A scope fix — single-prompt is CAUTION, not hard-trigger)
+
+Operator brief: LiveRegen-1 showed Rule 16.A trigger 1 was over-broad. Drop the single-prompt-only hard trigger; keep low-conf+brand-empty as primary; keep all-three-empty as fallback. Add SINGLE-PROMPT CAUTION (medium/high single-prompt MAY generate while grounding every edit in topSearchQueries OR blueprints). No persistence. No queue mutation.
+
+### What changed (code)
+
+- **`src/domains/recommendations/providers/openai.ts`** Rule 16.A rewritten:
+  - **REMOVED hard trigger:** `affectedPrompts.length === 1 AND no operator-curated brandAssertions`
+  - **KEPT (now primary trigger):** `resolution.confidence === "low" AND no operator-curated brandAssertions` (regardless of prompt count)
+  - **KEPT (now secondary trigger):** `competitorPageBlueprints + aiSearchSignal.topSearchQueries + brandAssertions ALL empty`
+  - **ADDED SINGLE-PROMPT CAUTION block:** at medium/high confidence, single-prompt packets may generate IF every emitted edit is grounded in topSearchQueries OR competitorPageBlueprints (or brandAssertions when present). NOT a hard abstain.
+  - **ADDED GOOD #2 worked example:** medium-conf single-prompt + 10 search queries + 5 blueprints → emit 2-4 grounded edits. Reinforces the canonical "generate" shape.
+  - LiveRegen-1's "Bay Area abstention" pattern is now a generate scenario; LOW-confidence single-prompt patterns (Menlo Park) still abstain via trigger 1.
+
+### What changed (tests)
+
+- **NEW `tests/architecture/openai-system-prompt-dryrun3.5.test.ts`** — 12 invariants, 12 PASS:
+  - **NEGATIVE invariant:** HARD trigger list MUST NOT contain a single-prompt-only abstain bullet — pins that the over-broad wording stays gone (regression catcher).
+  - HARD trigger list keeps low-conf + brand-empty.
+  - HARD trigger list keeps all-three-empty fallback.
+  - SINGLE-PROMPT CAUTION block declared by name.
+  - "NOT a hard abstain" framing adjacent to CAUTION.
+  - "DO generate IF…" affirmative permission for medium/high single-prompt.
+  - Edit grounding requirement (topSearchQueries OR blueprints) explicit.
+  - GOOD #2 worked example with literal `confidence = "medium"` + `affectedPrompts.length = 1`.
+  - All DryRun-2/3 protections retained (STRUCTURAL ABSTENTION header, HARD CONTRACT wording, MUST + even-if override, multi-prompt BAD example).
+
+### Re-run results (Bay Area teardown only)
+
+| Metric | LiveRegen-1 (over-broad rule) | DryRun-3.5 (fixed rule) |
+|---|---|---|
+| Bundle output | 0 edits (abstained) | **4 edits** ✅ |
+| Validator | 0/0/0 | 4/0/0 |
+| Cost | $0.0038 | $0.0120 |
+| Guardrail flags | 0 | 0 |
+| UUID leaks | n/a | 0 |
+| Fabricated numbers | n/a | 0 |
+| Placeholders | n/a | 0 |
+| Competitor names in proposedText | n/a | 0 |
+
+All 4 emitted edits cite topSearchQueries or competitor blueprints + AI descriptors. Hedged language throughout. Validator accepted all 4 cleanly.
+
+### Operator success-criteria scorecard
+
+| Criterion | Result |
+|---|---|
+| Bay Area teardown generates again | ✅ 4 edits |
+| 0 UUID leaks | ✅ |
+| 0 fabricated timelines/costs/guarantees | ✅ |
+| 0 placeholders | ✅ |
+| 0 competitor names in public copy | ✅ |
+| Validator accepts useful edits or cleanly rejects bad ones | ✅ 4/4 accepted |
+| build/test clean | ✅ |
+
+**7 of 7 PASS.**
+
+### Quality gates
+
+- typecheck: clean (3 pre-existing prompt-drilldown errors verified pre-existing in earlier bundles).
+- targeted vitest: **59/59 PASS** across DryRun-2 (25) + DryRun-3 (22) + DryRun-3.5 (12). The fix is Pareto — every prior invariant remains intact while the over-broad single-prompt-as-hard-trigger wording is removed.
+- full suite: 4463/4468 (5 pre-existing failures unchanged, +12 new passing from DryRun-3.5 invariants).
+- build: EXIT_CODE=0 green.
+
+### Cost ledger
+
+DryRun-3.5 spend: **$0.0120 USD** (gpt-5-mini, single tenant, 1 sample). Cumulative LLM cycle spend (DryRun-1+2+3 + LiveRegen-1 + DryRun-3.5): **$0.1726**.
+
+### Why the fix works
+
+The packet-resolution-confidence wiring (LLM-DryRun-3) made the rule data-evaluable. The hard-contract MUST/even-if wording (DryRun-3) made low-confidence abstention strict. DryRun-3.5 narrows the hard trigger to exactly the operator's intent: low confidence is the gate, not single-prompt count. Medium/high single-prompt packets with strong aggregates ARE legitimate — the resolver weighed them in when assigning the confidence label.
+
+### Operator decision pending
+
+Recommended next step: LLM-LiveRegen-2 (5–10 candidates, $1 cap, mixed slot types, avoid LiveRegen-1's 3 candidates). Validator + 59 architecture invariants + persistence path now form a complete safety net at scale.
+
+---
+
 ## 2026-05-05 — LLM-LiveRegen-1 (first persistence round-trip; 3 candidates, $0.0301)
 
 Operator approved a 3-candidate small live regeneration after LLM-DryRun-3 closed strict abstention. **First paid persistence round-trip after the entire DryRun cycle.** No queue mutation outside the 3 pinned candidates. No backfill. No broad regen.

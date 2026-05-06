@@ -1,12 +1,11 @@
 # Beacon Execution Plan
 
-> 🟢 **LLM-LIVEREGEN-1 LANDED (2026-05-05).** First persistence round-trip clean: 3 candidates, $0.0301 / $1 cap, 7 rows persisted, 0 guardrail flags, 0 duplicates, all dual-write to Supabase. One open behavior finding surfaced (single-prompt MEDIUM-confidence packets abstain because Rule 16.A trigger 1 isn't gated on confidence).
+> 🟢 **LLM-DRYRUN-3.5 LANDED (2026-05-05).** Rule 16.A scope fix verified — Bay Area teardown packet (medium, 1 prompt, brand-empty) generates 4 ship-as-is edits at $0.0120 / $1 cap. NEGATIVE invariant pins that single-prompt-only-as-hard-abstain stays gone. Low-confidence abstention preserved (Los Altos + Menlo Park still abstain).
 >
-> **Top of stack — operator decision pending:**
-> 1. Read `docs/LLM_LIVE_REGEN_1_REPORT.md` § "Open questions for operator." Decide on Rule 16.A trigger 1 scope (recommend Option B: tighten to LOW confidence only so single-prompt MEDIUM packets generate again).
-> 2. Authorize a 5–10-candidate next live-regen iteration across DIFFERENT slot types (current 3 covered location-cluster expansion + create-page; next mix should hit at least one schema/technical action, FAQ-pairing edge case, and competitor-blueprint-heavy packet). Budget cap: $1 (same conservative ceiling as LiveRegen-1).
-> 3. Optional: add a sibling architecture invariant `tests/architecture/llm-live-regen-1-allowlist.test.ts` that pins LiveRegen harness's safety properties (tenant-locked, candidate-count-cap, $1 cap, persistence ONLY through `runProviderAndPersist`, pre-flight assertion no low-conf/inventory candidate enters the loop).
-> 4. Independent of decisions: all LLM-DryRun-2 + DryRun-3 architecture invariants (47 in total) run on every PR. UUID leaks in `why`, removed abstention rule wording, removed packet `resolution` block, harness drift to a persistence API, or a regression of the cutover ceiling at 9 all fail the build before reaching production.
+> **Top of stack — operator approved, ready to execute:**
+> 1. **LLM-LiveRegen-2** — 5–10 candidates, $1 cap, mixed slot types, avoid LiveRegen-1's 3 (Palo Alto / Bay Area / Atherton). Pre-flight should surface a candidate slate with: 1 location expansion (NOT Palo Alto / Atherton), 1 page-create (NOT Bay Area teardown), 1 FAQ-heavy, 1 technical/schema if the queue surfaces one (`add_schema` / `fix_schema` action types). Persist only validator-accepted edits via `runProviderAndPersist`. Halt on guardrail-trip.
+> 2. After LiveRegen-2: optional architecture invariant `tests/architecture/llm-live-regen-allowlist.test.ts` pinning the live-regen harness's safety properties (tenant-locked, candidate-count cap, $1 cap, persistence ONLY through `runProviderAndPersist`, pre-flight assertion no low-conf/inventory/weak candidate enters the loop).
+> 3. Independent of decisions: all 59 LLM-DryRun-2/3/3.5 architecture invariants run on every PR. UUID leaks in `why`, removed abstention rule wording, removed packet `resolution` block, harness drift to a persistence API, regression of the cutover ceiling at 9, OR a regression of the single-prompt-only-as-hard-trigger rule all fail the build before reaching production.
 
 > ✅ **Phase v4 Commits 1–7 LANDED (2026-04-30).** "Replace Profound in 2 weeks
 > while compounding the moat" is complete. Profound's 2026-05-10 expiry is now

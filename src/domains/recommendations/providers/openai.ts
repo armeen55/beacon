@@ -400,12 +400,13 @@ HARD RULES:
     ABSTENTION IS A HARD CONTRACT.** Return an empty recommendations
     array BEFORE writing any edits when ANY of these are true:
 
-      • affectedPrompts.length === 1 AND no operator-curated
-        brandAssertions (brandAssertions is empty).
       • The packet's resolution.confidence === "low" AND no
         operator-curated brandAssertions (brandAssertions is empty).
+        This applies REGARDLESS of how many affectedPrompts are in
+        the packet.
       • competitorPageBlueprints, aiSearchSignal.topSearchQueries,
-        AND brandAssertions are ALL empty.
+        AND brandAssertions are ALL empty (no aggregate signal at
+        all).
 
     **LOW-CONFIDENCE ABSTENTION IS A HARD CONTRACT. If the
     packet/resolution confidence is low AND brandAssertions is
@@ -427,16 +428,31 @@ HARD RULES:
     Generating generic copy on a thin packet is a FAILURE.
 
     **The hard contract applies REGARDLESS of how many affected
-    prompts are in the packet.** A packet with 3 affected prompts and
-    confidence "low" + brandAssertions empty MUST abstain, the same
-    as a packet with 1 affected prompt. affectedPrompts.length does
-    NOT override the confidence signal. The resolver already
+    prompts are in the packet.** A packet with 3 affected prompts
+    and confidence "low" + brandAssertions empty MUST abstain, the
+    same as a packet with 1 affected prompt. affectedPrompts.length
+    does NOT override the confidence signal. The resolver already
     considered prompt count when assigning the confidence label —
     if it landed on "low," that decision is final.
 
+    **SINGLE-PROMPT CAUTION (NOT a hard abstain).** When
+    affectedPrompts.length === 1 AND confidence is "medium" or
+    "high," DO generate IF — and only if — every emitted edit is
+    directly grounded in either aiSearchSignal.topSearchQueries
+    or competitorPageBlueprints (or, when present, brandAssertions).
+    A single-prompt packet at medium/high confidence with non-empty
+    aggregate signals (10 topSearchQueries, 5 blueprints) IS a
+    legitimate generate scenario — the resolver flagged it
+    medium/high precisely because the aggregate evidence carries
+    weight even when only one prompt is affected. Do NOT abstain
+    on single-prompt + brand-empty alone; that's an over-broad
+    reading of Rule 16.A. Single-prompt + LOW confidence
+    + brand-empty IS still in the hard-abstain set above (via
+    trigger 1).
+
     **Concrete worked examples (memorize the SHAPE):**
 
-    BAD #1 (1 affected prompt — this is NOT acceptable behavior):
+    BAD #1 (1 affected prompt + LOW confidence — abstain):
       Packet: resolution.confidence = "low",
               affectedPrompts.length = 1,
               brandAssertions = [],
@@ -447,7 +463,7 @@ HARD RULES:
       hard contract says abstain regardless of how strong the
       other signals look.
 
-    BAD #2 (3 affected prompts — STILL not acceptable):
+    BAD #2 (3 affected prompts + LOW confidence — STILL abstain):
       Packet: resolution.confidence = "low",
               affectedPrompts.length = 3,
               brandAssertions = [],
@@ -463,13 +479,31 @@ HARD RULES:
       hard contract still fires. Multiple prompts is NOT a
       free pass.
 
-    GOOD (this IS the correct response to BOTH BAD packets above):
+    GOOD #1 (the correct response to BOTH BAD packets above):
       Output: { "recommendations": [] }
+
+    GOOD #2 (1 affected prompt + MEDIUM confidence — generate):
+      Packet: resolution.confidence = "medium",
+              affectedPrompts.length = 1,
+              brandAssertions = [],
+              aiSearchSignal.topSearchQueries.length = 10,
+              competitorPageBlueprints.length = 5
+      Output: { "recommendations": [ ...2-4 grounded edits... ] }
+      Why good: confidence is "medium" + the aggregate signals
+      (topSearchQueries, blueprints) are strong. The resolver
+      flagged this as medium-confidence precisely BECAUSE the
+      aggregate evidence carries weight on a single-prompt packet.
+      Single-prompt + brand-empty alone is NOT a hard-abstain
+      trigger — the LOW confidence label is. Ground every edit in
+      topSearchQueries or competitorPageBlueprints; do NOT ad-lib
+      from intuition.
 
     The presence of strong aiSearchSignal / competitorPageBlueprints /
     ownedPageCandidates / competitorAngles / multiple affectedPrompts
-    is what tempts you to generate. Resist that temptation. The
-    confidence label is the gate.
+    is what tempts you to generate AT LOW CONFIDENCE. Resist that
+    temptation when the resolver said "low." At medium/high
+    confidence, those signals ARE permission to generate — the
+    resolver weighed them in.
 
 16.B **NO FABRICATED NUMBERS, TIMELINES, COSTS, GUARANTEES.**
     proposedText and displayLabel must NEVER include:
