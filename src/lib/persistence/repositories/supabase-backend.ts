@@ -7,6 +7,7 @@
 import { readDotDataJson } from "../dotdata-json";
 import { readStore } from "../json-store";
 import { getSupabaseAdmin } from "../supabase";
+import { getTenant } from "@/domains/tenants/store";
 import type { SeedDataRepository } from "./types";
 import type { Result } from "@/domains/results/types";
 import type { ChangelogEntry } from "@/domains/changelog/types";
@@ -599,6 +600,55 @@ export const supabaseBackend: SeedDataRepository = {
           targetPageUrl: row.target_page_url ?? null,
           patternId: row.pattern_id ?? null,
         })) as RecommendationResponse[];
+      },
+
+      // Customer-2 isolation fix (operator audit, 2026-05-06) —
+      // tenant-scoped reads for `tracked_prompts` and `tracked_entities`.
+      //
+      // These two tables use `account_id` (the tenant slug) as the
+      // tenant-scoping column, NOT `tenant_id` (the tenant id). The
+      // 2026-05-06 audit confirmed via:
+      //   SELECT column_name FROM information_schema.columns
+      //   WHERE table_name IN ('tracked_prompts', 'tracked_entities')
+      //   → both have `account_id text NOT NULL`; no `tenant_id` column.
+      //
+      // Resolve the slug from `tenants` registry once per call. The
+      // tenants table is tiny (1–3 rows in single-tenant Ritz today)
+      // and the lookup is cached at the React layer for the request
+      // lifetime.
+      //
+      // No schema migration was applied — the operator brief said:
+      // "If schema migration is required, stop and report before
+      // applying." None was needed.
+      getTrackedPrompts: async () => {
+        const tenant = await getTenant(tenantId);
+        if (!tenant) {
+          // Unknown tenant — return empty (matches the file-backend
+          // shape where filterByTenantId returns []).
+          return [];
+        }
+        const { data, error } = await getSupabaseAdmin()
+          .from("tracked_prompts")
+          .select("*")
+          .eq("account_id", tenant.slug);
+        if (error)
+          throw new Error(
+            `Supabase query failed on tracked_prompts: ${error.message}`,
+          );
+        return (data ?? []) as TrackedPrompt[];
+      },
+      getTrackedEntities: async () => {
+        const tenant = await getTenant(tenantId);
+        if (!tenant) return [];
+        const { data, error } = await getSupabaseAdmin()
+          .from("tracked_entities")
+          .select("*")
+          .eq("account_id", tenant.slug);
+        if (error)
+          throw new Error(
+            `Supabase query failed on tracked_entities: ${error.message}`,
+          );
+        return (data ?? []) as TrackedEntity[];
       },
     };
   },

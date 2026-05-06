@@ -198,4 +198,27 @@ export interface TenantRepository {
     options?: WindowedReadOptions,
   ): Promise<PromptAnswerObservation[]>;
   getUrlChangeOutcomes(): Promise<UrlChangeOutcome[]>;
+  /**
+   * Customer-2 isolation fix (operator audit, 2026-05-06) —
+   * tenant-scoped reads for `tracked_prompts` and `tracked_entities`.
+   *
+   * Both stores are TENANT_SCOPED in `store-classification.ts`, but
+   * the canonical fresh-load path was still calling the unscoped
+   * `repo.getTrackedPrompts()` / `repo.getTrackedEntities()`. With
+   * customer-2 onboarding on the horizon, that would silently mix
+   * Ritz's prompts + competitors into customer-2's /today
+   * leaderboard. These tenant-scoped methods close the leak before
+   * any second-tenant data lands.
+   *
+   * Filter shapes:
+   *   • File backend: in-memory `tenant_id === tenantId` (rows on
+   *     disk already carry both `tenant_id` and `account_id`).
+   *   • Supabase backend: `.eq("account_id", tenantSlug)` because the
+   *     `tracked_prompts` / `tracked_entities` tables use
+   *     `account_id` (the slug) as their tenant-scoping column,
+   *     not `tenant_id`. Slug is resolved from the `tenants`
+   *     registry via `getTenant(tenantId)`.
+   */
+  getTrackedPrompts(): Promise<TrackedPrompt[]>;
+  getTrackedEntities(): Promise<TrackedEntity[]>;
 }

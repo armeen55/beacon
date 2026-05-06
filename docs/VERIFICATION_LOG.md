@@ -7,6 +7,57 @@
 
 ---
 
+## 2026-05-06 — Customer-2 isolation fix: tracked_prompts + tracked_entities tenant-scoped
+
+Operator brief (split bundle, item 1 of 4): canonical `loadFreshCanonicalData()` was reading `tracked_prompts` and `tracked_entities` via the BASE `SeedDataRepository.getTrackedPrompts()` / `.getTrackedEntities()` methods — the unscoped global reads. Both stores are TENANT_SCOPED in `store-classification.ts`, but the canonical fresh-load path was returning ALL rows across tenants. With customer-2 onboarding imminent, that would have silently mixed Ritz's prompts + competitors into customer-2's /today leaderboard.
+
+### Root cause (one sentence)
+
+`loadFreshCanonicalData()` and the Supabase-merge branch of `loadFromDiskAndMerge()` were calling `repo.getTrackedPrompts()` / `repo.getTrackedEntities()` (unscoped) instead of routing through `tenantRepo.forTenant(tenantId).getTrackedPrompts/Entities()`.
+
+### What changed (code)
+
+- **`src/lib/persistence/repositories/types.ts`** — extended the `TenantRepository` interface with `getTrackedPrompts(): Promise<TrackedPrompt[]>` and `getTrackedEntities(): Promise<TrackedEntity[]>`. JSDoc documents the dual schema: file backend filters in-memory by `tenant_id`; Supabase backend filters at the DB by `account_id` (the slug, resolved via `getTenant(tenantId)`).
+- **`src/lib/persistence/repositories/tenant-repo.ts`** — file-backend facade now wraps both reads through `filterByTenantId(await base.getX(), tenantId)`. Rows on disk already carry both `tenant_id` and `account_id`, so this works without schema changes.
+- **`src/lib/persistence/repositories/supabase-backend.ts`** — Supabase backend resolves the slug via `getTenant(tenantId)`, returns `[]` early if the tenant is unknown (mirrors file-backend behavior on missing tenants), then filters with `.eq("account_id", tenant.slug)` against the `tracked_prompts` / `tracked_entities` tables. The schema check confirmed both tables use `account_id text NOT NULL` (the slug), NOT `tenant_id`.
+- **`src/storage/canonical-store.ts`** — both call sites (`loadFreshCanonicalData` + the Supabase-merge branch of `loadFromDiskAndMerge`) updated to read through `tenantRepo`. Added `void repo;` to retain the unscoped-base binding for future global-store reads without unused-binding errors. Added comments pointing to the architecture invariant.
+
+### Tests
+
+- **NEW `tests/architecture/canonical-store-tenant-isolation.test.ts`** — 13/13 PASS. Three describe blocks of source-text invariants:
+  1. canonical-store.ts uses tenant-scoped reads (5 tests): no raw `repo.getTrackedPrompts/Entities`; positive presence of `tenantRepo.getTrackedPrompts/Entities`; ≥2 call sites for each method (Supabase merge + fresh-load).
+  2. TenantRepository interface declares both methods (2 tests).
+  3. Both backends implement them correctly (6 tests): file backend uses `filterByTenantId(await base.getX(), tenantId)`; Supabase backend imports `getTenant`, resolves the slug, filters with `.eq("account_id", tenant.slug)`, and early-returns `[]` for unknown tenants.
+- **NEW `tests/persistence/tenant-isolation-behavioral.test.ts`** — 6/6 PASS. Builds a fake `SeedDataRepository` with mixed-tenant rows for both stores; wraps in `buildTenantRepo(base, tenantId)`; verifies (a) populated tenant gets only its rows, (b) empty tenant gets `[]`, (c) two populated tenants are mutually isolated by id-set disjointness, and (d) Ritz regression — `tenant-ritz-founder` with `account_id='ritz-builders'` rows still loads its full data without leaking other-tenant rows.
+- **UPDATED `tests/persistence/tenant-repository-pushdown.test.ts`** — pushdown invariant accepts `.eq("account_id", tenant.slug)` as an alternative tenant predicate (documented exception for `tracked_*` tables).
+- **FLIPPED `tests/routes/canonical-store-fresh.test.ts`** — the pre-2026-05-06 invariant "Tier C reads stay unscoped on the plain repo" was the OLD bug pin. Inverted: now asserts both reads route through `tenantRepo` AND no raw `repo.getTracked*` exists in the canonical fresh-load source. Cross-references the new architecture invariant.
+
+### Verification
+
+- **typecheck:** clean baseline (3 pre-existing `prompt-drilldown.test.ts` errors, none from this work).
+- **targeted tests:** 37/37 PASS (`canonical-store-tenant-isolation` + `tenant-isolation-behavioral` + `tenant-repository-pushdown`).
+- **full test suite:** Test Files 3 failed | 288 passed (291); Tests 5 failed | 4669 passed (4674). Same 5 baseline failures as pre-work (`auto-link-via-changelog.test.ts` ×2, `prompt-drilldown-smoke.test.tsx` ×1, `prompts-smoke.test.tsx` ×2). Net +2 test files / +19 passing tests over baseline (13 architecture + 6 behavioral).
+- **build:** `npm run build` GREEN. ✓ Compiled successfully in 5.2s, ✓ Generating static pages 26/26 in 91s.
+- **ledger byte-equality:** `.data/global/llm-budget.json` SHA `d36eed8ca157cb4c65ee01a2c51a2fef3fb21a0dfdbb036753d6d7c570927dbd` — byte-identical to pre-work `tmp/_round1_ledger_before.json`. Zero LLM spend on this work.
+
+### Supabase migration verdict
+
+**No migration needed.** Schema audit (live SQL): `tracked_prompts.account_id text NOT NULL`, `tracked_entities.account_id text NOT NULL`. Both tables already carry the tenant-scoping column (the slug). All existing rows are Ritz (`account_id='ritz-builders'`), preserved untouched. The fix uses the schema as-is.
+
+### Tenant-isolation proof
+
+Behavioral test (`tests/persistence/tenant-isolation-behavioral.test.ts`):
+- Build base repo with rows for tenant-A, tenant-C (and Ritz in the regression test). Tenant-B has zero rows.
+- Wrap in `buildTenantRepo(base, "tenant-b")`. Result: `getTrackedPrompts()` returns `[]`, `getTrackedEntities()` returns `[]`. No leak from A or C.
+- Cross-tenant id-set check (`tenant-A` ∩ `tenant-C` = ∅) for both prompts and entities.
+- Ritz regression: `buildTenantRepo(base, "tenant-ritz-founder")` loads exactly its rows (matched by id), with no `tenant-other` row included.
+
+### Next bundles can proceed
+
+Yes. The customer-2 isolation gap on the canonical fresh-load path is closed. The remaining 3 items in the original 4-item bundle (separate scopes per the operator's split) are unblocked.
+
+---
+
 ## 2026-05-06 — Profound May 10 readiness guardrails
 
 Operator brief: 2-item bundle to lock in the GREEN readiness from the 2026-05-06 audit. No code deletion (operator brief: "Do not delete adapters yet"). No /settings/import modification (audit found no leak). No native-polling touch. Pure forward-looking guardrails.

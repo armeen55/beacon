@@ -186,17 +186,32 @@ describe("Sprint 4 / Phase 4.9 — canonical-store fresh-per-render", () => {
       );
     });
 
-    it("Tier C reads (getTrackedEntities + getTrackedPrompts) stay unscoped on the plain repo", () => {
-      // The Tier C tables don't have tenant_id columns (Phase 7.5a audit);
-      // calling .forTenant().getTrackedX() would fail at runtime. Assert
-      // they're called on the plain `repo`, not `tenantRepo`.
-      expect(CANONICAL_STORE_SOURCE).toMatch(/\brepo\.getTrackedEntities\(/);
-      expect(CANONICAL_STORE_SOURCE).toMatch(/\brepo\.getTrackedPrompts\(/);
+    it("tracked_prompts + tracked_entities go through the tenant-scoped facade (customer-2 isolation fix, 2026-05-06)", () => {
+      // FLIP of the pre-2026-05-06 invariant. Earlier the Phase 7.5a audit
+      // claimed tracked_* tables had no tenant_id column and so could only
+      // be read unscoped on the plain repo. The 2026-05-06 customer-2
+      // onboarding audit re-checked this and found:
+      //   - Both stores are TENANT_SCOPED in store-classification.ts.
+      //   - Rows on disk carry tenant_id (operator's stamping migration).
+      //   - The Supabase schema scopes via account_id (the slug), not
+      //     tenant_id. The fix resolves the slug via getTenant(tenantId).
+      // Both backends now implement tenant-scoped getTrackedPrompts /
+      // getTrackedEntities, and the canonical fresh-load path reads them
+      // through tenantRepo to keep customer-2 isolated from Ritz.
+      // Sibling guard: tests/architecture/canonical-store-tenant-isolation.test.ts
+      expect(CANONICAL_STORE_SOURCE).toMatch(
+        /tenantRepo\.getTrackedPrompts\s*\(/,
+      );
+      expect(CANONICAL_STORE_SOURCE).toMatch(
+        /tenantRepo\.getTrackedEntities\s*\(/,
+      );
+      // Negative invariant: no raw repo.getTracked* in the canonical
+      // fresh-load path. Falls back to the architecture-invariant check.
       expect(CANONICAL_STORE_SOURCE).not.toMatch(
-        /tenantRepo\.getTrackedEntities\(/,
+        /\brepo\.getTrackedEntities\s*\(/,
       );
       expect(CANONICAL_STORE_SOURCE).not.toMatch(
-        /tenantRepo\.getTrackedPrompts\(/,
+        /\brepo\.getTrackedPrompts\s*\(/,
       );
     });
   });

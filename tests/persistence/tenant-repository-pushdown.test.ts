@@ -29,7 +29,7 @@ describe("Sprint 7 Phase 7.5b Commit 1C — pushdown invariant", () => {
     "utf8",
   );
 
-  it("forTenant block uses scoped helpers or explicit .eq(\"tenant_id\") for every Tier A method", () => {
+  it("forTenant block uses scoped helpers or an explicit tenant predicate for every method", () => {
     // Slice the forTenant method body. Anchor on the comment that opens the
     // block so the test fails loudly if the block is renamed or moved.
     const start = SRC.indexOf("Phase 7.5b Commit 1C (2026-04-25) — tenant-bound facade");
@@ -44,20 +44,32 @@ describe("Sprint 7 Phase 7.5b Commit 1C — pushdown invariant", () => {
 
     const body = SRC.slice(fnStart, fnEnd);
 
-    // Each method in the body either calls a scoped helper OR carries
-    // `.eq("tenant_id", tenantId)`. We approximate by asserting that
-    // every `.select(` is followed (within a small window) by either
-    // `.eq("tenant_id"` or appears inside a `selectScoped`/`queryAllPagedScoped`
-    // helper invocation in the same body.
+    // Each method in the body either calls a scoped helper OR carries an
+    // explicit tenant predicate. The default is `.eq("tenant_id", tenantId)`;
+    // the documented exception is `tracked_prompts` / `tracked_entities`,
+    // whose schema uses `account_id text NOT NULL` (the slug), not
+    // `tenant_id`. The customer-2 isolation fix (operator audit, 2026-05-06)
+    // resolves the slug via getTenant(tenantId) and filters with
+    // `.eq("account_id", tenant.slug)`. Both forms are tenant-scoped — the
+    // invariant accepts either.
     const selects = [...body.matchAll(/\.select\(/g)];
     expect(selects.length).toBeGreaterThan(0);
 
     for (const m of selects) {
       const window = body.slice(m.index ?? 0, (m.index ?? 0) + 200);
-      const hasTenantEq =
+      const hasTenantIdEq =
         window.includes('.eq("tenant_id", tenantId)') ||
         window.includes(".eq('tenant_id', tenantId)");
-      expect(hasTenantEq, `unscoped .select( in forTenant body at offset ${m.index}: ${window.slice(0, 120)}`).toBe(true);
+      // Customer-2 fix exception: tracked_prompts / tracked_entities are
+      // scoped via the slug column (account_id), resolved through getTenant.
+      const hasAccountSlugEq =
+        window.includes('.eq("account_id", tenant.slug)') ||
+        window.includes(".eq('account_id', tenant.slug)");
+      const hasTenantEq = hasTenantIdEq || hasAccountSlugEq;
+      expect(
+        hasTenantEq,
+        `unscoped .select( in forTenant body at offset ${m.index}: ${window.slice(0, 120)}`,
+      ).toBe(true);
     }
 
     // Spot-check: helpers themselves must scope. They live OUTSIDE forTenant,

@@ -125,17 +125,25 @@ async function loadFromDiskAndMerge(): Promise<void> {
     try {
       // Sprint 7 Phase 7.5c/2 (2026-04-25) — Tier A reads
       // (`getPromptAnswerObservations`, `getDailyMetricSnapshots`) go
-      // through `forTenant(tenantId)`. Tier C reads (`getTrackedEntities`,
-      // `getTrackedPrompts`) stay unscoped — those tables don't have a
-      // `tenant_id` column today (Phase 7.5a Tier C audit).
+      // through `forTenant(tenantId)`.
+      //
+      // Customer-2 isolation fix (operator audit, 2026-05-06) — Tier C
+      // reads (`getTrackedPrompts`, `getTrackedEntities`) NOW also go
+      // through `tenantRepo.forTenant(...)`. The audit found that
+      // tracked_prompts + tracked_entities ARE tenant-scoped at the
+      // schema level (column: `account_id text NOT NULL`, value:
+      // tenant slug), and rows on disk carry both `tenant_id` and
+      // `account_id`. The unscoped global reads were a data-leak risk
+      // pre-customer-2 — a second tenant would have inherited Ritz's
+      // prompts + competitors on their /today leaderboard.
       const tenantId = await currentTenantId();
       const repo = getRepository();
       const tenantRepo = repo.forTenant(tenantId);
       const [obs, snaps, ents, prompts] = await Promise.all([
         tenantRepo.getPromptAnswerObservations(),
         tenantRepo.getDailyMetricSnapshots(),
-        repo.getTrackedEntities(),
-        repo.getTrackedPrompts(),
+        tenantRepo.getTrackedEntities(),
+        tenantRepo.getTrackedPrompts(),
       ]);
       mergeById(_state.promptAnswerObservations, obs);
       mergeById(_state.dailyMetricSnapshots, snaps);
@@ -286,9 +294,15 @@ export type FreshCanonicalDataOptions = {
 export async function loadFreshCanonicalData(
   options?: FreshCanonicalDataOptions,
 ): Promise<FreshCanonicalData> {
-  // Sprint 7 Phase 7.5c/2 (2026-04-25) — same tier split as
-  // `ensureLoaded`: Tier A reads scoped to tenant; Tier C
-  // (tracked_prompts, tracked_entities) stay unscoped.
+  // Customer-2 isolation fix (operator audit, 2026-05-06) — ALL four
+  // reads here now go through `tenantRepo.forTenant(tenantId)`. The
+  // pre-fix path was Tier-A-scoped + Tier-C-unscoped, which would
+  // have leaked Ritz's tracked_prompts + tracked_entities into a
+  // second tenant's /today leaderboard at customer-2 onboarding
+  // time. Both stores ARE tenant-scoped at the schema level
+  // (column: `account_id text NOT NULL`, value: tenant slug); rows
+  // on disk carry both `tenant_id` and `account_id`. Pinned by
+  // `tests/architecture/canonical-store-tenant-isolation.test.ts`.
   const tenantId = await currentTenantId();
   const repo = getRepository();
   const tenantRepo = repo.forTenant(tenantId);
@@ -299,11 +313,16 @@ export async function loadFreshCanonicalData(
     ? { since: options.snapshotsSince }
     : undefined;
   const [prompts, observations, entities, snapshots] = await Promise.all([
-    repo.getTrackedPrompts(),
+    tenantRepo.getTrackedPrompts(),
     tenantRepo.getPromptAnswerObservations(observationsOpt),
-    repo.getTrackedEntities(),
+    tenantRepo.getTrackedEntities(),
     tenantRepo.getDailyMetricSnapshots(snapshotsOpt),
   ]);
+  // `repo` is intentionally retained above for access to non-tenant-
+  // scoped global stores (none used in this function today; reserved
+  // for future global lookups like change-patterns or tenants-registry
+  // diagnostics). If a future change drops the binding, that's fine.
+  void repo;
   return {
     trackedPrompts: prompts,
     promptAnswerObservations: observations,

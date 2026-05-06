@@ -94,5 +94,15 @@ export function buildTenantRepo(
     },
     getUrlChangeOutcomes: async () =>
       filterByTenantId(await base.getUrlChangeOutcomes(), tenantId),
+    // Customer-2 isolation fix (operator audit, 2026-05-06) — both
+    // stores are TENANT_SCOPED in store-classification.ts; rows on
+    // disk already carry tenant_id (and account_id). The unscoped
+    // base.getTrackedPrompts() / .getTrackedEntities() paths return
+    // ALL rows across tenants; filtering here keeps each tenant's
+    // /today leaderboard isolated from the other.
+    getTrackedPrompts: async () =>
+      filterByTenantId(await base.getTrackedPrompts(), tenantId),
+    getTrackedEntities: async () =>
+      filterByTenantId(await base.getTrackedEntities(), tenantId),
   };
 }
