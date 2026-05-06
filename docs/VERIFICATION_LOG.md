@@ -7,6 +7,83 @@
 
 ---
 
+## 2026-05-05 — LR-N harness allowlist invariant (13 operator-locked safety properties)
+
+After the test-isolation fix landed, the next gap before LR-3 was: future LR-N harnesses could silently broaden scope (drop the $1 cap, change tenant, skip pre-flight, add `--all`, etc.). Operator brief: pin 13 safety properties as an architecture invariant before the next live regeneration runs.
+
+Test-only work. No production code changes. No OpenAI calls. No queue mutation.
+
+### What changed (code)
+
+- **NEW `tests/architecture/llm-live-regen-allowlist.test.ts`** — 28 invariants, 28 PASS. Discovers every `scripts/llm-live-regen-<digit>.ts` file (the LR-N pattern) and asserts the 13 operator-locked safety properties on each:
+
+  1. **Tenant-locked** — `TENANT_ID = "tenant-ritz-founder"` literal + mismatch abort against `currentTenantId()`.
+  2. **PINNED_CANDIDATES slate** — no auto-discovery; the slate is locked at file write time.
+  3. **Budget cap default ≤ $1.00** — `BUDGET_CAP_USD = N` where N ≤ 1.0; cumulative pre-call gate.
+  4. **`runProviderAndPersist` for persistence** — imports + calls it.
+  5. **No direct Supabase write helpers** — negative invariant for `dualWriteUpsert*` / `syncRecommendationResponses` / `deleteRecommendationResponseByRecId`.
+  6. **No direct `writeStore("recommended-edits", …)` / `persistRecommendedEditsLocal`** — negative invariant.
+  7. **No direct `syncRecommendedEdits` call** — negative invariant.
+  8. **Validator path** — either `runProviderAndPersist` (which runs `validateSpecificEditBundle` internally) OR explicit `validateSpecificEditBundle` call.
+  9. **Excludes low-confidence by default** — pre-flight assertion enforcing `confidence !== "low"` (or `=== "medium"`/`"high"`).
+  10. **Excludes inventory-tier / weak-evidence by default** — pre-flight assertion enforcing `tier !== "inventory"`.
+  11. **Pre-flight candidate list** — prints `PRE-FLIGHT` header + selected candidates before any provider call.
+  12. **Aborts on missing budget/provider/key** — OPENAI_API_KEY check + abort path; BUDGET_ABORT branch on cumulative cap breach.
+  13. **No Apply-All-HIGH or broad regen** — negative invariant for `acceptAllHighConfidence` / `--all` flag / `for (const c of candidates)` shape.
+
+  Comments stripped before identifier checks (so docstring mentions of forbidden APIs don't trip negative invariants — same trick the dry-run harness no-persistence test uses).
+
+### Audit of all live-regen-capable scripts
+
+| Script | Status | In scope of allowlist invariant? |
+|---|---|---|
+| `scripts/llm-live-regen-1.ts` | committed (24fddbd) | YES — 13/13 properties verified |
+| `scripts/llm-live-regen-2.ts` | committed (cddc96e) | YES — 13/13 properties verified |
+| `scripts/llm-live-regen-2-discover.ts` | committed (cddc96e) | NO — read-only discovery, no provider call (filename suffix `-discover.ts` excluded by pattern) |
+| `scripts/llm-specific-edit-dryrun.ts` | committed | NO — dry-run only, pinned separately by `tests/architecture/llm-dryrun-harness-no-persistence.test.ts` |
+| `scripts/build-edits-for-queue.ts` | pre-existing (Sprint 6A.1 Phase 14) | **NO — out of scope, with rationale** |
+| `scripts/generate-specific-edits.ts` | pre-existing | NO — deterministic-only, no LLM |
+
+**`build-edits-for-queue.ts` rationale (intentionally out of scope):** it's a Sprint 6A.1 developer convenience CLI with `--provider=openai --write` and `--all` flag. It DOES use `runProviderAndPersist` for persistence (so it inherits the validator path), but it doesn't carry the operator-audit safety properties (no tenant-lock literal, no $1 default budget, no low-conf-exclude pre-flight, `--all` IS broad regen). The operator should NOT use it for live regeneration. Documented prominently in the test file's docstring so future readers don't mistake its presence for a green light.
+
+### Verification — ledger still hermetic after fix lands
+
+| State | Ledger contents |
+|---|---|
+| Pre-test | `{ "monthKey": "2026-05", "spendUsd": 0.065741, "calls": 6, "capUsd": 10, "updatedAt": "2026-05-06T03:42:00.000Z" }` |
+| Post-test (full suite + new invariant) | **byte-identical** to pre-test ✅ |
+
+The test-isolation fix continues to hold; the new invariant doesn't reintroduce any global-store writes.
+
+### Quality gates
+
+- typecheck: clean (3 pre-existing prompt-drilldown errors unrelated).
+- targeted vitest: **28/28 PASS** for the new invariant.
+- architecture invariant suite (40 files): **496/496 PASS**.
+- full suite: **4498/4503** (5 pre-existing failures unchanged; +28 new passing tests vs prior baseline of 4470).
+- build: EXIT_CODE=0 green.
+
+### Architecture invariant inventory after this bundle
+
+| Bundle | Invariants | Total |
+|---|---|---|
+| LLM-DryRun-2 | 25 (8 validator + 9 SYSTEM_PROMPT + 5 harness no-persistence + 3 cutover ceiling) | 25 |
+| LLM-DryRun-3 | 22 (16 SYSTEM_PROMPT + 6 packet-resolution) | 47 |
+| LLM-DryRun-3.5 | 12 (Rule 16.A scope fix) | 59 |
+| LLM-budget-test-isolation | 7 | 66 |
+| **LR-N allowlist (this bundle)** | **28** (2 file-level + 13×2 harnesses) | **94** |
+
+### Operator decision pending
+
+LR-3 is now pinned safe at the architecture level. Three follow-ups remain optional:
+1. **Wait for queue regrowth** — current queue exhausted; new candidates emerge from the daily cron.
+2. **Optional broader May ledger restoration** — bump `spendUsd` from $0.065741 to $0.268231 (full May history total) if accurate aggregate tracking matters.
+3. **Optional pause LR work entirely** — engine is verified, $0.20 cycle complete. Move to other priorities.
+
+Validator + persistence + budget + harness allowlist all form a complete safety net. Whenever the operator wants LR-3, the rails are ready and the architecture invariants will block any drift.
+
+---
+
 ## 2026-05-05 — Test isolation fix (real LLM budget ledger protected)
 
 LR-2 verification (earlier today) surfaced that `tests/domains/recommendations/adjudicate.test.ts:cleanupTestStores` was writing `[]` to the REAL `.data/global/llm-budget.json`. Every `npm run test` clobbered the operator's monthly LLM budget ledger. Fix scope: test isolation only. No production code changes. No OpenAI calls. No queue mutation.
