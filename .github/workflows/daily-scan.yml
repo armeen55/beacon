@@ -21,24 +21,41 @@
 #  the orchestrator dual-writes everything that needs to persist to Supabase.
 #  Verified end-to-end by Steps 1–5 of the safety gate (2026-04-28).
 #
+#  Multi-tenant scaffold (2026-05-06):
+#
+#  Active-tenants list lives in `ops/active-tenants.json`. The compute-matrix
+#  job filters to `enabled === true` and emits one matrix entry per tenant
+#  for the parallel scan jobs. Today the list has exactly one entry (Ritz),
+#  so behavior is identical to the prior single-tenant shape. Tenant
+#  identity (BEACON_TENANT_ID, BEACON_TENANT_SLUG, BEACON_SITE_DOMAIN) is now
+#  sourced from the matrix entry rather than from GH secrets — secrets are
+#  still consulted for the LIFECYCLE / SCAN_DISABLED gating flags so the
+#  operator can toggle behavior without editing the JSON.
+#
+#  Fail-loud guards in compute-matrix:
+#    1. ops/active-tenants.json must exist and be valid JSON.
+#    2. At least one tenant must be enabled.
+#    3. Ritz (tenant-ritz-founder) must be present AND enabled.
+#       Hard guard against accidental disable that would silently
+#       skip Customer 1's daily scan.
+#
 #  Schedule: 04:00 UTC daily — runs ~3 hours BEFORE the native poll cron
 #  (07:00 UTC, see daily-native-poll.yml). This ordering ensures fresh
 #  inventory + lifecycle status are stamped before the poll captures the
 #  day's observations.
 #
 #  Required repo secrets (Settings → Secrets and variables → Actions):
-#    BEACON_TENANT_ID                 e.g. tenant-ritz-founder
-#    BEACON_TENANT_SLUG               e.g. ritz-builders
 #    NEXT_PUBLIC_SUPABASE_URL         Supabase project URL
 #    SUPABASE_SERVICE_ROLE_KEY        Supabase service-role key (write)
-#    BEACON_SITE_DOMAIN               e.g. ritzbuilders.com (fallback when
-#                                     business-config doesn't have it)
 #
-#  Optional repo secrets (lifecycle gating — operator decides when to flip):
+#  Optional repo secrets (lifecycle / pause gating):
 #    BEACON_LIFECYCLE_ENABLED         "1" enables Phase 3 runner inside scan
 #    BEACON_LIFECYCLE_VERDICT_ENABLED "1" enables Phase 4 live_at attribution
 #    BEACON_SCAN_DISABLED             truthy = pause scheduled scan
 #                                     ("1"/"true"/"yes"/"on" case-insensitive)
+#
+#  No longer required (sourced from ops/active-tenants.json since 2026-05-06):
+#    BEACON_TENANT_ID, BEACON_TENANT_SLUG, BEACON_SITE_DOMAIN
 #
 #  Ops workflow:
 #    - Scheduled daily at 04:00 UTC (~9 PM PT prev-day / 8 PM PT prev-day winter)
@@ -73,10 +90,54 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # --------------------------------------------------------------------------
+  # Compute the per-tenant matrix from ops/active-tenants.json. Mirrors the
+  # compute-matrix job in daily-native-poll.yml — same fail-loud rules.
+  # --------------------------------------------------------------------------
+  compute-matrix:
+    name: Compute active-tenants matrix
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      tenants: ${{ steps.compute.outputs.tenants }}
+      tenant_count: ${{ steps.compute.outputs.tenant_count }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: compute
+        run: |
+          set -euo pipefail
+          CONFIG=ops/active-tenants.json
+          if [ ! -f "$CONFIG" ]; then
+            echo "::error file=$CONFIG::ops/active-tenants.json is missing — refusing to run scan"
+            exit 1
+          fi
+          MATRIX=$(jq -c '[.[] | select(.enabled == true)]' "$CONFIG")
+          COUNT=$(echo "$MATRIX" | jq 'length')
+          if [ "$COUNT" -eq 0 ]; then
+            echo "::error file=$CONFIG::No tenants with enabled=true — refusing to run scan"
+            exit 1
+          fi
+          RITZ_OK=$(echo "$MATRIX" | jq '[.[] | select(.tenantId == "tenant-ritz-founder")] | length')
+          if [ "$RITZ_OK" -eq 0 ]; then
+            echo "::error file=$CONFIG::Ritz (tenant-ritz-founder) is missing or disabled — refusing to run scan without Ritz"
+            exit 1
+          fi
+          {
+            echo "tenants=$MATRIX"
+            echo "tenant_count=$COUNT"
+          } >> "$GITHUB_OUTPUT"
+          echo "Active tenants: $COUNT"
+          echo "$MATRIX" | jq
+
   scheduled-scan:
-    name: Run scheduled scan + lifecycle runner (when enabled)
+    name: Scan · ${{ matrix.tenant.slug }}
+    needs: compute-matrix
     runs-on: ubuntu-latest
     timeout-minutes: 20 # full scan typically ~30s + lifecycle runner ~3s; 20 min generous
+    strategy:
+      fail-fast: false
+      matrix:
+        tenant: ${{ fromJSON(needs.compute-matrix.outputs.tenants) }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -87,16 +148,18 @@ jobs:
       - name: Install dependencies
         run: npm ci --no-audit --no-fund
 
-      - name: Run scheduled scan
+      - name: Run scheduled scan (${{ matrix.tenant.slug }})
         # `--require ./scripts/mock-server-only.cjs` so server-only modules
         # imported by orchestrate-scan don't crash in the CLI context (same
         # pattern as `npm run data:scan` per package.json).
         run: |
           npx tsx --require ./scripts/mock-server-only.cjs --require ./scripts/apply-scan-site-domain.cjs scripts/run-scheduled-scan.ts
         env:
-          # Required (fail-loud if unset)
-          BEACON_TENANT_ID: ${{ secrets.BEACON_TENANT_ID }}
-          BEACON_TENANT_SLUG: ${{ secrets.BEACON_TENANT_SLUG }}
+          # Tenant identity — sourced from ops/active-tenants.json via matrix.
+          BEACON_TENANT_ID: ${{ matrix.tenant.tenantId }}
+          BEACON_TENANT_SLUG: ${{ matrix.tenant.slug }}
+          BEACON_SITE_DOMAIN: ${{ matrix.tenant.siteDomain }}
+          # Credentials + dual-write — repo secrets.
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           DATA_SOURCE: supabase
@@ -109,11 +172,10 @@ jobs:
           # CLI runs which leave the env unset and fall back to the
           # historical "scan-owned-pages.ts" literal.
           BEACON_SCAN_SOURCE_LABEL: "github-actions-daily-scan"
-          # Optional — operator may leave unset until lifecycle is dogfeded
+          # Optional gating flags — operator may leave unset until lifecycle is dogfeded.
           BEACON_LIFECYCLE_ENABLED: ${{ secrets.BEACON_LIFECYCLE_ENABLED }}
           BEACON_LIFECYCLE_VERDICT_ENABLED: ${{ secrets.BEACON_LIFECYCLE_VERDICT_ENABLED }}
           BEACON_SCAN_DISABLED: ${{ secrets.BEACON_SCAN_DISABLED }}
-          BEACON_SITE_DOMAIN: ${{ secrets.BEACON_SITE_DOMAIN }}
           # Standard CI hygiene
           NODE_NO_WARNINGS: "1"
           NODE_TLS_REJECT_UNAUTHORIZED: "0"

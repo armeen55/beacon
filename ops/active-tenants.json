@@ -1,0 +1,9 @@
+[
+  {
+    "tenantId": "tenant-ritz-founder",
+    "slug": "ritz-builders",
+    "siteDomain": "ritzbuilders.com",
+    "enabled": true,
+    "notes": "Customer 1 / dogfeed founder. Single active tenant as of 2026-05-06."
+  }
+]

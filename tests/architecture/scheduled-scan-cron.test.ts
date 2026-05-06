@@ -58,26 +58,49 @@ describe("Phase 5 — daily-scan workflow YAML structure", () => {
   });
 
   it("exports required env vars (fail-loud surface in run-scheduled-scan.ts)", () => {
+    // 2026-05-06 multi-tenant-cron-scaffold refactor:
+    //   - Tenant identity (BEACON_TENANT_ID / BEACON_TENANT_SLUG /
+    //     BEACON_SITE_DOMAIN) is now sourced from the matrix entry the
+    //     compute-matrix job emits, NOT from GH secrets. Matched as
+    //     `${{ matrix.tenant.<key> }}`.
+    //   - Credentials + dual-write toggles continue to come from
+    //     secrets / hardcoded literals.
+    const tenantBindings: Record<string, string> = {
+      BEACON_TENANT_ID: "tenantId",
+      BEACON_TENANT_SLUG: "slug",
+    };
+    for (const [envKey, matrixKey] of Object.entries(tenantBindings)) {
+      expect(WORKFLOW, `${envKey} env binding (matrix)`).toMatch(
+        new RegExp(
+          `${envKey}:\\s+\\$\\{\\{\\s*matrix\\.tenant\\.${matrixKey}\\s*\\}\\}`,
+        ),
+      );
+    }
     for (const v of [
-      "BEACON_TENANT_ID",
-      "BEACON_TENANT_SLUG",
       "NEXT_PUBLIC_SUPABASE_URL",
       "SUPABASE_SERVICE_ROLE_KEY",
       "DATA_SOURCE",
       "DUAL_WRITE",
     ]) {
       expect(WORKFLOW, `${v} env binding`).toMatch(
-        new RegExp(`${v}:\\s+(["']?supabase["']?|"true"|\\$\\{\\{ secrets\\.${v} \\}\\})`),
+        new RegExp(
+          `${v}:\\s+(["']?supabase["']?|"true"|\\$\\{\\{ secrets\\.${v} \\}\\})`,
+        ),
       );
     }
   });
 
   it("exports optional lifecycle/kill-switch env vars (operator can flip later)", () => {
+    // 2026-05-06: BEACON_SITE_DOMAIN moved to matrix.tenant.siteDomain;
+    // remaining lifecycle / kill-switch flags still come from secrets
+    // so the operator can toggle without editing ops/active-tenants.json.
+    expect(WORKFLOW, "BEACON_SITE_DOMAIN env binding (matrix)").toMatch(
+      /BEACON_SITE_DOMAIN:\s+\$\{\{\s*matrix\.tenant\.siteDomain\s*\}\}/,
+    );
     for (const v of [
       "BEACON_LIFECYCLE_ENABLED",
       "BEACON_LIFECYCLE_VERDICT_ENABLED",
       "BEACON_SCAN_DISABLED",
-      "BEACON_SITE_DOMAIN",
     ]) {
       expect(WORKFLOW, `${v} env binding`).toMatch(
         new RegExp(`${v}:\\s+\\$\\{\\{ secrets\\.${v} \\}\\}`),

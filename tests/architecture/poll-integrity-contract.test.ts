@@ -165,7 +165,16 @@ describe("R4 — GitHub Actions verify-persistence step", () => {
   it("verify-persistence step depends on both poll jobs + the index rebuild", () => {
     const start = DAILY_POLL_WORKFLOW.indexOf("verify-persistence:");
     const slice = DAILY_POLL_WORKFLOW.slice(start);
-    expect(slice).toMatch(/needs:\s*\[poll-perplexity,\s*poll-openai/);
+    // 2026-05-06 multi-tenant-cron-scaffold refactor: `compute-matrix`
+    // was prepended to the dependency list so the matrix output flows
+    // through to verify-persistence. The R4 contract here is just that
+    // ALL THREE upstream jobs (poll-perplexity, poll-openai, rebuild)
+    // remain in `needs` — preserved by the new shape.
+    expect(slice).toMatch(/needs:[\s\S]{0,120}poll-perplexity/);
+    expect(slice).toMatch(/needs:[\s\S]{0,120}poll-openai/);
+    expect(slice).toMatch(
+      /needs:[\s\S]{0,120}rebuild-citation-evidence-index/,
+    );
   });
 });
 
