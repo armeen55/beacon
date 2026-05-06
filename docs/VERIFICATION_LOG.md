@@ -7,6 +7,104 @@
 
 ---
 
+## 2026-05-06 — Multi-tenant cron scaffold (architecturally complete; awaiting 2026-05-07 07:00 UTC proof-run)
+
+Operator-approved bundle. Removes hardcoded `tenant-ritz-founder` assumptions from scheduled cron without actually running paid polls for a second tenant. Architecture is customer-2-ready; the active list contains exactly one row (Ritz, `enabled: true`).
+
+### What changed
+
+- **NEW `ops/active-tenants.json`** — single Ritz row:
+  ```json
+  [{
+    "tenantId": "tenant-ritz-founder",
+    "slug": "ritz-builders",
+    "siteDomain": "ritzbuilders.com",
+    "enabled": true,
+    "notes": "Customer 1 / dogfeed founder. Single active tenant as of 2026-05-06."
+  }]
+  ```
+  Source of truth for which tenants the daily cron polls/scans. Adding a second tenant is a one-line JSON edit; no workflow YAML change required.
+
+- **`.github/workflows/daily-native-poll.yml`** — fully matrix-driven.
+  - NEW `compute-matrix` job reads `ops/active-tenants.json`, filters `enabled === true`, emits compact JSON consumed by downstream jobs via `fromJSON(needs.compute-matrix.outputs.tenants)`.
+  - `poll-perplexity` + `poll-openai` are matrix-driven; each curl body is built with `BODY=$(jq -nc --arg tid "${{ matrix.tenant.tenantId }}" ...)`. **No hardcoded `"tenantId":"tenant-ritz-founder"` literals remain in the YAML.** 8 chunks total preserved (4 Perplexity + 4 ChatGPT × offsets 0/25/50/75).
+  - **`rebuild-citation-evidence-index` REMAINS A SINGLETON.** Endpoint at `/api/cron/rebuild-citation-evidence-index` is currently tenant-agnostic — reads ALL native observations and writes one global `citation_evidence_index.id='current'` row. Matrixing it would duplicate work + risk race-condition upserts on the same `id='current'` row. Comment block in YAML notes the future-conversion path when/if the index becomes per-tenant.
+  - **`verify-persistence` REMAINS A SINGLETON.** Runs `check-yesterday-poll.ts` which is currently tenant-agnostic — inspects `observation_runs` for the day across all tenants. Adequate while only Ritz is active. When a 2nd tenant lands, this script needs a `--tenant` flag and the job becomes a matrix.
+
+- **`.github/workflows/daily-scan.yml`** — same matrix shape as the poll. `scheduled-scan` is matrix-driven; tenant identity (`BEACON_TENANT_ID`, `BEACON_TENANT_SLUG`, `BEACON_SITE_DOMAIN`) sourced from `${{ matrix.tenant.<key> }}` instead of GH secrets. Secrets remain reserved for credentials (Supabase URL, service-role key) and lifecycle gating flags (`BEACON_LIFECYCLE_ENABLED`, `BEACON_SCAN_DISABLED`, etc.).
+
+- **`.github/workflows/poll-canary.yml`** — **single-tenant by documented design today.** `compute-matrix` runs the same fail-loud config validation, but the canary itself does NOT expand into a matrix. Reasons documented in the YAML's file-top block:
+  1. `check-yesterday-poll.ts` is tenant-agnostic — inspects all tenants' `observation_runs` for the day.
+  2. `canary-persistence-write.ts` needs a single concrete `tenant_id`; it now comes from `compute-matrix.outputs.first_tenant_id` (i.e. the first enabled tenant, which is Ritz today) instead of the prior hardcoded literal.
+  When more than one tenant is enabled, `compute-matrix` emits a `::warning` so the operator sees the multi-tenant readiness gate before relying on the canary for the 2nd tenant.
+
+### Fail-loud safety guarantee (operator's "don't silently skip Ritz" gate)
+
+Every `compute-matrix` job in all 3 workflows has identical guards:
+
+```bash
+set -euo pipefail
+if [ ! -f "$CONFIG" ]; then
+  echo "::error::ops/active-tenants.json is missing — refusing to run cron"; exit 1
+fi
+MATRIX=$(jq -c '[.[] | select(.enabled == true)]' "$CONFIG")
+if [ "$(echo "$MATRIX" | jq 'length')" -eq 0 ]; then
+  echo "::error::No tenants with enabled=true — refusing to run cron"; exit 1
+fi
+RITZ_OK=$(echo "$MATRIX" | jq '[.[] | select(.tenantId == "tenant-ritz-founder")] | length')
+if [ "$RITZ_OK" -eq 0 ]; then
+  echo "::error::Ritz (tenant-ritz-founder) is missing or disabled — refusing to run cron without Ritz"
+  exit 1
+fi
+```
+
+Any guard tripping fails the `compute-matrix` job before any paid API call fires. Downstream jobs gate on `if: always() && needs.compute-matrix.result == 'success'` (for the rebuild + verify) or default-block-on-needs (for the poll matrix). **There is no code path where tomorrow's cron runs but skips Ritz silently.**
+
+### Tests
+
+- **NEW** `tests/architecture/multi-tenant-cron-scaffold.test.ts` — 21/21 PASS in 215ms. Pins:
+  - `ops/active-tenants.json` shape: valid JSON, array, exactly 1 row today, Ritz fields exact (`tenantId`/`slug`/`siteDomain` literal match, `enabled: true`), no customer-2/acme/placeholder slugs or ids in the row set, every row has non-empty `tenantId` + `slug` + `siteDomain` + boolean `enabled`.
+  - `daily-native-poll.yml`: declares `compute-matrix` job referencing `ops/active-tenants.json`, has the Ritz fail-loud guard with `exit 1`, fails loud on missing config + zero enabled, poll jobs use `strategy.matrix.tenant` from `fromJSON(needs.compute-matrix.outputs.tenants)`, **no hardcoded `"tenantId":"tenant-..."` curl bodies** (negative invariant; protects against regression), all 8 chunks (4 Perplexity + 4 ChatGPT × offsets 0/25/50/75) preserved, `rebuild-citation-evidence-index` + `verify-persistence` jobs intact, `verify-persistence` depends on all 3 upstream jobs.
+  - `daily-scan.yml`: matrix-driven scheduled-scan; tenant identity from `${{ matrix.tenant.<key> }}` not `${{ secrets.<key> }}` (positive + negative invariants).
+  - `poll-canary.yml`: compute-matrix + Ritz guard; "single-tenant by documented design" comment present; persistence-write canary's `BEACON_TENANT_ID` sourced from `${{ needs.compute-matrix.outputs.first_tenant_id }}` (negative invariant against the prior hardcoded `tenant-ritz-founder` literal); >1-tenant operator warning present.
+
+- **UPDATED** `tests/architecture/poll-integrity-contract.test.ts` — `verify-persistence > "depends on both poll jobs + the index rebuild"`: relaxed the rigid `[poll-perplexity, poll-openai, ...]` regex (which broke when `compute-matrix` was prepended) to assert ALL THREE upstream jobs (`poll-perplexity`, `poll-openai`, `rebuild-citation-evidence-index`) appear in `needs:` regardless of order. Original R4 contract preserved in spirit + verified more strongly by the new invariant file.
+
+- **UPDATED** `tests/architecture/scheduled-scan-cron.test.ts` — env-binding invariants split: tenant identity (`BEACON_TENANT_ID`, `BEACON_TENANT_SLUG`, `BEACON_SITE_DOMAIN`) must come from `${{ matrix.tenant.<key> }}`; credentials + lifecycle flags continue to come from `${{ secrets.<key> }}`. Negative invariant prevents regression to secrets-sourced tenant identity.
+
+- Profound runtime isolation invariants (`tests/architecture/profound-runtime-isolation.test.ts`) — **114/114 still PASS** against the new YAML. The matrix refactor introduced zero Profound references.
+
+### Verification
+
+- `npm run typecheck` — clean (0 errors).
+- Targeted: 4 invariant files exercised, **183/183 PASS** in 738ms (`multi-tenant-cron-scaffold` 21 + `profound-runtime-isolation` 114 + `poll-integrity-contract` 26 + `scheduled-scan-cron` 22).
+- `npm run test` (full suite) — **4731/4731 PASS, 293/293 test files**. Was 4710/4710 pre-bundle (+21 new tests, +1 file). 0 baseline failures (CI was made fully green earlier 2026-05-06; remains so).
+- All 3 workflow YAMLs parse cleanly via Node `yaml` library; job graph as designed (`compute-matrix, poll-perplexity, poll-openai, rebuild-citation-evidence-index, verify-persistence` for the poll; `compute-matrix, scheduled-scan` for the scan; `compute-matrix, canary` for the canary).
+- `npm run build` — ✓ Compiled in 5.2s, ✓ 26/26 static pages.
+- `.data/global/llm-budget.json` SHA `d36eed8ca157cb4c65ee01a2c51a2fef3fb21a0dfdbb036753d6d7c570927dbd` — byte-identical to pre-bundle. **Zero LLM spend on this work.**
+
+### Behavior preservation for tomorrow's 07:00 UTC cron (predicted)
+
+- Ritz is the only enabled tenant → matrix expands to 1 entry.
+- `compute-matrix` runs once, validates config, outputs the 1-entry matrix.
+- `poll-perplexity` matrix runs Ritz with the same 4 chunks (offset 0/25/50/75) at the same `/api/poll/run` endpoint with the same `Authorization: Bearer $CRON_SECRET` header.
+- `poll-openai` matrix runs Ritz with the same 4 chunks.
+- `rebuild-citation-evidence-index`: 1 invocation, identical to pre-bundle.
+- `verify-persistence`: 1 invocation of `check-yesterday-poll.ts`, identical to pre-bundle.
+- **Total paid API spend per day: byte-equivalent to the pre-bundle cron.** No new secrets required, no new endpoints called.
+
+### Required verification — NOT YET COMPLETE
+
+**2026-05-07 morning (after 07:00 UTC):** confirm the matrix-driven cron either runs Ritz cleanly (4/4 Perplexity + 4/4 ChatGPT, ~100 + ~100 prompts persisted to `prompt_answer_observations`) OR reports honestly via the existing partial / failed canary surface. Until this proof-run lands, the cron path is YELLOW — architecturally complete but unverified end-to-end. The next-phase plan (`NEXT_PHASE_EXECUTION_PLAN.md`) gates further customer-2 infrastructure work on this verification.
+
+### Course corrections during implementation (truth-up)
+
+I drafted `rebuild-citation-evidence-index` as matrix-driven initially. Caught my own mistake before commit by reading the route source — the endpoint is currently tenant-agnostic (writes one global `id='current'` row). Matrixing would have called the same global rebuild N times wastefully and risked race-condition upserts. Reverted to singleton with a clear comment block explaining the future-conversion path when/if the index becomes per-tenant. Same logic applied to `verify-persistence`.
+
+Commit: `f9bd483`. Total architecture invariants: **267** (246 prior + 21 new).
+
+---
+
 ## 2026-05-06 — RLS deny-all migration + leaked-password protection decision
 
 Operator-approved bundle (preflight + apply + verification + leaked-password follow-up). Closed customer-2 onboarding's top blocker (direct anon-key/PostgREST exposure to 36 public tables) and recorded the decision to defer the only remaining Security Advisor WARN.
