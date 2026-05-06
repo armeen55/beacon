@@ -7,6 +7,93 @@
 
 ---
 
+## 2026-05-05 — LLM-LiveRegen-1 (first persistence round-trip; 3 candidates, $0.0301)
+
+Operator approved a 3-candidate small live regeneration after LLM-DryRun-3 closed strict abstention. **First paid persistence round-trip after the entire DryRun cycle.** No queue mutation outside the 3 pinned candidates. No backfill. No broad regen.
+
+### What changed (code)
+
+- **NEW `scripts/llm-live-regen-1.ts`** — separate from the dry-run harness (which is pinned to no-persistence by `tests/architecture/llm-dryrun-harness-no-persistence.test.ts`). Uses `runProviderAndPersist` for the persistence path. Pinned 3 candidates by `stableKey` (no auto-discovery), $1 hard budget cap (independent of the existing $10/mo cap, with cumulative-pre-call gate), explicit `provider: openaiProvider` (never accidentally routes to deterministic), `dryRun: false`. Pre-flight asserts every candidate is `confidence === "medium"` AND `tier === "observation"` AND not pre-existing in the queue under a different stableKey before the loop runs. Halt-on-guardrail-trip semantics: harness scans every emitted bundle for UUIDs, placeholders, fabricated numbers, competitor names in public copy, raw prompt-id leaks; halts on first sign and reports.
+
+### What changed (data)
+
+- **7 rows persisted to `.data/tenants/ritz-builders/recommended-edits.json`** (20 → 27 total; 12 → 19 openai-source). 4 from Palo Alto cluster (H2 + 3 FAQ rows for design-build-vs-architect+contractor and underground basements). 3 from Atherton cluster (H2 + Q + A on modernizing-without-footprint-expansion). 0 from Bay-Area teardown (model abstained per Rule 16.A trigger 1).
+- **7 rows dual-written to Supabase `recommended_edits`** with matching IDs, source=openai, created_at = 2026-05-06 02:06–02:08 UTC. Total Supabase tenant rows now 24 (vs 27 in .data — the 3-row gap is legacy .data-only rows that pre-date dual-write, not introduced by this run).
+- **3 entries appended to `.data/global/llm-history-specific-edits.json`** as `live_call` breadcrumbs (one per candidate; the abstaining one carries `model: null` per the existing 6A.2c shape).
+- **Budget ledger `.data/global/llm-budget.json`** updated: monthly spend now $0.030075, calls=3, monthly cap $10 unchanged.
+
+### Pre-flight (printed before any provider call)
+
+```
+Tenant target: tenant-ritz-founder
+Budget cap (harness): $1.00
+Provider: openai (gpt-5-mini)
+Persistence path: runProviderAndPersist (file + Supabase dual-write)
+
+PRE-FLIGHT — selected candidates:
+  · create_cluster_page:geo:Palo Alto
+      action=expand_existing_page targetUrl=https://ritzbuilders.com/locations/palo-alto
+      confidence=medium tier=observation affectedPrompts=5
+  · target_competitors:prompt:e17d29c3-eab3-4278-a3ea-4bd175692b36
+      action=create_new_page targetUrl=needs_new_page
+      confidence=medium tier=observation affectedPrompts=1
+  · create_cluster_page:geo:Atherton
+      action=expand_existing_page targetUrl=https://ritzbuilders.com/locations/atherton
+      confidence=medium tier=observation affectedPrompts=3
+
+Pre-flight passed: 3 candidates, all medium-conf + observation-tier ✓
+```
+
+### Per-candidate result
+
+| stableKey | Bundle edits | Validator accept | Validator reject | Persisted | Cost | Guardrail flags |
+|---|---|---|---|---|---|---|
+| `create_cluster_page:geo:Palo Alto` (5 prompts) | 5 | 4 | 1 (competitor ref unknown name "Construct Elements") | 4 | $0.0135 | 0 |
+| `target_competitors:prompt:e17d29c3-…` (1 prompt) | **0 (abstained)** | 0 | 0 | 0 | $0.0038 | 0 |
+| `create_cluster_page:geo:Atherton` (3 prompts) | 4 | 3 | 1 (competitor ref unknown name "Construct Elements") | 3 | $0.0128 | 0 |
+
+Total: $0.0301 / $1 cap (3.01%). 7 rows persisted. 0 guardrail flags. 0 unexpected validator behavior. Exit code 0.
+
+### Behavior finding (open — operator decision needed)
+
+**The Bay-Area teardown create_new_page packet abstained.** Inputs: medium confidence, 1 affected prompt, 0 brand assertions. The DryRun-3 strict-abstention rule 16.A trigger 1 (`affectedPrompts.length === 1` AND no operator-curated `brandAssertions`) fires regardless of confidence. The model returned `[]` correctly per the rule.
+
+In DryRun-2 (before strict abstention) this same candidate produced 3 ship-as-is edits. DryRun-3 only ran the two LOW-confidence abstention candidates and didn't surface this case. LiveRegen-1 caught it.
+
+**Output is content-safe** (no harm); the queue just gets fewer rows than DryRun-2 implied for single-prompt MEDIUM-confidence packets. Recommended fix (next bundle): tighten Rule 16.A trigger 1 to require `confidence === "low"` too. That keeps trigger 1 firing on LOW-confidence single-prompt packets (where it should) and lets MEDIUM-confidence single-prompt packets generate again (where they did in DryRun-2).
+
+### Verification (post-persistence)
+
+- `.data/tenants/ritz-builders/recommended-edits.json`: 7 new rows added, all 7 are `source: "openai"`, all have unique IDs. Per-row scan of operator-visible fields (`why`, `expected_impact`, `measurement_plan`, `proposed_text`, `display_label`, `current_text`):
+  - **0 UUID hits** ✅ (3 hits on the broader `Palo Alto`-prefixed grep were pre-existing dogfood rows protected by the cutover ceiling at 9; `tests/architecture/no-uuid-in-active-recs.test.ts` continues to pass)
+  - **0 placeholder hits** ✅
+  - **0 fabricated number/timeline/cost/guarantee hits** in `proposed_text`/`display_label`/`expected_impact` ✅
+  - **0 competitor names** in `proposed_text` or `display_label` ✅ (audited against the full 20-name competitor list in `.data/tenants/ritz-builders/tracked-entities.json`)
+  - **0 duplicate IDs** across the entire file ✅
+- Supabase: 7 rows landed, 0 duplicates, row IDs match local exactly.
+- /recommendations smoke (`tests/routes/recommendations-smoke.test.ts` + `recommendations-page-reads-fresh.test.ts`): **10/10 PASS** with the new rows present.
+- Architecture invariants: 47/47 PASS — DryRun-2 (8 + 9 + 5 + 3) + DryRun-3 (16 + 6) all green against the post-persistence state.
+
+### Quality gates
+
+- typecheck: clean (3 pre-existing prompt-drilldown errors verified by stash test in earlier bundles).
+- targeted vitest: 47/47 PASS.
+- /recommendations route smoke: 10/10 PASS.
+- full suite: 4451/4456 (5 pre-existing failures unchanged: `prompts-smoke.test.tsx` ×2, `prompt-drilldown-smoke.test.tsx` ×1, `auto-link-via-changelog.test.ts` ×2).
+- build: EXIT_CODE=0 green.
+
+### Cost ledger
+
+LiveRegen-1 spend: **$0.0301 USD** (gpt-5-mini, single tenant `tenant-ritz-founder`, 3 candidates). Cumulative DryRun-1 + DryRun-2 + DryRun-3 + LiveRegen-1: **$0.1606**.
+
+### Operator decision pending
+
+Recommended next step: a 5–10-candidate live regen across DIFFERENT slot types (the current 3 covered location-cluster expansion + create-page; missing: schema/technical, FAQ-pairing edge cases, competitor-blueprint-heavy packets). **Before that:** decide on Option A/B/C for abstention rule 16.A trigger 1 (recommend B — tighten to LOW confidence only).
+
+Validator + architecture invariants stand alone either way. Live persistence path now proven safe at 3-candidate scale.
+
+---
+
 ## 2026-05-05 — LLM-DryRun-3 (strict abstention hardened — operator Option B)
 
 Operator chose Option B from the DryRun-2 decision matrix: tighten Rule 16.A to a hard contract before any live regen. No paid live regeneration. Dry-run only. No persistence. No queue mutation.
