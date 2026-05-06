@@ -7,6 +7,70 @@
 
 ---
 
+## 2026-05-05 — May 2026 LLM budget ledger reconciled from history
+
+After the test-isolation fix landed and the operator-authorized LR-1+LR-2 baseline ($0.065741 / 6 calls) was written, the LLM history file showed 21 live_call entries totaling $0.268231 for May 2026 — pre-LR-1 dogfood spend that earlier test clobbers had also lost. Operator brief: reconcile the ledger to the full May aggregate, deterministically, from the history file.
+
+Data repair only. No production code changes. No OpenAI calls. No queue mutation.
+
+### Computation (from `.data/global/llm-history-specific-edits.json`)
+
+```
+[.[] | select(.timestamp >= "2026-05-01" and .timestamp < "2026-06-01" and .status == "live_call")]
+  | { count: length, total_costUsd: ([.[].costUsd] | add) }
+
+→ { "count": 21, "total_costUsd": 0.268231,
+    "min_timestamp": "2026-05-03T20:03:10.432Z",
+    "max_timestamp": "2026-05-06T02:58:20.695Z" }
+```
+
+Sanity check (all-time, all-status): 29 live_call entries totaling $0.354823, plus 8 empty_or_error entries at $0. The 21-vs-29 gap is 8 live_call entries from April / earlier.
+
+### Why count = 21 = recordSpend invocation count
+
+`runProviderAndPersist` (line 766–800 of `recommended-edits-persistence.ts`) records `live_call` AND calls `recordSpend` if and only if `bundle.totalCostUsd > 0`. Empty/zero-cost paths produce `empty_or_error` entries instead — those don't touch the budget ledger. So one May live_call entry == one recordSpend invocation. The 21 count maps 1:1 to the budget ledger's `calls`.
+
+### What changed (data)
+
+- **`.data/global/llm-budget.json`** — updated from operator-authorized LR-1+LR-2 baseline to full-May aggregate.
+
+| Field | Before | After |
+|---|---|---|
+| monthKey | "2026-05" | "2026-05" (unchanged) |
+| spendUsd | 0.065741 | **0.268231** |
+| calls | 6 | **21** |
+| capUsd | 10 | 10 (unchanged) |
+| updatedAt | "2026-05-06T03:42:00.000Z" | **"2026-05-06T02:58:20.695Z"** (max live_call timestamp from May) |
+
+### Verification — ledger NOT clobbered after reconciliation
+
+| State | Ledger contents |
+|---|---|
+| Pre-targeted-tests | `spendUsd: 0.268231, calls: 21, capUsd: 10, updatedAt: "2026-05-06T02:58:20.695Z"` |
+| Post-targeted-tests (53/53 PASS across budget-test-isolation + LR-N allowlist + adjudicate + adjudicate-cache-only) | **byte-identical** ✅ |
+| Pre-full-suite | same |
+| Post-full-suite (4498/4503, 5 baseline failures unchanged) | **byte-identical** ✅ |
+
+The test-isolation fix continues to hold; nothing in this bundle reintroduces a global-store write.
+
+### Quality gates
+
+- typecheck: clean (3 pre-existing prompt-drilldown errors unrelated).
+- targeted vitest: 53/53 PASS (4 files: budget-test-isolation, LR-N allowlist, adjudicate, adjudicate-cache-only).
+- full suite: 4498/4503 (5 pre-existing failures unchanged: prompts-smoke ×2, prompt-drilldown-smoke ×1, auto-link-via-changelog ×2 — all verified pre-existing in earlier bundles).
+- build: EXIT_CODE=0 green (one Supabase prerender flake on first attempt; succeeded on retry — same intermittent egress pattern seen in prior bundles, NOT introduced by this bundle).
+- ledger byte-equality: ✅ verified before/after full suite.
+
+### Outcome
+
+Ledger now accurately reflects all May 2026 LLM spend: $0.268231 across 21 calls. Cap stays at $10/month. Headroom: $9.732 / 97% remaining for the rest of May.
+
+### Operator decision pending
+
+LLM work paused. Waiting for queue refresh before LR-3. The architecture invariants (94 total) keep all safety contracts pinned in the meantime.
+
+---
+
 ## 2026-05-05 — LR-N harness allowlist invariant (13 operator-locked safety properties)
 
 After the test-isolation fix landed, the next gap before LR-3 was: future LR-N harnesses could silently broaden scope (drop the $1 cap, change tenant, skip pre-flight, add `--all`, etc.). Operator brief: pin 13 safety properties as an architecture invariant before the next live regeneration runs.
