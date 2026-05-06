@@ -54,11 +54,15 @@ function stripComments(src: string): string {
 }
 
 /**
- * Find the substring of the JSX render block that lives BEFORE the first
- * `{advancedOpen && (` block. That's the always-visible default surface.
- * Anything inside `{advancedOpen && (...)}` is gated by the operator
- * clicking the disclosure trigger — those copy strings are explicitly
- * NOT customer-default-visible.
+ * Find the substring of the JSX render block that lives BEFORE the
+ * first operator-mode-gated boundary. That's the always-visible
+ * customer default surface.
+ *
+ * 2026-05-06 Phase 3-bis fix 5: the entire Advanced disclosure
+ * (trigger + content) is now wrapped in an outer `{OPERATOR_MODE && (...)}`
+ * block. The D2 boundary is therefore the FIRST occurrence of
+ * `{OPERATOR_MODE && (` (when present) or the legacy `{advancedOpen && (`
+ * — whichever comes first.
  *
  * The slice STARTS at the `return (` so module-level imports + state
  * setup (which legitimately contain `importProfoundData` / "profound"
@@ -72,12 +76,18 @@ function defaultSurfaceText(src: string): string {
   }
   const sliceFrom = returnIdx;
   const advIdx = stripped.indexOf("{advancedOpen && (", sliceFrom);
-  if (advIdx < 0) {
+  const opIdx = stripped.indexOf("{OPERATOR_MODE && (", sliceFrom);
+  // Pick whichever boundary comes first; throw if neither is present.
+  let boundary = -1;
+  if (opIdx >= 0 && advIdx >= 0) boundary = Math.min(opIdx, advIdx);
+  else if (opIdx >= 0) boundary = opIdx;
+  else if (advIdx >= 0) boundary = advIdx;
+  if (boundary < 0) {
     throw new Error(
-      "import-page.tsx must contain `{advancedOpen && (` — D2 disclosure trigger not found",
+      "import-page.tsx must contain a `{OPERATOR_MODE && (` OR `{advancedOpen && (` boundary — D2 disclosure not found",
     );
   }
-  return stripped.slice(sliceFrom, advIdx);
+  return stripped.slice(sliceFrom, boundary);
 }
 
 describe("D2 — /settings/import default surface is customer-safe", () => {
@@ -144,14 +154,25 @@ describe("D2 — /settings/import default surface is customer-safe", () => {
   });
 
   it("Profound batch importer copy lives BEHIND the advanced disclosure (not in default surface)", () => {
+    // 2026-05-06 Phase 3-bis fix 5: the trigger pattern is now
+    // `{OPERATOR_MODE && advancedOpen && (` (was `{advancedOpen && (`).
+    // Accept either form; the contract is "Run batch import" comes
+    // AFTER the gating boundary, not in the customer default surface.
     const src = stripComments(loadSource());
-    const triggerIdx = src.indexOf("{advancedOpen && (");
+    const opTriggerIdx = src.indexOf("{OPERATOR_MODE && advancedOpen && (");
+    const advTriggerIdx = src.indexOf("{advancedOpen && (");
+    const triggerIdx =
+      opTriggerIdx >= 0
+        ? opTriggerIdx
+        : advTriggerIdx >= 0
+          ? advTriggerIdx
+          : -1;
     const profoundButtonIdx = src.indexOf("Run batch import");
     expect(triggerIdx).toBeGreaterThan(0);
     expect(profoundButtonIdx).toBeGreaterThan(0);
     expect(
       profoundButtonIdx,
-      "'Run batch import' button must appear AFTER the {advancedOpen && (} trigger — D2",
+      "'Run batch import' button must appear AFTER the operator/advanced disclosure trigger — D2",
     ).toBeGreaterThan(triggerIdx);
   });
 });

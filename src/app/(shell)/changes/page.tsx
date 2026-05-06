@@ -370,7 +370,7 @@ export default async function ChangeScorecardPage() {
     <div>
       <PageHeader
         title="Changes"
-        description="Verified and tracked changes Beacon has confirmed live, plus everything pending or imported. Filter by tab for the truth class you need."
+        description="Every edit you've shipped to your site, with AI impact tracked over time."
       />
 
       {/* Commit 2 (2026-04-24): evidence-freshness honesty banner. Z-score

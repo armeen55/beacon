@@ -3,6 +3,26 @@
 import { useEffect, useState, useMemo, useTransition } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
+
+/**
+ * 2026-05-06 demo-path Phase 3-bis fix 4 — DOM data-attribute gating.
+ *
+ * Pre-fix: `data-attribution-branch={copy.branch}` rendered raw enum
+ * values like `verified_live_too_early` / `verdict_off` /
+ * `seed_prior` directly into customer-visible HTML, inspectable via
+ * View Source / DevTools. `data-stale-pending-state={lifecycleStatus}`
+ * leaked `accepted` / `recommended` enum values the same way.
+ *
+ * Gate: customer mode strips these data attrs entirely. Operator mode
+ * (NEXT_PUBLIC_OPERATOR_MODE) and tests (NODE_ENV=test) preserve the
+ * attrs so existing snapshots + dev-tools workflows keep working.
+ *
+ * Same gate-shape as the recommendations drawer Debug-block fix
+ * (commit 57b509c).
+ */
+const OPERATOR_MODE_DEBUG: boolean =
+  process.env.NEXT_PUBLIC_OPERATOR_MODE === "true" ||
+  process.env.NODE_ENV === "test";
 import type { ScorecardRowWithImpact } from "@/domains/attribution/change-impact";
 import type { UrlVerdict } from "@/domains/attribution/url-verdict";
 import { markChangelogEditShipped } from "./actions";
@@ -542,9 +562,16 @@ function ChangeRow({
         } ${isStalePending ? "bg-status-warning/[0.04]" : ""}`}
         onClick={() => setOpen((v) => !v)}
         data-stale-pending={isStalePending ? "true" : undefined}
-        data-stale-pending-state={
-          isStalePending ? lifecycleStatus ?? null : undefined
-        }
+        // 2026-05-06 demo-path fix: data-stale-pending-state used to leak
+        // raw `recommended`/`accepted` enum values into the DOM. Customer
+        // mode now strips it; operator mode + tests keep it.
+        {...(OPERATOR_MODE_DEBUG
+          ? {
+              "data-stale-pending-state": isStalePending
+                ? lifecycleStatus ?? null
+                : undefined,
+            }
+          : {})}
         title={isStalePending ? staleTooltip : undefined}
       >
         <td className="px-2.5 py-2 text-muted-foreground tabular-nums whitespace-nowrap align-top text-[11px]">
@@ -712,7 +739,13 @@ function ChangeRow({
                 <span
                   className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-semibold ${attributionToneClass(copy.tone)}`}
                   title={copy.tooltip}
-                  data-attribution-branch={copy.branch}
+                  // 2026-05-06 demo-path fix: data-attribution-branch
+                  // used to leak raw enum values like
+                  // `verified_live_too_early`. Customer mode strips it;
+                  // operator mode + tests keep the test hook.
+                  {...(OPERATOR_MODE_DEBUG
+                    ? { "data-attribution-branch": copy.branch }
+                    : {})}
                 >
                   {copy.label}
                 </span>

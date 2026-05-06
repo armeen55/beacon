@@ -508,13 +508,14 @@ describe("W3 Step 3.5e — search + filter inputs", () => {
   });
 
   it("the type filter includes operator-friendly labels (All types / H2 / Page / etc.)", () => {
+    // 2026-05-06 Phase 3-bis fix 1: option `value` is now the public
+    // key (page / h2 / etc.), not the raw schema enum (create_page /
+    // edit_h2). Labels unchanged.
     const html = renderQueue([makeRow()]);
     expect(html).toMatch(/<option[^>]*value="all"[^>]*>All types<\/option>/);
-    expect(html).toMatch(/<option[^>]*value="edit_h2"[^>]*>H2<\/option>/);
-    // W3 §3.5f — "Create page" → "Page" so the dropdown stays
-    // single-line and matches the operator-locked compact labels.
+    expect(html).toMatch(/<option[^>]*value="h2"[^>]*>H2<\/option>/);
     expect(html).toMatch(
-      /<option[^>]*value="create_page"[^>]*>Page<\/option>/,
+      /<option[^>]*value="page"[^>]*>Page<\/option>/,
     );
   });
 

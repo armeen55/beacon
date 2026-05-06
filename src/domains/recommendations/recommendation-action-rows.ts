@@ -134,7 +134,10 @@ export const ACTION_ROW_STATUS_LABEL: Record<ActionRowStatus, string> = {
   shipped: "Shipped",
   measuring: "Measuring",
   needs_review: "Needs review",
-  needs_fresh_edit: "Needs fresh edit",
+  // 2026-05-06 demo-path Phase 3-bis fix 2 — operator-friendly rename.
+  // The internal enum stays `needs_fresh_edit` for backwards compat;
+  // only the customer-visible label changes.
+  needs_fresh_edit: "Needs new recommendation",
   dismissed: "Dismissed",
   deferred: "Deferred",
 };

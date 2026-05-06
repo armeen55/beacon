@@ -436,8 +436,18 @@ export function TodayClient({
         )}
 
       {/* Tier 0 — critical alerts. Each renders only when its trigger
-          is firing, so a green system shows zero alerts. */}
-      {pollHealth && <PollHealthBlock snapshot={pollHealth} />}
+          is firing, so a green system shows zero alerts.
+          2026-05-06 demo-path Phase 3-bis fix 8: PollHealthBlock no
+          longer renders at the top when every platform is OK. When
+          all platforms are status="ok", suppress the block entirely
+          (the header is silent on healthy days). When any platform is
+          partial / failed / pending, the block surfaces with the
+          existing customer-friendly copy. Operator can always inspect
+          full poll health via /diagnostics (operator-mode only). */}
+      {pollHealth &&
+        pollHealth.platforms.some((p) => p.status !== "ok") && (
+          <PollHealthBlock snapshot={pollHealth} />
+        )}
       {todayFreshness && (
         <div
           className="rounded-md border border-status-warning/40 bg-status-warning/[0.04] px-4 py-2.5 text-[12px]"

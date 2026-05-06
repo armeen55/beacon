@@ -99,10 +99,12 @@ export function RecommendationsClient({
   );
 
   const [search, setSearch] = useState("");
-  const [typeFilter, setTypeFilter] = useState<ActionRowType | "all">("all");
-  const [statusFilter, setStatusFilter] = useState<ActionRowStatus | "all">(
-    "all",
-  );
+  // 2026-05-06 demo-path Phase 3-bis fix 1+2 — filter state holds the
+  // public option key (e.g. "page", "regenerate"), NOT the raw schema
+  // enum. TYPE_VALUE_TO_ENUM / STATUS_VALUE_TO_ENUM translate to the
+  // enum for the equality check. Default value "all" remains unchanged.
+  const [typeFilter, setTypeFilter] = useState<string>("all");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<{
     rowId: string;
@@ -113,8 +115,14 @@ export function RecommendationsClient({
   const filteredRows = useMemo(
     () =>
       allRows.filter((row) => {
-        if (typeFilter !== "all" && row.actionType !== typeFilter) return false;
-        if (statusFilter !== "all" && row.status !== statusFilter) return false;
+        if (typeFilter !== "all") {
+          const targetType = TYPE_VALUE_TO_ENUM[typeFilter];
+          if (!targetType || row.actionType !== targetType) return false;
+        }
+        if (statusFilter !== "all") {
+          const targetStatus = STATUS_VALUE_TO_ENUM[statusFilter];
+          if (!targetStatus || row.status !== targetStatus) return false;
+        }
         const q = search.trim().toLowerCase();
         if (q.length === 0) return true;
         const haystack =
@@ -183,45 +191,64 @@ function buildSummary(rows: RecommendationActionRow[]): SummaryShape {
   return { total: rows.length, byStatus };
 }
 
+/**
+ * 2026-05-06 demo-path Phase 3-bis fix 1 — filter dropdown values
+ * are no longer raw schema enums. Pre-fix: <option value="add_internal_links">,
+ * <option value="regenerate_edit"> etc. leaked the underlying taxonomy
+ * via View Source / DevTools. Post-fix: option values are short
+ * single-word product-vocabulary keys ("links", "regenerate", ...);
+ * a TYPE_VALUE_TO_ENUM map translates back to the raw `ActionRowType`
+ * for the equality comparison. Customer-mode HTML now contains only
+ * the labels + the friendly keys.
+ */
 const TYPE_FILTER_OPTIONS: Array<{
-  value: ActionRowType | "all";
+  value: string;
   label: string;
+  enum: ActionRowType | null;
 }> = [
-  { value: "all", label: "All types" },
-  // W3 §3.5f — compact labels. "Page" replaces "Create page" so the
-  // dropdown stays single-line and the pill column doesn't overflow.
-  // W3 §3.11 (2026-05-04) — operator-locked taxonomy adds H1 +
-  // Table as their own filterable types (planner v0).
-  { value: "create_page", label: "Page" },
-  { value: "edit_title", label: "Title" },
-  { value: "edit_meta", label: "Meta" },
-  { value: "edit_h1", label: "H1" },
-  { value: "edit_h2", label: "H2" },
-  { value: "add_section", label: "Section" },
-  { value: "improve_copy", label: "Copy" },
-  { value: "add_faq", label: "FAQ" },
-  { value: "add_schema", label: "Schema" },
-  { value: "add_internal_links", label: "Links" },
-  { value: "add_comparison_table", label: "Table" },
-  { value: "technical_fix", label: "Technical" },
-  { value: "review_decision", label: "Review" },
-  { value: "regenerate_edit", label: "Regenerate" },
+  { value: "all", label: "All types", enum: null },
+  { value: "page", label: "Page", enum: "create_page" },
+  { value: "title", label: "Title", enum: "edit_title" },
+  { value: "meta", label: "Meta", enum: "edit_meta" },
+  { value: "h1", label: "H1", enum: "edit_h1" },
+  { value: "h2", label: "H2", enum: "edit_h2" },
+  { value: "section", label: "Section", enum: "add_section" },
+  { value: "copy", label: "Copy", enum: "improve_copy" },
+  { value: "faq", label: "FAQ", enum: "add_faq" },
+  { value: "schema", label: "Schema", enum: "add_schema" },
+  { value: "links", label: "Links", enum: "add_internal_links" },
+  { value: "table", label: "Table", enum: "add_comparison_table" },
+  { value: "technical", label: "Technical", enum: "technical_fix" },
+  { value: "review", label: "Review", enum: "review_decision" },
+  { value: "regenerate", label: "Regenerate", enum: "regenerate_edit" },
 ];
+const TYPE_VALUE_TO_ENUM: Record<string, ActionRowType | null> =
+  Object.fromEntries(TYPE_FILTER_OPTIONS.map((o) => [o.value, o.enum]));
 
+/**
+ * 2026-05-06 demo-path Phase 3-bis fix 2 — `needs_fresh_edit` is renamed
+ * to "Needs new recommendation" in the dropdown label and the row pill;
+ * the public filter value is "regenerate" (clean key, not a schema enum).
+ * The internal `ActionRowStatus` enum keeps `needs_fresh_edit` for backwards
+ * compat — only the customer-visible surfaces change.
+ */
 const STATUS_FILTER_OPTIONS: Array<{
-  value: ActionRowStatus | "all";
+  value: string;
   label: string;
+  enum: ActionRowStatus | null;
 }> = [
-  { value: "all", label: "All statuses" },
-  { value: "new", label: "New" },
-  { value: "accepted", label: "Accepted" },
-  { value: "measuring", label: "Measuring" },
-  { value: "shipped", label: "Shipped" },
-  { value: "needs_review", label: "Needs review" },
-  { value: "needs_fresh_edit", label: "Needs fresh edit" },
-  { value: "deferred", label: "Deferred" },
-  { value: "dismissed", label: "Dismissed" },
+  { value: "all", label: "All statuses", enum: null },
+  { value: "new", label: "New", enum: "new" },
+  { value: "accepted", label: "Accepted", enum: "accepted" },
+  { value: "measuring", label: "Measuring", enum: "measuring" },
+  { value: "shipped", label: "Shipped", enum: "shipped" },
+  { value: "review", label: "Needs review", enum: "needs_review" },
+  { value: "regenerate", label: "Needs new recommendation", enum: "needs_fresh_edit" },
+  { value: "deferred", label: "Deferred", enum: "deferred" },
+  { value: "dismissed", label: "Dismissed", enum: "dismissed" },
 ];
+const STATUS_VALUE_TO_ENUM: Record<string, ActionRowStatus | null> =
+  Object.fromEntries(STATUS_FILTER_OPTIONS.map((o) => [o.value, o.enum]));
 
 function Toolbar({
   search,
@@ -235,10 +262,12 @@ function Toolbar({
 }: {
   search: string;
   onSearchChange: (v: string) => void;
-  typeFilter: ActionRowType | "all";
-  onTypeChange: (v: ActionRowType | "all") => void;
-  statusFilter: ActionRowStatus | "all";
-  onStatusChange: (v: ActionRowStatus | "all") => void;
+  // 2026-05-06 — filter state is the public option key string
+  // ("all" | "page" | "regenerate" etc.), not the raw schema enum.
+  typeFilter: string;
+  onTypeChange: (v: string) => void;
+  statusFilter: string;
+  onStatusChange: (v: string) => void;
   summary: SummaryShape;
   matrixDate: string;
 }) {
@@ -260,7 +289,7 @@ function Toolbar({
         <select
           className="rounded border border-border/60 bg-background px-2 py-1.5 text-[12px] focus:outline-none focus:border-accent-primary"
           value={typeFilter}
-          onChange={(e) => onTypeChange(e.target.value as ActionRowType | "all")}
+          onChange={(e) => onTypeChange(e.target.value)}
           data-recommendations-type-filter="true"
         >
           {TYPE_FILTER_OPTIONS.map((o) => (
@@ -272,9 +301,7 @@ function Toolbar({
         <select
           className="rounded border border-border/60 bg-background px-2 py-1.5 text-[12px] focus:outline-none focus:border-accent-primary"
           value={statusFilter}
-          onChange={(e) =>
-            onStatusChange(e.target.value as ActionRowStatus | "all")
-          }
+          onChange={(e) => onStatusChange(e.target.value)}
           data-recommendations-status-filter="true"
         >
           {STATUS_FILTER_OPTIONS.map((o) => (

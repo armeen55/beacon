@@ -2,6 +2,19 @@
 
 import { useState, useTransition, useEffect } from "react";
 import Link from "next/link";
+
+/**
+ * 2026-05-06 demo-path Phase 3-bis fix 5 — gate the "Advanced" import
+ * disclosure entirely behind operator mode. Pre-fix the disclosure
+ * was always reachable: opening it surfaced "Internal tooling — drop
+ * CSV exports on the server filesystem", "Run batch import" buttons,
+ * and merge-semantics jargon. None of that is appropriate for a
+ * customer-mode demo. Operator mode (NEXT_PUBLIC_OPERATOR_MODE) keeps
+ * the historical workflow intact.
+ */
+const OPERATOR_MODE: boolean =
+  process.env.NEXT_PUBLIC_OPERATOR_MODE === "true" ||
+  process.env.NODE_ENV === "test";
 import { Upload, Trash2, AlertTriangle, CheckCircle2 } from "lucide-react";
 import { PageHeader } from "@/components/data/page-header";
 import { Button } from "@/components/ui/button";
@@ -53,6 +66,11 @@ const FORMAT_OPTIONS: { value: ImportFormat; label: string }[] = [
 function friendlyImportSource(raw: string | undefined): string {
   if (!raw) return "Import";
   if (raw === "beacon-workbook" || raw === "ritz-workbook") return "Legacy workbook (removed)";
+  // 2026-05-06 demo-path Phase 3-bis fix 6 — historical Profound CSV
+  // imports show up in the import log. Customer-mode label hides the
+  // vendor name; operator-mode log retains the raw source via the
+  // run details page.
+  if (raw === "profound") return "Historical CSV";
   return raw;
 }
 
@@ -178,25 +196,32 @@ export default function ImportPage() {
           internal copy ("bridged results", etc.). Operators with a
           legacy export can still reach the controls; new customers
           never see the internal scaffolding. */}
-      <div className="border-t border-border/60 pt-6 mt-2">
-        <button
-          type="button"
-          onClick={() => setAdvancedOpen((v) => !v)}
-          className="flex items-center gap-2 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors w-full text-left"
-        >
-          <span className={cn("transition-transform text-[9px] text-muted-foreground/50", advancedOpen ? "rotate-90" : "")}>
-            ▶
-          </span>
-          Advanced — legacy import paths (CSV batch, manual paste, reset, import log)
-        </button>
-        {!advancedOpen && (
-          <p className="text-[11px] text-muted-foreground/80 mt-2 leading-relaxed">
-            For historical-CSV batch loads, manual entity paste, data reset, and the import-run log.
-          </p>
-        )}
-      </div>
+      {/* 2026-05-06 demo-path fix 5: the entire Advanced disclosure
+          (CSV batch importer, manual paste, reset, import log) is now
+          operator-only. Customer mode renders nothing here. The
+          historical workflow is preserved when NEXT_PUBLIC_OPERATOR_MODE
+          is set or under test. */}
+      {OPERATOR_MODE && (
+        <div className="border-t border-border/60 pt-6 mt-2">
+          <button
+            type="button"
+            onClick={() => setAdvancedOpen((v) => !v)}
+            className="flex items-center gap-2 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors w-full text-left"
+          >
+            <span className={cn("transition-transform text-[9px] text-muted-foreground/50", advancedOpen ? "rotate-90" : "")}>
+              ▶
+            </span>
+            Advanced — legacy import paths (CSV batch, manual paste, reset, import log)
+          </button>
+          {!advancedOpen && (
+            <p className="text-[11px] text-muted-foreground/80 mt-2 leading-relaxed">
+              For historical-CSV batch loads, manual entity paste, data reset, and the import-run log.
+            </p>
+          )}
+        </div>
+      )}
 
-      {advancedOpen && (
+      {OPERATOR_MODE && advancedOpen && (
       <div className="rounded-lg border-2 border-border/70 bg-surface-raised/30 p-6 mt-6 mb-6 space-y-4">
         <div className="flex items-center gap-2">
           <Upload className="h-5 w-5 text-accent-primary" />

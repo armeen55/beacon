@@ -30,10 +30,19 @@ describe("Changes route smoke", () => {
     const tree = await ChangeScorecardPage();
     const html = renderToStaticMarkup(tree as ReactElement);
 
-    // Phase 6A.2 page description (replaces the pre-6A.2 "Every change
-    // you've made" framing — that copy lumped lifecycle truth with
-    // imported legacy and scan diffs into one undifferentiated list).
-    expect(html).toContain("Verified and tracked changes");
+    // 2026-05-06 demo-path Phase 3-bis fix 3: header rewritten for
+    // customer-mode clarity. renderToStaticMarkup escapes the
+    // apostrophe to &#x27;, so we match either the escaped form or
+    // the unescaped one (in case the renderer changes). Either way,
+    // the surrounding context is unique enough.
+    expect(
+      html.includes(
+        "Every edit you&#x27;ve shipped to your site, with AI impact tracked over time",
+      ) ||
+        html.includes(
+          "Every edit you've shipped to your site, with AI impact tracked over time",
+        ),
+    ).toBe(true);
     // Structural wrapper from `components/data/page-header.tsx`.
     expect(html).toContain("flex items-start justify-between gap-4 mb-8");
     // Phase 6A.2 at-a-glance now leads with the live-verified count

@@ -92,6 +92,13 @@ export default async function PromptDrilldownPage({
       {/* 1. Header: "so what" */}
       <SoWhatBlock drilldown={drilldown} />
 
+      {/* 1.5 (2026-05-06 Phase 3-bis fix 7) — action bridge.
+          Tells the operator what to do next. For "early" prompts the
+          copy is reassuring ("Beacon is watching"); for actionable
+          categories (outranked / absent / close / winning) it links
+          to the recommendations queue. */}
+      <ActionBridge category={drilldown.classification.category} />
+
       {/* 2. Platform split */}
       <PlatformSplit drilldown={drilldown} />
 
@@ -131,6 +138,45 @@ function BackLink() {
         ← All prompts
       </Link>
     </p>
+  );
+}
+
+/* ────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * 2026-05-06 demo-path Phase 3-bis fix 7 — action bridge from prompt
+ * detail to recommendations queue. Pre-fix: the drilldown showed the
+ * full prompt analysis but never told the operator what to do next.
+ * Post-fix: a single line below the "so what" header either points to
+ * the recommendations queue (when the prompt is actionable) or
+ * explicitly reassures the operator that Beacon is watching (when
+ * the prompt is "early" — too few observations to act on yet).
+ */
+function ActionBridge({
+  category,
+}: {
+  category: PromptOpportunityCategory;
+}) {
+  if (category === "early") {
+    return (
+      <section className="mb-6 rounded-md border border-border/40 bg-surface-inset/20 px-4 py-2.5">
+        <p className="text-[12px] leading-relaxed text-muted-foreground">
+          No action queued yet — Beacon will keep watching this prompt as
+          more answers come in.
+        </p>
+      </section>
+    );
+  }
+  return (
+    <section className="mb-6">
+      <Link
+        href="/recommendations"
+        className="inline-flex items-center gap-1 text-[13px] font-medium text-accent-primary hover:underline underline-offset-2"
+        data-prompt-action-bridge="recommendations"
+      >
+        See related recommendations →
+      </Link>
+    </section>
   );
 }
 

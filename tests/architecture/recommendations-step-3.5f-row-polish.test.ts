@@ -218,8 +218,11 @@ describe("W3 Step 3.5f — Type column polish", () => {
   });
 
   it("type-filter dropdown surfaces 'Page' (not 'Create page') for the create_page option", () => {
+    // 2026-05-06 Phase 3-bis fix 1: filter option `value` is the public
+    // key "page" (not the raw schema enum "create_page"); the schema
+    // enum lives on the `enum` field of the option for the lookup map.
     expect(CLIENT_SRC).toMatch(
-      /\{\s*value:\s*"create_page",\s*label:\s*"Page"\s*\}/,
+      /\{\s*value:\s*"page",\s*label:\s*"Page",\s*enum:\s*"create_page"\s*\}/,
     );
   });
 });
