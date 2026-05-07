@@ -7,6 +7,110 @@
 
 ---
 
+## 2026-05-06 — Trust Sprint Mini-Phase T6.4 — Executive confidence layer (default-surface copy)
+
+Operationalizes the second half of the trust-sprint principle on customer-visible surfaces:
+
+> Internally rigorous (sample size, contamination, attribution risk all tracked).
+> **Externally confident, clean, decisive, and premium. Do not over-warn.**
+
+Caveats remain in proof drawers (why-this-number, why-this-verdict, truth pages, math drawer, methodology). Default surfaces drop scared / methodology-leaking copy in favor of action-verb framing.
+
+### What changed
+
+**Modified — `src/components/today/health-strip.tsx`:**
+
+- Old (line 84): `{coverageState === "critical" ? "Data is outdated" : "Data is aging"} — import fresh data to unlock accurate actions`
+- New: `{coverageState === "critical" ? "Refresh recommended — last crawl is stale" : "Refresh due — keep findings current"}`
+
+**Modified — `src/components/today/today-findings.tsx`:**
+
+Lines 117-121 (parenthetical chips next to "Observed in latest crawl"):
+- `(no recent data available)` → `(based on the last available crawl)`
+- `(data may be outdated)` → `(based on an earlier crawl)`
+- `(data has not been updated recently)` → `(based on an earlier crawl)`
+
+Lines 452-454 (banner copy on findings card):
+- `No recent data available — findings may not reflect your latest site.` → `Findings reflect the last available crawl. Refresh to update.`
+- `Data has not been updated recently — findings are based on an older crawl.` → `Findings reflect an earlier crawl. Refresh to update.`
+- `Data may be outdated — crawl is approaching the freshness threshold.` → `Findings are nearing the freshness threshold. Refresh recommended.`
+
+**Modified — `src/components/today/today-visibility-snapshot.tsx`:**
+
+Lines 128-140 (status pill on visibility snapshot):
+- `Critical — no recent crawl data` → `Refresh recommended — last crawl is stale`
+- `Stale — data has not been updated recently` → `Refresh recommended — based on an earlier crawl`
+- `Aging — data may be outdated` → `Refresh due — nearing freshness threshold`
+- `Coverage critical — scan is very old` → `Coverage refresh recommended`
+- `Coverage degraded — refresh soon` → `Coverage refresh due soon`
+- (Other branches unchanged: "Partial visibility sample", "Data freshness")
+
+**New — `tests/architecture/exec-confidence-default-surfaces.test.ts`:**
+
+28 tests pinning the three default-surface components against 9 forbidden scared / methodology-leaking phrases:
+
+```
+"Data is outdated"                            (alarm bell)
+"Data is aging"                               (anthropomorphizes data)
+"Data may be outdated"                        (hedged scared)
+"data has not been updated recently"          (past-tense scared)
+"no recent data available"                    (scared)
+"Aging — data may be outdated"                (doubled-down scared)
+"Stale — data has not been updated recently"  (label + scared)
+"Critical — no recent crawl data"             (alarm bell)
+"findings may not reflect your latest site"   (hedged scared)
+```
+
+Plus a positive invariant: at least one default surface must surface an action-verb refresh prompt (`Refresh recommended` or `Refresh due`) — otherwise the staleness framing has lost its actionable shape.
+
+### Out-of-scope (intentionally preserved)
+
+- **Trust drawers** (`why-this-number.tsx`, `why-this-verdict.tsx`) keep `Trustworthy / Directional / Unreliable` labels — these are proof-drawer surfaces, not default surfaces. The architecture invariant from T3.1 explicitly forbids cosmetic rebrand of these labels.
+- **Truth pages** (`/changes/truth`) keep their full-rigor language. Operator opens them when they want detail.
+- **Math drawer** keeps `z`, `sustain`, `baseline_days_used`, etc. — operator-only debug surface.
+- **Methodology page** (`/settings/methodology`) keeps comprehensive technical language.
+- **Internal labels** (`coverageState === "stale"`, `coverageState === "critical"`) keep their state-name shape — only the user-facing JSX strings change.
+- **Logger / error strings** keep `failed`, `error`, etc. — those are server logs, not customer copy.
+
+### Verification
+
+- ✅ `npm run typecheck` — clean.
+- ✅ `npm run test` — **307/307 files / 4993/4993 tests** (was 306/4965 at T6.3; +1 file +28 tests from the new T6.4 invariant).
+- ✅ `tests/architecture/exec-confidence-default-surfaces.test.ts` — 28/28 PASS.
+- ✅ No existing test asserted any of the old scared phrases (regression check via grep — only the new T6.4 invariant references them as forbidden patterns).
+- ✅ Trust drawer labels (`Trustworthy`, `Directional`, `Unreliable`) preserved per T3.1 contract.
+- ✅ Internal `coverageState` enum values (`stale`, `critical`, `aging`) unchanged — only the user-facing strings flipped.
+- ✅ Zero OpenAI calls. Zero paid polling. Zero schema or persistence changes.
+
+### Hard-constraint compliance
+
+- ✅ Customer surface only — no engine changes, no schema changes, no persistence changes.
+- ✅ Caveats in proof drawers preserved.
+- ✅ No false confidence introduced — staleness IS still flagged, but with action-verb framing instead of alarm-bell scared framing.
+- ✅ Internal rigor preserved (sample size, contamination, attribution risk all still tracked behind the scenes; only customer-facing copy shifts to confident framing).
+- ✅ No second tenant. No RLS / auth / Profound / onboarding / billing.
+- ✅ No broad refactors. No weakened tests (the 28 new tests TIGHTEN the contract).
+
+### What this closes
+
+Trust Sprint mini-phases T5.3 → T6.1 → T6.2 → T6.3 → T6.4 form one coherent run:
+
+| Phase | What | Outcome |
+|---|---|---|
+| T5.3 | Safe verdict rematerialization + integrity gate | 0 mutations; 1 expected drift documented |
+| T6.1 | Brain Health Index (operator-only) | Ritz grade: B — solid |
+| T6.2 | Local AEO database foundation | 7 derived files + manifest; idempotent; 100% byte-identical re-runs |
+| T6.3 | Brain-to-rec learning loop preflight | 3 honest findings; "do not build engine on current shape"; 2 structural fixes recommended |
+| T6.4 | Executive confidence layer | 9 forbidden phrases + 28 new invariant tests; 3 default-surface components rewritten with action-verb framing |
+
+The trust sprint's principle is now operationalized end-to-end: the engine is internally rigorous (T5 attribution hardening + T6 brain telemetry + T6 learning-loop honesty about gaps), and the customer surfaces are externally confident (T6.4 copy sweep). No false confidence; no over-warning.
+
+### What the next mini-phase should be
+
+The five-phase autonomous run from the operator's brief (T5.3 → T6.4) is now complete. End-of-run report follows in this same conversation. Operator decision on the next sprint direction (e.g., follow-up on T6.3's URL-normalization or rec↔change-stamp findings, or a different surface entirely) is the natural next gate.
+
+---
+
 ## 2026-05-06 — Trust Sprint Mini-Phase T6.3 — Brain-to-recommendation learning loop preflight
 
 Read-only diagnostic. Surfaces what learnings are POSSIBLE from the current rec queue + URL-outcome verdict store. No engine changes. No new persistence. No customer surface.

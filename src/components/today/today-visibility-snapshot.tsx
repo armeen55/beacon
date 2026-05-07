@@ -126,17 +126,17 @@ export function TodayVisibilitySnapshot({
                     : "text-accent-primary",
             )}>
               {coverageState === "critical"
-                ? "Critical — no recent crawl data"
+                ? "Refresh recommended — last crawl is stale"
                 : coverageState === "stale"
-                  ? "Stale — data has not been updated recently"
+                  ? "Refresh recommended — based on an earlier crawl"
                   : coverageState === "aging"
-                    ? "Aging — data may be outdated"
+                    ? "Refresh due — nearing freshness threshold"
                     : coverageState === "partial" || coverageTone === "partial"
                       ? "Partial visibility sample"
                       : coverageTone === "critical"
-                        ? "Coverage critical — scan is very old"
+                        ? "Coverage refresh recommended"
                         : coverageTone === "degraded"
-                          ? "Coverage degraded — refresh soon"
+                          ? "Coverage refresh due soon"
                           : "Data freshness"}
             </p>
           </div>

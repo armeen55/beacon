@@ -115,10 +115,10 @@ function FindingRow({
               {(coverageState === "stale" || coverageState === "critical" || coverageState === "aging") && (
                 <span className="text-status-warning/70 ml-1">
                   {coverageState === "critical"
-                    ? "(no recent data available)"
+                    ? "(based on the last available crawl)"
                     : coverageState === "aging"
-                      ? "(data may be outdated)"
-                      : "(data has not been updated recently)"}
+                      ? "(based on an earlier crawl)"
+                      : "(based on an earlier crawl)"}
                 </span>
               )}
             </p>
@@ -449,9 +449,9 @@ export function TodayFindings({
                     : "bg-surface-inset/40 text-muted-foreground",
               )}
             >
-              {coverageFindingsAttention === "critical" && "No recent data available — findings may not reflect your latest site."}
-              {coverageFindingsAttention === "stale" && "Data has not been updated recently — findings are based on an older crawl."}
-              {coverageFindingsAttention === "aging" && "Data may be outdated — crawl is approaching the freshness threshold."}
+              {coverageFindingsAttention === "critical" && "Findings reflect the last available crawl. Refresh to update."}
+              {coverageFindingsAttention === "stale" && "Findings reflect an earlier crawl. Refresh to update."}
+              {coverageFindingsAttention === "aging" && "Findings are nearing the freshness threshold. Refresh recommended."}
             </div>
           )}
           <div className={cn(

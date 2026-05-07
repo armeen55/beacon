@@ -81,7 +81,7 @@ export function HealthStrip({
       {isStale && (
         <div className="flex items-center justify-between gap-3 rounded-md border border-status-warning/30 bg-status-warning/[0.04] px-3 py-2">
           <span className="text-[11px] text-status-warning font-medium">
-            {coverageState === "critical" ? "Data is outdated" : "Data is aging"} — import fresh data to unlock accurate actions
+            {coverageState === "critical" ? "Refresh recommended — last crawl is stale" : "Refresh due — keep findings current"}
           </span>
           <Link
             href="/settings/import"
