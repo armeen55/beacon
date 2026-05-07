@@ -7,6 +7,103 @@
 
 ---
 
+## 2026-05-07 — Self-serve onboarding Gap C.1: business-profile step (name + website)
+
+Third step in customer-onboarding pipeline (Gap A → Gap B → Gap C.1). Replaces the Gap B placeholder welcome card at `/onboard/business` with a real step-1 form that collects business name + website domain and writes them to the existing pending tenant row. Adds a `/onboard/scope` placeholder (step 2 of 4) that previews cities/services collection and confirms step 1 saved. Pure, idempotent, gated by `status='pending_onboarding'` so an active customer's row can never be mutated through this path. **No tenant activation. No prompt creation. No paid APIs.**
+
+**Reversible**: writes are ordinary `tenants` row updates; an operator can revert a row's `business_name`/`domain` directly via Supabase. The route is one middleware + page deletion away from removal. No new tables, no schema changes.
+
+### What changed
+
+**New — `src/domains/onboarding/profile-validation.ts`** (~110 lines):
+- `normalizeDomain(input)`: pure helper. Strips http/https scheme, leading `//`, paths, query strings, fragments, trailing whitespace, user:pass@ prefixes, :port suffixes. Lowercases. Validates labels against RFC-1123 (1-63 chars, alphanumeric + dash, no leading/trailing dash). Requires ≥1 dot (rejects `localhost`). Requires last label to contain at least one letter (rejects `192.168.1.1`). Rejects `javascript:` / `data:` / `mailto:` / non-http schemes. Returns null on invalid input. Type-safe against undefined/null/non-string.
+- `validateBusinessProfile({businessName, domain})`: pure validator. Returns `{ ok: true, normalized }` or `{ ok: false, errors }`. Trims business name; rejects empty + > 80 chars; normalizes domain via above.
+- `BUSINESS_NAME_MAX_LENGTH = 80`, `DOMAIN_MAX_LENGTH = 253` (RFC-1035 max FQDN).
+
+**New — `src/domains/onboarding/access.ts`** (~80 lines):
+- `requireOnboardingTenant()`: server-only access guard. Reads the user from `getSupabaseServerClient()` (cookie-bound), looks up tenant via `lookupExistingMembership(admin, user.id)`, fetches the tenant row, and either returns context or calls `redirect()`. Redirect rules:
+  - No user → `/login?next=/onboard/business`
+  - Lookup error → `/login?error=onboarding_lookup_failed`
+  - No membership → `/signup?error=no_tenant`
+  - Tenant fetch error → `/login?error=tenant_fetch_failed`
+  - Tenant missing → `/login?error=tenant_missing`
+  - status=`active` → `/` (already launched)
+  - status=`paused` → `/?error=tenant_paused`
+  - status=`cancelled` → `/?error=tenant_cancelled`
+  - status=`pending_onboarding` → ALLOW.
+- Read-only. No mutations, no paid APIs.
+
+**New — `src/components/onboard/onboarding-shell.tsx`**:
+- Centered card layout matching /signup styling. Renders 4-step indicator with `aria-current="step"` on the active step + accessible label `Step N of 4: <label>`. Exports `ONBOARDING_TOTAL_STEPS = 4`. Pure layout — no data fetch.
+
+**Replaced — `src/app/(shell)/onboard/business/page.tsx`**:
+- Was: Gap B placeholder welcome screen.
+- Now: server component, `dynamic = "force-dynamic"`. Calls `requireOnboardingTenant()`, renders `<OnboardingShell step={1} title="Set up your business" subtitle="...">` containing the `<BusinessForm>`. Pre-fills the form with the saved tenant's business_name + domain, but blanks out the auto-derived placeholder (`"New Beacon Account"`) so the operator types real input.
+
+**New — `src/app/(shell)/onboard/business/business-form.tsx`** (client component):
+- Two inputs: `businessName` (autoComplete=organization) + `domain` (autoComplete=url, inputMode=url). No password / no payment / no Stripe / no CVV. Submit calls `saveBusinessProfile` server action via `useTransition`. Renders per-field error messages from server response. Re-throws Next.js redirect signal so navigation propagates. Humanizes server-error codes for UI.
+
+**New — `src/app/(shell)/onboard/business/actions.ts`** (server action, `"use server"`):
+- `saveBusinessProfile({ businessName, domain })`. Flow: validate via `validateBusinessProfile` (pure) → resolve user from session → look up tenant via `lookupExistingMembership` → `UPDATE tenants SET business_name, domain, updated_at WHERE id = ? AND status = 'pending_onboarding'` (count: 'exact'). On `count === 0` returns `{ ok: false, error: 'already_launched' }`. On success calls `redirect('/onboard/scope')` (throws NEXT_REDIRECT). **Status guard prevents mutation of any active tenant row even if the route guard somehow let through.** Only allowed table touched: `tenants`.
+
+**New — `src/app/(shell)/onboard/scope/page.tsx`**:
+- Step-2 placeholder. Same access guard. `dynamic = "force-dynamic"`. Renders saved business name + domain (echo from step 1) + a "Coming up" preview list (cities, services). No inputs, no form, no mutations. Includes "Edit business details" back-link.
+
+**Tests added**:
+
+**New — `src/domains/onboarding/profile-validation.test.ts`** (28 unit tests):
+- normalizeDomain: scheme stripping, www preservation, path/query/fragment stripping, lowercase, whitespace trim, port + user:pass@ stripping, multi-label TLDs, single-label rejection (require TLD), empty/whitespace rejection, javascript:/data:/mailto: rejection (XSS hardening), bare IP rejection (no letter in TLD), invalid label characters, non-string input safety.
+- validateBusinessProfile: clean input, trim, normalize, empty/whitespace name rejection, 80-char boundary, malformed domain rejection, javascript: domain rejection, both-fields-invalid case, undefined-keys safety.
+
+**New — `tests/architecture/onboard-business-step-contract.test.ts`** (35 invariants):
+- /onboard/business: page + form + action files exist; force-dynamic; uses requireOnboardingTenant; renders BusinessForm; uses OnboardingShell with step={1}; form does NOT collect payment/passwords/Stripe/CVV; form has EXACTLY two inputs (businessName, domain); page + form do NOT expose tenant/admin/RLS/schema language.
+- saveBusinessProfile: marked `"use server"`; uses validateBusinessProfile; uses getSupabaseAdmin; UPDATE gated by `.eq("id", ...).eq("status", "pending_onboarding")`; never sets `status: "active"`; touches ONLY the `tenants` table (no tracked_prompts/tracked_entities/observations/recommended_edits/snapshots); no openai/perplexity/runNativePoll/runWebsiteScan/acceptAllHighConfidence/syncRecommendedEdits; redirects to `/onboard/scope` on success; returns `validation_failed`; surfaces `already_launched` on race.
+- /onboard/scope: file exists; force-dynamic; uses access guard; step={2}; ZERO inputs/forms/selects/textareas (placeholder only); no upsert/insert/update/delete; no paid APIs; no tenant/admin/RLS/schema language.
+- requireOnboardingTenant: server-only; redirects unauthenticated → /login; no membership → /signup; status=active → /; only pending_onboarding falls through; read-only (no upsert/insert/update/delete).
+- OnboardingShell + validation: shell file + step indicator (`Step ${current} of ${ONBOARDING_TOTAL_STEPS}` with constant = 4) + validation exports.
+- Cross-check: `scripts/list-active-tenants.ts` still filters status='active'; nothing in /onboard/* code flips status to 'active'.
+
+**Modified — `tests/architecture/signup-onboarding-routes-contract.test.ts`**:
+- Updated Gap B's `/onboard/business` describe block: dropped welcome-copy assertions (now superseded by Gap C.1 form contract), kept route-level invariants (file exists, force-dynamic, page itself doesn't call paid APIs / mutate / live outside (shell) group). Form + action contract owned by `onboard-business-step-contract.test.ts`.
+
+### Quality gates run
+
+| Gate | Result |
+|------|--------|
+| `npm run typecheck` | CLEAN |
+| `npm run test` (5864 tests) | 5864 PASS (+67 vs Gap B baseline 5797) |
+| Targeted (profile-validation + onboard-business-step-contract + signup-onboarding-routes-contract + provision-tenant) | 113/113 PASS |
+| `npm run build` | exit 0 — `/onboard/business` + `/onboard/scope` both listed as ƒ Dynamic |
+| `verify-tenant-data-integrity` | PASS — all tenant-ownership invariants satisfied |
+| `verify-observation-dedup-integrity` | PASS — 0 duplicate logical keys |
+| `verify-verdict-rematerialization-integrity` | PASS — drift=0 |
+| `npm run verify:brain-health` | YELLOW — 7 PASS / 1 WARN (queue idle, pre-existing) |
+| LLM budget SHA byte-identical | YES — `5303c16f04…` unchanged from Gap B |
+
+### Verified behavior
+
+- **First-time signup → /onboard/business**: visitor lands on the form. Pre-filled with empty business name (placeholder suppressed) + empty domain. Submits clean values → action validates + UPDATEs tenants row → redirects to /onboard/scope.
+- **Step 2 placeholder**: shows saved business + domain (proves step 1 persisted) + "Coming up" preview. No inputs, no mutations.
+- **Already-active tenant** redirected to `/` if they hit /onboard/* (route guard). `count === 0` race fallback in the server action surfaces `already_launched` if the route guard misses.
+- **Validation rejections**: empty name, > 80 chars, empty domain, single-label domain, `javascript:` URL, IP address all rejected with field-specific error messages.
+- **Domain normalization**: `https://www.acme.com/about?utm=x` → `www.acme.com`. Lowercase, scheme/path/query stripped. `localhost` rejected.
+- **Pending tenants invisible to cron**: pinned by Gap A's lister filter `status='active'` AND new architecture invariant in onboard-business-step-contract.test.ts.
+
+### Out of scope (deferred to Gap C.2 + later)
+
+- /onboard/scope form (cities served + services / project mix) — Gap C.2.
+- /onboard/competitors (top 3 competitors) — Gap C.3.
+- /onboard/review (auto-generated prompt review + Launch CTA) — Gap C.4.
+- Status flip `pending_onboarding` → `active` — only after Gap C.4 Launch step.
+- Auto-detect from homepage crawl — Gap D.
+- Auto-prompt generation — Gap E.
+
+### What this unlocks
+
+A real customer can now sign up at /signup → magic-link → /auth/callback (Gap B provisioning) → /onboard/business (Gap C.1 step 1, NEW) → submit business name + website → /onboard/scope (placeholder, awaiting Gap C.2). The wizard scaffold is in place; Gap C.2 fills in step 2's form using the same access-guard + status-gated update pattern.
+
+---
+
 ## 2026-05-07 — Self-serve onboarding Gap B: public /signup + auth-callback tenant provisioning
 
 Second step in the customer-onboarding pipeline (Gap A → Gap B). Customers can now sign themselves up via magic-link at `/signup`, get a `pending_onboarding` tenant + `tenant_members` row provisioned automatically on first auth-callback, and land on a placeholder `/onboard/business` page. The cron pipeline ignores them (Gap A's lister filters `status='active'`), so no second tenant accidentally enters daily polling until the operator explicitly flips them.

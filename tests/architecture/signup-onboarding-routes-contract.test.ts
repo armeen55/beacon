@@ -110,25 +110,30 @@ describe("Gap B — /auth/callback provisioning contract", () => {
   });
 });
 
-describe("Gap B — /onboard/business placeholder", () => {
+describe("Gap B — /onboard/business route exists (form contract owned by Gap C.1)", () => {
+  // The page itself was repurposed from a Gap B placeholder into the
+  // Gap C.1 step-1 form. Gap B's invariants here pin the route-level
+  // contract that Gap B established (route exists, is dynamic, no
+  // paid APIs from the page itself, lives under (shell)). The form +
+  // submit + access-guard contract is owned by
+  // tests/architecture/onboard-business-step-contract.test.ts.
+
   it("page file exists at src/app/(shell)/onboard/business/page.tsx", () => {
     expect(existsSync(ONBOARD_PAGE)).toBe(true);
   });
 
-  it("page is dynamic (operator-readable status surface needs live read)", () => {
+  it("page is dynamic (auth + tenant status read at request time)", () => {
     expect(ONBOARD_SRC).toContain('export const dynamic = "force-dynamic"');
   });
 
-  it("page renders the welcome copy (customer-safe)", () => {
-    expect(ONBOARD_SRC).toContain("Welcome to Beacon");
-    expect(ONBOARD_SRC).toMatch(/business profile/i);
-  });
-
-  it("placeholder does NOT call any paid API or mutate persisted rows", () => {
+  it("page itself does NOT call paid APIs (server action is separate)", () => {
     expect(ONBOARD_SRC).not.toContain("openai");
     expect(ONBOARD_SRC).not.toContain("perplexity");
     expect(ONBOARD_SRC).not.toContain("runNativePoll");
     expect(ONBOARD_SRC).not.toContain("runWebsiteScan");
+  });
+
+  it("page itself does NOT mutate persisted rows (writes go through the action)", () => {
     expect(ONBOARD_SRC).not.toMatch(/\.upsert\(/);
     expect(ONBOARD_SRC).not.toMatch(/\.insert\(/);
     expect(ONBOARD_SRC).not.toMatch(/\.update\(/);
