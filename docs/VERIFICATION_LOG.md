@@ -7,6 +7,124 @@
 
 ---
 
+## 2026-05-07 — Self-serve onboarding Gap F.1: first-reading waiting state on /today
+
+Eighth step in customer-onboarding pipeline (Gap A → B → C.1 → C.2 → C.3 → E.1 → C.4 → F.1). Adds the "Beacon is preparing your first AI visibility reading" waiting state to /today for newly launched tenants who have prompts but zero observations yet. Closes the "active tenant lands on /today and sees an empty/broken dashboard" UX gap immediately after Launch (Gap C.4).
+
+**Surgical change.** Detection lives in a pure helper. Resolver wires it in fail-soft. TodayClient short-circuits via early-return when the flag fires. Mature tenants (Ritz) have observations → flag is false → /today renders byte-identical to pre-Gap-F.1.
+
+**Reversible**: pure function + UI early-return. To disable, remove the early-return branch. No DB writes, no schema changes, no Ritz mutations.
+
+### Detection logic (pinned by tests)
+
+`detectFirstReadingState({ tenant, activePromptCount, observationCount })` returns `isFirstReading: true` ONLY when ALL three conditions hold:
+- `tenant.status === "active"` (Launch step has fired)
+- `activePromptCount > 0` (tenant has at least 1 active tracked prompt)
+- `observationCount === 0` (no prompt_answer_observations exist yet)
+
+Defensive: NaN / negative counts → false; null tenant → false; non-active statuses (pending_onboarding, paused, cancelled) → false.
+
+### What changed
+
+**New — `src/domains/onboarding/first-reading-state.ts`** (~80 lines, pure):
+- `detectFirstReadingState(input)` — pure, no I/O, no env, no Date.now / Math.random / new Date.
+- `FirstReadingContext` type: `{ businessName, domain, promptCount, nextReadingDescription }`.
+- Customer-safe phrasing: `nextReadingDescription = "tomorrow morning"` (NEVER mentions cron / 07:00 UTC / GitHub / Supabase / poll).
+- Falls back: blank business_name → "your business"; blank domain → empty string (UI decides whether to render the row); whitespace trimmed.
+
+**New — `src/components/today/first-reading-waiting.tsx`**:
+- Pure presentation component. Receives a `FirstReadingContext` prop and renders the waiting card.
+- Headline: "Beacon is preparing your first AI visibility reading."
+- Subtitle: "Your first dashboard will appear after the next daily reading."
+- "What's already set up" panel: business + website + prompts tracked count + next reading description.
+- "What happens next" 3-step list: AI engines asked tomorrow; dashboard fills in; suggestions arrive.
+- CTAs: "Review tracked prompts" → `/prompts`; "Recommendations (available after first reading)" → `/recommendations`.
+- ZERO mutations. ZERO event handlers. ZERO useState / useTransition. Pure render.
+
+**Modified — `src/app/(shell)/today-data.ts`**:
+- Imports `currentTenant` from `@/lib/tenant-context` and `detectFirstReadingState` from the new domain module.
+- Adds a private `resolveFirstReadingState(activePromptCount, observationCount)` helper that wraps `currentTenant()` in a try/catch — any registry-read failure logs WARN and defaults to `{ isFirstReading: false }` so /today never crashes on a missing tenant row.
+- Adds `firstReading: await resolveFirstReadingState(...)` to the `loadTodayPageData()` return object (positioned right after `lifecycleSummary`). Receives counts from `activePrompts.length` + `promptAnswerObservations.length` already loaded earlier in the resolver.
+
+**Modified — `src/app/(shell)/today-client.tsx`**:
+- New import: `FirstReadingWaiting` from `@/components/today/first-reading-waiting`.
+- New prop: `firstReading?: FirstReadingDetection` (typed via `import("@/domains/onboarding/first-reading-state").FirstReadingDetection`); defaults to `{ isFirstReading: false }`.
+- Early-return immediately after the existing demo-mode early return: if `firstReading.isFirstReading` is true, renders `<FirstReadingWaiting context={...} />` and skips the rest of the dashboard. Position pinned by invariant: demo → first-reading → regular dashboard.
+
+### Tests added
+
+**New — `src/domains/onboarding/first-reading-state.test.ts`** (20 unit tests):
+- Happy path: triggers when all three conditions hold; includes prompt count from input.
+- Non-active tenants: pending_onboarding / paused / cancelled / null all return false.
+- Missing prompts: zero / negative / NaN counts return false.
+- Observations exist: 1 obs → false (Ritz protection); many obs → false; NaN obs → false.
+- Ritz-shaped regression guard: status=active + 25 prompts + 16521 observations → false.
+- Mature tenant: status=active + 10 prompts + 100 obs → false.
+- Context fallbacks: blank/whitespace business_name → "your business"; blank domain stays blank; trims business_name + domain.
+- Customer-safe phrasing: nextReadingDescription has no cron/UTC/GitHub/Supabase/poll/07:00; context JSON has no account_id/tenant_id/is_active/observed_at internal field names.
+
+**New — `tests/architecture/onboard-first-reading-contract.test.ts`** (27 invariants):
+- Files exist (detector + waiting component).
+- Detector is pure: no node:fs / persistence / Next.js / process.env imports; no Date.now / new Date / Math.random; no openai / perplexity / anthropic / fetch / runNativePoll / runWebsiteScan; exports the right types; no Ritz hardcoding.
+- Trigger-condition pinned at source level: `tenant.status !== "active"`, `activePromptCount <= 0`, `observationCount > 0` regex pins (so a future regression that flips a check is caught).
+- Waiting component is customer-safe: no cron / Supabase / GitHub / tenant / schema / poll failure / raw observations / admin / RLS / 07:00 / UTC; renders required headline + supporting copy + Review-tracked-prompts CTA; no mutations / paid APIs / useState / event handlers.
+- today-data.ts wiring: imports detector + currentTenant; calls detectFirstReadingState with both counts; returns firstReading on payload; wraps currentTenant() in try/catch (fail-soft); the helper body has no .upsert/.insert/.update/.delete/openai/perplexity/runNativePoll.
+- TodayClient early-return: imports FirstReadingWaiting; accepts firstReading prop typed as FirstReadingDetection; renders FirstReadingWaiting when isFirstReading; **early-return position pinned**: demo → first-reading → regular dashboard (so Ritz can never accidentally hit the waiting state).
+- Ritz unchanged: detector requires observationCount > 0 to skip; lister still filters status='active' (Gap A guard intact).
+- No paid APIs / no immediate poll: today-data wiring + waiting component verified clean.
+- Read-only contract: detector source has no .from/.upsert/.insert/.update/.delete; never sets status to anything.
+
+### Quality gates run
+
+| Gate | Result |
+|------|--------|
+| `npm run typecheck` | CLEAN |
+| `npm run test` (6177 tests) | 6177 PASS (+64 vs Gap C.4 baseline 6113) |
+| Targeted (first-reading detector + first-reading invariants) | 47/47 PASS |
+| `npm run build` | exit 0 — `/onboard/business`, `/onboard/scope`, `/onboard/competitors`, `/onboard/review` still ƒ Dynamic; `/` (the today page) builds clean |
+| `verify-tenant-data-integrity` | PASS — Ritz row counts UNCHANGED (9896/16521/28) — confirms detector is read-only |
+| `verify-observation-dedup-integrity` | PASS — 0 duplicate logical keys |
+| `verify-verdict-rematerialization-integrity` | PASS — drift=0 |
+| `npm run verify:brain-health` | YELLOW — 7 PASS / 1 WARN (queue idle, pre-existing) |
+| LLM budget SHA byte-identical | YES — `5303c16f04…` unchanged from Gap C.4 |
+
+### Verified behavior
+
+- **Freshly launched tenant** (status='active', 25 prompts, 0 observations): /today renders the waiting card with business name, website, prompt count, next-reading copy. ZERO API calls, ZERO mutations.
+- **Mature tenant Ritz** (status='active', 25 prompts, 16,521 observations): detector returns `{ isFirstReading: false }`. TodayClient skips the early-return. Renders the regular dashboard exactly as pre-Gap-F.1.
+- **Pending tenant** (would normally be redirected to /onboard/business by Gap C.1's access guard, but defensive): detector returns false. /today renders normally (or the existing welcome card if applicable).
+- **Failing tenant store read**: try/catch in resolver returns `isFirstReading: false`. /today renders the regular dashboard. Operator gets a WARN log line for investigation.
+- **No new API surfaces**: 0 fetch calls, 0 paid-adapter imports added by this change.
+
+### What customer sees after Launch (end-to-end flow)
+
+1. Customer signs up at /signup (Gap B).
+2. Wizard: /onboard/business → /onboard/scope → /onboard/competitors → /onboard/review.
+3. Operator clicks "Launch Beacon" (Gap C.4) → server action inserts prompts + flips status='active' → redirect to /today.
+4. /today's resolver detects: status=active, prompts > 0, observations === 0 → `isFirstReading: true`.
+5. TodayClient renders `<FirstReadingWaiting>`. Customer sees: "Beacon is preparing your first AI visibility reading. Your first dashboard will appear after the next daily reading."
+6. Card shows the saved profile (business name, website, prompt count) + a "What happens next" 3-step explanation + a "Review tracked prompts" link to /prompts.
+7. Next 07:00 UTC cron fires → polls the tenant's prompts → observations land in the DB.
+8. Customer reloads /today the next morning → detector returns `isFirstReading: false` (observations now exist) → regular dashboard renders.
+
+### Out of scope (deferred)
+
+- **Gap F.2 — immediate poll trigger**: have `launchTenant()` synchronously kick off `runNativePoll(tenantId, platform)` so the first reading lands within minutes after Launch instead of the next morning. Adds a paid-API code path; deferred until customer-2 onboards and we see impatience signals.
+- **Gap G — operator alerts on new tenant activation**: e.g., email/Slack notification when a self-serve tenant flips to active.
+- **Gap D — auto-detect from homepage crawl**: pre-fill cities/services/competitors during onboarding.
+
+### Friend-test readiness
+
+Self-serve onboarding is end-to-end functional and the post-Launch experience is now non-broken:
+- Signup → wizard → Launch → /today shows a confident waiting state explaining what's coming.
+- Tomorrow morning → /today fills in with the first real reading.
+- A non-technical operator can complete the full flow without touching infrastructure (no GitHub, Vercel, Supabase, cron, API keys).
+- All existing Ritz behavior preserved (verified by integrity scripts + architecture invariants).
+
+**Beacon is now ready for a friend test.** A real second tenant can sign up, complete onboarding, launch, and have a coherent UX through their first reading.
+
+---
+
 ## 2026-05-07 — Self-serve onboarding Gap C.4: Launch step (the FIRST status='active' code path)
 
 Seventh step in customer-onboarding pipeline (Gap A → Gap B → Gap C.1 → Gap C.2 → Gap C.3 → Gap E.1 → Gap C.4). Adds the Launch surface at `/onboard/review` and the `launchTenant()` server action — the FIRST and ONLY code path that flips `tenants.status` from `pending_onboarding` to `active`. From this point forward, the next 07:00 UTC cron will include the launched tenant in its matrix (Gap A's lister filters `status='active'`) and poll the prompts that were just persisted.

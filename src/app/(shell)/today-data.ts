@@ -21,7 +21,11 @@ import { getOwnedPages } from "@/domains/pages/page-store";
 import { warmPageRegistry } from "@/domains/attribution/candidates";
 import { readStore } from "@/lib/persistence/json-store";
 import { getRepository } from "@/lib/persistence/repositories";
-import { currentTenantId } from "@/lib/tenant-context";
+import { currentTenantId, currentTenant } from "@/lib/tenant-context";
+import {
+  detectFirstReadingState,
+  type FirstReadingDetection,
+} from "@/domains/onboarding/first-reading-state";
 import { getOutcomesForTenant } from "@/lib/tenant-data";
 import { getCitationEvidenceIndex } from "@/domains/pages/citation-evidence-store";
 import {
@@ -2427,7 +2431,46 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
     // queue. Reads recommended_edits via the same tenant-scoped repo
     // /changes uses, so counts always reconcile.
     lifecycleSummary,
+    // Gap F.1 (2026-05-07) — first-reading waiting state. True only
+    // when the tenant just launched (status='active') AND has active
+    // tracked prompts AND has zero observations yet. Causes
+    // TodayClient to render the waiting card instead of the regular
+    // dashboard. Mature tenants (Ritz) have observations → flag is
+    // false → render unchanged. Fail-soft on any error: defaults to
+    // false so /today never crashes on a tenant-store read miss.
+    firstReading: await resolveFirstReadingState({
+      activePromptCount: activePrompts.length,
+      observationCount: promptAnswerObservations.length,
+    }),
   };
+}
+
+/**
+ * Resolve the first-reading detection result. Wraps the pure detector
+ * with a fail-soft `currentTenant()` read — any error defaults to
+ * `{ isFirstReading: false }` so /today never crashes.
+ */
+async function resolveFirstReadingState(args: {
+  activePromptCount: number;
+  observationCount: number;
+}): Promise<FirstReadingDetection> {
+  let tenant: Awaited<ReturnType<typeof currentTenant>> | null = null;
+  try {
+    tenant = await currentTenant();
+  } catch (err) {
+    // Tenant not in registry / store read failed — fall back to
+    // existing /today render. Logged so the operator can investigate.
+    console.warn(
+      "[today] firstReading: currentTenant() threw — defaulting to isFirstReading=false",
+      err,
+    );
+    return { isFirstReading: false };
+  }
+  return detectFirstReadingState({
+    tenant,
+    activePromptCount: args.activePromptCount,
+    observationCount: args.observationCount,
+  });
 }
 
 /**

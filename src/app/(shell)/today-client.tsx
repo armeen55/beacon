@@ -37,6 +37,7 @@ import type { MorningBriefData } from "@/domains/product/morning-brief";
 import { ChangeReview } from "@/components/today/change-review";
 import { VisibilityScoreChart } from "@/components/today/visibility-score-chart";
 import { VisibilityLeaderboard } from "@/components/today/visibility-leaderboard";
+import { FirstReadingWaiting } from "@/components/today/first-reading-waiting";
 import type {
   VisibilityMetric,
   VisibilityPoint,
@@ -180,6 +181,7 @@ export function TodayClient({
   promptsTeaser = null,
   topPick = null,
   lifecycleSummary = null,
+  firstReading = { isFirstReading: false },
 }: {
   isDemoMode?: boolean;
   scanPhaseFailed?: boolean;
@@ -268,6 +270,12 @@ export function TodayClient({
    *  recommended_edits read /changes uses, so the strip and the
    *  /changes tab counts always reconcile. */
   lifecycleSummary?: import("./today-data").TodayLifecycleSummary | null;
+  /** Gap F.1 (2026-05-07) — first-reading waiting state. When
+   *  `isFirstReading` is true, TodayClient short-circuits the regular
+   *  dashboard and renders the FirstReadingWaiting card instead. */
+  firstReading?: import(
+    "@/domains/onboarding/first-reading-state"
+  ).FirstReadingDetection;
 }) {
   const [pending, startTransition] = useTransition();
   const [actionMsg, setActionMsg] = useState<string | null>(null);
@@ -361,6 +369,16 @@ export function TodayClient({
         </div>
       </div>
     );
+  }
+
+  // Gap F.1 (2026-05-07) — first-reading waiting state. Replaces the
+  // regular /today dashboard with a friendly "preparing your first
+  // reading" card when a freshly launched tenant has prompts but no
+  // observations yet. Mature tenants (Ritz) have observations →
+  // isFirstReading=false → flow falls through to the regular
+  // dashboard render below.
+  if (firstReading.isFirstReading) {
+    return <FirstReadingWaiting context={firstReading.context} />;
   }
 
   // Count content-type pending changes for scan banner
