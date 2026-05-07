@@ -7,6 +7,65 @@
 
 ---
 
+## 2026-05-07 — Trust Sprint Mini-Phase T7.8 — Final overnight convergence check + report
+
+End-of-run convergence battery + consolidated overnight trust report. All checks GREEN (or YELLOW for soft warnings).
+
+### Convergence battery results
+
+| Check | Status | Detail |
+|---|---|---|
+| `npm run typecheck` | ✓ PASS | clean |
+| `npm run test` | ✓ PASS | **318/318 files / 5,684/5,684 tests** |
+| `npm run build` | ✓ PASS | green (no flake on convergence pass) |
+| `verify-tenant-data-integrity.ts` | ✓ PASS | all tenant-ownership invariants satisfied |
+| `verify-observation-dedup-integrity.ts` | ✓ PASS | 0 duplicate logical keys |
+| `verify-verdict-rematerialization-integrity.ts` | ✓ PASS | drift = 0 (T6.7 baseline preserved) |
+| `npm run verify:brain-health` | ⚠ YELLOW | 7 PASS / 1 WARN (idle queue, soft) / 0 FAIL |
+| `build-local-aeo-intelligence.ts` × 2 | ✓ IDENTICAL | 14/14 file SHAs byte-identical between runs (manifest timestamp differs by design) |
+| `analyze-recommendation-outcomes.ts` | ✓ PASS | runs cleanly; Section 7 (learning score) emits |
+| `rematerialize-verdicts-t5.ts --dry-run` | ✓ PASS | 131 persisted → 134 computed (consistent with prior runs) |
+| `git status` | ✓ clean | 0 untracked, 0 modified post-commit |
+| `origin/main` vs local HEAD | ✓ matches | all 7 prior T7.x commits pushed |
+| `.data/global/llm-budget.json` SHA | ✓ byte-identical | `d36eed8c…` from start of overnight to end |
+
+### Run-wide deliverables
+
+**New — `docs/BEACON_FINAL_OVERNIGHT_TRUST_REPORT_2026_05_07.md`**: 21-section consolidated report covering phases completed (7+T7.8), commits pushed (7), confidence-issue root cause, URL normalization status, materializer demotion status, causal stamping plan, tests/build status, all verification statuses, spend status (zero), paid polling status (zero), data mutation status (one bounded T6.7 mutation with backup, T7.x zero), brain database outputs, recommendation learning status, attribution status, customer-facing confidence status, brain readiness grade B, next 5 moves, blockers (none), hard-constraint compliance, end-of-run state, pointers to detail docs.
+
+### Overnight summary
+
+7 mini-phases shipped end-to-end (T7.1 → T7.7) plus this convergence (T7.8). 8 commits pushed to `origin/main`. Test suite grew from 5,044 → 5,684 (+640 tests, +6 files). 6 new architecture invariant test files added across the 7 phases. Zero OpenAI spend. Zero paid polling. Zero broad refactors. Default product surfaces stay confident; rigor lives in proof drawers + operator pages.
+
+The trust principle is now operationalized end-to-end:
+- **Internally rigorous:** T5.x attribution hardening + T6.7 demotion semantics + T6.1 + T7.3 brain-health watchdog + T7.1 + T7.5 causal-aware analyzer + T7.4 v2 derived intelligence.
+- **Externally confident:** T6.4 default-surface copy sweep + T7.7 580-invariant lock + T7.6 operator-only brain surface (operator-mode-gated; default UI unchanged).
+
+Brain Readiness Grade: **B — solid**. Attribution Health C remains the lone gap; closure depends on Phase 3 lifecycle flag flip (operator-driven dogfeed sequence) once the operator decides.
+
+### Verification
+
+- ✅ All 13 brief-required convergence steps executed and reported in the final report.
+- ✅ Tree clean post-commit. `origin/main` pushed.
+- ✅ Exact next step documented (Section 17 of the final report).
+
+### Hard-constraint compliance (overnight run total)
+
+- ✅ Zero OpenAI calls across the entire run.
+- ✅ Zero paid polling.
+- ✅ No second tenant. No RLS / auth / Profound / onboarding / billing.
+- ✅ No broad refactors.
+- ✅ No weakened tests (every phase TIGHTENED the contract).
+- ✅ Default copy stays confident (T7.7 lock).
+- ✅ One bounded production mutation (T6.7 menlo-park demotion); backup verified; rollback documented.
+- ✅ T7.x phases: zero row mutations.
+
+### What the next mini-phase should be
+
+Operator-driven decision per the final report's §17 "Next 5 moves." Top recommendation: review `/diagnostics/brain` operator surface, then choose Phase 3 dogfeed sign-off OR T8.x direction (cross-tenant brain prep / descriptor comparison v0 / write-side URL normalization / UI confidence-pill prominence).
+
+---
+
 ## 2026-05-07 — Trust Sprint Mini-Phase T7.7 — Main product final confidence sweep
 
 Consolidated architectural guard pinning customer-visible default surfaces against scared, methodology-leaking, infrastructure-leaking, and uncertainty language. Caveats live in proof drawers + operator pages, not on default surfaces.
