@@ -7,6 +7,81 @@
 
 ---
 
+## 2026-05-07 — Trust Sprint Mini-Phase T7.1 — Causal analyzer (source_rec_id, not URL coincidence)
+
+Closes T6.8's deferred "one-line analyzer fix" item: the rec → outcome learning analyzer now uses the real causal join (`changelog.source_rec_id`), not URL-level coincidence. Read-only. No engine changes. No row mutations.
+
+### What changed
+
+**Modified — `scripts/analyze-recommendation-outcomes.ts`:**
+
+- New imports: `getChangelogEntries` + `ChangelogEntry` type.
+- New function `analyzeCausalRecChain(recs, changelog, outcomes)` — traverses `rec.rec_id → changelog.source_rec_id → url_change_outcomes.change_id`. Aggregates causal-only verdicts; excludes legacy CSV/PDF + scanner-detection rows (no rec to link).
+- New constant `CAUSAL_SAMPLE_SIZE_FLOOR = 5`. Below this, the analyzer surfaces an `INSUFFICIENT SAMPLE` warning so the brain doesn't overfit on Ritz-only tiny data.
+- Section 6.A (legacy URL-level join) **relabeled** "URL-LEVEL CONTEXT, NOT CAUSAL" with a clear note pointing readers to Section 6.B for true rec → outcome attribution.
+- New Section 6.B in the markdown renderer + JSON snapshot.
+
+### Result on Ritz (post-fix)
+
+```
+6.A (URL-LEVEL CONTEXT, NOT CAUSAL):
+  recs with target_url:                        31
+  recs whose target_url has a verdict:         31 (100%)
+  verdict mix on joined recs (URL coincidence): helping=25, nothing_yet=6
+  by action_type × verdict (URL coincidence):
+    add_h2_section: helping=9, nothing_yet=2
+    add_faq:        helping=16, nothing_yet=4
+
+6.B (CAUSAL via source_rec_id):
+  total recs analyzed:                  31
+  distinct rec stable-keys:              7
+  causal stamped changelog rows:         3
+  stamped + matching live rec:           3
+  stamped + with url_change_outcomes:    0
+  ⚠ INSUFFICIENT SAMPLE (N=0 < 5)
+```
+
+The contrast is the whole point: 6.A's "100% helping" is selection bias on URLs already in helping state; 6.B is the honest causal read — N=0 outcomes because none of the 3 stamped rows are shipped yet (`live_at` null on 2/3, populated on 1/3 but no matching outcome). T7.2 preflight tracks the `live_at` gap.
+
+### Tests added
+
+**New — `tests/architecture/causal-analyzer-source-rec-id.test.ts`** (10 source-text invariants):
+
+- `getChangelogEntries` imported.
+- `analyzeCausalRecChain` declared.
+- `CAUSAL_SAMPLE_SIZE_FLOOR` set to 5.
+- Causal join uses `source_rec_id` + `change_id`, NOT `target_url` (negative invariant).
+- Section 6.A relabeled "URL-LEVEL CONTEXT, NOT CAUSAL".
+- Section 6.B labeled "CAUSAL via source_rec_id".
+- `INSUFFICIENT SAMPLE` warning text present.
+- Legacy CSV/PDF + scanner exclusion noted.
+- Main() wires `causal_rec_chain` into the report.
+- Negative mutation invariant: no `persistRecommendedEditsLocal` / `syncRecommendedEdits` / `syncUrlChangeOutcomes` / `writeStore("recommended-edits")` calls.
+
+### Verification
+
+- ✅ `npm run typecheck` — clean.
+- ✅ `npm run test` — **313/313 files / 5054/5054 tests** (+1 file +10 tests vs T6.8 baseline 312/5044).
+- ✅ `npm run build` — green.
+- ✅ `scripts/verify-tenant-data-integrity.ts` — PASS.
+- ✅ `scripts/verify-observation-dedup-integrity.ts` — PASS.
+- ✅ `scripts/verify-verdict-rematerialization-integrity.ts` — drift = 0 (post-T6.7 baseline preserved).
+- ✅ `.data/global/llm-budget.json` SHA = `d36eed8ca157cb4c65ee01a2c51a2fef3fb21a0dfdbb036753d6d7c570927dbd` — byte-identical with T6.8.
+- ✅ Zero OpenAI calls. Zero paid polling. Zero row mutations.
+
+### Hard-constraint compliance
+
+- ✅ Read-only — no engine changes, no schema changes, no UI changes.
+- ✅ Tests TIGHTEN the contract (10 new source-text invariants).
+- ✅ Sample-size warning prevents over-confident learning on tiny dogfood.
+- ✅ Default surfaces unchanged. Customer copy unchanged.
+
+### What the next mini-phase should be
+
+**T7.2 — `live_at` auto-promotion preflight.** Largest remaining attribution gap: only 1/3 stamped Ritz rows has `live_at`, blocking 2 rows from materialization. Preflight first; implement only if obviously bounded.
+
+---
+
 ## 2026-05-06 — Trust Sprint Mini-Phase T6.8 — Rec → Change causal stamping preflight (STOP after preflight)
 
 Closes T6.3's bluntly-phrased finding "today's recs persistence does not stamp the changelog id on the rec row directly." The brief asked 9 questions about how to design a real causal stamping; the preflight discovered the architecture is **already in place**. No implementation needed.

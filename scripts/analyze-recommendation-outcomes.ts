@@ -45,6 +45,8 @@ import type { RecommendedEditRow, ImplementationStatus } from "../src/domains/re
 import { deriveConfidence, type DerivedConfidenceLabel } from "../src/domains/recommendations/derived-confidence";
 import { computeEvidenceDepth } from "../src/domains/recommendations/recommendation-action-rows";
 import { normalizeUrl } from "../src/lib/url/normalize";
+import { getChangelogEntries } from "../src/lib/seed-data.server";
+import type { ChangelogEntry } from "../src/domains/changelog/types";
 
 const REPO_ROOT = resolve(__dirname, "..");
 const REPORTS_DIR = join(REPO_ROOT, ".data", "_reports");
@@ -241,6 +243,36 @@ type RecOutcomeJoin = {
 };
 
 /**
+ * T7.1 — sample-size threshold below which the analyzer labels the
+ * causal join "insufficient sample" rather than reporting it as a
+ * trustworthy signal. Pre-T7.1 the analyzer would silently report
+ * 0% / 100% / etc. on N=1 or N=2 samples. Post-T7.1 it surfaces
+ * "insufficient sample (N<5)" so the brain doesn't overfit on tiny
+ * Ritz-only data.
+ */
+const CAUSAL_SAMPLE_SIZE_FLOOR = 5;
+
+type CausalRecOutcomeJoin = {
+  /** Total persisted rec rows analyzed. */
+  total_recs: number;
+  /** Distinct rec stable-keys (rec.rec_id) from those rec rows. */
+  distinct_rec_ids: number;
+  /** Changelog rows that carry source_rec_id (Sprint 6A.1 stamping). */
+  causal_stamped_changelog_rows: number;
+  /** Of those, how many were produced by a rec that's still in the queue. */
+  causal_stamped_with_matching_rec: number;
+  /** Of those, how many have a corresponding url_change_outcomes row. */
+  causal_with_outcome: number;
+  /** Of those with outcome, distribution by verdict. */
+  causal_by_verdict: Record<string, number>;
+  /** Per-action-type × verdict on the CAUSAL chain only. */
+  causal_by_action_x_verdict: Record<string, Record<string, number>>;
+  /** Sample-size warning. */
+  sample_size_warning: string | null;
+  notes: string[];
+};
+
+/**
  * URL → path normalizer. T6.6 (2026-05-06) consolidated this onto the
  * canonical helper at `src/lib/url/normalize.ts` so a single source of
  * truth handles full URL → path, trailing slash, query/hash stripping,
@@ -250,6 +282,15 @@ function urlToPath(u: string | null | undefined): string {
   return normalizeUrl(u) ?? "";
 }
 
+/**
+ * T6.3 + T6.6 join: URL-LEVEL CONTEXT, NOT CAUSAL.
+ *
+ * Joins recs to outcomes via shared `target_url` path. This is NOT a
+ * causal link — recs that target a URL with helping verdicts may be
+ * benefiting from OTHER changelog rows on the same URL (operator-
+ * entered, scanner-detected, legacy import). Use the causal join
+ * (`analyzeCausalRecChain`) for true rec → outcome attribution.
+ */
 function analyzeRecToOutcomeJoin(
   recs: RecommendedEditRow[],
   outcomes: Awaited<ReturnType<typeof getUrlChangeOutcomes>>,
@@ -288,9 +329,88 @@ function analyzeRecToOutcomeJoin(
     by_verdict: Object.fromEntries(byVerdict),
     by_action_type_x_verdict: byActionXVerdictObj,
     notes: [
-      "URL normalization mismatch surfaced during T6.3 preflight: recommended_edits.target_url is a full URL (https://ritzbuilders.com/locations/los-altos) while url_change_outcomes.url is path-only (/design-studio). This analyzer normalizes both to path-only at read-time. Long-term, normalize at write-time so the join is structural, not analyzer-side.",
-      "Join is many-to-many on URL alone: a single path may have multiple verdicts (one per changelog × URL pair). This summary picks the first verdict per URL. A rec → outcome causal link requires the changelog row the rec produced; today's recs persistence does not stamp the changelog id on the rec row directly. Stamping rec_id ↔ change_id at accept-time would make this join 1:1.",
+      "URL-LEVEL CONTEXT, NOT CAUSAL: this join shares only `target_url` between recs and outcomes. Recs that target a URL with helping verdicts may be benefiting from OTHER changelog rows on the same URL (operator-entered, scanner-detected, legacy import). Use the causal join (Section 6.B) for true rec → outcome attribution.",
+      "URL normalization is consistent post-T6.6: both sides flow through `src/lib/url/normalize.ts`. A rec → outcome causal link uses `changelog.source_rec_id` (Sprint 6A.1 typed-edit attribution) — see Section 6.B.",
       "Recs whose target_url path has no outcome row have either not been shipped yet OR target a URL the verdict engine has not evaluated (e.g., the URL is excluded from owned-URL tracking, or no changelog row was produced).",
+    ],
+  };
+}
+
+/**
+ * T7.1 — true causal rec → changelog → outcome chain via
+ * `changelog.source_rec_id` (Sprint 6A.1 typed-edit attribution).
+ *
+ * Architecture: an accepted rec produces N changelog rows, each
+ * stamped with `source_rec_id = rec.rec_id`. The materializer then
+ * computes a `url_change_outcomes` row keyed on `change_id`. This
+ * function traverses that chain end-to-end, distinct from the URL-
+ * level "context" join above which is correlation, not causation.
+ *
+ * Legacy CSV/PDF imports + scanner-detection rows lack
+ * `source_rec_id` (correctly — there's no rec to link). They are
+ * EXCLUDED from this causal count.
+ *
+ * Sample-size warning fires when `causal_with_outcome` <
+ * CAUSAL_SAMPLE_SIZE_FLOOR — at that point the brain shouldn't
+ * over-interpret per-action-type results.
+ */
+function analyzeCausalRecChain(
+  recs: RecommendedEditRow[],
+  changelogRows: ChangelogEntry[],
+  outcomes: Awaited<ReturnType<typeof getUrlChangeOutcomes>>,
+): CausalRecOutcomeJoin {
+  // Build rec_id → recs map (a single rec_id may have multiple edits).
+  const recIdSet = new Set(recs.map((r) => r.rec_id));
+
+  // Filter changelog rows that carry source_rec_id stamping.
+  const stamped = changelogRows.filter((c) => Boolean(c.source_rec_id));
+  // Among stamped rows, which ones link to a rec still in the queue?
+  const stampedMatched = stamped.filter((c) => recIdSet.has(c.source_rec_id ?? ""));
+
+  // Outcomes keyed by change_id (the materializer's primary key half).
+  const outcomeByChangeId = new Map<string, string>();
+  for (const o of outcomes) {
+    if (!outcomeByChangeId.has(o.change_id)) outcomeByChangeId.set(o.change_id, o.verdict);
+  }
+
+  // For each stamped+matched changelog row, look up its outcome.
+  const causalWithOutcome: ChangelogEntry[] = [];
+  const byVerdict = new Map<string, number>();
+  const byActionXVerdict = new Map<string, Map<string, number>>();
+  for (const c of stampedMatched) {
+    const verdict = outcomeByChangeId.get(c.id);
+    if (!verdict) continue;
+    causalWithOutcome.push(c);
+    inc(byVerdict, verdict);
+    const action = c.action_type ?? "(none)";
+    let m = byActionXVerdict.get(action);
+    if (!m) {
+      m = new Map();
+      byActionXVerdict.set(action, m);
+    }
+    inc(m, verdict);
+  }
+  const byActionXVerdictObj: Record<string, Record<string, number>> = {};
+  for (const [a, m] of byActionXVerdict) byActionXVerdictObj[a] = Object.fromEntries(m);
+
+  const sampleWarning =
+    causalWithOutcome.length < CAUSAL_SAMPLE_SIZE_FLOOR
+      ? `INSUFFICIENT SAMPLE (N=${causalWithOutcome.length} < ${CAUSAL_SAMPLE_SIZE_FLOOR}) — do not draw per-action-type conclusions. Brain should label results "directional" at best until N≥${CAUSAL_SAMPLE_SIZE_FLOOR}.`
+      : null;
+
+  return {
+    total_recs: recs.length,
+    distinct_rec_ids: recIdSet.size,
+    causal_stamped_changelog_rows: stamped.length,
+    causal_stamped_with_matching_rec: stampedMatched.length,
+    causal_with_outcome: causalWithOutcome.length,
+    causal_by_verdict: Object.fromEntries(byVerdict),
+    causal_by_action_x_verdict: byActionXVerdictObj,
+    sample_size_warning: sampleWarning,
+    notes: [
+      "CAUSAL JOIN: rec.rec_id → changelog.source_rec_id → url_change_outcomes.change_id. Built on Sprint 6A.1 typed-edit attribution + Lifecycle OS Phase 1 stamping. This IS the per-rec, per-action-type learning chain.",
+      "Legacy CSV/PDF imports + scanner-detection rows lack `source_rec_id` (correctly — there's no rec to link). They are EXCLUDED from this count.",
+      "Stamped rows without a matching outcome are NOT YET SHIPPED (live_at null, materializer hasn't computed verdict) OR the materializer skipped them (no resolvable anchor). T7.2 preflight tracks this.",
     ],
   };
 }
@@ -343,24 +463,50 @@ function renderReport(report: any): string {
   lines.push(`  cost per shipped: ${c.cost_per_shipped_usd === null ? "(no shipped)" : `$${c.cost_per_shipped_usd.toFixed(4)}`}`);
   lines.push(`  cost per reviewed: ${c.cost_per_reviewed_usd === null ? "(no reviewed)" : `$${c.cost_per_reviewed_usd.toFixed(4)}`}`);
   lines.push("");
-  lines.push(`## 6. Rec → URL outcome join`);
+  lines.push(`## 6.A Rec → URL outcome join (URL-LEVEL CONTEXT, NOT CAUSAL)`);
   const j = report.rec_to_outcome_join;
   lines.push(`  recs with target_url: ${j.recs_with_target_url}`);
   lines.push(`  recs whose target_url has a verdict: ${j.recs_with_url_outcome_present} (join rate: ${j.recs_join_rate})`);
   if (Object.keys(j.by_verdict).length > 0) {
-    lines.push(`  verdict mix on joined recs:`);
+    lines.push(`  verdict mix on joined recs (URL coincidence only):`);
     for (const [v, n] of Object.entries(j.by_verdict as Record<string, number>)) {
       lines.push(`    • ${v.padEnd(28)} ${n}`);
     }
   }
   if (Object.keys(j.by_action_type_x_verdict).length > 0) {
-    lines.push(`  by action_type × verdict:`);
+    lines.push(`  by action_type × verdict (URL coincidence only):`);
     for (const [a, m] of Object.entries(j.by_action_type_x_verdict as Record<string, Record<string, number>>)) {
       const parts = Object.entries(m).map(([v, n]) => `${v}=${n}`).join(", ");
       lines.push(`    • ${a.padEnd(24)} ${parts}`);
     }
   }
   for (const note of j.notes as string[]) lines.push(`  note: ${note}`);
+  lines.push("");
+  // ── Section 6.B — true causal chain (T7.1)
+  lines.push(`## 6.B Rec → changelog → URL outcome (CAUSAL via source_rec_id)`);
+  const cj = report.causal_rec_chain;
+  lines.push(`  total recs analyzed:                  ${cj.total_recs}`);
+  lines.push(`  distinct rec stable-keys:             ${cj.distinct_rec_ids}`);
+  lines.push(`  causal stamped changelog rows:        ${cj.causal_stamped_changelog_rows}`);
+  lines.push(`  stamped + matching live rec:          ${cj.causal_stamped_with_matching_rec}`);
+  lines.push(`  stamped + with url_change_outcomes:   ${cj.causal_with_outcome}`);
+  if (Object.keys(cj.causal_by_verdict).length > 0) {
+    lines.push(`  causal verdict mix:`);
+    for (const [v, n] of Object.entries(cj.causal_by_verdict as Record<string, number>)) {
+      lines.push(`    • ${v.padEnd(28)} ${n}`);
+    }
+  }
+  if (Object.keys(cj.causal_by_action_x_verdict).length > 0) {
+    lines.push(`  causal action_type × verdict:`);
+    for (const [a, m] of Object.entries(cj.causal_by_action_x_verdict as Record<string, Record<string, number>>)) {
+      const parts = Object.entries(m).map(([v, n]) => `${v}=${n}`).join(", ");
+      lines.push(`    • ${a.padEnd(24)} ${parts}`);
+    }
+  }
+  if (cj.sample_size_warning) {
+    lines.push(`  ⚠ ${cj.sample_size_warning}`);
+  }
+  for (const note of cj.notes as string[]) lines.push(`  note: ${note}`);
   lines.push("");
   return lines.join("\n");
 }
@@ -371,17 +517,20 @@ async function main(): Promise<void> {
   console.log("analyze-recommendation-outcomes — Trust Sprint T6.3 preflight");
   console.log("Read-only. No engine changes. No paid APIs. No mutations.\n");
 
-  console.log("Loading recommended edits + URL outcomes…");
+  console.log("Loading recommended edits + URL outcomes + changelog…");
   const recs = await readRecommendedEditsLocal();
   const outcomes = await getUrlChangeOutcomes();
-  console.log(`  recommended_edits: ${recs.length}`);
-  console.log(`  url_change_outcomes: ${outcomes.length}\n`);
+  const changelogRows = (await getChangelogEntries()) as ChangelogEntry[];
+  console.log(`  recommended_edits:    ${recs.length}`);
+  console.log(`  url_change_outcomes:  ${outcomes.length}`);
+  console.log(`  changelog_entries:    ${changelogRows.length}\n`);
 
   const report = {
     generated_at: new Date().toISOString(),
     counts: {
       recommended_edits: recs.length,
       url_change_outcomes: outcomes.length,
+      changelog_entries: changelogRows.length,
     },
     status_funnel: analyzeStatusFunnel(recs),
     source_funnel: analyzeSourceFunnel(recs),
@@ -389,6 +538,7 @@ async function main(): Promise<void> {
     time_to_live: analyzeTimeToLive(recs),
     cost_vs_ship: analyzeCostVsShip(recs),
     rec_to_outcome_join: analyzeRecToOutcomeJoin(recs, outcomes),
+    causal_rec_chain: analyzeCausalRecChain(recs, changelogRows, outcomes),
   };
 
   console.log(renderReport(report));
