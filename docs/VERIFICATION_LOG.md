@@ -7,6 +7,88 @@
 
 ---
 
+## 2026-05-06 — Trust Sprint Mini-Phase T5.3 — Safe verdict rematerialization + integrity gate
+
+Operator-approved follow-up to T5.2. Goal: don't wait passively for the next 07:00 UTC cron — verify and (if safe) rematerialize verdict rows under the new T5.2 logic without paid APIs, and add a permanent drift detector.
+
+No paid APIs. Pure compute. Backup before apply. No hand-edited rows.
+
+### What changed
+
+**New — `scripts/rematerialize-verdicts-t5.ts`:**
+- Pure-compute path: `buildUrlCitationHistory` → `getChangelogEntries` (+ `getPromptAnswerObservations` for sampling-status) → for each (active change × owned URL), `computeUrlVerdict` under T5.2 logic → idempotent upsert via the official `materializeUrlOutcomes`.
+- Two modes: `--dry-run` (default; reads everything, computes new verdicts in memory, prints before/after distribution + transitions; NO persistence) and `--apply` (backs up `.data/tenants/ritz-builders/url-change-outcomes.json` to `.data/_backups/url-change-outcomes-pre-t5_3-{ts}.json` before running the official materializer).
+- Reports verdict transitions (oldVerdict → newVerdict), top high-z helping rows that demote, headline T5.2 effects (helping demoted, weak_signal emerged, helping survived).
+
+**New — `scripts/verify-verdict-rematerialization-integrity.ts`:**
+- Read-only invariant check. For every persisted URL verdict, recomputes via the same T5.2 path and asserts agreement.
+- Drift = exit code 1 with detail rows (change_id, url, persisted vs computed verdict, persisted vs computed z).
+- Operator can run anytime to trust-audit the verdict store; intended to feed the upcoming T6.1 brain-health grade.
+
+### Apply result (2026-05-07 04:27 UTC)
+
+```
+Pre-T5.2 on-disk:  helping=118, nothing_yet=13           (TOTAL 131)
+materializeUrlOutcomes report: processed=153, recorded=0, transitionsAdded=0
+Post-apply on-disk:  helping=118, nothing_yet=13          (TOTAL 131)
+```
+
+- Backup file SHA-256 = `ddff34d460aca0c8f89f86e536509e54a60d970baa79596fd200b7f2a3ce7549`.
+- Live file SHA-256  = `ddff34d460aca0c8f89f86e536509e54a60d970baa79596fd200b7f2a3ce7549`.
+- **Byte-identical.** Zero forced mutations. The official idempotent path agrees that nothing material changed for the 131 persisted rows under T5.2 recomputation.
+
+### Integrity finding (single drift)
+
+```
+DRIFT: /locations/menlo-park (cl-real-224)
+  persisted = helping        (z = 4.07)
+  computed  = too_early      (z = 0.41)
+```
+
+This is the **menlo-park real-3 false-negative** the T5.2 brief explicitly listed in the Phase 3.B backtest expectations. It is the **expected** T5.2 demotion of a row whose pre-window is too sparse to support the helping verdict.
+
+**Root cause that the materializer didn't write the demotion**: `recordUrlOutcome` in `src/domains/attribution/url-change-outcome.ts:369` has `if (!isTerminalVerdict(v.verdict)) return null;`. The materializer is **one-way**: once a row crosses to `helping`/`hurting`, recomputes that fall back to non-terminal verdicts (too_early / not_enough_data) silently no-op instead of demoting the persisted row.
+
+**Decision (per brief: do not hand-edit rows)**:
+- ✅ Drift surfaced internally via `verify-verdict-rematerialization-integrity.ts` (exits 1, names the offending row).
+- ✅ Documented as the single known T5.3 finding.
+- ⏭️ **Materializer demotion semantics deferred.** Allowing terminal → non-terminal demotion is a real behavior change with downstream blast radius (e.g., transition history, brain training signals). Out of scope for T5.3 (whose contract was "rematerialize through the existing materializer, not manual editing").
+- ⏭️ T6.1 (Brain Health Index) will track "verdict drift rate" as a sub-grade and surface this row in the report. Once the brain-health surface lands and the operator reviews the impact, a follow-up mini-phase can decide whether to relax `isTerminalVerdict` or add an explicit `mark_stale` lifecycle event.
+
+### Customer-facing impact
+
+- **Default surface unchanged.** /changes still shows `helping` for /locations/menlo-park; the "Strong signal" math row still reads z=4.07 from the persisted row.
+- This is consistent with the "externally confident" half of the trust-sprint principle. Internal rigor surfaces the drift; external surfaces don't yo-yo on operator without the brain-health context being in place first.
+
+### Rollback path
+
+- The apply ran the official idempotent materializer; no manual mutations occurred.
+- The pre-apply backup is at `.data/_backups/url-change-outcomes-pre-t5_3-2026-05-07T04-27-57.json` (SHA-verified byte-identical to the current live file). To revert any future drift-induced mutation, restore the backup over the live file and re-run the integrity script.
+
+### Verification
+
+- ✅ `npm run typecheck` — clean.
+- ✅ `npm run test` — **306/306 files / 4965/4965 tests** (baseline preserved from T5.2; no test regressions).
+- ✅ `scripts/rematerialize-verdicts-t5.ts --dry-run` — reproduces 153 (change × URL) pairs; reports 0 demotions, 0 weak_signal emergences.
+- ✅ `scripts/rematerialize-verdicts-t5.ts --apply` — 0 transitions, 0 newly recorded; SHA verified.
+- ⚠️ `scripts/verify-verdict-rematerialization-integrity.ts` — 1 drift (menlo-park, expected per brief; documented above).
+- ✅ Zero OpenAI calls. Zero paid polling.
+
+### Hard-constraint compliance
+
+- ✅ Backup before apply.
+- ✅ Apply through the existing materializer (no hand-edited rows).
+- ✅ No second tenant. No RLS / auth. No Profound cleanup. No onboarding UI. No billing.
+- ✅ No broad refactors. No weakened tests.
+- ✅ No production row mutations beyond the idempotent path (verified by SHA-256).
+- ✅ No scared-sounding customer copy added; no copy changed at all.
+
+### What the next mini-phase should be
+
+**T6.1 — Brain Health Index** (operator-only single internal score/report). The integrity script becomes one input to the brain-health grade. Surface the menlo-park drift as a "verdict-store health" sub-finding rather than a UI demotion.
+
+---
+
 ## 2026-05-06 — Trust Sprint Mini-Phase T5.2 — Attribution hardening (sparse-pre precondition + weak_signal tier)
 
 Operator-approved bundle following T5.1 preflight. Implements **both** changes proposed in `docs/BEACON_T5_ATTRIBUTION_HARDENING_PREFLIGHT_2026_05_06.md`:
