@@ -7,6 +7,94 @@
 
 ---
 
+## 2026-05-07 — Trust Sprint Mini-Phase T7.7 — Main product final confidence sweep
+
+Consolidated architectural guard pinning customer-visible default surfaces against scared, methodology-leaking, infrastructure-leaking, and uncertainty language. Caveats live in proof drawers + operator pages, not on default surfaces.
+
+### What changed
+
+**New — `tests/architecture/main-product-final-confidence-sweep.test.ts`** (parameterized — 580 individual tests):
+
+- 4 truly-customer-facing default surfaces guarded:
+  - `src/app/(shell)/today-client.tsx`
+  - `src/app/(shell)/changes/scorecard-client.tsx`
+  - `src/app/(shell)/recommendations/recommendations-client.tsx`
+  - `src/app/(shell)/prompts/page.tsx`
+- Plus all `.tsx`/`.ts` files in `src/components/today/` + `src/components/recommendations/`.
+- 18 forbidden phrases × ~30 files = 580 generated assertions.
+
+Forbidden phrases pinned (with replacement guidance):
+
+| Phrase | Replace with |
+|---|---|
+| `Supabase` | (remove — internal infra) |
+| `Profound` | (remove — vendor name) |
+| `Postgres` | (remove — internal infra) |
+| `schema column` | field |
+| `schema table` | data location |
+| `RLS policy` | (remove — internal) |
+| `SQL query` | (remove — internal) |
+| `we cannot prove` / `we can't prove` | directional signal |
+| `we don't know` | (remove — confident framing) |
+| `Unreliable` | Directional |
+| `False positive` | (remove — internal classification) |
+| `Contaminated` | (remove — internal classification) |
+| `D grade` / `D — blocker` | (remove — internal) |
+| `debug only` | (remove — operator label) |
+| `raw UUID` | (remove — internal ID) |
+
+### Out of scope (preserved rigor)
+
+Drawer + operator surfaces explicitly **exempted** from this strict guard:
+
+- `src/components/today/why-this-number.tsx` — proof drawer (`<details>` collapsed)
+- `src/components/changes/why-this-verdict.tsx` — proof drawer (`<details>` collapsed)
+- `src/app/(shell)/diagnostics/*` — operator-mode-gated
+- `src/app/(shell)/changes/truth/*` — proof drawer
+- `src/app/(shell)/settings/methodology/*` — operator-locked
+- `src/app/(shell)/settings/health/*` — operator
+- `src/app/(shell)/settings/import/import-page.tsx` — legacy Profound CSV import tool (operator deliberately invokes; brief explicitly says "no Profound cleanup")
+
+These surfaces keep their full rigor (Z-score, contamination, Unreliable label, etc.) for operator drilldown.
+
+### Method
+
+Each guarded file has its source code stripped of:
+- `/* ... */` block comments
+- `// ...` line comments
+- `{/* ... */}` JSX comments
+- `import` / `export-from` lines (so identifier names like `importProfoundData` from `@/adapters/profound` don't false-positive)
+
+Then each forbidden phrase is checked via case-insensitive (or case-sensitive for vendor names) regex. Failure messages quote the offending line + suggest the replacement.
+
+### Results
+
+- 580/580 tests pass on the current codebase. Default product surfaces are clean.
+- Past T-phases (T3.1 trust drawer, T4.4 derived confidence, T5.2 weak_signal, T6.4 executive confidence) have already done the surgical work; this invariant locks the contract going forward.
+- One false-positive caught + corrected during build: `importProfoundData` identifier in `/settings/import/import-page.tsx` (legacy import tool, intentionally preserved).
+
+### Verification
+
+- ✅ `npm run typecheck` — clean.
+- ✅ `npm run test` — **318/318 files / 5684/5684 tests** (+1 file +580 tests vs T7.6 baseline 317/5104).
+- ✅ Guard catches a real-but-internal Profound identifier and was scope-narrowed to truly-customer-facing surfaces (4 strict guarded files + components/today + components/recommendations).
+- ✅ `.data/global/llm-budget.json` SHA = `d36eed8ca157cb4c65ee01a2c51a2fef3fb21a0dfdbb036753d6d7c570927dbd` — byte-identical with T7.6.
+- ✅ Zero OpenAI calls. Zero paid polling. Zero row mutations.
+
+### Hard-constraint compliance
+
+- ✅ No copy changes — surfaces are already clean from prior T-phases.
+- ✅ No mutation of any source code beyond the new test file.
+- ✅ Drawer + operator pages preserved (full rigor allowed).
+- ✅ No second tenant. No RLS / auth / Profound / onboarding / billing.
+- ✅ Tests TIGHTEN the contract (580 generated invariants).
+
+### What the next mini-phase should be
+
+**T7.8 — Final overnight convergence check + report.** Re-run the full battery (typecheck/test/build/integrity scripts/watchdog/AEO twice/analyzer/dry-run) and write the consolidated overnight report.
+
+---
+
 ## 2026-05-07 — Trust Sprint Mini-Phase T7.6 — Operator Brain route (`/diagnostics/brain`)
 
 Single internal page that surfaces brain telemetry — health grade, section grades, AEO intelligence summary, top 5 opportunities, top 5 trust risks, competitor pulse. Operator-mode-gated; 404s in prod; reads local JSON files with graceful empty states. Default product routes unchanged.
