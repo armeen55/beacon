@@ -7,6 +7,90 @@
 
 ---
 
+## 2026-05-07 — Friend-test readiness QA: checklist doc + guarded reset script
+
+Final scaffolding pass after the eight self-serve gaps (Gap A → B → C.1 → C.2 → C.3 → E.1 → C.4 → F.1) before sending the signup link to a real friend. Adds an operator-facing checklist documenting the full friend-test procedure end-to-end, plus a guarded reset script for cleaning up a test tenant after the test concludes.
+
+**Pure operator infrastructure.** Zero changes to the customer-facing flow. Zero changes to the existing prompt/observation/snapshot data paths. All Ritz behavior preserved (verified by integrity scripts).
+
+### What changed
+
+**New — `docs/BEACON_FRIEND_TEST_CHECKLIST_2026_05_07.md`** (~12 sections):
+- Section 1: Operator pre-flight (commit deployed, cron green for 2 days, Ritz integrity green, Vercel env vars set, GitHub secrets set, no orphan tenants).
+- Section 2: Confirm signup URL renders correctly in incognito.
+- Section 3: What to send the friend (DM template, customer-safe — no infrastructure language).
+- Section 4: Expected screens with screenshots to capture (signup → wizard 1-4 → Launch → /today first-reading).
+- Section 5: DB verification queries after each milestone (tenant row created with `pending_onboarding`; profile updates per step; Launch flips to `active` + sets `tos_accepted_at`; `tracked_prompts` rows inserted with correct shape; second tenant becomes visible to cron).
+- Section 6: Tomorrow-morning verification (cron expanded matrix to 2 tenants; observations landed; /today shows regular dashboard for the new tenant; Ritz still rendering normally).
+- Section 7: Reset / rollback (preferred = scripts/reset-test-tenant.ts; fallback = manual SQL; mid-test recovery for partial-failure scenarios).
+- Section 8: Failure modes table (magic link issues, provisioning errors, wizard validation rejections, Launch race, /today blank, no observations next morning).
+- Section 9: Post-test artifact capture (screenshots, feedback, time-on-task).
+- Section 10: Send-the-link checklist (8 binary checks; hold if any false).
+- Section 11: What to do with what you learned (parking lot, polish pass, fix-and-retest).
+- Section 12: Hard nos during a friend test (don't click Launch on their behalf; don't edit their tenant row mid-flow; don't trigger out-of-band polls; don't add a second concurrent test tenant).
+
+**New — `scripts/reset-test-tenant.ts`** (~250 lines):
+- DELETEs all rows for a single test tenant across `tracked_prompts`, `tenant_members`, `tenants`. Defaults to dry-run; `--confirm` executes.
+- **Safety guards (pinned by 18 unit tests + 19 architecture invariants)**:
+  - Refuses any slug containing `/ritz/i` OR starting with `tenant-ritz-`.
+  - Requires `--slug=<slug>`. No bare invocation.
+  - Refuses tenants in `paused` or `cancelled` status (operator-set states are off-limits).
+  - Refuses tenants with > 100 `prompt_answer_observations` (heuristic: looks like a real customer, not a test artifact).
+  - Only touches the 3 enumerated tables. Defense-in-depth pinned by `ALLOWED_DELETE_TABLES` constant + invariant.
+  - Never touches `prompt_answer_observations`, `daily_metric_snapshots`, `recommended_edits`, `changelog_entries`, `tracked_entities`, `auth.users`. Operator cleans those manually if needed.
+  - No paid API calls. No fetch. No imports from `@/adapters/openai|perplexity`.
+  - Source-order pinned: `isProtectedSlug` runs BEFORE `loadAdminClient()` and BEFORE `.from("tenants")`. Dry-run check (`if (!confirm)`) runs BEFORE any `.delete()` call.
+  - Only runs `main()` when invoked directly (`require.main === module`); test imports are safe.
+
+**New — `tests/scripts/reset-test-tenant.test.ts`** (18 unit tests):
+- `isProtectedSlug`: refuses `tenant-ritz-founder`, `ritz-builders`, case-mismatched ritz tokens (`RITZ`, `Ritz`, `RiTz-Builders`, `not-ritz`, `xritzx`), `tenant-ritz-` prefix variants. Accepts fresh test slug shapes (`8c9d2f4a`, `acme-test`, `test-tenant-1`, `friend-1`). Safely handles non-string inputs (undefined / null / number).
+- `parseArg`: returns value for `--name=value`; returns `"true"` for bare `--name`; returns null when absent; handles values containing `=`; returns FIRST occurrence on repeats; doesn't match similar-prefix flags (`--slugs` ≠ `--slug`).
+- Safety constants pinned: 2 forbidden patterns; resettable statuses are exactly `pending_onboarding` + `active` (not paused/cancelled); MAX_OBSERVATIONS conservatively low (≤ 200, ≥ 1); allowed delete tables exactly `{tracked_prompts, tenant_members, tenants}` (negative pin: not observations / snapshots / recs / changelog / entities).
+
+**New — `tests/architecture/reset-test-tenant-contract.test.ts`** (15 invariants):
+- File exists at `scripts/reset-test-tenant.ts`.
+- Exports the safety helpers + constants.
+- Only runs `main()` when invoked directly (test-import safety).
+- `RITZ_FORBIDDEN_PATTERNS` contains `/ritz/i` + `^tenant-ritz-` patterns.
+- `isProtectedSlug` call site runs BEFORE `loadAdminClient()` AND before any `.from("tenants")` query (source-order pin).
+- Allowed delete tables only: `tracked_prompts`, `tenant_members`, `tenants` (negative pin: no `.delete()` against observations / snapshots / changelog / recs / entities).
+- Does not touch `auth.users` (no `auth.admin.` references; no `deleteUser` call).
+- Defaults to dry-run: `if (!confirm)` short-circuit runs BEFORE any `.delete()` call (source-order pin); prints "DRY RUN" message.
+- Refuses tenants with > MAX_OBSERVATIONS_FOR_RESET observations (heuristic: real customer).
+- Refuses paused/cancelled tenants.
+- No paid-API imports (`@/adapters/openai`, `@/adapters/perplexity`, `openai`, `@anthropic`).
+- No `fetch()` / `runNativePoll` / `runWebsiteScan` calls.
+
+### Quality gates run
+
+| Gate | Result |
+|------|--------|
+| `npm run typecheck` | CLEAN |
+| `npm run test` (6210 tests) | 6210 PASS (+33 vs Gap F.1 baseline 6177) |
+| Targeted (reset script unit + architecture) | 33/33 PASS |
+| `npm run build` | exit 0 — `/onboard/*` + `/signup` routes all ƒ Dynamic |
+| `verify-tenant-data-integrity` | PASS — Ritz row counts UNCHANGED (9896/16521/28) — confirms zero production mutations during QA |
+| `verify-observation-dedup-integrity` | PASS — 0 duplicate logical keys |
+| `verify-verdict-rematerialization-integrity` | PASS — drift=0 |
+| `npm run verify:brain-health` | YELLOW — 7 PASS / 1 WARN (queue idle, pre-existing) |
+| LLM budget SHA byte-identical | YES — `5303c16f04…` unchanged from Gap F.1 |
+
+### What this unlocks
+
+The full operator playbook for a friend test now lives in one place. A real second tenant can sign up and be cleaned up afterward with a single guarded script command. The script's safety properties are pinned by tests so a future regression that accidentally widens the delete scope (or removes the Ritz refusal) fails the build before merge.
+
+**Beacon is ready to send the signup link to one trusted friend.** Sections 1 + 10 of the checklist gate the decision: if all 8 boxes check green, send. If any are red, hold and fix.
+
+### Out of scope
+
+- Anything that mutates production data (no friend tenant exists yet to test against).
+- Gap F.2 (immediate-poll trigger) — explicit "do not build" in the brief.
+- Gap G (operator alerts) — quality-of-life follow-up.
+- Gap D (auto-detect) — quality-of-life follow-up.
+- Auth-user cleanup automation — manual via Supabase Dashboard for now.
+
+---
+
 ## 2026-05-07 — Self-serve onboarding Gap F.1: first-reading waiting state on /today
 
 Eighth step in customer-onboarding pipeline (Gap A → B → C.1 → C.2 → C.3 → E.1 → C.4 → F.1). Adds the "Beacon is preparing your first AI visibility reading" waiting state to /today for newly launched tenants who have prompts but zero observations yet. Closes the "active tenant lands on /today and sees an empty/broken dashboard" UX gap immediately after Launch (Gap C.4).
