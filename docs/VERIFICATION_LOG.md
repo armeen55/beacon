@@ -7,6 +7,95 @@
 
 ---
 
+## 2026-05-06 — Trust Sprint Mini-Phase T6.1 — Brain Health Index (operator-only)
+
+Internal-only single-page brain health report. Operationalizes the trust-sprint principle: "Internally rigorous; externally confident." This report is the internal half — honest grading of 5 health dimensions, no customer surface.
+
+Pure compute. No paid APIs. No mutations. Reads canonical stores + verdict store + integrity surface; emits markdown to stdout AND a JSON snapshot to `.data/_reports/brain-health-{ts}.json` for trend tracking.
+
+### What changed
+
+**New — `scripts/build-brain-health-report.ts`:**
+
+Five graded sections (A/B/C/D), rolled up to a single Brain Readiness grade.
+
+- **Data Health** — observations in last 7d (target ≥600), daily consistency (CV across polled days, <0.30 = A), platform coverage (Perplexity + ChatGPT both present), full-coverage poll days (≥80 obs/day, ≥80% full = A).
+- **Score Health** — platform snapshots in last 7d (≥2 platforms = A), owned URLs cited (≥10 = A), top owned URL citation count (≥50 = A).
+- **Recommendation Health** — queue size (≥10 = A), stale proposed >7d (0 = A), LLM-source ship-rate AMONG REVIEWED (queue-pending recs don't count against it; ≥50% accept-when-reviewed = A).
+- **Attribution Health** — persisted verdicts (≥50 = A), verdict mix (helping % between 30–60 = A; >95% = clearly contaminated D), T5.3 drift count (0 = A; ≥10 = D), weak_signal emergence (informational).
+- **Brain Readiness Grade** — composite roll-up: any D = D; ≥2 C = C; 1 C = B; all A/B = A. Plus the **next 3 highest-leverage trust fixes**, sorted by grade severity then by section priority (Data > Attribution > Recommendation > Score, because data quality is upstream of all others).
+
+Honest forward-look fillers when fewer than 3 issues: T5.3 drift recap, weak_signal emergence note, T6.2 next-mini-phase pointer.
+
+### Run on Ritz (`tenant-ritz-founder`, 2026-05-07 04:43 UTC)
+
+```
+Brain Readiness Grade: B — solid
+
+Data Health — B — solid
+  [A] observations (last 7d): 784
+  [B] daily consistency (CV): 0.47 across 5 polled days
+  [A] platform coverage: chatgpt, perplexity
+  [A] full-coverage poll days: 4/5 (80%)
+
+Score Health — A — strong
+  [A] platform snapshots (last 7d): ChatGPT, Perplexity
+  [A] owned URLs with citations: 12
+  [A] top owned URL citations: 553× — https://ritzbuilders.com/
+
+Recommendation Health — B — solid
+  [A] queue size: 31 (recommended=20, dismissed=7, (none)=3, verified_live=1)
+  [A] stale proposed (>7d): 0
+  [B] LLM-source ship-rate (of reviewed): 1/3 of 23 reviewed (33%)
+
+Attribution Health — C — gap
+  [A] persisted verdicts: 131 (helping=118, nothing_yet=13)
+  [C] verdict mix (helping %): 90.1%
+  [B] T5.2 drift (recompute disagreement): 1
+  [B] weak_signal emergence: 0 rows
+
+Next 3 highest-leverage trust fixes
+  1. Attribution Health — verdict mix (helping %) (C) — 90.1% helping is suspiciously high
+  2. Attribution Health — T5.2 drift (1 row) — menlo-park; materializer is one-way
+  3. Attribution Health — weak_signal tier hasn't emerged yet — informational
+```
+
+### Field-name corrections during build
+
+- Observations type uses `observed_at` (ISO timestamp), not `run_date`. Slice to date when bucketing.
+- DailyMetricSnapshot uses `date`, not `run_date`.
+- CitationEvidenceIndex shape is `by_page_and_topic: CitationPageRollup[]` (no top-level `owned_urls`). Aggregate `is_owned === true` rows by `page_url` and sum `total_citations`.
+- ImplementationStatus enum is `recommended | accepted | verified_live | verified_live_modified | needs_review | wrong_page | partially_implemented | not_found_after_7d | dismissed` — no "proposed". Stale check uses `created_at`.
+
+### Methodology notes
+
+- **LLM ship-rate is among reviewed recs only** (accepted + dismissed + verified_live), not all LLM recs. Queue-pending "recommended" rows don't count against the score — that would penalize a fresh queue waiting on operator review.
+- **Drift check re-runs T5.3 integrity logic in-process** so the report is self-contained; no external script needs to run first. Falls back to drift=0 with a warning if observation load fails.
+- **weak_signal tier is informational**, not graded. Its presence proves the T5.2 engine emits the new tier; absence is expected on day-2 post-T5.2 since the existing helping rows haven't been rematerialized yet (that's a one-way materializer behavior, see T5.3).
+- **Roll-up is conservative**: any D fails the whole grade; 2+ Cs land at C; otherwise the worst non-A grade.
+
+### Verification
+
+- ✅ `npm run typecheck` — clean.
+- ✅ `npm run test` — **306/306 files / 4965/4965 tests** (baseline preserved from T5.3).
+- ✅ Report runs in <30s on Ritz canonical store.
+- ✅ JSON snapshot written to `.data/_reports/brain-health-2026-05-07T04-43-49.json`.
+- ✅ `--no-persist` flag suppresses the snapshot.
+- ✅ Zero OpenAI calls. Zero paid polling. Zero mutations.
+
+### Hard-constraint compliance
+
+- ✅ Operator-only — no customer surface, no /today / /changes / /recommendations integration.
+- ✅ No second tenant (defaults to `BEACON_TENANT_ID` or `tenant-ritz-founder`).
+- ✅ No RLS / auth changes. No Profound cleanup. No onboarding UI. No billing.
+- ✅ No broad refactors. No weakened tests. No customer copy added.
+
+### What the next mini-phase should be
+
+**T6.2 — Local AEO database foundation.** Derive intelligence files (daily/weekly/monthly platform summaries, competitor / prompt / citation-source / geo-service trajectories) into `.data/tenants/ritz-builders/brain/`. The brain currently reasons over raw observations + snapshots every read; materialized derivations are cheaper to query, easier to graph, and form the foundation T6.3 (learning loop) needs.
+
+---
+
 ## 2026-05-06 — Trust Sprint Mini-Phase T5.3 — Safe verdict rematerialization + integrity gate
 
 Operator-approved follow-up to T5.2. Goal: don't wait passively for the next 07:00 UTC cron — verify and (if safe) rematerialize verdict rows under the new T5.2 logic without paid APIs, and add a permanent drift detector.
