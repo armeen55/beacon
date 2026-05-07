@@ -44,6 +44,7 @@ import { getUrlChangeOutcomes } from "../src/domains/attribution/url-change-outc
 import type { RecommendedEditRow, ImplementationStatus } from "../src/domains/recommendations/recommended-edits-persistence";
 import { deriveConfidence, type DerivedConfidenceLabel } from "../src/domains/recommendations/derived-confidence";
 import { computeEvidenceDepth } from "../src/domains/recommendations/recommendation-action-rows";
+import { normalizeUrl } from "../src/lib/url/normalize";
 
 const REPO_ROOT = resolve(__dirname, "..");
 const REPORTS_DIR = join(REPO_ROOT, ".data", "_reports");
@@ -240,21 +241,13 @@ type RecOutcomeJoin = {
 };
 
 /**
- * Normalize URL to "path only" form ("/design-studio") for cross-store
- * join. recommended_edits.target_url is full URL; url_change_outcomes.url
- * is path-only — found 2026-05-06 during T6.3 preflight. Until that
- * data-flow inconsistency is resolved, normalize at read-time so the
- * join works.
+ * URL → path normalizer. T6.6 (2026-05-06) consolidated this onto the
+ * canonical helper at `src/lib/url/normalize.ts` so a single source of
+ * truth handles full URL → path, trailing slash, query/hash stripping,
+ * and host-prefix stripping.
  */
 function urlToPath(u: string | null | undefined): string {
-  if (!u) return "";
-  if (u.startsWith("/")) return u;
-  try {
-    const parsed = new URL(u);
-    return parsed.pathname || "/";
-  } catch {
-    return u;
-  }
+  return normalizeUrl(u) ?? "";
 }
 
 function analyzeRecToOutcomeJoin(

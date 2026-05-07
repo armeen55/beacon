@@ -85,36 +85,14 @@ export type UrlCitationHistory = {
  *   ritzbuilders.com/services/whole-home-remodel   →  /services/whole-home-remodel
  *   https://example.com                             →  /
  */
-export function normalizeUrl(u: string | null | undefined): string | null {
-  if (!u) return null;
-  let raw = u.trim();
-  if (!raw) return null;
-
-  // If it's a full URL, parse and extract path.
-  if (/^https?:\/\//i.test(raw)) {
-    try {
-      const url = new URL(raw);
-      const path = url.pathname.replace(/\/+$/, "") || "/";
-      return path.toLowerCase();
-    } catch {
-      // Fall through to string-based parse below.
-    }
-  }
-
-  // Strip protocol if present in weird form, then strip leading host token if any.
-  raw = raw.replace(/^https?:\/\//i, "");
-  // If it starts with a host-looking segment (contains a "." before any "/"), strip it.
-  const firstSlash = raw.indexOf("/");
-  const headSegment = firstSlash >= 0 ? raw.slice(0, firstSlash) : raw;
-  if (firstSlash >= 0 && headSegment.includes(".")) {
-    raw = raw.slice(firstSlash); // keep the path onwards
-  }
-  // Ensure leading slash.
-  if (!raw.startsWith("/")) raw = "/" + raw;
-  // Strip trailing slashes, lowercase.
-  raw = raw.replace(/\/+$/, "") || "/";
-  return raw.toLowerCase();
-}
+// Re-export the canonical helper from `src/lib/url/normalize.ts` (T6.6).
+// The helper was extracted out of this file so analysis scripts +
+// future write-time normalization callers can import it without pulling
+// in the citation-history transitive dependency tree. Behavior is
+// byte-identical to the previous in-file implementation; the public
+// `normalizeUrl` symbol is unchanged.
+import { normalizeUrl } from "@/lib/url/normalize";
+export { normalizeUrl };
 
 /**
  * Build the URL citation history index from existing stores.

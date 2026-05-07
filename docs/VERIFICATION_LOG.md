@@ -7,6 +7,101 @@
 
 ---
 
+## 2026-05-06 — Trust Sprint Mini-Phase T6.6 — URL normalization at the analysis boundary
+
+Closes the T6.3 finding "URL normalization mismatch — `recommended_edits.target_url` is full URL while `url_change_outcomes.url` is path-only". Single source of truth for path-only normalization extracted out of the citation-history domain so analysis scripts + future write-time callers share one helper.
+
+### What changed
+
+**New — `src/lib/url/normalize.ts`** (canonical helper):
+
+- `normalizeUrl(u: string | null | undefined): string | null` — pure, idempotent.
+- Contract:
+  - full Ritz URL → path (e.g., `https://ritzbuilders.com/locations/los-altos` → `/locations/los-altos`).
+  - path stays path.
+  - trailing slash stripped (and collapsed when repeated).
+  - query stripped (URL parser does this naturally; string-fallback also strips).
+  - hash stripped (same).
+  - host-prefix without protocol → strips host.
+  - external (competitor) URLs become path-only too — caller is responsible for ownership classification.
+  - null/undefined/empty → null.
+  - URL parse failure → string-fallback path.
+  - Output lowercased.
+- Zero domain imports (pinned by architecture invariant). Pure stdlib only — analysis scripts can import without pulling the heavy citation-history transitive tree.
+
+**Modified — `src/domains/product/url-citation-history.ts`**:
+
+- In-file `normalizeUrl` definition replaced with `import { normalizeUrl } from "@/lib/url/normalize"; export { normalizeUrl };` — back-compat for the 7 historical importers (`evidence-packet.ts`, `resolve-page-intent.ts`, `url-change-outcome.ts`, `competitor-primary.ts`, `opportunity-classify.ts`, the rebuild-citation-evidence-index route, and `/changes/page.tsx`). Behavior byte-identical.
+
+**Modified — `scripts/analyze-recommendation-outcomes.ts`**:
+
+- `urlToPath` now delegates to the canonical `normalizeUrl` (was an inline reimplementation).
+- Both join sides (`outcomes` keyed by path, `recs` looked up by path) flow through the same helper.
+
+**New — `src/lib/url/normalize.test.ts`** (26 behavioral tests):
+
+- Full URL → path (3 cases)
+- Path stays path (2 cases)
+- Trailing slash normalization (4 cases — single, path-only, collapsed-repeated, root)
+- Query / hash stripping (5 cases — full URL, path-only via fallback)
+- External (non-owned) URLs (2 cases — demattei.com, houzz.com)
+- Host-prefix without protocol (3 cases)
+- Empty / null / undefined / whitespace (4 cases)
+- Idempotency (`normalizeUrl(normalizeUrl(x)) === normalizeUrl(x)`)
+- Case normalization (lowercases mixed-case URLs)
+- Never throws on malformed inputs (`https:///`, `://`, `javascript:void(0)`, `data:text/plain,hello`)
+
+**New — `tests/architecture/url-normalize-canonical-location.test.ts`** (6 tests):
+
+- `src/lib/url/normalize.ts` exists.
+- File exports `normalizeUrl`.
+- File has zero domain imports (pure stdlib only).
+- `url-citation-history.ts` re-exports from canonical (single-line OR two-line form accepted).
+- `url-citation-history.ts` does NOT define `normalizeUrl` in-file (negative invariant — pin against re-implementation regression).
+- Rec analyzer imports from canonical, NOT from `url-citation-history` (avoids the heavy transitive tree).
+
+### Write-side application — DEFERRED with reason
+
+Operator brief: "future write path if `mapSpecificEditToRow()` is clearly the correct boundary."
+
+**Decision: not clearly the right boundary right now. Defer.** Reasons:
+
+1. `target_url` is a full URL today; multiple UI consumers may render it as a clickable link or pass it to other surfaces. A wholesale shape change to path-only would need a consumer audit before flipping at the persistence layer.
+2. The analyzer's read-time normalization works perfectly (100% join rate on Ritz). Brain reasoning + cross-store joins are unblocked.
+3. T6.7 (materializer demotion) and T6.8 (rec↔change_id stamping) are higher-leverage attribution work; re-shaping `target_url` now would conflict with both.
+4. The canonical helper is in place and tested, so when a future mini-phase decides to flip the persistence shape, the ONLY change is one line in `mapSpecificEditToRow` (`target_url: edit.targetUrl` → `target_url: normalizeUrl(edit.targetUrl) ?? edit.targetUrl`) plus a one-shot backfill script.
+
+This keeps T6.6 surgical and bounded — exactly the operator's "Big moves only" constraint when the move is genuinely big.
+
+### Results on Ritz (post-fix)
+
+- T6.3 analyzer's rec → URL outcome join rate: **100%** (31/31 recs whose target_url has a verdict). Unchanged from pre-T6.6 — the inline analyzer-side normalization was producing the right answer; T6.6 just consolidates the helper.
+- All 7 historical importers of `url-citation-history.normalizeUrl` keep working unchanged.
+
+### Verification
+
+- ✅ `npm run typecheck` — clean.
+- ✅ `npm run test` — **311/311 files / 5040/5040 tests** (+2 files +32 tests vs T6.5 baseline of 309/5008).
+- ✅ `npm run build` — green.
+- ✅ `scripts/verify-tenant-data-integrity.ts` — PASS.
+- ✅ `scripts/verify-observation-dedup-integrity.ts` — PASS.
+- ✅ `.data/global/llm-budget.json` SHA = `d36eed8ca157cb4c65ee01a2c51a2fef3fb21a0dfdbb036753d6d7c570927dbd` — byte-identical with T6.5 baseline.
+- ✅ Zero OpenAI calls. Zero paid polling. Zero row mutations.
+
+### Hard-constraint compliance
+
+- ✅ No second tenant. No RLS / auth / Profound / onboarding / billing.
+- ✅ No persisted-row mutations — write-side application explicitly deferred with documented reason.
+- ✅ No customer-visible UI changes (analyzer-only refactor + canonical helper extraction).
+- ✅ No broken external links — UI display path is unchanged.
+- ✅ Tests TIGHTEN the contract: 26 behavioral + 6 architecture invariants pin the helper's location, signature, and import discipline.
+
+### What the next mini-phase should be
+
+**T6.7 — Materializer demotion semantics preflight.** Trace `materializeUrlOutcomes` → `recordUrlOutcome` → terminal-verdict guard; classify drift on the persisted store; decide whether allowing terminal → non-terminal demotion is bounded enough to apply this round.
+
+---
+
 ## 2026-05-06 — Trust Sprint Mini-Phase T6.5 — Confidence-tier regression hunt (scripts-only fix)
 
 Closes the T6.3 finding "all 31 recs at medium". **Root cause: scripts-only bug.** The customer UI was already correct — `<DerivedConfidencePill>` reads `row.derivedConfidence` (computed by T4.4 at row-build time). T6.3's analyzer (and T6.1's brain-health-report) read the persisted `RecommendedEditRow.confidence` column directly, which T4.4 intentionally did not mutate per its commit message:
