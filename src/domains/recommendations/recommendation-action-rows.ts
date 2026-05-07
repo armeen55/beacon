@@ -42,6 +42,7 @@ import type { RecConfidenceVerdict } from "./confidence";
 import type { SuggestedEdit } from "./adjudicator-schema";
 import type { RecommendationResponse } from "@/domains/product/recommendation-response-store";
 import { shouldExcludeFromCompetitorRanking } from "./entity-pollution-filter";
+import { deriveConfidence } from "./derived-confidence";
 import {
   composeEvidencePreview,
   composeRecommendedMove,
@@ -199,6 +200,15 @@ export type ActionRowDetail = {
    */
   readonly evidenceDepth: number;
   /**
+   * T4.4 (2026-05-06) — customer-safe derived confidence label:
+   * "strong_evidence" | "moderate_evidence" | "needs_review".
+   * Derived from evidence depth + grounding-category presence so the
+   * operator stops seeing every row labeled "medium". Pure function
+   * of the row's signals; never mutates the persisted `confidence`
+   * column.
+   */
+  readonly derivedConfidence: "strong_evidence" | "moderate_evidence" | "needs_review";
+  /**
    * W3 §3.15 (2026-05-04) — for grouped FAQ Q+A rows, the answer's
    * full proposedText so the drawer can render question + answer
    * side-by-side. Null for non-FAQ rows and for orphan/legacy FAQ
@@ -285,6 +295,15 @@ export type RecommendationActionRow = {
    * ("Keep `confidenceReason` in details/debug").
    */
   readonly engineConfidence: "high" | "medium" | "low" | null;
+  /**
+   * T4.4 (2026-05-06) — customer-safe derived confidence label promoted
+   * to row top-level so the table can render a Strong/Moderate/Needs-
+   * review pill alongside (or in place of) the legacy engineConfidence
+   * pill. Pre-T4.4 every production row reported confidence='medium';
+   * derivedConfidence is computed from evidence depth + grounding
+   * categories so the operator sees true differentiation.
+   */
+  readonly derivedConfidence: "strong_evidence" | "moderate_evidence" | "needs_review";
   /** Whether this row was generated from an exact specific edit (vs
    *  a meta-action like Choose direction). Drives default-state copy. */
   readonly hasExactEdit: boolean;
@@ -1309,6 +1328,15 @@ export function buildRecommendationActionRows(
           ...(question.risks ?? []),
           ...(answer.risks ?? []),
         ].filter((r, i, a) => a.indexOf(r) === i); // de-dupe
+        // T4.4 — derived confidence for the FAQ-pair row.
+        const faqPairEvidenceDepth = computeEvidenceDepth(evidenceRefs);
+        const faqPairDerivedConfidence = deriveConfidence({
+          evidenceRefs,
+          evidenceDepth: faqPairEvidenceDepth,
+          affectedPromptCount: rec.evidence.promptCount,
+          isFaqAnswer: false,
+          hasTopCompetitor: topCompetitor !== null,
+        });
         rows.push({
           id: `${rec.stableKey}::faq-pair::${hash}`,
           rank: 0, // assigned after sort
@@ -1331,6 +1359,8 @@ export function buildRecommendationActionRows(
           // primary) but they should match for any sane bundle.
           editSource: question.source ?? null,
           engineConfidence: rec.engineConfidence?.confidence ?? null,
+          // T4.4 — derived confidence for the FAQ-pair row.
+          derivedConfidence: faqPairDerivedConfidence,
           hasExactEdit: true,
           responseStatus,
           acceptedAgeDays,
@@ -1355,7 +1385,9 @@ export function buildRecommendationActionRows(
             affectedPromptCount: rec.evidence.promptCount,
             observationCount: rec.evidence.observationCount,
             // T4.2 — evidence depth + prioritizer threading.
-            evidenceDepth: computeEvidenceDepth(evidenceRefs),
+            evidenceDepth: faqPairEvidenceDepth,
+            // T4.4 — customer-safe derived confidence label (hoisted above).
+            derivedConfidence: faqPairDerivedConfidence,
             debug: {
               recommendationId: rec.stableKey,
               editId: question.id,
@@ -1422,6 +1454,17 @@ export function buildRecommendationActionRows(
           geoTag,
           override: structuralOverrideForEdit(edit, editTargetLabel),
         });
+        // T4.4 — derived confidence for the non-FAQ edit row.
+        const editEvidenceDepth = computeEvidenceDepth(edit.evidence ?? []);
+        const editDerivedConfidence = deriveConfidence({
+          evidenceRefs: edit.evidence ?? [],
+          evidenceDepth: editEvidenceDepth,
+          affectedPromptCount: rec.evidence.promptCount,
+          isFaqAnswer:
+            typeof edit.target_element_key === "string" &&
+            /^faq_answer\[/.test(edit.target_element_key),
+          hasTopCompetitor: topCompetitor !== null,
+        });
         rows.push({
           id: `${rec.stableKey}::${edit.id}`,
           rank: 0, // assigned after sort
@@ -1437,6 +1480,8 @@ export function buildRecommendationActionRows(
           // Round 1 (2026-05-05) — see FAQ-pair path above.
           editSource: edit.source ?? null,
           engineConfidence: rec.engineConfidence?.confidence ?? null,
+          // T4.4 — derived confidence (hoisted above).
+          derivedConfidence: editDerivedConfidence,
           hasExactEdit: true,
           responseStatus,
           acceptedAgeDays,
@@ -1460,7 +1505,9 @@ export function buildRecommendationActionRows(
             affectedPromptCount: rec.evidence.promptCount,
             observationCount: rec.evidence.observationCount,
             // T4.2 — evidence depth + prioritizer threading.
-            evidenceDepth: computeEvidenceDepth(edit.evidence ?? []),
+            evidenceDepth: editEvidenceDepth,
+            // T4.4 — customer-safe derived confidence label (hoisted above).
+            derivedConfidence: editDerivedConfidence,
             debug: {
               recommendationId: rec.stableKey,
               editId: edit.id,
@@ -1557,6 +1604,15 @@ export function buildRecommendationActionRows(
       geoTag,
       override: null,
     });
+    // T4.4 — derived confidence for meta-action rows. They have no
+    // edit-level evidence; lean on rec-level promptCount + topCompetitor.
+    const metaDerivedConfidence = deriveConfidence({
+      evidenceRefs: [],
+      evidenceDepth: 0,
+      affectedPromptCount: rec.evidence.promptCount,
+      isFaqAnswer: false,
+      hasTopCompetitor: topCompetitor !== null,
+    });
     rows.push({
       id: `${rec.stableKey}::${metaKind}`,
       rank: 0,
@@ -1574,6 +1630,8 @@ export function buildRecommendationActionRows(
       // confidence still carries (it's a rec-level property).
       editSource: null,
       engineConfidence: rec.engineConfidence?.confidence ?? null,
+      // T4.4 — derived confidence for meta-action rows.
+      derivedConfidence: metaDerivedConfidence,
       hasExactEdit: false,
       responseStatus,
       acceptedAgeDays,
@@ -1616,6 +1674,8 @@ export function buildRecommendationActionRows(
         observationCount: rec.evidence.observationCount,
         // T4.2 — meta rows have no edit-level evidence; depth = 0.
         evidenceDepth: 0,
+        // T4.4 — meta-row derived confidence (hoisted above).
+        derivedConfidence: metaDerivedConfidence,
         debug: {
           recommendationId: rec.stableKey,
           editId: null,

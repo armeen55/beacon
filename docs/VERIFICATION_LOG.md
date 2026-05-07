@@ -7,6 +7,88 @@
 
 ---
 
+## 2026-05-06 — Trust Sprint Mini-Phase T4.4 — Derived confidence (stop "all medium")
+
+Operator-approved bundle following T4.3. Replaces the legacy "Medium confidence" pill (which read the same on every production row per Phase 2.B audit) with a customer-safe derived label computed from evidence quality. Persisted `confidence` column is NOT mutated — derivation happens at row-build time so older rows update on next render without queue mutation.
+
+### What changed
+
+**New — `src/domains/recommendations/derived-confidence.ts`:**
+
+Pure helper `deriveConfidence(input)` returns one of three labels:
+- **`strong_evidence`** ("Strong evidence") — multi-prompt + owned-page + at least one supporting signal (competitor / search query / brand assertion), OR evidence depth ≥ 4.
+- **`moderate_evidence`** ("Moderate evidence") — at least 2 grounding categories present (e.g., single-prompt + owned-page + competitor; or multi-prompt + owned-page).
+- **`needs_review`** ("Needs review") — single-prompt thin grounding, OR FAQ answer with no stronger grounding (mirrors T4.1 abstention Rule D), OR row hits abstention contract Rule B/C signals.
+
+Honesty contract: never promotes Needs review via env flag.
+
+**Modified — `src/domains/recommendations/recommendation-action-rows.ts`:**
+
+- Added `derivedConfidence` to `RecommendationActionRow` (top-level) AND `ActionRowDetail`.
+- Computed at all 3 row construction sites (FAQ-pair, non-FAQ edit, meta-action) using the local evidence + topCompetitor signal.
+
+**Modified — `src/app/(shell)/recommendations/recommendations-client.tsx`:**
+
+- New `<DerivedConfidencePill>` component (Strong/Moderate/Needs-review with success/warning/danger color tones).
+- Replaced the legacy `<ConfidencePill>` on the customer-facing row with `<DerivedConfidencePill>`.
+- Legacy engine-confidence pill now gated behind `OPERATOR_MODE_DEBUG`.
+
+**New tests:**
+- `src/domains/recommendations/derived-confidence.test.ts` — 12 unit tests:
+  - Strong: multi-prompt + owned + competitor; depth ≥ 4; operator_edited grounded.
+  - Moderate: multi-prompt + owned (no competitor); single-prompt + owned + competitor.
+  - Needs review: single-prompt thin; FAQ-answer thin; zero evidence.
+  - Honesty: thin row stays Needs review (no env flag short-circuit). Single-prompt + topCompetitor properly bumps to moderate.
+  - Display strings: never contain "high"/"medium"/"low".
+
+**New audit — `scripts/audit-recommendation-derived-confidence.ts`:**
+
+Read-only. Counts active rows by derived label + lists top 10 needs_review + top 10 strong.
+
+### Audit run results (Ritz active queue)
+
+| Layer | Distribution |
+|---|---|
+| Persisted `confidence` column (pre-T4.4) | medium: **24** (all rows) |
+| Derived confidence (post-T4.4) | strong: **0**, moderate: **21**, needs_review: **3** |
+
+The 3 `needs_review` rows are exactly the thin packets the Phase 2.B audit flagged:
+- Atherton FAQ answer (single-prompt, no owned page)
+- Luxury Bay Area FAQ answer (single-prompt, no owned page)
+- Luxury H2 row (single-prompt, no owned/competitor evidence)
+
+0 `strong_evidence` because persisted rows don't carry `search_query` / `brand_assertion` evidence types (Phase 2.B finding). Live engine runs (CLI) will produce strong rows.
+
+### Customer-safe display
+
+- **Customer pill**: Strong evidence / Moderate evidence / Needs review. Color-coded green / amber / red.
+- **Engine confidence pill**: still available behind operator mode.
+- **Drawer**: existing T4.3 evidence panel already shows the underlying signals + missing categories — derived label is the summary of that breakdown.
+
+### Verification
+
+- ✅ `npm run typecheck` — clean.
+- ✅ `npm run test` — **306/306 files / 4947/4947 tests** (64.04s; +12 vs T4.3).
+- ✅ `npm run build` — successful on retry (one transient Supabase prerender flake).
+- ✅ `scripts/verify-tenant-data-integrity.ts` — PASS.
+- ✅ `scripts/verify-observation-dedup-integrity.ts` — PASS.
+- ✅ `.data/global/llm-budget.json` SHA = `d36eed8ca157cb4c65ee01a2c51a2fef3fb21a0dfdbb036753d6d7c570927dbd` (byte-identical with T4.1/T4.2/T4.3).
+- ✅ Zero queue mutations (persisted `confidence` column unchanged).
+
+### Hard-constraint compliance
+
+- ✅ T5.1 attribution preflight NOT started.
+- ✅ Existing queue rows NOT mutated (persisted `confidence` field stays "medium" until next regeneration; the customer pill renders the derived value at build time).
+- ✅ No live regeneration. No OpenAI. No paid polling. No second tenant.
+- ✅ No attribution math changed. No RLS / auth changes.
+- ✅ Customer copy stays plain English (no "high/medium/low" leak in derived display strings — invariant pinned).
+
+### Whether T5.1 can begin next
+
+✅ **Yes.** Recommendation brain hardening (T4.1 → T4.4) is complete. T5.1 (attribution preflight) operates on a separate domain (verdict math); T4 left the brain side cleanly differentiated.
+
+---
+
 ## 2026-05-06 — Trust Sprint Mini-Phase T4.3 — Evidence expansion / proof visibility
 
 Operator-approved bundle following T4.2. The recommendation drawer now shows the actual evidence Beacon used to ground each rec (prompts, search queries, owned page, competitor context, page elements, brand assertions) and explicitly lists which categories are missing. Closes the Phase 2.B audit finding "the engine claims to use evidence the operator can't see."

@@ -517,13 +517,21 @@ function ActionRow({
               Pills are conditional and render `null` when their data
               is absent (deterministic rows, missing engineConfidence).
             */}
-            {(row.editSource || row.engineConfidence) && (
+            {(row.editSource || row.engineConfidence || row.derivedConfidence) && (
               <span
                 className="mt-1 flex flex-wrap gap-1"
                 data-rec-row-pillstrip="true"
               >
                 <AIPill source={row.editSource} />
-                <ConfidencePill confidence={row.engineConfidence} />
+                {/* T4.4 (2026-05-06) — replaces the legacy "Medium
+                    confidence" pill (which read the same on every
+                    production row) with a customer-safe label derived
+                    from evidence quality. The legacy engine-confidence
+                    pill stays available behind operator mode. */}
+                <DerivedConfidencePill derived={row.derivedConfidence} />
+                {OPERATOR_MODE_DEBUG && (
+                  <ConfidencePill confidence={row.engineConfidence} />
+                )}
               </span>
             )}
           </button>
@@ -768,6 +776,57 @@ function ConfidencePill({
       title="Beacon's engine confidence for this recommendation. Hover the row's Details chevron for the full reasoning."
     >
       {CONFIDENCE_PILL_LABEL[confidence]}
+    </span>
+  );
+}
+
+/**
+ * T4.4 (2026-05-06) — Derived-confidence pill. Customer-safe Strong /
+ * Moderate / Needs-review label derived from evidence-quality signals
+ * (depth, owned-page, competitor, search-query, multi-prompt). Replaces
+ * the legacy "Medium confidence" pill on the customer-facing row;
+ * engine-confidence stays gated behind operator mode.
+ *
+ * Locked by tests in
+ * `src/components/recommendations/recommendation-evidence-panel.test.tsx`
+ * + `src/domains/recommendations/derived-confidence.test.ts` and the
+ * derived-confidence helper itself.
+ */
+const DERIVED_PILL_CLASS: Record<
+  "strong_evidence" | "moderate_evidence" | "needs_review",
+  string
+> = {
+  strong_evidence:
+    "border-status-success/40 bg-status-success/[0.08] text-status-success",
+  moderate_evidence:
+    "border-status-warning/40 bg-status-warning/[0.06] text-status-warning",
+  needs_review:
+    "border-status-danger/40 bg-status-danger/[0.06] text-status-danger",
+};
+const DERIVED_PILL_LABEL: Record<
+  "strong_evidence" | "moderate_evidence" | "needs_review",
+  string
+> = {
+  strong_evidence: "Strong evidence",
+  moderate_evidence: "Moderate evidence",
+  needs_review: "Needs review",
+};
+
+function DerivedConfidencePill({
+  derived,
+}: {
+  derived: "strong_evidence" | "moderate_evidence" | "needs_review";
+}) {
+  return (
+    <span
+      className={cn(
+        "inline-block whitespace-nowrap rounded border text-[9px] font-medium px-1.5 py-0.5",
+        DERIVED_PILL_CLASS[derived],
+      )}
+      data-rec-derived-confidence-pill={derived}
+      title="Customer-safe confidence label derived from evidence quality (depth, owned page, multi-prompt, competitor, search queries). Open the drawer for the full evidence breakdown."
+    >
+      {DERIVED_PILL_LABEL[derived]}
     </span>
   );
 }
