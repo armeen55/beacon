@@ -71,6 +71,32 @@ export type VerdictThresholds = {
    * for low-count series.
    */
   deltaPctMinBaseline: number;
+  /**
+   * T5.2 (2026-05-06) — sparse-pre-window precondition. Minimum number
+   * of `full`-coverage polling days (≥80 obs) required in the pre-change
+   * baseline before any `helping` / `hurting` verdict can ship. Below
+   * this floor, `helping`/`hurting` is demoted to `nothing_yet` because
+   * sparse pre-windows + sigma_floor=1.0 produce structural false
+   * positives (Phase 3.B placebo-2 class).
+   *
+   * Back-compat: when no baseline point carries `sampling_status`, the
+   * precondition counts ALL baseline days as "full" and is a no-op —
+   * legacy fixtures + tests that don't tag sampling status keep their
+   * previous semantics.
+   */
+  preDaysWithFullPollsMin: number;
+  /**
+   * T5.2 (2026-05-06) — `weak_signal` tier lower bound. When
+   * `|z| ∈ [zBarWeakSignal, zBar)` AND sustain holds AND the
+   * sparse-pre-window precondition is satisfied, emit `weak_signal`
+   * (directional, never proof). Below this floor → `nothing_yet` /
+   * `too_early` (existing behavior).
+   *
+   * Catches moderate-but-real lift like Phase 3.B real-3 menlo-park
+   * (z=+1.35, lift was real but sub-cutoff under the old single-
+   * threshold rule).
+   */
+  zBarWeakSignal: number;
 };
 
 export const DEFAULT_THRESHOLDS: VerdictThresholds = {
@@ -87,11 +113,27 @@ export const DEFAULT_THRESHOLDS: VerdictThresholds = {
   // trust as a denominator for relative %. Match the Poisson sigma
   // floor (1.0) — both express the "low-count series" regime.
   deltaPctMinBaseline: 1.0,
+  // T5.2 (2026-05-06) — operator-locked attribution-hardening floors.
+  preDaysWithFullPollsMin: 5,
+  zBarWeakSignal: 1.2,
 };
 
 export type VerdictLabel =
   | "helping"
   | "hurting"
+  /**
+   * T5.2 (2026-05-06) — early-signal tier between `too_early` and
+   * `helping`. Emitted when `|z| ∈ [zBarWeakSignal, zBar)` AND sustain
+   * passes AND the sparse-pre-window precondition is satisfied.
+   *
+   * Customer-safe phrasing: "Early signs of lift" / "Directional signal"
+   * / "Not yet a strong signal". NEVER described as proof / win /
+   * worked / confirmed.
+   *
+   * Trust label (T3.2 verdict-provenance contract): directional, never
+   * trustworthy.
+   */
+  | "weak_signal"
   | "nothing_yet"
   | "too_early"
   | "not_enough_data"
@@ -162,6 +204,28 @@ export type SamplingGuardDemotion = {
   reason: "proof_day_in_post_window" | "no_full_days_in_post_window";
 };
 
+/**
+ * T5.2 (2026-05-06) — sparse-pre-window precondition demotion. Captures
+ * when the `helping`/`hurting`/`weak_signal` verdict was downgraded to
+ * `nothing_yet` because the pre-change window had fewer than
+ * `preDaysWithFullPollsMin` days of full-coverage polling.
+ *
+ * Closes the Phase 3.B placebo-2 false-positive class (sparse pre-window
+ * + sigma_floor=1.0 → inflated z). Emitted observability so the
+ * materializer can log a structured warning naming the URL + verdict
+ * + pre-full-poll-day count.
+ *
+ * Absent (undefined) when the precondition was satisfied — the common
+ * case.
+ */
+export type PreFullPollDemotion = {
+  from: "helping" | "hurting" | "weak_signal";
+  to: "nothing_yet";
+  reason: "sparse_pre_full_poll_days";
+  preDaysWithFullPolls: number;
+  preDaysWithFullPollsMin: number;
+};
+
 export type UrlVerdict = {
   verdict: VerdictLabel;
   /** Signed Z-score, null when verdict=not_enough_data. */
@@ -183,6 +247,12 @@ export type UrlVerdict = {
    * structured warning when this is present. Pure compute (no I/O).
    */
   sampling_guard_demoted?: SamplingGuardDemotion;
+  /**
+   * T5.2 (2026-05-06) — set when the sparse-pre-window precondition
+   * demoted helping/hurting/weak_signal → nothing_yet. The materializer
+   * logs a structured warning when this is present.
+   */
+  pre_full_poll_demoted?: PreFullPollDemotion;
 };
 
 /**
@@ -442,11 +512,25 @@ export function computeUrlVerdict(input: ComputeVerdictInput): UrlVerdict {
   const deltaPctSafe =
     muPre >= t.deltaPctMinBaseline ? deltaAbs / muPre : null;
 
+  // T5.2 (2026-05-06) — verdict-tier selection. Order:
+  //   1. helping       — z >= zBar AND sustain
+  //   2. hurting       — z <= -zBar AND sustain
+  //   3. weak_signal   — |z| ∈ [zBarWeakSignal, zBar) AND sustain
+  //   4. nothing_yet   — N >= nothingYetMinDays
+  //   5. too_early     — fallback
+  // The sparse-pre-window precondition (§T5.2 demotion below) demotes
+  // helping / hurting / weak_signal → nothing_yet when there are too
+  // few full-coverage polling days in the baseline.
   let verdict: VerdictLabel;
   if (z >= t.zBar && sustainUp >= t.sustainMin) {
     verdict = "helping";
   } else if (z <= -t.zBar && sustainDown >= t.sustainMin) {
     verdict = "hurting";
+  } else if (
+    Math.abs(z) >= t.zBarWeakSignal &&
+    (sustainUp >= t.sustainMin || sustainDown >= t.sustainMin)
+  ) {
+    verdict = "weak_signal";
   } else if (N >= t.nothingYetMinDays) {
     verdict = "nothing_yet";
   } else {
@@ -490,6 +574,48 @@ export function computeUrlVerdict(input: ComputeVerdictInput): UrlVerdict {
         };
         verdict = "nothing_yet";
       }
+    }
+  }
+
+  // T5.2 (2026-05-06) — sparse-pre-window precondition. When the
+  // pre-change baseline has fewer than `preDaysWithFullPollsMin`
+  // full-coverage polling days (≥80 obs OR sampling_status==='full'),
+  // demote `helping` / `hurting` / `weak_signal` → `nothing_yet`.
+  //
+  // Closes the Phase 3.B placebo-2 false-positive class: sparse pre-
+  // windows + sigma_floor=1.0 produce structurally inflated z-scores
+  // (e.g. mu_pre on 2 partial-poll days → sigma floor activates → any
+  // moderate post-window shift reads as "high z, real lift" when it's
+  // actually noise).
+  //
+  // Back-compat: when NO baseline point carries `sampling_status`, we
+  // count every baseline day as "full" so the precondition is a no-op.
+  // Existing fixtures + tests that don't tag sampling status keep their
+  // previous semantics.
+  let preFullPollDemotion: PreFullPollDemotion | undefined;
+  if (verdict === "helping" || verdict === "hurting" || verdict === "weak_signal") {
+    const originalVerdict = verdict;
+    const taggedBaseline = baselinePoints.filter(
+      (p) => typeof p.sampling_status === "string",
+    );
+    let preDaysWithFullPolls: number;
+    if (taggedBaseline.length === 0) {
+      // Back-compat: no sampling tags → count all baseline days as full.
+      preDaysWithFullPolls = baselinePoints.length;
+    } else {
+      preDaysWithFullPolls = baselinePoints.filter(
+        (p) => p.sampling_status === "full",
+      ).length;
+    }
+    if (preDaysWithFullPolls < t.preDaysWithFullPollsMin) {
+      preFullPollDemotion = {
+        from: originalVerdict,
+        to: "nothing_yet",
+        reason: "sparse_pre_full_poll_days",
+        preDaysWithFullPolls,
+        preDaysWithFullPollsMin: t.preDaysWithFullPollsMin,
+      };
+      verdict = "nothing_yet";
     }
   }
 
@@ -549,6 +675,7 @@ export function computeUrlVerdict(input: ComputeVerdictInput): UrlVerdict {
       },
     },
     sampling_guard_demoted: samplingGuardDemotion,
+    pre_full_poll_demoted: preFullPollDemotion,
   };
 }
 
@@ -589,6 +716,11 @@ function buildSummary(args: {
       return `Citations up — ${pre}, ${post}. z=${zStr} (significant), sustained ${sustainUp} of last 7 days above baseline.`;
     case "hurting":
       return `Citations down — ${pre}, ${post}. z=${zStr} (significant decline), ${sustainDown} of last 7 days below baseline.`;
+    case "weak_signal":
+      // T5.2 (2026-05-06) — directional language only. Customer-safe
+      // phrasing: "Early signs of lift" / "Not yet a strong signal".
+      // NEVER say "worked" / "proven" / "win" / "confirmed lift".
+      return `Early signs of lift — ${pre}, ${post}. z=${zStr} is below the ±2 strong-signal bar but above the ±1.2 directional bar. Not yet a strong signal; watch the post-change window over the next few days.`;
     case "nothing_yet":
       return `No meaningful movement — ${pre}, ${post}. z=${zStr} (below ±2 significance bar).`;
     case "too_early":
@@ -617,6 +749,10 @@ function buildSummary(args: {
 export const VERDICT_LABEL: Record<VerdictLabel, string> = {
   helping: "Helping",
   hurting: "Hurting",
+  // T5.2 (2026-05-06) — customer-safe directional label. NEVER "Win" /
+  // "Proof" / "Confirmed". Operator-locked at the SYSTEM_PROMPT level
+  // for every consumer (lifecycle copy + status pill + provenance).
+  weak_signal: "Early signs of lift",
   nothing_yet: "Nothing yet",
   too_early: "Too early",
   not_enough_data: "No baseline",
@@ -627,6 +763,8 @@ export const VERDICT_LABEL: Record<VerdictLabel, string> = {
 export const VERDICT_TONE: Record<VerdictLabel, "success" | "danger" | "muted" | "neutral"> = {
   helping: "success",
   hurting: "danger",
+  // T5.2 — yellow / amber band; visually distinct from helping (success).
+  weak_signal: "neutral",
   nothing_yet: "muted",
   too_early: "neutral",
   not_enough_data: "muted",

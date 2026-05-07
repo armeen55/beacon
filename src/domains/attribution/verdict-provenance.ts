@@ -52,6 +52,13 @@ export type VerdictTrustLevel = "trustworthy" | "directional" | "unreliable";
 export type VerdictKind =
   | "helping"
   | "hurting"
+  /**
+   * T5.2 (2026-05-06) — directional early-signal tier between
+   * `too_early` and `helping`. Trust label = directional. Customer-safe
+   * phrasing locked at "Early signs of lift" / "Not yet a strong
+   * signal". NEVER described as proof / win / worked / confirmed.
+   */
+  | "weak_signal"
   | "nothing_yet"
   | "too_early"
   | "not_enough_data"
@@ -216,6 +223,8 @@ export type BuildVerdictProvenanceInput = {
 const VERDICT_LABEL_MAP: Record<VerdictKind, string> = {
   helping: "Citation lift detected after this change",
   hurting: "Citation drop detected after this change",
+  // T5.2 (2026-05-06) — customer-safe directional phrasing.
+  weak_signal: "Early signs of lift detected after this change",
   nothing_yet: "No measurable shift after this change",
   too_early: "Too early to read this change",
   not_enough_data: "Not enough data to read this change",
@@ -224,10 +233,15 @@ const VERDICT_LABEL_MAP: Record<VerdictKind, string> = {
   not_implemented: "Edit was accepted but the page didn't show it",
 };
 
+/**
+ * T5.2 (2026-05-06) — `weak_signal` is excluded because it's NOT an
+ * abstain; the builder handles it inline with directional copy. The 5
+ * abstain verdicts retain their trustworthy plainEnglish here.
+ */
 const VERDICT_PLAIN_TRUSTWORTHY: Record<
   Exclude<
     VerdictKind,
-    "helping" | "hurting"
+    "helping" | "hurting" | "weak_signal"
   >,
   string
 > = {
@@ -348,6 +362,14 @@ export function buildVerdictProvenance(
   let trustLevel: VerdictTrustLevel;
   if (isAbstain(input.verdict)) {
     trustLevel = "trustworthy";
+  } else if (input.verdict === "weak_signal") {
+    // T5.2 (2026-05-06) — `weak_signal` is always directional. The
+    // sparse-pre-window precondition in url-verdict.ts already demotes
+    // sparse-baseline weak_signal → nothing_yet before reaching this
+    // builder, so a `weak_signal` we see here has cleared the floor.
+    // Trust contract: directional + caveat that it's not yet a strong
+    // signal.
+    trustLevel = "directional";
   } else {
     // helping / hurting
     const sparsePreWindow =
@@ -367,7 +389,12 @@ export function buildVerdictProvenance(
   const verdictLabel = VERDICT_LABEL_MAP[input.verdict];
   let plainEnglish: string;
   if (isAbstain(input.verdict)) {
-    plainEnglish = VERDICT_PLAIN_TRUSTWORTHY[input.verdict as Exclude<VerdictKind, "helping" | "hurting">];
+    plainEnglish = VERDICT_PLAIN_TRUSTWORTHY[input.verdict as Exclude<VerdictKind, "helping" | "hurting" | "weak_signal">];
+  } else if (input.verdict === "weak_signal") {
+    // T5.2 — operator-locked phrasing: directional, never proof.
+    // Customer copy MUST NOT include "z-score" / Greek notation / raw
+    // math (locked by `verdict-provenance-trust-labels.test.ts`).
+    plainEnglish = `Directional signal — Beacon detected early signs of lift after this change, but the change-strength reading is below the strong-signal bar. Not yet a strong signal; watch the post-change window over the next few days.`;
   } else if (trustLevel === "unreliable") {
     plainEnglish = `Unreliable — Beacon detected a ${input.verdict === "helping" ? "lift" : "drop"} after this change, but the pre-change window has too few full-coverage poll days. Sparse baselines can over-amplify a small post-change shift; do not read as causal yet.`;
   } else {

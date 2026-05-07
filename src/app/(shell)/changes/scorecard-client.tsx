@@ -937,9 +937,16 @@ function ExpandPanel({ row }: { row: EnrichedChangeRow }) {
                     label="Change strength"
                     value={`${v.explanation.math.z > 0 ? "+" : ""}${v.explanation.math.z.toFixed(2)}`}
                     note={
+                      // T5.2 (2026-05-06) — three-tier change-strength
+                      // label that aligns with the new verdict tiers:
+                      //   |z| >= 2.0 → Strong signal (helping/hurting)
+                      //   |z| ∈ [1.2, 2.0) → Early signal (weak_signal)
+                      //   |z| < 1.2 → Below directional bar
                       Math.abs(v.explanation.math.z) >= 2
                         ? "Strong signal"
-                        : "Weak signal"
+                        : Math.abs(v.explanation.math.z) >= 1.2
+                          ? "Early signal"
+                          : "Below directional bar"
                     }
                   />
                   <MathRow

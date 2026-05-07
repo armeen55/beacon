@@ -7,6 +7,121 @@
 
 ---
 
+## 2026-05-06 — Trust Sprint Mini-Phase T5.2 — Attribution hardening (sparse-pre precondition + weak_signal tier)
+
+Operator-approved bundle following T5.1 preflight. Implements **both** changes proposed in `docs/BEACON_T5_ATTRIBUTION_HARDENING_PREFLIGHT_2026_05_06.md`:
+
+1. **Sparse-pre-window precondition** — closes the Phase 3.B placebo-2 false-positive class.
+2. **`weak_signal` tier** — recovers the Phase 3.B real-3 menlo-park false-negative class.
+
+No existing verdict rows mutated. Next 07:00 UTC cron rematerializes verdicts with the new shape (engine is idempotent on `(change_id, url)`).
+
+### What changed
+
+**Modified — `src/domains/attribution/url-verdict.ts`:**
+
+- `VerdictThresholds` now has `preDaysWithFullPollsMin: 5` and `zBarWeakSignal: 1.2` (operator-locked defaults).
+- `VerdictLabel` extended with `"weak_signal"`.
+- New `PreFullPollDemotion` observability type: `{ from, to, reason: "sparse_pre_full_poll_days", preDaysWithFullPolls, preDaysWithFullPollsMin }`.
+- New verdict-tier branch (priority order): `helping` → `hurting` → `weak_signal` (z ∈ [1.2, 2.0) AND sustain) → `nothing_yet` (N >= 14) → `too_early`.
+- New sparse-pre-window precondition: when baseline has fewer than `preDaysWithFullPollsMin` full-coverage poll days (≥80 obs OR `sampling_status === "full"`), `helping`/`hurting`/`weak_signal` is demoted to `nothing_yet` and `pre_full_poll_demoted` is stamped on the result.
+- **Back-compat**: when no baseline point carries `sampling_status`, every baseline day counts as "full" → precondition is a no-op. Existing fixtures without sampling tags keep their previous semantics.
+- `buildSummary` adds a `weak_signal` case: customer-safe directional copy ("Early signs of lift … not yet a strong signal").
+- `VERDICT_LABEL` + `VERDICT_TONE` maps add `weak_signal: "Early signs of lift"` (tone: neutral).
+
+**Modified — downstream consumers:**
+
+- `src/domains/attribution/url-change-outcome.ts` — added `weak_signal` to `WATCHING_VERDICTS` (it's directional/transitional, not terminal — worth watching).
+- `src/domains/attribution/verdict-provenance.ts`:
+  - `VerdictKind` extended with `weak_signal`.
+  - `VERDICT_LABEL_MAP` adds "Early signs of lift detected after this change".
+  - Trust-level branch: `weak_signal` is always **directional** (T3.2 trust contract).
+  - plainEnglish: customer-safe "Directional signal — Beacon detected early signs of lift … the change-strength reading is below the strong-signal bar … Not yet a strong signal".
+  - Customer copy contains NO Z-score / Greek / SQL (test-pinned).
+- `src/app/(shell)/changes/scorecard-client.tsx` — `MathRow` "Change strength" label now uses 3-tier:
+  - `|z| ≥ 2.0` → "Strong signal"
+  - `|z| ∈ [1.2, 2.0)` → "Early signal"
+  - `|z| < 1.2` → "Below directional bar"
+- `src/app/(shell)/changes/truth/truth-client.tsx`:
+  - `VERDICT_LABEL` map adds `weak_signal: "Early signs of lift"`.
+  - `verdictTone` switch adds `weak_signal` → `warn` (yellow band).
+
+**Tests added:**
+
+- `src/domains/attribution/url-verdict.test.ts` (+13 tests, 49 total):
+  - **Sparse-pre-window precondition**: helping demotes to nothing_yet on sparse pre; hurting demotes the same way; helping survives with ≥5 full pre-poll days; back-compat (untagged points = no-op); weak_signal demotes too.
+  - **weak_signal tier**: emits in [1.2, 2.0); does NOT emit when |z| < 1.2; helping still emits when |z| ≥ 2.0; not_enough_data unaffected; summary copy is directional, NEVER `win` / `proof` / `worked` / `confirmed lift`.
+  - **Phase 3.B backtest expectations**: placebo-2 → nothing_yet (false positive closed); real-3 menlo-park → weak_signal (false negative recovered); strong real win → helping (unchanged).
+- `src/domains/attribution/verdict-provenance.test.ts` (+5 tests, 32 total):
+  - weak_signal trust level = directional (never trustworthy/unreliable)
+  - weak_signal label maps to "Early signs of lift detected after this change"
+  - plainEnglish customer-safe (no win/proven/worked/confirmed lift)
+  - customer fields never include Z-score / Greek / SQL / table names
+  - contaminated-date caveat surfaces correctly on weak_signal
+- `tests/architecture/demo-path-fixes-2026-05-06.test.ts` — updated 2 assertions:
+  - VERDICT_LABEL search window widened (weak_signal added before verified_live_too_early)
+  - "Change strength" 3-tier labels: Strong signal / Early signal / Below directional bar
+- `src/domains/attribution/url-verdict.test.ts` — `respects a custom zBar` updated to also override `zBarWeakSignal` so the strict-bar test still lands on `nothing_yet` as intended.
+
+### Verdict semantics — before vs after
+
+| z range | sustain | pre full-poll days | Pre-T5.2 | Post-T5.2 |
+|---|---|---|---|---|
+| z ≥ 2.0 | ≥ 5 | ≥ 5 | helping | helping |
+| z ≥ 2.0 | ≥ 5 | < 5 | helping (false positive) | **nothing_yet** (precondition demote) |
+| z ∈ [1.2, 2.0) | ≥ 5 | ≥ 5 | nothing_yet (false negative) | **weak_signal** (NEW) |
+| z ∈ [1.2, 2.0) | ≥ 5 | < 5 | nothing_yet | nothing_yet (precondition demote) |
+| z < 1.2 | any | any | nothing_yet / too_early | nothing_yet / too_early (unchanged) |
+
+### Rollback path
+
+Pure code change. Materializer is idempotent on `(change_id, url)`. To revert:
+1. `git revert` the T5.2 commit.
+2. Next 07:00 UTC cron run rematerializes existing rows with the old shape.
+
+No data is destroyed by either direction.
+
+### Verification
+
+- ✅ `npm run typecheck` — clean.
+- ✅ `npm run test` — **306/306 files / 4965/4965 tests** (+18 vs T5.1).
+- ✅ `npm run build` — successful (no flake retry needed).
+- ✅ `scripts/verify-tenant-data-integrity.ts` — PASS.
+- ✅ `scripts/verify-observation-dedup-integrity.ts` — PASS.
+- ✅ `.data/global/llm-budget.json` SHA = `d36eed8ca157cb4c65ee01a2c51a2fef3fb21a0dfdbb036753d6d7c570927dbd` (byte-identical with T1.1 baseline).
+- ✅ Zero queue mutations.
+- ✅ Zero verdict-row mutations (existing `.data/tenants/ritz-builders/url-change-outcomes.json` unchanged; cron will rematerialize).
+- ✅ Zero OpenAI calls.
+
+### Hard-constraint compliance
+
+- ✅ `live_at` NOT backfilled.
+- ✅ Changelog rows NOT mutated.
+- ✅ Recommendation queue NOT mutated.
+- ✅ No second tenant. No RLS / auth changes. No Profound cleanup.
+- ✅ No trend correction / site-wide controls / prompt-mix history (deferred per scope).
+- ✅ Customer copy contains NO `Z-score` / Greek / SQL / table names / UUIDs (test-pinned).
+- ✅ `weak_signal` NEVER described as `win` / `proof` / `worked` / `confirmed` (test-pinned).
+
+### Whether existing rows were manually mutated
+
+**No.** Persisted verdicts on disk are unchanged. The 118 existing `helping` verdicts on `.data/tenants/ritz-builders/url-change-outcomes.json` remain in their pre-T5.2 shape until the next 07:00 UTC cron run rematerializes them.
+
+### Whether next cron will rematerialize old verdict rows naturally
+
+**Yes.** The materializer in `url-change-outcome.ts:materializeUrlOutcomes` is idempotent on `(change_id, url)` — it overwrites in place. After the next nightly run:
+- The 118 existing `helping` verdicts whose pre-window has < 5 full-poll days (per T5.1 preflight, this is approximately the entire set) will demote to `nothing_yet` with `pre_full_poll_demoted` stamped.
+- Verdicts with z ∈ [1.2, 2.0) that previously read as `nothing_yet` will rematerialize as `weak_signal`.
+- The /changes UI will reflect the new tier without operator action.
+
+### What the next mini-phase should be
+
+T5 is now complete (preflight + implementation). Operator can either:
+- Take a beat to inspect the next-cron-run rematerialization output (the 118 helping-on-contaminated-window verdicts will quiet down to nothing_yet), then decide whether further hardening (trend correction, prompt-mix detection, concurrent-change deconfounding) is worth the architectural investment.
+- Move to a different trust-sprint area (e.g., scorecard-display polish for the new `weak_signal` band, or a sweep of the `live_at` backfill question — operator-locked out of T5 scope but a real product blocker).
+
+---
+
 ## 2026-05-06 — Trust Sprint Mini-Phase T5.1 — Attribution hardening preflight (READ-ONLY)
 
 Operator-approved preflight pass following T4.4. **No verdict math changes.** This phase inventories what's at risk in the current verdict store and proposes a bounded T5.2 implementation (sparse-pre-window precondition + `weak_signal` tier).

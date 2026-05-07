@@ -306,11 +306,14 @@ describe("computeUrlVerdict — thresholds override", () => {
       0,
       7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
     ]);
+    // T5.2 (2026-05-06) — also raise zBarWeakSignal so the strict
+    // case truly tests "no z-based verdict reachable" rather than
+    // landing on the new weak_signal tier.
     const strict = computeUrlVerdict({
       series: s,
       changeDate: "2026-03-15",
       asOfDate: "2026-03-29",
-      thresholds: { zBar: 10 }, // unreachable bar
+      thresholds: { zBar: 10, zBarWeakSignal: 10 }, // unreachable bar
     });
     expect(strict.verdict).toBe("nothing_yet");
 
@@ -798,5 +801,344 @@ describe("M3 — sampling-status attribution guard", () => {
     // forces nothing_yet (or too_early on N=1).
     expect(["nothing_yet", "too_early"]).toContain(r.verdict);
     expect(r.verdict).not.toBe("helping");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T5.2 (2026-05-06) — Sparse-pre-window precondition + weak_signal tier.
+//
+// Closes the Phase 3.B placebo-2 false-positive class (sparse pre-window
+// + sigma_floor=1.0 → inflated z) and recovers the real-3 menlo-park
+// false-negative class (z=+1.35 sub-cutoff lift was real but missed).
+// ---------------------------------------------------------------------------
+
+describe("T5.2 — sparse-pre-window precondition", () => {
+  function seriesWithSampling(
+    start: string,
+    points: Array<{ count: number; sampling_status?: DailyPoint["sampling_status"] }>,
+  ): DailyPoint[] {
+    const out: DailyPoint[] = [];
+    const t0 = new Date(start + "T00:00:00Z").getTime();
+    for (let i = 0; i < points.length; i++) {
+      const iso = new Date(t0 + i * 86_400_000).toISOString().slice(0, 10);
+      out.push({
+        date: iso,
+        count: points[i].count,
+        sampling_status: points[i].sampling_status,
+      });
+    }
+    return out;
+  }
+
+  it("demotes helping → nothing_yet when pre-window has fewer than 5 full-coverage poll days", () => {
+    // Strong helping signal (post >> pre) but pre-window has only 2
+    // full days; the rest are partial/proof. T5.2 precondition demotes.
+    const points: Array<{ count: number; sampling_status?: DailyPoint["sampling_status"] }> = [
+      // 14-day baseline: 2 full days + 12 proof-status days.
+      { count: 5, sampling_status: "full" },
+      { count: 5, sampling_status: "full" },
+      ...Array.from({ length: 12 }, () => ({ count: 1, sampling_status: "proof" as const })),
+      { count: 0, sampling_status: "full" }, // change day
+      // 14-day post: all full, all 20/day → strong z
+      ...Array.from({ length: 14 }, () => ({ count: 20, sampling_status: "full" as const })),
+    ];
+    const s = seriesWithSampling("2026-03-01", points);
+    const r = computeUrlVerdict({
+      series: s,
+      changeDate: "2026-03-15",
+      asOfDate: "2026-03-29",
+    });
+    expect(r.verdict).toBe("nothing_yet");
+    expect(r.pre_full_poll_demoted).toBeDefined();
+    expect(r.pre_full_poll_demoted?.from).toBe("helping");
+    expect(r.pre_full_poll_demoted?.reason).toBe("sparse_pre_full_poll_days");
+    expect(r.pre_full_poll_demoted?.preDaysWithFullPolls).toBe(2);
+    expect(r.pre_full_poll_demoted?.preDaysWithFullPollsMin).toBe(5);
+  });
+
+  it("demotes hurting → nothing_yet when pre-window has fewer than 5 full-coverage poll days", () => {
+    // Strong hurting signal (post << pre).
+    const points: Array<{ count: number; sampling_status?: DailyPoint["sampling_status"] }> = [
+      { count: 20, sampling_status: "full" },
+      { count: 20, sampling_status: "full" },
+      ...Array.from({ length: 12 }, () => ({ count: 18, sampling_status: "proof" as const })),
+      { count: 0, sampling_status: "full" },
+      ...Array.from({ length: 14 }, () => ({ count: 2, sampling_status: "full" as const })),
+    ];
+    const s = seriesWithSampling("2026-03-01", points);
+    const r = computeUrlVerdict({
+      series: s,
+      changeDate: "2026-03-15",
+      asOfDate: "2026-03-29",
+    });
+    expect(r.verdict).toBe("nothing_yet");
+    expect(r.pre_full_poll_demoted?.from).toBe("hurting");
+  });
+
+  it("KEEPS helping when pre-window has 5+ full poll days", () => {
+    // Pre-window: 5 full days at 5/day + 9 proof days.
+    const points: Array<{ count: number; sampling_status?: DailyPoint["sampling_status"] }> = [
+      ...Array.from({ length: 5 }, () => ({ count: 5, sampling_status: "full" as const })),
+      ...Array.from({ length: 9 }, () => ({ count: 5, sampling_status: "proof" as const })),
+      { count: 0, sampling_status: "full" },
+      ...Array.from({ length: 14 }, () => ({ count: 20, sampling_status: "full" as const })),
+    ];
+    const s = seriesWithSampling("2026-03-01", points);
+    const r = computeUrlVerdict({
+      series: s,
+      changeDate: "2026-03-15",
+      asOfDate: "2026-03-29",
+    });
+    expect(r.verdict).toBe("helping");
+    expect(r.pre_full_poll_demoted).toBeUndefined();
+  });
+
+  it("back-compat: untagged baseline points count as 'full' (no demotion)", () => {
+    // Use the legacy `series()` helper which doesn't set sampling_status.
+    // Under the back-compat path, ALL baseline days count as full so
+    // the precondition is a no-op.
+    const s = series("2026-03-01", [
+      5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5,
+      0,
+      20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20,
+    ]);
+    const r = computeUrlVerdict({
+      series: s,
+      changeDate: "2026-03-15",
+      asOfDate: "2026-03-29",
+    });
+    expect(r.verdict).toBe("helping");
+    expect(r.pre_full_poll_demoted).toBeUndefined();
+  });
+
+  it("demotes weak_signal → nothing_yet when pre-window is sparse", () => {
+    // Moderate signal (z ∈ [1.2, 2.0)) on a sparse-pre-window. The
+    // weak_signal tier would emit normally, but the precondition
+    // demotes it to nothing_yet for the same reason it demotes
+    // helping/hurting.
+    // Construct: pre 14d with only 2 full days; post 14d with a small
+    // increase that yields z just above 1.2.
+    const points: Array<{ count: number; sampling_status?: DailyPoint["sampling_status"] }> = [
+      { count: 5, sampling_status: "full" },
+      { count: 5, sampling_status: "full" },
+      ...Array.from({ length: 12 }, () => ({ count: 5, sampling_status: "proof" as const })),
+      { count: 0, sampling_status: "full" },
+      // Modest post: z lands somewhere between zBarWeakSignal (1.2) and zBar (2.0)
+      ...Array.from({ length: 14 }, () => ({ count: 7, sampling_status: "full" as const })),
+    ];
+    const s = seriesWithSampling("2026-03-01", points);
+    const r = computeUrlVerdict({
+      series: s,
+      changeDate: "2026-03-15",
+      asOfDate: "2026-03-29",
+    });
+    expect(r.verdict).toBe("nothing_yet");
+    expect(r.pre_full_poll_demoted).toBeDefined();
+  });
+});
+
+describe("T5.2 — weak_signal tier", () => {
+  function seriesWithSampling(
+    start: string,
+    points: Array<{ count: number; sampling_status?: DailyPoint["sampling_status"] }>,
+  ): DailyPoint[] {
+    const out: DailyPoint[] = [];
+    const t0 = new Date(start + "T00:00:00Z").getTime();
+    for (let i = 0; i < points.length; i++) {
+      const iso = new Date(t0 + i * 86_400_000).toISOString().slice(0, 10);
+      out.push({
+        date: iso,
+        count: points[i].count,
+        sampling_status: points[i].sampling_status,
+      });
+    }
+    return out;
+  }
+
+  it("emits weak_signal when |z| ∈ [1.2, 2.0), sustain passes, pre full-poll days >= 5", () => {
+    // Pre window flat at 5/day for 14 days (all full). Post window:
+    // 7 days at 5, then 7 days at 6 → mu_post=5.5; with sigma_pre=1.0
+    // (Poisson floor) and N=14, z = 0.5 / (1.0/sqrt(14)) ≈ 1.87 — in
+    // the [1.2, 2.0) weak_signal band. Last-7 sustain check: post days
+    // 8..14 are all 6 > pre_mean(5) → sustainUp = 7.
+    const points: Array<{ count: number; sampling_status?: DailyPoint["sampling_status"] }> = [
+      ...Array.from({ length: 14 }, () => ({ count: 5, sampling_status: "full" as const })),
+      { count: 0, sampling_status: "full" }, // change day
+      ...Array.from({ length: 7 }, () => ({ count: 5, sampling_status: "full" as const })),
+      ...Array.from({ length: 7 }, () => ({ count: 6, sampling_status: "full" as const })),
+    ];
+    const s = seriesWithSampling("2026-03-01", points);
+    const r = computeUrlVerdict({
+      series: s,
+      changeDate: "2026-03-15",
+      asOfDate: "2026-03-29",
+    });
+    expect(r.verdict).toBe("weak_signal");
+    // sustain check: last 7 post days (all 6 > pre_mean 5) → sustainUp=7
+    expect(r.sustain.up).toBeGreaterThanOrEqual(5);
+    // No demotion stamped — the precondition was satisfied.
+    expect(r.pre_full_poll_demoted).toBeUndefined();
+  });
+
+  it("does NOT emit weak_signal when |z| < 1.2 (falls through to nothing_yet/too_early)", () => {
+    // Tiny effect that produces z < 1.2.
+    const points: Array<{ count: number; sampling_status?: DailyPoint["sampling_status"] }> = [
+      ...Array.from({ length: 14 }, () => ({ count: 5, sampling_status: "full" as const })),
+      { count: 0, sampling_status: "full" },
+      ...Array.from({ length: 14 }, () => ({ count: 5, sampling_status: "full" as const })), // identical post → z=0
+    ];
+    const s = seriesWithSampling("2026-03-01", points);
+    const r = computeUrlVerdict({
+      series: s,
+      changeDate: "2026-03-15",
+      asOfDate: "2026-03-29",
+    });
+    expect(r.verdict).toBe("nothing_yet");
+  });
+
+  it("helping still emits when |z| >= 2.0 and precondition passes", () => {
+    // Strong helping with a clean pre-window.
+    const points: Array<{ count: number; sampling_status?: DailyPoint["sampling_status"] }> = [
+      ...Array.from({ length: 14 }, () => ({ count: 5, sampling_status: "full" as const })),
+      { count: 0, sampling_status: "full" },
+      ...Array.from({ length: 14 }, () => ({ count: 20, sampling_status: "full" as const })),
+    ];
+    const s = seriesWithSampling("2026-03-01", points);
+    const r = computeUrlVerdict({
+      series: s,
+      changeDate: "2026-03-15",
+      asOfDate: "2026-03-29",
+    });
+    expect(r.verdict).toBe("helping");
+  });
+
+  it("not_enough_data unaffected by T5.2 changes", () => {
+    // Only 2 baseline days — below baselineMinDays floor (3).
+    const points: Array<{ count: number; sampling_status?: DailyPoint["sampling_status"] }> = [
+      { count: 5, sampling_status: "full" },
+      { count: 5, sampling_status: "full" },
+      { count: 0, sampling_status: "full" },
+      ...Array.from({ length: 14 }, () => ({ count: 7, sampling_status: "full" as const })),
+    ];
+    const s = seriesWithSampling("2026-03-01", points);
+    const r = computeUrlVerdict({
+      series: s,
+      changeDate: "2026-03-03",
+      asOfDate: "2026-03-17",
+    });
+    expect(r.verdict).toBe("not_enough_data");
+  });
+
+  it("explanation.summary for weak_signal is directional, NEVER 'win' / 'proof' / 'worked' / 'confirmed'", () => {
+    // Same fixture shape as the weak_signal tier test above.
+    const points: Array<{ count: number; sampling_status?: DailyPoint["sampling_status"] }> = [
+      ...Array.from({ length: 14 }, () => ({ count: 5, sampling_status: "full" as const })),
+      { count: 0, sampling_status: "full" },
+      ...Array.from({ length: 7 }, () => ({ count: 5, sampling_status: "full" as const })),
+      ...Array.from({ length: 7 }, () => ({ count: 6, sampling_status: "full" as const })),
+    ];
+    const s = seriesWithSampling("2026-03-01", points);
+    const r = computeUrlVerdict({
+      series: s,
+      changeDate: "2026-03-15",
+      asOfDate: "2026-03-29",
+    });
+    if (r.verdict === "weak_signal") {
+      const summary = r.explanation.summary.toLowerCase();
+      expect(summary).toContain("early signs of lift");
+      expect(summary).not.toMatch(/\bwin\b/);
+      expect(summary).not.toMatch(/\bproof\b/);
+      expect(summary).not.toMatch(/\bworked\b/);
+      expect(summary).not.toMatch(/\bconfirmed lift\b/);
+    } else {
+      throw new Error(`expected weak_signal but got ${r.verdict}`);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T5.2 — Phase 3.B backtest harness re-run (simulated)
+//
+// Locks the post-T5.2 expectations from the proposal doc:
+//   - placebo-2 (sparse pre-window false-positive) → demote to nothing_yet
+//   - real-3 menlo-park (z=+1.35) → weak_signal (recovered)
+//   - strong real wins → still helping
+// ---------------------------------------------------------------------------
+
+describe("T5.2 — Phase 3.B backtest expectations", () => {
+  it("placebo-2 class (sparse pre-window) → nothing_yet (was helping pre-T5.2)", () => {
+    // Approximation of the placebo-2 shape: 2 full pre-days + a moderate
+    // post window that pre-T5.2 would have read as helping.
+    const buildSeries = (): DailyPoint[] => {
+      const t0 = new Date("2026-03-01T00:00:00Z").getTime();
+      const points: Array<{ count: number; sampling_status?: DailyPoint["sampling_status"] }> = [
+        { count: 1, sampling_status: "full" },
+        { count: 2, sampling_status: "full" },
+        ...Array.from({ length: 12 }, () => ({ count: 2, sampling_status: "proof" as const })),
+        { count: 0, sampling_status: "full" },
+        ...Array.from({ length: 12 }, () => ({ count: 4, sampling_status: "full" as const })),
+      ];
+      return points.map((p, i) => ({
+        date: new Date(t0 + i * 86_400_000).toISOString().slice(0, 10),
+        count: p.count,
+        sampling_status: p.sampling_status,
+      }));
+    };
+    const r = computeUrlVerdict({
+      series: buildSeries(),
+      changeDate: "2026-03-15",
+      asOfDate: "2026-03-27",
+    });
+    // Sparse pre-window precondition kicks in.
+    expect(r.verdict).toBe("nothing_yet");
+    expect(r.pre_full_poll_demoted).toBeDefined();
+  });
+
+  it("real-3 menlo-park class (modest sustained lift) → weak_signal (was nothing_yet pre-T5.2)", () => {
+    // Modest sustained lift: pre flat 5/day; post first 7 days at 5,
+    // then 7 days at 6. mu_post=5.5, z≈1.87 — in the [1.2, 2.0) weak_signal
+    // band. Sustain (last 7 post days all 6 > pre_mean 5) passes.
+    const buildSeries = (): DailyPoint[] => {
+      const t0 = new Date("2026-03-01T00:00:00Z").getTime();
+      const points: Array<{ count: number; sampling_status?: DailyPoint["sampling_status"] }> = [
+        ...Array.from({ length: 14 }, () => ({ count: 5, sampling_status: "full" as const })),
+        { count: 0, sampling_status: "full" },
+        ...Array.from({ length: 7 }, () => ({ count: 5, sampling_status: "full" as const })),
+        ...Array.from({ length: 7 }, () => ({ count: 6, sampling_status: "full" as const })),
+      ];
+      return points.map((p, i) => ({
+        date: new Date(t0 + i * 86_400_000).toISOString().slice(0, 10),
+        count: p.count,
+        sampling_status: p.sampling_status,
+      }));
+    };
+    const r = computeUrlVerdict({
+      series: buildSeries(),
+      changeDate: "2026-03-15",
+      asOfDate: "2026-03-29",
+    });
+    expect(r.verdict).toBe("weak_signal");
+  });
+
+  it("strong real win → helping (unchanged by T5.2)", () => {
+    const buildSeries = (): DailyPoint[] => {
+      const t0 = new Date("2026-03-01T00:00:00Z").getTime();
+      const points: Array<{ count: number; sampling_status?: DailyPoint["sampling_status"] }> = [
+        ...Array.from({ length: 14 }, () => ({ count: 5, sampling_status: "full" as const })),
+        { count: 0, sampling_status: "full" },
+        ...Array.from({ length: 14 }, () => ({ count: 20, sampling_status: "full" as const })),
+      ];
+      return points.map((p, i) => ({
+        date: new Date(t0 + i * 86_400_000).toISOString().slice(0, 10),
+        count: p.count,
+        sampling_status: p.sampling_status,
+      }));
+    };
+    const r = computeUrlVerdict({
+      series: buildSeries(),
+      changeDate: "2026-03-15",
+      asOfDate: "2026-03-29",
+    });
+    expect(r.verdict).toBe("helping");
   });
 });

@@ -205,9 +205,13 @@ describe("Demo-path fix 4 (2026-05-06) — /today first-run welcome + Z-score ki
 
 describe("Demo-path fix 5 (2026-05-06) — /changes/truth verdict + math humanization", () => {
   it("VERDICT_LABEL map covers known verdict values", () => {
-    expect(TRUTH_CLIENT).toMatch(/VERDICT_LABEL[\s\S]{0,500}verified_live_too_early:\s*"Too early to tell"/);
+    // T5.2 (2026-05-06) — `weak_signal` was added to the map; widened
+    // the search window to accommodate the new entry.
+    expect(TRUTH_CLIENT).toMatch(/VERDICT_LABEL[\s\S]{0,800}verified_live_too_early:\s*"Too early to tell"/);
     expect(TRUTH_CLIENT).toMatch(/verdict_off:\s*"Verdict revised"/);
     expect(TRUTH_CLIENT).toMatch(/not_found_after_7d:\s*"Not yet live \(after 7 days\)"/);
+    // T5.2 — pin the new entry too.
+    expect(TRUTH_CLIENT).toMatch(/weak_signal:\s*"Early signs of lift"/);
   });
 
   it("VerdictPill renders via humanizeVerdict, NOT raw replace(/_/g, ' ')", () => {
@@ -240,7 +244,13 @@ describe("Demo-path fix 5 (2026-05-06) — /changes/truth verdict + math humaniz
     expect(SCORECARD_CLIENT).toMatch(/label="After change \(per day\)"/);
     expect(SCORECARD_CLIENT).toMatch(/label="Change strength"/);
     expect(SCORECARD_CLIENT).toMatch(/Strong signal/);
-    expect(SCORECARD_CLIENT).toMatch(/Weak signal/);
+    // T5.2 (2026-05-06) — the legacy binary "Weak signal" / "Strong
+    // signal" pairing was replaced with a three-tier label aligned
+    // with the new verdict tiers (helping / weak_signal / nothing_yet).
+    // The "Early signal" label is the new middle tier; "Below
+    // directional bar" is the floor.
+    expect(SCORECARD_CLIENT).toMatch(/Early signal/);
+    expect(SCORECARD_CLIENT).toMatch(/Below directional bar/);
 
     // Negative invariants: the old Greek/stats labels must be gone.
     expect(SCORECARD_CLIENT).not.toMatch(/label="μ_pre/);

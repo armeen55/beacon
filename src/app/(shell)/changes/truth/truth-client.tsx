@@ -259,6 +259,9 @@ function ScopePill({ scope }: { scope: ChangeEvent["scope"] }) {
 const VERDICT_LABEL: Record<string, string> = {
   helping: "Helping",
   hurting: "Hurting",
+  // T5.2 (2026-05-06) — directional early-signal tier. Operator-locked
+  // copy: "Early signs of lift" / never "Win" / "Proof" / "Confirmed".
+  weak_signal: "Early signs of lift",
   degrading: "Degrading",
   promising: "Promising",
   landed_fast: "Landed fast",
@@ -344,6 +347,9 @@ function verdictTone(v: string): Tone {
     case "promising":
     case "attributed_high":
       return "good";
+    // T5.2 (2026-05-06) — weak_signal is directional, never proof.
+    // Yellow/warn band visually distinct from helping (good).
+    case "weak_signal":
     case "attributed_medium":
     case "landed_slow":
       return "warn";

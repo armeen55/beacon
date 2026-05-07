@@ -258,6 +258,10 @@ export function invalidateUrlChangeOutcomesSeed(): void {
  */
 const WATCHING_VERDICTS: ReadonlySet<VerdictLabel> = new Set([
   "hurting",
+  // T5.2 (2026-05-06) — weak_signal is directional / transitional;
+  // worth watching because it MAY upgrade to helping or downgrade to
+  // nothing_yet as more post-change data arrives.
+  "weak_signal",
   "nothing_yet",
   "too_early",
 ]);

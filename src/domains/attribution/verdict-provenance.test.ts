@@ -631,3 +631,87 @@ describe("verdict-provenance: plainEnglish honesty", () => {
     expect(p.plainEnglish.toLowerCase()).toContain("unreliable");
   });
 });
+
+// ── T5.2 — weak_signal verdict provenance ────────────────────────────
+
+describe("verdict-provenance: T5.2 weak_signal handling", () => {
+  function makeWeakSignal(overrides: Record<string, unknown> = {}) {
+    return buildVerdictProvenance({
+      id: "v-weak",
+      verdict: "weak_signal",
+      anchorDate: "2026-05-02",
+      anchorSource: "live_at",
+      preStartISO: "2026-04-27",
+      preEndISO: "2026-05-01",
+      postStartISO: "2026-05-03",
+      postEndISO: "2026-05-09",
+      preDays: 5,
+      postDays: 7,
+      preFullPollDays: 5,
+      muPre: 5,
+      muPost: 5.5,
+      zScore: 1.6,
+      sustainUp: 5,
+      sustainDown: 0,
+      ...overrides,
+    } as Parameters<typeof buildVerdictProvenance>[0]);
+  }
+
+  it("weak_signal trust level is DIRECTIONAL (never trustworthy, never unreliable)", () => {
+    const p = makeWeakSignal();
+    expect(p.trustLevel).toBe("directional");
+  });
+
+  it("weak_signal label maps to 'Early signs of lift detected after this change'", () => {
+    const p = makeWeakSignal();
+    expect(p.verdictLabel).toBe("Early signs of lift detected after this change");
+  });
+
+  it("weak_signal plainEnglish is directional and never 'win' / 'proven' / 'worked' / 'confirmed lift'", () => {
+    const p = makeWeakSignal();
+    const lower = p.plainEnglish.toLowerCase();
+    expect(lower).toContain("directional signal");
+    expect(lower).toContain("not yet a strong signal");
+    expect(lower).not.toMatch(/\bwin\b/);
+    expect(lower).not.toMatch(/\bproven\b/);
+    expect(lower).not.toMatch(/\bworked\b/);
+    expect(lower).not.toMatch(/\bconfirmed lift\b/);
+  });
+
+  it("weak_signal customer fields never include raw Z-score / Greek / SQL", () => {
+    const p = makeWeakSignal();
+    const customerFields = [
+      p.label,
+      p.verdictLabel,
+      p.preWindowLabel,
+      p.postWindowLabel,
+      p.normalRangeLabel ?? "",
+      p.changeStrengthLabel ?? "",
+      p.sustainLabel ?? "",
+      p.plainEnglish,
+      ...p.caveats,
+    ];
+    for (const field of customerFields) {
+      expect(field).not.toMatch(/[Zz][ -]?score/);
+      expect(field).not.toContain("μ");
+      expect(field).not.toContain("σ");
+      expect(field).not.toMatch(/\bmu_pre\b|\bmu_post\b|\bsigma_pre\b/);
+      expect(field).not.toContain("daily_metric_snapshots");
+      expect(field).not.toContain("prompt_answer_observations");
+    }
+  });
+
+  it("weak_signal carries a contaminated-date caveat when window touches 2026-04-23 / 26 / 05-06", () => {
+    const p = makeWeakSignal({
+      preStartISO: "2026-04-09",
+      preEndISO: "2026-04-22", // intentionally NOT touching contam
+      postStartISO: "2026-04-25",
+      postEndISO: "2026-05-01", // touches 2026-04-26
+    });
+    expect(p.caveats.some((c) => c.includes("2026-04-26"))).toBe(true);
+    // Trust level stays directional (T5.2 — sparse-pre precondition
+    // would have demoted at the engine level; if it survived to this
+    // builder, contamination is a caveat not a trust downgrade).
+    expect(p.trustLevel).toBe("directional");
+  });
+});
