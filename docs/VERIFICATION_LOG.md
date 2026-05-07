@@ -7,6 +7,73 @@
 
 ---
 
+## 2026-05-06 — Trust Sprint Mini-Phase T4.3 — Evidence expansion / proof visibility
+
+Operator-approved bundle following T4.2. The recommendation drawer now shows the actual evidence Beacon used to ground each rec (prompts, search queries, owned page, competitor context, page elements, brand assertions) and explicitly lists which categories are missing. Closes the Phase 2.B audit finding "the engine claims to use evidence the operator can't see."
+
+### What changed
+
+**New — `src/components/recommendations/recommendation-evidence-panel.tsx`:**
+
+Customer-safe categorized evidence panel. Buckets:
+- **Prompts affected** — count + first 3 prompt-text snippets (NOT raw UUIDs)
+- **AI search queries seen** — count + top 3 verbatim queries (when present)
+- **Owned page matched** — host + path
+- **Competitor context** — top competitor name + primary % (or competitor-evidence-ref count)
+- **Page elements referenced** — count
+- **Past similar edits** — prior-outcome count
+- **Brand assertions used** — count
+
+Plus an honest "Evidence missing" line listing absent categories (amber callout). And an "Evidence depth score: N / 6" footer surfacing the T4.2 sort signal.
+
+When the row carries zero evidence and zero rec-level signals: shows "Evidence packet not available for this older recommendation." (NEVER fakes evidence.)
+
+**Modified — `src/app/(shell)/recommendations/recommendations-client.tsx`:**
+
+Replaced the legacy `<ul>` Evidence section with `<RecommendationEvidencePanel>`. The legacy "raw evidence refs" `<details>` toggle stays but is now gated behind `OPERATOR_MODE_DEBUG` (was always visible).
+
+**New tests — `src/components/recommendations/recommendation-evidence-panel.test.tsx` (13 tests):**
+
+- Categorization (prompts / owned page / competitor / search queries / elements)
+- Prompt snippet rendering (NOT UUIDs)
+- Missing-evidence callout
+- Empty packet → "Evidence packet not available"
+- Customer-safe copy invariants:
+  - No raw enum names (`search_query`, `owned_page`, `brand_assertion`, `prior_outcome`, `evidence.type`)
+  - No SQL keywords / table names (`daily_metric_snapshots`, `prompt_answer_observations`, `recommended_edits`)
+  - No raw UUIDs in copy
+  - Competitor names ALLOWED in operator-evidence panel (distinct from public proposed-text)
+- Evidence depth score + explainer rendered
+
+### Customer-safe copy contract (test-pinned)
+
+All bucket labels use plain English: "AI search queries seen", "Prompts affected", "Owned page matched", "Competitor context", "Page elements referenced", "Brand assertions used". Missing categories surfaced with the same labels (no enum leak).
+
+### Verification
+
+- ✅ `npm run typecheck` — clean.
+- ✅ `npm run test` — **305/305 files / 4935/4935 tests** (63.46s; +13 vs T4.2).
+- ✅ `npm run build` — successful on retry (one transient Supabase prerender flake on first attempt; retry succeeded).
+- ✅ `scripts/verify-tenant-data-integrity.ts` — PASS.
+- ✅ `scripts/verify-observation-dedup-integrity.ts` — PASS.
+- ✅ `.data/global/llm-budget.json` SHA = `d36eed8ca157cb4c65ee01a2c51a2fef3fb21a0dfdbb036753d6d7c570927dbd` (byte-identical with T4.1/T4.2).
+- ✅ Zero queue mutations.
+
+### Hard-constraint compliance
+
+- ✅ T4.4 confidence scoring NOT started.
+- ✅ Existing queue rows NOT mutated (panel reads what's already on the row).
+- ✅ No live regeneration. No OpenAI. No paid polling. No second tenant.
+- ✅ No attribution math changed. No RLS / auth changes.
+- ✅ No raw UUIDs / SQL / table names in customer copy (test-pinned).
+- ✅ Missing evidence surfaced honestly; older rows without packets get a clear "not available" message.
+
+### Whether T4.4 can begin next
+
+✅ **Yes.** The evidence panel makes confidence inputs visible. T4.4 can derive a confidence label from the same evidence depth + categories (or surface a customer-safe explainer next to the panel) without further plumbing.
+
+---
+
 ## 2026-05-06 — Trust Sprint Mini-Phase T4.2 — Ranking reconciliation
 
 Operator-approved bundle following T4.1. The customer-facing recommendation table now respects `prioritize.ts`'s tier signal AND breaks ties by evidence depth — fixing the "thin single-prompt FAQ outranks multi-prompt H2 simply because it was created later" failure mode found in the Phase 2.B audit.

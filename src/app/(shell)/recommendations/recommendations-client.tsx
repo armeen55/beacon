@@ -48,6 +48,7 @@ import {
   type RecommendationActionRow,
 } from "@/domains/recommendations/recommendation-action-rows";
 import { sanitizeOperatorEvidenceText } from "@/domains/recommendations/copy-sanitize";
+import { RecommendationEvidencePanel } from "@/components/recommendations/recommendation-evidence-panel";
 
 type Props = {
   queue: RecommendationQueueRow[];
@@ -1193,28 +1194,26 @@ function RowDrawer({
         </DrawerSection>
       )}
 
-      {/* Section: Evidence */}
+      {/* Section: Evidence — T4.3 (2026-05-06) categorized panel
+          replaces the prior raw-count list. The panel surfaces the
+          actual grounding signals (prompts / search queries / owned
+          page / competitor context / page elements / brand assertions)
+          and an explicit "Evidence missing" line when categories are
+          absent. Customer-safe; raw evidence refs stay behind the
+          operator-mode debug section below. */}
       <DrawerSection title="Evidence">
-        <ul className="space-y-1 text-foreground/90">
-          <li>
-            <span className="text-muted-foreground">Affected prompts:</span>{" "}
-            {d.affectedPromptCount}
-          </li>
-          <li>
-            <span className="text-muted-foreground">Observations:</span>{" "}
-            {d.observationCount}
-          </li>
-          {d.topCompetitor && (
-            <li>
-              <span className="text-muted-foreground">Top competitor:</span>{" "}
-              {d.topCompetitor.name} (primary in {d.topCompetitor.primaryPct}%)
-            </li>
-          )}
-        </ul>
-        {d.evidenceRefs.length > 0 && (
+        <RecommendationEvidencePanel
+          evidenceRefs={d.evidenceRefs}
+          affectedPromptCount={d.affectedPromptCount}
+          observationCount={d.observationCount}
+          evidenceDepth={d.evidenceDepth}
+          topCompetitor={d.topCompetitor}
+          promptTextById={promptTextById}
+        />
+        {OPERATOR_MODE_DEBUG && d.evidenceRefs.length > 0 && (
           <details className="mt-2">
             <summary className="cursor-pointer text-[11px] text-muted-foreground hover:text-foreground select-none">
-              {d.evidenceRefs.length} evidence refs
+              {d.evidenceRefs.length} raw evidence refs (operator-detail)
             </summary>
             <ul className="mt-2 space-y-1 text-[11px]">
               {d.evidenceRefs.slice(0, 8).map((ref, i) => (
