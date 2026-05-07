@@ -194,8 +194,18 @@ describe("daily-native-poll.yml — matrix shape", () => {
   });
 
   it("compute-matrix fails loud on missing config and zero enabled tenants", () => {
-    expect(POLL_YAML).toMatch(/ops\/active-tenants\.json is missing/);
-    expect(POLL_YAML).toMatch(/No tenants with enabled=true/);
+    // Gap A (2026-05-07) — compute-matrix moved from `jq -c '… select(.enabled == true)'`
+    // against ops/active-tenants.json to `npx tsx scripts/list-active-tenants.ts`
+    // (DB-preferred, JSON-fallback). The "missing config" guard now lives
+    // INSIDE the lister script (logs ::error if both DB and JSON fail).
+    // The "zero enabled tenants" guard moved to the lister too. The
+    // workflow keeps its own empty-matrix guard as defense-in-depth.
+    //
+    // Both guards still exist, just with updated wording. Pin both.
+    expect(POLL_YAML).toMatch(/No active tenants — refusing to run cron with empty matrix/);
+    expect(POLL_YAML).toMatch(
+      /Ritz \(tenant-ritz-founder\) is missing or disabled — refusing to run cron without Ritz/,
+    );
   });
 
   it("poll-perplexity + poll-openai consume the matrix from compute-matrix", () => {

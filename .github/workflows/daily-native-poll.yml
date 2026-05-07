@@ -15,13 +15,25 @@
 #  fragmented observability. GitHub Actions gives us precise scheduling, one
 #  file of config, native retry via the Actions UI, and failure emails.
 #
-#  Multi-tenant scaffold (2026-05-06) — read this before adding tenants:
+#  Multi-tenant scaffold (Gap A, 2026-05-07) — read this before adding tenants:
 #
-#  Active-tenants list lives in `ops/active-tenants.json`. The compute-matrix
-#  job filters to `enabled === true` and emits one matrix entry per tenant
-#  for the parallel poll / rebuild / verify jobs. Today the list has exactly
-#  one entry (Ritz). Adding a second tenant means flipping `enabled: true`
-#  on a new row in that JSON — no workflow YAML edit required.
+#  Active-tenants list is read by `scripts/list-active-tenants.ts`. That script
+#  PREFERS the Supabase `tenants` table (status='active'), and FALLS BACK to
+#  `ops/active-tenants.json` when Supabase env vars aren't set or the query
+#  fails. The compute-matrix job calls the script and gets back an array of
+#  `{ tenantId, slug, siteDomain, enabled: true }` rows, one matrix entry
+#  per active tenant.
+#
+#  Why DB-preferred: once self-serve onboarding ships, customers signing up
+#  insert a row into the Supabase `tenants` table with status='active'. The
+#  next 07:00 UTC cron picks them up automatically — no git commit, no
+#  workflow edit. Today the table has exactly one entry (Ritz), matching
+#  the JSON file byte-for-byte.
+#
+#  Why JSON fallback: transitional safety. CI can run without the Supabase
+#  env vars wired (the JSON file ships with the repo). When the lister can't
+#  reach Supabase, it logs a WARN and uses the JSON. The fallback lets us
+#  evolve the DB path without breaking the cron mid-migration.
 #
 #  Fail-loud guards in compute-matrix:
 #    1. ops/active-tenants.json must exist and be valid JSON.
@@ -108,33 +120,46 @@ jobs:
   compute-matrix:
     name: Compute active-tenants matrix
     runs-on: ubuntu-latest
-    timeout-minutes: 2
+    timeout-minutes: 3
     outputs:
       tenants: ${{ steps.compute.outputs.tenants }}
       tenant_count: ${{ steps.compute.outputs.tenant_count }}
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci --no-audit --no-fund
+      # Gap A (2026-05-07) — read active tenants via the lister script
+      # (DB-preferred, JSON-fallback) instead of parsing the static
+      # ops/active-tenants.json file directly. Unblocks self-serve sign-up:
+      # once a customer's tenant row in Supabase is set to status='active',
+      # the next 07:00 UTC cron picks them up automatically — no git
+      # commit, no workflow edit needed.
+      #
+      # Fallback chain (same script, same output shape):
+      #   1. Supabase tenants table where status='active'  (preferred)
+      #   2. ops/active-tenants.json (kept as safety net + CI without DB env)
+      #
+      # The lister exits non-zero with a structured ::error if both
+      # sources fail — the workflow stays fail-loud as before.
       - id: compute
         run: |
           set -euo pipefail
-          CONFIG=ops/active-tenants.json
-          if [ ! -f "$CONFIG" ]; then
-            echo "::error file=$CONFIG::ops/active-tenants.json is missing — refusing to run cron"
-            exit 1
-          fi
-          # Filter to enabled tenants only. Compact JSON for matrix injection.
-          MATRIX=$(jq -c '[.[] | select(.enabled == true)]' "$CONFIG")
+          MATRIX=$(npx tsx --require ./scripts/mock-server-only.cjs scripts/list-active-tenants.ts)
           COUNT=$(echo "$MATRIX" | jq 'length')
           if [ "$COUNT" -eq 0 ]; then
-            echo "::error file=$CONFIG::No tenants with enabled=true — refusing to run cron"
+            echo "::error::No active tenants — refusing to run cron with empty matrix"
             exit 1
           fi
           # Hard guard: Ritz (tenant-ritz-founder) must be present AND
-          # enabled. Prevents accidental Customer-1 disable from silently
-          # skipping the dogfeed reading.
+          # active. Prevents accidental Customer-1 disable from silently
+          # skipping the dogfeed reading. Same guard as pre-Gap-A; just
+          # checked against the lister's output instead of the JSON file.
           RITZ_OK=$(echo "$MATRIX" | jq '[.[] | select(.tenantId == "tenant-ritz-founder")] | length')
           if [ "$RITZ_OK" -eq 0 ]; then
-            echo "::error file=$CONFIG::Ritz (tenant-ritz-founder) is missing or disabled — refusing to run cron without Ritz"
+            echo "::error::Ritz (tenant-ritz-founder) is missing or disabled — refusing to run cron without Ritz"
             exit 1
           fi
           {
@@ -143,6 +168,9 @@ jobs:
           } >> "$GITHUB_OUTPUT"
           echo "Active tenants: $COUNT"
           echo "$MATRIX" | jq
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
 
   # --------------------------------------------------------------------------
   # Perplexity — full 100-prompt run on the GitHub runner.

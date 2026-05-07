@@ -7,6 +7,93 @@
 
 ---
 
+## 2026-05-07 — Self-serve onboarding Gap A: active tenants from DB (with JSON fallback)
+
+First step toward self-serve customer onboarding (Gap A in the customer-onboarding plan). Moves the cron's source-of-truth for "which tenants get polled" from a static JSON file (`ops/active-tenants.json`) to a Supabase query against the `tenants` table — so customers signing up tomorrow can be auto-picked-up by the next 07:00 UTC cron without a git commit.
+
+**Reversible**: the JSON file stays in place as a fallback when Supabase env vars aren't set or the query fails. Today's behavior is byte-identical (Ritz exists in both sources; lister returns the same 4-field shape).
+
+### What changed
+
+**New — `scripts/list-active-tenants.ts`** (~165 lines):
+- Emits `[{tenantId, slug, siteDomain, enabled: true}, ...]` — the EXACT shape the cron's matrix consumed pre-Gap-A.
+- **Source 1 (preferred)**: queries Supabase `tenants` table for `status = 'active'` rows; maps DB columns `id → tenantId`, `slug → slug`, `domain → siteDomain`. Sets `enabled: true` (DB filter already qualified them).
+- **Source 2 (fallback)**: reads `ops/active-tenants.json`, filters to `enabled === true` rows. Logs a structured WARN line so fallback is visible in workflow logs.
+- **Validation**: every row passes `isValidEntry(...)` — refuses rows with empty/null `tenantId`, `slug`, or `siteDomain`. Bad rows log WARN + are dropped.
+- **Fail-loud**: exits 1 with structured `::error` if zero active tenants in either source. Cron stops before silently skipping everyone.
+- **Pure read**: no mutations, no paid APIs, no second-tenant injection.
+- Pure helpers exported (`isValidEntry`, `parseJsonFallback`, `mapDbRowToMatrixEntry`, `MatrixTenant`) for unit tests.
+
+**Modified — `.github/workflows/daily-native-poll.yml`** (compute-matrix only):
+- Replaced `jq -c '[.[] | select(.enabled == true)]' ops/active-tenants.json` with `npx tsx --require ./scripts/mock-server-only.cjs scripts/list-active-tenants.ts`.
+- Added Setup Node + npm ci to compute-matrix (lister needs runtime + deps).
+- Added Supabase env vars to compute-matrix env block (lister queries DB).
+- Preserved both fail-loud guards (empty matrix → ::error; Ritz missing → ::error).
+- File-top documentation updated to describe the DB-preferred + JSON-fallback shape.
+- compute-matrix `timeout-minutes: 2 → 3` for npm ci headroom.
+
+**Modified — `tests/architecture/multi-tenant-cron-scaffold.test.ts`**:
+- Updated 1 test (`compute-matrix fails loud on missing config and zero enabled tenants`) to match new wording (lister-emitted ::error lines + workflow-side empty-matrix + Ritz guards).
+
+**New — `tests/architecture/list-active-tenants-contract.test.ts`** (22 invariants):
+- Lister file exists; declares both source helpers; DB path PRECEDES JSON path in main(); DB query filters `status='active'`; selects only required fields; output shape pinned (4 fields, no extras); column mapping pinned (id→tenantId, etc.); validates required fields; exits 1 on zero tenants; logs WARN on fallback.
+- Negative invariants: lister doesn't mutate stores; doesn't call paid APIs (openai/perplexity/scans/runNativePoll); doesn't inject hardcoded tenant ids.
+- Workflow integration: compute-matrix calls the lister; uses canary-proven CI shape (checkout + setup-node + npm ci); env block exposes Supabase secrets; preserves Ritz fail-loud + empty-matrix fail-loud guards.
+- Bundle 2 architecture preserved: scheduled poll jobs still use `npm run cron:poll`; still don't curl `/api/poll/run`; verify-persistence + rebuild jobs still wired.
+- JSON file still exists; has exactly 1 enabled tenant (Ritz); contains no second-tenant slugs (acme/customer-2/placeholder).
+
+**New — `tests/scripts/list-active-tenants.test.ts`** (21 unit tests):
+- `isValidEntry`: accepts Ritz-shaped row; rejects null/undefined/non-object; rejects empty tenantId/slug/siteDomain; rejects non-string fields.
+- `parseJsonFallback`: returns Ritz from single-row enabled fixture; filters disabled rows; treats missing `enabled` as disabled; treats `enabled: "true"` (string) as DISABLED (boolean true required); drops invalid rows + warns; empty array OK; throws on non-array.
+- `mapDbRowToMatrixEntry`: maps Ritz DB row correctly; renames columns id→tenantId/slug→slug/domain→siteDomain; always sets enabled=true; returns null on null id / empty slug / null domain.
+
+### Smoke verification
+
+```
+$ npx tsx --require ./scripts/mock-server-only.cjs scripts/list-active-tenants.ts
+[list-active-tenants] INFO  Supabase lookup: 1 valid active tenant(s) returned
+[{"tenantId":"tenant-ritz-founder","slug":"ritz-builders","siteDomain":"ritzbuilders.com","enabled":true}]
+```
+
+Output is byte-identical to what the workflow consumed pre-Gap-A.
+
+### What still blocks full self-serve sign-up
+
+This was Gap A only — the plumbing under the cron. The customer-facing pieces remain:
+- **Gap B**: public `/signup` route + auth callback that auto-creates a draft tenant row + tenant_members row on first login
+- **Gap C**: `/onboard/{business,scope,prompts,launching}` 4-step wizard
+- **Gap D**: auto-detect engine (cities/services/competitors from website URL)
+- **Gap E**: auto-prompt generator (templates × user inputs)
+- **Gap F**: first-poll waiting state with email-when-ready
+- **Gap G**: per-tenant operator alerts (Slack/email on watchdog RED)
+
+Per the plan, these ship in Phase 1 (operator dogfeed) → Phase 2 (link-to-friend) → Phase 3 (paid customer self-serve).
+
+### Verification
+
+- ✅ `npm run typecheck` — clean.
+- ✅ `npm run test` — **321/321 files / 5747/5747 tests** (+2 files +43 tests vs Bundle-2 baseline 319/5704).
+- ✅ `npm run build` — green.
+- ✅ All 3 integrity scripts PASS (verdict drift = 0).
+- ✅ `npm run verify:brain-health` — YELLOW (idle queue WARN only).
+- ✅ Smoke test of lister script returns Ritz; output shape matches matrix expectations exactly.
+- ✅ `.data/global/llm-budget.json` SHA = `d36eed8ca157cb4c65ee01a2c51a2fef3fb21a0dfdbb036753d6d7c570927dbd` — byte-identical with overnight baseline.
+- ✅ Zero OpenAI calls. Zero paid polling. Zero row mutations.
+
+### Hard-constraint compliance
+
+- ✅ No second tenant added (active-tenants.json + Supabase tenants table both have only Ritz).
+- ✅ Did NOT remove `ops/active-tenants.json` — it remains as the safety-net fallback.
+- ✅ Did NOT build the signup wizard / onboarding UI (out of Gap A scope).
+- ✅ No RLS / auth / Profound / billing / Trigger.dev migration.
+- ✅ Tests TIGHTEN the contract: 21 unit tests for the lister + 22 architecture invariants pin the new shape and prevent regression.
+
+### What the next mini-phase should be
+
+**Gap B** — public `/signup` route + auth-callback tenant provisioning. Smallest next bounded step toward the operator-dogfeed milestone (Phase 1).
+
+---
+
 ## 2026-05-07 — Cron architecture Bundle 2: GitHub-runner CLI replaces /api/poll/run for scheduled poll
 
 Closes the cron-failure class surfaced by today's 6:19 UTC RED run. Scheduled daily polling now runs as a GitHub-runner CLI (`scripts/cron-poll.ts` via `npm run cron:poll`); the Vercel `/api/poll/run` route stays in place as the manual/debug fallback. Both code paths converge at `runNativePoll` so persistence semantics are byte-identical.
