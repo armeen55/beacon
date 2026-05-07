@@ -48,10 +48,13 @@ import {
   getDailyMetricSnapshots,
 } from "../src/storage/canonical-store";
 import { readRecommendedEditsLocal } from "../src/domains/recommendations/recommended-edits-persistence";
+import type { RecommendedEditRow } from "../src/domains/recommendations/recommended-edits-persistence";
 import { getUrlChangeOutcomes } from "../src/domains/attribution/url-change-outcome";
 import { getCitationEvidenceIndex } from "../src/domains/pages/citation-evidence-store";
 import { getChangelogEntries } from "../src/lib/seed-data.server";
 import { computeUrlVerdict } from "../src/domains/attribution/url-verdict";
+import { deriveConfidence, type DerivedConfidenceLabel } from "../src/domains/recommendations/derived-confidence";
+import { computeEvidenceDepth } from "../src/domains/recommendations/recommendation-action-rows";
 import {
   buildUrlCitationHistory,
   denseSeries,
@@ -268,6 +271,31 @@ async function buildScoreHealth(): Promise<Section> {
 
 // ── Section 3 — Recommendation Health ──────────────────────────────────
 
+/**
+ * Compute T4.4 derived confidence for a persisted RecommendedEditRow.
+ *
+ * The persisted `confidence` field is intentionally NOT mutated by the
+ * derivation pipeline (per T4.4 commit 72b8675). Customer UI uses the
+ * derived label via `<DerivedConfidencePill>` on `RecommendationActionRow`.
+ *
+ * Scripts that read `recommended_edits.json` directly must compute the
+ * derived label at read-time. Best-effort: uses the row's persisted
+ * evidence array. Slight under-estimation possible vs UI when the rec
+ * packet has additional rec-level signals (topCompetitor, multi-prompt
+ * count from packet) the row evidence doesn't carry.
+ */
+function deriveConfidenceFromRow(r: RecommendedEditRow): DerivedConfidenceLabel {
+  const refs = r.evidence ?? [];
+  const isFaqAnswer = (r.target_element_key ?? "").startsWith("faq_answer[");
+  return deriveConfidence({
+    evidenceRefs: refs,
+    evidenceDepth: computeEvidenceDepth(refs),
+    affectedPromptCount: refs.filter((x) => x.type === "prompt").length,
+    isFaqAnswer,
+    hasTopCompetitor: refs.some((x) => x.type === "competitor"),
+  });
+}
+
 async function buildRecommendationHealth(): Promise<Section> {
   const recs = await readRecommendedEditsLocal();
   const totalGrade = gradeFromTiers(recs.length, { A: 10, B: 5, C: 2 });
@@ -312,9 +340,44 @@ async function buildRecommendationHealth(): Promise<Section> {
     .map(([k, v]) => `${k}=${v}`)
     .join(", ");
 
+  // T6.5 — derived confidence (T4.4 customer-facing label) computed
+  // per-rec at read-time. Persisted `confidence` is intentionally not
+  // mutated (T4.4); the derived label is the operative customer trust
+  // signal.
+  const derivedDist = new Map<DerivedConfidenceLabel, number>([
+    ["strong_evidence", 0],
+    ["moderate_evidence", 0],
+    ["needs_review", 0],
+  ]);
+  for (const r of recs) {
+    const lbl = deriveConfidenceFromRow(r);
+    derivedDist.set(lbl, (derivedDist.get(lbl) ?? 0) + 1);
+  }
+  const persistedDist = new Map<string, number>();
+  for (const r of recs) persistedDist.set(r.confidence, (persistedDist.get(r.confidence) ?? 0) + 1);
+
+  // Differentiation grade: a healthy queue has at least SOME spread
+  // (not 100% of one bucket). Pre-T4.4 the persisted column was 100%
+  // medium. After T4.4 the derived label SHOULD spread.
+  const totalForDiff = recs.length;
+  const maxBucket = Math.max(...derivedDist.values());
+  const differentiationGrade: Grade =
+    totalForDiff === 0 ? "B"
+    : maxBucket / totalForDiff < 0.85 ? "A" // healthy spread
+    : maxBucket / totalForDiff < 0.95 ? "B"
+    : "C"; // 95%+ in one bucket = derivation pipeline is collapsing
+
+  const derivedStr = [...derivedDist.entries()]
+    .map(([k, v]) => `${k}=${v}`)
+    .join(", ");
+  const persistedStr = [...persistedDist.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([k, v]) => `${k}=${v}`)
+    .join(", ");
+
   return {
     name: "Recommendation Health",
-    grade: worstGrade([totalGrade, staleGrade, llmGrade]),
+    grade: worstGrade([totalGrade, staleGrade, llmGrade, differentiationGrade]),
     metrics: [
       {
         label: "queue size",
@@ -333,6 +396,18 @@ async function buildRecommendationHealth(): Promise<Section> {
         value: `${llmAccepted}/${llmReviewed} of ${llmRecs.length} reviewed (${llmAcceptPctOfReviewed.toFixed(0)}%)`,
         grade: llmGrade,
         reason: "LLM ship-rate AMONG operator-reviewed recs; queue-pending recs don't count against it; ≥50% = A",
+      },
+      {
+        label: "derived confidence (T4.4) distribution",
+        value: derivedStr,
+        grade: differentiationGrade,
+        reason: "derivation pipeline should spread recs across labels; 100% in one bucket = derivation collapsing or queue homogeneous",
+      },
+      {
+        label: "persisted confidence column (legacy)",
+        value: persistedStr,
+        grade: "B", // informational only — persisted is intentionally not mutated
+        reason: "informational — T4.4 leaves persisted confidence column untouched. UI reads derived. Delta vs derived shows what T4.4 added.",
       },
     ],
   };

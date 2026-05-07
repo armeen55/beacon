@@ -7,6 +7,97 @@
 
 ---
 
+## 2026-05-06 — Trust Sprint Mini-Phase T6.5 — Confidence-tier regression hunt (scripts-only fix)
+
+Closes the T6.3 finding "all 31 recs at medium". **Root cause: scripts-only bug.** The customer UI was already correct — `<DerivedConfidencePill>` reads `row.derivedConfidence` (computed by T4.4 at row-build time). T6.3's analyzer (and T6.1's brain-health-report) read the persisted `RecommendedEditRow.confidence` column directly, which T4.4 intentionally did not mutate per its commit message:
+
+> "Persisted `confidence` column is NOT mutated — derivation happens at row-build time using the same signals T4.2 + T4.3 already wired."
+
+So the persisted column IS uniformly "medium" by design; the regression report was a script reading the wrong field.
+
+### What changed (scripts only — zero engine changes, zero row mutations)
+
+**Modified — `scripts/build-brain-health-report.ts`:**
+
+- New imports: `deriveConfidence` from `derived-confidence.ts`, `computeEvidenceDepth` from `recommendation-action-rows.ts`.
+- New helper `deriveConfidenceFromRow(r)` — best-effort derivation from persisted row evidence (slight under-estimation possible vs UI when the rec packet has additional rec-level signals the row doesn't carry).
+- Recommendation Health section now reports BOTH:
+  - `derived confidence (T4.4) distribution` (graded — A=healthy spread <85% in any bucket, B=85–95%, C=≥95% = derivation collapsing)
+  - `persisted confidence column (legacy)` (informational — T4.4 leaves untouched)
+
+**Modified — `scripts/analyze-recommendation-outcomes.ts`:**
+
+- `analyzeConfidenceFunnel` rewritten to return `{ persisted, derived, note }`.
+- Markdown renderer prints both blocks: "Persisted (legacy column — T4.4 intentionally leaves untouched)" + "Derived (T4.4 customer-facing label, computed from evidence at read-time)".
+- Note string explicitly states the pre-T6.5 misread + the design intent.
+
+**New — `tests/architecture/derived-confidence-pipeline-reachable.test.ts`** (8 tests):
+- `deriveConfidence` exported.
+- `computeEvidenceDepth` exported.
+- Both T6.1 + T6.3 scripts import + call them.
+- Both surface BOTH persisted AND derived distributions in their output.
+- Both pass `isFaqAnswer` flag (T4.4 thin-FAQ rule).
+- Negative invariant: scripts do NOT call `persistRecommendedEditsLocal` / `syncRecommendedEdits` / `writeStore("recommended-edits")` — pin against accidental mutation regressions.
+
+**New — `tests/persistence/derived-confidence-against-ritz-queue.test.ts`** (7 tests, behavioral):
+- Queue is non-empty (Ritz dogfood).
+- Persisted column distribution is uniformly "medium" by design.
+- Derived distribution is NOT 100% in any single bucket (post-T4.4 spread).
+- At least one row derives to needs_review OR strong_evidence.
+- Synthetic FAQ-answer single-prompt row → needs_review.
+- Synthetic multi-prompt + owned-page + competitor row → strong_evidence.
+
+### Results on Ritz (post-fix)
+
+```
+Confidence funnel
+  Persisted (legacy column — T4.4 intentionally leaves untouched):
+    high     0; medium 31; low 0
+  Derived (T4.4 customer-facing label, computed from evidence at read-time):
+    strong_evidence    0
+    moderate_evidence  28
+    needs_review       3
+```
+
+This matches the T4.4 commit message's expected post-fix distribution exactly ("0 strong / 21 moderate / 3 needs_review" on the smaller queue at T4.4 launch; the 28/3 spread on today's larger queue is consistent shape). T4.4 is working correctly. The pipeline IS reachable from scripts.
+
+### Brain Readiness Grade — unchanged
+
+T6.5 surfaces a new metric in Recommendation Health ("derived confidence (T4.4) distribution" — graded B because 28/31 = 90% in moderate is healthy-spread but conservative). The roll-up is unchanged at **B — solid**, with Attribution Health C still the leading trust-fix surface.
+
+### Whether any customer-facing rec labels changed
+
+**No.** Customer UI was already correct pre-T6.5. The `<DerivedConfidencePill>` component reads `row.derivedConfidence`, which the row builder has been computing correctly since T4.4. This mini-phase is a scripts-only fix to align internal reporting with what the UI was always showing.
+
+### T6.6 readiness
+
+Nothing in this mini-phase blocks T6.6 (URL normalization). Different surface entirely (rec target_url ↔ outcome url) — proceed.
+
+### Verification
+
+- ✅ `npm run typecheck` — clean.
+- ✅ `npm run test` — **309/309 files / 5008/5008 tests** (+2 files +15 tests vs T6.4 baseline of 307/4993).
+- ✅ `npm run build` — green.
+- ✅ `scripts/verify-tenant-data-integrity.ts` — PASS (28 recs / 16,321 obs / 9,796 snapshots, all `tenant-ritz-founder`-scoped).
+- ✅ `scripts/verify-observation-dedup-integrity.ts` — PASS (0 duplicate logical keys).
+- ✅ `.data/global/llm-budget.json` SHA = `d36eed8ca157cb4c65ee01a2c51a2fef3fb21a0dfdbb036753d6d7c570927dbd` — byte-identical with T6.4 baseline.
+- ✅ Zero OpenAI calls. Zero paid polling. Zero row mutations.
+- ✅ No second tenant. No RLS / auth / Profound / onboarding / billing.
+
+### Hard-constraint compliance
+
+- ✅ Scripts-only — no engine changes, no schema changes, no UI changes.
+- ✅ Did NOT mutate persisted rec rows (T4.4 design preserved).
+- ✅ Customer copy unchanged. UI was already correct.
+- ✅ No broad refactors. Tests TIGHTEN the contract.
+- ✅ Internal rigor: scripts now report BOTH persisted and derived so future drift in either direction is visible.
+
+### What the next mini-phase should be
+
+**T6.6 — URL normalization at rec build/outcome boundary.** Add a stable `urlToPath()` helper used consistently by analysis scripts + (if safe) the row builder. Current state: T6.3's analyzer normalizes at read-time; production write-side may also need the helper if write-time normalization passes the safety check.
+
+---
+
 ## 2026-05-06 — Trust Sprint Mini-Phase T6.4 — Executive confidence layer (default-surface copy)
 
 Operationalizes the second half of the trust-sprint principle on customer-visible surfaces:

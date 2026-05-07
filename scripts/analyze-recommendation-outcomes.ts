@@ -42,6 +42,8 @@ if (existsSync(envPath)) {
 import { readRecommendedEditsLocal } from "../src/domains/recommendations/recommended-edits-persistence";
 import { getUrlChangeOutcomes } from "../src/domains/attribution/url-change-outcome";
 import type { RecommendedEditRow, ImplementationStatus } from "../src/domains/recommendations/recommended-edits-persistence";
+import { deriveConfidence, type DerivedConfidenceLabel } from "../src/domains/recommendations/derived-confidence";
+import { computeEvidenceDepth } from "../src/domains/recommendations/recommendation-action-rows";
 
 const REPO_ROOT = resolve(__dirname, "..");
 const REPORTS_DIR = join(REPO_ROOT, ".data", "_reports");
@@ -107,7 +109,17 @@ function analyzeSourceFunnel(recs: RecommendedEditRow[]) {
 }
 
 function analyzeConfidenceFunnel(recs: RecommendedEditRow[]) {
-  const out: Record<string, { total: number; reviewed: number; shipped: number; ship_rate_of_reviewed: string }> = {};
+  // T6.5 (2026-05-06) — REPORT BOTH PERSISTED AND DERIVED.
+  //
+  // Persisted `confidence` is intentionally not mutated (T4.4 commit
+  // 72b8675). Customer UI reads `derivedConfidence` via
+  // <DerivedConfidencePill>. Scripts that read recommended_edits.json
+  // directly must compute derived at read-time.
+  //
+  // Pre-T6.5: this analyzer reported only persisted, which read 100%
+  // medium and was misleading.
+
+  const persisted: Record<string, { total: number; reviewed: number; shipped: number; ship_rate_of_reviewed: string }> = {};
   for (const conf of ["high", "medium", "low"] as const) {
     const subset = recs.filter((r) => r.confidence === conf);
     const reviewed = subset.filter((r) => {
@@ -118,14 +130,48 @@ function analyzeConfidenceFunnel(recs: RecommendedEditRow[]) {
       const st = statusOf(r);
       return st === "accepted" || st === "verified_live" || st === "verified_live_modified";
     }).length;
-    out[conf] = {
+    persisted[conf] = {
       total: subset.length,
       reviewed,
       shipped,
       ship_rate_of_reviewed: pct(shipped, reviewed),
     };
   }
-  return out;
+
+  const derived: Record<DerivedConfidenceLabel, { total: number; reviewed: number; shipped: number; ship_rate_of_reviewed: string }> = {
+    strong_evidence: { total: 0, reviewed: 0, shipped: 0, ship_rate_of_reviewed: "—" },
+    moderate_evidence: { total: 0, reviewed: 0, shipped: 0, ship_rate_of_reviewed: "—" },
+    needs_review: { total: 0, reviewed: 0, shipped: 0, ship_rate_of_reviewed: "—" },
+  };
+  for (const r of recs) {
+    const refs = r.evidence ?? [];
+    const isFaqAnswer = (r.target_element_key ?? "").startsWith("faq_answer[");
+    const lbl = deriveConfidence({
+      evidenceRefs: refs,
+      evidenceDepth: computeEvidenceDepth(refs),
+      affectedPromptCount: refs.filter((x) => x.type === "prompt").length,
+      isFaqAnswer,
+      hasTopCompetitor: refs.some((x) => x.type === "competitor"),
+    });
+    derived[lbl].total += 1;
+    const st = statusOf(r);
+    if (st === "accepted" || st === "verified_live" || st === "verified_live_modified" || st === "dismissed") {
+      derived[lbl].reviewed += 1;
+    }
+    if (st === "accepted" || st === "verified_live" || st === "verified_live_modified") {
+      derived[lbl].shipped += 1;
+    }
+  }
+  for (const lbl of ["strong_evidence", "moderate_evidence", "needs_review"] as const) {
+    derived[lbl].ship_rate_of_reviewed = pct(derived[lbl].shipped, derived[lbl].reviewed);
+  }
+
+  return {
+    persisted,
+    derived,
+    note:
+      "Persisted is the legacy `confidence` column on recommended_edits.json — intentionally NOT mutated by T4.4. Derived is the customer-facing label rendered by <DerivedConfidencePill>. Pre-T6.5 this analyzer reported only persisted and falsely flagged the queue as 100% medium.",
+  };
 }
 
 function analyzeTimeToLive(recs: RecommendedEditRow[]) {
@@ -277,9 +323,15 @@ function renderReport(report: any): string {
   }
   lines.push("");
   lines.push(`## 3. Confidence funnel`);
-  for (const [conf, row] of Object.entries(report.confidence_funnel as Record<string, any>)) {
+  lines.push(`### Persisted (legacy column — T4.4 intentionally leaves untouched):`);
+  for (const [conf, row] of Object.entries(report.confidence_funnel.persisted as Record<string, any>)) {
     lines.push(`  ${conf.padEnd(8)} total ${row.total}, reviewed ${row.reviewed}, shipped ${row.shipped} (ship-rate of reviewed: ${row.ship_rate_of_reviewed})`);
   }
+  lines.push(`### Derived (T4.4 customer-facing label, computed from evidence at read-time):`);
+  for (const [lbl, row] of Object.entries(report.confidence_funnel.derived as Record<string, any>)) {
+    lines.push(`  ${lbl.padEnd(20)} total ${row.total}, reviewed ${row.reviewed}, shipped ${row.shipped} (ship-rate of reviewed: ${row.ship_rate_of_reviewed})`);
+  }
+  lines.push(`  note: ${report.confidence_funnel.note}`);
   lines.push("");
   lines.push(`## 4. Time to live`);
   lines.push(`  verified_live count: ${report.time_to_live.verified_live_count}`);
