@@ -7,6 +7,88 @@
 
 ---
 
+## 2026-05-07 — Self-serve onboarding Gap C.3: competitors step (1-5 builders to track)
+
+Fifth step in customer-onboarding pipeline (Gap A → Gap B → Gap C.1 → Gap C.2 → Gap C.3). Replaces the Gap C.2 placeholder at `/onboard/competitors` with a real step-3 form that collects 1-5 competitor names and writes `discovered_competitors` to the existing pending tenant row, then redirects to a new `/onboard/review` step-4 placeholder. Same pattern + safety guards as Gap C.1 + C.2: pure validation, status-gated UPDATE, only `tenants` table touched, no activation, no prompts, no paid APIs.
+
+**Reversible**: ordinary `tenants` row UPDATEs; operator can revert via Supabase. No schema changes, no new tables.
+
+### What changed
+
+**New — `src/domains/onboarding/competitors-validation.ts`** (~115 lines, pure):
+- `normalizeCompetitorList(input)` — accepts string OR array; same newline-then-comma split policy as scope-validation; trims; drops empty + over-long tokens (`COMPETITOR_NAME_MAX_LENGTH = 100`); preserves user case (does NOT title-case — operator brand names like `deMattei` and `BNB Builders` stay as typed); deduplicates case-insensitively (first-occurrence wins); type-safe vs undefined/null/non-string elements.
+- `validateCompetitorsProfile({ competitors })` — rules: ≥ `COMPETITORS_MIN_COUNT = 1`, ≤ `COMPETITORS_MAX_COUNT = 5`. Rejects bare URLs/domains: if EVERY entry looks URL-shaped, error says "Enter competitor names, not website URLs"; if ANY entry is URL-shaped, error names the offender so operator can fix. Heuristic: token "looks URL-shaped" if `normalizeDomain(token)` accepts it AND token has no whitespace (real names usually have spaces; single-word brands like `Houzz` don't match because normalizeDomain rejects single-label inputs).
+
+**New — `src/app/(shell)/onboard/competitors/competitors-form.tsx`** (client component):
+- Single multi-line textarea for competitor names (5 rows, monospace, hint shows newline + comma support, "company names not URLs" guidance, max-count visible). No payment / passwords / Stripe / CVV. No checkboxes / radios / selects (pure text input). Submit via `useTransition` + `saveCompetitorsProfile`. Per-field error rendering. NEXT_REDIRECT propagation. Humanized error codes for UI.
+
+**New — `src/app/(shell)/onboard/competitors/actions.ts`** (server action, `"use server"`):
+- `saveCompetitorsProfile({ competitors })`. Validate (pure) → resolve user from session → look up tenant → `UPDATE tenants SET discovered_competitors, updated_at WHERE id = ? AND status = 'pending_onboarding'` (count: 'exact'). On `count === 0` returns `{ error: 'already_launched' }`. On success calls `redirect('/onboard/review')`. **Touches ONLY the `tenants` table.** No tracked_prompts/tracked_entities/observations/recommended_edits/snapshots. No openai/perplexity/runNativePoll/runWebsiteScan/acceptAllHighConfidence/syncRecommendedEdits.
+
+**Replaced — `src/app/(shell)/onboard/competitors/page.tsx`**:
+- Was: Gap C.2 placeholder echoing saved business + cities + project_mix.
+- Now: server component (force-dynamic) calling `requireOnboardingTenant()`, rendering OnboardingShell `step={3}` with the saved-so-far summary (business + website + cities + work) + `<CompetitorsForm>` initialized from saved `discovered_competitors`. Back-link to `/onboard/scope`.
+
+**New — `src/app/(shell)/onboard/review/page.tsx`** (placeholder for step 4):
+- Same access guard. force-dynamic. OnboardingShell `step={4}`. Renders the full saved-so-far summary (business, website, cities, work, competitors) + a "Next: review and launch" preview block. **No Launch button.** ZERO inputs / forms / selects / textareas. ZERO mutations. No `status: "active"` literal anywhere. Back-link to /onboard/competitors. Gap C.4 will replace this placeholder with the real Launch step.
+
+**Tests added**:
+
+**New — `src/domains/onboarding/competitors-validation.test.ts`** (24 unit tests):
+- `normalizeCompetitorList` string input: comma split, newline split, case-preservation (no title-case), case-insensitive dedupe, empty-token drop, over-long-token rejection, empty/whitespace input.
+- `normalizeCompetitorList` array input: array of strings, dedupe within array, ignore non-string elements safely, return [] for non-array non-string.
+- `validateCompetitorsProfile` accept paths: single competitor (boundary: min), exactly COMPETITORS_MAX_COUNT (boundary: max), clean comma-separated list, dedupe before counting.
+- `validateCompetitorsProfile` reject paths: empty input, whitespace-only input, > MAX, all-URL-shape input, mixed-list with one URL token (error names the offender), single-word brands NOT URL-shaped (e.g. `Houzz`) are accepted, name with domain-like substring + whitespace (e.g. `Acme.com Builders`) is accepted, missing keys safety.
+- Constant pin: COMPETITORS_MIN_COUNT = 1, COMPETITORS_MAX_COUNT = 5.
+
+**New — `tests/architecture/onboard-competitors-step-contract.test.ts`** (48 invariants):
+- /onboard/competitors: page + form + action exist; force-dynamic; uses requireOnboardingTenant + OnboardingShell step={3}; renders CompetitorsForm; form has competitors textarea (no other input types — no password/payment/Stripe/CVV/checkbox/radio/select).
+- saveCompetitorsProfile: marked `"use server"`; uses validateCompetitorsProfile + getSupabaseAdmin; UPDATE gated by `.eq("id",...).eq("status","pending_onboarding")`; never sets `status: "active"`; touches ONLY `tenants` table; no openai/perplexity/runNativePoll/runWebsiteScan/acceptAllHighConfidence/syncRecommendedEdits; redirects to `/onboard/review` on success; returns `validation_failed` on bad input; surfaces `already_launched` on race; **field-set pin**: UPDATE block writes EXACTLY `discovered_competitors`, `updated_at` (and nothing else).
+- /onboard/review placeholder: file exists; force-dynamic; uses access guard; step={4}; **no `<button>` element** (Launch deferred to Gap C.4); no `<input>`/`<form>`/`<select>`/`<textarea>`; no upsert/insert/update/delete; no paid APIs; never flips status to 'active'.
+- competitors-validation exports: `normalizeCompetitorList` + `validateCompetitorsProfile` + `COMPETITORS_MAX_COUNT` + `COMPETITORS_MIN_COUNT`.
+- Cross-check: `scripts/list-active-tenants.ts` still filters `status='active'`; nothing in /onboard/competitors or /onboard/review flips status to 'active'; nothing creates prompts or tracked_entities.
+- **Cross-page customer-safe-language sweep**: every public-facing onboarding tsx (signup page + signup form + business page/form + scope page/form + competitors page/form + review page + onboarding-shell) must NOT render `tenant`/`admin`/`RLS`/`schema`/`Supabase`/`cron`/`GitHub` in the visitor's text. Strip helper now also removes import statements + identifier-style references (e.g. `getSupabaseServerClient`, `Tenant*`) so code-level identifiers don't false-positive. Defensive coverage check: every .tsx under `src/app/(shell)/onboard` is included in the sweep list (so adding a new onboarding page that bypasses the sweep is a build-time error).
+
+**Modified — `tests/architecture/onboard-scope-step-contract.test.ts`**:
+- Updated Gap C.2's `/onboard/competitors` describe block: dropped placeholder-only assertions (now superseded by Gap C.3 form contract). Kept route-level invariants (file exists, force-dynamic, page itself doesn't mutate / call paid APIs, no tenant/admin/RLS/schema language).
+
+### Quality gates run
+
+| Gate | Result |
+|------|--------|
+| `npm run typecheck` | CLEAN |
+| `npm run test` (5998 tests) | 5998 PASS (+74 vs Gap C.2 baseline 5924) |
+| Targeted (8 onboarding test files) | 241/241 PASS |
+| `npm run build` | exit 0 — `/onboard/business`, `/onboard/scope`, `/onboard/competitors`, `/onboard/review` all listed as ƒ Dynamic |
+| `verify-tenant-data-integrity` | PASS — all tenant-ownership invariants satisfied |
+| `verify-observation-dedup-integrity` | PASS — 0 duplicate logical keys |
+| `verify-verdict-rematerialization-integrity` | PASS — drift=0 |
+| `npm run verify:brain-health` | YELLOW — 7 PASS / 1 WARN (queue idle, pre-existing) |
+| LLM budget SHA byte-identical | YES — `5303c16f04…` unchanged from Gap C.2 |
+
+### Verified behavior
+
+- **Step 3 form**: visitor at `/onboard/competitors` sees full saved-so-far summary (business + website + cities + project_mix labels) + competitors textarea (pre-filled from saved data, one per line). Submits → action validates + UPDATEs tenants row → redirects to `/onboard/review`.
+- **Step 4 placeholder**: shows complete saved profile (business, website, cities, work, competitors). No Launch button. No inputs. No mutations.
+- **Validation rejections**: empty input, > 5 competitors, all-URL list, mixed list with one URL token (error names the offender) all rejected with clear messages.
+- **Competitor normalization**: case preserved (`deMattei` stays `deMattei`); case-insensitive dedupe (`Kasten`/`kasten`/`KASTEN` → first wins); newline-separated input → multi-line list; comma-separated input → flat list.
+- **Status guard holds**: action UPDATE filtered by `status = 'pending_onboarding'`; if a race flips the tenant active first, count=0 → surfaces `already_launched`.
+- **Pending tenants invisible to cron**: pinned by Gap A's lister filter `status='active'` AND new architecture invariants in onboard-competitors-step-contract.test.ts.
+
+### Out of scope (deferred to Gap C.4 + later)
+
+- Launch step at /onboard/review — Gap C.4. The ONLY step that flips `tenants.status` from `pending_onboarding` → `active`. Will set `tos_accepted_at`, accept TOS, and on confirm redirect to `/today`.
+- Auto-detect from homepage crawl — Gap D.
+- Auto-prompt generation — Gap E.
+- Day-0 first poll trigger — Gap F.
+- Operator alerts on new signups — Gap G.
+
+### What this unlocks
+
+A real customer can now sign up at /signup → magic-link → /auth/callback (Gap B provisioning) → /onboard/business (Gap C.1) → /onboard/scope (Gap C.2) → /onboard/competitors (Gap C.3, NEW) → /onboard/review (placeholder, awaiting Gap C.4 Launch). The wizard now collects 100% of step-1-through-step-3 inputs needed before activation: `business_name`, `domain`, `cities_served`, `project_mix`, `discovered_competitors`. Only the Launch step remains.
+
+---
+
 ## 2026-05-07 — Self-serve onboarding Gap C.2: scope step (cities + services)
 
 Fourth step in customer-onboarding pipeline (Gap A → Gap B → Gap C.1 → Gap C.2). Replaces the Gap C.1 placeholder at `/onboard/scope` with a real step-2 form (cities served + project_mix) that writes to the existing pending tenant row, then redirects to a new `/onboard/competitors` step-3 placeholder. Same pattern + safety guards as Gap C.1: pure validation, status-gated UPDATE, only `tenants` table touched, no activation, no prompts, no paid APIs.

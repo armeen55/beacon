@@ -174,7 +174,13 @@ describe("Gap C.2 — saveScopeProfile server action contract", () => {
   });
 });
 
-describe("Gap C.2 — /onboard/competitors placeholder (step 3 awaiting C.3)", () => {
+describe("Gap C.2 — /onboard/competitors route exists (form contract owned by Gap C.3)", () => {
+  // Gap C.2 introduced /onboard/competitors as a placeholder. Gap C.3
+  // then replaced the placeholder with a real form. The form contract
+  // (inputs, action, redirects) is owned by
+  // tests/architecture/onboard-competitors-step-contract.test.ts.
+  // Here we keep just the route-level invariants Gap C.2 established.
+
   it("page exists at src/app/(shell)/onboard/competitors/page.tsx", () => {
     expect(existsSync(COMPETITORS_PAGE)).toBe(true);
   });
@@ -188,14 +194,7 @@ describe("Gap C.2 — /onboard/competitors placeholder (step 3 awaiting C.3)", (
     expect(COMPETITORS_SRC).toMatch(/<OnboardingShell[\s\S]*?step=\{3\}/);
   });
 
-  it("does NOT collect inputs (placeholder only)", () => {
-    expect(COMPETITORS_SRC).not.toMatch(/<input/);
-    expect(COMPETITORS_SRC).not.toMatch(/<form/);
-    expect(COMPETITORS_SRC).not.toMatch(/<select/);
-    expect(COMPETITORS_SRC).not.toMatch(/<textarea/);
-  });
-
-  it("does NOT mutate persisted rows or call paid APIs", () => {
+  it("page itself does NOT mutate persisted rows or call paid APIs (writes go through the action)", () => {
     expect(COMPETITORS_SRC).not.toContain("openai");
     expect(COMPETITORS_SRC).not.toContain("perplexity");
     expect(COMPETITORS_SRC).not.toContain("runNativePoll");
