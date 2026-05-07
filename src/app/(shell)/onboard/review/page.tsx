@@ -1,25 +1,30 @@
 /**
- * /onboard/review — Gap E.1 step 4 (2026-05-07).
+ * /onboard/review — Gap C.4 step 4 (2026-05-07).
  *
- * After step 3 (competitors) saves, we land here. Today this is the
- * starter-prompt preview surface:
+ * Final review + Launch. Replaces the Gap E.1 preview-only surface
+ * with the actual Launch step:
  *
  *   - shows the full saved-so-far summary (business + website + cities
  *     + services + competitors)
  *   - generates a deterministic preview of the prompts Beacon will
- *     start tracking once the operator launches (up to 25)
+ *     start tracking (up to 25)
  *   - groups the preview by family (brand / competitor / city / cost)
- *   - does NOT include a Launch button (Gap C.4 owns Launch)
- *   - does NOT activate the tenant
- *   - does NOT persist prompts to tracked_prompts (Gap C.4 will
- *     persist + flip status atomically)
- *   - does NOT call paid APIs
+ *   - presents the TOS checkbox + Launch button (LaunchForm)
+ *   - on Launch, the server action `launchTenant`:
+ *       1. inserts the prompts into tracked_prompts (account_id=slug)
+ *       2. flips tenants.status from 'pending_onboarding' → 'active'
+ *       3. sets tos_accepted_at + updated_at
+ *       4. redirects to /today
+ *
+ * The Launch step is the FIRST and ONLY code path that flips status
+ * to 'active'. Before this fires, the tenant is invisible to cron.
  *
  * Access guard: only status=pending_onboarding tenants land here.
+ * Already-launched tenants are redirected to /today by the access
+ * guard (or by launchTenant if they retry the action).
  *
- * Persistence: PREVIEW-ONLY. The generator is pure + deterministic, so
- * we re-derive the list on every render. No DB write, no JSON write,
- * no race surface.
+ * Page itself does NOT mutate. The LaunchForm posts to the server
+ * action which owns the writes.
  */
 
 import Link from "next/link";
@@ -32,6 +37,7 @@ import {
   type PromptDraft,
 } from "@/domains/onboarding/prompt-generator";
 import type { ProjectMixTag } from "@/domains/tenants/types";
+import { LaunchForm } from "./launch-form";
 
 export const dynamic = "force-dynamic";
 
@@ -78,8 +84,8 @@ export default async function OnboardReviewPage() {
   return (
     <OnboardingShell
       step={4}
-      title="Review your starter prompts"
-      subtitle="Beacon will start by tracking these prompts. The Launch step is next."
+      title="Review and launch"
+      subtitle="Beacon will start tracking these prompts on the next daily reading."
     >
       <div className="space-y-5">
         <div className="rounded-md border border-foreground/15 p-4 text-[13px] space-y-3">
@@ -148,15 +154,7 @@ export default async function OnboardReviewPage() {
           </div>
         )}
 
-        <div className="rounded-md border border-foreground/10 bg-surface-inset/40 p-4 text-[13px] space-y-2">
-          <p className="font-medium">Launch comes next</p>
-          <p className="text-muted-foreground">
-            We're wiring up the Launch step now. When it's ready, you'll
-            confirm the prompts above and Beacon will start watching how
-            AI search engines describe you. Your first reading lands the
-            following morning.
-          </p>
-        </div>
+        <LaunchForm promptCount={drafts.length} />
 
         <div className="flex items-center gap-3 pt-2">
           <Link

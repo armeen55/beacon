@@ -303,6 +303,8 @@ describe("Gap C.3 — customer-safe-language sweep across all onboarding pages",
     join(REPO_ROOT, "src/app/(shell)/onboard/competitors/page.tsx"),
     join(REPO_ROOT, "src/app/(shell)/onboard/competitors/competitors-form.tsx"),
     join(REPO_ROOT, "src/app/(shell)/onboard/review/page.tsx"),
+    // Gap C.4 added LaunchForm (client component) to /onboard/review.
+    join(REPO_ROOT, "src/app/(shell)/onboard/review/launch-form.tsx"),
     join(REPO_ROOT, "src/components/onboard/onboarding-shell.tsx"),
   ];
 

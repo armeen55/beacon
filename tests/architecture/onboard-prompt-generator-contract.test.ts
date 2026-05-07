@@ -175,12 +175,18 @@ describe("Gap E.1 — /onboard/review renders the generated preview", () => {
   });
 
   it("renders the Beacon-will-track copy", () => {
-    expect(REVIEW_SRC).toMatch(/Beacon will start by tracking/i);
+    // Gap C.4 changed the copy — review page now says "Beacon will
+    // start tracking these prompts on the next daily reading."
+    expect(REVIEW_SRC).toMatch(/Beacon will start tracking these prompts/i);
   });
 });
 
-describe("Gap E.1 — /onboard/review is preview-only (no persistence)", () => {
-  it("does NOT write to tracked_prompts (preview-only contract)", () => {
+describe("Gap E.1 — /onboard/review page itself is read-only (writes go through Launch action)", () => {
+  // Gap C.4 added the Launch action. The PAGE itself still does not
+  // write — writes happen in the action invoked by LaunchForm. These
+  // invariants pin that the server component is a pure read.
+
+  it("page does NOT directly query tracked_prompts (writes are in actions.ts)", () => {
     const code = stripComments(REVIEW_SRC);
     expect(code).not.toMatch(/\.from\(["']tracked_prompts["']\)/);
     expect(code).not.toMatch(/insertTrackedPrompt/);
@@ -188,33 +194,29 @@ describe("Gap E.1 — /onboard/review is preview-only (no persistence)", () => {
     expect(code).not.toMatch(/syncTrackedPrompts/);
   });
 
-  it("does NOT write to ANY persisted store", () => {
+  it("page does NOT directly write to ANY persisted store", () => {
     expect(REVIEW_SRC).not.toMatch(/\.upsert\(/);
     expect(REVIEW_SRC).not.toMatch(/\.insert\(/);
     expect(REVIEW_SRC).not.toMatch(/\.update\(/);
     expect(REVIEW_SRC).not.toMatch(/\.delete\(/);
   });
 
-  it("does NOT call paid APIs", () => {
+  it("page does NOT call paid APIs", () => {
     expect(REVIEW_SRC).not.toContain("openai");
     expect(REVIEW_SRC).not.toContain("perplexity");
     expect(REVIEW_SRC).not.toContain("runNativePoll");
     expect(REVIEW_SRC).not.toContain("runWebsiteScan");
   });
 
-  it("does NOT include a Launch button (Gap C.4 owns Launch)", () => {
-    expect(REVIEW_SRC).not.toMatch(/<button/);
-  });
-
-  it("does NOT flip tenant status to 'active'", () => {
+  it("page does NOT directly flip tenant status to 'active' (only the action does)", () => {
     const code = stripComments(REVIEW_SRC);
     expect(code).not.toMatch(/status:\s*"active"/);
     expect(code).not.toMatch(/"active"\s*as\s*const/);
   });
 
-  it("does NOT call any server action that writes to tenants", () => {
-    // The page is a server component that only reads via the access
-    // guard and then renders. No saveX / launchX / activateX calls.
+  it("page does NOT directly invoke any server action (LaunchForm does)", () => {
+    // The page is a server component that resolves data + renders.
+    // Action calls happen in the client form (LaunchForm).
     const code = stripComments(REVIEW_SRC);
     expect(code).not.toMatch(/\bsaveBusinessProfile\(/);
     expect(code).not.toMatch(/\bsaveScopeProfile\(/);

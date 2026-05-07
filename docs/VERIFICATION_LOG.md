@@ -7,6 +7,128 @@
 
 ---
 
+## 2026-05-07 — Self-serve onboarding Gap C.4: Launch step (the FIRST status='active' code path)
+
+Seventh step in customer-onboarding pipeline (Gap A → Gap B → Gap C.1 → Gap C.2 → Gap C.3 → Gap E.1 → Gap C.4). Adds the Launch surface at `/onboard/review` and the `launchTenant()` server action — the FIRST and ONLY code path that flips `tenants.status` from `pending_onboarding` to `active`. From this point forward, the next 07:00 UTC cron will include the launched tenant in its matrix (Gap A's lister filters `status='active'`) and poll the prompts that were just persisted.
+
+**Highest-safety mini-phase to date.** Treated with corresponding rigor: full preflight on schema + atomicity options before any code, app-layer dedup, double-click-safe lock-out, explicit rollback on flip failure, 23 behavioral tests against an in-memory Supabase mock, 34 architecture invariants pinning every safety contract.
+
+### Preflight findings (informed atomicity decision)
+
+- **`tracked_prompts` schema**: tenant scoping via `account_id` (= `tenants.slug`). No unique index on `(account_id, text)`. Required fields: `id` (manual UUID), `account_id`, `text`, `is_active`. Optional: `topic_id`, `location_scope`, `service_scope`, `intent_type`, `platforms`, `tags`. No CHECK on intent_type's enum from inspection of existing operator-row inserts.
+- **No RPC infrastructure**: Codebase has zero Postgres stored procedures. supabase-js doesn't natively support multi-statement transactions in a single round-trip.
+- **Cron filter chain**: `daily-native-poll.yml` (07:00 UTC) → `list-active-tenants.ts` filters `tenants.status='active'` (Gap A) → matrix dispatch → adapter `.filter(p => p.is_active)`. Pending tenants invisible at the tenant level; Gap A is the primary guard.
+- **Three atomicity options considered**:
+  - (A) New stored-procedure RPC migration: rejected — adds new infrastructure for a single use case.
+  - (B) Insert prompts BEFORE flip + rollback DELETE on flip error: **chosen** — keeps the safety contract "active tenant always has prompts" because the flip is the single atomic gate.
+  - (C) Insert as `is_active=false`, then atomically flip both: rejected — the "atomic" flip would still need two separate calls (no transaction support), creating an even worse failure mode (active tenant + inactive prompts → cron polls zero prompts).
+
+### What changed
+
+**New — `src/app/(shell)/onboard/review/launch-flow.ts`** (~210 lines, pure-injected helpers):
+- `LaunchTransactionOutcome` type: `{ kind: "redirect", to: "/today", reason: "success" | "already_launched" | "race_lost" }` or `{ kind: "error", error: string }`. Helper never throws — caller decides whether to invoke Next.js `redirect()`.
+- `buildTrackedPromptRow({ draft, accountId, now, id? })`: pure mapper from `PromptDraft` to a `tracked_prompts` row. Defaults: `intent_type="recommendation"`, `platforms=["perplexity","chatgpt"]`, `tags=["starter_v0", cluster, "priority-N"]`, `is_active=true`. Auto-generates `id` as `prompt-${randomUUID()}` when not given.
+- `executeLaunchTransaction({ admin, tenantId, now })`: the full launch flow with injected dependencies — fetches tenant, validates status, regenerates prompts server-side, dedups against existing `tracked_prompts.text` (case-insensitive), bulk-INSERTs new prompts (`is_active=true`), then UPDATEs `tenants` with double-click guard. On UPDATE error, DELETEs the inserted prompts by id (rollback). On UPDATE 0-rows (race lost or already activated), keeps prompts (they're now legitimate parts of the active tenant).
+- Lives in its own non-`"use server"` module so test fixtures can import the helpers without violating Server Action constraints (which require every export to be async).
+
+**New — `src/app/(shell)/onboard/review/actions.ts`** (`"use server"`, ~95 lines):
+- `launchTenant({ tosAccepted })`: thin wrapper. Validates TOS, resolves user from session, looks up tenant via `tenant_members`, delegates to `executeLaunchTransaction`, then translates the `redirect` outcome into a Next.js `redirect()` call.
+- Only exports async functions (Next.js Server Action constraint).
+
+**New — `src/app/(shell)/onboard/review/launch-form.tsx`** (client component):
+- TOS checkbox with pill-style checked state. "Launch Beacon" button disabled until TOS accepted AND `promptCount > 0`. Submits via `useTransition` + `launchTenant`. NEXT_REDIRECT propagation. Humanized error codes for UI. **Calls action with ONLY `{ tosAccepted }` — never sends prompt list from client.**
+
+**Modified — `src/app/(shell)/onboard/review/page.tsx`**:
+- Subtitle changed to "Beacon will start tracking these prompts on the next daily reading."
+- Removed the "Launch comes next" preview block.
+- Added `<LaunchForm promptCount={drafts.length} />` between the prompt preview and the Back link.
+- Page itself still does NOT mutate; writes go through the action.
+
+### Atomicity contract (the SAFETY core)
+
+Order of operations in `executeLaunchTransaction`:
+1. Fetch tenant. Status check: if `'active'` → redirect (already launched); if not `'pending_onboarding'` → error.
+2. Regenerate prompts via `generateStarterPrompts(tenant.*)`. NEVER trust client. Reject if 0 prompts.
+3. SELECT `tracked_prompts.text WHERE account_id = tenant.slug` → build dedup set (lowercased).
+4. **INSERT new prompts** (`is_active=true`) into `tracked_prompts`. Bulk insert. Track inserted IDs.
+5. **UPDATE tenants** SET status='active', tos_accepted_at=now, updated_at=now WHERE id=? AND status='pending_onboarding' AND tos_accepted_at IS NULL.
+6. If UPDATE returns 1 row → success → redirect to /today.
+7. If UPDATE errors → DELETE prompts by id WHERE account_id=tenant.slug (rollback) → return error.
+8. If UPDATE returns 0 rows → race lost OR already activated by another path → DO NOT roll back → redirect to /today.
+
+The "active tenant with zero prompts" failure mode is impossible: if step 5 succeeds, step 4 already succeeded. If step 4 fails, step 5 doesn't run.
+
+### Double-click safety
+
+`UPDATE WHERE status='pending_onboarding' AND tos_accepted_at IS NULL`. After the first call sets `tos_accepted_at`, a second call's WHERE clause excludes the row → 0 rows updated → redirect to /today. No duplicate status flip. Prompt-level dedup via the SELECT-then-filter prevents most duplicate inserts; the rare race surviving dedup produces duplicate-text rows that still poll correctly (mild waste, no data corruption).
+
+### Tests added
+
+**New — `src/app/(shell)/onboard/review/launch-flow.test.ts`** (23 behavioral tests with in-memory Supabase mock — no network, no env vars):
+- `buildTrackedPromptRow`: maps draft fields, defaults intent_type/platforms, includes tags (starter_v0 + cluster + priority-N), auto-generates id.
+- Happy path: prompts insert before status flip; tenant becomes active with TOS + updated_at; prompts have correct scope; all 4 generator families present.
+- Dedup: skips inserts for pre-existing texts; case-insensitive; activates tenant even when ALL prompts pre-existing (resumed launch).
+- Already-launched: tenant.status='active' → redirect (no inserts/updates).
+- Race lost: UPDATE returns 0 rows (simulated via tos_accepted_at != null mid-flight) → redirect, prompts NOT rolled back.
+- Validation errors: empty profile → no_prompts_generated, paused tenant → invalid_status, cancelled tenant → invalid_status, missing tenant → tenant_missing.
+- Failure rollback: prompt insert fails → tenant unchanged, no prompts persist; status flip fails → rollback DELETEs prompts; tenant fetch fails → no inserts/updates; existing-prompts fetch fails → no inserts/updates.
+- Tenant isolation: Ritz prompts (account_id='ritz-builders') untouched even when launching a different tenant; rollback DELETE only affects this tenant's prompts.
+
+**New — `tests/architecture/onboard-launch-step-contract.test.ts`** (34 invariants):
+- Files exist; `/onboard/review` force-dynamic + access guard + renders `<LaunchForm>`; page itself does NOT mutate.
+- LaunchForm UX: button disabled until TOS checked; TOS checkbox present; calls `launchTenant({tosAccepted})` only (no prompt list); no payment/passwords/Stripe; no tenant/admin/RLS/schema/Supabase/cron/GitHub language.
+- launchTenant action: `"use server"`; resolves user via `supabase.auth.getUser()`; looks up tenant via `lookupExistingMembership`; LaunchTenantInput type pinned at `{tosAccepted: boolean}` only (no tenantId from input).
+- launchTenant flow helper: regenerates prompts SERVER-SIDE via `generateStarterPrompts`; returns `no_prompts_generated` on empty; UPDATE has double-click guard (`status='pending_onboarding'` AND `tos_accepted_at IS NULL`); UPDATE flips status='active' + sets tos_accepted_at + updated_at; **the activating UPDATE is the ONLY place `status:"active"` appears in the launch sources** (combined wrapper + helper); INSERT runs BEFORE UPDATE; rollback DELETE filters by both id IN (...) AND account_id; inserted prompts have account_id sourced from tenant.slug; is_active=true.
+- No paid APIs / no immediate poll: combined sources contain no openai/perplexity/anthropic adapter imports, no fetch(), no runNativePoll/runWebsiteScan/triggerPoll/`/api/poll/run`.
+- Redirect target: only `/today`. No other redirect destinations.
+- Touched tables: only `tenants`, `tracked_prompts`, `tenant_members` (read via lookupExistingMembership).
+- Cross-check: list-active-tenants.ts still filters `status='active'`; nothing in Gap C.1/C.2/C.3 actions sets status='active' (only the launch action does); Ritz prompts pinned via account_id scoping in INSERT/SELECT/DELETE.
+- Customer-safe sweep: /onboard/review renders no tenant/admin/RLS/schema/Supabase/cron/GitHub.
+
+**Modified — `tests/architecture/onboard-prompt-generator-contract.test.ts`** (E.1 reconciliation):
+- "Beacon will start by tracking" copy assertion → "Beacon will start tracking these prompts" (Gap C.4 changed copy).
+- "preview-only / no Launch button" describe block renamed to "page itself is read-only (writes go through Launch action)" — Gap C.4 added a Launch button via the LaunchForm child component, but the page server component itself still doesn't mutate.
+
+**Modified — `tests/architecture/onboard-competitors-step-contract.test.ts`** (cross-page sweep coverage):
+- Added `src/app/(shell)/onboard/review/launch-form.tsx` to PUBLIC_FACING_PAGES list. The defensive coverage check (every .tsx under `(shell)/onboard` must be in the sweep) caught the omission.
+
+### Quality gates run
+
+| Gate | Result |
+|------|--------|
+| `npm run typecheck` | CLEAN |
+| `npm run test` (6113 tests) | 6113 PASS (+61 vs Gap E.1 baseline 6052) |
+| Targeted (12 onboarding test files: 353 tests + new launch-flow + onboard-launch invariants = 410 expected, see breakdown) | 410/410 PASS across 13 files |
+| `npm run build` | exit 0 — `/onboard/business`, `/onboard/scope`, `/onboard/competitors`, `/onboard/review` all listed as ƒ Dynamic |
+| `verify-tenant-data-integrity` | PASS — Ritz row counts UNCHANGED (9896/16521/28) — confirms zero mutations to existing tenant during code changes |
+| `verify-observation-dedup-integrity` | PASS — 0 duplicate logical keys |
+| `verify-verdict-rematerialization-integrity` | PASS — drift=0 |
+| `npm run verify:brain-health` | YELLOW — 7 PASS / 1 WARN (queue idle, pre-existing) |
+| LLM budget SHA byte-identical | YES — `5303c16f04…` unchanged from Gap E.1 (and from Gap B's baseline) |
+
+### Verified behavior
+
+- **Happy path launch**: customer with rich profile (Acme Builders, 3 cities, 3 services, 3 competitors) clicks Launch with TOS checked → 25 prompts inserted with is_active=true → tenant flips to active with tos_accepted_at + updated_at set → redirect to /today.
+- **Already-launched retry**: tenant.status='active' → executeLaunchTransaction returns redirect (reason: already_launched) → no inserts/updates → /today.
+- **Double-click race**: simulated via tos_accepted_at != null mid-flight → UPDATE returns 0 rows → redirect (reason: race_lost) → prompts inserted but NOT rolled back (they're now legitimate).
+- **Empty profile**: business_name="" + no cities + no services → drafts.length === 0 → returns no_prompts_generated → tenant unchanged.
+- **Paused / cancelled tenants**: status='paused' or 'cancelled' → returns tenant_invalid_status → no mutations.
+- **Failure rollback**: UPDATE failure → DELETE prompts by id with account_id filter → tenant unchanged, prompts gone.
+- **Tenant isolation**: Ritz prompts untouched in all test scenarios (account_id scoping in every operation).
+- **Idempotent retry after partial failure**: pre-existing prompts from prior failed launch are detected by dedup → all skipped at insert step → status flip retries → success.
+
+### Out of scope (deferred)
+
+- **Day-0 immediate first poll** — Gap F. Today, after Launch, the customer waits for the next 07:00 UTC cron. Gap F adds a manual `runNativePoll` trigger or a waiting-state interstitial.
+- **Operator alerts on new tenant activation** — Gap G.
+- **Auto-detect refinement of cities/services from homepage** — Gap D.
+
+### What this unlocks
+
+A real customer can now sign up at `/signup` → magic-link → auth-callback (Gap B) → /onboard/business (Gap C.1) → /onboard/scope (Gap C.2) → /onboard/competitors (Gap C.3) → /onboard/review with starter-prompt preview (Gap E.1) + TOS checkbox + Launch button (Gap C.4) → click Launch → prompts inserted + tenant activated → redirect to /today. The next 07:00 UTC cron picks them up automatically. Self-serve onboarding is end-to-end functional. The remaining gaps (D/F/G) are quality-of-life improvements, not blockers.
+
+---
+
 ## 2026-05-07 — Self-serve onboarding Gap E.1: deterministic prompt generator v0 (preview-only)
 
 Sixth step in customer-onboarding pipeline (Gap A → Gap B → Gap C.1 → Gap C.2 → Gap C.3 → Gap E.1). Adds a deterministic, template-only starter-prompt generator that runs on `/onboard/review` to preview the prompts Beacon will track once the operator launches their tenant. **Preview-only persistence** — no DB write in E.1; Gap C.4 Launch will persist + flip status atomically. Continues the "block C.4 Launch on Gap E so an active tenant always has prompts" rule per the operator's explicit guidance.
