@@ -7,6 +7,123 @@
 
 ---
 
+## 2026-05-07 — Self-serve onboarding Gap E.1: deterministic prompt generator v0 (preview-only)
+
+Sixth step in customer-onboarding pipeline (Gap A → Gap B → Gap C.1 → Gap C.2 → Gap C.3 → Gap E.1). Adds a deterministic, template-only starter-prompt generator that runs on `/onboard/review` to preview the prompts Beacon will track once the operator launches their tenant. **Preview-only persistence** — no DB write in E.1; Gap C.4 Launch will persist + flip status atomically. Continues the "block C.4 Launch on Gap E so an active tenant always has prompts" rule per the operator's explicit guidance.
+
+**Reversible**: pure helper module + idempotent server-component preview. No new tables, no schema changes, no row writes anywhere. The /onboard/review page re-derives the preview every render — no race surface.
+
+### Preflight findings (informed the persistence decision)
+
+Cron's prompt iteration path: `daily-native-poll.yml` (07:00 UTC) → `scripts/list-active-tenants.ts` (filters `tenants.status='active'`, Gap A) → matrix dispatch → `scripts/cron-poll.ts` → `runNativePoll` → adapter → `.filter(p => p.is_active)` (prompt-level filter, only `is_active=true` polled).
+
+`tracked_prompts` schema gating column: `is_active: boolean`. No `is_draft` / `status` / `enabled` column.
+
+Two safe paths considered:
+- **(A) Preview-only, defer DB write to Gap C.4**: pure helper, re-derive per render, zero new write surface.
+- **(B) Persist now with `is_active=false`**: rows in `tracked_prompts`, idle until C.4 flips `is_active=true` + tenant status='active'.
+
+**Chose (A)** per the brief's preferred fallback ("create local/server-side preview only and defer persistence to E.2") and to keep the new write surface to zero. Gap C.4 will persist + activate in a single transaction.
+
+### What changed
+
+**New — `src/domains/onboarding/prompt-generator.ts`** (~190 lines, pure):
+- `generateStarterPrompts({ businessName, domain, citiesServed, projectMix, competitors })` — pure deterministic function, returns up to 25 `PromptDraft[]`.
+- `STARTER_PROMPT_MAX_COUNT = 25` (operator-locked cap).
+- `PromptCategory` union pinning exactly 4 families: `brand_discovery`, `competitor_comparison`, `service_in_city`, `cost_query`.
+- `SERVICE_PROMPT_TERMS: Record<ProjectMixTag, string>` — homeowner-natural search-engine phrasings (`new_construction` → "custom home builder", `whole_home_remodel` → "home remodel", `kitchen_bath` → "kitchen remodel", `adu_addition` → "ADU builder", `teardown_rebuild` → "teardown and rebuild", `commercial_residential` → "design-build contractor"). `Record<...>` annotation = build-time pin: adding a `ProjectMixTag` without adding a term is a TypeScript error.
+- `stripStateAbbreviation(city)` strips trailing `, ST` so prompts read naturally; preserves the original city in `city_scope` for downstream linking.
+
+**Prompt families generated (priority-ordered):**
+1. **Brand discovery** (2 prompts always when `businessName` present): `"{name} reviews"`, `"is {name} a good company"`.
+2. **Competitor comparison** (≤5): `"{name} vs {competitor}"`.
+3. **Service-in-city primary** (1 per city × service combo): `"best {service} in {city}"`.
+4. **Service-in-city alternates** (3 phrasings × city × service): `"top {service} companies in {city}"`, `"who should I hire for a {service} in {city}"`, `"best company for {service} near {city}"`.
+5. **Cost / long-tail** (1 per service, anchored on first city): `"how much does a {service} cost in {city}"`.
+
+`PromptDraft` shape (compatible with future `tracked_prompts` write):
+```ts
+{
+  text: string;
+  cluster: PromptCategory;
+  city_scope: string | null;       // operator's saved string e.g. "Atherton, CA"
+  service_scope: ProjectMixTag | null;
+  category: PromptCategory;
+  priority: number;                // stable 1..N ordering
+  rationale: string;               // customer-safe one-liner
+}
+```
+
+Determinism: no `Math.random`, no `Date.now`, no `new Date(...)`, no env reads, no I/O. Same input always produces same output. Output is JSON-serializable.
+
+**Replaced — `src/app/(shell)/onboard/review/page.tsx`**:
+- Was: Gap C.3 placeholder that only showed the saved-so-far summary.
+- Now: server component (force-dynamic) that calls `requireOnboardingTenant()` then `generateStarterPrompts(...)` with the saved tenant inputs (`business_name`, `domain`, `cities_served`, `project_mix`, `discovered_competitors`). Renders the saved-so-far summary AND the generated preview list grouped by family with operator-readable category labels ("Brand searches", "Head-to-head with competitors", "City + service queries", "Cost questions"). Includes "Beacon will start by tracking these prompts" copy. **Still no Launch button** (Gap C.4 owns Launch). **No DB write.** Empty-state ("No starter prompts yet") shown when generator returns 0 (e.g., empty business name + zero cities + zero services).
+
+**Tests added**:
+
+**New — `src/domains/onboarding/prompt-generator.test.ts`** (30 unit tests):
+- Cap + dedupe: never exceeds 25, dedupes case-insensitively, priority is stable 1..N.
+- Determinism: same input → same output, JSON-serializable.
+- Uses every input axis: businessName in brand discovery; competitors in competitor_comparison; cities in service_in_city + city_scope; every service tag appears in service_scope; ", CA" state abbrev stripped from prompt text but preserved in `city_scope`.
+- Sparse inputs: 1 city × 1 service × 1 competitor; 0 competitors; 0 cities; 0 services; 0 of everything (returns []); only business name (just brand prompts).
+- Defense: ignores unknown ProjectMixTag values; ignores blank/non-string array entries; trims whitespace (no double spaces, no leading/trailing); never emits empty text.
+- No Ritz hardcoding: generic input never produces Ritz-specific tokens (Ritz, ritzbuilders, ritz-builders, ritz-founder, Atherton-93022, Beacon).
+- Customer-safe rationale: never leaks tenant/admin/RLS/schema/Supabase/cron/GitHub.
+- Distribution at saturation: when input saturates the cap, brand (2) + competitor (5) families always preserved; service-in-city saturates remainder.
+- Output shape: every field has correct type; brand_discovery + competitor_comparison have `null` city/service scope; service_in_city + cost_query always have BOTH city + service scope; cluster === category in v0.
+
+**New — `tests/architecture/onboard-prompt-generator-contract.test.ts`** (24 invariants):
+- Generator file exists; exports `generateStarterPrompts` + `STARTER_PROMPT_MAX_COUNT = 25` + `PromptDraft` + `PromptCategory` + `StarterPromptInput`.
+- **Pure module**: no `node:fs` / `node:path` imports, no `getSupabase*`, no `next/*` imports, no `process.env`, no `Math.random` / `Date.now` / `new Date(...)`.
+- **No paid APIs**: no openai / perplexity / anthropic / google / fetch / XMLHttpRequest / axios / runNativePoll / runWebsiteScan / syncRecommendedEdits.
+- **No Ritz hardcoding** (after stripping comments): no Ritz tokens, no known competitor names as string literals, no Ritz city names as string literals.
+- /onboard/review imports + calls `generateStarterPrompts` with the saved tenant inputs (businessName/citiesServed/projectMix/competitors all sourced from `tenant.*` fields).
+- /onboard/review renders the "Beacon will start by tracking these prompts" copy.
+- /onboard/review **does NOT write to tracked_prompts** (preview-only contract); does NOT upsert/insert/update/delete anywhere; does NOT call paid APIs; does NOT include a Launch button (`<button>` element absent); does NOT flip status to 'active'; does NOT call any save action.
+- Cross-check: `scripts/list-active-tenants.ts` still filters `status='active'` (Gap A guard intact); /onboard/review never inserts into tracked_prompts; prompt-generator never writes anywhere.
+- Cap pinned: `STARTER_PROMPT_MAX_COUNT = 25`.
+- Family contract pinned: 4 family literals present (`brand_discovery`, `competitor_comparison`, `service_in_city`, `cost_query`); `SERVICE_PROMPT_TERMS: Record<ProjectMixTag, string>` exists with every tag as a key.
+- Customer-safe sweep on /onboard/review: no tenant/admin/RLS/schema/Supabase/cron/GitHub in rendered text.
+
+### Quality gates run
+
+| Gate | Result |
+|------|--------|
+| `npm run typecheck` | CLEAN |
+| `npm run test` (6052 tests) | 6052 PASS (+54 vs Gap C.3 baseline 5998) |
+| Targeted (10 onboarding test files) | 295/295 PASS |
+| `npm run build` | exit 0 — `/onboard/business` + `/onboard/scope` + `/onboard/competitors` + `/onboard/review` all listed as ƒ Dynamic |
+| `verify-tenant-data-integrity` | PASS — all tenant-ownership invariants satisfied |
+| `verify-observation-dedup-integrity` | PASS — 0 duplicate logical keys |
+| `verify-verdict-rematerialization-integrity` | PASS — drift=0 |
+| `npm run verify:brain-health` | YELLOW — 7 PASS / 1 WARN (queue idle, pre-existing) |
+| LLM budget SHA byte-identical | YES — `5303c16f04…` unchanged from Gap C.3 |
+| Ritz prompts unchanged | YES — `tracked_prompts` table never written by E.1; Ritz tenant counts unchanged (`tenant-data-integrity` would have caught a row count delta) |
+
+### Verified behavior
+
+- **Step 4 with rich inputs** (Acme Builders, 3 cities, 3 services, 3 competitors): generates 25 prompts spanning all 4 families. Brand (2), competitor (3), service-in-city (~17), cost (~3).
+- **Step 4 with sparse inputs** (1 city, 1 service, 1 competitor): generates ~7-8 prompts. Brand + comp + 4 service-in-city + 1 cost. Empty families silently skipped.
+- **Step 4 with empty profile**: renders "No starter prompts yet" empty-state with operator-readable instruction.
+- **Determinism**: refresh /onboard/review → identical preview list each time. Reordering city input → reordered output (intentional — operator can re-edit step 2 if they want different priority).
+- **Persistence**: zero rows written to `tracked_prompts` for the pending tenant. Verified by tenant-data-integrity script (Ritz count unchanged at 9896 / 16521 / 28).
+- **Cron isolation**: pending_onboarding tenant still invisible to Gap A's lister; no prompts to iterate even if it were dispatched.
+
+### Out of scope (deferred to Gap C.4 + later)
+
+- Persistence of generated prompts to `tracked_prompts` — Gap C.4 Launch will write rows + flip status='active' + flip is_active=true in a single transaction.
+- Operator inline editing of generated prompts on /onboard/review — Gap C.4 or follow-up E.2.
+- Auto-detect refinement (e.g., suggest competitors from co-mention matrix) — Gap D.
+- Day-0 first-poll trigger — Gap F.
+- Operator alerts on new signups — Gap G.
+
+### What this unlocks
+
+Gap C.4 Launch can now safely proceed. The "active tenant with zero prompts" failure mode is solved at design time: by the time Launch fires, the operator has reviewed the deterministic preview at /onboard/review. Gap C.4's Launch action shape (deferred to that mini-phase): single transactional UPDATE that (1) inserts each `PromptDraft` into `tracked_prompts` with `account_id = tenant.slug`, `is_active = true`, (2) sets `tos_accepted_at`, (3) flips `tenants.status` from `pending_onboarding` → `active`, (4) sets `updated_at`. All gated by `WHERE id = ? AND status = 'pending_onboarding' AND tos_accepted_at IS NULL` for double-click safety.
+
+---
+
 ## 2026-05-07 — Self-serve onboarding Gap C.3: competitors step (1-5 builders to track)
 
 Fifth step in customer-onboarding pipeline (Gap A → Gap B → Gap C.1 → Gap C.2 → Gap C.3). Replaces the Gap C.2 placeholder at `/onboard/competitors` with a real step-3 form that collects 1-5 competitor names and writes `discovered_competitors` to the existing pending tenant row, then redirects to a new `/onboard/review` step-4 placeholder. Same pattern + safety guards as Gap C.1 + C.2: pure validation, status-gated UPDATE, only `tenants` table touched, no activation, no prompts, no paid APIs.
