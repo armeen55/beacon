@@ -7,6 +7,86 @@
 
 ---
 
+## 2026-05-06 — Trust Sprint Mini-Phase T6.8 — Rec → Change causal stamping preflight (STOP after preflight)
+
+Closes T6.3's bluntly-phrased finding "today's recs persistence does not stamp the changelog id on the rec row directly." The brief asked 9 questions about how to design a real causal stamping; the preflight discovered the architecture is **already in place**. No implementation needed.
+
+### Headline finding
+
+The right link is `changelog.source_rec_id` (rec → event), not from event back to rec. And it **already exists**:
+
+- Schema: [`src/domains/changelog/types.ts`](../src/domains/changelog/types.ts) lines 122-147 + 162.
+- Write paths: `acceptRecommendation` ([`src/app/(shell)/recommendations/actions.ts:357`](../src/app/\(shell\)/recommendations/actions.ts)) + `confirmFindingAsChange` ([`src/app/(shell)/finding-actions.ts:247`](../src/app/\(shell\)/finding-actions.ts)).
+- Lineage: Fix 2 (2026-04-21) added `source_rec_id` + `source_pattern_id`. Sprint 6A.1 Phase 1 (2026-04-24) added `action_type` + `target_element_key`. Lifecycle OS Phase 1 (2026-04-27) added `live_at`.
+
+### Why T6.3 reported "0% causal join"
+
+T6.3's analyzer joined recs to outcomes on URL alone, not on `source_rec_id`. With the right join key the chain works — but it produces 0 results on Ritz today because **the data shape, not the architecture, is the bottleneck**:
+
+```
+Ritz changelog row breakdown (334 total):
+  pdf_changelog_rebuild   232 (legacy import — pre-Beacon)
+  changelog_csv            85 (legacy import)
+  scan_detection           14 (scanner — no rec to link)
+  rec acceptances           3 (1 rec produced 3 changelog rows; correctly stamped)
+
+Ritz with source_rec_id stamped:    3/334 (1%)
+Ritz with action_type stamped:      3/334
+Ritz with target_element_key:       3/334
+Ritz with live_at populated:        1/334
+```
+
+The 3 stamped rows are all from a single rec acceptance. None are yet shipped to live (`live_at = null` on 2/3), so the materializer hasn't computed verdicts for them. The brain CAN'T learn causally yet because the **dogfood window is too small + Phase 3 match engine that auto-flips `live_at` from page snapshots is deferred** — but the join shape is ready.
+
+### Operator's 9 questions — answered
+
+1. Where does Accept happen? → `acceptRecommendation` at line 357 of actions.ts.
+2. Where does Mark Shipped happen? → `markRecommendationShipped` in same file.
+3. Where is changelog row created? → 3 writers: `acceptRecommendation`, `confirmFindingAsChange`, scanner auto-classifier (the last doesn't stamp because there's no rec to link).
+4. Can accepted rec ID be stamped on changelog? → **Already done**. Schema field at types.ts:122.
+5. Can one rec produce multiple changelog rows? → **Yes — by design.** Sprint 6A.1 Phase 1 typed-edit attribution: 1 rec → N edits → N changelog rows. Verified on Ritz: 1 rec produced 3 changelog rows.
+6. Can one changelog row come from multiple recs? → Schema-wise no (`source_rec_id` is single-string). Practically rare; bridge table is speculative — defer.
+7. What schema field is needed? → **None.** All required fields exist.
+8. What backfill is possible for current rows? → 232 PDF imports + 85 CSV imports have no rec to link (legacy edits pre-date the rec engine). 14 scanner rows could be retro-linked via heuristic (low leverage, low confidence). Recommendation: do not backfill; brain learns from new recs forward.
+9. What future learning becomes possible? → Once N≥30 shipped recs land (months of dogfood) the brain can compute helping-rate by action_type, ship-rate by derivedConfidence × action_type, time-to-helping distributions, etc. The architecture is ready when the data is.
+
+### What this preflight is NOT
+
+Not an implementation. Not a schema change. Not a UI change. Not a backfill. Not a learning engine. The architecture for the rec → changelog → outcome causal chain **is already built and tested**. T6.8 is the audit + documentation of that fact.
+
+### Deferred future mini-phases (documented in preflight doc)
+
+1. **Phase 3 match engine** — auto-flips `live_at` when a page snapshot proves the edit is live. Already scheduled in the Lifecycle OS spec; out of T6.8 scope.
+2. **Scanner-detection retro-linkage backfill** — low-leverage at current dogfood volume.
+3. **Multi-rec changelog bridge table** — speculative; revisit if a real case lands.
+4. **One-line analyzer fix** — T6.3 analyzer could swap its URL-level join for `source_rec_id` once the dogfood produces shipped recs with outcomes (then the report is non-empty). Not bundled into T6.8; small follow-up.
+
+### Verification
+
+- ✅ Schema fields verified by source-text inspection.
+- ✅ Stamping verified by source-text inspection of both writers.
+- ✅ Ritz dogfood probe confirmed: 3/334 stamped, 1 rec → 3 changelog rows shape verified.
+- ✅ `npm run typecheck` — clean.
+- ✅ `npm run test` — **312/312 files / 5044/5044 tests** (no change vs T6.7; preflight-only mini-phase).
+- ✅ `npm run build` — green.
+- ✅ `scripts/verify-tenant-data-integrity.ts` — PASS.
+- ✅ `scripts/verify-observation-dedup-integrity.ts` — PASS.
+- ✅ `.data/global/llm-budget.json` SHA = `d36eed8ca157cb4c65ee01a2c51a2fef3fb21a0dfdbb036753d6d7c570927dbd` — byte-identical with T6.7.
+- ✅ Zero OpenAI calls. Zero paid polling. Zero row mutations. Zero schema changes.
+
+### Hard-constraint compliance
+
+- ✅ Preflight only — no implementation.
+- ✅ No schema changes. No engine changes. No UI changes.
+- ✅ No second tenant. No RLS / auth / Profound / onboarding / billing.
+- ✅ No customer copy changes.
+
+### What the next mini-phase should be
+
+The autonomous run T6.5 → T6.8 is now complete. Operator decision on next direction (e.g., the deferred items: T4.4 confidence-tier fixes that would TIGHTEN the labels rather than just expose them; the Phase 3 match engine; scanner retro-linkage; or a different surface entirely) is the natural next gate. End-of-run report follows in the conversation.
+
+---
+
 ## 2026-05-06 — Trust Sprint Mini-Phase T6.7 — Materializer demotion semantics (preflight + bounded fix + apply)
 
 Closes the T5.3 documented drift on `/locations/menlo-park` (cl-real-224, persisted=helping z=4.07, T5.2 recomputes too_early z=0.41). Pre-T6.7, the materializer's gate at `recordUrlOutcome` line 369 was one-way: terminal-only verdicts could be written; pre-landing recomputes silently no-op'd, leaving stale terminal verdicts on disk.
