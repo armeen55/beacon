@@ -7,6 +7,72 @@
 
 ---
 
+## 2026-05-07 — Trust Sprint Mini-Phase T7.6 — Operator Brain route (`/diagnostics/brain`)
+
+Single internal page that surfaces brain telemetry — health grade, section grades, AEO intelligence summary, top 5 opportunities, top 5 trust risks, competitor pulse. Operator-mode-gated; 404s in prod; reads local JSON files with graceful empty states. Default product routes unchanged.
+
+### What changed
+
+**New — `src/app/(shell)/diagnostics/brain/page.tsx`** (server component, follows existing `/diagnostics/spikes` pattern):
+
+- `dynamic = "force-dynamic"` — no Vercel prerender attempt.
+- `isOperatorMode()` gate (mirrors `/diagnostics/spikes`); `notFound()` when off → URL-guessable but invisible in prod.
+- `safeRead()` helper wraps every JSON read in try/catch + existsSync guard → never crashes when files missing.
+- Six sections: Brain Readiness Grade · Section grades · Local AEO intelligence summary · Top 5 opportunities · Trust risks · Competitor pulse.
+- Footer: links to operator scripts (verify:brain-health, build-brain-health-report, build-local-aeo-intelligence, analyze-recommendation-outcomes).
+
+Reads from:
+- `.data/tenants/<slug>/brain/manifest.json` + `.data/tenants/<slug>/brain/{prompt-opportunity-index,city-strength-index,competitor-weekly-trajectory}.json` (T6.2 + T7.4 derivations)
+- Latest `.data/_reports/brain-health-{ts}.json` (T6.1 brain-health report) — auto-finds the most recent file by sort
+
+Each section gracefully handles missing data — empty state with operator hint to run the relevant script.
+
+**New — `tests/architecture/operator-brain-route-contract.test.ts`** (10 invariants):
+
+- Route file exists at `/diagnostics/brain`.
+- `dynamic = "force-dynamic"`.
+- `isOperatorMode()` + `BEACON_OPERATOR_MODE` + `notFound()` all present.
+- `safeRead` helper present with `existsSync` guard.
+- 6 section labels rendered.
+- `prompt_text_snippet` used as visible label, not raw `prompt_id`.
+- No env vars / secrets rendered.
+- No mutations (writeFileSync, writeStore, syncRecommendedEdits, syncUrlChangeOutcomes).
+- No paid APIs (openai, perplexity, runWebsiteScan, poll-perplexity, poll-openai).
+- Route is under `/diagnostics/`, NOT `/today`, `/recommendations`, `/changes`.
+
+### Vercel safety
+
+- In production, `BEACON_OPERATOR_MODE` is unset → route 404s.
+- `.data/` is gitignored → not deployed → safeRead returns null on every file → empty states render.
+- Build succeeds because the route is `force-dynamic` (no prerender attempted).
+- Build flaked once on `/settings/health/page` Supabase prerender timeout (existing known issue, unrelated to T7.6); retry succeeded per brief's flake-handling rule.
+
+### Verification
+
+- ✅ `npm run typecheck` — clean.
+- ✅ `npm run test` — **317/317 files / 5104/5104 tests** (+1 file +10 tests vs T7.5 baseline 316/5093).
+- ✅ `npm run build` — green (after one Supabase-prerender flake retry, which is the documented expected behavior per the brief).
+- ✅ `npm run verify:brain-health` — exits 0 (YELLOW: idle queue only).
+- ✅ `.data/global/llm-budget.json` SHA = `d36eed8ca157cb4c65ee01a2c51a2fef3fb21a0dfdbb036753d6d7c570927dbd` — byte-identical with T7.5.
+- ✅ Zero OpenAI calls. Zero paid polling. Zero row mutations.
+
+### Hard-constraint compliance
+
+- ✅ Operator-only: `BEACON_OPERATOR_MODE === "true"` gate.
+- ✅ Vercel-safe: 404s in prod when env not set; gracefully empty when data files absent.
+- ✅ Default product routes unchanged (`/today`, `/recommendations`, `/changes`, `/prompts`, `/settings` not modified).
+- ✅ No raw UUIDs in visible labels.
+- ✅ No secrets / no env vars rendered.
+- ✅ No paid APIs. No mutations.
+- ✅ No second tenant. No RLS / auth / Profound / onboarding / billing.
+- ✅ Tests TIGHTEN the contract (10 invariants).
+
+### What the next mini-phase should be
+
+**T7.7 — Main product final confidence sweep.** Audit `/today` + `/recommendations` + `/changes` + `/prompts` + `/settings` for residual scared/methodology-leaking phrases ("unreliable", "contaminated", "false positive", "we cannot prove", "D grade", "schema", "SQL", "RLS", "Supabase", "Profound", "debug", "UUID"). Replace with confident executive language. Caveats stay in proof drawers.
+
+---
+
 ## 2026-05-07 — Trust Sprint Mini-Phase T7.5 — Recommendation learning score v0 (causal-aware)
 
 Per-action-type learning score that aggregates over the **causal** rec → changelog → outcome chain (T7.1's `source_rec_id` join). Reporting-only at v0; no ranking changes; no row mutations.
