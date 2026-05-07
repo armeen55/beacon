@@ -7,6 +7,86 @@
 
 ---
 
+## 2026-05-07 — Trust Sprint Mini-Phase T7.2 — `live_at` auto-promotion preflight (STOP)
+
+Surveyed the architecture for `recommended_edits.live_at` + `changelog.live_at` auto-promotion. **Finding: the entire pipeline already exists** (Phase 3 match runner at `src/domains/recommendations/match-runner/`) but is gated OFF by default behind `BEACON_LIFECYCLE_ENABLED=1` per a deliberate dogfeed sequence in [`src/lib/flags.ts`](../src/lib/flags.ts). T7.2 implementation = flip a flag + run a scan, not new code. That flip is operator-driven (requires Phase 3 sign-off in `.data/global/exit-gates.json`, currently empty). Out of T7.2's bounded scope.
+
+### What changed
+
+**New — `scripts/preflight-live-at-auto-promotion.ts`:** read-only dry-run. Indexes `page_element_inventory` by `(path, element_key)`, then for each acceptance-tier row in `recommended_edits` with null `live_at`, reports whether the engine WOULD auto-promote (exact element_key match) or block (no inventory rows for the URL). No flag flip, no scan trigger, no mutation.
+
+**New — `docs/BEACON_LIVE_AT_AUTO_PROMOTION_PREFLIGHT_2026_05_07.md`:** the architecture survey + 7-question answer block + recommended operator dogfeed sequence.
+
+### Findings on Ritz
+
+```
+recommended_edits:                              31
+page_element_inventory:                      4,200
+acceptance-tier rows with null live_at:           0
+```
+
+The `recommended_edits` side has no stuck rows — every acceptance-tier row has `live_at` populated via the operator-override path (Mark Shipped on /recommendations or /changes).
+
+The actual gap is on the **changelog** side. Of the 3 stamped changelog rows on Ritz:
+
+| changelog | rec_id | action | element_key | live_at |
+|---|---|---|---|---|
+| `cl-mogzw78nv8pu54` | Whole Home Renovation | `add_h2_section` | `h2[new]:a1b2…` | **2026-04-28** ✓ |
+| `cl-mogzw78n87lkhq` | Whole Home Renovation | `add_faq` | `faq_question[new]:b1c2…` | null ✗ |
+| `cl-mogzw78n5j9e7u` | Whole Home Renovation | `add_faq` | `faq_answer[new]:c1d2…` | null ✗ |
+
+The `[new]:` suffix on element_keys means "additive edit, content not yet on page" — placeholder keys created at acceptance time. Once a fresh scan rebuilds inventory and the Phase 3 match runner runs, `faq-pair.ts` matches the FAQ Q+A pair against new rendered keys and stamps `live_at` on both rows. Currently the lifecycle flag is OFF; the runner has not run; manual Mark Shipped wasn't invoked for these two FAQ rows.
+
+### Why implementation is deferred
+
+The Lifecycle OS Phase 3 dogfeed sequence (per [`flags.ts:70-76`](../src/lib/flags.ts)):
+
+1. Verify Phase 2 match-engine purity invariants are green. ✓ (test suite is 5,054/5,054.)
+2. Sign off Phase 3 in `.data/global/exit-gates.json`. ✗ (currently `[]`; operator decision.)
+3. Set `BEACON_LIFECYCLE_ENABLED=1` locally; trigger a manual scan; verify lifecycle fields populate. (Operator-driven step; requires real page-snapshot HTTP fetch.)
+
+Step 2 is a governance step the operator owns. Step 3 requires real page-snapshot fetches (which are paid-API-adjacent and outside this preflight environment's safety boundary). T7.2 stops at preflight; the operator can flip the flag whenever they're ready.
+
+### Phase 3 match-runner architecture (already in place)
+
+| File | Purpose |
+|---|---|
+| `src/domains/recommendations/match-engine/index.ts` | Pure `matchAcceptedEdit(...)` |
+| `src/domains/recommendations/match-engine/per-action-matchers.ts` | Per-action matchers (edit_title, add_h2_section, add_faq, etc.) |
+| `src/domains/recommendations/match-engine/faq-pair.ts` | Q+A pair matching |
+| `src/domains/recommendations/match-engine/normalize-text.ts` | Text normalization |
+| `src/domains/recommendations/match-engine/similarity.ts` | Edit-distance scoring |
+| `src/domains/recommendations/match-runner/index.ts` | Orchestrator (wired into `runWebsiteScan`) |
+| `src/domains/recommendations/match-runner/transitions.ts` | Pure status-transition function |
+| `src/domains/recommendations/match-runner/persist.ts` | File-first + dual-write of `live_at` stamps |
+| `src/domains/recommendations/match-runner/inventory-by-url.ts` | Per-URL inventory lookup |
+| `src/domains/recommendations/match-runner/reconcile.ts` | Pre-pass reconciliation |
+
+### Verification
+
+- ✅ `npm run typecheck` — clean.
+- ✅ `npm run test` — **313/313 files / 5054/5054 tests** (no change vs T7.1; preflight-only mini-phase).
+- ✅ `npm run build` — green.
+- ✅ `scripts/verify-tenant-data-integrity.ts` — PASS.
+- ✅ `scripts/verify-observation-dedup-integrity.ts` — PASS.
+- ✅ `scripts/verify-verdict-rematerialization-integrity.ts` — drift = 0 (T6.7 baseline preserved).
+- ✅ `.data/global/llm-budget.json` SHA = `d36eed8ca157cb4c65ee01a2c51a2fef3fb21a0dfdbb036753d6d7c570927dbd` — byte-identical with T7.1.
+- ✅ Zero OpenAI calls. Zero paid polling. Zero row mutations. Zero schema changes. Zero flag flips.
+
+### Hard-constraint compliance
+
+- ✅ Preflight only — no implementation.
+- ✅ No flag flipped. No exit-gate sign-off. No scan triggered.
+- ✅ No paid APIs. No OpenAI calls.
+- ✅ No second tenant. No RLS / auth / Profound / onboarding / billing.
+- ✅ No customer-visible UI changes. No mutations.
+
+### What the next mini-phase should be
+
+**T7.3 — Brain-health regression watchdog.** Will include `live_at` freshness as a sub-check (acceptance-tier rows with `live_at: null` >14d → flag as trust risk). Gives operator a passive monitoring signal without requiring the Phase 3 dogfeed flip yet.
+
+---
+
 ## 2026-05-07 — Trust Sprint Mini-Phase T7.1 — Causal analyzer (source_rec_id, not URL coincidence)
 
 Closes T6.8's deferred "one-line analyzer fix" item: the rec → outcome learning analyzer now uses the real causal join (`changelog.source_rec_id`), not URL-level coincidence. Read-only. No engine changes. No row mutations.
