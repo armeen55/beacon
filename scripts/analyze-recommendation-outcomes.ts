@@ -415,6 +415,221 @@ function analyzeCausalRecChain(
   };
 }
 
+/**
+ * T7.5 — Recommendation learning score v0 (causal-aware).
+ *
+ * Per-action-type aggregation built on the CAUSAL chain (T7.1):
+ * `rec.rec_id → changelog.source_rec_id → url_change_outcomes.change_id`.
+ *
+ * Reports for each action_type:
+ *   - shipped count                    (causal chain completed)
+ *   - causal outcome count             (= shipped that have a verdict)
+ *   - helping / weak_signal / nothing_yet / hurting verdict counts
+ *   - needs_review_rate                (T4.4 derived label distribution)
+ *   - average evidence depth
+ *   - sample size                      (causal outcome count)
+ *   - confidence_label                 ("insufficient sample" / "directional"
+ *                                       / "credible") gated by sample size
+ *
+ * Rules:
+ *   - Sample size < 5  → "insufficient sample" — do NOT use for ranking.
+ *   - 5 ≤ N < 15       → "directional" — informational only.
+ *   - N ≥ 15           → "credible" — safe to feed into rec ranking once
+ *                        operator opts in.
+ *
+ * The score does NOT mutate any rec rows. It does NOT change ranking
+ * automatically. It is operator-readable + brain-health-readable.
+ */
+
+const LEARNING_SCORE_DIRECTIONAL_FLOOR = 5;
+const LEARNING_SCORE_CREDIBLE_FLOOR = 15;
+
+type LearningScoreRow = {
+  action_type: string;
+  /** changelog rows stamped with source_rec_id matching a live rec, with action_type set */
+  shipped_causal_count: number;
+  /** subset of shipped_causal_count that has a matching url_change_outcomes row */
+  causal_outcome_count: number;
+  causal_helping: number;
+  causal_weak_signal: number;
+  causal_nothing_yet: number;
+  causal_hurting: number;
+  causal_too_early: number;
+  causal_other: number;
+  /** Derived T4.4 label distribution among all recs of this action_type (regardless of outcome). */
+  derived_strong: number;
+  derived_moderate: number;
+  derived_needs_review: number;
+  needs_review_rate: number;
+  avg_evidence_depth: number;
+  sample_size: number;
+  confidence_label: "insufficient_sample" | "directional" | "credible";
+};
+
+type LearningScoreV0 = {
+  generated_at: string;
+  rows: LearningScoreRow[];
+  notes: string[];
+};
+
+function buildLearningScoreV0(
+  recs: RecommendedEditRow[],
+  changelogRows: ChangelogEntry[],
+  outcomes: Awaited<ReturnType<typeof getUrlChangeOutcomes>>,
+): LearningScoreV0 {
+  const recIdSet = new Set(recs.map((r) => r.rec_id));
+  const stamped = changelogRows.filter(
+    (c) => Boolean(c.source_rec_id) && recIdSet.has(c.source_rec_id ?? ""),
+  );
+  const outcomeByChangeId = new Map<string, string>();
+  for (const o of outcomes) {
+    if (!outcomeByChangeId.has(o.change_id)) outcomeByChangeId.set(o.change_id, o.verdict);
+  }
+
+  // Group stamped changelog rows by action_type. (action_type stamped
+  // on changelog_entries by Sprint 6A.1.)
+  type Bucket = {
+    shipped: number;
+    helping: number;
+    weak_signal: number;
+    nothing_yet: number;
+    hurting: number;
+    too_early: number;
+    other: number;
+    causalOutcomes: number;
+  };
+  const byAction = new Map<string, Bucket>();
+  for (const c of stamped) {
+    const action = c.action_type ?? "(none)";
+    let b = byAction.get(action);
+    if (!b) {
+      b = {
+        shipped: 0,
+        helping: 0,
+        weak_signal: 0,
+        nothing_yet: 0,
+        hurting: 0,
+        too_early: 0,
+        other: 0,
+        causalOutcomes: 0,
+      };
+      byAction.set(action, b);
+    }
+    b.shipped += 1;
+    const verdict = outcomeByChangeId.get(c.id);
+    if (!verdict) continue;
+    b.causalOutcomes += 1;
+    if (verdict === "helping") b.helping += 1;
+    else if (verdict === "weak_signal") b.weak_signal += 1;
+    else if (verdict === "nothing_yet") b.nothing_yet += 1;
+    else if (verdict === "hurting") b.hurting += 1;
+    else if (verdict === "too_early") b.too_early += 1;
+    else b.other += 1;
+  }
+
+  // Group recs by action_type (even unaccepted ones) for derived-label
+  // distribution + evidence depth.
+  type RecAgg = {
+    derivedStrong: number;
+    derivedModerate: number;
+    derivedNeedsReview: number;
+    evidenceDepthSum: number;
+    recCount: number;
+  };
+  const recsByAction = new Map<string, RecAgg>();
+  for (const r of recs) {
+    const refs = r.evidence ?? [];
+    const isFaqAnswer = (r.target_element_key ?? "").startsWith("faq_answer[");
+    const lbl = deriveConfidence({
+      evidenceRefs: refs,
+      evidenceDepth: computeEvidenceDepth(refs),
+      affectedPromptCount: refs.filter((x) => x.type === "prompt").length,
+      isFaqAnswer,
+      hasTopCompetitor: refs.some((x) => x.type === "competitor"),
+    });
+    const action = r.action_type ?? "(none)";
+    let a = recsByAction.get(action);
+    if (!a) {
+      a = {
+        derivedStrong: 0,
+        derivedModerate: 0,
+        derivedNeedsReview: 0,
+        evidenceDepthSum: 0,
+        recCount: 0,
+      };
+      recsByAction.set(action, a);
+    }
+    a.recCount += 1;
+    a.evidenceDepthSum += computeEvidenceDepth(refs);
+    if (lbl === "strong_evidence") a.derivedStrong += 1;
+    else if (lbl === "moderate_evidence") a.derivedModerate += 1;
+    else if (lbl === "needs_review") a.derivedNeedsReview += 1;
+  }
+
+  // Merge: every action_type that appears in EITHER bucket gets a row.
+  const allActions = new Set([...byAction.keys(), ...recsByAction.keys()]);
+  const rows: LearningScoreRow[] = [];
+  for (const action of allActions) {
+    const b = byAction.get(action) ?? {
+      shipped: 0,
+      helping: 0,
+      weak_signal: 0,
+      nothing_yet: 0,
+      hurting: 0,
+      too_early: 0,
+      other: 0,
+      causalOutcomes: 0,
+    };
+    const a = recsByAction.get(action) ?? {
+      derivedStrong: 0,
+      derivedModerate: 0,
+      derivedNeedsReview: 0,
+      evidenceDepthSum: 0,
+      recCount: 0,
+    };
+    const sample = b.causalOutcomes;
+    const conf: LearningScoreRow["confidence_label"] =
+      sample >= LEARNING_SCORE_CREDIBLE_FLOOR
+        ? "credible"
+        : sample >= LEARNING_SCORE_DIRECTIONAL_FLOOR
+          ? "directional"
+          : "insufficient_sample";
+    const needsReviewRate = a.recCount > 0 ? a.derivedNeedsReview / a.recCount : 0;
+    const avgDepth = a.recCount > 0 ? a.evidenceDepthSum / a.recCount : 0;
+    rows.push({
+      action_type: action,
+      shipped_causal_count: b.shipped,
+      causal_outcome_count: b.causalOutcomes,
+      causal_helping: b.helping,
+      causal_weak_signal: b.weak_signal,
+      causal_nothing_yet: b.nothing_yet,
+      causal_hurting: b.hurting,
+      causal_too_early: b.too_early,
+      causal_other: b.other,
+      derived_strong: a.derivedStrong,
+      derived_moderate: a.derivedModerate,
+      derived_needs_review: a.derivedNeedsReview,
+      needs_review_rate: Number(needsReviewRate.toFixed(3)),
+      avg_evidence_depth: Number(avgDepth.toFixed(2)),
+      sample_size: sample,
+      confidence_label: conf,
+    });
+  }
+  rows.sort((x, y) => y.causal_outcome_count - x.causal_outcome_count);
+
+  return {
+    generated_at: new Date().toISOString(),
+    rows,
+    notes: [
+      "v0 — uses CAUSAL chain (T7.1) only. URL-level coincidence is NOT counted as causal.",
+      `confidence_label gated by sample size: <${LEARNING_SCORE_DIRECTIONAL_FLOOR} = "insufficient_sample"; <${LEARNING_SCORE_CREDIBLE_FLOOR} = "directional"; ≥${LEARNING_SCORE_CREDIBLE_FLOOR} = "credible".`,
+      "Brain MUST NOT change ranking based on rows labeled `insufficient_sample`. `directional` is operator-readable only. `credible` is the floor for any future ranking change (operator opts in).",
+      "needs_review_rate measures the fraction of recs of this action_type whose T4.4 derived confidence is `needs_review` — a separate signal from the causal outcome.",
+      "Rec rows are NOT mutated by this script. Pure read.",
+    ],
+  };
+}
+
 // ── Markdown renderer ──────────────────────────────────────────────────
 
 function renderReport(report: any): string {
@@ -508,6 +723,32 @@ function renderReport(report: any): string {
   }
   for (const note of cj.notes as string[]) lines.push(`  note: ${note}`);
   lines.push("");
+  // ── Section 7 — T7.5 Learning score v0
+  lines.push(`## 7. Recommendation learning score v0 (CAUSAL, per action_type)`);
+  const ls = report.learning_score_v0;
+  if (!ls.rows || ls.rows.length === 0) {
+    lines.push(`  (no action_type buckets — queue is empty)`);
+  } else {
+    for (const r of ls.rows as any[]) {
+      const tag =
+        r.confidence_label === "credible"
+          ? "✓ credible"
+          : r.confidence_label === "directional"
+            ? "→ directional"
+            : "⚠ insufficient_sample";
+      lines.push(
+        `  [${tag.padEnd(22)}] ${r.action_type.padEnd(24)} shipped=${r.shipped_causal_count} causal_outcomes=${r.causal_outcome_count} (helping=${r.causal_helping}, weak=${r.causal_weak_signal}, nothing_yet=${r.causal_nothing_yet})`,
+      );
+      lines.push(
+        `       derived: strong=${r.derived_strong} moderate=${r.derived_moderate} needs_review=${r.derived_needs_review} (rate ${(r.needs_review_rate * 100).toFixed(1)}%)`,
+      );
+      lines.push(
+        `       avg_evidence_depth=${r.avg_evidence_depth} sample_size=${r.sample_size}`,
+      );
+    }
+  }
+  for (const note of ls.notes as string[]) lines.push(`  note: ${note}`);
+  lines.push("");
   return lines.join("\n");
 }
 
@@ -539,6 +780,7 @@ async function main(): Promise<void> {
     cost_vs_ship: analyzeCostVsShip(recs),
     rec_to_outcome_join: analyzeRecToOutcomeJoin(recs, outcomes),
     causal_rec_chain: analyzeCausalRecChain(recs, changelogRows, outcomes),
+    learning_score_v0: buildLearningScoreV0(recs, changelogRows, outcomes),
   };
 
   console.log(renderReport(report));

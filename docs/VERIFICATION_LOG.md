@@ -7,6 +7,80 @@
 
 ---
 
+## 2026-05-07 — Trust Sprint Mini-Phase T7.5 — Recommendation learning score v0 (causal-aware)
+
+Per-action-type learning score that aggregates over the **causal** rec → changelog → outcome chain (T7.1's `source_rec_id` join). Reporting-only at v0; no ranking changes; no row mutations.
+
+### What changed
+
+**Modified — `scripts/analyze-recommendation-outcomes.ts`** (+200 lines):
+
+- New constants: `LEARNING_SCORE_DIRECTIONAL_FLOOR = 5`, `LEARNING_SCORE_CREDIBLE_FLOOR = 15`.
+- New function `buildLearningScoreV0(recs, changelog, outcomes)` — aggregates per-action-type metrics via the causal chain, NOT URL coincidence.
+- Each row carries shipped count, causal outcome counts (helping / weak_signal / nothing_yet / hurting / too_early / other), T4.4 derived label distribution (strong / moderate / needs_review), needs_review_rate, avg evidence depth, sample size, and a sample-size-gated `confidence_label`.
+- New Section 7 in markdown renderer + JSON snapshot.
+
+**New — `docs/BEACON_RECOMMENDATION_LEARNING_SCORE_V0_2026_05_07.md`** documents the score shape, sample-size rules, what unblocks v1, and operator-locked rules.
+
+**New — `tests/architecture/learning-score-v0-causal.test.ts`** (11 invariants):
+
+- `buildLearningScoreV0` declared.
+- Floors pinned: 5 (directional) and 15 (credible).
+- 3 confidence_label values: insufficient_sample / directional / credible.
+- Causal chain uses `source_rec_id` + `change_id`, NOT `target_url` (negative).
+- Note text: "MUST NOT change ranking" + "URL-level coincidence is NOT counted as causal".
+- Negative mutation invariants: no persist/sync/writeStore.
+- Section 7 rendered in markdown.
+- 10 required fields per row.
+
+### Sample-size rules (operator-locked)
+
+| Sample size | Confidence label | Use |
+|---|---|---|
+| 0 ≤ N < 5 | `insufficient_sample` | display only; do not affect ranking |
+| 5 ≤ N < 15 | `directional` | operator-readable signal; not statistically reliable |
+| N ≥ 15 | `credible` | safe to feed into ranking once operator opts in |
+
+### Result on Ritz (2026-05-07)
+
+```
+Section 7. Recommendation learning score v0 (CAUSAL, per action_type)
+  [⚠ insufficient_sample] add_h2_section
+       shipped=1 causal_outcomes=0 (helping=0, weak=0, nothing_yet=0)
+       derived: strong=0 moderate=10 needs_review=1 (rate 9.1%)
+       avg_evidence_depth=2.36 sample_size=0
+  [⚠ insufficient_sample] add_faq
+       shipped=2 causal_outcomes=0 (helping=0, weak=0, nothing_yet=0)
+       derived: strong=0 moderate=18 needs_review=2 (rate 10.0%)
+       avg_evidence_depth=2 sample_size=0
+```
+
+Honest reading: the brain shipped 1 H2 + 2 FAQ rows (causal stamping working); none have outcomes yet (live_at gap); T4.4 derivation is differentiating (10% needs-review, not all-medium); sample size = 0 → no ranking effect → no over-learning risk. Brain knows not to act on this data.
+
+### Verification
+
+- ✅ `npm run typecheck` — clean.
+- ✅ `npm run test` — **316/316 files / 5093/5093 tests** (+1 file +11 tests vs T7.4 baseline 315/5082).
+- ✅ `npm run build` — green.
+- ✅ Section 7 renders correctly with `insufficient_sample` label on both action types.
+- ✅ `.data/global/llm-budget.json` SHA = `d36eed8ca157cb4c65ee01a2c51a2fef3fb21a0dfdbb036753d6d7c570927dbd` — byte-identical with T7.4.
+- ✅ Zero OpenAI calls. Zero paid polling. Zero row mutations.
+
+### Hard-constraint compliance
+
+- ✅ Read-only — no engine changes, no schema changes, no row mutations.
+- ✅ No ranking changes today; reporting-only.
+- ✅ Sample-size gate prevents overfitting on Ritz tiny data.
+- ✅ No second tenant. No RLS / auth / Profound / onboarding / billing.
+- ✅ No customer-visible UI changes.
+- ✅ Tests TIGHTEN the contract (11 invariants).
+
+### What the next mini-phase should be
+
+**T7.6 — Operator Brain route preflight or implementation.** A single internal page that surfaces brain health + local AEO intelligence + rec learning + trust status. Preflight first; implement only if obviously bounded (operator-mode-gated, reads from local JSON files, graceful when files missing).
+
+---
+
 ## 2026-05-07 — Trust Sprint Mini-Phase T7.4 — Local AEO intelligence v2
 
 Extended the local AEO database from the v1 7-file foundation (T6.2) to a v2 14-file derived intelligence layer that the brain (and the upcoming T7.5 learning score + T7.6 operator route) can query for the dream-state local AEO/SEO insights — strongest/weakest cities, services, competitors, citation sources, opportunity maps. Pure compute. No paid calls. No mutations.
