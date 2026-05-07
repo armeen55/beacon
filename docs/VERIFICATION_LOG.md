@@ -7,6 +7,117 @@
 
 ---
 
+## 2026-05-06 — Trust Sprint Mini-Phase T6.7 — Materializer demotion semantics (preflight + bounded fix + apply)
+
+Closes the T5.3 documented drift on `/locations/menlo-park` (cl-real-224, persisted=helping z=4.07, T5.2 recomputes too_early z=0.41). Pre-T6.7, the materializer's gate at `recordUrlOutcome` line 369 was one-way: terminal-only verdicts could be written; pre-landing recomputes silently no-op'd, leaving stale terminal verdicts on disk.
+
+Preflight first (read-only); implementation only after the drift count + class came back tightly bounded.
+
+### Phase A — Preflight (read-only)
+
+**New — `scripts/preflight-materializer-demotion.ts`:** classifies every persisted URL outcome's recompute drift into 5 buckets (no_drift, terminal_demote_to_non_terminal, weak_signal_emerge, non_terminal_promote_to_terminal, terminal_to_terminal_change). Pure compute; no mutations.
+
+Run on Ritz:
+```
+Persisted outcomes: 131; recomputed: 131
+Drift count: 1
+  terminal_demote_to_non_terminal: 1   (menlo-park)
+  weak_signal_emerge: 0
+  other: 0
+```
+
+Tightly bounded: 1 row to demote, no flap risk, no edge-case noise.
+
+### Phase B — Implementation (bounded)
+
+**Modified — `src/domains/attribution/url-change-outcome.ts`:**
+
+Added `FRESH_INSERT_VERDICTS` set (`helping`, `hurting`, `nothing_yet`, `not_implemented`, `weak_signal`).
+
+Replaced the gate `if (!isTerminalVerdict(v.verdict)) return null;` with `existingIdx`-aware logic:
+
+```diff
+-  if (!isTerminalVerdict(v.verdict)) return null;
++  const existingIdx = urlChangeOutcomes.findIndex(
++    (o) => o.change_id === input.change.id && o.url === input.normalizedUrl,
++  );
++  if (existingIdx === -1 && !FRESH_INSERT_VERDICTS.has(v.verdict)) {
++    return null;
++  }
+```
+
+Post-T6.7 semantics:
+- **Fresh inserts** of pre-landing verdicts (`too_early`, `not_enough_data`, `not_enough_native_baseline`) — still skipped (no signal worth persisting).
+- **Fresh inserts** of `weak_signal` — now allowed (T5.2's directional tier).
+- **Updates** of existing records with ANY recompute (including non-terminal) — written. The existing materialChange + transitions counter logic captures the demotion as a transition.
+
+Schema unchanged. No new fields. No Supabase migration. The verdict transition itself is the demotion audit signal (verdict label + transitions counter + updated_at ISO).
+
+**New — `src/domains/attribution/url-change-outcome.t6_7-demotion.test.ts`** (4 source-text invariants):
+- `FRESH_INSERT_VERDICTS` set declared with the exact 5-member content + negative assertions on pre-landing verdicts.
+- New gate logic regex pinned (`existingIdx === -1 && !FRESH_INSERT_VERDICTS.has(...)`).
+- Negative invariant: legacy `if (!isTerminalVerdict(v.verdict)) return null;` gate is GONE.
+- `TERMINAL_VERDICTS` membership unchanged (T6.7 fixes the gate, not the taxonomy).
+
+### Phase C — Apply on Ritz (with backup + rollback)
+
+Backup created BEFORE apply: `.data/_backups/url-change-outcomes-pre-t5_3-2026-05-07T05-39-53.json`.
+
+Apply via existing `scripts/rematerialize-verdicts-t5.ts --apply` (uses the official materializer, no hand-edits):
+
+```
+Pre-apply:   helping=118, nothing_yet=13              (TOTAL 131)
+materializeUrlOutcomes: processed=153, newlyRecorded=0, transitionsAdded=1
+Post-apply:  helping=117, nothing_yet=13, too_early=1 (TOTAL 131)
+```
+
+The 1 transition is the menlo-park row. Persisted file SHA changed (expected — 1 row mutated). Backup file is the rollback path; integrity script confirms drift=0 post-apply.
+
+### Phase D — Verify
+
+- ✅ `scripts/verify-verdict-rematerialization-integrity.ts` — **drift detected: 0** (was 1 pre-T6.7).
+- ✅ `scripts/preflight-materializer-demotion.ts` — drift count: 0.
+- ✅ `npm run typecheck` — clean.
+- ✅ `npm run test` — **312/312 files / 5044/5044 tests** (+1 file +4 tests vs T6.6 baseline 311/5040).
+- ✅ `npm run build` — green.
+- ✅ `scripts/verify-tenant-data-integrity.ts` — PASS.
+- ✅ `scripts/verify-observation-dedup-integrity.ts` — PASS.
+- ✅ `.data/global/llm-budget.json` SHA = `d36eed8ca157cb4c65ee01a2c51a2fef3fb21a0dfdbb036753d6d7c570927dbd` — byte-identical with T6.6 baseline.
+- ✅ Zero OpenAI calls. Zero paid polling.
+
+### Production row mutation — explicit operator authorization + backup
+
+Per the T6.7 brief: "Do not mutate production rows unless the mini-phase explicitly requires it and has backup + rollback."
+
+T6.7 EXPLICITLY required the menlo-park demotion (it was the documented drift). Backup verified at `.data/_backups/url-change-outcomes-pre-t5_3-2026-05-07T05-39-53.json`. Rollback path:
+
+```bash
+cp .data/_backups/url-change-outcomes-pre-t5_3-2026-05-07T05-39-53.json \
+   .data/tenants/ritz-builders/url-change-outcomes.json
+```
+
+### Hard-constraint compliance
+
+- ✅ Preflight first; implementation only after drift count came back bounded.
+- ✅ One row mutated (menlo-park demotion), explicitly authorized by the brief.
+- ✅ Backup created before apply; rollback path documented.
+- ✅ No schema change. No Supabase migration.
+- ✅ No customer-visible UI changes. No copy changed.
+- ✅ No second tenant. No RLS / auth / Profound / onboarding / billing.
+- ✅ Tests TIGHTEN the contract (4 new source-text invariants).
+
+### Deferred future mini-phases (documented in preflight doc)
+
+1. Explicit demotion reason field — requires Supabase column add; defer until brain genuinely needs it.
+2. Sticky demotion (anti-flap) — not needed at current Ritz data shape; revisit if transitions counter starts inflating noisily.
+3. Brain-health metric specifically tracking weak_signal count vs helping count — informational; could be added to T6.1 in a future phase.
+
+### What the next mini-phase should be
+
+**T6.8 — Rec ↔ change_id causal stamping preflight.** Design the link that lets the brain answer "what URL verdict came from the change THIS rec produced" — without it, every learning attempt collapses to selection-bias confirmation (T6.3 finding #2). Preflight only unless implementation is obviously tiny.
+
+---
+
 ## 2026-05-06 — Trust Sprint Mini-Phase T6.6 — URL normalization at the analysis boundary
 
 Closes the T6.3 finding "URL normalization mismatch — `recommended_edits.target_url` is full URL while `url_change_outcomes.url` is path-only". Single source of truth for path-only normalization extracted out of the citation-history domain so analysis scripts + future write-time callers share one helper.

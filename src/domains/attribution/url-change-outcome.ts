@@ -131,6 +131,26 @@ export function isTerminalVerdict(v: VerdictLabel): boolean {
 }
 
 /**
+ * Trust Sprint T6.7 (2026-05-06) — verdicts whose FRESH insert is
+ * worth recording in the brain. Includes T5.2's `weak_signal`
+ * (directional but not strong) — pre-T6.7, fresh weak_signal was
+ * silently dropped because the gate only allowed terminal verdicts.
+ *
+ * Pre-landing verdicts (`too_early`, `not_enough_data`,
+ * `not_enough_native_baseline`) are still skipped on FRESH insert to
+ * avoid polluting the store with "we don't have data yet" rows. They
+ * CAN appear on EXISTING rows via the demotion path below — that's the
+ * fix for the menlo-park-style drift surfaced in T5.3.
+ */
+const FRESH_INSERT_VERDICTS: ReadonlySet<VerdictLabel> = new Set<VerdictLabel>([
+  "helping",
+  "hurting",
+  "nothing_yet",
+  "not_implemented",
+  "weak_signal",
+]);
+
+/**
  * Phase 4 (2026-04-27): pure helper. Builds the join key used to look
  * up a `recommended_edits` row from a `changelog_entries` row.
  *
@@ -343,8 +363,19 @@ export function findLandingDay(
  *   - returns the existing record unchanged if nothing material moved, or
  *   - updates it in place with new verdict/z/sustain and bumps `transitions`.
  *
- * Only writes when the current verdict is terminal. Too-early / not-enough-data
- * return { status: "skipped" } — the brain doesn't need pre-landing state.
+ * Trust Sprint T6.7 (2026-05-06) — gate semantics:
+ *   - Fresh inserts: only `helping`, `hurting`, `nothing_yet`, `not_implemented`,
+ *     and `weak_signal` (T5.2) write a new row. Pre-landing verdicts
+ *     (`too_early`, `not_enough_data`, `not_enough_native_baseline`) are
+ *     skipped — the brain doesn't need "we don't have data yet" rows.
+ *   - Existing record + non-terminal recompute: the row IS updated. This
+ *     is the demotion path — closes the T5.3 drift where a row that
+ *     once landed `helping` couldn't follow a recompute back to
+ *     `too_early` even when T5.2's sparse-pre-window precondition
+ *     fired. Pre-T6.7, those recomputes silently no-op'd; post-T6.7
+ *     they overwrite the row, bump `transitions`, and update
+ *     `updated_at`. Brain reads the new verdict + transitions counter
+ *     as the demotion audit signal.
  *
  * Returns null when skipped; otherwise the up-to-date record (new or updated).
  */
@@ -366,7 +397,16 @@ export async function recordUrlOutcome(input: {
   const thresholds = input.thresholds ?? DEFAULT_THRESHOLDS;
   const v = input.verdict;
 
-  if (!isTerminalVerdict(v.verdict)) return null;
+  const existingIdx = urlChangeOutcomes.findIndex(
+    (o) =>
+      o.change_id === input.change.id && o.url === input.normalizedUrl,
+  );
+
+  // T6.7: skip fresh inserts of pre-landing verdicts (no existing row
+  // to demote, and the verdict carries no signal worth persisting).
+  if (existingIdx === -1 && !FRESH_INSERT_VERDICTS.has(v.verdict)) {
+    return null;
+  }
 
   const landing =
     v.verdict === "helping" || v.verdict === "hurting"
@@ -380,11 +420,6 @@ export async function recordUrlOutcome(input: {
 
   const nowISO = new Date().toISOString();
   const editTypeTokens = [...extractEditTokens(input.change.change_description)];
-
-  const existingIdx = urlChangeOutcomes.findIndex(
-    (o) =>
-      o.change_id === input.change.id && o.url === input.normalizedUrl,
-  );
 
   const nextRecord: UrlChangeOutcome = {
     change_id: input.change.id,
