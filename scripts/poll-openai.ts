@@ -95,9 +95,22 @@ function getArg(flag: string): string | undefined {
 }
 
 // Sprint 7 Phase 7.5d/2 (2026-04-25) — fail-loud tenant resolution.
-// CLI flag `--tenant=<id>` wins; otherwise the unified resolver reads
-// BEACON_TENANT_ID env (or throws if unset). No silent ritz fallback.
-const tenantId = getArg("--tenant") ?? (await currentTenantId());
+// CLI flag `--tenant=<id>` wins; otherwise reads BEACON_TENANT_ID env
+// (or throws if unset). No silent ritz fallback.
+//
+// 2026-05-07 fix: was `await currentTenantId()` but top-level await is
+// rejected by esbuild when tsx runs in CJS context (--require shim).
+// In CLI mode currentTenantId() resolves to process.env.BEACON_TENANT_ID
+// anyway (no request context), so read it directly. Preserves the
+// same fail-loud message.
+const _rawTenantId: string | undefined = getArg("--tenant") ?? process.env.BEACON_TENANT_ID;
+if (!_rawTenantId) {
+  throw new Error(
+    "currentTenantId: no x-beacon-tenant header and no BEACON_TENANT_ID env var. " +
+      "In dev/test set BEACON_TENANT_ID=tenant-ritz-founder or pass --tenant=<id>.",
+  );
+}
+const tenantId: string = _rawTenantId;
 const limitRaw = getArg("--limit");
 const limit = limitRaw ? Math.max(1, parseInt(limitRaw, 10)) : undefined;
 const isDryRun = args.includes("--dry-run");
