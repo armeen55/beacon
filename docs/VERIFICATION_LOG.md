@@ -7,6 +7,79 @@
 
 ---
 
+## 2026-05-07 — Trust Sprint Mini-Phase T7.3 — Brain-health regression watchdog
+
+Single orchestrator that runs every Beacon trust check the operator cares about and exits non-zero if any HARD check fails. Cron-eligible.
+
+### What changed
+
+**New — `scripts/verify-brain-health-watchdog.ts`** (260 lines):
+
+9 checks total (8 HARD + 1 SOFT-by-design when queue idle):
+
+1. `tenant-data-integrity` — child verify script (PASS/FAIL on exit code)
+2. `observation-dedup-integrity` — child verify script
+3. `verdict-rematerialization-integrity` — child verify script (T5.3 drift detector)
+4. + 5. `build-brain-health-report` + parse grade — FAIL on D, FAIL on derived collapse to 100% moderate
+6. AEO intelligence manifest exists + 7 expected files + age <14d
+7. Latest poll observed within `POLL_FRESHNESS_HOURS = 36`
+8. `live_at` freshness — acceptance-tier rows stuck >14d with null live_at → WARN (operator can flip lifecycle flag or Mark Shipped)
+9. `source_rec_id` stamping on RECENT (≤7d) rec-derived changelog rows; legacy CSV/PDF/scanner rows EXCLUDED (they correctly lack source_rec_id by design)
+
+**Modified — `package.json`**: added `npm run verify:brain-health`.
+
+**New — `tests/architecture/brain-health-watchdog-contract.test.ts`** (13 invariants):
+
+- File exists, npm script wired.
+- Invokes all 3 child verify scripts.
+- Runs build-brain-health-report and parses grade.
+- Checks 7 AEO derivation files in manifest.
+- Declares POLL_FRESHNESS_HOURS + LIVE_AT_STUCK_DAYS thresholds.
+- Excludes legacy import + scanner rows from source_rec_id check.
+- D-grade forces FAIL.
+- Derived confidence collapse forces FAIL.
+- Idle queue (no recent rec-derived rows) is WARN, not FAIL.
+- Exit codes: 0 on GREEN/YELLOW, 1 on RED.
+- Negative invariants: no OpenAI / paid polling / scans / row mutations.
+
+### Run on Ritz (2026-05-07)
+
+```
+1. tenant-data-integrity                      ✓ PASS
+2. observation-dedup-integrity                ✓ PASS
+3. verdict-rematerialization-integrity        ✓ PASS (drift=0)
+4-5. brain-health + derived-confidence        ✓ PASS (Grade B; derived=strong=0/moderate=28/needs_review=3)
+6. aeo-intelligence-manifest                  ✓ PASS (7 files, age 0.1d)
+7. poll-freshness                             ✓ PASS (latest 16.8h ago)
+8. live_at-freshness                          ✓ PASS (no rows stuck >14d)
+9. source_rec_id-recent-stamping              ⚠ WARN (no recent accept-derived rows in last 7d — queue idle)
+
+SUMMARY: 7 PASS, 1 WARN, 0 FAIL
+WATCHDOG: YELLOW — soft warnings only.
+```
+
+### Verification
+
+- ✅ `npm run typecheck` — clean.
+- ✅ `npm run test` — **314/314 files / 5067/5067 tests** (+1 file +13 tests vs T7.2 baseline 313/5054).
+- ✅ `npm run build` — green.
+- ✅ `npm run verify:brain-health` — exits 0 (YELLOW: warn-only).
+- ✅ `.data/global/llm-budget.json` SHA = `d36eed8ca157cb4c65ee01a2c51a2fef3fb21a0dfdbb036753d6d7c570927dbd` — byte-identical with T7.2.
+- ✅ Zero OpenAI calls. Zero paid polling. Zero row mutations.
+
+### Hard-constraint compliance
+
+- ✅ Read-only orchestrator — invokes existing scripts, never mutates.
+- ✅ No second tenant. No RLS / auth / Profound / onboarding / billing.
+- ✅ No customer-visible UI changes.
+- ✅ Tests TIGHTEN the contract (13 invariants pin watchdog shape + negative API/mutation guards).
+
+### What the next mini-phase should be
+
+**T7.4 — Local AEO intelligence v2.** Extend the 7 derivation files into city-strength-index, service-strength-index, competitor-weekly-trajectory (richer), citation-domain-authority, page-citation-trajectory, descriptor-comparison, prompt-opportunity-index, local-aeo-opportunity-map. Pure compute, no paid calls.
+
+---
+
 ## 2026-05-07 — Trust Sprint Mini-Phase T7.2 — `live_at` auto-promotion preflight (STOP)
 
 Surveyed the architecture for `recommended_edits.live_at` + `changelog.live_at` auto-promotion. **Finding: the entire pipeline already exists** (Phase 3 match runner at `src/domains/recommendations/match-runner/`) but is gated OFF by default behind `BEACON_LIFECYCLE_ENABLED=1` per a deliberate dogfeed sequence in [`src/lib/flags.ts`](../src/lib/flags.ts). T7.2 implementation = flip a flag + run a scan, not new code. That flip is operator-driven (requires Phase 3 sign-off in `.data/global/exit-gates.json`, currently empty). Out of T7.2's bounded scope.
