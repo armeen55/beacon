@@ -80,6 +80,10 @@ export async function updateSession(request: NextRequest): Promise<NextResponse>
   const path = request.nextUrl.pathname;
   const isPublic =
     path.startsWith("/login") ||
+    // Gap B (2026-05-07) — public signup route. Auth callback then
+    // provisions a pending tenant + tenant_members row on first login
+    // and redirects to /onboard/business.
+    path.startsWith("/signup") ||
     path.startsWith("/auth") ||
     path.startsWith("/_next") ||
     path === "/favicon.ico" ||

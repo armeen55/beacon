@@ -32,7 +32,17 @@ export type BeaconTenant = {
   discovered_competitors: string[];
   /** Per-tenant daily API budget override. Falls back to global default. */
   daily_budget_usd: number;
-  status: "active" | "paused" | "cancelled";
+  /**
+   * Tenant lifecycle state.
+   * - `pending_onboarding` (Gap B, 2026-05-07): row created by signup
+   *   flow; user has NOT completed the /onboard wizard yet. Excluded
+   *   from cron polling (Gap A's list-active-tenants filters on
+   *   status='active'). Migrates to 'active' once onboarding completes.
+   * - `active`: included in daily polling.
+   * - `paused`: deliberately suspended by operator/customer.
+   * - `cancelled`: closed account.
+   */
+  status: "active" | "paused" | "cancelled" | "pending_onboarding";
   /** Email frequency for digest. */
   email_frequency: "weekly" | "immediate_only" | "off";
   created_at: string;

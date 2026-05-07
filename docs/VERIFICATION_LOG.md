@@ -7,6 +7,102 @@
 
 ---
 
+## 2026-05-07 — Self-serve onboarding Gap B: public /signup + auth-callback tenant provisioning
+
+Second step in the customer-onboarding pipeline (Gap A → Gap B). Customers can now sign themselves up via magic-link at `/signup`, get a `pending_onboarding` tenant + `tenant_members` row provisioned automatically on first auth-callback, and land on a placeholder `/onboard/business` page. The cron pipeline ignores them (Gap A's lister filters `status='active'`), so no second tenant accidentally enters daily polling until the operator explicitly flips them.
+
+**Reversible**: pending tenants don't get polled. New `pending_onboarding` status can be removed from the CHECK constraint once no rows hold the value. The signup page is a separate route — disabling it is a one-line middleware revert.
+
+### What changed
+
+**New — `src/domains/onboarding/provision-tenant.ts`** (~165 lines):
+- `PROVISIONING_DEFAULTS`: operator-locked defaults — `status: "pending_onboarding"`, `role: "beta_customer"`, `daily_budget_usd: 5`, `member_role: "owner"`. Pinned to prevent accidental flips to `"active"` (which would auto-include in cron polling).
+- `deriveTenantId(userId)`: deterministic derivation from auth UUID — `tenant-${userId.replace(/-/g,"").slice(0,8).toLowerCase()}`. Idempotent at the id level.
+- `derivePlaceholderBusinessName(email)`: title-cases the domain prefix, splits on dashes/underscores. Falls back to `"New Beacon Account"` on weird emails.
+- `lookupExistingMembership(supabase, userId)`: pure read, returns `{ tenantId, error }`. Used by callback + `/onboard/business`.
+- `provisionTenantForNewUser(supabase, input, now?)`: idempotent pipeline — lookup → if exists, return `{ ok: true, created: false }` → else upsert tenants (ignoreDuplicates) → upsert tenant_members → return `{ ok: true, created: true }`. Surfaces structured failure with `phase: "lookup" | "tenant_insert" | "member_insert"`.
+
+**New — `src/app/(public)/signup/page.tsx`**:
+- Server component, `dynamic = "force-dynamic"`. Branded "Create your Beacon account". Customer-safe copy — no tenant/admin/RLS/schema language in rendered output. Already-authenticated users redirect to `/`. Links to `/login` for existing users.
+
+**New — `src/app/(public)/signup/signup-form.tsx`**:
+- Client component with email input. Calls `requestSignupMagicLink` server action. Renders "Check your email" success state. No password / no payment / no Stripe.
+
+**New — `src/app/(public)/signup/actions.ts`**:
+- `requestSignupMagicLink(email)`: calls `supabase.auth.signInWithOtp({ shouldCreateUser: true, emailRedirectTo: ${origin}/auth/callback?signup=1 })`.
+
+**Modified — `src/app/auth/callback/route.ts`**:
+- After `exchangeCodeForSession` succeeds, resolves the auth user, then calls `provisionTenantForNewUser(admin, { userId, email })` using the service-role admin client (bypasses RLS deny-all on tenants table).
+- First-time signups (`provision.created === true`) → redirect to `/onboard/business`.
+- Repeat sign-in (existing membership) → redirect to caller's `next` or `/`.
+- Provisioning failure → `/signup?error=provisioning_${phase}` so operator can retry; idempotent inserts heal orphans on next attempt.
+
+**New — `src/app/(shell)/onboard/business/page.tsx`**:
+- Placeholder welcome page; `dynamic = "force-dynamic"`. Reads tenant via `lookupExistingMembership` (best-effort — page survives Supabase blips). Customer-safe "Welcome to Beacon" + 4-step "Coming up" preview. Operator-debug surface shows tenant slug + status (will be removed when Gap C wizard ships).
+
+**Modified — `src/lib/auth/supabase-middleware.ts`**:
+- Added `path.startsWith("/signup")` to `isPublic` predicate (line 86). `/auth` and `/login` predicates preserved (no regression).
+
+**Modified — `src/domains/tenants/types.ts`**:
+- Extended `BeaconTenant.status` enum to include `"pending_onboarding"` alongside `"active" | "paused" | "cancelled"`.
+
+**DB migration applied via Supabase MCP**:
+- `ALTER TABLE public.tenants DROP CONSTRAINT tenants_status_check;`
+- `ALTER TABLE public.tenants ADD CONSTRAINT tenants_status_check CHECK (status = ANY (ARRAY['active'::text, 'paused'::text, 'cancelled'::text, 'pending_onboarding'::text]));`
+- Verified post-migration via `pg_get_constraintdef`.
+
+**New — `src/domains/onboarding/provision-tenant.test.ts`** (28 behavioral tests):
+- Pure-helper tests: `deriveTenantId` deterministic + idempotent + UUID-case-insensitive, `derivePlaceholderBusinessName` title-cases + splits + fallback, `PROVISIONING_DEFAULTS` operator-locked.
+- `lookupExistingMembership`: null on no match; tenantId on hit; surfaces lookup errors.
+- `provisionTenantForNewUser` happy path: creates tenant + member rows; tenant has all operator-locked defaults; tenant_members has owner role.
+- Idempotency: repeat invocation returns `created: false` with no duplicate writes; existing membership returns existing tenantId without touching tenants; orphan tenant row (no tenant_members) → second call completes the missing membership.
+- Failure modes: `phase: "lookup"`, `phase: "tenant_insert"` (members never reached), `phase: "member_insert"` (tenant landed, member did not).
+- Uses an in-memory mock Supabase client (no network, no real DB, no env vars).
+
+**New — `tests/architecture/signup-onboarding-routes-contract.test.ts`** (21 invariants):
+- /signup page exists; is dynamic; renders customer-safe branding; does NOT expose tenant/admin/RLS/schema language to visitor (after stripping comments).
+- Form uses magic-link (`signInWithOtp`, `shouldCreateUser: true`); no password / credit card / Stripe; `redirectTo` points at `/auth/callback`.
+- Auth callback imports `provisionTenantForNewUser` from `@/domains/onboarding/provision-tenant`; uses `getSupabaseAdmin` (service-role); calls provisioner with resolved auth user; redirects `created: true` → `/onboard/business`; redirects `created: false` → caller's `next`; provisioning failure → `/signup?error=provisioning_<phase>`; does NOT call openai / perplexity / runNativePoll / runWebsiteScan / acceptAllHighConfidence.
+- /onboard/business is dynamic; renders welcome copy; does NOT call paid APIs / mutate persisted rows; lives under (shell) route group.
+- Middleware `isPublic` predicate includes `/signup` (and still includes `/login` + `/auth`).
+- Provisioner: `PROVISIONING_DEFAULTS.status` is `"pending_onboarding"` not `"active"`; `daily_budget_usd: 5`; uses `ignoreDuplicates: true`; no paid APIs / scans / queue mutations; no second active tenant inserted.
+- Cross-check: `scripts/list-active-tenants.ts` filters `status="active"` — so pending tenants are excluded from cron picking.
+
+### Quality gates run
+
+| Gate | Result |
+|------|--------|
+| `npm run typecheck` | clean |
+| `npm run test` (5797 tests) | 5797 PASS |
+| Targeted: `provision-tenant.test.ts` + `signup-onboarding-routes-contract.test.ts` | 49/49 PASS |
+| `npm run build` | exit 0 — `/signup` listed as ƒ (Dynamic) |
+| `verify-tenant-data-integrity` | PASS — all tenant-ownership invariants satisfied |
+| `verify-observation-dedup-integrity` | PASS — 0 dupe logical keys across all tenants |
+| `verify-verdict-rematerialization-integrity` | PASS — every persisted verdict matches T5.2 recompute |
+| `npm run verify:brain-health` | YELLOW — 7 PASS / 1 WARN (queue-idle, pre-existing — not Gap B) |
+| LLM budget SHA byte-identical | YES — `adjudicator-budget.ts` untouched (last edit 65e8688, predates Gap B) |
+
+### Verified behavior
+
+- **Customer signup flow**: visitor lands at `/signup` → enters email → magic-link sent → clicks link → `/auth/callback?signup=1&code=...` → exchange code for session → call `provisionTenantForNewUser(admin, ...)` → first-time: insert tenants row (status=pending_onboarding, role=beta_customer, daily_budget_usd=5) + tenant_members row (role=owner) → redirect to `/onboard/business`.
+- **Repeat sign-in**: same magic-link flow, but membership lookup returns the existing tenantId → skip inserts → redirect to caller's `next` or `/`.
+- **Idempotency under partial failure**: if tenants insert succeeds but tenant_members insert fails on attempt 1, attempt 2's tenants upsert is a no-op (id already exists) and member insert lands. Verified via `provision-tenant.test.ts` orphan-recovery test.
+- **Pending tenants invisible to cron**: Gap A's lister filters `status='active'`. Pinned via cross-check invariant in `signup-onboarding-routes-contract.test.ts`.
+- **Customer-safe UI**: 0 leaks of tenant/admin/RLS/schema language in rendered HTML on /signup or /onboard/business.
+
+### Out of scope (intentionally deferred to Gap C+)
+
+- The actual onboarding wizard (business name + website → cities/services → competitors → prompt review).
+- Auto-detect from homepage crawl (Gap D).
+- Auto-prompt generation (Gap E).
+- Operator alerts when a new tenant signs up (Gap G).
+
+### What this unlocks
+
+A real customer can now sign themselves up at https://beacon.example.com/signup, complete the magic-link round-trip, and land on a placeholder welcome page — without the operator touching GitHub / Vercel / Supabase / cron / API keys. They will not enter daily polling until the operator manually flips `tenants.status` from `pending_onboarding` to `active`.
+
+---
+
 ## 2026-05-07 — Self-serve onboarding Gap A: active tenants from DB (with JSON fallback)
 
 First step toward self-serve customer onboarding (Gap A in the customer-onboarding plan). Moves the cron's source-of-truth for "which tenants get polled" from a static JSON file (`ops/active-tenants.json`) to a Supabase query against the `tenants` table — so customers signing up tomorrow can be auto-picked-up by the next 07:00 UTC cron without a git commit.
