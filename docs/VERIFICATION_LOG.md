@@ -7,6 +7,97 @@
 
 ---
 
+## 2026-05-06 — Trust Sprint Mini-Phase T6.2 — Local AEO database foundation (derived intelligence)
+
+Materializes 7 derived intelligence files into `.data/tenants/<slug>/brain/` so the brain (and the upcoming T6.3 recommendation-learning loop) can query pre-aggregated trajectories instead of re-computing over raw observations on every read. Internal-only. No customer surface.
+
+Pure compute. No paid APIs. No mutations to canonical stores. Idempotent: re-running on the same input produces byte-identical files (manifest's `built_at` timestamp is the only differing field). Atomic writes (`.tmp` + rename) prevent half-written reads.
+
+### What changed
+
+**New — `scripts/build-local-aeo-intelligence.ts`:**
+
+Seven derived files + a manifest:
+
+| File | Bucket | Per-row shape | Why |
+|---|---|---|---|
+| `daily-platform-summary.json` | (date × platform) | obs / brand_mentions / brand_citations / citation totals / distinct competitor mentions | Foundation for trend charts; smallest aggregation unit |
+| `weekly-platform-summary.json` | (ISO week × platform) | obs / mention rate / citation rate / citation totals | Re-bucketed from daily; mid-grain trend |
+| `monthly-platform-summary.json` | (YYYY-MM × platform) | same shape | Re-bucketed from daily; long-grain trend |
+| `competitor-trajectory.json` | per competitor (entity_type ∈ {competitor, directory_source}) | total co-mentions + weekly count + first/last observed | Competitor-vs-Ritz comparison brain |
+| `prompt-trajectory.json` | per tracked prompt | total + weekly obs / brand mentions / brand citations + intent / location / service | "How is each prompt trending for the brand" |
+| `citation-source-trajectory.json` | per citing domain | classification (owned / competitor / directory / other) + total + weekly | "Which sources do AIs trust to answer about us" |
+| `geo-service-trajectory.json` | per (location_scope × service_scope) | prompt count + obs + brand mentions + weekly | Brain's geo / service awareness |
+| `manifest.json` | one row | built_at, source counts, per-file row count + sha256 | Audit trail + integrity check input |
+
+Helpers: ISO 8601 week numbering (UTC-stable, `YYYY-Www`), atomic write (`writeFileSync` to `.tmp` + `renameSync`).
+
+Filters / classifications:
+- Competitor trajectory uses `aliases` for fuzzy match (lowercase comparison).
+- Citation source classification reads `tracked_entities`: `is_owned=true` → `owned`; `entity_type='competitor'` → `competitor`; `entity_type='directory_source'` → `directory`; else `other`.
+- Geo-service trajectory drops uncategorized prompts (`location_scope` AND `service_scope` both null) so the file isn't padded with noise.
+
+### Run on Ritz (`tenant-ritz-founder` / `ritz-builders`, 2026-05-07 04:48 UTC)
+
+```
+Loading canonical stores…
+  observations:    30,417
+  tracked_prompts:    100
+  tracked_entities:    40
+
+Building derivations…
+  daily-platform rows:        169
+  weekly-platform rows:        30
+  monthly-platform rows:       10
+  competitor rows:             35
+  prompt rows:                100
+  citation source rows:     3,128
+  geo-service rows:             5
+
+Writing atomically…
+  daily-platform-summary.json           169 rows  sha=22c3fc998a7d
+  weekly-platform-summary.json           30 rows  sha=8e43f7927f8b
+  monthly-platform-summary.json          10 rows  sha=078936877121
+  competitor-trajectory.json             35 rows  sha=63418809636c
+  prompt-trajectory.json                100 rows  sha=4252c3157617
+  citation-source-trajectory.json     3,128 rows  sha=548adf30d3c8
+  geo-service-trajectory.json             5 rows  sha=bd5dde7dc165
+  manifest.json                                   sha=…
+```
+
+### Spot checks
+
+- **Competitor:** De Mattei Construction = 6,906 co-mentions across 10 weeks (W10–W19), W19 partial (today is W19 day 3). Greenberg Construction = 6,005. Both real builders, not directories — confirms entity-pollution-filter upstream of the canonical entity registry.
+- **Citation source:** `ritzbuilders.com` (owned) = 10,071 citations, `constructelements.com` (competitor) = 9,469 — neck-and-neck. Owned is winning the citation war by ~600.
+- **Geo-service:** Atherton (11 prompts, 33.6% brand-mention rate over 3,349 obs) and Cupertino (31.8% rate over 3,353 obs) are the dominant geo cohorts — consistent with operator's known service market.
+
+### Idempotency verification
+
+Ran the script twice; all 7 file SHA-256s identical between runs (manifest's `built_at` ISO timestamp is the only differing field — that's the audit-stamp by design).
+
+### Verification
+
+- ✅ `npm run typecheck` — clean.
+- ✅ `npm run test` — **306/306 files / 4965/4965 tests** (baseline preserved from T6.1).
+- ✅ Idempotent: 7/7 derived file SHAs byte-identical between back-to-back runs.
+- ✅ Atomic writes: `.tmp` + rename — no half-written reads possible.
+- ✅ Zero OpenAI calls. Zero paid polling. Zero mutations to canonical stores.
+- ✅ Operator-only — no customer surface; output gitignored under `.data/`.
+
+### Hard-constraint compliance
+
+- ✅ Internal-only — no UI integration, no /today / /changes / /recommendations consumer wiring.
+- ✅ No second tenant (single tenant flag `--tenant=` defaults to `ritz-builders`).
+- ✅ No RLS / auth changes. No Profound cleanup. No onboarding UI. No billing.
+- ✅ No broad refactors. No weakened tests. No customer copy added.
+- ✅ No production row mutations (canonical stores are read-only inputs).
+
+### What the next mini-phase should be
+
+**T6.3 — Brain-to-recommendation learning loop preflight.** Read the new derived files + the historical recommendation queue + URL outcomes, analyze "rec type → outcome" patterns, document findings in `docs/BEACON_RECOMMENDATION_LEARNING_LOOP_PREFLIGHT_2026_05_06.md`. Read-only — no engine changes. The brain now has a database to learn from; T6.3 surfaces what learnings are even possible from current data.
+
+---
+
 ## 2026-05-06 — Trust Sprint Mini-Phase T6.1 — Brain Health Index (operator-only)
 
 Internal-only single-page brain health report. Operationalizes the trust-sprint principle: "Internally rigorous; externally confident." This report is the internal half — honest grading of 5 health dimensions, no customer surface.
