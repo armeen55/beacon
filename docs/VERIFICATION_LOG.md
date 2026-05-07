@@ -7,6 +7,75 @@
 
 ---
 
+## 2026-05-06 — Trust Sprint Mini-Phase T6.3 — Brain-to-recommendation learning loop preflight
+
+Read-only diagnostic. Surfaces what learnings are POSSIBLE from the current rec queue + URL-outcome verdict store. No engine changes. No new persistence. No customer surface.
+
+### What changed
+
+**New — `scripts/analyze-recommendation-outcomes.ts`:** six analysis dimensions (status funnel, source funnel, confidence funnel, time-to-live, cost-vs-ship, rec → URL outcome join). Pure compute. Markdown to stdout + JSON snapshot to `.data/_reports/rec-outcome-analysis-{ts}.json`.
+
+**New — `docs/BEACON_RECOMMENDATION_LEARNING_LOOP_PREFLIGHT_2026_05_06.md`:** the preflight findings + 3 recommended next steps + honest gaps.
+
+### Run on Ritz (`tenant-ritz-founder`, 2026-05-07 04:54 UTC)
+
+```
+recommended_edits: 31
+url_change_outcomes: 131
+
+Status: recommended=23, dismissed=7, verified_live=1
+Source: deterministic 5/5 reviewed = 0% ship; openai 23 emitted, 3 reviewed = 33% ship; operator_edited 3/0 reviewed
+Confidence: medium=31, high=0, low=0
+Time-to-live (verified_live N=1): same_day = 1
+LLM cost: 23 recs × $0.0035 avg = $0.0804 total; cost-per-shipped = $0.0804
+Rec→URL outcome join: 100% join rate after URL normalization (25 helping co-occur, 6 nothing_yet co-occur)
+```
+
+### Three honest findings
+
+1. **URL normalization mismatch.** `recommended_edits.target_url` is full URL (`https://ritzbuilders.com/locations/los-altos`); `url_change_outcomes.url` is path-only (`/design-studio`). Cross-store joins require analyzer-side normalization. Long-term fix: write-side normalization in `mapSpecificEditToRow()`. Without this, the join rate read 0% on first pass.
+
+2. **Causality gap.** The 100% join rate is structurally compromised — recs join to URLs that already have helping verdicts because of OTHER changelog entries on the same URL. Today's data lets us see "rec X targeted URL Y" + "URL Y has verdict Z" but NOT "the change rec X produced got verdict W". Real causal learning requires stamping `rec_id ↔ change_id` at accept-time. Without this, "brain trains on rec outcomes" reduces to selection-bias confirmation. **Do NOT build a learning engine on the current shape.**
+
+3. **Confidence-tier collapse.** All 31 recs are tagged `medium`. T4.4 (commit `72b8675`, "stop 'all medium'") was supposed to fix this. Either T4.4's logic doesn't reach these rows OR T4.4 is running but inputs collapse to medium for this set. Worth a separate read-only investigation mini-phase. Without confidence-tier differentiation, the brain has nothing to calibrate against.
+
+### Sample-size honesty
+
+- N=8 reviewed, N=1 verified_live. Below threshold for any pattern conclusion. Time-to-live "median 0.94 days" is a sample-of-1 artifact.
+- Directional reads (deterministic 0% ship vs LLM 33% ship) are consistent with LR-1 / LR-2 / DryRun rounds in earlier verification log entries, but await N≥30 reviewed before confirming.
+
+### Recommended next 3 steps (in the doc)
+
+1. Fix A — URL normalization at write-time. Smallest scope, no schema change. Future mini-phase.
+2. Confidence-tier regression hunt (T4.4 follow-up). Read-only investigation. Future mini-phase.
+3. Fix B — `rec_id ↔ change_id` stamp at accept-time. Schema change + handler change + backfill. Defer until #1 + #2 land.
+
+### What this is NOT
+
+Not a learning engine. Not a model spec. Not a UI proposal. Not a green light to start training. **Sober inventory of what current data allows + the structural fixes that would unblock a real learning loop.**
+
+### Verification
+
+- ✅ `npm run typecheck` — clean.
+- ✅ `npm run test` — **306/306 files / 4965/4965 tests** (baseline preserved from T6.2).
+- ✅ Script runs in <30s on Ritz canonical store.
+- ✅ Both URL shapes (full + path-only) confirmed in source data — Fix A is real, not a false alarm.
+- ✅ All 31 recs at medium confidence — T4.4 follow-up is real, not a false alarm.
+- ✅ Zero OpenAI calls. Zero paid polling. Zero mutations.
+
+### Hard-constraint compliance
+
+- ✅ Read-only. No engine changes. No new persistence. No schema changes.
+- ✅ Operator-only. No customer surface. No UI integration.
+- ✅ No second tenant. No RLS / auth / Profound / onboarding / billing.
+- ✅ No broad refactors. No weakened tests. No customer copy added.
+
+### What the next mini-phase should be
+
+**T6.4 — Executive confidence layer.** Audit / sweep customer-visible copy on default surfaces (/today, /changes, /prompts, /recommendations) for words like "We can't prove", "Unreliable", "False positive", "Contaminated", "We don't know" — and any other scary or methodology-leaking phrases. Replace with confident executive language. Caveats remain in proof drawers (truth pages, math drawer, methodology). Default surfaces should feel premium and decisive.
+
+---
+
 ## 2026-05-06 — Trust Sprint Mini-Phase T6.2 — Local AEO database foundation (derived intelligence)
 
 Materializes 7 derived intelligence files into `.data/tenants/<slug>/brain/` so the brain (and the upcoming T6.3 recommendation-learning loop) can query pre-aggregated trajectories instead of re-computing over raw observations on every read. Internal-only. No customer surface.
