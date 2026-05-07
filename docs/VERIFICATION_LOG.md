@@ -7,6 +7,51 @@
 
 ---
 
+## 2026-05-06 — Trust Sprint Mini-Phase T5.1 — Attribution hardening preflight (READ-ONLY)
+
+Operator-approved preflight pass following T4.4. **No verdict math changes.** This phase inventories what's at risk in the current verdict store and proposes a bounded T5.2 implementation (sparse-pre-window precondition + `weak_signal` tier).
+
+### What's at risk (Ritz, `.data/tenants/ritz-builders/url-change-outcomes.json`)
+
+- **131 total verdicts on disk; 118 are `helping` (90.1%)** — distribution skews suspiciously high vs. Phase 3.B backtest expectation.
+- **All 118 helping verdicts touch a contaminated date** (2026-04-23 / 2026-04-26 / 2026-05-06) in their pre or post window.
+- **Top-10 risky helping verdicts share `baseline_days_used=5d, z=76.92` on `/luxury-home-builder-bay-area`** — the exact placebo-2 false-positive class from Phase 3.B (sparse pre-window + sigma_floor amplification).
+- **`live_at` coverage: 1 of 334 changelog rows (0.3%)** — every existing helping verdict is anchored on commit `timestamp` not `live_at`.
+- **0 hurting / too_early / not_enough_data verdicts** — no abstain branches firing in the current store.
+
+### Proposal (deferred to T5.2 — operator approval gated)
+
+`docs/BEACON_T5_ATTRIBUTION_HARDENING_PREFLIGHT_2026_05_06.md` documents:
+
+1. **Sparse-pre-window precondition** (`url-verdict.ts`): demote `helping`/`hurting` → `nothing_yet` when `preDaysWithFullPolls < 5`. Closes the placebo-2 false-positive class.
+2. **`weak_signal` tier** (`url-verdict.ts`): new tier between `too_early` and `helping` for `z ∈ [1.2, 2.0)` AND `sustainUp >= 5` AND sparse-pre-window precondition satisfied. Catches the real-3 menlo-park false-negative class.
+3. **`VerdictLabel` union extension** + downstream consumer cases (lifecycle copy, status pill, T3.2 verdict-provenance trust contract, /changes ExpandPanel).
+4. **Test cases** (precondition, tier, copy, T3.2 trust contract, Phase 3.B backtest re-run).
+5. **Rollback plan** — pure code change; materializer is idempotent on `(change_id, url)` so revert overwrites in place.
+6. **Implementation timing** — recommend implementing immediately and letting next 07:00 UTC cron rematerialize.
+
+Estimated T5.2 diff: ~200 lines (engine + tests + UI copy + provenance).
+
+### Verification (read-only preflight)
+
+- ✅ `npm run typecheck` — clean (no code changes).
+- ✅ `npm run test` — **306/306 files / 4947/4947 tests** (63.93s; unchanged from T4.4).
+- ✅ `scripts/verify-tenant-data-integrity.ts` — PASS.
+- ✅ `scripts/verify-observation-dedup-integrity.ts` — PASS.
+- ✅ `.data/global/llm-budget.json` SHA = `d36eed8ca157cb4c65ee01a2c51a2fef3fb21a0dfdbb036753d6d7c570927dbd` (byte-identical with T1.1 baseline).
+- ✅ Zero queue mutations. Zero verdict mutations. Zero OpenAI calls.
+
+### Hard-constraint compliance
+
+- ✅ T5.2 NOT started; this is the proposal.
+- ✅ Verdict math NOT changed.
+- ✅ `live_at` NOT backfilled (out of scope; would require per-row scan timestamp recovery).
+- ✅ No persisted row mutations of any kind.
+- ✅ No paid polling. No OpenAI. No second tenant.
+- ✅ No RLS / auth changes. No Profound cleanup.
+
+---
+
 ## 2026-05-06 — Trust Sprint Mini-Phase T4.4 — Derived confidence (stop "all medium")
 
 Operator-approved bundle following T4.3. Replaces the legacy "Medium confidence" pill (which read the same on every production row per Phase 2.B audit) with a customer-safe derived label computed from evidence quality. Persisted `confidence` column is NOT mutated — derivation happens at row-build time so older rows update on next render without queue mutation.
