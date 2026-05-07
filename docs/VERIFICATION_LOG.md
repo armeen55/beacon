@@ -7,6 +7,90 @@
 
 ---
 
+## 2026-05-07 — Self-serve onboarding Gap C.2: scope step (cities + services)
+
+Fourth step in customer-onboarding pipeline (Gap A → Gap B → Gap C.1 → Gap C.2). Replaces the Gap C.1 placeholder at `/onboard/scope` with a real step-2 form (cities served + project_mix) that writes to the existing pending tenant row, then redirects to a new `/onboard/competitors` step-3 placeholder. Same pattern + safety guards as Gap C.1: pure validation, status-gated UPDATE, only `tenants` table touched, no activation, no prompts, no paid APIs.
+
+**Reversible**: ordinary `tenants` row UPDATEs; operator can revert via Supabase. No schema changes, no new tables.
+
+### What changed
+
+**New — `src/domains/onboarding/scope-validation.ts`** (~135 lines, pure):
+- `normalizeCityList(input)` — accepts string OR array; prefers newline as the primary separator (so `"City, ST"` pairs survive as one token); falls back to comma when input has no newlines; trims; drops empty + over-long tokens; title-cases (`atherton, ca` → `Atherton, CA`); deduplicates case-insensitively (first occurrence wins); type-safe vs undefined/null/non-string elements.
+- `PROJECT_MIX_TAGS` — `as const satisfies ReadonlyArray<ProjectMixTag>`. Adding a tag to the type without adding it here is a build error.
+- `PROJECT_MIX_LABELS` — operator-friendly labels for each enum (e.g. `kitchen_bath` → `"Kitchen & bath"`, `adu_addition` → `"ADUs / additions"`).
+- `isProjectMixTag(v)` — runtime type-guard, used as defense-in-depth against tampered POSTs.
+- `validateScopeProfile({ cities, projectMix })` — returns `{ ok, normalized }` or `{ ok: false, errors }`. Rules: ≥1 city after normalization, ≤ `CITIES_MAX_COUNT (=20)`; ≥1 known project_mix tag (unknown tags silently dropped, errors only when zero remain).
+
+**New — `src/app/(shell)/onboard/scope/scope-form.tsx`** (client component):
+- Multi-line textarea for cities (4 rows, monospace, hint shows newline + comma support, "Atherton, CA" guidance). Visual checkbox grid for project mix (six tags from `PROJECT_MIX_TAGS`, one card per tag, checked-state styling). Submit via `useTransition` + `saveScopeProfile`. Per-field error rendering. NEXT_REDIRECT propagation. Humanized error codes for UI.
+
+**New — `src/app/(shell)/onboard/scope/actions.ts`** (server action, `"use server"`):
+- `saveScopeProfile({ cities, projectMix })`. Validate (pure) → resolve user from session → look up tenant → `UPDATE tenants SET cities_served, project_mix, updated_at WHERE id = ? AND status = 'pending_onboarding'` (count: 'exact'). On `count === 0` returns `{ error: 'already_launched' }`. On success calls `redirect('/onboard/competitors')`. **Touches ONLY the `tenants` table.** No prompts, no entities, no observations, no recommended_edits, no snapshots. No openai/perplexity/runNativePoll/runWebsiteScan/acceptAllHighConfidence/syncRecommendedEdits.
+
+**Replaced — `src/app/(shell)/onboard/scope/page.tsx`**:
+- Was: Gap C.1 placeholder.
+- Now: server component (force-dynamic) calling `requireOnboardingTenant()`, rendering OnboardingShell `step={2}` with the step-1 echo summary + `<ScopeForm>` initialized from saved `cities_served` + `project_mix`. Back-link to `/onboard/business`.
+
+**New — `src/app/(shell)/onboard/competitors/page.tsx`** (placeholder for step 3):
+- Same access guard. force-dynamic. OnboardingShell `step={3}`. Renders saved business + domain + cities + project_mix as the step-2-confirmation summary, plus a "Coming up" preview of step 3. ZERO inputs/forms/selects/textareas. ZERO mutations. Back-link to /onboard/scope.
+
+**Tests added**:
+
+**New — `src/domains/onboarding/scope-validation.test.ts`** (30 unit tests):
+- `normalizeCityList` string input: comma split, newline split, title-case both lowercase + uppercase, state-abbreviation handling on newline-separated input, comma-separator behavior pinned (CA tokens become "Ca" — newlines required to preserve "City, ST"), case-insensitive dedupe, empty-token drop, over-long-token rejection, empty/whitespace input.
+- `normalizeCityList` array input: array of strings, dedupe within array, ignore non-string elements safely, return [] for non-array non-string.
+- `isProjectMixTag`: accepts every PROJECT_MIX_TAGS value; rejects unknown strings (case-sensitive); rejects non-string input.
+- `PROJECT_MIX_LABELS`: label exists for every tag (no missing entry); labels are operator-friendly (no underscore, not the raw enum value).
+- `validateScopeProfile`: clean input, dedupe cities, dedupe project_mix, drop unknown project_mix tags silently, reject empty cities + whitespace cities + empty project_mix + only-unknown project_mix, both-fields-invalid case, > CITIES_MAX_COUNT rejection, exactly-CITIES_MAX_COUNT acceptance, missing-keys safety.
+
+**New — `tests/architecture/onboard-scope-step-contract.test.ts`** (29 invariants):
+- /onboard/scope: page + form + action exist; force-dynamic; uses requireOnboardingTenant + OnboardingShell step={2}; renders ScopeForm; form has cities textarea + project_mix checkboxes (no other input types); no payment/passwords/Stripe/CVV in form; no tenant/admin/RLS/schema language in customer-rendered text.
+- saveScopeProfile: marked `"use server"`; uses validateScopeProfile + getSupabaseAdmin; UPDATE gated by `.eq("id",...).eq("status","pending_onboarding")`; never sets `status: "active"`; touches ONLY `tenants` table (no tracked_prompts/tracked_entities/observations/recommended_edits/snapshots); no openai/perplexity/runNativePoll/runWebsiteScan/acceptAllHighConfidence/syncRecommendedEdits; redirects to `/onboard/competitors` on success; returns `validation_failed` on bad input; surfaces `already_launched` on race; **field-set pin**: UPDATE block writes EXACTLY `cities_served`, `project_mix`, `updated_at` (and nothing else).
+- /onboard/competitors placeholder: file exists; force-dynamic; uses access guard; step={3}; ZERO inputs/forms/selects/textareas; no upsert/insert/update/delete; no paid APIs; no tenant/admin/RLS/schema language.
+- scope-validation exports: normalizeCityList + validateScopeProfile + isProjectMixTag + PROJECT_MIX_TAGS + PROJECT_MIX_LABELS; PROJECT_MIX_TAGS pinned with `satisfies ReadonlyArray<ProjectMixTag>`.
+- Cross-check: nothing in /onboard/scope or /onboard/competitors flips status to 'active'; nothing creates prompts or tracked_entities.
+
+**Modified — `tests/architecture/onboard-business-step-contract.test.ts`**:
+- Updated Gap C.1's `/onboard/scope` describe block: dropped placeholder-only assertions (now superseded by Gap C.2 form contract). Kept route-level invariants (file exists, force-dynamic, page itself doesn't mutate / call paid APIs, no tenant/admin/RLS/schema language). Form + action contract owned by `onboard-scope-step-contract.test.ts`.
+
+### Quality gates run
+
+| Gate | Result |
+|------|--------|
+| `npm run typecheck` | CLEAN |
+| `npm run test` (5924 tests) | 5924 PASS (+60 vs Gap C.1 baseline 5864) |
+| Targeted (scope-validation + onboard-scope-step-contract + onboard-business-step-contract + signup-onboarding-routes-contract + provision-tenant + profile-validation) | 170/170 PASS |
+| `npm run build` | exit 0 — `/onboard/business`, `/onboard/scope`, `/onboard/competitors` all listed as ƒ Dynamic |
+| `verify-tenant-data-integrity` | PASS — all tenant-ownership invariants satisfied |
+| `verify-observation-dedup-integrity` | PASS — 0 duplicate logical keys |
+| `verify-verdict-rematerialization-integrity` | PASS — drift=0 |
+| `npm run verify:brain-health` | YELLOW — 7 PASS / 1 WARN (queue idle, pre-existing) |
+| LLM budget SHA byte-identical | YES — `5303c16f04…` unchanged from Gap C.1 |
+
+### Verified behavior
+
+- **Step 2 form**: visitor at `/onboard/scope` sees saved business name + domain (echo from step 1) + cities textarea (pre-filled from saved data, one per line) + 6 project-mix checkboxes (pre-checked from saved data). Submits → action validates + UPDATEs tenants row → redirects to `/onboard/competitors`.
+- **Step 3 placeholder**: shows full saved-so-far summary (business, website, cities, project_mix labels). No inputs.
+- **Validation rejections**: empty cities, whitespace-only cities, > 20 cities, empty project_mix, project_mix containing only unknown tags all rejected with field-specific messages.
+- **City normalization**: `atherton, ATHERTON, Atherton` → `["Atherton"]` (dedupe). `"Atherton, CA\nMenlo Park, CA"` (newline-separated) → `["Atherton, CA", "Menlo Park, CA"]`. `"Atherton, Menlo Park"` (no newlines, comma list) → `["Atherton", "Menlo Park"]`.
+- **Status guard holds**: action UPDATE is filtered by `status = 'pending_onboarding'`; if a race flips a tenant to 'active' first, the UPDATE returns count=0 and surfaces `already_launched`.
+- **Pending tenants invisible to cron**: pinned by Gap A's lister filter `status='active'` + new architecture invariants.
+
+### Out of scope (deferred to Gap C.3 + later)
+
+- /onboard/competitors form (top 3 competitors to track) — Gap C.3.
+- /onboard/review (auto-generated prompt review + Launch CTA) — Gap C.4.
+- Status flip `pending_onboarding` → `active` — only after Gap C.4 Launch step.
+- Auto-detect from homepage crawl — Gap D.
+- Auto-prompt generation — Gap E.
+
+### What this unlocks
+
+A real customer can now sign up at /signup → magic-link → /auth/callback (Gap B provisioning) → /onboard/business (Gap C.1, business name + website) → /onboard/scope (Gap C.2, cities + project_mix, NEW) → /onboard/competitors (placeholder, awaiting Gap C.3). 50% of the wizard collection step is in place.
+
+---
+
 ## 2026-05-07 — Self-serve onboarding Gap C.1: business-profile step (name + website)
 
 Third step in customer-onboarding pipeline (Gap A → Gap B → Gap C.1). Replaces the Gap B placeholder welcome card at `/onboard/business` with a real step-1 form that collects business name + website domain and writes them to the existing pending tenant row. Adds a `/onboard/scope` placeholder (step 2 of 4) that previews cities/services collection and confirms step 1 saved. Pure, idempotent, gated by `status='pending_onboarding'` so an active customer's row can never be mutated through this path. **No tenant activation. No prompt creation. No paid APIs.**
