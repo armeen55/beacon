@@ -7,6 +7,100 @@
 
 ---
 
+## 2026-05-07 — Trust Sprint Mini-Phase T7.4 — Local AEO intelligence v2
+
+Extended the local AEO database from the v1 7-file foundation (T6.2) to a v2 14-file derived intelligence layer that the brain (and the upcoming T7.5 learning score + T7.6 operator route) can query for the dream-state local AEO/SEO insights — strongest/weakest cities, services, competitors, citation sources, opportunity maps. Pure compute. No paid calls. No mutations.
+
+### What changed
+
+**Modified — `scripts/build-local-aeo-intelligence.ts`** (+450 lines):
+
+7 new derivation builders, each pure, idempotent, and emitting a record shape that carries: identifier (city/service/competitor/domain/prompt), sample size, brand mention rate, brand citation rate, recent-2w vs prior-2w trend, top-competitor signal, sample_full flag.
+
+| File | Purpose | Ritz row count |
+|---|---|---|
+| `city-strength-index.json` | Per-city brand-mention rate + 2w trend + sample flag | 5 |
+| `service-strength-index.json` | Per-service brand-mention rate + trend (Ritz prompts mostly lack `service_scope`) | 0 |
+| `competitor-weekly-trajectory.json` | Per-competitor recent-vs-prior with rising/falling boolean flags (extends v1) | 35 |
+| `citation-domain-authority.json` | Per-domain authority score (volume × consistency) + classification + trend | 3,128 |
+| `page-citation-trajectory.json` | Per-owned-domain citation trajectory (1 row = ritzbuilders.com) | 1 |
+| `prompt-opportunity-index.json` | Per-prompt opportunity score + status (winning / competitive / outranked / absent / early) | 100 |
+| `local-aeo-opportunity-map.json` | (city × service) cell ranked by opportunity = competitor strong + brand low (Ritz prompts mostly lack both fields populated) | 0 |
+
+**Modified — `scripts/verify-brain-health-watchdog.ts`**: AEO manifest check extended to verify all 14 files (v1 + v2).
+
+**Modified — `tests/architecture/brain-health-watchdog-contract.test.ts`**: invariant updated to assert all 14 files in the watchdog's expected list.
+
+**New — `tests/architecture/local-aeo-intelligence-v2.test.ts`** (15 invariants):
+
+- All 7 v2 file names emitted from main().
+- All 7 v2 builder functions declared.
+- `SAMPLE_SIZE_FULL_THRESHOLD` pinned at 80 (matches T6.1 brain-health full-day threshold).
+- Each v2 row shape includes `sample_full` + `trend_vs_prior_window`.
+- Competitor-weekly-v2 has `rising` + `falling` boolean flags.
+- Prompt-opportunity status enum has 5 expected values.
+- Negative invariants: no OpenAI / paid polling / scans / store mutations.
+- v2 records use display names (city / service / competitor_name / prompt_text_snippet), not raw UUIDs as primary identifiers.
+
+### Spot-check on Ritz
+
+```
+city-strength-index.json (top 3):
+  Atherton:    33.6% mention rate, 1126 mentions / 3349 obs, sample_full=true
+  Cupertino:   31.8% mention rate, 1067 mentions / 3353 obs, sample_full=true
+  ...
+
+prompt-opportunity-index.json (top 3 opportunities):
+  "What builders are best to hire in the Bay Area…"
+    absent (rate=0%), opportunity_score=1.0
+  "Which builders in Los Altos are best for modernizing…"
+    absent (rate=2%), opportunity_score=0.98
+  "For a custom home in Palo Alto, is it better to hire a designer…"
+    absent (rate=2%), opportunity_score=0.98
+
+competitor-weekly-trajectory.json:
+  De Mattei Construction: 6906 total, recent_2w=260, prior_2w=890,
+                          trend=-0.71 (falling=true), rising=false
+  Greenberg Construction: 6005 total, similar shape
+```
+
+The empty results (service-strength=0, local-aeo-opportunity-map=0) are honest: Ritz's tracked prompts mostly carry only `location_scope`, not `service_scope`. The brain reports the gap rather than fabricating data.
+
+### Idempotency verification
+
+Ran the script twice; all 14 derived file SHA-256s identical between runs (manifest's `built_at` ISO timestamp is the only differing field — that's the audit-stamp by design).
+
+### Watchdog re-run post-T7.4
+
+```
+6. aeo-intelligence-manifest    ✓ PASS (14 files, age 0.0d)
+SUMMARY: 7 PASS, 1 WARN, 0 FAIL → WATCHDOG: YELLOW
+```
+
+### Verification
+
+- ✅ `npm run typecheck` — clean.
+- ✅ `npm run test` — **315/315 files / 5082/5082 tests** (+1 file +15 tests vs T7.3 baseline 314/5067).
+- ✅ `npm run build` — green.
+- ✅ `npm run verify:brain-health` — exits 0 (YELLOW: idle queue only).
+- ✅ Idempotent: 14/14 file SHAs byte-identical across back-to-back runs.
+- ✅ `.data/global/llm-budget.json` SHA = `d36eed8ca157cb4c65ee01a2c51a2fef3fb21a0dfdbb036753d6d7c570927dbd` — byte-identical with T7.3.
+- ✅ Zero OpenAI calls. Zero paid polling. Zero row mutations.
+
+### Hard-constraint compliance
+
+- ✅ Pure compute extension — no engine / schema / UI changes.
+- ✅ Each empty result is HONEST (service_scope often null on Ritz; not fabricated).
+- ✅ Sample-full flags present on every v2 record so the brain doesn't overfit on sparse data.
+- ✅ No second tenant. No RLS / auth / Profound / onboarding / billing.
+- ✅ Tests TIGHTEN the contract (15 + 1 watchdog-extension invariants).
+
+### What the next mini-phase should be
+
+**T7.5 — Recommendation learning score v0** (causal-aware). Use `source_rec_id` chain (T7.1) + per-action-type aggregation; respect sample-size floor; do not change ranking until N≥5. Document in `docs/BEACON_RECOMMENDATION_LEARNING_SCORE_V0_2026_05_07.md`.
+
+---
+
 ## 2026-05-07 — Trust Sprint Mini-Phase T7.3 — Brain-health regression watchdog
 
 Single orchestrator that runs every Beacon trust check the operator cares about and exits non-zero if any HARD check fails. Cron-eligible.

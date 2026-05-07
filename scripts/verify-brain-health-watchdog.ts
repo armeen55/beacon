@@ -196,6 +196,7 @@ async function checkAeoManifest(): Promise<{ status: Outcome["status"]; detail: 
     files: Array<{ name: string; rows: number; sha256: string }>;
   };
   const expectedFiles = [
+    // v1 (T6.2)
     "daily-platform-summary.json",
     "weekly-platform-summary.json",
     "monthly-platform-summary.json",
@@ -203,6 +204,14 @@ async function checkAeoManifest(): Promise<{ status: Outcome["status"]; detail: 
     "prompt-trajectory.json",
     "citation-source-trajectory.json",
     "geo-service-trajectory.json",
+    // v2 (T7.4)
+    "city-strength-index.json",
+    "service-strength-index.json",
+    "competitor-weekly-trajectory.json",
+    "citation-domain-authority.json",
+    "page-citation-trajectory.json",
+    "prompt-opportunity-index.json",
+    "local-aeo-opportunity-map.json",
   ];
   const present = new Set(raw.files.map((f) => f.name));
   const missing = expectedFiles.filter((n) => !present.has(n));

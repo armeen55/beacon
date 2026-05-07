@@ -56,8 +56,9 @@ describe("T7.3 — brain-health watchdog contract", () => {
     expect(SRC).toContain("Brain Readiness Grade");
   });
 
-  it("checks AEO intelligence manifest with all 7 expected derivation files", () => {
+  it("checks AEO intelligence manifest with v1 + v2 derivation files", () => {
     const expectedFiles = [
+      // v1 (T6.2)
       "daily-platform-summary.json",
       "weekly-platform-summary.json",
       "monthly-platform-summary.json",
@@ -65,6 +66,14 @@ describe("T7.3 — brain-health watchdog contract", () => {
       "prompt-trajectory.json",
       "citation-source-trajectory.json",
       "geo-service-trajectory.json",
+      // v2 (T7.4) — extended in T7.4 to keep the watchdog in sync
+      "city-strength-index.json",
+      "service-strength-index.json",
+      "competitor-weekly-trajectory.json",
+      "citation-domain-authority.json",
+      "page-citation-trajectory.json",
+      "prompt-opportunity-index.json",
+      "local-aeo-opportunity-map.json",
     ];
     for (const f of expectedFiles) {
       expect(SRC).toContain(f);
