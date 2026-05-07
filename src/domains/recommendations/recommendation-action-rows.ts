@@ -189,6 +189,16 @@ export type ActionRowDetail = {
   /** Observation count (denormalized from rec.evidence). */
   readonly observationCount: number;
   /**
+   * T4.2 (2026-05-06) — derived evidence depth: count of distinct
+   * grounding-signal categories present on this row. Categories scanned:
+   * prompt evidence (1), owned-page (1), competitor (1), element (1),
+   * prior-outcome (1), multi-prompt bonus (1 when ≥2 prompts).
+   * Used as a tiebreaker in the customer-facing rank sort so a
+   * thin single-prompt row cannot outrank a multi-prompt-with-owned-page
+   * row simply because it was created later.
+   */
+  readonly evidenceDepth: number;
+  /**
    * W3 §3.15 (2026-05-04) — for grouped FAQ Q+A rows, the answer's
    * full proposedText so the drawer can render question + answer
    * side-by-side. Null for non-FAQ rows and for orphan/legacy FAQ
@@ -212,6 +222,19 @@ export type ActionRowDetail = {
     readonly engineConfidence: RecConfidenceVerdict;
     readonly evidenceHash: string | null;
     readonly editLifecycleStatus: ImplementationStatus | null;
+    /**
+     * T4.2 (2026-05-06) — prioritize.ts's tier ("now" | "this_week"
+     * | "later"). Pre-T4.2 the customer-facing table discarded this
+     * field; now it threads through as a sort tiebreaker between
+     * status bucket and per-row priority. Diagnostic-grade — UI may
+     * surface in operator-mode debug only.
+     */
+    readonly prioritizerTier: "now" | "this_week" | "later" | null;
+    /**
+     * T4.2 (2026-05-06) — the prioritizer's raw score (severity +
+     * cluster bonus + competitor pressure − effort). Diagnostic only.
+     */
+    readonly prioritizerScore: number | null;
   };
 };
 
@@ -691,6 +714,67 @@ export function composeMetaRowTitle(args: {
  *
  * Pure / deterministic. No clock reads. Same inputs → same output.
  */
+/**
+ * T4.2 (2026-05-06) — Evidence-depth helper used by the customer-facing
+ * sort to break ties between rows that share a status bucket + priority
+ * tier. Counts how many distinct grounding-signal categories a row's
+ * evidence array carries. The categories tracked match the structural
+ * sources the abstention contract (T4.1) considers grounding:
+ *
+ *   - prompt: at least one prompt evidence ref → +1
+ *   - multi-prompt bonus: ≥2 prompt refs → +1 (rewards multi-prompt
+ *     packets, which the abstention contract treats as stronger
+ *     grounding for FAQ answers)
+ *   - owned_page: at least one owned-page evidence ref → +1
+ *   - competitor: at least one competitor evidence ref → +1
+ *   - element: at least one page-element evidence ref → +1
+ *   - prior_outcome: at least one prior-outcome evidence ref → +1
+ *
+ * Returns 0..6. Higher = richer evidence. Pure: same input → same
+ * output, safe to call from sort.
+ *
+ * Note: the persisted `evidence` array undercounts the original packet
+ * (Phase 2.B audit found `search_query` evidence rows never ship). This
+ * helper still returns a useful tiebreaker because it captures the
+ * dimensions present, not absent.
+ */
+export function computeEvidenceDepth(
+  evidenceRefs: ReadonlyArray<SpecificEditEvidenceRef>,
+): number {
+  let promptCount = 0;
+  let ownedPageCount = 0;
+  let competitorCount = 0;
+  let elementCount = 0;
+  let priorOutcomeCount = 0;
+  for (const ref of evidenceRefs) {
+    switch (ref.type) {
+      case "prompt":
+        promptCount += 1;
+        break;
+      case "owned_page":
+        ownedPageCount += 1;
+        break;
+      case "competitor":
+        competitorCount += 1;
+        break;
+      case "element":
+        elementCount += 1;
+        break;
+      case "prior_outcome":
+        priorOutcomeCount += 1;
+        break;
+    }
+  }
+  let depth = 0;
+  if (promptCount > 0) depth += 1;
+  if (promptCount >= 2) depth += 1; // multi-prompt bonus
+  if (ownedPageCount > 0) depth += 1;
+  if (competitorCount > 0) depth += 1;
+  if (elementCount > 0) depth += 1;
+  if (priorOutcomeCount > 0) depth += 1;
+  return depth;
+}
+
 export function priorityForRow(args: {
   readonly engineConfidence: "high" | "medium" | "low";
   readonly severity: "high" | "medium" | "low";
@@ -1270,6 +1354,8 @@ export function buildRecommendationActionRows(
             topCompetitor,
             affectedPromptCount: rec.evidence.promptCount,
             observationCount: rec.evidence.observationCount,
+            // T4.2 — evidence depth + prioritizer threading.
+            evidenceDepth: computeEvidenceDepth(evidenceRefs),
             debug: {
               recommendationId: rec.stableKey,
               editId: question.id,
@@ -1280,6 +1366,8 @@ export function buildRecommendationActionRows(
               engineConfidence: rec.engineConfidence,
               evidenceHash: question.evidence_hash ?? answer.evidence_hash ?? null,
               editLifecycleStatus: question.implementation_status ?? null,
+              prioritizerTier: rec.tier ?? null,
+              prioritizerScore: typeof rec.score === "number" ? rec.score : null,
             },
           },
         });
@@ -1371,6 +1459,8 @@ export function buildRecommendationActionRows(
             topCompetitor,
             affectedPromptCount: rec.evidence.promptCount,
             observationCount: rec.evidence.observationCount,
+            // T4.2 — evidence depth + prioritizer threading.
+            evidenceDepth: computeEvidenceDepth(edit.evidence ?? []),
             debug: {
               recommendationId: rec.stableKey,
               editId: edit.id,
@@ -1381,6 +1471,8 @@ export function buildRecommendationActionRows(
               engineConfidence: rec.engineConfidence,
               evidenceHash: edit.evidence_hash ?? null,
               editLifecycleStatus: edit.implementation_status ?? null,
+              prioritizerTier: rec.tier ?? null,
+              prioritizerScore: typeof rec.score === "number" ? rec.score : null,
             },
           },
         });
@@ -1522,6 +1614,8 @@ export function buildRecommendationActionRows(
         topCompetitor,
         affectedPromptCount: rec.evidence.promptCount,
         observationCount: rec.evidence.observationCount,
+        // T4.2 — meta rows have no edit-level evidence; depth = 0.
+        evidenceDepth: 0,
         debug: {
           recommendationId: rec.stableKey,
           editId: null,
@@ -1532,12 +1626,14 @@ export function buildRecommendationActionRows(
           engineConfidence: rec.engineConfidence,
           evidenceHash: null,
           editLifecycleStatus: null,
+          prioritizerTier: rec.tier ?? null,
+          prioritizerScore: typeof rec.score === "number" ? rec.score : null,
         },
       },
     });
   }
 
-  // ── Rank assignment. Operator-locked sort (W3 §3.5f):
+  // ── Rank assignment. Operator-locked sort (W3 §3.5f, T4.2 §4.2):
   //     1. STATUS BUCKET (open work above tracking; tracking above
   //        archived). Operator scope: tracking rows must NOT outrank
   //        open work by default — without this, a queue of accepted
@@ -1547,9 +1643,21 @@ export function buildRecommendationActionRows(
   //          measuring                               (bucket 2)
   //          shipped                                 (bucket 3)
   //          deferred / dismissed                    (bucket 4)
-  //     2. PRIORITY DESC (high → medium → low) within bucket
-  //     3. observation count DESC (richer evidence first)
-  //     4. id ASC (deterministic tie-break)
+  //     2. PRIORITIZER TIER (T4.2): the prioritize.ts queue tier
+  //        ("now" → "this_week" → "later"). Pre-T4.2 the customer-
+  //        facing table discarded this — the prioritizer's signals
+  //        (severity + cluster size + competitor pressure − effort)
+  //        drove a queue position that was then re-shuffled by a
+  //        priorityForRow rubric. Now the tier sets the BAND inside
+  //        each status bucket; priorityForRow refines within band.
+  //     3. PRIORITY DESC (high → medium → low) within bucket+tier
+  //     4. EVIDENCE DEPTH DESC (T4.2): rows with more grounding
+  //        signals (multi-prompt, owned page, competitor angle, etc.)
+  //        outrank thin single-prompt rows that share the same
+  //        priority. This closes the "thin FAQ answer outranks
+  //        multi-prompt H2" failure mode.
+  //     5. observation count DESC (richer evidence first)
+  //     6. id ASC (deterministic tie-break)
   const PRIORITY_RANK: Record<ActionRowPriority, number> = {
     high: 0,
     medium: 1,
@@ -1565,11 +1673,25 @@ export function buildRecommendationActionRows(
     deferred: 4,
     dismissed: 4,
   };
+  const PRIORITIZER_TIER_RANK: Record<"now" | "this_week" | "later", number> = {
+    now: 0,
+    this_week: 1,
+    later: 2,
+  };
   rows.sort((a, b) => {
     const sb = STATUS_BUCKET[a.status] - STATUS_BUCKET[b.status];
     if (sb !== 0) return sb;
+    // T4.2: prioritizer tier band before priorityForRow refinement.
+    const aTier = a.detail.debug.prioritizerTier;
+    const bTier = b.detail.debug.prioritizerTier;
+    const aTierRank = aTier ? PRIORITIZER_TIER_RANK[aTier] : 99;
+    const bTierRank = bTier ? PRIORITIZER_TIER_RANK[bTier] : 99;
+    if (aTierRank !== bTierRank) return aTierRank - bTierRank;
     const p = PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority];
     if (p !== 0) return p;
+    // T4.2: evidence depth — richer grounding wins ties.
+    const ed = b.detail.evidenceDepth - a.detail.evidenceDepth;
+    if (ed !== 0) return ed;
     const obs = b.detail.observationCount - a.detail.observationCount;
     if (obs !== 0) return obs;
     return a.id.localeCompare(b.id);

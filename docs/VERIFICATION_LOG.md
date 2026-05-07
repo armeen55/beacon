@@ -7,6 +7,76 @@
 
 ---
 
+## 2026-05-06 — Trust Sprint Mini-Phase T4.2 — Ranking reconciliation
+
+Operator-approved bundle following T4.1. The customer-facing recommendation table now respects `prioritize.ts`'s tier signal AND breaks ties by evidence depth — fixing the "thin single-prompt FAQ outranks multi-prompt H2 simply because it was created later" failure mode found in the Phase 2.B audit.
+
+### What changed
+
+**Modified — `src/domains/recommendations/recommendation-action-rows.ts`:**
+
+- New pure helper `computeEvidenceDepth(evidenceRefs)` — returns 0..6 based on grounding-signal categories present (prompt, multi-prompt bonus, owned_page, competitor, element, prior_outcome).
+- `ActionRowDetail.evidenceDepth` (new field) — exposed at top level so the sort can use it.
+- `ActionRowDetail.debug.prioritizerTier` + `prioritizerScore` (new diagnostic fields) — threads `rec.tier` and `rec.score` from `LiveRecQueueItem` through to the row.
+- Updated sort keys (operator-locked, T4.2 §4.2):
+  1. STATUS BUCKET (preserve)
+  2. **NEW: PRIORITIZER TIER** (now → this_week → later)
+  3. PRIORITY (high → medium → low)
+  4. **NEW: EVIDENCE DEPTH desc**
+  5. observation count desc
+  6. id asc
+
+**New tests — `src/domains/recommendations/recommendation-action-rows-ranking.test.ts`** (11 tests):
+- `computeEvidenceDepth` unit cases (empty, single-prompt, multi-prompt bonus, all categories).
+- Sort: status bucket preserved (accepted-tier-now does NOT outrank a new-tier-later row).
+- Sort: 'now' tier outranks 'later' tier within same bucket.
+- **Sort: multi-prompt + owned-page H2 outranks thin single-prompt FAQ** (the headline T4.2 invariant).
+- Detail debug exposes prioritizerTier + prioritizerScore.
+- evidenceDepth exposed on detail.
+- Customer-safe copy: title never contains raw enum names, tier strings, or UUIDs.
+
+**New audit — `scripts/audit-recommendation-ranking.ts`:**
+- Read-only. Loads active Ritz queue, computes OLD vs NEW sort, prints top-10 each, lists significant rank moves (≥3 positions).
+- Run on Ritz queue showed:
+  - **`design01a` H2 (depth=3, multi-prompt + owned + competitor) rose from rank 16 → rank 4 (+12 positions)** — confirms the headline win.
+  - Atherton FAQ-answer (depth=1, single-prompt only) fell from rank 17 → rank 23.
+  - Palo Alto FAQ-answer (depth=2) fell from rank 1 → rank 5 (depth=3 rows promoted above it).
+
+### Old vs new sort behavior
+
+| Aspect | OLD (W3 §3.5f) | NEW (T4.2 §4.2) |
+|---|---|---|
+| Status bucket order | preserved | **preserved** |
+| Prioritizer tier | DISCARDED | now → this_week → later |
+| Per-row priority | high → medium → low | high → medium → low |
+| Evidence depth | not considered | **multi-prompt + owned + competitor outranks thin** |
+| Observation count | tiebreak desc | tiebreak desc |
+| Id | deterministic | deterministic |
+
+### Verification
+
+- ✅ `npm run typecheck` — clean.
+- ✅ `npm run test` — **304/304 files / 4922/4922 tests** (61.52s; +11 vs T4.1).
+- ✅ `npm run build` — successful (Vercel-equivalent, BEACON_LLM_BUILD_OK=1).
+- ✅ `scripts/verify-tenant-data-integrity.ts` — PASS.
+- ✅ `scripts/verify-observation-dedup-integrity.ts` — PASS.
+- ✅ `.data/global/llm-budget.json` SHA = `d36eed8ca157cb4c65ee01a2c51a2fef3fb21a0dfdbb036753d6d7c570927dbd` (byte-identical with T4.1).
+- ✅ Zero queue mutations.
+
+### Hard-constraint compliance
+
+- ✅ T4.3 evidence expansion NOT started.
+- ✅ Existing queue rows NOT mutated. Ranks are derived at build time.
+- ✅ No live regeneration. No OpenAI. No paid polling. No second tenant.
+- ✅ No attribution math changed. No RLS / auth changes.
+- ✅ Customer labels stay clean — title field invariant pinned (no raw enums / tier strings / UUIDs).
+
+### Whether T4.3 can begin next
+
+✅ **Yes.** The ranking now exposes the right signal (evidence depth + prioritizer tier) at the row level. T4.3 (evidence expansion / proof visibility) can mount the same fields in the customer drawer so the operator sees what evidence drove a row's position.
+
+---
+
 ## 2026-05-06 — Trust Sprint Mini-Phase T4.1 — Validator-side abstention contract
 
 Operator-approved bundle following T3.2. The recommendation engine no longer relies on SYSTEM_PROMPT discipline alone for Rule 16.A. Validator now rejects edits whose packet violates one of four explicit abstention triggers, even if the LLM ignored the system prompt and emitted them.
