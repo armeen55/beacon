@@ -47,10 +47,12 @@
 #    partial-day completion still produces correct daily_metric_snapshots.
 #
 #  Required repo secrets (Settings → Secrets and variables → Actions):
-#    BEACON_URL    e.g. https://beacon-bice.vercel.app
-#    CRON_SECRET   same value as the Vercel env var
-#    NEXT_PUBLIC_SUPABASE_URL   (verify-persistence step only)
-#    SUPABASE_SERVICE_ROLE_KEY  (verify-persistence step only)
+#    NEXT_PUBLIC_SUPABASE_URL    (poll + verify-persistence)
+#    SUPABASE_SERVICE_ROLE_KEY   (poll + verify-persistence)
+#    PERPLEXITY_API_KEY          (Perplexity poll)
+#    OPENAI_API_KEY              (ChatGPT poll)
+#    BEACON_URL                  (manual /api/poll/run fallback only — kept for ops)
+#    CRON_SECRET                 (manual /api/poll/run fallback only — kept for ops)
 #
 #  Ops workflow:
 #    - Scheduled daily at 07:00 UTC (~12 AM PT summer / 11 PM PT prev-day winter)
@@ -143,130 +145,85 @@ jobs:
           echo "$MATRIX" | jq
 
   # --------------------------------------------------------------------------
-  # Perplexity — 4 sequential chunks of 25 prompts each (~170–260s per chunk)
+  # Perplexity — full 100-prompt run on the GitHub runner.
+  #
+  # Bundle 2 (2026-05-07) — replaced the chunked-curl-to-Vercel approach
+  # with a direct CLI call to runNativePoll on the runner. Eliminates the
+  # 300s Vercel maxDuration cap (which today timed out 4 chunks × 4
+  # platforms because of abnormally-slow upstream Perplexity latency).
+  # The Vercel /api/poll/run route still exists as a manual/debug
+  # fallback — both code paths converge at runNativePoll, so persistence
+  # semantics, raw_poll_chunks safety net, persistence-gate guard, and
+  # dual-write are byte-identical between the two paths.
+  #
+  # Single-call shape: no chunking. runNativePoll handles the full 100
+  # prompts in one observation_run. GitHub-hosted runners have 6h job
+  # wall time and 30m default per workflow — comfortable headroom even
+  # at slow upstream rates (today's recovery took 26 min).
+  #
   # Runs once per active tenant in parallel (matrix).
   # --------------------------------------------------------------------------
   poll-perplexity:
     name: Poll Perplexity · ${{ matrix.tenant.slug }}
     needs: compute-matrix
     runs-on: ubuntu-latest
-    timeout-minutes: 30 # safety: any single chunk over 300s already failed
+    timeout-minutes: 45 # 30 was tight at slow upstream; +15 min margin
     strategy:
       fail-fast: false
       matrix:
         tenant: ${{ fromJSON(needs.compute-matrix.outputs.tenants) }}
     steps:
-      - name: Chunk 0 (offset 0, limit 25) · ${{ matrix.tenant.slug }}
-        run: |
-          BODY=$(jq -nc --arg tid "${{ matrix.tenant.tenantId }}" '{platform:"perplexity", tenantId:$tid, offset:0, limit:25}')
-          curl -sS -X POST "$BEACON_URL/api/poll/run" \
-            -H "Authorization: Bearer $CRON_SECRET" \
-            -H "Content-Type: application/json" \
-            -d "$BODY" \
-            --max-time 320 --fail-with-body \
-            || echo "::warning title=Perplexity chunk 0 failed (${{ matrix.tenant.slug }})::continuing to chunk 1"
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Run Perplexity poll · ${{ matrix.tenant.slug }}
+        run: npm run cron:poll -- --tenant=${{ matrix.tenant.tenantId }} --platform=perplexity
         env:
-          BEACON_URL: ${{ secrets.BEACON_URL }}
-          CRON_SECRET: ${{ secrets.CRON_SECRET }}
-      - name: Chunk 1 (offset 25, limit 25) · ${{ matrix.tenant.slug }}
-        run: |
-          BODY=$(jq -nc --arg tid "${{ matrix.tenant.tenantId }}" '{platform:"perplexity", tenantId:$tid, offset:25, limit:25}')
-          curl -sS -X POST "$BEACON_URL/api/poll/run" \
-            -H "Authorization: Bearer $CRON_SECRET" \
-            -H "Content-Type: application/json" \
-            -d "$BODY" \
-            --max-time 320 --fail-with-body \
-            || echo "::warning title=Perplexity chunk 1 failed (${{ matrix.tenant.slug }})::continuing to chunk 2"
-        env:
-          BEACON_URL: ${{ secrets.BEACON_URL }}
-          CRON_SECRET: ${{ secrets.CRON_SECRET }}
-      - name: Chunk 2 (offset 50, limit 25) · ${{ matrix.tenant.slug }}
-        run: |
-          BODY=$(jq -nc --arg tid "${{ matrix.tenant.tenantId }}" '{platform:"perplexity", tenantId:$tid, offset:50, limit:25}')
-          curl -sS -X POST "$BEACON_URL/api/poll/run" \
-            -H "Authorization: Bearer $CRON_SECRET" \
-            -H "Content-Type: application/json" \
-            -d "$BODY" \
-            --max-time 320 --fail-with-body \
-            || echo "::warning title=Perplexity chunk 2 failed (${{ matrix.tenant.slug }})::continuing to chunk 3"
-        env:
-          BEACON_URL: ${{ secrets.BEACON_URL }}
-          CRON_SECRET: ${{ secrets.CRON_SECRET }}
-      - name: Chunk 3 (offset 75, limit 25) · ${{ matrix.tenant.slug }}
-        run: |
-          BODY=$(jq -nc --arg tid "${{ matrix.tenant.tenantId }}" '{platform:"perplexity", tenantId:$tid, offset:75, limit:25}')
-          curl -sS -X POST "$BEACON_URL/api/poll/run" \
-            -H "Authorization: Bearer $CRON_SECRET" \
-            -H "Content-Type: application/json" \
-            -d "$BODY" \
-            --max-time 320 --fail-with-body \
-            || echo "::warning title=Perplexity chunk 3 failed (${{ matrix.tenant.slug }})::job done"
-        env:
-          BEACON_URL: ${{ secrets.BEACON_URL }}
-          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          PERPLEXITY_API_KEY: ${{ secrets.PERPLEXITY_API_KEY }}
+          DUAL_WRITE: "true"
+          DATA_SOURCE: supabase
+          BEACON_TENANT_ID: ${{ matrix.tenant.tenantId }}
 
   # --------------------------------------------------------------------------
-  # ChatGPT (OpenAI) — 4 sequential chunks of 25 prompts each
-  # Runs in parallel with Perplexity (separate job × matrix).
+  # ChatGPT (OpenAI) — full 100-prompt run on the GitHub runner.
+  # Same architecture as poll-perplexity above. Runs in parallel.
   # --------------------------------------------------------------------------
   poll-openai:
     name: Poll ChatGPT · ${{ matrix.tenant.slug }}
     needs: compute-matrix
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
         tenant: ${{ fromJSON(needs.compute-matrix.outputs.tenants) }}
     steps:
-      - name: Chunk 0 (offset 0, limit 25) · ${{ matrix.tenant.slug }}
-        run: |
-          BODY=$(jq -nc --arg tid "${{ matrix.tenant.tenantId }}" '{platform:"openai", tenantId:$tid, offset:0, limit:25}')
-          curl -sS -X POST "$BEACON_URL/api/poll/run" \
-            -H "Authorization: Bearer $CRON_SECRET" \
-            -H "Content-Type: application/json" \
-            -d "$BODY" \
-            --max-time 320 --fail-with-body \
-            || echo "::warning title=ChatGPT chunk 0 failed (${{ matrix.tenant.slug }})::continuing to chunk 1"
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Run ChatGPT poll · ${{ matrix.tenant.slug }}
+        run: npm run cron:poll -- --tenant=${{ matrix.tenant.tenantId }} --platform=openai
         env:
-          BEACON_URL: ${{ secrets.BEACON_URL }}
-          CRON_SECRET: ${{ secrets.CRON_SECRET }}
-      - name: Chunk 1 (offset 25, limit 25) · ${{ matrix.tenant.slug }}
-        run: |
-          BODY=$(jq -nc --arg tid "${{ matrix.tenant.tenantId }}" '{platform:"openai", tenantId:$tid, offset:25, limit:25}')
-          curl -sS -X POST "$BEACON_URL/api/poll/run" \
-            -H "Authorization: Bearer $CRON_SECRET" \
-            -H "Content-Type: application/json" \
-            -d "$BODY" \
-            --max-time 320 --fail-with-body \
-            || echo "::warning title=ChatGPT chunk 1 failed (${{ matrix.tenant.slug }})::continuing to chunk 2"
-        env:
-          BEACON_URL: ${{ secrets.BEACON_URL }}
-          CRON_SECRET: ${{ secrets.CRON_SECRET }}
-      - name: Chunk 2 (offset 50, limit 25) · ${{ matrix.tenant.slug }}
-        run: |
-          BODY=$(jq -nc --arg tid "${{ matrix.tenant.tenantId }}" '{platform:"openai", tenantId:$tid, offset:50, limit:25}')
-          curl -sS -X POST "$BEACON_URL/api/poll/run" \
-            -H "Authorization: Bearer $CRON_SECRET" \
-            -H "Content-Type: application/json" \
-            -d "$BODY" \
-            --max-time 320 --fail-with-body \
-            || echo "::warning title=ChatGPT chunk 2 failed (${{ matrix.tenant.slug }})::continuing to chunk 3"
-        env:
-          BEACON_URL: ${{ secrets.BEACON_URL }}
-          CRON_SECRET: ${{ secrets.CRON_SECRET }}
-      - name: Chunk 3 (offset 75, limit 25) · ${{ matrix.tenant.slug }}
-        run: |
-          BODY=$(jq -nc --arg tid "${{ matrix.tenant.tenantId }}" '{platform:"openai", tenantId:$tid, offset:75, limit:25}')
-          curl -sS -X POST "$BEACON_URL/api/poll/run" \
-            -H "Authorization: Bearer $CRON_SECRET" \
-            -H "Content-Type: application/json" \
-            -d "$BODY" \
-            --max-time 320 --fail-with-body \
-            || echo "::warning title=ChatGPT chunk 3 failed (${{ matrix.tenant.slug }})::job done"
-        env:
-          BEACON_URL: ${{ secrets.BEACON_URL }}
-          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          DUAL_WRITE: "true"
+          DATA_SOURCE: supabase
+          BEACON_TENANT_ID: ${{ matrix.tenant.tenantId }}
 
   # --------------------------------------------------------------------------
   # Phase v4 Commit 7B (2026-04-30) — Rebuild citation_evidence_index from

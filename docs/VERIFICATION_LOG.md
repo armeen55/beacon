@@ -7,6 +7,109 @@
 
 ---
 
+## 2026-05-07 — Cron architecture Bundle 2: GitHub-runner CLI replaces /api/poll/run for scheduled poll
+
+Closes the cron-failure class surfaced by today's 6:19 UTC RED run. Scheduled daily polling now runs as a GitHub-runner CLI (`scripts/cron-poll.ts` via `npm run cron:poll`); the Vercel `/api/poll/run` route stays in place as the manual/debug fallback. Both code paths converge at `runNativePoll` so persistence semantics are byte-identical.
+
+### Why
+
+- Today's 6:19 UTC scheduled poll FAILED after 21m32s — Vercel function timeouts on every chunk because upstream Perplexity latency was 4× normal (~15.5s/prompt, blowing through Vercel's 300s `maxDuration` for any 25-prompt chunk).
+- This is a recurring class of failure (same shape as 2026-05-02/03/04). The chunked-curl-to-Vercel architecture has no headroom against upstream tail-latency.
+- Operator R4 verify-persistence guard worked correctly (caught the 0-observations day RED), but the underlying architecture needed a structural fix.
+
+### What changed
+
+**New — `scripts/cron-poll.ts`** (~125 lines):
+- Calls `runNativePoll` directly from a GitHub-runner Node process. No Vercel hop.
+- Args: `--tenant=<id> --platform=perplexity|openai [--limit=N] [--offset=N] [--force]`.
+- Loads `.env.local` for local dev; CI env block sets secrets directly.
+- Exit codes: 0 on completed/partial/skipped; 1 on `failed` or `skipped_persistence_failure_gate` (turns GitHub job RED on hard fail); 2 on bad CLI args.
+- Negative invariants: does NOT call recommendation LLMs; does NOT mutate the recommendation queue; does NOT introduce a Profound dependency.
+
+**Modified — `package.json`**:
+- Added `"cron:poll": "npx tsx --require ./scripts/mock-server-only.cjs scripts/cron-poll.ts"`.
+
+**Modified — `.github/workflows/daily-native-poll.yml`**:
+- Replaced 8 chunked-curl steps (4 Perplexity × 4 ChatGPT × `--max-time 320` against `BEACON_URL/api/poll/run`) with 2 single-CLI jobs per tenant (one Perplexity, one ChatGPT).
+- Each job: `actions/checkout@v4` → `actions/setup-node@v4` → `npm ci` → `npm run cron:poll -- --tenant=${{ matrix.tenant.tenantId }} --platform=…`.
+- Job timeout raised 30 → 45 min (today's local recovery took 26 min at slow upstream; +15 min margin).
+- Active-tenants matrix preserved (Ritz-only).
+- compute-matrix + rebuild-citation-evidence-index + verify-persistence jobs UNCHANGED.
+- File-top secret list updated: PERPLEXITY_API_KEY + OPENAI_API_KEY now required for poll; BEACON_URL + CRON_SECRET retained for the manual /api/poll/run fallback.
+
+**New — `tests/architecture/cron-cli-architecture.test.ts`** (20 invariants):
+- Scheduled poll jobs do NOT curl `/api/poll/run` (negative).
+- Scheduled poll jobs do NOT use the 300s `--max-time` wall (negative).
+- Both poll jobs use `npm run cron:poll`.
+- Matrix substitution drives `--tenant` arg (no hardcoded tenant ids).
+- Each poll job uses the canary-proven CI shape (checkout + setup-node + npm ci + npx tsx).
+- Each poll job sets the required env block (Supabase + provider key + DUAL_WRITE + DATA_SOURCE + BEACON_TENANT_ID).
+- Active-tenants matrix preserved (still drives both poll jobs).
+- verify-persistence + rebuild-citation-evidence-index jobs still wired.
+- `scripts/cron-poll.ts` exists, calls `runNativePoll` directly (not via HTTP), supports the documented args, validates `--platform`, loads `.env.local`, exits 1 on hard fail.
+- Negative: cron-poll does NOT call recommendation LLMs / mutate rec queue / depend on Profound.
+- `package.json` has `cron:poll` script.
+- `ops/active-tenants.json` has exactly 1 enabled tenant (Ritz).
+- Vercel `/api/poll/run` route still exists as the manual/debug fallback.
+
+**Modified — `tests/architecture/multi-tenant-cron-scaffold.test.ts`**:
+- Updated 2 tests (no-hardcoded-tenant + 1-CLI-call-per-platform-per-iter) to match the new CLI shape; added `stripComments()` helper so assertions target active config not documentation. The chunk-pinning test was OBSOLETE and is now replaced with a positive invariant on the new shape.
+
+### Required GitHub repo secrets (operator action)
+
+Two secrets must be added to GitHub Actions secrets (Settings → Secrets and variables → Actions). Currently only the Supabase pair is wired for canary; cron-poll needs the LLM keys too:
+
+- `PERPLEXITY_API_KEY` (copy from Vercel env)
+- `OPENAI_API_KEY` (copy from Vercel env)
+
+Existing secrets unchanged: `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` (already used by canary). `BEACON_URL` + `CRON_SECRET` remain available for the manual fallback path.
+
+### What still uses /api/poll/run
+
+- Operator-driven manual triggers (curl from a laptop or external monitoring).
+- Existing per-route invariants on the route file (kept passing).
+- All Vercel runtime contracts (auth, kill switch, body parsing, runtime metadata) preserved verbatim.
+
+### Verification
+
+- ✅ `npm run typecheck` — clean.
+- ✅ `npm run test` — **319/319 files / 5704/5704 tests** (+1 file +20 tests vs T7.8 baseline 318/5684).
+- ✅ `npm run build` — green.
+- ✅ All 3 integrity scripts PASS (verdict drift = 0).
+- ✅ `npm run verify:brain-health` — YELLOW (idle queue WARN only; 7 PASS / 1 WARN / 0 FAIL); poll-freshness reports today's 16:11 UTC poll.
+- ✅ `.data/global/llm-budget.json` SHA = `d36eed8ca157cb4c65ee01a2c51a2fef3fb21a0dfdbb036753d6d7c570927dbd` — byte-identical with overnight baseline.
+- ✅ Zero OpenAI recommendation calls. Zero paid polling beyond today's recovery (already authorized in Part 1). Zero row mutations.
+
+### Manual workflow verification plan (next step — operator action)
+
+After this commit lands:
+
+1. **Operator adds the two secrets** to GitHub Actions (Perplexity + OpenAI API keys).
+2. **Operator triggers a one-shot manual run** via Actions → "Daily native AI-visibility poll" → Run workflow. Expected outcome: ~26-30 min wall clock, ~$3 cost, both jobs GREEN, verify-persistence GREEN. (This costs the same as the daily sample we already paid for today.)
+3. **Operator watches** the next scheduled 07:00 UTC fire (2026-05-08). Expected outcome: same shape as the manual run — observation_runs +2, prompt_answer_observations +200, daily_metric_snapshots derived, watchdog GREEN/YELLOW (not RED).
+
+If both pass, the Phase 3 lifecycle dogfeed can resume after one clean cron heartbeat.
+
+### Hard-constraint compliance
+
+- ✅ No second tenant added (active-tenants.json unchanged, Ritz-only).
+- ✅ No RLS / auth / Profound / onboarding / billing changes.
+- ✅ No row mutations.
+- ✅ No paid polling triggered by this commit (manual run is operator-controlled).
+- ✅ Scheduled poll cost UNCHANGED (still ~$3/day for Ritz).
+- ✅ Tests TIGHTEN the contract (20 new invariants + 2 updated invariants).
+- ✅ /api/poll/run route preserved as manual fallback (not deleted).
+
+### Bundle 1 also landed in this run
+
+`/settings/health` route patched with `export const dynamic = "force-dynamic"` (commit `1e23c02`). Closes the chronic Vercel-deploy flake on the operator-only health page.
+
+### What the next mini-phase should be
+
+After one clean cron heartbeat (2026-05-08 07:00 UTC scheduled run), the Phase 3 lifecycle dogfeed can resume per the prepared plan from yesterday.
+
+---
+
 ## 2026-05-07 — Trust Sprint Mini-Phase T7.8 — Final overnight convergence check + report
 
 End-of-run convergence battery + consolidated overnight trust report. All checks GREEN (or YELLOW for soft warnings).

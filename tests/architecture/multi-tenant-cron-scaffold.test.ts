@@ -72,6 +72,21 @@ const CANARY_YAML_PATH = resolve(
 
 const ACTIVE_TENANTS_RAW = readFileSync(ACTIVE_TENANTS_PATH, "utf8");
 const POLL_YAML = readFileSync(POLL_YAML_PATH, "utf8");
+
+/**
+ * Strip YAML `#` comments + trailing-line `#` comments. Does not handle
+ * `#` inside YAML string literals; sufficient for these workflow files
+ * which use no string-quoted hashes in the active config.
+ *
+ * Used by Bundle 2 (2026-05-07) invariants to assert against the active
+ * configuration only — comments are documentation, not contract.
+ */
+function stripComments(yaml: string): string {
+  return yaml
+    .split("\n")
+    .map((l) => l.replace(/(^|[^"'#])#.*$/, "$1"))
+    .join("\n");
+}
 const SCAN_YAML = readFileSync(SCAN_YAML_PATH, "utf8");
 const CANARY_YAML = readFileSync(CANARY_YAML_PATH, "utf8");
 
@@ -192,33 +207,50 @@ describe("daily-native-poll.yml — matrix shape", () => {
     );
   });
 
-  it("contains NO hardcoded `tenantId\":\"tenant-ritz-founder\"` curl bodies", () => {
+  it("contains NO hardcoded `tenant-ritz-founder` literal in poll-job env or args", () => {
     // The pre-2026-05-06 shape literally embedded the Ritz id in 8 curl
-    // bodies. Post-refactor every body is built via `jq -nc --arg tid`.
-    // This invariant prevents any future regression that re-hardcodes
-    // a tenant id in a curl body.
+    // bodies (jq form). Bundle 2 (2026-05-07) replaced curl chunks with
+    // `npm run cron:poll -- --tenant=${{ matrix.tenant.tenantId }}` so the
+    // tenant id flows from the matrix substitution, never as a literal.
+    //
+    // Both intents (no hardcoded tenant; substitution actually happens)
+    // are still pinned — just against the new shape.
     expect(POLL_YAML).not.toMatch(/"tenantId":"tenant-[a-z0-9-]+"/);
-    expect(POLL_YAML).not.toContain("\"tenantId\":\"tenant-ritz-founder\"");
-    // jq form must be present (so we know the substitution actually happens).
+    expect(POLL_YAML).not.toContain("--tenant=tenant-ritz-founder");
+    // Matrix substitution form must be present in BOTH poll jobs so the
+    // multi-tenant scaffold actually drives per-tenant runs.
     expect(POLL_YAML).toMatch(
-      /jq -nc --arg tid "\$\{\{\s*matrix\.tenant\.tenantId\s*\}\}"/,
+      /--tenant=\$\{\{\s*matrix\.tenant\.tenantId\s*\}\}\s+--platform=perplexity/,
+    );
+    expect(POLL_YAML).toMatch(
+      /--tenant=\$\{\{\s*matrix\.tenant\.tenantId\s*\}\}\s+--platform=openai/,
     );
   });
 
-  it("all 8 native poll chunks are still defined (4 perplexity + 4 chatgpt)", () => {
-    // Each platform must have offset=0, 25, 50, 75 chunks. The string
-    // form `offset:0` / `offset:25` / etc. inside the jq body proves
-    // the chunk is still wired.
-    for (const offset of [0, 25, 50, 75]) {
-      const perp = new RegExp(
-        `platform:"perplexity"[\\s\\S]{0,80}offset:${offset}\\b`,
-      );
-      const oai = new RegExp(
-        `platform:"openai"[\\s\\S]{0,80}offset:${offset}\\b`,
-      );
-      expect(perp.test(POLL_YAML)).toBe(true);
-      expect(oai.test(POLL_YAML)).toBe(true);
-    }
+  it("each platform has exactly one CLI invocation per matrix iteration (Bundle 2 architecture)", () => {
+    // Bundle 2 (2026-05-07) replaced the 4-chunk curl architecture with a
+    // single `npm run cron:poll` per platform per matrix iteration. The
+    // GitHub-runner has no 300s cap, so chunking is unnecessary. This
+    // invariant pins the new shape so we don't regress to chunked-curl.
+    //
+    // Pre-Bundle-2 the jq bodies referenced `platform:"perplexity"` and
+    // `offset:N` literals; those must be absent from the active
+    // configuration of poll-perplexity / poll-openai jobs (comments OK).
+    const code = stripComments(POLL_YAML);
+    expect(code).not.toMatch(/jq -nc --arg tid/);
+    expect(code).not.toMatch(/--max-time 320/);
+    expect(code).not.toMatch(/api\/poll\/run/);
+    expect(code).not.toMatch(/platform:"perplexity"[\s\S]{0,80}offset:/);
+    expect(code).not.toMatch(/platform:"openai"[\s\S]{0,80}offset:/);
+    // Exactly one cron:poll call per platform job — match in active code.
+    const perpCalls = (
+      code.match(/--platform=perplexity\b/g) ?? []
+    ).length;
+    const oaiCalls = (
+      code.match(/--platform=openai\b/g) ?? []
+    ).length;
+    expect(perpCalls).toBe(1);
+    expect(oaiCalls).toBe(1);
   });
 
   it("rebuild-citation-evidence-index + verify-persistence jobs still exist", () => {

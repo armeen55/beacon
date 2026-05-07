@@ -19,6 +19,7 @@
     "data:parity": "npx tsx scripts/compare-parity.ts",
     "verify:daily-poll": "npx tsx --require ./scripts/mock-server-only.cjs scripts/verify-daily-poll.ts",
     "verify:brain-health": "npx tsx --require ./scripts/mock-server-only.cjs scripts/verify-brain-health-watchdog.ts",
+    "cron:poll": "npx tsx --require ./scripts/mock-server-only.cjs scripts/cron-poll.ts",
     "test": "vitest run"
   },
   "dependencies": {
