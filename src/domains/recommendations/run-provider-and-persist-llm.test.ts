@@ -241,7 +241,23 @@ function basePacketArgs(): BuildSpecificEditEvidencePacketArgs {
 }
 
 function makePacket(): SpecificEditEvidencePacket {
-  return buildSpecificEditEvidencePacket(basePacketArgs());
+  const built = buildSpecificEditEvidencePacket(basePacketArgs());
+  // T4.1 (2026-05-06): seed one search query so the abstention contract
+  // (Rule B / no grounding signals) passes. These tests target the
+  // OpenAI live-call persistence path, not abstention.
+  return {
+    ...built,
+    aiSearchSignal: {
+      ...built.aiSearchSignal,
+      topSearchQueries: [
+        {
+          query: "best teen braces",
+          count: 3,
+          promptIds: [built.affectedPrompts[0]?.promptId ?? "prompt-1"], platforms: ["chatgpt"],
+        },
+      ],
+    },
+  };
 }
 
 function makeValidEdit(packet: SpecificEditEvidencePacket): SpecificEdit {

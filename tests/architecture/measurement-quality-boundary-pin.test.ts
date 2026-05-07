@@ -46,7 +46,19 @@ import { NATIVE_REGIME_START } from "@/domains/product/url-citation-history";
 
 const REPO_ROOT = resolve(__dirname, "../..");
 const SRC_ROOT = join(REPO_ROOT, "src");
+/**
+ * T3.1 (2026-05-06): the constant moved from url-citation-history.ts to
+ * a thin client-safe module so /today client components can import it
+ * without dragging in server-only code. url-citation-history.ts now
+ * re-exports for back-compat. The canonical declaration lives in
+ * native-regime.ts; the re-export site is also allowlisted because it
+ * appears in the JSDoc but no longer in a code literal.
+ */
 const CANONICAL_FILE = join(
+  SRC_ROOT,
+  "domains/product/native-regime.ts",
+);
+const REEXPORT_FILE = join(
   SRC_ROOT,
   "domains/product/url-citation-history.ts",
 );
@@ -69,15 +81,21 @@ describe("S1 — measurement quality boundary is canonical and pinned", () => {
       src.match(/export const NATIVE_REGIME_START\s*=\s*"2026-04-22"/g) ?? [];
     expect(
       matches.length,
-      "NATIVE_REGIME_START must be declared exactly once in url-citation-history.ts (S1 — single canonical source)",
+      "NATIVE_REGIME_START must be declared exactly once in native-regime.ts (S1 — single canonical source)",
     ).toBe(1);
+  });
+
+  it("the re-export site references the canonical file via `from \"./native-regime\"`", () => {
+    const src = readFileSync(REEXPORT_FILE, "utf-8");
+    expect(src).toMatch(/export\s*\{\s*NATIVE_REGIME_START\s*\}\s*from\s*["']\.\/native-regime["']/);
   });
 
   it("no other src/** file declares a 2026-04-22 date literal", () => {
     const violations: Array<{ file: string; line: number; snippet: string }> = [];
     for (const file of walk(SRC_ROOT)) {
-      // Allowlist the canonical file.
+      // Allowlist the canonical file + the back-compat re-export site.
       if (file === CANONICAL_FILE) continue;
+      if (file === REEXPORT_FILE) continue;
       // Skip test files inside src — they're allowed to use the date
       // as a fixture value.
       if (file.endsWith(".test.ts") || file.endsWith(".test.tsx")) continue;

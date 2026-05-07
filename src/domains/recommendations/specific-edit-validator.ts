@@ -209,10 +209,168 @@ function isLowConfidenceLLMGateOpen(): boolean {
   return process.env.BEACON_LLM_LOW_CONF === "1";
 }
 
+// ---------------------------------------------------------------------------
+// T4.1 (2026-05-06) — Abstention contract validator.
+//
+// Trust Sprint Phase 2.A audit found that Rule 16.A (the LLM's "abstain
+// when evidence is structurally too thin" instruction) was enforced ONLY
+// in the SYSTEM_PROMPT. If a model ignored the rule, the bundle persisted.
+// This validator function adds defense-in-depth: regardless of what the
+// provider returned, an edit MUST fail validation when the underlying
+// packet matches one of the four abstention triggers below.
+//
+// Triggers (operator-locked at T4.1 launch):
+//
+//   A. resolution.confidence === "low" AND brandAssertions empty
+//      → reason: abstention_contract_low_confidence_no_brand_assertions
+//      The packet's resolver judged the targeting low-confidence and
+//      there's no operator-curated assertion to anchor public copy.
+//
+//   B. competitorPageBlueprints empty AND aiSearchSignal.topSearchQueries
+//      empty AND brandAssertions empty
+//      → reason: abstention_contract_no_grounding_signals
+//      The model has nothing to ground new copy against — no AI search
+//      queries, no competitor pages to differentiate against, no operator
+//      assertions to riff on. Edits would be pure invention.
+//
+//   C. Single-prompt evidence with no owned page candidates AND no
+//      competitor angles AND no brand assertions AND no AI search queries
+//      → reason: abstention_contract_single_prompt_thin_evidence
+//      The Trust Sprint sample-20 audit found row #5 (Atherton FAQ
+//      answer) hit exactly this shape: one prompt, no owned page, no
+//      competitor, no brand assertions. Treated as ABSTAIN_THIN_EVIDENCE
+//      by the auditor; this rule formalizes the contract.
+//
+//   D. Thin FAQ ANSWER (faq_answer element) on a single-prompt packet
+//      with no owned page AND no brand assertion AND no AI search query
+//      AND no multi-prompt evidence
+//      → reason: abstention_contract_thin_faq_answer
+//      Customer-facing answers carry brand voice and structural risk
+//      (rec #1 in the sample-20: "Ritz Builders recommends hiring an
+//      architect-led design-build firm" — self-promotional from a
+//      thin packet). FAQ QUESTIONS (faq_question element) survive this
+//      gate so the operator can still ship a paired Q+A when other
+//      grounding (owned page) is present on the question side.
+//
+// Helpers below isolate each rule so the audit script can re-run them
+// independently and report which trigger fired without re-implementing
+// the validator path.
+// ---------------------------------------------------------------------------
+
+export type AbstentionRejectReason =
+  | "abstention_contract_low_confidence_no_brand_assertions"
+  | "abstention_contract_no_grounding_signals"
+  | "abstention_contract_single_prompt_thin_evidence"
+  | "abstention_contract_thin_faq_answer";
+
+/**
+ * Returns `null` when the packet+edit combination passes the abstention
+ * contract; otherwise returns the SPECIFIC reason the bundle would have
+ * abstained per Rule 16.A.
+ *
+ * Pure: zero I/O. Same input → same output. Safe for the audit script
+ * to call against historical packets without persisting anything.
+ *
+ * Caller convention: passing `edit=null` runs only the packet-level
+ * triggers (A, B, C). Trigger D needs the edit's actionType +
+ * targetElement.elementKey to know whether the edit is a faq_answer
+ * row. The audit script may call with null when packet-only checks
+ * are sufficient.
+ */
+export function checkAbstentionContract(
+  packet: SpecificEditEvidencePacket,
+  edit: SpecificEdit | null,
+): AbstentionRejectReason | null {
+  // ── Rule A — resolution.confidence === "low" + no brand assertions ──
+  // resolution may be undefined/null on packets that didn't go through
+  // the page-intent resolver; only fire when the field is explicitly
+  // present + low.
+  if (
+    packet.resolution != null &&
+    packet.resolution.confidence === "low" &&
+    packet.brandAssertions.length === 0
+  ) {
+    return "abstention_contract_low_confidence_no_brand_assertions";
+  }
+
+  // ── Rule B — no grounding signals at all ──
+  if (
+    packet.competitorPageBlueprints.length === 0 &&
+    packet.aiSearchSignal.topSearchQueries.length === 0 &&
+    packet.brandAssertions.length === 0
+  ) {
+    return "abstention_contract_no_grounding_signals";
+  }
+
+  // ── Rule C — single-prompt thin evidence (no other grounding) ──
+  if (
+    packet.affectedPrompts.length === 1 &&
+    packet.ownedPageCandidates.length === 0 &&
+    packet.competitorAngles.length === 0 &&
+    packet.brandAssertions.length === 0 &&
+    packet.aiSearchSignal.topSearchQueries.length === 0
+  ) {
+    return "abstention_contract_single_prompt_thin_evidence";
+  }
+
+  // ── Rule D — thin FAQ ANSWER (only when edit is provided) ──
+  if (edit != null && isFaqAnswerEdit(edit)) {
+    const hasOwnedPage = packet.ownedPageCandidates.length > 0;
+    const hasBrandAssertion = packet.brandAssertions.length > 0;
+    const hasSearchQuery = packet.aiSearchSignal.topSearchQueries.length > 0;
+    const hasMultiPrompt = packet.affectedPrompts.length >= 2;
+    const hasAnyStrongerGrounding =
+      hasOwnedPage || hasBrandAssertion || hasSearchQuery || hasMultiPrompt;
+    if (!hasAnyStrongerGrounding) {
+      return "abstention_contract_thin_faq_answer";
+    }
+  }
+
+  return null;
+}
+
+/**
+ * True when an edit targets the `faq_answer` element type. The element
+ * key has shape `faq_answer[<idx>]:<hash>` (positional) or
+ * `faq_answer[new]:<hash>` (additive). actionType is `add_faq` for
+ * either question or answer rows; the discriminator is the element key.
+ */
+function isFaqAnswerEdit(edit: SpecificEdit): boolean {
+  const tel = edit.targetElement;
+  if (tel == null) return false;
+  const parsed = parseElementTypeFromKey(tel.elementKey);
+  return parsed === "faq_answer";
+}
+
+/**
+ * Validator gate: returns ValidationResult so it can compose into the
+ * existing per-edit pipeline. Wraps `checkAbstentionContract` and emits
+ * a typed ValidationFail with the precise rejection reason.
+ */
+export function validateAbstentionContract(
+  edit: SpecificEdit,
+  packet: SpecificEditEvidencePacket,
+): ValidationResult {
+  const reason = checkAbstentionContract(packet, edit);
+  if (reason == null) return OK;
+  return fail("packet", reason);
+}
+
 export function validateSpecificEdit(
   edit: SpecificEdit,
   packet: SpecificEditEvidencePacket,
 ): ValidationResult {
+  // ── 0. T4.1 — Abstention contract (Trust Sprint, 2026-05-06).
+  // Runs FIRST so a structurally thin packet rejects before we waste
+  // CPU on actionType / element-key / copy gates. Reasons are:
+  //   abstention_contract_low_confidence_no_brand_assertions
+  //   abstention_contract_no_grounding_signals
+  //   abstention_contract_single_prompt_thin_evidence
+  //   abstention_contract_thin_faq_answer
+  // Locked by `tests/architecture/abstention-contract-trust.test.ts`.
+  const abstentionGate = validateAbstentionContract(edit, packet);
+  if (!abstentionGate.ok) return abstentionGate;
+
   // ── 1. actionType valid + allowed ────────────────────────────────────
   if (!(ACTION_TYPES as readonly string[]).includes(edit.actionType)) {
     return fail("actionType", `unknown actionType: ${edit.actionType}`);

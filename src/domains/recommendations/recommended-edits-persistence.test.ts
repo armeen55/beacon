@@ -211,7 +211,22 @@ function basePacketArgs(): BuildSpecificEditEvidencePacketArgs {
 function buildPacket(
   overrides: Partial<BuildSpecificEditEvidencePacketArgs> = {},
 ): SpecificEditEvidencePacket {
-  return buildSpecificEditEvidencePacket({ ...basePacketArgs(), ...overrides });
+  const built = buildSpecificEditEvidencePacket({ ...basePacketArgs(), ...overrides });
+  // T4.1 (2026-05-06): seed one search query so the abstention contract
+  // passes. These tests target persistence orchestration, not abstention.
+  return {
+    ...built,
+    aiSearchSignal: {
+      ...built.aiSearchSignal,
+      topSearchQueries: [
+        {
+          query: "best teen braces",
+          count: 3,
+          promptIds: [built.affectedPrompts[0]?.promptId ?? "prompt-1"], platforms: ["chatgpt"],
+        },
+      ],
+    },
+  };
 }
 
 function validEditTitleFixture(packet: SpecificEditEvidencePacket): SpecificEdit {

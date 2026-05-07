@@ -11,6 +11,9 @@ import {
   VISIBILITY_METRIC_LABELS,
   VISIBILITY_METRIC_DESCRIPTIONS,
 } from "@/domains/product/visibility-score";
+import { WhyThisNumber } from "@/components/today/why-this-number";
+import { buildOverallVisibilityProvenance } from "@/domains/today/score-provenance";
+import { NATIVE_REGIME_START } from "@/domains/product/native-regime";
 
 /**
  * Visibility Score chart for Today.
@@ -301,6 +304,29 @@ export function VisibilityScoreChart({
           {sampledDayCount} sampled day
           {sampledDayCount === 1 ? "" : "s"} in this {timeRange}-day window
         </p>
+        {/* T3.1 — Trust Sprint score provenance disclosure. The trust
+            label here is "directional" because the chart treats every
+            sampled day equally (no down-weighting for partial coverage)
+            and silently mixes native + historical_recovered rows on
+            windows that touch pre-cutover dates. See
+            docs/BEACON_SCORE_PROVENANCE_AUDIT_2026_05_06.md. */}
+        {headline.hasData && metric === "composite" && (() => {
+          const hasProofDays = brandPoints.some((p) => p.sampleSize >= 1 && p.sampleSize <= 9);
+          const hasPartialDays = brandPoints.some(
+            (p) => p.sampleSize >= 10 && p.sampleSize <= 79,
+          );
+          const earliestDate = brandPoints[0]?.date ?? null;
+          const windowTouchesPreCutover =
+            earliestDate != null && earliestDate < NATIVE_REGIME_START;
+          const prov = buildOverallVisibilityProvenance({
+            scorePct: headline.score,
+            windowDays: timeRange,
+            windowTouchesPreCutover,
+            hasPartialDays,
+            hasProofDays,
+          });
+          return <WhyThisNumber provenance={prov} />;
+        })()}
       </div>
 
       {/* Chart */}

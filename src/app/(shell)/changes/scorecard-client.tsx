@@ -45,6 +45,8 @@ import {
   type AttributionCopyTone,
 } from "@/domains/attribution/lifecycle-attribution-copy";
 import { LIFECYCLE_PENDING_SOURCE_SYSTEM } from "@/domains/attribution/synthesize-pending-changelog";
+import { WhyThisVerdict } from "@/components/changes/why-this-verdict";
+import { buildVerdictProvenance } from "@/domains/attribution/verdict-provenance";
 
 /**
  * A single row on the /changes page.
@@ -838,6 +840,79 @@ function ExpandPanel({ row }: { row: EnrichedChangeRow }) {
                 <p className="text-[12px] leading-relaxed text-foreground">
                   {v.explanation.summary}
                 </p>
+                {/* T3.2 — Trust Sprint verdict provenance disclosure.
+                    Customer-safe summary of trust + caveats above the
+                    operator-facing math block below. Anchor source +
+                    contaminated-date + sparse pre-window caveats live
+                    here; raw Z-score lives in the nested operator
+                    detail. See
+                    docs/BEACON_ATTRIBUTION_TRUST_AUDIT_2026_05_06.md. */}
+                {(() => {
+                  const change = row.scorecard.change;
+                  const liveAtRaw = (change as { live_at?: string | null } | null | undefined)
+                    ?.live_at;
+                  const hasLiveAt = typeof liveAtRaw === "string" && liveAtRaw.length > 0;
+                  const anchor = hasLiveAt
+                    ? liveAtRaw!.slice(0, 10)
+                    : (change as { timestamp?: string | null } | null | undefined)?.timestamp?.slice(0, 10) ?? null;
+                  const baselineDays = v.explanation.math.baseline_days_used;
+                  const postDays = v.explanation.math.post_days_used;
+                  const preStartISO =
+                    anchor != null && baselineDays > 0
+                      ? new Date(
+                          new Date(anchor + "T00:00:00Z").getTime() -
+                            baselineDays * 86_400_000,
+                        )
+                          .toISOString()
+                          .slice(0, 10)
+                      : null;
+                  const preEndISO =
+                    anchor != null
+                      ? new Date(
+                          new Date(anchor + "T00:00:00Z").getTime() - 86_400_000,
+                        )
+                          .toISOString()
+                          .slice(0, 10)
+                      : null;
+                  const postStartISO =
+                    anchor != null
+                      ? new Date(
+                          new Date(anchor + "T00:00:00Z").getTime() + 86_400_000,
+                        )
+                          .toISOString()
+                          .slice(0, 10)
+                      : null;
+                  const postEndISO =
+                    anchor != null && postDays > 0
+                      ? new Date(
+                          new Date(anchor + "T00:00:00Z").getTime() +
+                            postDays * 86_400_000,
+                        )
+                          .toISOString()
+                          .slice(0, 10)
+                      : null;
+                  const prov = buildVerdictProvenance({
+                    id: `verdict-${row.scorecard.change.id}`,
+                    verdict: v.verdict,
+                    anchorDate: anchor,
+                    anchorSource: hasLiveAt ? "live_at" : anchor != null ? "timestamp" : "unknown",
+                    preStartISO,
+                    preEndISO,
+                    postStartISO,
+                    postEndISO,
+                    preDays: baselineDays,
+                    postDays: postDays,
+                    muPre: v.explanation.math.mu_pre,
+                    muPost: v.explanation.math.mu_post,
+                    zScore: v.explanation.math.z,
+                    sustainUp: v.explanation.math.sustain_up,
+                    sustainDown: v.explanation.math.sustain_down,
+                    confidence: v.confidence,
+                    samplingGuardDemotion: v.sampling_guard_demoted ?? null,
+                    changeDescription: row.scorecard.change.change_description ?? null,
+                  });
+                  return <WhyThisVerdict provenance={prov} />;
+                })()}
                 <div className="rounded-md border border-border/60 bg-background/50 px-3 py-2 text-[11px] font-mono leading-relaxed">
                   <MathRow
                     label="Before change (per day)"

@@ -7,6 +7,506 @@
 
 ---
 
+## 2026-05-06 — Trust Sprint Mini-Phase T4.1 — Validator-side abstention contract
+
+Operator-approved bundle following T3.2. The recommendation engine no longer relies on SYSTEM_PROMPT discipline alone for Rule 16.A. Validator now rejects edits whose packet violates one of four explicit abstention triggers, even if the LLM ignored the system prompt and emitted them.
+
+### What changed
+
+**New code:**
+
+- **`src/domains/recommendations/specific-edit-validator.ts`** — added `validateAbstentionContract(edit, packet)`, `checkAbstentionContract(packet, edit)` (pure helper for the audit script), `isFaqAnswerEdit`, `AbstentionRejectReason` union. Wired as the FIRST per-edit gate inside `validateSpecificEdit` (Rule 0, runs before actionType/targetUrl/element-key checks). Reject reasons:
+  - `abstention_contract_low_confidence_no_brand_assertions` — `resolution.confidence === "low"` AND `brandAssertions` empty.
+  - `abstention_contract_no_grounding_signals` — `competitorPageBlueprints.length === 0` AND `aiSearchSignal.topSearchQueries.length === 0` AND `brandAssertions.length === 0`.
+  - `abstention_contract_single_prompt_thin_evidence` — `affectedPrompts.length === 1` AND no owned-page candidates AND no competitor angles AND no brand assertions AND no AI search queries.
+  - `abstention_contract_thin_faq_answer` — edit's element key is `faq_answer[…]:…`, packet has only one prompt, no owned page, no brand assertion, no search query, no multi-prompt evidence. (FAQ questions survive — they can ship paired with a grounded answer when the packet matures.)
+
+- **`scripts/audit-recommendation-abstention-contract.ts`** — read-only audit. Loads active Ritz recommendations, approximates the packet from each row's `evidence` array (the persisted row doesn't carry the full packet), runs the abstention contract, reports rows that would be rejected. Honest about Rule A being un-checkable from a persisted row (resolution.confidence not stored). Approximation caveats logged with each report.
+
+**New tests:**
+
+- **`src/domains/recommendations/specific-edit-validator-abstention.test.ts`** — 22 unit tests covering all 4 rules + integration with `validateSpecificEdit` + `validateSpecificEditBundle`. Covers passing fixtures (medium + owned page + prompt; medium + competitor angle + owned page; FAQ question with one prompt + owned page; operator_edited row; brandAssertion-grounded answer).
+- **`tests/architecture/abstention-contract-trust.test.ts`** — 11 source-text invariants pinning: 4 reject reasons exist verbatim, `validateAbstentionContract` is wired BEFORE actionType gate, fail() emits `field="packet"`, runProviderAndPersist filters validation.perEdit, isFaqAnswerEdit uses `parseElementTypeFromKey`.
+
+**Test fixture updates (5 existing test files):**
+
+`specific-edit-validator-brand-claims.test.ts`, `specific-edit-validator-llm-hardening.test.ts`, `specific-edit-validator.dryrun2.test.ts`, `specific-edit-validator.test.ts`, `recommended-edits-persistence.test.ts`, `run-provider-and-persist-llm.test.ts` — added a single seeded `topSearchQueries[0]` entry to each base packet fixture so the abstention contract passes by default. These tests target downstream gates (brand-claim, FAQ pairing, length caps, persistence orchestration), not abstention. Tests that specifically want to exercise Rule B can override `aiSearchSignal.topSearchQueries: []`.
+
+### Audit run results (Ritz active queue)
+
+24 active rows audited:
+
+| Rule | Rule name | Would-reject count |
+|---|---|---|
+| A | `abstention_contract_low_confidence_no_brand_assertions` | unknown — `resolution.confidence` not persisted on the row (per Phase 2.B audit, all 31 production rows show `confidence='medium'`, so A's risk surface is observed-zero today) |
+| B | `abstention_contract_no_grounding_signals` | **17** (overcounts: row evidence array doesn't carry `search_query` items even when packet had them — same finding as Phase 2.B "no search_query evidence type ever ships") |
+| C | `abstention_contract_single_prompt_thin_evidence` | **3** |
+| D | `abstention_contract_thin_faq_answer` | **3** (matches the Phase 2.B sample-20 audit's row #1 + #5 + similar — confirmed thin FAQ answers that would have been ABSTAIN_THIN_EVIDENCE) |
+
+**18 of 24 active rows** would trip at least one rule. Rule D's 3 hits are confirmed real abstention-contract violations the operator was concerned about; Rule B's 17 hits are partly real and partly artifact of the row-evidence-array undercount (the rows that fire Rule B but not C/D would re-pass if the packet's `topSearchQueries` were re-attached).
+
+**No useful rows are at risk by the contract itself.** The audit script doesn't mutate; T4.1 doesn't retroactively delete or modify any existing row. The abstention contract only blocks NEW edits going forward.
+
+### Verification
+
+- ✅ `npm run typecheck` — clean.
+- ✅ `npm run test` — **303/303 files, 4911/4911 tests** (59.00s; +33 vs T3.2: 22 unit + 11 architecture invariants).
+- ✅ `npm run build` — successful (Vercel-equivalent, BEACON_LLM_BUILD_OK=1).
+- ✅ `scripts/verify-tenant-data-integrity.ts` — T1.1 carryover invariants PASS.
+- ✅ `scripts/verify-observation-dedup-integrity.ts` — T2 carryover invariants PASS.
+- ✅ `.data/global/llm-budget.json` SHA = `d36eed8ca157cb4c65ee01a2c51a2fef3fb21a0dfdbb036753d6d7c570927dbd` (byte-identical; zero OpenAI calls during this phase).
+- ✅ Zero queue mutations.
+- ✅ `scripts/audit-recommendation-abstention-contract.ts` — runs read-only; reports 18 flagged rows; exits 0.
+
+### Hard-constraint compliance
+
+- ✅ T4.2 ranking reconciliation NOT started.
+- ✅ Customer-facing sort NOT changed.
+- ✅ Existing queue rows NOT mutated.
+- ✅ No live regeneration.
+- ✅ No OpenAI / no paid polling / no second tenant.
+- ✅ No attribution verdict math changed.
+- ✅ No RLS / auth changes.
+- ✅ No Profound cleanup.
+
+### Whether T4.2 can begin next
+
+✅ **Yes.** The validator now refuses to ship structurally thin recs from the LLM. T4.2 (ranking reconciliation) can rely on the contract: the Layer-A `prioritize.ts` score and the customer-facing Layer-B sort can be reconciled without inheriting a backstop concern about thin-evidence rows leaking through. Existing 18 flagged rows in production are NOT blocked from being viewed (T4.1 is forward-looking) — they remain in the queue with their current ordering, awaiting T4.2's reconciliation.
+
+---
+
+## 2026-05-06 — Trust Sprint Mini-Phase T3.2 — "Why this verdict?" provenance for /changes
+
+Operator-approved bundle following T3.1. Adds the data contract + UI disclosure for /changes attribution provenance. Every verdict on /changes (helping / hurting / nothing_yet / too_early / not_enough_data / not_enough_native_baseline / not_implemented) now carries a "Why this verdict?" disclosure that names anchor source (live_at vs commit timestamp), pre/post window, daily-rate humanization, and the operator-honest trust label. **No verdict math changes.**
+
+### What changed
+
+**New files:**
+
+- **`src/domains/attribution/verdict-provenance.ts`** — pure data contract + `buildVerdictProvenance` builder. Hardcodes the audit-anchored trust rubric:
+  - Abstains (`not_enough_data` / `too_early` / `nothing_yet` / `not_enough_native_baseline` / `not_implemented`) → **TRUSTWORTHY**.
+  - `helping`/`hurting` with sparse pre-window (preFullPollDays < 5) → **UNRELIABLE** (matches the empirical attribution backtest's placebo-2 false-positive root cause).
+  - `helping`/`hurting` on a clean window → **DIRECTIONAL** by default (with strong caveat surfaced when window touches 2026-04-23 / 2026-04-26 / 2026-05-06; T2 cleaned the underlying data so contamination is no longer an unreliable trigger on its own).
+  - Exports `CONTAMINATED_DATES` + `windowTouchesContaminatedDate(start, end)` for downstream consumers.
+- **`src/components/changes/why-this-verdict.tsx`** — `<details>` disclosure component mirroring T3.1's `<WhyThisNumber>` pattern. 3 trust badges (Trustworthy / Directional / Unreliable) with distinct color tones. Operator-only debug detail (Z-score, mu_pre / mu_post, sustain counts, anchor_source) lives behind a nested `<details>` "Operator detail" toggle.
+- **`src/domains/attribution/verdict-provenance.test.ts`** — 27 unit tests covering required-field shape, trust-label honesty contract, customer-safe copy invariants (no Z-score / no Greek / no UUID / no SQL), and per-builder caveat surfacing.
+- **`src/components/changes/why-this-verdict.test.tsx`** — 11 SSR render tests covering all 3 trust badges, operator-detail nesting, and customer-safe summary line.
+- **`tests/architecture/verdict-provenance-trust-labels.test.ts`** — 11 source-text invariants pinning the trust contract: 5 abstains stay trustworthy, sparse pre-window triggers unreliable, helping/hurting default to directional, contam-date helper exposes the canonical 3-date list, customer-safe literals never include Z-score / Greek / SQL.
+
+**Modified files:**
+
+- **`src/app/(shell)/changes/scorecard-client.tsx`** — mounts `<WhyThisVerdict>` inside the row-expand `ExpandPanel`'s "Explain this verdict" section, ABOVE the existing humanized math block. Builds the `VerdictProvenance` object inline using the row's `urlVerdict` (Z-score math) + `change.live_at` / `change.timestamp` (anchor source) + computed window dates. Existing math block kept unchanged — it now sits as the operator-mode-reachable detail behind the row-expand chevron.
+
+### Trust labels per verdict (audit-anchored)
+
+| Verdict | Trust label | Why |
+|---|---|---|
+| `not_enough_data` | **Trustworthy** | Engine refuses to verdict on insufficient data. |
+| `too_early` | **Trustworthy** | Engine refuses to verdict on too-short post-window. |
+| `nothing_yet` | **Trustworthy** | Engine watched the post-change window and saw no measurable shift. |
+| `not_enough_native_baseline` | **Trustworthy** | Engine refuses to compare across measurement systems. |
+| `not_implemented` | **Trustworthy** | Engine refuses to attribute a never-shipped change. |
+| `helping` (clean window + live_at) | **Directional** | Z-score math is correlation; not proof of causation. |
+| `hurting` (clean window + live_at) | **Directional** | Same as helping. |
+| `helping` / `hurting` (live_at missing) | **Directional + caveat** | Anchor falls back to commit `timestamp`; actual deploy day may differ. Per audit, `live_at` is populated on 1/334 rows today. |
+| `helping` / `hurting` (window touches 2026-04-23 / 2026-04-26 / 2026-05-06) | **Directional + strong caveat** | T2 already cleaned the data; remaining concern is partial-coverage days that still contribute to the math. |
+| `helping` / `hurting` (preFullPollDays < 5) | **Unreliable** | Matches the empirical backtest's placebo-2 false-positive root cause. |
+
+**No verdict is upgraded above its audit verdict. Helping is never described as "proof"** — the customer-safe plainEnglish reads "directional signal — math is correlation, not proof of causation". An architecture invariant pins zero unqualified "proof" mentions in customer fields.
+
+### Caveats surfaced (sample copy)
+
+- **Anchor fallback (live_at missing):**
+  > "Beacon used the changelog timestamp as the change date because no live-at scan timestamp exists for this row. The actual deploy day may differ."
+
+- **Contaminated-date in window:**
+  > "Window includes 2026-04-23, 2026-04-26 — dates that had partial polling or duplicate observations before the data layer was cleaned. Treat this verdict as directional until the next nightly verdict pass refreshes it."
+
+- **Sparse pre-window:**
+  > "Pre-change window had only 2 days of full-coverage polling — sparse baselines can over-amplify a small post-change shift."
+
+- **Sampling guard demoted:**
+  > "Beacon's sampling guard demoted this verdict from helping to nothing_yet because the post-change window included a small proof-run day."
+
+- **Pre-cutover historical data:**
+  > "Pre-change window includes dates before native AI polling began on Apr 22, 2026 — those rows were re-derived from the historical data import."
+
+- **Trustworthy abstain (e.g. nothing_yet):**
+  > "Trustworthy abstain — Beacon has watched the post-change window but seen no measurable shift."
+
+### UI surface wired
+
+| Surface | Mount | Status |
+|---|---|---|
+| /changes row-expand "Explain this verdict" panel | `ExpandPanel` in `scorecard-client.tsx` | ✅ mounted ABOVE the existing math block |
+| /today "Wins to learn from" cards | `ActionCard` rendered from `measuredWins` | ⏸ not mounted in T3.2 — these cards already carry their own humanized lineage bullets ("Citations rose by ~6.5/day", "Z-score 3.5", "Window: 14d → 7d"); duplicating with WhyThisVerdict would double the disclosure surface. Builder is ready when operator wants the badge there. |
+| /changes truth/ drilldown | `truth-client.tsx` | ⏸ not mounted in T3.2 — uses a different verdict shape (legacy enum); could host a builder variant in a follow-up. |
+
+Per "Do not redesign the page": the disclosure mounts inline on the existing surface; no new sections, no reorder.
+
+### Customer-safe copy contract (test-pinned)
+
+- ✅ Customer-facing fields (`label`, `verdictLabel`, `preWindowLabel`, `postWindowLabel`, `normalRangeLabel`, `changeStrengthLabel`, `sustainLabel`, `plainEnglish`, caveats) NEVER contain raw Z-score, Greek (`μ` / `σ`), debug variables (`mu_pre` / `sigma_pre`), SQL keywords, or UUIDs.
+- ✅ Z-score + raw math live ONLY in `operatorDetail`, surfaced behind a nested `<details>` "Operator detail" toggle.
+- ✅ `<summary>` trigger reads literally "Why this verdict?" — operator-locked phrasing pinned by invariant.
+- ✅ "Helping" verdicts NEVER described as "proof" in customer copy — invariant rejects unqualified `proof` literal in any customer field.
+- ✅ Three trust badges with three distinct color tones (status-success / amber / status-danger).
+
+### Existing measured-win cards: should they be re-described as directional?
+
+**Yes — by labeling, not by removal.** The /today "Wins to learn from" cards already carry humanized lineage bullets that read like proof claims (e.g., "Citations rose by ~6.5/day", "Z-score 3.5 (high confidence)", "URL-level correlation — this page's own citations moved — not proof of causation"). The cards' headlines do say *"Citation lift detected after the X change"* which is correlation language, and the body explicitly says *"not proof of causation"* — already honest at the language level.
+
+What's missing: the **trust badge**. The win cards display `confidence: high|medium|low` but not the audit-anchored Trustworthy / Directional / Unreliable badge. **Recommendation for a future mini-phase (NOT this one per scope):** thread `<WhyThisVerdict>` (or its compact variant) into the win-card rendering so the same trust badge appears next to "Latest signal". For now, /today win cards stay as they are; the audit-anchored badge lives on /changes only.
+
+### Verification
+
+- ✅ `npm run typecheck` — clean.
+- ✅ `npm run test` — **301/301 files / 4878/4878 tests** (72.07s; +49 tests vs T3.1: 27 unit + 11 SSR + 11 architecture invariants).
+- ✅ `npm run build` — successful (Vercel-equivalent build with `BEACON_LLM_BUILD_OK=1`). One transient Supabase statement-timeout flake on first attempt; retry succeeded.
+- ✅ `scripts/verify-tenant-data-integrity.ts` — all 10 invariants PASS (T1.1 carryover).
+- ✅ `scripts/verify-observation-dedup-integrity.ts` — all dedupe invariants PASS (T2 carryover).
+- ✅ Honesty contract tests: `not_enough_data` / `too_early` / `nothing_yet` / `not_enough_native_baseline` / `not_implemented` always trustworthy; helping/hurting on clean window default directional; sparse pre-window → unreliable; contaminated dates surface caveat without flipping unreliable.
+- ✅ Customer-safe copy tests: zero raw Z-score / Greek / SQL / UUIDs in customer fields.
+- ✅ Architecture invariants: trust-level vocabulary canonical; isAbstain enumerates exactly the 5 abstain verdicts; CONTAMINATED_DATES is the canonical 3-date list; `<WhyThisVerdict>` keeps all 3 badge labels distinct.
+
+### Hard-constraint compliance
+
+- ✅ T4 NOT started; recommendation brain hardening deferred.
+- ✅ Recommendation ranking untouched.
+- ✅ Attribution verdict logic untouched (no math changes; only provenance + caveats).
+- ✅ `weak_signal` tier NOT added (T5 territory).
+- ✅ No changelog row mutations.
+- ✅ No OpenAI / no paid polling / no second tenant.
+- ✅ No RLS / auth changes.
+- ✅ No Profound cleanup.
+- ✅ No queue mutation.
+- ✅ Page not redesigned — disclosure mounts inline above existing math block.
+- ✅ Trust labels stay honest — no `helping` upgraded to `trustworthy`; no `unreliable` rebranded.
+
+### Whether T4 can begin next
+
+✅ **Yes.** Trust provenance is now end-to-end:
+- T1.1 — tenant ownership clean.
+- T2 — observations de-duped, snapshots re-derived, contamination cleared.
+- T3.1 — /today scores explain themselves.
+- T3.2 — /changes verdicts explain themselves.
+
+T4 ("Recommendation brain hardening" — likely covers Rule 16.A validator-side enforcement, the two-ranking-layers reconciliation, exposing `search_query` evidence, populating `competitorPageBlueprints` structure fields, exercising LOW/HIGH paths in production) operates on a data layer the operator can now demonstrably trust. The recommendation-quality audit's findings are unblocked.
+
+T4 not started — awaiting operator approval per stop-after-T3.2 directive.
+
+---
+
+## 2026-05-06 — Trust Sprint Mini-Phase T3.1 — "Why this number?" provenance foundation for /today
+
+Operator-approved bundle following T2. Adds the data contract + first UI surface for /today score provenance. Every major number on /today (visibility chart, competitor leaderboard, per-platform primary %) now carries a "Why this number?" disclosure that names source, window, numerator, denominator, sampling status, and the operator-honest trust label.
+
+### What changed
+
+**New files:**
+
+- **`src/domains/today/score-provenance.ts`** — pure data contract + 7 builders (one per audit-flagged score type). Each returns a `ScoreProvenance` object with the trust label hardcoded to match the audit findings. No I/O.
+- **`src/components/today/why-this-number.tsx`** — compact `<details>` disclosure. Three trust badges (Trustworthy / Directional / Unreliable) with distinct color tones (status-success / amber / status-danger). Operator-only debug detail (raw table names, file:line) lives behind a nested `<details>` so it never leaks to the customer surface.
+- **`src/domains/product/native-regime.ts`** — extracted `NATIVE_REGIME_START = "2026-04-22"` from `url-citation-history.ts` to a thin client-safe module so /today client components can import it without dragging in `import "server-only"`. `url-citation-history.ts` re-exports for back-compat. The architecture invariant `tests/architecture/measurement-quality-boundary-pin.test.ts` was updated to recognize the new canonical location plus the back-compat re-export site.
+- **`src/domains/today/score-provenance.test.ts`** — 49 unit tests covering required-field shape, trust-label honesty contract, customer-safe copy invariants (no SQL, no table names, no UUIDs), and per-builder caveat surfacing.
+- **`src/components/today/why-this-number.test.tsx`** — SSR render tests confirming "Why this number?" trigger, data attributes, all 3 trust badges, operator-only debug nesting.
+- **`tests/architecture/score-provenance-trust-labels.test.ts`** — source-text invariant pinning the trust contract: composite visibility / primary % / leaderboard / share capture must NEVER be hardcoded as `trustworthy`; share capture must be `unreliable`; the `WhyThisNumber` component must keep all 3 badge labels distinct.
+
+**Modified files:**
+
+- **`src/components/today/visibility-score-chart.tsx`** — mounts `<WhyThisNumber>` below the sampled-day-count line when the composite metric is selected. Detects partial / proof days from `brandPoints[].sampleSize`. Detects window-touches-pre-cutover by comparing `brandPoints[0].date` to `NATIVE_REGIME_START`.
+- **`src/components/today/visibility-leaderboard.tsx`** — mounts `<WhyThisNumber>` under the "Visibility Score Rank" header. Computes window-touches-pre-cutover from `windowDays` + today.
+- **`src/components/today/enrichment-v2.tsx`** — mounts `<WhyThisNumber compact>` next to each per-platform primary % row in the "Where AI ranks you" section. Uses `latest.observations` to drive the partial-day caveat (e.g. "99 of 100 prompts" when the latest day was 99/100).
+- **`src/domains/product/url-citation-history.ts`** — `NATIVE_REGIME_START` extracted to `./native-regime`; re-exported here for back-compat.
+- **`tests/architecture/measurement-quality-boundary-pin.test.ts`** — canonical file pointer moved to `native-regime.ts`; `url-citation-history.ts` allowlisted as the back-compat re-export site; new invariant pins the `export { NATIVE_REGIME_START } from "./native-regime"` re-export shape.
+
+### Trust labels per score (audit-anchored)
+
+| Score | Trust label | Why |
+|---|---|---|
+| Composite visibility (chart headline) | **Directional** | No sampling-status gate; chart treats every sampled day equally; mixes native + historical_recovered when window touches pre-cutover. |
+| Mentions tile | **Directional** | Single-day count varies with daily sample size. Silent fallback to all-time `results` when derived row missing. |
+| Citations tile | **Directional** | Same shape as Mentions. |
+| ChatGPT primary % | **Directional** | Latest-day rate, not window average. Small samples swing the percentage. |
+| Perplexity primary % | **Directional** | Same as ChatGPT, lower volume. |
+| Competitor leaderboard | **Directional** | Brand row uses composite + position-weighted citations; competitor rows use flat mention rate. Ranks reliable; absolute percentages not comparable across rows. |
+| Prompt category — winning | **Trustworthy** | ≥3 obs / platform AND primary_rate ≥ 50%. Native-regime guard. |
+| Prompt category — early | **Trustworthy** | <3 obs floor; classifier explicit downgrade. Native-regime guard. |
+| Prompt category — close / absent / outranked | **Directional** | No pollution-filter on the classifier; case-sensitive co-mention matching. |
+| Share-capture banner | **Unreliable** | Coincidence test marketed as causal. Banner copy implies redistribution that the math does not verify. |
+
+**No score is upgraded above its audit verdict.** No cosmetic rebrand of uncertainty.
+
+### UI surfaces wired (per operator brief)
+
+| Operator brief listed | UI mount | Status |
+|---|---|---|
+| Visibility score (chart) | `VisibilityScoreChart` | ✅ mounted below sampled-day-count |
+| Mentions tile | `TodayScoreboard` | ⏸ tile not currently rendered on /today (TodayScoreboard imported but unmounted in `today-client.tsx`); provenance builder ready for when the tile is re-added |
+| Citations tile | `TodayScoreboard` | ⏸ same as Mentions |
+| ChatGPT primary % | `EnrichmentV2 → PlatformRankRow` | ✅ mounted compact next to sparkline |
+| Perplexity primary % | `EnrichmentV2 → PlatformRankRow` | ✅ same — same row template |
+| Competitor leaderboard | `VisibilityLeaderboard` | ✅ mounted under header |
+
+Per "Do not redesign the page": Mentions/Citations tiles are not added back to /today by this phase — but the provenance builders are done so re-mounting is a one-line wire-up later.
+
+### Customer-safe copy contract (verified by tests)
+
+- ✅ `sourceLabel` / `dateWindow` / `platformRule` / `numeratorLabel` / `denominatorLabel` / `plainEnglish` / caveats never contain raw table names, SQL keywords, `tenantRepo`, or UUIDs.
+- ✅ Raw table names + file:line citations live ONLY in `operatorDetail`, surfaced behind a nested `<details>` "Operator detail" toggle.
+- ✅ `<summary>` trigger reads literally "Why this number?" — operator-locked phrasing pinned by invariant.
+- ✅ Customer-facing summary line of every disclosure renders the trust badge with an honest label (Trustworthy / Directional / Unreliable).
+
+### Verification
+
+- ✅ `npm run typecheck` — clean.
+- ✅ `npm run test` — **298/298 files / 4829/4829 tests** (75.11s; +50 tests since T2: 49 score-provenance + 1 architecture invariant).
+- ✅ `npm run build` — successful (Vercel-equivalent build with `BEACON_LLM_BUILD_OK=1`).
+- ✅ `scripts/verify-tenant-data-integrity.ts` — all 10 invariants PASS (T1.1 carryover).
+- ✅ `scripts/verify-observation-dedup-integrity.ts` — all dedupe invariants PASS (T2 carryover).
+- ✅ Honesty contract tests: composite visibility never `trustworthy`; primary % never `trustworthy`; leaderboard never `trustworthy`; share capture is `unreliable`; only prompt-category builder can return `trustworthy` (and only for early/winning).
+- ✅ Customer-safe copy tests: no `SELECT`/`FROM`/`prompt_answer_observations`/`daily_metric_snapshots`/`tenantRepo`/UUID strings in customer-facing fields.
+- ✅ SSR render tests: 49 unit tests cover all 7 builders + 13 disclosure-render assertions.
+
+### Hard-constraint compliance
+
+- ✅ T3.2 verdict provenance NOT started (drawer, /changes wiring deferred).
+- ✅ Recommendation ranking untouched.
+- ✅ Attribution verdict logic untouched.
+- ✅ No OpenAI calls.
+- ✅ No paid polling.
+- ✅ No second tenant.
+- ✅ No RLS/auth changes.
+- ✅ No Profound cleanup.
+- ✅ No queue mutation.
+- ✅ Page layout not redesigned — disclosures mount inline next to existing values; no new sections, no reorder.
+- ✅ Trust labels are honest — every directional/unreliable surface stays directional/unreliable.
+
+### Whether T3.2 can begin next
+
+✅ **Yes.** The data contract and disclosure component generalize: `ScoreProvenance` already supports `unreliable` and the existing `<WhyThisNumber>` component can host a verdict-provenance variant. T3.2 ("Why this verdict?" drawer for /changes lifecycle pills) can reuse `<WhyThisNumber>` or extend it to render Z-score math (mu_pre, mu_post, sigma_pre_floored, sustainUp/Down, anchor source).
+
+T3.2 not started — awaiting operator approval per stop-after-T3.1 directive.
+
+---
+
+## 2026-05-06 — Trust Sprint Mini-Phase T2 — Observation dedupe + resnapshot contaminated dates
+
+Operator-approved bundle following T1.1. Eliminates 120 duplicate observation rows and re-derives `daily_metric_snapshots` for the 4 contaminated dates so /today scores stop being based on duplicated or partial-denominator days.
+
+### What changed
+
+**Database (Supabase):**
+
+Two named migrations + one Node script (uses existing snapshot-builder path):
+
+- `t2_2_backup_dups_and_resnapshot_dates_20260506` — created two new locked-down backup tables in `beacon_backups`. Pre-backup count guards (RAISE EXCEPTION on mismatch) + post-backup count guards. Same 4-layer denial pattern as T1.1 (no schema USAGE / no table grants / FORCE RLS / RESTRICTIVE deny policy / service_role rollback grants).
+- `t2_3_dedupe_observations_and_unique_index_20260506` — pre-dedupe count guard, dedupe by keep-rule (max(observed_at) per logical key, tie-break min(id)), post-dedupe invariants (Ritz total = pre - 120; remaining duplicate keys = 0; reconciliation against backup-to-delete count), then `CREATE UNIQUE INDEX ux_pao_tenant_prompt_platform_day ON public.prompt_answer_observations (tenant_id, prompt_id, platform, ((observed_at AT TIME ZONE 'UTC')::date))`. UTC cast in expression makes it immutable so the index is acceptable.
+- `scripts/resnapshot-t2-affected-dates.ts` (NEW) — invokes the existing `buildDailySnapshotsFromObservations` + `syncDailyMetricSnapshots` path. Re-derives 4 dates (2026-04-22, 2026-04-23, 2026-04-26, 2026-05-06) for both platforms post-dedupe. Pure builder = idempotent: re-running produces byte-identical rows. **No paid polling. No invented prompts. No reruns. Honest partial coverage preserved (2026-04-26 ChatGPT @ 66 obs stays partial; 2026-05-06 ChatGPT @ 99 obs lands `full` per existing classifySampling threshold of >=80).**
+
+Note: 2026-04-22 was added to the resnapshot scope because T2.3 dedupe deleted 3 stale Perplexity observations from that day, making the existing snapshot stale. Brief listed 23/26/06; the extension is documented here. Brand mention/citation counts on 2026-04-22 turned out unchanged after re-derive (the 3 dup obs didn't contribute to brand counts).
+
+**Live-table mutations:**
+
+- **`prompt_answer_observations`**: deleted **120 duplicate rows** (16,441 → 16,321). 118 logical-key groups had >1 row; kept latest `observed_at` per group, tie-break smallest `id`.
+- **`daily_metric_snapshots`**: in-place upsert of 50 + 50 + 50 + 47 + 50 + 50 + 50 = 347 rows across 7 (date, platform) tuples (2026-04-22 ChatGPT had 0 obs → skipped). Total row count unchanged at 9,796. **Stamped each row's metadata with `resnapshot_provenance: 't2_4_post_dedupe_resnapshot'` + `total_possible` + `sampling_status` (`full|partial|proof|empty`)** — these fields were null before T2.
+
+**Backup tables (locked-down):**
+
+- `beacon_backups.backup_pao_duplicates_t2_20260506` — 238 rows = 118 kept-latest (rn=1) + 120 to-delete (rn>1). Useful for full-context recovery.
+- `beacon_backups.backup_dms_resnapshot_t2_20260506` — 347 rows (the pre-resnapshot DMS rows for 4 affected dates).
+
+Same 4-layer denial pattern as T1.1: no schema USAGE / no table grants / FORCE RLS / RESTRICTIVE deny policy. service_role explicit grants for rollback.
+
+**Schema additions:**
+
+- `ux_pao_tenant_prompt_platform_day` UNIQUE INDEX on `prompt_answer_observations` (tenant_id, prompt_id, platform, UTC-day-cast(observed_at)). Prevents future duplicate observations on the same logical key.
+
+**New scripts:**
+
+- `scripts/resnapshot-t2-affected-dates.ts` — idempotent resnapshot via existing builder.
+- `scripts/verify-observation-dedup-integrity.ts` — invariant checker. 4 invariants: (a) 0 dup logical keys across all tenants; (b) 0 dup keys for tenant-ritz-founder; (c) `ux_pao_tenant_prompt_platform_day` exists; (d) honest partial-coverage report. Exits non-zero on any violation.
+
+### Before / after on the contaminated dates (platform-aggregate snapshots)
+
+Numbers below are **brand-only** (mention/citation counts of `tenant-ritz-founder`):
+
+| Date / Platform | mentions before → after | citations before → after | total_possible | sampling | Notes |
+|---|---|---|---|---|---|
+| 2026-04-22 / Perplexity | 53 → 53 | 59 → 59 | null → 100 | full | 3 dup obs didn't impact brand totals; metadata refreshed |
+| **2026-04-23 / ChatGPT** | **70 → 62** | **68 → 60** | null → 100 | full | 17 dup chatgpt obs were inflating; deflated by 11–12% |
+| **2026-04-23 / Perplexity** | **103 → 53** | **106 → 55** | null → 100 | full | **Full 100-prompt rerun was double-counted; numbers nearly halved post-dedupe.** Biggest correction in T2. |
+| 2026-04-26 / ChatGPT | 44 → 44 | 44 → 44 | null → 66 | partial | No dupes; partial coverage now explicitly labeled |
+| 2026-04-26 / Perplexity | 62 → 62 | 64 → 64 | null → 100 | full | No dupes; metadata refreshed |
+| 2026-05-06 / ChatGPT | 48 → 48 | 42 → 42 | null → 99 | full | No dupes; partial-but-≥80 lands `full` per existing classifySampling thresholds |
+| 2026-05-06 / Perplexity | 58 → 58 | 62 → 62 | null → 100 | full | No dupes; metadata refreshed |
+
+### Verification
+
+- ✅ T2.2 backup count guards — 347 dms rows, 238 pao rows (118 keepers + 120 to-delete), all matched expected.
+- ✅ T2.3 pre-dedupe guards — 120 to-delete confirmed; ritz total 16,441.
+- ✅ T2.3 post-dedupe invariants — 0 duplicate logical keys remain; ritz total 16,321 (= 16,441 − 120); reconciliation with backup `rn>1` count matches.
+- ✅ T2.3 unique index — `ux_pao_tenant_prompt_platform_day` exists with the immutable UTC-day cast.
+- ✅ T2.4 resnapshot — idempotent (re-run produces byte-identical platform-aggregate values; verified mid-run after `.data/` restore).
+- ✅ Security advisor — 0 ERROR-level RLS findings, 0 INFO. Only finding is pre-existing `auth_leaked_password_protection` WARN.
+- ✅ T1.1 invariants still satisfied — empty/test rows still 0; CHECK constraints still in place.
+- ✅ `npm run typecheck` — clean.
+- ✅ `npm run test` — 295/295 files / **4779/4779 tests** (68.91s).
+- ✅ `npm run build` — successful (Vercel-equivalent build with `BEACON_LLM_BUILD_OK=1` for safety, though we did not enable any LLM call). One transient Supabase statement-timeout flake on first attempt; retry succeeded.
+- ✅ Both verification scripts (T1 + T2) PASS in sequence.
+
+### Note on `.data/` directory restore mid-T2
+
+The Vercel-equivalent build I ran early in T1.1 left a stale `.data/.data-t1-build/` nested directory. T2's first test run surfaced 14 failures because the resnapshot's dual-write found the empty surface `.data/` instead of the actual data layout one level deeper. Fixed by:
+1. `mv .data/.data-t1-build /tmp/data-restore-fix && rm -rf .data && mv /tmp/data-restore-fix .data`
+2. Re-running the resnapshot script to populate the now-correctly-rooted `.data/` with current Supabase state.
+3. Tests went 295/295 / 4779/4779 immediately after.
+
+### Rollback SQL (if T2 must be reverted)
+
+```sql
+-- 1. Drop the unique index (so the dedupe restore can land)
+DROP INDEX public.ux_pao_tenant_prompt_platform_day;
+
+-- 2. Restore the 120 deleted observations from backup
+INSERT INTO public.prompt_answer_observations
+  SELECT id, prompt_id, run_id, answer_hash, position, tracked_brand_mentioned,
+         tracked_brand_cited, citation_count, owned_citation_count, citation_domains,
+         citation_categories, mentions, observed_at, platform, topic, metadata,
+         raw_search_queries, search_queries, tenant_id, mention_position, citation_rank,
+         primary_recommendation, descriptor_window, competitor_co_mentions,
+         citation_domain_classes, answer_structure, citation_urls,
+         competitor_descriptor_windows
+  FROM beacon_backups.backup_pao_duplicates_t2_20260506
+  WHERE rn > 1
+  ON CONFLICT (id) DO NOTHING;
+
+-- 3. Restore the pre-T2.4 daily_metric_snapshots for the 4 affected dates.
+--    Upsert by id since IDs are deterministic and we want to overwrite the
+--    re-derived rows with their pre-T2 versions.
+DELETE FROM public.daily_metric_snapshots
+  WHERE tenant_id = 'tenant-ritz-founder'
+    AND date IN ('2026-04-22','2026-04-23','2026-04-26','2026-05-06');
+INSERT INTO public.daily_metric_snapshots
+  SELECT * FROM beacon_backups.backup_dms_resnapshot_t2_20260506;
+
+-- DO NOT drop backup tables (per operator brief).
+```
+
+### Whether T3 can begin next
+
+✅ **Yes, T2 unblocks T3.** The data layer is now:
+- Tenant ownership explicit (T1.1)
+- Zero observation duplicates (T2.3)
+- Affected-date snapshots honest about partial coverage (T2.4 + `total_possible` / `sampling_status` populated)
+- Future duplicates structurally prevented (`ux_pao_tenant_prompt_platform_day`)
+
+T3 ("Why this score" drawer + verdict provenance drawer) can proceed against trustworthy underlying numbers. The 2026-04-23 Perplexity score is no longer 2× inflated; the operator-facing trust dashboard will show numbers that match what the engine just computed.
+
+### Hard-constraint compliance
+
+- ✅ No T3 work started; no drawers built
+- ✅ No recommendation-ranking changes
+- ✅ No verdict/attribution-logic changes
+- ✅ No OpenAI calls
+- ✅ No paid polling
+- ✅ No second tenant
+- ✅ No RLS/auth policy changes (only the new RESTRICTIVE deny policies on the new T2 backup tables — same pattern as T1.1)
+- ✅ No Profound cleanup
+- ✅ No recommendation queue mutation
+- ✅ Backups locked down (separate schema, no anon/authenticated access, FORCE RLS + RESTRICTIVE deny policy + service_role grants)
+- ✅ Transaction-wrapped SQL with `RAISE EXCEPTION` guards on every count check
+- ✅ Unique index added only AFTER dedupe, when no row could violate it
+- ✅ Honest partial coverage preserved (66 stays 66; 99 stays 99; sampling_status reflects reality)
+
+---
+
+## 2026-05-06 — Trust Sprint Mini-Phase T1.1 — Tenant ownership cleanup (Path B: archive + delete + CHECK)
+
+Operator-approved bundle following the Trust Sprint synthesis. Eliminates 28k+14k empty-`tenant_id=''` rows + 2 leaked test-tenant `recommended_edits` rows. Preflight discovered the original audit assumption (backfill to Ritz) was unsafe — empty-tenant rows are obsolete Profound originals already superseded by W4 historical_recovered Ritz twins; backfill would have double-counted. Path B (archive + delete) chosen by operator.
+
+### What changed
+
+**Database (Supabase, project `jdegznovgysxyweknewh`):**
+
+Two named migrations applied (all transaction-wrapped, all guard-checked, all ROLLBACK-safe via RAISE EXCEPTION):
+
+- `t1_1_tenant_ownership_cleanup_path_b_20260506` — created `beacon_backups` schema (REVOKE all from PUBLIC/anon/authenticated; default privileges revoked); created 3 backup tables with `FORCE ROW LEVEL SECURITY` enabled; copied all rows-to-be-touched via CTAS; pre-delete + post-delete count guards; **archive + delete on 3 live tables**; added 3 CHECK constraints `(tenant_id IS NOT NULL AND tenant_id <> '')`.
+- `t1_1_backup_tables_explicit_deny_policies_20260506` — added RESTRICTIVE deny-all policies on backup tables (`TO anon, authenticated USING (false) WITH CHECK (false)`) for linter hygiene.
+- `t1_1_grant_service_role_on_backups_20260506` — granted `service_role` SELECT/INSERT/UPDATE/DELETE on backup tables so rollback path works through standard admin tooling.
+
+**Live-table mutations (all reversible from `beacon_backups`):**
+
+| Table | Rows archived | Rows deleted from live | Ritz rows after | CHECK added |
+|---|---|---|---|---|
+| `daily_metric_snapshots` | 28,285 | 28,285 | 9,796 (unchanged) | yes |
+| `prompt_answer_observations` | 14,096 | 14,096 | 16,441 (unchanged) | yes |
+| `recommended_edits` | 2 | 2 (test-c1c-1777584795434-a-1, -b-1) | 28 (unchanged) | yes |
+
+**Backup tables (locked-down):**
+
+- `beacon_backups.backup_daily_metric_snapshots_empty_tenant_20260506` (28,285 rows)
+- `beacon_backups.backup_prompt_answer_observations_empty_tenant_20260506` (14,096 rows)
+- `beacon_backups.backup_recommended_edits_test_rows_20260506` (2 rows)
+
+Four-layer denial of anon/authenticated: (1) no schema USAGE; (2) no table grants; (3) FORCE RLS; (4) RESTRICTIVE deny policy. service_role has explicit grants for rollback.
+
+**New script:**
+
+- `scripts/verify-tenant-data-integrity.ts` — repeatable invariant checker. 10 probes (3 totals + 7 tenant-cleanliness invariants). Paginated per-tenant breakdown (defeats PostgREST 1k-row cap). Exits non-zero on any failure. Run via `npx tsx --require ./scripts/mock-server-only.cjs scripts/verify-tenant-data-integrity.ts`.
+
+### Verification
+
+- ✅ Preflight count guards passed (28,285 / 14,096 / 2) inside transaction; ROLLBACK on mismatch.
+- ✅ Backup count guards passed (28,285 / 14,096 / 2) inside transaction; ROLLBACK on mismatch.
+- ✅ Post-delete invariants passed (0 / 0 / 0 empty/test rows; Ritz unchanged 9,796 / 16,441 / 28).
+- ✅ CHECK constraint runtime smoke: empty tenant_id rejected with sqlstate `23514` (`check_violation`); 0 smoke rows leaked.
+- ✅ 4-role smoke tests: anon DENIED on backups; authenticated DENIED on backups; service_role reads backups (28,285 / 14,096 / 2); service_role reads live tables (9,796 / 16,441 / 28).
+- ✅ /today data probes (today-kpis derived row, 60d observations, 14d leaderboard, recommendations queue) — all return non-empty live data via service_role.
+- ✅ Security advisor: 0 ERROR-level RLS findings, 0 INFO-level after explicit deny policies. Only finding is pre-existing `auth_leaked_password_protection` WARN unrelated to T1.
+- ✅ `npm run typecheck` — clean.
+- ✅ `npm run test` — 295/295 files / **4779/4779 tests** green (74.93s).
+- ✅ `npm run build` — successful, all routes compiled (Vercel-equivalent build with .data hidden also passed).
+- ✅ `scripts/verify-tenant-data-integrity.ts` — all 10 invariants PASS; per-tenant breakdown shows ritz-only single tenancy.
+
+### Rollback SQL (if T1.1 must be reverted)
+
+```sql
+-- 1. Drop CHECK constraints (so backup re-inserts can land)
+ALTER TABLE public.daily_metric_snapshots
+  DROP CONSTRAINT daily_metric_snapshots_tenant_id_nonempty;
+ALTER TABLE public.prompt_answer_observations
+  DROP CONSTRAINT prompt_answer_observations_tenant_id_nonempty;
+ALTER TABLE public.recommended_edits
+  DROP CONSTRAINT recommended_edits_tenant_id_nonempty;
+
+-- 2. Restore deleted rows from backups (idempotent; conflict-free since IDs were deleted)
+INSERT INTO public.daily_metric_snapshots
+  SELECT * FROM beacon_backups.backup_daily_metric_snapshots_empty_tenant_20260506
+  ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.prompt_answer_observations
+  SELECT * FROM beacon_backups.backup_prompt_answer_observations_empty_tenant_20260506
+  ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.recommended_edits
+  SELECT * FROM beacon_backups.backup_recommended_edits_test_rows_20260506
+  ON CONFLICT (id) DO NOTHING;
+
+-- 3. (Optional) drop backup schema entirely
+-- DROP SCHEMA beacon_backups CASCADE;
+```
+
+### Why the original audit's "backfill" plan was wrong
+
+Preflight proved every empty-tenant observation `id` already appears as the `run_id` field of a Ritz `historical_recovered` row (14,096 / 14,096 = 100%). The W4 customer-one-backfill script had already re-extracted these rows into the Ritz tenant. Backfilling `tenant_id=''` → `'tenant-ritz-founder'` would have created 14,096 logical-key duplicates (pre-existing W4 row + newly-tagged original row), causing every aggregator that groups by `(tenant_id, prompt_id, day, platform)` to double-count for Ritz on every pre-cutover day. Path B removes the redundant originals; W4 historical_recovered rows already cover the data.
+
+For `daily_metric_snapshots`: 27,997 `benchmark/entity` empty rows had no Ritz collision (W4 dropped 1,286 entities and re-derived the curated 842); 144 `derived/entity` empty rows had no collision; 144 `derived/platform` empty rows had 100% collision with W4-rederived twins. All 28,285 archived to backup; W4 coverage remains intact.
+
+### Whether T2 can begin next
+
+✅ **Yes, T1.1 unblocks T2.** Tenant ownership is now explicit on all 3 affected tables. The CHECK constraints prevent regression. The verification script lets us assert clean state pre/post any future migration. T2 (observation dedupe) operates on the now-tenant-clean table and won't have to disambiguate empty-tenant rows. Awaiting operator approval to start T2 — not started.
+
+---
+
 ## 2026-05-06 — Multi-tenant cron scaffold (architecturally complete; awaiting 2026-05-07 07:00 UTC proof-run)
 
 Operator-approved bundle. Removes hardcoded `tenant-ritz-founder` assumptions from scheduled cron without actually running paid polls for a second tenant. Architecture is customer-2-ready; the active list contains exactly one row (Ritz, `enabled: true`).

@@ -58,7 +58,12 @@ function packetWithPrompt(uuid: string = KNOWN_UUID): SpecificEditEvidencePacket
     allowedTargetUrls: ["https://ritzbuilders.com/services/whole-home-remodel"],
     allowedActionTypes: ["add_h2_section", "add_faq", "rewrite_faq", "edit_title"],
     aiSearchSignal: {
-      topSearchQueries: [],
+      // T4.1 (2026-05-06): seed one search query so the abstention contract
+      // passes. These tests target the no-UUID-in-operator-copy gate, not
+      // abstention. Override `aiSearchSignal.topSearchQueries: []` to exercise Rule B.
+      topSearchQueries: [
+        { query: "whole home remodel builders bay area", count: 3, promptIds: [uuid], platforms: ["chatgpt"] },
+      ],
       topDescriptors: [],
       topCompetitorCoMentions: [],
       caps: {

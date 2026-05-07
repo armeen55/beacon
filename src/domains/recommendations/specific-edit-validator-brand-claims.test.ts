@@ -60,7 +60,14 @@ function makePacket(
     allowedTargetUrls: ["https://example.com/services/whole-home-remodel"],
     allowedActionTypes: ["add_h2_section", "add_faq", "edit_meta"],
     aiSearchSignal: {
-      topSearchQueries: [],
+      // T4.1 (2026-05-06): seed one search query so the abstention
+      // contract (Rule B / no grounding signals) passes. Existing tests
+      // care about the brand-claim grounder, not abstention; override
+      // `aiSearchSignal.topSearchQueries: []` if you specifically want
+      // to test Rule B.
+      topSearchQueries: [
+        { query: "whole home remodel builders bay area", count: 3, promptIds: ["11111111-2222-3333-4444-555555555555"], platforms: ["chatgpt"] },
+      ],
       topDescriptors: [],
       topCompetitorCoMentions: [],
       caps: {

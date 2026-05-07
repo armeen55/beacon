@@ -123,7 +123,7 @@ function makeElement(
 
 function makePacket(): SpecificEditEvidencePacket {
   const promptId = "prompt-1";
-  return buildSpecificEditEvidencePacket({
+  const built = buildSpecificEditEvidencePacket({
     tenantId: TENANT,
     recId: REC,
     clusterLabel: "teen braces",
@@ -138,6 +138,20 @@ function makePacket(): SpecificEditEvidencePacket {
     pageElementInventory: [makeElement({})],
     now: FROZEN_NOW,
   });
+  // T4.1 (2026-05-06): seed one search query so the abstention contract
+  // (Rule B / no grounding signals) passes. This file's tests target
+  // LLM length / confidence gates, not abstention. Tests that want to
+  // exercise Rule B would clear `aiSearchSignal.topSearchQueries`
+  // explicitly.
+  return {
+    ...built,
+    aiSearchSignal: {
+      ...built.aiSearchSignal,
+      topSearchQueries: [
+        { query: "best teen braces", count: 3, promptIds: [promptId], platforms: ["chatgpt"] },
+      ],
+    },
+  };
 }
 
 /**

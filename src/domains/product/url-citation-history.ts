@@ -30,12 +30,17 @@ import type { CitationObservation } from "@/domains/citation-observations/types"
  * benchmark regime (everything through this date - 1 day) and the native
  * polling regime (this date forward). Native polls began 2026-04-22.
  *
+ * T3.1 (2026-05-06) — extracted to `./native-regime.ts` so client
+ * components can import it without dragging in this server-only module.
+ * Re-exported here so existing server-side imports keep working.
+ *
  * Intentionally hardcoded rather than derived dynamically from data. A
  * "find the last benchmark date" heuristic silently shifts as shards land
  * out of order, which is the bug we're trying to avoid. If ever needed,
  * this constant moves to business-config with the same semantics.
  */
-export const NATIVE_REGIME_START = "2026-04-22";
+export { NATIVE_REGIME_START } from "./native-regime";
+import { NATIVE_REGIME_START } from "./native-regime";
 
 /** One day's citation count on one URL, with platform breakdown. */
 export type UrlDailyCount = {

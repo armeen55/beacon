@@ -2,6 +2,9 @@
 
 import { cn } from "@/lib/utils";
 import type { EntityVisibility } from "@/domains/product/visibility-score";
+import { WhyThisNumber } from "@/components/today/why-this-number";
+import { buildCompetitorLeaderboardProvenance } from "@/domains/today/score-provenance";
+import { NATIVE_REGIME_START } from "@/domains/product/native-regime";
 
 /**
  * Visibility Score Rank leaderboard.
@@ -73,6 +76,34 @@ export function VisibilityLeaderboard({
           <p className="text-[11px] text-muted-foreground mt-0.5">
             Who gets mentioned most often in your topic
           </p>
+          {/* T3.1 — Trust Sprint score provenance disclosure. The
+              leaderboard is "directional" because the brand row is
+              computed with a different formula (composite +
+              position-weighted citations) than competitor rows
+              (flat mention rate); ranks are reliable but absolute
+              percentages are not strictly comparable. See
+              docs/BEACON_SCORE_PROVENANCE_AUDIT_2026_05_06.md. */}
+          {windowDays != null && (() => {
+            // Approximate "window touches pre-cutover" using current sampled
+            // days vs window. We don't have the start ISO directly, but we
+            // can flag when the operator might be looking at a long window
+            // that crosses the cutover boundary. Use today − windowDays
+            // as the start.
+            const todayMs = Date.now();
+            const startMs = todayMs - windowDays * 24 * 60 * 60 * 1000;
+            const startISO = new Date(startMs).toISOString().slice(0, 10);
+            const windowTouchesPreCutover = startISO < NATIVE_REGIME_START;
+            const prov = buildCompetitorLeaderboardProvenance({
+              windowDays,
+              windowTouchesPreCutover,
+              rowCount: competitorRows.length + (brandRow ? 1 : 0),
+            });
+            return (
+              <div className="mt-1.5">
+                <WhyThisNumber provenance={prov} />
+              </div>
+            );
+          })()}
         </div>
       </div>
 

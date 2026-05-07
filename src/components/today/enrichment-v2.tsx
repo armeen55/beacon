@@ -40,6 +40,8 @@ import type {
 import { Sparkline } from "./sparkline";
 import { CompetitorSelect } from "./competitor-select";
 import { platformLabel, structureLabel } from "@/lib/structure-labels";
+import { WhyThisNumber } from "@/components/today/why-this-number";
+import { buildPrimaryRateProvenance } from "@/domains/today/score-provenance";
 
 export type { EnrichmentV2Data };
 
@@ -390,8 +392,22 @@ function PlatformRankRow({
   const isThin = sparkline.sampleStatus === "thin";
   const isEmpty = sparkline.sampleStatus === "empty";
 
+  // T3.1 — Trust Sprint score provenance for the latest-day primary %.
+  // The latest day's obsCount drives the sampling-status classification
+  // exposed in the disclosure body.
+  const latestObsCount = latest?.observations ?? null;
+  const provenance = !isEmpty
+    ? buildPrimaryRateProvenance({
+        platformLabel: platformLabel(sparkline.platform),
+        latestRate: latest?.primaryRate ?? null,
+        latestDayObsCount: latestObsCount,
+        windowDays: sparkline.points.length,
+        sampleStatus: sparkline.sampleStatus,
+      })
+    : null;
+
   return (
-    <li className="grid grid-cols-[6.5rem_1fr_auto] items-center gap-3 text-[12px]">
+    <li className="grid grid-cols-[6.5rem_1fr_auto_auto] items-center gap-3 text-[12px]">
       <span className="font-medium text-foreground truncate">
         {platformLabel(sparkline.platform)}
       </span>
@@ -415,6 +431,7 @@ function PlatformRankRow({
         points={sparkline.points.map((p) => p.primaryRate)}
         ariaLabel={`${platformLabel(sparkline.platform)} primary rate trend`}
       />
+      {provenance ? <WhyThisNumber provenance={provenance} compact /> : <span aria-hidden="true" />}
     </li>
   );
 }

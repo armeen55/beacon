@@ -152,7 +152,24 @@ function basePacketArgs(): BuildSpecificEditEvidencePacketArgs {
 function buildPacket(
   overrides: Partial<BuildSpecificEditEvidencePacketArgs> = {},
 ): SpecificEditEvidencePacket {
-  return buildSpecificEditEvidencePacket({ ...basePacketArgs(), ...overrides });
+  const built = buildSpecificEditEvidencePacket({ ...basePacketArgs(), ...overrides });
+  // T4.1 (2026-05-06): seed one search query so the abstention contract
+  // (Rule B / no grounding signals) passes. These tests target shape /
+  // length / element-key gates, not abstention. Tests that want to
+  // exercise Rule B can override `aiSearchSignal.topSearchQueries: []`.
+  return {
+    ...built,
+    aiSearchSignal: {
+      ...built.aiSearchSignal,
+      topSearchQueries: [
+        {
+          query: "best teen braces",
+          count: 3,
+          promptIds: [built.affectedPrompts[0]?.promptId ?? "prompt-1"], platforms: ["chatgpt"],
+        },
+      ],
+    },
+  };
 }
 
 function validEditTitleFixture(
@@ -1102,7 +1119,7 @@ function buildPacketWithCompetitors(
   competitorNames: string[],
 ): SpecificEditEvidencePacket {
   const promptId = "prompt-1";
-  return buildSpecificEditEvidencePacket({
+  const built = buildSpecificEditEvidencePacket({
     ...basePacketArgs(),
     primarySummaries: [
       {
@@ -1120,6 +1137,22 @@ function buildPacketWithCompetitors(
       },
     ],
   });
+  // T4.1 (2026-05-06): seed grounding so abstention contract passes;
+  // these tests target competitor public-copy validator, not abstention.
+  return {
+    ...built,
+    aiSearchSignal: {
+      ...built.aiSearchSignal,
+      topSearchQueries: [
+        {
+          query: "best teen braces",
+          count: 3,
+          promptIds: [built.affectedPrompts[0]?.promptId ?? "prompt-1"],
+          platforms: ["chatgpt"],
+        },
+      ],
+    },
+  };
 }
 
 function makeAddH2EditWithProposedText(
