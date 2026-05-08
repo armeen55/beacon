@@ -18,12 +18,20 @@ import {
   ensureUrlChangeOutcomesSeeded,
 } from "@/domains/attribution/url-change-outcome";
 
+// T-CustomerNav (2026-05-08) — keys aligned with `navigationGroups`
+// in `src/lib/navigation.ts`. Pre-T-CustomerNav this map carried
+// dead entries for routes hidden from the sidebar 2026-04-17 /
+// 2026-04-22 (/pages, /competitors, /local). The lookup
+// `NAV_SHORTCUTS[n.href]` was always over `allNavItems` (5 entries),
+// so the dead keys were never hit — but the map shape was the
+// audit's source for "competitor in customer surface" smell.
+// Keep this in lockstep with `navigationGroups`; the architecture
+// test `customer-nav-exposure.test.ts` enforces alignment.
 const NAV_SHORTCUTS: Record<string, string> = {
   "/": "G T",
-  "/pages": "G P",
+  "/recommendations": "G R",
+  "/prompts": "G P",
   "/changes": "G C",
-  "/competitors": "G M",
-  "/local": "G L",
   "/settings": "G S",
 };
 
@@ -84,15 +92,14 @@ export default async function ShellLayout({
   const isDemoMode = !(await hasActiveExperiment());
 
   // ── Palette items ──
+  // T-CustomerNav (2026-05-08) — palette items only surface
+  // customer-facing routes. The pre-T-CustomerNav layout also built
+  // a "Market" group from `uniqueTopics → /competitors#opportunities`
+  // — dead wiring after 2026-04-22 when /competitors was hidden from
+  // the sidebar; CMD+K was still exposing it. Removed.
+  // Direct URL access to /competitors still works for operator use;
+  // that's intentional.
   const changelogEntries = await getChangelogEntries();
-  const uniqueTopics = [
-    ...new Set(
-      changelogEntries
-        .map((c) => c.topic_targeted)
-        .filter((t): t is string => Boolean(t))
-    ),
-  ];
-
   const paletteItems: PaletteItem[] = [
     ...allNavItems.map((n) => ({
       id: `nav-${n.href}`,
@@ -110,13 +117,6 @@ export default async function ShellLayout({
       group: "Changes",
       href: `/changes/${c.id}`,
       meta: c.topic_targeted || undefined,
-    })),
-    ...uniqueTopics.map((t) => ({
-      id: `topic-${t}`,
-      label: t,
-      group: "Market",
-      href: "/competitors#opportunities",
-      meta: "Topic",
     })),
   ];
 

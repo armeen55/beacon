@@ -70,11 +70,17 @@ export function CommandPalette({ items }: { items: PaletteItem[] }) {
       if (gPending) {
         gPending = false;
         clearTimeout(gTimeout);
+        // T-CustomerNav (2026-05-08) — keyboard shortcuts only target
+        // customer-surface routes. Pre-T-CustomerNav `g+p` (→ /pages)
+        // and `g+m` (→ /competitors) routed to URLs that have been
+        // hidden from the sidebar since 2026-04-22 (Phase 3.5F
+        // "Surface Trust"); the shortcuts were dead wiring exposing
+        // hidden surfaces via CMD+K. Keep `g+t`, `g+c`, `g+s` —
+        // these align 1:1 with `navigationGroups` in
+        // `src/lib/navigation.ts`.
         const routes: Record<string, string> = {
           t: "/",
-          p: "/pages",
           c: "/changes",
-          m: "/competitors",
           s: "/settings",
         };
         if (routes[e.key]) {

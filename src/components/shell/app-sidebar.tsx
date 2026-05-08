@@ -13,19 +13,23 @@ import {
 } from "@/components/ui/sheet";
 import { useShell } from "./shell-provider";
 
+// T-CustomerNav (2026-05-08) — aligned with `navigationGroups` in
+// `src/lib/navigation.ts`. Dead entries for /pages /competitors
+// /local removed; they were never displayed (loop iterates
+// navigationGroups, not this map) but the map shape was the audit's
+// source for "competitor in customer surface" smell. Keep this in
+// lockstep with the navigation registry.
 const NAV_SHORTCUTS: Record<string, string> = {
   "/": "G T",
-  "/pages": "G P",
+  "/recommendations": "G R",
+  "/prompts": "G P",
   "/changes": "G C",
-  "/competitors": "G M",
-  "/local": "G L",
   "/settings": "G S",
 };
 
 const BADGE_STYLES: Record<string, string> = {
   "/": "bg-status-danger/15 text-status-danger",
   "/changes": "bg-status-warning/15 text-status-warning",
-  "/pages": "bg-accent-primary/15 text-accent-primary",
 };
 
 function SidebarContent() {

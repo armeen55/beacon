@@ -1,0 +1,204 @@
+/**
+ * Architecture / contract test —
+ * customer nav exposure surface.
+ *
+ * T-CustomerNav (2026-05-08). Locks in the customer-surface contract
+ * after the audit revealed the sidebar + settings tabs were already
+ * pruned (since 2026-04-17 / 2026-04-22) but a few peripheral
+ * surfaces — the command palette + exit-gates settings hint — still
+ * exposed hidden routes.
+ *
+ * Invariants permanently locked here:
+ *
+ *   1. SIDEBAR — `navigationGroups` exposes EXACTLY the 5 customer
+ *      routes: /, /recommendations, /prompts, /changes, /settings.
+ *      Adding a new route requires updating this test.
+ *
+ *   2. CMD+K KEYBOARD SHORTCUTS — the `g+<key>` shortcuts in
+ *      `command-palette.tsx` only target customer-surface routes.
+ *      Specifically: no shortcut routes to /pages, /competitors,
+ *      /local, /topics, /diagnostics/*, /audit, /rank, /moves,
+ *      /review, /expansion, /changes/truth.
+ *
+ *   3. CMD+K PALETTE GROUPS — the layout-built `paletteItems` only
+ *      reference customer-surface routes (Navigate group via
+ *      `allNavItems`, Changes group via `/changes/[id]` deep links).
+ *      No "Market" group surfacing /competitors. No /pages, /local,
+ *      /topics group.
+ *
+ *   4. SETTINGS TABS — `settings-tabs-client.tsx` exposes the 4
+ *      customer-surface tabs (Import, Config, Prompts, Data). No
+ *      Health / Sign-offs / Methodology / Connectors tabs.
+ *
+ *   5. EXIT-GATES SETTINGS HINT — the server wrapper checks
+ *      `BEACON_OPERATOR_MODE` before rendering. Customers don't see
+ *      the "Internal sign-off" link even when exit-gates data
+ *      becomes engaged.
+ *
+ * Static-analysis tests use file content reads + targeted regex
+ * checks. Runtime invariants (#1) import the actual exported
+ * `navigationGroups` so the lock is type-checked.
+ *
+ * If you intentionally widen the customer surface (e.g., promote
+ * /competitors to a customer route), update THIS test in the same
+ * commit so the architectural decision is visible in review.
+ */
+
+import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { join, resolve } from "node:path";
+
+import { navigationGroups } from "@/lib/navigation";
+
+const REPO_ROOT = resolve(__dirname, "..", "..");
+function readSrc(rel: string): string {
+  return readFileSync(join(REPO_ROOT, rel), "utf-8");
+}
+
+// ─── Invariant 1 — SIDEBAR ────────────────────────────────────────────────
+
+describe("customer nav exposure — Invariant 1: SIDEBAR has exactly 5 customer routes", () => {
+  const EXPECTED_HREFS = new Set([
+    "/",
+    "/recommendations",
+    "/prompts",
+    "/changes",
+    "/settings",
+  ]);
+
+  it("navigationGroups exposes only the 5 customer-facing routes", () => {
+    const allHrefs = navigationGroups
+      .flatMap((g) => g.items.map((i) => i.href))
+      .sort();
+    expect(new Set(allHrefs)).toEqual(EXPECTED_HREFS);
+  });
+
+  it("navigationGroups does NOT include any audit-flagged hidden routes", () => {
+    const allHrefs = new Set(
+      navigationGroups.flatMap((g) => g.items.map((i) => i.href)),
+    );
+    const FORBIDDEN = [
+      "/pages",
+      "/competitors",
+      "/local",
+      "/topics",
+      "/audit",
+      "/rank",
+      "/moves",
+      "/review",
+      "/expansion",
+      "/diagnostics",
+      "/diagnostics/brain",
+      "/diagnostics/spikes",
+      "/changes/truth",
+      "/settings/health",
+      "/settings/exit-gates",
+    ];
+    for (const h of FORBIDDEN) {
+      expect(allHrefs.has(h), `forbidden route in sidebar: ${h}`).toBe(false);
+    }
+  });
+});
+
+// ─── Invariant 2 — CMD+K KEYBOARD SHORTCUTS ───────────────────────────────
+
+describe("customer nav exposure — Invariant 2: CMD+K shortcuts target only customer routes", () => {
+  it("g+<key> route map in command-palette.tsx contains only /, /changes, /settings", () => {
+    const src = readSrc("src/components/shell/command-palette.tsx");
+    // Find the route-shortcuts object literal. Match the shape:
+    //   const routes: Record<string, string> = { t: "/", ... };
+    // Loose match — just confirms no entries point at hidden routes.
+    const FORBIDDEN_SHORTCUT_TARGETS = [
+      `"/pages"`,
+      `"/competitors"`,
+      `"/local"`,
+      `"/topics"`,
+      `"/audit"`,
+      `"/rank"`,
+      `"/moves"`,
+      `"/review"`,
+      `"/expansion"`,
+      `"/diagnostics"`,
+      `"/changes/truth"`,
+      `"/settings/health"`,
+      `"/settings/exit-gates"`,
+    ];
+    for (const target of FORBIDDEN_SHORTCUT_TARGETS) {
+      expect(
+        src,
+        `forbidden shortcut target in command-palette.tsx: ${target}`,
+      ).not.toContain(target);
+    }
+  });
+
+  it("the 3 expected shortcuts (g+t, g+c, g+s) are wired", () => {
+    const src = readSrc("src/components/shell/command-palette.tsx");
+    expect(src).toMatch(/t:\s*"\/"/);
+    expect(src).toMatch(/c:\s*"\/changes"/);
+    expect(src).toMatch(/s:\s*"\/settings"/);
+  });
+});
+
+// ─── Invariant 3 — CMD+K PALETTE GROUPS ───────────────────────────────────
+
+describe("customer nav exposure — Invariant 3: CMD+K palette items have no Market group", () => {
+  it('the (shell)/layout.tsx paletteItems builder does NOT include a "Market" group', () => {
+    const src = readSrc("src/app/(shell)/layout.tsx");
+    // Pre-T-CustomerNav had `group: "Market"` mapping topics →
+    // /competitors. Locked out here: the literal string `group:
+    // "Market"` (with that exact spelling) must not appear.
+    expect(src).not.toMatch(/group:\s*"Market"/);
+  });
+
+  it("the (shell)/layout.tsx paletteItems builder does NOT reference /competitors", () => {
+    const src = readSrc("src/app/(shell)/layout.tsx");
+    expect(src).not.toContain('"/competitors"');
+    expect(src).not.toContain('"/competitors#opportunities"');
+  });
+
+  it("the legitimate Navigate + Changes groups are preserved", () => {
+    const src = readSrc("src/app/(shell)/layout.tsx");
+    expect(src).toMatch(/group:\s*"Navigate"/);
+    expect(src).toMatch(/group:\s*"Changes"/);
+  });
+});
+
+// ─── Invariant 4 — SETTINGS TABS ──────────────────────────────────────────
+
+describe("customer nav exposure — Invariant 4: settings tabs", () => {
+  it("settings-tabs-client.tsx exposes only the 4 customer tabs", () => {
+    const src = readSrc("src/app/(shell)/settings/settings-tabs-client.tsx");
+    // Expected hrefs:
+    expect(src).toContain('"/settings/import"');
+    expect(src).toContain('"/settings/config"');
+    expect(src).toContain('"/settings/prompts"');
+    expect(src).toContain('"/settings/history"');
+    // Forbidden tabs (routes still alive but not customer-surface):
+    expect(src).not.toMatch(/href:\s*"\/settings\/health"/);
+    expect(src).not.toMatch(/href:\s*"\/settings\/exit-gates"/);
+    expect(src).not.toMatch(/href:\s*"\/settings\/methodology"/);
+    expect(src).not.toMatch(/href:\s*"\/settings\/connectors"/);
+  });
+});
+
+// ─── Invariant 5 — EXIT-GATES SETTINGS HINT IS OPERATOR-GATED ─────────────
+
+describe("customer nav exposure — Invariant 5: ExitGatesSettingsHint operator gate", () => {
+  it("the server wrapper checks BEACON_OPERATOR_MODE before rendering", () => {
+    const src = readSrc("src/app/(shell)/settings/exit-gates-settings-hint.tsx");
+    expect(src).toContain("BEACON_OPERATOR_MODE");
+    // Additionally: the gate must short-circuit (return null) when
+    // not in operator mode. Match a plausible early-return shape;
+    // exact whitespace not required.
+    expect(src).toMatch(/if\s*\(!isOperatorMode\(\)\)\s*return\s*null/);
+  });
+
+  it('the rendered hint still links to "/settings/exit-gates" (the route remains accessible to operators)', () => {
+    // The link target itself isn't forbidden — operators still need
+    // to reach the page. We just gate the surface that exposes it.
+    const src = readSrc(
+      "src/app/(shell)/settings/exit-gates-settings-hint-client.tsx",
+    );
+    expect(src).toContain('"/settings/exit-gates"');
+  });
+});
