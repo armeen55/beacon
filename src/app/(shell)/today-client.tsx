@@ -577,26 +577,47 @@ export function TodayClient({
           to drill in. */}
       {visibilityData && (
         <section
-          className="grid grid-cols-1 lg:grid-cols-[3fr_2fr] gap-4"
+          className="space-y-3"
           data-today-section="visibility-headline"
         >
-          <VisibilityScoreChart
-            brandName={visibilityData.brandName}
-            brandSeriesByMetric={visibilityData.brandSeriesByMetric}
-            brandSeriesByPlatform={visibilityData.brandSeriesByPlatform ?? {}}
-            competitorSeriesByMetric={visibilityData.competitorSeriesByMetric}
-            events={visibilityData.chartEvents ?? []}
-            timeRange={visibilityWindow}
-            onTimeRangeChange={setVisibilityWindow}
-            chartEndDate={visibilityData.chartEndDate ?? null}
-          />
-          <VisibilityLeaderboard
-            entities={
-              visibilityData.leaderboardByMetricAndWindow?.composite[
-                visibilityWindow
-              ] ?? visibilityData.leaderboardByMetric.composite
-            }
-          />
+          {/* UX.5B.1 (2026-05-07) — Visibility hero header. Sits
+              above the chart + leaderboard pair so the operator sees
+              the product's core question framed before the data
+              renders. Visually connects to the Command Center via
+              matching uppercase-tracked-wide section header style. */}
+          <header
+            className="flex flex-wrap items-baseline justify-between gap-2"
+            data-today-section="visibility-hero-header"
+          >
+            <div>
+              <h2 className="text-[14px] font-semibold tracking-tight text-foreground">
+                AI Visibility
+              </h2>
+              <p className="text-[12px] text-muted-foreground">
+                How often {visibilityData.brandName} appears across
+                tracked AI answers.
+              </p>
+            </div>
+          </header>
+          <div className="grid grid-cols-1 lg:grid-cols-[3fr_2fr] gap-4">
+            <VisibilityScoreChart
+              brandName={visibilityData.brandName}
+              brandSeriesByMetric={visibilityData.brandSeriesByMetric}
+              brandSeriesByPlatform={visibilityData.brandSeriesByPlatform ?? {}}
+              competitorSeriesByMetric={visibilityData.competitorSeriesByMetric}
+              events={visibilityData.chartEvents ?? []}
+              timeRange={visibilityWindow}
+              onTimeRangeChange={setVisibilityWindow}
+              chartEndDate={visibilityData.chartEndDate ?? null}
+            />
+            <VisibilityLeaderboard
+              entities={
+                visibilityData.leaderboardByMetricAndWindow?.composite[
+                  visibilityWindow
+                ] ?? visibilityData.leaderboardByMetric.composite
+              }
+            />
+          </div>
         </section>
       )}
 

@@ -367,6 +367,33 @@ function Toolbar({
 
 /* ── Action table ────────────────────────────────────────────────────── */
 
+/**
+ * UX.5B.2 (2026-05-07) — Top-pick selector for the in-table emphasis.
+ * Mirrors `buildExecutiveStripData`'s logic so the strip's "Top
+ * opportunity" card and the table's elevated row always agree on
+ * which row is the headline pick.
+ *
+ * Rules: lowest rank among PENDING (non-terminal) rows whose derived
+ * confidence is NOT "needs_review". Falls back to the top needs_review
+ * if no strong/moderate exists. Returns null on empty.
+ */
+function selectTopPickId(rows: ReadonlyArray<RecommendationActionRow>): string | null {
+  const TERMINAL = new Set<ActionRowStatus>([
+    "shipped",
+    "dismissed",
+    "deferred",
+    "measuring",
+  ]);
+  const pending = rows.filter((r) => !TERMINAL.has(r.status));
+  if (pending.length === 0) return null;
+  const sorted = [...pending].sort((a, b) => a.rank - b.rank);
+  const headline =
+    sorted.find((r) => r.derivedConfidence !== "needs_review") ??
+    sorted[0] ??
+    null;
+  return headline?.id ?? null;
+}
+
 function ActionTable({
   rows,
   expandedId,
@@ -388,6 +415,7 @@ function ActionTable({
   ) => void;
   promptTextById: Record<string, string>;
 }) {
+  const topPickId = useMemo(() => selectTopPickId(rows), [rows]);
   return (
     <div className="overflow-x-auto rounded-md border border-border/50 bg-background">
       <table
@@ -417,6 +445,7 @@ function ActionTable({
             <ActionRow
               key={row.id}
               row={row}
+              isTopPick={row.id === topPickId}
               expanded={expandedId === row.id}
               onToggleExpand={() => onToggleExpand(row.id)}
               feedback={feedback}
@@ -434,6 +463,7 @@ function ActionTable({
 
 function ActionRow({
   row,
+  isTopPick = false,
   expanded,
   onToggleExpand,
   feedback,
@@ -441,6 +471,11 @@ function ActionRow({
   promptTextById,
 }: {
   row: RecommendationActionRow;
+  /** UX.5B.2 (2026-05-07) — true when this is the highest-priority
+   *  pending row with strong/moderate evidence (or the top-ranked
+   *  needs_review row when no other pending exists). The strip's
+   *  "Top opportunity" card and this row stay in lockstep. */
+  isTopPick?: boolean;
   expanded: boolean;
   onToggleExpand: () => void;
   feedback: {
@@ -510,11 +545,17 @@ function ActionRow({
           expanded && "bg-surface-inset/40",
           row.responseStatus === "dismissed" && "opacity-60",
           row.responseStatus === "deferred" && "opacity-80",
+          // UX.5B.2 (2026-05-07) — subtle elevation on the top pick.
+          // 4px accent on the left edge + a hair of background tint.
+          // Intentionally mild — this is hierarchy, not a banner.
+          isTopPick &&
+            "bg-accent-primary/[0.04] border-l-[3px] border-l-accent-primary/60",
         )}
         data-rec-row-id={row.id}
         data-rec-action-row-type={row.actionType}
         data-rec-priority={row.priority}
         data-rec-status={row.status}
+        data-rec-top-pick={isTopPick ? "true" : undefined}
         // 2026-05-06 demo-path fix: source-rec-id + source-edit-id are
         // UUIDs; in customer mode they leak as `data-rec-source-rec-id="<uuid>"`
         // attributes inspectable via DevTools / view-source. Strip them in
@@ -538,6 +579,19 @@ function ActionRow({
             data-rec-row-toggle="true"
             aria-expanded={expanded}
           >
+            {/* UX.5B.2 (2026-05-07) — "Top pick" chip on the
+                highest-priority pending row with strong/moderate
+                evidence. Subtle accent color, small size; hierarchy
+                cue, not a banner. */}
+            {isTopPick ? (
+              <span
+                className="inline-block whitespace-nowrap rounded border border-accent-primary/40 bg-accent-primary/[0.08] text-accent-primary text-[9px] uppercase tracking-wider font-semibold px-1.5 py-0.5 mr-1.5 align-middle"
+                data-rec-top-pick-chip="true"
+                title="Beacon's top pick today — highest evidence + strongest impact in the queue."
+              >
+                Top pick
+              </span>
+            ) : null}
             <span className="font-medium leading-snug">{row.title}</span>
             {/*
               Round 1 customer-readiness (2026-05-05) — render the AI
@@ -564,6 +618,20 @@ function ActionRow({
                 )}
               </span>
             )}
+            {/* UX.5B.3 (2026-05-07) — needs-more-evidence row polish.
+                Reframes the row as a watch state rather than a failure.
+                Microcopy renders inline (subtle, muted) under the pill
+                strip; the full evidence breakdown still lives in the
+                drawer when the operator opens it. */}
+            {row.derivedConfidence === "needs_review" ? (
+              <span
+                className="mt-1 block text-[11px] leading-relaxed text-muted-foreground/85 italic"
+                data-rec-needs-more-evidence-microcopy="true"
+              >
+                Beacon is watching for stronger support before
+                recommending this.
+              </span>
+            ) : null}
           </button>
         </td>
         <td className="px-2 py-2 align-top hidden md:table-cell">

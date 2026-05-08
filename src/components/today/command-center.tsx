@@ -98,12 +98,13 @@ function BrainStatusCard({
   manifest: CommandCenterData["manifest"];
 }) {
   if (!brain) {
+    // UX.5B.4 (2026-05-07) — premium empty state vocabulary.
     return (
       <Card title="Brain readiness">
-        <EmptyState>
-          We&apos;re still gathering enough readings to grade Beacon&apos;s
-          brain. Check back tomorrow.
-        </EmptyState>
+        <EmptyState>Waiting for next reading.</EmptyState>
+        <p className="text-[11px] text-muted-foreground/80 pt-2 leading-relaxed">
+          Beacon scores its own brain after enough readings stack up.
+        </p>
       </Card>
     );
   }
@@ -155,12 +156,13 @@ function LatestReadingCard({
   promptCount: number | null;
 }) {
   if (!pollHealth || pollHealth.platforms.length === 0) {
+    // UX.5B.4 (2026-05-07) — premium empty state vocabulary.
     return (
       <Card title="Latest reading">
-        <EmptyState>
-          No readings on file yet. Your next scheduled reading lands
-          tomorrow morning.
-        </EmptyState>
+        <EmptyState>Waiting for next reading.</EmptyState>
+        <p className="text-[11px] text-muted-foreground/80 pt-2 leading-relaxed">
+          Your first dashboard lands tomorrow morning.
+        </p>
       </Card>
     );
   }
@@ -215,12 +217,14 @@ function LatestReadingCard({
 
 function TopMovementCard({ movement }: { movement: CommandCenterUrlMovement }) {
   if (!movement) {
+    // UX.5B.4 (2026-05-07) — premium empty state vocabulary.
     return (
       <Card title="Top movement">
-        <EmptyState>
-          We&apos;ll spotlight your biggest mover here once a few days
+        <EmptyState>Watching for movement.</EmptyState>
+        <p className="text-[11px] text-muted-foreground/80 pt-2 leading-relaxed">
+          We&apos;ll spotlight your biggest mover once a few days
           of readings stack up.
-        </EmptyState>
+        </p>
       </Card>
     );
   }
@@ -259,12 +263,13 @@ function TopMovementCard({ movement }: { movement: CommandCenterUrlMovement }) {
 
 function NextBestActionCard({ action }: { action: TodayPrimaryAction | null }) {
   if (!action) {
+    // UX.5B.4 (2026-05-07) — premium empty state vocabulary.
     return (
       <Card title="Next best action">
-        <EmptyState>
-          No top-priority action right now. Beacon will surface one as
-          new readings come in.
-        </EmptyState>
+        <EmptyState>No action queued yet.</EmptyState>
+        <p className="text-[11px] text-muted-foreground/80 pt-2 leading-relaxed">
+          Beacon will surface one as new readings come in.
+        </p>
       </Card>
     );
   }

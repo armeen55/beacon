@@ -7,6 +7,84 @@
 
 ---
 
+## 2026-05-07 — Operator Experience Sprint UX.5B: premium hierarchy on /today + /recommendations
+
+Continuation of the Operator Experience Sprint. UX.5A audit confirmed local + remote at `1f1b95b` with `/signup` rendering Gap B branding on production (`https://beacon-bice.vercel.app`); could NOT directly verify Command Center via WebFetch (auth-gated; only server-rendered HTML is reachable). Proceeded optimistically per the operator's brief ("If visible, continue immediately") — operator retains direct visual access to confirm.
+
+UX.5B added four small-blast-radius hierarchy upgrades that make the new surfaces feel premium rather than utilitarian.
+
+### What changed
+
+**UX.5B.1 — `/today` visibility hero header**:
+- MODIFIED `src/app/(shell)/today-client.tsx`. Restructured the Tier 1.5 visibility section to add an "AI Visibility" headline + dynamic sub-copy ("How often `{visibilityData.brandName}` appears across tracked AI answers.") above the existing chart + leaderboard pair. Header uses the same `text-[14px] font-semibold tracking-tight` style as the Command Center section header — visually connects them.
+- Section-level data attribute `data-today-section="visibility-hero-header"` for tests + diagnostics.
+- Zero data-layer changes. Chart + leaderboard render exactly as before.
+
+**UX.5B.2 — `/recommendations` top-pick row emphasis**:
+- MODIFIED `src/app/(shell)/recommendations/recommendations-client.tsx`:
+  - NEW `selectTopPickId(rows)` helper. Mirrors `buildExecutiveStripData()`'s logic: filter out terminal-status rows (shipped/dismissed/deferred/measuring), prefer non-`needs_review`, sort by rank ascending. Returns the top pick's id or null.
+  - `ActionTable` computes `topPickId` via `useMemo`, threads `isTopPick={row.id === topPickId}` into each `ActionRow`.
+  - `ActionRow` accepts new `isTopPick?: boolean` prop (default false). When true:
+    - Adds `bg-accent-primary/[0.04] border-l-[3px] border-l-accent-primary/60` to the `<tr>` — subtle elevation, not a banner.
+    - Renders a small "Top pick" chip before the row title: tiny accent-color border + `Top pick` label + tooltip "Beacon's top pick today — highest evidence + strongest impact in the queue."
+    - Adds `data-rec-top-pick="true"` + `data-rec-top-pick-chip="true"` data attrs.
+  - The strip's "Top opportunity" card and the row's "Top pick" chip stay in lockstep (same selector logic).
+
+**UX.5B.3 — `/recommendations` needs-more-evidence microcopy**:
+- MODIFIED `src/app/(shell)/recommendations/recommendations-client.tsx`. When `row.derivedConfidence === "needs_review"`, render an inline italic muted microcopy line under the pill strip: "Beacon is watching for stronger support before recommending this." Reframes the row from a failure-state into a watch-state. The full evidence breakdown still lives in the drawer.
+- Data attribute `data-rec-needs-more-evidence-microcopy="true"` for tests.
+
+**UX.5B.4 — Command Center empty-state cohesion**:
+- MODIFIED `src/components/today/command-center.tsx`. Each of the 4 cards now uses a consistent premium empty-state vocabulary instead of ad-hoc copy:
+  - Brain readiness empty: **"Waiting for next reading."** + sub.
+  - Latest reading empty: **"Waiting for next reading."** + "Your first dashboard lands tomorrow morning."
+  - Top movement empty: **"Watching for movement."** + sub.
+  - Next best action empty: **"No action queued yet."** + "Beacon will surface one as new readings come in."
+- All sub-copy is short, premium, and never references cron / 07:00 / debug-feeling blanks.
+
+### Tests added
+
+**New — `tests/architecture/ux5b-premium-hierarchy-contract.test.ts`** (22 invariants):
+- UX.5B.1: visibility-hero header data-attribute pinned; "AI Visibility" headline + dynamic brand-name sub-copy regex pinned; hero header source-order BEFORE `<VisibilityScoreChart>`; chart + leaderboard preserved.
+- UX.5B.2: `selectTopPickId` helper exists with correct filter logic (`derivedConfidence !== "needs_review"`, sort by rank ascending); ActionTable `useMemo`s the topPickId; threads `isTopPick={row.id === topPickId}` into ActionRow; ActionRow accepts the prop with default false; subtle accent + data-attr on the `<tr>`; "Top pick" chip with operator-friendly tooltip; chip is conditional (renders nothing on non-top-pick rows).
+- UX.5B.3: microcopy renders only when `derivedConfidence === "needs_review"`; ternary returns null on other states; exact copy pinned.
+- UX.5B.4: each of the 4 cards' empty branch contains the right premium copy; negative pin against debug-feeling blanks (`undefined` / `null` / `—` / `N/A`).
+- Cross-cutting: visibility hero still gated by `visibilityData &&`; Command Center still renders BEFORE Tier 0 alerts; first-reading early-return still wins for new tenants; no scary internal jargon introduced; no paid-API imports added.
+
+### Quality gates run
+
+| Gate | Result |
+|------|--------|
+| `npm run typecheck` | CLEAN |
+| `npm run test` (6336 tests) | 6336 PASS (+22 vs UX.1–4 baseline 6314) |
+| Targeted (15 UX-touched test files) | 171/171 PASS |
+| `npm run build` | exit 0 — all routes ƒ Dynamic |
+| `verify-tenant-data-integrity` | PASS — Ritz row counts UNCHANGED (9896/16521/28) |
+| `verify-observation-dedup-integrity` | PASS |
+| `verify-verdict-rematerialization-integrity` | PASS — drift=0 |
+| `npm run verify:brain-health` | YELLOW — 7 PASS / 1 WARN (queue idle, pre-existing) |
+| LLM budget SHA byte-identical | YES — `5303c16f04…` unchanged |
+
+### Verified behavior
+
+- Open `/today` for Ritz → Command Center renders unchanged at the top (UX.2 contract preserved); Tier 1.5 visibility section now has an "AI Visibility" / "How often Ritz Custom Builders appears across tracked AI answers." header above the chart; Tier 1 Do-Next + everything below renders unchanged.
+- Open `/recommendations` → Executive Strip renders unchanged at the top; the rank #1 pending non-needs_review row in the table now has a small "Top pick" chip + a 3px accent border on its left edge + a faint tinted background. The strip's Top opportunity card deep-links to the same row.
+- Rows with `derivedConfidence === "needs_review"` show an inline italic microcopy line: "Beacon is watching for stronger support before recommending this." Reframes the row as patient-watch.
+- New tenant with no data → first-reading waiting state still wins (early return unchanged); Command Center never renders for them.
+- Mature tenant with a partially-populated brain (e.g., manifest exists but brain-health JSON missing) → each Command Center card shows its own premium empty-state ("Waiting for next reading." / "Watching for movement." / "No action queued yet.") instead of debug-feeling blanks.
+
+### Production-deploy verification limitation
+
+UX.5A could not directly confirm production renders the Command Center because `/today` is auth-gated and WebFetch only retrieves un-rendered HTML for unauthenticated requests. Confirmed indirectly:
+- Site is up at `https://beacon-bice.vercel.app`.
+- `/signup` renders the Gap B branding ("Create your Beacon account" + magic-link sub).
+- `/login` renders normally.
+- Local `1f1b95b` matches `origin/main`. Vercel auto-deploys on push to main; no failed deploy signal observed.
+
+The operator should confirm visually in their authenticated browser that `1f1b95b` (or now `<this-commit>`) is the active Vercel deployment.
+
+---
+
 ## 2026-05-07 — Operator Experience Sprint (UX.1–4): Command Center + Executive Strip + customer-safe labels
 
 Direction change from operator: stop docs/onboarding work; Beacon's main app needs to feel visibly upgraded for Ritz. Sprint shipped 4 phases on top of `e37d358` (friend-test QA).
