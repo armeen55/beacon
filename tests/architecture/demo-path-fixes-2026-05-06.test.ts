@@ -211,7 +211,8 @@ describe("Demo-path fix 5 (2026-05-06) — /changes/truth verdict + math humaniz
     expect(TRUTH_CLIENT).toMatch(/verdict_off:\s*"Verdict revised"/);
     expect(TRUTH_CLIENT).toMatch(/not_found_after_7d:\s*"Not yet live \(after 7 days\)"/);
     // T5.2 — pin the new entry too.
-    expect(TRUTH_CLIENT).toMatch(/weak_signal:\s*"Early signs of lift"/);
+    // UX.4 (2026-05-07) tightened "Early signs of lift" → "Early signal".
+    expect(TRUTH_CLIENT).toMatch(/weak_signal:\s*"Early signal"/);
   });
 
   it("VerdictPill renders via humanizeVerdict, NOT raw replace(/_/g, ' ')", () => {

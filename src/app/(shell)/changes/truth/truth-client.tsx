@@ -259,9 +259,11 @@ function ScopePill({ scope }: { scope: ChangeEvent["scope"] }) {
 const VERDICT_LABEL: Record<string, string> = {
   helping: "Helping",
   hurting: "Hurting",
-  // T5.2 (2026-05-06) — directional early-signal tier. Operator-locked
-  // copy: "Early signs of lift" / never "Win" / "Proof" / "Confirmed".
-  weak_signal: "Early signs of lift",
+  // T5.2 (2026-05-06) — directional early-signal tier.
+  // UX.4 (2026-05-07): tightened from "Early signs of lift" → "Early signal".
+  // Same semantics, fewer words, matches the operator-locked customer-safe
+  // vocabulary. Still NEVER "Win" / "Proof" / "Confirmed".
+  weak_signal: "Early signal",
   degrading: "Degrading",
   promising: "Promising",
   landed_fast: "Landed fast",

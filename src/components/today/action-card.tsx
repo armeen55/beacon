@@ -129,9 +129,11 @@ const BUCKET_STYLE: Record<string, { dot: string; label: string; border: string;
 // Phase 3C (2026-04-20): helping_verdict cards live in the "Wins to learn
 // from" stripe and must not shout "BIGGEST WIN". Render-time override —
 // muted green, factual, secondary. Keeps the bucket enum unchanged.
+// UX.4 (2026-05-07): label "Measured win" → "Measured lift" — matches
+// the operator-locked customer-safe vocabulary.
 const HELPING_VERDICT_STYLE = {
   dot: "bg-status-success/70",
-  label: "Measured win",
+  label: "Measured lift",
   border: "border-status-success/20",
   bg: "bg-status-success/[0.015]",
 } as const;

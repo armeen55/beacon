@@ -49,6 +49,11 @@ import {
 } from "@/domains/recommendations/recommendation-action-rows";
 import { sanitizeOperatorEvidenceText } from "@/domains/recommendations/copy-sanitize";
 import { RecommendationEvidencePanel } from "@/components/recommendations/recommendation-evidence-panel";
+import {
+  ExecutiveStrip,
+  buildExecutiveStripData,
+  type ExecutiveStripRow,
+} from "@/components/recommendations/executive-strip";
 
 type Props = {
   queue: RecommendationQueueRow[];
@@ -135,8 +140,33 @@ export function RecommendationsClient({
 
   const summary = useMemo(() => buildSummary(allRows), [allRows]);
 
+  // UX.3 (2026-05-07) — Executive Strip data: project rows into the
+  // strip's minimal shape, then derive top-pick + evidence
+  // distribution. Pure compute over already-loaded rows.
+  const stripRows: ExecutiveStripRow[] = useMemo(
+    () =>
+      allRows.map((r) => ({
+        id: r.id,
+        title: r.title,
+        targetLabel: r.targetLabel,
+        derived: r.derivedConfidence,
+        rank: r.rank,
+        status: r.status,
+      })),
+    [allRows],
+  );
+  const { evidence: stripEvidence, topPick: stripTopPick } = useMemo(
+    () => buildExecutiveStripData(stripRows),
+    [stripRows],
+  );
+
   return (
     <>
+      <ExecutiveStrip
+        rows={stripRows}
+        topPick={stripTopPick}
+        evidence={stripEvidence}
+      />
       <Toolbar
         search={search}
         onSearchChange={setSearch}
@@ -809,7 +839,10 @@ const DERIVED_PILL_LABEL: Record<
 > = {
   strong_evidence: "Strong evidence",
   moderate_evidence: "Moderate evidence",
-  needs_review: "Needs review",
+  // UX.3 (2026-05-07) — reframe from "Needs review" to a more
+  // actionable, less-alarming phrase. The status itself doesn't
+  // change; only the customer-facing label.
+  needs_review: "Needs more evidence",
 };
 
 function DerivedConfidencePill({
@@ -824,7 +857,11 @@ function DerivedConfidencePill({
         DERIVED_PILL_CLASS[derived],
       )}
       data-rec-derived-confidence-pill={derived}
-      title="Customer-safe confidence label derived from evidence quality (depth, owned page, multi-prompt, competitor, search queries). Open the drawer for the full evidence breakdown."
+      title={
+        derived === "needs_review"
+          ? "Beacon doesn't yet have enough evidence to recommend shipping this. Open the drawer for the evidence breakdown — we'll keep watching."
+          : "Customer-safe confidence label derived from evidence quality (depth, owned page, multi-prompt, competitor, search queries). Open the drawer for the full evidence breakdown."
+      }
     >
       {DERIVED_PILL_LABEL[derived]}
     </span>

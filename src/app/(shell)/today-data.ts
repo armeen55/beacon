@@ -26,6 +26,11 @@ import {
   detectFirstReadingState,
   type FirstReadingDetection,
 } from "@/domains/onboarding/first-reading-state";
+import {
+  resolveCommandCenterData,
+  isOperatorMode as commandCenterIsOperatorMode,
+  type CommandCenterData,
+} from "@/domains/today/command-center-data";
 import { getOutcomesForTenant } from "@/lib/tenant-data";
 import { getCitationEvidenceIndex } from "@/domains/pages/citation-evidence-store";
 import {
@@ -2442,7 +2447,33 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
       activePromptCount: activePrompts.length,
       observationCount: promptAnswerObservations.length,
     }),
+    // UX.2 (2026-05-07) — Command Center data slice. Reads existing
+    // brain-health + manifest artifacts from .data/_reports/ and
+    // .data/tenants/<slug>/brain/. Pure read; cards render their own
+    // empty states when fields are null. The mature-tenant render is
+    // unchanged when both files are missing.
+    commandCenter: resolveCommandCenterFailSoft(),
+    /** UX.2 — operator-mode flag for the small /diagnostics/brain link
+     *  at the bottom of the Command Center. */
+    commandCenterIsOperator: commandCenterIsOperatorMode(),
   };
+}
+
+/**
+ * Fail-soft Command Center resolver. Reads from disk; any failure
+ * returns null fields so /today never crashes. Tenant slug comes
+ * from currentTenantSlug() if available; otherwise uses Ritz slug
+ * fallback (matches the existing `BEACON_TENANT_SLUG` pattern).
+ */
+function resolveCommandCenterFailSoft(): CommandCenterData {
+  try {
+    const slug =
+      process.env.BEACON_TENANT_SLUG ?? "ritz-builders";
+    return resolveCommandCenterData({ tenantSlug: slug });
+  } catch (err) {
+    console.warn("[today] commandCenter resolve failed:", err);
+    return { hasAnyData: false, brain: null, manifest: null };
+  }
 }
 
 /**

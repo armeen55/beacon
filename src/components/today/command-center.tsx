@@ -1,0 +1,473 @@
+/**
+ * Beacon Command Center — UX.2 (2026-05-07).
+ *
+ * Top-of-page executive summary above the existing /today layout.
+ * Five cards: Brain status, Latest reading, Top movement, Next best
+ * action, plus a small operator-only link to /diagnostics/brain.
+ *
+ * Pure presentation — receives all data via props from the resolver.
+ * No data fetch, no client interactivity, no event handlers. Empty
+ * states render gracefully when their data slice is null.
+ *
+ * Customer-safe copy: every visible string is operator-readable but
+ * customer-friendly. NEVER mentions cron / 07:00 UTC / GitHub /
+ * Supabase / schema / SQL / raw UUIDs.
+ */
+
+import Link from "next/link";
+import type {
+  CommandCenterData,
+  CommandCenterGrade,
+} from "@/domains/today/command-center-data";
+import type { PollHealthSnapshot } from "@/domains/observations/poll-health";
+import type { TodayPrimaryAction } from "@/app/(shell)/today-client";
+
+export type CommandCenterUrlMovement = {
+  /** Operator-readable page label (NOT a UUID). */
+  pagePath: string;
+  /** Pre-formatted delta label, e.g. "+12%" or "+1.4/day". */
+  deltaLabel: string;
+  /** Operator-readable change context, e.g. "May 5". */
+  changeDate: string | null;
+} | null;
+
+export function CommandCenter({
+  brain,
+  manifest,
+  pollHealth,
+  primaryAction,
+  topMovement,
+  isOperator,
+}: {
+  brain: CommandCenterData["brain"];
+  manifest: CommandCenterData["manifest"];
+  pollHealth: PollHealthSnapshot | null;
+  primaryAction: TodayPrimaryAction | null;
+  topMovement: CommandCenterUrlMovement;
+  isOperator: boolean;
+}) {
+  return (
+    <section
+      className="space-y-3"
+      data-today-section="command-center"
+      aria-label="Beacon Command Center"
+    >
+      <header className="flex items-baseline justify-between">
+        <h2 className="text-[14px] font-semibold tracking-tight text-foreground">
+          Beacon Command Center
+        </h2>
+        <p className="text-[11px] text-muted-foreground">
+          Today at a glance
+        </p>
+      </header>
+
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <BrainStatusCard brain={brain} manifest={manifest} />
+        <LatestReadingCard
+          pollHealth={pollHealth}
+          manifest={manifest}
+          promptCount={primaryActionPromptCountFallback(brain, manifest)}
+        />
+        <TopMovementCard movement={topMovement} />
+        <NextBestActionCard action={primaryAction} />
+      </div>
+
+      {isOperator ? (
+        <div className="flex items-center justify-end pt-1">
+          <Link
+            href="/diagnostics/brain"
+            className="text-[11px] text-muted-foreground/70 hover:text-foreground/80 transition-colors"
+            aria-label="Operator brain diagnostics"
+            data-command-center-operator-link="true"
+          >
+            internal: brain diagnostics →
+          </Link>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+// ── Card 1: Brain status ──────────────────────────────────────────────
+
+function BrainStatusCard({
+  brain,
+  manifest,
+}: {
+  brain: CommandCenterData["brain"];
+  manifest: CommandCenterData["manifest"];
+}) {
+  if (!brain) {
+    return (
+      <Card title="Brain readiness">
+        <EmptyState>
+          We&apos;re still gathering enough readings to grade Beacon&apos;s
+          brain. Check back tomorrow.
+        </EmptyState>
+      </Card>
+    );
+  }
+
+  const description = humanizeOneLine(brain.oneLine);
+  const sourceLine = manifest
+    ? `${manifest.sourceObservationCount.toLocaleString()} readings analyzed.`
+    : "";
+
+  return (
+    <Card title="Brain readiness">
+      <div className="flex items-baseline gap-3">
+        <span className="text-[28px] font-semibold tabular-nums leading-none">
+          {brain.grade}
+        </span>
+        <span className="text-[12px] text-muted-foreground">
+          {gradeLabel(brain.grade)}
+        </span>
+      </div>
+      <p className="text-[12px] leading-relaxed text-muted-foreground pt-2">
+        {description}
+      </p>
+      {brain.sections.length > 0 ? (
+        <dl className="grid grid-cols-2 gap-x-3 gap-y-1.5 pt-3 text-[11px]">
+          {brain.sections.map((s) => (
+            <div key={s.label} className="flex items-baseline gap-2">
+              <dt className="text-muted-foreground">{s.label}</dt>
+              <dd className="font-mono tabular-nums">{s.grade}</dd>
+            </div>
+          ))}
+        </dl>
+      ) : null}
+      {sourceLine ? (
+        <p className="text-[11px] text-muted-foreground pt-3">{sourceLine}</p>
+      ) : null}
+    </Card>
+  );
+}
+
+// ── Card 2: Latest reading ────────────────────────────────────────────
+
+function LatestReadingCard({
+  pollHealth,
+  manifest,
+  promptCount,
+}: {
+  pollHealth: PollHealthSnapshot | null;
+  manifest: CommandCenterData["manifest"];
+  promptCount: number | null;
+}) {
+  if (!pollHealth || pollHealth.platforms.length === 0) {
+    return (
+      <Card title="Latest reading">
+        <EmptyState>
+          No readings on file yet. Your next scheduled reading lands
+          tomorrow morning.
+        </EmptyState>
+      </Card>
+    );
+  }
+
+  // Format date as "May 7" without exposing UTC.
+  const readingDate = pollHealth.date
+    ? formatHumanDate(pollHealth.date)
+    : null;
+
+  return (
+    <Card title="Latest reading">
+      <div className="text-[12px] text-muted-foreground">
+        {readingDate ? `Last read ${readingDate}.` : "Reading in progress."}
+      </div>
+      <ul className="space-y-1.5 pt-2 text-[12px]">
+        {pollHealth.platforms.map((p) => (
+          <li
+            key={p.platform}
+            className="flex items-center justify-between gap-3"
+          >
+            <span className="capitalize">{platformLabel(p.platform)}</span>
+            <PlatformBadge
+              status={p.status}
+              samplingStatus={p.samplingStatus}
+              count={p.observationsWritten}
+            />
+          </li>
+        ))}
+      </ul>
+      <div className="grid grid-cols-2 gap-3 pt-3 text-[11px]">
+        {promptCount !== null && promptCount > 0 ? (
+          <div className="flex items-baseline gap-1.5">
+            <span className="text-muted-foreground">Prompts</span>
+            <span className="font-mono tabular-nums">{promptCount}</span>
+          </div>
+        ) : null}
+        <div className="flex items-baseline gap-1.5">
+          <span className="text-muted-foreground">Next</span>
+          <span>tomorrow morning</span>
+        </div>
+      </div>
+      {manifest?.builtAt ? (
+        <p className="text-[11px] text-muted-foreground pt-3">
+          Intelligence index refreshed {formatHumanDate(manifest.builtAt)}.
+        </p>
+      ) : null}
+    </Card>
+  );
+}
+
+// ── Card 3: Top movement ──────────────────────────────────────────────
+
+function TopMovementCard({ movement }: { movement: CommandCenterUrlMovement }) {
+  if (!movement) {
+    return (
+      <Card title="Top movement">
+        <EmptyState>
+          We&apos;ll spotlight your biggest mover here once a few days
+          of readings stack up.
+        </EmptyState>
+      </Card>
+    );
+  }
+  const positive = !movement.deltaLabel.startsWith("-");
+  return (
+    <Card title="Top movement">
+      <div className="space-y-2">
+        <div className="flex items-baseline gap-3">
+          <span
+            className={
+              "text-[24px] font-semibold tabular-nums leading-none " +
+              (positive ? "text-emerald-600" : "text-rose-600")
+            }
+          >
+            {movement.deltaLabel}
+          </span>
+          <span className="text-[12px] text-muted-foreground">
+            {positive ? "rising" : "falling"} citations
+          </span>
+        </div>
+        <p className="text-[12px] leading-relaxed">
+          <span className="text-muted-foreground">Page:</span>{" "}
+          <span className="font-mono break-all">{stripProtocol(movement.pagePath)}</span>
+        </p>
+        {movement.changeDate ? (
+          <p className="text-[11px] text-muted-foreground">
+            Linked to a change shipped {movement.changeDate}.
+          </p>
+        ) : null}
+      </div>
+    </Card>
+  );
+}
+
+// ── Card 4: Next best action ──────────────────────────────────────────
+
+function NextBestActionCard({ action }: { action: TodayPrimaryAction | null }) {
+  if (!action) {
+    return (
+      <Card title="Next best action">
+        <EmptyState>
+          No top-priority action right now. Beacon will surface one as
+          new readings come in.
+        </EmptyState>
+      </Card>
+    );
+  }
+  return (
+    <Card title="Next best action">
+      <p className="text-[13px] font-medium leading-tight">{action.headline}</p>
+      <p className="text-[12px] text-muted-foreground pt-1.5 leading-relaxed line-clamp-3">
+        {action.rationale}
+      </p>
+      <div className="flex items-center gap-3 pt-3 text-[11px]">
+        <ConfidencePill confidence={action.confidence} />
+        {action.targetPagePath ? (
+          <span className="font-mono text-muted-foreground truncate">
+            {action.targetPagePath}
+          </span>
+        ) : null}
+      </div>
+      <div className="pt-3">
+        <Link
+          href={action.href}
+          className="inline-flex items-center gap-1 rounded-md bg-foreground text-background px-3 py-1.5 text-[12px] font-medium hover:opacity-90"
+        >
+          Open recommendation →
+        </Link>
+      </div>
+    </Card>
+  );
+}
+
+// ── Shared primitives ─────────────────────────────────────────────────
+
+function Card({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-lg border border-foreground/10 bg-surface-inset/30 p-4 space-y-1 min-h-[180px]">
+      <p className="text-[11px] uppercase tracking-wide text-muted-foreground/70">
+        {title}
+      </p>
+      <div className="pt-1">{children}</div>
+    </div>
+  );
+}
+
+function EmptyState({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="text-[12px] leading-relaxed text-muted-foreground">{children}</p>
+  );
+}
+
+function PlatformBadge({
+  status,
+  samplingStatus,
+  count,
+}: {
+  status: "ok" | "partial" | "failed" | "pending";
+  samplingStatus: "full" | "partial" | "proof" | "empty";
+  count: number;
+}) {
+  const tone =
+    status === "ok" && samplingStatus === "full"
+      ? "text-emerald-700 bg-emerald-50 border-emerald-200"
+      : status === "ok" && samplingStatus === "partial"
+        ? "text-amber-700 bg-amber-50 border-amber-200"
+        : status === "ok"
+          ? "text-foreground/70 bg-foreground/5 border-foreground/10"
+          : status === "partial"
+            ? "text-amber-700 bg-amber-50 border-amber-200"
+            : status === "failed"
+              ? "text-rose-700 bg-rose-50 border-rose-200"
+              : "text-muted-foreground bg-foreground/5 border-foreground/10";
+  const label =
+    status === "ok" && samplingStatus === "full"
+      ? `Full · ${count}`
+      : status === "ok" && samplingStatus === "partial"
+        ? `Partial · ${count}`
+        : status === "ok" && samplingStatus === "proof"
+          ? `Sample · ${count}`
+          : status === "partial"
+            ? `Partial · ${count}`
+            : status === "failed"
+              ? "Retry pending"
+              : status === "pending"
+                ? "Pending"
+                : `${count}`;
+  return (
+    <span
+      className={
+        "inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-medium tabular-nums " +
+        tone
+      }
+    >
+      {label}
+    </span>
+  );
+}
+
+function ConfidencePill({
+  confidence,
+}: {
+  confidence: "high" | "medium" | "low";
+}) {
+  const tone =
+    confidence === "high"
+      ? "text-emerald-700 bg-emerald-50 border-emerald-200"
+      : confidence === "medium"
+        ? "text-amber-700 bg-amber-50 border-amber-200"
+        : "text-foreground/60 bg-foreground/5 border-foreground/10";
+  const label =
+    confidence === "high"
+      ? "Strong evidence"
+      : confidence === "medium"
+        ? "Moderate evidence"
+        : "Light evidence";
+  return (
+    <span
+      className={
+        "inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-medium " +
+        tone
+      }
+    >
+      {label}
+    </span>
+  );
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────
+
+function gradeLabel(grade: CommandCenterGrade): string {
+  switch (grade) {
+    case "A":
+      return "Excellent";
+    case "B":
+      return "Solid";
+    case "C":
+      return "Watching";
+    case "D":
+      return "Needs attention";
+    case "F":
+      return "Action required";
+  }
+}
+
+/**
+ * Trim methodology-y phrasing from the brain-health one-liner if it
+ * sneaks through. The current report's `one_line_summary` is already
+ * customer-safe ("Brain is solid with one or two non-blocking gaps...");
+ * this function is defense-in-depth.
+ */
+function humanizeOneLine(text: string): string {
+  if (!text) return "Brain readings are coming in.";
+  // The brain-health one-liner sometimes ends with "Address fixes
+  // below in order." which references a section that's not on this
+  // surface. Strip that suffix.
+  return text.replace(/\s*Address fixes below in order\.?\s*$/i, "").trim();
+}
+
+function platformLabel(p: "perplexity" | "chatgpt"): string {
+  if (p === "chatgpt") return "ChatGPT";
+  return "Perplexity";
+}
+
+/** Strip http(s):// + trailing slash for cleaner page-path display. */
+function stripProtocol(url: string): string {
+  return url
+    .replace(/^https?:\/\//, "")
+    .replace(/\/$/, "");
+}
+
+/**
+ * Format an ISO date or full ISO timestamp as "May 7" (Mon DD).
+ * Operator-friendly, locale-stable, no "UTC" tail.
+ */
+function formatHumanDate(iso: string): string {
+  try {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return iso;
+    const month = d.toLocaleString("en-US", { month: "short" });
+    const day = d.getUTCDate();
+    return `${month} ${day}`;
+  } catch {
+    return iso;
+  }
+}
+
+/**
+ * Best-effort prompt count surface for the Latest Reading card.
+ * Uses the manifest's `sourceObservationCount` denominator only as a
+ * backup label when nothing else is wired through. This avoids
+ * threading another field through the whole today-data resolver.
+ */
+function primaryActionPromptCountFallback(
+  brain: CommandCenterData["brain"],
+  _manifest: CommandCenterData["manifest"],
+): number | null {
+  // The manifest's sourceObservationCount is the running total, not
+  // a per-day prompt count — leave null and let the resolver pass a
+  // real count via prop in a follow-up. For now, we surface the
+  // poll-health platform totals via the badges already.
+  if (!brain) return null;
+  return null;
+}

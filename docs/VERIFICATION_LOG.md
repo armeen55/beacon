@@ -7,6 +7,97 @@
 
 ---
 
+## 2026-05-07 — Operator Experience Sprint (UX.1–4): Command Center + Executive Strip + customer-safe labels
+
+Direction change from operator: stop docs/onboarding work; Beacon's main app needs to feel visibly upgraded for Ritz. Sprint shipped 4 phases on top of `e37d358` (friend-test QA).
+
+### What changed
+
+**UX.1 — Audit (no code).** Confirmed the operator's "nothing changed visually" feeling was correct: every commit since the morning cron fix was self-serve onboarding scaffolding or friend-test docs. None touched the Ritz mature-tenant render path. The fix is genuine UX work, not a deploy reset.
+
+**UX.2 — `/today` Beacon Command Center**:
+- NEW `src/domains/today/command-center-data.ts` (~230 lines, server-only, pure read). Reads `.data/_reports/brain-health-*.json` (newest by filename) + `.data/tenants/<slug>/brain/manifest.json`. Fail-soft on any read miss → null fields → cards render their own empty states. Customer-safe label mapper ("Data Health" → "Data health"), section summary builder uses label+value (NOT raw `reason` methodology strings).
+- NEW `src/components/today/command-center.tsx` (~340 lines, pure presentation). Section "Beacon Command Center" with 4 cards in a 2×2 / 4-wide responsive grid:
+  - **Brain readiness**: 28pt grade letter + label ("Solid" / "Excellent" / etc.) + one-line summary (humanized — strips "Address fixes below in order." suffix) + 4 sub-section grades (Data / Score / Recommendation / Attribution) + source-observation count line.
+  - **Latest reading**: last reading date (formatted "May 7", no UTC) + per-platform pills (Perplexity / ChatGPT) with Full/Partial/Sample badges + observation counts + "Next: tomorrow morning" + manifest-rebuilt-at line.
+  - **Top movement**: 24pt delta label (color-coded green/red), "rising"/"falling citations", page path with protocol stripped, linked-change date.
+  - **Next best action**: headline + rationale (line-clamped to 3) + confidence pill (Strong/Moderate/Light evidence) + target page path + "Open recommendation →" CTA button.
+  - Operator-only `/diagnostics/brain` link, gated by `BEACON_OPERATOR_MODE === "true"`, intentionally muted (lowercase "internal: brain diagnostics →").
+- MODIFIED `src/app/(shell)/today-data.ts`. Imports `currentTenant` (already available) + new resolver. Adds private `resolveCommandCenterFailSoft()` helper (try/catch around the resolver call). Threads `commandCenter` + `commandCenterIsOperator` into `TodayPageData`.
+- MODIFIED `src/app/(shell)/today-client.tsx`. New props with safe defaults (`commandCenter = { hasAnyData: false, brain: null, manifest: null }`, `commandCenterIsOperator = false`). Renders `<CommandCenter>` immediately AFTER demo + first-reading early returns and BEFORE Tier 0 alerts. Position pinned by invariant (demo → first-reading → command center → regular dashboard).
+- Render guard: section only renders when at least one of `commandCenter.hasAnyData / pollHealth / primaryAction / topMovement` is truthy — prevents an empty container on edge-case tenants.
+
+**UX.3 — `/recommendations` Executive Strip**:
+- NEW `src/components/recommendations/executive-strip.tsx` (~285 lines). Strip with 4 cards:
+  - **Monitored**: total recommendation count.
+  - **Need review**: count of derived `needs_review` rows that are still pending (warn tone if > 0, muted if 0).
+  - **Top opportunity**: top-pick row with title + target-page (font-mono) + "Open recommendation →" deep link to `#rec-<id>`.
+  - **Evidence strength**: distribution bar (Strong / Moderate / Thin) + numeric breakdown.
+- "Why this order?" inline disclosure: one-line explainer ("Ranked by evidence depth, prompts affected, owned-page match, and engine confidence. The top row is what Beacon thinks moves the most visibility today.").
+- Pure `buildExecutiveStripData()` helper exported for tests:
+  - Distribution counts only PENDING rows (excludes shipped/dismissed/deferred/measuring).
+  - Top pick prefers `strong_evidence`/`moderate_evidence` over `needs_review`. Falls back to top `needs_review` when no other pending exists. Returns null on empty input.
+  - Never returns a terminal-status row.
+- MODIFIED `src/app/(shell)/recommendations/recommendations-client.tsx`:
+  - Imports + renders `<ExecutiveStrip>` BEFORE the Toolbar.
+  - Projects `allRows` into `ExecutiveStripRow[]` via `useMemo`. No new data load.
+  - Updates `DERIVED_PILL_LABEL.needs_review` from `"Needs review"` → `"Needs more evidence"`.
+  - Updates the derived pill's `title` (tooltip) to branch on `needs_review` and explain the shipping-readiness semantics ("Beacon doesn't yet have enough evidence to recommend shipping this. Open the drawer for the evidence breakdown — we'll keep watching.").
+
+**UX.4 — Customer-safe verdict labels**:
+- MODIFIED `src/components/today/action-card.tsx`. `HELPING_VERDICT_STYLE.label`: `"Measured win"` → `"Measured lift"`.
+- MODIFIED `src/app/(shell)/changes/truth/truth-client.tsx`. `VERDICT_LABEL.weak_signal`: `"Early signs of lift"` → `"Early signal"`.
+- MODIFIED `src/app/(shell)/changes/attribution-status-pill.tsx`:
+  - `STATUS_LABEL.insufficient_post_data`: `"Too early"` → `"Still watching"`.
+  - `STATUS_LABEL.zero_signal`: `"No signal"` → `"No movement yet"`.
+- MODIFIED `tests/architecture/demo-path-fixes-2026-05-06.test.ts` — updated the existing `weak_signal` pin from old to new label.
+- **Deliberately NOT touched**: the `<WhyThisNumber>` Trustworthy/Directional/Unreliable trust labels (operator-only honest contract pinned by `score-provenance-trust-labels.test.ts`). The honest labels live behind a `<details>` disclosure; per the brief "do not hide uncertainty by lying" they stay.
+- All semantic enum values preserved. Only rendered labels changed.
+
+### Tests added
+
+- `src/domains/today/command-center-data.test.ts` (17 behavioral): resolver returns shape on missing files; brain grade is one of A/B/C/D/F when present; oneLine is non-empty + customer-safe; sections have customer-safe labels (no snake_case); canonical 4 sections in order; manifest fields are numeric ≥ 0; manifest.builtAt is ISO-shaped or empty; never throws on weird tenant slugs; `isOperatorMode()` respects env.
+- `tests/architecture/today-command-center-contract.test.ts` (20 invariants): files exist; resolver exports the public types/functions; resolver is read-only (no upsert/insert/update/delete/writeFileSync); resolver does NOT call paid APIs (no fetch / openai / perplexity / runNativePoll / @/adapters imports); resolver declares `server-only`; component is pure presentation (no mutations / paid APIs / state hooks / event handlers); component renders all 5 expected card functions; operator-only link gated by `isOperator` prop; component does NOT render scary/internal language (cron/Supabase/GitHub/tenant/schema/SQL/RLS/07:00/UTC/JSON/account_id/tenant_id); component renders required executive headlines; "Open recommendation" CTA copy pinned; TodayClient imports + renders + accepts safe defaults; **Command Center renders BEFORE Tier 0 alerts**; **Command Center renders AFTER demo + first-reading early returns** (so Ritz never loses the regular dashboard, and brand-new tenants still see the F.1 waiting card first); existing Tier 0–7 layout still rendered; today-data wires the resolver via fail-soft helper with try/catch; helper introduces no paid-API surfaces; resolver labels are humanized (no Snake_case enum values returned); resolver does NOT surface raw `reason` methodology strings to the UI.
+- `src/components/recommendations/executive-strip.test.tsx` (12 behavioral): distribution counts only pending; returns zeros on empty input; top pick prefers strong/moderate over needs_review; falls back to top needs_review; respects rank ordering; never returns terminal-status row; returns null when no pending; defensive against single-row + immutability.
+- `tests/architecture/recommendations-executive-strip-contract.test.ts` (12 invariants): files exist; exports component + builder + types; pure (no mutations/paid APIs/state hooks); customer-safe copy (no scary words); 4 required headlines rendered ("Monitored", "Need review", "Top opportunity", "Evidence strength"); "Why this order?" disclosure pinned; "Open recommendation" CTA pinned; "More evidence needed before shipping" copy pinned; RecommendationsClient imports + renders strip BEFORE Toolbar; strip rows projected from existing allRows (no new data load); `DERIVED_PILL_LABEL.needs_review === "Needs more evidence"` pinned + negative pin on old "Needs review"; tooltip mentions "shipping" semantics for needs_review.
+- `tests/architecture/ux4-customer-safe-labels-contract.test.ts` (9 invariants): pin all 4 new labels positively + 4 negative pins on old labels; AttributionStatusPill does not render Unreliable/Contaminated/False positive as default labels (defense in depth); enum keys preserved (semantics unchanged).
+
+### Quality gates run
+
+| Gate | Result |
+|------|--------|
+| `npm run typecheck` | CLEAN |
+| `npm run test` (6314 tests) | 6314 PASS (+104 vs pre-sprint baseline 6210) |
+| Targeted UX (Command Center + Executive Strip + UX.4 labels) | 70/70 PASS |
+| `npm run build` | exit 0 — all routes ƒ Dynamic |
+| `verify-tenant-data-integrity` | PASS — Ritz row counts UNCHANGED (9896/16521/28) |
+| `verify-observation-dedup-integrity` | PASS — 0 duplicate logical keys |
+| `verify-verdict-rematerialization-integrity` | PASS — drift=0 |
+| `npm run verify:brain-health` | YELLOW — 7 PASS / 1 WARN (queue idle, pre-existing) |
+| LLM budget SHA byte-identical | YES — `5303c16f04…` unchanged |
+
+### Verified behavior
+
+- Open `/today` for Ritz → sees Command Center FIRST (Brain Grade B + 4 sub-grades + latest reading per-platform pills + biggest mover with green delta + top recommendation with Open-recommendation CTA + small operator-only diagnostics link). Tier 0–7 layout below renders unchanged.
+- Open `/today` for a brand-new tenant with `observationCount === 0` → sees the Gap F.1 waiting card. Command Center never renders for them (early-return short-circuits first).
+- Open `/recommendations` → sees the Executive Strip FIRST (4 cards + "Why this order?" disclosure). Toolbar + ActionTable below render unchanged. Rows with derived `needs_review` show "Needs more evidence" with the new tooltip.
+- Open `/changes` → AttributionStatusPill renders "Still watching" / "No movement yet" instead of "Too early" / "No signal".
+- Open `/changes/truth` → weak_signal verdict renders as "Early signal".
+- Open the wins section on `/today` → helping_verdict cards labeled "Measured lift".
+- Ritz row counts unchanged across all integrity scripts → confirms zero data mutations from this sprint.
+
+### Out of scope (deliberate per brief)
+
+- F.2 immediate-poll trigger / billing / RLS/auth / Profound cleanup / more onboarding / friend-test docs / broad refactors.
+- The honest "Trustworthy / Directional / Unreliable" trust-level labels in `<WhyThisNumber>` (operator-only contract; pinned by existing T3.1 invariant).
+- Recommendation table row hierarchy (top-pick row visual elevation in the table itself was deferred — the strip's Top opportunity card already deep-links to the row, avoiding double-rendering).
+
+### What's next
+
+See `docs/BEACON_OPERATOR_EXPERIENCE_SPRINT_REPORT_2026_05_07.md` for the full sprint report including the recommended next 3 UX upgrades (visibility chart hero treatment, top-row emphasis on /recommendations, /today empty-state composability).
+
+---
+
 ## 2026-05-07 — Friend-test readiness QA: checklist doc + guarded reset script
 
 Final scaffolding pass after the eight self-serve gaps (Gap A → B → C.1 → C.2 → C.3 → E.1 → C.4 → F.1) before sending the signup link to a real friend. Adds an operator-facing checklist documenting the full friend-test procedure end-to-end, plus a guarded reset script for cleaning up a test tenant after the test concludes.

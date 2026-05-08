@@ -38,6 +38,11 @@ import { ChangeReview } from "@/components/today/change-review";
 import { VisibilityScoreChart } from "@/components/today/visibility-score-chart";
 import { VisibilityLeaderboard } from "@/components/today/visibility-leaderboard";
 import { FirstReadingWaiting } from "@/components/today/first-reading-waiting";
+import {
+  CommandCenter,
+  type CommandCenterUrlMovement,
+} from "@/components/today/command-center";
+import type { CommandCenterData } from "@/domains/today/command-center-data";
 import type {
   VisibilityMetric,
   VisibilityPoint,
@@ -182,6 +187,8 @@ export function TodayClient({
   topPick = null,
   lifecycleSummary = null,
   firstReading = { isFirstReading: false },
+  commandCenter = { hasAnyData: false, brain: null, manifest: null },
+  commandCenterIsOperator = false,
 }: {
   isDemoMode?: boolean;
   scanPhaseFailed?: boolean;
@@ -276,6 +283,13 @@ export function TodayClient({
   firstReading?: import(
     "@/domains/onboarding/first-reading-state"
   ).FirstReadingDetection;
+  /** UX.2 (2026-05-07) — Command Center data slice. Read-only;
+   *  reuses existing brain-health JSON + manifest artifacts. Cards
+   *  render empty states when slices are null. */
+  commandCenter?: CommandCenterData;
+  /** UX.2 (2026-05-07) — operator-mode flag for the small
+   *  /diagnostics/brain link at the bottom of the Command Center. */
+  commandCenterIsOperator?: boolean;
 }) {
   const [pending, startTransition] = useTransition();
   const [actionMsg, setActionMsg] = useState<string | null>(null);
@@ -403,8 +417,43 @@ export function TodayClient({
       ? formatExperimentProof(experimentProof)
       : null;
 
+  // UX.2 (2026-05-07) — Top movement payload for the Command Center.
+  // Reuses the already-loaded urlVerdictProof; null when no helping
+  // URL is currently in proof-eligible state.
+  const topMovementForCommandCenter: CommandCenterUrlMovement = urlVerdictProof
+    ? {
+        pagePath: urlVerdictProof.pagePath,
+        deltaLabel: urlVerdictProof.deltaLabel,
+        changeDate: urlVerdictProof.changeDate ?? null,
+      }
+    : null;
+
   return (
     <div className="space-y-5 max-w-5xl" data-today-layout="phase-6a8">
+      {/* ─────────────────────────────────────────────────────────────────
+          UX.2 (2026-05-07) — Beacon Command Center.
+
+          Top-of-page executive summary (5 cards) added above the prior
+          7-tier layout. Cards render their own empty states when
+          their data slice is null (so brand-new tenants without poll
+          history just see empty cards rather than a broken layout —
+          though /today's first-reading early-return short-circuits
+          this entirely for activePromptCount>0 + observationCount===0).
+          ─────────────────────────────────────────────────────────── */}
+      {commandCenter.hasAnyData ||
+      pollHealth ||
+      primaryAction ||
+      topMovementForCommandCenter ? (
+        <CommandCenter
+          brain={commandCenter.brain}
+          manifest={commandCenter.manifest}
+          pollHealth={pollHealth}
+          primaryAction={primaryAction ?? null}
+          topMovement={topMovementForCommandCenter}
+          isOperator={commandCenterIsOperator}
+        />
+      ) : null}
+
       {/* ─────────────────────────────────────────────────────────────────
           Phase 6A.8 (2026-04-28) — Today command-center hierarchy.
 

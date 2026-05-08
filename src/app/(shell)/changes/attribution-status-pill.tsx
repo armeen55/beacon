@@ -19,14 +19,19 @@ import type { ResultStatus, ConfidenceTier } from "@/domains/attribution/natural
 
 type Tone = "muted" | "neutral" | "warning" | "info";
 
+// UX.4 (2026-05-07) — customer-safe labels. The semantics are
+// unchanged (each enum maps 1:1 to the same row state); only the
+// rendered words are softened to feel actionable rather than scary.
+//   "Too early"   → "Still watching"   (we're still observing the post-launch window)
+//   "No signal"   → "No movement yet"  (no measurable change so far, not absence-of-truth)
 const STATUS_LABEL: Record<ResultStatus, string> = {
   computed: "Computed",
   weak_estimate: "Weak estimate",
   no_controls: "No controls",
   unsupported_scope: "Unsupported scope",
   insufficient_baseline: "No baseline",
-  insufficient_post_data: "Too early",
-  zero_signal: "No signal",
+  insufficient_post_data: "Still watching",
+  zero_signal: "No movement yet",
   ineligible_layer: "Not a change",
   ineligible_event: "Ineligible",
 };
