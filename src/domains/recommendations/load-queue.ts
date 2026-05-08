@@ -56,6 +56,10 @@ import { ensureRecommendationResponsesSeeded } from "@/domains/product/recommend
 import type { PromptAnswerObservation } from "@/domains/prompt-answer-observations/types";
 import type { TrackedPrompt } from "@/domains/tracked-prompts/types";
 import type { TrackedEntity } from "@/domains/tracked-entities/types";
+import {
+  getCompetitorPageSnapshotsByUrl,
+  type CompetitorPageSnapshot,
+} from "@/domains/pages/competitor-page-snapshots";
 import type { PageElementInventoryRow } from "@/domains/pages/extractors/persist";
 import {
   computeRecConfidence,
@@ -98,6 +102,21 @@ export type LiveRecommendationQueue = {
    * of re-fetching.
    */
   recommendedEdits: RecommendedEditRow[];
+  /**
+   * T-CompPageBlueprints (2026-05-08) — manually-captured competitor
+   * page snapshots, keyed by url. Empty Map when no scanner has run
+   * (today's default state). When populated, the LLM packet's
+   * competitorPageBlueprints get real h1/topH2s/faqQuestions/
+   * metaDescription instead of hardcoded null/[].
+   */
+  competitorPageSnapshotsByUrl: Map<string, CompetitorPageSnapshot>;
+  /**
+   * T-CompPageBlueprints (2026-05-08) — flat list of brand-name
+   * aliases the blueprint scrub drops from any captured h1/topH2s/
+   * faqQuestions. Includes operator's own brand (tracked-entities
+   * row is_owned=true) + every active competitor name.
+   */
+  competitorBlueprintBrandScrubAliases: string[];
   /** Per-step error strings collected via `safeCall`. Empty when
    *  everything succeeded. The page surfaces these in a banner; the
    *  CLI prints them to stderr. */
@@ -204,6 +223,8 @@ export async function loadLiveRecommendationQueue(
       promptAnswerObservations,
       pageInventory: [],
       recommendedEdits: [],
+      competitorPageSnapshotsByUrl: new Map(),
+      competitorBlueprintBrandScrubAliases: [],
       errors,
     };
   }
@@ -372,6 +393,30 @@ export async function loadLiveRecommendationQueue(
     return { ...rec, engineConfidence };
   });
 
+  // T-CompPageBlueprints (2026-05-08) — load competitor page
+  // structural snapshots (manual scanner output) and assemble the
+  // brand-scrub alias list (operator brand from tracked-entities
+  // is_owned=true + every active competitor name). Both are passed
+  // through to `buildPacketForRec` so `competitorPageBlueprints`
+  // gets real h1/topH2s/faqQuestions/metaDescription instead of
+  // hardcoded null/[]. Empty Map preserves byte-identical pre-patch
+  // behavior for tenants that haven't run the scanner.
+  const compSnapshotsRes = await safeCall(
+    () => getCompetitorPageSnapshotsByUrl(),
+    new Map<string, CompetitorPageSnapshot>(),
+    "load competitor page snapshots",
+  );
+  if (compSnapshotsRes.error) errors.push(compSnapshotsRes.error);
+  const competitorPageSnapshotsByUrl = compSnapshotsRes.value;
+  const competitorBlueprintBrandScrubAliases = trackedEntities
+    .filter(
+      (e) =>
+        e.is_active &&
+        (e.is_owned === true || e.entity_type === "competitor"),
+    )
+    .map((e) => e.name)
+    .filter((n) => typeof n === "string" && n.length >= 3);
+
   return {
     queue: decoratedQueue,
     watchlist: prioritized.watchlist,
@@ -381,6 +426,8 @@ export async function loadLiveRecommendationQueue(
     promptAnswerObservations,
     pageInventory,
     recommendedEdits,
+    competitorPageSnapshotsByUrl,
+    competitorBlueprintBrandScrubAliases,
     errors,
   };
 }
@@ -472,6 +519,12 @@ export function buildPacketForRec(
           action: rec.resolution.action,
         }
       : null,
+    // T-CompPageBlueprints (2026-05-08) — populates competitor page
+    // h1/topH2s/faqQuestions/metaDescription on blueprints. Empty Map
+    // preserves pre-patch byte-identical behavior.
+    competitorPageSnapshotsByUrl: context.competitorPageSnapshotsByUrl,
+    competitorBlueprintBrandScrubAliases:
+      context.competitorBlueprintBrandScrubAliases,
     now,
   });
 }

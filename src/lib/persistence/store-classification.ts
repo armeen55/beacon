@@ -76,6 +76,15 @@ export const TENANT_SCOPED_STORES = new Set<string>([
   "asset-responses",
   "outcome-store",
   "competitor-page-evidence",
+  // T-CompPageBlueprints (2026-05-08) — per-tenant store of HTML
+  // snapshots of TOP-N competitor pages, captured manually by
+  // `scripts/scan-competitor-pages.ts`. Used by the LLM packet
+  // builder to populate `competitorPageBlueprints[].h1/topH2s/
+  // faqQuestions/metaDescription` (replacing the prior hardcoded
+  // null/[] producer). Lifecycle is decoupled from
+  // `competitor-page-evidence` (citation-derived, frequent) so
+  // structural fetches stay rare and bounded.
+  "competitor-page-snapshots",
   "source-pattern-evidence",
   "render-checks",
   "page-snapshot-diffs",

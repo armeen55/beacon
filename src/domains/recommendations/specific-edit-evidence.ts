@@ -53,6 +53,10 @@ import type { PromptAnswerObservation } from "@/domains/prompt-answer-observatio
 import type { CitationEvidenceIndex } from "@/domains/pages/types";
 import type { CompetitorPageEvidence } from "@/domains/pages/competitor-evidence";
 import {
+  scrubCompetitorPageStructure,
+  type CompetitorPageSnapshot,
+} from "@/domains/pages/competitor-page-snapshots";
+import {
   DIRECTORY_DOMAINS_FOR_FILTER,
   makeCompetitorRankingFilter,
 } from "./entity-pollution-filter";
@@ -513,6 +517,27 @@ export type BuildSpecificEditEvidencePacketArgs = {
    * `src/domains/pages/competitor-evidence.ts`.
    */
   competitorPages?: ReadonlyArray<CompetitorPageEvidence>;
+  /**
+   * T-CompPageBlueprints (2026-05-08) — manually-captured competitor
+   * page structure (h1, top h2s, faq questions, meta description).
+   * Optional / defaults to an empty Map; when empty, blueprint
+   * structural fields stay as `null`/`[]` (byte-identical to pre-
+   * patch behavior). When populated, the blueprint's structural
+   * fields read from the matching snapshot, scrubbed of brand-name
+   * leakage and capped to safe maxima per
+   * `src/domains/pages/competitor-page-snapshots.ts`. Producer is
+   * the manual scanner `scripts/scan-competitor-pages.ts`.
+   */
+  competitorPageSnapshotsByUrl?: ReadonlyMap<string, CompetitorPageSnapshot>;
+  /**
+   * T-CompPageBlueprints (2026-05-08) — brand-name aliases the
+   * scrub should drop from any blueprint h1/topH2s/faqQuestions.
+   * Caller assembles this from operator brand (tracked-entities
+   * row with is_owned=true) + every competitor name in
+   * `primarySummaries[*].primaryCompetitors[*].name`. Empty / omitted
+   * disables scrubbing (back-compat for existing test fixtures).
+   */
+  competitorBlueprintBrandScrubAliases?: ReadonlyArray<string>;
   now?: Date;
 };
 
@@ -627,6 +652,14 @@ export function buildSpecificEditEvidencePacket(
     citationEvidenceIndex: args.citationEvidenceIndex ?? null,
     competitorPages: args.competitorPages ?? [],
     ownedDomains,
+    // T-CompPageBlueprints (2026-05-08) — empty Map / [] preserves
+    // byte-identical pre-patch behavior. Caller (load-queue.ts)
+    // assembles real values when snapshots + tracked-entities are
+    // loaded.
+    competitorPageSnapshotsByUrl:
+      args.competitorPageSnapshotsByUrl ?? new Map(),
+    competitorBlueprintBrandScrubAliases:
+      args.competitorBlueprintBrandScrubAliases ?? [],
   });
 
   const crossTenantPatterns = getCrossTenantPatterns({
@@ -1120,6 +1153,20 @@ type BuildCompetitorPageBlueprintsArgs = {
    *  inventory. Citations whose domain matches are dropped (we never
    *  blueprint owned pages). */
   ownedDomains: ReadonlySet<string>;
+  /**
+   * T-CompPageBlueprints (2026-05-08) — manually-captured competitor
+   * page snapshots keyed by url. When the blueprint's url has a
+   * matching snapshot, h1/topH2s/faqQuestions/metaDescription are
+   * populated from it (scrubbed + capped). When absent or empty
+   * map: byte-identical pre-patch behavior (null/[]).
+   */
+  competitorPageSnapshotsByUrl: ReadonlyMap<string, CompetitorPageSnapshot>;
+  /**
+   * T-CompPageBlueprints (2026-05-08) — brand-name aliases to scrub
+   * from any blueprint structure. See ScrubArgs in
+   * src/domains/pages/competitor-page-snapshots.ts.
+   */
+  competitorBlueprintBrandScrubAliases: ReadonlyArray<string>;
 };
 
 function buildCompetitorPageBlueprints(
@@ -1204,20 +1251,34 @@ function buildCompetitorPageBlueprints(
   }
 
   const blueprints: CompetitorPageBlueprint[] = [...byUrl.values()]
-    .map((acc) => ({
-      url: acc.url,
-      domain: acc.domain,
-      topic: topicByUrl.get(acc.url) ?? null,
-      citationCount: acc.citationCount,
-      promptsCitedOn: [...acc.promptIds].sort(),
-      pageTitle: titleByUrl.get(acc.url) ?? null,
-      // Future-proof structural fields. Producer doesn't capture
-      // these yet; never invented.
-      h1: null,
-      topH2s: [],
-      faqQuestions: [],
-      metaDescription: null,
-    }))
+    .map((acc) => {
+      // T-CompPageBlueprints (2026-05-08) — when a manually-captured
+      // snapshot exists for this URL, populate the structural fields
+      // from it (scrubbed + capped). When absent: keep the prior null/
+      // empty defaults so the producer is byte-identical for tenants
+      // that haven't run the competitor scanner.
+      const snap = args.competitorPageSnapshotsByUrl.get(acc.url) ?? null;
+      const structure = snap
+        ? scrubCompetitorPageStructure(snap, {
+            brandNamesToScrub: args.competitorBlueprintBrandScrubAliases,
+          })
+        : { h1: null, topH2s: [], faqQuestions: [], metaDescription: null };
+      return {
+        url: acc.url,
+        domain: acc.domain,
+        topic: topicByUrl.get(acc.url) ?? null,
+        citationCount: acc.citationCount,
+        promptsCitedOn: [...acc.promptIds].sort(),
+        // Title prefers the snapshot's <title> when available (more
+        // recent / structural) and falls back to the citation-derived
+        // pageTitle from competitor-page-evidence.
+        pageTitle: snap?.title ?? titleByUrl.get(acc.url) ?? null,
+        h1: structure.h1,
+        topH2s: structure.topH2s,
+        faqQuestions: structure.faqQuestions,
+        metaDescription: structure.metaDescription,
+      };
+    })
     .sort(
       (a, b) =>
         b.citationCount - a.citationCount ||

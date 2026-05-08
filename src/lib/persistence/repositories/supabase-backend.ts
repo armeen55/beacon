@@ -32,6 +32,7 @@ import type {
   CompetitorPageEvidence,
   SourcePatternEvidence,
 } from "@/domains/pages/competitor-evidence";
+import type { CompetitorPageSnapshot } from "@/domains/pages/competitor-page-snapshots";
 import type { PersistedActionState } from "@/domains/actions/types";
 import type { PersistedBriefState } from "@/domains/brief-generation/types";
 import type { TruthLabel } from "@/domains/attribution/types";
@@ -350,6 +351,8 @@ export const supabaseBackend: SeedDataRepository = {
     readStore<AssetResponse>("asset-responses"),
   getOutcomeObservations: async () =>
     readStore<OutcomeObservation>("outcome-observations"),
+  getCompetitorPageSnapshots: async () =>
+    readStore<CompetitorPageSnapshot>("competitor-page-snapshots"),
   getCompetitorPageEvidence: async () =>
     readStore<CompetitorPageEvidence>("competitor-page-evidence"),
   getSourcePatternEvidence: async () =>

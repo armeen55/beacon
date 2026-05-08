@@ -26,6 +26,9 @@ import type { AssetResponse } from "@/domains/pages/asset-response";
 import type { OutcomeObservation } from "@/domains/pages/outcome-watch";
 import type {
   CompetitorPageEvidence,
+} from "@/domains/pages/competitor-evidence";
+import type { CompetitorPageSnapshot } from "@/domains/pages/competitor-page-snapshots";
+import type {
   SourcePatternEvidence,
 } from "@/domains/pages/competitor-evidence";
 import type { ChangeContract } from "@/domains/changelog/change-contract";
@@ -111,6 +114,13 @@ export interface SeedDataRepository {
   getAssetResponses(): Promise<AssetResponse[]>;
   getOutcomeObservations(): Promise<OutcomeObservation[]>;
   getCompetitorPageEvidence(): Promise<CompetitorPageEvidence[]>;
+  /**
+   * T-CompPageBlueprints (2026-05-08) — manually-captured competitor
+   * page structure (h1, top h2s, faq questions, meta description).
+   * Decoupled lifecycle from `getCompetitorPageEvidence` (citation-
+   * derived). File-only v1; same posture as competitor-page-evidence.
+   */
+  getCompetitorPageSnapshots(): Promise<CompetitorPageSnapshot[]>;
   getSourcePatternEvidence(): Promise<SourcePatternEvidence[]>;
   getActionStates(): Promise<PersistedActionState[]>;
   getBriefStates(): Promise<PersistedBriefState[]>;

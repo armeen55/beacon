@@ -158,6 +158,8 @@ function makeContext(
     promptAnswerObservations: [],
     pageInventory: [makePageInventoryEntry()],
     recommendedEdits: [],
+    competitorPageSnapshotsByUrl: new Map(),
+    competitorBlueprintBrandScrubAliases: [],
     errors: [],
     ...overrides,
   };
