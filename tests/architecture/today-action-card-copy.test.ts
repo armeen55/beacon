@@ -112,15 +112,39 @@ describe("T2 — action-card translates internal expectedMetric keys", () => {
 // T2 — findings strip simplified
 // ---------------------------------------------------------------------------
 
-describe("T2 — findings strip default no longer leaks the type breakdown", () => {
-  it("default link text is the simple summary, NOT typeBreakdownLabel", () => {
-    // Pre-T2 the link rendered `findings.typeBreakdownLabel ?? fallback` —
-    // typeBreakdownLabel won the default. Post-T2 the simple summary is
-    // first, with typeBreakdownLabel surfaced via the link's `title` tooltip.
+describe("T2 / UX.6.2 — findings strip default no longer leaks the type breakdown", () => {
+  // UX.6.2 (2026-05-07) — Strip vocabulary unified to "site findings"
+  // via `compactStripLabel` from @/lib/site-findings-labels.
+  // Pre-UX.6.2 the strip rendered "{N} page issue(s)" + "· {N} urgent",
+  // which was a third competing name for the same scan_findings layer
+  // (other surfaces called it "scan diffs"). Post-UX.6.2 the strip
+  // routes through `compactStripLabel({ total, important, critical })`
+  // which produces e.g. "775 site findings · 133 important".
+
+  it("UX.6.2 — strip flows through compactStripLabel from site-findings-labels", () => {
     expect(
-      ACTION_QUEUE_SRC.includes("{findings.totalCount} page issue"),
-      "today-action-queue.tsx must default to '{N} page issue(s)' summary (T2)",
+      ACTION_QUEUE_SRC.includes("compactStripLabel"),
+      "today-action-queue.tsx must surface the strip copy via compactStripLabel (UX.6.2)",
     ).toBe(true);
+    expect(
+      ACTION_QUEUE_SRC.includes(
+        'from "@/lib/site-findings-labels"',
+      ),
+      "today-action-queue.tsx must import from @/lib/site-findings-labels (UX.6.2)",
+    ).toBe(true);
+  });
+
+  it("UX.6.2 — old 'page issue' copy no longer rendered in JSX text", () => {
+    // The literal "page issue" wording survives only inside a comment
+    // describing the migration. Strip comments before asserting.
+    const stripped = ACTION_QUEUE_SRC.replace(/\/\*[\s\S]*?\*\//g, "").replace(
+      /^[ \t]*\/\/.*$/gm,
+      "",
+    );
+    expect(
+      stripped.includes("page issue"),
+      "today-action-queue.tsx (post-comment-strip) must NOT render 'page issue' anywhere (UX.6.2)",
+    ).toBe(false);
   });
 
   it("typeBreakdownLabel is surfaced via the link's title tooltip", () => {

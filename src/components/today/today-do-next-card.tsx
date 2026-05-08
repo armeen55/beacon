@@ -1,6 +1,20 @@
 /**
  * Phase 6A.8 (2026-04-28) — Today "Do Next" decision card.
  *
+ * UX.6.2 (2026-05-07) — vocabulary + duplication cleanup:
+ *
+ *   - The `decide_recommendation` branch was DROPPED. Pre-fix it
+ *     rendered the same top-pick rec already shown by the Command
+ *     Center's NextBestActionCard AND by the Action Queue's primary
+ *     ActionCard — three copies of the same paragraph. Now Command
+ *     Center is the summary, Action Queue is the workbench, and
+ *     Do Next stays focused on the two cases CC doesn't cover:
+ *     pending-impl-to-ship + site findings to review.
+ *   - The `review_scan_diffs` branch was renamed to use the unified
+ *     "Site findings" vocabulary (see `lib/site-findings-labels.ts`)
+ *     and uses calmer neutral styling when only `important`-priority
+ *     findings exist. Critical findings keep the danger styling.
+ *
  * Single opinionated card at the top of /today (after critical alerts)
  * that tells the operator the one thing to do next, by priority:
  *
@@ -8,11 +22,10 @@
  *      accepted edit. Strongest signal: the operator already accepted
  *      a Beacon recommendation; their next move is to implement it on
  *      the site so the next scan can verify it live.
- *   2. Else if a top recommendation exists → decide on it. Same logic
- *      that powered the pre-restructure `TopPickCard`.
- *   3. Else if scan diffs include critical/important findings →
- *      review them.
- *   4. Else → render nothing (calm Today).
+ *   2. Else if scan findings include critical/important priority →
+ *      review them as a SITE FINDINGS surface. Calmer styling unless
+ *      critical fires.
+ *   3. Else → render nothing (calm Today).
  *
  * Pure presentation. The decision rule is deterministic and locked
  * by tests so the priority can't drift.
@@ -22,6 +35,10 @@ import Link from "next/link";
 
 import type { TodayLifecycleQueueItem } from "@/app/(shell)/today-data";
 import type { TopPickSummary } from "./top-pick-card";
+import {
+  doNextHeadline,
+  doNextSubtitle,
+} from "@/lib/site-findings-labels";
 
 export type DoNextDecision =
   | {
@@ -30,11 +47,7 @@ export type DoNextDecision =
       pendingCount: number;
     }
   | {
-      kind: "decide_recommendation";
-      pick: TopPickSummary;
-    }
-  | {
-      kind: "review_scan_diffs";
+      kind: "review_site_findings";
       criticalCount: number;
       importantCount: number;
       totalCount: number;
@@ -44,7 +57,12 @@ export type DoNextDecision =
 export type TodayDoNextCardProps = {
   pendingQueue: TodayLifecycleQueueItem[];
   pendingCount: number;
-  topPick: TopPickSummary | null;
+  /** Top-pick is consumed by the Command Center NextBestActionCard
+   *  and by the Action Queue's primary ActionCard. Do Next no longer
+   *  surfaces it (UX.6.2 — duplication cleanup). The prop stays in
+   *  the type so callers don't need a refactor; it's currently
+   *  unused. Tagged `_topPick` so lints don't flag it. */
+  topPick?: TopPickSummary | null;
   /** Findings strip data — only `criticalCount`+`importantCount`+`totalCount` consulted. */
   findingsCriticalCount: number;
   findingsImportantCount: number;
@@ -55,7 +73,12 @@ export type TodayDoNextCardProps = {
 /**
  * Pure decision rule — exported for unit testing without a renderer.
  * The priority order is:
- *   pending_impl > top_pick > scan_diffs(if critical/important) > calm
+ *   pending_impl > site_findings(if critical/important) > calm
+ *
+ * UX.6.2 (2026-05-07) — `decide_recommendation` outcome was removed
+ * because the Command Center's NextBestActionCard already presents
+ * the top-pick rec, and the Action Queue's primary ActionCard already
+ * presents its full body. Do Next no longer triplicates.
  */
 export function decideDoNext(
   input: Omit<TodayDoNextCardProps, "className">,
@@ -67,12 +90,9 @@ export function decideDoNext(
       pendingCount: input.pendingCount,
     };
   }
-  if (input.topPick) {
-    return { kind: "decide_recommendation", pick: input.topPick };
-  }
   if (input.findingsCriticalCount > 0 || input.findingsImportantCount > 0) {
     return {
-      kind: "review_scan_diffs",
+      kind: "review_site_findings",
       criticalCount: input.findingsCriticalCount,
       importantCount: input.findingsImportantCount,
       totalCount: input.findingsTotalCount,
@@ -139,69 +159,45 @@ export function TodayDoNextCard(props: TodayDoNextCardProps) {
     );
   }
 
-  if (decision.kind === "decide_recommendation") {
-    // Reuse a thin presentation similar to TopPickCard but inline so the
-    // Do Next card has a single visual contract.
-    const pick = decision.pick;
-    return (
-      <article
-        className={`rounded-lg border border-accent-primary/35 bg-accent-primary/[0.04] px-5 py-4 ${props.className ?? ""}`}
-        data-today-do-next="decide_recommendation"
-      >
-        <span className="text-[10px] font-bold uppercase tracking-wider text-accent-primary">
-          Do next · decide on this
-        </span>
-        <p className="mt-1.5 text-[14px] font-semibold text-foreground leading-snug">
-          {pick.title}
-        </p>
-        {pick.reasoning && (
-          <p className="mt-1 text-[11px] text-muted-foreground leading-relaxed">
-            {pick.reasoning}
-          </p>
-        )}
-        <div className="mt-3 text-[11px] font-semibold">
-          <Link
-            href="/recommendations"
-            className="text-accent-primary hover:underline"
-            data-do-next-cta="primary"
-          >
-            Open recommendation →
-          </Link>
-        </div>
-      </article>
-    );
-  }
-
-  if (decision.kind === "review_scan_diffs") {
+  if (decision.kind === "review_site_findings") {
+    // UX.6.2 (2026-05-07) — calmer neutral styling when only
+    // `important` priority findings exist. Reserve danger styling for
+    // genuinely critical-priority findings. Pre-fix used warning-amber
+    // for the important branch which made every "important" count
+    // read as urgent.
     const tone =
       decision.criticalCount > 0
         ? "border-status-danger/40 bg-status-danger/[0.05] text-status-danger"
-        : "border-status-warning/40 bg-status-warning/[0.04] text-status-warning";
-    const headline =
-      decision.criticalCount > 0
-        ? `${decision.criticalCount} critical scan diff${decision.criticalCount === 1 ? "" : "s"} need review`
-        : `${decision.importantCount} important scan diff${decision.importantCount === 1 ? "" : "s"} to review`;
+        : "border-border/60 bg-surface-inset/30 text-foreground";
+    const headline = doNextHeadline({
+      critical: decision.criticalCount,
+      important: decision.importantCount,
+    });
+    const subtitle = doNextSubtitle({
+      total: decision.totalCount,
+      critical: decision.criticalCount,
+      important: decision.importantCount,
+    });
     return (
       <article
         className={`rounded-lg border px-5 py-4 ${tone} ${props.className ?? ""}`}
-        data-today-do-next="review_scan_diffs"
+        data-today-do-next="review_site_findings"
       >
-        <span className="text-[10px] font-bold uppercase tracking-wider">
-          Do next · review scan diffs
+        <span className="text-[10px] font-bold uppercase tracking-wider opacity-80">
+          Site findings to review
         </span>
         <p className="mt-1.5 text-[14px] font-semibold leading-snug">{headline}</p>
         <p className="mt-1 text-[11px] opacity-80 leading-relaxed">
-          {decision.totalCount} total diff{decision.totalCount === 1 ? "" : "s"}{" "}
-          waiting for confirm or dismiss.
+          {subtitle}
         </p>
         <div className="mt-3 text-[11px] font-semibold">
-          <a
-            href="#change-review-section"
+          <Link
+            href="/pages"
             className="hover:underline"
             data-do-next-cta="primary"
           >
-            Review scan diffs ↓
-          </a>
+            Open site findings →
+          </Link>
         </div>
       </article>
     );

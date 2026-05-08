@@ -25,13 +25,19 @@ function row(overrides: Partial<{
 }
 
 describe("TodayImplementationQueue", () => {
-  it("calm empty state when queue is empty", () => {
+  it("UX.6.2 — empty queue renders nothing (compressed away from /today)", () => {
+    // Pre-UX.6.2 the empty state was a styled card ("Nothing waiting
+    // on you. Accepted edits live here until the next scan finds them
+    // on the page.") that took ~3 lines without driving any action.
+    // The TodayLifecycleStrip already shows the "live verified" chip
+    // + a "· nothing waiting" muted suffix when all pending counts
+    // are zero, so this card is now noise. Drop it entirely.
     const html = renderToStaticMarkup(
       <TodayImplementationQueue queue={[]} totalPendingCount={0} />,
     );
-    expect(html).toContain('data-today-implementation-queue="empty"');
-    expect(html).toContain("Nothing waiting on you.");
-    expect(html).not.toContain("Accepted edits waiting for site update");
+    expect(html).toBe("");
+    expect(html).not.toContain("Nothing waiting on you");
+    expect(html).not.toContain("data-today-implementation-queue");
   });
 
   it("populated state when queue has rows", () => {

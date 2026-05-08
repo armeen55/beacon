@@ -47,7 +47,7 @@ const ZERO_PROPS: TodayDoNextCardProps = {
   findingsTotalCount: 0,
 };
 
-describe("decideDoNext priority rules", () => {
+describe("decideDoNext priority rules (UX.6.2)", () => {
   it("ship_pending wins when pending queue is non-empty", () => {
     const decision = decideDoNext({
       ...ZERO_PROPS,
@@ -61,7 +61,20 @@ describe("decideDoNext priority rules", () => {
     expect(decision.kind).toBe("ship_pending");
   });
 
-  it("decide_recommendation wins when no pending and topPick exists", () => {
+  it("UX.6.2 — topPick alone (no pending, no findings) → calm: Command Center NextBestActionCard owns this surface now", () => {
+    // Pre-UX.6.2 this case fired `decide_recommendation` and rendered
+    // a third copy of the rec on top of the Command Center's
+    // NextBestActionCard + the Action Queue's primary ActionCard.
+    // The decide_recommendation outcome was DROPPED. Do Next now
+    // stays focused on cases CC doesn't already cover.
+    const decision = decideDoNext({
+      ...ZERO_PROPS,
+      topPick: topPick(),
+    });
+    expect(decision.kind).toBe("calm");
+  });
+
+  it("UX.6.2 — topPick + findings → review_site_findings (findings still surface; rec is in CC)", () => {
     const decision = decideDoNext({
       ...ZERO_PROPS,
       topPick: topPick(),
@@ -69,17 +82,17 @@ describe("decideDoNext priority rules", () => {
       findingsImportantCount: 0,
       findingsTotalCount: 3,
     });
-    expect(decision.kind).toBe("decide_recommendation");
+    expect(decision.kind).toBe("review_site_findings");
   });
 
-  it("review_scan_diffs wins only when no pending AND no topPick", () => {
+  it("review_site_findings wins when no pending AND critical/important findings exist", () => {
     const decision = decideDoNext({
       ...ZERO_PROPS,
       findingsCriticalCount: 2,
       findingsImportantCount: 1,
       findingsTotalCount: 3,
     });
-    expect(decision.kind).toBe("review_scan_diffs");
+    expect(decision.kind).toBe("review_site_findings");
   });
 
   it("calm when nothing is firing", () => {
@@ -87,14 +100,15 @@ describe("decideDoNext priority rules", () => {
     expect(decision.kind).toBe("calm");
   });
 
-  it("review_scan_diffs requires critical OR important — bare totalCount alone is not enough", () => {
+  it("review_site_findings requires critical OR important — bare totalCount alone is not enough", () => {
     const decision = decideDoNext({
       ...ZERO_PROPS,
       findingsCriticalCount: 0,
       findingsImportantCount: 0,
       findingsTotalCount: 12,
     });
-    // No critical/important means scan diffs is not "do next" worthy.
+    // No critical/important priority means findings are background
+    // noise, not Do Next material.
     expect(decision.kind).toBe("calm");
   });
 });
@@ -137,18 +151,19 @@ describe("TodayDoNextCard rendering", () => {
     expect(html).toContain("Operator rewrite required");
   });
 
-  it("decide_recommendation renders the topPick title", () => {
+  it("UX.6.2 — topPick alone renders nothing (no decide_recommendation surface anymore)", () => {
     const html = renderToStaticMarkup(
       <TodayDoNextCard
         {...ZERO_PROPS}
         topPick={topPick({ title: "My recommendation" })}
       />,
     );
-    expect(html).toContain('data-today-do-next="decide_recommendation"');
-    expect(html).toContain("My recommendation");
+    expect(html).toBe("");
+    expect(html).not.toContain("My recommendation");
+    expect(html).not.toContain("decide_recommendation");
   });
 
-  it("review_scan_diffs renders critical-tone copy when criticalCount > 0", () => {
+  it("review_site_findings renders critical-tone copy + new vocabulary when criticalCount > 0", () => {
     const html = renderToStaticMarkup(
       <TodayDoNextCard
         {...ZERO_PROPS}
@@ -156,8 +171,31 @@ describe("TodayDoNextCard rendering", () => {
         findingsTotalCount={5}
       />,
     );
-    expect(html).toContain('data-today-do-next="review_scan_diffs"');
-    expect(html).toContain("3 critical scan diff");
+    expect(html).toContain('data-today-do-next="review_site_findings"');
+    expect(html).toContain("3 critical site findings");
+    expect(html).toContain("Site findings to review");
+    // Old vocabulary must NOT appear.
+    expect(html).not.toContain("scan diff");
+    expect(html).not.toContain("Do next · review");
+  });
+
+  it("review_site_findings important-only path uses calmer neutral styling (no warning amber)", () => {
+    const html = renderToStaticMarkup(
+      <TodayDoNextCard
+        {...ZERO_PROPS}
+        findingsCriticalCount={0}
+        findingsImportantCount={133}
+        findingsTotalCount={775}
+      />,
+    );
+    expect(html).toContain('data-today-do-next="review_site_findings"');
+    expect(html).toContain("133 important site findings");
+    // Subtitle explains the total/important relationship.
+    expect(html).toContain("775 total");
+    expect(html).toContain("133 important");
+    // No status-warning / status-danger classes when only important.
+    expect(html).not.toContain("status-warning");
+    expect(html).not.toContain("status-danger");
   });
 
   it("calm state renders nothing", () => {

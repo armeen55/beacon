@@ -26,8 +26,8 @@ function findingStub(
   } as unknown as SerializedFinding;
 }
 
-describe("ChangeReview — Phase 6A.4 copy + collapse", () => {
-  it("renders 'Scan diffs to review (N)' heading, NOT 'changes detected'", () => {
+describe("ChangeReview — Phase 6A.4 / UX.6.2 copy + collapse", () => {
+  it("UX.6.2 — renders 'Recent site changes (N)' heading (not the old 'Scan diffs to review')", () => {
     const html = renderToStaticMarkup(
       <ChangeReview
         findings={[findingStub({ id: "f1" }), findingStub({ id: "f2" })]}
@@ -35,12 +35,13 @@ describe("ChangeReview — Phase 6A.4 copy + collapse", () => {
         onDismiss={noop}
       />,
     );
-    expect(html).toContain("Scan diffs to review (2)");
+    expect(html).toContain("Recent site changes (2)");
+    expect(html).not.toContain("Scan diffs to review");
     expect(html).not.toContain("changes detected");
     expect(html).not.toContain("Confirmed changes are tracked for attribution");
   });
 
-  it("includes honest 'not tracked changes unless you confirm' explainer", () => {
+  it("UX.6.2 — subtitle uses customer-safe vocabulary (no 'raw' or 'scanner' wording)", () => {
     const html = renderToStaticMarkup(
       <ChangeReview
         findings={[findingStub()]}
@@ -48,10 +49,14 @@ describe("ChangeReview — Phase 6A.4 copy + collapse", () => {
         onDismiss={noop}
       />,
     );
-    expect(html).toContain(
-      "raw website differences found by Beacon",
-    );
-    expect(html).toContain("not tracked changes unless you confirm one");
+    // New customer-safe phrasing. JSX escapes "&" → "&amp;" in
+    // rendered HTML, so we assert against the encoded form.
+    expect(html).toContain("Content &amp; structure changes Beacon spotted on your site");
+    expect(html).toContain("Confirm one to add it to your changelog");
+    // Old operator-internal phrasing must NOT appear.
+    expect(html).not.toContain("raw website differences");
+    expect(html).not.toContain("Beacon&#x27;s scanner");
+    expect(html).not.toContain("Beacon's scanner");
   });
 
   it("section is collapsed by default (no `open` attribute on <details>)", () => {
@@ -123,6 +128,6 @@ describe("ChangeReview — Phase 6A.4 copy + collapse", () => {
       />,
     );
     // Only one content change should be counted.
-    expect(html).toContain("Scan diffs to review (1)");
+    expect(html).toContain("Recent site changes (1)");
   });
 });

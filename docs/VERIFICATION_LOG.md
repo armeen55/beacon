@@ -7,6 +7,139 @@
 
 ---
 
+## 2026-05-07 — UX.6.2: vocabulary + hierarchy cleanup on /today (5 fixes)
+
+After UX.6.1 trust restoration landed, operator brief: make /today feel less chaotic. Five fixes:
+
+1. **One vocabulary for the scan_findings layer.** Same underlying `scan_findings` rows surfaced as three competing names: `"133 important scan diffs"` (DoNext), `"775 page issues"` (strip), `"Scan diffs to review (7)"` (accordion). Operator pain — felt like three different fires for what is actually three filter levels of the same array (7 ⊂ 133 ⊂ 775).
+2. **Reduce scan-finding prominence when not critical.** The DoNext review_scan_diffs branch used warning-amber styling even when only `important`-priority findings existed. Felt urgent for what is operations backlog.
+3. **Recommendation duplication cleanup.** The same top-pick rec rendered three times: Command Center NextBestActionCard (line-clamp-3 paragraph) + DoNext `decide_recommendation` branch (full reasoning) + Action Queue primary ActionCard (full body, full evidence). Three copies of the same rec on one page.
+4. **Empty lifecycle compression.** When no edits are pending, lifecycle showed a `"1 live verified"` chip + a styled card `"Nothing waiting on you. Accepted edits live here until the next scan finds them on the page."` taking ~3 lines for what is just "everything's caught up".
+5. **/today hierarchy preserved post-fixes.** Operator-required order: AI visibility → next best rec → wins/movement → website findings (operations backlog).
+
+Constraints: no OpenAI / paid polling / production data mutations / RLS-or-auth changes / cron / billing. LLM budget SHA byte-identical.
+
+### Fix 1 — One vocabulary
+
+NEW `src/lib/site-findings-labels.ts` — pure module, single source of truth for the customer-safe vocabulary:
+
+- `SITE_FINDING_NOUN` / `SITE_FINDING_NOUN_PLURAL` constants ("site finding" / "site findings").
+- `siteFindingNoun(count)` pluralizer.
+- `compactStripLabel({ total, important, critical })` — Action Queue strip copy. Examples:
+  - `"775 site findings · 133 important"` (133 important, 0 critical)
+  - `"775 site findings · 3 critical · 130 important"` (both)
+  - `"5 site findings"` (no priority breakdown)
+  - `"1 site finding"` (singular form)
+- `doNextHeadline({ critical, important })` — Do Next card lead. Critical-first when present:
+  - `"3 critical site findings need review"` / `"1 critical site finding needs review"`
+  - `"133 important site findings to review"` / `"1 important site finding to review"`
+- `doNextSubtitle({ total, critical, important, shownInPreview? })` — explains 133/775/7 in plain English:
+  - `"775 total site findings detected. 133 important. Showing 7 most recent."`
+- `recentSiteChangesHeading(count)` — bottom accordion: `"Recent site changes (7)"`.
+- `RECENT_SITE_CHANGES_SUBTITLE` — customer-safe accordion subtitle replacing `"raw website differences found by Beacon's scanner"`: `"Content & structure changes Beacon spotted on your site. Confirm one to add it to your changelog and start tracking attribution."`
+
+Three consumers updated:
+
+- `src/components/today/today-do-next-card.tsx` — replaces `kind: "review_scan_diffs"` discriminant with `kind: "review_site_findings"`. Header copy `"Do next · review scan diffs"` → `"Site findings to review"`. Headline + subtitle flow through helpers. CTA copy `"Review scan diffs ↓"` → `"Open site findings →"` and `href="/pages"` (was `#change-review-section`).
+- `src/components/today/today-action-queue.tsx` — strip `<span>` flows through `compactStripLabel`. Old `"{N} page issue · {N} urgent"` text removed. Bonus: replaces a prior literal `·` rendering bug in the JSX where the 6-character escape sequence was rendering as text instead of a `·` middle dot.
+- `src/components/today/change-review.tsx` — accordion heading + aria-label flow through `recentSiteChangesHeading`. Subtitle uses `RECENT_SITE_CHANGES_SUBTITLE`. CTA copy `"View all in Pages →"` → `"View all on Pages →"`.
+
+### Fix 2 — Calmer styling for non-critical site findings
+
+`today-do-next-card.tsx` review_site_findings branch:
+
+- When `criticalCount > 0` → `border-status-danger/40 bg-status-danger/[0.05] text-status-danger` (kept).
+- When `criticalCount === 0 && importantCount > 0` → `border-border/60 bg-surface-inset/30 text-foreground` (NEW — neutral muted).
+- Pre-fix non-critical used `border-status-warning/40 bg-status-warning/[0.04] text-status-warning` which made every "important" count read as urgent. Now important is operations backlog, critical is the only louder tone.
+
+### Fix 3 — Recommendation duplication cleanup
+
+`src/components/today/today-do-next-card.tsx`:
+
+- Dropped the `decide_recommendation` discriminant from `DoNextDecision` union AND the entire JSX branch that rendered `pick.title` + `pick.reasoning` + CTA. The Command Center's NextBestActionCard above already presents the top-pick rec; the Action Queue's primary ActionCard below presents its full body. DoNext was duplicating both.
+- New priority list: `pending_impl > review_site_findings > calm`.
+- `topPick` prop kept on the component type for caller stability (today-client.tsx still passes it). Just unused.
+
+`src/components/today/command-center.tsx` NextBestActionCard:
+
+- Pre-fix rendered `<p className="line-clamp-3">{action.rationale}</p>` — the same multi-line rationale that the Action Queue's primary ActionCard renders below the fold. Operator saw the same paragraph twice on one page.
+- New `summarizeRationale(rationale)` helper extracts the leading sentence (cuts on `". "` to avoid splitting on decimals/abbreviations) and hard-caps at 110 characters with an ellipsis. Renders in `line-clamp-1` so the card reads as a true SUMMARY shape.
+- Card now stamps `data-next-best-action-reason="one-line"` + `data-next-best-action-cta="open-recommendation"` for telemetry.
+- NEW explicit pointer at the bottom of the card: `"Full evidence in the action queue below."` (data-attribute `data-next-best-action-pointer="full-body-below"`) — tells the operator that CC = summary, AQ = workbench. Tiny muted line, doesn't compete visually.
+
+### Fix 4 — Empty lifecycle compression
+
+`src/components/today/implementation-queue.tsx`:
+
+- Empty branch now `return null;` (drops the `"Nothing waiting on you"` styled card).
+- Pre-fix the empty card occupied ~3 lines of vertical space without driving any action. The lifecycle strip already shows the live-verified count, and now adds a "nothing waiting" suffix when applicable, so the empty card was pure noise.
+
+`src/components/today/lifecycle-strip.tsx`:
+
+- New computed `allActionableCountsZero = pendingImplementation === 0 && needsReview === 0 && notFoundAfter7d === 0`.
+- Stamps `data-lifecycle-empty="true" | "false"` on the strip wrapper.
+- When `allActionableCountsZero` is true, appends an inline muted `"· nothing waiting"` text (`data-lifecycle-nothing-waiting="true"`) after the chips. The strip stays a single horizontal row instead of being followed by the now-deleted empty card.
+
+### Fix 5 — /today hierarchy preserved
+
+Source-order pinned by `tests/architecture/ux6-2-vocabulary-hierarchy-contract.test.ts` — single test asserts the order of all 9 surfaces in `today-client.tsx`:
+
+1. `<CommandCenter ...>` (top)
+2. `<VisibilityScoreChart ...>` (Tier 1.5)
+3. `<TodayDoNextCard ...>` (Tier 1)
+4. `<TodayLifecycleStrip ...>` (Tier 2)
+5. `<TodayImplementationQueue ...>` (Tier 3)
+6. `<TodayActionQueue ...>` (Tier 4 — workbench)
+7. `data-today-section="wins"` (Tier 5)
+8. `<TodayMetricsDisclosure ...>` (Tier 6)
+9. `<ChangeReview ...>` (Tier 7 — site-findings backlog accordion)
+
+Matches operator-required hierarchy: AI visibility (CC + chart) → next best rec (action queue) → wins → website findings (accordion).
+
+### Tests + invariants
+
+NEW `tests/architecture/ux6-2-vocabulary-hierarchy-contract.test.ts` (43 invariants):
+- Fix 1: site-findings-labels exists + exports the noun + helpers + the subtitle constant; no I/O / no fetch / no mutations; DoNext + ActionQueue + ChangeReview each import + flow through the helpers; old vocabulary ("scan diff", "page issue", "raw website differences") gone from JSX text (comments + JSDoc allowed as migration history).
+- Fix 2: review_site_findings tone keys off criticalCount; non-critical uses `border-border/60 bg-surface-inset/30 text-foreground` (no status-warning).
+- Fix 3: `decide_recommendation` discriminant + branch + data-attribute all removed; priority order pinned (`ship_pending` precedes `review_site_findings`); `topPick` prop kept on the type for caller stability; `summarizeRationale` helper exists with leading-sentence extraction; line-clamp-3 absent from rendered JSX (line-clamp-1 used instead, allowing either order around the data-attribute); pointer line + CTA data-attributes present.
+- Fix 4: implementation-queue empty branch returns null; "Nothing waiting on you" gone from JSX; lifecycle strip computes allActionableCountsZero from the three counts; renders the suffix conditionally; stamps `data-lifecycle-empty` for telemetry.
+- Fix 5: source-order pin asserts CC → Visibility → DoNext → Strip → ImplQueue → ActionQueue → wins → Metrics → ChangeReview.
+- Cross-cutting: every touched file has no paid-API imports / no fetch / no runners / no mutations.
+
+NEW `src/lib/site-findings-labels.test.ts` (21 behavioral tests across 5 helper functions): pluralizer truth table; `compactStripLabel` for all four operator examples + critical-first ordering + zero-priority drop; `doNextHeadline` critical-vs-important precedence + singular forms + no scan-diff wording; `doNextSubtitle` operator's exact pain example + critical+important rendering + critical-only + showing-N-most-recent omission rules + period-terminator; `recentSiteChangesHeading` count formatting; `RECENT_SITE_CHANGES_SUBTITLE` customer-safe (no "raw" / "scanner") + mentions changelog + attribution.
+
+UPDATED 4 prior tests:
+- `src/components/today/today-do-next-card.test.tsx` — drop `decide_recommendation` cases; add `topPick alone → calm` invariant; add `topPick + findings → review_site_findings` test; update review_scan_diffs → review_site_findings rename + new vocabulary pin; add new "calmer styling for important-only" test.
+- `src/components/today/change-review.test.tsx` — heading pin updated to "Recent site changes (N)"; subtitle pin updated to UX.6.2 customer-safe phrasing (with `&amp;` HTML-entity for the rendered `&`); negative pins on old vocabulary tightened.
+- `src/components/today/implementation-queue.test.tsx` — empty-state pin flipped from "renders styled card with 'Nothing waiting on you'" to "renders empty string (compressed away)".
+- `tests/architecture/today-action-card-copy.test.ts` — T2 strip pins updated to UX.6.2: pin is now "flows through compactStripLabel + imports from site-findings-labels"; old "{N} page issue" pin replaced with negative pin "page issue absent post-comment-strip".
+
+### Quality gates
+
+- `npm run typecheck` — CLEAN.
+- `npm run test` — **6,481 / 6,481 passing** (+67 tests vs UX.6.1 baseline 6414 → 6481; net add includes the 43 new architecture invariants + 21 new behavioral tests + 3 new tests in updated files).
+- Targeted UX.6.2 tests — `ux6-2-vocabulary-hierarchy-contract.test.ts` 43 + `site-findings-labels.test.ts` 21 + 4 reconciled prior files = 64+ passing.
+- `npm run build` — green. All routes ƒ Dynamic.
+- `verify-tenant-data-integrity` — PASS. Ritz row counts UNCHANGED: `daily_metric_snapshots: 9896`, `prompt_answer_observations: 16521`, `recommended_edits: 28`.
+- `verify-observation-dedup-integrity` — PASS. 0 duplicate logical keys.
+- `verify-verdict-rematerialization-integrity` — PASS. 131 verdicts; 0 drift.
+- `npm run verify:brain-health` — YELLOW. 7 PASS + 1 WARN (queue idle — pre-existing).
+- `.data/global/llm-budget.json` SHA `d36eed8c…` — unchanged from UX.6.1.
+
+Zero OpenAI calls. Zero paid polling. Zero production data mutations. Zero new Supabase reads. Zero touches to onboarding / cron / RLS / auth / billing.
+
+### What this unlocks
+
+/today is materially less chaotic:
+1. **One vocabulary**: the operator no longer reads three different names for the same `scan_findings` layer. The DoNext, the strip, and the bottom accordion all say "site findings" with the count relationship explained in plain English ("775 total. 133 important. Showing 7 most recent.").
+2. **Calmer hierarchy**: importance-only findings render in neutral muted styling instead of warning-amber. Critical findings still go red. Operations backlog reads as backlog, not as ER.
+3. **Clean summary/workbench split**: Command Center is the executive summary (title + 1-line reason + target + evidence + CTA + "full body below" pointer). Action Queue is the workbench (full body, full evidence, full action footer). The DoNext card is no longer a third copy.
+4. **Compressed empty state**: when there's nothing waiting, the lifecycle layer collapses to a single muted row ("Lifecycle [chip 1 live verified] · nothing waiting") instead of a chip + an empty styled card.
+
+UX.6.3 (next pass — operator-deferred) can take on the AI Visibility hero promotion and any visual hierarchy polish revealed by the calmer surfaces below.
+
+---
+
 ## 2026-05-07 — UX.6.1: trust restoration on /today (3 fixes)
 
 Operator brief after the brutal /today touchpoint audit. Three trust-breaking issues blocked the friend test:

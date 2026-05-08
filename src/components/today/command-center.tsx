@@ -261,6 +261,39 @@ function TopMovementCard({ movement }: { movement: CommandCenterUrlMovement }) {
 
 // ── Card 4: Next best action ──────────────────────────────────────────
 
+/**
+ * UX.6.2 (2026-05-07) — duplication cleanup.
+ *
+ * Pre-fix this card rendered the same multi-line rationale that the
+ * Action Queue's primary ActionCard ALSO renders below the fold —
+ * the operator saw the same paragraph twice on /today. Now the card
+ * is a true SUMMARY: title + target page + evidence strength +
+ * one-line reason + CTA. The Action Queue stays the workbench (full
+ * body, full evidence). The CTA still routes to /recommendations
+ * detail (`action.href`).
+ *
+ * The one-line reason is derived from `action.rationale` by taking
+ * its leading sentence. Pre-fix used `line-clamp-3` to visually clip
+ * a 3-line paragraph; we now extract a real single sentence and
+ * truncate to ~110 chars so the card reads as a SUMMARY shape, not
+ * a clipped paragraph.
+ */
+function summarizeRationale(rationale: string): string {
+  const trimmed = rationale.trim();
+  if (trimmed.length === 0) return "";
+  // First sentence — cut on ". " (period+space) to avoid splitting on
+  // decimals / abbreviations that lack the trailing space. Falls back
+  // to the full rationale when no sentence break exists.
+  const sentenceEnd = trimmed.indexOf(". ");
+  const firstSentence =
+    sentenceEnd > 0 ? trimmed.slice(0, sentenceEnd + 1) : trimmed;
+  // Hard cap so a long single sentence doesn't push the card past
+  // ~3 lines (the prior line-clamp-3 footprint).
+  const MAX = 110;
+  if (firstSentence.length <= MAX) return firstSentence;
+  return firstSentence.slice(0, MAX - 1).trimEnd() + "…";
+}
+
 function NextBestActionCard({ action }: { action: TodayPrimaryAction | null }) {
   if (!action) {
     // UX.5B.4 (2026-05-07) — premium empty state vocabulary.
@@ -273,12 +306,16 @@ function NextBestActionCard({ action }: { action: TodayPrimaryAction | null }) {
       </Card>
     );
   }
+  const oneLineReason = summarizeRationale(action.rationale);
   return (
     <Card title="Next best action">
       <p className="text-[13px] font-medium leading-tight">{action.headline}</p>
-      <p className="text-[12px] text-muted-foreground pt-1.5 leading-relaxed line-clamp-3">
-        {action.rationale}
-      </p>
+      {oneLineReason && (
+        <p className="text-[12px] text-muted-foreground pt-1.5 leading-snug line-clamp-1"
+           data-next-best-action-reason="one-line">
+          {oneLineReason}
+        </p>
+      )}
       <div className="flex items-center gap-3 pt-3 text-[11px]">
         <ConfidencePill confidence={action.confidence} />
         {action.targetPagePath ? (
@@ -291,10 +328,18 @@ function NextBestActionCard({ action }: { action: TodayPrimaryAction | null }) {
         <Link
           href={action.href}
           className="inline-flex items-center gap-1 rounded-md bg-foreground text-background px-3 py-1.5 text-[12px] font-medium hover:opacity-90"
+          data-next-best-action-cta="open-recommendation"
         >
           Open recommendation →
         </Link>
       </div>
+      {/* UX.6.2 — explicit "summary, full body below" pointer so the
+          operator understands the relationship between this card
+          and the Action Queue's primary ActionCard rendered below. */}
+      <p className="text-[10px] text-muted-foreground/70 pt-1.5 leading-relaxed"
+         data-next-best-action-pointer="full-body-below">
+        Full evidence in the action queue below.
+      </p>
     </Card>
   );
 }

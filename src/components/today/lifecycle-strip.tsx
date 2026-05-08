@@ -88,12 +88,27 @@ export function TodayLifecycleStrip({
   );
   if (visible.length === 0) return null;
 
+  // UX.6.2 (2026-05-07) — "nothing waiting" compression. When the
+  // operator has zero pending implementation, zero needs-review, and
+  // zero not-found-after-7d items, the strip currently shows just
+  // the always-visible "Live verified" chip — which on its own
+  // doesn't tell the operator the rest of the lifecycle is QUIET
+  // (vs simply hidden / unloaded). Append a small muted suffix
+  // "· nothing waiting" inline so the empty state is read as
+  // "everything's caught up", not as "the strip's broken". This
+  // pairs with the empty-state compression in TodayImplementationQueue.
+  const allActionableCountsZero =
+    counts.pendingImplementation === 0 &&
+    counts.needsReview === 0 &&
+    counts.notFoundAfter7d === 0;
+
   return (
     <div
       className={`flex flex-wrap items-center gap-2 ${className ?? ""}`}
       role="region"
       aria-label="Recommendation lifecycle status"
       data-today-lifecycle-strip
+      data-lifecycle-empty={allActionableCountsZero ? "true" : "false"}
     >
       <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60 mr-1">
         Lifecycle
@@ -116,6 +131,14 @@ export function TodayLifecycleStrip({
           </Link>
         );
       })}
+      {allActionableCountsZero && (
+        <span
+          className="text-[11px] text-muted-foreground/60"
+          data-lifecycle-nothing-waiting="true"
+        >
+          · nothing waiting
+        </span>
+      )}
     </div>
   );
 }

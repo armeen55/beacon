@@ -5,6 +5,10 @@ import Link from "next/link";
 import { cn } from "@/lib/utils";
 import type { SerializedFinding } from "@/app/(shell)/today-client";
 import { CONTENT_CHANGE_TYPES } from "@/domains/scanning/content-change-types";
+import {
+  recentSiteChangesHeading,
+  RECENT_SITE_CHANGES_SUBTITLE,
+} from "@/lib/site-findings-labels";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -149,19 +153,22 @@ export function ChangeReview({ findings, onConfirm, onDismiss }: ChangeReviewPro
       id="change-review-section"
       className="rounded-lg border border-accent-primary/30 bg-accent-primary/5 p-4 scroll-mt-6"
     >
-      {/* Phase 6A.4 (2026-04-28) — collapsed-by-default accordion.
-          Pre-rename the section was always-open with the heading
+      {/* Phase 6A.4 (2026-04-28) → UX.6.2 (2026-05-07) — collapsed-by-default accordion.
+          Pre-Phase-6A.4 the section was always-open with the heading
           "N changes detected" + the subtitle "Confirmed changes are
           tracked for attribution", which conflated raw scan diffs
-          with operator-confirmed lifecycle changes. Now the heading
-          says these are scan diffs (not yet tracked), the subtitle
-          spells out the contract, and the cards stay tucked away
-          behind a one-click expand so they don't dominate the page.
-          Server actions for Confirm/Dismiss remain unchanged. */}
+          with operator-confirmed lifecycle changes. Phase 6A.4 made
+          it collapse + renamed it to "Scan diffs to review (N)" with
+          the "raw website differences" subtitle. UX.6.2 unified the
+          /today vocabulary around "site findings"; this surface is
+          a SUBSET (content & structure type only) so the heading
+          now reads "Recent site changes (N)" with a customer-safe
+          subtitle that no longer says "raw" or "scanner". Server
+          actions for Confirm/Dismiss remain unchanged. */}
       <details className="group">
         <summary
           className="flex items-start justify-between gap-3 cursor-pointer list-none select-none"
-          aria-label={`Scan diffs to review (${contentChanges.length})`}
+          aria-label={recentSiteChangesHeading(contentChanges.length)}
         >
           <div className="min-w-0">
             <div className="flex items-center gap-2">
@@ -172,12 +179,11 @@ export function ChangeReview({ findings, onConfirm, onDismiss }: ChangeReviewPro
                 ▸
               </span>
               <h2 className="text-sm font-semibold">
-                Scan diffs to review ({contentChanges.length})
+                {recentSiteChangesHeading(contentChanges.length)}
               </h2>
             </div>
             <p className="text-xs text-muted-foreground mt-0.5 ml-4 leading-relaxed">
-              These are raw website differences found by Beacon&apos;s scanner.
-              They are not tracked changes unless you confirm one.
+              {RECENT_SITE_CHANGES_SUBTITLE}
             </p>
           </div>
           <Link
@@ -185,7 +191,7 @@ export function ChangeReview({ findings, onConfirm, onDismiss }: ChangeReviewPro
             className="text-xs text-accent-primary hover:underline shrink-0"
             onClick={(e) => e.stopPropagation()}
           >
-            View all in Pages →
+            View all on Pages →
           </Link>
         </summary>
 

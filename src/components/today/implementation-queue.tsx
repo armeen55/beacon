@@ -45,19 +45,16 @@ export function TodayImplementationQueue({
   className,
 }: TodayImplementationQueueProps) {
   if (queue.length === 0) {
-    return (
-      <div
-        className={`rounded-lg border border-border/60 bg-surface-inset/30 px-4 py-3 ${className ?? ""}`}
-        data-today-implementation-queue="empty"
-      >
-        <p className="text-[12px] font-semibold text-foreground">
-          Nothing waiting on you.
-        </p>
-        <p className="text-[11px] text-muted-foreground mt-0.5 leading-relaxed">
-          Accepted edits live here until the next scan finds them on the page.
-        </p>
-      </div>
-    );
+    // UX.6.2 (2026-05-07) — empty-state compression. Pre-fix this
+    // rendered a styled card ("Nothing waiting on you. Accepted
+    // edits live here until the next scan finds them on the page.")
+    // that took ~3 lines of vertical space without driving any
+    // action. The TodayLifecycleStrip already shows the live-verified
+    // count chip + a small "· nothing waiting" muted suffix when all
+    // pending counts are zero, so the empty card is pure noise. Drop
+    // it entirely — operators don't need a card to tell them there's
+    // nothing to do.
+    return null;
   }
 
   const overflow = Math.max(totalPendingCount - queue.length, 0);

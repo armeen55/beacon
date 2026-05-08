@@ -635,7 +635,10 @@ export function TodayClient({
       )}
 
       {/* Tier 1 — Do Next (single card, deterministic priority).
-          ship_pending > decide_recommendation > review_scan_diffs > calm.
+          UX.6.2 (2026-05-07) — priority simplified after dropping
+          decide_recommendation (now owned by Command Center
+          NextBestActionCard above):
+          ship_pending > review_site_findings > calm.
           Logic locked in src/components/today/today-do-next-card.tsx. */}
       <TodayDoNextCard
         pendingQueue={lifecycleSummary?.queue ?? []}

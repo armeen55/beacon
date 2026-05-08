@@ -3,12 +3,13 @@
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { ActionCard, type ActionCardProps } from "./action-card";
+import { compactStripLabel } from "@/lib/site-findings-labels";
 
 export type FindingsStripData = {
   totalCount: number;
   criticalCount: number;
   importantCount: number;
-  /** Short human-readable breakdown by finding type, e.g. "12 missing FAQ schema \u00b7 8 low extractability". Optional \u2014 falls back to the generic count if absent. */
+  /** Short human-readable breakdown by finding type, e.g. "12 missing FAQ schema · 8 low extractability". Optional — falls back to the generic count if absent. */
   typeBreakdownLabel?: string | null;
 };
 
@@ -104,15 +105,21 @@ export function TodayActionQueue({
         </div>
       )}
 
-      {/* Findings strip — T2 (operator audit, 2026-05-05): default copy
-          is now a short summary ("N page issues — N urgent") with the
-          full type breakdown moved BEHIND the link. Pre-T2 the strip
-          rendered "533 schema missing for page type · 103 invalid
-          schema · 67 other" inline, which read like internal
-          diagnostics on the operator's first glance. The breakdown
-          still flows through `findings.typeBreakdownLabel` and is
-          available on /pages (and as the link's `title` tooltip on
-          hover for operators who want a quick peek). */}
+      {/* Findings strip — UX.6.2 (2026-05-07): unified vocabulary.
+          Pre-fix said "{N} page issues — {N} urgent", which was a
+          THIRD competing name for the same scan_findings layer that
+          also appeared as "scan diffs" on Do Next and "Scan diffs to
+          review" on the bottom accordion. Now reads
+          "{N} site findings · {M} important" via `compactStripLabel`,
+          matching the rest of /today's vocabulary. The full
+          type-breakdown (e.g. "12 missing FAQ schema · 8 low
+          extractability") still flows through
+          `findings.typeBreakdownLabel` as the hover-title tooltip.
+          T2 (2026-05-05) original behavior preserved: short summary
+          on default surface; deep breakdown on /pages.
+          Bonus: replaces a prior literal "·" rendering bug
+          where the JSX inserted the 6-character escape sequence
+          instead of a "·" middle dot. */}
       {findings.totalCount > 0 && (
         <Link
           href="/pages"
@@ -125,14 +132,19 @@ export function TodayActionQueue({
           title={findings.typeBreakdownLabel ?? undefined}
           data-findings-strip="true"
         >
-          <span className="text-foreground font-medium">
-            {findings.totalCount} page issue
-            {findings.totalCount !== 1 ? "s" : ""}
-            {findings.criticalCount > 0 && (
-              <span className="text-status-danger ml-1.5">
-                \u00b7 {findings.criticalCount} urgent
-              </span>
+          <span
+            className={cn(
+              "font-medium",
+              findings.criticalCount > 0
+                ? "text-status-danger"
+                : "text-foreground",
             )}
+          >
+            {compactStripLabel({
+              total: findings.totalCount,
+              important: findings.importantCount,
+              critical: findings.criticalCount,
+            })}
           </span>
           <span className="text-accent-primary font-medium shrink-0 ml-3">
             See on Pages →
