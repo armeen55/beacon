@@ -37,6 +37,7 @@ import type { MorningBriefData } from "@/domains/product/morning-brief";
 import { ChangeReview } from "@/components/today/change-review";
 import { VisibilityScoreChart } from "@/components/today/visibility-score-chart";
 import { VisibilityLeaderboard } from "@/components/today/visibility-leaderboard";
+import { AIVisibilityHero } from "@/components/today/ai-visibility-hero";
 import { FirstReadingWaiting } from "@/components/today/first-reading-waiting";
 import {
   CommandCenter,
@@ -367,6 +368,98 @@ export function TodayClient({
     };
   }, [pendingFindings]);
 
+  // UX.6.3 (2026-05-08) — derive AI Visibility hero props from existing
+  // visibility + enrichmentV2 data. Pure projection; no new math, no
+  // new I/O. Memoized on the same window the chart + leaderboard use
+  // so the hero re-binds when the operator switches 7d/14d/30d/60d.
+  const aiVisibilityHeroProps = useMemo(() => {
+    if (!visibilityData) return null;
+    const leaderboard =
+      visibilityData.leaderboardByMetricAndWindow?.composite[visibilityWindow] ??
+      visibilityData.leaderboardByMetric.composite ??
+      [];
+    const brandRow = leaderboard.find((e) => e.isOwned) ?? null;
+
+    // Latest sampled-day score from the composite series. We use the
+    // brand's leaderboard `score` (already window-averaged + composite)
+    // when the row is present so the hero's headline matches the
+    // leaderboard's headline for the same window. Falls back to latest
+    // chart point otherwise.
+    const series = visibilityData.brandSeriesByMetric.composite ?? [];
+    let latestPointDate: string | null = null;
+    for (let i = series.length - 1; i >= 0; i--) {
+      if (series[i].sampleSize > 0) {
+        latestPointDate = series[i].date;
+        break;
+      }
+    }
+
+    // Closest challenger by rank — the entity nearest to brand's rank
+    // (one ahead OR one behind), preferring "ahead" when both exist
+    // (the one pushing on you matters more than the one trailing).
+    const closestChallenger = (() => {
+      if (!brandRow) {
+        // No brand row — show the top-ranked competitor as a hint.
+        const top = leaderboard.find((e) => !e.isOwned) ?? null;
+        return top ? { name: top.name, score: top.score } : null;
+      }
+      const competitors = leaderboard.filter((e) => !e.isOwned);
+      if (competitors.length === 0) return null;
+      const ahead = competitors
+        .filter((e) => e.rank < brandRow.rank)
+        .sort((a, b) => b.rank - a.rank)[0];
+      const behind = competitors
+        .filter((e) => e.rank > brandRow.rank)
+        .sort((a, b) => a.rank - b.rank)[0];
+      const pick = ahead ?? behind ?? null;
+      return pick ? { name: pick.name, score: pick.score } : null;
+    })();
+
+    // Per-platform primary % from the enrichmentV2 sparkline window.
+    // Uses the LATEST non-null primaryRate point on each platform so
+    // a thin-sample day at the very end doesn't read as zero.
+    const platformPrimaryPct = (platform: string): number | null => {
+      const sparkline = enrichmentV2?.sparklines?.find(
+        (s) => s.platform === platform,
+      );
+      if (!sparkline) return null;
+      for (let i = sparkline.points.length - 1; i >= 0; i--) {
+        const r = sparkline.points[i].primaryRate;
+        if (r !== null) return Math.round(r * 100);
+      }
+      return null;
+    };
+
+    // Cross-platform sample state — derived from each platform's
+    // sparkline sampleStatus enum ("empty" | "thin" | "enough").
+    // Both platforms at "enough" → "full"; any platform thin/empty →
+    // "partial"; no sparkline data → undefined (don't show the badge).
+    const sampleState: "full" | "partial" | undefined = (() => {
+      const sparks = enrichmentV2?.sparklines ?? [];
+      const known = sparks.filter(
+        (s) => s.platform === "ChatGPT" || s.platform === "Perplexity",
+      );
+      if (known.length === 0) return undefined;
+      const allEnough = known.every((s) => s.sampleStatus === "enough");
+      return allEnough ? "full" : "partial";
+    })();
+
+    return {
+      brandName: visibilityData.brandName,
+      score: brandRow?.score ?? null,
+      delta: brandRow?.delta ?? null,
+      windowDays: brandRow?.deltaWindowDays ?? visibilityWindow,
+      rank: brandRow?.rank ?? null,
+      totalRanked: leaderboard.length,
+      closestChallenger,
+      currentSampledDays: brandRow?.currentSampledDays ?? 0,
+      latestReadingDate: latestPointDate,
+      chatgptPrimaryPct: platformPrimaryPct("ChatGPT"),
+      perplexityPrimaryPct: platformPrimaryPct("Perplexity"),
+      sampleState,
+    };
+  }, [visibilityData, visibilityWindow, enrichmentV2]);
+
   if (isDemoMode) {
     return (
       <div className="space-y-6">
@@ -578,40 +671,26 @@ export function TodayClient({
         ].filter((id) => id.startsWith("hurt-") || id.startsWith("win-"))}
       />
 
-      {/* Tier 1.5 — Visibility headline (Phase 6B.2, 2026-04-29).
-          The visibility chart + competitor leaderboard answer the
-          single question Beacon exists to answer: "is AI mentioning me
-          more or less, and how do I rank against the field." Pre-6B.2
-          this lived inside the collapsed metrics disclosure (Tier 6),
-          which buried the product's purpose under a click. Now it
-          sits between alerts and the Do Next card so the operator
-          sees orientation BEFORE action. The disclosure below still
-          carries enrichment + prompts depth for operators who want
-          to drill in. */}
+      {/* Tier 1.5 — Visibility headline (Phase 6B.2, 2026-04-29 →
+          UX.6.3, 2026-05-08).
+          UX.6.3 promotes AI Visibility into a true hero so the
+          operator gets the answer to Beacon's core question
+          ("How visible are we in AI answers, are we improving, and
+          who is beating us?") in one scan. The hero sits above the
+          chart + leaderboard pair, owns the section header copy, and
+          surfaces score / rank / closest challenger / sample as a
+          4-card metric strip + per-platform footer. The chart and
+          leaderboard sit below for drill-down detail.
+          Math + data source unchanged — the hero is pure presentation
+          over already-computed visibilityData + enrichmentV2 inputs. */}
       {visibilityData && (
         <section
-          className="space-y-3"
+          className="space-y-4"
           data-today-section="visibility-headline"
         >
-          {/* UX.5B.1 (2026-05-07) — Visibility hero header. Sits
-              above the chart + leaderboard pair so the operator sees
-              the product's core question framed before the data
-              renders. Visually connects to the Command Center via
-              matching uppercase-tracked-wide section header style. */}
-          <header
-            className="flex flex-wrap items-baseline justify-between gap-2"
-            data-today-section="visibility-hero-header"
-          >
-            <div>
-              <h2 className="text-[14px] font-semibold tracking-tight text-foreground">
-                AI Visibility
-              </h2>
-              <p className="text-[12px] text-muted-foreground">
-                How often {visibilityData.brandName} appears across
-                tracked AI answers.
-              </p>
-            </div>
-          </header>
+          {aiVisibilityHeroProps && (
+            <AIVisibilityHero {...aiVisibilityHeroProps} />
+          )}
           <div className="grid grid-cols-1 lg:grid-cols-[3fr_2fr] gap-4">
             <VisibilityScoreChart
               brandName={visibilityData.brandName}

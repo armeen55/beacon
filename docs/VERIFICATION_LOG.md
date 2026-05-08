@@ -7,6 +7,130 @@
 
 ---
 
+## 2026-05-08 — UX.6.3: AI Visibility hero promotion on /today
+
+After this morning's twin cron fixes (`c9d0ae9` UTC-day guard + `1d0a073` direct-CLI classifier) landed and May 8 data was confirmed green, operator approved UX.6.3. Goal: promote AI Visibility into a true hero so /today opens with a clear answer to Beacon's core question — "How visible are we in AI answers, are we improving, and who is beating us?"
+
+### Changes
+
+**NEW `src/components/today/ai-visibility-hero.tsx`** — pure presentation component (no hooks, no fetch, no event handlers, server-renderable). Renders:
+
+- Executive header: `AI Visibility` + `How often {brandName} appears across tracked AI answers.` (UX.5B.1 dynamic-brand copy preserved)
+- Optional `Full sample` / `Partial sample` badge (right-aligned, derived from cross-platform sparkline `sampleStatus`)
+- Lead sentence: `{brandName} is #N across tracked AI answers.` (or `{brandName} is being tracked across AI answers.` when no rank)
+- 4-card metric strip (`grid-cols-2 md:grid-cols-4`):
+  - **Visibility score**: `64.2%` headline · `+2.1 pts vs previous 14d` subline (positive=green, negative=red, neutral=muted; null delta → `vs previous 14d — limited data`)
+  - **Rank**: `#1` headline · `of 6 ranked` subline
+  - **Closest challenger**: name (24-char cap with ellipsis) · `49.3% visibility` subline
+  - **Sample**: `12 days` headline · `Latest May 8` subline (date formatted as month-short + day, no UTC leak)
+- Per-platform footer: `ChatGPT 42% primary · Perplexity 18% primary` + `Why this number?` link to `#today-metrics-disclosure`. Hidden entirely when both pcts are null (no orphan separator).
+- Stable data-attributes for telemetry: `data-today-section="ai-visibility-hero"`, `data-today-hero-lead="true"`, `data-today-hero-metric="score|rank|closest-challenger|sample"`, `data-today-hero-platforms="true"`, `data-today-hero-platform="chatgpt|perplexity"`, `data-today-hero-sample-state="full|partial"`.
+
+**`src/app/(shell)/today-client.tsx`** — derives `aiVisibilityHeroProps` in a `useMemo` over already-loaded `visibilityData` + `enrichmentV2` inputs (no new I/O, no math change). Computes:
+
+- `score` / `delta` / `windowDays` / `rank` / `currentSampledDays` from the brand row in `leaderboardByMetricAndWindow.composite[visibilityWindow]`
+- `latestReadingDate` from the latest `sampleSize > 0` point in `brandSeriesByMetric.composite`
+- `closestChallenger` — competitor nearest to brand's rank, preferring "ahead" (the one pushing on you) over "behind"
+- `chatgptPrimaryPct` / `perplexityPrimaryPct` from the latest non-null `primaryRate` point on each `enrichmentV2.sparklines` entry
+- `sampleState`: `"full"` when both platforms hit `sampleStatus="enough"`, else `"partial"`, else `undefined` (don't show the badge if we can't honestly call it)
+
+Memo deps: `[visibilityData, visibilityWindow, enrichmentV2]` so the hero re-binds when the chart's 7d/14d/30d/60d toggle changes or when enrichmentV2 sparklines refresh.
+
+The previous `<header>` block at the top of the visibility section (UX.5B.1) is dropped — the hero now owns the section's executive copy. The chart + leaderboard pair sits below, focused on detail. Section gap stays `space-y-4` so the hero doesn't crowd the chart.
+
+**`src/components/today/visibility-leaderboard.tsx`** — heading rename:
+
+- `Visibility Score Rank` → **`AI visibility leaderboard`**
+- `Who gets mentioned most often in your topic` → **`Who AI mentions most across tracked answers`**
+
+All other leaderboard internals unchanged: brand row highlight, top-5 + brand-row append, share-capture callout, T3.1 trust-label disclosure.
+
+**`src/components/viz/area-chart.tsx`** — fixed a real layout-shift bug exposed by the hero promotion:
+
+- Pre-fix the hover tooltip was wrapped in `{hoverIdx !== null && (<div className="mt-1 ...">...</div>)}` — the entire row was conditionally rendered. When the cursor entered the chart, the row appeared and pushed every downstream element (the visibility chart's "Compare competitors" / "Split by platform" checkboxes, then the chart's own footer) down by ~14px. Each hover caused a visible content jump.
+- Post-fix the row is unconditionally rendered with `min-h-[14px]`; only the CONTENT inside is gated on `hoverIdx !== null`. Stable layout regardless of hover state. Marker `data-area-chart-hover-row="true"` for invariants.
+- `aria-live="polite"` so screen readers announce hover updates without barging on focus.
+
+**Reconciled** `tests/architecture/ux5b-premium-hierarchy-contract.test.ts` UX.5B.1 invariants — the previous source-text marker `data-today-section="visibility-hero-header"` was dropped when the hero subsumed the header. New pins: `<AIVisibilityHero` is present, hero renders before chart in source order, chart + leaderboard preserved.
+
+### Tests
+
+NEW `src/components/today/ai-visibility-hero.test.tsx` (**22 behavioral tests**):
+- Happy path (Ritz mature data) — full hero with 12 sampled days, score 64.2%, rank #1, De Mattei challenger 49.3%, ChatGPT 42% / Perplexity 18% primary, Full sample badge.
+- Empty / first-reading edge cases — score=null, rank=null, closestChallenger=null, latestReadingDate=null all render honest "Awaiting…" sublines instead of fake zeros.
+- Partial-sample state, Full-sample state, no-sample-state → no orphan badge.
+- Delta cases: positive (green), negative (red), flat 0.0 (neutral, scoped tone check), null (limited data — no fake +0).
+- Per-platform footer: both / only ChatGPT / both null (no orphan separator).
+- No internal jargon (Supabase / cron / SQL / UTC / RLS / schema / tenant_id / observation_run absent from rendered text).
+- Truncation: 24-char cap fits "De Mattei Construction"; longer names truncate with ellipsis.
+
+NEW `tests/architecture/ux6-3-ai-visibility-hero-contract.test.ts` (**19 invariants**):
+- File exists; exports `AIVisibilityHero` + `AIVisibilityHeroProps`.
+- Hero is pure presentation: no useState/useEffect/useTransition/useReducer, no event handlers, no fetch / paid-API imports / runners, no mutations, not marked `"use client"`.
+- Owns executive copy (`AI Visibility` + dynamic `{brandName}` template).
+- All 4 metric data-attrs + lead + platforms-footer attrs pinned.
+- Lead sentence template uses `is #N across tracked AI answers` framing; first-reading fallback present; score subline uses `pts vs previous Nd` shape; null-delta uses honest "limited data" copy.
+- No internal jargon in copy.
+- today-client.tsx imports the hero, derives props in `useMemo([visibilityData, visibilityWindow, enrichmentV2])`, renders `<AIVisibilityHero>` ABOVE chart + leaderboard inside the visibility-headline section, gated by `aiVisibilityHeroProps != null` (no orphan render).
+- Section order: CC → visibility-headline → DoNext → strip → impl → AQ → wins → metrics → ChangeReview (operator-required hierarchy preserved).
+- Memo body has no fetch / adapter imports / runners / mutations.
+- Leaderboard heading renamed to "AI visibility leaderboard"; old "Visibility Score Rank" + "Who gets mentioned most often in your topic" gone from runtime JSX.
+- AreaChart hover row uses `min-h-[14px]` + stable `data-area-chart-hover-row="true"`; old conditionally-rendered-wrapper shape is gone.
+
+UPDATED `tests/architecture/ux5b-premium-hierarchy-contract.test.ts` — UX.5B.1 invariants reconciled (header marker → hero component pin).
+
+### Quality gates
+
+- `npm run typecheck` — CLEAN.
+- `npm run test` — **6,565 / 6,565 passing** (+62 vs morning baseline 6503; 22 new behavioral + 19 new invariants + 21 reconciled UX.5B / dependent tests aligned with new shape).
+- `npm run build` — green. All routes ƒ Dynamic.
+- `verify-tenant-data-integrity` — PASS. Ritz UNCHANGED 9896/16521/28.
+- `verify-observation-dedup-integrity` — PASS.
+- `verify-verdict-rematerialization-integrity` — PASS.
+- `npm run verify:brain-health` — YELLOW. 7 PASS + 1 WARN (queue-idle, pre-existing).
+- `.data/global/llm-budget.json` SHA `d36eed8c…` — byte-identical with this morning's cron-fix baseline.
+
+Zero OpenAI calls. Zero paid polling. Zero production data mutations. Zero new Supabase reads. Zero math changes — UX.6.3 is pure presentation over already-computed inputs. Zero touches to onboarding / cron / RLS / auth / billing.
+
+### What moved / what stayed
+
+**Moved (re-arranged):**
+- The visibility section's executive copy (`AI Visibility` + `How often {brand} appears…`) — was a plain `<header>`, now lives inside `<AIVisibilityHero>` along with the new metric strip + footer.
+- Brand-name rank framing — was implicit (operator had to read leaderboard to find their row), now explicit via lead sentence.
+- ChatGPT/Perplexity primary % — was buried inside `<EnrichmentV2 / WhereAIRanksYou>` (Tier 6 metrics disclosure), now also surfaced in the hero footer (kept in Tier 6 too — still drillable for fuller context).
+
+**Stayed (unchanged):**
+- Math + data sources — `computeVisibilityTimeSeries`, `computeLeaderboard`, `buildPlatformPrimaryRateSparklines` all unchanged. The hero is pure projection over their outputs.
+- Chart controls — 7d/14d/30d/60d tabs, Visibility/Mention/Citation toggle, Compare competitors checkbox, Split by platform checkbox, hurting-event annotations.
+- Leaderboard rows + share-capture callout + brand row highlight + WhyThisNumber trust disclosure — only the heading copy changed.
+- Command Center LatestReadingCard — still owns poll-health badges (different surface from the hero's metric metadata; they no longer fight because the hero owns the metric framing while CC owns the poll-status framing).
+- Tier 0–7 layout below the visibility section.
+
+### What to visually check on /today
+
+1. **Hero card top-of-section.** Should show: `AI Visibility` header + dynamic brand-name sub-copy, lead sentence (`Ritz Builders is #1 across tracked AI answers.`), 4-card strip (Visibility score / Rank / Closest challenger / Sample), per-platform footer with ChatGPT + Perplexity primary %, optional `Full sample` badge in top-right.
+2. **Chart + leaderboard sit below the hero**, not the other way around.
+3. **Leaderboard heading** says `AI visibility leaderboard` / `Who AI mentions most across tracked answers`.
+4. **Hover the chart.** The "Compare competitors" + "Split by platform" checkboxes should NOT shift up/down as the cursor enters/leaves. The hover label appears in a reserved row above the checkboxes.
+5. **Command Center LatestReadingCard** still shows poll-health badges (ok / partial / failed). No duplicate "Last read May 8" framing fighting the hero's "Latest May 8" metadata.
+6. **First-reading tenants** (no observations) — the hero short-circuits because `aiVisibilityHeroProps` derives to null when `visibilityData` is null. The `<FirstReadingWaiting>` early-return in TodayClient still wins for fresh tenants.
+
+### Friend-demo readiness
+
+/today now opens with the hero's clear answer to Beacon's core question. With UX.6.1 (trust restoration) + UX.6.2 (vocabulary cleanup) + UX.6.3 (hero promotion) all landed:
+
+- Brain readiness card no longer lies in production.
+- Pre-cron poll-status renders calm, not alarming.
+- Wins lead with the win, not the disclaimer.
+- Site findings vocabulary is unified across the page.
+- Recommendation duplication is gone.
+- Empty lifecycle compresses to a chip.
+- AI Visibility leads as the dashboard heartbeat.
+
+**The page is friend-demo ready** — pending operator visual verification on production. May-9 07:00 UTC scheduled cron will be the natural test of the full UTC-day-guard + direct-CLI-classifier fixes landing together; UX.6.3 itself doesn't depend on tomorrow's poll because the hero is pure projection over today's already-landed data.
+
+---
+
 ## 2026-05-08 — Verify-persistence false-fail fix: poll-health partitioner recognizes direct-CLI shape
 
 Companion to the morning's UTC-day-guard fix (commit `c9d0ae9`). After the operator clicked manual `workflow_dispatch`, the cron ran for 23m 15s and:

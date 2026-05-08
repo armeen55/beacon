@@ -67,14 +67,20 @@ export function VisibilityLeaderboard({
 
   return (
     <div className="rounded-lg border border-border/60 bg-surface-raised/30 px-5 pt-5 pb-4">
-      {/* Header */}
+      {/* Header — UX.6.3 (2026-05-08): renamed from "Visibility Score
+          Rank" / "Who gets mentioned most often in your topic" to the
+          executive copy "AI visibility leaderboard" / "Who AI mentions
+          most across tracked answers". The hero card above carries
+          the rank + score for the brand row; this leaderboard panel
+          provides the full ranked context (top-5 + brand row, share-
+          capture callouts, per-row delta arrows). */}
       <div className="flex items-start justify-between gap-3 mb-4">
         <div>
           <h2 className="text-[13px] font-semibold text-foreground tracking-tight">
-            Visibility Score Rank
+            AI visibility leaderboard
           </h2>
           <p className="text-[11px] text-muted-foreground mt-0.5">
-            Who gets mentioned most often in your topic
+            Who AI mentions most across tracked answers
           </p>
           {/* T3.1 — Trust Sprint score provenance disclosure. The
               leaderboard is "directional" because the brand row is

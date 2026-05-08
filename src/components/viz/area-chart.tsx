@@ -234,17 +234,30 @@ export function AreaChart({
         })}
       </svg>
 
-      {hoverIdx !== null && (
-        <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-[10px] animate-in fade-in duration-100">
-          <span className="text-muted-foreground font-medium">{labels[hoverIdx]}</span>
-          {processedSeries.map((s) => (
-            <span key={s.label} className="tabular-nums">
-              <span className={cn("font-semibold", s.color.replace("stroke-", "text-"))}>{s.data[hoverIdx].toLocaleString()}</span>
-              <span className="text-muted-foreground ml-1">{s.label}</span>
-            </span>
-          ))}
-        </div>
-      )}
+      {/* Hover tooltip — UX.6.3 (2026-05-08): reserved fixed-height
+          row so the layout doesn't shift when the cursor enters /
+          leaves the chart. Pre-fix this was conditionally rendered
+          (`hoverIdx !== null && ...`), which made downstream content
+          (e.g. the visibility chart's "Compare competitors / Split
+          by platform" checkbox row) jump up/down each hover. The
+          row now always exists; its content is conditional. */}
+      <div
+        className="mt-1 flex min-h-[14px] flex-wrap items-center gap-x-4 gap-y-1 text-[10px]"
+        data-area-chart-hover-row="true"
+        aria-live="polite"
+      >
+        {hoverIdx !== null && (
+          <>
+            <span className="text-muted-foreground font-medium">{labels[hoverIdx]}</span>
+            {processedSeries.map((s) => (
+              <span key={s.label} className="tabular-nums">
+                <span className={cn("font-semibold", s.color.replace("stroke-", "text-"))}>{s.data[hoverIdx].toLocaleString()}</span>
+                <span className="text-muted-foreground ml-1">{s.label}</span>
+              </span>
+            ))}
+          </>
+        )}
+      </div>
     </div>
   );
 }

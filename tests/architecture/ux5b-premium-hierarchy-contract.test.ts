@@ -32,24 +32,24 @@ const TODAY_SRC = readFileSync(TODAY_CLIENT, "utf8");
 const REC_SRC = readFileSync(REC_CLIENT, "utf8");
 const CC_SRC = readFileSync(COMMAND_CENTER, "utf8");
 
-describe("UX.5B.1 — /today visibility hero", () => {
-  it("renders an 'AI Visibility' headline section above the chart", () => {
-    // The hero header sits inside the visibility-headline section,
-    // BEFORE the <VisibilityScoreChart>.
-    expect(TODAY_SRC).toMatch(
-      /data-today-section="visibility-hero-header"/,
-    );
-    expect(TODAY_SRC).toMatch(/AI Visibility/);
-    // Sub-copy uses the dynamic brand name.
-    expect(TODAY_SRC).toMatch(
-      /How often \{visibilityData\.brandName\} appears across\s+tracked AI answers\./,
-    );
+describe("UX.5B.1 / UX.6.3 — /today visibility hero", () => {
+  it("renders the AIVisibilityHero above the chart (UX.6.3 promotion)", () => {
+    // UX.6.3 (2026-05-08) — promoted from a small header above the
+    // chart to a full hero card that owns the section's executive
+    // copy + 4-card metric strip + per-platform footer. The previous
+    // marker `data-today-section="visibility-hero-header"` was dropped
+    // when the hero subsumed the header. New marker:
+    // `data-today-section="ai-visibility-hero"` (set inside the
+    // AIVisibilityHero component).
+    expect(TODAY_SRC).toMatch(/<AIVisibilityHero/);
+    expect(TODAY_SRC).toMatch(/aiVisibilityHeroProps/);
+    // Brand-name copy still appears via the hero component's dynamic
+    // brandName prop (sourced from visibilityData.brandName).
+    expect(TODAY_SRC).toMatch(/visibilityData\.brandName/);
   });
 
-  it("hero header renders BEFORE the visibility chart in source order", () => {
-    const heroIdx = TODAY_SRC.indexOf(
-      'data-today-section="visibility-hero-header"',
-    );
+  it("hero renders BEFORE the visibility chart in source order", () => {
+    const heroIdx = TODAY_SRC.indexOf("<AIVisibilityHero");
     const chartIdx = TODAY_SRC.indexOf("<VisibilityScoreChart");
     expect(heroIdx).toBeGreaterThan(-1);
     expect(chartIdx).toBeGreaterThan(-1);
