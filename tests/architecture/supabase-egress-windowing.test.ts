@@ -178,17 +178,28 @@ describe("E4 — /diagnostics does NOT add a heavy observation read", () => {
   });
 });
 
-describe("E3 — page_snapshots read is bounded by LIMIT", () => {
-  it("supabase-backend caps page_snapshots at .limit(5000)", () => {
+describe("E3 / EGRESS-P0 — page_snapshots read is bounded by LIMIT", () => {
+  it("supabase-backend caps page_snapshots at LIMIT ≤ 5000 (EGRESS-P0 dropped to 500)", () => {
     const src = readFileSync(SUPABASE_BACKEND, "utf-8");
-    // The getPageSnapshots tenant impl must include a .limit(5000)
-    // call after .order(...).
-    const match = src.match(
-      /from\("page_snapshots"\)[\s\S]*?\.limit\(5000\)/,
-    );
+    // EGRESS-P0 (2026-05-07) — the cap was lowered from 5000 → 500
+    // after the Supabase egress incident. The page_snapshots query
+    // must still have an explicit .limit(N) where N is small enough
+    // to bound egress; pin both the existence of a limit and that
+    // it's ≤ 5000. (Negative pin against any future regression that
+    // removes the limit entirely.)
+    const limitMatches = [
+      ...src.matchAll(/from\("page_snapshots"\)[\s\S]*?\.limit\((\d+)\)/g),
+    ];
     expect(
-      match,
-      "page_snapshots tenant query must be capped at .limit(5000) — pre-E3 it was unbounded (E3)",
-    ).not.toBeNull();
+      limitMatches.length,
+      "page_snapshots tenant query must have a .limit(N) cap — pre-E3 it was unbounded",
+    ).toBeGreaterThan(0);
+    for (const m of limitMatches) {
+      const n = parseInt(m[1], 10);
+      expect(
+        n,
+        `page_snapshots .limit(${n}) exceeds the EGRESS-P0 cap of 5000`,
+      ).toBeLessThanOrEqual(5000);
+    }
   });
 });

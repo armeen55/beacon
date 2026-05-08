@@ -36,11 +36,19 @@ export default async function PromptDrilldownPage({
   await ensureCanonicalStoresSeeded();
 
   // Phase 4.9 (Sprint 4, 2026-04-24): fresh per-render canonical read.
+  // EGRESS-P0 (2026-05-07): bound the observation window. The page only
+  // shows the last 10 observations for the prompt anyway (line 57) so a
+  // 60-day window is plenty. Snapshots window not consumed here; tight.
+  const NOW_MS = Date.now();
+  const observationsSince = new Date(NOW_MS - 60 * 86_400_000).toISOString();
+  const snapshotsSince = new Date(NOW_MS - 1 * 86_400_000)
+    .toISOString()
+    .slice(0, 10);
   const {
     trackedPrompts,
     trackedEntities,
     promptAnswerObservations,
-  } = await loadFreshCanonicalData();
+  } = await loadFreshCanonicalData({ observationsSince, snapshotsSince });
 
   const prompt = trackedPrompts.find((p) => p.id === promptId);
   if (!prompt) notFound();

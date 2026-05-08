@@ -238,7 +238,10 @@ describe("Sprint 4 / Phase 4.9 — canonical-store fresh-per-render", () => {
       expect(loadQueueSrc).toMatch(
         /import\s+\{[^}]*loadFreshCanonicalData[^}]*\}\s+from\s+["']@\/storage\/canonical-store["']/,
       );
-      expect(loadQueueSrc).toMatch(/loadFreshCanonicalData\(\s*\)/);
+      // EGRESS-P0 (2026-05-07): load-queue now passes
+      // `{ observationsSince, snapshotsSince }`. Loosen the pin to
+      // accept any call form (matches the loosening on line ~315).
+      expect(loadQueueSrc).toMatch(/loadFreshCanonicalData\(/);
     });
 
     it("/prompts imports loadFreshCanonicalData AND does not import the module arrays", () => {
@@ -319,6 +322,10 @@ describe("Sprint 4 / Phase 4.9 — canonical-store fresh-per-render", () => {
       // and load-queue.ts must call loadFreshCanonicalData.
       // Sprint 7 Phase 7.3: page now passes `{ tenantId }`; relaxed
       // from empty-parens to any call form.
+      // EGRESS-P0 (2026-05-07): load-queue now passes
+      // `{ observationsSince, snapshotsSince }` to bound the read.
+      // Loosen this assertion the same way the others were already
+      // loosened — accept any call form, not just empty parens.
       expect(SRC.recommendations).toMatch(/loadLiveRecommendationQueue\(/);
       const loadQueueSrc = readFileSync(
         resolve(
@@ -327,7 +334,7 @@ describe("Sprint 4 / Phase 4.9 — canonical-store fresh-per-render", () => {
         ),
         "utf8",
       );
-      expect(loadQueueSrc).toMatch(/loadFreshCanonicalData\(\s*\)/);
+      expect(loadQueueSrc).toMatch(/loadFreshCanonicalData\(/);
     });
   });
 

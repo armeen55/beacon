@@ -239,7 +239,10 @@ describe("UX.2 — today-data.ts wiring", () => {
   });
 
   it("returns commandCenter + commandCenterIsOperator on the payload", () => {
-    expect(TODAY_DATA_SRC).toMatch(/commandCenter:\s*resolveCommandCenterFailSoft\(\)/);
+    // EGRESS-P0 (2026-05-07) — wrapped in a kill-switch ternary
+    // (BEACON_COMMAND_CENTER_ENABLED=false short-circuits to the empty
+    // shape). Pin the resolver call still appears in the source.
+    expect(TODAY_DATA_SRC).toMatch(/resolveCommandCenterFailSoft\(\)/);
     expect(TODAY_DATA_SRC).toMatch(
       /commandCenterIsOperator:\s*commandCenterIsOperatorMode\(\)/,
     );

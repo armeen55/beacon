@@ -56,7 +56,11 @@ describe("Sprint 7 Phase 7.5b Commit 1C — pushdown invariant", () => {
     expect(selects.length).toBeGreaterThan(0);
 
     for (const m of selects) {
-      const window = body.slice(m.index ?? 0, (m.index ?? 0) + 200);
+      // EGRESS-P0 (2026-05-07) — widened the look-ahead window from 200
+      // → 1200 chars. The page_snapshots projection is now a
+      // multi-line .select("id, page_id, ...") that's ~600 chars long;
+      // the `.eq("tenant_id", tenantId)` lives just past it.
+      const window = body.slice(m.index ?? 0, (m.index ?? 0) + 1200);
       const hasTenantIdEq =
         window.includes('.eq("tenant_id", tenantId)') ||
         window.includes(".eq('tenant_id', tenantId)");

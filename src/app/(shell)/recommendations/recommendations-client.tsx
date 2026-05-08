@@ -160,13 +160,23 @@ export function RecommendationsClient({
     [stripRows],
   );
 
+  // EGRESS-P0 (2026-05-07) — kill switch for the Executive Strip.
+  // Set NEXT_PUBLIC_BEACON_RECOMMENDATIONS_STRIP_ENABLED=false to hide
+  // the strip without a redeploy of the table. Defense-in-depth even
+  // though the strip is pure-render over already-loaded `allRows`
+  // (no new data fetch). Default: enabled.
+  const stripEnabled =
+    process.env.NEXT_PUBLIC_BEACON_RECOMMENDATIONS_STRIP_ENABLED !== "false";
+
   return (
     <>
-      <ExecutiveStrip
-        rows={stripRows}
-        topPick={stripTopPick}
-        evidence={stripEvidence}
-      />
+      {stripEnabled ? (
+        <ExecutiveStrip
+          rows={stripRows}
+          topPick={stripTopPick}
+          evidence={stripEvidence}
+        />
+      ) : null}
       <Toolbar
         search={search}
         onSearchChange={setSearch}

@@ -508,27 +508,26 @@ export const supabaseBackend: SeedDataRepository = {
       //
       // E3 (operator audit, 2026-05-05) — bounded read.
       //
-      // Pre-E3 the query was unbounded with no row cap, then deduped
-      // in JS. For a tenant with ~50 pages multiplied by ~100
-      // snapshots each, that is 5000 rows times ~3KB equals 15MB
-      // pulled across the wire every time, only to discard 4950 rows
-      // after the dedupe.
-      //
-      // Post-E3 the query caps at LIMIT 5000 (covers ~50 pages times
-      // ~100 historical snapshots each, comfortable for current
-      // single-tenant Ritz scale). Order DESC plus dedupe-by-page_id
-      // still surfaces the LATEST snapshot per page. If a tenant
-      // grows past this bound, the dedupe will silently miss the
-      // oldest snapshots — revisit once production scale demands a
-      // server-side DISTINCT-ON (page_id) RPC.
+      // EGRESS-P0 (2026-05-07) — Supabase egress incident. Cap dropped
+      // 5000 → 500 (a single tenant with 50 pages needs at most 50 deduped
+      // rows; 500 is a 10x safety margin without leaking egress). Switched
+      // from `select("*")` to an explicit projection that omits the heavy
+      // payload fields (`body_paragraph_sample`, `card_texts`,
+      // `internal_links`, `schema_entity_names`, `schema_validation_warnings`)
+      // — these fields can be 5-15KB per row, dominating wire cost. The
+      // dropped fields are NOT consumed by /today / /recommendations /
+      // /changes default surfaces; if a future consumer needs them, fetch
+      // via a separate scoped helper.
       getPageSnapshots: async () => {
         const t0 = Date.now();
         const { data, error } = await getSupabaseAdmin()
           .from("page_snapshots")
-          .select("*")
+          .select(
+            "id, page_id, observation_run_id, url, canonical_url, fetched_at, http_status, title, meta_description, h1, h2_list, h3_count, faqs, schema_types, location_terms, service_terms, internal_link_count, external_link_count, word_count, robots_meta, has_canonical_mismatch, content_hash, headings_hash, faq_hash, schema_hash, extraction_certainty, faq_schema_block_count, structural_warnings, table_count, h3_list, tenant_id",
+          )
           .eq("tenant_id", tenantId)
           .order("fetched_at", { ascending: false })
-          .limit(5000);
+          .limit(500);
         if (error)
           throw new Error(
             `Supabase query failed on page_snapshots: ${error.message}`,
@@ -542,12 +541,12 @@ export const supabaseBackend: SeedDataRepository = {
           }
         }
         logEgress({
-          table: "page_snapshots[capped+dedup]",
+          table: "page_snapshots[capped+dedup+projected]",
           rows: latest.length,
           data: data ?? [],
           durationMs: Date.now() - t0,
           tenantId,
-          filter: "limit=5000 dedup_by=page_id",
+          filter: "limit=500 dedup_by=page_id projected_columns",
         });
         return latest;
       },

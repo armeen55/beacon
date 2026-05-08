@@ -154,8 +154,20 @@ export async function loadLiveRecommendationQueue(
   );
   if (respSeedRes.error) errors.push(respSeedRes.error);
 
+  // EGRESS-P0 (2026-05-07) — bound the observations window. Without a
+  // `since`, this loads ALL observations from prompt_answer_observations
+  // (the largest table in the system) on every /recommendations
+  // navigation. Recommendations only need recent activity to evaluate;
+  // 60 days covers every confidence/dedup window the engine consults.
+  // Snapshots window is wider (120 days) to keep verdict-baseline math
+  // honest. Pinned by tests/architecture/egress-bounded-reads-p0.test.ts.
+  const NOW_MS = Date.now();
+  const observationsSince = new Date(NOW_MS - 60 * 86_400_000).toISOString();
+  const snapshotsSince = new Date(NOW_MS - 120 * 86_400_000)
+    .toISOString()
+    .slice(0, 10);
   const freshCanonRes = await safeCall(
-    () => loadFreshCanonicalData(),
+    () => loadFreshCanonicalData({ observationsSince, snapshotsSince }),
     {
       trackedPrompts: [],
       promptAnswerObservations: [],

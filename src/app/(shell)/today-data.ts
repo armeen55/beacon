@@ -203,6 +203,25 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
   // is set — fail-loud posture.
   const tenantId = await currentTenantId();
 
+  // EGRESS-P0 (2026-05-07) — single-render memoization for
+  // page_snapshots. Pre-fix the table was fetched twice per /today
+  // render (top-pick page-inventory + general use), pulling the
+  // capped+projected ~500-row payload twice. Now both call sites
+  // share one promise.
+  let _pageSnapshotsPromise: Promise<
+    Awaited<ReturnType<ReturnType<ReturnType<typeof getRepository>["forTenant"]>["getPageSnapshots"]>>
+  > | null = null;
+  const getPageSnapshotsShared = (): Promise<
+    Awaited<ReturnType<ReturnType<ReturnType<typeof getRepository>["forTenant"]>["getPageSnapshots"]>>
+  > => {
+    if (!_pageSnapshotsPromise) {
+      _pageSnapshotsPromise = getRepository()
+        .forTenant(tenantId)
+        .getPageSnapshots();
+    }
+    return _pageSnapshotsPromise;
+  };
+
   // Sprint 7 Phase 7.8e-1 (2026-04-26) — seed-data exports are now cached
   // async getters; resolve once at the top of the render so the body
   // below can use the arrays as local consts. 7.8e-3 (2026-04-26) added
@@ -529,9 +548,12 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
       // Sprint 7 Phase 7.5c/3 (2026-04-25) — replaced dynamic import of
       // module-level `allPages` with the lazy tenant-scoped function.
       const inventoryPages = await getOwnedPages();
-      const repoForInventory = getRepository().forTenant(tenantId);
-      const pageSnapshotsForInventory =
-        await repoForInventory.getPageSnapshots();
+      // EGRESS-P0 (2026-05-07) — page_snapshots was previously fetched
+      // twice per /today render (once here, once below for general
+      // use), pulling ~50MB twice from the wire. Hoisted to a single
+      // shared promise via getPageSnapshotsShared() — same tenant repo
+      // backs both call sites, so the result is identical.
+      const pageSnapshotsForInventory = await getPageSnapshotsShared();
       const pageInventoryForTopPick = buildPageInventory({
         pages: inventoryPages,
         snapshots: pageSnapshotsForInventory,
@@ -577,7 +599,9 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
   const scanOverdue = isScanOverdue(lastCrawlRun?.completed_at ?? null, scanSettings);
 
   const repo = getRepository().forTenant(tenantId);
-  const pageSnapshots = await repo.getPageSnapshots();
+  // EGRESS-P0 (2026-05-07) — share the page_snapshots fetch with the
+  // top-pick path above (~50MB savings per /today render).
+  const pageSnapshots = await getPageSnapshotsShared();
   const guardrailAlerts = await repo.getGuardrailAlerts();
 
   // Phase 6A.7 (2026-04-28) — lifecycle status strip + implementation queue.
@@ -2452,7 +2476,15 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
     // .data/tenants/<slug>/brain/. Pure read; cards render their own
     // empty states when fields are null. The mature-tenant render is
     // unchanged when both files are missing.
-    commandCenter: resolveCommandCenterFailSoft(),
+    //
+    // EGRESS-P0 (2026-05-07) — kill-switch env: set
+    // BEACON_COMMAND_CENTER_ENABLED=false to skip the resolver +
+    // suppress the section render. Defense-in-depth even though the
+    // resolver only reads local JSON (no Supabase egress impact).
+    commandCenter:
+      process.env.BEACON_COMMAND_CENTER_ENABLED === "false"
+        ? { hasAnyData: false, brain: null, manifest: null }
+        : resolveCommandCenterFailSoft(),
     /** UX.2 — operator-mode flag for the small /diagnostics/brain link
      *  at the bottom of the Command Center. */
     commandCenterIsOperator: commandCenterIsOperatorMode(),

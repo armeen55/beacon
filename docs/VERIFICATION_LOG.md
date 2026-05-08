@@ -7,6 +7,114 @@
 
 ---
 
+## 2026-05-07 — EGRESS-P0: emergency Supabase egress mitigations
+
+P0 incident. Operator screenshot showed Supabase Free Plan egress at **15.52 GB / 5 GB** (3.1× over quota; grace until June 6). Vercel logs showed:
+- `Error: Supabase query failed on page_snapshots: canceling statement due to statement timeout` on `/today` (twice in successive renders)
+- `[load-queue] fetch fresh canonical data failed: Supabase query failed on prompt_answer_observations: canceling statement due to statement timeout` on `/recommendations`
+- `[AuthApiError]: Too many concurrent token refresh requests on the same session or refresh token` (auth-loop noise from rapid prefetch hammering)
+- `[today] firstReading: currentTenant() threw — Unknown tenant: tenant-ritz-founder. Available: (none)` (already fail-soft; not the cause — `.data/global/tenants.json` is gitignored, so prod relies on env fallback that's also missing → caught by the try/catch I added in Gap F.1)
+- Same routes repeating fires at the same millisecond → Next.js Link prefetch storming
+
+Diagnosis: the timeouts are the smoking gun. The recent UX work (Command Center reads disk JSON only; Executive Strip uses already-loaded rows) was NOT the cause. Existing route loaders had unbounded reads on the two heaviest tables.
+
+### Root cause
+
+| Route | Loader | Bug |
+|---|---|---|
+| `/recommendations` | `src/domains/recommendations/load-queue.ts:158` | `loadFreshCanonicalData()` called with **no args** → loaded ALL of `prompt_answer_observations` + ALL of `daily_metric_snapshots` on every navigation. |
+| `/settings/prompts` | `src/app/(shell)/settings/prompts/page.tsx:21` | Same — bare `loadFreshCanonicalData()` despite the page only consuming `trackedPrompts`. |
+| `/prompts/[id]` | `src/app/(shell)/prompts/[id]/page.tsx:43` | Same — bare `loadFreshCanonicalData()` despite the page only showing the last 10 observations for the prompt. |
+| `/today` | `src/app/(shell)/today-data.ts:534, 580` | Called `getPageSnapshots()` **twice per render**. The tenant-scoped variant was capped at LIMIT 5000 with `select("*")` — including 5-15KB-per-row payload fields (`body_paragraph_sample`, `card_texts`, `internal_links`, `schema_entity_names`, `schema_validation_warnings`). ~50 MB pulled per call, called twice → ~100 MB per /today render. |
+| `/today` (combined w/ /recommendations) | repeated route prefetches by Next.js Link | 4-5 routes prefetched at the same millisecond → multiplied the egress per navigation. |
+
+### Worst offending routes (ranked by estimated egress)
+
+| Rank | Route × table | Est. before | Est. after | Reduction |
+|---|---|---|---|---|
+| 1 | `/today × page_snapshots × 2 calls` | ~100 MB / render | ~5 MB / render | **~95 MB / render** |
+| 2 | `/recommendations × prompt_answer_observations` | ~30-50 MB (full history) / render | ~2-5 MB (60-day) / render | **~25-45 MB / render** |
+| 3 | `/recommendations × daily_metric_snapshots` | ~10-20 MB (full history) / render | ~3-6 MB (120-day) / render | **~7-14 MB / render** |
+| 4 | `/settings/prompts × prompt_answer_observations` | ~30-50 MB (full history) / render | ~0.5 MB (1-day) / render | **~30-50 MB / render** |
+| 5 | `/prompts/[id] × prompt_answer_observations` | ~30-50 MB (full history) / render | ~2-5 MB (60-day) / render | **~25-45 MB / render** |
+
+Conservative estimate of total reduction per typical 4-route prefetch storm: **180-260 MB → 12-22 MB**, roughly **10-15× lower** per page navigation.
+
+### What changed
+
+**MODIFIED `src/domains/recommendations/load-queue.ts`** — `loadFreshCanonicalData()` now called with `{ observationsSince: 60d, snapshotsSince: 120d }`. The recommendations engine only consults recent activity to evaluate confidence/dedup windows; 60 days covers every gate.
+
+**MODIFIED `src/app/(shell)/settings/prompts/page.tsx`** — added `SETTINGS_PROMPTS_OBS_WINDOW_DAYS = 1` + `SETTINGS_PROMPTS_SNAP_WINDOW_DAYS = 1`. Page only renders the prompts list; the parallel obs/snapshot reads inside `loadFreshCanonicalData` are now near-zero payload.
+
+**MODIFIED `src/app/(shell)/prompts/[id]/page.tsx`** — added a 60-day observation window. Page already slices `.slice(0, 10)` after the read, so 60 days is plenty.
+
+**MODIFIED `src/lib/persistence/repositories/supabase-backend.ts`** — tenant-scoped `getPageSnapshots`:
+- LIMIT cap dropped from `5000` → `500` (single tenant has at most ~50 deduped pages; 500 is 10× safety).
+- `.select("*")` replaced with an explicit column projection that omits the 5-15KB-per-row heavy payload fields: `body_paragraph_sample`, `card_texts`, `internal_links`, `schema_entity_names`, `schema_validation_warnings`. These fields are consumed only by SCAN-PATH code (which reads from disk JSON, not this Supabase backend) — render paths don't need them.
+- New egress log marker: `page_snapshots[capped+dedup+projected]`.
+
+**MODIFIED `src/app/(shell)/today-data.ts`** — added `getPageSnapshotsShared()` helper that memoizes the page_snapshots fetch within a single /today render. Both prior call sites (top-pick page-inventory + general use) now share one promise. Net: 2 fetches → 1 fetch per render.
+
+**MODIFIED `src/app/(shell)/today-data.ts`** — added `BEACON_COMMAND_CENTER_ENABLED=false` kill switch. When set, returns the empty `CommandCenterData` shape without calling the resolver. Defense in depth (the resolver only reads disk JSON; no Supabase egress impact) but gives the operator an immediate disable lever.
+
+**MODIFIED `src/app/(shell)/recommendations/recommendations-client.tsx`** — added `NEXT_PUBLIC_BEACON_RECOMMENDATIONS_STRIP_ENABLED=false` kill switch. When set, hides the Executive Strip (table still renders normally). Defense in depth (the strip is pure-render over already-loaded `allRows`).
+
+### Tests
+
+**NEW `tests/architecture/egress-bounded-reads-p0.test.ts`** (18 invariants):
+- /recommendations load-queue uses `observationsSince + snapshotsSince` and the 60-day window literal `60 * 86_400_000`.
+- /settings/prompts uses `SETTINGS_PROMPTS_OBS_WINDOW_DAYS = 1` + `SETTINGS_PROMPTS_SNAP_WINDOW_DAYS = 1`.
+- /prompts/[id] passes `observationsSince` with 60-day window.
+- Tenant-scoped `getPageSnapshots` LIMIT extracted from source = `500` (regex parses the literal).
+- Tenant-scoped `getPageSnapshots` no longer uses `select("*")` and explicitly omits all 5 heavy columns.
+- Egress log marker `page_snapshots[capped+dedup+projected]` present.
+- /today memoizes via `getPageSnapshotsShared`; both call sites use the helper; helper itself contains exactly one `.getPageSnapshots()` call.
+- Command Center kill switch wired with empty-shape short-circuit.
+- Recommendations Strip kill switch wired with `stripEnabled ? <ExecutiveStrip> : null`.
+- Negative sweep: no bare `loadFreshCanonicalData()` in any route loader.
+
+**MODIFIED `tests/architecture/supabase-egress-windowing.test.ts`** — relaxed the `LIMIT 5000` pin to `LIMIT ≤ 5000` (so EGRESS-P0's drop to 500 passes); kept the negative pin requiring some `.limit(N)` to exist.
+
+**MODIFIED `tests/persistence/tenant-repository-pushdown.test.ts`** — widened the look-ahead window from 200 → 1200 chars after `.select(` (the new multi-line column projection is ~600 chars long; the `.eq("tenant_id", tenantId)` lives just past it).
+
+**MODIFIED `tests/architecture/today-command-center-contract.test.ts`** — relaxed the `commandCenter:` payload pin to allow either the bare resolver call or the kill-switch ternary.
+
+**MODIFIED `tests/routes/canonical-store-fresh.test.ts`** — relaxed the load-queue pin from `loadFreshCanonicalData(\s*)` (empty parens only) to `loadFreshCanonicalData(` (any call form), matching the loosening already in place for other render paths.
+
+### Quality gates run
+
+| Gate | Result |
+|------|--------|
+| `npm run typecheck` | CLEAN |
+| `npm run test` (6354 tests) | 6354 PASS (+18 vs UX.5B baseline 6336) |
+| Targeted (egress invariants) | 18/18 PASS |
+| `npm run build` | exit 0 |
+| `verify-tenant-data-integrity` | PASS — Ritz row counts UNCHANGED (9896/16521/28) |
+| `verify-observation-dedup-integrity` | PASS |
+| `verify-verdict-rematerialization-integrity` | PASS — drift=0 |
+| `npm run verify:brain-health` | YELLOW — 7 PASS / 1 WARN (queue idle, pre-existing) |
+| LLM budget SHA byte-identical | YES — `5303c16f04…` unchanged |
+
+### Production navigation expectation post-deploy
+
+After Vercel deploys this commit:
+- `/today` should stop hitting the page_snapshots statement-timeout (one call instead of two; ~5 MB instead of ~100 MB; projected columns fit easily within Postgres timeout).
+- `/recommendations` should stop hitting the prompt_answer_observations statement-timeout (60-day window instead of all-history).
+- `/settings/prompts` and `/prompts/[id]` similarly bounded.
+- Auth-loop "Too many concurrent token refresh requests" should subside as fewer routes hang waiting for slow queries — the prefetch storm becomes lighter on the auth path.
+- **Egress drop estimate**: 10–15× lower per page navigation. Should bring the daily egress trajectory back well under the Free Plan 5 GB cap.
+
+### Remaining decisions for the operator
+
+1. **Vercel env vars**: Set `BEACON_COMMAND_CENTER_ENABLED=false` and `NEXT_PUBLIC_BEACON_RECOMMENDATIONS_STRIP_ENABLED=false` if the Vercel deploy is still timing out — these kill switches turn off the new UX surfaces immediately without a redeploy. (My investigation suggests the new UX is NOT the cause, but the switches are there as defense.)
+2. **Supabase upgrade decision**: Even with these mitigations, if the operator plans to onboard customer-2 (doubling the load) OR the daily cron writes back through observations push more egress, upgrading to Supabase Pro ($25/mo, 250 GB egress) provides comfortable headroom. The free plan is genuinely tight for a system polling 100 prompts × 2 platforms daily = ~200 observations/day × ~365 days × 2KB/row = ~150 MB/year of new data, plus all the read traffic. Recommend Pro upgrade as the durable fix even though P0 mitigations should resolve the acute incident.
+
+### Out of scope (deliberate per brief)
+
+- F.2 immediate-poll trigger / billing / RLS/auth / Profound cleanup / more onboarding / friend-test docs / paid APIs / OpenAI calls / production data mutations / broad refactors.
+
+---
+
 ## 2026-05-07 — Operator Experience Sprint UX.5B: premium hierarchy on /today + /recommendations
 
 Continuation of the Operator Experience Sprint. UX.5A audit confirmed local + remote at `1f1b95b` with `/signup` rendering Gap B branding on production (`https://beacon-bice.vercel.app`); could NOT directly verify Command Center via WebFetch (auth-gated; only server-rendered HTML is reachable). Proceeded optimistically per the operator's brief ("If visible, continue immediately") — operator retains direct visual access to confirm.
