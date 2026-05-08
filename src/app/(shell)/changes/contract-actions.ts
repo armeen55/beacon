@@ -15,6 +15,7 @@ import {
   type SourceInputType,
 } from "@/domains/changelog/change-contract";
 import { absoluteUrlForPath } from "@/lib/site-config";
+import { currentTenantId } from "@/lib/tenant-context";
 
 export type VerificationCheckRow = {
   id: string;
@@ -370,7 +371,7 @@ export async function createChangeContract(
   };
 
   (await getChangeContracts()).push(contract);
-  await persistChangeContracts();
+  await persistChangeContracts(await currentTenantId());
   revalidatePath("/", "layout");
 
   log.info("Action completed", { action, durationMs: Date.now() - t0 });
@@ -529,7 +530,7 @@ export async function verifyChangeContract(
   contract.verifiedAt = new Date().toISOString();
   contract.updatedAt = contract.verifiedAt;
 
-  await persistChangeContracts();
+  await persistChangeContracts(await currentTenantId());
   revalidatePath("/", "layout");
 
   log.info("Action completed", { action, durationMs: Date.now() - t0 });

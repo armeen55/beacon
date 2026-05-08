@@ -158,10 +158,10 @@ export async function persistPatternEvidence(): Promise<void> {
   await writeStore("pattern-evidence", await getPatternEvidence());
 }
 
-export async function persistPageIssues(): Promise<void> {
+export async function persistPageIssues(tenantId: string): Promise<void> {
   const pageIssues = await getPageIssues();
   await writeStore("page-issues", pageIssues);
-  await syncPageIssues(pageIssues);
+  await syncPageIssues(pageIssues, tenantId);
 }
 
 export function _resetIssuesStateForTests(): void {

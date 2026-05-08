@@ -167,7 +167,7 @@ export async function runProfoundImport(
 
   // Phase 1: Entity seed
   const { entities, ownedDomains, domainToEntityId } = buildEntitySeed(accountId);
-  await replaceTrackedEntities(entities);
+  await replaceTrackedEntities(entities, tenantId);
 
   // Phase 2: Prompts — merge all prompt-shaped CSVs + existing store
   let mergedPrompts = [...(await getTrackedPrompts())];
@@ -176,7 +176,7 @@ export async function runProfoundImport(
     warnings.push(...pr.warnings);
     mergedPrompts = mergeById(mergedPrompts, pr.prompts, true);
   }
-  await replaceTrackedPrompts(mergedPrompts);
+  await replaceTrackedPrompts(mergedPrompts, tenantId);
 
   const promptLookup = new Map<string, string>();
   for (const p of mergedPrompts) {
@@ -401,6 +401,7 @@ export async function runProfoundImport(
     const summaries = await materializePageVisibility(
       citationIndex,
       allSnapshots,
+      tenantId,
       materializedOutcomes,
     );
     pageVisibilityCount = summaries.length;

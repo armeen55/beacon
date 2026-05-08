@@ -536,7 +536,7 @@ export async function resetExperiment(
   await writeStore("import-runs", []);
   await writeStore("action-states", []);
   await writeStore("brief-states", []);
-  await persistCandidateLinks();
+  await persistCandidateLinks(await currentTenantId());
   if (!options.preserveTruthLabels) {
     await persistTruthLabels();
   }
@@ -700,13 +700,20 @@ async function dualWriteImportedEntities(
       );
       break;
     case "opportunities":
-      // Phase 7.7b Commit 2 — `syncOpportunities` not yet converted (Tier
-      // classification pending; see plan §G). Stays unscoped for now.
-      await syncOpportunities((await getOpportunities()).filter(isImported));
+      // Phase 1 Stage B (2026-05-09): converted; tenant_id now stamped via
+      // tenantizeRows. Backfill migration:
+      // 2026-05-09_phase1_stage_b_c_tenant_id_repair.sql.
+      await syncOpportunities(
+        (await getOpportunities()).filter(isImported),
+        tenantId,
+      );
       break;
     case "competitors":
-      // Phase 7.7b Commit 2 — same as opportunities; unscoped pending audit.
-      await syncCompetitors((await getCompetitors()).filter(isImported));
+      // Phase 1 Stage B (2026-05-09): converted, same as opportunities.
+      await syncCompetitors(
+        (await getCompetitors()).filter(isImported),
+        tenantId,
+      );
       break;
     case "reviews":
       break;

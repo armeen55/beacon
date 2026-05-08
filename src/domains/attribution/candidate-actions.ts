@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { log } from "@/lib/logger";
 import { getResults } from "@/lib/seed-data.server";
 import { generateId, now } from "@/lib/actions";
+import { currentTenantId } from "@/lib/tenant-context";
 import {
   getCandidateLinks,
   getTruthLabels,
@@ -56,7 +57,7 @@ export async function confirmCandidate(
     });
   }
 
-  await persistCandidateLinks();
+  await persistCandidateLinks(await currentTenantId());
   revalidatePath("/", "layout");
   log.info("Action completed", { action, durationMs: Date.now() - t0 });
   return { success: true };
@@ -90,7 +91,7 @@ export async function rejectCandidate(
     });
   }
 
-  await persistCandidateLinks();
+  await persistCandidateLinks(await currentTenantId());
   revalidatePath("/", "layout");
   log.info("Action completed", { action, durationMs: Date.now() - t0 });
   return { success: true };
@@ -128,7 +129,7 @@ export async function rejectAllCandidates(
     }
   }
 
-  await persistCandidateLinks();
+  await persistCandidateLinks(await currentTenantId());
   revalidatePath("/", "layout");
   log.info("Action completed", { action, durationMs: Date.now() - t0 });
   return { success: true };
@@ -264,8 +265,9 @@ export async function lockDecision(
     }
   }
 
-  await persistEventDecisions();
-  await persistCandidateLinks();
+  const tenantId = await currentTenantId();
+  await persistEventDecisions(tenantId);
+  await persistCandidateLinks(tenantId);
   revalidatePath("/", "layout");
   log.info("Action completed", { action, durationMs: Date.now() - t0 });
   return { success: true };

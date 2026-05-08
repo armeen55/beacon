@@ -341,28 +341,44 @@ export async function syncChangelogEntries(
   await dualWriteUpsert("changelog_entries", mapped, "id");
 }
 
-export async function syncOpportunities(rows: Opportunity[]): Promise<void> {
-  await dualWriteUpsert("opportunities", rows as unknown as AnyRow[], "id");
+// Phase 1 Stage B (2026-05-09): tenantId is required. The migration
+// `2026-05-09_phase1_stage_b_c_tenant_id_repair.sql` adds tenant_id to
+// these tables; tenantizeRows stamps it on every row. CHECK constraint
+// (DB-side) catches any row that bypasses this helper.
+export async function syncOpportunities(
+  rows: Opportunity[],
+  tenantId: string,
+): Promise<void> {
+  const stamped = tenantizeRows(rows, tenantId, "opportunities");
+  await dualWriteUpsert("opportunities", stamped as unknown as AnyRow[], "id");
 }
 
-export async function syncCompetitors(rows: Competitor[]): Promise<void> {
-  await dualWriteUpsert("competitors", rows as unknown as AnyRow[], "id");
+export async function syncCompetitors(
+  rows: Competitor[],
+  tenantId: string,
+): Promise<void> {
+  const stamped = tenantizeRows(rows, tenantId, "competitors");
+  await dualWriteUpsert("competitors", stamped as unknown as AnyRow[], "id");
 }
 
 export async function syncEventDecisions(
   rows: EventDecision[],
+  tenantId: string,
 ): Promise<void> {
+  const stamped = tenantizeRows(rows, tenantId, "attribution_decisions");
   await dualWriteUpsert(
     "attribution_decisions",
-    rows as unknown as AnyRow[],
+    stamped as unknown as AnyRow[],
     "id",
   );
 }
 
 export async function syncCandidateLinks(
   rows: CandidateLink[],
+  tenantId: string,
 ): Promise<void> {
-  await dualWriteUpsert("candidate_links", rows as unknown as AnyRow[], "id");
+  const stamped = tenantizeRows(rows, tenantId, "candidate_links");
+  await dualWriteUpsert("candidate_links", stamped as unknown as AnyRow[], "id");
 }
 
 // ── Entity sync (Phase 6) ──
@@ -399,11 +415,15 @@ export async function syncBusinessConfig(
   }
 }
 
-/** Map camelCase ChangeContract to snake_case DB row. PK: contract_id. */
-function mapChangeContractToRow(c: ChangeContract): AnyRow {
+/** Map camelCase ChangeContract to snake_case DB row. PK: contract_id.
+ *  Phase 1 Stage C (2026-05-09): tenant_id is the canonical scoping column;
+ *  account_id is retained additively for compatibility (cleanup in a later
+ *  phase). Both columns are stamped on every write. */
+function mapChangeContractToRow(c: ChangeContract, tenantId: string): AnyRow {
   return {
     contract_id: c.contractId,
     account_id: c.accountId,
+    tenant_id: tenantId,
     date_requested: c.dateRequested,
     date_live: c.dateLive,
     source_document: c.sourceDocument,
@@ -442,16 +462,27 @@ function mapChangeContractToRow(c: ChangeContract): AnyRow {
 
 export async function syncChangeContracts(
   rows: ChangeContract[],
+  tenantId: string,
 ): Promise<void> {
   if (!isDualWriteEnabled() || rows.length === 0) return;
-  const mapped = rows.map(mapChangeContractToRow);
+  if (!tenantId) {
+    throw new Error(
+      "[dual-write/change_contracts] syncChangeContracts: tenantId required",
+    );
+  }
+  const mapped = rows.map((c) => mapChangeContractToRow(c, tenantId));
   await dualWriteUpsert("change_contracts", mapped, "contract_id");
 }
 
-/** Map camelCase PersistedIssue to snake_case DB row. PK: issue_id. */
-function mapPersistedIssueToRow(issue: PersistedIssue): AnyRow {
+/** Map camelCase PersistedIssue to snake_case DB row. PK: issue_id.
+ *  Phase 1 Stage B (2026-05-09): tenant_id stamped on every row. */
+function mapPersistedIssueToRow(
+  issue: PersistedIssue,
+  tenantId: string,
+): AnyRow {
   return {
     issue_id: issue.issueId,
+    tenant_id: tenantId,
     page_url: issue.pageUrl,
     page_path: issue.pagePath,
     category: issue.category,
@@ -469,9 +500,15 @@ function mapPersistedIssueToRow(issue: PersistedIssue): AnyRow {
 
 export async function syncPageIssues(
   rows: PersistedIssue[],
+  tenantId: string,
 ): Promise<void> {
   if (!isDualWriteEnabled() || rows.length === 0) return;
-  const mapped = rows.map(mapPersistedIssueToRow);
+  if (!tenantId) {
+    throw new Error(
+      "[dual-write/page_issues] syncPageIssues: tenantId required",
+    );
+  }
+  const mapped = rows.map((issue) => mapPersistedIssueToRow(issue, tenantId));
   await dualWriteUpsert("page_issues", mapped, "issue_id");
 }
 
@@ -899,16 +936,46 @@ export async function syncAnswerIntelligenceIndex(
 
 // ── Config tables sync (Phase 10) ──
 
+// Phase 1 Stage C (2026-05-09): tracked_prompts and tracked_entities
+// are still in GLOBAL_TABLES (writes go through dualWriteUpsert, not the
+// scoped variant) but the migration adds an additive `tenant_id` column
+// alongside `account_id`. Sync wrappers stamp tenant_id explicitly so the
+// CHECK constraint never fires on a runtime write. account_id stays
+// untouched for compatibility — the existing eq("account_id", slug)
+// reads continue to work; new reads can use tenant_id (the canonical
+// scoping column).
 export async function syncTrackedPrompts(
   rows: TrackedPrompt[],
+  tenantId: string,
 ): Promise<void> {
-  await dualWriteUpsert("tracked_prompts", rows as unknown as AnyRow[], "id");
+  if (!tenantId) {
+    throw new Error(
+      "[dual-write/tracked_prompts] syncTrackedPrompts: tenantId required",
+    );
+  }
+  const stamped = tenantizeRows(rows, tenantId, "tracked_prompts");
+  await dualWriteUpsert(
+    "tracked_prompts",
+    stamped as unknown as AnyRow[],
+    "id",
+  );
 }
 
 export async function syncTrackedEntities(
   rows: TrackedEntity[],
+  tenantId: string,
 ): Promise<void> {
-  await dualWriteUpsert("tracked_entities", rows as unknown as AnyRow[], "id");
+  if (!tenantId) {
+    throw new Error(
+      "[dual-write/tracked_entities] syncTrackedEntities: tenantId required",
+    );
+  }
+  const stamped = tenantizeRows(rows, tenantId, "tracked_entities");
+  await dualWriteUpsert(
+    "tracked_entities",
+    stamped as unknown as AnyRow[],
+    "id",
+  );
 }
 
 export async function syncAnswerTexts(
@@ -954,8 +1021,14 @@ export async function syncChangeOutcomes(
 
 export async function syncPageVisibility(
   rows: PageVisibilitySummary[],
+  tenantId: string,
 ): Promise<void> {
-  await dualWriteUpsert("page_visibility", rows as unknown as AnyRow[], "id");
+  const stamped = tenantizeRows(rows, tenantId, "page_visibility");
+  await dualWriteUpsert(
+    "page_visibility",
+    stamped as unknown as AnyRow[],
+    "id",
+  );
 }
 
 // ── Learning stores sync (Phase 12) ──

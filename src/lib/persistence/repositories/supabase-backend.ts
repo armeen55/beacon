@@ -7,7 +7,6 @@
 import { readDotDataJson } from "../dotdata-json";
 import { readStore } from "../json-store";
 import { getSupabaseAdmin } from "../supabase";
-import { getTenant } from "@/domains/tenants/store";
 import type { SeedDataRepository } from "./types";
 import type { Result } from "@/domains/results/types";
 import type { ChangelogEntry } from "@/domains/changelog/types";
@@ -604,35 +603,27 @@ export const supabaseBackend: SeedDataRepository = {
         })) as RecommendationResponse[];
       },
 
-      // Customer-2 isolation fix (operator audit, 2026-05-06) —
-      // tenant-scoped reads for `tracked_prompts` and `tracked_entities`.
+      // Phase 1 Stage C (2026-05-09): tenant-scoped reads for
+      // `tracked_prompts` and `tracked_entities` now filter by
+      // `tenant_id` (the canonical scoping column).
       //
-      // These two tables use `account_id` (the tenant slug) as the
-      // tenant-scoping column, NOT `tenant_id` (the tenant id). The
-      // 2026-05-06 audit confirmed via:
-      //   SELECT column_name FROM information_schema.columns
-      //   WHERE table_name IN ('tracked_prompts', 'tracked_entities')
-      //   → both have `account_id text NOT NULL`; no `tenant_id` column.
+      // History: pre-2026-05-09 these tables had no `tenant_id` column;
+      // the 2026-05-06 customer-#2-isolation fix worked around this by
+      // resolving the tenant slug and filtering by `account_id`. The
+      // 2026-05-09 migration adds `tenant_id` additively, backfilled
+      // single-tenant to `tenant-ritz-founder`. Reads switch to the
+      // canonical column; writes stamp BOTH `tenant_id` (canonical)
+      // and `account_id` (compatibility) until a later cleanup phase
+      // deprecates `account_id`.
       //
-      // Resolve the slug from `tenants` registry once per call. The
-      // tenants table is tiny (1–3 rows in single-tenant Ritz today)
-      // and the lookup is cached at the React layer for the request
-      // lifetime.
-      //
-      // No schema migration was applied — the operator brief said:
-      // "If schema migration is required, stop and report before
-      // applying." None was needed.
+      // The slug-via-tenants-registry path is no longer needed for the
+      // read; the column-level filter is more direct and scales to
+      // multi-tenant without touching `tenants` per call.
       getTrackedPrompts: async () => {
-        const tenant = await getTenant(tenantId);
-        if (!tenant) {
-          // Unknown tenant — return empty (matches the file-backend
-          // shape where filterByTenantId returns []).
-          return [];
-        }
         const { data, error } = await getSupabaseAdmin()
           .from("tracked_prompts")
           .select("*")
-          .eq("account_id", tenant.slug);
+          .eq("tenant_id", tenantId);
         if (error)
           throw new Error(
             `Supabase query failed on tracked_prompts: ${error.message}`,
@@ -640,12 +631,10 @@ export const supabaseBackend: SeedDataRepository = {
         return (data ?? []) as TrackedPrompt[];
       },
       getTrackedEntities: async () => {
-        const tenant = await getTenant(tenantId);
-        if (!tenant) return [];
         const { data, error } = await getSupabaseAdmin()
           .from("tracked_entities")
           .select("*")
-          .eq("account_id", tenant.slug);
+          .eq("tenant_id", tenantId);
         if (error)
           throw new Error(
             `Supabase query failed on tracked_entities: ${error.message}`,

@@ -21,6 +21,10 @@ import { syncPageVisibility } from "@/lib/persistence/dual-write";
 
 export type PageVisibilitySummary = {
   id: string;
+  // Phase 1 Stage B (2026-05-09): additive tenant_id. Optional in the type
+  // so legacy file-backed rows pass type-checks; the dual-write wrapper
+  // stamps it before write via tenantizeRows.
+  tenant_id?: string | null;
   page_url: string;
   total_citations: number;
   mention_count: number;
@@ -125,6 +129,7 @@ function addDays(date: string, days: number): string {
 export async function materializePageVisibility(
   citationIndex: CitationEvidenceIndex,
   snapshots: DailyMetricSnapshot[],
+  tenantId: string,
   changeOutcomes?: ChangeOutcome[],
 ): Promise<PageVisibilitySummary[]> {
   // Aggregate per owned page URL
@@ -266,7 +271,7 @@ export async function materializePageVisibility(
   summaries.sort((a, b) => b.total_citations - a.total_citations);
 
   await writeStore("page-visibility", summaries);
-  await syncPageVisibility(summaries);
+  await syncPageVisibility(summaries, tenantId);
 
   return summaries;
 }

@@ -337,16 +337,16 @@ export async function loadFreshCanonicalData(
 // dual-write target.
 // ---------------------------------------------------------------------------
 
-export async function persistTrackedPrompts(): Promise<void> {
+export async function persistTrackedPrompts(tenantId: string): Promise<void> {
   const trackedPrompts = await getTrackedPrompts();
   await writeStore("tracked-prompts", trackedPrompts);
-  await syncTrackedPrompts(trackedPrompts);
+  await syncTrackedPrompts(trackedPrompts, tenantId);
 }
 
-export async function persistTrackedEntities(): Promise<void> {
+export async function persistTrackedEntities(tenantId: string): Promise<void> {
   const trackedEntities = await getTrackedEntities();
   await writeStore("tracked-entities", trackedEntities);
-  await syncTrackedEntities(trackedEntities);
+  await syncTrackedEntities(trackedEntities, tenantId);
 }
 
 export async function persistObservationRuns(): Promise<void> {
@@ -386,14 +386,20 @@ function replaceAll<T>(target: T[], source: T[]): void {
   target.push(...source);
 }
 
-export async function replaceTrackedPrompts(data: TrackedPrompt[]): Promise<void> {
+export async function replaceTrackedPrompts(
+  data: TrackedPrompt[],
+  tenantId: string,
+): Promise<void> {
   replaceAll(await getTrackedPrompts(), data);
-  await persistTrackedPrompts();
+  await persistTrackedPrompts(tenantId);
 }
 
-export async function replaceTrackedEntities(data: TrackedEntity[]): Promise<void> {
+export async function replaceTrackedEntities(
+  data: TrackedEntity[],
+  tenantId: string,
+): Promise<void> {
   replaceAll(await getTrackedEntities(), data);
-  await persistTrackedEntities();
+  await persistTrackedEntities(tenantId);
 }
 
 export async function replaceObservationRuns(data: ProfoundImportRun[]): Promise<void> {

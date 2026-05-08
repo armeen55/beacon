@@ -50,20 +50,20 @@ export const getEventDecisions = cache(async (): Promise<EventDecision[]> => {
   return _state.eventDecisions!;
 });
 
-export async function persistCandidateLinks(): Promise<void> {
+export async function persistCandidateLinks(tenantId: string): Promise<void> {
   const candidateLinks = await getCandidateLinks();
   await writeStore("candidate-links", candidateLinks);
-  await syncCandidateLinks(candidateLinks);
+  await syncCandidateLinks(candidateLinks, tenantId);
 }
 
 export async function persistTruthLabels(): Promise<void> {
   await writeStore("truth-labels", await getTruthLabels());
 }
 
-export async function persistEventDecisions(): Promise<void> {
+export async function persistEventDecisions(tenantId: string): Promise<void> {
   const eventDecisions = await getEventDecisions();
   await writeStore("event-decisions", eventDecisions);
-  await syncEventDecisions(eventDecisions);
+  await syncEventDecisions(eventDecisions, tenantId);
 }
 
 export function _resetAttributionStoreForTests(): void {

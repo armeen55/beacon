@@ -312,10 +312,10 @@ export const getChangeContracts = cache(
   },
 );
 
-export async function persistChangeContracts(): Promise<void> {
+export async function persistChangeContracts(tenantId: string): Promise<void> {
   const changeContracts = await getChangeContracts();
   await writeStore("change-contracts", changeContracts);
-  await syncChangeContracts(changeContracts);
+  await syncChangeContracts(changeContracts, tenantId);
 }
 
 export function _resetChangeContractsForTests(): void {

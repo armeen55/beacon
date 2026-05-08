@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { log } from "@/lib/logger";
+import { currentTenantId } from "@/lib/tenant-context";
 import {
   getPageIssues,
   persistPageIssues,
@@ -99,7 +100,7 @@ export async function updateIssueStatus(
     await persistPatternEvidence();
   }
 
-  await persistPageIssues();
+  await persistPageIssues(await currentTenantId());
   revalidatePath("/", "layout");
   log.info("Action completed", { action, durationMs: Date.now() - t0 });
   return { success: true };
@@ -215,7 +216,7 @@ export async function verifyAndUpdateIssue(
     await persistPatternEvidence();
   }
 
-  await persistPageIssues();
+  await persistPageIssues(await currentTenantId());
   revalidatePath("/", "layout");
 
   log.info("Action completed", { action, durationMs: Date.now() - t0 });
@@ -380,7 +381,7 @@ export async function convertBriefToIssue(
     await persistPatternEvidence();
   }
 
-  await persistPageIssues();
+  await persistPageIssues(await currentTenantId());
   revalidatePath("/", "layout");
 
   let handoffText: string | undefined;

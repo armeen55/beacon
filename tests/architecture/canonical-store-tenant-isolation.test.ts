@@ -196,60 +196,66 @@ describe("Customer-2 isolation — both backends implement tenant-scoped methods
     ).toBe(true);
   });
 
-  it("supabase-backend forTenant block implements getTrackedPrompts via account_id filter", () => {
-    // The Supabase schema uses account_id (the slug), NOT tenant_id.
-    // The implementation resolves the slug from the tenants registry and
-    // filters with .eq("account_id", tenant.slug).
+  it("supabase-backend forTenant block implements getTrackedPrompts via tenant_id filter (canonical)", () => {
+    // Phase 1 Stage C (2026-05-09): the additive tenant_id migration
+    // (migrations/2026-05-09_phase1_stage_b_c_tenant_id_repair.sql) adds
+    // tenant_id to tracked_prompts. Reads now use the canonical column;
+    // account_id is retained additively for compatibility but no longer
+    // the read-side scope. The 2026-05-06 customer-2 fix (slug-via-
+    // getTenant + .eq(account_id, tenant.slug)) is superseded.
     expect(
-      /getTrackedPrompts:[\s\S]{0,500}\.from\(\s*["']tracked_prompts["']\s*\)[\s\S]{0,200}\.eq\(\s*["']account_id["']\s*,\s*tenant\.slug\s*\)/.test(
+      /getTrackedPrompts:[\s\S]{0,500}\.from\(\s*["']tracked_prompts["']\s*\)[\s\S]{0,200}\.eq\(\s*["']tenant_id["']\s*,\s*tenantId\s*\)/.test(
         SUPABASE_BACKEND_CODE,
       ),
       "supabase-backend.ts forTenant block must implement getTrackedPrompts " +
-        "by filtering on account_id = tenant.slug. The 2026-05-06 audit " +
-        "verified the Supabase schema uses account_id, not tenant_id, on " +
-        "this table.",
+        "by filtering on tenant_id = tenantId (canonical scoping column " +
+        "after Phase 1 Stage C migration).",
     ).toBe(true);
   });
 
-  it("supabase-backend forTenant block implements getTrackedEntities via account_id filter", () => {
+  it("supabase-backend forTenant block implements getTrackedEntities via tenant_id filter (canonical)", () => {
     expect(
-      /getTrackedEntities:[\s\S]{0,500}\.from\(\s*["']tracked_entities["']\s*\)[\s\S]{0,200}\.eq\(\s*["']account_id["']\s*,\s*tenant\.slug\s*\)/.test(
+      /getTrackedEntities:[\s\S]{0,500}\.from\(\s*["']tracked_entities["']\s*\)[\s\S]{0,200}\.eq\(\s*["']tenant_id["']\s*,\s*tenantId\s*\)/.test(
         SUPABASE_BACKEND_CODE,
       ),
       "supabase-backend.ts forTenant block must implement getTrackedEntities " +
-        "by filtering on account_id = tenant.slug.",
+        "by filtering on tenant_id = tenantId.",
     ).toBe(true);
   });
 
-  it("supabase-backend resolves the slug via getTenant(tenantId) before filtering", () => {
-    // The slug resolution is the only correct way to map tenant_id → slug
-    // for these two tables. Pin the import + the call.
+  it("supabase-backend no longer needs the slug-via-getTenant workaround", () => {
+    // Phase 1 Stage C (2026-05-09): the canonical tenant_id filter on
+    // tracked_prompts/entities removes the need to resolve the slug via
+    // the tenants registry. The eq("tenant_id", tenantId) filter scales
+    // to multi-tenant directly; an unknown tenantId simply returns 0 rows.
     expect(
       /import\s*\{\s*getTenant\s*\}\s*from\s*["']@\/domains\/tenants\/store["']/.test(
         SUPABASE_BACKEND_CODE,
       ),
-      "supabase-backend.ts must import getTenant from @/domains/tenants/store",
-    ).toBe(true);
-    expect(
-      /const\s+tenant\s*=\s*await\s+getTenant\(\s*tenantId\s*\)/.test(
-        SUPABASE_BACKEND_CODE,
-      ),
-      "supabase-backend.ts forTenant block must resolve the tenant slug via " +
-        "getTenant(tenantId) before filtering tracked_prompts / tracked_entities.",
-    ).toBe(true);
+      "supabase-backend.ts no longer imports getTenant for the tracked_*  " +
+        "reads (the slug-resolution workaround is superseded by the " +
+        "canonical tenant_id column).",
+    ).toBe(false);
   });
 
-  it("supabase-backend gracefully returns [] for unknown tenant", () => {
-    // If getTenant(tenantId) returns null (unknown tenant), the
-    // implementation must NOT throw — it returns an empty array,
-    // matching the file-backend filterByTenantId behavior.
+  it("supabase-backend Cat-C reads no longer use account_id slug filter", () => {
+    // Negative invariant: the prior account_id-based filter is gone
+    // from the tracked_prompts and tracked_entities read paths. Empty
+    // results for unknown tenants now come from .eq() returning 0 rows,
+    // not from a guarded early-return.
     expect(
-      /if\s*\(\s*!tenant\s*\)[\s\S]{0,80}return\s*\[\]/.test(
+      /\.from\(\s*["']tracked_prompts["']\s*\)[\s\S]{0,200}\.eq\(\s*["']account_id["']/.test(
         SUPABASE_BACKEND_CODE,
       ),
-      "supabase-backend.ts must early-return [] when getTenant(tenantId) " +
-        "returns null (unknown tenant). Mirrors the file-backend " +
-        "filterByTenantId returning [] for non-existent tenants.",
-    ).toBe(true);
+      "supabase-backend.ts must NOT filter tracked_prompts by account_id " +
+        "after Phase 1 Stage C — tenant_id is the canonical scoping column.",
+    ).toBe(false);
+    expect(
+      /\.from\(\s*["']tracked_entities["']\s*\)[\s\S]{0,200}\.eq\(\s*["']account_id["']/.test(
+        SUPABASE_BACKEND_CODE,
+      ),
+      "supabase-backend.ts must NOT filter tracked_entities by account_id " +
+        "after Phase 1 Stage C — tenant_id is the canonical scoping column.",
+    ).toBe(false);
   });
 });
