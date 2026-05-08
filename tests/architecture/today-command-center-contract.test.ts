@@ -241,8 +241,13 @@ describe("UX.2 — today-data.ts wiring", () => {
   it("returns commandCenter + commandCenterIsOperator on the payload", () => {
     // EGRESS-P0 (2026-05-07) — wrapped in a kill-switch ternary
     // (BEACON_COMMAND_CENTER_ENABLED=false short-circuits to the empty
-    // shape). Pin the resolver call still appears in the source.
-    expect(TODAY_DATA_SRC).toMatch(/resolveCommandCenterFailSoft\(\)/);
+    // shape).
+    //
+    // UX.6.1 (2026-05-07) — the helper now takes already-loaded /today
+    // counts as args so it can derive a Brain readiness summary when
+    // the disk JSON is unreachable on Vercel. Pin the named call still
+    // appears (now with an args object literal).
+    expect(TODAY_DATA_SRC).toMatch(/resolveCommandCenterFailSoft\(\{/);
     expect(TODAY_DATA_SRC).toMatch(
       /commandCenterIsOperator:\s*commandCenterIsOperatorMode\(\)/,
     );
@@ -256,16 +261,24 @@ describe("UX.2 — today-data.ts wiring", () => {
 
   it("does NOT introduce paid-API calls on the today resolver path", () => {
     // The resolver helper must not import from adapters or call
-    // any paid runners.
+    // any paid runners. UX.6.1 (2026-05-07) — the function now takes
+    // an args object; capture from `function resolveCommandCenterFailSoft`
+    // up to the next top-level `\nfunction ` (the sibling helper) so
+    // the body of THIS function is fully covered.
     const helperBody = TODAY_DATA_SRC.match(
-      /function resolveCommandCenterFailSoft[\s\S]*?\n\}/,
+      /function resolveCommandCenterFailSoft\([\s\S]*?\nfunction\s/,
     );
     expect(helperBody).toBeTruthy();
     if (!helperBody) return;
     const body = helperBody[0];
-    expect(body).not.toContain("openai");
-    expect(body).not.toContain("perplexity");
+    // Note: "perplexity" / "chatgpt" appear as platform identifiers in
+    // the SIBLING `deriveBrainFromTodayInputs` helper. We do not include
+    // that sibling in the captured body. Forbidden surfaces are paid-API
+    // imports + runners.
+    expect(body).not.toMatch(/from\s+["']openai["']/);
+    expect(body).not.toMatch(/from\s+["']@anthropic/);
     expect(body).not.toContain("runNativePoll");
+    expect(body).not.toContain("runWebsiteScan");
     expect(body).not.toMatch(/\bfetch\(/);
   });
 });

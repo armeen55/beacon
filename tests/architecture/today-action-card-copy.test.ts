@@ -151,24 +151,45 @@ describe("T2 — findings strip default no longer leaks the type breakdown", () 
 // ---------------------------------------------------------------------------
 
 describe("T3 — default win-card rationale leads with calm copy", () => {
-  it("default rationale is the two short calm sentences", () => {
+  // UX.6.1 (2026-05-07) — replaced the original T3 calm copy
+  // ("Citations <direction> after this change. URL-level signal
+  // detected; not proof of causation.") with confident default copy
+  // that leads with the WIN ("This page gained citations after the
+  // change. Beacon is tracking the pattern so you can repeat what
+  // worked.") and moves the methodology caveat to the lineageBullets
+  // drawer. The audit's #3 trust-breaking issue: the original copy
+  // sounded weak and over-caveated by default.
+  it("default rationale is the confident win/loss sentences (UX.6.1 Fix 3)", () => {
     expect(
       TODAY_DATA_SRC.includes(
-        "Citations ${directionDefault} after this change. URL-level signal detected; not proof of causation.",
+        "This page gained citations after the change. Beacon is tracking the pattern so you can repeat what worked.",
       ),
-      "today-data.ts win-card must use 'Citations <direction> after this change. URL-level signal detected; not proof of causation.' as default rationale (T3)",
+      "today-data.ts win-card positive rationale must use 'This page gained citations after the change. Beacon is tracking the pattern so you can repeat what worked.' (T3 / UX.6.1)",
+    ).toBe(true);
+    expect(
+      TODAY_DATA_SRC.includes(
+        "This page lost citations after the change. Beacon is tracking to see if it recovers.",
+      ),
+      "today-data.ts win-card negative rationale must use 'This page lost citations after the change. Beacon is tracking to see if it recovers.' (T3 / UX.6.1)",
     ).toBe(true);
   });
 
   it("default rationale does NOT inline Z-score", () => {
     // The old rationale string wove `Z-score ${...}` into the default
     // text. Pin its absence in the new default rationale literal.
-    // We grep specifically inside the 'rationale =' assignment.
+    // UX.6.1 — anchor on the WIN card rationale specifically (there's
+    // an unrelated pain-card rationale earlier in the file that DOES
+    // include Z-score by design); the win rationale is the one with
+    // the "This page gained citations" branch.
     const idx = TODAY_DATA_SRC.indexOf(
-      'const rationale = `Citations ${directionDefault} after this change.',
+      "This page gained citations after the change",
     );
     expect(idx).toBeGreaterThan(0);
-    const slice = TODAY_DATA_SRC.slice(idx, idx + 220);
+    // Walk backward to the start of the const declaration so we cover
+    // the whole rationale literal + ternary.
+    const declIdx = TODAY_DATA_SRC.lastIndexOf("const rationale =", idx);
+    expect(declIdx).toBeGreaterThan(0);
+    const slice = TODAY_DATA_SRC.slice(declIdx, idx + 400);
     expect(
       slice.includes("Z-score"),
       "Default win-card rationale literal must NOT include 'Z-score' (T3)",
@@ -177,11 +198,26 @@ describe("T3 — default win-card rationale leads with calm copy", () => {
 
   it("default rationale does NOT inline a relative percent", () => {
     const idx = TODAY_DATA_SRC.indexOf(
-      'const rationale = `Citations ${directionDefault} after this change.',
+      "This page gained citations after the change",
     );
-    const slice = TODAY_DATA_SRC.slice(idx, idx + 220);
+    expect(idx).toBeGreaterThan(0);
+    const declIdx = TODAY_DATA_SRC.lastIndexOf("const rationale =", idx);
+    const slice = TODAY_DATA_SRC.slice(declIdx, idx + 400);
     expect(slice.includes("h.deltaPct")).toBe(false);
     expect(slice.includes("toFixed(0)}%")).toBe(false);
+  });
+
+  it("default rationale does NOT inline the causation caveat (UX.6.1 Fix 3)", () => {
+    // The "not proof of causation" / "URL-level signal" phrasing must
+    // ONLY live in lineageBullets — not in the leading rationale.
+    const idx = TODAY_DATA_SRC.indexOf(
+      "This page gained citations after the change",
+    );
+    expect(idx).toBeGreaterThan(0);
+    const declIdx = TODAY_DATA_SRC.lastIndexOf("const rationale =", idx);
+    const slice = TODAY_DATA_SRC.slice(declIdx, idx + 400);
+    expect(slice).not.toMatch(/not proof of causation/i);
+    expect(slice).not.toMatch(/URL-level signal/i);
   });
 });
 

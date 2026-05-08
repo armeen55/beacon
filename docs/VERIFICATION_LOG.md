@@ -7,6 +7,99 @@
 
 ---
 
+## 2026-05-07 — UX.6.1: trust restoration on /today (3 fixes)
+
+Operator brief after the brutal /today touchpoint audit. Three trust-breaking issues blocked the friend test:
+
+1. **Brain readiness card lying in production.** The Command Center's brain readiness card reads `.data/_reports/brain-health-*.json`. `.data/` is gitignored — never bundled to Vercel. So the card has shown "Waiting for next reading" on every Vercel deploy, for every tenant, since UX.2 landed, even when Ritz has 16,521 mature observations.
+2. **Poll-health false alarm before scheduled poll.** Between midnight UTC and the 07:00 UTC cron firing, /today rendered the alarming `PollHealthBlock` ("AI tracking has not run yet today / Perplexity pending / ChatGPT pending") with warning styling. This is normal scheduling, not a problem — but the operator opening /today early reads it as broken.
+3. **Wins copy too caveated by default.** Win cards led with "Citations rose after this change. URL-level signal detected; not proof of causation." — accurate, but starts with the disclaimer instead of the win. Sounds weak.
+
+Constraints: no OpenAI / paid polling / production data mutations / RLS-or-auth changes. LLM budget SHA byte-identical.
+
+### Fix 1 — Brain readiness derive helper (production fallback)
+
+NEW exports in `src/domains/today/command-center-data.ts`:
+
+- Pure helper `deriveBrainSummaryFromCounts(input: DeriveBrainSummaryInput): CommandCenterBrain | null`. Takes already-loaded /today counts (`observations7dCount`, `totalObservationCount`, `recentSnapshotCount`, `totalSnapshotCount`, `ownedUrlsCitedCount`, `recommendationQueueSize`, `hasPlatformCoverage`). Returns null when `totalObservationCount <= 0` (first-reading tenants → Gap F.1 surface still fires correctly). Otherwise returns the full `CommandCenterBrain` shape with the four canonical sections (Data, Score, Recommendation, Attribution) graded A/B/C/D, an overall grade = worst section, an empty `generatedAt` (signals "live-derived"), and a customer-safe one-liner.
+- Internal grade rubrics: `gradeForObservations7d` (≥600=A, ≥300=B, ≥100=C, >0=D, 0=F), `gradeForScoreHealth` (recent snaps × owned URLs × both platforms), `gradeForRecQueue` (≥10=A, ≥3=B, ≥1=C, 0=D), `pickOverallGrade` (worst section), `oneLineForOverall` (5 grade-keyed strings, customer-safe).
+
+`src/app/(shell)/today-data.ts`:
+
+- `resolveCommandCenterFailSoft(args)` refactored from no-arg to args-shape. Calls the existing disk-based `resolveCommandCenterData` first (still works locally). When `resolved.brain === null` (production), calls a new sibling helper `deriveBrainFromTodayInputs(args)` which projects already-loaded /today data into the `DeriveBrainSummaryInput` shape and feeds the derive helper. If derived brain is non-null, swaps it into the result with `hasAnyData: true`.
+- Sibling helper does ~20 lines of pure compute: filter observations within 7-day window (counting unique platforms `perplexity` + `chatgpt` for `hasPlatformCoverage`), filter snapshots within 7-day window via `s.date` string compare, count owned URLs from `citationEvidenceIndex.by_page_and_topic` where `is_owned && total_citations > 0`. Zero new Supabase reads — every input already loaded for /today.
+- Call site at line 2499 passes `observations`, `snapshots`, `citationEvidenceIndex`, and `recommendationQueueSize` (computed from `lifecycleSummary.counts.pendingImplementation + liveVerified + needsReview`).
+
+Result: production /today now renders a real grade-letter brain readiness card sourced from already-loaded data. No Supabase egress impact (zero new reads). No regression for first-reading tenants (returns null when totalObs == 0 → Gap F.1 surface still fires). Disk-based path still preferred when artifacts exist (local dev).
+
+### Fix 2 — Poll health calm banner
+
+NEW `src/components/today/poll-health-calm-banner.tsx`:
+
+- `<PollHealthCalmBanner />` — pure server component. Subtle muted styling (`border-border/60`, `bg-surface-inset/30`, `text-muted-foreground`), `role="status"`, `data-today-section="poll-health-calm"`. Copy: headline "Next reading scheduled", body "Beacon will run today's AI reading at 07:00 UTC. The dashboard is showing the latest complete reading." No client interactivity.
+- `isPreCronPending(args: { platforms, date, now? }): boolean` — pure helper. Returns `true` when (a) at least one platform, AND (b) all platforms have `status === "pending"`, AND (c) current time is before 08:00 UTC of the snapshot's date (07:00 UTC scheduled cron + 1h grace). Returns `false` on empty array, mixed status, post-cutoff time, or malformed date.
+
+`src/app/(shell)/today-client.tsx` Tier 0 alerts:
+
+- Existing condition `pollHealth && pollHealth.platforms.some((p) => p.status !== "ok")` retained.
+- Inside that branch, a new ternary `isPreCronPending(pollHealth) ? <PollHealthCalmBanner /> : <PollHealthBlock snapshot={pollHealth} />` chooses calm vs warning.
+- `PollHealthBlock` (the alarming version) still fires post-cutoff when poll is genuinely late, AND for partial/failed states regardless of time.
+
+Result: operator opening /today between 00:00–08:00 UTC sees a calm "Next reading scheduled" line. Operator opening /today after 08:00 UTC with the cron still pending sees the warning. Partial / failed / mixed-status always sees the warning.
+
+### Fix 3 — Wins copy: confident default, caveat in drawer
+
+`src/app/(shell)/today-data.ts` (~line 2126, where wins-card rationale is built):
+
+- Old default rationale string (single line, replaced): `Citations ${directionDefault} after this change. URL-level signal detected; not proof of causation.`
+- New default rationale (ternary by direction):
+  - Positive: `This page gained citations after the change. Beacon is tracking the pattern so you can repeat what worked.`
+  - Negative: `This page lost citations after the change. Beacon is tracking to see if it recovers.`
+- The methodology caveat ("URL-level correlation - this page's own citations moved - not proof of causation, and not a topic-wide trend.") moved to `methodologyBullet` and stays in `lineageBullets` — visible in the "Why we suggest this" / detail drawer. No information lost; only repositioned out of the default surface.
+
+Result: win cards now lead with the win + a forward-looking framing ("Beacon is tracking the pattern so you can repeat what worked"). The honest disclosure is one click away in the drawer.
+
+### Tests + invariants
+
+NEW `tests/architecture/ux6-1-trust-restoration-contract.test.ts` (24 invariants across all 3 fixes):
+
+- Fix 1: derive helper + input type are exported; helper is pure (no fetch / readFileSync / writeFileSync / mutations); generatedAt = ""; null-return guard pinned at totalObservationCount <= 0; 4-section canonical order; today-data wires the helper; refactored fail-soft accepts the args object; fallback fires when brain is null + flips hasAnyData true; sibling derive helper has no unbounded reads / paid APIs / mutations.
+- Fix 2: file exists; both exports present; banner pure presentation (no useState/useEffect/onClick/onSubmit/fetch + no "use client" directive); customer-safe copy ("Next reading scheduled", "07:00 UTC") and forbidden alarm words absent (with comment-strip so JSDoc quoting old warning doesn't false-positive); pre-cron gate semantics pinned (`every` with pending status, 8 × 60 × 60 × 1000 = 08:00 UTC cutoff); empty platforms returns false; today-client wires the conditional.
+- Fix 3: positive + negative rationale literals pinned; "tracking the pattern" framing pinned; default rationale must NOT contain causation caveat; methodology caveat preserved in lineageBullets.
+
+NEW behavioral tests:
+- `src/domains/today/command-center-data.test.ts` — appended 12 tests for `deriveBrainSummaryFromCounts`: first-reading null returns; Ritz-mature shape grades A across data/score/rec; soft-gap tenants grade B/C/D; overall grade = worst section.
+- `src/components/today/poll-health-calm-banner.test.ts` — 9 tests for `isPreCronPending` truth table (empty, mixed status, pre-cutoff true, exactly 08:00 false, post-cutoff false, malformed date, default `now`, single-platform).
+
+UPDATED 2 prior tests:
+- `tests/architecture/today-command-center-contract.test.ts` — relaxed the `resolveCommandCenterFailSoft\(\)` no-arg pin to `\(\{` (helper now takes args); replaced the regex that grabs the helper body so it captures the entire function (the old `\n}` non-greedy now matched the close of the args type instead of the function body); kept the no-paid-API negative pins but switched from substring `"perplexity"` (which appears as a platform identifier in the sibling helper) to import / runner pins.
+- `tests/architecture/today-action-card-copy.test.ts` (T3) — updated default-rationale pin to the new positive/negative branches; reanchored the Z-score / percent / causation-caveat negative pins on `"This page gained citations after the change"` instead of the bare `"const rationale ="` substring (there's an unrelated pain-card rationale earlier in the file that legitimately contains Z-score).
+
+### Quality gates
+
+- `npm run typecheck` — CLEAN.
+- `npm run test` — **6,414 / 6,414 passing** (+1 file, +57 tests vs EGRESS-P0 baseline 345/6357 → 346/6414).
+- Targeted UX.6.1 tests — 5 files / **96 / 96 passing** (24 new invariants + 12 derive behavioral + 9 isPreCronPending behavioral + the 2 reconciled prior files = 47 architecture + 49 behavioral counts when overlap is decomposed).
+- `npm run build` — green. All routes ƒ Dynamic.
+- `verify-tenant-data-integrity` — PASS. Ritz row counts UNCHANGED: `daily_metric_snapshots: 9896`, `prompt_answer_observations: 16521`, `recommended_edits: 28`.
+- `verify-observation-dedup-integrity` — PASS. 0 duplicate logical keys.
+- `verify-verdict-rematerialization-integrity` — PASS. 131 verdicts; 0 drift.
+- `npm run verify:brain-health` — YELLOW. 7 PASS + 1 WARN (queue idle — pre-existing, expected for a single-tenant lab).
+- `.data/global/llm-budget.json` SHA `d36eed8c…` — unchanged from EGRESS-P0.
+
+Zero OpenAI calls. Zero paid polling. Zero production data mutations. Zero new Supabase reads.
+
+### What this unlocks
+
+/today is now materially more trustworthy:
+1. The Command Center brain readiness card stops lying in production — it shows a real grade letter sourced from already-loaded data instead of "Waiting for next reading".
+2. The poll-health area no longer screams "broken" between midnight and 7am UTC — it's a calm "Next reading scheduled" line during the natural pre-cron window.
+3. The wins-card default copy reads as a confident win + forward-looking framing; the methodology disclaimer still lives in the drawer for operators who want the rigor.
+
+The brutal touchpoint audit's three highest-trust-breaking issues are addressed. UX.6.2 (next pass) can take on F2 (scan-diff naming chaos), F4 (recommendation duplication 3×), F5+ items.
+
+---
+
 ## 2026-05-07 — EGRESS-P0: emergency Supabase egress mitigations
 
 P0 incident. Operator screenshot showed Supabase Free Plan egress at **15.52 GB / 5 GB** (3.1× over quota; grace until June 6). Vercel logs showed:

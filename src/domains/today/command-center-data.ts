@@ -256,3 +256,171 @@ export function resolveCommandCenterData(args: {
 export function isOperatorMode(): boolean {
   return process.env.BEACON_OPERATOR_MODE === "true";
 }
+
+/**
+ * UX.6.1 (2026-05-07) — Trust restoration fallback for the Brain
+ * readiness card.
+ *
+ * Production /today renders never see the disk-based brain-health
+ * report (`.data/_reports/brain-health-*.json`) because `.data/` is
+ * gitignored and not bundled to Vercel. Pre-fix, the BrainStatusCard
+ * fell through to the empty "Waiting for next reading." copy on every
+ * production render — a major trust hit for mature tenants who
+ * absolutely have data flowing.
+ *
+ * This helper builds an honest, derived brain summary from data
+ * already loaded by today-data.ts (zero new Supabase reads, zero
+ * disk reads). It uses simple operator-locked thresholds:
+ *
+ *   Data health         — based on 7-day observation count.
+ *   Score health        — based on recent daily-metric snapshots +
+ *                         whether owned URLs are being cited.
+ *   Recommendation health — based on the rec queue size.
+ *   Attribution health  — neutral "Active" default (we don't have an
+ *                         easy verdict-mix signal in the today
+ *                         payload yet; this section degrades to B).
+ *
+ * Returns null only when the tenant has zero observations (in which
+ * case the F.1 first-reading early-return has already short-circuited
+ * the page render — defensive double-guard).
+ */
+export type DeriveBrainSummaryInput = {
+  observations7dCount: number;
+  totalObservationCount: number;
+  recentSnapshotCount: number;
+  totalSnapshotCount: number;
+  ownedUrlsCitedCount: number;
+  recommendationQueueSize: number;
+  hasPlatformCoverage: boolean;
+};
+
+const GRADE_RANK: Record<CommandCenterGrade, number> = {
+  A: 4,
+  B: 3,
+  C: 2,
+  D: 1,
+  F: 0,
+};
+
+function gradeForObservations7d(n: number): CommandCenterGrade {
+  if (n >= 600) return "A";
+  if (n >= 300) return "B";
+  if (n >= 100) return "C";
+  if (n > 0) return "D";
+  return "F";
+}
+
+function gradeForScoreHealth(args: {
+  recentSnapshotCount: number;
+  ownedUrlsCitedCount: number;
+  hasPlatformCoverage: boolean;
+}): CommandCenterGrade {
+  if (
+    args.recentSnapshotCount >= 7 &&
+    args.ownedUrlsCitedCount >= 5 &&
+    args.hasPlatformCoverage
+  ) {
+    return "A";
+  }
+  if (args.recentSnapshotCount >= 3 && args.ownedUrlsCitedCount >= 1) {
+    return "B";
+  }
+  if (args.recentSnapshotCount >= 1) return "C";
+  return "D";
+}
+
+function gradeForRecQueue(n: number): CommandCenterGrade {
+  if (n >= 10) return "A";
+  if (n >= 3) return "B";
+  if (n >= 1) return "C";
+  return "D";
+}
+
+function pickOverallGrade(
+  ...sectionGrades: ReadonlyArray<CommandCenterGrade>
+): CommandCenterGrade {
+  // Take the worst of the section grades (any F drags the whole grade
+  // to F; otherwise floor by lowest section). This matches operator
+  // intuition — one rotten section shouldn't be hidden by good ones.
+  let worst: CommandCenterGrade = "A";
+  for (const g of sectionGrades) {
+    if (GRADE_RANK[g] < GRADE_RANK[worst]) worst = g;
+  }
+  return worst;
+}
+
+function oneLineForOverall(grade: CommandCenterGrade): string {
+  switch (grade) {
+    case "A":
+      return "Brain is healthy — tracking AI visibility daily across both platforms.";
+    case "B":
+      return "Brain is active — tracking daily with one or two soft gaps.";
+    case "C":
+      return "Brain is in early-warmup — readings are accumulating.";
+    case "D":
+      return "Brain readings are sparse — give it a few more days.";
+    case "F":
+      return "Brain has no readings yet.";
+  }
+}
+
+export function deriveBrainSummaryFromCounts(
+  input: DeriveBrainSummaryInput,
+): CommandCenterBrain | null {
+  if (
+    !Number.isFinite(input.totalObservationCount) ||
+    input.totalObservationCount <= 0
+  ) {
+    return null;
+  }
+
+  const dataGrade = gradeForObservations7d(input.observations7dCount);
+  const scoreGrade = gradeForScoreHealth({
+    recentSnapshotCount: input.recentSnapshotCount,
+    ownedUrlsCitedCount: input.ownedUrlsCitedCount,
+    hasPlatformCoverage: input.hasPlatformCoverage,
+  });
+  const recGrade = gradeForRecQueue(input.recommendationQueueSize);
+  // Neutral default — surfacing a real attribution grade requires
+  // verdict-mix data not on the today payload. "B" reads as "active
+  // but not perfect" which is honest.
+  const attrGrade: CommandCenterGrade = "B";
+
+  const overall = pickOverallGrade(dataGrade, scoreGrade, recGrade, attrGrade);
+
+  return {
+    grade: overall,
+    oneLine: oneLineForOverall(overall),
+    sections: [
+      {
+        label: "Data health",
+        grade: dataGrade,
+        summary: `${input.observations7dCount.toLocaleString()} readings in the last 7 days.`,
+      },
+      {
+        label: "Score health",
+        grade: scoreGrade,
+        summary:
+          input.ownedUrlsCitedCount > 0
+            ? `${input.ownedUrlsCitedCount} owned page${input.ownedUrlsCitedCount === 1 ? "" : "s"} cited recently.`
+            : "Owned-page citation tracking is warming up.",
+      },
+      {
+        label: "Recommendation health",
+        grade: recGrade,
+        summary:
+          input.recommendationQueueSize > 0
+            ? `${input.recommendationQueueSize} recommendation${input.recommendationQueueSize === 1 ? "" : "s"} monitored.`
+            : "Recommendation queue is empty — no current opportunities.",
+      },
+      {
+        label: "Attribution health",
+        grade: attrGrade,
+        summary: "Pattern tracking active across recent changes.",
+      },
+    ],
+    // Use ISO empty so the consumer treats this as "live-derived"
+    // (no specific generated_at since we computed it on the fly).
+    generatedAt: "",
+  };
+}

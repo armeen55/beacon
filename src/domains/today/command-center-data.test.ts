@@ -19,6 +19,7 @@ import { describe, expect, it } from "vitest";
 import {
   resolveCommandCenterData,
   isOperatorMode,
+  deriveBrainSummaryFromCounts,
 } from "./command-center-data";
 
 describe("resolveCommandCenterData — Ritz fixture", () => {
@@ -146,5 +147,189 @@ describe("isOperatorMode", () => {
       if (prev === undefined) delete process.env.BEACON_OPERATOR_MODE;
       else process.env.BEACON_OPERATOR_MODE = prev;
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// UX.6.1 (2026-05-07) — deriveBrainSummaryFromCounts behavioral tests.
+// The pure helper that powers the production fallback when the disk
+// `.data/_reports/brain-health-*.json` is unreachable.
+// ---------------------------------------------------------------------------
+
+describe("deriveBrainSummaryFromCounts — first-reading tenants", () => {
+  it("returns null when totalObservationCount is 0 (first-reading tenant)", () => {
+    const r = deriveBrainSummaryFromCounts({
+      observations7dCount: 0,
+      totalObservationCount: 0,
+      recentSnapshotCount: 0,
+      totalSnapshotCount: 0,
+      ownedUrlsCitedCount: 0,
+      recommendationQueueSize: 0,
+      hasPlatformCoverage: false,
+    });
+    expect(r).toBeNull();
+  });
+
+  it("returns null when totalObservationCount is negative or NaN", () => {
+    expect(
+      deriveBrainSummaryFromCounts({
+        observations7dCount: 0,
+        totalObservationCount: -5,
+        recentSnapshotCount: 0,
+        totalSnapshotCount: 0,
+        ownedUrlsCitedCount: 0,
+        recommendationQueueSize: 0,
+        hasPlatformCoverage: false,
+      }),
+    ).toBeNull();
+    expect(
+      deriveBrainSummaryFromCounts({
+        observations7dCount: 0,
+        totalObservationCount: Number.NaN,
+        recentSnapshotCount: 0,
+        totalSnapshotCount: 0,
+        ownedUrlsCitedCount: 0,
+        recommendationQueueSize: 0,
+        hasPlatformCoverage: false,
+      }),
+    ).toBeNull();
+  });
+});
+
+describe("deriveBrainSummaryFromCounts — mature Ritz-shape tenant", () => {
+  // Counts modeled after Ritz at the time of UX.6.1 landing — ~600+
+  // observations / 7d, both platforms covered, several owned URLs
+  // cited recently, mature recommendation queue.
+  const RITZ_LIKE = {
+    observations7dCount: 700,
+    totalObservationCount: 12_000,
+    recentSnapshotCount: 14,
+    totalSnapshotCount: 800,
+    ownedUrlsCitedCount: 8,
+    recommendationQueueSize: 12,
+    hasPlatformCoverage: true,
+  } as const;
+
+  it("returns a non-null brain summary", () => {
+    const r = deriveBrainSummaryFromCounts(RITZ_LIKE);
+    expect(r).not.toBeNull();
+  });
+
+  it("grade is one of A/B/C/D/F", () => {
+    const r = deriveBrainSummaryFromCounts(RITZ_LIKE);
+    expect(r).not.toBeNull();
+    if (r) {
+      expect(["A", "B", "C", "D", "F"]).toContain(r.grade);
+    }
+  });
+
+  it("Ritz-like inputs grade A across data + score + rec sections", () => {
+    const r = deriveBrainSummaryFromCounts(RITZ_LIKE);
+    expect(r).not.toBeNull();
+    if (!r) return;
+    const byLabel = new Map(r.sections.map((s) => [s.label, s.grade]));
+    // Data: 700 obs/7d ≥ 600 → A.
+    expect(byLabel.get("Data health")).toBe("A");
+    // Score: ≥7 snaps + ≥5 owned URLs + both platforms → A.
+    expect(byLabel.get("Score health")).toBe("A");
+    // Rec: ≥10 → A.
+    expect(byLabel.get("Recommendation health")).toBe("A");
+  });
+
+  it("renders 4 sections in the canonical order", () => {
+    const r = deriveBrainSummaryFromCounts(RITZ_LIKE);
+    expect(r).not.toBeNull();
+    if (!r) return;
+    expect(r.sections.length).toBe(4);
+    expect(r.sections[0].label).toBe("Data health");
+    expect(r.sections[1].label).toBe("Score health");
+    expect(r.sections[2].label).toBe("Recommendation health");
+    expect(r.sections[3].label).toBe("Attribution health");
+  });
+
+  it("oneLine is non-empty and customer-safe", () => {
+    const r = deriveBrainSummaryFromCounts(RITZ_LIKE);
+    expect(r).not.toBeNull();
+    if (!r) return;
+    expect(r.oneLine.length).toBeGreaterThan(0);
+    expect(r.oneLine).not.toMatch(/UTC/);
+    expect(r.oneLine).not.toMatch(/cron/i);
+    expect(r.oneLine).not.toMatch(/Supabase/i);
+  });
+
+  it("generatedAt is empty string (signals 'live-derived', not disk)", () => {
+    const r = deriveBrainSummaryFromCounts(RITZ_LIKE);
+    expect(r).not.toBeNull();
+    if (r) expect(r.generatedAt).toBe("");
+  });
+});
+
+describe("deriveBrainSummaryFromCounts — soft-gap tenants", () => {
+  it("100-prompt × 1-platform tenant grades data B (300+ obs / 7d)", () => {
+    const r = deriveBrainSummaryFromCounts({
+      observations7dCount: 350,
+      totalObservationCount: 5_000,
+      recentSnapshotCount: 7,
+      totalSnapshotCount: 200,
+      ownedUrlsCitedCount: 3,
+      recommendationQueueSize: 4,
+      hasPlatformCoverage: false,
+    });
+    expect(r).not.toBeNull();
+    if (!r) return;
+    const dataGrade = r.sections.find((s) => s.label === "Data health")
+      ?.grade;
+    expect(dataGrade).toBe("B");
+  });
+
+  it("warmup tenant (100 obs / 7d) grades data C", () => {
+    const r = deriveBrainSummaryFromCounts({
+      observations7dCount: 100,
+      totalObservationCount: 200,
+      recentSnapshotCount: 2,
+      totalSnapshotCount: 30,
+      ownedUrlsCitedCount: 1,
+      recommendationQueueSize: 2,
+      hasPlatformCoverage: false,
+    });
+    expect(r).not.toBeNull();
+    if (!r) return;
+    const dataGrade = r.sections.find((s) => s.label === "Data health")
+      ?.grade;
+    expect(dataGrade).toBe("C");
+  });
+
+  it("very early tenant (any obs > 0 but < 100) grades data D", () => {
+    const r = deriveBrainSummaryFromCounts({
+      observations7dCount: 25,
+      totalObservationCount: 60,
+      recentSnapshotCount: 1,
+      totalSnapshotCount: 5,
+      ownedUrlsCitedCount: 0,
+      recommendationQueueSize: 0,
+      hasPlatformCoverage: false,
+    });
+    expect(r).not.toBeNull();
+    if (!r) return;
+    const dataGrade = r.sections.find((s) => s.label === "Data health")
+      ?.grade;
+    expect(dataGrade).toBe("D");
+  });
+});
+
+describe("deriveBrainSummaryFromCounts — overall grade is the worst section", () => {
+  it("overall grade equals the worst of the four section grades", () => {
+    // Force one section to D, others to A. Overall must be D.
+    const r = deriveBrainSummaryFromCounts({
+      observations7dCount: 700, // → A
+      totalObservationCount: 12_000,
+      recentSnapshotCount: 14, // ≥7 → A path
+      totalSnapshotCount: 800,
+      ownedUrlsCitedCount: 8, // ≥5 → A path
+      recommendationQueueSize: 0, // → D
+      hasPlatformCoverage: true,
+    });
+    expect(r).not.toBeNull();
+    if (r) expect(r.grade).toBe("D");
   });
 });

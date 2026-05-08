@@ -29,6 +29,7 @@ import {
 import {
   resolveCommandCenterData,
   isOperatorMode as commandCenterIsOperatorMode,
+  deriveBrainSummaryFromCounts,
   type CommandCenterData,
 } from "@/domains/today/command-center-data";
 import { getOutcomesForTenant } from "@/lib/tenant-data";
@@ -2108,13 +2109,24 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
     // short calm sentences with NO numbers + NO Z-score. Stats live in
     // lineageBullets (under "Why we suggest this" expansion). Operator
     // brief: pre-T3 default read "+1083%" / "Z-score 20.6" / "high
-    // confidence" — too aggressive. Post-T3: "Citations increased
-    // after this change. URL-level signal detected; not proof of
-    // causation."
+    // confidence" — too aggressive.
+    //
+    // UX.6.1 Fix 3 (2026-05-07) — Trust restoration. The pre-fix
+    // default "Citations increased after this change. URL-level signal
+    // detected; not proof of causation." led with the win + an
+    // immediate caveat — accurate but weak as a default. New default
+    // leads with the win + a forward-looking framing ("Beacon is
+    // tracking the pattern so you can repeat what worked"). The
+    // methodology caveat ("URL-level signal, not proof of causation")
+    // moves to the lineageBullets array which renders inside the
+    // "Why we suggest this" drawer — stays accessible for operators
+    // who want the rigor without dominating the default surface.
     const absDeltaPerDay = Math.abs(h.deltaAbs);
-    const directionDefault = h.deltaAbs >= 0 ? "increased" : "decreased";
     const directionVerb = h.deltaAbs >= 0 ? "rose" : "fell";
-    const rationale = `Citations ${directionDefault} after this change. URL-level signal detected; not proof of causation.`;
+    const rationale =
+      h.deltaAbs >= 0
+        ? `This page gained citations after the change. Beacon is tracking the pattern so you can repeat what worked.`
+        : `This page lost citations after the change. Beacon is tracking to see if it recovers.`;
 
     // T3 — methodology / stats lineage. When the relative-% is extreme
     // (>= 300%) we OMIT the percent line and lead with absolute /day
@@ -2484,7 +2496,21 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
     commandCenter:
       process.env.BEACON_COMMAND_CENTER_ENABLED === "false"
         ? { hasAnyData: false, brain: null, manifest: null }
-        : resolveCommandCenterFailSoft(),
+        : resolveCommandCenterFailSoft({
+            // UX.6.1 (2026-05-07) — pass already-loaded counts so the
+            // helper can derive a Brain readiness summary when the disk
+            // JSON is unreachable (production: `.data/_reports/` is
+            // gitignored). Pre-fix the card always rendered "Waiting
+            // for next reading" on Vercel even for mature tenants.
+            observations: promptAnswerObservations,
+            snapshots: dailyMetricSnapshots,
+            citationEvidenceIndex,
+            recommendationQueueSize: lifecycleSummary
+              ? lifecycleSummary.counts.pendingImplementation +
+                lifecycleSummary.counts.liveVerified +
+                lifecycleSummary.counts.needsReview
+              : 0,
+          }),
     /** UX.2 — operator-mode flag for the small /diagnostics/brain link
      *  at the bottom of the Command Center. */
     commandCenterIsOperator: commandCenterIsOperatorMode(),
@@ -2496,16 +2522,114 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
  * returns null fields so /today never crashes. Tenant slug comes
  * from currentTenantSlug() if available; otherwise uses Ritz slug
  * fallback (matches the existing `BEACON_TENANT_SLUG` pattern).
+ *
+ * UX.6.1 (2026-05-07) — when the disk JSON is unreachable AND the
+ * tenant has observations, derives a lightweight brain summary from
+ * already-loaded /today data instead of returning the empty
+ * "Waiting for next reading" state. Production /today no longer lies
+ * to mature tenants.
  */
-function resolveCommandCenterFailSoft(): CommandCenterData {
+function resolveCommandCenterFailSoft(args: {
+  observations: ReadonlyArray<{ observed_at: string }>;
+  snapshots: ReadonlyArray<{ date: string }>;
+  citationEvidenceIndex: unknown;
+  recommendationQueueSize: number;
+}): CommandCenterData {
+  let resolved: CommandCenterData;
   try {
-    const slug =
-      process.env.BEACON_TENANT_SLUG ?? "ritz-builders";
-    return resolveCommandCenterData({ tenantSlug: slug });
+    const slug = process.env.BEACON_TENANT_SLUG ?? "ritz-builders";
+    resolved = resolveCommandCenterData({ tenantSlug: slug });
   } catch (err) {
     console.warn("[today] commandCenter resolve failed:", err);
-    return { hasAnyData: false, brain: null, manifest: null };
+    resolved = { hasAnyData: false, brain: null, manifest: null };
   }
+
+  // UX.6.1 — if the disk-based brain is missing (production is here
+  // ~always), derive from already-loaded /today inputs.
+  if (!resolved.brain) {
+    const derived = deriveBrainFromTodayInputs(args);
+    if (derived) {
+      resolved = {
+        hasAnyData: true,
+        brain: derived,
+        manifest: resolved.manifest,
+      };
+    }
+  }
+  return resolved;
+}
+
+/**
+ * UX.6.1 derive helper — projects already-loaded /today data into
+ * the shape the `deriveBrainSummaryFromCounts` helper consumes.
+ * Pure compute over arrays; no I/O.
+ */
+function deriveBrainFromTodayInputs(args: {
+  observations: ReadonlyArray<{ observed_at: string }>;
+  snapshots: ReadonlyArray<{ date: string }>;
+  citationEvidenceIndex: unknown;
+  recommendationQueueSize: number;
+}) {
+  const NOW_MS = Date.now();
+  const SEVEN_DAYS_MS = 7 * 86_400_000;
+  const obs7dCutoff = NOW_MS - SEVEN_DAYS_MS;
+
+  let observations7dCount = 0;
+  const platformsSeen = new Set<string>();
+  for (const o of args.observations) {
+    const t = new Date(o.observed_at).getTime();
+    if (Number.isFinite(t) && t >= obs7dCutoff) {
+      observations7dCount += 1;
+      const platform = (o as { platform?: string }).platform;
+      if (typeof platform === "string") platformsSeen.add(platform);
+    }
+  }
+  const hasPlatformCoverage =
+    platformsSeen.has("perplexity") && platformsSeen.has("chatgpt");
+
+  let recentSnapshotCount = 0;
+  const snap7dCutoff = new Date(NOW_MS - SEVEN_DAYS_MS)
+    .toISOString()
+    .slice(0, 10);
+  for (const s of args.snapshots) {
+    // DailyMetricSnapshot uses `date` (YYYY-MM-DD).
+    if (s.date >= snap7dCutoff) recentSnapshotCount += 1;
+  }
+
+  // Owned-URL citation count from the citation-evidence index.
+  let ownedUrlsCitedCount = 0;
+  const cei = args.citationEvidenceIndex as
+    | {
+        by_page_and_topic?: Array<{
+          page_url?: string;
+          is_owned?: boolean;
+          total_citations?: number;
+        }>;
+      }
+    | null;
+  if (cei?.by_page_and_topic) {
+    const ownedSeen = new Set<string>();
+    for (const r of cei.by_page_and_topic) {
+      if (
+        r.is_owned &&
+        typeof r.page_url === "string" &&
+        (r.total_citations ?? 0) > 0
+      ) {
+        ownedSeen.add(r.page_url.replace(/\/+$/, "").toLowerCase());
+      }
+    }
+    ownedUrlsCitedCount = ownedSeen.size;
+  }
+
+  return deriveBrainSummaryFromCounts({
+    observations7dCount,
+    totalObservationCount: args.observations.length,
+    recentSnapshotCount,
+    totalSnapshotCount: args.snapshots.length,
+    ownedUrlsCitedCount,
+    recommendationQueueSize: args.recommendationQueueSize,
+    hasPlatformCoverage,
+  });
 }
 
 /**

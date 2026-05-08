@@ -43,6 +43,10 @@ import {
   type CommandCenterUrlMovement,
 } from "@/components/today/command-center";
 import type { CommandCenterData } from "@/domains/today/command-center-data";
+import {
+  PollHealthCalmBanner,
+  isPreCronPending,
+} from "@/components/today/poll-health-calm-banner";
 import type {
   VisibilityMetric,
   VisibilityPoint,
@@ -510,11 +514,20 @@ export function TodayClient({
           (the header is silent on healthy days). When any platform is
           partial / failed / pending, the block surfaces with the
           existing customer-friendly copy. Operator can always inspect
-          full poll health via /diagnostics (operator-mode only). */}
+          full poll health via /diagnostics (operator-mode only).
+
+          UX.6.1 Fix 2 (2026-05-07) — false-alarm fix. Between midnight
+          UTC and 08:00 UTC (07:00 cron + 1h grace), all-pending state
+          is normal scheduling, NOT a fault. Render the calm banner
+          ("Next reading scheduled") instead of the alarming
+          PollHealthBlock. Post-cutoff or partial/failed → warning. */}
       {pollHealth &&
-        pollHealth.platforms.some((p) => p.status !== "ok") && (
+        pollHealth.platforms.some((p) => p.status !== "ok") &&
+        (isPreCronPending(pollHealth) ? (
+          <PollHealthCalmBanner />
+        ) : (
           <PollHealthBlock snapshot={pollHealth} />
-        )}
+        ))}
       {todayFreshness && (
         <div
           className="rounded-md border border-status-warning/40 bg-status-warning/[0.04] px-4 py-2.5 text-[12px]"
