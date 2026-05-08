@@ -27,6 +27,7 @@ import { newElementKey } from "@/domains/pages/extractors/element-key";
 import { tokenizeForMatch } from "../../page-inventory";
 import type { SpecificEditEvidencePacket } from "../../specific-edit-evidence";
 import type { SpecificEdit } from "../../specific-edit-provider";
+import { findUnsupportedBrandClaims } from "../../brand-assertions";
 import { titleCase, truncate } from "./_text-utils";
 
 const ACTION_TYPE = "add_h2_section" as const;
@@ -64,6 +65,27 @@ function pickH2Edit(
   // available H2 signal saying "this page is angled correctly" — a
   // softer cluster-coverage gap shouldn't produce a noisier add-H2
   // proposal on top of an already-targeted page.
+  //
+  // T-H2Cleanup (2026-05-08) — the prior template
+  // (`Why teams choose us over ${competitorName}`) put the
+  // competitor's name directly into customer-facing copy, which
+  // `validateCompetitorPublicCopy` rejected at write time. Verified
+  // on disk: the audit found the exact string
+  // "Why teams choose us over De Mattei Construction" with
+  // `not_found_reason: "invalid_competitor_public_copy_pre_w3"`.
+  // Two halves of the system disagreeing is wasted work + brand-
+  // damaging if a row ever slipped through the validator.
+  //
+  // The replacement is a buyer-perspective decision-framework H2
+  // anchored on the cluster label. The competitor SIGNAL still
+  // drives the trigger (this gate stays the same); the competitor
+  // NAME stays in the operator-facing `why` field and the
+  // structured `evidence` array but never reaches public copy.
+  // Validator-safe by construction: no competitor names, no
+  // brand-claim superlatives, no em dashes. A defensive guard below
+  // also abstains if the composed text would happen to trip
+  // `findUnsupportedBrandClaims` (e.g., a cluster label that
+  // contains "the best [topic]" or "top-rated").
   const topCompetitor = packet.competitorAngles[0];
   if (topCompetitor) {
     const lowerName = topCompetitor.competitorName.toLowerCase();
@@ -71,7 +93,24 @@ function pickH2Edit(
       h.includes(lowerName),
     );
     if (competitorMentioned) return null;
-    const proposed = `Why teams choose us over ${topCompetitor.competitorName}`;
+    const cluster = packet.clusterLabel?.trim() ?? "";
+    if (cluster.length === 0) {
+      // No cluster anchor → can't compose a specific buyer-perspective
+      // H2 without naming the competitor or fabricating language.
+      // Better empty than bad.
+      return null;
+    }
+    const proposed = `What to look for in ${cluster}`;
+    // Defense-in-depth: if the cluster label happens to embed a
+    // forbidden brand-claim pattern (e.g., "Best Modern Home Builder"
+    // when no `ranking_first` brand assertion is supplied), the
+    // validator would reject the row. Abstain here so the queue
+    // doesn't accumulate dead rows.
+    const claimMatches = findUnsupportedBrandClaims(
+      proposed,
+      packet.brandAssertions,
+    );
+    if (claimMatches.length > 0) return null;
     return buildH2Edit({
       packet,
       url,
@@ -79,8 +118,10 @@ function pickH2Edit(
       why:
         `Top competitor "${topCompetitor.competitorName}" is primary on ` +
         `${topCompetitor.promptsWherePrimary} of ${topCompetitor.totalAffectedPrompts} ` +
-        `affected prompts but no H2 on this page directly addresses why ` +
-        `we're a better choice.`,
+        `affected prompts. This page lacks a buyer-perspective H2 ` +
+        `addressing how to evaluate ${cluster}; adding one creates a ` +
+        `section the operator can fill with comparison-angle content ` +
+        `without naming competitors in customer-facing copy.`,
       evidence: [
         { type: "competitor", competitorName: topCompetitor.competitorName },
         { type: "owned_page", url },

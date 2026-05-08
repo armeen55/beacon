@@ -12,6 +12,7 @@ import type { SpecificEdit } from "../../specific-edit-provider";
 import { generateEditTitle } from "./edit-title";
 import { generateAddH2Section } from "./add-h2-section";
 import { generateAddFaq } from "./add-faq";
+import { validateSpecificEdit } from "../../specific-edit-validator";
 import {
   deterministicProvider,
   runDeterministicGenerators,
@@ -301,7 +302,7 @@ describe("Phase 6A.1.9 — edit_title generator", () => {
 // ── add_h2_section generator ──────────────────────────────────────────────
 
 describe("Phase 6A.1.9 — add_h2_section generator", () => {
-  it("positive: proposes H2 targeting top competitor when no H2 mentions them", () => {
+  it("positive: proposes a buyer-perspective H2 anchored on the cluster when a top competitor exists (T-H2Cleanup 2026-05-08 — competitor name MUST NOT appear in public copy)", () => {
     const packet = buildPacket();
     const edits = generateAddH2Section(packet);
     expect(edits).toHaveLength(1);
@@ -309,12 +310,96 @@ describe("Phase 6A.1.9 — add_h2_section generator", () => {
     expect(e.actionType).toBe("add_h2_section");
     expect(e.targetUrl).toBe(URL_BRACES);
     expect(e.targetElement?.elementKey.startsWith("h2[new]:")).toBe(true);
-    expect(e.targetElement?.proposedText?.toLowerCase()).toContain(
+    // T-H2Cleanup: customer-facing copy must NOT contain the competitor
+    // name. The pre-T-H2Cleanup template was
+    // "Why teams choose us over AcmeOrtho" which the validator rejected
+    // (not_found_reason: "invalid_competitor_public_copy_pre_w3").
+    expect(e.targetElement?.proposedText?.toLowerCase()).not.toContain(
       "acmeortho",
     );
+    expect(e.targetElement?.displayLabel?.toLowerCase()).not.toContain(
+      "acmeortho",
+    );
+    // The new template anchors on the cluster ("teen braces" in this
+    // fixture) with a buyer-perspective decision-framework angle.
+    expect(e.targetElement?.proposedText).toBe("What to look for in teen braces");
+    // Operator-facing fields (why + evidence) STILL surface the
+    // competitor signal so the operator knows what context to fill in.
+    expect(e.why?.toLowerCase()).toContain("acmeortho");
+    expect(
+      e.evidence.some(
+        (ref) => ref.type === "competitor" && ref.competitorName === "AcmeOrtho",
+      ),
+    ).toBe(true);
     expect(e.targetElement?.currentText).toBeNull();
     expect(e.difficulty).toBe("low");
     expect(e.confidence).toBe("medium");
+  });
+
+  it("T-H2Cleanup: returns [] when a top competitor exists but no clusterLabel anchors a safe template", () => {
+    const packet = buildPacket({
+      clusterLabel: null,
+      clusterKind: null,
+      // Top competitor still present in primarySummaries.
+    });
+    expect(generateAddH2Section(packet)).toEqual([]);
+  });
+
+  it("T-H2Cleanup: returns [] when the cluster-anchored template would trip the brand-claim grounder", () => {
+    // A cluster that contains "award-winning" composes
+    // "What to look for in award-winning teen braces" — the brand-
+    // claim grounder rejects unsupported "award-winning" with no
+    // `award` assertion. The generator must abstain so the queue
+    // doesn't accumulate dead rows. Cluster keeps "teen braces" so
+    // the URL_BRACES candidate still matches via cluster tokens
+    // (otherwise the generator returns [] for the wrong reason —
+    // "no owned candidate matched the cluster").
+    const packet = buildPacket({ clusterLabel: "award-winning teen braces" });
+    expect(generateAddH2Section(packet)).toEqual([]);
+  });
+
+  it("T-H2Cleanup: the generated proposedText passes validateCompetitorPublicCopy against the same packet", () => {
+    // Round-trip: generate → validate → expect competitor gate is happy.
+    // We narrow the assertion to the COMPETITOR-PUBLIC-COPY gate only,
+    // because the full validator chain also runs the abstention
+    // contract (which the fixture's small evidence depth + missing
+    // brand assertions can fail for unrelated reasons). The rule we're
+    // enforcing here is: this generator must not put competitor names
+    // in customer-facing copy.
+    const packet = buildPacket();
+    const edits = generateAddH2Section(packet);
+    expect(edits).toHaveLength(1);
+    const proposedText = edits[0].targetElement?.proposedText ?? "";
+    const displayLabel = edits[0].targetElement?.displayLabel ?? "";
+    // No alias of any competitor angle appears in either field.
+    for (const angle of packet.competitorAngles) {
+      const lower = angle.competitorName.toLowerCase();
+      expect(proposedText.toLowerCase()).not.toContain(lower);
+      expect(displayLabel.toLowerCase()).not.toContain(lower);
+    }
+  });
+
+  it("T-H2Cleanup: the generated proposedText incorporates the cluster, not generic fluff", () => {
+    // Sanity: the cluster MUST appear in the public copy. The
+    // template is `"What to look for in ${cluster}"` so any cluster
+    // override that still matches URL_BRACES via cluster tokens
+    // (i.e., contains "braces") drives a different-but-still-cluster-
+    // anchored proposedText. Demonstrates "varies with cluster" without
+    // breaking the URL-match precondition.
+    const packet = buildPacket({ clusterLabel: "teen braces in palo alto" });
+    const edits = generateAddH2Section(packet);
+    expect(edits).toHaveLength(1);
+    expect(edits[0].targetElement?.proposedText).toBe(
+      "What to look for in teen braces in palo alto",
+    );
+    expect(edits[0].targetElement?.proposedText).toContain(
+      "teen braces in palo alto",
+    );
+    // Negative: not the generic "X: what to know" format that branch 2
+    // (no-competitor fallback) would produce.
+    expect(edits[0].targetElement?.proposedText).not.toContain(
+      "what to know",
+    );
   });
 
   it("positive (fallback): proposes cluster-themed H2 when no competitor angle exists", () => {
