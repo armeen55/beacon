@@ -148,7 +148,13 @@ import {
 import {
   getUrlChangeOutcomes,
   ensureUrlChangeOutcomesSeeded,
+  type UrlChangeOutcome,
 } from "@/domains/attribution/url-change-outcome";
+import type { ChangelogEntry } from "@/domains/changelog/types";
+import {
+  buildTodayLiveChanges,
+  type TodayLiveChange,
+} from "@/domains/today/live-changes-data";
 import type { UrlChangePattern } from "@/domains/learning/change-patterns";
 import { buildSchemaParityActions } from "@/domains/actions/schema-parity-actions";
 import { getCompetitorMonitoringState } from "@/domains/competitor-monitoring/store";
@@ -635,7 +641,15 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
   // Reads recommended_edits from the same tenant-scoped repo as /changes
   // (Phase 6A.2) so the counts on Today and the tabs on /changes always
   // reconcile. Non-fatal: a Supabase blip degrades the strip to zeros.
-  const lifecycleSummary = await buildTodayLifecycleSummary(repo);
+  // T-LiveChanges (2026-05-08) — pass already-loaded changelog +
+  // url_change_outcomes through so the lifecycle summary can also
+  // surface actual verified_live rows alongside the count chips.
+  const lifecycleSummary = await buildTodayLifecycleSummary(
+    repo,
+    changelogEntries,
+    urlChangeOutcomes,
+    new Date(),
+  );
 
   const allScanFindings = await repo.getScanFindings();
   const pendingFindings = allScanFindings
@@ -2699,6 +2713,11 @@ async function resolveFirstReadingState(args: {
  */
 async function buildTodayLifecycleSummary(
   repo: ReturnType<ReturnType<typeof getRepository>["forTenant"]>,
+  // T-LiveChanges (2026-05-08) — passed in so the same repo read isn't
+  // duplicated. Both already loaded by `loadTodayPageData` upstream.
+  changelogEntries: ReadonlyArray<ChangelogEntry>,
+  urlChangeOutcomes: ReadonlyArray<UrlChangeOutcome>,
+  now: Date,
 ): Promise<TodayLifecycleSummary> {
   const empty: TodayLifecycleSummary = {
     counts: {
@@ -2708,6 +2727,7 @@ async function buildTodayLifecycleSummary(
       notFoundAfter7d: 0,
     },
     queue: [],
+    liveChanges: [],
   };
   let edits;
   try {
@@ -2759,6 +2779,20 @@ async function buildTodayLifecycleSummary(
     // dismissed / recommended / undefined intentionally not surfaced.
   }
   acceptedQueue.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+
+  // T-LiveChanges (2026-05-08) — surface the actual verified_live rows
+  // (not just their count). Joins each verified_live edit with its
+  // matching changelog row by (source_rec_id, action_type,
+  // target_element_key) and with the matching url_change_outcomes row
+  // by changelog id. Picks dynamic-state customer-safe copy per
+  // current verdict / pre-verdict / very-recent (no countdown).
+  const liveChanges = buildTodayLiveChanges({
+    recommendedEdits: edits,
+    changelogEntries,
+    urlChangeOutcomes,
+    now,
+  });
+
   return {
     counts,
     // Phase 6A.8 (2026-04-28) — UI shows top 3; the implementation-queue
@@ -2766,6 +2800,7 @@ async function buildTodayLifecycleSummary(
     // exist. Capped here (rather than in the component) so /today's
     // server payload stays small.
     queue: acceptedQueue.slice(0, 3),
+    liveChanges,
   };
 }
 
@@ -2793,6 +2828,14 @@ export type TodayLifecycleSummary = {
     notFoundAfter7d: number;
   };
   queue: TodayLifecycleQueueItem[];
+  /**
+   * T-LiveChanges (2026-05-08) — actual verified_live rows with their
+   * dynamic state copy. Top 3 most-recent. Empty array when no
+   * verified_live edits exist; the LiveChangesBlock component renders
+   * `null` for empty arrays so the strip's "0 live verified" chip is
+   * the only acknowledgement.
+   */
+  liveChanges: TodayLiveChange[];
 };
 
 

@@ -28,6 +28,7 @@ import type {
 import { PromptsTeaser, type PromptsTeaserSummary } from "@/components/today/prompts-teaser";
 import { TopPickCard, type TopPickSummary } from "@/components/today/top-pick-card";
 import { TodayLifecycleStrip } from "@/components/today/lifecycle-strip";
+import { LiveChangesBlock } from "@/components/today/live-changes-block";
 import { TodayImplementationQueue } from "@/components/today/implementation-queue";
 import { TodayDoNextCard } from "@/components/today/today-do-next-card";
 import { TodayMetricsDisclosure } from "@/components/today/today-metrics-disclosure";
@@ -731,6 +732,16 @@ export function TodayClient({
       {/* Tier 2 — lifecycle strip (chips deep-link to /changes?tab=…). */}
       {lifecycleSummary && (
         <TodayLifecycleStrip counts={lifecycleSummary.counts} />
+      )}
+
+      {/* Tier 2b — Audit Correction #1 follow-up (2026-05-08): live-changes
+          detail block. Complements the strip by surfacing the actual
+          verified_live rows with dynamic state copy ("Live change detected
+          — Beacon is collecting post-change readings", etc.). Renders
+          null when no verified_live edits exist, so the strip's count
+          chip remains the only acknowledgement of the empty case. */}
+      {lifecycleSummary && (
+        <LiveChangesBlock liveChanges={lifecycleSummary.liveChanges} />
       )}
 
       {/* Tier 3 — implementation queue (top 3, capped server-side). */}
