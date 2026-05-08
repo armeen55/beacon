@@ -16,13 +16,23 @@ import "server-only";
  * - daily_metric_snapshots uses deterministic (date, scope, platform) IDs
  *   → repeated runs for the same date upsert in place, last-write-wins per day
  *
- * Budget guard: if a completed run for the same `source` landed within the
- * last 20 hours, we skip (unless `force=true`). Prevents accidental double
- * runs from cron misconfiguration or manual double-triggers. 20h (not 24h)
- * gives wiggle room for cron drift across day boundaries.
+ * Budget guard: if a completed run for the same `(tenant, source)` already
+ * landed within the current UTC date, we skip (unless `force=true`). Anchored
+ * on the UTC-day boundary because the daily cron fires at 07:00 UTC. A late-
+ * completing prior-day run no longer shadows past midnight UTC and blocks
+ * the next scheduled day's poll.
+ *
+ * Why UTC-day, not rolling 20 hours (2026-05-08): the prior shape was a
+ * rolling 20h window. On 2026-05-07 a late recovery poll completed at
+ * 16:11 UTC. The next scheduled cron at 2026-05-08T07:00 UTC fired only
+ * 14h49m later — within the rolling window — so the guard returned `true`,
+ * `runNativePoll` returned `skipped_already_ran_today`, no paid API was
+ * called, and `verify-persistence` failed because target date 2026-05-08
+ * had zero observations. UTC-day-anchoring matches the scheduled cron's
+ * mental model (one full poll per UTC date) and prevents the recurrence.
  *
  * Fail-open on budget-check error: if the guard query errors, we log loudly
- * and proceed. Reasoning: a duplicate run costs ~$1.70 and produces idempotent
+ * and proceed. Reasoning: a duplicate run costs ~$3.07 and produces idempotent
  * state; a missed day loses a data point permanently. Observability beats
  * over-correction here.
  */
@@ -140,8 +150,19 @@ export type RunNativePollDeps = {
     tenantId: string,
     chunk: { offset?: number; limit?: number },
   ) => Promise<PerplexityPollResult>;
-  /** Budget guard. Returns true if a completed run for `source` exists in the last 20h. */
-  hasRecentCompletedRun?: (source: string) => Promise<boolean>;
+  /**
+   * Budget guard. Returns true if a completed run for `(tenant, source)`
+   * already landed within the current UTC date. UTC-day-anchored
+   * (2026-05-08 fix) — replaces the prior rolling-20h window.
+   *
+   * `tenantId` is optional in the deps signature so existing test mocks
+   * shaped `async () => false|true` keep working without a positional
+   * extra arg. The default impl always passes tenantId in production.
+   */
+  hasRecentCompletedRun?: (
+    source: string,
+    tenantId?: string,
+  ) => Promise<boolean>;
   /**
    * Chunk retry dedupe. Returns true if a completed run for the same chunk
    * identity (source + offset + limit) was landed within the last 15 minutes.
@@ -209,7 +230,21 @@ const COST_PER_OBS_USD: Record<NativePollPlatform, number> = {
   perplexity: 0.005,
   openai: 0.012,
 };
-const BUDGET_GUARD_WINDOW_MS = 20 * 60 * 60 * 1000; // 20 hours
+/**
+ * Start-of-current-UTC-day as ISO string, e.g. "2026-05-08T00:00:00.000Z".
+ *
+ * Pure / deterministic; `now` injectable for tests. Used by the budget
+ * guard to anchor on the UTC-day boundary instead of a rolling window.
+ *
+ * Exported because (a) the architecture invariant pins the helper exists,
+ * and (b) the unit test exercises it directly across day/year boundaries.
+ */
+export function utcDayStartIso(now: Date = new Date()): string {
+  const y = now.getUTCFullYear();
+  const m = String(now.getUTCMonth() + 1).padStart(2, "0");
+  const d = String(now.getUTCDate()).padStart(2, "0");
+  return `${y}-${m}-${d}T00:00:00.000Z`;
+}
 const CHUNK_RETRY_DEDUPE_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
 
 export async function runNativePoll(
@@ -308,7 +343,7 @@ export async function runNativePoll(
         };
       }
     } else {
-      const recent = await hasRecentRun(source);
+      const recent = await hasRecentRun(source, tenantId);
       if (recent) {
         return {
           status: "skipped_already_ran_today",
@@ -324,7 +359,7 @@ export async function runNativePoll(
           errorCount: 0,
           costEstimateUsd: 0,
           completedAt: null,
-          note: `A completed ${source} run already landed within the last 20 hours. Pass force=true to bypass (or use chunk mode, which uses a 15-minute retry-dedupe window instead).`,
+          note: `A completed ${source} run already landed for today (UTC). Pass force=true to bypass (e.g. legitimate same-day re-poll).`,
         };
       }
     }
@@ -629,27 +664,53 @@ async function defaultHasRecentChunk(
   }
 }
 
-async function defaultHasRecentRun(source: string): Promise<boolean> {
+/**
+ * Default budget guard — UTC-day-anchored (2026-05-08 fix).
+ *
+ * Returns true iff a completed run for `(source, tenantId?)` exists with
+ * `completed_at` falling on the current UTC date. Pre-fix this used a
+ * rolling 20h window which silently blocked the next scheduled-day poll
+ * after any late prior-day completion (May 7 16:11 UTC → May 8 07:00 UTC =
+ * 14h49m, within window).
+ *
+ * Tenant scope: when `tenantId` is supplied (production callers always do),
+ * the query is also `.eq("tenant_id", tenantId)`. With Ritz the only active
+ * tenant today, this is byte-equivalent to the unscoped query, but it makes
+ * Customer-2 multi-tenant safe — two tenants on the same UTC day no longer
+ * shadow each other.
+ *
+ * Fail-open: any query error logs loudly and returns `false` so the poll
+ * proceeds. The downstream chunk-retry-dedupe + persistence-gate cover the
+ * accidental-double-fire blast radius if the guard query itself flakes.
+ */
+async function defaultHasRecentRun(
+  source: string,
+  tenantId?: string,
+): Promise<boolean> {
   try {
     const sb = getSupabaseAdmin();
-    const cutoff = new Date(Date.now() - BUDGET_GUARD_WINDOW_MS).toISOString();
-    const { data, error } = await sb
+    const startOfDay = utcDayStartIso();
+    let query = sb
       .from("observation_runs")
       .select("run_id")
       .eq("source", source)
       .eq("status", "completed")
-      .gt("completed_at", cutoff)
+      .gte("completed_at", startOfDay)
       .limit(1);
+    if (tenantId) {
+      query = query.eq("tenant_id", tenantId);
+    }
+    const { data, error } = await query;
     if (error) {
       console.error(
-        `[runNativePoll] budget-guard query failed (fail-open): ${error.message}`,
+        `[runNativePoll] today-already-ran query failed (fail-open): ${error.message}`,
       );
       return false;
     }
     return (data?.length ?? 0) > 0;
   } catch (e) {
     console.error(
-      `[runNativePoll] budget-guard threw (fail-open): ${e instanceof Error ? e.message : e}`,
+      `[runNativePoll] today-already-ran threw (fail-open): ${e instanceof Error ? e.message : e}`,
     );
     return false;
   }

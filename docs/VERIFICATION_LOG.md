@@ -7,6 +7,113 @@
 
 ---
 
+## 2026-05-08 — Cron-skip bug fix: UTC-day-anchored budget guard (replaces rolling 20h)
+
+P0 cron diagnostic. The 2026-05-08 07:00 UTC scheduled poll skipped silently — `verify-persistence` failed RED with "Perplexity pending 0/4 chunks, ChatGPT pending 0/4 chunks", but the upstream `Poll Perplexity` and `Poll ChatGPT` jobs both showed status=success. Investigation traced this to a guard-window bug, not a workflow / secrets / env issue.
+
+### Root cause
+
+`src/domains/observations/run-poll.ts` had a budget guard that was a **rolling 20-hour window**:
+
+```ts
+const BUDGET_GUARD_WINDOW_MS = 20 * 60 * 60 * 1000;
+// in defaultHasRecentRun:
+const cutoff = new Date(Date.now() - BUDGET_GUARD_WINDOW_MS).toISOString();
+.gt("completed_at", cutoff)
+```
+
+Sequence that triggered the bug:
+
+1. **2026-05-07 07:00 UTC** — scheduled cron fired but ran late due to slow upstream Perplexity latency, completing only at **2026-05-07 16:11 UTC**.
+2. **2026-05-08 07:00 UTC** — next scheduled cron fired. `defaultHasRecentRun` queried for any completed run with `completed_at > Date.now() - 20h` = `completed_at > 2026-05-07 11:00 UTC`. The May-7 16:11 UTC row matched.
+3. Guard returned `true` → `runNativePoll` returned `{ status: "skipped_already_ran_today", note: "...within the last 20 hours..." }` BEFORE calling Perplexity / OpenAI adapters.
+4. `cron-poll.ts` exits 0 on `skipped_already_ran_today` (it's not in the `failed | persistence_failure_gate` list) → GH Actions job marked success.
+5. `verify-persistence` runs `check-yesterday-poll.ts` → finds zero completed observation_runs for 2026-05-08 → exits 1 → `verify-persistence` job fails RED.
+
+**Critical fact**: the rolling-20h window can shadow past midnight UTC after any late prior-day completion. Any time the previous day's cron lands after 11:00 UTC, the next day's 07:00 UTC scheduled poll falls inside the window and gets blocked. Before this fix, the window was a silent ticking bomb that fired the moment the cron drifted past 11:00 UTC.
+
+**Critical fact (cost)**: zero paid API calls were made on 2026-05-08. The guard fired BEFORE the adapter call. LLM budget SHA `d36eed8c…` confirmed byte-identical with UX.6.2 baseline.
+
+### Fix — UTC-day-anchored guard
+
+Anchored on the UTC-day boundary instead of a rolling window. Skip iff a completed run for `(tenant, source)` exists with `completed_at >= startOfTodayUtc`. Otherwise run.
+
+`src/domains/observations/run-poll.ts`:
+
+- **Removed** `BUDGET_GUARD_WINDOW_MS` constant.
+- **Added** + exported pure helper:
+  ```ts
+  export function utcDayStartIso(now: Date = new Date()): string {
+    const y = now.getUTCFullYear();
+    const m = String(now.getUTCMonth() + 1).padStart(2, "0");
+    const d = String(now.getUTCDate()).padStart(2, "0");
+    return `${y}-${m}-${d}T00:00:00.000Z`;
+  }
+  ```
+- **Rewrote** `defaultHasRecentRun(source, tenantId?)` query:
+  ```ts
+  const startOfDay = utcDayStartIso();
+  let query = sb
+    .from("observation_runs")
+    .select("run_id")
+    .eq("source", source)
+    .eq("status", "completed")
+    .gte("completed_at", startOfDay)
+    .limit(1);
+  if (tenantId) query = query.eq("tenant_id", tenantId);
+  ```
+- **Tenant scope**: `tenantId` is now always passed by the call site. With Ritz the only active tenant today, this is byte-equivalent to the unscoped query, but it's Customer-2-multi-tenant safe (two tenants on the same UTC day no longer shadow each other).
+- **Updated deps signature**: `hasRecentCompletedRun?: (source: string, tenantId?: string) => Promise<boolean>`. Optional `tenantId` keeps existing single-arg test mocks compatible.
+- **Updated skip-path note**: `"A completed ${source} run already landed for today (UTC). Pass force=true to bypass (e.g. legitimate same-day re-poll)."` (was "...within the last 20 hours...").
+- **Updated file-top JSDoc** with provenance trail referencing this incident so a future refactor can't quietly regress.
+
+### Behavior before vs after
+
+| Scenario | Before (rolling 20h) | After (UTC-day-anchored) |
+|---|---|---|
+| Scheduled May 8 07:00 UTC after May 7 16:11 UTC late completion | ❌ Skipped (14h49m < 20h) | ✅ Runs (different UTC days) |
+| Manual May 8 17:00 UTC after May 8 07:30 UTC scheduled run completed | ✅ Skipped (within 20h) | ✅ Skipped (same UTC day) |
+| `force=true` at any time | ✅ Bypasses guard | ✅ Bypasses guard (unchanged) |
+| Two tenants polling on same UTC day | Shadowed each other (single-arg query) | Tenant-scoped |
+| Chunk-mode 15-min retry-dedupe (separate concern) | Unchanged | Unchanged (intentional) |
+
+### Tests
+
+- `src/domains/observations/run-poll.test.ts` — reconciled the existing "skips on recent run" test (expects `result.note ~ /today \(UTC\)/`, NOT `/last 20 hours/`; expects `hasRecent.toHaveBeenCalledWith("openai-native-poll", "tenant-ritz-founder")`). NEW behavioral test: "late prior-UTC-day run does NOT block today's scheduled poll" — explicit regression fixture for the May-7-16:11 → May-8-07:00 sequence. NEW `describe("utcDayStartIso (UTC-day-anchored budget-guard helper)")` truth-table with 5 cases (mid-morning, last-millisecond, midnight roll, year-boundary, May-7/8 incident). 18 → **24** tests.
+- `tests/architecture/cron-utc-day-guard-contract.test.ts` (NEW, **8 invariants**): negative pins forbid `BUDGET_GUARD_WINDOW_MS`, `last 20 hours`, and `Date.now() - <N> * 60 * 60` rolling-hours pattern. Positive pins require `utcDayStartIso` exported, deps signature `(source, tenantId?)`, call site passes both args, default-impl uses `.gte("completed_at", startOfDay)` + conditional `.eq("tenant_id", tenantId)`, skip-path note contains `today (UTC)`, file-top JSDoc references the 2026-05-08 fix.
+
+### Quality gates
+
+- `npm run typecheck` — CLEAN.
+- `npm run test` — **6,497 / 6,497 passing** (+16 tests vs UX.6.2 baseline 6481; +6 utcDayStartIso truth-table + +1 late-prior-day regression + +8 architecture invariants + +1 reconciled negative pin).
+- `npm run build` — green. All routes ƒ Dynamic.
+- `verify-tenant-data-integrity` — PASS. Ritz row counts UNCHANGED 9896/16521/28.
+- `verify-observation-dedup-integrity` — PASS. 0 dupes.
+- `verify-verdict-rematerialization-integrity` — PASS. 131 verdicts, 0 drift.
+- `npm run verify:brain-health` — YELLOW. 7 PASS + 1 WARN (queue-idle, pre-existing).
+- `.data/global/llm-budget.json` SHA `d36eed8c…` — byte-identical with UX.6.2.
+
+### Safe to rerun May 8 cron via workflow_dispatch?
+
+Yes. After this commit lands and the Vercel deploy completes (the GitHub runner pulls the latest main on workflow start, so even Vercel deployment isn't strictly required for the cron path):
+
+1. Pre-flight: `npx tsx --require ./scripts/mock-server-only.cjs scripts/verify-daily-poll.ts` should still report "no observations today yet" + "READY for next paid cron" (already confirmed earlier this morning).
+2. Operator clicks `Daily native AI-visibility poll → Run workflow → Run` in the Actions tab.
+3. compute-matrix runs (~1 min, no API).
+4. poll-perplexity calls Perplexity (~10–20 min). Cost: ~$0.10.
+5. poll-openai calls OpenAI (~10–20 min). Cost: ~$2.97.
+6. rebuild-citation-evidence-index runs after both complete (~30s, no paid API).
+7. verify-persistence runs check-yesterday-poll.ts → finds completed runs for May 8 → exits 0 → job green.
+8. **Expected total cost: ~$3.07.** LLM budget SHA will increment after the rerun (this is normal post-paid-poll behavior; the budget ledger writes per chunk).
+
+Post-rerun verification:
+- `npx tsx --require ./scripts/mock-server-only.cjs scripts/verify-daily-poll.ts --mode=post` should show `target date 2026-05-08: 200 obs total` (100 Perplexity + 100 ChatGPT).
+- `/today` brain-readiness card refreshes with May 8 data.
+
+The patch is committed but the manual rerun is the operator's call — paid run requires explicit operator approval per the contract.
+
+---
+
 ## 2026-05-07 — UX.6.2: vocabulary + hierarchy cleanup on /today (5 fixes)
 
 After UX.6.1 trust restoration landed, operator brief: make /today feel less chaotic. Five fixes:

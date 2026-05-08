@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { runNativePoll } from "./run-poll";
+import { runNativePoll, utcDayStartIso } from "./run-poll";
 import type { PerplexityPollResult } from "@/adapters/perplexity/poll";
 import type { ObservationRun } from "./types";
 import type { PromptAnswerObservation } from "@/domains/prompt-answer-observations/types";
@@ -233,7 +233,10 @@ describe("runNativePoll", () => {
     );
   });
 
-  it("budget guard: skips the run when a recent completed run exists and force=false", async () => {
+  it("budget guard: skips the run when a same-UTC-day completed run exists and force=false", async () => {
+    // 2026-05-08 fix: guard is now UTC-day-anchored (not rolling 20h).
+    // The mock returns true → simulate "today's UTC date already has a
+    // completed run" → expect skip path with the new note text.
     const sync = mkSyncSpies();
     const adapterSpy = vi.fn();
     const hasRecent = vi.fn(async () => true);
@@ -252,15 +255,66 @@ describe("runNativePoll", () => {
     expect(result.observationsWritten).toBe(0);
     expect(result.snapshotsWritten).toBe(0);
     expect(result.costEstimateUsd).toBe(0);
-    expect(result.note).toMatch(/last 20 hours/);
+    // 2026-05-08 fix — new copy reflects UTC-day semantics; old "last 20
+    // hours" string must be gone.
+    expect(result.note).toMatch(/today \(UTC\)/i);
+    expect(result.note).not.toMatch(/last 20 hours/);
 
     // No API call. No DB writes. Completely inert.
     expect(adapterSpy).not.toHaveBeenCalled();
-    expect(hasRecent).toHaveBeenCalledWith("openai-native-poll");
+    // 2026-05-08 fix — guard is now tenant-scoped; both args propagate.
+    expect(hasRecent).toHaveBeenCalledWith(
+      "openai-native-poll",
+      "tenant-ritz-founder",
+    );
     expect(sync.syncObservationRuns).not.toHaveBeenCalled();
     expect(sync.syncPromptAnswerObservations).not.toHaveBeenCalled();
     expect(sync.syncAnswerTexts).not.toHaveBeenCalled();
     expect(sync.syncDailyMetricSnapshots).not.toHaveBeenCalled();
+  });
+
+  it("UTC-day guard: late prior-UTC-day run does NOT block today's scheduled poll", async () => {
+    // Regression fixture for the 2026-05-08 cron-skip incident:
+    //   - May 7 16:11 UTC: late recovery poll completed
+    //   - May 8 07:00 UTC: scheduled cron fires (14h49m later)
+    //   - Pre-fix rolling-20h guard fired → skipped → no paid API → empty
+    //     observation_runs for May 8 → verify-persistence failed.
+    //
+    // Post-fix UTC-day guard: when the only completed run for `(tenant,
+    // source)` is from yesterday's UTC date, today's date has no row, so
+    // the guard correctly returns false and the poll proceeds.
+    //
+    // We model the guard's correct UTC-day-anchored behavior by injecting
+    // `hasRecentCompletedRun: async () => false` (the production impl
+    // queries for today's UTC date and would return false here). The
+    // architecture invariant + utcDayStartIso truth-table tests pin the
+    // production query semantics directly.
+    const sync = mkSyncSpies();
+    const adapterSpy = vi.fn(async (platform: string) =>
+      makeAdapterResult(platform, 100, "completed", 0),
+    );
+    const hasRecent = vi.fn(async () => false); // late prior-day → today's UTC has 0 rows
+
+    const result = await runNativePoll(
+      { tenantId: "tenant-ritz-founder", platform: "openai" },
+      {
+        runAdapter: adapterSpy,
+        hasRecentCompletedRun: hasRecent,
+        ...sync,
+        buildDailySnapshotsFromObservations: () => [],
+        getTrackedEntities: async () => trackedEntities(),
+      },
+    );
+
+    expect(result.status).toBe("completed");
+    expect(result.observationsWritten).toBe(100);
+    expect(result.note).toBeUndefined();
+    // Guard was queried with both source + tenantId (regression pin).
+    expect(hasRecent).toHaveBeenCalledWith(
+      "openai-native-poll",
+      "tenant-ritz-founder",
+    );
+    expect(adapterSpy).toHaveBeenCalledOnce();
   });
 
   it("force=true bypasses the budget guard even when a recent run exists", async () => {
@@ -794,5 +848,56 @@ describe("runNativePoll", () => {
     );
     expect(result.observationsWritten).toBe(80);
     expect(result.chunk.promptsPolled).toBe(80);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// utcDayStartIso — pure helper for the UTC-day-anchored budget guard
+// (2026-05-08 cron-skip incident fix).
+// ---------------------------------------------------------------------------
+
+describe("utcDayStartIso (UTC-day-anchored budget-guard helper)", () => {
+  it("returns the start of today's UTC day for a mid-morning timestamp", () => {
+    expect(utcDayStartIso(new Date("2026-05-08T07:00:00Z"))).toBe(
+      "2026-05-08T00:00:00.000Z",
+    );
+  });
+
+  it("returns the same UTC day even at the very last millisecond", () => {
+    expect(utcDayStartIso(new Date("2026-05-08T23:59:59.999Z"))).toBe(
+      "2026-05-08T00:00:00.000Z",
+    );
+  });
+
+  it("rolls cleanly across the midnight UTC boundary", () => {
+    expect(utcDayStartIso(new Date("2026-05-08T23:59:59.999Z"))).toBe(
+      "2026-05-08T00:00:00.000Z",
+    );
+    expect(utcDayStartIso(new Date("2026-05-09T00:00:00.000Z"))).toBe(
+      "2026-05-09T00:00:00.000Z",
+    );
+  });
+
+  it("handles year-boundary rollover correctly", () => {
+    expect(utcDayStartIso(new Date("2026-12-31T23:59:59.999Z"))).toBe(
+      "2026-12-31T00:00:00.000Z",
+    );
+    expect(utcDayStartIso(new Date("2027-01-01T00:00:00.000Z"))).toBe(
+      "2027-01-01T00:00:00.000Z",
+    );
+  });
+
+  it("regression: 2026-05-08 incident — May 7 16:11 UTC and May 8 07:00 UTC fall on different UTC days", () => {
+    const may7Late = utcDayStartIso(new Date("2026-05-07T16:11:00Z"));
+    const may8Cron = utcDayStartIso(new Date("2026-05-08T07:00:00Z"));
+    expect(may7Late).toBe("2026-05-07T00:00:00.000Z");
+    expect(may8Cron).toBe("2026-05-08T00:00:00.000Z");
+    // The whole point of the patch: these two anchors are different
+    // UTC-day strings, so a `gte("completed_at", may8Cron)` query
+    // against an observation_runs row whose completed_at='2026-05-07T16:11:00Z'
+    // returns ZERO rows, which means the guard returns false and the
+    // scheduled May-8 poll proceeds. Pre-fix, a rolling 20h window
+    // collapsed these two timestamps into a single skip.
+    expect(may7Late).not.toBe(may8Cron);
   });
 });
