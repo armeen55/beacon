@@ -8,9 +8,13 @@
 
 ## ⚠️ CORRECTIONS — read this before you read the audit
 
-**This document was revised on 2026-05-08 (later the same day) after a read-only diagnostic pass.** The original audit got its central premise wrong. The error was a buggy regex in the diagnostic grep — `'"live_at":"[^n]'` (no space after the colon) — which silently returned 0 against JSON that actually has `"live_at": "..."` *with a space*. Every "live_at is null on every row" claim that flowed from that grep was wrong.
+**This document has been revised twice on 2026-05-08, after two independent read-only diagnostic passes turned up two distinct premise errors in the original audit.** Both corrections came from the same failure mode: trusting Explore-agent summary reports without verifying their specific technical claims against the actual code paths.
 
-**What the original audit said and what's actually true:**
+The audit's structural and directional conclusions hold up. Its specific technical claims about "what's broken in /changes" and "what's broken in /recommendations" did not.
+
+### Correction #1 — the lifecycle / attribution loop
+
+**Bug source:** a buggy regex in the diagnostic grep — `'"live_at":"[^n]'` (no space after the colon) — silently returned 0 against JSON that actually has `"live_at": "..."` *with a space*. Every "live_at is null on every row" claim that flowed from that grep was wrong.
 
 | Original claim | Actual on-disk truth |
 |---|---|
@@ -20,17 +24,51 @@
 | "0 outcomes; learning is dead." | 0 outcomes is correct, **but the cause is the 14–30 day verdict bake window, not a broken loop.** The H2 stamp is from 2026-04-28; today is 2026-05-08; that's 10 days — still inside the window. The verdict will materialize on its own around May 12–18. |
 | "Top-leverage move #1: flip the flag." | Wrong premise. The flag is already flipped where it matters. |
 
-**What the original audit got right and remains true:**
-- `engineConfidence: "medium"` is hardcoded on every rec row. Queue is sorted `created_at DESC`, not by impact.
+Full post-mortem: **Section J** at the end of this document.
+
+### Correction #2 — the /recommendations ranking and confidence
+
+**Bug source:** the original audit conflated two distinct fields with the same name, and inferred system behavior from one report file (`rec-outcome-analysis-*.json`'s `confidence_funnel.persisted` block) without reading the actual sort code or the actual confidence rubric. Specifically:
+
+- `RecommendedEditRow.confidence` is the **edit-level** legacy provider confidence column on disk. It IS 100% medium across all 31 production rows because the deterministic generator always emits `medium`.
+- `LiveRecQueueItem.engineConfidence` is the **rec-level** rubric verdict computed at queue load time by `computeRecConfidence` in [confidence.ts:202-351](src/domains/recommendations/confidence.ts:202). It is NOT hardcoded; it is a real six-dimension HIGH evaluation with eight LOW gates, structured reason codes, exposed in `<RecConfidencePill>` (operator) and `<DerivedConfidencePill>` (customer).
+
+The audit said "engineConfidence is hardcoded medium" — it was reading the legacy edit column and labelling it engineConfidence.
+
+| Original claim | Actual on-disk truth |
+|---|---|
+| "`engineConfidence: 'medium'` is a literal string on all 31 production rec rows." | Wrong field. `RecommendedEditRow.confidence` (the legacy edit-provider column) is medium on all rows. `engineConfidence` is computed by the W3 §3.3 rubric at queue load and produces real HIGH/MEDIUM/LOW with reason codes. The May 7 outcome-analysis report's `confidence_funnel.derived` shows **0 strong / 28 moderate / 3 needs_review** — the rubric is distinguishing 3 thin-evidence rows from 28 normal ones. Real signal. |
+| "Queue is sorted by `created_at DESC`." | Wrong. The sort at [recommendation-action-rows.ts:1741-1758](src/domains/recommendations/recommendation-action-rows.ts:1741) is `STATUS_BUCKET → PRIORITIZER_TIER → PRIORITY_RANK → evidenceDepth desc → observationCount desc → id asc`. No `created_at` anywhere. The final tie-breaker is `id ASC` (deterministic). |
+| "Phase A's `prioritize.ts` score is computed and discarded." | Wrong. The score determines the **tier** (top 5 = `now`, 6–10 = `this_week`, rest = `later`) at [prioritize.ts:179-228](src/domains/recommendations/prioritize.ts:179). The tier is the second-level sort key (after status bucket). The numeric score itself isn't directly used in the sort, but the score's *ranking* IS — via tier. |
+| "Top-leverage move #3: 'Compute and persist a real engineConfidence per rec, then sort the queue by it. Today every row has confidence:medium literal and the queue is created_at DESC.'" | Already done. W3 Step 3.3 (May 1) shipped the rubric. T4.4 (May 6) shipped the customer-facing `<DerivedConfidencePill>`. T4.2 (May 6) wired prioritizer tier into the row sort. The implementation predates this audit by 6+ days. |
+
+**Where the audit's directional instinct was right:**
+
+The intuition that "the customer can't see why the queue is ranked this way" remains valid. The numeric prioritizer score is in operator-mode debug only; the prioritizer's `reasoning` string ("High severity; 4 affected prompts; De Mattei primary on 3 of 4") is also operator-mode only. The customer sees the rank number and the confidence pill, but no plain-English "why ranked here" explanation. **That is a real gap, narrower than the audit framed it, addressed in this revision (Section K).**
+
+**Where the audit's directional instinct was wrong:**
+
+The framing "the queue is fake" / "ranking is fake" / "all medium" was inflammatory and inaccurate. The system already does almost everything the audit said it didn't. Two consecutive bundles started from wrong premises before this was caught.
+
+Full post-mortem: **Section K** at the end of this document.
+
+### What the original audit got right and remains true
+
 - `add_h2_section` deterministic generator emits competitor names in public copy (literally on disk: `"Why teams choose us over De Mattei Construction"` with `not_found_reason: "invalid_competitor_public_copy_pre_w3"`). Validator catches them, but the generator is still emitting them.
 - `competitorPageBlueprints[].h1/topH2s/faqQuestions` are hardcoded null at `specific-edit-evidence.ts:1214-1219`.
 - No RLS policies on any of 35+ Supabase tables.
 - 44 domain folders. 51 root markdown docs. 2,833-line `today-data.ts`. 1,689-line `recommendations-client.tsx`. Two operator-mode flags. Empty-string `tenant_id: ""` placeholders in 4 production files.
 - Routes that look like internal tooling on the customer shell (`/diagnostics`, `/expansion`, `/audit`, `/rank`, `/moves`, `/review`, `/changes/truth`).
 
-**What changed in the audit:** Section A executive summary, Section B item #1, Section D item #1, Section F Hours 0–8, Section G Week 1, Section H lifecycle row, Section I framing. Sections C (strong points), E (kill/merge/elevate), and the unchanged D items are the same. **A new Section J at the end** documents the correction in full and the corrected highest-leverage next step.
+### What changed in the audit
 
-The pattern matters more than the regex bug: the original audit was fast and confident because the agents trusted reports they couldn't verify against actual data. Read this audit assuming any specific number could still be wrong; the structural conclusions are firmer than the per-row counts.
+After Correction #1: Section A executive summary, Section B item #1, Section D item #1, Section F Hours 0–8, Section G Week 1, Section H lifecycle row, Section I framing. New Section J added.
+
+After Correction #2: this CORRECTIONS box itself, Section A blocker #3, Section B item #3 (replaced), Section D item #2 (replaced), Section H rows about engineConfidence and ranking. New Section K added.
+
+Sections C (strong points) and E (kill/merge/elevate) are unchanged across both corrections.
+
+The pattern matters more than the bugs. **The original audit was fast and confident because the agents trusted reports they couldn't verify against actual data, twice in a row.** Read this audit assuming any specific number or behavioral claim could still be wrong; the structural conclusions (sprawl, RLS gap, deterministic-vs-validator contract mismatch, hardcoded `null` competitor blueprints) are firmer than the per-row or per-component behavioral claims.
 
 ---
 
@@ -45,7 +83,7 @@ The pattern matters more than the regex bug: the original audit was fast and con
 **Is it sellable?** Not yet. Three blockers, in order — and these have shifted from the original audit:
 1. **The loop is alive but mostly invisible and underfed.** It produced 1 verified_live transition in roughly a month at current operator cadence. To reach the `credible` learning-score threshold (N≥15 outcomes, per `analyze-recommendation-outcomes.ts:445`), the system needs ~15× more verified_live rows. At current rate that's 12+ months. And the 1 stamp it has produced isn't shown anywhere prominent.
 2. **No RLS policies exist on any of 35+ Supabase tables.** Tenant isolation is application-level only; a single bug in `currentTenantId()` or a compromised JWT exposes every customer's data to every other customer.
-3. **The deterministic generators emit content the validator rejects** by design (competitor names in public copy, combined Q+A rows), and `engineConfidence` is a literal `"medium"` on all 31 production rec rows — so the queue is sorted by `created_at DESC` with no real signal.
+3. **The deterministic generators emit content the validator rejects** by design (competitor names in public copy, combined Q+A rows). The validator catches them at write time, so the rejected rows are dismissed with `not_found_reason: invalid_*_pre_w3` — but the generators are still doing wasted work, and a single brand-damaging slip-through is enough to lose customer trust. (Note: per Correction #2 above, the audit's claim that ranking + confidence are also "no real signal" was wrong; that infrastructure already runs. This blocker is now narrower than the original audit framed it.)
 
 **Biggest risk.** You ship to a paying customer; their /changes page shows zero verdicts for weeks because nothing has matured past bake; your differentiating wedge — "we prove what worked" — produces nothing for them to look at. Meanwhile the competitor names embedded in H2 proposals leak through the validator into a customer's CMS once and the brand is done.
 
@@ -59,7 +97,7 @@ The pattern matters more than the regex bug: the original audit was fast and con
 |---|---|---|---|---|---|---|---|
 | 1 | **Surface the existing causal-stamped row prominently on /today and /changes**, AND **diagnose the 2 stuck add_faq rec_edits.** "On 2026-04-28 you shipped a new H2; verdict landing ~2026-05-18" needs to be a hero block, not a row buried in a tab. Then walk the page source of the FAQ target URL by hand to see whether the FAQ block exists but the matcher missed it (real match-engine bug) or whether it isn't on the page (operator-workflow gap). | The loop is alive but invisible. The product currently doesn't show the customer the *one* causal example it has. Fixing visibility makes the wedge legible. Diagnosing the 2 stuck FAQs reveals whether the bottleneck is matcher bugs or operator workflow, which determines the next 30 days of work. | Massive — the difference between "the loop will work eventually" and "look, here's it working." | Medium — the surface change is ~½ day; the diagnosis is read-only and takes ~1–2 hours of looking at live HTML and match-engine logs. | Low. | product + data | `src/app/(shell)/today-data.ts`, `src/app/(shell)/changes/page.tsx`, `src/domains/recommendations/match-engine.ts`, the live `https://ritzbuilders.com/services/whole-home-remodel` HTML |
 | 2 | **Add Supabase RLS policies to all 35+ tenant-scoped tables before a second customer is provisioned.** Migrations dir currently has zero `CREATE POLICY` statements. | Tenant isolation today is "we appended `.eq("tenant_id", x)` everywhere" — that's not isolation, that's discipline. One bug = full cross-tenant leak. A skeptical customer will ask. | Critical — blocks any honest claim of multi-tenant safety. | Medium-high — 30+ tables × 4 policies = ~120 policies, plus a `tenant_members` join. ~3–5 days. | Low if done before customer 2; catastrophic if skipped. | data + business | `migrations/`, `src/lib/persistence/repositories/supabase-backend.ts`, `src/lib/auth/supabase-middleware.ts` |
-| 3 | **Compute and persist a real `engineConfidence` (HIGH/MEDIUM/LOW) per rec, then sort the queue by it.** Today every row has `confidence: "medium"` literal and the queue is `created_at DESC`. | This is the difference between "ranked decision queue" (the pitch) and "newest LLM packet first" (the reality). The Phase A `prioritize.ts` score is computed and discarded by `recommendation-action-rows.ts`. | Massive — fixes the most embarrassing on-screen lie. | Medium — wire `prioritize.ts` score into the action-rows sort and stop hardcoding `"medium"`. ~1 day. | Low — pure surfacing of existing computation. | product + data | `src/domains/recommendations/prioritize.ts:124-132`, `src/domains/recommendations/recommendation-action-rows.ts:1568-1576`, `src/domains/recommendations/confidence.ts:152-162` |
+| 3 | **(REMOVED — see Correction #2.)** This entry originally said "Compute and persist a real engineConfidence; today every row has confidence: medium literal and the queue is created_at DESC." That was wrong on three counts: the `engineConfidence` rubric ships in [confidence.ts](src/domains/recommendations/confidence.ts) (W3 §3.3, May 1), the customer-facing `<DerivedConfidencePill>` ships in [rec-confidence-pill.tsx](src/components/display/rec-confidence-pill.tsx) (T4.4, May 6), and the queue sort uses prioritizer tier as the second key (not created_at) per [recommendation-action-rows.ts:1741](src/domains/recommendations/recommendation-action-rows.ts:1741) (T4.2, May 6). The narrower real gap — surfacing the prioritizer's `reasoning` string to the customer — is addressed by the "Why ranked here?" disclosure shipped on this revision pass; see Section K. | n/a | n/a | n/a | product (closed) | n/a (already-built code, see Section K for what changed in revision pass) |
 | 4 | **Kill the `add_h2_section` deterministic generator's competitor-name template** (`Why teams choose us over ${Competitor}` at `add-h2-section.ts:74`) — replace with a generic angle phrasing OR delete the deterministic path entirely. Verified on disk: row 1 of `recommended-edits.json` is dismissed with `not_found_reason: "invalid_competitor_public_copy_pre_w3"`. | Validator strips them, so the queue silently shrinks. The generator is wasted work plus brand-damaging if it ever ships through. | High — removes a real footgun. | Low — 10-line change. | Low. | product + architecture | `src/domains/recommendations/providers/generators/add-h2-section.ts:74`, `src/domains/recommendations/specific-edit-validator.ts:1402` |
 | 5 | **Populate `competitorPageBlueprints[].h1/topH2s/faqQuestions/metaDescription`** (currently hardcoded null per `specific-edit-evidence.ts:1214-1219`) so the OpenAI SYSTEM_PROMPT Rule 15 ("learn the structure these pages take") has actual structure to learn from. | The pitch tells the model to learn from competitor structure; the data passed says "here's a URL, good luck." This is the single biggest reason recs default to generic boilerplate ("architect-led design-build" 8/20 times in the prod sample). Improving rec quality also lifts the acceptance rate, which feeds Top-1's underfed-loop problem. | High — directly improves rec quality, which is the throughput input to the loop. | Medium — needs page-extractor coverage on competitor URLs (cheerio/puppeteer already in deps). ~2–3 days. | Low — read-only crawl. | product + data | `src/domains/recommendations/specific-edit-evidence.ts:1214-1219`, `src/domains/scanning/`, `src/domains/recommendations/providers/openai.ts:363-372` |
 | 6 | **Cut /audit, /rank, /moves, /review, /expansion, /diagnostics/spikes, and `/changes/truth` from the default nav.** Hide /diagnostics/* behind operator mode (already gated; just stop linking to them). | These routes have unclear purpose, are placeholders, or are operator tools. They make the product feel like internal tooling and dilute the pitch. The customer should see ~5 routes: `/today`, `/recommendations`, `/prompts`, `/changes`, `/settings`. | Big — perceived product clarity 10x. | Low — nav-level change + a few link cleanups. ~1 day. | Low. | UX | `src/app/(shell)/layout.tsx`, `src/components/shell/*`, route folders |
@@ -88,7 +126,7 @@ The pattern matters more than the regex bug: the original audit was fast and con
 ## D. Top 10 things that are weak / fake / confusing (revised)
 
 1. **The learning loop is alive but barely.** It produced **1 verified_live transition** in roughly the last 30 days. The learning score requires N≥15 *causal outcomes* (not stamps) to leave `insufficient_sample` and become `credible` (per `analyze-recommendation-outcomes.ts:445`). At current ship rate, getting to N=15 takes 12+ months. **And the 1 stamp that exists is invisible** — there's no hero block on /today saying "Here's what shipped, here's what we expect, here's the verdict landing date." The loop is real; the proof of the loop is hidden.
-2. **`engineConfidence: "medium"` is a literal string on all 31 production rec rows.** No HIGH, no LOW, no signal. The queue is sorted `created_at DESC` and dressed up as "ranked." Phase A's `prioritize.ts` computes a real score and Phase B (`recommendation-action-rows.ts`) discards it.
+2. **(WITHDRAWN — see Correction #2 in the corrections box.)** This entry originally claimed "engineConfidence: medium literal on all 31 rows" + "queue is created_at DESC" + "prioritize.ts score is discarded." All three were wrong. The legacy edit-level `confidence` column IS 100% medium on disk (deterministic generator default), but the rec-level `engineConfidence` is computed by the W3 §3.3 rubric at queue load with real reason codes, and the May 7 outcome-analysis report shows derived confidence at **0 strong / 28 moderate / 3 needs_review**. The sort uses status bucket → prioritizer tier → priority → evidence depth → observation count → id (no `created_at`). The remaining narrow gap — that the customer doesn't see the prioritizer's plain-English `reasoning` — is addressed in Section K.
 3. **No RLS on 35+ tables.** Migrations dir contains zero `CREATE POLICY` statements. Tenant isolation is application-level only. That is discipline, not security. Cannot honestly tell a customer their data is isolated.
 4. **`tenant_id: ""` empty-string placeholders in 4 production files** (`opportunity-candidates/actions.ts:98`, `changelog/actions.ts:79`, `scanning/detect-findings.ts:865`, `results/actions.ts:93`). Comments say upstream callers replace, but if a code path bypasses the call site, an empty string flows into a query that won't error and won't filter — silent corruption.
 5. **Two operator-mode flags (`BEACON_OPERATOR_MODE` server, `NEXT_PUBLIC_OPERATOR_MODE` client) for the same conceptual gate.** Easy to set one and not the other.
@@ -213,7 +251,9 @@ The pattern matters more than the regex bug: the original audit was fast and con
 | The 1 existing causal-stamped change is visible somewhere a customer would see | ❌ Invisible | The proof exists; the product hides it |
 | The 2 stuck FAQ rec_edits diagnosed (page-not-shipped vs matcher-bug) | ❌ Unknown | Determines whether bottleneck is workflow or code |
 | RLS on all tenant-scoped tables | ❌ Zero policies | Cannot honestly claim isolation |
-| `engineConfidence` is a real ranking signal, not a literal `"medium"` | ❌ Hardcoded | Queue is sorted by `created_at`, not impact |
+| `engineConfidence` is a real ranking signal | ✓ Already shipped (W3 §3.3, May 1). Rubric runs at queue load; reasons exposed via tooltip + debug; `<DerivedConfidencePill>` renders Strong/Moderate/Watching to customer. **Audit was wrong on this row.** | Verified after Correction #2 |
+| Queue sort uses real signal, not `created_at DESC` | ✓ Already shipped (T4.2, May 6). Sort: `STATUS_BUCKET → PRIORITIZER_TIER → PRIORITY_RANK → evidenceDepth → observationCount → id`. **Audit was wrong on this row.** | Verified after Correction #2 |
+| Customer-facing "why ranked here?" explanation | ⚠️ Operator-mode only pre-revision; addressed by Section K patch (this revision) | Was a real gap but narrower than the audit framed it |
 | `add_h2_section` competitor-template branch removed | ❌ Active | Brand-damaging if it ever ships through |
 | `competitorPageBlueprints` structure populated | ❌ Hardcoded null | LLM has no structure to learn from |
 | Operator-mode unified into one flag, customer-default OFF | ⚠️ Two flags | Easy to leak debug surfaces |
@@ -229,7 +269,7 @@ The pattern matters more than the regex bug: the original audit was fast and con
 | `add_faq` Q+A row format aligned with validator pairing contract | ❌ Conflict | Either dead code or live regression |
 | Honest "system health" pill that reflects last poll's persistence rate | ❌ Hidden in /diagnostics | Trust signal currently invisible |
 
-**Minimum-viable subset to charge a single second customer at $249/mo:** RLS, the 1 existing stamp surfaced + the 2 stuck rec_edits diagnosed, hardcoded confidence fixed, unified operator mode, dead routes hidden. The rest is week 3–4.
+**Minimum-viable subset to charge a single second customer at $249/mo (revised after Correction #2):** RLS, the 1 existing stamp surfaced + the 2 stuck rec_edits diagnosed, unified operator mode, dead routes hidden. (Confidence + ranking are already real and customer-visible; "Why ranked here?" disclosure shipped on this revision pass.) The rest is week 3–4.
 
 ---
 
@@ -303,4 +343,83 @@ All wrong on the same root cause.
 
 ---
 
-*End of audit. Last revision: 2026-05-08 (post-Option-A correction).*
+---
+
+## K. The /recommendations ranking + confidence correction (Correction #2)
+
+### Where the audit went wrong
+
+The original audit's Top-leverage move #3 ("Compute and persist a real engineConfidence; today every row has confidence: medium literal and the queue is created_at DESC") was wrong on three counts. Each one was independently false, and the system already implements the right thing:
+
+**Wrong claim 1 — "engineConfidence is hardcoded medium on every row."**
+
+The audit conflated two distinct fields. `RecommendedEditRow.confidence` is the legacy edit-level provider confidence stored on disk in `recommended-edits.json`. It IS 100% medium across all 31 production rows, because the deterministic generator in `add-h2-section.ts` and `add-faq.ts` always sets `confidence: "medium"` (intentional — those generators don't reason about confidence per-edit; they leave that to the LLM provider or the rubric).
+
+But `LiveRecQueueItem.engineConfidence` is a **different field**, computed at queue-load time by `computeRecConfidence` in [confidence.ts:202-351](src/domains/recommendations/confidence.ts:202). It runs the W3 §3.3 rubric: 8 LOW gates (no prompts, no edits, needs human review, edit low-confidence, placeholder text, competitor-name leak, resolution low-confidence, single-prompt-no-evidence) followed by a 6-dimension HIGH evaluation (multi-prompt, real resolver tier, all edits high, packet grounding, resolution high, ≥2 evidence refs). The result is a `RecConfidenceVerdict` with a confidence label AND a list of structured reason codes.
+
+The May 7 outcome-analysis report's `confidence_funnel.derived` block — which uses the customer-facing label derived from evidence quality (T4.4, May 6) — shows **0 strong / 28 moderate / 3 needs_review**. The system IS distinguishing 3 thin-evidence rows from 28 normal ones. That is real signal, not "all medium."
+
+**Wrong claim 2 — "Queue is sorted by created_at DESC."**
+
+The sort at [recommendation-action-rows.ts:1741-1758](src/domains/recommendations/recommendation-action-rows.ts:1741) is:
+
+```
+1. STATUS_BUCKET   asc  (open work above tracking; tracking above archived)
+2. PRIORITIZER_TIER asc (now → this_week → later, from prioritize.ts)
+3. PRIORITY_RANK   asc  (high → medium → low, from priorityForRow)
+4. evidenceDepth   desc (richer grounding wins ties)
+5. observationCount desc
+6. id              asc  (deterministic tie-break)
+```
+
+`created_at` is not in the sort. The final tie-breaker is `id`, which is content-derived and stable. The shape of the sort was finalized at T4.2 (May 6) explicitly to break the "thin FAQ answer outranks multi-prompt H2" failure mode the operator hit during browser audit.
+
+**Wrong claim 3 — "Phase A's prioritize.ts score is computed and discarded."**
+
+The score determines the **tier** (top 5 = `now`, 6–10 = `this_week`, rest = `later`) at [prioritize.ts:179-228](src/domains/recommendations/prioritize.ts:179). The tier is the second-level sort key in the action-rows sort above. The prioritizer's score formula — severity + cluster size + competitor pressure + recent signal − effort — is a small five-signal rubric, not hidden ML. Each candidate also gets a `reasoning` string at [prioritize.ts:134-177](src/domains/recommendations/prioritize.ts:134) like "High severity; 4 affected prompts; De Mattei is primary on 3 of 4 (75%); low effort." That string is computed and threaded through to the row.
+
+The numeric score itself isn't preserved past tier assignment — but that's by design: a score difference of 0.1 between two rows isn't worth surfacing or sorting on; the tier captures the meaningful break.
+
+### The narrow real gap that remained
+
+Despite the three wrong claims, the audit's directional instinct was right about ONE thing: the customer doesn't see *why* a rec is ranked at a particular position. The information exists — `rec.reasoning`, `rec.engineConfidence.reasons`, `row.derivedConfidence`, `row.detail.evidenceDepth`, `row.observationCount`, `row.detail.debug.prioritizerTier` — but most of it is behind operator-mode or in nested debug surfaces.
+
+A customer sees:
+- The rank number (1, 2, 3...).
+- A "Top pick" chip on the highest-priority pending row.
+- The `<DerivedConfidencePill>` (Strong / Moderate / Watching).
+- For `needs_review` rows, the microcopy: "Beacon is watching for stronger support before recommending this."
+
+A customer does NOT see:
+- The plain-English `reasoning` string ("High severity; 4 affected prompts; competitors primary on 3 of 4").
+- Why the row is in the `now` vs `this_week` vs `later` tier.
+- Which evidence dimensions are present (multi-prompt? competitor angle? owned-page candidate?).
+
+This revision pass shipped a small "Why ranked here?" disclosure on the customer-facing /recommendations row that surfaces those signals using existing fields only. No engine math change. No schema change. No threshold change. It's a 1-component + UI-render-block patch documented in the corresponding commit.
+
+### Pattern lesson (carried forward from Correction #1)
+
+This is the second consecutive bundle where the audit started from a wrong premise:
+- Correction #1: the lifecycle loop was claimed dead because of a buggy regex.
+- Correction #2: the ranking + confidence were claimed broken because of a field-name conflation and not reading the actual sort code.
+
+Both errors had the same shape: a confident technical claim that wasn't verified against the actual code path. Both were caught only when the operator pushed back and asked for direct inspection.
+
+Going forward: any audit claim about "what a system does today" should be framed as a hypothesis until a specific file + line is shown to back it. Reports that aggregate behavior across many files (confidence_funnel.persisted, brain-health-*.json, etc.) are summaries, not source of truth — they're correct about what they measure, but easy to misinterpret about what they imply.
+
+### What this audit revision does NOT change
+
+The structural conclusions are unaffected:
+- 44 domain folders, 51 root markdown docs, 2,833-line `today-data.ts`, 1,689-line `recommendations-client.tsx` — still real.
+- No RLS on 35+ Supabase tables — still real.
+- `add_h2_section` still emits competitor names in public copy — still real.
+- `competitorPageBlueprints[]` still hardcoded null — still real.
+- Two operator-mode flags — still real.
+- `tenant_id: ""` placeholders in 4 files — still real.
+- 1 verified_live row + 3 source_rec_id stamps + 0 outcomes (bake window) — still real.
+
+The audit's *list* of issues is mostly correct. Its *interpretation* of two specific subsystems was wrong on both passes. Treat the list as a starting point for verification, not as a finished diagnosis.
+
+---
+
+*End of audit. Last revision: 2026-05-08 (post-Correction-#2 / Option-B implementation).*

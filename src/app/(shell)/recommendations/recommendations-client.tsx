@@ -49,6 +49,7 @@ import {
 } from "@/domains/recommendations/recommendation-action-rows";
 import { sanitizeOperatorEvidenceText } from "@/domains/recommendations/copy-sanitize";
 import { RecommendationEvidencePanel } from "@/components/recommendations/recommendation-evidence-panel";
+import { WhyRankedHere } from "@/components/recommendations/why-ranked-here";
 import {
   ExecutiveStrip,
   buildExecutiveStripData,
@@ -1263,6 +1264,17 @@ function RowDrawer({
           {feedback.message}
         </p>
       )}
+
+      {/* Audit Correction #2 (2026-05-08): customer-facing
+          "Why ranked here?" disclosure. Composes from existing
+          top-level row fields (priority + derivedConfidence + affected
+          prompts + observation count + top competitor). Does NOT
+          change ranking math or sort order; this surfaces the
+          existing-but-hidden reasoning to the customer. Operator-mode
+          debug fields (prioritizerScore, engineConfidence.reasons,
+          full reasoning paragraph) are unchanged and remain
+          operator-only. */}
+      <WhyRankedHere row={row} />
 
       {/* Section: Exact recommended change */}
       {hasExactCopy && (
