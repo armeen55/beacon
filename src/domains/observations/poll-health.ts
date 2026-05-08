@@ -240,10 +240,31 @@ function computePlatformHealth(
   );
 
   // Partition chunk-mode vs whole-mode runs by scope_label shape.
-  // Chunk runs carry "chunk offset=N limit=M"; whole-mode runs don't.
-  const chunks = sortedDesc.filter((r) => /chunk offset=/i.test(r.scope_label));
+  //
+  // Real chunk runs carry "chunk offset=N limit=M" with a NUMERIC limit
+  // (e.g. "limit=25") — those land 4×25 prompts to make 100/day.
+  //
+  // Whole-mode runs are EITHER pre-chunk-era / local-CLI rows that have
+  // no "chunk offset=" token at all, OR — important — direct-CLI cron
+  // runs (Bundle 2, 2026-05-07) that emit "chunk offset=0 limit=all"
+  // because the adapter's scope_label template always embeds the
+  // offset/limit fields. With limit=all the adapter polls 100 prompts
+  // in ONE observation_run, so the canary should treat it as whole-mode
+  // (1/1 chunks ok), NOT 1-of-4-partial.
+  //
+  // 2026-05-08 incident regression: pre-fix the regex `/chunk offset=/i`
+  // matched both shapes, so today's direct-CLI runs (after the UTC-day
+  // guard fix landed and the 200 obs persisted cleanly) got classified
+  // as 1/4 partial → check-yesterday-poll exit 1 → verify-persistence
+  // job RED despite the data landing perfectly. Tightening the regex
+  // to require `limit=\d+` (numeric) routes `limit=all` to the
+  // whole-mode branch where the legacy logic at line ~250 correctly
+  // reports 1/1 ok.
+  const chunks = sortedDesc.filter((r) =>
+    /chunk offset=\d+ limit=\d+/i.test(r.scope_label),
+  );
   const wholes = sortedDesc.filter(
-    (r) => !/chunk offset=/i.test(r.scope_label),
+    (r) => !/chunk offset=\d+ limit=\d+/i.test(r.scope_label),
   );
 
   if (chunks.length === 0) {

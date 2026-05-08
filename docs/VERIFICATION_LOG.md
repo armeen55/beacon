@@ -7,6 +7,101 @@
 
 ---
 
+## 2026-05-08 — Verify-persistence false-fail fix: poll-health partitioner recognizes direct-CLI shape
+
+Companion to the morning's UTC-day-guard fix (commit `c9d0ae9`). After the operator clicked manual `workflow_dispatch`, the cron ran for 23m 15s and:
+
+- ✅ compute-active-tenants
+- ✅ poll-openai (100 prompts, ~$2.97)
+- ✅ poll-perplexity (100 prompts, ~$0.10)
+- ✅ rebuild citation evidence
+- ❌ **verify-persistence**
+
+Money was spent (~$3.07 native poll cost recorded in `raw_poll_chunks.cost_usd`). Data landed perfectly: 200 observations + 100 snapshots for May 8. **The cron + persistence pipeline is healthy.** The failure was in the verifier classifier.
+
+### Root cause — failure class A (verifier outdated for new workflow shape)
+
+The Bundle 2 direct-CLI workflow (2026-05-07) replaced the prior Vercel chunked-curl path. Direct-CLI runs poll 100 prompts in a SINGLE `observation_run` (chunk offset=0 limit=all) — NOT 4×25 chunks. But the adapter's `scope_label` template at `src/adapters/perplexity/poll.ts:683` always embeds the offset/limit fields:
+
+```ts
+const baseScope = `Native ${platform} poll · chunk offset=${offset} limit=${opts.limit ?? "all"} · ${observations.length}/${prompts.length} prompts`;
+```
+
+So today's direct-CLI runs landed `observation_runs` with scope_label like:
+
+```
+Native perplexity poll · chunk offset=0 limit=all · 100/100 prompts · cost=$0.0998
+```
+
+The poll-health partitioner at `src/domains/observations/poll-health.ts:244` classified by regex `/chunk offset=/i` — over-broad — which matched both real chunks (`limit=25`) AND direct-CLI runs (`limit=all`). Today's direct-CLI runs got routed into the chunk-mode branch where `EXPECTED_CHUNKS = 4` forces a "1/4 partial" verdict, and `check-yesterday-poll.ts` exited 1, marking verify-persistence RED.
+
+`verify-daily-poll --mode=post` (which uses a DIFFERENT path) reported May 8 fully ok, confirming the data is fine — only the canary's classifier was wrong.
+
+### Fix
+
+Tightened the partitioner regex in `src/domains/observations/poll-health.ts` to require BOTH offset AND limit to be numeric:
+
+```ts
+// Before:
+const chunks = sortedDesc.filter((r) => /chunk offset=/i.test(r.scope_label));
+
+// After:
+const chunks = sortedDesc.filter((r) =>
+  /chunk offset=\d+ limit=\d+/i.test(r.scope_label),
+);
+```
+
+`limit=all` no longer matches `\d+` → falls to the whole-mode branch (lines 249–285) which already correctly reports `expectedChunks=1, completedChunks=1, status=ok`. Real chunked runs with `limit=25` continue to flow through the chunk-mode branch unchanged.
+
+Manual canary verification post-fix:
+
+```
+$ npx tsx --require ./scripts/mock-server-only.cjs scripts/check-yesterday-poll.ts
+Checking poll health for 2026-05-08...
+  ✓ perplexity ok       1/1 chunks, 100 prompts  (latest: pollrun-1778254721976-kxvyra)
+  ✓ chatgpt    ok       1/1 chunks, 100 prompts  (latest: pollrun-1778254719058-1jbq87)
+
+✓ All platforms ok for 2026-05-08.
+```
+
+### Tests + invariants
+
+NEW behavioral tests in `tests/domains/observations/poll-health.test.ts` (37 → 40 tests):
+- "2026-05-08 direct-CLI shape (chunk offset=0 limit=all) classifies as whole-mode (1/1 ok)" — explicit regression fixture for today's incident.
+- "real chunked runs (limit=25, 4×25=100) still classify as chunk-mode (4/4 ok)" — negative regression that the fix doesn't break the 2026-04-23 chunked path.
+- "mixed shape: real-chunk runs (limit=25) and direct-CLI runs (limit=all) coexist on same date" — edge case.
+
+NEW `tests/architecture/poll-health-direct-cli-classifier-contract.test.ts` (3 invariants):
+- Both partition filters use the limit-arity-aware regex `/chunk offset=\d+ limit=\d+/i` (asserted with regex matching against source text — exactly 2 occurrences expected).
+- Over-broad `/chunk offset=/i.test(r.scope_label)` is gone from runtime code (comment-stripped).
+- Source documents the 2026-05-08 incident + "direct-CLI" + "limit=all" provenance trail.
+
+### Quality gates
+
+- `npm run typecheck` — CLEAN.
+- `npm run test` — **6,503 / 6,503 passing** (+6 vs `c9d0ae9` baseline 6497; +3 behavioral + +3 architecture invariants).
+- `npm run build` — green. All routes ƒ Dynamic.
+- `verify-tenant-data-integrity` — PASS. Ritz UNCHANGED 9896/16521/28.
+- `verify-observation-dedup-integrity` — PASS.
+- `verify-verdict-rematerialization-integrity` — PASS. 0 drift.
+- `npm run verify:brain-health` — YELLOW. 7 PASS + 1 WARN (queue-idle).
+- `.data/global/llm-budget.json` SHA `d36eed8c…` — byte-identical (recommendation-LLM ledger; native-poll cost ~$3.07 written to `raw_poll_chunks.cost_usd` which is a separate ledger).
+
+Zero OpenAI calls. Zero paid polling triggered by this commit. Zero production data mutations. Zero new Supabase reads. Zero touches to onboarding / cron workflow / RLS / auth / billing.
+
+### Status as of this commit
+
+- ✅ May 8 observations: 200 (100 Perplexity + 100 ChatGPT).
+- ✅ May 8 snapshots: 100 (50 ChatGPT + 50 Perplexity).
+- ✅ /today freshness verdict: FRESH (latest = 2026-05-08).
+- ✅ Cron path is now correctly green-on-success.
+- ✅ /today is safe to mark fresh.
+- ❌ NO need to rerun May 8 cron — the data is already there. The next 07:00 UTC cron (2026-05-09) will be the natural test of the full green path.
+
+UX.6.3 is now unblocked. Cron + persistence pipeline is fully green.
+
+---
+
 ## 2026-05-08 — Cron-skip bug fix: UTC-day-anchored budget guard (replaces rolling 20h)
 
 P0 cron diagnostic. The 2026-05-08 07:00 UTC scheduled poll skipped silently — `verify-persistence` failed RED with "Perplexity pending 0/4 chunks, ChatGPT pending 0/4 chunks", but the upstream `Poll Perplexity` and `Poll ChatGPT` jobs both showed status=success. Investigation traced this to a guard-window bug, not a workflow / secrets / env issue.

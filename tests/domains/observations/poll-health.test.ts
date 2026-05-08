@@ -155,6 +155,96 @@ describe("computePollHealthFromRuns", () => {
     expect(perplexity.observationsWritten).toBe(100);
   });
 
+  it("2026-05-08 direct-CLI shape (chunk offset=0 limit=all) classifies as whole-mode (1/1 ok)", () => {
+    // Regression fixture for the 2026-05-08 verify-persistence false-fail.
+    // The Bundle 2 direct-CLI workflow (replaced the Vercel chunked-curl
+    // path on 2026-05-07) emits a scope_label with `chunk offset=0
+    // limit=all`. Pre-fix the partitioner regex `/chunk offset=/i`
+    // matched this and routed the run through chunk-mode (expected=4),
+    // reporting 1/4 partial → check-yesterday-poll exit 1 → workflow
+    // RED despite 200 obs landing perfectly. Post-fix the regex
+    // requires `limit=\d+`, so `limit=all` falls to whole-mode (1/1 ok).
+    const runs = [
+      makeRun({
+        source: "perplexity-native-poll",
+        status: "completed",
+        scope_label:
+          "Native perplexity poll · chunk offset=0 limit=all · 100/100 prompts · cost=$0.0998",
+        started_at: t(10, 0),
+      }),
+      makeRun({
+        source: "openai-native-poll",
+        status: "completed",
+        scope_label:
+          "Native chatgpt poll · chunk offset=0 limit=all · 100/100 prompts · cost=$2.9711",
+        started_at: t(10, 5),
+      }),
+    ];
+    const snap = computePollHealthFromRuns(date, runs);
+    const perplexity = snap.platforms.find((p) => p.platform === "perplexity")!;
+    expect(perplexity.status).toBe("ok");
+    expect(perplexity.expectedChunks).toBe(1);
+    expect(perplexity.completedChunks).toBe(1);
+    expect(perplexity.observationsWritten).toBe(100);
+    const chatgpt = snap.platforms.find((p) => p.platform === "chatgpt")!;
+    expect(chatgpt.status).toBe("ok");
+    expect(chatgpt.expectedChunks).toBe(1);
+    expect(chatgpt.completedChunks).toBe(1);
+    expect(chatgpt.observationsWritten).toBe(100);
+  });
+
+  it("real chunked runs (limit=25, 4×25=100) still classify as chunk-mode (4/4 ok)", () => {
+    // Negative regression — the 2026-05-08 fix MUST NOT break the
+    // 2026-04-23 chunked path. Real chunks with numeric `limit=25`
+    // continue to flow through the chunk-mode branch.
+    const runs = [
+      chunkRun("perplexity-native-poll", 0, "completed", 25, t(10, 0)),
+      chunkRun("perplexity-native-poll", 25, "completed", 25, t(10, 3)),
+      chunkRun("perplexity-native-poll", 50, "completed", 25, t(10, 6)),
+      chunkRun("perplexity-native-poll", 75, "completed", 25, t(10, 9)),
+    ];
+    const snap = computePollHealthFromRuns(date, runs);
+    const perplexity = snap.platforms.find((p) => p.platform === "perplexity")!;
+    expect(perplexity.status).toBe("ok");
+    expect(perplexity.expectedChunks).toBe(4);
+    expect(perplexity.completedChunks).toBe(4);
+    expect(perplexity.observationsWritten).toBe(100);
+  });
+
+  it("mixed shape: real-chunk runs (limit=25) and direct-CLI runs (limit=all) coexist on same date", () => {
+    // Edge case — could happen if someone manually fires the chunked
+    // fallback while the daily direct-CLI cron also runs. Each platform
+    // takes whichever mode the latest run advertises. This test pins
+    // current behavior: chunk-mode rows partition into chunks, direct-CLI
+    // rows partition into wholes; whichever has data wins per platform.
+    // Today's reality: only direct-CLI fires daily, so most platforms
+    // see only the wholes side.
+    const runs = [
+      // Direct-CLI for perplexity (wins).
+      makeRun({
+        source: "perplexity-native-poll",
+        status: "completed",
+        scope_label:
+          "Native perplexity poll · chunk offset=0 limit=all · 100/100 prompts · cost=$0.0998",
+        started_at: t(10, 0),
+      }),
+      // Real chunked for chatgpt.
+      chunkRun("openai-native-poll", 0, "completed", 25, t(10, 0)),
+      chunkRun("openai-native-poll", 25, "completed", 25, t(10, 3)),
+      chunkRun("openai-native-poll", 50, "completed", 25, t(10, 6)),
+      chunkRun("openai-native-poll", 75, "completed", 25, t(10, 9)),
+    ];
+    const snap = computePollHealthFromRuns(date, runs);
+    const perplexity = snap.platforms.find((p) => p.platform === "perplexity")!;
+    expect(perplexity.status).toBe("ok");
+    expect(perplexity.expectedChunks).toBe(1);
+    expect(perplexity.completedChunks).toBe(1);
+    const chatgpt = snap.platforms.find((p) => p.platform === "chatgpt")!;
+    expect(chatgpt.status).toBe("ok");
+    expect(chatgpt.expectedChunks).toBe(4);
+    expect(chatgpt.completedChunks).toBe(4);
+  });
+
   it("ignores runs from other sources (e.g. scan jobs)", () => {
     const runs = [
       makeRun({
