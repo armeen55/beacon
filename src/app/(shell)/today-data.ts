@@ -167,6 +167,32 @@ import {
 import type { ComponentProps } from "react";
 import { TodayClient, type TodayQueueItem } from "./today-client";
 
+/**
+ * T-WorseningSuffix (2026-05-08) — direction-aware hurting trend suffix.
+ *
+ * Pre-T-WorseningSuffix, the hurting action card on /today appended
+ * " · worsening" whenever `transitions > 1`. The transitions counter
+ * (see `url_change_outcomes.transitions`) increments on ANY material
+ * recorder update — including the demotion path where a hurting row
+ * recovers from z=−3.5 toward z=−2.1. Calling that "worsening" was
+ * a direction-blind read of a count, not a trend signal.
+ *
+ * Until the recorder persists a verdict_history (z + verdict per
+ * transition), there is no safe way to infer trend direction from
+ * the existing fields alone. Returning "" keeps the rationale honest:
+ * we say "hurting for Nd" without claiming to know whether it's
+ * accelerating or recovering.
+ *
+ * When verdict_history lands (next bundle), this helper becomes the
+ * one place to compute "improving" / "worsening" / "holding" by
+ * comparing the most recent two stamps' z-magnitudes.
+ *
+ * Pure. No I/O.
+ */
+export function hurtingTrendSuffix(_args: { transitions: number }): string {
+  return "";
+}
+
 export type TodayPageData = Omit<
   ComponentProps<typeof TodayClient>,
   | "onRespondToRec"
@@ -1941,7 +1967,12 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
         0,
         Math.floor((Date.now() - new Date(h.recordedAt).getTime()) / 86_400_000),
       );
-      const trendSuffix = h.transitions > 1 ? " \u00b7 worsening" : "";
+      // T-WorseningSuffix (2026-05-08): the prior `transitions > 1
+      // ? " \u00b7 worsening" : ""` was direction-blind \u2014 see the
+      // `hurtingTrendSuffix` doc comment above. Until verdict_history
+      // is persisted, this is `""` for every row regardless of
+      // transitions count.
+      const trendSuffix = hurtingTrendSuffix({ transitions: h.transitions });
       const headline = changeDate
         ? `${h.url} regressed after your ${changeDate} change`
         : `${h.url} is losing AI visibility`;

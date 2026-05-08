@@ -39,6 +39,7 @@ import {
   type LifecycleTabClass,
 } from "@/domains/attribution/lifecycle-classification";
 import { LifecycleStatusPill } from "@/components/display/lifecycle-status-pill";
+import { EarlySignalPill } from "@/components/display/early-signal-pill";
 import type { ImplementationStatus } from "@/domains/recommendations/recommended-edits-persistence";
 import {
   resolveAttributionCopy,
@@ -714,11 +715,21 @@ function ChangeRow({
                 );
               }
               return (
-                <AttributionStatusPill
-                  status={outcome.status}
-                  confidence={outcome.confidence}
-                  compact
-                />
+                <span className="inline-flex items-center gap-1.5">
+                  <AttributionStatusPill
+                    status={outcome.status}
+                    confidence={outcome.confidence}
+                    compact
+                  />
+                  {/* T-EarlySignal (2026-05-08): when the URL Z-score
+                      engine emits weak_signal (|z| ∈ [1.2, 2.0) with
+                      sustain), surface "Early signs of lift" alongside
+                      the natural-controls AttributionStatusPill. The
+                      two pills represent different engines (diff-in-
+                      diff vs URL Z-score) and don't conflict — they're
+                      additive. Renders nothing for any other verdict. */}
+                  <EarlySignalPill verdict={row.urlVerdict?.verdict} compact />
+                </span>
               );
             })()
           ) : row.hasUrl ? (
