@@ -22,6 +22,7 @@ export async function confirmCandidate(
   const action = "confirmCandidate";
   const t0 = Date.now();
   log.info("Action started", { action, params: { resultId, changeId } });
+  const tenantId = await currentTenantId();
   const result = (await getResults()).find((r) => r.id === resultId);
   if (!result) {
     log.error("Action failed", {
@@ -53,11 +54,11 @@ export async function confirmCandidate(
       attribution: null!,
       created_at: now(),
       reviewed_at: now(),
-      tenant_id: "",
+      tenant_id: tenantId,
     });
   }
 
-  await persistCandidateLinks(await currentTenantId());
+  await persistCandidateLinks(tenantId);
   revalidatePath("/", "layout");
   log.info("Action completed", { action, durationMs: Date.now() - t0 });
   return { success: true };
@@ -70,6 +71,7 @@ export async function rejectCandidate(
   const action = "rejectCandidate";
   const t0 = Date.now();
   log.info("Action started", { action, params: { resultId, changeId } });
+  const tenantId = await currentTenantId();
   const candidateLinks = await getCandidateLinks();
   const existing = candidateLinks.find(
     (cl) => cl.result_id === resultId && cl.change_id === changeId
@@ -87,11 +89,11 @@ export async function rejectCandidate(
       attribution: null!,
       created_at: now(),
       reviewed_at: now(),
-      tenant_id: "",
+      tenant_id: tenantId,
     });
   }
 
-  await persistCandidateLinks(await currentTenantId());
+  await persistCandidateLinks(tenantId);
   revalidatePath("/", "layout");
   log.info("Action completed", { action, durationMs: Date.now() - t0 });
   return { success: true };
@@ -107,6 +109,7 @@ export async function rejectAllCandidates(
     action,
     params: { resultId, changeIdCount: changeIds.length },
   });
+  const tenantId = await currentTenantId();
   const candidateLinks = await getCandidateLinks();
   for (const changeId of changeIds) {
     const existing = candidateLinks.find(
@@ -124,12 +127,12 @@ export async function rejectAllCandidates(
         attribution: null!,
         created_at: now(),
         reviewed_at: now(),
-        tenant_id: "",
+        tenant_id: tenantId,
       });
     }
   }
 
-  await persistCandidateLinks(await currentTenantId());
+  await persistCandidateLinks(tenantId);
   revalidatePath("/", "layout");
   log.info("Action completed", { action, durationMs: Date.now() - t0 });
   return { success: true };
@@ -190,6 +193,7 @@ export async function lockDecision(
       candidateCount: allCandidateChangeIds.length,
     },
   });
+  const tenantId = await currentTenantId();
   const eventDecisions = await getEventDecisions();
   const candidateLinks = await getCandidateLinks();
   const existing = eventDecisions.find((d) => d.event_id === eventId);
@@ -214,7 +218,7 @@ export async function lockDecision(
       operator_note: operatorNote?.trim() || null,
       rejected_change_ids: rejectedIds,
       decided_at: now(),
-      tenant_id: "",
+      tenant_id: tenantId,
     });
   }
 
@@ -239,7 +243,7 @@ export async function lockDecision(
         attribution: null!,
         created_at: now(),
         reviewed_at: now(),
-        tenant_id: "",
+        tenant_id: tenantId,
       });
     }
   }
@@ -260,12 +264,11 @@ export async function lockDecision(
         attribution: null!,
         created_at: now(),
         reviewed_at: now(),
-        tenant_id: "",
+        tenant_id: tenantId,
       });
     }
   }
 
-  const tenantId = await currentTenantId();
   await persistEventDecisions(tenantId);
   await persistCandidateLinks(tenantId);
   revalidatePath("/", "layout");

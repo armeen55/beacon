@@ -58,6 +58,7 @@ export async function createChangelogEntry(
 
   const changeId = generateId("cl");
   const timestamp = now();
+  const tenantId = await currentTenantId();
 
   const entry: ChangelogEntry = {
     id: changeId,
@@ -76,7 +77,7 @@ export async function createChangelogEntry(
     notes,
     created_at: timestamp,
     updated_at: timestamp,
-    tenant_id: "",
+    tenant_id: tenantId,
   };
 
   const changelogEntries = await getChangelogEntries();
@@ -85,7 +86,7 @@ export async function createChangelogEntry(
   // Persist to disk + Supabase (fixes data loss on restart)
   await writeStore("imported-changes", changelogEntries);
   try {
-    await syncChangelogEntries([entry], await currentTenantId());
+    await syncChangelogEntries([entry], tenantId);
   } catch (e) {
     console.error("[changelog] Supabase sync failed:", e);
   }

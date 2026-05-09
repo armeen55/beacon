@@ -314,7 +314,7 @@ export async function executeImport(
     skipped_count: skipped,
     errors: allErrors.slice(0, 50),
     warnings: allWarnings.slice(0, 50),
-    tenant_id: "",
+    tenant_id: tenantId,
   };
   const importRuns = await getImportRunsArray();
   importRuns.push(run);

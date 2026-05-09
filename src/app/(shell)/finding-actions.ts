@@ -246,7 +246,7 @@ export async function confirmFindingAsChange(
     // on this URL (legitimate case: operator change without a Beacon rec).
     source_rec_id: finding.source_rec_id,
     source_pattern_id: finding.source_pattern_id ?? null,
-    tenant_id: "",
+    tenant_id: tenantId,
   };
 
   // Phase 1 — stamp structured schema-experiment fields when the finding

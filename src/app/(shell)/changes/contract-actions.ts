@@ -331,6 +331,7 @@ export async function createChangeContract(
   const verificationChecks = generateVerificationChecks(draft as ChangeContract);
 
   const contractId = `cc-${Date.now()}`;
+  const tenantId = await currentTenantId();
   const contract: ChangeContract = {
     contractId,
     accountId: input.accountId,
@@ -367,11 +368,11 @@ export async function createChangeContract(
     createdAt: now,
     updatedAt: now,
     notes: input.notes ?? null,
-    tenant_id: "",
+    tenant_id: tenantId,
   };
 
   (await getChangeContracts()).push(contract);
-  await persistChangeContracts(await currentTenantId());
+  await persistChangeContracts(tenantId);
   revalidatePath("/", "layout");
 
   log.info("Action completed", { action, durationMs: Date.now() - t0 });
