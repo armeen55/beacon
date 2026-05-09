@@ -217,7 +217,8 @@ export async function runProfoundImport(
       importRunId,
       promptLookup,
       ownedDomains,
-      ownedBrandAliases
+      tenantId,
+      ownedBrandAliases,
     );
     warnings.push(...ex.warnings);
     mergedObservations = mergeById(mergedObservations, ex.observations, true);
@@ -263,7 +264,7 @@ export async function runProfoundImport(
   // Phase 5: Derived snapshots from merged observations
   const ownedEntity = entities.find((e) => e.is_owned && e.entity_type === "brand");
   const ownedEntityId = ownedEntity?.id ?? "ritz";
-  const derivedSnapshots = buildDerivedSnapshots(mergedObservations, ownedEntityId);
+  const derivedSnapshots = buildDerivedSnapshots(mergedObservations, ownedEntityId, tenantId);
 
   // Phase 6: Benchmark — merge all summarized files + existing benchmark rows on disk
   const entityLookup = new Map<string, string>();
@@ -278,7 +279,7 @@ export async function runProfoundImport(
   const candidateLists: EntityCandidate[][] = [];
 
   for (const filePath of byKind.benchmark) {
-    const bench = parseProfoundBenchmark(filePath, accountId, entityLookup);
+    const bench = parseProfoundBenchmark(filePath, accountId, entityLookup, tenantId);
     warnings.push(...bench.warnings);
     mergedBenchmark = mergeById(mergedBenchmark, bench.snapshots, true);
     candidateLists.push(bench.entityCandidates);
@@ -298,7 +299,7 @@ export async function runProfoundImport(
   if (byKind.changelog.length > 0) {
     let mergedChangelog = await readStore<ChangelogEntry>("imported-changes");
     for (const filePath of byKind.changelog) {
-      const parsed = parseChangelogCSVToLegacy(filePath, importRunId);
+      const parsed = parseChangelogCSVToLegacy(filePath, importRunId, tenantId);
       mergedChangelog = mergeChangelogEntries(mergedChangelog, parsed);
     }
     changelogForBridge = mergedChangelog;
@@ -341,6 +342,7 @@ export async function runProfoundImport(
     changes: importedChanges,
     entities,
     ownedDomain: siteDomain,
+    tenantId,
   });
   await writeStore("pages", pages);
   await syncPages(pages, tenantId);
@@ -364,6 +366,7 @@ export async function runProfoundImport(
     answerTexts: mergedAnswerTexts,
     brandName: entityDisplayName,
     ownedDomain: siteDomain,
+    tenantId,
   });
   const aiPath = join(DATA_DIR, "answer-intelligence-index.json");
   const aiTmp = aiPath + ".tmp";

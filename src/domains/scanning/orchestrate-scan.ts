@@ -82,6 +82,7 @@ export async function regenerateScanFindings(opts: {
   previousGuardrails: GuardrailAlert[];
   scanRunId: string;
 }): Promise<number> {
+  const tenantId = await currentTenantId();
   const freshSnapshots =
     (await readDotDataJson<PageSnapshot[]>("page-snapshots")) ?? [];
   const freshGuardrails =
@@ -118,6 +119,7 @@ export async function regenerateScanFindings(opts: {
     previousGuardrails: opts.previousGuardrails,
     changelog: await getChangelogEntries(),
     scanRunId: opts.scanRunId,
+    tenantId,
     citationsByUrl: citLookup,
     homepageUrl,
     previouslyRejectedTypes,

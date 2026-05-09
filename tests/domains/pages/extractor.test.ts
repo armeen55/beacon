@@ -12,7 +12,7 @@ describe("extractPageSnapshot – FAQ extraction", () => {
         ]
       }</script>
     </head><body><p>Content</p></body></html>`;
-    const snap = extractPageSnapshot(html, "https://example.com/page", "pg-1");
+    const snap = extractPageSnapshot(html, "https://example.com/page", "pg-1", "tenant-test");
     expect(snap.faqs).toHaveLength(2);
     expect(snap.faqs[0].source).toBe("jsonld");
     expect(snap.faqs[0].question).toBe("What is the cost?");
@@ -24,7 +24,7 @@ describe("extractPageSnapshot – FAQ extraction", () => {
       <details><summary>What areas do you serve?</summary><p>We serve the Bay Area.</p></details>
       <details><summary>How do I start?</summary><p>Contact us for a consultation.</p></details>
     </body></html>`;
-    const snap = extractPageSnapshot(html, "https://example.com/page", "pg-2");
+    const snap = extractPageSnapshot(html, "https://example.com/page", "pg-2", "tenant-test");
     expect(snap.faqs).toHaveLength(2);
     expect(snap.faqs[0].source).toBe("html_details");
   });
@@ -41,7 +41,7 @@ describe("extractPageSnapshot – FAQ extraction", () => {
       <p>A teardown-rebuild usually starts with feasibility review.</p>
       <h2>Contact Us</h2>
     </body></html>`;
-    const snap = extractPageSnapshot(html, "https://example.com/menlo-park", "pg-3");
+    const snap = extractPageSnapshot(html, "https://example.com/menlo-park", "pg-3", "tenant-test");
     expect(snap.faqs.length).toBeGreaterThanOrEqual(3);
     expect(snap.faqs[0].source).toBe("html_section");
     expect(snap.faqs[0].question).toContain("best custom home builders");
@@ -56,7 +56,7 @@ describe("extractPageSnapshot – FAQ extraction", () => {
       <h3>How long does construction take?</h3>
       <p>14 to 24 months typically.</p>
     </body></html>`;
-    const snap = extractPageSnapshot(html, "https://example.com/faq", "pg-4");
+    const snap = extractPageSnapshot(html, "https://example.com/faq", "pg-4", "tenant-test");
     expect(snap.faqs.length).toBeGreaterThanOrEqual(2);
     expect(snap.faqs[0].question).toContain("How much does it cost?");
   });
@@ -67,7 +67,7 @@ describe("extractPageSnapshot – FAQ extraction", () => {
       <div><strong>What warranties do you offer?</strong> We provide a 10-year structural warranty.</div>
       <div><b>Do you handle permits?</b> Yes, we manage the entire permit process.</div>
     </body></html>`;
-    const snap = extractPageSnapshot(html, "https://example.com/faq2", "pg-5");
+    const snap = extractPageSnapshot(html, "https://example.com/faq2", "pg-5", "tenant-test");
     expect(snap.faqs.length).toBeGreaterThanOrEqual(2);
     expect(snap.faqs[0].source).toBe("html_section");
   });
@@ -85,7 +85,7 @@ describe("extractPageSnapshot – FAQ extraction", () => {
       <h3>Cost question?</h3>
       <p>Answer.</p>
     </body></html>`;
-    const snap = extractPageSnapshot(html, "https://example.com/both", "pg-6");
+    const snap = extractPageSnapshot(html, "https://example.com/both", "pg-6", "tenant-test");
     expect(snap.faqs.length).toBeGreaterThanOrEqual(1);
   });
 
@@ -98,7 +98,7 @@ describe("extractPageSnapshot – FAQ extraction", () => {
       <h3>This is not a FAQ?</h3>
       <p>Should not be captured.</p>
     </body></html>`;
-    const snap = extractPageSnapshot(html, "https://example.com/boundary", "pg-7");
+    const snap = extractPageSnapshot(html, "https://example.com/boundary", "pg-7", "tenant-test");
     expect(snap.faqs).toHaveLength(1);
     expect(snap.faqs[0].question).toBe("Is this a question?");
   });
@@ -117,7 +117,7 @@ describe("extractPageSnapshot – top-level JSON-LD array (menlo-park bug fix)",
         ]}
       ]</script>
     </head><body><p>Content here about building.</p></body></html>`;
-    const snap = extractPageSnapshot(html, "https://example.com/locations/menlo-park", "pg-mp");
+    const snap = extractPageSnapshot(html, "https://example.com/locations/menlo-park", "pg-mp", "tenant-test");
     expect(snap.faqs).toHaveLength(2);
     expect(snap.faqs[0].question).toContain("best builders");
     expect(snap.faqs[0].source).toBe("jsonld");
@@ -132,7 +132,7 @@ describe("extractPageSnapshot – top-level JSON-LD array (menlo-park bug fix)",
         {"@type":"FAQPage","mainEntity":[]}
       ]</script>
     </head><body><p>Content</p></body></html>`;
-    const snap = extractPageSnapshot(html, "https://example.com/page", "pg-arr");
+    const snap = extractPageSnapshot(html, "https://example.com/page", "pg-arr", "tenant-test");
     expect(snap.schema_types).toContain("HomeAndConstructionBusiness");
     expect(snap.schema_types).toContain("WebPage");
     expect(snap.schema_types).toContain("BreadcrumbList");
@@ -152,7 +152,7 @@ describe("extractPageSnapshot – top-level JSON-LD array (menlo-park bug fix)",
         {"@type":"Question","name":"Q from standalone?","acceptedAnswer":{"@type":"Answer","text":"A2"}}
       ]}</script>
     </head><body><p>Content</p></body></html>`;
-    const snap = extractPageSnapshot(html, "https://example.com/mixed", "pg-mix");
+    const snap = extractPageSnapshot(html, "https://example.com/mixed", "pg-mix", "tenant-test");
     expect(snap.faqs).toHaveLength(2);
     expect(snap.schema_types).toContain("Article");
     expect(snap.schema_types).toContain("FAQPage");
@@ -171,7 +171,7 @@ describe("extractPageSnapshot – duplicate FAQ schema detection", () => {
         {"@type":"Question","name":"Q1?","acceptedAnswer":{"@type":"Answer","text":"A1"}}
       ]}</script>
     </head><body><p>Content</p></body></html>`;
-    const snap = extractPageSnapshot(html, "https://example.com/dup", "pg-dup");
+    const snap = extractPageSnapshot(html, "https://example.com/dup", "pg-dup", "tenant-test");
     expect(snap.faq_schema_block_count).toBe(2);
     expect(snap.structural_warnings).toBeDefined();
     expect(snap.structural_warnings![0]).toContain("duplicate_faq_schema");
@@ -183,7 +183,7 @@ describe("extractPageSnapshot – duplicate FAQ schema detection", () => {
         {"@type":"Question","name":"Q1?","acceptedAnswer":{"@type":"Answer","text":"A1"}}
       ]}</script>
     </head><body><p>Content</p></body></html>`;
-    const snap = extractPageSnapshot(html, "https://example.com/single", "pg-s");
+    const snap = extractPageSnapshot(html, "https://example.com/single", "pg-s", "tenant-test");
     expect(snap.faq_schema_block_count).toBe(1);
     expect(snap.structural_warnings).toBeUndefined();
   });
@@ -194,19 +194,19 @@ describe("extractPageSnapshot – extraction certainty", () => {
     const html = `<html><head>
       <script type="application/ld+json">{"@type":"FAQPage","mainEntity":[]}</script>
     </head><body><p>Some content here for word count purposes in this test case.</p></body></html>`;
-    const snap = extractPageSnapshot(html, "https://example.com/page", "pg-c");
+    const snap = extractPageSnapshot(html, "https://example.com/page", "pg-c", "tenant-test");
     expect(snap.extraction_certainty).toBe("confirmed");
   });
 
   it("marks extraction as confirmed when body has substantial content", () => {
     const html = `<html><body><p>${"word ".repeat(100)}</p></body></html>`;
-    const snap = extractPageSnapshot(html, "https://example.com/page", "pg-c2");
+    const snap = extractPageSnapshot(html, "https://example.com/page", "pg-c2", "tenant-test");
     expect(snap.extraction_certainty).toBe("confirmed");
   });
 
   it("marks extraction as uncertain when body is nearly empty", () => {
     const html = `<html><body><div id="root"></div></body></html>`;
-    const snap = extractPageSnapshot(html, "https://example.com/spa", "pg-u");
+    const snap = extractPageSnapshot(html, "https://example.com/spa", "pg-u", "tenant-test");
     expect(snap.extraction_certainty).toBe("uncertain");
   });
 });
@@ -222,7 +222,7 @@ describe("extractPageSnapshot – edge cases", () => {
         ]}
       ]</script>
     </head><body><p>Content</p></body></html>`;
-    const snap = extractPageSnapshot(html, "https://example.com/nested", "pg-nest");
+    const snap = extractPageSnapshot(html, "https://example.com/nested", "pg-nest", "tenant-test");
     expect(snap.faqs).toHaveLength(1);
     expect(snap.faqs[0].question).toBe("Nested Q?");
     expect(snap.schema_types).toContain("Organization");
@@ -233,7 +233,7 @@ describe("extractPageSnapshot – edge cases", () => {
     const html = `<html><head>
       <script type="application/ld+json">[]</script>
     </head><body><p>Content</p></body></html>`;
-    const snap = extractPageSnapshot(html, "https://example.com/empty-arr", "pg-ea");
+    const snap = extractPageSnapshot(html, "https://example.com/empty-arr", "pg-ea", "tenant-test");
     expect(snap.faqs).toHaveLength(0);
     expect(snap.schema_types).toHaveLength(0);
     expect(snap.faq_schema_block_count).toBe(0);
@@ -246,7 +246,7 @@ describe("extractPageSnapshot – edge cases", () => {
         {"@type":"Question","name":"Valid Q?","acceptedAnswer":{"@type":"Answer","text":"A"}}
       ]}</script>
     </head><body><p>Content</p></body></html>`;
-    const snap = extractPageSnapshot(html, "https://example.com/broken", "pg-br");
+    const snap = extractPageSnapshot(html, "https://example.com/broken", "pg-br", "tenant-test");
     expect(snap.faqs).toHaveLength(1);
     expect(snap.faqs[0].question).toBe("Valid Q?");
   });
@@ -256,7 +256,7 @@ describe("extractPageSnapshot – edge cases", () => {
       <script type="application/ld+json">{"@type":"FAQPage","mainEntity":[]}</script>
       <script type="application/ld+json">[{"@type":"FAQPage","mainEntity":[]}]</script>
     </head><body><p>Content</p></body></html>`;
-    const snap = extractPageSnapshot(html, "https://example.com/dedup", "pg-dd");
+    const snap = extractPageSnapshot(html, "https://example.com/dedup", "pg-dd", "tenant-test");
     // schema_types uses Set — should deduplicate
     expect(snap.schema_types.filter(t => t === "FAQPage")).toHaveLength(1);
     // But faq_schema_block_count should count both
@@ -267,7 +267,7 @@ describe("extractPageSnapshot – edge cases", () => {
     const html = `<html><head>
       <script type="application/ld+json">{"@type":"FAQPage"}</script>
     </head><body><p>Content</p></body></html>`;
-    const snap = extractPageSnapshot(html, "https://example.com/no-me", "pg-nm");
+    const snap = extractPageSnapshot(html, "https://example.com/no-me", "pg-nm", "tenant-test");
     expect(snap.faqs).toHaveLength(0);
     expect(snap.schema_types).toContain("FAQPage");
     expect(snap.faq_schema_block_count).toBe(1);
@@ -279,7 +279,7 @@ describe("extractPageSnapshot – edge cases", () => {
         {"@type":"Question","name":"Multi-type Q?","acceptedAnswer":{"@type":"Answer","text":"A"}}
       ]}</script>
     </head><body><p>Content</p></body></html>`;
-    const snap = extractPageSnapshot(html, "https://example.com/multi-type", "pg-mt");
+    const snap = extractPageSnapshot(html, "https://example.com/multi-type", "pg-mt", "tenant-test");
     expect(snap.schema_types).toContain("WebPage");
     expect(snap.schema_types).toContain("FAQPage");
   });
@@ -291,7 +291,7 @@ describe("extractPageSnapshot – edge cases", () => {
         {"@type":"WebPage"}
       ]}</script>
     </head><body><p>Content</p></body></html>`;
-    const snap = extractPageSnapshot(html, "https://example.com/graph", "pg-gr");
+    const snap = extractPageSnapshot(html, "https://example.com/graph", "pg-gr", "tenant-test");
     expect(snap.faq_schema_block_count).toBe(1);
     expect(snap.schema_types).toContain("FAQPage");
     expect(snap.schema_types).toContain("WebPage");
@@ -308,7 +308,7 @@ describe("extractPageSnapshot – title and meta", () => {
       <h1>Main Heading</h1>
       <p>Content here.</p>
     </body></html>`;
-    const snap = extractPageSnapshot(html, "https://example.com/page", "pg-8");
+    const snap = extractPageSnapshot(html, "https://example.com/page", "pg-8", "tenant-test");
     expect(snap.title).toBe("My Page Title");
     expect(snap.meta_description).toBe("A great page about things.");
     expect(snap.h1).toBe("Main Heading");

@@ -148,7 +148,7 @@ describe("Phase Auto-Link v2 — match-through-changelog", () => {
       previousGuardrails: [],
       changelog: [rec],
       scanRunId: "run-1",
-    });
+      tenantId: "tenant-test",    });
 
     const f = findings.find((x) => x.type === "h2_changed");
     expect(f).toBeDefined();
@@ -175,7 +175,7 @@ describe("Phase Auto-Link v2 — match-through-changelog", () => {
       previousGuardrails: [],
       changelog: [rec],
       scanRunId: "run-1",
-    });
+      tenantId: "tenant-test",    });
 
     const f = findings.find((x) => x.type === "h2_changed");
     expect(f?.source_rec_id).toBeUndefined();
@@ -206,7 +206,7 @@ describe("Phase Auto-Link v2 — match-through-changelog", () => {
       previousGuardrails: [],
       changelog: [rec],
       scanRunId: "run-1",
-    });
+      tenantId: "tenant-test",    });
 
     const f = findings.find((x) => x.type === "h2_changed");
     expect(f?.source_rec_id).toBeUndefined();
@@ -229,7 +229,7 @@ describe("Phase Auto-Link v2 — match-through-changelog", () => {
       previousGuardrails: [],
       changelog: [rec],
       scanRunId: "run-1",
-    });
+      tenantId: "tenant-test",    });
 
     const f = findings.find((x) => x.type === "h2_changed");
     expect(f?.source_rec_id).toBeUndefined();
@@ -259,7 +259,7 @@ describe("Phase Auto-Link v2 — match-through-changelog", () => {
       previousGuardrails: [],
       changelog: [rec],
       scanRunId: "run-1",
-    });
+      tenantId: "tenant-test",    });
 
     const f = findings.find((x) => x.type === "schema_changed");
     expect(f).toBeDefined();
@@ -286,7 +286,7 @@ describe("Phase Auto-Link v2 — match-through-changelog", () => {
       previousGuardrails: [],
       changelog: [], // deliberately empty — no rec-sourced changelog
       scanRunId: "run-1",
-    });
+      tenantId: "tenant-test",    });
 
     const f = findings.find((x) => x.type === "h2_changed");
     expect(f?.source_rec_id).toBeUndefined();
@@ -320,7 +320,7 @@ describe("Phase Auto-Link v2 — match-through-changelog", () => {
       previousGuardrails: [],
       changelog: [old, newer],
       scanRunId: "run-1",
-    });
+      tenantId: "tenant-test",    });
 
     const f = findings.find((x) => x.type === "h2_changed");
     expect(f?.source_rec_id).toBe("rec-newer");
@@ -359,7 +359,7 @@ describe("Phase Auto-Link v2 — match-through-changelog", () => {
       previousGuardrails: [],
       changelog: [stale],
       scanRunId: "run-1",
-    });
+      tenantId: "tenant-test",    });
 
     const f = findings.find((x) => x.type === "h2_changed");
     expect(f?.status).toBe("pending");
@@ -403,7 +403,7 @@ describe("Phase Auto-Link v2 — match-through-changelog", () => {
       previousGuardrails: [],
       changelog: [rec],
       scanRunId: "run-1",
-    });
+      tenantId: "tenant-test",    });
 
     const f = findings.find((x) => x.type === "faq_changed");
     expect(f?.source_rec_id).toBe("rec-add-section");

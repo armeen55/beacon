@@ -25,10 +25,16 @@ export type GuardrailAlert = {
 export function classifyGuardrails(
   snapshot: PageSnapshot,
   diff: PageSnapshotDiff | null,
-  citationCount?: number
+  tenantId: string,
+  citationCount?: number,
 ): GuardrailAlert[] {
+  if (!tenantId) {
+    throw new Error(
+      `[classifyGuardrails] tenantId required (url=${snapshot.url}); pass currentTenantId() / BEACON_TENANT_ID from the calling action or scan script.`,
+    );
+  }
   const alerts: GuardrailAlert[] = [];
-  const base = { page_id: snapshot.page_id, url: snapshot.url, tenant_id: "" };
+  const base = { page_id: snapshot.page_id, url: snapshot.url, tenant_id: tenantId };
 
   // ── Critical: indexability issues ──
 

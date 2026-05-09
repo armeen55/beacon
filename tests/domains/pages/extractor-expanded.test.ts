@@ -14,6 +14,7 @@ function extract(html: string) {
     html,
     "https://site.example/page",
     "page-1",
+    "tenant-test",
     200,
   );
 }

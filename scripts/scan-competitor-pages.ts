@@ -239,6 +239,7 @@ function buildCompetitorSnapshot(args: {
     args.html,
     args.url,
     pageId,
+    args.tenantId,
     args.status,
   );
   return {

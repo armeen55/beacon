@@ -140,13 +140,19 @@ function classifyAsset(name: string): EntityCandidate["classification"] {
 export function parseProfoundBenchmark(
   filePath: string,
   accountId: string,
-  entityLookup: Map<string, string>
+  entityLookup: Map<string, string>,
+  tenantId: string,
 ): {
   snapshots: DailyMetricSnapshot[];
   entityCandidates: EntityCandidate[];
   warnings: string[];
 } {
   void accountId;
+  if (!tenantId) {
+    throw new Error(
+      "[parseProfoundBenchmark] tenantId required; pass currentTenantId() / BEACON_TENANT_ID from the calling import-orchestrator.",
+    );
+  }
   const rows = parseCSV<BenchmarkCSVRow>(filePath);
   const snapshots: DailyMetricSnapshot[] = [];
   const warnings: string[] = [];
@@ -200,7 +206,7 @@ export function parseProfoundBenchmark(
         rank: row.rank,
         asset,
       },
-      tenant_id: "",
+      tenant_id: tenantId,
     });
   }
 

@@ -17,6 +17,7 @@ import { getDailyMetricSnapshots } from "@/storage/canonical-store";
 import { getChangelogEntries } from "@/lib/seed-data.server";
 import { readStore } from "@/lib/persistence/json-store";
 import { listWebsiteCrawlRuns } from "@/domains/observations/read";
+import { currentTenantId } from "@/lib/tenant-context";
 import {
   detectVisibilityEvents,
   analyzeVisibilityEvent,
@@ -46,6 +47,7 @@ export default async function SpikeForensicsPage() {
   if (!isOperatorMode()) {
     notFound();
   }
+  const tenantId = await currentTenantId();
   // Load upstream primitives once for all events.
   const outcomes = await readStore<ChangeOutcome>("change-outcomes");
   const patterns = await readStore<ChangePattern>("change-patterns");
@@ -59,6 +61,7 @@ export default async function SpikeForensicsPage() {
   for (const spike of spikes) {
     const report = analyzeVisibilityEvent({
       spike,
+      tenantId,
       changelog: await getChangelogEntries(),
       outcomes,
       snapshots: dailyMetricSnapshots,

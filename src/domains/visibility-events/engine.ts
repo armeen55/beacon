@@ -123,6 +123,7 @@ function toLegacyAttributionsForExplanation(
  */
 export function analyzeVisibilityEvent(opts: {
   spike: Spike;
+  tenantId: string;
   changelog: ChangelogEntry[];
   /**
    * Pre-materialized change outcomes. When provided, used directly as the
@@ -155,6 +156,11 @@ export function analyzeVisibilityEvent(opts: {
    */
   observationRuns?: ObservationRun[];
 }): VisibilityEvent {
+  if (!opts.tenantId) {
+    throw new Error(
+      "[analyzeVisibilityEvent] tenantId required; pass currentTenantId() / BEACON_TENANT_ID from the calling page or script.",
+    );
+  }
   // 1. Window the changelog around the spike.
   const windows = buildVisibilityEventWindows({
     spike: opts.spike,
@@ -216,7 +222,7 @@ export function analyzeVisibilityEvent(opts: {
   });
 
   return {
-    tenant_id: "", // CX1: filled by caller
+    tenant_id: opts.tenantId,
     spike: opts.spike,
     windows: {
       oneDay: windows.oneDay,

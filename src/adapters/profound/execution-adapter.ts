@@ -147,13 +147,19 @@ export function parseProfoundExecutions(
   importRunId: string,
   promptLookup: Map<string, string>,
   ownedDomains: string[],
-  brandAliases: string[] = []
+  tenantId: string,
+  brandAliases: string[] = [],
 ): {
   observations: PromptAnswerObservation[];
   runs: ProfoundImportRun[];
   answerTexts: Record<string, string>;
   warnings: string[];
 } {
+  if (!tenantId) {
+    throw new Error(
+      "[parseProfoundExecutions] tenantId required; pass currentTenantId() / BEACON_TENANT_ID from the calling import-orchestrator.",
+    );
+  }
   const rows = parseDirtyCSV<Record<string, string>>(filePath);
   const warnings: string[] = [];
   const ownedNormalized = ownedDomains
@@ -298,7 +304,7 @@ export function parseProfoundExecutions(
       metadata: {
         search_queries: rawSearchQueries,
       },
-      tenant_id: "",
+      tenant_id: tenantId,
     });
   }
 

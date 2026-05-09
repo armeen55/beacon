@@ -439,7 +439,11 @@ export async function recordUrlOutcome(input: {
     recorded_at: nowISO,
     updated_at: nowISO,
     transitions: 0,
-    tenant_id: input.change.tenant_id ?? "",
+    // ChangelogEntry.tenant_id is required at the type level AND CHECK-
+    // constrained NOT NULL/empty in production. Stage D2 (2026-05-09):
+    // drop the dead-code `?? ""` coercion; if upstream ever sends an
+    // empty string it'll fail loud at the dual-write CHECK constraint.
+    tenant_id: input.change.tenant_id,
   };
 
   if (existingIdx === -1) {

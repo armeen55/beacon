@@ -83,7 +83,12 @@ function pctDelta(before: number, after: number): number {
 // Transform MemoryInsight → ChangeOutcome
 // ---------------------------------------------------------------------------
 
-function insightToOutcome(insight: MemoryInsight): ChangeOutcome {
+function insightToOutcome(insight: MemoryInsight, tenantId: string): ChangeOutcome {
+  if (!tenantId) {
+    throw new Error(
+      "[insightToOutcome] tenantId required; pass currentTenantId() from materializeChangeOutcomes / materializePerChangeOutcomes.",
+    );
+  }
   // Count days before/after from trendLine relative to changeIndex
   const daysBefore =
     insight.changeIndex > 0 ? insight.changeIndex : 0;
@@ -142,7 +147,7 @@ function insightToOutcome(insight: MemoryInsight): ChangeOutcome {
     normalized_citation_delta_pct: normalizedCitationDelta,
     raw_citation_delta_pct: rawCitationDelta,
     normalized: wasNormalized,
-    tenant_id: "",
+    tenant_id: tenantId,
   };
 }
 
@@ -157,7 +162,7 @@ export async function materializeChangeOutcomes(
   // Phase 7.7b Commit 5 (2026-04-25): server-context tenant resolution.
   const tenantId = await currentTenantId();
   const insights = computeMemoryInsights({ changes, snapshots });
-  const outcomes = insights.map(insightToOutcome);
+  const outcomes = insights.map((i) => insightToOutcome(i, tenantId));
 
   await writeStore("change-outcomes", outcomes);
   await syncChangeOutcomes(outcomes, tenantId);
@@ -183,7 +188,7 @@ export async function materializePerChangeOutcomes(
   const tenantId = await currentTenantId();
   // Use computeAllChangeInsights which skips the topic dedup
   const insights = computeAllChangeInsights({ changes, snapshots });
-  const outcomes = insights.map(insightToOutcome);
+  const outcomes = insights.map((i) => insightToOutcome(i, tenantId));
 
   await writeStore("change-outcomes", outcomes);
   await syncChangeOutcomes(outcomes, tenantId);

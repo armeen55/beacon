@@ -48,81 +48,22 @@ const SRC_DIR = join(REPO_ROOT, "src");
  */
 const EXPECTED_REMAINING_FILES: ReadonlyArray<{
   path: string;
-  bundle: "D2" | "D3";
+  bundle: "D-e";
   reason: string;
 }> = [
-  // Stage D3 (2026-05-09) cleared the 4 D-c server-action sites:
-  //   src/domains/opportunity-candidates/actions.ts
-  //   src/domains/results/actions.ts
-  //   src/app/(shell)/pages/verify-action.ts
-  //   src/app/(shell)/recommendations/actions.ts (coercion form)
-  // Each now resolves currentTenantId() at the action boundary and
-  // stamps directly. Removed from this allow-list.
-  // ── D-b factories (Stage D2) ────────────────────────────────────────
-  {
-    path: "src/domains/scanning/detect-findings.ts",
-    bundle: "D2",
-    reason: "makeFinding factory; needs tenantId parameter",
-  },
-  {
-    path: "src/domains/attribution/change-outcome.ts",
-    bundle: "D2",
-    reason: "insightToOutcome factory; needs tenantId parameter",
-  },
-  {
-    path: "src/domains/visibility-events/engine.ts",
-    bundle: "D2",
-    reason: "event compute (comment: 'filled by caller'); make explicit",
-  },
-  {
-    path: "src/domains/answer-intelligence/build-index.ts",
-    bundle: "D2",
-    reason: "buildAnswerIntelligenceIndex; needs tenantId parameter",
-  },
+  // Stage D2 (2026-05-09) closed all 14 D-b factory paths. Stage D3
+  // (2026-05-09, commit 6393845) closed the 4 D-c server-action paths.
+  // Stage D1 (2026-05-09, commit b8f238f) closed the D-a coercion-drop
+  // paths. Stage D is fully closed for D-a / D-b / D-c.
+  //
+  // The single remaining allow-list entry is D-e (defensive helper that
+  // is correct as-is — production data path depends on the empty-string
+  // input shape).
   {
     path: "src/domains/observations/observation-runs-merge.ts",
-    bundle: "D2",
-    reason: "legacy-row normalizer; needs tenantId parameter",
-  },
-  {
-    path: "src/domains/pages/guardrails.ts",
-    bundle: "D2",
-    reason: "classifyGuardrails factory; needs tenantId parameter",
-  },
-  {
-    path: "src/domains/pages/extractor.ts",
-    bundle: "D2",
-    reason: "extractPageSnapshot factory; needs tenantId parameter",
-  },
-  {
-    path: "src/domains/pages/discover.ts",
-    bundle: "D2",
-    reason: "discoverPages factory; needs tenantId parameter",
-  },
-  {
-    path: "src/derivations/snapshot-builder.ts",
-    bundle: "D2",
-    reason: "buildDerivedSnapshots factory; needs tenantId parameter",
-  },
-  {
-    path: "src/adapters/profound/benchmark-adapter.ts",
-    bundle: "D2",
-    reason: "parseProfoundBenchmark factory; needs tenantId parameter",
-  },
-  {
-    path: "src/adapters/profound/bridge.ts",
-    bundle: "D2",
-    reason: "Profound bridge mappers (3 sites); need tenantId parameter",
-  },
-  {
-    path: "src/adapters/profound/execution-adapter.ts",
-    bundle: "D2",
-    reason: "parseProfoundExecutions factory; needs tenantId parameter",
-  },
-  {
-    path: "src/lib/import/engine.ts",
-    bundle: "D2",
-    reason: "mapResultRow / mapChangeRow / mapOpportunityRow / mapCompetitorRow factories (4 sites); need tenantId parameter",
+    bundle: "D-e",
+    reason:
+      "Empty tenant_id is intentional input to filterByTenantWithLegacyFounderFallback in src/lib/tenant-data.ts (line 104). The fallback resolver interprets untagged legacy scan-runs.json rows as belonging to the founder tenant. Stamping a real tenantId here would defeat the resolver — touch only as part of a deliberate legacy-untagged cleanup bundle.",
   },
 ];
 
@@ -201,10 +142,10 @@ describe("Architecture — no tenant_id empty-string literals in production sour
     ).toEqual([]);
   });
 
-  it("the documented Stage D1 + D3 cleaned sites have ZERO literals (regression guard)", () => {
-    // Files cleaned by Stage D1 (2026-05-09, commit b8f238f) and Stage
-    // D3 (2026-05-09, this commit). If a future PR re-introduces a
-    // literal in any of these, the test catches it loudly.
+  it("the documented Stage D1 + D2 + D3 cleaned sites have ZERO literals (regression guard)", () => {
+    // Files cleaned by Stage D1 (commit b8f238f), D2 (this commit),
+    // and D3 (commit 6393845). If a future PR re-introduces a literal
+    // in any of these, the test catches it loudly.
     const CLEANED_FILES = [
       // D1 — D-a coercion-drop
       "src/domains/changelog/actions.ts",
@@ -218,13 +159,27 @@ describe("Architecture — no tenant_id empty-string literals in production sour
       "src/domains/opportunity-candidates/actions.ts",
       "src/app/(shell)/recommendations/actions.ts",
       "src/app/(shell)/pages/verify-action.ts",
+      // D2 — D-b factory parameter-required
+      "src/lib/import/engine.ts",
+      "src/domains/pages/extractor.ts",
+      "src/domains/pages/discover.ts",
+      "src/domains/pages/guardrails.ts",
+      "src/domains/scanning/detect-findings.ts",
+      "src/derivations/snapshot-builder.ts",
+      "src/domains/answer-intelligence/build-index.ts",
+      "src/domains/visibility-events/engine.ts",
+      "src/adapters/profound/bridge.ts",
+      "src/adapters/profound/benchmark-adapter.ts",
+      "src/adapters/profound/execution-adapter.ts",
+      "src/domains/attribution/change-outcome.ts",
+      "src/domains/attribution/url-change-outcome.ts",
     ];
     const regressed = CLEANED_FILES.filter((p) =>
       filesWithLiteral.includes(p),
     );
     expect(
       regressed,
-      `D1/D3-cleaned files have re-introduced a \`tenant_id: ""\` literal. ` +
+      `D1/D2/D3-cleaned files have re-introduced a \`tenant_id: ""\` literal. ` +
         `Either resolve tenantId in scope and stamp directly, or revert ` +
         `the regression. Regressed file(s):\n  ${regressed.join("\n  ")}`,
     ).toEqual([]);

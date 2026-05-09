@@ -63,7 +63,7 @@ describe("Duplicate FAQ consolidation – full detection flow", () => {
   // ── Step 1: Extractor correctly counts duplicates ──
 
   it("extractor: before state has 6 FAQs (3 questions × 2 duplicate blocks)", () => {
-    const snap = extractPageSnapshot(HTML_BEFORE, PAGE_URL, PAGE_ID);
+    const snap = extractPageSnapshot(HTML_BEFORE, PAGE_URL, PAGE_ID, "tenant-test");
     expect(snap.faqs).toHaveLength(6);
     expect(snap.faq_schema_block_count).toBe(2);
     expect(snap.structural_warnings).toBeDefined();
@@ -71,15 +71,15 @@ describe("Duplicate FAQ consolidation – full detection flow", () => {
   });
 
   it("extractor: after state has 3 FAQs (3 questions × 1 block)", () => {
-    const snap = extractPageSnapshot(HTML_AFTER, PAGE_URL, PAGE_ID);
+    const snap = extractPageSnapshot(HTML_AFTER, PAGE_URL, PAGE_ID, "tenant-test");
     expect(snap.faqs).toHaveLength(3);
     expect(snap.faq_schema_block_count).toBe(1);
     expect(snap.structural_warnings).toBeUndefined();
   });
 
   it("extractor: title, H1, word count, content unchanged between before/after", () => {
-    const before = extractPageSnapshot(HTML_BEFORE, PAGE_URL, PAGE_ID);
-    const after = extractPageSnapshot(HTML_AFTER, PAGE_URL, PAGE_ID);
+    const before = extractPageSnapshot(HTML_BEFORE, PAGE_URL, PAGE_ID, "tenant-test");
+    const after = extractPageSnapshot(HTML_AFTER, PAGE_URL, PAGE_ID, "tenant-test");
     expect(after.title).toBe(before.title);
     expect(after.h1).toBe(before.h1);
     expect(after.word_count).toBe(before.word_count);
@@ -89,8 +89,8 @@ describe("Duplicate FAQ consolidation – full detection flow", () => {
   // ── Step 2: Diff engine detects FAQ count change ──
 
   it("diff: detects faq_count_changed (6 → 3)", () => {
-    const before = extractPageSnapshot(HTML_BEFORE, PAGE_URL, PAGE_ID);
-    const after = extractPageSnapshot(HTML_AFTER, PAGE_URL, PAGE_ID);
+    const before = extractPageSnapshot(HTML_BEFORE, PAGE_URL, PAGE_ID, "tenant-test");
+    const after = extractPageSnapshot(HTML_AFTER, PAGE_URL, PAGE_ID, "tenant-test");
     const diff = diffSnapshots(after, before);
 
     expect(diff.changed).toBe(true);
@@ -104,8 +104,8 @@ describe("Duplicate FAQ consolidation – full detection flow", () => {
   // ── Step 3: Guardrails fire before, clear after ──
 
   it("guardrails: before state triggers duplicate_faq_schema warning", () => {
-    const before = extractPageSnapshot(HTML_BEFORE, PAGE_URL, PAGE_ID);
-    const alerts = classifyGuardrails(before, null, 50);
+    const before = extractPageSnapshot(HTML_BEFORE, PAGE_URL, PAGE_ID, "tenant-test");
+    const alerts = classifyGuardrails(before, null, "tenant-test", 50);
     const dupAlert = alerts.find((a) => a.category === "duplicate_faq_schema");
     expect(dupAlert).toBeDefined();
     expect(dupAlert!.severity).toBe("warning");
@@ -113,8 +113,8 @@ describe("Duplicate FAQ consolidation – full detection flow", () => {
   });
 
   it("guardrails: after state has NO duplicate_faq_schema warning", () => {
-    const after = extractPageSnapshot(HTML_AFTER, PAGE_URL, PAGE_ID);
-    const alerts = classifyGuardrails(after, null, 50);
+    const after = extractPageSnapshot(HTML_AFTER, PAGE_URL, PAGE_ID, "tenant-test");
+    const alerts = classifyGuardrails(after, null, "tenant-test", 50);
     const dupAlert = alerts.find((a) => a.category === "duplicate_faq_schema");
     expect(dupAlert).toBeUndefined();
   });
@@ -122,10 +122,10 @@ describe("Duplicate FAQ consolidation – full detection flow", () => {
   // ── Step 4: Findings engine generates correct findings for changelog ──
 
   it("findings: generates faq_changed finding (6 → 3 Q&A blocks)", () => {
-    const before = extractPageSnapshot(HTML_BEFORE, PAGE_URL, PAGE_ID);
-    const after = extractPageSnapshot(HTML_AFTER, PAGE_URL, PAGE_ID);
-    const prevGuardrails = classifyGuardrails(before, null, 50);
-    const currGuardrails = classifyGuardrails(after, diffSnapshots(after, before), 50);
+    const before = extractPageSnapshot(HTML_BEFORE, PAGE_URL, PAGE_ID, "tenant-test");
+    const after = extractPageSnapshot(HTML_AFTER, PAGE_URL, PAGE_ID, "tenant-test");
+    const prevGuardrails = classifyGuardrails(before, null, "tenant-test", 50);
+    const currGuardrails = classifyGuardrails(after, diffSnapshots(after, before), "tenant-test", 50);
 
     const findings = generateFindings({
       currentSnapshots: [after],
@@ -134,7 +134,7 @@ describe("Duplicate FAQ consolidation – full detection flow", () => {
       previousGuardrails: prevGuardrails,
       changelog: [],
       scanRunId: "test-run-1",
-    });
+      tenantId: "tenant-test",    });
 
     const faqFinding = findings.find((f) => f.type === "faq_changed");
     expect(faqFinding).toBeDefined();
@@ -152,10 +152,10 @@ describe("Duplicate FAQ consolidation – full detection flow", () => {
   });
 
   it("findings: generates guardrail_cleared for duplicate_faq_schema (auto-accepted)", () => {
-    const before = extractPageSnapshot(HTML_BEFORE, PAGE_URL, PAGE_ID);
-    const after = extractPageSnapshot(HTML_AFTER, PAGE_URL, PAGE_ID);
-    const prevGuardrails = classifyGuardrails(before, null, 50);
-    const currGuardrails = classifyGuardrails(after, diffSnapshots(after, before), 50);
+    const before = extractPageSnapshot(HTML_BEFORE, PAGE_URL, PAGE_ID, "tenant-test");
+    const after = extractPageSnapshot(HTML_AFTER, PAGE_URL, PAGE_ID, "tenant-test");
+    const prevGuardrails = classifyGuardrails(before, null, "tenant-test", 50);
+    const currGuardrails = classifyGuardrails(after, diffSnapshots(after, before), "tenant-test", 50);
 
     const findings = generateFindings({
       currentSnapshots: [after],
@@ -164,7 +164,7 @@ describe("Duplicate FAQ consolidation – full detection flow", () => {
       previousGuardrails: prevGuardrails,
       changelog: [],
       scanRunId: "test-run-1",
-    });
+      tenantId: "tenant-test",    });
 
     const clearedFinding = findings.find(
       (f) => f.type === "guardrail_cleared" && f.previousState?.includes("duplicate FAQPage")
@@ -178,10 +178,10 @@ describe("Duplicate FAQ consolidation – full detection flow", () => {
   });
 
   it("findings: faq_changed is pending, guardrail_cleared is auto-accepted", () => {
-    const before = extractPageSnapshot(HTML_BEFORE, PAGE_URL, PAGE_ID);
-    const after = extractPageSnapshot(HTML_AFTER, PAGE_URL, PAGE_ID);
-    const prevGuardrails = classifyGuardrails(before, null, 50);
-    const currGuardrails = classifyGuardrails(after, diffSnapshots(after, before), 50);
+    const before = extractPageSnapshot(HTML_BEFORE, PAGE_URL, PAGE_ID, "tenant-test");
+    const after = extractPageSnapshot(HTML_AFTER, PAGE_URL, PAGE_ID, "tenant-test");
+    const prevGuardrails = classifyGuardrails(before, null, "tenant-test", 50);
+    const currGuardrails = classifyGuardrails(after, diffSnapshots(after, before), "tenant-test", 50);
 
     const findings = generateFindings({
       currentSnapshots: [after],
@@ -190,7 +190,7 @@ describe("Duplicate FAQ consolidation – full detection flow", () => {
       previousGuardrails: prevGuardrails,
       changelog: [],
       scanRunId: "test-run-1",
-    });
+      tenantId: "tenant-test",    });
 
     const faqFinding = findings.find((f) => f.type === "faq_changed");
     const clearedFinding = findings.find(
@@ -203,10 +203,10 @@ describe("Duplicate FAQ consolidation – full detection flow", () => {
   });
 
   it("findings: no false positives — title/h1/content/schema_changed do NOT fire", () => {
-    const before = extractPageSnapshot(HTML_BEFORE, PAGE_URL, PAGE_ID);
-    const after = extractPageSnapshot(HTML_AFTER, PAGE_URL, PAGE_ID);
-    const prevGuardrails = classifyGuardrails(before, null, 50);
-    const currGuardrails = classifyGuardrails(after, diffSnapshots(after, before), 50);
+    const before = extractPageSnapshot(HTML_BEFORE, PAGE_URL, PAGE_ID, "tenant-test");
+    const after = extractPageSnapshot(HTML_AFTER, PAGE_URL, PAGE_ID, "tenant-test");
+    const prevGuardrails = classifyGuardrails(before, null, "tenant-test", 50);
+    const currGuardrails = classifyGuardrails(after, diffSnapshots(after, before), "tenant-test", 50);
 
     const findings = generateFindings({
       currentSnapshots: [after],
@@ -215,7 +215,7 @@ describe("Duplicate FAQ consolidation – full detection flow", () => {
       previousGuardrails: prevGuardrails,
       changelog: [],
       scanRunId: "test-run-1",
-    });
+      tenantId: "tenant-test",    });
 
     expect(findings.find((f) => f.type === "title_changed")).toBeUndefined();
     expect(findings.find((f) => f.type === "h1_changed")).toBeUndefined();

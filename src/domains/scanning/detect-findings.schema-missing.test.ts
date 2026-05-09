@@ -58,7 +58,7 @@ describe("generateFindings — schema_missing_for_page_type detector", () => {
     previousGuardrails: [],
     changelog: [],
     scanRunId: "obs-test",
-  };
+    tenantId: "tenant-test",  };
 
   it("emits for city_page with FAQPage only (3 missing required)", () => {
     const findings = generateFindings({

@@ -21,6 +21,17 @@ import { getSiteConfig } from "../src/lib/site-config";
 async function main() {
   console.log("=== Building Page Registry ===\n");
 
+  // Stage D2 (2026-05-09): require explicit BEACON_TENANT_ID so the
+  // discovered pages carry a real tenant_id rather than empty string.
+  const tenantId = process.env.BEACON_TENANT_ID;
+  if (!tenantId) {
+    console.error(
+      "[build-page-registry] BEACON_TENANT_ID env var is required " +
+        "(e.g. BEACON_TENANT_ID=tenant-ritz-founder)",
+    );
+    process.exit(1);
+  }
+
   const changes = await readStore<ChangelogEntry>("imported-changes");
   const entities = await readStore<TrackedEntity>("tracked-entities");
   const promptAnswers = await readStore<PromptAnswerObservation>("prompt-answer-observations");
@@ -45,6 +56,7 @@ async function main() {
     changes,
     entities,
     ownedDomain,
+    tenantId,
   });
 
   const ownedPages = pages.filter(p => p.is_owned);

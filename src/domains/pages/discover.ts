@@ -43,8 +43,14 @@ export function discoverPages(opts: {
   changes: ChangelogEntry[];
   entities: TrackedEntity[];
   ownedDomain: string;
+  tenantId: string;
 }): PageEntity[] {
-  const { citations, changes, entities, ownedDomain } = opts;
+  const { citations, changes, entities, ownedDomain, tenantId } = opts;
+  if (!tenantId) {
+    throw new Error(
+      `[discoverPages] tenantId required; pass currentTenantId() / BEACON_TENANT_ID from the calling orchestrator or script.`,
+    );
+  }
   const ownedDomains = new Set<string>();
 
   for (const e of entities) {
@@ -159,7 +165,7 @@ export function discoverPages(opts: {
       title_last_seen: p.titles.length > 0 ? p.titles[p.titles.length - 1] : null,
       changelog_ids: p.changelog_ids,
       metadata: {},
-      tenant_id: "",
+      tenant_id: tenantId,
     });
   }
 

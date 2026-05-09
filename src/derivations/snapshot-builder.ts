@@ -47,8 +47,14 @@ type Accumulator = {
  */
 export function buildDerivedSnapshots(
   observations: PromptAnswerObservation[],
-  ownedEntityId: string
+  ownedEntityId: string,
+  tenantId: string,
 ): DailyMetricSnapshot[] {
+  if (!tenantId) {
+    throw new Error(
+      "[buildDerivedSnapshots] tenantId required; pass currentTenantId() / BEACON_TENANT_ID from the calling orchestrator or script.",
+    );
+  }
   const accumulators = new Map<ScopeKey, Accumulator>();
 
   function getOrCreate(
@@ -155,7 +161,7 @@ export function buildDerivedSnapshots(
         total_citations_all_sources: acc.citation_count,
         cited_count: acc.cited,
       },
-      tenant_id: "",
+      tenant_id: tenantId,
     });
   }
 

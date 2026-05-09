@@ -8,6 +8,17 @@ import { join } from "node:path";
 
 import { buildAnswerIntelligenceIndex } from "../src/domains/answer-intelligence/build-index";
 
+// Stage D2 (2026-05-09): require explicit BEACON_TENANT_ID so the
+// built index is stamped with the real tenant.
+const tenantId = process.env.BEACON_TENANT_ID;
+if (!tenantId) {
+  console.error(
+    "[build-answer-intelligence] BEACON_TENANT_ID env var is required " +
+      "(e.g. BEACON_TENANT_ID=tenant-ritz-founder)",
+  );
+  process.exit(1);
+}
+
 const DATA_DIR = join(process.cwd(), ".data");
 
 // Load observations
@@ -44,6 +55,7 @@ const index = buildAnswerIntelligenceIndex({
   answerTexts,
   brandName,
   ownedDomain,
+  tenantId,
 });
 const elapsed = Date.now() - start;
 

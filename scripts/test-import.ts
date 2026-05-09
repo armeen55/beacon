@@ -41,6 +41,17 @@ function findFile(prefix: string): string | null {
 async function main() {
   console.log("=== Beacon Import Pipeline Test ===\n");
 
+  // Stage D2 (2026-05-09): require explicit BEACON_TENANT_ID for the
+  // entity-seed/snapshot-builder/benchmark-adapter chain.
+  const tenantId = process.env.BEACON_TENANT_ID;
+  if (!tenantId) {
+    console.error(
+      "[test-import] BEACON_TENANT_ID env var is required " +
+        "(e.g. BEACON_TENANT_ID=tenant-ritz-founder)",
+    );
+    process.exit(1);
+  }
+
   // Entity seed
   console.log("1. Entity seed...");
   const { entities, ownedDomains, domainToEntityId } = buildEntitySeed("ritz-builders");
@@ -68,7 +79,7 @@ async function main() {
   if (!rawFile) { console.error("Missing raw CSV"); return; }
   console.log("\n3. Execution import (this may take a moment for 9,596 rows)...");
   const start = Date.now();
-  const execResult = parseProfoundExecutions(rawFile, "ritz-builders", "test-run", promptLookup, ownedDomains);
+  const execResult = parseProfoundExecutions(rawFile, "ritz-builders", "test-run", promptLookup, ownedDomains, tenantId);
   const elapsed = Date.now() - start;
   console.log(`   Observations: ${execResult.observations.length}`);
   console.log(`   Runs: ${execResult.runs.length}`);
@@ -87,7 +98,7 @@ async function main() {
   // Derived snapshots
   console.log("\n3b. Deriving Beacon-native snapshots...");
   const ownedEntityId = entities.find(e => e.is_owned && e.entity_type === "brand")?.id ?? "ritz";
-  const derivedSnapshots = buildDerivedSnapshots(execResult.observations, ownedEntityId);
+  const derivedSnapshots = buildDerivedSnapshots(execResult.observations, ownedEntityId, tenantId);
   console.log(`   Derived snapshots: ${derivedSnapshots.length}`);
   const byScope = new Map<string, number>();
   for (const s of derivedSnapshots) {
@@ -123,7 +134,7 @@ async function main() {
     for (const e of entities) {
       if (e.name) entityLookup.set(e.name, e.id);
     }
-    const benchResult = parseProfoundBenchmark(benchFile, "ritz-builders", entityLookup);
+    const benchResult = parseProfoundBenchmark(benchFile, "ritz-builders", entityLookup, tenantId);
     console.log(`   Snapshots: ${benchResult.snapshots.length}`);
     console.log(`   Entity candidates: ${benchResult.entityCandidates.length}`);
     console.log(`   Warnings: ${benchResult.warnings.length}`);

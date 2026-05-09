@@ -9,6 +9,17 @@ import { generateFindings } from "../src/domains/scanning/detect-findings";
 import type { PageSnapshot } from "../src/domains/pages/types";
 import type { ChangelogEntry } from "../src/domains/changelog/types";
 
+// Stage D2 (2026-05-09): require explicit BEACON_TENANT_ID so the
+// findings stamp the resolved tenant rather than empty string.
+const tenantId = process.env.BEACON_TENANT_ID;
+if (!tenantId) {
+  console.error(
+    "[audit-schema-missing] BEACON_TENANT_ID env var is required " +
+      "(e.g. BEACON_TENANT_ID=tenant-ritz-founder)",
+  );
+  process.exit(1);
+}
+
 const DATA = join(process.cwd(), ".data");
 
 const currentSnapshots: PageSnapshot[] = JSON.parse(
@@ -40,6 +51,7 @@ const findings = generateFindings({
   previousGuardrails: [],
   changelog,
   scanRunId: "audit-test",
+  tenantId,
   citationsByUrl,
   homepageUrl: "https://ritzbuilders.com",
 });

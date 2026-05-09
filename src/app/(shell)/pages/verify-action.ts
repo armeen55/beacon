@@ -153,7 +153,7 @@ export async function verifyPageFix(url: string): Promise<VerifyResult> {
 
     const html = await res.text();
     const pageId = prevSnapshot?.page_id ?? `verify-${Date.now()}`;
-    const newSnapshot = extractPageSnapshot(html, url, pageId, res.status);
+    const newSnapshot = extractPageSnapshot(html, url, pageId, tenantId, res.status);
     const baselineRunId = prevSnapshot?.observation_run_id ?? null;
     const verifyRunId = `obs-verify-${Date.now()}`;
     newSnapshot.observation_run_id = verifyRunId;
@@ -180,7 +180,7 @@ export async function verifyPageFix(url: string): Promise<VerifyResult> {
     } catch {}
 
     // Classify new guardrails
-    const rawAlerts = classifyGuardrails(newSnapshot, diff, citationCount);
+    const rawAlerts = classifyGuardrails(newSnapshot, diff, tenantId, citationCount);
     const newAlerts = rawAlerts.map((a) => ({
       ...a,
       observation_run_id: verifyRunId,

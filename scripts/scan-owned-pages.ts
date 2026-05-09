@@ -586,7 +586,8 @@ async function main() {
       result.html,
       page.url,
       page.scan_page_id,
-      result.status
+      tenantIdForInventory,
+      result.status,
     );
     const stamped: PageSnapshot = { ...snapshot, observation_run_id: observationRunId };
     newSnapshots.push(stamped);
@@ -645,7 +646,7 @@ async function main() {
     const diff = diffs.find((d) => d.page_id === snap.page_id) ?? null;
     const normUrl = snap.url.replace(/\/+$/, "").toLowerCase();
     const citCount = citationsByUrl.get(normUrl) ?? 0;
-    const alerts = classifyGuardrails(snap, diff, citCount);
+    const alerts = classifyGuardrails(snap, diff, tenantIdForInventory, citCount);
     allAlerts.push(...alerts);
   }
 

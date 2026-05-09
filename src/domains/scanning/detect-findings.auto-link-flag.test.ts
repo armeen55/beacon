@@ -111,7 +111,7 @@ function buildScanInputWithSchemaChange() {
     previousGuardrails: [],
     changelog: [OLD_GENERIC_ENTRY],
     scanRunId: "scan-test",
-  };
+    tenantId: "tenant-test",  };
 }
 
 describe("auto-link feature flag (BEACON_AUTO_LINK_FINDINGS)", () => {
@@ -168,7 +168,7 @@ describe("auto-link feature flag (BEACON_AUTO_LINK_FINDINGS)", () => {
       previousGuardrails: [],
       changelog: [OLD_GENERIC_ENTRY],
       scanRunId: "scan-test",
-    });
+      tenantId: "tenant-test",    });
     const faqFinding = findings.find((f) => f.type === "faq_changed");
     expect(faqFinding?.status).toBe("pending");
     expect(faqFinding?.linkedChangeId).toBeNull();

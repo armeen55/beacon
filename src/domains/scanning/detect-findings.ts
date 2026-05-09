@@ -194,12 +194,18 @@ export function generateFindings(opts: {
   previousGuardrails: GuardrailAlert[];
   changelog: ChangelogEntry[];
   scanRunId: string;
+  tenantId: string;
   citationsByUrl?: CitationLookup;
   homepageUrl?: string;
   previouslyRejectedTypes?: PreviouslyRejectedLookup;
   /** G9 — parsed robots.txt for AI-bot disallow detection. Null/undefined → skip. */
   robots?: RobotsFile | null;
 }): Finding[] {
+  if (!opts.tenantId) {
+    throw new Error(
+      "[generateFindings] tenantId required; pass currentTenantId() / BEACON_TENANT_ID from the caller (orchestrate-scan or a CLI script).",
+    );
+  }
   const {
     currentSnapshots,
     previousSnapshots,
@@ -207,6 +213,7 @@ export function generateFindings(opts: {
     previousGuardrails,
     changelog,
     scanRunId,
+    tenantId,
     citationsByUrl,
     homepageUrl,
     previouslyRejectedTypes,
@@ -238,6 +245,7 @@ export function generateFindings(opts: {
         type: "title_changed",
         url: curr.url,
         scanRunId,
+        tenantId,
         now,
         previousState: prev.title,
         currentState: curr.title,
@@ -253,6 +261,7 @@ export function generateFindings(opts: {
         type: "meta_changed",
         url: curr.url,
         scanRunId,
+        tenantId,
         now,
         previousState: prev.meta_description,
         currentState: curr.meta_description,
@@ -268,6 +277,7 @@ export function generateFindings(opts: {
         type: "h1_changed",
         url: curr.url,
         scanRunId,
+        tenantId,
         now,
         previousState: prev.h1,
         currentState: curr.h1,
@@ -300,6 +310,7 @@ export function generateFindings(opts: {
         type: "h2_changed",
         url: curr.url,
         scanRunId,
+        tenantId,
         now,
         previousState: prevH2.join(" | ") || null,
         currentState: currH2.join(" | ") || null,
@@ -325,6 +336,7 @@ export function generateFindings(opts: {
         type: "h3_changed",
         url: curr.url,
         scanRunId,
+        tenantId,
         now,
         previousState: prevH3.join(" | ") || null,
         currentState: currH3.join(" | ") || null,
@@ -350,6 +362,7 @@ export function generateFindings(opts: {
         type: "schema_entity_names_changed",
         url: curr.url,
         scanRunId,
+        tenantId,
         now,
         previousState: prevNames.join(", ") || "(none)",
         currentState: currNames.join(", ") || "(none)",
@@ -365,6 +378,7 @@ export function generateFindings(opts: {
         type: "canonical_changed",
         url: curr.url,
         scanRunId,
+        tenantId,
         now,
         previousState: prev.canonical_url,
         currentState: curr.canonical_url,
@@ -396,6 +410,7 @@ export function generateFindings(opts: {
         type: "faq_changed",
         url: curr.url,
         scanRunId,
+        tenantId,
         now,
         // Keep the legacy "N Q&A blocks" shape for backward compatibility
         // with Rule β's numeric regex + per-finding UI cards that surface
@@ -419,6 +434,7 @@ export function generateFindings(opts: {
         type: "schema_changed",
         url: curr.url,
         scanRunId,
+        tenantId,
         now,
         previousState: prevTypes,
         currentState: currTypes,
@@ -441,6 +457,7 @@ export function generateFindings(opts: {
           type: "content_changed",
           url: curr.url,
           scanRunId,
+          tenantId,
           now,
           previousState: `${prev.word_count} words`,
           currentState: `${curr.word_count} words`,
@@ -458,6 +475,7 @@ export function generateFindings(opts: {
         type: "links_changed",
         url: curr.url,
         scanRunId,
+        tenantId,
         now,
         previousState: `${prev.internal_link_count} internal links`,
         currentState: `${curr.internal_link_count} internal links`,
@@ -482,6 +500,7 @@ export function generateFindings(opts: {
         type: "new_guardrail",
         url: g.url,
         scanRunId,
+        tenantId,
         now,
         previousState: null,
         currentState: `${g.severity}: ${g.message}`,
@@ -505,6 +524,7 @@ export function generateFindings(opts: {
         type: "guardrail_cleared",
         url: g.url,
         scanRunId,
+        tenantId,
         now,
         previousState: g.message,
         currentState: null,
@@ -539,6 +559,7 @@ export function generateFindings(opts: {
         type: "faq_without_schema",
         url: curr.url,
         scanRunId,
+        tenantId,
         now,
         previousState: `${faqCount} visible FAQ questions on page`,
         currentState: "No FAQPage JSON-LD schema detected",
@@ -581,6 +602,7 @@ export function generateFindings(opts: {
       type: "schema_invalid",
       url: curr.url,
       scanRunId,
+      tenantId,
       now,
       previousState: null,
       currentState: preview + remainder,
@@ -616,6 +638,7 @@ export function generateFindings(opts: {
         type: "robots_txt_blocked",
         url: curr.url,
         scanRunId,
+        tenantId,
         now,
         previousState: null,
         currentState: `robots.txt disallows: ${blockedList}`,
@@ -671,6 +694,7 @@ export function generateFindings(opts: {
         presentStr,
         coverage,
         scanRunId,
+        tenantId,
         now,
         citations,
         isHP,
@@ -704,6 +728,7 @@ export function generateFindings(opts: {
         type: "deploy_mismatch",
         url: entry.url,
         scanRunId,
+        tenantId,
         now,
         previousState: `Changelog: "${entry.asset_name}" (${new Date(entry.timestamp).toLocaleDateString()})`,
         currentState: mismatches.join("; "),
@@ -739,6 +764,7 @@ export function generateFindings(opts: {
         type: "unexpected_change",
         url: snap.url,
         scanRunId,
+        tenantId,
         now,
         previousState: null,
         currentState: `Changes detected but no matching changelog entry`,
@@ -813,6 +839,7 @@ function makeFinding(opts: {
   type: FindingType;
   url: string;
   scanRunId: string;
+  tenantId: string;
   now: string;
   previousState: string | null;
   currentState: string | null;
@@ -862,7 +889,7 @@ function makeFinding(opts: {
     citationCount,
     isHomepage,
     contradictsChangelog,
-    tenant_id: "",
+    tenant_id: opts.tenantId,
   };
 }
 
@@ -882,6 +909,7 @@ function makeSchemaMissingFinding(opts: {
   presentStr: string;
   coverage: SchemaCoverageDiff;
   scanRunId: string;
+  tenantId: string;
   now: string;
   citations: number;
   isHP: boolean;
@@ -894,6 +922,7 @@ function makeSchemaMissingFinding(opts: {
     type: "schema_missing_for_page_type",
     url: opts.url,
     scanRunId: opts.scanRunId,
+    tenantId: opts.tenantId,
     now: opts.now,
     previousState: `schema_types: [${opts.presentStr}]`,
     currentState: `missing_required: [${opts.missingStr}]`,

@@ -16,8 +16,14 @@ export function extractPageSnapshot(
   html: string,
   url: string,
   pageId: string,
-  httpStatus: number = 200
+  tenantId: string,
+  httpStatus: number = 200,
 ): PageSnapshot {
+  if (!tenantId) {
+    throw new Error(
+      `[extractPageSnapshot] tenantId required (url=${url}); pass currentTenantId() from the calling action or BEACON_TENANT_ID from the calling script.`,
+    );
+  }
   const $ = cheerioLoad(html);
 
   const title = $("title").first().text().trim() || null;
@@ -345,7 +351,7 @@ export function extractPageSnapshot(
     card_texts: cardTexts.length > 0 ? cardTexts : undefined,
     schema_entity_names:
       schemaEntityNames.length > 0 ? schemaEntityNames : undefined,
-    tenant_id: "",
+    tenant_id: tenantId,
   };
 }
 

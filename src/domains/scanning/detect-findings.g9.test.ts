@@ -59,7 +59,7 @@ describe("generateFindings — schema_invalid (G8/G9)", () => {
       previousGuardrails: [],
       changelog: [],
       scanRunId: "r1",
-      citationsByUrl: new Map([["/services/foo", 50]]),
+      tenantId: "tenant-test",      citationsByUrl: new Map([["/services/foo", 50]]),
     });
     const schemaF = findings.filter((f) => f.type === "schema_invalid");
     expect(schemaF).toHaveLength(1);
@@ -76,7 +76,7 @@ describe("generateFindings — schema_invalid (G8/G9)", () => {
       previousGuardrails: [],
       changelog: [],
       scanRunId: "r1",
-    });
+      tenantId: "tenant-test",    });
     expect(findings.filter((f) => f.type === "schema_invalid")).toHaveLength(0);
   });
 
@@ -93,7 +93,7 @@ describe("generateFindings — schema_invalid (G8/G9)", () => {
       previousGuardrails: [],
       changelog: [],
       scanRunId: "r1",
-      citationsByUrl: new Map([["/services/foo", 0]]),
+      tenantId: "tenant-test",      citationsByUrl: new Map([["/services/foo", 0]]),
     });
     const schemaF = findings.filter((f) => f.type === "schema_invalid");
     expect(schemaF).toHaveLength(1);
@@ -116,7 +116,7 @@ describe("generateFindings — robots_txt_blocked (G6/G9)", () => {
       previousGuardrails: [],
       changelog: [],
       scanRunId: "r1",
-      citationsByUrl: new Map([["/locations/palo-alto", 25]]),
+      tenantId: "tenant-test",      citationsByUrl: new Map([["/locations/palo-alto", 25]]),
       robots,
     });
     const blocked = findings.filter((f) => f.type === "robots_txt_blocked");
@@ -139,7 +139,7 @@ describe("generateFindings — robots_txt_blocked (G6/G9)", () => {
       previousGuardrails: [],
       changelog: [],
       scanRunId: "r1",
-      citationsByUrl: new Map([["/locations/palo-alto", 25]]),
+      tenantId: "tenant-test",      citationsByUrl: new Map([["/locations/palo-alto", 25]]),
       robots,
     });
     expect(findings.filter((f) => f.type === "robots_txt_blocked")).toHaveLength(0);
@@ -159,7 +159,7 @@ describe("generateFindings — robots_txt_blocked (G6/G9)", () => {
       previousGuardrails: [],
       changelog: [],
       scanRunId: "r1",
-      citationsByUrl: new Map([["/internal/draft", 0]]), // not cited
+      tenantId: "tenant-test",      citationsByUrl: new Map([["/internal/draft", 0]]), // not cited
       robots,
     });
     // We don't emit blocks on non-cited, non-homepage URLs (noise reduction).
@@ -175,7 +175,7 @@ describe("generateFindings — robots_txt_blocked (G6/G9)", () => {
       previousGuardrails: [],
       changelog: [],
       scanRunId: "r1",
-      citationsByUrl: new Map([["/x", 10]]),
+      tenantId: "tenant-test",      citationsByUrl: new Map([["/x", 10]]),
       // robots intentionally omitted
     });
     expect(findings.filter((f) => f.type === "robots_txt_blocked")).toHaveLength(0);
@@ -190,7 +190,7 @@ describe("generateFindings — robots_txt_blocked (G6/G9)", () => {
       previousGuardrails: [],
       changelog: [],
       scanRunId: "r1",
-      citationsByUrl: new Map([["/x", 10]]),
+      tenantId: "tenant-test",      citationsByUrl: new Map([["/x", 10]]),
       robots,
     });
     expect(findings.filter((f) => f.type === "robots_txt_blocked")).toHaveLength(0);

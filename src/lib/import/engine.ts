@@ -28,8 +28,14 @@ export function mapResultRow(
   idx: number,
   batchId: string,
   source: string,
-  visibilityObservationRunId?: string | null
+  tenantId: string,
+  visibilityObservationRunId?: string | null,
 ): RowResult<Result> {
+  if (!tenantId) {
+    throw new Error(
+      `[mapResultRow] tenantId required (row ${idx + 1}); use the resolved tenant from the import action's currentTenantId() call.`,
+    );
+  }
   const errors: string[] = [];
   const warnings: string[] = [];
 
@@ -103,7 +109,7 @@ export function mapResultRow(
       visibilityObservationRunId ??
       row.visibility_observation_run_id?.trim() ??
       null,
-    tenant_id: "",
+    tenant_id: tenantId,
   };
 
   return { entity: result, errors, warnings };
@@ -113,8 +119,14 @@ export function mapChangeRow(
   row: Record<string, string>,
   idx: number,
   batchId: string,
-  source: string
+  source: string,
+  tenantId: string,
 ): RowResult<ChangelogEntry> {
+  if (!tenantId) {
+    throw new Error(
+      `[mapChangeRow] tenantId required (row ${idx + 1}); use the resolved tenant from the import action's currentTenantId() call.`,
+    );
+  }
   const errors: string[] = [];
   const warnings: string[] = [];
 
@@ -177,7 +189,7 @@ export function mapChangeRow(
     updated_at: row.updated_at || now(),
     source_system: source,
     import_batch_id: batchId,
-    tenant_id: "",
+    tenant_id: tenantId,
   };
 
   return { entity: entry, errors, warnings };
@@ -187,8 +199,14 @@ export function mapOpportunityRow(
   row: Record<string, string>,
   idx: number,
   batchId: string,
-  source: string
+  source: string,
+  tenantId: string,
 ): RowResult<Opportunity> {
+  if (!tenantId) {
+    throw new Error(
+      `[mapOpportunityRow] tenantId required (row ${idx + 1}); use the resolved tenant from the import action's currentTenantId() call.`,
+    );
+  }
   const errors: string[] = [];
   const warnings: string[] = [];
 
@@ -255,7 +273,7 @@ export function mapOpportunityRow(
     updated_at: row.updated_at || now(),
     source_system: source,
     import_batch_id: batchId,
-    tenant_id: "",
+    tenant_id: tenantId,
   };
 
   return { entity: opp, errors, warnings };
@@ -265,8 +283,14 @@ export function mapCompetitorRow(
   row: Record<string, string>,
   idx: number,
   batchId: string,
-  source: string
+  source: string,
+  tenantId: string,
 ): RowResult<Competitor> {
+  if (!tenantId) {
+    throw new Error(
+      `[mapCompetitorRow] tenantId required (row ${idx + 1}); use the resolved tenant from the import action's currentTenantId() call.`,
+    );
+  }
   const errors: string[] = [];
   const warnings: string[] = [];
 
@@ -290,7 +314,7 @@ export function mapCompetitorRow(
     source_system: source,
     import_batch_id: batchId,
     source_of_truth: "imported_entity",
-    tenant_id: "",
+    tenant_id: tenantId,
   };
 
   return { entity: comp, errors, warnings };

@@ -58,17 +58,17 @@ function htmlWithDecorativeTable(): string {
 
 describe("table detection in extractor", () => {
   it("counts meaningful tables with ≥2 rows", () => {
-    const snap = extractPageSnapshot(htmlWithTable(5), BASE_URL, "pg-1");
+    const snap = extractPageSnapshot(htmlWithTable(5), BASE_URL, "pg-1", "tenant-test");
     expect(snap.table_count).toBe(1);
   });
 
   it("returns 0 when no tables exist", () => {
-    const snap = extractPageSnapshot(htmlNoTable(), BASE_URL, "pg-1");
+    const snap = extractPageSnapshot(htmlNoTable(), BASE_URL, "pg-1", "tenant-test");
     expect(snap.table_count).toBe(0);
   });
 
   it("does not count decorative single-row tables", () => {
-    const snap = extractPageSnapshot(htmlWithDecorativeTable(), BASE_URL, "pg-1");
+    const snap = extractPageSnapshot(htmlWithDecorativeTable(), BASE_URL, "pg-1", "tenant-test");
     expect(snap.table_count).toBe(0);
   });
 
@@ -83,7 +83,7 @@ describe("table detection in extractor", () => {
       <table><tr><td>A</td></tr><tr><td>B</td></tr></table>
       <table><tr><td>C</td></tr><tr><td>D</td></tr><tr><td>E</td></tr></table>
     </body></html>`;
-    const snap = extractPageSnapshot(html, BASE_URL, "pg-1");
+    const snap = extractPageSnapshot(html, BASE_URL, "pg-1", "tenant-test");
     expect(snap.table_count).toBe(2);
   });
 });

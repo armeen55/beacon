@@ -42,8 +42,14 @@ import {
  */
 export function canonicalSnapshotsToResults(
   snapshots: DailyMetricSnapshot[],
-  importBatchId: string
+  importBatchId: string,
+  tenantId: string,
 ): Result[] {
+  if (!tenantId) {
+    throw new Error(
+      "[canonicalSnapshotsToResults] tenantId required; pass currentTenantId() / BEACON_TENANT_ID from the calling import-orchestrator.",
+    );
+  }
   const topicSnapshots = snapshots.filter(
     (s) => s.scope_type === "topic" && s.source_type === "derived"
   );
@@ -94,7 +100,7 @@ export function canonicalSnapshotsToResults(
         created_at: new Date().toISOString(),
         source_system: "profound",
         import_batch_id: importBatchId,
-        tenant_id: "",
+        tenant_id: tenantId,
       });
     }
   }
@@ -172,8 +178,14 @@ const ASSET_TYPE_MAP: Record<string, AssetType> = {
  */
 export function parseChangelogCSVToLegacy(
   filePath: string,
-  importBatchId: string
+  importBatchId: string,
+  tenantId: string,
 ): ChangelogEntry[] {
+  if (!tenantId) {
+    throw new Error(
+      "[parseChangelogCSVToLegacy] tenantId required; pass currentTenantId() / BEACON_TENANT_ID from the calling import-orchestrator.",
+    );
+  }
   const raw = readFileSync(filePath, "utf-8").replace(/^\uFEFF/, "");
   const rows: string[][] = parse(raw, {
     relax_column_count: true,
@@ -224,7 +236,7 @@ export function parseChangelogCSVToLegacy(
       updated_at: now,
       source_system: "changelog_csv",
       import_batch_id: importBatchId,
-      tenant_id: "",
+      tenant_id: tenantId,
     });
   }
 
@@ -283,7 +295,7 @@ export async function writeLegacyBridge(opts: {
     );
   }
 
-  const results = canonicalSnapshotsToResults(opts.snapshots, opts.importBatchId);
+  const results = canonicalSnapshotsToResults(opts.snapshots, opts.importBatchId, tenantId);
   await writeStore("imported-results", results);
 
   let changes: ChangelogEntry[] = [];
@@ -291,7 +303,7 @@ export async function writeLegacyBridge(opts: {
     changes = opts.changelogEntries;
     await writeStore("imported-changes", changes);
   } else if (opts.changelogCSVPath) {
-    changes = parseChangelogCSVToLegacy(opts.changelogCSVPath, opts.importBatchId);
+    changes = parseChangelogCSVToLegacy(opts.changelogCSVPath, opts.importBatchId, tenantId);
     await writeStore("imported-changes", changes);
   }
 
@@ -307,7 +319,7 @@ export async function writeLegacyBridge(opts: {
     skipped_count: 0,
     errors: [],
     warnings: [],
-    tenant_id: "",
+    tenant_id: tenantId,
   };
 
   const importRuns = await getImportRuns();

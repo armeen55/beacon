@@ -45,7 +45,7 @@ const PAGE_ID = "pg-test-1";
 const SCAN_RUN = "test-scan-001";
 
 function snap(h: string) {
-  return extractPageSnapshot(h, URL, PAGE_ID);
+  return extractPageSnapshot(h, URL, PAGE_ID, "tenant-test");
 }
 
 // ── Tests ──
@@ -62,7 +62,7 @@ describe("Findings pipeline — title change detection", () => {
       previousGuardrails: [],
       changelog: [],
       scanRunId: SCAN_RUN,
-    });
+      tenantId: "tenant-test",    });
 
     const titleFinding = findings.find((f) => f.type === "title_changed");
     expect(titleFinding).toBeDefined();
@@ -80,7 +80,7 @@ describe("Findings pipeline — title change detection", () => {
       previousGuardrails: [],
       changelog: [],
       scanRunId: SCAN_RUN,
-    });
+      tenantId: "tenant-test",    });
 
     const f = findings.find((f) => f.type === "title_changed")!;
     expect(f.id).toMatch(/^title_changed-/);
@@ -104,7 +104,7 @@ describe("Findings pipeline — title change detection", () => {
       previousGuardrails: [],
       changelog: [],
       scanRunId: SCAN_RUN,
-    });
+      tenantId: "tenant-test",    });
 
     expect(findings.find((f) => f.type === "title_changed")).toBeUndefined();
   });
@@ -124,10 +124,10 @@ describe("Findings pipeline — new guardrail detection", () => {
     <h1>Second H1</h1>
     <p>${"Content here. ".repeat(20)}</p>
   </body></html>`;
-  const multiH1Snap = extractPageSnapshot(multiH1Html, URL, PAGE_ID);
+  const multiH1Snap = extractPageSnapshot(multiH1Html, URL, PAGE_ID, "tenant-test");
 
   it("generates new_guardrail finding when guardrail appears for first time", () => {
-    const currGuardrails = classifyGuardrails(multiH1Snap, null);
+    const currGuardrails = classifyGuardrails(multiH1Snap, null, "tenant-test");
     const multiH1Guard = currGuardrails.find((g) => g.category === "multiple_h1");
 
     // Only test if this guardrail is actually detected by the classifier
@@ -140,7 +140,7 @@ describe("Findings pipeline — new guardrail detection", () => {
       previousGuardrails: [],
       changelog: [],
       scanRunId: SCAN_RUN,
-    });
+      tenantId: "tenant-test",    });
 
     // new_guardrail summary format: "New issue on {path}: {message}"
     const guardFinding = findings.find(
@@ -170,15 +170,15 @@ describe("Findings pipeline — guardrail_cleared auto-acceptance", () => {
     <p>${"Content here. ".repeat(20)}</p>
   </body></html>`;
 
-  const beforeSnap = extractPageSnapshot(beforeHtml, URL, PAGE_ID);
-  const afterSnap = extractPageSnapshot(afterHtml, URL, PAGE_ID);
+  const beforeSnap = extractPageSnapshot(beforeHtml, URL, PAGE_ID, "tenant-test");
+  const afterSnap = extractPageSnapshot(afterHtml, URL, PAGE_ID, "tenant-test");
 
   it("guardrail_cleared findings are auto-accepted, never pending", () => {
-    const prevGuardrails = classifyGuardrails(beforeSnap, null);
+    const prevGuardrails = classifyGuardrails(beforeSnap, null, "tenant-test");
     const multiH1Before = prevGuardrails.find((g) => g.category === "multiple_h1");
     if (!multiH1Before) return; // Skip if guardrail not detected
 
-    const currGuardrails = classifyGuardrails(afterSnap, diffSnapshots(afterSnap, beforeSnap));
+    const currGuardrails = classifyGuardrails(afterSnap, diffSnapshots(afterSnap, beforeSnap), "tenant-test");
     const multiH1After = currGuardrails.find((g) => g.category === "multiple_h1");
     // After fix, multiple_h1 should be gone
     expect(multiH1After).toBeUndefined();
@@ -190,7 +190,7 @@ describe("Findings pipeline — guardrail_cleared auto-acceptance", () => {
       previousGuardrails: prevGuardrails,
       changelog: [],
       scanRunId: SCAN_RUN,
-    });
+      tenantId: "tenant-test",    });
 
     const cleared = findings.filter((f) => f.type === "guardrail_cleared");
     for (const c of cleared) {
@@ -215,7 +215,7 @@ describe("Findings pipeline — priority scoring", () => {
       previousGuardrails: [],
       changelog: [],
       scanRunId: SCAN_RUN,
-      homepageUrl,
+      tenantId: "tenant-test",      homepageUrl,
     });
 
     const withHP = findings.find((f) => f.type === "title_changed");
@@ -234,7 +234,7 @@ describe("Findings pipeline — priority scoring", () => {
       previousGuardrails: [],
       changelog: [],
       scanRunId: SCAN_RUN,
-      citationsByUrl: citLookup,
+      tenantId: "tenant-test",      citationsByUrl: citLookup,
     });
 
     const f = findings.find((f) => f.type === "title_changed");
@@ -252,7 +252,7 @@ describe("Findings pipeline — priority scoring", () => {
       previousGuardrails: [],
       changelog: [],
       scanRunId: SCAN_RUN,
-    });
+      tenantId: "tenant-test",    });
 
     const rejectedTypes = new Set([
       `title_changed::${URL.replace(/^https?:\/\/[^/]+/, "").replace(/\/+$/, "").toLowerCase()}`,
@@ -264,7 +264,7 @@ describe("Findings pipeline — priority scoring", () => {
       previousGuardrails: [],
       changelog: [],
       scanRunId: SCAN_RUN,
-      previouslyRejectedTypes: rejectedTypes,
+      tenantId: "tenant-test",      previouslyRejectedTypes: rejectedTypes,
     });
 
     const normal = normalFindings.find((f) => f.type === "title_changed");

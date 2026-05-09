@@ -33,8 +33,14 @@ export function buildAnswerIntelligenceIndex(opts: {
   answerTexts: Record<string, string>;
   brandName: string;
   ownedDomain: string;
+  tenantId: string;
 }): AnswerIntelligenceIndex {
-  const { observations, answerTexts, brandName, ownedDomain } = opts;
+  const { observations, answerTexts, brandName, ownedDomain, tenantId } = opts;
+  if (!tenantId) {
+    throw new Error(
+      "[buildAnswerIntelligenceIndex] tenantId required; pass currentTenantId() / BEACON_TENANT_ID from the calling orchestrator or script.",
+    );
+  }
 
   const brandTokens = extractBrandTokens(brandName);
   const ownedDomainNorm = ownedDomain.toLowerCase().replace(/^www\./, "");
@@ -73,7 +79,7 @@ export function buildAnswerIntelligenceIndex(opts: {
     co_citation: coCitation,
     narrative_shifts: narrativeShifts,
     topic_platform_summary: topicPlatformSummary,
-    tenant_id: "",
+    tenant_id: tenantId,
   };
 }
 

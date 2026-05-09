@@ -70,7 +70,7 @@ function htmlNoFaq(): string {
 }
 
 function snap(h: string, url: string, pageId: string) {
-  return extractPageSnapshot(h, url, pageId);
+  return extractPageSnapshot(h, url, pageId, "tenant-test");
 }
 
 // ---------------------------------------------------------------------------
@@ -88,7 +88,7 @@ describe("faq_without_schema detection", () => {
       previousGuardrails: [],
       changelog: [],
       scanRunId: SCAN_RUN,
-    });
+      tenantId: "tenant-test",    });
 
     const faqFindings = findings.filter((f) => f.type === "faq_without_schema");
     expect(faqFindings.length).toBe(1);
@@ -109,7 +109,7 @@ describe("faq_without_schema detection", () => {
       previousGuardrails: [],
       changelog: [],
       scanRunId: SCAN_RUN,
-    });
+      tenantId: "tenant-test",    });
 
     const faqFindings = findings.filter((f) => f.type === "faq_without_schema");
     expect(faqFindings.length).toBe(0);
@@ -125,7 +125,7 @@ describe("faq_without_schema detection", () => {
       previousGuardrails: [],
       changelog: [],
       scanRunId: SCAN_RUN,
-    });
+      tenantId: "tenant-test",    });
 
     const faqFindings = findings.filter((f) => f.type === "faq_without_schema");
     expect(faqFindings.length).toBe(0);
@@ -144,7 +144,7 @@ describe("faq_without_schema detection", () => {
       previousGuardrails: [],
       changelog: [],
       scanRunId: SCAN_RUN,
-      citationsByUrl: citMap,
+      tenantId: "tenant-test",      citationsByUrl: citMap,
     });
 
     const faqFindings = findings.filter((f) => f.type === "faq_without_schema");
@@ -164,7 +164,7 @@ describe("faq_without_schema detection", () => {
       previousGuardrails: [],
       changelog: [],
       scanRunId: SCAN_RUN,
-    });
+      tenantId: "tenant-test",    });
 
     const faqFindings = findings.filter((f) => f.type === "faq_without_schema");
     expect(faqFindings[0].summary).toContain("8 FAQ questions");

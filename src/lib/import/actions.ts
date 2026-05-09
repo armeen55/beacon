@@ -88,6 +88,7 @@ export async function previewImport(
 ): Promise<ImportPreview> {
   const action = "previewImport";
   const t0 = Date.now();
+  const tenantId = await currentTenantId();
   log.info("Action started", {
     action,
     params: { entityType, format, rawLength: rawData.length },
@@ -128,7 +129,7 @@ export async function previewImport(
 
   const mapper = getMapper(entityType);
   for (let i = 0; i < rows.length; i++) {
-    const result = mapper(rows[i], i, batchId, source);
+    const result = mapper(rows[i], i, batchId, source, tenantId);
     allErrors.push(...result.errors);
     allWarnings.push(...result.warnings);
     if (result.entity) validCount++;
@@ -252,9 +253,10 @@ export async function executeImport(
               i,
               batchId,
               source,
-              visibilityRunIdForResults ?? undefined
+              tenantId,
+              visibilityRunIdForResults ?? undefined,
             )
-          : mapper(rows[i], i, batchId, source);
+          : mapper(rows[i], i, batchId, source, tenantId);
       allErrors.push(...result.errors);
       allWarnings.push(...result.warnings);
 
