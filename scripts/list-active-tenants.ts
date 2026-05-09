@@ -255,7 +255,22 @@ async function main(): Promise<void> {
   process.exit(0);
 }
 
-main().catch((err) => {
-  logError(`crashed: ${err instanceof Error ? err.stack : String(err)}`);
-  process.exit(1);
-});
+// Only auto-invoke main() when this file is run directly as a CLI
+// (e.g. `tsx scripts/list-active-tenants.ts`). When imported by a
+// vitest test that exercises the pure helpers above, main() must NOT
+// run — its `process.exit(1)` on no-Supabase-connection bubbles up to
+// vitest as an unhandled rejection and fails the suite even though
+// every actual test passes. Guard checks `process.argv[1]` matches
+// this file's basename (works for tsx + node + ts-node alike).
+const invokedAsCli =
+  typeof process !== "undefined" &&
+  Array.isArray(process.argv) &&
+  typeof process.argv[1] === "string" &&
+  /(?:^|\/)list-active-tenants\.[cm]?[jt]s$/.test(process.argv[1]);
+
+if (invokedAsCli) {
+  main().catch((err) => {
+    logError(`crashed: ${err instanceof Error ? err.stack : String(err)}`);
+    process.exit(1);
+  });
+}
