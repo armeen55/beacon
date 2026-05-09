@@ -123,8 +123,39 @@ Migration: single `DROP POLICY` × 2 + `DROP TABLE` in the commented rollback bl
 - B.4: shadow only logs; flip flag and drop.
 - B.5: flipping `BEACON_BUDGET_ENFORCE=0` reverts to JSON-ledger enforcement immediately. Drop after.
 
-## 6. Canary / poll-health display
+## 6. Canary / poll-health display + post-poll verifier
 
+### 6a. Inline canary spend snapshot
+The canary script `scripts/check-yesterday-poll.ts` now appends a
+read-only spend snapshot per platform when ledger rows exist for the
+date being checked. Empty/unavailable table prints
+`spend snapshot: ledger empty for {date} (shadow mode)`. The snapshot
+is informational only — it cannot fail the canary.
+
+### 6b. Standalone verifier (Stage B.2 add-on)
+For deeper post-poll attestation, run:
+
+```
+npx tsx --require ./scripts/mock-server-only.cjs scripts/verify-budget-ledger.ts [YYYY-MM-DD]
+```
+
+This compares `llm_budget_ledger` rows for the date against:
+- `observation_runs` for the matching `(source, completed_at)` plus
+  parsed `cost=$N` from `scope_label`
+- `prompt_answer_observations` count by platform label
+  (`perplexity` / `chatgpt`)
+
+Per-platform statuses:
+| status | meaning |
+|---|---|
+| `ok` | ledger row matches runs + observations within $0.01 |
+| `warn` | drift in cost / prompt_count / chunk_count / last_run_id |
+| `failed` | spent_usd ≤ 0, ledger row missing for completed runs, or orphan ledger row |
+| `pending` | no runs and no ledger row (e.g. before the daily poll fires) |
+
+Exit codes: 0 for ok/pending, 1 for warn/failed, 2 for runtime error.
+
+### 6c. Future extension (B.4+)
 Add to `src/domains/observations/poll-health.ts`:
 - New field per platform: `spendToday: { tenant_usd, cap_usd, percent }`.
 - Include in `check-yesterday-poll.ts` output:
