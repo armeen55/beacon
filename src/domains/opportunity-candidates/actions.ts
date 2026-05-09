@@ -5,6 +5,7 @@ import { log } from "@/lib/logger";
 import { getOpportunities } from "@/lib/seed-data.server";
 import { writeStore } from "@/lib/persistence/json-store";
 import { generateId, now } from "@/lib/actions";
+import { currentTenantId } from "@/lib/tenant-context";
 import type { Opportunity } from "@/domains/opportunities/types";
 import type { OpportunityCandidate } from "./types";
 
@@ -13,6 +14,7 @@ export async function promoteToOpportunity(
 ): Promise<{ success: boolean; opportunityId?: string; error?: string }> {
   const action = "promoteToOpportunity";
   const t0 = Date.now();
+  const tenantId = await currentTenantId();
   log.info("Action started", {
     action,
     params: {
@@ -95,7 +97,7 @@ export async function promoteToOpportunity(
     updated_at: timestamp,
     source_system: "beacon-expansion",
     import_batch_id: undefined,
-    tenant_id: "",
+    tenant_id: tenantId,
   };
 
   opportunities.push(opp);

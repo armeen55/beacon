@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { log } from "@/lib/logger";
 import { getResults } from "@/lib/seed-data.server";
 import { generateId, now } from "@/lib/actions";
+import { currentTenantId } from "@/lib/tenant-context";
 import { METRIC_DIRECTION } from "@/lib/constants";
 import type { Result } from "@/domains/results/types";
 import type { Platform, MetricType } from "@/lib/constants";
@@ -13,6 +14,7 @@ export async function createResult(
 ): Promise<{ success: boolean; error?: string; resultId?: string }> {
   const action = "createResult";
   const t0 = Date.now();
+  const tenantId = await currentTenantId();
   log.info("Action started", {
     action,
     params: {
@@ -90,7 +92,7 @@ export async function createResult(
     total_possible: null,
     position: null,
     created_at: now(),
-    tenant_id: "",
+    tenant_id: tenantId,
   };
 
   (await getResults()).push(result);

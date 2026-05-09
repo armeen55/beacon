@@ -357,7 +357,7 @@ async function createChangelogEntriesForEdits(
       source_rec_id: payload.stableKey,
       action_type: edit.action_type,
       target_element_key: edit.target_element_key ?? undefined,
-      tenant_id: edit.tenant_id ?? "",
+      tenant_id: tenantId,
     };
     newEntries.push(entry);
   }

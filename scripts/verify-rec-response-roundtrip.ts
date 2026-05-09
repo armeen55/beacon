@@ -38,6 +38,17 @@ if (!url || !serviceKey) {
   console.error("Missing env vars");
   process.exit(1);
 }
+// Stage D3 (2026-05-09): every tenant-scoped writer requires an
+// explicit tenantId. CLI scripts read it from BEACON_TENANT_ID and
+// fail loud when missing rather than defaulting to empty string.
+const tenantId = process.env.BEACON_TENANT_ID;
+if (!tenantId) {
+  console.error(
+    "[verify-rec-response-roundtrip] BEACON_TENANT_ID env var is required " +
+      "(e.g. BEACON_TENANT_ID=tenant-ritz-founder)",
+  );
+  process.exit(1);
+}
 const sb = createClient(url, serviceKey);
 
 // EXACT mirror of mapRecommendationResponseToRow in src/lib/persistence/dual-write.ts
@@ -56,7 +67,7 @@ function mapRecommendationResponseToRow(r: {
     defer_until: r.deferUntil,
     target_page_url: r.targetPageUrl ?? null,
     pattern_id: r.patternId ?? null,
-    tenant_id: "",
+    tenant_id: tenantId,
     updated_at: new Date().toISOString(),
   };
 }

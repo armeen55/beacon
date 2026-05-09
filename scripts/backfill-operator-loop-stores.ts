@@ -54,7 +54,7 @@ function mapRecResponseToRow(r: {
     defer_until: r.deferUntil,
     target_page_url: r.targetPageUrl ?? null,
     pattern_id: r.patternId ?? null,
-    tenant_id: r.tenant_id ?? "",
+    tenant_id: r.tenant_id ?? FALLBACK_TENANT_ID,
     updated_at: new Date().toISOString(),
   };
 }
@@ -90,6 +90,19 @@ async function backfill<T>(args: {
   }
   const { count } = await sb.from(args.table).select("*", { count: "exact", head: true });
   console.log(`[${args.label}] final row count in ${args.table}: ${count}`);
+}
+
+// Stage D3 (2026-05-09): require explicit BEACON_TENANT_ID so the
+// backfill never silently defaults a row's tenant_id to empty string.
+// Both mappers below fall back to this value when the JSON row carries
+// no tenant_id (legacy pre-stamping rows).
+const FALLBACK_TENANT_ID = process.env.BEACON_TENANT_ID;
+if (!FALLBACK_TENANT_ID) {
+  console.error(
+    "[backfill-operator-loop-stores] BEACON_TENANT_ID env var is required " +
+      "(e.g. BEACON_TENANT_ID=tenant-ritz-founder)",
+  );
+  process.exit(1);
 }
 
 async function main() {
@@ -135,7 +148,7 @@ async function main() {
       recorded_at: o.recorded_at,
       updated_at: o.updated_at ?? o.recorded_at,
       transitions: o.transitions ?? 0,
-      tenant_id: o.tenant_id ?? "",
+      tenant_id: o.tenant_id ?? FALLBACK_TENANT_ID,
     }),
   });
 

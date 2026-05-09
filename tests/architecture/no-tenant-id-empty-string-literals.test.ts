@@ -51,22 +51,13 @@ const EXPECTED_REMAINING_FILES: ReadonlyArray<{
   bundle: "D2" | "D3";
   reason: string;
 }> = [
-  // ── D-c server actions (Stage D3) ───────────────────────────────────
-  {
-    path: "src/domains/opportunity-candidates/actions.ts",
-    bundle: "D3",
-    reason: "server action; should resolve currentTenantId and stamp",
-  },
-  {
-    path: "src/domains/results/actions.ts",
-    bundle: "D3",
-    reason: "server action; should resolve currentTenantId and stamp",
-  },
-  {
-    path: "src/app/(shell)/pages/verify-action.ts",
-    bundle: "D3",
-    reason: "server action; resolve currentTenantId for verify run",
-  },
+  // Stage D3 (2026-05-09) cleared the 4 D-c server-action sites:
+  //   src/domains/opportunity-candidates/actions.ts
+  //   src/domains/results/actions.ts
+  //   src/app/(shell)/pages/verify-action.ts
+  //   src/app/(shell)/recommendations/actions.ts (coercion form)
+  // Each now resolves currentTenantId() at the action boundary and
+  // stamps directly. Removed from this allow-list.
   // ── D-b factories (Stage D2) ────────────────────────────────────────
   {
     path: "src/domains/scanning/detect-findings.ts",
@@ -210,23 +201,30 @@ describe("Architecture — no tenant_id empty-string literals in production sour
     ).toEqual([]);
   });
 
-  it("the documented Stage D1 D-a sites have ZERO literals (regression guard)", () => {
-    // The 6 files Stage D1 cleaned up. If a future PR re-introduces a
+  it("the documented Stage D1 + D3 cleaned sites have ZERO literals (regression guard)", () => {
+    // Files cleaned by Stage D1 (2026-05-09, commit b8f238f) and Stage
+    // D3 (2026-05-09, this commit). If a future PR re-introduces a
     // literal in any of these, the test catches it loudly.
-    const D1_CLEANED_FILES = [
+    const CLEANED_FILES = [
+      // D1 — D-a coercion-drop
       "src/domains/changelog/actions.ts",
       "src/domains/attribution/candidate-actions.ts",
       "src/app/(shell)/changes/contract-actions.ts",
       "src/app/(shell)/finding-actions.ts",
       "src/lib/connectors/connector-review-import-run.ts",
       "src/lib/import/actions.ts",
+      // D3 — D-c entry-point-resolved
+      "src/domains/results/actions.ts",
+      "src/domains/opportunity-candidates/actions.ts",
+      "src/app/(shell)/recommendations/actions.ts",
+      "src/app/(shell)/pages/verify-action.ts",
     ];
-    const regressed = D1_CLEANED_FILES.filter((p) =>
+    const regressed = CLEANED_FILES.filter((p) =>
       filesWithLiteral.includes(p),
     );
     expect(
       regressed,
-      `D1-cleaned files have re-introduced a \`tenant_id: ""\` literal. ` +
+      `D1/D3-cleaned files have re-introduced a \`tenant_id: ""\` literal. ` +
         `Either resolve tenantId in scope and stamp directly, or revert ` +
         `the regression. Regressed file(s):\n  ${regressed.join("\n  ")}`,
     ).toEqual([]);

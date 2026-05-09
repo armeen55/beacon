@@ -90,8 +90,20 @@ function mapFindingToRow(f: Finding): Record<string, unknown> {
     signal_strength: f.signalStrength ?? null,
     source_rec_id: f.source_rec_id ?? null,
     source_pattern_id: f.source_pattern_id ?? null,
-    tenant_id: f.tenant_id ?? "",
+    tenant_id: f.tenant_id ?? FALLBACK_TENANT_ID,
   };
+}
+
+// Stage D3 (2026-05-09): require explicit BEACON_TENANT_ID so legacy
+// pre-stamping rows (without tenant_id on disk) get a real fallback
+// instead of silently defaulting to empty string.
+const FALLBACK_TENANT_ID = process.env.BEACON_TENANT_ID;
+if (!FALLBACK_TENANT_ID) {
+  console.error(
+    "[backfill-scan-findings] BEACON_TENANT_ID env var is required " +
+      "(e.g. BEACON_TENANT_ID=tenant-ritz-founder)",
+  );
+  process.exit(1);
 }
 
 async function main() {

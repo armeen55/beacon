@@ -210,7 +210,7 @@ export async function verifyPageFix(url: string): Promise<VerifyResult> {
       pages_with_errors: newSnapshot.http_status !== 200 ? 1 : 0,
       ...buckets,
       ...universeFieldsForObservationPersistence(),
-      tenant_id: "",
+      tenant_id: tenantId,
     };
     // Phase 4.5: appendObservationRunSync now internally gates its FS write
     // on Vercel while always running the Supabase dual-write. Safe to call

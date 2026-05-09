@@ -20,6 +20,18 @@ import {
 } from "../src/domains/changelog/change-contract";
 
 async function main() {
+  // Stage D3 (2026-05-09): require explicit BEACON_TENANT_ID so the
+  // backfill stamps every contract with a real tenant rather than
+  // silently defaulting to "".
+  const tenantId = process.env.BEACON_TENANT_ID;
+  if (!tenantId) {
+    console.error(
+      "[backfill-change-contracts] BEACON_TENANT_ID env var is required " +
+        "(e.g. BEACON_TENANT_ID=tenant-ritz-founder)",
+    );
+    process.exit(1);
+  }
+
   const entries = await readStore<ChangelogEntry>("imported-changes");
   console.log(`Loaded ${entries.length} changelog entries`);
 
@@ -99,7 +111,7 @@ async function main() {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       notes: `Auto-backfilled from ${entry.id}: ${name}`,
-      tenant_id: "",
+      tenant_id: tenantId,
     };
 
     contracts.push(contract);
