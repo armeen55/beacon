@@ -3,6 +3,7 @@
 import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
+import { isOperatorModeClient } from "@/lib/operator-mode";
 
 /**
  * Demo-path fix (2026-05-06): the recommendations drawer historically
@@ -21,9 +22,7 @@ import { cn } from "@/lib/utils";
  *     existing snapshot/assertion tests continue to work without
  *     env plumbing.
  */
-const OPERATOR_MODE_DEBUG: boolean =
-  process.env.NEXT_PUBLIC_OPERATOR_MODE === "true" ||
-  process.env.NODE_ENV === "test";
+const OPERATOR_MODE_DEBUG: boolean = isOperatorModeClient();
 import {
   acceptRecommendation,
   deferRecommendation,

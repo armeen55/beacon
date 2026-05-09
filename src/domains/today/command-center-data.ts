@@ -20,6 +20,7 @@
 import "server-only";
 import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { isOperatorModeServer } from "@/lib/operator-mode";
 
 export type CommandCenterGrade = "A" | "B" | "C" | "D" | "F";
 
@@ -254,7 +255,7 @@ export function resolveCommandCenterData(args: {
  * is purely a visibility decision for the link.
  */
 export function isOperatorMode(): boolean {
-  return process.env.BEACON_OPERATOR_MODE === "true";
+  return isOperatorModeServer();
 }
 
 /**

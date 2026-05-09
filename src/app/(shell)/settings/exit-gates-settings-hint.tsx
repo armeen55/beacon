@@ -1,3 +1,4 @@
+import { isOperatorModeServer } from "@/lib/operator-mode";
 import { readExitGates } from "@/lib/exit-gates-store";
 import { ExitGatesSettingsHintClient } from "./exit-gates-settings-hint-client";
 
@@ -26,12 +27,8 @@ import { ExitGatesSettingsHintClient } from "./exit-gates-settings-hint-client";
  * client-side need a different var). Unifying the two flags into
  * one is a separate cleanup, not part of this bundle.
  */
-function isOperatorMode(): boolean {
-  return process.env.BEACON_OPERATOR_MODE === "true";
-}
-
 export async function ExitGatesSettingsHint() {
-  if (!isOperatorMode()) return null;
+  if (!isOperatorModeServer()) return null;
   const gates = await readExitGates();
   if (gates.every((g) => g.status === "passed")) return null;
   return <ExitGatesSettingsHintClient gates={gates} />;

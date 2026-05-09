@@ -2,6 +2,7 @@
 
 import { useState, useTransition, useEffect } from "react";
 import Link from "next/link";
+import { isOperatorModeClient } from "@/lib/operator-mode";
 
 /**
  * 2026-05-06 demo-path Phase 3-bis fix 5 — gate the "Advanced" import
@@ -12,9 +13,7 @@ import Link from "next/link";
  * customer-mode demo. Operator mode (NEXT_PUBLIC_OPERATOR_MODE) keeps
  * the historical workflow intact.
  */
-const OPERATOR_MODE: boolean =
-  process.env.NEXT_PUBLIC_OPERATOR_MODE === "true" ||
-  process.env.NODE_ENV === "test";
+const OPERATOR_MODE: boolean = isOperatorModeClient();
 import { Upload, Trash2, AlertTriangle, CheckCircle2 } from "lucide-react";
 import { PageHeader } from "@/components/data/page-header";
 import { Button } from "@/components/ui/button";

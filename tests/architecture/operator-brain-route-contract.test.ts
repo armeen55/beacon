@@ -31,9 +31,12 @@ describe("T7.6 — operator brain route contract", () => {
     expect(SRC).toContain('export const dynamic = "force-dynamic"');
   });
 
-  it("gates behind isOperatorMode() and 404s when off", () => {
+  it("gates behind isOperatorModeServer() and 404s when off", () => {
+    // Post-2026-05-09 unification (C1): the gate goes through the
+    // shared helper. The literal env var lives in src/lib/operator-mode.ts.
     expect(SRC).toContain("isOperatorMode");
-    expect(SRC).toContain("BEACON_OPERATOR_MODE");
+    expect(SRC).toContain("isOperatorModeServer");
+    expect(SRC).not.toMatch(/process\.env\.BEACON_OPERATOR_MODE/);
     expect(SRC).toContain("notFound");
   });
 

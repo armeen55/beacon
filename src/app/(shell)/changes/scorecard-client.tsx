@@ -3,6 +3,7 @@
 import { useEffect, useState, useMemo, useTransition } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
+import { isOperatorModeClient } from "@/lib/operator-mode";
 
 /**
  * 2026-05-06 demo-path Phase 3-bis fix 4 — DOM data-attribute gating.
@@ -20,9 +21,7 @@ import { useRouter, useSearchParams } from "next/navigation";
  * Same gate-shape as the recommendations drawer Debug-block fix
  * (commit 57b509c).
  */
-const OPERATOR_MODE_DEBUG: boolean =
-  process.env.NEXT_PUBLIC_OPERATOR_MODE === "true" ||
-  process.env.NODE_ENV === "test";
+const OPERATOR_MODE_DEBUG: boolean = isOperatorModeClient();
 import type { ScorecardRowWithImpact } from "@/domains/attribution/change-impact";
 import type { UrlVerdict } from "@/domains/attribution/url-verdict";
 import { markChangelogEditShipped } from "./actions";

@@ -184,13 +184,13 @@ describe("customer nav exposure — Invariant 4: settings tabs", () => {
 // ─── Invariant 5 — EXIT-GATES SETTINGS HINT IS OPERATOR-GATED ─────────────
 
 describe("customer nav exposure — Invariant 5: ExitGatesSettingsHint operator gate", () => {
-  it("the server wrapper checks BEACON_OPERATOR_MODE before rendering", () => {
+  it("the server wrapper gates on isOperatorModeServer() before rendering", () => {
     const src = readSrc("src/app/(shell)/settings/exit-gates-settings-hint.tsx");
-    expect(src).toContain("BEACON_OPERATOR_MODE");
-    // Additionally: the gate must short-circuit (return null) when
-    // not in operator mode. Match a plausible early-return shape;
-    // exact whitespace not required.
-    expect(src).toMatch(/if\s*\(!isOperatorMode\(\)\)\s*return\s*null/);
+    // Post-2026-05-09 unification (C1): the gate goes through the
+    // shared helper instead of reading process.env directly.
+    expect(src).toContain("isOperatorModeServer");
+    expect(src).not.toMatch(/process\.env\.BEACON_OPERATOR_MODE/);
+    expect(src).toMatch(/if\s*\(!isOperatorModeServer\(\)\)\s*return\s*null/);
   });
 
   it('the rendered hint still links to "/settings/exit-gates" (the route remains accessible to operators)', () => {

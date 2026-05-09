@@ -127,9 +127,16 @@ describe("Demo-path fix 1 (2026-05-06) — Pre-launch history rename", () => {
 // ── Fix 2 — /recommendations drawer Debug-block gate + UUID strip ────
 
 describe("Demo-path fix 2 (2026-05-06) — /recommendations drawer cleanup", () => {
-  it("declares OPERATOR_MODE_DEBUG gate sourced from NEXT_PUBLIC_OPERATOR_MODE / NODE_ENV=test", () => {
+  it("declares OPERATOR_MODE_DEBUG gate sourced from isOperatorModeClient() helper", () => {
+    // Post-2026-05-09 unification (C1): the gate goes through the
+    // shared helper. The helper itself wraps NEXT_PUBLIC_OPERATOR_MODE
+    // OR NODE_ENV === "test" (verified separately in
+    // operator-mode-helpers.test.ts).
     expect(RECS_CLIENT).toMatch(
-      /const OPERATOR_MODE_DEBUG[\s\S]{0,100}NEXT_PUBLIC_OPERATOR_MODE[\s\S]{0,80}NODE_ENV/,
+      /const OPERATOR_MODE_DEBUG[\s\S]{0,80}isOperatorModeClient\(\)/,
+    );
+    expect(RECS_CLIENT).not.toMatch(
+      /const OPERATOR_MODE_DEBUG[\s\S]{0,80}process\.env\.NEXT_PUBLIC_OPERATOR_MODE/,
     );
   });
 
@@ -154,20 +161,23 @@ describe("Demo-path fix 2 (2026-05-06) — /recommendations drawer cleanup", () 
 // ── Fix 3 — /diagnostics operator guard ───────────────────────────────
 
 describe("Demo-path fix 3 (2026-05-06) — diagnostics operator guard", () => {
-  it("/diagnostics/page.tsx imports notFound + checks BEACON_OPERATOR_MODE", () => {
+  it("/diagnostics/page.tsx imports notFound + gates via isOperatorModeServer() with NODE_ENV-test extension", () => {
     expect(DIAGNOSTICS_PAGE).toMatch(/from "next\/navigation"/);
     expect(DIAGNOSTICS_PAGE).toMatch(/notFound\(\)/);
+    // Helper-based gate; test-env extension preserved.
     expect(DIAGNOSTICS_PAGE).toMatch(
-      /BEACON_OPERATOR_MODE[\s\S]{0,80}NODE_ENV/,
+      /isOperatorModeServer\(\)[\s\S]{0,80}NODE_ENV/,
     );
+    expect(DIAGNOSTICS_PAGE).not.toMatch(/process\.env\.BEACON_OPERATOR_MODE/);
   });
 
-  it("/diagnostics/spikes/page.tsx imports notFound + checks BEACON_OPERATOR_MODE", () => {
+  it("/diagnostics/spikes/page.tsx imports notFound + gates via isOperatorModeServer() with NODE_ENV-test extension", () => {
     expect(SPIKES_PAGE).toMatch(/from "next\/navigation"/);
     expect(SPIKES_PAGE).toMatch(/notFound\(\)/);
     expect(SPIKES_PAGE).toMatch(
-      /BEACON_OPERATOR_MODE[\s\S]{0,80}NODE_ENV/,
+      /isOperatorModeServer\(\)[\s\S]{0,80}NODE_ENV/,
     );
+    expect(SPIKES_PAGE).not.toMatch(/process\.env\.BEACON_OPERATOR_MODE/);
   });
 
   it("/settings/health re-exports /diagnostics/page (so it inherits the guard automatically)", () => {

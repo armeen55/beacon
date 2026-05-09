@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { isOperatorModeServer } from "@/lib/operator-mode";
 import { PageHeader } from "@/components/data/page-header";
 import { StatCard } from "@/components/data/stat-card";
 import {
@@ -212,10 +213,9 @@ type DiagnosticsContext = {
  * guard is the second layer protecting against URL-guessing.
  */
 function isOperatorMode(): boolean {
-  return (
-    process.env.BEACON_OPERATOR_MODE === "true" ||
-    process.env.NODE_ENV === "test"
-  );
+  // Server-only gate. Test extension preserves render-under-test for
+  // existing route assertions without per-test env plumbing.
+  return isOperatorModeServer() || process.env.NODE_ENV === "test";
 }
 
 export default async function DiagnosticsPage() {

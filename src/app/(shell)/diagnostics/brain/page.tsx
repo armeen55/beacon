@@ -21,15 +21,14 @@ import { readFileSync, existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { isOperatorModeServer } from "@/lib/operator-mode";
 import { PageHeader } from "@/components/data/page-header";
 
 export const dynamic = "force-dynamic";
 
 function isOperatorMode(): boolean {
-  return (
-    process.env.BEACON_OPERATOR_MODE === "true" ||
-    process.env.NODE_ENV === "test"
-  );
+  // Server-only gate. Test extension preserves render-under-test.
+  return isOperatorModeServer() || process.env.NODE_ENV === "test";
 }
 
 const REPO_ROOT = resolve(process.cwd());

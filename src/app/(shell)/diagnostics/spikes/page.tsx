@@ -12,6 +12,7 @@
  */
 
 import { notFound } from "next/navigation";
+import { isOperatorModeServer } from "@/lib/operator-mode";
 import { PageHeader } from "@/components/data/page-header";
 import { getDailyMetricSnapshots } from "@/storage/canonical-store";
 import { getChangelogEntries } from "@/lib/seed-data.server";
@@ -37,10 +38,8 @@ export const dynamic = "force-dynamic";
  * URL-guessable in production; mirrors the parent guard rule.
  */
 function isOperatorMode(): boolean {
-  return (
-    process.env.BEACON_OPERATOR_MODE === "true" ||
-    process.env.NODE_ENV === "test"
-  );
+  // Server-only gate. Test extension preserves render-under-test.
+  return isOperatorModeServer() || process.env.NODE_ENV === "test";
 }
 
 export default async function SpikeForensicsPage() {

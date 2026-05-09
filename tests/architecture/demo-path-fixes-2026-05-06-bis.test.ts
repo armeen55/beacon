@@ -149,9 +149,12 @@ describe("Phase 3-bis fix 3 (2026-05-06) — /changes header clarity", () => {
 // ── Fix 4: scorecard DOM data-attr leaks gated ───────────────────────
 
 describe("Phase 3-bis fix 4 (2026-05-06) — DOM data-attribute gating", () => {
-  it("scorecard-client.tsx declares OPERATOR_MODE_DEBUG via NEXT_PUBLIC_OPERATOR_MODE / NODE_ENV=test", () => {
+  it("scorecard-client.tsx declares OPERATOR_MODE_DEBUG via isOperatorModeClient() helper", () => {
     expect(SCORECARD_CLIENT).toMatch(
-      /const OPERATOR_MODE_DEBUG[\s\S]{0,100}NEXT_PUBLIC_OPERATOR_MODE[\s\S]{0,80}NODE_ENV/,
+      /const OPERATOR_MODE_DEBUG[\s\S]{0,80}isOperatorModeClient\(\)/,
+    );
+    expect(SCORECARD_CLIENT).not.toMatch(
+      /const OPERATOR_MODE_DEBUG[\s\S]{0,80}process\.env\.NEXT_PUBLIC_OPERATOR_MODE/,
     );
   });
 
@@ -177,9 +180,12 @@ describe("Phase 3-bis fix 4 (2026-05-06) — DOM data-attribute gating", () => {
 // ── Fix 5: /settings/import advanced gate ────────────────────────────
 
 describe("Phase 3-bis fix 5 (2026-05-06) — /settings/import advanced gate", () => {
-  it("import-page.tsx declares OPERATOR_MODE via NEXT_PUBLIC_OPERATOR_MODE / NODE_ENV=test", () => {
+  it("import-page.tsx declares OPERATOR_MODE via isOperatorModeClient() helper", () => {
     expect(IMPORT_PAGE).toMatch(
-      /const OPERATOR_MODE[\s\S]{0,200}NEXT_PUBLIC_OPERATOR_MODE[\s\S]{0,80}NODE_ENV/,
+      /const OPERATOR_MODE[\s\S]{0,80}isOperatorModeClient\(\)/,
+    );
+    expect(IMPORT_PAGE).not.toMatch(
+      /const OPERATOR_MODE[\s\S]{0,80}process\.env\.NEXT_PUBLIC_OPERATOR_MODE/,
     );
   });
 
