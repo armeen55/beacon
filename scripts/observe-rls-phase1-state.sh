@@ -75,15 +75,27 @@ dbq "SELECT p.prosecdef AS security_definer, p.provolatile AS volatility,
 hdr "3. Total public policy count (baseline = 72)"
 dbq "SELECT count(*) AS total_policies FROM pg_policies WHERE schemaname='public';"
 
+join_quoted() {
+  # Build a comma-separated SQL list of single-quoted identifiers from
+  # arguments. Avoids the IFS-expansion trap that swallowed commas when
+  # the prior version interpolated array expansion directly into SQL.
+  local out=""
+  local item
+  for item in "$@"; do
+    if [ -z "$out" ]; then out="'$item'"; else out="$out,'$item'"; fi
+  done
+  printf '%s' "$out"
+}
+
 hdr "4. Cat-A1 policy state (expect deny_anon + tenant_authenticated_rw)"
-A1_LIST="'$(IFS="','"; echo "${CAT_A1[*]}")'"
+A1_LIST=$(join_quoted "${CAT_A1[@]}")
 dbq "SELECT tablename, array_agg(policyname ORDER BY policyname) AS policies
      FROM pg_policies WHERE schemaname='public'
        AND tablename IN ($A1_LIST)
      GROUP BY tablename ORDER BY tablename;"
 
 hdr "5. Cat-A2 policy state"
-A2_LIST="'$(IFS="','"; echo "${CAT_A2[*]}")'"
+A2_LIST=$(join_quoted "${CAT_A2[@]}")
 dbq "SELECT tablename, array_agg(policyname ORDER BY policyname) AS policies
      FROM pg_policies WHERE schemaname='public'
        AND tablename IN ($A2_LIST,'tenant_members')
