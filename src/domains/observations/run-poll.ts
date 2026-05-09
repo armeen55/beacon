@@ -40,6 +40,7 @@ import "server-only";
 import { pollPerplexityForTenant } from "@/adapters/perplexity/poll";
 import { pollOpenAIForTenant } from "@/adapters/openai/poll";
 import type { PerplexityPollResult } from "@/adapters/perplexity/poll";
+import { recordSpendDualWrite } from "@/lib/cost/budget-ledger-supabase";
 import {
   syncPromptAnswerObservations as realSyncObs,
   syncAnswerTexts as realSyncTexts,
@@ -553,6 +554,25 @@ export async function runNativePoll(
   } catch {
     /* best-effort — reconciliation already passed */
   }
+
+  // ── Phase 2 Stage B.2 (2026-05-09): shadow dual-write to
+  // public.llm_budget_ledger. Flag-gated default OFF; never throws.
+  // Source of truth in shadow mode is still .data/cost-ledger.json
+  // (per-prompt writes inside the adapter). This call records the
+  // chunk-level total once per chunk run.
+  await recordSpendDualWrite({
+    tenantId,
+    platform,
+    costUsd: rawChunkRow.cost_usd ?? 0,
+    promptCount: verdict.persistedObsCount,
+    chunkCount: 1,
+    runId: run.run_id,
+    metadata: {
+      scope_label: run.scope_label,
+      chunk_offset: chunkOffset,
+      chunk_limit: chunkLimit,
+    },
+  });
 
   // ── Summarize ───────────────────────────────────────────────────────
   const status: NativePollStatus =

@@ -52,6 +52,10 @@ import {
   todayISOUtc,
   type PlatformPollHealth,
 } from "../src/domains/observations/poll-health";
+import {
+  readSpendSnapshotForDate,
+  type SpendSnapshotRow,
+} from "../src/lib/cost/budget-ledger-supabase";
 
 async function main(): Promise<number> {
   const dateArg = process.argv[2];
@@ -78,6 +82,11 @@ async function main(): Promise<number> {
     if (platform.status !== "ok") allOk = false;
   }
 
+  // Phase 2 Stage B.2 (2026-05-09): read-only spend snapshot from
+  // public.llm_budget_ledger. Empty/unavailable table prints a calm
+  // fallback. Always informational — never affects exit code.
+  await logSpendSnapshot(date);
+
   if (allOk) {
     console.log(`\n✓ All platforms ok for ${date}.`);
     return 0;
@@ -87,6 +96,33 @@ async function main(): Promise<number> {
     `\n✗ One or more platforms are not ok for ${date}. See summary above.`,
   );
   return 1;
+}
+
+async function logSpendSnapshot(date: string): Promise<void> {
+  let rows: SpendSnapshotRow[] = [];
+  try {
+    rows = await readSpendSnapshotForDate(date);
+  } catch {
+    // readSpendSnapshotForDate already logs its own warnings and never
+    // throws, but belt-and-suspenders here keeps the canary calm.
+    return;
+  }
+  if (rows.length === 0) {
+    console.log(`\n  spend snapshot: ledger empty for ${date} (shadow mode)`);
+    return;
+  }
+  console.log(`\n  spend snapshot for ${date}:`);
+  for (const r of rows) {
+    const cap = r.cap_usd === null ? "—" : `$${r.cap_usd.toFixed(2)}`;
+    const pct =
+      r.cap_usd && r.cap_usd > 0
+        ? ` (${Math.round((r.spent_usd / r.cap_usd) * 100)}%)`
+        : "";
+    console.log(
+      `    ${r.tenant_id.padEnd(24, " ")} ${r.platform.padEnd(20, " ")} ` +
+        `$${r.spent_usd.toFixed(4)} / ${cap}${pct}  ${r.prompt_count} prompts`,
+    );
+  }
 }
 
 function logPlatform(p: PlatformPollHealth): void {
