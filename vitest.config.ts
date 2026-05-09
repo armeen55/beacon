@@ -13,6 +13,13 @@ export default defineConfig({
     /** Avoid dynamic-import timeouts when many heavy route modules load in parallel. */
     fileParallelism: false,
     testTimeout: 30_000,
+    /**
+     * Hydrates a small synthetic `.data/` fixture in CI when the operator's
+     * curated `.data/` is absent. Local dev with a real `.data/` is detected
+     * by the presence of `.data/global/tenants.json` and is left untouched.
+     * See tests/setup/global-fixture-hydrate.ts for the full guard logic.
+     */
+    globalSetup: ["tests/setup/global-fixture-hydrate.ts"],
     env: {
       BEACON_TENANT_ID: "tenant-ritz-founder",
       // 2026-04-28 CI fix. `currentTenantSlug` resolution chain

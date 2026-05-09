@@ -1,0 +1,23 @@
+[
+  {
+    "id": "ci-fix-result-001",
+    "tenant_id": "tenant-ritz-founder",
+    "snapshot_date": "2026-05-01",
+    "platform": "openai",
+    "metric_type": "mention",
+    "metric_value": 0,
+    "previous_value": null,
+    "delta": null,
+    "delta_percentage": null,
+    "topic": "CI fixture topic",
+    "city": null,
+    "url_measured": null,
+    "attributed_changelog_ids": [],
+    "notes": "CI fixture row.",
+    "mention_count": 0,
+    "citation_count": 0,
+    "total_possible": null,
+    "position": null,
+    "created_at": "2026-05-09T00:00:00.000Z"
+  }
+]

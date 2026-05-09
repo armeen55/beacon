@@ -1,0 +1,14 @@
+[
+  {
+    "id": "ci-fix-page-001",
+    "tenant_id": "tenant-ritz-founder",
+    "url": "https://example.com/ci-fixture",
+    "page_path": "/ci-fixture",
+    "page_type": "other",
+    "is_owned": true,
+    "title": "CI fixture page",
+    "h1": "CI fixture page",
+    "discovered_at": "2026-05-09T00:00:00.000Z",
+    "last_scanned_at": "2026-05-09T00:00:00.000Z"
+  }
+]

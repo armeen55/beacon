@@ -1,0 +1,13 @@
+[
+  {
+    "id": "ci-fix-snap-001",
+    "tenant_id": "tenant-ritz-founder",
+    "date": "2026-05-01",
+    "platform": "openai",
+    "scope_type": "topic",
+    "scope_id": "ci-fixture-topic",
+    "mention_count": 0,
+    "citation_count": 0,
+    "created_at": "2026-05-09T00:00:00.000Z"
+  }
+]

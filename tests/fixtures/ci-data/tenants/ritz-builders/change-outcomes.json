@@ -1,0 +1,25 @@
+[
+  {
+    "id": "ci-fix-outcome-001",
+    "tenant_id": "tenant-ritz-founder",
+    "change_id": "ci-fix-change-001",
+    "topic_targeted": "CI fixture topic",
+    "changed_at": "2026-05-01T00:00:00.000Z",
+    "direction": "neutral",
+    "mention_delta_pct": 0,
+    "citation_delta_pct": 0,
+    "visibility_delta_pct": 0,
+    "mentions_before": 0,
+    "mentions_after": 0,
+    "citations_before": 0,
+    "citations_after": 0,
+    "visibility_before": 0,
+    "visibility_after": 0,
+    "days_before": 0,
+    "days_after": 0,
+    "observations_before": 0,
+    "observations_after": 0,
+    "platform_deltas": {},
+    "computed_at": "2026-05-09T00:00:00.000Z"
+  }
+]

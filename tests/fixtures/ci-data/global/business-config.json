@@ -1,0 +1,71 @@
+{
+  "name": "Ritz Builders",
+  "domain": "ritzbuilders.com",
+  "industry": "home-builder",
+  "phone": "",
+  "address": "",
+  "yelpBusinessId": "",
+  "locations": [
+    "Palo Alto",
+    "Menlo Park",
+    "Atherton",
+    "Los Altos",
+    "Cupertino",
+    "Saratoga"
+  ],
+  "services": [
+    "custom home",
+    "remodel",
+    "renovation",
+    "new construction",
+    "design-build",
+    "whole home remodel"
+  ],
+  "primaryCompetitors": [],
+  "keyPages": [
+    "/",
+    "/locations"
+  ],
+  "locationTerms": [],
+  "serviceTerms": [],
+  "directoryDomains": [
+    "houzz.com",
+    "yelp.com"
+  ],
+  "scanSettings": {
+    "preferredHour": 9,
+    "timezone": "America/Los_Angeles",
+    "scope": "full",
+    "enabled": true
+  },
+  "urlPatterns": {
+    "city": "/locations/",
+    "service": "/services/",
+    "project": "/explore-projects/"
+  },
+  "stripWords": [
+    "atherton",
+    "menlo",
+    "park",
+    "palo",
+    "alto",
+    "ritz",
+    "builders"
+  ],
+  "industryThemes": [
+    {
+      "pattern": "\\bdesign\\b.*\\bbuild|\\barchitect",
+      "label": "design_build",
+      "display": "Design-build overview"
+    }
+  ],
+  "faqTemplates": [
+    {
+      "topicPattern": "Builder|Home",
+      "questions": [
+        "How do I choose the right {topic}?",
+        "What questions should I ask a {topic}?"
+      ]
+    }
+  ]
+}

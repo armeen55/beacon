@@ -1,0 +1,12 @@
+[
+  {
+    "id": "ci-fix-finding-001",
+    "tenant_id": "tenant-ritz-founder",
+    "type": "faq_without_schema",
+    "url": "https://example.com/ci-fixture",
+    "pagePath": "/ci-fixture",
+    "severity": "low",
+    "detected_at": "2026-05-09T00:00:00.000Z",
+    "summary": "CI fixture finding."
+  }
+]

@@ -1,0 +1,16 @@
+[
+  {
+    "id": "ci-fix-import-001",
+    "tenant_id": "tenant-ritz-founder",
+    "source_system": "ci-fixture",
+    "entity_type": "results",
+    "format": "csv",
+    "started_at": "2026-05-01T00:00:00.000Z",
+    "completed_at": "2026-05-01T00:00:01.000Z",
+    "total_rows": 1,
+    "imported_count": 1,
+    "skipped_count": 0,
+    "errors": [],
+    "warnings": []
+  }
+]

@@ -1,0 +1,12 @@
+[
+  {
+    "run_id": "ci-fix-run-001",
+    "tenant_id": "tenant-ritz-founder",
+    "started_at": "2026-05-09T00:00:00.000Z",
+    "completed_at": "2026-05-09T00:00:00.000Z",
+    "kind": "website_verify",
+    "status": "completed",
+    "prompt_count": 0,
+    "observations_persisted_count": 0
+  }
+]
