@@ -11,12 +11,25 @@ vi.mock("next/navigation", () => ({
 }));
 
 describe("ExitGatesSettingsHint", () => {
+  // Commit 9b66658 (T-CustomerNav, 2026-05-08) gated this server wrapper
+  // behind `BEACON_OPERATOR_MODE === "true"` so it never renders for
+  // customer dogfeed sessions. Set the env for these tests so the
+  // gate-data branches stay observable; reset to undefined afterwards.
+  let priorOperatorMode: string | undefined;
+
   beforeEach(async () => {
+    priorOperatorMode = process.env.BEACON_OPERATOR_MODE;
+    process.env.BEACON_OPERATOR_MODE = "true";
     mockPathname.mockReturnValue("/settings/config");
     await _resetExitGatesStoreForTests();
   });
 
   afterEach(async () => {
+    if (priorOperatorMode === undefined) {
+      delete process.env.BEACON_OPERATOR_MODE;
+    } else {
+      process.env.BEACON_OPERATOR_MODE = priorOperatorMode;
+    }
     await _resetExitGatesStoreForTests();
   });
 
