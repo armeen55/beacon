@@ -29,7 +29,10 @@ describe("Today route smoke", () => {
     "TodayPage RSC loads data and renders the shell wrapper plus Today slot",
     async () => {
     const { default: TodayPage } = await import("@/app/(shell)/page");
-    const tree = await TodayPage();
+    // Bundle 1 (2026-05-10): page.tsx now reads searchParams to switch
+    // between v1/v2 layouts. Pass an empty Promise so the smoke test
+    // exercises the v1 default path (BEACON_TODAY_V2 unset).
+    const tree = await TodayPage({ searchParams: Promise.resolve({}) });
     const html = renderToStaticMarkup(tree as ReactElement);
 
     // Stable class from `src/app/(shell)/page.tsx` — not copy-dependent.
