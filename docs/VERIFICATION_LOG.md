@@ -7,6 +7,71 @@
 
 ---
 
+## 2026-05-10 — UI Audit Bundle 1: gated v2 /today layout (hero + 3 cards)
+
+Following the maximum-depth UI/product audit (`~/.claude/plans/i-want-a-maximum-depth-curried-curry.md`), this is Bundle 1 of the staged redesign. The audit's core finding: `/today` renders 19 stacked sections, fragmenting the operator's morning answer to "is my AI visibility healthy and what should I do?" across too many surfaces. Bundle 1 ships an opt-in v2 layout that compresses the above-the-fold view to one hero + three cards (Do today / Working / Recent wins), with a "Show full data" disclosure for the heavy drilldown surfaces. The legacy 19-section layout remains the default until the env flag is flipped.
+
+### Changes
+
+**NEW `src/app/(shell)/today-v2-client.tsx`** (~330 lines, `"use client"`) — the v2 layout. Reuses the existing `AIVisibilityHero` component verbatim (UX.6.3, untouched) for the hero strip. Renders a 3-col `lg:grid-cols-3` grid below the hero containing the three new cards. Below that, a native `<details>` "Show full data" disclosure exposes `VisibilityScoreChart` + `VisibilityLeaderboard` (in the same `lg:grid-cols-[3fr_2fr]` pair the legacy uses), `EnrichmentV2` (with `EnrichmentBadges` fallback), `PromptsTeaser`, full `ActionCard` rendering for `measuredWins`, and `ChangeReview` (scan diffs). Hero-props derivation is a pure `useMemo` projection over `[visibilityData, visibilityWindow, enrichmentV2]` — same math as `today-client.tsx`'s legacy derivation, duplicated inline so v2 stays a self-contained client. Operator-only sections (`DataFreshnessHeartbeat`, `PollHealthBlock`, `CommandCenter`, `TodayLifecycleStrip`, `TodayImplementationQueue`, `SinceLastVisit`, `TodayScanStrip`, `TodayDoNextCard`, `LiveChangesBlock`, `TodayMetricsDisclosure`) are intentionally NOT imported — the disclosure exposes the customer-facing depth, not the operator-instrumentation surfaces. Disclosure footer surfaces an explicit `/today?legacy=1` escape hatch link for operators who need the full v1 layout. `data-today-layout="v2-bundle1"` marker on the wrapper for telemetry / regression pinning.
+
+**NEW `src/components/today/v2/today-v2-do-today.tsx`** (~110 lines) — the "Do today" card. Surfaces `primaryAction` only (drops the v1 stack of TopPickCard + secondary action + moreActions + TodayDoNextCard duplication). Premium accent-blue framing when an action exists (`border-accent-primary/30 bg-accent-primary/[0.04]`), neutral surface when empty. Headline + target page (mono) + expected metric/outcome line + optional `priorSuccess` line (↻ "Worked before on /path (+N mentions)"). Confidence dot in the header (success/warning/muted by tier). Two CTAs: "Open the brief →" (primary) and "See all" (secondary text link). Empty state is calm: "Nothing to ship right now. / Beacon is watching for the next recommendation."
+
+**NEW `src/components/today/v2/today-v2-working.tsx`** (~140 lines) — the "Working" card. Replaces the v1 LifecycleStrip + ImplementationQueue + LiveChangesBlock triad with a single accountability lane. Surfaces up to 3 `liveChanges` rows from `lifecycleSummary` (display label + verdict pill + relative live date + topic targeted). Verdict pills: `helping` → status-success, `hurting` → status-danger, `weak_signal` → "Early signal" status-warning, `too_early` → "Measuring", `nothing_yet` → "Watching". Pending implementation count shown as a header pill (right) and as an additional "View pending (N)" CTA when both live changes and pending exist. Honesty contract preserved (mirrors `LiveChangesBlock`): never claims a verdict the data builder hasn't produced; surfaces relative dates (`today` / `yesterday` / `N days ago`) not absolute ISO strings. Empty state: "Nothing in motion right now. / When you ship a change Beacon recommends, it shows up here so you can see what is being measured."
+
+**NEW `src/components/today/v2/today-v2-recent-wins.tsx`** (~125 lines) — the "Recent wins" card. Replaces the v1 MeasuredWins section + "Latest signal" proof line with a single proof rail. Sources, in priority order: (1) `urlVerdictProof` (the URL-level verdict the legacy already derives), (2) `measuredWins` from the recommendation tracker. Caps at 3 rows. Each row links to `/changes/{changeId}` (URL proof) or `win.href` (measured win). Subline picks `expectedMetric` first, then `expectedOutcome`, then a calm fallback. Premium status-success framing when wins exist (`border-status-success/30 bg-status-success/[0.04]`), neutral when empty. Empty state: "No measured wins yet. / When a change you ship lifts AI visibility, the proof shows up here. Typically 3–7 days after the change goes live."
+
+**MODIFIED `src/app/(shell)/page.tsx`** — `TodayPage` now reads `searchParams: Promise<Record<string, string|string[]|undefined>>` (Next 16 / React 19 async-searchParams contract) and routes between `<TodayClient>` and `<TodayV2Client>` via `shouldUseV2(params)`:
+- `?legacy=1` → always v1 (escape hatch for operators / regression debugging — works regardless of env flag)
+- `?v2=1` → always v2 (preview escape hatch — useful for hosted demos before flipping the env flag)
+- `process.env.BEACON_TODAY_V2 === "true"` → v2 default
+- otherwise → v1 default (CURRENT PRODUCTION BEHAVIOR — env flag unset)
+
+Both client variants receive the SAME `loadTodayPageData()` props + the same `respondToRecommendation` / `confirmFindingAsChange` / `dismissFinding` server actions. Zero data-layer changes.
+
+**MODIFIED `tests/routes/today-smoke.test.ts`** — passes `searchParams: Promise.resolve({})` to `TodayPage()` for the new signature. Smoke test still exercises the v1 default path (BEACON_TODAY_V2 unset).
+
+### What is NOT touched
+
+- `today-data.ts` (2920 lines) — zero changes. The v2 client consumes the identical `TodayPageData` shape.
+- `today-client.tsx` (legacy v1) — zero changes. Operators reaching `/?legacy=1` see the unchanged 19-section layout.
+- All domain modules, repos, schemas, RLS, Supabase, cron, polls, scans, budget ledger, recommendation engine — untouched.
+- The 5-route navigation (`Today / Recommendations / Prompts / Changes / Settings`) — unchanged.
+- `/recommendations`, `/changes`, `/changes/[id]`, `/prompts` — out of scope for Bundle 1.
+
+### Verification
+
+- `npm run typecheck` — CLEAN (zero errors after the smoke-test signature fix).
+- `npm run test` — **7354/7354 passed**, 23 skipped, 384 files. Zero regressions.
+- Browser preview verified locally with `DATA_SOURCE=file` + symlinked Ritz fixtures + `BEACON_AUTH_DISABLED=1` + `BEACON_TENANT_SLUG=ritz-builders` overrides:
+  - `/?v2=1` renders `data-today-layout="v2-bundle1"` with all 3 cards populated from real Ritz data ("Add 2 missing schema types to /available-homes" Do today + Working + Recent wins).
+  - `/?legacy=1` renders `data-today-layout="phase-6a8"` (legacy v1) with full 19-section stack including CommandCenter + DataFreshnessHeartbeat.
+  - `/` (no query, env unset) renders `data-today-layout="phase-6a8"` (legacy v1) — production behavior unchanged.
+
+### Behavior summary (env table)
+
+| Route | `BEACON_TODAY_V2` | Renders |
+|---|---|---|
+| `/` | unset (default) | v1 (legacy) |
+| `/` | `"true"` | v2 |
+| `/?v2=1` | any | v2 |
+| `/?legacy=1` | any | v1 (legacy) |
+
+### Hosted rollout plan
+
+1. This commit lands on `claude/infallible-neumann-407850` and pushes to origin (Vercel preview build).
+2. Operator opens the Vercel preview at `/?v2=1` and visually confirms the hero + 3-card layout matches the audit's intent (Bundle 1 in `~/.claude/plans/i-want-a-maximum-depth-curried-curry.md`).
+3. Operator decides whether to flip `BEACON_TODAY_V2=true` in Vercel (default-flip) or keep at `?v2=1` opt-in for further iteration.
+4. If issues surface, `?legacy=1` is the always-on operator escape hatch — no code change needed to revert.
+
+### What's next (Bundles 2 + 3 from the audit)
+
+- **Bundle 2** — `/recommendations` from table+drawer to card stack + per-rec `/recommendations/[id]` URL.
+- **Bundle 3** — vocabulary cleanup pass across all routes (cron schedules, "Z-score engine," "evidence_tier," "lifecycle classification," "dual-write" etc. → plain English).
+- The audit recommends running Bundle 3 alongside Bundle 1 to de-risk the visual redesign, but if executing serially, the 1 → 2 → 3 order is safe.
+
+---
+
 ## 2026-05-08 — UX.6.3: AI Visibility hero promotion on /today
 
 After this morning's twin cron fixes (`c9d0ae9` UTC-day guard + `1d0a073` direct-CLI classifier) landed and May 8 data was confirmed green, operator approved UX.6.3. Goal: promote AI Visibility into a true hero so /today opens with a clear answer to Beacon's core question — "How visible are we in AI answers, are we improving, and who is beating us?"
