@@ -42,8 +42,9 @@ export function PollHealthCalmBanner({
         </p>
       </div>
       <p className="mt-1.5 text-[11px] text-muted-foreground/80 leading-relaxed">
-        Beacon will run today&apos;s AI reading at 07:00 UTC. The
-        dashboard is showing the latest complete reading.
+        Beacon&apos;s daily AI reading runs in scheduled attempts
+        (07:00, 08:30, 10:00 UTC). The dashboard is showing the
+        latest complete reading.
       </p>
     </div>
   );

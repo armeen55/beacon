@@ -600,9 +600,9 @@ export function TodayClient({
             </p>
             <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">
               Your first AI-visibility reading lands after the next
-              scheduled poll (07:00 UTC daily). Add prompts in
-              Settings → Prompts to expand the daily sample, then check
-              back here tomorrow morning.
+              scheduled poll (07:00, 08:30, or 10:00 UTC daily). Add
+              prompts in Settings → Prompts to expand the daily
+              sample, then check back here tomorrow morning.
             </p>
           </div>
         )}

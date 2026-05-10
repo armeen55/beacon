@@ -201,7 +201,12 @@ describe("Demo-path fix 4 (2026-05-06) — /today first-run welcome + Z-score ki
   it("first-run welcome card mounts when pollHealth === null && primaryAction === null", () => {
     expect(TODAY_CLIENT).toMatch(/data-today-first-run="true"/);
     expect(TODAY_CLIENT).toMatch(/Welcome to Beacon\./);
-    expect(TODAY_CLIENT).toMatch(/07:00 UTC/);
+    // 2026-05-10 — reflects the redundant-schedule reliability fix in
+    // .github/workflows/daily-native-poll.yml (07:00 primary + 08:30 +
+    // 10:00 UTC backups). Single-time copy is now misleading.
+    expect(TODAY_CLIENT).toMatch(/07:00/);
+    expect(TODAY_CLIENT).toMatch(/08:30/);
+    expect(TODAY_CLIENT).toMatch(/10:00 UTC/);
   });
 
   it("first-run card guidance mentions Settings → Prompts (so user knows how to act)", () => {
@@ -336,14 +341,22 @@ describe("Demo-path Phase C fix 7 (2026-05-06) — /prompts polish", () => {
     expect(stripped).not.toMatch(/ranked list miss/);
   });
 
-  it("/prompts 'next poll' copy uses 07:00 UTC, not stale 10:00 UTC", () => {
+  it("/prompts 'next poll' copy reflects the redundant 07:00/08:30/10:00 UTC schedule", () => {
+    // 2026-05-10 — reflects the redundant-schedule fix. The original
+    // assertion forbade "10:00 UTC" because that was the *stale single*
+    // schedule pre-cron-tightening. Post-redundant-schedule, 10:00 UTC
+    // is a legitimate BACKUP attempt and must appear; what's now
+    // forbidden is single-schedule-only copy like "07:00 UTC daily" or
+    // "next poll cron fires at 07:00 UTC".
     const promptsList = readFileSync(
       resolve(REPO_ROOT, "src/app/(shell)/prompts/page.tsx"),
       "utf8",
     );
     const stripped = stripComments(promptsList);
-    expect(stripped).toMatch(/07:00 UTC/);
-    expect(stripped).not.toMatch(/10:00 UTC/);
+    expect(stripped).toMatch(/07:00/);
+    expect(stripped).toMatch(/08:30/);
+    expect(stripped).toMatch(/10:00 UTC/);
+    expect(stripped).not.toMatch(/next poll cron fires at 07:00 UTC/);
   });
 });
 
@@ -362,14 +375,19 @@ describe("Demo-path Phase C fix 8 (2026-05-06) — /today poll-health customer c
     expect(stripped).not.toMatch(/at least one was a persistence failure/);
   });
 
-  it("PollHealthBlock pending-day copy uses 07:00 UTC (not stale 10:00 UTC)", () => {
+  it("PollHealthBlock pending-day copy reflects the redundant 07:00/08:30/10:00 UTC schedule", () => {
+    // 2026-05-10 — see the /prompts equivalent above for context. The
+    // forbidden literal is now the single-schedule-only copy "fires at
+    // 07:00 UTC" — 10:00 UTC is a legitimate backup attempt.
     const pollHealth = readFileSync(
       resolve(REPO_ROOT, "src/components/today/poll-health-block.tsx"),
       "utf8",
     );
     const stripped = stripComments(pollHealth);
-    expect(stripped).toMatch(/07:00 UTC/);
-    expect(stripped).not.toMatch(/10:00 UTC/);
+    expect(stripped).toMatch(/07:00/);
+    expect(stripped).toMatch(/08:30/);
+    expect(stripped).toMatch(/10:00 UTC/);
+    expect(stripped).not.toMatch(/fires at 07:00 UTC/);
   });
 
   it("PollHealthBlock partial-day copy reassures 'Beacon is still using the valid responses'", () => {

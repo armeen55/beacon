@@ -217,7 +217,7 @@ function subline(snap: PollHealthSnapshot): string {
   }
   if (failing.length === 1) {
     const f = failing[0];
-    return `${PLATFORM_LABELS[f.platform]} didn't run today. Beacon is still using the valid responses that landed; the next scheduled poll is at 07:00 UTC tomorrow.`;
+    return `${PLATFORM_LABELS[f.platform]} didn't run today. Beacon is still using the valid responses that landed; tomorrow's scheduled poll attempts run at 07:00, 08:30, and 10:00 UTC.`;
   }
   if (partial.length > 0) {
     const names = partial
@@ -226,7 +226,7 @@ function subline(snap: PollHealthSnapshot): string {
     return `${names} didn't fully complete today. Beacon is still using the valid responses that landed.`;
   }
   if (pending.length === 2) {
-    return "AI tracking has not run yet today. The next scheduled poll fires at 07:00 UTC.";
+    return "AI tracking has not run yet today. Scheduled poll attempts run at 07:00, 08:30, and 10:00 UTC.";
   }
   if (pending.length === 1) {
     return `${PLATFORM_LABELS[pending[0].platform]} has no run yet today.`;

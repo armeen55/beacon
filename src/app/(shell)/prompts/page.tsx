@@ -81,7 +81,7 @@ export default async function PromptsPage() {
       ) : !hasAnyNativeObservations ? (
         <EmptyState
           title="Too early to judge"
-          body={`${totalPrompts} prompts active but no native observations in the last 7 days. The next poll cron fires at 07:00 UTC.`}
+          body={`${totalPrompts} prompts active but no native observations in the last 7 days. Scheduled poll attempts run at 07:00, 08:30, and 10:00 UTC.`}
         />
       ) : (
         <>
