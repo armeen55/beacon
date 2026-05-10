@@ -101,6 +101,46 @@ describe("poll-canary redundant schedules", () => {
   });
 });
 
+// ── Budget-ledger dual-write env wiring (2026-05-10 fix) ──
+//
+// The Stage B.2 dual-write writer in src/domains/observations/run-poll.ts
+// reads `process.env.BEACON_BUDGET_LEDGER_DUAL_WRITE === "1"` at runtime.
+// The GH Actions repo secret was set 2026-05-09 but the workflow did not
+// reference `${{ secrets.BEACON_BUDGET_LEDGER_DUAL_WRITE }}` in the poll
+// steps' env blocks, so the runner saw `undefined` and the writer
+// silently no-op'd through 2026-05-10's first successful poll attempts.
+// This ratchet pins the env wiring so a future YAML edit can't silently
+// regress.
+
+describe("budget-ledger dual-write env wiring", () => {
+  it("Perplexity poll step references BEACON_BUDGET_LEDGER_DUAL_WRITE from secrets", () => {
+    expect(POLL_YAML).toMatch(
+      /Run Perplexity poll[\s\S]+?BEACON_BUDGET_LEDGER_DUAL_WRITE:\s*\$\{\{\s*secrets\.BEACON_BUDGET_LEDGER_DUAL_WRITE\s*\}\}/,
+    );
+  });
+
+  it("ChatGPT/OpenAI poll step references BEACON_BUDGET_LEDGER_DUAL_WRITE from secrets", () => {
+    expect(POLL_YAML).toMatch(
+      /Run ChatGPT poll[\s\S]+?BEACON_BUDGET_LEDGER_DUAL_WRITE:\s*\$\{\{\s*secrets\.BEACON_BUDGET_LEDGER_DUAL_WRITE\s*\}\}/,
+    );
+  });
+
+  it("does NOT wire the active enforcement flags yet (B.4 / B.5 not landed)", () => {
+    // BEACON_BUDGET_ENFORCE_SHADOW lands in Stage B.4 — must not appear
+    // in the YAML until that bundle. Same for BEACON_BUDGET_ENFORCE.
+    expect(POLL_YAML).not.toContain("BEACON_BUDGET_ENFORCE_SHADOW");
+    expect(POLL_YAML).not.toContain("BEACON_BUDGET_ENFORCE");
+  });
+
+  it("the BEACON_BUDGET_LEDGER_DUAL_WRITE secret reference appears exactly twice (one per provider step)", () => {
+    const matches =
+      POLL_YAML.match(
+        /BEACON_BUDGET_LEDGER_DUAL_WRITE:\s*\$\{\{\s*secrets\.BEACON_BUDGET_LEDGER_DUAL_WRITE\s*\}\}/g,
+      ) ?? [];
+    expect(matches.length).toBe(2);
+  });
+});
+
 // ── 3. Schedule alignment: each canary follows ~45 min after its poll ──
 
 describe("schedule alignment between poll and canary", () => {

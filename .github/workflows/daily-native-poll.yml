@@ -240,6 +240,14 @@ jobs:
           DUAL_WRITE: "true"
           DATA_SOURCE: supabase
           BEACON_TENANT_ID: ${{ matrix.tenant.tenantId }}
+          # 2026-05-10 budget-ledger Stage B.2 wiring fix. The
+          # shadow-mode dual-write writer in run-poll.ts checks
+          # `process.env.BEACON_BUDGET_LEDGER_DUAL_WRITE === "1"`
+          # at runtime; without this line the GH-runner env was
+          # `undefined` and the writer silently no-op'd even though
+          # the GH repo secret was set. Stage B.2 verifier was
+          # `failed` on 2026-05-10 polls until this landed.
+          BEACON_BUDGET_LEDGER_DUAL_WRITE: ${{ secrets.BEACON_BUDGET_LEDGER_DUAL_WRITE }}
 
   # --------------------------------------------------------------------------
   # ChatGPT (OpenAI) — full 100-prompt run on the GitHub runner.
@@ -273,6 +281,10 @@ jobs:
           DUAL_WRITE: "true"
           DATA_SOURCE: supabase
           BEACON_TENANT_ID: ${{ matrix.tenant.tenantId }}
+          # 2026-05-10 budget-ledger Stage B.2 wiring fix. See the
+          # matching note on the Perplexity step above — without this
+          # line the dual-write writer silently no-op'd on the runner.
+          BEACON_BUDGET_LEDGER_DUAL_WRITE: ${{ secrets.BEACON_BUDGET_LEDGER_DUAL_WRITE }}
 
   # --------------------------------------------------------------------------
   # Phase v4 Commit 7B (2026-04-30) — Rebuild citation_evidence_index from
