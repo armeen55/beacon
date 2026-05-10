@@ -19,6 +19,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import {
   DataFreshnessHeartbeat,
   computeFreshnessVerdict,
+  computeScanFreshnessVerdict,
   formatRelativeHours,
 } from "./data-freshness-heartbeat";
 import type { PollHealthSnapshot } from "@/domains/observations/poll-health";
@@ -287,6 +288,163 @@ describe("DataFreshnessHeartbeat — render", () => {
     );
     expect(html).not.toContain("pollrun-PPL");
     expect(html).not.toContain("pollrun-OAI");
+  });
+
+  // ── Site-scan freshness (2026-05-10) ──
+
+  describe("site scan freshness", () => {
+    it("does NOT render the scan row when siteScan is undefined (back-compat)", () => {
+      const html = renderToStaticMarkup(
+        <DataFreshnessHeartbeat pollHealth={snapshot()} now={NOW} />,
+      );
+      expect(html).not.toContain('data-today-section="data-freshness-heartbeat-scan"');
+    });
+
+    it("renders calm 'waiting for first scan' line when siteScan is null", () => {
+      const html = renderToStaticMarkup(
+        <DataFreshnessHeartbeat pollHealth={snapshot()} siteScan={null} now={NOW} />,
+      );
+      expect(html).toContain('data-scan-freshness-band="no_data"');
+      expect(html).toContain("Site scan: waiting for the first scheduled scan.");
+    });
+
+    it("renders fresh-band scan row for completed scan < 24h ago", () => {
+      const html = renderToStaticMarkup(
+        <DataFreshnessHeartbeat
+          pollHealth={snapshot()}
+          siteScan={{
+            completedAt: "2026-05-10T09:00:00.000Z", // 3h ago
+            status: "completed",
+          }}
+          now={NOW}
+        />,
+      );
+      expect(html).toContain('data-scan-freshness-band="fresh"');
+      expect(html).toContain("Site scan: fresh 3h ago.");
+    });
+
+    it("renders stale-band copy for scan 24–48h ago", () => {
+      const html = renderToStaticMarkup(
+        <DataFreshnessHeartbeat
+          pollHealth={snapshot()}
+          siteScan={{
+            completedAt: "2026-05-09T07:00:00.000Z", // 29h ago
+            status: "completed",
+          }}
+          now={NOW}
+        />,
+      );
+      expect(html).toContain('data-scan-freshness-band="stale"');
+      expect(html).toContain("Site scan: stale — last scan 1 day ago.");
+    });
+
+    it("renders needs_attention for scan > 48h ago", () => {
+      const html = renderToStaticMarkup(
+        <DataFreshnessHeartbeat
+          pollHealth={snapshot()}
+          siteScan={{
+            completedAt: "2026-05-07T07:00:00.000Z", // 77h ago
+            status: "completed",
+          }}
+          now={NOW}
+        />,
+      );
+      expect(html).toContain('data-scan-freshness-band="needs_attention"');
+      expect(html).toContain("Site scan: needs attention — last scan 3 days ago.");
+    });
+
+    it("renders needs_attention when scan status is failed regardless of clock", () => {
+      const html = renderToStaticMarkup(
+        <DataFreshnessHeartbeat
+          pollHealth={snapshot()}
+          siteScan={{
+            completedAt: "2026-05-10T09:00:00.000Z", // would be fresh
+            status: "failed",
+          }}
+          now={NOW}
+        />,
+      );
+      expect(html).toContain('data-scan-freshness-band="needs_attention"');
+    });
+
+    it("renders pending for partial-status scan within 24h", () => {
+      const html = renderToStaticMarkup(
+        <DataFreshnessHeartbeat
+          pollHealth={snapshot()}
+          siteScan={{
+            completedAt: "2026-05-10T09:00:00.000Z", // 3h ago
+            status: "partial",
+          }}
+          now={NOW}
+        />,
+      );
+      expect(html).toContain('data-scan-freshness-band="pending"');
+      expect(html).toContain("Site scan: partial");
+    });
+
+    it("scan row never leaks raw error text or UUIDs", () => {
+      const html = renderToStaticMarkup(
+        <DataFreshnessHeartbeat
+          pollHealth={snapshot()}
+          siteScan={{
+            completedAt: "2026-05-09T07:00:00.000Z",
+            status: "failed",
+          }}
+          now={NOW}
+        />,
+      );
+      const lc = html.toLowerCase();
+      // Customer-safe vocabulary on the scan row too.
+      expect(lc).not.toContain("broken");
+      expect(lc).not.toContain("failed system");
+      expect(lc).not.toContain("exception");
+      expect(lc).not.toContain("stacktrace");
+      // No UUID-shaped strings in the scan markup. (We don't ever pass
+      // a run_id into the component — this is a defense-in-depth ratchet.)
+      expect(html).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/);
+    });
+  });
+
+  // ── computeScanFreshnessVerdict — band boundaries ──
+
+  describe("computeScanFreshnessVerdict — band boundaries", () => {
+    it("null/undefined input → no_data", () => {
+      expect(computeScanFreshnessVerdict(null, NOW).band).toBe("no_data");
+      expect(computeScanFreshnessVerdict(undefined, NOW).band).toBe("no_data");
+    });
+
+    it("null completedAt + failed status → needs_attention", () => {
+      expect(
+        computeScanFreshnessVerdict({ completedAt: null, status: "failed" }, NOW).band,
+      ).toBe("needs_attention");
+    });
+
+    it("completed within 24h → fresh", () => {
+      expect(
+        computeScanFreshnessVerdict(
+          { completedAt: "2026-05-10T09:00:00.000Z", status: "completed" },
+          NOW,
+        ).band,
+      ).toBe("fresh");
+    });
+
+    it("partial within 24h → pending", () => {
+      expect(
+        computeScanFreshnessVerdict(
+          { completedAt: "2026-05-10T09:00:00.000Z", status: "partial" },
+          NOW,
+        ).band,
+      ).toBe("pending");
+    });
+
+    it("future timestamp clamps hours to 0 (no negative)", () => {
+      const v = computeScanFreshnessVerdict(
+        { completedAt: "2026-05-11T00:00:00.000Z", status: "completed" },
+        NOW,
+      );
+      expect(v.hoursSinceLastSuccess).not.toBeNull();
+      expect(v.hoursSinceLastSuccess!).toBeGreaterThanOrEqual(0);
+    });
   });
 
   it("never overclaims with proven/validated/confirmed/winning/won copy", () => {

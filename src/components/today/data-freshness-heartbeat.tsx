@@ -56,11 +56,35 @@ export type FreshnessVerdict = {
   lastSuccessAt: string | null;
 };
 
+/**
+ * Site-scan freshness input. Reads cleanly from the existing
+ * `latestWebsiteCrawlRun()` result that today-data already loads —
+ * no new database read.
+ *
+ * `completedAt` is the ObservationRun.completed_at ISO; `status` is
+ * the run's status enum. Either field can be null when no crawl run
+ * has ever landed for the tenant.
+ */
+export type SiteScanFreshnessInput = {
+  completedAt: string | null;
+  status: "completed" | "partial" | "failed" | null;
+};
+
 export type DataFreshnessHeartbeatProps = {
   pollHealth: PollHealthSnapshot | null;
+  /** Optional. When provided, renders a small "Site scan: …" line
+   *  underneath the AI-poll headline. When null/undefined, only the
+   *  poll heartbeat renders (back-compat with the prior bundle). */
+  siteScan?: SiteScanFreshnessInput | null;
   /** Override "now" for tests + SSR determinism. Defaults to new Date(). */
   now?: Date;
   className?: string;
+};
+
+export type ScanFreshnessVerdict = {
+  band: FreshnessBand;
+  hoursSinceLastSuccess: number | null;
+  lastSuccessAt: string | null;
 };
 
 const PLATFORM_LABELS: Record<PlatformPollHealth["platform"], string> = {
@@ -139,6 +163,40 @@ export function computeFreshnessVerdict(
   return { band: "fresh", hoursSinceLastSuccess: hours, lastSuccessAt };
 }
 
+/**
+ * Reduce a `SiteScanFreshnessInput` to a freshness verdict. Same band
+ * thresholds as the AI-poll heartbeat: fresh < 24h, stale 24–48h,
+ * needs_attention > 48h or status="failed", pending if status="partial"
+ * within 24h, no_data if no scan has ever landed.
+ *
+ * Pure. Same inputs → same outputs.
+ */
+export function computeScanFreshnessVerdict(
+  input: SiteScanFreshnessInput | null | undefined,
+  now: Date = new Date(),
+): ScanFreshnessVerdict {
+  if (!input || !input.completedAt) {
+    if (input?.status === "failed") {
+      return { band: "needs_attention", hoursSinceLastSuccess: null, lastSuccessAt: null };
+    }
+    return { band: "no_data", hoursSinceLastSuccess: null, lastSuccessAt: null };
+  }
+  const ms = new Date(input.completedAt).getTime();
+  if (!Number.isFinite(ms)) {
+    return { band: "no_data", hoursSinceLastSuccess: null, lastSuccessAt: null };
+  }
+  const hours = Math.max(0, (now.getTime() - ms) / 3_600_000);
+  if (input.status === "failed") {
+    return { band: "needs_attention", hoursSinceLastSuccess: hours, lastSuccessAt: input.completedAt };
+  }
+  if (hours >= 48) return { band: "needs_attention", hoursSinceLastSuccess: hours, lastSuccessAt: input.completedAt };
+  if (hours >= 24) return { band: "stale", hoursSinceLastSuccess: hours, lastSuccessAt: input.completedAt };
+  if (input.status === "partial") {
+    return { band: "pending", hoursSinceLastSuccess: hours, lastSuccessAt: input.completedAt };
+  }
+  return { band: "fresh", hoursSinceLastSuccess: hours, lastSuccessAt: input.completedAt };
+}
+
 // ── Relative-time formatting ────────────────────────────────────────────
 
 /**
@@ -174,6 +232,25 @@ function headlineFor(verdict: FreshnessVerdict): string {
       return `AI visibility needs attention — last refresh ${rel}.`;
     case "no_data":
       return `Beacon has not refreshed AI visibility yet.`;
+  }
+}
+
+function scanLineFor(verdict: ScanFreshnessVerdict): string {
+  const rel = formatRelativeHours(verdict.hoursSinceLastSuccess);
+  switch (verdict.band) {
+    case "fresh":
+      return `Site scan: fresh ${rel}.`;
+    case "pending":
+      return `Site scan: partial — ${rel}, waiting for the next cycle.`;
+    case "stale":
+      return `Site scan: stale — last scan ${rel}.`;
+    case "needs_attention":
+      if (verdict.hoursSinceLastSuccess === null) {
+        return "Site scan: needs attention — no recent scan.";
+      }
+      return `Site scan: needs attention — last scan ${rel}.`;
+    case "no_data":
+      return "Site scan: waiting for the first scheduled scan.";
   }
 }
 
@@ -243,11 +320,14 @@ function bandClasses(band: FreshnessBand): {
 
 export function DataFreshnessHeartbeat({
   pollHealth,
+  siteScan,
   now,
   className,
 }: DataFreshnessHeartbeatProps) {
   const verdict = computeFreshnessVerdict(pollHealth, now);
   const cls = bandClasses(verdict.band);
+  const scanVerdict = siteScan === undefined ? null : computeScanFreshnessVerdict(siteScan, now);
+  const scanCls = scanVerdict ? bandClasses(scanVerdict.band) : null;
 
   return (
     <div
@@ -297,6 +377,18 @@ export function DataFreshnessHeartbeat({
       <p className="mt-1.5 text-[11px] text-muted-foreground/85 leading-relaxed">
         {sublineFor(verdict)}
       </p>
+      {scanVerdict && scanCls && (
+        <div
+          className="mt-2 pt-2 border-t border-border/40 flex items-center gap-2"
+          data-today-section="data-freshness-heartbeat-scan"
+          data-scan-freshness-band={scanVerdict.band}
+        >
+          <span className={cn("h-2 w-2 rounded-full shrink-0", scanCls.dot)} />
+          <p className={cn("text-[11px] font-medium", scanCls.headline)}>
+            {scanLineFor(scanVerdict)}
+          </p>
+        </div>
+      )}
     </div>
   );
 }

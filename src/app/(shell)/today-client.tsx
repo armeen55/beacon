@@ -188,6 +188,7 @@ export function TodayClient({
   visibilityData = null,
   urlVerdictProof = null,
   pollHealth = null,
+  siteScan = null,
   enrichmentRollup = null,
   enrichmentV2 = null,
   promptsTeaser = null,
@@ -258,6 +259,11 @@ export function TodayClient({
    *  the Supabase fetch failed at render-time (defensive — don't block Today
    *  on poll-health availability). */
   pollHealth?: PollHealthSnapshot | null;
+  /** 2026-05-10 — site-scan freshness for the heartbeat. Reads from
+   *  the existing `latestWebsiteCrawlRun()` result already loaded by
+   *  today-data; no new database read. Null when no crawl run has
+   *  ever landed for the tenant. */
+  siteScan?: { completedAt: string | null; status: "completed" | "partial" | "failed" | null } | null;
   /** Commit 7C (2026-04-24): schema v2+v2.1 extraction rolled up as
    *  per-platform primary-recommendation rate, avg citation rank,
    *  descriptor chip cloud, answer-structure mix. Null when today (and
@@ -621,7 +627,7 @@ export function TodayClient({
           tell at a glance whether the picture is fresh, stale, or needs
           attention. Complements (does not replace) the conditional
           PollHealthBlock + PollHealthCalmBanner alarm-style surfaces below. */}
-      <DataFreshnessHeartbeat pollHealth={pollHealth} />
+      <DataFreshnessHeartbeat pollHealth={pollHealth} siteScan={siteScan} />
       {pollHealth &&
         pollHealth.platforms.some((p) => p.status !== "ok") &&
         (isPreCronPending(pollHealth) ? (

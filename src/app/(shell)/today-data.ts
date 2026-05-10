@@ -2505,6 +2505,19 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
         })()
       : null,
     pollHealth,
+    /** 2026-05-10 — site-scan freshness for the /today heartbeat.
+     *  Reuses the already-loaded `lastCrawlRun` (latestWebsiteCrawlRun()
+     *  call above); no new database read. */
+    siteScan: lastCrawlRun
+      ? {
+          completedAt: lastCrawlRun.completed_at ?? null,
+          status: (lastCrawlRun.status === "completed" ||
+                   lastCrawlRun.status === "partial" ||
+                   lastCrawlRun.status === "failed")
+            ? lastCrawlRun.status
+            : null,
+        }
+      : null,
     enrichmentRollup,
     /** W2 Step 2.3 (master plan) — full v2 bundle for "How AI Described
      *  You This Week". Null on bundle-build failure (each rollup wrapped
