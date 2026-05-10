@@ -10,7 +10,7 @@
  *   4. Surfaces the dynamic state line + next-evidence line for each row.
  */
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { LiveChangesBlock } from "./live-changes-block";
@@ -63,12 +63,16 @@ describe("LiveChangesBlock", () => {
     expect(html).toContain('data-today-live-change-next="true"');
   });
 
-  it("uses a 'View details' link to /changes/[id] when changelogId exists", () => {
+  it("uses an 'Open this change' link to /changes/[id] when changelogId exists", () => {
     const html = renderToStaticMarkup(
       <LiveChangesBlock liveChanges={[buildChange()]} />,
     );
     expect(html).toContain("/changes/cl-mogzw78nv8pu54");
-    expect(html).toContain("View details");
+    expect(html).toContain("Open this change");
+    // Operator-locked CTA copy: must match the same string used on the
+    // /changes scorecard expansion so the demo path reads consistently.
+    expect(html).not.toContain("View details");
+    expect(html).not.toContain("Open full detail page");
   });
 
   it("falls back to /changes when changelogId is null", () => {
@@ -152,6 +156,59 @@ describe("LiveChangesBlock", () => {
     );
     expect(html).toContain("Live changes");
     expect(html).not.toContain("Live changes (1)");
+  });
+
+  // ── data-rec-id leak gate (2026-05-10 demo-path fix) ──
+  // The row's `data-rec-id` attribute carries an operator-internal slug
+  // (e.g. `rec-whole-home-h2`). Customer mode must strip it; operator
+  // mode + tests keep it for dev-tools workflows. Same shape as the
+  // scorecard `data-attribution-branch` gate at scorecard-client.tsx:759.
+
+  describe("data-rec-id leak gate (operator-mode debug)", () => {
+    it("renders data-rec-id under test mode (NODE_ENV='test') for snapshot/dev-tools", () => {
+      // The default test runner sets NODE_ENV='test' which, per
+      // isOperatorModeClient(), enables OPERATOR_MODE_DEBUG. The attr
+      // should still render in this snapshot for backwards-compat
+      // assertions.
+      const html = renderToStaticMarkup(
+        <LiveChangesBlock liveChanges={[buildChange()]} />,
+      );
+      expect(html).toContain('data-rec-id="rec-whole-home-h2"');
+    });
+
+    it("strips data-rec-id under customer mode (NODE_ENV !== 'test' AND no operator flag)", async () => {
+      const prevNode = process.env.NODE_ENV;
+      const prevPublic = process.env.NEXT_PUBLIC_OPERATOR_MODE;
+      try {
+        // Force production-like client mode: not test, not operator.
+        (process.env as Record<string, string | undefined>).NODE_ENV = "production";
+        delete process.env.NEXT_PUBLIC_OPERATOR_MODE;
+        // Reset module cache so OPERATOR_MODE_DEBUG re-evaluates against
+        // the fresh env. The helper module also needs reset because its
+        // function body reads process.env at call time, but the
+        // *captured* OPERATOR_MODE_DEBUG const inside live-changes-block
+        // is computed once at module load — so a fresh import is needed.
+        vi.resetModules();
+        const mod = await import("./live-changes-block");
+        const html = renderToStaticMarkup(
+          <mod.LiveChangesBlock liveChanges={[buildChange()]} />,
+        );
+        // Operator-internal slug must NOT leak.
+        expect(html).not.toContain("rec-whole-home-h2");
+        expect(html).not.toContain("data-rec-id=");
+        // Sanity: the row itself still renders (we didn't break the
+        // component).
+        expect(html).toContain('data-today-live-change-row="true"');
+        expect(html).toContain("Open this change");
+      } finally {
+        const env = process.env as Record<string, string | undefined>;
+        if (prevNode === undefined) delete env.NODE_ENV;
+        else env.NODE_ENV = prevNode;
+        if (prevPublic === undefined) delete process.env.NEXT_PUBLIC_OPERATOR_MODE;
+        else process.env.NEXT_PUBLIC_OPERATOR_MODE = prevPublic;
+        vi.resetModules();
+      }
+    });
   });
 
   // ── EarlySignalPill surfacing (2026-05-09) ──

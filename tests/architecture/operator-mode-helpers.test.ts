@@ -43,6 +43,11 @@ const ALLOW_LIST_ABS = new Set<string>([
   // command-center-data.test.ts mutates the env var to assert the
   // resolved boolean — that's the right shape for that test.
   join(REPO_ROOT, "src/domains/today/command-center-data.test.ts"),
+  // live-changes-block.test.tsx mutates NEXT_PUBLIC_OPERATOR_MODE +
+  // NODE_ENV to assert the data-rec-id leak gate strips the attribute
+  // in customer mode (2026-05-10 demo-path fix). Same allow-list
+  // pattern as command-center-data.test.ts above.
+  join(REPO_ROOT, "src/components/today/live-changes-block.test.tsx"),
 ]);
 
 const ALLOW_LIST_PREFIXES = [

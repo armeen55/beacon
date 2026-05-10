@@ -1047,7 +1047,7 @@ function ExpandPanel({ row }: { row: EnrichedChangeRow }) {
                 href={`/changes/${sc.change.id}`}
                 className="text-[11px] font-semibold text-accent-primary hover:underline"
               >
-                Open full detail page →
+                Open this change →
               </Link>
             </div>
           </section>

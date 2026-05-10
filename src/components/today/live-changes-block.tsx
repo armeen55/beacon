@@ -28,6 +28,14 @@ import Link from "next/link";
 
 import type { TodayLiveChange } from "@/domains/today/live-changes-data";
 import { EarlySignalPill } from "@/components/display/early-signal-pill";
+import { isOperatorModeClient } from "@/lib/operator-mode";
+
+// 2026-05-10 demo-path fix: in customer mode the row's `data-rec-id`
+// attribute leaked an operator-internal slug (e.g. `rec-whole-home-h2`)
+// into the customer-visible HTML. Same shape as the scorecard fix at
+// scorecard-client.tsx:759 — keep the attribute under operator/test
+// mode for dev-tools workflows; strip it in customer mode.
+const OPERATOR_MODE_DEBUG: boolean = isOperatorModeClient();
 
 export type LiveChangesBlockProps = {
   liveChanges: ReadonlyArray<TodayLiveChange>;
@@ -68,7 +76,7 @@ export function LiveChangesBlock({ liveChanges }: LiveChangesBlockProps) {
             <li
               key={change.recEditId}
               data-today-live-change-row="true"
-              data-rec-id={change.recId}
+              {...(OPERATOR_MODE_DEBUG ? { "data-rec-id": change.recId } : {})}
               className="rounded-md border border-border/40 bg-background/80 px-3 py-2"
             >
               <div className="flex items-baseline gap-2 flex-wrap">
@@ -104,7 +112,7 @@ export function LiveChangesBlock({ liveChanges }: LiveChangesBlockProps) {
                 className="mt-1.5 inline-block text-[11px] text-accent-primary underline decoration-dotted underline-offset-2 hover:text-accent-primary/80"
                 data-today-live-change-link="true"
               >
-                View details →
+                Open this change →
               </Link>
             </li>
           );
