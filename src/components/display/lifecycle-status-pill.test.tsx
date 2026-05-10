@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import {
@@ -167,5 +167,51 @@ describe("Production fixtures", () => {
     const html = renderToStaticMarkup(<LifecycleStatusPill status="dismissed" />);
     expect(html).toContain("Dismissed");
     expect(html).not.toContain("✓");
+  });
+});
+
+// ── data-lifecycle-key leak gate (2026-05-10 customer-mode audit) ──
+//
+// Pre-fix, the pill rendered `data-lifecycle-key="<raw enum>"` on every
+// instance — visible text was friendly ("Live", "Pending implementation"),
+// but the data attribute leaked operator vocabulary like
+// "verified_live_modified" / "not_found_after_7d" via DevTools / View
+// Source. Same shape as the scorecard `data-attribution-branch` gate.
+
+describe("data-lifecycle-key leak gate", () => {
+  it("renders data-lifecycle-key under test mode (NODE_ENV='test') for snapshot/dev-tools", () => {
+    const html = renderToStaticMarkup(
+      <LifecycleStatusPill status="verified_live_modified" />,
+    );
+    expect(html).toContain('data-lifecycle-key="verified_live_modified"');
+    // Visible label stays clean.
+    expect(html).toContain(">Live (modified)<");
+  });
+
+  it("strips data-lifecycle-key under customer mode (NODE_ENV !== 'test' AND no operator flag)", async () => {
+    const env = process.env as Record<string, string | undefined>;
+    const prevNode = env.NODE_ENV;
+    const prevPublic = env.NEXT_PUBLIC_OPERATOR_MODE;
+    try {
+      env.NODE_ENV = "production";
+      delete env.NEXT_PUBLIC_OPERATOR_MODE;
+      vi.resetModules();
+      const mod = await import("./lifecycle-status-pill");
+      const html = renderToStaticMarkup(
+        <mod.LifecycleStatusPill status="verified_live_modified" />,
+      );
+      // Raw enum key must NOT leak into the customer-mode HTML.
+      expect(html).not.toContain('data-lifecycle-key=');
+      expect(html).not.toContain("verified_live_modified");
+      expect(html).not.toContain("not_found_after_7d");
+      // Visible label still renders correctly.
+      expect(html).toContain(">Live (modified)<");
+    } finally {
+      if (prevNode === undefined) delete env.NODE_ENV;
+      else env.NODE_ENV = prevNode;
+      if (prevPublic === undefined) delete env.NEXT_PUBLIC_OPERATOR_MODE;
+      else env.NEXT_PUBLIC_OPERATOR_MODE = prevPublic;
+      vi.resetModules();
+    }
   });
 });

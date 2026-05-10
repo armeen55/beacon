@@ -25,9 +25,21 @@
  */
 
 import { cn } from "@/lib/utils";
+import { isOperatorModeClient } from "@/lib/operator-mode";
 
 import type { ImplementationStatus } from "@/domains/recommendations/recommended-edits-persistence";
 import type { LifecycleTabClass } from "@/domains/attribution/lifecycle-classification";
+
+// 2026-05-10 customer-mode audit: `data-lifecycle-key` exposed raw
+// enum keys (e.g. "verified_live_modified", "not_found_after_7d") on
+// every pill in customer-mode HTML. Visible text already used the
+// friendly `spec.label` ("Live", "Pending implementation", etc.) so
+// the leak was only via DevTools / view-source — but it's still
+// operator vocabulary. Same shape as the scorecard
+// `data-attribution-branch` gate at scorecard-client.tsx:759 — keep
+// the attribute under operator/test mode for dev-tools workflows;
+// strip it in customer mode.
+const OPERATOR_MODE_DEBUG: boolean = isOperatorModeClient();
 
 /** Union of every key the pill can render — granular edit statuses
  *  PLUS the three source-derived classes that have no edit row. */
@@ -172,7 +184,7 @@ export function LifecycleStatusPill({
         spec.className,
         className,
       )}
-      data-lifecycle-key={key}
+      {...(OPERATOR_MODE_DEBUG ? { "data-lifecycle-key": key } : {})}
       title={spec.label}
     >
       {spec.checkmark && (

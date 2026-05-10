@@ -48,6 +48,10 @@ const ALLOW_LIST_ABS = new Set<string>([
   // in customer mode (2026-05-10 demo-path fix). Same allow-list
   // pattern as command-center-data.test.ts above.
   join(REPO_ROOT, "src/components/today/live-changes-block.test.tsx"),
+  // lifecycle-status-pill.test.tsx mutates NEXT_PUBLIC_OPERATOR_MODE +
+  // NODE_ENV to assert the data-lifecycle-key leak gate strips the
+  // attribute in customer mode (2026-05-10 customer-mode audit).
+  join(REPO_ROOT, "src/components/display/lifecycle-status-pill.test.tsx"),
 ]);
 
 const ALLOW_LIST_PREFIXES = [
