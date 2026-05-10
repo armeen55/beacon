@@ -18,6 +18,7 @@ import { TodayScoreboard, type ScoreboardData } from "@/components/today/today-s
 import { TodayActionQueue, type FindingsStripData } from "@/components/today/today-action-queue";
 import { SinceLastVisit } from "@/components/today/since-last-visit";
 import { PollHealthBlock } from "@/components/today/poll-health-block";
+import { DataFreshnessHeartbeat } from "@/components/today/data-freshness-heartbeat";
 import type { PollHealthSnapshot } from "@/domains/observations/poll-health";
 import { EnrichmentBadges } from "@/components/today/enrichment-badges";
 import { EnrichmentV2 } from "@/components/today/enrichment-v2";
@@ -615,6 +616,12 @@ export function TodayClient({
           is normal scheduling, NOT a fault. Render the calm banner
           ("Next reading scheduled") instead of the alarming
           PollHealthBlock. Post-cutoff or partial/failed → warning. */}
+      {/* Data Freshness Heartbeat (2026-05-10) — always-on relative-time
+          freshness pill. Renders even on a clean day so the operator can
+          tell at a glance whether the picture is fresh, stale, or needs
+          attention. Complements (does not replace) the conditional
+          PollHealthBlock + PollHealthCalmBanner alarm-style surfaces below. */}
+      <DataFreshnessHeartbeat pollHealth={pollHealth} />
       {pollHealth &&
         pollHealth.platforms.some((p) => p.status !== "ok") &&
         (isPreCronPending(pollHealth) ? (
