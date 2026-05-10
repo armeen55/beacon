@@ -256,13 +256,88 @@ describe("DataFreshnessHeartbeat — render", () => {
       <DataFreshnessHeartbeat pollHealth={snap} now={NOW} />,
     );
     expect(html).toContain('data-freshness-band="pending"');
-    // New copy mentions all three attempts.
+    // New copy mentions all three attempts + the auto-backup posture
+    // so the operator knows they don't need to take action.
     expect(html).toContain(
       "Scheduled poll attempts run at 07:00, 08:30, and 10:00 UTC.",
     );
+    expect(html).toContain("Backup attempts run automatically.");
     // Old single-schedule-only copy must NOT remain in the heartbeat
     // pending-band render.
     expect(html).not.toContain("The next scheduled poll fires at 07:00 UTC.");
+  });
+
+  it("stale-band subline mentions auto-backups + the 10:45 UTC threshold", () => {
+    // 2026-05-10 — stale-band hint upgrade. Operator gets a clean
+    // threshold for when the day's poll has actually missed.
+    const snap = snapshot({
+      platforms: snapshot().platforms.map((p) => ({
+        ...p,
+        latestRun: {
+          ...p.latestRun!,
+          completedAt: "2026-05-09T07:00:00.000Z", // 29h ago → stale band
+        },
+      })),
+    });
+    const html = renderToStaticMarkup(
+      <DataFreshnessHeartbeat pollHealth={snap} now={NOW} />,
+    );
+    expect(html).toContain('data-freshness-band="stale"');
+    expect(html).toContain("Backup poll attempts run automatically.");
+    expect(html).toContain("10:45 UTC");
+    expect(html).toContain("review poll health");
+    // Old generic "retry on the next cycle" copy must not remain.
+    expect(html).not.toContain("retry on the next cycle");
+  });
+
+  it("fresh-band subline does NOT include any stale/needs-action language", () => {
+    // 2026-05-10 — guard against the new stale-band hint creeping
+    // into the calm fresh-band render.
+    const html = renderToStaticMarkup(
+      <DataFreshnessHeartbeat pollHealth={snapshot()} now={NOW} />,
+    );
+    expect(html).toContain('data-freshness-band="fresh"');
+    expect(html).toContain("Latest readings are current.");
+    expect(html).not.toContain("review poll health");
+    expect(html).not.toContain("10:45 UTC");
+    expect(html).not.toContain("Backup attempts run automatically");
+    expect(html).not.toContain("Backup poll attempts run automatically");
+  });
+
+  it("operator-safe vocabulary across all hints — never says 'GitHub skipped' or 'system failed'", () => {
+    for (const fixture of [
+      // pending
+      (() => {
+        const s = snapshot();
+        s.platforms[0].status = "pending";
+        s.platforms[1].latestRun!.completedAt = "2026-05-09T22:00:00.000Z";
+        return s;
+      })(),
+      // stale
+      snapshot({
+        platforms: snapshot().platforms.map((p) => ({
+          ...p,
+          latestRun: { ...p.latestRun!, completedAt: "2026-05-09T07:00:00.000Z" },
+        })),
+      }),
+      // needs_attention (any-failed)
+      (() => {
+        const s = snapshot();
+        s.platforms[0].status = "failed";
+        return s;
+      })(),
+    ]) {
+      const html = renderToStaticMarkup(
+        <DataFreshnessHeartbeat pollHealth={fixture} now={NOW} />,
+      );
+      const lc = html.toLowerCase();
+      expect(lc).not.toContain("github");
+      expect(lc).not.toContain("system failed");
+      expect(lc).not.toContain("skipped"); // operator vocab
+      expect(lc).not.toContain("scheduler"); // operator vocab
+      expect(lc).not.toContain("exception");
+      expect(lc).not.toContain("stacktrace");
+    }
   });
 
   it("renders no_data calm copy when all platforms pending with no prior run", () => {

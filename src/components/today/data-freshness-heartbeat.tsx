@@ -263,11 +263,19 @@ function sublineFor(verdict: FreshnessVerdict): string {
       // (.github/workflows/daily-native-poll.yml): the workflow now has
       // 3 daily attempts (primary + 2 backups) so a GH scheduler skip
       // on the 07:00 UTC fire no longer blocks the day. Copy mentions
-      // all three so the customer/operator knows another attempt is
-      // coming, without using GH-specific jargon.
-      return "Scheduled poll attempts run at 07:00, 08:30, and 10:00 UTC.";
+      // all three plus the auto-backup posture so the operator knows
+      // they don't need to take action, without using GH-specific
+      // jargon.
+      return "Scheduled poll attempts run at 07:00, 08:30, and 10:00 UTC. Backup attempts run automatically.";
     case "stale":
-      return "Today's scheduled poll has not landed yet. Beacon will retry on the next cycle.";
+      // 2026-05-10 — stale-band hint upgrade. Pre-fix: operator had
+      // no signal for whether to take action. New copy names the
+      // last-backup-canary time (10:45 UTC) so the operator has a
+      // clean threshold: if the heartbeat still reads stale after
+      // 10:45 UTC, the day's poll didn't land and poll health needs
+      // a look. Customer-safe vocabulary; no "GitHub skipped" / "system
+      // failed" / scheduler jargon.
+      return "Backup poll attempts run automatically. If data stays stale past 10:45 UTC, the daily poll didn't complete — review poll health.";
     case "needs_attention":
       return "Recent polls have not completed. Check poll health.";
     case "no_data":
