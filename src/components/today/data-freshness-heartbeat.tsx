@@ -259,7 +259,13 @@ function sublineFor(verdict: FreshnessVerdict): string {
     case "fresh":
       return "Latest readings are current.";
     case "pending":
-      return "The next scheduled poll fires at 07:00 UTC.";
+      // 2026-05-10 — reflects the redundant-schedule reliability fix
+      // (.github/workflows/daily-native-poll.yml): the workflow now has
+      // 3 daily attempts (primary + 2 backups) so a GH scheduler skip
+      // on the 07:00 UTC fire no longer blocks the day. Copy mentions
+      // all three so the customer/operator knows another attempt is
+      // coming, without using GH-specific jargon.
+      return "Scheduled poll attempts run at 07:00, 08:30, and 10:00 UTC.";
     case "stale":
       return "Today's scheduled poll has not landed yet. Beacon will retry on the next cycle.";
     case "needs_attention":

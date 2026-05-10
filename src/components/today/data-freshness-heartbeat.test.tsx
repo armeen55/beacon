@@ -245,6 +245,26 @@ describe("DataFreshnessHeartbeat — render", () => {
     );
   });
 
+  it("pending-band subline lists all three scheduled poll attempts (07:00 / 08:30 / 10:00 UTC)", () => {
+    // 2026-05-10 — heartbeat copy must reflect the redundant-schedule
+    // reliability fix in .github/workflows/daily-native-poll.yml. The
+    // single-schedule "fires at 07:00 UTC" copy is now misleading.
+    const snap = snapshot();
+    snap.platforms[0].status = "pending";
+    snap.platforms[1].latestRun!.completedAt = "2026-05-09T22:00:00.000Z"; // 14h ago
+    const html = renderToStaticMarkup(
+      <DataFreshnessHeartbeat pollHealth={snap} now={NOW} />,
+    );
+    expect(html).toContain('data-freshness-band="pending"');
+    // New copy mentions all three attempts.
+    expect(html).toContain(
+      "Scheduled poll attempts run at 07:00, 08:30, and 10:00 UTC.",
+    );
+    // Old single-schedule-only copy must NOT remain in the heartbeat
+    // pending-band render.
+    expect(html).not.toContain("The next scheduled poll fires at 07:00 UTC.");
+  });
+
   it("renders no_data calm copy when all platforms pending with no prior run", () => {
     const snap = snapshot();
     for (const p of snap.platforms) {
