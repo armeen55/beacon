@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ChangeVerdictBadge } from "@/components/display/change-verdict-badge";
 import { ConfidenceBadge } from "@/components/display/confidence-badge";
+import { EarlySignalPill } from "@/components/display/early-signal-pill";
 import { MatchFactors } from "@/components/display/match-factors";
 import { buildAttributionConfidenceBasis } from "@/lib/attribution-confidence-basis";
 import { getResults, getOpportunities } from "@/lib/seed-data.server";
@@ -36,6 +37,7 @@ import { sampleQualityTierFromObservationCount } from "@/lib/sample-quality-tier
 import { HypothesisEditor } from "./hypothesis-editor";
 import { AttributionDrilldown } from "../attribution-drilldown";
 import { loadChangeOutcomeById } from "@/domains/attribution/change-outcome-store";
+import { getUrlChangeOutcomes } from "@/domains/attribution/url-change-outcome";
 
 const PLATFORM_LABELS: Record<string, string> = {
   chatgpt: "ChatGPT",
@@ -268,10 +270,40 @@ export default async function ChangeDetailPage({
 
       {/* Phase 2C: attribution drilldown (natural-controls engine output).
           Source of truth for this change's attribution status. Replaces the
-          old verdict-led block. */}
+          old verdict-led block.
+
+          UI bundle (2026-05-09): the URL Z-score engine writes a separate
+          per-(change_id, url) verdict to `url_change_outcomes` whose
+          `verdict` value can be `weak_signal`. That signal was visible
+          on /changes (scorecard) and /today (live-changes block) but
+          NOT on this drilldown. Surfacing it here as the same amber
+          EarlySignalPill keeps the customer's "early signs of lift"
+          state coherent across all three customer surfaces.
+
+          The pill renders null for every verdict ≠ weak_signal, so
+          helping/hurting/nothing_yet/null/no-row paths are unchanged. */}
       {await (async () => {
-        const storedOutcome = await loadChangeOutcomeById(entry.id);
-        return storedOutcome ? <AttributionDrilldown outcome={storedOutcome} /> : null;
+        const [storedOutcome, urlOutcomes] = await Promise.all([
+          loadChangeOutcomeById(entry.id),
+          getUrlChangeOutcomes(),
+        ]);
+        const urlOutcome = urlOutcomes.find((o) => o.change_id === entry.id) ?? null;
+        return (
+          <>
+            {urlOutcome?.verdict === "weak_signal" && (
+              <div
+                className="mb-3 flex items-center gap-2"
+                data-change-drilldown-early-signal="true"
+              >
+                <EarlySignalPill verdict={urlOutcome.verdict} />
+                <span className="text-[11px] text-muted-foreground italic">
+                  URL Z-score engine — directional only, not yet a strong signal.
+                </span>
+              </div>
+            )}
+            {storedOutcome ? <AttributionDrilldown outcome={storedOutcome} /> : null}
+          </>
+        );
       })()}
 
       {/* What changed */}
