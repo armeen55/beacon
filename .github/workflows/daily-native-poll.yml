@@ -88,11 +88,32 @@ name: Daily native AI-visibility poll
 
 on:
   schedule:
-    # 07:00 UTC daily = ~12 AM PT (PDT) / ~11 PM PT prev-day (PST). Off-peak on
-    # GitHub Actions so the schedule actually fires close to the set time.
-    # 10:00 UTC (prior value) was 5–7 hours late in production — peak European
-    # workday-start load on GitHub's shared scheduler. See file-top comment.
-    - cron: "0 7 * * *"
+    # ── 2026-05-10 redundant-schedule reliability fix ─────────────────────────
+    # GitHub Actions' shared scheduler can silently skip a scheduled workflow
+    # entirely (we've seen this multiple times during peak-load windows on
+    # private repos). Three scheduled attempts per UTC day instead of one
+    # dramatically reduces the chance Beacon goes a full day without fresh
+    # AI-visibility data.
+    #
+    # Why redundant schedules don't double-spend:
+    #   • runNativePoll's UTC-day budget guard (defaultHasRecentRun) checks
+    #     `observation_runs` for a `status='completed'` row on the current
+    #     UTC date BEFORE calling the provider adapter. The first scheduled
+    #     attempt that actually fires writes that row; every subsequent
+    #     same-day attempt returns `skipped_already_ran_today` → no adapter
+    #     call → no API spend → no DB writes.
+    #   • Test coverage: src/domains/observations/run-poll.test.ts ("budget
+    #     guard: skips the run when a same-UTC-day completed run exists")
+    #     pins `expect(adapterSpy).not.toHaveBeenCalled()` so the no-spend
+    #     property is ratcheted.
+    #   • Per-run cost ceiling (BEACON_PER_RUN_BUDGET_USD, default $8) is
+    #     also in force as a backstop.
+    #
+    # Schedule choices (UTC) — primary first, then 90-minute spacing so the
+    # GH scheduler has room to land the primary before backups race:
+    - cron: "0 7 * * *"     # primary    07:00 UTC
+    - cron: "30 8 * * *"    # backup 1   08:30 UTC
+    - cron: "0 10 * * *"    # backup 2   10:00 UTC
   # Manual trigger from the Actions tab. Use this to verify the flow once
   # after first deploy, then let the schedule take over.
   workflow_dispatch:

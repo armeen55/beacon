@@ -60,10 +60,19 @@ name: Poll canary
 
 on:
   schedule:
-    # 07:45 UTC daily — 45 min after the 07:00 UTC main poll cron. Gives both
-    # Perplexity (~10 min) and ChatGPT (~11 min) time to finish all 4 chunks.
-    # Shifted from 10:45 UTC 2026-04-24 to stay aligned with main cron.
-    - cron: "45 7 * * *"
+    # ── 2026-05-10 redundant-schedule reliability fix ─────────────────────────
+    # Mirrors the daily-native-poll backup cadence (07:00 / 08:30 / 10:00 UTC):
+    # each canary fires ~45 min after its corresponding poll attempt so a
+    # late-firing poll still gets verified. Each canary read is read-only
+    # (queries observation_runs + prompt_answer_observations); running it
+    # multiple times per day costs nothing and is idempotent.
+    #
+    # The canary will report ✓ ok as soon as ANY of the day's poll attempts
+    # has landed cleanly — so even if only the primary or only a backup
+    # fires, downstream alerting stays accurate.
+    - cron: "45 7 * * *"    # primary canary     07:45 UTC
+    - cron: "15 9 * * *"    # backup canary 1    09:15 UTC
+    - cron: "45 10 * * *"   # backup canary 2    10:45 UTC
   workflow_dispatch:
 
 concurrency:
