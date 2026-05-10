@@ -27,6 +27,7 @@
 import Link from "next/link";
 
 import type { TodayLiveChange } from "@/domains/today/live-changes-data";
+import { EarlySignalPill } from "@/components/display/early-signal-pill";
 
 export type LiveChangesBlockProps = {
   liveChanges: ReadonlyArray<TodayLiveChange>;
@@ -70,13 +71,17 @@ export function LiveChangesBlock({ liveChanges }: LiveChangesBlockProps) {
               data-rec-id={change.recId}
               className="rounded-md border border-border/40 bg-background/80 px-3 py-2"
             >
-              <div className="flex items-baseline gap-2">
+              <div className="flex items-baseline gap-2 flex-wrap">
                 <p className="font-medium text-foreground text-[13px] leading-snug">
                   {change.displayLabel}
                 </p>
                 <span className="text-[10px] text-muted-foreground tabular-nums whitespace-nowrap">
                   Live {relativeLiveAt(change.daysSinceLive)}
                 </span>
+                {/* Renders amber "Early signs of lift" only when verdict==="weak_signal";
+                    null for every other verdict — calm fallback. Same component
+                    used in scorecard-client.tsx so copy stays operator-locked. */}
+                <EarlySignalPill verdict={change.currentVerdict} compact />
               </div>
               <p className="mt-0.5 text-[11px] text-muted-foreground/85 leading-snug">
                 {change.targetUrl}

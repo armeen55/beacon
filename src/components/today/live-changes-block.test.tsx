@@ -153,4 +153,64 @@ describe("LiveChangesBlock", () => {
     expect(html).toContain("Live changes");
     expect(html).not.toContain("Live changes (1)");
   });
+
+  // ── EarlySignalPill surfacing (2026-05-09) ──
+  // weak_signal rows must show the amber "Early signs of lift" pill so
+  // the customer can distinguish directional rows from helping/nothing_yet
+  // at a glance. Non-weak_signal rows must NOT show the pill (renders null).
+
+  describe("EarlySignalPill surfacing", () => {
+    it("renders the EarlySignalPill for weak_signal rows", () => {
+      const html = renderToStaticMarkup(
+        <LiveChangesBlock
+          liveChanges={[buildChange({ currentVerdict: "weak_signal" })]}
+        />,
+      );
+      expect(html).toContain('data-early-signal-pill="true"');
+      expect(html).toContain("Early signs of lift");
+    });
+
+    it("does NOT render the pill for helping rows", () => {
+      const html = renderToStaticMarkup(
+        <LiveChangesBlock
+          liveChanges={[buildChange({ currentVerdict: "helping" })]}
+        />,
+      );
+      expect(html).not.toContain('data-early-signal-pill="true"');
+    });
+
+    it("does NOT render the pill for nothing_yet rows", () => {
+      const html = renderToStaticMarkup(
+        <LiveChangesBlock
+          liveChanges={[buildChange({ currentVerdict: "nothing_yet" })]}
+        />,
+      );
+      expect(html).not.toContain('data-early-signal-pill="true"');
+    });
+
+    it("does NOT render the pill for null/pending rows (no outcome yet)", () => {
+      const html = renderToStaticMarkup(
+        <LiveChangesBlock
+          liveChanges={[buildChange({ currentVerdict: null })]}
+        />,
+      );
+      expect(html).not.toContain('data-early-signal-pill="true"');
+    });
+
+    it("never overclaims weak_signal as proof-language anywhere on /today rows", () => {
+      const html = renderToStaticMarkup(
+        <LiveChangesBlock
+          liveChanges={[buildChange({ currentVerdict: "weak_signal" })]}
+        />,
+      );
+      // Operator-locked phrasing — weak_signal must never be rendered as
+      // "validated", "proven", "confirmed", "winning", or "won" on any
+      // customer surface.
+      expect(html.toLowerCase()).not.toContain("validated");
+      expect(html.toLowerCase()).not.toContain("proven");
+      expect(html.toLowerCase()).not.toContain("confirmed");
+      expect(html.toLowerCase()).not.toMatch(/\bwinning\b/);
+      expect(html.toLowerCase()).not.toMatch(/\bwon\b/);
+    });
+  });
 });
