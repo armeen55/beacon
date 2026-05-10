@@ -152,7 +152,45 @@ For all three: migration uses the same staged shape as Stage B/C — additive `A
 - **Budget enforcement** (Stage B.4 / B.5) — separate stream, separate flags.
 - **E1.E `tenant_members` policy refresh** — its own bundle, lower priority than customer-#2 unblocking.
 
-## 11. Status: where this fits
+## 11. D3.A caller map (verified 2026-05-09)
+
+The schema migration draft is at
+`migrations/2026-05-17_phase3_stage_d3a_answer_intel_per_tenant_schema.sql`
+with 28 contract assertions in
+`tests/migrations/phase3-stage-d3a-answer-intel-per-tenant-schema.test.ts`.
+**Schema-only — no RLS change in this draft.**
+
+A surprise that shrinks the runtime risk further: the **load-bearing
+reader is disk, not Supabase**. The two app-side callers
+(`today-data.ts`, `competitors/page.tsx`) import from
+`@/domains/answer-intelligence/store`, which calls
+`readDotDataJson("answer-intelligence-index")` — and on disk the path
+is already tenant-scoped:
+`.data/tenants/<slug>/answer-intelligence-index.json`. So the live
+read path is per-tenant **today**, via the `currentTenantId()`
+resolution baked into `readDotDataJson`. The Supabase table is the
+lagging surface.
+
+| location | role | tenantId in scope today? | proposed change |
+|---|---|---|---|
+| `src/domains/answer-intelligence/store.ts:31` | **load-bearing reader** (disk via `readDotDataJson`) | yes — implicit via `readDotDataJson` resolving `.data/tenants/<currentTenant>/...` | optional: change signature to `getAnswerIntelligenceIndex(tenantId: string)` and pass through to `readDotDataJson(name, { tenantId })` for explicit-tenant call sites. **Not required for D3.A apply** because the disk path is already correct. |
+| `src/app/(shell)/today-data.ts:228` | server-component reader | yes — `currentTenantId()` already resolved earlier in the file | follow whatever the reader signature ends up as |
+| `src/app/(shell)/competitors/page.tsx:87` | server-component reader | yes — server component on a tenant-scoped route | same |
+| `src/lib/persistence/repositories/supabase-backend.ts:304` | repository method (Supabase reader keyed `id='current'`) | currently **no** — the method takes no tenantId | once schema migration applies, add `.eq("tenant_id", tenantId)` in the query and update the interface in `types.ts` |
+| `src/lib/persistence/repositories/file-backend.ts:94` | repository method (disk reader) | currently no | mirror the supabase-backend signature change |
+| `src/lib/persistence/repositories/types.ts:90` | interface signature | n/a | thread `tenantId: string` through |
+| `src/lib/persistence/repositories/tenant-repo.window.test.ts:66` | test stub | n/a | update stub to match new signature |
+| `src/lib/persistence/dual-write.ts:917` | Supabase upsert writer (called on import) | yes — caller already has tenantId via `tenantizeRows` upstream | extend the upsert payload with `tenant_id` |
+| `src/adapters/profound/import-orchestrator.ts` | calls the dual-write writer during import | yes | thread tenantId into the write call |
+| `scripts/build-answer-intelligence.ts` | CLI rebuild | yes — already takes `BEACON_TENANT_ID` env per the D3-stage script convention | stamp `tenant_id` in the upsert payload |
+
+**Tests that need updates** (when the runtime change ships, NOT in this bundle):
+- `src/lib/persistence/repositories/tenant-repo.window.test.ts` — stub signature
+- Any vitest module that mocks `getAnswerIntelligenceIndex` — change call sites to pass the test tenantId
+
+**Risk profile after schema apply:** very low. The Supabase migration is purely additive plus a PK swap on a 1-row table; the disk reader keeps working unchanged because it never knew about the Supabase table. The runtime/reader changes are a separate later bundle gated on the schema migration applying cleanly.
+
+## 12. Status: where this fits
 
 - ✅ E0/E0.1/E1.A/E1.B/E1.C/E1.D applied — 27 of 35 tenant-scoped tables under `tenant_authenticated_rw`.
 - ✅ Phase 2 Stage A applied (`llm_budget_ledger` table exists, RLS in place).
