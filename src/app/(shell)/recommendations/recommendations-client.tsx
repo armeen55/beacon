@@ -47,6 +47,7 @@ import {
   type RecommendationActionRow,
 } from "@/domains/recommendations/recommendation-action-rows";
 import { sanitizeOperatorEvidenceText } from "@/domains/recommendations/copy-sanitize";
+import { changeLinkHrefForRow } from "@/domains/recommendations/changelog-link";
 import { RecommendationEvidencePanel } from "@/components/recommendations/recommendation-evidence-panel";
 import { WhyRankedHere } from "@/components/recommendations/why-ranked-here";
 import {
@@ -63,6 +64,11 @@ type Props = {
    *  section can render a prompt-text snippet instead of the raw
    *  UUID. */
   promptTextById: Record<string, string>;
+  /** 2026-05-10 — recommendation stableKey → changelog entry id.
+   *  Drives the inline "Open this change →" link on accepted/measuring/
+   *  shipped rows. Optional; missing entry → no link rendered (calm
+   *  fallback). Built server-side from changelog_entries.source_rec_id. */
+  changelogIdByRecId?: Record<string, string>;
 };
 
 /**
@@ -98,6 +104,7 @@ export function RecommendationsClient({
   watchlist,
   matrixDate,
   promptTextById,
+  changelogIdByRecId = {},
 }: Props) {
   const allRows = useMemo(
     () => buildRecommendationActionRows({ queue, promptTextById }),
@@ -200,6 +207,7 @@ export function RecommendationsClient({
           feedback={feedback}
           setFeedback={setFeedback}
           promptTextById={promptTextById}
+          changelogIdByRecId={changelogIdByRecId}
         />
       )}
 
@@ -411,6 +419,7 @@ function ActionTable({
   feedback,
   setFeedback,
   promptTextById,
+  changelogIdByRecId,
 }: {
   rows: RecommendationActionRow[];
   expandedId: string | null;
@@ -424,6 +433,7 @@ function ActionTable({
     f: { rowId: string; message: string; isError: boolean } | null,
   ) => void;
   promptTextById: Record<string, string>;
+  changelogIdByRecId: Record<string, string>;
 }) {
   const topPickId = useMemo(() => selectTopPickId(rows), [rows]);
   return (
@@ -461,6 +471,7 @@ function ActionTable({
               feedback={feedback}
               setFeedback={setFeedback}
               promptTextById={promptTextById}
+              changelogIdByRecId={changelogIdByRecId}
             />
           ))}
         </tbody>
@@ -479,6 +490,7 @@ function ActionRow({
   feedback,
   setFeedback,
   promptTextById,
+  changelogIdByRecId,
 }: {
   row: RecommendationActionRow;
   /** UX.5B.2 (2026-05-07) — true when this is the highest-priority
@@ -497,6 +509,9 @@ function ActionRow({
     f: { rowId: string; message: string; isError: boolean } | null,
   ) => void;
   promptTextById: Record<string, string>;
+  /** 2026-05-10 — rec→changelog link map for the inline "Open this
+   *  change →" CTA. Empty when not provided (no link rendered). */
+  changelogIdByRecId: Record<string, string>;
 }) {
   const [pending, startTransition] = useTransition();
   const showFeedback = feedback && feedback.rowId === row.id;
@@ -668,13 +683,42 @@ function ActionRow({
           </span>
         </td>
         <td className="px-2 py-2 align-top text-right">
-          <RowActionButton
-            row={row}
-            pending={pending}
-            handle={handle}
-            recPayload={recPayload}
-            onOpenDetails={onToggleExpand}
-          />
+          <div className="flex flex-col items-end gap-1">
+            <RowActionButton
+              row={row}
+              pending={pending}
+              handle={handle}
+              recPayload={recPayload}
+              onOpenDetails={onToggleExpand}
+            />
+            {/* 2026-05-10 — inline rec→/changes/[id] link. Renders
+                only when the row is accepted AND a changelog entry
+                exists with source_rec_id matching this rec. Resolver
+                returns null in every other case (calm fallback —
+                never a broken link). Same operator-locked CTA copy
+                used on /today's LiveChangesBlock + /changes scorecard
+                expansion ("Open this change →"). */}
+            {(() => {
+              const href = changeLinkHrefForRow(
+                {
+                  sourceRecommendationId: row.sourceRecommendationId,
+                  responseStatus: row.responseStatus,
+                  status: row.status,
+                },
+                changelogIdByRecId,
+              );
+              if (!href) return null;
+              return (
+                <Link
+                  href={href}
+                  className="text-[10px] font-medium text-accent-primary hover:underline"
+                  data-rec-row-change-link="true"
+                >
+                  Open this change →
+                </Link>
+              );
+            })()}
+          </div>
         </td>
         <td className="px-2 py-2 align-top text-right">
           {/* Visible Details affordance (W3 §3.5g): chevron only.

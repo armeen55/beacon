@@ -16,6 +16,8 @@ import { getRepository } from "@/lib/persistence/repositories";
 import type { RecommendationResponse } from "@/domains/product/recommendation-response-store";
 import type { RecommendedEditRow } from "@/domains/recommendations/recommended-edits-persistence";
 import { RecommendationsClient } from "./recommendations-client";
+import { getChangelogEntries } from "@/lib/seed-data.server";
+import { buildChangelogIdByRecId } from "@/domains/recommendations/changelog-link";
 
 /**
  * /recommendations — the ranked decision queue (Phase v6 Commit 4, 2026-04-23).
@@ -122,6 +124,19 @@ export default async function RecommendationsPage() {
     promptTextById[p.id] = p.text;
   }
 
+  // 2026-05-10 — recommendation → /changes/[id] link map. Built from
+  // changelog_entries.source_rec_id stamped by the match-runner. When
+  // the lookup is missing for a rec, the client renders no link
+  // (calm fallback). Wrapped in safeCall so a changelog read failure
+  // degrades to "no links" rather than a 500 on the queue page.
+  const changelogRes = await safeCall(
+    () => getChangelogEntries(),
+    [] as Array<{ id: string; source_rec_id?: string | null }>,
+    "fetch changelog entries for rec→change links",
+  );
+  if (changelogRes.error) errors.push(changelogRes.error);
+  const changelogIdByRecId = buildChangelogIdByRecId(changelogRes.value);
+
   return (
     <div className="max-w-5xl">
       <PageHeader
@@ -141,6 +156,7 @@ export default async function RecommendationsPage() {
         watchlist={watchDecorated}
         matrixDate={matrix.date}
         promptTextById={promptTextById}
+        changelogIdByRecId={changelogIdByRecId}
       />
     </div>
   );
