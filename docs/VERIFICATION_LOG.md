@@ -7,6 +7,80 @@
 
 ---
 
+## 2026-05-11 — Changes v2 polish bundle (6 hosted-visual fixes, no data layer changes)
+
+After `BEACON_CHANGES_V2=true` shipped to production earlier today, hosted visual review surfaced six customer-facing polish issues. None reflect a logic bug — every issue was a presentation/projection gap that left the v2 surfaces still feeling internal. This bundle fixes all six without touching the data layer, recommendations, today, polling, watchdog, Supabase, or any paid API.
+
+### Scope (what changed)
+
+**Modified (5 files):**
+- `src/domains/changes/proof-timeline/counters.ts` — swapped the counter triplet from calendar-anchored "Shipped this month / Working / Needs review" to calendar-free "Recent changes / Watching for signal / Needs attention". Counters now derive from the already-resolved pill kind so the strip and the page can never disagree.
+- `src/app/(shell)/changes/changes-v2-client.tsx` — wires the new counter triplet and the new title-projection helper into every card.
+- `src/components/changes/v2/changes-v2-card.tsx` — title clamps to 2 lines with `break-words`, "Open change" rendered as a button-shaped affordance (border + bg + hover) instead of bare link text, URL truncation pattern stabilized.
+- `src/components/changes/v2/changes-v2-waiting-rail.tsx` — `min-w-0` added on aside + list item so the rail can't horizontally overflow a narrow column even with a very long URL; title now uses a 2-line clamp; URL gets its own truncated mono line; native `title` attribute exposes the full URL on hover.
+- `src/app/(shell)/changes/[id]/page.tsx` — calls `projectChangeTitle` server-side and hands both `title` + `fullDescription` to the brief client.
+- `src/app/(shell)/changes/[id]/change-detail-v2-client.tsx` — accepts the new `fullDescription` prop; Act 1 renders the fuller description ONLY (no more triple-rendering the same title); `Act` wrapper now renders a semantic `<h2>` heading with `id` + `aria-labelledby` and drops the "ACT 1 · …" visible prefix; Act 4 empty state copy rewritten to feel intentional and surfaces the pattern-timing line as a fallback.
+
+**New (2 files):**
+- `src/domains/changes/proof-timeline/title-projection.ts` — pure module that takes a raw `change_description` and returns `{ shortTitle, fullDescription }`:
+  - Strips prompt IDs (`prompt 319557d1` → "a tracked AI prompt").
+  - Replaces internal "packet" vocabulary ("packet's cited source pages" → "examples Beacon tracked"; "the packet shows" → "Beacon's prompt data shows").
+  - Drops long inline example lists (`(examples: a.com, b.com, c.com)` → dropped).
+  - Splits on em-dash so the headline ("H2: Architect-led design-build advantage") goes to the header and the explanation ("Adds a clear benefit statement…") goes to Act 1 — never duplicated.
+  - `clampShortTitle` cuts on a word boundary when needed.
+- `tests/domains/changes/proof-timeline-title-projection.test.ts` — 14 truth-table tests pinning the projection rules + clamp behavior + no-leak invariants.
+
+**Tests updated:**
+- `tests/domains/changes/proof-timeline-counters.test.ts` — fully rewritten for the new triplet (8 tests). Pins disjoint pill-kind sets, "never produces 0/0/0 when rows exist", and customer-safe labels.
+- `tests/app/changes/changes-v2-client.test.tsx` — counter assertions updated; two new leak-guardrail tests (timeline card + rail item) verify a real Ritz raw description never renders `prompt <hex>` / "packet" / example domains in the HTML.
+- `tests/app/changes/change-detail-v2-client.test.tsx` — pins semantic h2 headings, Act 1 fullDescription rendering, Act 1 fallback when fullDescription is null, brief-level no-leak, Act 4 intentional empty-state copy + pattern-timing surface.
+
+### Before / after — copy examples
+
+| Issue | Before | After |
+|---|---|---|
+| Counter strip when all rows are pre-current-month | "Shipped this month 0 / Working 0 / Needs review 0" | "Recent changes 6 / Watching for signal 4 / Needs attention 0" |
+| Card title from a long rec-stamped description | "H2: Architect-led design-build advantage — Adds a clear benefit statement drawn from prompt 319557d1 and the packet's cited source pages (examples: hdrremodeling.com, baysidebuildersgroup.com) showing…" (wraps unbounded) | "H2: Architect-led design-build advantage" (2-line clamp) |
+| Open change CTA | bare link `Open change →` | button-shaped `[ Open change → ]` with border + hover |
+| Right rail row with a long URL | horizontal overflow / page scrolls sideways | URL truncates on its own mono line, title 2-line clamps, no overflow |
+| Brief header repeating the title 3× | Header h1 + Act 1 body + sometimes again under pill | Header h1 once; Act 1 surfaces the cleaned fullDescription only when it adds info |
+| Brief act labels | "ACT 1 · What changed" (tutorial-style chrome) | "What changed" (semantic h2) |
+| Brief Act 4 empty state | "No outcome events linked yet — Beacon is still watching for the next AI reading." | "No outcome signal yet. Beacon is still watching this change across daily AI readings." + pattern-timing line when present, or generic "Similar changes often need several readings before a clear result appears." fallback |
+
+### Quality gates
+
+| Check | Result |
+|---|---|
+| `npm run typecheck` | ✅ clean |
+| Targeted v2 tests (12 files) | ✅ 109/109 (+7 since post-flip baseline) |
+| `tests/architecture/` (forbidden-vocab guardrail included) | ✅ 2335/2335 |
+| `npm run test` (full suite) | ✅ 7690/7690 across 403 files (+23 since post-flip baseline 7667) |
+
+### Constraints honored
+
+- ✅ No data-layer changes (stored `change_description` never mutated; projection is render-time only)
+- ✅ No backend / domain logic changes
+- ✅ No data contract changes
+- ✅ No new feature work (polish + projection only)
+- ✅ No Supabase mutations
+- ✅ No paid APIs
+- ✅ No migrations
+- ✅ Recommendations untouched
+- ✅ Today untouched
+- ✅ Polling / watchdog untouched
+- ✅ Legacy `/changes?legacy=1` + `/changes/[id]?legacy=1` continue to render raw descriptions verbatim (projection is v2-only)
+- ✅ `BEACON_CHANGES_V2` flag state unchanged (still on)
+
+### Ready to keep v2 as default?
+
+**Yes.** All six hosted-visual issues are fixed at the contract level (pinned by tests) plus visually verified by the SSR HTML output of every render test. The next click-through-loop reads cleanly:
+
+1. `/changes` (default v2) → "Recent changes 6 / Watching for signal 4 / Needs attention 0" + 6 cards with short customer titles + clean right rail.
+2. Click "Open change" → `/changes/[id]?v2=1` → header with short title + ONE result pill + URL + date + Beacon-recommended tag (when present); 5 acts as semantic h2 sections; Act 1 has the cleaned full description (not the title again); Act 4 reads as intentional even when no outcome events linked.
+3. `?legacy=1` on either surface continues to render the unprojected legacy view.
+
+---
+
 ## 2026-05-11 — `BEACON_CHANGES_V2=true` flip + post-flip verification
 
 Default-flip for the `/changes` + `/changes/[id]` v2 surfaces shipped earlier today. After both bundles landed (proof timeline + 5-act detail brief; tests green at 7667/7667), the env flag is now set in Vercel Production and a fresh redeploy is live with the new lambdas.

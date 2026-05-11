@@ -43,8 +43,14 @@ import type { NextActionCta } from "@/domains/changes/proof-timeline/next-action
 import { ChangesV2ResultPill } from "@/components/changes/v2/changes-v2-result-pill";
 
 export type ChangeDetailV2Props = {
-  /** Plain-English title for the change. */
+  /** Short, customer-friendly title for the header. Already
+   *  projected (prompt IDs stripped, packet vocabulary replaced,
+   *  long parenthetical example lists dropped). */
   title: string;
+  /** Cleaned full description for Act 1 ONLY. `null` when it would
+   *  be byte-equivalent to `title` — avoids the duplicate-render
+   *  bug the hosted visual review flagged. */
+  fullDescription: string | null;
   /** Customer-friendly target URL when present. */
   targetUrl: string | null;
   /** ISO timestamp of when the change shipped. */
@@ -60,7 +66,7 @@ export type ChangeDetailV2Props = {
    *  around day N."), null when there's no readyOn prediction. */
   patternTimingNarrative: string | null;
   /** Already-humanized outcome events. Empty array renders the calm
-   *  "No outcome events yet" message inside Act 4. */
+   *  "No outcome signal yet" message inside Act 4. */
   events: ReadonlyArray<HumanizedEvent>;
   /** Optional sparkline points for Act 3 — date + count is enough
    *  for an honest visualization. */
@@ -68,8 +74,8 @@ export type ChangeDetailV2Props = {
   /** Tracked-platform labels involved in this change. Renders as
    *  light chips in Act 3 when present. */
   platformLabels: ReadonlyArray<string>;
-  /** Truth tag for Act 1's provenance line: was this row stamped as
-   *  Beacon-recommended? */
+  /** Truth tag for the header provenance line: was this row
+   *  stamped as Beacon-recommended? */
   beaconRecommended: boolean;
   /** Ordered Act 5 CTAs from the next-action resolver. */
   nextActions: ReadonlyArray<NextActionCta>;
@@ -78,6 +84,7 @@ export type ChangeDetailV2Props = {
 export function ChangeDetailV2Client(props: ChangeDetailV2Props) {
   const {
     title,
+    fullDescription,
     targetUrl,
     shippedAt,
     pill,
@@ -152,14 +159,29 @@ export function ChangeDetailV2Client(props: ChangeDetailV2Props) {
         </p>
       </header>
 
-      {/* Act 1 — What changed */}
+      {/* Act 1 — What changed.
+          Hierarchy: the header already shows the short title, URL,
+          and date. Act 1 adds depth — the cleaned full description
+          (when it adds info beyond the title) and a single
+          "Shipped on …" line. We deliberately do NOT re-render the
+          short title here; the visual review flagged that as a
+          redundant triple-render. */}
       <Act number={1} label="What changed">
-        <p
-          className="text-[13.5px] leading-relaxed text-foreground"
-          data-change-detail-act1-body="true"
-        >
-          {title}
-        </p>
+        {fullDescription ? (
+          <p
+            className="text-[13.5px] leading-relaxed text-foreground"
+            data-change-detail-act1-body="true"
+          >
+            {fullDescription}
+          </p>
+        ) : (
+          <p
+            className="text-[12.5px] leading-relaxed text-muted-foreground"
+            data-change-detail-act1-body-empty="true"
+          >
+            No additional description beyond the title above.
+          </p>
+        )}
         {targetUrl && (
           <p className="mt-2 text-[12px] font-mono text-muted-foreground break-all">
             {targetUrl}
@@ -245,16 +267,31 @@ export function ChangeDetailV2Client(props: ChangeDetailV2Props) {
         )}
       </Act>
 
-      {/* Act 4 — Evidence */}
+      {/* Act 4 — Evidence.
+          Empty state is intentional. The visual review flagged
+          the v1 wording as feeling like a placeholder; this
+          version reads as a deliberate "Beacon is still measuring"
+          message and surfaces the pattern-timing line a second
+          time when present — together they communicate that
+          Beacon HAS a plan, not that the section is broken. */}
       <Act number={4} label="Evidence">
         {events.length === 0 ? (
-          <p
-            className="text-[12.5px] leading-relaxed text-muted-foreground"
-            data-change-detail-act4-empty="true"
-          >
-            No outcome events linked yet — Beacon is still watching for
-            the next AI reading.
-          </p>
+          <div data-change-detail-act4-empty="true">
+            <p className="text-[12.5px] leading-relaxed text-foreground/80">
+              No outcome signal yet. Beacon is still watching this change
+              across daily AI readings.
+            </p>
+            {patternTimingNarrative ? (
+              <p className="mt-1.5 text-[11.5px] leading-relaxed text-muted-foreground">
+                {patternTimingNarrative}
+              </p>
+            ) : (
+              <p className="mt-1.5 text-[11.5px] leading-relaxed text-muted-foreground">
+                Similar changes often need several readings before a clear
+                result appears.
+              </p>
+            )}
+          </div>
         ) : (
           <ul
             className="space-y-2.5"
@@ -287,6 +324,17 @@ export function ChangeDetailV2Client(props: ChangeDetailV2Props) {
 // Act wrapper
 // ─────────────────────────────────────────────────────────────────────
 
+/**
+ * Act wrapper. Renders a semantic `<h2>` so screen readers + the
+ * section outline read as a real narrative ("What changed", "What
+ * Beacon expected", …). The visual treatment drops the "ACT 1 ·"
+ * prefix the operator review flagged as feeling like a tutorial
+ * label — the heading itself carries the story.
+ *
+ * The `data-change-detail-act="act-N"` attribute stays so existing
+ * tests (and any future automation that walks the acts) keep
+ * working without re-wiring.
+ */
 function Act({
   number,
   label,
@@ -300,12 +348,16 @@ function Act({
     <section
       className="rounded-lg border border-border/60 bg-surface-base px-4 py-4"
       data-change-detail-act={`act-${number}`}
-      aria-label={`Act ${number}: ${label}`}
+      aria-labelledby={`change-detail-act-${number}-heading`}
     >
-      <p className="text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground">
-        Act {number} · {label}
-      </p>
-      <div className="mt-2">{children}</div>
+      <h2
+        id={`change-detail-act-${number}-heading`}
+        className="text-[14px] font-semibold tracking-tight text-foreground"
+        data-change-detail-act-heading={`act-${number}`}
+      >
+        {label}
+      </h2>
+      <div className="mt-2.5">{children}</div>
     </section>
   );
 }

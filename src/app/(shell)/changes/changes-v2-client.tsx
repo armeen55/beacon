@@ -56,6 +56,10 @@ import {
   buildWaitingRail,
   type WaitingRailInput,
 } from "@/domains/changes/proof-timeline/waiting-rail";
+import {
+  projectChangeTitle,
+  clampShortTitle,
+} from "@/domains/changes/proof-timeline/title-projection";
 import type { LifecycleTabClass } from "@/domains/attribution/lifecycle-classification";
 import type { ImplementationStatus } from "@/domains/recommendations/recommended-edits-persistence";
 
@@ -93,11 +97,7 @@ export function ChangesV2Client({
   });
 
   const counters: ProofCounters = computeProofCounters(
-    rows.map((row) => ({
-      timestamp: row.scorecard.change.timestamp,
-      lifecycleClass:
-        classByChangelogId[row.scorecard.change.id] ?? "unclassified",
-    })),
+    cardRows.map((card) => ({ pillKind: card.pill.kind })),
   );
 
   const railInput: WaitingRailInput[] = cardRows.map((card) => ({
@@ -206,9 +206,18 @@ function projectToCardRows({
 
     const patternTimingNarrative = formatPatternTiming(row.readyOn ?? null);
 
+    // Project the raw change_description into a short customer-
+    // facing title. Strips prompt IDs, internal "packet"
+    // vocabulary, and runaway parenthetical example lists. The
+    // legacy table continues to render the raw description.
+    const projected = projectChangeTitle(
+      ch.change_description || ch.asset_name,
+    );
+    const shortTitle = clampShortTitle(projected.shortTitle);
+
     return {
       id: ch.id,
-      title: ch.change_description || ch.asset_name || "Untitled change",
+      title: shortTitle,
       targetUrl: ch.url ?? null,
       shippedAt: ch.timestamp,
       pill,
@@ -243,9 +252,9 @@ function formatPatternTiming(
 
 function ProofCounterStrip({ counters }: { counters: ProofCounters }) {
   const items: Array<{ key: keyof ProofCounters; value: number }> = [
-    { key: "shippedThisMonth", value: counters.shippedThisMonth },
-    { key: "working", value: counters.working },
-    { key: "needsReview", value: counters.needsReview },
+    { key: "recentChanges", value: counters.recentChanges },
+    { key: "watching", value: counters.watching },
+    { key: "needsAttention", value: counters.needsAttention },
   ];
 
   return (

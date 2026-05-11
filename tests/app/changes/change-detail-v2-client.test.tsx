@@ -19,6 +19,7 @@ import type { ChangeDetailV2Props } from "@/app/(shell)/changes/[id]/change-deta
 function baseProps(over: Partial<ChangeDetailV2Props> = {}): ChangeDetailV2Props {
   return {
     title: "Add an FAQ section for Atherton modern home builder",
+    fullDescription: null,
     targetUrl: "/services/modern-home-builder-atherton",
     shippedAt: "2026-05-04T00:00:00Z",
     pill: {
@@ -134,10 +135,93 @@ describe("ChangeDetailV2Client — 5-act narrative", () => {
     expect(html).toContain("<path");
   });
 
-  it("Act 4 renders the calm 'no outcome events yet' state when events is empty", () => {
+  it("Act 4 renders the intentional 'No outcome signal yet' state when events is empty", () => {
     const html = render({ events: [] });
     expect(html).toContain('data-change-detail-act4-empty="true"');
-    expect(html).toContain("No outcome events linked yet");
+    // Polish bundle (2026-05-11): copy reads as intentional, not
+    // missing — and surfaces a calm fallback timing line so the
+    // section never feels broken.
+    expect(html).toContain(
+      "No outcome signal yet. Beacon is still watching this change",
+    );
+    expect(html).toContain(
+      "Similar changes often need several readings before a clear result appears",
+    );
+  });
+
+  it("Acts use semantic h2 headings (not 'ACT 1 · …' tutorial-style labels)", () => {
+    const html = render();
+    // Heading ids per act.
+    for (const n of [1, 2, 3, 4, 5]) {
+      expect(html, `act ${n}`).toContain(
+        `data-change-detail-act-heading="act-${n}"`,
+      );
+      expect(html, `act ${n} h2 id`).toContain(
+        `id="change-detail-act-${n}-heading"`,
+      );
+    }
+    // The pre-polish "ACT N · " visible prefix must NOT appear.
+    expect(html).not.toMatch(/Act\s+\d\s+·/);
+    // Each customer-safe heading appears once in heading position.
+    expect(html).toContain(">What changed</h2>");
+    expect(html).toContain(">What Beacon expected</h2>");
+    expect(html).toContain(">What happened after</h2>");
+    expect(html).toContain(">Evidence</h2>");
+    expect(html).toContain(">What to do next</h2>");
+  });
+
+  it("Act 1 renders fullDescription when present and never re-renders the short title", () => {
+    const html = render({
+      title: "H2: Architect-led design-build advantage",
+      fullDescription:
+        "Adds a clear benefit statement drawn from a tracked AI prompt and examples Beacon tracked, showing architect-led firms are commonly recommended.",
+    });
+    expect(html).toContain('data-change-detail-act1-body="true"');
+    expect(html).toContain("Adds a clear benefit statement");
+    // Title appears ONCE (header h1) — Act 1 must NOT repeat it.
+    const titleMatches =
+      html.match(/H2: Architect-led design-build advantage/g) ?? [];
+    expect(titleMatches.length).toBe(1);
+  });
+
+  it("Act 1 falls back to a calm 'no additional description' line when fullDescription is null", () => {
+    const html = render({
+      title: "Updated FAQ schema on /faq",
+      fullDescription: null,
+    });
+    expect(html).toContain('data-change-detail-act1-body-empty="true"');
+    expect(html).toContain("No additional description beyond the title");
+    // Title still appears ONCE (in the header).
+    const titleMatches = html.match(/Updated FAQ schema on \/faq/g) ?? [];
+    expect(titleMatches.length).toBe(1);
+  });
+
+  it("brief never renders leaked raw vocab from a projected fullDescription", () => {
+    // The page.tsx server file calls projectChangeTitle BEFORE
+    // handing props to this client, so if the page wiring breaks
+    // and passes raw text, this test would catch the leak at the
+    // brief level (it never sanitizes itself).
+    const html = render({
+      title: "H2: Architect-led design-build advantage",
+      fullDescription:
+        "Adds a clear benefit statement drawn from a tracked AI prompt and examples Beacon tracked.",
+    });
+    const lower = html.toLowerCase();
+    expect(lower).not.toMatch(/prompt\s+[0-9a-f]{6,}/);
+    expect(lower).not.toContain("packet");
+  });
+
+  it("Act 4 empty state surfaces the pattern-timing line when one is present", () => {
+    const html = render({
+      events: [],
+      patternTimingNarrative: "Similar changes usually show signal around day 7.",
+    });
+    expect(html).toContain('data-change-detail-act4-empty="true"');
+    expect(html).toContain("Similar changes usually show signal around day 7");
+    // The generic fallback should NOT appear when we have real timing.
+    expect(html).not.toContain(
+      "Similar changes often need several readings before a clear result appears",
+    );
   });
 
   it("Act 4 renders humanized event rows for each event (no raw enum names)", () => {

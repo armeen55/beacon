@@ -55,15 +55,19 @@ export function ChangesV2Card({
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <h3
-            className="text-[14px] font-semibold text-foreground leading-snug"
+            // Two-line clamp keeps pathologically long titles from
+            // breaking the card layout. The projection helper already
+            // strips internal vocabulary; the clamp is the visual
+            // backstop.
+            className="text-[14px] font-semibold text-foreground leading-snug line-clamp-2 break-words"
             data-changes-card-title="true"
           >
             {row.title}
           </h3>
-          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-muted-foreground">
+          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-muted-foreground min-w-0">
             {row.targetUrl && (
               <span
-                className="font-mono truncate max-w-[280px]"
+                className="font-mono truncate max-w-full sm:max-w-[280px]"
                 data-changes-card-url="true"
                 title={row.targetUrl}
               >
@@ -71,7 +75,7 @@ export function ChangesV2Card({
               </span>
             )}
             <span
-              className="tabular-nums"
+              className="tabular-nums whitespace-nowrap"
               data-changes-card-shipped-at="true"
             >
               {formatShippedAt(row.shippedAt)}
@@ -79,11 +83,11 @@ export function ChangesV2Card({
           </div>
         </div>
 
-        <ChangesV2ResultPill pill={row.pill} />
+        <ChangesV2ResultPill pill={row.pill} className="shrink-0" />
       </div>
 
       <p
-        className="mt-2 text-[12.5px] leading-relaxed text-foreground/80"
+        className="mt-2.5 text-[12.5px] leading-relaxed text-foreground/80"
         data-changes-card-blurb="true"
       >
         {row.pill.blurb}
@@ -98,16 +102,23 @@ export function ChangesV2Card({
         </p>
       )}
 
-      <div className="mt-3">
+      <div className="mt-3.5 flex items-center justify-between gap-3">
         <Link
           // Preserve the v2 context — the proof brief at /changes/[id]
           // shares the same `?v2=1` switcher with the list page, so
           // customers stay on the v2 path through the click-through.
+          // Visual: button-shaped affordance (not bare link text) so
+          // "Open change" reads as the card's primary action.
           href={`/changes/${row.id}?v2=1`}
-          className="inline-flex items-center text-[12px] font-medium text-accent-primary hover:underline"
+          className={cn(
+            "inline-flex items-center gap-1 rounded-md border border-border/60 bg-surface-inset/40",
+            "px-2.5 py-1 text-[12px] font-semibold text-foreground/85 transition-colors",
+            "hover:bg-surface-inset hover:text-foreground hover:border-border",
+          )}
           data-changes-card-cta="open-change"
         >
-          Open change →
+          Open change
+          <span aria-hidden className="text-accent-primary">→</span>
         </Link>
       </div>
     </article>

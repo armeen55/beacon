@@ -109,12 +109,19 @@ describe("ChangesV2Client — proof timeline", () => {
         b: "live_verified",
       },
     });
-    expect(html).toContain('data-changes-counter="shippedThisMonth"');
-    expect(html).toContain('data-changes-counter="working"');
-    expect(html).toContain('data-changes-counter="needsReview"');
-    expect(html).toContain("Shipped this month");
-    expect(html).toContain("Working");
-    expect(html).toContain("Needs review");
+    // Polish bundle (2026-05-11): counters swapped from
+    // "Shipped this month / Working / Needs review" to the
+    // calendar-free triplet so the strip never reads 0/0/0 just
+    // because the customer is viewing on the wrong side of a
+    // month boundary.
+    expect(html).toContain('data-changes-counter="recentChanges"');
+    expect(html).toContain('data-changes-counter="watching"');
+    expect(html).toContain('data-changes-counter="needsAttention"');
+    expect(html).toContain("Recent changes");
+    expect(html).toContain("Watching for signal");
+    expect(html).toContain("Needs attention");
+    // The pre-polish labels must NOT appear.
+    expect(html).not.toContain("Shipped this month");
   });
 
   it("renders the empty state when there are no rows", () => {
@@ -235,6 +242,60 @@ describe("ChangesV2Client — proof timeline", () => {
     for (const term of banned) {
       expect(lower, `rendered HTML leaked '${term}'`).not.toContain(term);
     }
+  });
+
+  it("projects raw change_description into a customer-safe short title (strips prompt IDs + packet vocab)", () => {
+    // Polish bundle (2026-05-11) — the raw description below is
+    // a real fixture shape from the Ritz workspace. The v2 card
+    // must NEVER render `prompt 319557d1` or "packet's cited
+    // source pages" — those are internal operator terms.
+    const rawLeaky =
+      "H2: Architect-led design-build advantage — Adds a clear benefit statement drawn from prompt 319557d1 and the packet's cited source pages (examples: hdrremodeling.com, baysidebuildersgroup.com) showing architect-led firms are commonly recommended.";
+    const html = render({
+      rows: [makeRow({ id: "leaky", description: rawLeaky })],
+      classByChangelogId: { leaky: "live_verified" },
+    });
+
+    // Short title is exactly the headline before the em-dash.
+    expect(html).toContain("H2: Architect-led design-build advantage");
+
+    // Forbidden raw vocab must NEVER appear in the rendered HTML.
+    expect(html).not.toMatch(/prompt\s+[0-9a-f]{6,}/i);
+    expect(html).not.toContain("packet's cited");
+    expect(html).not.toContain("packet&#x27;s cited");
+    expect(html).not.toContain("hdrremodeling.com");
+    expect(html).not.toContain("baysidebuildersgroup.com");
+  });
+
+  it("right-rail items also receive the projected short title (no leak)", () => {
+    const rawLeaky =
+      "FAQ answer: Architect-led firm benefits — Provides a concise answer tied to prompt 7ee3216b and the packet's cited pages (examples: site.com).";
+    const html = render({
+      rows: [
+        makeRow({
+          id: "rail-leaky",
+          description: rawLeaky,
+          verdict: "too_early",
+          readyOn: {
+            readyDate: "2026-05-15",
+            daysFromChange: 7,
+            patternId: "pat-1",
+            helpingCount: 3,
+            sampleCount: 4,
+            confidenceTier: "high",
+            narrative: "internal",
+          },
+        }),
+      ],
+    });
+    // Rail rendered.
+    expect(html).toContain('data-changes-rail="waiting-for-signal"');
+    // Title preserved (the short headline).
+    expect(html).toContain("FAQ answer: Architect-led firm benefits");
+    // Forbidden raw vocab NEVER appears in the rail item either.
+    expect(html).not.toMatch(/prompt\s+[0-9a-f]{6,}/i);
+    expect(html).not.toContain("packet");
+    expect(html).not.toContain("site.com");
   });
 
   it("caps the timeline at 24 cards and surfaces a 'See full table' link when the list overflows", () => {

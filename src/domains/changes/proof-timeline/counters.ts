@@ -1,94 +1,94 @@
 /**
  * /changes proof timeline — top-of-page proof counters.
  *
- * Bundle (2026-05-10) — second pass at /changes per the maximum-depth
- * UI audit (~/.claude/plans/i-want-a-maximum-depth-curried-curry.md):
- * the proof-timeline header carries three counters
- * ("Shipped this month", "Working", "Needs review") so the operator
- * gets the customer-shaped headline before scanning the timeline.
+ * Polish bundle (2026-05-11) — hosted visual review caught the
+ * v1 counter triplet ("Shipped this month / Working / Needs
+ * review") reading as 0/0/0 even though the timeline showed many
+ * change cards. Root cause: every shipped change in the Ritz
+ * workspace was stamped in April, the page was viewed in May, so
+ * the calendar-month anchor honestly counted zero — but a
+ * counter strip of "0 / 0 / 0" makes the product feel empty even
+ * when the underlying data is rich.
  *
- * Pure module. No I/O, no DOM, no React. Lives next to result-pill so
- * the timeline client can call both from one boundary, and tests can
- * pin truth tables in Node.
+ * Fix: switch to a calendar-free triplet that reflects the
+ * shape of the page in front of the customer:
  *
- * The lifecycle vocabulary (`live_verified`, `pending_implementation`,
- * etc.) is internal to the classifier; it stays as code identifiers
- * and is never rendered as customer copy. The counter LABELS are the
- * customer surface; this module exposes both pieces and the renderer
- * picks the labels.
+ *   • Recent changes  — every row in the timeline view.
+ *   • Watching        — rows where Beacon is still looking for
+ *                       a result (pill kind ∈ {watching, too_early,
+ *                       live, no_signal_yet}).
+ *   • Needs attention — rows the customer should look at
+ *                       (pill kind ∈ {hurting, needs_review}).
+ *
+ * The "Helping" rows DON'T have their own counter — the customer
+ * sees those directly in the timeline cards (green pill +
+ * positive blurb), so a separate "Helping" counter would be
+ * redundant. The three counters answer the three questions a
+ * customer asks when they open this page: "How many changes are
+ * tracked?", "How many is Beacon still measuring?", and "How
+ * many do I need to look at right now?".
+ *
+ * Pure module. No I/O, no DOM, no React. Lives next to result-pill
+ * and title-projection so the timeline client can call them all
+ * from one boundary, and tests can pin truth tables in Node.
  */
-import type { LifecycleTabClass } from "@/domains/attribution/lifecycle-classification";
+import type { ProofPillKind } from "@/domains/changes/proof-timeline/result-pill";
 
 export type ProofCounterInput = {
-  /** ISO timestamp string from the changelog row. */
-  timestamp: string;
-  /** Classifier output for the row. `null` is treated as unclassified. */
-  lifecycleClass: LifecycleTabClass | null;
+  /** Resolved pill kind from the result-pill resolver. */
+  pillKind: ProofPillKind;
 };
 
 export type ProofCounters = {
-  /** Rows verified-live or detected by scan that landed in the
-   *  current calendar month, relative to `now`. Excludes pending /
-   *  needs-review / imported_legacy. */
-  shippedThisMonth: number;
-  /** Accepted-but-not-yet-on-the-page rows. */
-  working: number;
-  /** Needs-review rows (ambiguous scan match). */
-  needsReview: number;
+  /** Total rows in the timeline view. Equals `rows.length` for
+   *  any non-empty page. */
+  recentChanges: number;
+  /** Rows Beacon is still measuring — calm, in-flight bucket. */
+  watching: number;
+  /** Rows the customer should review — hurting + needs_review. */
+  needsAttention: number;
 };
 
 /**
- * Compute the three proof counters from already-classified rows.
- *
- * @param rows  An array of {timestamp, lifecycleClass} objects. The
- *              minimal projection of EnrichedChangeRow needed for
- *              counting — keeps this module testable in isolation
- *              from the heavy types in `scorecard-client`.
- * @param now   Override the "current time" for tests. Defaults to
- *              `new Date()`.
+ * Customer-facing pill-kind sets that drive the two action-
+ * meaningful counters. Exported so tests and consumers can verify
+ * the mapping without re-deriving it.
+ */
+export const WATCHING_PILL_KINDS: ReadonlySet<ProofPillKind> = new Set<ProofPillKind>([
+  "watching",
+  "too_early",
+  "live",
+  "no_signal_yet",
+]);
+
+export const NEEDS_ATTENTION_PILL_KINDS: ReadonlySet<ProofPillKind> = new Set<ProofPillKind>([
+  "hurting",
+  "needs_review",
+]);
+
+/**
+ * Compute the three proof counters from already-resolved pill
+ * kinds. Pure projection — no time math, no calendar gates, no
+ * lifecycle classification leaks.
  */
 export function computeProofCounters(
   rows: ReadonlyArray<ProofCounterInput>,
-  now: Date = new Date(),
 ): ProofCounters {
-  let shippedThisMonth = 0;
-  let working = 0;
-  let needsReview = 0;
-
-  const currentYear = now.getUTCFullYear();
-  const currentMonth = now.getUTCMonth(); // 0-indexed
-
+  let watching = 0;
+  let needsAttention = 0;
   for (const row of rows) {
-    if (row.lifecycleClass === "pending_implementation") {
-      working += 1;
-    } else if (row.lifecycleClass === "needs_review") {
-      needsReview += 1;
-    }
-
-    // "Shipped" = the change is actually on the page (verified-live
-    // or detected by scan). Pending rows are NOT shipments — they are
-    // future shipments waiting on confirmation. Imported legacy
-    // entries pre-date Beacon's tracking and are excluded too.
-    if (
-      row.lifecycleClass === "live_verified" ||
-      row.lifecycleClass === "scan_confirmed"
-    ) {
-      const t = new Date(row.timestamp);
-      if (
-        !Number.isNaN(t.getTime()) &&
-        t.getUTCFullYear() === currentYear &&
-        t.getUTCMonth() === currentMonth
-      ) {
-        shippedThisMonth += 1;
-      }
-    }
+    if (WATCHING_PILL_KINDS.has(row.pillKind)) watching += 1;
+    if (NEEDS_ATTENTION_PILL_KINDS.has(row.pillKind)) needsAttention += 1;
   }
-
-  return { shippedThisMonth, working, needsReview };
+  return {
+    recentChanges: rows.length,
+    watching,
+    needsAttention,
+  };
 }
 
 export const PROOF_COUNTER_LABEL: Record<keyof ProofCounters, string> = {
-  shippedThisMonth: "Shipped this month",
-  working: "Working",
-  needsReview: "Needs review",
+  recentChanges: "Recent changes",
+  watching: "Watching for signal",
+  needsAttention: "Needs attention",
 };

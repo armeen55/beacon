@@ -46,6 +46,10 @@ import {
 } from "@/domains/changes/proof-timeline/event-humanizer";
 import { resolveNextActions } from "@/domains/changes/proof-timeline/next-action";
 import {
+  projectChangeTitle,
+  clampShortTitle,
+} from "@/domains/changes/proof-timeline/title-projection";
+import {
   changelogJoinKey,
   classifyChangelogRow,
   indexEditsByJoinKey,
@@ -329,9 +333,21 @@ export default async function ChangeDetailPage({
         : cta,
     );
 
+    // Customer-safe title projection — strips internal prompt IDs,
+    // "packet" vocabulary, and runaway parenthetical example lists.
+    // The header uses the short form; Act 1 surfaces the cleaned
+    // full description ONLY when it adds information beyond the
+    // header (avoids the duplicate-render bug the visual review
+    // flagged).
+    const projected = projectChangeTitle(
+      entry.change_description || entry.asset_name,
+    );
+    const shortTitle = clampShortTitle(projected.shortTitle);
+
     return (
       <ChangeDetailV2Client
-        title={entry.change_description || entry.asset_name || "Untitled change"}
+        title={shortTitle}
+        fullDescription={projected.fullDescription}
         targetUrl={entry.url ?? null}
         shippedAt={entry.timestamp}
         pill={pill}
