@@ -103,7 +103,13 @@ export async function updateSession(request: NextRequest): Promise<NextResponse>
     // pattern — NOT a prefix — so sibling routes added later require a
     // deliberate middleware edit.
     path === "/api/cron/rebuild-citation-evidence-index" ||
-    path === "/api/cron/scan";
+    path === "/api/cron/scan" ||
+    // 2026-05-11 Automation Reliability Bundle — Vercel-cron-invoked
+    // watchdog that detects skipped GitHub Actions schedules and
+    // dispatches the daily-native-poll workflow. Same exact-match
+    // pattern as the other machine-auth endpoints; the route handler
+    // enforces its own `Authorization: Bearer ${CRON_SECRET}` check.
+    path === "/api/cron/poll-watchdog";
 
   if (!user && !isPublic) {
     const redirectUrl = request.nextUrl.clone();

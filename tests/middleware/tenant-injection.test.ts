@@ -179,6 +179,17 @@ describe("Sprint 7 Phase 7.4 — middleware tenant injection", () => {
     expect(res.headers.get("location")).toBeNull();
   });
 
+  // 2026-05-11 Automation Reliability Bundle — Vercel-cron watchdog
+  // that dispatches the daily-native-poll workflow when GitHub
+  // Actions' scheduler misses a fire window.
+  it("/api/cron/poll-watchdog is in the machine-auth allowlist (no redirect when unauthenticated)", async () => {
+    supabaseState.user = null;
+    const req = makeRequest("/api/cron/poll-watchdog");
+    const res = await updateSession(req);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("location")).toBeNull();
+  });
+
   it("sibling /api/cron/* paths NOT in the explicit allowlist still redirect (exact-match contract)", async () => {
     // The allowlist uses exact-match, not prefix, so a future
     // /api/cron/something-new path that hasn't been deliberately
