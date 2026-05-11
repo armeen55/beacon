@@ -7,6 +7,127 @@
 
 ---
 
+## 2026-05-11 — Bundle: Prompts v2B detail brief (`/prompts/[id]?v2=1` gated)
+
+Closes the Prompts customer loop. `/prompts?v2=1` strategic surface (v2A) shipped earlier today; this bundle redesigns the click-through detail page as a 5-act proof brief mirroring the Changes detail pattern, without changing the legacy `/prompts/[id]` drilldown or any backend.
+
+### Scope
+
+**Touched (pure presentation + pure helpers):**
+- New `/prompts/[id]?v2=1` switch path; legacy drilldown remains default and fully functional.
+- New `src/components/prompts/v2/prompt-route-id.ts` — `encodePromptRouteId` / `decodePromptRouteId` (mirrors recommendations pattern). Defensive: empty / whitespace route ids short-circuit to the calm not-found state without ever reaching the canonical store.
+- New `src/domains/prompts/v2-brief-projection.ts` — pure drilldown → 5-act brief projector. Trims "Likely action:" suffix from the summary; emits header + whyItMatters + platforms + competitors + recentMovement + nextActions.
+- New `src/app/(shell)/prompts/[id]/prompt-detail-v2-client.tsx` — pure 5-act presentation client.
+- New `src/app/(shell)/prompts/[id]/prompt-detail-v2-not-found.tsx` — calm not-found state.
+- `src/app/(shell)/prompts/[id]/page.tsx` — added `shouldUsePromptsDetailV2` switcher + searchParams handoff + v2 prop projection + route-id helper handoff.
+- `src/components/prompts/v2/prompts-v2-card.tsx` — `/prompts?v2=1` card now links via `encodePromptRouteId`.
+
+**NOT touched:**
+- Legacy `/prompts/[id]` drilldown (`SoWhatBlock`, `ActionBridge`, `PlatformSplit`, `PrimaryAnswerBlock`, `CompetitorList`, `DescriptorCloud`, `AnswerShapeCallout`, `RawEvidence`) — still default, fully functional.
+- `/prompts` v2A strategic surface — only the card href was updated (uses the route-id encoder; same destination path).
+- Today / Recommendations / Changes.
+- `BEACON_PROMPTS_V2` env (NOT flipped).
+- `buildPromptDrilldown`, `loadFreshCanonicalData`, `classifyPromptOpportunity` — no domain logic changes.
+- Supabase, polls, scans, cron, paid APIs, migrations.
+
+### Switcher contract
+
+| Input | Renders |
+|---|---|
+| `/prompts/[id]` (default) | Legacy drilldown — production unchanged |
+| `/prompts/[id]?legacy=1` | Legacy (escape hatch, wins over env) |
+| `/prompts/[id]?v2=1` | v2 5-act prompt brief |
+| `BEACON_PROMPTS_V2=true` env | v2 default flip (NOT set yet; shared flag with list page) |
+| Empty / whitespace route id | Calm not-found via `PromptDetailV2NotFound` |
+| Unknown route id (well-formed but no match) | Legacy `notFound()` path |
+
+### Route-id safety
+
+`encodePromptRouteId` wraps `encodeURIComponent` so any future provenance id with `:`, ` `, `[`, `]`, `/`, or non-ASCII round-trips safely. `decodePromptRouteId` rejects empty / whitespace / non-string inputs as `null` — the page treats that as not-found rather than firing a junk lookup. Round-trip test pins `"create_cluster_page:geo:Los Altos__add_faq__faq_question[new]:abc"` → `encode` → `decodeURIComponent` → identity.
+
+### 5-act anatomy (locked by tests)
+
+| | Surface | data-attrs |
+|---|---|---|
+| Header | back link → `/prompts?v2=1` · prompt text `<h1>` · ONE customer-safe category pill · summary line (no "Likely action:" suffix) · optional per-platform badges sorted strongest-first | `data-prompt-detail-back="true"` · `data-prompt-detail-title="true"` · `data-prompt-detail-pill="<kind>"` · `data-prompt-detail-summary="true"` · `data-prompt-detail-header-platforms="true"` |
+| Act 1 — What you're tracking | prompt text · "Beacon classifies this prompt as X" · "why it matters" (when topic/location present) OR calm "Beacon tracks every reading" fallback | `data-prompt-detail-act="act-1"` · `data-prompt-detail-act1-why="true"` OR `data-prompt-detail-act1-why-empty="true"` |
+| Act 2 — Where you stand | per-platform cards with state tone + microcopy + honest detail copy + optional sparkline (only when ≥2 distinct days), OR calm "No platform readings yet" | `data-prompt-detail-act="act-2"` · `data-prompt-detail-platform="<key>"` · `data-prompt-detail-platform-state="<state>"` · `data-prompt-detail-platform-sparkline="true"` |
+| Act 3 — Who else gets cited | competitor rows with appearances/total + summary, OR calm "No consistent competitor pattern yet." | `data-prompt-detail-act="act-3"` · `data-prompt-detail-competitor="<name>"` OR `data-prompt-detail-act3-empty="true"` |
+| Act 4 — What changed recently | humanized movement rows with customer-safe kinds (`first_cited`, `came_back`, `dropped`, `mentions_jumped`, `mentions_slowed`) + tone-tinted borders, OR calm "Beacon is still gathering readings for this prompt." | `data-prompt-detail-act="act-4"` · `data-prompt-detail-movement-kind="<kind>"` · `data-prompt-detail-movement-tone="<tone>"` |
+| Act 5 — What to do next | ordered CTAs from pure resolver: Open recommendation (when linked) / See related recommendations (missing/outranked/almost_there) / Keep monitoring (winning) / Back to prompts (still_learning) · always-on legacy escape "Open full record" · always-on "Back to prompts" | `data-prompt-detail-act="act-5"` · `data-prompt-detail-cta="<kind>"` · `data-prompt-detail-cta-emphasis="primary"\|"secondary"` |
+
+All five acts render as semantic `<h2>` sections — same pattern as Changes brief.
+
+### Evidence / platform / competitor rendering
+
+- **Per-platform sparklines** only when the prompt has rawSamples on ≥2 distinct days for that platform. Single-day sparkline = dishonest trend; suppressed.
+- **Competitor rows** capped at 5; pre-formatted "Cited in N of M readings." sentences.
+- **Recent movement** detection: pure heuristic over rawSamples sorted by platform + time. Conservative — emits only confident state transitions (absent → cited, cited → absent, etc.). Capped at 3 newest-first.
+- **Customer-safe movement kinds** are distinct from operator enum names (`mentions_jumped` vs operator's `mention_surge`; `mentions_slowed` vs operator's `mention_decline`) — pinned by no-leak test.
+
+### Next-step CTA decision table
+
+| Category | Linked rec? | Primary CTA |
+|---|---|---|
+| missing / outranked / almost_there | no | "See related recommendations" → `/recommendations?v2=1` |
+| any | yes | "Open recommendation" → `/recommendations?v2=1` |
+| winning | no | "Keep monitoring" → self (`/prompts/[id]?v2=1`) |
+| still_learning | no | "Back to prompts" → `/prompts?v2=1` |
+
+Always followed by: "Open full record" (→ `/prompts/[id]?legacy=1`) + "Back to prompts" (→ `/prompts?v2=1`).
+
+### Tests added (58 new tests, all green)
+
+- `tests/components/prompts/prompt-route-id.test.ts` (5 tests): encode pass-through + unsafe-char encoding + non-ASCII + round-trip + decode rejection rules.
+- `tests/domains/prompts/v2-brief-projection.test.ts` (28 tests): header summary trim + whyItMatters branches + platform sort/detail/sparkline rules + competitor cap + recent-movement transitions + next-actions branches + no-leak.
+- `tests/app/prompts/prompt-detail-v2-client.test.tsx` (17 tests): layout marker + back link + header + 5 acts with semantic h2 + Act 1 fallback + Act 2 platform cards + Act 2 sparkline gating + Act 3 competitor rows + Act 3 empty state + Act 4 movement rows + Act 4 fallback + Act 5 CTA emphasis + not-found state + no-leak.
+- `tests/routes/prompts-id-v2-switcher.test.ts` (7 tests): full switcher contract incl. "?legacy=1 wins over env" + empty-id → not-found + unknown-id → legacy notFound().
+
+### Verification
+
+| Check | Result |
+|---|---|
+| `npm run typecheck` | ✅ clean |
+| Targeted v2 + adjacent suites (9 files) | ✅ 97/97 |
+| `tests/architecture/` (forbidden-vocab guardrail green) | ✅ 2338/2338 |
+| `npm run test` (full suite) | ✅ 7786/7786 across 410 files (+58 since v2A baseline 7728) |
+
+### Constraints honored
+
+- ✅ No Supabase mutations
+- ✅ No paid APIs
+- ✅ No migrations
+- ✅ No backend / domain logic changes (`buildPromptDrilldown` + classifier untouched)
+- ✅ No data contract changes
+- ✅ Today / Recommendations / Changes untouched
+- ✅ Polling / watchdog automation untouched
+- ✅ Legacy `/prompts/[id]` drilldown fully functional and unchanged as default
+- ✅ Legacy `/prompts` decision view fully functional and unchanged as default
+- ✅ `/prompts?v2=1` v2A unchanged except its card href now flows through the route-id encoder (functionally identical for simple ids)
+- ✅ `BEACON_PROMPTS_V2` env not flipped
+
+### Ready for hosted visual review?
+
+**Yes — both `/prompts?v2=1` AND `/prompts/[id]?v2=1` are ready.** The full Prompts customer loop now reads coherently:
+
+1. `/prompts?v2=1` (v2A strategic surface) → 5-counter strip + 5 category sections + cards.
+2. Click "View details →" → `/prompts/[id]?v2=1` (v2B 5-act brief) — header, "What you're tracking", "Where you stand" (per-platform), "Who else gets cited", "What changed recently", "What to do next" (CTAs route to `/recommendations?v2=1` or back to prompts).
+3. `?legacy=1` on either surface continues to render the legacy view as the always-on escape hatch.
+
+### Can `BEACON_PROMPTS_V2=true` be flipped after visual review?
+
+**Yes — with confidence.** The flag drives BOTH `/prompts` and `/prompts/[id]` with one toggle, so flipping it delivers the complete v2 Prompts customer story in a single change (same pattern as the Changes flip). `?legacy=1` is always-on revert; `?v2=1` is always-on preview. Legacy paths fully preserved and tested.
+
+Recommended sequence after Armeen's hosted visual review:
+1. Open `/prompts?v2=1` on a signed-in browser — verify the 5 counters + 5 sections + cards.
+2. Click a "View details →" card — verify the 5-act brief renders cleanly.
+3. Walk through Act 5 CTAs (especially "Open recommendation" / "See related recommendations").
+4. Hit `/prompts/[id]?legacy=1` on a known-good id — verify the legacy drilldown still renders.
+5. Flip `BEACON_PROMPTS_V2=true` in Vercel.
+6. `?legacy=1` stays as the always-on revert for either surface.
+
+---
+
 ## 2026-05-11 — Bundle: Prompts v2A strategic surface (`?v2=1` gated)
 
 `/prompts` v2A pass per the maximum-depth UI audit. Goal: keep the legacy 5-category framing (the strongest piece of the page today) and make each prompt feel strategic — "buyer questions AI answers with or without you" — without changing the data layer, the legacy view, the existing `/prompts/[id]` drilldown, or any backend.

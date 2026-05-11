@@ -28,6 +28,7 @@ import { cn } from "@/lib/utils";
 import type { PromptsV2CardRow } from "@/domains/prompts/v2-projection";
 
 import { PromptsV2PlatformBadge } from "./prompts-v2-platform-badge";
+import { encodePromptRouteId } from "./prompt-route-id";
 
 const CATEGORY_PILL_TONE: Record<PromptsV2CardRow["category"]["tone"], string> = {
   success: "border-status-success/35 bg-status-success/[0.08] text-status-success",
@@ -136,7 +137,7 @@ export function PromptsV2Card({
           // detail page (that's v2B). Linking with `?v2=1` is a
           // forward-compatibility hook for when the detail also
           // gets a switcher; today the legacy page ignores it.
-          href={`/prompts/${encodeURIComponent(row.promptId)}?v2=1`}
+          href={`/prompts/${encodePromptRouteId(row.promptId)}?v2=1`}
           className={cn(
             "inline-flex items-center gap-1 rounded-md border border-border/60 bg-surface-inset/40",
             "px-2.5 py-1 text-[12px] font-semibold text-foreground/85 transition-colors",

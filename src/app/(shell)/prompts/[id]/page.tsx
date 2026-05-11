@@ -10,6 +10,33 @@ import {
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { buildPromptDrilldown } from "@/domains/prompts/prompt-drilldown";
 import type { PromptOpportunityCategory } from "@/domains/prompts/opportunity-classify";
+import {
+  encodePromptRouteId,
+  decodePromptRouteId,
+} from "@/components/prompts/v2/prompt-route-id";
+import { projectPromptDrilldownToBrief } from "@/domains/prompts/v2-brief-projection";
+import { PromptDetailV2Client } from "./prompt-detail-v2-client";
+import { PromptDetailV2NotFound } from "./prompt-detail-v2-not-found";
+
+/**
+ * Prompts v2B switcher (Bundle 2026-05-11, plan:
+ * `~/.claude/plans/i-want-a-maximum-depth-curried-curry.md`).
+ *
+ * Routing rules (mirrors `/prompts`, `/changes/[id]`, etc.):
+ *   - Default                       → legacy drilldown (current production).
+ *   - `?legacy=1` query             → legacy (escape hatch — wins).
+ *   - `?v2=1` query                 → v2 5-act proof brief.
+ *   - `BEACON_PROMPTS_V2=true` env  → v2 becomes the default (NOT
+ *                                      flipped yet — shared with the
+ *                                      list page).
+ */
+function shouldUsePromptsDetailV2(
+  searchParams: Record<string, string | string[] | undefined>,
+): boolean {
+  if (searchParams.legacy === "1") return false;
+  if (searchParams.v2 === "1") return true;
+  return process.env.BEACON_PROMPTS_V2 === "true";
+}
 
 /**
  * /prompts/[id] — the decision-evidence drilldown (Phase v5 Commit 3).
@@ -27,11 +54,30 @@ import type { PromptOpportunityCategory } from "@/domains/prompts/opportunity-cl
  */
 export default async function PromptDrilldownPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const { id } = await params;
-  const promptId = decodeURIComponent(id);
+  const [{ id }, sp] = await Promise.all([
+    params,
+    searchParams ?? Promise.resolve({}),
+  ]);
+  // Defensive id decoding through the v2 route-id helper. Next.js
+  // already decodes the path segment once before it reaches us; the
+  // helper turns empty/whitespace ids into `null` so we can short-
+  // circuit to the calm not-found state instead of querying the
+  // canonical store with a junk id.
+  const decoded = decodePromptRouteId(id);
+  if (decoded === null) {
+    // v2 + legacy both render the same calm not-found here; the
+    // legacy `notFound()` path stays available for downstream
+    // failures, but a literally-empty route id never reaches the
+    // legacy renderer.
+    return <PromptDetailV2NotFound />;
+  }
+  const promptId = decoded;
+  const useV2 = shouldUsePromptsDetailV2(sp);
 
   await ensureCanonicalStoresSeeded();
 
@@ -92,6 +138,26 @@ export default async function PromptDrilldownPage({
     answerTexts,
     now: new Date(),
   } as Parameters<typeof buildPromptDrilldown>[0]);
+
+  if (useV2) {
+    // v2 proof brief — reuses the SAME `drilldown` object the legacy
+    // renderer consumes; the projector is pure and lives in
+    // `src/domains/prompts/v2-brief-projection.ts`. No additional
+    // fetches, no server actions, no domain logic changes.
+    //
+    // `hasLinkedRecommendation` defaults to false today — the prompt
+    // → recommendation linkage is not currently surfaced through the
+    // drilldown shape. When that becomes available, this single
+    // flag wires the CTA from "See related recommendations" to a
+    // direct "Open recommendation" link.
+    const briefProps = projectPromptDrilldownToBrief({
+      drilldown,
+      promptRouteId: encodePromptRouteId(promptId),
+      hasLinkedRecommendation: false,
+      includeLegacyEscape: true,
+    });
+    return <PromptDetailV2Client {...briefProps} />;
+  }
 
   return (
     <div className="max-w-3xl">
