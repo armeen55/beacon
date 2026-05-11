@@ -7,6 +7,120 @@
 
 ---
 
+## 2026-05-10 — UI Audit Bundle 3: forbidden customer vocabulary cleanup + guardrail
+
+Bundle 3 of the maximum-depth UI/product audit (`~/.claude/plans/i-want-a-maximum-depth-curried-curry.md`). Strips operator/internal vocabulary out of customer-facing rendered copy across the 5 focus routes (`/today`, `/recommendations`, `/changes`, `/changes/[id]`, `/prompts`) plus shared components and adjacent surfaces (`/settings/prompts`, `/settings/methodology`, `/topics/opportunity/[id]`, replication briefs). The audit's premise: Bundle 1 shipped a premium v2 layout — but if customer-facing copy still leaks "Z-score," "scheduled poll at 07:00 UTC," "decision queue," "evidence tier," and other internal vocabulary, the premium UI inherits an internal-tool feel. Bundle 3 is the cheapest premium-perception lift and de-risks Bundle 2's new card surfaces from inheriting stale strings.
+
+### Mapping applied (per audit Task 2)
+
+| Forbidden phrase | Replacement |
+|---|---|
+| `07:00, 08:30, 10:00 UTC` / `scheduled poll` | `daily AI check`, `checks AI visibility every morning`, `throughout the morning` |
+| `Z-score` / `URL Z-score engine` | confidence labels (`high/medium/low confidence`), `Early per-page signal` |
+| `decision queue` (loading + error) | `recommendations` |
+| `evidence tier` (rendered label) | `confidence` |
+| `native observations` / `native observation` | `AI readings` / `AI checks` |
+| `pattern brain will sharpen` | `Beacon will sharpen` |
+| `First Appearance`, `Visibility Regained`, `Mention Surge`, `Visibility Lost`, `Mention Decline` (Title-Case ENUMs) | `First time cited`, `Came back in the rankings`, `Mentions jumped`, `Dropped from the rankings`, `Mentions slowed down` |
+| `Recommendation lifecycle status` (aria-label) / `Lifecycle` (header) | `Recommendation status` / `Status` |
+| `review poll health` / `Check poll health above` | `see data status` |
+| `10:45 UTC` (backup-canary cron threshold) | `the morning` (plain-window check) |
+| `next 10:00 UTC cron adds` (prompt drilldown) | `each daily check typically adds` |
+
+### Files changed (28)
+
+**Customer-facing route copy (12 files):**
+- `src/app/(shell)/today-client.tsx` — welcome card body + stale-data banner footer
+- `src/app/(shell)/today-data.ts` — hurting-rationale and winning-action card text (3 strings: removed raw Z-score from rationale, replaced "URL-level Z-score" suffix with "(measured per page)", replaced bullet "Z-score N.N (X confidence)" with "Signal strength: X confidence")
+- `src/app/(shell)/recommendations/loading.tsx` — `description="Loading the decision queue…"` → `Loading recommendations…`
+- `src/app/(shell)/recommendations/page.tsx` — error / unavailable copy
+- `src/app/(shell)/changes/page.tsx` — `pattern brain will sharpen` → `Beacon will sharpen`
+- `src/app/(shell)/changes/[id]/page.tsx` — `EVENT_TYPE_LABELS` rewritten + the rendered URL-Z-score-engine subline
+- `src/app/(shell)/prompts/page.tsx` — empty state, lookback footer, early-category lead
+- `src/app/(shell)/settings/prompts/page.tsx` — `tomorrow's 10:00 UTC cron` → `tomorrow's daily AI check`
+- `src/app/(shell)/settings/methodology/page.tsx` — `high evidence tier` → `high confidence`
+- `src/app/(shell)/topics/opportunity/[id]/page.tsx` — `<SectionTitle>Lifecycle</SectionTitle>` → `Status`
+
+**Shared components (6 files):**
+- `src/components/today/data-freshness-heartbeat.tsx` — pending / stale / needs_attention / no_data sublines and site-scan no-data label rewritten in plain English
+- `src/components/today/poll-health-block.tsx` — failure (single-platform) and pending (both-platforms) sublines
+- `src/components/today/poll-health-calm-banner.tsx` — banner subline
+- `src/components/today/prompts-teaser.tsx` — too-early summary sentence
+- `src/components/today/today-scoreboard.tsx` — first-run citations meta
+- `src/components/today/lifecycle-strip.tsx` — aria-label + visible "Lifecycle" header
+- `src/components/display/early-signal-pill.tsx` — tooltip title (was leaking "z-score above 1.2")
+
+**Domain reasoning strings rendered to user (3 files):**
+- `src/domains/prompts/opportunity-classify.ts` — early-precedence reasoning now uses `AI readings` not `native observations`
+- `src/domains/prompts/prompt-drilldown.ts` — early category likely-action copy
+- `src/domains/recommendations/resolve-page-intent.ts` — confidenceReason strings (3 occurrences)
+- `src/domains/product/replication-engine.ts` — replication source-change observed-evidence string (`evidence tier` → `confidence`)
+
+### NEW architecture guardrail
+
+**`tests/architecture/forbidden-customer-vocabulary-contract.test.ts`** (~340 lines, 23 invariants). Walks `src/app/(shell)/**` + `src/components/**` recursively, excludes `diagnostics/` and `*.test.{ts,tsx}` and `__tests__/`, strips JSDoc + line + block comments AND `import` statements (so module-path identifiers like `@/lib/persistence/dual-write` and `@/domains/answer-intelligence/...` don't false-positive). Per-rule allowedFiles list lets specific code-identifier survivals (e.g., `verdict-provenance.ts` operatorDetail, `decision-matrix` module name) pass. The guardrail covers 19 forbidden phrases:
+
+- Cron-time leakage: `07:00, 08:30`, `10:00 UTC`, `10:45 UTC`, `scheduled poll`, `Next poll at`
+- Statistical jargon: `Z-score`
+- Lifecycle / decision-queue / decision-matrix / pattern-brain / answer-intelligence
+- `native observations` (singular and plural)
+- `Lambda cold` / `dual-write` / `evidence tier`
+- 5 raw event-type Title-Case labels
+- `Loading the decision queue`
+
+Each rule has a rationale and an allowedFiles list. A regression that re-introduces any rule's phrase into customer-facing rendered copy fails CI with a clear error message:
+
+```
+Bundle 3 — '<phrase>' must not appear in customer-facing source.
+Reason: <rationale>
+Found in:
+  • src/<file>:<line>
+      <excerpt>
+Fix: replace the rendered phrase, OR (if it is a legitimate code
+identifier that survives comment stripping) add the file path to that
+rule's allowedFiles list in
+tests/architecture/forbidden-customer-vocabulary-contract.test.ts.
+```
+
+### Tests reconciled (7 pre-existing tests pinning OLD strings)
+
+- `tests/architecture/today-empty-state-copy.test.ts` — D3 first-run KPI guidance (string + assertion message updated; behavior preserved)
+- `tests/architecture/today-action-card-copy.test.ts` — T3 lineage bullet now pins `Signal strength: ${h.confidence} confidence.` shape with a NEW negative pin against the legacy `Z-score N.N` literal
+- `tests/architecture/demo-path-fixes-2026-05-06.test.ts` — 3 invariants updated: welcome card now pins `daily AI check` + `tomorrow morning` (with whitespace-tolerant regex) + negative pins on cron-time leaks (with `stripComments` so JSDoc-internal cron references don't false-positive); `/prompts` and `PollHealthBlock` invariants flipped from positive cron-time pins to plain-English positive pins + cron-leak negative pins
+- `src/components/today/data-freshness-heartbeat.test.tsx` — pending / stale / no_data band invariants pin the new copy + add cross-cutting cron-leak negative pins
+- `tests/components/today/prompts-teaser.test.tsx` — too-early sentence pin (`/next AI reading/` + negative `/10:00 UTC/`)
+- `tests/domains/prompts/opportunity-classify.test.ts` — early-precedence reasoning regex (`/No AI readings/` + `/Only N AI readings/`)
+
+### Verification
+
+- `npm run typecheck` — CLEAN.
+- `npm run test` — **7401/7401 passed** (+47 since Bundle 1 baseline 7354). Zero regressions; net-new invariants are the 23 guardrail rules + Bundle 3 negative pins added across the reconciled tests.
+- Zero data-layer changes: no Supabase mutations, no paid APIs, no migrations, no domain logic, no schema, no data contracts, no cron / poll / scan / budget edits.
+- Zero changes to v2 /today layout structure: Bundle 1's `today-v2-client.tsx` + 3 v2 cards untouched. Bundle 1 cards inspected — already clean of forbidden vocabulary by construction.
+
+### Code identifiers preserved (per audit "non-rendered code identifiers" exception)
+
+The audit explicitly allows code identifiers (TypeScript types, variable names, enum keys, props, data-attributes) to keep their internal names because changing them would touch domain/data contracts. These remain unchanged:
+
+- `lifecycleSummary`, `LifecycleTabClass`, `data-lifecycle-*`, `data-today-lifecycle-strip`
+- `evidence_tier` (field name on attribution record), `evidence_hash`
+- `stableKey`, `resolver_tier`, `engine_confidence`
+- `first_appearance` / `visibility_regained` / `mention_surge` / `visibility_lost` / `mention_decline` enum KEYS (only the rendered Title-Case LABELS were changed)
+- `@/domains/answer-intelligence/*` module paths, `@/lib/persistence/dual-write` module path
+- `decision-matrix` / `command-center-data` module names
+- `operatorDetail` strings in `src/domains/attribution/verdict-provenance.ts` (operator-only by design — allow-listed in the guardrail)
+
+### Hosted rollout impact
+
+Hosted preview at `/?v2=1` and `/?legacy=1` both inherit the cleaner copy automatically — Bundle 3 changes the underlying components both layouts consume. No env flag flip needed; the cleanup ships on this commit.
+
+### What's next
+
+- **Bundle 2** — `/recommendations` from table + drawer to card stack + per-rec `/recommendations/[id]` URL. Per the audit's recommendation, Bundle 2 now inherits clean copy (no operator vocabulary will leak into the new card surfaces).
+- The forbidden-vocabulary guardrail will catch any regression in Bundle 2's new components.
+
+---
+
 ## 2026-05-10 — UI Audit Bundle 1: gated v2 /today layout (hero + 3 cards)
 
 Following the maximum-depth UI/product audit (`~/.claude/plans/i-want-a-maximum-depth-curried-curry.md`), this is Bundle 1 of the staged redesign. The audit's core finding: `/today` renders 19 stacked sections, fragmenting the operator's morning answer to "is my AI visibility healthy and what should I do?" across too many surfaces. Bundle 1 ships an opt-in v2 layout that compresses the above-the-fold view to one hero + three cards (Do today / Working / Recent wins), with a "Show full data" disclosure for the heavy drilldown surfaces. The legacy 19-section layout remains the default until the env flag is flipped.
