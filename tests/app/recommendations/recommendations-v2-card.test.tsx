@@ -128,11 +128,42 @@ describe("Bundle 2A — RecommendationV2Card", () => {
     expect(html).toContain(">Beat Greenberg Constru…<");
   });
 
-  it("renders the primary 'Review →' CTA pointing back into legacy view", () => {
+  it("renders the primary 'Review →' CTA pointing at the v2 brief page (Bundle 2B)", () => {
     const html = renderToStaticMarkup(<RecommendationV2Card row={makeRow()} />);
     expect(html).toContain('data-recommendation-v2-cta="primary"');
-    expect(html).toContain("/recommendations?legacy=1#rec-rec-fixture-1");
+    // Bundle 2B (2026-05-10): the CTA now targets the new detail page
+    // /recommendations/<encoded-row-id>. The row's id contains `:` and
+    // `[` / `]` characters that must be encoded.
+    expect(html).toContain(
+      "/recommendations/rec-fixture-1__edit-1",
+    );
+    // Negative pin: the old legacy-anchor CTA must NOT come back without
+    // a matching code change.
+    expect(html).not.toContain("/recommendations?legacy=1#rec-");
     expect(html).toContain("Review →");
+  });
+
+  it("encodes URL-unsafe characters in the row id (Bundle 2B route-id contract)", () => {
+    const html = renderToStaticMarkup(
+      <RecommendationV2Card
+        row={makeRow({
+          id: "create_cluster_page:geo:Los Altos__add_faq__faq_question[new]:abc",
+        })}
+      />,
+    );
+    // Encoded form: `:` → %3A, ` ` → %20, `[` → %5B, `]` → %5D.
+    expect(html).toContain(
+      "/recommendations/create_cluster_page%3Ageo%3ALos%20Altos__add_faq__faq_question%5Bnew%5D%3Aabc",
+    );
+    // Negative: raw unsafe characters must NOT appear inside the href
+    // path segment.
+    const hrefMatch = html.match(/href="\/recommendations\/[^"]+"/);
+    expect(hrefMatch).not.toBeNull();
+    if (hrefMatch) {
+      expect(hrefMatch[0]).not.toMatch(/:[^/]/); // no raw `:` after the prefix
+      expect(hrefMatch[0]).not.toMatch(/\[/);
+      expect(hrefMatch[0]).not.toMatch(/\]/);
+    }
   });
 
   it("never renders raw schema field names, IDs, hashes, or score numbers", () => {

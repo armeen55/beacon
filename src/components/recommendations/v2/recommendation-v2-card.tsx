@@ -36,6 +36,7 @@ import {
   type RecommendationActionRow,
 } from "@/domains/recommendations/recommendation-action-rows";
 import { cn } from "@/lib/utils";
+import { encodeRecommendationRouteId } from "./recommendation-route-id";
 
 // ─────────────────────────────────────────────────────────────────────
 // Pill + dot tone tables (operator-locked vocabulary)
@@ -156,9 +157,9 @@ const CHIP_TONE_CLASS: Record<Chip["tone"], string> = {
 
 export type RecommendationV2CardProps = {
   row: RecommendationActionRow;
-  /** When provided, "Review" links back into the legacy view with a
-   *  deep link to the row's anchor. Defaults to /recommendations?legacy=1
-   *  with the row id appended. */
+  /** When provided, "Review" links to a custom href. Defaults to the
+   *  Bundle 2B detail page at `/recommendations/<encoded-row-id>`,
+   *  which renders the 5-act brief for this row. */
   reviewHref?: string;
   className?: string;
 };
@@ -173,8 +174,13 @@ export function RecommendationV2Card({
     ? row.targetUrl
     : null;
   const targetLabel = row.targetLabel;
+  // Bundle 2B (2026-05-10): default CTA is the new detail page
+  // (/recommendations/<encoded-row-id>) rather than the legacy drawer
+  // anchor. The detail page itself surfaces an "Open legacy review"
+  // CTA back into the drawer until accept/defer/dismiss wire into the
+  // brief directly.
   const href =
-    reviewHref ?? `/recommendations?legacy=1#rec-${encodeURIComponent(row.sourceRecommendationId)}`;
+    reviewHref ?? `/recommendations/${encodeRecommendationRouteId(row.id)}`;
 
   // One-line "why this matters" — prefer the rec's `evidenceSummary`
   // (already a clean one-liner produced by the action-row builder).
