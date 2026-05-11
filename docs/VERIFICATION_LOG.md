@@ -7,6 +7,113 @@
 
 ---
 
+## 2026-05-11 — Bundle: `/changes/[id]` 5-act narrative (`?v2=1` gated)
+
+`/changes/[id]` redesign per the maximum-depth UI audit (`~/.claude/plans/i-want-a-maximum-depth-curried-curry.md`). Goal: turn the legacy data-rich detail page (8 stacked cards: Outcome summary, Evidence tier, Impact assessment w/ Confidence/Direction/Why/What-to-do-next, Replicate, Strengthen, Expected outcome, Attribution chain) into a customer-facing 5-act proof brief that closes the timeline → detail → next-step loop in one coherent story.
+
+### Scope (what was and was NOT touched)
+
+**Touched (pure presentation + pure helpers):**
+- New gated `/changes/[id]?v2=1` route via the same `BEACON_CHANGES_V2` switcher as the list page.
+- New pure modules under `src/domains/changes/proof-timeline/`: `event-humanizer.ts`, `next-action.ts`.
+- New v2 client `src/app/(shell)/changes/[id]/change-detail-v2-client.tsx`.
+- `src/app/(shell)/changes/[id]/page.tsx` — added `shouldUseChangeDetailV2` + searchParams handoff + v2 prop projection.
+- `src/components/changes/v2/changes-v2-card.tsx` + `changes-v2-waiting-rail.tsx` — Open-change CTA now propagates `?v2=1` so the timeline→detail click-through stays on the v2 path.
+- Existing `tests/app/changes/changes-v2-client.test.tsx` updated to assert the new propagated href.
+
+**NOT touched (per task spec):**
+- Legacy `/changes/[id]` detail page (still default, fully functional).
+- `/changes` list page (proof timeline switcher + default unchanged).
+- `BEACON_CHANGES_V2` env (still NOT flipped).
+- `/changes/[id]` data layer (no new fetches outside what the legacy page already loaded; the v2 branch additionally reads `getRecommendedEdits()` from the same repo the list page already uses).
+- Domain logic, schemas, Supabase, RLS, cron, poll, scan, paid APIs, migrations.
+- Recommendation surfaces.
+- Polling / watchdog automation.
+
+### Switcher contract
+
+| Input | Renders |
+|---|---|
+| `/changes/[id]` (default) | Legacy detail — production behavior unchanged |
+| `/changes/[id]?legacy=1` | Legacy detail (escape hatch — always wins) |
+| `/changes/[id]?v2=1` | v2 proof brief (preview hatch) |
+| `BEACON_CHANGES_V2=true` env | v2 proof brief default flip (NOT set yet) |
+
+Shared switcher flag with the list page means flipping the env in Vercel will deliver both v2 surfaces simultaneously — and the timeline → detail link already propagates `?v2=1` so the customer experience is coherent.
+
+### 5-act anatomy (locked by tests)
+
+| | Act | Surfaces |
+|---|---|---|
+| Header | back link → `/changes?v2=1` · ONE result pill · plain-English title · target URL · long date · "Beacon recommended" tag (when stamped) · one-line outcome summary | `data-change-detail-back="true"` · `data-change-detail-title="true"` · `data-change-detail-url="true"` · `data-change-detail-date="true"` · `data-change-detail-recommended="true"` · `data-change-detail-result-summary="true"` |
+| Act 1 | What changed: change description, target URL, shipped date | `data-change-detail-act="act-1"` |
+| Act 2 | What Beacon expected: hypothesis + source label, OR calm fallback "Beacon is using this change as a baseline for future comparisons." | `data-change-detail-act="act-2"` · `data-change-detail-act2-hypothesis="true"` OR `data-change-detail-act2-fallback="true"` |
+| Act 3 | What happened after: pill + label sentence, blurb, optional pattern-timing rewrite ("Similar changes usually show signal around day N."), platform chips, sparkline (svg path) | `data-change-detail-act="act-3"` · `data-change-detail-act3-pattern-timing="true"` · `data-change-detail-act3-platform="true"` · `data-change-detail-act3-sparkline="true"` |
+| Act 4 | Evidence: humanized outcome events with tone-tinted left borders, OR calm "No outcome events linked yet — Beacon is still watching" | `data-change-detail-act="act-4"` · `data-change-detail-act4-events="true"` OR `data-change-detail-act4-empty="true"` |
+| Act 5 | What to do next: CTAs from the pure resolver (Replicate / Open recommendation / Investigate / Open the full record / Back to changes) — exactly one `primary` emphasis | `data-change-detail-act="act-5"` · `data-change-detail-cta="<kind>"` · `data-change-detail-cta-emphasis="primary"\|"secondary"` |
+
+### Evidence/outcome rendering
+
+The legacy page rendered raw event-type enums (`first_appearance`, `visibility_regained`, `mention_surge`, `visibility_lost`, `mention_decline`) inline. v2 routes every event through the new pure humanizer:
+
+| Raw enum | Customer label | Tone | Example summary |
+|---|---|---|---|
+| `first_appearance` | First time cited | success | "Beacon saw ChatGPT cite you for 'modern home builder' for the first time." |
+| `visibility_regained` | Back in the rankings | success | "Perplexity started mentioning you again for 'modern home builder' after a quiet stretch." |
+| `mention_surge` | Mentions jumped | success | "ChatGPT mentions for 'modern home builder' climbed from 1 to 5 in a single check." |
+| `visibility_lost` | Dropped from the rankings | danger | "Google AI Overviews stopped citing you for 'modern home builder'." |
+| `mention_decline` | Mentions slowed down | danger | "Perplexity mentions for 'modern home builder' slowed to 1 after sitting at 4." |
+
+### Next-step CTA behavior
+
+Pure resolver in `src/domains/changes/proof-timeline/next-action.ts` decides Act 5 CTAs based on `(pillKind, sourceRecId, replicateRecCount)`:
+
+- **Helping + replicate candidates exist** → primary = "Replicate this pattern" (→ `/recommendations?source_rec=<id>`); secondary = "Open recommendation".
+- **Helping (no replicate) + rec linkage** → primary = "Open recommendation".
+- **Hurting** → primary = "Investigate or revert"; secondary = "Open recommendation" when present.
+- **Needs review** → primary = "Review on the live page"; secondary = "Open recommendation" when present.
+- **Calm states (Too early / Watching / No signal yet / Live) + rec linkage** → primary = "Open recommendation"; without rec → primary = "Back to changes".
+- Always appended: "Open the full record" (legacy escape) → `/changes/[id]?legacy=1`, then "Back to changes".
+
+### Tests added (40 new tests, all green)
+
+- `tests/domains/changes/proof-timeline-event-humanizer.test.ts` — 8 tests covering every raw enum mapping + tone + platform label + no-leak.
+- `tests/domains/changes/proof-timeline-next-action.test.ts` — 10 tests covering primary-count invariant + every pill-kind branch + URL encoding + no-leak.
+- `tests/app/changes/change-detail-v2-client.test.tsx` — 12 tests covering layout marker, back link, header, 5 acts, hypothesis branches, pattern-timing, platform chips, sparkline, empty-evidence calm state, evidence rendering, CTA emphasis, Beacon-recommended badge, no-leak.
+- `tests/routes/changes-id-v2-switcher.test.ts` — 5 tests covering default/`?v2=1`/`?legacy=1`/env-flip/escape-wins-over-env.
+
+### Verification
+
+| Check | Result |
+|---|---|
+| `npm run typecheck` | ✅ clean |
+| `npx vitest run` (new + adjacent suites) | ✅ 54/54 |
+| `npx vitest run tests/architecture/` | ✅ 2335/2335 (forbidden-vocab guardrail green; +1 from prior baseline reflecting the previous proof-timeline bundle) |
+| `npm run test` (full suite) | ✅ 7667/7667 (402 files; +40 since Changes Proof Timeline baseline 7627) |
+
+### Constraints honored
+
+- ✅ No Supabase mutations
+- ✅ No paid APIs
+- ✅ No migrations
+- ✅ No backend / domain logic changes
+- ✅ No data contract changes
+- ✅ Legacy `/changes/[id]` detail page untouched (default behavior unchanged)
+- ✅ `/changes` proof timeline behavior unchanged (only the card hrefs propagate `?v2=1`)
+- ✅ Polling / watchdog automation untouched
+- ✅ Recommendations untouched
+- ✅ `BEACON_CHANGES_V2` env not flipped
+
+### Ready for hosted visual review?
+
+Yes. Both `/changes?v2=1` and `/changes/[id]?v2=1` are on production (the proof timeline bundle from earlier this session is already deployed; this commit adds the detail brief). Open `/changes?v2=1`, click any "Open change →" card, land on the 5-act brief, navigate via the CTAs.
+
+### Flip recommendation
+
+After hosted visual review of both surfaces (timeline + detail), `BEACON_CHANGES_V2=true` can be flipped in Vercel. One env var delivers both surfaces simultaneously because they share the switcher.
+
+---
+
 ## 2026-05-11 — Bundle: `/changes` proof timeline (`?v2=1` gated)
 
 Second pass at `/changes` per the maximum-depth UI audit (`~/.claude/plans/i-want-a-maximum-depth-curried-curry.md`). Goal: turn the legacy 11-column table + drawer (Attribution Status + Impact Direction + Z-score Verdict columns competing for attention) into a customer-shaped outcome story — header + 3 proof counters + vertical timeline of cards + right rail + legacy escape — without changing any data contracts.

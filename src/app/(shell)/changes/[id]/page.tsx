@@ -38,6 +38,20 @@ import { HypothesisEditor } from "./hypothesis-editor";
 import { AttributionDrilldown } from "../attribution-drilldown";
 import { loadChangeOutcomeById } from "@/domains/attribution/change-outcome-store";
 import { getUrlChangeOutcomes } from "@/domains/attribution/url-change-outcome";
+import { ChangeDetailV2Client } from "./change-detail-v2-client";
+import { resolveProofPill } from "@/domains/changes/proof-timeline/result-pill";
+import {
+  humanizeOutcomeEvent,
+  platformLabel,
+} from "@/domains/changes/proof-timeline/event-humanizer";
+import { resolveNextActions } from "@/domains/changes/proof-timeline/next-action";
+import {
+  changelogJoinKey,
+  classifyChangelogRow,
+  indexEditsByJoinKey,
+  type LifecycleTabClass,
+} from "@/domains/attribution/lifecycle-classification";
+import type { ImplementationStatus } from "@/domains/recommendations/recommended-edits-persistence";
 
 const PLATFORM_LABELS: Record<string, string> = {
   chatgpt: "ChatGPT",
@@ -103,12 +117,39 @@ const EVENT_TYPE_LABELS: Record<string, string> = {
 // request runs the fresh-repo-read pattern below. Matches /changes main list.
 export const dynamic = "force-dynamic";
 
+/**
+ * Bundle (2026-05-11) — `/changes/[id]` 5-act narrative redesign per
+ * the maximum-depth UI audit. Switch the detail page between the
+ * legacy data-rich layout and the v2 proof brief.
+ *
+ * Routing rules (mirrors `/changes` proof timeline):
+ *   - Default                       → legacy (current production behavior).
+ *   - `?legacy=1` query             → legacy (escape hatch).
+ *   - `?v2=1` query                 → v2 proof brief (preview hatch).
+ *   - `BEACON_CHANGES_V2=true` env  → v2 becomes the default
+ *                                      (shared with the list page; not
+ *                                      flipped yet).
+ */
+function shouldUseChangeDetailV2(
+  searchParams: Record<string, string | string[] | undefined>,
+): boolean {
+  if (searchParams.legacy === "1") return false;
+  if (searchParams.v2 === "1") return true;
+  return process.env.BEACON_CHANGES_V2 === "true";
+}
+
 export default async function ChangeDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const { id } = await params;
+  const [{ id }, sp] = await Promise.all([
+    params,
+    searchParams ?? Promise.resolve({}),
+  ]);
+  const useV2 = shouldUseChangeDetailV2(sp);
 
   // Phase 1.6 (Sprint 1 follow-up, 2026-04-24): fresh per-request repo read.
   // The prior implementation called `changelogEntries.find(...)` against the
@@ -213,6 +254,98 @@ export default async function ChangeDetailPage({
   const strengthenRec = allRecs.find(
     (r) => r.type === "strengthen" && r.sourceChangeId === id,
   );
+
+  if (useV2) {
+    // v2 proof brief — pure presentation, derived from the same data
+    // the legacy detail page already loaded above. Reuses:
+    //   • `entry` (changelog row) for header + Act 1 + Act 2 hypothesis
+    //   • `row.eventAttributions` for Act 4 (humanized event labels)
+    //   • `row.platforms` for Act 3 platform chips
+    //   • `recommendedMatch` for the "Beacon recommended" tag
+    //   • `replicateRecs` for Act 5's "Replicate this pattern" CTA
+    //   • per-URL outcome verdict for the result-pill resolver
+    //   • sparkline points from `storedOutcome.sparklines.treated`
+    const [urlOutcomesAll, storedOutcome, recommendedEdits] = await Promise.all([
+      getUrlChangeOutcomes(),
+      loadChangeOutcomeById(entry.id),
+      repository.getRecommendedEdits().catch(() => [] as never),
+    ]);
+    const urlOutcome =
+      urlOutcomesAll.find((o) => o.change_id === entry.id) ?? null;
+
+    // Lifecycle context — drives the result pill alongside the URL
+    // verdict so the brief shows the same pill the proof timeline
+    // showed the customer one click earlier.
+    const editsByJoinKey = indexEditsByJoinKey(recommendedEdits);
+    const joinKey = changelogJoinKey(entry);
+    const linkedEdit = joinKey ? (editsByJoinKey.get(joinKey) ?? null) : null;
+    const lifecycleClass: LifecycleTabClass = classifyChangelogRow({
+      entry,
+      edit: linkedEdit,
+    });
+    const lifecycleStatus: ImplementationStatus | null =
+      linkedEdit?.implementation_status ?? null;
+
+    const pill = resolveProofPill({
+      urlVerdict: urlOutcome ? { verdict: urlOutcome.verdict } : null,
+      lifecycleClass,
+      lifecycleStatus,
+    });
+
+    const events = row.eventAttributions
+      // Most-recent first — the brief reads as a story, not a database row.
+      .slice()
+      .sort(
+        (a, b) =>
+          new Date(b.event.trigger_date).getTime() -
+          new Date(a.event.trigger_date).getTime(),
+      )
+      .map((ea) => humanizeOutcomeEvent(ea.event));
+
+    const sparklineSource = storedOutcome?.sparklines?.treated ?? [];
+    const sparkline = sparklineSource.map((p) => ({
+      date: p.date,
+      count: p.count,
+    }));
+
+    const platformLabels = row.platforms.map((p) => platformLabel(p));
+
+    const patternTimingNarrative =
+      urlOutcome?.landing_day_n != null
+        ? `Similar changes usually show signal around day ${urlOutcome.landing_day_n}.`
+        : null;
+
+    const nextActions = resolveNextActions({
+      pillKind: pill.kind,
+      sourceRecId: entry.source_rec_id ?? null,
+      replicateRecCount: replicateRecs.length,
+      includeLegacyEscape: true,
+    });
+    // Stamp the legacy-escape CTA with this row's id (the resolver is
+    // pure and doesn't know the route param).
+    const stampedNextActions = nextActions.map((cta) =>
+      cta.kind === "open_legacy_detail"
+        ? { ...cta, href: `/changes/${encodeURIComponent(entry.id)}?legacy=1` }
+        : cta,
+    );
+
+    return (
+      <ChangeDetailV2Client
+        title={entry.change_description || entry.asset_name || "Untitled change"}
+        targetUrl={entry.url ?? null}
+        shippedAt={entry.timestamp}
+        pill={pill}
+        hypothesis={entry.hypothesis}
+        hypothesisSource={entry.hypothesis_source ?? null}
+        patternTimingNarrative={patternTimingNarrative}
+        events={events}
+        sparkline={sparkline}
+        platformLabels={platformLabels}
+        beaconRecommended={!!recommendedMatch}
+        nextActions={stampedNextActions}
+      />
+    );
+  }
 
   // Sprint 7 Phase 7.5c/3 (2026-04-25) — tenant-scoped page fetch.
   const allPages = await getOwnedPages();

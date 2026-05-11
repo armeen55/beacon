@@ -145,13 +145,15 @@ describe("ChangesV2Client — proof timeline", () => {
     expect(html).toContain("Hurting");
   });
 
-  it("renders an Open change CTA per card linking to /changes/[id]", () => {
+  it("renders an Open change CTA per card linking to /changes/[id]?v2=1", () => {
     const html = render({
       rows: [makeRow({ id: "rec-abc-123" })],
       classByChangelogId: { "rec-abc-123": "live_verified" },
     });
     expect(html).toContain('data-changes-card-cta="open-change"');
-    expect(html).toContain('href="/changes/rec-abc-123"');
+    // Preserves v2 context so the click-through lands on the proof
+    // brief instead of the legacy detail page.
+    expect(html).toContain('href="/changes/rec-abc-123?v2=1"');
     expect(html).toContain("Open change");
   });
 

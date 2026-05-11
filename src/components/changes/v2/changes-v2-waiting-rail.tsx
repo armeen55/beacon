@@ -50,7 +50,7 @@ export function ChangesV2WaitingRail({
             className="rounded-md border border-border/40 bg-surface-base px-3 py-2"
           >
             <Link
-              href={`/changes/${item.id}`}
+              href={`/changes/${item.id}?v2=1`}
               className="block group"
               data-changes-rail-item-cta="true"
             >

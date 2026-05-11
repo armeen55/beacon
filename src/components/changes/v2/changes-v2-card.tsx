@@ -100,7 +100,10 @@ export function ChangesV2Card({
 
       <div className="mt-3">
         <Link
-          href={`/changes/${row.id}`}
+          // Preserve the v2 context — the proof brief at /changes/[id]
+          // shares the same `?v2=1` switcher with the list page, so
+          // customers stay on the v2 path through the click-through.
+          href={`/changes/${row.id}?v2=1`}
           className="inline-flex items-center text-[12px] font-medium text-accent-primary hover:underline"
           data-changes-card-cta="open-change"
         >
