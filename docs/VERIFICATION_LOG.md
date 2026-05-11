@@ -7,6 +7,79 @@
 
 ---
 
+## 2026-05-10 — UI Audit Bundle 2A V: verification pass — populate /recommendations v2 from live queue
+
+Post-Bundle-2A verification pass. The operator paused before Bundle 2B and asked for a hosted/live verification of v2 against legacy. The Vercel preview is SSO-gated (HTTP 401), so direct hosted inspection wasn't available — but the audit of v2's row-classification logic caught a real bug the user's worry pointed at: the original `SUGGESTED_STATUSES = {"new"}` filter was too narrow. A workspace whose entire pending queue lived in `needs_review` or `needs_fresh_edit` would render the v2 empty state even though the legacy Executive Strip's "Need review" tile would surface those same rows. v2 was silently hiding the stack.
+
+### Root cause
+
+`statusForRow()` in `src/domains/recommendations/recommendation-action-rows.ts` maps the (response, edit-lifecycle, needsHumanReview) tuple to one of 8 `ActionRowStatus` values: `new` / `needs_review` / `needs_fresh_edit` / `accepted` / `shipped` / `measuring` / `dismissed` / `deferred`. The legacy table surfaces all of these (operator filters by status). Bundle 2A's v2 client only routed `new` into the Suggested stack; `needs_review` rendered in the Working rail (double-rendering it as "in flight" — wrong), and `needs_fresh_edit` was hidden entirely (worse — the rec is still actionable: operator triggers a regenerate).
+
+Per the audit's "never hide all value just because rows are not in one exact status bucket" rule, the bucket-to-placement map needed widening.
+
+### Fix — bucket-to-placement map (locked by 5 new contract tests)
+
+| Status | Pre-fix placement | Post-fix placement |
+|---|---|---|
+| `new` | Suggested stack | Suggested stack |
+| `needs_review` | Working rail ✗ | **Suggested stack ✓** (customer-reviewable) |
+| `needs_fresh_edit` | hidden ✗ | **Suggested stack ✓** (still actionable) |
+| `accepted` | Working rail | Working rail |
+| `shipped` | Working rail | Working rail |
+| `measuring` | Working rail | Working rail |
+| `dismissed` | hidden | hidden |
+| `deferred` | hidden | hidden |
+
+### Changes (3 files)
+
+**`src/app/(shell)/recommendations/recommendations-v2-client.tsx`**
+- `SUGGESTED_STATUSES` widened from `{"new"}` to `{"new", "needs_review", "needs_fresh_edit"}`.
+- New shared `IN_FLIGHT_STATUSES = {"accepted", "shipped", "measuring"}` constant drives the calm-state copy's `inFlightCount` (was an inline `.filter` predicate; now a Set lookup that stays in lockstep with the rail's `WORKING_STATUSES`).
+- Bucket-to-placement contract documented inline above the `SUGGESTED_STATUSES` declaration.
+
+**`src/components/recommendations/v2/recommendations-v2-working-rail.tsx`**
+- `WORKING_STATUSES` tightened from `{accepted, shipped, measuring, needs_review}` to `{accepted, shipped, measuring}` — `needs_review` no longer double-renders.
+- Lockstep comment with `IN_FLIGHT_STATUSES` in the client added.
+
+**`tests/app/recommendations/recommendations-v2-client.test.tsx`** — adds the V contract suite (5 new invariants) + a `makeRecWithDerivedStatus(status, stableKey)` fixture helper that mirrors `statusForRow()`'s derivation paths so future tests can reproducibly hit each terminal status:
+1. `surfaces 'needs_review' rows in the Suggested stack` (negative pin: the row must NOT appear in the working rail).
+2. `does NOT show empty state when at least one Suggested-bucket row exists` (even when mixed with dismissed rows).
+3. `Working rail surfaces accepted + shipped + measuring ONLY (no needs_review double-render)`.
+4. `calm-state inFlightCount mentions ONLY accepted/shipped/measuring (not needs_review or deferred)` — pins the calm copy says "Beacon is measuring 2 changes" not "3 changes".
+5. `Suggested stack renders new + needs_review + needs_fresh_edit rows (mixed bucket; dismissed + deferred hidden)`.
+
+### Verification
+
+- `npm run typecheck` — CLEAN.
+- `npm run test` — **7470/7470 passed** (+5 vs Bundle 2A baseline 7465). Zero regressions.
+- Forbidden-vocabulary guardrail (Bundle 3) — 23/23 invariants pass against the post-fix code.
+- Local Ritz fixtures genuinely have no Suggested rows (5 dismissed edits + 4 accepted/dismissed responses in `.data/tenants/ritz-builders/`). Legacy `/recommendations?legacy=1` AND v2 `/recommendations?v2=1` both render empty/calm states on this local snapshot — consistent, no v2-specific hiding.
+- Hosted Vercel preview at `https://beacon-e3y559kl1-armeen-5267s-projects.vercel.app/recommendations?v2=1` is SSO-gated (returns HTTP 401 without auth). Operator must visually confirm on the hosted preview that a workspace with non-trivial queue volume now surfaces cards.
+
+### What the user should see on the hosted preview after this fix lands
+
+| Scenario | `/recommendations?legacy=1` | `/recommendations?v2=1` |
+|---|---|---|
+| Workspace has new rec(s) | Table row(s) | Card(s) in Suggested stack |
+| Workspace has only `needs_review` rows | Rows visible with "Needs review" pill | **Now: Card(s) in Suggested stack** (was: empty state) |
+| Workspace has only `needs_fresh_edit` rows | Rows visible with "Needs new recommendation" pill | **Now: Card(s) in Suggested stack** (was: empty state) |
+| Workspace has only accepted/measuring/shipped | Rows visible with respective pills | Working rail surfaces them; calm state ("You're caught up on suggestions") |
+| Workspace truly empty | Empty-table state | Empty state |
+
+### Out of scope (preserved)
+
+- Backend / domain / data contracts / cron / polls / Supabase / paid APIs — none touched.
+- Recommendation generation logic, prioritizer, decision-matrix — untouched.
+- `statusForRow()` derivation — untouched (this fix is presentation filtering only, exactly as the user instructed).
+- `BEACON_RECOMMENDATIONS_V2` production env — not flipped.
+- `/recommendations/[id]` (Bundle 2B) — not started; Bundle 2A is now ready for it.
+
+### Next
+
+Bundle 2A is **ready for Bundle 2B** (`/recommendations/[id]` per-rec detail page). When 2B lands, the v2 card's "Review →" CTA will rewrite from `?legacy=1#rec-<id>` to the new detail URL.
+
+---
+
 ## 2026-05-10 — UI Audit Bundle 2A: gated /recommendations v2 card stack (open-only first pass)
 
 Bundle 2A of the maximum-depth UI/product audit (`~/.claude/plans/i-want-a-maximum-depth-curried-curry.md`). Adds an opt-in `/recommendations?v2=1` view that replaces the legacy table + per-row drawer with a premium two-column card stack. Open-only first pass — every CTA links back into the legacy view at the row's `#rec-<id>` anchor; the legacy drawer keeps owning the accept / defer / dismiss surface so no new server-action wiring lands. Production default (`/recommendations`) remains the legacy table; v2 is opt-in via `?v2=1` or a future `BEACON_RECOMMENDATIONS_V2=true` env flip.
