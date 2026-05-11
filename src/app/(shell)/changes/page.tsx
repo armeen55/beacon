@@ -12,6 +12,7 @@ import { getEventDecisions } from "@/domains/attribution/store";
 import { computeScorecard } from "@/domains/attribution/scorecard";
 import { enrichWithImpact } from "@/domains/attribution/change-impact";
 import { ScorecardTable, type EnrichedChangeRow } from "./scorecard-client";
+import { ChangesV2Client } from "./changes-v2-client";
 import {
   loadAllChangeOutcomes,
   type StoredChangeOutcome,
@@ -63,7 +64,36 @@ import type {
 // caching that would re-introduce the cross-lambda staleness we just fixed.
 export const dynamic = "force-dynamic";
 
-export default async function ChangeScorecardPage() {
+/**
+ * Bundle — Changes Proof Timeline (Plan:
+ * `~/.claude/plans/i-want-a-maximum-depth-curried-curry.md`). Switch
+ * /changes between the legacy table + drawer and the v2 proof timeline.
+ *
+ * Routing rules:
+ *   - Default                       → legacy (current production behavior).
+ *   - `?legacy=1` query             → legacy (escape hatch).
+ *   - `?v2=1` query                 → v2 timeline (preview escape hatch).
+ *   - `BEACON_CHANGES_V2=true` env  → v2 becomes the default
+ *                                      (mirrors the BEACON_TODAY_V2 and
+ *                                      BEACON_RECOMMENDATIONS_V2 flags
+ *                                      from Bundles 1 and 2A).
+ */
+function shouldUseChangesV2(
+  searchParams: Record<string, string | string[] | undefined>,
+): boolean {
+  if (searchParams.legacy === "1") return false;
+  if (searchParams.v2 === "1") return true;
+  return process.env.BEACON_CHANGES_V2 === "true";
+}
+
+export default async function ChangeScorecardPage({
+  searchParams,
+}: {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+} = {}) {
+  const params = await (searchParams ?? Promise.resolve({}));
+  const useV2 = shouldUseChangesV2(params);
+
   if (!(await hasActiveExperiment())) {
     return (
       <div>
@@ -365,6 +395,19 @@ export default async function ChangeScorecardPage() {
     needsReview: lifecycleBuckets.counts.needsReview,
     notFoundAfter7d: lifecycleBuckets.counts.notFoundAfter7d,
   };
+
+  if (useV2) {
+    // Proof-timeline pass — reuses the same enriched rows + classifier
+    // output the legacy table consumes. Pure presentation layer at this
+    // boundary; no extra data fetching, no server-action wiring.
+    return (
+      <ChangesV2Client
+        rows={enriched}
+        classByChangelogId={Object.fromEntries(classification.classOf)}
+        editStatusByChangelogId={editStatusByChangelogId}
+      />
+    );
+  }
 
   return (
     <div>

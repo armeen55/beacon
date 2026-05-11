@@ -1,0 +1,291 @@
+/**
+ * ChangesV2Client — proof-timeline pass for /changes?v2=1.
+ *
+ * Bundle (2026-05-10) — second pass at /changes per the maximum-depth
+ * UI audit (`~/.claude/plans/i-want-a-maximum-depth-curried-curry.md`).
+ *
+ * Goal: turn the legacy 11-column table + drawer into a customer-shaped
+ * outcome story:
+ *
+ *   ┌──────────────────────────────────────────┬─────────────────────────┐
+ *   │ Page header                              │                         │
+ *   │ ┌─────┐ ┌─────┐ ┌─────┐                  │  Waiting for signal     │
+ *   │ │ N   │ │ M   │ │ P   │  (3 counters)    │  (right rail; rows      │
+ *   │ │Ship │ │Work │ │Need │                  │   too-early / watching /│
+ *   │ │month│ │ing  │ │revw │                  │   live)                 │
+ *   │ └─────┘ └─────┘ └─────┘                  │                         │
+ *   │                                          │                         │
+ *   │ Timeline (one card per row, newest first)│                         │
+ *   │ ┌──────────────────────────────────────┐ │                         │
+ *   │ │ title  · URL · date         [pill]   │ │                         │
+ *   │ │ outcome blurb                        │ │                         │
+ *   │ │ pattern-timing line (optional)       │ │                         │
+ *   │ │ Open change →                        │ │                         │
+ *   │ └──────────────────────────────────────┘ │                         │
+ *   │ …                                        │                         │
+ *   │ Open table view (legacy escape)          │                         │
+ *   └──────────────────────────────────────────┴─────────────────────────┘
+ *
+ * Pure presentation — no state, no server actions, no data layer
+ * rewrite. Consumes the same `EnrichedChangeRow[]` the legacy
+ * scorecard table consumes; the proof-pill resolver collapses the
+ * legacy three-pill row into ONE customer-readable pill per card.
+ *
+ * Customer-vocabulary contract (forbidden-vocabulary guardrail):
+ *   • No "Z-score", "evidence tier", or other internal vocabulary
+ *     ever appears in rendered copy.
+ *   • Raw verdict / lifecycle enums stay as code identifiers; the
+ *     customer reads "Helping" / "Watching" / "Live" / etc.
+ *   • Pattern-timing reads as "Similar changes usually show signal
+ *     around day N" — never references median_landing_day or the
+ *     pattern brain.
+ */
+import Link from "next/link";
+
+import { PageHeader } from "@/components/data/page-header";
+import {
+  resolveProofPill,
+  type ProofPill,
+} from "@/domains/changes/proof-timeline/result-pill";
+import {
+  computeProofCounters,
+  PROOF_COUNTER_LABEL,
+  type ProofCounters,
+} from "@/domains/changes/proof-timeline/counters";
+import {
+  buildWaitingRail,
+  type WaitingRailInput,
+} from "@/domains/changes/proof-timeline/waiting-rail";
+import type { LifecycleTabClass } from "@/domains/attribution/lifecycle-classification";
+import type { ImplementationStatus } from "@/domains/recommendations/recommended-edits-persistence";
+
+import {
+  ChangesV2Card,
+  type ChangesV2CardRow,
+} from "@/components/changes/v2/changes-v2-card";
+import { ChangesV2WaitingRail } from "@/components/changes/v2/changes-v2-waiting-rail";
+
+import type { EnrichedChangeRow } from "./scorecard-client";
+
+export type ChangesV2ClientProps = {
+  /** Already-enriched rows from the server page. Newest-first sort
+   *  expected (the legacy page sorts before this point). */
+  rows: ReadonlyArray<EnrichedChangeRow>;
+  /** Lifecycle class per row (keyed by changelog id). */
+  classByChangelogId: Record<string, LifecycleTabClass>;
+  /** Linked-edit implementation status per row (when joined). */
+  editStatusByChangelogId: Record<string, ImplementationStatus>;
+};
+
+const MAX_TIMELINE_CARDS = 24;
+
+export function ChangesV2Client({
+  rows,
+  classByChangelogId,
+  editStatusByChangelogId,
+}: ChangesV2ClientProps) {
+  // Resolve the pill + counters + rail rows in one pass. The pure
+  // helpers stay pure; this client just orchestrates them.
+  const cardRows = projectToCardRows({
+    rows,
+    classByChangelogId,
+    editStatusByChangelogId,
+  });
+
+  const counters: ProofCounters = computeProofCounters(
+    rows.map((row) => ({
+      timestamp: row.scorecard.change.timestamp,
+      lifecycleClass:
+        classByChangelogId[row.scorecard.change.id] ?? "unclassified",
+    })),
+  );
+
+  const railInput: WaitingRailInput[] = cardRows.map((card) => ({
+    id: card.id,
+    title: card.title,
+    targetUrl: card.targetUrl,
+    shippedAt: card.shippedAt,
+    pillKind: card.pill.kind,
+    readyOn: card.readyOn,
+  }));
+  const railItems = buildWaitingRail(railInput);
+
+  const timelineCards = cardRows.slice(0, MAX_TIMELINE_CARDS);
+
+  return (
+    <div data-changes-layout="v2-proof-timeline" className="max-w-6xl">
+      <PageHeader
+        title="Changes"
+        description="Track what shipped and whether AI visibility responded."
+      />
+
+      <ProofCounterStrip counters={counters} />
+
+      {cardRows.length === 0 ? (
+        <ChangesV2EmptyState />
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-[3fr_2fr] gap-5">
+          {/* Timeline */}
+          <section
+            data-changes-section="timeline"
+            aria-label="Recent changes timeline"
+            className="space-y-3"
+          >
+            {timelineCards.map((row) => (
+              <ChangesV2Card key={row.id} row={row} />
+            ))}
+            {cardRows.length > timelineCards.length && (
+              <p className="pt-2 text-[11px] text-muted-foreground/80">
+                Showing the {timelineCards.length} most recent changes of {cardRows.length}.{" "}
+                <Link
+                  href="/changes?legacy=1"
+                  className="text-accent-primary hover:underline font-medium"
+                  data-changes-cta="see-all-legacy"
+                >
+                  See full table →
+                </Link>
+              </p>
+            )}
+          </section>
+
+          {/* Right rail */}
+          <ChangesV2WaitingRail items={railItems} />
+        </div>
+      )}
+
+      <footer className="mt-6 pt-3 border-t border-border/40 text-[11px] text-muted-foreground/80">
+        <span>
+          Need the table view?{" "}
+          <Link
+            href="/changes?legacy=1"
+            className="text-accent-primary hover:underline font-medium"
+            data-changes-cta="legacy"
+          >
+            Open table view →
+          </Link>
+        </span>
+      </footer>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Projection: EnrichedChangeRow → ChangesV2CardRow
+// ─────────────────────────────────────────────────────────────────────
+
+type ProjectInput = {
+  rows: ReadonlyArray<EnrichedChangeRow>;
+  classByChangelogId: Record<string, LifecycleTabClass>;
+  editStatusByChangelogId: Record<string, ImplementationStatus>;
+};
+
+type ProjectedCardRow = ChangesV2CardRow & {
+  readyOn: {
+    daysFromChange: number;
+    confidenceTier: "high" | "medium" | "low" | null;
+  } | null;
+};
+
+function projectToCardRows({
+  rows,
+  classByChangelogId,
+  editStatusByChangelogId,
+}: ProjectInput): ProjectedCardRow[] {
+  return rows.map((row) => {
+    const ch = row.scorecard.change;
+    const lifecycleClass: LifecycleTabClass =
+      classByChangelogId[ch.id] ?? "unclassified";
+    const lifecycleStatus: ImplementationStatus | null =
+      editStatusByChangelogId[ch.id] ?? null;
+
+    const pill: ProofPill = resolveProofPill({
+      urlVerdict: row.urlVerdict ?? null,
+      lifecycleClass,
+      lifecycleStatus,
+    });
+
+    const patternTimingNarrative = formatPatternTiming(row.readyOn ?? null);
+
+    return {
+      id: ch.id,
+      title: ch.change_description || ch.asset_name || "Untitled change",
+      targetUrl: ch.url ?? null,
+      shippedAt: ch.timestamp,
+      pill,
+      patternTimingNarrative,
+      readyOn: row.readyOn
+        ? {
+            daysFromChange: row.readyOn.daysFromChange,
+            confidenceTier: row.readyOn.confidenceTier,
+          }
+        : null,
+    };
+  });
+}
+
+/**
+ * Rewrite the row's `readyOn` field into ONE customer-safe sentence.
+ * Returns `null` when there's no pattern timing to surface (the card
+ * skips the line).
+ */
+function formatPatternTiming(
+  readyOn: EnrichedChangeRow["readyOn"] | null,
+): string | null {
+  if (!readyOn) return null;
+  const day = readyOn.daysFromChange;
+  if (!Number.isFinite(day) || day <= 0) return null;
+  return `Similar changes usually show signal around day ${day}.`;
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Sub-components
+// ─────────────────────────────────────────────────────────────────────
+
+function ProofCounterStrip({ counters }: { counters: ProofCounters }) {
+  const items: Array<{ key: keyof ProofCounters; value: number }> = [
+    { key: "shippedThisMonth", value: counters.shippedThisMonth },
+    { key: "working", value: counters.working },
+    { key: "needsReview", value: counters.needsReview },
+  ];
+
+  return (
+    <section
+      data-changes-counters="true"
+      className="mb-5 grid grid-cols-3 gap-3"
+      aria-label="Proof counters"
+    >
+      {items.map(({ key, value }) => (
+        <div
+          key={key}
+          data-changes-counter={key}
+          className="rounded-lg border border-border/60 bg-surface-base px-4 py-3"
+        >
+          <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+            {PROOF_COUNTER_LABEL[key]}
+          </p>
+          <p className="mt-1 text-[22px] font-semibold tabular-nums text-foreground">
+            {value}
+          </p>
+        </div>
+      ))}
+    </section>
+  );
+}
+
+function ChangesV2EmptyState() {
+  return (
+    <div
+      className="rounded-lg border border-border/60 bg-surface-inset/30 px-5 py-8 text-center"
+      role="status"
+      data-changes-empty="true"
+    >
+      <p className="text-[14px] font-semibold text-foreground">
+        No changes yet.
+      </p>
+      <p className="mt-1.5 text-[12px] text-muted-foreground leading-relaxed max-w-md mx-auto">
+        Beacon logs every accepted recommendation here once the next scan
+        confirms it on your site.
+      </p>
+    </div>
+  );
+}
