@@ -16,8 +16,31 @@ import { getRepository } from "@/lib/persistence/repositories";
 import type { RecommendationResponse } from "@/domains/product/recommendation-response-store";
 import type { RecommendedEditRow } from "@/domains/recommendations/recommended-edits-persistence";
 import { RecommendationsClient } from "./recommendations-client";
+import { RecommendationsV2Client } from "./recommendations-v2-client";
 import { getChangelogEntries } from "@/lib/seed-data.server";
 import { buildChangelogIdByRecId } from "@/domains/recommendations/changelog-link";
+
+/**
+ * Bundle 2A (Plan: i-want-a-maximum-depth-curried-curry) — switch
+ * /recommendations between the legacy table + drawer and the v2 card
+ * stack.
+ *
+ * Routing:
+ *   - Default: legacy (current production behavior).
+ *   - `BEACON_RECOMMENDATIONS_V2=true` env: v2 becomes the default
+ *     (mirrors the BEACON_TODAY_V2 pattern from Bundle 1).
+ *   - `?legacy=1` query: always legacy (escape hatch — works regardless
+ *     of the env flag).
+ *   - `?v2=1` query: always v2 (preview escape hatch — useful for
+ *     hosted demos before flipping the env flag).
+ */
+function shouldUseRecommendationsV2(
+  searchParams: Record<string, string | string[] | undefined>,
+): boolean {
+  if (searchParams.legacy === "1") return false;
+  if (searchParams.v2 === "1") return true;
+  return process.env.BEACON_RECOMMENDATIONS_V2 === "true";
+}
 
 /**
  * /recommendations — the ranked decision queue (Phase v6 Commit 4, 2026-04-23).
@@ -53,13 +76,21 @@ async function safeCall<T>(fn: () => Promise<T> | T, fallback: T, label: string)
   }
 }
 
-export default async function RecommendationsPage() {
+export default async function RecommendationsPage({
+  searchParams,
+}: {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+} = {}) {
   // Sprint 6A.1 Phase 14 (2026-04-24) — orchestration extracted to
   // `loadLiveRecommendationQueue` so the queue-driven CLI consumes the
   // same source. Page render behavior is byte-equivalent.
   // Sprint 7 Phase 7.3 (2026-04-25) — tenantId required; resolved via
   // header (after Phase 7.4) or BEACON_TENANT_ID env var.
-  const tenantId = await currentTenantId();
+  const [tenantId, params] = await Promise.all([
+    currentTenantId(),
+    searchParams ?? Promise.resolve({}),
+  ]);
+  const useV2 = shouldUseRecommendationsV2(params);
   const live = await loadLiveRecommendationQueue({ tenantId });
   const errors = [...live.errors];
 
@@ -136,6 +167,27 @@ export default async function RecommendationsPage() {
   );
   if (changelogRes.error) errors.push(changelogRes.error);
   const changelogIdByRecId = buildChangelogIdByRecId(changelogRes.value);
+
+  if (useV2) {
+    return (
+      <div className="max-w-5xl">
+        {errors.length > 0 && (
+          <div
+            className="mb-4 rounded-md border border-status-warning/40 bg-status-warning/[0.06] px-3 py-2 text-[12px] text-status-warning leading-relaxed"
+            role="status"
+          >
+            Some recommendation data couldn&apos;t load. Showing what we have.
+          </div>
+        )}
+        <RecommendationsV2Client
+          queue={decorated}
+          watchlist={watchDecorated}
+          matrixDate={matrix.date}
+          promptTextById={promptTextById}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-5xl">
