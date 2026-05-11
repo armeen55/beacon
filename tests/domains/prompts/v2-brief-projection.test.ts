@@ -70,6 +70,11 @@ function drilldown(
     competitors: [],
     descriptorsNearBrand: [],
     dominantAnswerStructure: null,
+    // The projector never reads `primarySummary` — the v2 brief
+    // omits the "Who IS the answer" block — so we cast through
+    // `unknown` to keep the fixture minimal. (Without `unknown`,
+    // TS warns the cast is structurally insufficient because the
+    // shape lacks the required `prompt_id` field.)
     primarySummary: {
       totalAnswers: 0,
       ritzState: "absent",
@@ -77,7 +82,7 @@ function drilldown(
       ritzPrimaryShare: 0,
       fragmented: false,
       primaryCompetitors: [],
-    } as PromptDrilldown["primarySummary"],
+    } as unknown as PromptDrilldown["primarySummary"],
     rawSamples: [],
     ...over,
   };

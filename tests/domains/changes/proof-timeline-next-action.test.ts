@@ -157,18 +157,58 @@ describe("resolveNextActions", () => {
     expect(idxLegacy).toBeLessThan(idxBack);
   });
 
-  it("Open recommendation hrefs are URL-encoded", () => {
+  it("Open recommendation routes to the queue (never deep-links by source_rec_id)", () => {
+    // QA polish (2026-05-11): the per-rec deep link
+    // `/recommendations/<source_rec_id>` was structurally wrong
+    // (route id is the composite action-row id, not the raw
+    // `source_rec_id`) AND could 404 mid-flow when the rec had
+    // rotated out of the live queue. The fix routes ALL "Open
+    // recommendation" CTAs from change briefs to the queue page,
+    // labeled "See related recommendations".
     const ctas = resolveNextActions({
       pillKind: "helping",
-      sourceRecId: "create_cluster_page:geo:Los Altos__add_faq__faq_question[new]:abc",
+      sourceRecId:
+        "create_cluster_page:geo:Los Altos__add_faq__faq_question[new]:abc",
       replicateRecCount: 0,
     });
     const openRec = ctas.find((c) => c.kind === "open_recommendation");
     expect(openRec).toBeDefined();
-    expect(openRec?.href).toContain("/recommendations/");
-    // Encoded characters from the test id.
-    expect(openRec?.href).toContain("%3A");
-    expect(openRec?.href).toContain("%20");
+    // Routes to the queue page, never to /recommendations/<id>.
+    expect(openRec?.href).toBe("/recommendations?v2=1");
+    // The adversarial id is NOT smuggled into the href.
+    expect(openRec?.href).not.toContain("create_cluster_page");
+    expect(openRec?.href).not.toContain("Los%20Altos");
+    expect(openRec?.href).not.toContain("%3A");
+    // The label promises a browse, not a per-rec brief.
+    expect(openRec?.label).toBe("See related recommendations");
+  });
+
+  it("never returns an 'Open recommendation' CTA labeled as 'Open recommendation' (label was renamed)", () => {
+    // Regression guard: prior shape labeled the CTA "Open
+    // recommendation" + deep-linked to a per-rec brief that could
+    // 404. After QA polish, the label and the href are both
+    // queue-shaped.
+    for (const pillKind of [
+      "helping",
+      "hurting",
+      "needs_review",
+      "too_early",
+      "watching",
+      "no_signal_yet",
+      "live",
+    ] as ProofPillKind[]) {
+      const ctas = resolveNextActions({
+        pillKind,
+        sourceRecId: "rec-1",
+        replicateRecCount: 0,
+      });
+      for (const cta of ctas) {
+        if (cta.kind === "open_recommendation") {
+          expect(cta.label).not.toBe("Open recommendation");
+          expect(cta.href).not.toMatch(/^\/recommendations\/[^?]+/);
+        }
+      }
+    }
   });
 
   it("never returns a label that leaks internal vocabulary", () => {

@@ -274,9 +274,13 @@ describe("ChangeDetailV2Client — 5-act narrative", () => {
           emphasis: "primary",
         },
         {
+          // QA polish (2026-05-11): the open_recommendation CTA from
+          // a Change brief now routes to the queue page (never to a
+          // per-rec brief, which could 404 mid-flow when the rec
+          // has rotated out of the live queue).
           kind: "open_recommendation",
-          label: "Open recommendation",
-          href: "/recommendations/rec-1",
+          label: "See related recommendations",
+          href: "/recommendations?v2=1",
           emphasis: "secondary",
         },
         {
@@ -298,8 +302,12 @@ describe("ChangeDetailV2Client — 5-act narrative", () => {
     expect(html).toContain('data-change-detail-cta="open_recommendation"');
     expect(html).toContain('data-change-detail-cta="open_legacy_detail"');
     expect(html).toContain('data-change-detail-cta="back_to_changes"');
-    expect(html).toContain('href="/recommendations/rec-1"');
+    expect(html).toContain('href="/recommendations?v2=1"');
     expect(html).toContain('href="/changes/some-id?legacy=1"');
+    // Pin the new label so a regression to "Open recommendation" +
+    // per-rec deep link is caught here too.
+    expect(html).toContain("See related recommendations");
+    expect(html).not.toContain('href="/recommendations/rec-1"');
   });
 
   it("Beacon-recommended badge appears when beaconRecommended=true", () => {
@@ -339,8 +347,8 @@ describe("ChangeDetailV2Client — 5-act narrative", () => {
       nextActions: [
         {
           kind: "open_recommendation",
-          label: "Open recommendation",
-          href: "/recommendations/rec-1",
+          label: "See related recommendations",
+          href: "/recommendations?v2=1",
           emphasis: "primary",
         },
         {

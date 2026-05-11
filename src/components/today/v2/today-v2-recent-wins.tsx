@@ -106,7 +106,13 @@ export function TodayV2RecentWins(props: RecentWinsProps) {
 
   return (
     <article
-      className="rounded-lg border border-status-success/30 bg-status-success/[0.04] px-5 py-5 h-full flex flex-col"
+      // `min-w-0` is the QA-pass-1 overflow defense — without it, a
+      // long unbroken `urlVerdictProof.pagePath` inside the
+      // `truncate` <p> can expand this card past its grid track and
+      // force horizontal page scroll. Sibling `today-v2-working.tsx`
+      // already defends against this on its own truncated row;
+      // mirror the shape here.
+      className="min-w-0 rounded-lg border border-status-success/30 bg-status-success/[0.04] px-5 py-5 h-full flex flex-col"
       data-today-v2-card="recent-wins"
     >
       <div className="flex items-baseline justify-between gap-2">
@@ -120,10 +126,10 @@ export function TodayV2RecentWins(props: RecentWinsProps) {
 
       <ul className="mt-2 space-y-2.5" data-today-v2-wins-list="true">
         {rows.map((row) => (
-          <li key={row.key} data-today-v2-win-row="true">
+          <li key={row.key} data-today-v2-win-row="true" className="min-w-0">
             <Link
               href={row.href}
-              className="block group hover:bg-background/40 -mx-2 px-2 py-1 rounded transition-colors"
+              className="block group hover:bg-background/40 -mx-2 px-2 py-1 rounded transition-colors min-w-0"
             >
               <p className="text-[13px] font-medium text-foreground leading-snug truncate">
                 {row.headline}

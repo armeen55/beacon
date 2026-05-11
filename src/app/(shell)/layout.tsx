@@ -61,16 +61,20 @@ export default async function ShellLayout({
   //            Bugs to fix, not experiments to run. De-duped by URL so the
   //            number counts affected pages, not raw findings.
   //
-  //   Changes — URLs currently being watched by the Z-score engine (verdict
-  //             in {hurting, nothing_yet, too_early}). One row per URL.
-  //             Replaces the legacy `experiment-store` read as of 2026-04-19.
-  //
-  //   NOTE (Phase 6B.1, 2026-04-28): the operator-honest count would be
-  //   lifecycle-actionable = `pendingImplementation + needsReview` from
-  //   recommended_edits. That change requires resolving the build-time
-  //   prerender behavior of /changes/truth (calling currentTenantId from
-  //   the shell layout fails build there). Tracked as a separate small
-  //   follow-up phase; the Pending tab + badges already match /today.
+  //   Changes — URLs whose post-change verdict is `hurting`. One row per URL.
+  //             v2 QA polish bundle (2026-05-11) narrowed this from the
+  //             full WATCHING_VERDICTS set ({hurting, weak_signal,
+  //             nothing_yet, too_early}) down to `hurting` only. Pre-
+  //             narrow, the badge counted in-flight watching states
+  //             (too_early / nothing_yet / weak_signal) the same as
+  //             genuine alarms, which conflated the v2 page's
+  //             "Watching for signal" counter with its "Needs attention"
+  //             counter and read as "sidebar 3 vs page 24" — confusing.
+  //             Post-narrow, the badge means exactly: "URLs that need
+  //             your attention now", matching the v2 page's "Needs
+  //             attention" half of the counter strip using only the
+  //             existing `getWatchingUrlOutcomes()` fetch (no new
+  //             round-trip from the shell layout).
   const pendingFindings = await getPendingFindings();
   const todayBadge = pendingFindings.filter((f) =>
     CONTENT_CHANGE_TYPES.has(f.type),
@@ -81,7 +85,9 @@ export default async function ShellLayout({
       .map((f) => f.pagePath),
   );
   const pagesBadge = pagesWithBugs.size;
-  const changesBadge = (await getWatchingUrlOutcomes()).length;
+  const changesBadge = (await getWatchingUrlOutcomes()).filter(
+    (o) => o.verdict === "hurting",
+  ).length;
 
   const badges: NavBadges = {};
   if (todayBadge > 0) badges["/"] = todayBadge;

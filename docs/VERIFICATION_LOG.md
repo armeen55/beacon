@@ -7,6 +7,80 @@
 
 ---
 
+## 2026-05-11 — v2 QA polish bundle (5 polish fixes, no data layer changes)
+
+After the full v2 production QA audit landed earlier today (0 P0 / 2 P1 / 5 P2), this bundle fixes the 2 P1s + the 3 highest-leverage P2s in a single PR. No new feature work, no env flag changes, no data layer changes. P2-1 and P2-4 deferred as noted in the audit.
+
+### Scope (what changed)
+
+**Modified (4 source files):**
+- `src/components/today/v2/today-v2-recent-wins.tsx` — **P1-1**: added `min-w-0` to the wrapping `<article>` + each list `<li>` + the block `<Link>` so a long unbroken `urlVerdictProof.pagePath` can't expand the grid track past its share. Mirrors the sibling `today-v2-working.tsx` pattern.
+- `src/app/(shell)/layout.tsx` — **P1-2**: narrowed `changesBadge` from `(await getWatchingUrlOutcomes()).length` (which counted in-flight watching + too-early + nothing-yet + weak-signal verdicts as alarms) to `(await getWatchingUrlOutcomes()).filter((o) => o.verdict === "hurting").length`. Action-meaningful, matches v2's "Needs attention" semantics, reuses the existing fetch.
+- `src/components/today/v2/today-v2-working.tsx` — **P2-2**: pending-implementation CTA href changed from `/changes?tab=pending_implementation` (legacy-only query param, ignored by v2) to `/changes?legacy=1&tab=pending_implementation` (escapes to legacy table that respects the tab).
+- `src/domains/changes/proof-timeline/next-action.ts` — **P2-3**: "Open recommendation" CTA from a Change brief now routes to `/recommendations?v2=1` (queue page) and labels as "See related recommendations". Pre-fix, the CTA deep-linked to `/recommendations/<source_rec_id>` which was structurally wrong (route id is the v2 composite action-row id, not the raw `source_rec_id`) AND could 404 mid-flow when the rec had rotated out of the live queue. The new shape never 404s.
+- `src/app/(shell)/recommendations/[id]/recommendation-detail-client.tsx` — **P2-5**: Act 4 fallback measurement copy now renders the link text as "Changes" (the noun) instead of the literal path `/changes`; suppressed entirely for dismissed/deferred rows where it's a non-sequitur (replaced with calm "Measurement will resume if this recommendation is reopened.").
+
+**Modified (3 existing test files updated to match new shape):**
+- `tests/domains/changes/proof-timeline-next-action.test.ts` — rewrote the "Open recommendation hrefs are URL-encoded" test as "Open recommendation routes to the queue (never deep-links by source_rec_id)" + added a regression guard against the old label/href shape.
+- `tests/app/changes/change-detail-v2-client.test.tsx` — updated two fixture next-actions to use the new label/href + added explicit pin against the old `/recommendations/rec-1` deep link.
+- `tests/domains/prompts/v2-brief-projection.test.ts` — fixed a pre-existing typecheck error in the test fixture (`PromptPrimarySummary` cast needed `as unknown as` because the fixture omits the required `prompt_id` field; the projector never reads it).
+
+**New (2 test files):**
+- `tests/architecture/v2-qa-polish-bundle.test.ts` — 11 contract guardrails, source-level pins for each fix. Catches regression to: old sidebar badge filter, bare `?tab=` href, missing `min-w-0` on recent-wins, deep-link by source_rec_id, literal `/changes` link text, missing dismissed/deferred status gate.
+- `tests/components/today/today-v2-recent-wins-overflow.test.tsx` — 2 render tests with a deliberately-long `urlVerdictProof.pagePath` to prove `min-w-0` is on the article, list items, and Link wrappers.
+
+### Before / after — copy examples
+
+| Issue | Before | After |
+|---|---|---|
+| **P1-1** Recent Wins overflow | `<article className="rounded-lg…">` (no `min-w-0`); `<li>` (no `min-w-0`); `<Link className="block…">` (no `min-w-0`); `<p className="truncate">` | All three wrappers add `min-w-0`; truncate still applies but the grid track can shrink |
+| **P1-2** Sidebar Changes badge | `(await getWatchingUrlOutcomes()).length` — counts `hurting + weak_signal + nothing_yet + too_early` (i.e., in-flight) | `(await getWatchingUrlOutcomes()).filter((o) => o.verdict === "hurting").length` — counts only action-meaningful rows |
+| **P2-2** Today Working pending CTA | `href="/changes?tab=pending_implementation"` — v2 ignores `?tab=`, silent no-op | `href="/changes?legacy=1&tab=pending_implementation"` — escapes to the legacy table that respects the tab |
+| **P2-3** Change brief Act 5 CTA | `label: "Open recommendation"`, `href: "/recommendations/<encoded source_rec_id>"` — wrong route id shape, can 404 | `label: "See related recommendations"`, `href: "/recommendations?v2=1"` — queue page, always renders |
+| **P2-5** Rec detail Act 4 fallback | Link body is the literal path `/changes` (reads as URL chrome); runs for every status incl. dismissed/deferred | Link body is the noun "Changes"; suppressed for dismissed/deferred with calm "Measurement will resume if reopened." copy |
+
+### Tests added / updated (15 net new, all green)
+
+- `v2-qa-polish-bundle.test.ts` — 11 contract guardrails (one per polish fix invariant).
+- `today-v2-recent-wins-overflow.test.tsx` — 2 render tests for overflow defense.
+- Updated `proof-timeline-next-action.test.ts` — 1 rewritten + 1 added regression guard.
+- Updated `change-detail-v2-client.test.tsx` — 2 fixture sets updated + 1 new pin.
+- Fixed `v2-brief-projection.test.ts` — pre-existing typecheck cast issue.
+
+### Quality gates
+
+| Check | Result |
+|---|---|
+| `npm run typecheck` | ✅ clean (pre-existing TS error in v2-brief-projection.test.ts also fixed) |
+| `tests/architecture/` | ✅ 2350/2350 (forbidden-vocab guardrail still green) |
+| `npm run test` (full suite) | ✅ **7801/7801 across 412 files** (+15 since post-flip baseline 7786) |
+
+### Constraints honored
+
+- ✅ No Supabase mutations
+- ✅ No paid APIs
+- ✅ No migrations
+- ✅ No backend / domain logic changes
+- ✅ No data contract changes
+- ✅ No new feature work
+- ✅ Today / Recommendations / Changes / Prompts route defaults unchanged (env flags untouched)
+- ✅ Polling / watchdog automation untouched
+- ✅ Legacy `?legacy=1` paths preserved on every route
+- ✅ No env flag flipped or unflipped
+
+### Should all v2 routes remain default?
+
+**Yes.** All 4 v2 routes remain default in production. The polish bundle improved visual + linkage quality without changing routing semantics. `?legacy=1` is still the always-on per-page revert.
+
+### Next-step options (not started)
+
+- **P2-1** Today hero "Closest challenger" label disambiguation when brand has no rank — copy edit.
+- **P2-4** Changes next-action resolver legacy-detail href footgun — refactor to make the stamp contract explicit.
+
+Both deferred per the QA spec; neither blocks anything customer-visible today.
+
+---
+
 ## 2026-05-11 — `BEACON_PROMPTS_V2=true` flip + post-flip verification
 
 Default-flip for both `/prompts` (v2A strategic surface) and `/prompts/[id]` (v2B 5-act brief). One env var delivers both surfaces simultaneously — same one-flag-two-surfaces pattern as Changes. Closes the final v2 customer route: Today / Recommendations / Changes / Prompts are now all v2-by-default in production.

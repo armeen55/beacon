@@ -76,13 +76,24 @@ export function resolveNextActions(input: NextActionInput): NextActionCta[] {
 
   const ctas: NextActionCta[] = [];
 
+  // QA polish (2026-05-11): pre-fix, this CTA deep-linked to
+  // `/recommendations/<source_rec_id>`. That had two problems:
+  //   1. The `/recommendations/[id]` route id is the v2 action-row
+  //      composite id (Bundle 2B), NOT the raw changelog
+  //      `source_rec_id` — so the deep link was structurally wrong
+  //      and would calmly land on `RecommendationDetailNotFound`.
+  //   2. Even when the URL shapes had aligned, recommendations
+  //      rotate out of the live queue once shipped, so a stale
+  //      `source_rec_id` from a measured change would 404 mid-flow.
+  // The honest fix is to never promise "Open recommendation" from
+  // a change brief — we route to the queue page (always renders)
+  // and label the CTA as a related-recommendations browse instead.
+  // No new fetches; no per-rec liveness check needed.
   const openRecCta: NextActionCta | null = sourceRecId
     ? {
         kind: "open_recommendation",
-        label: "Open recommendation",
-        // The recommendation brief route — Bundle 2B's per-rec brief.
-        // Encoding handled there; we just pass the id through.
-        href: `/recommendations/${encodeURIComponent(sourceRecId)}`,
+        label: "See related recommendations",
+        href: "/recommendations?v2=1",
         emphasis: "secondary",
       }
     : null;

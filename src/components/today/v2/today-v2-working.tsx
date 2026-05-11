@@ -161,7 +161,13 @@ export function TodayV2Working({
         </Link>
         {pendingImplementationCount > 0 && visibleChanges.length > 0 && (
           <Link
-            href="/changes?tab=pending_implementation"
+            // QA polish (2026-05-11): the `?tab=pending_implementation`
+            // query param is a legacy-only filter — v2 `/changes` is the
+            // production default and ignores it, so the CTA silently
+            // no-op'd. Escape to the legacy table view via
+            // `?legacy=1&tab=pending_implementation` so the link actually
+            // filters down to the pending bucket the copy promises.
+            href="/changes?legacy=1&tab=pending_implementation"
             className="text-muted-foreground hover:text-foreground"
             data-today-v2-cta="pending"
           >

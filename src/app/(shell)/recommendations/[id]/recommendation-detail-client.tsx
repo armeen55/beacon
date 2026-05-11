@@ -376,6 +376,17 @@ export function RecommendationDetailClient({
           >
             {measurementPlan}
           </p>
+        ) : row.status === "dismissed" || row.status === "deferred" ? (
+          // QA polish (2026-05-11): dismissed / snoozed rows aren't in
+          // flight, so the "Beacon will watch the page after the change
+          // ships" fallback reads as a non-sequitur. Suppress it; the
+          // status pill above is enough context for the operator.
+          <p
+            className="text-[13px] text-muted-foreground leading-relaxed max-w-2xl"
+            data-recommendation-detail-measurement-suppressed="true"
+          >
+            Measurement will resume if this recommendation is reopened.
+          </p>
         ) : (
           <p
             className="text-[13px] text-foreground/85 leading-relaxed max-w-2xl"
@@ -387,7 +398,7 @@ export function RecommendationDetailClient({
               href="/changes"
               className="text-accent-primary hover:underline"
             >
-              /changes
+              Changes
             </Link>
             .
           </p>
