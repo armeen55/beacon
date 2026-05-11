@@ -90,7 +90,20 @@ export async function updateSession(request: NextRequest): Promise<NextResponse>
     // Machine-auth endpoints (see allowlist note in docstring). Exact match
     // only — NOT a prefix — so this cannot accidentally expose sibling
     // routes added later without a deliberate middleware edit.
-    path === "/api/poll/run";
+    path === "/api/poll/run" ||
+    // 2026-05-11 cron-middleware fix — both cron routes already enforce
+    // `Authorization: Bearer ${CRON_SECRET}` themselves
+    // (src/app/api/cron/rebuild-citation-evidence-index/route.ts and
+    // src/app/api/cron/scan/route.ts). Pre-fix the middleware redirected
+    // these to /login before the handler ever saw the request, which
+    // silently broke the daily-native-poll workflow's
+    // rebuild-citation-evidence-index step (curl received 307 → exit 0
+    // → workflow stayed green → /pages, /competitors, /topics stayed
+    // stale). Exact-match allowlist follows the existing /api/poll/run
+    // pattern — NOT a prefix — so sibling routes added later require a
+    // deliberate middleware edit.
+    path === "/api/cron/rebuild-citation-evidence-index" ||
+    path === "/api/cron/scan";
 
   if (!user && !isPublic) {
     const redirectUrl = request.nextUrl.clone();

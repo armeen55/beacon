@@ -158,6 +158,40 @@ describe("Sprint 7 Phase 7.4 — middleware tenant injection", () => {
     expect(res.status).toBe(200);
   });
 
+  // 2026-05-11 — cron-middleware fix. Pre-fix the middleware redirected
+  // /api/cron/* to /login before the route handler's CRON_SECRET bearer
+  // check ran, silently breaking the daily-native-poll workflow's
+  // rebuild-citation-evidence-index step. The route handlers already
+  // enforce `Authorization: Bearer ${CRON_SECRET}` themselves.
+  it("/api/cron/rebuild-citation-evidence-index is in the machine-auth allowlist (no redirect when unauthenticated)", async () => {
+    supabaseState.user = null;
+    const req = makeRequest("/api/cron/rebuild-citation-evidence-index");
+    const res = await updateSession(req);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("location")).toBeNull();
+  });
+
+  it("/api/cron/scan is in the machine-auth allowlist (no redirect when unauthenticated)", async () => {
+    supabaseState.user = null;
+    const req = makeRequest("/api/cron/scan");
+    const res = await updateSession(req);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("location")).toBeNull();
+  });
+
+  it("sibling /api/cron/* paths NOT in the explicit allowlist still redirect (exact-match contract)", async () => {
+    // The allowlist uses exact-match, not prefix, so a future
+    // /api/cron/something-new path that hasn't been deliberately
+    // added MUST still redirect. Pin this so a regression to
+    // `path.startsWith("/api/cron/")` is caught.
+    supabaseState.user = null;
+    const req = makeRequest("/api/cron/some-future-route");
+    const res = await updateSession(req);
+    expect(res.status).toBe(307);
+    const location = res.headers.get("location") ?? "";
+    expect(location).toContain("/login");
+  });
+
   it("BEACON_AUTH_DISABLED=1 bypasses everything (no tenant lookup, no redirects)", async () => {
     process.env.BEACON_AUTH_DISABLED = "1";
     // State configured to fail (no tenant) — bypass means we never reach the lookup.
