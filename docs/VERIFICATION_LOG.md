@@ -7,6 +7,103 @@
 
 ---
 
+## 2026-05-11 — Bundle 2 hosted-verification pass + AIVisibilityHero grammar fix
+
+Pre-flip verification pass for the new premium customer surfaces shipped across Bundles 1, 2A, 2A V, 2B, and 3. Goal: confirm the routes are visually/demo-ready before the operator considers flipping `BEACON_TODAY_V2=true` and `BEACON_RECOMMENDATIONS_V2=true` in Vercel.
+
+### Hosted access — gated
+
+Vercel preview at `https://beacon-git-claude-infallible-neuma-6b8c1b-armeen-5267s-projects.vercel.app` returns HTTP 401 without SSO cookies; no Chrome MCP session connected; no protection-bypass token in env. **Hosted preview could not be verified directly.** Verification fell back to the local dev server with file-backed Ritz fixtures (`DATA_SOURCE=file`) and the `?v2=1` / `?legacy=1` query overrides.
+
+### Routes verified (local with Ritz fixtures)
+
+| Route | HTTP | Layout marker | Observation |
+|---|---|---|---|
+| `/?v2=1` | 200 | `data-today-layout="v2-bundle1"` | Hero + 3 cards + disclosure render. Hero shows real Ritz visibility data (Visibility Score / Rank / Closest Challenger / Sample tiles). All 3 cards show calm empty states (Ritz fixtures genuinely have no actionable do-today / live-changes / measured-wins locally — unit tests cover the populated path). |
+| `/?legacy=1` | 200 | `data-today-layout="phase-6a8"` | Full v1 layout with Beacon Command Center / Brain Readiness / Latest Reading (Pending pills) / 6 sections render. |
+| `/recommendations?v2=1` | 200 | `data-recommendations-layout="v2-card-stack"` | Header + "Updated 2026-05-11" subline + empty-state card + "Open legacy view →" footer escape hatch. Local Ritz fixtures genuinely have zero Suggested rows (5 dismissed edits + 4 accepted/dismissed responses). |
+| `/recommendations?legacy=1` | 200 | (no v2 marker — legacy table) | Executive Strip with 4 cards: MONITORED 0 / NEED REVIEW 0 / TOP OPPORTUNITY (calm "next daily reading" copy) / EVIDENCE STRENGTH (no pending). 0 table rows — consistent with v2's empty state. |
+| `/recommendations/this-id-does-not-exist` | 200 | `data-recommendations-detail-not-found="true"` | "Recommendations / Detail" breadcrumb + "← Recommendations" back link + calm card "This recommendation is no longer available." / "Beacon may have already resolved or dismissed it." / "Back to recommendations →" CTA. No crash on unknown ID. |
+
+### Pre-fix: one true demo blocker (the only forbidden-vocab hit in any route)
+
+Cross-route HTML sweep against the Bundle 3 vocabulary guardrail set (Z-score, scheduled poll, cron times, decision queue, evidence tier, native observations, raw enum labels, etc.) found **exactly one leak** that wasn't caught by the static guardrail:
+
+```
+/?v2=1     → "You is being tracked across AI answers."
+/?legacy=1 → "You is being tracked across AI answers."
+```
+
+A grammar bug, not an internal-vocabulary leak per se. The `AIVisibilityHero` component (UX.6.3, used by both v2 and legacy /today) renders `${brandName} is #${rank} across tracked AI answers.` and `How often {brandName} appears across tracked AI answers.` When the brand resolves to "You" (the fallback when no real brand is configured), the third-person verb forms applied to a second-person subject read as a typo — visible on every preview render. **Same bug pre-dates Bundle 1 but the v2 layout's hero promotion makes it more prominent.**
+
+### Fix shipped (the smallest possible change)
+
+Source: `src/components/today/ai-visibility-hero.tsx` — added a 3-line subject-detection helper that pluralizes the verb for the second-person subject:
+
+```ts
+const subjectIsSecondPerson = brandName.trim().toLowerCase() === "you";
+const verbIs = subjectIsSecondPerson ? "are" : "is";
+const verbAppears = subjectIsSecondPerson ? "appear" : "appears";
+```
+
+The lead sentence and subline now use `${verbIs}` / `${verbAppears}` instead of literal `is` / `appears`. Pure projection — no other copy or behavior changes.
+
+After the fix:
+- "You are being tracked across AI answers." (was: "You is being tracked...")
+- "You are #1 across tracked AI answers." (was: "You is #1...")
+- "How often You appear across tracked AI answers." (was: "How often You appears...")
+- "Ritz Builders is #1 across tracked AI answers." (third-person path unchanged)
+- "How often Ritz Builders appears across tracked AI answers." (third-person path unchanged)
+
+### Tests
+
+- **+5 new behavioral tests** in `src/components/today/ai-visibility-hero.test.tsx` — second-person grammar happy paths (rank set / rank null / subline) + third-person regression guard + case-insensitive (`you` / `YOU`) variants.
+- **2 architecture invariants updated** in `tests/architecture/ux6-3-ai-visibility-hero-contract.test.ts` — pin the new `${verbIs}` / `${verbAppears}` template shapes + negative pins on the legacy literal `is #N` / `is being tracked` so a future regression to the broken grammar fails CI.
+- **Quality gates**: typecheck CLEAN, **7520/7520 tests passed** (+5 since Bundle 2B baseline 7515), zero regressions. Forbidden-vocabulary guardrail (Bundle 3) — 23/23 still pass.
+- **Post-fix cross-route HTML sweep returns ZERO forbidden-vocabulary hits** across all 5 routes.
+
+### 90-second demo path readiness
+
+| Step | Check | Status |
+|---|---|---|
+| 1. Open `/?v2=1` | Layout renders, hero is grammatical | ✅ post-fix |
+| 2. Read visibility score / health in 5s | Score / Rank / Closest Challenger / Sample tiles + plain-English lead sentence | ✅ |
+| 3. See "Do today" action | Empty state on local Ritz fixtures (calm "Nothing to ship right now / Beacon is watching" copy + "Open recommendations →" CTA) | ✅ shape correct; populated path covered by Bundle 1 unit tests |
+| 4. Open `/recommendations?v2=1` | v2 layout, header, subline, footer escape hatch | ✅ |
+| 5. Click a recommendation card | CTA points to `/recommendations/<encoded-row-id>` (Bundle 2B) | ✅ wiring locked by 2 v2-card tests; fixture-empty locally |
+| 6. Land on `/recommendations/[id]` | 5-act brief renders | ✅ shape covered by 14 detail-client tests; live render verified via not-found path |
+| 7. See 5 acts | Recommendation / Why / Evidence / Measurement / Next step | ✅ |
+| 8. Click "Open legacy review →" | Lands on `/recommendations?legacy=1#rec-<encoded-sourceRecommendationId>` | ✅ href encoding pinned by 2 detail-client tests |
+
+Every beat of the demo is wired correctly. The local visual gaps (3 empty cards on /today; empty state on /recommendations?v2=1) are data-driven, not UX-driven — they would populate on a workspace with non-trivial queue volume.
+
+### Out of scope (preserved)
+
+- No backend / domain / data contracts / cron / polls / scans / Supabase / paid APIs / migrations.
+- No env flags flipped — production defaults remain legacy until the operator decides.
+- No `/recommendations/[id]` action wiring — Bundle 2C territory.
+- No new routes; no `/changes` redesign.
+
+### Default-flip recommendation (operator decision)
+
+| Env | Recommendation | Rationale |
+|---|---|---|
+| `BEACON_TODAY_V2=true` | **YES — flip after operator's hosted visual review** | Layout is materially calmer than the 19-section legacy. Grammar bug now fixed. `?legacy=1` is the always-on revert. Forbidden-vocab guardrail covers regressions. |
+| `BEACON_RECOMMENDATIONS_V2=true` | **YES — flip after operator's hosted visual review** | Card stack + brief page replace the table+drawer cleanly. Status filter (Bundle 2A V) routes all 8 statuses correctly. Brief page covers the unknown-ID error path. `?legacy=1` is the always-on revert; brief's "Open legacy review →" CTA keeps action surface. |
+
+Both flips can land independently. Suggested ordering: flip `BEACON_TODAY_V2` first (smaller blast radius), watch for ~24h, then flip `BEACON_RECOMMENDATIONS_V2`. If either causes an unexpected issue, `?legacy=1` covers operators with zero code change.
+
+### Hosted verification still required
+
+Local + test coverage cannot prove these on the hosted preview because Vercel SSO blocks anonymous fetches. **The operator must visually confirm** (steps 1–7 of the 90-second demo above) on the Vercel preview URL `https://beacon-git-claude-infallible-neuma-6b8c1b-armeen-5267s-projects.vercel.app/?v2=1` and `/recommendations?v2=1` before flipping either env flag.
+
+### Next implementation bundle (post-flip)
+
+- **Bundle 2C** — wire accept / defer / dismiss / mark-shipped into the v2 brief page (Act 5). The legacy drawer remains the action surface today; 2C moves it inline. Adds new server-action surface area, so it's deliberately scoped after the default flip succeeds.
+- **Future Bundle 3 (audit's plan)** — `/changes` redesign (timeline-first, reduce 11-column table to a card list + "Predicted to land" rail). Lower priority than 2C.
+
+---
+
 ## 2026-05-10 — UI Audit Bundle 2B: /recommendations/[id] premium brief page
 
 Bundle 2B of the maximum-depth UI/product audit (`~/.claude/plans/i-want-a-maximum-depth-curried-curry.md`). Adds the dedicated `/recommendations/[id]` premium brief page — a 5-act narrative view of one `RecommendationActionRow`. The v2 card stack's "Review →" CTA now points at this brief instead of the legacy drawer anchor; operators retain a one-click "Open legacy review →" CTA inside the brief until accept / defer / dismiss wire into v2 directly (later pass).
