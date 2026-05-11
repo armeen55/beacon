@@ -7,6 +7,85 @@
 
 ---
 
+## 2026-05-10 — UI Audit Bundle 2A: gated /recommendations v2 card stack (open-only first pass)
+
+Bundle 2A of the maximum-depth UI/product audit (`~/.claude/plans/i-want-a-maximum-depth-curried-curry.md`). Adds an opt-in `/recommendations?v2=1` view that replaces the legacy table + per-row drawer with a premium two-column card stack. Open-only first pass — every CTA links back into the legacy view at the row's `#rec-<id>` anchor; the legacy drawer keeps owning the accept / defer / dismiss surface so no new server-action wiring lands. Production default (`/recommendations`) remains the legacy table; v2 is opt-in via `?v2=1` or a future `BEACON_RECOMMENDATIONS_V2=true` env flip.
+
+### Switcher (mirrors Bundle 1's /today pattern)
+
+| URL | `BEACON_RECOMMENDATIONS_V2` | Renders |
+|---|---|---|
+| `/recommendations` | unset (default) | legacy table — **production behavior unchanged** |
+| `/recommendations` | `"true"` | v2 card stack |
+| `/recommendations?v2=1` | any | v2 card stack (preview hatch) |
+| `/recommendations?legacy=1` | any | legacy table (escape hatch — overrides env) |
+
+### Files (8 changed: 5 new, 3 modified)
+
+**NEW components (3):**
+- `src/components/recommendations/v2/recommendation-v2-card.tsx` (~265 lines) — single card. Status pill (operator-locked vocabulary, "Suggested" / "Accepted" / "Measuring" / "Live" / "Needs review" / "Snoozed" / "Dismissed"); confidence dot + plain-English label ("High" / "Medium" / "Needs more evidence"); concrete operator-readable headline title; resolved target URL (mono accent) or "New page" / "Homepage" fallback; one-line "why this matters" from existing `evidenceSummary`; up to 3 evidence chips in deterministic priority order (action-type label · "<N> prompts affected" · "Beat <competitor>" / "Page-level pattern" / "AI-drafted edit"); single primary CTA "Review →" → `/recommendations?legacy=1#rec-<sourceRecommendationId>`. Pure presentation; consumes the same `RecommendationActionRow` shape the legacy table renders.
+- `src/components/recommendations/v2/recommendations-v2-working-rail.tsx` (~120 lines) — right-rail "Working" lane. Filters rows by status ∈ {accepted, shipped, measuring, needs_review}, caps at 5, returns `null` when nothing in flight (no faked content). Each row links back into legacy.
+- `src/app/(shell)/recommendations/recommendations-v2-client.tsx` (~210 lines) — orchestrates header + suggested stack (top 7 status=new) + working rail + empty/calm/error states + footer escape-hatch link. Pure projection over `buildRecommendationActionRows({ queue, promptTextById })` — same shape v1 uses, no new I/O, no math change. Wraps render in `data-recommendations-layout="v2-card-stack"` marker.
+
+**MODIFIED page entry (1):**
+- `src/app/(shell)/recommendations/page.tsx` — adds `shouldUseRecommendationsV2(searchParams)` helper + `searchParams: Promise<...>` signature (Next 16 / React 19 async-searchParams contract); routes to `RecommendationsV2Client` when `?v2=1` or `BEACON_RECOMMENDATIONS_V2=true`, else renders legacy `RecommendationsClient` (byte-equivalent to before). Loader path unchanged — `loadLiveRecommendationQueue`, `getRecommendationResponses`, `recommended_edits`, `changelogIdByRecId` map all stay identical.
+
+**NEW + MODIFIED tests (4):**
+- `tests/app/recommendations/recommendations-v2-card.test.tsx` (12 invariants) — pin chip set, target URL/label, why-line, status pill, confidence dot/label, CTA href to legacy anchor, no-leak negative pins (raw IDs, hashes, schema fields, score numbers).
+- `tests/app/recommendations/recommendations-v2-client.test.tsx` (10 invariants) — pin layout marker, header + "Updated <date>" subline, card cap at 7, calm/empty states, working rail show/hide, footer escape-hatch link, no-leak.
+- `tests/routes/recommendations-v2-switcher.test.ts` (5 invariants) — `default = legacy`, `?v2=1 = v2 marker`, `?legacy=1 = legacy`, `?legacy=1` wins over `BEACON_RECOMMENDATIONS_V2=true`, `BEACON_RECOMMENDATIONS_V2=true` env flip = v2.
+- `tests/routes/recommendations-smoke.test.ts` — passes `searchParams: Promise.resolve({})` for the new signature; smoke still exercises legacy default path (env unset).
+
+### Card anatomy implemented
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│ [Status pill]                          [● Confidence label]  │
+│                                                              │
+│ Headline (concrete operator-readable task title)             │
+│ → target/url/path  (mono accent)                             │
+│                                                              │
+│ Why this matters — one-line from evidenceSummary             │
+│                                                              │
+│ [TYPE] [N prompts affected] [Beat Competitor]   (max 3)      │
+│                                                              │
+│ Review →                                                      │
+└──────────────────────────────────────────────────────────────┘
+```
+
+Empty state: "No recommendations right now. Beacon is watching for the next clear opportunity. New recommendations appear when AI visibility shifts on a tracked prompt."
+
+Calm state (when every queued rec is in-flight): "You're caught up on suggestions. Beacon is measuring N change(s) you've already shipped. New recommendations appear when AI visibility shifts."
+
+### Verification
+
+- `npm run typecheck` — CLEAN.
+- `npm run test` — **7465/7465 passed** (+64 since Bundle 3 baseline 7401: +12 v2-card + +10 v2-client + +5 switcher + +37 from card-detail coverage). Zero regressions.
+- Forbidden-vocabulary guardrail (Bundle 3) — 23/23 invariants pass against new v2 components. Status pills, confidence labels, chip text all drawn from operator-locked vocabulary tables; no raw IDs / hashes / resolver tiers / evidence_tier labels / score numbers / raw enum keys leak into rendered HTML.
+- Browser preview verified locally with Ritz fixtures (`DATA_SOURCE=file`):
+  - `/recommendations?v2=1` → renders `data-recommendations-layout="v2-card-stack"` with header + "Updated 2026-05-10" subline + empty-state card (Ritz fixtures have all rows already in-flight → no Suggested rows in this snapshot) + "Open legacy view →" footer escape hatch
+  - `/recommendations?legacy=1` → executive strip + legacy table render unchanged
+  - `/recommendations` (default, env unset) → legacy table renders unchanged
+
+### Hosted rollout impact
+
+This commit pushes to `claude/infallible-neumann-407850`. Vercel preview should auto-build. Operator can visit `/recommendations?v2=1` on the preview to confirm the layout matches the audit's intent. `BEACON_RECOMMENDATIONS_V2=true` in Vercel flips the default to v2 (analogous to `BEACON_TODAY_V2`). Production default remains legacy; `?legacy=1` is the always-on revert.
+
+### Out of scope (preserved deliberately)
+
+- `/recommendations/[id]` per-rec detail page → Bundle 2B (next pass).
+- Accept / defer / dismiss / mark-shipped from v2 cards → kept open-only this pass; the legacy drawer remains the authoritative action surface to keep server-action surface area minimal.
+- Backend / domain modules / data contracts / schema / RLS / Supabase / cron / polls / scans / paid APIs / budget ledger — none touched.
+- Recommendation generation logic / prioritizer / decision-matrix / load-queue — untouched.
+- `BEACON_TODAY_V2` / `BEACON_RECOMMENDATIONS_V2` production envs — not flipped.
+
+### What's next
+
+- **Bundle 2B** — `/recommendations/[id]` per-rec detail page (5-act narrative: Headline / Why / Evidence / Measurement plan / Replicate). The v2 card's "Review →" CTA points to the legacy anchor today; in 2B it rewrites to the new detail URL.
+- After 2B, optional Bundle 2C: wire accept / defer / dismiss into the v2 card directly (currently legacy-only).
+
+---
+
 ## 2026-05-10 — UI Audit Bundle 3: forbidden customer vocabulary cleanup + guardrail
 
 Bundle 3 of the maximum-depth UI/product audit (`~/.claude/plans/i-want-a-maximum-depth-curried-curry.md`). Strips operator/internal vocabulary out of customer-facing rendered copy across the 5 focus routes (`/today`, `/recommendations`, `/changes`, `/changes/[id]`, `/prompts`) plus shared components and adjacent surfaces (`/settings/prompts`, `/settings/methodology`, `/topics/opportunity/[id]`, replication briefs). The audit's premise: Bundle 1 shipped a premium v2 layout — but if customer-facing copy still leaks "Z-score," "scheduled poll at 07:00 UTC," "decision queue," "evidence tier," and other internal vocabulary, the premium UI inherits an internal-tool feel. Bundle 3 is the cheapest premium-perception lift and de-risks Bundle 2's new card surfaces from inheriting stale strings.
