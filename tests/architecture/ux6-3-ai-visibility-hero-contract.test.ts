@@ -126,8 +126,13 @@ describe("UX.6.3 — hero owns the executive copy + 4 metric cards + footer", ()
   it("renders the 'AI Visibility' executive header + brand-name copy template", () => {
     expect(HERO_SRC).toContain("AI Visibility");
     // Dynamic brand-name interpolation in the copy (not a hardcoded brand).
+    // Bundle 2 hosted-verification fix (2026-05-11): the verb is now
+    // a `${verbAppears}` interpolation so "You" subjects pluralize
+    // correctly ("You appear" not "You appears"). Source template
+    // shape: `How often {brandName} {verbAppears} across tracked AI
+    // answers.`
     expect(HERO_SRC).toMatch(
-      /How often \{brandName\} appears across tracked AI answers\./,
+      /How often \{brandName\} \{verbAppears\} across tracked AI answers\./,
     );
   });
 
@@ -147,12 +152,23 @@ describe("UX.6.3 — hero owns the executive copy + 4 metric cards + footer", ()
     expect(HERO_SRC).toMatch(/data-today-hero-platform="perplexity"/);
   });
 
-  it("lead sentence template uses 'is #N across tracked AI answers' framing", () => {
-    expect(HERO_SRC).toMatch(/is #\$\{rank\} across tracked AI answers\./);
+  it("lead sentence template uses '<verb> #N across tracked AI answers' framing", () => {
+    // Bundle 2 hosted-verification fix (2026-05-11): the verb is now
+    // a `${verbIs}` interpolation so "You" subjects produce
+    // "You are #N..." instead of "You is #N...". Source template
+    // shape: `${brandName} ${verbIs} #${rank} across tracked AI
+    // answers.` Match the new shape; pin the legacy literal as a
+    // negative invariant so a future regression to "is #${rank}"
+    // fails CI.
+    expect(HERO_SRC).toMatch(
+      /\$\{verbIs\} #\$\{rank\} across tracked AI answers\./,
+    );
+    expect(HERO_SRC).not.toMatch(/\bis #\$\{rank\}/);
     // First-reading fallback when rank is null.
     expect(HERO_SRC).toMatch(
-      /is being tracked across AI answers\./,
+      /\$\{verbIs\} being tracked across AI answers\./,
     );
+    expect(HERO_SRC).not.toMatch(/\bis being tracked across AI answers/);
   });
 
   it("score metric subline uses 'pts vs previous Nd' shape", () => {

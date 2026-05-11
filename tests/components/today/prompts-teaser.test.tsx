@@ -48,7 +48,10 @@ describe("buildSummarySentence", () => {
       total: 100,
     });
     expect(s).toMatch(/Too early/);
-    expect(s).toMatch(/10:00 UTC/);
+    // Bundle 3 (2026-05-10): cron-time leak removed; copy now reads
+    // "Too early to judge. The next AI reading will add data."
+    expect(s).toMatch(/next AI reading/);
+    expect(s).not.toMatch(/10:00 UTC/);
   });
 
   it("handles zero total gracefully", () => {

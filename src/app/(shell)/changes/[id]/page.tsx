@@ -92,11 +92,11 @@ const TRUST_DOT: Record<TrustSource, string> = {
 };
 
 const EVENT_TYPE_LABELS: Record<string, string> = {
-  first_appearance: "First Appearance",
-  visibility_regained: "Visibility Regained",
-  mention_surge: "Mention Surge",
-  visibility_lost: "Visibility Lost",
-  mention_decline: "Mention Decline",
+  first_appearance: "First time cited",
+  visibility_regained: "Came back in the rankings",
+  mention_surge: "Mentions jumped",
+  visibility_lost: "Dropped from the rankings",
+  mention_decline: "Mentions slowed down",
 };
 
 // Phase 1.6 (Sprint 1 follow-up, 2026-04-24): force dynamic render so every
@@ -297,7 +297,7 @@ export default async function ChangeDetailPage({
               >
                 <EarlySignalPill verdict={urlOutcome.verdict} />
                 <span className="text-[11px] text-muted-foreground italic">
-                  URL Z-score engine — directional only, not yet a strong signal.
+                  Early per-page signal — directional only, not yet a strong signal.
                 </span>
               </div>
             )}

@@ -69,7 +69,7 @@ export default async function SettingsPromptsPage() {
         <h1 className="text-lg font-semibold tracking-tight">Prompts</h1>
         <p className="mt-1 text-sm text-muted-foreground leading-relaxed">
           {activeCount} prompt{activeCount === 1 ? "" : "s"} run in tomorrow&apos;s
-          10:00 UTC cron. {inactiveCount > 0 ? `${inactiveCount} inactive.` : null}
+          daily AI check. {inactiveCount > 0 ? `${inactiveCount} inactive.` : null}
         </p>
       </header>
       <SettingsPromptsClient rows={rows} />

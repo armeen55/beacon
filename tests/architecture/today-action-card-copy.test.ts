@@ -246,13 +246,28 @@ describe("T3 — default win-card rationale leads with calm copy", () => {
 });
 
 describe("T3 — exact stats live in lineageBullets (expansion-only)", () => {
-  it("Z-score bullet exists with the expected shape", () => {
+  // Bundle 3 (copy cleanup, 2026-05-10): the Z-score lineage bullet
+  // was rewritten to drop the raw decimal and the term "Z-score"
+  // from the customer-visible expansion. The bullet now reads
+  // "Signal strength: <high|medium|low> confidence." Tests pin the
+  // new shape AND a negative pin that "Z-score" no longer appears
+  // in the bullet literal.
+  it("signal-strength bullet exists with the expected shape (Bundle 3)", () => {
     expect(
       TODAY_DATA_SRC.includes(
-        "Z-score ${h.landingZ.toFixed(1)} (${h.confidence} confidence).",
+        "Signal strength: ${h.confidence} confidence.",
       ),
-      "Z-score bullet must use 'Z-score N.N (X confidence).' shape (T3)",
+      "Signal-strength bullet must use 'Signal strength: <X> confidence.' shape (T3 + Bundle 3)",
     ).toBe(true);
+  });
+
+  it("the legacy Z-score bullet literal is gone (Bundle 3 negative pin)", () => {
+    expect(
+      TODAY_DATA_SRC.includes(
+        "Z-score ${h.landingZ.toFixed(1)}",
+      ),
+      "Legacy 'Z-score N.N' bullet literal must be removed (Bundle 3 copy cleanup)",
+    ).toBe(false);
   });
 
   it("absolute /day delta bullet exists", () => {

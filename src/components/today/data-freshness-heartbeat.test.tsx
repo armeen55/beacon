@@ -241,14 +241,18 @@ describe("DataFreshnessHeartbeat — render", () => {
     expect(html).toContain('data-freshness-band="no_data"');
     expect(html).toContain("Beacon has not refreshed AI visibility yet.");
     expect(html).toContain(
-      "Beacon will surface a reading after the first scheduled poll.",
+      "Beacon will surface a reading after the first daily AI check.",
     );
   });
 
-  it("pending-band subline lists all three scheduled poll attempts (07:00 / 08:30 / 10:00 UTC)", () => {
-    // 2026-05-10 — heartbeat copy must reflect the redundant-schedule
-    // reliability fix in .github/workflows/daily-native-poll.yml. The
-    // single-schedule "fires at 07:00 UTC" copy is now misleading.
+  it("pending-band subline describes daily AI checks + auto-backups (Bundle 3 copy cleanup)", () => {
+    // Bundle 3 (copy cleanup, 2026-05-10): customer-facing heartbeat
+    // copy no longer leaks the cron schedule (07:00 / 08:30 / 10:00
+    // UTC). The redundant-schedule reliability posture is preserved
+    // — the workflow still fires at those times — but the customer-
+    // facing string reads "checks AI visibility multiple times each
+    // morning; backup attempts run automatically." Operator can see
+    // exact times via /diagnostics if needed.
     const snap = snapshot();
     snap.platforms[0].status = "pending";
     snap.platforms[1].latestRun!.completedAt = "2026-05-09T22:00:00.000Z"; // 14h ago
@@ -256,20 +260,25 @@ describe("DataFreshnessHeartbeat — render", () => {
       <DataFreshnessHeartbeat pollHealth={snap} now={NOW} />,
     );
     expect(html).toContain('data-freshness-band="pending"');
-    // New copy mentions all three attempts + the auto-backup posture
-    // so the operator knows they don't need to take action.
+    // Bundle 3 copy: cron-time-free, plain English, mentions auto-backup
+    // posture so the operator knows they don't need to take action.
     expect(html).toContain(
-      "Scheduled poll attempts run at 07:00, 08:30, and 10:00 UTC.",
+      "Beacon checks AI visibility multiple times each morning",
     );
-    expect(html).toContain("Backup attempts run automatically.");
-    // Old single-schedule-only copy must NOT remain in the heartbeat
-    // pending-band render.
-    expect(html).not.toContain("The next scheduled poll fires at 07:00 UTC.");
+    expect(html).toContain("backup attempts run automatically");
+    // Cron-time leakage must NOT appear in customer-facing copy.
+    expect(html).not.toContain("07:00");
+    expect(html).not.toContain("08:30");
+    expect(html).not.toContain("10:00 UTC");
+    expect(html).not.toContain("scheduled poll");
   });
 
-  it("stale-band subline mentions auto-backups + the 10:45 UTC threshold", () => {
-    // 2026-05-10 — stale-band hint upgrade. Operator gets a clean
-    // threshold for when the day's poll has actually missed.
+  it("stale-band subline mentions auto-backups + 'see data status' (Bundle 3 copy cleanup)", () => {
+    // Bundle 3 (copy cleanup, 2026-05-10): stale-band hint replaced
+    // the cron-time threshold ("10:45 UTC") with a plain-English
+    // morning-window check, and replaced "review poll health" with
+    // "see data status." Customer reads what to do, not when the
+    // backup canary fires.
     const snap = snapshot({
       platforms: snapshot().platforms.map((p) => ({
         ...p,
@@ -283,10 +292,11 @@ describe("DataFreshnessHeartbeat — render", () => {
       <DataFreshnessHeartbeat pollHealth={snap} now={NOW} />,
     );
     expect(html).toContain('data-freshness-band="stale"');
-    expect(html).toContain("Backup poll attempts run automatically.");
-    expect(html).toContain("10:45 UTC");
-    expect(html).toContain("review poll health");
-    // Old generic "retry on the next cycle" copy must not remain.
+    expect(html).toContain("Backup AI checks run automatically");
+    expect(html).toContain("see data status");
+    // Cron-time leakage and old "review poll health" jargon must NOT remain.
+    expect(html).not.toContain("10:45 UTC");
+    expect(html).not.toContain("review poll health");
     expect(html).not.toContain("retry on the next cycle");
   });
 
@@ -298,9 +308,9 @@ describe("DataFreshnessHeartbeat — render", () => {
     );
     expect(html).toContain('data-freshness-band="fresh"');
     expect(html).toContain("Latest readings are current.");
-    expect(html).not.toContain("review poll health");
-    expect(html).not.toContain("10:45 UTC");
-    expect(html).not.toContain("Backup attempts run automatically");
+    // Bundle 3: new stale/needs-action sublines must not leak into fresh.
+    expect(html).not.toContain("see data status");
+    expect(html).not.toContain("Backup AI checks run automatically");
     expect(html).not.toContain("Backup poll attempts run automatically");
   });
 
@@ -400,7 +410,7 @@ describe("DataFreshnessHeartbeat — render", () => {
         <DataFreshnessHeartbeat pollHealth={snapshot()} siteScan={null} now={NOW} />,
       );
       expect(html).toContain('data-scan-freshness-band="no_data"');
-      expect(html).toContain("Site scan: waiting for the first scheduled scan.");
+      expect(html).toContain("Site scan: waiting for the first scan.");
     });
 
     it("renders fresh-band scan row for completed scan < 24h ago", () => {

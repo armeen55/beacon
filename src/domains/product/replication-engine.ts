@@ -136,7 +136,7 @@ function reasonsForTarget(
 
   if (row) {
     observed.push(
-      `Source change "${row.change.asset_name}" -- ${row.verdict}, ${row.totalEventsLinked} linked visibility event(s), ${row.evidenceTier} evidence tier.`,
+      `Source change "${row.change.asset_name}" -- ${row.verdict}, ${row.totalEventsLinked} linked visibility event(s), ${row.evidenceTier} confidence.`,
     );
   }
 

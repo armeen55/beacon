@@ -49,7 +49,7 @@ export function EarlySignalPill({
     <span
       data-early-signal-pill="true"
       className={`inline-flex items-center gap-1 rounded-md border text-[11px] font-semibold border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400 ${padding}`}
-      title="Directional only — z-score above 1.2 but below the 2.0 strong-signal bar. Not yet proof; watch the post-change window over the next few days."
+      title="Directional only — early signal of lift, not yet a strong result. Watch the post-change window over the next few days."
     >
       <span aria-hidden="true" className="text-[9px]">
         ↗

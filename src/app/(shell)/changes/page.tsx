@@ -605,7 +605,7 @@ function computeReadyOn(input: {
     helpingCount: 0,
     sampleCount: 0,
     confidenceTier: null,
-    narrative: `No prior similar-edit data in your workspace yet. Using 7-day default. The pattern brain will sharpen this once more changes land.`,
+    narrative: `No prior similar-edit data in your workspace yet. Using 7-day default. Beacon will sharpen this once more changes land.`,
   };
 }
 

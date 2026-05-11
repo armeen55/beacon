@@ -89,7 +89,7 @@ describe("classifyPromptOpportunity — precedence + each heuristic", () => {
       options: { now: TODAY },
     });
     expect(out.category).toBe("early");
-    expect(out.reasoning).toMatch(/No native observations/);
+    expect(out.reasoning).toMatch(/No AI readings/);
     expect(out.evidence.observationCount).toBe(0);
   });
 
@@ -117,7 +117,7 @@ describe("classifyPromptOpportunity — precedence + each heuristic", () => {
       options: { now: TODAY },
     });
     expect(out.category).toBe("early");
-    expect(out.reasoning).toMatch(/Only 2 observations/);
+    expect(out.reasoning).toMatch(/Only 2 AI readings/);
   });
 
   it("Winning — ≥50% primary on at least one platform", () => {

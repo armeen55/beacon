@@ -81,7 +81,7 @@ export default async function PromptsPage() {
       ) : !hasAnyNativeObservations ? (
         <EmptyState
           title="Too early to judge"
-          body={`${totalPrompts} prompts active but no native observations in the last 7 days. Scheduled poll attempts run at 07:00, 08:30, and 10:00 UTC.`}
+          body={`${totalPrompts} prompts active but no AI readings in the last 7 days. Beacon checks AI visibility every morning.`}
         />
       ) : (
         <>
@@ -154,9 +154,9 @@ function AtGlance({ matrix }: { matrix: DecisionMatrix }) {
         )}
       </div>
       <p className="mt-2 text-[11px] text-muted-foreground/80 leading-relaxed">
-        Lookback: last 7 days of native observations (from{" "}
+        Lookback: last 7 days of AI readings (from{" "}
         <span className="tabular-nums">{matrix.lookbackFrom}</span>). Thresholds
-        fixed in v1 — surface only native Perplexity + ChatGPT data.
+        fixed in v1 — surface only Perplexity + ChatGPT data.
         {latest ? (
           <>
             {" "}Latest observation:{" "}
@@ -223,7 +223,7 @@ const CATEGORY_META: Record<
   },
   early: {
     label: "Early",
-    lead: "Not enough native observations yet to judge.",
+    lead: "Not enough AI readings yet to judge.",
     accent: "text-muted-foreground",
     bg: "border-border/50 bg-surface-inset/20",
     dotClass: "bg-muted-foreground/60",

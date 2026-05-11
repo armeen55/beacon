@@ -33,7 +33,11 @@ describe("/recommendations route smoke", () => {
       const { default: RecommendationsPage } = await import(
         "@/app/(shell)/recommendations/page"
       );
-      const tree = await RecommendationsPage();
+      // Bundle 2A (2026-05-10): page.tsx now reads searchParams to
+      // switch between legacy and v2 layouts. Pass an empty Promise
+      // so the smoke test exercises the legacy default path
+      // (BEACON_RECOMMENDATIONS_V2 unset).
+      const tree = await RecommendationsPage({ searchParams: Promise.resolve({}) });
       const html = renderToStaticMarkup(tree as ReactElement);
 
       // Route wrapper class from page.tsx — pinned at the same

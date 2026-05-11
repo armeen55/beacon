@@ -245,3 +245,66 @@ describe("AIVisibilityHero — copy must be customer-safe (no internal jargon)",
     expect(html).not.toContain("An Enormous Competitor Name That Overflows");
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────
+// Bundle 2 hosted-verification fix (2026-05-11) — second-person grammar.
+//
+// When the brand resolves to "You" (the fallback when no real brand
+// is configured), the third-person verb forms ("You is", "You appears")
+// read as a typo. The hero pluralizes the verb so any subject — "Ritz
+// Builders is", "You are" — stays grammatical.
+// ─────────────────────────────────────────────────────────────────────
+
+describe("AIVisibilityHero — second-person grammar (Bundle 2 verification fix)", () => {
+  it("renders 'You are #N' (not 'You is #N') when brandName is 'You' and rank is set", () => {
+    const html = renderToStaticMarkup(
+      <AIVisibilityHero {...RITZ_FULL} brandName="You" />,
+    );
+    expect(html).toContain("You are #1 across tracked AI answers.");
+    expect(html).not.toContain("You is #");
+  });
+
+  it("renders 'You are being tracked' (not 'You is being tracked') when rank is null", () => {
+    const html = renderToStaticMarkup(
+      <AIVisibilityHero
+        {...RITZ_FULL}
+        brandName="You"
+        rank={null}
+        totalRanked={0}
+      />,
+    );
+    expect(html).toContain("You are being tracked across AI answers.");
+    expect(html).not.toContain("You is being tracked");
+  });
+
+  it("renders 'How often You appear' (not 'How often You appears') in the subline", () => {
+    const html = renderToStaticMarkup(
+      <AIVisibilityHero {...RITZ_FULL} brandName="You" />,
+    );
+    expect(html).toContain("How often You appear across tracked AI answers.");
+    expect(html).not.toContain("How often You appears");
+  });
+
+  it("third-person ('Ritz Builders') still uses 'is' / 'appears'", () => {
+    // Negative pin to make sure the second-person fix didn't break
+    // the existing brand path. RITZ_FULL has brandName='Ritz Builders'.
+    const html = renderToStaticMarkup(<AIVisibilityHero {...RITZ_FULL} />);
+    expect(html).toContain("Ritz Builders is #1 across tracked AI answers.");
+    expect(html).toContain(
+      "How often Ritz Builders appears across tracked AI answers.",
+    );
+    expect(html).not.toContain("Ritz Builders are");
+    expect(html).not.toContain("Ritz Builders appear ");
+  });
+
+  it("case-insensitive: 'you' (lowercase) and 'YOU' (uppercase) both pluralize", () => {
+    const lower = renderToStaticMarkup(
+      <AIVisibilityHero {...RITZ_FULL} brandName="you" />,
+    );
+    expect(lower).toContain("you are #1 across tracked AI answers.");
+    const upper = renderToStaticMarkup(
+      <AIVisibilityHero {...RITZ_FULL} brandName="YOU" />,
+    );
+    expect(upper).toContain("YOU are #1 across tracked AI answers.");
+  });
+});

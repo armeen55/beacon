@@ -100,13 +100,25 @@ export function AIVisibilityHero(props: AIVisibilityHeroProps) {
   const hasScore = score !== null && Number.isFinite(score);
   const hasRank = rank !== null && Number.isFinite(rank);
 
-  // Lead sentence — "You are #N across tracked AI answers."
+  // Bundle 2 hosted-verification fix (2026-05-11): when the brand
+  // name resolves to the second-person pronoun "You" (the fallback
+  // when no real brand is configured), the third-person verb forms
+  // ("You is", "You appears") read as a typo. Pluralize the verb
+  // for the second-person case so any subject — "Ritz Builders is",
+  // "You are" — stays grammatical. Pure-projection helper; no other
+  // copy or behavior changes.
+  const subjectIsSecondPerson = brandName.trim().toLowerCase() === "you";
+  const verbIs = subjectIsSecondPerson ? "are" : "is";
+  const verbAppears = subjectIsSecondPerson ? "appear" : "appears";
+
+  // Lead sentence — "You are #N across tracked AI answers." for the
+  // second-person fallback; "Ritz Builders is #N..." for any real brand.
   // Operator-locked copy. Avoids superlatives Beacon can't claim.
   const leadSentence = (() => {
     if (!hasRank) {
-      return `${brandName} is being tracked across AI answers.`;
+      return `${brandName} ${verbIs} being tracked across AI answers.`;
     }
-    return `${brandName} is #${rank} across tracked AI answers.`;
+    return `${brandName} ${verbIs} #${rank} across tracked AI answers.`;
   })();
 
   return (
@@ -129,7 +141,7 @@ export function AIVisibilityHero(props: AIVisibilityHeroProps) {
             AI Visibility
           </p>
           <p className="text-[13px] text-muted-foreground mt-0.5">
-            How often {brandName} appears across tracked AI answers.
+            How often {brandName} {verbAppears} across tracked AI answers.
           </p>
         </div>
         {sampleState && (

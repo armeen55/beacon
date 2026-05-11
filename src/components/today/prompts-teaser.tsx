@@ -115,7 +115,7 @@ export function buildSummarySentence(args: {
     return `Weak on ${weak} of ${total} tracked prompts${close > 0 ? ` · ${close} close to breaking through` : ""}.`;
   }
   if (early === total) {
-    return `Too early to judge. Next poll at 10:00 UTC will seed evidence.`;
+    return `Too early to judge. The next AI reading will add data.`;
   }
   return `${winning} winning, ${close} close, ${absent} absent, ${outranked} outranked.`;
 }
