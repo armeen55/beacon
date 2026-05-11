@@ -37,6 +37,7 @@ import {
   type RecommendationActionRow,
 } from "@/domains/recommendations/recommendation-action-rows";
 import { cn } from "@/lib/utils";
+import { RecommendationDetailActions } from "./recommendation-detail-actions";
 
 // ─────────────────────────────────────────────────────────────────────
 // Style tables (mirror the v2 card's vocabulary so the brief feels
@@ -130,8 +131,10 @@ export function RecommendationDetailClient({
     return texts;
   })();
 
-  const legacyHref = `/recommendations?legacy=1#rec-${encodeURIComponent(row.sourceRecommendationId)}`;
-  const changeHref = changelogId ? `/changes/${changelogId}` : null;
+  // Bundle 2C (2026-05-11) — legacy-anchor and open-change hrefs moved
+  // into RecommendationDetailActions where they sit alongside the inline
+  // action buttons. The client component below renders them as secondary
+  // CTAs in Act 5.
 
   return (
     <div
@@ -401,45 +404,20 @@ export function RecommendationDetailClient({
         </p>
       </Act>
 
-      {/* Act 5 — Next step */}
+      {/* Act 5 — Next step. Bundle 2C (2026-05-11): inline action surface
+          replaces the prior read-only escape-hatch list. Each button
+          calls the SAME server action the legacy table calls; the
+          legacy drawer remains a one-click fallback for transitions
+          v2 doesn't surface yet (e.g., Regenerate for needs_fresh_edit). */}
       <Act
         index={5}
         label="What to do next"
         dataAttr="act-next"
       >
-        <div className="flex flex-wrap items-center gap-3 text-[13px] font-semibold">
-          <Link
-            href={legacyHref}
-            className="inline-flex items-center gap-1 text-accent-primary hover:underline"
-            data-recommendation-detail-cta="legacy-review"
-          >
-            Open legacy review →
-          </Link>
-          {changeHref && (
-            <Link
-              href={changeHref}
-              className="inline-flex items-center gap-1 text-accent-primary hover:underline"
-              data-recommendation-detail-cta="open-change"
-            >
-              Open change →
-            </Link>
-          )}
-          <Link
-            href="/recommendations?v2=1"
-            className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground"
-            data-recommendation-detail-cta="back-to-list"
-          >
-            Back to recommendations
-          </Link>
-        </div>
-        <p
-          className="mt-3 text-[11px] text-muted-foreground/80 leading-relaxed max-w-2xl"
-          data-recommendation-detail-next-explainer="true"
-        >
-          Accept, defer, and dismiss live in the legacy review drawer for
-          now. The brief view is read-only; coming changes will move those
-          actions inline.
-        </p>
+        <RecommendationDetailActions
+          row={row}
+          changelogId={changelogId}
+        />
       </Act>
     </div>
   );

@@ -6,8 +6,17 @@
  * pass.
  */
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
+
+// Bundle 2C (2026-05-11) — the brief page's Act 5 now embeds
+// RecommendationDetailActions, a client component that calls
+// `useRouter()` from `next/navigation`. Stub the hook so this server-
+// rendered test doesn't hit the "invariant expected app router to be
+// mounted" assertion.
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ refresh: () => {} }),
+}));
 
 import { RecommendationDetailClient } from "@/app/(shell)/recommendations/[id]/recommendation-detail-client";
 import { RecommendationDetailNotFound } from "@/app/(shell)/recommendations/[id]/recommendation-detail-not-found";
