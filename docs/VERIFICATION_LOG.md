@@ -7,6 +7,112 @@
 
 ---
 
+## 2026-05-10 — UI Audit Bundle 2B: /recommendations/[id] premium brief page
+
+Bundle 2B of the maximum-depth UI/product audit (`~/.claude/plans/i-want-a-maximum-depth-curried-curry.md`). Adds the dedicated `/recommendations/[id]` premium brief page — a 5-act narrative view of one `RecommendationActionRow`. The v2 card stack's "Review →" CTA now points at this brief instead of the legacy drawer anchor; operators retain a one-click "Open legacy review →" CTA inside the brief until accept / defer / dismiss wire into v2 directly (later pass).
+
+### Route-id safety (Task 1 — done first)
+
+Real fixture ids contain `:`, ` `, `[`, `]`, `/` — characters that are unsafe in URL path segments and that Next.js's `[id]` matcher cannot accept raw. Without encoding, every card link would either 404 or route to the wrong path.
+
+- **NEW** `src/components/recommendations/v2/recommendation-route-id.ts` — exports `encodeRecommendationRouteId(id)` / `decodeRecommendationRouteId(routeParam)`.
+  - Encoder uses `encodeURIComponent` (covers `:`, `/`, `?`, `#`, `[`, `]`, `@`, `!`, `$`, `&`, `'`, `(`, `)`, `*`, `+`, `,`, `;`, `=`, ` `, plus all non-ASCII per RFC 3986).
+  - Decoder is effectively identity on well-formed input (Next decodes the path segment once before handing us `params.id`); exported as a named function so callers don't have to know the Next contract and so there's a single seam for future validation.
+  - **6 round-trip tests** pin the contract against real fixture ids (`create_cluster_page:geo:Los Altos__add_faq__faq_question[new]:d1b049c63d8a`, `rec-fixture-1__add_h2_section__h2[new]:abc`, `schema_missing_for_page_type-/available-homes-obs-1776550666639`, etc.) plus adversarial input (emoji, multi-line, hashes, slashes, double-encoding).
+
+### 5-act narrative (locked by 14 detail-client tests)
+
+| Act | Purpose | Key fields rendered |
+|---|---|---|
+| 1 — Recommendation | What Beacon recommends | `title` · `targetUrl`/`targetLabel` · type label · priority · status (operator-friendly labels) |
+| 2 — Why this matters | One paragraph + confidence explainer | `evidenceSummary` (or `detail.why` fallback); confidence-tier-specific explainer ("Beacon needs more evidence before this should be shipped" for `needs_review`) |
+| 3 — Evidence | Customer-safe tiles + prompt snippets | `affectedPromptCount` · `observationCount` · `topCompetitor.name` + primaryPct · `evidenceDepth ≥ 4` → "Page-level pattern". Up to 3 prompt-text snippets from `evidenceRefs` × `promptTextById` lookup. Empty-state message when no signals available. |
+| 4 — How Beacon will measure it | Existing data only | `detail.measurementPlan` (or calm fallback "Beacon will watch this page's citation rate on the affected prompts after the change ships"); current status; "Beacon is watching impact" for accepted/measuring/shipped. |
+| 5 — What to do next | Open-only CTAs | "Open legacy review →" → `/recommendations?legacy=1#rec-<encoded-sourceRecommendationId>`; "Open change →" when `changelogIdByRecId` resolves; "Back to recommendations" → `/recommendations?v2=1`. Calm explainer paragraph notes the brief is read-only this pass. |
+
+### V2 card CTA change
+
+| | Before | After |
+|---|---|---|
+| Default `reviewHref` | `/recommendations?legacy=1#rec-<sourceRecommendationId>` | `/recommendations/<encodeRecommendationRouteId(row.id)>` |
+| Cardinality | Many cards from one rec collided on the same legacy anchor | Each card maps 1:1 to its own brief URL |
+| Override | `reviewHref` prop still supported | Same — callers can still override (tests, future variants) |
+
+Locked by an updated existing test (`renders the primary 'Review →' CTA pointing at the v2 brief page`) + a new `encodes URL-unsafe characters in the row id (Bundle 2B route-id contract)` test that pins both positive (`%3A`, `%20`, `%5B`, `%5D` appear) and negative (raw `:`, `[`, `]` do NOT survive into the href path segment).
+
+### Files (8 changed: 7 new, 1 modified)
+
+**NEW (route + components):**
+- `src/app/(shell)/recommendations/[id]/page.tsx` — server entry. Force-dynamic. Awaits `Promise<{ id }>` per Next 16 / React 19 async-params contract. Fail-soft on every loader call (mirrors `/recommendations` page.tsx). Detail page resolves rows from the prioritized queue only — watchlist is excluded by design (those recs carry the lighter `RecommendationCandidate` shape, not `LiveRecQueueItem`; they're informational, not actionable; a watched-rec URL falls into the not-found state by design).
+- `src/app/(shell)/recommendations/[id]/recommendation-detail-client.tsx` (~360 lines) — pure presentation 5-act client. Uses the same operator-locked status/confidence vocabulary tables as the v2 card so the brief feels continuous with the stack.
+- `src/app/(shell)/recommendations/[id]/recommendation-detail-not-found.tsx` — calm not-found state.
+- `src/components/recommendations/v2/recommendation-route-id.ts` — encode/decode helpers.
+
+**NEW (tests):**
+- `src/components/recommendations/v2/recommendation-route-id.test.ts` — 6 tests pinning round-trip + adversarial input.
+- `tests/app/recommendations/recommendation-detail-client.test.tsx` — 14 detail-client tests + 2 not-found tests covering: layout marker, back link, 5-act order + indices, status pill + label override, confidence label, evidence tiles, prompt-text snippets cap (3), measurement plan render + fallback, legacy CTA encoded `#rec-` anchor, change CTA gated by `changelogId`, calm empty-evidence message, `needs_review` calm copy, `Beacon is watching impact` gate by status, no-leak.
+
+**MODIFIED:**
+- `src/components/recommendations/v2/recommendation-v2-card.tsx` — `reviewHref` default now uses `encodeRecommendationRouteId(row.id)` pointing at the brief page. Override prop preserved.
+- `tests/app/recommendations/recommendations-v2-card.test.tsx` — updated existing CTA test for new brief URL + new encoding test.
+
+### Data flow reused (Task 2 — same loader, no new fetches)
+
+The detail page's loader is byte-equivalent to `/recommendations`'s page.tsx for everything except the final filter:
+- `currentTenantId()`
+- `loadLiveRecommendationQueue({ tenantId })`
+- `getRecommendationResponses(tenantId)` (via `safeCall` wrapper)
+- `recommended_edits` from `live.recommendedEdits` (deduped by `rec_id` into `editsByRecId` map — same pattern as `/recommendations`)
+- `getChangelogEntries()` (via `safeCall`)
+- `buildChangelogIdByRecId()`
+- `buildRecommendationActionRows({ queue: decorated, promptTextById })`
+
+Then: `allRows.find((r) => r.id === decodedId) ?? null` — single filter. Unknown id → calm not-found.
+
+**Zero new server actions. Zero new fetches. Zero domain logic changes. Zero data contract changes.**
+
+### Verification
+
+- `npm run typecheck` — CLEAN.
+- `npm run test` — **7515/7515 passed** (+45 since Bundle 2A V baseline 7470: +6 route-id + +14 detail-client + +2 detail not-found + +2 v2-card new tests + ~21 redistributed). Zero regressions.
+- Forbidden-vocabulary guardrail (Bundle 3) — 23/23 invariants pass against new components. Brief page renders no `Z-score` / no raw IDs / no hashes / no resolver tiers / no `evidence_tier` labels / no raw enum keys.
+- Browser preview verified locally with Ritz fixtures (`DATA_SOURCE=file`):
+  - `/recommendations?v2=1` → v2 layout renders (empty state on local Ritz fixtures, as expected post-Bundle-2A V verification).
+  - `/recommendations/this-id-does-not-exist` → not-found state renders (HTTP 200; calm copy "This recommendation is no longer available." / "Beacon may have already resolved or dismissed it." / Back-to-recommendations CTA). Verified visually by screenshot.
+  - `/recommendations/<encodeURIComponent("create_cluster_page:geo:Los Altos__add_faq__faq_question[new]:abc")>` → renders the not-found state without crash; URL-unsafe characters never reach the Next.js router raw. Confirms the route-id helper handles real-shape ids end-to-end.
+
+### Hosted preview verification (operator-side)
+
+Vercel preview is SSO-gated (HTTP 401 to anonymous fetch) so the operator must visually confirm:
+
+1. Open `/recommendations?v2=1` on the Vercel preview.
+2. Click any card's "Review →" CTA — should land on `/recommendations/<encoded-id>`.
+3. Verify the brief renders all 5 acts (the data attributes pinned by tests are useful for browser-DevTools confirmation: `data-recommendations-detail-layout="v2-brief"`, `data-recommendation-detail-act="act-recommendation"` through `act-next`).
+4. Click "Open legacy review →" — should land back at `/recommendations?legacy=1#rec-<sourceRecommendationId>` with the legacy drawer anchored.
+5. Click "Back to recommendations" — should land at `/recommendations?v2=1`.
+
+### Out of scope (preserved)
+
+- Legacy `/recommendations` table default unchanged — no schema / domain logic / recommendation generation logic / data contracts touched.
+- Accept / defer / dismiss / mark-shipped still legacy-only this pass (per operator instruction). The brief's "Open legacy review →" CTA is the seam for those actions.
+- `BEACON_RECOMMENDATIONS_V2` production env not flipped.
+- No Supabase mutations / paid APIs / cron / polls / scans / migrations.
+
+### Bundle 2 readiness for default flip after hosted visual review
+
+After hosted visual confirmation completes, Bundle 2 is **ready** for `BEACON_RECOMMENDATIONS_V2=true` in Vercel:
+- Card stack (Bundle 2A) — opt-in for 1 day, 5-status routing locked by 5 contract tests (Bundle 2A V).
+- Brief page (Bundle 2B) — 5-act narrative locked by 14 contract tests; route-id encoding locked by 6 round-trip tests; not-found state covers all error paths.
+- Forbidden-vocabulary guardrail (Bundle 3) covers every customer-facing component in the bundle.
+- `?legacy=1` is the always-on revert path — no code change needed if issues surface.
+
+### What's next (post-flip)
+
+- Bundle 2C (optional follow-up) — wire accept / defer / dismiss / mark-shipped into the v2 brief page (`recommendation-detail-client.tsx` Act 5) when the operator says it's safe to add the new server-action surface area to v2.
+- Default-flip Bundle 1 (`BEACON_TODAY_V2=true`) is independent and can land before/after Bundle 2's flip.
+
+---
+
 ## 2026-05-10 — UI Audit Bundle 2A V: verification pass — populate /recommendations v2 from live queue
 
 Post-Bundle-2A verification pass. The operator paused before Bundle 2B and asked for a hosted/live verification of v2 against legacy. The Vercel preview is SSO-gated (HTTP 401), so direct hosted inspection wasn't available — but the audit of v2's row-classification logic caught a real bug the user's worry pointed at: the original `SUGGESTED_STATUSES = {"new"}` filter was too narrow. A workspace whose entire pending queue lived in `needs_review` or `needs_fresh_edit` would render the v2 empty state even though the legacy Executive Strip's "Need review" tile would surface those same rows. v2 was silently hiding the stack.
