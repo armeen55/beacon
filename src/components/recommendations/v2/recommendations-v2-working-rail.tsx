@@ -25,11 +25,20 @@ import {
 } from "@/domains/recommendations/recommendation-action-rows";
 import { cn } from "@/lib/utils";
 
+/**
+ * Statuses surfaced in the Working rail. Bundle 2A V (verification
+ * pass, 2026-05-10): tightened from `{accepted, shipped, measuring,
+ * needs_review}` to `{accepted, shipped, measuring}` so `needs_review`
+ * doesn't double-render: it now lives in the Suggested stack
+ * (customer-reviewable) per the audit. Keep this set in lockstep
+ * with `IN_FLIGHT_STATUSES` in recommendations-v2-client.tsx — the
+ * calm-state copy "Beacon is measuring N change(s)" reads from the
+ * client-side IN_FLIGHT count, and the rail renders from this set.
+ */
 const WORKING_STATUSES: ReadonlySet<ActionRowStatus> = new Set<ActionRowStatus>([
   "accepted",
   "shipped",
   "measuring",
-  "needs_review",
 ]);
 
 const STATUS_PILL_TONE: Record<ActionRowStatus, string> = {

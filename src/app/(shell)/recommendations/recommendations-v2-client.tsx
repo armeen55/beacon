@@ -45,8 +45,46 @@ import type {
   RecommendationWatchRow,
 } from "./page";
 
+/**
+ * Customer-actionable statuses that surface as cards in the v2
+ * Suggested stack. Bundle 2A V (verification pass, 2026-05-10):
+ * widened from `{"new"}` to include `needs_review` and
+ * `needs_fresh_edit` after the post-Bundle-2A audit caught the
+ * original set hiding rows that the legacy Executive Strip's
+ * "Need review" tile already exposed. Per the audit's "never hide
+ * all value just because rows are not in one exact status bucket"
+ * rule.
+ *
+ * Bucket-to-placement map (locked):
+ *   - new                → Suggested stack (this set)
+ *   - needs_review       → Suggested stack (this set; customer reviews
+ *                          the lower-confidence rec and decides)
+ *   - needs_fresh_edit   → Suggested stack (this set; rec is still
+ *                          actionable — operator triggers regenerate)
+ *   - accepted           → Working rail (see rail's WORKING_STATUSES)
+ *   - shipped            → Working rail
+ *   - measuring          → Working rail
+ *   - dismissed          → hidden (operator already rejected)
+ *   - deferred           → hidden (operator snoozed it)
+ */
 const SUGGESTED_STATUSES: ReadonlySet<ActionRowStatus> = new Set<ActionRowStatus>([
   "new",
+  "needs_review",
+  "needs_fresh_edit",
+]);
+
+/**
+ * Statuses considered "in flight" for the calm-state copy + the
+ * "Working" rail's filter. Mirrors `WORKING_STATUSES` in
+ * recommendations-v2-working-rail.tsx (the two arrays MUST stay in
+ * sync — the calm copy says "Beacon is measuring N change(s) you've
+ * already shipped" and that count drives the operator's decision
+ * about whether to flip back to legacy).
+ */
+const IN_FLIGHT_STATUSES: ReadonlySet<ActionRowStatus> = new Set<ActionRowStatus>([
+  "accepted",
+  "shipped",
+  "measuring",
 ]);
 
 const MAX_SUGGESTED_CARDS = 7;
@@ -82,13 +120,7 @@ export function RecommendationsV2Client({
   );
 
   const inFlightCount = useMemo(
-    () =>
-      allRows.filter((r) =>
-        r.status === "accepted" ||
-        r.status === "shipped" ||
-        r.status === "measuring" ||
-        r.status === "needs_review",
-      ).length,
+    () => allRows.filter((r) => IN_FLIGHT_STATUSES.has(r.status)).length,
     [allRows],
   );
 

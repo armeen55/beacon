@@ -229,3 +229,201 @@ describe("Bundle 2A — RecommendationsV2Client", () => {
     expect(html).not.toContain("stableKey");
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────
+// Bundle 2A V — verification-pass classification contract.
+//
+// After Bundle 2A shipped with `SUGGESTED_STATUSES = {"new"}`, the
+// post-bundle audit caught the filter hiding rows that the legacy
+// Executive Strip's "Need review" tile already exposed. The widened
+// set must surface needs_review rows in the Suggested stack and keep
+// the Working rail focused on actually-in-flight items
+// (accepted / shipped / measuring). These tests pin the new contract
+// so a future tightening cannot silently re-hide actionable rows.
+// ─────────────────────────────────────────────────────────────────────
+
+/**
+ * Build a fixture rec whose `RecommendationActionRow` will end up at
+ * the requested status. We can't directly stamp the action-row status
+ * (that's derived inside `buildRecommendationActionRows`), but we CAN
+ * drive it via the rec's `response.status` + `edits[].implementation_status`
+ * which the builder reads. This helper exists only for the V tests.
+ */
+function makeRecWithDerivedStatus(
+  derivedStatus:
+    | "new"
+    | "accepted"
+    | "shipped"
+    | "measuring"
+    | "needs_review"
+    | "needs_fresh_edit"
+    | "deferred"
+    | "dismissed",
+  stableKey: string,
+): RecommendationQueueRow {
+  // Mirror the status-derivation paths in
+  // `src/domains/recommendations/recommendation-action-rows.ts:statusForRow`.
+  //   - responseStatus="dismissed"                       → "dismissed"
+  //   - responseStatus="deferred"                        → "deferred"
+  //   - responseStatus="accepted" + lifecycle=verified_live → "measuring"
+  //   - responseStatus="accepted" + other lifecycle      → "accepted"
+  //   - resolution.needsHumanReview=true                 → "needs_review"
+  //   - all edits with implementation_status="dismissed" → "needs_fresh_edit"
+  //   - no edits                                         → "needs_review"
+  //   - no response + lifecycle=verified_live            → "shipped"
+  //   - no response + lifecycle=needs_review/wrong_page  → "needs_review"
+  //   - else                                             → "new"
+  const base = makeRec({ stableKey });
+  const stampEditStatus = (
+    r: RecommendationQueueRow,
+    status: string,
+    extra: Partial<RecommendationQueueRow["edits"][number]> = {},
+  ): RecommendationQueueRow => ({
+    ...r,
+    edits: r.edits.map((e) => ({
+      ...e,
+      implementation_status: status as RecommendationQueueRow["edits"][number]["implementation_status"],
+      ...extra,
+    })) as RecommendationQueueRow["edits"],
+  });
+
+  switch (derivedStatus) {
+    case "new":
+      return base;
+    case "accepted":
+      return makeRec({ stableKey }, { responseStatus: "accepted" });
+    case "shipped":
+      // No response + lifecycle=verified_live → shipped.
+      return stampEditStatus(base, "verified_live", {
+        live_at: new Date().toISOString(),
+      });
+    case "measuring":
+      // responseStatus=accepted + lifecycle=verified_live → measuring.
+      return stampEditStatus(
+        makeRec({ stableKey }, { responseStatus: "accepted" }),
+        "verified_live",
+        { live_at: new Date(Date.now() - 8 * 86400000).toISOString() },
+      );
+    case "needs_review": {
+      // resolution.needsHumanReview=true → needs_review (overrides
+      // every lifecycle-derived path below).
+      const r = makeRec({ stableKey });
+      const recWithReview = {
+        ...r.rec,
+        resolution: {
+          ...(r.rec as { resolution: Record<string, unknown> }).resolution,
+          needsHumanReview: true,
+        },
+      } as RecommendationQueueRow["rec"];
+      return { ...r, rec: recWithReview };
+    }
+    case "needs_fresh_edit":
+      // No response + all edits dismissed → needs_fresh_edit.
+      return stampEditStatus(base, "dismissed");
+    case "deferred":
+      return {
+        ...base,
+        response: {
+          recId: stableKey,
+          status: "deferred",
+          respondedAt: new Date().toISOString(),
+          deferUntil: new Date(Date.now() + 7 * 86400000).toISOString(),
+        },
+      };
+    case "dismissed":
+      return {
+        ...base,
+        response: {
+          recId: stableKey,
+          status: "dismissed",
+          respondedAt: new Date().toISOString(),
+          deferUntil: null,
+        },
+      };
+  }
+}
+
+describe("Bundle 2A V — v2 classification contract (post-Bundle-2A audit)", () => {
+  it("surfaces 'needs_review' rows in the Suggested stack (per audit's customer-reviewable rule)", () => {
+    const queue = [makeRecWithDerivedStatus("needs_review", "rev-1")];
+    const html = renderV2(queue);
+
+    // The card should render — not the empty/calm state.
+    expect(html).toContain('data-recommendation-v2-card="true"');
+    expect(html).not.toContain('data-recommendations-v2-empty="true"');
+    expect(html).not.toContain('data-recommendations-v2-calm="true"');
+
+    // The card MUST NOT appear in the working rail (avoids double-render).
+    const railRowMatches = html.match(/data-recommendations-v2-rail-row="true"/g) ?? [];
+    expect(railRowMatches.length).toBe(0);
+  });
+
+  it("does NOT show empty state when at least one Suggested-bucket row exists", () => {
+    const queue = [
+      makeRecWithDerivedStatus("dismissed", "x1"),
+      makeRecWithDerivedStatus("dismissed", "x2"),
+      // One needs_review row — should keep the empty state from firing.
+      makeRecWithDerivedStatus("needs_review", "rev-only"),
+    ];
+    const html = renderV2(queue);
+    expect(html).not.toContain('data-recommendations-v2-empty="true"');
+    expect(html).toContain('data-recommendation-v2-card="true"');
+  });
+
+  it("Working rail surfaces accepted + shipped + measuring rows ONLY (no needs_review double-render)", () => {
+    const queue = [
+      makeRecWithDerivedStatus("new", "n1"),
+      makeRecWithDerivedStatus("accepted", "a1"),
+      makeRecWithDerivedStatus("shipped", "s1"),
+      makeRecWithDerivedStatus("measuring", "m1"),
+      makeRecWithDerivedStatus("needs_review", "r1"),
+    ];
+    const html = renderV2(queue);
+
+    // Rail rendered.
+    expect(html).toContain('data-recommendations-v2-rail="working"');
+
+    // Each in-flight status appears in the rail; needs_review does NOT.
+    const railStatuses =
+      html.match(/data-recommendations-v2-rail-row-status="[^"]*"/g) ?? [];
+    expect(railStatuses).toContain('data-recommendations-v2-rail-row-status="accepted"');
+    expect(railStatuses).toContain('data-recommendations-v2-rail-row-status="shipped"');
+    expect(railStatuses).toContain('data-recommendations-v2-rail-row-status="measuring"');
+    expect(railStatuses).not.toContain(
+      'data-recommendations-v2-rail-row-status="needs_review"',
+    );
+  });
+
+  it("calm state inFlightCount mentions ONLY accepted/shipped/measuring (not needs_review or deferred)", () => {
+    // Queue has only in-flight + dismissed rows → no Suggested rows
+    // → calm state fires. The N in "Beacon is measuring N change(s)"
+    // must equal exactly the in-flight count, not the in-flight +
+    // needs_review count.
+    const queue = [
+      makeRecWithDerivedStatus("accepted", "a1"),
+      makeRecWithDerivedStatus("shipped", "s1"),
+      makeRecWithDerivedStatus("dismissed", "d1"),
+    ];
+    const html = renderV2(queue);
+    expect(html).toContain('data-recommendations-v2-calm="true"');
+    expect(html).toContain("Beacon is measuring 2 changes");
+  });
+
+  it("Suggested stack renders new + needs_review + needs_fresh_edit rows (mixed bucket)", () => {
+    const queue = [
+      makeRecWithDerivedStatus("new", "n1"),
+      makeRecWithDerivedStatus("needs_review", "r1"),
+      makeRecWithDerivedStatus("needs_fresh_edit", "f1"),
+      makeRecWithDerivedStatus("dismissed", "d1"), // hidden
+      makeRecWithDerivedStatus("deferred", "df1"), // hidden
+    ];
+    const html = renderV2(queue);
+    const cardMatches = html.match(/data-recommendation-v2-card="true"/g) ?? [];
+    expect(cardMatches.length).toBe(3);
+    // Negative pin: dismissed/deferred rows must NOT appear as cards.
+    const cardStatuses =
+      html.match(/data-recommendation-v2-status="[^"]*"/g) ?? [];
+    expect(cardStatuses).not.toContain('data-recommendation-v2-status="dismissed"');
+    expect(cardStatuses).not.toContain('data-recommendation-v2-status="deferred"');
+  });
+});
