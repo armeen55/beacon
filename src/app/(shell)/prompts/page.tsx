@@ -17,6 +17,26 @@ import type {
   PromptOpportunity,
   PromptOpportunityCategory,
 } from "@/domains/prompts/opportunity-classify";
+import { PromptsV2Client } from "./prompts-v2-client";
+
+/**
+ * Prompts v2A switcher (Bundle 2026-05-11, plan:
+ * `~/.claude/plans/i-want-a-maximum-depth-curried-curry.md`).
+ *
+ * Routing rules (mirrors `/today`, `/recommendations`, `/changes`):
+ *   - Default                        → legacy decision view (current production).
+ *   - `?legacy=1` query              → legacy (escape hatch).
+ *   - `?v2=1` query                  → v2 strategic surface (preview hatch).
+ *   - `BEACON_PROMPTS_V2=true` env   → v2 becomes the default (NOT
+ *                                       flipped yet).
+ */
+function shouldUsePromptsV2(
+  searchParams: Record<string, string | string[] | undefined>,
+): boolean {
+  if (searchParams.legacy === "1") return false;
+  if (searchParams.v2 === "1") return true;
+  return process.env.BEACON_PROMPTS_V2 === "true";
+}
 
 /**
  * Prompt Decision Surface v1 — grouped-by-opportunity list (Phase v5 Commit 2).
@@ -27,7 +47,13 @@ import type {
  *   - No per-platform columns, no scoring numbers, no filter chrome.
  *   - Drilldown lives at /prompts/[id] (Phase v5 Commit 3).
  */
-export default async function PromptsPage() {
+export default async function PromptsPage({
+  searchParams,
+}: {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+} = {}) {
+  const params = await (searchParams ?? Promise.resolve({}));
+  const useV2 = shouldUsePromptsV2(params);
   // Seed canonical stores once per lambda — kept so non-render consumers
   // (prompt-library, url-citation-history) still populate their module-level
   // arrays. Render path below does NOT read from those; it fetches fresh.
@@ -59,6 +85,19 @@ export default async function PromptsPage() {
     activeEntities: trackedEntities,
     now: new Date(),
   });
+
+  if (useV2) {
+    // v2A strategic surface — same matrix + prompt-text lookup the
+    // legacy page consumes; pure presentation layer at this
+    // boundary. No additional fetches, no server actions, no
+    // domain logic changes.
+    return (
+      <PromptsV2Client
+        prompts={matrix.prompts}
+        promptTextById={promptTextById}
+      />
+    );
+  }
 
   const totalPrompts = matrix.prompts.length;
   const hasAnyNativeObservations = matrix.prompts.some(

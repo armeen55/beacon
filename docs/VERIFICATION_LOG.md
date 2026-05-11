@@ -7,6 +7,115 @@
 
 ---
 
+## 2026-05-11 — Bundle: Prompts v2A strategic surface (`?v2=1` gated)
+
+`/prompts` v2A pass per the maximum-depth UI audit. Goal: keep the legacy 5-category framing (the strongest piece of the page today) and make each prompt feel strategic — "buyer questions AI answers with or without you" — without changing the data layer, the legacy view, the existing `/prompts/[id]` drilldown, or any backend.
+
+### Scope
+
+**Touched:**
+- New gated `/prompts?v2=1` route via the `BEACON_PROMPTS_V2` switcher.
+- New pure module `src/domains/prompts/v2-projection.ts` — customer-safe category vocabulary + counter projection + per-platform badge resolver + card-row builder + section grouper.
+- New v2 client `src/app/(shell)/prompts/prompts-v2-client.tsx`.
+- New view components `src/components/prompts/v2/prompts-v2-card.tsx` + `prompts-v2-platform-badge.tsx`.
+- `src/app/(shell)/prompts/page.tsx` — added `shouldUsePromptsV2` switcher + searchParams handoff + v2 render branch.
+
+**NOT touched:**
+- Legacy `/prompts` page (still default, fully functional — same `WINNING · N` group headers + cluster notes).
+- Existing `/prompts/[id]` drilldown (untouched; v2 cards link to it).
+- `/today`, `/recommendations`, `/changes`.
+- `BEACON_PROMPTS_V2` env (NOT flipped).
+- `loadFreshCanonicalData`, `buildPromptDecisionMatrix`, opportunity-classify — no domain logic changes.
+- Supabase, polls, scans, cron, paid APIs, migrations.
+
+### Switcher contract
+
+| Input | Renders |
+|---|---|
+| `/prompts` (default) | Legacy decision view — production behavior unchanged |
+| `/prompts?legacy=1` | Legacy (escape hatch — wins over env) |
+| `/prompts?v2=1` | v2 strategic surface (preview hatch) |
+| `BEACON_PROMPTS_V2=true` env | v2 default flip (NOT set yet) |
+
+### Category projection (pinned by tests)
+
+| Legacy enum | Customer kind | Customer label | Lead copy | Tone |
+|---|---|---|---|---|
+| `winning` | `winning` | **Winning** | "AI recommends you first on at least one platform." | success |
+| `close` | `almost_there` | **Almost there** | "AI mentions you, but you're not the top pick yet." | warning |
+| `absent` | `missing` | **Missing** | "AI never mentions you for these questions." | warning |
+| `outranked` | `outranked` | **Outranked** | "Competitors dominate these answers. You're absent." | danger |
+| `early` | `still_learning` | **Still learning** | "Beacon is still gathering AI readings for these prompts." | muted |
+
+Display order locked: Winning → Almost there → Missing → Outranked → Still learning.
+
+### Card anatomy
+
+- Prompt text (2-line clamp + `break-words`).
+- Customer-safe category pill in the header right.
+- One-line `reasoning` from the classifier (already customer-safe).
+- Per-platform badges with branded labels (ChatGPT / Perplexity / Google AI Overviews) + state microcopy ("Recommended first" / "Cited" / "Mentioned" / "Not mentioned" / "No reading yet"). Sorted strongest-first.
+- Optional "Also cited:" competitor chip (max 3 names from `dominantCompetitors`).
+- Optional geo / topic cluster chips (raw `geo_cluster:Atherton` tag → "geo · Atherton").
+- "View details →" CTA (button-shaped) → existing `/prompts/[id]?v2=1` drilldown (legacy detail untouched in v2A).
+
+### Counter strip
+
+5 counters, locked display order, each with stable `data-prompts-v2-counter="<kind>"`:
+**Winning · Almost there · Missing · Outranked · Still learning**
+
+Counters never have a "this month" anchor — they're pure derivations from the already-classified opportunity list, mirroring the polish lesson learned from the Changes counter swap.
+
+### Empty / calm states
+
+- Whole page empty (`prompts.length === 0`): "No active prompts yet. Beacon is still gathering readings…" + "Manage prompts →" CTA.
+- Section empty (most common — only some categories have prompts): "No prompts in this group right now." in italic muted body.
+
+### Tests added (62 new tests, all green)
+
+- `tests/domains/prompts/v2-projection.test.ts` (27 tests): category vocabulary truth table + counters + platform-badge state resolver + card-row builder + section grouper + no-leak.
+- `tests/app/prompts/prompts-v2-client.test.tsx` (10 tests): layout marker + header + empty state + 5 counters + 5 sections + section-empty markers + card anatomy + per-platform badges + competitor + cluster chips + legacy escape footer + no-leak.
+- `tests/routes/prompts-v2-switcher.test.ts` (5 tests): full switcher contract, including "?legacy=1 wins over BEACON_PROMPTS_V2=true".
+
+Existing `tests/routes/prompts-smoke.test.tsx` continues to render the legacy view by default and still passes — legacy parity preserved.
+
+### Verification
+
+| Check | Result |
+|---|---|
+| `npm run typecheck` | ✅ clean |
+| Targeted v2 + adjacent suites (5 files) | ✅ 62/62 |
+| `tests/architecture/` (forbidden-vocab guardrail green) | ✅ 2336/2336 |
+| `npm run test` (full suite) | ✅ 7728/7728 across 406 files (+38 since polish baseline 7690) |
+
+### Constraints honored
+
+- ✅ No Supabase mutations
+- ✅ No paid APIs
+- ✅ No migrations
+- ✅ No backend / domain logic changes (`buildPromptDecisionMatrix` + classifier untouched)
+- ✅ No data contract changes
+- ✅ Today / Recommendations / Changes untouched
+- ✅ Polling / watchdog automation untouched
+- ✅ Legacy `/prompts` view fully functional and unchanged as default
+- ✅ Existing `/prompts/[id]` drilldown untouched
+- ✅ `BEACON_PROMPTS_V2` env not flipped
+
+### Ready for hosted visual review?
+
+Yes. The v2 surface is gated behind `?v2=1` and the legacy default is preserved, so flipping nothing in production lets the operator preview at `https://beacon-bice.vercel.app/prompts?v2=1` (signed-in browser).
+
+### Suggested next bundles
+
+- **Operator visual review** of `/prompts?v2=1` first.
+- If clean, the next two natural passes per the audit plan:
+  1. **Prompts v2B**: `/prompts/[id]` 5-act detail brief, mirroring the Changes detail redesign (per-prompt sparkline, competitor co-mentions, citation provenance, micro-recommendation links).
+  2. **Default flip** `BEACON_PROMPTS_V2=true` after both v2A and v2B (or after v2A alone if the operator prefers per-page polish first, since `?legacy=1` is always-on revert).
+
+Recommend Max (Opus) for v2B (new detail-page architecture). v2A's per-prompt sparkline would need cross-platform daily-snapshot wiring that's beyond v2A's pure-presentation scope.
+
+---
+
 ## 2026-05-11 — Changes v2 polish bundle (6 hosted-visual fixes, no data layer changes)
 
 After `BEACON_CHANGES_V2=true` shipped to production earlier today, hosted visual review surfaced six customer-facing polish issues. None reflect a logic bug — every issue was a presentation/projection gap that left the v2 surfaces still feeling internal. This bundle fixes all six without touching the data layer, recommendations, today, polling, watchdog, Supabase, or any paid API.
