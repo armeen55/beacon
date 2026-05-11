@@ -7,6 +7,109 @@
 
 ---
 
+## 2026-05-11 — `BEACON_PROMPTS_V2=true` flip + post-flip verification
+
+Default-flip for both `/prompts` (v2A strategic surface) and `/prompts/[id]` (v2B 5-act brief). One env var delivers both surfaces simultaneously — same one-flag-two-surfaces pattern as Changes. Closes the final v2 customer route: Today / Recommendations / Changes / Prompts are now all v2-by-default in production.
+
+### Hosted visual verification — honest scope
+
+No Chrome MCP browser connected and no Vercel SSO bypass token in env, so I could NOT drive a signed-in browser through the visual beats myself. Same posture as the prior 3 flips. Verification approach for this turn:
+
+1. **Endpoint reachability + auth-gate query preservation** (verifiable):
+   ```
+   /prompts                       HTTP 307 → /login?next=%2Fprompts
+   /prompts?v2=1                  HTTP 307 → /login?v2=1&next=%2Fprompts
+   /prompts?legacy=1              HTTP 307 → /login?legacy=1&next=%2Fprompts
+   /prompts/p-test                HTTP 307 → /login?next=%2Fprompts%2Fp-test
+   /prompts/p-test?v2=1           HTTP 307 → /login?v2=1&next=%2Fprompts%2Fp-test
+   /prompts/p-test?legacy=1       HTTP 307 → /login?legacy=1&next=%2Fprompts%2Fp-test
+   ```
+   All 6 variants behave identically pre- and post-flip; middleware preserves `?v2=1` / `?legacy=1` through the redirect so the switcher will see them once the customer authenticates.
+
+2. **Switcher contract** (deterministic + pinned by tests, including the post-flip-relevant ones):
+   - `tests/routes/prompts-v2-switcher.test.ts` — pins "?legacy=1 wins over BEACON_PROMPTS_V2=true (escape hatch overrides env)".
+   - `tests/routes/prompts-id-v2-switcher.test.ts` — same invariant for the detail page.
+   - 66/66 post-flip-relevant tests re-run green (switcher contracts + guardrail + smoke + v2 client + v2 detail).
+
+3. **Customer-vocabulary guardrail** (`tests/architecture/forbidden-customer-vocabulary-contract.test.ts`) — 2338/2338 architecture invariants green; no rendered HTML can leak Z-score / evidence tier / decision queue / raw event enums / etc.
+
+**Hosted visual confirmation by Armeen in a signed-in browser is the remaining step.** This entry pre-records the post-flip route behavior so the operator just needs to verify visual fidelity, not contract correctness.
+
+### Pre-flip state
+
+- Vercel production env: `BEACON_TODAY_V2=true` + `BEACON_RECOMMENDATIONS_V2=true` (16h ago) + `BEACON_CHANGES_V2=true` (~2h ago). `BEACON_PROMPTS_V2` NOT set.
+- Latest commit on `main`: `afbc956` (Prompt detail brief). Deployed at `https://beacon-9r6l4cpkt-armeen-5267s-projects.vercel.app` (aliased to `https://beacon-bice.vercel.app`). Status Ready.
+- Tests: 7786/7786 green.
+
+### The flip
+
+```
+$ printf "true" | vercel env add BEACON_PROMPTS_V2 production
+✓ Added Environment Variable BEACON_PROMPTS_V2 to Project beacon [130ms]
+
+$ vercel redeploy https://beacon-9r6l4cpkt-armeen-5267s-projects.vercel.app \
+    --target production --scope armeen-5267s-projects
+✓ Production: https://beacon-oe5z64hvh-armeen-5267s-projects.vercel.app
+✓ Aliased: https://beacon-bice.vercel.app
+```
+
+Confirmed via `vercel inspect`: `https://beacon-bice.vercel.app` now aliases the env-flipped deploy (`beacon-oe5z64hvh`, Ready). All 4 v2 env flags are now set in Production (Today, Recommendations, Changes, Prompts).
+
+### Post-flip route behavior (pinned by switcher tests)
+
+| Route | Default behavior post-flip | `?v2=1` | `?legacy=1` |
+|---|---|---|---|
+| `/prompts` | v2 strategic surface ✅ (changed from legacy decision view) | v2 strategic surface | legacy decision view (escape wins over env) |
+| `/prompts/[id]` | v2 5-act proof brief ✅ (changed from legacy drilldown) | v2 5-act proof brief | legacy drilldown (escape wins over env) |
+| `/prompts/[empty-id]` | Calm `PromptDetailV2NotFound` | Calm not-found | Calm not-found |
+| `/prompts/[unknown-id]` | Legacy `notFound()` page | Legacy `notFound()` | Legacy `notFound()` |
+
+Curl smoke after the flip is byte-identical to pre-flip — expected, because the auth gate is upstream of the env-driven switcher. Once authenticated, the switcher in the server component reads `process.env.BEACON_PROMPTS_V2` and picks the branch. Deterministic and pinned by tests.
+
+### Rollback paths (two-tier)
+
+1. **Per-request, instant** — `?legacy=1` always wins over `BEACON_PROMPTS_V2=true`. Pinned by:
+   - `tests/routes/prompts-v2-switcher.test.ts`: "?legacy=1 wins over BEACON_PROMPTS_V2=true (escape hatch overrides env)".
+   - `tests/routes/prompts-id-v2-switcher.test.ts`: same invariant for the detail page.
+   - No deploy needed. Customer can bookmark `/prompts?legacy=1` or `/prompts/[id]?legacy=1` for a permanent personal revert.
+
+2. **System-wide, ~2 min** — unset the env + redeploy:
+   ```
+   vercel env rm BEACON_PROMPTS_V2 production --yes
+   vercel redeploy https://beacon-bice.vercel.app --target production \
+       --scope armeen-5267s-projects
+   ```
+   Once removed, default `/prompts` and `/prompts/[id]` requests fall back to legacy, `?v2=1` still works as the preview hatch, and `?legacy=1` becomes redundant.
+
+### Constraints honored
+
+- ✅ No Supabase mutations
+- ✅ No paid APIs
+- ✅ No migrations
+- ✅ No backend / domain logic changes
+- ✅ No data contract changes
+- ✅ No new feature work
+- ✅ Polling / watchdog automation untouched
+- ✅ Today / Recommendations / Changes untouched
+- ✅ Legacy `/prompts` decision view + `/prompts/[id]` drilldown fully reachable via `?legacy=1`
+
+### Is Prompts v2 fully closed?
+
+**Yes, contractually.** All 4 customer routes are now v2-by-default in production:
+- `/today` (BEACON_TODAY_V2=true, 16h ago)
+- `/recommendations` (BEACON_RECOMMENDATIONS_V2=true, 16h ago)
+- `/changes` + `/changes/[id]` (BEACON_CHANGES_V2=true, ~2h ago)
+- `/prompts` + `/prompts/[id]` (BEACON_PROMPTS_V2=true, just now)
+
+Operator visual walkthrough remains the only step I can't perform from here. Once confirmed clean, Prompts v2 is closed and the maximum-depth UI audit plan's primary route-level redesigns are all live.
+
+### Next-step options
+
+1. **Operator visual review** of `/prompts` + `/prompts/[id]` on the signed-in browser at `https://beacon-bice.vercel.app/prompts`. If anything looks off, `?legacy=1` is the instant per-page revert; the system-wide rollback above runs in ~2 min.
+2. After visual review passes, the remaining open items per the audit plan are second-pass polish opportunities (per-prompt sparkline data depth, deeper rec → prompt linkage when that data wires through). All beyond this turn's scope (no new feature work).
+
+---
+
 ## 2026-05-11 — Bundle: Prompts v2B detail brief (`/prompts/[id]?v2=1` gated)
 
 Closes the Prompts customer loop. `/prompts?v2=1` strategic surface (v2A) shipped earlier today; this bundle redesigns the click-through detail page as a 5-act proof brief mirroring the Changes detail pattern, without changing the legacy `/prompts/[id]` drilldown or any backend.
