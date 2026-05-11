@@ -7,6 +7,86 @@
 
 ---
 
+## 2026-05-11 — Bundle: `/changes` proof timeline (`?v2=1` gated)
+
+Second pass at `/changes` per the maximum-depth UI audit (`~/.claude/plans/i-want-a-maximum-depth-curried-curry.md`). Goal: turn the legacy 11-column table + drawer (Attribution Status + Impact Direction + Z-score Verdict columns competing for attention) into a customer-shaped outcome story — header + 3 proof counters + vertical timeline of cards + right rail + legacy escape — without changing any data contracts.
+
+### Scope (what was and was NOT touched)
+
+**Touched (pure presentation only):**
+- New gated `/changes?v2=1` route via env + query switcher.
+- New pure modules `src/domains/changes/proof-timeline/` (result-pill resolver, counter helpers, waiting-rail builder).
+- New v2 components `src/components/changes/v2/` (card, result pill, waiting rail).
+- New top-level client `src/app/(shell)/changes/changes-v2-client.tsx`.
+- `src/app/(shell)/changes/page.tsx` — added `shouldUseChangesV2` + branch.
+
+**NOT touched (per task spec):**
+- Data layer (no new fetches; reused `EnrichedChangeRow[]` the legacy ScorecardTable consumes).
+- Legacy `/changes` table + drawer (still default, fully functional).
+- `/changes/[id]` detail page.
+- `/changes/dedupe` route.
+- Domain logic, schemas, Supabase, RLS, cron, poll, scan.
+
+### Switcher contract
+
+| Query / env | Route renders | Notes |
+|---|---|---|
+| `/changes` (default) | Legacy table | No production behavior change. |
+| `/changes?legacy=1` | Legacy table | Escape hatch — always wins. |
+| `/changes?v2=1` | v2 proof timeline | Preview hatch (this commit). |
+| `BEACON_CHANGES_V2=true` (env) | v2 proof timeline | Default-flip hook; NOT set yet. |
+
+### v2 anatomy (locked by tests)
+
+1. **Header** — "Changes" + subline "Track what shipped and whether AI visibility responded." No internal freshness/index/rebuild language.
+2. **Three proof counters** (`data-changes-counter="shippedThisMonth|working|needsReview"`):
+   - "Shipped this month" — current-month `live_verified` + `scan_confirmed` rows (excludes pending + imported_legacy).
+   - "Working" — `pending_implementation` rows (accepted but not yet on the page).
+   - "Needs review" — `needs_review` rows (ambiguous scan match).
+3. **Timeline cards** (`data-changes-card="proof-timeline"`, capped at 24, newest-first): title + target URL + shipped date + ONE customer-safe result pill + one-line outcome blurb + optional pattern-timing line + "Open change →" CTA → `/changes/[id]`.
+4. **Result pill** — exactly one per card, drawn from a 7-set: Helping / Hurting / Too early / No signal yet / Needs review / Live / Watching. Resolver lives in `src/domains/changes/proof-timeline/result-pill.ts` and is pinned by a full truth-table test.
+5. **Waiting-for-signal rail** (`data-changes-rail="waiting-for-signal"`) — too-early / watching / live rows, sorted newest-first, capped at 5. Pattern-timing rewritten as "Similar changes usually show signal around day N" (never references median_landing_day or the pattern brain).
+6. **Legacy escape** — footer link "Open table view →" → `/changes?legacy=1`.
+
+### Tests added (40 new tests, all green)
+
+- `tests/domains/changes/proof-timeline-result-pill.test.ts` — full verdict × lifecycle truth table; pins all 7 customer-safe labels; verifies no banned vocabulary in any blurb.
+- `tests/domains/changes/proof-timeline-counters.test.ts` — bucket → counter rules + customer-safe labels.
+- `tests/domains/changes/proof-timeline-waiting-rail.test.ts` — filter / sort / cap / narrative-rewrite invariants; no pattern-brain leak.
+- `tests/routes/changes-v2-switcher.test.ts` — full switcher contract (default / `?v2=1` / `?legacy=1` / env flip / `?legacy=1` overrides env).
+- `tests/app/changes/changes-v2-client.test.tsx` — layout marker `data-changes-layout="v2-proof-timeline"`, counters, empty state, one-pill-per-card, Open-change CTA hrefs, rail narrative, legacy footer link, no-leak invariants, 24-card cap.
+
+### Verification
+
+| Check | Result |
+|---|---|
+| `npm run typecheck` | ✅ clean |
+| `npx vitest run tests/domains/changes/ tests/routes/changes-v2-switcher.test.ts tests/app/changes/changes-v2-client.test.tsx` | ✅ 40/40 |
+| `npx vitest run tests/routes/changes-smoke.test.ts tests/routes/changes-page-reads-fresh.test.ts tests/routes/changes-id-page-reads-fresh.test.ts tests/architecture/forbidden-customer-vocabulary-contract.test.ts` | ✅ 35/35 (legacy parity + vocab guardrail) |
+| `npx vitest run tests/architecture/` | ✅ 2334/2334 |
+| `npm run test` (full suite) | ✅ 7627/7627 (398 files) |
+| Vercel production deploy (`8f73c46`) | ✅ Ready at `https://beacon-bice.vercel.app` (and aliases). HTTP 307 → `/login` is expected (single-user auth gate); visual review is operator-driven from a signed-in browser. |
+
+### Constraints honored
+
+- ✅ No Supabase mutations
+- ✅ No paid APIs
+- ✅ No migrations
+- ✅ No backend/domain logic changes
+- ✅ No data contract changes
+- ✅ Legacy `/changes` table untouched (default behavior unchanged)
+- ✅ `/changes/[id]` untouched
+- ✅ No Review/Regenerate inline (Bundle 2D explicitly deferred)
+- ✅ No recommendation-action changes
+- ✅ Customer-vocabulary guardrail green
+
+### Next-step options
+
+1. Hosted visual review of `/changes?v2=1` from an authenticated browser, then decide whether to flip `BEACON_CHANGES_V2=true` in Vercel.
+2. `/changes/[id]` 5-act narrative redesign (per the audit, this is the natural next pass on the changes surface).
+
+---
+
 ## 2026-05-11 — Bundle 2 hosted-verification pass + AIVisibilityHero grammar fix
 
 Pre-flip verification pass for the new premium customer surfaces shipped across Bundles 1, 2A, 2A V, 2B, and 3. Goal: confirm the routes are visually/demo-ready before the operator considers flipping `BEACON_TODAY_V2=true` and `BEACON_RECOMMENDATIONS_V2=true` in Vercel.
