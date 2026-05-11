@@ -222,7 +222,7 @@ function headlineFor(verdict: FreshnessVerdict): string {
     case "fresh":
       return `Beacon refreshed AI visibility ${rel}.`;
     case "pending":
-      return `Beacon refreshed AI visibility ${rel}. Waiting for today's scheduled poll.`;
+      return `Beacon refreshed AI visibility ${rel}. Waiting for today's daily check.`;
     case "stale":
       return `AI visibility data is stale — last refresh ${rel}.`;
     case "needs_attention":
@@ -250,7 +250,7 @@ function scanLineFor(verdict: ScanFreshnessVerdict): string {
       }
       return `Site scan: needs attention — last scan ${rel}.`;
     case "no_data":
-      return "Site scan: waiting for the first scheduled scan.";
+      return "Site scan: waiting for the first scan.";
   }
 }
 
@@ -261,25 +261,20 @@ function sublineFor(verdict: FreshnessVerdict): string {
     case "pending":
       // 2026-05-10 — reflects the redundant-schedule reliability fix
       // (.github/workflows/daily-native-poll.yml): the workflow now has
-      // 3 daily attempts (primary + 2 backups) so a GH scheduler skip
-      // on the 07:00 UTC fire no longer blocks the day. Copy mentions
-      // all three plus the auto-backup posture so the operator knows
-      // they don't need to take action, without using GH-specific
-      // jargon.
-      return "Scheduled poll attempts run at 07:00, 08:30, and 10:00 UTC. Backup attempts run automatically.";
+      // 3 daily attempts (primary + 2 backups) so a scheduler skip
+      // on the first fire no longer blocks the day. Customer-facing
+      // copy hides the cron times — operator can see them in
+      // /diagnostics if needed.
+      return "Beacon checks AI visibility multiple times each morning; backup attempts run automatically.";
     case "stale":
-      // 2026-05-10 — stale-band hint upgrade. Pre-fix: operator had
-      // no signal for whether to take action. New copy names the
-      // last-backup-canary time (10:45 UTC) so the operator has a
-      // clean threshold: if the heartbeat still reads stale after
-      // 10:45 UTC, the day's poll didn't land and poll health needs
-      // a look. Customer-safe vocabulary; no "GitHub skipped" / "system
-      // failed" / scheduler jargon.
-      return "Backup poll attempts run automatically. If data stays stale past 10:45 UTC, the daily poll didn't complete — review poll health.";
+      // 2026-05-10 — stale-band hint upgrade. Backup AI checks run
+      // automatically. If data stays stale, the day's check didn't
+      // land. Customer-safe vocabulary; no scheduler jargon.
+      return "Backup AI checks run automatically. If data stays stale through the morning, today's check didn't complete — see data status.";
     case "needs_attention":
-      return "Recent polls have not completed. Check poll health.";
+      return "Recent AI checks have not completed. See data status.";
     case "no_data":
-      return "Beacon will surface a reading after the first scheduled poll.";
+      return "Beacon will surface a reading after the first daily AI check.";
   }
 }
 

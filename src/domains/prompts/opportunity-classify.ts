@@ -302,8 +302,8 @@ export function classifyPromptOpportunity(args: {
       signalStrength: Math.round((relevant.length / opts.minObservationsForCategory) * 100),
       reasoning:
         relevant.length === 0
-          ? `No native observations in the last ${opts.lookbackDays} days.`
-          : `Only ${relevant.length} observation${relevant.length === 1 ? "" : "s"} in the last ${opts.lookbackDays} days (need ${opts.minObservationsForCategory}+ to judge).`,
+          ? `No AI readings in the last ${opts.lookbackDays} days.`
+          : `Only ${relevant.length} AI reading${relevant.length === 1 ? "" : "s"} in the last ${opts.lookbackDays} days (need ${opts.minObservationsForCategory}+ to judge).`,
       evidence,
     };
   }

@@ -133,7 +133,7 @@ export function TodayScoreboard({
     scoreboard.resultCount === 0 &&
     asOfDate === null;
   const firstRunCitationsMeta =
-    "Beacon starts collecting AI answers after the next scheduled poll.";
+    "Beacon starts collecting AI answers after the next daily check.";
   const firstRunPagesMeta =
     "Most accounts show their first full daily sample after the next run.";
 

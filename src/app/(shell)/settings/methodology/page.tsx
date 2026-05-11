@@ -215,7 +215,7 @@ export default function MethodologyPage() {
           <ul className="mt-1.5 list-disc pl-5 space-y-1">
             <li>
               <span className="font-medium text-foreground">Strong signal</span> — input signals
-              are solid (multiple matches, high evidence tier).
+              are solid (multiple matches, high confidence).
             </li>
             <li>
               <span className="font-medium text-foreground">Signal detected</span> — supporting

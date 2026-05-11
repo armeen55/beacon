@@ -154,7 +154,7 @@ function resolveOne(
     const inventoryFallback = tryInventoryMatch(candidate, inventory, {
       observationsScanned: 0,
       layer1Reason:
-        "No native observations yet on this cluster — falling back to site inventory.",
+        "No AI readings yet on this cluster — falling back to site inventory.",
     });
     if (inventoryFallback) {
       return { ...candidate, resolution: inventoryFallback };
@@ -412,7 +412,7 @@ function buildSilentResolution(
     targetUrl: NEEDS_NEW_PAGE,
     confidence: "low",
     confidenceReason:
-      "No native observations yet on this cluster — decision falls through to inventory/adjudicator layers.",
+      "No AI readings yet on this cluster — decision falls through to inventory/adjudicator layers.",
     tier: "deterministic_only",
     reasoning: buildDefaultReasoning(action, candidate),
     cannibalization: null,
@@ -434,8 +434,8 @@ function buildCreateNewResolution(
     confidence: observationsScanned >= 3 ? "medium" : "low",
     confidenceReason:
       observationsScanned > 0
-        ? `No owned URLs cited across ${observationsScanned} observations on this cluster.`
-        : "No native observations yet on this cluster.",
+        ? `No owned URLs cited across ${observationsScanned} AI readings on this cluster.`
+        : "No AI readings yet on this cluster.",
     tier,
     reasoning: buildDefaultReasoning(action, candidate),
     cannibalization: null,

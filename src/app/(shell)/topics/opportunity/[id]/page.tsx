@@ -217,10 +217,10 @@ export default async function OpportunityDetailPage({
         </div>
       </div>
 
-      {/* Lifecycle */}
+      {/* Status timeline */}
       <div className="border-t border-border pt-5">
         <div className="flex items-center justify-between mb-3">
-          <SectionTitle>Lifecycle</SectionTitle>
+          <SectionTitle>Status</SectionTitle>
           {!["captured", "closed"].includes(opp.current_status) && (
             <div className="flex items-center gap-2">
               <CaptureOpportunityAction opportunityId={opp.id} />

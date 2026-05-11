@@ -106,12 +106,12 @@ export function TodayLifecycleStrip({
     <div
       className={`flex flex-wrap items-center gap-2 ${className ?? ""}`}
       role="region"
-      aria-label="Recommendation lifecycle status"
+      aria-label="Recommendation status"
       data-today-lifecycle-strip
       data-lifecycle-empty={allActionableCountsZero ? "true" : "false"}
     >
       <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60 mr-1">
-        Lifecycle
+        Status
       </span>
       {visible.map((chip) => {
         const value = counts[chip.key];

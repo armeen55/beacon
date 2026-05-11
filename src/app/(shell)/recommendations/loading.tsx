@@ -5,7 +5,7 @@ export default function RecommendationsLoading() {
     <div className="max-w-4xl">
       <PageHeader
         title="Recommendations"
-        description="Loading the decision queue…"
+        description="Loading recommendations…"
       />
       <div className="space-y-6">
         {[0, 1, 2].map((i) => (

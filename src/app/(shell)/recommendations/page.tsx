@@ -68,7 +68,7 @@ export default async function RecommendationsPage() {
       <div className="max-w-4xl">
         <PageHeader
           title="Recommendations"
-          description="Decision queue temporarily unavailable."
+          description="Recommendations temporarily unavailable."
         />
         <ErrorFallback errors={errors} />
       </div>
@@ -166,7 +166,7 @@ function ErrorFallback({ errors }: { errors: string[] }) {
   return (
     <div className="rounded-lg border border-status-warning/40 bg-status-warning/[0.06] px-5 py-4 text-[13px]">
       <p className="font-medium text-status-warning">
-        Decision queue couldn&apos;t load.
+        Recommendations couldn&apos;t load.
       </p>
       <p className="mt-1 text-muted-foreground">
         Beacon hit an error while computing recommendations. The rest of the

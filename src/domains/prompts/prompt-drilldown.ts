@@ -112,7 +112,7 @@ const LIKELY_ACTION_BY_CATEGORY: Record<PromptOpportunityCategory, string> = {
   winning:
     "Keep monitoring. Rising competitors and descriptor drift would be the early signals to watch.",
   early:
-    "Check back once more native observations accumulate (next 10:00 UTC cron adds ~2 observations per prompt).",
+    "Check back once more AI readings accumulate (each daily check typically adds ~2 readings per prompt).",
 };
 
 export function buildPromptDrilldown(

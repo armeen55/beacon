@@ -1995,7 +1995,7 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
         : changeDate
           ? `Since your ${changeDate} change`
           : "Since the latest detected change";
-      const rationale = `${rationaleLead}, this page is getting ${pctStr} (Z-score ${h.z.toFixed(1)}, ${h.confidence} confidence). Hurting for ${daysSinceRecorded}d${trendSuffix}. Review the change \u2014 revert, iterate, or confirm it's platform noise.`;
+      const rationale = `${rationaleLead}, this page is getting ${pctStr} (${h.confidence} confidence). Hurting for ${daysSinceRecorded}d${trendSuffix}. Review the change \u2014 revert, iterate, or confirm it's platform noise.`;
       return {
         id: `hurt-${h.changeId}-${h.url}`,
         headline,
@@ -2149,7 +2149,7 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
     // primary as the signal-strength readout.
     const headline = changeDate
       ? `Citation lift detected on ${h.url} after the ${changeDate} change`
-      : `Citation lift detected on ${h.url} (URL-level Z-score)`;
+      : `Citation lift detected on ${h.url} (measured per page)`;
     // T3 (operator audit, 2026-05-05) — default rationale is now two
     // short calm sentences with NO numbers + NO Z-score. Stats live in
     // lineageBullets (under "Why we suggest this" expansion). Operator
@@ -2183,7 +2183,7 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
       h.deltaPct !== null && !isExtremePct
         ? `Relative shift: ${h.deltaPct > 0 ? "+" : ""}${(h.deltaPct * 100).toFixed(0)}%.`
         : null;
-    const zBullet = `Z-score ${h.landingZ.toFixed(1)} (${h.confidence} confidence).`;
+    const zBullet = `Signal strength: ${h.confidence} confidence.`;
     const landedBullet =
       h.landingDayN !== null && h.landingDayN > 0
         ? `Landed ${h.landingDayN}d after change.`

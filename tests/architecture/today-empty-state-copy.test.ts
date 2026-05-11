@@ -10,7 +10,7 @@
  * citations, no result count, no asOfDate), the meta lines render
  * customer-safe guidance:
  *
- *   • "Beacon starts collecting AI answers after the next scheduled poll."
+ *   • "Beacon starts collecting AI answers after the next daily check."
  *   • "Most accounts show their first full daily sample after the next run."
  *
  * Constraints:
@@ -37,9 +37,9 @@ describe("D3 — first-run KPI guidance copy is present", () => {
   it("scoreboard source contains the citations first-run guidance string", () => {
     expect(
       SCOREBOARD_SRC.includes(
-        "Beacon starts collecting AI answers after the next scheduled poll.",
+        "Beacon starts collecting AI answers after the next daily check.",
       ),
-      "today-scoreboard.tsx must include first-run copy 'Beacon starts collecting AI answers after the next scheduled poll.' (D3)",
+      "today-scoreboard.tsx must include first-run copy 'Beacon starts collecting AI answers after the next daily check.' (D3 + Bundle 3 copy cleanup)",
     ).toBe(true);
   });
 
@@ -97,7 +97,7 @@ describe("D3 — first-run copy is gated to empty state (does not leak to popula
     // and inside ternary expressions guarded by that flag — not at the
     // top of the meta cascade. Grep for the structural shape.
     const citationsCopyIdx = SCOREBOARD_SRC.indexOf(
-      "Beacon starts collecting AI answers after the next scheduled poll.",
+      "Beacon starts collecting AI answers after the next daily check.",
     );
     const isFirstRunDeclIdx = SCOREBOARD_SRC.indexOf(
       "isFirstRunNoData =",
