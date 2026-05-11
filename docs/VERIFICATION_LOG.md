@@ -7,6 +7,100 @@
 
 ---
 
+## 2026-05-11 — `BEACON_CHANGES_V2=true` flip + post-flip verification
+
+Default-flip for the `/changes` + `/changes/[id]` v2 surfaces shipped earlier today. After both bundles landed (proof timeline + 5-act detail brief; tests green at 7667/7667), the env flag is now set in Vercel Production and a fresh redeploy is live with the new lambdas.
+
+### Hosted visual verification — honest scope
+
+No Chrome MCP browser was connected and no Vercel SSO bypass token was in env, so I could **not** drive a signed-in browser through the visual beats myself. Verification approach for this turn:
+
+1. **Endpoint reachability + auth-gate query preservation** (verifiable from this side):
+   ```
+   /changes                        HTTP 307 → /login?next=%2Fchanges
+   /changes?v2=1                   HTTP 307 → /login?v2=1&next=%2Fchanges
+   /changes?legacy=1               HTTP 307 → /login?legacy=1&next=%2Fchanges
+   /changes/cl-test-1              HTTP 307 → /login?next=%2Fchanges%2Fcl-test-1
+   /changes/cl-test-1?v2=1         HTTP 307 → /login?v2=1&next=...
+   /changes/cl-test-1?legacy=1     HTTP 307 → /login?legacy=1&next=...
+   ```
+   All 6 variants behave identically pre- and post-flip; middleware preserves `?v2=1` / `?legacy=1` through the redirect, so the switcher will see them once the customer authenticates.
+
+2. **Switcher contract** (deterministic + pinned by tests, including the post-flip-relevant ones):
+   - `tests/routes/changes-v2-switcher.test.ts` — pins "?legacy=1 wins over BEACON_CHANGES_V2=true (escape hatch overrides env)".
+   - `tests/routes/changes-id-v2-switcher.test.ts` — same invariant for the detail page.
+   - 62/62 post-flip-relevant tests re-run green (switcher + guardrail + smoke + v2 client + v2 detail).
+
+3. **Customer-vocabulary guardrail** (`tests/architecture/forbidden-customer-vocabulary-contract.test.ts`) — 2335/2335 architecture invariants green; no rendered HTML can leak Z-score / evidence tier / decision queue / raw event enums / etc.
+
+**Hosted visual confirmation by the operator (Armeen) is the remaining step.** This entry pre-records the post-flip route behavior so the operator just needs to verify visual fidelity, not contract correctness.
+
+### Pre-flip state
+
+- Vercel production env (prior): `BEACON_TODAY_V2=true`, `BEACON_RECOMMENDATIONS_V2=true` (set 14h ago, no regressions since). `BEACON_CHANGES_V2` was **NOT** set.
+- Latest commit on `main`: `e2d775d` (5-act detail brief). Deployed to production at `https://beacon-gu44dkcpl-armeen-5267s-projects.vercel.app` (aliased to `https://beacon-bice.vercel.app`).
+- Tests: 7667/7667 green.
+
+### The flip
+
+```
+$ printf "true" | vercel env add BEACON_CHANGES_V2 production
+✓ Added Environment Variable BEACON_CHANGES_V2 to Project beacon [121ms]
+```
+
+A fresh redeploy is required because Next.js evaluates `process.env.BEACON_CHANGES_V2` in server components at request time, but Vercel only injects env into running lambdas at build time:
+
+```
+$ vercel redeploy https://beacon-gu44dkcpl-armeen-5267s-projects.vercel.app \
+    --target production --scope armeen-5267s-projects
+✓ Production: https://beacon-iujgo20ue-armeen-5267s-projects.vercel.app
+✓ Aliased: https://beacon-bice.vercel.app
+```
+
+Confirmed via `vercel inspect`: `https://beacon-bice.vercel.app` now aliases the env-flipped deploy (`beacon-iujgo20ue`, Ready).
+
+### Post-flip route behavior (pinned by switcher tests)
+
+| Route | Default behavior | `?v2=1` | `?legacy=1` |
+|---|---|---|---|
+| `/changes` | v2 proof timeline ✅ (changed from legacy) | v2 proof timeline | legacy table (escape wins over env) |
+| `/changes/[id]` | v2 proof brief ✅ (changed from legacy) | v2 proof brief | legacy detail (escape wins over env) |
+
+Both surfaces share the same `BEACON_CHANGES_V2` flag — one env var delivers both v2 paths simultaneously, which matches the timeline → detail loop the v2 client already wires (`/changes?v2=1` cards Open-change CTAs propagate `?v2=1`; with the env on, that suffix is no longer required but the link still works either way).
+
+### Rollback paths (two-tier)
+
+1. **Per-request, instant** — `?legacy=1` always wins over `BEACON_CHANGES_V2=true`. Pinned by:
+   - `tests/routes/changes-v2-switcher.test.ts`: "?legacy=1 wins over BEACON_CHANGES_V2=true (escape hatch overrides env)".
+   - `tests/routes/changes-id-v2-switcher.test.ts`: same invariant for the detail page.
+   - No deploy needed; the customer can bookmark `/changes?legacy=1` or `/changes/[id]?legacy=1` to force the legacy surface.
+
+2. **System-wide, ~2 min** — unset the env + redeploy:
+   ```
+   vercel env rm BEACON_CHANGES_V2 production --yes
+   # then redeploy production so the running lambdas drop the env
+   ```
+   Once removed, every default request falls back to legacy, `?v2=1` still works as the preview hatch, and `?legacy=1` becomes redundant (default is already legacy).
+
+### Constraints honored
+
+- ✅ No Supabase mutations
+- ✅ No paid APIs
+- ✅ No migrations
+- ✅ No backend / domain logic changes
+- ✅ No data contract changes
+- ✅ No new feature work
+- ✅ Polling / watchdog automation untouched
+- ✅ Recommendations untouched
+- ✅ Legacy detail + table fully reachable via `?legacy=1`
+
+### Next-step options
+
+1. **Operator visual review on the signed-in browser** at `https://beacon-bice.vercel.app/changes`. If anything looks off, hit `?legacy=1` to instantly fall back per-page, then we can decide whether to roll the env back system-wide.
+2. After visual review passes, the natural next bundle per the audit plan is whichever of `/prompts` per-prompt detail vs deeper Today wiring is highest-leverage — but that's beyond this turn's scope (no new feature work).
+
+---
+
 ## 2026-05-11 — Bundle: `/changes/[id]` 5-act narrative (`?v2=1` gated)
 
 `/changes/[id]` redesign per the maximum-depth UI audit (`~/.claude/plans/i-want-a-maximum-depth-curried-curry.md`). Goal: turn the legacy data-rich detail page (8 stacked cards: Outcome summary, Evidence tier, Impact assessment w/ Confidence/Direction/Why/What-to-do-next, Replicate, Strengthen, Expected outcome, Attribution chain) into a customer-facing 5-act proof brief that closes the timeline → detail → next-step loop in one coherent story.
