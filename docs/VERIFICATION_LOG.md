@@ -7,6 +7,87 @@
 
 ---
 
+## 2026-05-12 — perf bundle 4: reuse today rollup for enrichment + truth-up on the inline-rollup hypothesis (commit `59e31e8`)
+
+Started this bundle on the premise that the ~7 inline enrichment rollups in `today-data.ts` cost ~280 ms warm (from the measurement-pass estimate earlier in the day). Direct measurement of each builder against the live 11,700-obs fixture revealed the actual cost is ~2.3 ms combined — about 120× off from my prior estimate. Truthing up:
+
+### Audited cost per inline rollup (live fixture, warm ms median)
+
+| Inline rollup | Source location | Measured warm ms | Decision |
+|---|---|---:|---|
+| `lastObservationAt` reduce | today-data line 386 | 0.7 | **Migrated** — reads `rollup.latestObservedAt` |
+| `scannerMentionCounts` for-loop | today-data line 1085 | 11.4 | **Migrated** — reads `rollup.mentionCountsByOriginalName` |
+| `buildEnrichmentRollup` (today) | today-data line 455 | 0.5 | Deferred — needs `primary_recommendation` + `citation_rank` + `descriptor_window` + `answer_structure` fields |
+| `buildEnrichmentWindowRollup` | today-data line 496 | 1.2 | Deferred — wraps `buildEnrichmentRollup` |
+| `buildCompetitorEnrichmentRollup` ×N | today-data line 514 | 1.1 each | Deferred — needs `competitor_descriptor_windows` field |
+| `buildPlatformPrimaryRateSparklines` | today-data line 524 | 1.1 | Deferred — needs `primary_recommendation` field |
+| `buildFormatWinsRollup` | today-data line 530 | 0.5 | Deferred — needs `answer_structure` field |
+| `buildCompetitorDropdown` | today-data line 504 | 0.6 | Deferred — needs `competitor_co_mentions` field |
+| `deriveBrainFromTodayInputs` | today-data line 2665 | <2 (estimated) | Deferred — works on already-fast path |
+
+The 6 enrichment-rollup builders combined cost ~2.3 ms warm; each would need 1-3 new rollup fields (plus canonicalize-platform handling) to migrate. Surface-area-to-savings ratio doesn't justify it in this bundle. Bundle focuses on the two inline loops that are both (a) in scope and (b) meaningfully measurable.
+
+### What changed (source)
+
+| Layer | Change |
+|---|---|
+| `src/domains/today/observation-rollup.ts` | Two additive readonly fields on `ObservationRollup`: `latestObservedAt: string \| null` and `mentionCountsByOriginalName: ReadonlyMap<string, number>`. Both populated in the existing single observation walk — zero new I/O, zero extra loops. |
+| `src/app/(shell)/today-data.ts` | (a) `brandAliases` + `buildObservationRollup()` hoisted to top of `loadTodayPageData`, right after canonical-store fresh-read. Duplicate `brandAliases` declaration at the visibility-score fan-out removed. (b) `const lastObservationAt = observationRollup.latestObservedAt;` (was a `.reduce<string\|null>()` over 14k obs). (c) `scannerTopMentioned` derived from `[...observationRollup.mentionCountsByOriginalName.entries()].sort().slice(0,40)` (was a nested `for (const o of obs) { for (const m of obs.mentions) }` loop). (d) Redundant `scannerBrandAliases` (identical to `brandAliases`) removed. |
+| `tests/domains/today/observation-rollup.test.ts` | +11 new specs covering both new fields: shape, edge cases (empty, case variants, raw vs deduped counts, brand exclusion), AND byte-identical equivalence with the today-data line-386 reduce and line-1085 scanner loop. |
+| `tests/architecture/perf-today-rollup-wired.test.ts` | +5 new pins: both new fields exposed on the type; today-data derives `lastObservationAt`/`scannerTopMentioned` from the rollup; no leftover inline reduce/for-loop (negative pins); rollup builder still has exactly ONE outer observation walk (no extra loop added for the new fields). |
+
+### Equivalence + correctness
+
+- 50 net new specs across rollup-builder + equivalence + architecture (was 63 after bundle 3; now 74 with bundle 4).
+- All architecture pins hold: single `buildObservationRollup(` call site; all 4 visibility-score fan-out call sites still forward `rollup: observationRollup`; rollup module remains pure (no Supabase / no fetch / no module cache).
+
+### Measured impact (median of 3 warm runs, 11,700-obs fixture)
+
+| Loader | Pre-bundle (bundle 3 baseline) | Post-bundle 4 |
+|---|---:|---:|
+| **`loadTodayPageData` WARM (median)** | 591 ms | **550 ms** (~7% / ~40 ms faster) |
+| **`loadTodayPageData` COLD** | 963 ms | **560 ms** (~42% / ~400 ms faster — warm-state convergence) |
+
+Direct savings from this bundle: ~13 ms warm (scanner loop 11 ms + reduce 0.7 ms). Remainder is incidental wins (one fewer `brandAliases` construction, fewer string allocations) plus measurement noise. The 7-8% headline improvement is honest; the COLD-vs-WARM gap closing is because the canonical-store seed is already warm by the time the second `loadTodayPageData` call runs.
+
+### Remaining /today bottlenecks (NOT addressed in this bundle)
+
+| Sub-pipeline | ~ms warm | Why deferred |
+|---|---:|---|
+| `buildPromptDecisionMatrix` | ~44 | Different walk shape (per-prompt window); separate refactor |
+| `buildQueryKeywordIndex` | ~26 | Joins observations × citation-evidence-index |
+| `computeCitationDecay` | ~7 | Reads citation-evidence-index, not observations |
+| Inline body of `loadTodayPageData` | ~470 | Lifecycle summary, top-pick branch, page-inventory build, scanner scoring, chart events, geo coverage — many small pieces |
+| 6 enrichment-rollup builders combined | ~2.3 | Cheap; not worth the rollup surface-area expansion |
+
+The next high-value bundle target (measured): **migrate `buildPromptDecisionMatrix` to share the rollup** — it walks the same 14k-obs array with per-prompt filters that could become per-prompt rollup lookups.
+
+### Constraints honored
+
+- ✅ No UI changes.
+- ✅ No customer-visible copy or numbers changed (50+ equivalence specs across bundles 3 + 4 pin byte-identical output).
+- ✅ No Supabase mutation. No paid APIs. No polls/scans. No migrations.
+- ✅ No data contract changes — both new rollup fields are additive on a Readonly type; the existing `ObservationRollup` consumers (visibility-score fast paths) untouched.
+- ✅ No recommendation generation / attribution logic changes.
+- ✅ No env flag flips.
+- ✅ No stale cross-request cache — rollup remains request-scoped.
+- ✅ No brittle wall-clock CI assertions — architecture pin is source-level only.
+- ✅ Local-only timing harness deleted; `git status` clean.
+
+### Verification
+
+| Check | Result |
+|---|---|
+| `npm run typecheck` | ✅ clean |
+| Targeted: 3 rollup files (builder + equivalence + wiring) | ✅ 74/74 (+13 from this bundle) |
+| `tests/architecture/forbidden-customer-vocabulary-contract.test.ts` | ✅ 23/23 |
+| **`npm run test` (full suite)** | ✅ **7924/7924 across 420 files** (+15 from this bundle, +2 test files: now includes the extended rollup specs) |
+| Commit | `59e31e8 fix(perf): reuse today rollup for enrichment` (4 files, +323/-44) |
+| Push | ✅ `0e4df9b..59e31e8 main -> main` |
+| Vercel deploy | (recorded separately on completion) |
+
+---
+
 ## 2026-05-12 — perf bundle 3: per-request observation rollup for /today (commit `510eed5`)
 
 Measured `/today`'s warm render at ~947 ms (vs ~50 ms for every other route — 20× outlier). Root cause was repeated bucketing of the same ~14k-row observation array across the visibility-score fan-out: 12 `computeLeaderboard` + 3 `computeVisibilityTimeSeries` + 1 `computeVisibilityTimeSeriesByPlatform` + 3 `computeCompetitorSeries` (each ~5 inner fan-outs). This bundle builds one per-request indexed rollup and threads it through.
