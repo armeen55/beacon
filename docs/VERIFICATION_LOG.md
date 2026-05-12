@@ -7,6 +7,79 @@
 
 ---
 
+## 2026-05-12 — perf bundle 2: projected page reads (commit `1dc8e38`)
+
+Additive column projection for `pages` reads to reduce steady-state Supabase egress on customer routes that only need a handful of fields. Stacks on top of perf bundle 1 (`4e458da`: windowed canonical seed + React.cache on `getOwnedPages`).
+
+### What changed (source)
+
+| Layer | Change |
+|---|---|
+| `src/domains/pages/types.ts` | New `PageSummary` type (id, url, canonical_url, is_owned, page_type, primary_topic, tenant_id). |
+| `src/lib/persistence/repositories/types.ts` | `getPageSummaries(): Promise<PageSummary[]>` on `SeedDataRepository` + `TenantRepository`. `getPages()` preserved for full-payload consumers. |
+| `src/lib/persistence/repositories/supabase-backend.ts` | `PAGE_SUMMARY_COLUMNS` pinned; paginated `queryPageSummariesUnscoped` + `queryPageSummariesScoped` (the latter `.eq("tenant_id", tenantId)`-filters at Postgres); both log egress. |
+| `src/lib/persistence/repositories/file-backend.ts` | In-memory projection from full PageEntity disk read at the boundary (parity with Supabase shape). |
+| `src/lib/persistence/repositories/tenant-repo.ts` | Threads through `filterByTenantId` (multi-tenant correctness). |
+| `src/domains/pages/page-store.ts` | `getOwnedPageSummaries` exported as `React.cache(...)`; resolves `currentTenantId()` inside the cached body. |
+
+### Call-site map (audit summary)
+
+| Caller | Field surface | Decision |
+|---|---|---|
+| `/changes/[id]` legacy branch (line 367) | `id`, `url` only | **Migrated** to `getOwnedPageSummaries()`. |
+| `today-data.ts` (line 289 + 584) | full PageEntity → recommendation engine `allPages` prop + `buildPageInventory` needing `title_last_seen`, `city`, `service` | Stays on `getOwnedPages()`. |
+| `/recommendations` load-queue | full PageEntity → recommendation generation | Stays on `getOwnedPages()`. |
+| Attribution candidates | full PageEntity → page registry | Stays on `getOwnedPages()`. |
+| Competitors / diagnostics | operator-only | Stays on `getOwnedPages()`. |
+
+Only one customer route was clearly safe to migrate this bundle. Future bundles can extend the projection to additional fields (e.g. `topics_count`) as new narrow-need call sites appear.
+
+### Architecture guardrails (`tests/architecture/perf-projected-page-reads.test.ts`, 17 specs)
+
+- `PAGE_SUMMARY_COLUMNS` pinned to exact 7-column list (regression on accidental `*` or column add).
+- No `select('*')` on the summaries helpers.
+- Scoped helper filters `.eq("tenant_id", tenantId)`.
+- Both Supabase helpers log egress with row counts (observability preserved).
+- File backend projects in-memory at the boundary (no schema drift between backends).
+- Tenant-repo wrapper threads through `filterByTenantId`.
+- `getOwnedPageSummaries` wrapped in `React.cache` and resolves `currentTenantId()` inside the cached body (tenant-safe).
+- `getOwnedPages` remains exported (full-payload consumers preserved).
+- `/changes/[id]` imports + calls the projected helper; the full-payload import + call are pinned as negative regressions.
+
+### Verification
+
+| Check | Result |
+|---|---|
+| `npm run typecheck` | ✅ clean |
+| `npx vitest run tests/architecture/perf-projected-page-reads.test.ts` | ✅ 17/17 |
+| Neighboring perf + tenant guardrails (6 files) | ✅ 79/79 |
+| `tests/architecture/` (full directory, 92 files) | ✅ 2397/2397 |
+| `npm run test` (full suite) | ✅ **7848/7848 across 415 files** |
+| Test mocks updated | 2 route tests (`changes-id-page-reads-fresh.test.ts`, `changes-id-v2-switcher.test.ts`) — page-store mock now exports both `getOwnedPages` + `getOwnedPageSummaries`. |
+| Commit | `1dc8e38 fix(perf): add projected page reads` (10 files, +433/-3) |
+| Push | ✅ `4e458da..1dc8e38 main -> main` |
+| Vercel deploy | (recorded separately on completion) |
+
+### Egress estimate (Customer 2, ~600 pages)
+
+Per render of `/changes/[id]` legacy branch:
+- Full PageEntity payload (~20 fields, mix of strings + arrays): ~150–200 bytes/row × 600 ≈ ~90–120 KB
+- Projected PageSummary (7 fields, no array payloads except `topics` which is mapped to a single string at the boundary): ~60–80 bytes/row × 600 ≈ ~36–48 KB
+- **Estimated savings: ~50–80 KB per render of this specific call.**
+
+The other 4 page-read sites (today-data, recommendations load-queue, attribution candidates, competitor/diagnostics) intentionally remain on the full payload because their downstream consumers need fields like `title_last_seen`, `city`, `service`, `discovery_sources`, `metadata`, or `changelog_ids`. Future projections (e.g. a wider `PageInventorySummary` for the rec engine) would be additive, not breaking.
+
+### Constraints honored
+
+- ✅ No data contract changes for existing methods.
+- ✅ No recommendation generation / attribution logic changes.
+- ✅ No removal of `getOwnedPages()` — full-payload consumers preserved.
+- ✅ No tenant isolation regression — pinned by guardrail.
+- ✅ No polling / scanning / paid-API / migration triggered.
+- ✅ No deletion of legacy code.
+
+---
+
 ## 2026-05-11 — v2 rollout closeout (no code changes)
 
 Final closeout pass after the v2 QA polish bundle. No new feature work, no env changes, no code changes — read-only verification + release-notes + final punch list.
