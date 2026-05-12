@@ -127,6 +127,41 @@ export type ObservationRollup = Readonly<{
 
   /** Total observations the rollup was built from. */
   totalObservations: number;
+
+  // -------------------------------------------------------------------------
+  // Perf bundle 4 (2026-05-12) — additive fields used by today-data's
+  // inline observation loops. Both are populated in the same single
+  // observation walk; zero added I/O.
+  // -------------------------------------------------------------------------
+
+  /**
+   * Full ISO timestamp (e.g. "2026-05-12T14:30:00Z") of the latest
+   * observation. Equivalent to:
+   *   observations.reduce<string | null>((max, o) =>
+   *     o.observed_at && (max === null || o.observed_at > max)
+   *       ? o.observed_at : max,
+   *     null,
+   *   )
+   * Used by today-data's `lastObservationAt` freshness check (line 386).
+   */
+  latestObservedAt: string | null;
+
+  /**
+   * Total occurrences of each mention name as it appeared in
+   * `obs.mentions[]` (original case preserved), EXCLUDING any name
+   * whose lowercased form matches a brand alias's lowercased form.
+   *
+   * Mirrors the today-data scanner loop semantics exactly:
+   *   for (const o of observations)
+   *     for (const m of o.mentions ?? [])
+   *       if (!brandAliasesLC.has(m.toLowerCase())) counts.set(m, (counts.get(m) ?? 0) + 1)
+   *
+   * Multiple appearances within one observation each contribute (raw
+   * count). Case variants of the same name remain SEPARATE entries
+   * (e.g. "Acme" and "ACME" are two keys) — preserves byte-identical
+   * scanner output.
+   */
+  mentionCountsByOriginalName: ReadonlyMap<string, number>;
 }>;
 
 // ---------------------------------------------------------------------------
@@ -206,9 +241,16 @@ export function buildObservationRollup(opts: {
   brandAliases: ReadonlyArray<string>;
 }): ObservationRollup {
   const brandSlugs = new Set(opts.brandAliases.map(slugifyEntity));
+  // Lowercase-only set for the scanner-style brand check (matches the
+  // today-data scanner loop's `m.toLowerCase()` comparison exactly).
+  const brandAliasesLowercase = new Set(
+    opts.brandAliases.map((s) => s.toLowerCase()),
+  );
 
   // Mutable scratch — wrapped as Readonly at return.
   const sampledDateSet = new Set<string>();
+  let latestObservedAt: string | null = null;
+  const mentionCountsByOriginalName = new Map<string, number>();
   const byDate = new Map<
     string,
     {
@@ -246,6 +288,15 @@ export function buildObservationRollup(opts: {
     const d = dateOnly(obs.observed_at);
     const platform = obs.platform ?? "unknown";
     sampledDateSet.add(d);
+
+    // Track latest observation timestamp (full ISO, not date-only). Mirrors
+    // the today-data reduce at line 386 verbatim: skip empty/missing
+    // timestamps, otherwise take the lexicographic max (safe for ISO).
+    if (obs.observed_at) {
+      if (latestObservedAt === null || obs.observed_at > latestObservedAt) {
+        latestObservedAt = obs.observed_at;
+      }
+    }
 
     // Per-date bucket.
     let dateBucket = byDate.get(d);
@@ -297,6 +348,19 @@ export function buildObservationRollup(opts: {
     if (obs.mentions && obs.mentions.length > 0) {
       const seenInObsRaw = new Set<string>();
       for (const name of obs.mentions) {
+        // mentionCountsByOriginalName preserves the ORIGINAL case as the
+        // key — scanner-loop semantics — and uses a lowercase brand
+        // check instead of slug-based filtering. This lives ALONGSIDE
+        // (not inside) the slug-based competitor aggregation so a future
+        // edit to the slug filter can't accidentally change the
+        // scanner-mention counts.
+        if (!brandAliasesLowercase.has(name.toLowerCase())) {
+          mentionCountsByOriginalName.set(
+            name,
+            (mentionCountsByOriginalName.get(name) ?? 0) + 1,
+          );
+        }
+
         const slug = slugifyEntity(name);
         if (brandSlugs.has(slug)) continue;
         // Record display name (first occurrence wins — matches
@@ -348,5 +412,7 @@ export function buildObservationRollup(opts: {
     brandAliases: opts.brandAliases,
     brandSlugs,
     totalObservations: opts.observations.length,
+    latestObservedAt,
+    mentionCountsByOriginalName,
   };
 }

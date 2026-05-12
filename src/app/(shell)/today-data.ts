@@ -378,16 +378,40 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
     );
   }
 
+  // Perf bundle 4 (2026-05-12) — build the shared per-request rollup ONCE
+  // right after observations are loaded. Earlier today-data hoisted this
+  // construction to immediately before the visibility-score fan-out (line
+  // ~2324); hoisting it here lets inline observation loops earlier in the
+  // function (freshness check at line 386, scanner mention counts at line
+  // 1085) also read from the pre-bucketed rollup instead of walking the
+  // observation array again.
+  //
+  // `brandAliases` is `businessConfig.name` + its first word, dedup-ed —
+  // identical to the construction further down (the older second
+  // declaration is preserved for readability and pinned by the
+  // architecture test to be equivalent).
+  const todayBusinessConfig = getBusinessConfig();
+  const brandAliases = [
+    todayBusinessConfig.name,
+    todayBusinessConfig.name.split(" ")[0],
+  ].filter((a, i, arr) => a && arr.indexOf(a) === i);
+  const observationRollup = buildObservationRollup({
+    observations: promptAnswerObservations,
+    brandAliases,
+  });
+
   // Phase 3.5F (2026-04-22): freshness signal derived from the fresh
   // `promptAnswerObservations` array. Today's visibility/ranking/competitor
   // charts all roll up from this table. When the newest observation is more
   // than 3 days old, surface a thin banner so the operator reads the cutoff
   // as "known state" not "broken product". Null when fresh.
-  const lastObservationAt = promptAnswerObservations.reduce<string | null>((max, o) => {
-    const t = o.observed_at;
-    if (!t) return max;
-    return max === null || t > max ? t : max;
-  }, null);
+  //
+  // Perf bundle 4 (2026-05-12) — replaced the prior `.reduce(...)` walk
+  // over ~14k observations with a lookup into the shared rollup. The
+  // rollup builder tracks `latestObservedAt` in its single observation
+  // pass; an equivalence test pins identical behaviour with the old
+  // reduce.
+  const lastObservationAt = observationRollup.latestObservedAt;
   let todayFreshness: {
     lastObservationDate: string;
     daysStale: number;
@@ -1067,29 +1091,31 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
   const { readAnswerTextsFromDisk } = await import("@/lib/persistence/cold-store");
   const answerTexts = readAnswerTextsFromDisk();
 
-  // Brand aliases for the scanner. Mirrors the Visibility-chart alias logic.
+  // Brand aliases for the scanner. Pre-bundle-4 today-data built a
+  // separate `scannerBrandAliases` array here that was identical to the
+  // `brandAliases` declared near the top of the function. The rollup
+  // builder handles brand-alias exclusion using that single source of
+  // truth, so the scanner's local copy is no longer needed.
   const scannerBusinessConfig = getBusinessConfig();
-  const scannerBrandAliases = [
-    scannerBusinessConfig.name,
-    scannerBusinessConfig.name.split(" ")[0],
-  ].filter((a, i, arr) => a && arr.indexOf(a) === i);
 
   // Phase 7 Part 1b-v2: dynamic competitor exclusion list. businessConfig
   // lists only the top 5 primaryCompetitors, but observation data surfaces
   // 30+ competitor brands. Use top-40 non-brand mentions to keep
   // competitor names out of concept extraction.
-  const scannerBrandAliasesLC = new Set(
-    scannerBrandAliases.map((s) => s.toLowerCase()),
-  );
-  const scannerMentionCounts = new Map<string, number>();
-  for (const o of promptAnswerObservations) {
-    for (const m of o.mentions ?? []) {
-      if (!scannerBrandAliasesLC.has(m.toLowerCase())) {
-        scannerMentionCounts.set(m, (scannerMentionCounts.get(m) ?? 0) + 1);
-      }
-    }
-  }
-  const scannerTopMentioned = [...scannerMentionCounts.entries()]
+  //
+  // Perf bundle 4 (2026-05-12) — replaced the prior `for (const o of
+  // promptAnswerObservations) { for (const m of o.mentions) { ... } }`
+  // walk with a read from the shared rollup. The rollup builder pre-
+  // computes `mentionCountsByOriginalName` (per-original-case key,
+  // excluding brand aliases via lowercase comparison) in its single
+  // observation pass. `brandAliases` (built at the top of this
+  // function from `businessConfig.name` + first word, dedup-ed) is
+  // the single source of truth, so the rollup-filtered counts are
+  // byte-equivalent to the old inline result. Pinned by equivalence
+  // test (`observation-rollup-equivalence.test.ts`).
+  const scannerTopMentioned = [
+    ...observationRollup.mentionCountsByOriginalName.entries(),
+  ]
     .sort((a, b) => b[1] - a[1])
     .slice(0, 40)
     .map(([name]) => name);
@@ -1133,7 +1159,9 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
     queryIndex,
     observations: promptAnswerObservations,
     answerTexts,
-    brandAliases: scannerBrandAliases,
+    // Perf bundle 4 (2026-05-12) — `scannerBrandAliases` was identical
+    // to the top-of-function `brandAliases`; reusing the latter.
+    brandAliases,
     competitorExclusions: scannerCompetitorExclusions,
     knownLocations: scannerKnownLocations,
     // Phase 3-post (2026-04-20): widen tenant scope for the page-job-fit
@@ -2287,12 +2315,11 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
   // imported above (line 522 ish) for the query-index build. We reuse it
   // here to avoid a second pass over the same file.
   // ─────────────────────────────────────────────────────────────────────
-  const businessConfig = getBusinessConfig();
-  const brandAliases = [
-    businessConfig.name,
-    // Simple shortened alias — "Ritz Builders" → "Ritz"
-    businessConfig.name.split(" ")[0],
-  ].filter((a, i, arr) => a && arr.indexOf(a) === i);
+  // Perf bundle 4 (2026-05-12) — `brandAliases` is now declared near
+  // the top of `loadTodayPageData` (as `brandAliases`, built from
+  // `todayBusinessConfig.name` + first word). The earlier per-fan-out
+  // duplicate construction is removed; the architecture guardrail pins
+  // a single source of truth.
 
   // Compute a FULL 60-day time series server-side. The chart then slices
   // client-side based on the user's selected time range (7/14/30/60d).
@@ -2310,21 +2337,14 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
 
   const METRICS: VisibilityMetric[] = ["composite", "mention_rate", "citation_rate"];
 
-  // Perf bundle 3 (2026-05-12) — build the per-request observation rollup
-  // ONCE before the visibility-score fan-out. Each downstream call accepts
-  // an optional `rollup` arg and reads pre-bucketed per-(date, platform)
-  // aggregates in O(window-days) instead of re-walking the full ~14k-row
-  // observation array. The pre-bundle call pattern fanned out 19 calls
-  // (3 time series + 1 per-platform + 12 leaderboards + 3 competitor
-  // series with ~5 fan-outs each), each walking the full array.
-  //
-  // Tenant-safe by construction: `promptAnswerObservations` is already
-  // tenant-filtered upstream; the rollup is a pure derivation of those
-  // rows. No cross-request cache.
-  const observationRollup = buildObservationRollup({
-    observations: promptAnswerObservations,
-    brandAliases,
-  });
+  // Perf bundle 3 (2026-05-12) — the per-request `observationRollup` is
+  // built much earlier in the function (right after the canonical-store
+  // fresh-read) and used by both the inline observation loops at lines
+  // 386/1085 AND the visibility-score fan-out below. Each downstream
+  // call accepts an optional `rollup` arg and reads pre-bucketed
+  // per-(date, platform) aggregates in O(window-days) instead of
+  // re-walking the full ~14k-row observation array. Tenant-safe by
+  // construction; no cross-request cache.
 
   // Tenant 60-day time series, all three metrics.
   const brandSeriesByMetric = {} as Record<VisibilityMetric, VisibilityPoint[]>;

@@ -149,3 +149,60 @@ describe("today-data: builds the rollup once and threads it through fan-out", ()
     );
   });
 });
+
+describe("Perf bundle 4 (2026-05-12) — additive rollup fields + 2 inline-loop migrations", () => {
+  const rollupSrc = read("src/domains/today/observation-rollup.ts");
+  const todayDataSrc = read("src/app/(shell)/today-data.ts");
+
+  it("ObservationRollup exposes latestObservedAt: string | null", () => {
+    expect(rollupSrc).toMatch(
+      /latestObservedAt:\s*string\s*\|\s*null/,
+    );
+  });
+
+  it("ObservationRollup exposes mentionCountsByOriginalName ReadonlyMap", () => {
+    expect(rollupSrc).toMatch(
+      /mentionCountsByOriginalName:\s*ReadonlyMap<string,\s*number>/,
+    );
+  });
+
+  it("today-data.ts derives lastObservationAt from observationRollup.latestObservedAt", () => {
+    expect(todayDataSrc).toMatch(
+      /const\s+lastObservationAt\s*=\s*observationRollup\.latestObservedAt\s*;/,
+    );
+    // Negative pin: no leftover `.reduce<string | null>` over the
+    // observation array for the freshness check.
+    const stripped = stripComments(todayDataSrc);
+    expect(stripped).not.toMatch(
+      /promptAnswerObservations\.reduce<string\s*\|\s*null>/,
+    );
+  });
+
+  it("today-data.ts derives scannerTopMentioned from observationRollup.mentionCountsByOriginalName", () => {
+    expect(todayDataSrc).toMatch(
+      /const\s+scannerTopMentioned\s*=\s*\[\s*\.\.\.observationRollup\.mentionCountsByOriginalName\.entries\(\)/,
+    );
+    // Negative pin: no leftover `for (const o of promptAnswerObservations)` loop
+    // building a `scannerMentionCounts` Map inline.
+    const stripped = stripComments(todayDataSrc);
+    expect(stripped).not.toMatch(
+      /for\s*\(\s*const\s+o\s+of\s+promptAnswerObservations\s*\)\s*\{[\s\S]*?scannerMentionCounts\.set/,
+    );
+  });
+
+  it("rollup builder populates both new fields in the SAME observation walk (no extra loop)", () => {
+    // The builder must contain exactly ONE outer observation loop.
+    // Negative pin: no second top-level `for (let obsIndex` or
+    // `for (const obs of opts.observations)` inside
+    // `buildObservationRollup`. Comments stripped first.
+    const stripped = stripComments(rollupSrc);
+    const builderBody =
+      stripped.match(
+        /export\s+function\s+buildObservationRollup\([\s\S]*?\n\}\n/,
+      )?.[0] ?? "";
+    expect(builderBody).toContain("for (let obsIndex");
+    const outerForLoops =
+      builderBody.match(/^\s*for\s*\(\s*let\s+obsIndex/gm) ?? [];
+    expect(outerForLoops.length).toBe(1);
+  });
+});

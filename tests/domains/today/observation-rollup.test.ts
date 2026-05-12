@@ -189,4 +189,140 @@ describe("buildObservationRollup — structural invariants", () => {
     expect(slugifyEntity("De Mattei Construction")).toBe("de mattei construction");
     expect(slugifyEntity("ALL CAPS")).toBe("all caps");
   });
+
+  // -------------------------------------------------------------------------
+  // Perf bundle 4 (2026-05-12) — additive fields used by inline loops.
+  // -------------------------------------------------------------------------
+
+  describe("latestObservedAt", () => {
+    it("returns null for an empty observation array", () => {
+      const r = buildObservationRollup({
+        observations: [],
+        brandAliases: ["Ritz Builders"],
+      });
+      expect(r.latestObservedAt).toBeNull();
+    });
+
+    it("returns the lexicographically-max observed_at string", () => {
+      const r = buildObservationRollup({
+        observations: [
+          obs({ id: "1", observed_at: "2026-05-01T10:00:00Z" }),
+          obs({ id: "2", observed_at: "2026-05-03T08:00:00Z" }),
+          obs({ id: "3", observed_at: "2026-05-02T18:00:00Z" }),
+          obs({ id: "4", observed_at: "2026-05-03T07:59:00Z" }),
+        ],
+        brandAliases: ["Ritz Builders"],
+      });
+      expect(r.latestObservedAt).toBe("2026-05-03T08:00:00Z");
+    });
+
+    it("equivalence with the today-data line-386 reduce", () => {
+      // Mirror today-data's reduce shape exactly so a future drift would
+      // surface here.
+      const observations = [
+        obs({ id: "1", observed_at: "2026-05-01T10:00:00Z" }),
+        obs({ id: "2", observed_at: "2026-05-03T08:00:00Z" }),
+        obs({ id: "3", observed_at: "" }), // empty string treated as falsy
+        obs({ id: "4", observed_at: "2026-05-02T18:00:00Z" }),
+      ];
+      const fromReduce = observations.reduce<string | null>((max, o) => {
+        const t = o.observed_at;
+        if (!t) return max;
+        return max === null || t > max ? t : max;
+      }, null);
+
+      const fromRollup = buildObservationRollup({
+        observations,
+        brandAliases: ["Ritz Builders"],
+      }).latestObservedAt;
+
+      expect(fromRollup).toBe(fromReduce);
+    });
+  });
+
+  describe("mentionCountsByOriginalName", () => {
+    it("is empty for empty input", () => {
+      const r = buildObservationRollup({
+        observations: [],
+        brandAliases: ["Ritz Builders"],
+      });
+      expect(r.mentionCountsByOriginalName.size).toBe(0);
+    });
+
+    it("keeps case variants as SEPARATE keys (preserves scanner semantics)", () => {
+      const r = buildObservationRollup({
+        observations: [
+          obs({ id: "1", mentions: ["Acme", "ACME"] }),
+          obs({ id: "2", mentions: ["Acme"] }),
+        ],
+        brandAliases: ["Ritz Builders"],
+      });
+      expect(r.mentionCountsByOriginalName.get("Acme")).toBe(2);
+      expect(r.mentionCountsByOriginalName.get("ACME")).toBe(1);
+    });
+
+    it("counts every occurrence (raw), not per-obs deduped", () => {
+      const r = buildObservationRollup({
+        observations: [
+          // Acme appears 3 times in one obs.mentions[].
+          obs({ id: "1", mentions: ["Acme", "Acme", "Acme"] }),
+        ],
+        brandAliases: ["Ritz Builders"],
+      });
+      expect(r.mentionCountsByOriginalName.get("Acme")).toBe(3);
+    });
+
+    it("excludes brand aliases via lowercase comparison (scanner semantics)", () => {
+      const r = buildObservationRollup({
+        observations: [
+          obs({ id: "1", mentions: ["Ritz Builders", "ritz builders", "RITZ", "Acme"] }),
+        ],
+        brandAliases: ["Ritz Builders", "Ritz"],
+      });
+      expect(r.mentionCountsByOriginalName.has("Ritz Builders")).toBe(false);
+      expect(r.mentionCountsByOriginalName.has("ritz builders")).toBe(false);
+      expect(r.mentionCountsByOriginalName.has("RITZ")).toBe(false);
+      expect(r.mentionCountsByOriginalName.get("Acme")).toBe(1);
+    });
+
+    it("equivalence with the today-data scanner loop (line 1085)", () => {
+      const observations = [
+        obs({ id: "1", mentions: ["Ritz Builders", "Acme", "Acme"] }),
+        obs({ id: "2", mentions: ["Beta", "Beta", "ACME"] }),
+        obs({ id: "3", mentions: ["Gamma", "ritz"] }), // "ritz" excluded
+        obs({ id: "4", mentions: [] }),
+      ];
+      const brandAliases = ["Ritz Builders", "Ritz"];
+
+      // OLD inline behavior — verbatim from today-data line 1085.
+      const inline = new Map<string, number>();
+      const brandAliasesLC = new Set(brandAliases.map((s) => s.toLowerCase()));
+      for (const o of observations) {
+        for (const m of o.mentions ?? []) {
+          if (!brandAliasesLC.has(m.toLowerCase())) {
+            inline.set(m, (inline.get(m) ?? 0) + 1);
+          }
+        }
+      }
+
+      const rollup = buildObservationRollup({ observations, brandAliases });
+
+      // Same entries, same counts.
+      expect(rollup.mentionCountsByOriginalName.size).toBe(inline.size);
+      for (const [name, count] of inline.entries()) {
+        expect(rollup.mentionCountsByOriginalName.get(name)).toBe(count);
+      }
+
+      // Same top-N after the scanner's sort/slice.
+      const inlineTop = [...inline.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 40)
+        .map(([name]) => name);
+      const rollupTop = [...rollup.mentionCountsByOriginalName.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 40)
+        .map(([name]) => name);
+      expect(rollupTop).toEqual(inlineTop);
+    });
+  });
 });
