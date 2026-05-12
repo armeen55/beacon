@@ -70,11 +70,21 @@ export default async function PromptsPage({
   // backfill rows. Cuts Supabase egress per /prompts render by ~80%.
   const observationsSince = new Date(Date.now() - 60 * 86_400_000)
     .toISOString();
+  // Perf+egress bundle (2026-05-12) — /prompts NEVER renders the
+  // visibility chart or any per-snapshot trend, so pulling the full
+  // `daily_metric_snapshots` table (~24k rows) was pure waste. The
+  // decision matrix consumes only `prompt_answer_observations`.
+  // Pass a 1-day `snapshotsSince` so the repo fetches at most the
+  // last calendar day's snapshots (which today-data uses for the
+  // hero `chartEndDate` anchor; /prompts ignores the array but
+  // `loadFreshCanonicalData`'s contract returns it either way).
+  const snapshotsSince = new Date(Date.now() - 1 * 86_400_000)
+    .toISOString();
   const {
     trackedPrompts,
     promptAnswerObservations,
     trackedEntities,
-  } = await loadFreshCanonicalData({ observationsSince });
+  } = await loadFreshCanonicalData({ observationsSince, snapshotsSince });
   const promptTextById = new Map(
     trackedPrompts.map((p) => [p.id, p.text]),
   );

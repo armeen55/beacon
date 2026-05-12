@@ -19,11 +19,35 @@
 
 import "server-only";
 
+import { cache } from "react";
+
 import { getRepository } from "@/lib/persistence/repositories";
 import { currentTenantId } from "@/lib/tenant-context";
 import type { PageEntity } from "./types";
 
-export async function getOwnedPages(): Promise<PageEntity[]> {
+/**
+ * Perf+egress bundle (2026-05-12) — `React.cache`-wrapped so a single
+ * render that consumes pages from multiple call sites (e.g.
+ * `/today` calls `getOwnedPages()` once in the top-level loader AND
+ * again inside the top-pick branch) only pays one Supabase round-trip
+ * per request.
+ *
+ * The cache is **per-request** (React's `cache` API resets between
+ * requests by design) so:
+ *   • Tenant isolation: each request resolves `currentTenantId()`
+ *     fresh, and the cache key is tied to the request scope — no
+ *     cross-tenant leak risk.
+ *   • Data freshness: a write that happens on request N is visible
+ *     to request N+1; only a single request's repeated reads share
+ *     the same array.
+ *
+ * Naming kept as `getOwnedPages` per Sprint 7 Phase 7.5c/3 directive
+ * — the returned array contains every PageEntity for the tenant
+ * (both `is_owned=true` and external rows, matching legacy
+ * semantics). Consumers that need only is_owned rows must filter
+ * explicitly.
+ */
+export const getOwnedPages = cache(async (): Promise<PageEntity[]> => {
   const tenantId = await currentTenantId();
   return getRepository().forTenant(tenantId).getPages();
-}
+});

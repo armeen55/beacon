@@ -46,9 +46,16 @@ describe("Sprint 7 Phase 7.5c/3 — page-store allPages lift", () => {
   it("page-store.ts does NOT export `allPages`", () => {
     const src = readFileSync(PAGE_STORE_PATH, "utf8");
     // Forbidden: any `export const allPages` or `export let allPages` or
-    // `export var allPages`. Allow: `export async function getOwnedPages`.
+    // `export var allPages`. Allow either of:
+    //   • `export async function getOwnedPages(...)` (pre-2026-05-12 form)
+    //   • `export const getOwnedPages = cache(async (...) => {...})`
+    //     (post perf+egress bundle, 2026-05-12 — wrapped in
+    //     `React.cache` for per-request dedup).
     expect(src).not.toMatch(/export\s+(?:const|let|var)\s+allPages\b/);
-    expect(src).toMatch(/export\s+async\s+function\s+getOwnedPages/);
+    const exportsGetOwnedPages =
+      /export\s+async\s+function\s+getOwnedPages\b/.test(src) ||
+      /export\s+const\s+getOwnedPages\s*=\s*cache\(/.test(src);
+    expect(exportsGetOwnedPages).toBe(true);
   });
 
   it("page-store.ts uses tenant-scoped fetch (forTenant + currentTenantId)", () => {

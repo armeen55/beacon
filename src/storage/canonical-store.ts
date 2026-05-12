@@ -92,6 +92,41 @@ function mergeById<T extends { id: string }>(target: T[], incoming: T[]): void {
   target.push(...byId.values());
 }
 
+/**
+ * Default window for the canonical-store seed's Supabase merge.
+ *
+ * Pre-2026-05-12 the seed read `prompt_answer_observations` and
+ * `daily_metric_snapshots` UNWINDOWED on every cold lambda — the
+ * single largest Supabase-egress driver in the perf+egress audit.
+ * The cap below matches the attribution stack's actual data needs:
+ *
+ *   • `prompt_answer_observations` — 60 days. The longest analysis
+ *     window in the codebase is the URL-verdict math
+ *     (`DEFAULT_THRESHOLDS.baselineTargetDays=14` +
+ *     `postWindowMaxDays=30` = 44 days end-to-end). 60d gives a
+ *     comfortable buffer for late-arriving polls + bake-window
+ *     reads.
+ *   • `daily_metric_snapshots` — 120 days. The visibility chart's
+ *     longest preset is 90 days; 120d gives a buffer for chart
+ *     `chartEndDate` lookups that anchor on the latest row.
+ *
+ * Render paths get a windowed in-memory cache; non-render consumers
+ * that genuinely need broader history (URL watcher Z-score baseline,
+ * one-off rebuild scripts) should call `loadFreshCanonicalData(...)`
+ * with an explicit wider `since`, or read the repo directly with
+ * `{ since: ... }` — both bypass the seed's cap.
+ *
+ * Freshness impact: zero on production render paths. Every consumer
+ * inside the v2 customer loop already operates on a ≤60-day analysis
+ * window; the wider data was being pulled but never used.
+ */
+const SEED_OBSERVATIONS_WINDOW_DAYS = 60;
+const SEED_SNAPSHOTS_WINDOW_DAYS = 120;
+
+function isoDaysAgo(days: number): string {
+  return new Date(Date.now() - days * 86_400_000).toISOString();
+}
+
 async function loadFromDiskAndMerge(): Promise<void> {
   if (_state.trackedPrompts !== null) return;
 
@@ -129,19 +164,24 @@ async function loadFromDiskAndMerge(): Promise<void> {
       //
       // Customer-2 isolation fix (operator audit, 2026-05-06) — Tier C
       // reads (`getTrackedPrompts`, `getTrackedEntities`) NOW also go
-      // through `tenantRepo.forTenant(...)`. The audit found that
-      // tracked_prompts + tracked_entities ARE tenant-scoped at the
-      // schema level (column: `account_id text NOT NULL`, value:
-      // tenant slug), and rows on disk carry both `tenant_id` and
-      // `account_id`. The unscoped global reads were a data-leak risk
-      // pre-customer-2 — a second tenant would have inherited Ritz's
-      // prompts + competitors on their /today leaderboard.
+      // through `tenantRepo.forTenant(...)`.
+      //
+      // Perf+egress bundle (2026-05-12) — Tier A reads are now WINDOWED
+      // by default (see SEED_OBSERVATIONS_WINDOW_DAYS /
+      // SEED_SNAPSHOTS_WINDOW_DAYS above). Pre-window, this merge
+      // pulled the full ~12k observation table + ~24k snapshots on
+      // every cold lambda; with the 60d/120d caps the wire payload
+      // drops by ~75% on a typical tenant. Tracked-prompts +
+      // tracked-entities reads are small (<100 rows total) so no
+      // window is applied.
       const tenantId = await currentTenantId();
       const repo = getRepository();
       const tenantRepo = repo.forTenant(tenantId);
+      const observationsSince = isoDaysAgo(SEED_OBSERVATIONS_WINDOW_DAYS);
+      const snapshotsSince = isoDaysAgo(SEED_SNAPSHOTS_WINDOW_DAYS);
       const [obs, snaps, ents, prompts] = await Promise.all([
-        tenantRepo.getPromptAnswerObservations(),
-        tenantRepo.getDailyMetricSnapshots(),
+        tenantRepo.getPromptAnswerObservations({ since: observationsSince }),
+        tenantRepo.getDailyMetricSnapshots({ since: snapshotsSince }),
         tenantRepo.getTrackedEntities(),
         tenantRepo.getTrackedPrompts(),
       ]);
@@ -154,6 +194,16 @@ async function loadFromDiskAndMerge(): Promise<void> {
     }
   }
 }
+
+/**
+ * Constants exported for tests + downstream introspection. Defined
+ * here (not in a separate config file) because the seed is the only
+ * caller; centralizing keeps the contract in one place.
+ */
+export const CANONICAL_SEED_WINDOWS = {
+  observationsDays: SEED_OBSERVATIONS_WINDOW_DAYS,
+  snapshotsDays: SEED_SNAPSHOTS_WINDOW_DAYS,
+} as const;
 
 const ensureLoaded = cache(loadFromDiskAndMerge);
 

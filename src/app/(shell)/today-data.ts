@@ -21,6 +21,7 @@ import { getOwnedPages } from "@/domains/pages/page-store";
 import { warmPageRegistry } from "@/domains/attribution/candidates";
 import { readStore } from "@/lib/persistence/json-store";
 import { getRepository } from "@/lib/persistence/repositories";
+import { getTenantScanFindingsCached } from "@/domains/scanning/scan-findings-cached";
 import { currentTenantId, currentTenant } from "@/lib/tenant-context";
 import {
   detectFirstReadingState,
@@ -651,7 +652,13 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
     new Date(),
   );
 
-  const allScanFindings = await repo.getScanFindings();
+  // Perf+egress bundle (2026-05-12) — `getTenantScanFindingsCached`
+  // wraps the same `getRepository().forTenant().getScanFindings()`
+  // call in `React.cache`, so repeated reads inside one render pay
+  // a single Supabase round-trip. Today this call site is the only
+  // hot consumer; the wrapper is in place for any future caller
+  // (shell layout, action handlers) that needs the same data.
+  const allScanFindings = await getTenantScanFindingsCached();
   const pendingFindings = allScanFindings
     .filter((f) => f.status === "pending")
     .sort((a, b) => {

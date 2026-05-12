@@ -239,7 +239,23 @@ export default async function ChangeScorecardPage({
   // The watcher above persisted the latest to disk if it ran this tick;
   // `buildUrlCitationHistory` itself is cheap enough (~100ms) to call on
   // every render. Watcher's real job is persistence + experiment metrics.
-  const urlHistory = await buildUrlCitationHistory({ ownedOnly: true });
+  //
+  // Perf+egress bundle (2026-05-12) — pass a 60-day `sinceDate` so the
+  // history builder only iterates the recent slice of observations. The
+  // attribution stack's longest window is 44 days (URL-verdict baseline
+  // 14d + post-window 30d), so 60d is a comfortable buffer. Pre-window,
+  // this compute walked the FULL canonical observation array on every
+  // /changes render — slow + heavy.
+  const URL_HISTORY_WINDOW_DAYS = 60;
+  const urlHistorySinceDate = new Date(
+    Date.now() - URL_HISTORY_WINDOW_DAYS * 86_400_000,
+  )
+    .toISOString()
+    .slice(0, 10);
+  const urlHistory = await buildUrlCitationHistory({
+    ownedOnly: true,
+    sinceDate: urlHistorySinceDate,
+  });
   const today = new Date().toISOString().slice(0, 10);
   const historyRange = {
     first: urlHistory.date_range.first ?? today,
