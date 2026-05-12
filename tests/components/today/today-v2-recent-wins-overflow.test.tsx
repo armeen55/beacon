@@ -25,7 +25,6 @@ describe("TodayV2RecentWins — overflow defense", () => {
           pagePath:
             "/services/whole-home-renovation-bay-area-luxury-modern-design-build",
           changeDate: "2026-05-04",
-          platform: "perplexity",
           citationDeltaPct: 240,
           deltaLabel: "4×",
         }}
@@ -57,7 +56,6 @@ describe("TodayV2RecentWins — overflow defense", () => {
           changeId: "cl-test-1",
           pagePath: "/long/path/that/should-truncate",
           changeDate: "2026-05-04",
-          platform: "perplexity",
           citationDeltaPct: 100,
           deltaLabel: "2×",
         }}

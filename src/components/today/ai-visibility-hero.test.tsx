@@ -62,10 +62,17 @@ describe("AIVisibilityHero — happy path (Ritz mature data)", () => {
     expect(html).toContain("text-status-success");
   });
 
-  it("rank card shows '#1' headline with 'of N ranked' subline", () => {
+  it("rank card shows '#1' headline with the tracked-set subtext", () => {
+    // QA polish (2026-05-12): the pre-polish subtext "of 6 ranked"
+    // implied the entire market had only 6 companies. New subtext
+    // makes the tracked-set framing explicit so the rank doesn't
+    // make the market look artificially tiny.
     const html = renderToStaticMarkup(<AIVisibilityHero {...RITZ_FULL} />);
     expect(html).toContain("#1");
-    expect(html).toContain("of 6 ranked");
+    expect(html).toContain("among tracked brands cited by AI");
+    // Regression guards: the misleading denominator is gone.
+    expect(html).not.toMatch(/of\s+\d+\s+ranked/);
+    expect(html).not.toContain("of 6 ranked");
   });
 
   it("closest challenger card surfaces name + score", () => {

@@ -273,6 +273,38 @@ export function TodayV2Client({
           only the surrounding layout has changed. */}
       {heroProps && <AIVisibilityHero {...heroProps} />}
 
+      {/* Visibility trend chart — sits with the hero as the proof
+          layer ("here is the score, here is the trend behind it"),
+          ABOVE the action cards so the headline-plus-trend unit
+          reads as one tight visibility block (Profound-style
+          headline+KPI+trend pattern). Pre-2026-05-12 hosted-visual
+          feedback: the chart was buried inside the "Show full
+          data" disclosure — the operator flagged it as too
+          important to hide behind a click. Leaderboard stays in
+          the disclosure (it's a per-competitor table, not a
+          customer-headline). */}
+      {visibilityData && (
+        <section
+          className="space-y-3"
+          data-today-v2-section="visibility-trend"
+        >
+          <VisibilityScoreChart
+            brandName={visibilityData.brandName}
+            brandSeriesByMetric={visibilityData.brandSeriesByMetric}
+            brandSeriesByPlatform={
+              visibilityData.brandSeriesByPlatform ?? {}
+            }
+            competitorSeriesByMetric={
+              visibilityData.competitorSeriesByMetric
+            }
+            events={visibilityData.chartEvents ?? []}
+            timeRange={visibilityWindow}
+            onTimeRangeChange={setVisibilityWindow}
+            chartEndDate={visibilityData.chartEndDate ?? null}
+          />
+        </section>
+      )}
+
       {/* Three cards above the fold. Equal-weight 3-col on desktop,
           stacked on mobile. Each card is self-contained: hero answers
           "how am I doing?", these answer "what should I do, what is in
@@ -301,40 +333,29 @@ export function TodayV2Client({
         <summary className="cursor-pointer select-none px-4 py-3 text-[12px] font-semibold text-foreground hover:bg-surface-inset/40 rounded-lg transition-colors flex items-center justify-between">
           <span>Show full data</span>
           <span className="text-[10px] text-muted-foreground/70 font-normal">
-            visibility chart · leaderboard · descriptors · prompts · scan
+            leaderboard · descriptors · prompts · scan
           </span>
         </summary>
 
         <div className="px-4 pb-4 pt-2 space-y-5">
-          {/* Visibility chart + leaderboard pair (legacy Tier 1.5). */}
+          {/* Leaderboard (legacy Tier 1.5). The visibility chart used
+              to live here paired with the leaderboard in a 3:2 grid;
+              after 2026-05-12 hosted-visual feedback the chart moved
+              into the main flow above the 3-card row. The leaderboard
+              stays in the disclosure — it's a per-competitor detail
+              surface, not a customer-headline. */}
           {visibilityData && (
             <section
               className="space-y-3"
-              data-today-v2-section="visibility-detail"
+              data-today-v2-section="visibility-leaderboard"
             >
-              <div className="grid grid-cols-1 lg:grid-cols-[3fr_2fr] gap-4">
-                <VisibilityScoreChart
-                  brandName={visibilityData.brandName}
-                  brandSeriesByMetric={visibilityData.brandSeriesByMetric}
-                  brandSeriesByPlatform={
-                    visibilityData.brandSeriesByPlatform ?? {}
-                  }
-                  competitorSeriesByMetric={
-                    visibilityData.competitorSeriesByMetric
-                  }
-                  events={visibilityData.chartEvents ?? []}
-                  timeRange={visibilityWindow}
-                  onTimeRangeChange={setVisibilityWindow}
-                  chartEndDate={visibilityData.chartEndDate ?? null}
-                />
-                <VisibilityLeaderboard
-                  entities={
-                    visibilityData.leaderboardByMetricAndWindow?.composite[
-                      visibilityWindow
-                    ] ?? visibilityData.leaderboardByMetric.composite
-                  }
-                />
-              </div>
+              <VisibilityLeaderboard
+                entities={
+                  visibilityData.leaderboardByMetricAndWindow?.composite[
+                    visibilityWindow
+                  ] ?? visibilityData.leaderboardByMetric.composite
+                }
+              />
             </section>
           )}
 

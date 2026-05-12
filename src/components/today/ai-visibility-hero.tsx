@@ -194,13 +194,26 @@ export function AIVisibilityHero(props: AIVisibilityHeroProps) {
         />
 
         {/* Rank card */}
+        {/* QA polish (2026-05-12) — pre-fix subtext "of N ranked"
+            implied the entire market had only N companies (e.g.
+            "#1 of 5 ranked" reads as "1 of 5 in the market" when
+            really 5 is the count of TRACKED brands cited by AI).
+            New subtext makes the tracked-set framing explicit so
+            the rank doesn't make the market look artificially
+            tiny. `totalRanked` includes the owned brand, so
+            "tracked brands" is the technically-accurate noun
+            (the spec's documented alternative to "tracked
+            competitors"). */}
         <MetricCard
           label="Rank"
           dataAttr="rank"
           headline={hasRank ? `#${rank}` : "—"}
           sub={
             hasRank
-              ? { text: `of ${totalRanked} ranked`, tone: "neutral" }
+              ? {
+                  text: "among tracked brands cited by AI",
+                  tone: "neutral",
+                }
               : { text: "Awaiting leaderboard", tone: "neutral" }
           }
         />
