@@ -79,8 +79,13 @@ export function VisibilityLeaderboard({
           <h2 className="text-[13px] font-semibold text-foreground tracking-tight">
             AI visibility leaderboard
           </h2>
+          {/* QA polish (2026-05-12) — subcopy clarifies the tracked-
+              set framing so the leaderboard never reads as
+              "ranking across the entire market". The leaderboard
+              positions the customer's brand among the competitors
+              they explicitly track, not the universe of companies. */}
           <p className="text-[11px] text-muted-foreground mt-0.5">
-            Who AI mentions most across tracked answers
+            Who AI mentions most among the brands you track
           </p>
           {/* T3.1 — Trust Sprint score provenance disclosure. The
               leaderboard is "directional" because the brand row is

@@ -289,10 +289,20 @@ describe("UX.6.3 — visibility leaderboard heading renamed", () => {
     expect(code).not.toContain("Who gets mentioned most often in your topic");
   });
 
-  it("subtitle uses the new 'Who AI mentions most across tracked answers' copy", () => {
+  it("subtitle clarifies the tracked-set framing (post-2026-05-12 polish)", () => {
+    // QA polish (2026-05-12): subtitle moved from "Who AI mentions
+    // most across tracked answers" (ambiguous — "tracked" reading
+    // as adjective on "answers", not on the brand set) to the new
+    // form "Who AI mentions most among the brands you track"
+    // (possessive frames the set as the customer's tracked brands).
     expect(LEADERBOARD_SRC).toContain(
-      "Who AI mentions most across tracked answers",
+      "Who AI mentions most among the brands you track",
     );
+    // Negative pin against the ambiguous pre-polish phrasing.
+    const code = LEADERBOARD_SRC
+      .replace(/^\s*\/\/.*$/gm, "")
+      .replace(/\/\*[\s\S]*?\*\//g, "");
+    expect(code).not.toContain("Who AI mentions most across tracked answers");
   });
 });
 

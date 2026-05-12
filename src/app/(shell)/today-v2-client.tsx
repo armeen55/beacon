@@ -25,7 +25,7 @@
  * TodayClient — no data plumbing changes.
  */
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 
 import type { TodayPrimaryAction } from "./today-client";
@@ -35,9 +35,16 @@ import { VisibilityScoreChart } from "@/components/today/visibility-score-chart"
 import { VisibilityLeaderboard } from "@/components/today/visibility-leaderboard";
 import { EnrichmentBadges } from "@/components/today/enrichment-badges";
 import { EnrichmentV2 } from "@/components/today/enrichment-v2";
-import { PromptsTeaser, type PromptsTeaserSummary } from "@/components/today/prompts-teaser";
-import { ChangeReview } from "@/components/today/change-review";
-import { ActionCard, type ActionCardAction } from "@/components/today/action-card";
+import type { PromptsTeaserSummary } from "@/components/today/prompts-teaser";
+// QA cleanup (2026-05-12): the v2 client no longer renders
+// PromptsTeaser, ChangeReview, or the full ActionCard "Wins to learn
+// from" disclosure section — all three duplicated content that is
+// already covered by:
+//   - PromptsTeaser  → `/prompts?v2=1` (strategic surface, default)
+//   - ChangeReview   → operator scan-diff flow (legacy `/today?legacy=1`)
+//   - ActionCard wins → TodayV2RecentWins card (above the fold)
+// The components stay in the codebase because legacy `today-client.tsx`
+// still consumes them; only the v2 import path is trimmed here.
 import { TodayV2DoToday } from "@/components/today/v2/today-v2-do-today";
 import { TodayV2Working } from "@/components/today/v2/today-v2-working";
 import { TodayV2RecentWins } from "@/components/today/v2/today-v2-recent-wins";
@@ -143,18 +150,19 @@ export function TodayV2Client({
   measuredWins = [],
   visibilityData = null,
   urlVerdictProof = null,
-  pendingFindings = [],
-  onRespondToRec,
-  onConfirmFinding,
-  onDismissFinding,
   enrichmentRollup = null,
   enrichmentV2 = null,
-  promptsTeaser = null,
   lifecycleSummary = null,
   firstReading = { isFirstReading: false },
 }: TodayV2Props) {
-  const [pending, startTransition] = useTransition();
-  const [actionMsg, setActionMsg] = useState<string | null>(null);
+  // QA cleanup (2026-05-12): `useTransition` + `actionMsg` state were
+  // wired to the disclosure's ActionCard rendering for `measuredWins`.
+  // That section was removed (duplicated TodayV2RecentWins above the
+  // fold). Same with `pendingFindings` / `onRespondToRec` /
+  // `onConfirmFinding` / `onDismissFinding` / `promptsTeaser` —
+  // their consumers (ChangeReview, ActionCard, PromptsTeaser) no
+  // longer mount in the v2 tree. The props stay typed as optional so
+  // the caller signature (`today-data.ts`) doesn't have to change.
   const [visibilityWindow, setVisibilityWindow] = useState<number>(14);
 
   // Same hero-props derivation as today-client.tsx — kept inline so v2
@@ -274,15 +282,11 @@ export function TodayV2Client({
       {heroProps && <AIVisibilityHero {...heroProps} />}
 
       {/* Visibility trend chart — sits with the hero as the proof
-          layer ("here is the score, here is the trend behind it"),
-          ABOVE the action cards so the headline-plus-trend unit
-          reads as one tight visibility block (Profound-style
-          headline+KPI+trend pattern). Pre-2026-05-12 hosted-visual
-          feedback: the chart was buried inside the "Show full
-          data" disclosure — the operator flagged it as too
-          important to hide behind a click. Leaderboard stays in
-          the disclosure (it's a per-competitor table, not a
-          customer-headline). */}
+          layer ("here is the score, here is the trend behind it").
+          Below the chart sits the leaderboard so the hero +
+          chart + leaderboard form one tight "visibility block":
+          headline number → trend → competitive context. The
+          three-action-card row follows. */}
       {visibilityData && (
         <section
           className="space-y-3"
@@ -305,6 +309,27 @@ export function TodayV2Client({
         </section>
       )}
 
+      {/* AI Visibility Leaderboard — promoted into the main flow on
+          2026-05-12 in response to operator feedback. The leaderboard
+          answers "who am I beating / losing to?" — a core Today
+          question, not "extra data". Pre-promote, it was buried in
+          the "Show full data" disclosure and the customer-vs-tracked-
+          competitor framing was lost. */}
+      {visibilityData && (
+        <section
+          className="space-y-3"
+          data-today-v2-section="visibility-leaderboard"
+        >
+          <VisibilityLeaderboard
+            entities={
+              visibilityData.leaderboardByMetricAndWindow?.composite[
+                visibilityWindow
+              ] ?? visibilityData.leaderboardByMetric.composite
+            }
+          />
+        </section>
+      )}
+
       {/* Three cards above the fold. Equal-weight 3-col on desktop,
           stacked on mobile. Each card is self-contained: hero answers
           "how am I doing?", these answer "what should I do, what is in
@@ -321,11 +346,15 @@ export function TodayV2Client({
         />
       </div>
 
-      {/* Show full data — disclosure containing the drilldown surfaces.
-          Defaults closed. The legacy 19-section layout is reachable via
-          /today?legacy=1 for operators who need every signal at once.
-          A native <details> element keeps the SSR contract simple and
-          the open-state ephemeral (no localStorage cross-session leak). */}
+      {/* Show full data — disclosure for true secondary detail only.
+          Post-2026-05-12 cleanup: this collapsed from a 4-section
+          drawer (leaderboard + descriptors + prompts-teaser + wins
+          detail + scan review) down to the descriptors block alone +
+          the legacy escape. Everything else either lives on its
+          own route (prompts → /prompts, changes → /changes) or is
+          already covered by a main-flow surface (leaderboard above,
+          Recent wins card above). The legacy 19-section layout is
+          reachable via /today?legacy=1 for operators who need it. */}
       <details
         className="rounded-lg border border-border/60 bg-surface-inset/30"
         data-today-v2-disclosure="show-full-data"
@@ -333,35 +362,17 @@ export function TodayV2Client({
         <summary className="cursor-pointer select-none px-4 py-3 text-[12px] font-semibold text-foreground hover:bg-surface-inset/40 rounded-lg transition-colors flex items-center justify-between">
           <span>Show full data</span>
           <span className="text-[10px] text-muted-foreground/70 font-normal">
-            leaderboard · descriptors · prompts · scan
+            descriptors AI used near you
           </span>
         </summary>
 
         <div className="px-4 pb-4 pt-2 space-y-5">
-          {/* Leaderboard (legacy Tier 1.5). The visibility chart used
-              to live here paired with the leaderboard in a 3:2 grid;
-              after 2026-05-12 hosted-visual feedback the chart moved
-              into the main flow above the 3-card row. The leaderboard
-              stays in the disclosure — it's a per-competitor detail
-              surface, not a customer-headline. */}
-          {visibilityData && (
-            <section
-              className="space-y-3"
-              data-today-v2-section="visibility-leaderboard"
-            >
-              <VisibilityLeaderboard
-                entities={
-                  visibilityData.leaderboardByMetricAndWindow?.composite[
-                    visibilityWindow
-                  ] ?? visibilityData.leaderboardByMetric.composite
-                }
-              />
-            </section>
-          )}
-
-          {/* Topic + prompt depth (legacy Tier 6). Renders the v2 enrichment
-              bundle when present, falling back to the single-day badges. */}
-          {(enrichmentV2 || enrichmentRollup || promptsTeaser) && (
+          {/* Descriptors AI used near the brand (legacy Tier 6).
+              Unique to Today — the only place a customer sees what
+              WORDS AI is actually using when it answers buyer
+              questions. Kept in the disclosure because it's depth,
+              not headline. */}
+          {(enrichmentV2 || enrichmentRollup) && (
             <section
               className="space-y-3"
               data-today-v2-section="topic-depth"
@@ -373,47 +384,7 @@ export function TodayV2Client({
                   <EnrichmentBadges rollup={enrichmentRollup} />
                 )
               )}
-              {promptsTeaser && <PromptsTeaser summary={promptsTeaser} />}
             </section>
-          )}
-
-          {/* Wins to learn from — full ActionCard rendering for measured
-              wins. The Recent wins card above shows a compact summary;
-              this section gives the full rationale + evidence chips for
-              operators who want depth. */}
-          {measuredWins.length > 0 && (
-            <section
-              className="space-y-2"
-              data-today-v2-section="wins-detail"
-            >
-              <h3 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
-                Wins to learn from
-              </h3>
-              <div className="space-y-2 opacity-95">
-                {measuredWins.map((win) => (
-                  <ActionCard
-                    key={win.id}
-                    action={win as ActionCardAction}
-                    variant="secondary"
-                    onRespondToRec={onRespondToRec}
-                    pending={pending}
-                    startTransition={startTransition}
-                    actionMsg={actionMsg}
-                    setActionMsg={setActionMsg}
-                  />
-                ))}
-              </div>
-            </section>
-          )}
-
-          {/* Scan diffs review (legacy Tier 7). Confirm/dismiss handlers
-              come from page.tsx server actions. */}
-          {onConfirmFinding && onDismissFinding && pendingFindings.length > 0 && (
-            <ChangeReview
-              findings={pendingFindings}
-              onConfirm={onConfirmFinding}
-              onDismiss={onDismissFinding}
-            />
           )}
 
           {/* Escape hatch for operators who need the full v1 layout. */}
