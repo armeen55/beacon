@@ -42,9 +42,43 @@ export default async function ShellLayout({
 }: {
   children: React.ReactNode;
 }) {
-  // Phase 3.5C (2026-04-22): seed the URL-change-outcomes array from Supabase
-  // so the Changes-badge count reflects real verdict state on Vercel.
-  await ensureUrlChangeOutcomesSeeded();
+  // Perf bundle 6 (2026-05-12) — parallelize the 4 independent shell
+  // reads that fire on EVERY signed-in click.
+  //
+  // Pre-fix: five sequential awaits ran one-after-another, each paying
+  // its full latency before the next started:
+  //   await ensureUrlChangeOutcomesSeeded();   // line 47
+  //   const pendingFindings = await getPendingFindings();        // ~78
+  //   const watching = await getWatchingUrlOutcomes();           // ~88
+  //   const isDemoMode = !(await hasActiveExperiment());         // ~98
+  //   const changelogEntries = await getChangelogEntries();      // ~108
+  // Production audit estimated 100–500 ms warm tax + worse on cold
+  // lambda. That tax applies to every route under (shell), independent
+  // of the page-specific loader.
+  //
+  // Post-fix: four independent operations run in parallel; the one
+  // ordered dependency (getWatchingUrlOutcomes uses the seed cache)
+  // runs after. `ensureUrlChangeOutcomesSeeded` is kept in the
+  // `Promise.all` because its single observable effect is populating
+  // the React.cache-wrapped `ensureLoaded` promise — running it in
+  // parallel with the others is safe (Promise.all simply parallelizes
+  // start times; the seed still completes before `getWatchingUrlOutcomes`
+  // is awaited below).
+  //
+  // Phase 3.5C (2026-04-22): the seed is required so the Changes-badge
+  // count reflects real verdict state on Vercel.
+  const [
+    ,
+    pendingFindings,
+    isDemoModeRaw,
+    changelogEntries,
+  ] = await Promise.all([
+    ensureUrlChangeOutcomesSeeded(),
+    getPendingFindings(),
+    hasActiveExperiment(),
+    getChangelogEntries(),
+  ]);
+  const watchingUrlOutcomes = await getWatchingUrlOutcomes();
 
   // ── Badge computation ──
   //
@@ -75,7 +109,6 @@ export default async function ShellLayout({
   //             attention" half of the counter strip using only the
   //             existing `getWatchingUrlOutcomes()` fetch (no new
   //             round-trip from the shell layout).
-  const pendingFindings = await getPendingFindings();
   const todayBadge = pendingFindings.filter((f) =>
     CONTENT_CHANGE_TYPES.has(f.type),
   ).length;
@@ -85,7 +118,7 @@ export default async function ShellLayout({
       .map((f) => f.pagePath),
   );
   const pagesBadge = pagesWithBugs.size;
-  const changesBadge = (await getWatchingUrlOutcomes()).filter(
+  const changesBadge = watchingUrlOutcomes.filter(
     (o) => o.verdict === "hurting",
   ).length;
 
@@ -95,7 +128,7 @@ export default async function ShellLayout({
   if (changesBadge > 0) badges["/changes"] = changesBadge;
 
   // Sample / walkthrough data when no import runs exist (`import-runs` store empty).
-  const isDemoMode = !(await hasActiveExperiment());
+  const isDemoMode = !isDemoModeRaw;
 
   // ── Palette items ──
   // T-CustomerNav (2026-05-08) — palette items only surface
@@ -105,7 +138,6 @@ export default async function ShellLayout({
   // the sidebar; CMD+K was still exposing it. Removed.
   // Direct URL access to /competitors still works for operator use;
   // that's intentional.
-  const changelogEntries = await getChangelogEntries();
   const paletteItems: PaletteItem[] = [
     ...allNavItems.map((n) => ({
       id: `nav-${n.href}`,

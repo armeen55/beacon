@@ -19,12 +19,20 @@ describe("v2 QA polish — sidebar Changes badge filter (P1-2)", () => {
   const layout = read("src/app/(shell)/layout.tsx");
 
   it("narrows changesBadge to hurting-only verdicts (action-meaningful)", () => {
-    // Two facts together pin the contract: (1) the badge uses
-    // `getWatchingUrlOutcomes()` AND filters; (2) the filter
-    // narrows to `verdict === "hurting"`. We assert both
-    // separately so the regex doesn't have to traverse the inner
-    // arrow function's parens.
-    expect(layout).toMatch(/changesBadge\s*=\s*\(await\s+getWatchingUrlOutcomes\(\)\)[\s\S]*?\.filter\(/);
+    // Two facts together pin the contract: (1) the badge filters
+    // results from `getWatchingUrlOutcomes()`; (2) the filter
+    // narrows to `verdict === "hurting"`. Perf bundle 6 (2026-05-12)
+    // refactored the layout to await `getWatchingUrlOutcomes()` once
+    // into a named variable (`watchingUrlOutcomes`), so the badge
+    // is now `changesBadge = watchingUrlOutcomes.filter(...).length`
+    // — same semantics, named-variable shape. Pin both shapes so
+    // future refactors don't have to update this test for cosmetic
+    // changes; only a regression that removes the filter or changes
+    // the verdict label would fail.
+    expect(layout).toMatch(/\bgetWatchingUrlOutcomes\s*\(/);
+    expect(layout).toMatch(
+      /changesBadge\s*=\s*(?:\(await\s+getWatchingUrlOutcomes\(\)\)|watchingUrlOutcomes)[\s\S]*?\.filter\(/,
+    );
     expect(layout).toMatch(/o\.verdict\s*===\s*["']hurting["']/);
   });
 
