@@ -58,22 +58,27 @@ describe("Today v2 — leaderboard promoted into main flow", () => {
   const client = read("src/app/(shell)/today-v2-client.tsx");
 
   it("renders the leaderboard in the main flow, marked as `visibility-leaderboard`", () => {
-    // The leaderboard `<section data-today-v2-section=...>` must
-    // sit BEFORE the `<details data-today-v2-disclosure=...>`
-    // block. We assert the leaderboard's section marker exists
-    // AND that the section appears before the disclosure marker.
     expect(client).toMatch(
       /data-today-v2-section="visibility-leaderboard"[\s\S]*?<VisibilityLeaderboard/,
     );
+  });
+
+  it("leaderboard section appears before the descriptors section in source order", () => {
+    // Post-2026-05-12 cleanup: the disclosure wrapper was removed
+    // entirely (only descriptors were left inside, the dropdown
+    // chrome added click friction). Both the leaderboard AND the
+    // descriptors now live in the main flow. The leaderboard must
+    // still render BEFORE the descriptors so the hero → chart →
+    // leaderboard → action cards → descriptors hierarchy holds.
     const leaderboardIdx = client.indexOf(
       'data-today-v2-section="visibility-leaderboard"',
     );
-    const disclosureIdx = client.indexOf(
-      'data-today-v2-disclosure="show-full-data"',
+    const descriptorsIdx = client.indexOf(
+      'data-today-v2-section="topic-depth"',
     );
     expect(leaderboardIdx).toBeGreaterThan(0);
-    expect(disclosureIdx).toBeGreaterThan(0);
-    expect(leaderboardIdx).toBeLessThan(disclosureIdx);
+    expect(descriptorsIdx).toBeGreaterThan(0);
+    expect(leaderboardIdx).toBeLessThan(descriptorsIdx);
   });
 
   it("renders the leaderboard exactly once (no duplicate inside disclosure)", () => {
@@ -82,38 +87,47 @@ describe("Today v2 — leaderboard promoted into main flow", () => {
   });
 });
 
-describe("Today v2 — disclosure cleanup (no duplicative sections)", () => {
+describe("Today v2 — disclosure dropdown removed; descriptors visible", () => {
   const client = read("src/app/(shell)/today-v2-client.tsx");
 
+  it("no longer renders a `<details>` disclosure wrapper", () => {
+    // Post-2026-05-12 cleanup: descriptors-only contents didn't
+    // justify the dropdown chrome. Descriptors render as a plain
+    // visible section now.
+    expect(client).not.toContain('data-today-v2-disclosure="show-full-data"');
+    expect(client).not.toMatch(/<details[\s\S]*?data-today-v2-disclosure/);
+  });
+
+  it("descriptors block (`topic-depth`) stays in the customer-visible main flow", () => {
+    expect(client).toMatch(
+      /data-today-v2-section="topic-depth"[\s\S]*?(EnrichmentV2|EnrichmentBadges)/,
+    );
+  });
+
   it("does NOT render a 'Wins to learn from' ActionCard section", () => {
-    // The full ActionCard rendering of `measuredWins` duplicated
-    // TodayV2RecentWins above the fold and was removed.
     expect(client).not.toMatch(/data-today-v2-section="wins-detail"/);
     expect(client).not.toContain("Wins to learn from");
     expect(client).not.toMatch(/<ActionCard\s/);
   });
 
   it("does NOT render PromptsTeaser in the v2 tree", () => {
-    // `/prompts?v2=1` now handles the prompts strategic surface
-    // end-to-end. The Today disclosure teaser was redundant.
     expect(client).not.toMatch(/<PromptsTeaser\s/);
-    // The TYPE import for PromptsTeaserSummary is allowed (props
-    // type still carries it for caller signature stability).
   });
 
   it("does NOT render ChangeReview in the v2 tree", () => {
-    // Scan-diff confirm/dismiss is an operator flow; lives in
-    // legacy `/today?legacy=1`.
     expect(client).not.toMatch(/<ChangeReview\s/);
   });
 
-  it("disclosure summary microcopy advertises only what's actually inside", () => {
-    // Pre-cleanup: "leaderboard · descriptors · prompts · scan".
-    // Post-cleanup: leaderboard is in main flow, prompts/scan
-    // sections removed entirely — only descriptors remains.
-    expect(client).not.toMatch(/leaderboard\s*·\s*descriptors/);
-    expect(client).not.toMatch(/·\s*prompts\s*·\s*scan/);
-    expect(client).toContain("descriptors AI used near you");
+  it("does NOT render a customer-facing 'Open legacy view' CTA", () => {
+    // Pre-cleanup: a "Need the old layout? Open legacy view →" link
+    // sat at the bottom of the disclosure. Removed because v2 is the
+    // production default; the visible link made the product feel
+    // unfinished. The `?legacy=1` query param still routes to the
+    // legacy renderer in `src/app/(shell)/page.tsx` — only the link
+    // was removed, not the rollback path.
+    expect(client).not.toContain('data-today-v2-cta="legacy"');
+    expect(client).not.toContain("Open legacy view");
+    expect(client).not.toContain("Need the old layout");
   });
 });
 

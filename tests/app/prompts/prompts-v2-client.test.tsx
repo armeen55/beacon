@@ -239,11 +239,16 @@ describe("PromptsV2Client — strategic surface", () => {
     expect(html).toContain("Whole Home");
   });
 
-  it("renders the legacy escape footer link", () => {
+  it("no longer renders the 'Open legacy view' customer-facing footer CTA (removed 2026-05-12)", () => {
+    // Pre-cleanup: the v2 strategic surface carried a "Need the
+    // operator view? Open legacy view →" footer link. Removed as
+    // part of the perf/legacy-bloat audit because v2 is the
+    // production default and the visible CTA made the product
+    // feel unfinished. The `?legacy=1` query param still routes
+    // to the legacy decision view for rollback.
     const html = render([op()], [["p-1", "t"]]);
-    expect(html).toContain('data-prompts-v2-cta="legacy"');
-    expect(html).toContain('href="/prompts?legacy=1"');
-    expect(html).toContain("Open legacy view");
+    expect(html).not.toContain('data-prompts-v2-cta="legacy"');
+    expect(html).not.toContain("Open legacy view");
   });
 
   it("never leaks internal vocabulary in the rendered output", () => {

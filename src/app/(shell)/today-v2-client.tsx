@@ -346,60 +346,32 @@ export function TodayV2Client({
         />
       </div>
 
-      {/* Show full data — disclosure for true secondary detail only.
-          Post-2026-05-12 cleanup: this collapsed from a 4-section
-          drawer (leaderboard + descriptors + prompts-teaser + wins
-          detail + scan review) down to the descriptors block alone +
-          the legacy escape. Everything else either lives on its
-          own route (prompts → /prompts, changes → /changes) or is
-          already covered by a main-flow surface (leaderboard above,
-          Recent wins card above). The legacy 19-section layout is
-          reachable via /today?legacy=1 for operators who need it. */}
-      <details
-        className="rounded-lg border border-border/60 bg-surface-inset/30"
-        data-today-v2-disclosure="show-full-data"
-      >
-        <summary className="cursor-pointer select-none px-4 py-3 text-[12px] font-semibold text-foreground hover:bg-surface-inset/40 rounded-lg transition-colors flex items-center justify-between">
-          <span>Show full data</span>
-          <span className="text-[10px] text-muted-foreground/70 font-normal">
-            descriptors AI used near you
-          </span>
-        </summary>
-
-        <div className="px-4 pb-4 pt-2 space-y-5">
-          {/* Descriptors AI used near the brand (legacy Tier 6).
-              Unique to Today — the only place a customer sees what
-              WORDS AI is actually using when it answers buyer
-              questions. Kept in the disclosure because it's depth,
-              not headline. */}
-          {(enrichmentV2 || enrichmentRollup) && (
-            <section
-              className="space-y-3"
-              data-today-v2-section="topic-depth"
-            >
-              {enrichmentV2 ? (
-                <EnrichmentV2 data={enrichmentV2} />
-              ) : (
-                enrichmentRollup && (
-                  <EnrichmentBadges rollup={enrichmentRollup} />
-                )
-              )}
-            </section>
+      {/* Descriptors AI used near the brand. After the 2026-05-12
+          cleanup the disclosure only carried this one section and
+          the legacy-view CTA — the dropdown chrome added click
+          friction with no other content to gate. Now rendered as
+          a plain visible section below the three cards. The
+          `/today?legacy=1` rollback path stays intact in the
+          server router; only the customer-visible link to it
+          was removed (it made the product feel unfinished). */}
+      {(enrichmentV2 || enrichmentRollup) && (
+        <section
+          className="space-y-3"
+          data-today-v2-section="topic-depth"
+        >
+          {enrichmentV2 ? (
+            <EnrichmentV2 data={enrichmentV2} />
+          ) : (
+            enrichmentRollup && (
+              <EnrichmentBadges rollup={enrichmentRollup} />
+            )
           )}
-
-          {/* Escape hatch for operators who need the full v1 layout. */}
-          <div className="pt-2 border-t border-border/40 text-[11px] text-muted-foreground/70">
-            Need the old layout?{" "}
-            <Link
-              href="/today?legacy=1"
-              className="text-accent-primary hover:underline font-medium"
-              data-today-v2-cta="legacy"
-            >
-              Open legacy view →
-            </Link>
-          </div>
-        </div>
-      </details>
+        </section>
+      )}
+      {/* Legacy view rollback: `/today?legacy=1` is still handled by
+          the server router in `src/app/(shell)/page.tsx` — only the
+          customer-visible CTA was removed. Operators can navigate
+          there directly when needed. */}
     </div>
   );
 }

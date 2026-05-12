@@ -187,11 +187,18 @@ describe("ChangesV2Client — proof timeline", () => {
     expect(html).toContain("Similar changes usually show signal around day 7");
   });
 
-  it("renders the legacy escape footer link", () => {
+  it("no longer renders the 'Open table view' customer-facing footer CTA (removed 2026-05-12)", () => {
+    // Pre-cleanup: the v2 proof timeline carried a "Need the table
+    // view? Open table view →" footer link. Removed as part of the
+    // perf/legacy-bloat audit because v2 is the production default
+    // and the visible CTA made the product feel unfinished. The
+    // `?legacy=1` query param still routes to the legacy table for
+    // rollback. The overflow "See full table →" link (only shown
+    // when >24 rows) is kept — it's a legitimate "show more"
+    // affordance, not a redundant escape.
     const html = render({ rows: [makeRow()] });
-    expect(html).toContain('data-changes-cta="legacy"');
-    expect(html).toContain('href="/changes?legacy=1"');
-    expect(html).toContain("Open table view");
+    expect(html).not.toContain('data-changes-cta="legacy"');
+    expect(html).not.toContain("Open table view");
   });
 
   it("never leaks internal vocabulary in the rendered output", () => {

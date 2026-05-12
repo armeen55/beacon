@@ -153,18 +153,12 @@ export function ChangesV2Client({
         </div>
       )}
 
-      <footer className="mt-6 pt-3 border-t border-border/40 text-[11px] text-muted-foreground/80">
-        <span>
-          Need the table view?{" "}
-          <Link
-            href="/changes?legacy=1"
-            className="text-accent-primary hover:underline font-medium"
-            data-changes-cta="legacy"
-          >
-            Open table view →
-          </Link>
-        </span>
-      </footer>
+      {/* Legacy view rollback: `/changes?legacy=1` still routes to
+          the legacy table in `page.tsx`. The customer-facing footer
+          CTA was removed on 2026-05-12 because v2 is the production
+          default and the visible link made the product feel
+          unfinished. The `?legacy=1` query param remains for
+          rollback. */}
     </div>
   );
 }

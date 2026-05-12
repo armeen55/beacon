@@ -94,18 +94,12 @@ export function PromptsV2Client({
         </>
       )}
 
-      <footer className="mt-8 pt-3 border-t border-border/40 text-[11px] text-muted-foreground/80">
-        <span>
-          Need the operator view?{" "}
-          <Link
-            href="/prompts?legacy=1"
-            className="text-accent-primary hover:underline font-medium"
-            data-prompts-v2-cta="legacy"
-          >
-            Open legacy view →
-          </Link>
-        </span>
-      </footer>
+      {/* Legacy view rollback: `/prompts?legacy=1` still routes to
+          the legacy decision view in `page.tsx`. The customer-facing
+          footer CTA was removed on 2026-05-12 because v2 is the
+          production default and the visible link made the product
+          feel unfinished. The `?legacy=1` query param remains for
+          rollback. */}
     </div>
   );
 }

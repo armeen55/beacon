@@ -189,31 +189,26 @@ export function RecommendationsV2Client({
         </div>
       )}
 
-      {/* Footer escape hatches — operators who want the legacy table or
-          the watchlist always have a one-click route back. */}
-      <footer className="pt-2 border-t border-border/40 flex items-center justify-between gap-3 text-[11px] text-muted-foreground/80">
-        <span>
-          Need the table view?{" "}
+      {/* Footer — pre-2026-05-12 carried an "Open legacy view" CTA
+          alongside the watchlist link. The legacy CTA was removed
+          because v2 is the production default and the visible link
+          made the product feel unfinished. The watchlist link stays
+          (it surfaces a real feature: patterns Beacon is watching;
+          the watchlist UI itself isn't rendered in v2 yet so the
+          link currently routes through `?legacy=1#watchlist` as the
+          only place that surface lives). `/recommendations?legacy=1`
+          still routes to the legacy table for rollback. */}
+      {watchlist.length > 0 && (
+        <footer className="pt-2 border-t border-border/40 text-[11px] text-muted-foreground/80">
           <Link
-            href="/recommendations?legacy=1"
+            href="/recommendations?legacy=1#watchlist"
             className="text-accent-primary hover:underline font-medium"
-            data-recommendations-v2-cta="legacy"
+            data-recommendations-v2-cta="watchlist"
           >
-            Open legacy view →
+            {watchlist.length} winning pattern{watchlist.length === 1 ? "" : "s"} on watch →
           </Link>
-        </span>
-        {watchlist.length > 0 && (
-          <span>
-            <Link
-              href="/recommendations?legacy=1#watchlist"
-              className="text-accent-primary hover:underline font-medium"
-              data-recommendations-v2-cta="watchlist"
-            >
-              {watchlist.length} winning pattern{watchlist.length === 1 ? "" : "s"} on watch →
-            </Link>
-          </span>
-        )}
-      </footer>
+        </footer>
+      )}
     </div>
   );
 }

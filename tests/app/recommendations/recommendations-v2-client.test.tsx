@@ -213,11 +213,15 @@ describe("Bundle 2A — RecommendationsV2Client", () => {
     expect(html).not.toContain('data-recommendations-v2-rail="working"');
   });
 
-  it("renders the legacy escape-hatch footer link", () => {
+  it("no longer renders the 'Open legacy view' customer-facing footer CTA (removed 2026-05-12)", () => {
+    // Pre-cleanup: the v2 card stack carried a "Need the table view?
+    // Open legacy view →" footer link that made the product feel
+    // unfinished. Removed as part of the perf/legacy-bloat audit.
+    // The `?legacy=1` query param still routes to the legacy table
+    // for rollback — it just isn't advertised.
     const html = renderV2([makeRec()]);
-    expect(html).toContain('data-recommendations-v2-cta="legacy"');
-    expect(html).toContain("/recommendations?legacy=1");
-    expect(html).toContain("Open legacy view →");
+    expect(html).not.toContain('data-recommendations-v2-cta="legacy"');
+    expect(html).not.toContain("Open legacy view →");
   });
 
   it("never renders raw schema fields, IDs, or hashes", () => {
