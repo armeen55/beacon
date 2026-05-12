@@ -7,6 +7,92 @@
 
 ---
 
+## 2026-05-12 — perf bundle 5: gate today discrepancy detection (commit `6d0c238`)
+
+The inline-body profile pass identified `extractEntities + detectDiscrepancies` at ~366 ms warm — 65% of /today's render time — producing output that's discarded whenever an earlier `nextCandidates` push fires. Shape A gate added: skip the work whenever any of the 5 higher-priority candidates already produced a non-null entry. Byte-identical customer-visible output: the consumer (`today-summary.ts:82-90`) selects `find((m) => m != null)`, which already discarded the discrepancy result pre-bundle whenever earlier candidates were non-null.
+
+### What changed (source)
+
+| Layer | Change |
+|---|---|
+| `src/app/(shell)/today-data.ts` | Wraps the `extractEntities` + `detectDiscrepancies` block (lines ~1759-1772) in `if (!hasHigherPriorityNextMove) { ... }`. `hasHigherPriorityNextMove = nextCandidates.some((c) => c != null)` evaluates the 5 higher-priority pushes (warningAlerts / shippedIssues / newIssues / undecidedCount / decayAlerts). When any fired, the gate closes and the expensive work is skipped. |
+
+### Tests added (+6 net new across 2 files)
+
+- **`tests/architecture/perf-today-discrepancy-gated.test.ts`** (4 specs):
+  - `hasHigherPriorityNextMove` declared from `nextCandidates.some(c => c != null)`
+  - `extractEntities` + `detectDiscrepancies` each appear exactly once, both inside the `!hasHigherPriorityNextMove` block
+  - Gate is positioned AFTER all 5 higher-priority pushes (offset assertions)
+  - `today-summary.ts` still uses `find((m) => m != null)` — the selector the gate depends on
+
+- **`tests/routes/today-discrepancy-gate.test.ts`** (2 specs):
+  - Spies on `extractEntities` + `detectDiscrepancies`; renders `loadTodayPageData()` against the Ritz fixture (which has 1 warning + 5 new page-issues → early candidates fire); asserts both spies called **0 times**
+  - Smoke check that the returned data still includes the v2-critical keys (`summary`, `primaryAction`, `secondaryAction`, `scoreboard`, `measuredWins`, `visibilityData`)
+
+### Measured impact (median of 3 warm runs, Ritz fixture, local file backend)
+
+| Loader | Pre-bundle (bundle 4 baseline) | Post-bundle 5 | Savings |
+|---|---:|---:|---:|
+| **`loadTodayPageData` WARM (median)** | 561 ms | **207 ms** | **354 ms / 63% faster** |
+| **`loadTodayPageData` COLD** | 1128 ms | **745 ms** | **383 ms / 34% faster** |
+
+This matches the inline-profile projection (~300-360 ms savings) and **exceeds the aspirational 250-350 ms target set in the original measurement-pass**.
+
+### Why the gate closes on this fixture
+
+The Ritz fixture (`.data/tenants/ritz-builders/`):
+- `page-guardrails.json` has 5 rows total: 1 `severity=warning` + 4 `severity=info`. The first `nextCandidates.push` filters guardrails with `severity in {warning, critical, regression}` → 1 row → push fires.
+- `page-issues.json` has 7 rows: 5 `status=new` + 2 `status=handed_off`. The third push fires on `newIssues.length === 5`.
+
+Both pushes happen before the gate; `nextCandidates.some(c => c != null)` is true → discrepancy block skipped. Production tenants with even one warning/critical guardrail or one open page issue see the same path.
+
+### Customer-visible behavior
+
+- **When ≥1 earlier candidate fires (every mature tenant, every render):** Byte-identical. Pre-bundle and post-bundle both have `nextMove = nextCandidates.find((m) => m != null)` returning the same first-non-null entry. The discrepancy entry was never the chosen `nextMove` in this case — it was being computed and discarded.
+- **When ALL 5 earlier candidates are empty (cold tenant / empty queue state):** Identical to pre-bundle behavior — the discrepancy detector runs and pushes its candidate exactly as before. If `notableDisc.length > 0`, that entry becomes the `nextMove`; otherwise `today-summary.ts:83` returns the "No urgent queue item" fallback.
+
+### Remaining /today bottlenecks (post-bundle 5)
+
+| Sub-pipeline | ~ms warm | Status |
+|---|---:|---|
+| `buildObservationRollup` | ~64 | Necessary cost (pays for ~480 ms savings in fan-out); no further wins available |
+| `buildPromptDecisionMatrix + topPick` | ~46 | Could share rollup but touches rec generation logic (deferred per spec) |
+| Visibility-score fan-out (12 leaderboards + 3 series + 3 competitor) | ~33-48 | Already optimized (bundle 3) |
+| Scanner / decay / geoForLocal / mine+briefs inline body | ~28-35 | Mixed CPU + file I/O; bounded |
+| `extractEntities + detectDiscrepancies` (gated path) | **0** for mature tenants; ~366 only if 5 prior signals all empty | This bundle |
+| 2 direct Supabase calls (`fetchPollHealthForDate`, `fetchTodayDerivedKpis`) | ~0 local; **50-200 each in prod** | Out of scope (network) |
+| Other (lifecycleSummary / scorecard / canonical / v2 enrichment / etc.) | <10 each | All bounded |
+
+**Estimated production `/today` warm:** ~350-550 ms (was ~700-950 ms pre-bundle-5). Within range of the original "premium product" perceived-snappy threshold for repeat clicks.
+
+### Verification
+
+| Check | Result |
+|---|---|
+| `npm run typecheck` | ✅ clean |
+| Targeted: gate tests (2 files) | ✅ 6/6 |
+| Rollup tests (post-bundle-4) | ✅ 74/74 |
+| `tests/architecture/forbidden-customer-vocabulary-contract.test.ts` | ✅ included in full suite |
+| **`npm run test` (full suite)** | ✅ **7928/7928 across 420 files** (+4 from this bundle) |
+| Commit | `6d0c238 fix(perf): gate today discrepancy detection` (3 files, +255/-12) |
+| Push | ✅ `69984dd..6d0c238 main -> main` |
+| Vercel deploy | (recorded separately on completion) |
+
+### Constraints honored
+
+- ✅ Shape A only — discrepancy candidate behavior preserved for the rare empty-queue case.
+- ✅ No UI changes.
+- ✅ No data contract changes — `TodayPageData` return type untouched.
+- ✅ No customer-visible numbers changed — `find((m) => m != null)` already produced byte-identical output pre-bundle when earlier candidates fired.
+- ✅ No Supabase mutation; the gate eliminates 1 paged PAO re-read per /today render whenever it closes (small egress side-benefit).
+- ✅ No paid APIs / polls / scans / migrations.
+- ✅ No recommendation generation / attribution logic changes.
+- ✅ No env flag flips.
+- ✅ No stale caching — gate is per-request, in-process only.
+- ✅ Local-only timing harness deleted; `git status` clean.
+
+---
+
 ## 2026-05-12 — perf bundle 4: reuse today rollup for enrichment + truth-up on the inline-rollup hypothesis (commit `59e31e8`)
 
 Started this bundle on the premise that the ~7 inline enrichment rollups in `today-data.ts` cost ~280 ms warm (from the measurement-pass estimate earlier in the day). Direct measurement of each builder against the live 11,700-obs fixture revealed the actual cost is ~2.3 ms combined — about 120× off from my prior estimate. Truthing up:
