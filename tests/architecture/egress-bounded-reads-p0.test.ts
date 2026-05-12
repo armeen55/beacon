@@ -57,7 +57,14 @@ const REC_CLIENT = join(
 );
 
 const LOAD_QUEUE_SRC = readFileSync(LOAD_QUEUE, "utf8");
-const SETTINGS_PROMPTS_SRC = readFileSync(SETTINGS_PROMPTS_PAGE, "utf8");
+const SETTINGS_PROMPTS_SRC_RAW = readFileSync(SETTINGS_PROMPTS_PAGE, "utf8");
+// Strip comments so call-site checks below ignore the deploy-hardening
+// docstring that legitimately mentions `loadFreshCanonicalData` /
+// `ensureCanonicalStoresSeeded` to explain why they're no longer used.
+const SETTINGS_PROMPTS_SRC = SETTINGS_PROMPTS_SRC_RAW.replace(
+  /^\s*\/\/.*$/gm,
+  "",
+).replace(/\/\*[\s\S]*?\*\//g, "");
 const PROMPTS_DETAIL_SRC = readFileSync(PROMPTS_DETAIL_PAGE, "utf8");
 const TODAY_DATA_SRC = readFileSync(TODAY_DATA, "utf8");
 const SUPABASE_BACKEND_SRC = readFileSync(SUPABASE_BACKEND, "utf8");
@@ -79,23 +86,27 @@ describe("EGRESS-P0.1 — /recommendations load-queue passes observations window
   });
 });
 
-describe("EGRESS-P0.2 — /settings/prompts passes a tight window", () => {
-  it("calls loadFreshCanonicalData with observationsSince + snapshotsSince", () => {
-    expect(SETTINGS_PROMPTS_SRC).toMatch(
-      /loadFreshCanonicalData\(\{[\s\S]{0,200}observationsSince[\s\S]{0,200}snapshotsSince/,
-    );
+describe("EGRESS-P0.2 — /settings/prompts reads only the small tracked_prompts table", () => {
+  // Deploy hardening (2026-05-12) — the page no longer uses
+  // `loadFreshCanonicalData` (which fanned out 4 parallel reads
+  // including the heavy `prompt_answer_observations`) and instead
+  // reads `tracked_prompts` directly via the tenant repo. Strictly
+  // better than the prior windowed fan-out: zero observation reads,
+  // zero snapshot reads, zero entity reads. See
+  // `tests/architecture/deploy-settings-prompts-dynamic.test.ts`
+  // for the full deploy-hardening pin including `force-dynamic`.
+
+  it("does NOT call loadFreshCanonicalData (would fan out into PAO + snaps)", () => {
+    expect(SETTINGS_PROMPTS_SRC).not.toMatch(/loadFreshCanonicalData\s*\(/);
   });
 
-  it("does NOT call bare loadFreshCanonicalData() with no args", () => {
-    expect(SETTINGS_PROMPTS_SRC).not.toMatch(/loadFreshCanonicalData\(\s*\)/);
+  it("does NOT call ensureCanonicalStoresSeeded (would seed the full canonical store)", () => {
+    expect(SETTINGS_PROMPTS_SRC).not.toMatch(/ensureCanonicalStoresSeeded\s*\(/);
   });
 
-  it("uses a 1-day window (page only consumes trackedPrompts)", () => {
+  it("uses the direct tenant-repo `getTrackedPrompts()` reader", () => {
     expect(SETTINGS_PROMPTS_SRC).toMatch(
-      /SETTINGS_PROMPTS_OBS_WINDOW_DAYS\s*=\s*1/,
-    );
-    expect(SETTINGS_PROMPTS_SRC).toMatch(
-      /SETTINGS_PROMPTS_SNAP_WINDOW_DAYS\s*=\s*1/,
+      /getRepository\(\)[\s\S]*?\.forTenant\([^)]+\)[\s\S]*?\.getTrackedPrompts\(\s*\)/,
     );
   });
 });

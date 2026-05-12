@@ -268,14 +268,22 @@ describe("Sprint 4 / Phase 4.9 — canonical-store fresh-per-render", () => {
       );
     });
 
-    it("/settings/prompts imports loadFreshCanonicalData AND does not import trackedPrompts", () => {
+    it("/settings/prompts does NOT import canonical-store fan-out APIs (deploy hardening 2026-05-12)", () => {
+      // Deploy hardening (2026-05-12) — `/settings/prompts` now reads
+      // `tracked_prompts` directly via the tenant repo, skipping the
+      // canonical-store fan-out entirely. The page no longer needs to
+      // touch the `@/storage/canonical-store` module. Pinned by
+      // `tests/architecture/deploy-settings-prompts-dynamic.test.ts`
+      // and `tests/architecture/egress-bounded-reads-p0.test.ts`.
       const canonImports = SRC.settingsPrompts.match(
         /import\s+\{[^}]+\}\s+from\s+["']@\/storage\/canonical-store["']/g,
       );
-      expect(canonImports).not.toBeNull();
-      const joined = canonImports!.join("\n");
-      expect(joined).toMatch(/\bloadFreshCanonicalData\b/);
-      expect(joined).not.toMatch(/\btrackedPrompts\b/);
+      expect(canonImports).toBeNull();
+      // Must use the direct tenant-repo reader instead.
+      expect(SRC.settingsPrompts).toMatch(
+        /from\s+["']@\/lib\/persistence\/repositories["']/,
+      );
+      expect(SRC.settingsPrompts).toMatch(/\.getTrackedPrompts\(\s*\)/);
     });
 
     it("today-data.ts imports loadFreshCanonicalData AND does not statically import dailyMetricSnapshots", () => {
@@ -307,10 +315,14 @@ describe("Sprint 4 / Phase 4.9 — canonical-store fresh-per-render", () => {
       // `{ observationsSince, snapshotsSince }` window argument that
       // /today + /prompts now pass. Empty-paren AND option-arg forms
       // both qualify as "calls loadFreshCanonicalData() at render time."
+      // Deploy hardening (2026-05-12) — `/settings/prompts` was
+      // removed from this list. The page now reads `tracked_prompts`
+      // directly via the tenant repo, not through
+      // `loadFreshCanonicalData`. See deploy-settings-prompts-dynamic
+      // and egress-bounded-reads-p0 EGRESS-P0.2 for the new contract.
       const directTargets = [
         { name: "/prompts", src: SRC.prompts },
         { name: "/prompts/[id]", src: SRC.promptDetail },
-        { name: "/settings/prompts", src: SRC.settingsPrompts },
         { name: "today-data.ts", src: SRC.todayData },
       ];
       for (const { name, src } of directTargets) {

@@ -7,70 +7,71 @@ vi.mock("next/navigation", () => ({
   usePathname: () => "/settings/prompts",
 }));
 
-vi.mock("@/storage/canonical-store", async () => {
-  const trackedPrompts = [
-    {
-      id: "p-active-1",
-      account_id: "ritz",
-      text: "Best luxury home builder in Palo Alto?",
-      topic_id: "Luxury Home Builder",
-      location_scope: "Palo Alto",
-      service_scope: null,
-      intent_type: "recommendation",
-      platforms: ["perplexity", "chatgpt"],
-      tags: [],
-      is_active: true,
-      created_at: "2026-04-20T00:00:00Z",
-      updated_at: "2026-04-20T00:00:00Z",
-    },
-    {
-      id: "p-active-2",
-      account_id: "ritz",
-      text: "Bay Area teardown + rebuild builder recommendations?",
-      topic_id: "Teardown Rebuild",
-      location_scope: "Bay Area",
-      service_scope: null,
-      intent_type: "recommendation",
-      platforms: ["perplexity"],
-      tags: [],
-      is_active: true,
-      created_at: "2026-04-20T00:00:00Z",
-      updated_at: "2026-04-20T00:00:00Z",
-    },
-    {
-      id: "p-inactive",
-      account_id: "ritz",
-      text: "Deprecated legacy prompt example.",
-      topic_id: "Legacy",
-      location_scope: null,
-      service_scope: null,
-      intent_type: "recommendation",
-      platforms: ["chatgpt"],
-      tags: [],
-      is_active: false,
-      created_at: "2026-04-20T00:00:00Z",
-      updated_at: "2026-04-20T00:00:00Z",
-    },
-  ];
+const TRACKED_PROMPTS_FIXTURE = [
+  {
+    id: "p-active-1",
+    account_id: "ritz",
+    text: "Best luxury home builder in Palo Alto?",
+    topic_id: "Luxury Home Builder",
+    location_scope: "Palo Alto",
+    service_scope: null,
+    intent_type: "recommendation",
+    platforms: ["perplexity", "chatgpt"],
+    tags: [],
+    is_active: true,
+    created_at: "2026-04-20T00:00:00Z",
+    updated_at: "2026-04-20T00:00:00Z",
+  },
+  {
+    id: "p-active-2",
+    account_id: "ritz",
+    text: "Bay Area teardown + rebuild builder recommendations?",
+    topic_id: "Teardown Rebuild",
+    location_scope: "Bay Area",
+    service_scope: null,
+    intent_type: "recommendation",
+    platforms: ["perplexity"],
+    tags: [],
+    is_active: true,
+    created_at: "2026-04-20T00:00:00Z",
+    updated_at: "2026-04-20T00:00:00Z",
+  },
+  {
+    id: "p-inactive",
+    account_id: "ritz",
+    text: "Deprecated legacy prompt example.",
+    topic_id: "Legacy",
+    location_scope: null,
+    service_scope: null,
+    intent_type: "recommendation",
+    platforms: ["chatgpt"],
+    tags: [],
+    is_active: false,
+    created_at: "2026-04-20T00:00:00Z",
+    updated_at: "2026-04-20T00:00:00Z",
+  },
+];
+
+// Deploy hardening (2026-05-12) — page now reads tracked_prompts via
+// `getRepository().forTenant(tenantId).getTrackedPrompts()` directly
+// (skipping the canonical-store seed + the 4-table fan-out of
+// `loadFreshCanonicalData`). Mock the tenant repo so the smoke test
+// stays untouched by the underlying data-source change.
+vi.mock("@/lib/persistence/repositories", () => {
+  const tenantRepo = {
+    getTrackedPrompts: vi.fn(async () => TRACKED_PROMPTS_FIXTURE),
+  };
   return {
-    ensureCanonicalStoresSeeded: vi.fn(async () => {}),
-    // Phase 4.9: render path uses loadFreshCanonicalData for fresh reads.
-    loadFreshCanonicalData: vi.fn(async () => ({
-      trackedPrompts,
-      promptAnswerObservations: [],
-      trackedEntities: [],
-      dailyMetricSnapshots: [],
-    })),
-    trackedPrompts,
-    trackedEntities: [],
-    promptAnswerObservations: [],
-    dailyMetricSnapshots: [],
-    observationRuns: [],
-    outcomeEvents: [],
-    candidateCauses: [],
-    eventDecisions: [],
+    getRepository: () => ({
+      forTenant: () => tenantRepo,
+    }),
   };
 });
+
+vi.mock("@/lib/tenant-context", () => ({
+  currentTenantId: vi.fn(async () => "tenant-ritz-founder"),
+  currentTenant: vi.fn(async () => "tenant-ritz-founder"),
+}));
 
 describe("/settings/prompts smoke", () => {
   it("renders header count + all prompts with toggle + topic + geo tags", async () => {

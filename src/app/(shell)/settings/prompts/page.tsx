@@ -1,21 +1,35 @@
 import "server-only";
 
-import {
-  ensureCanonicalStoresSeeded,
-  loadFreshCanonicalData,
-} from "@/storage/canonical-store";
+import { getRepository } from "@/lib/persistence/repositories";
+import { currentTenantId } from "@/lib/tenant-context";
 import { SettingsPromptsClient } from "./settings-prompts-client";
 
 /**
- * EGRESS-P0 (2026-05-07) — narrow the canonical read to a 1-day
- * observation window so this page never pulls the full
- * prompt_answer_observations table just to render the prompt-management
- * list. The `trackedPrompts` array is the only field this page uses;
- * a tight window keeps the parallel `getPromptAnswerObservations` call
- * inside `loadFreshCanonicalData` from blowing egress.
+ * Deploy hardening (2026-05-12) — pin this route to server-rendered.
+ *
+ * Pre-fix, the page lacked any `dynamic` declaration AND had no
+ * `searchParams` / dynamic-segment in its function signature, so
+ * Next.js attempted to PRERENDER it at build time. Build-time
+ * prerender resolves `currentTenantId()` via the env fallback
+ * (no headers, no cookies during static generation) and then issues
+ * Supabase reads from a fresh-lambda context. The May 12 build
+ * `beacon-39yl32o35` failed exactly this way — `Supabase query
+ * failed on prompt_answer_observations: canceling statement due to
+ * statement timeout` during `Generating static pages`. The redeploy
+ * succeeded because Supabase was healthy, but the fragility is
+ * structural, not transient.
+ *
+ * `force-dynamic` makes the route opt out of prerendering. Every
+ * request runs server-side at request time, where the tenant is
+ * header-injected by middleware and the Supabase query happens
+ * under the runtime budget instead of the build budget. Matches
+ * the pattern already used on `/changes`, `/changes/[id]`,
+ * `/recommendations`, `/recommendations/[id]`, and the other
+ * `/settings/*` routes that read live tenant data
+ * (`/settings/connectors`, `/settings/config`, `/settings/health`,
+ * `/settings/exit-gates`).
  */
-const SETTINGS_PROMPTS_OBS_WINDOW_DAYS = 1;
-const SETTINGS_PROMPTS_SNAP_WINDOW_DAYS = 1;
+export const dynamic = "force-dynamic";
 
 /**
  * /settings/prompts — minimum-viable prompt-set management hub
@@ -24,27 +38,25 @@ const SETTINGS_PROMPTS_SNAP_WINDOW_DAYS = 1;
  * Operator-facing: "which prompts run tomorrow's cron, toggle any off,
  * add a new one." No inline editing; no bulk ops; no tenant picker
  * (single-tenant today). Intentionally thin.
+ *
+ * Deploy hardening (2026-05-12) — pre-fix the page called
+ * `loadFreshCanonicalData({ observationsSince, snapshotsSince })` which
+ * fans out 4 parallel Supabase reads:
+ *   1. `tracked_prompts` (small — ~100 rows)
+ *   2. `prompt_answer_observations` (heavy — windowed ~hundreds, but
+ *      still the single slowest query in the canonical store)
+ *   3. `tracked_entities` (small)
+ *   4. `daily_metric_snapshots` (windowed but variable)
+ * The page only consumes `trackedPrompts`; the other three reads were
+ * pure waste AND they were the trigger for the build-time timeout.
+ * Switched to a direct repo read on `tracked_prompts` only — single
+ * SQL query, single small table, no canonical-store seed.
  */
 export default async function SettingsPromptsPage() {
-  await ensureCanonicalStoresSeeded();
-
-  // Phase 4.9 (Sprint 4, 2026-04-24): fresh per-render canonical read.
-  // EGRESS-P0 (2026-05-07): pass tight windows so parallel
-  // observation/snapshot reads don't drag the full tables across the
-  // wire — this page only consumes `trackedPrompts`.
-  const NOW_MS = Date.now();
-  const observationsSince = new Date(
-    NOW_MS - SETTINGS_PROMPTS_OBS_WINDOW_DAYS * 86_400_000,
-  ).toISOString();
-  const snapshotsSince = new Date(
-    NOW_MS - SETTINGS_PROMPTS_SNAP_WINDOW_DAYS * 86_400_000,
-  )
-    .toISOString()
-    .slice(0, 10);
-  const { trackedPrompts } = await loadFreshCanonicalData({
-    observationsSince,
-    snapshotsSince,
-  });
+  const tenantId = await currentTenantId();
+  const trackedPrompts = await getRepository()
+    .forTenant(tenantId)
+    .getTrackedPrompts();
 
   const rows = [...trackedPrompts]
     .sort((a, b) => {
