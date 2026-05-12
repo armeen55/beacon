@@ -7,6 +7,99 @@
 
 ---
 
+## 2026-05-12 — perf bundle 3: per-request observation rollup for /today (commit `510eed5`)
+
+Measured `/today`'s warm render at ~947 ms (vs ~50 ms for every other route — 20× outlier). Root cause was repeated bucketing of the same ~14k-row observation array across the visibility-score fan-out: 12 `computeLeaderboard` + 3 `computeVisibilityTimeSeries` + 1 `computeVisibilityTimeSeriesByPlatform` + 3 `computeCompetitorSeries` (each ~5 inner fan-outs). This bundle builds one per-request indexed rollup and threads it through.
+
+### What changed (source)
+
+| Layer | Change |
+|---|---|
+| `src/domains/today/observation-rollup.ts` (new) | Pure builder. Public types: `ObservationRollup`, `RollupDateBucket`, `RollupPlatformDateBrand`, `RollupEntityDateBucket`. O(observations) build, O(window-days × entities) read. No I/O, no module cache. |
+| `src/domains/product/visibility-score.ts` | All 4 public functions accept optional `rollup?: ObservationRollup`. Direct path runs verbatim when omitted; rollup fast-path helpers (`computeVisibilityTimeSeriesFromRollup`, `computeVisibilityTimeSeriesByPlatformFromRollup`, `aggregateWindowFromRollup`) iterate `rollup.sampledDates` (sorted ASC, lex-safe window bounds). |
+| `src/app/(shell)/today-data.ts` | One `buildObservationRollup({observations: promptAnswerObservations, brandAliases})` call after `loadFreshCanonicalData`. Threaded into all 4 fan-out call sites via `rollup: observationRollup`. |
+
+### Tie-break ordering
+
+The rollup records the smallest obs-array index per (slug, date). `aggregateWindowFromRollup` reconstructs the direct path's window-bound entity insertion order before the stable sort, so leaderboard rows whose scores tie come out in the same order whether or not a rollup is supplied. Byte-identical output is the test contract.
+
+### Equivalence + correctness tests
+
+- `tests/domains/today/observation-rollup.test.ts` (12 specs) — builder shape, dedupe vs raw counts, brand-flag/alias semantics, per-platform breakdown, sampled-date set, immutability of inputs.
+- `tests/domains/today/observation-rollup-equivalence.test.ts` (39 specs) — direct path vs rollup path byte-identical output across:
+  - 3 metrics × 4 windows = 12 leaderboard pairs (with `trackedEntities` filter)
+  - leaderboard without filter
+  - sparse-previous-window null-delta case
+  - 3 metrics × brand time-series
+  - 3 metrics × competitor time-series (Acme/Beta/Gamma) → 9 pairs
+  - per-platform variant
+  - competitor-series brand + 3 competitors per metric → 3 pairs
+  - empty competitor list
+  - empty observation arrays
+  - window entirely outside the data
+- `tests/architecture/perf-today-rollup-wired.test.ts` (12 specs) — source-level pins that today-data builds the rollup ONCE (1 call site) and forwards it to all 4 fan-out call sites; that visibility-score exposes the optional arg on each fn; that the rollup module is pure (no Supabase, no fetch, no module cache).
+
+### Measured speedup (local file backend, 11,700 obs Ritz fixture)
+
+Local measurement harness was `tests/perf-measure/perf-rollup-before-after.local.test.ts` (NOT committed; deleted post-run).
+
+| Path | Direct cold | Direct warm | Rollup cold | Rollup warm | Speedup (warm) |
+|---|---:|---:|---:|---:|---:|
+| `computeLeaderboard` (citation_rate, 30d) | 78 ms | 57 ms | 11 ms | 9 ms | **6×** |
+| `computeVisibilityTimeSeries` (citation_rate, 30d) | 7 ms | 6 ms | 0.8 ms | 0.1 ms | **60×** |
+| `computeCompetitorSeries` (8 competitors, citation_rate, 30d) | 81 ms | 70 ms | 0.5 ms | 0.3 ms | **230×** |
+| **`/today` visibility-score fan-out (full 19-call sequence)** | 600 ms | 567 ms | 100 ms | **88 ms** | **6.4×** |
+| **`loadTodayPageData` (full /today pipeline)** | 1283 ms* | 947 ms* | 963 ms | **591 ms** | **1.6×** |
+
+\* baseline numbers from the measurement pass earlier the same day (commit `1dc8e38`).
+
+### Result vs. target
+
+| | Pre-bundle | Post-bundle | Aspirational target | Hit? |
+|---|---:|---:|---:|---|
+| `/today` warm | 947 ms | **591 ms** | 250–350 ms | partial — 38% off pre-bundle, didn't reach aspirational target |
+| `/today` cold | 1283 ms | **963 ms** | meaningful improvement | yes — 25% off |
+
+### Remaining /today bottlenecks (~500 ms warm, out of scope for this bundle)
+
+Per the measurement-pass priority list, the remaining warm time is in:
+
+| Sub-pipeline | ~ms warm | Reason left untouched |
+|---|---:|---|
+| 7 inline enrichment rollups inside `loadTodayPageData` | ~280 | Each is a custom `for (const obs of …)` loop with its own accumulator — needs per-rollup refactor to safely share state. |
+| `computeRecommendations` (full rec engine over patterns + outcomes) | ~50–100 | Risk of semantic drift; held back per bundle spec. |
+| `buildPromptDecisionMatrix` | ~44 | Different walk shape (per-prompt window); separate bundle. |
+| `computeCitationDecay` | ~40 | Reads citation-evidence-index, not observations. |
+| `buildQueryKeywordIndex` | ~29 | Walks observations × citation index. |
+| Other (loadFreshCanonical, scoreboard inline math, etc.) | ~50 | Already minimal. |
+
+Future bundle candidates (in measured-impact order): migrate the 7 inline enrichment rollups; share the rollup with `buildPromptDecisionMatrix`; pre-bucket citation-evidence-index for `buildQueryKeywordIndex` + `computeCitationDecay`.
+
+### Verification
+
+| Check | Result |
+|---|---|
+| `npm run typecheck` | ✅ clean |
+| Targeted: `tests/domains/today/*` + `tests/architecture/perf-today-rollup-wired.test.ts` | ✅ 61/61 |
+| `tests/architecture/forbidden-customer-vocabulary-contract.test.ts` | ✅ 23/23 |
+| `npm run test` (full suite) | ✅ **7909/7909 across 418 files** (+61 from this bundle) |
+| Commit | `510eed5 fix(perf): hoist today observation rollup` (6 files, +1465/-18) |
+| Push | ✅ `5b8181e..510eed5 main -> main` |
+| Vercel deploy | (recorded separately on completion) |
+
+### Constraints honored
+
+- ✅ No UI changes.
+- ✅ No data contract changes — `rollup` is optional on every public function; default path runs verbatim.
+- ✅ No recommendation generation / attribution logic changes.
+- ✅ No env flag flip — `BEACON_TODAY_V2` / etc. untouched.
+- ✅ No Supabase mutation, no paid APIs, no scans, no polls, no migrations.
+- ✅ No stale cross-request cache — rollup is built fresh inside `loadTodayPageData` each render.
+- ✅ No wall-clock CI assertions — perf guard is source-level only.
+- ✅ No customer-visible numbers changed — 39 equivalence specs pin byte-identical output, including tie-break ordering.
+
+---
+
 ## 2026-05-12 — perf bundle 2: projected page reads (commit `1dc8e38`)
 
 Additive column projection for `pages` reads to reduce steady-state Supabase egress on customer routes that only need a handful of fields. Stacks on top of perf bundle 1 (`4e458da`: windowed canonical seed + React.cache on `getOwnedPages`).
