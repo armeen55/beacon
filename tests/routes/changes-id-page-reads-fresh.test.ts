@@ -125,8 +125,11 @@ describe("Sprint 1 / Phase 1.6 — /changes/[id] fresh-read invariants", () => {
       }));
       // Sprint 7 Phase 7.5c/3 (2026-04-25) — page-store now exports a lazy
       // async function instead of a module-level array.
+      // Perf+egress bundle 2 (2026-05-12) — /changes/[id] legacy
+      // branch reads via getOwnedPageSummaries; mock both shapes.
       vi.doMock("@/domains/pages/page-store", () => ({
         getOwnedPages: async () => [],
+        getOwnedPageSummaries: async () => [],
       }));
       vi.doMock("@/domains/pages/issues", () => ({
         getRolloutExecutions: vi.fn(async () => []),

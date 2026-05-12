@@ -32,6 +32,7 @@ import type { TruthLabel } from "@/domains/attribution/types";
 import type { ChangeContract } from "@/domains/changelog/change-contract";
 import type {
   PageEntity,
+  PageSummary,
   PageSnapshot,
   PageSnapshotDiff,
   CitationEvidenceIndex,
@@ -81,6 +82,22 @@ export const fileBackend: SeedDataRepository = {
 
   // Phase 1E
   getPages: async () => readStore<PageEntity>("pages"),
+  // Perf+egress bundle 2 (2026-05-12) — narrow projection of `pages`.
+  // The file backend stores full PageEntity rows on disk; the
+  // projection happens in-memory at the boundary so callers see the
+  // same PageSummary shape both backends expose.
+  getPageSummaries: async () => {
+    const pages = await readStore<PageEntity>("pages");
+    return pages.map((p): PageSummary => ({
+      id: p.id,
+      url: p.url,
+      canonical_url: p.canonical_url ?? "",
+      is_owned: p.is_owned,
+      page_type: p.page_type,
+      primary_topic: p.topics.length > 0 ? p.topics[0] : null,
+      tenant_id: p.tenant_id,
+    }));
+  },
 
   getPageSnapshots: async () =>
     (await readDotDataJson<PageSnapshot[]>("page-snapshots")) ?? [],

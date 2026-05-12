@@ -38,6 +38,7 @@ import type { TruthLabel } from "@/domains/attribution/types";
 import type { ChangeContract } from "@/domains/changelog/change-contract";
 import type {
   PageEntity,
+  PageSummary,
   PageSnapshot,
   PageSnapshotDiff,
   CitationEvidenceIndex,
@@ -137,6 +138,102 @@ async function queryAllPaged<T>(table: string): Promise<T[]> {
     from += PAGE;
   }
   logEgress({ table: `${table}[paged]`, rows: out.length, data: out, durationMs: Date.now() - t0 });
+  return out;
+}
+
+/**
+ * Perf+egress bundle 2 (2026-05-12) — projected reader for `pages`.
+ *
+ * Selects exactly the 6 customer-facing fields + `tenant_id` (used
+ * by the file backend's `filterByTenantId` shim). Maps the schema's
+ * `topics: string[]` array down to a single `primary_topic` at the
+ * boundary so the PageSummary type stays narrow.
+ *
+ * Two callers: the unscoped base backend (`getPageSummaries` on
+ * `supabaseBackend`) and the tenant-scoped variant which adds an
+ * `eq("tenant_id", tenantId)` filter at the DB.
+ */
+const PAGE_SUMMARY_COLUMNS =
+  "id, url, canonical_url, is_owned, page_type, topics, tenant_id";
+
+type PageSummaryRow = {
+  id: string;
+  url: string;
+  canonical_url: string | null;
+  is_owned: boolean;
+  page_type: string;
+  topics: string[] | null;
+  tenant_id: string;
+};
+
+function rowToPageSummary(row: PageSummaryRow): PageSummary {
+  const topics = Array.isArray(row.topics) ? row.topics : [];
+  return {
+    id: row.id,
+    url: row.url,
+    canonical_url: row.canonical_url ?? "",
+    is_owned: row.is_owned,
+    page_type: row.page_type as PageSummary["page_type"],
+    primary_topic: topics.length > 0 ? topics[0] : null,
+    tenant_id: row.tenant_id,
+  };
+}
+
+async function queryPageSummariesUnscoped(): Promise<PageSummary[]> {
+  const sb = getSupabaseAdmin();
+  const PAGE = 1000;
+  const out: PageSummary[] = [];
+  let from = 0;
+  const t0 = Date.now();
+  for (;;) {
+    const { data, error } = await sb
+      .from("pages")
+      .select(PAGE_SUMMARY_COLUMNS)
+      .range(from, from + PAGE - 1);
+    if (error)
+      throw new Error(`Supabase query failed on pages: ${error.message}`);
+    const rows = (data ?? []) as unknown as PageSummaryRow[];
+    out.push(...rows.map(rowToPageSummary));
+    if (rows.length < PAGE) break;
+    from += PAGE;
+  }
+  logEgress({
+    table: "pages[summaries-paged]",
+    rows: out.length,
+    data: out,
+    durationMs: Date.now() - t0,
+  });
+  return out;
+}
+
+async function queryPageSummariesScoped(
+  tenantId: string,
+): Promise<PageSummary[]> {
+  const sb = getSupabaseAdmin();
+  const PAGE = 1000;
+  const out: PageSummary[] = [];
+  let from = 0;
+  const t0 = Date.now();
+  for (;;) {
+    const { data, error } = await sb
+      .from("pages")
+      .select(PAGE_SUMMARY_COLUMNS)
+      .eq("tenant_id", tenantId)
+      .range(from, from + PAGE - 1);
+    if (error)
+      throw new Error(`Supabase query failed on pages: ${error.message}`);
+    const rows = (data ?? []) as unknown as PageSummaryRow[];
+    out.push(...rows.map(rowToPageSummary));
+    if (rows.length < PAGE) break;
+    from += PAGE;
+  }
+  logEgress({
+    table: "pages[summaries-scoped-paged]",
+    rows: out.length,
+    data: out,
+    durationMs: Date.now() - t0,
+    tenantId,
+  });
   return out;
 }
 
@@ -252,6 +349,14 @@ export const supabaseBackend: SeedDataRepository = {
   // pagination, buildPageInventory saw only ~3 owned rows on hosted and the
   // resolver fell through to create_new_page for every blocker cluster.
   getPages: () => queryAllPaged<PageEntity>("pages"),
+  // Perf+egress bundle 2 (2026-05-12) — narrow projection of `pages`.
+  // Selects 6 columns (+ tenant_id for the file backend's in-memory
+  // tenant filter) instead of the full ~20-field row. Maps the
+  // schema's `topics: string[]` array down to a single
+  // `primary_topic = topics[0] ?? null` at the boundary so the
+  // PageSummary type stays narrow. Used by customer routes that
+  // only need URL → id lookup / ownership classification.
+  getPageSummaries: () => queryPageSummariesUnscoped(),
   getPageSnapshots: async () => {
     // Supabase accumulates snapshot history (35 rows per scan).
     // Routes expect only the latest snapshot per page.
@@ -480,6 +585,9 @@ export const supabaseBackend: SeedDataRepository = {
       // the tenant filter in every page request.
       getResults: () => queryAllPagedScoped<Result>("results", tenantId),
       getPages: () => queryAllPagedScoped<PageEntity>("pages", tenantId),
+      // Perf+egress bundle 2 (2026-05-12) — narrow projection. See
+      // `queryPageSummariesScoped` for column list + row→summary map.
+      getPageSummaries: () => queryPageSummariesScoped(tenantId),
       getPageElementInventory: () =>
         queryAllPagedScoped<PageElementInventoryRow>(
           "page_element_inventory",

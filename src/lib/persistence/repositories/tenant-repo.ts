@@ -39,6 +39,12 @@ export function buildTenantRepo(
 ): TenantRepository {
   return {
     getPages: async () => filterByTenantId(await base.getPages(), tenantId),
+    // Perf+egress bundle 2 (2026-05-12) — narrow projection of
+    // `pages`. The file backend's `filterByTenantId` requires
+    // `tenant_id` on each row; PageSummary carries it for exactly
+    // this reason.
+    getPageSummaries: async () =>
+      filterByTenantId(await base.getPageSummaries(), tenantId),
     getPageSnapshots: async () =>
       filterByTenantId(await base.getPageSnapshots(), tenantId),
     getPageElementInventory: async () =>

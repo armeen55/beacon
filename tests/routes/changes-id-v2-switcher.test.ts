@@ -102,6 +102,11 @@ describe("/changes/[id] switcher contract", () => {
     }));
     vi.doMock("@/domains/pages/page-store", () => ({
       getOwnedPages: async () => [],
+      // Perf+egress bundle 2 (2026-05-12) — /changes/[id] legacy
+      // branch now reads via the projected helper. The mock must
+      // export both shapes so the switcher's legacy-branch render
+      // doesn't blow up on a missing export.
+      getOwnedPageSummaries: async () => [],
     }));
     vi.doMock("@/domains/pages/issues", () => ({
       getRolloutExecutions: vi.fn(async () => []),

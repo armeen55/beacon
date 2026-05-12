@@ -60,6 +60,40 @@ export type PageEntity = {
   tenant_id: string;
 };
 
+/**
+ * Narrow projection of `PageEntity` for routes that need only URL
+ * lookup / ownership classification / topic context — not the full
+ * 20-field row.
+ *
+ * Perf+egress bundle 2 (2026-05-12) — added so customer routes that
+ * only build a `{ url → id }` map (e.g. `/changes/[id]` legacy
+ * detail's "open this page" CTA) can fetch ~6 columns instead of the
+ * full payload (~5929 rows × ~5KB ≈ 30MB → ~6KB/row ≈ 3.5MB).
+ *
+ * The `tenant_id` field is included because the file-backend's
+ * `filterByTenantId` helper depends on it for multi-tenant
+ * correctness; without it the file backend (used in tests + dev
+ * fixtures) cannot enforce isolation post-projection.
+ *
+ * `primary_topic` is derived from `topics[0]` at the projection
+ * boundary — the underlying schema stores the full `topics: string[]`
+ * array. Callers that need the full array should use `getPages()`
+ * (the full reader).
+ */
+export type PageSummary = {
+  id: string;
+  url: string;
+  /** Schema column `canonical_url`. Equivalent to the spec's
+   *  "normalized_url" — the de-trailing-slashed, lowercased URL the
+   *  matching layer keys on. */
+  canonical_url: string;
+  is_owned: boolean;
+  page_type: PageType;
+  /** First entry of `topics: string[]` if non-empty, else `null`. */
+  primary_topic: string | null;
+  tenant_id: string;
+};
+
 // ── PageSnapshot (future extraction) ────────────────────────────────
 
 export type FaqItem = {

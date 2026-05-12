@@ -34,6 +34,7 @@ import type {
 import type { ChangeContract } from "@/domains/changelog/change-contract";
 import type {
   PageEntity,
+  PageSummary,
   PageSnapshot,
   PageSnapshotDiff,
   CitationEvidenceIndex,
@@ -80,6 +81,15 @@ export interface SeedDataRepository {
 
   // Phase 1E — remaining route-critical stores
   getPages(): Promise<PageEntity[]>;
+  /**
+   * Perf+egress bundle 2 (2026-05-12) — narrow projection of
+   * `pages`. Backends select only the 6 columns the projection
+   * needs (id, url, canonical_url, is_owned, page_type, topics,
+   * tenant_id), reducing wire payload ~80% on routes that don't
+   * need full PageEntity fields. Callers that need the full row
+   * MUST stay on `getPages()`.
+   */
+  getPageSummaries(): Promise<PageSummary[]>;
   getPageSnapshots(): Promise<PageSnapshot[]>;
   getGuardrailAlerts(): Promise<GuardrailAlert[]>;
   getCitationEvidenceIndex(): Promise<CitationEvidenceIndex | null>;
@@ -188,6 +198,9 @@ export type WindowedReadOptions = {
 
 export interface TenantRepository {
   getPages(): Promise<PageEntity[]>;
+  /** Perf+egress bundle 2 — narrow projection of `pages`. See base
+   *  `SeedDataRepository.getPageSummaries` docstring. */
+  getPageSummaries(): Promise<PageSummary[]>;
   getPageSnapshots(): Promise<PageSnapshot[]>;
   getPageElementInventory(): Promise<PageElementInventoryRow[]>;
   getRecommendedEdits(): Promise<RecommendedEditRow[]>;

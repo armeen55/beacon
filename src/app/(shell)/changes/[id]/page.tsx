@@ -13,7 +13,7 @@ import { enrichWithImpact, computeChangeImpact } from "@/domains/attribution/cha
 import { getRepository } from "@/lib/persistence/repositories";
 import { currentTenantId } from "@/lib/tenant-context";
 import { getCitationEvidenceIndex } from "@/domains/pages/citation-evidence-store";
-import { getOwnedPages } from "@/domains/pages/page-store";
+import { getOwnedPageSummaries } from "@/domains/pages/page-store";
 import {
   getRolloutExecutions,
   getPatternEvidence,
@@ -364,7 +364,12 @@ export default async function ChangeDetailPage({
   }
 
   // Sprint 7 Phase 7.5c/3 (2026-04-25) — tenant-scoped page fetch.
-  const allPages = await getOwnedPages();
+  // Perf+egress bundle 2 (2026-05-12) — only id + url are read, so use
+  // the narrow PageSummary projection (~6 cols) instead of the full
+  // 20-field PageEntity payload. The legacy branch on this route runs
+  // when v2 detail isn't enabled; on Customer 2 (~600 pages) this drops
+  // an estimated ~50–80 KB per render from this call alone.
+  const allPages = await getOwnedPageSummaries();
   const urlToPageId = new Map<string, string>();
   for (const p of allPages) {
     urlToPageId.set(p.url.replace(/\/+$/, "").toLowerCase(), p.id);
