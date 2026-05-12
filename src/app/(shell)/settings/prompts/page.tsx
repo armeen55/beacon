@@ -3,6 +3,10 @@ import "server-only";
 import { getRepository } from "@/lib/persistence/repositories";
 import { currentTenantId } from "@/lib/tenant-context";
 import { SettingsPromptsClient } from "./settings-prompts-client";
+import {
+  createPerfTrace,
+  readPerfTraceIdFromHeaders,
+} from "@/lib/perf-trace";
 
 /**
  * Deploy hardening (2026-05-12) — pin this route to server-rendered.
@@ -53,10 +57,16 @@ export const dynamic = "force-dynamic";
  * SQL query, single small table, no canonical-store seed.
  */
 export default async function SettingsPromptsPage() {
+  const trace = createPerfTrace("loader:/settings/prompts", {
+    traceId: await readPerfTraceIdFromHeaders(),
+    route: "/settings/prompts",
+  });
+  try {
   const tenantId = await currentTenantId();
-  const trackedPrompts = await getRepository()
-    .forTenant(tenantId)
-    .getTrackedPrompts();
+  const trackedPrompts = await trace.time("getTrackedPrompts", () =>
+    getRepository().forTenant(tenantId).getTrackedPrompts(),
+  );
+  trace.data("trackedPrompts_count", trackedPrompts.length);
 
   const rows = [...trackedPrompts]
     .sort((a, b) => {
@@ -87,4 +97,7 @@ export default async function SettingsPromptsPage() {
       <SettingsPromptsClient rows={rows} />
     </div>
   );
+  } finally {
+    trace.flush();
+  }
 }

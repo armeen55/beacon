@@ -18,6 +18,10 @@ import type {
   PromptOpportunityCategory,
 } from "@/domains/prompts/opportunity-classify";
 import { PromptsV2Client } from "./prompts-v2-client";
+import {
+  createPerfTrace,
+  readPerfTraceIdFromHeaders,
+} from "@/lib/perf-trace";
 
 /**
  * Prompts v2A switcher (Bundle 2026-05-11, plan:
@@ -52,12 +56,20 @@ export default async function PromptsPage({
 }: {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 } = {}) {
+  const trace = createPerfTrace("loader:/prompts", {
+    traceId: await readPerfTraceIdFromHeaders(),
+    route: "/prompts",
+  });
+  try {
   const params = await (searchParams ?? Promise.resolve({}));
   const useV2 = shouldUsePromptsV2(params);
+  trace.data("use_v2", useV2 ? "true" : "false");
   // Seed canonical stores once per lambda — kept so non-render consumers
   // (prompt-library, url-citation-history) still populate their module-level
   // arrays. Render path below does NOT read from those; it fetches fresh.
-  await ensureCanonicalStoresSeeded();
+  await trace.time("ensureCanonicalStoresSeeded", () =>
+    ensureCanonicalStoresSeeded(),
+  );
 
   // Phase 4.9 (Sprint 4, 2026-04-24): fresh canonical data per render.
   // Module-level arrays are seeded once per Vercel lambda; after the
@@ -84,17 +96,26 @@ export default async function PromptsPage({
     trackedPrompts,
     promptAnswerObservations,
     trackedEntities,
-  } = await loadFreshCanonicalData({ observationsSince, snapshotsSince });
+  } = await trace.time("loadFreshCanonicalData", () =>
+    loadFreshCanonicalData({ observationsSince, snapshotsSince }),
+  );
+  trace.data("trackedPrompts_count", trackedPrompts.length);
+  trace.data("observations_count", promptAnswerObservations.length);
+  trace.data("trackedEntities_count", trackedEntities.length);
+
   const promptTextById = new Map(
     trackedPrompts.map((p) => [p.id, p.text]),
   );
 
-  const matrix = buildPromptDecisionMatrix({
-    prompts: trackedPrompts,
-    observations: promptAnswerObservations,
-    activeEntities: trackedEntities,
-    now: new Date(),
-  });
+  const matrix = await trace.time("buildPromptDecisionMatrix", async () =>
+    buildPromptDecisionMatrix({
+      prompts: trackedPrompts,
+      observations: promptAnswerObservations,
+      activeEntities: trackedEntities,
+      now: new Date(),
+    }),
+  );
+  trace.measureSize("payload_matrix", matrix);
 
   if (useV2) {
     // v2A strategic surface — same matrix + prompt-text lookup the
@@ -153,6 +174,9 @@ export default async function PromptsPage({
       )}
     </div>
   );
+  } finally {
+    trace.flush();
+  }
 }
 
 /* ────────────────────────────────────────────────────────────────────────── */

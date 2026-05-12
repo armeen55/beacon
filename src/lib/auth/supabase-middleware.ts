@@ -1,5 +1,10 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
+import {
+  PERF_TRACE_HEADER_NAME,
+  createPerfTrace,
+  perfTraceEnabled,
+} from "@/lib/perf-trace";
 
 function requireEnv(name: string): string {
   const v = process.env[name];
@@ -42,12 +47,26 @@ export async function updateSession(request: NextRequest): Promise<NextResponse>
     return NextResponse.next({ request });
   }
 
+  // Perf bundle 7 (2026-05-12) — production-safe tracing gated by
+  // `BEACON_PERF_TRACE=true`. NOOP when disabled (zero allocations).
+  // The trace ID is generated here and forwarded via header so the
+  // shell layout + route loader can correlate their log lines.
+  const trace = createPerfTrace("middleware", {
+    route: request.nextUrl.pathname,
+  });
+
   // Sprint 7 Phase 7.4 — strip any inbound x-beacon-tenant before any code
   // reads request headers. Mutating `requestHeaders` is the canonical Next
   // way to forward modified request headers; direct `request.headers` set
   // is unsupported.
   const requestHeaders = new Headers(request.headers);
   requestHeaders.delete("x-beacon-tenant");
+  // Strip + reset the perf-trace header (untrusted from client). When
+  // tracing is enabled the middleware re-sets it below with a fresh ID.
+  requestHeaders.delete(PERF_TRACE_HEADER_NAME);
+  if (perfTraceEnabled()) {
+    requestHeaders.set(PERF_TRACE_HEADER_NAME, trace.id);
+  }
 
   let response = NextResponse.next({ request: { headers: requestHeaders } });
 
@@ -75,7 +94,7 @@ export async function updateSession(request: NextRequest): Promise<NextResponse>
   // Refreshes the session cookie if near-expiry.
   const {
     data: { user },
-  } = await supabase.auth.getUser();
+  } = await trace.time("auth.getUser", () => supabase.auth.getUser());
 
   const path = request.nextUrl.pathname;
   const isPublic =
@@ -112,6 +131,8 @@ export async function updateSession(request: NextRequest): Promise<NextResponse>
     path === "/api/cron/poll-watchdog";
 
   if (!user && !isPublic) {
+    trace.data("decision", "redirect_login");
+    trace.flush();
     const redirectUrl = request.nextUrl.clone();
     redirectUrl.pathname = "/login";
     redirectUrl.searchParams.set("next", path);
@@ -123,17 +144,22 @@ export async function updateSession(request: NextRequest): Promise<NextResponse>
   // endpoints). Errors fall through to the resolver's env fallback.
   if (user) {
     try {
-      const { data, error } = await supabase
-        .from("tenant_members")
-        .select("tenant_id")
-        .eq("user_id", user.id);
+      const { data, error } = await trace.time("tenant_lookup", () =>
+        supabase
+          .from("tenant_members")
+          .select("tenant_id")
+          .eq("user_id", user.id),
+      );
 
       if (error) {
         console.error("[mw-tenant] tenant_members query failed:", error.message);
         // Fall through — resolver uses BEACON_TENANT_ID env fallback so a
         // Supabase outage doesn't 500 every authenticated request.
+        trace.data("tenant_decision", "error_fallthrough");
       } else if (!data || data.length === 0) {
         console.warn("[mw-tenant] no tenant_members row for user:", user.id);
+        trace.data("tenant_decision", "no_tenant_redirect");
+        trace.flush();
         const url = request.nextUrl.clone();
         url.pathname = "/login";
         url.searchParams.set("error", "no_tenant");
@@ -143,6 +169,8 @@ export async function updateSession(request: NextRequest): Promise<NextResponse>
           userId: user.id,
           count: data.length,
         });
+        trace.data("tenant_decision", "multiple_tenants_redirect");
+        trace.flush();
         const url = request.nextUrl.clone();
         url.pathname = "/login";
         url.searchParams.set("error", "multiple_tenants");
@@ -158,12 +186,17 @@ export async function updateSession(request: NextRequest): Promise<NextResponse>
         for (const c of setCookieHeaders) {
           response.headers.append("Set-Cookie", c);
         }
+        trace.data("tenant_decision", "injected");
       }
     } catch (e) {
       console.error("[mw-tenant] tenant lookup threw:", e);
       // Fall through — resolver uses env fallback.
+      trace.data("tenant_decision", "throw_fallthrough");
     }
+  } else {
+    trace.data("tenant_decision", "public_path");
   }
 
+  trace.flush();
   return response;
 }

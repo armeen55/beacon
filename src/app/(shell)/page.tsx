@@ -3,6 +3,10 @@ import { TodayV2Client } from "./today-v2-client";
 import { respondToRecommendation } from "./recommendation-actions";
 import { confirmFindingAsChange, resolveFinding } from "./finding-actions";
 import { loadTodayPageData } from "./today-data";
+import {
+  createPerfTrace,
+  readPerfTraceIdFromHeaders,
+} from "@/lib/perf-trace";
 
 async function dismissFinding(findingId: string) {
   "use server";
@@ -34,12 +38,22 @@ export default async function TodayPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const [data, params] = await Promise.all([
-    loadTodayPageData(),
-    searchParams,
-  ]);
+  const trace = createPerfTrace("loader:/", {
+    traceId: await readPerfTraceIdFromHeaders(),
+    route: "/",
+  });
+
+  const [data, params] = await trace.time("loadTodayPageData+searchParams", () =>
+    Promise.all([
+      trace.time("loadTodayPageData", () => loadTodayPageData()),
+      searchParams,
+    ]),
+  );
 
   const useV2 = shouldUseV2(params);
+  trace.data("use_v2", useV2 ? "true" : "false");
+  trace.measureSize("payload", data);
+  trace.flush();
 
   return (
     <div className="max-w-6xl">

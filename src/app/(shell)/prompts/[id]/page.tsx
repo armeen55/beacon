@@ -15,6 +15,10 @@ import {
   decodePromptRouteId,
 } from "@/components/prompts/v2/prompt-route-id";
 import { projectPromptDrilldownToBrief } from "@/domains/prompts/v2-brief-projection";
+import {
+  createPerfTrace,
+  readPerfTraceIdFromHeaders,
+} from "@/lib/perf-trace";
 import { PromptDetailV2Client } from "./prompt-detail-v2-client";
 import { PromptDetailV2NotFound } from "./prompt-detail-v2-not-found";
 
@@ -59,6 +63,11 @@ export default async function PromptDrilldownPage({
   params: Promise<{ id: string }>;
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
+  const trace = createPerfTrace("loader:/prompts/[id]", {
+    traceId: await readPerfTraceIdFromHeaders(),
+    route: "/prompts/[id]",
+  });
+  try {
   const [{ id }, sp] = await Promise.all([
     params,
     searchParams ?? Promise.resolve({}),
@@ -79,7 +88,9 @@ export default async function PromptDrilldownPage({
   const promptId = decoded;
   const useV2 = shouldUsePromptsDetailV2(sp);
 
-  await ensureCanonicalStoresSeeded();
+  await trace.time("ensureCanonicalStoresSeeded", () =>
+    ensureCanonicalStoresSeeded(),
+  );
 
   // Phase 4.9 (Sprint 4, 2026-04-24): fresh per-render canonical read.
   // EGRESS-P0 (2026-05-07): bound the observation window. The page only
@@ -94,7 +105,9 @@ export default async function PromptDrilldownPage({
     trackedPrompts,
     trackedEntities,
     promptAnswerObservations,
-  } = await loadFreshCanonicalData({ observationsSince, snapshotsSince });
+  } = await trace.time("loadFreshCanonicalData", () =>
+    loadFreshCanonicalData({ observationsSince, snapshotsSince }),
+  );
 
   const prompt = trackedPrompts.find((p) => p.id === promptId);
   if (!prompt) notFound();
@@ -113,11 +126,16 @@ export default async function PromptDrilldownPage({
   let answerTexts: Map<string, string> | undefined;
   try {
     const ids = promptObservations.map((o) => o.id);
+    trace.data("answer_texts_ids", ids.length);
     if (ids.length > 0) {
-      const { data, error } = await getSupabaseAdmin()
-        .from("answer_texts")
-        .select("observation_id, body")
-        .in("observation_id", ids);
+      const { data, error } = await trace.time(
+        "answer_texts.select",
+        () =>
+          getSupabaseAdmin()
+            .from("answer_texts")
+            .select("observation_id, body")
+            .in("observation_id", ids),
+      );
       if (!error && data) {
         answerTexts = new Map(
           data.map((r) => [
@@ -131,13 +149,16 @@ export default async function PromptDrilldownPage({
     console.error("prompts/[id] answer_texts fetch failed:", err);
   }
 
-  const drilldown = buildPromptDrilldown({
-    prompt,
-    observations: promptAnswerObservations,
-    activeEntities: trackedEntities,
-    answerTexts,
-    now: new Date(),
-  } as Parameters<typeof buildPromptDrilldown>[0]);
+  const drilldown = await trace.time("buildPromptDrilldown", async () =>
+    buildPromptDrilldown({
+      prompt,
+      observations: promptAnswerObservations,
+      activeEntities: trackedEntities,
+      answerTexts,
+      now: new Date(),
+    } as Parameters<typeof buildPromptDrilldown>[0]),
+  );
+  trace.measureSize("payload_drilldown", drilldown);
 
   if (useV2) {
     // v2 proof brief — reuses the SAME `drilldown` object the legacy
@@ -198,6 +219,9 @@ export default async function PromptDrilldownPage({
       <RawEvidence drilldown={drilldown} />
     </div>
   );
+  } finally {
+    trace.flush();
+  }
 }
 
 /* ────────────────────────────────────────────────────────────────────────── */

@@ -38,6 +38,10 @@ import { RecommendationDetailClient } from "./recommendation-detail-client";
 import { RecommendationDetailNotFound } from "./recommendation-detail-not-found";
 
 import type { RecommendationQueueRow } from "../page";
+import {
+  createPerfTrace,
+  readPerfTraceIdFromHeaders,
+} from "@/lib/perf-trace";
 
 async function safeCall<T>(
   fn: () => Promise<T> | T,
@@ -59,15 +63,23 @@ export default async function RecommendationDetailPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
+  const trace = createPerfTrace("loader:/recommendations/[id]", {
+    traceId: await readPerfTraceIdFromHeaders(),
+    route: "/recommendations/[id]",
+  });
+  try {
   const { id: rawId } = await params;
   const decodedId = decodeRecommendationRouteId(rawId);
 
   if (!decodedId) {
+    trace.data("outcome", "not_found_bad_id");
     return <RecommendationDetailNotFound />;
   }
 
   const tenantId = await currentTenantId();
-  const live = await loadLiveRecommendationQueue({ tenantId });
+  const live = await trace.time("loadLiveRecommendationQueue", () =>
+    loadLiveRecommendationQueue({ tenantId }),
+  );
 
   if (!live.matrix) {
     // Same fail-soft posture as /recommendations: degrade to the
@@ -131,9 +143,12 @@ export default async function RecommendationDetailPage({
   const row = allRows.find((r) => r.id === decodedId) ?? null;
 
   if (!row) {
+    trace.data("outcome", "not_found_unknown_id");
     return <RecommendationDetailNotFound />;
   }
 
+  trace.data("queue_count", decorated.length);
+  trace.measureSize("payload", { row, promptTextById });
   return (
     <RecommendationDetailClient
       row={row}
@@ -141,4 +156,7 @@ export default async function RecommendationDetailPage({
       promptTextById={promptTextById}
     />
   );
+  } finally {
+    trace.flush();
+  }
 }

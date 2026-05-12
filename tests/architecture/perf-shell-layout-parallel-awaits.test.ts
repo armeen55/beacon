@@ -36,13 +36,14 @@ describe("Shell layout: parallel awaits (perf bundle 6)", () => {
   const stripped = stripComments(src);
 
   it("uses a single Promise.all over the 4 independent reads", () => {
-    // The destructured shape pins all four functions appear inside the
-    // same Promise.all array, in any order.
-    expect(stripped).toMatch(/await\s+Promise\.all\(\s*\[/);
-    // Each of the 4 independent calls must appear inside a Promise.all
-    // arm. We use a single regex with `[\s\S]` to span the array body.
+    // Bundle 7 (2026-05-12) — the Promise.all is now wrapped in
+    // `trace.time("parallel_4_awaits", () => Promise.all([...]))`,
+    // so we drop the `await` prefix from the match. The invariant
+    // we pin is structural: a Promise.all exists with the 4 named
+    // function calls inside its array body.
+    expect(stripped).toMatch(/Promise\.all\(\s*\[/);
     const promiseAllBlock = stripped.match(
-      /await\s+Promise\.all\(\s*\[([\s\S]*?)\]\s*\)/,
+      /Promise\.all\(\s*\[([\s\S]*?)\]\s*\)/,
     );
     expect(promiseAllBlock).not.toBeNull();
     const body = promiseAllBlock![1];
@@ -53,8 +54,13 @@ describe("Shell layout: parallel awaits (perf bundle 6)", () => {
   });
 
   it("getWatchingUrlOutcomes is awaited AFTER the Promise.all (data-dependent on the seed)", () => {
-    const promiseAllIdx = stripped.indexOf("await Promise.all");
-    const watchingIdx = stripped.indexOf("await getWatchingUrlOutcomes(");
+    // Bundle 7 (2026-05-12) — the call is now inside
+    // `await trace.time("getWatchingUrlOutcomes", () =>
+    // getWatchingUrlOutcomes())`, so the order pin uses the bare
+    // call site `getWatchingUrlOutcomes(` (after stripping
+    // comments, this only matches the real call site).
+    const promiseAllIdx = stripped.indexOf("Promise.all(");
+    const watchingIdx = stripped.indexOf("getWatchingUrlOutcomes(");
     expect(promiseAllIdx).toBeGreaterThan(0);
     expect(watchingIdx).toBeGreaterThan(0);
     expect(watchingIdx).toBeGreaterThan(promiseAllIdx);

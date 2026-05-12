@@ -56,6 +56,10 @@ import {
   type LifecycleTabClass,
 } from "@/domains/attribution/lifecycle-classification";
 import type { ImplementationStatus } from "@/domains/recommendations/recommended-edits-persistence";
+import {
+  createPerfTrace,
+  readPerfTraceIdFromHeaders,
+} from "@/lib/perf-trace";
 
 const PLATFORM_LABELS: Record<string, string> = {
   chatgpt: "ChatGPT",
@@ -149,6 +153,11 @@ export default async function ChangeDetailPage({
   params: Promise<{ id: string }>;
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
+  const trace = createPerfTrace("loader:/changes/[id]", {
+    traceId: await readPerfTraceIdFromHeaders(),
+    route: "/changes/[id]",
+  });
+  try {
   const [{ id }, sp] = await Promise.all([
     params,
     searchParams ?? Promise.resolve({}),
@@ -672,6 +681,9 @@ export default async function ChangeDetailPage({
       </div>
     </div>
   );
+  } finally {
+    trace.flush();
+  }
 }
 
 /**

@@ -17,6 +17,10 @@ import {
   getWatchingUrlOutcomes,
   ensureUrlChangeOutcomesSeeded,
 } from "@/domains/attribution/url-change-outcome";
+import {
+  createPerfTrace,
+  readPerfTraceIdFromHeaders,
+} from "@/lib/perf-trace";
 
 // T-CustomerNav (2026-05-08) — keys aligned with `navigationGroups`
 // in `src/lib/navigation.ts`. Pre-T-CustomerNav this map carried
@@ -42,6 +46,13 @@ export default async function ShellLayout({
 }: {
   children: React.ReactNode;
 }) {
+  // Perf bundle 7 (2026-05-12) — production-safe perf tracing.
+  // NOOP when BEACON_PERF_TRACE != "true". When enabled, correlates
+  // with middleware via the `x-beacon-perf-trace-id` header.
+  const trace = createPerfTrace("shell-layout", {
+    traceId: await readPerfTraceIdFromHeaders(),
+  });
+
   // Perf bundle 6 (2026-05-12) — parallelize the 4 independent shell
   // reads that fire on EVERY signed-in click.
   //
@@ -72,13 +83,19 @@ export default async function ShellLayout({
     pendingFindings,
     isDemoModeRaw,
     changelogEntries,
-  ] = await Promise.all([
-    ensureUrlChangeOutcomesSeeded(),
-    getPendingFindings(),
-    hasActiveExperiment(),
-    getChangelogEntries(),
-  ]);
-  const watchingUrlOutcomes = await getWatchingUrlOutcomes();
+  ] = await trace.time("parallel_4_awaits", () =>
+    Promise.all([
+      trace.time("ensureUrlChangeOutcomesSeeded", () =>
+        ensureUrlChangeOutcomesSeeded(),
+      ),
+      trace.time("getPendingFindings", () => getPendingFindings()),
+      trace.time("hasActiveExperiment", () => hasActiveExperiment()),
+      trace.time("getChangelogEntries", () => getChangelogEntries()),
+    ]),
+  );
+  const watchingUrlOutcomes = await trace.time("getWatchingUrlOutcomes", () =>
+    getWatchingUrlOutcomes(),
+  );
 
   // ── Badge computation ──
   //
@@ -157,6 +174,13 @@ export default async function ShellLayout({
       meta: c.topic_targeted || undefined,
     })),
   ];
+
+  trace.data("changelog_count", changelogEntries.length);
+  trace.data("palette_items", paletteItems.length);
+  trace.data("today_badge", badges["/"] ?? 0);
+  trace.data("pages_badge", badges["/pages"] ?? 0);
+  trace.data("changes_badge", badges["/changes"] ?? 0);
+  trace.flush();
 
   return (
     <ShellProvider badges={badges} isDemoMode={isDemoMode}>

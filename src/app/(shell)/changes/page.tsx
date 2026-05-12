@@ -58,6 +58,10 @@ import type {
   ImplementationStatus,
   RecommendedEditRow,
 } from "@/domains/recommendations/recommended-edits-persistence";
+import {
+  createPerfTrace,
+  readPerfTraceIdFromHeaders,
+} from "@/lib/perf-trace";
 
 // Phase 1.2 (Sprint 1, 2026-04-24): force dynamic render so every request
 // runs the single-fresh-repo-read pattern below. Prevents any accidental ISR
@@ -91,8 +95,14 @@ export default async function ChangeScorecardPage({
 }: {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 } = {}) {
+  const trace = createPerfTrace("loader:/changes", {
+    traceId: await readPerfTraceIdFromHeaders(),
+    route: "/changes",
+  });
+  try {
   const params = await (searchParams ?? Promise.resolve({}));
   const useV2 = shouldUseChangesV2(params);
+  trace.data("use_v2", useV2 ? "true" : "false");
 
   if (!(await hasActiveExperiment())) {
     return (
@@ -550,6 +560,9 @@ export default async function ChangeScorecardPage({
           change's attribution status; detail pages drill into the math. */}
     </div>
   );
+  } finally {
+    trace.flush();
+  }
 }
 
 /**

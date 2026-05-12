@@ -19,6 +19,10 @@ import { RecommendationsClient } from "./recommendations-client";
 import { RecommendationsV2Client } from "./recommendations-v2-client";
 import { getChangelogEntries } from "@/lib/seed-data.server";
 import { buildChangelogIdByRecId } from "@/domains/recommendations/changelog-link";
+import {
+  createPerfTrace,
+  readPerfTraceIdFromHeaders,
+} from "@/lib/perf-trace";
 
 /**
  * Bundle 2A (Plan: i-want-a-maximum-depth-curried-curry) — switch
@@ -81,6 +85,11 @@ export default async function RecommendationsPage({
 }: {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 } = {}) {
+  const trace = createPerfTrace("loader:/recommendations", {
+    traceId: await readPerfTraceIdFromHeaders(),
+    route: "/recommendations",
+  });
+  try {
   // Sprint 6A.1 Phase 14 (2026-04-24) — orchestration extracted to
   // `loadLiveRecommendationQueue` so the queue-driven CLI consumes the
   // same source. Page render behavior is byte-equivalent.
@@ -91,7 +100,10 @@ export default async function RecommendationsPage({
     searchParams ?? Promise.resolve({}),
   ]);
   const useV2 = shouldUseRecommendationsV2(params);
-  const live = await loadLiveRecommendationQueue({ tenantId });
+  trace.data("use_v2", useV2 ? "true" : "false");
+  const live = await trace.time("loadLiveRecommendationQueue", () =>
+    loadLiveRecommendationQueue({ tenantId }),
+  );
   const errors = [...live.errors];
 
   if (!live.matrix) {
@@ -168,6 +180,15 @@ export default async function RecommendationsPage({
   if (changelogRes.error) errors.push(changelogRes.error);
   const changelogIdByRecId = buildChangelogIdByRecId(changelogRes.value);
 
+  trace.data("queue_count", decorated.length);
+  trace.data("watchlist_count", watchDecorated.length);
+  trace.measureSize("payload", {
+    queue: decorated,
+    watchlist: watchDecorated,
+    promptTextById,
+    changelogIdByRecId,
+  });
+
   if (useV2) {
     return (
       <div className="max-w-5xl">
@@ -212,6 +233,9 @@ export default async function RecommendationsPage({
       />
     </div>
   );
+  } finally {
+    trace.flush();
+  }
 }
 
 function ErrorFallback({ errors }: { errors: string[] }) {
