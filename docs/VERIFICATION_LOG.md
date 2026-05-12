@@ -7,6 +7,111 @@
 
 ---
 
+## 2026-05-12 — perf bundle 6: parallelize shell layout awaits (commit `bd65ccc`)
+
+Following the production page-by-page audit, the single highest-leverage cross-cutting fix surfaced: the shell layout (`src/app/(shell)/layout.tsx`) had **5 sequential awaits** that fired on EVERY signed-in click, independent of which page the user was navigating to. This bundle parallelizes the 4 independent reads.
+
+### Dependency confirmation
+
+| Call | Independent? | Notes |
+|---|---|---|
+| `ensureUrlChangeOutcomesSeeded()` | yes (returns void) | Side-effect: populates React.cache-wrapped `ensureLoaded()` in `url-change-outcome.ts:222` |
+| `getPendingFindings()` | yes | Independent file/repo read |
+| `hasActiveExperiment()` | yes | Independent file/repo read |
+| `getChangelogEntries()` | yes | Independent module-level cached read |
+| `getWatchingUrlOutcomes()` | **depends on seed** | Internally calls `getUrlChangeOutcomes()` → `ensureLoaded()`. React.cache makes parallel-with-seed safe via dedup, but per spec we keep it after the Promise.all for explicit ordering. |
+
+### Exact parallelization implemented
+
+```ts
+const [
+  ,
+  pendingFindings,
+  isDemoModeRaw,
+  changelogEntries,
+] = await Promise.all([
+  ensureUrlChangeOutcomesSeeded(),
+  getPendingFindings(),
+  hasActiveExperiment(),
+  getChangelogEntries(),
+]);
+const watchingUrlOutcomes = await getWatchingUrlOutcomes();
+```
+
+5 serial awaits → 1 Promise.all + 1 dependent await.
+
+### Files changed
+
+| File | Lines | Why |
+|---|---:|---|
+| `src/app/(shell)/layout.tsx` | +37/-13 | Sequential awaits replaced with Promise.all; downstream `changesBadge` filter switched from inline `(await getWatchingUrlOutcomes()).filter(...)` to `watchingUrlOutcomes.filter(...)` (same semantics, named variable). |
+| `tests/architecture/perf-shell-layout-parallel-awaits.test.ts` (NEW) | +99 | 6 source-level pins (Promise.all over 4 calls; `getWatchingUrlOutcomes` awaited after; each call appears exactly once; layout signature unchanged; badge/palette inputs wired correctly) |
+| `tests/architecture/v2-qa-polish-bundle.test.ts` | +12/-5 | Updated `changesBadge` regex to accept either inline-await OR named-variable shape; hurting-only verdict narrowing assertion unchanged |
+
+### Measured impact (local file fixture)
+
+| Path | Cold ms |
+|---|---:|
+| Pre-fix SERIAL (5 sequential awaits) | 6.3 ms |
+| Post-fix PARALLEL (Promise.all + 1 dependent) | **0.4 ms** |
+| Speedup | **~16×** |
+
+Per-call cold breakdown (file backend):
+- `ensureUrlChangeOutcomesSeeded`: 2.1 ms
+- `getPendingFindings`: 0.9 ms
+- `getWatchingUrlOutcomes`: 0.8 ms
+- `hasActiveExperiment`: 2.5 ms
+- `getChangelogEntries`: 0.0 ms (cached after first request)
+
+**Production extrapolation:** Each Supabase round-trip on a cold lambda is ~50-150 ms; on warm lambdas the seed is cached and only the actual queries hit network. Sequential cost ~250-750 ms on cold + ~50-200 ms warm. Parallel collapses to max(individual) + 1 dependent ~150-300 ms cold + ~50-100 ms warm. **Estimated savings: 200-500 ms per signed-in click, on EVERY route under (shell)** — independent of the page-specific loader.
+
+### Customer-visible byte-identical output
+
+- ✅ Badges (today / pages / changes): computed from the same `pendingFindings` + `watchingUrlOutcomes` values
+- ✅ `isDemoMode`: derived from same `hasActiveExperiment()` result (now via intermediate `isDemoModeRaw` variable)
+- ✅ Command palette items: built from same `changelogEntries` (sliced to last 50 if > cap)
+- ✅ Sidebar / app header / mobile sidebar: unchanged props
+- ✅ `ShellProvider` props: same shape, same values
+
+### Verification
+
+| Check | Result |
+|---|---|
+| `npm run typecheck` | ✅ clean |
+| Targeted: 3 test files (perf pin + v2 polish + smoke) | ✅ 33/33 |
+| **`npm run test` (full suite)** | ✅ **7941/7941 across 422 files** (+6 from this bundle) |
+| **`npm run build` (local production build)** | ✅ succeeded; route table unchanged (no route classifications affected) |
+| Commit | `bd65ccc fix(perf): parallelize shell layout awaits` (3 files, +152/-13) |
+| Push | ✅ `80f13a3..bd65ccc main -> main` |
+| Vercel deploy | (recorded separately on completion) |
+
+### Constraints honored
+
+- ✅ No UI changes; rendered output byte-identical.
+- ✅ No route loader changes — only the shared shell layout was touched.
+- ✅ No Today perf internals touched.
+- ✅ No middleware/auth behavior changes.
+- ✅ No data contract changes (`NavBadges` shape unchanged).
+- ✅ No Supabase mutation; no paid APIs; no polls/scans; no migrations.
+- ✅ No env flag flips.
+- ✅ No reads removed; every original call still happens, just in parallel where safe.
+- ✅ No stale caching introduced; the layout fetches fresh data per request as before.
+
+### Remaining /signed-in-app bottlenecks after this bundle
+
+| Bottleneck | ~ms | Status |
+|---|---:|---|
+| Middleware: 2 sequential Supabase calls (`auth.getUser()` → `tenant_members.select()`) | 160–500 prod | Structurally serial (auth → tenant); deferred — auth-model change required |
+| `/today` `loadTodayPageData` warm | ~207 ms local / ~500-700 ms prod | Bundles 1-5 optimized; remaining cost mostly necessary work |
+| `/today` 2 direct Supabase calls (`fetchPollHealthForDate`, `fetchTodayDerivedKpis`) | ~50-250 each prod | Could be deferred behind Suspense (UI work — deferred) |
+| `/changes/[id]` rebuilds ~50-60% of `/changes` work | ~100-300 prod | High-risk semantic refactor; deferred |
+| Vercel function cold start | ~200-1500 ms first hit | Vercel-side; not in our control |
+| RSC payload on `/today` (~30-80 KB gzipped) | network-bound | Acceptable; UI work to slim |
+
+The shell-layout parallelization is the single most cross-cutting win available without UI or middleware refactors. Next-highest-leverage moves (Suspense streaming on `/today`, middleware auth-model change) require larger architectural decisions.
+
+---
+
 ## 2026-05-12 — deploy hardening: prevent settings prompts prerender timeout (commit `decd81c`)
 
 The May 12 production build `beacon-39yl32o35` (post-bundle-5 push) failed during static-page generation: `Supabase query failed on prompt_answer_observations: canceling statement due to statement timeout` while prerendering `/settings/prompts`. The next deploy `beacon-e1yv010mk` (docs commit) succeeded because Supabase was healthy at retry-time — but the fragility was structural, not transient.
