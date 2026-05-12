@@ -19,6 +19,7 @@
 import type { PromptAnswerObservation } from "@/domains/prompt-answer-observations/types";
 import type { TrackedEntity } from "@/domains/tracked-entities/types";
 import { makeCompetitorRankingFilter } from "@/domains/recommendations/entity-pollution-filter";
+import type { ObservationRollup } from "@/domains/today/observation-rollup";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -175,7 +176,28 @@ export function computeVisibilityTimeSeries(opts: {
   endDate: string; // YYYY-MM-DD
   /** When provided, compute for this competitor entity instead of tracked brand. */
   competitorName?: string;
+  /**
+   * Perf bundle 3 (2026-05-12) — optional shared rollup. When supplied
+   * (and built from the same `brandAliases`), the function reads
+   * pre-bucketed per-(date, platform) aggregates in O(window) instead
+   * of walking the full observation array. Callers without a rollup
+   * get the original direct path verbatim — public output unchanged.
+   */
+  rollup?: ObservationRollup;
 }): VisibilityPoint[] {
+  // Fast path: caller supplied a rollup. Equivalence with the direct
+  // path is pinned in `observation-rollup-equivalence.test.ts`.
+  if (opts.rollup) {
+    return computeVisibilityTimeSeriesFromRollup({
+      rollup: opts.rollup,
+      metric: opts.metric,
+      brandAliases: opts.brandAliases,
+      startDate: opts.startDate,
+      endDate: opts.endDate,
+      competitorName: opts.competitorName,
+    });
+  }
+
   const brandSlugs = new Set(opts.brandAliases.map(slugifyEntity));
   const competitorSlug = opts.competitorName
     ? slugifyEntity(opts.competitorName)
@@ -279,7 +301,18 @@ export function computeVisibilityTimeSeriesByPlatform(opts: {
   brandAliases: string[];
   startDate: string;
   endDate: string;
+  /** Perf bundle 3 (2026-05-12) — shared rollup, see
+   *  `computeVisibilityTimeSeries` for details. */
+  rollup?: ObservationRollup;
 }): Record<string, VisibilityPoint[]> {
+  if (opts.rollup) {
+    return computeVisibilityTimeSeriesByPlatformFromRollup({
+      rollup: opts.rollup,
+      startDate: opts.startDate,
+      endDate: opts.endDate,
+    });
+  }
+
   const brandSlugs = new Set(opts.brandAliases.map(slugifyEntity));
 
   // Bucket by (platform, date).
@@ -350,6 +383,9 @@ export function computeLeaderboard(opts: {
    * non-Today callers stay safe.
    */
   trackedEntities?: ReadonlyArray<TrackedEntity>;
+  /** Perf bundle 3 (2026-05-12) — shared rollup, see
+   *  `computeVisibilityTimeSeries` for details. */
+  rollup?: ObservationRollup;
 }): EntityVisibility[] {
   const limit = opts.limit ?? 5;
   const brandSlugs = new Set(opts.brandAliases.map(slugifyEntity));
@@ -367,24 +403,43 @@ export function computeLeaderboard(opts: {
     opts.trackedEntities ?? [],
   );
 
-  const current = aggregateWindow(
-    opts.observations,
-    startDate,
-    endDate,
-    brandSlugs,
-    brandDisplay,
-    opts.metric,
-    competitorRankingFilter,
-  );
-  const previous = aggregateWindow(
-    opts.observations,
-    prevStartDate,
-    prevEndDate,
-    brandSlugs,
-    brandDisplay,
-    opts.metric,
-    competitorRankingFilter,
-  );
+  const useRollup = opts.rollup != null;
+  const current = useRollup
+    ? aggregateWindowFromRollup(
+        opts.rollup!,
+        startDate,
+        endDate,
+        brandDisplay,
+        opts.metric,
+        competitorRankingFilter,
+      )
+    : aggregateWindow(
+        opts.observations,
+        startDate,
+        endDate,
+        brandSlugs,
+        brandDisplay,
+        opts.metric,
+        competitorRankingFilter,
+      );
+  const previous = useRollup
+    ? aggregateWindowFromRollup(
+        opts.rollup!,
+        prevStartDate,
+        prevEndDate,
+        brandDisplay,
+        opts.metric,
+        competitorRankingFilter,
+      )
+    : aggregateWindow(
+        opts.observations,
+        prevStartDate,
+        prevEndDate,
+        brandSlugs,
+        brandDisplay,
+        opts.metric,
+        competitorRankingFilter,
+      );
 
   const previousBySlug = new Map(previous.entities.map((e) => [e.slug, e]));
   const minPrev = minSampledDaysForDelta(opts.windowDays);
@@ -569,6 +624,11 @@ export function computeCompetitorSeries(opts: {
   metric: VisibilityMetric;
   startDate: string;
   endDate: string;
+  /** Perf bundle 3 (2026-05-12) — shared rollup, see
+   *  `computeVisibilityTimeSeries` for details. When supplied, each
+   *  inner `computeVisibilityTimeSeries` call inherits it; saves
+   *  N×bucketing where N is `1 + competitorNames.length`. */
+  rollup?: ObservationRollup;
 }): Array<{ name: string; isOwned: boolean; points: VisibilityPoint[] }> {
   const brand = {
     name: opts.brandAliases[0] ?? "You",
@@ -579,6 +639,7 @@ export function computeCompetitorSeries(opts: {
       brandAliases: opts.brandAliases,
       startDate: opts.startDate,
       endDate: opts.endDate,
+      rollup: opts.rollup,
     }),
   };
 
@@ -592,8 +653,244 @@ export function computeCompetitorSeries(opts: {
       startDate: opts.startDate,
       endDate: opts.endDate,
       competitorName: name,
+      rollup: opts.rollup,
     }),
   }));
 
   return [brand, ...competitors];
+}
+
+// ---------------------------------------------------------------------------
+// Perf bundle 3 (2026-05-12) — Rollup fast-path helpers.
+//
+// Each helper produces output that MUST match the direct path
+// byte-for-byte for the same inputs. Equivalence is pinned in
+// `tests/domains/today/observation-rollup-equivalence.test.ts` over:
+//   • all 3 metrics × the 4 leaderboard windows
+//   • brand + competitor time-series
+//   • per-platform variant
+//   • empty observation arrays
+//   • single-platform / partial-platform data
+//
+// The helpers run in O(window-days × entity-count), independent of the
+// observation array's size.
+// ---------------------------------------------------------------------------
+
+/** Iterate YYYY-MM-DD strings inclusive between start and end. UTC-safe. */
+function dateRangeUtc(startDate: string, endDate: string): string[] {
+  const out: string[] = [];
+  const start = new Date(startDate + "T00:00:00Z");
+  const end = new Date(endDate + "T00:00:00Z");
+  for (let d = start; d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
+    out.push(d.toISOString().slice(0, 10));
+  }
+  return out;
+}
+
+function computeVisibilityTimeSeriesFromRollup(opts: {
+  rollup: ObservationRollup;
+  metric: VisibilityMetric;
+  brandAliases: string[];
+  startDate: string;
+  endDate: string;
+  competitorName?: string;
+}): VisibilityPoint[] {
+  const competitorSlug = opts.competitorName
+    ? slugifyEntity(opts.competitorName)
+    : null;
+  const entityDateMap = competitorSlug
+    ? opts.rollup.byEntityDate.get(competitorSlug)
+    : null;
+
+  const out: VisibilityPoint[] = [];
+  for (const date of dateRangeUtc(opts.startDate, opts.endDate)) {
+    const bucket = opts.rollup.byDate.get(date);
+    if (!bucket || bucket.total === 0) continue; // skip unsampled dates (matches direct path)
+
+    let mentionedTotal: number;
+    let citedTotal: number;
+    const sampledPlatformRates: number[] = [];
+
+    if (competitorSlug) {
+      const compBucket = entityDateMap?.get(date);
+      // Competitor: mentioned == cited (no competitor-domain map, matches
+      // direct path which sets both from `mentionsSlugs.has(competitorSlug)`).
+      mentionedTotal = compBucket?.dedupedMentions ?? 0;
+      citedTotal = mentionedTotal;
+      // Per-platform composite — only platforms sampled on this date
+      // contribute; "sampled" means platform appears in bucket.perPlatform
+      // (whether or not competitor was mentioned there).
+      for (const [platform, pdb] of bucket.perPlatform) {
+        if (pdb.obs === 0) continue;
+        const compOnPlatform = compBucket?.perPlatform.get(platform) ?? 0;
+        sampledPlatformRates.push((compOnPlatform / pdb.obs) * 100);
+      }
+    } else {
+      mentionedTotal = bucket.brandMentioned;
+      citedTotal = bucket.brandCited;
+      for (const [, pdb] of bucket.perPlatform) {
+        if (pdb.obs === 0) continue;
+        sampledPlatformRates.push((pdb.brandCited / pdb.obs) * 100);
+      }
+    }
+
+    const mentionRate = (mentionedTotal / bucket.total) * 100;
+    const citationRate = (citedTotal / bucket.total) * 100;
+    const compositeScore =
+      sampledPlatformRates.length === 0
+        ? 0
+        : sampledPlatformRates.reduce((a, b) => a + b, 0) /
+          sampledPlatformRates.length;
+
+    const score =
+      opts.metric === "mention_rate"
+        ? mentionRate
+        : opts.metric === "citation_rate"
+          ? citationRate
+          : compositeScore;
+
+    out.push({ date, score, sampleSize: bucket.total });
+  }
+
+  return out;
+}
+
+function computeVisibilityTimeSeriesByPlatformFromRollup(opts: {
+  rollup: ObservationRollup;
+  startDate: string;
+  endDate: string;
+}): Record<string, VisibilityPoint[]> {
+  // Direct path iterates byPlatformDate.entries() and emits one series
+  // per platform that had ≥1 observation in the window. Reproduce that
+  // ordering by scanning the rollup's dates in the window and inserting
+  // each platform's per-date data.
+  const platformPoints = new Map<string, VisibilityPoint[]>();
+  for (const date of dateRangeUtc(opts.startDate, opts.endDate)) {
+    const bucket = opts.rollup.byDate.get(date);
+    if (!bucket) continue;
+    for (const [platform, pdb] of bucket.perPlatform) {
+      if (pdb.obs === 0) continue; // unsampled platform/day excluded (matches direct)
+      let series = platformPoints.get(platform);
+      if (!series) {
+        series = [];
+        platformPoints.set(platform, series);
+      }
+      const rate = (pdb.brandCitedOrMentioned / pdb.obs) * 100;
+      series.push({ date, score: rate, sampleSize: pdb.obs });
+    }
+  }
+
+  const result: Record<string, VisibilityPoint[]> = {};
+  for (const [platform, series] of platformPoints) result[platform] = series;
+  return result;
+}
+
+function aggregateWindowFromRollup(
+  rollup: ObservationRollup,
+  startDate: string,
+  endDate: string,
+  brandDisplay: string,
+  metric: VisibilityMetric,
+  shouldRankAsCompetitor?: (name: string) => boolean,
+): AggregateWindowResult {
+  let totalInWindow = 0;
+  let brandMentioned = 0;
+  let brandCitationWeightSum = 0;
+  const sampledDateSet = new Set<string>();
+
+  // Use rollup.sampledDates (sorted ASC) and a string-compare window
+  // filter instead of computing `dateRangeUtc` per call. The rollup's
+  // dates are exactly the dates with ≥1 observation, so we never visit
+  // an unsampled date — strictly faster than walking the full calendar.
+  // (YYYY-MM-DD strings are lex-safe for date ordering.)
+  const datesInWindow: string[] = [];
+  for (const date of rollup.sampledDates) {
+    if (date < startDate) continue;
+    if (date > endDate) break; // sorted ASC — done
+    datesInWindow.push(date);
+
+    const bucket = rollup.byDate.get(date);
+    if (!bucket || bucket.total === 0) continue;
+    totalInWindow += bucket.total;
+    brandMentioned += bucket.brandMentioned;
+    brandCitationWeightSum += bucket.brandCitationWeightSum;
+    sampledDateSet.add(date);
+  }
+
+  // Per-entity raw mention totals over the window. To reproduce the direct
+  // path's insertion order (which controls stable-sort tiebreaking), we
+  // first collect (slug, count, name, firstObsIndexInWindow) then insert
+  // into the Map sorted ascending by `firstObsIndexInWindow`. The direct
+  // path implicitly does this because it iterates observations in array
+  // order and inserts on first sighting.
+  type EntityScratch = {
+    slug: string;
+    name: string;
+    count: number;
+    firstObsIndexInWindow: number;
+  };
+  const scratch: EntityScratch[] = [];
+  for (const [slug, dateMap] of rollup.byEntityDate) {
+    // shouldRankAsCompetitor filter applies to the DISPLAY name, matching
+    // the direct path's `for (const name of obs.mentions) { … if
+    // (shouldRankAsCompetitor && !shouldRankAsCompetitor(name)) continue; }`.
+    const displayName = rollup.entityNameBySlug.get(slug) ?? slug;
+    if (shouldRankAsCompetitor && !shouldRankAsCompetitor(displayName)) continue;
+
+    let count = 0;
+    let firstObsIndexInWindow = Number.POSITIVE_INFINITY;
+    // Reuse the pre-computed `datesInWindow` array — no per-entity
+    // calendar walk.
+    for (const date of datesInWindow) {
+      const eb = dateMap.get(date);
+      if (!eb) continue;
+      count += eb.rawMentions;
+      if (eb.firstObsIndex < firstObsIndexInWindow) {
+        firstObsIndexInWindow = eb.firstObsIndex;
+      }
+    }
+    if (count > 0) {
+      scratch.push({ slug, name: displayName, count, firstObsIndexInWindow });
+    }
+  }
+  scratch.sort((a, b) => a.firstObsIndexInWindow - b.firstObsIndexInWindow);
+
+  const mentionsByEntity = new Map<string, { name: string; count: number }>();
+  for (const e of scratch) {
+    mentionsByEntity.set(e.slug, { name: e.name, count: e.count });
+  }
+
+  const out: AggregatedEntity[] = [];
+
+  if (totalInWindow > 0) {
+    const mentionRate = (brandMentioned / totalInWindow) * 100;
+    const citationRate = (brandCitationWeightSum / totalInWindow) * 100;
+    const score =
+      metric === "mention_rate"
+        ? mentionRate
+        : metric === "citation_rate"
+          ? citationRate
+          : composite(mentionRate, citationRate);
+    out.push({
+      name: brandDisplay,
+      slug: slugifyEntity(brandDisplay),
+      isOwned: true,
+      score,
+      mentionCount: brandMentioned,
+    });
+  }
+
+  for (const { name, count } of mentionsByEntity.values()) {
+    if (count < 3) continue;
+    const score = totalInWindow > 0 ? (count / totalInWindow) * 100 : 0;
+    out.push({
+      name,
+      slug: slugifyEntity(name),
+      isOwned: false,
+      score,
+      mentionCount: count,
+    });
+  }
+
+  return { entities: out, sampledDays: sampledDateSet.size };
 }

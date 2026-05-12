@@ -169,6 +169,7 @@ import {
   type VisibilityPoint,
   type EntityVisibility,
 } from "@/domains/product/visibility-score";
+import { buildObservationRollup } from "@/domains/today/observation-rollup";
 
 
 import type { ComponentProps } from "react";
@@ -2309,6 +2310,22 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
 
   const METRICS: VisibilityMetric[] = ["composite", "mention_rate", "citation_rate"];
 
+  // Perf bundle 3 (2026-05-12) — build the per-request observation rollup
+  // ONCE before the visibility-score fan-out. Each downstream call accepts
+  // an optional `rollup` arg and reads pre-bucketed per-(date, platform)
+  // aggregates in O(window-days) instead of re-walking the full ~14k-row
+  // observation array. The pre-bundle call pattern fanned out 19 calls
+  // (3 time series + 1 per-platform + 12 leaderboards + 3 competitor
+  // series with ~5 fan-outs each), each walking the full array.
+  //
+  // Tenant-safe by construction: `promptAnswerObservations` is already
+  // tenant-filtered upstream; the rollup is a pure derivation of those
+  // rows. No cross-request cache.
+  const observationRollup = buildObservationRollup({
+    observations: promptAnswerObservations,
+    brandAliases,
+  });
+
   // Tenant 60-day time series, all three metrics.
   const brandSeriesByMetric = {} as Record<VisibilityMetric, VisibilityPoint[]>;
   for (const m of METRICS) {
@@ -2318,6 +2335,7 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
       brandAliases,
       startDate: chartStartDate,
       endDate: chartEndDate,
+      rollup: observationRollup,
     });
   }
 
@@ -2327,6 +2345,7 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
     brandAliases,
     startDate: chartStartDate,
     endDate: chartEndDate,
+    rollup: observationRollup,
   });
 
   // Step 1.3 (master plan) \u2014 leaderboard precomputed for every chart-toggle
@@ -2351,6 +2370,7 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
         // Step 1.4 (master plan) — filter directories + generic-noun
         // mentions out of competitor rows. Brand + real builders stay.
         trackedEntities,
+        rollup: observationRollup,
       });
     }
   }
@@ -2383,6 +2403,7 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
       metric: m,
       startDate: chartStartDate,
       endDate: chartEndDate,
+      rollup: observationRollup,
     });
     competitorSeriesByMetric[m] = series
       .filter((s) => !s.isOwned)
