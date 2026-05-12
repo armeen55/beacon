@@ -7,6 +7,79 @@
 
 ---
 
+## 2026-05-12 — deploy hardening: prevent settings prompts prerender timeout (commit `decd81c`)
+
+The May 12 production build `beacon-39yl32o35` (post-bundle-5 push) failed during static-page generation: `Supabase query failed on prompt_answer_observations: canceling statement due to statement timeout` while prerendering `/settings/prompts`. The next deploy `beacon-e1yv010mk` (docs commit) succeeded because Supabase was healthy at retry-time — but the fragility was structural, not transient.
+
+### Root cause
+
+`/settings/prompts/page.tsx` had **no `export const dynamic` declaration AND no `searchParams` / dynamic-segment in its function signature**. Next.js auto-classified the route as static and attempted to prerender it at build time. The prerender invoked `loadFreshCanonicalData({ observationsSince, snapshotsSince })`, which fans out 4 parallel Supabase reads (`tracked_prompts`, `prompt_answer_observations`, `tracked_entities`, `daily_metric_snapshots`). The PAO read — even with a 1-day window — exceeded the 8 s Supabase statement timeout on a cold build-time connection.
+
+### Audit (deploy hardening — every authenticated route that reads live tenant canonical data)
+
+| Route | force-dynamic? | searchParams/params Promise in signature? | Auto-dynamic? |
+|---|---|---|---|
+| `/today` (page.tsx) | no | yes | yes (Next 16 convention) |
+| `/prompts` | no | yes (optional) | yes |
+| `/prompts/[id]` | no | yes (params + searchParams) | yes |
+| **`/settings/prompts`** | **YES (this fix)** | no | no |
+| `/changes`, `/changes/[id]` | yes (existing) | varies | yes |
+| `/recommendations[/id]` | yes (existing) | varies | yes |
+| `/settings/connectors` | yes (existing) | no | yes |
+| `/settings/config` | yes (existing) | no | yes |
+| `/settings/health` | yes (existing) | no | yes |
+| `/settings/exit-gates` | yes (existing) | no | yes |
+
+Architecture pin in `tests/architecture/deploy-settings-prompts-dynamic.test.ts` enforces the invariant: at least ONE of (force-dynamic, searchParams Promise, params Promise) must be present, on every route that reads live canonical data. A future edit that drops both signals fails the build before another deploy fails.
+
+### What changed (source)
+
+| Layer | Change |
+|---|---|
+| `src/app/(shell)/settings/prompts/page.tsx` | (a) Added `export const dynamic = "force-dynamic"` — opts out of prerender. (b) Replaced `loadFreshCanonicalData({...windows})` with a direct `getRepository().forTenant(tenantId).getTrackedPrompts()` call. Single SQL query against the 100-row `tracked_prompts` table; zero observation/snapshot/entity egress. Strictly better than the prior windowed fan-out for both the runtime path AND the prerender attempt class — even if Next.js ever drops `force-dynamic`, this page can no longer time out on the PAO table because it never reads it. |
+| `tests/routes/settings-prompts-smoke.test.tsx` | Mock surface flipped from `@/storage/canonical-store` to `@/lib/persistence/repositories` + `@/lib/tenant-context`. Existing assertions (count string, prompt rows, topic + geo pills, platform humanization, activate/deactivate toggle counts) all preserved byte-identical. |
+
+### Tests added (+5 net new specs across 1 new + 2 updated files)
+
+- **`tests/architecture/deploy-settings-prompts-dynamic.test.ts`** (NEW, 7 specs):
+  - `/settings/prompts` declares `export const dynamic = "force-dynamic"`
+  - Page does NOT call `ensureCanonicalStoresSeeded` / `loadFreshCanonicalData` / `getPromptAnswerObservations` / `getDailyMetricSnapshots`
+  - Page DOES use the direct tenant-repo `getTrackedPrompts()` reader
+  - Companion routes (`/today`, `/prompts`, `/prompts/[id]`, `/settings/prompts`) each declare `force-dynamic` OR read a `searchParams` / dynamic-segment `params` Promise
+
+- **`tests/architecture/egress-bounded-reads-p0.test.ts`** EGRESS-P0.2 rewritten:
+  - Pins the new contract (no `loadFreshCanonicalData`, no `ensureCanonicalStoresSeeded`, direct `getTrackedPrompts`)
+  - Strictly stricter than the prior 1-day-window pin
+
+- **`tests/routes/canonical-store-fresh.test.ts`** structural pins updated:
+  - `/settings/prompts` removed from the "must call `loadFreshCanonicalData()`" list
+  - Replaced with positive pin on the tenant-repo reader + repo import
+
+### Verification
+
+| Check | Result |
+|---|---|
+| `npm run typecheck` | ✅ clean |
+| Targeted: 4 test files | ✅ 40/40 |
+| **`npm run test` (full suite)** | ✅ **7935/7935 across 421 files** (+7 from this bundle) |
+| **`npm run build` (local production build)** | ✅ **succeeded** — route table shows `/settings/prompts` as `ƒ (Dynamic) server-rendered on demand` (was `○ (Static)` pre-fix). The prerender attempt is structurally gone. |
+| Commit | `decd81c fix(deploy): prevent settings prompts prerender timeout` (5 files, +253/-111) |
+| Push | ✅ `ee5cc93..decd81c main -> main` |
+| Vercel deploy | (recorded separately on completion) |
+
+### Constraints honored
+
+- ✅ No UI changes. The page renders byte-identical HTML; smoke test confirms.
+- ✅ No data contract changes. The page input/output / props unchanged.
+- ✅ No Supabase mutation. The new read path is a SUBSET of the old (1 read instead of 4) — slight egress improvement, no schema or data change.
+- ✅ No paid APIs / polls / scans / migrations.
+- ✅ No recommendation generation / attribution logic changes.
+- ✅ No env flag flips.
+- ✅ No broad build hacks — `force-dynamic` matches the established pattern across `/changes`, `/recommendations`, and 4 other `/settings/*` routes that read live tenant data.
+- ✅ No customer routes made stale. The page is server-rendered at request time, fresh on every load.
+
+---
+
 ## 2026-05-12 — perf bundle 5: gate today discrepancy detection (commit `6d0c238`)
 
 The inline-body profile pass identified `extractEntities + detectDiscrepancies` at ~366 ms warm — 65% of /today's render time — producing output that's discarded whenever an earlier `nextCandidates` push fires. Shape A gate added: skip the work whenever any of the 5 higher-priority candidates already produced a non-null entry. Byte-identical customer-visible output: the consumer (`today-summary.ts:82-90`) selects `find((m) => m != null)`, which already discarded the discrepancy result pre-bundle whenever earlier candidates were non-null.
