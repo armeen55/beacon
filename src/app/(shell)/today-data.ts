@@ -1757,18 +1757,46 @@ export async function loadTodayPageData(): Promise<TodayPageData> {
   }
 
   // ── Representation discrepancy check (quiet — only notable) ──
-  const entityIdx = await extractEntities(pageSnapshots);
-  const discrepancyReport = await detectDiscrepancies(entityIdx);
-  const notableDisc = discrepancyReport.discrepancies.filter((d) => d.severity === "notable");
-  if (notableDisc.length > 0) {
-    nextCandidates.push({
-      title: `${notableDisc.length} possible representation ${notableDisc.length === 1 ? "discrepancy" : "discrepancies"} in AI answers`,
-      href: "/settings/health",
-      evidence:
-        "Detected from structural comparison of AI answer content against your owned page data. Conservative signals only — review in Diagnostics.",
-      observationRunId: null,
-      evidenceScope: "mixed",
-    });
+  //
+  // Perf bundle 5 (2026-05-12) — `extractEntities` + `detectDiscrepancies`
+  // measured at ~366 ms warm (~65% of /today's render time). The output
+  // produces exactly ONE optional `nextCandidates` entry, and the
+  // consumer in `today-summary.ts:82-90` selects the first non-null
+  // candidate via `nextMoveCandidates.find((m) => m != null)`. The
+  // discrepancy entry is the 6th push (after the 5 higher-priority
+  // checks above: warningAlerts / shippedIssues / newIssues /
+  // undecidedCount / decayAlerts), so when ANY earlier candidate
+  // already fired, the discrepancy result is discarded by `find()`
+  // before it can render — paying full cost for zero customer-visible
+  // output.
+  //
+  // Gate: skip the expensive work whenever an earlier candidate already
+  // produced a non-null entry. Output is byte-identical because the
+  // selector explicitly prefers the first non-null entry, which still
+  // exists. Only the rare "all five earlier checks empty" case runs
+  // the discrepancy detector — for that path behavior is unchanged.
+  //
+  // `nextCandidates.some(c => c != null)` is O(5) since exactly 5
+  // earlier pushes can have happened by this point.
+  const hasHigherPriorityNextMove = nextCandidates.some(
+    (candidate) => candidate != null,
+  );
+  if (!hasHigherPriorityNextMove) {
+    const entityIdx = await extractEntities(pageSnapshots);
+    const discrepancyReport = await detectDiscrepancies(entityIdx);
+    const notableDisc = discrepancyReport.discrepancies.filter(
+      (d) => d.severity === "notable",
+    );
+    if (notableDisc.length > 0) {
+      nextCandidates.push({
+        title: `${notableDisc.length} possible representation ${notableDisc.length === 1 ? "discrepancy" : "discrepancies"} in AI answers`,
+        href: "/settings/health",
+        evidence:
+          "Detected from structural comparison of AI answer content against your owned page data. Conservative signals only — review in Diagnostics.",
+        observationRunId: null,
+        evidenceScope: "mixed",
+      });
+    }
   }
 
   // ── Geographic coverage insight ──
