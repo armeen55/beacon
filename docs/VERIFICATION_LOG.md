@@ -7,6 +7,70 @@
 
 ---
 
+## 2026-05-11 — v2 rollout closeout (no code changes)
+
+Final closeout pass after the v2 QA polish bundle. No new feature work, no env changes, no code changes — read-only verification + release-notes + final punch list.
+
+### Production health (confirmed from this side)
+
+| Check | Result |
+|---|---|
+| Latest deploy | ✅ `beacon-8rm9bjaqr` Ready · aliased to `https://beacon-bice.vercel.app` (8h ago, polish bundle) |
+| All 4 v2 env flags set in Production | ✅ `BEACON_TODAY_V2`, `BEACON_RECOMMENDATIONS_V2`, `BEACON_CHANGES_V2`, `BEACON_PROMPTS_V2` |
+| Watchdog PAT in Production | ✅ `BEACON_GH_WORKFLOW_DISPATCH_PAT` |
+| Vercel cron `/api/cron/poll-watchdog` (`0 11 * * *`) | ✅ HTTP 401 anon (`CRON_SECRET` gate intact) |
+| 13 endpoint smoke (7 v2 + 6 legacy escapes) | ✅ all HTTP 307 → `/login`; `?v2=1` and `?legacy=1` query strings preserved through the redirect |
+| `npm run typecheck` | ✅ clean |
+| `tests/architecture/` (forbidden-vocab guardrail incl.) | ✅ 2350/2350 |
+| `npm run test` (full suite) | ✅ **7801/7801 across 412 files** — no drift since polish bundle 8h ago |
+
+### Hosted visual verification — honest scope
+
+Same posture as every prior rollout step: no Chrome MCP browser connected, no Vercel SSO bypass token. Hosted visual confirmation is operator-driven from a signed-in browser. Everything contractually testable from this side is green.
+
+### Product-loop verdict
+
+| # | Surface | Customer question | Verdict |
+|---|---|---|---|
+| 1 | `/` (Today v2) | "What matters now?" | ✅ Hero strip + 3 cards (Do today / Working / Recent wins) + disclosure. Purpose obvious. P1-1 overflow defense in place; P2-1 hero "Closest challenger" wording deferred. Should remain default. |
+| 2 | `/recommendations` (v2 card stack) | "What should I do?" | ✅ Suggested stack ≤7 with one CTA per row + Working rail. Purpose obvious. Inline accept/defer/dismiss/restore/promote actions wired through real server actions. Should remain default. |
+| 3 | `/recommendations/[id]` (v2 brief) | "Why should I do it and how do I act?" | ✅ 5-act narrative with route-id-safe links. Inline action surface in Act 5. Act 4 fallback wording polished. Should remain default. |
+| 4 | `/changes` (v2 proof timeline) | "What shipped?" | ✅ Counter strip (calendar-free) + vertical card timeline + waiting-for-signal rail + footer escape. Sidebar badge alignment fixed. Should remain default. |
+| 5 | `/changes/[id]` (v2 5-act brief) | "Did it work?" | ✅ 5 acts with semantic h2 headings, humanized event labels, pattern-timing, sparklines. Act 5 "Open recommendation" CTA now safely routes to queue (no more 404 mid-flow). Should remain default. |
+| 6 | `/prompts` (v2 strategic surface) | "Where am I winning/missing?" | ✅ 5 customer-safe categories + per-platform badges + competitor + cluster chips. Card titles projected through scrubber (no prompt UUIDs / packet vocab). Should remain default. |
+| 7 | `/prompts/[id]` (v2 prompt brief) | "What is happening on this buyer question?" | ✅ 5-act brief reuses the same drilldown legacy consumes; route-id-safe; calm not-found state for empty/unknown ids. Should remain default. |
+
+### Final punch list (no fixes this pass)
+
+**P0 — must fix now:** **None.** No production blockers; no broken functionality; no IDs leaked.
+
+**P1 — fix before showing a customer/demo:** **None.** P1-1 (Today Recent Wins overflow) and P1-2 (sidebar badge) were both fixed in the polish bundle.
+
+**P2 — polish later:**
+- **P2-1** Today hero "Closest challenger" wording can read as the customer's own score when brand has no rank yet. Pure copy fix.
+- **P2-4** Changes next-action resolver legacy-detail `href: "?legacy=1"` default — currently safe because the page stamps the full path; flagged as a footgun for future callers. Refactor opportunity.
+
+**Product / strategy next steps (not code):**
+- Hosted visual walkthrough by the operator on `https://beacon-bice.vercel.app/` to lock the demo path with real Ritz data.
+- Capture a 90-second demo recording of the new customer loop (Today → Recommendations → brief → Changes → brief → Prompts → brief).
+- First paying customer outreach — Beacon now matches the "premium product" framing the audit plan called for.
+
+### Constraints honored
+
+- ✅ No code changes (per spec — no P0 found)
+- ✅ No Supabase mutations
+- ✅ No paid APIs
+- ✅ No migrations
+- ✅ No backend / domain logic changes
+- ✅ No data contract changes
+- ✅ No env flag flipped or unflipped
+- ✅ Polling / watchdog automation untouched
+- ✅ No new feature work
+
+Release notes locked at `docs/BEACON_V2_ROLLOUT_RELEASE_NOTES_2026_05_11.md`.
+
+---
+
 ## 2026-05-11 — v2 QA polish bundle (5 polish fixes, no data layer changes)
 
 After the full v2 production QA audit landed earlier today (0 P0 / 2 P1 / 5 P2), this bundle fixes the 2 P1s + the 3 highest-leverage P2s in a single PR. No new feature work, no env flag changes, no data layer changes. P2-1 and P2-4 deferred as noted in the audit.
