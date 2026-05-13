@@ -1,7 +1,10 @@
 -- Migration: 2026-05-19_phase2a_today_visibility_readmodel_extensions.sql
 -- Author:    Armeen Aminzadeh (operator) + Claude
--- Applied:   NOT YET APPLIED — pending operator approval before running
---            against production Supabase via apply_migration MCP.
+-- Applied:   2026-05-13 via Supabase CLI (`supabase db query --linked`)
+--            after operator approval. Three ALTER TABLE ADD COLUMN IF NOT
+--            EXISTS statements + three COMMENT ON COLUMN docs executed
+--            in sequence; verified via information_schema.columns query
+--            immediately after.
 -- Project:   jdegznovgysxyweknewh (beacon)
 -- Phase:     Today v2 perf architecture reset — Phase 2A read-model
 --            schema extensions (operator-gated approval, 2026-05-12).

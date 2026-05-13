@@ -175,25 +175,38 @@ type SnapshotTuple = {
  * populated get skipped automatically (idempotent re-run friendly).
  */
 async function resolveTuples(args: Args): Promise<SnapshotTuple[]> {
-  // Use `select *` so the script works whether the Phase 2A migration
-  // has been applied (new columns present) or not (new columns absent).
-  // When the columns are missing, every row in the date range is queued
-  // for backfill — the migration-then-backfill workflow can be a single
-  // operator pass.
-  let query = sb
-    .from("daily_metric_snapshots")
-    .select("*")
-    .eq("source_type", "derived")
-    .gte("date", args.since)
-    .lte("date", args.until);
+  // Paged read — PostgREST caps single queries at 1000 rows by default
+  // (the daily_metric_snapshots table is well over that for a 60-day
+  // window). Without pagination we'd silently truncate to the first
+  // 1000 rows and miss most of the table; the first dry-run + commit
+  // pass missed ~5070 entity rows + ~156 platform rows because of this.
+  const PAGE = 1000;
+  const all: Array<Record<string, unknown>> = [];
+  let offset = 0;
+  for (;;) {
+    let query = sb
+      .from("daily_metric_snapshots")
+      .select("*")
+      .eq("source_type", "derived")
+      .gte("date", args.since)
+      .lte("date", args.until)
+      .order("id", { ascending: true })
+      .range(offset, offset + PAGE - 1);
 
-  if (args.tenant) query = query.eq("tenant_id", args.tenant);
+    if (args.tenant) query = query.eq("tenant_id", args.tenant);
 
-  const { data, error } = await query;
-  if (error) {
-    console.error(`[backfill] query daily_metric_snapshots failed: ${error.message}`);
-    process.exit(1);
+    const { data, error } = await query;
+    if (error) {
+      console.error(`[backfill] query daily_metric_snapshots failed: ${error.message}`);
+      process.exit(1);
+    }
+    const page = (data ?? []) as Array<Record<string, unknown>>;
+    all.push(...page);
+    if (page.length < PAGE) break;
+    offset += PAGE;
   }
+  // Shape the rest of the function expects.
+  const data = all;
 
   // Phase 2A column presence detection — first row tells us whether
   // the migration has run. Helpful diagnostic for the operator.
@@ -274,6 +287,32 @@ async function resolveTuples(args: Args): Promise<SnapshotTuple[]> {
 // Per-tuple rebuild + update
 // ─────────────────────────────────────────────────────────────────────
 
+/**
+ * Map a snapshot row's platform label to the matching observation-level
+ * platform label(s). The two layers don't agree on casing:
+ *
+ *   Snapshot (`daily_metric_snapshots.platform`):  TitleCase
+ *     "Perplexity" / "ChatGPT" / "Google AI Overviews"
+ *
+ *   Observation (`prompt_answer_observations.platform`): lowercase for
+ *     native polls (post-mapping fix), TitleCase for older / Profound-
+ *     imported rows. Both can coexist in the same tenant.
+ *
+ * To find ALL obs for a given snapshot platform-day, query the union
+ * of both casings. Without this, the original first backfill pass
+ * silently returned zero obs for Perplexity / ChatGPT (the obs are
+ * stored lowercase) and zeroed mentioned_obs_count + position_weighted_
+ * citation_count on every row. The same casing footgun zeroed 37 entity
+ * rows on 2026-04-23 (run-poll.ts:215 comment).
+ */
+function obsPlatformLabels(snapshotPlatform: string): string[] {
+  const lower = snapshotPlatform.toLowerCase();
+  if (lower === "chatgpt") return ["chatgpt", "ChatGPT"];
+  if (lower === "perplexity") return ["perplexity", "Perplexity"];
+  // Default: both as-is and lowercase — Google AI Overviews etc.
+  return Array.from(new Set([snapshotPlatform, lower]));
+}
+
 async function fetchObsForTuple(tuple: SnapshotTuple): Promise<PromptAnswerObservation[]> {
   // observed_at is a timestamptz column; the snapshot row's `date` is
   // the UTC calendar date the poll covered. Filter on
@@ -283,11 +322,12 @@ async function fetchObsForTuple(tuple: SnapshotTuple): Promise<PromptAnswerObser
   nextDay.setUTCDate(nextDay.getUTCDate() + 1);
   const endISO = nextDay.toISOString();
 
+  const labels = obsPlatformLabels(tuple.platform);
   const { data, error } = await sb
     .from("prompt_answer_observations")
     .select("*")
     .eq("tenant_id", tuple.tenant_id)
-    .eq("platform", tuple.platform)
+    .in("platform", labels)
     .gte("observed_at", startISO)
     .lt("observed_at", endISO);
   if (error) {
