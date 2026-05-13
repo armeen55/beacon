@@ -53,6 +53,7 @@ import {
   loadFreshCanonicalData,
 } from "@/storage/canonical-store";
 import { ensureRecommendationResponsesSeeded } from "@/domains/product/recommendation-response-store";
+import { createPerfTrace } from "@/lib/perf-trace";
 import type { PromptAnswerObservation } from "@/domains/prompt-answer-observations/types";
 import type { TrackedPrompt } from "@/domains/tracked-prompts/types";
 import type { TrackedEntity } from "@/domains/tracked-entities/types";
@@ -160,16 +161,28 @@ export async function loadLiveRecommendationQueue(
   const { tenantId } = opts;
   const errors: string[] = [];
 
-  const seedRes = await safeCall(
-    () => ensureCanonicalStoresSeeded(),
-    undefined,
-    "seed canonical stores",
+  // Emergency P0 fix (2026-05-12) — granular tracing inside the
+  // recommendation queue loader. NOOP when `BEACON_PERF_TRACE != "true"`.
+  // When enabled, emits one log line per major sub-step so the next
+  // production capture can identify which call dominates the measured
+  // 33 s loader time (vs the existing single-line "loadLiveRecommendationQueue
+  // ms=33004" which gives us no decomposition).
+  const trace = createPerfTrace("load-queue", { route: "internal" });
+
+  const seedRes = await trace.time("seed_canonical_stores", () =>
+    safeCall(
+      () => ensureCanonicalStoresSeeded(),
+      undefined,
+      "seed canonical stores",
+    ),
   );
   if (seedRes.error) errors.push(seedRes.error);
-  const respSeedRes = await safeCall(
-    () => ensureRecommendationResponsesSeeded(),
-    undefined,
-    "seed recommendation responses",
+  const respSeedRes = await trace.time("seed_recommendation_responses", () =>
+    safeCall(
+      () => ensureRecommendationResponsesSeeded(),
+      undefined,
+      "seed recommendation responses",
+    ),
   );
   if (respSeedRes.error) errors.push(respSeedRes.error);
 
@@ -185,35 +198,41 @@ export async function loadLiveRecommendationQueue(
   const snapshotsSince = new Date(NOW_MS - 120 * 86_400_000)
     .toISOString()
     .slice(0, 10);
-  const freshCanonRes = await safeCall(
-    () => loadFreshCanonicalData({ observationsSince, snapshotsSince }),
-    {
-      trackedPrompts: [],
-      promptAnswerObservations: [],
-      trackedEntities: [],
-      dailyMetricSnapshots: [],
-    },
-    "fetch fresh canonical data",
+  const freshCanonRes = await trace.time("loadFreshCanonicalData", () =>
+    safeCall(
+      () => loadFreshCanonicalData({ observationsSince, snapshotsSince }),
+      {
+        trackedPrompts: [],
+        promptAnswerObservations: [],
+        trackedEntities: [],
+        dailyMetricSnapshots: [],
+      },
+      "fetch fresh canonical data",
+    ),
   );
   if (freshCanonRes.error) errors.push(freshCanonRes.error);
   const { trackedPrompts, promptAnswerObservations, trackedEntities } =
     freshCanonRes.value;
 
-  const matrixRes = await safeCall(
-    () =>
-      buildPromptDecisionMatrix({
-        prompts: trackedPrompts,
-        observations: promptAnswerObservations,
-        activeEntities: trackedEntities,
-        now: opts.now ?? new Date(),
-      }),
-    null,
-    "build decision matrix",
+  const matrixRes = await trace.time("buildPromptDecisionMatrix", () =>
+    safeCall(
+      () =>
+        buildPromptDecisionMatrix({
+          prompts: trackedPrompts,
+          observations: promptAnswerObservations,
+          activeEntities: trackedEntities,
+          now: opts.now ?? new Date(),
+        }),
+      null,
+      "build decision matrix",
+    ),
   );
   if (matrixRes.error) errors.push(matrixRes.error);
   const matrix = matrixRes.value;
 
   if (!matrix) {
+    trace.data("outcome", "no_matrix");
+    trace.flush();
     return {
       queue: [],
       watchlist: [],
@@ -230,17 +249,20 @@ export async function loadLiveRecommendationQueue(
   }
 
   const candidates = (
-    await safeCall(
-      () =>
-        generateRecommendations({
-          matrix,
-          activeEntities: trackedEntities,
-          trackedPrompts,
-        }),
-      [],
-      "generate candidates",
+    await trace.time("generateRecommendations", () =>
+      safeCall(
+        () =>
+          generateRecommendations({
+            matrix,
+            activeEntities: trackedEntities,
+            trackedPrompts,
+          }),
+        [],
+        "generate candidates",
+      ),
     )
   ).value;
+  trace.data("candidates_count", candidates.length);
 
   // Phase 14 (2026-04-24): fetch pages + snapshots via the repository
   // instead of importing the seeded `allPages` module. The seeded
@@ -249,81 +271,104 @@ export async function loadLiveRecommendationQueue(
   // same data; both backends already cache appropriately.
   // Sprint 7 Phase 7.5b Commit 3 (2026-04-25) — tenant-bound reads.
   // `tenantId` is required by `LoadLiveRecommendationQueueOptions` (Phase 7.3).
-  const pages = (
-    await safeCall(
-      async () => getRepository().forTenant(tenantId).getPages(),
-      [] as PageEntity[],
-      "fetch pages",
-    )
-  ).value;
-  const pageSnapshots = (
-    await safeCall(
-      async () => getRepository().forTenant(tenantId).getPageSnapshots(),
-      [],
-      "fetch page snapshots",
-    )
-  ).value;
+  const [pagesValue, pageSnapshotsValue] = await trace.time(
+    "pages+snapshots_parallel",
+    () =>
+      Promise.all([
+        trace.time("tenantRepo.getPages", async () =>
+          safeCall(
+            async () => getRepository().forTenant(tenantId).getPages(),
+            [] as PageEntity[],
+            "fetch pages",
+          ).then((r) => r.value),
+        ),
+        trace.time("tenantRepo.getPageSnapshots", async () =>
+          safeCall(
+            async () => getRepository().forTenant(tenantId).getPageSnapshots(),
+            [],
+            "fetch page snapshots",
+          ).then((r) => r.value),
+        ),
+      ]),
+  );
+  const pages = pagesValue;
+  const pageSnapshots = pageSnapshotsValue;
+  trace.data("pages_count", pages.length);
+  trace.data("page_snapshots_count", pageSnapshots.length);
 
   const pageInventory = (
-    await safeCall(
-      () =>
-        buildPageInventory({
-          pages,
-          snapshots: pageSnapshots,
-          activeEntities: trackedEntities,
-        }),
-      [],
-      "build page inventory",
+    await trace.time("buildPageInventory", () =>
+      safeCall(
+        () =>
+          buildPageInventory({
+            pages,
+            snapshots: pageSnapshots,
+            activeEntities: trackedEntities,
+          }),
+        [],
+        "build page inventory",
+      ),
     )
   ).value;
 
   const resolved: ResolvedRecommendationCandidate[] = (
-    await safeCall(
-      () =>
-        resolvePageIntent({
-          candidates,
-          observations: promptAnswerObservations,
-          activeEntities: trackedEntities,
-          pageInventory,
-        }),
-      [] as ResolvedRecommendationCandidate[],
-      "resolve page intent",
+    await trace.time("resolvePageIntent", () =>
+      safeCall(
+        () =>
+          resolvePageIntent({
+            candidates,
+            observations: promptAnswerObservations,
+            activeEntities: trackedEntities,
+            pageInventory,
+          }),
+        [] as ResolvedRecommendationCandidate[],
+        "resolve page intent",
+      ),
     )
   ).value;
 
-  const adjudicated: ResolvedRecommendationCandidate[] = [];
-  for (const candidate of resolved) {
-    const result = await safeCall(
-      () =>
-        adjudicateFromCacheOnly({
-          tenantId,
-          candidate,
-          matrixPrompts: matrix.prompts,
-          trackedPrompts,
-          activeEntities: trackedEntities,
-          observations: promptAnswerObservations,
-          pageInventory,
-        }),
-      null,
-      `adjudicator cache read ${candidate.stableKey}`,
-    );
-    if (result.value && result.value.status === "ok") {
-      adjudicated.push(
-        applyAdjudicationToResolution(candidate, result.value.output),
-      );
-    } else {
-      adjudicated.push(candidate);
-    }
-  }
+  const adjudicated: ResolvedRecommendationCandidate[] = await trace.time(
+    "adjudicator_loop",
+    async () => {
+      const out: ResolvedRecommendationCandidate[] = [];
+      for (const candidate of resolved) {
+        const result = await safeCall(
+          () =>
+            adjudicateFromCacheOnly({
+              tenantId,
+              candidate,
+              matrixPrompts: matrix.prompts,
+              trackedPrompts,
+              activeEntities: trackedEntities,
+              observations: promptAnswerObservations,
+              pageInventory,
+            }),
+          null,
+          `adjudicator cache read ${candidate.stableKey}`,
+        );
+        if (result.value && result.value.status === "ok") {
+          out.push(
+            applyAdjudicationToResolution(candidate, result.value.output),
+          );
+        } else {
+          out.push(candidate);
+        }
+      }
+      return out;
+    },
+  );
+  trace.data("adjudicated_count", adjudicated.length);
 
   const prioritized = (
-    await safeCall(
-      () => prioritizeRecommendations(adjudicated),
-      {
-        queue: [] as PrioritizedRecommendation[],
-        watchlist: [] as RecommendationCandidate[],
-      },
-      "prioritize recommendations",
+    await trace.time("prioritizeRecommendations", () =>
+      safeCall(
+        () => prioritizeRecommendations(adjudicated),
+        {
+          queue: [] as PrioritizedRecommendation[],
+          watchlist: [] as RecommendationCandidate[],
+        },
+        "prioritize recommendations",
+      ),
     )
   ).value;
 
@@ -332,10 +377,12 @@ export async function loadLiveRecommendationQueue(
   // load it here so the rec carries its trust label and the page
   // doesn't double-fetch. Failure here gracefully degrades — recs get
   // engineConfidence = "low" with reason "no_edits".
-  const editsRes = await safeCall(
-    () => getRepository().forTenant(tenantId).getRecommendedEdits(),
-    [] as RecommendedEditRow[],
-    "fetch recommended_edits",
+  const editsRes = await trace.time("tenantRepo.getRecommendedEdits", () =>
+    safeCall(
+      () => getRepository().forTenant(tenantId).getRecommendedEdits(),
+      [] as RecommendedEditRow[],
+      "fetch recommended_edits",
+    ),
   );
   if (editsRes.error) errors.push(editsRes.error);
   const recommendedEdits = editsRes.value;
@@ -355,6 +402,7 @@ export async function loadLiveRecommendationQueue(
     .map((e) => e.name)
     .filter((n) => n.length >= 3);
 
+  trace.mark("decoration_loop_start");
   const decoratedQueue: LiveRecQueueItem[] = prioritized.queue.map((rec) => {
     const edits = editsByRecId.get(rec.stableKey) ?? [];
     const affectedPromptIds = rec.affectedPromptIds ?? [];
@@ -392,6 +440,9 @@ export async function loadLiveRecommendationQueue(
     });
     return { ...rec, engineConfidence };
   });
+  trace.mark("decoration_loop_end");
+  trace.data("queue_count", decoratedQueue.length);
+  trace.data("watchlist_count", prioritized.watchlist.length);
 
   // T-CompPageBlueprints (2026-05-08) — load competitor page
   // structural snapshots (manual scanner output) and assemble the
@@ -401,10 +452,14 @@ export async function loadLiveRecommendationQueue(
   // gets real h1/topH2s/faqQuestions/metaDescription instead of
   // hardcoded null/[]. Empty Map preserves byte-identical pre-patch
   // behavior for tenants that haven't run the scanner.
-  const compSnapshotsRes = await safeCall(
-    () => getCompetitorPageSnapshotsByUrl(),
-    new Map<string, CompetitorPageSnapshot>(),
-    "load competitor page snapshots",
+  const compSnapshotsRes = await trace.time(
+    "getCompetitorPageSnapshotsByUrl",
+    () =>
+      safeCall(
+        () => getCompetitorPageSnapshotsByUrl(),
+        new Map<string, CompetitorPageSnapshot>(),
+        "load competitor page snapshots",
+      ),
   );
   if (compSnapshotsRes.error) errors.push(compSnapshotsRes.error);
   const competitorPageSnapshotsByUrl = compSnapshotsRes.value;
@@ -417,6 +472,8 @@ export async function loadLiveRecommendationQueue(
     .map((e) => e.name)
     .filter((n) => typeof n === "string" && n.length >= 3);
 
+  trace.data("errors_count", errors.length);
+  trace.flush();
   return {
     queue: decoratedQueue,
     watchlist: prioritized.watchlist,

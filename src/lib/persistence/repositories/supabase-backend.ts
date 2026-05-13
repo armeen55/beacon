@@ -289,6 +289,11 @@ async function queryAllPagedScoped<T>(
     since?: string;
     sinceColumn?: string;
     columns?: string;
+    /** Emergency P0 (2026-05-12) — additional equality filter pushed
+     *  down to Postgres. Used by `/prompts/[id]` to limit
+     *  prompt_answer_observations to one prompt_id (15k rows → <500). */
+    eqColumn?: string;
+    eqValue?: string;
   },
 ): Promise<T[]> {
   const sb = getSupabaseAdmin();
@@ -306,6 +311,9 @@ async function queryAllPagedScoped<T>(
     if (options?.since && options?.sinceColumn) {
       query = query.gte(options.sinceColumn, options.since);
     }
+    if (options?.eqColumn && options?.eqValue !== undefined) {
+      query = query.eq(options.eqColumn, options.eqValue);
+    }
     const { data, error } = await query;
     if (error)
       throw new Error(`Supabase query failed on ${table}: ${error.message}`);
@@ -314,10 +322,14 @@ async function queryAllPagedScoped<T>(
     if (rows.length < PAGE) break;
     from += PAGE;
   }
-  const filterDesc =
-    options?.since && options?.sinceColumn
-      ? `${options.sinceColumn}>=${options.since}`
-      : null;
+  const filterDescParts: string[] = [];
+  if (options?.since && options?.sinceColumn) {
+    filterDescParts.push(`${options.sinceColumn}>=${options.since}`);
+  }
+  if (options?.eqColumn && options?.eqValue !== undefined) {
+    filterDescParts.push(`${options.eqColumn}=${options.eqValue}`);
+  }
+  const filterDesc = filterDescParts.length > 0 ? filterDescParts.join(",") : null;
   logEgress({
     table: `${table}[scoped-paged]`,
     rows: out.length,
@@ -597,14 +609,30 @@ export const supabaseBackend: SeedDataRepository = {
       // window. Without it, behavior is unchanged (full history).
       // /today + /prompts pass a 60-90-day window to avoid pulling
       // the entire 14k-row observation table on every render.
-      getPromptAnswerObservations: (options) =>
-        queryAllPagedScoped<PromptAnswerObservation>(
+      // Emergency P0 (2026-05-12) — accept optional `{ promptId }`
+      // so `/prompts/[id]` pushes the predicate down to Postgres
+      // (`.eq("prompt_id", id)`) and the row count crossing the wire
+      // drops from ~15k to typically <500.
+      getPromptAnswerObservations: (options) => {
+        const queryOpts:
+          | { since?: string; sinceColumn?: string; eqColumn?: string; eqValue?: string }
+          | undefined =
+          options?.since || options?.promptId
+            ? {
+                ...(options?.since
+                  ? { since: options.since, sinceColumn: "observed_at" }
+                  : {}),
+                ...(options?.promptId
+                  ? { eqColumn: "prompt_id", eqValue: options.promptId }
+                  : {}),
+              }
+            : undefined;
+        return queryAllPagedScoped<PromptAnswerObservation>(
           "prompt_answer_observations",
           tenantId,
-          options?.since
-            ? { since: options.since, sinceColumn: "observed_at" }
-            : undefined,
-        ),
+          queryOpts,
+        );
+      },
       getDailyMetricSnapshots: (options) =>
         queryAllPagedScoped<DailyMetricSnapshot>(
           "daily_metric_snapshots",

@@ -39,6 +39,17 @@ vi.mock("@/lib/persistence/supabase", () => {
 });
 
 // Shared fixture with one OUTRANKED prompt.
+// Emergency P0 fix (2026-05-12) — `/prompts/[id]` switched from
+// `loadFreshCanonicalData` to direct tenant-repo reads. The existing
+// canonical-store mock is preserved (harmless — page no longer
+// imports from it), and parallel mocks are added for the new repo +
+// tenant-context modules. The fixture data is identical; the
+// drilldown should render byte-equivalent HTML.
+vi.mock("@/lib/tenant-context", () => ({
+  currentTenantId: vi.fn(async () => "tenant-ritz-founder"),
+  currentTenant: vi.fn(async () => "tenant-ritz-founder"),
+}));
+
 vi.mock("@/storage/canonical-store", async () => {
   const trackedPrompts = [
     {
@@ -166,6 +177,14 @@ vi.mock("@/storage/canonical-store", async () => {
     },
   ];
 
+  // Stash on globalThis so the parallel `vi.mock("@/lib/persistence/repositories")`
+  // below can read the same fixture arrays.
+  (globalThis as Record<string, unknown>).__PROMPT_DRILLDOWN_FIXTURE__ = {
+    trackedPrompts,
+    trackedEntities,
+    promptAnswerObservations,
+  };
+
   return {
     ensureCanonicalStoresSeeded: vi.fn(async () => {}),
     // Phase 4.9: render paths use loadFreshCanonicalData; mock returns
@@ -184,6 +203,34 @@ vi.mock("@/storage/canonical-store", async () => {
     outcomeEvents: [],
     candidateCauses: [],
     eventDecisions: [],
+  };
+});
+
+vi.mock("@/lib/persistence/repositories", () => {
+  return {
+    getRepository: () => ({
+      forTenant: () => {
+        const fixture = (globalThis as Record<string, unknown>)
+          .__PROMPT_DRILLDOWN_FIXTURE__ as
+          | { trackedPrompts: unknown[]; trackedEntities: unknown[]; promptAnswerObservations: { prompt_id: string }[] }
+          | undefined;
+        const trackedPrompts = fixture?.trackedPrompts ?? [];
+        const trackedEntities = fixture?.trackedEntities ?? [];
+        const promptAnswerObservations = fixture?.promptAnswerObservations ?? [];
+        return {
+          getTrackedPrompts: vi.fn(async () => trackedPrompts),
+          getTrackedEntities: vi.fn(async () => trackedEntities),
+          getPromptAnswerObservations: vi.fn(
+            async (options?: { promptId?: string }) => {
+              if (!options?.promptId) return promptAnswerObservations;
+              return promptAnswerObservations.filter(
+                (o) => o.prompt_id === options.promptId,
+              );
+            },
+          ),
+        };
+      },
+    }),
   };
 });
 

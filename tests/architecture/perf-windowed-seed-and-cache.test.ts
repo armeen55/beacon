@@ -132,20 +132,28 @@ describe("Per-request cache: scan_findings reader", () => {
   });
 });
 
-describe("/prompts: snapshotsSince window passed", () => {
+describe("/prompts: observation window narrowed + parallel reads (emergency P0 2026-05-12)", () => {
   const src = read("src/app/(shell)/prompts/page.tsx");
 
-  it("computes a snapshotsSince ISO string", () => {
-    // Match the calendar-day pattern `Date.now() - N * 86_400_000`.
+  it("computes an observationsSince ISO string (14-day window for the classifier)", () => {
     expect(src).toMatch(
-      /const\s+snapshotsSince\s*=\s*new Date\(\s*Date\.now\(\)\s*-\s*\d+\s*\*\s*86_400_000\s*\)\s*\.toISOString\(\)/,
+      /const\s+observationsSince\s*=\s*new Date\(\s*Date\.now\(\)\s*-\s*14\s*\*\s*86_400_000\s*\)\s*\.toISOString\(\)/,
     );
   });
 
-  it("passes both observationsSince AND snapshotsSince to loadFreshCanonicalData", () => {
-    expect(src).toMatch(
-      /loadFreshCanonicalData\(\s*\{\s*observationsSince,\s*snapshotsSince\s*\}\s*\)/,
+  it("uses direct tenant-repo parallel reads instead of loadFreshCanonicalData", () => {
+    const stripped = src
+      .replace(/^\s*\/\/.*$/gm, "")
+      .replace(/\/\*[\s\S]*?\*\//g, "");
+    expect(stripped).toMatch(/getRepository\(\)\.forTenant\(\s*tenantId\s*\)/);
+    expect(stripped).toMatch(/tenantRepo\.getTrackedPrompts\(\)/);
+    expect(stripped).toMatch(
+      /tenantRepo\.getPromptAnswerObservations\(\s*\{\s*since:\s*observationsSince\s*\}\s*\)/,
     );
+    expect(stripped).toMatch(/tenantRepo\.getTrackedEntities\(\)/);
+    expect(stripped).not.toMatch(/loadFreshCanonicalData\s*\(/);
+    // `daily_metric_snapshots` is no longer read on this route.
+    expect(stripped).not.toMatch(/snapshotsSince/);
   });
 });
 

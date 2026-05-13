@@ -77,6 +77,67 @@ export default async function RecommendationDetailPage({
   }
 
   const tenantId = await currentTenantId();
+
+  // Emergency P0 fix (2026-05-12) — cheap existence check BEFORE
+  // loading the live queue.
+  //
+  // Production trace measured `loadLiveRecommendationQueue` at
+  // **15,566 ms** even for an unknown rec id (the route returned the
+  // calm not-found state, but only after waiting 15+ seconds for the
+  // full queue to compute). The slow path was redundant: by the time
+  // a user lands on a stale `/recommendations/<id>` URL, the rec is
+  // almost certainly no longer in the live queue, so the queue load
+  // is pure wasted work.
+  //
+  // Cheap check: extract the `stableKey` prefix from the decoded
+  // route id (`<stableKey>::<edit-or-meta-suffix>`) and look it up
+  // in two SMALL tenant-scoped tables:
+  //   - `recommended_edits.rec_id` — the engine writes one row per
+  //     actionable rec; ~50 rows in production.
+  //   - `recommendation_responses.recId` — only populated after the
+  //     user accepts/defers/dismisses; even smaller.
+  // If neither contains the stableKey, the rec is definitively
+  // stale — short-circuit to the not-found state in <500 ms instead
+  // of waiting 15 s for the queue.
+  //
+  // False-negative case: a rec that was just generated this minute
+  // and whose `recommended_edits` row hasn't been written yet would
+  // briefly see not-found. The daily engine pipeline writes the
+  // edit at the same time it queues the rec, so in practice every
+  // user-clickable rec has an edit. Accepted minor UX trade-off vs
+  // the 15 s slow path.
+  const firstDelimIdx = decodedId.indexOf("::");
+  const stableKeyCandidate =
+    firstDelimIdx >= 0 ? decodedId.slice(0, firstDelimIdx) : decodedId;
+
+  const [editsRowsRes, responseRowsRes] = await trace.time(
+    "cheap_existence_check",
+    () =>
+      Promise.all([
+        safeCall(
+          () => getRepository().forTenant(tenantId).getRecommendedEdits(),
+          [] as RecommendedEditRow[],
+          "cheap_existence_check.recommended_edits",
+        ),
+        safeCall(
+          () =>
+            getRepository().forTenant(tenantId).getRecommendationResponses(),
+          [] as RecommendationResponse[],
+          "cheap_existence_check.recommendation_responses",
+        ),
+      ]),
+  );
+
+  const knownStableKeys = new Set<string>();
+  for (const row of editsRowsRes.value) knownStableKeys.add(row.rec_id);
+  for (const row of responseRowsRes.value) knownStableKeys.add(row.recId);
+
+  if (!knownStableKeys.has(stableKeyCandidate)) {
+    trace.data("outcome", "not_found_fast_path");
+    trace.data("known_stable_keys", knownStableKeys.size);
+    return <RecommendationDetailNotFound />;
+  }
+
   const live = await trace.time("loadLiveRecommendationQueue", () =>
     loadLiveRecommendationQueue({ tenantId }),
   );

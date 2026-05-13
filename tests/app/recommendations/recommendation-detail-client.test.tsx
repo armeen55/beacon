@@ -279,8 +279,14 @@ describe("Bundle 2B — RecommendationDetailNotFound", () => {
   it("renders the customer-safe not-found state with a back-to-list CTA", () => {
     const html = renderToStaticMarkup(<RecommendationDetailNotFound />);
     expect(html).toContain('data-recommendations-detail-not-found="true"');
-    expect(html).toContain("This recommendation is no longer available.");
-    expect(html).toContain("Beacon may have already resolved or dismissed it.");
+    // Emergency P0 fix (2026-05-12) — copy updated from "no longer
+    // available" to "no longer active" + explains the cause in
+    // concrete terms (resolved/dismissed/replaced) so users can
+    // distinguish stale URLs from genuinely missing recs.
+    expect(html).toContain("This recommendation is no longer active.");
+    expect(html).toContain(
+      "Beacon may have already resolved, dismissed, or replaced it.",
+    );
     expect(html).toContain('data-recommendations-detail-back-cta="true"');
     expect(html).toContain("Back to recommendations →");
   });

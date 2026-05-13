@@ -27,10 +27,10 @@ export function RecommendationDetailNotFound() {
         role="status"
       >
         <p className="text-[14px] font-semibold text-foreground">
-          This recommendation is no longer available.
+          This recommendation is no longer active.
         </p>
         <p className="mt-1.5 text-[12px] text-muted-foreground leading-relaxed max-w-md mx-auto">
-          Beacon may have already resolved or dismissed it.
+          Beacon may have already resolved, dismissed, or replaced it.
         </p>
         <Link
           href="/recommendations?v2=1"

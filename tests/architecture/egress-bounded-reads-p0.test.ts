@@ -111,18 +111,29 @@ describe("EGRESS-P0.2 — /settings/prompts reads only the small tracked_prompts
   });
 });
 
-describe("EGRESS-P0.3 — /prompts/[id] passes a 60-day observation window", () => {
-  it("calls loadFreshCanonicalData with observationsSince", () => {
+describe("EGRESS-P0.3 — /prompts/[id] uses a prompt-scoped, windowed observation read", () => {
+  // Emergency P0 fix (2026-05-12) — the page no longer calls
+  // `loadFreshCanonicalData`. It reads directly from the tenant repo
+  // with a `promptId` filter so Postgres returns only the rows for
+  // ONE prompt (cuts ~15k rows → <500). The window stays at 60 days
+  // to cover the classifier's worst-case lookback. See
+  // `tests/architecture/perf-prompts-scoped-reads.test.ts` for the
+  // full new-architecture pin.
+
+  it("uses a prompt-scoped tenant-repo read instead of loadFreshCanonicalData", () => {
     expect(PROMPTS_DETAIL_SRC).toMatch(
-      /loadFreshCanonicalData\(\{[\s\S]{0,200}observationsSince/,
+      /tenantRepo\.getPromptAnswerObservations\(\s*\{[\s\S]*?promptId/,
     );
+    // Comments may still mention `loadFreshCanonicalData` to explain
+    // the old behavior; strip comments before the negative pin.
+    const stripped = PROMPTS_DETAIL_SRC.replace(/^\s*\/\/.*$/gm, "").replace(
+      /\/\*[\s\S]*?\*\//g,
+      "",
+    );
+    expect(stripped).not.toMatch(/loadFreshCanonicalData\s*\(/);
   });
 
-  it("does NOT call bare loadFreshCanonicalData() with no args", () => {
-    expect(PROMPTS_DETAIL_SRC).not.toMatch(/loadFreshCanonicalData\(\s*\)/);
-  });
-
-  it("uses a 60-day observations window", () => {
+  it("uses a 60-day observations window (covers the classifier worst-case lookback)", () => {
     expect(PROMPTS_DETAIL_SRC).toMatch(/60\s*\*\s*86_400_000/);
   });
 });

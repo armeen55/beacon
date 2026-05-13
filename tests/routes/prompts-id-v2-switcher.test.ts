@@ -139,6 +139,14 @@ vi.mock("@/storage/canonical-store", async () => {
     citation_rank: 1,
   }));
 
+  // Emergency P0 fix (2026-05-12) — `/prompts/[id]` reads via the
+  // tenant repo. Stash fixture for the parallel mock below.
+  (globalThis as Record<string, unknown>).__PROMPTS_ID_SWITCHER_FIXTURE__ = {
+    trackedPrompts,
+    trackedEntities,
+    promptAnswerObservations,
+  };
+
   return {
     ensureCanonicalStoresSeeded: vi.fn(async () => {}),
     loadFreshCanonicalData: vi.fn(async () => ({
@@ -157,6 +165,35 @@ vi.mock("@/storage/canonical-store", async () => {
     eventDecisions: [],
   };
 });
+
+vi.mock("@/lib/tenant-context", () => ({
+  currentTenantId: vi.fn(async () => "tenant-ritz-founder"),
+  currentTenant: vi.fn(async () => "tenant-ritz-founder"),
+}));
+
+vi.mock("@/lib/persistence/repositories", () => ({
+  getRepository: () => ({
+    forTenant: () => {
+      const fixture = (globalThis as Record<string, unknown>)
+        .__PROMPTS_ID_SWITCHER_FIXTURE__ as
+        | { trackedPrompts: unknown[]; trackedEntities: unknown[]; promptAnswerObservations: { prompt_id: string }[] }
+        | undefined;
+      const promptAnswerObservations = fixture?.promptAnswerObservations ?? [];
+      return {
+        getTrackedPrompts: vi.fn(async () => fixture?.trackedPrompts ?? []),
+        getTrackedEntities: vi.fn(async () => fixture?.trackedEntities ?? []),
+        getPromptAnswerObservations: vi.fn(
+          async (options?: { promptId?: string }) => {
+            if (!options?.promptId) return promptAnswerObservations;
+            return promptAnswerObservations.filter(
+              (o) => o.prompt_id === options.promptId,
+            );
+          },
+        ),
+      };
+    },
+  }),
+}));
 
 async function render(
   promptId: string,

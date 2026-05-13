@@ -244,27 +244,38 @@ describe("Sprint 4 / Phase 4.9 — canonical-store fresh-per-render", () => {
       expect(loadQueueSrc).toMatch(/loadFreshCanonicalData\(/);
     });
 
-    it("/prompts imports loadFreshCanonicalData AND does not import the module arrays", () => {
+    it("/prompts uses direct tenant-repo reads (emergency P0 2026-05-12)", () => {
+      // Emergency P0 fix — `/prompts` no longer reads via
+      // `loadFreshCanonicalData` (which fanned out 4 parallel reads
+      // including the unused `daily_metric_snapshots`). It reads
+      // directly from the tenant repo on a 14-day window. See
+      // `tests/architecture/perf-prompts-scoped-reads.test.ts` and
+      // `tests/architecture/supabase-egress-windowing.test.ts` for
+      // the full new-architecture pin.
       const canonImports = SRC.prompts.match(
         /import\s+\{[^}]+\}\s+from\s+["']@\/storage\/canonical-store["']/g,
       );
-      expect(canonImports).not.toBeNull();
-      const joined = canonImports!.join("\n");
-      expect(joined).toMatch(/\bloadFreshCanonicalData\b/);
-      expect(joined).not.toMatch(
-        /\b(?:trackedPrompts|promptAnswerObservations|trackedEntities)\b/,
+      expect(canonImports).toBeNull();
+      expect(SRC.prompts).toMatch(
+        /from\s+["']@\/lib\/persistence\/repositories["']/,
       );
+      expect(SRC.prompts).toMatch(/tenantRepo\.getTrackedPrompts\(\)/);
     });
 
-    it("/prompts/[id] imports loadFreshCanonicalData AND does not import the module arrays", () => {
+    it("/prompts/[id] uses prompt-scoped tenant-repo reads (emergency P0 2026-05-12)", () => {
+      // Emergency P0 fix — `/prompts/[id]` no longer reads via
+      // `loadFreshCanonicalData`. It pushes `prompt_id = $1` down
+      // to Postgres via the tenant-repo's new `promptId` option, so
+      // the row count crossing the wire drops from ~15k to <500.
       const canonImports = SRC.promptDetail.match(
         /import\s+\{[^}]+\}\s+from\s+["']@\/storage\/canonical-store["']/g,
       );
-      expect(canonImports).not.toBeNull();
-      const joined = canonImports!.join("\n");
-      expect(joined).toMatch(/\bloadFreshCanonicalData\b/);
-      expect(joined).not.toMatch(
-        /\b(?:trackedPrompts|promptAnswerObservations|trackedEntities)\b/,
+      expect(canonImports).toBeNull();
+      expect(SRC.promptDetail).toMatch(
+        /from\s+["']@\/lib\/persistence\/repositories["']/,
+      );
+      expect(SRC.promptDetail).toMatch(
+        /tenantRepo\.getPromptAnswerObservations\(\s*\{[\s\S]*?promptId/,
       );
     });
 
@@ -308,21 +319,19 @@ describe("Sprint 4 / Phase 4.9 — canonical-store fresh-per-render", () => {
     it("all five render paths call loadFreshCanonicalData() at render time (directly OR via loadLiveRecommendationQueue)", () => {
       // Phase 14 (2026-04-24): /recommendations no longer calls
       // `loadFreshCanonicalData()` directly — the call moved into
-      // `loadLiveRecommendationQueue`. The other four render paths
-      // still call it directly.
+      // `loadLiveRecommendationQueue`.
       //
-      // E3 (2026-05-05): loosen the match to accept the optional
-      // `{ observationsSince, snapshotsSince }` window argument that
-      // /today + /prompts now pass. Empty-paren AND option-arg forms
-      // both qualify as "calls loadFreshCanonicalData() at render time."
-      // Deploy hardening (2026-05-12) — `/settings/prompts` was
-      // removed from this list. The page now reads `tracked_prompts`
-      // directly via the tenant repo, not through
-      // `loadFreshCanonicalData`. See deploy-settings-prompts-dynamic
-      // and egress-bounded-reads-p0 EGRESS-P0.2 for the new contract.
+      // Emergency P0 fix (2026-05-12) — `/prompts` and `/prompts/[id]`
+      // were also removed from this list. They now read directly from
+      // the tenant repo (with a `since` window + optional `promptId`)
+      // because `loadFreshCanonicalData` was a 4-table fan-out costing
+      // 8-11 s in production for routes that only needed observations.
+      // See `tests/architecture/perf-prompts-scoped-reads.test.ts` for
+      // the new-architecture pin.
+      //
+      // Only today-data.ts still calls `loadFreshCanonicalData` at
+      // render time (it consumes all four canonical tables).
       const directTargets = [
-        { name: "/prompts", src: SRC.prompts },
-        { name: "/prompts/[id]", src: SRC.promptDetail },
         { name: "today-data.ts", src: SRC.todayData },
       ];
       for (const { name, src } of directTargets) {

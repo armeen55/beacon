@@ -66,9 +66,13 @@ describe("E3 — TenantRepository accepts a windowed-read option", () => {
   it("types.ts declares WindowedReadOptions and threads it through", () => {
     const src = readFileSync(REPO_TYPES, "utf-8");
     expect(src.includes("WindowedReadOptions")).toBe(true);
+    // Emergency P0 fix (2026-05-12) — `getPromptAnswerObservations`
+    // now accepts `ScopedObservationReadOptions` which is a superset
+    // of `WindowedReadOptions` (adds optional `promptId`). Accept
+    // either name in the type position.
     expect(
       src.match(
-        /getPromptAnswerObservations\(\s*\n?\s*options\?:\s*WindowedReadOptions/,
+        /getPromptAnswerObservations\(\s*\n?\s*options\?:\s*(WindowedReadOptions|ScopedObservationReadOptions)/,
       ),
     ).not.toBeNull();
     expect(
@@ -143,16 +147,23 @@ describe("E3 — /today calls loadFreshCanonicalData with date windows", () => {
   });
 });
 
-describe("E3 — /prompts calls loadFreshCanonicalData with a date window", () => {
-  it("prompts/page.tsx passes observationsSince to loadFreshCanonicalData", () => {
+describe("E3 — /prompts uses a bounded, direct tenant-repo observation read", () => {
+  it("prompts/page.tsx reads observations via tenantRepo with a since window (emergency P0 2026-05-12)", () => {
     const src = readFileSync(PROMPTS_PAGE, "utf-8");
-    expect(src.includes("60 * 86_400_000")).toBe(true);
+    // Now a 14-day window (post-emergency-P0 narrowing — classifier
+    // lookback default is 7 days). The route no longer calls
+    // `loadFreshCanonicalData`; it issues direct tenant-repo reads
+    // in parallel.
+    expect(src.includes("14 * 86_400_000")).toBe(true);
     expect(src.includes("observationsSince")).toBe(true);
-    // The default un-windowed call should be gone.
     expect(
-      src.match(/await loadFreshCanonicalData\(\)/),
-      "prompts/page.tsx must call loadFreshCanonicalData with a window option (E3)",
-    ).toBeNull();
+      src.match(/tenantRepo\.getPromptAnswerObservations\(\s*\{\s*since:/),
+      "prompts/page.tsx must read observations via tenantRepo with a since window",
+    ).not.toBeNull();
+    const stripped = src
+      .replace(/^\s*\/\/.*$/gm, "")
+      .replace(/\/\*[\s\S]*?\*\//g, "");
+    expect(stripped).not.toMatch(/loadFreshCanonicalData\s*\(/);
   });
 });
 

@@ -87,15 +87,32 @@ export function buildTenantRepo(
       });
     },
     getPromptAnswerObservations: async (options) => {
+      // Emergency P0 fix (2026-05-12) — push the `promptId` filter
+      // down to the base read. For the Supabase backend that's a
+      // `.eq("prompt_id", id)` server-side filter (the row count
+      // crossing the wire drops from ~15,000 to typically <500).
+      // For the file backend it's an in-memory filter (cheap; the
+      // array is hot in process). Both `since` and `promptId` are
+      // applied; either may be omitted.
       const all = filterByTenantId(
-        await base.getPromptAnswerObservations(),
+        await base.getPromptAnswerObservations(
+          options?.promptId ? { promptId: options.promptId } : undefined,
+        ),
         tenantId,
       );
-      if (!options?.since) return all;
-      const since = options.since;
+      const since = options?.since;
+      const promptId = options?.promptId;
+      if (!since && !promptId) return all;
       return all.filter((row) => {
-        const o = (row as { observed_at?: string }).observed_at;
-        return typeof o === "string" && o >= since;
+        if (promptId) {
+          const p = (row as { prompt_id?: string }).prompt_id;
+          if (p !== promptId) return false;
+        }
+        if (since) {
+          const o = (row as { observed_at?: string }).observed_at;
+          if (typeof o !== "string" || o < since) return false;
+        }
+        return true;
       });
     },
     getUrlChangeOutcomes: async () =>

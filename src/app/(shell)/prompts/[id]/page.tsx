@@ -3,11 +3,9 @@ import "server-only";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { cn } from "@/lib/utils";
-import {
-  ensureCanonicalStoresSeeded,
-  loadFreshCanonicalData,
-} from "@/storage/canonical-store";
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
+import { getRepository } from "@/lib/persistence/repositories";
+import { currentTenantId } from "@/lib/tenant-context";
 import { buildPromptDrilldown } from "@/domains/prompts/prompt-drilldown";
 import type { PromptOpportunityCategory } from "@/domains/prompts/opportunity-classify";
 import {
@@ -88,26 +86,46 @@ export default async function PromptDrilldownPage({
   const promptId = decoded;
   const useV2 = shouldUsePromptsDetailV2(sp);
 
-  await trace.time("ensureCanonicalStoresSeeded", () =>
-    ensureCanonicalStoresSeeded(),
-  );
-
-  // Phase 4.9 (Sprint 4, 2026-04-24): fresh per-render canonical read.
-  // EGRESS-P0 (2026-05-07): bound the observation window. The page only
-  // shows the last 10 observations for the prompt anyway (line 57) so a
-  // 60-day window is plenty. Snapshots window not consumed here; tight.
+  // Emergency P0 fix (2026-05-12) — prompt-scoped repo reads.
+  //
+  // Production trace measured `/prompts/[id]` at **11+ seconds** with
+  // `loadFreshCanonicalData` alone taking ~11s pulling all 15,125
+  // observations across all 100 tracked prompts — only to filter to
+  // ONE prompt below. The waste was structural: 4-table fan-out via
+  // `loadFreshCanonicalData` when this page needs:
+  //   • `tracked_prompts` (small, ~100 rows) — to find one prompt
+  //   • `tracked_entities` (small, ~40 rows) — for drilldown
+  //   • `prompt_answer_observations` WHERE prompt_id = $1 — small
+  //     (~50–500 rows for one prompt's 60-day window) instead of 15k
+  //   • snapshots and the canonical seed: NOT needed here
+  //
+  // The three direct repo reads run in parallel; the
+  // `prompt_answer_observations` query pushes `prompt_id = $1` down
+  // to Postgres so the row count crossing the wire drops from
+  // ~15,000 to typically <500. Expected /prompts/[id] loader time:
+  // 11s → ~1s in production.
   const NOW_MS = Date.now();
   const observationsSince = new Date(NOW_MS - 60 * 86_400_000).toISOString();
-  const snapshotsSince = new Date(NOW_MS - 1 * 86_400_000)
-    .toISOString()
-    .slice(0, 10);
-  const {
-    trackedPrompts,
-    trackedEntities,
-    promptAnswerObservations,
-  } = await trace.time("loadFreshCanonicalData", () =>
-    loadFreshCanonicalData({ observationsSince, snapshotsSince }),
-  );
+  const tenantId = await currentTenantId();
+  const tenantRepo = getRepository().forTenant(tenantId);
+  const [trackedPrompts, trackedEntities, promptAnswerObservations] =
+    await trace.time("prompt_scoped_reads", () =>
+      Promise.all([
+        trace.time("tenantRepo.getTrackedPrompts", () =>
+          tenantRepo.getTrackedPrompts(),
+        ),
+        trace.time("tenantRepo.getTrackedEntities", () =>
+          tenantRepo.getTrackedEntities(),
+        ),
+        trace.time("tenantRepo.getPromptAnswerObservations(scoped)", () =>
+          tenantRepo.getPromptAnswerObservations({
+            since: observationsSince,
+            promptId,
+          }),
+        ),
+      ]),
+    );
+  trace.data("observations_count", promptAnswerObservations.length);
 
   const prompt = trackedPrompts.find((p) => p.id === promptId);
   if (!prompt) notFound();

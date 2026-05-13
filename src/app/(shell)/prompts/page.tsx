@@ -4,10 +4,8 @@ import Link from "next/link";
 import { PageHeader } from "@/components/data/page-header";
 import { cn } from "@/lib/utils";
 import { prettifySlug } from "./[id]/page";
-import {
-  ensureCanonicalStoresSeeded,
-  loadFreshCanonicalData,
-} from "@/storage/canonical-store";
+import { getRepository } from "@/lib/persistence/repositories";
+import { currentTenantId } from "@/lib/tenant-context";
 import {
   buildPromptDecisionMatrix,
   type CategoryGroupSummary,
@@ -64,41 +62,47 @@ export default async function PromptsPage({
   const params = await (searchParams ?? Promise.resolve({}));
   const useV2 = shouldUsePromptsV2(params);
   trace.data("use_v2", useV2 ? "true" : "false");
-  // Seed canonical stores once per lambda — kept so non-render consumers
-  // (prompt-library, url-citation-history) still populate their module-level
-  // arrays. Render path below does NOT read from those; it fetches fresh.
-  await trace.time("ensureCanonicalStoresSeeded", () =>
-    ensureCanonicalStoresSeeded(),
-  );
-
-  // Phase 4.9 (Sprint 4, 2026-04-24): fresh canonical data per render.
-  // Module-level arrays are seeded once per Vercel lambda; after the
-  // 07:00 UTC poll writes fresh observations to Supabase, already-warm
-  // lambdas served yesterday's prompt-decision matrix until cold-recycled.
+  // Emergency P0 fix (2026-05-12) — direct tenant-repo reads instead
+  // of `loadFreshCanonicalData`.
   //
-  // E3 (operator audit, 2026-05-05) — bound the observation read to
-  // 60 days. /prompts' decision matrix uses observations to score
-  // current-window mention/citation status — it doesn't need historical
-  // backfill rows. Cuts Supabase egress per /prompts render by ~80%.
-  const observationsSince = new Date(Date.now() - 60 * 86_400_000)
+  // Production trace measured `loadFreshCanonicalData` at **8,604 ms**
+  // pulling all 15,125 observations × 60 days × 100 prompts × 5
+  // platforms. The page's only consumer is `buildPromptDecisionMatrix`
+  // which uses a default 7-day classifier lookback — 60 days was 8.5×
+  // the window the matrix actually evaluates.
+  //
+  // Two structural wastes addressed here:
+  //   1. `loadFreshCanonicalData` also fetched `daily_metric_snapshots`
+  //      in parallel, which `/prompts` NEVER consumes (the matrix uses
+  //      only observations + tracked entities). Dropping the
+  //      snapshots read saves one Supabase round-trip.
+  //   2. The 60-day observations window pulled ~8× more rows than the
+  //      7-day classifier lookback needs. Narrowed to 14 days (2× the
+  //      classifier lookback, with margin for cron-lag and time-zone
+  //      slop).
+  //
+  // The three remaining reads run in parallel (Promise.all); on
+  // production this should drop `/prompts` loader time from ~8.6 s
+  // toward ~2 s. The classifier itself only took ~177 ms in the
+  // trace, so it's not the bottleneck.
+  const observationsSince = new Date(Date.now() - 14 * 86_400_000)
     .toISOString();
-  // Perf+egress bundle (2026-05-12) — /prompts NEVER renders the
-  // visibility chart or any per-snapshot trend, so pulling the full
-  // `daily_metric_snapshots` table (~24k rows) was pure waste. The
-  // decision matrix consumes only `prompt_answer_observations`.
-  // Pass a 1-day `snapshotsSince` so the repo fetches at most the
-  // last calendar day's snapshots (which today-data uses for the
-  // hero `chartEndDate` anchor; /prompts ignores the array but
-  // `loadFreshCanonicalData`'s contract returns it either way).
-  const snapshotsSince = new Date(Date.now() - 1 * 86_400_000)
-    .toISOString();
-  const {
-    trackedPrompts,
-    promptAnswerObservations,
-    trackedEntities,
-  } = await trace.time("loadFreshCanonicalData", () =>
-    loadFreshCanonicalData({ observationsSince, snapshotsSince }),
-  );
+  const tenantId = await currentTenantId();
+  const tenantRepo = getRepository().forTenant(tenantId);
+  const [trackedPrompts, promptAnswerObservations, trackedEntities] =
+    await trace.time("prompts_3_parallel_reads", () =>
+      Promise.all([
+        trace.time("tenantRepo.getTrackedPrompts", () =>
+          tenantRepo.getTrackedPrompts(),
+        ),
+        trace.time("tenantRepo.getPromptAnswerObservations(14d)", () =>
+          tenantRepo.getPromptAnswerObservations({ since: observationsSince }),
+        ),
+        trace.time("tenantRepo.getTrackedEntities", () =>
+          tenantRepo.getTrackedEntities(),
+        ),
+      ]),
+    );
   trace.data("trackedPrompts_count", trackedPrompts.length);
   trace.data("observations_count", promptAnswerObservations.length);
   trace.data("trackedEntities_count", trackedEntities.length);

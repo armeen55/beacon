@@ -176,6 +176,14 @@ vi.mock("@/storage/canonical-store", async () => {
   ];
 
   void todayIso;
+
+  // Emergency P0 fix (2026-05-12) — `/prompts` reads via tenant repo.
+  (globalThis as Record<string, unknown>).__PROMPTS_SMOKE_FIXTURE__ = {
+    trackedPrompts,
+    trackedEntities,
+    promptAnswerObservations,
+  };
+
   return {
     ensureCanonicalStoresSeeded: vi.fn(async () => {}),
     // Phase 4.9: render paths now call loadFreshCanonicalData instead of
@@ -196,6 +204,29 @@ vi.mock("@/storage/canonical-store", async () => {
     eventDecisions: [],
   };
 });
+
+vi.mock("@/lib/tenant-context", () => ({
+  currentTenantId: vi.fn(async () => "tenant-ritz-founder"),
+  currentTenant: vi.fn(async () => "tenant-ritz-founder"),
+}));
+
+vi.mock("@/lib/persistence/repositories", () => ({
+  getRepository: () => ({
+    forTenant: () => {
+      const fixture = (globalThis as Record<string, unknown>)
+        .__PROMPTS_SMOKE_FIXTURE__ as
+        | { trackedPrompts: unknown[]; trackedEntities: unknown[]; promptAnswerObservations: unknown[] }
+        | undefined;
+      return {
+        getTrackedPrompts: vi.fn(async () => fixture?.trackedPrompts ?? []),
+        getTrackedEntities: vi.fn(async () => fixture?.trackedEntities ?? []),
+        getPromptAnswerObservations: vi.fn(
+          async () => fixture?.promptAnswerObservations ?? [],
+        ),
+      };
+    },
+  }),
+}));
 
 describe("/prompts route smoke", () => {
   it("renders grouped sections with category headers, counts, and cluster notes", async () => {

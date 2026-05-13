@@ -187,6 +187,9 @@ export const fileBackend: SeedDataRepository = {
   // Phase 3.5E — hero-surface data (local mode reads same files canonical-store
   // reads at module init; arrays are already hot in memory, so these re-reads
   // return the same cached values without extra disk hits).
+  // Emergency P0 (2026-05-12) — file backend ignores the promptId option
+  // because the array is already hot in process; tenant-repo applies the
+  // filter at the boundary. Supabase backend pushes it down to the query.
   getPromptAnswerObservations: async () =>
     readStore<PromptAnswerObservation>("prompt-answer-observations"),
   getDailyMetricSnapshots: async () =>
