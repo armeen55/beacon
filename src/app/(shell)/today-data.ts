@@ -2770,21 +2770,36 @@ function deriveBrainFromTodayInputs(args: {
  * Resolve the first-reading detection result. Wraps the pure detector
  * with a fail-soft `currentTenant()` read — any error defaults to
  * `{ isFirstReading: false }` so /today never crashes.
+ *
+ * Today-perf cleanup (2026-05-12) — short-circuit the common
+ * production path before doing the tenant fetch:
+ *   1. observationCount > 0 → mature tenant; detector ALWAYS returns
+ *      `isFirstReading: false` regardless of tenant data. Skip the
+ *      `currentTenant()` call entirely.
+ *   2. activePromptCount === 0 → no prompts queued; detector ALWAYS
+ *      returns false. Skip the fetch.
+ * This removes one filesystem-equivalent registry read per /today
+ * render on Vercel (`.data/global/tenants.json` is gitignored and
+ * absent on Vercel; the prior path always threw + caught + warned
+ * for production tenants like tenant-ritz-founder). Cold tenants
+ * (no prompts yet OR zero observations) still take the original
+ * tenant-fetch path so the waiting-state card stays correct.
  */
 async function resolveFirstReadingState(args: {
   activePromptCount: number;
   observationCount: number;
 }): Promise<FirstReadingDetection> {
+  if (args.observationCount > 0 || args.activePromptCount === 0) {
+    return { isFirstReading: false };
+  }
   let tenant: Awaited<ReturnType<typeof currentTenant>> | null = null;
   try {
     tenant = await currentTenant();
-  } catch (err) {
+  } catch {
     // Tenant not in registry / store read failed — fall back to
-    // existing /today render. Logged so the operator can investigate.
-    console.warn(
-      "[today] firstReading: currentTenant() threw — defaulting to isFirstReading=false",
-      err,
-    );
+    // existing /today render. No warning: in production the registry
+    // file is gitignored on Vercel and this throw is the documented
+    // path; logging on every cold-tenant render was operator noise.
     return { isFirstReading: false };
   }
   return detectFirstReadingState({
