@@ -130,6 +130,14 @@ export function buildDailySnapshotsFromObservations(
         ? roundTo2((citationCount / totalCitationsInRun) * 100)
         : null;
 
+    // Phase 2A (2026-05-19) — Today read-model extensions.
+    // See `daily-metric-snapshots/types.ts` field docstrings for the
+    // formula rationale and the chart functions each reproduces.
+    const mentionedObsCount = countMentionedObs(observations, entity);
+    const positionWeightedCitationCount = entity.is_owned
+      ? sumPositionWeightedBrandCitations(observations)
+      : null;
+
     rows.push({
       id,
       date,
@@ -153,6 +161,10 @@ export function buildDailySnapshotsFromObservations(
         is_owned: entity.is_owned,
       },
       tenant_id: tenantId,
+      // Phase 2A read-model extensions — null on platform/topic rows.
+      cited_or_mentioned_count: null,
+      position_weighted_citation_count: positionWeightedCitationCount,
+      mentioned_obs_count: mentionedObsCount,
     });
   }
 
@@ -216,6 +228,14 @@ export function buildDailySnapshotsFromObservations(
         scope_semantics: "owned_brand_rollup",
       },
       tenant_id: tenantId,
+      // Phase 2A read-model extensions — null on topic rows. The Today
+      // visibility section reads platform + entity rows, not topic, so
+      // populating these on topic rows would add storage cost with no
+      // consumer. Phase 2B can revisit if topic-level visibility surfaces
+      // ever need the chart-equivalent formulas.
+      cited_or_mentioned_count: null,
+      position_weighted_citation_count: null,
+      mentioned_obs_count: null,
     });
   }
 
@@ -244,6 +264,17 @@ export function buildDailySnapshotsFromObservations(
         ? roundTo2((platformOwnedCitations / totalCitationsInRun) * 100)
         : null;
 
+    // Phase 2A (2026-05-19) — per-platform cited-OR-mentioned union.
+    // Formula matches `computeVisibilityTimeSeriesByPlatform` /
+    // `mentionsBrand` || `citesBrand` (visibility-score.ts:144 / 159).
+    // Stored alongside the existing mention_count + citation_count so
+    // the Phase 2B read-model loader can reproduce the chart's per-
+    // platform view without re-reading raw observations.
+    const platformCitedOrMentioned = observations.filter(
+      (o) =>
+        o.tracked_brand_cited === true || o.tracked_brand_mentioned === true,
+    ).length;
+
     rows.push({
       id,
       date,
@@ -263,6 +294,12 @@ export function buildDailySnapshotsFromObservations(
         scope_semantics: "owned_brand_rollup",
       },
       tenant_id: tenantId,
+      // Phase 2A read-model extensions. `cited_or_mentioned_count` is
+      // the headline addition for platform rows. The two entity-only
+      // fields stay null here — they live on entity rows.
+      cited_or_mentioned_count: platformCitedOrMentioned,
+      position_weighted_citation_count: null,
+      mentioned_obs_count: null,
     });
   }
 
@@ -305,6 +342,111 @@ function countCitations(
   for (const obs of observations) {
     for (const cited of obs.citation_domains) {
       if (cited.toLowerCase() === needle) {
+        count += 1;
+        break;
+      }
+    }
+  }
+  return count;
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Phase 2A (2026-05-19) — Today read-model helpers.
+// Each mirrors a specific formula in `src/domains/product/visibility-
+// score.ts` so the snapshot rows can reproduce the chart + leaderboard
+// numbers exactly. Kept in this file (not imported from visibility-
+// score.ts) so the snapshot builder stays a pure standalone module —
+// the poll pipeline imports this file but not the rest of the product
+// engine.
+// ─────────────────────────────────────────────────────────────────────
+
+/**
+ * Normalize an entity name into a comparison slug. Mirrors `slugifyEntity`
+ * in visibility-score.ts:95 — lowercase, whitespace-collapsed. Used by
+ * `countMentionedObs` to match the chart's slug-aware mention matching.
+ */
+function slugifyEntityForMatch(name: string): string {
+  return name.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+/**
+ * Position weight applied to a single cited observation. Mirrors
+ * `citationPositionWeight` in visibility-score.ts:133. The leaderboard
+ * uses this to spread citation_rate semantically — a #1 citation is
+ * worth 4× more than a #7+ citation. The chart's per-day time series
+ * does NOT use position weighting; only the leaderboard / aggregateWindow
+ * does. Kept in lockstep with the chart helper so the two stay aligned
+ * if the weight schedule ever changes.
+ *
+ *   pos 1-3  → 1.0   (top-of-answer)
+ *   pos 4-6  → 0.5   (mid-answer)
+ *   pos 7+   → 0.25  (deep citation)
+ *   unknown  → 0.5   (default for missing position data)
+ */
+function citationPositionWeight(position: number | null | undefined): number {
+  if (position == null) return 0.5;
+  if (position <= 3) return 1.0;
+  if (position <= 6) return 0.5;
+  return 0.25;
+}
+
+/**
+ * Sum of `citationPositionWeight(obs.position)` across observations where
+ * the tenant's owned brand was cited. Drives the leaderboard's brand
+ * `citation_rate` formula via `brandCitationWeightSum / totalInWindow`
+ * (visibility-score.ts:580).
+ *
+ * Stored ONLY on owned-brand entity-scope rows. Null on competitor entity
+ * rows because the current Today semantics don't track position-weighted
+ * citations for competitors (the chart treats cited == mentioned for
+ * competitors — see countMentionedObs below).
+ */
+function sumPositionWeightedBrandCitations(
+  observations: PromptAnswerObservation[],
+): number {
+  let sum = 0;
+  for (const obs of observations) {
+    if (obs.tracked_brand_cited !== true) continue;
+    sum += citationPositionWeight(obs.position);
+  }
+  return sum;
+}
+
+/**
+ * Count observations where the entity was "mentioned" per the chart's
+ * formula (visibility-score.ts:144 `mentionsBrand` for owned, line 247
+ * `mentionsSlugs.has(competitorSlug)` for competitor).
+ *
+ *   Owned brand: `tracked_brand_mentioned === true` OR slugified
+ *     `obs.mentions` contains the entity's canonical slug. The flag
+ *     fast-path matches the chart's primary branch; the slug fallback
+ *     covers the alias path.
+ *
+ *   Competitor: slugified `obs.mentions` contains the entity's
+ *     canonical slug.
+ *
+ * Different from the existing `countMentions(obs, entity.name)` helper
+ * which uses exact-string `mentions.includes(name)` — kept distinct so
+ * downstream consumers reading `mention_count` see no change while the
+ * Phase 2B read-model loader gets a chart-equivalent count from
+ * `mentioned_obs_count`.
+ */
+function countMentionedObs(
+  observations: PromptAnswerObservation[],
+  entity: TrackedEntity,
+): number {
+  const targetSlug = slugifyEntityForMatch(entity.name);
+  if (!targetSlug) return 0;
+
+  let count = 0;
+  for (const obs of observations) {
+    if (entity.is_owned && obs.tracked_brand_mentioned === true) {
+      count += 1;
+      continue;
+    }
+    const mentions = obs.mentions ?? [];
+    for (const m of mentions) {
+      if (slugifyEntityForMatch(m) === targetSlug) {
         count += 1;
         break;
       }

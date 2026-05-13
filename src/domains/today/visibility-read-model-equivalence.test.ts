@@ -1,58 +1,43 @@
 /**
- * Visibility read-model equivalence harness (2026-05-12).
+ * Visibility read-model equivalence harness.
  *
- * Phase 1 of the Today architecture reset asked: can `daily_metric_snapshots`
- * fully replace raw-observation visibility computation on `/`?
+ * Phase 1 (2026-05-12) ORIGINAL purpose: this harness exists to document
+ * the gap between snapshot-derived and obs-derived visibility metrics.
+ * It built the fixture, derived snapshots via the same builder the poll
+ * pipeline uses, and proved that pre-Phase-2A snapshots could NOT
+ * reproduce the chart's per-platform view, the leaderboard's brand
+ * citation_rate, or the competitor citation_rate.
  *
- * This harness builds a small fixed observation fixture, derives snapshots
- * from it via the same builder the poll pipeline uses
- * (`buildDailySnapshotsFromObservations`), and compares snapshot-derived
- * numbers against obs-derived numbers for every visibility piece Today
- * v2 renders. It exists ONLY to document the gap — it does NOT build a
- * read-model loader.
+ * Phase 2A (2026-05-19) STRENGTHENED: snapshot schema gained three new
+ * nullable columns populated by the builder:
+ *   • cited_or_mentioned_count (per-platform row) — chart's per-platform
+ *     view formula `(citesBrand(obs) || mentionsBrand(obs, brandSlugs))`.
+ *   • position_weighted_citation_count (owned-brand entity row) — the
+ *     leaderboard's `brandCitationWeightSum`.
+ *   • mentioned_obs_count (entity rows) — chart-equivalent presence
+ *     count using the flag fast-path for owned brand and slug-match
+ *     for competitors.
  *
- * Outcome (recorded inline below for each piece): the snapshot table as
- * currently materialized is insufficient for a clean swap. Drift exists in:
+ * After Phase 2A, this harness asserts EXACT equivalence (within
+ * rounding tolerance) for every piece the Phase 2B loader will need:
  *
- *   1. Per-platform brand series — chart uses (cited OR mentioned) / total;
- *      snapshot stores citation_count + mention_count separately, no union.
- *   2. Leaderboard brand citation_rate + composite — chart uses raw cited
- *      count; leaderboard uses POSITION-WEIGHTED citations
- *      (citationPositionWeight: 1.0/0.5/0.25/0.5(unknown)). Snapshots
- *      store raw citation_count only — no position info.
- *   3. Competitor citation_rate / composite (all places) — chart treats
- *      "cited == mentioned" for competitors (no competitor-domain map);
- *      snapshot uses real countCitations(obs, competitor.domain). For
- *      mostly-mentioned-rarely-cited competitors these diverge widely.
- *   4. Brand mention semantics — chart matches via `tracked_brand_mentioned`
- *      flag OR alias scan; snapshot uses `obs.mentions.includes(canonical)`
- *      strictly. In well-formed data these match, but they're not the same
- *      function.
+ *   ✓ brand chart mention_rate                — from per-platform rows
+ *   ✓ brand chart citation_rate               — from per-platform rows
+ *   ✓ brand chart composite                   — from per-platform rows
+ *   ✓ per-platform brand series               — from cited_or_mentioned_count
+ *   ✓ leaderboard brand citation_rate         — from position_weighted_citation_count
+ *   ✓ competitor presence (mention)           — from mentioned_obs_count
  *
- * Brand chart time series for mention_rate / citation_rate / composite IS
- * within tolerance when data is well-formed, but the formulas are not
- * structurally identical — the harness's "within 0.5pp" tolerance is
- * informational, not a contract.
+ * The harness still produces drift-reporting console logs so future
+ * snapshot-builder changes have a numerical record of equivalence.
  *
- * What's needed to close the gap (Phase 2 read-model schema work):
- *
- *   • Per-platform `union_count` (obs where brand was cited OR mentioned)
- *     — or store the union per platform per day, not just the parts.
- *   • Brand `position_weighted_citation_count` — sum of
- *     citationPositionWeight over obs (so leaderboard citation_rate matches).
- *   • Competitor `cited_obs_count` (obs where competitor's slug appears
- *     in mentions[], as a "presence" signal) AND `domain_citation_count`
- *     (separate). Today's chart uses the former; the snapshot stores the
- *     latter under `citation_count`. They are different signals and
- *     callers must opt in.
- *
- * Until those are materialized, /today v2 must continue to compute
- * visibility from raw observations. Phase 1 ships only:
- *   - Do Today persisted-recommendation fallback (correctness fix)
- *   - Descriptors loader bounded to 14 days (smaller per-section pull)
- *   - Gate loader stops pulling 60d obs just to inspect length
- *
- * The visibility loader itself is unchanged.
+ * Phase 2A does NOT swap `loadTodayV2VisibilityData`. The visibility
+ * loader still computes from raw obs. The Phase 2B loader swap is
+ * gated on:
+ *   1. This harness passing strict equivalence (it does, as of 2026-05-19).
+ *   2. Production daily_metric_snapshots backfilled to populate the
+ *      three new columns for historical dates.
+ *   3. Operator approval of the loader swap.
  */
 
 import { describe, expect, it } from "vitest";
@@ -313,6 +298,12 @@ function snapshotBrandSeries(
   return [{ date: DATE, score, sampleSize: totalPossible }];
 }
 
+/**
+ * Phase 2A — per-platform brand series using the new
+ * `cited_or_mentioned_count` column. Reproduces the chart's
+ * `computeVisibilityTimeSeriesByPlatform` formula `(cited OR mentioned)
+ * / total_obs × 100`.
+ */
 function snapshotPerPlatformBrandSeries(
   snapshots: DailyMetricSnapshot[],
 ): Record<string, Array<{ date: string; score: number; sampleSize: number }>> {
@@ -320,18 +311,54 @@ function snapshotPerPlatformBrandSeries(
   for (const r of snapshots) {
     if (r.scope_type !== "platform") continue;
     if ((r.total_possible ?? 0) === 0) continue;
-    const score = (r.citation_count / r.total_possible!) * 100;
+    const union = r.cited_or_mentioned_count ?? 0;
+    const score = (union / r.total_possible!) * 100;
     out[r.platform] = [{ date: r.date, score, sampleSize: r.total_possible! }];
   }
   return out;
 }
 
-function snapshotCompetitorScore(
+/**
+ * Phase 2A — leaderboard brand citation_rate using the new
+ * `position_weighted_citation_count` column. Reproduces the
+ * `aggregateWindow` formula `brandCitationWeightSum / totalInWindow ×
+ * 100`.
+ */
+function snapshotLeaderboardBrandCitationRate(
+  snapshots: DailyMetricSnapshot[],
+  brandScopeId: string,
+): number {
+  // Sum across platforms for the date — entity-scope owned-brand rows
+  // carry per-platform position-weighted sums; the leaderboard's
+  // `totalInWindow` is total obs across platforms.
+  const entityRows = snapshots.filter(
+    (r) =>
+      r.scope_type === "entity" &&
+      r.scope_id === brandScopeId &&
+      r.date === DATE,
+  );
+  if (entityRows.length === 0) return 0;
+  let weightedSum = 0;
+  let total = 0;
+  for (const r of entityRows) {
+    weightedSum += r.position_weighted_citation_count ?? 0;
+    total += r.total_possible ?? 0;
+  }
+  if (total === 0) return 0;
+  return (weightedSum / total) * 100;
+}
+
+/**
+ * Phase 2A — competitor presence using the new `mentioned_obs_count`
+ * column. Reproduces the chart's competitor formula (slug-match against
+ * obs.mentions) — which the chart uses for BOTH the mention rate AND
+ * the citation rate (treats cited == mentioned for competitors with no
+ * competitor-domain map).
+ */
+function snapshotCompetitorPresenceRate(
   snapshots: DailyMetricSnapshot[],
   competitorScopeId: string,
-  metric: "mention_rate" | "citation_rate",
 ): number {
-  // Sum competitor entity rows across platforms.
   const entityRows = snapshots.filter(
     (r) =>
       r.scope_type === "entity" &&
@@ -340,15 +367,13 @@ function snapshotCompetitorScore(
   );
   if (entityRows.length === 0) return 0;
   let m = 0;
-  let c = 0;
   let total = 0;
   for (const r of entityRows) {
-    m += r.mention_count;
-    c += r.citation_count;
+    m += r.mentioned_obs_count ?? 0;
     total += r.total_possible ?? 0;
   }
   if (total === 0) return 0;
-  return metric === "mention_rate" ? (m / total) * 100 : (c / total) * 100;
+  return (m / total) * 100;
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -446,9 +471,9 @@ describe("visibility read-model equivalence — Phase 1 audit", () => {
     });
   });
 
-  // ─── Per-platform brand series ─────────────────────────────────────
-  describe("per-platform brand series — KNOWN DRIFT (different formula)", () => {
-    it("documents drift: chart uses (cited OR mentioned), snapshot uses citation_count only", () => {
+  // ─── Per-platform brand series — Phase 2A strict equivalence ──────
+  describe("per-platform brand series (Phase 2A: uses cited_or_mentioned_count)", () => {
+    it("snapshot-derived per-platform series matches obs-derived within rounding", () => {
       const obsByPlatform = computeVisibilityTimeSeriesByPlatform({
         observations: OBSERVATIONS,
         brandAliases: [BRAND_NAME],
@@ -464,21 +489,16 @@ describe("visibility read-model equivalence — Phase 1 audit", () => {
         console.log(
           `[equiv] per-platform ${p}: obs=${obsScore.toFixed(2)} snap=${snapScore.toFixed(2)} drift=${d.toFixed(3)}pp`,
         );
+        // Phase 2A: the new `cited_or_mentioned_count` column makes
+        // this exactly reproducible. Tolerance is rounding-only.
+        expect(close(obsScore, snapScore, 0.01)).toBe(true);
       }
-      // No equivalence assertion — this section documents the structural
-      // formula difference. The chart's per-platform score is a "presence
-      // rate" (cited OR mentioned), the snapshot's is a "citation rate".
-      // They are not the same metric. Phase 2 must materialize a union
-      // count or callers must accept the change in customer-visible
-      // numbers (the user has explicitly forbidden silent changes).
-      expect(snapByPlatform).toBeDefined();
     });
   });
 
-  // ─── Leaderboard ───────────────────────────────────────────────────
-  describe("leaderboard — KNOWN DRIFT (position weights)", () => {
-    it("documents drift on brand citation_rate (chart=raw, leaderboard=position-weighted)", () => {
-      // Compute current leaderboard on obs (uses citationPositionWeight).
+  // ─── Leaderboard brand — Phase 2A strict equivalence ──────────────
+  describe("leaderboard brand citation_rate (Phase 2A: uses position_weighted_citation_count)", () => {
+    it("snapshot-derived brand leaderboard citation_rate matches obs-derived position-weighted formula", () => {
       const rows = computeLeaderboard({
         observations: OBSERVATIONS,
         brandAliases: [BRAND_NAME],
@@ -490,70 +510,103 @@ describe("visibility read-model equivalence — Phase 1 audit", () => {
       });
       const brand = rows.find((r) => r.isOwned);
       expect(brand).toBeDefined();
-      const obsLeaderboardScore = brand!.score;
+      const obsScore = brand!.score;
 
-      // Snapshot-derived would just be raw citation_count / total_possible.
-      const snapScore =
-        snapshotBrandSeries(snapshots, "citation_rate")[0]?.score ?? 0;
-
-      const d = drift(obsLeaderboardScore, snapScore);
-      console.log(
-        `[equiv] leaderboard brand citation_rate: obs(pos-weighted)=${obsLeaderboardScore.toFixed(2)} snap(raw)=${snapScore.toFixed(2)} drift=${d.toFixed(3)}pp`,
+      // Phase 2A — read the position-weighted sum from snapshots.
+      const snapScore = snapshotLeaderboardBrandCitationRate(
+        snapshots,
+        "ritzbuilders",
       );
 
-      // Position weights in fixture:
-      //   obs1: pos 1 → weight 1.0  (brand cited)
-      //   obs2: pos 7 → weight 0.25 (brand cited)
-      //   obs5: pos 2 → weight 1.0  (brand cited)
-      // Sum = 2.25, totalInWindow = 8, weighted rate = 2.25/8 * 100 = 28.125%
-      // Raw rate = 3/8 * 100 = 37.5%
-      // Drift = 9.375pp — material. Snapshots cannot reproduce this
-      // without materializing position-weighted citation totals.
-      expect(d).toBeGreaterThan(5);
+      const d = drift(obsScore, snapScore);
+      console.log(
+        `[equiv] leaderboard brand citation_rate (pos-weighted): obs=${obsScore.toFixed(3)} snap=${snapScore.toFixed(3)} drift=${d.toFixed(3)}pp`,
+      );
+      // Fixture math:
+      //   obs1: pos 1 → 1.0; obs2: pos 7 → 0.25; obs5: pos 2 → 1.0
+      //   weightedSum = 2.25; total = 8 → 28.125%
+      // The snapshot stores position_weighted_citation_count per (entity,
+      // platform) row; summing across platforms reproduces this exactly.
+      expect(close(obsScore, snapScore, 0.01)).toBe(true);
+      expect(snapScore).toBeCloseTo(28.125, 3);
     });
+  });
 
-    it("documents drift on competitor citation_rate (chart=mention count, snapshot=domain count)", () => {
-      const rows = computeLeaderboard({
+  // ─── Competitor presence — Phase 2A strict equivalence ────────────
+  describe("competitor presence (Phase 2A: uses mentioned_obs_count)", () => {
+    it("snapshot-derived competitor presence rate matches obs-derived chart competitor count", () => {
+      // Phase 2A reproduces the chart's competitor formula (slug-match
+      // against obs.mentions) via the new `mentioned_obs_count` column.
+      // The chart treats cited == mentioned for competitors, so this
+      // single column drives both metrics.
+      const obsByPlatform = computeVisibilityTimeSeriesByPlatform({
+        observations: OBSERVATIONS,
+        brandAliases: [BRAND_NAME],
+        startDate: DATE,
+        endDate: DATE,
+      });
+      void obsByPlatform; // (not the right comparison — see leaderboard below)
+
+      const obsLeaderboard = computeLeaderboard({
         observations: OBSERVATIONS,
         brandAliases: [BRAND_NAME],
         windowEndDate: DATE,
         windowDays: 1,
-        metric: "citation_rate",
+        metric: "mention_rate",
         limit: 5,
         trackedEntities: TRACKED_ENTITIES,
       });
-      // The competitor's chart-leaderboard score uses count(competitor in
-      // mentions[]) / totalInWindow because the chart treats cited ==
-      // mentioned for competitors (no competitor-domain map).
-      const competitor = rows.find((r) => r.slug.includes("mattei"));
-      // The slug may differ; lookup is tolerant.
-      const competitorScore = competitor?.score ?? null;
+      const obsCompetitor = obsLeaderboard.find((r) => !r.isOwned);
+      expect(obsCompetitor).toBeDefined();
+      const obsScore = obsCompetitor!.score;
 
-      // Snapshot competitor score uses real citation_count (domain match)
-      // not mention count.
-      const snapMentionScore = snapshotCompetitorScore(snapshots, "demattei", "mention_rate");
-      const snapCitationScore = snapshotCompetitorScore(snapshots, "demattei", "citation_rate");
+      const snapScore = snapshotCompetitorPresenceRate(snapshots, "demattei");
 
+      const d = drift(obsScore, snapScore);
       console.log(
-        `[equiv] leaderboard competitor De Mattei: ` +
-          `obs(mention-as-citation)=${(competitorScore ?? 0).toFixed(2)} ` +
-          `snap(mention_count)=${snapMentionScore.toFixed(2)} ` +
-          `snap(citation_count)=${snapCitationScore.toFixed(2)}`,
+        `[equiv] competitor presence: obs=${obsScore.toFixed(2)} snap=${snapScore.toFixed(2)} drift=${d.toFixed(3)}pp`,
       );
+      // Fixture: De Mattei appears in mentions on obs o3, o7, o8 → 3
+      // obs out of 8 total → 37.5%. The chart's leaderboard mention_rate
+      // formula counts the same.
+      expect(close(obsScore, snapScore, 0.01)).toBe(true);
+    });
+  });
 
-      // Competitor mention count in fixture = 4 (o3, o7, o8, ... actually 3 — let's see)
-      //   o3: competitor in mentions  → 1
-      //   o7: competitor in mentions  → 2
-      //   o8: competitor in mentions  → 3
-      // (4 in the design? let me recount — design said 4 mentioned)
-      // Looking at fixture: o3, o7, o8 mention COMPETITOR_NAME → 3 obs.
-      // Snapshot competitor mention_count = 3, total = 4 per platform =>
-      //   ChatGPT: 1/4, Perplexity: 2/4 → sum 3/8 = 37.5%
-      // Competitor citation_count via countCitations(obs, domain): only o7
-      //   has COMPETITOR_DOMAIN in citation_domains → 1 obs → 1/8 = 12.5%
-      // Drift between mention_count and citation_count = 25pp — material.
-      const internalDrift = drift(snapMentionScore, snapCitationScore);
-      expect(internalDrift).toBeGreaterThan(5);
+  // ─── Phase 2A coverage assertion ──────────────────────────────────
+  describe("Phase 2A sufficiency", () => {
+    it("snapshot builder populates all three new fields where required", () => {
+      const platformRows = snapshots.filter((r) => r.scope_type === "platform");
+      const entityRows = snapshots.filter((r) => r.scope_type === "entity");
+
+      // Platform rows MUST have cited_or_mentioned_count set (non-null).
+      for (const row of platformRows) {
+        expect(row.cited_or_mentioned_count).not.toBeNull();
+        expect(row.cited_or_mentioned_count).toBeTypeOf("number");
+      }
+
+      // Entity rows MUST have mentioned_obs_count set.
+      for (const row of entityRows) {
+        expect(row.mentioned_obs_count).not.toBeNull();
+        expect(row.mentioned_obs_count).toBeTypeOf("number");
+      }
+
+      // Owned-brand entity rows MUST have position_weighted_citation_count.
+      const brandRows = entityRows.filter((r) => r.scope_id === "ritzbuilders");
+      expect(brandRows.length).toBeGreaterThan(0);
+      for (const row of brandRows) {
+        expect(row.position_weighted_citation_count).not.toBeNull();
+        expect(row.position_weighted_citation_count).toBeTypeOf("number");
+      }
+
+      // Competitor entity rows MUST have position_weighted_citation_count
+      // null — the field is brand-only.
+      const competitorRows = entityRows.filter(
+        (r) => r.scope_id === "demattei",
+      );
+      for (const row of competitorRows) {
+        expect(row.position_weighted_citation_count).toBeNull();
+      }
     });
   });
 });

@@ -571,3 +571,292 @@ describe("buildDailySnapshotsFromObservations", () => {
     expect(rows.filter((r) => r.scope_type === "entity")).toHaveLength(2);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────
+// Phase 2A (2026-05-19) — Today read-model extension fields.
+//
+// Three new nullable columns populated by the builder. Tests pin the
+// formulas + their scope rules (platform-only vs entity-only vs owned-
+// vs-competitor). Numbers are derived by hand from each fixture so a
+// regression that breaks the formula fails immediately.
+// ─────────────────────────────────────────────────────────────────────
+describe("Phase 2A — read-model extension fields", () => {
+  describe("cited_or_mentioned_count", () => {
+    it("counts obs where brand was cited OR mentioned (union of flags), platform row only", () => {
+      const observations: PromptAnswerObservation[] = [
+        // cited AND mentioned → counts once
+        makeObs({ tracked_brand_cited: true, tracked_brand_mentioned: true }),
+        // mentioned only → counts once
+        makeObs({ tracked_brand_cited: false, tracked_brand_mentioned: true }),
+        // cited only → counts once
+        makeObs({ tracked_brand_cited: true, tracked_brand_mentioned: false }),
+        // neither → does NOT count
+        makeObs({ tracked_brand_cited: false, tracked_brand_mentioned: false }),
+      ];
+      const rows = buildDailySnapshotsFromObservations({
+        tenantId: "t",
+        platform: "Perplexity",
+        observations,
+        trackedEntities: [OWNED],
+        date: "2026-04-22",
+        observationRunId: "r",
+      });
+
+      const platformRow = rows.find((r) => r.scope_type === "platform")!;
+      // Union = 3 (the first three obs each contribute exactly once;
+      // the all-false obs contributes zero).
+      expect(platformRow.cited_or_mentioned_count).toBe(3);
+
+      // The two entity-only fields stay null on the platform row.
+      expect(platformRow.position_weighted_citation_count).toBeNull();
+      expect(platformRow.mentioned_obs_count).toBeNull();
+    });
+
+    it("is null on entity and topic rows", () => {
+      const obs = makeObs({
+        tracked_brand_cited: true,
+        tracked_brand_mentioned: true,
+        topic: "kitchens",
+      });
+      const rows = buildDailySnapshotsFromObservations({
+        tenantId: "t",
+        platform: "Perplexity",
+        observations: [obs],
+        trackedEntities: [OWNED],
+        date: "2026-04-22",
+        observationRunId: "r",
+      });
+
+      const entity = rows.find((r) => r.scope_type === "entity")!;
+      const topic = rows.find((r) => r.scope_type === "topic")!;
+      expect(entity.cited_or_mentioned_count).toBeNull();
+      expect(topic.cited_or_mentioned_count).toBeNull();
+    });
+
+    it("returns 0 (not null) on the platform row when no observations cite or mention", () => {
+      // Platform row only emitted when observations is non-empty, so
+      // give it observations with neither flag set.
+      const observations = [
+        makeObs({ tracked_brand_cited: false, tracked_brand_mentioned: false }),
+        makeObs({ tracked_brand_cited: false, tracked_brand_mentioned: false }),
+      ];
+      const rows = buildDailySnapshotsFromObservations({
+        tenantId: "t",
+        platform: "Perplexity",
+        observations,
+        trackedEntities: [OWNED],
+        date: "2026-04-22",
+        observationRunId: "r",
+      });
+      const platformRow = rows.find((r) => r.scope_type === "platform")!;
+      expect(platformRow.cited_or_mentioned_count).toBe(0);
+    });
+  });
+
+  describe("position_weighted_citation_count", () => {
+    it("sums citationPositionWeight on owned-brand entity rows only", () => {
+      // Position weights: 1-3 → 1.0, 4-6 → 0.5, 7+ → 0.25, null → 0.5.
+      const observations: PromptAnswerObservation[] = [
+        makeObs({ tracked_brand_cited: true, position: 1 }), // 1.0
+        makeObs({ tracked_brand_cited: true, position: 5 }), // 0.5
+        makeObs({ tracked_brand_cited: true, position: 9 }), // 0.25
+        makeObs({ tracked_brand_cited: true, position: null }), // 0.5
+        // not cited → contributes 0
+        makeObs({ tracked_brand_cited: false, position: 1 }),
+      ];
+
+      const rows = buildDailySnapshotsFromObservations({
+        tenantId: "t",
+        platform: "Perplexity",
+        observations,
+        trackedEntities: [OWNED, SUPPLE],
+        date: "2026-04-22",
+        observationRunId: "r",
+      });
+
+      const owned = rows.find(
+        (r) => r.scope_type === "entity" && r.scope_id === "ritzbuilders",
+      )!;
+      // 1.0 + 0.5 + 0.25 + 0.5 = 2.25
+      expect(owned.position_weighted_citation_count).toBeCloseTo(2.25, 6);
+
+      // Competitor entity row gets null — position weights aren't
+      // tracked for competitors in the current Today semantics.
+      const supple = rows.find(
+        (r) => r.scope_type === "entity" && r.scope_id === "supplehomesinc",
+      )!;
+      expect(supple.position_weighted_citation_count).toBeNull();
+    });
+
+    it("is null on platform and topic rows", () => {
+      const obs = makeObs({
+        tracked_brand_cited: true,
+        position: 1,
+        topic: "kitchens",
+      });
+      const rows = buildDailySnapshotsFromObservations({
+        tenantId: "t",
+        platform: "Perplexity",
+        observations: [obs],
+        trackedEntities: [OWNED],
+        date: "2026-04-22",
+        observationRunId: "r",
+      });
+      const platform = rows.find((r) => r.scope_type === "platform")!;
+      const topic = rows.find((r) => r.scope_type === "topic")!;
+      expect(platform.position_weighted_citation_count).toBeNull();
+      expect(topic.position_weighted_citation_count).toBeNull();
+    });
+
+    it("returns 0 when brand was never cited", () => {
+      const observations = [
+        makeObs({ tracked_brand_cited: false, position: 1 }),
+        makeObs({ tracked_brand_cited: false, position: 7 }),
+      ];
+      const rows = buildDailySnapshotsFromObservations({
+        tenantId: "t",
+        platform: "Perplexity",
+        observations,
+        trackedEntities: [OWNED],
+        date: "2026-04-22",
+        observationRunId: "r",
+      });
+      const owned = rows.find((r) => r.scope_type === "entity")!;
+      expect(owned.position_weighted_citation_count).toBe(0);
+    });
+  });
+
+  describe("mentioned_obs_count", () => {
+    it("uses tracked_brand_mentioned flag for owned brand (chart fast path)", () => {
+      const observations: PromptAnswerObservation[] = [
+        // Flag true even though mentions[] omits the canonical name
+        // (alias-only or upstream sets the flag from another signal) →
+        // chart includes this; existing mention_count formula would miss it.
+        makeObs({ tracked_brand_mentioned: true, mentions: ["ritz"] }),
+        // Flag true, mentions has canonical → counts
+        makeObs({
+          tracked_brand_mentioned: true,
+          mentions: ["Ritz Builders"],
+        }),
+        // Flag false, canonical not in mentions → does NOT count
+        makeObs({ tracked_brand_mentioned: false, mentions: ["Other"] }),
+      ];
+      const rows = buildDailySnapshotsFromObservations({
+        tenantId: "t",
+        platform: "Perplexity",
+        observations,
+        trackedEntities: [OWNED],
+        date: "2026-04-22",
+        observationRunId: "r",
+      });
+      const owned = rows.find((r) => r.scope_type === "entity")!;
+      expect(owned.mentioned_obs_count).toBe(2);
+    });
+
+    it("falls back to slug match on mentions[] for owned brand when flag is false", () => {
+      const observations: PromptAnswerObservation[] = [
+        // Flag false but slug match should still count
+        makeObs({
+          tracked_brand_mentioned: false,
+          mentions: ["ritz builders"],
+        }),
+      ];
+      const rows = buildDailySnapshotsFromObservations({
+        tenantId: "t",
+        platform: "Perplexity",
+        observations,
+        trackedEntities: [OWNED],
+        date: "2026-04-22",
+        observationRunId: "r",
+      });
+      const owned = rows.find((r) => r.scope_type === "entity")!;
+      expect(owned.mentioned_obs_count).toBe(1);
+    });
+
+    it("uses slug match on mentions[] for competitors (case + whitespace tolerant)", () => {
+      const observations: PromptAnswerObservation[] = [
+        makeObs({ mentions: ["Supple Homes"] }), // exact
+        makeObs({ mentions: ["supple homes"] }), // case variant
+        makeObs({ mentions: ["  Supple   Homes  "] }), // whitespace variant
+        makeObs({ mentions: ["different brand"] }), // miss
+      ];
+      const rows = buildDailySnapshotsFromObservations({
+        tenantId: "t",
+        platform: "Perplexity",
+        observations,
+        trackedEntities: [SUPPLE],
+        date: "2026-04-22",
+        observationRunId: "r",
+      });
+      const supple = rows.find((r) => r.scope_id === "supplehomesinc")!;
+      // All three variants normalize to the same slug — count = 3.
+      expect(supple.mentioned_obs_count).toBe(3);
+    });
+
+    it("is null on platform and topic rows", () => {
+      const obs = makeObs({
+        tracked_brand_mentioned: true,
+        mentions: ["Ritz Builders"],
+        topic: "kitchens",
+      });
+      const rows = buildDailySnapshotsFromObservations({
+        tenantId: "t",
+        platform: "Perplexity",
+        observations: [obs],
+        trackedEntities: [OWNED],
+        date: "2026-04-22",
+        observationRunId: "r",
+      });
+      const platform = rows.find((r) => r.scope_type === "platform")!;
+      const topic = rows.find((r) => r.scope_type === "topic")!;
+      expect(platform.mentioned_obs_count).toBeNull();
+      expect(topic.mentioned_obs_count).toBeNull();
+    });
+  });
+
+  describe("backwards compatibility", () => {
+    it("existing mention_count + citation_count formulas unchanged", () => {
+      // Same fixture as the first test in this file. After Phase 2A
+      // the row must still expose the old fields with the old formulas
+      // so legacy readers keep working.
+      const observations: PromptAnswerObservation[] = [
+        makeObs({
+          mentions: ["Ritz Builders", "Supple Homes"],
+          citation_domains: ["ritzbuilders.com", "supplehomesinc.com"],
+          citation_count: 2,
+        }),
+        makeObs({
+          mentions: ["Ritz Builders"],
+          citation_domains: ["ritzbuilders.com"],
+          citation_count: 1,
+        }),
+        makeObs({
+          mentions: ["Supple Homes"],
+          citation_domains: [],
+          citation_count: 0,
+        }),
+      ];
+
+      const rows = buildDailySnapshotsFromObservations({
+        tenantId: "t",
+        platform: "Perplexity",
+        observations,
+        trackedEntities: [OWNED, SUPPLE],
+        date: "2026-04-22",
+        observationRunId: "r",
+      });
+
+      const ritz = rows.find(
+        (r) => r.scope_type === "entity" && r.scope_id === "ritzbuilders",
+      )!;
+      const supple = rows.find(
+        (r) => r.scope_type === "entity" && r.scope_id === "supplehomesinc",
+      )!;
+      // Original Phase 0 formulas unchanged.
+      expect(ritz.mention_count).toBe(2);
+      expect(ritz.citation_count).toBe(2);
+      expect(supple.mention_count).toBe(2);
+      expect(supple.citation_count).toBe(1);
+    });
+  });
+});
