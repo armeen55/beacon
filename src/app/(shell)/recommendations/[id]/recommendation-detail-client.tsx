@@ -36,8 +36,10 @@ import {
   type ActionRowStatus,
   type RecommendationActionRow,
 } from "@/domains/recommendations/recommendation-action-rows";
+import { buildCopyTile } from "@/domains/recommendations/suggested-copy-adapters";
 import { cn } from "@/lib/utils";
 import { RecommendationDetailActions } from "./recommendation-detail-actions";
+import { SuggestedCopyAct } from "./suggested-copy-act";
 
 // ─────────────────────────────────────────────────────────────────────
 // Style tables (mirror the v2 card's vocabulary so the brief feels
@@ -134,7 +136,17 @@ export function RecommendationDetailClient({
   // Bundle 2C (2026-05-11) — legacy-anchor and open-change hrefs moved
   // into RecommendationDetailActions where they sit alongside the inline
   // action buttons. The client component below renders them as secondary
-  // CTAs in Act 5.
+  // CTAs in the final act.
+
+  // Recommendation Execution Layer v1 Phase A (2026-05-13) — decide
+  // whether to render the Suggested Copy act between Evidence and
+  // Measurement. When the adapter returns a tile (supported action type
+  // + non-empty proposed_text + passes display guard), we add Act 4 and
+  // shift Measurement → Act 5, Next → Act 6. When the adapter returns
+  // null, the existing acts keep their original indices.
+  const showSuggestedCopy = buildCopyTile(row) !== null;
+  const measurementIndex = showSuggestedCopy ? 5 : 4;
+  const nextStepIndex = showSuggestedCopy ? 6 : 5;
 
   return (
     <div
@@ -363,9 +375,17 @@ export function RecommendationDetailClient({
           )}
       </Act>
 
-      {/* Act 4 — Measurement plan */}
+      {/* Act 4 — Suggested copy. Renders only when the adapter returns a
+          tile (supported action type + non-empty proposed_text + passes
+          display-safety guard). When suppressed, Measurement keeps its
+          original Act 4 numbering via `measurementIndex`. */}
+      {showSuggestedCopy && (
+        <SuggestedCopyAct row={row} index={4} />
+      )}
+
+      {/* Act 5 — Measurement plan (Act 4 when Suggested copy is suppressed). */}
       <Act
-        index={4}
+        index={measurementIndex}
         label="How Beacon will measure it"
         dataAttr="act-measurement"
       >
@@ -415,13 +435,14 @@ export function RecommendationDetailClient({
         </p>
       </Act>
 
-      {/* Act 5 — Next step. Bundle 2C (2026-05-11): inline action surface
+      {/* Final act — Next step (Act 6 when Suggested copy renders, Act 5
+          otherwise). Bundle 2C (2026-05-11): inline action surface
           replaces the prior read-only escape-hatch list. Each button
           calls the SAME server action the legacy table calls; the
           legacy drawer remains a one-click fallback for transitions
           v2 doesn't surface yet (e.g., Regenerate for needs_fresh_edit). */}
       <Act
-        index={5}
+        index={nextStepIndex}
         label="What to do next"
         dataAttr="act-next"
       >

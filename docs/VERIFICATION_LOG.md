@@ -7,6 +7,47 @@
 
 ---
 
+## 2026-05-13 — Recommendation Execution Layer v1 Phase A: render-only Suggested Copy act
+
+The /recommendations/[id] brief page now exposes the Beacon-drafted publishable copy that already exists in `recommended_edits.proposed_text` (and the paired answer-leg for FAQs). Acts re-ordered to: Act 1 Recommendation · Act 2 Why this matters · Act 3 Evidence · **Act 4 Suggested copy** · Act 5 How Beacon will measure it · Act 6 What to do next. Numbering stays sequential — when the action type doesn't support copy (`create_page`, `review_decision`, `regenerate_edit`) Act 4 is suppressed and the trailing acts collapse to 4 and 5 with no skipped numbers.
+
+**Display-safety guard** runs at render time on every user-visible field (`proposedText`, `currentText`, `faqAnswerText`). Hard-blocks: 35+ known internal taxonomy tokens (`aiSearchSignal`, `actualSearchQueries`, `topSearchQueries`, `rec_id`, `source_rec_id`, `evidence_tier`, etc.), UUID-shaped substrings, multi-segment snake_case identifiers, suspicious `_id` / `_at` / `_tier` / `_hash` / `_key` / `_label` / `_status` / `_kind` / `_plan` suffixes, and multi-transition camelCase (`topSearchQueries`-shape — preserves single-transition brand names like iPhone / macOS / eBay). When the guard fires, the act renders the calm fallback "Beacon has a draft for this recommendation, but it needs review before showing here." Zero database mutations.
+
+**What landed (3 new files, 1 modified):**
+
+- NEW `src/domains/recommendations/suggested-copy-display-guard.ts` — pure module. `checkCopyDisplaySafe(text)` returns `{ safe: true } | { safe: false; reason; match }`. `allCopyDisplaySafe(...texts)` convenience.
+- NEW `src/domains/recommendations/suggested-copy-adapters.ts` — pure module. `buildCopyTile(row)` returns one of 8 typed tile kinds (`faq | h2 | h1 | title_meta | internal_link | table | section | plain | fallback`) or `null`. `supportsSuggestedCopy(actionType)` predicate. `splitHeadingAndParagraph(text, fallback)` helper. `countChars` + `TITLE_TAG_MAX_CHARS` (60) + `META_DESCRIPTION_MAX_CHARS` (155) constants.
+- NEW `src/app/(shell)/recommendations/[id]/suggested-copy-act.tsx` — client component. Pure presentation. Native `navigator.clipboard.writeText` copy button per field, "Copied ✓" 2-second confirmation, accessible labels. "Where to put it" + "Why this copy" + "Review before publishing" lines on every tile.
+- MOD `src/app/(shell)/recommendations/[id]/recommendation-detail-client.tsx` — imports `buildCopyTile` + `SuggestedCopyAct`, computes `showSuggestedCopy` once, inserts the act between Evidence and Measurement, bumps Measurement index → `showSuggestedCopy ? 5 : 4`, bumps Next index → `showSuggestedCopy ? 6 : 5`.
+
+**Supported action-row types (11):** `edit_h1`, `edit_h2`, `edit_title`, `edit_meta`, `add_schema`, `add_faq`, `add_section`, `improve_copy`, `add_internal_links`, `add_comparison_table`, `technical_fix`. **Suppressed (3):** `create_page`, `review_decision`, `regenerate_edit` (no copy concept; section omitted entirely).
+
+**Architecture invariants (4 new test files, 159 new test cases):**
+
+- `tests/architecture/suggested-copy-architecture.test.ts` — pins no paid call on page load (no LLM provider import, no `runProviderAndPersist`, no budget-helper import, no naked `fetch(`, no `OPENAI_API_KEY` mention); row-fields-only access (act + adapter touch only `row.{title, targetUrl, targetLabel, actionType, evidenceSummary, sourceRecommendationId, id, detail.{proposedText, currentText, faqAnswerText, why}}`); forbidden-vocabulary defense-in-depth against new files; display-guard sourced by adapter, not duplicated in component.
+- `tests/app/recommendations/detail-page-act-order.test.tsx` — pins three scenarios: full 6-act render with `1,2,3,4,5,6` indices in order; suppressed (unsupported action type) with `1,2,3,4,5` and no "Act 6" string anywhere; display-guard fallback path renders Act 4 fallback message with full 6-act numbering preserved.
+- `tests/app/recommendations/suggested-copy-act.test.tsx` — 33 render tests covering every tile kind + 5 display-guard fallback scenarios + accessible-label requirement + Copy button presence.
+- `tests/domains/recommendations/suggested-copy-adapters.test.ts` — 40 unit tests; `tests/domains/recommendations/suggested-copy-display-guard.test.ts` — 36 unit tests for the guard.
+
+**Quality gates:**
+
+- `npm run typecheck`: PASS (clean)
+- `npm run test`: **8,347 passing**, 25 skipped (was 8,188 prior — +159 new tests; 0 regressions)
+- `npm run build` (with `BEACON_TENANT_ID=tenant-ritz-founder BEACON_TENANT_SLUG=ritz-founder`): PASS; `/recommendations/[id]` in route table as `ƒ` (dynamic)
+
+**Hard contracts preserved:**
+
+- Zero LLM calls (architecture invariant blocks them at the file boundary)
+- Zero paid API spend (no `runProviderAndPersist` import; both budget ledgers untouched)
+- Zero database mutations (Phase A is render-only over already-persisted data)
+- Zero migrations (no schema change)
+- `?legacy=1` routing in `src/app/(shell)/recommendations/page.tsx` unchanged
+- Today / Prompts / Changes / attribution / watchdog / automation untouched
+
+**Operator-visible behavior change:** customers visiting any `/recommendations/[id]` whose row has a non-empty `proposed_text` now see the draft, a Copy button, a "where to put it" line, the "why this copy" hint, and the "Review before publishing" disclaimer. Historical rows whose `proposed_text` contains internal taxonomy render the calm fallback instead of leaking.
+
+---
+
 ## 2026-05-12 — Today v2 perf Phase 1: no-regret pieces only (correctness-gated)
 
 Acting on the Today performance architecture-reset plan
