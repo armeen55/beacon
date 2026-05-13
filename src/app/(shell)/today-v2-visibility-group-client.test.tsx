@@ -192,14 +192,22 @@ describe("Read-model loader — All time leaderboard window", () => {
     expect(block).toMatch(/ALL_TIME_WINDOW_SHARED/);
   });
 
-  it("SNAPSHOT_WINDOW_DAYS extended past 60 to support All time", () => {
+  it("read floor is the earliest-active-snapshot date (no hardcoded date cap)", () => {
+    // P1 follow-up (2026-05-13): the prior `SNAPSHOT_WINDOW_DAYS=365`
+    // cap was replaced with an `earliest-active-platform-date` floor
+    // so "All time" really means all the data we have, not "last 365
+    // days masquerading as all time". A generous (5-year) backstop
+    // remains for empty tenants / earliest-date query failures.
     const src = readFileSync(
       resolve(__dirname, "../../domains/today/visibility-read-model.ts"),
       "utf8",
     );
-    const m = src.match(/SNAPSHOT_WINDOW_DAYS\s*=\s*(\d+)/);
-    expect(m).toBeTruthy();
-    const days = Number(m![1]);
-    expect(days).toBeGreaterThanOrEqual(365);
+    // The old fixed-window constant must be gone (a regression that
+    // reintroduces it would silently re-cap All time).
+    expect(src).not.toMatch(/^const SNAPSHOT_WINDOW_DAYS\s*=/m);
+    // The new earliest-date helper must be the loader's source of
+    // truth for the `since` floor.
+    expect(src).toMatch(/fetchEarliestActivePlatformDate\(/);
+    expect(src).toMatch(/SNAPSHOT_READ_FLOOR_BACKSTOP_DAYS/);
   });
 });

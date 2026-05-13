@@ -299,15 +299,20 @@ const LEADERBOARD_WINDOWS: ReadonlyArray<number> = [
 ];
 
 /**
- * Max read window from `daily_metric_snapshots` per request. Was 60d
- * pre-All-Time. Bumped to 365d so the "All time" toggle can slice up
- * to a year of history without a second round-trip.
+ * Hard backstop on the `since` floor for the snapshot read (2026-05-13
+ * P1 follow-up replaces the earlier `SNAPSHOT_WINDOW_DAYS = 365`).
  *
- * Current Ritz row counts: ~110 derived rows/day → ~40k rows over a
- * full year, well within the paginated repo path that already handles
- * ~7k+ rows. If multi-year data accumulates, revisit this cap.
+ * The loader now uses the EARLIEST active-provider snapshot date as
+ * the natural floor — "All time" actually means "all the data we have
+ * for this tenant", not "the last 365 days masquerading as all time".
+ * This backstop only kicks in if no snapshots exist yet (empty tenant)
+ * or if the earliest-date query fails. It's deliberately generous
+ * (5 years) to be far above any realistic single-tenant accumulation
+ * — Ritz averages ~120 derived rows/day → 5y ≈ 220k rows, well within
+ * paginated reads. A row-count cap (vs. date cap) would be a stronger
+ * guard but is deferred until row volume actually demands it.
  */
-const SNAPSHOT_WINDOW_DAYS = 365;
+const SNAPSHOT_READ_FLOOR_BACKSTOP_DAYS = 1825; // 5 years
 
 // ─────────────────────────────────────────────────────────────────────
 // Date helpers
@@ -832,6 +837,58 @@ async function buildChartEvents(): Promise<
 }
 
 // ─────────────────────────────────────────────────────────────────────
+// Earliest active-provider snapshot date — used as the read floor
+// (replaces the 365-day cap).
+// ─────────────────────────────────────────────────────────────────────
+
+/**
+ * Return the earliest `date` on `daily_metric_snapshots` for an
+ * active provider (ChatGPT / Perplexity, either casing) for the given
+ * tenant. Used as the `since` floor on the main snapshot read so
+ * "All time" really means "all active-provider history we have"
+ * rather than "the last 365 days".
+ *
+ * Returns null when:
+ *   - The tenant has no active-provider snapshots yet, OR
+ *   - The query errors (defensive — caller falls back to the
+ *     backstop floor).
+ *
+ * Small Supabase round-trip (~1 row). Cached alongside the heavy
+ * snapshot read inside `loadCachedCoreReadModel`, so this query
+ * only runs once per 5-min TTL slot per tenant.
+ */
+async function fetchEarliestActivePlatformDate(
+  tenantId: string,
+): Promise<string | null> {
+  try {
+    const sb = getSupabaseAdmin();
+    const { data, error } = await sb
+      .from("daily_metric_snapshots")
+      .select("date")
+      .eq("tenant_id", tenantId)
+      .eq("source_type", "derived")
+      .in("platform", ["ChatGPT", "chatgpt", "Perplexity", "perplexity"])
+      .order("date", { ascending: true })
+      .limit(1);
+    if (error) {
+      console.error(
+        "[visibility-read-model] earliest-date query failed:",
+        error.message,
+      );
+      return null;
+    }
+    const row = (data ?? [])[0] as { date?: string } | undefined;
+    return row?.date ?? null;
+  } catch (err) {
+    console.error(
+      "[visibility-read-model] earliest-date query threw:",
+      err,
+    );
+    return null;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────
 // Observation-run freshness query
 // ─────────────────────────────────────────────────────────────────────
 
@@ -900,18 +957,41 @@ async function fetchFreshnessSignal(tenantId: string): Promise<{
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// Main loader
+// Main loader — split into CACHED core (heavy snapshot read) +
+// UNCACHED freshness signal (P1 follow-up, 2026-05-13).
+//
+// Before this refactor, the freshness query was bundled INSIDE the
+// `unstable_cache`-wrapped inner. That meant "Refreshing…" could lag
+// by up to 5 minutes after a poll started (cached payload still had
+// the pre-poll freshness state until either TTL expired or
+// `revalidateTag` fired post-syncSnaps).
+//
+// New shape: the heavy core (snapshots, leaderboard, chart series,
+// chartEvents) is cached with the same 300s TTL + tenant-scoped tag.
+// The lightweight freshness signal runs every request — uncached —
+// so an in-flight poll's `started_at` is reflected immediately on
+// the next page load, not 5 minutes later.
 // ─────────────────────────────────────────────────────────────────────
 
-async function loadVisibilityReadModelInner(opts: {
+/**
+ * Core read-model payload — everything except `freshness`. Same shape
+ * as `VisibilityReadModelData` minus the dynamic field. Plus
+ * `latestSnapshotDate` so the uncached wrapper can hand it to
+ * `computeFreshness` without re-deriving from `brandSeriesByMetric`.
+ */
+type VisibilityReadModelCore = Omit<VisibilityReadModelData, "freshness"> & {
+  /** Most recent active-provider sampled date in the read; null when
+   *  the tenant has no active-provider snapshots yet. */
+  latestSnapshotDate: string | null;
+};
+
+async function loadVisibilityReadModelCoreInner(opts: {
   tenantId: string;
   endDate: string;
-}): Promise<VisibilityReadModelData> {
+}): Promise<VisibilityReadModelCore> {
   // Side-effecting seeds — match the loadCachedFreshCanonical pattern.
-  // These were previously seeded by the canonical loader; the snapshot
-  // path replaces the canonical pull but the seeds are still needed
-  // because chartEvents reads from url_change_outcomes (seeded) and
-  // recommendation_responses store (seeded).
+  // chartEvents reads from url_change_outcomes (seeded) and the rec-
+  // response store (seeded).
   await Promise.all([
     ensureRecommendationResponsesSeeded(),
     ensureUrlChangeOutcomesSeeded(),
@@ -920,20 +1000,25 @@ async function loadVisibilityReadModelInner(opts: {
 
   const businessConfig = getBusinessConfig();
   const { tenantId, endDate } = opts;
-  const sinceDate = subtractDays(endDate, SNAPSHOT_WINDOW_DAYS - 1);
+
+  // Read floor: earliest active-provider snapshot date (P1 follow-up).
+  // Replaces the previous 365-day cap so "All time" really means "all
+  // the active-provider history we have". The backstop activates only
+  // when the earliest-date query fails or returns null (empty tenant).
+  const earliestActive = await fetchEarliestActivePlatformDate(tenantId);
+  const sinceDate =
+    earliestActive ??
+    subtractDays(endDate, SNAPSHOT_READ_FLOOR_BACKSTOP_DAYS - 1);
 
   const repo = getRepository().forTenant(tenantId);
 
-  // Parallel reads — snapshots + tracked entities + chart events +
-  // freshness signal (recent observation_runs for in-flight / last-
-  // completed timestamps).
-  const [snapshots, trackedEntities, chartEvents, freshnessSignal] =
-    await Promise.all([
-      repo.getDailyMetricSnapshots({ since: sinceDate }),
-      repo.getTrackedEntities(),
-      buildChartEvents(),
-      fetchFreshnessSignal(tenantId),
-    ]);
+  // Parallel reads — snapshots + tracked entities + chart events.
+  // Freshness is now fetched OUTSIDE this cached core.
+  const [snapshots, trackedEntities, chartEvents] = await Promise.all([
+    repo.getDailyMetricSnapshots({ since: sinceDate }),
+    repo.getTrackedEntities(),
+    buildChartEvents(),
+  ]);
 
   // Clip to the window end (the repo's `since` filter covers the lower
   // bound; we still trim above for safety + idempotency).
@@ -1007,19 +1092,14 @@ async function loadVisibilityReadModelInner(opts: {
     competitorSeriesByMetric[m] = series;
   }
 
-  // ── Freshness ──────────────────────────────────────────────────
   // Latest snapshot date is the most recent date that has a
   // platform-scope row in the active-provider set (already filtered
-  // by indexSnapshots). Empty if there are none.
+  // by indexSnapshots). Empty when the tenant has no active-provider
+  // snapshots.
   const latestSnapshotDate =
     idx.sampledDates.length > 0
       ? idx.sampledDates[idx.sampledDates.length - 1]
       : null;
-  const freshness = computeFreshness({
-    latestSnapshotDate,
-    latestPollCompletedAt: freshnessSignal.latestPollCompletedAt,
-    inFlightPollStartedAt: freshnessSignal.inFlightPollStartedAt,
-  });
 
   return {
     brandName: brandDisplay,
@@ -1030,33 +1110,38 @@ async function loadVisibilityReadModelInner(opts: {
     chartEndDate: endDate,
     competitorSeriesByMetric,
     chartEvents,
-    freshness,
+    latestSnapshotDate,
   };
 }
 
 /**
- * Cross-request cache TTL for the Today read model. Long enough that
- * sequential page loads share one Supabase trip; short enough that an
- * accidentally-missed `revalidateTag` self-heals within minutes
- * instead of waiting until the next poll. The post-`syncSnaps`
- * invalidation in `run-poll.ts` is the primary freshness path; this
- * TTL is the safety net.
+ * Cross-request cache TTL for the Today read-model CORE. Long enough
+ * that sequential page loads share one Supabase trip; short enough
+ * that an accidentally-missed `revalidateTag` self-heals within
+ * minutes. The post-`syncSnaps` invalidation in `run-poll.ts` is the
+ * primary freshness path; this TTL is the safety net.
  */
 const TODAY_READMODEL_CACHE_TTL_SECONDS = 300;
 
 /**
- * Two-layer cache:
- *   • `react.cache` — per-request memoization (same Suspense
- *     boundary, same request → one shared Promise).
- *   • `unstable_cache` — cross-request caching with explicit
- *     tag-based invalidation. The cache key includes `tenantId` +
- *     `endDate` so distinct tenants / preview-mode "endDate"
- *     overrides each get their own slot. The tag is tenant-scoped
- *     (`today-readmodel:<tenantId>`) so a poll that lands for one
- *     tenant invalidates only that tenant's cached payload.
+ * Three-layer pattern:
  *
- * Always passes a 60-day window — that's the longest leaderboard
- * window; any shorter view slices into the same array.
+ *   1. `react.cache` (outermost) — per-request memoization. Same
+ *      Suspense boundary, same request → one shared Promise.
+ *
+ *   2. `unstable_cache` (middle) — cross-request caching for the
+ *      heavy CORE payload (snapshots + leaderboard + chart series +
+ *      chartEvents). Tag-invalidated post-`syncSnaps`. 300s TTL
+ *      safety net.
+ *
+ *   3. Uncached freshness (innermost) — `fetchFreshnessSignal` runs
+ *      every request so an in-flight poll's `started_at` shows
+ *      "Refreshing…" immediately, not after 5 minutes of staleness.
+ *
+ * Cache key includes `tenantId` + `endDate` so distinct tenants /
+ * preview-mode date overrides each get their own slot. The tag is
+ * tenant-scoped (`today-readmodel:<tenantId>`) so a poll that lands
+ * for one tenant invalidates only that tenant's cached payload.
  */
 export const loadVisibilityReadModelFromSnapshots = cache(
   async (opts?: {
@@ -1068,14 +1153,41 @@ export const loadVisibilityReadModelFromSnapshots = cache(
       (await (await import("@/lib/tenant-context")).currentTenantId());
     const endDate = opts?.endDate ?? isoDayUtc(new Date());
 
-    const cached = unstable_cache(
-      () => loadVisibilityReadModelInner({ tenantId, endDate }),
-      ["today-readmodel:v1", tenantId, endDate],
+    // Heavy cached core.
+    const cachedCore = unstable_cache(
+      () => loadVisibilityReadModelCoreInner({ tenantId, endDate }),
+      ["today-readmodel:core:v1", tenantId, endDate],
       {
         revalidate: TODAY_READMODEL_CACHE_TTL_SECONDS,
         tags: [buildTodayReadModelCacheTag(tenantId)],
       },
     );
-    return cached();
+
+    // Parallel: cached core + uncached freshness signal. The freshness
+    // signal runs every request — that's the whole point of this
+    // split. Small (~one obs_runs SELECT, tenant-scoped, LIMIT 1)
+    // so the per-request cost is negligible.
+    const [core, signal] = await Promise.all([
+      cachedCore(),
+      fetchFreshnessSignal(tenantId),
+    ]);
+
+    const freshness = computeFreshness({
+      latestSnapshotDate: core.latestSnapshotDate,
+      latestPollCompletedAt: signal.latestPollCompletedAt,
+      inFlightPollStartedAt: signal.inFlightPollStartedAt,
+    });
+
+    return {
+      brandName: core.brandName,
+      brandSeriesByMetric: core.brandSeriesByMetric,
+      brandSeriesByPlatform: core.brandSeriesByPlatform,
+      leaderboardByMetric: core.leaderboardByMetric,
+      leaderboardByMetricAndWindow: core.leaderboardByMetricAndWindow,
+      chartEndDate: core.chartEndDate,
+      competitorSeriesByMetric: core.competitorSeriesByMetric,
+      chartEvents: core.chartEvents,
+      freshness,
+    };
   },
 );
