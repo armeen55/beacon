@@ -89,17 +89,53 @@ describe("Emergency P0 v2: /recommendations/[id] no cheap-check", () => {
     );
   });
 
-  it("redirects to the canonical URL when the resolver finds a fallback row", () => {
+  it("redirects to the canonical URL when the resolver finds a fallback row (debugResolver suppresses the redirect)", () => {
     // The `redirect` branch must call Next.js's `redirect()` with the
-    // resolved row id encoded for safe URL transport. This is the seam
-    // that converts a stale URL into a working one instead of
-    // dead-ending on the not-found state.
+    // resolved row id encoded for safe URL transport. The 2026-05-13
+    // debug follow-up suppresses the redirect when `?debugResolver=1`
+    // so the operator can see the diagnostic panel for the resolution
+    // that would have fired the 307; the guard is now
+    // `resolution.kind === "redirect" && !debugResolver`.
     expect(stripped).toMatch(
-      /if\s*\(\s*resolution\.kind\s*===\s*"redirect"\s*\)/,
+      /if\s*\(\s*resolution\.kind\s*===\s*"redirect"\s*&&\s*!debugResolver\s*\)/,
     );
     expect(stripped).toMatch(
       /redirect\(\s*`\/recommendations\/\$\{encodeRecommendationRouteId\(resolution\.row\.id\)\}`\s*,?\s*\)/,
     );
+  });
+
+  it("opts out of every cache layer that could serve a stale not-found payload", () => {
+    // 2026-05-13 P0 — defense in depth against client Router Cache /
+    // edge cache / browser HTTP cache serving a previous not-found
+    // render to the operator's signed-in click. `dynamic =
+    // "force-dynamic"` already implies revalidate=0, but the explicit
+    // exports are pinned so a future Next default change can't break
+    // the contract.
+    expect(stripped).toMatch(
+      /export\s+const\s+dynamic\s*=\s*['"]force-dynamic['"]/,
+    );
+    expect(stripped).toMatch(/export\s+const\s+revalidate\s*=\s*0/);
+    expect(stripped).toMatch(
+      /export\s+const\s+fetchCache\s*=\s*['"]force-no-store['"]/,
+    );
+    expect(stripped).toMatch(
+      /import\s*\{\s*unstable_noStore[\s\S]{0,80}from\s+['"]next\/cache['"]/,
+    );
+    expect(stripped).toMatch(/\bnoStore\(\)/);
+  });
+
+  it("reads `searchParams.debugResolver === \"1\"` and threads the flag through every render branch", () => {
+    expect(stripped).toMatch(
+      /sp\.debugResolver\s*===\s*['"]1['"]/,
+    );
+    // The panel renders in three call sites: decode-failed branch,
+    // miss branch, and a combined exact/redirect branch (one render
+    // with a conditional in the `resolution` prop). Together those
+    // cover all four resolver outcomes.
+    const detailPanelCount = (
+      stripped.match(/<DetailDebugPanel/g) ?? []
+    ).length;
+    expect(detailPanelCount).toBeGreaterThanOrEqual(3);
   });
 });
 
