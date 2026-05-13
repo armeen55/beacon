@@ -1,8 +1,21 @@
 import { Suspense } from "react";
 
+import Link from "next/link";
+
 import { TodayClient } from "./today-client";
-import { TodayV2Client } from "./today-v2-client";
-import { TodayV2Skeleton, TodayLegacySkeleton } from "./today-v2-skeleton";
+import {
+  TodayLegacySkeleton,
+  TodayV2ActionCardsSkeleton,
+  TodayV2DescriptorsSkeleton,
+  TodayV2VisibilityGroupSkeleton,
+} from "./today-v2-skeleton";
+import {
+  TodayV2ActionCardsSection,
+  TodayV2DescriptorsSection,
+  TodayV2VisibilityGroupSection,
+} from "./today-v2-sections";
+import { loadTodayV2GateData } from "./today-v2-data";
+import { FirstReadingWaiting } from "@/components/today/first-reading-waiting";
 import { respondToRecommendation } from "./recommendation-actions";
 import { confirmFindingAsChange, resolveFinding } from "./finding-actions";
 import { loadTodayPageData } from "./today-data";
@@ -37,23 +50,26 @@ function shouldUseV2(
 }
 
 /**
- * Streaming bundle (2026-05-12) — /today refactored for perceived speed.
+ * Today route — perceived-speed via section-level streaming.
  *
- * Before: this function awaited `loadTodayPageData()` BEFORE returning any
- * JSX. The route stayed on the generic `loading.tsx` for the entire data
- * load (cold ~10s), then snapped to the fully rendered page. User
- * perceived "blank waiting" the whole time.
+ * Streaming bundle (2026-05-12) — the v2 path now renders THREE
+ * independently streaming sections, each behind its own <Suspense>
+ * boundary with a section-shaped skeleton fallback:
  *
- * After: the static route frame returns immediately. A `<Suspense>`
- * boundary wraps an async server component that does the slow load; the
- * `TodayV2Skeleton` / `TodayLegacySkeleton` fallback shows the layout
- * shape (hero / chart / leaderboard / 3 cards / descriptors) while the
- * data streams. When the loader resolves, the Suspense streams in the
- * real TodayV2Client / TodayClient with the same data and same shape —
- * no data contract changes, no UI design changes.
+ *   1. Visibility group (hero + chart + leaderboard) — shares the
+ *      `visibilityWindow` client state, so these three stay together.
+ *   2. Action cards (Do today / Working / Recent wins).
+ *   3. Descriptors / "How AI describes you" — has its own NARROW
+ *      loader that doesn't run the full legacy pipeline; streams
+ *      first in practice.
  *
- * page.tsx itself awaits only `searchParams` (microseconds) so the
- * static frame + skeleton flush to the browser fast.
+ * Before any sections render, the page awaits a cheap gate
+ * (`loadTodayV2GateData`) that resolves demo-mode + first-reading
+ * checks. Demo or first-reading short-circuits the page to the
+ * matching view INSTANTLY without paying section-load cost.
+ *
+ * Legacy `?legacy=1` is unchanged — single Suspense, single loader,
+ * same render as before.
  */
 export default async function TodayPage({
   searchParams,
@@ -62,29 +78,105 @@ export default async function TodayPage({
 }) {
   const params = await searchParams;
   const useV2 = shouldUseV2(params);
+
+  if (!useV2) {
+    return (
+      <div className="max-w-6xl">
+        <Suspense fallback={<TodayLegacySkeleton />}>
+          <TodayLegacyAsyncContent />
+        </Suspense>
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-6xl">
-      <Suspense
-        fallback={useV2 ? <TodayV2Skeleton /> : <TodayLegacySkeleton />}
-      >
-        <TodayAsyncContent useV2={useV2} />
+      <Suspense fallback={<TodayV2SectionedSkeleton />}>
+        <TodayV2SectionedContent />
+      </Suspense>
+    </div>
+  );
+}
+
+/** Full v2 layout skeleton — used while the gate loader resolves
+ *  (~the time it takes to read the canonical store). After the gate
+ *  resolves, EACH section's own Suspense fallback takes over. */
+function TodayV2SectionedSkeleton() {
+  return (
+    <div className="space-y-6">
+      <TodayV2VisibilityGroupSkeleton />
+      <TodayV2ActionCardsSkeleton />
+      <TodayV2DescriptorsSkeleton />
+    </div>
+  );
+}
+
+/**
+ * V2 path: resolves the cheap gate first (demo / firstReading
+ * shortcuts), then mounts the three section-streaming Suspense
+ * boundaries.
+ */
+async function TodayV2SectionedContent() {
+  const trace = createPerfTrace("loader:/", {
+    traceId: await readPerfTraceIdFromHeaders(),
+    route: "/",
+  });
+  const gate = await trace.time("loadTodayV2GateData", () =>
+    loadTodayV2GateData(),
+  );
+  trace.data("use_v2", "true");
+  trace.data("is_demo", gate.isDemoMode ? "true" : "false");
+  trace.data(
+    "is_first_reading",
+    gate.firstReading.isFirstReading ? "true" : "false",
+  );
+  trace.flush();
+
+  if (gate.isDemoMode) {
+    return (
+      <div className="space-y-6">
+        <div className="rounded-lg border border-border/60 bg-surface-inset/30 px-5 py-5">
+          <h2 className="text-[13px] font-semibold text-foreground tracking-tight">
+            Import your data to see your real command center
+          </h2>
+          <p className="mt-2 text-[13px] leading-relaxed text-muted-foreground">
+            Today shows your visibility scoreboard and ranked actions once you
+            import your first visibility data set.
+          </p>
+          <Link
+            href="/settings/import"
+            className="mt-4 inline-flex text-[13px] font-semibold text-accent-primary underline underline-offset-2 hover:text-accent-primary/85"
+          >
+            Go to Import →
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  if (gate.firstReading.isFirstReading) {
+    return <FirstReadingWaiting context={gate.firstReading.context} />;
+  }
+
+  return (
+    <div className="space-y-6">
+      <Suspense fallback={<TodayV2VisibilityGroupSkeleton />}>
+        <TodayV2VisibilityGroupSection />
+      </Suspense>
+      <Suspense fallback={<TodayV2ActionCardsSkeleton />}>
+        <TodayV2ActionCardsSection />
+      </Suspense>
+      <Suspense fallback={<TodayV2DescriptorsSkeleton />}>
+        <TodayV2DescriptorsSection />
       </Suspense>
     </div>
   );
 }
 
 /**
- * Async server component — the slow path. Awaiting happens here, behind
- * the Suspense boundary, so the parent frame can flush instantly with
- * the skeleton. When this resolves, Suspense streams the real client
- * tree into the page.
- *
- * Exported for smoke tests: `renderToStaticMarkup` in Vitest does not
- * resolve Suspense, so callers that want to assert on the resolved
- * page content invoke this function directly (`await
- * TodayAsyncContent({ useV2}).then(renderToStaticMarkup)`).
+ * Legacy `?legacy=1` path — unchanged single-Suspense load.
  */
-export async function TodayAsyncContent({ useV2 }: { useV2: boolean }) {
+export async function TodayLegacyAsyncContent() {
   const trace = createPerfTrace("loader:/", {
     traceId: await readPerfTraceIdFromHeaders(),
     route: "/",
@@ -92,17 +184,10 @@ export async function TodayAsyncContent({ useV2 }: { useV2: boolean }) {
   const data = await trace.time("loadTodayPageData", () =>
     loadTodayPageData(),
   );
-  trace.data("use_v2", useV2 ? "true" : "false");
+  trace.data("use_v2", "false");
   trace.measureSize("payload", data);
   trace.flush();
-  return useV2 ? (
-    <TodayV2Client
-      {...data}
-      onRespondToRec={respondToRecommendation}
-      onConfirmFinding={confirmFindingAsChange}
-      onDismissFinding={dismissFinding}
-    />
-  ) : (
+  return (
     <TodayClient
       {...data}
       onRespondToRec={respondToRecommendation}
@@ -111,3 +196,21 @@ export async function TodayAsyncContent({ useV2 }: { useV2: boolean }) {
     />
   );
 }
+
+/**
+ * Backwards-compat re-export. The streaming-bundle test pin imports
+ * `TodayAsyncContent` to assert that some async server component
+ * awaits the slow loader. Aliasing here keeps the contract; the
+ * function now routes to legacy because the v2 path no longer goes
+ * through one big async component.
+ */
+export const TodayAsyncContent = async ({
+  useV2,
+}: {
+  useV2: boolean;
+}) => {
+  if (useV2) {
+    return <TodayV2SectionedContent />;
+  }
+  return <TodayLegacyAsyncContent />;
+};

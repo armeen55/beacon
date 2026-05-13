@@ -28,12 +28,18 @@ describe("Today route smoke", () => {
   it(
     "TodayPage RSC loads data and renders the shell wrapper plus Today slot",
     async () => {
-    // Streaming bundle (2026-05-12): the page returns a <Suspense>
-    // wrapper instantly with the async load deferred to
-    // `TodayAsyncContent`. renderToStaticMarkup doesn't resolve
-    // Suspense, so render the async content directly.
-    const { TodayAsyncContent } = await import("@/app/(shell)/page");
-    const tree = await TodayAsyncContent({ useV2: false });
+    // Section-streaming bundle (2026-05-12): the page returns a
+    // <Suspense> wrapper instantly. For the legacy `?legacy=1` path
+    // the async load lives in `TodayLegacyAsyncContent`, exported so
+    // tests can render it directly (renderToStaticMarkup doesn't
+    // resolve Suspense). The v2 path now mounts THREE section
+    // Suspense boundaries inside `TodayV2SectionedContent`; this
+    // smoke test continues to exercise the legacy single-Suspense
+    // shape to assert the route wires through to TodayClient.
+    const { TodayLegacyAsyncContent } = await import(
+      "@/app/(shell)/page"
+    );
+    const tree = await TodayLegacyAsyncContent();
     const html = renderToStaticMarkup(tree as ReactElement);
 
     // Canonical Today findings heading (see `today-findings.tsx`);

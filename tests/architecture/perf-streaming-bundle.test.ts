@@ -49,15 +49,24 @@ describe("Streaming bundle: /page.tsx is Suspense-shelled", () => {
     );
   });
 
-  it("imports the TodayV2 + Legacy skeletons", () => {
+  it("imports SOME skeleton from today-v2-skeleton (legacy OR per-section)", () => {
+    // After the section-streaming bundle (2026-05-12), the v2 path
+    // imports per-section skeletons (TodayV2VisibilityGroupSkeleton +
+    // TodayV2ActionCardsSkeleton + TodayV2DescriptorsSkeleton) instead
+    // of the composite TodayV2Skeleton. Either name is acceptable
+    // here; what matters is that page.tsx pulls a skeleton from the
+    // skeleton module to use as a Suspense fallback.
     expect(stripped).toMatch(
-      /import\s+\{[\s\S]*?\bTodayV2Skeleton\b[\s\S]*?\bTodayLegacySkeleton\b[\s\S]*?\}\s+from\s+["']\.\/today-v2-skeleton["']/,
+      /import\s+\{[\s\S]*?\bTodayLegacySkeleton\b[\s\S]*?\}\s+from\s+["']\.\/today-v2-skeleton["']/,
+    );
+    expect(stripped).toMatch(
+      /(TodayV2Skeleton|TodayV2VisibilityGroupSkeleton|TodayV2ActionCardsSkeleton|TodayV2DescriptorsSkeleton)/,
     );
   });
 
   it("renders a <Suspense> with one of the skeletons as fallback", () => {
     expect(stripped).toMatch(
-      /<Suspense[\s\S]*?fallback\s*=\s*\{[\s\S]*?(TodayV2Skeleton|TodayLegacySkeleton)[\s\S]*?\}[\s\S]*?>/,
+      /<Suspense[\s\S]*?fallback\s*=\s*\{[\s\S]*?(TodayV2Skeleton|TodayV2VisibilityGroupSkeleton|TodayV2ActionCardsSkeleton|TodayV2DescriptorsSkeleton|TodayLegacySkeleton)[\s\S]*?\}[\s\S]*?>/,
     );
   });
 
