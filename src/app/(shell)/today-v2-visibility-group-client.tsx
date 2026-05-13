@@ -1,13 +1,20 @@
 "use client";
 
 /**
- * Today v2 visibility group client (2026-05-12) — extracts the
- * hero + chart + leaderboard subtree from today-v2-client.tsx so the
- * section can mount inside its own Suspense boundary while still
- * sharing the `visibilityWindow` state across the three pieces.
+ * Today v2 visibility group client.
  *
- * Pure presentation. Identical math to TodayV2Client.heroProps —
- * preserved verbatim so the rendered output matches.
+ * Owns the shared filter state for the hero + chart + leaderboard
+ * subtree so all three pieces read from the same selection:
+ *
+ *   visibilityWindow  : 7 | 14 | 30 | 60 | ALL_TIME_WINDOW   (default 14)
+ *   visibilityMetric  : composite | mention_rate | citation_rate (default composite)
+ *
+ * Hero score / chart headline / chart's per-day line all read
+ * `brandSeriesByMetric[visibilityMetric]` filtered to the visible
+ * window. The leaderboard rank / closest challenger continue to use
+ * the composite leaderboard for the selected window (rank is an
+ * intrinsically single-axis comparison; toggling the metric does not
+ * shuffle the leaderboard).
  */
 
 import { useMemo, useState } from "react";
@@ -15,6 +22,7 @@ import { useMemo, useState } from "react";
 import { AIVisibilityHero } from "@/components/today/ai-visibility-hero";
 import { VisibilityScoreChart } from "@/components/today/visibility-score-chart";
 import { VisibilityLeaderboard } from "@/components/today/visibility-leaderboard";
+import { ALL_TIME_WINDOW } from "@/domains/today/visibility-read-model-constants";
 
 import type {
   VisibilityMetric,
@@ -54,9 +62,14 @@ export function TodayV2VisibilityGroupClient({
   enrichmentV2,
 }: TodayV2VisibilityGroupClientProps) {
   const [visibilityWindow, setVisibilityWindow] = useState<number>(14);
+  const [visibilityMetric, setVisibilityMetric] =
+    useState<VisibilityMetric>("composite");
 
   const heroProps = useMemo(() => {
     if (!visibilityData) return null;
+
+    // Leaderboard for rank / closest challenger — composite-by-window
+    // (unchanged from prior behavior; rank is intrinsically single-axis).
     const leaderboard =
       visibilityData.leaderboardByMetricAndWindow?.composite[
         visibilityWindow
@@ -65,14 +78,40 @@ export function TodayV2VisibilityGroupClient({
       [];
     const brandRow = leaderboard.find((e) => e.isOwned) ?? null;
 
-    const series = visibilityData.brandSeriesByMetric.composite ?? [];
-    let latestPointDate: string | null = null;
-    for (let i = series.length - 1; i >= 0; i--) {
-      if (series[i].sampleSize > 0) {
-        latestPointDate = series[i].date;
-        break;
-      }
-    }
+    // ── Hero score / delta / sample stats — match the chart headline. ──
+    //
+    // Read the SAME series the chart renders for the selected metric,
+    // filter to the visible window via the same `chartEndDate −
+    // window + 1` cutoff the chart uses, then take latest-non-empty
+    // for the score and (latest − earliest) for the within-window
+    // delta. This pins hero and chart to one number per render so
+    // toggling 7d/14d/30d/60d/All time × Overall/Mentions/Citations
+    // updates both surfaces in lockstep.
+    const series = visibilityData.brandSeriesByMetric[visibilityMetric] ?? [];
+    const anchor =
+      visibilityData.chartEndDate ?? series[series.length - 1]?.date ?? null;
+    const cutoffISO = (() => {
+      if (!anchor) return null;
+      const d = new Date(`${anchor}T00:00:00Z`);
+      d.setUTCDate(d.getUTCDate() - (visibilityWindow - 1));
+      return d.toISOString().slice(0, 10);
+    })();
+    const visiblePoints = cutoffISO
+      ? series.filter((p) => p.date >= cutoffISO)
+      : series;
+    const latestVisible = [...visiblePoints]
+      .reverse()
+      .find((p) => p.sampleSize > 0);
+    const earliestVisible = visiblePoints.find((p) => p.sampleSize > 0);
+    const score = latestVisible?.score ?? null;
+    const delta =
+      latestVisible && earliestVisible
+        ? latestVisible.score - earliestVisible.score
+        : null;
+    const latestPointDate = latestVisible?.date ?? null;
+    const currentSampledDays = visiblePoints.filter(
+      (p) => p.sampleSize > 0,
+    ).length;
 
     const closestChallenger = (() => {
       if (!brandRow) {
@@ -115,21 +154,29 @@ export function TodayV2VisibilityGroupClient({
 
     return {
       brandName: visibilityData.brandName,
-      score: brandRow?.score ?? null,
-      delta: brandRow?.delta ?? null,
-      windowDays: brandRow?.deltaWindowDays ?? visibilityWindow,
+      score,
+      delta,
+      windowDays: visibilityWindow,
       rank: brandRow?.rank ?? null,
       totalRanked: leaderboard.length,
       closestChallenger,
-      currentSampledDays: brandRow?.currentSampledDays ?? 0,
+      currentSampledDays,
       latestReadingDate: latestPointDate,
       chatgptPrimaryPct: platformPrimaryPct("ChatGPT"),
       perplexityPrimaryPct: platformPrimaryPct("Perplexity"),
       sampleState,
     };
-  }, [visibilityData, visibilityWindow, enrichmentV2]);
+  }, [visibilityData, visibilityWindow, visibilityMetric, enrichmentV2]);
 
   if (!visibilityData) return null;
+
+  // Leaderboard slice — composite by window. All time falls back to
+  // the bundled 14d default if the loader didn't emit an all-time slice
+  // for some reason (defensive — current loader always includes it).
+  const leaderboardEntities =
+    visibilityData.leaderboardByMetricAndWindow?.composite[visibilityWindow] ??
+    visibilityData.leaderboardByMetricAndWindow?.composite[ALL_TIME_WINDOW] ??
+    visibilityData.leaderboardByMetric.composite;
 
   return (
     <div className="space-y-6" data-today-v2-section="visibility-group">
@@ -146,6 +193,8 @@ export function TodayV2VisibilityGroupClient({
           events={visibilityData.chartEvents ?? []}
           timeRange={visibilityWindow}
           onTimeRangeChange={setVisibilityWindow}
+          metric={visibilityMetric}
+          onMetricChange={setVisibilityMetric}
           chartEndDate={visibilityData.chartEndDate ?? null}
         />
       </section>
@@ -153,13 +202,7 @@ export function TodayV2VisibilityGroupClient({
         className="space-y-3"
         data-today-v2-section="visibility-leaderboard"
       >
-        <VisibilityLeaderboard
-          entities={
-            visibilityData.leaderboardByMetricAndWindow?.composite[
-              visibilityWindow
-            ] ?? visibilityData.leaderboardByMetric.composite
-          }
-        />
+        <VisibilityLeaderboard entities={leaderboardEntities} />
       </section>
     </div>
   );

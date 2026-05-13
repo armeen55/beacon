@@ -14,6 +14,10 @@ import {
 import { WhyThisNumber } from "@/components/today/why-this-number";
 import { buildOverallVisibilityProvenance } from "@/domains/today/score-provenance";
 import { NATIVE_REGIME_START } from "@/domains/product/native-regime";
+import {
+  ALL_TIME_WINDOW,
+  isActiveSnapshotPlatform,
+} from "@/domains/today/visibility-read-model-constants";
 
 /**
  * Visibility Score chart for Today.
@@ -60,11 +64,20 @@ export type VisibilityChartProps = {
   >;
   /** Optional dated annotations \u2014 e.g. hurting verdicts. */
   events?: VisibilityChartEvent[];
-  /** Step 1.3 (master plan) \u2014 selected window in calendar days (7/14/30/60).
-   *  Lifted to `today-client.tsx` so the leaderboard delta tracks the same
-   *  toggle. Falls back to the local-state default for non-Today consumers. */
+  /** Step 1.3 (master plan) \u2014 selected window in calendar days (7/14/30/60
+   *  or `ALL_TIME_WINDOW` for "All time"). Lifted to the Today v2
+   *  visibility-group client so the leaderboard delta + hero score track
+   *  the same toggle. Falls back to local state for non-Today consumers. */
   timeRange?: number;
   onTimeRangeChange?: (days: number) => void;
+  /**
+   * Phase 2B follow-up (2026-05-13) \u2014 selected metric, lifted out of
+   * this component so the parent's hero can read the SAME latest-in-
+   * window score the chart's headline shows. Optional; falls back to
+   * local state for non-Today consumers.
+   */
+  metric?: VisibilityMetric;
+  onMetricChange?: (m: VisibilityMetric) => void;
   /** Anchor (YYYY-MM-DD UTC) for the calendar-date filter. The chart now
    *  shows points from `chartEndDate \u2212 timeRange + 1` through `chartEndDate`
    *  rather than the last N points \u2014 which under sparse sampling silently
@@ -79,12 +92,18 @@ const METRICS: VisibilityMetric[] = [
   "citation_rate",
 ];
 
-/** Time-range toggle options (days). Server sends 60d max; client slices. */
+/**
+ * Time-range toggle options (days). Server sends up to ~365d (capped in
+ * `visibility-read-model.ts`); client slices to the picked window.
+ * `ALL_TIME_WINDOW` slices every available snapshot day (earliest
+ * active-provider snapshot through today).
+ */
 const TIME_RANGES: Array<{ days: number; label: string }> = [
   { days: 7, label: "7d" },
   { days: 14, label: "14d" },
   { days: 30, label: "30d" },
   { days: 60, label: "60d" },
+  { days: ALL_TIME_WINDOW, label: "All time" },
 ];
 
 export function VisibilityScoreChart({
@@ -95,9 +114,16 @@ export function VisibilityScoreChart({
   events = [],
   timeRange: timeRangeProp,
   onTimeRangeChange,
+  metric: metricProp,
+  onMetricChange,
   chartEndDate,
 }: VisibilityChartProps) {
-  const [metric, setMetric] = useState<VisibilityMetric>("composite");
+  // Phase 2B follow-up — accept `metric` as a controlled prop so the
+  // parent's hero reads the same latest-in-window score the chart's
+  // headline shows. Falls back to local state for non-Today consumers.
+  const [localMetric, setLocalMetric] = useState<VisibilityMetric>("composite");
+  const metric = metricProp ?? localMetric;
+  const setMetric = onMetricChange ?? setLocalMetric;
   // Step 1.3 (master plan) — accept timeRange as a controlled prop when the
   // parent (today-client.tsx) needs to keep the leaderboard's delta column
   // in sync. Falls back to local state for non-Today consumers.
@@ -176,10 +202,24 @@ export function VisibilityScoreChart({
     // points on days that platform was sampled. Matches Profound's per-
     // platform visibility view.
     if (showPlatforms) {
+      // Phase 2B follow-up (2026-05-13) — color map durability pass.
+      //   Brand line keeps `accent-primary` (orange in current theme).
+      //   ChatGPT keeps OpenAI's brand green so users with that mental
+      //   model see the expected color.
+      //   Perplexity moves from teal (`#0D9488`) → purple (`#7C3AED`) so
+      //   it's clearly distinct from ChatGPT's teal-green on screen.
+      //   Other / unknown platforms get a muted neutral so future
+      //   additions stay readable until a brand color is picked.
+      //
+      // Google AI Overviews is intentionally NOT in this map even
+      // though its color key is preserved here — the active-provider
+      // filter below skips the row entirely. Keeping the key lets us
+      // re-enable GAIO trivially if it ever comes back as a live
+      // provider.
       const PLATFORM_COLORS: Record<string, string> = {
         "Google AI Overviews": "stroke-[#4285F4]/80",
         "ChatGPT": "stroke-[#10A37F]/80",
-        "Perplexity": "stroke-[#0D9488]/80",
+        "Perplexity": "stroke-[#7C3AED]/85",
         "Claude": "stroke-[#C15F3C]/80",
       };
       const DEFAULT_PLATFORM_COLOR = "stroke-muted-foreground/60";
@@ -187,6 +227,13 @@ export function VisibilityScoreChart({
       // shared x-axis (which is brandPoints' dates).
       const dateIdx = new Map(brandPoints.map((p, i) => [p.date, i]));
       for (const [platform, points] of Object.entries(brandSeriesByPlatform)) {
+        // P0 client-side defensive filter (2026-05-13). Server already
+        // excludes inactive providers via `loadVisibilityReadModelFromSnapshots`,
+        // but a stale RSC payload from before that deploy could still
+        // carry a "Google AI Overviews" key. Drop it here so the chart
+        // + tooltip can never display a dead-provider line under any
+        // cache scenario.
+        if (!isActiveSnapshotPlatform(platform)) continue;
         if (points.length === 0) continue;
         const aligned: number[] = new Array(brandPoints.length).fill(NaN);
         const filteredPlatformPoints =
@@ -209,11 +256,15 @@ export function VisibilityScoreChart({
       }
     }
     if (showCompetitors) {
+      // Phase 2B follow-up — competitor colors moved off semantic
+      // status tokens (danger/warning/success read as alarms) onto
+      // neutral, visually distinct hues. Order is stable so a tenant's
+      // competitor row keeps the same color across renders.
       const COMPETITOR_COLORS = [
-        "stroke-status-danger/70",
-        "stroke-status-warning/70",
-        "stroke-status-success/60",
-        "stroke-accent-secondary/70",
+        "stroke-[#64748B]/85", // slate
+        "stroke-[#0EA5E9]/85", // sky
+        "stroke-[#F59E0B]/85", // amber
+        "stroke-[#EC4899]/85", // pink
       ];
       competitorSeries.slice(0, 4).forEach((c, i) => {
         s.push({
@@ -253,8 +304,15 @@ export function VisibilityScoreChart({
 
   return (
     <div className="rounded-lg border border-border/60 bg-surface-raised/30 px-5 pt-5 pb-4">
-      {/* Header row: title + metric toggle + time range toggle */}
-      <div className="flex flex-col gap-3 mb-4 sm:flex-row sm:items-start sm:justify-between">
+      {/* Header row: title + metric toggle + time range toggle.
+       *
+       * Phase 2B follow-up (2026-05-13): broke layout at `sm` (640px+)
+       * because the toggle pair (~280px combined with whitespace-nowrap)
+       * crowded the title block and the metric description wrapped
+       * awkwardly. Pushed the row layout to `lg` (1024px+) so narrow
+       * tablets and split-screen workspaces get the stacked layout
+       * with the toggles below the title, no overlap. */}
+      <div className="flex flex-col gap-3 mb-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <h2 className="text-[13px] font-semibold text-foreground tracking-tight">
             {VISIBILITY_METRIC_LABELS[metric]}
@@ -302,7 +360,11 @@ export function VisibilityScoreChart({
         </div>
         <p className="text-[10px] text-muted-foreground/70">
           {sampledDayCount} sampled day
-          {sampledDayCount === 1 ? "" : "s"} in this {timeRange}-day window
+          {sampledDayCount === 1 ? "" : "s"} in this{" "}
+          {timeRange === ALL_TIME_WINDOW
+            ? "all-time"
+            : `${timeRange}-day`}{" "}
+          window
         </p>
         {/* T3.1 — Trust Sprint score provenance disclosure. The trust
             label here is "directional" because the chart treats every

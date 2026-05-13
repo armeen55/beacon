@@ -3,6 +3,23 @@ import { Suspense } from "react";
 import Link from "next/link";
 
 import { TodayClient } from "./today-client";
+
+/**
+ * Phase 2B follow-up (2026-05-13) — force dynamic rendering.
+ *
+ * This route reads `currentTenantId()` (via the gate loader), which
+ * already triggers dynamic rendering at runtime, but the explicit
+ * marker also disables Vercel's edge caching of the RSC payload AND
+ * the Next.js full-route cache. The combination prevents stale
+ * payloads from before a deploy serving the previous data shape
+ * (e.g. the post-P0 GAIO-filter rollout where a cached payload
+ * could still list "Google AI Overviews" in
+ * `brandSeriesByPlatform`).
+ *
+ * Mirrors the other shell routes that read tenant context
+ * (`/settings/*`, `/changes`, `/api/cron/*`).
+ */
+export const dynamic = "force-dynamic";
 import {
   TodayLegacySkeleton,
   TodayV2ActionCardsSkeleton,

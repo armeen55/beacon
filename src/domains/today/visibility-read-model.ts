@@ -75,7 +75,10 @@ import { getBusinessConfig } from "@/lib/business-config";
 import { getRepository } from "@/lib/persistence/repositories";
 import { entityToScopeId } from "@/domains/daily-metric-snapshots/build-from-observations";
 import { makeCompetitorRankingFilter } from "@/domains/recommendations/entity-pollution-filter";
-import { canonicalizePollPlatform } from "@/domains/observations/poll-health";
+import {
+  ALL_TIME_WINDOW as ALL_TIME_WINDOW_SHARED,
+  isActiveSnapshotPlatform,
+} from "./visibility-read-model-constants";
 import type { DailyMetricSnapshot } from "@/domains/daily-metric-snapshots/types";
 import type { TrackedEntity } from "@/domains/tracked-entities/types";
 import type {
@@ -84,29 +87,13 @@ import type {
   EntityVisibility,
 } from "@/domains/product/visibility-score";
 
-/**
- * Single source of truth: the native poll pipeline currently writes
- * observations + snapshots for ChatGPT and Perplexity ONLY. Google AI
- * Overviews rows exist in `daily_metric_snapshots` from the pre-pivot
- * Profound import era but the product surfaces no longer treat it as
- * a live provider — the poll-health module returns "unknown" for it.
- *
- * `canonicalizePollPlatform` is the canonical helper (poll-health.ts:194)
- * that defines this set. It accepts mixed casing
- * ("Perplexity" / "perplexity" / "ChatGPT" / "openai") and returns the
- * lowercase platform key for active providers, or "unknown" for any
- * historical / non-native platform label.
- *
- * Reusing this helper here means: if the active provider set ever
- * expands (e.g. Claude with web search), poll-health.ts updates and
- * this read model picks up the change automatically — no parallel
- * constant to keep in sync.
- *
- * Exported for unit testing.
- */
-export function isActiveSnapshotPlatform(platform: string): boolean {
-  return canonicalizePollPlatform(platform) !== "unknown";
-}
+// Re-export for callers that already import these from this module.
+// The canonical definitions live in `visibility-read-model-constants.ts`
+// (client-safe) so the chart can share them without dragging server
+// imports into the bundle.
+export {
+  isActiveSnapshotPlatform,
+} from "./visibility-read-model-constants";
 
 // ─────────────────────────────────────────────────────────────────────
 // Types
@@ -139,8 +126,29 @@ const VISIBILITY_METRICS: VisibilityMetric[] = [
   "mention_rate",
   "citation_rate",
 ];
-const LEADERBOARD_WINDOWS: ReadonlyArray<number> = [7, 14, 30, 60];
-const SNAPSHOT_WINDOW_DAYS = 60;
+
+/** Re-exported from `visibility-read-model-constants.ts` for callers that
+ *  already import it from here. The canonical definition is client-safe. */
+export const ALL_TIME_WINDOW = ALL_TIME_WINDOW_SHARED;
+
+const LEADERBOARD_WINDOWS: ReadonlyArray<number> = [
+  7,
+  14,
+  30,
+  60,
+  ALL_TIME_WINDOW_SHARED,
+];
+
+/**
+ * Max read window from `daily_metric_snapshots` per request. Was 60d
+ * pre-All-Time. Bumped to 365d so the "All time" toggle can slice up
+ * to a year of history without a second round-trip.
+ *
+ * Current Ritz row counts: ~110 derived rows/day → ~40k rows over a
+ * full year, well within the paginated repo path that already handles
+ * ~7k+ rows. If multi-year data accumulates, revisit this cap.
+ */
+const SNAPSHOT_WINDOW_DAYS = 365;
 
 // ─────────────────────────────────────────────────────────────────────
 // Date helpers

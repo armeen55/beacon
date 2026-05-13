@@ -54,10 +54,14 @@ describe("AIVisibilityHero — happy path (Ritz mature data)", () => {
     expect(html).toContain('data-today-hero-metric="sample"');
   });
 
-  it("score card shows '64.2%' headline with positive delta vs previous 14d", () => {
+  it("score card shows '64.2%' headline with positive delta within the window", () => {
+    // Phase 2B follow-up (2026-05-13): delta semantic flipped from
+    // "vs previous Nd" to "within this window" so hero + chart show
+    // the same number with the same meaning.
     const html = renderToStaticMarkup(<AIVisibilityHero {...RITZ_FULL} />);
     expect(html).toContain("64.2%");
-    expect(html).toContain("+2.1 pts vs previous 14d");
+    expect(html).toContain("+2.1 pts in this window");
+    expect(html).not.toContain("pts vs previous 14d");
     // Positive tone class.
     expect(html).toContain("text-status-success");
   });
@@ -130,7 +134,7 @@ describe("AIVisibilityHero — delta cases", () => {
     const html = renderToStaticMarkup(
       <AIVisibilityHero {...RITZ_FULL} delta={-3.4} />,
     );
-    expect(html).toContain("-3.4 pts vs previous 14d");
+    expect(html).toContain("-3.4 pts in this window");
     expect(html).toContain("text-status-danger");
   });
 
@@ -138,24 +142,24 @@ describe("AIVisibilityHero — delta cases", () => {
     const html = renderToStaticMarkup(
       <AIVisibilityHero {...RITZ_FULL} delta={0} sampleState={undefined} />,
     );
-    expect(html).toContain("0.0 pts vs previous 14d");
+    expect(html).toContain("0.0 pts in this window");
     // Scope the tone check to the score metric's subline — the prior
     // assertion `not.toContain("text-status-success")` false-failed
     // when the "Full sample" badge added a status-success class
     // elsewhere in the markup. Disabling sampleState here removes
     // the badge so the check is unambiguous.
     expect(html).toMatch(
-      /text-muted-foreground\/80[^"]*">0\.0 pts vs previous 14d/,
+      /text-muted-foreground\/80[^"]*">0\.0 pts in this window/,
     );
     expect(html).not.toContain("text-status-success");
     expect(html).not.toContain("text-status-danger");
   });
 
-  it("null delta (limited prior-window data) shows honest message, not fake +0", () => {
+  it("null delta (limited window data) shows honest message, not fake +0", () => {
     const html = renderToStaticMarkup(
       <AIVisibilityHero {...RITZ_FULL} delta={null} />,
     );
-    expect(html).toContain("vs previous 14d — limited data");
+    expect(html).toContain("in this window — limited data");
     expect(html).not.toContain("0.0 pts");
   });
 });

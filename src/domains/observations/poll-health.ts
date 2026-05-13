@@ -2,6 +2,17 @@ import "server-only";
 
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import type { ObservationRun } from "./types";
+// Pure canonicalization helper lives in a client-safe module so the
+// Today v2 chart can reuse it without dragging server-only into the
+// browser bundle. Re-exported below for backwards compatibility with
+// callers that already import from this file.
+import {
+  canonicalizePollPlatform as canonicalizePollPlatformPure,
+  type PollPlatform as PollPlatformPure,
+} from "./poll-platform-canonical";
+
+export type PollPlatform = PollPlatformPure;
+export const canonicalizePollPlatform = canonicalizePollPlatformPure;
 
 /**
  * Poll-health surfaces whether yesterday's (or today's) native poll cron
@@ -26,7 +37,6 @@ const PLATFORM_SOURCES = [
 /** Current chunked hosting contract: 4 sequential chunks of 25 prompts each. */
 const EXPECTED_CHUNKS = 4;
 
-export type PollPlatform = "perplexity" | "chatgpt";
 export type PollHealthStatus = "ok" | "partial" | "failed" | "pending";
 
 /**
@@ -181,25 +191,9 @@ export async function fetchPollHealthForDate(
   return computePollHealthFromRuns(dateISO, runs, actual);
 }
 
-/**
- * Canonicalize a raw platform string to one of the poll-platform keys.
- * Used to cross-check observation counts when rows may carry mixed
- * cases (lowercase from native polls; capitalized from W4
- * historical_recovered backfill).
- *
- * Returns "unknown" for anything we don't recognize so we can ignore
- * it in the count cross-check (e.g. "Google AI Overviews", which is a
- * historical-only platform never polled natively).
- */
-export function canonicalizePollPlatform(
-  raw: string | null | undefined,
-): PollPlatform | "unknown" {
-  if (!raw) return "unknown";
-  const lower = raw.trim().toLowerCase();
-  if (lower === "chatgpt" || lower === "openai") return "chatgpt";
-  if (lower === "perplexity") return "perplexity";
-  return "unknown";
-}
+// Canonical `canonicalizePollPlatform` lives in `poll-platform-canonical.ts`
+// (pure, client-safe). Re-exported at the top of this file for
+// backwards compatibility with existing import sites.
 
 /** YYYY-MM-DD in UTC from an optional injected clock. */
 export function todayISOUtc(now: Date = new Date()): string {

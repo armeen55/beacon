@@ -171,8 +171,14 @@ describe("UX.6.3 — hero owns the executive copy + 4 metric cards + footer", ()
     expect(HERO_SRC).not.toMatch(/\bis being tracked across AI answers/);
   });
 
-  it("score metric subline uses 'pts vs previous Nd' shape", () => {
-    expect(HERO_SRC).toMatch(/pts vs previous \$\{windowDays\}d/);
+  it("score metric subline uses 'pts in this window' shape (Phase 2B alignment)", () => {
+    // Phase 2B follow-up (2026-05-13): delta semantic flipped from
+    // "vs previous Nd" (leaderboard's prev-window delta) to "latest
+    // minus earliest within this window" (matches the chart's
+    // headline delta). The copy follows the math. Old text remains
+    // banned as a regression pin.
+    expect(HERO_SRC).toMatch(/pts in this window/);
+    expect(HERO_SRC).not.toMatch(/pts vs previous \$\{windowDays\}d/);
   });
 
   it("delta=null path uses honest 'limited data' copy (not fabricated 0)", () => {

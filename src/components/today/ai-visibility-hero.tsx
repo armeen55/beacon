@@ -33,12 +33,14 @@ export type AIVisibilityHeroProps = {
   /** Latest composite visibility score (0..100). Null when no sampled data. */
   score: number | null;
   /**
-   * Δ in percentage points vs the previous equal-length window.
-   * Null when the previous window has insufficient samples (matches
-   * leaderboard's "honest no-data" pattern — Step 1.3 master plan).
+   * Δ in percentage points within the selected window: latest sampled
+   * day minus earliest sampled day. Matches the chart's "within this
+   * window" delta semantic (Phase 2B follow-up, 2026-05-13). Null
+   * when there are fewer than two sampled days in the window — matches
+   * the honest-no-data treatment the leaderboard uses.
    */
   delta: number | null;
-  /** Window length used for the delta comparison, in calendar days. */
+  /** Window length used for the delta semantic label, in calendar days. */
   windowDays: number;
   /** Brand's current rank in the leaderboard (1-indexed). Null when no data. */
   rank: number | null;
@@ -179,7 +181,11 @@ export function AIVisibilityHero(props: AIVisibilityHeroProps) {
           sub={
             hasScore && delta !== null
               ? {
-                  text: `${delta > 0 ? "+" : ""}${delta.toFixed(1)} pts vs previous ${windowDays}d`,
+                  // Phase 2B follow-up (2026-05-13) — copy aligned with
+                  // chart's "within this window" semantic so the same
+                  // delta number with the same meaning shows in both
+                  // surfaces.
+                  text: `${delta > 0 ? "+" : ""}${delta.toFixed(1)} pts in this window`,
                   tone:
                     delta > 0
                       ? "positive"
@@ -188,7 +194,7 @@ export function AIVisibilityHero(props: AIVisibilityHeroProps) {
                         : "neutral",
                 }
               : hasScore
-                ? { text: `vs previous ${windowDays}d — limited data`, tone: "neutral" }
+                ? { text: `in this window — limited data`, tone: "neutral" }
                 : { text: "Awaiting sampled data", tone: "neutral" }
           }
         />
