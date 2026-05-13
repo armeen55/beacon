@@ -75,6 +75,7 @@ import { getBusinessConfig } from "@/lib/business-config";
 import { getRepository } from "@/lib/persistence/repositories";
 import { entityToScopeId } from "@/domains/daily-metric-snapshots/build-from-observations";
 import { makeCompetitorRankingFilter } from "@/domains/recommendations/entity-pollution-filter";
+import { canonicalizePollPlatform } from "@/domains/observations/poll-health";
 import type { DailyMetricSnapshot } from "@/domains/daily-metric-snapshots/types";
 import type { TrackedEntity } from "@/domains/tracked-entities/types";
 import type {
@@ -82,6 +83,30 @@ import type {
   VisibilityPoint,
   EntityVisibility,
 } from "@/domains/product/visibility-score";
+
+/**
+ * Single source of truth: the native poll pipeline currently writes
+ * observations + snapshots for ChatGPT and Perplexity ONLY. Google AI
+ * Overviews rows exist in `daily_metric_snapshots` from the pre-pivot
+ * Profound import era but the product surfaces no longer treat it as
+ * a live provider — the poll-health module returns "unknown" for it.
+ *
+ * `canonicalizePollPlatform` is the canonical helper (poll-health.ts:194)
+ * that defines this set. It accepts mixed casing
+ * ("Perplexity" / "perplexity" / "ChatGPT" / "openai") and returns the
+ * lowercase platform key for active providers, or "unknown" for any
+ * historical / non-native platform label.
+ *
+ * Reusing this helper here means: if the active provider set ever
+ * expands (e.g. Claude with web search), poll-health.ts updates and
+ * this read model picks up the change automatically — no parallel
+ * constant to keep in sync.
+ *
+ * Exported for unit testing.
+ */
+export function isActiveSnapshotPlatform(platform: string): boolean {
+  return canonicalizePollPlatform(platform) !== "unknown";
+}
 
 // ─────────────────────────────────────────────────────────────────────
 // Types
@@ -151,7 +176,7 @@ function minSampledDaysForDelta(windowDays: number): number {
 // Snapshot indexing
 // ─────────────────────────────────────────────────────────────────────
 
-type SnapshotIndex = {
+export type SnapshotIndex = {
   /** date → platform-scope rows (one per platform per date). */
   platformByDate: Map<string, DailyMetricSnapshot[]>;
   /** scope_id → date → entity-scope rows (one per platform per date). */
@@ -160,7 +185,11 @@ type SnapshotIndex = {
   sampledDates: string[];
 };
 
-function indexSnapshots(rows: DailyMetricSnapshot[]): SnapshotIndex {
+/**
+ * Exported for unit testing the active-provider scope filter. Production
+ * call site is the only runtime caller.
+ */
+export function indexSnapshots(rows: DailyMetricSnapshot[]): SnapshotIndex {
   const platformByDate = new Map<string, DailyMetricSnapshot[]>();
   const entityByIdDate = new Map<
     string,
@@ -169,6 +198,16 @@ function indexSnapshots(rows: DailyMetricSnapshot[]): SnapshotIndex {
   const dateSet = new Set<string>();
   for (const r of rows) {
     if (r.source_type !== "derived") continue;
+    // P0 fix (2026-05-13): drop snapshot rows whose `platform` is not in
+    // the current active-provider set. The daily_metric_snapshots table
+    // retains historical rows for "Google AI Overviews" from the
+    // pre-pivot Profound import era; the native poll pipeline does not
+    // refresh them, but they still satisfy the date-range read. Without
+    // this filter Today v2 visibility would mix dead Profound metrics
+    // into chart + leaderboard. The canonical filter lives in
+    // poll-health.ts (`canonicalizePollPlatform`); see
+    // `isActiveSnapshotPlatform` above.
+    if (!isActiveSnapshotPlatform(r.platform)) continue;
     if (r.scope_type === "platform") {
       const list = platformByDate.get(r.date) ?? [];
       list.push(r);
