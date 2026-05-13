@@ -78,66 +78,28 @@ export default async function RecommendationDetailPage({
 
   const tenantId = await currentTenantId();
 
-  // Emergency P0 fix (2026-05-12) — cheap existence check BEFORE
-  // loading the live queue.
+  // Emergency P0 fix v2 (2026-05-12) — the prior "cheap existence
+  // check" (`stableKey ∈ recommended_edits ∪ recommendation_responses`)
+  // had a false-positive on a real customer-facing rec id pattern.
   //
-  // Production trace measured `loadLiveRecommendationQueue` at
-  // **15,566 ms** even for an unknown rec id (the route returned the
-  // calm not-found state, but only after waiting 15+ seconds for the
-  // full queue to compute). The slow path was redundant: by the time
-  // a user lands on a stale `/recommendations/<id>` URL, the rec is
-  // almost certainly no longer in the live queue, so the queue load
-  // is pure wasted work.
+  // The recommendation-action-rows generator emits THREE id shapes:
+  //   1. `${stableKey}::${edit.id}`           — edit-backed rec, IS
+  //                                              in `recommended_edits`
+  //   2. `${stableKey}::faq-pair::${hash}`     — synthesized from the
+  //                                              matrix, NO edit row
+  //   3. `${stableKey}::${metaKind}`           — synthesized,
+  //                                              NO edit row
   //
-  // Cheap check: extract the `stableKey` prefix from the decoded
-  // route id (`<stableKey>::<edit-or-meta-suffix>`) and look it up
-  // in two SMALL tenant-scoped tables:
-  //   - `recommended_edits.rec_id` — the engine writes one row per
-  //     actionable rec; ~50 rows in production.
-  //   - `recommendation_responses.recId` — only populated after the
-  //     user accepts/defers/dismisses; even smaller.
-  // If neither contains the stableKey, the rec is definitively
-  // stale — short-circuit to the not-found state in <500 ms instead
-  // of waiting 15 s for the queue.
+  // For shapes (2) and (3), the cheap check returned not-found for a
+  // VALID rec from the live v2 card. The user reported clicking a
+  // card and landing on "no longer active" — confirmed false-positive.
   //
-  // False-negative case: a rec that was just generated this minute
-  // and whose `recommended_edits` row hasn't been written yet would
-  // briefly see not-found. The daily engine pipeline writes the
-  // edit at the same time it queues the rec, so in practice every
-  // user-clickable rec has an edit. Accepted minor UX trade-off vs
-  // the 15 s slow path.
-  const firstDelimIdx = decodedId.indexOf("::");
-  const stableKeyCandidate =
-    firstDelimIdx >= 0 ? decodedId.slice(0, firstDelimIdx) : decodedId;
-
-  const [editsRowsRes, responseRowsRes] = await trace.time(
-    "cheap_existence_check",
-    () =>
-      Promise.all([
-        safeCall(
-          () => getRepository().forTenant(tenantId).getRecommendedEdits(),
-          [] as RecommendedEditRow[],
-          "cheap_existence_check.recommended_edits",
-        ),
-        safeCall(
-          () =>
-            getRepository().forTenant(tenantId).getRecommendationResponses(),
-          [] as RecommendationResponse[],
-          "cheap_existence_check.recommendation_responses",
-        ),
-      ]),
-  );
-
-  const knownStableKeys = new Set<string>();
-  for (const row of editsRowsRes.value) knownStableKeys.add(row.rec_id);
-  for (const row of responseRowsRes.value) knownStableKeys.add(row.recId);
-
-  if (!knownStableKeys.has(stableKeyCandidate)) {
-    trace.data("outcome", "not_found_fast_path");
-    trace.data("known_stable_keys", knownStableKeys.size);
-    return <RecommendationDetailNotFound />;
-  }
-
+  // Restoring the queue-load path. The 15 s slow-load problem for
+  // stale URLs is addressed at a different layer (`prefetch={false}`
+  // on every list-to-detail Link in the same bundle, eliminating
+  // the prefetch storm of 14+ simultaneous detail loads when the
+  // user lands on `/recommendations`). Stale URLs now only cost
+  // 15 s on the rare manual bookmark click, not on every list view.
   const live = await trace.time("loadLiveRecommendationQueue", () =>
     loadLiveRecommendationQueue({ tenantId }),
   );

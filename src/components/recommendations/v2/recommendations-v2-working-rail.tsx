@@ -98,6 +98,7 @@ export function RecommendationsV2WorkingRail({
             >
               <Link
                 href={href}
+                prefetch={false}
                 className="block group rounded -mx-2 px-2 py-1 hover:bg-background/40 transition-colors"
               >
                 <div className="flex items-start justify-between gap-2">

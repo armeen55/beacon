@@ -470,6 +470,7 @@ export function ActionCard({
               {action.sourceChangeId && (
                 <Link
                   href={`/changes/${encodeURIComponent(action.sourceChangeId)}`}
+                  prefetch={false}
                   className="inline-block text-[10px] text-accent-primary hover:underline font-medium"
                 >
                   See the data →

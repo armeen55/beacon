@@ -62,6 +62,7 @@ export function ChangesV2WaitingRail({
           >
             <Link
               href={`/changes/${item.id}?v2=1`}
+              prefetch={false}
               className="block group min-w-0"
               data-changes-rail-item-cta="true"
             >

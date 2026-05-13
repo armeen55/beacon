@@ -1,22 +1,36 @@
 /**
- * Emergency P0 fix (2026-05-12) — source-level pin for the
- * `/recommendations/[id]` fast not-found path.
+ * Emergency P0 fix v2 (2026-05-12) — source-level pin for the
+ * `/recommendations/[id]` fast path.
  *
- * Production trace measured `loadLiveRecommendationQueue` at
- * **15,566 ms** even for an unknown rec id. The slow path was
- * redundant: by the time a user lands on a stale URL, the rec is
- * almost certainly no longer in the live queue. Cheap existence
- * check against the two small tenant-scoped tables (`recommended_edits`,
- * `recommendation_responses`) lets us short-circuit to not-found in
- * <500 ms instead of waiting 15 s for the queue.
+ * The first attempt at this fix introduced a "cheap existence check"
+ * that compared `stableKey ∈ recommended_edits ∪ recommendation_responses`
+ * before loading the live queue. The check had a false-positive: the
+ * `buildRecommendationActionRows` generator emits THREE rec-id shapes,
+ * but only one of them lives in `recommended_edits`:
+ *
+ *   1. `${stableKey}::${edit.id}`        — edit-backed (IS in `recommended_edits`)
+ *   2. `${stableKey}::faq-pair::${hash}` — synthesized (NOT in `recommended_edits`)
+ *   3. `${stableKey}::${metaKind}`        — synthesized (NOT in `recommended_edits`)
+ *
+ * Shapes (2) and (3) are live v2 cards the customer can click — and
+ * the cheap check returned not-found for them. Bug.
+ *
+ * The actual fix has two parts:
+ *   - Restore the queue-load on the detail page (guarantees correctness
+ *     for all three id shapes).
+ *   - Apply `prefetch={false}` to every list→detail Link in the v2
+ *     card stack, eliminating the prefetch storm that was making the
+ *     15 s cost compound (14 cards × 15 s = function/connection pool
+ *     exhaustion). The 15 s cost is now only paid on actual user clicks,
+ *     not on every render of `/recommendations`.
  *
  * Source-level pins to prevent regression:
- *   1. The cheap check runs BEFORE `loadLiveRecommendationQueue`.
- *   2. The check reads both `recommended_edits` and
- *      `recommendation_responses` in parallel.
- *   3. When neither table contains the stableKey extracted from the
- *      decoded route id, the page returns the not-found state
- *      WITHOUT calling `loadLiveRecommendationQueue`.
+ *   1. The detail page does NOT carry the discredited cheap-check
+ *      (no `not_found_fast_path` outcome, no `knownStableKeys`).
+ *   2. The detail page calls `loadLiveRecommendationQueue` and locates
+ *      the row via `buildRecommendationActionRows(...).find(r => r.id === ...)`.
+ *   3. The v2 recommendation card's `/recommendations/[id]` Link uses
+ *      `prefetch={false}` — the storm-elimination half of the fix.
  */
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
@@ -32,63 +46,79 @@ function stripComments(src: string): string {
   return src.replace(/^\s*\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, "");
 }
 
-describe("Emergency P0: /recommendations/[id] fast not-found", () => {
+describe("Emergency P0 v2: /recommendations/[id] no cheap-check", () => {
   const src = read("src/app/(shell)/recommendations/[id]/page.tsx");
   const stripped = stripComments(src);
 
-  it("computes the stableKey candidate by splitting the decoded id at '::'", () => {
-    expect(stripped).toMatch(
-      /const\s+firstDelimIdx\s*=\s*decodedId\.indexOf\(\s*["']::["']\s*\)/,
-    );
-    expect(stripped).toMatch(
-      /const\s+stableKeyCandidate\s*=\s*firstDelimIdx\s*>=\s*0\s*\?\s*decodedId\.slice\(\s*0\s*,\s*firstDelimIdx\s*\)\s*:\s*decodedId/,
-    );
+  it("does NOT carry the discredited cheap-existence check", () => {
+    // The cheap check produced false-positives on FAQ-pair and meta-card
+    // rec ids. Pin its absence so it doesn't get reintroduced.
+    expect(stripped).not.toMatch(/cheap_existence_check/);
+    expect(stripped).not.toMatch(/knownStableKeys/);
+    expect(stripped).not.toMatch(/not_found_fast_path/);
   });
 
-  it("runs the cheap existence check BEFORE loadLiveRecommendationQueue", () => {
-    const cheapIdx = stripped.indexOf("cheap_existence_check");
-    const queueIdx = stripped.indexOf("loadLiveRecommendationQueue(");
-    expect(cheapIdx).toBeGreaterThan(0);
-    expect(queueIdx).toBeGreaterThan(0);
-    expect(cheapIdx).toBeLessThan(queueIdx);
+  it("loads the live recommendation queue and locates the row by route id", () => {
+    expect(stripped).toMatch(/loadLiveRecommendationQueue\(\s*\{\s*tenantId\s*\}\s*\)/);
+    expect(stripped).toMatch(/buildRecommendationActionRows\(/);
+    expect(stripped).toMatch(/allRows\.find\(\s*\(r\)\s*=>\s*r\.id\s*===\s*decodedId\s*\)/);
   });
 
-  it("reads BOTH recommended_edits and recommendation_responses in parallel", () => {
-    // The cheap check must use Promise.all over the two repo calls.
-    const cheapBlock = stripped.match(
-      /cheap_existence_check[\s\S]*?Promise\.all\(\s*\[([\s\S]*?)\]\s*\)/,
+  it("returns the not-found component for an unknown decoded id", () => {
+    // Two not-found paths: bad id (didn't decode) and unknown id (decoded
+    // but no row matched in the live queue). Both must render
+    // <RecommendationDetailNotFound />.
+    expect(stripped).toMatch(/if\s*\(\s*!decodedId\s*\)\s*\{[\s\S]*?return\s+<RecommendationDetailNotFound\s*\/>/);
+    expect(stripped).toMatch(/if\s*\(\s*!row\s*\)\s*\{[\s\S]*?return\s+<RecommendationDetailNotFound\s*\/>/);
+  });
+});
+
+describe("Emergency P0 v2: list→detail prefetch storm prevention", () => {
+  it("v2 recommendation card uses prefetch={false} on its detail Link", () => {
+    const src = read(
+      "src/components/recommendations/v2/recommendation-v2-card.tsx",
     );
-    expect(cheapBlock).not.toBeNull();
-    const body = cheapBlock![1];
-    expect(body).toMatch(/getRecommendedEdits\(\s*\)/);
-    expect(body).toMatch(/getRecommendationResponses\(\s*\)/);
+    // The card renders a Link to /recommendations/[id] (the "Review" CTA).
+    // Default Next prefetch made /recommendations spawn 14+ simultaneous
+    // detail loads on render — each ~15 s — which overwhelmed Vercel
+    // function concurrency. Pin prefetch={false} on the detail Link.
+    expect(src).toMatch(/<Link[^>]*\bhref=\{?href\}?[^>]*\bprefetch=\{false\}/s);
   });
 
-  it("returns not-found when the stableKey is in NEITHER table — without calling the queue loader", () => {
-    expect(stripped).toMatch(
-      /if\s*\(\s*!knownStableKeys\.has\(\s*stableKeyCandidate\s*\)\s*\)/,
+  it("v2 working rail uses prefetch={false} on its detail Links", () => {
+    const src = read(
+      "src/components/recommendations/v2/recommendations-v2-working-rail.tsx",
     );
-    // The block returns the not-found component without first awaiting
-    // the queue. Pin the structure: the if-block contains the return,
-    // and the return comes BEFORE the next `loadLiveRecommendationQueue(`
-    // call in source order.
-    const guardIdx = stripped.indexOf(
-      "if (!knownStableKeys.has(stableKeyCandidate))",
-    );
-    const queueIdx = stripped.indexOf("loadLiveRecommendationQueue(");
-    expect(guardIdx).toBeGreaterThan(0);
-    expect(queueIdx).toBeGreaterThan(0);
-    expect(guardIdx).toBeLessThan(queueIdx);
-    // The guard block must contain a RecommendationDetailNotFound return.
-    const guardEndApprox = stripped.indexOf("loadLiveRecommendationQueue(");
-    const guardBlock = stripped.slice(guardIdx, guardEndApprox);
-    expect(guardBlock).toMatch(/return\s+<RecommendationDetailNotFound\s*\/>/);
+    // The Working rail renders up to 5 in-flight rec links — same
+    // prefetch-storm exposure as the card stack.
+    expect(src).toMatch(/<Link[\s\S]*?prefetch=\{false\}/);
   });
 
-  it("traces the cheap-check outcome label as `not_found_fast_path`", () => {
-    expect(stripped).toMatch(
-      /trace\.data\(\s*["']outcome["']\s*,\s*["']not_found_fast_path["']\s*\)/,
+  it("v2 changes card uses prefetch={false} on its detail Link", () => {
+    const src = read("src/components/changes/v2/changes-v2-card.tsx");
+    expect(src).toMatch(/<Link[\s\S]*?prefetch=\{false\}/);
+  });
+
+  it("v2 changes waiting rail uses prefetch={false} on its detail Links", () => {
+    const src = read(
+      "src/components/changes/v2/changes-v2-waiting-rail.tsx",
     );
+    expect(src).toMatch(/<Link[\s\S]*?prefetch=\{false\}/);
+  });
+
+  it("v2 prompts card uses prefetch={false} on its detail Link", () => {
+    const src = read("src/components/prompts/v2/prompts-v2-card.tsx");
+    expect(src).toMatch(/<Link[\s\S]*?prefetch=\{false\}/);
+  });
+
+  it("today primary action uses prefetch={false} on its /changes/[id] Link", () => {
+    const src = read("src/components/today/today-primary-action.tsx");
+    expect(src).toMatch(/<Link[\s\S]*?prefetch=\{false\}/);
+  });
+
+  it("today action card uses prefetch={false} on its /changes/[id] Link", () => {
+    const src = read("src/components/today/action-card.tsx");
+    expect(src).toMatch(/<Link[\s\S]*?prefetch=\{false\}/);
   });
 });
 

@@ -1045,6 +1045,7 @@ function ExpandPanel({ row }: { row: EnrichedChangeRow }) {
             <div className="mt-3 pt-3 border-t border-border/40">
               <Link
                 href={`/changes/${sc.change.id}`}
+                prefetch={false}
                 className="text-[11px] font-semibold text-accent-primary hover:underline"
               >
                 Open this change →

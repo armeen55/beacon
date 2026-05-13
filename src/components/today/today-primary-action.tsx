@@ -199,6 +199,7 @@ export function TodayPrimaryAction({
               <p className="mt-1.5 text-[10px]">
                 <Link
                   href={`/changes/${encodeURIComponent(primaryAction.sourceChangeId)}`}
+                  prefetch={false}
                   className="text-accent-primary hover:underline font-medium"
                 >
                   See what happened →

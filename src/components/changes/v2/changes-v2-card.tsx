@@ -110,6 +110,7 @@ export function ChangesV2Card({
           // Visual: button-shaped affordance (not bare link text) so
           // "Open change" reads as the card's primary action.
           href={`/changes/${row.id}?v2=1`}
+          prefetch={false}
           className={cn(
             "inline-flex items-center gap-1 rounded-md border border-border/60 bg-surface-inset/40",
             "px-2.5 py-1 text-[12px] font-semibold text-foreground/85 transition-colors",

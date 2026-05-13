@@ -384,6 +384,7 @@ function PromptRow({
     <li>
       <Link
         href={`/prompts/${encodeURIComponent(op.prompt_id)}`}
+        prefetch={false}
         className="block rounded-md border border-border/40 bg-background px-3 py-2.5 hover:border-accent-primary/40 hover:bg-surface-raised/30 transition-colors"
       >
         <p className="text-[13px] font-medium text-foreground leading-snug">

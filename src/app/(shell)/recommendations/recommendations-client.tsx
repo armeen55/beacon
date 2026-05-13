@@ -711,6 +711,7 @@ function ActionRow({
               return (
                 <Link
                   href={href}
+                  prefetch={false}
                   className="text-[10px] font-medium text-accent-primary hover:underline"
                   data-rec-row-change-link="true"
                 >

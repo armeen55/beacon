@@ -284,6 +284,7 @@ export function RecommendationV2Card({
       <div className="mt-4 flex items-center gap-3 text-[12px] font-semibold">
         <Link
           href={href}
+          prefetch={false}
           className="text-accent-primary hover:underline"
           data-recommendation-v2-cta="primary"
         >

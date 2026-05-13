@@ -138,6 +138,7 @@ export function PromptsV2Card({
           // forward-compatibility hook for when the detail also
           // gets a switcher; today the legacy page ignores it.
           href={`/prompts/${encodePromptRouteId(row.promptId)}?v2=1`}
+          prefetch={false}
           className={cn(
             "inline-flex items-center gap-1 rounded-md border border-border/60 bg-surface-inset/40",
             "px-2.5 py-1 text-[12px] font-semibold text-foreground/85 transition-colors",
