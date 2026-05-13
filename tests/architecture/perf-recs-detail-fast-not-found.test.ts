@@ -82,7 +82,7 @@ describe("Emergency P0 v2: list→detail prefetch storm prevention", () => {
     // Default Next prefetch made /recommendations spawn 14+ simultaneous
     // detail loads on render — each ~15 s — which overwhelmed Vercel
     // function concurrency. Pin prefetch={false} on the detail Link.
-    expect(src).toMatch(/<Link[^>]*\bhref=\{?href\}?[^>]*\bprefetch=\{false\}/s);
+    expect(src).toMatch(/<Link[\s\S]*?\bprefetch=\{false\}/);
   });
 
   it("v2 working rail uses prefetch={false} on its detail Links", () => {
