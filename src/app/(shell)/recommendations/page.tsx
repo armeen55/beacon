@@ -5,6 +5,8 @@ import "server-only";
 // route dynamic so it renders per-request only.
 export const dynamic = "force-dynamic";
 
+import { Suspense } from "react";
+
 import { PageHeader } from "@/components/data/page-header";
 import { currentTenantId } from "@/lib/tenant-context";
 import {
@@ -18,6 +20,10 @@ import type { RecommendationResponse } from "@/domains/product/recommendation-re
 import type { RecommendedEditRow } from "@/domains/recommendations/recommended-edits-persistence";
 import { RecommendationsClient } from "./recommendations-client";
 import { RecommendationsV2Client } from "./recommendations-v2-client";
+import {
+  RecommendationsV2Skeleton,
+  RecommendationsLegacySkeleton,
+} from "./recommendations-v2-skeleton";
 import { getChangelogEntries } from "@/lib/seed-data.server";
 import { buildChangelogIdByRecId } from "@/domains/recommendations/changelog-link";
 import {
@@ -48,23 +54,6 @@ function shouldUseRecommendationsV2(
 }
 
 /**
- * /recommendations — the ranked decision queue (Phase v6 Commit 4, 2026-04-23).
- *
- * Server-side flow:
- *   1. Seed canonical stores from Supabase.
- *   2. Build the Phase-v5 DecisionMatrix (prompts + observations + entities),
- *      which now includes the primaryByPromptId rollup from Commit 3.
- *   3. Generate unranked candidates via the pure generator.
- *   4. Split into queue + watchlist with the transparent-rubric prioritizer.
- *   5. Join operator decision state (accepted / deferred / dismissed).
- *   6. Pass to the client for interactive accept / defer / dismiss.
- *
- * Design constraint: decision-shaped, not analytics-shaped. No charts.
- * No scores rendered as numbers next to rows (score is available for
- * power users via drilldown if ever needed; v1 shows reasoning string
- * instead). Operator should read the top row and know what to do.
- */
-/**
  * Hard rule (stabilization 2026-04-24): no layer is allowed to 500 this
  * route. Every step is try/catch-wrapped with a safe fallback. If any
  * layer fails, we render as much as we have and surface a small banner
@@ -81,50 +70,175 @@ async function safeCall<T>(fn: () => Promise<T> | T, fallback: T, label: string)
   }
 }
 
+/**
+ * Streaming bundle (2026-05-12) — page.tsx now flushes the route frame
+ * + Suspense fallback skeleton instantly. The slow data load happens
+ * inside `RecommendationsV2Async` / `RecommendationsLegacyAsync` —
+ * those resolve behind the Suspense boundary so the page doesn't feel
+ * blank during the wait.
+ *
+ * v2 path: persisted fast loader (~500 ms cold). Legacy path: full
+ * live pipeline (~30 s cold). Streaming benefits both — v2 because
+ * even 500 ms benefits from instant frame, legacy because the 30 s
+ * wait stops feeling like a hang.
+ */
 export default async function RecommendationsPage({
   searchParams,
 }: {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 } = {}) {
+  const params = await (searchParams ?? Promise.resolve({}));
+  const useV2 = shouldUseRecommendationsV2(params);
+  return (
+    <Suspense
+      fallback={
+        useV2 ? (
+          <RecommendationsV2Skeleton />
+        ) : (
+          <RecommendationsLegacySkeleton />
+        )
+      }
+    >
+      <RecommendationsAsyncContent useV2={useV2} />
+    </Suspense>
+  );
+}
+
+/**
+ * Async server component — the data load happens here, behind the
+ * page-level Suspense boundary. Resolves the tenant + loader output,
+ * then renders the appropriate client. Branches inside the async
+ * boundary so both v2 and legacy benefit from the streamed shell.
+ *
+ * Exported for smoke tests: `renderToStaticMarkup` in Vitest does not
+ * resolve Suspense, so callers that want to assert on the resolved
+ * page content invoke this function directly.
+ */
+export async function RecommendationsAsyncContent({
+  useV2,
+}: {
+  useV2: boolean;
+}) {
   const trace = createPerfTrace("loader:/recommendations", {
     traceId: await readPerfTraceIdFromHeaders(),
     route: "/recommendations",
   });
   try {
-  // Sprint 6A.1 Phase 14 (2026-04-24) — orchestration extracted to
-  // `loadLiveRecommendationQueue` so the queue-driven CLI consumes the
-  // same source. Page render behavior is byte-equivalent.
-  // Sprint 7 Phase 7.3 (2026-04-25) — tenantId required; resolved via
-  // header (after Phase 7.4) or BEACON_TENANT_ID env var.
-  const [tenantId, params] = await Promise.all([
-    currentTenantId(),
-    searchParams ?? Promise.resolve({}),
-  ]);
-  const useV2 = shouldUseRecommendationsV2(params);
-  trace.data("use_v2", useV2 ? "true" : "false");
+    const tenantId = await currentTenantId();
+    trace.data("use_v2", useV2 ? "true" : "false");
 
-  // Emergency P0 v5 (2026-05-12) — v2 default uses the persisted-row
-  // fast loader (~4 small Supabase reads, expected <500 ms cold).
-  // Legacy table view (?legacy=1) keeps the full live pipeline because
-  // its per-row drawer renders fields not present on the edit row
-  // (cluster reasoning, motive label, page brief, primaryCompetitors).
-  if (useV2) {
-    const persisted = await trace.time(
-      "loadPersistedRecommendationQueueForPage",
-      () => loadPersistedRecommendationQueueForPage({ tenantId }),
+    if (useV2) {
+      const persisted = await trace.time(
+        "loadPersistedRecommendationQueueForPage",
+        () => loadPersistedRecommendationQueueForPage({ tenantId }),
+      );
+      const errors = [...persisted.errors];
+      const promptTextById: Record<string, string> = {};
+      for (const p of persisted.trackedPrompts) {
+        promptTextById[p.id] = p.text;
+      }
+      trace.data("queue_count", persisted.queue.length);
+      trace.measureSize("payload", {
+        queue: persisted.queue,
+        promptTextById,
+      });
+      return (
+        <div className="max-w-5xl">
+          {errors.length > 0 && (
+            <div
+              className="mb-4 rounded-md border border-status-warning/40 bg-status-warning/[0.06] px-3 py-2 text-[12px] text-status-warning leading-relaxed"
+              role="status"
+            >
+              Some recommendation data couldn&apos;t load. Showing what we have.
+            </div>
+          )}
+          <RecommendationsV2Client
+            queue={persisted.queue}
+            watchlist={persisted.watchlist}
+            matrixDate={persisted.matrixDateLabel}
+            promptTextById={promptTextById}
+          />
+        </div>
+      );
+    }
+
+    // Legacy table view — full live pipeline.
+    const live = await trace.time("loadLiveRecommendationQueue", () =>
+      loadLiveRecommendationQueueForPage({ tenantId }),
     );
-    const errors = [...persisted.errors];
+    const errors = [...live.errors];
+
+    if (!live.matrix) {
+      return (
+        <div className="max-w-4xl">
+          <PageHeader
+            title="Recommendations"
+            description="Recommendations temporarily unavailable."
+          />
+          <ErrorFallback errors={errors} />
+        </div>
+      );
+    }
+
+    const matrix = live.matrix;
+    const { queue, watchlist } = live;
+
+    const freshResponsesRes = await safeCall(
+      () => getRepository().forTenant(tenantId).getRecommendationResponses(),
+      [] as RecommendationResponse[],
+      "fetch fresh recommendation responses",
+    );
+    if (freshResponsesRes.error) errors.push(freshResponsesRes.error);
+    const freshResponsesByRecId = new Map(
+      freshResponsesRes.value.map((r) => [r.recId, r]),
+    );
+
+    const editsByRecId = new Map<string, RecommendedEditRow[]>();
+    for (const row of live.recommendedEdits) {
+      const list = editsByRecId.get(row.rec_id);
+      if (list) list.push(row);
+      else editsByRecId.set(row.rec_id, [row]);
+    }
+
+    const decorated = queue.map((rec) => ({
+      rec,
+      response: freshResponsesByRecId.get(rec.stableKey) ?? null,
+      edits: editsByRecId.get(rec.stableKey) ?? [],
+    }));
+    const watchDecorated = watchlist.map((rec) => ({
+      rec,
+      response: freshResponsesByRecId.get(rec.stableKey) ?? null,
+      edits: editsByRecId.get(rec.stableKey) ?? [],
+    }));
+
     const promptTextById: Record<string, string> = {};
-    for (const p of persisted.trackedPrompts) {
+    for (const p of live.trackedPrompts) {
       promptTextById[p.id] = p.text;
     }
-    trace.data("queue_count", persisted.queue.length);
+
+    const changelogRes = await safeCall(
+      () => getChangelogEntries(),
+      [] as Array<{ id: string; source_rec_id?: string | null }>,
+      "fetch changelog entries for rec→change links",
+    );
+    if (changelogRes.error) errors.push(changelogRes.error);
+    const changelogIdByRecId = buildChangelogIdByRecId(changelogRes.value);
+
+    trace.data("queue_count", decorated.length);
+    trace.data("watchlist_count", watchDecorated.length);
     trace.measureSize("payload", {
-      queue: persisted.queue,
+      queue: decorated,
+      watchlist: watchDecorated,
       promptTextById,
+      changelogIdByRecId,
     });
+
     return (
       <div className="max-w-5xl">
+        <PageHeader
+          title="Recommendations"
+          description="Beacon turns AI visibility gaps into concrete website tasks. Review the top actions, accept them, or mark them as shipped."
+        />
         {errors.length > 0 && (
           <div
             className="mb-4 rounded-md border border-status-warning/40 bg-status-warning/[0.06] px-3 py-2 text-[12px] text-status-warning leading-relaxed"
@@ -133,111 +247,15 @@ export default async function RecommendationsPage({
             Some recommendation data couldn&apos;t load. Showing what we have.
           </div>
         )}
-        <RecommendationsV2Client
-          queue={persisted.queue}
-          watchlist={persisted.watchlist}
-          matrixDate={persisted.matrixDateLabel}
+        <RecommendationsClient
+          queue={decorated}
+          watchlist={watchDecorated}
+          matrixDate={matrix.date}
           promptTextById={promptTextById}
+          changelogIdByRecId={changelogIdByRecId}
         />
       </div>
     );
-  }
-
-  // Legacy table view — full live pipeline.
-  const live = await trace.time("loadLiveRecommendationQueue", () =>
-    loadLiveRecommendationQueueForPage({ tenantId }),
-  );
-  const errors = [...live.errors];
-
-  if (!live.matrix) {
-    return (
-      <div className="max-w-4xl">
-        <PageHeader
-          title="Recommendations"
-          description="Recommendations temporarily unavailable."
-        />
-        <ErrorFallback errors={errors} />
-      </div>
-    );
-  }
-
-  const matrix = live.matrix;
-  const { queue, watchlist } = live;
-
-  // Sprint 7 Phase 7.5b Commit 2 (2026-04-25) — tenant-bound read.
-  const freshResponsesRes = await safeCall(
-    () => getRepository().forTenant(tenantId).getRecommendationResponses(),
-    [] as RecommendationResponse[],
-    "fetch fresh recommendation responses",
-  );
-  if (freshResponsesRes.error) errors.push(freshResponsesRes.error);
-  const freshResponsesByRecId = new Map(
-    freshResponsesRes.value.map((r) => [r.recId, r]),
-  );
-
-  const editsByRecId = new Map<string, RecommendedEditRow[]>();
-  for (const row of live.recommendedEdits) {
-    const list = editsByRecId.get(row.rec_id);
-    if (list) list.push(row);
-    else editsByRecId.set(row.rec_id, [row]);
-  }
-
-  const decorated = queue.map((rec) => ({
-    rec,
-    response: freshResponsesByRecId.get(rec.stableKey) ?? null,
-    edits: editsByRecId.get(rec.stableKey) ?? [],
-  }));
-  const watchDecorated = watchlist.map((rec) => ({
-    rec,
-    response: freshResponsesByRecId.get(rec.stableKey) ?? null,
-    edits: editsByRecId.get(rec.stableKey) ?? [],
-  }));
-
-  const promptTextById: Record<string, string> = {};
-  for (const p of live.trackedPrompts) {
-    promptTextById[p.id] = p.text;
-  }
-
-  const changelogRes = await safeCall(
-    () => getChangelogEntries(),
-    [] as Array<{ id: string; source_rec_id?: string | null }>,
-    "fetch changelog entries for rec→change links",
-  );
-  if (changelogRes.error) errors.push(changelogRes.error);
-  const changelogIdByRecId = buildChangelogIdByRecId(changelogRes.value);
-
-  trace.data("queue_count", decorated.length);
-  trace.data("watchlist_count", watchDecorated.length);
-  trace.measureSize("payload", {
-    queue: decorated,
-    watchlist: watchDecorated,
-    promptTextById,
-    changelogIdByRecId,
-  });
-
-  return (
-    <div className="max-w-5xl">
-      <PageHeader
-        title="Recommendations"
-        description="Beacon turns AI visibility gaps into concrete website tasks. Review the top actions, accept them, or mark them as shipped."
-      />
-      {errors.length > 0 && (
-        <div
-          className="mb-4 rounded-md border border-status-warning/40 bg-status-warning/[0.06] px-3 py-2 text-[12px] text-status-warning leading-relaxed"
-          role="status"
-        >
-          Some recommendation data couldn&apos;t load. Showing what we have.
-        </div>
-      )}
-      <RecommendationsClient
-        queue={decorated}
-        watchlist={watchDecorated}
-        matrixDate={matrix.date}
-        promptTextById={promptTextById}
-        changelogIdByRecId={changelogIdByRecId}
-      />
-    </div>
-  );
   } finally {
     trace.flush();
   }

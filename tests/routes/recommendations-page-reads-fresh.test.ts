@@ -267,10 +267,13 @@ describe("Sprint 4 / Phase 4.2 — /recommendations fresh-read invariants", () =
           patternId: null,
         },
       ]);
-      const { default: RecommendationsPage } = await import(
+      // Streaming bundle (2026-05-12): legacy path content lives in
+      // `RecommendationsAsyncContent`; the default export now returns
+      // a Suspense wrapper that renderToStaticMarkup doesn't resolve.
+      const { RecommendationsAsyncContent } = await import(
         "@/app/(shell)/recommendations/page"
       );
-      const tree = await RecommendationsPage();
+      const tree = await RecommendationsAsyncContent({ useV2: false });
       const html = renderToStaticMarkup(tree as ReactElement);
       expect(html).toContain('data-decoration-summary="[rec-alpha::accepted]"');
     });
@@ -298,10 +301,13 @@ describe("Sprint 4 / Phase 4.2 — /recommendations fresh-read invariants", () =
           patternId: null,
         },
       ]);
-      const { default: RecommendationsPage } = await import(
+      // Streaming bundle (2026-05-12): legacy path content lives in
+      // `RecommendationsAsyncContent`; the default export now returns
+      // a Suspense wrapper that renderToStaticMarkup doesn't resolve.
+      const { RecommendationsAsyncContent } = await import(
         "@/app/(shell)/recommendations/page"
       );
-      const tree = await RecommendationsPage();
+      const tree = await RecommendationsAsyncContent({ useV2: false });
       const html = renderToStaticMarkup(tree as ReactElement);
       // Fresh wins — render shows accepted, not dismissed.
       expect(html).toContain('data-decoration-summary="[rec-alpha::accepted]"');
@@ -325,10 +331,13 @@ describe("Sprint 4 / Phase 4.2 — /recommendations fresh-read invariants", () =
         ],
       });
       mockRepoWithResponses(async () => []);
-      const { default: RecommendationsPage } = await import(
+      // Streaming bundle (2026-05-12): legacy path content lives in
+      // `RecommendationsAsyncContent`; the default export now returns
+      // a Suspense wrapper that renderToStaticMarkup doesn't resolve.
+      const { RecommendationsAsyncContent } = await import(
         "@/app/(shell)/recommendations/page"
       );
-      const tree = await RecommendationsPage();
+      const tree = await RecommendationsAsyncContent({ useV2: false });
       const html = renderToStaticMarkup(tree as ReactElement);
       expect(html).toContain('data-decoration-summary="[rec-alpha::none]"');
     });
@@ -349,10 +358,13 @@ describe("Sprint 4 / Phase 4.2 — /recommendations fresh-read invariants", () =
       mockRepoWithResponses(async () => {
         throw new Error("supabase timeout");
       });
-      const { default: RecommendationsPage } = await import(
+      // Streaming bundle (2026-05-12): legacy path content lives in
+      // `RecommendationsAsyncContent`; the default export now returns
+      // a Suspense wrapper that renderToStaticMarkup doesn't resolve.
+      const { RecommendationsAsyncContent } = await import(
         "@/app/(shell)/recommendations/page"
       );
-      const tree = await RecommendationsPage();
+      const tree = await RecommendationsAsyncContent({ useV2: false });
       const html = renderToStaticMarkup(tree as ReactElement);
       // Diagnostic banner is rendered.
       expect(html).toContain(

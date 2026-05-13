@@ -32,14 +32,15 @@ describe("/recommendations route smoke", () => {
   it(
     "RecommendationsPage RSC runs the full generate → prioritize pipeline and renders the shell",
     async () => {
-      const { default: RecommendationsPage } = await import(
+      // Streaming bundle (2026-05-12): the page returns a <Suspense>
+      // wrapper instantly with the async load deferred to
+      // `RecommendationsAsyncContent`. renderToStaticMarkup doesn't
+      // resolve Suspense, so render the async content directly with
+      // `useV2=false` (the legacy smoke path).
+      const { RecommendationsAsyncContent } = await import(
         "@/app/(shell)/recommendations/page"
       );
-      // Bundle 2A (2026-05-10): page.tsx now reads searchParams to
-      // switch between legacy and v2 layouts. Pass an empty Promise
-      // so the smoke test exercises the legacy default path
-      // (BEACON_RECOMMENDATIONS_V2 unset).
-      const tree = await RecommendationsPage({ searchParams: Promise.resolve({}) });
+      const tree = await RecommendationsAsyncContent({ useV2: false });
       const html = renderToStaticMarkup(tree as ReactElement);
 
       // Route wrapper class from page.tsx — pinned at the same

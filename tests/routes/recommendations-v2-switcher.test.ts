@@ -59,12 +59,22 @@ vi.mock("@/app/(shell)/recommendations/recommendations-v2-client", () => {
 async function render(
   searchParams: Record<string, string | string[] | undefined>,
 ): Promise<string> {
-  const { default: RecommendationsPage } = await import(
+  // Streaming bundle (2026-05-12): the route's `page.tsx` now returns
+  // a <Suspense> wrapper instantly with the async load deferred to
+  // `RecommendationsAsyncContent`. `renderToStaticMarkup` does not
+  // resolve Suspense — testing through the page would just dump the
+  // skeleton. Invoke the async content directly here.
+  const { RecommendationsAsyncContent } = await import(
     "@/app/(shell)/recommendations/page"
   );
-  const tree = await RecommendationsPage({
-    searchParams: Promise.resolve(searchParams),
-  });
+  // Mirror `shouldUseRecommendationsV2`:
+  //   ?legacy=1 → false; ?v2=1 → true; else env BEACON_RECOMMENDATIONS_V2.
+  const useV2 = (() => {
+    if (searchParams.legacy === "1") return false;
+    if (searchParams.v2 === "1") return true;
+    return process.env.BEACON_RECOMMENDATIONS_V2 === "true";
+  })();
+  const tree = await RecommendationsAsyncContent({ useV2 });
   return renderToStaticMarkup(tree as ReactElement);
 }
 

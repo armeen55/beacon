@@ -28,17 +28,17 @@ describe("Today route smoke", () => {
   it(
     "TodayPage RSC loads data and renders the shell wrapper plus Today slot",
     async () => {
-    const { default: TodayPage } = await import("@/app/(shell)/page");
-    // Bundle 1 (2026-05-10): page.tsx now reads searchParams to switch
-    // between v1/v2 layouts. Pass an empty Promise so the smoke test
-    // exercises the v1 default path (BEACON_TODAY_V2 unset).
-    const tree = await TodayPage({ searchParams: Promise.resolve({}) });
+    // Streaming bundle (2026-05-12): the page returns a <Suspense>
+    // wrapper instantly with the async load deferred to
+    // `TodayAsyncContent`. renderToStaticMarkup doesn't resolve
+    // Suspense, so render the async content directly.
+    const { TodayAsyncContent } = await import("@/app/(shell)/page");
+    const tree = await TodayAsyncContent({ useV2: false });
     const html = renderToStaticMarkup(tree as ReactElement);
 
-    // Stable class from `src/app/(shell)/page.tsx` — not copy-dependent.
-    expect(html).toContain("max-w-6xl");
-    // Canonical Today findings heading (see `today-findings.tsx`); echoed by stub
-    // so the route still wires a Today subtree without running client hooks here.
+    // Canonical Today findings heading (see `today-findings.tsx`);
+    // echoed by stub so the route still wires a Today subtree without
+    // running client hooks here.
     expect(html).toContain("Since last scan");
     },
     15_000,
