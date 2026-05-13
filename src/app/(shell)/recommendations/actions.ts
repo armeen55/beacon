@@ -1,6 +1,7 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { revalidatePath, updateTag } from "next/cache";
+import { buildRecQueueCacheTag } from "@/domains/recommendations/load-queue";
 import { log } from "@/lib/logger";
 import {
   recordResponse,
@@ -519,6 +520,7 @@ export async function acceptRecommendation(
       }
       revalidatePath("/recommendations");
       revalidatePath("/", "layout");
+      updateTag(buildRecQueueCacheTag(tenantId));
       log.info("Action completed", {
         action,
         durationMs: Date.now() - t0,
@@ -585,6 +587,7 @@ export async function acceptRecommendation(
 
   revalidatePath("/recommendations");
   revalidatePath("/", "layout");
+  updateTag(buildRecQueueCacheTag(tenantId));
   log.info("Action completed", {
     action,
     durationMs: Date.now() - t0,
@@ -605,9 +608,11 @@ export async function deferRecommendation(
 
   await ensureRecommendationResponsesSeeded();
   recordResponse(stableKey, "deferred");
-  await persistResponses(await currentTenantId());
+  const tenantId = await currentTenantId();
+  await persistResponses(tenantId);
 
   revalidatePath("/recommendations");
+  updateTag(buildRecQueueCacheTag(tenantId));
   log.info("Action completed", { action, durationMs: Date.now() - t0 });
   return { success: true };
 }
@@ -621,9 +626,11 @@ export async function dismissRecommendation(
 
   await ensureRecommendationResponsesSeeded();
   recordResponse(stableKey, "dismissed");
-  await persistResponses(await currentTenantId());
+  const tenantId = await currentTenantId();
+  await persistResponses(tenantId);
 
   revalidatePath("/recommendations");
+  updateTag(buildRecQueueCacheTag(tenantId));
   log.info("Action completed", { action, durationMs: Date.now() - t0 });
   return { success: true };
 }
@@ -718,6 +725,7 @@ export async function markRecommendationShipped(args: {
     revalidatePath("/recommendations");
     revalidatePath("/changes");
     revalidatePath("/", "layout");
+    updateTag(buildRecQueueCacheTag(tenantId));
     return {
       success: true,
       flipped: result.flipped,
@@ -765,5 +773,6 @@ export async function undoRecommendationResponse(
   });
 
   revalidatePath("/recommendations");
+  updateTag(buildRecQueueCacheTag(tenantId));
   return { success: true };
 }

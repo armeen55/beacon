@@ -35,6 +35,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 vi.mock("next/cache", () => ({
   revalidatePath: vi.fn(),
+  updateTag: vi.fn(),
 }));
 
 vi.mock("@/app/(shell)/recommendations/actions", () => ({

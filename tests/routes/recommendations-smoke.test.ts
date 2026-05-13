@@ -4,6 +4,8 @@ import type { ReactElement } from "react";
 
 vi.mock("next/cache", () => ({
   revalidatePath: vi.fn(),
+  updateTag: vi.fn(),
+  unstable_cache: <T extends (...args: unknown[]) => unknown>(fn: T): T => fn,
 }));
 
 /**

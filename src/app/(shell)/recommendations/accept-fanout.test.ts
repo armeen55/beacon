@@ -36,6 +36,7 @@ const mocks = vi.hoisted(() => {
 
 vi.mock("next/cache", () => ({
   revalidatePath: mocks.revalidatePath,
+  updateTag: vi.fn(),
 }));
 
 vi.mock("@/lib/persistence/repositories", () => {

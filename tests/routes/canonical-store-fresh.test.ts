@@ -339,15 +339,17 @@ describe("Sprint 4 / Phase 4.9 — canonical-store fresh-per-render", () => {
           /loadFreshCanonicalData\(/,
         );
       }
-      // /recommendations: page must call loadLiveRecommendationQueue,
-      // and load-queue.ts must call loadFreshCanonicalData.
+      // /recommendations: page must call SOME variant of the queue
+      // loader (the cached page-shaped wrapper, OR the raw loader for
+      // tests/CLI), and load-queue.ts must call loadFreshCanonicalData.
       // Sprint 7 Phase 7.3: page now passes `{ tenantId }`; relaxed
       // from empty-parens to any call form.
       // EGRESS-P0 (2026-05-07): load-queue now passes
       // `{ observationsSince, snapshotsSince }` to bound the read.
-      // Loosen this assertion the same way the others were already
-      // loosened — accept any call form, not just empty parens.
-      expect(SRC.recommendations).toMatch(/loadLiveRecommendationQueue\(/);
+      // Emergency P0 v4 (2026-05-12): page now calls
+      // `loadLiveRecommendationQueueForPage` — the cached wrapper.
+      // Accept either name; both delegate to the same internal pipeline.
+      expect(SRC.recommendations).toMatch(/loadLiveRecommendationQueue(?:ForPage)?\(/);
       const loadQueueSrc = readFileSync(
         resolve(
           __dirname,

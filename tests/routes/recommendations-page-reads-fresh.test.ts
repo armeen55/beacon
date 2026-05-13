@@ -122,7 +122,11 @@ describe("Sprint 4 / Phase 4.2 — /recommendations fresh-read invariants", () =
 
     beforeEach(() => {
       vi.resetModules();
-      vi.doMock("next/cache", () => ({ revalidatePath: vi.fn() }));
+      vi.doMock("next/cache", () => ({
+        revalidatePath: vi.fn(),
+        updateTag: vi.fn(),
+        unstable_cache: <T extends (...args: unknown[]) => unknown>(fn: T): T => fn,
+      }));
 
       // Canonical store — ensureCanonicalStoresSeeded is a no-op in tests.
       // trackedPrompts/observations/entities return [] so the matrix is

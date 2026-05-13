@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 import { PageHeader } from "@/components/data/page-header";
 import { currentTenantId } from "@/lib/tenant-context";
 import {
-  loadLiveRecommendationQueue,
+  loadLiveRecommendationQueueForPage,
   type LiveRecQueueItem,
 } from "@/domains/recommendations/load-queue";
 import type { prioritizeRecommendations } from "@/domains/recommendations/prioritize";
@@ -102,7 +102,7 @@ export default async function RecommendationsPage({
   const useV2 = shouldUseRecommendationsV2(params);
   trace.data("use_v2", useV2 ? "true" : "false");
   const live = await trace.time("loadLiveRecommendationQueue", () =>
-    loadLiveRecommendationQueue({ tenantId }),
+    loadLiveRecommendationQueueForPage({ tenantId }),
   );
   const errors = [...live.errors];
 

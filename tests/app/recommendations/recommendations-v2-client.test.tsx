@@ -15,6 +15,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 vi.mock("next/cache", () => ({
   revalidatePath: vi.fn(),
+  updateTag: vi.fn(),
 }));
 
 import { RecommendationsV2Client } from "@/app/(shell)/recommendations/recommendations-v2-client";

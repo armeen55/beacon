@@ -490,6 +490,76 @@ export async function loadLiveRecommendationQueue(
 }
 
 // ---------------------------------------------------------------------------
+// Emergency P0 v4 (2026-05-12) — cached wrapper for the page-render path.
+//
+// The full `loadLiveRecommendationQueue` runs a long pipeline (canonical
+// seed → matrix → generate → page reads → resolve → adjudicate loop →
+// prioritize → edits read → comp snapshots → decoration) measured at
+// ~33 s on cold Vercel in production. The user-visible result for one
+// tenant is deterministic across a short window — page renders within
+// ~60 s of a mutation-free interval can serve the same result.
+//
+// `loadLiveRecommendationQueueForPage` wraps the loader with
+// `unstable_cache`, keyed on tenantId, TTL 60 s, tag
+// `recs-queue:<tenantId>`. The 7 mutation server actions in
+// `src/app/(shell)/recommendations/actions.ts` call
+// `revalidateTag(buildRecQueueCacheTag(tenantId))` so accept / defer /
+// dismiss / shipped / restore / promote / undo invalidate the cache
+// IMMEDIATELY — no stale action state is ever served.
+//
+// Return shape strips `competitorPageSnapshotsByUrl` (a `Map`) which:
+//   (1) doesn't round-trip safely across Next's cache serialization,
+//   (2) is only consumed by the CLI's `buildPacketForRec`, never by the
+//       page render. Test fixtures and the CLI continue to use the
+//       uncached `loadLiveRecommendationQueue` directly.
+//
+// Cache scope: per-tenant. The cache key is `["recs-queue:v1", tenantId]`;
+// no cross-tenant bleed is possible. `revalidateTag` is also tenant-scoped.
+// ---------------------------------------------------------------------------
+
+/** Tag string for `revalidateTag` from mutation actions. Shared between
+ *  the cached wrapper (`tags: [...]`) and the mutation actions
+ *  (`revalidateTag(...)`). */
+export function buildRecQueueCacheTag(tenantId: string): string {
+  return `recs-queue:${tenantId}`;
+}
+
+const REC_QUEUE_CACHE_TTL_SECONDS = 60;
+
+/** Page-render-only shape — drops the non-serializable Map field. */
+export type PageShapedLiveRecommendationQueue = Omit<
+  LiveRecommendationQueue,
+  "competitorPageSnapshotsByUrl"
+>;
+
+/**
+ * Cached page-shaped loader. Pages call this; tests + CLI call the raw
+ * `loadLiveRecommendationQueue` (uncached, unmodified). Cache invalidates
+ * on TTL expiry (60 s) OR `revalidateTag(buildRecQueueCacheTag(tenantId))`.
+ */
+export async function loadLiveRecommendationQueueForPage(opts: {
+  tenantId: string;
+}): Promise<PageShapedLiveRecommendationQueue> {
+  const { unstable_cache } = await import("next/cache");
+  const { tenantId } = opts;
+  const cached = unstable_cache(
+    async () => {
+      const full = await loadLiveRecommendationQueue({ tenantId });
+      // Strip Map — see header comment.
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { competitorPageSnapshotsByUrl: _drop, ...rest } = full;
+      return rest;
+    },
+    ["recs-queue:v1", tenantId],
+    {
+      revalidate: REC_QUEUE_CACHE_TTL_SECONDS,
+      tags: [buildRecQueueCacheTag(tenantId)],
+    },
+  );
+  return cached();
+}
+
+// ---------------------------------------------------------------------------
 // Packet builder for one queue rec — pure given the queue context + the
 // inventory rows. The CLI calls this; the page does NOT (the page only
 // renders the queue + previously-persisted edits).

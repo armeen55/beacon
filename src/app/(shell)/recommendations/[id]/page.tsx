@@ -24,7 +24,7 @@ export const dynamic = "force-dynamic";
 
 import { currentTenantId } from "@/lib/tenant-context";
 import {
-  loadLiveRecommendationQueue,
+  loadLiveRecommendationQueueForPage,
 } from "@/domains/recommendations/load-queue";
 import { getRepository } from "@/lib/persistence/repositories";
 import type { RecommendationResponse } from "@/domains/product/recommendation-response-store";
@@ -101,7 +101,7 @@ export default async function RecommendationDetailPage({
   // user lands on `/recommendations`). Stale URLs now only cost
   // 15 s on the rare manual bookmark click, not on every list view.
   const live = await trace.time("loadLiveRecommendationQueue", () =>
-    loadLiveRecommendationQueue({ tenantId }),
+    loadLiveRecommendationQueueForPage({ tenantId }),
   );
 
   if (!live.matrix) {

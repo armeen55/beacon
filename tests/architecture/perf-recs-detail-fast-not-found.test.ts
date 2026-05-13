@@ -58,8 +58,12 @@ describe("Emergency P0 v2: /recommendations/[id] no cheap-check", () => {
     expect(stripped).not.toMatch(/not_found_fast_path/);
   });
 
-  it("loads the live recommendation queue and locates the row by route id", () => {
-    expect(stripped).toMatch(/loadLiveRecommendationQueue\(\s*\{\s*tenantId\s*\}\s*\)/);
+  it("loads the live recommendation queue (cached page-shaped wrapper) and locates the row by route id", () => {
+    // After Emergency P0 v4 the detail page calls the cached wrapper,
+    // not the raw loader. Either name is acceptable here; the contract
+    // is that SOME variant of loadLiveRecommendationQueue runs with the
+    // tenantId arg.
+    expect(stripped).toMatch(/loadLiveRecommendationQueue(?:ForPage)?\(\s*\{\s*tenantId\s*\}\s*\)/);
     expect(stripped).toMatch(/buildRecommendationActionRows\(/);
     expect(stripped).toMatch(/allRows\.find\(\s*\(r\)\s*=>\s*r\.id\s*===\s*decodedId\s*\)/);
   });
