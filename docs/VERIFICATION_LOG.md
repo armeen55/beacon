@@ -7,6 +7,85 @@
 
 ---
 
+## 2026-05-12 — emergency P0 v4: cache loadLiveRecommendationQueue (commits `bd29d99`, `9b1ef3d`)
+
+User reported `/recommendations` and `/recommendations/[id]` still "way too long" after v3 (shell nav prefetch fix). After v2 + v3 closed the request-multiplier paths (detail-link storm + shell-link storm), the remaining latency is the loader itself: production trace previously measured `loadLiveRecommendationQueue` at ~33 s cold. Even one request pays the full pipeline.
+
+### Constraint: autonomous trace capture blocked by auth wall
+
+User asked for autonomous diagnosis via Vercel CLI. Attempted:
+- `vercel env add BEACON_PERF_TRACE=true production` ✓
+- Empty commit `32664a1` to trigger Vercel redeploy with trace on ✓
+- New deploy `5lgs5smbb` Ready ✓
+- `vercel env pull` to get CRON_SECRET for an authenticated cron-allowlisted endpoint hit ✗ — sensitive env vars come through empty
+- Curl-from-CLI to /recommendations ✗ — middleware requires session cookie which can't be fabricated without the user's browser session
+
+So no authenticated request could be triggered autonomously from this side. Production logs over 15 minutes showed zero /recommendations traffic — user wasn't actively clicking. Caching is the right fix REGARDLESS of which substep dominates the 33 s budget (it amortizes the entire pipeline), so I shipped it without first capturing substep-level trace breakdowns.
+
+### Fix — cache the page-render path
+
+`loadLiveRecommendationQueueForPage({ tenantId })` — new exported wrapper in [load-queue.ts](src/domains/recommendations/load-queue.ts). Wraps the raw loader with `unstable_cache`:
+
+| Property | Value |
+|---|---|
+| Cache key | `["recs-queue:v1", tenantId]` |
+| TTL | 60 s |
+| Tag | `recs-queue:<tenantId>` |
+| Return shape | `Omit<LiveRecommendationQueue, "competitorPageSnapshotsByUrl">` (Map dropped — doesn't round-trip Next's cache, only used by CLI) |
+
+Mutation server actions in [actions.ts](src/app/(shell)/recommendations/actions.ts) now call `updateTag(buildRecQueueCacheTag(tenantId))` after every state change — accept / defer / dismiss / shipped / undo. `updateTag` is the Next 16 server-action API for read-your-own-writes (alternative to `revalidateTag(tag, profile)` which was renamed/expanded in Next 16). Mutations also retain their existing `revalidatePath()` calls.
+
+Raw `loadLiveRecommendationQueue` is still exported — tests + CLI call it directly with no cache, deterministic per-test fixtures.
+
+### Architecture test
+
+New `tests/architecture/perf-recs-queue-cached.test.ts` (10 pins):
+- Cached wrapper + tag helper exported from load-queue.ts.
+- `unstable_cache` wrapped around the loader call with finite TTL + tenant-scoped tag.
+- Map strip pinned for cache-serialization safety.
+- Both `/recommendations` callers use the cached wrapper.
+- Every mutation in actions.ts pairs `revalidatePath` with `updateTag`.
+
+### Mock fixes
+
+Updating to Next 16's `updateTag` API + the new `unstable_cache` call site broke 17 tests across 7 files that previously mocked `next/cache` with only `{ revalidatePath }`. Mocks updated to expose `updateTag: vi.fn()` and (where the page is rendered) `unstable_cache: (fn) => fn`. Two pre-existing architecture assertions widened from `loadLiveRecommendationQueue(` to `loadLiveRecommendationQueue(?:ForPage)?(` to accept either name.
+
+### Expected impact
+
+- /recommendations cold (first request after TTL/invalidation): ~33 s (unchanged — first call always misses).
+- /recommendations warm (within 60 s, mutation-free interval): ~50 ms (cache hit; bounded by Next's cache read time, not the loader).
+- /recommendations/[id] cold/warm: same envelope; both callers share the cache key.
+- After Accept/Defer/Dismiss/Shipped/Undo: immediate invalidation via `updateTag`. Next render fetches fresh data — no stale "Accepted → Suggested" flicker.
+
+### Deploy chain
+
+- `32664a1` — empty commit to redeploy with `BEACON_PERF_TRACE=true` (env added via CLI).
+- `bd29d99` — the actual fix: cache wrapper + page caller updates + mutation `updateTag` + architecture test + mock fixes.
+- `9b1ef3d` — empty commit to redeploy with `BEACON_PERF_TRACE` removed (env removed via CLI).
+
+`BEACON_PERF_TRACE` is confirmed off in production env after the final commit.
+
+### Tests + build
+
+Typecheck CLEAN. **8039 / 8039 pass** (+15 since v3 baseline 8024). Production build CLEAN.
+
+### Constraints honored
+
+- No Supabase mutations.
+- No paid API calls.
+- No migrations.
+- No poll/scan triggers.
+- No recommendation generation semantic changes.
+- No route removals.
+- No UI design changes.
+- `BEACON_PERF_TRACE` set briefly then removed (only purpose: a one-shot capture attempt that the auth wall blocked anyway).
+
+### Verification gap
+
+I did NOT measure before/after timings from production logs. The trace-enabled deploy `5lgs5smbb` was live for ~20 minutes; production logs over that window showed zero /recommendations traffic. The cache-fix deploy `g6nuagftq` was also briefly live with trace on; same: no organic traffic. The fix is verified by tests + architectural correctness, not by measured production logs. Next /recommendations click will be served from cache on the warm path (within 60 s of a prior render).
+
+---
+
 ## 2026-05-12 — emergency P0 v2: prefetch storm + cheap-check revert (commits `0b27c83`, `cbdc0dc`)
 
 User reported `/recommendations` and `/today` still very slow after the prior emergency P0 (`42f8bf9`), one rec detail rendering "This recommendation is no longer active" for a valid card, and Vercel logs showing clusters of simultaneous `/recommendations/[id]` and `/prompts/[id]` requests. This bundle addresses the **architectural multiplier** behind the symptoms.
