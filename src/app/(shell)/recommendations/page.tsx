@@ -20,6 +20,7 @@ import type { RecommendationResponse } from "@/domains/product/recommendation-re
 import type { RecommendedEditRow } from "@/domains/recommendations/recommended-edits-persistence";
 import { RecommendationsClient } from "./recommendations-client";
 import { RecommendationsV2Client } from "./recommendations-v2-client";
+import { RecsResolverDebugPanel } from "./recs-resolver-debug-panel";
 import {
   RecommendationsV2Skeleton,
   RecommendationsLegacySkeleton,
@@ -51,6 +52,18 @@ function shouldUseRecommendationsV2(
   if (searchParams.legacy === "1") return false;
   if (searchParams.v2 === "1") return true;
   return process.env.BEACON_RECOMMENDATIONS_V2 === "true";
+}
+
+/**
+ * 2026-05-13 P0 — operator-facing diagnostic panel toggle. Auth-gated
+ * by the existing route auth gate (signed-in / tenant-scoped); the
+ * flag exists only for the operator's runtime inspection and writes
+ * nothing.
+ */
+function shouldShowResolverDebug(
+  searchParams: Record<string, string | string[] | undefined>,
+): boolean {
+  return searchParams.debugResolver === "1";
 }
 
 /**
@@ -89,6 +102,7 @@ export default async function RecommendationsPage({
 } = {}) {
   const params = await (searchParams ?? Promise.resolve({}));
   const useV2 = shouldUseRecommendationsV2(params);
+  const debugResolver = shouldShowResolverDebug(params);
   return (
     <Suspense
       fallback={
@@ -99,7 +113,10 @@ export default async function RecommendationsPage({
         )
       }
     >
-      <RecommendationsAsyncContent useV2={useV2} />
+      <RecommendationsAsyncContent
+        useV2={useV2}
+        debugResolver={debugResolver}
+      />
     </Suspense>
   );
 }
@@ -116,8 +133,10 @@ export default async function RecommendationsPage({
  */
 export async function RecommendationsAsyncContent({
   useV2,
+  debugResolver = false,
 }: {
   useV2: boolean;
+  debugResolver?: boolean;
 }) {
   const trace = createPerfTrace("loader:/recommendations", {
     traceId: await readPerfTraceIdFromHeaders(),
@@ -158,6 +177,12 @@ export async function RecommendationsAsyncContent({
             matrixDate={persisted.matrixDateLabel}
             promptTextById={promptTextById}
           />
+          {debugResolver && (
+            <RecsResolverDebugPanel
+              persisted={persisted}
+              promptTextById={promptTextById}
+            />
+          )}
         </div>
       );
     }
