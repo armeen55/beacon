@@ -39,7 +39,16 @@ function SidebarContent() {
   return (
     <div className="flex h-full flex-col">
       <div className="flex h-12 items-center border-b border-sidebar-border px-4">
-        <Link href="/" className="flex items-center gap-2">
+        {/* Emergency P0 v3 (2026-05-12) — prefetch={false} on every
+            shell nav Link. Beacon's top-level routes (/, /recommendations,
+            /changes, /prompts, /settings) are all data-heavy server
+            routes that each call expensive loaders (loadLiveRecommendationQueue
+            etc). Default Next prefetch on visibility hydrates ALL of them
+            on first paint of the shell — one click = N background server
+            renders = Vercel function + Supabase pool exhaustion. Detail
+            Links were already prefetch={false}; this closes the
+            top-level-nav half of the storm. */}
+        <Link href="/" prefetch={false} className="flex items-center gap-2">
           <div className="flex h-6 w-6 items-center justify-center rounded-md bg-foreground text-background text-xs font-bold">
             B
           </div>
@@ -72,6 +81,7 @@ function SidebarContent() {
                     <Link
                       key={item.href}
                       href={item.href}
+                      prefetch={false}
                       className={cn(
                         "group flex items-center gap-2.5 rounded-md px-2 py-1.5 text-[13px] font-medium transition-colors duration-100",
                         isActive

@@ -48,6 +48,7 @@ export function AppHeader() {
         <div className="flex items-center gap-1.5 text-[13px]">
           <Link
             href={parent.href}
+            prefetch={false}
             className="text-muted-foreground hover:text-foreground transition-colors"
           >
             {parent.label}

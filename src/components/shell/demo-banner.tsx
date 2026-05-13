@@ -24,6 +24,7 @@ export function DemoBanner() {
         You&rsquo;re viewing demo content.{" "}
         <Link
           href="/settings/import"
+          prefetch={false}
           className="font-medium text-accent-primary underline underline-offset-2 hover:text-accent-primary/80"
         >
           Upload a visibility export

@@ -90,6 +90,7 @@ export function EvidenceFreshnessBanner({
         . Daily native Perplexity and ChatGPT polls feed this directly.{" "}
         <Link
           href={methodologyHref}
+          prefetch={false}
           className="underline underline-offset-2 hover:text-status-success"
         >
           How this works
@@ -123,6 +124,7 @@ export function EvidenceFreshnessBanner({
       {" "}— an older snapshot. Tonight's native poll will rebuild it.{" "}
       <Link
         href={methodologyHref}
+        prefetch={false}
         className="underline underline-offset-2 hover:text-foreground"
       >
         How this works
