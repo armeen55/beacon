@@ -174,11 +174,11 @@ export function RecommendationV2Card({
     ? row.targetUrl
     : null;
   const targetLabel = row.targetLabel;
-  // Bundle 2B (2026-05-10): default CTA is the new detail page
-  // (/recommendations/<encoded-row-id>) rather than the legacy drawer
-  // anchor. The detail page itself surfaces an "Open legacy review"
-  // CTA back into the drawer until accept/defer/dismiss wire into the
-  // brief directly.
+  // Bundle 2B (2026-05-10) / 2026-05-13 cleanup: default CTA is the
+  // v2 detail page at `/recommendations/<encoded-row-id>`. Accept /
+  // defer / dismiss are wired inline on the detail page (Bundle 2C),
+  // and the detail page no longer carries a customer-facing
+  // "Open legacy review" fallback — v2 is legacy-hop-free.
   const href = reviewHref ?? buildRecommendationDetailHref(row);
 
   // One-line "why this matters" — prefer the rec's `evidenceSummary`

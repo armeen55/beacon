@@ -186,12 +186,15 @@ describe("Bundle 2B — RecommendationDetailClient", () => {
     );
   });
 
-  it("renders the legacy-review CTA + back-to-list, but NOT the open-change CTA when changelogId is null", () => {
+  it("renders the back-to-list CTA but NOT the open-change CTA when changelogId is null (legacy-review CTA removed 2026-05-13)", () => {
     const html = render(makeRow(), null);
-    expect(html).toContain('data-recommendation-detail-cta="legacy-review"');
-    expect(html).toContain("Open legacy review →");
     expect(html).toContain('data-recommendation-detail-cta="back-to-list"');
     expect(html).not.toContain('data-recommendation-detail-cta="open-change"');
+    // 2026-05-13 — the customer-facing "Open legacy review →" CTA
+    // was removed as the last v2 detail surface still pointing at
+    // the legacy route. Pin its absence so regressions surface.
+    expect(html).not.toContain('data-recommendation-detail-cta="legacy-review"');
+    expect(html).not.toContain("Open legacy review");
   });
 
   it("renders the open-change CTA when a changelogId is supplied", () => {
@@ -200,18 +203,19 @@ describe("Bundle 2B — RecommendationDetailClient", () => {
     expect(html).toContain("/changes/change-abc-123");
   });
 
-  it("legacy CTA uses encodeURIComponent on the source recommendation id", () => {
+  it("the detail-client render contains zero customer-facing legacy hops (2026-05-13)", () => {
+    // The "Open legacy review" CTA was removed. Pin that NO
+    // `?legacy=1` link survives in the rendered output of the detail
+    // client — there is no longer a v2 detail surface that
+    // advertises the legacy route to customers.
     const html = render(
       makeRow({
         sourceRecommendationId:
           "create_cluster_page:geo:Los Altos__add_faq__faq_question[new]:abc",
       }),
     );
-    // The legacy anchor has its own encoding contract (#rec-<id>); pin
-    // that we encode (so unsafe characters don't break the URL hash).
-    expect(html).toContain(
-      "#rec-create_cluster_page%3Ageo%3ALos%20Altos__add_faq__faq_question%5Bnew%5D%3Aabc",
-    );
+    expect(html).not.toContain("?legacy=1");
+    expect(html).not.toContain("#rec-create_cluster_page");
   });
 
   it("renders the empty-evidence calm message when no signals are present", () => {

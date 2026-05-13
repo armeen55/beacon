@@ -7,7 +7,7 @@
  *   Act 2 — Why this matters     (one paragraph; never a JSON dump)
  *   Act 3 — Evidence             (customer-safe chips + counts only)
  *   Act 4 — Measurement plan     (what Beacon will watch + window)
- *   Act 5 — Next step            (Open legacy review + back to list)
+ *   Act 5 — Next step            (inline action surface + back to list)
  *
  * Open-only first pass: every action CTA links back into the legacy
  * /recommendations?legacy=1 view at the row's #rec-<sourceRecommendationId>

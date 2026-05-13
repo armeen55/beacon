@@ -41,6 +41,12 @@ const V2_CARD_SRC = stripComments(
 const V2_WORKING_RAIL_SRC = stripComments(
   read("src/components/recommendations/v2/recommendations-v2-working-rail.tsx"),
 );
+const V2_DETAIL_ACTIONS_SRC = stripComments(
+  read("src/app/(shell)/recommendations/[id]/recommendation-detail-actions.tsx"),
+);
+const V2_DETAIL_CLIENT_SRC = stripComments(
+  read("src/app/(shell)/recommendations/[id]/recommendation-detail-client.tsx"),
+);
 
 describe("v2 /recommendations — no customer-facing legacy hops", () => {
   it("the v2 card primary CTA does NOT default to ?legacy=1", () => {
@@ -55,6 +61,20 @@ describe("v2 /recommendations — no customer-facing legacy hops", () => {
     expect(V2_WORKING_RAIL_SRC).not.toMatch(
       /['"`][^'"`]*\?legacy=1[^'"`]*['"`]/,
     );
+  });
+
+  it("the v2 detail-actions surface does NOT contain any ?legacy=1 string literal", () => {
+    // 2026-05-13 — the "Open legacy review →" CTA was removed.
+    // detail-actions.tsx is the LAST place where a customer-facing
+    // v2 detail surface could regress back to advertising the legacy
+    // route; this pin locks that down.
+    expect(V2_DETAIL_ACTIONS_SRC).not.toMatch(/\?legacy=1/);
+    expect(V2_DETAIL_ACTIONS_SRC).not.toMatch(/data-recommendation-detail-cta="legacy-review"/);
+    expect(V2_DETAIL_ACTIONS_SRC).not.toMatch(/Open legacy review/);
+  });
+
+  it("the v2 detail-client surface contains no ?legacy=1 string literal", () => {
+    expect(V2_DETAIL_CLIENT_SRC).not.toMatch(/\?legacy=1/);
   });
 
   it("the v2 working rail default href is the v2 detail page", () => {

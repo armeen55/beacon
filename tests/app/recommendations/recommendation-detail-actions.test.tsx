@@ -388,7 +388,7 @@ describe("Bundle 2C — render output", () => {
     }
   });
 
-  it("legacy-review and back-to-list CTAs always render", () => {
+  it("back-to-list CTA always renders; legacy-review CTA never renders (removed 2026-05-13)", () => {
     const html = renderToStaticMarkup(
       <RecommendationDetailActions
         row={makeRow({ status: "new" })}
@@ -397,8 +397,9 @@ describe("Bundle 2C — render output", () => {
         skipRouterRefresh
       />,
     );
-    expect(html).toContain('data-recommendation-detail-cta="legacy-review"');
     expect(html).toContain('data-recommendation-detail-cta="back-to-list"');
+    expect(html).not.toContain('data-recommendation-detail-cta="legacy-review"');
+    expect(html).not.toContain("Open legacy review");
   });
 
   it("open-change CTA only renders when changelogId is provided", () => {
@@ -428,7 +429,9 @@ describe("Bundle 2C — render output", () => {
     );
   });
 
-  it("legacy-review href encodes URL-unsafe characters in sourceRecommendationId", () => {
+  it("the rendered detail actions surface contains zero customer-facing legacy hops (2026-05-13)", () => {
+    // The "Open legacy review" CTA was removed. No customer-facing
+    // v2 detail action surface advertises the legacy route anymore.
     const html = renderToStaticMarkup(
       <RecommendationDetailActions
         row={makeRow({
@@ -441,9 +444,8 @@ describe("Bundle 2C — render output", () => {
         skipRouterRefresh
       />,
     );
-    expect(html).toContain(
-      "/recommendations?legacy=1#rec-create_cluster_page%3Ageo%3ALos%20Altos__add_faq__faq_question%5Bnew%5D%3Aabc",
-    );
+    expect(html).not.toContain("?legacy=1");
+    expect(html).not.toContain("#rec-");
   });
 
   it("status-context data attribute reflects the current row status", () => {

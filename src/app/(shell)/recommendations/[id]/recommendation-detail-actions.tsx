@@ -17,16 +17,16 @@
  *     status. Unsupported transitions never appear — no fake forward-
  *     state buttons.
  *   - Customer-safe labels everywhere ("Accept", "Defer", "Dismiss",
- *     "Mark shipped", "Restore", "Promote", "Open legacy review",
- *     "Open change", "Back to recommendations"). No internal vocab.
+ *     "Mark shipped", "Restore", "Promote", "Open change",
+ *     "Back to recommendations"). No internal vocab.
  *   - Pending state disables all buttons. Error state renders a calm
  *     "Beacon couldn't apply that action. Try again." line — never
  *     raw server/action error text.
  *
- * "Open legacy review" stays available on every status as a secondary
- * fallback. When/if v2 covers every legacy affordance (e.g. Review
- * for `needs_review` rows without an exact edit, Regenerate for
- * `needs_fresh_edit`), the fallback can be retired.
+ * 2026-05-13 — the "Open legacy review →" customer-facing CTA was
+ * removed. v2 detail is now legacy-hop-free; the legacy route still
+ * exists at `/recommendations?legacy=1` for direct operator access
+ * but is no longer advertised on the v2 surface.
  */
 
 import { useState, useTransition } from "react";
@@ -308,7 +308,12 @@ export function RecommendationDetailActions({
     );
   });
 
-  const legacyHref = `/recommendations?legacy=1#rec-${encodeURIComponent(row.sourceRecommendationId)}`;
+  // 2026-05-13 — v2 detail page is now legacy-hop-free. The
+  // "Open legacy review" CTA used to live here as a one-click escape
+  // hatch into the legacy drawer; it was the last customer-facing
+  // v2 → legacy link on the detail surface. The legacy route itself
+  // (/recommendations?legacy=1) is still wired and reachable via
+  // direct URL — only the v2 advertisement is gone.
   const changeHref = changelogId ? `/changes/${changelogId}` : null;
 
   return (
@@ -342,13 +347,6 @@ export function RecommendationDetailActions({
             Open change →
           </Link>
         )}
-        <Link
-          href={legacyHref}
-          className="text-accent-primary hover:underline"
-          data-recommendation-detail-cta="legacy-review"
-        >
-          Open legacy review →
-        </Link>
         <Link
           href="/recommendations?v2=1"
           className="text-muted-foreground hover:text-foreground"
