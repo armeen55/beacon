@@ -58,9 +58,16 @@ describe("v2 /recommendations — no customer-facing legacy hops", () => {
   });
 
   it("the v2 working rail default href is the v2 detail page", () => {
-    expect(V2_WORKING_RAIL_SRC).toMatch(/encodeRecommendationRouteId\s*\(/);
+    // 2026-05-13 P0 follow-up — both the card and the working rail
+    // now route through the centralized `buildRecommendationDetailHref`
+    // helper (single canonical href builder for /recommendations/[id]),
+    // which wraps `encodeRecommendationRouteId(row.id)` and the path
+    // prefix. The invariant pins the import + the call shape.
     expect(V2_WORKING_RAIL_SRC).toMatch(
-      /`\/recommendations\/\$\{encodeRecommendationRouteId\(row\.id\)\}`/,
+      /import\s+\{\s*buildRecommendationDetailHref\s*\}\s+from\s+['"]\.\/recommendation-route-id['"]/,
+    );
+    expect(V2_WORKING_RAIL_SRC).toMatch(
+      /buildRecommendationDetailHref\(\s*row\s*\)/,
     );
   });
 

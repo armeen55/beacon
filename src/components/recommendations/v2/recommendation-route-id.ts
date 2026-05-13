@@ -59,3 +59,21 @@ export function decodeRecommendationRouteId(
   if (trimmed.length === 0) return null;
   return trimmed;
 }
+
+/**
+ * 2026-05-13 P0 — SINGLE CANONICAL HREF BUILDER for `/recommendations/[id]`.
+ *
+ * The user's "every visible card lands on replaced/handled" report
+ * implies a list/detail identity drift somewhere. Eliminate it at the
+ * type level: every customer-facing surface that needs to link to a
+ * recommendation's detail page MUST use this helper. The list card,
+ * the working rail, the See-full-list expanded rows, and any future
+ * surface all share one path constructor.
+ *
+ * `row` is typed loosely (just `{ id: string }`) so meta-action rows
+ * and synthesized rows are accepted without coupling this helper to
+ * the full `RecommendationActionRow` shape.
+ */
+export function buildRecommendationDetailHref(row: { id: string }): string {
+  return `/recommendations/${encodeRecommendationRouteId(row.id)}`;
+}

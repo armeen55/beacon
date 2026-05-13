@@ -36,7 +36,7 @@ import {
   type RecommendationActionRow,
 } from "@/domains/recommendations/recommendation-action-rows";
 import { cn } from "@/lib/utils";
-import { encodeRecommendationRouteId } from "./recommendation-route-id";
+import { buildRecommendationDetailHref } from "./recommendation-route-id";
 
 // ─────────────────────────────────────────────────────────────────────
 // Pill + dot tone tables (operator-locked vocabulary)
@@ -179,8 +179,7 @@ export function RecommendationV2Card({
   // anchor. The detail page itself surfaces an "Open legacy review"
   // CTA back into the drawer until accept/defer/dismiss wire into the
   // brief directly.
-  const href =
-    reviewHref ?? `/recommendations/${encodeRecommendationRouteId(row.id)}`;
+  const href = reviewHref ?? buildRecommendationDetailHref(row);
 
   // One-line "why this matters" — prefer the rec's `evidenceSummary`
   // (already a clean one-liner produced by the action-row builder).

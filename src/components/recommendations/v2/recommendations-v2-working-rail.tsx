@@ -24,7 +24,7 @@ import {
   type RecommendationActionRow,
 } from "@/domains/recommendations/recommendation-action-rows";
 import { cn } from "@/lib/utils";
-import { encodeRecommendationRouteId } from "./recommendation-route-id";
+import { buildRecommendationDetailHref } from "./recommendation-route-id";
 
 /**
  * Statuses surfaced in the Working rail. Bundle 2A V (verification
@@ -94,8 +94,7 @@ export function RecommendationsV2WorkingRail({
       >
         {inFlight.map((row) => {
           const href =
-            reviewHrefForRow?.(row) ??
-            `/recommendations/${encodeRecommendationRouteId(row.id)}`;
+            reviewHrefForRow?.(row) ?? buildRecommendationDetailHref(row);
           return (
             <li
               key={row.id}
