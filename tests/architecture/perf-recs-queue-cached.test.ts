@@ -84,25 +84,32 @@ describe("Emergency P0 v4: /recommendations cached wrapper", () => {
   });
 });
 
-describe("Emergency P0 v4: page callers use the cached wrapper", () => {
-  it("/recommendations/page.tsx imports + calls the cached wrapper at its loader callsite", () => {
+describe("Emergency P0 v4/v5: page callers use a cached loader (full OR persisted)", () => {
+  // After v4, both callers used loadLiveRecommendationQueueForPage (full
+  // pipeline, cached). After v5 (2026-05-12), v2-default callers
+  // moved to loadPersistedRecommendationQueueForPage (persisted-only,
+  // also cached, much faster cold-path). Either is acceptable here —
+  // both are tag-invalidated by mutations via the same buildRecQueueCacheTag.
+  it("/recommendations/page.tsx imports + calls SOME cached loader at its v2 loader callsite", () => {
     const src = read("src/app/(shell)/recommendations/page.tsx");
     const stripped = stripComments(src);
-    // Import path must use the cached wrapper.
     expect(stripped).toMatch(
-      /import\s+\{[\s\S]*?\bloadLiveRecommendationQueueForPage\b[\s\S]*?\}\s+from\s+["']@\/domains\/recommendations\/load-queue["']/,
+      /import\s+\{[\s\S]*?\b(loadLiveRecommendationQueueForPage|loadPersistedRecommendationQueueForPage)\b[\s\S]*?\}\s+from\s+["']@\/domains\/recommendations\/load-queue["']/,
     );
-    // The single loader call must invoke the cached wrapper.
-    expect(stripped).toMatch(/loadLiveRecommendationQueueForPage\(\s*\{\s*tenantId\s*\}\s*\)/);
+    expect(stripped).toMatch(
+      /(loadLiveRecommendationQueueForPage|loadPersistedRecommendationQueueForPage)\(\s*\{\s*tenantId\s*\}\s*\)/,
+    );
   });
 
-  it("/recommendations/[id]/page.tsx imports + calls the cached wrapper at its loader callsite", () => {
+  it("/recommendations/[id]/page.tsx imports + calls SOME cached loader at its loader callsite", () => {
     const src = read("src/app/(shell)/recommendations/[id]/page.tsx");
     const stripped = stripComments(src);
     expect(stripped).toMatch(
-      /import\s+\{[\s\S]*?\bloadLiveRecommendationQueueForPage\b[\s\S]*?\}\s+from\s+["']@\/domains\/recommendations\/load-queue["']/,
+      /import\s+\{[\s\S]*?\b(loadLiveRecommendationQueueForPage|loadPersistedRecommendationQueueForPage)\b[\s\S]*?\}\s+from\s+["']@\/domains\/recommendations\/load-queue["']/,
     );
-    expect(stripped).toMatch(/loadLiveRecommendationQueueForPage\(\s*\{\s*tenantId\s*\}\s*\)/);
+    expect(stripped).toMatch(
+      /(loadLiveRecommendationQueueForPage|loadPersistedRecommendationQueueForPage)\(\s*\{\s*tenantId\s*\}\s*\)/,
+    );
   });
 });
 

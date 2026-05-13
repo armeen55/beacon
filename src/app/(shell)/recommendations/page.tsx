@@ -9,6 +9,7 @@ import { PageHeader } from "@/components/data/page-header";
 import { currentTenantId } from "@/lib/tenant-context";
 import {
   loadLiveRecommendationQueueForPage,
+  loadPersistedRecommendationQueueForPage,
   type LiveRecQueueItem,
 } from "@/domains/recommendations/load-queue";
 import type { prioritizeRecommendations } from "@/domains/recommendations/prioritize";
@@ -101,6 +102,48 @@ export default async function RecommendationsPage({
   ]);
   const useV2 = shouldUseRecommendationsV2(params);
   trace.data("use_v2", useV2 ? "true" : "false");
+
+  // Emergency P0 v5 (2026-05-12) — v2 default uses the persisted-row
+  // fast loader (~4 small Supabase reads, expected <500 ms cold).
+  // Legacy table view (?legacy=1) keeps the full live pipeline because
+  // its per-row drawer renders fields not present on the edit row
+  // (cluster reasoning, motive label, page brief, primaryCompetitors).
+  if (useV2) {
+    const persisted = await trace.time(
+      "loadPersistedRecommendationQueueForPage",
+      () => loadPersistedRecommendationQueueForPage({ tenantId }),
+    );
+    const errors = [...persisted.errors];
+    const promptTextById: Record<string, string> = {};
+    for (const p of persisted.trackedPrompts) {
+      promptTextById[p.id] = p.text;
+    }
+    trace.data("queue_count", persisted.queue.length);
+    trace.measureSize("payload", {
+      queue: persisted.queue,
+      promptTextById,
+    });
+    return (
+      <div className="max-w-5xl">
+        {errors.length > 0 && (
+          <div
+            className="mb-4 rounded-md border border-status-warning/40 bg-status-warning/[0.06] px-3 py-2 text-[12px] text-status-warning leading-relaxed"
+            role="status"
+          >
+            Some recommendation data couldn&apos;t load. Showing what we have.
+          </div>
+        )}
+        <RecommendationsV2Client
+          queue={persisted.queue}
+          watchlist={persisted.watchlist}
+          matrixDate={persisted.matrixDateLabel}
+          promptTextById={promptTextById}
+        />
+      </div>
+    );
+  }
+
+  // Legacy table view — full live pipeline.
   const live = await trace.time("loadLiveRecommendationQueue", () =>
     loadLiveRecommendationQueueForPage({ tenantId }),
   );
@@ -132,15 +175,6 @@ export default async function RecommendationsPage({
     freshResponsesRes.value.map((r) => [r.recId, r]),
   );
 
-  // Sprint 6A.1 Phase 12 (2026-04-24): fresh-read recommended_edits per
-  // request, grouped by rec_id so each rec row gets its own edits slice.
-  // Failure here gracefully degrades: edits are absent → UI falls back
-  // to the existing single-changelog Accept behavior.
-  //
-  // W3 Step 3.3 (2026-05-01): the loader (`loadLiveRecommendationQueue`)
-  // already fresh-reads recommended_edits to compute engineConfidence,
-  // so consume those rows directly instead of double-fetching. Errors
-  // bubble through `live.errors`.
   const editsByRecId = new Map<string, RecommendedEditRow[]>();
   for (const row of live.recommendedEdits) {
     const list = editsByRecId.get(row.rec_id);
@@ -159,19 +193,11 @@ export default async function RecommendationsPage({
     edits: editsByRecId.get(rec.stableKey) ?? [],
   }));
 
-  // Step 1.1 (master plan) — build the prompt-text lookup the client uses
-  // to render evidence chips. Replaces the raw UUID leak in the prior
-  // `prompt:${ref.promptId}` chip.
   const promptTextById: Record<string, string> = {};
   for (const p of live.trackedPrompts) {
     promptTextById[p.id] = p.text;
   }
 
-  // 2026-05-10 — recommendation → /changes/[id] link map. Built from
-  // changelog_entries.source_rec_id stamped by the match-runner. When
-  // the lookup is missing for a rec, the client renders no link
-  // (calm fallback). Wrapped in safeCall so a changelog read failure
-  // degrades to "no links" rather than a 500 on the queue page.
   const changelogRes = await safeCall(
     () => getChangelogEntries(),
     [] as Array<{ id: string; source_rec_id?: string | null }>,
@@ -188,27 +214,6 @@ export default async function RecommendationsPage({
     promptTextById,
     changelogIdByRecId,
   });
-
-  if (useV2) {
-    return (
-      <div className="max-w-5xl">
-        {errors.length > 0 && (
-          <div
-            className="mb-4 rounded-md border border-status-warning/40 bg-status-warning/[0.06] px-3 py-2 text-[12px] text-status-warning leading-relaxed"
-            role="status"
-          >
-            Some recommendation data couldn&apos;t load. Showing what we have.
-          </div>
-        )}
-        <RecommendationsV2Client
-          queue={decorated}
-          watchlist={watchDecorated}
-          matrixDate={matrix.date}
-          promptTextById={promptTextById}
-        />
-      </div>
-    );
-  }
 
   return (
     <div className="max-w-5xl">

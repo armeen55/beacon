@@ -560,6 +560,335 @@ export async function loadLiveRecommendationQueueForPage(opts: {
 }
 
 // ---------------------------------------------------------------------------
+// Emergency P0 v5 (2026-05-12) — persisted fast loader for v2 page renders.
+//
+// The cached wrapper above amortizes warm renders, but cold renders still
+// pay the full ~33 s pipeline (canonical seed → matrix → generate → page
+// reads → resolve → adjudicate → prioritize → decoration). For the v2
+// card surface, that pipeline is overkill: every Suggested/Working/etc.
+// card is anchored on a row in `recommended_edits` that was produced by
+// a PRIOR generation pass and persisted. We can render the v2 cards
+// directly from that persisted snapshot in ~3 small parallel Supabase
+// reads (recommended_edits + recommendation_responses + tracked_prompts +
+// changelog_entries — none larger than a few hundred rows per tenant).
+//
+// The legacy table view still needs the full pipeline because the
+// per-row drawer renders fields (cluster reasoning, resolution motive,
+// page-brief structure, primaryCompetitors, etc.) that aren't on the
+// edit row. Legacy traffic is opt-in (`?legacy=1`); v2 is the default.
+//
+// Synthesis: for each rec_id with at least one renderable edit, we
+// build a minimal `LiveRecQueueItem` (rank=N, score=0, tier="later",
+// reasoning="", default evidence counts derived from the edit's own
+// evidence array). The existing `buildRecommendationActionRows` builder
+// consumes this and produces a `RecommendationActionRow[]` that's
+// shape-compatible with the v2 client. Title / target / why /
+// confidence / measurement plan / evidence refs ALL come from the edit
+// row itself; the synthesized rec just satisfies the type contract.
+// Fields the synthesized rec can't populate (clusterLabel, motive,
+// pageBrief, topCompetitor) are null/empty — same as today for recs
+// whose resolution didn't emit them.
+//
+// Result: v2 cold render goes from ~33 s to a handful of small reads
+// (~500 ms expected on Vercel/Supabase). The cache wrapper still
+// applies (60 s TTL + same tag); on a warm hit it's ~50 ms.
+// ---------------------------------------------------------------------------
+
+import type { RecommendationResponse } from "@/domains/product/recommendation-response-store";
+import type { ActionType } from "@/domains/recommendations/action-types";
+import type { EvidenceRef } from "@/domains/recommendations/resolved-types";
+import type { SpecificEditEvidenceRef } from "@/domains/recommendations/specific-edit-provider";
+
+/** Shape consumed by the v2 page + v2 detail page. Mirrors the page-shaped
+ *  cached loader's output (queue + watchlist + matrix/null + small
+ *  ancillary fields), but produced WITHOUT running the generation
+ *  pipeline. `matrix` is null — the v2 client falls back to a sensible
+ *  date when null (existing handling). Watchlist is empty — v2 doesn't
+ *  surface a watchlist (it lives only in legacy). */
+export type PersistedRecommendationQueueForPage = {
+  queue: Array<{
+    rec: LiveRecQueueItem;
+    response: RecommendationResponse | null;
+    edits: RecommendedEditRow[];
+  }>;
+  watchlist: Array<{
+    rec: RecommendationCandidate;
+    response: RecommendationResponse | null;
+    edits: RecommendedEditRow[];
+  }>;
+  trackedPrompts: TrackedPrompt[];
+  recommendedEdits: RecommendedEditRow[];
+  changelogEntries: Array<{ id: string; source_rec_id?: string | null }>;
+  matrixDateLabel: string;
+  errors: string[];
+};
+
+/** Map an edit's `action_type` (specific-edit taxonomy) to the
+ *  `RecommendationAction` (rec-resolution taxonomy) the rec's resolution
+ *  carries. Used only for the synthesized resolution on the persisted
+ *  loader path. */
+function recommendationActionForEdit(
+  actionType: ActionType,
+): "strengthen_existing_page" | "expand_existing_page" | "add_section_or_faq" | "create_new_page" | "merge_or_dedupe" | "split_or_separate_page" {
+  switch (actionType) {
+    case "edit_title":
+    case "edit_meta":
+    case "change_h1":
+    case "rewrite_h2":
+    case "rewrite_faq":
+    case "edit_table_row":
+    case "fix_schema":
+    case "add_internal_link":
+    case "reorder_sections":
+      return "strengthen_existing_page";
+    case "add_h2_section":
+    case "add_table":
+    case "add_answer_block":
+    case "add_proof_section":
+    case "add_comparison_section":
+    case "add_cost_section":
+    case "add_timeline_section":
+    case "add_schema":
+      return "expand_existing_page";
+    case "add_faq":
+      return "add_section_or_faq";
+    case "create_page":
+      return "create_new_page";
+    case "merge_pages":
+      return "merge_or_dedupe";
+    case "split_page":
+      return "split_or_separate_page";
+    case "watch":
+    default:
+      return "strengthen_existing_page";
+  }
+}
+
+/** Map low/medium/high confidence → severity (same scale). */
+function severityFromConfidence(c: "low" | "medium" | "high"): "high" | "medium" | "low" {
+  return c;
+}
+
+/**
+ * Synthesize a minimal `LiveRecQueueItem` from a group of edits sharing
+ * the same `rec_id`. Picks the "primary" edit (most recent by
+ * created_at) to anchor the resolution. Aggregates affected prompt ids
+ * from all edits' evidence arrays.
+ */
+function synthesizeLiveRecQueueItemFromEdits(
+  recId: string,
+  edits: ReadonlyArray<RecommendedEditRow>,
+  rank: number,
+): LiveRecQueueItem {
+  // Primary edit = most recent. We don't pick by status because all
+  // edits in the group share `rec_id`; the most recent one most
+  // accurately reflects the operator's current view of the rec.
+  const primary = [...edits].sort((a, b) =>
+    (b.created_at ?? "").localeCompare(a.created_at ?? ""),
+  )[0]!;
+
+  // Collect distinct prompt ids referenced across ALL edits' evidence.
+  const promptIdSet = new Set<string>();
+  for (const e of edits) {
+    for (const ref of e.evidence ?? []) {
+      const p = (ref as { promptId?: string }).promptId;
+      if (typeof p === "string" && p.length > 0) promptIdSet.add(p);
+    }
+  }
+  const affectedPromptIds = Array.from(promptIdSet);
+
+  const action = recommendationActionForEdit(primary.action_type);
+  const severity = severityFromConfidence(primary.confidence);
+
+  // Map specific-edit evidence refs (provider shape) to the resolver's
+  // EvidenceRef shape. The two have partially-overlapping discriminants;
+  // map what's representable, drop the rest.
+  const resolverEvidenceRefs: EvidenceRef[] = ((primary.evidence ?? []) as SpecificEditEvidenceRef[])
+    .map((r): EvidenceRef | null => {
+      if (r.type === "prompt") return { type: "prompt", id: r.promptId };
+      if (r.type === "owned_page")
+        return { type: "url", url: r.url, citationCount: 0, observationCount: 0 };
+      if (r.type === "competitor")
+        return { type: "competitor", name: r.competitorName, primaryShare: 0 };
+      // `element` + `prior_outcome` aren't representable in the resolver's
+      // EvidenceRef union; drop them. The v2 card doesn't surface these
+      // beyond the count it derives from the edit's evidence array directly.
+      return null;
+    })
+    .filter((r): r is EvidenceRef => r !== null);
+
+  // Motive is required (not nullable). Pick a sensible default based on
+  // the action; the v2 card surfaces this only as a label, not behavior.
+  const motive: ResolvedRecommendationCandidate["resolution"]["motive"] =
+    action === "create_new_page"
+      ? "capture_absent_cluster"
+      : action === "expand_existing_page" || action === "add_section_or_faq"
+        ? "improve_close_prompt"
+        : "improve_citation_depth";
+
+  const resolution: ResolvedRecommendationCandidate["resolution"] = {
+    action,
+    motive,
+    targetUrl: primary.target_url,
+    confidence: primary.confidence,
+    confidenceReason: primary.why ?? "",
+    reasoning: primary.why ?? "",
+    tier: "deterministic_only",
+    evidenceRefs: resolverEvidenceRefs,
+    pageBrief: null,
+    suggestedEdits: [],
+    risks: primary.risks ?? [],
+    cannibalization: null,
+    needsHumanReview: false,
+  };
+
+  const evidence: RecommendationCandidate["evidence"] = {
+    promptCount: affectedPromptIds.length,
+    observationCount: 0,
+    categoryBreakdown: {},
+    dominantCompetitors: [],
+    descriptorsNearBrand: [],
+    maxSignalStrength: 0,
+    primaryCompetitors: [],
+    brandPrimaryPromptCount: 0,
+    fragmentedPromptCount: 0,
+  };
+
+  return {
+    stableKey: recId,
+    type: "strengthen_page_copy",
+    title: primary.display_label ?? "",
+    description: primary.why ?? "",
+    affectedPromptIds,
+    clusterLabel: null,
+    clusterKind: null,
+    evidence,
+    severity,
+    effort: primary.difficulty,
+    score: 0,
+    tier: "later",
+    rank,
+    reasoning: "",
+    resolution,
+    engineConfidence: {
+      confidence: primary.confidence,
+      reasons: [],
+    },
+  };
+}
+
+/**
+ * Fast loader for the v2 page render. Reads only persisted rows
+ * (recommended_edits + recommendation_responses + tracked_prompts +
+ * changelog_entries), synthesizes minimal LiveRecQueueItems from
+ * grouped edits, and returns the same envelope the page expects.
+ *
+ * Cached under the SAME tag (`recs-queue:<tenantId>`) as the full
+ * loader so mutation invalidation continues to work uniformly.
+ */
+export async function loadPersistedRecommendationQueueForPage(opts: {
+  tenantId: string;
+}): Promise<PersistedRecommendationQueueForPage> {
+  const { unstable_cache } = await import("next/cache");
+  const { tenantId } = opts;
+  const cached = unstable_cache(
+    async () => {
+      const repo = getRepository().forTenant(tenantId);
+      const errors: string[] = [];
+
+      // Four parallel small reads.
+      const { getChangelogEntries } = await import("@/lib/seed-data.server");
+      const [editsRes, responsesRes, promptsRes, changelogRes] = await Promise.all([
+        safeCall(
+          () => repo.getRecommendedEdits(),
+          [] as RecommendedEditRow[],
+          "persisted: fetch recommended_edits",
+        ),
+        safeCall(
+          () => repo.getRecommendationResponses(),
+          [] as RecommendationResponse[],
+          "persisted: fetch recommendation_responses",
+        ),
+        safeCall(
+          () => repo.getTrackedPrompts(),
+          [] as TrackedPrompt[],
+          "persisted: fetch tracked_prompts",
+        ),
+        safeCall(
+          () => getChangelogEntries(),
+          [] as Array<{ id: string; source_rec_id?: string | null }>,
+          "persisted: fetch changelog_entries",
+        ),
+      ]);
+
+      if (editsRes.error) errors.push(editsRes.error);
+      if (responsesRes.error) errors.push(responsesRes.error);
+      if (promptsRes.error) errors.push(promptsRes.error);
+      if (changelogRes.error) errors.push(changelogRes.error);
+
+      const recommendedEdits = editsRes.value;
+      const responses = responsesRes.value;
+      const trackedPrompts = promptsRes.value;
+      const changelogEntries = changelogRes.value;
+
+      // Group edits by rec_id. Skip edits that have no rec_id (legacy
+      // rows that predate the column — extremely rare).
+      const editsByRecId = new Map<string, RecommendedEditRow[]>();
+      for (const edit of recommendedEdits) {
+        if (!edit.rec_id) continue;
+        const list = editsByRecId.get(edit.rec_id);
+        if (list) list.push(edit);
+        else editsByRecId.set(edit.rec_id, [edit]);
+      }
+
+      const responseByRecId = new Map<string, RecommendationResponse>();
+      for (const r of responses) responseByRecId.set(r.recId, r);
+
+      // Build queue items. Synthesized LiveRecQueueItem per rec_id with
+      // at least one edit. Rank assigned by sort order: rec_id with the
+      // most recent edit first (recency is the cheapest stand-in for
+      // priority in the absence of the prioritizer's score).
+      const recIds = Array.from(editsByRecId.keys()).sort((a, b) => {
+        const aMax = Math.max(
+          ...editsByRecId
+            .get(a)!
+            .map((e) => Date.parse(e.updated_at ?? e.created_at ?? "") || 0),
+        );
+        const bMax = Math.max(
+          ...editsByRecId
+            .get(b)!
+            .map((e) => Date.parse(e.updated_at ?? e.created_at ?? "") || 0),
+        );
+        return bMax - aMax;
+      });
+
+      const queue = recIds.map((recId, idx) => {
+        const edits = editsByRecId.get(recId)!;
+        const rec = synthesizeLiveRecQueueItemFromEdits(recId, edits, idx + 1);
+        const response = responseByRecId.get(recId) ?? null;
+        return { rec, response, edits };
+      });
+
+      return {
+        queue,
+        watchlist: [], // v2 doesn't surface watchlist
+        trackedPrompts,
+        recommendedEdits,
+        changelogEntries,
+        matrixDateLabel: new Date().toISOString().slice(0, 10),
+        errors,
+      };
+    },
+    ["recs-persisted:v1", tenantId],
+    {
+      revalidate: REC_QUEUE_CACHE_TTL_SECONDS,
+      tags: [buildRecQueueCacheTag(tenantId)],
+    },
+  );
+  return cached();
+}
+
+// ---------------------------------------------------------------------------
 // Packet builder for one queue rec — pure given the queue context + the
 // inventory rows. The CLI calls this; the page does NOT (the page only
 // renders the queue + previously-persisted edits).

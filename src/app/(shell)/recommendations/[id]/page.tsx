@@ -24,7 +24,7 @@ export const dynamic = "force-dynamic";
 
 import { currentTenantId } from "@/lib/tenant-context";
 import {
-  loadLiveRecommendationQueueForPage,
+  loadPersistedRecommendationQueueForPage,
 } from "@/domains/recommendations/load-queue";
 import { getRepository } from "@/lib/persistence/repositories";
 import type { RecommendationResponse } from "@/domains/product/recommendation-response-store";
@@ -100,67 +100,30 @@ export default async function RecommendationDetailPage({
   // the prefetch storm of 14+ simultaneous detail loads when the
   // user lands on `/recommendations`). Stale URLs now only cost
   // 15 s on the rare manual bookmark click, not on every list view.
-  const live = await trace.time("loadLiveRecommendationQueue", () =>
-    loadLiveRecommendationQueueForPage({ tenantId }),
+  // Emergency P0 v5 (2026-05-12) — detail page uses the same persisted
+  // fast loader as /recommendations?v2=1. The synthesized queue items
+  // produce the same `RecommendationActionRow` shape via the existing
+  // builder. Valid v2 card ids resolve in <500 ms (same envelope as
+  // the list page); stale ids miss the find() and render the calm
+  // not-found component in the same envelope.
+  const persisted = await trace.time(
+    "loadPersistedRecommendationQueueForPage",
+    () => loadPersistedRecommendationQueueForPage({ tenantId }),
   );
-
-  if (!live.matrix) {
-    // Same fail-soft posture as /recommendations: degrade to the
-    // not-found state rather than crashing the whole shell.
-    return <RecommendationDetailNotFound />;
-  }
-
-  // Detail page only resolves rows from the prioritized queue.
-  // The watchlist (passive winning patterns) doesn't expose action
-  // briefs — a watched rec is informational, not actionable, so a
-  // detail URL for one renders the calm not-found state. This keeps
-  // the loader's row shape strictly compatible with
-  // `buildRecommendationActionRows` (which expects LiveRecQueueItem,
-  // not the lighter RecommendationCandidate shape watchlist rows
-  // carry).
-  const { queue } = live;
-
-  const freshResponsesRes = await safeCall(
-    () => getRepository().forTenant(tenantId).getRecommendationResponses(),
-    [] as RecommendationResponse[],
-    "fetch fresh recommendation responses",
-  );
-  const freshResponsesByRecId = new Map(
-    freshResponsesRes.value.map((r) => [r.recId, r]),
-  );
-
-  const editsByRecId = new Map<string, RecommendedEditRow[]>();
-  for (const row of live.recommendedEdits) {
-    const list = editsByRecId.get(row.rec_id);
-    if (list) list.push(row);
-    else editsByRecId.set(row.rec_id, [row]);
-  }
-
-  // Decorate queue using the SAME shape /recommendations uses.
-  const decorated: RecommendationQueueRow[] = queue.map((rec) => ({
-    rec,
-    response: freshResponsesByRecId.get(rec.stableKey) ?? null,
-    edits: editsByRecId.get(rec.stableKey) ?? [],
-  }));
 
   const promptTextById: Record<string, string> = {};
-  for (const p of live.trackedPrompts) {
+  for (const p of persisted.trackedPrompts) {
     promptTextById[p.id] = p.text;
   }
 
-  const changelogRes = await safeCall(
-    () => getChangelogEntries(),
-    [] as Array<{ id: string; source_rec_id?: string | null }>,
-    "fetch changelog entries for rec→change links",
-  );
-  const changelogIdByRecId = buildChangelogIdByRecId(changelogRes.value);
+  const changelogIdByRecId = buildChangelogIdByRecId(persisted.changelogEntries);
 
   // Build the FULL action-row set, then locate the one whose `id`
   // matches the decoded route param. Unknown id → calm not-found
   // (rec is no longer in the queue — likely shipped, dismissed, or
   // resolved; we don't keep a permanent brief URL for those).
   const allRows = buildRecommendationActionRows({
-    queue: decorated,
+    queue: persisted.queue,
     promptTextById,
   });
   const row = allRows.find((r) => r.id === decodedId) ?? null;
@@ -170,7 +133,7 @@ export default async function RecommendationDetailPage({
     return <RecommendationDetailNotFound />;
   }
 
-  trace.data("queue_count", decorated.length);
+  trace.data("queue_count", persisted.queue.length);
   trace.measureSize("payload", { row, promptTextById });
   return (
     <RecommendationDetailClient
