@@ -530,6 +530,38 @@ async function main() {
     for (const e of writeErrors.slice(0, 10)) console.error(`  - ${e}`);
   }
 
+  // Freshness/cache hardening (2026-05-13) — after a successful commit,
+  // invalidate the Today read-model cache tag for each tenant whose
+  // snapshots were just rewritten. Mirrors the post-syncSnaps hook in
+  // run-poll.ts. CLI script context: `revalidateTag` writes a cache
+  // invalidation marker via Next's cache infrastructure; if the
+  // import / call fails (e.g. running outside a Next runtime), we
+  // log + continue — the read-model loader's 300s TTL is the safety
+  // net.
+  if (written > 0) {
+    const tenantsWritten = new Set(
+      allUpdates
+        .filter((_, i) => i < written)
+        .map((_) => ARGS.tenant)
+        .filter((t): t is string => !!t),
+    );
+    for (const t of tenantsWritten) {
+      try {
+        const { revalidateTag } = await import("next/cache");
+        const { buildTodayReadModelCacheTag } = await import(
+          "@/domains/today/visibility-read-model"
+        );
+        revalidateTag(buildTodayReadModelCacheTag(t), "default");
+        console.log(`[backfill] revalidated today-readmodel cache for ${t}`);
+      } catch (invalErr) {
+        console.error(
+          `[backfill] revalidateTag failed for ${t} (non-fatal, cache TTL is safety net):`,
+          invalErr,
+        );
+      }
+    }
+  }
+
   process.exit(writeErrors.length > 0 || tupleErrors.length > 0 ? 2 : 0);
 }
 

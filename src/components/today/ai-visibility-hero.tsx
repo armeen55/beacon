@@ -65,6 +65,15 @@ export type AIVisibilityHeroProps = {
    * undefined → don't show the badge.
    */
   sampleState?: "full" | "partial";
+  /**
+   * Freshness/cache hardening (2026-05-13). Subtle pill rendered next
+   * to the AI Visibility section header. Optional — when undefined,
+   * the pill is not rendered. Status drives tone; label drives copy.
+   */
+  freshness?: {
+    status: "fresh" | "stale" | "rebuilding" | "empty";
+    label: string;
+  };
   className?: string;
 };
 
@@ -96,6 +105,7 @@ export function AIVisibilityHero(props: AIVisibilityHeroProps) {
     chatgptPrimaryPct,
     perplexityPrimaryPct,
     sampleState,
+    freshness,
     className,
   } = props;
 
@@ -146,19 +156,55 @@ export function AIVisibilityHero(props: AIVisibilityHeroProps) {
             How often {brandName} {verbAppears} across tracked AI answers.
           </p>
         </div>
-        {sampleState && (
-          <span
-            className={cn(
-              "rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider",
-              sampleState === "full"
-                ? "border-status-success/40 bg-status-success/10 text-status-success"
-                : "border-status-warning/40 bg-status-warning/10 text-status-warning",
-            )}
-            data-today-hero-sample-state={sampleState}
-          >
-            {sampleState === "full" ? "Full sample" : "Partial sample"}
-          </span>
-        )}
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Freshness pill (2026-05-13). Subtle, always rendered when
+              status is known so the operator can scan "is this current
+              data?" without clicking anything. Tone:
+                fresh      → muted neutral (no alarm)
+                stale      → amber warning (older than expected)
+                rebuilding → muted accent (refresh in flight)
+                empty      → muted neutral with "no data" copy
+              The status is NOT a UI gate; the chart still renders
+              whatever data the read model returned. */}
+          {freshness && freshness.status !== "empty" && (
+            <span
+              className={cn(
+                "rounded-full border px-2 py-0.5 text-[10px] font-semibold tracking-wide",
+                freshness.status === "fresh"
+                  ? "border-border/60 bg-surface-raised/40 text-muted-foreground"
+                  : freshness.status === "rebuilding"
+                    ? "border-accent-primary/40 bg-accent-primary/10 text-accent-primary"
+                    : "border-status-warning/40 bg-status-warning/10 text-status-warning",
+              )}
+              data-today-hero-freshness={freshness.status}
+              title={`Latest data: ${freshness.label}`}
+            >
+              {freshness.label}
+            </span>
+          )}
+          {freshness && freshness.status === "empty" && (
+            <span
+              className="rounded-full border border-border/60 bg-surface-raised/40 px-2 py-0.5 text-[10px] font-semibold tracking-wide text-muted-foreground"
+              data-today-hero-freshness="empty"
+              title="No snapshots have been recorded yet for this tenant."
+            >
+              {freshness.label}
+            </span>
+          )}
+          {sampleState && (
+            <span
+              className={cn(
+                "rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider",
+                sampleState === "full"
+                  ? "border-status-success/40 bg-status-success/10 text-status-success"
+                  : "border-status-warning/40 bg-status-warning/10 text-status-warning",
+              )}
+              data-today-hero-sample-state={sampleState}
+            >
+              {sampleState === "full" ? "Full sample" : "Partial sample"}
+            </span>
+          )}
+        </div>
       </header>
 
       {/* Lead sentence — answer-first framing, premium executive copy. */}

@@ -1,0 +1,241 @@
+/**
+ * Freshness/cache hardening (2026-05-13) — pure-function tests for
+ * `computeFreshness` plus a static-analysis pin on the cache tag
+ * helper and the post-syncSnaps invalidation location in run-poll.ts.
+ *
+ * Why static analysis on the invalidation site: the test fixture for
+ * `runNativePoll` is heavy (mocks adapters, repos, reconcilers). A
+ * source-level pin on the structural placement is cheaper and harder
+ * to break by accident than spinning up a fake poll run end-to-end.
+ */
+
+import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
+import {
+  computeFreshness,
+  buildTodayReadModelCacheTag,
+} from "./visibility-read-model";
+
+const NOW = new Date("2026-05-13T15:00:00Z"); // 2026-05-13 15:00 UTC
+
+describe("computeFreshness — status rules", () => {
+  it("returns 'empty' when no snapshots exist", () => {
+    const f = computeFreshness({
+      latestSnapshotDate: null,
+      latestPollCompletedAt: null,
+      inFlightPollStartedAt: null,
+      now: NOW,
+    });
+    expect(f.status).toBe("empty");
+    expect(f.latestSnapshotDate).toBeNull();
+    expect(f.label).toBe("No data yet");
+  });
+
+  it("returns 'fresh' when latest snapshot is today (UTC)", () => {
+    const f = computeFreshness({
+      latestSnapshotDate: "2026-05-13",
+      latestPollCompletedAt: "2026-05-13T12:24:00Z",
+      inFlightPollStartedAt: null,
+      now: NOW,
+    });
+    expect(f.status).toBe("fresh");
+    expect(f.latestSnapshotDate).toBe("2026-05-13");
+    // Poll completed ~2.5h ago, NOW is 15:00, completion 12:24.
+    expect(f.ageHours).not.toBeNull();
+    expect(f.ageHours!).toBeGreaterThan(2);
+    expect(f.ageHours!).toBeLessThan(4);
+    expect(f.label).toMatch(/Updated .*h ago|Updated today/);
+  });
+
+  it("returns 'fresh' when latest snapshot is yesterday (still inside the daily-cron lag window)", () => {
+    const f = computeFreshness({
+      latestSnapshotDate: "2026-05-12",
+      latestPollCompletedAt: "2026-05-12T12:00:00Z",
+      inFlightPollStartedAt: null,
+      now: NOW,
+    });
+    expect(f.status).toBe("fresh");
+    expect(f.label).toBe("Updated yesterday");
+  });
+
+  it("returns 'stale' when latest snapshot is 2+ days old", () => {
+    const f = computeFreshness({
+      latestSnapshotDate: "2026-05-10",
+      latestPollCompletedAt: "2026-05-10T12:00:00Z",
+      inFlightPollStartedAt: null,
+      now: NOW,
+    });
+    expect(f.status).toBe("stale");
+    expect(f.label).toMatch(/Updated \d+ days ago/);
+    expect(f.label).toContain("3 days ago");
+  });
+
+  it("returns 'rebuilding' when an in-flight poll started in the last 60 min", () => {
+    const f = computeFreshness({
+      latestSnapshotDate: "2026-05-13",
+      latestPollCompletedAt: "2026-05-13T12:24:00Z",
+      inFlightPollStartedAt: "2026-05-13T14:50:00Z", // 10 min ago
+      now: NOW,
+    });
+    expect(f.status).toBe("rebuilding");
+    expect(f.label).toBe("Refreshing…");
+  });
+
+  it("'rebuilding' takes priority over 'fresh'", () => {
+    // Latest snapshot is from today, AND a poll started 5 min ago.
+    // Rebuilding wins.
+    const f = computeFreshness({
+      latestSnapshotDate: "2026-05-13",
+      latestPollCompletedAt: "2026-05-12T12:00:00Z",
+      inFlightPollStartedAt: "2026-05-13T14:55:00Z",
+      now: NOW,
+    });
+    expect(f.status).toBe("rebuilding");
+  });
+
+  it("'rebuilding' takes priority over 'stale'", () => {
+    const f = computeFreshness({
+      latestSnapshotDate: "2026-05-10",
+      latestPollCompletedAt: "2026-05-10T12:00:00Z",
+      inFlightPollStartedAt: "2026-05-13T14:50:00Z",
+      now: NOW,
+    });
+    expect(f.status).toBe("rebuilding");
+  });
+
+  it("does NOT treat an OLD in-flight started_at as rebuilding (cron likely stalled)", () => {
+    // Started 3 hours ago, still no completed_at → that's a stalled
+    // run, not a healthy refresh in progress. Don't lie that we're
+    // refreshing.
+    const f = computeFreshness({
+      latestSnapshotDate: "2026-05-12",
+      latestPollCompletedAt: "2026-05-12T12:00:00Z",
+      inFlightPollStartedAt: "2026-05-13T12:00:00Z", // 3h ago
+      now: NOW,
+    });
+    expect(f.status).toBe("fresh"); // snapshot is yesterday → fresh
+    expect(f.label).toBe("Updated yesterday");
+  });
+
+  it("age computed from poll completion when present, else from snapshot date", () => {
+    const withTs = computeFreshness({
+      latestSnapshotDate: "2026-05-13",
+      latestPollCompletedAt: "2026-05-13T14:00:00Z", // 1h ago
+      inFlightPollStartedAt: null,
+      now: NOW,
+    });
+    expect(withTs.ageHours).toBeCloseTo(1, 0);
+
+    const noTs = computeFreshness({
+      latestSnapshotDate: "2026-05-13",
+      latestPollCompletedAt: null,
+      inFlightPollStartedAt: null,
+      now: NOW,
+    });
+    // Without a timestamp we fall back to end-of-day, so ageHours is
+    // small/negative-clamped on the same day.
+    expect(noTs.ageHours).not.toBeNull();
+    expect(noTs.ageHours!).toBeGreaterThanOrEqual(0);
+  });
+
+  it("'Updated just now' renders when age < 1h", () => {
+    const f = computeFreshness({
+      latestSnapshotDate: "2026-05-13",
+      latestPollCompletedAt: "2026-05-13T14:55:00Z", // 5 min ago
+      inFlightPollStartedAt: null,
+      now: NOW,
+    });
+    expect(f.label).toBe("Updated just now");
+  });
+});
+
+describe("buildTodayReadModelCacheTag — tenant scoping", () => {
+  it("returns a tenant-scoped tag string", () => {
+    expect(buildTodayReadModelCacheTag("tenant-ritz-founder")).toBe(
+      "today-readmodel:tenant-ritz-founder",
+    );
+  });
+
+  it("never returns the same tag for two different tenants", () => {
+    const a = buildTodayReadModelCacheTag("tenant-a");
+    const b = buildTodayReadModelCacheTag("tenant-b");
+    expect(a).not.toBe(b);
+  });
+});
+
+describe("run-poll.ts — post-syncSnaps invalidation", () => {
+  const SRC = readFileSync(
+    resolve(__dirname, "../observations/run-poll.ts"),
+    "utf8",
+  );
+
+  it("imports `revalidateTag` from next/cache only inside the try block (deferred)", () => {
+    // Dynamic import so the inner try/catch wraps the import call too.
+    expect(SRC).toMatch(
+      /const\s*\{\s*revalidateTag\s*\}\s*=\s*await\s+import\s*\(\s*["']next\/cache["']\s*\)/,
+    );
+  });
+
+  it("calls buildTodayReadModelCacheTag(tenantId) with `default` profile (Next 16 signature)", () => {
+    expect(SRC).toMatch(
+      /revalidateTag\(\s*buildTodayReadModelCacheTag\(tenantId\)\s*,\s*["']default["']\s*\)/,
+    );
+  });
+
+  it("invalidation sits AFTER syncSnaps (so a failed sync skips invalidation)", () => {
+    const syncIdx = SRC.indexOf("await syncSnaps(snapshots, tenantId);");
+    const revIdx = SRC.indexOf(
+      "revalidateTag(buildTodayReadModelCacheTag(tenantId)",
+    );
+    expect(syncIdx).toBeGreaterThan(-1);
+    expect(revIdx).toBeGreaterThan(-1);
+    expect(revIdx).toBeGreaterThan(syncIdx);
+  });
+
+  it("invalidation sits INSIDE the same try-block as syncSnaps (catch path skips it)", () => {
+    // The syncSnaps + invalidation must both be inside the outer
+    // `try {` that ends at `} catch (snapErr) {`. We verify the
+    // catch keyword appears AFTER the revalidateTag call.
+    const revIdx = SRC.indexOf(
+      "revalidateTag(buildTodayReadModelCacheTag(tenantId)",
+    );
+    const catchIdx = SRC.indexOf("catch (snapErr)");
+    expect(revIdx).toBeGreaterThan(-1);
+    expect(catchIdx).toBeGreaterThan(-1);
+    expect(catchIdx).toBeGreaterThan(revIdx);
+  });
+
+  it("invalidation has its own try/catch (failed invalidation is non-fatal)", () => {
+    // The revalidateTag call must sit inside a nested try { } catch (invalErr) ...
+    // so that a Next runtime hiccup never poisons the upstream success
+    // path. Loose grep on the inner catch identifier is enough.
+    expect(SRC).toMatch(/catch\s*\(\s*invalErr\s*\)/);
+  });
+});
+
+describe("backfill-snapshot-extensions.ts — post-write invalidation", () => {
+  const SRC = readFileSync(
+    resolve(__dirname, "../../../scripts/backfill-snapshot-extensions.ts"),
+    "utf8",
+  );
+
+  it("revalidates the today-readmodel tag after `--commit` writes succeed", () => {
+    expect(SRC).toMatch(/buildTodayReadModelCacheTag/);
+    expect(SRC).toMatch(
+      /revalidateTag\(\s*buildTodayReadModelCacheTag\(t\)\s*,\s*["']default["']\s*\)/,
+    );
+  });
+
+  it("invalidation runs ONLY when `written > 0` (not on a no-op dry-run)", () => {
+    // The block sits inside `if (written > 0) {`. We check the
+    // structural ordering: the literal `if (written > 0)` appears
+    // BEFORE the revalidateTag call.
+    const guardIdx = SRC.indexOf("if (written > 0)");
+    const callIdx = SRC.indexOf("revalidateTag(buildTodayReadModelCacheTag(t)");
+    expect(guardIdx).toBeGreaterThan(-1);
+    expect(callIdx).toBeGreaterThan(-1);
+    expect(callIdx).toBeGreaterThan(guardIdx);
+  });
+});

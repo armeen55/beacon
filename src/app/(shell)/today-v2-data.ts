@@ -321,6 +321,13 @@ export async function loadTodayV2VisibilityData(): Promise<TodayV2VisibilityData
     chartEndDate: readModel.chartEndDate,
     competitorSeriesByMetric: readModel.competitorSeriesByMetric,
     chartEvents: readModel.chartEvents,
+    // Freshness/cache hardening (2026-05-13). The hero renders a
+    // subtle pill from these fields; status drives the tone.
+    freshness: {
+      status: readModel.freshness.status,
+      latestSnapshotDate: readModel.freshness.latestSnapshotDate,
+      label: readModel.freshness.label,
+    },
   };
 
   // ── EnrichmentV2 for hero's per-platform stat row ──────────────────

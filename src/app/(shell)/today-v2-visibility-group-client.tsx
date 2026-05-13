@@ -50,6 +50,17 @@ type VisibilityData = {
     tone: "danger" | "success" | "neutral";
     label: string;
   }>;
+  /**
+   * Freshness/cache hardening (2026-05-13). Optional so this client
+   * stays back-compat with any caller that doesn't yet thread it
+   * through; when present, the hero renders a subtle pill with the
+   * label.
+   */
+  freshness?: {
+    status: "fresh" | "stale" | "rebuilding" | "empty";
+    latestSnapshotDate: string | null;
+    label: string;
+  };
 };
 
 export type TodayV2VisibilityGroupClientProps = {
@@ -165,6 +176,12 @@ export function TodayV2VisibilityGroupClient({
       chatgptPrimaryPct: platformPrimaryPct("ChatGPT"),
       perplexityPrimaryPct: platformPrimaryPct("Perplexity"),
       sampleState,
+      freshness: visibilityData.freshness
+        ? {
+            status: visibilityData.freshness.status,
+            label: visibilityData.freshness.label,
+          }
+        : undefined,
     };
   }, [visibilityData, visibilityWindow, visibilityMetric, enrichmentV2]);
 

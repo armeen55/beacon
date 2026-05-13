@@ -480,6 +480,34 @@ export async function runNativePoll(
       observationRunId: run.run_id,
     });
     await syncSnaps(snapshots, tenantId);
+    // Freshness/cache hardening (2026-05-13) — invalidate the Today v2
+    // read-model cache tag AFTER syncSnaps succeeds. Two reasons this
+    // sits inside the try block, immediately after the await:
+    //   1. If syncSnaps throws, we land in the catch and skip
+    //      invalidation — a failed write must NOT signal "fresh data
+    //      is ready". The catch path marks the run failed.
+    //   2. revalidateTag itself is async and may throw (Next runtime
+    //      issue, network blip). Wrapping it in its own try/catch
+    //      keeps a failed invalidation from poisoning the upstream
+    //      success path — the snapshots ARE written, the run IS
+    //      verified_complete; only the cache hint missed and the
+    //      300-second TTL in the read-model loader self-heals.
+    try {
+      const { revalidateTag } = await import("next/cache");
+      const { buildTodayReadModelCacheTag } = await import(
+        "@/domains/today/visibility-read-model"
+      );
+      // Next 16 `revalidateTag(tag, profile)` — `"default"` is the
+      // standard cache profile; we just want the tagged entry marked
+      // stale so the next `loadVisibilityReadModelFromSnapshots` call
+      // rebuilds fresh.
+      revalidateTag(buildTodayReadModelCacheTag(tenantId), "default");
+    } catch (invalErr) {
+      console.error(
+        "[run-poll] revalidateTag(today-readmodel) failed (non-fatal):",
+        invalErr,
+      );
+    }
   } catch (snapErr) {
     const message =
       snapErr instanceof Error ? snapErr.message : String(snapErr);

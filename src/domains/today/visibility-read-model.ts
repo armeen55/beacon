@@ -59,10 +59,12 @@
 import "server-only";
 
 import { cache } from "react";
+import { unstable_cache } from "next/cache";
 
 import {
   ensureCanonicalStoresSeeded,
 } from "@/storage/canonical-store";
+import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import {
   ensureRecommendationResponsesSeeded,
 } from "@/domains/product/recommendation-response-store";
@@ -99,6 +101,40 @@ export {
 // Types
 // ─────────────────────────────────────────────────────────────────────
 
+/**
+ * Freshness status of the snapshot read model.
+ *
+ *   "fresh"       — Latest active-provider snapshot is from today or
+ *                   yesterday UTC. Normal post-poll state.
+ *   "stale"       — Latest snapshot is ≥ 2 days old. Cron likely
+ *                   missed; operator should investigate.
+ *   "rebuilding"  — A native poll is in flight (observation_runs.
+ *                   started_at within the last 60 minutes, completed_at
+ *                   null). Page should show "Refreshing…" instead of
+ *                   stale-tagged data, even if the latest landed
+ *                   snapshot is from yesterday.
+ *   "empty"       — No active-provider snapshots exist for this tenant.
+ *                   First-reading state.
+ *
+ * The chart + leaderboard still render using whatever data the
+ * snapshot read returned — freshness is a label, not a gate.
+ */
+export type FreshnessStatus = "fresh" | "stale" | "rebuilding" | "empty";
+
+export type VisibilityReadModelFreshness = {
+  status: FreshnessStatus;
+  /** ISO YYYY-MM-DD UTC of the most recent active-provider snapshot. */
+  latestSnapshotDate: string | null;
+  /** ISO timestamp of the most recent completed native poll, if known. */
+  latestPollCompletedAt: string | null;
+  /** Hours between `now` and the most recent signal we have (poll
+   *  timestamp if available, else end-of-snapshot-date). */
+  ageHours: number | null;
+  /** Customer-facing label: "Updated today", "Updated 4h ago",
+   *  "Refreshing…", or "No data yet". Pure plain English. */
+  label: string;
+};
+
 export type VisibilityReadModelData = {
   brandName: string;
   brandSeriesByMetric: Record<VisibilityMetric, VisibilityPoint[]>;
@@ -118,7 +154,130 @@ export type VisibilityReadModelData = {
     tone: "danger" | "success" | "neutral";
     label: string;
   }>;
+  /** Freshness metadata for the surface label / pill (2026-05-13). */
+  freshness: VisibilityReadModelFreshness;
 };
+
+/**
+ * Cache-tag helper for `unstable_cache` invalidation. Tenant-scoped so
+ * an invalidation on tenant A never affects tenant B's cached payload.
+ * Mirrors the convention used by `buildRecQueueCacheTag` in
+ * `domains/recommendations/load-queue.ts`.
+ */
+export function buildTodayReadModelCacheTag(tenantId: string): string {
+  return `today-readmodel:${tenantId}`;
+}
+
+/**
+ * Pure helper: compute freshness status + label from the inputs the
+ * loader observes (most recent snapshot row date + most recent native
+ * poll completion + any in-flight poll runs). Exported for unit testing.
+ *
+ * Time math is in UTC. `now` defaults to `new Date()` so callers can
+ * pin a deterministic clock from tests.
+ */
+export function computeFreshness(args: {
+  latestSnapshotDate: string | null;
+  latestPollCompletedAt: string | null;
+  inFlightPollStartedAt: string | null;
+  now?: Date;
+}): VisibilityReadModelFreshness {
+  const now = args.now ?? new Date();
+  const nowMs = now.getTime();
+
+  // Empty state takes priority — no snapshots at all means nothing
+  // can be fresh or stale.
+  if (!args.latestSnapshotDate) {
+    return {
+      status: "empty",
+      latestSnapshotDate: null,
+      latestPollCompletedAt: null,
+      ageHours: null,
+      label: "No data yet",
+    };
+  }
+
+  // Rebuilding state — an in-flight poll started in the last 60 min
+  // takes precedence over fresh/stale. The page should communicate
+  // "we're refreshing right now" rather than "your data is fresh from
+  // yesterday" when a poll is mid-cycle.
+  if (args.inFlightPollStartedAt) {
+    const startedMs = new Date(args.inFlightPollStartedAt).getTime();
+    const minutesSinceStart = (nowMs - startedMs) / 60_000;
+    if (minutesSinceStart >= 0 && minutesSinceStart <= 60) {
+      return {
+        status: "rebuilding",
+        latestSnapshotDate: args.latestSnapshotDate,
+        latestPollCompletedAt: args.latestPollCompletedAt,
+        ageHours: null,
+        label: "Refreshing…",
+      };
+    }
+  }
+
+  // Age is computed from the poll completion timestamp when we have
+  // it (sub-day precision); otherwise from the end of the snapshot
+  // date in UTC.
+  const ageMs = args.latestPollCompletedAt
+    ? nowMs - new Date(args.latestPollCompletedAt).getTime()
+    : nowMs - new Date(`${args.latestSnapshotDate}T23:59:59Z`).getTime();
+  const ageHours = Math.max(0, ageMs / 3_600_000);
+
+  // Fresh = snapshot date is today or yesterday UTC. The native cron
+  // fires once daily; a one-day lag is the normal state for users
+  // opening Today before the morning poll completes.
+  const todayUtc = now.toISOString().slice(0, 10);
+  const yesterdayUtc = new Date(nowMs - 86_400_000).toISOString().slice(0, 10);
+  const isFresh =
+    args.latestSnapshotDate === todayUtc ||
+    args.latestSnapshotDate === yesterdayUtc;
+
+  if (isFresh) {
+    return {
+      status: "fresh",
+      latestSnapshotDate: args.latestSnapshotDate,
+      latestPollCompletedAt: args.latestPollCompletedAt,
+      ageHours,
+      label: formatFreshLabel(args.latestSnapshotDate, ageHours, todayUtc),
+    };
+  }
+
+  // Otherwise stale — older than yesterday.
+  return {
+    status: "stale",
+    latestSnapshotDate: args.latestSnapshotDate,
+    latestPollCompletedAt: args.latestPollCompletedAt,
+    ageHours,
+    label: formatStaleLabel(args.latestSnapshotDate, todayUtc),
+  };
+}
+
+function formatFreshLabel(
+  latestSnapshotDate: string,
+  ageHours: number,
+  todayUtc: string,
+): string {
+  if (latestSnapshotDate === todayUtc) {
+    if (ageHours < 1) return "Updated just now";
+    if (ageHours < 24) return `Updated ${Math.floor(ageHours)}h ago`;
+    return "Updated today";
+  }
+  // Snapshot from yesterday.
+  return "Updated yesterday";
+}
+
+function formatStaleLabel(
+  latestSnapshotDate: string,
+  todayUtc: string,
+): string {
+  // Day diff via UTC midnight subtraction — calendar days, not 24h
+  // chunks, so "Updated 2 days ago" reads honestly even if the gap is
+  // 26 hours.
+  const a = new Date(`${latestSnapshotDate}T00:00:00Z`).getTime();
+  const b = new Date(`${todayUtc}T00:00:00Z`).getTime();
+  const days = Math.max(2, Math.round((b - a) / 86_400_000));
+  return `Updated ${days} days ago`;
+}
 
 // Constants mirror the existing today-v2-data loader.
 const VISIBILITY_METRICS: VisibilityMetric[] = [
@@ -673,129 +832,250 @@ async function buildChartEvents(): Promise<
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// Main loader
+// Observation-run freshness query
 // ─────────────────────────────────────────────────────────────────────
 
 /**
- * React.cache-memoized so the visibility section + any future co-located
- * section sharing this read model hit ONE Supabase round-trip per request.
+ * Fetch the two pieces the freshness compute needs from
+ * `observation_runs`: the most recent COMPLETED native poll's
+ * `completed_at`, and any IN-FLIGHT native poll's `started_at` from
+ * the last hour. Tenant-scoped. Tiny query (LIMIT 5) — runs in
+ * parallel with the main snapshot read.
+ */
+async function fetchFreshnessSignal(tenantId: string): Promise<{
+  latestPollCompletedAt: string | null;
+  inFlightPollStartedAt: string | null;
+}> {
+  try {
+    const sb = getSupabaseAdmin();
+    const oneHourAgo = new Date(Date.now() - 60 * 60_000).toISOString();
+    const { data, error } = await sb
+      .from("observation_runs")
+      .select("source, status, started_at, completed_at")
+      .eq("tenant_id", tenantId)
+      .in("source", ["perplexity-native-poll", "openai-native-poll"])
+      .gte("started_at", oneHourAgo)
+      .order("started_at", { ascending: false })
+      .limit(20);
+    let inFlight: string | null = null;
+    let latestCompleted: string | null = null;
+    if (!error) {
+      for (const row of (data ?? []) as Array<{
+        status: string;
+        started_at: string;
+        completed_at: string | null;
+      }>) {
+        if (!row.completed_at && inFlight === null) {
+          inFlight = row.started_at;
+        }
+      }
+    }
+    // Fetch the latest completed poll separately (not bounded to last
+    // hour — we want the timestamp even when the last poll was
+    // yesterday).
+    const completedRes = await sb
+      .from("observation_runs")
+      .select("completed_at")
+      .eq("tenant_id", tenantId)
+      .in("source", ["perplexity-native-poll", "openai-native-poll"])
+      .eq("status", "completed")
+      .not("completed_at", "is", null)
+      .order("completed_at", { ascending: false })
+      .limit(1);
+    if (!completedRes.error && completedRes.data && completedRes.data[0]) {
+      latestCompleted =
+        (completedRes.data[0] as { completed_at: string }).completed_at;
+    }
+    return {
+      latestPollCompletedAt: latestCompleted,
+      inFlightPollStartedAt: inFlight,
+    };
+  } catch (err) {
+    console.error(
+      "[visibility-read-model] freshness signal fetch failed:",
+      err,
+    );
+    return { latestPollCompletedAt: null, inFlightPollStartedAt: null };
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Main loader
+// ─────────────────────────────────────────────────────────────────────
+
+async function loadVisibilityReadModelInner(opts: {
+  tenantId: string;
+  endDate: string;
+}): Promise<VisibilityReadModelData> {
+  // Side-effecting seeds — match the loadCachedFreshCanonical pattern.
+  // These were previously seeded by the canonical loader; the snapshot
+  // path replaces the canonical pull but the seeds are still needed
+  // because chartEvents reads from url_change_outcomes (seeded) and
+  // recommendation_responses store (seeded).
+  await Promise.all([
+    ensureRecommendationResponsesSeeded(),
+    ensureUrlChangeOutcomesSeeded(),
+    ensureCanonicalStoresSeeded(),
+  ]);
+
+  const businessConfig = getBusinessConfig();
+  const { tenantId, endDate } = opts;
+  const sinceDate = subtractDays(endDate, SNAPSHOT_WINDOW_DAYS - 1);
+
+  const repo = getRepository().forTenant(tenantId);
+
+  // Parallel reads — snapshots + tracked entities + chart events +
+  // freshness signal (recent observation_runs for in-flight / last-
+  // completed timestamps).
+  const [snapshots, trackedEntities, chartEvents, freshnessSignal] =
+    await Promise.all([
+      repo.getDailyMetricSnapshots({ since: sinceDate }),
+      repo.getTrackedEntities(),
+      buildChartEvents(),
+      fetchFreshnessSignal(tenantId),
+    ]);
+
+  // Clip to the window end (the repo's `since` filter covers the lower
+  // bound; we still trim above for safety + idempotency).
+  const inWindow = snapshots.filter((s) => s.date <= endDate);
+  const idx = indexSnapshots(inWindow);
+
+  const brandEntity = trackedEntities.find((e) => e.is_owned);
+  const brandScopeId = brandEntity ? entityToScopeId(brandEntity) : "";
+  const brandDisplay = brandEntity?.name ?? businessConfig.name ?? "You";
+
+  // ── Brand chart series for each metric ─────────────────────────
+  const brandSeriesByMetric = {} as Record<
+    VisibilityMetric,
+    VisibilityPoint[]
+  >;
+  for (const m of VISIBILITY_METRICS) {
+    brandSeriesByMetric[m] = buildBrandSeries(idx, brandScopeId, m);
+  }
+
+  // ── Per-platform brand series ──────────────────────────────────
+  const brandSeriesByPlatform = buildBrandSeriesByPlatform(idx);
+
+  // ── Leaderboards (all metrics × all windows + 14d default) ─────
+  const leaderboardByMetricAndWindow = {} as Record<
+    VisibilityMetric,
+    Record<number, EntityVisibility[]>
+  >;
+  for (const m of VISIBILITY_METRICS) {
+    leaderboardByMetricAndWindow[m] = {} as Record<
+      number,
+      EntityVisibility[]
+    >;
+    for (const windowDays of LEADERBOARD_WINDOWS) {
+      leaderboardByMetricAndWindow[m][windowDays] = buildLeaderboardForWindow(
+        idx,
+        trackedEntities,
+        brandScopeId,
+        brandDisplay,
+        m,
+        endDate,
+        windowDays,
+        5,
+      );
+    }
+  }
+  const leaderboardByMetric = {} as Record<VisibilityMetric, EntityVisibility[]>;
+  for (const m of VISIBILITY_METRICS) {
+    leaderboardByMetric[m] = leaderboardByMetricAndWindow[m][14];
+  }
+
+  // ── Competitor series (top 4 from composite 14d leaderboard) ───
+  const topCompetitorRows = leaderboardByMetric.composite
+    .filter((r) => !r.isOwned)
+    .slice(0, 4);
+  const competitorSeriesByMetric = {} as Record<
+    VisibilityMetric,
+    Array<{ name: string; points: VisibilityPoint[] }>
+  >;
+  const scopeIdByName = new Map<string, string>();
+  for (const e of trackedEntities) {
+    scopeIdByName.set(e.name, entityToScopeId(e));
+  }
+  for (const m of VISIBILITY_METRICS) {
+    const series: Array<{ name: string; points: VisibilityPoint[] }> = [];
+    for (const row of topCompetitorRows) {
+      const scopeId = scopeIdByName.get(row.name);
+      if (!scopeId) continue;
+      const points = buildEntitySeries(idx, scopeId);
+      series.push({ name: row.name, points });
+    }
+    competitorSeriesByMetric[m] = series;
+  }
+
+  // ── Freshness ──────────────────────────────────────────────────
+  // Latest snapshot date is the most recent date that has a
+  // platform-scope row in the active-provider set (already filtered
+  // by indexSnapshots). Empty if there are none.
+  const latestSnapshotDate =
+    idx.sampledDates.length > 0
+      ? idx.sampledDates[idx.sampledDates.length - 1]
+      : null;
+  const freshness = computeFreshness({
+    latestSnapshotDate,
+    latestPollCompletedAt: freshnessSignal.latestPollCompletedAt,
+    inFlightPollStartedAt: freshnessSignal.inFlightPollStartedAt,
+  });
+
+  return {
+    brandName: brandDisplay,
+    brandSeriesByMetric,
+    brandSeriesByPlatform,
+    leaderboardByMetric,
+    leaderboardByMetricAndWindow,
+    chartEndDate: endDate,
+    competitorSeriesByMetric,
+    chartEvents,
+    freshness,
+  };
+}
+
+/**
+ * Cross-request cache TTL for the Today read model. Long enough that
+ * sequential page loads share one Supabase trip; short enough that an
+ * accidentally-missed `revalidateTag` self-heals within minutes
+ * instead of waiting until the next poll. The post-`syncSnaps`
+ * invalidation in `run-poll.ts` is the primary freshness path; this
+ * TTL is the safety net.
+ */
+const TODAY_READMODEL_CACHE_TTL_SECONDS = 300;
+
+/**
+ * Two-layer cache:
+ *   • `react.cache` — per-request memoization (same Suspense
+ *     boundary, same request → one shared Promise).
+ *   • `unstable_cache` — cross-request caching with explicit
+ *     tag-based invalidation. The cache key includes `tenantId` +
+ *     `endDate` so distinct tenants / preview-mode "endDate"
+ *     overrides each get their own slot. The tag is tenant-scoped
+ *     (`today-readmodel:<tenantId>`) so a poll that lands for one
+ *     tenant invalidates only that tenant's cached payload.
  *
- * Always passes a 60-day window — that's the longest leaderboard window;
- * any shorter view slices into the same array.
+ * Always passes a 60-day window — that's the longest leaderboard
+ * window; any shorter view slices into the same array.
  */
 export const loadVisibilityReadModelFromSnapshots = cache(
   async (opts?: {
     tenantId?: string;
     endDate?: string;
   }): Promise<VisibilityReadModelData> => {
-    // Side-effecting seeds — match the loadCachedFreshCanonical pattern.
-    // These were previously seeded by the canonical loader; the snapshot
-    // path replaces the canonical pull but the seeds are still needed
-    // because chartEvents reads from url_change_outcomes (seeded) and
-    // recommendation_responses store (seeded).
-    await Promise.all([
-      ensureRecommendationResponsesSeeded(),
-      ensureUrlChangeOutcomesSeeded(),
-      ensureCanonicalStoresSeeded(),
-    ]);
-
-    const businessConfig = getBusinessConfig();
     const tenantId =
       opts?.tenantId ??
       (await (await import("@/lib/tenant-context")).currentTenantId());
     const endDate = opts?.endDate ?? isoDayUtc(new Date());
-    const sinceDate = subtractDays(endDate, SNAPSHOT_WINDOW_DAYS - 1);
 
-    const repo = getRepository().forTenant(tenantId);
-
-    // Parallel reads — snapshots + tracked entities + chart events.
-    const [snapshots, trackedEntities, chartEvents] = await Promise.all([
-      repo.getDailyMetricSnapshots({ since: sinceDate }),
-      repo.getTrackedEntities(),
-      buildChartEvents(),
-    ]);
-
-    // Clip to the window end (the repo's `since` filter covers the lower
-    // bound; we still trim above for safety + idempotency).
-    const inWindow = snapshots.filter((s) => s.date <= endDate);
-    const idx = indexSnapshots(inWindow);
-
-    const brandEntity = trackedEntities.find((e) => e.is_owned);
-    const brandScopeId = brandEntity
-      ? entityToScopeId(brandEntity)
-      : "";
-    const brandDisplay = brandEntity?.name ?? businessConfig.name ?? "You";
-
-    // ── Brand chart series for each metric ─────────────────────────
-    const brandSeriesByMetric = {} as Record<
-      VisibilityMetric,
-      VisibilityPoint[]
-    >;
-    for (const m of VISIBILITY_METRICS) {
-      brandSeriesByMetric[m] = buildBrandSeries(idx, brandScopeId, m);
-    }
-
-    // ── Per-platform brand series ──────────────────────────────────
-    const brandSeriesByPlatform = buildBrandSeriesByPlatform(idx);
-
-    // ── Leaderboards (all metrics × all windows + 14d default) ─────
-    const leaderboardByMetricAndWindow = {} as Record<
-      VisibilityMetric,
-      Record<number, EntityVisibility[]>
-    >;
-    for (const m of VISIBILITY_METRICS) {
-      leaderboardByMetricAndWindow[m] = {} as Record<number, EntityVisibility[]>;
-      for (const windowDays of LEADERBOARD_WINDOWS) {
-        leaderboardByMetricAndWindow[m][windowDays] = buildLeaderboardForWindow(
-          idx,
-          trackedEntities,
-          brandScopeId,
-          brandDisplay,
-          m,
-          endDate,
-          windowDays,
-          5,
-        );
-      }
-    }
-    const leaderboardByMetric = {} as Record<VisibilityMetric, EntityVisibility[]>;
-    for (const m of VISIBILITY_METRICS) {
-      leaderboardByMetric[m] = leaderboardByMetricAndWindow[m][14];
-    }
-
-    // ── Competitor series (top 4 from composite 14d leaderboard) ───
-    const topCompetitorRows = leaderboardByMetric.composite
-      .filter((r) => !r.isOwned)
-      .slice(0, 4);
-    const competitorSeriesByMetric = {} as Record<
-      VisibilityMetric,
-      Array<{ name: string; points: VisibilityPoint[] }>
-    >;
-    // Resolve display-name → scope_id lookup for the top competitors.
-    const scopeIdByName = new Map<string, string>();
-    for (const e of trackedEntities) {
-      scopeIdByName.set(e.name, entityToScopeId(e));
-    }
-    for (const m of VISIBILITY_METRICS) {
-      const series: Array<{ name: string; points: VisibilityPoint[] }> = [];
-      for (const row of topCompetitorRows) {
-        const scopeId = scopeIdByName.get(row.name);
-        if (!scopeId) continue;
-        const points = buildEntitySeries(idx, scopeId);
-        series.push({ name: row.name, points });
-      }
-      competitorSeriesByMetric[m] = series;
-    }
-
-    return {
-      brandName: brandDisplay,
-      brandSeriesByMetric,
-      brandSeriesByPlatform,
-      leaderboardByMetric,
-      leaderboardByMetricAndWindow,
-      chartEndDate: endDate,
-      competitorSeriesByMetric,
-      chartEvents,
-    };
+    const cached = unstable_cache(
+      () => loadVisibilityReadModelInner({ tenantId, endDate }),
+      ["today-readmodel:v1", tenantId, endDate],
+      {
+        revalidate: TODAY_READMODEL_CACHE_TTL_SECONDS,
+        tags: [buildTodayReadModelCacheTag(tenantId)],
+      },
+    );
+    return cached();
   },
 );

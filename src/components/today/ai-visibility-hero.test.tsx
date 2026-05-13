@@ -129,6 +129,59 @@ describe("AIVisibilityHero — partial-sample state", () => {
   });
 });
 
+describe("AIVisibilityHero — freshness pill (2026-05-13)", () => {
+  it("renders 'fresh' freshness pill with the loader's label", () => {
+    const html = renderToStaticMarkup(
+      <AIVisibilityHero
+        {...RITZ_FULL}
+        freshness={{ status: "fresh", label: "Updated 2h ago" }}
+      />,
+    );
+    expect(html).toContain('data-today-hero-freshness="fresh"');
+    expect(html).toContain("Updated 2h ago");
+  });
+
+  it("renders 'stale' freshness pill with warning tone", () => {
+    const html = renderToStaticMarkup(
+      <AIVisibilityHero
+        {...RITZ_FULL}
+        freshness={{ status: "stale", label: "Updated 3 days ago" }}
+      />,
+    );
+    expect(html).toContain('data-today-hero-freshness="stale"');
+    expect(html).toContain("Updated 3 days ago");
+    expect(html).toContain("status-warning");
+  });
+
+  it("renders 'rebuilding' freshness pill with accent tone", () => {
+    const html = renderToStaticMarkup(
+      <AIVisibilityHero
+        {...RITZ_FULL}
+        freshness={{ status: "rebuilding", label: "Refreshing…" }}
+      />,
+    );
+    expect(html).toContain('data-today-hero-freshness="rebuilding"');
+    expect(html).toContain("Refreshing");
+    expect(html).toContain("accent-primary");
+  });
+
+  it("renders 'empty' freshness pill with neutral tone + no-data copy", () => {
+    const html = renderToStaticMarkup(
+      <AIVisibilityHero
+        {...RITZ_FULL}
+        freshness={{ status: "empty", label: "No data yet" }}
+      />,
+    );
+    expect(html).toContain('data-today-hero-freshness="empty"');
+    expect(html).toContain("No data yet");
+  });
+
+  it("renders no pill when freshness prop is omitted (back-compat)", () => {
+    const html = renderToStaticMarkup(<AIVisibilityHero {...RITZ_FULL} />);
+    expect(html).not.toContain("data-today-hero-freshness");
+  });
+});
+
 describe("AIVisibilityHero — delta cases", () => {
   it("negative delta renders red tone", () => {
     const html = renderToStaticMarkup(
