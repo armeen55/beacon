@@ -1,20 +1,19 @@
 /**
  * 2026-05-13 — UX follow-up. The /recommendations v2 surface must NOT
- * push customers into the legacy view through any default href. Before
- * this guard, three customer-facing v2 links defaulted to `?legacy=1`:
+ * push customers into the legacy view through any default href.
+ * Originally three customer-facing v2 links defaulted to `?legacy=1`:
  *   1. "See full list →" at the bottom of the Suggested stack.
  *   2. Every Working rail row's `<Link>` href.
  *   3. The Watchlist footer link.
  *
- * (1) and (2) shipped a fix on 2026-05-13. (3) — the watchlist link —
- * is the only known legacy hop that survives; it points at a section
- * the v2 surface does not yet render. Carved out here behind an
- * explicit `WATCHLIST_LEGACY_FALLBACK` allowance so a future v2
- * watchlist surface gets a clean failing test when it lands.
+ * (1) and (2) shipped a fix earlier on 2026-05-13. (3) — the watchlist
+ * footer — shipped a follow-up that REMOVED the link entirely; the
+ * watchlist section still lives on the legacy route (?legacy=1) for
+ * direct operator access, but no v2 surface advertises it. When a v2
+ * watchlist surface lands later, this invariant should be revisited.
  *
- * Operator-locked: every other `?legacy=1` reference in the v2 client +
- * card + working rail must be either a comment OR the carved-out
- * watchlist fallback.
+ * Operator-locked: NO `?legacy=1` reference in any customer-facing v2
+ * source after comment stripping. Zero exceptions.
  */
 
 import { describe, expect, it } from "vitest";
@@ -105,18 +104,24 @@ describe("v2 /recommendations — no customer-facing legacy hops", () => {
     expect(suggestedStackBlock).not.toContain("?legacy=1");
   });
 
-  it("the only ?legacy=1 reference in the v2 client is the carved-out watchlist footer fallback", () => {
+  it("the v2 client source contains ZERO ?legacy=1 references after comment stripping", () => {
+    // No carve-outs. The customer-facing v2 surface advertises no
+    // path into the legacy table. The legacy route itself
+    // (/recommendations?legacy=1) still works for direct operator
+    // access — this invariant is about what v2 LINKS to, not whether
+    // the legacy route exists.
     const occurrences = (V2_CLIENT_SRC.match(/\?legacy=1/g) ?? []).length;
-    // Allowance: ONE legacy reference, the watchlist footer link.
-    // When a v2 watchlist surface lands, this drops to 0 and this
-    // test must be updated.
-    expect(occurrences).toBeLessThanOrEqual(1);
-    if (occurrences === 1) {
-      // The carved-out reference must be inside the watchlist footer
-      // branch (renders only when watchlist.length > 0) and must use
-      // the `#watchlist` anchor.
-      expect(V2_CLIENT_SRC).toMatch(/#watchlist/);
-      expect(V2_CLIENT_SRC).toMatch(/data-recommendations-v2-cta="watchlist"/);
-    }
+    expect(occurrences).toBe(0);
+  });
+
+  it("the v2 client no longer renders a watchlist footer CTA", () => {
+    // Defense-in-depth: even if a future regression re-introduces the
+    // string under a different shape, the data-attribute must not
+    // come back without a matching v2 surface and a refactor of this
+    // test.
+    expect(V2_CLIENT_SRC).not.toMatch(
+      /data-recommendations-v2-cta="watchlist"/,
+    );
+    expect(V2_CLIENT_SRC).not.toMatch(/#watchlist/);
   });
 });

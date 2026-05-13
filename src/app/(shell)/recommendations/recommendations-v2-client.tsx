@@ -91,8 +91,10 @@ const MAX_SUGGESTED_CARDS = 7;
 
 export type RecommendationsV2ClientProps = {
   queue: RecommendationQueueRow[];
-  // Watchlist comes through for parity but v2's first pass collapses
-  // it into a footer link — power users still reach it via legacy.
+  // 2026-05-13 follow-up — the customer-facing watchlist footer link
+  // was removed (it was the last v2 → legacy hop). The prop stays in
+  // the contract so the page-level loader doesn't have to change, and
+  // so a future v2 watchlist surface can adopt it without a prop diff.
   watchlist?: RecommendationWatchRow[];
   matrixDate: string;
   promptTextById: Record<string, string>;
@@ -100,7 +102,8 @@ export type RecommendationsV2ClientProps = {
 
 export function RecommendationsV2Client({
   queue,
-  watchlist = [],
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  watchlist: _watchlist = [],
   matrixDate,
   promptTextById,
 }: RecommendationsV2ClientProps) {
@@ -222,26 +225,15 @@ export function RecommendationsV2Client({
         </div>
       )}
 
-      {/* Footer — pre-2026-05-12 carried an "Open legacy view" CTA
-          alongside the watchlist link. The legacy CTA was removed
-          because v2 is the production default and the visible link
-          made the product feel unfinished. The watchlist link stays
-          (it surfaces a real feature: patterns Beacon is watching;
-          the watchlist UI itself isn't rendered in v2 yet so the
-          link currently routes through `?legacy=1#watchlist` as the
-          only place that surface lives). `/recommendations?legacy=1`
-          still routes to the legacy table for rollback. */}
-      {watchlist.length > 0 && (
-        <footer className="pt-2 border-t border-border/40 text-[11px] text-muted-foreground/80">
-          <Link
-            href="/recommendations?legacy=1#watchlist"
-            className="text-accent-primary hover:underline font-medium"
-            data-recommendations-v2-cta="watchlist"
-          >
-            {watchlist.length} winning pattern{watchlist.length === 1 ? "" : "s"} on watch →
-          </Link>
-        </footer>
-      )}
+      {/* 2026-05-13 follow-up — the customer-facing watchlist footer
+          used to render `${watchlist.length} winning patterns on watch →`
+          here, linking at `/recommendations?legacy=1#watchlist`. It was
+          the last customer-facing v2 → legacy hop and is removed in
+          this bundle. The watchlist still exists on the legacy route
+          (`/recommendations?legacy=1`) for direct operator access;
+          when a v2 watchlist surface lands, restore this footer with
+          a v2 href. The `watchlist` prop is intentionally still
+          accepted so the page-level loader contract doesn't change. */}
     </div>
   );
 }
