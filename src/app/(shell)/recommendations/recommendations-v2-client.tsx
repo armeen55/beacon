@@ -29,7 +29,7 @@
  * logic changes.
  */
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 
 import {
@@ -104,6 +104,15 @@ export function RecommendationsV2Client({
   matrixDate,
   promptTextById,
 }: RecommendationsV2ClientProps) {
+  // 2026-05-13 follow-up — "See full list" used to link to
+  // `/recommendations?legacy=1`, pushing customers out of v2 every time
+  // the queue had more than 7 actionable rows. The fix is a v2-native
+  // inline toggle: when the operator clicks "See full list", expand
+  // the Suggested stack to render every actionable row; clicking
+  // "Show fewer" collapses back to the top 7. No legacy hop. No new
+  // route. No new data fetch.
+  const [showAllSuggested, setShowAllSuggested] = useState(false);
+
   // Build typed action rows from the same queue the legacy table consumes.
   // Pure projection — no new I/O, no math change.
   const allRows = useMemo(
@@ -111,18 +120,25 @@ export function RecommendationsV2Client({
     [queue, promptTextById],
   );
 
+  const actionableRows = useMemo(
+    () => allRows.filter((r) => SUGGESTED_STATUSES.has(r.status)),
+    [allRows],
+  );
+
   const suggested = useMemo(
     () =>
-      allRows
-        .filter((r) => SUGGESTED_STATUSES.has(r.status))
-        .slice(0, MAX_SUGGESTED_CARDS),
-    [allRows],
+      showAllSuggested
+        ? actionableRows
+        : actionableRows.slice(0, MAX_SUGGESTED_CARDS),
+    [actionableRows, showAllSuggested],
   );
 
   const inFlightCount = useMemo(
     () => allRows.filter((r) => IN_FLIGHT_STATUSES.has(r.status)).length,
     [allRows],
   );
+
+  const hasMoreActionable = actionableRows.length > MAX_SUGGESTED_CARDS;
 
   // Friendly date label for the page header microcopy. Already
   // formatted server-side as YYYY-MM-DD; keep it operator-safe by
@@ -169,17 +185,34 @@ export function RecommendationsV2Client({
               <RecommendationV2Card key={row.id} row={row} />
             ))}
 
-            {allRows.length > suggested.length && (
+            {hasMoreActionable && (
               <p className="pt-2 text-[11px] text-muted-foreground/80">
-                Showing the top {suggested.length} of {allRows.length}{" "}
-                recommendations.{" "}
-                <Link
-                  href="/recommendations?legacy=1"
-                  className="text-accent-primary hover:underline font-medium"
-                  data-recommendations-v2-cta="see-all"
-                >
-                  See full list →
-                </Link>
+                {showAllSuggested ? (
+                  <>
+                    Showing all {actionableRows.length} recommendations.{" "}
+                    <button
+                      type="button"
+                      onClick={() => setShowAllSuggested(false)}
+                      className="text-accent-primary hover:underline font-medium"
+                      data-recommendations-v2-cta="show-fewer"
+                    >
+                      Show fewer ↑
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    Showing the top {suggested.length} of{" "}
+                    {actionableRows.length} recommendations.{" "}
+                    <button
+                      type="button"
+                      onClick={() => setShowAllSuggested(true)}
+                      className="text-accent-primary hover:underline font-medium"
+                      data-recommendations-v2-cta="see-all"
+                    >
+                      See full list →
+                    </button>
+                  </>
+                )}
               </p>
             )}
           </section>

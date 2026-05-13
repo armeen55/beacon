@@ -24,6 +24,7 @@ import {
   type RecommendationActionRow,
 } from "@/domains/recommendations/recommendation-action-rows";
 import { cn } from "@/lib/utils";
+import { encodeRecommendationRouteId } from "./recommendation-route-id";
 
 /**
  * Statuses surfaced in the Working rail. Bundle 2A V (verification
@@ -54,8 +55,13 @@ const STATUS_PILL_TONE: Record<ActionRowStatus, string> = {
 
 export type RecommendationsV2WorkingRailProps = {
   rows: ReadonlyArray<RecommendationActionRow>;
-  /** Optional override for the row's "Review" link target. Defaults
-   *  to /recommendations?legacy=1#rec-<id>, mirroring the v2 card. */
+  /** Optional override for the row's "Review" link target.
+   *  2026-05-13 follow-up: the default now points at the v2 detail
+   *  page at `/recommendations/<encoded-row-id>`, mirroring the v2
+   *  card. The previous default — `/recommendations?legacy=1#rec-<id>`
+   *  — was the only customer-facing v2 → legacy hop that survived
+   *  Bundle 2A V; it bounced operators out of v2 every time they
+   *  clicked an in-flight item. */
   reviewHrefForRow?: (row: RecommendationActionRow) => string;
 };
 
@@ -89,7 +95,7 @@ export function RecommendationsV2WorkingRail({
         {inFlight.map((row) => {
           const href =
             reviewHrefForRow?.(row) ??
-            `/recommendations?legacy=1#rec-${encodeURIComponent(row.sourceRecommendationId)}`;
+            `/recommendations/${encodeRecommendationRouteId(row.id)}`;
           return (
             <li
               key={row.id}

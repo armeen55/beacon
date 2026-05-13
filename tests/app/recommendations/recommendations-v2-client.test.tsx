@@ -181,6 +181,61 @@ describe("Bundle 2A — RecommendationsV2Client", () => {
     expect(html).toContain("Showing the top 7 of 12 recommendations.");
   });
 
+  it("'See full list' is rendered as a v2-native button, never as a legacy link", () => {
+    // 2026-05-13 follow-up — the previous behavior linked
+    // `See full list →` to `/recommendations?legacy=1`, which pushed
+    // customers out of v2. The new behavior is an inline toggle
+    // (button) that expands the Suggested stack to render every
+    // actionable row without leaving v2.
+    const queue = Array.from({ length: 12 }, (_, i) =>
+      makeRec({ stableKey: `r${i}` }),
+    );
+    const html = renderV2(queue);
+    // The data-attr on the CTA still surfaces for telemetry parity,
+    // but it must be on a <button>, never on an <a href=".../?legacy=1">.
+    expect(html).toMatch(
+      /<button[^>]*data-recommendations-v2-cta="see-all"/,
+    );
+    // No See-full-list link to legacy anywhere in the rendered output.
+    expect(html).not.toMatch(
+      /<a[^>]*data-recommendations-v2-cta="see-all"/,
+    );
+    expect(html).not.toContain("/recommendations?legacy=1");
+  });
+
+  it("the Suggested stack renders no anchor pointing into legacy", () => {
+    // Bundle 2A V left the working rail defaulting to
+    // `/recommendations?legacy=1#rec-<id>`. The 2026-05-13 follow-up
+    // re-targets it at the v2 detail page so customers stay in v2 on
+    // every click. This invariant pins the contract on every render
+    // path the v2 client can produce.
+    const mixedQueue = [
+      makeRec({ stableKey: "r1" }),
+      makeRec({ stableKey: "r2" }, { responseStatus: "accepted" }),
+      makeRec({ stableKey: "r3" }, { responseStatus: "accepted" }),
+    ];
+    const html = renderV2(mixedQueue);
+    expect(html).not.toMatch(/href="[^"]*\?legacy=1[^"]*"/);
+  });
+
+  it("working rail rows link to the v2 detail page, not to legacy", () => {
+    // The working rail only renders when at least one row is in-flight
+    // AND at least one row is Suggested (otherwise the v2 client falls
+    // into the calm state). Mix the queue accordingly.
+    const queue = [
+      makeRec({ stableKey: "r1" }),
+      makeRec({ stableKey: "r2" }, { responseStatus: "accepted" }),
+    ];
+    const html = renderV2(queue);
+    // Each rail row anchors at `/recommendations/<encoded-row-id>`
+    // (the same destination the v2 card's "Review →" uses by default).
+    expect(html).toContain('data-recommendations-v2-rail-row="true"');
+    // No anchor in the rendered output points at the legacy URL.
+    expect(html).not.toMatch(/href="\/recommendations\?legacy=1#rec-/);
+    // The rail's row href starts with the v2 detail-page prefix.
+    expect(html).toMatch(/<a [^>]*href="\/recommendations\/[^?"]+"/);
+  });
+
   it("renders the calm state when every rec is accepted/in-flight", () => {
     const queue = [
       makeRec({ stableKey: "r1" }, { responseStatus: "accepted" }),
