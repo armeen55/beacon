@@ -2815,7 +2815,7 @@ async function resolveFirstReadingState(args: {
  * `recommended_edits`. Non-fatal — any read failure returns the
  * zero-shape summary so Today still renders.
  */
-async function buildTodayLifecycleSummary(
+export async function buildTodayLifecycleSummary(
   repo: ReturnType<ReturnType<typeof getRepository>["forTenant"]>,
   // T-LiveChanges (2026-05-08) — passed in so the same repo read isn't
   // duplicated. Both already loaded by `loadTodayPageData` upstream.

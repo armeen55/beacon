@@ -28,8 +28,9 @@
 import "server-only";
 
 import {
+  loadTodayV2ActionCardsData,
   loadTodayV2DescriptorsData,
-  loadTodayV2VisibilityAndActionsData,
+  loadTodayV2VisibilityData,
 } from "./today-v2-data";
 import { TodayV2VisibilityGroupClient } from "./today-v2-visibility-group-client";
 import { TodayV2DoToday } from "@/components/today/v2/today-v2-do-today";
@@ -39,7 +40,7 @@ import { EnrichmentV2 } from "@/components/today/enrichment-v2";
 import { EnrichmentBadges } from "@/components/today/enrichment-badges";
 
 export async function TodayV2VisibilityGroupSection() {
-  const data = await loadTodayV2VisibilityAndActionsData();
+  const data = await loadTodayV2VisibilityData();
   return (
     <TodayV2VisibilityGroupClient
       visibilityData={data.visibilityData ?? null}
@@ -49,7 +50,7 @@ export async function TodayV2VisibilityGroupSection() {
 }
 
 export async function TodayV2ActionCardsSection() {
-  const data = await loadTodayV2VisibilityAndActionsData();
+  const data = await loadTodayV2ActionCardsData();
   const liveChanges = data.lifecycleSummary?.liveChanges ?? [];
   const pendingImplementationCount =
     data.lifecycleSummary?.counts.pendingImplementation ?? 0;

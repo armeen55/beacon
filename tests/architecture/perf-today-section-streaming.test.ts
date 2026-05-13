@@ -48,9 +48,15 @@ describe("Today section streaming: today-v2-data.ts loaders", () => {
     );
   });
 
-  it("exports loadTodayV2VisibilityAndActionsData (cached shared loader)", () => {
+  it("exports loadTodayV2VisibilityData (narrow loader, replaces the shared shape)", () => {
     expect(stripped).toMatch(
-      /export\s+async\s+function\s+loadTodayV2VisibilityAndActionsData\b/,
+      /export\s+async\s+function\s+loadTodayV2VisibilityData\b/,
+    );
+  });
+
+  it("exports loadTodayV2ActionCardsData (narrow loader, replaces the shared shape)", () => {
+    expect(stripped).toMatch(
+      /export\s+async\s+function\s+loadTodayV2ActionCardsData\b/,
     );
   });
 
@@ -65,14 +71,44 @@ describe("Today section streaming: today-v2-data.ts loaders", () => {
     expect(stripped).toMatch(/export\s+const\s+loadCachedFreshCanonical\s*=\s*cache\(/);
   });
 
+  function scopeBody(src: string, fnName: string): string {
+    const start = src.indexOf(`function ${fnName}`);
+    if (start < 0) return "";
+    const tail = src.slice(start);
+    const next = tail.search(/\nexport\s+(async\s+function|function|const|type)\s/);
+    return next > 0 ? tail.slice(0, next) : tail;
+  }
+
   it("narrow descriptors loader does NOT call loadTodayPageData", () => {
-    const fnStart = stripped.indexOf("loadTodayV2DescriptorsData");
-    expect(fnStart).toBeGreaterThan(-1);
-    const tail = stripped.slice(fnStart);
-    const fnEnd = tail.search(/\nexport\s+(async\s+function|function|const|type)\s/);
-    const body = fnEnd > 0 ? tail.slice(0, fnEnd) : tail;
+    const body = scopeBody(stripped, "loadTodayV2DescriptorsData");
+    expect(body.length).toBeGreaterThan(0);
     expect(body).not.toMatch(/\bloadTodayPageData\(/);
     expect(body).not.toMatch(/\bloadCachedTodayPageData\(/);
+  });
+
+  it("narrow visibility loader does NOT call loadTodayPageData", () => {
+    const body = scopeBody(stripped, "loadTodayV2VisibilityData");
+    expect(body.length).toBeGreaterThan(0);
+    expect(body).not.toMatch(/\bloadTodayPageData\(/);
+    expect(body).not.toMatch(/\bloadCachedTodayPageData\(/);
+    // The visibility loader composes its data via the per-domain
+    // pure compute functions over the shared cached canonical.
+    expect(body).toMatch(/\bloadCachedFreshCanonical\(/);
+    expect(body).toMatch(/computeVisibilityTimeSeries\(/);
+    expect(body).toMatch(/computeLeaderboard\(/);
+  });
+
+  it("narrow action-cards loader does NOT call loadTodayPageData", () => {
+    const body = scopeBody(stripped, "loadTodayV2ActionCardsData");
+    expect(body.length).toBeGreaterThan(0);
+    expect(body).not.toMatch(/\bloadTodayPageData\(/);
+    expect(body).not.toMatch(/\bloadCachedTodayPageData\(/);
+    // Reuses the EXISTING buildTodayLifecycleSummary helper so the
+    // Working card stays byte-equivalent to legacy.
+    expect(body).toMatch(/\bbuildTodayLifecycleSummary\(/);
+    // Derives hurting + winning from url-change-outcomes — small read,
+    // not the full legacy pipeline.
+    expect(body).toMatch(/\bgetUrlChangeOutcomes\(\)/);
   });
 });
 
@@ -89,6 +125,23 @@ describe("Today section streaming: today-v2-sections.tsx", () => {
     const fnIdx = src.indexOf("TodayV2DescriptorsSection");
     const tail = src.slice(fnIdx);
     expect(tail).toMatch(/\bloadTodayV2DescriptorsData\(/);
+  });
+
+  it("visibility section awaits the narrow loader (NOT the shared shape)", () => {
+    const fnIdx = src.indexOf("TodayV2VisibilityGroupSection");
+    expect(fnIdx).toBeGreaterThan(-1);
+    const tail = src.slice(fnIdx);
+    expect(tail).toMatch(/\bloadTodayV2VisibilityData\(/);
+    // Negative pin: no longer using the deprecated shared shape.
+    expect(tail.slice(0, 600)).not.toMatch(/loadTodayV2VisibilityAndActionsData\(/);
+  });
+
+  it("action cards section awaits the narrow loader (NOT the shared shape)", () => {
+    const fnIdx = src.indexOf("TodayV2ActionCardsSection");
+    expect(fnIdx).toBeGreaterThan(-1);
+    const tail = src.slice(fnIdx);
+    expect(tail).toMatch(/\bloadTodayV2ActionCardsData\(/);
+    expect(tail.slice(0, 600)).not.toMatch(/loadTodayV2VisibilityAndActionsData\(/);
   });
 });
 
