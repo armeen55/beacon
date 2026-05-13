@@ -7,6 +7,95 @@
 
 ---
 
+## 2026-05-12 — Today v2 perf Phase 1: no-regret pieces only (correctness-gated)
+
+Acting on the Today performance architecture-reset plan
+(`/Users/armeen/.claude/plans/you-are-taking-over-eager-squid.md`). The
+plan's original Phase 1 proposed swapping `loadTodayV2VisibilityData` to
+read from `daily_metric_snapshots`. After reading the actual formulas
+(`src/domains/product/visibility-score.ts`), I found the snapshot table
+is NOT sufficient to fully replace raw-observation visibility computation
+because it lacks: (a) **position-weighted citation totals** required by
+the leaderboard's brand `citation_rate` and `composite` formulas
+(weights: 1.0/0.5/0.25/0.5-default), and (b) **per-platform
+cited-or-mentioned union** required by the chart's by-platform view.
+Operator explicitly forbid silent metric-definition changes.
+
+Equivalence harness at `src/domains/today/visibility-read-model-equivalence.test.ts`
+runs `buildDailySnapshotsFromObservations` on a controlled 8-obs fixture
+and measures drift on every visibility piece:
+
+| Piece | obs-derived | snapshot-derived | drift |
+|---|---|---|---|
+| Brand chart `mention_rate` | 50.00 | 50.00 | 0.000 pp ✅ |
+| Brand chart `citation_rate` | 37.50 | 37.50 | 0.000 pp ✅ |
+| Brand chart `composite` | 37.50 | 37.50 | 0.000 pp ✅ |
+| Per-platform Perplexity | 50.00 | 25.00 | **25.000 pp** ❌ |
+| Leaderboard brand `citation_rate` | 28.13 (pos-weighted) | 37.50 (raw) | **9.375 pp** ❌ |
+| Leaderboard competitor (mention vs domain) | 37.50 (mention) | 12.50 (domain) | **25.000 pp** ❌ |
+
+The visibility loader stays on the 60d raw obs pull. Phase 1 ships only
+the no-regret pieces that preserve customer-visible numbers exactly:
+
+1. **Do Today persisted-recommendation fallback** —
+   `loadTodayV2ActionCardsData` now adapts the top non-dismissed item
+   from `loadPersistedRecommendationQueueForPage` into a
+   `TodayPrimaryAction` when no hurting verdict exists. Priority order:
+   hurting → top persisted rec → empty state. No live generation. New
+   exported pure helper `adaptPersistedRecToTodayPrimaryAction` colocated
+   in `src/app/(shell)/today-v2-data.ts`; href routes to
+   `/recommendations/<stableKey>` so Today and Recommendations stay in
+   sync.
+
+2. **Descriptors loader off the 60d shared pull** — new
+   `loadCachedFreshCanonical14d` cache in the same file; descriptors
+   reads it instead of the 60d variant. Descriptor rollups already
+   advertised 7d/14d windows; the 60d pull never served their math.
+   Visibility loader still uses the 60d shared pull (unchanged).
+
+3. **Gate loader cheapened** — `loadTodayV2GateData` no longer pulls
+   60d obs to check `.length`. Reads a 7d obs slice +
+   `repo.getTrackedPrompts()` directly. Inference rules unchanged
+   (any recent obs → not first reading; no active prompts → not first
+   reading; else cold-tenant path).
+
+**Tests** — 34 new tests:
+- `visibility-read-model-equivalence.test.ts` (7 tests, drift
+  measurement on every piece, asserts material drift on the unsafe
+  paths to keep Phase 2 honest)
+- `today-v2-do-today-fallback.test.ts` (15 tests pinning adapter
+  behavior — priority below hurting floor, severity → bucket, href
+  format, plain-English headline fallbacks, edge cases for missing
+  fields)
+- `today-v2-data-window.test.ts` (12 contract tests via static
+  analysis — pins the 14d descriptor cache, 7d gate window, persisted-
+  rec fallback wiring, AND explicitly pins that the visibility loader
+  still calls `loadCachedFreshCanonical` to prevent an accidental
+  partial swap that would silently change numbers)
+
+Quality gates: typecheck CLEAN, **8101/8101 tests passed** (+34 since
+prior baseline; 1 skipped), production build CLEAN with tenant env
+vars set. Dev server starts cleanly. Browser preview gated by auth; no
+runtime errors logged during request flow.
+
+**What still depends on raw 60d observations**: the entire visibility
+group (hero, chart series, by-platform view, leaderboard, competitor
+series). The visibility loader call site is intentionally unchanged.
+
+**Phase 2 unblock** — `daily_metric_snapshots` needs three additive
+schema fields before the visibility loader can swap safely:
+`cited_or_mentioned_count` (per platform), `position_weighted_citation_count`
+(per entity), separate `mentioned_obs_count` for competitors. Then
+backfill + write `loadVisibilityReadModelFromSnapshots` + swap. Plan
+file §16-19 carries the full proposal and the field-by-field rationale.
+
+Constraints honored: no Supabase mutations, no migrations, no paid
+APIs, no polls/scans, no automation/watchdog changes, Recommendations/
+Prompts/Changes untouched except for the `loadPersistedRecommendationQueueForPage`
+import. Plan file: `~/.claude/plans/you-are-taking-over-eager-squid.md`.
+
+---
+
 ## 2026-05-12 — emergency P0 v4: cache loadLiveRecommendationQueue (commits `bd29d99`, `9b1ef3d`)
 
 User reported `/recommendations` and `/recommendations/[id]` still "way too long" after v3 (shell nav prefetch fix). After v2 + v3 closed the request-multiplier paths (detail-link storm + shell-link storm), the remaining latency is the loader itself: production trace previously measured `loadLiveRecommendationQueue` at ~33 s cold. Even one request pays the full pipeline.

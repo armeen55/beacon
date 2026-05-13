@@ -95,6 +95,7 @@ import {
 import type { ActionCardAction } from "@/components/today/action-card";
 import type { TodayPrimaryAction } from "./today-client";
 import type { ChangelogEntry } from "@/domains/changelog/types";
+import { loadPersistedRecommendationQueueForPage } from "@/domains/recommendations/load-queue";
 
 // ─────────────────────────────────────────────────────────────────────
 // Shared upstream — memoized via React.cache so multiple section
@@ -106,6 +107,14 @@ import type { ChangelogEntry } from "@/domains/changelog/types";
  * descriptor + visibility-derived data); 120d snapshot window
  * (keeps verdict-baseline math honest, mirrors the recommendations
  * loader's window). Cached per-request via React.cache.
+ *
+ * NOTE (2026-05-12 Phase 1): the visibility loader still consumes
+ * this 60d pull. The descriptors loader now uses the narrower
+ * `loadCachedFreshCanonical14d` variant below — they no longer share
+ * an upstream call. When Phase 2 lands the materialized-snapshot
+ * read model for the visibility section, this 60d call goes away
+ * and `/` will be backed entirely by daily_metric_snapshots +
+ * 14d obs (for descriptors only).
  */
 export const loadCachedFreshCanonical = cache(async () => {
   // Side-effecting seeds — run in parallel with the canonical read.
@@ -118,6 +127,34 @@ export const loadCachedFreshCanonical = cache(async () => {
   ]);
   const NOW_MS = Date.now();
   const observationsSince = new Date(NOW_MS - 60 * 86_400_000).toISOString();
+  const snapshotsSince = new Date(NOW_MS - 120 * 86_400_000)
+    .toISOString()
+    .slice(0, 10);
+  return loadFreshCanonicalData({ observationsSince, snapshotsSince });
+});
+
+/**
+ * Narrower canonical data load for the descriptors section ONLY (2026-05-12).
+ *
+ * The descriptors UI advertises 7d (brand rollup, competitor rollup, format
+ * wins) and 14d (sparklines) windows. The 60d shared pull was wasteful —
+ * descriptor rollups never look further back than 14d. This variant pulls
+ * only what descriptors needs, in parallel with (not piggybacking on) the
+ * visibility loader's 60d pull. Net effect: the descriptors section streams
+ * faster on cold load because it waits for a smaller payload.
+ *
+ * Idempotent seeds repeat across the two cached calls (React.cache slots
+ * are independent); each seed self-checks a "seeded?" flag internally so
+ * the second call is a no-op.
+ */
+export const loadCachedFreshCanonical14d = cache(async () => {
+  await Promise.all([
+    ensureRecommendationResponsesSeeded(),
+    ensureUrlChangeOutcomesSeeded(),
+    ensureCanonicalStoresSeeded(),
+  ]);
+  const NOW_MS = Date.now();
+  const observationsSince = new Date(NOW_MS - 14 * 86_400_000).toISOString();
   const snapshotsSince = new Date(NOW_MS - 120 * 86_400_000)
     .toISOString()
     .slice(0, 10);
@@ -144,7 +181,11 @@ export type TodayV2DescriptorsData = {
 
 export async function loadTodayV2DescriptorsData(): Promise<TodayV2DescriptorsData> {
   await currentTenantId(); // ensure tenant is resolved for downstream seed/business-config reads
-  const fresh = await loadCachedFreshCanonical();
+  // Phase 1 (2026-05-12): descriptors uses the narrow 14d canonical pull
+  // — see `loadCachedFreshCanonical14d` for rationale. The 7d / 14d
+  // rollups never look further back than this, so the previous 60d
+  // shared pull was wasteful for this section.
+  const fresh = await loadCachedFreshCanonical14d();
   const { promptAnswerObservations, trackedEntities } = fresh;
 
   const tenantStripWordsForRollups = getBusinessConfig().stripWords ?? [];
@@ -605,6 +646,73 @@ function fmtDate(iso: string): string {
   }
 }
 
+/**
+ * Adapt the top persisted recommendation queue item into a
+ * `TodayPrimaryAction` shape so Do Today can render it as the primary
+ * card when there is no fresh hurting verdict.
+ *
+ * Fields are sourced from the synthesized `LiveRecQueueItem` and its
+ * underlying `recommended_edits` rows — same data `/recommendations`
+ * shows in its top-of-queue card. No live generation runs; no new
+ * Supabase reads beyond what the persisted loader already does.
+ *
+ * Priority score is set BELOW the hurting-verdict floor (which starts
+ * at 80) so a hurting verdict always dominates if one exists.
+ *
+ * Exported for unit testing — the production call site is the only
+ * runtime caller.
+ */
+export function adaptPersistedRecToTodayPrimaryAction(item: {
+  rec: { stableKey: string; title: string; description: string; severity: "high" | "medium" | "low" };
+  edits: ReadonlyArray<{ display_label?: string | null; why?: string | null; confidence: "low" | "medium" | "high"; target_url: string | null }>;
+  response: { status?: string | null } | null;
+}): TodayPrimaryAction {
+  const rec = item.rec;
+  const primaryEdit = item.edits[0];
+  const targetUrl = primaryEdit?.target_url ?? null;
+  const why = (primaryEdit?.why ?? rec.description ?? "").trim();
+  const headline =
+    primaryEdit?.display_label?.trim() ||
+    rec.title?.trim() ||
+    "Ship a saved recommendation";
+  const rationale =
+    why ||
+    "This recommendation is queued in /recommendations and ready to act on.";
+  const confidence: "low" | "medium" | "high" =
+    primaryEdit?.confidence ?? "medium";
+  const bucket: TodayPrimaryAction["bucket"] =
+    rec.severity === "high"
+      ? "critical"
+      : rec.severity === "medium"
+        ? "high_leverage"
+        : "opportunistic";
+  const responseStatus = item.response?.status as
+    | "accepted"
+    | "dismissed"
+    | "deferred"
+    | null
+    | undefined;
+
+  return {
+    id: rec.stableKey,
+    headline,
+    rationale,
+    expectedOutcome: "Improve visibility on the matched prompts.",
+    sourceEvidence: `${item.edits.length} edit${item.edits.length === 1 ? "" : "s"} ready in /recommendations`,
+    // Below the hurting-verdict floor (80 + |z|) so any hurting verdict
+    // dominates this fallback. Above the helping-verdict scores (~75-).
+    priorityScore: 60,
+    bucket,
+    type: "persisted_recommendation",
+    confidence,
+    href: `/recommendations/${rec.stableKey}`,
+    responseStatus: responseStatus ?? null,
+    targetPageUrl: targetUrl,
+    targetPagePath: targetUrl,
+    sourceChangeId: null,
+  };
+}
+
 export async function loadTodayV2ActionCardsData(): Promise<TodayV2ActionCardsData> {
   const tenantId = await currentTenantId();
   // Ensure store seeds (idempotent; React.cache via loadCachedFreshCanonical
@@ -804,12 +912,40 @@ export async function loadTodayV2ActionCardsData(): Promise<TodayV2ActionCardsDa
     });
   }
 
-  // Build primaryAction (first non-helping_verdict from the narrow
-  // assembledAll). For v2's narrow path, assembledAll = hurting +
-  // winning. Non-helping = hurting only.
-  const primaryAction: TodayPrimaryAction | null =
+  // Build primaryAction.
+  //
+  // Priority (2026-05-12 — Phase 1 Do Today correctness fix):
+  //   1. Strongest visible hurting verdict (existing behavior).
+  //   2. Top persisted recommendation from `loadPersistedRecommendationQueueForPage`
+  //      — the SAME source `/recommendations` v2 reads, so Today and
+  //      Recommendations stay in sync. Skipped when the rec was dismissed
+  //      via recommendation_responses.
+  //   3. Calm empty state ("Nothing to ship right now") only when both
+  //      above are empty.
+  //
+  // No live recommendation generation runs here — only reads from
+  // persisted rows (`recommended_edits` + `recommendation_responses`).
+  let primaryAction: TodayPrimaryAction | null =
     (visibleHurtingActions[0] as unknown as TodayPrimaryAction | undefined) ??
     null;
+  if (!primaryAction) {
+    try {
+      const persisted = await loadPersistedRecommendationQueueForPage({
+        tenantId,
+      });
+      const topItem = persisted.queue.find(
+        (item) => item.response?.status !== "dismissed",
+      );
+      if (topItem) {
+        primaryAction = adaptPersistedRecToTodayPrimaryAction(topItem);
+      }
+    } catch (err) {
+      // Silent failure — fall back to the empty state. Do not block the
+      // page on a persisted-queue read miss; the user will still see
+      // working / recent wins / descriptors render normally.
+      console.error("[today-v2] persisted-rec fallback failed:", err);
+    }
+  }
   const measuredWins: TodayPrimaryAction[] =
     winningActions as unknown as TodayPrimaryAction[];
 
@@ -876,18 +1012,36 @@ export type TodayV2GateData = {
 export async function loadTodayV2GateData(): Promise<TodayV2GateData> {
   // hasActiveExperiment is an async cached getter.
   const isDemoMode = !(await hasActiveExperiment());
-  // FirstReading is short-circuited (per the 2026-05-12 cleanup) to
-  // `{ isFirstReading: false }` whenever observationCount > 0. For a
-  // mature tenant this is the case; for new tenants it'll fetch the
-  // tenant record. We don't pay the canonical-read cost here; the
-  // descriptors section pays it for everyone via loadCachedFreshCanonical.
-  // To keep the gate cheap, we infer first-reading state from
-  // canonical: if observationCount > 0, definitely not first reading.
-  const fresh = await loadCachedFreshCanonical();
-  const observationCount = fresh.promptAnswerObservations.length;
-  const activePromptCount = fresh.trackedPrompts.filter(
-    (p) => p.is_active,
-  ).length;
+  // Phase 1 (2026-05-12): the gate used to call `loadCachedFreshCanonical`
+  // (60d obs pull) just to inspect observationCount > 0 and active prompt
+  // count. Now we read a narrow 7d obs window + tracked_prompts directly
+  // from the tenant repo — both ~indexed, tenant-scoped, small reads.
+  //
+  // Inference rules are unchanged:
+  //   - any observation in the last 7d → definitely not first reading
+  //   - no active prompts at all → not first reading (no work pending)
+  //   - else (active prompts but no recent obs) → cold-tenant path
+  let observationCount = 0;
+  let activePromptCount = 0;
+  try {
+    const tenantId = await currentTenantId();
+    const repo = getRepository().forTenant(tenantId);
+    const since = new Date(Date.now() - 7 * 86_400_000).toISOString();
+    const [recentObs, prompts] = await Promise.all([
+      repo.getPromptAnswerObservations({ since }),
+      repo.getTrackedPrompts(),
+    ]);
+    observationCount = recentObs.length;
+    activePromptCount = prompts.filter((p) => p.is_active).length;
+  } catch (err) {
+    // Defensive: if anything throws (e.g. repo init error during cold
+    // tenant context), short-circuit to "not first reading" — the
+    // section streams will still render normally and the page won't
+    // block on the gate.
+    console.error("[today-v2] gate cheap reads failed:", err);
+    return { isDemoMode, firstReading: { isFirstReading: false } };
+  }
+
   if (observationCount > 0 || activePromptCount === 0) {
     return { isDemoMode, firstReading: { isFirstReading: false } };
   }
