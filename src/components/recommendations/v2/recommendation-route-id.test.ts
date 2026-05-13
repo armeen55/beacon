@@ -43,15 +43,83 @@ describe("Bundle 2B — encodeRecommendationRouteId / decodeRecommendationRouteI
     }
   });
 
-  it("encode → URL → Next-auto-decode → decode round-trips losslessly", () => {
+  it("encode → URL → Next-auto-decode (legacy Next 13/14/15) → decode round-trips losslessly", () => {
     for (const id of REAL_FIXTURE_IDS) {
       const encoded = encodeRecommendationRouteId(id);
-      // Next.js decodes the path segment once before handing us params.id.
-      // Simulate that here.
+      // Simulate Next 13/14/15: path segment auto-decoded once before
+      // params.id is read.
       const nextDecoded = decodeURIComponent(encoded);
       const decoded = decodeRecommendationRouteId(nextDecoded);
       expect(decoded, `round-trip must equal original (id=${id})`).toBe(id);
     }
+  });
+
+  it("Next 16 — encode → URL → params.id ARRIVES ENCODED → decode round-trips losslessly", () => {
+    // 2026-05-13 P0 runtime evidence — the detail-route debug panel
+    // showed `params.id (raw)` arriving percent-encoded from a v2 card
+    // click. Next 16 no longer auto-decodes the path segment for
+    // client-side navigations. The decoder must handle that case.
+    for (const id of REAL_FIXTURE_IDS) {
+      const encoded = encodeRecommendationRouteId(id);
+      // Pass the ENCODED form directly — simulating what Next 16 hands
+      // the page handler.
+      const decoded = decodeRecommendationRouteId(encoded);
+      expect(
+        decoded,
+        `Next 16 encoded-params round-trip must equal original (id=${id})`,
+      ).toBe(id);
+    }
+  });
+
+  it("the exact Palo Alto raw-encoded param from production decodes to the row id", () => {
+    const raw =
+      "create_cluster_page%3Ageo%3APalo%20Alto%3A%3Acreate_cluster_page%3Ageo%3APalo%20Alto__add_h2_section__h2%5Bnew%5D%3Apaloalto1a2b3c4d";
+    const expected =
+      "create_cluster_page:geo:Palo Alto::create_cluster_page:geo:Palo Alto__add_h2_section__h2[new]:paloalto1a2b3c4d";
+    expect(decodeRecommendationRouteId(raw)).toBe(expected);
+  });
+
+  it("an already-decoded id passes through unchanged", () => {
+    const id =
+      "create_cluster_page:geo:Palo Alto::create_cluster_page:geo:Palo Alto__add_h2_section__h2[new]:paloalto1a2b3c4d";
+    expect(decodeRecommendationRouteId(id)).toBe(id);
+  });
+
+  it("a double-encoded id resolves to the same decoded form", () => {
+    const id = "create_cluster_page:geo:Palo Alto";
+    const onceEncoded = encodeRecommendationRouteId(id); // `%3A` etc.
+    const twiceEncoded = encodeRecommendationRouteId(onceEncoded); // `%253A`
+    expect(decodeRecommendationRouteId(twiceEncoded)).toBe(id);
+  });
+
+  it("malformed percent sequences do not throw", () => {
+    // Stray `%` with no following hex pair — decodeURIComponent throws
+    // URIError. The helper must catch and return a non-null fallback.
+    expect(() =>
+      decodeRecommendationRouteId("rec%-malformed%"),
+    ).not.toThrow();
+    expect(() => decodeRecommendationRouteId("%E0%A4")).not.toThrow();
+    // The fallback value is whatever the helper had successfully
+    // decoded up to the failing iteration. The exact string doesn't
+    // matter for this contract — the no-throw guarantee does.
+    const r = decodeRecommendationRouteId("rec%-malformed%");
+    expect(typeof r).toBe("string");
+  });
+
+  it("caps iteration depth to prevent pathological inputs from looping", () => {
+    // Even with a deeply nested encoding, the helper returns within
+    // a small constant number of decodeURIComponent calls.
+    const id = "a:b";
+    let payload = id;
+    for (let i = 0; i < 10; i++) {
+      payload = encodeRecommendationRouteId(payload);
+    }
+    // 10x-encoded input. After the helper's cap (3 iterations), some
+    // residual `%` triplets remain — that's fine; the contract is
+    // "no crash and a deterministic result", not "always fully decode
+    // any depth". The helper still returns a string.
+    const r = decodeRecommendationRouteId(payload);
+    expect(typeof r).toBe("string");
   });
 
   it("decodeRecommendationRouteId returns null on empty / whitespace / non-string input", () => {

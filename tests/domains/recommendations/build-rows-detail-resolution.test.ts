@@ -204,7 +204,7 @@ describe("INTEGRATION — every emitted row.id round-trips through encode → Ne
     expect(allRows.length).toBeGreaterThanOrEqual(CORPUS.length);
   });
 
-  it("every emitted row resolves exactly to itself when its id is round-tripped through the URL pipeline", () => {
+  it("legacy Next 13/14/15 path — every emitted row resolves exactly through pre-decoded params.id", () => {
     const misses: Array<{
       title: string;
       rowId: string;
@@ -215,8 +215,50 @@ describe("INTEGRATION — every emitted row.id round-trips through encode → Ne
 
     for (const row of allRows) {
       const encoded = encodeRecommendationRouteId(row.id);
+      // Legacy Next 13/14/15: framework auto-decodes once before
+      // handing params.id to the page.
       const nextSegment = decodeURIComponent(encoded);
       const decoded = decodeRecommendationRouteId(nextSegment);
+      const result =
+        decoded === null
+          ? null
+          : resolveRecommendationDetail(allRows, decoded);
+
+      if (
+        result === null ||
+        result.kind !== "exact" ||
+        result.row.id !== row.id
+      ) {
+        misses.push({
+          title: row.title,
+          rowId: row.id,
+          encoded,
+          decoded: decoded ?? "(null)",
+          resolutionKind: result === null ? "decode_failed" : result.kind,
+        });
+      }
+    }
+    expect(misses).toEqual([]);
+  });
+
+  it("Next 16 path — every emitted row resolves exactly when params.id arrives PERCENT-ENCODED", () => {
+    // 2026-05-13 P0 runtime evidence — the operator's detail-route
+    // debug panel showed `params.id (raw)` arriving percent-encoded
+    // from a v2 card click. Next 16 client-side navigation no longer
+    // auto-decodes the path segment. The decoder must handle that
+    // case, and the resolver must reach exact match.
+    const misses: Array<{
+      title: string;
+      rowId: string;
+      encoded: string;
+      decoded: string | null;
+      resolutionKind: string;
+    }> = [];
+
+    for (const row of allRows) {
+      const encoded = encodeRecommendationRouteId(row.id);
+      // Pass the ENCODED form directly — simulating Next 16's params.id.
+      const decoded = decodeRecommendationRouteId(encoded);
       const result =
         decoded === null
           ? null
@@ -239,7 +281,7 @@ describe("INTEGRATION — every emitted row.id round-trips through encode → Ne
 
     expect(
       misses,
-      `\n  ${misses.length} row(s) failed to round-trip through the URL pipeline.\n` +
+      `\n  ${misses.length} row(s) failed Next-16-encoded-params round-trip.\n` +
         `  First miss:\n` +
         (misses[0]
           ? JSON.stringify(misses[0], null, 2)
@@ -275,14 +317,23 @@ describe("INTEGRATION — every emitted row.id round-trips through encode → Ne
       "create_cluster_page:geo:Palo Alto__add_h2_section__h2[new]:paloalto1a2b3c4d";
     const operatorRowId = `create_cluster_page:geo:Palo Alto::${operatorEditId}`;
     const encoded = encodeRecommendationRouteId(operatorRowId);
-    const nextSegment = decodeURIComponent(encoded);
-    const decoded = decodeRecommendationRouteId(nextSegment);
-    expect(decoded).toBe(operatorRowId);
 
-    const result = resolveRecommendationDetail(allRows, decoded!);
-    expect(result.kind).toBe("exact");
-    if (result.kind === "exact") {
-      expect(result.row.id).toBe(operatorRowId);
+    // Both transport modes (Next 13/14/15 pre-decoded, Next 16 encoded)
+    // must converge to the operator row id.
+    const legacyDecoded = decodeRecommendationRouteId(
+      decodeURIComponent(encoded),
+    );
+    expect(legacyDecoded).toBe(operatorRowId);
+
+    const next16Decoded = decodeRecommendationRouteId(encoded);
+    expect(next16Decoded).toBe(operatorRowId);
+
+    for (const decoded of [legacyDecoded, next16Decoded]) {
+      const result = resolveRecommendationDetail(allRows, decoded!);
+      expect(result.kind).toBe("exact");
+      if (result.kind === "exact") {
+        expect(result.row.id).toBe(operatorRowId);
+      }
     }
   });
 });
