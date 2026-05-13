@@ -77,17 +77,41 @@ describe("Phase 1 loader window contracts", () => {
     expect(fn).toMatch(/7\s*\*\s*86_400_000/);
   });
 
-  it("`loadTodayV2VisibilityData` still depends on the 60d canonical (Phase 1 deliberately unchanged)", () => {
-    // Phase 1 does NOT swap the visibility loader. Snapshots cannot
-    // reproduce position-weighted leaderboard citation_rate, the per-
-    // platform cited-or-mentioned formula, or competitor citation_rate
-    // (which the chart treats as mention_count for competitors) without
-    // Phase 2 read-model schema extensions. This test pins that the
-    // visibility loader stays on the 60d obs path until those land —
-    // protecting against an accidental partial swap that would
-    // silently change customer-visible numbers.
+  it("`loadTodayV2VisibilityData` calls the snapshot read-model loader (Phase 2B swap)", () => {
+    // After Phase 2B the visibility loader sources every chart series,
+    // leaderboard slice, by-platform series, and competitor series from
+    // `loadVisibilityReadModelFromSnapshots`. Production-data
+    // equivalence is pinned by
+    // `scripts/_verify-prod-snapshot-equivalence.ts` (0.000 pp drift
+    // across 157 tuples).
     const fn = SOURCE.split("export async function loadTodayV2VisibilityData")[1] ?? "";
-    expect(fn).toMatch(/loadCachedFreshCanonical\(/);
+    expect(fn).toMatch(/loadVisibilityReadModelFromSnapshots\(/);
+  });
+
+  it("`loadTodayV2VisibilityData` does NOT call the 60d `loadCachedFreshCanonical`", () => {
+    const fn = SOURCE.split("export async function loadTodayV2VisibilityData")[1] ?? "";
+    // Bare 60d cache must not appear. The 14d sibling is permitted for
+    // the hero's enrichmentV2 sparklines build.
+    const matches = fn.match(/loadCachedFreshCanonical(?!14d)\s*\(/g);
+    expect(matches).toBeNull();
+  });
+
+  it("`loadTodayV2VisibilityData` does NOT call `loadFreshCanonicalData` directly", () => {
+    const fn = SOURCE.split("export async function loadTodayV2VisibilityData")[1] ?? "";
+    expect(fn).not.toMatch(/loadFreshCanonicalData\s*\(/);
+  });
+
+  it("`loadTodayV2VisibilityData` does NOT call computeVisibility* / computeLeaderboard / computeCompetitorSeries", () => {
+    const fn = SOURCE.split("export async function loadTodayV2VisibilityData")[1] ?? "";
+    expect(fn).not.toMatch(/computeVisibilityTimeSeries\s*\(/);
+    expect(fn).not.toMatch(/computeVisibilityTimeSeriesByPlatform\s*\(/);
+    expect(fn).not.toMatch(/computeLeaderboard\s*\(/);
+    expect(fn).not.toMatch(/computeCompetitorSeries\s*\(/);
+  });
+
+  it("`loadTodayV2VisibilityData` does NOT call `buildObservationRollup` (60d obs rollup is gone)", () => {
+    const fn = SOURCE.split("export async function loadTodayV2VisibilityData")[1] ?? "";
+    expect(fn).not.toMatch(/buildObservationRollup\s*\(/);
   });
 });
 

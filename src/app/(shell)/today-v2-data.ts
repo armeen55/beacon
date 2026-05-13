@@ -73,16 +73,6 @@ import {
   type EnrichmentV2Data,
 } from "@/domains/prompt-answer-observations/enrichment-rollup";
 import { todayISOUtc } from "@/domains/observations/poll-health";
-import { buildObservationRollup } from "@/domains/today/observation-rollup";
-import {
-  computeVisibilityTimeSeries,
-  computeVisibilityTimeSeriesByPlatform,
-  computeLeaderboard,
-  computeCompetitorSeries,
-  type EntityVisibility,
-  type VisibilityMetric,
-  type VisibilityPoint,
-} from "@/domains/product/visibility-score";
 import { getChangelogEntries } from "@/lib/seed-data.server";
 import { getRepository } from "@/lib/persistence/repositories";
 import {
@@ -96,6 +86,7 @@ import type { ActionCardAction } from "@/components/today/action-card";
 import type { TodayPrimaryAction } from "./today-client";
 import type { ChangelogEntry } from "@/domains/changelog/types";
 import { loadPersistedRecommendationQueueForPage } from "@/domains/recommendations/load-queue";
+import { loadVisibilityReadModelFromSnapshots } from "@/domains/today/visibility-read-model";
 
 // ─────────────────────────────────────────────────────────────────────
 // Shared upstream — memoized via React.cache so multiple section
@@ -288,27 +279,20 @@ export async function loadTodayV2DescriptorsData(): Promise<TodayV2DescriptorsDa
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// Section 2: Visibility group — narrow loader.
+// Section 2: Visibility group — snapshot-backed loader (Phase 2B,
+// 2026-05-13).
 //
-// The hero / chart / leaderboard subtree consumes a `visibilityData`
-// shape that's a pure projection of:
-//   - promptAnswerObservations  (from loadCachedFreshCanonical)
-//   - trackedEntities           (from loadCachedFreshCanonical)
-//   - brandAliases              (from getBusinessConfig)
-//   - observationRollup         (pure compute over observations)
-//   - urlChangeOutcomes         (for chartEvents)
-//   - changelogEntries          (for chartEvents)
+// All of `visibilityData` (chart series, leaderboards, by-platform,
+// competitor series, chart events) is produced by
+// `loadVisibilityReadModelFromSnapshots` — see `src/domains/today/
+// visibility-read-model.ts` for the per-column formulas. No request-
+// path read of `prompt_answer_observations` from this loader.
 //
-// The legacy `loadTodayPageData()` ALSO computes a `competitorLine`
-// using `primaryVisibilityRunForResults` + `loadCompetitorUniverseRuntime`,
-// but the v2 visibility group doesn't consume those — they feed
-// `buildTodaySummary` and the legacy `competitorLine` field, neither
-// of which v2 renders.
-//
-// The hero's per-platform stat row reads from `enrichmentV2.sparklines`,
-// so we also forward an enrichmentV2 build here (separately from the
-// descriptors section's call to keep the section independently
-// streaming). React.cache de-dupes the canonical read across the two.
+// `enrichmentV2` (for the hero's per-platform stat row) still requires
+// raw observations to compute `primaryRate` and descriptor data. The
+// 60-day shared canonical pull is gone — we use the same narrow 14-day
+// canonical the descriptors section uses (`loadCachedFreshCanonical14d`).
+// React.cache de-dupes the two callers per request.
 // ─────────────────────────────────────────────────────────────────────
 
 export type TodayV2VisibilityData = {
@@ -316,206 +300,43 @@ export type TodayV2VisibilityData = {
   enrichmentV2: EnrichmentV2Data | null;
 };
 
-const VISIBILITY_METRICS: VisibilityMetric[] = [
-  "composite",
-  "mention_rate",
-  "citation_rate",
-];
-const LEADERBOARD_WINDOWS: ReadonlyArray<number> = [7, 14, 30, 60];
-
 export async function loadTodayV2VisibilityData(): Promise<TodayV2VisibilityData> {
-  await currentTenantId();
-  const fresh = await loadCachedFreshCanonical();
-  const { promptAnswerObservations, trackedEntities } = fresh;
-
+  const tenantId = await currentTenantId();
   const businessConfig = getBusinessConfig();
-  const brandAliases = [
-    businessConfig.name,
-    businessConfig.name.split(" ")[0],
-  ].filter((a, i, arr) => a && arr.indexOf(a) === i);
-  const brandName = brandAliases[0] ?? "You";
+  const brandName = businessConfig.name || "You";
 
-  const observationRollup = buildObservationRollup({
-    observations: promptAnswerObservations,
-    brandAliases,
-  });
-
-  const today = new Date();
-  const isoDay = (d: Date) => d.toISOString().slice(0, 10);
-  const daysAgo = (n: number) => {
-    const d = new Date(today);
-    d.setUTCDate(d.getUTCDate() - n);
-    return isoDay(d);
-  };
-  const chartEndDate = isoDay(today);
-  const chartStartDate = daysAgo(59);
-
-  // Tenant 60-day time series, all three metrics.
-  const brandSeriesByMetric = {} as Record<VisibilityMetric, VisibilityPoint[]>;
-  for (const m of VISIBILITY_METRICS) {
-    brandSeriesByMetric[m] = computeVisibilityTimeSeries({
-      observations: promptAnswerObservations,
-      metric: m,
-      brandAliases,
-      startDate: chartStartDate,
-      endDate: chartEndDate,
-      rollup: observationRollup,
-    });
-  }
-
-  // Per-platform series for the chart's "by platform" view.
-  const brandSeriesByPlatform = computeVisibilityTimeSeriesByPlatform({
-    observations: promptAnswerObservations,
-    brandAliases,
-    startDate: chartStartDate,
-    endDate: chartEndDate,
-    rollup: observationRollup,
-  });
-
-  // Leaderboard for every chart-toggle window.
-  const leaderboardByMetricAndWindow = {} as Record<
-    VisibilityMetric,
-    Record<number, EntityVisibility[]>
-  >;
-  for (const m of VISIBILITY_METRICS) {
-    leaderboardByMetricAndWindow[m] = {} as Record<number, EntityVisibility[]>;
-    for (const windowDays of LEADERBOARD_WINDOWS) {
-      leaderboardByMetricAndWindow[m][windowDays] = computeLeaderboard({
-        observations: promptAnswerObservations,
-        brandAliases,
-        windowEndDate: chartEndDate,
-        windowDays,
-        metric: m,
-        limit: 5,
-        trackedEntities,
-        rollup: observationRollup,
-      });
-    }
-  }
-  // Backwards-compat: callers consume a single 14-day leaderboard from
-  // `leaderboardByMetric.<metric>` too.
-  const leaderboardByMetric = {} as Record<VisibilityMetric, EntityVisibility[]>;
-  for (const m of VISIBILITY_METRICS) {
-    leaderboardByMetric[m] = leaderboardByMetricAndWindow[m][14];
-  }
-
-  // Top competitors from the composite leaderboard (top 4 non-owned).
-  const topCompetitorNames = leaderboardByMetric.composite
-    .filter((e) => !e.isOwned)
-    .slice(0, 4)
-    .map((e) => e.name);
-
-  const competitorSeriesByMetric = {} as Record<
-    VisibilityMetric,
-    Array<{ name: string; points: VisibilityPoint[] }>
-  >;
-  for (const m of VISIBILITY_METRICS) {
-    const series = computeCompetitorSeries({
-      observations: promptAnswerObservations,
-      brandAliases,
-      competitorNames: topCompetitorNames,
-      metric: m,
-      startDate: chartStartDate,
-      endDate: chartEndDate,
-      rollup: observationRollup,
-    });
-    competitorSeriesByMetric[m] = series
-      .filter((s) => !s.isOwned)
-      .map((s) => ({ name: s.name, points: s.points }));
-  }
-
-  // Chart events overlay — annotate hurting/helping URLs on the chart.
-  // Reads urlChangeOutcomes + changelogEntries; both are small fast
-  // reads. Defensive: failure here downgrades to no events (the chart
-  // still renders without dots).
-  let chartEvents: Array<{
-    date: string;
-    tone: "danger" | "success" | "neutral";
-    label: string;
-  }> = [];
-  try {
-    const [urlChangeOutcomes, changelogEntries] = await Promise.all([
-      getUrlChangeOutcomes(),
-      getChangelogEntries(),
-    ]);
-    const changeById = new Map(changelogEntries.map((c) => [c.id, c]));
-    const latestVerdictByUrl = new Map<string, { verdict: string; updatedAt: string }>();
-    for (const o of urlChangeOutcomes) {
-      const existing = latestVerdictByUrl.get(o.url);
-      if (!existing || o.updated_at > existing.updatedAt) {
-        latestVerdictByUrl.set(o.url, {
-          verdict: o.verdict,
-          updatedAt: o.updated_at,
-        });
-      }
-    }
-    const eventDateKey = new Set<string>();
-    // Hurting dots
-    for (const o of urlChangeOutcomes) {
-      if (o.verdict !== "hurting") continue;
-      const latest = latestVerdictByUrl.get(o.url);
-      if (latest?.verdict !== "hurting") continue;
-      const change = changeById.get(o.change_id);
-      const date = change?.timestamp?.slice(0, 10);
-      if (!date) continue;
-      const key = `hurt:${date}`;
-      if (eventDateKey.has(key)) continue;
-      eventDateKey.add(key);
-      chartEvents.push({
-        date,
-        tone: "danger",
-        label: `${o.url} — ${Math.abs(
-          (o.delta_pct ?? 0) * 100,
-        ).toFixed(0)}% drop after change on ${date}`,
-      });
-    }
-    // Helping dots (latest verdict still helping)
-    for (const [url, latest] of latestVerdictByUrl.entries()) {
-      if (latest.verdict !== "helping") continue;
-      let bestHelping: (typeof urlChangeOutcomes)[number] | null = null;
-      for (const o of urlChangeOutcomes) {
-        if (o.url !== url) continue;
-        if (o.verdict !== "helping") continue;
-        if (!bestHelping || o.updated_at > bestHelping.updated_at)
-          bestHelping = o;
-      }
-      if (!bestHelping) continue;
-      const change = changeById.get(bestHelping.change_id);
-      const date = change?.timestamp?.slice(0, 10);
-      if (!date) continue;
-      const key = `help:${date}`;
-      if (eventDateKey.has(key)) continue;
-      eventDateKey.add(key);
-      chartEvents.push({
-        date,
-        tone: "success",
-        label: `${url} — citation lift detected after change on ${date}`,
-      });
-    }
-  } catch (err) {
-    console.error("[today-v2] chartEvents build failed:", err);
-    chartEvents = [];
-  }
-
+  // ── Snapshot-backed visibility data ────────────────────────────────
+  // The read-model loader returns the same shape the legacy loader did
+  // (brandSeriesByMetric / brandSeriesByPlatform / leaderboardByMetric /
+  // leaderboardByMetricAndWindow / competitorSeriesByMetric / chartEvents
+  // / chartEndDate). It reads daily_metric_snapshots + a small live
+  // chart-events overlay — no raw prompt_answer_observations.
+  const readModel = await loadVisibilityReadModelFromSnapshots({ tenantId });
   const visibilityData = {
-    brandName,
-    brandSeriesByMetric,
-    brandSeriesByPlatform,
-    leaderboardByMetric,
-    leaderboardByMetricAndWindow,
-    chartEndDate,
-    competitorSeriesByMetric,
-    chartEvents,
+    brandName: readModel.brandName,
+    brandSeriesByMetric: readModel.brandSeriesByMetric,
+    brandSeriesByPlatform: readModel.brandSeriesByPlatform,
+    leaderboardByMetric: readModel.leaderboardByMetric,
+    leaderboardByMetricAndWindow: readModel.leaderboardByMetricAndWindow,
+    chartEndDate: readModel.chartEndDate,
+    competitorSeriesByMetric: readModel.competitorSeriesByMetric,
+    chartEvents: readModel.chartEvents,
   };
 
-  // EnrichmentV2 — for the hero's per-platform stat row. Same compute
-  // path as the descriptors loader; React.cache de-dupes the canonical
-  // read across both calls but the per-section enrichment build runs
-  // once per loader invocation. Acceptable: the work is pure compute,
-  // not Supabase I/O.
+  // ── EnrichmentV2 for hero's per-platform stat row ──────────────────
+  // The hero's per-platform sparkline shows the brand's `primary_recommendation`
+  // rate per platform over a 14-day window. That signal lives on
+  // `prompt_answer_observations.primary_recommendation` and is NOT in
+  // daily_metric_snapshots. Phase 2B keeps the 14-day obs read (via the
+  // shared `loadCachedFreshCanonical14d` cache the descriptors section
+  // already calls) so the hero stat row stays intact. The 60-day pull
+  // and the computeVisibility*/computeLeaderboard helpers are gone.
   const tenantStripWords = businessConfig.stripWords ?? [];
   let enrichmentV2: EnrichmentV2Data | null = null;
   try {
+    const fresh14 = await loadCachedFreshCanonical14d();
+    const promptAnswerObservations = fresh14.promptAnswerObservations;
+    const trackedEntities = fresh14.trackedEntities;
     const v2EndDate = todayISOUtc();
     const v2WindowDays = 7;
     const brandV2Rollup = buildEnrichmentWindowRollup({

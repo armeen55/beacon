@@ -86,16 +86,26 @@ describe("Today section streaming: today-v2-data.ts loaders", () => {
     expect(body).not.toMatch(/\bloadCachedTodayPageData\(/);
   });
 
-  it("narrow visibility loader does NOT call loadTodayPageData", () => {
+  it("narrow visibility loader does NOT call loadTodayPageData OR the 60d canonical / obs-compute helpers (Phase 2B swap)", () => {
     const body = scopeBody(stripped, "loadTodayV2VisibilityData");
     expect(body.length).toBeGreaterThan(0);
     expect(body).not.toMatch(/\bloadTodayPageData\(/);
     expect(body).not.toMatch(/\bloadCachedTodayPageData\(/);
-    // The visibility loader composes its data via the per-domain
-    // pure compute functions over the shared cached canonical.
-    expect(body).toMatch(/\bloadCachedFreshCanonical\(/);
-    expect(body).toMatch(/computeVisibilityTimeSeries\(/);
-    expect(body).toMatch(/computeLeaderboard\(/);
+    // Phase 2B (2026-05-13) flipped this loader off raw observations:
+    // the chart series, leaderboards, by-platform, and competitor
+    // series are now sourced from daily_metric_snapshots via
+    // `loadVisibilityReadModelFromSnapshots`. The 60d obs pull
+    // (`loadCachedFreshCanonical`) and obs-compute helpers
+    // (`computeVisibilityTimeSeries` / `computeLeaderboard` /
+    // `computeCompetitorSeries`) MUST NOT appear in the visibility
+    // loader's body. The 14d sibling `loadCachedFreshCanonical14d`
+    // is permitted for the hero's enrichmentV2 sparklines build
+    // (primary_recommendation rate lives on raw obs, not snapshots).
+    expect(body).toMatch(/\bloadVisibilityReadModelFromSnapshots\(/);
+    expect(body).not.toMatch(/\bloadCachedFreshCanonical(?!14d)\s*\(/);
+    expect(body).not.toMatch(/\bcomputeVisibilityTimeSeries\(/);
+    expect(body).not.toMatch(/\bcomputeLeaderboard\(/);
+    expect(body).not.toMatch(/\bcomputeCompetitorSeries\(/);
   });
 
   it("narrow action-cards loader does NOT call loadTodayPageData", () => {
