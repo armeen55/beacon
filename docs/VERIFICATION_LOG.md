@@ -7,6 +7,92 @@
 
 ---
 
+## 2026-05-12 — emergency P0 v2: prefetch storm + cheap-check revert (commits `0b27c83`, `cbdc0dc`)
+
+User reported `/recommendations` and `/today` still very slow after the prior emergency P0 (`42f8bf9`), one rec detail rendering "This recommendation is no longer active" for a valid card, and Vercel logs showing clusters of simultaneous `/recommendations/[id]` and `/prompts/[id]` requests. This bundle addresses the **architectural multiplier** behind the symptoms.
+
+### Root cause: Next/Link prefetch storm
+
+Default `<Link>` prefetch behavior caused every list/card page to spawn server renders of N detail pages on visit:
+
+- `/recommendations` renders ~14 v2 cards → 14 simultaneous renders of `/recommendations/[id]` → each calls `loadLiveRecommendationQueue` (~15 s)
+- Same multiplier on `/changes` (v2 card + waiting rail → `/changes/[id]`)
+- Same on `/prompts` (v2 card → `/prompts/[id]`)
+- Same on `/today` (primary action + action-card → `/changes/[id]`)
+
+Even for a single user the multiplier was 14×, which overwhelmed Vercel function concurrency and the Supabase connection pool — making every page on the shell pay the cost of N parallel detail loads on visit. Profound / Peec / Athena feel instant in part because **their list pages don't trigger detail-page server renders on visibility**.
+
+### Fix part 1 — kill the prefetch storm
+
+`prefetch={false}` on **10** list/card → expensive-detail Links:
+
+| File | Link target |
+|---|---|
+| `components/recommendations/v2/recommendation-v2-card.tsx` | `/recommendations/[id]` |
+| `components/recommendations/v2/recommendations-v2-working-rail.tsx` | `/recommendations?legacy=1#rec-…` |
+| `components/changes/v2/changes-v2-card.tsx` | `/changes/[id]?v2=1` |
+| `components/changes/v2/changes-v2-waiting-rail.tsx` | `/changes/[id]?v2=1` |
+| `components/prompts/v2/prompts-v2-card.tsx` | `/prompts/[id]?v2=1` |
+| `components/today/today-primary-action.tsx` | `/changes/[id]` |
+| `components/today/action-card.tsx` | `/changes/[id]` |
+| `app/(shell)/recommendations/recommendations-client.tsx` | changelog detail link |
+| `app/(shell)/changes/scorecard-client.tsx` | `/changes/[id]` |
+| `app/(shell)/prompts/page.tsx` | `/prompts/[id]` |
+
+Navigation on click is unchanged. Prefetch on visibility is now off. The expensive detail load only runs on actual click, not on every list render.
+
+### Fix part 2 — revert the cheap-existence check (correctness)
+
+The prior emergency P0 (`42f8bf9`) added a "cheap existence check" on `/recommendations/[id]` that compared the decoded id's stableKey prefix against `recommended_edits.rec_id ∪ recommendation_responses.recId` before loading the queue. The check had a **false-positive** on TWO of the THREE rec-id shapes `buildRecommendationActionRows` emits:
+
+| Shape | In `recommended_edits`? | Cheap-check verdict |
+|---|---|---|
+| `${stableKey}::${edit.id}` | yes | correct (rec exists) |
+| `${stableKey}::faq-pair::${hash}` | **no** | **WRONG — said not-found for valid card** |
+| `${stableKey}::${metaKind}` | **no** | **WRONG — said not-found for valid card** |
+
+This matched the user's report: a valid live v2 card rendering "no longer active." Reverted to restore correctness; the 15 s stale-URL cost is now mitigated at a different layer (prefetch storm is gone, so the slow path is only hit on the rare manual bookmark click, not on every list render).
+
+### Today tenant warning (investigated, not fixed)
+
+Production log noise `[today] firstReading: currentTenant() threw — defaulting to isFirstReading=false / Error: Unknown tenant: tenant-ritz-founder. Available: (none)` is sourced from `src/app/(shell)/today-data.ts:2774` (`resolveFirstReadingState`). Root cause: `.data/global/tenants.json` doesn't exist on Vercel (gitignored), so `getTenant()` returns null and `getTenantOrThrow()` throws. The catch returns `{ isFirstReading: false }` — correct behavior for mature tenants. Harmless fail-soft path; not a perf issue. Out of scope for this emergency.
+
+### Tests
+
+- New architecture pin: `tests/architecture/perf-recs-detail-fast-not-found.test.ts` rewritten to pin the **new** architecture — detail page does NOT carry the cheap-check, detail page DOES call `loadLiveRecommendationQueue`, every list/card uses `prefetch={false}`, not-found copy preserved.
+- Typecheck CLEAN.
+- Full suite: **8024/8024 tests passed** (+5 net-new since prior baseline; the 5 cheap-check pins from `42f8bf9` were rewritten in place to pin the new architecture; the not-found copy pins were preserved).
+- Production build CLEAN.
+
+### Constraints honored
+
+- No Supabase mutations
+- No paid API calls
+- No poll/scan triggers
+- No migrations
+- No recommendation generation semantic changes
+- `BEACON_PERF_TRACE` remains off in production; the utility is wired in code but is a NOOP unless the env var is set.
+
+### Deploy
+
+- `0b27c83` pushed to `origin/main` 17:55 PT → Vercel `dpl_B5vVBin8go21QScjmgureuchkM7T` Ready in ~2m, aliased to `https://beacon-armeen-5267s-projects.vercel.app`.
+- `cbdc0dc` (CI-typecheck follow-up: dropped a regex `/s` flag that locally passed but CI rejected as TS1501 < ES2018 target) pushed 17:59 PT — Vercel auto-redeploy queued.
+
+### What this fixes vs. what remains slow
+
+Fixed by this bundle:
+- Every list view feels faster: the page renders without spawning 14× parallel detail server functions.
+- Valid v2 cards no longer hit the "no longer active" false positive.
+
+Still a real cost (out of scope for this emergency):
+- A click on any recommendation card still pays ~15 s for the first uncached `loadLiveRecommendationQueue`. The architectural follow-ups that would close that gap — adding `<Suspense>` + streaming SSR boundaries, `unstable_cache` with `revalidateTag` around the queue loader, or pre-computing the queue on a schedule — were not implemented here per the emergency contract ("Do NOT change recommendation generation semantics"). Recommended next bundle: stream-the-shell + cache-the-queue, so the first paint of `/recommendations` is <500 ms and the data block streams in.
+
+### Next recommendation (single best action)
+
+**Stream + cache the rec queue.** Wrap `/recommendations` content in a `<Suspense>` boundary so the shell + sidebar render in <500 ms; wrap `loadLiveRecommendationQueue` in `unstable_cache` with `revalidate: 60` and `revalidateTag('recs-queue')`. Result: first paint is instant; data block resolves in <1 s on warm path, <15 s on the rare cold path, and never blocks the shell render. Same pattern for `/today`. This is the single highest-leverage perf bundle remaining after today's fix.
+
+---
+
 ## 2026-05-12 — perf bundle 6: parallelize shell layout awaits (commit `bd65ccc`)
 
 Following the production page-by-page audit, the single highest-leverage cross-cutting fix surfaced: the shell layout (`src/app/(shell)/layout.tsx`) had **5 sequential awaits** that fired on EVERY signed-in click, independent of which page the user was navigating to. This bundle parallelizes the 4 independent reads.
