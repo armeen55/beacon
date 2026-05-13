@@ -10,8 +10,22 @@
  *     `newIssues.length > 0` → third push fires.
  * So on this fixture, the gate MUST close and the discrepancy work
  * MUST be skipped. The spy proves it.
+ *
+ * CI guard (added 2026-05-12 in emergency P0 v2): the `.data/tenants/`
+ * fixtures are gitignored and absent on CI, where this test would
+ * false-fail (no warning-severity guardrails / no new page-issues →
+ * gate doesn't close → spy gets called). Gate the suite on local
+ * fixture presence so CI stays green for runs that don't have access
+ * to the Ritz local fixture.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
+
+const fixtureRoot = resolve(__dirname, "../..", ".data/tenants/ritz-builders");
+const fixturesAvailable =
+  existsSync(resolve(fixtureRoot, "page-guardrails.json")) &&
+  existsSync(resolve(fixtureRoot, "page-issues.json"));
 
 // Spies installed BEFORE today-data is dynamically imported so the
 // gate's downstream module load resolves to our mocked exports.
@@ -49,7 +63,7 @@ vi.mock("@/domains/entity/discrepancy-detect", async () => {
   };
 });
 
-describe("Perf bundle 5 — discrepancy gate (behavioral)", () => {
+describe.runIf(fixturesAvailable)("Perf bundle 5 — discrepancy gate (behavioral)", () => {
   beforeEach(() => {
     extractEntitiesSpy.mockClear();
     detectDiscrepanciesSpy.mockClear();
