@@ -58,26 +58,48 @@ describe("Emergency P0 v2: /recommendations/[id] no cheap-check", () => {
     expect(stripped).not.toMatch(/not_found_fast_path/);
   });
 
-  it("loads SOME variant of the rec queue and locates the row by route id", () => {
+  it("loads SOME variant of the rec queue and resolves the row via the resolver", () => {
     // After Emergency P0 v4 the detail page called the cached wrapper.
-    // After Emergency P0 v5 (2026-05-12) it calls the persisted fast
-    // loader (`loadPersistedRecommendationQueueForPage`) for ~500 ms
-    // cold renders. Either of the three names is acceptable here;
-    // the contract is that SOME variant of the queue loader runs and
-    // the row is found by id from the action-row build.
+    // After Emergency P0 v5 (2026-05-12) it called the persisted fast
+    // loader. After the 2026-05-13 P0 follow-up the page resolves the
+    // row through `resolveRecommendationDetail` (four-step ladder:
+    // exact → by edit id → by rec stable key → miss). Any of the
+    // three loader names is acceptable here; the contract is that
+    // SOME loader runs, the action rows are built, AND the resolver
+    // is the seam through which the row is located.
     expect(stripped).toMatch(
       /(loadLiveRecommendationQueue(?:ForPage)?|loadPersistedRecommendationQueueForPage)\(\s*\{\s*tenantId\s*\}\s*\)/,
     );
     expect(stripped).toMatch(/buildRecommendationActionRows\(/);
-    expect(stripped).toMatch(/allRows\.find\(\s*\(r\)\s*=>\s*r\.id\s*===\s*decodedId\s*\)/);
+    expect(stripped).toMatch(
+      /resolveRecommendationDetail\(\s*allRows\s*,\s*decodedId\s*\)/,
+    );
   });
 
-  it("returns the not-found component for an unknown decoded id", () => {
-    // Two not-found paths: bad id (didn't decode) and unknown id (decoded
-    // but no row matched in the live queue). Both must render
-    // <RecommendationDetailNotFound />.
-    expect(stripped).toMatch(/if\s*\(\s*!decodedId\s*\)\s*\{[\s\S]*?return\s+<RecommendationDetailNotFound\s*\/>/);
-    expect(stripped).toMatch(/if\s*\(\s*!row\s*\)\s*\{[\s\S]*?return\s+<RecommendationDetailNotFound\s*\/>/);
+  it("returns the not-found component for an unknown decoded id and a `miss` resolution", () => {
+    // Two not-found paths: bad id (didn't decode) and `miss` resolution
+    // (decoded but no exact/edit/rec match found). Both must render
+    // <RecommendationDetailNotFound /> (with an optional `hint` prop
+    // populated by the resolver in the `miss` case).
+    expect(stripped).toMatch(
+      /if\s*\(\s*!decodedId\s*\)\s*\{[\s\S]*?return\s+<RecommendationDetailNotFound\s*\/>/,
+    );
+    expect(stripped).toMatch(
+      /if\s*\(\s*resolution\.kind\s*===\s*"miss"\s*\)\s*\{[\s\S]*?return\s+<RecommendationDetailNotFound\s+hint=\{\s*resolution\.hint\s*\}\s*\/>/,
+    );
+  });
+
+  it("redirects to the canonical URL when the resolver finds a fallback row", () => {
+    // The `redirect` branch must call Next.js's `redirect()` with the
+    // resolved row id encoded for safe URL transport. This is the seam
+    // that converts a stale URL into a working one instead of
+    // dead-ending on the not-found state.
+    expect(stripped).toMatch(
+      /if\s*\(\s*resolution\.kind\s*===\s*"redirect"\s*\)/,
+    );
+    expect(stripped).toMatch(
+      /redirect\(\s*`\/recommendations\/\$\{encodeRecommendationRouteId\(resolution\.row\.id\)\}`\s*,?\s*\)/,
+    );
   });
 });
 
@@ -135,13 +157,24 @@ describe("Not-found copy: action-clear wording", () => {
     "src/app/(shell)/recommendations/[id]/recommendation-detail-not-found.tsx",
   );
 
-  it("uses the action-clear 'no longer active' wording, not the vague 'no longer available'", () => {
-    expect(src).toContain("This recommendation is no longer active.");
+  it("uses calm 'replaced or already handled' wording instead of scary dead-end copy", () => {
+    // 2026-05-13 P0 follow-up — the four-step resolver
+    // (resolveRecommendationDetail) now handles the stale-URL case
+    // by redirecting to a same-rec or same-edit-id replacement. This
+    // not-found state only renders when no fallback exists, so the
+    // copy reflects that: factual, calm, no "no longer active"
+    // vocabulary that read as a dead end.
+    expect(src).toContain(
+      "This recommendation was replaced or already handled.",
+    );
+    expect(src).not.toContain("This recommendation is no longer active.");
     expect(src).not.toContain("This recommendation is no longer available.");
   });
 
-  it("explains the cause in concrete terms (resolved/dismissed/replaced)", () => {
-    expect(src).toContain("resolved, dismissed, or replaced");
+  it("points to the current set on the main page", () => {
+    expect(src).toContain(
+      "The latest set of recommendations is on the main page.",
+    );
   });
 
   it("keeps the 'Back to recommendations' CTA", () => {

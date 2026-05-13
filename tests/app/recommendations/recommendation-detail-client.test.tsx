@@ -279,16 +279,50 @@ describe("Bundle 2B — RecommendationDetailNotFound", () => {
   it("renders the customer-safe not-found state with a back-to-list CTA", () => {
     const html = renderToStaticMarkup(<RecommendationDetailNotFound />);
     expect(html).toContain('data-recommendations-detail-not-found="true"');
-    // Emergency P0 fix (2026-05-12) — copy updated from "no longer
-    // available" to "no longer active" + explains the cause in
-    // concrete terms (resolved/dismissed/replaced) so users can
-    // distinguish stale URLs from genuinely missing recs.
-    expect(html).toContain("This recommendation is no longer active.");
+    // 2026-05-13 P0 follow-up — copy updated from "no longer active"
+    // (which read as a scary dead end) to "was replaced or already
+    // handled" with a subline pointing to the current set. The
+    // four-step resolver in resolveRecommendationDetail covers the
+    // stale-URL case automatically; the not-found state now only
+    // renders when no fallback exists, and the copy reflects that.
     expect(html).toContain(
-      "Beacon may have already resolved, dismissed, or replaced it.",
+      "This recommendation was replaced or already handled.",
+    );
+    expect(html).toContain(
+      "The latest set of recommendations is on the main page.",
     );
     expect(html).toContain('data-recommendations-detail-back-cta="true"');
     expect(html).toContain("Back to recommendations →");
+  });
+
+  it("renders an action-type hint when one can be parsed from the URL", () => {
+    const html = renderToStaticMarkup(
+      <RecommendationDetailNotFound
+        hint={{
+          stableKey: "create_cluster_page:geo:Palo Alto",
+          editId:
+            "create_cluster_page:geo:Palo Alto__add_h2_section__h2[new]:abc",
+          actionType: "add_h2_section",
+        }}
+      />,
+    );
+    expect(html).toContain(
+      'data-recommendations-detail-not-found-hint="true"',
+    );
+    // The hint surfaces the action type's operator label in lowercase.
+    expect(html.toLowerCase()).toContain("add h2 section");
+    expect(html).toContain("Open the recommendations list");
+  });
+
+  it("omits the action-type hint when the URL is unparseable", () => {
+    const html = renderToStaticMarkup(
+      <RecommendationDetailNotFound
+        hint={{ stableKey: null, editId: null, actionType: null }}
+      />,
+    );
+    expect(html).not.toContain(
+      'data-recommendations-detail-not-found-hint="true"',
+    );
   });
 
   it("never leaks operator vocabulary in the not-found state", () => {

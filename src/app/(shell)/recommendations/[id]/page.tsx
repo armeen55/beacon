@@ -33,7 +33,12 @@ import { getChangelogEntries } from "@/lib/seed-data.server";
 import { buildChangelogIdByRecId } from "@/domains/recommendations/changelog-link";
 import { buildRecommendationActionRows } from "@/domains/recommendations/recommendation-action-rows";
 
-import { decodeRecommendationRouteId } from "@/components/recommendations/v2/recommendation-route-id";
+import {
+  decodeRecommendationRouteId,
+  encodeRecommendationRouteId,
+} from "@/components/recommendations/v2/recommendation-route-id";
+import { resolveRecommendationDetail } from "@/domains/recommendations/resolve-recommendation-detail";
+import { redirect } from "next/navigation";
 import { RecommendationDetailClient } from "./recommendation-detail-client";
 import { RecommendationDetailNotFound } from "./recommendation-detail-not-found";
 
@@ -118,27 +123,42 @@ export default async function RecommendationDetailPage({
 
   const changelogIdByRecId = buildChangelogIdByRecId(persisted.changelogEntries);
 
-  // Build the FULL action-row set, then locate the one whose `id`
-  // matches the decoded route param. Unknown id → calm not-found
-  // (rec is no longer in the queue — likely shipped, dismissed, or
-  // resolved; we don't keep a permanent brief URL for those).
+  // 2026-05-13 P0 follow-up — resolve via the four-step ladder
+  // (exact → by edit id → by rec stable key → miss). The list page and
+  // the detail page share the same row source, so a single request
+  // snapshot is internally consistent. Drift happens ACROSS requests
+  // when an edit is replaced / cleaned up between the card render and
+  // the click; the resolver finds the closest actionable replacement
+  // and redirects to the canonical URL rather than dead-ending.
   const allRows = buildRecommendationActionRows({
     queue: persisted.queue,
     promptTextById,
   });
-  const row = allRows.find((r) => r.id === decodedId) ?? null;
+  const resolution = resolveRecommendationDetail(allRows, decodedId);
 
-  if (!row) {
+  if (resolution.kind === "redirect") {
+    trace.data("outcome", `redirect_${resolution.via}`);
+    trace.data("queue_count", persisted.queue.length);
+    // redirect() throws NEXT_REDIRECT — the surrounding try/finally
+    // still runs trace.flush() before the redirect propagates.
+    redirect(
+      `/recommendations/${encodeRecommendationRouteId(resolution.row.id)}`,
+    );
+  }
+
+  if (resolution.kind === "miss") {
     trace.data("outcome", "not_found_unknown_id");
-    return <RecommendationDetailNotFound />;
+    return <RecommendationDetailNotFound hint={resolution.hint} />;
   }
 
   trace.data("queue_count", persisted.queue.length);
-  trace.measureSize("payload", { row, promptTextById });
+  trace.measureSize("payload", { row: resolution.row, promptTextById });
   return (
     <RecommendationDetailClient
-      row={row}
-      changelogId={changelogIdByRecId[row.sourceRecommendationId] ?? null}
+      row={resolution.row}
+      changelogId={
+        changelogIdByRecId[resolution.row.sourceRecommendationId] ?? null
+      }
       promptTextById={promptTextById}
     />
   );
