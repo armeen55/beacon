@@ -219,6 +219,12 @@
 
 ---
 
+## Phase A.2 — Section 3 (Cross-Tenant Brain Activation)
+
+| name | source test file | section | purpose (one sentence) | status | retirement-condition | last-verified |
+|---|---|---|---|---|---|---|
+| brain-config-and-thresholds-provenance | `tests/architecture/brain-config-and-thresholds-provenance.test.ts` | Section 3.1 / 3.3 / 3.5 (2026-05-14) | Pins canonical paths + exact env-var names + locked numeric/literal-string values + module purity + read-at-call-time contract for the cross-tenant brain's config + thresholds modules. | active | Refines when threshold values are revisited post-validation. No scheduled retirement; gates stay, numbers tunable per operator decision. | 2026-05-14 |
+
 ## Pending entries (Section 12.1 self-reference)
 
 | name | source test file | section | purpose (one sentence) | status | retirement-condition | last-verified |
