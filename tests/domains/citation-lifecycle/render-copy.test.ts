@@ -59,7 +59,7 @@ describe("renderLifecycleCopy — primary line per stage", () => {
     expect(copy.primary).toContain("Live 1 day ago.");
   });
 
-  it("cited_fast renders 'within Beacon's fast benchmark' with the day count", () => {
+  it("cited_fast renders 'This page was cited N days after the edit went live — within Beacon's fast benchmark.'", () => {
     const copy = renderLifecycleCopy(
       input({
         stage: "cited_fast",
@@ -68,11 +68,11 @@ describe("renderLifecycleCopy — primary line per stage", () => {
       }),
     );
     expect(copy.primary).toBe(
-      "Cited 4 days after going live — within Beacon's fast benchmark.",
+      "This page was cited 4 days after the edit went live — within Beacon's fast benchmark.",
     );
   });
 
-  it("cited_typical renders 'within Beacon's typical citation window' with the day count", () => {
+  it("cited_typical renders 'This page was cited N days after the edit went live — within Beacon's typical citation window.'", () => {
     const copy = renderLifecycleCopy(
       input({
         stage: "cited_typical",
@@ -81,11 +81,11 @@ describe("renderLifecycleCopy — primary line per stage", () => {
       }),
     );
     expect(copy.primary).toBe(
-      "Cited 12 days after going live — within Beacon's typical citation window.",
+      "This page was cited 12 days after the edit went live — within Beacon's typical citation window.",
     );
   });
 
-  it("cited_late renders 'past Beacon's typical window but within the late threshold'", () => {
+  it("cited_late renders 'This page was cited N days after the edit went live — past Beacon's typical window but within the late threshold.'", () => {
     const copy = renderLifecycleCopy(
       input({
         stage: "cited_late",
@@ -94,11 +94,11 @@ describe("renderLifecycleCopy — primary line per stage", () => {
       }),
     );
     expect(copy.primary).toBe(
-      "Cited 28 days after going live — past Beacon's typical window but within the late threshold.",
+      "This page was cited 28 days after the edit went live — past Beacon's typical window but within the late threshold.",
     );
   });
 
-  it("cited_very_late renders 'late, but the page is in Beacon's rotation'", () => {
+  it("cited_very_late renders 'This page was cited N days after the edit went live — late, but the page is in Beacon's rotation.'", () => {
     const copy = renderLifecycleCopy(
       input({
         stage: "cited_very_late",
@@ -107,7 +107,7 @@ describe("renderLifecycleCopy — primary line per stage", () => {
       }),
     );
     expect(copy.primary).toBe(
-      "Cited 45 days after going live — late, but the page is in Beacon's rotation.",
+      "This page was cited 45 days after the edit went live — late, but the page is in Beacon's rotation.",
     );
   });
 
@@ -135,7 +135,7 @@ describe("renderLifecycleCopy — primary line per stage", () => {
       }),
     );
     expect(copy.primary).toBe(
-      "Cited 0 days after going live — within Beacon's fast benchmark.",
+      "This page was cited 0 days after the edit went live — within Beacon's fast benchmark.",
     );
   });
 });
@@ -315,6 +315,109 @@ describe("renderLifecycleCopy — no internal taxonomy in rendered strings", () 
       for (const enumValue of stages) {
         expect(rendered).not.toContain(enumValue);
       }
+    }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────
+// Causality safety — time-to-citation MUST NOT imply that the edit
+// caused the citation. Phrasing audit (2026-05-14): the subject of
+// every cited-* primary line is "this page", and the relationship
+// to the edit is the temporal anchor "after the edit went live",
+// not a causal claim.
+// ─────────────────────────────────────────────────────────────────────
+
+describe("renderLifecycleCopy — no single-edit causal overclaim", () => {
+  const FORBIDDEN_CAUSAL_FRAGMENTS = [
+    " caused ",
+    " drove ",
+    " generated ",
+    "because of this edit",
+    "because of the edit",
+    "the edit caused",
+    "the change caused",
+    "the edit drove",
+    "the change drove",
+    "this edit caused",
+    "this change caused",
+    "this edit drove",
+    "this change drove",
+    "this edit worked",
+    "the edit worked because",
+  ];
+
+  it("none of the 6 stage primary lines contain causal verbs implying the edit caused the citation", () => {
+    const stages: Array<LifecycleCopyInput["stage"]> = [
+      "live_not_yet_cited",
+      "cited_fast",
+      "cited_typical",
+      "cited_late",
+      "cited_very_late",
+      "stuck",
+    ];
+    for (const stage of stages) {
+      const copy = renderLifecycleCopy(
+        input({
+          stage,
+          days_since_live: 10,
+          days_to_first_citation:
+            stage === "live_not_yet_cited" || stage === "stuck" ? null : 8,
+        }),
+      );
+      const text = [copy.primary, copy.per_platform, copy.bridge]
+        .filter((s): s is string => typeof s === "string")
+        .join(" | ")
+        .toLowerCase();
+      for (const phrase of FORBIDDEN_CAUSAL_FRAGMENTS) {
+        expect(
+          text,
+          `stage '${stage}' rendered phrase contains forbidden causal fragment '${phrase.trim()}'`,
+        ).not.toContain(phrase);
+      }
+    }
+  });
+
+  it("cited-* primary lines explicitly name 'this page' as the subject", () => {
+    const citedStages: Array<LifecycleCopyInput["stage"]> = [
+      "cited_fast",
+      "cited_typical",
+      "cited_late",
+      "cited_very_late",
+    ];
+    for (const stage of citedStages) {
+      const copy = renderLifecycleCopy(
+        input({
+          stage,
+          days_since_live: 10,
+          days_to_first_citation: 8,
+        }),
+      );
+      expect(
+        copy.primary.toLowerCase(),
+        `stage '${stage}' should explicitly name 'this page' as subject`,
+      ).toContain("this page was cited");
+    }
+  });
+
+  it("cited-* primary lines anchor temporally to 'after the edit went live'", () => {
+    const citedStages: Array<LifecycleCopyInput["stage"]> = [
+      "cited_fast",
+      "cited_typical",
+      "cited_late",
+      "cited_very_late",
+    ];
+    for (const stage of citedStages) {
+      const copy = renderLifecycleCopy(
+        input({
+          stage,
+          days_since_live: 10,
+          days_to_first_citation: 8,
+        }),
+      );
+      expect(
+        copy.primary,
+        `stage '${stage}' should use the temporal 'after the edit went live' anchor`,
+      ).toContain("after the edit went live");
     }
   });
 });

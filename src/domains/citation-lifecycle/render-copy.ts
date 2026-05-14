@@ -118,28 +118,37 @@ function primaryLine(input: LifecycleCopyInput): string {
       // days_to_first_citation guaranteed non-null when stage is on
       // the first-citation branch (lifecycle-stage.ts derivation).
       // Defensive ?? 0 keeps the renderer total.
+      //
+      // Causality-safe phrasing (2026-05-14 audit): the subject is
+      // explicitly "this page" and the temporal anchor is "after
+      // the edit went live" — Beacon does NOT yet claim the edit
+      // caused the citation. Time-to-citation is observational
+      // timing, not attribution. The plan's Section 2.10 originally
+      // locked "Cited N days after going live" which implied edit
+      // as subject; refined here.
       return (
-        `Cited ${formatDays(days_to_first_citation ?? 0)} after going ` +
-        `live — within Beacon's fast benchmark.`
+        `This page was cited ${formatDays(days_to_first_citation ?? 0)} ` +
+        `after the edit went live — within Beacon's fast benchmark.`
       );
 
     case "cited_typical":
       return (
-        `Cited ${formatDays(days_to_first_citation ?? 0)} after going ` +
-        `live — within Beacon's typical citation window.`
+        `This page was cited ${formatDays(days_to_first_citation ?? 0)} ` +
+        `after the edit went live — within Beacon's typical citation window.`
       );
 
     case "cited_late":
       return (
-        `Cited ${formatDays(days_to_first_citation ?? 0)} after going ` +
-        `live — past Beacon's typical window but within the late ` +
-        `threshold.`
+        `This page was cited ${formatDays(days_to_first_citation ?? 0)} ` +
+        `after the edit went live — past Beacon's typical window but ` +
+        `within the late threshold.`
       );
 
     case "cited_very_late":
       return (
-        `Cited ${formatDays(days_to_first_citation ?? 0)} after going ` +
-        `live — late, but the page is in Beacon's rotation.`
+        `This page was cited ${formatDays(days_to_first_citation ?? 0)} ` +
+        `after the edit went live — late, but the page is in Beacon's ` +
+        `rotation.`
       );
 
     case "stuck":

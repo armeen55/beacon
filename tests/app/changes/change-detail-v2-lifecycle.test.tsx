@@ -110,7 +110,7 @@ describe("ChangeDetailV2Client — per-stage Act 3 lifecycle copy (Section 2.10)
     expect(html).toContain("Beacon is watching");
   });
 
-  it("cited_fast renders 'within Beacon's fast benchmark'", () => {
+  it("cited_fast renders 'This page was cited N days after the edit went live — within Beacon's fast benchmark'", () => {
     const html = render(
       withStage("cited_fast", {
         days_since_live: 5,
@@ -118,11 +118,12 @@ describe("ChangeDetailV2Client — per-stage Act 3 lifecycle copy (Section 2.10)
       }),
     );
     expect(html).toContain('data-change-detail-act3-lifecycle="cited_fast"');
-    expect(html).toContain("Cited 4 days after going live");
+    expect(html).toContain("This page was cited 4 days");
+    expect(html).toContain("after the edit went live");
     expect(html).toContain("fast benchmark");
   });
 
-  it("cited_typical renders 'within Beacon's typical citation window'", () => {
+  it("cited_typical renders 'This page was cited N days after the edit went live — within Beacon's typical citation window'", () => {
     const html = render(
       withStage("cited_typical", {
         days_since_live: 13,
@@ -130,10 +131,12 @@ describe("ChangeDetailV2Client — per-stage Act 3 lifecycle copy (Section 2.10)
       }),
     );
     expect(html).toContain('data-change-detail-act3-lifecycle="cited_typical"');
+    expect(html).toContain("This page was cited");
+    expect(html).toContain("after the edit went live");
     expect(html).toContain("typical citation window");
   });
 
-  it("cited_late renders 'past Beacon's typical window but within the late threshold'", () => {
+  it("cited_late renders 'This page was cited N days after the edit went live — past Beacon's typical window but within the late threshold'", () => {
     const html = render(
       withStage("cited_late", {
         days_since_live: 29,
@@ -141,11 +144,13 @@ describe("ChangeDetailV2Client — per-stage Act 3 lifecycle copy (Section 2.10)
       }),
     );
     expect(html).toContain('data-change-detail-act3-lifecycle="cited_late"');
+    expect(html).toContain("This page was cited");
+    expect(html).toContain("after the edit went live");
     expect(html).toContain("past Beacon");
     expect(html).toContain("late threshold");
   });
 
-  it("cited_very_late renders 'late, but the page is in Beacon's rotation'", () => {
+  it("cited_very_late renders 'This page was cited N days after the edit went live — late, but the page is in Beacon's rotation'", () => {
     const html = render(
       withStage("cited_very_late", {
         days_since_live: 46,
@@ -155,6 +160,8 @@ describe("ChangeDetailV2Client — per-stage Act 3 lifecycle copy (Section 2.10)
     expect(html).toContain(
       'data-change-detail-act3-lifecycle="cited_very_late"',
     );
+    expect(html).toContain("This page was cited");
+    expect(html).toContain("after the edit went live");
     expect(html).toContain("late, but the page is in Beacon");
   });
 

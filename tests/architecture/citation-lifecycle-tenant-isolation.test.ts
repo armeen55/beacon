@@ -1,15 +1,16 @@
 /**
- * Architecture invariant — Phase A.1 §2.18 (2026-05-13).
+ * Architecture invariant — Phase A.1 §2.18 (2026-05-13, updated
+ * 2026-05-14 for Path A cold-store branch).
  *
  * Tenant isolation for the citation-lifecycle module.
  *
- * Every server-side read in `src/domains/citation-lifecycle/` must
- * route through a tenant-scoped repository (`getRepository().forTenant
- * (tenantId)`) — never the unscoped `getRepository()` directly. The
- * pure compute modules (`thresholds`, `eligibility`, `canonicalize-url`,
- * `compute-time-to-citation`, `lifecycle-stage`, `render-copy`) take
- * tenant-scoped data as INPUT and don't touch the repository at all;
- * only the loaders do I/O.
+ * Every server-side prompt-answer / recommended-edit read in
+ * `src/domains/citation-lifecycle/` must route through a
+ * tenant-scoped repository (`getRepository().forTenant(tenantId)`).
+ * The pure compute modules (`thresholds`, `eligibility`,
+ * `canonicalize-url`, `compute-time-to-citation`, `lifecycle-stage`,
+ * `render-copy`) take tenant-scoped data as INPUT and don't touch
+ * the repository at all; only the loaders do I/O.
  *
  * This invariant pins:
  *   1. No file in `src/domains/citation-lifecycle/` calls the unscoped
@@ -21,6 +22,20 @@
  *      cross-tenant leak that has historically cost Beacon time.
  *   3. Pure compute modules don't import the persistence repository
  *      at all (they receive their data as arguments).
+ *
+ * Path A cold-store rule (added 2026-05-14):
+ *   4. The benchmark-regime citation reader at
+ *      `@/lib/persistence/cold-store` is process-global —
+ *      `CitationObservation` rows have no `tenant_id` column.
+ *      Tenant safety for that branch is preserved at the compute
+ *      layer (`promptAnswerById` map in `compute-time-to-citation.ts`).
+ *      To keep the trust boundary narrow, `load-lifecycle.ts` is the
+ *      ONLY file in this domain allowed to import the cold-store
+ *      reader. A new file that needs benchmark reads must opt in
+ *      via `ALLOWED_COLD_STORE_FILES` AND register the rationale.
+ *   5. When `load-lifecycle.ts` imports `getCitationsForDate`, it
+ *      MUST also reference `NATIVE_REGIME_START` — proves the
+ *      benchmark read is regime-gated, not unconditional.
  *
  * If a future phase needs to expose a global / cross-tenant aggregate
  * (e.g., the brain in Section 3), the new file must explicitly add
@@ -72,6 +87,19 @@ const ALLOWED_LOADER_FILES: ReadonlySet<string> = new Set([
  * REQUIRES a matching catalog entry per Section 12 N1.
  */
 const ALLOWED_CROSS_TENANT_FILES: ReadonlySet<string> = new Set([]);
+
+/**
+ * Path A cold-store allowlist — files allowed to import
+ * `@/lib/persistence/cold-store`. The cold-store reader is process-
+ * global because `CitationObservation` rows carry no `tenant_id`.
+ * Tenant safety is preserved by the compute layer's
+ * `promptAnswerById` filter (drops citations whose `prompt_answer_id`
+ * isn't in the caller's tenant scope). Keeping this allowlist
+ * minimal narrows the trust boundary.
+ */
+const ALLOWED_COLD_STORE_FILES: ReadonlySet<string> = new Set([
+  "load-lifecycle.ts",
+]);
 
 function listTsFiles(dir: string): string[] {
   const out: string[] = [];
@@ -154,5 +182,47 @@ describe("Architecture — citation-lifecycle tenant isolation (Phase A.1 §2.18
         `${basename} performs persistence I/O but isn't in ALLOWED_LOADER_FILES — add it explicitly`,
       ).toBe(true);
     }
+  });
+
+  it("only allowlisted files import @/lib/persistence/cold-store (Path A benchmark reader)", () => {
+    // The cold-store reader is process-global. Adding a new
+    // consumer here means a new cross-tenant exposure surface that
+    // depends on the compute-layer `promptAnswerById` filter.
+    // Force opt-in via ALLOWED_COLD_STORE_FILES.
+    const COLD_STORE_IMPORT = /from\s+["']@\/lib\/persistence\/cold-store["']/;
+    for (const file of files) {
+      const basename = file.split("/").pop()!;
+      const src = readFileSync(file, "utf-8");
+      if (!COLD_STORE_IMPORT.test(src)) continue;
+      expect(
+        ALLOWED_COLD_STORE_FILES.has(basename),
+        `${basename} imports @/lib/persistence/cold-store but isn't in ALLOWED_COLD_STORE_FILES — Path A benchmark reads must be gated by regime`,
+      ).toBe(true);
+    }
+  });
+
+  it("when load-lifecycle.ts imports getCitationsForDate it also references NATIVE_REGIME_START (regime gate)", () => {
+    // The cold-store reader has no built-in regime gate. The
+    // loader is responsible for short-circuiting on post-cutover
+    // windows. Pin the regime cross-reference at the source so a
+    // future "let's read benchmark shards unconditionally" mistake
+    // trips the build.
+    const loaderPath = files.find((f) => f.endsWith("/load-lifecycle.ts"));
+    expect(loaderPath, "load-lifecycle.ts should exist in this domain").toBeDefined();
+    const src = readFileSync(loaderPath!, "utf-8");
+    const importsColdStore =
+      /import\s+\{[^}]*\bgetCitationsForDate\b[^}]*\}\s+from\s+["']@\/lib\/persistence\/cold-store["']/.test(
+        src,
+      );
+    if (!importsColdStore) {
+      // Allow the loader to drop the cold-store branch in a future
+      // phase (Phase A.3+) — the invariant only enforces the gate
+      // when the import is present.
+      return;
+    }
+    expect(
+      src,
+      "load-lifecycle.ts imports getCitationsForDate without referencing NATIVE_REGIME_START — Path A regime gate must be visible",
+    ).toMatch(/\bNATIVE_REGIME_START\b/);
   });
 });
