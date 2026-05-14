@@ -3,6 +3,7 @@ import {
   parseRobotsText,
   evaluateRulesForPath,
   evaluateAiBotAccess,
+  evaluateGooglebotAccess,
   findBlockedOwnedUrls,
   AI_CRAWLERS,
 } from "./robots-parser";
@@ -185,5 +186,152 @@ Disallow: /private/
     const r = parseRobotsText("User-agent: *\nDisallow:", "x", 200);
     const blocked = findBlockedOwnedUrls(r, ["/a", "/b", "/c"]);
     expect(blocked).toEqual([]);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────
+// Phase A.3 Step 3a — evaluateGooglebotAccess
+// ─────────────────────────────────────────────────────────────────────
+
+describe("evaluateGooglebotAccess", () => {
+  it("returns default-allow when robots.txt has no directives (404 fetch)", () => {
+    const r = parseRobotsText("", "x", 404);
+    const v = evaluateGooglebotAccess(r, "/services/kitchens");
+    expect(v.allowed).toBe(true);
+    expect(v.matchedRule).toBeNull();
+  });
+
+  it("returns default-allow when robots.txt has only a wildcard block with empty Disallow", () => {
+    const r = parseRobotsText("User-agent: *\nDisallow:", "x", 200);
+    const v = evaluateGooglebotAccess(r, "/locations/palo-alto");
+    expect(v.allowed).toBe(true);
+  });
+
+  it("blocks Googlebot when an explicit Googlebot block disallows the path", () => {
+    const text = [
+      "User-agent: Googlebot",
+      "Disallow: /private/",
+      "",
+      "User-agent: *",
+      "Disallow:",
+    ].join("\n");
+    const r = parseRobotsText(text, "x", 200);
+    const v = evaluateGooglebotAccess(r, "/private/report");
+    expect(v.allowed).toBe(false);
+    expect(v.matchedRule?.kind).toBe("disallow");
+  });
+
+  it("allows Googlebot on a non-blocked path even when other paths are disallowed", () => {
+    const text = [
+      "User-agent: Googlebot",
+      "Disallow: /private/",
+    ].join("\n");
+    const r = parseRobotsText(text, "x", 200);
+    const v = evaluateGooglebotAccess(r, "/services/kitchens");
+    expect(v.allowed).toBe(true);
+  });
+
+  it("honors longest-prefix Allow override inside the Googlebot block", () => {
+    // Disallow /private/ but explicitly Allow /private/public/ — the
+    // Allow rule is longer and should win.
+    const text = [
+      "User-agent: Googlebot",
+      "Disallow: /private/",
+      "Allow: /private/public/",
+    ].join("\n");
+    const r = parseRobotsText(text, "x", 200);
+    expect(
+      evaluateGooglebotAccess(r, "/private/secret").allowed,
+    ).toBe(false);
+    expect(
+      evaluateGooglebotAccess(r, "/private/public/page").allowed,
+    ).toBe(true);
+  });
+
+  it("falls back to the * block when no Googlebot-specific block exists", () => {
+    const text = [
+      "User-agent: *",
+      "Disallow: /admin/",
+    ].join("\n");
+    const r = parseRobotsText(text, "x", 200);
+    expect(
+      evaluateGooglebotAccess(r, "/admin/dashboard").allowed,
+    ).toBe(false);
+    expect(
+      evaluateGooglebotAccess(r, "/services/kitchens").allowed,
+    ).toBe(true);
+  });
+
+  it("prefers the explicit Googlebot block over the * fallback", () => {
+    // The * block disallows /admin/. The Googlebot-specific block
+    // does NOT disallow it — and the specific block wins.
+    const text = [
+      "User-agent: *",
+      "Disallow: /admin/",
+      "",
+      "User-agent: Googlebot",
+      "Disallow:",
+    ].join("\n");
+    const r = parseRobotsText(text, "x", 200);
+    const v = evaluateGooglebotAccess(r, "/admin/dashboard");
+    expect(v.allowed).toBe(true);
+  });
+
+  it("matches the User-agent case-insensitively (lowercase 'googlebot')", () => {
+    const text = [
+      "User-agent: googlebot",
+      "Disallow: /private/",
+    ].join("\n");
+    const r = parseRobotsText(text, "x", 200);
+    const v = evaluateGooglebotAccess(r, "/private/report");
+    expect(v.allowed).toBe(false);
+  });
+
+  it("matches the User-agent case-insensitively (mixed-case 'GoogleBot')", () => {
+    const text = [
+      "User-agent: GoogleBot",
+      "Disallow: /private/",
+    ].join("\n");
+    const r = parseRobotsText(text, "x", 200);
+    const v = evaluateGooglebotAccess(r, "/private/report");
+    expect(v.allowed).toBe(false);
+  });
+
+  it("does NOT affect AI crawler evaluation — AI-bot output unchanged when Googlebot block exists", () => {
+    // Googlebot-only block; AI bots fall through to default allow
+    // (no AI-specific block, no *).
+    const text = [
+      "User-agent: Googlebot",
+      "Disallow: /private/",
+    ].join("\n");
+    const r = parseRobotsText(text, "x", 200);
+    const ai = evaluateAiBotAccess(r, "/private/report");
+    // Every AI crawler default-allows when no rules apply.
+    expect(ai.anyDisallowed).toBe(false);
+    for (const crawler of AI_CRAWLERS) {
+      expect(ai.perCrawler[crawler].allowed).toBe(true);
+    }
+    // And Googlebot itself IS blocked on the same path.
+    expect(evaluateGooglebotAccess(r, "/private/report").allowed).toBe(
+      false,
+    );
+  });
+
+  it("does NOT affect AI crawler evaluation — when a * block also exists, AI bots see the * rule independently", () => {
+    // * block disallows /admin/ globally. Googlebot block carves an
+    // exception for itself. AI bots should still see the * rule.
+    const text = [
+      "User-agent: *",
+      "Disallow: /admin/",
+      "",
+      "User-agent: Googlebot",
+      "Disallow:",
+    ].join("\n");
+    const r = parseRobotsText(text, "x", 200);
+    expect(
+      evaluateGooglebotAccess(r, "/admin/dashboard").allowed,
+    ).toBe(true);
+    const ai = evaluateAiBotAccess(r, "/admin/dashboard");
+    expect(ai.anyDisallowed).toBe(true);
   });
 });

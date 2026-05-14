@@ -341,6 +341,40 @@ export function evaluateAiBotAccess(
 }
 
 /**
+ * Phase A.3 Step 3a (2026-05-14) — Googlebot allow/deny evaluator.
+ *
+ * Companion to `evaluateAiBotAccess`. Googlebot is intentionally
+ * NOT in `AI_CRAWLERS` (the AI-bot family covers retrieval-side
+ * crawlers — GPTBot, PerplexityBot, etc.); Googlebot is the
+ * classical discoverability-floor signal. If Googlebot is blocked,
+ * Google won't index the page at all — which downstream means AI
+ * Overviews + any browse-from-ChatGPT flow that depends on
+ * Google's index also can't reach it.
+ *
+ * Block-selection mirrors the existing AI-bot path exactly via
+ * `pickBlockForBot`:
+ *   1. Case-insensitive match on a specific `Googlebot` User-agent
+ *      block.
+ *   2. Fall back to the `*` block.
+ *   3. No matching block → default allow.
+ *
+ * Pure. No I/O. Reuses `evaluateRulesForPath` for rule application
+ * so longest-prefix-match + wildcard + end-of-path semantics stay
+ * identical to AI-bot evaluation. Adding this helper does NOT
+ * alter `AI_CRAWLERS`, `evaluateAiBotAccess`, or any other export.
+ */
+export function evaluateGooglebotAccess(
+  robots: RobotsFile,
+  path: string,
+): { allowed: boolean; matchedRule: RobotsRule | null } {
+  const block = pickBlockForBot(robots, "Googlebot");
+  if (!block) {
+    return { allowed: true, matchedRule: null };
+  }
+  return evaluateRulesForPath(block.rules, path);
+}
+
+/**
  * Convenience: given a list of owned-URL paths, return only those with AT LEAST
  * one AI bot disallow — the set that should drive critical findings.
  */
