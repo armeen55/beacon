@@ -61,6 +61,11 @@ import { getRepository } from "@/lib/persistence/repositories";
 import { getCitationsForDate } from "@/lib/persistence/cold-store";
 import type { CitationObservation } from "@/domains/citation-observations/types";
 import { NATIVE_REGIME_START } from "@/domains/product/native-regime";
+import {
+  computeTenantThresholds,
+  type ThresholdDecision,
+  type TenantLifecycleRecord,
+} from "@/domains/recommendations/cross-tenant-brain/compute-tenant-thresholds";
 
 // ─────────────────────────────────────────────────────────────────────
 // Types
@@ -71,30 +76,57 @@ import { NATIVE_REGIME_START } from "@/domains/product/native-regime";
  * the upstream compute + the derived stage + the rendered copy so
  * the consumer can branch on stage (e.g., suppressed tile vs full
  * lifecycle row) without re-computing.
+ *
+ * Phase A.2 Step 3b (2026-05-14) — `threshold_decision` is REQUIRED
+ * and surfaces the per-tenant decision computed by
+ * `cross-tenant-brain/compute-tenant-thresholds`. No UI consumer
+ * reads this field yet: in A.2.3b the `copy` field is still
+ * rendered against Profound defaults and the new field is
+ * additive-only. A.2.3c wires the decision into customer-visible
+ * copy + tile labels atomically.
  */
 export type LifecycleForEdit = {
   /** True iff the row is eligible AND the compute produced a stage. */
   available: boolean;
   /** Stage when `available`; null otherwise. */
   stage: LifecycleStage | null;
-  /** Pre-rendered copy strings when `available`; null otherwise. */
+  /** Pre-rendered copy strings when `available`; null otherwise.
+   *  Rendered against Profound defaults in A.2.3b — byte-identical
+   *  to A.2.3a regardless of `threshold_decision.source`. */
   copy: LifecycleCopy | null;
   /** Raw compute payload for operator diagnostics. */
   result: TimeToCitationResult;
+  /** Phase A.2 Step 3b — per-tenant threshold decision. Required
+   *  so future UI consumers cannot silently fall through to
+   *  Profound defaults; current consumers (Changes detail v2
+   *  client) ignore this field until A.2.3c lights it up. */
+  threshold_decision: ThresholdDecision;
 };
 
 /**
  * Per-stage rollup for the Today "Edit lifecycle" tile. Includes a
  * sample size + a freshness anchor (the most recent `live_at` the
  * tenant has) so the tile can render an honest "as of …" line.
+ *
+ * Phase A.2 Step 3b (2026-05-14) — `threshold_decision` is REQUIRED
+ * and carries the per-tenant decision computed against the same
+ * candidate set this summary iterates. `per_stage` counts in A.2.3b
+ * are STILL bucketed against Profound defaults (no re-bucketing in
+ * this step) so the Today tile's existing labels stay coherent with
+ * its counts. A.2.3c re-buckets + re-labels atomically.
  */
 export type LifecycleSummary = {
   /** Total eligible edits considered. */
   total: number;
-  /** Counts per stage; non-listed stages default to 0. */
+  /** Counts per stage; non-listed stages default to 0. Bucketed
+   *  against Profound defaults in A.2.3b. */
   per_stage: Record<LifecycleStage, number>;
   /** Most-recent `live_at` across the considered set. Null when 0. */
   latest_live_at_iso: string | null;
+  /** Phase A.2 Step 3b — per-tenant threshold decision. Required
+   *  so future UI consumers cannot silently fall through. Today
+   *  tile ignores this field until A.2.3c. */
+  threshold_decision: ThresholdDecision;
 };
 
 // ─────────────────────────────────────────────────────────────────────
@@ -201,6 +233,182 @@ function readBenchmarkCitationsInWindow(
 }
 
 // ─────────────────────────────────────────────────────────────────────
+// Tenant lifecycle records + threshold resolver (Phase A.2 Step 3b)
+// ─────────────────────────────────────────────────────────────────────
+
+const TODAY_TILE_DEFAULT_WINDOW_DAYS = 90;
+
+function isWithinWindow(
+  liveAtIso: string,
+  nowMs: number,
+  windowDays: number,
+): boolean {
+  const liveMs = new Date(liveAtIso).getTime();
+  if (Number.isNaN(liveMs)) return false;
+  return nowMs - liveMs <= windowDays * MS_PER_DAY;
+}
+
+/**
+ * Maps an edit + its compute result + derived stage into the
+ * `TenantLifecycleRecord` shape consumed by
+ * `computeTenantThresholds`. Private — callers within this module
+ * only.
+ *
+ * `live_at` is asserted non-null because the candidate filter
+ * (`row.live_at == null` → skip) runs before this mapping.
+ */
+function toTenantLifecycleRecord(
+  edit: RecommendedEditRow,
+  result: TimeToCitationResult,
+  stage: LifecycleStage,
+): TenantLifecycleRecord {
+  return {
+    edit_id: edit.id,
+    action_type: edit.action_type ?? null,
+    // Candidate filter guarantees live_at is non-null; falling
+    // back to "" is defensive (would never trigger in practice).
+    live_at: edit.live_at ?? "",
+    days_to_first_citation: result.days_to_first_citation,
+    first_citation_date_iso: result.first_citation_date_iso,
+    lifecycle_stage: stage,
+    is_partial_live: result.is_partial_live,
+  };
+}
+
+/**
+ * Build `TenantLifecycleRecord[]` for the tenant's eligible
+ * candidate edits within `windowDays`. Pure-ish (depends on
+ * tenant-scoped repo reads + the cold-store benchmark reader, but
+ * no mutation). Used by both the cached resolver below and the
+ * summary loader (which calls this then re-uses the records to
+ * compute per_stage counts).
+ *
+ * Tenant-isolation contract: every read goes through
+ * `repo.forTenant(tenantId)`. The Path A pre-cutover branch reads
+ * benchmark shards; tenant safety on those rows is preserved by
+ * the compute layer's `promptAnswerById` filter (see
+ * `compute-time-to-citation.ts` §5a + Phase A.1 §2.4 lock).
+ */
+async function buildTenantLifecycleRecords(opts: {
+  tenantId: string;
+  now: Date | string;
+  windowDays: number;
+}): Promise<TenantLifecycleRecord[]> {
+  const { tenantId, now, windowDays } = opts;
+  const nowMs =
+    now instanceof Date ? now.getTime() : new Date(now).getTime();
+  const repo = getRepository().forTenant(tenantId);
+
+  const windowStartIso = new Date(nowMs - windowDays * MS_PER_DAY)
+    .toISOString()
+    .slice(0, 10);
+  const [recommendedEdits, allObservations] = await Promise.all([
+    repo.getRecommendedEdits(),
+    repo.getPromptAnswerObservations({ since: windowStartIso }),
+  ]);
+
+  const candidates = recommendedEdits.filter((row) => {
+    if (row.live_at == null) return false;
+    return isWithinWindow(row.live_at, nowMs, windowDays);
+  });
+
+  // Path A pre-cutover branch — read benchmark shards once for the
+  // union of candidate windows. Skipped entirely when every
+  // candidate is post-cutover.
+  const nowDateIso = toUtcDateString(now);
+  let earliestCandidateLiveAt: string | null = null;
+  for (const row of candidates) {
+    const iso = toUtcDateString(row.live_at);
+    if (iso == null) continue;
+    if (earliestCandidateLiveAt == null || iso < earliestCandidateLiveAt) {
+      earliestCandidateLiveAt = iso;
+    }
+  }
+  const benchmarkCitations: CitationObservation[] =
+    earliestCandidateLiveAt != null &&
+    earliestCandidateLiveAt < NATIVE_REGIME_START &&
+    nowDateIso != null
+      ? readBenchmarkCitationsInWindow(earliestCandidateLiveAt, nowDateIso)
+      : [];
+
+  const records: TenantLifecycleRecord[] = [];
+  for (const row of candidates) {
+    const result = computeTimeToCitation({
+      recommendedEdit: row,
+      citationObservations: benchmarkCitations,
+      promptAnswerObservations: allObservations,
+      now,
+    });
+    if (!result.eligible || result.days_since_live == null) continue;
+    // Phase A.2 Step 3b — `deriveLifecycleStage` is called WITHOUT
+    // a thresholds arg so records are classified against Profound
+    // defaults. The threshold_decision returned by
+    // computeTenantThresholds may differ, but A.2.3b does not
+    // re-bucket the visible counts — that's A.2.3c.
+    const stage = deriveLifecycleStage({
+      first_citation_date_iso: result.first_citation_date_iso,
+      days_to_first_citation: result.days_to_first_citation,
+      days_since_live: result.days_since_live,
+    });
+    if (stage == null) continue;
+    records.push(toTenantLifecycleRecord(row, result, stage));
+  }
+
+  return records;
+}
+
+/**
+ * Resolve the tenant's threshold decision and cache it.
+ *
+ * Phase A.2 Step 3b (2026-05-14). Single source of truth for the
+ * per-tenant decision. Both lifecycle loaders consult this helper.
+ *
+ * Cache key: `["tenant-thresholds:v1", tenantId, dayString(now),
+ * String(windowDays ?? 90)]`. Day-keyed because decisions roll
+ * forward at UTC day boundaries; tenant-tagged so any
+ * `recommended_edits:${tenantId}` mutation invalidates this
+ * cache alongside the existing lifecycle caches.
+ *
+ * TTL 60s. Tag `recommended_edits:${tenantId}`.
+ */
+export async function resolveTenantThresholdsCached(opts: {
+  tenantId: string;
+  now?: Date | string;
+  windowDays?: number;
+}): Promise<ThresholdDecision> {
+  const { tenantId } = opts;
+  const now = opts.now ?? new Date();
+  const windowDays = opts.windowDays ?? TODAY_TILE_DEFAULT_WINDOW_DAYS;
+  const dayString = toUtcDateString(now) ?? "no-day";
+
+  const { unstable_cache } = await import("next/cache");
+  const cacheKey = [
+    "tenant-thresholds:v1",
+    tenantId,
+    dayString,
+    String(windowDays),
+  ];
+
+  const cached = unstable_cache(
+    async () => {
+      const records = await buildTenantLifecycleRecords({
+        tenantId,
+        now,
+        windowDays,
+      });
+      return computeTenantThresholds(records);
+    },
+    cacheKey,
+    {
+      revalidate: 60,
+      tags: [`recommended_edits:${tenantId}`],
+    },
+  );
+
+  return cached();
+}
+
+// ─────────────────────────────────────────────────────────────────────
 // Single-edit loader (Changes detail)
 // ─────────────────────────────────────────────────────────────────────
 
@@ -276,7 +484,20 @@ export async function loadLifecycleForEdit(opts: {
     },
   );
 
-  const result = await cached();
+  // Phase A.2 Step 3b — resolve the tenant's threshold decision in
+  // parallel with the per-edit compute. The decision is exposed on
+  // the return value but NOT passed into deriveLifecycleStage or
+  // renderLifecycleCopy in A.2.3b (those continue to receive no
+  // 2nd-arg / no threshold_decision so Profound-default classifier
+  // + copy stay byte-identical to A.2.3a).
+  const [result, thresholdDecision] = await Promise.all([
+    cached(),
+    resolveTenantThresholdsCached({ tenantId, now }),
+  ]);
+  // Phase A.2 Step 3b — explicit no-2nd-arg call. The threshold
+  // decision is resolved above for surfacing on the return value
+  // but MUST NOT be passed into deriveLifecycleStage in A.2.3b.
+  // Architecture invariant pins this call shape; A.2.3c wires it.
   const stage = deriveLifecycleStage({
     first_citation_date_iso: result.first_citation_date_iso,
     days_to_first_citation: result.days_to_first_citation,
@@ -289,9 +510,14 @@ export async function loadLifecycleForEdit(opts: {
       stage: null,
       copy: null,
       result,
+      threshold_decision: thresholdDecision,
     };
   }
 
+  // Phase A.2 Step 3b — explicit no-threshold_decision-field call.
+  // Per-source copy variants exist in render-copy.ts (A.2.3a) but
+  // MUST NOT be exercised in A.2.3b. Architecture invariant pins
+  // this call shape; A.2.3c wires it.
   const copy = renderLifecycleCopy({
     stage,
     days_since_live: result.days_since_live,
@@ -306,6 +532,7 @@ export async function loadLifecycleForEdit(opts: {
     stage,
     copy,
     result,
+    threshold_decision: thresholdDecision,
   };
 }
 
@@ -322,18 +549,6 @@ const EMPTY_PER_STAGE: Record<LifecycleStage, number> = {
   stuck: 0,
 };
 
-const TODAY_TILE_DEFAULT_WINDOW_DAYS = 90;
-
-function isWithinWindow(
-  liveAtIso: string,
-  nowMs: number,
-  windowDays: number,
-): boolean {
-  const liveMs = new Date(liveAtIso).getTime();
-  if (Number.isNaN(liveMs)) return false;
-  return nowMs - liveMs <= windowDays * MS_PER_DAY;
-}
-
 /**
  * Aggregate the per-stage counts for the Today tile.
  *
@@ -347,6 +562,12 @@ function isWithinWindow(
  * the relevant date windows). For the common case where every
  * candidate is post-cutover, no shards are read.
  *
+ * Phase A.2 Step 3b — the summary builds its records via the shared
+ * `buildTenantLifecycleRecords` helper, then iterates the records
+ * to count per_stage (against Profound-default classifications) AND
+ * calls `computeTenantThresholds(records)` inline to populate
+ * `threshold_decision`. NO re-bucketing of `per_stage` in this step.
+ *
  * Cached per-tenant + per-window for 60s.
  */
 export async function loadLifecycleSummaryForTenant(opts: {
@@ -357,94 +578,50 @@ export async function loadLifecycleSummaryForTenant(opts: {
   const { tenantId } = opts;
   const now = opts.now ?? new Date();
   const windowDays = opts.windowDays ?? TODAY_TILE_DEFAULT_WINDOW_DAYS;
-  const nowMs =
-    now instanceof Date ? now.getTime() : new Date(now).getTime();
 
   const { unstable_cache } = await import("next/cache");
   const cacheKey = [
-    "citation-lifecycle-summary:v2",
+    "citation-lifecycle-summary:v3",
     tenantId,
     String(windowDays),
   ];
 
   const cached = unstable_cache(
     async () => {
-      const repo = getRepository().forTenant(tenantId);
-
-      // Pull edits once for the window. The Today tile is the only
-      // current consumer of this aggregate; volume is small enough
-      // that we don't need a windowed projection.
-      const windowStartIso = new Date(nowMs - windowDays * MS_PER_DAY)
-        .toISOString()
-        .slice(0, 10);
-      const [recommendedEdits, allObservations] = await Promise.all([
-        repo.getRecommendedEdits(),
-        // Windowed observations: anything before the oldest
-        // candidate `live_at` in the window can't produce a
-        // first-citation for any edit in the window.
-        repo.getPromptAnswerObservations({ since: windowStartIso }),
-      ]);
-
-      const candidates = recommendedEdits.filter((row) => {
-        if (row.live_at == null) return false;
-        return isWithinWindow(row.live_at, nowMs, windowDays);
+      // Records are pre-classified against Profound defaults by
+      // `buildTenantLifecycleRecords` (the helper calls
+      // `deriveLifecycleStage` with no thresholds 2nd arg). The
+      // summary loop below re-uses each record's `lifecycle_stage`
+      // verbatim — NO re-bucketing using per-tenant thresholds in
+      // A.2.3b. A.2.3c will pass the resolved thresholds into
+      // `deriveLifecycleStage` and re-bucket atomically with the
+      // tile-label swap.
+      const records = await buildTenantLifecycleRecords({
+        tenantId,
+        now,
+        windowDays,
       });
 
-      // Path A pre-cutover branch — read benchmark shards exactly
-      // once for the union of candidate windows. The earliest
-      // candidate `live_at` is the lower bound; the cutover (or
-      // `nowIso`, whichever is smaller) is the upper bound. Skipped
-      // entirely when no candidate has `live_at < NATIVE_REGIME_START`.
-      const nowDateIso = toUtcDateString(now);
-      let earliestCandidateLiveAt: string | null = null;
-      for (const row of candidates) {
-        const iso = toUtcDateString(row.live_at);
-        if (iso == null) continue;
-        if (earliestCandidateLiveAt == null || iso < earliestCandidateLiveAt) {
-          earliestCandidateLiveAt = iso;
-        }
-      }
-      const benchmarkCitations: CitationObservation[] =
-        earliestCandidateLiveAt != null &&
-        earliestCandidateLiveAt < NATIVE_REGIME_START &&
-        nowDateIso != null
-          ? readBenchmarkCitationsInWindow(earliestCandidateLiveAt, nowDateIso)
-          : [];
-
-      let latest: string | null = null;
       const perStage: Record<LifecycleStage, number> = { ...EMPTY_PER_STAGE };
+      let latest: string | null = null;
       let total = 0;
-
-      for (const row of candidates) {
-        const result = computeTimeToCitation({
-          recommendedEdit: row,
-          citationObservations: benchmarkCitations,
-          promptAnswerObservations: allObservations,
-          now,
-        });
-        if (!result.eligible || result.days_since_live == null) continue;
-
-        const stage = deriveLifecycleStage({
-          first_citation_date_iso: result.first_citation_date_iso,
-          days_to_first_citation: result.days_to_first_citation,
-          days_since_live: result.days_since_live,
-        });
-        if (stage == null) continue;
-
-        perStage[stage]++;
+      for (const r of records) {
+        perStage[r.lifecycle_stage]++;
         total++;
-
-        // Track latest live_at for the "as of …" freshness line.
-        // row.live_at is non-null by candidate filter.
-        if (latest == null || (row.live_at as string) > latest) {
-          latest = row.live_at as string;
+        if (latest == null || r.live_at > latest) {
+          latest = r.live_at;
         }
       }
+
+      // Same records feed the threshold compute — no second
+      // iteration, no second repo read.
+      const thresholdDecision = computeTenantThresholds(records);
 
       return {
         total,
         per_stage: perStage,
         latest_live_at_iso: latest,
+        threshold_decision: thresholdDecision,
       };
     },
     cacheKey,

@@ -132,7 +132,10 @@ vi.mock("@/lib/persistence/cold-store", () => ({
 
 // Imports under test go AFTER the mocks so vitest hoists the mocks
 // before the module evaluates.
-import { loadLifecycleForEdit } from "@/domains/citation-lifecycle/load-lifecycle";
+import {
+  loadLifecycleForEdit,
+  loadLifecycleSummaryForTenant,
+} from "@/domains/citation-lifecycle/load-lifecycle";
 import { NATIVE_REGIME_START } from "@/domains/product/native-regime";
 import type { RecommendedEditRow } from "@/domains/recommendations/recommended-edits-persistence";
 
@@ -549,5 +552,384 @@ describe("loadLifecycleForEdit — readBenchmarkCitationsInWindow short-circuit"
     );
     expect(_shardCalls).toContain("2026-04-21");
     expect(_shardCalls).not.toContain("2026-04-22");
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────
+// Phase A.2 Step 3b — threshold_decision threading through loaders
+// ────────────────────────────────────────────────────────────────────
+
+/**
+ * Build a fixture with N cited records whose `days_to_first_citation`
+ * falls inside Profound's `cited_typical` band (= 7–18 days). Each
+ * record drives an edit with its own URL + a paired pa-row + a
+ * native-regime `citation_urls` match. Useful for exercising the
+ * tenant-thresholds gate (which counts cited records).
+ *
+ * `now` is fixed at 2026-05-30 in these tests so all `live_at` of
+ * 2026-05-01 fall inside the 90-day window and post-cutover.
+ */
+type FixtureEdits = NonNullable<
+  Parameters<typeof setRepoFixture>[0]["recommendedEdits"]
+>;
+type FixtureObs = NonNullable<
+  Parameters<typeof setRepoFixture>[0]["promptAnswerObservations"]
+>;
+
+// Mutable element-array shapes used by fixture helpers that build
+// rows iteratively. Assignments to `setRepoFixture(...)` accept the
+// readonly counterparts via structural compatibility.
+type MutableEdits = Array<FixtureEdits[number]>;
+type MutableObs = Array<FixtureObs[number]>;
+
+function seedCitedTenantFixture(count: number): {
+  recommendedEdits: MutableEdits;
+  promptAnswerObservations: MutableObs;
+} {
+  const recommendedEdits: MutableEdits = [];
+  const promptAnswerObservations: MutableObs = [];
+  for (let i = 0; i < count; i++) {
+    const editId = `edit-bulk-${i}`;
+    const paId = `pa-bulk-${i}`;
+    const url = `https://example.com/services/page-${i}`;
+    // Days to first citation cycles through 8, 10, 12 (all
+    // cited_typical under Profound 7..18). live_at 2026-05-01; first
+    // citation 2026-05-09/11/13.
+    const daysToCitation = 8 + (i % 3) * 2;
+    const liveDate = new Date("2026-05-01T00:00:00.000Z");
+    const citationDate = new Date(
+      liveDate.getTime() + daysToCitation * 86_400_000,
+    );
+    recommendedEdits.push({
+      id: editId,
+      tenant_id: TENANT,
+      rec_id: `rec-bulk-${i}`,
+      action_type: "add_h2_section",
+      target_url: url,
+      target_element_key: `h2[new]:bulk-${i}`,
+      implementation_status: "verified_live",
+      live_at: liveDate.toISOString(),
+    });
+    promptAnswerObservations.push({
+      id: paId,
+      prompt_id: `p-${i}`,
+      run_id: `r-${i}`,
+      answer_hash: null,
+      position: 1,
+      tracked_brand_mentioned: true,
+      tracked_brand_cited: true,
+      citation_count: 1,
+      owned_citation_count: 1,
+      citation_domains: ["example.com"],
+      citation_categories: {},
+      mentions: [],
+      observed_at: citationDate.toISOString(),
+      platform: "chatgpt",
+      topic: "remodel",
+      metadata: {},
+      tenant_id: TENANT,
+      citation_urls: [url],
+    });
+  }
+  return { recommendedEdits, promptAnswerObservations };
+}
+
+const STEP_3B_NOW = "2026-05-30T00:00:00.000Z";
+
+describe("loadLifecycleForEdit — threshold_decision field (Phase A.2 §3.7)", () => {
+  it("returns threshold_decision with source 'profound_default' for a tenant with no cited edits", async () => {
+    setRepoFixture({
+      promptAnswerObservations: [
+        {
+          id: "pa-target",
+          prompt_id: "p-target",
+          run_id: "r-target",
+          answer_hash: null,
+          position: 1,
+          tracked_brand_mentioned: true,
+          tracked_brand_cited: true,
+          citation_count: 1,
+          owned_citation_count: 1,
+          citation_domains: ["example.com"],
+          citation_categories: {},
+          mentions: [],
+          observed_at: "2026-05-04T00:00:00.000Z",
+          platform: "chatgpt",
+          topic: "remodel",
+          metadata: {},
+          tenant_id: TENANT,
+          citation_urls: ["https://example.com/services/whole-home-remodel"],
+        },
+      ],
+      recommendedEdits: [
+        {
+          id: "edit-target",
+          tenant_id: TENANT,
+          rec_id: "rec-target",
+          action_type: "add_h2_section",
+          target_url: "https://example.com/services/whole-home-remodel",
+          target_element_key: "h2[new]:target",
+          implementation_status: "verified_live",
+          live_at: "2026-05-01T00:00:00.000Z",
+        },
+      ],
+    });
+
+    const result = await loadLifecycleForEdit({
+      tenantId: TENANT,
+      recommendedEdit: makeEdit({
+        id: "edit-target",
+        live_at: "2026-05-01T00:00:00.000Z",
+      }),
+      now: STEP_3B_NOW,
+    });
+
+    expect(result.threshold_decision.source).toBe("profound_default");
+    expect(result.threshold_decision.sample_size).toBe(1);
+    expect(result.threshold_decision.thresholds).toEqual({
+      fast_days: 6,
+      median_days: 18,
+      late_days: 37,
+    });
+  });
+
+  it("returns threshold_decision with source 'per_tenant' when tenant has >= 20 cited records", async () => {
+    const fx = seedCitedTenantFixture(22);
+    // Add the target edit + its own observation.
+    fx.recommendedEdits.push({
+      id: "edit-target",
+      tenant_id: TENANT,
+      rec_id: "rec-target",
+      action_type: "add_h2_section",
+      target_url: "https://example.com/services/whole-home-remodel",
+      target_element_key: "h2[new]:target",
+      implementation_status: "verified_live",
+      live_at: "2026-05-01T00:00:00.000Z",
+    });
+    fx.promptAnswerObservations.push({
+      id: "pa-target",
+      prompt_id: "p-target",
+      run_id: "r-target",
+      answer_hash: null,
+      position: 1,
+      tracked_brand_mentioned: true,
+      tracked_brand_cited: true,
+      citation_count: 1,
+      owned_citation_count: 1,
+      citation_domains: ["example.com"],
+      citation_categories: {},
+      mentions: [],
+      observed_at: "2026-05-08T00:00:00.000Z",
+      platform: "chatgpt",
+      topic: "remodel",
+      metadata: {},
+      tenant_id: TENANT,
+      citation_urls: ["https://example.com/services/whole-home-remodel"],
+    });
+    setRepoFixture(fx);
+
+    const result = await loadLifecycleForEdit({
+      tenantId: TENANT,
+      recommendedEdit: makeEdit({
+        id: "edit-target",
+        live_at: "2026-05-01T00:00:00.000Z",
+      }),
+      now: STEP_3B_NOW,
+    });
+
+    expect(result.threshold_decision.source).toBe("per_tenant");
+    expect(result.threshold_decision.sample_size).toBeGreaterThanOrEqual(20);
+  });
+
+  it("LifecycleForEdit.copy is byte-identical regardless of threshold_decision.source (no copy re-rendering in A.2.3b)", async () => {
+    // Two scenarios with the SAME target edit + observation. The
+    // only difference is the surrounding tenant's cited-record
+    // count (which flips the gate). The target's `copy` must be
+    // identical in both — proves the renderer was not given the
+    // threshold_decision input.
+    const targetEditRow = {
+      id: "edit-target",
+      tenant_id: TENANT,
+      rec_id: "rec-target",
+      action_type: "add_h2_section",
+      target_url: "https://example.com/services/whole-home-remodel",
+      target_element_key: "h2[new]:target",
+      implementation_status: "verified_live" as const,
+      live_at: "2026-05-01T00:00:00.000Z",
+    };
+    const targetObs = {
+      id: "pa-target",
+      prompt_id: "p-target",
+      run_id: "r-target",
+      answer_hash: null,
+      position: 1,
+      tracked_brand_mentioned: true,
+      tracked_brand_cited: true,
+      citation_count: 1,
+      owned_citation_count: 1,
+      citation_domains: ["example.com"],
+      citation_categories: {},
+      mentions: [],
+      observed_at: "2026-05-04T00:00:00.000Z",
+      platform: "chatgpt",
+      topic: "remodel",
+      metadata: {},
+      tenant_id: TENANT,
+      citation_urls: ["https://example.com/services/whole-home-remodel"],
+    };
+
+    // Scenario A: sub-gate (5 cited records → profound_default).
+    setRepoFixture({
+      ...seedCitedTenantFixture(5),
+      recommendedEdits: [
+        ...seedCitedTenantFixture(5).recommendedEdits,
+        targetEditRow,
+      ],
+      promptAnswerObservations: [
+        ...seedCitedTenantFixture(5).promptAnswerObservations,
+        targetObs,
+      ],
+    });
+    const subGate = await loadLifecycleForEdit({
+      tenantId: TENANT,
+      recommendedEdit: makeEdit({
+        id: "edit-target",
+        live_at: "2026-05-01T00:00:00.000Z",
+      }),
+      now: STEP_3B_NOW,
+    });
+
+    // Scenario B: above-gate (25 cited records → per_tenant).
+    setRepoFixture({
+      ...seedCitedTenantFixture(25),
+      recommendedEdits: [
+        ...seedCitedTenantFixture(25).recommendedEdits,
+        targetEditRow,
+      ],
+      promptAnswerObservations: [
+        ...seedCitedTenantFixture(25).promptAnswerObservations,
+        targetObs,
+      ],
+    });
+    const aboveGate = await loadLifecycleForEdit({
+      tenantId: TENANT,
+      recommendedEdit: makeEdit({
+        id: "edit-target",
+        live_at: "2026-05-01T00:00:00.000Z",
+      }),
+      now: STEP_3B_NOW,
+    });
+
+    // Sources differ (proves the threshold compute ran).
+    expect(subGate.threshold_decision.source).toBe("profound_default");
+    expect(aboveGate.threshold_decision.source).toBe("per_tenant");
+
+    // BUT copy is byte-identical (proves no copy re-rendering).
+    expect(aboveGate.copy).toEqual(subGate.copy);
+    expect(aboveGate.stage).toBe(subGate.stage);
+  });
+});
+
+describe("loadLifecycleSummaryForTenant — threshold_decision field (Phase A.2 §3.7)", () => {
+  it("returns threshold_decision with source 'profound_default' for a tenant with no cited edits", async () => {
+    setRepoFixture({
+      promptAnswerObservations: [],
+      recommendedEdits: [],
+    });
+    const summary = await loadLifecycleSummaryForTenant({
+      tenantId: TENANT,
+      now: STEP_3B_NOW,
+    });
+    expect(summary.threshold_decision.source).toBe("profound_default");
+    expect(summary.threshold_decision.sample_size).toBe(0);
+    expect(summary.total).toBe(0);
+  });
+
+  it("returns threshold_decision with source 'per_tenant' when tenant has >= 20 cited records", async () => {
+    setRepoFixture(seedCitedTenantFixture(20));
+    const summary = await loadLifecycleSummaryForTenant({
+      tenantId: TENANT,
+      now: STEP_3B_NOW,
+    });
+    expect(summary.threshold_decision.source).toBe("per_tenant");
+    expect(summary.threshold_decision.sample_size).toBeGreaterThanOrEqual(20);
+  });
+
+  it("LifecycleSummary.per_stage counts are byte-identical regardless of threshold_decision.source (no re-bucketing in A.2.3b)", async () => {
+    // Build a 20-record fixture twice and assert per_stage is the
+    // same across both calls. Then build a sub-gate fixture (5
+    // records) and assert per_stage matches the sub-set of the
+    // 20-record fixture's classifications.
+    //
+    // The 20-record scenario crosses the gate (per_tenant); the
+    // 5-record one stays profound_default. If the loader had
+    // re-bucketed per_stage in the per_tenant scenario, the counts
+    // would shift. Test: the 5 records of the sub-gate fixture
+    // appear in the 20-record fixture with the SAME classification.
+    const fx20 = seedCitedTenantFixture(20);
+    setRepoFixture(fx20);
+    const aboveGate = await loadLifecycleSummaryForTenant({
+      tenantId: TENANT,
+      now: STEP_3B_NOW,
+    });
+    expect(aboveGate.threshold_decision.source).toBe("per_tenant");
+
+    const fx5 = seedCitedTenantFixture(5);
+    setRepoFixture(fx5);
+    const subGate = await loadLifecycleSummaryForTenant({
+      tenantId: TENANT,
+      now: STEP_3B_NOW,
+    });
+    expect(subGate.threshold_decision.source).toBe("profound_default");
+
+    // In both, every cited record falls in the `cited_typical`
+    // band (days 8, 10, 12 are all > 6 and <= 18 under Profound
+    // defaults). Re-bucketing under per-tenant thresholds — IF it
+    // happened — would shift some to `cited_fast` (if median fell
+    // below 8). Asserting both fixtures classify EVERY record as
+    // `cited_typical` proves no re-bucketing fires in A.2.3b.
+    expect(aboveGate.per_stage.cited_typical).toBe(20);
+    expect(subGate.per_stage.cited_typical).toBe(5);
+    expect(aboveGate.per_stage.cited_fast).toBe(0);
+    expect(subGate.per_stage.cited_fast).toBe(0);
+    expect(aboveGate.per_stage.cited_late).toBe(0);
+    expect(subGate.per_stage.cited_late).toBe(0);
+  });
+});
+
+describe("threshold resolution — cross-tenant safety (Section 2.4 contract)", () => {
+  it("foreign-tenant edits + observations do NOT contribute to threshold sample_size", async () => {
+    // Tenant T1 has 5 cited records (sub-gate). Tenant T2 has 25
+    // cited records (would cross the gate IF its data leaked into
+    // T1's threshold compute). Loader called for T1 — must see
+    // source = profound_default, sample_size = 5.
+    const t1Records = seedCitedTenantFixture(5);
+    const t2Records = seedCitedTenantFixture(25);
+    // Re-tag T2's records with a different tenant_id.
+    const FOREIGN_TENANT = "tenant-other";
+    const t2Edits = t2Records.recommendedEdits.map((e) => ({
+      ...e,
+      tenant_id: FOREIGN_TENANT,
+      id: `${e.id}-foreign`,
+    }));
+    const t2Obs = t2Records.promptAnswerObservations.map((o) => ({
+      ...o,
+      tenant_id: FOREIGN_TENANT,
+      id: `${o.id}-foreign`,
+    }));
+    setRepoFixture({
+      recommendedEdits: [...t1Records.recommendedEdits, ...t2Edits],
+      promptAnswerObservations: [
+        ...t1Records.promptAnswerObservations,
+        ...t2Obs,
+      ],
+    });
+    const summary = await loadLifecycleSummaryForTenant({
+      tenantId: TENANT,
+      now: STEP_3B_NOW,
+    });
+    expect(summary.threshold_decision.source).toBe("profound_default");
+    expect(summary.threshold_decision.sample_size).toBe(5);
+    expect(summary.total).toBe(5);
   });
 });
