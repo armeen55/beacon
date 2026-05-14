@@ -21,6 +21,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   BORROWED_BENCHMARK_TOOLTIP,
+  buildTileStrings,
   renderBenchmarkTooltip,
   renderLifecycleCopy,
   type LifecycleCopyInput,
@@ -761,5 +762,128 @@ describe("renderBenchmarkTooltip (Phase A.2 §3.7)", () => {
     );
     expect(body).not.toMatch(/all (your )?(edits|pages)/i);
     expect(body).not.toMatch(/(your )?edits (get|are) cited within/i);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────
+// Phase A.2 Step 3c — buildTileStrings
+// ─────────────────────────────────────────────────────────────────────
+
+describe("buildTileStrings — Profound default source (Phase A.2 §3c)", () => {
+  it("returns the locked Phase A.1 stage labels for profound_default", () => {
+    const strings = buildTileStrings(decision({ source: "profound_default" }));
+    expect(strings.stage_labels.cited_fast).toBe(
+      `cited fast (within ${T2C_THRESHOLDS.fast_days} days)`,
+    );
+    expect(strings.stage_labels.cited_typical).toBe(
+      `cited typical (within ${T2C_THRESHOLDS.median_days} days)`,
+    );
+    expect(strings.stage_labels.cited_late).toBe(
+      `cited late (within ${T2C_THRESHOLDS.late_days} days)`,
+    );
+    expect(strings.stage_labels.cited_very_late).toBe(
+      `cited late (past ${T2C_THRESHOLDS.late_days} days)`,
+    );
+    expect(strings.stage_labels.live_not_yet_cited).toBe("still waiting");
+    expect(strings.stage_labels.stuck).toBe(
+      `stuck (past ${T2C_THRESHOLDS.late_days} days)`,
+    );
+  });
+
+  it("returns the locked D15 BORROWED_BENCHMARK_TOOLTIP body for profound_default", () => {
+    const strings = buildTileStrings(decision({ source: "profound_default" }));
+    expect(strings.tooltip_body).toBe(BORROWED_BENCHMARK_TOOLTIP);
+  });
+
+  it("empty_state_body retains the {windowDays} placeholder for tile substitution", () => {
+    const strings = buildTileStrings(decision({ source: "profound_default" }));
+    expect(strings.empty_state_body).toContain("{windowDays}");
+    expect(strings.empty_state_body).toContain(
+      `within ${T2C_THRESHOLDS.fast_days} days`,
+    );
+  });
+});
+
+describe("buildTileStrings — per-tenant source (Phase A.2 §3c)", () => {
+  it("substitutes per-tenant thresholds into the stage labels", () => {
+    const strings = buildTileStrings(
+      decision({
+        source: "per_tenant",
+        thresholds: { fast_days: 4, median_days: 11, late_days: 22 },
+        sample_size: 24,
+      }),
+    );
+    expect(strings.stage_labels.cited_fast).toBe("cited fast (within 4 days)");
+    expect(strings.stage_labels.cited_typical).toBe(
+      "cited typical (within 11 days)",
+    );
+    expect(strings.stage_labels.cited_late).toBe(
+      "cited late (within 22 days)",
+    );
+    expect(strings.stage_labels.cited_very_late).toBe(
+      "cited late (past 22 days)",
+    );
+    expect(strings.stage_labels.live_not_yet_cited).toBe("still waiting");
+    expect(strings.stage_labels.stuck).toBe("stuck (past 22 days)");
+  });
+
+  it("returns the per-tenant cited-subpopulation tooltip body", () => {
+    const strings = buildTileStrings(
+      decision({ source: "per_tenant", sample_size: 33 }),
+    );
+    expect(strings.tooltip_body).toContain("Computed from 33 cited shipped edits");
+    expect(strings.tooltip_body).toContain("got cited");
+    expect(strings.tooltip_body).not.toBe(BORROWED_BENCHMARK_TOOLTIP);
+  });
+
+  it("empty_state_body falls back to Profound defaults defensively (per-tenant numbers meaningless on empty set)", () => {
+    const strings = buildTileStrings(
+      decision({
+        source: "per_tenant",
+        thresholds: { fast_days: 4, median_days: 11, late_days: 22 },
+        sample_size: 24,
+      }),
+    );
+    // The empty state always reads the Profound fast_days because
+    // when total = 0 the per-tenant numbers would be a confusing
+    // claim — Beacon hasn't actually observed anything yet.
+    expect(strings.empty_state_body).toContain(
+      `within ${T2C_THRESHOLDS.fast_days} days`,
+    );
+    expect(strings.empty_state_body).not.toContain("within 4 days");
+  });
+});
+
+describe("buildTileStrings — customer-vocabulary contract", () => {
+  it("no snake_case stage enum value appears in any returned string", () => {
+    const sources = [
+      buildTileStrings(decision({ source: "profound_default" })),
+      buildTileStrings(
+        decision({
+          source: "per_tenant",
+          thresholds: { fast_days: 5, median_days: 14, late_days: 28 },
+          sample_size: 25,
+        }),
+      ),
+    ];
+    const snakeEnums = [
+      "live_not_yet_cited",
+      "cited_fast",
+      "cited_typical",
+      "cited_late",
+      "cited_very_late",
+    ] as const;
+    for (const strings of sources) {
+      const allText = [
+        ...Object.values(strings.stage_labels),
+        strings.tooltip_body,
+        strings.empty_state_body,
+      ].join("\n");
+      for (const v of snakeEnums) {
+        expect(allText, `enum '${v}' leaked into tile strings`).not.toContain(
+          v,
+        );
+      }
+    }
   });
 });

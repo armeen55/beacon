@@ -20,7 +20,10 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { ChangeDetailV2Client } from "@/app/(shell)/changes/[id]/change-detail-v2-client";
 import type { ChangeDetailV2Props } from "@/app/(shell)/changes/[id]/change-detail-v2-client";
 import type { LifecycleStage } from "@/domains/citation-lifecycle/lifecycle-stage";
-import { renderLifecycleCopy } from "@/domains/citation-lifecycle/render-copy";
+import {
+  renderLifecycleCopy,
+  type ThresholdDecisionLike,
+} from "@/domains/citation-lifecycle/render-copy";
 
 function baseProps(over: Partial<ChangeDetailV2Props> = {}): ChangeDetailV2Props {
   return {
@@ -53,6 +56,7 @@ function withStage(
     days_since_live: number;
     days_to_first_citation: number | null;
     per_platform?: { chatgpt: string | null; perplexity: string | null };
+    threshold_decision?: ThresholdDecisionLike;
   },
 ): ChangeDetailV2Props {
   return baseProps({
@@ -70,10 +74,19 @@ function withStage(
         },
         is_partial_live: false,
         was_cited_before_live: false,
+        threshold_decision: fields.threshold_decision,
       }),
     },
   });
 }
+
+const PER_TENANT_DECISION: ThresholdDecisionLike = {
+  source: "per_tenant",
+  thresholds: { fast_days: 5, median_days: 11, late_days: 22 },
+  sample_size: 24,
+  excluded_count: 4,
+  percentile_used: { fast: 0.5, median: 0.75, late: 0.9 },
+};
 
 function render(props: ChangeDetailV2Props): string {
   return renderToStaticMarkup(<ChangeDetailV2Client {...props} />);
@@ -224,6 +237,67 @@ describe("ChangeDetailV2Client — per-platform divergence sub-line", () => {
     expect(html).not.toContain(
       "data-change-detail-act3-lifecycle-per-platform",
     );
+  });
+});
+
+describe("ChangeDetailV2Client — per-tenant copy variants (Phase A.2 §3c)", () => {
+  it("cited_fast renders the 'for this site' suffix when source is per_tenant", () => {
+    const html = render(
+      withStage("cited_fast", {
+        days_since_live: 5,
+        days_to_first_citation: 4,
+        threshold_decision: PER_TENANT_DECISION,
+      }),
+    );
+    expect(html).toContain("This page was cited 4 days");
+    expect(html).toContain("fast benchmark for this site");
+  });
+
+  it("cited_typical renders the 'for this site' suffix when source is per_tenant", () => {
+    const html = render(
+      withStage("cited_typical", {
+        days_since_live: 12,
+        days_to_first_citation: 9,
+        threshold_decision: PER_TENANT_DECISION,
+      }),
+    );
+    expect(html).toContain("typical citation window for this site");
+  });
+
+  it("live_not_yet_cited per_tenant variant cites the cited-page subpopulation rather than 'first citations typically appear'", () => {
+    const html = render(
+      withStage("live_not_yet_cited", {
+        days_since_live: 3,
+        days_to_first_citation: null,
+        threshold_decision: PER_TENANT_DECISION,
+      }),
+    );
+    expect(html).toContain("on cited pages from this site");
+    expect(html).toContain("first citations arrived within");
+    expect(html).not.toContain("first citations typically appear");
+  });
+
+  it("stuck copy is identical regardless of threshold_decision.source", () => {
+    const profoundHtml = render(
+      withStage("stuck", {
+        days_since_live: 41,
+        days_to_first_citation: null,
+      }),
+    );
+    const perTenantHtml = render(
+      withStage("stuck", {
+        days_since_live: 41,
+        days_to_first_citation: null,
+        threshold_decision: PER_TENANT_DECISION,
+      }),
+    );
+    // Stuck copy never carries the "for this site" suffix — a
+    // stuck page is a stuck page regardless of which benchmark
+    // band defined "past late_days."
+    expect(profoundHtml).toContain("Likely a discoverability issue");
+    expect(perTenantHtml).toContain("Likely a discoverability issue");
+    expect(profoundHtml).not.toContain("for this site");
+    expect(perTenantHtml).not.toContain("for this site");
   });
 });
 

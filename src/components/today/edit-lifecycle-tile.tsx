@@ -1,25 +1,33 @@
 /**
- * Today "Edit lifecycle" tile — Phase A.1 §2.11.
+ * Today "Edit lifecycle" tile — Phase A.1 §2.11 / Phase A.2 Step 3c.
  *
  * Pure presentation. Receives a per-stage rollup of eligible
- * `recommended_edits` over the past 90 days (default window) and
- * renders one small tile near Recent wins with the count per stage
- * + the locked D15 BORROWED DEFAULTS tooltip explaining the 6 / 18
- * / 37 day thresholds Beacon currently uses as starter benchmarks.
+ * `recommended_edits` over the past 90 days (default window) +
+ * pre-rendered per-source strings (labels, tooltip, empty
+ * placeholder) and renders one small tile near Recent wins.
  *
  * Tile shape (from Section 2.11):
  *
  *   Edit lifecycle (past 90 days)
- *     ⚡ N cited fast (within 6 days)
- *     ✓ N cited typical (within 18 days)
- *     · N still waiting
- *     ⚠ N stuck (past 37 days)
+ *     ⚡ N {stageLabels.cited_fast}
+ *     ✓ N {stageLabels.cited_typical}
+ *     · N {stageLabels.live_not_yet_cited}
+ *     ⚠ N {stageLabels.stuck}
+ *
+ * Phase A.2 Step 3c boundary contract (architecture invariant):
+ *
+ *   This component MUST NOT import `T2C_THRESHOLDS` or
+ *   `BORROWED_BENCHMARK_TOOLTIP` directly. Labels + tooltip body
+ *   come in as props from `loadLifecycleSummaryForTenant`'s
+ *   `tile_strings`, which `buildTileStrings(decision)` produces
+ *   server-side. The component is source-agnostic — Profound
+ *   default vs per-tenant per-source variants are decided in the
+ *   loader, never in the React tree.
  *
  * Customer-vocabulary contract: stage enum values
  * (`live_not_yet_cited`, `cited_fast`, …) NEVER appear in rendered
- * copy. The tile copies through `renderLifecycleCopy`-compatible
- * customer phrasing (see `STAGE_LABEL` map below) so adding a stage
- * here is a one-line change.
+ * copy. The label map is a typed `Record<LifecycleStage, string>`
+ * so adding a stage upstream surfaces here as a typecheck error.
  */
 
 "use client";
@@ -27,8 +35,6 @@
 import { useId, useState } from "react";
 
 import type { LifecycleStage } from "@/domains/citation-lifecycle/lifecycle-stage";
-import { T2C_THRESHOLDS } from "@/domains/citation-lifecycle/thresholds";
-import { BORROWED_BENCHMARK_TOOLTIP } from "@/domains/citation-lifecycle/render-copy";
 import { cn } from "@/lib/utils";
 
 export type EditLifecycleTileProps = {
@@ -41,15 +47,24 @@ export type EditLifecycleTileProps = {
   /** Window size in days (default 90). Determines the "(past N days)"
    *  caption. */
   windowDays?: number;
+  /** Pre-rendered per-source label per lifecycle stage. Comes from
+   *  `loadLifecycleSummaryForTenant`'s `tile_strings.stage_labels`. */
+  stageLabels: Record<LifecycleStage, string>;
+  /** Pre-rendered tooltip body (source-aware: Profound default or
+   *  per-tenant cited-subpopulation honesty paragraph). */
+  tooltipBody: string;
+  /** Pre-rendered empty-state body. May contain a literal
+   *  `{windowDays}` placeholder which this component substitutes
+   *  before rendering. */
+  emptyStateBody: string;
 };
 
 // ─────────────────────────────────────────────────────────────────────
-// Display rows — customer-vocabulary labels per stage
+// Display rows — glyphs only; labels come in from props
 // ─────────────────────────────────────────────────────────────────────
 
 type StageRow = {
   stage: LifecycleStage;
-  label: string;
   glyph: string;
   glyphClass: string;
 };
@@ -59,45 +74,19 @@ type StageRow = {
  * the green outcomes (fast / typical) come first, then "still
  * waiting" (in-window no citation), then the trailing categories
  * (late / very_late / stuck). Customer never sees the stage enum
- * value — only the human-readable label.
+ * value — only the human-readable label paired in via `stageLabels`.
  */
 const STAGE_ROWS: ReadonlyArray<StageRow> = [
-  {
-    stage: "cited_fast",
-    label: `cited fast (within ${T2C_THRESHOLDS.fast_days} days)`,
-    glyph: "⚡",
-    glyphClass: "text-status-success",
-  },
-  {
-    stage: "cited_typical",
-    label: `cited typical (within ${T2C_THRESHOLDS.median_days} days)`,
-    glyph: "✓",
-    glyphClass: "text-status-success",
-  },
-  {
-    stage: "cited_late",
-    label: `cited late (within ${T2C_THRESHOLDS.late_days} days)`,
-    glyph: "·",
-    glyphClass: "text-foreground/60",
-  },
-  {
-    stage: "cited_very_late",
-    label: `cited late (past ${T2C_THRESHOLDS.late_days} days)`,
-    glyph: "·",
-    glyphClass: "text-foreground/60",
-  },
+  { stage: "cited_fast", glyph: "⚡", glyphClass: "text-status-success" },
+  { stage: "cited_typical", glyph: "✓", glyphClass: "text-status-success" },
+  { stage: "cited_late", glyph: "·", glyphClass: "text-foreground/60" },
+  { stage: "cited_very_late", glyph: "·", glyphClass: "text-foreground/60" },
   {
     stage: "live_not_yet_cited",
-    label: "still waiting",
     glyph: "·",
     glyphClass: "text-muted-foreground",
   },
-  {
-    stage: "stuck",
-    label: `stuck (past ${T2C_THRESHOLDS.late_days} days)`,
-    glyph: "⚠",
-    glyphClass: "text-status-warning",
-  },
+  { stage: "stuck", glyph: "⚠", glyphClass: "text-status-warning" },
 ];
 
 // ─────────────────────────────────────────────────────────────────────
@@ -105,14 +94,27 @@ const STAGE_ROWS: ReadonlyArray<StageRow> = [
 // ─────────────────────────────────────────────────────────────────────
 
 export function EditLifecycleTile(props: EditLifecycleTileProps) {
-  const { perStage, total, latestLiveAtIso, windowDays = 90 } = props;
+  const {
+    perStage,
+    total,
+    latestLiveAtIso,
+    windowDays = 90,
+    stageLabels,
+    tooltipBody,
+    emptyStateBody,
+  } = props;
   const tooltipId = useId();
   const [open, setOpen] = useState(false);
 
   // Empty state — no eligible edits in the window. Render a calm
   // placeholder rather than an emoji-heavy "0 cited fast" stack
-  // which would feel broken.
+  // which would feel broken. `emptyStateBody` may carry a
+  // `{windowDays}` placeholder which we substitute here.
   if (total === 0) {
+    const emptyBody = emptyStateBody.replace(
+      /\{windowDays\}/g,
+      String(windowDays),
+    );
     return (
       <section
         className="rounded-lg border border-border/60 bg-surface-base px-4 py-3.5"
@@ -132,16 +134,15 @@ export function EditLifecycleTile(props: EditLifecycleTileProps) {
               past {windowDays} days
             </p>
           </div>
-          <BorrowedBenchmarkTooltip
+          <BenchmarkTooltip
             open={open}
             setOpen={setOpen}
             tooltipId={tooltipId}
+            body={tooltipBody}
           />
         </header>
         <p className="mt-3 text-[12.5px] leading-relaxed text-muted-foreground">
-          No edits in the past {windowDays} days have produced lifecycle data
-          yet. Ship an edit and Beacon will start watching for first
-          citations within {T2C_THRESHOLDS.fast_days} days.
+          {emptyBody}
         </p>
       </section>
     );
@@ -167,10 +168,11 @@ export function EditLifecycleTile(props: EditLifecycleTileProps) {
             past {windowDays} days · {total} edit{total === 1 ? "" : "s"}
           </p>
         </div>
-        <BorrowedBenchmarkTooltip
+        <BenchmarkTooltip
           open={open}
           setOpen={setOpen}
           tooltipId={tooltipId}
+          body={tooltipBody}
         />
       </header>
       <ul
@@ -182,6 +184,7 @@ export function EditLifecycleTile(props: EditLifecycleTileProps) {
           <StageRowDisplay
             key={row.stage}
             row={row}
+            label={stageLabels[row.stage]}
             count={perStage[row.stage] ?? 0}
           />
         ))}
@@ -198,7 +201,15 @@ export function EditLifecycleTile(props: EditLifecycleTileProps) {
   );
 }
 
-function StageRowDisplay({ row, count }: { row: StageRow; count: number }) {
+function StageRowDisplay({
+  row,
+  label,
+  count,
+}: {
+  row: StageRow;
+  label: string;
+  count: number;
+}) {
   const muted = count === 0;
   return (
     <li
@@ -218,7 +229,7 @@ function StageRowDisplay({ row, count }: { row: StageRow; count: number }) {
       <span className="tabular-nums w-5 text-right font-semibold">
         {count}
       </span>
-      <span>{row.label}</span>
+      <span>{label}</span>
     </li>
   );
 }
@@ -227,14 +238,16 @@ function StageRowDisplay({ row, count }: { row: StageRow; count: number }) {
 // Tooltip
 // ─────────────────────────────────────────────────────────────────────
 
-function BorrowedBenchmarkTooltip({
+function BenchmarkTooltip({
   open,
   setOpen,
   tooltipId,
+  body,
 }: {
   open: boolean;
   setOpen: (next: boolean) => void;
   tooltipId: string;
+  body: string;
 }) {
   return (
     <div className="relative">
@@ -256,7 +269,7 @@ function BorrowedBenchmarkTooltip({
           data-today-tile-tooltip-body="true"
           className="absolute right-0 top-6 z-10 w-72 rounded-md border border-border/70 bg-surface-base px-3 py-2 text-[11.5px] leading-relaxed text-foreground shadow-md"
         >
-          {BORROWED_BENCHMARK_TOOLTIP}
+          {body}
         </div>
       )}
     </div>

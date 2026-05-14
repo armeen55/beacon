@@ -7,6 +7,41 @@
 
 ---
 
+## 2026-05-14 — Phase A.2 Step 3c: atomic customer-visible threshold flip
+
+**What changed.** Closes the customer-side of Phase A.2 (Sections 3.7 + 3.10). The resolved per-tenant `ThresholdDecision` now drives both the lifecycle stage classifier and the customer-facing copy + Today tile labels atomically.
+
+- `src/domains/citation-lifecycle/render-copy.ts` — added `buildTileStrings(decision)` returning `{ stage_labels: Record<LifecycleStage, string>, tooltip_body, empty_state_body }`. Profound branch byte-identical to Phase A.1 Section 2.11 labels + locked D15 tooltip; per-tenant branch substitutes `decision.thresholds.{fast,median,late}_days` into every band label and swaps the tooltip for the cited-subpopulation honesty paragraph. Empty-state body always reads Profound `fast_days` defensively (per-tenant numbers meaningless on zero-record sets).
+- `src/domains/citation-lifecycle/load-lifecycle.ts` — wired the resolved decision into BOTH `deriveLifecycleStage` (2nd-arg thresholds thread at every user-visible call site) AND `renderLifecycleCopy` (`threshold_decision` field). `LifecycleSummary` gains `tile_strings: LifecycleTileStrings`. Summary loader re-classifies records against `decision.thresholds` atomically with the tile-label swap. `buildTenantLifecycleRecords` refactored to use a pure structural `classifyForBrainSeed(result)` helper (the brain only checks cited-vs-uncited set membership; no `deriveLifecycleStage` call inside the seed path).
+- `src/components/today/edit-lifecycle-tile.tsx` — boundary tightened. No longer imports `T2C_THRESHOLDS` or `BORROWED_BENCHMARK_TOOLTIP`. Accepts `stageLabels`, `tooltipBody`, `emptyStateBody` props. Empty-state placeholder substitutes `{windowDays}` at render time.
+- `src/app/(shell)/today-v2-sections.tsx` — passes `summary.tile_strings.{stage_labels, tooltip_body, empty_state_body}` through to the tile.
+
+**Architecture invariant** — `tests/architecture/threshold-decision-loader-wiring.test.ts` inverted from A.2.3b customer-invisibility pins to A.2.3c wired-contract pins:
+- Loader imports `buildTileStrings` from `./render-copy`.
+- `LifecycleSummary` declares both `threshold_decision: ThresholdDecision` AND `tile_strings: LifecycleTileStrings`.
+- Every `deriveLifecycleStage` call in `load-lifecycle.ts` passes a 2nd thresholds argument referencing `thresholdDecision`.
+- Every `renderLifecycleCopy` call passes a `threshold_decision` field.
+- `edit-lifecycle-tile.tsx` does NOT import `T2C_THRESHOLDS` or `BORROWED_BENCHMARK_TOOLTIP`.
+
+Catalog rows updated for `threshold-decision-loader-wiring` (refines purpose to A.2.3c MUST-pass + tile boundary) and `thresholds-provenance` (purpose addendum + last-verified bumped). Catalog-sync invariant still green.
+
+**Tests added / inverted.**
+- `tests/domains/citation-lifecycle/render-copy.test.ts` — new `buildTileStrings` describe blocks (Profound default labels + per-tenant substitution + customer-vocabulary contract): +9 cases.
+- `tests/components/today/edit-lifecycle-tile.test.tsx` — rewritten to feed the new prop shape via `buildTileStrings`; new per-tenant render variant asserting per-tenant numbers (4/11/22) replace Profound (6/18/37).
+- `tests/domains/citation-lifecycle/load-lifecycle.test.ts` — A.2.3b invariance tests INVERTED. Sub-gate vs above-gate now asserts copy DIFFERS ("for this site" suffix on per-tenant) AND per_stage RE-BUCKETS (20-record fixture produces `cited_fast: 14, cited_typical: 6` under per-tenant `{10, 12, 12}` thresholds derived from nearest-rank quantiles, vs `cited_typical: 5` under sub-gate Profound). New asserts on `tile_strings` for both gate states.
+- `tests/app/changes/change-detail-v2-lifecycle.test.tsx` — new per-tenant fixture variants (cited_fast / cited_typical / live_not_yet_cited per-tenant copy; stuck copy invariant across sources).
+
+**Quality gates.**
+- `npm run typecheck` — CLEAN.
+- `npx vitest run` — **8719/8744 tests passed** (25 skipped, full suite green).
+- `BEACON_TENANT_ID=tenant-ritz-founder BEACON_TENANT_SLUG=ritz-builders npm run build` — clean (23/23 static pages generated).
+
+**Hard contracts honored.** No LLM · no paid APIs · no Supabase migrations · no mutations · no new top-level routes · legacy route untouched · Phase B Regenerate untouched · Section 6 scope discipline (no causal overclaim — copy uses "after the edit went live" as temporal anchor) preserved.
+
+**Customer-visible implication.** First time Ritz's `loadLifecycleSummaryForTenant` resolves a `per_tenant` decision (≥ 20 cited shipped edits in the 90-day window), the Today "Edit lifecycle" tile labels flip from `cited fast (within 6 days) / cited typical (within 18 days) / cited late (within 37 days) / stuck (past 37 days)` to the tenant's observed band integers, the tooltip swaps from the borrowed-Profound D15 wording to the cited-subpopulation honesty paragraph, and the Changes detail Act 3 cited-* primary lines gain the "for this site" honesty suffix. Below-gate tenants continue to see byte-identical Phase A.1 copy. **Manual UI verification required** on production after deploy.
+
+---
+
 ## 2026-05-14 — Phase A.1 surface bundle: Changes detail lifecycle line + Today tile
 
 **Context.** Final bundle of Phase A.1 (Time-to-Citation Read Model) per the maximum-depth plan. Steps 1–5 shipped the pure-foundation modules (thresholds + eligibility predicate + URL canonicalizer + time-to-citation compute + 6-stage derivation). This bundle adds the customer-visible surfaces (Section 2.10 Changes detail Act 3 + Section 2.11 Today tile) and the architecture invariants pinning the tenant-isolation contract and the Section 2.16 stuck-stage bridge phrase.

@@ -88,6 +88,9 @@ export async function TodayV2EditLifecycleSection() {
       perStage={summary.per_stage}
       total={summary.total}
       latestLiveAtIso={summary.latest_live_at_iso}
+      stageLabels={summary.tile_strings.stage_labels}
+      tooltipBody={summary.tile_strings.tooltip_body}
+      emptyStateBody={summary.tile_strings.empty_state_body}
     />
   );
 }

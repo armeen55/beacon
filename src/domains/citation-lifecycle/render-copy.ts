@@ -398,3 +398,79 @@ export function renderLifecycleCopy(
     before_live_note: null,
   };
 }
+
+// ─────────────────────────────────────────────────────────────────────
+// Today tile string builder (Phase A.2 Step 3c)
+// ─────────────────────────────────────────────────────────────────────
+
+/**
+ * Pre-rendered strings for the Today "Edit lifecycle" tile.
+ *
+ * Returned by `buildTileStrings(decision)` so the React component
+ * stays presentation-only and never imports `T2C_THRESHOLDS` or the
+ * `BORROWED_BENCHMARK_TOOLTIP` constant directly. A.2.3c architecture
+ * invariant pins this boundary: any direct threshold/tooltip import
+ * from the tile component trips the build.
+ */
+export type LifecycleTileStrings = {
+  /** Customer-vocabulary label per lifecycle stage. Never contains
+   *  enum values; band day-numbers come from the resolved decision. */
+  stage_labels: Record<LifecycleStage, string>;
+  /** Tooltip body shown when the operator hovers "Why these
+   *  benchmarks?" — source-aware (Profound vs per-tenant). */
+  tooltip_body: string;
+  /** Empty-state body for the no-eligible-edits placeholder. Uses
+   *  `{windowDays}` as a literal placeholder substituted by the tile
+   *  at render time. Per-source-defensive: always reads Profound
+   *  defaults regardless of the decision so the placeholder copy
+   *  stays calm + unchanged when the tenant has zero lifecycle data
+   *  (the per-tenant numbers would be meaningless on an empty set). */
+  empty_state_body: string;
+};
+
+/**
+ * Build the per-source tile strings.
+ *
+ * Profound default branch: byte-identical to the Phase A.1 hard-coded
+ * STAGE_ROWS labels + the locked D15 tooltip + the Phase A.1 empty
+ * placeholder. The intent is that flipping a tenant from `per_tenant`
+ * back to `profound_default` (sample size dropping below the
+ * `threshold_replacement` gate) restores the exact A.1 reading.
+ *
+ * Per-tenant branch: substitutes the decision's threshold integers
+ * into the same label templates, swaps the tooltip body for the
+ * cited-subpopulation honesty paragraph, and re-uses the Profound
+ * empty-state placeholder defensively.
+ *
+ * Pure. No I/O. The function reads only the locked Profound default
+ * constant (for the profound branch + the empty-state placeholder)
+ * and the integers carried by the decision.
+ */
+export function buildTileStrings(
+  decision: ThresholdDecisionLike,
+): LifecycleTileStrings {
+  const t = decision.thresholds;
+  const stage_labels: Record<LifecycleStage, string> = {
+    cited_fast: `cited fast (within ${t.fast_days} days)`,
+    cited_typical: `cited typical (within ${t.median_days} days)`,
+    cited_late: `cited late (within ${t.late_days} days)`,
+    cited_very_late: `cited late (past ${t.late_days} days)`,
+    live_not_yet_cited: "still waiting",
+    stuck: `stuck (past ${t.late_days} days)`,
+  };
+
+  const tooltip_body = renderBenchmarkTooltip(decision);
+
+  // Defensive Profound copy for the empty state — the per-tenant
+  // numbers would be meaningless on a zero-record set, and a tenant
+  // flipping from per_tenant → profound_default by losing data would
+  // produce a confusing empty-state if the placeholder echoed the
+  // dropped per-tenant numbers. `{windowDays}` is a literal
+  // placeholder the tile substitutes at render time.
+  const empty_state_body =
+    `No edits in the past {windowDays} days have produced lifecycle ` +
+    `data yet. Ship an edit and Beacon will start watching for ` +
+    `first citations within ${T2C_THRESHOLDS.fast_days} days.`;
+
+  return { stage_labels, tooltip_body, empty_state_body };
+}

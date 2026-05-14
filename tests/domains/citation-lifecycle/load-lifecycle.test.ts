@@ -741,12 +741,12 @@ describe("loadLifecycleForEdit — threshold_decision field (Phase A.2 §3.7)", 
     expect(result.threshold_decision.sample_size).toBeGreaterThanOrEqual(20);
   });
 
-  it("LifecycleForEdit.copy is byte-identical regardless of threshold_decision.source (no copy re-rendering in A.2.3b)", async () => {
+  it("LifecycleForEdit.copy DIFFERS between profound_default and per_tenant sources (Phase A.2 §3c per-source copy wiring)", async () => {
     // Two scenarios with the SAME target edit + observation. The
     // only difference is the surrounding tenant's cited-record
-    // count (which flips the gate). The target's `copy` must be
-    // identical in both — proves the renderer was not given the
-    // threshold_decision input.
+    // count (which flips the gate). In A.2.3c the target's `copy`
+    // MUST differ because the renderer now receives the resolved
+    // threshold_decision and selects per-source variants.
     const targetEditRow = {
       id: "edit-target",
       tenant_id: TENANT,
@@ -824,9 +824,14 @@ describe("loadLifecycleForEdit — threshold_decision field (Phase A.2 §3.7)", 
     expect(subGate.threshold_decision.source).toBe("profound_default");
     expect(aboveGate.threshold_decision.source).toBe("per_tenant");
 
-    // BUT copy is byte-identical (proves no copy re-rendering).
-    expect(aboveGate.copy).toEqual(subGate.copy);
-    expect(aboveGate.stage).toBe(subGate.stage);
+    // Copy MUST differ — per-tenant variants carry the "for this
+    // site" honesty suffix on cited stages. The sub-gate copy uses
+    // the Profound phrasing without the suffix.
+    expect(subGate.copy).not.toBeNull();
+    expect(aboveGate.copy).not.toBeNull();
+    expect(subGate.copy!.primary).not.toContain("for this site");
+    expect(aboveGate.copy!.primary).toContain("for this site");
+    expect(aboveGate.copy).not.toEqual(subGate.copy);
   });
 });
 
@@ -855,17 +860,26 @@ describe("loadLifecycleSummaryForTenant — threshold_decision field (Phase A.2 
     expect(summary.threshold_decision.sample_size).toBeGreaterThanOrEqual(20);
   });
 
-  it("LifecycleSummary.per_stage counts are byte-identical regardless of threshold_decision.source (no re-bucketing in A.2.3b)", async () => {
-    // Build a 20-record fixture twice and assert per_stage is the
-    // same across both calls. Then build a sub-gate fixture (5
-    // records) and assert per_stage matches the sub-set of the
-    // 20-record fixture's classifications.
+  it("LifecycleSummary.per_stage RE-BUCKETS against per-tenant thresholds when source flips (Phase A.2 §3c)", async () => {
+    // The 20-record fixture cycles days_to_first_citation through
+    // {8, 10, 12} (i%3 mapping). All three values fall in
+    // Profound's cited_typical band (>6 and ≤18) → sub-gate
+    // per_stage = {cited_typical: 5}.
     //
-    // The 20-record scenario crosses the gate (per_tenant); the
-    // 5-record one stays profound_default. If the loader had
-    // re-bucketed per_stage in the per_tenant scenario, the counts
-    // would shift. Test: the 5 records of the sub-gate fixture
-    // appear in the 20-record fixture with the SAME classification.
+    // Crossing the gate at n=20: nearest-rank percentiles compute
+    // sorted-ascending days = [8×7, 10×7, 12×6]. Indices:
+    //   p=0.50 → idx 9  → day 10 → fast_days   = 10
+    //   p=0.75 → idx 14 → day 12 → median_days = 12
+    //   p=0.90 → idx 17 → day 12 → late_days   = 12
+    // Per-tenant bucketing with {10,12,12}:
+    //   day 8  → 8 ≤ 10 → cited_fast      → 7 records
+    //   day 10 → 10 ≤ 10 → cited_fast     → 7 records
+    //   day 12 → 12 > 10, 12 ≤ 12 → cited_typical → 6 records
+    //
+    // If the summary loader failed to re-bucket against the
+    // per_tenant thresholds, the 20-record above-gate scenario
+    // would still report cited_typical: 20. The assertions below
+    // pin the re-bucketed expectation.
     const fx20 = seedCitedTenantFixture(20);
     setRepoFixture(fx20);
     const aboveGate = await loadLifecycleSummaryForTenant({
@@ -873,7 +887,17 @@ describe("loadLifecycleSummaryForTenant — threshold_decision field (Phase A.2 
       now: STEP_3B_NOW,
     });
     expect(aboveGate.threshold_decision.source).toBe("per_tenant");
+    expect(aboveGate.threshold_decision.thresholds).toEqual({
+      fast_days: 10,
+      median_days: 12,
+      late_days: 12,
+    });
+    expect(aboveGate.per_stage.cited_fast).toBe(14);
+    expect(aboveGate.per_stage.cited_typical).toBe(6);
+    expect(aboveGate.per_stage.cited_late).toBe(0);
 
+    // 5-record sub-gate fixture stays on Profound 6/18/37 and all
+    // 5 records remain cited_typical.
     const fx5 = seedCitedTenantFixture(5);
     setRepoFixture(fx5);
     const subGate = await loadLifecycleSummaryForTenant({
@@ -881,19 +905,55 @@ describe("loadLifecycleSummaryForTenant — threshold_decision field (Phase A.2 
       now: STEP_3B_NOW,
     });
     expect(subGate.threshold_decision.source).toBe("profound_default");
-
-    // In both, every cited record falls in the `cited_typical`
-    // band (days 8, 10, 12 are all > 6 and <= 18 under Profound
-    // defaults). Re-bucketing under per-tenant thresholds — IF it
-    // happened — would shift some to `cited_fast` (if median fell
-    // below 8). Asserting both fixtures classify EVERY record as
-    // `cited_typical` proves no re-bucketing fires in A.2.3b.
-    expect(aboveGate.per_stage.cited_typical).toBe(20);
     expect(subGate.per_stage.cited_typical).toBe(5);
-    expect(aboveGate.per_stage.cited_fast).toBe(0);
     expect(subGate.per_stage.cited_fast).toBe(0);
-    expect(aboveGate.per_stage.cited_late).toBe(0);
-    expect(subGate.per_stage.cited_late).toBe(0);
+  });
+
+  it("LifecycleSummary.tile_strings carries Profound labels at sub-gate (Phase A.2 §3c)", async () => {
+    setRepoFixture(seedCitedTenantFixture(5));
+    const summary = await loadLifecycleSummaryForTenant({
+      tenantId: TENANT,
+      now: STEP_3B_NOW,
+    });
+    expect(summary.threshold_decision.source).toBe("profound_default");
+    expect(summary.tile_strings.stage_labels.cited_fast).toBe(
+      "cited fast (within 6 days)",
+    );
+    expect(summary.tile_strings.stage_labels.cited_typical).toBe(
+      "cited typical (within 18 days)",
+    );
+    expect(summary.tile_strings.stage_labels.cited_late).toBe(
+      "cited late (within 37 days)",
+    );
+    expect(summary.tile_strings.stage_labels.stuck).toBe(
+      "stuck (past 37 days)",
+    );
+    expect(summary.tile_strings.tooltip_body).toContain("starter benchmarks");
+    expect(summary.tile_strings.empty_state_body).toContain("{windowDays}");
+  });
+
+  it("LifecycleSummary.tile_strings carries per-tenant labels when gate crossed (Phase A.2 §3c)", async () => {
+    setRepoFixture(seedCitedTenantFixture(20));
+    const summary = await loadLifecycleSummaryForTenant({
+      tenantId: TENANT,
+      now: STEP_3B_NOW,
+    });
+    expect(summary.threshold_decision.source).toBe("per_tenant");
+    expect(summary.tile_strings.stage_labels.cited_fast).toBe(
+      "cited fast (within 10 days)",
+    );
+    expect(summary.tile_strings.stage_labels.cited_typical).toBe(
+      "cited typical (within 12 days)",
+    );
+    expect(summary.tile_strings.stage_labels.cited_late).toBe(
+      "cited late (within 12 days)",
+    );
+    expect(summary.tile_strings.stage_labels.stuck).toBe(
+      "stuck (past 12 days)",
+    );
+    expect(summary.tile_strings.tooltip_body).toContain(
+      "cited shipped edits on this site",
+    );
   });
 });
 
