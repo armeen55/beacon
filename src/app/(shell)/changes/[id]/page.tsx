@@ -56,6 +56,7 @@ import {
   type LifecycleTabClass,
 } from "@/domains/attribution/lifecycle-classification";
 import type { ImplementationStatus } from "@/domains/recommendations/recommended-edits-persistence";
+import { loadLifecycleForEdit } from "@/domains/citation-lifecycle/load-lifecycle";
 import {
   createPerfTrace,
   readPerfTraceIdFromHeaders,
@@ -305,6 +306,17 @@ export default async function ChangeDetailPage({
       lifecycleStatus,
     });
 
+    // Phase A.1 Step 7 (2026-05-13) — citation-lifecycle copy for Act 3.
+    // Only the v2 brief consumes this; the legacy detail layout below
+    // is intentionally untouched per Section 2.10 placement decision
+    // (Act 3 lives on the v2 route only).
+    const lifecycle = linkedEdit
+      ? await loadLifecycleForEdit({
+          tenantId,
+          recommendedEdit: linkedEdit,
+        })
+      : null;
+
     const events = row.eventAttributions
       // Most-recent first — the brief reads as a story, not a database row.
       .slice()
@@ -368,6 +380,15 @@ export default async function ChangeDetailPage({
         platformLabels={platformLabels}
         beaconRecommended={!!recommendedMatch}
         nextActions={stampedNextActions}
+        lifecycle={
+          lifecycle?.available && lifecycle.copy
+            ? {
+                stage: lifecycle.stage!,
+                copy: lifecycle.copy,
+                isPartialLive: lifecycle.result.is_partial_live,
+              }
+            : null
+        }
       />
     );
   }

@@ -38,6 +38,9 @@ import { TodayV2Working } from "@/components/today/v2/today-v2-working";
 import { TodayV2RecentWins } from "@/components/today/v2/today-v2-recent-wins";
 import { EnrichmentV2 } from "@/components/today/enrichment-v2";
 import { EnrichmentBadges } from "@/components/today/enrichment-badges";
+import { EditLifecycleTile } from "@/components/today/edit-lifecycle-tile";
+import { loadLifecycleSummaryForTenant } from "@/domains/citation-lifecycle/load-lifecycle";
+import { currentTenantId } from "@/lib/tenant-context";
 
 export async function TodayV2VisibilityGroupSection() {
   const data = await loadTodayV2VisibilityData();
@@ -66,6 +69,26 @@ export async function TodayV2ActionCardsSection() {
         urlVerdictProof={data.urlVerdictProof ?? null}
       />
     </div>
+  );
+}
+
+/**
+ * Phase A.1 §2.11 (2026-05-13) — Edit lifecycle tile section. Streams
+ * independently from action cards + descriptors; reads tenant-scoped
+ * recommended_edits + prompt_answer_observations via
+ * `loadLifecycleSummaryForTenant`. Tile is small enough to share a row
+ * with other surfaces in a future Today layout pass; for now it sits
+ * on its own line between the action grid and the descriptor section.
+ */
+export async function TodayV2EditLifecycleSection() {
+  const tenantId = await currentTenantId();
+  const summary = await loadLifecycleSummaryForTenant({ tenantId });
+  return (
+    <EditLifecycleTile
+      perStage={summary.per_stage}
+      total={summary.total}
+      latestLiveAtIso={summary.latest_live_at_iso}
+    />
   );
 }
 

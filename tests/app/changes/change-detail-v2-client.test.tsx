@@ -43,6 +43,7 @@ function baseProps(over: Partial<ChangeDetailV2Props> = {}): ChangeDetailV2Props
         emphasis: "primary",
       },
     ],
+    lifecycle: null,
     ...over,
   };
 }

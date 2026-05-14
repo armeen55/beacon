@@ -66,6 +66,32 @@ export function TodayV2ActionCardsSkeleton() {
   );
 }
 
+/** Edit lifecycle tile (Phase A.1 §2.11). One small section between the
+ *  action cards and the descriptors. */
+export function TodayV2EditLifecycleSkeleton() {
+  return (
+    <section
+      className="animate-pulse"
+      aria-busy="true"
+      aria-label="Loading edit lifecycle"
+      data-today-v2-section-skeleton="edit-lifecycle"
+    >
+      <div className="rounded-lg border border-border/60 bg-surface-inset/30 px-4 py-3.5 space-y-2.5">
+        <div className="flex items-start justify-between gap-3">
+          <div className="space-y-1">
+            <div className="h-3.5 w-28 rounded bg-muted/30" />
+            <div className="h-2.5 w-20 rounded bg-muted/20" />
+          </div>
+          <div className="h-2.5 w-28 rounded bg-muted/20" />
+        </div>
+        {[0, 1, 2, 3].map((i) => (
+          <div key={i} className="h-3 w-full max-w-[280px] rounded bg-muted/20" />
+        ))}
+      </div>
+    </section>
+  );
+}
+
 /** Descriptors / enrichment chip row. */
 export function TodayV2DescriptorsSkeleton() {
   return (

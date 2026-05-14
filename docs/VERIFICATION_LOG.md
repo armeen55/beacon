@@ -7,6 +7,52 @@
 
 ---
 
+## 2026-05-14 — Phase A.1 surface bundle: Changes detail lifecycle line + Today tile
+
+**Context.** Final bundle of Phase A.1 (Time-to-Citation Read Model) per the maximum-depth plan. Steps 1–5 shipped the pure-foundation modules (thresholds + eligibility predicate + URL canonicalizer + time-to-citation compute + 6-stage derivation). This bundle adds the customer-visible surfaces (Section 2.10 Changes detail Act 3 + Section 2.11 Today tile) and the architecture invariants pinning the tenant-isolation contract and the Section 2.16 stuck-stage bridge phrase.
+
+**Files added.**
+- `src/domains/citation-lifecycle/render-copy.ts` (new) — pure copy renderer. Maps `(LifecycleStage, days_since_live, days_to_first_citation, per_platform_first_citation)` to three customer-facing strings: a primary line, an optional per-platform divergence sub-line, and a stuck-stage bridge phrase. Locked D15 tooltip copy lives here as the exported `BORROWED_BENCHMARK_TOOLTIP` constant so the Changes detail surface and the Today tile read from one source. All copy variants are operator-locked strings; the internal enum values (`live_not_yet_cited`, `cited_*`, `stuck`) NEVER appear in rendered output.
+- `src/domains/citation-lifecycle/load-lifecycle.ts` (new) — server-side loaders, the only I/O surface in this domain. `loadLifecycleForEdit({tenantId, recommendedEdit, now})` wraps the compute pipeline in `unstable_cache` (60s TTL · tagged `recommended_edits:${tenantId}` · key includes tenant + edit_id + live_at) and reads tenant-scoped prompt-answer observations windowed `since: live_at` (citation source: native-regime `citation_urls`; benchmark-regime shards intentionally not read in v1 — documented trade-off). `loadLifecycleSummaryForTenant({tenantId, now, windowDays?})` produces a per-stage 90-day rollup for the Today tile, same caching shape.
+- `src/components/today/edit-lifecycle-tile.tsx` (new) — client tile (uses `useId` + `useState` for the tooltip; otherwise pure presentation). Renders 6 stage rows with customer-friendly labels keyed to the locked thresholds, plus a freshness anchor ("Latest edit live: …") and the "Why these benchmarks?" tooltip. Empty state ("No edits in the past 90 days …") renders calmly with no count rows.
+- `tests/domains/citation-lifecycle/render-copy.test.ts` (new) — 20 tests: per-stage primary line · bridge phrase (only stuck) · per-platform divergence truth table · GAIO never appears in divergence · no enum value leaks · D15 tooltip phrasing.
+- `tests/app/changes/change-detail-v2-lifecycle.test.tsx` (new) — 13 tests: lifecycle prop optional · each of 6 stages renders correctly inside Act 3 · per-platform sub-line renders only when one platform cited · snake_case enum values never leak.
+- `tests/components/today/edit-lifecycle-tile.test.tsx` (new) — 7 tests: populated state heading + total + freshness + per-stage data-attrs + tooltip trigger · customer-vocabulary contract (no snake_case enum leakage) · stage labels reference locked thresholds · empty-state render.
+- `tests/architecture/citation-lifecycle-tenant-isolation.test.ts` (new) — 4 invariants: pure compute modules never import the persistence layer · every file that imports `getRepository` also calls `.forTenant(...)` in the same file · only the explicit `load-lifecycle.ts` is allowed to perform I/O · empty `ALLOWED_CROSS_TENANT_FILES` whitelist (Section 3 brain will be the first entry, with a matching catalog entry per Section 12 N1).
+- `tests/architecture/citation-lifecycle-stuck-bridge-phrase.test.ts` (new) — 3 invariants: literal "next bundle will add automated sitemap + robots checks" substring present · only on the stuck-stage code path · Phase A.3 REPLACE note documented in the source.
+
+**Files modified.**
+- `src/app/(shell)/changes/[id]/page.tsx` — v2 branch computes `lifecycle` via `loadLifecycleForEdit` when a verified-live edit links to the change; passes a typed `lifecycle: {stage, copy, isPartialLive} | null` prop into `ChangeDetailV2Client`. Legacy branch (`?legacy=1`) untouched.
+- `src/app/(shell)/changes/[id]/change-detail-v2-client.tsx` — accepts new `lifecycle` prop; renders the new `LifecycleLine` helper inside Act 3 with per-stage tonal styling. Bridge phrase + per-platform sub-line render conditionally via separate data-attrs.
+- `src/app/(shell)/page.tsx` — mounts `TodayV2EditLifecycleSection` under its own `<Suspense fallback={<TodayV2EditLifecycleSkeleton />}>` between Action Cards and Descriptors.
+- `src/app/(shell)/today-v2-sections.tsx` — new `TodayV2EditLifecycleSection` (server component) reads tenant id, calls the summary loader, renders the tile.
+- `src/app/(shell)/today-v2-skeleton.tsx` — new `TodayV2EditLifecycleSkeleton` matching the tile's bounding box.
+- `tests/app/changes/change-detail-v2-client.test.tsx` — `baseProps` now includes `lifecycle: null` so the existing tests stay green under the new required prop.
+
+**Hard contracts honored** (per Section 2 + Section 12 locks).
+- No LLM calls. No paid APIs. No Supabase migrations. No data mutations.
+- No new top-level routes — surfaces live on existing `/today` and `/changes/[id]?v2=1`.
+- Legacy `?legacy=1` route untouched (lifecycle data only flows through the v2 client).
+- Phase B Regenerate untouched.
+- Tenant isolation: every external read in `src/domains/citation-lifecycle/` routes through `getRepository().forTenant(tenantId)`; pure compute modules don't import the repository at all. Architecture invariant pins this.
+- Customer-vocabulary contract: no stage enum value (`live_not_yet_cited`, `cited_fast`, …) appears in rendered customer copy; only the customer-friendly labels do.
+
+**Browser preview verification.**
+- Started the local Next dev server with `BEACON_AUTH_DISABLED=1` + `BEACON_TODAY_V2=true` + `BEACON_CHANGES_V2=true` + `DATA_SOURCE=file` and seeded a single verified-live edit + matching changelog + prompt-answer observation containing the canonical target URL in `citation_urls`.
+- Visited `/changes/seed-lifecycle-change-001?v2=1`. The response contained `data-change-detail-act3-lifecycle="cited_fast"` with the locked primary copy "Cited 2 days after going live — within Beacon's fast benchmark." and the divergence sub-line "First cited on ChatGPT, not yet on Perplexity." — exactly matching the Section 2.10 contract.
+- Captured a screenshot of the rendered Act 3 lifecycle block via `mcp__Claude_Preview__preview_screenshot` (visible in the operator's terminal).
+- Dev-only seeding artifacts (script + worktree `.data/` copy + `.env.local`) removed after verification so the working tree returns to a clean state.
+
+**Quality gates.**
+- `npm run typecheck` — CLEAN.
+- `npm run test` — **458 test files passed / 1 skipped (459 total) · 8564 tests passed / 25 skipped (8589 total)** in 70.45s. Delta vs. pre-bundle baseline (8517): **+47 tests** across 5 new test files (no regressions; the existing `change-detail-v2-client.test.tsx` reconciled to include the new required `lifecycle: null` default).
+- Focused re-run across the Phase A.1 surface: `npx vitest run tests/domains/citation-lifecycle/ tests/architecture/citation-lifecycle-tenant-isolation.test.ts tests/architecture/citation-lifecycle-stuck-bridge-phrase.test.ts tests/architecture/thresholds-provenance.test.ts tests/app/changes/change-detail-v2-lifecycle.test.tsx tests/components/today/edit-lifecycle-tile.test.tsx tests/app/changes/change-detail-v2-client.test.tsx` → **11 files / 163 tests / all pass** in 3.16s.
+- Test breakdown for this bundle (additive over Steps 1–5): 40 new behavioral (20 render-copy + 13 Changes detail Act 3 + 7 Today tile) + 7 new architecture-invariant assertions (4 tenant-isolation + 3 stuck-stage bridge-phrase). Render contract for all 6 stage variants pinned; per-platform divergence truth table pinned (only-one-platform-cited rule + GAIO never participates).
+
+**Next phase recommendation.** Phase A.2 — Cross-Tenant Brain Activation (Section 3). Two-flag rollout per E1 lock: producer behind `BEACON_CROSS_TENANT_BRAIN=1` (gated stub today; real producer + privacy-scrubbing contract in this phase), customer-facing "Beacon learned" tile behind `BEACON_BRAIN_LEARNED_TILE=1`. Section 3.7 threshold-replacement is the most concrete customer-visible payoff (per-tenant Beacon-owned median replaces the borrowed Profound 6/18/37 once ≥ 20 verified-live ships per the E3 lock). New operator surface at `/diagnostics/cross-tenant-brain` per E9 lock (DIFFERENT from the existing tenant-local `/diagnostics/brain`).
+
+---
+
 ## 2026-05-13 — Phase A.1 Step 1: citation-lifecycle thresholds
 
 **Context.** First atomic step of Phase A.1 (Time-to-Citation Read Model) per the maximum-depth plan locked at `/Users/armeen/.claude/plans/enter-maximum-depth-planning-mode-twinkly-balloon.md`. Section 2 + Decision Lock D1–D15 specify the foundation: borrowed Profound defaults (6 / 18 / 37 days, integer rounding per D8) for citation-lifecycle band boundaries, with a hard architecture invariant that the BORROWED label and the Phase A.2 replacement promise can't drift.

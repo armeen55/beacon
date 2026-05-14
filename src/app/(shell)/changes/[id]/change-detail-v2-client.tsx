@@ -39,6 +39,8 @@ import type {
   EventTone,
 } from "@/domains/changes/proof-timeline/event-humanizer";
 import type { NextActionCta } from "@/domains/changes/proof-timeline/next-action";
+import type { LifecycleStage } from "@/domains/citation-lifecycle/lifecycle-stage";
+import type { LifecycleCopy } from "@/domains/citation-lifecycle/render-copy";
 
 import { ChangesV2ResultPill } from "@/components/changes/v2/changes-v2-result-pill";
 
@@ -79,6 +81,18 @@ export type ChangeDetailV2Props = {
   beaconRecommended: boolean;
   /** Ordered Act 5 CTAs from the next-action resolver. */
   nextActions: ReadonlyArray<NextActionCta>;
+  /**
+   * Phase A.1 (2026-05-13) — citation-lifecycle line for Act 3.
+   * Null when the change has no linked recommended-edit OR the
+   * edit isn't eligible for the time-to-citation metric (no
+   * `live_at`, or `wrong_page` / `dismissed` / etc.). Rendered
+   * inside Act 3 below the result pill and platform chips.
+   */
+  lifecycle: {
+    stage: LifecycleStage;
+    copy: LifecycleCopy;
+    isPartialLive: boolean;
+  } | null;
 };
 
 export function ChangeDetailV2Client(props: ChangeDetailV2Props) {
@@ -96,6 +110,7 @@ export function ChangeDetailV2Client(props: ChangeDetailV2Props) {
     platformLabels,
     beaconRecommended,
     nextActions,
+    lifecycle,
   } = props;
 
   const formattedShippedAt = formatLongDate(shippedAt);
@@ -265,6 +280,9 @@ export function ChangeDetailV2Client(props: ChangeDetailV2Props) {
         {sparkline.length > 0 && (
           <Sparkline points={sparkline} />
         )}
+        {lifecycle && (
+          <LifecycleLine lifecycle={lifecycle} />
+        )}
       </Act>
 
       {/* Act 4 — Evidence.
@@ -359,6 +377,60 @@ function Act({
       </h2>
       <div className="mt-2.5">{children}</div>
     </section>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Lifecycle line (Act 3 — Phase A.1 §2.10)
+// ─────────────────────────────────────────────────────────────────────
+
+const LIFECYCLE_STAGE_TONE: Record<LifecycleStage, string> = {
+  live_not_yet_cited: "border-l-border bg-surface-inset/40",
+  cited_fast: "border-l-status-success/60 bg-status-success/8",
+  cited_typical: "border-l-status-success/40 bg-status-success/5",
+  cited_late: "border-l-status-warning/40 bg-status-warning/5",
+  cited_very_late: "border-l-status-warning/60 bg-status-warning/8",
+  stuck: "border-l-status-warning/80 bg-status-warning/10",
+};
+
+function LifecycleLine({
+  lifecycle,
+}: {
+  lifecycle: NonNullable<ChangeDetailV2Props["lifecycle"]>;
+}) {
+  const { stage, copy, isPartialLive } = lifecycle;
+  return (
+    <div
+      className={cn(
+        "mt-4 rounded-md border border-border/50 border-l-[3px] px-3 py-2.5",
+        LIFECYCLE_STAGE_TONE[stage],
+      )}
+      data-change-detail-act3-lifecycle={stage}
+      data-change-detail-act3-lifecycle-partial={isPartialLive ? "true" : "false"}
+    >
+      <p
+        className="text-[13px] leading-relaxed text-foreground"
+        data-change-detail-act3-lifecycle-primary="true"
+      >
+        {copy.primary}
+      </p>
+      {copy.per_platform && (
+        <p
+          className="mt-1.5 text-[11.5px] leading-relaxed text-muted-foreground"
+          data-change-detail-act3-lifecycle-per-platform="true"
+        >
+          {copy.per_platform}
+        </p>
+      )}
+      {copy.bridge && (
+        <p
+          className="mt-1.5 text-[11.5px] leading-relaxed text-muted-foreground"
+          data-change-detail-act3-lifecycle-bridge="true"
+        >
+          {copy.bridge}
+        </p>
+      )}
+    </div>
   );
 }
 
