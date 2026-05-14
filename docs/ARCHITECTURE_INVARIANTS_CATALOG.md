@@ -224,6 +224,7 @@
 | name | source test file | section | purpose (one sentence) | status | retirement-condition | last-verified |
 |---|---|---|---|---|---|---|
 | brain-config-and-thresholds-provenance | `tests/architecture/brain-config-and-thresholds-provenance.test.ts` | Section 3.1 / 3.3 / 3.5 (2026-05-14) | Pins canonical paths + exact env-var names + locked numeric/literal-string values + module purity + read-at-call-time contract for the cross-tenant brain's config + thresholds modules. | active | Refines when threshold values are revisited post-validation. No scheduled retirement; gates stay, numbers tunable per operator decision. | 2026-05-14 |
+| brain-compute-tenant-thresholds-provenance | `tests/architecture/brain-compute-tenant-thresholds-provenance.test.ts` | Section 3.7 / E7 (2026-05-14) | Pins the per-tenant benchmark compute: canonical path, public entry point, single-source gate constant + locked percentiles (0.5/0.75/0.9), Profound fallback sourced only from `T2C_THRESHOLDS`, module purity, inclusion-rule rationale, locked exclusion of `live_not_yet_cited` + `stuck`. | active | Refines when per-action-type compute lands post-MVP or when the percentile choice is revisited. | 2026-05-14 |
 
 ## Pending entries (Section 12.1 self-reference)
 
