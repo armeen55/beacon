@@ -321,3 +321,124 @@ describe("deriveLifecycleStage — Phase A.1 §2.9 / D9", () => {
     expect(stripped).not.toMatch(/[^a-zA-Z_][37][^0-9_]/);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────
+// Phase A.2 Step 3a — custom thresholds (optional 2nd argument)
+// ─────────────────────────────────────────────────────────────────────
+
+describe("deriveLifecycleStage — custom thresholds (Phase A.2 §3.7 / E7)", () => {
+  it("default no-second-arg behavior is identical to T2C_THRESHOLDS — boundary check at fast_days = 6", () => {
+    // A 6-day citation is cited_fast under the default (T2C_THRESHOLDS.fast_days = 6).
+    expect(
+      deriveLifecycleStage(
+        input({
+          first_citation_date_iso: "2026-05-07",
+          days_to_first_citation: 6,
+          days_since_live: 7,
+        }),
+      ),
+    ).toBe("cited_fast");
+    // A 7-day citation is cited_typical (just past fast_days).
+    expect(
+      deriveLifecycleStage(
+        input({
+          first_citation_date_iso: "2026-05-08",
+          days_to_first_citation: 7,
+          days_since_live: 8,
+        }),
+      ),
+    ).toBe("cited_typical");
+  });
+
+  it("custom thresholds { fast: 3, median: 7, late: 14 } override default classification", () => {
+    const custom = { fast_days: 3, median_days: 7, late_days: 14 };
+    // 4 days > custom fast (3); ≤ custom median (7) → cited_typical
+    // (under default Profound thresholds this would also be
+    // cited_typical, but the boundary at 3 confirms the override
+    // took effect — at 3 it's cited_fast under custom, cited_fast
+    // under default; checking 4 days exercises the band).
+    expect(
+      deriveLifecycleStage(
+        input({
+          first_citation_date_iso: "2026-05-05",
+          days_to_first_citation: 4,
+          days_since_live: 5,
+        }),
+        custom,
+      ),
+    ).toBe("cited_typical");
+    // 3 days <= custom fast (3) → cited_fast under custom.
+    expect(
+      deriveLifecycleStage(
+        input({
+          first_citation_date_iso: "2026-05-04",
+          days_to_first_citation: 3,
+          days_since_live: 4,
+        }),
+        custom,
+      ),
+    ).toBe("cited_fast");
+    // 15 days > custom late (14) → cited_very_late (would be
+    // cited_typical under default Profound thresholds).
+    expect(
+      deriveLifecycleStage(
+        input({
+          first_citation_date_iso: "2026-05-16",
+          days_to_first_citation: 15,
+          days_since_live: 16,
+        }),
+        custom,
+      ),
+    ).toBe("cited_very_late");
+  });
+
+  it("collapsed thresholds { fast: 5, median: 5, late: 5 } map correctly via chained <= checks", () => {
+    const collapsed = { fast_days: 5, median_days: 5, late_days: 5 };
+    // 4 days <= 5 → cited_fast (passes the first <= 5 check).
+    expect(
+      deriveLifecycleStage(
+        input({
+          first_citation_date_iso: "2026-05-05",
+          days_to_first_citation: 4,
+          days_since_live: 5,
+        }),
+        collapsed,
+      ),
+    ).toBe("cited_fast");
+    // 5 days <= 5 → cited_fast (boundary case).
+    expect(
+      deriveLifecycleStage(
+        input({
+          first_citation_date_iso: "2026-05-06",
+          days_to_first_citation: 5,
+          days_since_live: 6,
+        }),
+        collapsed,
+      ),
+    ).toBe("cited_fast");
+    // 6 days > 5 → falls through all three checks → cited_very_late.
+    expect(
+      deriveLifecycleStage(
+        input({
+          first_citation_date_iso: "2026-05-07",
+          days_to_first_citation: 6,
+          days_since_live: 7,
+        }),
+        collapsed,
+      ),
+    ).toBe("cited_very_late");
+  });
+
+  it("custom thresholds also affect the no-citation branch (stuck boundary)", () => {
+    const custom = { fast_days: 3, median_days: 7, late_days: 14 };
+    // 14 days_since_live with no citation → live_not_yet_cited
+    // (14 <= custom late_days).
+    expect(
+      deriveLifecycleStage(input({ days_since_live: 14 }), custom),
+    ).toBe("live_not_yet_cited");
+    // 15 days_since_live with no citation → stuck (> custom late_days).
+    expect(deriveLifecycleStage(input({ days_since_live: 15 }), custom)).toBe(
+      "stuck",
+    );
+  });
+});

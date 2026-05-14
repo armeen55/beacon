@@ -31,9 +31,62 @@ import type { LifecycleStage } from "./lifecycle-stage";
 import type { TimeToCitationPerPlatformFirstCitation } from "./compute-time-to-citation";
 
 /**
+ * Phase A.2 Step 3a (2026-05-14) — structural alias for the
+ * threshold-decision shape consumed by this module's per-source
+ * copy variants.
+ *
+ * Mirrors `ThresholdDecision` from
+ * `cross-tenant-brain/compute-tenant-thresholds.ts` but declared
+ * locally to avoid a citation-lifecycle → cross-tenant-brain
+ * import direction (citation-lifecycle is upstream of the brain in
+ * dependency order; the brain consumes lifecycle records, not the
+ * other way around).
+ *
+ * Pure structural compatibility — a caller can pass the brain
+ * module's `ThresholdDecision` directly; TypeScript structural
+ * typing makes the two interchangeable.
+ */
+export type ThresholdDecisionLike = {
+  source: "profound_default" | "per_tenant";
+  thresholds: {
+    fast_days: number;
+    median_days: number;
+    late_days: number;
+  };
+  sample_size: number;
+  excluded_count: number;
+  percentile_used: {
+    fast: 0.5;
+    median: 0.75;
+    late: 0.9;
+  };
+};
+
+/**
+ * Default threshold decision used when `LifecycleCopyInput.threshold_decision`
+ * is omitted. Backward-compatibility shim: pre-A.2.3 callers that
+ * don't yet supply a decision continue to see the locked Phase A.1
+ * behavior (Profound defaults, byte-identical copy).
+ */
+const DEFAULT_PROFOUND_DECISION: ThresholdDecisionLike = {
+  source: "profound_default",
+  thresholds: T2C_THRESHOLDS,
+  sample_size: 0,
+  excluded_count: 0,
+  percentile_used: { fast: 0.5, median: 0.75, late: 0.9 },
+};
+
+/**
  * Structural input. Pulls only the subset of `TimeToCitationResult`
  * the copy decision needs, so the consumer can pass the compute
  * result directly without an adapter.
+ *
+ * Phase A.2 Step 3a (2026-05-14): `threshold_decision` added as an
+ * OPTIONAL field. When omitted, the renderer defaults to
+ * `DEFAULT_PROFOUND_DECISION` and produces byte-identical Phase A.1
+ * strings — every existing production caller (loader + tests) keeps
+ * working without modification. The loader will start supplying a
+ * resolved decision in Step 3b.
  */
 export type LifecycleCopyInput = {
   stage: LifecycleStage;
@@ -42,6 +95,8 @@ export type LifecycleCopyInput = {
   per_platform_first_citation: TimeToCitationPerPlatformFirstCitation;
   is_partial_live: boolean;
   was_cited_before_live: boolean;
+  /** Optional per-tenant threshold decision. Default = Profound. */
+  threshold_decision?: ThresholdDecisionLike;
 };
 
 export type LifecycleCopy = {
@@ -82,13 +137,55 @@ export type LifecycleCopy = {
 /**
  * The locked tooltip copy from Section 2 Decision Lock D15. Lives
  * here so both the Changes detail Act 3 stage line AND the Today
- * tile tooltip read from one source. Replacement in Phase A.2
- * (Beacon-owned thresholds) updates this single string.
+ * tile tooltip read from one source. Surfaced when threshold source
+ * is `profound_default` (Phase A.2 Step 3a + onward).
  */
 export const BORROWED_BENCHMARK_TOOLTIP =
   "6, 18, and 37 days are starter benchmarks from a published study " +
   "of marketing pages. Beacon will replace them with its own observed " +
   "benchmarks once there is enough shipped-edit data.";
+
+/**
+ * Per-tenant benchmark tooltip (Phase A.2 Step 3a). Rendered when
+ * the threshold decision source is `per_tenant` — i.e., the tenant
+ * has crossed the ≥ 20-ship gate and Beacon now publishes
+ * thresholds observed in their own shipped-edit lifecycle data.
+ *
+ * The phrase is honest about the cited-edit subpopulation: the
+ * thresholds describe pages that GOT cited; uncited/stuck edits are
+ * tracked separately in the tile above this tooltip's anchor.
+ *
+ * The tooltip body is composed via `renderBenchmarkTooltip(decision)`
+ * — the template substitutes `{sample_size}` at call time so the
+ * single source of truth lives here.
+ */
+function buildPerTenantBenchmarkTooltip(sampleSize: number): string {
+  return (
+    `Computed from ${sampleSize} cited shipped edits on this site. ` +
+    "Bands describe pages that got cited — still-waiting and stuck " +
+    "edits are tracked above."
+  );
+}
+
+/**
+ * Single entry-point for the benchmark tooltip body. Consumers (the
+ * Today tile in Step 3c; the Changes detail in Step 3c) should call
+ * this rather than reaching for `BORROWED_BENCHMARK_TOOLTIP`
+ * directly so source-based variant selection lives in one place.
+ *
+ * Phase A.2 Step 3a: not wired into the Today tile yet — that's
+ * Step 3c. This helper ships now so its contract is testable at the
+ * pure-function level.
+ */
+export function renderBenchmarkTooltip(
+  decision?: ThresholdDecisionLike,
+): string {
+  const d = decision ?? DEFAULT_PROFOUND_DECISION;
+  if (d.source === "per_tenant") {
+    return buildPerTenantBenchmarkTooltip(d.sample_size);
+  }
+  return BORROWED_BENCHMARK_TOOLTIP;
+}
 
 // ─────────────────────────────────────────────────────────────────────
 // Per-stage copy
@@ -105,10 +202,35 @@ function primaryLine(input: LifecycleCopyInput): string {
     days_to_first_citation,
   } = input;
 
+  // Phase A.2 Step 3a — resolve the threshold decision. Missing
+  // decision (pre-A.2.3 callers) falls back to Profound defaults so
+  // existing output stays byte-identical.
+  const decision = input.threshold_decision ?? DEFAULT_PROFOUND_DECISION;
+  const isPerTenant = decision.source === "per_tenant";
+  const fastDays = decision.thresholds.fast_days;
+  // "for this site" is the tenant-observed honesty suffix used in
+  // all cited-* per-tenant variants. Single source of truth so a
+  // future copy edit ripples to all four bands at once.
+  const perTenantSiteSuffix = "for this site";
+
   switch (stage) {
     case "live_not_yet_cited":
       // Inside Beacon's late-day window with no citation yet. Honest
       // "watching" language; no premature alarm.
+      //
+      // Per-tenant variant explicitly names the cited subpopulation
+      // ("on cited pages from this site, first citations arrived
+      // within {fast_days} days") because the sentence makes a
+      // forward claim about timing that would otherwise imply ALL
+      // pages get cited that fast. The Profound variant retains the
+      // paper's broader sample disclosure via the tooltip.
+      if (isPerTenant) {
+        return (
+          `Live ${formatDays(days_since_live)} ago. Beacon is watching; ` +
+          `on cited pages from this site, first citations arrived within ` +
+          `${fastDays} days.`
+        );
+      }
       return (
         `Live ${formatDays(days_since_live)} ago. Beacon is watching; ` +
         `first citations typically appear within ${T2C_THRESHOLDS.fast_days} days.`
@@ -126,18 +248,43 @@ function primaryLine(input: LifecycleCopyInput): string {
       // timing, not attribution. The plan's Section 2.10 originally
       // locked "Cited N days after going live" which implied edit
       // as subject; refined here.
+      //
+      // Per-tenant variant appends "for this site" so the
+      // observational claim is anchored to tenant data; cited-only
+      // subpopulation disclosure lives in the tooltip.
+      if (isPerTenant) {
+        return (
+          `This page was cited ${formatDays(days_to_first_citation ?? 0)} ` +
+          `after the edit went live — within Beacon's fast benchmark ` +
+          `${perTenantSiteSuffix}.`
+        );
+      }
       return (
         `This page was cited ${formatDays(days_to_first_citation ?? 0)} ` +
         `after the edit went live — within Beacon's fast benchmark.`
       );
 
     case "cited_typical":
+      if (isPerTenant) {
+        return (
+          `This page was cited ${formatDays(days_to_first_citation ?? 0)} ` +
+          `after the edit went live — within Beacon's typical citation ` +
+          `window ${perTenantSiteSuffix}.`
+        );
+      }
       return (
         `This page was cited ${formatDays(days_to_first_citation ?? 0)} ` +
         `after the edit went live — within Beacon's typical citation window.`
       );
 
     case "cited_late":
+      if (isPerTenant) {
+        return (
+          `This page was cited ${formatDays(days_to_first_citation ?? 0)} ` +
+          `after the edit went live — past Beacon's typical window but ` +
+          `within the late threshold ${perTenantSiteSuffix}.`
+        );
+      }
       return (
         `This page was cited ${formatDays(days_to_first_citation ?? 0)} ` +
         `after the edit went live — past Beacon's typical window but ` +
@@ -145,6 +292,13 @@ function primaryLine(input: LifecycleCopyInput): string {
       );
 
     case "cited_very_late":
+      if (isPerTenant) {
+        return (
+          `This page was cited ${formatDays(days_to_first_citation ?? 0)} ` +
+          `after the edit went live — late, but the page is in Beacon's ` +
+          `rotation ${perTenantSiteSuffix}.`
+        );
+      }
       return (
         `This page was cited ${formatDays(days_to_first_citation ?? 0)} ` +
         `after the edit went live — late, but the page is in Beacon's ` +
@@ -153,7 +307,10 @@ function primaryLine(input: LifecycleCopyInput): string {
 
     case "stuck":
       // Discoverability concern. The bridge phrase below adds the
-      // forward-looking note about Phase A.3 (indexability).
+      // forward-looking note about Phase A.3 (indexability). Copy
+      // is identical for both threshold sources — a stuck page is a
+      // stuck page regardless of which benchmark band defined
+      // "past late_days."
       return (
         `Live ${formatDays(days_since_live)} ago, not yet cited. ` +
         `Likely a discoverability issue.`

@@ -21,8 +21,10 @@ import { describe, expect, it } from "vitest";
 
 import {
   BORROWED_BENCHMARK_TOOLTIP,
+  renderBenchmarkTooltip,
   renderLifecycleCopy,
   type LifecycleCopyInput,
+  type ThresholdDecisionLike,
 } from "@/domains/citation-lifecycle/render-copy";
 import { T2C_THRESHOLDS } from "@/domains/citation-lifecycle/thresholds";
 
@@ -439,5 +441,325 @@ describe("BORROWED_BENCHMARK_TOOLTIP — D15 locked phrasing", () => {
     // would be dishonest.
     expect(BORROWED_BENCHMARK_TOOLTIP).not.toMatch(/from your data/i);
     expect(BORROWED_BENCHMARK_TOOLTIP).not.toMatch(/observed in your account/i);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────
+// Phase A.2 Step 3a — per-source variants + tooltip helper
+// ─────────────────────────────────────────────────────────────────────
+
+/**
+ * Helper: build a `ThresholdDecisionLike` for tests. Defaults to
+ * Profound source so a test that wants per-tenant explicitly opts
+ * in by overriding `source` + `thresholds` + `sample_size`.
+ */
+function decision(
+  overrides: Partial<ThresholdDecisionLike> = {},
+): ThresholdDecisionLike {
+  return {
+    source: "profound_default",
+    thresholds: T2C_THRESHOLDS,
+    sample_size: 0,
+    excluded_count: 0,
+    percentile_used: { fast: 0.5, median: 0.75, late: 0.9 },
+    ...overrides,
+  };
+}
+
+// Backward-compatibility: existing callers do NOT pass
+// threshold_decision. The renderer must default to Profound and
+// produce byte-identical Phase A.1 strings.
+describe("renderLifecycleCopy — backward compatibility (Phase A.2 §3.7)", () => {
+  it("missing threshold_decision (Phase A.1 callers) produces identical output to explicit profound_default", () => {
+    const stages: Array<LifecycleCopyInput["stage"]> = [
+      "live_not_yet_cited",
+      "cited_fast",
+      "cited_typical",
+      "cited_late",
+      "cited_very_late",
+      "stuck",
+    ];
+    for (const stage of stages) {
+      const days =
+        stage === "live_not_yet_cited" || stage === "stuck" ? null : 8;
+      const baseline = renderLifecycleCopy(
+        input({ stage, days_since_live: 10, days_to_first_citation: days }),
+      );
+      const explicit = renderLifecycleCopy(
+        input({
+          stage,
+          days_since_live: 10,
+          days_to_first_citation: days,
+          threshold_decision: decision({ source: "profound_default" }),
+        }),
+      );
+      expect(explicit).toEqual(baseline);
+    }
+  });
+
+  it("missing threshold_decision uses Profound defaults verbatim (live_not_yet_cited mentions 6 days)", () => {
+    const copy = renderLifecycleCopy(
+      input({ stage: "live_not_yet_cited", days_since_live: 3 }),
+    );
+    expect(copy.primary).toBe(
+      "Live 3 days ago. Beacon is watching; first citations typically appear within 6 days.",
+    );
+  });
+});
+
+// Per-tenant variants for every cited-* + live_not_yet_cited stage,
+// plus an explicit assertion that `stuck` does NOT vary by source.
+describe("renderLifecycleCopy — per-tenant variants (Phase A.2 §3.7)", () => {
+  const perTenant = (
+    overrides: Partial<ThresholdDecisionLike["thresholds"]> = {},
+    sample = 22,
+  ): ThresholdDecisionLike =>
+    decision({
+      source: "per_tenant",
+      thresholds: {
+        fast_days: 4,
+        median_days: 12,
+        late_days: 24,
+        ...overrides,
+      },
+      sample_size: sample,
+    });
+
+  it("cited_fast per_tenant renders 'within Beacon's fast benchmark for this site'", () => {
+    const copy = renderLifecycleCopy(
+      input({
+        stage: "cited_fast",
+        days_since_live: 5,
+        days_to_first_citation: 4,
+        threshold_decision: perTenant(),
+      }),
+    );
+    expect(copy.primary).toBe(
+      "This page was cited 4 days after the edit went live — within Beacon's fast benchmark for this site.",
+    );
+  });
+
+  it("cited_typical per_tenant renders 'within Beacon's typical citation window for this site'", () => {
+    const copy = renderLifecycleCopy(
+      input({
+        stage: "cited_typical",
+        days_since_live: 11,
+        days_to_first_citation: 10,
+        threshold_decision: perTenant(),
+      }),
+    );
+    expect(copy.primary).toBe(
+      "This page was cited 10 days after the edit went live — within Beacon's typical citation window for this site.",
+    );
+  });
+
+  it("cited_late per_tenant renders 'within the late threshold for this site'", () => {
+    const copy = renderLifecycleCopy(
+      input({
+        stage: "cited_late",
+        days_since_live: 22,
+        days_to_first_citation: 20,
+        threshold_decision: perTenant(),
+      }),
+    );
+    expect(copy.primary).toBe(
+      "This page was cited 20 days after the edit went live — past Beacon's typical window but within the late threshold for this site.",
+    );
+  });
+
+  it("cited_very_late per_tenant renders 'in Beacon's rotation for this site'", () => {
+    const copy = renderLifecycleCopy(
+      input({
+        stage: "cited_very_late",
+        days_since_live: 35,
+        days_to_first_citation: 33,
+        threshold_decision: perTenant(),
+      }),
+    );
+    expect(copy.primary).toBe(
+      "This page was cited 33 days after the edit went live — late, but the page is in Beacon's rotation for this site.",
+    );
+  });
+
+  it("live_not_yet_cited per_tenant names the cited subpopulation + uses dynamic fast_days", () => {
+    const copy = renderLifecycleCopy(
+      input({
+        stage: "live_not_yet_cited",
+        days_since_live: 2,
+        threshold_decision: perTenant({ fast_days: 4 }),
+      }),
+    );
+    expect(copy.primary).toBe(
+      "Live 2 days ago. Beacon is watching; on cited pages from this site, first citations arrived within 4 days.",
+    );
+  });
+
+  it("stuck primary copy is UNCHANGED across both threshold sources", () => {
+    const profound = renderLifecycleCopy(
+      input({
+        stage: "stuck",
+        days_since_live: 41,
+        threshold_decision: decision({ source: "profound_default" }),
+      }),
+    );
+    const perT = renderLifecycleCopy(
+      input({
+        stage: "stuck",
+        days_since_live: 41,
+        threshold_decision: perTenant(),
+      }),
+    );
+    expect(profound.primary).toBe(perT.primary);
+    expect(perT.primary).toBe(
+      "Live 41 days ago, not yet cited. Likely a discoverability issue.",
+    );
+    // Bridge phrase still rendered on stuck regardless of source.
+    expect(perT.bridge).toBe(
+      "The next bundle will add automated sitemap + robots checks here.",
+    );
+  });
+
+  it("per-tenant variants contain the 'for this site' marker (cited stages only)", () => {
+    const citedStages: Array<LifecycleCopyInput["stage"]> = [
+      "cited_fast",
+      "cited_typical",
+      "cited_late",
+      "cited_very_late",
+    ];
+    for (const stage of citedStages) {
+      const copy = renderLifecycleCopy(
+        input({
+          stage,
+          days_since_live: 10,
+          days_to_first_citation: 8,
+          threshold_decision: perTenant(),
+        }),
+      );
+      expect(
+        copy.primary,
+        `stage '${stage}' per_tenant variant should include 'for this site'`,
+      ).toContain("for this site");
+    }
+  });
+
+  it("per-tenant variants honor the causality-safety contract (no causal verbs)", () => {
+    const FORBIDDEN_CAUSAL_FRAGMENTS = [
+      " caused ",
+      " drove ",
+      " generated ",
+      "because of this edit",
+      "because of the edit",
+      "the edit caused",
+      "the change caused",
+      "this edit caused",
+      "this change caused",
+      "this edit worked",
+    ];
+    const stages: Array<LifecycleCopyInput["stage"]> = [
+      "live_not_yet_cited",
+      "cited_fast",
+      "cited_typical",
+      "cited_late",
+      "cited_very_late",
+      "stuck",
+    ];
+    for (const stage of stages) {
+      const copy = renderLifecycleCopy(
+        input({
+          stage,
+          days_since_live: 10,
+          days_to_first_citation:
+            stage === "live_not_yet_cited" || stage === "stuck" ? null : 8,
+          threshold_decision: perTenant(),
+        }),
+      );
+      const text = [copy.primary, copy.per_platform, copy.bridge]
+        .filter((s): s is string => typeof s === "string")
+        .join(" | ")
+        .toLowerCase();
+      for (const phrase of FORBIDDEN_CAUSAL_FRAGMENTS) {
+        expect(
+          text,
+          `per_tenant stage '${stage}' rendered text contains forbidden causal fragment '${phrase.trim()}'`,
+        ).not.toContain(phrase);
+      }
+    }
+  });
+
+  it("per-tenant variants still use 'this page was cited' as the cited-stage subject", () => {
+    const citedStages: Array<LifecycleCopyInput["stage"]> = [
+      "cited_fast",
+      "cited_typical",
+      "cited_late",
+      "cited_very_late",
+    ];
+    for (const stage of citedStages) {
+      const copy = renderLifecycleCopy(
+        input({
+          stage,
+          days_since_live: 10,
+          days_to_first_citation: 8,
+          threshold_decision: perTenant(),
+        }),
+      );
+      expect(copy.primary.toLowerCase()).toContain("this page was cited");
+      expect(copy.primary).toContain("after the edit went live");
+    }
+  });
+});
+
+// renderBenchmarkTooltip — single entry point for the tooltip body.
+describe("renderBenchmarkTooltip (Phase A.2 §3.7)", () => {
+  it("missing decision returns BORROWED_BENCHMARK_TOOLTIP verbatim (default = Profound)", () => {
+    expect(renderBenchmarkTooltip()).toBe(BORROWED_BENCHMARK_TOOLTIP);
+  });
+
+  it("profound_default source returns BORROWED_BENCHMARK_TOOLTIP verbatim", () => {
+    expect(
+      renderBenchmarkTooltip(decision({ source: "profound_default" })),
+    ).toBe(BORROWED_BENCHMARK_TOOLTIP);
+  });
+
+  it("per_tenant source returns the cited-shipped-edits wording with sample_size substituted", () => {
+    const body = renderBenchmarkTooltip(
+      decision({
+        source: "per_tenant",
+        thresholds: { fast_days: 4, median_days: 12, late_days: 24 },
+        sample_size: 22,
+      }),
+    );
+    expect(body).toBe(
+      "Computed from 22 cited shipped edits on this site. " +
+        "Bands describe pages that got cited — still-waiting and stuck " +
+        "edits are tracked above.",
+    );
+  });
+
+  it("per_tenant tooltip discloses the cited subpopulation contract", () => {
+    // The honesty requirement from the operator-locked product
+    // principle: per-tenant tooltip must say the bands describe
+    // cited pages only, and the still-waiting/stuck rows are
+    // tracked separately.
+    const body = renderBenchmarkTooltip(
+      decision({
+        source: "per_tenant",
+        sample_size: 30,
+      }),
+    );
+    expect(body).toContain("cited shipped edits");
+    expect(body).toContain("got cited");
+    expect(body).toMatch(/still-waiting/i);
+    expect(body).toMatch(/stuck/i);
+  });
+
+  it("per_tenant tooltip never overclaims that all pages get cited", () => {
+    // The pre-flight risk-checklist called out cited-only sampling
+    // bias. Tooltip phrasing must not say "your edits get cited
+    // within X days" — only "pages that got cited."
+    const body = renderBenchmarkTooltip(
+      decision({ source: "per_tenant", sample_size: 22 }),
+    );
+    expect(body).not.toMatch(/all (your )?(edits|pages)/i);
+    expect(body).not.toMatch(/(your )?edits (get|are) cited within/i);
   });
 });
