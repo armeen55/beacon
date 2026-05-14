@@ -24,10 +24,13 @@ import {
   buildTileStrings,
   renderBenchmarkTooltip,
   renderLifecycleCopy,
+  renderStuckDiagnostic,
   type LifecycleCopyInput,
+  type StuckDiagnosticInput,
   type ThresholdDecisionLike,
 } from "@/domains/citation-lifecycle/render-copy";
 import { T2C_THRESHOLDS } from "@/domains/citation-lifecycle/thresholds";
+import type { IndexabilityVerdict } from "@/domains/indexability/types";
 
 function input(overrides: Partial<LifecycleCopyInput> = {}): LifecycleCopyInput {
   return {
@@ -884,6 +887,336 @@ describe("buildTileStrings — customer-vocabulary contract", () => {
           v,
         );
       }
+    }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────
+// Phase A.3 Step 2 — renderStuckDiagnostic (pure copy helper)
+// ─────────────────────────────────────────────────────────────────────
+
+const ALL_VERDICTS: ReadonlyArray<IndexabilityVerdict> = [
+  "ok",
+  "not_in_sitemap",
+  "blocked_by_robots_for_ai",
+  "blocked_by_robots_for_googlebot",
+  "noindex_meta",
+  "bad_status_code",
+  "canonical_elsewhere",
+  "unknown",
+  "not_indexed_in_gsc",
+  "indexed_but_not_cited",
+];
+
+describe("renderStuckDiagnostic — per-verdict copy (Phase A.3 §3)", () => {
+  it("ok returns the watching-positive line", () => {
+    expect(renderStuckDiagnostic({ verdict: "ok" })).toBe(
+      "This page appears discoverable. Beacon is watching for AI to pick it up.",
+    );
+  });
+
+  it("not_in_sitemap returns the sitemap-missing line", () => {
+    expect(renderStuckDiagnostic({ verdict: "not_in_sitemap" })).toBe(
+      "Beacon did not find this page in your sitemap.xml.",
+    );
+  });
+
+  it("blocked_by_robots_for_googlebot returns the Googlebot-block line", () => {
+    expect(
+      renderStuckDiagnostic({ verdict: "blocked_by_robots_for_googlebot" }),
+    ).toBe("Your robots.txt appears to block Googlebot from this page.");
+  });
+
+  it("noindex_meta returns the noindex line", () => {
+    expect(renderStuckDiagnostic({ verdict: "noindex_meta" })).toBe(
+      "This page declares noindex in its meta robots tag — AI crawlers will skip it.",
+    );
+  });
+
+  it("unknown returns the watchful fallback line", () => {
+    expect(renderStuckDiagnostic({ verdict: "unknown" })).toBe(
+      "Beacon has not yet confirmed whether this page is discoverable.",
+    );
+  });
+
+  it("not_indexed_in_gsc returns the GSC-not-confirmed line (reserved verdict)", () => {
+    expect(renderStuckDiagnostic({ verdict: "not_indexed_in_gsc" })).toBe(
+      "Google Search Console does not confirm this page is indexed.",
+    );
+  });
+
+  it("indexed_but_not_cited returns the indexed-but-watching line (reserved verdict)", () => {
+    expect(renderStuckDiagnostic({ verdict: "indexed_but_not_cited" })).toBe(
+      "This page is indexed in Google. Beacon is still watching for AI to pick it up.",
+    );
+  });
+});
+
+describe("renderStuckDiagnostic — blocked_by_robots_for_ai with context", () => {
+  it("single blocked bot is named in the copy", () => {
+    const out = renderStuckDiagnostic({
+      verdict: "blocked_by_robots_for_ai",
+      context: { blocked_ai_bots: ["GPTBot"] },
+    });
+    expect(out).toBe(
+      "Your robots.txt appears to block GPTBot from this page.",
+    );
+  });
+
+  it("multiple blocked bots are comma-joined in the copy", () => {
+    const out = renderStuckDiagnostic({
+      verdict: "blocked_by_robots_for_ai",
+      context: { blocked_ai_bots: ["GPTBot", "PerplexityBot"] },
+    });
+    expect(out).toBe(
+      "Your robots.txt appears to block GPTBot, PerplexityBot from this page.",
+    );
+  });
+
+  it("three blocked bots comma-join cleanly", () => {
+    const out = renderStuckDiagnostic({
+      verdict: "blocked_by_robots_for_ai",
+      context: {
+        blocked_ai_bots: ["GPTBot", "PerplexityBot", "ClaudeBot"],
+      },
+    });
+    expect(out).toBe(
+      "Your robots.txt appears to block GPTBot, PerplexityBot, ClaudeBot from this page.",
+    );
+  });
+
+  it("empty bot list falls back to the generic AI-crawlers phrasing", () => {
+    const out = renderStuckDiagnostic({
+      verdict: "blocked_by_robots_for_ai",
+      context: { blocked_ai_bots: [] },
+    });
+    expect(out).toBe(
+      "Your robots.txt appears to block one or more AI crawlers from this page.",
+    );
+  });
+
+  it("null bot list falls back to the generic AI-crawlers phrasing", () => {
+    const out = renderStuckDiagnostic({
+      verdict: "blocked_by_robots_for_ai",
+      context: { blocked_ai_bots: null },
+    });
+    expect(out).toBe(
+      "Your robots.txt appears to block one or more AI crawlers from this page.",
+    );
+  });
+
+  it("missing context entirely falls back to the generic AI-crawlers phrasing", () => {
+    const out = renderStuckDiagnostic({
+      verdict: "blocked_by_robots_for_ai",
+    });
+    expect(out).toBe(
+      "Your robots.txt appears to block one or more AI crawlers from this page.",
+    );
+  });
+});
+
+describe("renderStuckDiagnostic — bad_status_code with context", () => {
+  it("includes the status number when supplied", () => {
+    expect(
+      renderStuckDiagnostic({
+        verdict: "bad_status_code",
+        context: { http_status: 404 },
+      }),
+    ).toBe("This page returns HTTP 404 — it may no longer serve content.");
+  });
+
+  it("includes a redirect status when supplied", () => {
+    expect(
+      renderStuckDiagnostic({
+        verdict: "bad_status_code",
+        context: { http_status: 301 },
+      }),
+    ).toBe("This page returns HTTP 301 — it may no longer serve content.");
+  });
+
+  it("missing status falls back to the generic error-or-redirect phrasing", () => {
+    expect(renderStuckDiagnostic({ verdict: "bad_status_code" })).toBe(
+      "This page returns an error or redirect status.",
+    );
+  });
+
+  it("null status falls back to the generic error-or-redirect phrasing", () => {
+    expect(
+      renderStuckDiagnostic({
+        verdict: "bad_status_code",
+        context: { http_status: null },
+      }),
+    ).toBe("This page returns an error or redirect status.");
+  });
+});
+
+describe("renderStuckDiagnostic — canonical_elsewhere with context", () => {
+  it("includes the canonical URL verbatim when supplied", () => {
+    expect(
+      renderStuckDiagnostic({
+        verdict: "canonical_elsewhere",
+        context: { canonical_url: "https://example.com/other" },
+      }),
+    ).toBe(
+      "This page declares a canonical to https://example.com/other — citations may credit that page instead.",
+    );
+  });
+
+  it("missing canonical falls back to the generic 'different URL' phrasing", () => {
+    expect(renderStuckDiagnostic({ verdict: "canonical_elsewhere" })).toBe(
+      "This page declares a canonical to a different URL — citations may credit that page instead.",
+    );
+  });
+
+  it("empty-string canonical falls back to the generic 'different URL' phrasing", () => {
+    expect(
+      renderStuckDiagnostic({
+        verdict: "canonical_elsewhere",
+        context: { canonical_url: "" },
+      }),
+    ).toBe(
+      "This page declares a canonical to a different URL — citations may credit that page instead.",
+    );
+  });
+
+  it("null canonical falls back to the generic 'different URL' phrasing", () => {
+    expect(
+      renderStuckDiagnostic({
+        verdict: "canonical_elsewhere",
+        context: { canonical_url: null },
+      }),
+    ).toBe(
+      "This page declares a canonical to a different URL — citations may credit that page instead.",
+    );
+  });
+});
+
+describe("renderStuckDiagnostic — customer-vocabulary contract", () => {
+  // Forbidden tokens per the operator-locked customer copy
+  // guardrails. Snake_case enum identifiers (the verdict values
+  // themselves) MUST NOT appear in rendered copy; causal-overclaim
+  // verbs MUST NOT appear either.
+  const SNAKE_ENUMS: ReadonlyArray<IndexabilityVerdict> = [
+    "not_in_sitemap",
+    "blocked_by_robots_for_ai",
+    "blocked_by_robots_for_googlebot",
+    "noindex_meta",
+    "bad_status_code",
+    "canonical_elsewhere",
+    "not_indexed_in_gsc",
+    "indexed_but_not_cited",
+  ];
+
+  const CAUSAL_TOKENS = [
+    "caused",
+    "drove",
+    "generated",
+    "because",
+    "this is why",
+  ] as const;
+
+  it("no verdict's rendered copy contains a snake_case enum identifier", () => {
+    for (const verdict of ALL_VERDICTS) {
+      // Cover every fallback + context path for the verdicts that
+      // have variant copy, so the assertion runs against every
+      // string the helper can produce.
+      const copies: string[] = [];
+      copies.push(renderStuckDiagnostic({ verdict }));
+      if (verdict === "blocked_by_robots_for_ai") {
+        copies.push(
+          renderStuckDiagnostic({
+            verdict,
+            context: {
+              blocked_ai_bots: [
+                "GPTBot",
+                "PerplexityBot",
+                "ClaudeBot",
+                "Google-Extended",
+              ],
+            },
+          }),
+        );
+      }
+      if (verdict === "bad_status_code") {
+        copies.push(
+          renderStuckDiagnostic({ verdict, context: { http_status: 404 } }),
+        );
+      }
+      if (verdict === "canonical_elsewhere") {
+        copies.push(
+          renderStuckDiagnostic({
+            verdict,
+            context: { canonical_url: "https://example.com/other" },
+          }),
+        );
+      }
+      for (const copy of copies) {
+        for (const enumName of SNAKE_ENUMS) {
+          expect(
+            copy,
+            `verdict '${verdict}' rendered copy leaked enum '${enumName}': ${copy}`,
+          ).not.toContain(enumName);
+        }
+      }
+    }
+  });
+
+  it("no verdict's rendered copy contains causal-overclaim language", () => {
+    for (const verdict of ALL_VERDICTS) {
+      const copies: string[] = [
+        renderStuckDiagnostic({ verdict }),
+        // Exercise context-bearing variants too.
+        ...(verdict === "blocked_by_robots_for_ai"
+          ? [
+              renderStuckDiagnostic({
+                verdict,
+                context: { blocked_ai_bots: ["GPTBot"] },
+              }),
+            ]
+          : []),
+        ...(verdict === "bad_status_code"
+          ? [
+              renderStuckDiagnostic({
+                verdict,
+                context: { http_status: 500 },
+              }),
+            ]
+          : []),
+        ...(verdict === "canonical_elsewhere"
+          ? [
+              renderStuckDiagnostic({
+                verdict,
+                context: { canonical_url: "https://example.com/other" },
+              }),
+            ]
+          : []),
+      ];
+      for (const copy of copies) {
+        const lower = copy.toLowerCase();
+        for (const token of CAUSAL_TOKENS) {
+          expect(
+            lower,
+            `verdict '${verdict}' rendered copy contains causal token '${token}': ${copy}`,
+          ).not.toContain(token);
+        }
+      }
+    }
+  });
+});
+
+describe("renderStuckDiagnostic — determinism", () => {
+  it("same input returns byte-identical output across two calls", () => {
+    const input: StuckDiagnosticInput = {
+      verdict: "blocked_by_robots_for_ai",
+      context: { blocked_ai_bots: ["GPTBot", "PerplexityBot"] },
+    };
+    expect(renderStuckDiagnostic(input)).toBe(renderStuckDiagnostic(input));
+  });
+
+  it("returns a non-empty string for every verdict", () => {
+    for (const verdict of ALL_VERDICTS) {
+      const copy = renderStuckDiagnostic({ verdict });
+      expect(copy.length).toBeGreaterThan(0);
     }
   });
 });

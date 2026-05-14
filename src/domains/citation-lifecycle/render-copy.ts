@@ -474,3 +474,129 @@ export function buildTileStrings(
 
   return { stage_labels, tooltip_body, empty_state_body };
 }
+
+// ─────────────────────────────────────────────────────────────────────
+// Stuck-stage diagnostic copy (Phase A.3 Step 2, 2026-05-14)
+// ─────────────────────────────────────────────────────────────────────
+//
+// Pure helper. Maps an indexability verdict (from
+// `@/domains/indexability/types`) to one short customer-facing
+// sentence describing WHY the stuck-stage row is likely uncited.
+//
+// IMPORTANT — this helper is NOT yet wired into the live stuck-stage
+// code path. The existing `STUCK_BRIDGE_PHRASE` + `bridgeLine()` keep
+// owning the visible bridge sub-line until Phase A.3 Step 4 (the
+// atomic stuck-stage flip). A.3.2 ships the helper + its tests in
+// isolation so A.3.3 (loader) and A.3.4 (UI wiring) can land on a
+// stable, tested copy contract.
+//
+// Customer-copy guardrails honored across every variant:
+//   • No snake_case verdict enum leakage — every string is plain
+//     English; verdict identifiers (e.g., `bad_status_code`) NEVER
+//     appear in the returned copy.
+//   • No causal overclaim — observational verbs only ("appears",
+//     "did not find", "declares", "returns"). Forbidden tokens:
+//     "caused", "drove", "generated", "because", "this is why".
+//   • Specific raw detail surfaced when the caller supplies it
+//     (HTTP status number, canonical target URL, blocked AI-bot
+//     names); honest generic fallback when context is missing.
+//   • Reserved GSC verdicts (`not_indexed_in_gsc`,
+//     `indexed_but_not_cited`) ship with copy already in place so
+//     Phase A.3.b1 (GSC) wires data into a renderer that already
+//     knows the customer-facing words.
+//
+// Type-only import from the indexability module — no runtime
+// cross-module dependency.
+
+import type { IndexabilityVerdict } from "@/domains/indexability/types";
+
+/**
+ * Input shape for `renderStuckDiagnostic`. `verdict` is required;
+ * `context` carries optional raw detail that lets the helper
+ * produce a more specific copy variant when known. Every context
+ * field is independently nullable so the loader (A.3.3) can fill
+ * partial context without forcing the renderer to fall through to
+ * generic copy when only one signal is missing.
+ */
+export type StuckDiagnosticInput = {
+  verdict: IndexabilityVerdict;
+  context?: {
+    http_status?: number | null;
+    canonical_url?: string | null;
+    blocked_ai_bots?: ReadonlyArray<
+      "GPTBot" | "PerplexityBot" | "ClaudeBot" | "Google-Extended"
+    > | null;
+  };
+};
+
+/**
+ * Comma-join helper for the blocked-AI-bots list. v1 uses a simple
+ * `", "` separator without an Oxford comma. Empty / null lists are
+ * the caller's signal to fall back to the generic phrasing — this
+ * helper assumes a non-empty list when called.
+ */
+function joinBots(
+  bots: ReadonlyArray<
+    "GPTBot" | "PerplexityBot" | "ClaudeBot" | "Google-Extended"
+  >,
+): string {
+  return bots.join(", ");
+}
+
+/**
+ * Map an `IndexabilityVerdict` to its customer-facing diagnostic
+ * sentence. Pure, total, deterministic. Returns a non-null string
+ * for every enum value (10 — 8 producible + 2 reserved-for-GSC).
+ *
+ * Switch is exhaustive over `IndexabilityVerdict`; a future enum
+ * addition surfaces here as a TypeScript exhaustiveness error.
+ */
+export function renderStuckDiagnostic(input: StuckDiagnosticInput): string {
+  const ctx = input.context ?? {};
+  switch (input.verdict) {
+    case "ok":
+      return "This page appears discoverable. Beacon is watching for AI to pick it up.";
+
+    case "not_in_sitemap":
+      return "Beacon did not find this page in your sitemap.xml.";
+
+    case "blocked_by_robots_for_ai": {
+      const bots = ctx.blocked_ai_bots ?? null;
+      if (bots != null && bots.length > 0) {
+        return `Your robots.txt appears to block ${joinBots(bots)} from this page.`;
+      }
+      return "Your robots.txt appears to block one or more AI crawlers from this page.";
+    }
+
+    case "blocked_by_robots_for_googlebot":
+      return "Your robots.txt appears to block Googlebot from this page.";
+
+    case "noindex_meta":
+      return "This page declares noindex in its meta robots tag — AI crawlers will skip it.";
+
+    case "bad_status_code": {
+      const status = ctx.http_status ?? null;
+      if (status != null) {
+        return `This page returns HTTP ${status} — it may no longer serve content.`;
+      }
+      return "This page returns an error or redirect status.";
+    }
+
+    case "canonical_elsewhere": {
+      const target = ctx.canonical_url ?? null;
+      if (target != null && target.length > 0) {
+        return `This page declares a canonical to ${target} — citations may credit that page instead.`;
+      }
+      return "This page declares a canonical to a different URL — citations may credit that page instead.";
+    }
+
+    case "unknown":
+      return "Beacon has not yet confirmed whether this page is discoverable.";
+
+    case "not_indexed_in_gsc":
+      return "Google Search Console does not confirm this page is indexed.";
+
+    case "indexed_but_not_cited":
+      return "This page is indexed in Google. Beacon is still watching for AI to pick it up.";
+  }
+}
