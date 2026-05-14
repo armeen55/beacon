@@ -7,6 +7,31 @@
 
 ---
 
+## 2026-05-13 — Phase A.1 Step 1: citation-lifecycle thresholds
+
+**Context.** First atomic step of Phase A.1 (Time-to-Citation Read Model) per the maximum-depth plan locked at `/Users/armeen/.claude/plans/enter-maximum-depth-planning-mode-twinkly-balloon.md`. Section 2 + Decision Lock D1–D15 specify the foundation: borrowed Profound defaults (6 / 18 / 37 days, integer rounding per D8) for citation-lifecycle band boundaries, with a hard architecture invariant that the BORROWED label and the Phase A.2 replacement promise can't drift.
+
+**Files added.**
+- `src/domains/citation-lifecycle/thresholds.ts` (new) — pure constants module. Exports `T2C_THRESHOLDS = { fast_days: 6, median_days: 18, late_days: 37 } as const` with `T2cThresholds` type. Header comment attributes the defaults to a Profound study of ~900 marketing pages, flags them as BORROWED, names Phase A.2 (Section 3 brain activation) as the replacement path, and self-references its own architecture invariant.
+- `tests/architecture/thresholds-provenance.test.ts` (new) — 7 pinning assertions: (1) source file exists at canonical path; (2) "BORROWED DEFAULTS" and "Profound" both present in header; (3) "6 / 18 / 37" rounding string locked; (4) "Beacon will replace" + "Phase A.2" both present so the replacement promise can't be silently removed; (5) exported `T2C_THRESHOLDS` with `fast_days: 6` / `median_days: 18` / `late_days: 37`; (6) `as const` literal-type lock; (7) source comment references this test file by name so the contract trail is bi-navigable.
+
+**Hard contracts honored** (per Section 2 + Section 12 locks).
+- No LLM calls. No paid APIs. No Supabase migrations. No data mutations.
+- No customer-facing surface change in this step (foundation only).
+- No new top-level routes.
+- Legacy route untouched. Phase B Regenerate untouched.
+- Pure constants module; no runtime cost.
+
+**Quality gates.**
+- `npm run typecheck` — CLEAN.
+- `npx vitest run tests/architecture/thresholds-provenance.test.ts` — 7/7 passed (266ms).
+- `npm run test` — **449 test files passed / 1 skipped (450 total) · 8409 tests passed / 25 skipped (8434 total)** in 75.34s. +7 since prior baseline 8402.
+- `BEACON_TENANT_ID=tenant-ritz-founder BEACON_TENANT_SLUG=ritz-builders npm run build` — green. Same env-var requirement as Vercel build (documented by build error itself; pre-existing prerender constraint, unrelated to this step).
+
+**Recommended next step.** Phase A.1 Step 2: `src/domains/citation-lifecycle/eligibility.ts` — pure predicate `isEligibleForTimeToCitation(row)` over `recommended_edits` × `live_at` × `target_url`. Per D1: includes `partially_implemented` with `is_partial_live` flag. Per D2: excludes `wrong_page`. Tests: ~14-case truth table over every status × live_at × target_url combination. Same atomic-step discipline as this commit.
+
+---
+
 ## 2026-05-13 — Recommendation Execution Layer v1 Phase A: render-only Suggested Copy act
 
 The /recommendations/[id] brief page now exposes the Beacon-drafted publishable copy that already exists in `recommended_edits.proposed_text` (and the paired answer-leg for FAQs). Acts re-ordered to: Act 1 Recommendation · Act 2 Why this matters · Act 3 Evidence · **Act 4 Suggested copy** · Act 5 How Beacon will measure it · Act 6 What to do next. Numbering stays sequential — when the action type doesn't support copy (`create_page`, `review_decision`, `regenerate_edit`) Act 4 is suppressed and the trailing acts collapse to 4 and 5 with no skipped numbers.
