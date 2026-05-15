@@ -6,12 +6,19 @@
  * NO scan triggers, NO GSC, NO UI consumer (A.3.4 wires UI).
  *
  * Signal sources:
- *   • `PageSnapshot` via `getPageSnapshots()`. Routed tenant-per-tenant
- *     through `readDotDataJson("page-snapshots")` →
- *     `.data/tenants/{slug}/page-snapshots.json`. Tenant safety is
- *     enforced upstream by the AsyncLocalStorage `currentTenantSlug`
- *     resolver; this loader adds an explicit tenant-context assertion
- *     at the entry point to catch misconfigured callers fail-loud.
+ *   • `PageSnapshot` via the tenant-scoped repository
+ *     (`getRepository().forTenant(tenantId).getPageSnapshots()`).
+ *     Reads the Supabase-backed `page_snapshots` table in production
+ *     (filtered by `tenant_id`); reads `.data/tenants/{slug}/page-
+ *     snapshots.json` in dev via the file-backend. The repository
+ *     boundary is the canonical production read path — Vercel
+ *     lambdas have a read-only FS outside `/tmp`, so the file path
+ *     never carries data there even though the daily-scan writes
+ *     it on the GH Actions runner. Supabase is the persistent
+ *     store; the daily-scan dual-writes to it. (Post-A.3.5 fix,
+ *     2026-05-14: prior import from `@/domains/pages/snapshot-
+ *     store` bypassed the repository and returned `[]` on
+ *     production.)
  *   • `SitemapReconciliation` via `getSitemapReconciliation()`. **GLOBAL
  *     STORE** — lives at `.data/global/sitemap-reconciliation.json`
  *     and is shared across tenants. The loader's defense is a
@@ -59,7 +66,6 @@ import type {
   OwnedUrlIndexability,
 } from "./types";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
-import { getPageSnapshots } from "@/domains/pages/snapshot-store";
 import { getSitemapReconciliation } from "@/domains/pages/sitemap-reconciliation-store";
 import {
   evaluateAiBotAccess,
@@ -67,6 +73,7 @@ import {
   readRobotsState,
 } from "@/domains/pages/robots-parser";
 import { getBusinessConfig } from "@/lib/business-config";
+import { getRepository } from "@/lib/persistence/repositories";
 import { currentTenantId } from "@/lib/tenant-context";
 
 const MS_PER_DAY = 86_400_000;
@@ -295,8 +302,20 @@ export async function loadIndexabilityForUrl(opts: {
       const cfg = getBusinessConfig();
       const tenantDomain = normalizeHost(cfg.domain);
 
+      // Phase A.3 (post-A.3.5 production-data fix, 2026-05-14):
+      // route page-snapshots through the tenant-scoped repository
+      // (`getRepository().forTenant(...).getPageSnapshots()`) so
+      // production reads the Supabase-backed rows that the daily
+      // scan dual-writes. The prior import from
+      // `@/domains/pages/snapshot-store` (which calls
+      // `readDotDataJson("page-snapshots")` → direct file read)
+      // returned `[]` on Vercel because the lambda FS doesn't
+      // carry `.data/tenants/{slug}/page-snapshots.json`. The
+      // repository's tenant-scoped getter is the canonical
+      // production read path (supabase-backend.ts:659–700).
+      const repo = getRepository().forTenant(opts.tenantId);
       const [snapshots, reconciliation] = await Promise.all([
-        getPageSnapshots(),
+        repo.getPageSnapshots(),
         getSitemapReconciliation(),
       ]);
       // readRobotsState is synchronous; awaiting noisily here keeps
@@ -305,8 +324,8 @@ export async function loadIndexabilityForUrl(opts: {
       const robotsState = readRobotsState();
 
       // Snapshot lookup: exact match on canonicalized URL. The
-      // existing snapshot routing already filters per-tenant via
-      // AsyncLocalStorage, so the array we get back is tenant-scoped.
+      // repository getter is tenant-filtered upstream, so the
+      // array we get back is already scoped to opts.tenantId.
       const snapshot =
         snapshots.find(
           (s) => canonicalizeCitationUrl(s.url) === canonicalUrl,

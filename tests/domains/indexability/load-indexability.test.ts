@@ -47,8 +47,18 @@ function setCurrentTenant(id: string): void {
   _currentTenant = id;
 }
 
-vi.mock("@/domains/pages/snapshot-store", () => ({
-  getPageSnapshots: async () => _snapshots,
+// Phase A.3 (post-A.3.5 production-data fix, 2026-05-14):
+// loader now reads page-snapshots via the tenant-scoped repository
+// (`getRepository().forTenant(tenantId).getPageSnapshots()`) so
+// production reads Supabase-backed rows. Tests mock the repository
+// boundary; `_snapshots` is the same setter the prior snapshot-store
+// mock used, just plumbed through forTenant.
+vi.mock("@/lib/persistence/repositories", () => ({
+  getRepository: () => ({
+    forTenant: () => ({
+      getPageSnapshots: async () => _snapshots,
+    }),
+  }),
 }));
 
 vi.mock("@/domains/pages/sitemap-reconciliation-store", () => ({

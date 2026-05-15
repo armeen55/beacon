@@ -41,7 +41,6 @@ import { isOperatorModeServer } from "@/lib/operator-mode";
 import { currentTenantId } from "@/lib/tenant-context";
 import { getRepository } from "@/lib/persistence/repositories";
 import { getBusinessConfig } from "@/lib/business-config";
-import { getPageSnapshots } from "@/domains/pages/snapshot-store";
 import { getSitemapReconciliation } from "@/domains/pages/sitemap-reconciliation-store";
 import { readRobotsState } from "@/domains/pages/robots-parser";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
@@ -316,9 +315,16 @@ export default async function OperatorIndexabilityDiagnosticsPage({
   // header summary AND the URL union. The loader's per-URL call
   // also reads these — sharing the data here costs nothing because
   // each read is cached at its own boundary.
+  // Phase A.3 (post-A.3.5 production-data fix, 2026-05-14):
+  // page-snapshots flow through the tenant-scoped repository so the
+  // header summary + URL union see the Supabase-backed snapshot
+  // rows that the daily-scan persists. The prior direct read from
+  // `@/domains/pages/snapshot-store` returned `[]` on Vercel
+  // because the lambda FS doesn't carry the file path. The loader
+  // (`load-indexability.ts`) made the same switch in the same step.
   const repo = getRepository().forTenant(tenantId);
   const [snapshots, reconciliation, recEdits] = await Promise.all([
-    getPageSnapshots(),
+    repo.getPageSnapshots(),
     getSitemapReconciliation(),
     repo.getRecommendedEdits(),
   ]);

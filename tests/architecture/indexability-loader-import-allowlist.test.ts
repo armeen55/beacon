@@ -19,14 +19,19 @@
  *     `PageSnapshot` / `SitemapReconciliation` shapes; this loader
  *     consumes them via the store wrappers, not directly — but
  *     we allow the path for forward-compat with type-only imports)
- *   • `@/domains/pages/snapshot-store` — getPageSnapshots
  *   • `@/domains/pages/sitemap-reconciliation-store` —
- *     getSitemapReconciliation
+ *     getSitemapReconciliation (still file-only; Supabase mirror
+ *     is the next infra debt to address)
  *   • `@/domains/pages/robots-parser` — readRobotsState +
  *     evaluateAiBotAccess + evaluateGooglebotAccess + types
  *   • `@/domains/citation-lifecycle/canonicalize-url`
  *   • `@/lib/business-config`
  *   • `@/lib/tenant-context`
+ *   • `@/lib/persistence/repositories` — tenant-scoped
+ *     `getPageSnapshots()` (Phase A.3 post-A.3.5 production-data
+ *     fix, 2026-05-14; replaces the prior `@/domains/pages/
+ *     snapshot-store` import which read from the file path that
+ *     never exists on Vercel's read-only lambda FS)
  *
  * Retirement: refines when A.3.b1 lands the GSC connector (the
  * allowlist gains the GSC client path). Permanent otherwise — the
@@ -58,12 +63,12 @@ const ALLOWED_IMPORT_PATHS: ReadonlySet<string> = new Set([
   "./types",
   "./compute-indexability",
   "@/domains/pages/types",
-  "@/domains/pages/snapshot-store",
   "@/domains/pages/sitemap-reconciliation-store",
   "@/domains/pages/robots-parser",
   "@/domains/citation-lifecycle/canonicalize-url",
   "@/lib/business-config",
   "@/lib/tenant-context",
+  "@/lib/persistence/repositories",
 ]);
 
 /**

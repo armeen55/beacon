@@ -95,16 +95,18 @@ vi.mock("@/lib/business-config", () => ({
   }),
 }));
 
+// Phase A.3 (post-A.3.5 production-data fix, 2026-05-14):
+// page now reads page-snapshots via the tenant-scoped repository
+// (`getRepository().forTenant(tenantId).getPageSnapshots()`).
+// Repository mock extended to include the new getter alongside the
+// existing getRecommendedEdits stub.
 vi.mock("@/lib/persistence/repositories", () => ({
   getRepository: () => ({
     forTenant: () => ({
       getRecommendedEdits: async () => _recommendedEdits,
+      getPageSnapshots: async () => _snapshots,
     }),
   }),
-}));
-
-vi.mock("@/domains/pages/snapshot-store", () => ({
-  getPageSnapshots: async () => _snapshots,
 }));
 
 vi.mock("@/domains/pages/sitemap-reconciliation-store", () => ({
