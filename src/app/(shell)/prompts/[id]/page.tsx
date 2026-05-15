@@ -19,6 +19,17 @@ import {
 } from "@/lib/perf-trace";
 import { PromptDetailV2Client } from "./prompt-detail-v2-client";
 import { PromptDetailV2NotFound } from "./prompt-detail-v2-not-found";
+import { computePromptPrimaryShare } from "@/domains/daily-metric-snapshots/prompt-primary-share";
+
+// 2026-05-15 — Section 6 C5 prerender safety. Mirrors
+// `/diagnostics/page.tsx`'s post-fix pattern. The v2 branch reads
+// `daily_metric_snapshots` for the per-prompt primary-share sub-line
+// via `computePromptPrimaryShare`; static prerender would execute that
+// Supabase read at build time and risk the same statement-timeout
+// flake we hit in /diagnostics. Opt every render into dynamic per-
+// request rendering. Pinned by
+// `tests/architecture/prompts-detail-force-dynamic.test.ts`.
+export const dynamic = "force-dynamic";
 
 /**
  * Prompts v2B switcher (Bundle 2026-05-11, plan:
@@ -195,7 +206,58 @@ export default async function PromptDrilldownPage({
       hasLinkedRecommendation: false,
       includeLegacyEscape: true,
     });
-    return <PromptDetailV2Client {...briefProps} />;
+
+    // Section 6 C5 (2026-05-15) — per-prompt primary-share aggregate.
+    // Reads `daily_metric_snapshots` rows where scope_type='prompt'
+    // for the last 14 UTC days and aggregates per platform (sum-count
+    // / sum-total). Mathematically distinct from the Today hero C4b
+    // path: prompt-scope rows have total_possible = 1 per row, so
+    // single-row semantic would force every card into still_learning.
+    // The 14-day aggregate clears the ≥ 7-obs guard for any prompt
+    // backfilled by C3.
+    //
+    // Tenant isolation: explicit `.forTenant(tenantId)` binding;
+    // helper module does NOT import getRepository. Pinned by
+    // `tests/architecture/prompt-primary-share-source.test.ts`.
+    const sinceDate = (() => {
+      const d = new Date();
+      d.setUTCDate(d.getUTCDate() - 14);
+      return d.toISOString().slice(0, 10);
+    })();
+    const promptPrimaryRepo = getRepository().forTenant(tenantId);
+    // Resilient read: if the repo surface is missing the method (e.g.,
+    // a test mock that predates C5) OR Supabase momentarily errors,
+    // fall back to `{ chatgpt: null, perplexity: null }` so the page
+    // still renders with the sub-line hidden. The customer-visible
+    // outcome matches the null-result path (operator-approved per
+    // C5 §6 edge cases + J1 carry-over) rather than crashing the
+    // prompt detail page. The fallback is NOT silent — we emit a
+    // structured `console.warn` with `tenantId` + `promptId` +
+    // `error.message` so operator diagnostics can locate the
+    // failing tenant/prompt without leaking Supabase keys, answer
+    // text, raw prompt bodies, or stack traces. The warning shape
+    // is pinned by
+    // `tests/architecture/prompt-primary-share-source.test.ts`.
+    const promptPrimary = await trace.time("computePromptPrimaryShare", async () => {
+      try {
+        return await computePromptPrimaryShare({
+          repo: promptPrimaryRepo,
+          promptId,
+          options: { since: sinceDate },
+        });
+      } catch (error) {
+        console.warn("[section6-c5] prompt primary share failed", {
+          tenantId,
+          promptId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return { chatgpt: null, perplexity: null };
+      }
+    });
+
+    return (
+      <PromptDetailV2Client {...briefProps} promptPrimary={promptPrimary} />
+    );
   }
 
   return (

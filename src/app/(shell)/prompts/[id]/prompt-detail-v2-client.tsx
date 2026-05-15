@@ -39,8 +39,43 @@ import type {
   PromptsV2BriefPlatform,
   PromptsV2BriefProps,
 } from "@/domains/prompts/v2-brief-projection";
+import type {
+  PromptPrimaryShare,
+  PromptPrimaryShareCard,
+} from "@/domains/daily-metric-snapshots/prompt-primary-share";
 
 import { PromptsV2PlatformBadge } from "@/components/prompts/v2/prompts-v2-platform-badge";
+
+/**
+ * Section 6 C5 (2026-05-15) — per-platform primary-share extension.
+ * The C5 server loader computes this server-side via
+ * `computePromptPrimaryShare` (14-day aggregate) and passes both
+ * platform cards alongside the existing brief props. Each card is
+ * null when no eligible snapshot rows exist; the renderer hides the
+ * sub-line entirely in that case. v1 path NEVER receives this prop
+ * (the page wires it inside the v2 branch only). Mathematical
+ * equivalence + the source-swap contract are pinned at
+ * `tests/domains/daily-metric-snapshots/prompt-primary-share.test.ts`
+ * + `tests/architecture/prompt-primary-share-source.test.ts`.
+ */
+export type PromptDetailV2ClientProps = PromptsV2BriefProps & {
+  /**
+   * Optional in the type so the existing legacy test fixture
+   * (`tests/app/prompts/prompt-detail-v2-client.test.tsx`) that
+   * predates C5 keeps passing without modification. In production,
+   * the page loader ALWAYS supplies this prop (the v2 branch at
+   * `prompts/[id]/page.tsx` computes it via the server-bound
+   * `computePromptPrimaryShare`). When omitted, the client treats
+   * both platforms as "no eligible data" and hides the sub-line —
+   * same visual outcome as a real null result for that prompt.
+   */
+  promptPrimary?: PromptPrimaryShare;
+};
+
+const EMPTY_PROMPT_PRIMARY: PromptPrimaryShare = {
+  chatgpt: null,
+  perplexity: null,
+};
 
 const CATEGORY_PILL_TONE: Record<
   PromptsV2BriefProps["header"]["category"]["tone"],
@@ -53,7 +88,7 @@ const CATEGORY_PILL_TONE: Record<
   muted: "border-border/60 bg-surface-inset/60 text-muted-foreground",
 };
 
-export function PromptDetailV2Client(props: PromptsV2BriefProps) {
+export function PromptDetailV2Client(props: PromptDetailV2ClientProps) {
   const {
     promptId,
     header,
@@ -62,6 +97,7 @@ export function PromptDetailV2Client(props: PromptsV2BriefProps) {
     competitors,
     recentMovement,
     nextActions,
+    promptPrimary = EMPTY_PROMPT_PRIMARY,
   } = props;
 
   return (
@@ -169,7 +205,11 @@ export function PromptDetailV2Client(props: PromptsV2BriefProps) {
             data-prompt-detail-act2-platforms="true"
           >
             {platforms.map((p) => (
-              <PlatformCard key={p.platform} platform={p} />
+              <PlatformCard
+                key={p.platform}
+                platform={p}
+                primary={primaryShareForPlatform(p.platform, promptPrimary)}
+              />
             ))}
           </ul>
         )}
@@ -278,7 +318,19 @@ const PLATFORM_STATE_TONE: Record<
   no_data: "border-border/60 bg-surface-inset/30",
 };
 
-function PlatformCard({ platform }: { platform: PromptsV2BriefPlatform }) {
+function PlatformCard({
+  platform,
+  primary,
+}: {
+  platform: PromptsV2BriefPlatform;
+  /**
+   * Section 6 C5 — per-platform primary-share aggregate. `null` when
+   * no eligible snapshot rows exist (sub-line hidden); `claimable`
+   * renders the full "N of M readings in the last 14 days (P%)"
+   * line; `still_learning` renders the calm fallback.
+   */
+  primary: PromptPrimaryShareCard | null;
+}) {
   return (
     <li
       data-prompt-detail-platform={platform.platform}
@@ -302,11 +354,39 @@ function PlatformCard({ platform }: { platform: PromptsV2BriefPlatform }) {
       >
         {platform.detail}
       </p>
+      {primary !== null && (
+        <p
+          className="mt-1 text-[11.5px] leading-snug text-foreground/70"
+          data-prompt-detail-v2-primary-share-card={platform.platform}
+          data-prompt-detail-v2-primary-share-status={primary.sample_status}
+        >
+          {primary.sample_status === "claimable"
+            ? `Primary recommendation: ${primary.count} of ${primary.total} readings in the last 14 days (${primary.pct}%)`
+            : "Primary recommendation: still gathering readings"}
+        </p>
+      )}
       {platform.sparkline && platform.sparkline.length > 1 && (
         <Sparkline points={platform.sparkline} />
       )}
     </li>
   );
+}
+
+/**
+ * Section 6 C5 — map the v2 brief's lowercase platform key
+ * (`"chatgpt"` / `"perplexity"` / others) to the C5 helper's
+ * `PromptPrimaryShare` shape. Other platforms (e.g., `google_aio`)
+ * intentionally return `null` because Section 6 D6 locks Google AI
+ * Overviews out of customer UI; future platform additions land in
+ * `PromptPrimaryShareHeroPlatform` first.
+ */
+function primaryShareForPlatform(
+  platformKey: string,
+  primaryShare: PromptPrimaryShare,
+): PromptPrimaryShareCard | null {
+  if (platformKey === "chatgpt") return primaryShare.chatgpt;
+  if (platformKey === "perplexity") return primaryShare.perplexity;
+  return null;
 }
 
 // ─────────────────────────────────────────────────────────────────────
