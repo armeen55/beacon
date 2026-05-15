@@ -20,7 +20,7 @@
     "verify:daily-poll": "npx tsx --require ./scripts/mock-server-only.cjs scripts/verify-daily-poll.ts",
     "verify:brain-health": "npx tsx --require ./scripts/mock-server-only.cjs scripts/verify-brain-health-watchdog.ts",
     "cron:poll": "npx tsx --require ./scripts/mock-server-only.cjs scripts/cron-poll.ts",
-    "backfill:section6": "npx tsx scripts/backfill-section6-primary-recommendation.ts",
+    "backfill:section6": "npx tsx --require ./scripts/mock-server-only.cjs scripts/backfill-section6-primary-recommendation.ts",
     "test": "vitest run"
   },
   "dependencies": {
