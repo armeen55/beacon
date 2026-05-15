@@ -58,7 +58,10 @@ import {
   buildTileStrings,
   type LifecycleCopy,
   type LifecycleTileStrings,
+  type StuckDiagnosticInput,
 } from "./render-copy";
+import { loadIndexabilityForUrl } from "@/domains/indexability/load-indexability";
+import type { OwnedUrlIndexability } from "@/domains/indexability/types";
 import type { RecommendedEditRow } from "@/domains/recommendations/recommended-edits-persistence";
 import { getRepository } from "@/lib/persistence/repositories";
 import { getCitationsForDate } from "@/lib/persistence/cold-store";
@@ -407,6 +410,91 @@ async function buildTenantLifecycleRecords(opts: {
   return records;
 }
 
+// ─────────────────────────────────────────────────────────────────────
+// Stuck-diagnostic builder (Phase A.3 Step 4)
+// ─────────────────────────────────────────────────────────────────────
+
+const NEEDS_NEW_PAGE_SENTINEL = "needs_new_page";
+
+/**
+ * Map an `OwnedUrlIndexability` result into the
+ * `StuckDiagnosticInput` shape consumed by `renderStuckDiagnostic`.
+ *
+ * `blocked_ai_bots` derives from the per-bot `*_allowed` booleans —
+ * each bot whose flag is exactly `false` (not `null` — null = no
+ * evidence) maps to its readable name. Googlebot is intentionally
+ * OMITTED from this list because it has its own verdict +
+ * customer-copy path (`blocked_by_robots_for_googlebot`).
+ */
+function buildStuckDiagnosticInput(
+  indexability: OwnedUrlIndexability,
+): StuckDiagnosticInput {
+  const robots = indexability.signals.robots_txt;
+  const blocked_ai_bots: Array<
+    "GPTBot" | "PerplexityBot" | "ClaudeBot" | "Google-Extended"
+  > = [];
+  if (robots.gptbot_allowed === false) blocked_ai_bots.push("GPTBot");
+  if (robots.perplexitybot_allowed === false) {
+    blocked_ai_bots.push("PerplexityBot");
+  }
+  if (robots.claudebot_allowed === false) blocked_ai_bots.push("ClaudeBot");
+  if (robots.google_extended_allowed === false) {
+    blocked_ai_bots.push("Google-Extended");
+  }
+  return {
+    verdict: indexability.composite_verdict,
+    context: {
+      http_status: indexability.signals.page_snapshot?.http_status ?? null,
+      canonical_url: indexability.signals.page_snapshot?.canonical_url ?? null,
+      blocked_ai_bots: blocked_ai_bots.length > 0 ? blocked_ai_bots : null,
+    },
+  };
+}
+
+/**
+ * Load the per-URL indexability verdict for a stuck row and shape it
+ * into the renderer's input.
+ *
+ * Returns `null` when:
+ *   • `targetUrl` is null or the `needs_new_page` sentinel (nothing
+ *     to diagnose), OR
+ *   • the indexability loader throws (e.g., tenant-context mismatch)
+ *     — the error is logged via `console.warn` and the caller falls
+ *     back to the existing bridge phrase. NEVER lets the lifecycle
+ *     load fail the whole Changes detail render.
+ *
+ * This helper is the single seam between citation-lifecycle and
+ * indexability; the architecture invariant pins that the loader is
+ * called only on stuck rows.
+ */
+async function buildStuckDiagnostic(opts: {
+  tenantId: string;
+  targetUrl: string | null;
+  now: Date | string;
+}): Promise<StuckDiagnosticInput | null> {
+  const { tenantId, targetUrl, now } = opts;
+  if (targetUrl == null) return null;
+  if (targetUrl === NEEDS_NEW_PAGE_SENTINEL) return null;
+  try {
+    const indexability = await loadIndexabilityForUrl({
+      tenantId,
+      url: targetUrl,
+      now,
+    });
+    return buildStuckDiagnosticInput(indexability);
+  } catch (e) {
+    // Graceful degradation: a tenant-context mismatch (or any other
+    // throw inside the loader) must NOT break the Changes detail
+    // render. Surface to the operator via console; the bridge
+    // phrase fallback kicks in downstream.
+    console.warn(
+      "[citation-lifecycle/load-lifecycle] indexability load failed; falling back to bridge phrase",
+      e,
+    );
+    return null;
+  }
+}
+
 /**
  * Resolve the tenant's threshold decision and cache it.
  *
@@ -563,6 +651,20 @@ export async function loadLifecycleForEdit(opts: {
     };
   }
 
+  // Phase A.3 Step 4 — stuck rows get a per-verdict discoverability
+  // diagnostic. Gated to `stage === "stuck"` to bound the per-render
+  // read surface; cited and live_not_yet_cited stages skip the
+  // indexability load entirely. The `needs_new_page` sentinel +
+  // null target_url also skip (no URL to diagnose).
+  const stuck_diagnostic =
+    stage === "stuck"
+      ? await buildStuckDiagnostic({
+          tenantId,
+          targetUrl: recommendedEdit.target_url,
+          now,
+        })
+      : null;
+
   const copy = renderLifecycleCopy({
     stage,
     days_since_live: result.days_since_live,
@@ -571,6 +673,7 @@ export async function loadLifecycleForEdit(opts: {
     is_partial_live: result.is_partial_live,
     was_cited_before_live: result.was_cited_before_live,
     threshold_decision: thresholdDecision,
+    stuck_diagnostic,
   });
 
   return {

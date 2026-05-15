@@ -422,14 +422,28 @@ function LifecycleLine({
           {copy.per_platform}
         </p>
       )}
-      {copy.bridge && (
+      {copy.diagnostic ? (
+        // Phase A.3 Step 4 — per-verdict stuck-stage diagnostic
+        // preferred over the legacy bridge phrase. Mutually
+        // exclusive at the visible-sub-line level: when
+        // `copy.diagnostic` is non-null, the bridge phrase is
+        // suppressed even if also present in the data model. The
+        // architecture invariant `citation-lifecycle-stuck-bridge-
+        // phrase` pins this precedence in the source.
+        <p
+          className="mt-1.5 text-[11.5px] leading-relaxed text-muted-foreground"
+          data-change-detail-act3-lifecycle-diagnostic="true"
+        >
+          {copy.diagnostic}
+        </p>
+      ) : copy.bridge ? (
         <p
           className="mt-1.5 text-[11.5px] leading-relaxed text-muted-foreground"
           data-change-detail-act3-lifecycle-bridge="true"
         >
           {copy.bridge}
         </p>
-      )}
+      ) : null}
     </div>
   );
 }

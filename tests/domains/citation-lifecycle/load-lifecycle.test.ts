@@ -130,6 +130,39 @@ vi.mock("@/lib/persistence/cold-store", () => ({
   },
 }));
 
+// Phase A.3 Step 4 — mock the indexability loader at the module
+// boundary. Tests configure the result via `setIndexabilityResult`
+// or force a throw via `setIndexabilityThrow`. The call counter
+// (`_indexabilityCalls`) backs the gating invariant: indexability
+// must NEVER fire for non-stuck rows.
+type IndexabilityCall = { tenantId: string; url: string };
+let _indexabilityCalls: IndexabilityCall[] = [];
+let _indexabilityResult: import("@/domains/indexability/types").OwnedUrlIndexability | null = null;
+let _indexabilityThrow: Error | null = null;
+function setIndexabilityResult(
+  r: import("@/domains/indexability/types").OwnedUrlIndexability | null,
+): void {
+  _indexabilityResult = r;
+  _indexabilityThrow = null;
+}
+function setIndexabilityThrow(e: Error): void {
+  _indexabilityThrow = e;
+  _indexabilityResult = null;
+}
+
+vi.mock("@/domains/indexability/load-indexability", () => ({
+  loadIndexabilityForUrl: async (opts: { tenantId: string; url: string }) => {
+    _indexabilityCalls.push({ tenantId: opts.tenantId, url: opts.url });
+    if (_indexabilityThrow) throw _indexabilityThrow;
+    if (_indexabilityResult == null) {
+      throw new Error(
+        "test fixture: indexability result not set — call setIndexabilityResult() first",
+      );
+    }
+    return _indexabilityResult;
+  },
+}));
+
 // Imports under test go AFTER the mocks so vitest hoists the mocks
 // before the module evaluates.
 import {
@@ -181,6 +214,9 @@ function makeEdit(
 beforeEach(() => {
   _shardCalls = [];
   _shardFixture = {};
+  _indexabilityCalls = [];
+  _indexabilityResult = null;
+  _indexabilityThrow = null;
   setRepoFixture({
     promptAnswerObservations: [],
     recommendedEdits: [],
@@ -991,5 +1027,291 @@ describe("threshold resolution — cross-tenant safety (Section 2.4 contract)", 
     expect(summary.threshold_decision.source).toBe("profound_default");
     expect(summary.threshold_decision.sample_size).toBe(5);
     expect(summary.total).toBe(5);
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────
+// Phase A.3 Step 4 — stuck-row indexability diagnostic wiring
+// ────────────────────────────────────────────────────────────────────
+
+/**
+ * Synthesize an `OwnedUrlIndexability` result for tests. Defaults to
+ * `composite_verdict: "not_in_sitemap"` so the resulting diagnostic
+ * is unambiguous in assertions. Override `composite_verdict` +
+ * `signals` to exercise specific verdict paths.
+ */
+function indexabilityResult(
+  overrides: Partial<
+    import("@/domains/indexability/types").OwnedUrlIndexability
+  > = {},
+): import("@/domains/indexability/types").OwnedUrlIndexability {
+  return {
+    url: "https://example.com/services/whole-home-remodel",
+    composite_verdict: "not_in_sitemap",
+    signals: {
+      sitemap_membership: {
+        in_sitemap: false,
+        sitemap_url: null,
+      },
+      robots_txt: {
+        googlebot_allowed: true,
+        gptbot_allowed: true,
+        perplexitybot_allowed: true,
+        claudebot_allowed: true,
+        google_extended_allowed: true,
+      },
+      page_snapshot: {
+        http_status: 200,
+        canonical_url: "https://example.com/services/whole-home-remodel",
+        has_canonical_mismatch: false,
+        robots_meta: "index, follow",
+        noindex_detected: false,
+        fetched_at: "2026-05-20T00:00:00.000Z",
+        extraction_certainty: "confirmed",
+      },
+      gsc: null,
+    },
+    last_computed_at: "2026-05-30T00:00:00.000Z",
+    evidence_freshness_days: 10,
+    ...overrides,
+  };
+}
+
+// `STEP_3B_NOW = 2026-05-30` — for a stuck verdict, `live_at` must be
+// far enough back to clear Profound's 37-day late threshold.
+const STUCK_LIVE_AT = "2026-04-01T00:00:00.000Z";
+
+/**
+ * Seed a single verified-live edit at `STUCK_LIVE_AT` with NO
+ * matching observations (so the lifecycle stage resolves to
+ * `stuck`). Returns the makeEdit shape for the single-edit loader.
+ */
+function seedStuckScenario(targetUrl: string = "https://example.com/services/whole-home-remodel"): RecommendedEditRow {
+  setRepoFixture({
+    promptAnswerObservations: [],
+    recommendedEdits: [
+      {
+        id: "edit-stuck-1",
+        tenant_id: TENANT,
+        rec_id: "rec-stuck-1",
+        action_type: "add_h2_section",
+        target_url: targetUrl,
+        target_element_key: "h2[new]:stuck",
+        implementation_status: "verified_live",
+        live_at: STUCK_LIVE_AT,
+      },
+    ],
+  });
+  return makeEdit({
+    id: "edit-stuck-1",
+    target_url: targetUrl,
+    live_at: STUCK_LIVE_AT,
+  });
+}
+
+describe("loadLifecycleForEdit — stuck-row indexability diagnostic (Phase A.3 §4)", () => {
+  it("stuck row calls the indexability loader and renders the per-verdict diagnostic", async () => {
+    const edit = seedStuckScenario();
+    setIndexabilityResult(
+      indexabilityResult({ composite_verdict: "not_in_sitemap" }),
+    );
+    const result = await loadLifecycleForEdit({
+      tenantId: TENANT,
+      recommendedEdit: edit,
+      now: STEP_3B_NOW,
+    });
+    expect(result.stage).toBe("stuck");
+    expect(result.copy?.diagnostic).toBe(
+      "Beacon did not find this page in your sitemap.xml.",
+    );
+    // Indexability loader called exactly once with the tenant-scoped URL.
+    expect(_indexabilityCalls.length).toBe(1);
+    expect(_indexabilityCalls[0].tenantId).toBe(TENANT);
+  });
+
+  it("stuck row + bad_status_code verdict surfaces the HTTP status in the diagnostic", async () => {
+    const edit = seedStuckScenario();
+    setIndexabilityResult(
+      indexabilityResult({
+        composite_verdict: "bad_status_code",
+        signals: {
+          sitemap_membership: { in_sitemap: true, sitemap_url: null },
+          robots_txt: {
+            googlebot_allowed: true,
+            gptbot_allowed: true,
+            perplexitybot_allowed: true,
+            claudebot_allowed: true,
+            google_extended_allowed: true,
+          },
+          page_snapshot: {
+            http_status: 404,
+            canonical_url: null,
+            has_canonical_mismatch: null,
+            robots_meta: null,
+            noindex_detected: false,
+            fetched_at: "2026-05-20T00:00:00.000Z",
+            extraction_certainty: "confirmed",
+          },
+          gsc: null,
+        },
+      }),
+    );
+    const result = await loadLifecycleForEdit({
+      tenantId: TENANT,
+      recommendedEdit: edit,
+      now: STEP_3B_NOW,
+    });
+    expect(result.copy?.diagnostic).toBe(
+      "This page returns HTTP 404 — it may no longer serve content.",
+    );
+  });
+
+  it("stuck row + blocked_by_robots_for_ai maps the *_allowed=false flags into blocked_ai_bots context", async () => {
+    const edit = seedStuckScenario();
+    setIndexabilityResult(
+      indexabilityResult({
+        composite_verdict: "blocked_by_robots_for_ai",
+        signals: {
+          sitemap_membership: { in_sitemap: true, sitemap_url: null },
+          robots_txt: {
+            googlebot_allowed: true,
+            gptbot_allowed: false,
+            perplexitybot_allowed: false,
+            claudebot_allowed: true,
+            google_extended_allowed: true,
+          },
+          page_snapshot: {
+            http_status: 200,
+            canonical_url: "https://example.com/services/whole-home-remodel",
+            has_canonical_mismatch: false,
+            robots_meta: "index, follow",
+            noindex_detected: false,
+            fetched_at: "2026-05-20T00:00:00.000Z",
+            extraction_certainty: "confirmed",
+          },
+          gsc: null,
+        },
+      }),
+    );
+    const result = await loadLifecycleForEdit({
+      tenantId: TENANT,
+      recommendedEdit: edit,
+      now: STEP_3B_NOW,
+    });
+    expect(result.copy?.diagnostic).toBe(
+      "Your robots.txt appears to block GPTBot, PerplexityBot from this page.",
+    );
+  });
+
+  it("stuck row + loader throws falls back to bridge phrase (graceful degradation)", async () => {
+    const edit = seedStuckScenario();
+    setIndexabilityThrow(new Error("synthetic test failure"));
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const result = await loadLifecycleForEdit({
+      tenantId: TENANT,
+      recommendedEdit: edit,
+      now: STEP_3B_NOW,
+    });
+    expect(result.stage).toBe("stuck");
+    expect(result.copy?.diagnostic).toBeNull();
+    expect(result.copy?.bridge).toContain(
+      "next bundle will add automated sitemap + robots checks",
+    );
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  it("non-stuck row (live_not_yet_cited) does NOT call the indexability loader", async () => {
+    // Seed a row that's been live ONE day with no observations →
+    // live_not_yet_cited under Profound thresholds.
+    const liveAt = new Date(
+      new Date(STEP_3B_NOW).getTime() - 1 * 86_400_000,
+    ).toISOString();
+    setRepoFixture({
+      promptAnswerObservations: [],
+      recommendedEdits: [
+        {
+          id: "edit-live-1",
+          tenant_id: TENANT,
+          rec_id: "rec-live-1",
+          action_type: "add_h2_section",
+          target_url: "https://example.com/services/page-x",
+          target_element_key: "h2[new]:live",
+          implementation_status: "verified_live",
+          live_at: liveAt,
+        },
+      ],
+    });
+    const edit = makeEdit({
+      id: "edit-live-1",
+      target_url: "https://example.com/services/page-x",
+      live_at: liveAt,
+    });
+    const result = await loadLifecycleForEdit({
+      tenantId: TENANT,
+      recommendedEdit: edit,
+      now: STEP_3B_NOW,
+    });
+    expect(result.stage).toBe("live_not_yet_cited");
+    expect(_indexabilityCalls.length).toBe(0);
+    expect(result.copy?.diagnostic).toBeNull();
+  });
+
+  it("cited row does NOT call the indexability loader", async () => {
+    // Seed a cited-typical row: live 2026-04-22, cited 2026-04-30 (8d).
+    const liveAt = "2026-04-22T00:00:00.000Z";
+    const obsAt = "2026-04-30T00:00:00.000Z";
+    const url = "https://example.com/services/page-y";
+    setRepoFixture({
+      recommendedEdits: [
+        {
+          id: "edit-cited-1",
+          tenant_id: TENANT,
+          rec_id: "rec-cited-1",
+          action_type: "add_h2_section",
+          target_url: url,
+          target_element_key: "h2[new]:cited",
+          implementation_status: "verified_live",
+          live_at: liveAt,
+        },
+      ],
+      promptAnswerObservations: [
+        {
+          id: "pa-cited",
+          prompt_id: "p-cited",
+          run_id: "r-cited",
+          answer_hash: null,
+          position: 1,
+          tracked_brand_mentioned: true,
+          tracked_brand_cited: true,
+          citation_count: 1,
+          owned_citation_count: 1,
+          citation_domains: ["example.com"],
+          citation_categories: {},
+          mentions: [],
+          observed_at: obsAt,
+          platform: "chatgpt",
+          topic: "remodel",
+          metadata: {},
+          tenant_id: TENANT,
+          citation_urls: [url],
+        },
+      ],
+    });
+    const edit = makeEdit({
+      id: "edit-cited-1",
+      target_url: url,
+      live_at: liveAt,
+    });
+    const result = await loadLifecycleForEdit({
+      tenantId: TENANT,
+      recommendedEdit: edit,
+      now: STEP_3B_NOW,
+    });
+    expect(result.stage).toBe("cited_typical");
+    expect(_indexabilityCalls.length).toBe(0);
+    expect(result.copy?.diagnostic).toBeNull();
+    // Cited rows have no bridge sub-line either.
+    expect(result.copy?.bridge).toBeNull();
   });
 });

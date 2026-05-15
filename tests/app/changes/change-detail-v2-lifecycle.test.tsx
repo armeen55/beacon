@@ -324,3 +324,126 @@ describe("ChangeDetailV2Client — customer-vocabulary contract", () => {
     }
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────
+// Phase A.3 Step 4 — diagnostic vs bridge mutually-exclusive rendering
+// ─────────────────────────────────────────────────────────────────────
+
+function lifecyclePropsWithCopy(
+  stage: LifecycleStage,
+  copyOverride: Partial<NonNullable<ChangeDetailV2Props["lifecycle"]>["copy"]>,
+): ChangeDetailV2Props {
+  // Build a base stuck-row lifecycle via the renderer + null diagnostic,
+  // then override `copy.diagnostic` and/or `copy.bridge` to exercise
+  // every render-path combination.
+  const base = renderLifecycleCopy({
+    stage,
+    days_since_live: 41,
+    days_to_first_citation: null,
+    per_platform_first_citation: {
+      chatgpt: null,
+      perplexity: null,
+      google_ai_overviews: null,
+    },
+    is_partial_live: false,
+    was_cited_before_live: false,
+  });
+  return baseProps({
+    lifecycle: {
+      stage,
+      isPartialLive: false,
+      copy: { ...base, ...copyOverride },
+    },
+  });
+}
+
+describe("ChangeDetailV2Client — Phase A.3 §4 diagnostic vs bridge mutual exclusion", () => {
+  it("renders the diagnostic sub-line under data-change-detail-act3-lifecycle-diagnostic='true' when copy.diagnostic is non-null", () => {
+    const html = render(
+      lifecyclePropsWithCopy("stuck", {
+        diagnostic:
+          "Beacon did not find this page in your sitemap.xml.",
+      }),
+    );
+    expect(html).toContain(
+      'data-change-detail-act3-lifecycle-diagnostic="true"',
+    );
+    expect(html).toContain(
+      "Beacon did not find this page in your sitemap.xml.",
+    );
+  });
+
+  it("DOES NOT render the bridge sub-line when copy.diagnostic is non-null (mutual exclusion)", () => {
+    const html = render(
+      lifecyclePropsWithCopy("stuck", {
+        diagnostic:
+          "Beacon did not find this page in your sitemap.xml.",
+        // bridge is still populated in the data model — the client
+        // must suppress it.
+      }),
+    );
+    expect(html).not.toContain(
+      'data-change-detail-act3-lifecycle-bridge="true"',
+    );
+    // The literal bridge phrase must not appear either.
+    expect(html).not.toContain(
+      "next bundle will add automated sitemap + robots checks",
+    );
+  });
+
+  it("renders the bridge fallback when copy.diagnostic is null and copy.bridge is non-null", () => {
+    const html = render(
+      lifecyclePropsWithCopy("stuck", {
+        diagnostic: null,
+        // base render-copy already populated `bridge` for stuck.
+      }),
+    );
+    expect(html).toContain(
+      'data-change-detail-act3-lifecycle-bridge="true"',
+    );
+    expect(html).toContain(
+      "next bundle will add automated sitemap + robots checks",
+    );
+    expect(html).not.toContain(
+      'data-change-detail-act3-lifecycle-diagnostic="true"',
+    );
+  });
+
+  it("renders NEITHER sub-line when both diagnostic and bridge are null", () => {
+    const html = render(
+      lifecyclePropsWithCopy("stuck", {
+        diagnostic: null,
+        bridge: null,
+      }),
+    );
+    expect(html).not.toContain(
+      'data-change-detail-act3-lifecycle-diagnostic="true"',
+    );
+    expect(html).not.toContain(
+      'data-change-detail-act3-lifecycle-bridge="true"',
+    );
+  });
+
+  it("does NOT render a diagnostic sub-line for non-stuck stages (cited_typical row)", () => {
+    const html = render(
+      lifecyclePropsWithCopy("cited_typical", {
+        // Even if a caller forces a diagnostic onto a cited row's
+        // copy object, the client renders it (the data-model
+        // decision was already made upstream by renderLifecycleCopy,
+        // which suppresses diagnostic for non-stuck stages — see
+        // tests/domains/citation-lifecycle/render-copy.test.ts).
+        // This test verifies the natural cited render: the
+        // renderLifecycleCopy call inside lifecyclePropsWithCopy
+        // produces diagnostic=null for cited_typical, so the
+        // client output has no diagnostic sub-line.
+      }),
+    );
+    expect(html).not.toContain(
+      'data-change-detail-act3-lifecycle-diagnostic="true"',
+    );
+    // Cited rows also have no bridge sub-line.
+    expect(html).not.toContain(
+      'data-change-detail-act3-lifecycle-bridge="true"',
+    );
+  });
+});

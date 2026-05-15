@@ -97,6 +97,17 @@ export type LifecycleCopyInput = {
   was_cited_before_live: boolean;
   /** Optional per-tenant threshold decision. Default = Profound. */
   threshold_decision?: ThresholdDecisionLike;
+  /**
+   * Phase A.3 Step 4 (2026-05-14) — optional stuck-stage indexability
+   * diagnostic input. Caller supplies this ONLY when `stage === "stuck"`
+   * AND the indexability loader succeeded. The renderer forwards it
+   * to `renderStuckDiagnostic` and stores the resulting sentence on
+   * `LifecycleCopy.diagnostic`. When omitted / null on a stuck row,
+   * the renderer falls through to the existing `bridge` field which
+   * carries the locked `STUCK_BRIDGE_PHRASE` (graceful fallback for
+   * `needs_new_page` sentinels + loader-throw paths).
+   */
+  stuck_diagnostic?: StuckDiagnosticInput | null;
 };
 
 export type LifecycleCopy = {
@@ -123,6 +134,25 @@ export type LifecycleCopy = {
    * and replace it with the verdict-specific copy.
    */
   bridge: string | null;
+  /**
+   * Phase A.3 Step 4 (2026-05-14) — per-verdict stuck-stage
+   * discoverability diagnostic. Non-null ONLY when the caller
+   * supplied a `stuck_diagnostic` input AND the stage is `stuck`.
+   *
+   * Client render contract (pinned by architecture invariant
+   * `citation-lifecycle-stuck-bridge-phrase`): diagnostic and
+   * bridge are MUTUALLY EXCLUSIVE at the visible-sub-line level —
+   * when both are non-null in the data model, the client renders
+   * only `diagnostic`. The renderer keeps both fields populated so
+   * the consumer can choose; the operator-locked guardrail is "no
+   * stuck row shows both at once."
+   *
+   * Reserved-GSC verdicts (`not_indexed_in_gsc`,
+   * `indexed_but_not_cited`) are defined in `IndexabilityVerdict`
+   * but not yet produced by the A.3.3b loader; they carry copy
+   * here in anticipation of A.3.b1 (GSC integration).
+   */
+  diagnostic: string | null;
   /**
    * Optional "was cited before live" note — surfaces the
    * operator-shipped-late edge case from compute-time-to-citation's
@@ -388,10 +418,19 @@ function bridgeLine(input: LifecycleCopyInput): string | null {
 export function renderLifecycleCopy(
   input: LifecycleCopyInput,
 ): LifecycleCopy {
+  // Phase A.3 Step 4 — populate `diagnostic` only on stuck rows
+  // when the caller supplied indexability context. Non-stuck rows
+  // ignore `stuck_diagnostic` even if passed (defensive — the
+  // loader gates the call, but the renderer also guards).
+  const diagnostic =
+    input.stage === "stuck" && input.stuck_diagnostic != null
+      ? renderStuckDiagnostic(input.stuck_diagnostic)
+      : null;
   return {
     primary: primaryLine(input),
     per_platform: perPlatformLine(input),
     bridge: bridgeLine(input),
+    diagnostic,
     // Section 2.7 pinned `was_cited_before_live` as operator-side
     // only; customer-facing copy stays silent. Reserved for a
     // future `?debugResolver=1` operator overlay.

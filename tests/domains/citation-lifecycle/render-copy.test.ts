@@ -857,6 +857,181 @@ describe("buildTileStrings — per-tenant source (Phase A.2 §3c)", () => {
   });
 });
 
+// ─────────────────────────────────────────────────────────────────────
+// Phase A.3 Step 4 — renderLifecycleCopy with stuck_diagnostic input
+// ─────────────────────────────────────────────────────────────────────
+
+describe("renderLifecycleCopy — stuck_diagnostic wiring (Phase A.3 §4)", () => {
+  function stuckInput(
+    stuckDiagnostic?: StuckDiagnosticInput | null,
+  ): LifecycleCopyInput {
+    return {
+      stage: "stuck",
+      days_since_live: 41,
+      days_to_first_citation: null,
+      per_platform_first_citation: {
+        chatgpt: null,
+        perplexity: null,
+        google_ai_overviews: null,
+      },
+      is_partial_live: false,
+      was_cited_before_live: false,
+      stuck_diagnostic: stuckDiagnostic,
+    };
+  }
+
+  it("stuck + ok verdict populates diagnostic with the ok line", () => {
+    const copy = renderLifecycleCopy(stuckInput({ verdict: "ok" }));
+    expect(copy.diagnostic).toBe(
+      "This page appears discoverable. Beacon is watching for AI to pick it up.",
+    );
+    // Bridge stays populated in the data model — the client decides
+    // which to render (mutually exclusive at the visible-sub-line
+    // level, NOT at the data-model level).
+    expect(copy.bridge).not.toBeNull();
+  });
+
+  it("stuck + not_in_sitemap verdict populates diagnostic with the sitemap line", () => {
+    const copy = renderLifecycleCopy(
+      stuckInput({ verdict: "not_in_sitemap" }),
+    );
+    expect(copy.diagnostic).toBe(
+      "Beacon did not find this page in your sitemap.xml.",
+    );
+  });
+
+  it("stuck + bad_status_code with http_status context substitutes the status", () => {
+    const copy = renderLifecycleCopy(
+      stuckInput({
+        verdict: "bad_status_code",
+        context: { http_status: 404 },
+      }),
+    );
+    expect(copy.diagnostic).toBe(
+      "This page returns HTTP 404 — it may no longer serve content.",
+    );
+  });
+
+  it("stuck + canonical_elsewhere with canonical_url context substitutes the URL", () => {
+    const copy = renderLifecycleCopy(
+      stuckInput({
+        verdict: "canonical_elsewhere",
+        context: { canonical_url: "https://example.com/other" },
+      }),
+    );
+    expect(copy.diagnostic).toBe(
+      "This page declares a canonical to https://example.com/other — citations may credit that page instead.",
+    );
+  });
+
+  it("stuck + blocked_by_robots_for_ai with blocked_ai_bots names the bots", () => {
+    const copy = renderLifecycleCopy(
+      stuckInput({
+        verdict: "blocked_by_robots_for_ai",
+        context: { blocked_ai_bots: ["GPTBot", "PerplexityBot"] },
+      }),
+    );
+    expect(copy.diagnostic).toBe(
+      "Your robots.txt appears to block GPTBot, PerplexityBot from this page.",
+    );
+  });
+
+  it("stuck + null stuck_diagnostic leaves diagnostic null (bridge fallback path)", () => {
+    const copy = renderLifecycleCopy(stuckInput(null));
+    expect(copy.diagnostic).toBeNull();
+    // Bridge phrase still populated for the fallback render path.
+    expect(copy.bridge).toContain(
+      "next bundle will add automated sitemap + robots checks",
+    );
+  });
+
+  it("stuck + undefined stuck_diagnostic (omitted from input) leaves diagnostic null", () => {
+    const copy = renderLifecycleCopy(stuckInput());
+    expect(copy.diagnostic).toBeNull();
+  });
+
+  it("non-stuck stage + stuck_diagnostic input is IGNORED (diagnostic stays null)", () => {
+    // Defense — even if a caller forgets the stage gate and passes
+    // a stuck_diagnostic on a cited row, the renderer suppresses it.
+    const copy = renderLifecycleCopy({
+      stage: "cited_typical",
+      days_since_live: 10,
+      days_to_first_citation: 8,
+      per_platform_first_citation: {
+        chatgpt: null,
+        perplexity: null,
+        google_ai_overviews: null,
+      },
+      is_partial_live: false,
+      was_cited_before_live: false,
+      stuck_diagnostic: { verdict: "not_in_sitemap" },
+    });
+    expect(copy.diagnostic).toBeNull();
+    expect(copy.bridge).toBeNull();
+  });
+
+  it("diagnostic copy carries no snake_case enum leakage across every verdict", () => {
+    const verdicts = [
+      "ok",
+      "not_in_sitemap",
+      "blocked_by_robots_for_ai",
+      "blocked_by_robots_for_googlebot",
+      "noindex_meta",
+      "bad_status_code",
+      "canonical_elsewhere",
+      "unknown",
+      "not_indexed_in_gsc",
+      "indexed_but_not_cited",
+    ] as const;
+    const enums = [
+      "not_in_sitemap",
+      "blocked_by_robots_for_ai",
+      "blocked_by_robots_for_googlebot",
+      "noindex_meta",
+      "bad_status_code",
+      "canonical_elsewhere",
+      "not_indexed_in_gsc",
+      "indexed_but_not_cited",
+    ] as const;
+    for (const v of verdicts) {
+      const copy = renderLifecycleCopy(stuckInput({ verdict: v }));
+      expect(copy.diagnostic).not.toBeNull();
+      for (const e of enums) {
+        expect(
+          copy.diagnostic,
+          `verdict '${v}' diagnostic leaked enum '${e}': ${copy.diagnostic}`,
+        ).not.toContain(e);
+      }
+    }
+  });
+
+  it("diagnostic copy carries no causal-overclaim wording across every verdict", () => {
+    const verdicts = [
+      "ok",
+      "not_in_sitemap",
+      "blocked_by_robots_for_ai",
+      "blocked_by_robots_for_googlebot",
+      "noindex_meta",
+      "bad_status_code",
+      "canonical_elsewhere",
+      "unknown",
+      "not_indexed_in_gsc",
+      "indexed_but_not_cited",
+    ] as const;
+    const causal = ["caused", "drove", "generated", "because", "this is why"];
+    for (const v of verdicts) {
+      const copy = renderLifecycleCopy(stuckInput({ verdict: v }));
+      const lower = (copy.diagnostic ?? "").toLowerCase();
+      for (const c of causal) {
+        expect(
+          lower,
+          `verdict '${v}' diagnostic contains causal token '${c}': ${copy.diagnostic}`,
+        ).not.toContain(c);
+      }
+    }
+  });
+});
+
 describe("buildTileStrings — customer-vocabulary contract", () => {
   it("no snake_case stage enum value appears in any returned string", () => {
     const sources = [
