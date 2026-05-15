@@ -165,6 +165,13 @@ export function buildDailySnapshotsFromObservations(
       cited_or_mentioned_count: null,
       position_weighted_citation_count: positionWeightedCitationCount,
       mentioned_obs_count: mentionedObsCount,
+      // Section 6 C2 — populated on the owned-brand entity row;
+      // null on competitor entity rows (primary recommendation is
+      // a my-brand concept; mirrors `position_weighted_citation_count`
+      // precedent).
+      primary_recommendation_count: entity.is_owned
+        ? countPrimaryRecommendationObs(observations)
+        : null,
     });
   }
 
@@ -236,6 +243,92 @@ export function buildDailySnapshotsFromObservations(
       cited_or_mentioned_count: null,
       position_weighted_citation_count: null,
       mentioned_obs_count: null,
+      // Section 6 C2 — H8 lock: topic-scope rows MUST carry explicit
+      // null. No v1 consumer for topic-level primary share; pinned
+      // by `tests/architecture/snapshot-builder-topic-null-primary-rec.test.ts`.
+      primary_recommendation_count: null,
+    });
+  }
+
+  // ── Per-prompt rows (OWNED-BRAND rollups, one per distinct prompt_id) ─
+  // Section 6 C2 (2026-05-15). Per-prompt-per-platform owned-brand
+  // rollups. Populated for the Section 6 C2 contract per the C1.1
+  // column comment: `primary_recommendation_count` materialized here
+  // so the future Prompts detail surface (C5) can read per-prompt
+  // primary share without re-walking raw observations. Other
+  // denominator fields (mention/citation/total) populated for
+  // completeness so C5 doesn't need to re-extend the builder.
+  //
+  // scope_id is the prompt_id VERBATIM (not slugified) — same pattern
+  // as `topic` rows above where scope_id is the topic key verbatim.
+  // The ID composition slugifies only for the `id` field; scope_id
+  // remains the raw lookup key downstream consumers join against.
+  const observationsByPrompt = new Map<string, PromptAnswerObservation[]>();
+  for (const obs of observations) {
+    let bucket = observationsByPrompt.get(obs.prompt_id);
+    if (!bucket) {
+      bucket = [];
+      observationsByPrompt.set(obs.prompt_id, bucket);
+    }
+    bucket.push(obs);
+  }
+
+  for (const [promptId, promptObs] of observationsByPrompt) {
+    const promptTotal = promptObs.length;
+    const promptOwnedMentions = promptObs.filter(
+      (o) => o.tracked_brand_mentioned,
+    ).length;
+    const promptOwnedCitations = promptObs.reduce(
+      (sum, o) => sum + (o.owned_citation_count ?? 0),
+      0,
+    );
+    const promptTotalCitations = promptObs.reduce(
+      (sum, o) => sum + (o.citation_count ?? 0),
+      0,
+    );
+    const promptPrimary = countPrimaryRecommendationObs(promptObs);
+
+    const promptIdSlug = slugifyForId(promptId);
+    const id = `derived-${date}-prompt-${promptIdSlug}-${platformSlug}`;
+
+    const vs =
+      promptTotal > 0
+        ? roundTo2((promptOwnedMentions / promptTotal) * 100)
+        : null;
+    const sov =
+      promptTotalCitations > 0
+        ? roundTo2((promptOwnedCitations / promptTotalCitations) * 100)
+        : null;
+
+    rows.push({
+      id,
+      date,
+      scope_type: "prompt",
+      scope_id: promptId,
+      platform,
+      source_type: "derived",
+      visibility_score: vs,
+      mention_count: promptOwnedMentions,
+      citation_count: promptOwnedCitations,
+      share_of_voice: sov,
+      avg_position: null,
+      total_possible: promptTotal,
+      metadata: {
+        source_system: "beacon_native",
+        derived_from_run_id: observationRunId,
+        scope_semantics: "per_prompt_owned_brand_rollup",
+        prompt_id: promptId,
+      },
+      tenant_id: tenantId,
+      // Phase 2A read-model extensions — explicit null on prompt rows.
+      // The Today visibility section reads platform + entity, not
+      // prompt; populating these here would add storage cost with no
+      // consumer in v1.
+      cited_or_mentioned_count: null,
+      position_weighted_citation_count: null,
+      mentioned_obs_count: null,
+      // Section 6 C2 — populated per the C1.1 column contract.
+      primary_recommendation_count: promptPrimary,
     });
   }
 
@@ -300,10 +393,42 @@ export function buildDailySnapshotsFromObservations(
       cited_or_mentioned_count: platformCitedOrMentioned,
       position_weighted_citation_count: null,
       mentioned_obs_count: null,
+      // Section 6 C2 — populated on the platform aggregate row.
+      // Same run-wide count as the owned-brand entity row (both are
+      // views of the same observations); customer-facing Today hero
+      // (C4) sources per-platform primary share from this column.
+      primary_recommendation_count: countPrimaryRecommendationObs(observations),
     });
   }
 
   return rows;
+}
+
+/**
+ * Section 6 C2 (2026-05-15) — count of observations where the AI
+ * marked the owned brand as the primary recommended option. Mirrors
+ * the `sumPositionWeightedBrandCitations` precedent — owned-brand-only
+ * signal aggregated from a per-observation flag.
+ *
+ * Semantics (operator-locked, see
+ * `src/domains/daily-metric-snapshots/types.ts` docstring on
+ * `primary_recommendation_count`):
+ *   • `obs.primary_recommendation === true`  → counts +1
+ *   • `obs.primary_recommendation === false` → counts +0
+ *   • `obs.primary_recommendation == null`   → counts +0
+ *
+ * The customer-facing copy (Section 6 H1 LOCKED tooltip) never
+ * exposes the underlying heuristic; this helper materializes the
+ * boolean signal as a count, nothing more.
+ */
+function countPrimaryRecommendationObs(
+  observations: PromptAnswerObservation[],
+): number {
+  let count = 0;
+  for (const obs of observations) {
+    if (obs.primary_recommendation === true) count += 1;
+  }
+  return count;
 }
 
 function roundTo2(n: number): number {

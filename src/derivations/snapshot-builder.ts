@@ -37,6 +37,12 @@ type Accumulator = {
   owned_cited: number;
   positions: number[];
   citation_count: number;
+  // Section 6 C2 (2026-05-15). Per-scope count of observations where
+  // `obs.primary_recommendation === true`. Populated on entity +
+  // platform emit rows; topic emit rows force this to NULL per H8.
+  // No prompt or account rows are emitted by this legacy importer
+  // — see the buildDerivedSnapshots header comment.
+  primary_recommendation: number;
 };
 
 /**
@@ -44,6 +50,22 @@ type Accumulator = {
  * Produces snapshots at multiple scope levels:
  * - per topic × platform × date
  * - per platform × date (cross-topic)
+ *
+ * Section 6 C2 (2026-05-15) — primary_recommendation_count contract:
+ *   • entity + platform emit rows populate the column from the
+ *     per-scope accumulator.
+ *   • topic emit rows explicitly set the column to NULL per the H8
+ *     lock (no v1 consumer for topic-level primary share; locked
+ *     NULL until a future phase introduces one).
+ *   • This LEGACY Profound importer does NOT emit prompt-scope or
+ *     account-scope rows. The native production builder
+ *     (`src/domains/daily-metric-snapshots/build-from-observations.ts`)
+ *     is the canonical source for prompt rows; account-scope is not
+ *     materialized in C2 (derived at read time from platform rows
+ *     per the C1.1 column comment correction). Missing prompt-scope
+ *     rows from Profound imports are acceptable because Profound
+ *     import is operator-triggered and the C3 backfill script
+ *     handles legacy gaps.
  */
 export function buildDerivedSnapshots(
   observations: PromptAnswerObservation[],
@@ -77,6 +99,8 @@ export function buildDerivedSnapshots(
         owned_cited: 0,
         positions: [],
         citation_count: 0,
+        // Section 6 C2.
+        primary_recommendation: 0,
       };
       accumulators.set(key, acc);
     }
@@ -89,6 +113,8 @@ export function buildDerivedSnapshots(
     const topic = obs.topic || "unknown";
     const isMentioned = obs.tracked_brand_mentioned === true;
     const isCited = obs.tracked_brand_cited === true;
+    // Section 6 C2 — only true counts; false and null do not.
+    const isPrimary = obs.primary_recommendation === true;
 
     const topicAcc = getOrCreate(date, "topic", topic, platform);
     topicAcc.total++;
@@ -96,6 +122,7 @@ export function buildDerivedSnapshots(
     if (isCited) topicAcc.cited++;
     topicAcc.owned_cited += obs.owned_citation_count;
     topicAcc.citation_count += obs.citation_count;
+    if (isPrimary) topicAcc.primary_recommendation++;
     if (obs.position !== null && isMentioned) {
       topicAcc.positions.push(obs.position);
     }
@@ -106,6 +133,7 @@ export function buildDerivedSnapshots(
     if (isCited) platformAcc.cited++;
     platformAcc.owned_cited += obs.owned_citation_count;
     platformAcc.citation_count += obs.citation_count;
+    if (isPrimary) platformAcc.primary_recommendation++;
     if (obs.position !== null && isMentioned) {
       platformAcc.positions.push(obs.position);
     }
@@ -116,6 +144,7 @@ export function buildDerivedSnapshots(
     if (isCited) entityAcc.cited++;
     entityAcc.owned_cited += obs.owned_citation_count;
     entityAcc.citation_count += obs.citation_count;
+    if (isPrimary) entityAcc.primary_recommendation++;
     if (obs.position !== null && isMentioned) {
       entityAcc.positions.push(obs.position);
     }
@@ -162,6 +191,12 @@ export function buildDerivedSnapshots(
         cited_count: acc.cited,
       },
       tenant_id: tenantId,
+      // Section 6 C2 — topic-scope rows force NULL per H8 lock; entity
+      // + platform scopes populate from the accumulator. The legacy
+      // Profound importer does NOT emit prompt or account rows (see
+      // header comment); only topic / entity / platform appear here.
+      primary_recommendation_count:
+        acc.scope_type === "topic" ? null : acc.primary_recommendation,
     });
   }
 
