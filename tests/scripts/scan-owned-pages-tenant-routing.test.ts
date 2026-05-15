@@ -84,11 +84,37 @@ describe("scan-owned-pages CLI — tenant-routing invariants (2026-04-28)", () =
 
   // ── Global-scoped invariants ──
 
-  it("sitemap-reconciliation.json uses globalDir() (cross-tenant)", () => {
+  // Phase A.3 (post-A.3.5, 2026-05-15) — sitemap-reconciliation was
+  // moved from GLOBAL_STORES → TENANT_SCOPED_STORES alongside a new
+  // `public.sitemap_reconciliation` Supabase mirror. The pre-A.3
+  // write path — `join(globalDir(), "sitemap-reconciliation.json")`
+  // — is RETIRED. The new write contract is:
+  //   • `saveReconciliation` is async and takes `tenantId`.
+  //   • Writes route through `repo.setSitemapReconciliation(...)`
+  //     (Supabase UPSERT in production; tenant-routed dotdata on
+  //     dev), NEVER through the legacy global flat file.
+  //
+  // The companion architecture invariant
+  // `tests/architecture/sitemap-reconciliation-supabase-mirror.test.ts`
+  // covers the repository-side write path; this test pins the
+  // scan-script-side of the contract (the caller surface).
+  it("sitemap-reconciliation write goes through repo.setSitemapReconciliation (tenant-scoped, post-A.3)", () => {
+    // The script must declare `saveReconciliation` as async +
+    // tenant-scoped.
     expect(CLI_SRC).toMatch(
+      /\basync\s+function\s+saveReconciliation\s*\(/,
+    );
+    expect(CLI_SRC).toMatch(
+      /saveReconciliation\s*\([\s\S]*?tenantId\s*:\s*string[\s\S]*?\)\s*:\s*Promise<void>/,
+    );
+    // The script must route the write through the repository's
+    // tenant-scoped setter, NOT the legacy global flat file.
+    expect(CLI_SRC).toMatch(/setSitemapReconciliation\s*\(/);
+    // Defense against regression to either the legacy global
+    // flat-path write OR the root-data-dir write.
+    expect(CLI_SRC).not.toMatch(
       /join\s*\(\s*globalDir\(\)\s*,\s*["']sitemap-reconciliation\.json["']\s*\)/,
     );
-    // Defense against regression to root.
     expect(CLI_SRC).not.toMatch(
       /join\s*\(\s*DATA_DIR\s*,\s*["']sitemap-reconciliation\.json["']\s*\)/,
     );
