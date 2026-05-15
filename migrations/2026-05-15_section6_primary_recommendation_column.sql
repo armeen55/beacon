@@ -1,0 +1,62 @@
+-- Migration: 2026-05-15_section6_primary_recommendation_column.sql
+-- Author:    Armeen Aminzadeh (operator) + Claude
+-- Applied:   PENDING — operator approval required before apply.
+-- Project:   jdegznovgysxyweknewh (beacon)
+-- Phase:     Section 6 Commit C1 — Primary Recommendation as
+--            First-Class Metric (schema layer only).
+--
+-- Why this migration exists:
+--   Section 6 promotes `PromptAnswerObservation.primary_recommendation`
+--   (per-observation boolean heuristic) to a materialized per-scope
+--   count on `daily_metric_snapshots`. Today, the per-platform
+--   "primary share" rendered in the Today hero footer
+--   (`chatgptPrimaryPct` / `perplexityPrimaryPct` on
+--   `src/components/today/ai-visibility-hero.tsx`) is sourced from
+--   ephemerally-computed `EnrichmentV2.sparklines[].primaryRate`,
+--   not from snapshots. Section 6's later commits move that read to
+--   the snapshot layer (C2 builder extension, C4 hero source-swap
+--   with equivalence harness pinning 0pp drift).
+--
+--   This commit (C1) adds ONLY the schema column. No code reads or
+--   writes it yet — the column lands first so a subsequent builder
+--   change (C2) and backfill (C3) can populate it without a
+--   schema-vs-code race. Operator applies this migration before
+--   C2/C3 land; no runtime path depends on the column until then.
+--
+--   The H8 lock from Section 6 Decision Lock fixes the scope-
+--   discipline contract:
+--     • Populated for scope_type IN ('account','platform','prompt','entity').
+--     • NULL for scope_type = 'topic' (no consumer in v1; future
+--       phase may populate).
+--     • NULL on every pre-Section-6 row until the C3 backfill
+--       script (`scripts/backfill-section6-primary-recommendation.ts`)
+--       runs against the earliest active-provider observation date
+--       per tenant (H5).
+--
+-- Constraints (operator-locked):
+--   • ADDITIVE ONLY — single nullable INTEGER column; no DROPs,
+--     no NOT NULL constraint, no type changes on existing columns.
+--   • Idempotent — `ADD COLUMN IF NOT EXISTS` guard makes re-runs
+--     safe. Zero-downtime; existing readers + writers ignore the
+--     new column.
+--   • No RLS policy changes — existing row-scoped policies on
+--     `daily_metric_snapshots` cover the new column automatically.
+--   • No data mutation in this migration. Backfill is the separate
+--     idempotent script in C3.
+--   • No new indexes, no new constraints, no new functions.
+--   • No paid APIs, no polls, no scans triggered by this migration.
+--   • No runtime dependency in this commit — C1 ships the schema
+--     only. C2 introduces the builder/code path that populates +
+--     reads this column.
+--
+-- Rollback:
+--   ALTER TABLE "public"."daily_metric_snapshots"
+--     DROP COLUMN IF EXISTS "primary_recommendation_count";
+--   Reverts cleanly because no other column / table / policy
+--   references this column.
+
+ALTER TABLE "public"."daily_metric_snapshots"
+  ADD COLUMN IF NOT EXISTS "primary_recommendation_count" integer NULL;
+
+COMMENT ON COLUMN "public"."daily_metric_snapshots"."primary_recommendation_count" IS
+  'Section 6 (2026-05-15) — per-scope count of PromptAnswerObservation rows on this snapshot''s scope/date where primary_recommendation = true. Populated by the Section 6 C2 builder for scope_type IN (account, platform, prompt, entity); NULL on scope_type = topic per H8 (no v1 consumer). NULL on pre-Section-6 rows until the C3 backfill script populates from each tenant''s earliest active-provider observation date per H5. Additive nullable / zero-downtime / no RLS change.';
