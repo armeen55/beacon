@@ -48,6 +48,7 @@ export async function TodayV2VisibilityGroupSection() {
     <TodayV2VisibilityGroupClient
       visibilityData={data.visibilityData ?? null}
       enrichmentV2={data.enrichmentV2 ?? null}
+      primaryShare={data.primaryShare}
     />
   );
 }

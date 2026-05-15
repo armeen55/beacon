@@ -30,6 +30,7 @@ import type {
   EntityVisibility,
 } from "@/domains/product/visibility-score";
 import type { EnrichmentV2Data } from "@/domains/prompt-answer-observations/enrichment-rollup";
+import type { TodayPrimaryShare } from "@/domains/daily-metric-snapshots/today-primary-share";
 
 type VisibilityData = {
   brandName: string;
@@ -66,11 +67,26 @@ type VisibilityData = {
 export type TodayV2VisibilityGroupClientProps = {
   visibilityData: VisibilityData | null;
   enrichmentV2: EnrichmentV2Data | null;
+  /**
+   * Section 6 C4b (2026-05-15) — snapshot-derived per-platform primary-
+   * recommendation percentage. Replaces the prior client-side
+   * `platformPrimaryPct(platform)` closure that searched
+   * `enrichmentV2.sparklines` with a TitleCase comparison against
+   * lowercase-canonicalized sparkline keys (the closure always
+   * returned null in production → pills silently hidden). Values
+   * flow from `daily_metric_snapshots` via `computeTodayPrimaryShare`
+   * in the server-side loader; see
+   * `src/domains/daily-metric-snapshots/today-primary-share.ts`.
+   * Mathematical equivalence vs the legacy path is pinned by
+   * `tests/domains/today/today-primary-share-equivalence.test.ts`.
+   */
+  primaryShare: TodayPrimaryShare;
 };
 
 export function TodayV2VisibilityGroupClient({
   visibilityData,
   enrichmentV2,
+  primaryShare,
 }: TodayV2VisibilityGroupClientProps) {
   const [visibilityWindow, setVisibilityWindow] = useState<number>(14);
   const [visibilityMetric, setVisibilityMetric] =
@@ -141,17 +157,13 @@ export function TodayV2VisibilityGroupClient({
       return pick ? { name: pick.name, score: pick.score } : null;
     })();
 
-    const platformPrimaryPct = (platform: string): number | null => {
-      const sparkline = enrichmentV2?.sparklines?.find(
-        (s) => s.platform === platform,
-      );
-      if (!sparkline) return null;
-      for (let i = sparkline.points.length - 1; i >= 0; i--) {
-        const r = sparkline.points[i].primaryRate;
-        if (r !== null) return Math.round(r * 100);
-      }
-      return null;
-    };
+    // Section 6 C4b — primary-share values now arrive as a server-
+    // computed prop from `loadTodayV2VisibilityData` → snapshot-
+    // derived in `computeTodayPrimaryShare`. The prior client-side
+    // closure that searched `enrichmentV2.sparklines` for matching
+    // `platform` strings is gone (it had a casing bug that
+    // suppressed the pills). The sparkline data is still read below
+    // for `sampleStatus` — a separate signal from primary share.
 
     const sampleState: "full" | "partial" | undefined = (() => {
       const sparks = enrichmentV2?.sparklines ?? [];
@@ -173,8 +185,8 @@ export function TodayV2VisibilityGroupClient({
       closestChallenger,
       currentSampledDays,
       latestReadingDate: latestPointDate,
-      chatgptPrimaryPct: platformPrimaryPct("ChatGPT"),
-      perplexityPrimaryPct: platformPrimaryPct("Perplexity"),
+      chatgptPrimaryPct: primaryShare.chatgptPrimaryPct,
+      perplexityPrimaryPct: primaryShare.perplexityPrimaryPct,
       sampleState,
       freshness: visibilityData.freshness
         ? {
@@ -183,7 +195,7 @@ export function TodayV2VisibilityGroupClient({
           }
         : undefined,
     };
-  }, [visibilityData, visibilityWindow, visibilityMetric, enrichmentV2]);
+  }, [visibilityData, visibilityWindow, visibilityMetric, enrichmentV2, primaryShare]);
 
   if (!visibilityData) return null;
 

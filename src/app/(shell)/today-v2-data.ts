@@ -87,6 +87,10 @@ import type { TodayPrimaryAction } from "./today-client";
 import type { ChangelogEntry } from "@/domains/changelog/types";
 import { loadPersistedRecommendationQueueForPage } from "@/domains/recommendations/load-queue";
 import { loadVisibilityReadModelFromSnapshots } from "@/domains/today/visibility-read-model";
+import {
+  computeTodayPrimaryShare,
+  type TodayPrimaryShare,
+} from "@/domains/daily-metric-snapshots/today-primary-share";
 
 // ─────────────────────────────────────────────────────────────────────
 // Shared upstream — memoized via React.cache so multiple section
@@ -298,6 +302,18 @@ export async function loadTodayV2DescriptorsData(): Promise<TodayV2DescriptorsDa
 export type TodayV2VisibilityData = {
   visibilityData: TodayPageData["visibilityData"];
   enrichmentV2: EnrichmentV2Data | null;
+  /**
+   * Section 6 C4b (2026-05-15) — snapshot-derived per-platform primary-
+   * recommendation percentage for the Today hero pills. Replaces the
+   * client-side `platformPrimaryPct(platform)` closure that searched
+   * `enrichmentV2.sparklines` (which had a casing bug suppressing the
+   * pills in production). Numbers come from
+   * `daily_metric_snapshots.primary_recommendation_count / total_possible`
+   * on the latest platform-scope row with usable data; mathematically
+   * equivalent to the legacy path per
+   * `tests/domains/today/today-primary-share-equivalence.test.ts`.
+   */
+  primaryShare: TodayPrimaryShare;
 };
 
 export async function loadTodayV2VisibilityData(): Promise<TodayV2VisibilityData> {
@@ -396,7 +412,37 @@ export async function loadTodayV2VisibilityData(): Promise<TodayV2VisibilityData
     enrichmentV2 = null;
   }
 
-  return { visibilityData, enrichmentV2 };
+  // ── Section 6 C4b (2026-05-15) — snapshot-derived primary share ─
+  // Read the per-platform primary-recommendation percentages from
+  // `daily_metric_snapshots` rather than re-computing client-side from
+  // `enrichmentV2.sparklines`. The helper module
+  // (`@/domains/daily-metric-snapshots/today-primary-share`) filters
+  // scope_type='platform' + source_type='derived' + non-null counts
+  // + total_possible > 0, picks the latest-by-date row per platform,
+  // and rounds to integer percent. Mathematically equivalent to the
+  // legacy path per the C4a equivalence harness; the difference is
+  // that the legacy client closure had a casing bug
+  // (`s.platform === "ChatGPT"` against canonicalized lowercase
+  // sparkline keys) that suppressed the pills in production.
+  //
+  // 14-day `since` window matches the legacy sparkline window so the
+  // "tenant has no recent data" hero behavior stays consistent.
+  //
+  // Tenant isolation: explicit `.forTenant(tenantId)` binding; the
+  // helper module never reads tenantId directly. Pinned by
+  // `tests/architecture/today-primary-share-tenant-isolation.test.ts`.
+  const sinceDate = (() => {
+    const d = new Date();
+    d.setUTCDate(d.getUTCDate() - 14);
+    return d.toISOString().slice(0, 10);
+  })();
+  const primaryShareRepo = getRepository().forTenant(tenantId);
+  const primaryShare = await computeTodayPrimaryShare({
+    repo: primaryShareRepo,
+    options: { since: sinceDate },
+  });
+
+  return { visibilityData, enrichmentV2, primaryShare };
 }
 
 // ─────────────────────────────────────────────────────────────────────
