@@ -1,0 +1,64 @@
+-- Migration: 2026-05-15_section6_primary_recommendation_column_comment_update.sql
+-- Author:    Armeen Aminzadeh (operator) + Claude
+-- Applied:   PENDING — operator approval required before apply.
+-- Project:   jdegznovgysxyweknewh (beacon)
+-- Phase:     Section 6 Commit C1.1 — Comment-only correction of the C1
+--            primary_recommendation_count column documentation.
+--
+-- Why this migration exists:
+--   The Section 6 C1 migration
+--   (migrations/2026-05-15_section6_primary_recommendation_column.sql)
+--   shipped a COMMENT ON COLUMN claiming C2 would populate
+--   primary_recommendation_count for scope_type IN
+--     (account, platform, prompt, entity).
+--
+--   The Section 6 C2 pre-flight uncovered that the native poll
+--   orchestrator (src/domains/observations/run-poll.ts) executes
+--   PER-PLATFORM-PER-CHUNK — one invocation per (tenant, platform)
+--   per chunk, with 4 chunks × 2 platforms = 8 separate
+--   invocations per UTC day, running in parallel on independent
+--   GitHub Actions runners. Emitting a single cross-platform
+--   account-scope row (scope_id="account", platform="all", id=
+--   `derived-{date}-account-all`) from any one of those invocations
+--   would last-write-wins overwrite the other platform's
+--   contribution — silently producing an account row whose
+--   counts reflect only the final-running platform.
+--
+--   Two paths considered:
+--     • Add a post-cron aggregator job that runs after both
+--       per-platform jobs complete and reads the per-platform
+--       rows to compute account-level aggregates. REJECTED
+--       (operator decision) — too much operational scope for C2
+--       (new endpoint + new cron job + new workflow needs).
+--     • Materialize platform/prompt/entity rows only; derive
+--       account-level evidence at read time from platform rows
+--       (SUM(primary_recommendation_count) WHERE scope_type=
+--       'platform' AND tenant_id=$1 AND date=$2). APPROVED.
+--
+--   This migration replaces the C1 comment so the persisted
+--   documentation matches the C2 implementation contract exactly.
+--   The previous "account/platform/prompt/entity" wording is
+--   replaced by an explicit "platform/prompt/entity" list plus
+--   prose explaining why account is not materialized and how it
+--   is derived on read.
+--
+-- Constraints (operator-locked):
+--   • COMMENT-ONLY — no column added, dropped, altered, renamed.
+--   • No RLS / policy change.
+--   • No data mutation. The 10,696 existing snapshot rows are
+--     not touched; the new column on each row keeps whatever
+--     value it has today (all NULL until C3 backfill).
+--   • Idempotent — COMMENT ON COLUMN replaces the prior comment
+--     string. Re-running the migration produces identical state.
+--   • No new indexes, constraints, functions, triggers.
+--   • No paid APIs, polls, scans triggered by this migration.
+--
+-- Rollback:
+--   Restore the prior comment text by re-running the C1 migration:
+--     migrations/2026-05-15_section6_primary_recommendation_column.sql
+--   That migration's COMMENT ON COLUMN statement would overwrite
+--   the current value back to the original wording. No structural
+--   changes to revert because nothing structural changed here.
+
+COMMENT ON COLUMN "public"."daily_metric_snapshots"."primary_recommendation_count" IS
+  'Section 6 (2026-05-15) — per-scope count of PromptAnswerObservation rows on this snapshot''s scope/date where primary_recommendation = true. Populated by the Section 6 C2 builders for scope_type IN (platform, prompt, entity). NULL on scope_type IN (topic, competitor-entity) per H8 + Phase 2A competitor-precedent. NULL on historical rows produced before C2 (~2026-05-15) until the C3 backfill script populates from each tenant''s earliest active-provider observation date per H5. ACCOUNT-SCOPE NOT MATERIALIZED in C2: native polling is per-platform-per-chunk (4 chunks × 2 platforms × 1 tenant per day, parallel runners) so a single cross-platform account row written from any one invocation would last-write-wins overwrite the others. Account-level primary share is derived at READ TIME from platform rows (SUM(primary_recommendation_count) WHERE scope_type=''platform'') until a dedicated post-cron account aggregator is approved in a later phase. Additive nullable / zero-downtime / no RLS change.';
