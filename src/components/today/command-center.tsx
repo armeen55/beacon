@@ -73,7 +73,7 @@ export function CommandCenter({
       </div>
 
       {isOperator ? (
-        <div className="flex items-center justify-end pt-1">
+        <div className="flex items-center justify-end gap-3 pt-1">
           <Link
             href="/diagnostics/brain"
             className="text-[11px] text-muted-foreground/70 hover:text-foreground/80 transition-colors"
@@ -81,6 +81,15 @@ export function CommandCenter({
             data-command-center-operator-link="true"
           >
             internal: brain diagnostics →
+          </Link>
+          <Link
+            href="/diagnostics/indexability"
+            className="text-[11px] text-muted-foreground/70 hover:text-foreground/80 transition-colors"
+            aria-label="Operator indexability diagnostics"
+            data-command-center-operator-link="true"
+            data-command-center-operator-link-target="indexability"
+          >
+            internal: indexability diagnostics →
           </Link>
         </div>
       ) : null}
