@@ -88,8 +88,11 @@ const ALLOWED_IMPORT_PATHS: ReadonlySet<string> = new Set([
   "@/lib/tenant-context",
   "@/lib/persistence/repositories",
   "@/lib/business-config",
-  "@/domains/pages/snapshot-store",
-  "@/domains/pages/sitemap-reconciliation-store",
+  // Phase A.3 (post-A.3.5 second-stage, 2026-05-15) —
+  // sitemap-reconciliation-store + snapshot-store retired from
+  // the page's import surface. Page now reads page-snapshots,
+  // sitemap-reconciliation, robots-state all through the
+  // tenant-scoped repository.
   "@/domains/pages/robots-parser",
   "@/domains/citation-lifecycle/canonicalize-url",
   "@/domains/indexability/load-indexability",

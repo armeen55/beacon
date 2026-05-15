@@ -365,12 +365,28 @@ function archivePreviousSnapshots(): void {
   }
 }
 
-function saveReconciliation(recon: SitemapReconciliation): void {
-  // sitemap-reconciliation is GLOBAL per Sprint 7.8c — write to .data/global/.
-  const path = join(globalDir(), "sitemap-reconciliation.json");
-  const tmp = path + ".tmp";
-  writeFileSync(tmp, JSON.stringify(recon, null, 2), "utf8");
-  renameSync(tmp, path);
+async function saveReconciliation(
+  recon: SitemapReconciliation,
+  tenantId: string,
+): Promise<void> {
+  // Phase A.3 (post-A.3.5, 2026-05-15) — sitemap-reconciliation is
+  // now TENANT_SCOPED (classification flipped in
+  // `store-classification.ts`). Writes go through the tenant-scoped
+  // repository, which:
+  //   • UPSERTs to `public.sitemap_reconciliation` in the
+  //     supabase-backend (production daily-scan persistence).
+  //   • writes `.data/tenants/{slug}/sitemap-reconciliation.json`
+  //     in the file-backend (dev parity).
+  //
+  // Fail-loud (sequencing model A): if the Supabase migration
+  // hasn't applied yet, the UPSERT throws "undefined_table" and
+  // the scan errors out. Operator notices and applies the
+  // migration before the next scheduled run.
+  const { getRepository } = await import(
+    "../src/lib/persistence/repositories"
+  );
+  const repo = getRepository().forTenant(tenantId);
+  await repo.setSitemapReconciliation(recon);
 }
 
 // ── Main ──
@@ -385,6 +401,14 @@ async function main() {
 
   console.log("=== Page Scanner v1 (Sitemap-First) ===\n");
   console.log(`[scan] canonical_domain=${CANONICAL_DOMAIN} origin=${siteOrigin}`);
+
+  // Phase A.3 (post-A.3.5, 2026-05-15) — resolve tenant identity
+  // ONCE at the top of main() so both the reconciliation write
+  // (Step 3.5) and the inventory loop (Step 4+) share a single
+  // tenant resolution. Previously the reconciliation write went to
+  // a global file path; now it routes through the tenant-scoped
+  // repository and needs the id.
+  const tenantId = await currentTenantId();
 
   // ── Step 1: Fetch sitemap ──
   console.log(`[scan] step=sitemap_fetch url=${SITEMAP_URL}`);
@@ -481,8 +505,10 @@ async function main() {
     registry_matched: registryMatched,
     sitemap_only: sitemapOnly,
   };
-  saveReconciliation(reconciliation);
-  console.log(`\nWrote reconciliation to .data/global/sitemap-reconciliation.json`);
+  await saveReconciliation(reconciliation, tenantId);
+  console.log(
+    `\nWrote reconciliation via tenant repository (tenant=${tenantId}).`,
+  );
 
   // ── Step 4: Determine scan set ──
   let scanSet = canonical;
@@ -562,7 +588,11 @@ async function main() {
   // BusinessConfig + Supabase imports into the CLI subprocess).
   const allElementRows: PageElementInventoryRow[] = [];
   // Sprint 7 Phase 7.5d/2 (2026-04-25) — fail-loud tenant resolution.
-  const tenantIdForInventory = await currentTenantId();
+  // Phase A.3 (post-A.3.5): tenant identity is now resolved at the
+  // top of main() into `tenantId`. Aliased here for backwards
+  // compatibility with the rest of the loop's existing references
+  // (no semantic change — same value).
+  const tenantIdForInventory = tenantId;
   const { cities: cityDictionary, services: serviceDictionary } =
     loadInventoryDictionaries();
 

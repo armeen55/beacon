@@ -53,28 +53,35 @@ function setCurrentTenant(id: string): void {
 // production reads Supabase-backed rows. Tests mock the repository
 // boundary; `_snapshots` is the same setter the prior snapshot-store
 // mock used, just plumbed through forTenant.
+// Phase A.3 (post-A.3.5 second-stage, 2026-05-15): tenant-scoped
+// repository now exposes getRobotsState + getSitemapReconciliation
+// + their paired setters in addition to getPageSnapshots. Mock
+// extended; same setters (`_snapshots`, `_reconciliation`,
+// `_robotsState`) used by the existing tests are now plumbed
+// through forTenant.
 vi.mock("@/lib/persistence/repositories", () => ({
   getRepository: () => ({
     forTenant: () => ({
       getPageSnapshots: async () => _snapshots,
+      getSitemapReconciliation: async () => _reconciliation,
+      getRobotsState: async () => _robotsState,
+      setRobotsState: async () => {},
+      setSitemapReconciliation: async () => {},
     }),
   }),
 }));
 
-vi.mock("@/domains/pages/sitemap-reconciliation-store", () => ({
-  getSitemapReconciliation: async () => _reconciliation,
-}));
-
-// Partially-mock robots-parser — keep the pure exports (parseRobotsText,
-// evaluateAiBotAccess, evaluateGooglebotAccess) while replacing the
-// I/O-touching `readRobotsState`.
+// Partially-mock robots-parser. `readRobotsState` is now async +
+// tenant-scoped — the mock returns the fixture-set `_robotsState`
+// directly. The pure exports stay intact for the loader's
+// `evaluateAiBotAccess` / `evaluateGooglebotAccess` calls.
 vi.mock("@/domains/pages/robots-parser", async () => {
   const actual = await vi.importActual<
     typeof import("@/domains/pages/robots-parser")
   >("@/domains/pages/robots-parser");
   return {
     ...actual,
-    readRobotsState: () => _robotsState,
+    readRobotsState: async () => _robotsState,
   };
 });
 

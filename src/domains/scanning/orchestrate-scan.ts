@@ -101,14 +101,16 @@ export async function regenerateScanFindings(opts: {
   // detection branch in generateFindings is a no-op. Never blocks the scan.
   let robots = null;
   try {
-    const refreshed = await refreshRobotsState(siteDomain);
+    const refreshed = await refreshRobotsState({ siteDomain, tenantId });
     robots = refreshed.parsed;
   } catch (err) {
     log.warn("robots.txt refresh failed (continuing scan)", {
       error: err instanceof Error ? err.message : String(err),
     });
-    // Fallback to cached state if present.
-    const cached = readRobotsState();
+    // Fallback to cached state if present. Phase A.3 (post-A.3.5):
+    // readRobotsState is now async + tenant-scoped, reads from
+    // Supabase mirror via repository.
+    const cached = await readRobotsState({ tenantId });
     robots = cached?.parsed ?? null;
   }
 

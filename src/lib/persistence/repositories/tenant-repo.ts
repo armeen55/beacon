@@ -22,6 +22,14 @@
 import "server-only";
 
 import type { SeedDataRepository, TenantRepository } from "./types";
+import {
+  readDotDataJson,
+  writeDotDataJson,
+} from "@/lib/persistence/dotdata-json";
+import type {
+  SitemapReconciliation,
+} from "@/domains/pages/types";
+import type { RobotsStateFile } from "@/domains/pages/robots-parser";
 
 /**
  * Loose runtime filter — works for any row shape that may carry a
@@ -127,5 +135,36 @@ export function buildTenantRepo(
       filterByTenantId(await base.getTrackedPrompts(), tenantId),
     getTrackedEntities: async () =>
       filterByTenantId(await base.getTrackedEntities(), tenantId),
+    // ─────────────────────────────────────────────────────────────────
+    // Phase A.3 (post-A.3.5) — tenant-scoped robots-state +
+    // sitemap-reconciliation. File-backend routes both through
+    // dotdata-json's classification dispatch:
+    //   • `robots-state` is SINGLETON → resolved to
+    //     `.data/tenants/{slug}/robots-state.json` (slug from
+    //     AsyncLocalStorage). The pre-A.3 flat-path file
+    //     (`.data/robots-state.json`) is retired by the parallel
+    //     robots-parser retrofit.
+    //   • `sitemap-reconciliation` was flipped GLOBAL → TENANT_SCOPED
+    //     in `store-classification.ts` as part of this step; it now
+    //     resolves to `.data/tenants/{slug}/sitemap-reconciliation.json`.
+    // Soft-fail to null on missing data — supabase-backend matches
+    // this with the 42P01 undefined-table soft-fail (sequencing
+    // model A).
+    // ─────────────────────────────────────────────────────────────────
+    getRobotsState: async () =>
+      (await readDotDataJson<RobotsStateFile>("robots-state")) ?? null,
+    setRobotsState: async (state: RobotsStateFile) => {
+      await writeDotDataJson<RobotsStateFile>("robots-state", state);
+    },
+    getSitemapReconciliation: async () =>
+      (await readDotDataJson<SitemapReconciliation>(
+        "sitemap-reconciliation",
+      )) ?? null,
+    setSitemapReconciliation: async (recon: SitemapReconciliation) => {
+      await writeDotDataJson<SitemapReconciliation>(
+        "sitemap-reconciliation",
+        recon,
+      );
+    },
   };
 }

@@ -1,12 +1,23 @@
 /**
- * Architecture invariant — Phase A.3 Step 3b (2026-05-14).
+ * Architecture invariant — Phase A.3 Step 3b (2026-05-14) /
+ * Post-A.3.5 second-stage (2026-05-15).
  *
- * The indexability loader sits at the seam between
- * tenant-scoped `page-snapshots`, the GLOBAL
- * `sitemap-reconciliation` store, and the FLAT-PATH
- * `readRobotsState()`. Two of those three sources are NOT
- * tenant-routed by their store layer — the loader is the
- * structural defense.
+ * The indexability loader sits at the seam between three
+ * tenant-routed signal sources (all now persisted in Supabase
+ * with per-tenant primary keys after the post-A.3.5 second-stage
+ * retrofit):
+ *   1. `page_snapshots` (tenant-scoped Supabase table).
+ *   2. `sitemap_reconciliation` (tenant-scoped Supabase table;
+ *      classification flipped GLOBAL → TENANT_SCOPED).
+ *   3. `robots_state` (tenant-scoped Supabase table; the pre-A.3
+ *      flat-path `.data/robots-state.json` is retired).
+ *
+ * The loader's structural defenses (tenant-domain filter on
+ * sitemap canonical_pages; siteDomain-vs-tenantDomain check on
+ * robots_state) are RETAINED as defense-in-depth even though the
+ * storage-layer per-tenant PK is now the primary boundary. The
+ * defenses catch any future regression where data crosses tenant
+ * boundaries upstream.
  *
  * This invariant pins, at the source-text level, that the loader:
  *   1. imports `currentTenantId` from `@/lib/tenant-context`,
@@ -14,19 +25,15 @@
  *      comparison that THROWS on mismatch (fail-loud, never
  *      silent),
  *   3. filters `reconciliation.canonical_pages` by tenant domain
- *      BEFORE the URL-membership check (the global-store
- *      defense),
+ *      BEFORE the URL-membership check (defense-in-depth),
  *   4. validates `state.siteDomain` against the tenant's domain
- *      before consuming robots data (the flat-path defense).
+ *      before consuming robots data (defense-in-depth — primary
+ *      boundary is the per-tenant Supabase PK).
  *
- * Retirement: this invariant retires when
- * `readRobotsState()` / `writeRobotsState()` are retrofitted
- * through tenant-routed dotdata (`readDotDataJson("robots-state")`
- * / `writeDotDataJson(...)`), AT WHICH POINT the loader's
- * siteDomain match becomes redundant defense-in-depth rather
- * than the primary safety boundary. Until that retrofit lands,
- * this loader is the only thing standing between a multi-tenant
- * scan-overwrite churn event and a wrong-tenant verdict.
+ * Retirement: permanent at the architectural-pattern level. The
+ * defenses become redundant only when ALL upstream writers carry
+ * tenant_id correctness guarantees and no global-fallback paths
+ * remain. Today, both defenses stay green by construction.
  *
  * Implementation note on regex brittleness: pins operate on
  * comment-stripped source so a docstring mention of the

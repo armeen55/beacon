@@ -689,6 +689,129 @@ export const supabaseBackend: SeedDataRepository = {
         return latest;
       },
 
+      // ─────────────────────────────────────────────────────────────
+      // Phase A.3 (post-A.3.5) — robots_state + sitemap_reconciliation
+      // tenant-scoped read/write pair.
+      //
+      // Sequencing model A (operator-locked): reads soft-fail to null
+      // when the migration hasn't applied yet, recognized by the
+      // PostgreSQL "undefined_table" error code 42P01. Writes
+      // fail-loud — daily-scan will surface the missing migration to
+      // the operator the next time it tries to UPSERT.
+      // ─────────────────────────────────────────────────────────────
+      getRobotsState: async () => {
+        const { data, error } = await getSupabaseAdmin()
+          .from("robots_state")
+          .select(
+            "tenant_id, site_domain, parsed, last_fetched_at, last_fetch_error, schema_version",
+          )
+          .eq("tenant_id", tenantId)
+          .maybeSingle();
+        if (error) {
+          if (error.code === "42P01") return null; // undefined_table soft-fail
+          throw new Error(
+            `Supabase query failed on robots_state: ${error.message}`,
+          );
+        }
+        if (data == null) return null;
+        const row = data as {
+          site_domain: string;
+          parsed: import("@/domains/pages/robots-parser").RobotsFile | null;
+          last_fetched_at: string;
+          last_fetch_error: string | null;
+          schema_version: number;
+        };
+        if (row.schema_version !== 1) return null;
+        return {
+          schemaVersion: 1 as const,
+          siteDomain: row.site_domain,
+          parsed: row.parsed,
+          lastFetchedAt: row.last_fetched_at,
+          lastFetchError: row.last_fetch_error,
+        };
+      },
+      setRobotsState: async (
+        state: import("@/domains/pages/robots-parser").RobotsStateFile,
+      ) => {
+        const { error } = await getSupabaseAdmin()
+          .from("robots_state")
+          .upsert(
+            {
+              tenant_id: tenantId,
+              site_domain: state.siteDomain,
+              parsed: state.parsed,
+              last_fetched_at: state.lastFetchedAt,
+              last_fetch_error: state.lastFetchError,
+              schema_version: state.schemaVersion,
+              updated_at: new Date().toISOString(),
+            },
+            { onConflict: "tenant_id" },
+          );
+        if (error)
+          throw new Error(
+            `Supabase upsert failed on robots_state: ${error.message}`,
+          );
+      },
+      getSitemapReconciliation: async () => {
+        const { data, error } = await getSupabaseAdmin()
+          .from("sitemap_reconciliation")
+          .select(
+            "tenant_id, sitemap_domain, sitemap_url_count, canonical_pages, stale_pages, registry_matched, sitemap_only, fetched_at, schema_version",
+          )
+          .eq("tenant_id", tenantId)
+          .maybeSingle();
+        if (error) {
+          if (error.code === "42P01") return null; // undefined_table soft-fail
+          throw new Error(
+            `Supabase query failed on sitemap_reconciliation: ${error.message}`,
+          );
+        }
+        if (data == null) return null;
+        const row = data as {
+          sitemap_domain: string;
+          sitemap_url_count: number;
+          canonical_pages: SitemapReconciliation["canonical_pages"];
+          stale_pages: SitemapReconciliation["stale_pages"];
+          registry_matched: number;
+          sitemap_only: number;
+          fetched_at: string;
+          schema_version: number;
+        };
+        if (row.schema_version !== 1) return null;
+        return {
+          canonical_pages: row.canonical_pages,
+          stale_pages: row.stale_pages,
+          sitemap_url_count: row.sitemap_url_count,
+          sitemap_domain: row.sitemap_domain,
+          registry_matched: row.registry_matched,
+          sitemap_only: row.sitemap_only,
+          fetched_at: row.fetched_at,
+        };
+      },
+      setSitemapReconciliation: async (recon: SitemapReconciliation) => {
+        const { error } = await getSupabaseAdmin()
+          .from("sitemap_reconciliation")
+          .upsert(
+            {
+              tenant_id: tenantId,
+              sitemap_domain: recon.sitemap_domain ?? "",
+              sitemap_url_count: recon.sitemap_url_count,
+              canonical_pages: recon.canonical_pages,
+              stale_pages: recon.stale_pages,
+              registry_matched: recon.registry_matched ?? 0,
+              sitemap_only: recon.sitemap_only ?? 0,
+              fetched_at: recon.fetched_at ?? new Date().toISOString(),
+              schema_version: 1,
+              updated_at: new Date().toISOString(),
+            },
+            { onConflict: "tenant_id" },
+          );
+        if (error)
+          throw new Error(
+            `Supabase upsert failed on sitemap_reconciliation: ${error.message}`,
+          );
+      },
+
       // scan_findings: tenant-scoped + camelCase mapping.
       getScanFindings: async () => {
         const { data, error } = await getSupabaseAdmin()

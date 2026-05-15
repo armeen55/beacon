@@ -265,12 +265,30 @@ export type PagePromptFit = {
   is_best_for_prompt: boolean;
 };
 
-/** `.data/sitemap-reconciliation.json` — not yet mirrored in Supabase. */
+/**
+ * Sitemap reconciliation — historically stored at
+ * `.data/global/sitemap-reconciliation.json`; mirrored to Supabase
+ * `public.sitemap_reconciliation` (per-tenant PK) as of Phase A.3
+ * (post-A.3.5). Store classification flipped from GLOBAL →
+ * TENANT_SCOPED in the same step.
+ *
+ * Type shape extended additively from the original A.3.3b subset
+ * to match what the writer (`scripts/scan-owned-pages.ts:130–138`)
+ * actually emits to disk. The additive fields close a pre-existing
+ * type/disk mismatch: the on-disk JSON has always carried
+ * `fetched_at`, `sitemap_domain`, `registry_matched`, `sitemap_only`,
+ * and per-page `sitemap_lastmod`, but the published type omitted them.
+ * Older consumers continue to work — every new field is optional or
+ * has a default.
+ */
 export type SitemapReconciliationCanonicalPage = {
   url: string;
   path: string;
   registry_page_id: string | null;
   scan_page_id: string;
+  /** Phase A.3 (post-A.3.5) — sitemap-declared lastmod (optional;
+   *  many sitemaps omit). */
+  sitemap_lastmod?: string | null;
 };
 
 export type SitemapReconciliationStalePage = {
@@ -278,11 +296,19 @@ export type SitemapReconciliationStalePage = {
   path: string;
   domain: string;
   registry_page_id: string;
-  reason: string;
+  /** Phase A.3 (post-A.3.5) — literal-union reason. Existing
+   *  callers passed open `string`; tightened additively here. */
+  reason: "stale_domain" | "not_in_sitemap" | "unscannable_url" | string;
 };
 
 export type SitemapReconciliation = {
   canonical_pages: SitemapReconciliationCanonicalPage[];
   stale_pages: SitemapReconciliationStalePage[];
   sitemap_url_count: number;
+  /** Phase A.3 (post-A.3.5) — additive fields the writer always
+   *  emitted. All optional so older consumers still type-check. */
+  fetched_at?: string;
+  sitemap_domain?: string;
+  registry_matched?: number;
+  sitemap_only?: number;
 };

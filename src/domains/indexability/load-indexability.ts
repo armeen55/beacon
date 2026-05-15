@@ -19,35 +19,31 @@
  *     2026-05-14: prior import from `@/domains/pages/snapshot-
  *     store` bypassed the repository and returned `[]` on
  *     production.)
- *   • `SitemapReconciliation` via `getSitemapReconciliation()`. **GLOBAL
- *     STORE** — lives at `.data/global/sitemap-reconciliation.json`
- *     and is shared across tenants. The loader's defense is a
- *     tenant-domain filter applied to `canonical_pages` BEFORE the
- *     URL-membership check: rows whose host does not match the
- *     tenant's `BusinessConfig.domain` are excluded as if they
- *     belong to another tenant. Architecture invariant
- *     `indexability-loader-tenant-isolation` pins this filter.
- *   • `RobotsFile` via `readRobotsState()`. **FLAT-PATH READER** —
- *     `readRobotsState()` reads `.data/robots-state.json` directly,
- *     bypassing tenant routing despite the classification layer
- *     marking `robots-state` as SINGLETON (per-tenant). This loader
- *     defends against the resulting cross-tenant churn risk by
- *     validating `state.siteDomain` against the tenant's
- *     `BusinessConfig.domain` before consuming the state — a
- *     mismatch yields null bot flags (verdict falls through to
- *     `unknown`).
+ *   • `SitemapReconciliation` via `repo.getSitemapReconciliation()`.
+ *     Phase A.3 (post-A.3.5) flipped the store classification from
+ *     GLOBAL → TENANT_SCOPED. Supabase-backend reads
+ *     `public.sitemap_reconciliation` filtered by tenant_id;
+ *     file-backend reads
+ *     `.data/tenants/{slug}/sitemap-reconciliation.json`. The
+ *     loader's tenant-domain filter on `canonical_pages` is
+ *     RETAINED as defense-in-depth (the per-tenant PK is the
+ *     primary storage-layer boundary now).
+ *   • `RobotsFile` via `readRobotsState({tenantId})`. Phase A.3
+ *     (post-A.3.5) retrofitted to async + tenant-scoped through
+ *     the repository (`public.robots_state` Supabase mirror;
+ *     `.data/tenants/{slug}/robots-state.json` in dev via SINGLETON
+ *     classification). The pre-A.3 flat-path file is RETIRED.
+ *     The loader's siteDomain-vs-tenantDomain defense is RETAINED
+ *     as defense-in-depth.
  *
- * Future infra debt — NOT fixed in this step:
- *   • Retrofit `readRobotsState()` / `writeRobotsState()` in
- *     `src/domains/pages/robots-parser.ts` to route through
- *     `readDotDataJson("robots-state")` / `writeDotDataJson(...)`.
- *     The classification layer already declares `robots-state` as
- *     SINGLETON (`store-classification.ts:131`); only the reader
- *     and writer functions need to be retrofitted. Affects the
- *     scan orchestrator (the lone caller besides this loader).
- *     Documented in the retirement-condition of the
- *     `indexability-loader-tenant-isolation` catalog row so the
- *     debt is bi-navigable from invariant ↔ catalog.
+ * Sequencing model A (operator-locked): the repository read paths
+ * soft-fail to null on the PostgreSQL `42P01` (undefined_table)
+ * error so this code is safe to deploy BEFORE the two Supabase
+ * migrations apply. Until the migrations apply AND the next
+ * daily-scan runs the dual-writes, robots + sitemap signals stay
+ * null and verdicts collapse to `unknown` — identical behavior to
+ * the pre-fix state. After both migrations apply + next scan, the
+ * loader sees real signals.
  *
  * Cache: `unstable_cache` keyed by `(tenantId, canonicalUrl)`, TTL
  * 60s, tagged `recommended_edits:${tenantId}` +
@@ -66,12 +62,12 @@ import type {
   OwnedUrlIndexability,
 } from "./types";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
-import { getSitemapReconciliation } from "@/domains/pages/sitemap-reconciliation-store";
 import {
   evaluateAiBotAccess,
   evaluateGooglebotAccess,
   readRobotsState,
 } from "@/domains/pages/robots-parser";
+import type { SitemapReconciliation } from "@/domains/pages/types";
 import { getBusinessConfig } from "@/lib/business-config";
 import { getRepository } from "@/lib/persistence/repositories";
 import { currentTenantId } from "@/lib/tenant-context";
@@ -165,7 +161,7 @@ function computeRobotsAgeDays(
  * comparison so trailing slash / case / protocol normalize together.
  */
 function buildSitemapSignal(
-  reconciliation: Awaited<ReturnType<typeof getSitemapReconciliation>>,
+  reconciliation: SitemapReconciliation | null,
   tenantDomain: string,
   canonicalUrl: string,
 ): IndexabilitySitemapSignal {
@@ -207,7 +203,7 @@ function buildSitemapSignal(
  * caller's input.
  */
 function buildRobotsSignal(
-  state: ReturnType<typeof readRobotsState>,
+  state: Awaited<ReturnType<typeof readRobotsState>>,
   tenantDomain: string,
   canonicalUrl: string,
   now: Date | string,
@@ -313,15 +309,27 @@ export async function loadIndexabilityForUrl(opts: {
       // carry `.data/tenants/{slug}/page-snapshots.json`. The
       // repository's tenant-scoped getter is the canonical
       // production read path (supabase-backend.ts:659–700).
+      // Phase A.3 (post-A.3.5 second-stage, 2026-05-15): route ALL
+      // three signal sources through the tenant-scoped repository.
+      //   • Page snapshots — already routed (prior commit).
+      //   • Sitemap reconciliation — newly routed through
+      //     `repo.getSitemapReconciliation()`. The
+      //     `@/domains/pages/sitemap-reconciliation-store` standalone
+      //     module is retired from this caller; the store-
+      //     classification flip from GLOBAL → TENANT_SCOPED makes
+      //     the repo method tenant-routed in both backends.
+      //   • Robots state — now async + tenant-scoped via the
+      //     repository. Supabase-backend reads `public.robots_state`
+      //     filtered by tenant_id (soft-fails to null on missing
+      //     table during sequencing model A). File-backend reads
+      //     `.data/tenants/{slug}/robots-state.json` via the
+      //     SINGLETON classification dispatch.
       const repo = getRepository().forTenant(opts.tenantId);
-      const [snapshots, reconciliation] = await Promise.all([
+      const [snapshots, reconciliation, robotsState] = await Promise.all([
         repo.getPageSnapshots(),
-        getSitemapReconciliation(),
+        repo.getSitemapReconciliation(),
+        readRobotsState({ tenantId: opts.tenantId }),
       ]);
-      // readRobotsState is synchronous; awaiting noisily here keeps
-      // the Promise.all shape readable but the call itself doesn't
-      // produce a Promise.
-      const robotsState = readRobotsState();
 
       // Snapshot lookup: exact match on canonicalized URL. The
       // repository getter is tenant-filtered upstream, so the

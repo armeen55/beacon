@@ -118,6 +118,15 @@ export const TENANT_SCOPED_STORES = new Set<string>([
   // classification routes correctly; per-tenant matches future scaling.
   "answer-snapshots",
   "frontier-opportunities",
+  // Phase A.3 (post-A.3.5, 2026-05-15) — sitemap-reconciliation moved
+  // from GLOBAL → TENANT_SCOPED. Previously a single
+  // `.data/global/sitemap-reconciliation.json` shared across tenants;
+  // now per-tenant. Paired with the Supabase mirror
+  // (`public.sitemap_reconciliation`) and the loader's repository
+  // read path. Retires the cross-tenant hazard the A.3.3b loader's
+  // tenant-domain filter defended against — that filter remains as
+  // defense-in-depth.
+  "sitemap-reconciliation",
 ]);
 
 export const SINGLETON_STORES = new Set<string>([
@@ -150,7 +159,9 @@ export const GLOBAL_STORES = new Set<string>([
   "milestone-state",
   "scan-state",
   "last-scan-result",
-  "sitemap-reconciliation",
+  // NOTE: "sitemap-reconciliation" was moved to TENANT_SCOPED_STORES
+  // as part of Phase A.3 (post-A.3.5, 2026-05-15). See the entry
+  // above + the migration in `migrations/<date>_phase_a3_sitemap_reconciliation_mirror.sql`.
   "prompt-library",
   "answer-texts",
   "cost-ledger",

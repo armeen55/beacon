@@ -41,7 +41,6 @@ import { isOperatorModeServer } from "@/lib/operator-mode";
 import { currentTenantId } from "@/lib/tenant-context";
 import { getRepository } from "@/lib/persistence/repositories";
 import { getBusinessConfig } from "@/lib/business-config";
-import { getSitemapReconciliation } from "@/domains/pages/sitemap-reconciliation-store";
 import { readRobotsState } from "@/domains/pages/robots-parser";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
 import { loadIndexabilityForUrl } from "@/domains/indexability/load-indexability";
@@ -322,13 +321,20 @@ export default async function OperatorIndexabilityDiagnosticsPage({
   // `@/domains/pages/snapshot-store` returned `[]` on Vercel
   // because the lambda FS doesn't carry the file path. The loader
   // (`load-indexability.ts`) made the same switch in the same step.
+  // Phase A.3 (post-A.3.5 second-stage, 2026-05-15): all three
+  // signal sources now flow through the tenant-scoped repository.
+  // Robots-state is async + tenant-scoped via the
+  // `public.robots_state` Supabase mirror (soft-fails to null on
+  // missing migration). Sitemap-reconciliation is read tenant-
+  // scoped from `public.sitemap_reconciliation` after the
+  // GLOBAL → TENANT_SCOPED classification flip.
   const repo = getRepository().forTenant(tenantId);
-  const [snapshots, reconciliation, recEdits] = await Promise.all([
+  const [snapshots, reconciliation, recEdits, robotsState] = await Promise.all([
     repo.getPageSnapshots(),
-    getSitemapReconciliation(),
+    repo.getSitemapReconciliation(),
     repo.getRecommendedEdits(),
+    readRobotsState({ tenantId }),
   ]);
-  const robotsState = readRobotsState();
 
   const sitemapTenantRows =
     reconciliation == null

@@ -19,9 +19,11 @@
  *     `PageSnapshot` / `SitemapReconciliation` shapes; this loader
  *     consumes them via the store wrappers, not directly — but
  *     we allow the path for forward-compat with type-only imports)
- *   • `@/domains/pages/sitemap-reconciliation-store` —
- *     getSitemapReconciliation (still file-only; Supabase mirror
- *     is the next infra debt to address)
+ *   • (RETIRED 2026-05-15 post-A.3.5 second-stage)
+ *     `@/domains/pages/sitemap-reconciliation-store` —
+ *     sitemap-reconciliation now reads via the tenant-scoped
+ *     repository (`repo.getSitemapReconciliation()`) backed by the
+ *     `public.sitemap_reconciliation` Supabase table.
  *   • `@/domains/pages/robots-parser` — readRobotsState +
  *     evaluateAiBotAccess + evaluateGooglebotAccess + types
  *   • `@/domains/citation-lifecycle/canonicalize-url`
@@ -63,7 +65,6 @@ const ALLOWED_IMPORT_PATHS: ReadonlySet<string> = new Set([
   "./types",
   "./compute-indexability",
   "@/domains/pages/types",
-  "@/domains/pages/sitemap-reconciliation-store",
   "@/domains/pages/robots-parser",
   "@/domains/citation-lifecycle/canonicalize-url",
   "@/lib/business-config",

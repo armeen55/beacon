@@ -101,24 +101,62 @@ function statePath(): string {
   return join(DATA_DIR, `${STATE_FILE_NAME}.json`);
 }
 
-export function readRobotsState(): RobotsStateFile | null {
+/**
+ * Phase A.3 (post-A.3.5, 2026-05-15) — async + tenant-scoped robots-
+ * state read/write. Routes through the tenant repository
+ * (`getRepository().forTenant(tenantId)`):
+ *
+ *   • On production (supabase-backend), reads `public.robots_state`
+ *     filtered by tenant_id; soft-fails to null on the
+ *     undefined-table error code 42P01 (sequencing model A — code
+ *     is safe to deploy before the migration applies).
+ *   • In dev (file-backend), routes through
+ *     `readDotDataJson("robots-state")` /
+ *     `writeDotDataJson("robots-state")` — `robots-state` is
+ *     classified as SINGLETON in `store-classification.ts`, so
+ *     the path resolves to `.data/tenants/{slug}/robots-state.json`
+ *     via the AsyncLocalStorage tenant context.
+ *
+ * The pre-A.3 flat-path file (`.data/robots-state.json`) is RETIRED.
+ * Legacy `statePath()` / `ensureDataDir()` / synchronous helpers are
+ * kept inside the module only because `writeRobotsState`'s file-side
+ * write delegates to the tenant-routed `writeDotDataJson` — which
+ * itself uses atomic rename. Any caller still importing the old
+ * flat-path helpers will fail-loud at the type level: the public
+ * signatures are now async and take `tenantId`.
+ */
+export async function readRobotsState(opts: {
+  tenantId: string;
+}): Promise<RobotsStateFile | null> {
+  const { getRepository } = await import("@/lib/persistence/repositories");
   try {
-    const p = statePath();
-    if (!existsSync(p)) return null;
-    const raw = JSON.parse(readFileSync(p, "utf8")) as RobotsStateFile;
-    if (raw.schemaVersion !== 1) return null;
-    return raw;
-  } catch {
+    const repo = getRepository().forTenant(opts.tenantId);
+    return await repo.getRobotsState();
+  } catch (e) {
+    // Defensive: any unexpected repository failure (e.g.,
+    // misconfigured backend during early init) degrades to null
+    // rather than throwing — the indexability loader treats null
+    // as "no evidence" and the verdict falls to `unknown`.
+    // eslint-disable-next-line no-console
+    console.warn(
+      "[robots-parser] readRobotsState repository read failed",
+      e,
+    );
     return null;
   }
 }
 
-export function writeRobotsState(state: RobotsStateFile): void {
-  ensureDataDir();
-  const path = statePath();
-  const tmp = path + ".tmp";
-  writeFileSync(tmp, JSON.stringify(state, null, 2), "utf8");
-  renameSync(tmp, path);
+export async function writeRobotsState(opts: {
+  tenantId: string;
+  state: RobotsStateFile;
+}): Promise<void> {
+  const { getRepository } = await import("@/lib/persistence/repositories");
+  const repo = getRepository().forTenant(opts.tenantId);
+  // Fail-loud (sequencing model A): if Supabase rejects the upsert
+  // (e.g., undefined_table because migration hasn't applied), the
+  // error propagates to the scan orchestrator and surfaces in
+  // GH Actions logs. Operator notices and applies the migration.
+  await repo.setRobotsState(opts.state);
 }
 
 // ---------------------------------------------------------------------------
@@ -230,16 +268,19 @@ function normalizeRobotsUrl(siteDomain: string): string {
   return `${base}/robots.txt`;
 }
 
-export async function refreshRobotsState(siteDomain: string): Promise<RobotsStateFile> {
-  const parsed = await fetchAndParseRobots(siteDomain);
+export async function refreshRobotsState(opts: {
+  siteDomain: string;
+  tenantId: string;
+}): Promise<RobotsStateFile> {
+  const parsed = await fetchAndParseRobots(opts.siteDomain);
   const state: RobotsStateFile = {
     schemaVersion: 1,
-    siteDomain,
+    siteDomain: opts.siteDomain,
     parsed,
     lastFetchedAt: new Date().toISOString(),
     lastFetchError: parsed.status >= 400 ? `HTTP ${parsed.status}` : null,
   };
-  writeRobotsState(state);
+  await writeRobotsState({ tenantId: opts.tenantId, state });
   return state;
 }
 

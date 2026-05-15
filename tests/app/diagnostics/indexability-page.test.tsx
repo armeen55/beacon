@@ -100,17 +100,21 @@ vi.mock("@/lib/business-config", () => ({
 // (`getRepository().forTenant(tenantId).getPageSnapshots()`).
 // Repository mock extended to include the new getter alongside the
 // existing getRecommendedEdits stub.
+// Phase A.3 (post-A.3.5 second-stage, 2026-05-15): tenant-scoped
+// repository now exposes getRobotsState + getSitemapReconciliation
+// + paired setters. Page reads all three signal sources through
+// the same repository boundary; mock extended accordingly.
 vi.mock("@/lib/persistence/repositories", () => ({
   getRepository: () => ({
     forTenant: () => ({
       getRecommendedEdits: async () => _recommendedEdits,
       getPageSnapshots: async () => _snapshots,
+      getSitemapReconciliation: async () => _reconciliation,
+      getRobotsState: async () => _robotsState,
+      setRobotsState: async () => {},
+      setSitemapReconciliation: async () => {},
     }),
   }),
-}));
-
-vi.mock("@/domains/pages/sitemap-reconciliation-store", () => ({
-  getSitemapReconciliation: async () => _reconciliation,
 }));
 
 vi.mock("@/domains/pages/robots-parser", async () => {
@@ -119,7 +123,7 @@ vi.mock("@/domains/pages/robots-parser", async () => {
   >("@/domains/pages/robots-parser");
   return {
     ...actual,
-    readRobotsState: () => _robotsState,
+    readRobotsState: async () => _robotsState,
   };
 });
 

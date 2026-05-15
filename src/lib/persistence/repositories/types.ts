@@ -41,6 +41,7 @@ import type {
   SitemapReconciliation,
 } from "@/domains/pages/types";
 import type { AnswerIntelligenceIndex } from "@/domains/answer-intelligence/types";
+import type { RobotsStateFile } from "@/domains/pages/robots-parser";
 import type { RenderCheckResult } from "@/domains/pages/render-check";
 import type { VisibilityObservationRun } from "@/domains/observations/visibility-types";
 import type { GuardrailAlert } from "@/domains/pages/guardrails";
@@ -104,6 +105,14 @@ export interface SeedDataRepository {
   /**
    * Supplementary `.data/*.json` reads — no DB tables yet. Both backends read
    * from disk so Supabase-default mode still sees the same files as before.
+   *
+   * Note: `getSitemapReconciliation` here is the LEGACY base-repository
+   * accessor that reads the GLOBAL sitemap-reconciliation.json. Phase A.3
+   * (post-A.3.5) added a tenant-scoped pair on `TenantRepository` below
+   * (`getSitemapReconciliation` / `setSitemapReconciliation`) that reads
+   * the per-tenant Supabase mirror. The base accessor stays for backward
+   * compatibility with any unaudited callers; loaders + diagnostic
+   * surfaces use the tenant-scoped pair.
    */
   getPageSnapshotDiffs(): Promise<PageSnapshotDiff[]>;
   getRenderChecks(): Promise<RenderCheckResult[]>;
@@ -221,6 +230,40 @@ export interface TenantRepository {
    *  `SeedDataRepository.getPageSummaries` docstring. */
   getPageSummaries(): Promise<PageSummary[]>;
   getPageSnapshots(): Promise<PageSnapshot[]>;
+  /**
+   * Phase A.3 (post-A.3.5) — tenant-scoped sitemap reconciliation read.
+   * Supabase-backend reads `public.sitemap_reconciliation` filtered by
+   * tenant_id. File-backend reads
+   * `.data/tenants/{slug}/sitemap-reconciliation.json` (after the
+   * store-classification flip from GLOBAL → TENANT_SCOPED in
+   * `store-classification.ts`). Soft-fails to null when the
+   * migration hasn't applied yet (PostgreSQL error code 42P01 —
+   * "undefined_table") so production code is safe to deploy before
+   * the migration runs.
+   */
+  getSitemapReconciliation(): Promise<SitemapReconciliation | null>;
+  /**
+   * Phase A.3 (post-A.3.5) — paired write. Dual-writes to Supabase +
+   * tenant-routed disk in the file-backend. FAIL-LOUD on missing
+   * table: scan-owned-pages.ts will error and surface the missing
+   * migration to the operator (sequencing model A).
+   */
+  setSitemapReconciliation(recon: SitemapReconciliation): Promise<void>;
+  /**
+   * Phase A.3 (post-A.3.5) — tenant-scoped robots-state read. Supabase-
+   * backend reads `public.robots_state` filtered by tenant_id. File-
+   * backend reads via the tenant-routed `readDotDataJson("robots-state")`
+   * path (SINGLETON classification already correct; the pre-A.3
+   * flat-path file is retired by the robots-parser retrofit landing
+   * in the same step). Soft-fails to null when the migration hasn't
+   * applied yet OR when no scan has run for this tenant.
+   */
+  getRobotsState(): Promise<RobotsStateFile | null>;
+  /**
+   * Phase A.3 (post-A.3.5) — paired write. Dual-writes to Supabase +
+   * tenant-routed disk. FAIL-LOUD on missing table.
+   */
+  setRobotsState(state: RobotsStateFile): Promise<void>;
   getPageElementInventory(): Promise<PageElementInventoryRow[]>;
   getRecommendedEdits(): Promise<RecommendedEditRow[]>;
   getRecommendationResponses(): Promise<RecommendationResponse[]>;
