@@ -218,6 +218,18 @@ function isOperatorMode(): boolean {
   return isOperatorModeServer() || process.env.NODE_ENV === "test";
 }
 
+// 2026-05-15 — Vercel prerender safety. Without this directive, Next.js
+// statically prerenders the operator-only /diagnostics index at build
+// time, which executes 13+ tenant-scoped Supabase reads (including
+// repo.getPageSnapshots() on a ≥ 1,367-row table) and intermittently
+// hits Supabase's statement_timeout, producing nondeterministic
+// deployment failures. Every sibling page under /diagnostics/* already
+// declares this directive (brain, spikes, indexability). The directive
+// opts the page into per-request rendering so the Supabase reads only
+// run when an operator actually visits. Pinned by
+// `tests/architecture/diagnostics-page-dynamic.test.ts`.
+export const dynamic = "force-dynamic";
+
 export default async function DiagnosticsPage() {
   if (!isOperatorMode()) {
     notFound();
