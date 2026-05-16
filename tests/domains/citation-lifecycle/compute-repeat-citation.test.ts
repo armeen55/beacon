@@ -545,6 +545,155 @@ describe("computeRepeatCitation — structural output guarantees", () => {
   });
 });
 
+describe("computeRepeatCitation — citation × poll-day intersection (2026-05-16 bug-fix)", () => {
+  it("citations on 3 days with 0 successful native poll days → polling=0, distinct=0, rate=null, still_learning, first-cited preserved", () => {
+    // The Ritz production failure mode pre-fix: cold-store /
+    // historical citations existed, but no beacon_native poll runs
+    // were persisted in the tenant-scoped `.data` path on Vercel.
+    // Pre-fix output rendered "Cited 3 of 0 poll days" on the
+    // operator diagnostic. Post-fix the numerator intersects with
+    // the poll-day denominator, so distinct_citation_days is 0
+    // while first_citation_date_iso remains the historical date.
+    const start = new Date(LIVE_AT).getTime();
+    const citationPaos: PromptAnswerObservation[] = [];
+    for (let i = 0; i < 3; i++) {
+      citationPaos.push(
+        paoRow({
+          id: `pao-cite-${i}`,
+          platform: "perplexity",
+          observed_at: new Date(start + i * 86_400_000).toISOString(),
+          citation_urls: [TARGET_URL],
+        }),
+      );
+    }
+    const out = computeRepeatCitation(
+      baseArgs({
+        promptAnswerObservations: citationPaos,
+        profoundImportRuns: [], // zero successful native poll runs
+      }),
+    );
+    expect(out.polling_days).toBe(0);
+    expect(out.distinct_citation_days).toBe(0);
+    expect(out.citation_rate).toBeNull();
+    expect(out.band).toBe("still_learning");
+    expect(out.first_citation_date_iso).not.toBeNull();
+    expect(out.per_platform.perplexity.polling_days).toBe(0);
+    expect(out.per_platform.perplexity.distinct_citation_days).toBe(0);
+    expect(out.per_platform.chatgpt.polling_days).toBe(0);
+    expect(out.per_platform.chatgpt.distinct_citation_days).toBe(0);
+  });
+
+  it("10 poll days, 5 citation days on those polls → distinct=5, polling=10, stable", () => {
+    // Locked baseline (already covered above; restated here as the
+    // counterfactual to the bug-fix test so the contract reads end
+    // to end).
+    const out = computeRepeatCitation(
+      baseArgs({
+        promptAnswerObservations: citationDaysSinceLive(5),
+        profoundImportRuns: pollDaysSinceLive(10),
+      }),
+    );
+    expect(out.polling_days).toBe(10);
+    expect(out.distinct_citation_days).toBe(5);
+    expect(out.band).toBe("stable");
+  });
+
+  it("citations land only on manual_import dates → excluded from BOTH numerator AND denominator; first-cited preserved", () => {
+    // Manual-import runs do NOT pass the beacon_native filter, so
+    // those dates contribute neither to polling_days NOR (via
+    // intersection) to distinct_citation_days. First citation still
+    // records the historical event.
+    const start = new Date(LIVE_AT).getTime();
+    const citationOnManualDay = paoRow({
+      id: "pao-on-manual-date",
+      platform: "perplexity",
+      observed_at: new Date(start + 2 * 86_400_000).toISOString(),
+      citation_urls: [TARGET_URL],
+    });
+    const out = computeRepeatCitation(
+      baseArgs({
+        promptAnswerObservations: [citationOnManualDay],
+        profoundImportRuns: [
+          pollRun("2026-04-27", { source_type: "manual_import", status: "completed" }),
+        ],
+      }),
+    );
+    expect(out.polling_days).toBe(0);
+    expect(out.distinct_citation_days).toBe(0);
+    expect(out.first_citation_date_iso).not.toBeNull();
+    expect(out.band).toBe("still_learning");
+  });
+
+  it("aggregate invariant — distinct_citation_days <= polling_days under a mixed scenario", () => {
+    // Citation lands on a date Beacon polled natively AND on a date
+    // it did not. Intersection drops the off-poll date.
+    const start = new Date(LIVE_AT).getTime();
+    const onPollDay = paoRow({
+      id: "pao-on-poll",
+      observed_at: new Date(start + 1 * 86_400_000).toISOString(),
+      citation_urls: [TARGET_URL],
+    });
+    const offPollDay = paoRow({
+      id: "pao-off-poll",
+      observed_at: new Date(start + 50 * 86_400_000).toISOString(), // outside the poll set
+      citation_urls: [TARGET_URL],
+    });
+    const out = computeRepeatCitation(
+      baseArgs({
+        promptAnswerObservations: [onPollDay, offPollDay],
+        profoundImportRuns: pollDaysSinceLive(10),
+      }),
+    );
+    expect(out.polling_days).toBe(10);
+    // Only the on-poll-day citation counts; the off-poll-day one
+    // exists but is intersected out.
+    expect(out.distinct_citation_days).toBe(1);
+    expect(out.distinct_citation_days).toBeLessThanOrEqual(out.polling_days);
+  });
+
+  it("per-platform invariant — platform citation days <= platform poll days (Perplexity citation on date with no Perplexity poll)", () => {
+    // Build a scenario where Perplexity citation lands on a date
+    // that only ChatGPT polled. The Perplexity citation must NOT
+    // be counted toward the Perplexity numerator (no matching
+    // Perplexity poll day).
+    const start = new Date(LIVE_AT).getTime();
+    const dateIso = (i: number) =>
+      new Date(start + i * 86_400_000).toISOString().slice(0, 10);
+    const runs: ProfoundImportRun[] = [];
+    // 10 ChatGPT polls only.
+    for (let i = 0; i < 10; i++) {
+      runs.push(pollRun(dateIso(i), { platform: "chatgpt", id: `cgpt-${i}` }));
+    }
+    // Perplexity citation on poll day 1 (ChatGPT-only poll day).
+    const perplexityCitation = paoRow({
+      id: "pao-ppx",
+      platform: "perplexity",
+      observed_at: new Date(start + 1 * 86_400_000).toISOString(),
+      citation_urls: [TARGET_URL],
+    });
+    const out = computeRepeatCitation(
+      baseArgs({
+        promptAnswerObservations: [perplexityCitation],
+        profoundImportRuns: runs,
+      }),
+    );
+    // Aggregate: the date IS a poll day (ChatGPT polled).
+    expect(out.polling_days).toBe(10);
+    expect(out.distinct_citation_days).toBe(1);
+    // Per-platform Perplexity: 0 poll days for that platform, so
+    // intersection forces distinct = 0 even though a Perplexity
+    // citation was observed on the date.
+    expect(out.per_platform.perplexity.polling_days).toBe(0);
+    expect(out.per_platform.perplexity.distinct_citation_days).toBe(0);
+    expect(out.per_platform.perplexity.distinct_citation_days).toBeLessThanOrEqual(
+      out.per_platform.perplexity.polling_days,
+    );
+    // Per-platform ChatGPT: polled 10 days, no ChatGPT citation.
+    expect(out.per_platform.chatgpt.polling_days).toBe(10);
+    expect(out.per_platform.chatgpt.distinct_citation_days).toBe(0);
+  });
+});
+
 // Confirm constant TARGET_URL canonicalizes to itself (sanity for
 // downstream test assertions that compare distinct-day counts).
 describe("computeRepeatCitation — fixture sanity", () => {

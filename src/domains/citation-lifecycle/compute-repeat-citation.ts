@@ -19,10 +19,15 @@
  *
  *   • Numerator = distinct UTC dates with at least one citation
  *     matching `canonicalize(target_url)` since `live_at`, bounded by
- *     the window. Cross-regime: cold-store `CitationObservation` rows
- *     (benchmark, pre-2026-04-22) AND native
+ *     the window, INTERSECTED with the denominator's successful
+ *     native poll dates. Cross-regime: cold-store `CitationObservation`
+ *     rows (benchmark, pre-2026-04-22) AND native
  *     `PromptAnswerObservation.citation_urls[]` (≥ 2026-04-22) both
  *     contribute. Same UTC date matched from both regimes = 1 day.
+ *     Intersecting with the denominator enforces
+ *     `distinct_citation_days <= polling_days` (2026-05-16 bug-fix);
+ *     without it the rate could exceed 1.0 when citations land on
+ *     dates Beacon did not poll natively.
  *
  *   • Minimum-sample guard FIRST: `polling_days < 7` →
  *     `still_learning` regardless of citation count.
@@ -146,6 +151,20 @@ function utcMsForDateString(iso: string): number {
     Number(iso.slice(5, 7)) - 1,
     Number(iso.slice(8, 10)),
   );
+}
+
+/**
+ * Count elements of `a` that also appear in `b`. Pure; O(|a|). Used
+ * for the repeat-citation rate's numerator: only citation dates that
+ * are ALSO successful native poll days contribute. Without this
+ * intersection the rate could exceed 1.0 when citations land on
+ * non-native (manual_import / api_import / benchmark) dates that
+ * have no corresponding beacon_native poll.
+ */
+function intersectSize<T>(a: Set<T>, b: Set<T>): number {
+  let n = 0;
+  for (const x of a) if (b.has(x)) n++;
+  return n;
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -331,17 +350,49 @@ export function computeRepeatCitation(
   }
 
   const pollingDays = aggregatePollingDates.size;
-  const distinctCitationDays = inWindowDatesAggregate.size;
+
+  // ── 7a. Poll-day intersection (2026-05-16 bug-fix) ─────────────────
+  // The repeat-citation rate's denominator is "days Beacon successfully
+  // polled the AI side." For a citation date to participate in the
+  // numerator, that date must ALSO be a successful native poll day —
+  // otherwise the rate could exceed 1.0 (citation observed on a day
+  // we didn't poll natively, e.g., cold-store benchmark dates or
+  // manual-import dates that don't have a corresponding beacon_native
+  // ProfoundImportRun). Pre-fix production observed the failure mode
+  // "Cited 3 of 0 poll days" on the operator diagnostic. Post-fix
+  // contract: `distinct_citation_days <= polling_days` for the
+  // aggregate AND `per_platform[p].distinct_citation_days <=
+  // per_platform[p].polling_days` for each platform.
+  //
+  // `first_citation_date_iso` is COMPUTED FROM ALL OBSERVATIONS
+  // (independent of poll days) — it answers "was this ever cited?"
+  // and remains populated even when the in-window poll denominator
+  // is 0. This is what distinguishes `not_repeated` from
+  // `still_learning` once the polling sample crosses the gate.
+  const distinctCitationDays = intersectSize(
+    inWindowDatesAggregate,
+    aggregatePollingDates,
+  );
 
   // ── 8. Per-platform breakdown ──────────────────────────────────────
+  // Per-platform numerator is intersected with the SAME platform's
+  // poll-day set. A citation observed on a date that platform didn't
+  // poll natively does not contribute to that platform's repeat
+  // rate, mirroring the aggregate rule above.
   const perPlatform: RepeatCitationResult["per_platform"] = {
     chatgpt: {
       polling_days: pollingDatesByPlatform.get("chatgpt")!.size,
-      distinct_citation_days: inWindowDatesByPlatform.get("chatgpt")!.size,
+      distinct_citation_days: intersectSize(
+        inWindowDatesByPlatform.get("chatgpt")!,
+        pollingDatesByPlatform.get("chatgpt")!,
+      ),
     },
     perplexity: {
       polling_days: pollingDatesByPlatform.get("perplexity")!.size,
-      distinct_citation_days: inWindowDatesByPlatform.get("perplexity")!.size,
+      distinct_citation_days: intersectSize(
+        inWindowDatesByPlatform.get("perplexity")!,
+        pollingDatesByPlatform.get("perplexity")!,
+      ),
     },
     google_ai_overviews: null,
   };

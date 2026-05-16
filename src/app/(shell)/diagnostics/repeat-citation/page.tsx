@@ -367,6 +367,21 @@ function EditRow({ row }: { row: EditWithResults }) {
 
 function BandCell({ result }: { result: RepeatCitationResult | null }) {
   if (result == null || result.band == null) return <span>—</span>;
+  // 2026-05-16 bug-fix: when no successful native poll days landed
+  // in the window, the rate has no denominator. Render the safe
+  // copy `0 successful native poll days in this window` instead of
+  // `Cited X of 0 poll days`. The compute intersects citations with
+  // poll days so the numerator is also 0 here — display matches.
+  if (result.polling_days === 0) {
+    return (
+      <div data-diag-repeat-citation-band={result.band}>
+        <div>{BAND_LABELS[result.band]}</div>
+        <div className="text-[11px] text-muted-foreground">
+          0 successful native poll days in this window
+        </div>
+      </div>
+    );
+  }
   const rate = formatRate(result.citation_rate);
   return (
     <div data-diag-repeat-citation-band={result.band}>

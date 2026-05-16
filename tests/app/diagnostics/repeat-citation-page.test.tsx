@@ -347,6 +347,69 @@ describe("/diagnostics/repeat-citation — content", () => {
   });
 });
 
+describe("/diagnostics/repeat-citation — polling_days=0 safe rendering (2026-05-16 bug-fix)", () => {
+  it("polling_days=0 + historical first citation → renders 'Still learning' + safe denominator copy; NEVER 'Cited X of 0 poll days'", async () => {
+    _edits = [eligibleEdit({ id: "edit-zero-polls" })];
+    const stillLearningWithHistory = (windowDays: number): RepeatCitationResult => ({
+      eligible: true,
+      eligibility_reason: "eligible_verified_live",
+      window_days: windowDays,
+      polling_days: 0,
+      distinct_citation_days: 0,
+      citation_rate: null,
+      band: "still_learning",
+      per_platform: {
+        chatgpt: { polling_days: 0, distinct_citation_days: 0 },
+        perplexity: { polling_days: 0, distinct_citation_days: 0 },
+        google_ai_overviews: null,
+      },
+      first_citation_date_iso: "2026-04-28",
+    });
+    for (const w of [30, 60, 90]) {
+      _resultFixtures.set(`edit-zero-polls:${w}`, stillLearningWithHistory(w));
+    }
+    const html = renderToStaticMarkup(await RepeatCitationDiagnosticPage());
+
+    // SAFE: the safe copy renders.
+    expect(html).toContain("0 successful native poll days in this window");
+    expect(html).toContain("Still learning");
+
+    // FORBIDDEN: pre-fix output that the bug produced.
+    expect(html).not.toContain("Cited 3 of 0 poll days");
+    expect(html).not.toContain(" of 0 poll days (");
+    // No "X / 0 poll days" pattern where X > 0 in per-platform.
+    expect(html).not.toMatch(/[1-9]\d*\s*\/\s*0\s*poll days/);
+
+    // First-cited column still populated from the historical date.
+    expect(html).toContain("2026-04-28");
+  });
+
+  it("polling_days=0 per-platform row renders '0 / 0 poll days' (consistent, not the bug pattern)", async () => {
+    _edits = [eligibleEdit({ id: "edit-zero-platform" })];
+    for (const w of [30, 60, 90]) {
+      _resultFixtures.set(`edit-zero-platform:${w}`, {
+        eligible: true,
+        eligibility_reason: "eligible_verified_live",
+        window_days: w,
+        polling_days: 0,
+        distinct_citation_days: 0,
+        citation_rate: null,
+        band: "still_learning",
+        per_platform: {
+          chatgpt: { polling_days: 0, distinct_citation_days: 0 },
+          perplexity: { polling_days: 0, distinct_citation_days: 0 },
+          google_ai_overviews: null,
+        },
+        first_citation_date_iso: null,
+      });
+    }
+    const html = renderToStaticMarkup(await RepeatCitationDiagnosticPage());
+    expect(html).toContain("0 / 0 poll days");
+    // Negative check: no bug pattern.
+    expect(html).not.toMatch(/[1-9]\d*\s*\/\s*0\s*poll days/);
+  });
+});
+
 describe("/diagnostics/repeat-citation — data-sources footer", () => {
   it("references getProfoundImportRuns + tenant-scoped repo in footer", async () => {
     _edits = [eligibleEdit()];
