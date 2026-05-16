@@ -29,7 +29,13 @@ import {
 describe("Sprint 6A.1 Phase 2 — action-type registry", () => {
   describe("enum completeness", () => {
     it("has exactly 22 action types", () => {
-      expect(ACTION_TYPES).toHaveLength(22);
+      // Section 7 C7b (2026-05-16): registry grew from 22 → 29 with
+      // the 7 off-site/manual action types (claim_gbp,
+      // optimize_gbp_profile, request_gbp_reviews,
+      // claim_or_optimize_houzz, claim_or_optimize_yelp,
+      // submit_to_industry_directory, pursue_local_pr). All seven
+      // ship `generatorActive: false` so the LLM never produces them.
+      expect(ACTION_TYPES).toHaveLength(29);
     });
 
     it("contains every action type planned in Sprint 6A.1", () => {
@@ -57,6 +63,17 @@ describe("Sprint 6A.1 Phase 2 — action-type registry", () => {
         "merge_pages",
         "create_page",
         "watch",
+        // Section 7 C7b (2026-05-16) — off-site / manual action types.
+        // All seven carry `generatorActive: false` (LLM never produces
+        // them) and `elementTypeDomain: []` (no on-page element target).
+        // See action-types-off-site.test.ts for the per-entry shape.
+        "claim_gbp",
+        "optimize_gbp_profile",
+        "request_gbp_reviews",
+        "claim_or_optimize_houzz",
+        "claim_or_optimize_yelp",
+        "submit_to_industry_directory",
+        "pursue_local_pr",
       ];
       expect(new Set(ACTION_TYPES)).toEqual(new Set(expected));
     });
@@ -110,11 +127,15 @@ describe("Sprint 6A.1 Phase 2 — action-type registry", () => {
       expect(new Set(listActiveActionTypes())).toEqual(new Set(ACTIVE_V1));
     });
 
-    it("every other type is generatorActive=false (Sprint 6A.2 flips them)", () => {
+    it("every other type is generatorActive=false (Sprint 6A.2 flips them; Section 7 C7b adds 7 off-site types)", () => {
       const inactive = ACTION_TYPES.filter(
         (t) => !ACTION_TYPE_REGISTRY[t].generatorActive,
       );
-      expect(inactive).toHaveLength(19);
+      // 22 original − 3 ACTIVE_V1 = 19 inactive, plus Section 7 C7b's
+      // 7 off-site/manual types (all generatorActive: false) → 26.
+      // The off-site types are intentionally generator-inactive: they
+      // are operator-manual recommendations, not LLM-drafted edits.
+      expect(inactive).toHaveLength(26);
       for (const t of ACTIVE_V1) {
         expect(inactive).not.toContain(t);
       }
@@ -346,6 +367,34 @@ describe("Sprint 6A.1 Phase 2 — action-type registry", () => {
       }
     });
 
+    /**
+     * Section 7 C7b (2026-05-16): off-site/manual action types
+     * (claim_gbp, optimize_gbp_profile, request_gbp_reviews,
+     * claim_or_optimize_houzz, claim_or_optimize_yelp,
+     * submit_to_industry_directory, pursue_local_pr) carry
+     * `elementTypeDomain: []` because the recommendation targets an
+     * external profile (Google Business Profile, Yelp listing, etc.)
+     * rather than an on-page element. They join the existing
+     * page-lifecycle types on the empty-domain side of this
+     * dichotomy. Extracted to a named constant so the exception is
+     * explicit and documented in one place.
+     */
+    const ZERO_ELEMENT_DOMAIN_ALLOWLIST: ActionType[] = [
+      // Page-level lifecycle
+      "split_page",
+      "merge_pages",
+      "create_page",
+      "watch",
+      // Off-site / manual (Section 7 C7b)
+      "claim_gbp",
+      "optimize_gbp_profile",
+      "request_gbp_reviews",
+      "claim_or_optimize_houzz",
+      "claim_or_optimize_yelp",
+      "submit_to_industry_directory",
+      "pursue_local_pr",
+    ];
+
     it("page-lifecycle actions have empty elementTypeDomain (no element target)", () => {
       const pageLifecycle: ActionType[] = [
         "split_page",
@@ -360,8 +409,7 @@ describe("Sprint 6A.1 Phase 2 — action-type registry", () => {
 
     it("element-specific actions have non-empty elementTypeDomain", () => {
       const elementScoped = ACTION_TYPES.filter(
-        (t) =>
-          !["split_page", "merge_pages", "create_page", "watch"].includes(t),
+        (t) => !ZERO_ELEMENT_DOMAIN_ALLOWLIST.includes(t),
       );
       for (const t of elementScoped) {
         expect(ACTION_TYPE_REGISTRY[t].elementTypeDomain.length).toBeGreaterThan(0);

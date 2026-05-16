@@ -53,6 +53,19 @@ export const ACTION_TYPES = [
   "create_page",
   // Passive
   "watch",
+  // ── Off-site authority (Section 7 C7b — locked invariants: read-only,
+  //    no LLM generation, no Suggested Copy, no write paths to GBP /
+  //    Yelp / Houzz / Angi / BBB / industry directories / press).
+  //    Detection lives on /diagnostics/off-site-authority (C7a).
+  //    Recommendation generation + customer surfaces defer to
+  //    C7c / C7d / C7e behind the multi-tenant prerequisite.
+  "claim_gbp",
+  "optimize_gbp_profile",
+  "request_gbp_reviews",
+  "claim_or_optimize_houzz",
+  "claim_or_optimize_yelp",
+  "submit_to_industry_directory",
+  "pursue_local_pr",
 ] as const;
 
 export type ActionType = (typeof ACTION_TYPES)[number];
@@ -350,6 +363,93 @@ export const ACTION_TYPE_REGISTRY: Record<ActionType, ActionTypeSpec> = {
     requiresProposedText: false,
     changelogAssetType: "service_page",
     operatorLabel: "Watch — track without editing",
+    generatorActive: false,
+  },
+
+  // ── Off-site authority (Section 7 C7b — 2026-05-16) ────────────────────────
+  // Locked invariants:
+  //   • read-only/manual: Beacon RECOMMENDS, never PERFORMS
+  //   • generatorActive: false → LLM never asked to produce these
+  //   • requiresCurrentText / requiresProposedText: false → no
+  //     publishable text (Act 4 Suggested Copy stays suppressed via
+  //     existing review_decision row-type mapping)
+  //   • elementTypeDomain: [] → no on-page element target
+  //   • signalType: "off_page_seo" → existing constant
+  //   • changelogAssetType: "directory_profile" → existing constant
+  //   • operatorLabel: customer-safe full-form copy (no standalone
+  //     "GBP", no "missing", no causal/revenue language)
+  //
+  // Detection lives on /diagnostics/off-site-authority (C7a).
+  // Recommendation generation + customer surfaces defer to
+  // C7c / C7d / C7e behind the multi-tenant prerequisite.
+  claim_gbp: {
+    actionType: "claim_gbp",
+    elementTypeDomain: [],
+    signalType: "off_page_seo",
+    requiresCurrentText: false,
+    requiresProposedText: false,
+    changelogAssetType: "directory_profile",
+    operatorLabel: "Claim your Google Business Profile",
+    generatorActive: false,
+  },
+  optimize_gbp_profile: {
+    actionType: "optimize_gbp_profile",
+    elementTypeDomain: [],
+    signalType: "off_page_seo",
+    requiresCurrentText: false,
+    requiresProposedText: false,
+    changelogAssetType: "directory_profile",
+    operatorLabel: "Optimize your Google Business Profile",
+    generatorActive: false,
+  },
+  request_gbp_reviews: {
+    actionType: "request_gbp_reviews",
+    elementTypeDomain: [],
+    signalType: "off_page_seo",
+    requiresCurrentText: false,
+    requiresProposedText: false,
+    changelogAssetType: "directory_profile",
+    operatorLabel: "Encourage new Google reviews",
+    generatorActive: false,
+  },
+  claim_or_optimize_houzz: {
+    actionType: "claim_or_optimize_houzz",
+    elementTypeDomain: [],
+    signalType: "off_page_seo",
+    requiresCurrentText: false,
+    requiresProposedText: false,
+    changelogAssetType: "directory_profile",
+    operatorLabel: "Claim or improve your Houzz profile",
+    generatorActive: false,
+  },
+  claim_or_optimize_yelp: {
+    actionType: "claim_or_optimize_yelp",
+    elementTypeDomain: [],
+    signalType: "off_page_seo",
+    requiresCurrentText: false,
+    requiresProposedText: false,
+    changelogAssetType: "directory_profile",
+    operatorLabel: "Claim or improve your Yelp profile",
+    generatorActive: false,
+  },
+  submit_to_industry_directory: {
+    actionType: "submit_to_industry_directory",
+    elementTypeDomain: [],
+    signalType: "off_page_seo",
+    requiresCurrentText: false,
+    requiresProposedText: false,
+    changelogAssetType: "directory_profile",
+    operatorLabel: "Submit to an industry directory",
+    generatorActive: false,
+  },
+  pursue_local_pr: {
+    actionType: "pursue_local_pr",
+    elementTypeDomain: [],
+    signalType: "off_page_seo",
+    requiresCurrentText: false,
+    requiresProposedText: false,
+    changelogAssetType: "directory_profile",
+    operatorLabel: "Pursue local press coverage",
     generatorActive: false,
   },
 };

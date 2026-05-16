@@ -371,6 +371,26 @@ export function actionRowTypeForEdit(actionType: ActionType): ActionRowType {
       return "review_decision";
     case "watch":
       return "review_decision";
+    // Section 7 C7b (2026-05-16) — off-site / manual action types map
+    // to the existing "review_decision" row type. This keeps Act 4
+    // Suggested Copy suppressed automatically (review_decision is NOT
+    // in SUGGESTED_COPY_ACTION_ROW_TYPES in suggested-copy-adapters.ts)
+    // AND avoids adding a new ActionRowType value (which would force
+    // edits to the customer-facing recommendations-client.tsx
+    // COMPACT_LABEL exhaustive map). When C7e introduces a dedicated
+    // off-site row type for the customer queue, this mapping flips
+    // there. In C7b these arms are reachable only via type-narrowing —
+    // no production code path persists or renders an off-site rec row
+    // yet (generatorActive: false on every entry; rec creation /
+    // acceptance / queue rendering all gated separately).
+    case "claim_gbp":
+    case "optimize_gbp_profile":
+    case "request_gbp_reviews":
+    case "claim_or_optimize_houzz":
+    case "claim_or_optimize_yelp":
+    case "submit_to_industry_directory":
+    case "pursue_local_pr":
+      return "review_decision";
   }
 }
 
@@ -500,6 +520,28 @@ export function composeEditRowTitle(args: {
       return `Merge overlapping pages into the ${targetLabel}`;
     case "watch":
       return `Watch the ${targetLabel} cluster`;
+    // Section 7 C7b (2026-05-16) — off-site / manual action types.
+    // Row-title text mirrors the registry's `operatorLabel` verbatim
+    // so the same locked, customer-safe phrasing is used wherever a
+    // row title might surface. These arms are dead code in C7b (no
+    // off-site rec row creation path exists yet — generatorActive is
+    // false on every entry) but are required for TypeScript's
+    // exhaustive switch on `ActionType`. C7c+ may revisit the
+    // wording when actual generation lands.
+    case "claim_gbp":
+      return "Claim your Google Business Profile";
+    case "optimize_gbp_profile":
+      return "Optimize your Google Business Profile";
+    case "request_gbp_reviews":
+      return "Encourage new Google reviews";
+    case "claim_or_optimize_houzz":
+      return "Claim or improve your Houzz profile";
+    case "claim_or_optimize_yelp":
+      return "Claim or improve your Yelp profile";
+    case "submit_to_industry_directory":
+      return "Submit to an industry directory";
+    case "pursue_local_pr":
+      return "Pursue local press coverage";
   }
 }
 
