@@ -335,14 +335,33 @@ export interface TenantRepository {
    * live_at"). Beacon's Section 5 compute MUST NOT consume
    * `getObservationRuns()` for the denominator — wrong shape.
    *
-   * Tenant safety: rows are read via the tenant-aware json-store
-   * (`readStore("observation-runs")` resolves to
-   * `.data/tenants/{slug}/observation-runs.json`). The Supabase
-   * backend's `observation_runs` table holds website-crawl rows
-   * only (the existing dual-write upsert filters by
-   * `run_id && run_type`); `ProfoundImportRun` is disk-only today.
-   * A future migration may move this data into a dedicated table;
-   * this method's signature stays stable across that change.
+   * Two backend implementations (signature stable across both):
+   *
+   *   • File backend (`tenant-repo.ts`'s
+   *     `readProfoundImportRunsForTenant`) — explicit-tenant disk
+   *     read of `.data/tenants/{slug}/observation-runs.json`. Used
+   *     by local dev with disk fixtures.
+   *
+   *   • Supabase backend
+   *     (`supabase-backend.ts`'s `forTenant.getProfoundImportRuns`)
+   *     — explicit-tenant Supabase query on the existing
+   *     `observation_runs` table filtered by
+   *     `tenant_id = {tenantId}` AND
+   *     `run_type = "citation_sample_import"`. Each row is mapped
+   *     through `mapObservationRunRowToProfoundImportRun` (in
+   *     `supabase-backend.ts`) into the `ProfoundImportRun` shape
+   *     compute expects. Source-to-platform mapping handles
+   *     `"perplexity-native-poll"` → `"perplexity"` and
+   *     `"openai-native-poll"` → `"chatgpt"`; unknown sources pass
+   *     through verbatim for forward-compat.
+   *
+   * Crucially, the existing `getObservationRuns()` method on this
+   * same interface remains the website-crawl reader — it returns
+   * the unmapped `ObservationRun` rows (run_type ∈
+   * `{"website_crawl", "website_verify", "citation_sample_import",
+   * "composite_placeholder"}`) and MUST NOT be used as Section 5's
+   * denominator (wrong type). The two methods are intentionally
+   * distinct.
    */
   getProfoundImportRuns(): Promise<ProfoundImportRun[]>;
 }

@@ -8,7 +8,117 @@ import { readDotDataJson } from "../dotdata-json";
 import { readStore } from "../json-store";
 import { getSupabaseAdmin } from "../supabase";
 import type { SeedDataRepository } from "./types";
-import { readProfoundImportRunsForTenant } from "./tenant-repo";
+import type { ProfoundImportRun } from "@/domains/observation-runs/types";
+
+// ─────────────────────────────────────────────────────────────────────
+// Section 5 durable denominator (2026-05-16) — observation_runs mapper.
+//
+// Production native-poll cron writes one `ObservationRun` row per
+// successful poll to the Supabase `observation_runs` table via
+// `syncObservationRuns()` (see `dual-write.ts:638-701`). Every row
+// carries `run_type === "citation_sample_import"` (the discriminator
+// vs website-crawl rows) and `source ∈ {"perplexity-native-poll",
+// "openai-native-poll"}`. These records have been collecting since
+// 2026-04-22 and are the authoritative denominator source for
+// Section 5's repeat-citation classifier.
+//
+// `getProfoundImportRuns()` on the Supabase backend reads these
+// rows and maps them through `mapObservationRunRowToProfoundImportRun`
+// into the `ProfoundImportRun` shape Section 5 compute expects.
+// NO new table, NO migration, NO new write path. The file-backend
+// keeps its existing per-tenant disk read helper
+// (`readProfoundImportRunsForTenant` in `./tenant-repo`) for local
+// dev fixtures.
+// ─────────────────────────────────────────────────────────────────────
+
+type ObservationRunRow = {
+  run_id: unknown;
+  run_type: unknown;
+  source: unknown;
+  status: unknown;
+  started_at: unknown;
+  completed_at: unknown;
+  tenant_id: unknown;
+};
+
+/**
+ * Pure mapper — `observation_runs` row → `ProfoundImportRun`.
+ *
+ * Defensive: returns `null` for any row missing the four required
+ * string fields (`run_id`, `tenant_id`, `source`, `completed_at`).
+ * Callers filter the nulls.
+ *
+ * Source → platform mapping:
+ *   • `"perplexity-native-poll"` → `"perplexity"`
+ *   • `"openai-native-poll"` → `"chatgpt"`
+ *   • anything else: pass `source` through as `platform` (forward-
+ *     compat — a future native platform's poll script with a new
+ *     source literal joins the denominator pool automatically).
+ *
+ * Status mapping (Section 5 compute filters by `status ===
+ * "completed"` downstream; non-completed values are preserved as
+ * `"failed"` for type-shape stability):
+ *   • `"completed"` → `"completed"`
+ *   • `"failed"` → `"failed"`
+ *   • `"partial"` → `"failed"`
+ *   • anything else → `"failed"`
+ *
+ * `source_type` is constant `"beacon_native"` because every
+ * `citation_sample_import` row by construction comes from the
+ * native poll cron.
+ */
+export function mapObservationRunRowToProfoundImportRun(
+  row: ObservationRunRow,
+): ProfoundImportRun | null {
+  const runId = row.run_id;
+  const tenantId = row.tenant_id;
+  const source = row.source;
+  const completedAt = row.completed_at;
+  if (
+    typeof runId !== "string" ||
+    typeof tenantId !== "string" ||
+    typeof source !== "string" ||
+    typeof completedAt !== "string"
+  ) {
+    return null;
+  }
+
+  const platform =
+    source === "perplexity-native-poll"
+      ? "perplexity"
+      : source === "openai-native-poll"
+        ? "chatgpt"
+        : source;
+
+  const rawStatus = row.status;
+  const status: ProfoundImportRun["status"] =
+    rawStatus === "completed"
+      ? "completed"
+      : rawStatus === "failed"
+        ? "failed"
+        : rawStatus === "partial"
+          ? "failed"
+          : "failed";
+
+  const startedAt =
+    typeof row.started_at === "string" ? row.started_at : completedAt;
+
+  return {
+    id: runId,
+    account_id: tenantId,
+    import_run_id: null,
+    run_date: completedAt.slice(0, 10),
+    platform,
+    model: null,
+    geo: null,
+    locale: null,
+    source_type: "beacon_native",
+    status,
+    prompt_count: 0,
+    metadata: { source },
+    created_at: startedAt,
+  };
+}
 import type { Result } from "@/domains/results/types";
 import type { ChangelogEntry } from "@/domains/changelog/types";
 import type { Opportunity } from "@/domains/opportunities/types";
@@ -902,31 +1012,50 @@ export const supabaseBackend: SeedDataRepository = {
         return (data ?? []) as TrackedEntity[];
       },
       /**
-       * Section 5 precursor (2026-05-16) — explicit-tenant poll-run
-       * read.
+       * Section 5 durable denominator (2026-05-16) — explicit-tenant
+       * read of native-poll run records from the existing Supabase
+       * `observation_runs` table.
        *
-       * `ProfoundImportRun` is disk-backed today. The Supabase
-       * `observation_runs` table is separate — it holds website-
-       * crawl `ObservationRun` rows only; the dual-write at
-       * `dual-write.ts:651-654` filters inserts by `run_id &&
-       * run_type` which structurally excludes the poll-run shape.
-       * Until a dedicated `profound_import_runs` table lands, both
-       * backends read the same per-tenant disk file:
-       * `.data/tenants/{slug}/observation-runs.json`.
+       * Discriminator: `run_type === "citation_sample_import"` is
+       * the structural marker every native-poll `ObservationRun`
+       * row carries (`src/adapters/perplexity/poll.ts:695` +
+       * `src/adapters/openai/poll.ts` via the same builder). Rows
+       * are dual-written by `syncObservationRuns()` on every poll
+       * (`src/lib/persistence/dual-write.ts:638-701`) and have been
+       * collecting since 2026-04-22. No new table, no new write
+       * path — the read-side mapper alone makes Section 5's
+       * denominator durable in production.
        *
-       * Scoping contract: this method scopes by the captured
-       * `tenantId` argument, NOT by ambient
-       * `currentTenantSlug()`. `forTenant("tenant-a").
-       * getProfoundImportRuns()` always returns tenant-a's rows
-       * even when the active request slug differs. Pinned by
+       * Scoping contract: explicit `.eq("tenant_id", tenantId)`
+       * predicate (pushdown-invariant). The captured `tenantId`
+       * scopes every read; ambient `currentTenantSlug()` is NOT
+       * consulted. Pinned by
        * `tests/architecture/profound-import-runs-explicit-tenant-scope.test.ts`.
        *
-       * No Supabase query here — pushdown-invariant
-       * (tenant-repository-pushdown) only constrains Supabase
-       * query call sites, which this method does not use.
+       * Mapper: see `mapObservationRunRowToProfoundImportRun`
+       * above for the row→ProfoundImportRun translation rules.
        */
-      getProfoundImportRuns: async () =>
-        readProfoundImportRunsForTenant(tenantId),
+      getProfoundImportRuns: async () => {
+        const { data, error } = await getSupabaseAdmin()
+          .from("observation_runs")
+          .select(
+            "run_id, run_type, source, status, started_at, completed_at, tenant_id",
+          )
+          .eq("tenant_id", tenantId)
+          .eq("run_type", "citation_sample_import");
+        if (error) {
+          throw new Error(
+            `Supabase query failed on observation_runs (Section 5 denominator read): ${error.message}`,
+          );
+        }
+        const rows = (data ?? []) as ObservationRunRow[];
+        const out: ProfoundImportRun[] = [];
+        for (const row of rows) {
+          const mapped = mapObservationRunRowToProfoundImportRun(row);
+          if (mapped != null) out.push(mapped);
+        }
+        return out;
+      },
     };
   },
 };

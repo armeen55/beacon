@@ -1,39 +1,38 @@
 /**
- * Architecture invariant — Section 5 precursor / explicit-tenant
- * `getProfoundImportRuns()` scoping (2026-05-16).
+ * Architecture invariant — Section 5 precursor + durable
+ * denominator (2026-05-16) — explicit-tenant
+ * `getProfoundImportRuns()` scoping across BOTH backends.
  *
- * Pins that the new Section-5 denominator reader on `forTenant(
+ * Pins that the Section-5 denominator reader on `forTenant(
  * tenantId)` scopes by the explicit `tenantId` argument, NOT by
- * ambient `currentTenantSlug()` routing.
+ * ambient `currentTenantSlug()` routing — for both backends:
  *
- * The temptation when adding a disk-backed read to the
- * TenantRepository is to call `readStore("observation-runs")` or
- * `readDotDataJson("observation-runs")`, both of which route
- * through `resolveDataPath` → `currentTenantSlug()`. That makes
- * the method scope by AMBIENT request slug rather than by the
- * explicit `tenantId` captured in the closure. A caller running
- * `forTenant("tenant-a").getProfoundImportRuns()` while the active
- * request is for tenant-b would silently leak tenant-b's rows.
+ *   • File backend (`tenant-repo.ts`): the explicit-tenant
+ *     disk-read helper `readProfoundImportRunsForTenant` resolves
+ *     slug via `getTenant(tenantId)` with operator-bootstrap env
+ *     fallback, then reads `.data/tenants/{slug}/observation-runs.json`
+ *     directly via `readFileSync`. Used by local dev with disk
+ *     fixtures.
  *
- * Single-helper design: the explicit-tenant disk-read helper
- * lives in `tenant-repo.ts` (as `readProfoundImportRunsForTenant`)
- * and is RE-USED by `supabase-backend.ts`'s `forTenant` block via
- * a direct import. This consolidation preserves the existing
- * `canonical-store-tenant-isolation` invariant that forbids
- * `supabase-backend.ts` from importing `getTenant` directly (the
- * resolver lives one layer up in tenant-repo).
+ *   • Supabase backend (`supabase-backend.ts`'s `forTenant`
+ *     block): queries the existing `observation_runs` table with
+ *     `.eq("tenant_id", tenantId)` AND
+ *     `.eq("run_type", "citation_sample_import")`, then maps each
+ *     row through `mapObservationRunRowToProfoundImportRun` into
+ *     the `ProfoundImportRun` shape. The mapper is exported from
+ *     `supabase-backend.ts` for unit-testing. Source-to-platform
+ *     mapping handles perplexity-native-poll → perplexity and
+ *     openai-native-poll → chatgpt; unknown sources pass through
+ *     verbatim.
  *
- * Pins:
- *   • tenant-repo.ts declares the explicit-tenant helper.
- *   • Helper accepts `tenantId: string`, resolves slug via
- *     `getTenant(tenantId)` with operator-bootstrap env fallback,
- *     reads via `getDataDir(slug)` + `readFileSync`.
- *   • Helper does NOT call `readStore("observation-runs")` or
- *     `readDotDataJson("observation-runs")` (both ambient-routed).
- *   • supabase-backend.ts re-uses the same helper (one source of
- *     truth) by importing it from `./tenant-repo`.
+ * Pins (across both backends):
  *   • Neither file imports `getObservationRuns` from
  *     `@/storage/canonical-store`.
+ *   • Neither file consults ambient-routed
+ *     `readStore("observation-runs")` or
+ *     `readDotDataJson("observation-runs")` for this method.
+ *   • Supabase implementation does NOT call `repo.getObservationRuns()`
+ *     for this method (wrong type — that's the website-crawl reader).
  *
  * Currently GREEN by construction. Retires never — the
  * explicit-tenant-vs-ambient distinction is structural.
@@ -108,21 +107,38 @@ describe("Architecture — getProfoundImportRuns scopes by explicit tenantId (te
   });
 });
 
-describe("Architecture — supabase-backend re-uses the same helper (single source of truth)", () => {
+describe("Architecture — supabase-backend reads observation_runs with explicit tenant + run_type filters", () => {
   const active = stripComments(read(SUPABASE_BACKEND));
 
-  it("imports readProfoundImportRunsForTenant from ./tenant-repo", () => {
-    const re =
-      /import\s*\{[^}]*readProfoundImportRunsForTenant[^}]*\}\s*from\s*["']\.\/tenant-repo["']/;
-    expect(active).toMatch(re);
+  it("declares the row→ProfoundImportRun mapper helper", () => {
+    expect(active).toContain("function mapObservationRunRowToProfoundImportRun");
   });
 
-  it("forTenant.getProfoundImportRuns delegates to the shared helper", () => {
-    // The method body must consist of a single call passing the
-    // captured tenantId — no inline disk read, no duplicate resolver.
-    const re =
-      /getProfoundImportRuns:\s*async\s*\(\s*\)\s*=>\s*\n?\s*readProfoundImportRunsForTenant\s*\(\s*tenantId\s*\)/;
-    expect(active).toMatch(re);
+  it("forTenant.getProfoundImportRuns queries the observation_runs table", () => {
+    expect(active).toMatch(/\.from\(\s*["']observation_runs["']\s*\)/);
+  });
+
+  it("query scopes by explicit tenantId via .eq(\"tenant_id\", tenantId)", () => {
+    expect(active).toMatch(/\.eq\(\s*["']tenant_id["']\s*,\s*tenantId\s*\)/);
+  });
+
+  it("query filters to native-poll rows via .eq(\"run_type\", \"citation_sample_import\")", () => {
+    expect(active).toMatch(
+      /\.eq\(\s*["']run_type["']\s*,\s*["']citation_sample_import["']\s*\)/,
+    );
+  });
+
+  it("getProfoundImportRuns body invokes the mapper", () => {
+    // Anchor the call site after the getProfoundImportRuns method
+    // declaration so we don't false-positive on the mapper's own
+    // definition further up the file.
+    const methodOffset = active.indexOf("getProfoundImportRuns:");
+    expect(methodOffset).toBeGreaterThan(0);
+    const callOffset = active.indexOf(
+      "mapObservationRunRowToProfoundImportRun(",
+      methodOffset,
+    );
+    expect(callOffset).toBeGreaterThan(methodOffset);
   });
 
   it("does NOT call readStore(\"observation-runs\") (ambient-routed)", () => {
@@ -135,6 +151,19 @@ describe("Architecture — supabase-backend re-uses the same helper (single sour
     const callRe =
       /readDotDataJson\s*(?:<[^>]*>\s*)?\(\s*["']observation-runs["']\s*\)/;
     expect(active).not.toMatch(callRe);
+  });
+
+  it("forTenant.getProfoundImportRuns body does NOT call .getObservationRuns(", () => {
+    // The website-crawl reader. Section 5 must NOT consume that
+    // shape. Negative-lookbehind tolerates `.getProfoundImportRuns(`
+    // (the legitimate Section 5 method name).
+    const methodOffset = active.indexOf("getProfoundImportRuns:");
+    expect(methodOffset).toBeGreaterThan(0);
+    const body = active.slice(
+      methodOffset,
+      Math.min(active.length, methodOffset + 2000),
+    );
+    expect(body).not.toMatch(/(?<!Profound)\.getObservationRuns\s*\(/);
   });
 
   it("does NOT import from @/storage/canonical-store", () => {
