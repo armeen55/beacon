@@ -125,6 +125,56 @@ describe("/changes/[id] switcher contract", () => {
     }));
     vi.doMock("@/lib/business-config", () => ({
       getSectionAnalyzerConfig: () => ({}),
+      // Section 6 C6b (2026-05-15) — page.tsx now reads
+      // `getBusinessConfig().name` to thread the brandName arg into
+      // the C6a evidence loader. Return a minimal config that supplies
+      // the `name` field; the rest of the BusinessConfig shape is not
+      // touched by the switcher test.
+      getBusinessConfig: () => ({ name: "Test Brand" }),
+    }));
+    // Section 6 C6b (2026-05-15) — page.tsx invokes
+    // loadChangePrimaryEvidence inside the v2 branch. The switcher
+    // test exercises the route-mode dispatch only; the evidence
+    // pipeline is covered by its own dedicated runtime tests. Stub
+    // the loader to return the silent default so this test stays
+    // focused on the v1↔v2 contract.
+    vi.doMock("@/domains/citation-lifecycle/load-change-primary-evidence", () => ({
+      loadChangePrimaryEvidence: async () => ({
+        available: false,
+        lines: null,
+        raw: {
+          modeA: {
+            status: "silent",
+            cited_here_count: 0,
+            primary_count: 0,
+            primary_share_pct: null,
+          },
+          modeB: {
+            per_platform: {
+              chatgpt: {
+                status: "silent",
+                pre_count: 0,
+                pre_total: 0,
+                pre_share_pct: null,
+                post_count: 0,
+                post_total: 0,
+                post_share_pct: null,
+                delta_pp: null,
+              },
+              perplexity: {
+                status: "silent",
+                pre_count: 0,
+                pre_total: 0,
+                pre_share_pct: null,
+                post_count: 0,
+                post_total: 0,
+                post_share_pct: null,
+                delta_pp: null,
+              },
+            },
+          },
+        },
+      }),
     }));
     vi.doMock("@/domains/observations/read", () => ({
       latestWebsiteCrawlRun: () => null,

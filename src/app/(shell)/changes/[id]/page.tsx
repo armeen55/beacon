@@ -57,6 +57,8 @@ import {
 } from "@/domains/attribution/lifecycle-classification";
 import type { ImplementationStatus } from "@/domains/recommendations/recommended-edits-persistence";
 import { loadLifecycleForEdit } from "@/domains/citation-lifecycle/load-lifecycle";
+import { loadChangePrimaryEvidence } from "@/domains/citation-lifecycle/load-change-primary-evidence";
+import { getBusinessConfig } from "@/lib/business-config";
 import {
   createPerfTrace,
   readPerfTraceIdFromHeaders,
@@ -317,6 +319,40 @@ export default async function ChangeDetailPage({
         })
       : null;
 
+    // Section 6 C6b (2026-05-15) — primary-recommendation evidence
+    // for Act 3. Additive sub-line below LifecycleLine. Skipped when
+    // there's no linked recommended_edit (the loader has its own
+    // internal short-circuits; this saves a round-trip when we
+    // already know the answer). Wrapped in try/catch so a transient
+    // Supabase error degrades to the null-fallback render path
+    // instead of crashing Changes detail. Fallback emits a structured
+    // console.warn so operators see degradation without exposing raw
+    // error objects, stacks, or Supabase internals.
+    const brandName = getBusinessConfig().name || "You";
+    const lifecycleStage = lifecycle?.available
+      ? (lifecycle.stage ?? null)
+      : null;
+    let primaryEvidenceLines: string[] | null = null;
+    if (linkedEdit) {
+      try {
+        const result = await loadChangePrimaryEvidence({
+          tenantId,
+          recommendedEdit: linkedEdit,
+          brandName,
+          lifecycleStage,
+        });
+        primaryEvidenceLines = result.lines;
+      } catch (error) {
+        console.warn("[section6-c6] change primary evidence failed", {
+          tenantId,
+          changeId: entry.id,
+          recommendedEditId: linkedEdit.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        primaryEvidenceLines = null;
+      }
+    }
+
     const events = row.eventAttributions
       // Most-recent first — the brief reads as a story, not a database row.
       .slice()
@@ -389,6 +425,7 @@ export default async function ChangeDetailPage({
               }
             : null
         }
+        primaryEvidenceLines={primaryEvidenceLines}
       />
     );
   }

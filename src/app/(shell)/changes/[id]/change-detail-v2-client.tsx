@@ -93,6 +93,20 @@ export type ChangeDetailV2Props = {
     copy: LifecycleCopy;
     isPartialLive: boolean;
   } | null;
+  /**
+   * Section 6 C6b (2026-05-15) — customer-visible primary-
+   * recommendation evidence lines for Act 3. Rendered VERBATIM below
+   * `<LifecycleLine>`; the client never re-formats, re-derives, or
+   * inspects per-mode internals. Optional + defaults to `null` so
+   * existing fixtures / tests instantiating `<ChangeDetailV2Client>`
+   * without this prop continue to compile.
+   *
+   * `null` (or omitted) → render nothing (no wrapper, no padding).
+   * Empty array → render nothing (defensive).
+   * Non-empty array → render each line in order in a single tile
+   * inside Act 3.
+   */
+  primaryEvidenceLines?: ReadonlyArray<string> | null;
 };
 
 export function ChangeDetailV2Client(props: ChangeDetailV2Props) {
@@ -111,6 +125,7 @@ export function ChangeDetailV2Client(props: ChangeDetailV2Props) {
     beaconRecommended,
     nextActions,
     lifecycle,
+    primaryEvidenceLines = null,
   } = props;
 
   const formattedShippedAt = formatLongDate(shippedAt);
@@ -283,6 +298,9 @@ export function ChangeDetailV2Client(props: ChangeDetailV2Props) {
         {lifecycle && (
           <LifecycleLine lifecycle={lifecycle} />
         )}
+        {primaryEvidenceLines && (
+          <PrimaryEvidenceLines lines={primaryEvidenceLines} />
+        )}
       </Act>
 
       {/* Act 4 — Evidence.
@@ -444,6 +462,44 @@ function LifecycleLine({
           {copy.bridge}
         </p>
       ) : null}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Primary-recommendation evidence (Act 3 — Section 6 C6b)
+//
+// Pure presentational. Renders the customer-visible lines emitted by
+// `change-primary-evidence-copy.ts` verbatim. The client does NOT
+// re-derive, re-format, or inspect per-mode internals — it only sees a
+// `string[] | null` shape and a wrapper data-attribute. The renderer
+// returns `null` for both `null` and `[]` inputs so Mode-C silence
+// produces no wrapper, no padding, no placeholder.
+// ─────────────────────────────────────────────────────────────────────
+
+function PrimaryEvidenceLines({
+  lines,
+}: {
+  lines: ReadonlyArray<string>;
+}) {
+  if (lines.length === 0) return null;
+  return (
+    <div
+      className="mt-3 rounded-md border border-border/50 border-l-[3px] border-l-status-success/40 bg-status-success/[0.04] px-3 py-2.5"
+      data-change-detail-act3-primary-evidence="true"
+    >
+      {lines.map((line, i) => (
+        <p
+          key={i}
+          className={cn(
+            "text-[12.5px] leading-relaxed text-foreground/85",
+            i > 0 && "mt-1.5",
+          )}
+          data-change-detail-act3-primary-evidence-line={i}
+        >
+          {line}
+        </p>
+      ))}
     </div>
   );
 }
