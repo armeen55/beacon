@@ -252,6 +252,128 @@ describe("Section 7 C7c — inferred channels emit detection_not_implemented", (
   }
 });
 
+describe("Section 7 C7g v1 — configured directory channels", () => {
+  function configuredRow(
+    channel: "houzz" | "angi" | "bbb" | "industry_directory",
+  ): OffSiteChannelState {
+    return {
+      channel,
+      claimed: true,
+      review_count: null,
+      rating: null,
+      profile_url: `https://example.com/${channel}`,
+      source: "business_config",
+      last_checked_at: NOW,
+      confidence: "medium",
+    };
+  }
+
+  for (const c of ["houzz", "angi", "bbb", "industry_directory"] as const) {
+    it(`${c} configured via business_config → silent channel_healthy`, () => {
+      const s: OffSitePresenceSnapshot = {
+        tenant_id: TENANT,
+        brand_name: "Ritz Builders",
+        is_local_service: true,
+        channels: [
+          gbpRow(),
+          yelpRow(),
+          c === "houzz" ? configuredRow("houzz") : inferredRow("houzz"),
+          c === "angi" ? configuredRow("angi") : inferredRow("angi"),
+          c === "bbb" ? configuredRow("bbb") : inferredRow("bbb"),
+          c === "industry_directory"
+            ? configuredRow("industry_directory")
+            : inferredRow("industry_directory"),
+          inferredRow("local_press"),
+        ],
+        data_sources_note: [...STANDARD_NOTES],
+        generated_at: NOW,
+      };
+      const out = computeOffSiteRecommendationCandidates(s);
+      const row = out.decisions.find((d) => d.channel === c)!;
+      expect(row.kind).toBe("silent");
+      if (row.kind === "silent") expect(row.reason).toBe("channel_healthy");
+    });
+
+    it(`${c} inferred (no business_config URL) → silent detection_not_implemented`, () => {
+      const out = computeOffSiteRecommendationCandidates(snapshot());
+      const row = out.decisions.find((d) => d.channel === c)!;
+      expect(row.kind).toBe("silent");
+      if (row.kind === "silent") {
+        expect(row.reason).toBe("detection_not_implemented");
+      }
+    });
+  }
+
+  it("local_press always silent detection_not_implemented in C7g v1", () => {
+    const s: OffSitePresenceSnapshot = {
+      tenant_id: TENANT,
+      brand_name: "Ritz Builders",
+      is_local_service: true,
+      channels: [
+        gbpRow(),
+        yelpRow(),
+        configuredRow("houzz"),
+        configuredRow("angi"),
+        configuredRow("bbb"),
+        configuredRow("industry_directory"),
+        inferredRow("local_press"),
+      ],
+      data_sources_note: [...STANDARD_NOTES],
+      generated_at: NOW,
+    };
+    const out = computeOffSiteRecommendationCandidates(s);
+    const row = out.decisions.find((d) => d.channel === "local_press")!;
+    expect(row.kind).toBe("silent");
+    if (row.kind === "silent") {
+      expect(row.reason).toBe("detection_not_implemented");
+    }
+  });
+
+  it("pursue_local_pr never appears even when all 4 channels are configured", () => {
+    const s: OffSitePresenceSnapshot = {
+      tenant_id: TENANT,
+      brand_name: "Ritz Builders",
+      is_local_service: true,
+      channels: [
+        gbpRow(),
+        yelpRow(),
+        configuredRow("houzz"),
+        configuredRow("angi"),
+        configuredRow("bbb"),
+        configuredRow("industry_directory"),
+        inferredRow("local_press"),
+      ],
+      data_sources_note: [...STANDARD_NOTES],
+      generated_at: NOW,
+    };
+    const out = computeOffSiteRecommendationCandidates(s);
+    for (const c of out.candidates) {
+      expect(c.actionType).not.toBe("pursue_local_pr");
+    }
+  });
+
+  it("configured channels emit zero candidates (no Houzz/Angi/BBB/industry candidate types fire)", () => {
+    const s: OffSitePresenceSnapshot = {
+      tenant_id: TENANT,
+      brand_name: "Ritz Builders",
+      is_local_service: true,
+      channels: [
+        gbpRow({ claimed: true, review_count: 25, rating: 4.7 }),
+        yelpRow({ claimed: true, review_count: 15, rating: 4.6 }),
+        configuredRow("houzz"),
+        configuredRow("angi"),
+        configuredRow("bbb"),
+        configuredRow("industry_directory"),
+        inferredRow("local_press"),
+      ],
+      data_sources_note: [...STANDARD_NOTES],
+      generated_at: NOW,
+    };
+    const out = computeOffSiteRecommendationCandidates(s);
+    expect(out.candidates).toHaveLength(0);
+  });
+});
+
 describe("Section 7 C7c — structural pin-throughs", () => {
   it("tenant_id passes through verbatim", () => {
     const out = computeOffSiteRecommendationCandidates(

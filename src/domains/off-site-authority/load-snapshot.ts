@@ -85,6 +85,13 @@ export async function loadOffSitePresenceSnapshot(
     industry: businessConfig.industry,
     yelpBusinessId: businessConfig.yelpBusinessId,
     locations: businessConfig.locations,
+    // Section 7 C7g v1 (2026-05-16) — operator-entered off-site
+    // profile URLs threaded into the pure compute. Empty strings
+    // keep the corresponding channel inferred/unknown.
+    houzzProfileUrl: businessConfig.houzzProfileUrl,
+    angiProfileUrl: businessConfig.angiProfileUrl,
+    bbbProfileUrl: businessConfig.bbbProfileUrl,
+    industryDirectoryProfileUrl: businessConfig.industryDirectoryProfileUrl,
   };
 
   const computeReviews: ComputeLocalReviewInput[] = localReviews.map((r) => ({

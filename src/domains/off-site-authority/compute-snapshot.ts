@@ -48,6 +48,15 @@ export type ComputeBusinessConfigInput = {
   industry: string;
   yelpBusinessId: string;
   locations: ReadonlyArray<string>;
+  /**
+   * Section 7 C7g v1 (2026-05-16) — operator-entered off-site
+   * profile URLs. Empty string = not configured; non-empty value
+   * MUST be http(s) per `operatorVouchedProfileUrl` validation.
+   */
+  houzzProfileUrl: string;
+  angiProfileUrl: string;
+  bbbProfileUrl: string;
+  industryDirectoryProfileUrl: string;
 };
 
 export type ComputeLocalReviewInput = {
@@ -189,6 +198,64 @@ function buildInferredRow(
   };
 }
 
+/**
+ * Section 7 C7g v1 (2026-05-16) — read the operator-entered profile
+ * URL for one of the four config-driven channels (Houzz / Angi /
+ * BBB / industry_directory) from `ComputeBusinessConfigInput`.
+ *
+ * Returns the trimmed URL ONLY when it begins with `https://` or
+ * `http://`. All other inputs — empty string, whitespace-only,
+ * `javascript:` / `mailto:` schemes, relative paths, bare domains
+ * without protocol — are rejected (return null). v1 does NOT
+ * canonicalize the URL or HTTP-verify reachability; operator
+ * vouches for the listing and the diagnostic renders the row at
+ * `confidence: "medium"`.
+ */
+function operatorVouchedProfileUrl(
+  channel: "houzz" | "angi" | "bbb" | "industry_directory",
+  bc: ComputeBusinessConfigInput,
+): string | null {
+  const raw =
+    channel === "houzz"
+      ? bc.houzzProfileUrl
+      : channel === "angi"
+        ? bc.angiProfileUrl
+        : channel === "bbb"
+          ? bc.bbbProfileUrl
+          : bc.industryDirectoryProfileUrl;
+  const trimmed = typeof raw === "string" ? raw.trim() : "";
+  if (
+    !trimmed.startsWith("https://") &&
+    !trimmed.startsWith("http://")
+  ) {
+    return null;
+  }
+  return trimmed;
+}
+
+/**
+ * Build a configured-channel row for one of the four operator-
+ * vouched channels. `confidence: "medium"` reflects that Beacon
+ * trusts the operator's input but has NOT HTTP-verified the URL
+ * (v1 contract; HTTP HEAD verification is C7g v2).
+ */
+function buildConfiguredRow(
+  channel: "houzz" | "angi" | "bbb" | "industry_directory",
+  url: string,
+  isoNow: string,
+): OffSiteChannelState {
+  return {
+    channel,
+    claimed: true,
+    review_count: null,
+    rating: null,
+    profile_url: url,
+    source: "business_config",
+    last_checked_at: isoNow,
+    confidence: "medium",
+  };
+}
+
 // ─────────────────────────────────────────────────────────────────────
 // Public API
 // ─────────────────────────────────────────────────────────────────────
@@ -205,9 +272,29 @@ export function computeOffSitePresenceSnapshot(
 
   const channels: OffSiteChannelState[] = [];
   for (const c of CHANNEL_ORDER) {
-    if (c === "gbp") channels.push(buildGbpRow(args, isoNow));
-    else if (c === "yelp") channels.push(buildYelpRow(args, isoNow));
-    else channels.push(buildInferredRow(c, isoNow));
+    if (c === "gbp") {
+      channels.push(buildGbpRow(args, isoNow));
+    } else if (c === "yelp") {
+      channels.push(buildYelpRow(args, isoNow));
+    } else if (
+      c === "houzz" ||
+      c === "angi" ||
+      c === "bbb" ||
+      c === "industry_directory"
+    ) {
+      // Section 7 C7g v1 — promote inferred → operator-configured
+      // when a valid http(s) profile URL is set in business-config.
+      // `local_press` is intentionally excluded; it stays inferred
+      // because there's no profile-URL concept for press.
+      const url = operatorVouchedProfileUrl(c, args.businessConfig);
+      if (url != null) {
+        channels.push(buildConfiguredRow(c, url, isoNow));
+      } else {
+        channels.push(buildInferredRow(c, isoNow));
+      }
+    } else {
+      channels.push(buildInferredRow(c, isoNow));
+    }
   }
 
   const data_sources_note: string[] = [...ALWAYS_INCLUDED_NOTES];

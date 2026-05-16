@@ -16,6 +16,10 @@ const minimalBusiness: BusinessConfig = {
   locationTerms: [],
   serviceTerms: [],
   directoryDomains: ["yelp.com", "google.com"],
+  houzzProfileUrl: "",
+  angiProfileUrl: "",
+  bbbProfileUrl: "",
+  industryDirectoryProfileUrl: "",
   scanSettings: {
     preferredHour: 9,
     timezone: "America/Chicago",

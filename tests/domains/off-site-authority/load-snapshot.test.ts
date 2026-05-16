@@ -21,6 +21,14 @@ const _spies = {
     industry: "Builder",
     yelpBusinessId: "",
     locations: ["Atherton, CA"],
+    // Section 7 C7g v1 (2026-05-16) — operator-entered off-site
+    // profile URLs default to "" in the mock so existing C7a/C7c
+    // loader tests retain inferred/unknown behavior for the four
+    // new channels.
+    houzzProfileUrl: "",
+    angiProfileUrl: "",
+    bbbProfileUrl: "",
+    industryDirectoryProfileUrl: "",
   })),
   isPlaceholderConfig: vi.fn(() => false),
   readLocalReviews: vi.fn(async () => [
@@ -86,6 +94,10 @@ describe("Section 7 C7a — loadOffSitePresenceSnapshot", () => {
       industry: "Builder",
       yelpBusinessId: "",
       locations: ["Palo Alto, CA"],
+      houzzProfileUrl: "",
+      angiProfileUrl: "",
+      bbbProfileUrl: "",
+      industryDirectoryProfileUrl: "",
     });
     const out = await loadOffSitePresenceSnapshot({
       now: new Date("2026-05-16T12:00:00Z"),
@@ -99,6 +111,10 @@ describe("Section 7 C7a — loadOffSitePresenceSnapshot", () => {
       industry: "Builder",
       yelpBusinessId: "",
       locations: ["Palo Alto, CA"],
+      houzzProfileUrl: "",
+      angiProfileUrl: "",
+      bbbProfileUrl: "",
+      industryDirectoryProfileUrl: "",
     });
     const out = await loadOffSitePresenceSnapshot({
       now: new Date("2026-05-16T12:00:00Z"),
@@ -123,6 +139,44 @@ describe("Section 7 C7a — loadOffSitePresenceSnapshot", () => {
     expect(gbp.review_count).toBe(2);
     expect(gbp.rating).toBeCloseTo(4.5, 1);
     expect(gbp.confidence).toBe("high");
+  });
+
+  it("C7g v1 — threads operator-entered profile URLs into compute (configured + medium)", async () => {
+    _spies.getBusinessConfig.mockReturnValueOnce({
+      name: "Test Brand",
+      industry: "Builder",
+      yelpBusinessId: "",
+      locations: ["Atherton, CA"],
+      houzzProfileUrl: "https://www.houzz.com/pro/test-brand",
+      angiProfileUrl: "https://www.angi.com/companylist/us/ca/test.htm",
+      bbbProfileUrl: "https://www.bbb.org/us/ca/atherton/profile/test-brand",
+      industryDirectoryProfileUrl:
+        "https://www.nahb.org/directory/test-brand",
+    });
+    const out = await loadOffSitePresenceSnapshot({
+      now: new Date("2026-05-16T12:00:00Z"),
+    });
+    for (const ch of ["houzz", "angi", "bbb", "industry_directory"] as const) {
+      const row = out.channels.find((c) => c.channel === ch)!;
+      expect(row.claimed).toBe(true);
+      expect(row.source).toBe("business_config");
+      expect(row.confidence).toBe("medium");
+      expect(row.profile_url).toBeTruthy();
+    }
+  });
+
+  it("C7g v1 — empty profile URLs leave channels inferred/unknown", async () => {
+    // Default mock has all four URLs as "" — verify inferred behavior.
+    const out = await loadOffSitePresenceSnapshot({
+      now: new Date("2026-05-16T12:00:00Z"),
+    });
+    for (const ch of ["houzz", "angi", "bbb", "industry_directory"] as const) {
+      const row = out.channels.find((c) => c.channel === ch)!;
+      expect(row.claimed).toBeNull();
+      expect(row.source).toBe("inferred");
+      expect(row.confidence).toBe("unknown");
+      expect(row.profile_url).toBeNull();
+    }
   });
 
   it("default `now` falls within a bounded window around call time", async () => {

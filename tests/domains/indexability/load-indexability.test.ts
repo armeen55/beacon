@@ -100,6 +100,10 @@ vi.mock("@/lib/business-config", () => ({
     locationTerms: [],
     serviceTerms: [],
     directoryDomains: [],
+    houzzProfileUrl: "",
+    angiProfileUrl: "",
+    bbbProfileUrl: "",
+    industryDirectoryProfileUrl: "",
     scanSettings: { preferredHour: 0, timezone: "UTC" },
   }),
 }));

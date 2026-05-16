@@ -62,8 +62,23 @@ const CONFIDENCE_LABELS: Record<OffSitePresenceConfidence, string> = {
 
 const PLACEHOLDER_NOTE_PREFIX = "business-config is the neutral placeholder";
 
-function describeClaimed(value: boolean | null): string {
-  if (value === true) return "Confirmed";
+/**
+ * Section 7 C7g v1 (2026-05-16) — source-aware Claimed display.
+ *
+ * Operator-entered profile URLs (source: "business_config") are
+ * NOT HTTP-verified in v1; Beacon trusts the operator's input but
+ * cannot independently confirm the listing is live/complete.
+ * Rendering "Configured" (not "Confirmed") keeps the trust level
+ * honest. Higher-trust connector-API rows (Google / Yelp tokens)
+ * continue to display "Confirmed".
+ */
+function describeClaimed(
+  value: boolean | null,
+  source: OffSitePresenceSource,
+): string {
+  if (value === true) {
+    return source === "business_config" ? "Configured" : "Confirmed";
+  }
   if (value === false) return "Beacon did not find a confirmed profile";
   return "Not yet detected";
 }
@@ -202,9 +217,18 @@ function ChannelTable({
             >
               <td className="px-3 py-2 text-foreground">
                 {CHANNEL_LABELS[row.channel]}
+                {row.profile_url ? (
+                  <span
+                    className="block max-w-[280px] truncate text-[11px] text-muted-foreground"
+                    title={row.profile_url}
+                    data-diag-off-site-authority-row-profile-url="true"
+                  >
+                    {row.profile_url}
+                  </span>
+                ) : null}
               </td>
               <td className="px-3 py-2 text-foreground">
-                {describeClaimed(row.claimed)}
+                {describeClaimed(row.claimed, row.source)}
               </td>
               <td className="px-3 py-2 tabular-nums text-foreground">
                 {describeNumber(row.review_count)}

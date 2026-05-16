@@ -33,6 +33,14 @@ function bc(
     industry: "Builder",
     yelpBusinessId: "",
     locations: ["Atherton, CA"],
+    // Section 7 C7g v1 (2026-05-16) — operator-entered profile URLs
+    // default to "" (not configured) so legacy C7a/C7c tests keep
+    // the same inferred/unknown behavior for Houzz/Angi/BBB/
+    // industry_directory.
+    houzzProfileUrl: "",
+    angiProfileUrl: "",
+    bbbProfileUrl: "",
+    industryDirectoryProfileUrl: "",
     ...over,
   };
 }
@@ -305,5 +313,160 @@ describe("Section 7 C7a — snapshot metadata", () => {
       args({ tenantId: "tenant-test-xyz" }),
     );
     expect(out.tenant_id).toBe("tenant-test-xyz");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────
+// Section 7 C7g v1 (2026-05-16) — operator-entered profile URLs.
+//
+// Confirms that:
+//   • Houzz / Angi / BBB / industry_directory each flip from
+//     inferred/unknown to configured/medium when a valid http(s)
+//     profile URL is set in business-config.
+//   • Empty / whitespace / `javascript:` / bare-domain / relative-path
+//     inputs are REJECTED — the row falls back to inferred/unknown.
+//   • `local_press` is NEVER affected — no config field, no logic
+//     change.
+// ─────────────────────────────────────────────────────────────────────
+
+describe("Section 7 C7g v1 — operator-entered profile URLs", () => {
+  const VALID_HTTPS = "https://www.houzz.com/professionals/example";
+  const VALID_HTTP = "http://www.houzz.com/professionals/example";
+
+  it("Houzz with a valid https URL → claimed, source business_config, confidence medium", () => {
+    const out = computeOffSitePresenceSnapshot(
+      args({ businessConfig: bc({ houzzProfileUrl: VALID_HTTPS }) }),
+    );
+    const houzz = out.channels.find((c) => c.channel === "houzz")!;
+    expect(houzz.claimed).toBe(true);
+    expect(houzz.profile_url).toBe(VALID_HTTPS);
+    expect(houzz.source).toBe("business_config");
+    expect(houzz.confidence).toBe("medium");
+    expect(houzz.review_count).toBeNull();
+    expect(houzz.rating).toBeNull();
+  });
+
+  it("Houzz with a valid http URL → also accepted (claimed true)", () => {
+    const out = computeOffSitePresenceSnapshot(
+      args({ businessConfig: bc({ houzzProfileUrl: VALID_HTTP }) }),
+    );
+    const houzz = out.channels.find((c) => c.channel === "houzz")!;
+    expect(houzz.claimed).toBe(true);
+    expect(houzz.profile_url).toBe(VALID_HTTP);
+  });
+
+  it("Houzz with empty string '' → inferred/unknown (existing behavior)", () => {
+    const out = computeOffSitePresenceSnapshot(
+      args({ businessConfig: bc({ houzzProfileUrl: "" }) }),
+    );
+    const houzz = out.channels.find((c) => c.channel === "houzz")!;
+    expect(houzz.claimed).toBeNull();
+    expect(houzz.profile_url).toBeNull();
+    expect(houzz.source).toBe("inferred");
+    expect(houzz.confidence).toBe("unknown");
+  });
+
+  it("Houzz with whitespace-only '   ' → inferred/unknown", () => {
+    const out = computeOffSitePresenceSnapshot(
+      args({ businessConfig: bc({ houzzProfileUrl: "   " }) }),
+    );
+    const houzz = out.channels.find((c) => c.channel === "houzz")!;
+    expect(houzz.claimed).toBeNull();
+    expect(houzz.profile_url).toBeNull();
+  });
+
+  it("Houzz with bare domain (no protocol) → inferred/unknown", () => {
+    const out = computeOffSitePresenceSnapshot(
+      args({ businessConfig: bc({ houzzProfileUrl: "houzz.com/professionals/example" }) }),
+    );
+    const houzz = out.channels.find((c) => c.channel === "houzz")!;
+    expect(houzz.claimed).toBeNull();
+    expect(houzz.profile_url).toBeNull();
+  });
+
+  it("Houzz with javascript: scheme → inferred/unknown (rejected)", () => {
+    const out = computeOffSitePresenceSnapshot(
+      args({
+        businessConfig: bc({ houzzProfileUrl: "javascript:alert('x')" }),
+      }),
+    );
+    const houzz = out.channels.find((c) => c.channel === "houzz")!;
+    expect(houzz.claimed).toBeNull();
+    expect(houzz.profile_url).toBeNull();
+  });
+
+  it("Houzz with mailto: scheme → inferred/unknown (rejected)", () => {
+    const out = computeOffSitePresenceSnapshot(
+      args({
+        businessConfig: bc({ houzzProfileUrl: "mailto:owner@example.com" }),
+      }),
+    );
+    const houzz = out.channels.find((c) => c.channel === "houzz")!;
+    expect(houzz.profile_url).toBeNull();
+  });
+
+  it("Houzz with relative path '/professionals/x' → inferred/unknown (rejected)", () => {
+    const out = computeOffSitePresenceSnapshot(
+      args({ businessConfig: bc({ houzzProfileUrl: "/professionals/x" }) }),
+    );
+    const houzz = out.channels.find((c) => c.channel === "houzz")!;
+    expect(houzz.profile_url).toBeNull();
+  });
+
+  it("Angi with a valid https URL → configured/medium", () => {
+    const url = "https://www.angi.com/companylist/us/ca/example";
+    const out = computeOffSitePresenceSnapshot(
+      args({ businessConfig: bc({ angiProfileUrl: url }) }),
+    );
+    const row = out.channels.find((c) => c.channel === "angi")!;
+    expect(row.claimed).toBe(true);
+    expect(row.profile_url).toBe(url);
+    expect(row.source).toBe("business_config");
+    expect(row.confidence).toBe("medium");
+  });
+
+  it("BBB with a valid https URL → configured/medium", () => {
+    const url = "https://www.bbb.org/us/ca/atherton/profile/example";
+    const out = computeOffSitePresenceSnapshot(
+      args({ businessConfig: bc({ bbbProfileUrl: url }) }),
+    );
+    const row = out.channels.find((c) => c.channel === "bbb")!;
+    expect(row.claimed).toBe(true);
+    expect(row.profile_url).toBe(url);
+    expect(row.source).toBe("business_config");
+    expect(row.confidence).toBe("medium");
+  });
+
+  it("industry_directory with a valid https URL → configured/medium", () => {
+    const url = "https://nari.example.org/member/example";
+    const out = computeOffSitePresenceSnapshot(
+      args({
+        businessConfig: bc({ industryDirectoryProfileUrl: url }),
+      }),
+    );
+    const row = out.channels.find((c) => c.channel === "industry_directory")!;
+    expect(row.claimed).toBe(true);
+    expect(row.profile_url).toBe(url);
+    expect(row.source).toBe("business_config");
+    expect(row.confidence).toBe("medium");
+  });
+
+  it("local_press is NEVER affected by any business-config URL field", () => {
+    // Set ALL four URL fields; local_press still inferred/unknown.
+    const out = computeOffSitePresenceSnapshot(
+      args({
+        businessConfig: bc({
+          houzzProfileUrl: VALID_HTTPS,
+          angiProfileUrl: "https://www.angi.com/x",
+          bbbProfileUrl: "https://www.bbb.org/x",
+          industryDirectoryProfileUrl: "https://example.org/x",
+        }),
+      }),
+    );
+    const press = out.channels.find((c) => c.channel === "local_press")!;
+    expect(press.claimed).toBeNull();
+    expect(press.profile_url).toBeNull();
+    expect(press.source).toBe("inferred");
+    expect(press.confidence).toBe("unknown");
   });
 });

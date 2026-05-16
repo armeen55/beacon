@@ -17,6 +17,31 @@ export interface BusinessConfig {
   address: string;
   /** Yelp Fusion business id or alias (used by Settings → Connectors → Yelp sync). */
   yelpBusinessId: string;
+  /**
+   * Section 7 C7g v1 (2026-05-16) — operator-entered off-site profile
+   * URLs. Each field defaults to "" when the operator has not yet
+   * configured a URL for that channel; an empty value keeps the
+   * corresponding `OffSiteChannelState` in the C7a snapshot's
+   * inferred/unknown state. When non-empty, the value MUST begin
+   * with `https://` or `http://` (validated downstream in
+   * `compute-snapshot.ts`); arbitrary strings are rejected.
+   *
+   * v1 carries `confidence: "medium"` for these channels because
+   * Beacon does NOT HTTP-verify the URL — the operator vouches for
+   * the listing. The diagnostic page renders these as "Configured"
+   * (not "Confirmed") so the trust level is honest.
+   *
+   * Multi-tenant note: BusinessConfig is process-global today (see
+   * `off-site-authority-multi-tenant-prerequisite` catalog row).
+   * C7g v1 inherits that limitation; customer surfaces (C7d/C7e)
+   * remain blocked until the multi-tenant store workstream lands.
+   */
+  houzzProfileUrl: string;
+  angiProfileUrl: string;
+  bbbProfileUrl: string;
+  /** Operator-curated industry directory profile URL. v1 supports
+   *  ONE URL; multi-directory support is C7g v2. */
+  industryDirectoryProfileUrl: string;
   locations: string[];
   services: string[];
   primaryCompetitors: string[];
@@ -140,6 +165,13 @@ const PLACEHOLDER_CONFIG: BusinessConfig = {
   phone: "",
   address: "",
   yelpBusinessId: "",
+  // Section 7 C7g v1 (2026-05-16) — operator-entered off-site profile
+  // URLs. Default to "" so the placeholder config leaves all 4
+  // channels in their inferred/unknown state.
+  houzzProfileUrl: "",
+  angiProfileUrl: "",
+  bbbProfileUrl: "",
+  industryDirectoryProfileUrl: "",
   locations: [],
   services: [],
   primaryCompetitors: [],

@@ -338,8 +338,33 @@ export function computeOffSiteRecommendationCandidates(
       continue;
     }
 
+    // Section 7 C7g v1 (2026-05-16) — Houzz / Angi / BBB /
+    // industry_directory: when the C7a snapshot flips to
+    // `source: "business_config"` because the operator entered a
+    // valid http(s) profile URL, the channel is treated as
+    // operator-vouched healthy. Beacon has NOT HTTP-verified the
+    // URL in v1, so the channel-healthy branch is honest: "operator
+    // says this is set up; no further action recommended." No
+    // candidate fires. C7g v2 (HTTP HEAD verification) will
+    // re-enable candidate emission when a configured URL becomes
+    // unreachable.
+    if (
+      (ch.channel === "houzz" ||
+        ch.channel === "angi" ||
+        ch.channel === "bbb" ||
+        ch.channel === "industry_directory") &&
+      ch.claimed === true &&
+      ch.source === "business_config"
+    ) {
+      decisions.push(silent(ch.channel, "channel_healthy"));
+      continue;
+    }
+
     // Houzz / Angi / BBB / industry_directory / local_press —
-    // detection not implemented until C7g. No candidates fire.
+    // detection not implemented until configured (or, for
+    // local_press, until a different detection mechanism ships).
+    // No candidates fire. `pursue_local_pr` never appears in C7c
+    // and stays that way in C7g v1.
     decisions.push(silent(ch.channel, "detection_not_implemented"));
   }
 
