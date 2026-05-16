@@ -56,6 +56,28 @@ describe("google-auth", () => {
       );
     });
 
+    it("A.3.b1.alpha — auth URL requests webmasters.readonly scope alongside business.manage", () => {
+      vi.stubEnv("GOOGLE_CLIENT_ID", "test-client-id.apps.googleusercontent.com");
+      vi.stubEnv("NEXT_PUBLIC_APP_URL", "http://localhost:3000");
+
+      const url = new URL(buildGoogleAuthUrl());
+      const scope = url.searchParams.get("scope") ?? "";
+      expect(scope).toContain("https://www.googleapis.com/auth/business.manage");
+      expect(scope).toContain("https://www.googleapis.com/auth/webmasters.readonly");
+      // Scopes must be space-separated per Google's OAuth contract.
+      expect(scope.split(" ").length).toBeGreaterThanOrEqual(2);
+    });
+
+    it("A.3.b1.alpha — callback path remains unchanged after GSC scope addition", () => {
+      vi.stubEnv("GOOGLE_CLIENT_ID", "test-id");
+      vi.stubEnv("NEXT_PUBLIC_APP_URL", "https://app.example.com");
+      const url = new URL(buildGoogleAuthUrl());
+      // Existing redirect URI shape preserved verbatim.
+      expect(url.searchParams.get("redirect_uri")).toBe(
+        `https://app.example.com${GOOGLE_CALLBACK_PATH}`,
+      );
+    });
+
     it("includes state parameter when provided", () => {
       vi.stubEnv("GOOGLE_CLIENT_ID", "test-id");
       const url = new URL(buildGoogleAuthUrl("csrf-token-123"));

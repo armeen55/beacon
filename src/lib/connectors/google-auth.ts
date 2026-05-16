@@ -21,6 +21,24 @@ const GOOGLE_TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token";
  */
 const GBP_SCOPE = "https://www.googleapis.com/auth/business.manage";
 
+/**
+ * GSC scope (A.3.b1.alpha, 2026-05-16) — `webmasters.readonly` is the
+ * read-only scope for the Search Console URL Inspection + Search
+ * Analytics APIs. The GSC client lives at
+ * `src/lib/connectors/gsc/client.ts` and is currently NOT wired into
+ * the indexability compute or any customer surface (A.3.b1.beta lands
+ * that). Requesting the scope from day 1 means a single operator
+ * consent grants both APIs; no re-consent later.
+ */
+const GSC_SCOPE = "https://www.googleapis.com/auth/webmasters.readonly";
+
+/**
+ * Combined OAuth scope string. Google's OAuth contract takes a single
+ * space-separated value; both scopes appear on the consent screen and
+ * the issued token's `scopes` array carries both.
+ */
+const GOOGLE_OAUTH_SCOPES = `${GBP_SCOPE} ${GSC_SCOPE}`;
+
 export const GOOGLE_CALLBACK_PATH = "/api/connectors/google/callback";
 
 type GoogleTokenResponse = {
@@ -53,7 +71,7 @@ export function buildGoogleAuthUrl(state?: string): string {
     client_id: getClientId(),
     redirect_uri: getRedirectUri(),
     response_type: "code",
-    scope: GBP_SCOPE,
+    scope: GOOGLE_OAUTH_SCOPES,
     access_type: "offline",
     prompt: "consent",
   });
