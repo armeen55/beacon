@@ -8,6 +8,7 @@ import { readDotDataJson } from "../dotdata-json";
 import { readStore } from "../json-store";
 import { getSupabaseAdmin } from "../supabase";
 import type { SeedDataRepository } from "./types";
+import { readProfoundImportRunsForTenant } from "./tenant-repo";
 import type { Result } from "@/domains/results/types";
 import type { ChangelogEntry } from "@/domains/changelog/types";
 import type { Opportunity } from "@/domains/opportunities/types";
@@ -900,6 +901,32 @@ export const supabaseBackend: SeedDataRepository = {
           );
         return (data ?? []) as TrackedEntity[];
       },
+      /**
+       * Section 5 precursor (2026-05-16) — explicit-tenant poll-run
+       * read.
+       *
+       * `ProfoundImportRun` is disk-backed today. The Supabase
+       * `observation_runs` table is separate — it holds website-
+       * crawl `ObservationRun` rows only; the dual-write at
+       * `dual-write.ts:651-654` filters inserts by `run_id &&
+       * run_type` which structurally excludes the poll-run shape.
+       * Until a dedicated `profound_import_runs` table lands, both
+       * backends read the same per-tenant disk file:
+       * `.data/tenants/{slug}/observation-runs.json`.
+       *
+       * Scoping contract: this method scopes by the captured
+       * `tenantId` argument, NOT by ambient
+       * `currentTenantSlug()`. `forTenant("tenant-a").
+       * getProfoundImportRuns()` always returns tenant-a's rows
+       * even when the active request slug differs. Pinned by
+       * `tests/architecture/profound-import-runs-explicit-tenant-scope.test.ts`.
+       *
+       * No Supabase query here — pushdown-invariant
+       * (tenant-repository-pushdown) only constrains Supabase
+       * query call sites, which this method does not use.
+       */
+      getProfoundImportRuns: async () =>
+        readProfoundImportRunsForTenant(tenantId),
     };
   },
 };

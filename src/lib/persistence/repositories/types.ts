@@ -46,6 +46,7 @@ import type { RenderCheckResult } from "@/domains/pages/render-check";
 import type { VisibilityObservationRun } from "@/domains/observations/visibility-types";
 import type { GuardrailAlert } from "@/domains/pages/guardrails";
 import type { ObservationRun } from "@/domains/observations/types";
+import type { ProfoundImportRun } from "@/domains/observation-runs/types";
 import type { ConfiguredCompetitorEntry } from "@/domains/competitors/universe-types";
 import type { RecommendationResponse } from "@/domains/product/recommendation-response-store";
 import type { UrlChangeOutcome } from "@/domains/attribution/url-change-outcome";
@@ -309,4 +310,39 @@ export interface TenantRepository {
    */
   getTrackedPrompts(): Promise<TrackedPrompt[]>;
   getTrackedEntities(): Promise<TrackedEntity[]>;
+  /**
+   * Section 5 precursor (2026-05-16) — tenant-scoped read for the
+   * poll-run records that drive repeat-citation denominators.
+   *
+   * IMPORTANT — distinct from `getObservationRuns()` on the same
+   * interface. The repo's `getObservationRuns` returns the website-
+   * crawl `ObservationRun` shape from `@/domains/observations/types`
+   * (`run_id`, `run_type ∈ {"website_crawl" | "website_verify" |
+   * "citation_sample_import" | "composite_placeholder"}`,
+   * pages_scanned / pages_changed / etc.). This method returns the
+   * prompt-centric `ProfoundImportRun` shape from
+   * `@/domains/observation-runs/types` (`run_date`, `platform`,
+   * `source_type ∈ {"beacon_native" | "manual_import" |
+   * "api_import"}`, `status ∈ {"pending" | "running" | "completed"
+   * | "failed"}`). They co-exist in the same `.data/observation-
+   * runs.json` file (mixed-shape historically; tenant-aware path
+   * routes them per tenant); this reader discriminates positively
+   * by the presence of `run_date` + `source_type` and drops every
+   * website-crawl row.
+   *
+   * Section 5 (repeat-citation classifier) uses this method as the
+   * locked G2 denominator source ("successful poll days since
+   * live_at"). Beacon's Section 5 compute MUST NOT consume
+   * `getObservationRuns()` for the denominator — wrong shape.
+   *
+   * Tenant safety: rows are read via the tenant-aware json-store
+   * (`readStore("observation-runs")` resolves to
+   * `.data/tenants/{slug}/observation-runs.json`). The Supabase
+   * backend's `observation_runs` table holds website-crawl rows
+   * only (the existing dual-write upsert filters by
+   * `run_id && run_type`); `ProfoundImportRun` is disk-only today.
+   * A future migration may move this data into a dedicated table;
+   * this method's signature stays stable across that change.
+   */
+  getProfoundImportRuns(): Promise<ProfoundImportRun[]>;
 }
