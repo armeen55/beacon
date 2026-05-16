@@ -58,6 +58,8 @@ import {
 import type { ImplementationStatus } from "@/domains/recommendations/recommended-edits-persistence";
 import { loadLifecycleForEdit } from "@/domains/citation-lifecycle/load-lifecycle";
 import { loadChangePrimaryEvidence } from "@/domains/citation-lifecycle/load-change-primary-evidence";
+import { loadRepeatCitationForEdit } from "@/domains/citation-lifecycle/load-repeat-citation";
+import type { RepeatCitationResult } from "@/domains/citation-lifecycle/compute-repeat-citation";
 import { getBusinessConfig } from "@/lib/business-config";
 import {
   createPerfTrace,
@@ -353,6 +355,33 @@ export default async function ChangeDetailPage({
       }
     }
 
+    // Section 5.B Slice 1 (2026-05-16) — repeat-citation result for
+    // Act 3 customer sub-line. Same try/catch posture as Section 6
+    // C6b above: a transient Supabase error degrades to `null` (the
+    // sub-line is suppressed) without crashing Changes detail.
+    // Independent structured warn for operator visibility. The two
+    // loads stay sequential to preserve the Section 6 invariant
+    // shape; both readers use `unstable_cache` so warm-path cost is
+    // negligible.
+    let repeatCitation30d: RepeatCitationResult | null = null;
+    if (linkedEdit) {
+      try {
+        repeatCitation30d = await loadRepeatCitationForEdit({
+          tenantId,
+          recommendedEdit: linkedEdit,
+          windowDays: 30,
+        });
+      } catch (error) {
+        console.warn("[section5-b1] repeat citation load failed", {
+          tenantId,
+          changeId: entry.id,
+          recommendedEditId: linkedEdit.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        repeatCitation30d = null;
+      }
+    }
+
     const events = row.eventAttributions
       // Most-recent first — the brief reads as a story, not a database row.
       .slice()
@@ -426,6 +455,7 @@ export default async function ChangeDetailPage({
             : null
         }
         primaryEvidenceLines={primaryEvidenceLines}
+        repeatCitation30d={repeatCitation30d}
       />
     );
   }

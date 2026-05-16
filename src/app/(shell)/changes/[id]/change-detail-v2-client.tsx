@@ -41,8 +41,10 @@ import type {
 import type { NextActionCta } from "@/domains/changes/proof-timeline/next-action";
 import type { LifecycleStage } from "@/domains/citation-lifecycle/lifecycle-stage";
 import type { LifecycleCopy } from "@/domains/citation-lifecycle/render-copy";
+import type { RepeatCitationResult } from "@/domains/citation-lifecycle/compute-repeat-citation";
 
 import { ChangesV2ResultPill } from "@/components/changes/v2/changes-v2-result-pill";
+import { RepeatCitationAct3 } from "@/components/changes/repeat-citation-act3";
 
 export type ChangeDetailV2Props = {
   /** Short, customer-friendly title for the header. Already
@@ -107,6 +109,21 @@ export type ChangeDetailV2Props = {
    * inside Act 3.
    */
   primaryEvidenceLines?: ReadonlyArray<string> | null;
+  /**
+   * Section 5.B Slice 1 (2026-05-16) — repeat-citation classifier
+   * result for the linked edit's 30-day window. Rendered as a
+   * customer-safe sub-line inside Act 3 AFTER the existing
+   * primary-recommendation evidence block. Visual separation; NO
+   * bridging copy between the two blocks (architecture invariant
+   * `repeat-citation-no-section-6-bridge`).
+   *
+   * `null` → render nothing. Non-null but ineligible / band-null /
+   * still-learning-without-first-citation → the component itself
+   * returns null. Optional + defaults to `null` so existing
+   * fixtures / tests instantiating `<ChangeDetailV2Client>` without
+   * this prop continue to compile.
+   */
+  repeatCitation30d?: RepeatCitationResult | null;
 };
 
 export function ChangeDetailV2Client(props: ChangeDetailV2Props) {
@@ -126,6 +143,7 @@ export function ChangeDetailV2Client(props: ChangeDetailV2Props) {
     nextActions,
     lifecycle,
     primaryEvidenceLines = null,
+    repeatCitation30d = null,
   } = props;
 
   const formattedShippedAt = formatLongDate(shippedAt);
@@ -301,6 +319,7 @@ export function ChangeDetailV2Client(props: ChangeDetailV2Props) {
         {primaryEvidenceLines && (
           <PrimaryEvidenceLines lines={primaryEvidenceLines} />
         )}
+        <RepeatCitationAct3 result={repeatCitation30d} />
       </Act>
 
       {/* Act 4 — Evidence.
