@@ -84,6 +84,13 @@ const ALLOWED_LOADER_FILES: ReadonlySet<string> = new Set([
   // pure Mode A / Mode B / copy modules import-purity-pinned by
   // `change-primary-pure-modules-no-getRepository.test.ts`.
   "load-change-primary-evidence.ts",
+  // Section 5.A (2026-05-16) — repeat-citation classifier loader.
+  // Same caller-bound `.forTenant(tenantId)` discipline. Reads
+  // `getProfoundImportRuns()` (the Section 5 precursor) + windowed
+  // `getPromptAnswerObservations({since: live_at})`. Pure compute
+  // (`compute-repeat-citation.ts`) is import-purity-pinned by
+  // `repeat-citation-pure-purity.test.ts`.
+  "load-repeat-citation.ts",
 ]);
 
 /**
@@ -105,6 +112,13 @@ const ALLOWED_CROSS_TENANT_FILES: ReadonlySet<string> = new Set([]);
  */
 const ALLOWED_COLD_STORE_FILES: ReadonlySet<string> = new Set([
   "load-lifecycle.ts",
+  // Section 5.A (2026-05-16) — repeat-citation loader reads
+  // benchmark CitationObservation shards on the Path A pre-cutover
+  // branch (no-op for post-NATIVE_REGIME_START edits, which is
+  // every active Ritz row today). Same regime-gated pattern as
+  // load-lifecycle.ts; tenant safety preserved by the compute's
+  // promptAnswerById filter.
+  "load-repeat-citation.ts",
 ]);
 
 function listTsFiles(dir: string): string[] {
