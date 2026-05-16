@@ -78,6 +78,12 @@ const PURE_MODULES: ReadonlySet<string> = new Set([
  */
 const ALLOWED_LOADER_FILES: ReadonlySet<string> = new Set([
   "load-lifecycle.ts",
+  // Section 6 C6a (2026-05-15) — Changes detail primary-recommendation
+  // evidence loader. Same caller-bound `.forTenant(tenantId)` discipline
+  // as `load-lifecycle.ts`. Tenant scope inside `unstable_cache` body;
+  // pure Mode A / Mode B / copy modules import-purity-pinned by
+  // `change-primary-pure-modules-no-getRepository.test.ts`.
+  "load-change-primary-evidence.ts",
 ]);
 
 /**
