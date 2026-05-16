@@ -18,7 +18,7 @@ import { notFound } from "next/navigation";
 import { PageHeader } from "@/components/data/page-header";
 import { isOperatorModeServer } from "@/lib/operator-mode";
 
-import { loadOffSitePresenceSnapshot } from "@/domains/off-site-authority/load-snapshot";
+import { loadOffSiteRecommendationPreview } from "@/domains/off-site-authority/load-recommendation-candidates";
 import type {
   OffSitePresenceChannel,
   OffSitePresenceConfidence,
@@ -26,6 +26,13 @@ import type {
   OffSiteChannelState,
   OffSitePresenceSnapshot,
 } from "@/domains/off-site-authority/types";
+import type {
+  OffSiteCandidateAction,
+  OffSiteCandidateConfidence,
+  OffSiteCandidateSilenceReason,
+  OffSiteChannelDecision,
+  OffSiteRecommendationCandidates,
+} from "@/domains/off-site-authority/recommendation-rules";
 
 export const dynamic = "force-dynamic";
 
@@ -80,7 +87,8 @@ function describeLastChecked(iso: string): string {
 export default async function OffSiteAuthorityDiagnosticPage() {
   if (!(await isOperatorModeServer())) return notFound();
 
-  const snapshot = await loadOffSitePresenceSnapshot();
+  const { snapshot, recommendationCandidates } =
+    await loadOffSiteRecommendationPreview();
 
   return (
     <div
@@ -103,6 +111,8 @@ export default async function OffSiteAuthorityDiagnosticPage() {
       ) : (
         <NotLocalServiceNotice />
       )}
+
+      <CandidatesSection candidates={recommendationCandidates} />
 
       <DataSourcesFooter notes={snapshot.data_sources_note} />
     </div>
@@ -243,6 +253,129 @@ function DataSourcesFooter({
           </li>
         ))}
       </ul>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Section 7 C7c (2026-05-16) — Candidate actions operator preview.
+//
+// Operator-only preview of the off-site recommendation rules. No
+// persistence path; no customer surface. Section copy uses safe
+// observation framing (no causal claims about AI citation, ranking,
+// revenue, or visibility).
+// ─────────────────────────────────────────────────────────────────────
+
+const SILENCE_REASON_LABELS: Record<OffSiteCandidateSilenceReason, string> = {
+  not_local_service:
+    "Off-site authority recommendations are gated by local-service classification.",
+  detection_not_implemented:
+    "Detection for this channel is not implemented yet. No recommendation is shown.",
+  insufficient_signal: "Signal is too thin to make a confident recommendation.",
+  channel_healthy: "Channel is healthy. No action recommended.",
+  policy_risk_manual_only:
+    "Manual review required before any recommendation is shown.",
+};
+
+const CANDIDATE_CONFIDENCE_LABELS: Record<OffSiteCandidateConfidence, string> = {
+  high: "High",
+  medium: "Medium",
+  low: "Low",
+};
+
+function CandidatesSection({
+  candidates,
+}: {
+  candidates: OffSiteRecommendationCandidates;
+}) {
+  return (
+    <div
+      className="rounded-md border border-border/60"
+      data-diag-off-site-authority-candidates="true"
+    >
+      <div className="border-b border-border/60 px-4 py-3">
+        <h3 className="text-[13px] font-semibold tracking-tight text-foreground">
+          Candidate actions (operator preview)
+        </h3>
+        <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">
+          Operator preview only. No customer-facing recommendation has been
+          created. Customer surfaces remain blocked until the multi-tenant
+          store prerequisite lands.
+        </p>
+      </div>
+      <ul className="divide-y divide-border/40">
+        {candidates.decisions.map((decision, i) => (
+          <li
+            key={`${decision.channel}-${i}`}
+            className="px-4 py-3"
+            data-diag-off-site-authority-candidate-row={decision.channel}
+            data-diag-off-site-authority-candidate-kind={decision.kind}
+          >
+            <CandidateRow decision={decision} />
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function CandidateRow({ decision }: { decision: OffSiteChannelDecision }) {
+  if (decision.kind === "silent") {
+    return (
+      <div className="flex flex-col gap-1">
+        <p className="text-[12.5px] font-medium text-muted-foreground">
+          {CHANNEL_LABELS[decision.channel]}
+        </p>
+        <p className="text-[12px] leading-relaxed text-muted-foreground">
+          {SILENCE_REASON_LABELS[decision.reason]}
+        </p>
+      </div>
+    );
+  }
+  return <CandidateActionRow candidate={decision.candidate} />;
+}
+
+function CandidateActionRow({
+  candidate,
+}: {
+  candidate: OffSiteCandidateAction;
+}) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex flex-wrap items-center gap-2">
+        <p className="text-[12px] font-medium text-muted-foreground">
+          {CHANNEL_LABELS[candidate.channel]}
+        </p>
+        <span
+          className="inline-flex items-center rounded-md border border-border/60 bg-surface-inset/40 px-1.5 py-0.5 text-[10.5px] font-medium text-foreground"
+          data-diag-off-site-authority-candidate-confidence={candidate.confidence}
+        >
+          {CANDIDATE_CONFIDENCE_LABELS[candidate.confidence]} confidence
+        </span>
+        {candidate.policy_risk ? (
+          <span
+            className="inline-flex items-center rounded-md border border-status-warning/40 bg-status-warning/[0.08] px-1.5 py-0.5 text-[10.5px] font-medium text-status-warning"
+            data-diag-off-site-authority-candidate-policy-risk="true"
+          >
+            Policy: manual follow-up only
+          </span>
+        ) : null}
+      </div>
+      <p
+        className="text-[13px] font-semibold text-foreground"
+        data-diag-off-site-authority-candidate-title="true"
+      >
+        {candidate.title}
+      </p>
+      <p
+        className="text-[12px] leading-relaxed text-foreground/85"
+        data-diag-off-site-authority-candidate-rationale="true"
+      >
+        {candidate.rationale}
+      </p>
+      <p className="text-[11px] leading-relaxed text-muted-foreground">
+        {candidate.source_note}
+      </p>
     </div>
   );
 }

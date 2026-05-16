@@ -61,12 +61,37 @@ describe("Architecture — Section 7 C7a operator-page discipline", () => {
     expect(ACTIVE).toMatch(/\bnotFound\s*\(/);
   });
 
-  it("operator gate appears BEFORE the loader invocation", () => {
+  it("operator gate appears BEFORE the first off-site data loader invocation", () => {
+    // The real contract is "operator gate must happen before ANY
+    // off-site authority data load." C7a's original literal check
+    // hard-coded `loadOffSitePresenceSnapshot(`. Section 7 C7c
+    // (2026-05-16) introduces `loadOffSiteRecommendationPreview()`
+    // as a thin server wrapper that itself calls
+    // `loadOffSitePresenceSnapshot()`. The page now invokes the
+    // preview wrapper instead of the raw snapshot loader. This
+    // updated check keeps the safety contract — operator gate is
+    // still before any off-site data load — by detecting the
+    // EARLIEST allowed loader invocation among the known
+    // safe-wrapper set, and asserting at least one is present.
+    const ALLOWED_LOADER_INVOCATIONS = [
+      "loadOffSitePresenceSnapshot(",
+      "loadOffSiteRecommendationPreview(",
+    ];
+
     const gateIdx = ACTIVE.indexOf("isOperatorModeServer(");
-    const loaderIdx = ACTIVE.indexOf("loadOffSitePresenceSnapshot(");
     expect(gateIdx).toBeGreaterThanOrEqual(0);
-    expect(loaderIdx).toBeGreaterThanOrEqual(0);
-    expect(gateIdx).toBeLessThan(loaderIdx);
+
+    const loaderIndices = ALLOWED_LOADER_INVOCATIONS.map((needle) =>
+      ACTIVE.indexOf(needle),
+    ).filter((idx) => idx >= 0);
+
+    expect(
+      loaderIndices.length,
+      `Operator page must invoke at least one allowed off-site loader from: ${ALLOWED_LOADER_INVOCATIONS.join(", ")}`,
+    ).toBeGreaterThan(0);
+
+    const firstLoaderIdx = Math.min(...loaderIndices);
+    expect(gateIdx).toBeLessThan(firstLoaderIdx);
   });
 
   it("does NOT import from @/lib/business-config directly", () => {
