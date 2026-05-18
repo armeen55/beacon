@@ -384,6 +384,26 @@ export default async function DiagnosticsPage() {
         .
       </p>
 
+      {/* Phase A.2 Step 3d (2026-05-18) — operator-only deep dive
+          surface. Surfaces the suggested → reviewed → accepted →
+          shipped → cited → threshold-eligible funnel per row +
+          aggregate so "1 of 28" math is impossible to misunderstand
+          again. Operator-gated; read-only. */}
+      <p
+        className="-mt-2 text-xs text-muted-foreground"
+        data-diagnostics-hub-link="lifecycle-eligibility"
+      >
+        Operator-only deep dive:{" "}
+        <Link
+          href="/diagnostics/lifecycle-eligibility"
+          className="text-foreground underline-offset-4 hover:underline"
+        >
+          Lifecycle eligibility
+        </Link>{" "}
+        — per-row reason taxonomy for the suggested → accepted → shipped
+        → cited → threshold-eligible funnel.
+      </p>
+
       {/* ── Pulse summary ── */}
       <PulseBanner ctx={ctx} />
 
