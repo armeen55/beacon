@@ -632,17 +632,22 @@ describe("computeFunnelCounters — URL coverage", () => {
 // ─────────────────────────────────────────────────────────────────────
 
 describe("computeFunnelCounters — block classification", () => {
-  it("counts operator-blocked + system-blocked + terminal_or_in_flight from perRowDecisions", () => {
+  it("counts operator-blocked + system-blocked + terminal_or_in_flight from perRowDecisions (dismissed = terminal, not operator)", () => {
     // Build a mixed fixture where each block class is exercised at
     // least once. The derive-reason layer is the source of truth for
     // blocked_by values; aggregator just tallies.
+    //
+    // CRITICAL CORRECTION (2026-05-18 patch): dismissed_at_edit_level
+    // AND dismissed_at_response_level are TERMINAL — the operator
+    // has acted; they are NOT operator inaction. blocked_by:null
+    // routes them into edits_terminal_or_in_flight.
     const edits = [
       // operator-blocked: awaiting_operator_acceptance
       makeEdit({ id: "op1", rec_id: "rec-op1", implementation_status: "recommended" }),
-      // operator-blocked: dismissed_at_response_level
-      makeEdit({ id: "op2", rec_id: "rec-op2", implementation_status: "recommended" }),
-      // operator-blocked: dismissed_at_edit_level
-      makeEdit({ id: "op3", rec_id: "rec-op3", implementation_status: "dismissed" }),
+      // terminal: dismissed_at_response_level (operator declined the rec)
+      makeEdit({ id: "term2", rec_id: "rec-term2", implementation_status: "recommended" }),
+      // terminal: dismissed_at_edit_level (operator dismissed the specific edit)
+      makeEdit({ id: "term3", rec_id: "rec-term3", implementation_status: "dismissed" }),
       // system-blocked: accepted_not_live (response accepted, edit recommended)
       makeEdit({ id: "sys1", rec_id: "rec-sys1", implementation_status: "recommended" }),
       // terminal/in-flight: cited_eligible (null blocked_by)
@@ -655,7 +660,7 @@ describe("computeFunnelCounters — block classification", () => {
       }),
     ];
     const responses: ReadonlyArray<RecommendationResponse> = [
-      makeResponse("rec-op2", "dismissed"),
+      makeResponse("rec-term2", "dismissed"),
       makeResponse("rec-sys1", "accepted"),
       makeResponse("rec-term1", "accepted"),
     ];
@@ -674,14 +679,20 @@ describe("computeFunnelCounters — block classification", () => {
     });
     expect(perRow.map((r) => r.blocked_by)).toEqual([
       "operator", // awaiting_operator_acceptance
-      "operator", // dismissed_at_response_level
-      "operator", // dismissed_at_edit_level
+      null, // dismissed_at_response_level — terminal
+      null, // dismissed_at_edit_level — terminal
       "system", // accepted_not_live
-      null, // cited_eligible
+      null, // cited_eligible — terminal
     ]);
-    expect(counters.edits_blocked_by_operator).toBe(3);
+    expect(counters.edits_blocked_by_operator).toBe(1);
     expect(counters.edits_blocked_by_system).toBe(1);
-    expect(counters.edits_terminal_or_in_flight).toBe(1);
+    expect(counters.edits_terminal_or_in_flight).toBe(3);
+    // Reconciliation sanity check.
+    expect(
+      counters.edits_blocked_by_operator +
+        counters.edits_blocked_by_system +
+        counters.edits_terminal_or_in_flight,
+    ).toBe(counters.total_edits);
   });
 });
 
@@ -950,12 +961,19 @@ describe("computeFunnelCounters — Ritz-shaped end-to-end story", () => {
     expect(counters.edits_cited_post_ship).toBe(1);
     expect(counters.edits_threshold_eligible).toBe(1);
 
-    // 20 awaiting + 7 dismissed_at_edit_level = 27 operator-blocked
-    expect(counters.edits_blocked_by_operator).toBe(27);
+    // 20 awaiting_operator_acceptance = operator-blocked (not yet acted)
+    expect(counters.edits_blocked_by_operator).toBe(20);
     // 0 system-blocked in this fixture
     expect(counters.edits_blocked_by_system).toBe(0);
-    // 1 cited terminal
-    expect(counters.edits_terminal_or_in_flight).toBe(1);
+    // 7 dismissed_at_edit_level + 1 cited_eligible = 8 terminal/in-flight
+    // (dismissed = operator HAS acted; terminal decision)
+    expect(counters.edits_terminal_or_in_flight).toBe(8);
+    // Reconciliation sanity check.
+    expect(
+      counters.edits_blocked_by_operator +
+        counters.edits_blocked_by_system +
+        counters.edits_terminal_or_in_flight,
+    ).toBe(counters.total_edits);
 
     // Threshold gate not crossed
     expect(counters.threshold_source).toBe("profound_default");

@@ -118,7 +118,10 @@ function indexWith(urls: string[]): SnapshotUrlIndex {
 // ─────────────────────────────────────────────────────────────────────
 
 describe("deriveLifecycleReason — 15-value taxonomy", () => {
-  it("dismissed_at_edit_level: implementation_status=dismissed", () => {
+  it("dismissed_at_edit_level: implementation_status=dismissed — terminal (blocked_by null)", () => {
+    // Dismissed = operator has acted. Final state, NOT operator
+    // inaction. Aggregator routes blocked_by:null into
+    // edits_terminal_or_in_flight.
     const out = deriveLifecycleReason({
       edit: makeEdit({
         implementation_status: "dismissed",
@@ -129,12 +132,12 @@ describe("deriveLifecycleReason — 15-value taxonomy", () => {
       lifecycleResult: null,
     });
     expect(out.reason).toBe("dismissed_at_edit_level");
-    expect(out.blocked_by).toBe("operator");
+    expect(out.blocked_by).toBeNull();
     expect(out.detail).toContain("invalid_placeholder_pre_w3");
     expect(out.threshold_eligible).toBe(false);
   });
 
-  it("dismissed_at_response_level: response.status='dismissed' overrides recommended-status edit", () => {
+  it("dismissed_at_response_level: response.status='dismissed' overrides recommended-status edit — terminal (blocked_by null)", () => {
     const out = deriveLifecycleReason({
       edit: makeEdit({ implementation_status: "recommended" }),
       response: makeResponse("rec-1", "dismissed"),
@@ -142,7 +145,7 @@ describe("deriveLifecycleReason — 15-value taxonomy", () => {
       lifecycleResult: null,
     });
     expect(out.reason).toBe("dismissed_at_response_level");
-    expect(out.blocked_by).toBe("operator");
+    expect(out.blocked_by).toBeNull();
   });
 
   it("wrong_page: live_match_kind='wrong_page'", () => {

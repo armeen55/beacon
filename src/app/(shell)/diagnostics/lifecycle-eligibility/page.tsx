@@ -34,7 +34,6 @@ import { isOperatorModeServer } from "@/lib/operator-mode";
 import { currentTenantId } from "@/lib/tenant-context";
 import { getRepository } from "@/lib/persistence/repositories";
 import { loadLifecycleForEdit } from "@/domains/citation-lifecycle/load-lifecycle";
-import { getResponse } from "@/domains/product/recommendation-response-store";
 import {
   buildSnapshotUrlIndex,
   deriveLifecycleReason,
@@ -126,28 +125,21 @@ export default async function LifecycleEligibilityDiagnosticPage() {
   const now = new Date();
 
   const repo = getRepository().forTenant(tenantId);
-  const [edits, snapshots] = await Promise.all([
+  const [edits, snapshots, responses] = await Promise.all([
     repo.getRecommendedEdits(),
     repo.getPageSnapshots(),
+    // Tenant-scoped recommendation_responses rollup. We MUST load the
+    // full tenant response set (not iterate by rec_id derived from
+    // edits) because the response counters represent operator-level
+    // activity — including accepted/dismissed/deferred recs that
+    // never produced typed `recommended_edits` rows (e.g., create-
+    // page recs, regenerate recs, review_decision recs, or specific-
+    // edit abstentions). Filtering by typed-edit lineage would hide
+    // exactly the funnel signal this diagnostic exists to expose.
+    repo.getRecommendationResponses(),
   ]);
 
-  // `recommendation_responses` is read via `getResponse(recId)`. The
-  // store backfills from Supabase + disk in one call; per-rec lookup
-  // is cached. Build a deduped recId list first so we only call the
-  // store once per distinct rec.
-  const distinctRecIds = new Set<string>();
-  for (const e of edits) {
-    if (e.rec_id) distinctRecIds.add(e.rec_id);
-  }
-  const responseEntries = await Promise.all(
-    Array.from(distinctRecIds).map(async (recId) => {
-      const r = await getResponse(recId);
-      return r;
-    }),
-  );
-  const responses = responseEntries.filter(
-    (r): r is NonNullable<typeof r> => r != null,
-  );
+  // Per-row JOIN uses the same dataset (no additional store call).
   const responsesByRecId = new Map(responses.map((r) => [r.recId, r]));
 
   // Snapshot URL index for the derive-reason canonicalization check.

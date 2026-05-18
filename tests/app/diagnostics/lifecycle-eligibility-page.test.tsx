@@ -66,24 +66,27 @@ vi.mock("@/lib/tenant-context", () => ({
   currentTenantId: async () => TENANT,
 }));
 
+// Tenant-scoped repository stub. Page reads recommended_edits,
+// page_snapshots, AND the FULL tenant-scoped recommendation_responses
+// rollup through the repository boundary. The post-2026-05-18 patch
+// switched the response load from per-rec `getResponse(recId)`
+// iteration to `repo.getRecommendationResponses()` so the rollup
+// counters include responses with no typed-edit lineage (e.g.,
+// accepted recs that produced no `recommended_edits` rows).
+let _responsesByRecId: Map<
+  string,
+  import("@/domains/product/recommendation-response-store").RecommendationResponse
+> = new Map();
+
 vi.mock("@/lib/persistence/repositories", () => ({
   getRepository: () => ({
     forTenant: () => ({
       getRecommendedEdits: async () => _edits,
       getPageSnapshots: async () => _snapshots,
+      getRecommendationResponses: async () =>
+        Array.from(_responsesByRecId.values()),
     }),
   }),
-}));
-
-// `getResponse(recId)` from the recommendation-response-store. The
-// page calls this once per distinct rec_id and dedupes the result
-// set. Stub via a per-test map keyed on recId.
-let _responsesByRecId: Map<
-  string,
-  import("@/domains/product/recommendation-response-store").RecommendationResponse
-> = new Map();
-vi.mock("@/domains/product/recommendation-response-store", () => ({
-  getResponse: async (recId: string) => _responsesByRecId.get(recId) ?? null,
 }));
 
 // Lifecycle load — page calls per-row. Stub by rec_id (proxy for
@@ -444,7 +447,7 @@ describe("/diagnostics/lifecycle-eligibility — canonicalization warning", () =
 // ─────────────────────────────────────────────────────────────────────
 
 describe("/diagnostics/lifecycle-eligibility — Ritz-shaped end-to-end", () => {
-  it("renders 28 rows (20 awaiting + 7 dismissed + 1 cited) with correct counters", async () => {
+  it("renders 28 rows (20 awaiting + 7 dismissed + 1 cited) with correct counters (dismissed = terminal)", async () => {
     const edits: RecommendedEditRow[] = [];
     for (let i = 0; i < 20; i++) {
       edits.push(
@@ -492,12 +495,60 @@ describe("/diagnostics/lifecycle-eligibility — Ritz-shaped end-to-end", () => 
     const rowMatches = html.match(/data-diagnostics-row="true"/g);
     expect(rowMatches?.length).toBe(28);
 
-    // 20 awaiting + 7 dismissed = 27 operator-blocked.
-    expect(html).toMatch(/data-counter="edits_blocked_by_operator"[^>]*>[\s\S]*?>27</);
+    // 20 awaiting = operator-blocked (still pending operator action).
+    expect(html).toMatch(/data-counter="edits_blocked_by_operator"[^>]*>[\s\S]*?>20</);
     expect(html).toMatch(/data-counter="edits_blocked_by_system"[^>]*>[\s\S]*?>0</);
-    expect(html).toMatch(/data-counter="edits_terminal_or_in_flight"[^>]*>[\s\S]*?>1</);
+    // 7 dismissed + 1 cited = 8 terminal/in-flight (dismissed = operator
+    // HAS acted; final decision, not operator inaction).
+    expect(html).toMatch(/data-counter="edits_terminal_or_in_flight"[^>]*>[\s\S]*?>8</);
 
     // Threshold gate not crossed (1/20).
     expect(html).toMatch(/data-counter="threshold_source"[^>]*>[\s\S]*?>profound_default</);
+  });
+
+  it("response rollup includes responses for recs that have NO typed recommended_edits rows (orphan-response coverage)", async () => {
+    // Patch (2026-05-18): the page now loads
+    // `repo.getRecommendationResponses()` for the tenant-wide rollup
+    // so accepted/dismissed/deferred recs WITHOUT typed edit lineage
+    // (e.g., create_page recs, regenerate recs, specific-edit
+    // abstentions) are counted. This test seeds an accepted response
+    // for an orphan rec_id (no `recommended_edits` row with that
+    // rec_id) and verifies (a) the response tile counts it, (b) NO
+    // per-row table row materializes for the orphan rec_id (the
+    // per-row table is keyed on edits, not responses).
+    _edits = [
+      makeEdit({
+        id: "edit-a",
+        rec_id: "rec-typed",
+        implementation_status: "recommended",
+      }),
+    ];
+    // Two responses: one tied to a typed edit, one orphan (no edit
+    // row exists for `rec-orphan`).
+    _responsesByRecId.set("rec-typed", makeResponse("rec-typed", "accepted"));
+    _responsesByRecId.set("rec-orphan", makeResponse("rec-orphan", "dismissed"));
+
+    const html = await renderPage();
+
+    // Tile rollup counts BOTH responses, including the orphan one.
+    expect(html).toMatch(/data-counter="responses_total"[^>]*>[\s\S]*?>2</);
+    expect(html).toMatch(/data-counter="responses_accepted"[^>]*>[\s\S]*?>1</);
+    expect(html).toMatch(/data-counter="responses_dismissed"[^>]*>[\s\S]*?>1</);
+    expect(html).toMatch(/data-counter="responses_deferred"[^>]*>[\s\S]*?>0</);
+
+    // Per-row table is keyed on edits, NOT responses. The orphan
+    // response must NOT produce a row.
+    const rowMatches = html.match(/data-diagnostics-row="true"/g);
+    expect(rowMatches?.length).toBe(1);
+    expect(html).toContain('data-row-edit-id="edit-a"');
+    expect(html).not.toContain('data-row-edit-id="rec-orphan"');
+    expect(html).not.toMatch(/data-diagnostics-row="true"[^>]*data-row-edit-id="orphan/);
+
+    // Edits in accepted lineage = the 1 edit whose parent rec_id
+    // has an accepted response (rec-typed). The orphan accepted
+    // response does NOT inflate this counter — there is no edit
+    // with rec_id 'rec-orphan'. The orphan dismissed response also
+    // does not change this counter.
+    // (Lineage filter is in aggregate-counters by responseByRecId.)
   });
 });

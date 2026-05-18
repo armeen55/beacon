@@ -148,11 +148,13 @@ export function deriveLifecycleReason(
 
   const status = editLifecycleStatus(edit);
 
-  // 1. Dismissed at edit level. Final state.
+  // 1. Dismissed at edit level. Final state — operator has acted;
+  //    this is a terminal decision, NOT operator inaction. Aggregator
+  //    routes `blocked_by: null` into `edits_terminal_or_in_flight`.
   if (status === "dismissed") {
     return baseDecision({
       reason: "dismissed_at_edit_level",
-      blocked_by: "operator",
+      blocked_by: null,
       detail: edit.not_found_reason
         ? `dismissal reason: ${edit.not_found_reason}`
         : null,
@@ -164,11 +166,12 @@ export function deriveLifecycleReason(
     });
   }
 
-  // 2. Dismissed at response level. Final state.
+  // 2. Dismissed at response level. Final state — operator has
+  //    declined the parent rec; terminal, not operator inaction.
   if (response != null && response.status === "dismissed") {
     return baseDecision({
       reason: "dismissed_at_response_level",
-      blocked_by: "operator",
+      blocked_by: null,
       detail: `recommendation_responses.status=dismissed for rec ${response.recId}`,
       ttcEligibility,
       threshold_eligible: false,
