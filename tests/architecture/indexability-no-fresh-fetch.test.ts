@@ -31,13 +31,23 @@
  *   • `@/lib/llm/*`
  *   • `@/lib/cost/*`
  *   • `@/domains/recommendations/cross-tenant-brain/*`
- *   • Any path containing `gsc` (GSC is reserved for A.3.b1; not
- *     wired in v1).
+ *   • `@/lib/connectors/gsc/*` — the GSC URL Inspection client is
+ *     not imported directly; the loader's GSC integration routes
+ *     through the bounded adapter `./load-gsc-signal`.
  *
- * Retirement: refines (does NOT retire) when A.3.b1 lands the GSC
- * connector — at that point the loader will gain a NEW read-only
- * dependency on a GSC client; the forbidden-fetch-token list stays,
- * but the GSC-path ban relaxes to a specific allowed module.
+ * GSC posture (A.3.b1.beta, 2026-05-17):
+ *   The loader now imports `loadGscSignal` from the sibling
+ *   `./load-gsc-signal` adapter, ONLY consulted when the caller
+ *   passes `enableGsc: true`. Default callers (every customer-
+ *   facing path) reach an early return BEFORE the GSC adapter is
+ *   invoked — byte-equal pre-beta behavior. The adapter itself
+ *   handles the per-render fresh-fetch cap, Supabase cache, and
+ *   token/scope discipline. The loader's own source still issues
+ *   ZERO HTTP fetches.
+ *
+ * Retirement: the fetch-token list + non-GSC forbidden paths are
+ * permanent. GSC-specific guards refine when A.3.b3 lands additional
+ * GSC APIs (Search Analytics, etc.).
  */
 
 import { describe, expect, it } from "vitest";
@@ -73,7 +83,12 @@ const FORBIDDEN_IMPORT_PATTERNS: ReadonlyArray<RegExp> = [
   /from\s+["']@\/lib\/llm\//,
   /from\s+["']@\/lib\/cost\//,
   /from\s+["']@\/domains\/recommendations\/cross-tenant-brain\//,
-  /from\s+["'][^"']*gsc[^"']*["']/i,
+  // A.3.b1.beta (2026-05-17) — the GSC client lives at
+  // `@/lib/connectors/gsc/*`. The loader must NEVER import it
+  // directly; GSC routes through the bounded adapter
+  // `./load-gsc-signal` (which itself imports gscUrlInspect and
+  // enforces the per-render cap + Supabase cache).
+  /from\s+["']@\/lib\/connectors\/gsc\//,
 ];
 
 describe("Architecture — indexability loader no-fresh-fetch (Phase A.3 §3b)", () => {
@@ -98,8 +113,32 @@ describe("Architecture — indexability loader no-fresh-fetch (Phase A.3 §3b)",
     expect(SRC_STRIPPED).not.toMatch(FORBIDDEN_IMPORT_PATTERNS[2]);
   });
 
-  it("loader source does NOT import any GSC module (reserved for A.3.b1)", () => {
+  it("loader source does NOT import the GSC client directly — only the bounded adapter (A.3.b1.beta)", () => {
+    // GSC reads route through ./load-gsc-signal, which enforces the
+    // per-render fresh-fetch cap, Supabase cache, and token discipline.
+    // Direct gscUrlInspect import from the loader would bypass the
+    // bounded adapter's guard rails.
     expect(SRC_STRIPPED).not.toMatch(FORBIDDEN_IMPORT_PATTERNS[3]);
+  });
+
+  it("loader's GSC integration is opt-in only (enableGsc default false)", () => {
+    // The loader signature carries `enableGsc?: boolean` (default
+    // false). Customer-facing callers omit it and hit the early
+    // return BEFORE any GSC code runs — byte-equal pre-beta behavior.
+    expect(
+      /enableGsc\?\s*:\s*boolean/.test(SRC_STRIPPED),
+      "loader must declare enableGsc?: boolean as an OPTIONAL opt-in arg — default off preserves customer-surface byte-equality",
+    ).toBe(true);
+  });
+
+  it("loader imports the GSC adapter from its sibling path (not the raw client)", () => {
+    // The post-A.3.b1.beta loader imports `loadGscSignal` from the
+    // sibling adapter. This is the ONLY allowed path to GSC data
+    // from the loader.
+    expect(
+      /from\s+["']\.\/load-gsc-signal["']/.test(SRC_STRIPPED),
+      "loader must import loadGscSignal from ./load-gsc-signal (bounded adapter)",
+    ).toBe(true);
   });
 
   it("loader source does NOT import any module ending in '-client' (HTTP-client convention)", () => {

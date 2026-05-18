@@ -112,10 +112,35 @@ vi.mock("@/lib/tenant-context", () => ({
   currentTenantId: async () => _currentTenant,
 }));
 
+// A.3.b1.beta (2026-05-17) — mock the GSC signal adapter so the
+// loader's opt-in path is controllable. Default behavior of every
+// existing test stays UNCHANGED because `enableGsc` defaults to
+// false — the loader returns before any of these mocked calls fire.
+let _gscSignalQueue: Array<
+  | {
+      indexed: boolean | null;
+      indexing_state: string | null;
+      coverage_state: string | null;
+      last_crawl_time: string | null;
+      last_checked_at: string | null;
+    }
+  | null
+> = [];
+const _loadGscSignalSpy = vi.fn();
+vi.mock("@/domains/indexability/load-gsc-signal", () => ({
+  loadGscSignal: (args: unknown) => {
+    _loadGscSignalSpy(args);
+    const next = _gscSignalQueue.shift();
+    return Promise.resolve(next ?? null);
+  },
+  GSC_INSPECT_PER_RENDER_LIMIT: 5,
+}));
+
 // Loader import goes AFTER mocks so vitest hoists them correctly.
 import {
   STALE_ROBOTS_THRESHOLD_DAYS,
   loadIndexabilityForUrl,
+  type GscFreshFetchBudget,
 } from "@/domains/indexability/load-indexability";
 
 const TENANT = "tenant-a";
@@ -705,5 +730,292 @@ describe("loadIndexabilityForUrl — determinism", () => {
 describe("loadIndexabilityForUrl — STALE_ROBOTS_THRESHOLD_DAYS export", () => {
   it("is the locked v1 value (30)", () => {
     expect(STALE_ROBOTS_THRESHOLD_DAYS).toBe(30);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────
+// A.3.b1.beta (2026-05-17) — GSC opt-in path
+// ─────────────────────────────────────────────────────────────────────
+
+describe("loadIndexabilityForUrl — GSC opt-in (operator-substrate)", () => {
+  beforeEach(() => {
+    _gscSignalQueue = [];
+    _loadGscSignalSpy.mockClear();
+  });
+
+  it("DEFAULT (no enableGsc) → loadGscSignal is NEVER called", async () => {
+    setSnapshots([snapshot()]);
+    setReconciliation(reconciliation([TARGET_URL]));
+    setRobotsState(
+      robotsState({ text: "User-agent: *\nDisallow:", fetchedAt: NOW }),
+    );
+    await loadIndexabilityForUrl({
+      tenantId: TENANT,
+      url: TARGET_URL,
+      now: NOW,
+    });
+    expect(_loadGscSignalSpy).not.toHaveBeenCalled();
+  });
+
+  it("DEFAULT → signals.gsc === null (byte-equal pre-beta)", async () => {
+    setSnapshots([snapshot()]);
+    setReconciliation(reconciliation([TARGET_URL]));
+    setRobotsState(
+      robotsState({ text: "User-agent: *\nDisallow:", fetchedAt: NOW }),
+    );
+    const out = await loadIndexabilityForUrl({
+      tenantId: TENANT,
+      url: TARGET_URL,
+      now: NOW,
+    });
+    expect(out.signals.gsc).toBeNull();
+  });
+
+  it("enableGsc=true + no cache + budget>0 → fresh fetch fires, budget decrements", async () => {
+    setSnapshots([snapshot()]);
+    setReconciliation(reconciliation([TARGET_URL]));
+    setRobotsState(
+      robotsState({ text: "User-agent: *\nDisallow:", fetchedAt: NOW }),
+    );
+    // Two adapter calls: peek (null) + fresh (returns signal).
+    _gscSignalQueue = [
+      null,
+      {
+        indexed: true,
+        indexing_state: "INDEXING_ALLOWED",
+        coverage_state: "Submitted and indexed",
+        last_crawl_time: null,
+        last_checked_at: NOW,
+      },
+    ];
+    const budget: GscFreshFetchBudget = { remaining: 5 };
+    const out = await loadIndexabilityForUrl({
+      tenantId: TENANT,
+      url: TARGET_URL,
+      now: NOW,
+      enableGsc: true,
+      gscBudget: budget,
+    });
+    expect(_loadGscSignalSpy).toHaveBeenCalledTimes(2);
+    // First call: peek (allowFreshFetch=false).
+    expect(_loadGscSignalSpy.mock.calls[0]![0]).toMatchObject({
+      allowFreshFetch: false,
+    });
+    // Second call: fresh.
+    expect(_loadGscSignalSpy.mock.calls[1]![0]).toMatchObject({
+      allowFreshFetch: true,
+    });
+    // Budget decremented.
+    expect(budget.remaining).toBe(4);
+    expect(out.signals.gsc?.indexed).toBe(true);
+  });
+
+  it("enableGsc=true + cache present + verdict=ok → peek only (no fresh fetch)", async () => {
+    setSnapshots([snapshot()]);
+    setReconciliation(reconciliation([TARGET_URL]));
+    setRobotsState(
+      robotsState({ text: "User-agent: *\nDisallow:", fetchedAt: NOW }),
+    );
+    // Peek returns a fresh cache hit.
+    _gscSignalQueue = [
+      {
+        indexed: true,
+        indexing_state: "INDEXING_ALLOWED",
+        coverage_state: "Submitted and indexed",
+        last_crawl_time: null,
+        last_checked_at: NOW, // fresh
+      },
+    ];
+    const budget: GscFreshFetchBudget = { remaining: 5 };
+    await loadIndexabilityForUrl({
+      tenantId: TENANT,
+      url: TARGET_URL,
+      now: NOW,
+      enableGsc: true,
+      gscBudget: budget,
+    });
+    // ok + non-stale cache → only the peek call; no fresh fetch.
+    expect(_loadGscSignalSpy).toHaveBeenCalledTimes(1);
+    expect(budget.remaining).toBe(5);
+  });
+
+  it("enableGsc=true + verdict=unknown → fresh fetch fires (unknown verdict prioritization)", async () => {
+    // No snapshot → unknown verdict.
+    setSnapshots([]);
+    setReconciliation(null);
+    setRobotsState(null);
+    // Peek returns a fresh cache hit, but verdict=unknown forces
+    // a fresh fetch anyway per the prioritization rule.
+    _gscSignalQueue = [
+      {
+        indexed: null,
+        indexing_state: "INDEXING_ALLOWED",
+        coverage_state: null,
+        last_crawl_time: null,
+        last_checked_at: NOW,
+      },
+      {
+        indexed: false,
+        indexing_state: "NOT_INDEXED_OTHER_REASON",
+        coverage_state: null,
+        last_crawl_time: null,
+        last_checked_at: NOW,
+      },
+    ];
+    const budget: GscFreshFetchBudget = { remaining: 5 };
+    const out = await loadIndexabilityForUrl({
+      tenantId: TENANT,
+      url: TARGET_URL,
+      now: NOW,
+      enableGsc: true,
+      gscBudget: budget,
+    });
+    expect(_loadGscSignalSpy).toHaveBeenCalledTimes(2);
+    expect(budget.remaining).toBe(4);
+    // Verdict flipped to not_indexed_in_gsc.
+    expect(out.composite_verdict).toBe("not_indexed_in_gsc");
+  });
+
+  it("enableGsc=true + budget=0 → NO fresh fetch (budget exhausted)", async () => {
+    setSnapshots([snapshot()]);
+    setReconciliation(reconciliation([TARGET_URL]));
+    setRobotsState(
+      robotsState({ text: "User-agent: *\nDisallow:", fetchedAt: NOW }),
+    );
+    _gscSignalQueue = [null]; // peek returns null (no cache)
+    const budget: GscFreshFetchBudget = { remaining: 0 };
+    await loadIndexabilityForUrl({
+      tenantId: TENANT,
+      url: TARGET_URL,
+      now: NOW,
+      enableGsc: true,
+      gscBudget: budget,
+    });
+    // Only the peek; no fresh fetch consumed.
+    expect(_loadGscSignalSpy).toHaveBeenCalledTimes(1);
+    expect(budget.remaining).toBe(0);
+  });
+
+  it("enableGsc=true + higher-severity verdict (bad_status_code) → NO fresh fetch (not eligible)", async () => {
+    // 404 status → bad_status_code verdict.
+    setSnapshots([snapshot({ http_status: 404 })]);
+    setReconciliation(reconciliation([TARGET_URL]));
+    setRobotsState(
+      robotsState({ text: "User-agent: *\nDisallow:", fetchedAt: NOW }),
+    );
+    _gscSignalQueue = [null]; // peek returns null
+    const budget: GscFreshFetchBudget = { remaining: 5 };
+    const out = await loadIndexabilityForUrl({
+      tenantId: TENANT,
+      url: TARGET_URL,
+      now: NOW,
+      enableGsc: true,
+      gscBudget: budget,
+    });
+    // bad_status_code is not ok/unknown — prioritization tier rejects
+    // fresh fetch. Only the peek runs.
+    expect(_loadGscSignalSpy).toHaveBeenCalledTimes(1);
+    expect(budget.remaining).toBe(5);
+    expect(out.composite_verdict).toBe("bad_status_code");
+  });
+
+  it("enableGsc=true + gsc.indexed=false + verdict=bad_status_code → STAYS bad_status_code (higher-severity wins)", async () => {
+    setSnapshots([snapshot({ http_status: 404 })]);
+    setReconciliation(reconciliation([TARGET_URL]));
+    setRobotsState(
+      robotsState({ text: "User-agent: *\nDisallow:", fetchedAt: NOW }),
+    );
+    // Even if (hypothetically) we got a not-indexed GSC signal back
+    // for this URL, the verdict computer should still favor
+    // bad_status_code. Pinned by compute-indexability tests but
+    // re-verify end-to-end through the loader.
+    _gscSignalQueue = [
+      {
+        indexed: false,
+        indexing_state: "BLOCKED_BY_OTHER_4XX",
+        coverage_state: null,
+        last_crawl_time: null,
+        last_checked_at: NOW,
+      },
+    ];
+    const budget: GscFreshFetchBudget = { remaining: 5 };
+    const out = await loadIndexabilityForUrl({
+      tenantId: TENANT,
+      url: TARGET_URL,
+      now: NOW,
+      enableGsc: true,
+      gscBudget: budget,
+    });
+    expect(out.composite_verdict).toBe("bad_status_code");
+  });
+
+  it("budget caps fresh GSC calls across multiple URLs in sequence", async () => {
+    setSnapshots([
+      snapshot({ url: "https://example.com/a", canonical_url: "https://example.com/a" }),
+    ]);
+    setReconciliation(reconciliation(["https://example.com/a"]));
+    setRobotsState(
+      robotsState({ text: "User-agent: *\nDisallow:", fetchedAt: NOW }),
+    );
+    // 4 URLs, all needing fresh fetch (no cache). Budget = 2.
+    // Each URL: 1 peek (null) + 1 fresh (if budget allows).
+    // Expected: URLs 1,2 consume budget (peek+fresh each); URLs 3,4
+    // only peek.
+    _gscSignalQueue = [
+      // URL 1
+      null,
+      {
+        indexed: true,
+        indexing_state: "INDEXING_ALLOWED",
+        coverage_state: "Submitted and indexed",
+        last_crawl_time: null,
+        last_checked_at: NOW,
+      },
+      // URL 2
+      null,
+      {
+        indexed: true,
+        indexing_state: "INDEXING_ALLOWED",
+        coverage_state: "Submitted and indexed",
+        last_crawl_time: null,
+        last_checked_at: NOW,
+      },
+      // URL 3 — peek only (budget exhausted)
+      null,
+      // URL 4 — peek only
+      null,
+    ];
+    const budget: GscFreshFetchBudget = { remaining: 2 };
+    for (const path of ["/a", "/a", "/a", "/a"]) {
+      await loadIndexabilityForUrl({
+        tenantId: TENANT,
+        url: `https://example.com${path}`,
+        now: NOW,
+        enableGsc: true,
+        gscBudget: budget,
+      });
+    }
+    expect(budget.remaining).toBe(0);
+    // 4 peeks + 2 fresh = 6 total adapter calls.
+    expect(_loadGscSignalSpy).toHaveBeenCalledTimes(6);
+  });
+
+  it("loadGscSignal returning null with no cache → verdict unchanged", async () => {
+    setSnapshots([snapshot()]);
+    setReconciliation(reconciliation([TARGET_URL]));
+    setRobotsState(
+      robotsState({ text: "User-agent: *\nDisallow:", fetchedAt: NOW }),
+    );
+    _gscSignalQueue = [null, null]; // peek null, fresh null
+    const budget: GscFreshFetchBudget = { remaining: 5 };
+    const out = await loadIndexabilityForUrl({
+      tenantId: TENANT,
+      url: TARGET_URL,
+      now: NOW,
+      enableGsc: true,
+      gscBudget: budget,
+    });
+    expect(out.signals.gsc).toBeNull();
+    expect(out.composite_verdict).toBe("ok");
   });
 });

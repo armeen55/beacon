@@ -56,7 +56,9 @@ import "server-only";
 import { unstable_cache } from "next/cache";
 
 import { computeIndexability } from "./compute-indexability";
+import { loadGscSignal } from "./load-gsc-signal";
 import type {
+  IndexabilityGscSignal,
   IndexabilityRobotsSignal,
   IndexabilitySitemapSignal,
   OwnedUrlIndexability,
@@ -260,10 +262,39 @@ function buildRobotsSignal(
  * Returns the `OwnedUrlIndexability` shape from `computeIndexability`
  * verbatim — composite verdict + raw signals + freshness.
  */
+/**
+ * A.3.b1.beta (2026-05-17) — GSC opt-in budget for the diagnostic
+ * caller. Mutable counter the caller (operator diagnostic page only)
+ * threads through a sequence of `loadIndexabilityForUrl` invocations.
+ * Each fresh GSC fetch decrements `remaining`; once it hits zero the
+ * remaining URLs in the same render get cache-read-only behavior
+ * (allowFreshFetch=false), so quota burn is structurally bounded.
+ *
+ * Customer-facing callers MUST pass `enableGsc: false` (or omit the
+ * option entirely) so this counter is never touched. The opt-in
+ * gate is asserted by
+ * `tests/architecture/gsc-no-customer-surface-import.test.ts`.
+ */
+export type GscFreshFetchBudget = { remaining: number };
+
 export async function loadIndexabilityForUrl(opts: {
   tenantId: string;
   url: string;
   now?: Date | string;
+  /**
+   * Operator-substrate opt-in. When false/omitted (the default), no
+   * GSC signal is loaded and `signals.gsc` stays `null`; verdict is
+   * byte-equal to pre-A.3.b1.beta behavior. Only the operator-only
+   * `/diagnostics/indexability` page passes `enableGsc: true`.
+   */
+  enableGsc?: boolean;
+  /**
+   * Mutable per-render budget. Required when `enableGsc=true`;
+   * ignored otherwise. The loader decrements `remaining` for each
+   * fresh GSC fetch it issues. Locked cap is
+   * `GSC_INSPECT_PER_RENDER_LIMIT = 5` (see `./load-gsc-signal`).
+   */
+  gscBudget?: GscFreshFetchBudget;
 }): Promise<OwnedUrlIndexability> {
   // Tenant-context assertion. The repository pattern + AsyncLocalStorage
   // routing for `page-snapshots` depend on the current tenant matching
@@ -290,6 +321,11 @@ export async function loadIndexabilityForUrl(opts: {
       now,
     });
   }
+
+  // A.3.b1.beta cache-staleness threshold for the GSC signal.
+  // Matches `CACHE_TTL_MS` inside `gscUrlInspect` — cached entries
+  // older than 24h count as "stale" for prioritization purposes.
+  const GSC_CACHE_STALE_MS = 24 * 60 * 60 * 1000;
 
   const cacheKey = ["indexability:v1", opts.tenantId, canonicalUrl];
 
@@ -379,5 +415,111 @@ export async function loadIndexabilityForUrl(opts: {
     },
   );
 
-  return cached();
+  const baseResult = await cached();
+
+  // A.3.b1.beta (2026-05-17) — GSC opt-in path. Default off; every
+  // customer-facing caller hits the early return above.
+  if (!opts.enableGsc) return baseResult;
+
+  // Operator-substrate opt-in. Bypass the 60s unstable_cache from
+  // here on: the GSC budget is per-render mutable state that cannot
+  // be memoized, and the GSC adapter has its own durable 24h cache
+  // in Supabase (`public.gsc_url_inspections`). The operator-only
+  // diagnostic page is the sole caller; cache savings are marginal
+  // relative to the durable GSC cache.
+
+  // Step 1: cache-peek (allowFreshFetch=false) — never triggers an
+  // API call. Returns the current cached signal (or null if absent).
+  const cachedSignal = await loadGscSignal({
+    tenantId: opts.tenantId,
+    inspectionUrl: canonicalUrl,
+    allowFreshFetch: false,
+    now,
+  });
+
+  // Step 2: prioritization — decide whether this URL is eligible to
+  // consume a fresh-fetch budget slot. Operator-locked rule:
+  //   1. no cache row → eligible
+  //   2. stale cache row (last_checked_at > 24h) → eligible
+  //   3. composite_verdict === "unknown" → eligible
+  //   4. otherwise → NOT eligible (cache value already returned)
+  //
+  // ALSO: only `ok` / `unknown` verdicts are eligible — higher-
+  // severity verdicts (bad_status_code, noindex_meta, etc.) always
+  // win, so a `not_indexed_in_gsc` flip can never reach them
+  // anyway. Skipping these saves budget for URLs where the GSC
+  // signal can actually change the verdict.
+  const nowMs = now instanceof Date ? now.getTime() : new Date(now).getTime();
+  const cacheLastCheckedMs =
+    cachedSignal != null && cachedSignal.last_checked_at != null
+      ? Date.parse(cachedSignal.last_checked_at)
+      : NaN;
+  const cacheIsAbsent = cachedSignal == null;
+  const cacheIsStale =
+    !cacheIsAbsent &&
+    Number.isFinite(cacheLastCheckedMs) &&
+    nowMs - cacheLastCheckedMs >= GSC_CACHE_STALE_MS;
+  const verdictIsUnknown = baseResult.composite_verdict === "unknown";
+  const verdictAcceptsGscFlip =
+    baseResult.composite_verdict === "ok" ||
+    baseResult.composite_verdict === "unknown";
+
+  const isFreshFetchEligible =
+    verdictAcceptsGscFlip &&
+    (cacheIsAbsent || cacheIsStale || verdictIsUnknown);
+
+  // Step 3: budget consumption. The caller's mutable counter is
+  // shared across all per-URL calls in a single render.
+  let allowFreshFetch = false;
+  if (
+    isFreshFetchEligible &&
+    opts.gscBudget != null &&
+    opts.gscBudget.remaining > 0
+  ) {
+    allowFreshFetch = true;
+    opts.gscBudget.remaining -= 1;
+  }
+
+  // Step 4: resolve the final GSC signal.
+  let gsc: IndexabilityGscSignal = cachedSignal;
+  if (allowFreshFetch) {
+    const freshSignal = await loadGscSignal({
+      tenantId: opts.tenantId,
+      inspectionUrl: canonicalUrl,
+      allowFreshFetch: true,
+      now,
+    });
+    // Fall back to cached signal if fresh fetch failed (token gone,
+    // API error, etc.). Better than dropping a stale-but-useful
+    // signal entirely.
+    gsc = freshSignal ?? cachedSignal;
+  }
+
+  if (gsc == null) {
+    // No GSC signal at all — return the base verdict unchanged.
+    return baseResult;
+  }
+
+  // Step 5: recompute verdict with the GSC signal. Reuse the
+  // already-fetched signals from `baseResult.signals` so we don't
+  // re-read the repository. `computeIndexability` is pure.
+  const ps = baseResult.signals.page_snapshot;
+  return computeIndexability({
+    url: canonicalUrl,
+    sitemap_membership: baseResult.signals.sitemap_membership,
+    robots_txt: baseResult.signals.robots_txt,
+    page_snapshot:
+      ps == null
+        ? null
+        : {
+            http_status: ps.http_status,
+            canonical_url: ps.canonical_url,
+            has_canonical_mismatch: ps.has_canonical_mismatch,
+            robots_meta: ps.robots_meta,
+            fetched_at: ps.fetched_at,
+            extraction_certainty: ps.extraction_certainty,
+          },
+    gsc,
+    now,
+  });
 }

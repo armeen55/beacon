@@ -64,6 +64,10 @@ const ALLOWED_IMPORT_PATHS: ReadonlySet<string> = new Set([
   "next/cache",
   "./types",
   "./compute-indexability",
+  // A.3.b1.beta (2026-05-17): the GSC signal adapter is the
+  // operator-substrate seam between gscUrlInspect and the verdict
+  // pipeline. Only invoked when the caller passes `enableGsc: true`.
+  "./load-gsc-signal",
   "@/domains/pages/types",
   "@/domains/pages/robots-parser",
   "@/domains/citation-lifecycle/canonicalize-url",

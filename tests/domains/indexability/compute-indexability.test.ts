@@ -215,12 +215,12 @@ describe("computeIndexability — producible verdicts", () => {
 // Reserved-for-GSC verdicts — v1 MUST NOT produce these.
 // ─────────────────────────────────────────────────────────────────────
 
-describe("computeIndexability — reserved GSC verdicts NEVER produced", () => {
-  it("never produces not_indexed_in_gsc nor indexed_but_not_cited across a broad input matrix", () => {
-    // Sweep the cross-product of representative signal shapes that
-    // could conceivably look "GSC-like". If a future refactor
-    // accidentally wires up a GSC-style branch in this v1 module,
-    // this sweep will catch it.
+describe("computeIndexability — reserved verdicts when gsc signal absent", () => {
+  it("never produces not_indexed_in_gsc nor indexed_but_not_cited across a broad input matrix WITHOUT a GSC signal (default customer-facing path)", () => {
+    // The default `gsc` input is undefined — this exercises every
+    // customer-facing caller (Changes detail Act 3 stuck-row, etc.)
+    // which MUST NOT see the new `not_indexed_in_gsc` verdict.
+    // Pinned-by-construction: customer callers don't pass gsc.
     const statusCodes = [null, 200, 301, 302, 307, 308, 404, 410, 500] as const;
     const noindexValues = [null, "index", "noindex", "noindex, nofollow"] as const;
     const canonicalMismatches = [null, false, true] as const;
@@ -257,6 +257,221 @@ describe("computeIndexability — reserved GSC verdicts NEVER produced", () => {
         }
       }
     }
+  });
+
+  it("gsc explicitly null also produces no reserved verdicts across the same sweep", () => {
+    // Pinning the gsc=null branch separately from gsc=undefined.
+    // Both shapes are byte-equal in behavior.
+    const inputs = [
+      baseInput({ gsc: null }),
+      baseInput({ gsc: null, page_snapshot: null }),
+      baseInput({
+        gsc: null,
+        sitemap_membership: { in_sitemap: false, sitemap_url: null },
+      }),
+    ];
+    for (const input of inputs) {
+      const out = computeIndexability(input);
+      expect(out.composite_verdict).not.toBe("not_indexed_in_gsc");
+      expect(out.composite_verdict).not.toBe("indexed_but_not_cited");
+    }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────
+// GSC signal — A.3.b1.beta (2026-05-17): not_indexed_in_gsc verdict
+// ─────────────────────────────────────────────────────────────────────
+
+describe("computeIndexability — GSC signal flips ok/unknown to not_indexed_in_gsc", () => {
+  it("gsc.indexed=false + base verdict ok → flips to not_indexed_in_gsc", () => {
+    const out = computeIndexability(
+      baseInput({
+        gsc: {
+          indexed: false,
+          indexing_state: "BLOCKED_BY_NOINDEX",
+          coverage_state: "Excluded by 'noindex' tag",
+          last_crawl_time: null,
+          last_checked_at: NOW,
+        },
+      }),
+    );
+    expect(out.composite_verdict).toBe("not_indexed_in_gsc");
+  });
+
+  it("gsc.indexed=false + base verdict unknown → flips to not_indexed_in_gsc", () => {
+    const out = computeIndexability(
+      baseInput({
+        page_snapshot: null, // forces unknown without gsc
+        gsc: {
+          indexed: false,
+          indexing_state: "NOT_INDEXED_OTHER_REASON",
+          coverage_state: null,
+          last_crawl_time: null,
+          last_checked_at: NOW,
+        },
+      }),
+    );
+    expect(out.composite_verdict).toBe("not_indexed_in_gsc");
+  });
+
+  it("gsc.indexed=true + base verdict unknown → STAYS unknown (positive GSC is NOT a precondition for ok)", () => {
+    const out = computeIndexability(
+      baseInput({
+        page_snapshot: null,
+        gsc: {
+          indexed: true,
+          indexing_state: "INDEXING_ALLOWED",
+          coverage_state: "Submitted and indexed",
+          last_crawl_time: null,
+          last_checked_at: NOW,
+        },
+      }),
+    );
+    expect(out.composite_verdict).toBe("unknown");
+  });
+
+  it("gsc.indexed=true + base verdict ok → STAYS ok (no downgrade, no promotion needed)", () => {
+    const out = computeIndexability(
+      baseInput({
+        gsc: {
+          indexed: true,
+          indexing_state: "INDEXING_ALLOWED",
+          coverage_state: "Submitted and indexed",
+          last_crawl_time: null,
+          last_checked_at: NOW,
+        },
+      }),
+    );
+    expect(out.composite_verdict).toBe("ok");
+  });
+
+  it("gsc.indexed=null (ambiguous) → no change to base verdict", () => {
+    const out = computeIndexability(
+      baseInput({
+        gsc: {
+          indexed: null,
+          indexing_state: "SOME_UNKNOWN_STATE",
+          coverage_state: null,
+          last_crawl_time: null,
+          last_checked_at: NOW,
+        },
+      }),
+    );
+    expect(out.composite_verdict).toBe("ok");
+  });
+});
+
+describe("computeIndexability — GSC NEVER overrides higher-severity verdicts", () => {
+  const notIndexedGsc = {
+    indexed: false,
+    indexing_state: "BLOCKED_BY_NOINDEX",
+    coverage_state: "Excluded by 'noindex' tag",
+    last_crawl_time: null,
+    last_checked_at: NOW,
+  };
+
+  it("bad_status_code beats not_indexed_in_gsc (404 + gsc.indexed=false → bad_status_code)", () => {
+    const out = computeIndexability(
+      baseInput({
+        page_snapshot: { ...okPageSnapshot(), http_status: 404 },
+        gsc: notIndexedGsc,
+      }),
+    );
+    expect(out.composite_verdict).toBe("bad_status_code");
+  });
+
+  it("noindex_meta beats not_indexed_in_gsc", () => {
+    const out = computeIndexability(
+      baseInput({
+        page_snapshot: { ...okPageSnapshot(), robots_meta: "noindex" },
+        gsc: notIndexedGsc,
+      }),
+    );
+    expect(out.composite_verdict).toBe("noindex_meta");
+  });
+
+  it("canonical_elsewhere beats not_indexed_in_gsc", () => {
+    const out = computeIndexability(
+      baseInput({
+        page_snapshot: {
+          ...okPageSnapshot(),
+          has_canonical_mismatch: true,
+        },
+        gsc: notIndexedGsc,
+      }),
+    );
+    expect(out.composite_verdict).toBe("canonical_elsewhere");
+  });
+
+  it("blocked_by_robots_for_googlebot beats not_indexed_in_gsc", () => {
+    const out = computeIndexability(
+      baseInput({
+        robots_txt: { ...okRobots(), googlebot_allowed: false },
+        gsc: notIndexedGsc,
+      }),
+    );
+    expect(out.composite_verdict).toBe("blocked_by_robots_for_googlebot");
+  });
+
+  it("blocked_by_robots_for_ai beats not_indexed_in_gsc", () => {
+    const out = computeIndexability(
+      baseInput({
+        robots_txt: { ...okRobots(), gptbot_allowed: false },
+        gsc: notIndexedGsc,
+      }),
+    );
+    expect(out.composite_verdict).toBe("blocked_by_robots_for_ai");
+  });
+
+  it("not_in_sitemap beats not_indexed_in_gsc", () => {
+    const out = computeIndexability(
+      baseInput({
+        sitemap_membership: { in_sitemap: false, sitemap_url: null },
+        gsc: notIndexedGsc,
+      }),
+    );
+    expect(out.composite_verdict).toBe("not_in_sitemap");
+  });
+});
+
+describe("computeIndexability — gsc signal passes through to signals.gsc verbatim", () => {
+  it("undefined gsc → signals.gsc === null (byte-equal pre-beta)", () => {
+    const out = computeIndexability(baseInput());
+    expect(out.signals.gsc).toBeNull();
+  });
+
+  it("explicit null gsc → signals.gsc === null", () => {
+    const out = computeIndexability(baseInput({ gsc: null }));
+    expect(out.signals.gsc).toBeNull();
+  });
+
+  it("real gsc signal preserved in signals.gsc verbatim", () => {
+    const gsc = {
+      indexed: true as const,
+      indexing_state: "INDEXING_ALLOWED",
+      coverage_state: "Submitted and indexed",
+      last_crawl_time: "2026-05-16T07:00:00.000Z",
+      last_checked_at: NOW,
+    };
+    const out = computeIndexability(baseInput({ gsc }));
+    expect(out.signals.gsc).toEqual(gsc);
+  });
+
+  it("indexed_but_not_cited remains UNPRODUCED in beta v1 (citation-cross deferred)", () => {
+    // Even with the most "indexed_but_not_cited-shaped" GSC signal
+    // we can construct, the computer never emits this verdict.
+    const out = computeIndexability(
+      baseInput({
+        gsc: {
+          indexed: true,
+          indexing_state: "INDEXING_ALLOWED",
+          coverage_state: "Submitted and indexed",
+          last_crawl_time: NOW,
+          last_checked_at: NOW,
+        },
+      }),
+    );
+    expect(out.composite_verdict).not.toBe("indexed_but_not_cited");
   });
 });
 

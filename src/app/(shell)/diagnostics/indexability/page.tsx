@@ -43,7 +43,11 @@ import { getRepository } from "@/lib/persistence/repositories";
 import { getBusinessConfig } from "@/lib/business-config";
 import { readRobotsState } from "@/domains/pages/robots-parser";
 import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
-import { loadIndexabilityForUrl } from "@/domains/indexability/load-indexability";
+import {
+  loadIndexabilityForUrl,
+  type GscFreshFetchBudget,
+} from "@/domains/indexability/load-indexability";
+import { GSC_INSPECT_PER_RENDER_LIMIT } from "@/domains/indexability/load-gsc-signal";
 import type {
   IndexabilityVerdict,
   OwnedUrlIndexability,
@@ -265,10 +269,14 @@ function deriveReason(row: Row): string {
     }
     case "not_in_sitemap":
       return "URL absent from sitemap reconciliation (tenant-domain filtered)";
-    case "not_indexed_in_gsc":
-      return "reserved for GSC integration — not produced in v1";
+    case "not_indexed_in_gsc": {
+      const gsc = row.indexability.signals.gsc;
+      const state = gsc?.indexing_state ?? "unknown";
+      const cov = gsc?.coverage_state ?? "";
+      return `GSC reports not indexed: ${state}${cov ? ` (${cov})` : ""}`;
+    }
     case "indexed_but_not_cited":
-      return "reserved for GSC integration — not produced in v1";
+      return "reserved — citation-cross verdict deferred";
     case "unknown": {
       // Best-effort: which signal is missing?
       const s = row.indexability.signals;
@@ -351,25 +359,48 @@ export default async function OperatorIndexabilityDiagnosticsPage({
     tenantDomain,
   });
 
-  // Per-URL verdict fetch via the loader. Parallel; each call is
-  // 60s-cached by tenant + canonical URL, so back-to-back page
-  // refreshes hit cache for every row.
-  const verdicts = await Promise.all(
-    unionEntries.map(async (e) => {
-      try {
-        return await loadIndexabilityForUrl({
-          tenantId,
-          url: e.canonicalUrl,
-          now,
-        });
-      } catch {
-        // Loader throws only on tenant-context mismatch; on this
-        // operator surface, fall through to a synthesized
-        // unknown-verdict row so the table stays consistent.
-        return null;
-      }
-    }),
-  );
+  // Per-URL verdict fetch via the loader. Operator-only diagnostic
+  // is the SOLE caller in Beacon that passes `enableGsc: true`.
+  // Customer surfaces (Changes detail Act 3, etc.) call the same
+  // loader WITHOUT `enableGsc`, so they keep byte-equal pre-beta
+  // behavior. Pinned by
+  // `tests/architecture/gsc-no-customer-surface-import.test.ts`.
+  //
+  // GSC fresh-fetch budget is shared across all per-URL calls in
+  // this render. Once exhausted (default cap = 5 via
+  // GSC_INSPECT_PER_RENDER_LIMIT), remaining URLs fall back to
+  // cache-read only. The durable Supabase cache (A.3.b2) means
+  // even cache-miss URLs only trigger one Google API call per
+  // 24h regardless.
+  //
+  // Sequential iteration — NOT parallel — when GSC is enabled, so
+  // each `loadIndexabilityForUrl` call sees the mutated budget
+  // counter from the previous call. Promise.all with a shared
+  // mutable counter would race. Non-GSC callers can still go
+  // parallel; A.3.4 customer code paths are unchanged.
+  const gscBudget: GscFreshFetchBudget = {
+    remaining: GSC_INSPECT_PER_RENDER_LIMIT,
+  };
+  const verdicts: Array<OwnedUrlIndexability | null> = [];
+  for (const e of unionEntries) {
+    try {
+      const v = await loadIndexabilityForUrl({
+        tenantId,
+        url: e.canonicalUrl,
+        now,
+        enableGsc: true,
+        gscBudget,
+      });
+      verdicts.push(v);
+    } catch {
+      // Loader throws only on tenant-context mismatch; on this
+      // operator surface, fall through to a synthesized
+      // unknown-verdict row so the table stays consistent.
+      verdicts.push(null);
+    }
+  }
+  const gscFreshFetchesIssued =
+    GSC_INSPECT_PER_RENDER_LIMIT - gscBudget.remaining;
 
   const rows: Row[] = unionEntries
     .map((entry, i) => {
@@ -477,6 +508,19 @@ export default async function OperatorIndexabilityDiagnosticsPage({
             label="Filtered rows (showing)"
             value={String(filtered.length)}
           />
+          <SummaryRow
+            label="GSC site URL"
+            value={
+              process.env.BEACON_GSC_SITE_URL &&
+              process.env.BEACON_GSC_SITE_URL.trim() !== ""
+                ? process.env.BEACON_GSC_SITE_URL
+                : "(unset)"
+            }
+          />
+          <SummaryRow
+            label="GSC fresh inspections this render"
+            value={`${gscFreshFetchesIssued} / ${GSC_INSPECT_PER_RENDER_LIMIT} cap`}
+          />
         </dl>
 
         <div
@@ -526,6 +570,9 @@ export default async function OperatorIndexabilityDiagnosticsPage({
                 <th className="px-2 py-2 font-medium">Google-Extended</th>
                 <th className="px-2 py-2 font-medium">Age (d)</th>
                 <th className="px-2 py-2 font-medium">Fetched</th>
+                <th className="px-2 py-2 font-medium">GSC</th>
+                <th className="px-2 py-2 font-medium">GSC state</th>
+                <th className="px-2 py-2 font-medium">GSC checked</th>
                 <th className="px-3 py-2 font-medium">Reason</th>
               </tr>
             </thead>
@@ -660,6 +707,62 @@ function botCell(value: boolean | null): string {
   return "—";
 }
 
+/**
+ * Per-row GSC status badge. Five visible states:
+ *   • indexed     — Google confirmed indexed (green).
+ *   • not_indexed — Google confirmed NOT indexed (red).
+ *   • ambiguous   — inspection returned but indexing/coverage didn't
+ *                   match either pattern (yellow operator-triage).
+ *   • unchecked   — no cache row + adapter didn't issue a fresh fetch
+ *                   this render (neutral).
+ *
+ * Operator vocabulary only; no customer-facing copy.
+ */
+function GscBadge({
+  gsc,
+}: {
+  gsc: OwnedUrlIndexability["signals"]["gsc"];
+}) {
+  if (gsc == null) {
+    return (
+      <span
+        className="inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] bg-muted/40 text-muted-foreground"
+        data-row-gsc-state="unchecked"
+      >
+        unchecked
+      </span>
+    );
+  }
+  if (gsc.indexed === true) {
+    return (
+      <span
+        className="inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] bg-status-success/15 text-status-success"
+        data-row-gsc-state="indexed"
+      >
+        indexed
+      </span>
+    );
+  }
+  if (gsc.indexed === false) {
+    return (
+      <span
+        className="inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] bg-status-danger/15 text-status-danger"
+        data-row-gsc-state="not_indexed"
+      >
+        not_indexed
+      </span>
+    );
+  }
+  return (
+    <span
+      className="inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] bg-status-warning/15 text-status-warning"
+      data-row-gsc-state="ambiguous"
+    >
+      ambiguous
+    </span>
+  );
+}
+
 function RowDisplay({ row }: { row: Row }) {
   const snap = row.indexability.signals.page_snapshot;
   const robots = row.indexability.signals.robots_txt;
@@ -735,6 +838,17 @@ function RowDisplay({ row }: { row: Row }) {
       </td>
       <td className="px-2 py-2 font-mono text-[10.5px]">
         {snap?.fetched_at ? snap.fetched_at.slice(0, 10) : "—"}
+      </td>
+      <td className="px-2 py-2 font-mono whitespace-nowrap" data-row-gsc-badge>
+        <GscBadge gsc={row.indexability.signals.gsc} />
+      </td>
+      <td className="px-2 py-2 font-mono text-[10.5px] break-all max-w-[160px]">
+        {row.indexability.signals.gsc?.indexing_state ?? "—"}
+      </td>
+      <td className="px-2 py-2 font-mono text-[10.5px]">
+        {row.indexability.signals.gsc?.last_checked_at
+          ? row.indexability.signals.gsc.last_checked_at.slice(0, 10)
+          : "—"}
       </td>
       <td className="px-3 py-2 text-[11px] text-muted-foreground max-w-[260px]">
         {deriveReason(row)}

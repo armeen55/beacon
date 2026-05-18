@@ -28,16 +28,27 @@
  *   • `@/lib/llm/*`
  *   • `@/lib/cost/*`
  *   • `@/domains/recommendations/cross-tenant-brain/*`
- *   • Any path containing `gsc` (reserved for A.3.b1)
  *   • Any `*-client` HTTP-client convention path
  *   • `@/lib/persistence/dotdata-json` (bypass of the store
  *     wrapper layer)
  *   • Any scan-orchestrator import (e.g.,
  *     `@/domains/scanning/orchestrate-scan`)
  *
- * Retirement: refines (does NOT retire) when A.3.b1 lands the
- * GSC connector — the GSC client path moves from forbidden to
- * allowed; the fetch-token list stays.
+ * GSC posture (A.3.b1.beta, 2026-05-17):
+ *   The page legitimately imports the GSC fresh-fetch cap constant
+ *   `GSC_INSPECT_PER_RENDER_LIMIT` from `@/domains/indexability/
+ *   load-gsc-signal` so it can pass a bounded budget to the loader's
+ *   `enableGsc: true` opt-in. The page itself never invokes
+ *   `gscUrlInspect` or any HTTP fetch directly — GSC reads route
+ *   through the loader → adapter → cache + bounded client. The
+ *   "no GSC module reserved for A.3.b1" guard is REPLACED with the
+ *   explicit opt-in contract: page calls loader with
+ *   `enableGsc: true` AND a `gscBudget` capped at
+ *   `GSC_INSPECT_PER_RENDER_LIMIT`.
+ *
+ * Retirement: the fetch-token list + non-GSC forbidden paths are
+ * permanent. GSC-specific guards refine when A.3.b3 lands additional
+ * GSC APIs (Search Analytics, etc.).
  */
 
 import { describe, expect, it } from "vitest";
@@ -75,10 +86,18 @@ const FORBIDDEN_IMPORT_PATTERNS: ReadonlyArray<RegExp> = [
   /from\s+["']@\/lib\/llm\//,
   /from\s+["']@\/lib\/cost\//,
   /from\s+["']@\/domains\/recommendations\/cross-tenant-brain\//,
-  /from\s+["'][^"']*gsc[^"']*["']/i,
+  // A.3.b1.beta (2026-05-17) — the `*-client` HTTP-client convention
+  // is still forbidden, but the GSC adapter path
+  // (`@/domains/indexability/load-gsc-signal`) is NOT a `*-client`
+  // path and is allowlisted explicitly below. The page reaches GSC
+  // only through the bounded adapter; never via a direct HTTP client.
   /from\s+["'][^"']*-client["']/,
   /from\s+["']@\/lib\/persistence\/dotdata-json["']/,
   /from\s+["']@\/domains\/scanning\//,
+  // Direct GSC CLIENT import is still forbidden from the page —
+  // GSC reads must flow through the bounded adapter (load-gsc-signal),
+  // never via @/lib/connectors/gsc/client directly.
+  /from\s+["']@\/lib\/connectors\/gsc\//,
 ];
 
 const ALLOWED_IMPORT_PATHS: ReadonlySet<string> = new Set([
@@ -97,6 +116,12 @@ const ALLOWED_IMPORT_PATHS: ReadonlySet<string> = new Set([
   "@/domains/citation-lifecycle/canonicalize-url",
   "@/domains/indexability/load-indexability",
   "@/domains/indexability/types",
+  // A.3.b1.beta (2026-05-17) — the page imports the locked
+  // GSC_INSPECT_PER_RENDER_LIMIT constant + threads a fresh-fetch
+  // budget through the loader's enableGsc opt-in path. GSC reads
+  // route through the bounded adapter (`load-gsc-signal`), never
+  // via direct HTTP. The page itself does NOT call gscUrlInspect.
+  "@/domains/indexability/load-gsc-signal",
 ]);
 
 function extractImportPaths(src: string): string[] {
@@ -134,20 +159,43 @@ describe("Architecture — /diagnostics/indexability no-fresh-fetch (Phase A.3 �
     expect(SRC_STRIPPED).not.toMatch(FORBIDDEN_IMPORT_PATTERNS[2]);
   });
 
-  it("page source does NOT import any GSC module (reserved for A.3.b1)", () => {
+  it("page source does NOT import any '-client' HTTP-client convention path", () => {
     expect(SRC_STRIPPED).not.toMatch(FORBIDDEN_IMPORT_PATTERNS[3]);
   });
 
-  it("page source does NOT import any '-client' HTTP-client convention path", () => {
+  it("page source does NOT import the raw dotdata I/O layer (must use store wrappers)", () => {
     expect(SRC_STRIPPED).not.toMatch(FORBIDDEN_IMPORT_PATTERNS[4]);
   });
 
-  it("page source does NOT import the raw dotdata I/O layer (must use store wrappers)", () => {
+  it("page source does NOT import any scan-orchestrator module", () => {
     expect(SRC_STRIPPED).not.toMatch(FORBIDDEN_IMPORT_PATTERNS[5]);
   });
 
-  it("page source does NOT import any scan-orchestrator module", () => {
+  it("page source does NOT import the GSC client directly — only the bounded adapter (A.3.b1.beta)", () => {
+    // GSC reads route through @/domains/indexability/load-gsc-signal
+    // which enforces the per-render cap + Supabase cache + token
+    // discipline. Direct gscUrlInspect import from the page would
+    // bypass the bounded adapter.
     expect(SRC_STRIPPED).not.toMatch(FORBIDDEN_IMPORT_PATTERNS[6]);
+  });
+
+  it("page passes enableGsc=true to loadIndexabilityForUrl (A.3.b1.beta opt-in)", () => {
+    // Operator-locked: the diagnostic page is the SOLE caller that
+    // enables GSC. Customer-facing callers omit `enableGsc` and
+    // get pre-beta byte-equal behavior.
+    expect(
+      /enableGsc\s*:\s*true/.test(SRC_STRIPPED),
+      "operator diagnostic page must pass enableGsc: true to loadIndexabilityForUrl",
+    ).toBe(true);
+  });
+
+  it("page caps GSC fresh fetches via GSC_INSPECT_PER_RENDER_LIMIT (A.3.b1.beta)", () => {
+    // The page MUST reference the locked cap constant so a future
+    // refactor can't quietly drop the bound.
+    expect(
+      /GSC_INSPECT_PER_RENDER_LIMIT/.test(SRC_STRIPPED),
+      "operator diagnostic page must reference GSC_INSPECT_PER_RENDER_LIMIT for the fresh-fetch budget cap",
+    ).toBe(true);
   });
 
   it("every import path in the page matches the allowlist", () => {

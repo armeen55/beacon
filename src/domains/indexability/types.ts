@@ -124,11 +124,47 @@ export type IndexabilityPageSnapshotSignal = {
 };
 
 /**
- * GSC signal placeholder. Always `null` in v1; A.3.b1 fills.
- * Lives here so the loader + diagnostic surface can be written
- * against the final shape today.
+ * GSC signal. A.3.b1.beta (2026-05-17): real type lands.
+ *
+ * Operator-substrate only — populated exclusively by the diagnostic
+ * loader path when GSC is explicitly opted in. Customer surfaces
+ * (Changes detail Act 3 stuck-row, etc.) MUST receive `null` and
+ * MUST not branch behavior on GSC presence/absence. The opt-in flag
+ * lives on `loadIndexabilityForUrl` (see `enableGsc?: boolean` in
+ * `load-indexability.ts`); default-off preserves byte-equal pre-beta
+ * behavior for every customer-facing caller.
+ *
+ *   indexed === true  ← Google confirms indexed (positive signal;
+ *                       does NOT promote a verdict to `ok`).
+ *   indexed === false ← Google confirms NOT indexed (flips ok/unknown
+ *                       to `not_indexed_in_gsc`; higher-severity
+ *                       verdicts still win).
+ *   indexed === null  ← inspection result returned but the indexing
+ *                       state is unrecognized; treated as unchecked.
+ *
+ * `null` at the field level = no GSC evidence at all (token absent,
+ * scope missing, site URL unset, no cache row, fresh fetch not
+ * allowed this render, API failed). Distinct from `{ indexed: null }`
+ * which means "we asked Google and got an ambiguous answer."
  */
-export type IndexabilityGscSignal = null;
+export type IndexabilityGscSignal = {
+  /**
+   * Google's indexing decision narrowed to a boolean. `true` when the
+   * inspection result reports `INDEXING_ALLOWED` with an indexed-shaped
+   * `coverage_state`; `false` when `coverage_state` matches a
+   * not-indexed pattern OR `indexing_state` is one of the blocked-state
+   * tokens; `null` when neither pattern matches.
+   */
+  indexed: boolean | null;
+  /** Verbatim Google enum from `inspectionResult.indexStatusResult.indexingState`. */
+  indexing_state: string | null;
+  /** Verbatim coverage_state string. */
+  coverage_state: string | null;
+  /** ISO timestamp Google last crawled the URL. Null when never crawled. */
+  last_crawl_time: string | null;
+  /** ISO timestamp Beacon recorded this result via gscUrlInspect(). */
+  last_checked_at: string | null;
+} | null;
 
 export type IndexabilitySignals = {
   sitemap_membership: IndexabilitySitemapSignal;

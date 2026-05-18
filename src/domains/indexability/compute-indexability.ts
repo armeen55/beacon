@@ -55,6 +55,7 @@
  */
 
 import type {
+  IndexabilityGscSignal,
   IndexabilityPageSnapshotSignal,
   IndexabilityRobotsSignal,
   IndexabilitySitemapSignal,
@@ -87,6 +88,15 @@ export type ComputeIndexabilityInput = {
   sitemap_membership: IndexabilitySitemapSignal;
   robots_txt: IndexabilityRobotsSignal;
   page_snapshot: Omit<IndexabilityPageSnapshotSignal, "noindex_detected"> | null;
+  /**
+   * A.3.b1.beta (2026-05-17) — OPTIONAL operator-substrate GSC
+   * signal. Customer-facing callers MUST pass `undefined` (or `null`)
+   * so the verdict computer produces byte-equal pre-beta results.
+   * The opt-in for this signal lives on `loadIndexabilityForUrl`
+   * (`enableGsc?: boolean`, default false). Pinned by
+   * `tests/architecture/gsc-no-customer-surface-import.test.ts`.
+   */
+  gsc?: IndexabilityGscSignal;
   now: Date | string;
 };
 
@@ -178,9 +188,17 @@ function decideVerdict(
   noindexDetected: boolean,
   robots: IndexabilityRobotsSignal,
   sitemap: IndexabilitySitemapSignal,
+  gsc: IndexabilityGscSignal | undefined,
 ): IndexabilityVerdict {
   // 1. unknown — no page snapshot, or no http_status to anchor on.
+  // BUT: if GSC explicitly says "not indexed," that's enough evidence
+  // to flip the otherwise-evidence-less unknown to not_indexed_in_gsc.
+  // The operator-locked rule was "GSC indexed=false may flip ok/unknown";
+  // step-1 unknown counts as unknown.
   if (pageSnapshot == null || pageSnapshot.http_status == null) {
+    if (gsc != null && gsc.indexed === false) {
+      return "not_indexed_in_gsc";
+    }
     return "unknown";
   }
   // 2. bad_status_code — any 4xx/5xx, or any of the four
@@ -215,6 +233,18 @@ function decideVerdict(
   if (sitemap.in_sitemap === false) {
     return "not_in_sitemap";
   }
+  // 7.5 not_indexed_in_gsc — A.3.b1.beta (2026-05-17) GSC signal
+  // says "not indexed." Only flips ok/unknown verdicts; the earlier
+  // higher-severity rules already returned by this point so they
+  // win structurally. `gsc=null` / `gsc=undefined` (the default for
+  // every customer-facing caller) skips this step entirely —
+  // byte-equal pre-beta behavior pinned by tests.
+  // `gsc.indexed === true` is NOT a positive precondition for `ok`
+  // — adding it would collapse every un-inspected URL to `unknown`
+  // on day 1 (operator-locked decision).
+  if (gsc != null && gsc.indexed === false) {
+    return "not_indexed_in_gsc";
+  }
   // 8. ok — only if every signal that COULD provide a negative
   // verdict has confirmed a positive value. Specifically:
   //   • has_canonical_mismatch must be non-null (we know it isn't
@@ -239,7 +269,7 @@ function decideVerdict(
 export function computeIndexability(
   input: ComputeIndexabilityInput,
 ): OwnedUrlIndexability {
-  const { url, sitemap_membership, robots_txt, page_snapshot, now } = input;
+  const { url, sitemap_membership, robots_txt, page_snapshot, gsc, now } = input;
   const noindexDetected =
     page_snapshot == null
       ? false
@@ -250,6 +280,7 @@ export function computeIndexability(
     noindexDetected,
     robots_txt,
     sitemap_membership,
+    gsc,
   );
 
   const evidence_freshness_days = computeFreshnessDays(
@@ -293,7 +324,12 @@ export function computeIndexability(
         google_extended_allowed: robots_txt.google_extended_allowed,
       },
       page_snapshot: enrichedPageSnapshot,
-      gsc: null,
+      // A.3.b1.beta (2026-05-17): thread the passed GSC signal through
+      // verbatim. Customer-facing callers pass `undefined`/`null`, so
+      // `signals.gsc` stays `null` for those paths — byte-equal pre-beta.
+      // Operator diagnostic path passes a real signal, which is what
+      // the diagnostic UI renders.
+      gsc: gsc ?? null,
     },
     last_computed_at: nowIso,
     evidence_freshness_days,
