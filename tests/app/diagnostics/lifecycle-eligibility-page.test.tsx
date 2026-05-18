@@ -199,8 +199,12 @@ function makeLifecycle(
   };
 }
 
-async function renderPage(): Promise<string> {
-  const node = await LifecycleEligibilityDiagnosticPage();
+async function renderPage(
+  searchParams: Record<string, string | string[] | undefined> = {},
+): Promise<string> {
+  const node = await LifecycleEligibilityDiagnosticPage({
+    searchParams: Promise.resolve(searchParams),
+  });
   return renderToStaticMarkup(node as React.ReactElement);
 }
 
@@ -550,5 +554,178 @@ describe("/diagnostics/lifecycle-eligibility — Ritz-shaped end-to-end", () => 
     // with rec_id 'rec-orphan'. The orphan dismissed response also
     // does not change this counter.
     // (Lineage filter is in aggregate-counters by responseByRecId.)
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────
+// Phase A.2 Step 3e.A1 — filter chips
+//
+// Readiness verdict (the new "ready?" column + per-row badge +
+// pre-screen tooltip) is intentionally OUT of this slice and deferred
+// to Step 3e.A2 per the second split decision (2026-05-18). The
+// tests in this section cover ONLY filter behavior. Click-through to
+// Recommendations detail is deferred to Step 3e.B.
+// ─────────────────────────────────────────────────────────────────────
+
+describe("/diagnostics/lifecycle-eligibility — filter chips (3e.A1)", () => {
+  function seedRitzShaped(): void {
+    const edits: RecommendedEditRow[] = [];
+    for (let i = 0; i < 20; i++) {
+      edits.push(
+        makeEdit({
+          id: `op-${i}`,
+          rec_id: `rec-op-${i}`,
+          implementation_status: "recommended",
+          target_url: `https://example.com/op/${i}`,
+        }),
+      );
+    }
+    for (let i = 0; i < 7; i++) {
+      edits.push(
+        makeEdit({
+          id: `dis-${i}`,
+          rec_id: `rec-dis-${i}`,
+          implementation_status: "dismissed",
+          target_url: `https://example.com/dis/${i}`,
+        }),
+      );
+    }
+    edits.push(
+      makeEdit({
+        id: "cited-1",
+        rec_id: "rec-cited-1",
+        implementation_status: "verified_live",
+        live_at: "2026-05-01T00:00:00.000Z",
+        target_url: "https://example.com/cited/1",
+      }),
+    );
+    _edits = edits;
+    _snapshots = edits
+      .map((e) => ({ url: e.target_url as string }))
+      .filter((s) => s.url != null);
+    _responsesByRecId.set("rec-cited-1", makeResponse("rec-cited-1", "accepted"));
+    _lifecycleByEditId.set(
+      "cited-1",
+      makeLifecycle({ stage: "cited_fast", days_to_first_citation: 1 }),
+    );
+  }
+
+  it("default (no filter) shows all 28 rows", async () => {
+    seedRitzShaped();
+    const html = await renderPage();
+    const rowMatches = html.match(/data-diagnostics-row="true"/g);
+    expect(rowMatches?.length).toBe(28);
+    expect(html).toContain('data-diagnostics-row-count="28"');
+  });
+
+  it("?reason=awaiting_operator_acceptance narrows to the 20 awaiting rows", async () => {
+    seedRitzShaped();
+    const html = await renderPage({ reason: "awaiting_operator_acceptance" });
+    const rowMatches = html.match(/data-diagnostics-row="true"/g);
+    expect(rowMatches?.length).toBe(20);
+    expect(html).toContain('data-diagnostics-row-count="20"');
+    expect(html).toContain(
+      'data-row-eligibility-reason="awaiting_operator_acceptance"',
+    );
+    expect(html).not.toContain('data-row-eligibility-reason="cited_eligible"');
+  });
+
+  it("?url_match=mismatch surfaces canonicalization-risk rows in isolation", async () => {
+    // Seed: 2 homepage trailing-slash rows + 1 exact-match row.
+    _edits = [
+      makeEdit({
+        id: "home-a",
+        rec_id: "rec-home-a",
+        implementation_status: "recommended",
+        target_url: "https://example.com/",
+      }),
+      makeEdit({
+        id: "home-b",
+        rec_id: "rec-home-b",
+        implementation_status: "recommended",
+        target_url: "https://example.com/",
+      }),
+      makeEdit({
+        id: "exact",
+        rec_id: "rec-exact",
+        implementation_status: "recommended",
+        target_url: "https://example.com/exact",
+      }),
+    ];
+    _snapshots = [
+      { url: "https://example.com" }, // canonical-only for the homepage rows
+      { url: "https://example.com/exact" },
+    ];
+    const html = await renderPage({ url_match: "mismatch" });
+    const rowMatches = html.match(/data-diagnostics-row="true"/g);
+    expect(rowMatches?.length).toBe(2);
+    expect(html).toContain('data-row-edit-id="home-a"');
+    expect(html).toContain('data-row-edit-id="home-b"');
+    expect(html).not.toContain('data-row-edit-id="exact"');
+  });
+
+  it("?status=dismissed narrows to dismissed rows", async () => {
+    seedRitzShaped();
+    const html = await renderPage({ status: "dismissed" });
+    const rowMatches = html.match(/data-diagnostics-row="true"/g);
+    expect(rowMatches?.length).toBe(7);
+    expect(html).toContain('data-row-impl-status="dismissed"');
+    expect(html).not.toContain('data-row-impl-status="recommended"');
+  });
+
+  it("?blocked_by=operator narrows to operator-blocked rows (awaiting only after dismissed-terminal fix)", async () => {
+    seedRitzShaped();
+    const html = await renderPage({ blocked_by: "operator" });
+    const rowMatches = html.match(/data-diagnostics-row="true"/g);
+    // 20 awaiting (operator-blocked). 7 dismissed are terminal
+    // (blocked_by=null) post-3d-counter-correctness; 1 cited is
+    // terminal. Both excluded.
+    expect(rowMatches?.length).toBe(20);
+    expect(html).toContain('data-row-eligibility-reason="awaiting_operator_acceptance"');
+  });
+
+  it("?blocked_by=terminal narrows to 8 terminal/in-flight rows (7 dismissed + 1 cited)", async () => {
+    seedRitzShaped();
+    const html = await renderPage({ blocked_by: "terminal" });
+    const rowMatches = html.match(/data-diagnostics-row="true"/g);
+    expect(rowMatches?.length).toBe(8);
+  });
+
+  it("renders the filter-chips section with one chip per filter dimension", async () => {
+    _edits = [makeEdit({ id: "edit-a", rec_id: "rec-a" })];
+    const html = await renderPage();
+    expect(html).toContain('data-diagnostics-section="filter-chips"');
+    expect(html).toContain('data-diagnostics-chip-row="url_match"');
+    expect(html).toContain('data-diagnostics-chip-row="status"');
+    expect(html).toContain('data-diagnostics-chip-row="blocked_by"');
+    expect(html).toContain('data-diagnostics-chip="url_match=mismatch"');
+    expect(html).toContain('data-diagnostics-chip="status=recommended"');
+    expect(html).toContain('data-diagnostics-chip="blocked_by=operator"');
+    expect(html).toContain('data-diagnostics-chip="blocked_by=terminal"');
+  });
+
+  it("reason-distribution chips promote to active filter <Link>s while preserving data-reason-tally attributes", async () => {
+    seedRitzShaped();
+    const html = await renderPage();
+    // Existing attribute must still appear (back-compat for the 15
+    // prior tests). Each chip also carries the new filter attribute.
+    expect(html).toContain('data-reason-tally="awaiting_operator_acceptance"');
+    expect(html).toContain('data-diagnostics-chip="reason=awaiting_operator_acceptance"');
+    // The active-flag attribute exists on each chip.
+    expect(html).toMatch(
+      /data-reason-tally="awaiting_operator_acceptance"[^>]*data-diagnostics-chip-active="false"/,
+    );
+  });
+
+  it("?reason=awaiting_operator_acceptance marks the matching reason chip active", async () => {
+    seedRitzShaped();
+    const html = await renderPage({ reason: "awaiting_operator_acceptance" });
+    expect(html).toMatch(
+      /data-reason-tally="awaiting_operator_acceptance"[^>]*data-diagnostics-chip-active="true"/,
+    );
+    // Non-matching chips remain inactive.
+    expect(html).toMatch(
+      /data-reason-tally="cited_eligible"[^>]*data-diagnostics-chip-active="false"/,
+    );
   });
 });

@@ -28,15 +28,18 @@ import "server-only";
  * LLM, no paid APIs.
  */
 
+import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { isOperatorModeServer } from "@/lib/operator-mode";
 import { currentTenantId } from "@/lib/tenant-context";
 import { getRepository } from "@/lib/persistence/repositories";
 import { loadLifecycleForEdit } from "@/domains/citation-lifecycle/load-lifecycle";
+import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
 import {
   buildSnapshotUrlIndex,
   deriveLifecycleReason,
+  type SnapshotUrlIndex,
 } from "@/domains/lifecycle-eligibility/derive-reason";
 import { computeFunnelCounters } from "@/domains/lifecycle-eligibility/aggregate-counters";
 import type {
@@ -113,13 +116,114 @@ const ALL_REASONS: ReadonlyArray<LifecycleEligibilityReason> = [
 ];
 
 // ─────────────────────────────────────────────────────────────────────
+// Phase A.2 Step 3e.A1 — snapshot-coverage classifier
+//
+// Independent of `derive-reason.ts`'s reason branching because the
+// canonical-equal-but-not-exact-equal case applies to ALL row classes
+// (awaiting, accepted, shipped, etc.) — the reason classifier only
+// surfaces it explicitly for `accepted` rows. Filter chips
+// (`?url_match=mismatch`) and the `url_match` table column need this
+// broader signal so awaiting rows on homepage-trailing-slash URLs
+// surface as ⚠ instead of ✗.
+//
+// Mirrors the same canonicalizer the reason classifier uses so the
+// two views agree on the ⚠ class.
+// ─────────────────────────────────────────────────────────────────────
+
+type UrlMatchToken = "✓" | "⚠" | "✗" | "—";
+
+function deriveUrlMatch(args: {
+  targetUrl: string | null;
+  snapshotIndex: SnapshotUrlIndex;
+}): UrlMatchToken {
+  if (!args.targetUrl) return "—";
+  if (args.snapshotIndex.exact.has(args.targetUrl)) return "✓";
+  const canonical = canonicalizeCitationUrl(args.targetUrl);
+  if (canonical != null && args.snapshotIndex.canonicalToExact.has(canonical)) {
+    return "⚠";
+  }
+  return "✗";
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Phase A.2 Step 3e — filter chips (server-rendered searchParams).
+//
+// Pattern ported verbatim from /diagnostics/indexability. Filters run
+// AFTER all tenant-scoped reads on a pure in-memory row set; no extra
+// repository calls per filter. Default = no filter = all rows.
+// ─────────────────────────────────────────────────────────────────────
+
+type SearchParams = Record<string, string | string[] | undefined>;
+
+function readParam(p: SearchParams, key: string): string | null {
+  const v = p[key];
+  if (Array.isArray(v)) return v[0] ?? null;
+  return v ?? null;
+}
+
+type BlockedByFilter = "operator" | "system" | "terminal";
+
+function blockedByBucket(
+  blocked: "operator" | "system" | null,
+): BlockedByFilter {
+  if (blocked === "operator") return "operator";
+  if (blocked === "system") return "system";
+  return "terminal";
+}
+
+type FilterableRow = {
+  decision: PerRowEligibility;
+  edit: RecommendedEditRow;
+  urlMatch: UrlMatchToken;
+};
+
+function applyFilters<R extends FilterableRow>(
+  rows: ReadonlyArray<R>,
+  sp: SearchParams,
+): R[] {
+  const reason = readParam(sp, "reason");
+  const urlMatchFilter = readParam(sp, "url_match");
+  const statusFilter = readParam(sp, "status");
+  const blockedByFilter = readParam(sp, "blocked_by");
+  return rows.filter((r) => {
+    if (reason && reason !== "all" && r.decision.reason !== reason) {
+      return false;
+    }
+    if (urlMatchFilter && urlMatchFilter !== "all") {
+      if (urlMatchFilter === "ready" && r.urlMatch !== "✓") return false;
+      if (urlMatchFilter === "mismatch" && r.urlMatch !== "⚠") return false;
+      if (urlMatchFilter === "missing" && r.urlMatch !== "✗") return false;
+    }
+    if (
+      statusFilter &&
+      statusFilter !== "all" &&
+      r.edit.implementation_status !== statusFilter
+    ) {
+      return false;
+    }
+    if (blockedByFilter && blockedByFilter !== "all") {
+      const bucket = blockedByBucket(r.decision.blocked_by);
+      if (bucket !== blockedByFilter) return false;
+    }
+    return true;
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────
 // Server component
 // ─────────────────────────────────────────────────────────────────────
 
-export default async function LifecycleEligibilityDiagnosticPage() {
+export default async function LifecycleEligibilityDiagnosticPage(
+  props: {
+    searchParams?: Promise<SearchParams>;
+  } = {},
+) {
   if (!isAccessAllowed()) {
     notFound();
   }
+
+  const sp: SearchParams =
+    (await (props.searchParams ?? Promise.resolve({}))) ?? {};
 
   const tenantId = await currentTenantId();
   const now = new Date();
@@ -180,23 +284,35 @@ export default async function LifecycleEligibilityDiagnosticPage() {
     lifecycleResults,
   });
 
-  // Build rows for table render. Combine edit + decision + response.
+  // Build rows for table render. Combine edit + decision + response
+  // + url-match token (pre-computed once so filter + render share
+  // the same data).
   type Row = {
     edit: RecommendedEditRow;
     decision: PerRowEligibility;
     response: ReturnType<typeof responsesByRecId.get>;
+    urlMatch: UrlMatchToken;
   };
-  const rows: Row[] = edits.map((edit, i) => ({
-    edit,
-    decision: perRowDecisions[i]!,
-    response: responsesByRecId.get(edit.rec_id),
-  }));
+  const rows: Row[] = edits.map((edit, i) => {
+    const decision = perRowDecisions[i]!;
+    const urlMatch = deriveUrlMatch({
+      targetUrl: edit.target_url,
+      snapshotIndex,
+    });
+    return {
+      edit,
+      decision,
+      response: responsesByRecId.get(edit.rec_id),
+      urlMatch,
+    };
+  });
   rows.sort(
     (a, b) =>
       REASON_SEVERITY[a.decision.reason] - REASON_SEVERITY[b.decision.reason],
   );
 
-  // Reason-distribution counters for filter chips.
+  // Reason-distribution counters — computed from the UNFILTERED row
+  // set so the chip tallies stay stable as the operator drills in.
   const reasonDistribution: Record<LifecycleEligibilityReason, number> = {
     awaiting_operator_acceptance: 0,
     accepted_not_live: 0,
@@ -215,6 +331,24 @@ export default async function LifecycleEligibilityDiagnosticPage() {
     unknown: 0,
   };
   for (const d of perRowDecisions) reasonDistribution[d.reason]++;
+
+  // Apply server-side filters AFTER tenant-scoped reads. The
+  // displayed table draws from `filteredRows`; the funnel-counter
+  // tiles + reason-distribution chips ALWAYS draw from the
+  // unfiltered set (so the operator can see the global funnel + the
+  // filtered subset in one view).
+  const filteredRows = applyFilters(rows, sp);
+
+  // Active filter values for the chip rendering.
+  const activeReason = readParam(sp, "reason");
+  const activeUrlMatch = readParam(sp, "url_match");
+  const activeStatus = readParam(sp, "status");
+  const activeBlockedBy = readParam(sp, "blocked_by");
+  const anyFilterActive =
+    (activeReason && activeReason !== "all") ||
+    (activeUrlMatch && activeUrlMatch !== "all") ||
+    (activeStatus && activeStatus !== "all") ||
+    (activeBlockedBy && activeBlockedBy !== "all");
 
   return (
     <main
@@ -398,31 +532,63 @@ export default async function LifecycleEligibilityDiagnosticPage() {
         </dl>
       </section>
 
-      {/* ── Reason distribution ─────────────────────────────────── */}
+      {/* ── Reason distribution + active filter ──────────────────
+         Reason-tally chips now double as filter links. The
+         `data-reason-tally` attribute is preserved for existing
+         render assertions; each chip wraps in a Next <Link> so the
+         operator can narrow the row table to one reason class with
+         a single click. Tallies remain computed from the UNFILTERED
+         row set so the operator sees the full funnel context even
+         while the table below is narrowed. */}
       <section
         className="flex flex-wrap gap-2"
         data-diagnostics-section="reason-distribution"
       >
-        {ALL_REASONS.map((r) => (
-          <span
-            key={r}
-            className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-medium ${REASON_TONE[r]}`}
-            data-reason-tally={r}
-          >
-            <span className="tabular-nums">{reasonDistribution[r]}</span>
-            <span className="font-mono">{r}</span>
-          </span>
-        ))}
+        {ALL_REASONS.map((r) => {
+          const isActive = activeReason === r;
+          return (
+            <Link
+              key={r}
+              href={`/diagnostics/lifecycle-eligibility?reason=${r}`}
+              prefetch={false}
+              className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-medium ${REASON_TONE[r]} ${
+                isActive ? "ring-2 ring-foreground/40" : ""
+              }`}
+              data-reason-tally={r}
+              data-diagnostics-chip={`reason=${r}`}
+              data-diagnostics-chip-active={isActive ? "true" : "false"}
+            >
+              <span className="tabular-nums">{reasonDistribution[r]}</span>
+              <span className="font-mono">{r}</span>
+            </Link>
+          );
+        })}
       </section>
+
+      {/* ── Filter chips (url_match · status · blocked_by) ───────
+         Server-rendered. Pure <Link> elements with searchParams —
+         no client JS. Filter applies AFTER tenant-scoped reads on a
+         pure in-memory row set; no extra repository calls per
+         filter. Default = no filter = all rows. */}
+      <FilterChips
+        activeReason={activeReason}
+        activeUrlMatch={activeUrlMatch}
+        activeStatus={activeStatus}
+        activeBlockedBy={activeBlockedBy}
+        anyFilterActive={!!anyFilterActive}
+      />
 
       {/* ── Per-row table ───────────────────────────────────────── */}
       <section
         className="rounded-md border border-border/60 bg-surface-base overflow-x-auto"
         data-diagnostics-section="row-table"
+        data-diagnostics-row-count={filteredRows.length}
       >
-        {rows.length === 0 ? (
+        {filteredRows.length === 0 ? (
           <div className="px-4 py-6 text-[12px] text-muted-foreground">
-            No recommended_edits rows for this tenant.
+            {rows.length === 0
+              ? "No recommended_edits rows for this tenant."
+              : "No rows match the current filters."}
           </div>
         ) : (
           <table
@@ -451,14 +617,154 @@ export default async function LifecycleEligibilityDiagnosticPage() {
               </tr>
             </thead>
             <tbody>
-              {rows.map((r) => (
-                <RowDisplay key={r.edit.id} row={r} snapshotExact={snapshotIndex.exact} />
+              {filteredRows.map((r) => (
+                <RowDisplay key={r.edit.id} row={r} />
               ))}
             </tbody>
           </table>
         )}
       </section>
     </main>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// FilterChips sub-section
+// ─────────────────────────────────────────────────────────────────────
+
+function FilterChips(props: {
+  activeReason: string | null;
+  activeUrlMatch: string | null;
+  activeStatus: string | null;
+  activeBlockedBy: string | null;
+  anyFilterActive: boolean;
+}) {
+  const urlMatchOptions: ReadonlyArray<{
+    value: string;
+    label: string;
+  }> = [
+    { value: "all", label: "all" },
+    { value: "ready", label: "url_match=ready" },
+    { value: "mismatch", label: "url_match=mismatch" },
+    { value: "missing", label: "url_match=missing" },
+  ];
+  const statusOptions: ReadonlyArray<{
+    value: string;
+    label: string;
+  }> = [
+    { value: "all", label: "all" },
+    { value: "recommended", label: "status=recommended" },
+    { value: "accepted", label: "status=accepted" },
+    { value: "verified_live", label: "status=verified_live" },
+    { value: "verified_live_modified", label: "status=verified_live_modified" },
+    { value: "partially_implemented", label: "status=partially_implemented" },
+    { value: "dismissed", label: "status=dismissed" },
+    { value: "wrong_page", label: "status=wrong_page" },
+    { value: "needs_review", label: "status=needs_review" },
+    { value: "not_found_after_7d", label: "status=not_found_after_7d" },
+  ];
+  const blockedByOptions: ReadonlyArray<{
+    value: string;
+    label: string;
+  }> = [
+    { value: "all", label: "all" },
+    { value: "operator", label: "blocked_by=operator" },
+    { value: "system", label: "blocked_by=system" },
+    { value: "terminal", label: "blocked_by=terminal" },
+  ];
+  return (
+    <section
+      className="flex flex-col gap-2 text-[11.5px]"
+      data-diagnostics-section="filter-chips"
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-muted-foreground w-24 shrink-0">clear:</span>
+        <ChipLink
+          href="/diagnostics/lifecycle-eligibility"
+          active={!props.anyFilterActive}
+          label="all filters off"
+          dataAttr="clear"
+        />
+      </div>
+      <ChipRow
+        dimension="url_match"
+        active={props.activeUrlMatch}
+        options={urlMatchOptions}
+      />
+      <ChipRow
+        dimension="status"
+        active={props.activeStatus}
+        options={statusOptions}
+      />
+      <ChipRow
+        dimension="blocked_by"
+        active={props.activeBlockedBy}
+        options={blockedByOptions}
+      />
+    </section>
+  );
+}
+
+function ChipRow(props: {
+  dimension: "url_match" | "status" | "blocked_by";
+  active: string | null;
+  options: ReadonlyArray<{ value: string; label: string }>;
+}) {
+  return (
+    <div
+      className="flex flex-wrap items-center gap-2"
+      data-diagnostics-chip-row={props.dimension}
+    >
+      <span className="text-muted-foreground w-24 shrink-0">
+        {props.dimension}:
+      </span>
+      {props.options.map((opt) => {
+        const isActive =
+          opt.value === "all"
+            ? props.active == null || props.active === "all"
+            : props.active === opt.value;
+        const href =
+          opt.value === "all"
+            ? `/diagnostics/lifecycle-eligibility`
+            : `/diagnostics/lifecycle-eligibility?${props.dimension}=${opt.value}`;
+        return (
+          <ChipLink
+            key={opt.value}
+            href={href}
+            active={isActive}
+            label={opt.label}
+            dataAttr={
+              opt.value === "all"
+                ? `${props.dimension}=all`
+                : `${props.dimension}=${opt.value}`
+            }
+          />
+        );
+      })}
+    </div>
+  );
+}
+
+function ChipLink(props: {
+  href: string;
+  active: boolean;
+  label: string;
+  dataAttr: string;
+}) {
+  return (
+    <Link
+      href={props.href}
+      prefetch={false}
+      className={`inline-flex items-center rounded-full px-2 py-0.5 font-mono ${
+        props.active
+          ? "bg-foreground text-background"
+          : "bg-muted/40 text-muted-foreground hover:bg-muted/60"
+      }`}
+      data-diagnostics-chip={props.dataAttr}
+      data-diagnostics-chip-active={props.active ? "true" : "false"}
+    >
+      {props.label}
+    </Link>
   );
 }
 
@@ -485,24 +791,16 @@ function SummaryRow({
 
 function RowDisplay({
   row,
-  snapshotExact,
 }: {
   row: {
     edit: RecommendedEditRow;
     decision: PerRowEligibility;
     response: ReturnType<Map<string, unknown>["get"]> | undefined;
+    urlMatch: UrlMatchToken;
   };
-  snapshotExact: ReadonlySet<string>;
 }) {
-  const { edit, decision } = row;
+  const { edit, decision, urlMatch } = row;
   const idTail = edit.id.length > 16 ? edit.id.slice(-16) : edit.id;
-  const urlMatch = edit.target_url
-    ? snapshotExact.has(edit.target_url)
-      ? "✓"
-      : decision.reason === "url_canonicalization_mismatch"
-        ? "⚠"
-        : "✗"
-    : "—";
 
   return (
     <tr
