@@ -184,7 +184,10 @@ export async function gscUrlInspect(
   }
 
   // 2. Token check — fail-soft if missing or wrong-scoped.
-  const token = getGoogleConnectorToken();
+  // Read the GSC-scoped grant explicitly. Post-scope-split (2026-05-16)
+  // GSC and GBP live under separate provider keys (google_gsc /
+  // google_gbp); a GBP-only token never satisfies the GSC client.
+  const token = await getGoogleConnectorToken("gsc");
   if (token == null) return null;
   if (!Array.isArray(token.scopes) || !token.scopes.includes(REQUIRED_SCOPE)) {
     return null;

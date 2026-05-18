@@ -72,14 +72,14 @@ async function gbpGet(
 async function refreshAccessOrReconnect(): Promise<
   { access: string } | { reconnect: true }
 > {
-  const token = getGoogleConnectorToken();
+  const token = await getGoogleConnectorToken("gbp");
   if (!token?.refresh_token) {
     return { reconnect: true };
   }
   try {
     const r = await refreshGoogleAccessToken(token.refresh_token);
     const expires_at = Date.now() + r.expires_in * 1000;
-    updateConnectorToken("google", {
+    await updateConnectorToken("google_gbp", {
       access_token: r.access_token,
       expires_at,
     });
@@ -94,7 +94,7 @@ async function refreshAccessOrReconnect(): Promise<
 async function ensureAccessToken(): Promise<
   { access: string } | { reconnect: true }
 > {
-  const token = getGoogleConnectorToken();
+  const token = await getGoogleConnectorToken("gbp");
   if (!token) return { reconnect: true };
   if (!isTokenExpired(token)) {
     return { access: token.access_token };
@@ -156,7 +156,7 @@ function extractAddress(loc: GbpJson): string | null {
  * Used by the location picker — no data is synced.
  */
 export async function fetchGoogleLocations(): Promise<FetchLocationsResult> {
-  const token0 = getGoogleConnectorToken();
+  const token0 = await getGoogleConnectorToken("gbp");
   if (!token0) {
     return { ok: false, code: "not_connected", message: "Google is not connected." };
   }
@@ -241,7 +241,7 @@ export async function fetchGoogleLocations(): Promise<FetchLocationsResult> {
  * Requires `selected_location_id` on the Google token — returns `no_location` otherwise.
  */
 export async function runGoogleReviewsSync(): Promise<GoogleReviewsSyncResult> {
-  const token0 = getGoogleConnectorToken();
+  const token0 = await getGoogleConnectorToken("gbp");
   if (!token0) {
     return {
       ok: false,
@@ -335,7 +335,7 @@ export async function runGoogleReviewsSync(): Promise<GoogleReviewsSyncResult> {
   }
 
   const completedAt = now();
-  updateConnectorToken("google", { last_synced_at: completedAt });
+  await updateConnectorToken("google_gbp", { last_synced_at: completedAt });
 
   await appendConnectorReviewsImportRun({
     source_system: "connector:google",

@@ -123,8 +123,8 @@ function maxIsoTimestamp(a: string | null, b: string | null): string | null {
   return Date.parse(a) >= Date.parse(b) ? a : b;
 }
 
-function connectorLastSyncedAt(provider: ConnectorProvider): string | null {
-  const t = getConnectorToken(provider);
+async function connectorLastSyncedAt(provider: ConnectorProvider): Promise<string | null> {
+  const t = await getConnectorToken(provider);
   if (!t) return null;
   return t.last_synced_at ?? null;
 }
@@ -132,8 +132,10 @@ function connectorLastSyncedAt(provider: ConnectorProvider): string | null {
 /** Latest reviews data observation: manual import runs or connector last sync. */
 async function lastReviewsDataObservedAt(): Promise<string | null> {
   const fromRuns = await lastReviewsImportCompletedAt();
-  let latest = maxIsoTimestamp(fromRuns, connectorLastSyncedAt("google"));
-  latest = maxIsoTimestamp(latest, connectorLastSyncedAt("yelp"));
+  // Google reviews data flowed from GBP grants. Post-scope-split the
+  // provider key is `google_gbp` (GSC has no reviews surface).
+  let latest = maxIsoTimestamp(fromRuns, await connectorLastSyncedAt("google_gbp"));
+  latest = maxIsoTimestamp(latest, await connectorLastSyncedAt("yelp"));
   return latest;
 }
 
@@ -394,12 +396,12 @@ export async function getLocalPresenceSnapshot(): Promise<LocalPresenceSnapshot>
   );
 
   const lastSync: ReviewSourceLastSync = {
-    google: connectorLastSyncedAt("google"),
-    yelp: connectorLastSyncedAt("yelp"),
+    google: await connectorLastSyncedAt("google_gbp"),
+    yelp: await connectorLastSyncedAt("yelp"),
     manual: await lastManualReviewsImportCompletedAt(),
   };
 
-  const googleTok = getGoogleConnectorToken();
+  const googleTok = await getGoogleConnectorToken("gbp");
   const listingCompleteness = deriveListingCompletenessAudit({
     nameFromConfig: config.name,
     nameFromGoogleLocation: googleTok?.selected_location_name,

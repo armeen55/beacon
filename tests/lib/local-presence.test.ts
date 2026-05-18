@@ -1,18 +1,47 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { writeStore } from "@/lib/persistence/json-store";
+import type { ImportRun } from "@/lib/import/types";
+import type { ConnectorToken, YelpConnectorToken } from "@/lib/connector-store";
+
+// 2026-05-16 connector-tokens-supabase-and-gsc-scope-split:
+// in-memory async mock of the new connector-store API.
+let _tokenStore: Map<string, ConnectorToken> = new Map();
+
+function _resetTokenStore(): void {
+  _tokenStore = new Map();
+}
+
+vi.mock("@/lib/connector-store", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/connector-store")>(
+    "@/lib/connector-store",
+  );
+  return {
+    ...actual,
+    saveConnectorToken: vi.fn(async (token: ConnectorToken) => {
+      _tokenStore.set(token.provider, token);
+    }),
+    getConnectorToken: vi.fn(async (provider: string) => {
+      return _tokenStore.get(provider) ?? null;
+    }),
+    getGoogleConnectorToken: vi.fn(async (kind: "gsc" | "gbp" = "gsc") => {
+      const key = kind === "gsc" ? "google_gsc" : "google_gbp";
+      const t = _tokenStore.get(key);
+      return t != null && (t.provider === "google_gsc" || t.provider === "google_gbp") ? t : null;
+    }),
+    getYelpConnectorToken: vi.fn(async () => {
+      const t = _tokenStore.get("yelp");
+      return t != null && t.provider === "yelp" ? t : null;
+    }),
+  };
+});
+
 import {
   formatReviewSourceTimeForDisplay,
   getLocalPresenceSnapshot,
   checkNap,
   computeListingHealth,
 } from "@/lib/local-presence";
-import type { ImportRun } from "@/lib/import/types";
-import {
-  _deleteStoreFile,
-  _resetCache,
-  saveConnectorToken,
-  type YelpConnectorToken,
-} from "@/lib/connector-store";
+import { saveConnectorToken } from "@/lib/connector-store";
 
 describe("getLocalPresenceSnapshot", () => {
   beforeEach(async () => {
@@ -80,22 +109,19 @@ describe("getLocalPresenceSnapshot + connector last_synced_at", () => {
   beforeEach(async () => {
     await writeStore("local-reviews", []);
     await writeStore("import-runs", []);
-    _deleteStoreFile();
-  });
+      });
 
   afterEach(async () => {
     await writeStore("local-reviews", []);
     await writeStore("import-runs", []);
-    _deleteStoreFile();
-    _resetCache();
-  });
+          });
 
   it("uses Google connector last_synced_at for lastReviewImportAt when no import runs", async () => {
     await writeStore("local-reviews", [
       { id: "m1", source: "other", rating: 5, created_at: "2020-01-01" },
     ]);
-    saveConnectorToken({
-      provider: "google",
+    await saveConnectorToken({
+      provider: "google_gbp",
       access_token: "a",
       refresh_token: "r",
       expires_at: Date.now() + 3_600_000,
@@ -112,8 +138,8 @@ describe("getLocalPresenceSnapshot + connector last_synced_at", () => {
     await writeStore("local-reviews", [
       { id: "m1", source: "other", rating: 5, created_at: "2020-01-01" },
     ]);
-    saveConnectorToken({
-      provider: "google",
+    await saveConnectorToken({
+      provider: "google_gbp",
       access_token: "a",
       refresh_token: "r",
       expires_at: Date.now() + 3_600_000,
@@ -128,14 +154,14 @@ describe("getLocalPresenceSnapshot + connector last_synced_at", () => {
       business_id: "b",
       last_synced_at: "2026-04-14T12:00:00.000Z",
     };
-    saveConnectorToken(yelp);
+    await saveConnectorToken(yelp);
     const s = await getLocalPresenceSnapshot();
     expect(s.lastReviewImportAt).toBe("2026-04-14T12:00:00.000Z");
   });
 
   it("lastSync.google and lastSync.yelp mirror connector tokens independently", async () => {
-    saveConnectorToken({
-      provider: "google",
+    await saveConnectorToken({
+      provider: "google_gbp",
       access_token: "a",
       refresh_token: "r",
       expires_at: Date.now() + 3_600_000,
@@ -150,7 +176,7 @@ describe("getLocalPresenceSnapshot + connector last_synced_at", () => {
       business_id: "b",
       last_synced_at: "2026-04-15T09:00:00.000Z",
     };
-    saveConnectorToken(yelp);
+    await saveConnectorToken(yelp);
     const s = await getLocalPresenceSnapshot();
     expect(s.lastSync.google).toBe("2026-04-13T18:00:00.000Z");
     expect(s.lastSync.yelp).toBe("2026-04-15T09:00:00.000Z");

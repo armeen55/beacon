@@ -75,8 +75,10 @@ export async function loadOffSitePresenceSnapshot(
       ? businessConfig.name
       : null;
 
-  const googleToken = getGoogleConnectorToken();
-  const yelpToken = getYelpConnectorToken();
+  // Off-site authority care-about: GBP review presence. GSC tokens
+  // don't satisfy this surface — provider-discriminate explicitly.
+  const googleToken = await getGoogleConnectorToken("gbp");
+  const yelpToken = await getYelpConnectorToken();
 
   const localReviews = await readLocalReviews();
 

@@ -1,28 +1,78 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { ReactElement } from "react";
 import { writeStore } from "@/lib/persistence/json-store";
 import type { ImportRun } from "@/lib/import/types";
-import {
-  _deleteStoreFile,
-  _resetCache,
-  saveConnectorToken,
-  type YelpConnectorToken,
-} from "@/lib/connector-store";
+import type { ConnectorToken, YelpConnectorToken } from "@/lib/connector-store";
+
+// 2026-05-16 connector-tokens-supabase-and-gsc-scope-split:
+// in-memory mock of the new async connector-store API.
+let _tokenStore: Map<string, ConnectorToken> = new Map();
+
+vi.mock("@/lib/connector-store", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/connector-store")>(
+    "@/lib/connector-store",
+  );
+  return {
+    ...actual,
+    saveConnectorToken: vi.fn(async (token: ConnectorToken) => {
+      _tokenStore.set(token.provider, token);
+    }),
+    getConnectorToken: vi.fn(async (provider: string) => {
+      return _tokenStore.get(provider) ?? null;
+    }),
+    getGoogleConnectorToken: vi.fn(async (kind: "gsc" | "gbp" = "gsc") => {
+      const key = kind === "gsc" ? "google_gsc" : "google_gbp";
+      const t = _tokenStore.get(key);
+      return t != null && (t.provider === "google_gsc" || t.provider === "google_gbp") ? t : null;
+    }),
+    getYelpConnectorToken: vi.fn(async () => {
+      const t = _tokenStore.get("yelp");
+      return t != null && t.provider === "yelp" ? t : null;
+    }),
+    getConnectorInfo: vi.fn(async (provider: string) => {
+      const t = _tokenStore.get(provider);
+      if (!t) {
+        return {
+          status: "disconnected" as const,
+          connected_at: null,
+          expires_at: null,
+          last_synced_at: null,
+        };
+      }
+      if (t.provider === "google_gsc" || t.provider === "google_gbp") {
+        return {
+          status: "connected" as const,
+          connected_at: t.connected_at,
+          expires_at: t.expires_at,
+          last_synced_at: t.last_synced_at ?? null,
+          selected_location_id: t.selected_location_id ?? null,
+          selected_location_name: t.selected_location_name ?? null,
+        };
+      }
+      return {
+        status: "connected" as const,
+        connected_at: t.connected_at,
+        expires_at: null,
+        last_synced_at: t.last_synced_at ?? null,
+      };
+    }),
+  };
+});
+
+import { saveConnectorToken } from "@/lib/connector-store";
 
 describe("Local presence route smoke", () => {
   beforeEach(async () => {
     await writeStore("local-reviews", []);
     await writeStore("import-runs", []);
-    _deleteStoreFile();
-    _resetCache();
+    _tokenStore = new Map();
   });
 
   afterEach(async () => {
     await writeStore("local-reviews", []);
     await writeStore("import-runs", []);
-    _deleteStoreFile();
-    _resetCache();
+    _tokenStore = new Map();
   });
 
   it("LocalPresencePage renders read-only framing and disclosure", async () => {
@@ -84,8 +134,8 @@ describe("Local presence route smoke", () => {
   });
 
   it("Data freshness shows Google, Yelp, and manual when all timestamps exist", async () => {
-    saveConnectorToken({
-      provider: "google",
+    await saveConnectorToken({
+      provider: "google_gbp",
       access_token: "a",
       refresh_token: "r",
       expires_at: Date.now() + 3_600_000,
@@ -100,7 +150,7 @@ describe("Local presence route smoke", () => {
       business_id: "b",
       last_synced_at: "2026-04-14T12:00:00.000Z",
     };
-    saveConnectorToken(yelp);
+    await saveConnectorToken(yelp);
     const run: ImportRun = {
       id: "manual-2",
       source_system: "json",

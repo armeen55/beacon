@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import type { ConnectorInfo } from "@/lib/connector-store";
 import {
   getGoogleAuthUrl,
-  getGoogleConnectorStatus,
+  getGoogleGscConnectorStatus,
   getYelpConnectorStatus,
   disconnectGoogle,
   disconnectYelp,
@@ -20,6 +20,14 @@ type SelectedLocation = { id: string; name: string } | null;
 
 type LocationOption = { locationId: string; locationName: string; address: string | null };
 
+/**
+ * 2026-05-16 — GSC scope split: the Google card is GSC-focused for v1.
+ * Sync now + Location picker are GBP-only affordances; both flip on
+ * when the deferred GBP card lands in a follow-up slice. Action code
+ * + server actions stay wired; only the UI surfaces are gated.
+ */
+const GBP_AFFORDANCES_ENABLED = false;
+
 type Props = {
   google: ConnectorInfo;
   googleSelectedLocation: SelectedLocation;
@@ -31,10 +39,14 @@ type Props = {
 const ERROR_MESSAGES: Record<string, string> = {
   access_denied: "Google authorization was denied. You can try again when ready.",
   no_code: "No authorization code received from Google. Please try again.",
+  invalid_state:
+    "Authorization could not be verified. The connect link may have expired — please try Connect again.",
   exchange_failed:
     "Failed to complete authorization with Google. Check that GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET are set correctly.",
+  persistence_failed:
+    "Authorization succeeded but Beacon could not save the connection. Please try again, or contact support if it persists.",
   env_missing:
-    "Google OAuth credentials are not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in your environment.",
+    "Google OAuth credentials are not configured. Set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and BEACON_OAUTH_STATE_SECRET in your environment.",
 };
 
 function formatDate(iso: string | null): string {
@@ -82,10 +94,10 @@ export function ConnectorsClient({
       setError(ERROR_MESSAGES[err] ?? `Connection error: ${err}`);
       window.history.replaceState(null, "", "/settings/connectors");
     }
-    if (connected === "google") {
-      setSuccess("Google Business Profile connected successfully.");
+    if (connected === "google_gsc") {
+      setSuccess("Google Search Console connected successfully.");
       startTransition(async () => {
-        const status = await getGoogleConnectorStatus();
+        const status = await getGoogleGscConnectorStatus();
         setGoogle(status);
       });
       window.history.replaceState(null, "", "/settings/connectors");
@@ -179,7 +191,7 @@ export function ConnectorsClient({
         }
         return;
       }
-      const status = await getGoogleConnectorStatus();
+      const status = await getGoogleGscConnectorStatus();
       setGoogle(status);
       let msg = `Synced ${result.imported} review${result.imported === 1 ? "" : "s"} from Google.`;
       if (result.rejected > 0) {
@@ -284,30 +296,36 @@ export function ConnectorsClient({
         </div>
       )}
 
-      {/* ── Google Business Profile ── */}
+      {/* ── Google Search Console (GSC) ── */}
+      {/* GBP card is deferred to a follow-up slice. The GBP server action +
+          OAuth path are still wired (kind="gbp"); no UI exposes them yet. */}
       <div className="rounded-lg border border-border/60 bg-surface-inset/20">
         <div className="px-5 py-4 flex items-start justify-between gap-4">
           <div className="min-w-0 space-y-1">
             <h3 className="text-[13px] font-semibold text-foreground">
-              Google Business Profile
+              Google Search Console
             </h3>
             {google.status === "connected" ? (
               <>
                 <p className="text-[12px] text-muted-foreground">
-                  Connected to Google &middot; Authorized {formatDate(google.connected_at)}
+                  Connected to Google Search Console &middot; Authorized {formatDate(google.connected_at)}
                 </p>
-                {selectedLocation ? (
-                  <p className="text-[12px] text-muted-foreground">
-                    Selected: {selectedLocation.name}
-                  </p>
-                ) : (
-                  <p className="text-[12px] text-status-warning">
-                    No location selected — choose one below before syncing
-                  </p>
-                )}
-                <p className="text-[12px] text-muted-foreground">
-                  Last synced: {formatDate(google.last_synced_at)}
-                </p>
+                {GBP_AFFORDANCES_ENABLED ? (
+                  <>
+                    {selectedLocation ? (
+                      <p className="text-[12px] text-muted-foreground">
+                        Selected: {selectedLocation.name}
+                      </p>
+                    ) : (
+                      <p className="text-[12px] text-status-warning">
+                        No location selected — choose one below before syncing
+                      </p>
+                    )}
+                    <p className="text-[12px] text-muted-foreground">
+                      Last synced: {formatDate(google.last_synced_at)}
+                    </p>
+                  </>
+                ) : null}
               </>
             ) : (
               <p className="text-[12px] text-muted-foreground">
@@ -319,14 +337,16 @@ export function ConnectorsClient({
           <div className="flex shrink-0 flex-col items-end gap-2">
             {google.status === "connected" ? (
               <>
-                <button
-                  type="button"
-                  onClick={() => void handleGoogleSyncNow()}
-                  disabled={googleSyncInFlight || isPending || !selectedLocation}
-                  className="rounded-md bg-foreground px-3 py-1.5 text-[12px] font-medium text-background transition-colors hover:opacity-90 disabled:opacity-50"
-                >
-                  {googleSyncInFlight ? "Syncing…" : "Sync now"}
-                </button>
+                {GBP_AFFORDANCES_ENABLED ? (
+                  <button
+                    type="button"
+                    onClick={() => void handleGoogleSyncNow()}
+                    disabled={googleSyncInFlight || isPending || !selectedLocation}
+                    className="rounded-md bg-foreground px-3 py-1.5 text-[12px] font-medium text-background transition-colors hover:opacity-90 disabled:opacity-50"
+                  >
+                    {googleSyncInFlight ? "Syncing…" : "Sync now"}
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   onClick={handleDisconnect}
@@ -343,14 +363,14 @@ export function ConnectorsClient({
                 disabled={isPending}
                 className="rounded-md bg-foreground px-3 py-1.5 text-[12px] font-medium text-background transition-colors hover:opacity-90 disabled:opacity-50"
               >
-                {isPending ? "Connecting…" : "Connect Google"}
+                {isPending ? "Connecting…" : "Connect Google Search Console"}
               </button>
             )}
           </div>
         </div>
 
-        {/* ── Location picker (Google connected) ── */}
-        {google.status === "connected" ? (
+        {/* ── Location picker (Google connected) — GBP only ── */}
+        {GBP_AFFORDANCES_ENABLED && google.status === "connected" ? (
           <div className="border-t border-border/40 px-5 py-3 space-y-3">
             {locationError && (
               <p className="text-[12px] text-status-warning">{locationError}</p>
@@ -413,15 +433,17 @@ export function ConnectorsClient({
           <p className="text-[11px] text-muted-foreground leading-relaxed">
             {google.status === "connected" ? (
               <>
-                Reviews are pulled only from the selected location.
-                Does not include all business locations.
-                No automatic syncing — Beacon does not poll Google in the background.
+                Beacon reads URL Inspection + Search Analytics data on a daily
+                refresh cadence. Read-only access — no writes to your
+                Search Console property.
               </>
             ) : (
               <>
-                Connect Google to enable future review sync.
-                No data is imported automatically yet.
-                When connected, Beacon will only read reviews — no write access to your Google profile.
+                Connect Google Search Console to give Beacon read-only
+                access to URL Inspection + Search Analytics for your
+                verified sites. The Google consent screen will show
+                a single permission: View Search Console data for
+                verified sites.
               </>
             )}
           </p>

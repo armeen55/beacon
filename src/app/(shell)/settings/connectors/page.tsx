@@ -5,23 +5,28 @@ import { ConnectorsClient } from "./connectors-client";
 
 export const dynamic = "force-dynamic";
 
-export default function ConnectorsPage() {
-  const google = getConnectorInfo("google");
-  const yelp = getConnectorInfo("yelp");
+export default async function ConnectorsPage() {
+  // GSC is the v1 Google card. GBP card is deferred (Section 7 wire-up).
+  // Both providers still read independently so the GBP card returning
+  // requires no callsite change here.
+  const googleGsc = await getConnectorInfo("google_gsc");
+  const yelp = await getConnectorInfo("yelp");
   const cfg = getBusinessConfig();
-  const gTok = getGoogleConnectorToken();
+  // Selected GBP location lives on the (deferred) google_gbp token. Read
+  // it so a returning GBP card can immediately show the saved selection.
+  const gbpTok = await getGoogleConnectorToken("gbp");
 
   return (
     <div>
       <PageHeader
-        title="Review connectors"
-        description="Optional Google Business Profile and Yelp pulls (Sync now). Based on imported or synced data; may not reflect full platform data; no automatic syncing. Manual CSV/JSON import under Settings → Import remains available regardless of connector status."
+        title="Connectors"
+        description="Search Console (GSC) read access plus optional Yelp pulls. Manual CSV/JSON import under Settings → Import remains available regardless of connector status."
       />
       <ConnectorsClient
-        google={google}
+        google={googleGsc}
         googleSelectedLocation={
-          gTok?.selected_location_id
-            ? { id: gTok.selected_location_id, name: gTok.selected_location_name ?? "Location" }
+          gbpTok?.selected_location_id
+            ? { id: gbpTok.selected_location_id, name: gbpTok.selected_location_name ?? "Location" }
             : null
         }
         yelp={yelp}

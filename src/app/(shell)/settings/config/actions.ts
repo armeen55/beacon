@@ -42,9 +42,9 @@ export async function saveSetup(data: {
       primaryCompetitors: data.primaryCompetitors,
     });
     const yelpBid = (data.yelpBusinessId ?? "").trim();
-    const yelp = getYelpConnectorToken();
+    const yelp = await getYelpConnectorToken();
     if (yelp) {
-      updateConnectorToken("yelp", { business_id: yelpBid });
+      await updateConnectorToken("yelp", { business_id: yelpBid });
     }
     revalidatePath("/", "layout");
     revalidatePath("/settings/connectors");

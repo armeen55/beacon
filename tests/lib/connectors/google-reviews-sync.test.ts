@@ -4,12 +4,54 @@ import { join } from "node:path";
 import { readStore, writeStore } from "@/lib/persistence/json-store";
 import { readLocalReviews } from "@/lib/local-reviews-store";
 import type { LocalReview } from "@/lib/local-reviews-types";
+import type { ConnectorToken, GoogleConnectorToken } from "@/lib/connector-store";
+
+// 2026-05-16 connector-tokens-supabase-and-gsc-scope-split:
+// replaced disk-backed sync API with async Supabase API. Mock in-memory
+// for this test so assertions still target the legacy GBP review-sync
+// behavior (provider renamed `google` → `google_gbp`).
+let _tokenStore: Map<string, ConnectorToken> = new Map();
+
+function _resetTokenStore(): void {
+  _tokenStore = new Map();
+}
+
+vi.mock("@/lib/connector-store", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/connector-store")>(
+    "@/lib/connector-store",
+  );
+  return {
+    ...actual,
+    saveConnectorToken: vi.fn(async (token: ConnectorToken) => {
+      _tokenStore.set(token.provider, token);
+    }),
+    getGoogleConnectorToken: vi.fn(async (kind: "gsc" | "gbp" = "gsc") => {
+      const key = kind === "gsc" ? "google_gsc" : "google_gbp";
+      const t = _tokenStore.get(key);
+      return t != null && (t.provider === "google_gsc" || t.provider === "google_gbp")
+        ? (t as GoogleConnectorToken)
+        : null;
+    }),
+    getYelpConnectorToken: vi.fn(async () => {
+      const t = _tokenStore.get("yelp");
+      return t != null && t.provider === "yelp" ? t : null;
+    }),
+    updateConnectorToken: vi.fn(
+      async (provider: string, patch: Record<string, unknown>) => {
+        const existing = _tokenStore.get(provider);
+        if (!existing || existing.provider !== provider) return;
+        _tokenStore.set(provider, { ...existing, ...patch } as ConnectorToken);
+      },
+    ),
+    deleteConnectorToken: vi.fn(async (provider: string) => {
+      _tokenStore.delete(provider);
+    }),
+  };
+});
+
 import {
-  _deleteStoreFile,
-  _resetCache,
   saveConnectorToken,
   getGoogleConnectorToken,
-  type GoogleConnectorToken,
 } from "@/lib/connector-store";
 import {
   runGoogleReviewsSync,
@@ -28,7 +70,7 @@ function jsonResponse(obj: unknown, status = 200): Promise<Response> {
 
 function baseToken(over: Partial<GoogleConnectorToken> = {}): GoogleConnectorToken {
   return {
-    provider: "google",
+    provider: "google_gbp",
     access_token: "access-test",
     refresh_token: "1//refresh-test",
     expires_at: Date.now() + 3_600_000,
@@ -80,8 +122,7 @@ describe("runGoogleReviewsSync", () => {
     vi.stubEnv("GOOGLE_CLIENT_ID", "test-client-id.apps.googleusercontent.com");
     vi.stubEnv("GOOGLE_CLIENT_SECRET", "test-secret");
     vi.unstubAllGlobals();
-    _deleteStoreFile();
-    _resetCache();
+    _resetTokenStore();
     forceClearImportRunsFile();
     await writeStore("local-reviews", []);
     await writeStore("import-runs", []);
@@ -90,15 +131,14 @@ describe("runGoogleReviewsSync", () => {
   afterEach(async () => {
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
-    _deleteStoreFile();
-    _resetCache();
+    _resetTokenStore();
     forceClearImportRunsFile();
     await writeStore("local-reviews", []);
     await writeStore("import-runs", []);
   });
 
   it("fetches reviews for the selected location and records import run + last_synced_at", async () => {
-    saveConnectorToken(baseToken());
+    await saveConnectorToken(baseToken());
     vi.stubGlobal("fetch", () => jsonResponse({ reviews: [gbpReview] }));
 
     const result = await runGoogleReviewsSync();
@@ -114,7 +154,7 @@ describe("runGoogleReviewsSync", () => {
     expect(rows[0]!.rating).toBe(4);
     expect(rows[0]!.listing_name).toBe("Beacon Test Location");
 
-    expect(getGoogleConnectorToken()?.last_synced_at).toBeTruthy();
+    expect((await getGoogleConnectorToken("gbp"))?.last_synced_at).toBeTruthy();
 
     const runs = await readStore<ImportRun>("import-runs", []);
     const gbpRun = runs.find((r) => r.source_system === "connector:google");
@@ -130,7 +170,7 @@ describe("runGoogleReviewsSync", () => {
       created_at: "2020-01-01",
     };
     await writeStore("local-reviews", [existing]);
-    saveConnectorToken(baseToken());
+    await saveConnectorToken(baseToken());
     vi.stubGlobal("fetch", () => jsonResponse({ reviews: [gbpReview] }));
 
     const result = await runGoogleReviewsSync();
@@ -141,7 +181,7 @@ describe("runGoogleReviewsSync", () => {
   });
 
   it("counts rejected invalid rows and still merges valid ones", async () => {
-    saveConnectorToken(baseToken());
+    await saveConnectorToken(baseToken());
     const bad = { reviewId: "bad", starRating: "INVALID", createTime: "2026-01-01T00:00:00Z" };
     vi.stubGlobal("fetch", () => jsonResponse({ reviews: [bad, gbpReview] }));
 
@@ -154,7 +194,7 @@ describe("runGoogleReviewsSync", () => {
   });
 
   it("returns reconnect when token refresh fails", async () => {
-    saveConnectorToken(
+    await saveConnectorToken(
       baseToken({ expires_at: Date.now() - 1000, refresh_token: "rt" }),
     );
     vi.stubGlobal("fetch", () =>
@@ -168,7 +208,7 @@ describe("runGoogleReviewsSync", () => {
   });
 
   it("refreshes expired access then completes sync", async () => {
-    saveConnectorToken(
+    await saveConnectorToken(
       baseToken({ expires_at: Date.now() - 1000, access_token: "old" }),
     );
 
@@ -190,11 +230,11 @@ describe("runGoogleReviewsSync", () => {
 
     const result = await runGoogleReviewsSync();
     expect(result.ok).toBe(true);
-    expect(getGoogleConnectorToken()?.access_token).toBe("new-access");
+    expect((await getGoogleConnectorToken("gbp"))?.access_token).toBe("new-access");
   });
 
   it("returns no_location when selected_location_id is not set", async () => {
-    saveConnectorToken(baseToken({
+    await saveConnectorToken(baseToken({
       selected_location_id: undefined,
       selected_location_name: undefined,
     }));
@@ -208,7 +248,7 @@ describe("runGoogleReviewsSync", () => {
   });
 
   it("returns sync_failed on reviews 500", async () => {
-    saveConnectorToken(baseToken());
+    await saveConnectorToken(baseToken());
     vi.stubGlobal("fetch", () =>
       jsonResponse({ error: { message: "Internal" } }, 500),
     );
@@ -218,7 +258,7 @@ describe("runGoogleReviewsSync", () => {
     if (!result.ok) return;
     expect(result.partial).toBe(true);
     expect(result.warnings.length).toBeGreaterThan(0);
-    expect(getGoogleConnectorToken()?.last_synced_at).toBeTruthy();
+    expect((await getGoogleConnectorToken("gbp"))?.last_synced_at).toBeTruthy();
   });
 
   it("returns not_connected when no token", async () => {
@@ -232,14 +272,14 @@ describe("runGoogleReviewsSync", () => {
   it("selection persists after sync", async () => {
     const lid = "accounts/x/locations/sel1";
     const lname = "My Selected Loc";
-    saveConnectorToken(baseToken({
+    await saveConnectorToken(baseToken({
       selected_location_id: lid,
       selected_location_name: lname,
     }));
     vi.stubGlobal("fetch", () => jsonResponse({ reviews: [gbpReview] }));
 
     await runGoogleReviewsSync();
-    const tok = getGoogleConnectorToken()!;
+    const tok = (await getGoogleConnectorToken("gbp"))!;
     expect(tok.selected_location_id).toBe(lid);
     expect(tok.selected_location_name).toBe(lname);
   });
@@ -250,19 +290,17 @@ describe("fetchGoogleLocations", () => {
     vi.stubEnv("GOOGLE_CLIENT_ID", "cid.apps.googleusercontent.com");
     vi.stubEnv("GOOGLE_CLIENT_SECRET", "secret");
     vi.unstubAllGlobals();
-    _deleteStoreFile();
-    _resetCache();
+    _resetTokenStore();
   });
 
   afterEach(() => {
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
-    _deleteStoreFile();
-    _resetCache();
+    _resetTokenStore();
   });
 
   it("returns locations from multiple accounts", async () => {
-    saveConnectorToken(baseToken());
+    await saveConnectorToken(baseToken());
     const responses: Promise<Response>[] = [
       jsonResponse({ accounts: [{ name: "accounts/a1" }] }),
       jsonResponse({
@@ -293,7 +331,7 @@ describe("fetchGoogleLocations", () => {
   });
 
   it("returns empty array when no accounts", async () => {
-    saveConnectorToken(baseToken());
+    await saveConnectorToken(baseToken());
     vi.stubGlobal("fetch", () => jsonResponse({ accounts: [] }));
 
     const result = await fetchGoogleLocations();
@@ -303,7 +341,7 @@ describe("fetchGoogleLocations", () => {
   });
 
   it("returns fetch_failed on account list 500", async () => {
-    saveConnectorToken(baseToken());
+    await saveConnectorToken(baseToken());
     vi.stubGlobal("fetch", () => jsonResponse({ error: { message: "boom" } }, 500));
 
     const result = await fetchGoogleLocations();

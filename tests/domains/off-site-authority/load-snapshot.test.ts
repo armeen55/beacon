@@ -35,8 +35,10 @@ const _spies = {
     { source: "google", rating: 5 },
     { source: "google", rating: 4 },
   ]),
-  getGoogleConnectorToken: vi.fn(() => ({ provider: "google" })),
-  getYelpConnectorToken: vi.fn(() => null),
+  // 2026-05-16 connector-tokens-supabase-and-gsc-scope-split:
+  // connector-store reads are async; off-site uses the GBP provider.
+  getGoogleConnectorToken: vi.fn(async (_kind?: "gsc" | "gbp") => ({ provider: "google_gbp" })),
+  getYelpConnectorToken: vi.fn(async () => null),
 };
 
 vi.mock("@/lib/tenant-context", () => ({

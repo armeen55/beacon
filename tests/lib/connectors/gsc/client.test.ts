@@ -39,7 +39,7 @@ vi.mock("@/domains/tenants/store", () => ({
 
 let _googleToken: GoogleConnectorToken | null = null;
 vi.mock("@/lib/connector-store", () => ({
-  getGoogleConnectorToken: vi.fn(() => _googleToken),
+  getGoogleConnectorToken: vi.fn(async (_kind?: "gsc" | "gbp") => _googleToken),
 }));
 
 const _refreshSpy = vi.fn(async (_refreshToken: string) => ({
@@ -73,12 +73,11 @@ function makeTenant(id: string, slug: string): BeaconTenant {
 
 function makeGoogleToken(
   scopes: ReadonlyArray<string> = [
-    "https://www.googleapis.com/auth/business.manage",
     "https://www.googleapis.com/auth/webmasters.readonly",
   ],
 ): GoogleConnectorToken {
   return {
-    provider: "google",
+    provider: "google_gsc",
     access_token: "access-abc",
     refresh_token: "refresh-xyz",
     expires_at: NOW.getTime() + 3600 * 1000,

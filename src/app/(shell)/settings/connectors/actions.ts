@@ -8,7 +8,12 @@ import {
   updateConnectorToken,
   type ConnectorInfo,
 } from "@/lib/connector-store";
-import { buildGoogleAuthUrl } from "@/lib/connectors/google-auth";
+import {
+  buildGoogleAuthUrl,
+  encodeOAuthState,
+  generateOAuthNonce,
+  type GoogleConnectorKind,
+} from "@/lib/connectors/google-auth";
 import {
   runGoogleReviewsSync,
   fetchGoogleLocations,
@@ -16,11 +21,16 @@ import {
 } from "@/lib/connectors/google-reviews-sync";
 import { runYelpReviewsSync } from "@/lib/connectors/yelp-reviews-sync";
 import { getBusinessConfig } from "@/lib/business-config";
+import { currentTenantId } from "@/lib/tenant-context";
 import { now } from "@/lib/actions";
 import { revalidatePath } from "next/cache";
 
-export async function getGoogleConnectorStatus(): Promise<ConnectorInfo> {
-  return getConnectorInfo("google");
+export async function getGoogleGscConnectorStatus(): Promise<ConnectorInfo> {
+  return getConnectorInfo("google_gsc");
+}
+
+export async function getGoogleGbpConnectorStatus(): Promise<ConnectorInfo> {
+  return getConnectorInfo("google_gbp");
 }
 
 export async function getYelpConnectorStatus(): Promise<ConnectorInfo> {
@@ -39,7 +49,7 @@ export async function saveYelpApiKey(
   log.info("Action started", { action });
   try {
     const bid = getBusinessConfig().yelpBusinessId.trim();
-    saveConnectorToken({
+    await saveConnectorToken({
       provider: "yelp",
       api_key: trimmed,
       connected_at: now(),
@@ -59,19 +69,36 @@ export async function saveYelpApiKey(
   }
 }
 
-export async function getGoogleAuthUrl(): Promise<{
-  url: string | null;
-  error?: string;
-}> {
+/**
+ * Build the Google OAuth URL for the given connector kind (default
+ * "gsc"). Each kind requests exactly ONE scope set:
+ *   • gsc → webmasters.readonly
+ *   • gbp → business.manage
+ *
+ * State is HMAC-signed with BEACON_OAUTH_STATE_SECRET and carries the
+ * connector kind + tenantId + nonce + issued-at. The callback verifies
+ * the signature before persisting the token.
+ */
+export async function getGoogleAuthUrl(
+  kind: GoogleConnectorKind = "gsc",
+): Promise<{ url: string | null; error?: string }> {
   const action = "getGoogleAuthUrl";
   try {
-    const url = buildGoogleAuthUrl();
-    log.info("Google auth URL generated", { action });
+    const tenantId = await currentTenantId();
+    const state = encodeOAuthState({
+      k: kind,
+      t: tenantId,
+      n: generateOAuthNonce(),
+      i: Date.now(),
+    });
+    const url = buildGoogleAuthUrl(kind, state);
+    log.info("Google auth URL generated", { action, kind });
     return { url };
   } catch (e) {
     const err = e instanceof Error ? e.message : String(e);
     log.error("Failed to build Google auth URL", {
       action,
+      kind,
       error: err.slice(0, 500),
     });
     return { url: null, error: err };
@@ -112,7 +139,7 @@ export async function selectGoogleLocation(
   const t0 = Date.now();
   log.info("Action started", { action, locationId });
   try {
-    updateConnectorToken("google", {
+    await updateConnectorToken("google_gbp", {
       selected_location_id: locationId,
       selected_location_name: locationName,
     });
@@ -206,7 +233,7 @@ export async function disconnectYelp(): Promise<{
   const t0 = Date.now();
   log.info("Action started", { action });
   try {
-    deleteConnectorToken("yelp");
+    await deleteConnectorToken("yelp");
     revalidatePath("/settings/connectors");
     log.info("Action completed", { action, durationMs: Date.now() - t0 });
     return { success: true };
@@ -229,7 +256,11 @@ export async function disconnectGoogle(): Promise<{
   const t0 = Date.now();
   log.info("Action started", { action });
   try {
-    deleteConnectorToken("google");
+    // Disconnect both Google providers — GSC + GBP are separate token
+    // grants, but a single "Disconnect Google" affordance clears both
+    // so the operator doesn't have to click twice.
+    await deleteConnectorToken("google_gsc");
+    await deleteConnectorToken("google_gbp");
     revalidatePath("/settings/connectors");
     log.info("Action completed", { action, durationMs: Date.now() - t0 });
     return { success: true };

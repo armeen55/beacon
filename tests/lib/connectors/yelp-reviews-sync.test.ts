@@ -4,12 +4,45 @@ import { join } from "node:path";
 import { readStore, writeStore } from "@/lib/persistence/json-store";
 import { readLocalReviews } from "@/lib/local-reviews-store";
 import type { LocalReview } from "@/lib/local-reviews-types";
+import type { ConnectorToken, YelpConnectorToken } from "@/lib/connector-store";
+
+// 2026-05-16 connector-tokens-supabase-and-gsc-scope-split:
+// in-memory mock of the new async connector-store API.
+let _tokenStore: Map<string, ConnectorToken> = new Map();
+
+function _resetTokenStore(): void {
+  _tokenStore = new Map();
+}
+
+vi.mock("@/lib/connector-store", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/connector-store")>(
+    "@/lib/connector-store",
+  );
+  return {
+    ...actual,
+    saveConnectorToken: vi.fn(async (token: ConnectorToken) => {
+      _tokenStore.set(token.provider, token);
+    }),
+    getYelpConnectorToken: vi.fn(async () => {
+      const t = _tokenStore.get("yelp");
+      return t != null && t.provider === "yelp" ? t : null;
+    }),
+    updateConnectorToken: vi.fn(
+      async (provider: string, patch: Record<string, unknown>) => {
+        const existing = _tokenStore.get(provider);
+        if (!existing || existing.provider !== provider) return;
+        _tokenStore.set(provider, { ...existing, ...patch } as ConnectorToken);
+      },
+    ),
+    deleteConnectorToken: vi.fn(async (provider: string) => {
+      _tokenStore.delete(provider);
+    }),
+  };
+});
+
 import {
-  _deleteStoreFile,
-  _resetCache,
   saveConnectorToken,
   getYelpConnectorToken,
-  type YelpConnectorToken,
 } from "@/lib/connector-store";
 import { runYelpReviewsSync } from "@/lib/connectors/yelp-reviews-sync";
 import type { ImportRun } from "@/lib/import/types";
@@ -73,8 +106,7 @@ describe("runYelpReviewsSync", () => {
   beforeEach(async () => {
     yelpCfg.yelpBusinessId = "test-yelp-biz";
     vi.unstubAllGlobals();
-    _deleteStoreFile();
-    _resetCache();
+    _resetTokenStore();
     forceClearImportRunsFile();
     await writeStore("local-reviews", []);
     await writeStore("import-runs", []);
@@ -82,15 +114,14 @@ describe("runYelpReviewsSync", () => {
 
   afterEach(async () => {
     vi.unstubAllGlobals();
-    _deleteStoreFile();
-    _resetCache();
+    _resetTokenStore();
     forceClearImportRunsFile();
     await writeStore("local-reviews", []);
     await writeStore("import-runs", []);
   });
 
   it("fetches business + reviews, merges, records import run and last_synced_at", async () => {
-    saveConnectorToken(yelpToken());
+    await saveConnectorToken(yelpToken());
 
     vi.stubGlobal("fetch", (input: RequestInfo | URL) => {
       const url = String(input);
@@ -117,7 +148,7 @@ describe("runYelpReviewsSync", () => {
     expect(rows[0]!.rating).toBe(5);
     expect(rows[0]!.listing_name).toBe("Beacon Test Yelp");
 
-    expect(getYelpConnectorToken()?.last_synced_at).toBeTruthy();
+    expect((await getYelpConnectorToken())?.last_synced_at).toBeTruthy();
 
     const runs = await readStore<ImportRun>("import-runs", []);
     const yelpRun = runs.find((r) => r.source_system === "connector:yelp");
@@ -133,7 +164,7 @@ describe("runYelpReviewsSync", () => {
       created_at: "2020-01-01T00:00:00.000Z",
     };
     await writeStore("local-reviews", [existing]);
-    saveConnectorToken(yelpToken());
+    await saveConnectorToken(yelpToken());
 
     vi.stubGlobal("fetch", (input: RequestInfo | URL) => {
       const url = String(input);
@@ -158,7 +189,7 @@ describe("runYelpReviewsSync", () => {
       created_at: "2026-01-01T00:00:00.000Z",
     };
     await writeStore("local-reviews", [googleRow]);
-    saveConnectorToken(yelpToken());
+    await saveConnectorToken(yelpToken());
 
     vi.stubGlobal("fetch", (input: RequestInfo | URL) => {
       const url = String(input);
@@ -176,7 +207,7 @@ describe("runYelpReviewsSync", () => {
   });
 
   it("counts rejected invalid rows and still merges valid ones", async () => {
-    saveConnectorToken(yelpToken());
+    await saveConnectorToken(yelpToken());
     const bad = {
       id: "bad",
       rating: 99,
@@ -200,7 +231,7 @@ describe("runYelpReviewsSync", () => {
   });
 
   it("returns partial with warnings when business details fail but reviews succeed", async () => {
-    saveConnectorToken(yelpToken());
+    await saveConnectorToken(yelpToken());
 
     vi.stubGlobal("fetch", (input: RequestInfo | URL) => {
       const url = String(input);
@@ -221,11 +252,11 @@ describe("runYelpReviewsSync", () => {
     const rows = await readLocalReviews();
     expect(rows).toHaveLength(1);
     expect(rows[0]!.listing_name).toBeUndefined();
-    expect(getYelpConnectorToken()?.last_synced_at).toBeTruthy();
+    expect((await getYelpConnectorToken())?.last_synced_at).toBeTruthy();
   });
 
   it("returns invalid_key on 401 from business fetch", async () => {
-    saveConnectorToken(yelpToken());
+    await saveConnectorToken(yelpToken());
     vi.stubGlobal("fetch", () => jsonResponse({ error: { code: "UNAUTHORIZED" } }, 401));
 
     const result = await runYelpReviewsSync();
@@ -236,7 +267,7 @@ describe("runYelpReviewsSync", () => {
   });
 
   it("returns invalid_key on 401 from reviews fetch", async () => {
-    saveConnectorToken(yelpToken());
+    await saveConnectorToken(yelpToken());
     let n = 0;
     vi.stubGlobal("fetch", () => {
       n += 1;
@@ -251,7 +282,7 @@ describe("runYelpReviewsSync", () => {
   });
 
   it("returns sync_failed on reviews 500", async () => {
-    saveConnectorToken(yelpToken());
+    await saveConnectorToken(yelpToken());
     let p = 0;
     vi.stubGlobal("fetch", () => {
       p += 1;
@@ -266,7 +297,7 @@ describe("runYelpReviewsSync", () => {
   });
 
   it("returns rate-limit message on 429", async () => {
-    saveConnectorToken(yelpToken());
+    await saveConnectorToken(yelpToken());
     let p = 0;
     vi.stubGlobal("fetch", () => {
       p += 1;
@@ -291,7 +322,7 @@ describe("runYelpReviewsSync", () => {
 
   it("returns sync_failed when business id missing in config and token", async () => {
     yelpCfg.yelpBusinessId = "";
-    saveConnectorToken(yelpToken({ business_id: "" }));
+    await saveConnectorToken(yelpToken({ business_id: "" }));
 
     const result = await runYelpReviewsSync();
     expect(result.ok).toBe(false);

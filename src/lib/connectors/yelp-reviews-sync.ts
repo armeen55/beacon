@@ -87,7 +87,7 @@ function yelpErrorMessage(body: unknown, status: number): string {
  * Fusion returns a bounded set per request — not a full historical census.
  */
 export async function runYelpReviewsSync(): Promise<YelpReviewsSyncResult> {
-  const token0 = getYelpConnectorToken();
+  const token0 = await getYelpConnectorToken();
   if (!token0) {
     return {
       ok: false,
@@ -113,7 +113,7 @@ export async function runYelpReviewsSync(): Promise<YelpReviewsSyncResult> {
   }
 
   if (token0.business_id !== businessId) {
-    updateConnectorToken("yelp", { business_id: businessId });
+    await updateConnectorToken("yelp", { business_id: businessId });
   }
 
   const apiKey = token0.api_key;
@@ -206,7 +206,7 @@ export async function runYelpReviewsSync(): Promise<YelpReviewsSyncResult> {
   }
 
   const completedAt = now();
-  updateConnectorToken("yelp", { last_synced_at: completedAt });
+  await updateConnectorToken("yelp", { last_synced_at: completedAt });
 
   await appendConnectorReviewsImportRun({
     source_system: "connector:yelp",
