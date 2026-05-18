@@ -1,129 +1,192 @@
 /**
- * 2026-05-16 A.3.b1.alpha — Google Search Console URL Inspection
- * client (operator-substrate; NOT wired into indexability or customer
- * surfaces yet).
+ * 2026-05-17 A.3.b2 — Google Search Console URL Inspection client
+ * (operator-substrate; NOT wired into indexability or customer
+ * surfaces yet). Cache layer migrated from disk to Supabase.
  *
  * Single public function: `gscUrlInspect({ tenantId, siteUrl,
- * inspectionUrl, now })`. Resolves the tenant slug from the explicit
- * `tenantId`, reads/writes a tenant-scoped disk cache, and (when
- * needed) calls Google's URL Inspection API. Returns null in every
+ * inspectionUrl, now })`. Reads a Supabase-backed tenant-scoped cache
+ * (table `public.gsc_url_inspections`) and, on cache miss / stale
+ * entry, calls Google's URL Inspection API. Returns null in every
  * documented fail-soft scenario so consumers never need to wrap the
  * call in try/catch — typical for the Section 7 / Section 5
  * connector pattern.
  *
- * Locked posture (A.3.b1.alpha):
- *   • Pure read-side client + cache. NO indexability integration.
- *     NO diagnostic-page render. NO customer copy. Wiring lands in
- *     A.3.b1.beta as a separate slice.
- *   • Cache is path-tenant-scoped via `getDataDir(slug)`. Tenant
- *     slug is resolved from the EXPLICIT `tenantId` parameter (NOT
- *     ambient `currentTenantSlug()`), mirroring the locked
+ * Locked posture (A.3.b2):
+ *   • Pure read-side client + Supabase cache. NO indexability
+ *     integration. NO diagnostic-page render. NO customer copy.
+ *     Wiring lands in A.3.b1.beta as a separate slice.
+ *   • Cache lives at `public.gsc_url_inspections` with composite PK
+ *     (tenant_id, inspection_url). Tenant-isolation is enforced at
+ *     the storage layer (PK + RLS). Tenant id is taken from the
+ *     EXPLICIT `tenantId` parameter (NOT ambient
+ *     `currentTenantSlug()`), mirroring the locked
  *     `profound-import-runs-explicit-tenant-scope` invariant pattern.
- *     The cache file path is `.data/tenants/{slug}/gsc-url-
- *     inspections.json`.
- *   • Token read uses the existing `getGoogleConnectorToken()` helper
- *     which currently reads from the flat `.data/connector-tokens.json`
- *     path (Section 7 multi-tenant prerequisite is parked; connector
- *     tokens are process-shared today). When that prerequisite lands,
- *     the token-read seam updates without touching this file.
+ *   • Replaces the A.3.b1.alpha disk cache at
+ *     `.data/tenants/{slug}/gsc-url-inspections.json` which was inert
+ *     on Vercel (lambda FS read-only post-init; `.data/` gitignored).
+ *     No file I/O remains in this module.
+ *   • Token read uses `getGoogleConnectorToken("gsc")` against the
+ *     Supabase `connector_tokens` table — GSC scope only; a GBP-only
+ *     grant never satisfies the GSC client.
  *   • Fail-soft return path returns `null` for every documented
  *     skip reason (no token, missing scope, missing site_url, etc.).
- *     Throws only on programmer-error conditions (e.g., crypto
+ *     Cache READS soft-fail to "no cache entry" on Supabase undefined-
+ *     table (42P01) so the deploy window where code lands before the
+ *     migration is harmless. Cache WRITES log + degrade — a failed
+ *     write does NOT pretend a successful API call was cached.
+ *   • Throws only on programmer-error conditions (e.g., crypto
  *     failures inside fetch); never on normal not-connected /
  *     not-scoped states.
  *
- * Pinned by `tests/architecture/gsc-client-tenant-isolation.test.ts`.
+ * Pinned by:
+ *   • `tests/architecture/gsc-client-tenant-isolation.test.ts`
+ *   • `tests/architecture/gsc-cache-no-disk-write.test.ts`
  */
 
 import "server-only";
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
-
-import { getDataDir } from "@/lib/tenant";
-import { getTenant } from "@/domains/tenants/store";
+import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { getGoogleConnectorToken } from "@/lib/connector-store";
 import { refreshGoogleAccessToken } from "@/lib/connectors/google-auth";
 import { log } from "@/lib/logger";
 
 import type {
   GscInspectionCacheEntry,
-  GscInspectionCacheFile,
   GscUrlInspectionResult,
 } from "./types";
 
 const GSC_INSPECT_ENDPOINT =
   "https://searchconsole.googleapis.com/v1/urlInspection/index:inspect";
 const REQUIRED_SCOPE = "https://www.googleapis.com/auth/webmasters.readonly";
-const CACHE_FILE_NAME = "gsc-url-inspections.json";
+const CACHE_TABLE = "gsc_url_inspections";
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
 // ─────────────────────────────────────────────────────────────────────
-// Tenant slug resolver — explicit tenantId only
+// Supabase cache I/O
 // ─────────────────────────────────────────────────────────────────────
 
 /**
- * Mirror of `tenant-repo.ts:resolveSlugForTenant`. Inlined here to
- * avoid cross-file coupling (the repo helper is unexported and
- * importing it would force a wider invariant scope). Operator-
- * bootstrap fallback fires ONLY when the explicit `tenantId`
- * matches `BEACON_TENANT_ID` AND `BEACON_TENANT_SLUG` is set.
+ * PostgREST surfaces `code: "42P01"` on undefined_table. Used to
+ * soft-fail reads during the migration window where code lands
+ * before the table is created. Mirrors the connector-store helper.
  */
-async function resolveSlugForTenant(tenantId: string): Promise<string | null> {
-  const tenant = await getTenant(tenantId);
-  if (tenant) return tenant.slug;
-  const envId = process.env.BEACON_TENANT_ID;
-  const envSlug = process.env.BEACON_TENANT_SLUG;
-  if (envId && envSlug && envId === tenantId) return envSlug;
-  return null;
+function isUndefinedTableError(error: unknown): boolean {
+  if (error == null || typeof error !== "object") return false;
+  const e = error as { code?: unknown };
+  return typeof e.code === "string" && e.code === "42P01";
 }
 
-// ─────────────────────────────────────────────────────────────────────
-// Cache I/O
-// ─────────────────────────────────────────────────────────────────────
+type CacheRow = {
+  tenant_id: string;
+  inspection_url: string;
+  site_url: string;
+  indexing_state: string | null;
+  coverage_state: string | null;
+  last_crawl_time: string | null;
+  last_checked_at: string;
+  raw: unknown;
+};
 
-function cacheFilePathForSlug(slug: string): string {
-  return join(getDataDir(slug), CACHE_FILE_NAME);
+function rowToEntry(row: CacheRow): GscInspectionCacheEntry {
+  return {
+    url: row.inspection_url,
+    site_url: row.site_url,
+    indexing_state: row.indexing_state,
+    coverage_state: row.coverage_state,
+    last_crawl_time: row.last_crawl_time,
+    last_checked_at: row.last_checked_at,
+    raw: row.raw,
+  };
 }
 
-function readCacheForSlug(slug: string): GscInspectionCacheFile {
-  const filePath = cacheFilePathForSlug(slug);
-  if (!existsSync(filePath)) return {};
-  let parsed: unknown;
+/**
+ * Read the cached inspection for (tenantId, inspectionUrl). Returns
+ * `null` for:
+ *   • table missing (42P01 — sequencing model A soft-fail);
+ *   • Supabase admin init failure (env vars unset in dev);
+ *   • PostgREST returned no row;
+ *   • row payload shape invalid.
+ *
+ * Logs but does NOT throw on other Supabase errors — read-side
+ * soft-fail keeps the caller's "fall through to fresh fetch" path
+ * intact. Mirrors connector-store's read posture.
+ */
+async function readCachedInspection(args: {
+  tenantId: string;
+  inspectionUrl: string;
+}): Promise<GscInspectionCacheEntry | null> {
+  let admin;
   try {
-    parsed = JSON.parse(readFileSync(filePath, "utf-8"));
+    admin = getSupabaseAdmin();
   } catch {
-    return {};
+    return null;
   }
-  if (parsed == null || typeof parsed !== "object" || Array.isArray(parsed)) {
-    return {};
+  const { data, error } = await admin
+    .from(CACHE_TABLE)
+    .select(
+      "tenant_id, inspection_url, site_url, indexing_state, coverage_state, last_crawl_time, last_checked_at, raw",
+    )
+    .eq("tenant_id", args.tenantId)
+    .eq("inspection_url", args.inspectionUrl)
+    .maybeSingle();
+
+  if (error != null) {
+    if (isUndefinedTableError(error)) return null;
+    log.warn("[gsc-client] cache read failed; degrading to no cache", {
+      tenantId: args.tenantId,
+      error: error.message ?? String(error),
+    });
+    return null;
   }
-  return parsed as GscInspectionCacheFile;
+  if (data == null) return null;
+  return rowToEntry(data as CacheRow);
 }
 
-function writeCacheForSlug(slug: string, cache: GscInspectionCacheFile): void {
-  // `getDataDir(slug)` already calls `mkdirSync(..., { recursive: true })`
-  // on non-Vercel; defensive recreation here covers Vercel writes that
-  // succeed in-memory (lambda FS is read-only post-init, so a real-disk
-  // write throws — wrap and degrade quietly).
-  const dir = getDataDir(slug);
+/**
+ * Upsert the freshly-fetched inspection result into Supabase. On
+ * failure, logs and surfaces a boolean — the caller already has the
+ * result in memory; a failed write means "no durable cache yet"
+ * (return the result regardless), NOT "pretend the fetch never
+ * happened." Quota burn already occurred.
+ */
+async function writeCachedInspection(args: {
+  tenantId: string;
+  inspection: GscUrlInspectionResult;
+}): Promise<{ ok: boolean }> {
+  let admin;
   try {
-    if (process.env.VERCEL !== "1" && !existsSync(dir)) {
-      mkdirSync(dir, { recursive: true });
-    }
-    if (process.env.VERCEL === "1") {
-      // Vercel: lambda FS is read-only post-init; cache write would
-      // throw EROFS. Skip silently. Future A.3.b2 slice migrates to
-      // Supabase durable storage.
-      return;
-    }
-    writeFileSync(cacheFilePathForSlug(slug), JSON.stringify(cache, null, 2));
+    admin = getSupabaseAdmin();
   } catch (e) {
-    log.warn("[gsc-client] cache write failed; continuing without persisted cache", {
-      slug,
+    log.warn("[gsc-client] cache write skipped; Supabase admin unavailable", {
+      tenantId: args.tenantId,
       error: e instanceof Error ? e.message : String(e),
     });
+    return { ok: false };
   }
+  const row: CacheRow & { updated_at: string } = {
+    tenant_id: args.tenantId,
+    inspection_url: args.inspection.url,
+    site_url: args.inspection.site_url,
+    indexing_state: args.inspection.indexing_state,
+    coverage_state: args.inspection.coverage_state,
+    last_crawl_time: args.inspection.last_crawl_time,
+    last_checked_at: args.inspection.last_checked_at,
+    raw: args.inspection.raw,
+    updated_at: new Date().toISOString(),
+  };
+  const { error } = await admin
+    .from(CACHE_TABLE)
+    .upsert(row, { onConflict: "tenant_id,inspection_url" });
+  if (error != null) {
+    log.warn("[gsc-client] cache upsert failed; quota burned but not cached", {
+      tenantId: args.tenantId,
+      inspectionUrl: args.inspection.url,
+      error: error.message ?? String(error),
+      code: (error as { code?: unknown }).code,
+    });
+    return { ok: false };
+  }
+  return { ok: true };
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -140,12 +203,12 @@ export type GscUrlInspectArgs = {
 /**
  * Inspect a single URL via Google Search Console. Returns cached
  * result when fresh (< 24h since `last_checked_at`); otherwise calls
- * the API, writes the result to the tenant-scoped disk cache, and
- * returns the new result. Returns `null` on any fail-soft skip:
+ * the API, upserts the result to the tenant-scoped Supabase cache,
+ * and returns the new result. Returns `null` on any fail-soft skip:
  *
  *   • no `tenantId` → unreachable (parameter is required)
- *   • slug unresolvable for the given tenantId
- *   • no Google token connected
+ *   • `tenantId` empty
+ *   • no Google token connected (gsc scope)
  *   • token lacks `webmasters.readonly` scope
  *   • `siteUrl` empty
  *   • `inspectionUrl` empty
@@ -164,15 +227,12 @@ export async function gscUrlInspect(
   const now = args.now ?? new Date();
   const nowDate = now instanceof Date ? now : new Date(now);
 
+  if (tenantId == null || tenantId === "") return null;
   if (siteUrl == null || siteUrl === "") return null;
   if (inspectionUrl == null || inspectionUrl === "") return null;
 
-  const slug = await resolveSlugForTenant(tenantId);
-  if (slug == null) return null;
-
   // 1. Cache check — return fresh entry without touching the API.
-  const cache = readCacheForSlug(slug);
-  const existing = cache[inspectionUrl];
+  const existing = await readCachedInspection({ tenantId, inspectionUrl });
   if (existing != null) {
     const lastCheckedMs = Date.parse(existing.last_checked_at);
     if (
@@ -187,7 +247,7 @@ export async function gscUrlInspect(
   // Read the GSC-scoped grant explicitly. Post-scope-split (2026-05-16)
   // GSC and GBP live under separate provider keys (google_gsc /
   // google_gbp); a GBP-only token never satisfies the GSC client.
-  const token = await getGoogleConnectorToken("gsc");
+  const token = await getGoogleConnectorToken("gsc", tenantId);
   if (token == null) return null;
   if (!Array.isArray(token.scopes) || !token.scopes.includes(REQUIRED_SCOPE)) {
     return null;
@@ -205,11 +265,11 @@ export async function gscUrlInspect(
       // Best-effort persistence is the connector-store's job; this
       // client doesn't mutate the token store directly to keep its
       // surface read-only. The next caller's token lookup will hit
-      // the still-valid (un-rotated on disk) token, retry refresh,
-      // and get a fresh access_token. Acceptable cold-path cost.
+      // the still-valid (un-rotated) token, retry refresh, and get a
+      // fresh access_token. Acceptable cold-path cost.
     } catch (e) {
       log.warn("[gsc-client] token refresh failed; skipping inspection", {
-        slug,
+        tenantId,
         error: e instanceof Error ? e.message : String(e),
       });
       return null;
@@ -229,7 +289,7 @@ export async function gscUrlInspect(
     });
   } catch (e) {
     log.warn("[gsc-client] fetch threw; degrading to null", {
-      slug,
+      tenantId,
       error: e instanceof Error ? e.message : String(e),
     });
     return null;
@@ -237,7 +297,7 @@ export async function gscUrlInspect(
 
   if (!response.ok) {
     log.warn("[gsc-client] non-2xx response from GSC URL Inspection API", {
-      slug,
+      tenantId,
       status: response.status,
     });
     return null;
@@ -248,7 +308,7 @@ export async function gscUrlInspect(
     body = await response.json();
   } catch (e) {
     log.warn("[gsc-client] response body parse failed", {
-      slug,
+      tenantId,
       error: e instanceof Error ? e.message : String(e),
     });
     return null;
@@ -261,9 +321,10 @@ export async function gscUrlInspect(
     nowIso: nowDate.toISOString(),
   });
 
-  // 5. Persist cache.
-  const updatedCache: GscInspectionCacheFile = { ...cache, [inspectionUrl]: result };
-  writeCacheForSlug(slug, updatedCache);
+  // 5. Persist cache. Write failures are logged but do not change
+  // the return value — quota has been burned regardless of whether
+  // the cache durably persists.
+  await writeCachedInspection({ tenantId, inspection: result });
 
   return result;
 }
@@ -317,14 +378,13 @@ function readStringOrNull(
 }
 
 /**
- * Test-only export of cache helpers. Mirrors the
+ * Test-only export of cache helpers + constants. Mirrors the
  * `citation-lifecycle/load-lifecycle.ts:__testing` pattern.
  */
 export const __testing = {
-  cacheFilePathForSlug,
-  readCacheForSlug,
-  writeCacheForSlug,
-  resolveSlugForTenant,
+  readCachedInspection,
+  writeCachedInspection,
+  CACHE_TABLE,
   REQUIRED_SCOPE,
   CACHE_TTL_MS,
 };

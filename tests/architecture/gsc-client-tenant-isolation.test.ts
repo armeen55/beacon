@@ -1,5 +1,5 @@
 /**
- * Architecture invariant — A.3.b1.alpha (2026-05-16).
+ * Architecture invariant — A.3.b1.alpha (2026-05-16) + A.3.b2 (2026-05-17).
  *
  * Tenant isolation for the GSC URL Inspection client.
  *
@@ -9,20 +9,22 @@
  *
  *   1. Take an EXPLICIT `tenantId` parameter (no ambient
  *      `currentTenantSlug()` / `currentTenantId()` reads).
- *   2. Resolve the tenant slug from the explicit `tenantId` (via
- *      `getTenant(tenantId)` + the `BEACON_TENANT_ID` / `BEACON_TENANT_SLUG`
- *      operator-bootstrap fallback).
- *   3. Use `getDataDir(slug)` to route the cache file path
- *      `.data/tenants/{slug}/gsc-url-inspections.json`. NEVER read or
- *      write the flat `.data/` root directly.
- *   4. NOT import any customer-surface module (no `@/app`,
+ *   2. Read + write the cache through the Supabase admin client
+ *      (`getSupabaseAdmin()`) against the `gsc_url_inspections`
+ *      table, filtered by `tenant_id` on the composite PK
+ *      `(tenant_id, inspection_url)`. The A.3.b1.alpha disk-cache
+ *      path is RETIRED — no `getDataDir(slug)`, no
+ *      `.data/tenants/{slug}/gsc-url-inspections.json`.
+ *   3. NOT import any customer-surface module (no `@/app`,
  *      `@/components`, `@/domains/today`, `@/domains/recommendations`,
  *      `@/domains/indexability`). The client is operator-substrate
  *      only; the A.3.b1.beta slice will wire it into indexability as
  *      a separate trust-boundary review.
  *
  * Mirrors the locked `profound-import-runs-explicit-tenant-scope`
- * invariant pattern: explicit tenantId, NEVER ambient.
+ * pattern (explicit tenantId beats ambient) PLUS the locked
+ * `connector-store-no-disk-write` discipline (durable storage in
+ * Supabase, not on Vercel's read-only lambda FS).
  */
 
 import { describe, expect, it } from "vitest";
@@ -71,45 +73,79 @@ describe("gsc client — explicit tenant scope", () => {
     ).toBe(false);
   });
 
-  it("client.ts resolves the slug via getTenant(tenantId)", () => {
+  it("client.ts is marked server-only", () => {
     expect(
-      /from\s+["']@\/domains\/tenants\/store["']/.test(CLIENT_CODE),
-      "client.ts must import getTenant from @/domains/tenants/store " +
-        "so slug resolution goes through the tenant registry.",
+      /import\s+["']server-only["']/.test(CLIENT_CODE),
+      "client.ts must import 'server-only' so it cannot be bundled " +
+        "into client components.",
     ).toBe(true);
+  });
+});
+
+describe("gsc client — Supabase-backed cache (post-A.3.b2)", () => {
+  it("imports getSupabaseAdmin from @/lib/persistence/supabase", () => {
     expect(
-      /\bgetTenant\s*\(/.test(CLIENT_CODE),
-      "client.ts must call getTenant(tenantId) to resolve the slug.",
+      /from\s+["']@\/lib\/persistence\/supabase["']/.test(CLIENT_CODE) &&
+        /\bgetSupabaseAdmin\b/.test(CLIENT_CODE),
+      "client.ts must import + use getSupabaseAdmin() — the cache lives " +
+        "in Supabase, not on disk.",
     ).toBe(true);
   });
 
-  it("client.ts uses getDataDir(slug) for the tenant-scoped cache path", () => {
+  it("references the gsc_url_inspections cache table", () => {
     expect(
-      /from\s+["']@\/lib\/tenant["']/.test(CLIENT_CODE),
-      "client.ts must import getDataDir from @/lib/tenant.",
+      /gsc_url_inspections/.test(CLIENT_CODE),
+      "client.ts must reference the locked cache table " +
+        "`gsc_url_inspections`. Pinned by the A.3.b2 migration.",
     ).toBe(true);
+  });
+
+  it("filters cache queries by tenant_id", () => {
+    expect(
+      /\.eq\(\s*["']tenant_id["']\s*,/.test(CLIENT_CODE),
+      "client.ts must filter Supabase queries by .eq('tenant_id', ...). " +
+        "Composite-PK isolation is structural — every read + write must " +
+        "scope by tenant_id.",
+    ).toBe(true);
+  });
+
+  it("upserts with onConflict='tenant_id,inspection_url' (composite PK)", () => {
+    expect(
+      /onConflict\s*:\s*["']tenant_id,inspection_url["']/.test(CLIENT_CODE),
+      "client.ts must upsert with onConflict='tenant_id,inspection_url' so " +
+        "the composite-PK row is updated in place per tenant + per URL.",
+    ).toBe(true);
+  });
+
+  it("does NOT call getDataDir (disk-path helper is RETIRED)", () => {
     expect(
       /\bgetDataDir\s*\(/.test(CLIENT_CODE),
-      "client.ts must call getDataDir(slug) to route the cache file " +
-        "into the tenant-scoped subdirectory.",
-    ).toBe(true);
-  });
-
-  it("client.ts does NOT read or write the flat .data/ root", () => {
-    // Strip out the env-fallback string literals (BEACON_TENANT_*),
-    // then ensure no path string mentions a flat `.data/` not gated by
-    // getDataDir.
-    // The only allowed `.data` mentions are in JSDoc (already stripped)
-    // and the cache filename constant; neither hardcodes the flat root.
-    const hasFlatDataRoot = /["']\s*\.data\//.test(CLIENT_CODE);
-    expect(
-      hasFlatDataRoot,
-      "client.ts must NOT hardcode a flat `.data/` path. All disk I/O " +
-        "must route through getDataDir(slug) so each tenant gets its " +
-        "own subdirectory.",
+      "client.ts must NOT call getDataDir() — the A.3.b1.alpha disk cache " +
+        "is RETIRED. The cache lives in Supabase under " +
+        "public.gsc_url_inspections.",
     ).toBe(false);
   });
 
+  it("does NOT import @/lib/tenant (no path-tenant routing)", () => {
+    expect(
+      /from\s+["']@\/lib\/tenant["']/.test(CLIENT_CODE),
+      "client.ts must NOT import from @/lib/tenant — the disk-path " +
+        "tenant routing is RETIRED. Supabase composite-PK is the " +
+        "tenant-isolation gate.",
+    ).toBe(false);
+  });
+
+  it("does NOT resolve a slug via getTenant() (no longer needed for the cache path)", () => {
+    expect(
+      /from\s+["']@\/domains\/tenants\/store["']/.test(CLIENT_CODE),
+      "client.ts must NOT import getTenant from @/domains/tenants/store — " +
+        "the Supabase cache uses the raw tenantId, not the slug. The " +
+        "A.3.b1.alpha slug-resolution helper is RETIRED.",
+    ).toBe(false);
+  });
+});
+
+describe("gsc client — operator-substrate posture", () => {
   it("client.ts does NOT import any customer-facing surface modules", () => {
     const forbiddenImports = [
       /from\s+["']@\/app\//,
@@ -124,30 +160,13 @@ describe("gsc client — explicit tenant scope", () => {
     for (const pat of forbiddenImports) {
       expect(
         pat.test(CLIENT_CODE),
-        "client.ts must NOT import customer-facing surfaces. The A.3.b1.alpha " +
-          "slice is operator-substrate only; the beta slice wires it into " +
+        "client.ts must NOT import customer-facing surfaces. The client is " +
+          "operator-substrate only; the A.3.b1.beta slice wires it into " +
           "indexability as a separate trust-boundary review. Forbidden " +
           "import pattern: " +
           pat.source,
       ).toBe(false);
     }
-  });
-
-  it("client.ts is marked server-only", () => {
-    expect(
-      /import\s+["']server-only["']/.test(CLIENT_CODE),
-      "client.ts must import 'server-only' so it cannot be bundled " +
-        "into client components.",
-    ).toBe(true);
-  });
-
-  it("client.ts cache filename is gsc-url-inspections.json", () => {
-    expect(
-      /gsc-url-inspections\.json/.test(CLIENT_CODE),
-      "client.ts must use the locked cache filename " +
-        "`gsc-url-inspections.json`. Pinned for future Supabase-migration " +
-        "compatibility (A.3.b2).",
-    ).toBe(true);
   });
 
   it("client.ts requires the webmasters.readonly scope before calling the API", () => {
@@ -170,13 +189,12 @@ describe("gsc types — operator-substrate posture", () => {
   });
 
   it("client.ts file header declares the operator-substrate posture", () => {
-    // The unstripped source must carry the A.3.b1.alpha doc header so
-    // future readers know the slice is NOT customer-facing.
+    // The unstripped source must carry the A.3.b2 doc header so future
+    // readers know the slice is operator-substrate only.
     expect(
-      /A\.3\.b1\.alpha/.test(CLIENT_SRC),
-      "client.ts header must declare A.3.b1.alpha posture explicitly " +
-        "so future contributors don't accidentally wire it into a " +
-        "customer surface.",
+      /A\.3\.b2/.test(CLIENT_SRC),
+      "client.ts header must declare A.3.b2 posture explicitly so future " +
+        "contributors see the Supabase-cache migration.",
     ).toBe(true);
     expect(
       /operator-substrate/i.test(CLIENT_SRC),

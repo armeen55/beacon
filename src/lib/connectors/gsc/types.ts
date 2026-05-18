@@ -1,17 +1,14 @@
 /**
- * 2026-05-16 A.3.b1.alpha — Google Search Console URL Inspection
- * type contracts (pure types; no I/O, no API calls).
+ * 2026-05-17 A.3.b2 — Google Search Console URL Inspection type
+ * contracts (pure types; no I/O, no API calls).
  *
- * `GscUrlInspectionResult` is the shape `gscUrlInspect` returns when
- * a fresh call OR a cache hit produces inspection data. The fields
- * mirror Google's URL Inspection API response, narrowed to the subset
- * Beacon's indexability compute will eventually consume (A.3.b1.beta).
- *
- * `GscInspectionCacheEntry` is the on-disk wire format. The cache file
- * `.data/tenants/{slug}/gsc-url-inspections.json` is a map keyed by
- * canonical inspection URL → entry. The `raw` field preserves the
- * verbatim API response for operator triage; downstream consumers
- * MUST NOT depend on its shape (Google may add fields).
+ * Cache layer is now Supabase (`public.gsc_url_inspections` table)
+ * with composite PK `(tenant_id, inspection_url)`. The prior on-disk
+ * `GscInspectionCacheFile` shape — a JSON map keyed by inspection
+ * URL — is RETIRED. Per-entry shape (`GscInspectionCacheEntry` /
+ * `GscUrlInspectionResult`) remains; rows are now keyed via the
+ * composite PK in Supabase instead of being collected in a single
+ * JSON file.
  */
 
 import "server-only";
@@ -57,21 +54,16 @@ export type GscUrlInspectionResult = {
 };
 
 /**
- * On-disk cache entry. Same shape as `GscUrlInspectionResult`; the
- * separate type lets future fields (e.g., quota-stagger bucket,
- * stale-cache flags) attach to the cache layer without leaking
- * into the consumer-facing result.
+ * Per-row cache entry shape. Same fields as `GscUrlInspectionResult`;
+ * the separate type lets future fields (e.g., quota-stagger bucket,
+ * stale-cache flags) attach to the cache layer without leaking into
+ * the consumer-facing result.
+ *
+ * Storage post-A.3.b2: each entry is a row in
+ * `public.gsc_url_inspections` keyed by `(tenant_id, inspection_url)`.
+ * The legacy on-disk JSON map (`GscInspectionCacheFile`) is RETIRED.
  */
 export type GscInspectionCacheEntry = GscUrlInspectionResult;
-
-/**
- * Full cache shape — keyed by canonical inspection URL.
- *
- * Stored at `.data/tenants/{slug}/gsc-url-inspections.json`. The
- * outer map's keys are the inspection URLs themselves (canonical
- * form); values are the entries.
- */
-export type GscInspectionCacheFile = Record<string, GscInspectionCacheEntry>;
 
 /**
  * Fail-soft reason codes the client uses when it skips an API call.
