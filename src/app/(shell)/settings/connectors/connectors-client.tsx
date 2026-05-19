@@ -3,17 +3,22 @@
 import { useEffect, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { ConnectorInfo } from "@/lib/connector-store";
+import type { Ga4Property } from "@/lib/connectors/ga4/types";
 import {
   getGoogleAuthUrl,
   getGoogleGscConnectorStatus,
+  getGoogleGa4ConnectorStatus,
   getYelpConnectorStatus,
   disconnectGoogle,
+  disconnectGoogleGa4,
   disconnectYelp,
   saveYelpApiKey,
   syncGoogleReviews,
   syncYelpReviews,
   loadGoogleLocations,
   selectGoogleLocation,
+  listGa4Properties,
+  selectGa4Property,
 } from "./actions";
 
 type SelectedLocation = { id: string; name: string } | null;
@@ -31,6 +36,9 @@ const GBP_AFFORDANCES_ENABLED = false;
 type Props = {
   google: ConnectorInfo;
   googleSelectedLocation: SelectedLocation;
+  /** Slice 9.A1β (2026-05-18) — GA4 connector status. Mirrors the
+   *  GSC props shape (status, expires_at, ga4_property_id, etc.). */
+  ga4: ConnectorInfo;
   yelp: ConnectorInfo;
   /** From business config — for operator hint only (not a secret). */
   configYelpBusinessId: string;
@@ -41,6 +49,11 @@ type Props = {
    *  the operator previously authorized the connector at some
    *  point) AND status is "disconnected". `null` otherwise. */
   gscStaleCopy?: string | null;
+  /** Slice 9.A1β (2026-05-18) — pre-rendered "Google Analytics data
+   *  last refreshed X days ago" copy. Computed server-side in
+   *  page.tsx. Present only when the GA4 connector has a non-null
+   *  `expires_at` AND status is "disconnected". `null` otherwise. */
+  ga4StaleCopy?: string | null;
 };
 
 const ERROR_MESSAGES: Record<string, string> = {
@@ -74,15 +87,18 @@ function formatDate(iso: string | null): string {
 export function ConnectorsClient({
   google: initialGoogle,
   googleSelectedLocation: initialSelectedLocation,
+  ga4: initialGa4,
   yelp: initialYelp,
   configYelpBusinessId,
   gscStaleCopy = null,
+  ga4StaleCopy = null,
 }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [isPending, startTransition] = useTransition();
 
   const [google, setGoogle] = useState<ConnectorInfo>(initialGoogle);
+  const [ga4, setGa4] = useState<ConnectorInfo>(initialGa4);
   const [yelp, setYelp] = useState<ConnectorInfo>(initialYelp);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -94,6 +110,15 @@ export function ConnectorsClient({
   const [locationOptions, setLocationOptions] = useState<LocationOption[] | null>(null);
   const [locationsLoading, setLocationsLoading] = useState(false);
   const [locationError, setLocationError] = useState<string | null>(null);
+
+  // Slice 9.A1β (2026-05-18) — GA4 property picker state. The list of
+  // properties is loaded ONLY on explicit user action (Choose property
+  // button); never on mount, so the page-load contract stays intact
+  // (no GA4 API call on page render — enforced by the
+  // `ga4-no-page-load-call` architecture invariant).
+  const [ga4Properties, setGa4Properties] = useState<Ga4Property[] | null>(null);
+  const [ga4PropertiesLoading, setGa4PropertiesLoading] = useState(false);
+  const [ga4PropertyError, setGa4PropertyError] = useState<string | null>(null);
 
   useEffect(() => {
     const err = searchParams.get("error");
@@ -107,6 +132,16 @@ export function ConnectorsClient({
       startTransition(async () => {
         const status = await getGoogleGscConnectorStatus();
         setGoogle(status);
+      });
+      window.history.replaceState(null, "", "/settings/connectors");
+    }
+    if (connected === "google_ga4") {
+      setSuccess(
+        "Google Analytics connected. Choose a property to finish setup.",
+      );
+      startTransition(async () => {
+        const status = await getGoogleGa4ConnectorStatus();
+        setGa4(status);
       });
       window.history.replaceState(null, "", "/settings/connectors");
     }
@@ -156,6 +191,102 @@ export function ConnectorsClient({
         setError(
           ERROR_MESSAGES.env_missing,
         );
+      }
+    });
+  }
+
+  // ───────────────────────────────────────────────────────────────────
+  // Slice 9.A1β (2026-05-18) — GA4 handlers
+  // ───────────────────────────────────────────────────────────────────
+
+  function handleConnectGa4() {
+    setError(null);
+    setSuccess(null);
+    setGa4PropertyError(null);
+    startTransition(async () => {
+      const result = await getGoogleAuthUrl("ga4");
+      if (result.url) {
+        window.location.href = result.url;
+      } else {
+        setError(ERROR_MESSAGES.env_missing);
+      }
+    });
+  }
+
+  async function handleLoadGa4Properties() {
+    setGa4PropertyError(null);
+    setGa4PropertiesLoading(true);
+    try {
+      const result = await listGa4Properties();
+      if (!result.ok) {
+        const map: Record<string, string> = {
+          no_token: "Beacon is not connected to Google Analytics yet.",
+          token_expired:
+            "Beacon's Google Analytics access expired. Reconnect to refresh.",
+          disconnected:
+            "Beacon's Google Analytics connection was disconnected. Reconnect to choose a property.",
+          api_error:
+            "Could not load Google Analytics properties. Try again in a moment.",
+        };
+        setGa4PropertyError(
+          map[result.reason] ?? "Could not load properties.",
+        );
+        return;
+      }
+      setGa4Properties(result.properties);
+      if (result.properties.length === 1) {
+        // Auto-select the only property — saves a click in the common case.
+        await handleSelectGa4Property(result.properties[0]!);
+      }
+    } catch (e) {
+      setGa4PropertyError(
+        e instanceof Error ? e.message : "Could not load properties.",
+      );
+    } finally {
+      setGa4PropertiesLoading(false);
+    }
+  }
+
+  async function handleSelectGa4Property(property: Ga4Property) {
+    setGa4PropertyError(null);
+    const result = await selectGa4Property({
+      id: property.id,
+      displayName: property.displayName,
+      accountDisplayName: property.accountDisplayName,
+    });
+    if (result.success) {
+      setSuccess(`Property selected: ${property.displayName}`);
+      const status = await getGoogleGa4ConnectorStatus();
+      setGa4(status);
+      router.refresh();
+    } else {
+      setGa4PropertyError(result.error ?? "Failed to select property.");
+    }
+  }
+
+  function handleDisconnectGa4() {
+    setError(null);
+    setSuccess(null);
+    setGa4PropertyError(null);
+    startTransition(async () => {
+      const result = await disconnectGoogleGa4();
+      if (result.success) {
+        // Soft-disconnect mirror of GSC: preserve connected_at +
+        // expires_at so the stale tooltip renders on next refresh.
+        setGa4({
+          status: "disconnected",
+          connected_at: ga4.connected_at,
+          expires_at: ga4.expires_at,
+          last_synced_at: null,
+          ga4_property_id: null,
+          ga4_property_display_name: null,
+          ga4_account_display_name: null,
+        });
+        setGa4Properties(null);
+        setSuccess("Google Analytics disconnected. Previously synced data is preserved.");
+        router.refresh();
+      } else {
+        setError(result.error ?? "Failed to disconnect Google Analytics.");
       }
     });
   }
@@ -472,6 +603,169 @@ export function ConnectorsClient({
                 verified sites. The Google consent screen will show
                 a single permission: View Search Console data for
                 verified sites.
+              </>
+            )}
+          </p>
+        </div>
+      </div>
+
+      {/* ── Google Analytics (GA4) — Slice 9.A1β (2026-05-18) ── */}
+      {/* OAuth + property picker only. NO Data API in this slice —
+          sessions / events / conversions land in Slice 9.A2. */}
+      <div
+        className="rounded-lg border border-border/60 bg-surface-inset/20"
+        data-connector-card="google-ga4"
+      >
+        <div className="px-5 py-4 flex items-start justify-between gap-4">
+          <div className="min-w-0 space-y-1">
+            <h3 className="text-[13px] font-semibold text-foreground">
+              Google Analytics
+            </h3>
+            {ga4.status === "connected" ? (
+              <>
+                <p className="text-[12px] text-muted-foreground">
+                  Connected to Google Analytics &middot; Authorized {formatDate(ga4.connected_at)}
+                </p>
+                {ga4.ga4_property_id ? (
+                  <p className="text-[12px] text-muted-foreground">
+                    Selected: {ga4.ga4_property_display_name ?? "Property"}
+                    {ga4.ga4_account_display_name
+                      ? ` · ${ga4.ga4_account_display_name}`
+                      : ""}
+                  </p>
+                ) : (
+                  <p className="text-[12px] text-status-warning">
+                    Connected. Select a property to finish setup.
+                  </p>
+                )}
+              </>
+            ) : (
+              <>
+                <p className="text-[12px] text-muted-foreground">
+                  {ga4.connected_at
+                    ? "Disconnected · cached data preserved"
+                    : "Not connected"}
+                </p>
+                {ga4StaleCopy ? (
+                  <p
+                    className="text-[12px] text-muted-foreground"
+                    data-ga4-stale-tooltip="true"
+                    title={ga4StaleCopy}
+                  >
+                    {ga4StaleCopy}
+                  </p>
+                ) : null}
+              </>
+            )}
+          </div>
+
+          <div className="flex shrink-0 flex-col items-end gap-2">
+            {ga4.status === "connected" ? (
+              <button
+                type="button"
+                onClick={handleDisconnectGa4}
+                disabled={isPending || anySync}
+                className="rounded-md border border-border/60 px-3 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground hover:border-foreground/30 disabled:opacity-50"
+                title="Soft disconnect — historical data stays cached but no new data refreshes until you reconnect."
+              >
+                {isPending ? "Disconnecting…" : "Disconnect"}
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={handleConnectGa4}
+                disabled={isPending}
+                className="rounded-md bg-foreground px-3 py-1.5 text-[12px] font-medium text-background transition-colors hover:opacity-90 disabled:opacity-50"
+              >
+                {isPending ? "Connecting…" : "Connect Google Analytics"}
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Property picker — only when connected. Properties load on
+            click only (NEVER on mount) so no GA4 API call fires on
+            page render. Pinned by the `ga4-no-page-load-call`
+            architecture invariant. */}
+        {ga4.status === "connected" ? (
+          <div className="border-t border-border/40 px-5 py-3 space-y-3">
+            {ga4PropertyError && (
+              <p className="text-[12px] text-status-warning">
+                {ga4PropertyError}
+              </p>
+            )}
+            {!ga4Properties ? (
+              <button
+                type="button"
+                onClick={() => void handleLoadGa4Properties()}
+                disabled={ga4PropertiesLoading || isPending}
+                className="rounded-md border border-border/60 px-3 py-1.5 text-[12px] font-medium text-foreground transition-colors hover:border-foreground/30 disabled:opacity-50"
+              >
+                {ga4PropertiesLoading
+                  ? "Loading properties…"
+                  : ga4.ga4_property_id
+                    ? "Choose a different property"
+                    : "Choose property"}
+              </button>
+            ) : ga4Properties.length === 0 ? (
+              <p className="text-[12px] text-muted-foreground">
+                No Google Analytics properties found for this account.
+                Make sure your GA4 setup has at least one property
+                you can read.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                <label className="block text-[11px] font-medium text-foreground/90">
+                  Choose property to track
+                </label>
+                <div className="space-y-1.5 max-h-60 overflow-y-auto">
+                  {ga4Properties.map((prop) => {
+                    const isSelected = ga4.ga4_property_id === prop.id;
+                    return (
+                      <button
+                        key={prop.id}
+                        type="button"
+                        onClick={() => void handleSelectGa4Property(prop)}
+                        disabled={isPending}
+                        className={`w-full text-left rounded-md border px-3 py-2 text-[12px] transition-colors disabled:opacity-50 ${
+                          isSelected
+                            ? "border-accent-primary/60 bg-accent-primary/[0.06] text-foreground"
+                            : "border-border/60 bg-background text-foreground hover:border-foreground/30"
+                        }`}
+                      >
+                        <span className="font-medium">
+                          {prop.displayName}
+                        </span>
+                        <span className="block text-[11px] text-muted-foreground mt-0.5">
+                          {prop.accountDisplayName}
+                        </span>
+                        {isSelected ? (
+                          <span className="block text-[11px] text-accent-primary mt-0.5">
+                            Currently selected
+                          </span>
+                        ) : null}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        ) : null}
+
+        <div className="border-t border-border/40 px-5 py-3 bg-surface-inset/10 space-y-1.5">
+          <p className="text-[11px] text-muted-foreground leading-relaxed">
+            {ga4.status === "connected" ? (
+              <>
+                Beacon reads Google Analytics property metadata. Read-only
+                access — no writes to your Google Analytics property.
+              </>
+            ) : (
+              <>
+                Connect Google Analytics to give Beacon read-only access
+                to your GA4 property. The Google consent screen will
+                show a single permission: View your Google Analytics
+                data.
               </>
             )}
           </p>

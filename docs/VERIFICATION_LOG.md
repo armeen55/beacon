@@ -7,6 +7,91 @@
 
 ---
 
+## 2026-05-18 — Slice 9.A1β: GA4 Settings UI + property picker
+
+**Status.** READY_TO_COMMIT (operator-approved implementation-only gate; no commit, no push, no deploy until operator approval).
+
+**Predecessor.** Consumes the 9.A1α GA4 connector substrate that shipped in commit `e88a060`. Substrate files under `src/lib/connectors/ga4/` are LOCKED in 9.A1β — verified unchanged via `git status --short`.
+
+**What changed.**
+
+**`src/app/(shell)/settings/connectors/page.tsx`** — reads `getConnectorInfo("google_ga4")` alongside the existing GSC + Yelp reads; adds inline server-side helper `formatGa4StaleCopy({ expiresAtMs, now })` paralleling GSC's `formatLastRefreshedCopy` (the GSC helper says "GSC" verbatim; the GA4 surface needs "Google Analytics" wording, so a separate inline helper keeps it server-only without adding a sibling module under the locked `src/lib/connectors/ga4/` directory). Passes two new props to `ConnectorsClient`: `ga4: ConnectorInfo` and `ga4StaleCopy: string | null`.
+
+**`src/app/(shell)/settings/connectors/connectors-client.tsx`** — adds:
+- Type import: `Ga4Property` from `@/lib/connectors/ga4/types`.
+- 4 new server action imports from `./actions`: `getGoogleGa4ConnectorStatus`, `disconnectGoogleGa4`, `listGa4Properties`, `selectGa4Property`.
+- 2 new props on `Props`: `ga4: ConnectorInfo` + `ga4StaleCopy?: string | null`.
+- 4 new `useState` hooks: `ga4` connector info + 3 GA4 property picker state slots (`ga4Properties`, `ga4PropertiesLoading`, `ga4PropertyError`).
+- Extended `searchParams` `useEffect` to handle `connected=google_ga4` success copy + connector status refresh.
+- 4 new handlers: `handleConnectGa4` · `handleLoadGa4Properties` (loads on user click; auto-selects when there's exactly one property) · `handleSelectGa4Property` · `handleDisconnectGa4` (soft-disconnect optimistic state mirroring GSC's pattern; preserves `connected_at` + `expires_at` so the stale-tooltip can render on next refresh).
+- New "Google Analytics" card with `data-connector-card="google-ga4"` data attribute and 4-state machine:
+  - **NOT CONNECTED**: "Connect Google Analytics" button → `getGoogleAuthUrl("ga4")` → `window.location` redirect.
+  - **CONNECTED + NO PROPERTY**: "Connected. Select a property to finish setup." warning + "Choose property" button + "Disconnect" button.
+  - **CONNECTED + WITH PROPERTY**: "Selected: <displayName> · <accountDisplayName>" + "Choose a different property" button + "Disconnect" button.
+  - **SOFT-DISCONNECTED**: "Disconnected · cached data preserved" + `ga4StaleCopy` tooltip ("Google Analytics data last refreshed X days ago. Reconnect to refresh.") + "Connect Google Analytics" reconnect button.
+- Property picker is rendered only when `ga4.status === "connected"`. Property list loads on `handleLoadGa4Properties` (button click only); never on mount. The architecture invariant `ga4-no-page-load-call` pins this.
+
+**`src/app/(shell)/settings/connectors/actions.ts`** — adds:
+- Type imports: `Ga4Property` + `Ga4PropertyListResult` from `@/lib/connectors/ga4/types`.
+- Substrate import: `listGa4PropertiesForTenant` from `@/lib/connectors/ga4/property-selection`.
+- `getGoogleGa4ConnectorStatus()` — thin wrapper over `getConnectorInfo("google_ga4")` mirroring the GSC/GBP shape.
+- `getGoogleAuthUrl(kind)` doc-comment updated to mention `"ga4"`; no behavior change (the substrate already widened `GoogleConnectorKind`).
+- `listGa4Properties()` — wraps `listGa4PropertiesForTenant(currentTenantId())`; surfaces the structured `Ga4PropertyListResult` verbatim.
+- `selectGa4Property({ id, displayName, accountDisplayName })` — validates non-empty `id` + `displayName`; defense-in-depth: re-runs `listGa4PropertiesForTenant` and verifies the submitted `id` is in the fresh set; persists via `updateConnectorToken("google_ga4", { ga4_property_id, ga4_property_display_name, ga4_account_display_name })`; `revalidatePath("/settings/connectors")` on success.
+- `disconnectGoogleGa4()` — soft-disconnect mirror of `softDisconnectGsc`: sets `disconnected_at` on the payload AND clears `ga4_property_*` fields via `updateConnectorToken`; NEVER calls `deleteConnectorToken`; `revalidatePath("/settings/connectors")` on success.
+- `disconnectGoogle()` is intentionally untouched. Added a comment block documenting that GA4 is INTENTIONALLY excluded from the combined affordance — the GA4 card owns its own disconnect path so the operator can manage GA4 independently of the GSC + GBP combo.
+
+**`tests/architecture/ga4-no-page-load-call.test.ts` — TIGHTENED.** The 9.A1α version was substrate-only (placeholder positive sanity check). 9.A1β replaces the placeholder with the real positive sanity check:
+- Reads `src/app/(shell)/settings/connectors/actions.ts` directly.
+- Asserts the file includes the literal `@/lib/connectors/ga4/` import path.
+- Failure copy explains that 9.A1β added this contract after the actions seam landed (substrate-only 9.A1α omitted it because the connector had zero callers).
+The catalog row was updated to drop the "substrate-only / tightens in 9.A1β" framing and replace it with the permanent operator-substrate framing.
+
+**Tests added — 19 GA4 UI/action tests across 2 new files:**
+- `tests/app/settings/actions-ga4.test.ts` (14 tests): `getGoogleAuthUrl("ga4")` returns analytics.readonly scope · does NOT include webmasters.readonly OR business.manage · carries signed state with `k="ga4"` + `t=current tenant` · `listGa4Properties` surfaces happy + 2 fail-soft reasons verbatim · `selectGa4Property` rejects empty id / empty display name / forged id (not in current list) · persists when id is known · persists when listGa4Properties fails (defense-in-depth operator-trust skip) · `disconnectGoogleGa4` sets `disconnected_at` + clears `ga4_property_*` · does NOT call `deleteConnectorToken` · `disconnectGoogle` leaves GA4 untouched.
+- `tests/app/settings/connectors-ga4-card.test.tsx` (5 tests): 4 state renders (NOT CONNECTED · CONNECTED + NO PROPERTY · CONNECTED + WITH PROPERTY · SOFT-DISCONNECTED) + customer-vocab safety scan (no "drove" / "caused" / "revenue" / "dollars" / "Mode A" / "Mode B" / "Mode C" anywhere on the card).
+
+**Tests extended:**
+- `tests/routes/connectors-smoke.test.ts` — asserts the GA4 card renders in the default disconnected state with `data-connector-card="google-ga4"` attribute and "Connect Google Analytics" button.
+
+**Architecture catalog.** Row for `ga4-no-page-load-call` updated to reflect the tightened 9.A1β posture; retirement-condition column updated. No new rows.
+
+**Quality gates run from this slice.**
+- `npm run typecheck` — CLEAN.
+- Targeted GA4 + settings + catalog-sync + connectors-smoke — **69/69 green** (10 client + 17 property-selection + 14 actions + 5 card-render + 13 architecture + 8 catalog-sync + 2 connectors-smoke).
+- Regression sweep (`tests/architecture/google-oauth-scope-split.test.ts` + `tests/architecture/connector-token-tenant-scope.test.ts` + `tests/architecture/connector-store-no-disk-write.test.ts` + `tests/lib/connectors/gsc/{disconnect-flow,expiry-handler,client,client-j-block}.test.ts`) — **93/93 green** (no GSC/GBP/Yelp regression).
+- Full suite + tenant-env build run during the READY_TO_COMMIT gate.
+
+**Hard contracts honored.**
+- No file under `src/lib/connectors/ga4/` modified (substrate locked).
+- No GA4 Data API call (Slice 9.A2 owns the Data API + Mode A read model + migration).
+- No CallRail (deferred indefinitely per K2 lock).
+- No GBP insights changes.
+- No Today tile, no Changes detail outcome copy, no `/diagnostics/outcome-attribution`.
+- No new top-level routes.
+- No customer outcome claims · no revenue/causal language (the card render test pins this).
+- No `business-config` GA4 property field (`src/lib/business-config.ts` untouched).
+- No GSC/GBP/Yelp behavior regression (93/93 regression sweep green).
+- No GA4 call on page load — property list loads on `handleLoadGa4Properties` button click only; the `ga4-no-page-load-call` invariant's tightened positive sanity check pins the actions seam as the only allowed entry point.
+- Original token persistence posture preserved: GA4 follows the same soft-disconnect-via-`disconnected_at` pattern as GSC J5; cached payloads are never destroyed.
+
+**Net source delta** (excluding tests + docs):
+- Modified: `src/app/(shell)/settings/connectors/page.tsx` (+~40 net) · `src/app/(shell)/settings/connectors/connectors-client.tsx` (+~300 net) · `src/app/(shell)/settings/connectors/actions.ts` (+~158 net).
+- **Total `src/` net: +498 lines** — UNDER the +500 ceiling.
+
+**Operator-side smoke** (deferred until after commit/push/deploy approval):
+- Manual hosted UI test on `/settings/connectors` after Vercel deploy:
+  1. Confirm "Google Analytics" card renders in NOT CONNECTED state with the Connect button visible.
+  2. Real Google OAuth (operator credentials) — GA4 consent screen shows ONLY "View your Google Analytics data" (no Search Console / no Business Profile permissions).
+  3. After redirect, card flips to CONNECTED + NO PROPERTY with "Choose property" affordance.
+  4. Click "Choose property" → property list renders → click a property → card flips to CONNECTED + WITH PROPERTY.
+  5. Click "Disconnect" → soft-disconnect; card flips to SOFT-DISCONNECTED with stale tooltip.
+  6. Reconnect → fresh OAuth → card returns to CONNECTED state.
+
+**Next step.** Operator review of the READY_TO_COMMIT report; on approval, commit + push + Vercel deploy + hosted Google OAuth manual smoke. Then **Slice 9.A2** (GA4 Data API + Mode A outcome attribution read model + first Supabase migration for `ga4_url_traffic` + customer-facing per-URL Mode A copy on `/changes/[id]?v2=1`).
+
+---
+
 ## 2026-05-18 — Slice 9.A1α: GA4 connector substrate (split from 9.A1)
 
 **Status.** READY_TO_COMMIT (substrate-only split slice; no commit, no push, no deploy until operator approval).

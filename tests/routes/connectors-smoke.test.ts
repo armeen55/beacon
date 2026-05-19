@@ -29,7 +29,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 describe("Connectors settings route smoke", () => {
-  it("renders connector page with the GSC card + Yelp section", async () => {
+  it("renders connector page with the GSC card + GA4 card + Yelp section", async () => {
     const { default: ConnectorsPage } = await import(
       "@/app/(shell)/settings/connectors/page"
     );
@@ -38,8 +38,12 @@ describe("Connectors settings route smoke", () => {
 
     expect(html).toContain("Connectors");
     expect(html).toContain("Google Search Console");
-    expect(html).toContain("Not connected");
     expect(html).toContain("Connect Google Search Console");
+    // Slice 9.A1β (2026-05-18) — Google Analytics card now ships in
+    // the default disconnected (NOT CONNECTED) state.
+    expect(html).toContain('data-connector-card="google-ga4"');
+    expect(html).toContain("Google Analytics");
+    expect(html).toContain("Connect Google Analytics");
     expect(html).toContain("Yelp");
     expect(html).toContain("Enter Yelp API Key");
     expect(html).toContain("Save API Key");

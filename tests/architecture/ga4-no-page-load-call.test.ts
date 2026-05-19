@@ -1,25 +1,22 @@
 /**
- * Architecture invariant — Slice 9.A1α (2026-05-18) — substrate-only.
+ * Architecture invariant — Slice 9.A1β (2026-05-18) — operator-substrate
+ * contract (tightened from 9.A1α substrate-only posture).
  *
- * Substrate posture: the GA4 connector exists under
- * `src/lib/connectors/ga4/` but has ZERO consumers in v1. Slice
- * 9.A1α ships the connector, types, and OAuth wiring; Slice 9.A1β
- * lands the `/settings/connectors` UI + server-action seam that
- * actually calls the connector.
- *
- * This invariant enforces:
+ * GA4 calls happen ONLY via server actions, never on a customer page
+ * render path. Mirrors the locked `gsc-no-customer-surface-import`
+ * invariant. The check enforces:
  *
  *   • No file under `src/app/(shell)/<customer-surface>` directly
  *     imports `src/lib/connectors/ga4/*`.
  *   • No file under `src/components/<customer-surface>` directly
  *     imports `src/lib/connectors/ga4/*`.
- *
- * When Slice 9.A1β lands the actions seam at
- * `src/app/(shell)/settings/connectors/actions.ts`, this invariant
- * tightens by adding a POSITIVE sanity check that the actions file
- * DOES import the connector (the only allowed seam). For 9.A1α the
- * sanity check is intentionally omitted — the connector has no
- * caller, by design.
+ *   • POSITIVE sanity check: the settings server-actions seam at
+ *     `src/app/(shell)/settings/connectors/actions.ts` DOES import
+ *     `@/lib/connectors/ga4/` — server actions execute on POST, not
+ *     on render, so the actions seam is the only allowed entry
+ *     point. Slice 9.A1β added the positive check after the seam
+ *     landed; 9.A1α intentionally omitted it because the connector
+ *     was substrate-only with zero callers.
  *
  * Pinned customer surfaces (scope of the scan):
  *   src/app/(shell)/today/**
@@ -120,12 +117,23 @@ describe("ga4 connector — no page-load call from customer surfaces", () => {
     ).toEqual([]);
   });
 
-  it("9.A1α substrate posture — no settings actions seam yet (no positive sanity check)", () => {
-    // Slice 9.A1α intentionally ships the connector without a caller.
-    // Slice 9.A1β will add a server-action seam at
-    // `src/app/(shell)/settings/connectors/actions.ts`; at that point
-    // a paired POSITIVE invariant check will be added here. For now
-    // we simply document the scope: the connector is substrate-only.
-    expect(true).toBe(true);
+  it("operator-substrate actions seam imports the GA4 connector (positive sanity)", () => {
+    // The settings server-actions file IS allowed to import GA4 —
+    // it's the only allowed entry point. This positive sanity check
+    // ensures a future refactor doesn't accidentally drop the
+    // import (which would leave the UI calling a non-existent
+    // server action and dead-code the connector entirely).
+    const actionsPath = join(
+      REPO_ROOT,
+      "src/app/(shell)/settings/connectors/actions.ts",
+    );
+    const code = readFileSync(actionsPath, "utf-8");
+    expect(
+      code.includes("@/lib/connectors/ga4/"),
+      "actions.ts must import from @/lib/connectors/ga4/ — this is the " +
+        "only allowed server-action seam for the GA4 property picker. " +
+        "Slice 9.A1β added this contract; substrate-only 9.A1α omitted " +
+        "it because the connector had no caller.",
+    ).toBe(true);
   });
 });
