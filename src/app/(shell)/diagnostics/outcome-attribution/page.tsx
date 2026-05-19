@@ -1,8 +1,8 @@
 import "server-only";
 
 /**
- * 2026-05-19 — Slice 9.A2α.3 — operator-only outcome attribution
- * diagnostic.
+ * 2026-05-19 — Slice 9.A2α.3 + 9.A2γ — operator-only outcome
+ * attribution diagnostic.
  *
  * Read-only page that surfaces Mode A attribution per tenant's
  * verified-live `recommended_edits` against the cached
@@ -15,14 +15,28 @@ import "server-only";
  * render-under-test (same convention as `/diagnostics/lifecycle-
  * eligibility`).
  *
- * Read-only contract:
- *   - No Supabase writes (reads `ga4_url_traffic` + `recommended_edits`
- *     via the repository pattern + Supabase admin client).
+ * 9.A2γ extension (2026-05-19):
+ *   Adds an operator-only "Refresh GA4 traffic" form that posts to
+ *   the `refreshTenantGa4Traffic` server action. The action is the
+ *   ONLY entry point that triggers a GA4 Data API HTTP call; page
+ *   render still reads only cached rows. After a successful click,
+ *   `revalidatePath` re-renders this page with updated counters.
+ *
+ *   The page also surfaces a calm "Last refresh" line derived from
+ *   `MAX(last_synced_at)` over the cached rows. Operator-side
+ *   freshness signal — no customer copy.
+ *
+ * Read-only render contract:
+ *   - No Supabase writes on render (reads `ga4_url_traffic` +
+ *     `recommended_edits` via the repository pattern + Supabase
+ *     admin client).
  *   - No GA4 API call on page load — only reads pre-cached rows.
  *     The architecture invariant `ga4-no-page-load-call` enforces
  *     this; this file does NOT import from `@/lib/connectors/ga4/*`
- *     directly. The Mode A read model (`mode-a-cited-here-traffic-
- *     here.ts`) is a pure compute over cached rows.
+ *     directly. Refresh button posts to the action; the action
+ *     (separate file, "use server") is the only Data API caller.
+ *   - The Mode A read model (`mode-a-cited-here-traffic-here.ts`)
+ *     is a pure compute over cached rows.
  *   - No LLM, no paid APIs, no customer-vocab leaks.
  *
  * Fail-soft contract for the Supabase read:
@@ -44,7 +58,9 @@ import "server-only";
  *   • `tests/app/diagnostics/outcome-attribution-page.test.tsx`
  *     (operator gate + render variants + Supabase fail-soft +
  *      vocab safety + data-attribute presence + no-Data-API-import
- *      check)
+ *      check + refresh form presence)
+ *   • `tests/architecture/outcome-attribution-refresh-operator-only.test.ts`
+ *   • `tests/architecture/outcome-attribution-refresh-no-customer-surface.test.ts`
  */
 
 import { notFound } from "next/navigation";
@@ -59,6 +75,7 @@ import {
 } from "@/domains/outcome-attribution/mode-a-cited-here-traffic-here";
 import type { Ga4UrlTrafficRow } from "@/lib/connectors/ga4/types";
 import type { RecommendedEditRow } from "@/domains/recommendations/recommended-edits-persistence";
+import { refreshTenantGa4TrafficFromForm } from "@/app/(shell)/diagnostics/outcome-attribution/actions";
 
 export const dynamic = "force-dynamic";
 
@@ -73,6 +90,10 @@ type TrafficLoadStatus = "ok" | "table_missing" | "read_error" | "admin_unavaila
 type TrafficLoadResult = {
   rows: Ga4UrlTrafficRow[];
   status: TrafficLoadStatus;
+  /** 9.A2γ — operator-side freshness label derived from
+   *  MAX(last_synced_at) over the cached rows. Null when the table
+   *  is empty / unreachable. */
+  last_synced_at_max: string | null;
 };
 
 /**
@@ -84,27 +105,33 @@ type TrafficLoadResult = {
  *   • table_missing    — PostgREST 42P01 (sequencing model A)
  *   • read_error       — any other Supabase error
  *   • admin_unavailable — Supabase env vars unset (dev)
+ *
+ * 9.A2γ — also returns `last_synced_at_max` for the operator-side
+ * freshness label rendered next to the Refresh button.
  */
 async function loadGa4TrafficRows(tenantId: string): Promise<TrafficLoadResult> {
   let admin;
   try {
     admin = getSupabaseAdmin();
   } catch {
-    return { rows: [], status: "admin_unavailable" };
+    return { rows: [], status: "admin_unavailable", last_synced_at_max: null };
   }
   const { data, error } = await admin
     .from(TABLE)
-    .select("url, date, sessions, engaged_sessions, conversions")
+    .select("url, date, sessions, engaged_sessions, conversions, last_synced_at")
     .eq("tenant_id", tenantId);
   if (error != null) {
     const code = (error as { code?: unknown }).code;
     if (typeof code === "string" && code === "42P01") {
-      return { rows: [], status: "table_missing" };
+      return { rows: [], status: "table_missing", last_synced_at_max: null };
     }
-    return { rows: [], status: "read_error" };
+    return { rows: [], status: "read_error", last_synced_at_max: null };
   }
-  if (!Array.isArray(data)) return { rows: [], status: "ok" };
+  if (!Array.isArray(data)) {
+    return { rows: [], status: "ok", last_synced_at_max: null };
+  }
   const out: Ga4UrlTrafficRow[] = [];
+  let lastSyncedMax: string | null = null;
   for (const row of data) {
     if (row == null || typeof row !== "object") continue;
     const r = row as Record<string, unknown>;
@@ -119,8 +146,12 @@ async function loadGa4TrafficRows(tenantId: string): Promise<TrafficLoadResult> 
         typeof r.engaged_sessions === "number" ? r.engaged_sessions : 0,
       conversions: typeof r.conversions === "number" ? r.conversions : 0,
     });
+    const ls = typeof r.last_synced_at === "string" ? r.last_synced_at : null;
+    if (ls != null && (lastSyncedMax == null || ls > lastSyncedMax)) {
+      lastSyncedMax = ls;
+    }
   }
-  return { rows: out, status: "ok" };
+  return { rows: out, status: "ok", last_synced_at_max: lastSyncedMax };
 }
 
 /**
@@ -238,6 +269,36 @@ export default async function OutcomeAttributionDiagnosticPage(props: PageProps)
           <p className="text-[12px] text-foreground">{banner}</p>
         </section>
       ) : null}
+
+      <section
+        className="rounded-md border border-border/40 bg-surface-inset/10 p-3"
+        data-diagnostic-section="refresh"
+      >
+        <form action={refreshTenantGa4TrafficFromForm}>
+          <button
+            type="submit"
+            className="rounded border border-border/60 bg-surface px-3 py-1 text-[12px] font-medium text-foreground hover:bg-surface-inset/40"
+            data-action="refresh-ga4-traffic"
+          >
+            Refresh GA4 traffic
+          </button>
+        </form>
+        <p
+          className="mt-2 text-[11px] text-muted-foreground"
+          data-refresh-last-synced-at={trafficResult.last_synced_at_max ?? ""}
+        >
+          Last refresh:{" "}
+          <span className="font-mono">
+            {trafficResult.last_synced_at_max ?? "—"}
+          </span>
+          {" • "}
+          <span className="font-mono">
+            {trafficResult.rows.length}
+          </span>{" "}
+          cached row{trafficResult.rows.length === 1 ? "" : "s"}.
+          Click the button to fetch fresh rows via the GA4 Data API.
+        </p>
+      </section>
 
       <section
         className="rounded-md border border-border/40 bg-surface-inset/20 p-3"

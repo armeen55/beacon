@@ -65,6 +65,7 @@ vi.mock("@/lib/persistence/repositories", () => ({
 let _trafficRowsToReturn: Array<Record<string, unknown>> = [];
 let _supabaseError: { code?: string; message?: string } | null = null;
 let _supabaseAdminThrows = false;
+const _lastSelectColumns = { current: "" };
 vi.mock("@/lib/persistence/supabase", () => ({
   getSupabaseAdmin: () => {
     if (_supabaseAdminThrows) {
@@ -72,14 +73,17 @@ vi.mock("@/lib/persistence/supabase", () => ({
     }
     return {
       from: (_table: string) => ({
-        select: (_cols: string) => ({
-          eq: (_col: string, _val: string) =>
-            Promise.resolve(
-              _supabaseError != null
-                ? { data: null, error: _supabaseError }
-                : { data: _trafficRowsToReturn, error: null },
-            ),
-        }),
+        select: (cols: string) => {
+          _lastSelectColumns.current = cols;
+          return {
+            eq: (_col: string, _val: string) =>
+              Promise.resolve(
+                _supabaseError != null
+                  ? { data: null, error: _supabaseError }
+                  : { data: _trafficRowsToReturn, error: null },
+              ),
+          };
+        },
       }),
     };
   },
@@ -93,6 +97,23 @@ vi.mock("@/domains/citation-lifecycle/canonicalize-url", () => ({
       .replace(/[?#].*$/, "")
       .replace(/\/+$/, "");
   },
+}));
+
+// 9.A2γ — the page now imports the server action; mock it so the
+// page renders without triggering the action's downstream imports
+// (which include `next/cache`, the connector store, etc.). Both
+// `refreshTenantGa4Traffic` (programmatic + test surface) and the
+// thin `refreshTenantGa4TrafficFromForm` (the form-binding wrapper
+// the page uses) are mocked.
+vi.mock("@/app/(shell)/diagnostics/outcome-attribution/actions", () => ({
+  refreshTenantGa4Traffic: vi.fn(async () => ({
+    ok: true,
+    rows_fetched: 0,
+    rows_upserted: 0,
+    startDate: "2026-02-18",
+    endDate: "2026-05-19",
+  })),
+  refreshTenantGa4TrafficFromForm: vi.fn(async (_fd: FormData) => undefined),
 }));
 
 const ORIGINAL_NODE_ENV = process.env.NODE_ENV;
@@ -407,13 +428,21 @@ describe("Outcome attribution diagnostic — customer-vocab safety", () => {
       },
     ];
     const html = await renderPage();
-    const lower = html.toLowerCase();
+    // Strip React's framework-injected <script> / <style> tags
+    // (9.A2γ: `<form action={serverAction}>` triggers React's auto-
+    //  injected form-replay script which contains `$$reactFormReplay`).
+    // The K5 forbidden-vocab rule applies to customer-visible text,
+    // NOT framework infrastructure.
+    const visible = html
+      .replace(/<script[\s\S]*?<\/script>/gi, "")
+      .replace(/<style[\s\S]*?<\/style>/gi, "");
+    const lower = visible.toLowerCase();
     expect(lower.includes("drove")).toBe(false);
     expect(lower.includes("caused")).toBe(false);
     expect(lower.includes("revenue")).toBe(false);
     expect(lower.includes("dollars")).toBe(false);
     expect(lower.includes("generated")).toBe(false);
-    expect(html.includes("$")).toBe(false);
+    expect(visible.includes("$")).toBe(false);
   });
 });
 
@@ -460,5 +489,73 @@ describe("Outcome attribution diagnostic — no GA4 Data API call on render", ()
     );
     const source = readFileSync(pagePath, "utf-8");
     expect(source.includes("runGa4UrlTrafficReport")).toBe(false);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────
+// 9.A2γ — Refresh form + last-refresh label
+// ─────────────────────────────────────────────────────────────────────
+
+describe("Outcome attribution diagnostic — refresh form (9.A2γ)", () => {
+  it("renders a refresh form with the Refresh GA4 traffic button", async () => {
+    const html = await renderPage();
+    expect(html).toContain('data-diagnostic-section="refresh"');
+    expect(html).toContain('data-action="refresh-ga4-traffic"');
+    expect(html).toContain("Refresh GA4 traffic");
+    expect(html).toContain("<form");
+  });
+
+  it("renders an em-dash placeholder for last refresh when no rows are cached", async () => {
+    _trafficRowsToReturn = [];
+    const html = await renderPage();
+    expect(html).toContain('data-refresh-last-synced-at=""');
+    expect(html).toContain("Last refresh:");
+    expect(html).toContain(">—<"); // dash placeholder
+  });
+
+  it("renders MAX(last_synced_at) when rows are present and labels row count", async () => {
+    _trafficRowsToReturn = [
+      {
+        url: "/a",
+        date: "2026-05-18",
+        sessions: 10,
+        engaged_sessions: 8,
+        conversions: 0,
+        last_synced_at: "2026-05-19T16:30:00.000Z",
+      },
+      {
+        url: "/b",
+        date: "2026-05-19",
+        sessions: 3,
+        engaged_sessions: 2,
+        conversions: 0,
+        last_synced_at: "2026-05-19T17:00:00.000Z",
+      },
+    ];
+    const html = await renderPage();
+    expect(html).toContain(
+      'data-refresh-last-synced-at="2026-05-19T17:00:00.000Z"',
+    );
+    expect(html).toContain("2026-05-19T17:00:00.000Z");
+    // 2 cached rows label
+    expect(html).toContain(">2</span> cached rows");
+  });
+
+  it("includes last_synced_at in the Supabase select clause", async () => {
+    _lastSelectColumns.current = "";
+    await renderPage();
+    expect(_lastSelectColumns.current).toContain("last_synced_at");
+  });
+
+  it("does NOT import next/cache (only the action imports revalidatePath)", () => {
+    const pagePath = resolve(
+      __dirname,
+      "../../../src/app/(shell)/diagnostics/outcome-attribution/page.tsx",
+    );
+    const source = readFileSync(pagePath, "utf-8");
+    const stripped = source
+      .replace(/^\s*\/\/.*$/gm, "")
+      .replace(/\/\*[\s\S]*?\*\//g, "");
+    expect(stripped.includes('from "next/cache"')).toBe(false);
   });
 });

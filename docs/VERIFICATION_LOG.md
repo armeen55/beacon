@@ -7,6 +7,77 @@
 
 ---
 
+## 2026-05-19 — Slice 9.A2γ: Operator-only GA4 traffic refresh action
+
+**Status:** READY_TO_COMMIT (operator-approved implementation; awaiting commit/push/verify approval).
+**Branch:** `claude/objective-davinci-c81e70`.
+**Builds on:** 9.A2α.1 (`405d0f3`) + migration apply (`cde5820`) + 9.A2α.2 (`8ab6861`) + 9.A2α.3 (`09d5275`).
+
+### Why this slice exists
+
+9.A2β preflight (2026-05-19) discovered `ga4_url_traffic` at 0 production rows because no writer code existed. The operator diagnostic surfaced this honestly (every Mode A result returned `ineligible: no_traffic_data`) but the fill path was missing. Slice 9.A2γ adds the smallest safe operator-triggered refresh path so 9.A2β customer-copy work can proceed against a non-empty table.
+
+### Files changed
+
+**Source (NEW):**
+- `src/lib/connectors/ga4/persist-url-traffic.ts` — server-only helper. Exports `persistGa4UrlTraffic({ tenantId, propertyId, startDate, endDate })` (wraps `runGa4UrlTrafficReport`, upserts on conflict `(tenant_id, url, date)`) and pure `computeRefreshDateRange(edits, now)` (90-day default; expandable to `min(live_at)` within 180-day cap). Discriminated fail-soft union: passthrough Data API reasons + `admin_unavailable` / `persist_failed` / `invalid_args`.
+- `src/app/(shell)/diagnostics/outcome-attribution/actions.ts` — `"use server"`. Exports `refreshTenantGa4Traffic()`. Gated by `isOperatorModeServer()` BEFORE any token/DB/HTTP work; rejects with `not_operator` / `no_token` / `no_property` on missing prerequisites. Reads GA4 connector token + property + recommended_edits for date-range expansion; calls persist helper; `revalidatePath("/diagnostics/outcome-attribution")` on SUCCESS ONLY.
+
+**Source (MODIFIED):**
+- `src/app/(shell)/diagnostics/outcome-attribution/page.tsx` — adds operator-only `<form action={refreshTenantGa4Traffic}>` refresh section + "Last refresh" freshness line derived from `MAX(last_synced_at)` over cached rows. Supabase `select` extended to include `last_synced_at`. Page render is STILL read-only (only the action triggers the GA4 Data API call).
+
+**Tests (NEW):**
+- `tests/lib/connectors/ga4/persist-url-traffic.test.ts` — 23 tests: pure date-range policy (8 cases covering 90-day default, min(live_at) expansion, 180-day cap, malformed inputs) + invalid_args (4) + Data API non-ok passthrough (4) + happy-path with upsert-shape inspection (3) + admin/upsert fail-soft (3) + never-throws contract (1).
+- `tests/app/diagnostics/outcome-attribution-actions.test.ts` — 12 tests: operator gate (3 — blocks downstream calls; no revalidate on block) + connector preconditions (3 — no_token / no_property null / no_property empty) + happy path (5 — explicit args / tenant scope threading / revalidate / failure-no-revalidate / api_error passthrough) + date-range expansion (1).
+
+**Tests (MODIFIED):**
+- `tests/app/diagnostics/outcome-attribution-page.test.tsx` — extended with 5 new tests in a new "9.A2γ — Refresh form + last-refresh label" block: refresh form presence + em-dash placeholder when empty + MAX(last_synced_at) when populated + select-includes-last_synced_at + no `next/cache` import in page. Existing K5 vocab-safety test extended to strip framework-injected `<script>` (React's `<form action={serverAction}>` auto-injects a form-replay script containing `$$reactFormReplay`; framework infrastructure ≠ customer copy).
+
+**Architecture invariants (NEW, 2):**
+- `tests/architecture/outcome-attribution-refresh-operator-only.test.ts` — 7 assertions: `'use server'` directive + async export + isOperatorModeServer import + gate runs BEFORE getGoogleConnectorToken / persistGa4UrlTraffic + `not_operator` branch + revalidatePath wired + persistGa4UrlTraffic seam wired.
+- `tests/architecture/outcome-attribution-refresh-no-customer-surface.test.ts` — 3 assertions: customer-surface scan forbidding action import + persist import + named identifiers (`refreshTenantGa4Traffic` / `persistGa4UrlTraffic` / `computeRefreshDateRange`) + positive sanity that operator diagnostic IS the only consumer + server-only declaration on persist helper.
+
+**Catalog:**
+- `docs/ARCHITECTURE_INVARIANTS_CATALOG.md` — new "Section 9 / Slice 9.A2γ" section with both new invariant rows. `catalog-sync` test green.
+
+### Quality gates
+
+- `npm run typecheck`: CLEAN.
+- Targeted: `persist-url-traffic.test.ts` (23) + `outcome-attribution-actions.test.ts` (12) + `outcome-attribution-page.test.tsx` (28 total, +5 new) + `outcome-attribution-refresh-operator-only.test.ts` (7) + `outcome-attribution-refresh-no-customer-surface.test.ts` (3) + Mode A regression + GA4 Data API regression + `catalog-sync.test.ts` (8) — all green.
+- Full suite: green (see commit-time totals).
+- Build: `BEACON_TENANT_ID=tenant-ritz-founder BEACON_TENANT_SLUG=ritz-founder npm run build` — green; `/diagnostics/outcome-attribution` registered as dynamic `ƒ` route.
+
+### Hard contracts honored
+
+- No customer surface change (Today / Recommendations / Changes / Prompts / Local / Competitors / Settings byte-unchanged).
+- No cron / scheduled job / automatic refresh.
+- No CallRail / no GBP insights.
+- No LLM.
+- No revenue/causal language in customer-visible markup (framework-injected `<script>` stripped before vocab scan).
+- No Mode A customer copy (still 9.A2β).
+- No new migration.
+- No daily-scan / poll / canary workflow changes.
+- 9.A2α.1 substrate (`data-api.ts` / `client.ts` / `types.ts` / `property-selection.ts`) byte-unchanged.
+- 9.A2α.2 Mode A read model byte-unchanged.
+- 2026-05-19 `ga4_url_traffic` migration byte-unchanged.
+- Page render reads cached rows ONLY; the GA4 Data API HTTP call happens only when the operator clicks the Refresh button.
+
+### Manual verification steps after deploy
+
+1. Open `/diagnostics/outcome-attribution` on production with operator-mode enabled.
+2. Confirm "Refresh GA4 traffic" button visible + "Last refresh: —" baseline shown.
+3. Click "Refresh GA4 traffic". Observe form submit + page re-render (~1-5 seconds depending on Google's API latency).
+4. Confirm `last_synced_at` line updates to a recent ISO timestamp + cached row count > 0.
+5. Re-query production `ga4_url_traffic` via Supabase CLI (`SELECT COUNT(*), MAX(last_synced_at) FROM ga4_url_traffic WHERE tenant_id = 'tenant-ritz-founder'`) — should show non-zero rows.
+6. Confirm Mode A counter strip on the diagnostic page reflects non-zero "eligible" or "still_learning_outcome" counts for at least one Ritz verified-live edit (depending on whether ≥ 7 days have elapsed since the edit's `live_at` AND traffic data exists for the target_url).
+7. Re-run 9.A2β preflight to confirm Mode A returns non-`ineligible` for at least one Ritz edit.
+
+### Next slice
+
+**Slice 9.A2β preflight re-run.** With `ga4_url_traffic` non-empty, re-verify whether customer-copy implementation is safe — at least one Ritz edit should hit `eligible` or `still_learning_outcome: insufficient_volume` (NOT `ineligible: no_traffic_data`) before the customer-surface slice begins.
+
+---
+
 ## 2026-05-19 — Slice 9.A2α.3: Operator-only outcome-attribution diagnostic
 
 **Status.** READY_TO_COMMIT (operator-approved implementation-only gate; no commit, no push, no deploy until operator approval).
