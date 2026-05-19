@@ -7,6 +7,75 @@
 
 ---
 
+## 2026-05-19 — Slice 9.A2α.1: GA4 Data API substrate + first Section-9 migration
+
+**Status.** READY_TO_COMMIT (operator-approved implementation-only gate; no commit, no push, no deploy until operator approval).
+
+**Split context.** The full 9.A2α bundle (Data API + Mode A read model + operator diagnostic) hit +992 src/ — over the locked +500 ceiling. Operator approved Option α: 3-way split into 9.A2α.1 (substrate + migration; THIS slice) → 9.A2α.2 (Mode A pure-compute read model; deferred) → 9.A2α.3 (operator-only diagnostic; deferred). The Mode A + diagnostic source + tests were removed from the working tree before this READY_TO_COMMIT report; they will be re-implemented on top of 9.A2α.1 in subsequent sub-slices.
+
+**Predecessor + external prerequisite.** Consumes the 9.A1β-shipped GA4 OAuth + property picker (`/settings/connectors` Google Analytics card; Ritz Builders property persisted on `google_ga4` token payload). Operator confirmed via the new locked standing rule that **Google Analytics Data API is enabled** in the production Google Cloud project hosting Beacon's OAuth client.
+
+**What changed.**
+
+**`src/lib/connectors/ga4/types.ts` — additive extension only.** New types: `Ga4UrlTrafficRow` (date+url+sessions+engaged_sessions+conversions; metric strings parsed to integers); `Ga4RunReportResponseBody` (verbatim Data API response shape; defensive); `Ga4RunReportArgs` (tenantId+propertyId+startDate+endDate, all required); `Ga4UrlTrafficReportResult` (discriminated union mirroring `Ga4PropertyListResult` from 9.A1α). The 9.A1α public surface (`Ga4Property` / `Ga4PropertyListResult` / `Ga4ApiFetchResult<T>` / `Ga4FailReason`) is byte-unchanged.
+
+**NEW `src/lib/connectors/ga4/data-api.ts`** — server-only Data API client. Exports `runGa4UrlTrafficReport(args: Ga4RunReportArgs): Promise<Ga4UrlTrafficReportResult>`. Endpoint: `POST https://analyticsdata.googleapis.com/v1beta/properties/{propertyId}:runReport`. Reuses the existing `analytics.readonly` scope (no re-consent). Body: `dateRanges` + `dimensions: [date, pagePath]` + `metrics: [sessions, engagedSessions, conversions]` + `limit: 10000`. Response narrowing flattens GA4's `YYYYMMDD` date format to ISO `YYYY-MM-DD` and parses string metric values to integers (defaults to 0 on parse failure). Fail-soft on every documented path (no_token / missing_scope / disconnected / token_expired (stale_over_7d) / api_error). Refresh-on-401 single-retry path mirrors the Admin API client. **Non-2xx non-401 path emits `log.warn("[ga4-data-api] non-2xx response from GA4 Data API", { tenantId, status, body })` with bounded body capture ≤500 chars** — surfaces the exact Google error body (e.g. "Data API has not been used" 403 PERMISSION_DENIED) so operator triage is symmetric with the GSC client's pattern. Exported pure helpers `buildRunReportUrl` / `buildRunReportBody` / `narrowRunReportRows` for tests.
+
+**MODIFIED `src/lib/connectors/ga4/client.ts`** — ONE block addition at the non-2xx non-401 silent return. Folds in the 9.A1β-deferred logging fix that hid the Admin API enablement failure during 9.A1β manual smoke. Pattern matches the new `data-api.ts` log line: `log.warn("[ga4-client] non-2xx response from GA4 Admin API", { tenantId, status, body })` with the same bounded body capture + defensive try/catch. All other 9.A1α `client.ts` public/internal surface is byte-identical (verified by the unchanged `gscUrlInspect` shape and the unchanged `__testing` exports — the only test that touched this code path was already pinning the existing 401-refresh log line + the new non-2xx log line per `ga4-data-api-non-2xx-logging.test.ts`).
+
+**NEW `migrations/2026-05-19_ga4_url_traffic.sql`** — FIRST Section-9 migration. Schema: `ga4_url_traffic` table with composite PK `(tenant_id, url, date)`, columns `sessions` / `engaged_sessions` / `conversions` (integer NOT NULL DEFAULT 0), `last_synced_at` (timestamptz NOT NULL DEFAULT now() — TTL anchor), `raw` (JSONB nullable; operator triage only), `updated_at`. Secondary index `(tenant_id, last_synced_at DESC)` supports refresh-stale-rows queries. RLS deny-all for authenticated; service_role bypasses. Idempotent (CREATE TABLE IF NOT EXISTS, CREATE INDEX IF NOT EXISTS, CREATE POLICY). Rollback path documented (DROP TABLE IF EXISTS CASCADE).
+
+**Slice 9.A2α.2 DEFERRED — Mode A pure-compute read model.** `src/domains/outcome-attribution/mode-a-cited-here-traffic-here.ts` (the K4-sample-size-guard pure-compute consumer of this substrate) is NOT shipped in 9.A2α.1. The full implementation existed in the over-ceiling bundle; it was removed from the working tree before this READY_TO_COMMIT report and will be re-implemented in 9.A2α.2 on top of the shipped substrate. Locked thresholds (`MODE_A_MIN_DAYS_POST_LIVE = 7` / `MODE_A_MIN_SESSIONS = 5` / `MODE_A_MIN_QUALIFIED_CALLS = 1`) and the discriminated `ModeAResult` union shape will land in 9.A2α.2 along with the `outcome-attribution-mode-a-sample-size-guard` architecture invariant.
+
+**Slice 9.A2α.3 DEFERRED — operator-only outcome-attribution diagnostic.** `src/app/(shell)/diagnostics/outcome-attribution/page.tsx` is NOT shipped in 9.A2α.1. Will be re-implemented in 9.A2α.3 on top of 9.A2α.2's Mode A read model.
+
+**Tests added — 9.A2α.1 only (data-api + 2 architecture invariants):**
+- `tests/lib/connectors/ga4/data-api.test.ts` (~40 tests): `buildRunReportUrl` + `buildRunReportBody` + `narrowRunReportRows` pure helpers · `runGa4UrlTrafficReport` 9 fail-soft paths · happy 200 path with Authorization header check · 403 non-2xx path with `log.warn` bounded-body assertion · 401-refresh-retry happy + fail · fetch-throw fail-soft · `__testing` constants pinned.
+
+**Tests deferred to 9.A2α.2 + 9.A2α.3:**
+- `tests/domains/outcome-attribution/mode-a-cited-here-traffic-here.test.ts` → ships with 9.A2α.2 Mode A read model.
+- `tests/app/diagnostics/outcome-attribution-page.test.tsx` → ships with 9.A2α.3 operator diagnostic.
+- `tests/architecture/outcome-attribution-mode-a-sample-size-guard.test.ts` → ships with 9.A2α.2 Mode A read model.
+
+**Architecture invariants added — 2 new test files / 2 new catalog rows:**
+- `tests/architecture/ga4-data-api-tenant-isolation.test.ts` (7 assertions): export shape · explicit tenantId · no ambient reads · `import "server-only"` · `analytics.readonly` scope literal · `analyticsdata.googleapis.com` host + `:runReport` endpoint · no customer-surface imports.
+- `tests/architecture/ga4-data-api-non-2xx-logging.test.ts` (6 assertions): `[ga4-data-api]` non-2xx log prefix · payload includes `tenantId` + `status` + `body` · `.slice(0, 500)` body cap · symmetric `[ga4-client]` log on substrate · client.ts body cap · try/catch wrapper around `response.text()`.
+
+**Catalog sync.** 2 new rows added under "Section 9 / Slice 9.A2α.1 — GA4 Data API substrate + first Section-9 migration" heading. Catalog-sync test green. (Third invariant `outcome-attribution-mode-a-sample-size-guard` is intentionally deferred to 9.A2α.2 to keep this slice's invariants in lockstep with its source.)
+
+**Quality gates run from this slice (9.A2α.1 only).**
+- `npm run typecheck` — CLEAN.
+- Targeted 9.A2α.1 suite (1 unit test file + 2 architecture invariants) — green.
+- Regression sweep (existing 9.A1α + 9.A1β GA4 + connector + smoke tests) — green (zero substrate regression; Settings UI byte-identical to 9.A1β shipped state).
+- Catalog-sync — green after 2 new rows added.
+- Full suite + tenant-env build run before READY_TO_COMMIT report.
+
+**Hard contracts honored.**
+- No customer surface modification (today / recommendations / changes / prompts / local / competitors + components).
+- No cron / scheduled-job wiring.
+- No CallRail (K2 lock).
+- No GBP insights changes.
+- No customer outcome claims · no revenue / causal language anywhere · forbidden-vocab K5 token set absent from new source files (defense-in-depth even where no customer copy ships).
+- No LLM.
+- No paid API beyond the free GA4 Data API (operator-confirmed enabled before this slice ran).
+- No `business-config` GA4 property field.
+- No GSC/GBP/Yelp behavior regression.
+- No GA4 call on page load (existing + new `ga4-no-page-load-call` invariant covers `data-api.ts`).
+- No Mode A read model in this slice (deferred to 9.A2α.2).
+- No operator diagnostic page in this slice (deferred to 9.A2α.3).
+- Substrate stability: 9.A1α public surface byte-identical except the one symmetric `log.warn` line addition on `client.ts` non-2xx branch (pinned by the new `ga4-data-api-non-2xx-logging` invariant).
+- `runGa4UrlTrafficReport` has ZERO callers in 9.A2α.1 — the substrate ships dormant, by design. Slice 9.A2α.2 (Mode A read model) is the first consumer.
+
+**Net source delta** (excluding tests + docs + migration SQL):
+- `src/lib/connectors/ga4/types.ts` modified: +85 net (additive Data API shapes).
+- `src/lib/connectors/ga4/client.ts` modified: +16 net (one symmetric `[ga4-client]` non-2xx log block).
+- `src/lib/connectors/ga4/data-api.ts` NEW: 320 lines.
+- **Total `src/` net: +421 lines** — within the +500 ceiling. Migration SQL (132 lines) doesn't count toward `src/` per the ceiling definition.
+
+**Next step.** Operator review of the 9.A2α.1 READY_TO_COMMIT report; on explicit approval, commit + push + Vercel deploy + apply migration on production Supabase. Then begin **Slice 9.A2α.2** (`src/domains/outcome-attribution/mode-a-cited-here-traffic-here.ts` pure-compute Mode A read model + `outcome-attribution-mode-a-sample-size-guard` architecture invariant + Mode A unit tests; estimated ~+284 src/ — well within the ceiling). Then **Slice 9.A2α.3** (operator-only `/diagnostics/outcome-attribution`; estimated ~+287 src/). Then **Slice 9.A2β** (Changes detail Act 3 Mode A customer copy on `/changes/[id]?v2=1` + K5 customer-copy lock + extended `forbidden-customer-vocabulary-contract` for `drove`/`caused`/`generated`/`revenue`/`dollars`/`$` on customer surfaces).
+
+---
+
 ## 2026-05-18 — Slice 9.A1β: GA4 Settings UI + property picker
 
 **Status.** READY_TO_COMMIT (operator-approved implementation-only gate; no commit, no push, no deploy until operator approval).

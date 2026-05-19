@@ -159,6 +159,22 @@ export async function ga4ApiFetch<T = unknown>(
         return { ok: false, reason: "token_expired" };
       }
     }
+    // Slice 9.A2α (2026-05-19) — folds in the 9.A1β-deferred logging
+    // fix. Mirrors the GSC client's non-2xx log line so the GA4
+    // Admin API failure shape (e.g. Analytics Admin API not enabled
+    // → 403 PERMISSION_DENIED) is no longer opaque. Bounded body
+    // capture; tokens never logged.
+    let errorBody = "";
+    try {
+      errorBody = (await response.text()).slice(0, 500);
+    } catch {
+      errorBody = "(body unavailable)";
+    }
+    log.warn("[ga4-client] non-2xx response from GA4 Admin API", {
+      tenantId,
+      status: response.status,
+      body: errorBody,
+    });
     return {
       ok: false,
       reason: "api_error",
