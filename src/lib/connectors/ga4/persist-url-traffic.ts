@@ -34,14 +34,36 @@ import "server-only";
  *       against arbitrary historical backfill.
  *     • Conservative first version — tunable post-deploy.
  *
+ * 9.A2γ.1 page-path normalization (added 2026-05-19):
+ *   GA4's `pagePath` dimension is path-only (`/services/whole-home-
+ *   remodel`). Beacon's `recommended_edits.target_url` stores full
+ *   URLs (`https://ritzbuilders.com/services/whole-home-remodel`).
+ *   The Mode A read model matches via `canonicalizeCitationUrl`
+ *   which returns null for path-only inputs (citation-lifecycle's
+ *   "full URLs only" contract). Without normalization, every GA4
+ *   row gets skipped in Mode A's match loop and produces
+ *   `ineligible: no_traffic_data`.
+ *
+ *   Fix at persist time: before upsert, prefix each path-only row
+ *   with `https://{businessConfig.domain}` via
+ *   `normalizeGa4PagePathToFullUrl`. Full-URL rows (forward-compat
+ *   for any future Data API shape change) pass through unchanged.
+ *   Empty / missing domain soft-fails to the path-only value AND
+ *   emits a single operator-side warn so the operator can fix
+ *   `business-config.domain`. Mode A continues to surface
+ *   `no_traffic_data` honestly in that case.
+ *
  * Pinned by:
  *   • tests/lib/connectors/ga4/persist-url-traffic.test.ts
  *   • tests/architecture/outcome-attribution-refresh-no-customer-surface.test.ts
+ *   • tests/architecture/ga4-url-traffic-stored-as-full-url.test.ts
  */
 
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { log } from "@/lib/logger";
+import { getBusinessConfig } from "@/lib/business-config";
 import { runGa4UrlTrafficReport } from "./data-api";
+import { normalizeGa4PagePathToFullUrl } from "./normalize-page-path";
 import type { Ga4FailReason, Ga4UrlTrafficRow } from "./types";
 
 const TABLE = "ga4_url_traffic";
@@ -211,10 +233,27 @@ export async function persistGa4UrlTraffic(
     };
   }
 
+  // 9.A2γ.1 — resolve GA4 `pagePath` to a full URL using the tenant's
+  // business-config domain. Empty/missing domain soft-fails to the
+  // path-only value AND emits a single operator-side warn so the
+  // operator can fix the config; Mode A continues to surface
+  // `no_traffic_data` honestly in that case.
+  const businessConfig = getBusinessConfig();
+  const domain = businessConfig.domain ?? "";
+  if (domain.trim() === "" && report.rows.length > 0) {
+    log.warn(
+      "[persist-ga4-url-traffic] business-config.domain empty; GA4 path-only rows will store unprefixed (Mode A will surface no_traffic_data until fixed)",
+      {
+        tenantId,
+        rowsAffected: report.rows.length,
+      },
+    );
+  }
+
   const nowIso = new Date().toISOString();
   const upsertRows = report.rows.map((row: Ga4UrlTrafficRow) => ({
     tenant_id: tenantId,
-    url: row.url,
+    url: normalizeGa4PagePathToFullUrl({ pagePath: row.url, domain }),
     date: row.date,
     sessions: row.sessions,
     engaged_sessions: row.engaged_sessions,

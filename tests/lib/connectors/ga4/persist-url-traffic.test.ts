@@ -61,12 +61,28 @@ vi.mock("@/lib/logger", () => ({
   },
 }));
 
+// 9.A2γ.1 — mock business-config so the persist helper has a stable
+// domain to normalize against. Default is Ritz's production domain;
+// individual tests override via `_businessConfigDomain.current`.
+const _businessConfigDomain = { current: "ritzbuilders.com" };
+vi.mock("@/lib/business-config", () => ({
+  getBusinessConfig: () => ({
+    name: "Ritz Builders",
+    domain: _businessConfigDomain.current,
+    industry: "",
+    phone: "",
+    address: "",
+    yelpBusinessId: "",
+  }),
+}));
+
 beforeEach(() => {
   _runReportMock.mockReset();
   _upsertMock.mockReset();
   _supabaseAdminThrows = false;
   _logWarn.mockReset();
   _logInfo.mockReset();
+  _businessConfigDomain.current = "ritzbuilders.com";
 });
 
 // Re-import after mocks.
@@ -270,7 +286,7 @@ describe("persistGa4UrlTraffic — happy path", () => {
     expect(_upsertMock).not.toHaveBeenCalled();
   });
 
-  it("upserts every row with tenant_id and onConflict on (tenant_id, url, date)", async () => {
+  it("upserts every row with tenant_id and onConflict on (tenant_id, url, date) — url field is normalized to full URL", async () => {
     const rows = [
       {
         url: "/a",
@@ -280,7 +296,7 @@ describe("persistGa4UrlTraffic — happy path", () => {
         conversions: 1,
       },
       {
-        url: "/b",
+        url: "/b/",
         date: "2026-05-19",
         sessions: 3,
         engaged_sessions: 2,
@@ -306,19 +322,124 @@ describe("persistGa4UrlTraffic — happy path", () => {
     expect(opts).toEqual({ onConflict: "tenant_id,url,date" });
     const arr = upsertedRows as Array<Record<string, unknown>>;
     expect(arr).toHaveLength(2);
+
+    // 9.A2γ.1 — `url` MUST be normalized to a full URL using the
+    // mocked `business-config.domain = "ritzbuilders.com"`. The
+    // `raw` JSONB preserves the original GA4 row for operator
+    // triage so the source-of-truth pagePath is recoverable.
+    expect(arr[0]).toMatchObject({
+      tenant_id: HAPPY_ARGS.tenantId,
+      url: "https://ritzbuilders.com/a",
+      date: rows[0]!.date,
+      sessions: rows[0]!.sessions,
+      engaged_sessions: rows[0]!.engaged_sessions,
+      conversions: rows[0]!.conversions,
+      raw: rows[0],
+    });
+    expect(arr[1]).toMatchObject({
+      tenant_id: HAPPY_ARGS.tenantId,
+      url: "https://ritzbuilders.com/b/",
+      date: rows[1]!.date,
+      sessions: rows[1]!.sessions,
+      engaged_sessions: rows[1]!.engaged_sessions,
+      conversions: rows[1]!.conversions,
+      raw: rows[1],
+    });
+
     for (let i = 0; i < arr.length; i++) {
-      expect(arr[i]).toMatchObject({
-        tenant_id: HAPPY_ARGS.tenantId,
-        url: rows[i]!.url,
-        date: rows[i]!.date,
-        sessions: rows[i]!.sessions,
-        engaged_sessions: rows[i]!.engaged_sessions,
-        conversions: rows[i]!.conversions,
-        raw: rows[i],
-      });
       expect(typeof arr[i]!.last_synced_at).toBe("string");
       expect(typeof arr[i]!.updated_at).toBe("string");
     }
+  });
+
+  it("does NOT upsert raw `pagePath` — every stored row.url starts with https://", async () => {
+    const rows = [
+      { url: "/services/whole-home-remodel", date: "2026-05-18", sessions: 1, engaged_sessions: 1, conversions: 0 },
+      { url: "/services/whole-home-remodel/", date: "2026-05-19", sessions: 2, engaged_sessions: 1, conversions: 0 },
+      { url: "/contact-us", date: "2026-05-19", sessions: 5, engaged_sessions: 4, conversions: 1 },
+    ];
+    _runReportMock.mockResolvedValue({ ok: true, rows });
+    _upsertMock.mockResolvedValue({ error: null });
+    await persistGa4UrlTraffic(HAPPY_ARGS);
+    const [upsertedRows] = _upsertMock.mock.calls[0]!;
+    const arr = upsertedRows as Array<Record<string, unknown>>;
+    for (const row of arr) {
+      expect(typeof row.url).toBe("string");
+      expect((row.url as string).startsWith("https://")).toBe(true);
+      expect((row.url as string).startsWith("/")).toBe(false);
+    }
+  });
+
+  it("passes through full-URL rows unchanged (forward-compat for any future Data API shape)", async () => {
+    const rows = [
+      {
+        url: "https://ritzbuilders.com/already-full",
+        date: "2026-05-18",
+        sessions: 4,
+        engaged_sessions: 3,
+        conversions: 0,
+      },
+    ];
+    _runReportMock.mockResolvedValue({ ok: true, rows });
+    _upsertMock.mockResolvedValue({ error: null });
+    await persistGa4UrlTraffic(HAPPY_ARGS);
+    const [upsertedRows] = _upsertMock.mock.calls[0]!;
+    const arr = upsertedRows as Array<Record<string, unknown>>;
+    expect(arr[0]!.url).toBe("https://ritzbuilders.com/already-full");
+  });
+
+  it("verified-live whole-home-remodel: persisted URL matches the recommended_edit target_url shape after canonicalizer", async () => {
+    // End-to-end matchability sanity. After this slice, every
+    // persisted row carries a full URL that, after the
+    // citation-lifecycle canonicalizer at read time (which strips
+    // trailing slashes), reconciles to the same string as the
+    // recommended_edit's canonicalized target_url. The persist
+    // helper itself does NOT strip trailing slashes — that's the
+    // canonicalizer's job downstream.
+    const targetUrl = "https://ritzbuilders.com/services/whole-home-remodel";
+    const rows = [
+      { url: "/services/whole-home-remodel", date: "2026-05-18", sessions: 3, engaged_sessions: 2, conversions: 0 },
+    ];
+    _runReportMock.mockResolvedValue({ ok: true, rows });
+    _upsertMock.mockResolvedValue({ error: null });
+    await persistGa4UrlTraffic(HAPPY_ARGS);
+    const [upsertedRows] = _upsertMock.mock.calls[0]!;
+    const arr = upsertedRows as Array<Record<string, unknown>>;
+    expect(arr[0]!.url).toBe(targetUrl);
+  });
+
+  it("soft-fails to path-only AND emits a single warn when business-config.domain is empty", async () => {
+    _businessConfigDomain.current = "";
+    const rows = [
+      { url: "/services/whole-home-remodel", date: "2026-05-18", sessions: 1, engaged_sessions: 1, conversions: 0 },
+      { url: "/contact-us", date: "2026-05-19", sessions: 2, engaged_sessions: 2, conversions: 0 },
+    ];
+    _runReportMock.mockResolvedValue({ ok: true, rows });
+    _upsertMock.mockResolvedValue({ error: null });
+
+    const r = await persistGa4UrlTraffic(HAPPY_ARGS);
+
+    expect(r.ok).toBe(true);
+    const [upsertedRows] = _upsertMock.mock.calls[0]!;
+    const arr = upsertedRows as Array<Record<string, unknown>>;
+    // Soft-fail: path-only values pass through unchanged.
+    expect(arr[0]!.url).toBe("/services/whole-home-remodel");
+    expect(arr[1]!.url).toBe("/contact-us");
+    // Exactly one warn — operator-side; not per-row.
+    expect(_logWarn).toHaveBeenCalledTimes(1);
+    const warnCallArgs = _logWarn.mock.calls[0]!;
+    expect(String(warnCallArgs[0])).toContain("[persist-ga4-url-traffic]");
+    expect(String(warnCallArgs[0])).toContain("domain empty");
+  });
+
+  it("does NOT emit the domain-empty warn when there are zero rows to persist", async () => {
+    _businessConfigDomain.current = "";
+    _runReportMock.mockResolvedValue({ ok: true, rows: [] });
+    await persistGa4UrlTraffic(HAPPY_ARGS);
+    // Zero rows → upsert short-circuit happens BEFORE the warn,
+    // so the operator isn't spammed with "domain empty" warnings
+    // for the no-op refresh.
+    expect(_logWarn).not.toHaveBeenCalled();
   });
 
   it("calls runGa4UrlTrafficReport with explicit args (tenant/property/dates)", async () => {

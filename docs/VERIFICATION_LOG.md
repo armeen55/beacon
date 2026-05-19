@@ -7,6 +7,85 @@
 
 ---
 
+## 2026-05-19 — Slice 9.A2γ.1: GA4 pagePath → full URL persist-time normalization
+
+**Status:** READY_TO_COMMIT (operator-approved implementation; awaiting commit/push/verify approval).
+**Branch:** `claude/objective-davinci-c81e70`.
+**Builds on:** 9.A2γ (commit `67ab39f`) + manual-verification finding (2026-05-19) that Mode A returned `ineligible: no_traffic_data` despite 2,751 GA4 rows in the table.
+
+### Why this slice exists
+
+Manual verification of 9.A2γ (operator clicked Refresh, Data API succeeded, 1,000+ rows landed in `ga4_url_traffic`) revealed the verified-live Ritz whole-home-remodel edit still produced Mode A `ineligible: no_traffic_data`.
+
+Diagnosis (2026-05-19):
+- GA4 Data API returns `pagePath` as path-only (`/services/whole-home-remodel`, with or without trailing slash).
+- `recommended_edits.target_url` stores full URLs (`https://ritzbuilders.com/services/whole-home-remodel`).
+- Mode A matches via `canonicalizeCitationUrl` from `src/domains/citation-lifecycle/canonicalize-url.ts`. The canonicalizer's locked Phase A.1 D3 contract is "full URLs only; path-only canonicalization is the existing `src/lib/url/normalize.ts` helper's job." Path-only inputs cause `new URL(trimmed)` to throw; the catch returns `null`.
+- Net effect: every GA4 row's `rowCanonical` was `null`, the `null !== canonicalTargetUrl` check at `mode-a-cited-here-traffic-here.ts:248` always skipped the row, `matchingRows.length === 0` always fell through to step 5's `ineligible: no_traffic_data`.
+
+The operator-locked smallest-safe-fix posture: normalize GA4 rows at persist time. This keeps Mode A's compute logic identical, leaves the citation-lifecycle canonicalizer's locked contract untouched, and aligns the storage shape of `ga4_url_traffic.url` with the storage shape of `recommended_edits.target_url`.
+
+### Files changed
+
+**Source (NEW):**
+- `src/lib/connectors/ga4/normalize-page-path.ts` — pure server-only helper. Exports `normalizeGa4PagePathToFullUrl({ pagePath, domain })`. Behavior locked: path-only + domain → `https://{cleanedDomain}{pagePath}` (trailing slash preserved); already-full URL → trimmed pass-through; empty/null/whitespace pagePath → `""`; empty domain → trimmed pagePath unchanged (soft-fail); malformed non-URL non-/-prefixed input → trimmed pass-through. Domain hygiene: strips leading `http(s)://` / `www.` / trailing slash; lowercases host. Never throws. `__testing.cleanDomain` exposed for direct edge-case testing.
+
+**Source (MODIFIED):**
+- `src/lib/connectors/ga4/persist-url-traffic.ts` — imports `normalizeGa4PagePathToFullUrl` + `getBusinessConfig`. Inside `persistGa4UrlTraffic`, after the Data API call and zero-rows short-circuit, reads `getBusinessConfig().domain` once and passes per-row to the normalizer when building the upsert payload. Emits a single operator-side `log.warn` when domain is empty AND rows-to-persist > 0 (gated to avoid spam on no-op refreshes); persist still completes with path-only values in that soft-fail case. Existing 2,751 production rows are NOT mutated by this slice — one operator-triggered Refresh after deploy re-upserts them with corrected `url` shape via composite-PK in-place.
+
+**Tests (NEW):**
+- `tests/lib/connectors/ga4/normalize-page-path.test.ts` — 33 tests across 8 describe blocks: path-only + domain (4) · full URL pass-through (5) · domain hygiene (7) · empty pagePath (4) · missing domain soft-fail (5) · whitespace trimming (2) · malformed inputs (3) · purity invariants (2) · Mode A end-to-end matchability fixture (1).
+
+**Tests (MODIFIED):**
+- `tests/lib/connectors/ga4/persist-url-traffic.test.ts` — added 5 new tests in the happy-path block: normalized upsert shape (`https://ritzbuilders.com/a` for path-only input) · no-raw-pagePath assertion (every stored `row.url` starts with `https://`, never `/`) · already-full URL pass-through · whole-home-remodel fixture (persisted URL matches `recommended_edit.target_url` exactly) · empty-domain soft-fail with single warn · zero-rows no-warn (avoid log spam). Updated mock setup to mock `@/lib/business-config.getBusinessConfig` with a settable `_businessConfigDomain.current`.
+
+**Architecture invariants (NEW):**
+- `tests/architecture/ga4-url-traffic-stored-as-full-url.test.ts` — 7 assertions: persist-url-traffic.ts imports the normalizer + business-config; upsert-rows construction passes `row.url` through `normalizeGa4PagePathToFullUrl({ pagePath: row.url, ... })` (NOT raw `row.url`); normalize-page-path.ts declares `import "server-only";`; no customer surface (under `src/app/(shell)/{today,recommendations,changes,prompts,local,competitors}/**` + `src/components/{today,recommendations,changes,prompts,local}/**`) imports the normalizer or references `normalizeGa4PagePathToFullUrl`; Mode A's compute module does NOT import the normalizer (separation of concerns: normalize at write, canonicalize at read); canonicalize-url.ts retains its locked "full URLs only" Phase A.1 contract marker (byte-unchanged by this slice).
+
+**Catalog:**
+- `docs/ARCHITECTURE_INVARIANTS_CATALOG.md` — new "Slice 9.A2γ.1" section with the `ga4-url-traffic-stored-as-full-url` invariant row. `catalog-sync` test green.
+
+### Quality gates
+
+- `npm run typecheck`: CLEAN.
+- Targeted: `normalize-page-path.test.ts` (33) + `persist-url-traffic.test.ts` (28 = 23 prior + 5 new) + `ga4-url-traffic-stored-as-full-url.test.ts` (7) + Mode A regression + GA4 Data API regression + outcome-attribution-refresh invariants + `catalog-sync.test.ts` (8) — all green.
+- Full suite: green (see commit-time totals).
+- Build: `BEACON_TENANT_ID=tenant-ritz-founder BEACON_TENANT_SLUG=ritz-founder npm run build` — green; `/diagnostics/outcome-attribution` registered as dynamic `ƒ` route.
+
+### Hard contracts honored
+
+- No change to Mode A compute logic (`mode-a-cited-here-traffic-here.ts` byte-unchanged).
+- No change to `canonicalize-url.ts` (Phase A.1 D3 contract preserved).
+- No change to diagnostic page render path (`outcome-attribution/page.tsx` byte-unchanged).
+- No change to GA4 Data API request shape (`data-api.ts` byte-unchanged).
+- No change to customer surfaces (Today / Recommendations / Changes / Prompts / Local / Competitors / Settings byte-unchanged).
+- No new migration.
+- No cron / scheduled job.
+- No direct DB mutation/backfill in this slice — composite-PK upsert handles existing 2,751 rows in-place on next Refresh click.
+- No LLM.
+- No CallRail / no GBP insights.
+- No daily-scan / poll / canary workflow changes.
+
+### Manual verification steps after deploy
+
+1. Open `/diagnostics/outcome-attribution` on production with operator-mode enabled.
+2. Click "Refresh GA4 traffic" once. Wait ~1–5 seconds for completion.
+3. Verify cached row count and `last_synced_at` both update.
+4. Query production `ga4_url_traffic` via linked Supabase CLI:
+   ```sql
+   SELECT url FROM public.ga4_url_traffic
+   WHERE tenant_id = 'tenant-ritz-founder'
+   LIMIT 5;
+   ```
+   Every `url` should now start with `https://` (e.g. `https://ritzbuilders.com/contact-us`). Pre-slice rows had path-only values like `/contact-us`.
+5. Confirm the whole-home-remodel verified-live edit's Mode A reason flips from `ineligible: no_traffic_data` to either `eligible` (if ≥ 7 days post-`live_at` AND ≥ 5 sessions accumulated) OR `still_learning_outcome: insufficient_volume` (if ≥ 7 days but < 5 sessions). The per-edit table row's `data-row-mode-a-reason` attribute should be one of `(empty)` / `insufficient_days` / `insufficient_volume` — NOT `no_traffic_data`.
+
+### Next slice
+
+**Slice 9.A2β preflight re-run.** With normalized `ga4_url_traffic` data, Mode A matching is verified, and 9.A2β customer-copy implementation becomes safe to preflight. The Slice-9.A2γ.1 closeout unblocks 9.A2β.
+
+---
+
 ## 2026-05-19 — Slice 9.A2γ: Operator-only GA4 traffic refresh action
 
 **Status:** READY_TO_COMMIT (operator-approved implementation; awaiting commit/push/verify approval).
