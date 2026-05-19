@@ -7,6 +7,85 @@
 
 ---
 
+## 2026-05-19 — Slice 9.A2α.3: Operator-only outcome-attribution diagnostic
+
+**Status.** READY_TO_COMMIT (operator-approved implementation-only gate; no commit, no push, no deploy until operator approval).
+
+**Predecessor.** Builds on 9.A2α.1 (GA4 Data API substrate; commit `405d0f3`) + applied `ga4_url_traffic` migration (header commit `cde5820`) + 9.A2α.2 (Mode A pure-compute read model; commit `8ab6861`). All three substrates BYTE-UNCHANGED in this slice. Closes the operator-substrate loop for Section 9 Mode A — surfaces Mode A attribution to operators via a dedicated diagnostic page WITHOUT touching any customer surface.
+
+**Split context.** This is split-slice 3 of 3 of the original over-ceiling 9.A2α bundle. After this lands, Section 9.A2α is fully closed at the operator-substrate level; the next slice (9.A2β) crosses the trust boundary to customer surfaces (Changes detail Act 3 Mode A copy).
+
+**Morning context.** Today's daily-scan workflow failed at 14:11 UTC due to upstream Ritz-website HTTP 4xx/5xx on sitemap fetch — unrelated to this slice. Today's daily-native-poll fired via manual workflow_dispatch (GitHub Actions scheduler skipped all three scheduled fires); data freshness preserved. Per operator instruction, no scan/poll/canary workflow changes in this slice.
+
+**What changed.**
+
+**NEW `src/app/(shell)/diagnostics/outcome-attribution/page.tsx`** — operator-only diagnostic. `import "server-only"` at top. 286 source lines (~80 lines header doc + ~206 lines implementation).
+
+- **Operator gate**: `isAccessAllowed() = isOperatorModeServer() || process.env.NODE_ENV === "test"`. Non-operator non-test → `notFound()`. Mirrors the locked `/diagnostics/lifecycle-eligibility` pattern.
+- **Reads**:
+  - `recommended_edits` via the existing repository pattern: `getRepository().forTenant(tenantId).getRecommendedEdits()`.
+  - `ga4_url_traffic` via `getSupabaseAdmin().from("ga4_url_traffic").select("url, date, sessions, engaged_sessions, conversions").eq("tenant_id", tenantId)`.
+  - Both reads execute in parallel via `Promise.all`.
+- **Filter**: only `implementation_status ∈ { verified_live, verified_live_modified, partially_implemented }` enter Mode A (per the locked Mode A eligibility predicate).
+- **Compute**: invokes `computeModeATrafficAttribution({ recommendedEdit, ga4UrlTrafficRows, qualifiedCallCount: 0, now })` per verified-live edit. `qualifiedCallCount: 0` per K2 CallRail-deferred lock.
+- **Render — counter strip** (5 counters, each with `data-counter` data attribute): `total_verified_live` · `eligible` · `still_learning_outcome` · `ineligible` · `total_cached_traffic_rows`.
+- **Render — per-edit table** with `data-diagnostics-row-count={n}` data attribute on the `<section>`. Per row: `data-row-edit-id`, `data-row-mode-a-kind`, `data-row-mode-a-reason` (empty string for eligible rows; discriminator value for still_learning_outcome / ineligible). Columns: Edit id (8-char prefix), Target URL, Live at, Sample window, Days, Sessions, Engaged, Conversions, Mode A kind, Reason.
+- **Fail-soft Supabase read**: new `TrafficLoadStatus` discriminator with 4 states:
+  - `"ok"` — rows loaded (may be empty if no traffic data yet)
+  - `"table_missing"` — PostgREST 42P01 (sequencing model A migration window)
+  - `"read_error"` — any other Supabase error (e.g., RLS denial, connection refused)
+  - `"admin_unavailable"` — `getSupabaseAdmin()` threw (env vars unset in dev)
+  Each non-ok state renders a banner section with `data-traffic-status="<state>"` data attribute + operator-side copy. The page NEVER throws on a degraded read.
+- **Operator-vocab only**: K5 forbidden tokens (`drove` / `caused` / `revenue` / `dollars` / `$` / `generated`) absent from rendered HTML — pinned by vocab-safety test (defense in depth even though the page is operator-only).
+
+**Tests added — 10 unit-test groups (~17 individual `it` cases) across 6 describe blocks:**
+
+`tests/app/diagnostics/outcome-attribution-page.test.tsx`:
+- **Operator gate** (3 tests): non-operator + non-test → `notFound()` called once; render under `NODE_ENV=test` even with operator off; render with operator on.
+- **Empty state** (2 tests): empty-state copy + counter strip render when no verified-live edits.
+- **Populated state — Mode A variants** (3 tests): eligible row with `data-row-mode-a-kind="eligible"` + empty reason; still_learning_outcome row with `insufficient_volume` reason on data attribute; ineligible row with `no_live_at` reason on data attribute.
+- **Data attributes** (2 tests): `data-diagnostics-row-count="3"` matches 3 verified-live edits; all 3 required per-row attributes (kind + reason + edit-id) present.
+- **Supabase fail-soft** (4 tests): 42P01 → banner with `data-traffic-status="table_missing"`; generic error → `read_error`; admin-throws → `admin_unavailable`; healthy read → NO banner.
+- **Customer-vocab safety** (1 test): K5 forbidden tokens absent from rendered HTML (lowercase scan covers drove/caused/revenue/dollars/generated; case-sensitive check covers `$`).
+- **No GA4 Data API call on render** (3 source-text tests): page.tsx does NOT include the `@/lib/connectors/ga4/data-api` import path; does NOT call `fetch(` (comment-stripped scan); does NOT reference the `runGa4UrlTrafficReport` identifier.
+
+**Catalog sync — NO new architecture invariant.** The diagnostic-page contract is fully pinned by the 10 unit-test groups; no source-level architecture invariant required. Catalog row count unchanged.
+
+**Quality gates run from this slice.**
+- `npm run typecheck` — CLEAN.
+- Targeted 9.A2α.3 suite — 17 tests + 56 Mode A / GA4 substrate regression tests = **110/110 green**.
+- 9.A2α.2 Mode A unit + invariant — green.
+- 9.A2α.1 Data API substrate + architecture invariants — green.
+- Catalog-sync — green (no row added).
+- Full suite + tenant-env build run before READY_TO_COMMIT report.
+
+**Hard contracts honored.**
+- No customer surface modification (today / recommendations / changes / prompts / local / competitors + components).
+- No Settings UI / Settings actions changes.
+- No cron / scheduled-job wiring.
+- No CallRail (K2 lock).
+- No GBP insights changes.
+- No scan/poll/canary workflow patches (today's daily-scan failure stays uninvolved per operator instruction).
+- No customer outcome claims · no revenue / causal language anywhere · K5 forbidden token set absent from source AND rendered HTML.
+- No LLM.
+- No paid API call from page render (3 source-text contracts pin this).
+- No `business-config` GA4 property field.
+- No GSC/GBP/Yelp behavior regression.
+- 9.A2α.1 substrate (`types.ts`, `client.ts`, `data-api.ts`) byte-unchanged.
+- 9.A2α.2 Mode A read model byte-unchanged.
+- `migrations/2026-05-19_ga4_url_traffic.sql` byte-unchanged (no header re-update; the migration was applied yesterday and the `Applied: 2026-05-19` header stands).
+- 9.A2α.3 ships with a real consumer (this page) — `computeModeATrafficAttribution` is no longer dormant.
+
+**Net source delta** (excluding tests + docs):
+- `src/app/(shell)/diagnostics/outcome-attribution/page.tsx` NEW: 353 lines.
+- **Total `src/` net: +353 lines** — within the +500 ceiling (+147 headroom).
+
+**Operator hosted smoke (after commit/push/deploy approval).** With `BEACON_OPERATOR_MODE=true` (or equivalent operator-mode env) set on production Vercel, visit `https://beacon-bice.vercel.app/diagnostics/outcome-attribution`. Expected initial state (no `ga4_url_traffic` data yet because no nightly refresh has run): page renders with counter strip showing `total_cached_traffic_rows=0`, per-edit table showing each verified-live edit with `data-row-mode-a-kind="ineligible"` + `data-row-mode-a-reason="no_traffic_data"`. The `table_missing` banner should NOT appear (the migration applied yesterday). Once a future slice triggers a Data API refresh that populates `ga4_url_traffic`, the diagnostic page will start showing real Mode A results.
+
+**Next step.** Operator review of the 9.A2α.3 READY_TO_COMMIT report; on explicit approval, commit + push + Vercel deploy + operator-side hosted manual smoke. After 9.A2α.3 ships, Section 9.A2α is fully closed at the operator-substrate level. Then begin **Slice 9.A2β** (Changes detail Act 3 Mode A customer copy on `/changes/[id]?v2=1` + K5 forbidden-vocab catalog extension + customer-render tests).
+
+---
+
 ## 2026-05-19 — Slice 9.A2α.2: Mode A pure-compute read model
 
 **Status.** READY_TO_COMMIT (operator-approved implementation-only gate; no commit, no push, no deploy until operator approval).
