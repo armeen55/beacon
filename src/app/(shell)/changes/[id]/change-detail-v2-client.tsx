@@ -42,9 +42,11 @@ import type { NextActionCta } from "@/domains/changes/proof-timeline/next-action
 import type { LifecycleStage } from "@/domains/citation-lifecycle/lifecycle-stage";
 import type { LifecycleCopy } from "@/domains/citation-lifecycle/render-copy";
 import type { RepeatCitationResult } from "@/domains/citation-lifecycle/compute-repeat-citation";
+import type { ModeAResult } from "@/domains/outcome-attribution/mode-a-cited-here-traffic-here";
 
 import { ChangesV2ResultPill } from "@/components/changes/v2/changes-v2-result-pill";
 import { RepeatCitationAct3 } from "@/components/changes/repeat-citation-act3";
+import { OutcomeAttributionAct3 } from "@/components/changes/outcome-attribution-act3";
 
 export type ChangeDetailV2Props = {
   /** Short, customer-friendly title for the header. Already
@@ -124,6 +126,20 @@ export type ChangeDetailV2Props = {
    * this prop continue to compile.
    */
   repeatCitation30d?: RepeatCitationResult | null;
+  /**
+   * Slice 9.A2β (2026-05-19) — Mode A outcome-attribution result
+   * for the linked edit. Rendered as a customer-safe sub-line
+   * inside Act 3 AFTER the existing repeat-citation block. Visual
+   * separation; NO bridging copy between the two blocks.
+   *
+   * `null` → render nothing (loader fail-soft or no linked edit).
+   * Non-null `ineligible` discriminators → the component itself
+   * returns null. `still_learning_outcome` + `eligible` render the
+   * locked Section 9 K5 customer copy variants. Optional + defaults
+   * to `null` so existing fixtures / tests instantiating
+   * `<ChangeDetailV2Client>` without this prop continue to compile.
+   */
+  modeAResult?: ModeAResult | null;
 };
 
 export function ChangeDetailV2Client(props: ChangeDetailV2Props) {
@@ -144,6 +160,7 @@ export function ChangeDetailV2Client(props: ChangeDetailV2Props) {
     lifecycle,
     primaryEvidenceLines = null,
     repeatCitation30d = null,
+    modeAResult = null,
   } = props;
 
   const formattedShippedAt = formatLongDate(shippedAt);
@@ -320,6 +337,7 @@ export function ChangeDetailV2Client(props: ChangeDetailV2Props) {
           <PrimaryEvidenceLines lines={primaryEvidenceLines} />
         )}
         <RepeatCitationAct3 result={repeatCitation30d} />
+        <OutcomeAttributionAct3 result={modeAResult} />
       </Act>
 
       {/* Act 4 — Evidence.

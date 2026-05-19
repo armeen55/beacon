@@ -60,6 +60,8 @@ import { loadLifecycleForEdit } from "@/domains/citation-lifecycle/load-lifecycl
 import { loadChangePrimaryEvidence } from "@/domains/citation-lifecycle/load-change-primary-evidence";
 import { loadRepeatCitationForEdit } from "@/domains/citation-lifecycle/load-repeat-citation";
 import type { RepeatCitationResult } from "@/domains/citation-lifecycle/compute-repeat-citation";
+import { loadModeAForChangesDetail } from "@/domains/outcome-attribution/load-mode-a-for-changes-detail";
+import type { ModeAResult } from "@/domains/outcome-attribution/mode-a-cited-here-traffic-here";
 import { getBusinessConfig } from "@/lib/business-config";
 import {
   createPerfTrace,
@@ -382,6 +384,31 @@ export default async function ChangeDetailPage({
       }
     }
 
+    // Slice 9.A2β (2026-05-19) — Mode A outcome-attribution sub-line
+    // for Act 3. Reads cached ga4_url_traffic rows (NEVER calls the
+    // GA4 Data API on render) + computes Mode A via the 9.A2α.2 pure
+    // function. Same try/catch fail-soft posture as the Section 5
+    // repeat-citation block above: transient Supabase error → `null`
+    // → component renders silently. Independent structured warn for
+    // operator visibility.
+    let modeAResult: ModeAResult | null = null;
+    if (linkedEdit) {
+      try {
+        modeAResult = await loadModeAForChangesDetail({
+          tenantId,
+          recommendedEdit: linkedEdit,
+        });
+      } catch (error) {
+        console.warn("[section9-a2b] mode A load failed", {
+          tenantId,
+          changeId: entry.id,
+          recommendedEditId: linkedEdit.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        modeAResult = null;
+      }
+    }
+
     const events = row.eventAttributions
       // Most-recent first — the brief reads as a story, not a database row.
       .slice()
@@ -456,6 +483,7 @@ export default async function ChangeDetailPage({
         }
         primaryEvidenceLines={primaryEvidenceLines}
         repeatCitation30d={repeatCitation30d}
+        modeAResult={modeAResult}
       />
     );
   }

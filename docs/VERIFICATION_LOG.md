@@ -7,6 +7,87 @@
 
 ---
 
+## 2026-05-19 — Slice 9.A2β: Changes detail Mode A customer copy
+
+**Status:** READY_TO_COMMIT (operator-approved implementation; awaiting commit/push/verify approval).
+**Branch:** `claude/objective-davinci-c81e70`.
+**Builds on:** 9.A2γ.1 (`e42b122`) + verified Mode A end-to-end matchability (whole-home-remodel Ritz edit returns `still_learning_outcome / insufficient_volume`).
+
+### Why this slice exists
+
+9.A2γ.1 manual verification (2026-05-19) confirmed the whole-home-remodel verified-live edit returns a non-`ineligible` Mode A discriminator, proving the substrate is ready for customer rendering. 9.A2β was preflight-gated on exactly this signal. The operator's locked decision was: render Mode A on Changes detail Act 3 even when state is `still_learning_outcome` — silence would read as broken. Section 9 K5 + K-block + the Slice 9.A2β preflight P1–P5 locked the exact copy variants.
+
+### Files changed
+
+**Source (NEW):**
+- `src/components/changes/outcome-attribution-act3.tsx` — pure presentational component (124 lines). Type-only import of `ModeAResult` (TypeScript erases at compile time). Plural-aware formatting via `pluralize(n, singular)` helper (rewritten to avoid nested template literals so source-text scanners can reason about static literals independently). Suppression: returns `null` on `result == null` AND on every `kind: "ineligible"` discriminator. Renders the locked K5 customer copy for `eligible` and `still_learning_outcome` variants. Data attributes: `data-change-detail-outcome-attribution="true"`, `data-outcome-attribution-kind={kindAttr}`, `data-change-detail-outcome-label="true"`, `data-change-detail-outcome-detail="true"`.
+- `src/domains/outcome-attribution/load-mode-a-for-changes-detail.ts` — server-side loader (120 lines). Tenant-scoped Supabase admin read of `ga4_url_traffic` filtering by `tenant_id` at the `.eq()` layer. `select` projection bounded to `url, date, sessions, engaged_sessions, conversions` — no over-select. Narrows rows defensively (drops malformed entries; defaults numeric fields to 0). Calls `computeModeATrafficAttribution` with `qualifiedCallCount = 0` (CallRail K2-deferred). Cached via `unstable_cache` (6h TTL, tag-invalidated on `recommended_edits:${tenantId}`). Soft-fail to `null` on admin-throws / 42P01 / read-error / non-array data. Type-only import of `Ga4UrlTrafficRow` (TypeScript-erased); no runtime import of `@/lib/connectors/ga4/*`.
+
+**Source (MODIFIED):**
+- `src/app/(shell)/changes/[id]/page.tsx` — adds loader call after the repeat-citation block (lines 385–403); same `try/catch` fail-soft + `console.warn("[section9-a2b] mode A load failed", ...)` pattern as the Section 5 / Section 6 blocks. New imports: `loadModeAForChangesDetail` + type-only `ModeAResult`. `modeAResult` threaded into `<ChangeDetailV2Client />` as a new prop (line 460).
+- `src/app/(shell)/changes/[id]/change-detail-v2-client.tsx` — adds type-only import of `ModeAResult`; adds runtime import of `OutcomeAttributionAct3`; extends `ChangeDetailV2Props` with `modeAResult?: ModeAResult | null` (defaults `null` so existing fixtures continue to compile); renders `<OutcomeAttributionAct3 result={modeAResult} />` inside Act 3 AFTER `<RepeatCitationAct3 result={repeatCitation30d} />`.
+
+**Tests (NEW):**
+- `tests/components/changes/outcome-attribution-act3.test.tsx` — 26 tests across 6 describe blocks: suppression (4) · eligible no-calls plural-awareness (7) · eligible with-calls forward-compat (3) · still_learning_outcome insufficient_days (3) · still_learning_outcome insufficient_volume (4) · K5 forbidden-vocab defense-in-depth scan on rendered HTML across every variant (5).
+- `tests/domains/outcome-attribution/load-mode-a-for-changes-detail.test.ts` — 11 tests across 3 describe blocks: tenant scope (3 — `from('ga4_url_traffic')` + `.eq('tenant_id', tenantId)` + select-column projection) · soft-fail (4 — admin throws / 42P01 / generic read error / non-array data → null) · happy path (4 — args threading + row narrowing + discriminator passthrough + default `now`).
+- `tests/architecture/outcome-attribution-changes-detail-vocab.test.ts` — 21 assertions: case-insensitive K5 forbidden-token string-literal scan (13 tokens) + literal `$` scan (1; outside `${...}` template interpolations) + pure-component posture (7 — no GA4 connector runtime import, no `@/lib/persistence/supabase` import, no `next/cache` / `next/navigation` import, no `server-only` declaration, no `fetch(`, type-only ModeAResult + ReactElement present, named export `OutcomeAttributionAct3`).
+- `tests/architecture/outcome-attribution-changes-detail-suppression.test.ts` — 10 assertions: behavioral suppression (7 — null + 3 ineligible variants → empty render; still_learning insufficient_days + insufficient_volume + eligible → non-empty render carrying the data marker) + source-text pins (3 — explicit `result == null` guard + explicit `result.kind === "ineligible"` guard + ineligible-branch returns null immediately without intervening JSX).
+- `tests/architecture/outcome-attribution-changes-detail-no-ga4-api.test.ts` — 33 assertions across 4 file targets: component (5 — no `@/lib/connectors/ga4/*` runtime import, no GA4-action identifier × 4, no `fetch(`) · loader (12 — no `data-api` / `persist-url-traffic` / `normalize-page-path` / `client` / `property-selection` / refresh-action runtime imports, no GA4-action identifier × 4, no `fetch(`, positive sanity `getSupabaseAdmin` + `computeModeATrafficAttribution`, type-only `Ga4UrlTrafficRow` allowed but no runtime import) · server page (6 — no `@/lib/connectors/ga4/*` import at all, no GA4-action identifier × 4, positive sanity `loadModeAForChangesDetail`) · client (7 — no runtime `@/lib/connectors/ga4/*` import, no GA4-action identifier × 4, positive sanity `OutcomeAttributionAct3` + type-only `ModeAResult`).
+
+**Catalog:**
+- `docs/ARCHITECTURE_INVARIANTS_CATALOG.md` — new "Slice 9.A2β" section with three new invariant rows (`outcome-attribution-changes-detail-vocab` / `outcome-attribution-changes-detail-suppression` / `outcome-attribution-changes-detail-no-ga4-api`). `catalog-sync` test green.
+
+### Quality gates
+
+- `npm run typecheck`: CLEAN.
+- Targeted: 80 new tests (26 component + 11 loader + 21 vocab + 10 suppression + 33 no-ga4-api) all green; Mode A regression + GA4 Data API regression + outcome-attribution-refresh invariants + ga4-url-traffic-stored-as-full-url + catalog-sync — all green.
+- Full suite: green (see commit-time totals).
+- Build: `BEACON_TENANT_ID=tenant-ritz-founder BEACON_TENANT_SLUG=ritz-founder npm run build` — green; Changes detail route + `/diagnostics/outcome-attribution` both registered as dynamic `ƒ` routes.
+
+### Hard contracts honored
+
+- No change to Mode A compute (`mode-a-cited-here-traffic-here.ts` byte-unchanged).
+- No change to `canonicalize-url.ts` (Phase A.1 D3 contract preserved).
+- No change to GA4 substrate (`data-api.ts` / `types.ts` / `client.ts` / `property-selection.ts` / `persist-url-traffic.ts` / `normalize-page-path.ts` byte-unchanged).
+- No change to refresh action or operator diagnostic page (`actions.ts` / `outcome-attribution/page.tsx` byte-unchanged).
+- No customer surface changed beyond Changes detail Act 3 (`Today` / `Recommendations` / `Prompts` / `Local` / `Competitors` / `Settings` byte-unchanged).
+- No new migration / no cron / no scheduled job.
+- No LLM / no paid APIs.
+- No Mode B / Mode C output anywhere.
+- No percentages in customer copy (absolute counts only).
+- No CallRail / Google / GBP / GA4 connector names in customer copy.
+- K5 forbidden tokens (`drove` / `caused` / `generated` / `revenue` / `dollars` / `$` / `ROI` / `sales` / `leads`) absent across all render variants; pinned by `outcome-attribution-changes-detail-vocab` invariant.
+
+### Locked customer copy (per P1–P5 + K5 + Section 9.5)
+
+- **eligible** (calls = 0; CallRail K2-deferred default): *"This page received N session(s) in the X day(s) since going live."*
+- **eligible** (calls ≥ 1; forward-compat for 9.B CallRail): *"This page received N session(s) and M call(s) in the X day(s) since going live."*
+- **still_learning_outcome / insufficient_volume**: *"Not enough post-live traffic evidence yet for this page."* (stays generic; does NOT name the 5-session threshold)
+- **still_learning_outcome / insufficient_days**: *"This page is still too newly live to attribute outcomes — Beacon needs at least 7 days of post-live traffic data."* (names the 7-day threshold explicitly per P2)
+- **ineligible / \***: render `null` (silent — substrate gap, not a customer message)
+- **result == null**: render `null` (silent — loader fail-soft)
+
+Plural-aware: `1 session` vs `N sessions`; `1 call` vs `M calls`; `1 day` vs `X days`. No sample-window date range in customer copy (P4 lock).
+
+### Manual verification steps after deploy
+
+1. Load a Ritz Changes detail page for the whole-home-remodel verified-live edit (e.g. via `/changes/[entry-id]?v2=1`).
+2. Inspect Act 3 — alongside the existing lifecycle copy + repeat-citation sub-line, a new "Outcomes" section should render with the still-learning insufficient-volume copy: *"Not enough post-live traffic evidence yet for this page."*
+3. Confirm rendered DOM contains `data-change-detail-outcome-attribution="true"` AND `data-outcome-attribution-kind="still_learning_insufficient_volume"`.
+4. Inspect rendered DOM for K5 forbidden tokens — should find NONE of: `drove` / `caused` / `generated` / `revenue` / `dollars` / `$` / `ROI` / `sales` / `leads` / `Mode A` / `Mode B` / `Mode C` / `primary recommendation`.
+5. Confirm no Network tab requests to `analyticsdata.googleapis.com` from the Changes detail render (cached read only).
+6. Optional: if the whole-home-remodel edit accumulates ≥ 5 sessions post-`live_at` later, manually refresh `/diagnostics/outcome-attribution` once + reload the Changes detail page; the Mode A copy should flip to the eligible variant *"This page received N sessions in 21 days since going live."*
+
+### Next slice
+
+Operator-discretion at the next checkpoint. Candidates:
+- **9.B CallRail connector** — lights up the eligible (calls ≥ 1) branch the forward-compat copy is already wired for.
+- **Section 9 Today tile** — separate customer surface; would reuse the same Mode A read model loader.
+- **9.A2 wrap-up** — close Section 9 A-block as fully shipped; pivot to a non-Section-9 next slice per master plan.
+- **UX polish** — investigate the post-Refresh page-reload nit logged during 9.A2γ.1 manual verification.
+
+---
+
 ## 2026-05-19 — Slice 9.A2γ.1: GA4 pagePath → full URL persist-time normalization
 
 **Status:** READY_TO_COMMIT (operator-approved implementation; awaiting commit/push/verify approval).
