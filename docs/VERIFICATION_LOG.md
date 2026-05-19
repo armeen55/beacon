@@ -7,6 +7,100 @@
 
 ---
 
+## 2026-05-18 — Slice 9.A1α: GA4 connector substrate (split from 9.A1)
+
+**Status.** READY_TO_COMMIT (substrate-only split slice; no commit, no push, no deploy until operator approval).
+
+**Why split.** The original Slice 9.A1 implementation landed green but exceeded its locked +500 src/-line stop condition (actual +985 net). Operator decision: split into **9.A1α — substrate only** (this slice) and **9.A1β — Settings UI + property picker** (next slice). 9.A1α lands the backend that makes GA4 a valid Google connector kind WITHOUT exposing any UI surface or caller; 9.A1β lands the `/settings/connectors` UI + server actions that consume the substrate.
+
+**What 9.A1α ships.**
+
+**OAuth scope-split extended.** `src/lib/connectors/google-auth.ts`:
+- `GoogleConnectorKind` union widened to `"gsc" | "gbp" | "ga4"`.
+- New top-level constant `GA4_SCOPE = "https://www.googleapis.com/auth/analytics.readonly"`.
+- `SCOPES: Record<GoogleConnectorKind, string>` map gains `ga4: GA4_SCOPE` so a future `buildGoogleAuthUrl("ga4", state)` call requests EXACTLY ONE scope ("View your Google Analytics data").
+- `decodeOAuthState` accepts `k: "gsc" | "gbp" | "ga4"`.
+- GSC + GBP scopes byte-identical (`webmasters.readonly` / `business.manage`) — no scope bleed.
+
+**Connector store extended.** `src/lib/connector-store.ts`:
+- `ConnectorProvider` widened with `"google_ga4"`.
+- `GoogleConnectorToken.provider` widened to `"google_gsc" | "google_gbp" | "google_ga4"`.
+- Payload type gains three optional fields via JSONB extension — `ga4_property_id` · `ga4_property_display_name` · `ga4_account_display_name`. NO Supabase schema migration.
+- `getGoogleConnectorToken("ga4", tenantId)` returns the typed token (or null).
+- `getConnectorInfo("google_ga4")` surfaces the GA4 fields alongside the existing GBP fields under the discriminated provider union; `disconnected_at` short-circuits to `status: "disconnected"` while preserving `connected_at` + `expires_at` (mirrors GSC J5 soft-disconnect).
+- `updateConnectorToken("google_ga4", patch)` overload signature accepts the GA4 fields + `disconnected_at`.
+- `isTokenExpired` honors the GA4 provider.
+
+**New operator-substrate connector** (3 new files, all `import "server-only"`):
+- `src/lib/connectors/ga4/types.ts` — locked `Ga4Property` / `Ga4FailReason` / `Ga4PropertyListResult` / `Ga4ApiFetchResult<T>` shapes.
+- `src/lib/connectors/ga4/client.ts` — generic `ga4ApiFetch<T>({ tenantId, url, init, now })` with structured fail-soft (`no_token` / `token_expired` / `disconnected` / `api_error`); reuses GSC J2 `evaluateExpiry` for the three-state classifier; single-retry refresh-on-401 path.
+- `src/lib/connectors/ga4/property-selection.ts` — `listGa4PropertiesForTenant(tenantId)` calls the Analytics Admin API `accountSummaries.list` endpoint, flattens `accountSummaries[*].propertySummaries[*]` into `Ga4Property[]`, caps at 100 entries (defensive). Exported `flattenAccountSummaries` for unit tests.
+
+**OAuth callback extended.** `src/app/api/connectors/google/callback/route.ts`:
+- Single discriminator branch: `kind === "gsc" → "google_gsc"` / `kind === "gbp" → "google_gbp"` / else `"google_ga4"`.
+- No other change.
+
+**Settings UI INTENTIONALLY NOT extended in 9.A1α.** `src/app/(shell)/settings/connectors/page.tsx` + `connectors-client.tsx` + `actions.ts` are **byte-identical to HEAD**. No Google Analytics card. No `getGoogleGa4ConnectorStatus` / `listGa4Properties` / `selectGa4Property` / `disconnectGoogleGa4` server actions. The connector has ZERO consumers by design — 9.A1β lands them.
+
+**What was REMOVED from the original 9.A1 bundle** during the split:
+- `src/app/(shell)/settings/connectors/page.tsx` GA4 read + `formatGa4StaleCopy` helper (reverted).
+- `src/app/(shell)/settings/connectors/connectors-client.tsx` Google Analytics card + 4-state machine + GA4 handlers + property picker UI + new props (reverted).
+- `src/app/(shell)/settings/connectors/actions.ts` `getGoogleGa4ConnectorStatus`, `listGa4Properties`, `selectGa4Property`, `disconnectGoogleGa4` server actions (reverted).
+- `tests/app/settings/actions-ga4.test.ts` (deleted; defers to 9.A1β).
+- `tests/app/settings/connectors-ga4-card.test.tsx` (deleted; defers to 9.A1β).
+
+**Tests retained — 27 GA4 substrate unit tests (2 files):**
+- `tests/lib/connectors/ga4/client.test.ts` (10 tests): missing tenantId → no_token · missing url → api_error · no token → no_token · wrong scope → no_token · disconnected_at → disconnected (no fetch) · >7d expired → token_expired · happy 200 → ok:true with Authorization header · non-2xx → api_error with status · fetch throws → api_error · 401 + refresh-retry success → ok:true with refreshed token · 401 + refresh throws → token_expired.
+- `tests/lib/connectors/ga4/property-selection.test.ts` (17 tests): flattening happy path · multi-account flattening · null body → [] · undefined body → [] · missing accountSummaries → [] · missing account display name skip · missing property display name skip · cap at 100 properties · listGa4PropertiesForTenant calls the Admin API with the tenant id · surfaces all 4 fail-soft reasons verbatim · happy path returns flattened properties.
+
+**Tests retained — 13 architecture invariant assertions (4 files):**
+- `tests/architecture/ga4-connector-server-only.test.ts` (3 tests): at least one file under `src/lib/connectors/ga4/` exists · every file imports `"server-only"` · no file imports customer-facing surfaces (`@/app/**`, `@/components/**`, `@/domains/today`, `@/domains/recommendations`, `@/domains/changes`).
+- `tests/architecture/ga4-connector-tenant-isolation.test.ts` (5 tests): `ga4ApiFetch` declares `tenantId: string` · `listGa4PropertiesForTenant(tenantId: string)` exported · no ambient `currentTenantSlug` / `currentTenantId` reads · `client.ts` references `analytics.readonly` scope literal · `property-selection.ts` targets the Admin API `accountSummaries` endpoint.
+- `tests/architecture/ga4-no-page-load-call.test.ts` (2 tests, reshaped for 9.A1α substrate posture): no customer-surface file imports the GA4 connector · 9.A1α substrate posture explicitly documented (no positive sanity check on the actions seam yet; tightens in 9.A1β).
+- `tests/architecture/ga4-scope-split.test.ts` (6 tests): `GA4_SCOPE` constant declared · `SCOPES.ga4 = GA4_SCOPE` mapping · `GoogleConnectorKind` includes `"ga4"` · `analytics.readonly` appears exactly once · GSC / GBP scope constants unchanged · no legacy `GOOGLE_OAUTH_SCOPES` combined constant re-introduced.
+
+**Architecture catalog.** 4 new rows under "Section 9 / Slice 9.A1" heading in `docs/ARCHITECTURE_INVARIANTS_CATALOG.md`. Catalog-sync test green.
+
+**Quality gates run from this slice.**
+- `npm run typecheck` — CLEAN.
+- Targeted GA4 substrate suite + 4 architecture invariants + catalog-sync + connectors-smoke — **50/50 green**.
+- Regression sweep (`tests/architecture/google-oauth-scope-split.test.ts` + `tests/architecture/connector-token-tenant-scope.test.ts` + `tests/architecture/connector-store-no-disk-write.test.ts` + `tests/lib/connectors/gsc/{disconnect-flow,expiry-handler,client,client-j-block}.test.ts`) — **93/93 green** (no GSC/GBP/Yelp regression).
+- Full suite + tenant-env build run during the READY_TO_COMMIT gate.
+
+**Hard contracts honored.**
+- No LLM. No paid APIs. No Supabase migrations.
+- No GA4 Data API call (Slice 9.A2 owns the Data API + Mode A read model + migration).
+- No CallRail (deferred indefinitely per K2 lock).
+- No GBP insights changes.
+- No Today tile, no Changes detail outcome copy, no new top-level routes.
+- No customer outcome claims · no revenue/causal language.
+- No `business-config` GA4 property field.
+- No GSC/GBP/Yelp behavior regression.
+- No GA4 call on page load (no caller exists yet; the architecture invariant `ga4-no-page-load-call` pins the substrate-only contract).
+- No Settings UI exposes the new connector — `/settings/connectors` renders byte-identical HTML to HEAD.
+- Original token persistence posture preserved: GA4 follows the same soft-disconnect-via-`disconnected_at` shape as GSC (J5) at the type level; the actual disconnect flow ships in 9.A1β.
+
+**Net source delta.** Production source (excluding tests + docs):
+- Modified: `src/lib/connectors/google-auth.ts` (+17 net) · `src/lib/connector-store.ts` (+57 net) · `src/app/api/connectors/google/callback/route.ts` (+7 net).
+- New: `src/lib/connectors/ga4/types.ts` (+76) · `src/lib/connectors/ga4/client.ts` (+189) · `src/lib/connectors/ga4/property-selection.ts` (+144).
+- **Total `src/` net: +490 lines** — UNDER the +500 ceiling.
+
+**Slice 9.A1β follow-up scope.** Settings UI + property picker:
+- `src/app/(shell)/settings/connectors/page.tsx` — read `getConnectorInfo("google_ga4")`; server-side stale-copy helper; pass new props.
+- `src/app/(shell)/settings/connectors/connectors-client.tsx` — new Google Analytics card with 4-state machine (not-connected · connected-no-property · connected-with-property · soft-disconnected) + property picker UI (loads on click only, never on mount).
+- `src/app/(shell)/settings/connectors/actions.ts` — `getGoogleGa4ConnectorStatus` + `listGa4Properties` + `selectGa4Property` (defense-in-depth re-list verification) + `disconnectGoogleGa4` (soft-disconnect mirroring GSC J5).
+- `tests/app/settings/actions-ga4.test.ts` (14 tests) + `tests/app/settings/connectors-ga4-card.test.tsx` (5 tests).
+- Extend `tests/architecture/ga4-no-page-load-call.test.ts` to add positive sanity check (actions.ts imports `@/lib/connectors/ga4/`).
+- Extend `tests/routes/connectors-smoke.test.ts` to assert the Google Analytics card renders.
+
+**Operator-side smoke** (deferred to 9.A1β + real OAuth):
+- Slice 9.A1α has no UI to verify. Commit + push + Vercel deploy succeed without hosted smoke since the connector is dormant.
+- Slice 9.A1β + 9.A2 will own the real OAuth + property pick + Mode A outcome attribution end-to-end smoke.
+
+**Next step.** Operator review of the 9.A1α READY_TO_COMMIT report; on approval, commit + push + Vercel deploy. Then begin **Slice 9.A1β** (Settings UI + property picker server actions).
+
+---
+
 ## 2026-05-18 — Section 8 J-block remaining
 
 **What changed.** Hardens the GSC connector per the Section 8 Decision Lock for J2 + J3 + J4 + J5. Operator-side polish; minimal customer-visible surface (one additional tooltip on `/settings/connectors`).

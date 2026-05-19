@@ -1,5 +1,6 @@
 /**
  * 2026-05-16 — connector-tokens-supabase-and-gsc-scope-split.
+ *  (Extended 2026-05-18 — Slice 9.A1 — GA4 provider.)
  *
  * Server-only token store for platform connectors, persisted in the
  * Supabase `connector_tokens` table (migration:
@@ -13,6 +14,9 @@
  * Provider keys (locked):
  *   • `google_gsc` — Google Search Console (webmasters.readonly).
  *   • `google_gbp` — Google Business Profile (business.manage).
+ *   • `google_ga4` — Google Analytics 4 (analytics.readonly).
+ *                   Slice 9.A1 — OAuth + Admin API property picker
+ *                   only; Data API consumption lands in Slice 9.A2.
  *   • `yelp`      — Yelp Fusion API key.
  *
  * Two-token Google storage reflects Google's per-grant authorization
@@ -53,11 +57,15 @@ import { currentTenantId } from "@/lib/tenant-context";
 // Provider + token shapes
 // ─────────────────────────────────────────────────────────────────────
 
-export type ConnectorProvider = "google_gsc" | "google_gbp" | "yelp";
+export type ConnectorProvider =
+  | "google_gsc"
+  | "google_gbp"
+  | "google_ga4"
+  | "yelp";
 
-/** Google OAuth token shape (GSC or GBP — discriminated by provider). */
+/** Google OAuth token shape (GSC, GBP, or GA4 — discriminated by provider). */
 export type GoogleConnectorToken = {
-  provider: "google_gsc" | "google_gbp";
+  provider: "google_gsc" | "google_gbp" | "google_ga4";
   access_token: string;
   refresh_token: string;
   /** Unix timestamp in milliseconds when the access token expires. */
@@ -74,15 +82,28 @@ export type GoogleConnectorToken = {
   /** Display name of the selected location — convenience only,
    *  never used for API calls. google_gbp only. */
   selected_location_name?: string;
+  /** GA4 property id (numeric string; e.g. "123456789"). Persisted on
+   *  the google_ga4 token payload via JSONB extension — no schema
+   *  migration. Selected by the operator on `/settings/connectors`
+   *  after OAuth via the property-picker flow. google_ga4 only.
+   *  Slice 9.A1 (2026-05-18). */
+  ga4_property_id?: string;
+  /** GA4 property display name — convenience only, never used for
+   *  API calls. google_ga4 only. Slice 9.A1 (2026-05-18). */
+  ga4_property_display_name?: string;
+  /** GA4 account display name — convenience only, surfaced in the
+   *  settings card alongside the property name. google_ga4 only.
+   *  Slice 9.A1 (2026-05-18). */
+  ga4_account_display_name?: string;
   /** J5 (2026-05-18) — ISO 8601 timestamp set when the operator
-   *  clicks "Disconnect GSC" on `/settings/connectors`. Soft
-   *  disconnect: the token row stays in `connector_tokens` (cached
-   *  historical state preserved) but `getConnectorInfo` reports
-   *  `status: "disconnected"` and downstream connectors (e.g., the
-   *  GSC URL Inspection client) fail-soft as if no token. Reconnect
-   *  via the OAuth callback upserts a fresh payload WITHOUT this
-   *  field, naturally clearing the disconnect state. Absent on
-   *  legacy rows (pre-J5). */
+   *  clicks "Disconnect" on `/settings/connectors`. Soft disconnect:
+   *  the token row stays in `connector_tokens` (cached historical
+   *  state preserved) but `getConnectorInfo` reports `status:
+   *  "disconnected"` and downstream connectors fail-soft as if no
+   *  token. Reconnect via the OAuth callback upserts a fresh payload
+   *  WITHOUT this field, naturally clearing the disconnect state.
+   *  Absent on legacy rows (pre-J5). Applies to GSC + GA4 (GBP retains
+   *  destructive delete path per Section 7 lock). */
   disconnected_at?: string;
 };
 
@@ -110,6 +131,14 @@ export type ConnectorInfo = {
   selected_location_id?: string | null;
   /** GBP selected location display name (google_gbp only). */
   selected_location_name?: string | null;
+  /** GA4 selected property id (google_ga4 only). null when the
+   *  operator has connected GA4 but not yet selected a property
+   *  (mid-flow state on the settings card). Slice 9.A1 (2026-05-18). */
+  ga4_property_id?: string | null;
+  /** GA4 selected property display name (google_ga4 only). */
+  ga4_property_display_name?: string | null;
+  /** GA4 account display name (google_ga4 only). */
+  ga4_account_display_name?: string | null;
 };
 
 // ─────────────────────────────────────────────────────────────────────
@@ -170,13 +199,20 @@ export async function getConnectorToken(
 }
 
 export async function getGoogleConnectorToken(
-  kind: "gsc" | "gbp" = "gsc",
+  kind: "gsc" | "gbp" | "ga4" = "gsc",
   tenantId?: string,
 ): Promise<GoogleConnectorToken | null> {
   const provider: ConnectorProvider =
-    kind === "gsc" ? "google_gsc" : "google_gbp";
+    kind === "gsc"
+      ? "google_gsc"
+      : kind === "gbp"
+        ? "google_gbp"
+        : "google_ga4";
   const t = await getConnectorToken(provider, tenantId);
-  return t != null && (t.provider === "google_gsc" || t.provider === "google_gbp")
+  return t != null &&
+    (t.provider === "google_gsc" ||
+      t.provider === "google_gbp" ||
+      t.provider === "google_ga4")
     ? (t as GoogleConnectorToken)
     : null;
 }
@@ -201,29 +237,40 @@ export async function getConnectorInfo(
       last_synced_at: null,
     };
   }
-  if (token.provider === "google_gsc" || token.provider === "google_gbp") {
+  if (
+    token.provider === "google_gsc" ||
+    token.provider === "google_gbp" ||
+    token.provider === "google_ga4"
+  ) {
     // J5 (2026-05-18) — soft-disconnect: the row stays in
     // `connector_tokens` so cached historical state is preserved,
     // but `getConnectorInfo` reports `disconnected` when the
     // `disconnected_at` field is set. The UI then shows the Connect
     // button + the "Last refreshed at X days ago" tooltip.
+    const sharedFields = {
+      connected_at: token.connected_at,
+      expires_at: token.expires_at,
+      last_synced_at: token.last_synced_at ?? null,
+      // GBP convenience fields (null on non-GBP providers).
+      selected_location_id: token.selected_location_id ?? null,
+      selected_location_name: token.selected_location_name ?? null,
+      // GA4 convenience fields (null on non-GA4 providers). Slice
+      // 9.A1 (2026-05-18) — surfaced so the settings card can
+      // render the connected-with-property state without a second
+      // round-trip to the token store.
+      ga4_property_id: token.ga4_property_id ?? null,
+      ga4_property_display_name: token.ga4_property_display_name ?? null,
+      ga4_account_display_name: token.ga4_account_display_name ?? null,
+    } as const;
     if (token.disconnected_at != null && token.disconnected_at !== "") {
       return {
         status: "disconnected",
-        connected_at: token.connected_at,
-        expires_at: token.expires_at,
-        last_synced_at: token.last_synced_at ?? null,
-        selected_location_id: token.selected_location_id ?? null,
-        selected_location_name: token.selected_location_name ?? null,
+        ...sharedFields,
       };
     }
     return {
       status: "connected",
-      connected_at: token.connected_at,
-      expires_at: token.expires_at,
-      last_synced_at: token.last_synced_at ?? null,
-      selected_location_id: token.selected_location_id ?? null,
-      selected_location_name: token.selected_location_name ?? null,
+      ...sharedFields,
     };
   }
   return {
@@ -268,6 +315,12 @@ type GoogleConnectorPatch = Partial<
     | "last_synced_at"
     | "selected_location_id"
     | "selected_location_name"
+    // Slice 9.A1 (2026-05-18) — GA4 property selection patches the
+    // existing google_ga4 token payload after the operator picks a
+    // property in the settings UI.
+    | "ga4_property_id"
+    | "ga4_property_display_name"
+    | "ga4_account_display_name"
     // J5 (2026-05-18) — soft-disconnect / reconnect flow patches the
     // payload's disconnected_at without touching the OAuth tokens.
     | "disconnected_at"
@@ -278,7 +331,7 @@ type YelpConnectorPatch = Partial<
 >;
 
 export async function updateConnectorToken(
-  provider: "google_gsc" | "google_gbp",
+  provider: "google_gsc" | "google_gbp" | "google_ga4",
   patch: GoogleConnectorPatch,
   tenantId?: string,
 ): Promise<void>;
@@ -320,7 +373,11 @@ export async function deleteConnectorToken(
 }
 
 export function isTokenExpired(token: ConnectorToken): boolean {
-  if (token.provider !== "google_gsc" && token.provider !== "google_gbp") {
+  if (
+    token.provider !== "google_gsc" &&
+    token.provider !== "google_gbp" &&
+    token.provider !== "google_ga4"
+  ) {
     return false;
   }
   return Date.now() >= token.expires_at;

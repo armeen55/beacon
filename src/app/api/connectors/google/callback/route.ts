@@ -1,12 +1,14 @@
 /**
  * Google OAuth callback —
  * connector-tokens-supabase-and-gsc-scope-split (2026-05-16).
+ *  (Extended 2026-05-18 — Slice 9.A1 — GA4 kind.)
  *
  * Decodes + validates the signed state, exchanges the code for tokens,
  * and stores the result in Supabase under the provider key matching the
  * state's connector kind:
  *   • kind="gsc" → provider "google_gsc"
  *   • kind="gbp" → provider "google_gbp"
+ *   • kind="ga4" → provider "google_ga4"
  *
  * Failure modes (all redirect to /settings/connectors?error=<code>):
  *   • Google denied consent           → ?error=access_denied
@@ -65,7 +67,12 @@ export async function GET(request: Request): Promise<NextResponse> {
   }
 
   const { k: kind, t: tenantId } = stateResult.payload;
-  const provider = kind === "gsc" ? "google_gsc" : "google_gbp";
+  const provider: "google_gsc" | "google_gbp" | "google_ga4" =
+    kind === "gsc"
+      ? "google_gsc"
+      : kind === "gbp"
+        ? "google_gbp"
+        : "google_ga4";
 
   let tokens;
   try {

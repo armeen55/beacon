@@ -1,26 +1,27 @@
 /**
  * Google OAuth 2.0 helpers — connector-tokens-supabase-and-gsc-scope-split
- * (2026-05-16).
+ * (2026-05-16; extended 2026-05-18 for Slice 9.A1 — GA4 kind).
  *
  * Server-only — never imported from client components.
  *
  * SCOPE SPLIT (locked):
- *   This module no longer requests both GBP + GSC scopes in a single
- *   OAuth flow. Each `buildGoogleAuthUrl(kind, ...)` call requests
- *   exactly one scope set:
+ *   This module no longer requests multiple scopes in a single OAuth
+ *   flow. Each `buildGoogleAuthUrl(kind, ...)` call requests exactly
+ *   one scope set:
  *     • kind="gsc" → webmasters.readonly only
  *     • kind="gbp" → business.manage only
+ *     • kind="ga4" → analytics.readonly only      (Slice 9.A1 — read-only
+ *                                                  GA4 + Analytics Admin)
  *
- *   Why: requesting both forced the GSC connect path to surface
- *   "View / edit / create / delete your Google business listings"
- *   on the consent screen — broad permissions a Search-Console-only
- *   user has no reason to grant. The per-grant model matches
- *   Google's own authorization shape (refresh tokens are bound to
- *   the scopes granted at consent).
+ *   Why: requesting multiple scopes forces broader permissions onto a
+ *   single consent screen than the connector needs. The per-grant
+ *   model matches Google's own authorization shape (refresh tokens
+ *   are bound to the scopes granted at consent). A GA4-only operator
+ *   never has to grant GSC or GBP permissions to enable Analytics.
  *
  * SIGNED STATE (locked):
  *   Every auth URL carries a signed `state` parameter encoding:
- *     • k — connector kind ("gsc" | "gbp")
+ *     • k — connector kind ("gsc" | "gbp" | "ga4")
  *     • t — tenantId at request time
  *     • n — random nonce
  *     • i — issued-at unix-ms (for sanity TTL)
@@ -57,13 +58,23 @@ const GSC_SCOPE = "https://www.googleapis.com/auth/webmasters.readonly";
  */
 const GBP_SCOPE = "https://www.googleapis.com/auth/business.manage";
 
+/**
+ * GA4 read scope (Slice 9.A1, 2026-05-18). Grants read-only access to
+ * the Google Analytics Admin API (`accountSummaries.list`) AND the
+ * Data API; Slice 9.A1 uses ONLY the Admin API to list properties
+ * during the property-picker flow. Data API usage lands in a future
+ * slice (9.A2 — Mode A outcome attribution).
+ */
+const GA4_SCOPE = "https://www.googleapis.com/auth/analytics.readonly";
+
 /** Per-kind single scope. Each OAuth flow requests exactly one. */
 const SCOPES: Record<GoogleConnectorKind, string> = {
   gsc: GSC_SCOPE,
   gbp: GBP_SCOPE,
+  ga4: GA4_SCOPE,
 };
 
-export type GoogleConnectorKind = "gsc" | "gbp";
+export type GoogleConnectorKind = "gsc" | "gbp" | "ga4";
 
 export const GOOGLE_CALLBACK_PATH = "/api/connectors/google/callback";
 
@@ -103,7 +114,7 @@ export function getRedirectUri(): string {
 // ─────────────────────────────────────────────────────────────────────
 
 export type OAuthStatePayload = {
-  /** Connector kind: "gsc" | "gbp". */
+  /** Connector kind: "gsc" | "gbp" | "ga4". */
   k: GoogleConnectorKind;
   /** Tenant id at request time. */
   t: string;
@@ -189,7 +200,12 @@ export function decodeOAuthState(raw: string | null | undefined): OAuthStateDeco
     return { ok: false, reason: "malformed" };
   }
   const p = parsed as Partial<OAuthStatePayload>;
-  if ((p.k !== "gsc" && p.k !== "gbp") || typeof p.t !== "string" || typeof p.n !== "string" || typeof p.i !== "number") {
+  if (
+    (p.k !== "gsc" && p.k !== "gbp" && p.k !== "ga4") ||
+    typeof p.t !== "string" ||
+    typeof p.n !== "string" ||
+    typeof p.i !== "number"
+  ) {
     return { ok: false, reason: "malformed" };
   }
   if (Date.now() - p.i > STATE_MAX_AGE_MS) {
@@ -211,6 +227,7 @@ export function decodeOAuthState(raw: string | null | undefined): OAuthStateDeco
  * provider key matching the kind:
  *   • kind="gsc" → provider "google_gsc"
  *   • kind="gbp" → provider "google_gbp"
+ *   • kind="ga4" → provider "google_ga4"
  */
 export function buildGoogleAuthUrl(kind: GoogleConnectorKind, state: string): string {
   if (state == null || state === "") {
