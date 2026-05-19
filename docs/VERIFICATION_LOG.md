@@ -7,6 +7,104 @@
 
 ---
 
+## 2026-05-19 — Slice 9.A2β.1: Mode A loader URL-scoped SELECT fix
+
+**Status:** READY_TO_COMMIT (operator-approved implementation; awaiting commit/push/verify approval).
+**Branch:** `claude/objective-davinci-c81e70`.
+**Builds on:** 9.A2β (`2430892`) + manual-verification failure (2026-05-19) where the Outcomes section did not render on `/changes/cl-mogzw78nv8pu54?v2=1`.
+
+### Why this slice exists
+
+Manual verification of 9.A2β found that the new Mode A "Outcomes" Act 3 sub-line did not render on the Ritz whole-home-remodel verified-live Change detail, even though:
+- Production substrate is correct (`/diagnostics/outcome-attribution` showed Mode A `still_learning_outcome / insufficient_volume` for the same edit).
+- linkedEdit resolution is correct (the existing lifecycle / primary-evidence / repeat-citation sub-lines all render).
+- Wiring is correct (page → client → component, prop threading verified).
+- Component renders correctly when given a non-null non-ineligible `ModeAResult` (37 component-render tests passing).
+
+Diagnosis (2026-05-19):
+- `load-mode-a-for-changes-detail.ts` performed `.from("ga4_url_traffic").select(...).eq("tenant_id", tenantId)` with no URL filter.
+- Supabase JS client defaults to a **1,000-row maximum** per `.select()` call.
+- Tenant `tenant-ritz-founder` holds **5,502 rows** in `ga4_url_traffic`:
+  - 2,751 legacy path-only rows (from before 9.A2γ.1 normalization)
+  - 2,751 full-URL rows (from 9.A2γ.1's persist-time normalization)
+  - The composite PK `(tenant_id, url, date)` includes `url` → the normalization INSERTED parallel rows instead of replacing path-only rows in-place
+- PostgreSQL row order without `ORDER BY` is implementation-defined → the 1,000-row subset returned to Mode A truncated the matching rows non-deterministically.
+- Direct SQL truth: **11 matching rows · 18 sessions** post-live for the H2 edit (`https://ritzbuilders.com/services/whole-home-remodel` + trailing-slash variant, date ≥ `2026-04-28`).
+- Mode A's compute received a partial dataset that did NOT include enough matching rows → returned `ineligible: no_traffic_data` → component correctly suppressed (returned null) → no Outcomes section rendered.
+
+### Files changed
+
+**Source (MODIFIED):**
+- `src/domains/outcome-attribution/load-mode-a-for-changes-detail.ts` — added runtime import of `canonicalizeCitationUrl` from `@/domains/citation-lifecycle/canonicalize-url`. Canonicalizes the recommended_edit's `target_url` FIRST. Early-out to `null` when canonicalizer returns null (covers `needs_new_page` sentinel, null target_url, empty string, path-only inputs, malformed inputs) — no Supabase round-trip in that case. Builds URL candidates `[canonicalTargetUrl, canonicalTargetUrl + "/"]`. Chains `.in("url", urlCandidates)` after `.eq("tenant_id", tenantId)` in the SELECT — rows returned drop from O(tenant_rows) → O(URL_variants_per_page) ≈ 2 rows + always below the 1,000-row cap. Cache key namespace bumped `mode-a-changes-detail:v1` → `mode-a-changes-detail:v2` so any stale `ineligible: no_traffic_data` entries cached by 9.A2β pre-fix are bypassed on first call. Defense in depth preserved: Mode A's compute continues to call `canonicalizeCitationUrl(row.url)` per-row + compare against `canonicalTargetUrl` (SQL filter is the FAST path; canonicalizer is the SAFE path).
+
+**Tests (MODIFIED):**
+- `tests/domains/outcome-attribution/load-mode-a-for-changes-detail.test.ts` — extended Supabase mock to support `.eq().in()` chain via a thenable terminator; added cache-key capture to the `unstable_cache` mock. New "9.A2β.1 URL-scoped SELECT" describe block with 8 cases:
+  1. `.in("url", [canonical, canonical + "/"])` call shape on happy-path inputs.
+  2. `.eq()` + `.in()` chain preservation (tenant scope retained, URL filter chained after).
+  3. Canonicalizer normalization of input reflected in candidates (www-strip + lowercase + http→https + query/fragment-strip + trailing-slash preserved per candidate).
+  4. Early-out on `needs_new_page` sentinel (no Supabase round-trip, no compute call).
+  5. Early-out on null target_url.
+  6. Early-out on empty-string target_url.
+  7. Early-out on path-only target_url (canonicalizer returns null for path-only inputs).
+  8. Cache key namespace pinned to `mode-a-changes-detail:v2` with explicit assertion that v1 is absent.
+- Total loader tests: 19 (11 pre-existing + 8 new).
+
+**NO new architecture invariants.** Existing `outcome-attribution-changes-detail-no-ga4-api` invariant continues to cover the loader's no-GA4-API contract. The new SQL-filter + canonicalizer-import behavior is pinned by the 8 new behavioral test cases.
+
+### Quality gates
+
+- `npm run typecheck`: CLEAN.
+- Targeted: 19/19 loader tests + 26 component tests + 36 Mode A unit tests + 3 9.A2β architecture invariants + GA4 Data API + catalog-sync — all green.
+- Full suite: green (see commit-time totals).
+- Build: `BEACON_TENANT_ID=tenant-ritz-founder BEACON_TENANT_SLUG=ritz-founder npm run build` — green.
+
+### Hard contracts honored
+
+- No change to `OutcomeAttributionAct3` component (byte-unchanged).
+- No change to Mode A compute (`mode-a-cited-here-traffic-here.ts` byte-unchanged).
+- No change to `canonicalize-url.ts` — the loader IMPORTS it as a runtime dependency (its locked Phase A.1 D3 "full URLs only" contract is exactly what the loader needs).
+- No change to GA4 substrate (`data-api.ts` / `client.ts` / `property-selection.ts` / `types.ts` / `persist-url-traffic.ts` / `normalize-page-path.ts` byte-unchanged).
+- No change to refresh action or operator diagnostic page.
+- No change to Changes detail `page.tsx` or `change-detail-v2-client.tsx` props / wiring.
+- No new migration.
+- No cron / no scheduled job.
+- No DELETE of the 2,751 legacy zombie path-only rows in `ga4_url_traffic` — separate maintenance task; URL filter solves Mode A correctness without it.
+- No customer copy changes.
+- No new customer surface.
+- No LLM.
+
+### Manual verification steps after deploy
+
+1. Reload `https://beacon-bice.vercel.app/changes/cl-mogzw78nv8pu54?v2=1`.
+2. Confirm the new "Outcomes" Act 3 sub-line appears.
+3. Per full SQL-truth aggregate (11 matching rows, 18 sessions, 21 days post-live), the most-likely render is:
+   - **eligible** copy: *"This page received 18 sessions in the 21 days since going live."*  
+   (alternatively if a few rows fall outside the post-live window, the still-learning variant: *"Not enough post-live traffic evidence yet for this page."*)
+4. Inspect DOM:
+   - `data-change-detail-outcome-attribution="true"` present.
+   - `data-outcome-attribution-kind="eligible"` (or `still_learning_insufficient_volume`).
+5. Confirm no causal / revenue wording anywhere:
+   - NO `drove` / `caused` / `generated` / `revenue` / `dollars` / `$` / `ROI` / `sales` / `leads` / `Mode A` / `Mode B` / `Mode C` / `primary recommendation` / `CallRail`.
+6. Confirm no Network tab request to `analyticsdata.googleapis.com` from the page render (cached read only).
+7. On the operator-only `/diagnostics/outcome-attribution`, the Ritz whole-home-remodel edit's Mode A `kind` should match the customer-visible state. (Note: the operator diagnostic page itself ALSO hits the 1,000-row Supabase cap when scanning all rows for all edits — a separate operator-side fix is recommended in a future slice but is OUT OF SCOPE for 9.A2β.1.)
+
+### Out of scope for this slice
+
+- **Legacy path-only row cleanup**: ~2,751 zombie rows remain in `ga4_url_traffic` (where `url LIKE '/%'`). Mode A's canonicalizer returns null for these so they don't contaminate matching, but they bloat the table. Separate maintenance slice can issue a one-off `DELETE FROM ga4_url_traffic WHERE tenant_id = 'tenant-ritz-founder' AND url LIKE '/%'` when convenient. Not required for 9.A2β closure.
+- **Operator diagnostic page 1,000-row cap**: `/diagnostics/outcome-attribution` reads all tenant rows unfiltered for aggregate display. Same Supabase truncation issue, but operator-only and tolerable for now (operator sees ~1 in 5 rows; aggregate counters might be off). Separate slice can extend the diagnostic's select via `.range(0, 10_000)` or pagination.
+
+### Next slice
+
+Operator-discretion at the next checkpoint after 9.A2β manual verification PASSES with this fix in place:
+- **9.A2β closeout** — mark 9.A2β + 9.A2β.1 both CLOSED / VERIFIED once Outcomes renders correctly.
+- **9.B CallRail connector** — lights up the eligible (calls ≥ 1) branch the forward-compat copy is already wired for.
+- **Section 9 Today tile** — separate customer surface; reuses the Mode A loader.
+- **GA4 zombie-row cleanup** (small maintenance slice).
+- **Operator diagnostic page 1,000-row cap fix** (small operator-substrate slice).
+- **Non-Section-9 next** — pivot per master plan.
+
+---
+
 ## 2026-05-19 — Slice 9.A2β: Changes detail Mode A customer copy
 
 **Status:** READY_TO_COMMIT (operator-approved implementation; awaiting commit/push/verify approval).

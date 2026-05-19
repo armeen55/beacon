@@ -13,8 +13,49 @@
  * inputs. The Supabase read filters by `tenant_id = tenantId` at
  * the query layer; the pure compute sees only the matched rows.
  *
- * Read shape:
- *   • Supabase admin `from("ga4_url_traffic").select(...).eq("tenant_id", tenantId)`.
+ * 9.A2β.1 (2026-05-19) — URL-scoped SELECT.
+ *   The 9.A2β manual-verification failure traced to a Supabase JS
+ *   client truncation: `.select(...).eq("tenant_id", tenantId)`
+ *   returns at most 1,000 rows by default. With 9.A2γ.1's
+ *   normalization having added a parallel set of full-URL rows
+ *   alongside legacy path-only rows, the tenant row count exceeded
+ *   the cap and the matching rows for any single edit were
+ *   non-deterministically truncated out of the response. Result:
+ *   Mode A returned `ineligible: no_traffic_data` on the customer
+ *   surface even though the cached substrate held complete data.
+ *
+ *   Fix at this boundary: canonicalize the recommended_edit's
+ *   `target_url` FIRST, then filter the SELECT to the canonical
+ *   form AND the trailing-slash variant (the two shapes GA4
+ *   pagePath consistently emits). Rows returned drop from
+ *   O(tenant_rows) → O(URL_variants_per_page) ≈ 2–6. The
+ *   1,000-row cap is no longer reachable for a single-edit query.
+ *
+ *   Cache key bumped `v1` → `v2` to bypass any stale
+ *   `ineligible: no_traffic_data` entries that 9.A2β shipped before
+ *   this fix landed.
+ *
+ *   Defense in depth: Mode A's matching loop continues to call
+ *   `canonicalizeCitationUrl(row.url)` per row + compare against
+ *   `canonicalTargetUrl`. The SQL filter is the FAST path; the
+ *   compute-time canonicalizer is the SAFE path. If a future shape
+ *   appears that the SQL filter misses, Mode A's compute layer is
+ *   still correct (it just gets zero matching rows and returns
+ *   `ineligible: no_traffic_data` — same fail-soft as before).
+ *
+ * Read shape (post 9.A2β.1):
+ *   • Supabase admin
+ *     `from("ga4_url_traffic")
+ *      .select(...)
+ *      .eq("tenant_id", tenantId)
+ *      .in("url", [canonicalTargetUrl, canonicalTargetUrl + "/"])`.
+ *   • Early-out: when `canonicalizeCitationUrl(target_url)` returns
+ *     `null` (sentinel `needs_new_page`, malformed input, non-http(s)
+ *     scheme, single-label host, etc.), the loader returns `null`
+ *     WITHOUT a Supabase round-trip. Mode A's compute would have
+ *     returned `ineligible: no_target_url` in that case anyway; this
+ *     early-out is purely a performance optimization + saves an
+ *     unnecessary admin call.
  *   • NEVER calls the GA4 Data API.
  *   • NEVER imports `runGa4UrlTrafficReport` / `persistGa4UrlTraffic`
  *     / `refreshTenantGa4Traffic` / `normalizeGa4PagePathToFullUrl`
@@ -32,9 +73,10 @@
  *   substrate gap.
  *
  * Cache:
- *   • Key: `["mode-a-changes-detail:v1", tenantId, recommendedEdit.id,
+ *   • Key: `["mode-a-changes-detail:v2", tenantId, recommendedEdit.id,
  *     recommendedEdit.live_at ?? "no-live", recommendedEdit.target_url
  *     ?? "no-url"]`.
+ *     ▲ Bumped `v1`→`v2` in 9.A2β.1 to bypass stale entries.
  *   • TTL: 21600s (6h). Mode A inputs (recommended_edits + cached
  *     ga4_url_traffic rows) move slowly; the diagnostic page already
  *     uses derive-on-read for the operator surface, so a slightly
@@ -56,6 +98,7 @@
  *   • tests/architecture/outcome-attribution-changes-detail-no-ga4-api.test.ts
  */
 
+import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
 import {
   computeModeATrafficAttribution,
   type ModeAResult,
@@ -86,9 +129,38 @@ export async function loadModeAForChangesDetail(
   const { tenantId, recommendedEdit } = options;
   const now = options.now ?? new Date();
 
+  // 9.A2β.1 — Canonicalize the target_url FIRST. The downstream Mode
+  // A compute does the same; computing here too lets us early-out
+  // before touching Supabase AND scope the SELECT to canonical
+  // candidates (eliminating the 1,000-row default-cap truncation that
+  // caused the 9.A2β manual-verification failure).
+  const canonicalTargetUrl = canonicalizeCitationUrl(
+    recommendedEdit.target_url ?? null,
+  );
+  if (canonicalTargetUrl == null) {
+    // Mode A's compute would have returned `ineligible: no_target_url`
+    // here; we collapse that to `null` (which the consumer component
+    // suppresses identically) to save an unnecessary Supabase round-
+    // trip. Net behavior preserved: customer surface renders silently.
+    return null;
+  }
+
+  // GA4 `pagePath` emits both with and without trailing slash on the
+  // same page across different dates; the canonicalizer strips
+  // trailing slashes for non-root paths so the trailing-slash variant
+  // canonicalizes to `canonicalTargetUrl`. Filtering the SELECT to
+  // BOTH variants matches every shape Mode A's compute would have
+  // matched post-canonicalization, without any other shape leaking
+  // in. Defense in depth: Mode A's compute re-canonicalizes per row
+  // anyway.
+  const urlCandidates: ReadonlyArray<string> = [
+    canonicalTargetUrl,
+    `${canonicalTargetUrl}/`,
+  ];
+
   const { unstable_cache } = await import("next/cache");
   const cacheKey = [
-    "mode-a-changes-detail:v1",
+    "mode-a-changes-detail:v2",
     tenantId,
     recommendedEdit.id,
     recommendedEdit.live_at ?? "no-live",
@@ -110,7 +182,8 @@ export async function loadModeAForChangesDetail(
       const { data, error } = await admin
         .from(TABLE)
         .select("url, date, sessions, engaged_sessions, conversions")
-        .eq("tenant_id", tenantId);
+        .eq("tenant_id", tenantId)
+        .in("url", urlCandidates);
       if (error != null) {
         return null;
       }

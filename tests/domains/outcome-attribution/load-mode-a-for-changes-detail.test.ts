@@ -1,7 +1,7 @@
 /**
- * 2026-05-19 — Slice 9.A2β — loadModeAForChangesDetail unit tests.
+ * 2026-05-19 — Slice 9.A2β + 9.A2β.1 — loadModeAForChangesDetail unit tests.
  *
- * Pins:
+ * Pins (9.A2β):
  *   • Tenant-scoped Supabase read (.from("ga4_url_traffic").eq("tenant_id", tenantId)).
  *   • Soft-fail on admin throws → returns null.
  *   • Soft-fail on read error (any code, including 42P01) → returns null.
@@ -13,6 +13,13 @@
  *     for eligible / still_learning / ineligible.
  *   • Row narrowing: skips rows with non-string url / non-string date;
  *     defaults numeric fields to 0 on bad inputs.
+ *
+ * Pins (9.A2β.1 — URL-scoped SELECT):
+ *   • Loader canonicalizes target_url FIRST + early-outs to null
+ *     when canonicalizer returns null (no Supabase round-trip).
+ *   • Supabase SELECT chains `.in("url", [canonicalTargetUrl,
+ *     canonicalTargetUrl + "/"])` AFTER `.eq("tenant_id", ...)`.
+ *   • Cache key version bumped to `mode-a-changes-detail:v2`.
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -25,8 +32,10 @@ let _supabaseAdminThrows = false;
 let _trafficData: unknown[] | null = [];
 let _supabaseError: { code?: string; message?: string } | null = null;
 let _eqCallArgs: Array<{ col: string; val: string }> = [];
+let _inCallArgs: Array<{ col: string; vals: readonly string[] }> = [];
 let _selectColumns: string = "";
 let _fromTable: string = "";
+let _adminFromCallCount = 0;
 
 vi.mock("@/lib/persistence/supabase", () => ({
   getSupabaseAdmin: () => {
@@ -35,20 +44,38 @@ vi.mock("@/lib/persistence/supabase", () => ({
     }
     return {
       from: (table: string) => {
+        _adminFromCallCount += 1;
         _fromTable = table;
+        // Inline terminator: every chain segment returns a Promise-
+        // aware object that ALSO exposes further chain methods, so the
+        // loader can call `.eq(...).in(...)` and the chain still
+        // resolves to the data/error tuple.
+        const makeTerminator = () => ({
+          eq: (col: string, val: string) => {
+            _eqCallArgs.push({ col, val });
+            return makeTerminator();
+          },
+          in: (col: string, vals: readonly string[]) => {
+            _inCallArgs.push({ col, vals });
+            return makeTerminator();
+          },
+          then: (
+            onFulfilled: (
+              value:
+                | { data: unknown[] | null; error: typeof _supabaseError }
+                | undefined,
+            ) => unknown,
+          ) =>
+            Promise.resolve(
+              _supabaseError != null
+                ? { data: null, error: _supabaseError }
+                : { data: _trafficData, error: null },
+            ).then(onFulfilled),
+        });
         return {
           select: (cols: string) => {
             _selectColumns = cols;
-            return {
-              eq: (col: string, val: string) => {
-                _eqCallArgs.push({ col, val });
-                return Promise.resolve(
-                  _supabaseError != null
-                    ? { data: null, error: _supabaseError }
-                    : { data: _trafficData, error: null },
-                );
-              },
-            };
+            return makeTerminator();
           },
         };
       },
@@ -57,13 +84,18 @@ vi.mock("@/lib/persistence/supabase", () => ({
 }));
 
 // Inline unstable_cache so the cached function executes immediately
-// (no real Next.js cache backend in this test env).
+// (no real Next.js cache backend in this test env). Capture the cache
+// key argument so tests can pin the 9.A2β.1 v1→v2 bump.
+let _cacheKey: unknown = null;
 vi.mock("next/cache", () => ({
   unstable_cache: <T extends (...args: unknown[]) => unknown>(
     fn: T,
-    _key: unknown,
+    key: unknown,
     _opts: unknown,
-  ) => fn,
+  ) => {
+    _cacheKey = key;
+    return fn;
+  },
 }));
 
 const _computeMock = vi.fn();
@@ -85,8 +117,11 @@ beforeEach(() => {
   _trafficData = [];
   _supabaseError = null;
   _eqCallArgs = [];
+  _inCallArgs = [];
   _selectColumns = "";
   _fromTable = "";
+  _adminFromCallCount = 0;
+  _cacheKey = null;
   _computeMock.mockReset();
 });
 
@@ -162,6 +197,145 @@ describe("loadModeAForChangesDetail — tenant scope", () => {
     expect(_selectColumns).toBe(
       "url, date, sessions, engaged_sessions, conversions",
     );
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────
+// 9.A2β.1 — URL-scoped SELECT + canonical-first early-out + cache v2
+// ─────────────────────────────────────────────────────────────────────
+
+describe("loadModeAForChangesDetail — 9.A2β.1 URL-scoped SELECT", () => {
+  it("filters the SELECT to .in('url', [canonicalTargetUrl, canonicalTargetUrl + '/'])", async () => {
+    _computeMock.mockReturnValue({
+      kind: "ineligible",
+      reason: "no_traffic_data",
+      canonical_target_url: "https://ritzbuilders.com/services/whole-home-remodel",
+    });
+    await loadModeAForChangesDetail({
+      tenantId: "tenant-ritz-founder",
+      recommendedEdit: makeEdit({
+        target_url: "https://ritzbuilders.com/services/whole-home-remodel",
+      }),
+      now: NOW,
+    });
+    expect(_inCallArgs).toEqual([
+      {
+        col: "url",
+        vals: [
+          "https://ritzbuilders.com/services/whole-home-remodel",
+          "https://ritzbuilders.com/services/whole-home-remodel/",
+        ],
+      },
+    ]);
+  });
+
+  it("preserves the tenant-scope .eq() call AND chains the .in() filter after it", async () => {
+    _computeMock.mockReturnValue({
+      kind: "ineligible",
+      reason: "no_traffic_data",
+      canonical_target_url: "https://x.com/foo",
+    });
+    await loadModeAForChangesDetail({
+      tenantId: "tenant-ritz-founder",
+      recommendedEdit: makeEdit({ target_url: "https://x.com/foo" }),
+      now: NOW,
+    });
+    // Both chain calls fired exactly once.
+    expect(_eqCallArgs).toEqual([
+      { col: "tenant_id", val: "tenant-ritz-founder" },
+    ]);
+    expect(_inCallArgs).toEqual([
+      {
+        col: "url",
+        vals: ["https://x.com/foo", "https://x.com/foo/"],
+      },
+    ]);
+  });
+
+  it("canonicalizes input target_url before filtering (strips www, lowercases host, normalizes http→https)", async () => {
+    _computeMock.mockReturnValue({
+      kind: "ineligible",
+      reason: "no_traffic_data",
+      canonical_target_url: "https://example.com/path",
+    });
+    await loadModeAForChangesDetail({
+      tenantId: "tenant-test",
+      recommendedEdit: makeEdit({
+        // Pre-canonical input — canonicalizer should normalize.
+        target_url: "http://WWW.Example.com/path/?utm_source=x#frag",
+      }),
+      now: NOW,
+    });
+    expect(_inCallArgs).toEqual([
+      {
+        col: "url",
+        vals: ["https://example.com/path", "https://example.com/path/"],
+      },
+    ]);
+  });
+
+  it("early-outs to null when target_url is the 'needs_new_page' sentinel — no Supabase round-trip", async () => {
+    const r = await loadModeAForChangesDetail({
+      tenantId: "tenant-test",
+      recommendedEdit: makeEdit({ target_url: "needs_new_page" }),
+      now: NOW,
+    });
+    expect(r).toBeNull();
+    expect(_adminFromCallCount).toBe(0);
+    expect(_computeMock).not.toHaveBeenCalled();
+  });
+
+  it("early-outs to null when target_url is null — no Supabase round-trip", async () => {
+    const r = await loadModeAForChangesDetail({
+      tenantId: "tenant-test",
+      recommendedEdit: makeEdit({ target_url: null as unknown as string }),
+      now: NOW,
+    });
+    expect(r).toBeNull();
+    expect(_adminFromCallCount).toBe(0);
+    expect(_computeMock).not.toHaveBeenCalled();
+  });
+
+  it("early-outs to null when target_url is empty string — no Supabase round-trip", async () => {
+    const r = await loadModeAForChangesDetail({
+      tenantId: "tenant-test",
+      recommendedEdit: makeEdit({ target_url: "" }),
+      now: NOW,
+    });
+    expect(r).toBeNull();
+    expect(_adminFromCallCount).toBe(0);
+    expect(_computeMock).not.toHaveBeenCalled();
+  });
+
+  it("early-outs to null when target_url is a path-only string (canonicalizer returns null)", async () => {
+    const r = await loadModeAForChangesDetail({
+      tenantId: "tenant-test",
+      recommendedEdit: makeEdit({ target_url: "/services/foo" }),
+      now: NOW,
+    });
+    expect(r).toBeNull();
+    expect(_adminFromCallCount).toBe(0);
+    expect(_computeMock).not.toHaveBeenCalled();
+  });
+
+  it("uses cache key namespace 'mode-a-changes-detail:v2' (bumped from v1)", async () => {
+    _computeMock.mockReturnValue({
+      kind: "ineligible",
+      reason: "no_traffic_data",
+      canonical_target_url: "https://x.com/foo",
+    });
+    await loadModeAForChangesDetail({
+      tenantId: "tenant-test",
+      recommendedEdit: makeEdit({ target_url: "https://x.com/foo" }),
+      now: NOW,
+    });
+    expect(Array.isArray(_cacheKey)).toBe(true);
+    const key = _cacheKey as readonly unknown[];
+    expect(key[0]).toBe("mode-a-changes-detail:v2");
+    // Defense in depth: the v1 namespace MUST NOT appear anywhere
+    // in the key (catches a future refactor that splits the version
+    // across multiple key elements).
+    expect(key.some((k) => k === "mode-a-changes-detail:v1")).toBe(false);
   });
 });
 
