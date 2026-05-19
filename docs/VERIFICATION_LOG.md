@@ -7,6 +7,109 @@
 
 ---
 
+## 2026-05-19 — Slice 9.A2α.2: Mode A pure-compute read model
+
+**Status.** READY_TO_COMMIT (operator-approved implementation-only gate; no commit, no push, no deploy until operator approval).
+
+**Predecessor.** Builds on the shipped 9.A2α.1 GA4 Data API substrate (commit `405d0f3`) + the applied `ga4_url_traffic` migration (header commit `cde5820`). 9.A2α.1 substrate is BYTE-UNCHANGED in this slice. Migration is BYTE-UNCHANGED.
+
+**Split context.** This is split-slice 2 of 3 of the original over-ceiling 9.A2α bundle. 9.A2α.1 (Data API substrate + migration) shipped. 9.A2α.2 (Mode A pure-compute read model — THIS slice) ships next. 9.A2α.3 (operator-only `/diagnostics/outcome-attribution`) deferred.
+
+**What changed.**
+
+**NEW `src/domains/outcome-attribution/mode-a-cited-here-traffic-here.ts`** — pure-compute Mode A outcome attribution. 284 source lines (~140 lines header doc + ~140 lines implementation). `import "server-only"` at top. Exports:
+
+- Three locked Section 9 K4 threshold constants:
+  - `MODE_A_MIN_DAYS_POST_LIVE = 7`
+  - `MODE_A_MIN_SESSIONS = 5`
+  - `MODE_A_MIN_QUALIFIED_CALLS = 1`
+- Discriminated `ModeAResult` union with three kinds:
+  - `eligible` — full fields: days_since_live + post_live_sessions + post_live_engaged_sessions + post_live_conversions + post_live_qualified_calls + canonical_target_url + sample_window_start + sample_window_end.
+  - `still_learning_outcome` — with `reason` discriminator (`insufficient_days` | `insufficient_volume`) + relevant sample fields.
+  - `ineligible` — with `reason` discriminator (`no_live_at` | `no_target_url` | `no_traffic_data`) + canonical_target_url (nullable).
+- `ComputeModeAArgs` input shape — minimal `Pick<RecommendedEditRow, "target_url" | "live_at">` recommended-edit shape (callers may pass extra fields like `id` for debugging; Mode A ignores them) + `ga4UrlTrafficRows: Ga4UrlTrafficRow[]` + optional `qualifiedCallCount?: number` (defaults to 0 per K2 lock) + required `now: Date` (clock injection for determinism + tests).
+- `computeModeATrafficAttribution(args)` — the public synchronous pure compute function.
+- `__testing` object exposing the three constants + `isoDateUTC` helper for test access.
+
+**Locked truth table** (documented in source header + verified by 27 unit tests):
+1. `live_at` null/empty/unparseable → `ineligible: no_live_at`.
+2. `target_url` null/empty/`needs_new_page` sentinel → `ineligible: no_target_url`.
+3. canonicalized target URL empty → `ineligible: no_target_url`.
+4. zero matching rows after URL canonicalization + post-live + non-future filtering → `ineligible: no_traffic_data` (documented decision in source header: distinct signal from "low volume"; indicates tracking/configuration gap; waiting more days doesn't help).
+5. days_since_live < 7 → `still_learning_outcome: insufficient_days`.
+6. days_since_live ≥ 7 AND sessions < 5 AND calls < 1 → `still_learning_outcome: insufficient_volume`.
+7. else → `eligible` with full aggregates + sample window.
+
+**K4 OR-branch (`!sessionsThresholdMet && !callsThresholdMet`)** stays in source for CallRail forward-compat per K2 lock. 9.A2α.2 callers pass `qualifiedCallCount = 0`; the call branch lights up when the 9.B CallRail connector ships.
+
+**Purity guarantees** (pinned by architecture invariant):
+- Pure synchronous function (NON-async).
+- No Supabase admin / `getRepository` imports.
+- No GA4 Data API client runtime import (only type-only imports of `Ga4UrlTrafficRow` from `@/lib/connectors/ga4/types` — TypeScript erases them at compile time).
+- No `@/lib/connectors/` runtime imports of any kind.
+- No customer-surface runtime imports (`@/app/**`, `@/components/**`, `@/domains/today`, `@/domains/recommendations`, `@/domains/changes`, `@/domains/prompts`).
+- No `fetch` calls.
+- No ambient `currentTenantSlug()` / `currentTenantId()` reads.
+- Does NOT mutate input `ga4UrlTrafficRows` array or any row object inside (verified by JSON.stringify snapshot tests).
+- Does NOT mutate input `recommendedEdit` object.
+- Defense-in-depth: K5 forbidden customer-vocab tokens (`drove` / `caused` / `generated` / `revenue` / `dollars`) absent from source — protects against future copy leaks when 9.A2β customer surfaces consume the `ModeAResult` union.
+
+**Tests added — 27 unit tests + 15 architecture invariant assertions:**
+
+`tests/domains/outcome-attribution/mode-a-cited-here-traffic-here.test.ts`:
+- 3 locked-threshold pin tests
+- 9 ineligible-path tests (null/empty/unparseable live_at; null/empty/sentinel target_url; empty rows array; non-matching URL rows; all-pre-live rows)
+- 4 still_learning_outcome tests (insufficient_days; insufficient_volume; boundary exactly-6-days; boundary exactly-4-sessions)
+- 8 eligible-path tests (basic 7d+5sessions; CallRail-ready 7d+1call; boundary exactly-7d+5sessions; default qualifiedCallCount=0; multi-row aggregation; future-row exclusion; case + trailing-slash canonicalization; sample_window_start/end format)
+- 2 purity tests (no mutation of ga4UrlTrafficRows array OR row contents; no mutation of recommendedEdit object)
+- 2 `isoDateUTC` helper tests
+
+`tests/architecture/outcome-attribution-mode-a-sample-size-guard.test.ts` (15 assertions):
+- Three K4 threshold constants pinned at `7` / `5` / `1` as top-level exports.
+- K4 OR-branch (`!sessionsThresholdMet && !callsThresholdMet`) pinned at source level.
+- `computeModeATrafficAttribution` exported as NON-async pure function (positive + negative checks).
+- `import "server-only"` at top.
+- No Supabase / `getRepository` / Data API client runtime imports.
+- No `@/lib/connectors/` runtime imports (type-only allowed via `import type` filter).
+- No `fetch` calls.
+- No ambient tenant reads.
+- No customer-surface runtime imports.
+- K5 forbidden customer-vocab tokens absent (5-word list: drove / caused / generated / revenue / dollars).
+
+Test pattern note: the architecture invariant uses a `runtimeImportLines` helper that strips `import type { ... }` lines from the source before scanning — keeps the invariant focused on runtime impact while allowing type-level safety.
+
+**Architecture catalog.** 1 new row added under "Section 9 / Slice 9.A2α.2 — Mode A pure-compute read model" heading. Catalog-sync test green.
+
+**Quality gates run from this slice.**
+- `npm run typecheck` — CLEAN.
+- Targeted Mode A unit suite — 27/27 green.
+- Targeted architecture invariant — 15/15 green.
+- Catalog-sync — green after 1 new row added.
+- Existing 9.A1α/β + 9.A2α.1 + GA4 + GSC + connector regression sweep — green (zero substrate regression).
+- Full suite + tenant-env build run before READY_TO_COMMIT report.
+
+**Hard contracts honored.**
+- No customer surface modification (today / recommendations / changes / prompts / local / competitors + components).
+- No cron / scheduled-job wiring.
+- No CallRail (K2 lock).
+- No GBP insights changes.
+- No customer outcome claims · no revenue / causal language anywhere · K5 forbidden token set absent from source.
+- No LLM.
+- No paid API call (pure compute over caller-supplied rows).
+- No `business-config` GA4 property field.
+- No GSC/GBP/Yelp behavior regression.
+- No GA4 call from this module (pure compute; caller provides rows).
+- No Mode A read model has zero direct callers in 9.A2α.2 — it ships ready for 9.A2α.3 (operator diagnostic) and 9.A2β (customer copy).
+- 9.A2α.1 substrate byte-unchanged (`data-api.ts`, `types.ts`, `client.ts`, migration SQL all confirmed UNCHANGED via `git status`).
+
+**Net source delta** (excluding tests + docs):
+- `src/domains/outcome-attribution/mode-a-cited-here-traffic-here.ts` NEW: 284 lines.
+- **Total `src/` net: +284 lines** — within the +500 ceiling (+216 headroom).
+
+**Next step.** Operator review of the 9.A2α.2 READY_TO_COMMIT report; on explicit approval, commit + push + Vercel deploy. Then begin **Slice 9.A2α.3** (operator-only `/diagnostics/outcome-attribution` page that consumes `computeModeATrafficAttribution` via Supabase-admin-loaded `ga4_url_traffic` rows + repository-loaded verified-live `recommended_edits`; estimated ~+287 src/, well within +500 ceiling).
+
+---
+
 ## 2026-05-19 — Slice 9.A2α.1: GA4 Data API substrate + first Section-9 migration
 
 **Status.** READY_TO_COMMIT (operator-approved implementation-only gate; no commit, no push, no deploy until operator approval).
