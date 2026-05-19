@@ -71,9 +71,18 @@ vi.mock("@/lib/persistence/supabase", () => ({
 }));
 
 const _gscUrlInspectSpy = vi.fn();
-vi.mock("@/lib/connectors/gsc/client", () => ({
-  gscUrlInspect: (args: unknown) => _gscUrlInspectSpy(args),
-}));
+// Partial-mock pattern: stub `gscUrlInspect` only, re-export the
+// rest of `@/lib/connectors/gsc/client` (notably `extractMobileUsability`
+// which J4 wires into the load-gsc-signal cache-read path). Without
+// the partial mock, the helper returns `undefined` and the cached
+// signal branch throws.
+vi.mock("@/lib/connectors/gsc/client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/connectors/gsc/client")>();
+  return {
+    ...actual,
+    gscUrlInspect: (args: unknown) => _gscUrlInspectSpy(args),
+  };
+});
 
 vi.mock("@/lib/logger", () => ({
   log: { warn: vi.fn(), info: vi.fn(), error: vi.fn() },

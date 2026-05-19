@@ -50,6 +50,7 @@ import { getGoogleConnectorToken } from "@/lib/connector-store";
 import { refreshGoogleAccessToken } from "@/lib/connectors/google-auth";
 import { log } from "@/lib/logger";
 
+import { evaluateExpiry } from "./expiry-handler";
 import type {
   GscInspectionCacheEntry,
   GscUrlInspectionResult,
@@ -94,6 +95,11 @@ function rowToEntry(row: CacheRow): GscInspectionCacheEntry {
     indexing_state: row.indexing_state,
     coverage_state: row.coverage_state,
     last_crawl_time: row.last_crawl_time,
+    // J4 (2026-05-18) — derive from the existing `raw` JSONB column.
+    // No separate Supabase column is added in this slice; the
+    // extractor is the single source of truth for mobile_usability
+    // across fresh-fetch + cache-read paths.
+    mobile_usability: extractMobileUsability(row.raw),
     last_checked_at: row.last_checked_at,
     raw: row.raw,
   };
@@ -253,12 +259,37 @@ export async function gscUrlInspect(
     return null;
   }
 
+  // J5 (2026-05-18) — soft disconnect. When the operator clicked
+  // "Disconnect GSC" the token row stays in `connector_tokens` with
+  // `disconnected_at` set. Treat as if no token: do NOT refresh,
+  // do NOT call the API, return the cached entry (regardless of
+  // TTL) if any. The UI shows "Last refreshed at X days ago" copy
+  // from the existing cache.
+  if (token.disconnected_at != null && token.disconnected_at !== "") {
+    return existing ?? null;
+  }
+
+  // J2 (2026-05-18) — expiry classifier. Three-state status drives
+  // the refresh decision:
+  //   • fresh           → use access_token directly
+  //   • stale_under_7d  → attempt OAuth refresh (existing path)
+  //   • stale_over_7d   → DO NOT refresh; surface cached entry +
+  //                       prompt operator to reconnect on the
+  //                       /settings/connectors surface
+  const expiryStatus = evaluateExpiry({ token, now: nowDate });
+  if (expiryStatus === "stale_over_7d") {
+    log.info("[gsc-client] token stale >7d; surfacing cached entry", {
+      tenantId,
+      inspectionUrl,
+    });
+    return existing ?? null;
+  }
+
   // 3. Resolve access token. Refresh if expired (or about to expire
   // within 60s); the existing google-auth helper handles the OAuth
   // refresh wire-up.
   let accessToken = token.access_token;
-  const nowMs = nowDate.getTime();
-  if (typeof token.expires_at === "number" && token.expires_at - 60_000 <= nowMs) {
+  if (expiryStatus === "stale_under_7d") {
     try {
       const refreshed = await refreshGoogleAccessToken(token.refresh_token);
       accessToken = refreshed.access_token;
@@ -272,7 +303,7 @@ export async function gscUrlInspect(
         tenantId,
         error: e instanceof Error ? e.message : String(e),
       });
-      return null;
+      return existing ?? null;
     }
   }
 
@@ -354,6 +385,10 @@ export function mapInspectionResponse(args: {
     indexing_state: readStringOrNull(indexStatus, "indexingState"),
     coverage_state: readStringOrNull(indexStatus, "coverageState"),
     last_crawl_time: readStringOrNull(indexStatus, "lastCrawlTime"),
+    // J4 (2026-05-18) — extract from the fresh-fetch response body.
+    // The cache-read path mirrors this via `rowToEntry(row)` so both
+    // entry shapes agree without a separate schema column.
+    mobile_usability: extractMobileUsability(body),
     last_checked_at: nowIso,
     raw: body,
   };
@@ -378,12 +413,43 @@ function readStringOrNull(
 }
 
 /**
+ * J4 (2026-05-18) — derive `mobile_usability: boolean | null` from
+ * the verbatim GSC API response body OR a cached `raw` payload.
+ *
+ * Path: `inspectionResult.mobileUsabilityResult.verdict`.
+ *
+ * Mapping:
+ *   • "MOBILE_FRIENDLY"                                  → true
+ *   • "NON_MOBILE_FRIENDLY" / "MOBILE_USABILITY_FAILED"  → false
+ *   • "VERDICT_UNSPECIFIED" / absent / non-string        → null
+ *
+ * Pure: no I/O, deterministic on input. Same helper feeds both the
+ * fresh-fetch path (`mapInspectionResponse`) and the cache-read path
+ * (`rowToEntry`) so the two views agree by construction.
+ */
+export function extractMobileUsability(raw: unknown): boolean | null {
+  if (raw == null || typeof raw !== "object") return null;
+  const ir = (raw as Record<string, unknown>).inspectionResult;
+  if (ir == null || typeof ir !== "object") return null;
+  const mu = (ir as Record<string, unknown>).mobileUsabilityResult;
+  if (mu == null || typeof mu !== "object") return null;
+  const verdict = (mu as Record<string, unknown>).verdict;
+  if (typeof verdict !== "string") return null;
+  if (verdict === "MOBILE_FRIENDLY") return true;
+  if (verdict === "VERDICT_UNSPECIFIED") return null;
+  // Any other concrete verdict ("NON_MOBILE_FRIENDLY",
+  // "MOBILE_USABILITY_FAILED", future variants) → not mobile-friendly.
+  return false;
+}
+
+/**
  * Test-only export of cache helpers + constants. Mirrors the
  * `citation-lifecycle/load-lifecycle.ts:__testing` pattern.
  */
 export const __testing = {
   readCachedInspection,
   writeCachedInspection,
+  extractMobileUsability,
   CACHE_TABLE,
   REQUIRED_SCOPE,
   CACHE_TTL_MS,

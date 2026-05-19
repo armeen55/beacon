@@ -162,6 +162,16 @@ export type IndexabilityGscSignal = {
   coverage_state: string | null;
   /** ISO timestamp Google last crawled the URL. Null when never crawled. */
   last_crawl_time: string | null;
+  /** Google's mobile-friendliness verdict narrowed to boolean.
+   *  `true` when MOBILE_FRIENDLY; `false` when any non-friendly
+   *  concrete verdict; `null` when absent / unspecified. Derived
+   *  from `raw` at read time (J4, 2026-05-18).
+   *
+   *  OPTIONAL on the type so pre-J4 fixtures + legacy code paths
+   *  continue to compile; consumers should treat `undefined ≈ null`
+   *  via `gsc.mobile_usability ?? null`. Future slice may promote to
+   *  required once all call sites + fixtures are updated. */
+  mobile_usability?: boolean | null;
   /** ISO timestamp Beacon recorded this result via gscUrlInspect(). */
   last_checked_at: string | null;
 } | null;

@@ -8,6 +8,7 @@ import {
   updateConnectorToken,
   type ConnectorInfo,
 } from "@/lib/connector-store";
+import { softDisconnectGsc } from "@/lib/connectors/gsc/disconnect-flow";
 import {
   buildGoogleAuthUrl,
   encodeOAuthState,
@@ -259,7 +260,15 @@ export async function disconnectGoogle(): Promise<{
     // Disconnect both Google providers — GSC + GBP are separate token
     // grants, but a single "Disconnect Google" affordance clears both
     // so the operator doesn't have to click twice.
-    await deleteConnectorToken("google_gsc");
+    //
+    // J5 (2026-05-18) — GSC uses SOFT disconnect so cached historical
+    // state in `gsc_url_inspections` is preserved. Reconnect via the
+    // standard OAuth flow naturally clears `disconnected_at` because
+    // saveConnectorToken upserts a fresh payload without the field.
+    // GBP keeps its existing destructive delete path (Section 7
+    // owns the GBP soft-disconnect migration when warranted).
+    const tenantId = await currentTenantId();
+    await softDisconnectGsc({ tenantId });
     await deleteConnectorToken("google_gbp");
     revalidatePath("/settings/connectors");
     log.info("Action completed", { action, durationMs: Date.now() - t0 });

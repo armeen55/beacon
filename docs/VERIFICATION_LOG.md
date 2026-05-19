@@ -7,6 +7,68 @@
 
 ---
 
+## 2026-05-18 — Section 8 J-block remaining
+
+**What changed.** Hardens the GSC connector per the Section 8 Decision Lock for J2 + J3 + J4 + J5. Operator-side polish; minimal customer-visible surface (one additional tooltip on `/settings/connectors`).
+
+**J2 — token expiry soft-fail (7-day cache).** New pure module `src/lib/connectors/gsc/expiry-handler.ts` exports `evaluateExpiry({ token, now }) → "fresh" | "stale_under_7d" | "stale_over_7d"` plus `formatLastRefreshedCopy({ expiresAtMs, now })`. Constants `REFRESH_BUFFER_MS = 60_000` and `STALE_OVER_THRESHOLD_MS = 7d` are exported for tests + operator copy. `gscUrlInspect` (`src/lib/connectors/gsc/client.ts`) consults the classifier before attempting OAuth refresh — `stale_over_7d` returns the cached entry (regardless of TTL) and skips the refresh + API call entirely. Refresh failure on `stale_under_7d` ALSO falls back to cached entry (previously returned null). Logs `[gsc-client] token stale >7d; surfacing cached entry` for operator triage.
+
+**J3 — 4-hour hash-bucketed quota stagger.** New pure module `src/lib/connectors/gsc/quota-stagger.ts` exports `staggerSlotHour(tenantId)` → one of `{0, 4, 8, 12, 16, 20}` via `sha1(tenant_id) mod 6 → bucket × 4`. `isStaggerSlotActive({ tenantId, now })` returns whether the current UTC hour falls within the tenant's 4-hour window. `backoffDelayMs(attempt)` returns the exp-backoff schedule for 429 retries; locked `MAX_RETRIES_ON_429 = 3`. Pure module — no I/O, no clock reads, no Math.random; clock injection required by caller.
+
+**J4 — `mobile_usability` completion via raw extraction.** Added `extractMobileUsability(raw)` helper to `client.ts`: reads `inspectionResult.mobileUsabilityResult.verdict` and returns `true` for `MOBILE_FRIENDLY`, `false` for any other concrete verdict, `null` for `VERDICT_UNSPECIFIED` or absent/malformed input. Wired through `mapInspectionResponse` (fresh-fetch path) AND `rowToEntry` (cache-read path) so both views agree by construction. `GscUrlInspectionResult` + `GscInspectionCacheEntry` gain the field. `IndexabilityGscSignal` gains the field as OPTIONAL so pre-J4 test fixtures + legacy code paths continue to compile. `load-gsc-signal.ts` extended SELECT to include `raw`, then derives `mobile_usability` from it. **NO Supabase schema migration** — the existing `raw` JSONB column carries the verbatim Google response.
+
+**J5 — soft disconnect / reconnect flow.** New module `src/lib/connectors/gsc/disconnect-flow.ts` exports `softDisconnectGsc({ tenantId, now })` and `clearDisconnectedFlagGsc({ tenantId })`. Soft disconnect sets `disconnected_at: ISO_now` on the existing token payload via `updateConnectorToken("google_gsc", { disconnected_at })` — **never calls `deleteConnectorToken`**. `GoogleConnectorToken` payload gains optional `disconnected_at?: string` field (JSONB extension; no schema change). `GoogleConnectorPatch` extended to allow disconnect-state patches. `getConnectorInfo` now reports `status: "disconnected"` when the field is set while preserving `connected_at` + `expires_at` so the UI shows the staleness tooltip. `gscUrlInspect` short-circuits when `token.disconnected_at` is set: returns cached entry or null without any API call. The existing `disconnectGoogle` server action (`src/app/(shell)/settings/connectors/actions.ts`) now soft-disconnects GSC + keeps the destructive `deleteConnectorToken` path for GBP (Section 7 owns GBP soft-disconnect migration when warranted). Reconnect via the standard OAuth callback naturally clears `disconnected_at` because `saveConnectorToken` upserts a fresh payload without the field.
+
+**UI bits.** `/settings/connectors` now renders "Disconnected · cached data preserved" when the GSC connector was previously authorized + is now soft-disconnected, plus a "GSC data last refreshed X days ago. Reconnect to refresh." tooltip line. The formatting helper lives in `expiry-handler.ts` (`server-only`); `page.tsx` computes the copy server-side and threads it as the `gscStaleCopy` prop on `ConnectorsClient`. Disconnect button also gains a `title=` tooltip ("Soft disconnect — historical data stays cached but no new data refreshes until you reconnect.").
+
+**J1 multi-property GSC** stays DEFERRED to v2 per the locked Section 8 J-block decision.
+
+**New architecture invariant.** `tests/architecture/gsc-quota-stagger-tenant-isolation.test.ts` pins `quota-stagger.ts` as pure + explicit-tenant + locked constants (`STAGGER_BUCKETS = 6`, `STAGGER_WINDOW_HOURS = 24 / STAGGER_BUCKETS`, `MAX_RETRIES_ON_429 = 3`). No `Math.random()` / no `Date.now()` inline reads; clock injection only.
+
+**Files changed.** 4 new source files + 6 modified source files + 4 new test files + 1 modified existing test file + 1 catalog row + 3 doc syncs.
+
+| Path | Change |
+|---|---|
+| `src/lib/connectors/gsc/expiry-handler.ts` | NEW (J2; pure) |
+| `src/lib/connectors/gsc/quota-stagger.ts` | NEW (J3; pure) |
+| `src/lib/connectors/gsc/disconnect-flow.ts` | NEW (J5) |
+| `src/lib/connectors/gsc/types.ts` | MODIFY — add `mobile_usability` field |
+| `src/lib/connectors/gsc/client.ts` | MODIFY — extract mobile_usability + wire J2 stale_over_7d + J5 disconnected_at branches |
+| `src/domains/indexability/types.ts` | MODIFY — add optional `mobile_usability` on IndexabilityGscSignal |
+| `src/domains/indexability/load-gsc-signal.ts` | MODIFY — SELECT raw, derive mobile_usability via shared helper |
+| `src/lib/connector-store.ts` | MODIFY — add optional `disconnected_at` on GoogleConnectorToken; honor in getConnectorInfo + GoogleConnectorPatch |
+| `src/app/(shell)/settings/connectors/actions.ts` | MODIFY — disconnectGoogle uses softDisconnectGsc for the GSC half |
+| `src/app/(shell)/settings/connectors/connectors-client.tsx` | MODIFY — render gscStaleCopy tooltip when soft-disconnected |
+| `src/app/(shell)/settings/connectors/page.tsx` | MODIFY — compute gscStaleCopy server-side via formatLastRefreshedCopy |
+| `tests/lib/connectors/gsc/expiry-handler.test.ts` | NEW (17 tests) |
+| `tests/lib/connectors/gsc/quota-stagger.test.ts` | NEW (16 tests) |
+| `tests/lib/connectors/gsc/disconnect-flow.test.ts` | NEW (9 tests) |
+| `tests/lib/connectors/gsc/client-j-block.test.ts` | NEW (15 tests; J4 extractor + J2 stale_over_7d + J5 disconnected_at) |
+| `tests/lib/connectors/gsc/client.test.ts` | MODIFY — add mobile_usability: null to one existing `toEqual` expectation |
+| `tests/architecture/gsc-quota-stagger-tenant-isolation.test.ts` | NEW (9 invariant assertions) |
+| `docs/ARCHITECTURE_INVARIANTS_CATALOG.md` | MODIFY — 1 new row under a new "Section 8 J-block remaining" subsection |
+| `docs/HANDOFF_VERIFIED_STATE.md` | MODIFY — top entry |
+| `docs/NEXT_PHASE_EXECUTION_PLAN.md` | MODIFY — top entry |
+
+**Quality gates.**
+- `npm run typecheck` — CLEAN.
+- Targeted: `npx vitest run tests/lib/connectors/gsc/ tests/architecture/gsc-quota-stagger-tenant-isolation.test.ts tests/architecture/catalog-sync.test.ts` — 91 / 91 + 8 / 8 = **99 tests green**.
+- `npm run test` (full) — pending invocation; expect baseline + 57 new tests.
+- `BEACON_TENANT_ID=tenant-ritz-founder BEACON_TENANT_SLUG=ritz-founder npm run build` — pending invocation.
+
+**Hard contracts honored.**
+- NO LLM. NO paid APIs.
+- NO Supabase schema migrations (J4 used `raw` JSONB extraction; J5 added optional `disconnected_at` field on existing JSONB payload).
+- NO destructive token writes (J5 explicit no-call invariant + runtime test guard).
+- NO GSC calls on page load (existing `indexability-no-fresh-fetch` invariant remains green).
+- NO customer surfaces touched beyond the locked `/settings/connectors` Disconnect button copy + tooltip.
+- J1 multi-property remains DEFERRED to v2 per the Section 8 J-block lock.
+- All 3 lifecycle-eligibility architecture invariants remain green.
+
+**Next step.** Operator manual UI verification on `/settings/connectors` to confirm the Disconnect button copy + tooltip behave correctly. Then **Section 9 (Outcome Attribution — GA4 + CallRail + GBP insights)** is the next un-shipped customer-facing slice per the master plan's strict execution order; Section 4.5 (Recommendation Intelligence Expansion) remains parked per operator decision.
+
+---
+
 ## 2026-05-14 — Phase A.2 Step 3c: atomic customer-visible threshold flip
 
 **What changed.** Closes the customer-side of Phase A.2 (Sections 3.7 + 3.10). The resolved per-tenant `ThresholdDecision` now drives both the lifecycle stage classifier and the customer-facing copy + Today tile labels atomically.

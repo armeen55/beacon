@@ -74,6 +74,16 @@ export type GoogleConnectorToken = {
   /** Display name of the selected location — convenience only,
    *  never used for API calls. google_gbp only. */
   selected_location_name?: string;
+  /** J5 (2026-05-18) — ISO 8601 timestamp set when the operator
+   *  clicks "Disconnect GSC" on `/settings/connectors`. Soft
+   *  disconnect: the token row stays in `connector_tokens` (cached
+   *  historical state preserved) but `getConnectorInfo` reports
+   *  `status: "disconnected"` and downstream connectors (e.g., the
+   *  GSC URL Inspection client) fail-soft as if no token. Reconnect
+   *  via the OAuth callback upserts a fresh payload WITHOUT this
+   *  field, naturally clearing the disconnect state. Absent on
+   *  legacy rows (pre-J5). */
+  disconnected_at?: string;
 };
 
 /** Yelp Fusion — API key (never sent to the client). */
@@ -192,6 +202,21 @@ export async function getConnectorInfo(
     };
   }
   if (token.provider === "google_gsc" || token.provider === "google_gbp") {
+    // J5 (2026-05-18) — soft-disconnect: the row stays in
+    // `connector_tokens` so cached historical state is preserved,
+    // but `getConnectorInfo` reports `disconnected` when the
+    // `disconnected_at` field is set. The UI then shows the Connect
+    // button + the "Last refreshed at X days ago" tooltip.
+    if (token.disconnected_at != null && token.disconnected_at !== "") {
+      return {
+        status: "disconnected",
+        connected_at: token.connected_at,
+        expires_at: token.expires_at,
+        last_synced_at: token.last_synced_at ?? null,
+        selected_location_id: token.selected_location_id ?? null,
+        selected_location_name: token.selected_location_name ?? null,
+      };
+    }
     return {
       status: "connected",
       connected_at: token.connected_at,
@@ -243,6 +268,9 @@ type GoogleConnectorPatch = Partial<
     | "last_synced_at"
     | "selected_location_id"
     | "selected_location_name"
+    // J5 (2026-05-18) — soft-disconnect / reconnect flow patches the
+    // payload's disconnected_at without touching the OAuth tokens.
+    | "disconnected_at"
   >
 >;
 type YelpConnectorPatch = Partial<

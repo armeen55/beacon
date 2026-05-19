@@ -364,6 +364,10 @@ describe("gscUrlInspect — response mapping", () => {
       indexing_state: "INDEXING_ALLOWED",
       coverage_state: "Submitted and indexed",
       last_crawl_time: "2026-05-15T07:00:00.000Z",
+      // J4 (2026-05-18) — extracted from raw.inspectionResult.
+      //   mobileUsabilityResult.verdict; the fixture body above
+      //   omits the field so the derived value is null.
+      mobile_usability: null,
       last_checked_at: NOW.toISOString(),
       raw: expect.anything(),
     });

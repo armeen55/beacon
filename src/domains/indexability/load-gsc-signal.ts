@@ -41,7 +41,7 @@
 import "server-only";
 
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
-import { gscUrlInspect } from "@/lib/connectors/gsc/client";
+import { gscUrlInspect, extractMobileUsability } from "@/lib/connectors/gsc/client";
 import { log } from "@/lib/logger";
 
 import type { IndexabilityGscSignal } from "./types";
@@ -206,13 +206,20 @@ export async function loadGscSignal(
     coverage_state: string | null;
     last_crawl_time: string | null;
     last_checked_at: string;
+    // J4 (2026-05-18) — `raw` JSONB column is the source for the
+    // derived `mobile_usability` field. No separate Supabase column
+    // is added in this slice; `extractMobileUsability(raw)` does the
+    // narrowing for both cache + fresh-fetch paths.
+    raw: unknown;
   };
   let cached: CacheRow | null = null;
 
   if (admin != null) {
     const { data, error } = await admin
       .from(CACHE_TABLE)
-      .select("indexing_state, coverage_state, last_crawl_time, last_checked_at")
+      .select(
+        "indexing_state, coverage_state, last_crawl_time, last_checked_at, raw",
+      )
       .eq("tenant_id", tenantId)
       .eq("inspection_url", inspectionUrl)
       .maybeSingle();
@@ -237,6 +244,7 @@ export async function loadGscSignal(
       indexing_state: cached.indexing_state,
       coverage_state: cached.coverage_state,
       last_crawl_time: cached.last_crawl_time,
+      mobile_usability: extractMobileUsability(cached.raw),
       last_checked_at: cached.last_checked_at,
     };
   }
@@ -260,6 +268,7 @@ export async function loadGscSignal(
           indexing_state: cached.indexing_state,
           coverage_state: cached.coverage_state,
           last_crawl_time: cached.last_crawl_time,
+          mobile_usability: extractMobileUsability(cached.raw),
           last_checked_at: cached.last_checked_at,
         };
       }
@@ -273,6 +282,7 @@ export async function loadGscSignal(
       indexing_state: result.indexing_state,
       coverage_state: result.coverage_state,
       last_crawl_time: result.last_crawl_time,
+      mobile_usability: result.mobile_usability,
       last_checked_at: result.last_checked_at,
     };
   }

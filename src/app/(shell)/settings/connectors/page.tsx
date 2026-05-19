@@ -1,5 +1,6 @@
 import { getConnectorInfo, getGoogleConnectorToken } from "@/lib/connector-store";
 import { getBusinessConfig } from "@/lib/business-config";
+import { formatLastRefreshedCopy } from "@/lib/connectors/gsc/expiry-handler";
 import { PageHeader } from "@/components/data/page-header";
 import { ConnectorsClient } from "./connectors-client";
 
@@ -16,6 +17,20 @@ export default async function ConnectorsPage() {
   // it so a returning GBP card can immediately show the saved selection.
   const gbpTok = await getGoogleConnectorToken("gbp");
 
+  // J5 (2026-05-18) — when the GSC connector is in soft-disconnected
+  // state (status="disconnected" but expires_at is populated from the
+  // preserved token row), render the "Last refreshed at X days ago"
+  // tooltip server-side. The formatter is `server-only` so it can't
+  // ship to the client bundle directly.
+  const gscStaleCopy =
+    googleGsc.status === "disconnected" &&
+    typeof googleGsc.expires_at === "number"
+      ? formatLastRefreshedCopy({
+          expiresAtMs: googleGsc.expires_at,
+          now: Date.now(),
+        })
+      : null;
+
   return (
     <div>
       <PageHeader
@@ -31,6 +46,7 @@ export default async function ConnectorsPage() {
         }
         yelp={yelp}
         configYelpBusinessId={cfg.yelpBusinessId ?? ""}
+        gscStaleCopy={gscStaleCopy}
       />
     </div>
   );

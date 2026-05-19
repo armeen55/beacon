@@ -25,10 +25,20 @@ import "server-only";
  *      indexed", "Crawled - currently not indexed", ...)
  *   last_crawl_time ← inspectionResult.indexStatusResult.lastCrawlTime
  *     (ISO 8601 string when present, null otherwise)
+ *   mobile_usability ← inspectionResult.mobileUsabilityResult.verdict
+ *     (true when "MOBILE_FRIENDLY"; false when any non-friendly
+ *      verdict; null when the field is absent or the verdict is
+ *      "VERDICT_UNSPECIFIED")
  *
  * Customer copy must NOT consume `raw`. Operator diagnostic surfaces
  * (deferred to A.3.b1.beta) may render fields from `raw` behind the
  * operator gate.
+ *
+ * Storage note (J4 completion, 2026-05-18): `mobile_usability` is
+ * derived at read-time from the existing `raw` JSONB column — no
+ * separate Supabase column is added in this slice. The extraction
+ * helper lives alongside the response mapper in `client.ts` so the
+ * fresh-fetch + cache-read paths agree by construction.
  */
 export type GscUrlInspectionResult = {
   /** Inspection URL (canonicalized by the caller before lookup). */
@@ -45,6 +55,11 @@ export type GscUrlInspectionResult = {
   /** ISO 8601 timestamp Google last crawled the URL. Null when never
    *  crawled OR the field is absent. */
   last_crawl_time: string | null;
+  /** Mobile-friendliness verdict narrowed to boolean. `true` when
+   *  Google's `mobileUsabilityResult.verdict === "MOBILE_FRIENDLY"`;
+   *  `false` when any other concrete verdict; `null` when the field
+   *  is absent or unspecified. Derived from `raw` at read time. */
+  mobile_usability: boolean | null;
   /** ISO 8601 timestamp Beacon recorded this result. Used for the
    *  24h TTL gate. */
   last_checked_at: string;

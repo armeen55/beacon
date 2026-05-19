@@ -34,6 +34,13 @@ type Props = {
   yelp: ConnectorInfo;
   /** From business config — for operator hint only (not a secret). */
   configYelpBusinessId: string;
+  /** J5 (2026-05-18) — pre-rendered "GSC data last refreshed X days
+   *  ago. Reconnect to refresh." copy. Computed server-side in
+   *  page.tsx so the formatting helper stays `server-only`. Present
+   *  only when the GSC connector has a non-null `expires_at` (i.e.,
+   *  the operator previously authorized the connector at some
+   *  point) AND status is "disconnected". `null` otherwise. */
+  gscStaleCopy?: string | null;
 };
 
 const ERROR_MESSAGES: Record<string, string> = {
@@ -69,6 +76,7 @@ export function ConnectorsClient({
   googleSelectedLocation: initialSelectedLocation,
   yelp: initialYelp,
   configYelpBusinessId,
+  gscStaleCopy = null,
 }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -328,9 +336,28 @@ export function ConnectorsClient({
                 ) : null}
               </>
             ) : (
-              <p className="text-[12px] text-muted-foreground">
-                Not connected
-              </p>
+              <>
+                {/* J5 (2026-05-18) — soft-disconnect aware copy. When
+                    a previously-authorized GSC connector is now
+                    disconnected, surface the "Last refreshed at X
+                    days ago" tooltip alongside the "Not connected"
+                    label so the operator sees cached state is
+                    preserved. The pre-rendered string comes from
+                    page.tsx (formatLastRefreshedCopy lives in the
+                    server-only expiry-handler module). */}
+                <p className="text-[12px] text-muted-foreground">
+                  {google.connected_at ? "Disconnected · cached data preserved" : "Not connected"}
+                </p>
+                {gscStaleCopy ? (
+                  <p
+                    className="text-[12px] text-muted-foreground"
+                    data-gsc-stale-tooltip="true"
+                    title={gscStaleCopy}
+                  >
+                    {gscStaleCopy}
+                  </p>
+                ) : null}
+              </>
             )}
           </div>
 
@@ -352,6 +379,7 @@ export function ConnectorsClient({
                   onClick={handleDisconnect}
                   disabled={isPending || anySync}
                   className="rounded-md border border-border/60 px-3 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground hover:border-foreground/30 disabled:opacity-50"
+                  title="Soft disconnect — historical data stays cached but no new data refreshes until you reconnect."
                 >
                   {isPending ? "Disconnecting…" : "Disconnect"}
                 </button>
