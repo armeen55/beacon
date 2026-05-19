@@ -1,6 +1,6 @@
 -- Migration: 2026-05-19_ga4_url_traffic.sql
 -- Author:    Armeen Aminzadeh (operator) + Claude
--- Applied:   PENDING — operator approval required before apply.
+-- Applied:   2026-05-19 — operator-approved apply via linked Supabase CLI.
 -- Project:   jdegznovgysxyweknewh (beacon)
 -- Phase:     Section 9 / Slice 9.A2α — first Section-9 migration.
 --            GA4 Data API cache for per-tenant per-URL per-day
