@@ -7,6 +7,73 @@
 
 ---
 
+## 2026-05-19 — Slice 4.5.A: Recommendation Intelligence Expansion: registry audit + activation plan
+
+**Status:** READY_TO_COMMIT (operator-approved implementation; awaiting commit/push/verify approval).
+
+**Slice scope (locked).** Section 4.5 (Recommendation Intelligence Expansion) ships in 7 slices: 4.5.A → 4.5.G. Slice 4.5.A is the first and smallest. **Docs + tests only — zero source changes.** Establishes the canonical sequencing record for the entire Section 4.5 build and pins the registry's current shape via an architecture invariant. Slices 4.5.B+ will edit the registry; the paired audit-doc update is the gate that lets the invariant pass again.
+
+**O1–O12 decisions referenced (locked 2026-05-18).** O1 (6 typed `create_*_page` variants), O2 (alias-keep `add_trust_section` + `add_proof_section`), O3 (`update_intro` distinct from `change_h1`), O4 (all `fix_*` → `signalType: "technical"`), O5 (single `safety_cleanup` with structured task_instructions), O6 (cooldown windows), O7 (5 rows/page max), O8 (10 rows/family max), O9 (90d signal-stale), O10 (audit doc exception approved), O11 (4.5.E independent of Section 10), O12 (operator-diagnostic before customer-queue flip).
+
+**What was added.**
+
+1. **NEW** `docs/RECOMMENDATION_INTELLIGENCE_AUDIT.md` (~470 lines, sections A–M):
+   - **A.** Current registry inventory: exactly 29 `ACTION_TYPES` (14 on-page copy + 4 technical/structural + 3 page-lifecycle + 1 passive + 7 off-site authority from Section 7 C7b 2026-05-16).
+   - **B.** Active generators: exactly 3 with `generatorActive: true` — `edit_title` (line 153) / `add_h2_section` (line 183) / `add_faq` (line 203). Every other registered type carries `generatorActive: false`.
+   - **C.** Inactive/underused split: 19 LLM-reachable on-page/technical/page types (LLM provider can target them; no deterministic trigger predicate exists yet) + 7 off-site types locked-inactive per Section 7 C7b (read-only, no LLM generation, no Suggested Copy, no write paths to GBP / Yelp / Houzz / Angi / BBB / industry directories / press).
+   - **D.** Missing additions: 23 proposed new action types mapped to slices 4.5.B–4.5.G per O1–O5 locks.
+   - **E.** 18-family mapping table linking master plan §4.5.7 families to existing registry entries + proposed new additions.
+   - **F.** Deterministic vs LLM-assisted vs human-task split per §4.5.10.
+   - **G.** Trigger signal sources per §4.5.13.
+   - **H.** `requiresProposedText` requirements per generator kind.
+   - **I.** Main-queue vs diagnostics-only rules (10 conditions per §4.5.12).
+   - **J.** Priority ranking formula (8 weights × 4 multipliers ÷ effort per §4.5.14).
+   - **K.** 21 locked architecture invariants per §4.5.18, mapped slice-by-slice.
+   - **L.** Recommended next slice: 4.5.B (metadata + H1 + new-page deterministic triggers + operator-only `/diagnostics/recommendation-triggers` BEFORE customer-queue flip per O12).
+   - **M.** Stop conditions per §4.5.22.
+
+2. **NEW** `tests/architecture/recommendation-registry-active-set.test.ts` (~150 lines, 9 tests). Pinned facts:
+   - `ACTION_TYPES.length === 29`.
+   - `generatorActive: true` set is exactly `{edit_title, add_h2_section, add_faq}`.
+   - Every other registered type carries `generatorActive: false` (binary flag verified per-type).
+   - Every `ACTION_TYPES` entry has a matching `ACTION_TYPE_REGISTRY` spec with `spec.actionType === t`.
+   - Audit doc exists at `docs/RECOMMENDATION_INTELLIGENCE_AUDIT.md`.
+   - Audit doc references the locked active set (each of the 3 active generators).
+   - Audit doc references the locked registry count (`29`).
+   - Audit doc references the 4.5.A → 4.5.G slice sequence (each of 7 slice IDs).
+   - Audit doc references the 7 Section-7 off-site action types as locked-inactive.
+
+3. **MODIFIED** `docs/ARCHITECTURE_INVARIANTS_CATALOG.md` — new "Section 4.5 / Slice 4.5.A" section with one catalog row for `recommendation-registry-active-set`. Retirement-condition documents the per-slice update cadence: 4.5.B (+3 new types + 5 flag flips) · 4.5.C (+12 new types + 6 flag flips) · 4.5.D (+8 new types + 3 flag flips + customer-queue flip) · 4.5.E (0 new + 3 flag flips for LLM-assisted) · 4.5.F (0 new + 0 flips) · 4.5.G (+1 new + 1 flag flip). Each slice updates `LOCKED_REGISTRY_COUNT` + `LOCKED_ACTIVE_SET` + the audit doc activation table in lockstep.
+
+**Defense-in-depth.** Alongside existing `off-site-action-types-not-llm-allowed.test.ts` (Section 7 C7b) which separately pins the off-site types as locked-inactive. The new invariant pins the OVERALL registry shape + active set; Section 7's invariant pins the 7 off-site types specifically. Both must remain green for Section 4.5 to advance.
+
+**Hard contracts honored (this slice).**
+- NO source changes — `src/domains/recommendations/action-types.ts` byte-unchanged.
+- NO `generatorActive` flag flips.
+- NO new trigger predicates.
+- NO new recommendation generator modules.
+- NO customer surface changes.
+- NO Section 9 code changes.
+- NO CallRail.
+- NO GBP insights.
+- NO LLM calls.
+- NO migrations.
+- NO cron.
+- The stale top-of-module docstring on `action-types.ts` ("v1 policy: full 22-type universe registered") is documented in the audit doc as a known refresh target for Slice 4.5.B but is **NOT** fixed in this slice (source-byte-unchanged contract honored).
+
+**Quality gates (to be run before READY_TO_COMMIT report finalization).**
+- `npx vitest run tests/architecture/recommendation-registry-active-set.test.ts` — targeted invariant.
+- `npx vitest run tests/architecture/catalog-sync.test.ts` — bidirectional referential integrity.
+- `npm run typecheck` — CLEAN.
+- `npm run test` — full suite green.
+- `BEACON_TENANT_ID=tenant-ritz-founder BEACON_TENANT_SLUG=ritz-founder npm run build` — green.
+
+**Verification.** Audit doc renders sections A–M cleanly in repo browser. Architecture invariant fails LOUDLY if a future PR flips a `generatorActive` flag or expands the registry without paired audit-doc updates. Catalog-sync invariant ensures the catalog row remains consistent with the architecture-test directory.
+
+**Next.** Operator review → commit + push + verify CI + Vercel green (no runtime behavior changes; smoke is "render the audit doc"). Then Slice 4.5.B: metadata + H1 + new-page deterministic triggers. Section 4.5.B operator-discretion sequencing: prefer 4.5.B BEFORE any of (Section 9 Today tile commit + Section 5 + Section 6 + Section 7 generation) per master-plan §4.5.3 (4.5 ships after Section 4 and before Sections 5 / 6 / 7's measurement-layer wiring picks up Section 4.5's action signals).
+
+---
+
 ## 2026-05-19 — Section 9 Today tile: "Edit outcomes (past 30 days)"
 
 **Status:** READY_TO_COMMIT (operator-approved implementation; awaiting commit/push/verify approval).
