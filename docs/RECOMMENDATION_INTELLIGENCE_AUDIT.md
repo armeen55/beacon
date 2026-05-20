@@ -5,6 +5,8 @@
 > predicates + operator diagnostic shell (2026-05-19)**
 > **Slice 4.5.B.α₁ — H1 predicate family + `change_h1` activation
 > (2026-05-19)**
+> **Slice 4.5.B.α₂ — cross-snapshot duplicate-title + duplicate-meta
+> predicates (2026-05-19)**
 >
 > Canonical source-of-truth document for the Section 4.5 Recommendation
 > Intelligence Expansion roadmap. Documented operator-approved
@@ -13,15 +15,18 @@
 > single source-of-truth for the action-type registry expansion plan +
 > activation order.
 >
-> **Current state (post-4.5.B.α₁)**: registry holds 32 action types;
+> **Current state (post-4.5.B.α₂)**: registry holds 32 action types;
 > **5 active** (`edit_title`, `edit_meta`, `change_h1`,
-> `add_h2_section`, `add_faq`). **5 deterministic trigger predicates
-> landed** — `missing-title` + `missing-meta` (α₀) + `missing-h1` +
-> `weak-h1` + `title-h1-mismatch` (α₁). Operator-only diagnostic
-> page at `/diagnostics/recommendation-triggers` surfaces all 5
-> trigger signals. Customer queue UNCHANGED (no `recommended_edits`
-> write paths added; no surface changes outside the operator
-> diagnostic).
+> `add_h2_section`, `add_faq`) — UNCHANGED from α₁. **7 deterministic
+> trigger predicates landed** — `missing-title` + `missing-meta`
+> (α₀) + `missing-h1` + `weak-h1` + `title-h1-mismatch` (α₁) +
+> **`duplicate-title` + `duplicate-meta` (α₂, cross-snapshot)**.
+> Operator-only diagnostic page at
+> `/diagnostics/recommendation-triggers` surfaces all 7 trigger
+> signals. Customer queue UNCHANGED (no `recommended_edits` write
+> paths added; no surface changes outside the operator diagnostic).
+> No registry flips in α₂; both `edit_title` and `edit_meta` were
+> already active in α₀+α₁.
 >
 > **Slice 4.5.B.α split (2026-05-19)**: the master-plan §4.5.20 4.5.B
 > prompt was internally inconsistent — it proposed 5 `generatorActive`

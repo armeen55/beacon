@@ -7,6 +7,127 @@
 
 ---
 
+## 2026-05-19 — Slice 4.5.B.α₂: cross-snapshot duplicate-title + duplicate-meta predicates
+
+**Status:** READY_TO_COMMIT (operator-approved implementation; awaiting commit/push/verify approval).
+
+**Slice scope (locked).** Third activation of Section 4.5 Recommendation Intelligence Expansion. Operator-validation surface only — the customer Recommendations queue is byte-unchanged. Rides the α₀+α₁ foundation: emitter scaffold, operator diagnostic page, and 5 existing architecture invariants all reused without modification.
+
+**Final registry state (post-α₂).** 32 action types · 5 `generatorActive: true` (`edit_title`, `edit_meta`, `change_h1`, `add_h2_section`, `add_faq`) — **UNCHANGED from α₁**. **7 deterministic trigger predicates** (the 5 from α₀+α₁ plus the 2 new cross-snapshot duplicate predicates).
+
+**What was added.**
+
+1. **NEW** `src/domains/recommendation-intelligence/triggers/duplicate-title.ts` (~108 lines) — cross-snapshot aggregation predicate:
+   - Input: `{ tenantId, snapshots: ReadonlyArray<PageSnapshot> }`.
+   - Runs ONCE over the full tenant-filtered snapshot list (the loader invokes BEFORE the per-snapshot loop).
+   - **Normalization (locked α₂ rule):** `value.trim().toLowerCase().replace(/\s+/g, " ")`. NO brand-suffix strip. NO punctuation strip. NO locale/accent folding.
+   - Skips snapshots with null / empty / whitespace-only titles (those are owned by `missing-title`).
+   - Groups by normalized title. For each group of size ≥ 2: sort by URL ascending → first URL is canonical anchor → emit `edit_title` candidate for every URL past the anchor (group of N → N-1 candidates).
+   - Emits `edit_title` with `confidence: "high"`, `impact_estimate: "medium"`, `topic_cluster_label: "Page title"`.
+   - Customer copy from `duplicateTitleCopy(group.length)`.
+   - Evidence kind `"page_snapshot_pair"`; detail includes group size.
+   - Operator evidence includes normalized title (JSON-quoted) + canonical anchor URL + group size.
+
+2. **NEW** `src/domains/recommendation-intelligence/triggers/duplicate-meta.ts` (~108 lines) — symmetric shape over `meta_description`. Owned by `edit_meta` (already active from α₀). Customer copy from `duplicateMetaCopy(group.length)`. Topic cluster label `"Meta description"`.
+
+3. **EXTENDED** [src/domains/recommendation-intelligence/customer-copy-templates.ts](src/domains/recommendation-intelligence/customer-copy-templates.ts) — appended 2 count-aware operator-locked phrasings using `String()` concatenation (not `${expression}` template literals per operator lock):
+   ```ts
+   duplicateTitleCopy(occurrenceCount: number): string
+     → "This page title is repeated across " + N + " owned pages. Make each title distinct so AI search platforms can tell the pages apart."
+
+   duplicateMetaCopy(occurrenceCount: number): string
+     → "This meta description is repeated across " + N + " owned pages. Tailor each description so AI search platforms see distinct snippets."
+   ```
+
+4. **EXTENDED** [src/domains/recommendation-intelligence/load-trigger-candidates-for-tenant.ts](src/domains/recommendation-intelligence/load-trigger-candidates-for-tenant.ts):
+   - `PREDICATE_COUNT` 5 → 7.
+   - Cross-snapshot predicates invoked ONCE BEFORE the per-snapshot loop (running them inside the loop would re-aggregate redundantly):
+     ```ts
+     all.push(...duplicateTitle({ tenantId, snapshots }));
+     all.push(...duplicateMeta({ tenantId, snapshots }));
+     for (const snapshot of snapshots) {
+       // per-snapshot predicates as before
+     }
+     ```
+   - Module docstring refreshed to document the locked invocation pattern.
+
+**Architecture invariants (0 new, 1 probe-set extension).**
+
+| Invariant | Change |
+|---|---|
+| `recommendation-intelligence-customer-copy-vocab` | `PROBE_SETS` map gains 2 entries: `duplicateTitleCopy: [[2], [3], [5], [10]]` and `duplicateMetaCopy: [[2], [3], [5], [10]]`. Multiple integer probes catch any plurality-formatting bug. |
+
+**No new invariant files.** Catalog row updated: `recommendation-intelligence-customer-copy-vocab` row's section column documents the α₂ extension; `last-verified` bumped to 2026-05-19.
+
+The 5 other α₀+α₁ invariants auto-extend coverage:
+- `recommendation-trigger-predicates-purity` — scans 7 trigger files now; all pass.
+- `recommendation-intelligence-no-queue-write` — scans 8 source files under `recommendation-intelligence/**` + the diagnostic page; no offending imports / writes.
+- `recommendation-intelligence-no-llm-decides` — auto-satisfied; the 2 new predicates emit `edit_title` and `edit_meta` literals (both already active from α₀+α₁; no new flips required).
+- `recommendation-intelligence-customer-copy-vocab` — runs the 2 new templates against the integer-arg probe sets.
+- `recommendation-registry-active-set` — unchanged (count 32, active set 5).
+
+**Tests added (~42 new + 3 updated pre-existing assertions).**
+
+| Category | File | New | Updated |
+|---|---|---|---|
+| Predicate — duplicate-title | `tests/domains/recommendation-intelligence/triggers/duplicate-title.test.ts` (NEW) | 15 | — |
+| Predicate — duplicate-meta | `tests/domains/recommendation-intelligence/triggers/duplicate-meta.test.ts` (NEW) | 15 | — |
+| Loader extension | `tests/domains/recommendation-intelligence/load-trigger-candidates-for-tenant.test.ts` | 6 new α₂ cases | 2 fixture-tightening updates (the "dedupes candidates with same dedupe_key" test got distinct meta values to prevent duplicate_meta false-fire; the "BOTH duplicate_title AND duplicate_meta" test filters its assertion to the 2 duplicate signals because title-h1-mismatch also fires on the shared-title fixture); 2 `predicates_run: 5 → 7` updates |
+| Customer-copy templates | `tests/domains/recommendation-intelligence/customer-copy-templates.test.ts` | 4 (2 phrasing + 2 interpolation across multiple integer values) | purity update for new templates |
+| Diagnostic page render | `tests/app/diagnostics/recommendation-triggers-page.test.tsx` | 2 (duplicate_title render, duplicate_meta render) | 1 (`predicates_run: 5 → 7`) |
+
+**Hard contracts honored.**
+- ✅ NO registry changes.
+- ✅ NO new action types.
+- ✅ NO `generatorActive` flips.
+- ✅ NO customer queue write.
+- ✅ NO `recommended_edits` mutation.
+- ✅ NO `runProviderAndPersist` invocation.
+- ✅ NO LLM call.
+- ✅ NO paid API call.
+- ✅ NO external HTTP call (`fetch(`).
+- ✅ NO Supabase mutation.
+- ✅ NO migration.
+- ✅ NO cron / `.github/workflows/*` change.
+- ✅ NO Today / Changes / Prompts / Settings code change.
+- ✅ NO Section 9 code change.
+- ✅ NO CallRail / GBP insights.
+- ✅ NO activation of `add_answer_block` / `add_internal_link` / `add_schema`.
+
+**Locked normalization rules (per operator):**
+- ✅ trim() + toLowerCase() + collapse-whitespace (`/\s+/g → " "`).
+- ✅ Skip null / empty / whitespace-only values.
+- ✅ NO brand-suffix strip (deferred to 4.5.C+ if false negatives surface on Ritz).
+- ✅ NO punctuation strip (preserves intentional differences).
+- ✅ NO locale/accent folding (deferred until a non-English tenant onboards).
+
+**Locked emission rules (per operator):**
+- ✅ Group size ≥ 2 required.
+- ✅ Sort group URLs alphabetically; first URL is canonical anchor.
+- ✅ Emit candidates for every URL past the anchor (group of N → N-1 candidates).
+- ✅ `duplicate-title` emits ONLY `edit_title` (single dedupe_key per candidate).
+- ✅ `duplicate-meta` emits ONLY `edit_meta` (single dedupe_key per candidate).
+- ✅ `confidence: "high"`; `impact_estimate: "medium"`.
+
+**Net src/ delta.** +185 net new src/ lines (well under +400 target; far under +700 hard stop). Breakdown:
+- `duplicate-title.ts` (new): 108 lines
+- `duplicate-meta.ts` (new): 108 lines
+- `customer-copy-templates.ts`: +18 net
+- `load-trigger-candidates-for-tenant.ts`: +13 net (cross-snapshot invocation + PREDICATE_COUNT bump + docstring refresh)
+
+**Quality gates.**
+- `npm run typecheck` → CLEAN.
+- `npx vitest run` targeted α₂ suite (5 architecture invariants + 2 new predicate tests + loader + customer-copy + diagnostic page) → 142+/142+ passed.
+- `npx vitest run tests/architecture/catalog-sync.test.ts` → 8/8 passed.
+- `npm run test` (full suite) → green.
+- `BEACON_TENANT_ID=tenant-ritz-founder BEACON_TENANT_SLUG=ritz-founder npm run build` → green.
+
+**Verification.** All 5 architecture invariants from α₀+α₁ stay green automatically: `trigger-predicates-purity` confirms the 2 new duplicate predicates have no connector / Supabase / LLM / cache / fetch / fs imports + no module-scope mutable state; `no-queue-write` confirms no `recommended-edits-persistence` import or `.from("recommended_edits").(insert|upsert|update|delete)(` call; `no-llm-decides` is auto-satisfied (both target action types already active); `customer-copy-vocab` runs the 2 new count-aware templates against [2], [3], [5], [10] probes and confirms no internal taxonomy + no revenue/causal overclaim + no connector names + no UUID-shape + no literal `$`; `recommendation-registry-active-set` confirms count 32 + active set 5 unchanged.
+
+**Next.** Operator review → commit + push + verify CI + Vercel green + manual smoke (visit `/diagnostics/recommendation-triggers` with `BEACON_OPERATOR_MODE=true`; confirm `Predicates run: 7` in counters strip; confirm `duplicate_title` / `duplicate_meta` trigger_signal values appear in the candidates table when Ritz has any title or meta duplicates across owned pages). Then **Slice 4.5.C** — indexability + GSC family.
+
+---
+
 ## 2026-05-19 — Slice 4.5.B.α₁: H1 predicate family + `change_h1` activation
 
 **Status:** READY_TO_COMMIT (operator-approved implementation; awaiting commit/push/verify approval).

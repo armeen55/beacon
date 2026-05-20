@@ -273,14 +273,50 @@ describe("/diagnostics/recommendation-triggers", () => {
     expect(html).toContain('data-row-action-type="edit_title"');
   });
 
-  it("predicates_run counter reads 5 (post-α₁ loader)", async () => {
+  it("predicates_run counter reads 7 (post-α₂ loader)", async () => {
     _snapshotsToReturn = [makeSnapshot({ url: "https://example.com/a" })];
     const html = await renderPage();
     expect(html).toContain('data-counter="predicates_run"');
-    // The font-mono span renders the integer 5; check via inclusion
-    // of the substring "predicates_run\">" + "5".
+    // The font-mono span renders the integer 7; check via inclusion
+    // of the substring "predicates_run\">" + "7".
     expect(html).toMatch(
-      /data-counter="predicates_run"[^>]*>[^<]*<span[^>]*>5<\/span>/,
+      /data-counter="predicates_run"[^>]*>[^<]*<span[^>]*>7<\/span>/,
     );
+  });
+
+  // ── α₂ extensions ────────────────────────────────────────────────────
+
+  it("renders duplicate_title trigger signal when 2+ snapshots share a title (α₂)", async () => {
+    _snapshotsToReturn = [
+      makeSnapshot({
+        url: "https://example.com/a",
+        title: "Shared Title",
+      }),
+      makeSnapshot({
+        url: "https://example.com/b",
+        title: "Shared Title",
+      }),
+    ];
+    const html = await renderPage();
+    expect(html).toContain('data-row-trigger-signal="duplicate_title"');
+    expect(html).toContain('data-row-action-type="edit_title"');
+    // Customer-copy column carries the count-aware phrasing.
+    expect(html).toContain("repeated across 2 owned pages");
+  });
+
+  it("renders duplicate_meta trigger signal when 2+ snapshots share a meta (α₂)", async () => {
+    _snapshotsToReturn = [
+      makeSnapshot({
+        url: "https://example.com/a",
+        meta_description: "Shared meta description.",
+      }),
+      makeSnapshot({
+        url: "https://example.com/b",
+        meta_description: "Shared meta description.",
+      }),
+    ];
+    const html = await renderPage();
+    expect(html).toContain('data-row-trigger-signal="duplicate_meta"');
+    expect(html).toContain('data-row-action-type="edit_meta"');
   });
 });

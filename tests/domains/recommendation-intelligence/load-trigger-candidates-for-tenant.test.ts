@@ -109,7 +109,7 @@ describe("loadTriggerCandidatesForTenant", () => {
     expect(result.candidates).toEqual([]);
     expect(result.diagnostic_only).toEqual([]);
     expect(result.meta.snapshot_count).toBe(0);
-    expect(result.meta.predicates_run).toBe(5);
+    expect(result.meta.predicates_run).toBe(7);
   });
 
   it("filters snapshots by tenant_id", async () => {
@@ -177,17 +177,22 @@ describe("loadTriggerCandidatesForTenant", () => {
 
   it("dedupes candidates with the same dedupe_key across snapshots", async () => {
     // Two snapshots with the same URL produce identical dedupe_keys
-    // for the same trigger signal — second is dropped.
+    // for the same trigger signal — second is dropped. Use DISTINCT
+    // meta values across the pair so α₂'s `duplicate-meta` doesn't
+    // false-positive (the test's intent is missing-title dedupe by
+    // URL, not cross-snapshot duplicates).
     _getPageSnapshotsMock.mockResolvedValue([
       makeSnapshot({
         tenant_id: "tenant-a",
         url: "https://example.com/a",
         title: null,
+        meta_description: "unique meta one",
       }),
       makeSnapshot({
         tenant_id: "tenant-a",
         url: "https://example.com/a",
         title: null,
+        meta_description: "unique meta two",
       }),
     ]);
     const { loadTriggerCandidatesForTenant } = await import(
@@ -197,6 +202,7 @@ describe("loadTriggerCandidatesForTenant", () => {
       tenantId: "tenant-a",
     });
     expect(result.candidates).toHaveLength(1);
+    expect(result.candidates[0]!.trigger_signal).toBe("missing_title");
   });
 
   it("soft-fails to status=snapshots_unavailable when the store throws", async () => {
@@ -313,7 +319,7 @@ describe("loadTriggerCandidatesForTenant", () => {
     expect(result.meta.snapshot_count).toBe(1);
   });
 
-  it("reports predicates_run=5 in meta on the ok path", async () => {
+  it("reports predicates_run=7 in meta on the ok path (post-α₂)", async () => {
     _getPageSnapshotsMock.mockResolvedValue([
       makeSnapshot({ tenant_id: "tenant-a" }),
     ]);
@@ -323,6 +329,188 @@ describe("loadTriggerCandidatesForTenant", () => {
     const result = await loadTriggerCandidatesForTenant({
       tenantId: "tenant-a",
     });
-    expect(result.meta.predicates_run).toBe(5);
+    expect(result.meta.predicates_run).toBe(7);
+  });
+
+  // ── α₂ extensions ────────────────────────────────────────────────────
+
+  it("emits duplicate_title candidates when 2+ tenant snapshots share a title", async () => {
+    _getPageSnapshotsMock.mockResolvedValue([
+      makeSnapshot({
+        tenant_id: "tenant-a",
+        url: "https://example.com/a",
+        title: "Shared Title",
+      }),
+      makeSnapshot({
+        tenant_id: "tenant-a",
+        url: "https://example.com/b",
+        title: "Shared Title",
+      }),
+    ]);
+    const { loadTriggerCandidatesForTenant } = await import(
+      "@/domains/recommendation-intelligence/load-trigger-candidates-for-tenant"
+    );
+    const result = await loadTriggerCandidatesForTenant({
+      tenantId: "tenant-a",
+    });
+    const dupTitleRows = result.candidates.filter(
+      (r) => r.trigger_signal === "duplicate_title",
+    );
+    expect(dupTitleRows).toHaveLength(1);
+    expect(dupTitleRows[0]!.action_type).toBe("edit_title");
+    expect(dupTitleRows[0]!.target_url).toBe("https://example.com/b");
+  });
+
+  it("emits duplicate_meta candidates when 2+ tenant snapshots share a meta", async () => {
+    _getPageSnapshotsMock.mockResolvedValue([
+      makeSnapshot({
+        tenant_id: "tenant-a",
+        url: "https://example.com/a",
+        meta_description: "Shared meta description.",
+      }),
+      makeSnapshot({
+        tenant_id: "tenant-a",
+        url: "https://example.com/b",
+        meta_description: "Shared meta description.",
+      }),
+    ]);
+    const { loadTriggerCandidatesForTenant } = await import(
+      "@/domains/recommendation-intelligence/load-trigger-candidates-for-tenant"
+    );
+    const result = await loadTriggerCandidatesForTenant({
+      tenantId: "tenant-a",
+    });
+    const dupMetaRows = result.candidates.filter(
+      (r) => r.trigger_signal === "duplicate_meta",
+    );
+    expect(dupMetaRows).toHaveLength(1);
+    expect(dupMetaRows[0]!.action_type).toBe("edit_meta");
+    expect(dupMetaRows[0]!.target_url).toBe("https://example.com/b");
+  });
+
+  it("cross-snapshot predicates aggregate ONCE across the full list (not per-snapshot)", async () => {
+    // 3 snapshots, all sharing the same title.
+    // Cross-snapshot predicate emits N-1 = 2 candidates total.
+    // If wired per-snapshot, the predicate would re-aggregate
+    // 3 times and emit duplicates that dedupe couldn't fully
+    // collapse. Verify exactly 2 duplicate_title rows.
+    _getPageSnapshotsMock.mockResolvedValue([
+      makeSnapshot({
+        tenant_id: "tenant-a",
+        url: "https://example.com/a",
+        title: "Shared",
+      }),
+      makeSnapshot({
+        tenant_id: "tenant-a",
+        url: "https://example.com/b",
+        title: "Shared",
+      }),
+      makeSnapshot({
+        tenant_id: "tenant-a",
+        url: "https://example.com/c",
+        title: "Shared",
+      }),
+    ]);
+    const { loadTriggerCandidatesForTenant } = await import(
+      "@/domains/recommendation-intelligence/load-trigger-candidates-for-tenant"
+    );
+    const result = await loadTriggerCandidatesForTenant({
+      tenantId: "tenant-a",
+    });
+    const dupTitleRows = result.candidates.filter(
+      (r) => r.trigger_signal === "duplicate_title",
+    );
+    expect(dupTitleRows).toHaveLength(2);
+  });
+
+  it("null-title snapshots in a duplicate-shaped fixture do NOT false-positive duplicate_title", async () => {
+    _getPageSnapshotsMock.mockResolvedValue([
+      makeSnapshot({
+        tenant_id: "tenant-a",
+        url: "https://example.com/a",
+        title: null,
+      }),
+      makeSnapshot({
+        tenant_id: "tenant-a",
+        url: "https://example.com/b",
+        title: null,
+      }),
+    ]);
+    const { loadTriggerCandidatesForTenant } = await import(
+      "@/domains/recommendation-intelligence/load-trigger-candidates-for-tenant"
+    );
+    const result = await loadTriggerCandidatesForTenant({
+      tenantId: "tenant-a",
+    });
+    const dupTitleRows = result.candidates.filter(
+      (r) => r.trigger_signal === "duplicate_title",
+    );
+    expect(dupTitleRows).toEqual([]);
+    // BUT missing_title fires on each null-title snapshot.
+    const missingTitleRows = result.candidates.filter(
+      (r) => r.trigger_signal === "missing_title",
+    );
+    expect(missingTitleRows).toHaveLength(2);
+  });
+
+  it("cross-tenant snapshots with same title do NOT cross-contaminate (loader filters first)", async () => {
+    _getPageSnapshotsMock.mockResolvedValue([
+      makeSnapshot({
+        tenant_id: "tenant-a",
+        url: "https://a.example.com/x",
+        title: "Shared",
+      }),
+      makeSnapshot({
+        tenant_id: "tenant-b",
+        url: "https://b.example.com/x",
+        title: "Shared",
+      }),
+    ]);
+    const { loadTriggerCandidatesForTenant } = await import(
+      "@/domains/recommendation-intelligence/load-trigger-candidates-for-tenant"
+    );
+    const resultA = await loadTriggerCandidatesForTenant({
+      tenantId: "tenant-a",
+    });
+    // Only 1 tenant-a snapshot in the list → no duplicate group.
+    const dupRows = resultA.candidates.filter(
+      (r) => r.trigger_signal === "duplicate_title",
+    );
+    expect(dupRows).toEqual([]);
+  });
+
+  it("emits BOTH duplicate_title AND duplicate_meta when both fields are duplicated", async () => {
+    _getPageSnapshotsMock.mockResolvedValue([
+      makeSnapshot({
+        tenant_id: "tenant-a",
+        url: "https://example.com/a",
+        title: "Shared Title",
+        meta_description: "Shared Meta",
+      }),
+      makeSnapshot({
+        tenant_id: "tenant-a",
+        url: "https://example.com/b",
+        title: "Shared Title",
+        meta_description: "Shared Meta",
+      }),
+    ]);
+    const { loadTriggerCandidatesForTenant } = await import(
+      "@/domains/recommendation-intelligence/load-trigger-candidates-for-tenant"
+    );
+    const result = await loadTriggerCandidatesForTenant({
+      tenantId: "tenant-a",
+    });
+    // Filter to the duplicate signals only — α₁'s
+    // `title-h1-mismatch` may also fire on this fixture (the
+    // "Shared Title" tokens don't align with the default
+    // "Good h1" tokens), but its emission isn't what this test
+    // is verifying.
+    const dupeSignals = result.candidates
+      .map((r) => r.trigger_signal)
+      .filter(
+        (s) => s === "duplicate_title" || s === "duplicate_meta",
+      )
+      .sort();
+    expect(dupeSignals).toEqual(["duplicate_meta", "duplicate_title"]);
   });
 });

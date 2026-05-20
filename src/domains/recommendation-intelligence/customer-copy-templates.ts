@@ -1,16 +1,20 @@
 /**
- * 2026-05-19 — Slice 4.5.B.α₀ + α₁ — customer-safe copy templates.
+ * 2026-05-19 — Slice 4.5.B.α₀ + α₁ + α₂ — customer-safe copy
+ * templates.
  *
  * Pure templating. LLM NEVER writes `customer_copy`. Each template
- * returns plain prose safe for customer surfaces — though α₀/α₁
+ * returns plain prose safe for customer surfaces — though α₀/α₁/α₂
  * candidates ONLY surface on the operator-only diagnostic page
  * (customer-queue flip is Slice 4.5.D), the
  * `recommendation-intelligence-customer-copy-vocab` invariant
  * scans every template for internal taxonomy, forbidden vocab
  * from Section 6 + 9, and UUID-shape strings.
  *
- * α₂ extends this module with the duplicate-title + duplicate-meta
- * templates.
+ * α₂ adds two count-aware templates (`duplicateTitleCopy` +
+ * `duplicateMetaCopy`) that take an integer occurrenceCount.
+ * Implemented with `String()` concatenation rather than
+ * `${expression}` template literals so the customer-copy-vocab
+ * scan stays straightforward.
  */
 
 export function missingTitleCopy(): string {
@@ -31,4 +35,20 @@ export function weakH1Copy(): string {
 
 export function titleH1MismatchCopy(): string {
   return "Bring the page title and H1 into closer alignment so AI search platforms see consistent intent for this page.";
+}
+
+export function duplicateTitleCopy(occurrenceCount: number): string {
+  return (
+    "This page title is repeated across " +
+    String(occurrenceCount) +
+    " owned pages. Make each title distinct so AI search platforms can tell the pages apart."
+  );
+}
+
+export function duplicateMetaCopy(occurrenceCount: number): string {
+  return (
+    "This meta description is repeated across " +
+    String(occurrenceCount) +
+    " owned pages. Tailor each description so AI search platforms see distinct snippets."
+  );
 }

@@ -66,7 +66,10 @@ const FORBIDDEN_SUBSTRINGS_CASE_INSENSITIVE: ReadonlyArray<string> = [
 const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
 
 /** Each template gets a probe set. α₀+α₁ templates are no-arg, so
- *  the probes are an empty array — the template is invoked once. */
+ *  the probes are an empty array — the template is invoked once.
+ *  α₂'s duplicate templates take an integer occurrenceCount, so
+ *  they're probed with multiple integer values to catch any
+ *  plurality-formatting bug. */
 type Probe = ReadonlyArray<unknown>;
 const PROBE_SETS: Record<string, ReadonlyArray<Probe>> = {
   missingTitleCopy: [[]],
@@ -75,6 +78,11 @@ const PROBE_SETS: Record<string, ReadonlyArray<Probe>> = {
   missingH1Copy: [[]],
   weakH1Copy: [[]],
   titleH1MismatchCopy: [[]],
+  // Slice 4.5.B.α₂ (2026-05-19) — count-aware duplicate-metadata
+  // templates. Multiple integer probes catch any plurality bug
+  // (e.g., a future "1 owned page" typo would surface).
+  duplicateTitleCopy: [[2], [3], [5], [10]],
+  duplicateMetaCopy: [[2], [3], [5], [10]],
 };
 
 function scanForViolations(output: string): string[] {

@@ -1,20 +1,26 @@
 /**
- * 2026-05-19 — Slice 4.5.B.α₀ + α₁ — recommendation-trigger loader.
+ * 2026-05-19 — Slice 4.5.B.α₀ + α₁ + α₂ — recommendation-trigger
+ * loader.
  *
  * Server-side tenant-scoped loader. Reads `PageSnapshot[]`,
- * invokes the 5 α₀+α₁ predicates (`missing-title`, `missing-meta`,
- * `missing-h1`, `weak-h1`, `title-h1-mismatch`), applies the
- * minimal queue-rules gate, and returns a discriminated result
- * for the operator-only diagnostic page.
+ * invokes the 7 α₀+α₁+α₂ predicates, applies the minimal queue-
+ * rules gate, and returns a discriminated result for the
+ * operator-only diagnostic page.
+ *
+ * Predicate invocation pattern (locked):
+ *   1. Cross-snapshot duplicate predicates run ONCE over the full
+ *      tenant-filtered list BEFORE the per-snapshot loop
+ *      (`duplicate-title`, `duplicate-meta`).
+ *   2. Per-snapshot predicates run INSIDE the loop, once per
+ *      snapshot (`missing-title`, `missing-meta`, `missing-h1`,
+ *      `weak-h1`, `title-h1-mismatch`).
  *
  * Hard contracts: no write to `recommended_edits`; no connector /
  * LLM / Supabase mutation on render; no `unstable_cache` (operator
  * wants freshest signal output every load).
  *
  * `weak-h1` consumes `BusinessConfig` (resolved at the loader
- * entry); the other 4 predicates are config-independent.
- *
- * α₂ adds cross-snapshot duplicate predicate wiring.
+ * entry); the other 6 predicates are config-independent.
  */
 
 import "server-only";
@@ -26,6 +32,8 @@ import type { PageSnapshot } from "@/domains/pages/types";
 
 import { applyQueueRules } from "./emitter/apply-queue-rules";
 import type { RecommendationCandidateRow } from "./emitter/candidate-row";
+import { duplicateMeta } from "./triggers/duplicate-meta";
+import { duplicateTitle } from "./triggers/duplicate-title";
 import { missingH1 } from "./triggers/missing-h1";
 import { missingMeta } from "./triggers/missing-meta";
 import { missingTitle } from "./triggers/missing-title";
@@ -50,7 +58,7 @@ export type TriggerCandidatesLoadResult = {
   };
 };
 
-const PREDICATE_COUNT = 5;
+const PREDICATE_COUNT = 7;
 
 function emptyResult(
   status: TriggerCandidatesLoadStatus,
@@ -110,6 +118,13 @@ export async function loadTriggerCandidatesForTenant(options: {
   }
 
   const all: RecommendationCandidateRow[] = [];
+  // Slice 4.5.B.α₂ — cross-snapshot duplicate predicates run ONCE
+  // over the full tenant-filtered list, BEFORE the per-snapshot
+  // loop. They aggregate across pages and emit per-occurrence-past-
+  // anchor candidates; running them inside the per-snapshot loop
+  // would re-aggregate redundantly.
+  all.push(...duplicateTitle({ tenantId, snapshots }));
+  all.push(...duplicateMeta({ tenantId, snapshots }));
   for (const snapshot of snapshots) {
     all.push(...missingTitle({ tenantId, snapshot }));
     all.push(...missingMeta({ tenantId, snapshot }));
