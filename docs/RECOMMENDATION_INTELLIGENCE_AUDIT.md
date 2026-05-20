@@ -17,6 +17,8 @@
 > 4 generatorActive flips (2026-05-20)**
 > **Slice 4.5.C.α₂ — Tier-2 sensitive indexability predicates +
 > `fix_noindex` flip + diagnostic-only bucket render (2026-05-20)**
+> **Slice 4.5.C.α₃a — orphan-page cross-snapshot predicate +
+> `add_internal_link` flip (2026-05-20)**
 >
 > Canonical source-of-truth document for the Section 4.5 Recommendation
 > Intelligence Expansion roadmap. Documented operator-approved
@@ -25,8 +27,8 @@
 > single source-of-truth for the action-type registry expansion plan +
 > activation order.
 >
-> **Current state (post-4.5.C.α₂)**: registry holds **37 action
-> types**; **10 active** (`edit_title`, `edit_meta`, `change_h1`,
+> **Current state (post-4.5.C.α₃a)**: registry holds **37 action
+> types**; **11 active** (`edit_title`, `edit_meta`, `change_h1`,
 > `add_h2_section`, `add_faq`, `fix_sitemap`, `fix_robots`,
 > `fix_status_code`, `fix_canonical`, `fix_noindex`). **13
 > deterministic trigger predicates landed**: the 7 α-family
@@ -98,7 +100,7 @@ indexability-remediation entries (`fix_sitemap`, `fix_robots`,
 
 ## B. Current `generatorActive` set
 
-**Exactly 10 action types currently have `generatorActive: true`** (post-4.5.C.α₂):
+**Exactly 11 action types currently have `generatorActive: true`** (post-4.5.C.α₃a):
 
 | Action type | Category | Notes |
 |---|---|---|
@@ -112,14 +114,15 @@ indexability-remediation entries (`fix_sitemap`, `fix_robots`,
 | `fix_status_code` | Technical / indexability | **Flipped in Slice 4.5.C.α₁ (2026-05-20)** — paired with `bad-http-status` predicate over `bad_status_code` verdict |
 | `fix_canonical` | Technical / indexability | **Flipped in Slice 4.5.C.α₁ (2026-05-20)** — paired with `canonical-mismatch` predicate over `canonical_elsewhere` verdict |
 | `fix_noindex` | Technical / indexability | **Flipped in Slice 4.5.C.α₂ (2026-05-20)** — paired with `noindex-on-indexable-page` Tier-2 sensitive predicate at `confidence: "low"` → routes to `diagnostic_only` via `applyQueueRules`. Three safety guards: page-type allowlist (homepage/city/service/project), skip `extraction_certainty="uncertain"`, skip `has_canonical_mismatch=true` |
+| `add_internal_link` | Technical | **Flipped in Slice 4.5.C.α₃a (2026-05-20)** — paired with the cross-snapshot `orphan-page` predicate at `confidence: "medium"` → routes to main candidates section. Strict inbound-orphan semantics (0 inbound owned-page links; self-links excluded). Allowlist: homepage/city/service/project/hub. Global emptiness guard: when no snapshot has usable `internal_links` data, ALL emissions are suppressed (data unavailable). |
 
-**27 action types have `generatorActive: false`** (post-4.5.C.α₂). The
+**26 action types have `generatorActive: false`** (post-4.5.C.α₃a). The
 OpenAI specific-edit provider (Sprint 6A.2) can still produce any of
-the 20 non-off-site inactive types when the LLM path activates per-rec
-— but only the 10 above have a deterministic generator (or trigger
+the 19 non-off-site inactive types when the LLM path activates per-rec
+— but only the 11 above have a deterministic generator (or trigger
 predicate) wired in production. The α₂ `robots-blocks-ai-bots`
 predicate also reuses the already-active `fix_robots` action type (no
-new flip).
+new flip). `add_schema` remains inactive (deferred to Slice 4.5.C.α₃b).
 
 The 7 off-site types are operator-locked at `generatorActive: false`
 PERMANENTLY per Section 7 C7b's read-only/manual contract — Beacon

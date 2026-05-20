@@ -393,14 +393,14 @@ describe("/diagnostics/recommendation-triggers", () => {
     expect(html).toContain('data-row-action-type="edit_title"');
   });
 
-  it("predicates_run counter reads 13 (post-4.5.C.α₂ loader)", async () => {
+  it("predicates_run counter reads 14 (post-4.5.C.α₃a loader)", async () => {
     _snapshotsToReturn = [makeSnapshot({ url: "https://example.com/a" })];
     const html = await renderPage();
     expect(html).toContain('data-counter="predicates_run"');
-    // The font-mono span renders the integer 13; check via inclusion
-    // of the substring "predicates_run\">" + "13".
+    // The font-mono span renders the integer 14; check via inclusion
+    // of the substring "predicates_run\">" + "14".
     expect(html).toMatch(
-      /data-counter="predicates_run"[^>]*>[^<]*<span[^>]*>13<\/span>/,
+      /data-counter="predicates_run"[^>]*>[^<]*<span[^>]*>14<\/span>/,
     );
   });
 
@@ -455,10 +455,10 @@ describe("/diagnostics/recommendation-triggers", () => {
     const html = await renderPage();
     // The description carries a `data-description-predicates-run`
     // attribute set to the current count from the loader meta.
-    // Post-4.5.C.α₂: 13.
-    expect(html).toContain('data-description-predicates-run="13"');
+    // Post-4.5.C.α₃a: 14.
+    expect(html).toContain('data-description-predicates-run="14"');
     // And the prose body contains the same integer.
-    expect(html).toContain("13</span> active");
+    expect(html).toContain("14</span> active");
   });
 
   // ── α₂.2 page-classifier integration ────────────────────────────────

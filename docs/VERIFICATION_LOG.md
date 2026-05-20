@@ -7,6 +7,63 @@
 
 ---
 
+## 2026-05-20 — Slice 4.5.C.α₃a: orphan-page cross-snapshot trigger predicate
+
+**Status:** READY_TO_COMMIT (operator-approved implementation; awaiting commit/push/verify approval).
+
+**Slice scope (locked).** First sub-slice of α₃ — activates the internal-linking recommendation family. **1 new pure cross-snapshot predicate** (`orphan-page`) + **1 `generatorActive` flip** (`add_internal_link`) + **1 new customer-copy template** (`addInternalLinkCopy()`). **`add_schema` remains inactive — deferred to α₃b.** **Customer queue UNCHANGED.**
+
+**Changes shipped.**
+
+**(1) NEW `src/domains/recommendation-intelligence/triggers/orphan-page.ts`.**
+- Cross-snapshot aggregation predicate. Runs ONCE over the full tenant snapshot list (same invocation pattern as α₂ `duplicate-title` / `duplicate-meta` — invoked by the loader BEFORE the per-snapshot loop).
+- Builds `Map<canonicalUrl, Set<sourceCanonical>>` by iterating each snapshot's `internal_links[]` array. For each href: resolves to a full URL via `new URL(href, snap.url)`, then canonicalizes via `canonicalizeCitationUrl`. Only counts targets that are themselves owned snapshots (external hrefs ignored). **Self-links excluded** (a page linking to itself isn't "inbound from elsewhere").
+- Fires when a snapshot's canonicalized URL has ZERO distinct owned-page inbound sources AND page type ∈ {homepage, city, service, project, hub}. Skips utility/other/technical_asset.
+- **Global emptiness guard**: when `totalResolvedInbound === 0` across the tenant (no snapshot has usable `internal_links` data, or all hrefs are external/malformed), the predicate suppresses ALL emissions. Operator sees zero rows ("data unavailable" — not "every page is an orphan").
+- Emits `add_internal_link` at `confidence: "medium"`, `impact_estimate: "high"`. Customer copy: `addInternalLinkCopy()`. Evidence detail includes `0 inbound owned-page links across <N> tenant snapshots; tenant_inbound_capture_total=<N>`. Operator evidence includes `page_type`, canonical URL, and `fetched_at`.
+
+**(2) MODIFIED `src/domains/recommendation-intelligence/customer-copy-templates.ts`.**
+- Appended `addInternalLinkCopy()` with operator-locked phrasing: *"This page has no internal links pointing to it from elsewhere on your site. Add links from related hub or detail pages so AI search platforms can discover it."*
+- Top-of-module docstring refreshed.
+
+**(3) MODIFIED `src/domains/recommendations/action-types.ts`.**
+- Flipped `add_internal_link.generatorActive: false → true`. Spec docstring documents the cross-snapshot orphan-page pairing.
+- Top-of-module docstring refreshed (10 → 11 active in v1). `add_schema` STAYS INACTIVE (α₃b).
+
+**(4) MODIFIED `src/domains/recommendation-intelligence/load-trigger-candidates-for-tenant.ts`.**
+- `PREDICATE_COUNT` 13 → 14.
+- `orphanPage` invoked alongside existing `duplicateTitle` + `duplicateMeta` cross-snapshot block BEFORE the per-snapshot loop. Takes `tenantId + snapshots + businessConfig` as input. Soft-failure semantics same as duplicates (purely synchronous; no I/O; cannot throw at runtime under normal conditions).
+
+**Architecture invariants (2 updated, 0 new).**
+1. **`recommendation-registry-active-set`** — `LOCKED_ACTIVE_SET` grows from 10 to 11 (adds `add_internal_link`). `LOCKED_REGISTRY_COUNT` UNCHANGED at 37. Comment + date stamp updated.
+2. **`recommendation-intelligence-customer-copy-vocab`** — `PROBE_SETS` extended with `addInternalLinkCopy: [[]]` (no-arg invocation).
+
+**Auto-pass (5 invariants, no edits needed):**
+- `recommendation-trigger-predicates-purity` — auto-scans the new predicate file. Imports types + sibling modules + page-classifier + customer-copy-templates + emitter helpers + canonicalizer from `@/domains/citation-lifecycle/` (allowed; not in the forbidden list).
+- `recommendation-intelligence-no-queue-write` — no Supabase write paths.
+- `recommendation-intelligence-no-llm-decides` — regex auto-discovers `action_type: "add_internal_link"` literal in the new predicate.
+- `recommendation-triggers-page-classifier-applied` — predicate count assertion auto-extends ≥ 13 → ≥ 14. Rules 1+4+5 auto-checked.
+- `recommendation-triggers-diagnostic-source-and-copy` — no diagnostic-page edits (orphan_page emits at `confidence: "medium"` → main candidates section, already rendered).
+
+**Tests added (~14 new + multiple mechanical updates).**
+- New: `tests/domains/recommendation-intelligence/triggers/orphan-page.test.ts` (~12 cases) — global emptiness guard (data unavailable suppresses all); positive emission with 0 inbound; negative when inbound ≥ 1; page-type allowlist coverage (homepage / city / service / project / hub); skip utility/other/technical_asset; canonicalization round-trip (trailing slash / www / case variants resolve to same canonical); cross-snapshot aggregation; self-link exclusion; deterministic dedupe/cooldown keys.
+- Extended: loader test +3 (orphan wiring asserts main-candidates section routing; cross-snapshot-once invocation; global emptiness suppression).
+- Extended: customer-copy-templates test +2 (purity round-trip + operator-locked phrasing assertion).
+- Updated: `action-types.test.ts` — active count 10 → 11; new `ACTIVE_AFTER_4_5_C_ALPHA3A` list with `add_internal_link` added; inactive count 27 → 26; new `add_internal_link.generatorActive === true` assertion + `add_schema.generatorActive === false` regression guard.
+- Updated: `specific-edit-evidence.test.ts` — `allowedActionTypes` explicit list 10 → 11.
+- Updated: `predicates_run` assertions in loader test 13 → 14 (2 places).
+
+**Hard contracts honored (operator-locked).**
+- NO LLM call · NO paid API call · NO GSC fetch · NO Supabase mutation · NO migration · NO cron · NO workflow changes · NO customer queue write · NO `recommended_edits` mutation · NO `runProviderAndPersist` usage · NO Today / Changes / Prompts / Settings / Recommendations / Section 9 code changes · NO new BusinessConfig fields · NO new diagnostic page sections (orphan_page routes to main candidates; the α₂ diagnostic-only section already handles low-confidence rows) · NO `add_schema` activation · NO missing-schema predicate · NO tenant-specific URL slugs · NO Ritz-specific URL logic · all 14 trigger signals pinned in source.
+
+**Net src/ delta**: **+216 lines.** Modified +66 / -41 (net +25); new file (orphan-page.ts) +191. Well under the +400 target; far under the +700 hard stop.
+
+**Quality gates.** _Pending operator review; gates run in next step._
+
+**Recommended next.** Operator review → commit + push + verify CI + Vercel. Then Slice 4.5.C.α₃b preflight (missing-schema predicate + `add_schema` flip).
+
+---
+
 ## 2026-05-20 — Slice 4.5.C.α₂: Tier-2 sensitive indexability predicates + diagnostic-only bucket render
 
 **Status:** READY_TO_COMMIT (operator-approved implementation; awaiting commit/push/verify approval).

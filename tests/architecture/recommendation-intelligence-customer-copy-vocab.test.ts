@@ -94,6 +94,10 @@ const PROBE_SETS: Record<string, ReadonlyArray<Probe>> = {
   fixNoindexCopy: [[]],
   fixStatusCodeCopy: [[]],
   fixCanonicalCopy: [[]],
+  // Slice 4.5.C.α₃a (2026-05-20) — internal-linking template.
+  // No-arg; paired with the cross-snapshot `orphan-page`
+  // predicate which emits at confidence: medium.
+  addInternalLinkCopy: [[]],
 };
 
 function scanForViolations(output: string): string[] {

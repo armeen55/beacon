@@ -1,6 +1,6 @@
 /**
  * 2026-05-20 — Slice 4.5.B.α₀ + α₁ + α₂ + α₂.1 + α₂.2 +
- * Slice 4.5.C.α₀ + α₁ + α₂ — recommendation-trigger loader.
+ * Slice 4.5.C.α₀ + α₁ + α₂ + α₃a — recommendation-trigger loader.
  *
  * Server-side tenant-scoped loader. Reads `PageSnapshot[]` via
  * the repository pattern (`getRepository().forTenant(tenantId)
@@ -86,6 +86,7 @@ import { missingH1 } from "./triggers/missing-h1";
 import { missingMeta } from "./triggers/missing-meta";
 import { missingTitle } from "./triggers/missing-title";
 import { noindexOnIndexablePage } from "./triggers/noindex-on-indexable-page";
+import { orphanPage } from "./triggers/orphan-page";
 import { robotsBlocksAiBots } from "./triggers/robots-blocks-ai-bots";
 import { robotsBlocksGooglebot } from "./triggers/robots-blocks-googlebot";
 import { sitemapMissing } from "./triggers/sitemap-missing";
@@ -119,7 +120,7 @@ export type TriggerCandidatesLoadResult = {
   };
 };
 
-const PREDICATE_COUNT = 13;
+const PREDICATE_COUNT = 14;
 
 function emptyResult(
   status: TriggerCandidatesLoadStatus,
@@ -210,6 +211,15 @@ export async function loadTriggerCandidatesForTenant(options: {
   // would re-aggregate redundantly.
   all.push(...duplicateTitle({ tenantId, snapshots }));
   all.push(...duplicateMeta({ tenantId, snapshots }));
+  // Slice 4.5.C.α₃a — `orphan-page` is also a cross-snapshot
+  // predicate. It aggregates each snapshot's `internal_links`
+  // array to build a Map<canonicalUrl, inbound_source_set> and
+  // emits one candidate per owned page with zero inbound. Same
+  // before-the-loop invocation pattern as α₂'s duplicates.
+  // Includes a global emptiness guard: if no snapshot has any
+  // usable `internal_links` data, ALL orphan emissions are
+  // suppressed (data unavailable; not "every page is an orphan").
+  all.push(...orphanPage({ tenantId, snapshots, businessConfig }));
   for (const snapshot of snapshots) {
     all.push(...missingTitle({ tenantId, snapshot }));
     all.push(...missingMeta({ tenantId, snapshot }));

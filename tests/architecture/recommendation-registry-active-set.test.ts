@@ -64,18 +64,16 @@ const AUDIT_DOC_PATH = resolve(
   "RECOMMENDATION_INTELLIGENCE_AUDIT.md",
 );
 
-/** Locked active set per Slice 4.5.C.α₂ audit (2026-05-20). α₂
- *  adds 1 Tier-2 flip: `fix_noindex` paired with the
- *  `noindex-on-indexable-page` deterministic predicate
- *  (`confidence: "low"` → routes to `diagnostic_only` via
- *  `applyQueueRules` — NOT customer queue). α₂ also adds the
- *  `robots-blocks-ai-bots` Tier-2 predicate which reuses the
- *  existing α₁ `fix_robots` action type (also at
- *  `confidence: "low"`). Three safety guards on `noindex-on-
- *  indexable-page`: page-type allowlist (homepage / city /
- *  service / project only), skip `extraction_certainty=
- *  "uncertain"`, skip `has_canonical_mismatch=true`. Prior
- *  active set (post-4.5.C.α₁): 9 entries. */
+/** Locked active set per Slice 4.5.C.α₃a audit (2026-05-20). α₃a
+ *  adds 1 flip: `add_internal_link` paired with the cross-snapshot
+ *  `orphan-page` deterministic predicate (`confidence: "medium"` →
+ *  routes to main candidates section). Predicate uses strict
+ *  inbound-orphan semantics (0 inbound owned-page links across the
+ *  tenant's snapshots, self-links excluded). Page-type allowlist:
+ *  homepage / city / service / project / hub. Global emptiness
+ *  guard suppresses all emissions when no snapshot has usable
+ *  internal_links data. Prior active set (post-4.5.C.α₂): 10
+ *  entries. α₃b will activate `add_schema`. */
 const LOCKED_ACTIVE_SET: ReadonlyArray<ActionType> = [
   "edit_title",
   "edit_meta",
@@ -91,6 +89,10 @@ const LOCKED_ACTIVE_SET: ReadonlyArray<ActionType> = [
   // Predicate emits at confidence: "low"; never reaches the
   // customer queue without operator-validated promotion.
   "fix_noindex",
+  // Slice 4.5.C.α₃a (2026-05-20) — orphan-page cross-snapshot
+  // flip. Predicate emits at confidence: "medium" so candidates
+  // surface in the main diagnostic section (not diagnostic_only).
+  "add_internal_link",
 ];
 
 /** Locked total count per Slice 4.5.C.α₀ (2026-05-19). 4.5.C.α₀

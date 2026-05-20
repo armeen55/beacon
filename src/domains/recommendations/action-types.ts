@@ -11,20 +11,17 @@
  * one spec to `ACTION_TYPE_REGISTRY`. No other files change structurally
  * (only the generator implementation, when that type goes active).
  *
- * Slice 4.5.C.α₂ policy (2026-05-20): 37-type universe registered;
- * 10 have `generatorActive: true` (edit_title, edit_meta, change_h1,
+ * Slice 4.5.C.α₃a policy (2026-05-20): 37-type universe registered;
+ * 11 have `generatorActive: true` (edit_title, edit_meta, change_h1,
  * add_h2_section, add_faq, fix_sitemap, fix_robots, fix_status_code,
- * fix_canonical, fix_noindex). 7 off-site authority types are locked
- * inactive per Section 7 C7b. The remaining 20 ship as registered-
- * but-inactive so the provider-adapter knows the space of valid
- * outputs from day one — Slice 4.5.C.α₃ will activate
- * `add_internal_link` + `add_schema`. 4.5.C.α₂ flips
- * `fix_noindex` on paired with the Tier-2 sensitive predicate
- * `noindex-on-indexable-page` (emits at `confidence: "low"` →
- * routes to `diagnostic_only`, NOT customer queue). α₂ also
- * adds the `robots-blocks-ai-bots` Tier-2 predicate which
- * reuses the existing α₁ `fix_robots` action type (also at
- * `confidence: "low"`).
+ * fix_canonical, fix_noindex, add_internal_link). 7 off-site
+ * authority types are locked inactive per Section 7 C7b. The
+ * remaining 19 ship as registered-but-inactive — Slice 4.5.C.α₃b
+ * will activate `add_schema`. 4.5.C.α₃a flips `add_internal_link`
+ * paired with the new cross-snapshot `orphan-page` predicate
+ * (emits at `confidence: "medium"` → routes to the main candidates
+ * section). Operator-only diagnostic surface; customer queue
+ * UNCHANGED.
  *
  * This module is PURE TYPES + CONSTANTS. No DB writes. No extractors.
  * No UI. Safe to import from both server and client code.
@@ -337,7 +334,14 @@ export const ACTION_TYPE_REGISTRY: Record<ActionType, ActionTypeSpec> = {
     requiresProposedText: true,
     changelogAssetType: "service_page",
     operatorLabel: "Add internal link",
-    generatorActive: false,
+    // Slice 4.5.C.α₃a (2026-05-20) — flipped paired with the
+    // cross-snapshot `orphan-page` deterministic predicate. The
+    // predicate aggregates each tenant's `internal_links` arrays
+    // to compute per-URL inbound counts; orphans (0 inbound from
+    // other owned pages) on allowed page types (homepage / city /
+    // service / project / hub) emit at `confidence: "medium"` →
+    // main candidates section.
+    generatorActive: true,
   },
   add_schema: {
     actionType: "add_schema",

@@ -1,6 +1,6 @@
 /**
- * Slice 4.5.B.α₀ + α₁ + α₂ + Slice 4.5.C.α₀ — customer-copy-templates
- * unit tests.
+ * Slice 4.5.B.α₀ + α₁ + α₂ + Slice 4.5.C.α₀ + Slice 4.5.C.α₃a —
+ * customer-copy-templates unit tests.
  *
  * Behavioral assertions on the operator-locked phrasing. The
  * vocab-safety scan lives in
@@ -10,6 +10,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  addInternalLinkCopy,
   duplicateMetaCopy,
   duplicateTitleCopy,
   fixCanonicalCopy,
@@ -24,7 +25,7 @@ import {
   weakH1Copy,
 } from "@/domains/recommendation-intelligence/customer-copy-templates";
 
-describe("customer-copy templates (α₀ + α₁ + α₂ + 4.5.C.α₀)", () => {
+describe("customer-copy templates (α₀ + α₁ + α₂ + 4.5.C.α₀ + 4.5.C.α₃a)", () => {
   it("missingTitleCopy returns the operator-locked phrasing", () => {
     expect(missingTitleCopy()).toBe(
       "Add a clear page title so AI search platforms can surface this page accurately.",
@@ -68,6 +69,7 @@ describe("customer-copy templates (α₀ + α₁ + α₂ + 4.5.C.α₀)", () => 
     expect(fixNoindexCopy()).toBe(fixNoindexCopy());
     expect(fixStatusCodeCopy()).toBe(fixStatusCodeCopy());
     expect(fixCanonicalCopy()).toBe(fixCanonicalCopy());
+    expect(addInternalLinkCopy()).toBe(addInternalLinkCopy());
   });
 
   // ── α₂ count-aware duplicate-metadata templates ─────────────────────
@@ -127,6 +129,14 @@ describe("customer-copy templates (α₀ + α₁ + α₂ + 4.5.C.α₀)", () => 
   it("fixCanonicalCopy returns the operator-locked phrasing (4.5.C.α₀)", () => {
     expect(fixCanonicalCopy()).toBe(
       "This page's canonical URL points to a different page. Update the canonical tag if this URL is the intended primary.",
+    );
+  });
+
+  // ── 4.5.C.α₃a internal-linking template ─────────────────────────────
+
+  it("addInternalLinkCopy returns the operator-locked phrasing (4.5.C.α₃a)", () => {
+    expect(addInternalLinkCopy()).toBe(
+      "This page has no internal links pointing to it from elsewhere on your site. Add links from related hub or detail pages so AI search platforms can discover it.",
     );
   });
 });

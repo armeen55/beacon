@@ -1,6 +1,6 @@
 /**
- * 2026-05-19 — Slice 4.5.B.α₀ + α₁ + α₂ + Slice 4.5.C.α₀ —
- * customer-safe copy templates.
+ * 2026-05-19 — Slice 4.5.B.α₀ + α₁ + α₂ + Slice 4.5.C.α₀ +
+ * Slice 4.5.C.α₃a — customer-safe copy templates.
  *
  * Pure templating. LLM NEVER writes `customer_copy`. Each template
  * returns plain prose safe for customer surfaces — though α₀/α₁/α₂
@@ -82,4 +82,11 @@ export function fixStatusCodeCopy(): string {
 
 export function fixCanonicalCopy(): string {
   return "This page's canonical URL points to a different page. Update the canonical tag if this URL is the intended primary.";
+}
+
+// ── Slice 4.5.C.α₃a (2026-05-20) — internal-linking copy ─────────────────
+// Operator-locked phrasing — do not edit without operator approval.
+
+export function addInternalLinkCopy(): string {
+  return "This page has no internal links pointing to it from elsewhere on your site. Add links from related hub or detail pages so AI search platforms can discover it.";
 }

@@ -228,7 +228,7 @@ describe("loadTriggerCandidatesForTenant", () => {
     expect(result.candidates).toEqual([]);
     expect(result.diagnostic_only).toEqual([]);
     expect(result.meta.snapshot_count).toBe(0);
-    expect(result.meta.predicates_run).toBe(13);
+    expect(result.meta.predicates_run).toBe(14);
   });
 
   it("filters snapshots by tenant_id", async () => {
@@ -442,7 +442,7 @@ describe("loadTriggerCandidatesForTenant", () => {
     expect(result.meta.snapshot_count).toBe(1);
   });
 
-  it("reports predicates_run=13 in meta on the ok path (post-4.5.C.α₂)", async () => {
+  it("reports predicates_run=14 in meta on the ok path (post-4.5.C.α₃a)", async () => {
     _getPageSnapshotsMock.mockResolvedValue([
       makeSnapshot({ tenant_id: "tenant-a" }),
     ]);
@@ -452,7 +452,7 @@ describe("loadTriggerCandidatesForTenant", () => {
     const result = await loadTriggerCandidatesForTenant({
       tenantId: "tenant-a",
     });
-    expect(result.meta.predicates_run).toBe(13);
+    expect(result.meta.predicates_run).toBe(14);
   });
 
   // ── α₂ extensions ────────────────────────────────────────────────────
@@ -1108,5 +1108,146 @@ describe("loadTriggerCandidatesForTenant", () => {
       result.diagnostic_only.length,
     );
     expect(result.meta.diagnostic_only_count).toBeGreaterThanOrEqual(1);
+  });
+
+  // ── Slice 4.5.C.α₃a — orphan-page cross-snapshot predicate wiring ─────
+
+  it("(4.5.C.α₃a) emits an orphan_page candidate in MAIN candidates section (not diagnostic_only) for a service page with 0 inbound", async () => {
+    _getBusinessConfigMock.mockReturnValue(
+      makeConfig({
+        urlPatterns: { city: "/locations/", service: "/services/" },
+      }),
+    );
+    _getPageSnapshotsMock.mockResolvedValue([
+      // Homepage links elsewhere but NOT to the service page.
+      makeSnapshot({
+        tenant_id: "tenant-a",
+        url: "https://example.com/",
+        internal_links: [
+          { href: "/about-us", anchor_text: "About" },
+          { href: "/locations/palo-alto", anchor_text: "Palo Alto" },
+        ],
+      }),
+      makeSnapshot({
+        tenant_id: "tenant-a",
+        url: "https://example.com/services/custom-homes",
+      }),
+      makeSnapshot({
+        tenant_id: "tenant-a",
+        url: "https://example.com/locations/palo-alto",
+      }),
+      makeSnapshot({
+        tenant_id: "tenant-a",
+        url: "https://example.com/about-us",
+      }),
+    ]);
+    const { loadTriggerCandidatesForTenant } = await import(
+      "@/domains/recommendation-intelligence/load-trigger-candidates-for-tenant"
+    );
+    const result = await loadTriggerCandidatesForTenant({
+      tenantId: "tenant-a",
+    });
+    const orphanRows = result.candidates.filter(
+      (r) => r.trigger_signal === "orphan_page",
+    );
+    // Service page has 0 inbound → orphan candidate present.
+    expect(
+      orphanRows.some(
+        (r) => r.target_url === "https://example.com/services/custom-homes",
+      ),
+    ).toBe(true);
+    // Confirm the row is medium-confidence and lives in main
+    // candidates section (NOT diagnostic_only).
+    const serviceRow = orphanRows.find(
+      (r) => r.target_url === "https://example.com/services/custom-homes",
+    )!;
+    expect(serviceRow.confidence).toBe("medium");
+    expect(serviceRow.action_type).toBe("add_internal_link");
+    expect(
+      result.diagnostic_only.some((r) => r.trigger_signal === "orphan_page"),
+    ).toBe(false);
+  });
+
+  it("(4.5.C.α₃a) orphan_page runs ONCE across all snapshots (cross-snapshot aggregation, not per-snapshot)", async () => {
+    _getBusinessConfigMock.mockReturnValue(
+      makeConfig({
+        urlPatterns: { city: "/locations/", service: "/services/" },
+      }),
+    );
+    // 3 snapshots, 2 with internal_links arrays. Net: snapshot
+    // /a has 0 inbound (orphan), /b has 1 inbound (from /a),
+    // /c has 1 inbound (from /a).
+    _getPageSnapshotsMock.mockResolvedValue([
+      makeSnapshot({
+        tenant_id: "tenant-a",
+        url: "https://example.com/",
+        internal_links: [
+          { href: "/services/b-service", anchor_text: "B" },
+          { href: "/locations/c-city", anchor_text: "C" },
+        ],
+      }),
+      makeSnapshot({
+        tenant_id: "tenant-a",
+        url: "https://example.com/services/b-service",
+      }),
+      makeSnapshot({
+        tenant_id: "tenant-a",
+        url: "https://example.com/locations/c-city",
+      }),
+    ]);
+    const { loadTriggerCandidatesForTenant } = await import(
+      "@/domains/recommendation-intelligence/load-trigger-candidates-for-tenant"
+    );
+    const result = await loadTriggerCandidatesForTenant({
+      tenantId: "tenant-a",
+    });
+    const orphanRows = result.candidates.filter(
+      (r) => r.trigger_signal === "orphan_page",
+    );
+    // The homepage has 0 inbound; service + city have 1 inbound
+    // each. The aggregation MUST run once and respect global
+    // counts — running per-snapshot would re-aggregate each
+    // pass and produce wrong counts. Homepage is on the allow-
+    // list → 1 orphan candidate for the homepage.
+    expect(orphanRows.map((r) => r.target_url).sort()).toEqual([
+      "https://example.com/",
+    ]);
+  });
+
+  it("(4.5.C.α₃a) global emptiness guard — when NO snapshot has internal_links, orphan_page emits ZERO candidates", async () => {
+    _getBusinessConfigMock.mockReturnValue(
+      makeConfig({
+        urlPatterns: { city: "/locations/", service: "/services/" },
+      }),
+    );
+    // 4 snapshots, none with internal_links populated.
+    _getPageSnapshotsMock.mockResolvedValue([
+      makeSnapshot({ tenant_id: "tenant-a", url: "https://example.com/" }),
+      makeSnapshot({
+        tenant_id: "tenant-a",
+        url: "https://example.com/services/custom-homes",
+      }),
+      makeSnapshot({
+        tenant_id: "tenant-a",
+        url: "https://example.com/locations/palo-alto",
+      }),
+      makeSnapshot({
+        tenant_id: "tenant-a",
+        url: "https://example.com/projects/atherton-modern",
+      }),
+    ]);
+    const { loadTriggerCandidatesForTenant } = await import(
+      "@/domains/recommendation-intelligence/load-trigger-candidates-for-tenant"
+    );
+    const result = await loadTriggerCandidatesForTenant({
+      tenantId: "tenant-a",
+    });
+    const orphanRows = [
+      ...result.candidates.filter((r) => r.trigger_signal === "orphan_page"),
+      ...result.diagnostic_only.filter(
+        (r) => r.trigger_signal === "orphan_page",
+      ),
+    ];
+    expect(orphanRows).toEqual([]);
   });
 });

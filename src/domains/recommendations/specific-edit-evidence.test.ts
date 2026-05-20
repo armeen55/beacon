@@ -726,7 +726,7 @@ describe("Phase 6A.1.7 — allowedActionTypes", () => {
     expect(packet.allowedActionTypes).toEqual(expected);
   });
 
-  it("defaults are exactly the 10-type active set (sorted) — post-Slice 4.5.C.α₂", () => {
+  it("defaults are exactly the 11-type active set (sorted) — post-Slice 4.5.C.α₃a", () => {
     // Slice 4.5.B.α₀ (2026-05-19): `edit_meta` flipped paired with
     // the `missing-meta` trigger predicate.
     // Slice 4.5.B.α₁ (2026-05-19): `change_h1` flipped paired with
@@ -737,11 +737,15 @@ describe("Phase 6A.1.7 — allowedActionTypes", () => {
     // Slice 4.5.C.α₂ (2026-05-20): 1 Tier-2 sensitive flip —
     // `fix_noindex` (paired with `noindex-on-indexable-page`
     // predicate at confidence: low; routes to diagnostic_only).
+    // Slice 4.5.C.α₃a (2026-05-20): `add_internal_link` flipped
+    // paired with the cross-snapshot `orphan-page` predicate
+    // at confidence: medium (main candidates section).
     const packet = buildSpecificEditEvidencePacket(buildArgs());
     expect(packet.allowedActionTypes.sort()).toEqual(
       [
         "add_faq",
         "add_h2_section",
+        "add_internal_link",
         "change_h1",
         "edit_meta",
         "edit_title",
