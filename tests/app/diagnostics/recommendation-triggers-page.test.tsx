@@ -45,10 +45,21 @@ vi.mock("@/lib/tenant-context", () => ({
 
 let _snapshotsToReturn: PageSnapshot[] | unknown = [];
 let _storeThrows = false;
-vi.mock("@/domains/pages/snapshot-store", () => ({
-  getPageSnapshots: vi.fn(async () => {
-    if (_storeThrows) throw new Error("disk read failed");
-    return _snapshotsToReturn;
+// Slice 4.5.B.α₂.1 — mock the repository pattern (the loader's
+// new snapshot source) so this test stays aligned with the
+// production data path. `.forTenant(tenantId)` is the
+// production tenant-filter; the mock mirrors it.
+vi.mock("@/lib/persistence/repositories", () => ({
+  getRepository: () => ({
+    forTenant: (tenantId: string) => ({
+      getPageSnapshots: async () => {
+        if (_storeThrows) throw new Error("supabase read failed");
+        if (!Array.isArray(_snapshotsToReturn)) return _snapshotsToReturn;
+        return (_snapshotsToReturn as PageSnapshot[]).filter(
+          (s) => s != null && s.tenant_id === tenantId,
+        );
+      },
+    }),
   }),
 }));
 
@@ -148,11 +159,41 @@ describe("/diagnostics/recommendation-triggers", () => {
     expect(html).toContain("Recommendation Trigger Diagnostic");
   });
 
-  it("renders the empty state when no snapshots match the tenant", async () => {
+  it("(α₂.1) renders the empty-snapshots banner when snapshot_count is 0, not 'No candidate rows produced'", async () => {
+    // Slice 4.5.B.α₂.1 — distinguishes "no owned snapshots
+    // available in this environment" from "snapshots available
+    // but zero candidates produced." Prior to α₂.1 this case
+    // rendered the misleading "No candidate rows produced"
+    // empty-candidates copy.
     _snapshotsToReturn = [];
     const html = await renderPage();
     expect(html).toContain("Recommendation Trigger Diagnostic");
+    expect(html).toContain('data-diagnostic-section="empty-snapshots"');
+    expect(html).toContain(
+      "No owned page snapshots available for this tenant.",
+    );
+    expect(html).not.toContain("No candidate rows produced for this tenant.");
+  });
+
+  it("(α₂.1) renders the empty-candidates copy when snapshot_count > 0 but no predicate fires", async () => {
+    // Populated snapshots that don't trigger any of the 7
+    // predicates → operator sees the empty-candidates copy
+    // (NOT the empty-snapshots banner).
+    _snapshotsToReturn = [
+      makeSnapshot({
+        url: "https://example.com/healthy",
+        // All fields populated, all signals clean: title, meta,
+        // h1 present; not a city/service URL → weak_h1 skips;
+        // titles + h1 token sets aligned → no mismatch.
+        title: "Healthy Page",
+        meta_description: "Healthy meta",
+        h1: "Healthy Page",
+      }),
+    ];
+    const html = await renderPage();
+    expect(html).toContain('data-diagnostic-section="empty-candidates"');
     expect(html).toContain("No candidate rows produced for this tenant.");
+    expect(html).not.toContain('data-diagnostic-section="empty-snapshots"');
   });
 
   it("renders the candidate table with per-row data attributes when predicates fire", async () => {
@@ -318,5 +359,25 @@ describe("/diagnostics/recommendation-triggers", () => {
     const html = await renderPage();
     expect(html).toContain('data-row-trigger-signal="duplicate_meta"');
     expect(html).toContain('data-row-action-type="edit_meta"');
+  });
+
+  // ── α₂.1 regression guards — page copy is slice-agnostic ────────────
+
+  it("(α₂.1) page description does NOT reference 'Slice 4.5.B.α₀' or the legacy '2 metadata' phrasing", async () => {
+    _snapshotsToReturn = [makeSnapshot({ url: "https://example.com/a" })];
+    const html = await renderPage();
+    expect(html).not.toContain("Slice 4.5.B.α₀");
+    expect(html).not.toContain("2 metadata deterministic trigger predicates");
+    expect(html).not.toContain("2 metadata");
+  });
+
+  it("(α₂.1) page description interpolates predicates_run dynamically", async () => {
+    _snapshotsToReturn = [makeSnapshot({ url: "https://example.com/a" })];
+    const html = await renderPage();
+    // The description carries a `data-description-predicates-run`
+    // attribute set to the current count from the loader meta.
+    expect(html).toContain('data-description-predicates-run="7"');
+    // And the prose body contains the same integer.
+    expect(html).toContain("7</span> active");
   });
 });

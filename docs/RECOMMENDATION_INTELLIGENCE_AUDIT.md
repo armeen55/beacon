@@ -7,6 +7,8 @@
 > (2026-05-19)**
 > **Slice 4.5.B.α₂ — cross-snapshot duplicate-title + duplicate-meta
 > predicates (2026-05-19)**
+> **Slice 4.5.B.α₂.1 — diagnostic snapshot source + copy fix
+> (2026-05-19)**
 >
 > Canonical source-of-truth document for the Section 4.5 Recommendation
 > Intelligence Expansion roadmap. Documented operator-approved

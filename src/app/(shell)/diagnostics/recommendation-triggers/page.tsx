@@ -1,21 +1,24 @@
 import "server-only";
 
 /**
- * 2026-05-19 — Slice 4.5.B.α₀ — operator-only recommendation-trigger
- * diagnostic page.
+ * 2026-05-19 — operator-only recommendation-trigger diagnostic page.
  *
  * Surfaces deterministic-trigger candidate rows for the tenant's
  * owned pages. Operator validation surface only — no customer-
  * facing recommendations are produced or persisted here. The
- * customer-queue flip is deferred to Slice 4.5.D after operator
- * validation on Ritz here.
+ * customer-queue flip is deferred until operator validation
+ * completes here.
  *
- * α₀ wires the 2 metadata predicates (`missing-title`,
- * `missing-meta`). α₁ adds H1 predicates. α₂ adds cross-snapshot
- * duplicate predicates.
+ * Slice 4.5.B.α₂.1 (2026-05-19): page copy is slice-agnostic
+ * (predicate count + description interpolate `result.meta.
+ * predicates_run` from the loader rather than hardcoding a
+ * slice version). Empty-state branches distinguish "no owned
+ * snapshots in the environment" from "snapshots present but
+ * zero candidates."
  *
- * Operator-gated. Reads file-backed snapshots only. No write
- * paths, no LLM, no paid APIs.
+ * Operator-gated. Reads snapshots via the repository pattern,
+ * which routes to Supabase in production. No write paths, no
+ * LLM, no paid APIs.
  *
  * Pinned by:
  *   • tests/app/diagnostics/recommendation-triggers-page.test.tsx
@@ -24,6 +27,7 @@ import "server-only";
  *   • tests/architecture/recommendation-intelligence-customer-copy-vocab.test.ts
  *   • tests/architecture/recommendation-intelligence-no-llm-decides.test.ts
  *   • tests/architecture/recommendation-registry-active-set.test.ts
+ *   • tests/architecture/recommendation-triggers-diagnostic-source-and-copy.test.ts
  */
 
 import { notFound } from "next/navigation";
@@ -70,10 +74,17 @@ export default async function RecommendationTriggersDiagnosticPage(
           Recommendation Trigger Diagnostic
         </h1>
         <p className="text-[12px] text-muted-foreground">
-          Slice 4.5.B.α₀ — operator validation surface for the 2
-          metadata deterministic trigger predicates. Customer queue
-          is NOT modified by this page. The customer-queue flip is
-          deferred to Slice 4.5.D after operator validation here.
+          Operator validation surface for recommendation-intelligence
+          deterministic trigger predicates (
+          <span
+            className="font-mono"
+            data-description-predicates-run={result.meta.predicates_run}
+          >
+            {result.meta.predicates_run}
+          </span>{" "}
+          active). Customer queue is NOT modified by this page. The
+          customer-queue flip is deferred until operator validation
+          completes here.
         </p>
       </header>
 
@@ -104,7 +115,19 @@ export default async function RecommendationTriggersDiagnosticPage(
         </ul>
       </section>
 
-      {result.candidates.length === 0 ? (
+      {result.meta.snapshot_count === 0 ? (
+        <section
+          className="rounded-md border border-status-warning/40 bg-status-warning/[0.06] px-3 py-2"
+          data-diagnostic-section="empty-snapshots"
+          data-load-status={result.status}
+        >
+          <p className="text-[12px] text-foreground">
+            No owned page snapshots available for this tenant. Run the
+            owned-page scan in this environment, then revisit this page
+            to validate trigger candidates.
+          </p>
+        </section>
+      ) : result.candidates.length === 0 ? (
         <p
           className="text-[12px] text-muted-foreground"
           data-diagnostic-section="empty-candidates"

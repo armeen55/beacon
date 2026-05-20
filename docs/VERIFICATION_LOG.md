@@ -7,6 +7,75 @@
 
 ---
 
+## 2026-05-19 — Slice 4.5.B.α₂.1: diagnostic reliability fix
+
+**Status:** READY_TO_COMMIT (operator-approved implementation; awaiting commit/push/verify approval).
+
+**Slice scope (locked).** Tightly-scoped fix surfaced by operator manual production smoke after α₂. The deployed `/diagnostics/recommendation-triggers` page rendered the misleading "Owned snapshots: 0 / Predicates run: 7 / Candidates: 0 / No candidate rows produced for this tenant." state with the stale "Slice 4.5.B.α₀ — operator validation surface for the 2 metadata deterministic trigger predicates" description. Three orthogonal bugs:
+1. **Loader source bug (primary, production-blocking)**: α₀ picked the file-only boundary which reads `.data/page-snapshots.json` — never deployed to Vercel (gitignored + read-only lambda FS).
+2. **Empty-state UI conflation**: same copy rendered for "no snapshots" and "no candidates."
+3. **Stale slice-version copy**: α₁ + α₂ shipped without updating the hardcoded α₀ description.
+
+**Root cause.** [src/domains/recommendation-intelligence/load-trigger-candidates-for-tenant.ts](src/domains/recommendation-intelligence/load-trigger-candidates-for-tenant.ts) imported `getPageSnapshots` from `@/domains/pages/snapshot-store` — a raw file-backed boundary. The customer-facing Recommendations pipeline uses the **repository pattern** (`getRepository().forTenant(tenantId).getPageSnapshots()`, [load-queue.ts:287](src/domains/recommendations/load-queue.ts:287)) which routes to Supabase under `DATA_SOURCE=supabase` matching the production data path.
+
+**What was fixed.**
+
+1. **MODIFIED** [src/domains/recommendation-intelligence/load-trigger-candidates-for-tenant.ts](src/domains/recommendation-intelligence/load-trigger-candidates-for-tenant.ts) (~+8 net lines):
+   - Swapped `import { getPageSnapshots } from "@/domains/pages/snapshot-store"` → `import { getRepository } from "@/lib/persistence/repositories"`.
+   - Loader now calls `const repo = getRepository().forTenant(tenantId); const all = await repo.getPageSnapshots();`. The `.forTenant()` wrapper handles tenant scoping server-side (Supabase `.eq("tenant_id", id)`), so the manual `.filter(s => s.tenant_id === tenantId)` shrinks to a defensive null-check (`.filter(s => s != null)`).
+   - Existing soft-fail `snapshots_unavailable` path covers repository throws.
+   - Docstring refreshed with α₂.1 root-cause explanation + production-vs-dev backend routing.
+
+2. **MODIFIED** [src/app/(shell)/diagnostics/recommendation-triggers/page.tsx](src/app/(shell)/diagnostics/recommendation-triggers/page.tsx) (~+27 net lines):
+   - **Slice-agnostic description**: removed hardcoded "Slice 4.5.B.α₀" + "2 metadata deterministic trigger predicates"; now interpolates `result.meta.predicates_run` via a `<span data-description-predicates-run="7">7</span>` element. Future predicate additions surface automatically without paired text edits.
+   - **Empty-state branches**: `snapshot_count === 0` renders a new `data-diagnostic-section="empty-snapshots"` warning section (*"No owned page snapshots available for this tenant. Run the owned-page scan in this environment, then revisit this page to validate trigger candidates."*) with `data-load-status` data attribute carrying the loader status; `snapshot_count > 0 && candidates.length === 0` retains the existing `data-diagnostic-section="empty-candidates"` copy.
+   - Module docstring refreshed.
+
+3. **NEW** [tests/architecture/recommendation-triggers-diagnostic-source-and-copy.test.ts](tests/architecture/recommendation-triggers-diagnostic-source-and-copy.test.ts) — 6 tests pinning:
+   - Loader source: imports `getRepository` from `@/lib/persistence/repositories`.
+   - Loader source: does NOT import `getPageSnapshots` from `@/domains/pages/snapshot-store`.
+   - Loader source: does NOT call bare `getPageSnapshots(` (negative-lookbehind regex; only `.getPageSnapshots(` via repository is allowed).
+   - Page source: NOT regex-match `/Slice\s+4\.5\.B\.α/`.
+   - Page source: NOT contain "2 metadata deterministic trigger predicates" or "2 metadata predicates".
+   - Page source: MUST interpolate `result.meta.predicates_run`.
+
+**Catalog row added** under new "Section 4.5 / Slice 4.5.B.α₂.1" section for the new invariant.
+
+**Tests updated (~10 new + 2 fixture rewrites).**
+
+| File | Change |
+|---|---|
+| `tests/domains/recommendation-intelligence/load-trigger-candidates-for-tenant.test.ts` | Mock target swapped from `@/domains/pages/snapshot-store::getPageSnapshots` to `@/lib/persistence/repositories::getRepository`. New `_forTenantSpy` tracks the tenantId argument; mock's `forTenant(tenantId).getPageSnapshots()` mirrors the production tenant filter. **+1 new α₂.1 test** asserts `.forTenant(tenantId)` is invoked exactly once with the right tenant_id. All 19 prior tests still pass with the new mock shape. |
+| `tests/app/diagnostics/recommendation-triggers-page.test.tsx` | Mock target swapped from `@/domains/pages/snapshot-store::getPageSnapshots` to `@/lib/persistence/repositories::getRepository`. Existing "renders the empty state when no snapshots match the tenant" test REWRITTEN to verify the new α₂.1 empty-snapshots banner + no longer assert misleading "No candidate rows produced" copy. **+3 new α₂.1 tests**: (1) `snapshot_count > 0` with no firing predicates → empty-candidates copy (NOT empty-snapshots banner); (2) page description has no `/Slice 4.5.B.α/` or "2 metadata" literals; (3) page description interpolates `data-description-predicates-run="7"` + "7</span> active" prose. |
+
+**Hard contracts honored.**
+- ✅ NO registry changes (count 32, active set 5 — both UNCHANGED).
+- ✅ NO `generatorActive` flips.
+- ✅ NO new action types.
+- ✅ NO new trigger predicates (still exactly 7: `missing_title`, `missing_meta`, `missing_h1`, `weak_h1`, `title_h1_mismatch`, `duplicate_title`, `duplicate_meta`).
+- ✅ `PREDICATE_COUNT` remains 7.
+- ✅ NO customer queue write.
+- ✅ NO `recommended_edits` mutation.
+- ✅ NO `runProviderAndPersist` usage.
+- ✅ NO LLM. NO paid API. NO Supabase mutation. NO migration. NO cron.
+- ✅ NO Today / Changes / Prompts / Settings / Recommendations / Section 9 code changes.
+
+**Net src/ delta.** **+35 net new src/ lines** (well under the +200 target; far under the +400 hard stop). Breakdown:
+- `load-trigger-candidates-for-tenant.ts`: +8 net (import swap + repository call refactor + docstring refresh).
+- `recommendation-triggers/page.tsx`: +27 net (slice-agnostic description with span + empty-snapshots branch + docstring refresh).
+
+**Quality gates.**
+- `npm run typecheck` → CLEAN.
+- `npx vitest run` α₂.1 targeted suite: loader 20/20 · diagnostic page 15/15 · new invariant 6/6 · 5 existing α-family invariants 5/5 · catalog-sync 8/8 — all green.
+- `npm run test` (full suite) → green.
+- `BEACON_TENANT_ID=tenant-ritz-founder BEACON_TENANT_SLUG=ritz-founder npm run build` → green.
+
+**Verification.** The new `recommendation-triggers-diagnostic-source-and-copy` invariant pins both regression failure modes against drift. Loader source changes flag immediately if a future PR re-introduces the file boundary. Page copy changes flag immediately if a future PR hardcodes a new slice version string.
+
+**Next.** Operator review → commit + push + verify CI + Vercel green + manual smoke (visit `/diagnostics/recommendation-triggers` with `BEACON_OPERATOR_MODE=true`; confirm description says "7 active"; confirm `Owned snapshots > 0` in production where Supabase has snapshots; confirm empty-snapshots banner only when env genuinely lacks snapshots; confirm "No candidate rows produced" only appears when snapshots > 0 but no predicates fire). Then **Slice 4.5.C preflight** (indexability + GSC family).
+
+---
+
 ## 2026-05-19 — Slice 4.5.B.α₂: cross-snapshot duplicate-title + duplicate-meta predicates
 
 **Status:** READY_TO_COMMIT (operator-approved implementation; awaiting commit/push/verify approval).

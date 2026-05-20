@@ -1,11 +1,18 @@
 /**
- * Slice 4.5.B.α₀ + α₁ — load-trigger-candidates-for-tenant unit
- * tests.
+ * Slice 4.5.B.α₀ + α₁ + α₂ + α₂.1 — load-trigger-candidates-for-
+ * tenant unit tests.
  *
- * Mocks `getPageSnapshots()` + `getBusinessConfig()` (the two
- * loader boundaries) and asserts the loader composes the 5
- * predicates correctly, applies tenant filtering, gates via
- * apply-queue-rules, dedupes, and soft-fails on throw.
+ * Slice 4.5.B.α₂.1 (2026-05-19): mock target swapped from the
+ * file boundary `@/domains/pages/snapshot-store::getPageSnapshots`
+ * to the repository pattern `@/lib/persistence/repositories::
+ * getRepository().forTenant(tenantId).getPageSnapshots()`. The
+ * loader now consumes the production-routed Supabase source
+ * matching the customer Recommendations pipeline.
+ *
+ * Mocks `getRepository` + `getBusinessConfig()` (the two loader
+ * boundaries) and asserts the loader composes the 7 predicates
+ * correctly, applies tenant filtering via `.forTenant()`, gates
+ * via apply-queue-rules, dedupes, and soft-fails on throw.
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -14,10 +21,29 @@ import type { PageSnapshot } from "@/domains/pages/types";
 import type { BusinessConfig } from "@/lib/business-config";
 
 const _getPageSnapshotsMock = vi.fn<() => Promise<PageSnapshot[] | unknown>>();
+const _forTenantSpy = vi.fn<(tenantId: string) => unknown>();
 const _getBusinessConfigMock = vi.fn<() => BusinessConfig>();
 
-vi.mock("@/domains/pages/snapshot-store", () => ({
-  getPageSnapshots: () => _getPageSnapshotsMock(),
+vi.mock("@/lib/persistence/repositories", () => ({
+  getRepository: () => ({
+    forTenant: (tenantId: string) => {
+      _forTenantSpy(tenantId);
+      return {
+        getPageSnapshots: async () => {
+          // Mirror the production repository's `.forTenant()`
+          // tenant-scoping: the underlying mock can return mixed-
+          // tenant fixtures and this wrapper filters them so the
+          // loader sees only the tenant-a slice (matching the
+          // Supabase backend's `.eq("tenant_id", id)` behavior).
+          const all = await _getPageSnapshotsMock();
+          if (!Array.isArray(all)) return all;
+          return (all as PageSnapshot[]).filter(
+            (s) => s != null && s.tenant_id === tenantId,
+          );
+        },
+      };
+    },
+  }),
 }));
 
 vi.mock("@/lib/business-config", async () => {
@@ -92,6 +118,7 @@ function makeSnapshot(overrides: Partial<PageSnapshot>): PageSnapshot {
 
 beforeEach(() => {
   _getPageSnapshotsMock.mockReset();
+  _forTenantSpy.mockReset();
   _getBusinessConfigMock.mockReset();
   _getBusinessConfigMock.mockReturnValue(makeConfig());
 });
@@ -477,6 +504,18 @@ describe("loadTriggerCandidatesForTenant", () => {
       (r) => r.trigger_signal === "duplicate_title",
     );
     expect(dupRows).toEqual([]);
+  });
+
+  it("(α₂.1) routes snapshot reads through getRepository().forTenant(tenantId)", async () => {
+    _getPageSnapshotsMock.mockResolvedValue([
+      makeSnapshot({ tenant_id: "tenant-a" }),
+    ]);
+    const { loadTriggerCandidatesForTenant } = await import(
+      "@/domains/recommendation-intelligence/load-trigger-candidates-for-tenant"
+    );
+    await loadTriggerCandidatesForTenant({ tenantId: "tenant-a" });
+    expect(_forTenantSpy).toHaveBeenCalledTimes(1);
+    expect(_forTenantSpy).toHaveBeenCalledWith("tenant-a");
   });
 
   it("emits BOTH duplicate_title AND duplicate_meta when both fields are duplicated", async () => {

@@ -1,11 +1,23 @@
 /**
- * 2026-05-19 — Slice 4.5.B.α₀ + α₁ + α₂ — recommendation-trigger
- * loader.
+ * 2026-05-19 — Slice 4.5.B.α₀ + α₁ + α₂ + α₂.1 — recommendation-
+ * trigger loader.
  *
- * Server-side tenant-scoped loader. Reads `PageSnapshot[]`,
- * invokes the 7 α₀+α₁+α₂ predicates, applies the minimal queue-
- * rules gate, and returns a discriminated result for the
- * operator-only diagnostic page.
+ * Server-side tenant-scoped loader. Reads `PageSnapshot[]` via
+ * the repository pattern (`getRepository().forTenant(tenantId)
+ * .getPageSnapshots()`), invokes the 7 α₀+α₁+α₂ predicates,
+ * applies the minimal queue-rules gate, and returns a
+ * discriminated result for the operator-only diagnostic page.
+ *
+ * Slice 4.5.B.α₂.1 fix (2026-05-19): swapped the snapshot source
+ * from the file-backed boundary `@/domains/pages/snapshot-store::
+ * getPageSnapshots()` to the repository pattern. On Vercel the
+ * `.data/page-snapshots.json` file is never deployed (gitignored
+ * + read-only lambda FS) so the file boundary returned `[]`
+ * silently, producing the misleading "Owned snapshots: 0 / No
+ * candidate rows produced" state operator-observed on
+ * /diagnostics/recommendation-triggers. The repository pattern
+ * routes to Supabase under `DATA_SOURCE=supabase`, matching the
+ * customer Recommendations pipeline (`load-queue.ts:287`).
  *
  * Predicate invocation pattern (locked):
  *   1. Cross-snapshot duplicate predicates run ONCE over the full
@@ -27,8 +39,8 @@ import "server-only";
 
 import { getBusinessConfig } from "@/lib/business-config";
 import type { BusinessConfig } from "@/lib/business-config";
-import { getPageSnapshots } from "@/domains/pages/snapshot-store";
 import type { PageSnapshot } from "@/domains/pages/types";
+import { getRepository } from "@/lib/persistence/repositories";
 
 import { applyQueueRules } from "./emitter/apply-queue-rules";
 import type { RecommendationCandidateRow } from "./emitter/candidate-row";
@@ -97,12 +109,16 @@ export async function loadTriggerCandidatesForTenant(options: {
 }): Promise<TriggerCandidatesLoadResult> {
   const { tenantId } = options;
 
+  // Slice 4.5.B.α₂.1 — snapshots come through the repository
+  // pattern, which routes to Supabase under DATA_SOURCE=supabase
+  // (production) or the file backend (dev). `.forTenant(tenantId)`
+  // already filters by tenant_id, so the defensive null filter
+  // below is the only post-fetch reshape we apply.
   let snapshots: PageSnapshot[];
   try {
-    const all = await getPageSnapshots();
-    snapshots = Array.isArray(all)
-      ? all.filter((s) => s != null && s.tenant_id === tenantId)
-      : [];
+    const repo = getRepository().forTenant(tenantId);
+    const all = await repo.getPageSnapshots();
+    snapshots = Array.isArray(all) ? all.filter((s) => s != null) : [];
   } catch {
     return emptyResult("snapshots_unavailable", tenantId, 0);
   }
