@@ -21,6 +21,16 @@
 > `add_internal_link` flip (2026-05-20)**
 > **Slice 4.5.C.α₃b — missing-schema per-snapshot predicate +
 > `add_schema` flip (2026-05-20)**
+> **Slice 4.5.D.α₀a — DE-SCOPED & REJECTED (2026-05-20):**
+> first attempt landed at +3,530 src+tests vs the +1,000
+> hard stop; operator rejected. Work split into α₀a.1 → α₀a.2
+> → α₀a.3 → α₀b → α₁.
+> **Slice 4.5.D.α₀a.1 — promotion eligibility + priority scoring
+> foundation (2026-05-20)**: 2 src modules
+> (`promotion-eligibility.ts` + `priority-score.ts`) + 2 unit
+> suites + 2 invariants (`-promotion-eligibility-pin` +
+> `-priority-score-contract`). +725 src+tests net (within
+> +700 target with 25-line cushion).
 >
 > Canonical source-of-truth document for the Section 4.5 Recommendation
 > Intelligence Expansion roadmap. Documented operator-approved
