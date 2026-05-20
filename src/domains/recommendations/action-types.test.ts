@@ -28,20 +28,22 @@ import {
 
 describe("Sprint 6A.1 Phase 2 — action-type registry", () => {
   describe("enum completeness", () => {
-    it("has exactly 32 action types", () => {
+    it("has exactly 37 action types", () => {
       // Section 7 C7b (2026-05-16): registry grew from 22 → 29 with
       // the 7 off-site/manual action types. Slice 4.5.B.α₀
       // (2026-05-19): registry grew from 29 → 32 with the 3
       // inactive Section-4.5 expansion entries (`update_intro`,
-      // `add_h3_section`, `add_image_alt_text`). All three ship
-      // `generatorActive: false` (paired predicates land in later
-      // Section-4.5 slices; `add_image_alt_text` additionally
-      // requires a PageSnapshot extractor extension for the
-      // `images: { alt }[]` field).
-      expect(ACTION_TYPES).toHaveLength(32);
+      // `add_h3_section`, `add_image_alt_text`). Slice 4.5.C.α₀
+      // (2026-05-19): registry grew from 32 → 37 with the 5
+      // inactive indexability-remediation entries (`fix_sitemap`,
+      // `fix_robots`, `fix_noindex`, `fix_status_code`,
+      // `fix_canonical`). All five ship `generatorActive: false`
+      // (paired Tier-1/Tier-2 deterministic predicates land in
+      // Slice 4.5.C.α₁ / α₂).
+      expect(ACTION_TYPES).toHaveLength(37);
     });
 
-    it("contains every action type planned in Sprint 6A.1 + Section 7 C7b + Slice 4.5.B.α₀", () => {
+    it("contains every action type planned in Sprint 6A.1 + Section 7 C7b + Slice 4.5.B.α₀ + Slice 4.5.C.α₀", () => {
       // Spelled out verbatim so the plan and the code stay pinned together.
       const expected: ActionType[] = [
         "edit_title",
@@ -70,6 +72,16 @@ describe("Sprint 6A.1 Phase 2 — action-type registry", () => {
         "update_intro",
         "add_h3_section",
         "add_image_alt_text",
+        // Slice 4.5.C.α₀ (2026-05-19) — inactive indexability
+        // remediation foundation. Generator activation deferred
+        // to Slice 4.5.C.α₁ (Tier-1) and α₂ (Tier-2). All five
+        // carry signalType: "technical" + elementTypeDomain: []
+        // + requiresProposedText: false (operator-task rows).
+        "fix_sitemap",
+        "fix_robots",
+        "fix_noindex",
+        "fix_status_code",
+        "fix_canonical",
         // Section 7 C7b (2026-05-16) — off-site / manual action types.
         // All seven carry `generatorActive: false` (LLM never produces
         // them) and `elementTypeDomain: []` (no on-page element target).
@@ -144,16 +156,19 @@ describe("Sprint 6A.1 Phase 2 — action-type registry", () => {
       );
     });
 
-    it("every other type is generatorActive=false (Sprint 6A.2 LLM provider flips them per-rec; Section 7 C7b's off-site types stay inactive permanently; α₀-added types flip with paired predicates in later 4.5 slices)", () => {
+    it("every other type is generatorActive=false (Sprint 6A.2 LLM provider flips them per-rec; Section 7 C7b's off-site types stay inactive permanently; α₀-added + 4.5.C.α₀ indexability-fix types flip with paired predicates in later 4.5 slices)", () => {
       const inactive = ACTION_TYPES.filter(
         (t) => !ACTION_TYPE_REGISTRY[t].generatorActive,
       );
       // 22 original − 5 ACTIVE_AFTER_ALPHA1 = 17 inactive,
       // plus Section 7 C7b's 7 off-site/manual types,
       // plus Slice 4.5.B.α₀'s 3 new inactive types
-      // (update_intro, add_h3_section, add_image_alt_text)
-      // → 27 total inactive.
-      expect(inactive).toHaveLength(27);
+      // (update_intro, add_h3_section, add_image_alt_text),
+      // plus Slice 4.5.C.α₀'s 5 new inactive indexability-
+      // remediation types (fix_sitemap, fix_robots, fix_noindex,
+      // fix_status_code, fix_canonical)
+      // → 32 total inactive.
+      expect(inactive).toHaveLength(32);
       for (const t of ACTIVE_AFTER_ALPHA1) {
         expect(inactive).not.toContain(t);
       }
@@ -414,6 +429,17 @@ describe("Sprint 6A.1 Phase 2 — action-type registry", () => {
       //     allowlist and into the `image_alt` element domain.
       "update_intro",
       "add_image_alt_text",
+      // Slice 4.5.C.α₀ (2026-05-19) — indexability remediation
+      // registry foundation. All five target a configuration
+      // surface (sitemap.xml entry, robots.txt rule, meta robots
+      // tag, HTTP status code, canonical tag) rather than a
+      // specific on-page element_type, so they carry
+      // `elementTypeDomain: []` permanently.
+      "fix_sitemap",
+      "fix_robots",
+      "fix_noindex",
+      "fix_status_code",
+      "fix_canonical",
       // Off-site / manual (Section 7 C7b)
       "claim_gbp",
       "optimize_gbp_profile",

@@ -1,6 +1,6 @@
 /**
- * 2026-05-19 — Slice 4.5.B.α₀ + α₁ + α₂ — customer-safe copy
- * templates.
+ * 2026-05-19 — Slice 4.5.B.α₀ + α₁ + α₂ + Slice 4.5.C.α₀ —
+ * customer-safe copy templates.
  *
  * Pure templating. LLM NEVER writes `customer_copy`. Each template
  * returns plain prose safe for customer surfaces — though α₀/α₁/α₂
@@ -15,6 +15,12 @@
  * Implemented with `String()` concatenation rather than
  * `${expression}` template literals so the customer-copy-vocab
  * scan stays straightforward.
+ *
+ * Slice 4.5.C.α₀ adds five no-arg indexability-remediation
+ * templates (`fixSitemapCopy`, `fixRobotsCopy`, `fixNoindexCopy`,
+ * `fixStatusCodeCopy`, `fixCanonicalCopy`) paired with the new
+ * inactive registry entries. Predicates that consume them land in
+ * Slice 4.5.C.α₁ / α₂.
  */
 
 export function missingTitleCopy(): string {
@@ -51,4 +57,29 @@ export function duplicateMetaCopy(occurrenceCount: number): string {
     String(occurrenceCount) +
     " owned pages. Tailor each description so AI search platforms see distinct snippets."
   );
+}
+
+// ── Slice 4.5.C.α₀ (2026-05-19) — indexability remediation copy ─────────
+// All five are no-arg, registered inactive; predicates that emit them
+// land in Slice 4.5.C.α₁ (Tier-1) and α₂ (Tier-2). Operator-locked
+// phrasing — do not edit without operator approval.
+
+export function fixSitemapCopy(): string {
+  return "This URL is missing from your sitemap.xml. Add it and resubmit so AI search platforms can discover it.";
+}
+
+export function fixRobotsCopy(): string {
+  return "Your robots.txt blocks this URL. Update the rule so AI search platforms and Googlebot can crawl this page.";
+}
+
+export function fixNoindexCopy(): string {
+  return "This page sets a noindex meta tag. Remove it if this page should be discoverable in AI search.";
+}
+
+export function fixStatusCodeCopy(): string {
+  return "This URL returns an error or redirect. Restore a clean 200 response so AI search platforms can index this page.";
+}
+
+export function fixCanonicalCopy(): string {
+  return "This page's canonical URL points to a different page. Update the canonical tag if this URL is the intended primary.";
 }

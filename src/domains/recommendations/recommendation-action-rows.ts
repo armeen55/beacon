@@ -401,6 +401,21 @@ export function actionRowTypeForEdit(actionType: ActionType): ActionRowType {
     case "add_h3_section":
     case "add_image_alt_text":
       return "review_decision";
+    // Slice 4.5.C.α₀ (2026-05-19) — indexability remediation
+    // registry foundation. Dead-code arms; all five carry
+    // `generatorActive: false` in α₀. Routing to "review_decision"
+    // keeps Act 4 Suggested Copy suppressed automatically
+    // (review_decision is NOT in SUGGESTED_COPY_ACTION_ROW_TYPES
+    // in suggested-copy-adapters.ts) — these are operator-task
+    // recommendations carrying `task_instructions`, not
+    // publishable text. Real row-type mapping may revisit when
+    // α₁/α₂ predicates land and the customer queue flip ships.
+    case "fix_sitemap":
+    case "fix_robots":
+    case "fix_noindex":
+    case "fix_status_code":
+    case "fix_canonical":
+      return "review_decision";
   }
 }
 
@@ -566,6 +581,24 @@ export function composeEditRowTitle(args: {
         : `Add an H3 sub-section to the ${targetLabel}`;
     case "add_image_alt_text":
       return `Add image alt text on the ${targetLabel}`;
+    // Slice 4.5.C.α₀ (2026-05-19) — indexability remediation
+    // registry foundation. Dead-code arms; generatorActive is
+    // false on each, so the action-row builder never reaches
+    // these branches in production. Row-title wording mirrors the
+    // registry's `operatorLabel` verbatim so the same locked,
+    // customer-safe phrasing is used wherever a row title might
+    // surface. α₁/α₂ may revisit the wording when actual
+    // generation lands.
+    case "fix_sitemap":
+      return `Add the ${targetLabel} to your sitemap`;
+    case "fix_robots":
+      return `Unblock the ${targetLabel} in robots.txt`;
+    case "fix_noindex":
+      return `Remove the noindex tag from the ${targetLabel}`;
+    case "fix_status_code":
+      return `Restore a clean 200 response for the ${targetLabel}`;
+    case "fix_canonical":
+      return `Update the canonical tag on the ${targetLabel}`;
   }
 }
 

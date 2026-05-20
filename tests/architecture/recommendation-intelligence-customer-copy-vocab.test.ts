@@ -69,7 +69,10 @@ const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
  *  the probes are an empty array — the template is invoked once.
  *  α₂'s duplicate templates take an integer occurrenceCount, so
  *  they're probed with multiple integer values to catch any
- *  plurality-formatting bug. */
+ *  plurality-formatting bug.
+ *
+ *  Slice 4.5.C.α₀ adds 5 no-arg indexability-remediation
+ *  templates probed with a single empty-arg invocation each. */
 type Probe = ReadonlyArray<unknown>;
 const PROBE_SETS: Record<string, ReadonlyArray<Probe>> = {
   missingTitleCopy: [[]],
@@ -83,6 +86,14 @@ const PROBE_SETS: Record<string, ReadonlyArray<Probe>> = {
   // (e.g., a future "1 owned page" typo would surface).
   duplicateTitleCopy: [[2], [3], [5], [10]],
   duplicateMetaCopy: [[2], [3], [5], [10]],
+  // Slice 4.5.C.α₀ (2026-05-19) — indexability remediation
+  // templates. All five no-arg; predicates that emit them land
+  // in Slice 4.5.C.α₁ (Tier-1) and α₂ (Tier-2).
+  fixSitemapCopy: [[]],
+  fixRobotsCopy: [[]],
+  fixNoindexCopy: [[]],
+  fixStatusCodeCopy: [[]],
+  fixCanonicalCopy: [[]],
 };
 
 function scanForViolations(output: string): string[] {

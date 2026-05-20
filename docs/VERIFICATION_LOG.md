@@ -7,6 +7,68 @@
 
 ---
 
+## 2026-05-19 — Slice 4.5.C.α₀: indexability remediation registry foundation
+
+**Status:** READY_TO_COMMIT (operator-approved implementation; awaiting commit/push/verify approval).
+
+**Slice scope (locked).** First slice of Section 4.5.C — opens the indexability remediation family. **Registry expansion + customer-copy templates ONLY.** NO predicates. NO `generatorActive` flips. NO loader changes. NO diagnostic page changes. PREDICATE_COUNT unchanged at 7. Active set unchanged at 5 (`edit_title`, `edit_meta`, `change_h1`, `add_h2_section`, `add_faq`). Paired deterministic predicates land in Slice 4.5.C.α₁ (Tier-1: `sitemap_missing`, `robots_blocks_googlebot`, `bad_http_status`, `canonical_mismatch`) and Slice 4.5.C.α₂ (Tier-2 sensitive: `noindex_on_indexable_page`, `robots_blocks_ai_bots`).
+
+**Changes shipped.**
+
+**(1) `src/domains/recommendations/action-types.ts` (~+102 net).**
+- Registry expanded **32 → 37** with 5 new inactive indexability-remediation entries:
+  - `fix_sitemap` — operatorLabel "Add this URL to your sitemap"
+  - `fix_robots` — operatorLabel "Unblock this URL in robots.txt"
+  - `fix_noindex` — operatorLabel "Remove the noindex tag from this page"
+  - `fix_status_code` — operatorLabel "Restore a clean 200 response for this URL"
+  - `fix_canonical` — operatorLabel "Update the canonical tag on this page"
+- All five carry locked shape per O4 + 4.5.C plan:
+  - `signalType: "technical"` → groups with other indexability/structural fixes; priority-score weight = `INDEX_BLOCKER` (25) per architecture invariant 13 (indexability outranks content).
+  - `elementTypeDomain: []` → targets a configuration surface (sitemap.xml / robots.txt / HTTP response / meta tag / canonical tag), not an on-page `ElementType`.
+  - `requiresCurrentText: false` AND `requiresProposedText: false` → operator-task rows; predicates that land in α₁/α₂ will carry `task_instructions`, not LLM-drafted publishable text.
+  - `changelogAssetType: "service_page"` → matches the on-page fallback used by every other technical entry today.
+  - `generatorActive: false` → α₀ ships registry foundation only.
+- Top-of-module docstring refreshed (32→37 universe; 5 active in v1; α₀ ships registry foundation only).
+
+**(2) `src/domains/recommendations/recommendation-action-rows.ts` (~+33 net).**
+- Dead-code exhaustiveness arm in `actionRowTypeForEdit()` for all 5 new types → returns `"review_decision"`. This keeps Act 4 Suggested Copy suppressed automatically (`"review_decision"` is NOT in `SUGGESTED_COPY_ACTION_ROW_TYPES` in suggested-copy-adapters.ts), AND avoids adding a new `ActionRowType` value (which would force edits to the customer-facing recommendations-client.tsx `COMPACT_LABEL` exhaustive map).
+- Dead-code exhaustiveness arm in `composeEditRowTitle()` for all 5 new types — operator-task row titles ("Add the {targetLabel} to your sitemap" / "Unblock the {targetLabel} in robots.txt" / etc.). `generatorActive: false` guarantees no runtime path reaches these branches in α₀.
+
+**(3) `src/domains/recommendation-intelligence/customer-copy-templates.ts` (~+24 net).**
+- Appended 5 no-arg operator-locked phrasings:
+  - `fixSitemapCopy()` — *"This URL is missing from your sitemap.xml. Add it and resubmit so AI search platforms can discover it."*
+  - `fixRobotsCopy()` — *"Your robots.txt blocks this URL. Update the rule so AI search platforms and Googlebot can crawl this page."*
+  - `fixNoindexCopy()` — *"This page sets a noindex meta tag. Remove it if this page should be discoverable in AI search."*
+  - `fixStatusCodeCopy()` — *"This URL returns an error or redirect. Restore a clean 200 response so AI search platforms can index this page."*
+  - `fixCanonicalCopy()` — *"This page's canonical URL points to a different page. Update the canonical tag if this URL is the intended primary."*
+- Top-of-module docstring refreshed (α₀+α₁+α₂+4.5.C.α₀; 12 templates total).
+
+**Architecture invariants (2 updated, 0 new).**
+1. **`recommendation-registry-active-set`** — `LOCKED_REGISTRY_COUNT` 32→37; `LOCKED_ACTIVE_SET` UNCHANGED at 5. Comment expanded with 4.5.C.α₀ provenance.
+2. **`recommendation-intelligence-customer-copy-vocab`** — `PROBE_SETS` map extended with 5 new no-arg probes (`fixSitemapCopy`, `fixRobotsCopy`, `fixNoindexCopy`, `fixStatusCodeCopy`, `fixCanonicalCopy`).
+
+The 5 other α-family invariants auto-pass without any change:
+- `recommendation-trigger-predicates-purity` — no new predicate files in `triggers/`.
+- `recommendation-intelligence-no-queue-write` — customer-copy-templates.ts already in scope; no Supabase write paths added.
+- `recommendation-intelligence-no-llm-decides` — 5 new types are `generatorActive: false`; the invariant only scans the active set.
+- `recommendation-triggers-diagnostic-source-and-copy` — no diagnostic page changes.
+- `recommendation-triggers-page-classifier-applied` — no new predicate files in `triggers/`.
+
+**Tests added (~10 new + 4 fixture updates).**
+- `tests/domains/recommendation-intelligence/customer-copy-templates.test.ts` — 5 new phrasing-assertion tests (one per new template) + extended purity assertion to cover the 5 new templates.
+- `src/domains/recommendations/action-types.test.ts` — registry count 32→37; spelled-out expected list adds 5 new types; inactive count 27→32; `ZERO_ELEMENT_DOMAIN_ALLOWLIST` extended with the 5 new `elementTypeDomain: []` types.
+
+**Hard contracts honored (operator-locked).**
+- NO predicates added · NO `generatorActive` flips · NO loader changes · NO diagnostic page changes · PREDICATE_COUNT stays 7 · all 7 trigger signals unchanged (`missing_title`, `missing_meta`, `missing_h1`, `weak_h1`, `title_h1_mismatch`, `duplicate_title`, `duplicate_meta`) · NO customer queue write · NO `recommended_edits` mutation · NO `runProviderAndPersist` usage · NO LLM call · NO paid API · NO Supabase mutation · NO migration · NO cron · NO Today / Changes / Prompts / Settings / Recommendations / Section 9 code changes · NO GSC / CallRail / GBP insights · NO new BusinessConfig fields · NO hardcoded tenant-specific URL slugs.
+
+**Net src/ delta**: under +200 target; well under +400 hard stop.
+
+**Quality gates.** _Pending operator review; gates run in next step._
+
+**Recommended next.** Operator review → commit + push + verify CI + Vercel. Then Slice 4.5.C.α₁ preflight (Tier-1 indexability fix predicates).
+
+---
+
 ## 2026-05-19 — Slice 4.5.B.α₂.2: page-intelligence + trigger applicability layer
 
 **Status:** READY_TO_COMMIT (operator-approved implementation; awaiting commit/push/verify approval).

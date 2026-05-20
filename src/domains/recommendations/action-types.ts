@@ -11,15 +11,18 @@
  * one spec to `ACTION_TYPE_REGISTRY`. No other files change structurally
  * (only the generator implementation, when that type goes active).
  *
- * Slice 4.5.B.α₁ policy (2026-05-19): 32-type universe registered;
+ * Slice 4.5.C.α₀ policy (2026-05-19): 37-type universe registered;
  * 5 have `generatorActive: true` (edit_title, edit_meta, change_h1,
- * add_h2_section, add_faq). 7 off-site authority types are locked
- * inactive per Section 7 C7b. The remaining 20 ship as registered-
- * but-inactive so the provider-adapter knows the space of valid
- * outputs from day one — slices 4.5.B.α₂ / 4.5.C+ flip them on as
- * paired deterministic trigger predicates land. (`change_h1`
- * flipped in α₁ paired with `missing-h1` + `weak-h1` +
- * `title-h1-mismatch`.)
+ * add_h2_section, add_faq) — UNCHANGED from 4.5.B.α₁. 7 off-site
+ * authority types are locked inactive per Section 7 C7b. The
+ * remaining 25 ship as registered-but-inactive so the provider-
+ * adapter knows the space of valid outputs from day one — slices
+ * 4.5.C.α₁ / 4.5.C.α₂ / 4.5.C.α₃ flip the indexability remediation
+ * + internal-linking + schema families on as paired deterministic
+ * trigger predicates land. 4.5.C.α₀ adds 5 new inactive
+ * indexability-remediation types (`fix_sitemap`, `fix_robots`,
+ * `fix_noindex`, `fix_status_code`, `fix_canonical`) plus their
+ * customer-safe copy templates; predicates land in α₁.
  *
  * This module is PURE TYPES + CONSTANTS. No DB writes. No extractors.
  * No UI. Safe to import from both server and client code.
@@ -65,6 +68,30 @@ export const ACTION_TYPES = [
   "update_intro",
   "add_h3_section",
   "add_image_alt_text",
+  // ── Slice 4.5.C.α₀ additions (2026-05-19) — indexability
+  //    remediation foundation. Registered as inactive; paired
+  //    deterministic trigger predicates land in Slice 4.5.C.α₁
+  //    (Tier-1 fixes: `fix_sitemap`, `fix_robots` for googlebot,
+  //    `fix_status_code`, `fix_canonical`) and Slice 4.5.C.α₂
+  //    (Tier-2 sensitive: `fix_noindex`, robots blocks AI bots).
+  //    Section 4 (Phase A.3) ships the upstream
+  //    `owned_url_indexability` verdict (10-verdict enum); these
+  //    types map 1:1 to verdict shapes. All five carry
+  //    `signalType: "technical"` per O4 (technical / indexability
+  //    fix grouping); `elementTypeDomain: []` per the indexability
+  //    family (the recommendation targets a configuration file or
+  //    HTTP header, not an on-page element); `requiresCurrentText:
+  //    false` AND `requiresProposedText: false` because these
+  //    flow as `task_instructions`-bearing human-task rows in
+  //    α₁/α₂ (deterministic; no LLM drafts a robots.txt rule).
+  //    Customer-copy templates land alongside in this slice; Act 4
+  //    Suggested Copy stays suppressed for these types via the
+  //    existing review_decision row-type mapping.
+  "fix_sitemap",
+  "fix_robots",
+  "fix_noindex",
+  "fix_status_code",
+  "fix_canonical",
   // ── Off-site authority (Section 7 C7b — locked invariants: read-only,
   //    no LLM generation, no Suggested Copy, no write paths to GBP /
   //    Yelp / Houzz / Angi / BBB / industry directories / press).
@@ -417,6 +444,89 @@ export const ACTION_TYPE_REGISTRY: Record<ActionType, ActionTypeSpec> = {
     requiresProposedText: true,
     changelogAssetType: "service_page",
     operatorLabel: "Add image alt text",
+    generatorActive: false,
+  },
+
+  // ── Slice 4.5.C.α₀ — Indexability remediation registry foundation
+  //    (2026-05-19) ───────────────────────────────────────────────────────────
+  // Five new types covering the 10-verdict `owned_url_indexability`
+  // enum from Section 4 / Phase A.3:
+  //   • `fix_sitemap`     → not_in_sitemap
+  //   • `fix_robots`      → blocked_by_robots_for_googlebot / _for_ai
+  //   • `fix_noindex`     → noindex_meta
+  //   • `fix_status_code` → bad_status_code
+  //   • `fix_canonical`   → canonical_elsewhere
+  // (`not_indexed_in_gsc` / `indexed_but_not_cited` / `ok` / `unknown`
+  // verdicts don't map to a fix recommendation in α₀; they remain
+  // diagnostics-only or feed retrieval/citation families in later
+  // slices.)
+  //
+  // Locked shape for all five (O4 + 4.5.C plan):
+  //   • signalType: "technical" → groups with other indexability /
+  //     structural fixes; priority-score weight = INDEX_BLOCKER (25)
+  //     per architecture invariant 13 (indexability outranks content).
+  //   • elementTypeDomain: [] → targets a configuration surface
+  //     (sitemap.xml, robots.txt, HTTP response, meta tag, canonical
+  //     header), not a specific on-page element_type.
+  //   • requiresCurrentText: false AND requiresProposedText: false →
+  //     these flow as `task_instructions`-bearing human-task rows
+  //     when the predicates land in α₁/α₂. No LLM drafts a robots.txt
+  //     rule or a sitemap entry. Act 4 Suggested Copy stays
+  //     suppressed via the existing `review_decision` row-type
+  //     mapping (see recommendation-action-rows.ts).
+  //   • changelogAssetType: "service_page" → matches the on-page
+  //     fallback used by every other technical entry today.
+  //   • generatorActive: false → α₀ ships the registry foundation
+  //     only; α₁/α₂ flip these on paired with deterministic
+  //     predicates over Section 4's indexability verdict.
+  fix_sitemap: {
+    actionType: "fix_sitemap",
+    elementTypeDomain: [],
+    signalType: "technical",
+    requiresCurrentText: false,
+    requiresProposedText: false,
+    changelogAssetType: "service_page",
+    operatorLabel: "Add this URL to your sitemap",
+    generatorActive: false,
+  },
+  fix_robots: {
+    actionType: "fix_robots",
+    elementTypeDomain: [],
+    signalType: "technical",
+    requiresCurrentText: false,
+    requiresProposedText: false,
+    changelogAssetType: "service_page",
+    operatorLabel: "Unblock this URL in robots.txt",
+    generatorActive: false,
+  },
+  fix_noindex: {
+    actionType: "fix_noindex",
+    elementTypeDomain: [],
+    signalType: "technical",
+    requiresCurrentText: false,
+    requiresProposedText: false,
+    changelogAssetType: "service_page",
+    operatorLabel: "Remove the noindex tag from this page",
+    generatorActive: false,
+  },
+  fix_status_code: {
+    actionType: "fix_status_code",
+    elementTypeDomain: [],
+    signalType: "technical",
+    requiresCurrentText: false,
+    requiresProposedText: false,
+    changelogAssetType: "service_page",
+    operatorLabel: "Restore a clean 200 response for this URL",
+    generatorActive: false,
+  },
+  fix_canonical: {
+    actionType: "fix_canonical",
+    elementTypeDomain: [],
+    signalType: "technical",
+    requiresCurrentText: false,
+    requiresProposedText: false,
+    changelogAssetType: "service_page",
+    operatorLabel: "Update the canonical tag on this page",
     generatorActive: false,
   },
 

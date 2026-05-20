@@ -1,5 +1,6 @@
 /**
- * Slice 4.5.B.α₀ + α₁ + α₂ — customer-copy-templates unit tests.
+ * Slice 4.5.B.α₀ + α₁ + α₂ + Slice 4.5.C.α₀ — customer-copy-templates
+ * unit tests.
  *
  * Behavioral assertions on the operator-locked phrasing. The
  * vocab-safety scan lives in
@@ -11,6 +12,11 @@ import { describe, expect, it } from "vitest";
 import {
   duplicateMetaCopy,
   duplicateTitleCopy,
+  fixCanonicalCopy,
+  fixNoindexCopy,
+  fixRobotsCopy,
+  fixSitemapCopy,
+  fixStatusCodeCopy,
   missingH1Copy,
   missingMetaCopy,
   missingTitleCopy,
@@ -18,7 +24,7 @@ import {
   weakH1Copy,
 } from "@/domains/recommendation-intelligence/customer-copy-templates";
 
-describe("customer-copy templates (α₀ + α₁ + α₂)", () => {
+describe("customer-copy templates (α₀ + α₁ + α₂ + 4.5.C.α₀)", () => {
   it("missingTitleCopy returns the operator-locked phrasing", () => {
     expect(missingTitleCopy()).toBe(
       "Add a clear page title so AI search platforms can surface this page accurately.",
@@ -57,6 +63,11 @@ describe("customer-copy templates (α₀ + α₁ + α₂)", () => {
     expect(titleH1MismatchCopy()).toBe(titleH1MismatchCopy());
     expect(duplicateTitleCopy(2)).toBe(duplicateTitleCopy(2));
     expect(duplicateMetaCopy(5)).toBe(duplicateMetaCopy(5));
+    expect(fixSitemapCopy()).toBe(fixSitemapCopy());
+    expect(fixRobotsCopy()).toBe(fixRobotsCopy());
+    expect(fixNoindexCopy()).toBe(fixNoindexCopy());
+    expect(fixStatusCodeCopy()).toBe(fixStatusCodeCopy());
+    expect(fixCanonicalCopy()).toBe(fixCanonicalCopy());
   });
 
   // ── α₂ count-aware duplicate-metadata templates ─────────────────────
@@ -85,5 +96,37 @@ describe("customer-copy templates (α₀ + α₁ + α₂)", () => {
       const out = duplicateMetaCopy(n);
       expect(out).toContain("repeated across " + String(n) + " owned pages");
     }
+  });
+
+  // ── 4.5.C.α₀ indexability remediation templates ─────────────────────
+
+  it("fixSitemapCopy returns the operator-locked phrasing (4.5.C.α₀)", () => {
+    expect(fixSitemapCopy()).toBe(
+      "This URL is missing from your sitemap.xml. Add it and resubmit so AI search platforms can discover it.",
+    );
+  });
+
+  it("fixRobotsCopy returns the operator-locked phrasing (4.5.C.α₀)", () => {
+    expect(fixRobotsCopy()).toBe(
+      "Your robots.txt blocks this URL. Update the rule so AI search platforms and Googlebot can crawl this page.",
+    );
+  });
+
+  it("fixNoindexCopy returns the operator-locked phrasing (4.5.C.α₀)", () => {
+    expect(fixNoindexCopy()).toBe(
+      "This page sets a noindex meta tag. Remove it if this page should be discoverable in AI search.",
+    );
+  });
+
+  it("fixStatusCodeCopy returns the operator-locked phrasing (4.5.C.α₀)", () => {
+    expect(fixStatusCodeCopy()).toBe(
+      "This URL returns an error or redirect. Restore a clean 200 response so AI search platforms can index this page.",
+    );
+  });
+
+  it("fixCanonicalCopy returns the operator-locked phrasing (4.5.C.α₀)", () => {
+    expect(fixCanonicalCopy()).toBe(
+      "This page's canonical URL points to a different page. Update the canonical tag if this URL is the intended primary.",
+    );
   });
 });

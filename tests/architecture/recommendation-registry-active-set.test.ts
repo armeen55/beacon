@@ -77,10 +77,15 @@ const LOCKED_ACTIVE_SET: ReadonlyArray<ActionType> = [
   "add_faq",
 ];
 
-/** Locked total count per Slice 4.5.B.α₀ (2026-05-19). α₀ adds 3
- *  new inactive types (update_intro, add_h3_section,
- *  add_image_alt_text). Prior count was 29 (Slice 4.5.A). */
-const LOCKED_REGISTRY_COUNT = 32;
+/** Locked total count per Slice 4.5.C.α₀ (2026-05-19). 4.5.C.α₀
+ *  adds 5 new inactive indexability-remediation types
+ *  (fix_sitemap, fix_robots, fix_noindex, fix_status_code,
+ *  fix_canonical). Prior count was 32 (Slice 4.5.B.α₀). Active
+ *  set remains UNCHANGED at 5 — α₀ ships registry foundation
+ *  + customer-copy templates only; paired deterministic
+ *  predicates land in Slice 4.5.C.α₁ (Tier-1) and α₂
+ *  (Tier-2). */
+const LOCKED_REGISTRY_COUNT = 37;
 
 describe("Slice 4.5.A — registry inventory + active set", () => {
   it(`registers exactly ${LOCKED_REGISTRY_COUNT} action types`, () => {

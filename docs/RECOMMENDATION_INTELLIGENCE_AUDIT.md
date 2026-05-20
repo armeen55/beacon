@@ -11,6 +11,8 @@
 > (2026-05-19)**
 > **Slice 4.5.B.α₂.2 — page-intelligence/applicability layer; classify
 > pages before trigger emission (2026-05-19)**
+> **Slice 4.5.C.α₀ — indexability remediation registry foundation:
+> 5 inactive action types + 5 customer-copy templates (2026-05-19)**
 >
 > Canonical source-of-truth document for the Section 4.5 Recommendation
 > Intelligence Expansion roadmap. Documented operator-approved
@@ -19,18 +21,22 @@
 > single source-of-truth for the action-type registry expansion plan +
 > activation order.
 >
-> **Current state (post-4.5.B.α₂)**: registry holds 32 action types;
-> **5 active** (`edit_title`, `edit_meta`, `change_h1`,
-> `add_h2_section`, `add_faq`) — UNCHANGED from α₁. **7 deterministic
-> trigger predicates landed** — `missing-title` + `missing-meta`
-> (α₀) + `missing-h1` + `weak-h1` + `title-h1-mismatch` (α₁) +
-> **`duplicate-title` + `duplicate-meta` (α₂, cross-snapshot)**.
-> Operator-only diagnostic page at
-> `/diagnostics/recommendation-triggers` surfaces all 7 trigger
-> signals. Customer queue UNCHANGED (no `recommended_edits` write
-> paths added; no surface changes outside the operator diagnostic).
-> No registry flips in α₂; both `edit_title` and `edit_meta` were
-> already active in α₀+α₁.
+> **Current state (post-4.5.C.α₀)**: registry holds **37 action
+> types**; **5 active** (`edit_title`, `edit_meta`, `change_h1`,
+> `add_h2_section`, `add_faq`) — UNCHANGED from 4.5.B.α₁. **7
+> deterministic trigger predicates landed** in the 4.5.B α-family
+> (`missing-title` + `missing-meta` (α₀) + `missing-h1` + `weak-h1` +
+> `title-h1-mismatch` (α₁) + `duplicate-title` + `duplicate-meta` (α₂,
+> cross-snapshot)) — UNCHANGED in 4.5.C.α₀. Operator-only diagnostic
+> page at `/diagnostics/recommendation-triggers` surfaces all 7
+> trigger signals. Customer queue UNCHANGED (no `recommended_edits`
+> write paths added; no surface changes outside the operator
+> diagnostic). **4.5.C.α₀ ships registry foundation + customer-copy
+> templates only** — paired deterministic predicates for the new
+> indexability-remediation types land in Slice 4.5.C.α₁ (Tier-1:
+> sitemap_missing, robots_blocks_googlebot, bad_http_status,
+> canonical_mismatch) and Slice 4.5.C.α₂ (Tier-2:
+> noindex_on_indexable_page, robots_blocks_ai_bots).
 >
 > **Slice 4.5.B.α split (2026-05-19)**: the master-plan §4.5.20 4.5.B
 > prompt was internally inconsistent — it proposed 5 `generatorActive`
@@ -55,10 +61,12 @@
 
 ## A. Current registry inventory
 
-Total (post-4.5.B.α₀): **32 action types** in `ACTION_TYPES` /
+Total (post-4.5.C.α₀): **37 action types** in `ACTION_TYPES` /
 `ACTION_TYPE_REGISTRY` (`src/domains/recommendations/action-types.ts`).
-Pre-α₀ count was 29; α₀ added 3 inactive entries (`update_intro`,
-`add_h3_section`, `add_image_alt_text`).
+Pre-α₀ count was 29; 4.5.B.α₀ added 3 inactive entries (`update_intro`,
+`add_h3_section`, `add_image_alt_text`); 4.5.C.α₀ added 5 inactive
+indexability-remediation entries (`fix_sitemap`, `fix_robots`,
+`fix_noindex`, `fix_status_code`, `fix_canonical`).
 
 ### Inventory by category
 
@@ -69,12 +77,13 @@ Pre-α₀ count was 29; α₀ added 3 inactive entries (`update_intro`,
 | 3 | Page-level lifecycle | 3 | `split_page` · `merge_pages` · `create_page` |
 | 4 | Passive | 1 | `watch` |
 | 5 | Slice 4.5.B.α₀ additions (registered inactive) | 3 | `update_intro` · `add_h3_section` · `add_image_alt_text` |
-| 6 | Off-site authority (Section 7 C7b — LOCKED detection-only) | 7 | `claim_gbp` · `optimize_gbp_profile` · `request_gbp_reviews` · `claim_or_optimize_houzz` · `claim_or_optimize_yelp` · `submit_to_industry_directory` · `pursue_local_pr` |
-| — | **TOTAL** | **32** | — |
+| 6 | Slice 4.5.C.α₀ additions — indexability remediation (registered inactive) | 5 | `fix_sitemap` · `fix_robots` · `fix_noindex` · `fix_status_code` · `fix_canonical` |
+| 7 | Off-site authority (Section 7 C7b — LOCKED detection-only) | 7 | `claim_gbp` · `optimize_gbp_profile` · `request_gbp_reviews` · `claim_or_optimize_houzz` · `claim_or_optimize_yelp` · `submit_to_industry_directory` · `pursue_local_pr` |
+| — | **TOTAL** | **37** | — |
 
 ## B. Current `generatorActive` set
 
-**Exactly 5 action types currently have `generatorActive: true`** (post-4.5.B.α₁):
+**Exactly 5 action types currently have `generatorActive: true`** (post-4.5.C.α₀ — UNCHANGED from 4.5.B.α₁):
 
 | Action type | Category | Notes |
 |---|---|---|
@@ -84,22 +93,34 @@ Pre-α₀ count was 29; α₀ added 3 inactive entries (`update_intro`,
 | `add_h2_section` | On-page copy edits | Sprint 6A.1 substrate |
 | `add_faq` | On-page copy edits | Sprint 6A.1 substrate |
 
-**27 action types have `generatorActive: false`.** The OpenAI specific-
-edit provider (Sprint 6A.2) can still produce any of the 24 non-off-
-site inactive types when the LLM path activates per-rec — but only the
-4 above have a deterministic generator (or trigger predicate) wired in
-production.
+**32 action types have `generatorActive: false`** (post-4.5.C.α₀). The
+OpenAI specific-edit provider (Sprint 6A.2) can still produce any of
+the 25 non-off-site inactive types when the LLM path activates per-rec
+— but only the 5 above have a deterministic generator (or trigger
+predicate) wired in production.
 
 The 7 off-site types are operator-locked at `generatorActive: false`
 PERMANENTLY per Section 7 C7b's read-only/manual contract — Beacon
 recommends off-site work, it never performs it.
 
-The 3 α₀-added types (`update_intro`, `add_h3_section`,
+The 3 4.5.B.α₀-added types (`update_intro`, `add_h3_section`,
 `add_image_alt_text`) are registered inactive: paired predicates land
 in later slices (α₁ for the H1 family does NOT cover them; α₂ does
 not cover them; they flip in **Slice 4.5.C+** when their predicates
 ship — and `add_image_alt_text` additionally requires an extractor
 extension to surface an `images: { alt }[]` field on `PageSnapshot`).
+
+The 5 4.5.C.α₀-added indexability-remediation types (`fix_sitemap`,
+`fix_robots`, `fix_noindex`, `fix_status_code`, `fix_canonical`)
+are registered inactive: paired predicates land in **Slice 4.5.C.α₁
+Tier-1** (`fix_sitemap`, `fix_robots` for googlebot,
+`fix_status_code`, `fix_canonical`) and **Slice 4.5.C.α₂ Tier-2
+sensitive** (`fix_noindex`, robots blocks AI bots — `fix_robots`
+re-fires under a different verdict). All five carry
+`requiresProposedText: false` and route through the
+`review_decision` row-type — Act 4 Suggested Copy stays suppressed
+because these are operator-task rows (no LLM drafts a robots.txt
+rule or sitemap entry).
 
 ## C. Existing inactive / underused action types
 
