@@ -7,6 +7,134 @@
 
 ---
 
+## 2026-05-19 — Slice 4.5.B.α₂.2: page-intelligence + trigger applicability layer
+
+**Status:** READY_TO_COMMIT (operator-approved implementation; awaiting commit/push/verify approval).
+
+**Slice scope (locked).** Trigger-quality fix surfaced by operator manual production smoke after α₂.1. Production diagnostic showed `Owned snapshots: 36` (α₂.1 reliability fix worked — Supabase routing confirmed) + 26 candidates with poor signal-to-noise. **Operator-locked principle**: every website is different (billions of variations); fix MUST be pattern-based + config-driven, NOT tenant-specific slug-hardcoded.
+
+**Production-observed false positives (the 22 noisy candidates):**
+- `/llms.txt` fired `missing_title` / `missing_meta` / `missing_h1` (technical asset).
+- Utility pages (`/privacy-policy`, `/platform-info`, `/contact-us`, `/faq`, `/our-partners`, `/about-us`, `/design-studio`) fired `title_h1_mismatch` (legitimate utility-page H1 ↔ title divergence).
+- Hub/collection pages (`/explore-projects`, `/available-homes`) fired `title_h1_mismatch`.
+- Project pages fired `title_h1_mismatch` (project-name H1 ↔ SEO-optimized title divergence is intentional).
+- `/locations` hub fired `weak_h1` (substring `path.includes("/locations/")` matched the hub itself).
+
+**Root principle (locked):** every trigger must pass through a universal page-intelligence/applicability layer BEFORE emitting a candidate. The layer answers: (1) what kind of page is this? (2) what goal does this page serve? (3) which recommendation triggers are valid for this page type?
+
+**What was added.**
+
+1. **NEW** `src/domains/recommendation-intelligence/page-classifier.ts` (~200 lines) — universal page-intelligence layer:
+   - Exports `PageType = "homepage" | "city" | "service" | "project" | "hub" | "utility" | "technical_asset" | "other"`.
+   - `classifyPageType(url, businessConfig): PageType` — discriminated union over `BusinessConfig.urlPatterns` + universal pattern lists. Classification priority:
+     1. **`technical_asset`** — file-extension check (22 extensions: `.txt`, `.xml`, `.json`, `.pdf`, `.css`, `.js`, `.map`, `.webmanifest`, `.png`, `.jpg`, `.jpeg`, `.gif`, `.svg`, `.ico`, `.webp`, `.avif`, `.mp4`, `.mov`, `.mp3`, `.wav`, `.webm`, `.ogg`). Universal — no config needed.
+     2. **`homepage`** — path is `/` or empty.
+     3. **`city` / `service` / `project` detail** — segment-bounded prefix match on `urlPatterns.{city,service,project}` AND non-empty slug after. Fixes the α₁ hub false-positive: `/locations` no longer matches `urlPatterns.city: "/locations/"` via substring `.includes()`.
+     4. **`hub`** — urlPattern prefix without detail slug (e.g., `/locations` itself, `/services` itself).
+     5. **Universal `hub`** — single-segment paths matching `available-homes` / `portfolio` / `blog` / `news` / `resources` / `case-studies` / `testimonials` / `reviews` / `explore-projects` / `projects-archive`.
+     6. **Universal `utility`** — segment-boundary match on 50+ generic English slugs (privacy / terms / legal / cookie / accessibility / platform-info / contact / about / team / careers / faq / help / support / partners / press, etc.). Segment-bounded: `/about-modern-design` does NOT match `about`.
+     7. **Fallback heuristics** — only fire when `urlPatterns` absent.
+     8. **`other`** — conservative fallback. Defaults to `other` when unsure (not city/service/project).
+   - `isNonHtmlAsset(url): boolean` — file-extension check; query/hash tolerance; case-insensitive.
+
+2. **MODIFIED** all 7 trigger predicates (~+50 net lines):
+   - `missing-title.ts` / `missing-meta.ts` / `missing-h1.ts`: apply `isNonHtmlAsset` filter at top. Predicate skips technical assets but continues firing on every other HTML page (a missing field IS a real bug on utility/about/contact/etc.).
+   - `duplicate-title.ts` / `duplicate-meta.ts`: filter non-HTML snapshots BEFORE grouping (`if (isNonHtmlAsset(snap.url)) continue;`).
+   - `weak-h1.ts`: **retired** the inline `classifyForGate` helper (substring `.includes()` that false-positive'd on hubs); replaced with shared `classifyPageType` import. Fires only on `pageType ∈ {"city", "service"}`. Adds `isNonHtmlAsset` defensive guard at top.
+   - `title-h1-mismatch.ts`: **NEW signature** accepts `businessConfig`. Adds `isNonHtmlAsset` defensive guard. Applies page-type allowlist: fires only on `pageType ∈ {"homepage", "city", "service"}`. Skips `project` / `hub` / `utility` / `technical_asset` / `other`.
+
+3. **MODIFIED** `load-trigger-candidates-for-tenant.ts` — passes `businessConfig` to `titleH1Mismatch({ tenantId, snapshot, businessConfig })`. Updated docstring.
+
+**Trigger applicability matrix (locked, α₂.2).**
+
+| Predicate | Page types it fires on | Skipped |
+|---|---|---|
+| `missing_title` | every HTML page | `technical_asset` |
+| `missing_meta` | every HTML page | `technical_asset` |
+| `missing_h1` | every HTML page | `technical_asset` |
+| `weak_h1` | `city` + `service` ONLY | homepage, project, hub, utility, technical_asset, other |
+| `title_h1_mismatch` | `homepage` + `city` + `service` ONLY | project, hub, utility, technical_asset, other |
+| `duplicate_title` | every HTML page (filtered before grouping) | `technical_asset` |
+| `duplicate_meta` | every HTML page (filtered before grouping) | `technical_asset` |
+
+**`PREDICATE_COUNT` remains 7. All 7 `trigger_signal` values unchanged.**
+
+**Architecture invariant (1 new).**
+
+`tests/architecture/recommendation-triggers-page-classifier-applied.test.ts` — 17 tests across 5 rules:
+1. Every predicate file under `triggers/` imports `isNonHtmlAsset` OR `classifyPageType` from `../page-classifier` (or explicitly opts out via `@no-classifier-required` JSDoc tag).
+2. `title-h1-mismatch.ts` references `classifyPageType` AND restricts emission via per-allowed-type literals (`"homepage"`, `"city"`, `"service"`).
+3. `weak-h1.ts` references `classifyPageType` AND does NOT contain the pre-α₂.2 `classifyForGate` helper name (regression guard) AND does NOT contain bare `.includes("/locations` / `/services` / `/projects` substring checks.
+4. Predicate sources do NOT contain hardcoded tenant-specific URL slugs (`ritz`, `atherton`, `palo-alto`, `palo alto`, `menlo park`, `menlo-park`, `whole-home-remodel`, `ritzbuilders`).
+5. Predicate sources do NOT declare their own `UTILITY_*` / `SUPPRESS_*` / `BLACKLIST_*` / `EXCLUDED_*` literals outside the central classifier.
+
+Plus 1 sanity test confirming `page-classifier.ts` exports both `classifyPageType` and `isNonHtmlAsset`.
+
+Catalog row added under new "Section 4.5 / Slice 4.5.B.α₂.2" section.
+
+**Tests added/updated (~95 new + many existing updated).**
+
+| File | Change |
+|---|---|
+| `tests/domains/recommendation-intelligence/page-classifier.test.ts` (NEW) | 95 tests across 12 describe blocks |
+| `tests/domains/recommendation-intelligence/triggers/missing-title.test.ts` | +1 α₂.2 case (5 technical-asset URLs) |
+| `tests/domains/recommendation-intelligence/triggers/missing-meta.test.ts` | +1 α₂.2 case |
+| `tests/domains/recommendation-intelligence/triggers/missing-h1.test.ts` | +1 α₂.2 case |
+| `tests/domains/recommendation-intelligence/triggers/weak-h1.test.ts` | +1 new describe block (4 α₂.2 cases: city hub / service hub / technical assets / utility pages skip) |
+| `tests/domains/recommendation-intelligence/triggers/title-h1-mismatch.test.ts` | All 14 prior tests rewritten via `runPredicate(snap, config)` helper (injects `businessConfig`). Default snapshot URL changed to a city detail page so legacy alignment / stopword / paired-emission tests continue to fire. +1 new describe block (10 α₂.2 allowlist tests: homepage/city/service fire; project/hub/universal-hub/utility/technical-asset/other skip). |
+| `tests/domains/recommendation-intelligence/triggers/duplicate-title.test.ts` | +2 α₂.2 cases (technical-asset pair skipped + mixed asset/HTML pair filtered) |
+| `tests/domains/recommendation-intelligence/triggers/duplicate-meta.test.ts` | +2 α₂.2 cases (symmetric) |
+| `tests/domains/recommendation-intelligence/load-trigger-candidates-for-tenant.test.ts` | +5 α₂.2 end-to-end cases (`/llms.txt` → 0 candidates; utility page → no `title_h1_mismatch`; project page → no `title_h1_mismatch`; `/locations` hub → no `weak_h1`; homepage with mismatch → still fires). Plus 1 fixture-URL update on the pre-existing paired-emit test (uses `/locations/palo-alto` instead of `/x` since `/x` now classifies as `other` and skips). |
+| `tests/app/diagnostics/recommendation-triggers-page.test.tsx` | +5 α₂.2 render cases (technical asset / utility / project / hub → no false-positive rows; homepage → still surfaces title_h1_mismatch). |
+
+**Hard contracts honored.**
+- ✅ NO registry changes (count 32, active set 5 UNCHANGED).
+- ✅ NO `generatorActive` flips.
+- ✅ NO new action types.
+- ✅ NO new trigger predicates (still exactly 7).
+- ✅ NO customer queue write.
+- ✅ NO `recommended_edits` mutation.
+- ✅ NO `runProviderAndPersist` usage.
+- ✅ NO LLM. NO paid API. NO Supabase mutation. NO migration. NO cron.
+- ✅ NO Today / Changes / Prompts / Settings / Recommendations / Section 9 code changes.
+- ✅ NO new `BusinessConfig` fields.
+- ✅ NO hardcoded tenant-specific URL slugs anywhere in source (pinned by invariant rule 4).
+- ✅ NO hardcoded utility-page blacklist outside the central classifier (pinned by invariant rule 5).
+- ✅ All 7 `trigger_signal` values unchanged: `missing_title`, `missing_meta`, `missing_h1`, `weak_h1`, `title_h1_mismatch`, `duplicate_title`, `duplicate_meta`.
+- ✅ `PREDICATE_COUNT` remains 7.
+
+**Expected production diagnostic cleanup** (after deploy):
+- 3× `/llms.txt` missing-* rows eliminated.
+- ~7 utility-page `title_h1_mismatch` rows eliminated.
+- ~6+ project-page `title_h1_mismatch` rows eliminated.
+- ~2 hub-page `title_h1_mismatch` rows eliminated (`/explore-projects`, `/available-homes`).
+- 1× `/locations` hub `weak_h1` row eliminated.
+
+**Expected before/after: ~26 mostly-noisy candidates → ~0–7 genuinely plausible ones** (real `missing_*` on actual HTML pages with empty fields, real `weak_h1` on actual city/service detail pages, real `title_h1_mismatch` on homepage/city/service pages).
+
+**Net src/ delta.** **+200 net new src/ lines** (well under +250 target; far under +400 hard stop).
+
+**Quality gates.**
+- `npm run typecheck` → CLEAN.
+- `npx vitest run` α₂.2 targeted suite (page-classifier 95 + 7 predicate tests + loader + diagnostic page + new architecture invariant 17 + 5 existing α-family invariants) → 304/304 passed.
+- `npx vitest run tests/architecture/catalog-sync.test.ts` → 8/8 passed.
+- `npm run test` (full suite) → green.
+- `BEACON_TENANT_ID=tenant-ritz-founder BEACON_TENANT_SLUG=ritz-founder npm run build` → green.
+
+**Verification.** The new `recommendation-triggers-page-classifier-applied` invariant pins the philosophy against drift. The 5 existing α-family invariants stay green automatically.
+
+**Next.** Operator review → commit + push + verify CI + Vercel green + **manual smoke on production**: visit `/diagnostics/recommendation-triggers` with `BEACON_OPERATOR_MODE=true`. Expected dramatic noise reduction:
+- `/llms.txt` no longer surfaces missing-* rows.
+- Utility / hub / project pages no longer surface `title_h1_mismatch`.
+- `/locations` hub no longer fires `weak_h1`.
+- Description still says "7 active".
+- `Owned snapshots` still > 0.
+- Any remaining candidates should look genuinely worth operator review.
+
+THEN Slice 4.5.C preflight only after operator confirms the remaining candidates are useful signals.
+
+---
+
 ## 2026-05-19 — Slice 4.5.B.α₂.1: diagnostic reliability fix
 
 **Status:** READY_TO_COMMIT (operator-approved implementation; awaiting commit/push/verify approval).

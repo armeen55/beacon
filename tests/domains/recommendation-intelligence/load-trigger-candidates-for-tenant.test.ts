@@ -303,10 +303,14 @@ describe("loadTriggerCandidatesForTenant", () => {
   });
 
   it("emits PAIRED edit_title + change_h1 candidates when title and h1 mismatch (Jaccard < 0.3)", async () => {
+    // α₂.2 requires the snapshot URL to classify as homepage /
+    // city / service for title_h1_mismatch to fire. Use a city
+    // detail URL here (matches the default mock-config
+    // urlPatterns.city `/locations/`).
     _getPageSnapshotsMock.mockResolvedValue([
       makeSnapshot({
         tenant_id: "tenant-a",
-        url: "https://example.com/x",
+        url: "https://example.com/locations/palo-alto",
         title: "Whole Home Remodel",
         h1: "Atherton Excellence",
       }),
@@ -551,5 +555,118 @@ describe("loadTriggerCandidatesForTenant", () => {
       )
       .sort();
     expect(dupeSignals).toEqual(["duplicate_meta", "duplicate_title"]);
+  });
+
+  // ── α₂.2 page-classifier end-to-end behavior ───────────────────────
+
+  it("(α₂.2) `/llms.txt` snapshot produces ZERO candidates across all 7 predicates", async () => {
+    _getPageSnapshotsMock.mockResolvedValue([
+      makeSnapshot({
+        tenant_id: "tenant-a",
+        url: "https://example.com/llms.txt",
+        title: null,
+        meta_description: null,
+        h1: null,
+      }),
+    ]);
+    const { loadTriggerCandidatesForTenant } = await import(
+      "@/domains/recommendation-intelligence/load-trigger-candidates-for-tenant"
+    );
+    const result = await loadTriggerCandidatesForTenant({
+      tenantId: "tenant-a",
+    });
+    expect(result.candidates).toEqual([]);
+    expect(result.meta.snapshot_count).toBe(1); // snapshot present
+  });
+
+  it("(α₂.2) utility-page snapshot does NOT fire title_h1_mismatch", async () => {
+    _getPageSnapshotsMock.mockResolvedValue([
+      makeSnapshot({
+        tenant_id: "tenant-a",
+        url: "https://example.com/privacy-policy",
+        // Mismatched title + h1 — would have fired pre-α₂.2.
+        title: "Whole Home Remodel",
+        h1: "Atherton Excellence",
+      }),
+    ]);
+    const { loadTriggerCandidatesForTenant } = await import(
+      "@/domains/recommendation-intelligence/load-trigger-candidates-for-tenant"
+    );
+    const result = await loadTriggerCandidatesForTenant({
+      tenantId: "tenant-a",
+    });
+    const mismatchRows = result.candidates.filter(
+      (r) => r.trigger_signal === "title_h1_mismatch",
+    );
+    expect(mismatchRows).toEqual([]);
+  });
+
+  it("(α₂.2) city hub `/locations` does NOT fire weak_h1", async () => {
+    _getBusinessConfigMock.mockReturnValue(
+      makeConfig({
+        locations: ["Palo Alto"],
+        urlPatterns: { city: "/locations/", service: "/services/" },
+      }),
+    );
+    _getPageSnapshotsMock.mockResolvedValue([
+      makeSnapshot({
+        tenant_id: "tenant-a",
+        url: "https://example.com/locations",
+        h1: "Our Locations Hub", // lacks "Palo Alto" — would have fired pre-α₂.2.
+      }),
+    ]);
+    const { loadTriggerCandidatesForTenant } = await import(
+      "@/domains/recommendation-intelligence/load-trigger-candidates-for-tenant"
+    );
+    const result = await loadTriggerCandidatesForTenant({
+      tenantId: "tenant-a",
+    });
+    const weakH1Rows = result.candidates.filter(
+      (r) => r.trigger_signal === "weak_h1",
+    );
+    expect(weakH1Rows).toEqual([]);
+  });
+
+  it("(α₂.2) project page does NOT fire title_h1_mismatch", async () => {
+    _getPageSnapshotsMock.mockResolvedValue([
+      makeSnapshot({
+        tenant_id: "tenant-a",
+        url: "https://example.com/projects/atherton-modern",
+        title: "Whole Home Remodel",
+        h1: "Atherton Excellence",
+      }),
+    ]);
+    const { loadTriggerCandidatesForTenant } = await import(
+      "@/domains/recommendation-intelligence/load-trigger-candidates-for-tenant"
+    );
+    const result = await loadTriggerCandidatesForTenant({
+      tenantId: "tenant-a",
+    });
+    const mismatchRows = result.candidates.filter(
+      (r) => r.trigger_signal === "title_h1_mismatch",
+    );
+    expect(mismatchRows).toEqual([]);
+  });
+
+  it("(α₂.2) homepage with mismatched title + h1 STILL fires title_h1_mismatch (allowlist preserved)", async () => {
+    _getPageSnapshotsMock.mockResolvedValue([
+      makeSnapshot({
+        tenant_id: "tenant-a",
+        url: "https://example.com/",
+        title: "Whole Home Remodel",
+        h1: "Atherton Excellence",
+      }),
+    ]);
+    const { loadTriggerCandidatesForTenant } = await import(
+      "@/domains/recommendation-intelligence/load-trigger-candidates-for-tenant"
+    );
+    const result = await loadTriggerCandidatesForTenant({
+      tenantId: "tenant-a",
+    });
+    const mismatchRows = result.candidates.filter(
+      (r) => r.trigger_signal === "title_h1_mismatch",
+    );
+    // Paired emission: edit_title + change_h1.
+    expect(mismatchRows).toHaveLength(2);
   });
 });

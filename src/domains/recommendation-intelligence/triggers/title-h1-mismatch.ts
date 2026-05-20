@@ -1,31 +1,43 @@
 /**
- * 2026-05-19 — Slice 4.5.B.α₁ trigger predicate:
+ * 2026-05-19 — Slice 4.5.B.α₁ + α₂.2 trigger predicate:
  * `title_h1_mismatch`.
+ *
+ * **Page-type-gated** via the shared `page-classifier`. Fires ONLY
+ * on `homepage`, `city` detail, and `service` detail pages. Skips
+ * every other page type (project, hub, utility, technical_asset,
+ * other) because divergence between title and H1 on utility /
+ * about / contact / FAQ / hub / project pages is INTENTIONAL
+ * (utility pages legitimately have brand-led H1s; project pages
+ * have project-name H1s).
+ *
+ * α₂.2 (2026-05-19) added the page-type allowlist. Before α₂.2
+ * this predicate fired on every page that had both title + h1,
+ * producing dozens of false-positive candidates on utility / hub
+ * / project pages on Ritz's deployed snapshots (operator-observed
+ * 2026-05-19 production smoke).
  *
  * Fires when both `snapshot.title` and `snapshot.h1` are non-empty
  * AND the stopword-aware Jaccard similarity over their lowercased
  * token sets falls below 0.3. Emits BOTH an `edit_title` AND a
  * `change_h1` candidate (distinct dedupe_keys via different
- * action_type) so the operator sees both halves of the mismatch
- * in the diagnostic table.
+ * action_type).
  *
  * Tokenization: lowercase → split on `/[^a-z0-9]+/` → keep tokens
  * with `length >= 2` AND NOT in UNIVERSAL_STRIP_WORDS. Numeric
- * tokens are kept so a year / zip / phone fragment counts as
- * alignment.
+ * tokens are kept.
  *
- * Stopword set is inlined here (copied from
+ * Stopword set is inlined (copied from
  * `src/domains/product/section-analyzer.ts:44`) so the predicate
  * stays pure with no transitive deps. Tenant-specific
- * `BusinessConfig.stripWords` is NOT merged — those are operator-
- * side theme-classification strip targets, not language stopwords,
- * and mixing them would over-strip brand-name overlaps.
+ * `BusinessConfig.stripWords` is NOT merged.
  *
  * PURE FUNCTION. Pinned by
- * `recommendation-trigger-predicates-purity`.
+ * `recommendation-trigger-predicates-purity` +
+ * `recommendation-triggers-page-classifier-applied`.
  */
 
 import type { PageSnapshot } from "@/domains/pages/types";
+import type { BusinessConfig } from "@/lib/business-config";
 
 import { cooldownKey } from "../emitter/cooldown-key";
 import { dedupeKey } from "../emitter/dedupe-key";
@@ -34,10 +46,12 @@ import type {
   RecommendationCandidateRow,
 } from "../emitter/candidate-row";
 import { titleH1MismatchCopy } from "../customer-copy-templates";
+import { classifyPageType, isNonHtmlAsset } from "../page-classifier";
 
 export type TitleH1MismatchInput = {
   tenantId: string;
   snapshot: PageSnapshot;
+  businessConfig: BusinessConfig;
 };
 
 const MISMATCH_THRESHOLD = 0.3;
@@ -84,7 +98,23 @@ function jaccard(a: Set<string>, b: Set<string>): number {
 export function titleH1Mismatch(
   input: TitleH1MismatchInput,
 ): RecommendationCandidateRow[] {
-  const { tenantId, snapshot } = input;
+  const { tenantId, snapshot, businessConfig } = input;
+  // α₂.2: skip technical assets defensively.
+  if (isNonHtmlAsset(snapshot.url)) return [];
+
+  // α₂.2: page-type allowlist. Divergence between title and H1 on
+  // utility / project / hub / other pages is INTENTIONAL; the
+  // predicate should fire only where the operator should care
+  // about aligning the page's SEO-facing title with its H1.
+  const pageType = classifyPageType(snapshot.url, businessConfig);
+  if (
+    pageType !== "homepage" &&
+    pageType !== "city" &&
+    pageType !== "service"
+  ) {
+    return [];
+  }
+
   const title = snapshot.title;
   const h1 = snapshot.h1;
   if (title == null || title.trim().length === 0) return [];

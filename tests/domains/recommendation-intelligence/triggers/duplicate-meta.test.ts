@@ -358,6 +358,40 @@ describe("duplicateMeta predicate — output shape", () => {
     expect(evidence).toContain("across 2 snapshots");
   });
 
+  it("(α₂.2) filters technical-asset snapshots BEFORE grouping", () => {
+    const out = duplicateMeta({
+      tenantId: "tenant-a",
+      snapshots: [
+        makeSnapshot({
+          url: "https://example.com/foo.txt",
+          meta_description: "Same meta",
+        }),
+        makeSnapshot({
+          url: "https://example.com/bar.txt",
+          meta_description: "Same meta",
+        }),
+      ],
+    });
+    expect(out).toEqual([]);
+  });
+
+  it("(α₂.2) mixed asset + HTML pairs do NOT form a duplicate group", () => {
+    const out = duplicateMeta({
+      tenantId: "tenant-a",
+      snapshots: [
+        makeSnapshot({
+          url: "https://example.com/page.html",
+          meta_description: "Shared",
+        }),
+        makeSnapshot({
+          url: "https://example.com/data.json",
+          meta_description: "Shared",
+        }),
+      ],
+    });
+    expect(out).toEqual([]);
+  });
+
   it("structured evidence array carries 1 entry with kind=page_snapshot_pair", () => {
     const out = duplicateMeta({
       tenantId: "tenant-a",

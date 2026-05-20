@@ -380,4 +380,71 @@ describe("/diagnostics/recommendation-triggers", () => {
     // And the prose body contains the same integer.
     expect(html).toContain("7</span> active");
   });
+
+  // ── α₂.2 page-classifier integration ────────────────────────────────
+
+  it("(α₂.2) `/llms.txt` snapshot does NOT surface any candidate rows", async () => {
+    _snapshotsToReturn = [
+      makeSnapshot({
+        url: "https://example.com/llms.txt",
+        title: null,
+        meta_description: null,
+        h1: null,
+      }),
+    ];
+    const html = await renderPage();
+    // Snapshot is counted but no candidates rendered.
+    expect(html).not.toContain('data-row-trigger-signal="missing_title"');
+    expect(html).not.toContain('data-row-trigger-signal="missing_meta"');
+    expect(html).not.toContain('data-row-trigger-signal="missing_h1"');
+    expect(html).toContain("No candidate rows produced for this tenant.");
+  });
+
+  it("(α₂.2) utility-page snapshot does NOT surface title_h1_mismatch rows", async () => {
+    _snapshotsToReturn = [
+      makeSnapshot({
+        url: "https://example.com/privacy-policy",
+        title: "Whole Home Remodel",
+        h1: "Atherton Excellence",
+      }),
+    ];
+    const html = await renderPage();
+    expect(html).not.toContain('data-row-trigger-signal="title_h1_mismatch"');
+  });
+
+  it("(α₂.2) project-page snapshot does NOT surface title_h1_mismatch rows", async () => {
+    _snapshotsToReturn = [
+      makeSnapshot({
+        url: "https://example.com/projects/atherton-modern",
+        title: "Whole Home Remodel",
+        h1: "Atherton Excellence",
+      }),
+    ];
+    const html = await renderPage();
+    expect(html).not.toContain('data-row-trigger-signal="title_h1_mismatch"');
+  });
+
+  it("(α₂.2) hub-page snapshot does NOT surface title_h1_mismatch rows", async () => {
+    _snapshotsToReturn = [
+      makeSnapshot({
+        url: "https://example.com/locations",
+        title: "Whole Home Remodel",
+        h1: "Atherton Excellence",
+      }),
+    ];
+    const html = await renderPage();
+    expect(html).not.toContain('data-row-trigger-signal="title_h1_mismatch"');
+  });
+
+  it("(α₂.2) homepage with mismatched title + h1 STILL surfaces title_h1_mismatch (allowlist preserved)", async () => {
+    _snapshotsToReturn = [
+      makeSnapshot({
+        url: "https://example.com/",
+        title: "Whole Home Remodel",
+        h1: "Atherton Excellence",
+      }),
+    ];
+    const html = await renderPage();
+    expect(html).toContain('data-row-trigger-signal="title_h1_mismatch"');
+  });
 });

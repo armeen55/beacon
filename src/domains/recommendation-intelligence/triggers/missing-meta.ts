@@ -1,11 +1,17 @@
 /**
- * 2026-05-19 — Slice 4.5.B.α₀ trigger predicate: `missing_meta`.
+ * 2026-05-19 — Slice 4.5.B.α₀ + α₂.2 trigger predicate:
+ * `missing_meta`.
  *
- * Fires when `snapshot.meta_description` is null or whitespace-only.
- * Emits an `edit_meta` candidate with `confidence: "high"`.
+ * Fires when `snapshot.meta_description` is null or whitespace-
+ * only AND the URL is an HTML page (not a `.txt` / `.xml` /
+ * `.json` / `.pdf` / image / etc. technical asset). Emits an
+ * `edit_meta` candidate with `confidence: "high"`.
+ *
+ * α₂.2 (2026-05-19) added the `isNonHtmlAsset` gate.
  *
  * PURE FUNCTION. Pinned by
- * `recommendation-trigger-predicates-purity`.
+ * `recommendation-trigger-predicates-purity` +
+ * `recommendation-triggers-page-classifier-applied`.
  */
 
 import type { PageSnapshot } from "@/domains/pages/types";
@@ -14,6 +20,7 @@ import { cooldownKey } from "../emitter/cooldown-key";
 import { dedupeKey } from "../emitter/dedupe-key";
 import type { RecommendationCandidateRow } from "../emitter/candidate-row";
 import { missingMetaCopy } from "../customer-copy-templates";
+import { isNonHtmlAsset } from "../page-classifier";
 
 export type MissingMetaInput = {
   tenantId: string;
@@ -24,6 +31,8 @@ export function missingMeta(
   input: MissingMetaInput,
 ): RecommendationCandidateRow[] {
   const { tenantId, snapshot } = input;
+  // α₂.2: skip technical assets (`.txt`, `.xml`, images, etc.).
+  if (isNonHtmlAsset(snapshot.url)) return [];
   const meta = snapshot.meta_description;
   if (meta != null && meta.trim().length > 0) return [];
 

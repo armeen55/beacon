@@ -1,11 +1,20 @@
 /**
- * 2026-05-19 — Slice 4.5.B.α₀ trigger predicate: `missing_title`.
+ * 2026-05-19 — Slice 4.5.B.α₀ + α₂.2 trigger predicate:
+ * `missing_title`.
  *
- * Fires when `snapshot.title` is null or whitespace-only.
- * Emits an `edit_title` candidate with `confidence: "high"`.
+ * Fires when `snapshot.title` is null or whitespace-only AND the
+ * URL is an HTML page (not a `.txt` / `.xml` / `.json` / `.pdf` /
+ * image / etc. technical asset). Emits an `edit_title` candidate
+ * with `confidence: "high"`.
+ *
+ * α₂.2 (2026-05-19) added the `isNonHtmlAsset` gate via the
+ * shared page-classifier; previously `/llms.txt`-style technical
+ * assets would false-fire because the predicate operated on
+ * `snapshot.title` regardless of asset type.
  *
  * PURE FUNCTION. Pinned by
- * `recommendation-trigger-predicates-purity`.
+ * `recommendation-trigger-predicates-purity` +
+ * `recommendation-triggers-page-classifier-applied`.
  */
 
 import type { PageSnapshot } from "@/domains/pages/types";
@@ -14,6 +23,7 @@ import { cooldownKey } from "../emitter/cooldown-key";
 import { dedupeKey } from "../emitter/dedupe-key";
 import type { RecommendationCandidateRow } from "../emitter/candidate-row";
 import { missingTitleCopy } from "../customer-copy-templates";
+import { isNonHtmlAsset } from "../page-classifier";
 
 export type MissingTitleInput = {
   tenantId: string;
@@ -24,6 +34,9 @@ export function missingTitle(
   input: MissingTitleInput,
 ): RecommendationCandidateRow[] {
   const { tenantId, snapshot } = input;
+  // α₂.2: skip technical assets (`.txt`, `.xml`, images, etc.) —
+  // the missing-title concept doesn't apply to non-HTML files.
+  if (isNonHtmlAsset(snapshot.url)) return [];
   const title = snapshot.title;
   if (title != null && title.trim().length > 0) return [];
 

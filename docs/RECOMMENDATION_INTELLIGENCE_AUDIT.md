@@ -9,6 +9,8 @@
 > predicates (2026-05-19)**
 > **Slice 4.5.B.α₂.1 — diagnostic snapshot source + copy fix
 > (2026-05-19)**
+> **Slice 4.5.B.α₂.2 — page-intelligence/applicability layer; classify
+> pages before trigger emission (2026-05-19)**
 >
 > Canonical source-of-truth document for the Section 4.5 Recommendation
 > Intelligence Expansion roadmap. Documented operator-approved

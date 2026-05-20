@@ -1,10 +1,14 @@
 /**
- * 2026-05-19 — Slice 4.5.B.α₂ trigger predicate: `duplicate_meta`.
+ * 2026-05-19 — Slice 4.5.B.α₂ + α₂.2 trigger predicate:
+ * `duplicate_meta`.
  *
  * Cross-snapshot aggregation predicate. Symmetric shape to
  * `duplicate-title` over `meta_description`. Runs ONCE over the
  * full tenant snapshot list; emits an `edit_meta` candidate per
  * occurrence past the alphabetical-first canonical anchor.
+ *
+ * α₂.2 (2026-05-19) added the `isNonHtmlAsset` filter — technical
+ * assets are excluded BEFORE grouping.
  *
  * Normalization (locked α₂ rule):
  *   trim() → toLowerCase() → collapse internal whitespace
@@ -16,7 +20,8 @@
  * N URLs emits N-1 candidates.
  *
  * PURE FUNCTION. Pinned by
- * `recommendation-trigger-predicates-purity`.
+ * `recommendation-trigger-predicates-purity` +
+ * `recommendation-triggers-page-classifier-applied`.
  */
 
 import type { PageSnapshot } from "@/domains/pages/types";
@@ -25,6 +30,7 @@ import { cooldownKey } from "../emitter/cooldown-key";
 import { dedupeKey } from "../emitter/dedupe-key";
 import type { RecommendationCandidateRow } from "../emitter/candidate-row";
 import { duplicateMetaCopy } from "../customer-copy-templates";
+import { isNonHtmlAsset } from "../page-classifier";
 
 export type DuplicateMetaInput = {
   tenantId: string;
@@ -42,6 +48,8 @@ export function duplicateMeta(
 
   const groups = new Map<string, PageSnapshot[]>();
   for (const snap of snapshots) {
+    // α₂.2: filter technical assets BEFORE grouping.
+    if (isNonHtmlAsset(snap.url)) continue;
     if (snap.meta_description == null) continue;
     const key = normalize(snap.meta_description);
     if (key.length === 0) continue;

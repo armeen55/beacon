@@ -265,6 +265,45 @@ describe("duplicateTitle predicate — output shape", () => {
     expect(evidence).toContain("across 2 snapshots");
   });
 
+  it("(α₂.2) filters technical-asset snapshots BEFORE grouping", () => {
+    // Two `.txt` files with identical titles would have formed a
+    // duplicate group pre-α₂.2. Now they're filtered before
+    // grouping → no candidates.
+    const out = duplicateTitle({
+      tenantId: "tenant-a",
+      snapshots: [
+        makeSnapshot({
+          url: "https://example.com/foo.txt",
+          title: "Same title",
+        }),
+        makeSnapshot({
+          url: "https://example.com/bar.txt",
+          title: "Same title",
+        }),
+      ],
+    });
+    expect(out).toEqual([]);
+  });
+
+  it("(α₂.2) mixed asset + HTML pairs do NOT form a duplicate group", () => {
+    // The HTML page alone in its group (asset filtered out) → no
+    // candidates.
+    const out = duplicateTitle({
+      tenantId: "tenant-a",
+      snapshots: [
+        makeSnapshot({
+          url: "https://example.com/page.html",
+          title: "Shared",
+        }),
+        makeSnapshot({
+          url: "https://example.com/data.json",
+          title: "Shared",
+        }),
+      ],
+    });
+    expect(out).toEqual([]);
+  });
+
   it("structured evidence array carries 1 entry with kind=page_snapshot_pair", () => {
     const out = duplicateTitle({
       tenantId: "tenant-a",

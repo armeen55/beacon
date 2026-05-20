@@ -237,6 +237,73 @@ describe("weakH1 predicate — page-type gate", () => {
   });
 });
 
+describe("weakH1 predicate — α₂.2 hub + technical-asset skip", () => {
+  it("(α₂.2) SKIPS city hub (urlPatterns.city prefix without detail slug)", () => {
+    // Pre-α₂.2 the inline `classifyForGate` used substring
+    // includes(), so `/locations` matched `urlPatterns.city:
+    // "/locations/"` and false-positive'd as a city page. With the
+    // shared page-classifier, segment-bounded matching correctly
+    // classifies `/locations` (no detail slug) as "hub" → skip.
+    for (const url of [
+      "https://example.com/locations",
+      "https://example.com/locations/",
+    ]) {
+      const out = weakH1({
+        tenantId: "tenant-a",
+        snapshot: makeSnapshot({
+          url,
+          h1: "Welcome to Excellence",
+        }),
+        businessConfig: makeConfig(),
+      });
+      expect(out, `should skip city hub ${url}`).toHaveLength(0);
+    }
+  });
+
+  it("(α₂.2) SKIPS service hub (urlPatterns.service prefix without detail slug)", () => {
+    const out = weakH1({
+      tenantId: "tenant-a",
+      snapshot: makeSnapshot({
+        url: "https://example.com/services",
+        h1: "Welcome",
+      }),
+      businessConfig: makeConfig(),
+    });
+    expect(out).toHaveLength(0);
+  });
+
+  it("(α₂.2) SKIPS technical assets", () => {
+    for (const url of [
+      "https://example.com/llms.txt",
+      "https://example.com/sitemap.xml",
+      "https://example.com/image.jpg",
+    ]) {
+      const out = weakH1({
+        tenantId: "tenant-a",
+        snapshot: makeSnapshot({ url, h1: "Welcome" }),
+        businessConfig: makeConfig(),
+      });
+      expect(out, `should skip ${url}`).toHaveLength(0);
+    }
+  });
+
+  it("(α₂.2) SKIPS utility pages (privacy / about / contact / faq / etc.)", () => {
+    for (const url of [
+      "https://example.com/privacy-policy",
+      "https://example.com/about-us",
+      "https://example.com/contact-us",
+      "https://example.com/faq",
+    ]) {
+      const out = weakH1({
+        tenantId: "tenant-a",
+        snapshot: makeSnapshot({ url, h1: "Welcome" }),
+        businessConfig: makeConfig(),
+      });
+      expect(out, `should skip utility ${url}`).toHaveLength(0);
+    }
+  });
+});
+
 describe("weakH1 predicate — defensive behavior", () => {
   it("emits zero candidates when h1 is null (missing-h1 owns this case)", () => {
     const out = weakH1({

@@ -125,4 +125,22 @@ describe("missingTitle predicate", () => {
     });
     expect(out[0]!.created_from_signal_at).toBe("2026-05-18T22:00:00Z");
   });
+
+  // ── α₂.2 technical-asset skip ─────────────────────────────────────
+
+  it("(α₂.2) SKIPS technical assets (`.txt`, `.xml`, `.json`, `.pdf`, images)", () => {
+    for (const url of [
+      "https://example.com/llms.txt",
+      "https://example.com/sitemap.xml",
+      "https://example.com/data.json",
+      "https://example.com/file.pdf",
+      "https://example.com/image.jpg",
+    ]) {
+      const out = missingTitle({
+        tenantId: "tenant-a",
+        snapshot: makeSnapshot({ url, title: null }),
+      });
+      expect(out, `should skip ${url}`).toHaveLength(0);
+    }
+  });
 });

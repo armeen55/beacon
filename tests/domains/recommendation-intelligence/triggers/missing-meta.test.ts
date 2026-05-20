@@ -89,6 +89,22 @@ describe("missingMeta predicate", () => {
     );
   });
 
+  it("(α₂.2) SKIPS technical assets (`.txt`, `.xml`, `.json`, `.pdf`, images)", () => {
+    for (const url of [
+      "https://example.com/llms.txt",
+      "https://example.com/sitemap.xml",
+      "https://example.com/data.json",
+      "https://example.com/file.pdf",
+      "https://example.com/image.png",
+    ]) {
+      const out = missingMeta({
+        tenantId: "tenant-a",
+        snapshot: makeSnapshot({ url, meta_description: null }),
+      });
+      expect(out, `should skip ${url}`).toHaveLength(0);
+    }
+  });
+
   it("dedupe_key and cooldown_key differ from missing-title's keys (different action_type)", async () => {
     const { missingTitle } = await import(
       "@/domains/recommendation-intelligence/triggers/missing-title"

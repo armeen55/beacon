@@ -89,6 +89,22 @@ describe("missingH1 predicate", () => {
     );
   });
 
+  it("(α₂.2) SKIPS technical assets (`.txt`, `.xml`, `.json`, `.pdf`, images)", () => {
+    for (const url of [
+      "https://example.com/llms.txt",
+      "https://example.com/sitemap.xml",
+      "https://example.com/data.json",
+      "https://example.com/file.pdf",
+      "https://example.com/image.svg",
+    ]) {
+      const out = missingH1({
+        tenantId: "tenant-a",
+        snapshot: makeSnapshot({ url, h1: null }),
+      });
+      expect(out, `should skip ${url}`).toHaveLength(0);
+    }
+  });
+
   it("dedupe_key differs from missing-title's key (different action_type)", async () => {
     const { missingTitle } = await import(
       "@/domains/recommendation-intelligence/triggers/missing-title"

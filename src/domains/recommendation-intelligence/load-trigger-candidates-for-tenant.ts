@@ -146,7 +146,9 @@ export async function loadTriggerCandidatesForTenant(options: {
     all.push(...missingMeta({ tenantId, snapshot }));
     all.push(...missingH1({ tenantId, snapshot }));
     all.push(...weakH1({ tenantId, snapshot, businessConfig }));
-    all.push(...titleH1Mismatch({ tenantId, snapshot }));
+    // α₂.2: title-h1-mismatch now requires businessConfig for the
+    // shared page-classifier (homepage / city / service allowlist).
+    all.push(...titleH1Mismatch({ tenantId, snapshot, businessConfig }));
   }
 
   const { candidates, diagnostic_only } = applyQueueRules(all);

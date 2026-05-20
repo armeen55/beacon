@@ -1,11 +1,16 @@
 /**
- * 2026-05-19 — Slice 4.5.B.α₂ trigger predicate: `duplicate_title`.
+ * 2026-05-19 — Slice 4.5.B.α₂ + α₂.2 trigger predicate:
+ * `duplicate_title`.
  *
  * Cross-snapshot aggregation predicate. Runs ONCE over the full
  * tenant snapshot list (the loader invokes this before the per-
  * snapshot loop). Groups owned snapshots by normalized title;
  * emits an `edit_title` candidate per occurrence past the
  * alphabetical-first canonical anchor.
+ *
+ * α₂.2 (2026-05-19) added the `isNonHtmlAsset` filter — technical
+ * assets are excluded BEFORE grouping so two `.txt` / `.xml`
+ * files don't false-positive a duplicate-title group.
  *
  * Normalization (locked α₂ rule):
  *   trim() → toLowerCase() → collapse internal whitespace
@@ -18,7 +23,8 @@
  * candidates.
  *
  * PURE FUNCTION. Pinned by
- * `recommendation-trigger-predicates-purity`.
+ * `recommendation-trigger-predicates-purity` +
+ * `recommendation-triggers-page-classifier-applied`.
  */
 
 import type { PageSnapshot } from "@/domains/pages/types";
@@ -27,6 +33,7 @@ import { cooldownKey } from "../emitter/cooldown-key";
 import { dedupeKey } from "../emitter/dedupe-key";
 import type { RecommendationCandidateRow } from "../emitter/candidate-row";
 import { duplicateTitleCopy } from "../customer-copy-templates";
+import { isNonHtmlAsset } from "../page-classifier";
 
 export type DuplicateTitleInput = {
   tenantId: string;
@@ -44,6 +51,9 @@ export function duplicateTitle(
 
   const groups = new Map<string, PageSnapshot[]>();
   for (const snap of snapshots) {
+    // α₂.2: filter technical assets BEFORE grouping so non-HTML
+    // files don't form spurious duplicate groups.
+    if (isNonHtmlAsset(snap.url)) continue;
     if (snap.title == null) continue;
     const key = normalize(snap.title);
     if (key.length === 0) continue;
