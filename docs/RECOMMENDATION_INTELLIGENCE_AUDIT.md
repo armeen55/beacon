@@ -13,6 +13,8 @@
 > pages before trigger emission (2026-05-19)**
 > **Slice 4.5.C.α₀ — indexability remediation registry foundation:
 > 5 inactive action types + 5 customer-copy templates (2026-05-19)**
+> **Slice 4.5.C.α₁ — Tier-1 indexability deterministic predicates +
+> 4 generatorActive flips (2026-05-20)**
 >
 > Canonical source-of-truth document for the Section 4.5 Recommendation
 > Intelligence Expansion roadmap. Documented operator-approved
@@ -21,22 +23,24 @@
 > single source-of-truth for the action-type registry expansion plan +
 > activation order.
 >
-> **Current state (post-4.5.C.α₀)**: registry holds **37 action
-> types**; **5 active** (`edit_title`, `edit_meta`, `change_h1`,
-> `add_h2_section`, `add_faq`) — UNCHANGED from 4.5.B.α₁. **7
-> deterministic trigger predicates landed** in the 4.5.B α-family
-> (`missing-title` + `missing-meta` (α₀) + `missing-h1` + `weak-h1` +
-> `title-h1-mismatch` (α₁) + `duplicate-title` + `duplicate-meta` (α₂,
-> cross-snapshot)) — UNCHANGED in 4.5.C.α₀. Operator-only diagnostic
-> page at `/diagnostics/recommendation-triggers` surfaces all 7
-> trigger signals. Customer queue UNCHANGED (no `recommended_edits`
-> write paths added; no surface changes outside the operator
-> diagnostic). **4.5.C.α₀ ships registry foundation + customer-copy
-> templates only** — paired deterministic predicates for the new
-> indexability-remediation types land in Slice 4.5.C.α₁ (Tier-1:
-> sitemap_missing, robots_blocks_googlebot, bad_http_status,
-> canonical_mismatch) and Slice 4.5.C.α₂ (Tier-2:
-> noindex_on_indexable_page, robots_blocks_ai_bots).
+> **Current state (post-4.5.C.α₁)**: registry holds **37 action
+> types**; **9 active** (`edit_title`, `edit_meta`, `change_h1`,
+> `add_h2_section`, `add_faq`, `fix_sitemap`, `fix_robots`,
+> `fix_status_code`, `fix_canonical`). **11 deterministic trigger
+> predicates landed**: the 7 α-family (`missing-title` +
+> `missing-meta` + `missing-h1` + `weak-h1` + `title-h1-mismatch` +
+> `duplicate-title` + `duplicate-meta`) plus the 4 Tier-1
+> indexability (`sitemap-missing` + `robots-blocks-googlebot` +
+> `bad-http-status` + `canonical-mismatch`) consuming the Section 4
+> `owned_url_indexability` verdict substrate. Operator-only
+> diagnostic page at `/diagnostics/recommendation-triggers` surfaces
+> all 11 trigger signals. Customer queue UNCHANGED. **4.5.C.α₁ adds
+> the new `loadIndexabilityBatchForTenant` helper** that loads the
+> per-tenant indexability map in ONE substrate pass; the loader
+> feeds each verdict into the 4 Tier-1 predicates as pure input.
+> `fix_noindex` STAYS INACTIVE — deferred to Slice 4.5.C.α₂ for
+> Tier-2 safety analysis on legitimate-noindex pages
+> (staging / draft / preview).
 >
 > **Slice 4.5.B.α split (2026-05-19)**: the master-plan §4.5.20 4.5.B
 > prompt was internally inconsistent — it proposed 5 `generatorActive`
@@ -83,7 +87,7 @@ indexability-remediation entries (`fix_sitemap`, `fix_robots`,
 
 ## B. Current `generatorActive` set
 
-**Exactly 5 action types currently have `generatorActive: true`** (post-4.5.C.α₀ — UNCHANGED from 4.5.B.α₁):
+**Exactly 9 action types currently have `generatorActive: true`** (post-4.5.C.α₁):
 
 | Action type | Category | Notes |
 |---|---|---|
@@ -92,12 +96,17 @@ indexability-remediation entries (`fix_sitemap`, `fix_robots`,
 | `change_h1` | On-page copy edits | **Flipped in Slice 4.5.B.α₁ (2026-05-19)** — paired with `missing-h1` + `weak-h1` + `title-h1-mismatch` trigger predicates |
 | `add_h2_section` | On-page copy edits | Sprint 6A.1 substrate |
 | `add_faq` | On-page copy edits | Sprint 6A.1 substrate |
+| `fix_sitemap` | Technical / indexability | **Flipped in Slice 4.5.C.α₁ (2026-05-20)** — paired with `sitemap-missing` predicate over `not_in_sitemap` verdict |
+| `fix_robots` | Technical / indexability | **Flipped in Slice 4.5.C.α₁ (2026-05-20)** — paired with `robots-blocks-googlebot` predicate over `blocked_by_robots_for_googlebot` verdict |
+| `fix_status_code` | Technical / indexability | **Flipped in Slice 4.5.C.α₁ (2026-05-20)** — paired with `bad-http-status` predicate over `bad_status_code` verdict |
+| `fix_canonical` | Technical / indexability | **Flipped in Slice 4.5.C.α₁ (2026-05-20)** — paired with `canonical-mismatch` predicate over `canonical_elsewhere` verdict |
 
-**32 action types have `generatorActive: false`** (post-4.5.C.α₀). The
+**28 action types have `generatorActive: false`** (post-4.5.C.α₁). The
 OpenAI specific-edit provider (Sprint 6A.2) can still produce any of
-the 25 non-off-site inactive types when the LLM path activates per-rec
-— but only the 5 above have a deterministic generator (or trigger
-predicate) wired in production.
+the 21 non-off-site inactive types when the LLM path activates per-rec
+— but only the 9 above have a deterministic generator (or trigger
+predicate) wired in production. `fix_noindex` remains inactive (Tier-2;
+Slice 4.5.C.α₂).
 
 The 7 off-site types are operator-locked at `generatorActive: false`
 PERMANENTLY per Section 7 C7b's read-only/manual contract — Beacon

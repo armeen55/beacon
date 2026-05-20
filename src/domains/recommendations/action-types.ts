@@ -11,18 +11,20 @@
  * one spec to `ACTION_TYPE_REGISTRY`. No other files change structurally
  * (only the generator implementation, when that type goes active).
  *
- * Slice 4.5.C.α₀ policy (2026-05-19): 37-type universe registered;
- * 5 have `generatorActive: true` (edit_title, edit_meta, change_h1,
- * add_h2_section, add_faq) — UNCHANGED from 4.5.B.α₁. 7 off-site
- * authority types are locked inactive per Section 7 C7b. The
- * remaining 25 ship as registered-but-inactive so the provider-
- * adapter knows the space of valid outputs from day one — slices
- * 4.5.C.α₁ / 4.5.C.α₂ / 4.5.C.α₃ flip the indexability remediation
- * + internal-linking + schema families on as paired deterministic
- * trigger predicates land. 4.5.C.α₀ adds 5 new inactive
- * indexability-remediation types (`fix_sitemap`, `fix_robots`,
- * `fix_noindex`, `fix_status_code`, `fix_canonical`) plus their
- * customer-safe copy templates; predicates land in α₁.
+ * Slice 4.5.C.α₁ policy (2026-05-20): 37-type universe registered;
+ * 9 have `generatorActive: true` (edit_title, edit_meta, change_h1,
+ * add_h2_section, add_faq, fix_sitemap, fix_robots, fix_status_code,
+ * fix_canonical). 7 off-site authority types are locked inactive per
+ * Section 7 C7b. The remaining 21 ship as registered-but-inactive so
+ * the provider-adapter knows the space of valid outputs from day
+ * one — Slice 4.5.C.α₂ activates `fix_noindex` (Tier-2 sensitive)
+ * once additional safety checks land; Slice 4.5.C.α₃ activates
+ * `add_internal_link` + `add_schema`. 4.5.C.α₀ added the 5
+ * inactive indexability remediation types + customer-copy
+ * templates; 4.5.C.α₁ flipped 4 of them on paired with the Tier-1
+ * deterministic trigger predicates (`sitemap-missing`,
+ * `robots-blocks-googlebot`, `bad-http-status`,
+ * `canonical-mismatch`).
  *
  * This module is PURE TYPES + CONSTANTS. No DB writes. No extractors.
  * No UI. Safe to import from both server and client code.
@@ -487,7 +489,10 @@ export const ACTION_TYPE_REGISTRY: Record<ActionType, ActionTypeSpec> = {
     requiresProposedText: false,
     changelogAssetType: "service_page",
     operatorLabel: "Add this URL to your sitemap",
-    generatorActive: false,
+    // Slice 4.5.C.α₁ (2026-05-20) — flipped paired with the
+    // `sitemap-missing` deterministic trigger predicate over the
+    // `not_in_sitemap` indexability verdict.
+    generatorActive: true,
   },
   fix_robots: {
     actionType: "fix_robots",
@@ -497,7 +502,12 @@ export const ACTION_TYPE_REGISTRY: Record<ActionType, ActionTypeSpec> = {
     requiresProposedText: false,
     changelogAssetType: "service_page",
     operatorLabel: "Unblock this URL in robots.txt",
-    generatorActive: false,
+    // Slice 4.5.C.α₁ (2026-05-20) — flipped paired with the
+    // `robots-blocks-googlebot` predicate over the
+    // `blocked_by_robots_for_googlebot` verdict. Slice 4.5.C.α₂
+    // will add a paired AI-bot variant (Google-Extended / GPTBot
+    // / PerplexityBot / ClaudeBot) that ALSO emits `fix_robots`.
+    generatorActive: true,
   },
   fix_noindex: {
     actionType: "fix_noindex",
@@ -507,6 +517,9 @@ export const ACTION_TYPE_REGISTRY: Record<ActionType, ActionTypeSpec> = {
     requiresProposedText: false,
     changelogAssetType: "service_page",
     operatorLabel: "Remove the noindex tag from this page",
+    // Slice 4.5.C.α₂ — Tier-2 sensitive. Stays inactive in α₁
+    // because legitimate noindex on staging / draft / preview
+    // pages requires additional safety analysis before activation.
     generatorActive: false,
   },
   fix_status_code: {
@@ -517,7 +530,10 @@ export const ACTION_TYPE_REGISTRY: Record<ActionType, ActionTypeSpec> = {
     requiresProposedText: false,
     changelogAssetType: "service_page",
     operatorLabel: "Restore a clean 200 response for this URL",
-    generatorActive: false,
+    // Slice 4.5.C.α₁ (2026-05-20) — flipped paired with the
+    // `bad-http-status` predicate over the `bad_status_code`
+    // verdict (covers 4xx/5xx + 301/302/307/308).
+    generatorActive: true,
   },
   fix_canonical: {
     actionType: "fix_canonical",
@@ -527,7 +543,11 @@ export const ACTION_TYPE_REGISTRY: Record<ActionType, ActionTypeSpec> = {
     requiresProposedText: false,
     changelogAssetType: "service_page",
     operatorLabel: "Update the canonical tag on this page",
-    generatorActive: false,
+    // Slice 4.5.C.α₁ (2026-05-20) — flipped paired with the
+    // `canonical-mismatch` predicate over the
+    // `canonical_elsewhere` verdict (detail pages only —
+    // homepage / city / service / project).
+    generatorActive: true,
   },
 
   // ── Off-site authority (Section 7 C7b — 2026-05-16) ────────────────────────

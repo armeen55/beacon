@@ -7,6 +7,73 @@
 
 ---
 
+## 2026-05-20 — Slice 4.5.C.α₁: Tier-1 indexability trigger predicates
+
+**Status:** READY_TO_COMMIT (operator-approved implementation; awaiting commit/push/verify approval).
+
+**Slice scope (locked).** First α₁ slice of Section 4.5.C — activates the indexability remediation family. **4 new pure deterministic trigger predicates** over Section 4's `owned_url_indexability` verdict substrate; **4 `generatorActive` flips** (active set 5 → 9); new **`loadIndexabilityBatchForTenant` helper** that loads the per-tenant indexability map in ONE substrate pass; loader extended to call each Tier-1 predicate with the resolved verdict as a pure input.
+
+**Changes shipped.**
+
+**(1) NEW `src/domains/indexability/batch-load-indexability.ts` (123 lines).** Batch indexability loader. ONE substrate Promise.all (sitemap reconciliation + robots state + business config; optional pre-loaded snapshot array to skip a double-read), N pure `computeIndexability` calls. Returns `Map<canonicalUrl, OwnedUrlIndexability>`. Reuses the canonicalizer + the 5 newly-exported helpers from `load-indexability.ts`. NO GSC fetch (`enableGsc` is not exposed; this helper NEVER passes GSC signals).
+
+**(2) MODIFIED `src/domains/indexability/load-indexability.ts`.** Exported 5 previously-private substrate helpers (`normalizeHost`, `nullRobotsFlags`, `computeRobotsAgeDays`, `buildSitemapSignal`, `buildRobotsSignal`) for batch-helper reuse. NO behavior change to `loadIndexabilityForUrl`.
+
+**(3) NEW 4 trigger predicates under `src/domains/recommendation-intelligence/triggers/`:**
+- `sitemap-missing.ts` — fires on verdict `not_in_sitemap` AND page type ∈ {homepage, city, service, project, hub}. Emits `fix_sitemap` (high confidence, medium impact). Skips utility / other / technical_asset.
+- `robots-blocks-googlebot.ts` — fires on verdict `blocked_by_robots_for_googlebot` on every HTML page type. Skips technical_asset. Emits `fix_robots` (high/high).
+- `bad-http-status.ts` — fires on verdict `bad_status_code` (4xx/5xx + 301/302/307/308) on every HTML page type. Skips technical_asset. Emits `fix_status_code` (high/high). Operator evidence carries `redirect=true|false`.
+- `canonical-mismatch.ts` — fires on verdict `canonical_elsewhere` ONLY on homepage / city / service / project. Skips hub (paginated indices legitimately canonical-elsewhere), utility (intentional variants), other (unknown intent), technical_asset. Emits `fix_canonical` (high/high).
+
+All 4 predicates receive `OwnedUrlIndexability` as a passed-in pure input. All 4 import `isNonHtmlAsset` + `classifyPageType` from the page-classifier (satisfies `recommendation-triggers-page-classifier-applied` rule 1). All 4 use the `action_type: "<value>"` object-literal shape so `recommendation-intelligence-no-llm-decides` regex auto-discovers the new emissions.
+
+**(4) MODIFIED `src/domains/recommendations/action-types.ts`.** Flipped 4 `generatorActive: false → true`:
+- `fix_sitemap`
+- `fix_robots`
+- `fix_status_code`
+- `fix_canonical`
+
+`fix_noindex` STAYS INACTIVE (Tier-2 sensitive — legitimate noindex on staging / draft / preview pages requires additional safety analysis; deferred to Slice 4.5.C.α₂). Top-of-module docstring refreshed (37 universe; 5 → 9 active in v1).
+
+**(5) MODIFIED `src/domains/recommendation-intelligence/load-trigger-candidates-for-tenant.ts`.**
+- `PREDICATE_COUNT` 7 → 11.
+- New `indexability_unavailable` soft-fail status. When `loadIndexabilityBatchForTenant` throws, the 4 Tier-1 predicates skip silently; the 7 α-family predicates still run. The diagnostic page can branch on this status to render a partial-result banner.
+- Per-snapshot loop now invokes the 4 Tier-1 predicates with the resolved `OwnedUrlIndexability` from the canonicalizer-keyed batch map. When the per-snapshot canonical URL has no entry (canonicalization dropped it), the 4 predicates skip silently and the loader stays `status: "ok"`.
+- Passes the already-loaded snapshot array into the batch helper so it skips its own `getPageSnapshots()` round-trip.
+
+**Architecture invariants (1 updated, 0 new).**
+1. **`recommendation-registry-active-set`** — `LOCKED_ACTIVE_SET` grows from 5 to 9 (adds 4 Tier-1 fix_* types); `LOCKED_REGISTRY_COUNT` UNCHANGED at 37. Comment + date stamp updated.
+
+**Auto-pass (5 invariants, no edits needed):**
+- `recommendation-trigger-predicates-purity` — auto-scans new predicate files; they import only types + sibling modules + page-classifier + customer-copy-templates + emitter helpers. No forbidden imports.
+- `recommendation-intelligence-no-queue-write` — no new file imports `recommended-edits-persistence` / `runProviderAndPersist`; no Supabase write paths.
+- `recommendation-intelligence-no-llm-decides` — regex auto-discovers the 4 new `action_type: "fix_*"` literals in the new predicate sources; satisfies the paired-predicate rule for each of the 4 flips.
+- `recommendation-triggers-diagnostic-source-and-copy` — no diagnostic-page source edits beyond the rendered counter (the page already interpolates `result.meta.predicates_run` dynamically).
+- `recommendation-triggers-page-classifier-applied` — predicate count assertion auto-extends `>=7 → >=11`. Rule 1 (import page-classifier) auto-checked on the 4 new files. Rules 2 (title-h1-mismatch) and 3 (weak-h1) are file-specific and unchanged. Rules 4 (no hardcoded tenant slugs) and 5 (no own utility blacklist) auto-checked on the 4 new files.
+
+**Tests added (~50 new + multiple mechanical updates).**
+- New: `tests/domains/recommendation-intelligence/triggers/sitemap-missing.test.ts` (~10 cases)
+- New: `tests/domains/recommendation-intelligence/triggers/robots-blocks-googlebot.test.ts` (~8 cases)
+- New: `tests/domains/recommendation-intelligence/triggers/bad-http-status.test.ts` (~10 cases)
+- New: `tests/domains/recommendation-intelligence/triggers/canonical-mismatch.test.ts` (~9 cases)
+- Extended: loader test `+6` (4 Tier-1 wiring tests + `indexability_unavailable` soft-fail + missing-batch-entry skip)
+- Extended: diagnostic page test `+5` (4 Tier-1 render cases + partial-result render when batch throws)
+- Updated: `action-types.test.ts` — active count 5 → 9; new `ACTIVE_AFTER_4_5_C_ALPHA1` list with the 4 new types; inactive count 32 → 28; new `fix_noindex stays inactive` assertion
+- Updated: `specific-edit-evidence.test.ts` — `allowedActionTypes` explicit list 5 → 9
+- Updated: `predicates_run` assertions in loader + diagnostic-page tests 7 → 11
+- Updated: `data-description-predicates-run` attribute assertion 7 → 11
+
+**Hard contracts honored (operator-locked).**
+- NO LLM call · NO paid API call · NO GSC fetch (`enableGsc` never passed) · NO Supabase mutation · NO migration · NO cron · NO workflow changes · NO customer queue write · NO `recommended_edits` mutation · NO `runProviderAndPersist` usage · NO Today / Changes / Prompts / Settings / Recommendations / Section 9 code changes · NO new BusinessConfig fields · NO new action types (registry count stays 37) · NO `fix_noindex` activation · NO `add_internal_link` / `add_schema` activation · NO hardcoded tenant-specific URL slugs in any new predicate · all 11 trigger signals pinned in source (the existing 7 unchanged + 4 new).
+
+**Net src/ delta**: +688 lines. Initial draft was +841; slimmed by exporting 5 substrate helpers from `load-indexability.ts` for batch-helper reuse (saved ~150 lines of duplication) and trimming docstrings on the 4 predicate files. Final under +700 hard stop with a 12-line cushion. Target was ≤+500 (missed by 188; the 4 predicate files + the batch helper + the loader extension + the registry docstring expansion all add real lines).
+
+**Quality gates.** _Pending operator review; gates run in next step._
+
+**Recommended next.** Operator review → commit + push + verify CI + Vercel. Then Slice 4.5.C.α₂ preflight (Tier-2 sensitive `noindex_on_indexable_page` + AI-bot robots variant; activate `fix_noindex`).
+
+---
+
 ## 2026-05-19 — Slice 4.5.C.α₀: indexability remediation registry foundation
 
 **Status:** READY_TO_COMMIT (operator-approved implementation; awaiting commit/push/verify approval).

@@ -87,8 +87,12 @@ export const STALE_ROBOTS_THRESHOLD_DAYS = 30;
 /**
  * Null-flags helper used at every robots-defense exit (state missing,
  * siteDomain mismatch, fetchedAt unparseable, stale).
+ *
+ * Exported in Slice 4.5.C.α₁ so the batch indexability helper
+ * (`./batch-load-indexability.ts`) can reuse the exact same
+ * defense-ladder shape without duplicating the literal.
  */
-function nullRobotsFlags(): IndexabilityRobotsSignal {
+export function nullRobotsFlags(): IndexabilityRobotsSignal {
   return {
     googlebot_allowed: null,
     gptbot_allowed: null,
@@ -102,8 +106,11 @@ function nullRobotsFlags(): IndexabilityRobotsSignal {
  * Lowercase + strip-leading-www on a hostname. Mirrors the
  * citation-lifecycle canonicalizer's host-normalization so the
  * tenant-domain filter and the URL-equality check use the same shape.
+ *
+ * Exported in Slice 4.5.C.α₁ for reuse by the batch indexability
+ * helper.
  */
-function normalizeHost(raw: string | null | undefined): string {
+export function normalizeHost(raw: string | null | undefined): string {
   if (raw == null) return "";
   const trimmed = raw.trim().toLowerCase();
   if (trimmed === "") return "";
@@ -132,7 +139,11 @@ function normalizeHost(raw: string | null | undefined): string {
  * clamped to 0 so callers never see a stale-gate trigger from
  * "fetched 5 days in the future".
  */
-function computeRobotsAgeDays(
+/**
+ * Exported in Slice 4.5.C.α₁ for reuse by the batch indexability
+ * helper.
+ */
+export function computeRobotsAgeDays(
   fetchedAt: string | null,
   now: Date | string,
 ): number | null {
@@ -161,8 +172,11 @@ function computeRobotsAgeDays(
  *
  * Filtering is host-only; the canonicalize step matches the URL
  * comparison so trailing slash / case / protocol normalize together.
+ *
+ * Exported in Slice 4.5.C.α₁ for reuse by the batch indexability
+ * helper.
  */
-function buildSitemapSignal(
+export function buildSitemapSignal(
   reconciliation: SitemapReconciliation | null,
   tenantDomain: string,
   canonicalUrl: string,
@@ -203,8 +217,11 @@ function buildSitemapSignal(
  * The path argument is derived from the canonical URL's pathname so
  * robots evaluation uses the same path shape regardless of the
  * caller's input.
+ *
+ * Exported in Slice 4.5.C.α₁ for reuse by the batch indexability
+ * helper.
  */
-function buildRobotsSignal(
+export function buildRobotsSignal(
   state: Awaited<ReturnType<typeof readRobotsState>>,
   tenantDomain: string,
   canonicalUrl: string,

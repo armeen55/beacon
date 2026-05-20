@@ -24,6 +24,11 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { ReactElement } from "react";
 
+import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
+import type {
+  IndexabilityVerdict,
+  OwnedUrlIndexability,
+} from "@/domains/indexability/types";
 import type { PageSnapshot } from "@/domains/pages/types";
 
 let _isOperator = true;
@@ -62,6 +67,75 @@ vi.mock("@/lib/persistence/repositories", () => ({
     }),
   }),
 }));
+
+// Slice 4.5.C.α₁ — mock the indexability batch helper so the
+// diagnostic-page render tests can drive the 4 Tier-1 predicates
+// without standing up the full substrate-loading layer. The
+// helper itself has unit tests covering its substrate behavior.
+let _indexabilityMap: Map<string, OwnedUrlIndexability> = new Map();
+let _indexabilityThrows = false;
+vi.mock("@/domains/indexability/batch-load-indexability", () => ({
+  loadIndexabilityBatchForTenant: async () => {
+    if (_indexabilityThrows) throw new Error("indexability substrate failed");
+    return _indexabilityMap;
+  },
+}));
+
+function makeIndexability(
+  url: string,
+  verdict: IndexabilityVerdict,
+): OwnedUrlIndexability {
+  return {
+    url,
+    composite_verdict: verdict,
+    signals: {
+      sitemap_membership: {
+        in_sitemap: verdict === "not_in_sitemap" ? false : true,
+        sitemap_url: null,
+      },
+      robots_txt: {
+        googlebot_allowed:
+          verdict === "blocked_by_robots_for_googlebot" ? false : true,
+        gptbot_allowed: true,
+        perplexitybot_allowed: true,
+        claudebot_allowed: true,
+        google_extended_allowed: true,
+      },
+      page_snapshot: {
+        http_status:
+          verdict === "bad_status_code"
+            ? 404
+            : verdict === "unknown"
+              ? null
+              : 200,
+        canonical_url:
+          verdict === "canonical_elsewhere"
+            ? "https://example.com/other"
+            : null,
+        has_canonical_mismatch: verdict === "canonical_elsewhere",
+        robots_meta: null,
+        noindex_detected: false,
+        fetched_at: "2026-05-20T00:00:00Z",
+        extraction_certainty: "confirmed",
+      },
+      gsc: null,
+    },
+    last_computed_at: "2026-05-20T00:00:00Z",
+    evidence_freshness_days: 0,
+  };
+}
+
+function buildIndexabilityMap(
+  entries: Array<[string, IndexabilityVerdict]>,
+): Map<string, OwnedUrlIndexability> {
+  const map = new Map<string, OwnedUrlIndexability>();
+  for (const [url, verdict] of entries) {
+    const canonical = canonicalizeCitationUrl(url);
+    if (canonical == null) continue;
+    map.set(canonical, makeIndexability(canonical, verdict));
+  }
+  return map;
+}
 
 // α₁ — the loader resolves `getBusinessConfig` for the `weak-h1`
 // predicate. Mock returns a minimal config so the page renders.
@@ -136,6 +210,11 @@ beforeEach(() => {
   _snapshotsToReturn = [];
   _storeThrows = false;
   _notFoundSpy.mockReset();
+  // Slice 4.5.C.α₁ — default to an empty indexability batch map;
+  // tests that exercise the 4 Tier-1 predicates set the map
+  // explicitly.
+  _indexabilityMap = new Map<string, OwnedUrlIndexability>();
+  _indexabilityThrows = false;
 });
 
 async function renderPage(): Promise<string> {
@@ -314,14 +393,14 @@ describe("/diagnostics/recommendation-triggers", () => {
     expect(html).toContain('data-row-action-type="edit_title"');
   });
 
-  it("predicates_run counter reads 7 (post-α₂ loader)", async () => {
+  it("predicates_run counter reads 11 (post-4.5.C.α₁ loader)", async () => {
     _snapshotsToReturn = [makeSnapshot({ url: "https://example.com/a" })];
     const html = await renderPage();
     expect(html).toContain('data-counter="predicates_run"');
-    // The font-mono span renders the integer 7; check via inclusion
-    // of the substring "predicates_run\">" + "7".
+    // The font-mono span renders the integer 11; check via inclusion
+    // of the substring "predicates_run\">" + "11".
     expect(html).toMatch(
-      /data-counter="predicates_run"[^>]*>[^<]*<span[^>]*>7<\/span>/,
+      /data-counter="predicates_run"[^>]*>[^<]*<span[^>]*>11<\/span>/,
     );
   });
 
@@ -376,9 +455,10 @@ describe("/diagnostics/recommendation-triggers", () => {
     const html = await renderPage();
     // The description carries a `data-description-predicates-run`
     // attribute set to the current count from the loader meta.
-    expect(html).toContain('data-description-predicates-run="7"');
+    // Post-4.5.C.α₁: 11.
+    expect(html).toContain('data-description-predicates-run="11"');
     // And the prose body contains the same integer.
-    expect(html).toContain("7</span> active");
+    expect(html).toContain("11</span> active");
   });
 
   // ── α₂.2 page-classifier integration ────────────────────────────────
@@ -446,5 +526,76 @@ describe("/diagnostics/recommendation-triggers", () => {
     ];
     const html = await renderPage();
     expect(html).toContain('data-row-trigger-signal="title_h1_mismatch"');
+  });
+
+  // ── Slice 4.5.C.α₁ Tier-1 indexability render cases ─────────────────
+
+  it("(4.5.C.α₁) renders sitemap_missing row when batch map reports `not_in_sitemap` on a service page", async () => {
+    _snapshotsToReturn = [
+      makeSnapshot({ url: "https://example.com/services/custom-homes" }),
+    ];
+    _indexabilityMap = buildIndexabilityMap([
+      ["https://example.com/services/custom-homes", "not_in_sitemap"],
+    ]);
+    const html = await renderPage();
+    expect(html).toContain('data-row-trigger-signal="sitemap_missing"');
+    expect(html).toContain('data-row-action-type="fix_sitemap"');
+  });
+
+  it("(4.5.C.α₁) renders robots_blocks_googlebot row when verdict is `blocked_by_robots_for_googlebot`", async () => {
+    _snapshotsToReturn = [
+      makeSnapshot({ url: "https://example.com/services/custom-homes" }),
+    ];
+    _indexabilityMap = buildIndexabilityMap([
+      [
+        "https://example.com/services/custom-homes",
+        "blocked_by_robots_for_googlebot",
+      ],
+    ]);
+    const html = await renderPage();
+    expect(html).toContain('data-row-trigger-signal="robots_blocks_googlebot"');
+    expect(html).toContain('data-row-action-type="fix_robots"');
+  });
+
+  it("(4.5.C.α₁) renders bad_http_status row when verdict is `bad_status_code`", async () => {
+    _snapshotsToReturn = [
+      makeSnapshot({ url: "https://example.com/services/custom-homes" }),
+    ];
+    _indexabilityMap = buildIndexabilityMap([
+      ["https://example.com/services/custom-homes", "bad_status_code"],
+    ]);
+    const html = await renderPage();
+    expect(html).toContain('data-row-trigger-signal="bad_http_status"');
+    expect(html).toContain('data-row-action-type="fix_status_code"');
+  });
+
+  it("(4.5.C.α₁) renders canonical_mismatch row on a service page when verdict is `canonical_elsewhere`", async () => {
+    _snapshotsToReturn = [
+      makeSnapshot({ url: "https://example.com/services/custom-homes" }),
+    ];
+    _indexabilityMap = buildIndexabilityMap([
+      ["https://example.com/services/custom-homes", "canonical_elsewhere"],
+    ]);
+    const html = await renderPage();
+    expect(html).toContain('data-row-trigger-signal="canonical_mismatch"');
+    expect(html).toContain('data-row-action-type="fix_canonical"');
+  });
+
+  it("(4.5.C.α₁) renders without crashing when the indexability batch helper throws (partial-result)", async () => {
+    _snapshotsToReturn = [
+      makeSnapshot({
+        url: "https://example.com/services/custom-homes",
+        title: null, // would fire missing_title via α-family predicate
+      }),
+    ];
+    _indexabilityThrows = true;
+    const html = await renderPage();
+    // The 7 α-family predicates still run — missing_title fires.
+    expect(html).toContain('data-row-trigger-signal="missing_title"');
+    // Tier-1 indexability rows DO NOT appear.
+    expect(html).not.toContain('data-row-trigger-signal="sitemap_missing"');
+    expect(html).not.toContain('data-row-trigger-signal="robots_blocks_googlebot"');
+    expect(html).not.toContain('data-row-trigger-signal="bad_http_status"');
+    expect(html).not.toContain('data-row-trigger-signal="canonical_mismatch"');
   });
 });

@@ -1,6 +1,6 @@
 /**
- * Slice 4.5.B.α₀ + α₁ + α₂ + α₂.1 — load-trigger-candidates-for-
- * tenant unit tests.
+ * Slice 4.5.B.α₀ + α₁ + α₂ + α₂.1 + Slice 4.5.C.α₁ —
+ * load-trigger-candidates-for-tenant unit tests.
  *
  * Slice 4.5.B.α₂.1 (2026-05-19): mock target swapped from the
  * file boundary `@/domains/pages/snapshot-store::getPageSnapshots`
@@ -9,20 +9,37 @@
  * loader now consumes the production-routed Supabase source
  * matching the customer Recommendations pipeline.
  *
- * Mocks `getRepository` + `getBusinessConfig()` (the two loader
- * boundaries) and asserts the loader composes the 7 predicates
- * correctly, applies tenant filtering via `.forTenant()`, gates
- * via apply-queue-rules, dedupes, and soft-fails on throw.
+ * Slice 4.5.C.α₁ (2026-05-20): the loader now pre-loads the
+ * per-tenant indexability batch map via
+ * `loadIndexabilityBatchForTenant`. This test mocks that helper
+ * directly so the loader's wiring (per-snapshot indexability
+ * predicate calls + `indexability_unavailable` soft-fail) can be
+ * exercised without re-implementing the substrate-loading layer.
+ * The batch helper has its own unit tests.
+ *
+ * Mocks `getRepository` + `getBusinessConfig()` +
+ * `loadIndexabilityBatchForTenant` (the three loader boundaries)
+ * and asserts the loader composes the 11 predicates correctly,
+ * applies tenant filtering via `.forTenant()`, gates via
+ * apply-queue-rules, dedupes, and soft-fails on each throw path.
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
+import type {
+  IndexabilityVerdict,
+  OwnedUrlIndexability,
+} from "@/domains/indexability/types";
 import type { PageSnapshot } from "@/domains/pages/types";
 import type { BusinessConfig } from "@/lib/business-config";
 
 const _getPageSnapshotsMock = vi.fn<() => Promise<PageSnapshot[] | unknown>>();
 const _forTenantSpy = vi.fn<(tenantId: string) => unknown>();
 const _getBusinessConfigMock = vi.fn<() => BusinessConfig>();
+const _loadIndexabilityBatchMock = vi.fn<
+  () => Promise<Map<string, OwnedUrlIndexability>>
+>();
 
 vi.mock("@/lib/persistence/repositories", () => ({
   getRepository: () => ({
@@ -45,6 +62,75 @@ vi.mock("@/lib/persistence/repositories", () => ({
     },
   }),
 }));
+
+// Slice 4.5.C.α₁ — mock the batch indexability helper so the
+// loader test stays decoupled from the substrate-loading layer.
+// The helper's own unit tests cover its substrate-reading
+// behavior end-to-end.
+vi.mock("@/domains/indexability/batch-load-indexability", () => ({
+  loadIndexabilityBatchForTenant: async () => _loadIndexabilityBatchMock(),
+}));
+
+/** Build a `OwnedUrlIndexability` shape for fixture seeding. */
+function makeIndexability(
+  url: string,
+  verdict: IndexabilityVerdict,
+  overrides: Partial<OwnedUrlIndexability> = {},
+): OwnedUrlIndexability {
+  return {
+    url,
+    composite_verdict: verdict,
+    signals: {
+      sitemap_membership: {
+        in_sitemap: verdict === "not_in_sitemap" ? false : true,
+        sitemap_url: null,
+      },
+      robots_txt: {
+        googlebot_allowed:
+          verdict === "blocked_by_robots_for_googlebot" ? false : true,
+        gptbot_allowed: true,
+        perplexitybot_allowed: true,
+        claudebot_allowed: true,
+        google_extended_allowed: true,
+      },
+      page_snapshot: {
+        http_status:
+          verdict === "bad_status_code"
+            ? 404
+            : verdict === "unknown"
+              ? null
+              : 200,
+        canonical_url:
+          verdict === "canonical_elsewhere"
+            ? "https://example.com/other"
+            : null,
+        has_canonical_mismatch: verdict === "canonical_elsewhere",
+        robots_meta: null,
+        noindex_detected: false,
+        fetched_at: "2026-05-20T00:00:00Z",
+        extraction_certainty: "confirmed",
+      },
+      gsc: null,
+    },
+    last_computed_at: "2026-05-20T00:00:00Z",
+    evidence_freshness_days: 0,
+    ...overrides,
+  };
+}
+
+/** Build an indexability batch map keyed by canonicalized URL
+ *  from a list of `(url, verdict)` pairs. */
+function buildIndexabilityMap(
+  entries: Array<[string, IndexabilityVerdict]>,
+): Map<string, OwnedUrlIndexability> {
+  const map = new Map<string, OwnedUrlIndexability>();
+  for (const [url, verdict] of entries) {
+    const canonical = canonicalizeCitationUrl(url);
+    if (canonical == null) continue;
+    map.set(canonical, makeIndexability(canonical, verdict));
+  }
+  return map;
+}
 
 vi.mock("@/lib/business-config", async () => {
   const actual = await vi.importActual<typeof import("@/lib/business-config")>(
@@ -121,6 +207,12 @@ beforeEach(() => {
   _forTenantSpy.mockReset();
   _getBusinessConfigMock.mockReset();
   _getBusinessConfigMock.mockReturnValue(makeConfig());
+  _loadIndexabilityBatchMock.mockReset();
+  // Default: empty indexability map — none of the 4 Tier-1
+  // predicates fire unless a test sets the mock explicitly.
+  _loadIndexabilityBatchMock.mockResolvedValue(
+    new Map<string, OwnedUrlIndexability>(),
+  );
 });
 
 describe("loadTriggerCandidatesForTenant", () => {
@@ -136,7 +228,7 @@ describe("loadTriggerCandidatesForTenant", () => {
     expect(result.candidates).toEqual([]);
     expect(result.diagnostic_only).toEqual([]);
     expect(result.meta.snapshot_count).toBe(0);
-    expect(result.meta.predicates_run).toBe(7);
+    expect(result.meta.predicates_run).toBe(11);
   });
 
   it("filters snapshots by tenant_id", async () => {
@@ -350,7 +442,7 @@ describe("loadTriggerCandidatesForTenant", () => {
     expect(result.meta.snapshot_count).toBe(1);
   });
 
-  it("reports predicates_run=7 in meta on the ok path (post-α₂)", async () => {
+  it("reports predicates_run=11 in meta on the ok path (post-4.5.C.α₁)", async () => {
     _getPageSnapshotsMock.mockResolvedValue([
       makeSnapshot({ tenant_id: "tenant-a" }),
     ]);
@@ -360,7 +452,7 @@ describe("loadTriggerCandidatesForTenant", () => {
     const result = await loadTriggerCandidatesForTenant({
       tenantId: "tenant-a",
     });
-    expect(result.meta.predicates_run).toBe(7);
+    expect(result.meta.predicates_run).toBe(11);
   });
 
   // ── α₂ extensions ────────────────────────────────────────────────────
@@ -668,5 +760,210 @@ describe("loadTriggerCandidatesForTenant", () => {
     );
     // Paired emission: edit_title + change_h1.
     expect(mismatchRows).toHaveLength(2);
+  });
+
+  // ── Slice 4.5.C.α₁ — Tier-1 indexability predicate wiring ─────────────
+
+  it("(4.5.C.α₁) emits a sitemap_missing candidate when the batch map reports `not_in_sitemap`", async () => {
+    _getBusinessConfigMock.mockReturnValue(
+      makeConfig({
+        urlPatterns: { city: "/locations/", service: "/services/" },
+      }),
+    );
+    _getPageSnapshotsMock.mockResolvedValue([
+      makeSnapshot({
+        tenant_id: "tenant-a",
+        url: "https://example.com/services/custom-homes",
+      }),
+    ]);
+    _loadIndexabilityBatchMock.mockResolvedValue(
+      buildIndexabilityMap([
+        ["https://example.com/services/custom-homes", "not_in_sitemap"],
+      ]),
+    );
+    const { loadTriggerCandidatesForTenant } = await import(
+      "@/domains/recommendation-intelligence/load-trigger-candidates-for-tenant"
+    );
+    const result = await loadTriggerCandidatesForTenant({
+      tenantId: "tenant-a",
+    });
+    expect(result.status).toBe("ok");
+    const rows = result.candidates.filter(
+      (r) => r.trigger_signal === "sitemap_missing",
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.action_type).toBe("fix_sitemap");
+  });
+
+  it("(4.5.C.α₁) emits a robots_blocks_googlebot candidate when verdict is `blocked_by_robots_for_googlebot`", async () => {
+    _getBusinessConfigMock.mockReturnValue(
+      makeConfig({
+        urlPatterns: { city: "/locations/", service: "/services/" },
+      }),
+    );
+    _getPageSnapshotsMock.mockResolvedValue([
+      makeSnapshot({
+        tenant_id: "tenant-a",
+        url: "https://example.com/services/custom-homes",
+      }),
+    ]);
+    _loadIndexabilityBatchMock.mockResolvedValue(
+      buildIndexabilityMap([
+        [
+          "https://example.com/services/custom-homes",
+          "blocked_by_robots_for_googlebot",
+        ],
+      ]),
+    );
+    const { loadTriggerCandidatesForTenant } = await import(
+      "@/domains/recommendation-intelligence/load-trigger-candidates-for-tenant"
+    );
+    const result = await loadTriggerCandidatesForTenant({
+      tenantId: "tenant-a",
+    });
+    const rows = result.candidates.filter(
+      (r) => r.trigger_signal === "robots_blocks_googlebot",
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.action_type).toBe("fix_robots");
+  });
+
+  it("(4.5.C.α₁) emits a bad_http_status candidate when verdict is `bad_status_code`", async () => {
+    _getBusinessConfigMock.mockReturnValue(
+      makeConfig({
+        urlPatterns: { city: "/locations/", service: "/services/" },
+      }),
+    );
+    _getPageSnapshotsMock.mockResolvedValue([
+      makeSnapshot({
+        tenant_id: "tenant-a",
+        url: "https://example.com/services/custom-homes",
+      }),
+    ]);
+    _loadIndexabilityBatchMock.mockResolvedValue(
+      buildIndexabilityMap([
+        ["https://example.com/services/custom-homes", "bad_status_code"],
+      ]),
+    );
+    const { loadTriggerCandidatesForTenant } = await import(
+      "@/domains/recommendation-intelligence/load-trigger-candidates-for-tenant"
+    );
+    const result = await loadTriggerCandidatesForTenant({
+      tenantId: "tenant-a",
+    });
+    const rows = result.candidates.filter(
+      (r) => r.trigger_signal === "bad_http_status",
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.action_type).toBe("fix_status_code");
+  });
+
+  it("(4.5.C.α₁) emits a canonical_mismatch candidate on a service page when verdict is `canonical_elsewhere`", async () => {
+    _getBusinessConfigMock.mockReturnValue(
+      makeConfig({
+        urlPatterns: { city: "/locations/", service: "/services/" },
+      }),
+    );
+    _getPageSnapshotsMock.mockResolvedValue([
+      makeSnapshot({
+        tenant_id: "tenant-a",
+        url: "https://example.com/services/custom-homes",
+      }),
+    ]);
+    _loadIndexabilityBatchMock.mockResolvedValue(
+      buildIndexabilityMap([
+        ["https://example.com/services/custom-homes", "canonical_elsewhere"],
+      ]),
+    );
+    const { loadTriggerCandidatesForTenant } = await import(
+      "@/domains/recommendation-intelligence/load-trigger-candidates-for-tenant"
+    );
+    const result = await loadTriggerCandidatesForTenant({
+      tenantId: "tenant-a",
+    });
+    const rows = result.candidates.filter(
+      (r) => r.trigger_signal === "canonical_mismatch",
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.action_type).toBe("fix_canonical");
+  });
+
+  it("(4.5.C.α₁) soft-fails to status=indexability_unavailable when batch load throws; 7 α-family predicates STILL run", async () => {
+    _getBusinessConfigMock.mockReturnValue(
+      makeConfig({
+        urlPatterns: { city: "/locations/", service: "/services/" },
+      }),
+    );
+    _getPageSnapshotsMock.mockResolvedValue([
+      makeSnapshot({
+        tenant_id: "tenant-a",
+        url: "https://example.com/services/custom-homes",
+        title: null, // would fire missing_title
+      }),
+    ]);
+    _loadIndexabilityBatchMock.mockRejectedValue(
+      new Error("substrate read failed"),
+    );
+    const { loadTriggerCandidatesForTenant } = await import(
+      "@/domains/recommendation-intelligence/load-trigger-candidates-for-tenant"
+    );
+    const result = await loadTriggerCandidatesForTenant({
+      tenantId: "tenant-a",
+    });
+    expect(result.status).toBe("indexability_unavailable");
+    // The 4 Tier-1 indexability predicates skip silently.
+    const tier1Signals = new Set([
+      "sitemap_missing",
+      "robots_blocks_googlebot",
+      "bad_http_status",
+      "canonical_mismatch",
+    ]);
+    expect(
+      result.candidates.filter((r) => tier1Signals.has(r.trigger_signal)),
+    ).toEqual([]);
+    // The α-family `missing_title` predicate STILL runs.
+    const missingTitleRows = result.candidates.filter(
+      (r) => r.trigger_signal === "missing_title",
+    );
+    expect(missingTitleRows).toHaveLength(1);
+  });
+
+  it("(4.5.C.α₁) Tier-1 predicates do NOT fire when the snapshot URL has no batch-map entry", async () => {
+    // Indexability map keyed on a DIFFERENT URL — the
+    // canonicalizer-keyed lookup misses, so the Tier-1
+    // predicates skip silently. No status flip; this is the
+    // "snapshot scanned but no indexability available" path.
+    _getBusinessConfigMock.mockReturnValue(
+      makeConfig({
+        urlPatterns: { city: "/locations/", service: "/services/" },
+      }),
+    );
+    _getPageSnapshotsMock.mockResolvedValue([
+      makeSnapshot({
+        tenant_id: "tenant-a",
+        url: "https://example.com/services/custom-homes",
+      }),
+    ]);
+    _loadIndexabilityBatchMock.mockResolvedValue(
+      buildIndexabilityMap([
+        ["https://example.com/services/other-target", "not_in_sitemap"],
+      ]),
+    );
+    const { loadTriggerCandidatesForTenant } = await import(
+      "@/domains/recommendation-intelligence/load-trigger-candidates-for-tenant"
+    );
+    const result = await loadTriggerCandidatesForTenant({
+      tenantId: "tenant-a",
+    });
+    expect(result.status).toBe("ok");
+    const tier1Signals = new Set([
+      "sitemap_missing",
+      "robots_blocks_googlebot",
+      "bad_http_status",
+      "canonical_mismatch",
+    ]);
+    expect(
+      result.candidates.filter((r) => tier1Signals.has(r.trigger_signal)),
+    ).toEqual([]);
   });
 });

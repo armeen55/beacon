@@ -1,12 +1,26 @@
 /**
- * 2026-05-19 — Slice 4.5.B.α₀ + α₁ + α₂ + α₂.1 — recommendation-
- * trigger loader.
+ * 2026-05-20 — Slice 4.5.B.α₀ + α₁ + α₂ + α₂.1 + α₂.2 +
+ * Slice 4.5.C.α₀ + α₁ — recommendation-trigger loader.
  *
  * Server-side tenant-scoped loader. Reads `PageSnapshot[]` via
  * the repository pattern (`getRepository().forTenant(tenantId)
- * .getPageSnapshots()`), invokes the 7 α₀+α₁+α₂ predicates,
- * applies the minimal queue-rules gate, and returns a
- * discriminated result for the operator-only diagnostic page.
+ * .getPageSnapshots()`), invokes the 11 α-family + Tier-1
+ * indexability predicates, applies the minimal queue-rules gate,
+ * and returns a discriminated result for the operator-only
+ * diagnostic page.
+ *
+ * Slice 4.5.C.α₁ extension (2026-05-20): the 4 Tier-1 indexability
+ * predicates need `OwnedUrlIndexability` as a passed-in pure
+ * input (predicate purity invariant forbids `@/lib/connectors/*`,
+ * `@/lib/persistence/*`, and `next/cache` inside `triggers/`).
+ * The loader pre-loads the per-tenant indexability map via the
+ * new `loadIndexabilityBatchForTenant` helper — ONE substrate
+ * pass producing a `Map<canonicalUrl, OwnedUrlIndexability>` —
+ * then threads the per-snapshot verdict into each Tier-1
+ * predicate. When the batch load throws, the 4 indexability
+ * predicates skip silently and the loader returns
+ * `status: "indexability_unavailable"`; the existing 7 α-family
+ * predicates still run.
  *
  * Slice 4.5.B.α₂.1 fix (2026-05-19): swapped the snapshot source
  * from the file-backed boundary `@/domains/pages/snapshot-store::
@@ -26,13 +40,22 @@
  *   2. Per-snapshot predicates run INSIDE the loop, once per
  *      snapshot (`missing-title`, `missing-meta`, `missing-h1`,
  *      `weak-h1`, `title-h1-mismatch`).
+ *   3. Per-snapshot indexability predicates (Tier-1: 4.5.C.α₁)
+ *      run INSIDE the loop, consuming the pre-loaded
+ *      `OwnedUrlIndexability` from the batch map as a pure
+ *      input (`sitemap-missing`, `robots-blocks-googlebot`,
+ *      `bad-http-status`, `canonical-mismatch`).
  *
  * Hard contracts: no write to `recommended_edits`; no connector /
- * LLM / Supabase mutation on render; no `unstable_cache` (operator
- * wants freshest signal output every load).
+ * LLM / Supabase mutation on render; no `unstable_cache` at the
+ * loader's own boundary (operator wants freshest signal output
+ * every load). The batch indexability helper does its own
+ * tenant-scoped substrate reads without any caching layer.
  *
  * `weak-h1` consumes `BusinessConfig` (resolved at the loader
- * entry); the other 6 predicates are config-independent.
+ * entry); the 4 Tier-1 indexability predicates ALSO consume the
+ * config (for `classifyPageType` applicability gating). The
+ * remaining 6 predicates are config-independent.
  */
 
 import "server-only";
@@ -40,22 +63,38 @@ import "server-only";
 import { getBusinessConfig } from "@/lib/business-config";
 import type { BusinessConfig } from "@/lib/business-config";
 import type { PageSnapshot } from "@/domains/pages/types";
+import type { OwnedUrlIndexability } from "@/domains/indexability/types";
+import { loadIndexabilityBatchForTenant } from "@/domains/indexability/batch-load-indexability";
+import { canonicalizeCitationUrl } from "@/domains/citation-lifecycle/canonicalize-url";
 import { getRepository } from "@/lib/persistence/repositories";
 
 import { applyQueueRules } from "./emitter/apply-queue-rules";
 import type { RecommendationCandidateRow } from "./emitter/candidate-row";
+import { badHttpStatus } from "./triggers/bad-http-status";
+import { canonicalMismatch } from "./triggers/canonical-mismatch";
 import { duplicateMeta } from "./triggers/duplicate-meta";
 import { duplicateTitle } from "./triggers/duplicate-title";
 import { missingH1 } from "./triggers/missing-h1";
 import { missingMeta } from "./triggers/missing-meta";
 import { missingTitle } from "./triggers/missing-title";
+import { robotsBlocksGooglebot } from "./triggers/robots-blocks-googlebot";
+import { sitemapMissing } from "./triggers/sitemap-missing";
 import { titleH1Mismatch } from "./triggers/title-h1-mismatch";
 import { weakH1 } from "./triggers/weak-h1";
 
 export type TriggerCandidatesLoadStatus =
   | "ok"
   | "snapshots_unavailable"
-  | "config_unavailable";
+  | "config_unavailable"
+  /**
+   * Slice 4.5.C.α₁ (2026-05-20). Surfaced when
+   * `loadIndexabilityBatchForTenant` throws (substrate-read
+   * failure: sitemap reconciliation / robots state / repository).
+   * The 7 α-family predicates still run; only the 4 Tier-1
+   * indexability predicates skip. The diagnostic page can branch
+   * on this status to render a partial-result banner.
+   */
+  | "indexability_unavailable";
 
 export type TriggerCandidatesLoadResult = {
   status: TriggerCandidatesLoadStatus;
@@ -70,7 +109,7 @@ export type TriggerCandidatesLoadResult = {
   };
 };
 
-const PREDICATE_COUNT = 7;
+const PREDICATE_COUNT = 11;
 
 function emptyResult(
   status: TriggerCandidatesLoadStatus,
@@ -133,6 +172,26 @@ export async function loadTriggerCandidatesForTenant(options: {
     return emptyResult("config_unavailable", tenantId, snapshots.length);
   }
 
+  // Slice 4.5.C.α₁ — pre-load the per-tenant indexability batch
+  // map. ONE substrate pass producing
+  // `Map<canonicalUrl, OwnedUrlIndexability>`. When this throws,
+  // the 4 Tier-1 indexability predicates skip silently; the 7
+  // α-family predicates still run. The status flips to
+  // `indexability_unavailable` so the diagnostic page can render
+  // a partial-result banner. We pass the already-loaded snapshot
+  // array so the batch helper skips its own `getPageSnapshots()`
+  // round-trip.
+  let indexabilityMap: Map<string, OwnedUrlIndexability> | null = null;
+  let indexabilityFailed = false;
+  try {
+    indexabilityMap = await loadIndexabilityBatchForTenant({
+      tenantId,
+      snapshots,
+    });
+  } catch {
+    indexabilityFailed = true;
+  }
+
   const all: RecommendationCandidateRow[] = [];
   // Slice 4.5.B.α₂ — cross-snapshot duplicate predicates run ONCE
   // over the full tenant-filtered list, BEFORE the per-snapshot
@@ -146,9 +205,57 @@ export async function loadTriggerCandidatesForTenant(options: {
     all.push(...missingMeta({ tenantId, snapshot }));
     all.push(...missingH1({ tenantId, snapshot }));
     all.push(...weakH1({ tenantId, snapshot, businessConfig }));
-    // α₂.2: title-h1-mismatch now requires businessConfig for the
-    // shared page-classifier (homepage / city / service allowlist).
+    // α₂.2: title-h1-mismatch requires businessConfig for the
+    // shared page-classifier (homepage / city / service
+    // allowlist).
     all.push(...titleH1Mismatch({ tenantId, snapshot, businessConfig }));
+
+    // Slice 4.5.C.α₁ — Tier-1 indexability predicates. Each
+    // receives the pre-resolved `OwnedUrlIndexability` as a pure
+    // input. The map is keyed by the citation-lifecycle
+    // canonicalized URL — same canonicalization the batch helper
+    // uses internally. When `indexabilityMap` is null (substrate
+    // failure) or the per-snapshot canonical URL has no entry
+    // (canonicalization dropped it), the 4 predicates skip.
+    if (indexabilityMap != null) {
+      const canonicalUrl = canonicalizeCitationUrl(snapshot.url);
+      const indexability =
+        canonicalUrl == null ? null : indexabilityMap.get(canonicalUrl);
+      if (indexability != null) {
+        all.push(
+          ...sitemapMissing({
+            tenantId,
+            snapshot,
+            indexability,
+            businessConfig,
+          }),
+        );
+        all.push(
+          ...robotsBlocksGooglebot({
+            tenantId,
+            snapshot,
+            indexability,
+            businessConfig,
+          }),
+        );
+        all.push(
+          ...badHttpStatus({
+            tenantId,
+            snapshot,
+            indexability,
+            businessConfig,
+          }),
+        );
+        all.push(
+          ...canonicalMismatch({
+            tenantId,
+            snapshot,
+            indexability,
+            businessConfig,
+          }),
+        );
+      }
+    }
   }
 
   const { candidates, diagnostic_only } = applyQueueRules(all);
@@ -156,7 +263,7 @@ export async function loadTriggerCandidatesForTenant(options: {
   const dedupedD = dedupeByKey(diagnostic_only);
 
   return {
-    status: "ok",
+    status: indexabilityFailed ? "indexability_unavailable" : "ok",
     candidates: dedupedC,
     diagnostic_only: dedupedD,
     meta: {

@@ -127,8 +127,8 @@ describe("Sprint 6A.1 Phase 2 — action-type registry", () => {
     });
   });
 
-  describe("generator activation — Slice 4.5.B.α₁ active set is exactly 5", () => {
-    const ACTIVE_AFTER_ALPHA1: ActionType[] = [
+  describe("generator activation — Slice 4.5.C.α₁ active set is exactly 9", () => {
+    const ACTIVE_AFTER_4_5_C_ALPHA1: ActionType[] = [
       "edit_title",
       // Slice 4.5.B.α₀ (2026-05-19) — flipped paired with the
       // `missing-meta` trigger predicate.
@@ -140,38 +140,54 @@ describe("Sprint 6A.1 Phase 2 — action-type registry", () => {
       "change_h1",
       "add_h2_section",
       "add_faq",
+      // Slice 4.5.C.α₁ (2026-05-20) — Tier-1 indexability flips.
+      // Each paired with a deterministic trigger predicate over
+      // Section 4's `owned_url_indexability` verdict substrate:
+      //   • `sitemap-missing`           → `fix_sitemap`
+      //   • `robots-blocks-googlebot`   → `fix_robots`
+      //   • `bad-http-status`           → `fix_status_code`
+      //   • `canonical-mismatch`        → `fix_canonical`
+      // `fix_noindex` STAYS INACTIVE — Tier-2 sensitive (Slice
+      // 4.5.C.α₂).
+      "fix_sitemap",
+      "fix_robots",
+      "fix_status_code",
+      "fix_canonical",
     ];
 
-    it("exactly 5 types are generatorActive=true (post-Slice 4.5.B.α₁)", () => {
+    it("exactly 9 types are generatorActive=true (post-Slice 4.5.C.α₁)", () => {
       const active = ACTION_TYPES.filter(
         (t) => ACTION_TYPE_REGISTRY[t].generatorActive,
       );
-      expect(active).toHaveLength(5);
-      expect(new Set(active)).toEqual(new Set(ACTIVE_AFTER_ALPHA1));
+      expect(active).toHaveLength(9);
+      expect(new Set(active)).toEqual(new Set(ACTIVE_AFTER_4_5_C_ALPHA1));
     });
 
-    it("listActiveActionTypes() returns the same five", () => {
+    it("listActiveActionTypes() returns the same nine", () => {
       expect(new Set(listActiveActionTypes())).toEqual(
-        new Set(ACTIVE_AFTER_ALPHA1),
+        new Set(ACTIVE_AFTER_4_5_C_ALPHA1),
       );
     });
 
-    it("every other type is generatorActive=false (Sprint 6A.2 LLM provider flips them per-rec; Section 7 C7b's off-site types stay inactive permanently; α₀-added + 4.5.C.α₀ indexability-fix types flip with paired predicates in later 4.5 slices)", () => {
+    it("every other type is generatorActive=false (Sprint 6A.2 LLM provider flips them per-rec; Section 7 C7b's off-site types stay inactive permanently; 4.5.B.α₀ + 4.5.C.α₂/α₃ types flip with paired predicates in later 4.5 slices)", () => {
       const inactive = ACTION_TYPES.filter(
         (t) => !ACTION_TYPE_REGISTRY[t].generatorActive,
       );
-      // 22 original − 5 ACTIVE_AFTER_ALPHA1 = 17 inactive,
+      // 22 original − 5 historical-active = 17 inactive,
       // plus Section 7 C7b's 7 off-site/manual types,
       // plus Slice 4.5.B.α₀'s 3 new inactive types
       // (update_intro, add_h3_section, add_image_alt_text),
-      // plus Slice 4.5.C.α₀'s 5 new inactive indexability-
-      // remediation types (fix_sitemap, fix_robots, fix_noindex,
-      // fix_status_code, fix_canonical)
-      // → 32 total inactive.
-      expect(inactive).toHaveLength(32);
-      for (const t of ACTIVE_AFTER_ALPHA1) {
+      // plus 1 remaining inactive indexability-remediation type
+      // (`fix_noindex` — deferred to Slice 4.5.C.α₂)
+      // → 28 total inactive.
+      expect(inactive).toHaveLength(28);
+      for (const t of ACTIVE_AFTER_4_5_C_ALPHA1) {
         expect(inactive).not.toContain(t);
       }
+    });
+
+    it("(4.5.C.α₁) `fix_noindex` STAYS INACTIVE in α₁ — Tier-2 sensitive, deferred to α₂", () => {
+      expect(ACTION_TYPE_REGISTRY.fix_noindex.generatorActive).toBe(false);
     });
   });
 

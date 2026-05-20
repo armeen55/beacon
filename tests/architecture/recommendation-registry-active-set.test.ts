@@ -64,27 +64,38 @@ const AUDIT_DOC_PATH = resolve(
   "RECOMMENDATION_INTELLIGENCE_AUDIT.md",
 );
 
-/** Locked active set per Slice 4.5.B.α₁ audit (2026-05-19). α₁
- *  flips `change_h1` paired with the `missing-h1` + `weak-h1` +
- *  `title-h1-mismatch` deterministic trigger predicates. α₀
- *  previously flipped `edit_meta`. α₂ adds no flips; cross-snapshot
- *  duplicate predicates only. */
+/** Locked active set per Slice 4.5.C.α₁ audit (2026-05-20). α₁
+ *  flips the 4 Tier-1 indexability remediation action types
+ *  (`fix_sitemap`, `fix_robots`, `fix_status_code`,
+ *  `fix_canonical`) paired with the `sitemap-missing` +
+ *  `robots-blocks-googlebot` + `bad-http-status` +
+ *  `canonical-mismatch` deterministic trigger predicates over
+ *  Section 4's `owned_url_indexability` verdict substrate.
+ *  `fix_noindex` STAYS INACTIVE — Tier-2 sensitive; activation
+ *  deferred to Slice 4.5.C.α₂ once additional safety analysis
+ *  for legitimate noindex pages (staging / draft / preview) is
+ *  in place. Prior active set (post-4.5.B.α₁): {edit_title,
+ *  edit_meta, change_h1, add_h2_section, add_faq} (5 entries). */
 const LOCKED_ACTIVE_SET: ReadonlyArray<ActionType> = [
   "edit_title",
   "edit_meta",
   "change_h1",
   "add_h2_section",
   "add_faq",
+  // Slice 4.5.C.α₁ (2026-05-20) — Tier-1 indexability flips.
+  "fix_sitemap",
+  "fix_robots",
+  "fix_status_code",
+  "fix_canonical",
 ];
 
 /** Locked total count per Slice 4.5.C.α₀ (2026-05-19). 4.5.C.α₀
- *  adds 5 new inactive indexability-remediation types
+ *  added 5 new inactive indexability-remediation types
  *  (fix_sitemap, fix_robots, fix_noindex, fix_status_code,
- *  fix_canonical). Prior count was 32 (Slice 4.5.B.α₀). Active
- *  set remains UNCHANGED at 5 — α₀ ships registry foundation
- *  + customer-copy templates only; paired deterministic
- *  predicates land in Slice 4.5.C.α₁ (Tier-1) and α₂
- *  (Tier-2). */
+ *  fix_canonical). Prior count was 32 (Slice 4.5.B.α₀). Slice
+ *  4.5.C.α₁ (2026-05-20) flips 4 of the 5 indexability types
+ *  to `generatorActive: true` paired with their predicates;
+ *  total registry count UNCHANGED at 37. */
 const LOCKED_REGISTRY_COUNT = 37;
 
 describe("Slice 4.5.A — registry inventory + active set", () => {
